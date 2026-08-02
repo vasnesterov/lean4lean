@@ -11,6 +11,11 @@ name = "Foundation"
 git = "https://github.com/vasnesterov/Foundation"
 rev = "lean4lean-dev"
 
+[[require]]
+scope = "leanprover"
+name = "lean4export"
+rev = "v4.30.0"
+
 [[lean_lib]]
 name = "Lean4Lean"
 
