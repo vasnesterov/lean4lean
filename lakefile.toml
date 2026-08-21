@@ -6,6 +6,11 @@ name = "batteries"
 git = "https://github.com/leanprover-community/batteries"
 rev = "v4.33.0-rc2"
 
+[[require]]
+name = "Foundation"
+git = "https://github.com/vasnesterov/Foundation"
+rev = "lean4lean-dev"
+
 [[lean_lib]]
 name = "Lean4Lean"
 
