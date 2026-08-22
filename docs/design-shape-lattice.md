@@ -374,3 +374,81 @@ The single sentence that explains all of it: **`Shape.join` is not a join in the
 It is a join on *shapes*, and `hasType` is not closed under it — two shapes can both be
 classified while their join is classified by nothing. Any lemma asserting that joining
 preserves typing is asking `Shape.join` to be something it isn't.
+
+## What the consumers need: an `LE_Interp`-relative hypothesis, not a `WF`-relative one
+
+Reading the seven call sites for what they *require* (rather than what they call) gives a
+better answer than the join layer's refutation suggested.
+
+| site | call | what it needs |
+|---|---|---|
+| `ShapeLogRel:4255` | `hdom.join cf ca_w hdom'` | `HasDom.join` at **different** domains |
+| `ShapeLogRel:4300` | `hdom.join cf ca_w hdom2` | same |
+| `ShapeLogRel:4340` | `h4.isType.join ac a4.isType` | the **heterogeneous** join `join_het` |
+| `ShapeLogRel:4770` | `hT1.isType.join' jb_x hT2.isType` | `join'` at a joined type |
+| `ShapeLogRel:4771` | `(…).join' (jf.app_l x) (…)` | same |
+| `Adequacy:74`, `:217` | `hta₁.join' hj hta'` | `join'` at a joined type |
+
+Every one of these is false **about arbitrary well-formed shapes** — that is what the
+refutations establish. But every one of them occurs under `LE_Interp.compat_join`:
+
+```lean
+theorem LE_Interp.compat_join (hρ : ρ'.LE ρ) (H1 : LE_Interp ρ' m₁ M) (H2 : LE_Interp ρ m₂ M) :
+    m₁.Compat m₂ ∧ LE_Interp ρ (m₁.join m₂) M
+```
+
+— **the same `M`**. So the invariant actually in scope at every call site is *both shapes
+realize the same term*, and the join lemmas are stated with only `Compat`, which is strictly
+weaker.
+
+`cxA` and `cxA'` are arbitrary well-formed shapes with no term behind them: one is a Pi-shape
+whose codomains are `Prop`-valued, the other's are `Type`-valued. If no single term can be
+realized by both, they never arise at these call sites and the refutations, while correct,
+do not apply to the situations the proofs are in.
+
+**So the missing hypothesis is `LE_Interp`-relative, not `WF`-relative.** That is a hypothesis
+with a test — check whether `cxA` and `cxA'` can co-realize a term — and it is the next thing
+to settle. `WF` was never going to be the right strengthening; it constrains shapes in
+isolation, and the obstruction is about two shapes being *jointly* realizable.
+
+## The co-realizability test: positive, and it ties the repair to the migration
+
+**Can `cxA` and `cxA'` realize the same term?** No — *provided* `LE_Interp.Const.indTy` carries
+the inductive's universe. That proviso is the whole content of the answer.
+
+`.indTy` shapes arise from exactly one place, `LE_Interp.Const.indTy`:
+
+```lean
+| indTy : Params.classify c = some (.indTy rargs.length) →
+    m ≤ (WShape.indTy : WShape (n+1)).T → Const rargs m
+```
+
+For `cxA` and `cxA'` to realize a common `.forallE B F`, `LE_Interp.forallE` would require
+`LE_Interp (ρ.push (.sort true)) (.indTy false) F` and
+`LE_Interp (ρ.push (.indTy true)) (.indTy true) F`. Both must factor through `Const.indTy` at
+`F`'s head constant `I`. If that rule's boolean is `r_I` — a function of `I` — then
+`.indTy false ≤ .indTy r_I` and `.indTy true ≤ .indTy r_I`, and since `LE` on `.indTy` is
+equality of the boolean, `r_I` would have to be both. Contradiction: **they cannot co-realize.**
+
+**But nothing currently makes `r_I` a function of `I`.** `Classification.indTy` carries only an
+arity:
+
+```lean
+inductive Classification where
+  | ctor (arity : Nat) | etaCtor (params args : Nat)
+  | symb (arity : Nat)  | indTy (arity : Nat)
+```
+
+so `classify` does not know whether an inductive is `Prop`- or `Type`-valued, and `Const.indTy`
+has no way to pin its boolean.
+
+**The repair is therefore: `Classification.indTy` gains the universe** (or `Const.indTy`
+consults the declaration, which `ParamsExtra.ctor_ty` already exposes via `D.lvl`). And
+`Const.indTy` is *already* one of the migration's open sites -- it is a live error, since
+`WShape.indTy` now takes the boolean it never had. So this is not additional work: it is work
+already in the queue, and **doing it correctly is exactly what makes the `LE_Interp`-relative
+invariant true.**
+
+That closes the loop. The join family is repairable, the missing hypothesis is
+`LE_Interp`-relative as suspected, and the fact that makes it hold is the same fact the
+`indTy` parameterisation exists to record.
