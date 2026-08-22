@@ -1115,3 +1115,50 @@ theorem map_instAll_bvars : ∀ (as : List VExpr),
     rw [List.length_cons, bvars_succ, List.map_cons, h1, h2]
 
 end VExpr
+
+/-! ## The `addInduct'` assembly
+
+`addInduct'` is four stages; three of them are now discharged.  Stating the composition
+with the remaining two as hypotheses fixes exactly what D6 and E5 must deliver, and lets
+everything else be reviewed independently of them. -/
+
+namespace VEnv
+
+theorem addInduct'_stages {env env' : VEnv} {D : VInductDecl'}
+    (h : env.addInduct' D = some env') :
+    ∃ env₁ env₂ env₃, env.addIndTypes D = some env₁ ∧ env₁.addIndCtors D = some env₂ ∧
+      env₂.addIndRecs D = some env₃ ∧ env' = env₃.addIndRules D := by
+  rw [show env.addInduct' D
+      = (env.addIndTypes D).bind (fun e₁ => (e₁.addIndCtors D).bind
+          (fun e₂ => (e₂.addIndRecs D).bind (fun e₃ => some (e₃.addIndRules D)))) from rfl,
+    Option.bind_eq_some_iff] at h
+  obtain ⟨env₁, h1, h⟩ := h
+  rw [Option.bind_eq_some_iff] at h
+  obtain ⟨env₂, h2, h⟩ := h
+  rw [Option.bind_eq_some_iff] at h
+  obtain ⟨env₃, h3, h4⟩ := h
+  exact ⟨env₁, env₂, env₃, h1, h2, h3, (Option.some_inj.1 h4).symm⟩
+
+end VEnv
+
+/-- **`addInduct'` preserves `Ordered`**, modulo the two obligations that remain.
+
+* `hrec` is D6 (`recType_isType`): each recursor's type is a well-formed constant in the
+  environment that already has the block's types and constructors.
+* `hrules` is E5 (`iotaRule_WF`): each ι-rule is a well-formed `VDefEq` there.
+
+Everything else -- the three `addConstList` stages, the type constants (`VIndType.WF`), the
+constructor constants (`VIndCtor.WF.isType`, which carries the F3 parameter transport), and
+the `addDefEq` fold -- is proved. -/
+theorem VInductDecl'.addInduct'_ordered {env env' : VEnv} {D : VInductDecl'}
+    (henv : env.Ordered) (h : D.WF env)
+    (hrec : ∀ {env₁ env₂ : VEnv}, env.addIndTypes D = some env₁ →
+      env₁.addIndCtors D = some env₂ → ∀ c ∈ D.recConsts, VConstant.WF env₂ c.2)
+    (hrules : ∀ {env₃ : VEnv}, env ≤ env₃ → env₃.Ordered → ∀ df ∈ D.iotaRules, df.WF env₃)
+    (he : env.addInduct' D = some env') : env'.Ordered := by
+  obtain ⟨env₁, env₂, env₃, h1, h2, h3, rfl⟩ := VEnv.addInduct'_stages he
+  have o1 := VInductDecl'.addIndTypes_ordered henv h h1
+  have o2 := VInductDecl'.addIndCtors_ordered o1 h h1 h2
+  have o3 := VEnv.addConstList_ordered o2 (hrec h1 h2) h3
+  refine VEnv.addIndRules_ordered o3 (hrules ?_ o3)
+  exact (VEnv.addIndTypes_le h1).trans ((VEnv.addIndCtors_le h2).trans (VEnv.addIndRecs_le h3))
