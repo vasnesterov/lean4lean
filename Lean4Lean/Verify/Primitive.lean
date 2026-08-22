@@ -910,6 +910,16 @@ theorem checkedIsDefEq.WF' {c : VContext} {s : VState} {a b : Expr} {a' b' : VEx
   refine (checkType.WF hb.fvarsIn).bind fun _ _ _ _ => ?_
   exact isDefEq.WF ha hb
 
+/-- `checkedIsDefEq` when the caller can build the right translation but not the left one. -/
+theorem checkedIsDefEq.WFl {c : VContext} {s : VState} {a b : Expr} {b' : VExpr}
+    (ha : a.FVarsIn (· ∈ c.vlctx.fvars)) (hb : c.TrExprS b b') :
+    M.WF c s (Lean4Lean.Environment.checkedIsDefEq a b) fun r _ =>
+      ∃ a', c.TrExprS a a' ∧ (r = true → c.IsDefEqU a' b') := by
+  unfold Lean4Lean.Environment.checkedIsDefEq
+  refine (checkType.WF ha).bind fun _ _ _ ⟨a', _, _, ha', _, _⟩ => ?_
+  refine (checkType.WF hb.fvarsIn).bind fun _ _ _ _ => ?_
+  exact (isDefEq.WF ha' hb).mono fun _ _ _ h => ⟨a', ha', h⟩
+
 /-- `checkedIsDefEq` when the caller can build the left translation but not the right one -- the
 usual case, since the right-hand side of a recognizer equation mentions another primitive whose
 type is not pinned by `VEnv.HasPrimitives`. -/
@@ -1116,6 +1126,27 @@ theorem rhs_val_app2 {value A B : Expr} {rhs' F Ai Bi : VExpr}
     ⟨_, .appDF hFF ((hA _ g4).of_l c.Ewf c.Δwf.toCtx g2)⟩
   exact ⟨_, .appDF (hf.of_l c.Ewf c.Δwf.toCtx h1)
     ((h4.uniq c.Ewf (.refl c.Ewf c.Δwf) hBi).of_l c.Ewf c.Δwf.toCtx h2)⟩
+
+/-- The most general form: a two-argument application all three of whose parts are only known up
+to `IsDefEqU`.  This is what the `Nat.land`/`Nat.lor`/`Nat.xor` branches need, since the boolean
+combinator they destructure out of the value has no type the recognizer knows. -/
+theorem app2_uniq {u X Y : Expr} {lhs' Ui Xi Yi : VExpr}
+    (hlhs : c.TrExprS (mkApp2 u X Y) lhs') (hUi : c.TrExprS u Ui)
+    (hX : ∀ Z, c.TrExprS X Z → c.IsDefEqU Z Xi) (hY : ∀ Z, c.TrExprS Y Z → c.IsDefEqU Z Yi) :
+    c.IsDefEqU lhs' (.app (.app Ui Xi) Yi) := by
+  let .app h1 h2 h3 h4 := hlhs
+  let .app g1 g2 g3 g4 := h3
+  have hUU := (g3.uniq c.Ewf (.refl c.Ewf c.Δwf) hUi).of_l c.Ewf c.Δwf.toCtx g1
+  have hf : c.IsDefEqU (.app _ _) (.app Ui Xi) :=
+    ⟨_, .appDF hUU ((hX _ g4).of_l c.Ewf c.Δwf.toCtx g2)⟩
+  exact ⟨_, .appDF (hf.of_l c.Ewf c.Δwf.toCtx h1) ((hY _ h4).of_l c.Ewf c.Δwf.toCtx h2)⟩
+
+theorem trExprS_bitwiseApp_inv {andE : Expr} {F : VExpr}
+    (hF : c.TrExprS (mkApp (.const ``Nat.bitwise []) andE) F) :
+    ∃ G, F = .app (.const ``Nat.bitwise []) G ∧ c.TrExprS andE G := by
+  let .app _ _ h3 h4 := hF
+  cases trExprS_const_nil_inv h3
+  exact ⟨_, rfl, h4⟩
 
 /-- `Nat.succ` applied to a `Nat`. -/
 theorem trExprS_succ {a' : VExpr} {a : Expr}
@@ -1361,6 +1392,11 @@ theorem primitives_natDiv : Environment.primitives.contains ``Nat.div = true := 
 theorem primitives_natBitwise : Environment.primitives.contains ``Nat.bitwise = true := by
   simpa using primitives_contains_iff.2 (by simp)
 
+/-- Uniqueness of translations in a `VContext`, with the context's own well-formedness. -/
+theorem trExprS_uniq {e : Expr} {e₁ e₂ : VExpr}
+    (h1 : c.TrExprS e e₁) (h2 : c.TrExprS e e₂) : c.IsDefEqU e₁ e₂ :=
+  h1.uniq c.Ewf (.refl c.Ewf c.Δwf) h2
+
 /-- Transitivity of `IsDefEqU` in a `VContext`, with the context's own well-formedness. -/
 theorem VContext.trans {a b d : VExpr} (h1 : c.IsDefEqU a b) (h2 : c.IsDefEqU b d) :
     c.IsDefEqU a d := VEnv.IsDefEqU.trans c.Ewf c.Δwf.toCtx h1 h2
@@ -1388,6 +1424,18 @@ theorem trExprS_primConst (hsf : c.safety = .safe) {n : Name}
   obtain ⟨ci, h1, h2⟩ := VContext.primConst hsf h hp
   exact .const h1 (by simp) (by simp [h2])
 
+/-- `Bool` translated, and a type: the `Nat.land`/`lor`/`xor` branches bind a `Bool`-typed
+variable. -/
+theorem trExprS_bool (hsf : c.safety = .safe) (h : c.env.contains ``Bool = true) :
+    c.TrExprS (.const ``Bool []) .bool := trExprS_primConst hsf h primitives_Bool
+
+theorem isType_bool (hprim : c.venv.HasPrimitives) (hb : c.venv.contains ``Bool)
+    (hlp : c.lparams = []) : c.IsType .bool := by
+  obtain ⟨⟨ci, h⟩, -⟩ := hprim.bool hb
+  cases hprim.boolFalse h
+  obtain ⟨u, hu⟩ := c.Ewf.ordered.constWF h
+  exact ⟨u, by rw [hlp]; exact hu.weak0 c.Ewf.ordered⟩
+
 theorem contains_primConst (hsf : c.safety = .safe) {n : Name}
     (h : c.env.contains n = true) (hp : Environment.primitives.contains n) :
     c.venv.contains n :=
@@ -1404,5 +1452,43 @@ theorem prim_domain_nat {env : VEnv} (henv : env.WF) (hprim : env.HasPrimitives)
   obtain ⟨A, B, h1, h2⟩ := VExpr.WF.app_inv (U := 0) (Γ := []) henv.ordered trivial
     ⟨_, hu'.hasType.1⟩
   exact ⟨A, B, h1, h2.uniq henv trivial (hprim.natLit_hasType hnat n)⟩
+
+end TypeChecker
+
+/-- `PrimitiveResult.preserves` for the two branches that pin a *type* rather than a reflection
+(`Char.ofNat`, `String.ofList`); they never look at the definition's value. -/
+theorem preserves_glue_const {checked : VEnv} {nm : Name} {vv : Lean.DefinitionVal}
+    (hname : vv.name = nm) (hlp : vv.levelParams = []) (hn : nm ∉ VEnv.primInductiveNames)
+    (hfield : ∀ (venv : VEnv) (ci' : VDefVal), checked ≤ venv → venv.HasPrimitives →
+      TrExprS venv [] [] vv.type ci'.type → ci'.uvars = 0 →
+      ∀ env₂ : VEnv, venv ≤ env₂ → env₂.constants nm = some ci'.toVConstant →
+        env₂.PrimField nm)
+    {sf : DefinitionSafety} {venv env' : VEnv} {ci' : VDefVal}
+    (hle : checked ≤ venv) (hwf : venv.WF) (hprim : venv.HasPrimitives)
+    (htr : TrDefVal sf venv (.defnInfo vv) ci') (hci : ci'.WF venv)
+    (hadd : venv.addConst vv.name ci'.toVConstant = some env') :
+    (env'.addDefEq ci'.toDefEq).HasPrimitives := by
+  obtain ⟨⟨⟨-, huv, htype⟩, hnm⟩, -⟩ := htr
+  have huv0 : ci'.uvars = 0 := by
+    have : vv.levelParams.length = ci'.uvars := huv
+    rw [hlp] at this; exact this.symm
+  have hnm2 : ci'.name = nm := hnm.symm.trans hname
+  rw [hname, ← hnm2] at hadd
+  refine hprim.addDef hadd (by rw [hnm2]; exact hn) ?_
+  rw [hnm2]
+  refine hfield venv ci' hle hprim (hlp ▸ htype) huv0 _
+    ((VEnv.addConst_le hadd).trans VEnv.addDefEq_le) ?_
+  rw [← hnm2]; exact VEnv.constants_self_addDefEq hadd
+
+namespace TypeChecker
+
+variable {c : VContext}
+
+/-- `Nat → Char`, the type `Char.ofNat` is pinned to. -/
+theorem trExprS_natChar_inv {nm bi e'}
+    (h : c.TrExprS (.forallE nm (.const ``Nat []) (.const ``Char []) bi) e') :
+    e' = .forallE .nat .char := by
+  obtain ⟨_, _, rfl, h1, _, h3⟩ := trExprS_arrow_inv h
+  cases trExprS_const_nil_inv h1; cases trExprS_const_nil_inv h3; rfl
 
 end TypeChecker

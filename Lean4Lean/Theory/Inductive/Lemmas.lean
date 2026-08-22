@@ -29,6 +29,28 @@ not here.
 
 namespace Lean4Lean
 
+/-!
+## Two notes for anyone continuing this file
+
+**1. Check `Theory/Inductive/Telescope.lean` before estimating.**  Twice in this
+development a step was priced by its *shape* and turned out to be two applications of a
+lemma that was already there with exactly the right side conditions.  `ih_telescope_eq`
+was expected to need a closedness argument and collapses by `liftTele_liftTele`;
+`indices_closed` was landed for it and then turned out not to be needed at all.  Grep the
+telescope algebra first.
+
+**2. Read the current `VEnv.Params` class, not `docs/design-inductive.md` §7.6.**  The
+design describes four fields -- `pat_major_not_pi`, `pat_major_prop`, `pat_small`,
+`pat_major_canonical` -- that **do not exist** in the class as it stands.  Their absence
+retires M1, M2, M3, `VEnv.Sig`, and `IsDefEqU.const_forallE_inv`, i.e. both of the items the
+design could see no route to.  What a `Params` instance needs from here is `addInduct_WF`,
+which `addInduct'_ordered` (below) has reduced to D6 and E5.
+
+A plumbing note that cost a round: prefer standalone `have`s with fully spelled-out
+statements over `conv_lhs => rw [...]` nested inside a `have := by`.  And
+`length_atRecTele` lives in `VInductDecl'`, not `VExpr`.
+-/
+
 open VExpr (mkPi mkLams mkApp bvars liftTele instTele shift shiftTele instAll)
 
 /-! ## Generic list/telescope helpers -/
@@ -1206,3 +1228,101 @@ theorem VIndCtor.WF.result' {env₁ : VEnv} {D : VInductDecl'} {j T C}
     env₁.HasType D.uvars ((C.fields.map (·.type)).reverse ++ C.params.reverse)
       (C.canonResult D j) (.sort D.lvl) :=
   VEnv.HasType.defeqDFC henv (h.defeqCtx henv (h.onCtxAllFields henv)) h.result
+
+/-! ## D6's body: the recursor's codomain
+
+`motive_j` applied to the index variables and to the major premise.  Everything applied here
+is a variable, so it goes through `HasArgs.bvars` + `mkApp'`.  Two offset identities make it
+work, and they are isolated as `omega` lemmas below so the assembly never has to reason
+about arithmetic inline. -/
+
+/-- Offset 1: the telescope `HasArgs.bvars` supplies and the one the motive's type demands
+collapse to the same lift. -/
+theorem VInductDecl'.rec_tele_offset {nm nmin ni j : Nat} (hj : j < nm) :
+    nm + nmin + (1 + ni) = j + (1 + ni + nmin + (nm - 1 - j) + 1) := by omega
+
+/-- Offset 2: after the motive has eaten the index arguments, the parameter block lands
+exactly on the major premise's own type. -/
+theorem VInductDecl'.rec_dom_offset {nm nmin ni j : Nat} (hj : j < nm) :
+    1 + ni + nmin + (nm - 1 - j) + 1 + j = 1 + ni + nmin + nm := by omega
+
+/-- `map_instAll_bvars` with the length supplied as an equation, so callers never need a
+`conv` to line the index up. -/
+theorem VExpr.map_instAll_bvars' {as : List VExpr} {n : Nat} (h : as.length = n) :
+    (bvars 0 n).map (VExpr.instAll · as 0) = as := by
+  subst h; exact VExpr.map_instAll_bvars as
+
+namespace VInductDecl'
+variable {env : VEnv} {D : VInductDecl'}
+
+/-- Applying `motive_j`'s stored `I_j p ι` to `bvars 1 ni` shifts the parameter block down
+by `ni` and returns the index variables, landing on the major premise's own type. -/
+theorem tyApp'_instAll_bvars {j ni K : Nat} (h : K + 1 + j = 1 + ni + D.nmin + D.nm) :
+    VExpr.instAll ((D.tyApp' j (ni + j) (bvars 0 ni)).liftN (K + 1) ni) (bvars 1 ni) 0
+      = (D.tyApp' j (ni + D.nmin + D.nm) (bvars 0 ni)).liftN 1 0 := by
+  have hlen : (bvars 1 ni).length = ni := VExpr.length_bvars
+  have hL : (D.tyApp' j (ni + j) (bvars 0 ni)).liftN (K + 1) ni
+      = (VExpr.const (D.types.getD j default).name D.selfLvls).mkApp
+          (bvars (K + 1 + (ni + j)) D.np ++ bvars 0 ni) := by
+    rw [VInductDecl'.tyApp', VExpr.liftN_mkApp, List.map_append,
+      VExpr.map_liftN_bvars_lo (Nat.le_add_right ni j),
+      VExpr.map_liftN_bvars_hi (Nat.le_of_eq (Nat.zero_add ni))]
+    rfl
+  have hR : (D.tyApp' j (ni + D.nmin + D.nm) (bvars 0 ni)).liftN 1 0
+      = (VExpr.const (D.types.getD j default).name D.selfLvls).mkApp
+          (bvars (1 + (ni + D.nmin + D.nm)) D.np ++ bvars 1 ni) := by
+    rw [VInductDecl'.tyApp', VExpr.liftN_mkApp, List.map_append,
+      VExpr.map_liftN_bvars_lo (Nat.zero_le _), VExpr.map_liftN_bvars_lo (Nat.zero_le _)]
+    rfl
+  have hoff : K + 1 + (ni + j) - (bvars 1 ni).length = 1 + (ni + D.nmin + D.nm) := by
+    rw [hlen]; omega
+  rw [hL, hR, VExpr.instAll_mkApp, VExpr.instAll_const, List.map_append,
+    VExpr.map_instAll_bvars_ge (by rw [hlen]; omega), hoff,
+    VExpr.map_instAll_bvars' hlen]
+
+/-- **D6's body.**  `hidx` is discharged by `HasArgs.bvars` at the call site. -/
+theorem motiveApp_hasType {T : VIndType} {j : Nat} {Γ : List VExpr}
+    (hT : D.types[j]? = some T) (hj : j < D.nm)
+    (hmot : Lookup Γ (1 + T.indices.length + D.nmin + (D.nm - 1 - j))
+      ((D.motiveType j).liftN (1 + T.indices.length + D.nmin + (D.nm - 1 - j) + 1)))
+    (hmaj : Lookup Γ 0 ((D.tyApp' j (T.indices.length + D.nmin + D.nm)
+      (bvars 0 T.indices.length)).liftN 1))
+    (hidx : env.HasArgs D.recUvars Γ
+      (liftTele (1 + T.indices.length)
+        (liftTele (D.nm + D.nmin) (D.atRecTele T.indices) 0) 0)
+      (bvars 1 T.indices.length)) :
+    env.HasType D.recUvars Γ
+      ((VExpr.bvar (1 + T.indices.length + D.nmin + (D.nm - 1 - j))).mkApp
+        (bvars 1 T.indices.length ++ [.bvar 0]))
+      (.sort D.elimLvl) := by
+  have hm0 : env.HasType D.recUvars Γ
+      (.bvar (1 + T.indices.length + D.nmin + (D.nm - 1 - j)))
+      ((D.motiveType j).liftN (1 + T.indices.length + D.nmin + (D.nm - 1 - j) + 1)) :=
+    .bvar hmot
+  have hlenX : (D.atRecTele T.indices).length = T.indices.length :=
+    VInductDecl'.length_atRecTele D
+  have hmot' : (D.motiveType j).liftN (1 + T.indices.length + D.nmin + (D.nm - 1 - j) + 1)
+      = mkPi (liftTele (1 + T.indices.length + D.nmin + (D.nm - 1 - j) + 1)
+                (liftTele j (D.atRecTele T.indices) 0) 0)
+          ((VExpr.forallE (D.tyApp' j (T.indices.length + j) (bvars 0 T.indices.length))
+              (.sort D.elimLvl)).liftN
+            (1 + T.indices.length + D.nmin + (D.nm - 1 - j) + 1) T.indices.length) := by
+    simp only [VInductDecl'.motiveType, getD_types hT]
+    rw [VExpr.liftN_mkPi, VExpr.length_liftTele, hlenX, Nat.zero_add]
+  have hcol : liftTele (1 + T.indices.length)
+        (liftTele (D.nm + D.nmin) (D.atRecTele T.indices) 0) 0
+      = liftTele (1 + T.indices.length + D.nmin + (D.nm - 1 - j) + 1)
+          (liftTele j (D.atRecTele T.indices) 0) 0 := by
+    rw [VExpr.liftTele_collapse₂, VExpr.liftTele_collapse₂]
+    exact congrArg (liftTele · _ _) (VInductDecl'.rec_tele_offset hj)
+  rw [hmot'] at hm0
+  rw [hcol] at hidx
+  have happ := VEnv.HasType.mkApp' hidx hm0
+  simp only [VExpr.liftN, VExpr.instAll_forallE, VExpr.instAll_sort] at happ
+  rw [tyApp'_instAll_bvars (D := D) (j := j) (ni := T.indices.length)
+      (K := 1 + T.indices.length + D.nmin + (D.nm - 1 - j))
+      (VInductDecl'.rec_dom_offset hj)] at happ
+  rw [VExpr.mkApp_concat]
+  exact happ.app (.bvar hmaj)
+
+end VInductDecl'

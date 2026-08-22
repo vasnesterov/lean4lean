@@ -689,5 +689,45 @@ example : (natZero.canonResult natDecl 0).appArity
 example : (forestNil.canonResult mutDecl 1).appArity
     = (forestCons.canonResult mutDecl 1).appArity := rfl
 
+/-! ### D6's body: the two offset identities and the `instAll` computation
+
+`Acc` (`j = 0, ni = 1, nm = nmin = 1`, so `K = 3`) and `Forest'.rec` (`j = 1, ni = 0,
+nm = 2, nmin = 3`, so `K = 4`). -/
+
+example : accDecl.nm + accDecl.nmin + (1 + accType.indices.length)
+    = 0 + (1 + accType.indices.length + accDecl.nmin + (accDecl.nm - 1 - 0) + 1) :=
+  VInductDecl'.rec_tele_offset (by decide)
+example : 1 + accType.indices.length + accDecl.nmin + (accDecl.nm - 1 - 0) + 1 + 0
+    = 1 + accType.indices.length + accDecl.nmin + accDecl.nm :=
+  VInductDecl'.rec_dom_offset (by decide)
+
+example : mutDecl.nm + mutDecl.nmin + (1 + (mutDecl.types[1]!).indices.length)
+    = 1 + (1 + (mutDecl.types[1]!).indices.length + mutDecl.nmin + (mutDecl.nm - 1 - 1) + 1) :=
+  VInductDecl'.rec_tele_offset (by decide)
+example : 1 + (mutDecl.types[1]!).indices.length + mutDecl.nmin + (mutDecl.nm - 1 - 1) + 1 + 1
+    = 1 + (mutDecl.types[1]!).indices.length + mutDecl.nmin + mutDecl.nm :=
+  VInductDecl'.rec_dom_offset (by decide)
+
+/-- The `instAll` computation, by hand: `Acc α r x` at the motive's offsets lifts to
+`[.bvar 6, .bvar 5, .bvar 0]`, then instantiating the single index argument by `[.bvar 1]`
+shifts the parameter block down by one and returns the index — `[.bvar 5, .bvar 4, .bvar 1]`
+— which is exactly the major premise's own type. -/
+example : VExpr.instAll ((accDecl.tyApp' 0 (1 + 0) (bvars 0 1)).liftN (3 + 1) 1)
+      (bvars 1 1) 0
+    = (accDecl.tyApp' 0 (1 + accDecl.nmin + accDecl.nm) (bvars 0 1)).liftN 1 0 :=
+  VInductDecl'.tyApp'_instAll_bvars (by decide)
+example : VExpr.instAll ((accDecl.tyApp' 0 (1 + 0) (bvars 0 1)).liftN (3 + 1) 1) (bvars 1 1) 0
+    = (VExpr.const ``Acc accDecl.selfLvls).mkApp
+        [VExpr.bvar 5, VExpr.bvar 4, VExpr.bvar 1] := rfl
+
+-- `motiveApp_hasType`'s subject is literally `recType`'s body
+example : accDecl.recType 0
+    = mkPi (accDecl.atRecTele accDecl.params ++ accDecl.motives ++ accDecl.minors
+        ++ liftTele (accDecl.nm + accDecl.nmin) (accDecl.atRecTele accType.indices))
+      (.forallE (accDecl.tyApp' 0 (accType.indices.length + accDecl.nmin + accDecl.nm)
+          (bvars 0 accType.indices.length))
+        ((VExpr.bvar (1 + accType.indices.length + accDecl.nmin + (accDecl.nm - 1 - 0))).mkApp
+          (bvars 1 accType.indices.length ++ [.bvar 0]))) := rfl
+
 end InductiveDeclExamples
 end Lean4Lean

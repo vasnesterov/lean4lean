@@ -675,11 +675,17 @@ class ParamsExtra [Params] where
   `VIndCtor.WF.result'` is the transport that delivers it. `C.params` and `D.params` are
   only *definitionally* equal, so mixing the two would silently mix contexts.
 
-  There is deliberately **no** `D.lvl ≠ 0` claim. `Eq.refl : ∀ {α : Sort u} (a : α), a = a`
-  has a `Prop` codomain, yet `Eq.refl` must still be `classify`-ed as a constructor, because
-  `Eq.rec`'s ι-rule pattern-matches on it and `Pattern.WF` demands a `.ctor` leaf there. The
-  result sort is supplied instead — this is `VIndCtor.WF.result`'s content — and guarding on
-  it is the shape model's job. See `CtorBundle` for where that guard is still missing.
+  `D.lvl ≠ .zero` is asserted, and that is the whole content of the (13.3) decision: a
+  constructor of a `Prop`-valued block is not a *computational* constructor, so `classify`
+  must not report `.ctor` for it. `Eq.refl : ∀ {α : Sort u} (a : α), a = a` has a `Prop`
+  codomain, so under this field `classify Eq.refl` is not `.ctor`, `CtorBundle.IsCtor
+  Eq.refl` is false, and `∀ cl, CtorBundle c cl` is vacuous — which is exactly what makes
+  `CtorBundle.hu0` true wherever it is demanded. `Pattern.WF` must be relaxed to accept a
+  non-`.ctor` leaf at such a position, so that `Eq.rec`'s ι-rule is still a pattern.
+
+  The sort of `ci.type` is `imax … D.lvl` and `imax x y = .zero ↔ y = .zero`, so
+  `D.lvl ≠ .zero` is equivalent to the constructor's type not being a `Prop` — i.e. to
+  `CtorBundle.hu0`. The result-sort clause is `VIndCtor.WF.result'`'s content.
   -/
   ctor_ty {c : Name} {cl : Classification} {ci : VConstant} :
     classify c = some cl → (cl matches .ctor .. | .etaCtor ..) →
@@ -689,6 +695,7 @@ class ParamsExtra [Params] where
       ci = ⟨D.uvars, C.type D j⟩ ∧
       (C.params ++ C.fields.map (·.type)).length = cl.arity ∧
       classify T.name = some (.indTy (D.np + T.indices.length)) ∧
+      D.lvl ≠ .zero ∧
       env.HasType D.uvars ((C.fields.map (·.type)).reverse ++ C.params.reverse)
         (C.canonResult D j) (.sort D.lvl)
 
@@ -785,6 +792,13 @@ looked-up type while `IsDefEq.bvar` says nothing about the context. This mirrors
 `hΓ : OnCtx Γ (env.IsType U)` in the `VExpr` analogue `VEnv.IsDefEq.strong`
 (`Theory/Typing/Strong.lean`). -/
 theorem IsDefEq.strong (hΓ : Ctx.WF Γ) : Γ ⊢ e1 ≡ e2 : A → IsDefEqStrong Γ e1 e2 A := sorry
+
+/-- `IsDefEqStrong` has no general reflexivity lemma, because its `trans` carries an extra
+`Γ ⊢ A : .sort u` premise. But when the type *is* a sort that premise is discharged by
+`sort`, so reflexivity is available exactly there — which is all the `VExpr → SExpr` bridge
+needs, since every reflexive fact it must manufacture is a typing. -/
+theorem IsDefEqStrong.hasTypeAtSort (H : IsDefEqStrong Γ e1 e2 (.sort u)) :
+    IsDefEqStrong Γ e1 e1 (.sort u) := .trans .sort H H.symm
 
 /-- Erasing the decorations of `IsDefEqStrong` gives back `IsDefEq`. The `VExpr` analogue
 is `VEnv.IsDefEqStrong.defeq` in `Theory/Typing/Strong.lean`. -/
