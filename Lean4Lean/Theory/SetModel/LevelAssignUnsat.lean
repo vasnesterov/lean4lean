@@ -1,7 +1,13 @@
-import Lean4Lean.Theory.SetModel.Interp
+import Lean4Lean.Theory.SetModel.InterpSubst
 
 /-!
-# `LevelAssign` is unsatisfiable as stated
+# Two unsatisfiable structures in the model tower
+
+Both were found by the same test: **a structure whose producers all consume the
+same structure has never had its fields tested.**  The first was found by a
+tree-wide audit, the second by applying that criterion to its neighbours.
+
+## 1. `LevelAssign` was unsatisfiable as stated
 
 A tree-wide audit observed that `SetModel.LevelAssign` has never been
 constructed for any environment, and that every other model structure is
@@ -117,5 +123,58 @@ theorem no_levelAssign (env : VEnv) (nv : ℕ) : IsEmpty (LevelAssignUnguarded e
   rw [key] at e0
   rw [e1] at e0
   simp [VLevel.eval, List.getD_eq_getElem?_getD] at e0
+
+/-! ## 2. `LevelAssign.Stable` is unsatisfiable — and this one is *not* repaired
+
+Same family, same cause: a relation that fails to constrain something its
+consumers assume is constrained.
+
+`Ctx.InstN` is declared with `Γ₀ e₀ A₀` as **parameters**, and its `zero`
+constructor is `Ctx.InstN 0 (A₀ :: Γ₀) Γ₀` — `e₀` does not appear. So
+`Ctx.InstN Γ₀ e₀ A₀ 0 (A₀ :: Γ₀) Γ₀` holds for *every* `e₀`, with no requirement
+that `e₀` have type `A₀`, or any type at all.
+
+`Stable.lvl_instN` then demands, for every `e₀` and every `A₀`,
+
+```
+L.lvl Γ₀ ((VExpr.bvar 0).inst e₀ 0) ≈ L.lvl (A₀ :: Γ₀) (.bvar 0)
+```
+
+whose left side does not mention `A₀` while the right side is pinned by
+`lvl_sound` to `A₀`'s own level.  Taking `A₀ := .sort .zero` and
+`A₀ := .sort (.succ .zero)` with the same `e₀` forces `.zero ≈ .succ .zero`.
+
+**Consequence: every theorem taking `L.Stable` as a hypothesis is currently
+vacuous**, including `soundAbove` and everything downstream of it.
+
+**The repair** is the same shape as the first: add the hypothesis the consumers
+already have, namely that the substituted term is well-typed at the type it
+replaces —
+
+```
+lvl_instN : … → env.HasType nv Γ₀ e₀ A₀ → ∀ B, L.lvl Γ (B.inst e₀ k) ≈ L.lvl Γ₁ B
+```
+
+and likewise for `srt_instN`.  With it the counterexample dies, because a single
+`e₀` cannot have both `.sort .zero` and `.sort (.succ .zero)` as its type.  The
+`liftN` fields need no repair: `Ctx.LiftN` constrains everything it mentions, and
+weakening-invariance of the assignment is not in tension with `lvl_sound`. -/
+
+theorem no_stable {env : VEnv} {nv : ℕ} (L : LevelAssign env nv) : ¬ L.Stable := by
+  intro hS
+  have h0 := hS.lvl_instN (Γ₀ := []) (e₀ := .sort .zero) (A₀ := .sort .zero)
+    (k := 0) (Γ₁ := [VExpr.sort .zero]) (Γ := []) .zero (.bvar 0)
+  have h1 := hS.lvl_instN (Γ₀ := []) (e₀ := .sort .zero) (A₀ := .sort (.succ .zero))
+    (k := 0) (Γ₁ := [VExpr.sort (.succ .zero)]) (Γ := []) .zero (.bvar 0)
+  have k0 : L.lvl [VExpr.sort .zero] (.bvar 0) ≈ VLevel.zero :=
+    L.lvl_sound trivial (VEnv.IsDefEq.bvar .zero)
+  have k1 : L.lvl [VExpr.sort (.succ .zero)] (.bvar 0) ≈ VLevel.succ .zero :=
+    L.lvl_sound trivial (VEnv.IsDefEq.bvar .zero)
+  have e0 := VLevel.equiv_def.1 h0 []
+  have e1 := VLevel.equiv_def.1 h1 []
+  have f0 := VLevel.equiv_def.1 k0 []
+  have f1 := VLevel.equiv_def.1 k1 []
+  simp [VLevel.eval] at f0 f1
+  omega
 
 end Lean4Lean.SetModel

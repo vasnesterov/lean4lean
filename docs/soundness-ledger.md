@@ -1024,7 +1024,75 @@ producers all consume the same structure has never had its fields tested.**
 `CoherentOn` is in that position too — six producers, all six taking a
 `CoherentOn` — and is the next one to check.
 
+## `CoherentOn` is fine — and testing it turned up a seventh defect next door
+
+### `CoherentOn`: satisfiable, all four fields firing
+
+`SetModel/CoherentWitness.lean`, `coherentOn_witness`. The environment declares
+one constant *and* carries one defining equation, so `const_type`, `defeq` and
+`defeq_type` all fire; `const_congr` fires at every pair of level lists. A
+witness over `VEnv.empty` alone would have proved much less — three of the four
+fields are vacuous there, and that weaker witness is what "build one at `.empty`"
+would have produced.
+
+It is conditional on a `LevelAssign` (the fields mention `interp M L`), but holds
+for an **arbitrary** one. So `CoherentOn` adds no obstruction of its own: it
+becomes inhabited the moment `LevelAssign` does.
+
+### `LevelAssign.Stable` is unsatisfiable — and soundness is currently vacuous
+
+Applying the same criterion to `LevelAssign`'s neighbours found a seventh
+defect, in the same family and with the same cause: **a relation that fails to
+constrain something its consumers assume is constrained.**
+
+`Ctx.InstN` is declared with `Γ₀ e₀ A₀` as *parameters*, and its `zero`
+constructor is `Ctx.InstN 0 (A₀ :: Γ₀) Γ₀` — `e₀` does not appear. So
+`Ctx.InstN Γ₀ e₀ A₀ 0 (A₀ :: Γ₀) Γ₀` holds for *every* `e₀`, with no requirement
+that `e₀` have type `A₀`, or any type at all. `Stable.lvl_instN` then demands
+
+```
+L.lvl Γ₀ ((VExpr.bvar 0).inst e₀ 0) ≈ L.lvl (A₀ :: Γ₀) (.bvar 0)
+```
+
+for every `e₀` and `A₀`. The left side does not mention `A₀`; the right side is
+pinned by `lvl_sound` to `A₀`'s own level. Taking `A₀ := .sort .zero` and
+`A₀ := .sort (.succ .zero)` with the same `e₀` forces `.zero ≈ .succ .zero`.
+
+Machine-checked as `no_stable` in `SetModel/LevelAssignUnsat.lean`.
+
+**Consequence, stated plainly: every theorem taking `L.Stable` as a hypothesis is
+currently vacuous** — `soundAbove`, `sound`, `sound_nil`, `beta_sound`,
+`eta_sound`, `interp_liftN`, `interp_inst`, and everything downstream. The
+proofs are real and the case analyses are real, but until `Stable` is repaired
+they are statements about an empty hypothesis.
+
+**The repair**, not yet applied: add the hypothesis the consumers already have,
+
+```
+lvl_instN : … → env.HasType nv Γ₀ e₀ A₀ → ∀ B, L.lvl Γ (B.inst e₀ k) ≈ L.lvl Γ₁ B
+```
+
+and likewise `srt_instN`. A single `e₀` cannot have both `.sort .zero` and
+`.sort (.succ .zero)` as its type, so the counterexample dies. The `liftN`
+fields need no repair: `Ctx.LiftN` constrains everything it mentions.
+
+### The pattern behind both, and where to look next
+
+`LevelAssign` failed because `IsDefEq.bvar` has no side condition on the context;
+`Stable` failed because `Ctx.InstN` has no side condition on the substituted
+term. Both are **arbitrary-context / arbitrary-term defects**: a model-side
+structure quantified over syntax more freely than the syntax side ever intends
+to supply, and nothing forced the discrepancy because no witness existed.
+
+The remaining structures in the tower, by the same criterion: `ModelData` is
+plain data and trivially inhabited; `AxiomsValidated` is vacuous at `ds = []`;
+`CtxInvariant` is satisfiable alone (take `R := Eq`) but is always used together
+with a second hypothesis relating defeq-differing contexts, and **that pair has
+not been tested jointly** — it is the next one to check. `IndSignature`,
+`IsStageSignature` and `IsSubsingletonSignature` are untested.
+
 ## The remaining open items, ranked
+
 
 
 
