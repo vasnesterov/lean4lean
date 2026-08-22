@@ -72,7 +72,7 @@ Open:
 
 | Item | File | Blocked on |
 |---|---|---|
-| `checkPrimitiveDef.WF` | `Verify/Environment/Boundaries.lean` | nothing — independent |
+| `checkPrimitiveDef.WF` | `Verify/Environment/Boundaries.lean` | **false as stated** — see below |
 | `TrProj` (a `sorry` *definition*) | `Verify/Typing/Expr.lean:67` | inductive spec |
 | `TrProj.{weak',weak'_inv,defeqDFC,wf,uniq,instN,instL}` | `Verify/Typing/Lemmas.lean` | `TrProj` |
 | `reduceRecursor.WF` (ι-reduction) | `Verify/TypeChecker/WHNF.lean:6` | inductive spec |
@@ -89,6 +89,38 @@ says nothing about it.
 
 Not started: a `foldAddDecl` iteration lemma, and the axiom-free bookkeeping.
 `Verify/Soundness.lean` does not even import `Verify/Environment.lean` yet.
+
+#### Workstream: primitive reflection (`checkPrimitiveDef.WF`)
+
+Investigated and found **unprovable as written**, for two independent reasons.
+
+*Beta-redex types.* `VEnv.HasPrimitives` pins a primitive's `VConstant` to a
+literal syntactic type (e.g. `Char.ofNat ↦ ⟨0, .forallE .nat .char⟩`), and
+`TrConstant` translates `v.type` structurally via `TrExprS`. But the recognizer
+in `Primitive.lean` only checks `isDefEq v.type q(Nat → Char)`. Declaring
+`Char.ofNat` with type `(fun _ : Nat => Nat → Char) Nat.zero` passes the
+recognizer, translates to a structurally different `VConstant`, and refutes
+`preserves` — which quantifies over *every* `ci'` with `TrDefVal`, so no proof
+can dodge it. `String.ofList` fails the same way. Fix: make those branches
+compare `v.type` syntactically.
+
+*Ill-typed pseudo-types.* The 15 `Nat` arithmetic branches establish
+`ReflectsNatNatNat`/`…Bool` via `defeq1 a b := isDefEq (.arrow q(Nat) a) (.arrow q(Nat) b)`,
+comparing deliberately ill-typed terms to get under a binder. Every spec for
+`isDefEq` requires `TrExprS` on both sides, and `TrExprS.forallE` requires the
+body to be a type — which `Nat.add x 0` is not. So no `e'` exists and the
+hypothesis is unsatisfiable: those checks carry no usable semantic content
+through the current interface. Fix: rewrite `defeq1`/`defeq2` with
+`withLocalDecl`-bound fvars, as the `Nat.div`/`Nat.mod` branches already do.
+
+Both fixes are implementation changes to `Lean4Lean/Primitive.lean`; re-run the
+arena afterwards, since they make the recognizer stricter. The remaining content
+is then genuinely large: 15 reflection theorems relating the GMP-accelerated
+`Nat` operations to their Lean definitions, including `Nat.div`/`Nat.mod` (fuel
+recursion through `Nat.modCore.go`) and `Nat.gcd`/`Nat.bitwise`
+(`WellFounded.Nat.fix`, `Acc.rec`). Nothing in the repo supports this today —
+`ReflectsNatNat*` is only ever consumed. Independent of every other workstream,
+so it can be picked up at any time.
 
 ### Link 2 — `Lean4Lean/Theory/` (abstract metatheory)
 
