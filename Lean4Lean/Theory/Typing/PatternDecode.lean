@@ -466,6 +466,22 @@ theorem iotaCheck_OK {r c : Lean.Name} {m n np k : Nat} {computed pairs} {df m1 
       by rintro _ ⟨xy, hxy, rfl⟩; exact h2 xy hxy,
       by rintro _ ⟨ij, hij, rfl⟩; exact h3 ij hij⟩
 
+/-! ### The ι-rule's spine alignment
+
+The one arithmetic fact item 6 needs, isolated as its own lemma so the assembly never
+reasons about `bvars` offsets inline.
+
+An ι-rule's left-hand side applies the recursor to the parameter, motive and minor variable
+blocks *and* the constructor to the parameter and field blocks; `iotaRHS` then takes the
+first three from the recursor's side and the fields from the constructor's.  What comes back
+must be `bvars 0 |Γ'|` — the ι-rule's whole binder context in order — and that is this
+equation. -/
+theorem bvars_spine_align (np nm nmin nf : Nat) :
+    (bvars (nf + (nm + nmin)) np ++ bvars (nf + nmin) nm ++ bvars nf nmin) ++ bvars 0 nf
+      = bvars 0 (np + nm + nmin + nf) := by
+  rw [show np + nm + nmin + nf = (np + nm + nmin) + nf from rfl, VExpr.bvars_add,
+    Nat.zero_add, VExpr.bvars_add₃, Nat.add_assoc nf nm nmin]
+
 /-! ## Decoder correctness
 
 Two shapes, each proved directly rather than by construction — the decoder cannot know
