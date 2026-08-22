@@ -288,3 +288,42 @@ The Lean witness (`cx_refutes`, sorry-free, with the four `decide`-checked claus
 regression test on `Compat`/`WF`/`hasType`) lands with the `indTy` migration — it needs
 `ShapeS.indTy`'s boolean parameter and so cannot compile against the pre-migration tree. It is
 carried in the migration WIP under `section CounterexampleProbe`.
+
+## `WShape.HasType.join` is false as well
+
+Suspected while investigating option (b) for `join`, then confirmed by lifting the same
+witness one level. With `jF = [(⊥, ⊥)] : ShapeFun 2`:
+
+```lean
+jM  = .forallE cxA  jF        jM' = .forallE cxA' jF        -- : Shape 3
+```
+
+Checked by computation: `Shape.Compat jM jM' = true`; `hasType jM (.sort true) = true`;
+`hasType jM' (.sort true) = true`; and **`hasType (Shape.join jM jM') (.sort true) = false`**.
+Both are well-formed. So two compatible shapes, both classified by `.sort true`, whose join is
+not — refuting
+
+```lean
+theorem WShape.HasType.join (hJ : m₁.Compat m₂) (h1 : m₁.HasType a) (h2 : m₂.HasType a) :
+    (m₁.join m₂).HasType a
+```
+
+`j_refutes` is the machine-checked witness (sorry-free), carried alongside `cx_refutes`.
+
+**The mechanism, stated once for both refutations.** A Pi-shape's *shared codomain sort*
+constrains the family's **values**, never its **domains**. `jM` and `jM'` share the codomain
+sort `true`, but their domains are `cxA` and `cxA'` — compatible, and sharing no sort. The
+joined domain `cxA.join cxA'` therefore admits nothing: `hasType (.bot : Shape 2)
+(Shape.join cxA cxA') = false`, so `HasDom` fails for the joined family and no sort classifies
+the join.
+
+This is also exactly why option (b) — reproving `join` by threading its shared `a` down through
+`go_dom` — cannot work. The shared `a` is the *codomain* sort; the obstruction is in the
+*domains*, which it never reaches. There is no vantage change available, and the failure is
+structural rather than a proof looking at the wrong thing.
+
+**Consequence.** The question is no longer how to prove `join`, or what to weaken its
+conclusion to. It is which `HasDom` / `HasTypePi` / `HasTypeLam` joins are *true*, with the six
+consumers of the current ones re-derived from that. Note that `go_lam` calls `go_dom` with
+`.rfl` — the *same* domain on both sides — so the same-domain case is unaffected and is
+probably where the salvageable statement lives.

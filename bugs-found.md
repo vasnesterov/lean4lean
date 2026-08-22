@@ -116,6 +116,59 @@ and the verification was not sound.
    witnesses by comparing against `checkType v.value` rather than the unchecked
    `v.type`.
 
+14. **lean4lean did not re-check what `restoreNested` rewrote; the C++ kernel
+    does.** A missing check, i.e. a divergence in the *accepting* direction.
+    (Numbered by discovery order, not by section.)
+
+    For a nested inductive, `restoreNested` rewrites every constructor type,
+    every recursor type and every recursor rule `rhs` **after** the auxiliary
+    block has been checked, and the rewritten terms are never checked again in
+    the resulting environment. Both kernels do this rewrite. The C++ kernel then
+    re-checks all of it — `~/lean4/src/kernel/inductive.cpp:1325-1346`, whose own
+    comment is explicit:
+
+    > *Re-check everything `restore_nested` rewrote: the constructor types, and
+    > the recursor types and computation rules. The rewritten terms are not
+    > otherwise checked in `new_env`. … it keeps a mistake in the restoration
+    > from reaching the environment.*
+
+    lean4lean had only the *preceding* check (`inductive.cpp:1317-1324`, the
+    lean4#14576/#14577 hardening: type-check the nested applications `I Ds`
+    whose parametric arguments are dropped from the auxiliary declaration). It
+    had no analogue of the re-check.
+
+    **This corrects a claim made in an earlier scoping report**, that "the kernel
+    trusts a rewrite it does not verify." That is false of the C++ kernel, which
+    verifies it deliberately. It was true only of lean4lean, which makes it our
+    bug rather than an upstream property.
+
+    **Established by mutant, because nothing else can reach this code.** Item 12
+    below: the arena has zero nested-inductive coverage, so the suite cannot
+    exercise this path at all — 185/6/0 before and after. The mutant was to drop
+    the `restoreNested` call on the recursor type, simulating exactly the
+    "mistake in the restoration" the upstream comment names:
+
+    | | re-check present | re-check absent |
+    |---|---|---|
+    | mutated `restoreNested` | **rejected** — `unknown constant '_nested.List_1'` | **accepted** |
+
+    Without the check, lean4lean stored a recursor whose type mentions a constant
+    that is not in the resulting environment, and nothing downstream noticed.
+
+    **Fixed**: `Inductive/Add.lean` now mirrors `inductive.cpp:1325-1346`,
+    re-checking each constructor type at the declaration's level parameters and
+    each recursor type and rule `rhs` at the recursor's own level parameters
+    (which differ — the elimination universe is prepended). Arena unchanged at
+    185/6/0, which — per item 12 — is evidence of no regression and *not*
+    evidence the fix works; the mutant table is that evidence.
+
+    **Calibration.** No witness is claimed of an unmutated lean4lean accepting
+    something unsound through this gap, and upstream's comment says the preceding
+    checks are expected to make the re-check redundant ("these checks are not
+    necessary. We added them to catch additional bugs and missing checks in the
+    nested inductive handling"). This is defence in depth that lean4lean was
+    missing, not a demonstrated soundness hole.
+
 ## In the lean4lean proof infrastructure
 
 Not kernel bugs — defects in the specification and its metatheory, which matter

@@ -796,6 +796,36 @@ def Environment.addInductive (env : Environment) (lparams : List Name) (nparams 
       modify (·.add <| .ctorInfo { ctor with type := newType })
     processRec (mkRecName indType.name)
   recNames'.forM processRec
+  -- Type check the nested applications `I Ds` that were replaced by auxiliary types: the
+  -- parametric arguments `Ds` do not appear in the auxiliary declaration, so they would
+  -- otherwise escape checking (lean4#14576/#14577).  Checked against the *final* environment,
+  -- so no auxiliary declaration is in scope.  Mirrors `src/kernel/inductive.cpp:1317-1324`.
   TypeChecker.M.run (← get) (safety := safety) (lctx := res.lctx)
       (lparams := lparams) (fuel := fuel) do
     res.aux2nested.forM fun _ e => do _ ← TypeChecker.checkType e
+  -- Re-check everything `restoreNested` rewrote: the constructor types, and the recursor types
+  -- and computation rules.  Those terms are rewritten *after* the auxiliary block was checked
+  -- and are not otherwise checked in the final environment; the inductive types themselves are
+  -- added unchanged and need no check.  Upstream expects the preceding checks to make this
+  -- redundant and keeps it anyway, to stop a mistake in the restoration from reaching the
+  -- environment -- `src/kernel/inductive.cpp:1325-1346`, which lean4lean was missing.
+  let final ← get
+  let mut recNames : Array Name := #[]
+  for indType in types do
+    let r := mkRecName indType.name
+    recNames := recNames.push (recNameMap'.getD r r)
+  for recName in recNames' do
+    recNames := recNames.push (recNameMap'.getD recName recName)
+  TypeChecker.M.run final (safety := safety) (lctx := {}) (lparams := lparams) (fuel := fuel) do
+    for indType in types do
+      let some (.inductInfo ind) := final.find? indType.name | unreachable!
+      for ctorName in ind.ctors do
+        let some (.ctorInfo ctor) := final.find? ctorName | unreachable!
+        _ ← TypeChecker.checkType ctor.type
+  for recName in recNames do
+    let some (.recInfo recInfo) := final.find? recName | unreachable!
+    TypeChecker.M.run final (safety := safety) (lctx := {}) (lparams := recInfo.levelParams)
+        (fuel := fuel) do
+      _ ← TypeChecker.checkType recInfo.type
+      for rule in recInfo.rules do
+        _ ← TypeChecker.checkType rule.rhs
