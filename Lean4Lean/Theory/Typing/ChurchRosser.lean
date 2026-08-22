@@ -463,6 +463,51 @@ theorem NormalEq.apply_pat
       h2 (.defeqU_l henv hΓ ((ih2 h2).defeq hΓ) h2) (ih1 h1) (ih2 h2)
   | var path => exact ih path _ he
 
+omit [Params] in
+theorem _root_.Lean4Lean.VLevel.forall₂_inst_congr {ls ls' : List VLevel}
+    (hll : List.Forall₂ (· ≈ ·) ls ls') (us : List VLevel) :
+    List.Forall₂ (· ≈ ·) (us.map (VLevel.inst ls)) (us.map (VLevel.inst ls')) := by
+  induction us with
+  | nil => exact .nil
+  | cons _ _ ih => exact .cons (VLevel.inst_congr rfl hll) ih
+
+variable! (hΓ : OnCtx Γ (IsType env univs)) in
+theorem NormalEq.instL_congr {e : VExpr} {ls ls' : List VLevel} (hls : ∀ l ∈ ls, l.WF univs)
+    (hls' : ∀ l ∈ ls', l.WF univs) (hll : List.Forall₂ (· ≈ ·) ls ls')
+    (H : Γ ⊢ e.instL ls : A) : Γ ⊢ e.instL ls ≡ₚ e.instL ls' := by
+  induction e generalizing Γ A with dsimp [VExpr.instL] at H ⊢
+  | bvar i => exact .refl H
+  | sort u => exact .sortDF (VLevel.WF.inst hls) (VLevel.WF.inst hls') (VLevel.inst_congr rfl hll)
+  | const c us =>
+    have ⟨ci, h1, h2, h3⟩ := H.const_inv henv hΓ
+    refine .constDF h1 h2 (fun l hl => ?_) h3 (VLevel.forall₂_inst_congr hll us)
+    obtain ⟨u, -, rfl⟩ := List.mem_map.1 hl; exact VLevel.WF.inst hls'
+  | app f a ih1 ih2 =>
+    have ⟨_, _, hf, ha⟩ := H.app_inv henv hΓ
+    exact .appDF hf (.defeqU_l henv hΓ ((ih1 hΓ hf).defeq hΓ) hf)
+      ha (.defeqU_l henv hΓ ((ih2 hΓ ha).defeq hΓ) ha) (ih1 hΓ hf) (ih2 hΓ ha)
+  | lam A body ih1 ih2 =>
+    have ⟨⟨_, h1⟩, _, h2⟩ := H.lam_inv henv hΓ
+    exact .lamDF h1 (((ih1 hΓ h1).defeq hΓ).of_l henv hΓ h1)
+      (ih2 (by exact ⟨hΓ, _, h1⟩) h2)
+  | forallE A B ih1 ih2 =>
+    have ⟨⟨_, h1⟩, _, h2⟩ := H.forallE_inv henv
+    exact .forallEDF h1 (ih1 hΓ h1) h2 (ih2 (by exact ⟨hΓ, _, h1⟩) h2)
+
+open Pattern.RHS in
+variable! (hΓ : OnCtx Γ (IsType env univs)) in
+theorem NormalEq.apply_instL {p : Pattern} {r : p.RHS} {m1 m1' : List VLevel} {m2 : p.Path → VExpr}
+    (hls : ∀ l ∈ m1, l.WF univs) (hls' : ∀ l ∈ m1', l.WF univs)
+    (hll : List.Forall₂ (· ≈ ·) m1 m1') (he : Γ ⊢ apply m1 m2 r : A) :
+    Γ ⊢ apply m1 m2 r ≡ₚ apply m1' m2 r := by
+  induction r generalizing A with simp [apply] at he ⊢
+  | fixed c => exact .instL_congr hΓ hls hls' hll he
+  | app hf ha ih1 ih2 =>
+    let ⟨_, _, h1, h2⟩ := he.app_inv henv hΓ
+    exact .appDF h1 (.defeqU_l henv hΓ ((ih1 h1).defeq hΓ) h1)
+      h2 (.defeqU_l henv hΓ ((ih2 h2).defeq hΓ) h2) (ih1 h1) (ih2 h2)
+  | var path => exact .refl he
+
 set_option hygiene false
 local notation:65 Γ " ⊢ " e1 " ≫ " e2:36 => ParRed Γ e1 e2
 local notation:65 Γ " ⊢ " e1 " ⋙ " e2:36 => CParRed Γ e1 e2
@@ -1183,11 +1228,21 @@ theorem NormalEq.parRed (H1 : Γ ⊢ e₁ ≡ₚ e₂) (H2 : Γ ⊢ e₂ ≫ e�
     cases H2 with
     | sort => exact ⟨_, .tail .rfl .sort, .sortDF l1 l2 l3⟩
     | extra r1 r2 => cases r2
-  | constDF l1 l2 l3 l4 l5 =>
+  | @constDF c ci ls ls' Γ l1 l2 l3 l4 l5 =>
     cases H2 with
     | const => exact ⟨_, .tail .rfl .const, .constDF l1 l2 l3 l4 l5⟩
-    | extra r1 r2 r3 r4 =>
-      sorry
+    | @extra p r _ m1 m2 _ m3 r1 r2 r3 r4 =>
+      cases r2
+      have l5' : List.Forall₂ (· ≈ ·) _ _ := l5.flip.imp fun _ _ h => h.symm
+      have hred : Γ ⊢ .const c ls ≫ r.1.apply ls m3 := by
+        refine .extra (m2' := m3) r1 .const ?_ nofun
+        refine r3.map fun a b h => ?_
+        have ⟨_, hT⟩ := h
+        have pa := NormalEq.apply_instL (r := a) hΓ l3 l2 l5' hT.hasType.1
+        have pb := NormalEq.apply_instL (r := b) hΓ l3 l2 l5' hT.hasType.2
+        exact ((pa.defeq hΓ).symm.trans henv hΓ h).trans henv hΓ (pb.defeq hΓ)
+      exact ⟨_, .tail .rfl hred,
+        NormalEq.apply_instL hΓ l2 l3 l5 (hred.hasType hΓ (.const l1 l2 l4))⟩
   | @appDF Γ f A B f₂ a b l1 l2 l3 l4 l5 l6 ih1 ih2 =>
     cases H2 with
     | app r1 r2 =>
