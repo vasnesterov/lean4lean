@@ -655,6 +655,35 @@ theorem HasType.skips (W : Ctx.LiftN n k Γ Γ')
     (h1 : env.HasType U Γ' e A) (h2 : e.Skips n k) : ∃ B, env.HasType U Γ' e B ∧ B.Skips n k :=
   IsDefEq.skips henv hΓ' W h1 h2 h2
 
+/-- **Blocked on const-application injectivity**, the same gate as `TrProj.uniq` and
+`TrProj.defeqDFC` — see the note on `defeqDFC` for the ledger references (group I, gated on
+I1 `VEnv.Sig` and I13 `IsDefEqU.const_forallE_inv`).
+
+**The route, traced to where it stops.**  This is the right path; it is not "hard", it
+terminates.  From `H` one has `env.HasType U Γ' (e.lift' l) ((.const S us).mkApp (ps ++ ιs))`
+and must produce `ps'`, `ιs'` with `env.HasType U Γ e ((.const S us).mkApp (ps' ++ ιs'))`.
+
+1. `HasType.skips` (just above) gives some `B` with `Γ' ⊢ e.lift' l : B` and `B.Skips n k`,
+   hence `B = B₀.liftN n k`.
+2. `IsDefEq.uniqU` — which needs only `VEnv.WF env`, available here — gives
+   `B ≡ (.const S us).mkApp (ps ++ ιs)`.
+3. `IsDefEqU.weakN_iff` gives `Γ ⊢ e : B₀`.
+
+And there it stops: concluding that `B₀` has the form `(.const S us).mkApp (ps' ++ ιs')`
+from `B₀.liftN n k ≡ (.const S us).mkApp (ps ++ ιs)` is exactly injectivity of a constant
+application under defeq.
+
+**Two sub-gaps on the same route**, neither decisive, both worth not rediscovering:
+* `HasType.skips` is stated for `Ctx.LiftN`, while this lemma is over `Ctx.Lift'`; a
+  `Lift'` version is needed for step 1.
+* `IsDefEqU.weakN_iff` (`Theory/Typing/UniqueTyping.lean:172`) is still `sorry` in the
+  forward direction, which step 3 uses.
+
+**Why this looked free and was not.**  An inverse is not the same difficulty as its forward
+direction: `TrProj.weak'` inverts nothing, it pushes a *term* construction through a lift,
+whereas this must invert a *type* — and those are different problems.  Reasoning "this is
+the inverse of `weak'`, and `weak'` is now easy" is what mis-scheduled it; tracing
+hypothesis to conclusion to find the bridging lemma is what caught it. -/
 theorem TrProj.weak'_inv (henv : VEnv.WF env) (hΓ' : OnCtx Γ' (env.IsType U))
     (W : Ctx.Lift' l Γ Γ') (H : TrProj env U Γ' s i (e.lift' l) e') :
     ∃ e'', TrProj env U Γ s i e e'' := sorry
