@@ -70,6 +70,27 @@ theorem instL_peelLams : ∀ (e : VExpr) (ls : List VLevel),
     rfl
   | .bvar _, _ | .sort _, _ | .const .., _ | .app .., _ | .forallE .., _ => rfl
 
+/-! ## Peeling leading pis
+
+The companion to `peelLams`, used to tell a recursor's stored type from a constructor's: both
+are `mkPi` telescopes, and what distinguishes them is the *head of the body* — a `bvar` for
+the recursor's motive application, a `const` for the constructor's `I p args`. -/
+
+/-- Split a term into its maximal leading `forallE` telescope and the body underneath. -/
+def peelPis : VExpr → List VExpr × VExpr
+  | .forallE A b => let r := peelPis b; (A :: r.1, r.2)
+  | e => ([], e)
+
+@[simp] theorem peelPis_forallE :
+    peelPis (.forallE A b) = (A :: (peelPis b).1, (peelPis b).2) := rfl
+
+theorem peelPis_mkPi : ∀ (As : List VExpr) (B : VExpr),
+    peelPis (mkPi As B) = (As ++ (peelPis B).1, (peelPis B).2)
+  | [], _ => rfl
+  | A :: As, B => by rw [VExpr.mkPi_cons, peelPis_forallE, peelPis_mkPi As B]; rfl
+
+theorem peelPis_app : peelPis (.app f a) = ([], .app f a) := rfl
+
 /-! ## Splitting an application spine -/
 
 /-- Split a term into its head and its argument spine, left to right. -/
@@ -106,6 +127,28 @@ theorem spine_mkApp {e : VExpr} (h : ∀ f a, e ≠ .app f a) (as : List VExpr) 
     all_goals rfl
   rw [this]
   simp
+
+theorem peelPis_mkApp_app : ∀ (as : List VExpr) (f a : VExpr),
+    peelPis (mkApp (.app f a) as) = ([], mkApp (.app f a) as)
+  | [], _, _ => rfl
+  | b :: as, f, a => by rw [VExpr.mkApp_cons, peelPis_mkApp_app as]
+
+/-- The head of a term's body, after all leading pis are peeled: the discriminator. -/
+def piBodyHead (e : VExpr) : VExpr := (spine (peelPis e).2).1
+
+theorem piBodyHead_mkPi_mkApp (As : List VExpr) {f : VExpr}
+    (hf : ∀ g a, f ≠ .app g a) (hp : ∀ A b, f ≠ .forallE A b) (as : List VExpr) :
+    piBodyHead (mkPi As (mkApp f as)) = f := by
+  rw [piBodyHead, peelPis_mkPi]
+  cases as with
+  | nil =>
+    show (spine (peelPis f).2).1 = f
+    cases f
+    case forallE A b => exact absurd rfl (hp A b)
+    all_goals exact congrArg Prod.fst (spine_mkApp hf [])
+  | cons a as =>
+    show (spine (peelPis (mkApp f (a :: as))).2).1 = f
+    rw [VExpr.mkApp_cons, peelPis_mkApp_app, ← VExpr.mkApp_cons, spine_mkApp hf]
 
 end VExpr
 

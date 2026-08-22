@@ -18,6 +18,36 @@ different patterns, which is painful and buys nothing.  An inductive family inde
 and `r`, with one constructor per rule shape, sidesteps it entirely: each constructor fixes
 `p` and `r` simultaneously, and `pat_simple` falls out by `cases`.
 
+## Method: work backwards from each obligation, not forwards from the definition
+
+Both defects found in this file were invisible from the definition's side and obvious from a
+field's side, so this is worth stating as a technique rather than as two anecdotes.
+
+Reading a definition asks *is this well-formed?*  Working backwards from each obligation the
+definition must discharge asks *what does this actually have to supply?* — and only the
+second finds **under-recording**, which is invisible from the definition's side by
+construction: a constructor that fails to record something still elaborates, still typechecks,
+and still looks complete.
+
+The two instances here:
+
+* `Params.pat_uniq` concludes `r ≍ r'`, so it is *not* a statement about the pattern alone.
+  Instantiated at `p₁ = p₂ = p₃` with `Pattern.inter_self` it forces the datum to be a
+  function of the pattern — which an earlier version, taking the check's `computed` and
+  `pairs` as free constructor parameters, violated outright.  That version was not merely
+  loose; it made `pat_uniq` false.
+* `Params.pat_app_uniq` bottoms out in `(.const r).inter (.const c) = none` across *different*
+  registered patterns, i.e. a cross-block name fact.  Deriving it needs the two constants to
+  be declared, which `env.defeqs (D.iotaRule …)` does not give — hence the two
+  `env.constants … = some …` hypotheses on `Pat.iota`.
+
+Neither is visible by reading `Pat`.  Both are visible immediately from the field.
+
+The same reading explains two earlier findings on this project: `ParamsExtra.ctor_ty` was
+unsatisfiable and went unnoticed because *no instance existed to work backwards from*, and
+`VEnv.HasPrimitives` was missing a `Nat.pred` field for the same reason.  A class with no
+instance has never had this check applied to it.
+
 ## What the constructors carry
 
 Every component of `r` is *derived* from `D`, `T`, `C`, and the constructors carry only

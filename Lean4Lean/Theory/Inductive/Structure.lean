@@ -153,6 +153,48 @@ theorem projTerm_instL (ps is : List VExpr) (i : Nat) (e : VExpr) :
 
 end VInductDecl'
 
+
+/-! ## F17's occurrence guard
+
+`inferProj` walks the constructor's field telescope and, for each field before the projected
+one, distinguishes two cases (`Lean4Lean/TypeChecker.lean:249-257`):
+
+```
+if b.hasLooseBVars then
+  if maybePropType then if !(← isProp dom) then fail
+  r := b.instantiate1 (.proj I_name i struct)
+else
+  r := b
+```
+
+A field whose binder is *unused* by the rest of the telescope is dropped with no `Prop`
+check at all.  `FieldUsed` is the abstract image of that `b.hasLooseBVars`. -/
+
+/-- Field `k`'s binder is used by the rest of the constructor's telescope.
+
+`C.type D j = mkPi (C.params ++ C.fields.map (·.type)) (C.canonResult D j)`, so after
+binding field `k` the remainder is `mkPi (fields>k) result`, in which field `k` is
+`.bvar 0`. -/
+def VIndCtor.FieldUsed (C : VIndCtor) (D : VInductDecl') (j k : Nat) : Prop :=
+  ¬ VExpr.Skips' 1 (VExpr.mkPi ((C.fields.drop (k+1)).map (·.type)) (C.canonResult D j)) 0
+
+/-- An unused field does not occur in any later field's type.  In `F_i.type`, which lives
+over `params ++ fields<i`, field `k` is de Bruijn variable `i - 1 - k`. -/
+theorem VIndCtor.not_fieldUsed_skips {C : VIndCtor} {D : VInductDecl'} {j k i : Nat}
+    (h : ¬ C.FieldUsed D j k) (hki : k < i) (hi : i < C.fields.length) :
+    VExpr.Skips' 1 (C.fields.getD i default).type (i - 1 - k) := by
+  have hs : VExpr.Skips' 1
+      (VExpr.mkPi ((C.fields.drop (k+1)).map (·.type)) (C.canonResult D j)) 0 :=
+    Classical.byContradiction h
+  have hm : (((C.fields.drop (k+1)).map (·.type))[i - (k+1)]?)
+      = some (C.fields.getD i default).type := by
+    rw [List.getElem?_map, List.getElem?_drop,
+      show k + 1 + (i - (k+1)) = i from by omega,
+      List.getElem?_eq_getElem hi]
+    simp [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hi]
+  have := VExpr.skips'_mkPi_getElem (k := 0) hs hm
+  simpa [show 0 + (i - (k+1)) = i - 1 - k from by omega] using this
+
 /-- The stored telescopes of a structure are closed at their declared arities.
 
 This is what makes `projTerm` commute with context operations, and it is a genuine

@@ -277,6 +277,24 @@ theorem inst_instAllTele₀ {as As : List VExpr} {a : VExpr} {m : Nat}
     instTele a (instAllTele As as) m = instAllTele As (as.map (·.inst a m)) :=
   inst_instAllTele (m := m) (j := 0) (by simpa using h)
 
+/-! ## `Skips` through a telescope
+
+Needed by `TrProj`'s F17 side condition, which is guarded on whether a field's binder is
+*used* by the rest of the constructor's telescope — the abstract image of `inferProj`'s
+`b.hasLooseBVars` (`Lean4Lean/TypeChecker.lean:252`). -/
+
+/-- If a whole `mkPi` skips a variable window, so does each entry of its telescope, at that
+entry's own depth. -/
+theorem skips'_mkPi_getElem : ∀ {As : List VExpr} {R : VExpr} {n k m : Nat} {A : VExpr},
+    Skips' n (mkPi As R) k → As[m]? = some A → Skips' n A (k + m)
+  | B :: As, R, n, k, m, A, h, hm => by
+    cases m with
+    | zero => cases hm; simpa using h.1
+    | succ m =>
+      have := skips'_mkPi_getElem (As := As) (R := R) (n := n) (k := k+1) (m := m)
+        h.2 (by simpa using hm)
+      rw [← Nat.add_assoc]; simpa [Nat.add_right_comm] using this
+
 end VExpr
 
 end Lean4Lean
