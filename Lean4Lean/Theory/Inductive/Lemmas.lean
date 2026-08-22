@@ -95,6 +95,13 @@ was expected to need a closedness argument and collapses by `liftTele_liftTele`;
 `indices_closed` was landed for it and then turned out not to be needed at all.  Grep the
 telescope algebra first.
 
+**And read the docstrings, not just the names.**  Several lemmas there name the construction
+they were built for, which is what makes the search cheap.  `bvars_add₃` is the strongest
+case: its docstring says it is "the three-block split used pervasively by the recursor
+construction", and the ι-rule's spine alignment — priced as this file's concentrated risk —
+turned out to be two rewrites against it.  A lemma that is not merely present but *labelled
+for your use* will not be found by grepping for the shape you happen to have in mind.
+
 **2. Read the current `VEnv.Params` class, not `docs/design-inductive.md` §7.6.**  The
 design describes four fields -- `pat_major_not_pi`, `pat_major_prop`, `pat_small`,
 `pat_major_canonical` -- that **do not exist** in the class as it stands.  Their absence

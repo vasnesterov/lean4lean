@@ -20,13 +20,16 @@ and `r`, with one constructor per rule shape, sidesteps it entirely: each constr
 
 ## What the constructors carry
 
-`computed` and `pairs` — the check's index-agreement right-hand sides and its level-index
-pairs — are constructor *parameters* rather than derived, because they only affect the
-`Check`, and the `Check` is only consumed by `extra_pat` and `pat_wf`.  The orthogonality
-fields (`pat_uniq`, `pat_app_l_uniq`, `pat_app_uniq`) and `pat_simple` are statements about
-the *pattern* alone and are indifferent to them.  Whoever builds the instance supplies them
-together with the proofs that they are correct for the rule at hand; see the checks section
-of `PatternDecode.lean` for why they must not be dropped.
+Every component of `r` is *derived* from `D`, `T`, `C`, and the constructors carry only
+`Prop`-valued side conditions (closedness of `iotaLam`, and of each result index abstracted
+over the constructor's binders).
+
+That is forced, not stylistic.  `pat_uniq` concludes `r ≍ r'` whenever two registered
+patterns intersect; instantiated at `p₁ = p₂ = p₃` with `Pattern.inter_self` it says the
+datum is a *function of the pattern*.  An earlier version took the check's `computed` and
+`pairs` as free constructor parameters — which would have let one pattern carry two
+different checks and made `pat_uniq` false.  Because the remaining side conditions are
+`Prop`, `List.pmap` over different proofs yields equal lists and uniqueness survives.
 -/
 
 namespace Lean4Lean
@@ -62,12 +65,44 @@ def iotaRHSOf (_j q : Nat) (T : VIndType) (C : VIndCtor) (h : (D.iotaLam q C).Cl
   iotaRHS (Lean.mkRecName T.name) C.name (D.np + D.nm + D.nmin + T.indices.length)
     (D.np + C.fields.length) (D.iotaLam q C) h (D.np + D.nm + D.nmin) D.np
 
+/-- The matched constructor arguments, as right-hand sides. -/
+def ctorArgRHS (T : VIndType) (C : VIndCtor) : List (D.iotaPat T C).RHS :=
+  (Pattern.argPaths (.const C.name) (D.np + C.fields.length)).map fun y =>
+    Pattern.RHS.var (p := D.iotaPat T C) (Sum.inr y)
+
+/-- The level-index pairs relating the recursor leaf's list to the constructor leaf's.  The
+block's own universes sit at `i` on the constructor's side and, when `isLE` prepends a fresh
+elimination universe, at `i + 1` on the recursor's. -/
+def iotaLevelPairs : List (Nat × Nat) :=
+  (List.range D.uvars).map fun i => (if D.isLE then i + 1 else i, i)
+
+/-- The constructor's result indices, as right-hand sides: each `a ∈ C.args` abstracted over
+the constructor's own binders — a *closed* term, as `RHS.fixed` demands — and applied back to
+the matched constructor arguments.
+
+Derived rather than taken as a parameter.  It has to be: `pat_uniq` concludes `r ≍ r'`
+whenever two registered patterns intersect, and with `p₁ = p₂ = p₃` and `Pattern.inter_self`
+that forces the datum to be a *function of the pattern*.  A free `computed` parameter would
+let one pattern carry two different checks and make `pat_uniq` false.  The closedness proofs
+are `Prop`, so `pmap` over different proofs yields equal lists and uniqueness survives. -/
+def iotaComputed (T : VIndType) (C : VIndCtor)
+    (h : ∀ a ∈ C.args, (mkLams (C.params ++ C.fields.map (·.type)) a).Closed) :
+    List (D.iotaPat T C).RHS :=
+  C.args.pmap (fun a ha =>
+    Pattern.RHS.mkApp
+      (Pattern.RHS.fixed (p := D.iotaPat T C)
+        (mkLams (C.params ++ C.fields.map (·.type)) a)
+        (iotaLeafCtor (Lean.mkRecName T.name) C.name
+          (D.np + D.nm + D.nmin + T.indices.length) (D.np + C.fields.length)) ha)
+      (D.ctorArgRHS T C)) h
+
 /-- The ι-rule's check: parameter agreement, index agreement, level agreement. -/
 def iotaCheckOf (T : VIndType) (C : VIndCtor)
-    (computed : List (D.iotaPat T C).RHS) (pairs : List (Nat × Nat)) :
+    (h : ∀ a ∈ C.args, (mkLams (C.params ++ C.fields.map (·.type)) a).Closed) :
     (D.iotaPat T C).Check :=
   iotaCheck (Lean.mkRecName T.name) C.name (D.np + D.nm + D.nmin + T.indices.length)
-    (D.np + C.fields.length) D.np (D.np + D.nm + D.nmin) computed pairs
+    (D.np + C.fields.length) D.np (D.np + D.nm + D.nmin)
+    (D.iotaComputed T C h) D.iotaLevelPairs
 
 end VInductDecl'
 
@@ -78,10 +113,10 @@ inductive Pat (env : VEnv) : (p : Pattern) → p.RHS × p.Check → Prop
       env.defeqs ⟨u, .const c (VLevel.params u), v, t⟩ →
       Pat env (.const c) (deltaRHS c v h, Pattern.Check.true)
   | iota {D : VInductDecl'} {j q : Nat} {T : VIndType} {C : VIndCtor}
-      {computed : List (D.iotaPat T C).RHS} {pairs : List (Nat × Nat)}
-      (h : (D.iotaLam q C).Closed) :
+      (h : (D.iotaLam q C).Closed)
+      (hargs : ∀ a ∈ C.args, (mkLams (C.params ++ C.fields.map (·.type)) a).Closed) :
       D.types[j]? = some T → C ∈ T.ctors → env.defeqs (D.iotaRule j q C) →
-      Pat env (D.iotaPat T C) (D.iotaRHSOf j q T C h, D.iotaCheckOf T C computed pairs)
+      Pat env (D.iotaPat T C) (D.iotaRHSOf j q T C h, D.iotaCheckOf T C hargs)
 
 /-- **`Params.pat_simple`.**  Immediate from the shape of the family: every constructor's
 pattern index is a `SimplePattern.toPattern` by construction. -/
