@@ -212,7 +212,10 @@ def unfoldNatWellFounded (e : Expr) (fvs : Array Expr) (eq_def : Expr) (fail : �
     let .app eager n := fuel | fail
     unless ← isDefEq n (succ (.app f a)) do fail
     -- prove |- eager n = if beq n n = true then n else n
-    unless (← getEnv).contains ``Nat.beq do fail
+    -- `Nat` and `Bool` are needed for the `Nat` binder below and for `Condition.bool`'s
+    -- `Bool.false`/`Bool.true`; `Nat.beq` is what makes `eager n` reduce to `n` at literals.
+    unless (← getEnv).contains ``Nat && (← getEnv).contains ``Bool
+      && (← getEnv).contains ``Nat.beq do fail
     let c := Condition.bool; c.check (fail) (ite := true)
     unless ← (withLocalDecl `x .default q(Nat) fun x =>
       isDefEq (mkApp eager x) (c.ite q(Nat) #[mkApp2 (.const ``Nat.beq []) x x] x x)) do fail
@@ -288,28 +291,29 @@ def checkPrimitiveDef (v : DefinitionVal) : M Bool := do
     unless ← isDefEq (pred zero) zero do fail
     unless ← defeq1 (fun x => pred (succ x)) (fun x => x) do fail
   | ``Nat.sub =>
-    unless env.contains ``Nat.pred && v.levelParams.isEmpty do fail
+    unless env.contains ``Nat && env.contains ``Nat.pred && v.levelParams.isEmpty do fail
     -- sub : Nat → Nat → Nat
     unless ← isDefEq v.type q(Nat → Nat → Nat) do fail
     let sub := mkApp2 v.value
     unless ← defeq1 (fun x => sub x zero) (fun x => x) do fail
     unless ← defeq2 (fun y x => sub y (succ x)) (fun y x => pred (sub y x)) do fail
   | ``Nat.mul =>
-    unless env.contains ``Nat.add && v.levelParams.isEmpty do fail
+    unless env.contains ``Nat && env.contains ``Nat.add && v.levelParams.isEmpty do fail
     -- mul : Nat → Nat → Nat
     unless ← isDefEq v.type q(Nat → Nat → Nat) do fail
     let mul := mkApp2 v.value
     unless ← defeq1 (fun x => mul x zero) (fun _ => zero) do fail
     unless ← defeq2 (fun y x => mul y (succ x)) (fun y x => add (mul y x) y) do fail
   | ``Nat.pow =>
-    unless env.contains ``Nat.mul && v.levelParams.isEmpty do fail
+    unless env.contains ``Nat && env.contains ``Nat.mul && v.levelParams.isEmpty do fail
     -- pow : Nat → Nat → Nat
     unless ← isDefEq v.type q(Nat → Nat → Nat) do fail
     let pow := mkApp2 v.value
     unless ← defeq1 (fun x => pow x zero) (fun _ => one) do fail
     unless ← defeq2 (fun y x => pow y (succ x)) (fun y x => mul (pow y x) y) do fail
   | ``Nat.mod =>
-    unless env.contains ``Nat.sub && env.contains ``Bool && v.levelParams.isEmpty do fail
+    unless env.contains ``Nat && env.contains ``Bool
+      && env.contains ``Nat.sub && env.contains ``Nat.ble && v.levelParams.isEmpty do fail
     -- mod : Nat → Nat → Nat
     unless ← isDefEq v.type q(Nat → Nat → Nat) do fail
     let mod := mkApp2 v.value
@@ -335,7 +339,8 @@ def checkPrimitiveDef (v : DefinitionVal) : M Bool := do
     _ ← checkType e
     unless ← isDefEq (go y hy (succ fuel) x h) e do fail
   | ``Nat.div =>
-    unless env.contains ``Nat.sub && env.contains ``Bool && v.levelParams.isEmpty do fail
+    unless env.contains ``Nat && env.contains ``Bool
+      && env.contains ``Nat.sub && env.contains ``Nat.ble && v.levelParams.isEmpty do fail
     -- div : Nat → Nat → Nat
     unless ← isDefEq v.type q(Nat → Nat → Nat) do fail
     let div := mkApp2 v.value
@@ -358,7 +363,7 @@ def checkPrimitiveDef (v : DefinitionVal) : M Bool := do
     _ ← checkType e
     unless ← isDefEq (go y hy (succ fuel) x h) e do fail
   | ``Nat.gcd =>
-    unless env.contains ``Nat.mod && v.levelParams.isEmpty do fail
+    unless env.contains ``Nat && env.contains ``Nat.mod && v.levelParams.isEmpty do fail
     -- gcd : Nat → Nat → Nat
     unless ← isDefEq v.type q(Nat → Nat → Nat) do fail
     withLocalDecl `m .default q(Nat) fun m => do
@@ -387,7 +392,9 @@ def checkPrimitiveDef (v : DefinitionVal) : M Bool := do
     unless ← defeq1 (fun x => ble (succ x) zero) (fun _ => fal) do fail
     unless ← defeq2 (fun y x => ble (succ y) (succ x)) (fun y x => ble y x) do fail
   | ``Nat.bitwise =>
-    unless env.contains ``Nat && env.contains ``Bool && v.levelParams.isEmpty do fail
+    unless env.contains ``Nat && env.contains ``Bool
+      && env.contains ``Nat.add && env.contains ``Nat.div && env.contains ``Nat.mod
+      && env.contains ``Nat.beq && v.levelParams.isEmpty do fail
     -- bitwise : Nat → Nat → Nat
     unless ← isDefEq v.type q((Bool → Bool → Bool) → Nat → Nat → Nat) do fail
     withLocalDecl `f .default q(Bool → Bool → Bool) fun f => do
@@ -409,7 +416,8 @@ def checkPrimitiveDef (v : DefinitionVal) : M Bool := do
     _ ← checkType e
     unless ← isDefEq (mkApp3 bitwise' f n m) e do fail
   | ``Nat.land =>
-    unless env.contains ``Nat.bitwise && v.levelParams.isEmpty do fail
+    unless env.contains ``Nat && env.contains ``Bool
+      && env.contains ``Nat.bitwise && v.levelParams.isEmpty do fail
     -- land : Nat → Nat → Nat
     unless ← isDefEq v.type q(Nat → Nat → Nat) do fail
     let .app (.const ``Nat.bitwise []) and := v.value | fail
@@ -418,7 +426,8 @@ def checkPrimitiveDef (v : DefinitionVal) : M Bool := do
     unless ← defeqT1 q(Bool) (fun x => and fal x) (fun _ => fal) do fail
     unless ← defeqT1 q(Bool) (fun x => and tru x) (fun x => x) do fail
   | ``Nat.lor =>
-    unless env.contains ``Nat.bitwise && v.levelParams.isEmpty do fail
+    unless env.contains ``Nat && env.contains ``Bool
+      && env.contains ``Nat.bitwise && v.levelParams.isEmpty do fail
     -- lor : Nat → Nat → Nat
     unless ← isDefEq v.type q(Nat → Nat → Nat) do fail
     let .app (.const ``Nat.bitwise []) or := v.value | fail
@@ -427,7 +436,8 @@ def checkPrimitiveDef (v : DefinitionVal) : M Bool := do
     unless ← defeqT1 q(Bool) (fun x => or fal x) (fun x => x) do fail
     unless ← defeqT1 q(Bool) (fun x => or tru x) (fun _ => tru) do fail
   | ``Nat.xor =>
-    unless env.contains ``Nat.bitwise && v.levelParams.isEmpty do fail
+    unless env.contains ``Nat && env.contains ``Bool
+      && env.contains ``Nat.bitwise && v.levelParams.isEmpty do fail
     -- xor : Nat → Nat → Nat
     unless ← isDefEq v.type q(Nat → Nat → Nat) do fail
     let .app (.const ``Nat.bitwise []) xor := v.value | fail
@@ -437,14 +447,14 @@ def checkPrimitiveDef (v : DefinitionVal) : M Bool := do
     unless ← isDefEq (xor fal tru) tru do fail
     unless ← isDefEq (xor tru tru) fal do fail
   | ``Nat.shiftLeft =>
-    unless env.contains ``Nat.mul && v.levelParams.isEmpty do fail
+    unless env.contains ``Nat && env.contains ``Nat.mul && v.levelParams.isEmpty do fail
     -- shiftLeft : Nat → Nat → Nat
     unless ← isDefEq v.type q(Nat → Nat → Nat) do fail
     let shl := mkApp2 v.value
     unless ← defeq1 (fun x => shl x zero) (fun x => x) do fail
     unless ← defeq2 (fun y x => shl x (succ y)) (fun y x => shl (mul two x) y) do fail
   | ``Nat.shiftRight =>
-    unless env.contains ``Nat.div && v.levelParams.isEmpty do fail
+    unless env.contains ``Nat && env.contains ``Nat.div && v.levelParams.isEmpty do fail
     -- shiftRight : Nat → Nat → Nat
     unless ← isDefEq v.type q(Nat → Nat → Nat) do fail
     let shr := mkApp2 v.value
