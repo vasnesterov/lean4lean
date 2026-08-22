@@ -574,6 +574,26 @@ inductive ParRed : List VExpr → VExpr → VExpr → Prop where
   | extra : Pat p r → p.Matches e m1 m2 → r.2.OK (IsDefEqU env univs Γ) m1 m2 →
     (∀ a, Γ ⊢ m2 a ≫ m2' a) → Γ ⊢ e ≫ r.1.apply m1 m2'
 
+variable! (hΓ : OnCtx Γ (IsType env univs)) in
+/-- **E6**: a rule's `Check` obligations survive replacing the matched arguments by
+`NormalEq`-related ones.
+
+Needed by every route through `parRed`'s `appDF` × `extra` case: the rule fires on the
+left-hand term with *its* matched arguments, so `r3`'s obligations — stated at the right-hand
+term's arguments — have to be transported.  The leafwise hypothesis is the same one
+`NormalEq.apply_pat` takes, and this is proved by composing two of those with the clause's
+own `IsDefEqU`. -/
+theorem _root_.Lean4Lean.Pattern.Check.OK.congr_normalEq {p : Pattern} (ck : p.Check)
+    {m1 : p.LPath → List VLevel} {m2 m2' : p.Path → VExpr}
+    (hne : ∀ x A, Γ ⊢ m2 x : A → Γ ⊢ m2 x ≡ₚ m2' x)
+    (H : ck.OK (IsDefEqU env univs Γ) m1 m2) :
+    ck.OK (IsDefEqU env univs Γ) m1 m2' := by
+  refine H.map fun a b h => ?_
+  obtain ⟨T, hT⟩ := h
+  have ha := NormalEq.apply_pat hΓ hne hT.hasType.1
+  have hb := NormalEq.apply_pat hΓ hne hT.hasType.2
+  exact ((ha.defeq hΓ).symm.trans henv hΓ ⟨_, hT⟩).trans henv hΓ (hb.defeq hΓ)
+
 def NonNeutral (Γ : List VExpr) (e : VExpr) : Prop :=
   (∃ A e₁ e₂, e = .app (.lam A e₁) e₂) ∨
   (∃ p r m1 m2, Pat p r ∧ p.Matches e m1 m2 ∧ r.2.OK (IsDefEqU env univs Γ) m1 m2)

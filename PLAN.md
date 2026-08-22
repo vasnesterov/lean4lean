@@ -199,6 +199,18 @@ is a proof then the whole redex is a proof, which is the real `Acc.rec` /
 that the `Pat` abstraction hides. Carneiro's corresponding proof uses exactly
 these two, one silently.
 
+**Correction to (b), machine-checked (`eq_large_eliminates`, shape-model stream).**
+Small elimination does **not** cover every `Prop`-valued inductive: it misses the
+*subsingleton eliminators*. `Eq` is `Prop`-valued and yet large-eliminates —
+`@Eq.rec`'s motive is `Sort u_1`, so `Eq.rec (motive := fun b _ => Nat) 7 rfl`
+is a `Nat`, not a proof, and its ι-redex is not a proof either. So (b) applies to
+`Acc.rec` and `Quot.lift`-over-a-`Prop` but **not** to `Eq`, `False`, `HEq` and the
+other subsingleton cases, and any use of it must be guarded accordingly. The shape
+model came within one approval of dropping `Eq`'s ι-rule on the strength of (b) as
+stated; had it done so, `ParamsExtra` would have become unsatisfiable for every
+environment containing `Eq` — which is every real one — and nothing in the tree
+would have noticed, because no `ParamsExtra` instance exists.
+
 *The consequence for phasing.* `addInduct` must not merely produce ι-rules — it
 must produce ones that provably satisfy the `Params` axioms including these two.
 That is now part of the keystone's acceptance criteria, and it is why

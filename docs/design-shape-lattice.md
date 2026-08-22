@@ -831,3 +831,82 @@ burned by exactly that once.
   together. Decoupling them there would let `Eq.refl` keep its `.ctor` shape without being
   classified by a Prop-valued inductive. Cost unknown: `strongSoundS`'s `proofIrrel` case uses
   `TShape.HasType.proofIrrel` on exactly that premise. Do not act on it without testing.
+
+---
+
+## Session update 5: (γ) refuted — all three routes closed; `ty_sort` costed and not circular
+
+### §7 — (γ) is refuted, and the fork is closed
+
+(γ) was: move `LE_Interp.const`'s `m'.HasType a` premise, so `Eq.refl` could keep its `.ctor`
+shape without being classified by a Prop-valued inductive.
+
+Probed by actually removing the premise: **36 errors, all mechanical arity fixes except one**,
+at `strongSoundS`'s `const` case, which builds `InterpTyped ρ m (.const c ls) A` with that
+premise *literally* as the `HasType` field —
+
+```lean
+exact .mk b3 (.const b1 b2 .rfl b4 b5 b6 b7) b5 b4   -- `b4` appears twice
+```
+
+— and there is nothing else to put there. And the reason is not about where the premise sits:
+
+```lean
+private theorem ctor_not_prop_typed (a : Shape 1) (h : Shape.hasType piX a = true) :
+    Shape.hasType a (Shape.prop (n := 1)) = false
+```
+
+**Proved.** No shape both classifies a `.ctor` and is itself Prop-valued, so `InterpTyped`'s
+slot cannot be filled for `Eq.refl` at its natural shape *wherever the premise lives*.
+
+**All three routes are closed.** §7's residue is a design problem, and its sharpest statement:
+
+> §7 makes `proofIrrel` true by ruling that a `.ctor` shape is never classified by a
+> Prop-valued inductive. But `Eq.refl` must **have** a `.ctor` shape (its ι-rule's pattern
+> needs a `.ctor` leaf, and `Eq` large-eliminates so that rule cannot be dropped), and it must
+> **be typed** (`InterpTyped` demands a classifying shape for every realized term). Those two
+> are now inconsistent for one and the same term, and no relocation of a premise reconciles
+> them — the obstruction is `ctor_not_prop_typed`, which mentions neither `LE_Interp` nor
+> `Params`.
+
+Anything that resolves it must give up one of: `proofIrrel` at Prop-valued inductives; the
+`.ctor` leaf in ι-patterns; or `InterpTyped`'s totality on realized terms.
+
+### Join family — `ty_sort` costed. Not circular, and the universe is not needed.
+
+**Circularity check, negative.** I called `ty_sort` "essentially the substance of `sort_inv`";
+that was too pessimistic. `sort_inv` needs the *level* (`u ≈ v`); the shape model needs only
+the *boolean* `decide (u ≠ .zero)`, and the boolean falls out of a `SoundEq` between sorts via
+`LE_Interp.le_sort`, whose whole proof is a two-case induction on `LE_Interp`. The technique is
+already used in `build_spine`'s `imax` argument.
+
+**The universe is not needed either.** A universe-carrying `ty_sort` applied twice at `LRS`'s
+`join_ty` `forallE` case leaves `decide (u ≠ 0)` against `decide (u' ≠ 0)`. Dropping it removes
+the problem:
+
+```
+join_sort : m₁.Compat m₂ → TyDefEq A B m₁ → TyDefEq A B m₂ → m₁.IsType → m₂.IsType →
+            ∃ r, m₁.HasType (.sort r) ∧ m₂.HasType (.sort r)
+```
+
+`IsType.common` relativised to `TyDefEq` at a common `A B` — the same move `common_sort` makes
+one layer down. `join_ty` already has `hC`, so the caller supplies nothing new.
+
+**Why it should go through**, and the half that is machine-checked:
+
+```lean
+theorem Shape.IsType.common_of_not_forallE {n} {a a' : Shape (n+1)} {r r'}
+    (hC : Shape.Compat a a' = true) (hr : HasType a (.sort r)) (hr' : HasType a' (.sort r'))
+    (hne : ∀ (b : Shape n) f (b' : Shape n) f', ¬(a = .forallE b f ∧ a' = .forallE b' f')) :
+    ∃ r, HasType a (.sort r) ∧ HasType a' (.sort r)
+```
+
+**Proved.** `Compat` alone pins the sort in 35 of the 36 constructor pairs; `cx_refutes` is
+confined to `forallE`/`forallE`. There, `ValTyPi2` supplies what `Compat` cannot: both
+`PiDefEq`s carry `IH.TyDefEq (F₁.inst a) (F₂.inst a) (fᵢ.app p)` over the *same* `F₁ F₂`, so
+the recursion at `n` applies to corresponding codomain values — take the bot-keyed element
+`ShapeFun.WF` guarantees. Two sub-cases: a non-`.bot` value pins `rᵢ`; all-`.bot` makes
+`HasTypePi fᵢ bᵢ r` hold for every `r`.
+
+Estimate: one recursion on `n`, 35 of 36 cases `Compat`-closed, plus the two-sub-case argument
+at `forallE`. 40–80 lines. Not machine-checked as a whole; `common_of_not_forallE` is.
