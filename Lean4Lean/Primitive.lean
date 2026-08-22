@@ -445,10 +445,17 @@ def checkPrimitiveDef (v : DefinitionVal) : M Bool := do
     unless env.contains ``Nat && v.levelParams.isEmpty do fail
     -- Char : Type
     _ ← ensureType q(Char)
-    -- @Char.ofNat : Nat → Char
-    unless ← isDefEq v.type q(Nat → Char) do fail
+    -- @Char.ofNat : Nat → Char, compared *syntactically*.
+    -- The declared type of a primitive is what pins down the constant's meaning, and it is read
+    -- off structurally rather than up to defeq, so a defeq-but-differently-shaped type such as
+    -- `(fun _ : Nat => Nat → Char) Nat.zero` must be rejected here. `==` is `Expr.eqv`, which is
+    -- structural equality ignoring binder names and binder info — exactly the identifications
+    -- the structural reading makes.
+    unless v.type == q(Nat → Char) do fail
   | ``String.ofList =>
-    unless v.levelParams.isEmpty do fail
+    unless env.contains ``String && env.contains ``Char
+      && env.contains ``List.nil && env.contains ``List.cons
+      && v.levelParams.isEmpty do fail
     -- Char : Type
     _ ← ensureType q(Char)
     -- List Char : Type
@@ -457,8 +464,8 @@ def checkPrimitiveDef (v : DefinitionVal) : M Bool := do
     unless ← isDefEq (← checkType q(List.nil (α := Char))) q(List Char) do fail
     -- @List.cons.{0} Char : Char → List Char → List Char
     unless ← isDefEq (← checkType q(List.cons (α := Char))) q(Char → List Char → List Char) do fail
-    -- String.ofList : List Char → String
-    unless ← isDefEq v.type q(List Char → String) do fail
+    -- String.ofList : List Char → String, compared syntactically as for `Char.ofNat` above
+    unless v.type == q(List Char → String) do fail
   | _ => return false
   return true
 
