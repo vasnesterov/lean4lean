@@ -165,7 +165,7 @@ Open:
 
 | Item | File | Note |
 |---|---|---|
-| `VInductDecl.WF`, `VEnv.addInduct` — `sorry` **definitions** | `Theory/Inductive.lean` | **the keystone**; the spec of inductive types does not exist |
+| `VInductDecl.WF`, `VEnv.addInduct` — `sorry` **definitions** | `Theory/Inductive.lean` | superseded — see `Theory/Inductive/Decl.lean`; the swap into `VDecl` is still to schedule |
 | `addInduct_WF` | `Theory/Typing/InductiveLemmas.lean` | blocked on the above |
 | `IsDefEqU.sort_inv`, `.forallE_inv_stratified`, `.sort_forallE_inv` | `Theory/Typing/Injectivity.lean` | route found — see below |
 | `NormalEq.parRed`, the `appDF` × `extra` case | `Theory/Typing/ChurchRosser.lean` | needs two new `Params` axioms — see below |
@@ -303,6 +303,22 @@ Landed since the plan was written:
   `VExpr → SExpr` simulation, and `sort_inv` / `sort_forallE_inv` for `VExpr`
   relative to a `Params` instance.
 - `docs/design-inductive.md` — the keystone specification.
+- `Theory/Inductive/Decl.lean` + `DeclExamples.lean` — **the keystone itself**.
+  The structured `VInductDecl'`, its `WF` staged as the kernel stages its checks,
+  and `VEnv.addInduct'` with the recursor types and ι-rules written out.
+  Validated against ground truth rather than against the design: the real
+  recursor is elaborated with `type_of%`, translated, and compared for syntactic
+  equality. `Eq`, `Nat`, `Acc` and a mutual `Tree`/`Forest` block all come out
+  identical to Lean's own, argument order included. That validation caught a real
+  bug — stored telescopes live at the block's universe numbering but get spliced
+  into terms at the recursor's, so with `isLE` every `.param i` shifts by one.
+  The C++ kernel is immune because its universe parameters are names, not
+  indices.
+
+Still to schedule for the keystone: `VDecl.induct` must carry the new record
+(a deep rebuild, so it wants a quiet tree); the `Params`/`Pattern` redesign and
+the `Params` instance for an `addInduct'` environment; `addInduct_WF`; `TrProj`;
+and `AddInduct`'s constructors.
 
 - `Theory/SetModel/Inaccessible.lean` — Foundation's inaccessible-cardinal
   formulas reflected into Lean predicates with `Defined` instances,
