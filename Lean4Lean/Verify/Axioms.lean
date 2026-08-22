@@ -35,8 +35,26 @@ noncomputable def toList' (arr : PersistentArray α) : List α :=
 
 @[simp] theorem toList'_empty : (.empty : PersistentArray α).toList' = [] := rfl
 
-/-- We cannot prove this because `insertNewLeaf` is partial -/
-@[simp] axiom toList'_push {α} (arr : PersistentArray α) (x : α) :
+/--
+We cannot prove this because `insertNewLeaf` is partial.
+
+The previous statement of this axiom (without the `WF` hypothesis) was **false**:
+`insertNewLeaf`'s last clause is `| n, _, _, _ => n  -- unreachable`, which is
+reached whenever the root is a `leaf`, and `mkNewTail` then also resets
+`tail := #[]`, silently discarding the whole 32-element tail.
+
+Counterexample:
+```
+def bad : PersistentArray Nat :=
+  { root := .leaf #[], tail := Array.replicate 31 (7:Nat),
+    size := 31, shift := 5, tailOff := 0 }
+-- (bad.push 99).toList' = []
+-- bad.toList' ++ [99]   = [7,7,…,7,99]   (32 elements)
+```
+`bad` is of course not `WF`, and `WF` is exactly the hypothesis that rules this
+out.  See `docs/axiom-audit.md` §5.3.
+-/
+@[simp] axiom WF.toList'_push {α} {arr : PersistentArray α} (h : WF arr) (x : α) :
     (arr.push x).toList' = arr.toList' ++ [x]
 
 @[simp] theorem size_empty : (.empty : PersistentArray α).size = 0 := rfl
@@ -46,7 +64,9 @@ noncomputable def toList' (arr : PersistentArray α) : List α :=
   simp [push]; split <;> [rfl; (simp [mkNewTail]; split <;> rfl)]
 
 @[simp] theorem WF.toList'_length (h : WF arr) : arr.toList'.length = arr.size := by
-  induction h <;> simp [*]
+  induction h with
+  | empty => simp
+  | push h ih => simp [h.toList'_push, ih]
 
 end PersistentArray
 
@@ -431,20 +451,49 @@ def instantiate1' (e : Expr) (subst : Expr) (d := 0) : Expr :=
   | e, [], _ => e
   | e, a :: as, k => instantiateList (instantiate1' e a k) as k
 
-/-- This could be an `@[implemented_by]` -/
-@[simp] axiom instantiate_eq (e : Expr) (subst) :
+/--
+This could be an `@[implemented_by]`, but only under the closedness hypothesis `h`.
+
+The previous statement of this axiom (without `h`) was **false**: the real
+`Expr.instantiate` is *simultaneous* — a loose `bvar i` at binding depth `d` is
+replaced by `liftLooseBVars (subst[i-d]) 0 d` and the loose bvars *inside* the
+substituted term are neither re-substituted nor renumbered — whereas
+`instantiateList` is *sequential*, re-entering the result of each step.
+
+Counterexample: for `e = .bvar 0` and `subst = #[.bvar 0, .sort .zero]`,
+`e.instantiate subst = .bvar 0` but `e.instantiateList subst.toList = .sort .zero`.
+
+Requiring every substituend to be closed makes the two agree.
+See `docs/axiom-audit.md` §5.1.
+-/
+@[simp] axiom instantiate_eq (e : Expr) (subst : Array Expr)
+    (h : ∀ a ∈ subst, a.looseBVarRange' = 0) :
     e.instantiate subst = e.instantiateList subst.toList
 
 /-- This could be an `@[implemented_by]` -/
 @[simp] axiom instantiateRev_eq (e : Expr) (subst) :
     e.instantiateRev subst = e.instantiate subst.reverse
 
-/-- This could be an `@[implemented_by]` -/
-@[simp] axiom instantiateRange_eq (e : Expr) (subst) :
+/-- This could be an `@[implemented_by]`.
+
+The hypotheses `h₁ : start ≤ stop` and `h₂ : stop ≤ subst.size` are essential.
+The previous unconditional form was **false**: `lean_expr_instantiate_range`
+(`kernel/instantiate.cpp:82`) starts with
+`if (b > e || e > sz) lean_internal_panic(...)` and so *aborts the process*
+outside the range, whereas `Array.extract` clamps and the right-hand side
+returns a value. Inside the range the two sides agree exactly.
+See `docs/axiom-audit.md` §6. -/
+@[simp] axiom instantiateRange_eq (e : Expr) (subst)
+    (h₁ : start ≤ stop) (h₂ : stop ≤ subst.size) :
     e.instantiateRange start stop subst = e.instantiate (subst.extract start stop)
 
-/-- This could be an `@[implemented_by]` -/
-@[simp] axiom instantiateRevRange_eq (e : Expr) (subst) :
+/-- This could be an `@[implemented_by]`.
+
+The hypotheses `h₁ : start ≤ stop` and `h₂ : stop ≤ subst.size` are essential;
+see `instantiateRange_eq` above and `docs/axiom-audit.md` §6. Out of range the
+C wrapper calls `lean_internal_panic` and aborts, while `Array.extract` clamps. -/
+@[simp] axiom instantiateRevRange_eq (e : Expr) (subst)
+    (h₁ : start ≤ stop) (h₂ : stop ≤ subst.size) :
     e.instantiateRevRange start stop subst = e.instantiateRev (subst.extract start stop)
 
 def abstract1 (v : FVarId) : Expr → (k :_:= 0) → Expr
@@ -466,8 +515,27 @@ def abstract1 (v : FVarId) : Expr → (k :_:= 0) → Expr
   | e, [], _ => e
   | e, a :: as, k => abstractList (abstract1 a e k) as k
 
-/-- This could be an `@[implemented_by]` -/
-@[simp] axiom abstract_eq (e : Expr) (xs : List FVarId) :
+/--
+This could be an `@[implemented_by]`, but only under the hypotheses `he` and `hx`.
+
+The previous statement of this axiom (without `he`, `hx`) was **false**, for two
+independent reasons:
+
+* The C `abstract` (`kernel/abstract.cpp`) rewrites only `fvar`/`mvar` nodes and
+  leaves `bvar`s untouched, so it *captures* loose bvars, while `abstract1`
+  shifts them.  Counterexample: for `e = .app (.fvar x) (.bvar 0)`, `xs = [x]`,
+  `e.abstract #[.fvar x] = .app (.bvar 0) (.bvar 0)` but
+  `e.abstractList xs = .app (.bvar 0) (.bvar 1)`.
+* On duplicates, `abstract` scans `i = n-1 … 0` and takes the **last** match,
+  while the sequential `abstractList` gives the first-abstracted variable the
+  *highest* index.  Counterexample: for `e = .fvar x`, `xs = [x, x]`,
+  `e.abstract #[.fvar x, .fvar x] = .bvar 0` but `e.abstractList xs = .bvar 1`.
+
+Requiring `e` to be loose-bvar-free and `xs` to be duplicate-free makes the two
+agree.  See `docs/axiom-audit.md` §5.2.
+-/
+@[simp] axiom abstract_eq (e : Expr) (xs : List FVarId)
+    (he : e.looseBVarRange' = 0) (hx : xs.Nodup) :
     e.abstract ⟨xs.map .fvar⟩ = e.abstractList xs
 
 /-- This could be an `@[implemented_by]` -/
