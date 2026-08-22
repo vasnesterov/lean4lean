@@ -698,6 +698,126 @@ theorem IsDefEq.eqUpToLevels (H : env.IsDefEq U Γ e1 e2 A)
   (EqUpToLevels.defeq henv henv.strong W (H.strong henv hΓ)
     (EqUpToLevels.refl W.levelWF this).1 H1).defeq
 
+/-! ### Descending a derivation to a smaller universe-parameter count
+
+`IsDefEq` is indexed by `uvars`, the number of universe parameters in scope, and `uvars`
+occurs *only* in the `l.WF uvars` side conditions of `sortDF`, `constDF` and `extra`
+(`Theory/Typing/Basic.lean:22–31, 54–56`). So a derivation may be built at a generous `U'`
+and brought back down to the `U` its endpoints actually need. **The levels do not have to
+stay well-formed throughout — they can be repaired at the end.**
+
+That is worth saying in full, because the opposite reading cost this development a round.
+A calculus that quotients levels — `Experimental/SExpr.lean`'s `SLevel`, which records only
+a level's *evaluation* — imposes no well-formedness at all, so choosing a `VExpr`
+representative for one of its terms can yield a syntactically ill-formed level:
+`.imax (.param 7) .zero` and `.zero` evaluate alike (`Lean.Nat.imax _ 0 = 0`), yet only the
+second is `WF 0`. From that it looks as though reflecting such a calculus into `VExpr` needs
+the invariant "every level here is `WF U`" threaded through the induction — and that
+invariant genuinely is *not* maintained by the rules, since `SExpr.IsDefEq.const` admits any
+level list of the right length. The conclusion does not follow. Substituting
+`VLevel.params U` for the levels of a *finished* derivation
+
+* makes **any** level `WF U` — `VLevel.WF.inst` with `VLevel.params_wf`, because
+  `VLevel.inst` sends an out-of-range `.param i` to `.zero` by definition;
+* is the identity on terms already `LevelWF U` — `VExpr.LevelWF.instL_id`;
+* preserves `≈` — `VLevel.inst_congr_l`; and
+* is admissible on derivations — `IsDefEq.instL`.
+
+`IsDefEq.descend` packages the four, with `IsDefEq.eqUpToLevels` above discharging the
+residual slack at the two endpoints. `VLevel.exists_wf_list` and `IsDefEq.mono_uvars` are
+the other half of the trade: they are what let an induction *produce* its `U'` (a derivation
+is finite, so some `U'` bounds every level in it) and combine the `U'`s of its branches.
+
+Provenance: `docs/research-forallE-inv.md` §9. -/
+
+theorem _root_.Lean4Lean.VLevel.WF.mono {l : VLevel} (h : U ≤ U') : l.WF U → l.WF U' := by
+  induction l <;> simp_all [VLevel.WF] <;> omega
+
+/-- Every level is well-formed at *some* parameter count. -/
+theorem _root_.Lean4Lean.VLevel.exists_wf : ∀ l : VLevel, ∃ n, l.WF n
+  | .zero => ⟨0, trivial⟩
+  | .succ l => VLevel.exists_wf l
+  | .max a b | .imax a b =>
+    let ⟨m, h1⟩ := VLevel.exists_wf a; let ⟨n, h2⟩ := VLevel.exists_wf b
+    ⟨Nat.max m n, h1.mono (Nat.le_max_left ..), h2.mono (Nat.le_max_right ..)⟩
+  | .param i => ⟨i+1, Nat.lt_succ_self _⟩
+
+theorem _root_.Lean4Lean.VLevel.exists_wf_list : ∀ ls : List VLevel, ∃ n, ∀ l ∈ ls, l.WF n
+  | [] => ⟨0, nofun⟩
+  | l :: ls => by
+    obtain ⟨m, h1⟩ := VLevel.exists_wf l
+    obtain ⟨n, h2⟩ := VLevel.exists_wf_list ls
+    refine ⟨Nat.max m n, fun x hx => ?_⟩
+    rcases List.mem_cons.1 hx with rfl | hx
+    · exact h1.mono (Nat.le_max_left ..)
+    · exact (h2 _ hx).mono (Nat.le_max_right ..)
+
+/-- `uvars` is a *bound*, not a commitment: a derivation at `U` is one at any `U' ≥ U`.
+Lets an induction take the maximum of the counts its branches produce. -/
+theorem IsDefEq.mono_uvars {env : VEnv} {Γ : List VExpr} {e₁ e₂ A : VExpr} (h : U ≤ U') :
+    env.IsDefEq U Γ e₁ e₂ A → env.IsDefEq U' Γ e₁ e₂ A := by
+  intro H
+  induction H with
+  | bvar h => exact .bvar h
+  | symm _ ih => exact .symm ih
+  | trans _ _ ih1 ih2 => exact .trans ih1 ih2
+  | sortDF h1 h2 h3 => exact .sortDF (h1.mono h) (h2.mono h) h3
+  | constDF h1 h2 h3 h4 h5 =>
+    exact .constDF h1 (fun _ hl => (h2 _ hl).mono h) (fun _ hl => (h3 _ hl).mono h) h4 h5
+  | appDF _ _ ih1 ih2 => exact .appDF ih1 ih2
+  | lamDF _ _ ih1 ih2 => exact .lamDF ih1 ih2
+  | forallEDF _ _ ih1 ih2 => exact .forallEDF ih1 ih2
+  | defeqDF _ _ ih1 ih2 => exact .defeqDF ih1 ih2
+  | beta _ _ ih1 ih2 => exact .beta ih1 ih2
+  | eta _ ih => exact .eta ih
+  | proofIrrel _ _ _ ih1 ih2 ih3 => exact .proofIrrel ih1 ih2 ih3
+  | extra h1 h2 h3 => exact .extra h1 (fun _ hl => (h2 _ hl).mono h) h3
+
+/-- Substituting well-formed levels lands `EqUpToLevels` at the substituted count,
+whatever count it started at.  Distinct from `EqUpToLevels.instL` above, which relates one
+term instantiated at two `≈`-equivalent level lists. -/
+theorem EqUpToLevels.instL' {ls : List VLevel} (hls : ∀ l ∈ ls, l.WF U) :
+    ∀ {e e'}, EqUpToLevels U' e e' → EqUpToLevels U (e.instL ls) (e'.instL ls) := by
+  intro e e' H
+  induction H with simp [VExpr.instL]
+  | bvar => exact .bvar
+  | const _ _ h3 =>
+    exact .const (List.forall_mem_map.2 fun _ _ => .inst hls)
+      (List.forall_mem_map.2 fun _ _ => .inst hls)
+      (by rw [List.forall₂_map_left_iff, List.forall₂_map_right_iff]
+          exact Lean4Lean.List.Forall₂.imp (fun _ _ => VLevel.inst_congr_l) h3)
+  | sort _ _ h3 => exact .sort (.inst hls) (.inst hls) (VLevel.inst_congr_l h3)
+  | app _ _ ih1 ih2 => exact .app ih1 ih2
+  | lam _ _ ih1 ih2 => exact .lam ih1 ih2
+  | forallE _ _ ih1 ih2 => exact .forallE ih1 ih2
+
+theorem _root_.Lean4Lean.OnCtx.instL_id : ∀ {Γ : List VExpr},
+    OnCtx Γ (fun _ A => A.LevelWF U) → Γ.map (VExpr.instL (VLevel.params U)) = Γ
+  | [], _ => rfl
+  | _::_, ⟨h1, h2⟩ => by simp [OnCtx.instL_id h1, VExpr.LevelWF.instL_id h2]
+
+/-- **Descent.**  A derivation at *any* universe-parameter count `U'`, whose two endpoints
+agree up to level equivalence with terms that are `LevelWF U`, descends to `U`.
+
+The endpoints' own levels are `U`-well-formed and so survive the substitution untouched;
+everything in between is repaired by it.  See the section note above for why this is the
+right shape, and `docs/research-forallE-inv.md` §9 for what it was needed for. -/
+theorem IsDefEq.descend {env : VEnv} {Γ : List VExpr} {U U' : Nat} {e₁ e₂ A a₁ a₂ : VExpr}
+    (henv : Ordered env) (hΓ : OnCtx Γ (env.IsType U))
+    (H : env.IsDefEq U' Γ e₁ e₂ A)
+    (h1 : EqUpToLevels U' e₁ a₁) (h2 : EqUpToLevels U' e₂ a₂)
+    (w1 : a₁.LevelWF U) (w2 : a₂.LevelWF U) :
+    env.IsDefEqU U Γ a₁ a₂ := by
+  have key := H.instL (ls := VLevel.params U) VLevel.params_wf
+  rw [OnCtx.instL_id (CtxStrong.strong henv hΓ).levelWF] at key
+  have E1 : EqUpToLevels U (e₁.instL (VLevel.params U)) a₁ := by
+    have h := EqUpToLevels.instL' (U := U) VLevel.params_wf h1
+    rwa [VExpr.LevelWF.instL_id w1] at h
+  have E2 : EqUpToLevels U (e₂.instL (VLevel.params U)) a₂ := by
+    have h := EqUpToLevels.instL' (U := U) VLevel.params_wf h2
+    rwa [VExpr.LevelWF.instL_id w2] at h
+  exact ⟨_, ((key.eqUpToLevels henv hΓ E2).symm.eqUpToLevels henv hΓ E1).symm⟩
+
 variable! (henv : Ordered env) (hΓ : OnCtx Γ (env.IsType U')) {ls ls' : List VLevel}
     (hls : ∀ l ∈ ls, l.WF U) (hls' : ∀ l ∈ ls', l.WF U) (heq : List.Forall₂ (· ≈ ·) ls ls') in
 theorem IsDefEq.instL_r (H : env.IsDefEq U' Γ e1 e2 A) :

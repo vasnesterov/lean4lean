@@ -175,6 +175,41 @@ not give: a rule being in `defeqs` says nothing about `constants`.  Hence the tw
 evidence exists — `VInductDecl'.WF.iotaCtx` supplies exactly these from `addInduct'` — rather
 than assumed globally. -/
 
+/-- A recursor's stored type, under its binders, is a *motive application* — a `bvar` head. -/
+theorem VInductDecl'.piBodyHead_recType (D : VInductDecl') (j : Nat) {T : VIndType}
+    (hT : D.types[j]? = some T) :
+    VExpr.piBodyHead (D.recType j)
+      = .bvar (1 + T.indices.length + D.nmin + (D.nm - 1 - j)) := by
+  rw [VInductDecl'.recType, getD_types hT,
+    show ∀ A B : VExpr, VExpr.forallE A B = mkPi [A] B from fun _ _ => rfl,
+    ← VExpr.mkPi_append]
+  exact VExpr.piBodyHead_mkPi_mkApp _ (by nofun) (by nofun) _
+
+/-- A constructor's stored type, under its binders, is `I p args` — a `const` head. -/
+theorem VIndCtor.piBodyHead_type (C : VIndCtor) (D : VInductDecl') (j : Nat) :
+    VExpr.piBodyHead (C.type D j) = .const (D.types.getD j default).name D.ownLvls := by
+  rw [VIndCtor.type, VIndCtor.canonResult, VInductDecl'.tyApp]
+  exact VExpr.piBodyHead_mkPi_mkApp _ (by nofun) (by nofun) _
+
+/-- So the two stored types are never equal. -/
+theorem recType_ne_ctorType {D D' : VInductDecl'} {j j' : Nat} {T : VIndType} {C : VIndCtor}
+    (hT : D.types[j]? = some T) : D.recType j ≠ C.type D' j' := fun h => by
+  have h2 := congrArg VExpr.piBodyHead h
+  rw [D.piBodyHead_recType j hT, C.piBodyHead_type D' j'] at h2
+  exact absurd h2 (by nofun)
+
+/-- **The global name-distinctness fact.**  A recursor name is never a constructor name — in
+*any* environment, because `VEnv.addConst` rejects duplicates, so the two would be the same
+constant and their stored types would have to agree.  This is what `pat_app_uniq` bottoms out
+in; see the section above for why it needs the constants to be present. -/
+theorem rec_ne_ctor {env : VEnv} {D D' : VInductDecl'} {j j' : Nat} {T : VIndType}
+    {C : VIndCtor} (hT : D.types[j]? = some T)
+    (hrec : env.constants (Lean.mkRecName T.name) = some ⟨D.recUvars, D.recType j⟩)
+    (hctor : env.constants C.name = some ⟨D'.uvars, C.type D' j'⟩) :
+    Lean.mkRecName T.name ≠ C.name := fun h => by
+  rw [h, hctor, Option.some_inj] at hrec
+  exact recType_ne_ctorType hT (congrArg VConstant.type hrec).symm
+
 /-- **`Params.pat_simple`.**  Immediate from the shape of the family: every constructor's
 pattern index is a `SimplePattern.toPattern` by construction. -/
 theorem Pat.simple {env : VEnv} {p : Pattern} {r : p.RHS × p.Check} (h : Pat env p r) :
