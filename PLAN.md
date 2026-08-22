@@ -348,9 +348,16 @@ Landed since the plan was written:
   The C++ kernel is immune because its universe parameters are names, not
   indices.
 
-Still to schedule for the keystone: `VDecl.induct` must carry the new record
-(a deep rebuild, so it wants a quiet tree); the `Params`/`Pattern` redesign and
-the `Params` instance for an `addInduct'` environment; `addInduct_WF`; `TrProj`;
+The keystone is now **wired in**: `VDecl.induct` carries the structured record,
+`Theory/Inductive.lean` and its two `sorry`ed definitions are deleted, and the
+prelude literals in `Consistency.lean` are re-expressed and checked against
+Lean's own declarations by `rfl`. `Nonempty` turned out to be the repo's first
+small-eliminator — its large-elimination condition genuinely fails and its
+recursor takes one universe parameter rather than two — a case no existing
+validation had exercised.
+
+Still to schedule for the keystone: `addInduct_WF`, now reduced to exactly two
+obligations (`onCtxMinors` and `iotaRule_WF`); the `Params` instance; `TrProj`;
 and `AddInduct`'s constructors.
 
 - `Theory/SetModel/Inaccessible.lean` — Foundation's inaccessible-cardinal
