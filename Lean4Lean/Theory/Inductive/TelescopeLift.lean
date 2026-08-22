@@ -225,6 +225,58 @@ theorem inst_bvars {a : VExpr} {lo n k : Nat} (h : lo + n ≤ k) :
     simp only [bvars, List.map_cons, inst, instVar, if_pos (show lo + n < k by omega)]
     rw [ih (by omega)]
 
+/-! ## Closed telescopes do not move -/
+
+/-- A telescope closed at `k` is fixed by a `liftTele'` whose lift fixes `k`. -/
+theorem liftTele'_eq_self : ∀ {As : List VExpr} {ρ : Lift} {k : Nat},
+    ClosedTele As k → ρ.Fixes k → liftTele' ρ As = As
+  | [], _, _, _, _ => rfl
+  | A :: As, ρ, k, h, hρ => by
+    rw [liftTele'_cons, h.1.lift'_eq hρ,
+      liftTele'_eq_self (As := As) (ρ := ρ.cons) (k := k+1) h.2 hρ]
+
+/-- The same for `instTele`, whose cut must sit at or above the closedness level. -/
+theorem instTele_eq_self : ∀ {As : List VExpr} {a : VExpr} {k j : Nat},
+    ClosedTele As k → k ≤ j → instTele a As j = As
+  | [], _, _, _, _, _ => rfl
+  | A :: As, a, k, j, h, hk => by
+    rw [instTele_cons, h.1.instN_eq hk,
+      instTele_eq_self (As := As) (a := a) (k := k+1) (j := j+1) h.2 (by omega)]
+
+/-! ## Telescope substitution commutes -/
+
+/-- The `lift'` analogue of `VExpr.liftTele_instTele`. -/
+theorem liftTele'_instTele : ∀ {As : List VExpr} {a : VExpr} {ρ : Lift} {j : Nat},
+    liftTele' (ρ.consN j) (instTele a As j)
+      = instTele (a.lift' ρ) (liftTele' (ρ.consN (j+1)) As) j
+  | [], _, _, _ => rfl
+  | A :: As, a, ρ, j => by
+    rw [instTele_cons, liftTele'_cons, liftTele'_cons, instTele_cons, lift'_inst]
+    exact congrArg _ (liftTele'_instTele (As := As) (a := a) (ρ := ρ) (j := j+1))
+
+/-- The `inst` analogue of `VExpr.liftTele_instTele`. -/
+theorem instTele_instTele : ∀ {As : List VExpr} {a b : VExpr} {m j : Nat},
+    instTele b (instTele a As j) (m + j)
+      = instTele (a.inst b m) (instTele b As (m + j + 1)) j
+  | [], _, _, _, _ => rfl
+  | A :: As, a, b, m, j => by
+    rw [instTele_cons, instTele_cons, instTele_cons, instTele_cons, inst_inst_hi]
+    refine congrArg _ ?_
+    have := instTele_instTele (As := As) (a := a) (b := b) (m := m) (j := j+1)
+    rw [show m + (j+1) = m + j + 1 from by omega] at this
+    rw [this, show m + j + 1 + 1 = m + (j+1) + 1 from by omega]
+
+/-- `lift'_instAllTele` at offset 0, with `consN 0` already reduced so `rw` can match. -/
+theorem lift'_instAllTele₀ {as As : List VExpr} {ρ : Lift} (h : ClosedTele As as.length) :
+    liftTele' ρ (instAllTele As as) = instAllTele As (as.map (·.lift' ρ)) :=
+  lift'_instAllTele (ρ := ρ) (k := 0) (by simpa using h)
+
+/-- `inst_instAllTele` at offset 0, likewise. -/
+theorem inst_instAllTele₀ {as As : List VExpr} {a : VExpr} {m : Nat}
+    (h : ClosedTele As as.length) :
+    instTele a (instAllTele As as) m = instAllTele As (as.map (·.inst a m)) :=
+  inst_instAllTele (m := m) (j := 0) (by simpa using h)
+
 end VExpr
 
 end Lean4Lean

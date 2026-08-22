@@ -173,6 +173,8 @@ the scratchpad witness `ProjTermLiftNeedsClosed.lean`.
 Not a hypothesis: `VEnv.IsStructure.projClosed` (`Theory/Inductive/StructureClosed.lean`)
 derives it from `IsStructure` plus `Ordered env`. -/
 structure VInductDecl'.ProjClosed (D : VInductDecl') (T : VIndType) (C : VIndCtor) : Prop where
+  /-- The parameter telescope is closed at its own arities. -/
+  params : VExpr.ClosedTele D.params 0
   /-- Index `j` lives over `params ++ indices<j`. -/
   indices : VExpr.ClosedTele T.indices D.np
   /-- Field `j` lives over `params ++ fields<j`. -/

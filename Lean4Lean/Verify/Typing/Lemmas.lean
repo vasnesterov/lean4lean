@@ -571,10 +571,16 @@ end VLCtx
 theorem TrProj.weak' (henv : Ordered env) (W : Ctx.Lift' n Γ Γ')
     (H : TrProj env U Γ s i e e') :
     TrProj env U Γ' s i (e.lift' n) (e'.lift' n) := by
-  let .mk h1 h2 h3 h4 h5 h6 h7 := H
-  rw [VInductDecl'.projTerm_lift' _ _ _ _ (h1.projClosed henv) h4 h5 h6]
-  refine .mk h1 ?_ h3 (by simp [h4]) (by simp [h5]) h6 h7
-  simpa [VExpr.lift'_mkApp, List.map_append, VExpr.lift'] using h2.weak' henv W
+  let .mk h1 h2 h3 h4 h5 h6 h7 h8 h9 h10 := H
+  have hcl := h1.projClosed henv
+  rw [VInductDecl'.projTerm_lift' _ _ _ _ hcl h4 h5 h6]
+  refine .mk h1 ?_ h3 (by simp [h4]) (by simp [h5]) h6 h7 ?_ ?_ h10
+  · simpa [VExpr.lift'_mkApp, List.map_append, VExpr.lift'] using h2.weak' henv W
+  · have := h8.weak' henv W
+    rwa [VExpr.liftTele'_eq_self (VExpr.ClosedTele.map_instL hcl.params) Lift.Fixes.zero] at this
+  · have := h9.weak' henv W
+    rwa [VExpr.lift'_instAllTele₀
+      (by simpa [h4] using VExpr.ClosedTele.map_instL hcl.indices)] at this
 
 theorem TrProj.weakN (henv : Ordered env) (W : Ctx.LiftN n k Γ Γ')
     (H : TrProj env U Γ s i e e') :
@@ -705,8 +711,8 @@ theorem TrProj.defeqDFC (henv : VEnv.WF env) (hΓ : env.IsDefEqCtx U [] Γ₁ Γ
 
 variable! {env env' : VEnv} (henv : env ≤ env') in
 theorem TrProj.mono (H : TrProj env U Γ s i e e') : TrProj env' U Γ s i e e' :=
-  let .mk h1 h2 h3 h4 h5 h6 h7 := H
-  .mk (h1.mono henv) (h2.mono henv) h3 h4 h5 h6 h7
+  let .mk h1 h2 h3 h4 h5 h6 h7 h8 h9 h10 := H
+  .mk (h1.mono henv) (h2.mono henv) h3 h4 h5 h6 h7 (h8.mono henv) (h9.mono henv) h10
 
 variable! {env env' : VEnv} (henv : env ≤ env') in
 nonrec theorem VEnv.ContainsLits.mono : ∀ {l}, env.ContainsLits l → env'.ContainsLits l
@@ -875,7 +881,8 @@ theorem TrExpr.fvarsList (H : TrExpr env Us Δ e e') : e.fvarsList ⊆ Δ.fvars 
 /-- Restated with the two contexts identified.  The `Δ`/`Γ` of the original statement were
 unrelated, which claimed the translation is context-independent; the sole consumer (the
 `proj` case of `TrExprS.wf`) instantiates them to the same context. -/
-theorem TrProj.wf (H1 : TrProj env U Γ s i e e') (H2 : VExpr.WF env U Γ e) :
+theorem TrProj.wf (henv : Ordered env) (hΓ : OnCtx Γ (env.IsType U))
+    (H1 : TrProj env U Γ s i e e') (H2 : VExpr.WF env U Γ e) :
     VExpr.WF env U Γ e' := sorry
 
 theorem TrExpr.wf (H : TrExpr env Us Δ e e') : VExpr.WF env Us.length Δ.toCtx e' :=
@@ -896,7 +903,7 @@ theorem TrExprS.wf (H : TrExprS env Us Δ e e') : VExpr.WF env Us.length Δ.toCt
   | forallE h1 h2 => have ⟨_, h1'⟩ := h1; have ⟨_, h2'⟩ := h2; exact ⟨_, h1'.forallE h2'⟩
   | letE h1 _ _ _ _ _ ih3 => exact ih3 ⟨hΔ, nofun, h1⟩
   | lit _ _ ih | mdata _ ih => exact ih hΔ
-  | proj _ h2 ih => exact h2.wf (ih hΔ)
+  | proj _ h2 ih => exact h2.wf henv hΔ.toCtx (ih hΔ)
 
 variable! (henv : Ordered env) {Us : List Name} (hΔ : VLCtx.WF env Us.length Δ) in
 theorem TrExprS.trExpr (H : TrExprS env Us Δ e e') : TrExpr env Us Δ e e' :=
@@ -1229,10 +1236,16 @@ theorem TrExprS.instN_var (W : VLCtx.InstN Δ₀ e₀' A₀ dk k Δ₁ Δ) (H : 
 theorem TrProj.instN (henv : Ordered env) (W : Ctx.InstN Γ₀ e₀ A₀ k Γ₁ Γ)
     (t₀ : env.HasType U Γ₀ e₀ A₀) (H : TrProj env U Γ₁ s i e e') :
     TrProj env U Γ s i (e.inst e₀ k) (e'.inst e₀ k) := by
-  let .mk h1 h2 h3 h4 h5 h6 h7 := H
-  rw [VInductDecl'.projTerm_instN _ _ _ _ (h1.projClosed henv) h4 h5 h6]
-  refine .mk h1 ?_ h3 (by simp [h4]) (by simp [h5]) h6 h7
-  simpa [VExpr.inst_mkApp, List.map_append, VExpr.inst] using h2.instN henv W t₀
+  let .mk h1 h2 h3 h4 h5 h6 h7 h8 h9 h10 := H
+  have hcl := h1.projClosed henv
+  rw [VInductDecl'.projTerm_instN _ _ _ _ hcl h4 h5 h6]
+  refine .mk h1 ?_ h3 (by simp [h4]) (by simp [h5]) h6 h7 ?_ ?_ h10
+  · simpa [VExpr.inst_mkApp, List.map_append, VExpr.inst] using h2.instN henv W t₀
+  · have := h8.instN henv W t₀
+    rwa [VExpr.instTele_eq_self (VExpr.ClosedTele.map_instL hcl.params) (Nat.zero_le _)] at this
+  · have := h9.instN henv W t₀
+    rwa [VExpr.inst_instAllTele₀
+      (by simpa [h4] using VExpr.ClosedTele.map_instL hcl.indices)] at this
 
 variable! (henv : Ordered env) (h₀ : TrExprS env Us Δ₀ e₀ e₀')
   (t₀ : env.HasType Us.length Δ₀.toCtx e₀' A₀) in
@@ -1502,11 +1515,15 @@ theorem ofLevel_mkLevelIMax'
 variable! {ls : List VLevel} (hls : ∀ l ∈ ls, l.WF U') in
 theorem TrProj.instL (H : TrProj env U Γ s i e e') :
     TrProj env U' (Γ.map (VExpr.instL ls)) s i (e.instL ls) (e'.instL ls) := by
-  let .mk h1 h2 h3 h4 h5 h6 h7 := H
+  let .mk h1 h2 h3 h4 h5 h6 h7 h8 h9 h10 := H
   rw [VInductDecl'.projTerm_instL]
-  refine .mk h1 ?_ (by simp [h3]) (by simp [h4]) (by simp [h5]) h6 ?_
+  refine .mk h1 ?_ (by simp [h3]) (by simp [h4]) (by simp [h5]) h6 ?_ ?_ ?_ ?_
   · simpa [VExpr.instL, List.map_append] using h2.instL hls
-  · refine h7.imp id fun h => ?_
+  · exact fun l hl => by
+      obtain ⟨l', _, rfl⟩ := List.mem_map.1 hl; exact VLevel.WF.inst hls
+  · simpa [List.map_map, Function.comp_def, VExpr.instL_instL] using h8.instL hls
+  · simpa [List.map_map, Function.comp_def, VExpr.instL_instL] using h9.instL hls
+  · refine h10.imp id fun h => ?_
     rw [← VLevel.inst_inst]
     exact VLevel.inst_congr_l h
 

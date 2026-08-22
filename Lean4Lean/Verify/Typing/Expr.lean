@@ -85,6 +85,39 @@ inductive TrProj : List VExpr → Name → Nat → VExpr → VExpr → Prop
     env.HasType U Γ e ((VExpr.const S us).mkApp (ps ++ ιs)) →
     us.length = D.uvars → ps.length = D.np → ιs.length = T.indices.length →
     i < C.fields.length →
+    -- **Recorded, not derived** — the three clauses below.
+    --
+    -- They are all consequences of the `HasType` above, but extracting them means peeling
+    -- the application spine with `HasType.app_inv` (`Typing/Strong.lean:769`), which returns
+    -- an *existential* domain, and pinning that domain to `S`'s declared parameter/index
+    -- telescope means relating it to `T.type` — which by F1 is only *definitionally*
+    -- `mkPi (params ++ indices) (sort lvl)`.  That is `IsDefEqU.forallE_inv`
+    -- (`Typing/Injectivity.lean`, `sorry`), the same family that blocks `TrProj.uniq`,
+    -- `.defeqDFC` and `.weak'_inv`.
+    --
+    -- `Theory/Inductive/Decl.lean` reached this identical wall independently and took the
+    -- identical door: see `VIndField.WF.pos`'s index clause and `VIndCtor.WF.args_ty`,
+    -- whose justification transfers verbatim.
+    --
+    -- What makes this a relocation of a proof obligation rather than an assumption is that
+    -- the checker *demonstrably* establishes each clause, at these sites:
+    --   * `inferProj` whnfs `e`'s type and destructures it as `I args`
+    --     (`TypeChecker.lean:235-236`), requiring `args.size = numParams + numIndices`
+    --     (`TypeChecker.lean:243`);
+    --   * the `.app` branch of `inferType'` checks every argument against its domain with
+    --     `isDefEq dType aType` (`TypeChecker.lean:298-312`), via `inferApp`
+    --     (`TypeChecker.lean:190`);
+    --   * `inferConstant` checks `ps.length = ls.length` and `checkLevel` on each level
+    --     (`TypeChecker.lean:121-133`).
+    --
+    -- **The obligation moves to `inferProj.WF`** (`Verify/TypeChecker/InferType.lean`),
+    -- where it is discharged from those checks — not dropped.
+    --
+    -- This also subsumes the level obligation of `TrProj.wf`: `hus` is why `wf` can reach
+    -- `recApp_hasType''`'s `hls`, and `wf`'s own `hΓ` is needed for other reasons.
+    (hus : ∀ l ∈ us, l.WF U) →
+    env.HasArgs U Γ (D.params.map (VExpr.instL us)) ps →
+    env.HasArgs U Γ (VExpr.instAllTele (T.indices.map (VExpr.instL us)) ps) ιs →
     -- F17's side condition, in the form the encoding needs: either the block eliminates
     -- into an arbitrary universe, or the field is a proof.  The kernel enforces the
     -- strictly syntactic version — `inferProj` guards every dependent field domain and

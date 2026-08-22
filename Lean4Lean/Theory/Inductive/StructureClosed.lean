@@ -78,7 +78,10 @@ theorem VEnv.IsStructure.projClosed (henv : env.Ordered) (H : env.IsStructure S 
   have hc₀ : OnTypes env₀ (fun _ e A => e.ClosedN ∧ A.ClosedN) :=
     henv.closed.mono hle₀ id
   have hT : T ∈ D.types := by rw [H.types]; exact List.mem_singleton_self _
-  constructor
+  refine ⟨?_, ?_, ?_⟩
+  · -- parameters: `VInductDecl'.WF.params`, again in `env₀`
+    have := VExpr.ClosedTele.of_onCtx₀ (Γ := []) hc₀ (by simpa using hWF.params)
+    simpa using this
   · -- indices: from `VIndType.WF.indices`, a judgement in `env₀`
     have := VExpr.ClosedTele.of_onCtx₀ hc₀ (hWF.types T hT).indices
     simpa [VInductDecl'.np] using this
@@ -96,5 +99,37 @@ theorem VEnv.IsStructure.projClosed (henv : env.Ordered) (H : env.IsStructure S 
     rw [VIndCtor.type] at hcl
     have := (VExpr.closedTele_append.1 (VExpr.closedN_mkPi.1 hcl).1).2
     simpa [hCwf.params_len, VInductDecl'.np] using this
+
+/-! ## `HasArgs` transport
+
+`Theory/Inductive/Lemmas.lean` has `HasArgs.instL`, `.weakN` and `.mono`; `TrProj`'s
+recorded spine premises additionally need the `Ctx.Lift'` and `Ctx.InstN` versions. -/
+
+theorem VEnv.HasArgs.weak' {env : VEnv} {U} {l : Lift} {Γ Γ' : List VExpr}
+    (henv : VEnv.Ordered env) (W : Ctx.Lift' l Γ Γ') :
+    ∀ {As as}, env.HasArgs U Γ As as →
+      env.HasArgs U Γ' (VExpr.liftTele' l As) (as.map (·.lift' l))
+  | _, _, .nil => .nil
+  | A :: As, a :: as, .cons ha h => by
+    refine .cons (ha.weak' henv W) ?_
+    have ih := VEnv.HasArgs.weak' henv W h
+    have hcomm : VExpr.liftTele' l (VExpr.instTele a As)
+        = VExpr.instTele (a.lift' l) (VExpr.liftTele' l.cons As) :=
+      VExpr.liftTele'_instTele (As := As) (a := a) (ρ := l) (j := 0)
+    rwa [hcomm] at ih
+
+theorem VEnv.HasArgs.instN {env : VEnv} {U k} {Γ₀ Γ₁ Γ : List VExpr} {e₀ A₀ : VExpr}
+    (henv : VEnv.Ordered env) (W : Ctx.InstN Γ₀ e₀ A₀ k Γ₁ Γ)
+    (t₀ : env.HasType U Γ₀ e₀ A₀) :
+    ∀ {As as}, env.HasArgs U Γ₁ As as →
+      env.HasArgs U Γ (VExpr.instTele e₀ As k) (as.map (·.inst e₀ k))
+  | _, _, .nil => .nil
+  | A :: As, a :: as, .cons ha h => by
+    refine .cons (ha.instN henv W t₀) ?_
+    have ih := VEnv.HasArgs.instN henv W t₀ h
+    have hcomm : VExpr.instTele e₀ (VExpr.instTele a As) k
+        = VExpr.instTele (a.inst e₀ k) (VExpr.instTele e₀ As (k+1)) :=
+      VExpr.instTele_instTele (As := As) (a := a) (b := e₀) (m := k) (j := 0)
+    rwa [hcomm] at ih
 
 end Lean4Lean
