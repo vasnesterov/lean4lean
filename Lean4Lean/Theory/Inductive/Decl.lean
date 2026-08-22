@@ -302,6 +302,12 @@ structure VIndField.WF (env : VEnv) (D : VInductDecl') (Γ : List VExpr) (i : Na
       -- (`Typing/Injectivity.lean`, `sorry`, and downstream of `VEnv.WF` hence of
       -- `addInduct_WF`).  The refinement supplies it for free: `inferType` on an
       -- application checks each argument against the domain.
+      --
+      -- NOTE (`docs/model-interface.md` §2): the `none` branch below must stay
+      -- *definitional*.  Weakening it to a syntactic `D.NoBlock F.type` would both reject
+      -- declarations both kernels accept (see the comment there) and break the model's
+      -- argument that `Fld : V → V` is independent of the family being constructed, which
+      -- goes through defeq-invariance of the interpretation.
       (∀ T', D.types[r.idx]? = some T' →
         env.HasArgs D.uvars (r.binders.reverse ++ Γ)
           (liftTele (r.binders.length + i) T'.indices) r.args) ∧

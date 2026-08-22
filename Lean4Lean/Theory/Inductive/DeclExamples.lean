@@ -602,5 +602,32 @@ example : mutDecl.recType 0 = mkPi (mutDecl.atRecTele mutDecl.params ++ mutDecl.
       ((VExpr.bvar (1 + 0 + mutDecl.nmin + (mutDecl.nm - 1 - 0))).mkApp
         (bvars 1 0 ++ [.bvar 0]))) := rfl
 
+/-! ### The D4 offset cross-check, instantiated
+
+`VInductDecl'.ih_param_offset` says the two independent routes to the block's parameters
+inside an induction hypothesis land on the same de Bruijn offset.  Instantiated below; the
+companion `rfl`s pin the concrete numbers, and the `ihTypes` checks earlier in this file
+already confirmed by comparison with a `vexpr` that the motive index really names the
+motive (`.bvar 4` is `motive` for `Acc`, `.bvar 5` is `m2` for `Forest'.cons`). -/
+
+-- `Acc.intro`'s recursive field: `nxi = 2, i = 1, s = 0, nf = 2, q = 0, nm = 1`
+example : accIntroRec.binders.length + 1 + (accDecl.nm + 0)
+      + (accIntro.fields.length - 1 + 0)
+    = accIntroRec.binders.length + 0 + accIntro.fields.length + 0 + accDecl.nm :=
+  VInductDecl'.ih_param_offset (by decide)
+-- parameters at 5, motive `r.idx` at 4
+example : (accIntroRec.binders.length + 0 + accIntro.fields.length + 0 + accDecl.nm,
+      accIntroRec.binders.length + 0 + accIntro.fields.length + 0
+        + (accDecl.nm - 1 - accIntroRec.idx)) = (5, 4) := rfl
+
+-- `Forest'.cons`'s *second* recursive field, the `s ≠ 0` case:
+-- `nxi = 0, i = 1, s = 1, nf = 2, q = 2, nm = 2`
+example : 0 + 1 + (mutDecl.nm + 2) + (forestCons.fields.length - 1 + 1)
+    = 0 + 1 + forestCons.fields.length + 2 + mutDecl.nm :=
+  VInductDecl'.ih_param_offset (by decide)
+-- parameters at 7 (vacuous, `np = 0`), motive `1` at 5
+example : (0 + 1 + forestCons.fields.length + 2 + mutDecl.nm,
+      0 + 1 + forestCons.fields.length + 2 + (mutDecl.nm - 1 - 1)) = (7, 5) := rfl
+
 end InductiveDeclExamples
 end Lean4Lean

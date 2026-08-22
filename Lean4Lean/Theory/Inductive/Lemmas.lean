@@ -962,3 +962,73 @@ theorem onCtxMotives (hR : D.RecCtx env) :
 
 end VInductDecl'
 
+
+/-! ## Closedness of a well-formed telescope
+
+D4 has to identify two re-indexings of the same index telescope, which is only possible
+because the telescope's entries are closed at the parameter count. -/
+
+theorem OnCtx.ctxClosed {env : VEnv} {U : Nat} (henv : env.Ordered) :
+    ∀ {Γ}, OnCtx Γ (env.IsType U) → CtxClosed Γ
+  | [], _ => trivial
+  | _ :: _, ⟨h1, _, h2⟩ => ⟨h1.ctxClosed henv, h2.closedN henv (h1.ctxClosed henv)⟩
+
+theorem VExpr.ClosedTele.of_onCtx {env : VEnv} {U : Nat} (henv : env.Ordered) :
+    ∀ {As Γ : List VExpr}, OnCtx (As.reverse ++ Γ) (env.IsType U) →
+      VExpr.ClosedTele As Γ.length
+  | [], _, _ => trivial
+  | A :: As, Γ, h => by
+    rw [VExpr.tele_ctx_cons] at h
+    have hΓ : OnCtx (A :: Γ) (env.IsType U) := OnCtx.append_right h
+    refine ⟨hΓ.2.choose_spec.closedN henv (hΓ.1.ctxClosed henv), ?_⟩
+    simpa using VExpr.ClosedTele.of_onCtx (As := As) (Γ := A :: Γ) henv h
+
+/-- The index telescope of a block type is closed at the parameter count. -/
+theorem VIndType.WF.indices_closed {env : VEnv} {D : VInductDecl'} {T : VIndType}
+    (henv : env.Ordered) (h : VIndType.WF env D T) :
+    VExpr.ClosedTele T.indices D.np := by
+  have := VExpr.ClosedTele.of_onCtx henv h.indices
+  simpa using this
+
+/-! ## Weakening a `HasArgs` -/
+
+namespace VExpr
+
+theorem liftTele_instTele : ∀ {As : List VExpr} {a n k j},
+    liftTele n (instTele a As j) (k + j)
+      = instTele (a.liftN n k) (liftTele n As (k + j + 1)) j
+  | [], _, _, _, _ => rfl
+  | A :: As, a, n, k, j => by
+    rw [instTele_cons, liftTele_cons, liftTele_cons, instTele_cons, liftN_instN_hi]
+    refine congrArg _ ?_
+    rw [show k + j + 1 = k + (j + 1) from by omega,
+      liftTele_instTele (As := As) (a := a) (n := n) (k := k) (j := j + 1),
+      show k + (j + 1) + 1 = k + j + 1 + 1 from by omega]
+
+end VExpr
+
+namespace VEnv
+
+theorem HasArgs.weakN {env : VEnv} {U n k} {Γ Γ' : List VExpr} (henv : Ordered env)
+    (W : Ctx.LiftN n k Γ Γ') :
+    ∀ {As as}, env.HasArgs U Γ As as →
+      env.HasArgs U Γ' (liftTele n As k) (as.map (·.liftN n k))
+  | _, _, .nil => .nil
+  | _, _, .cons ha h => by
+    refine .cons (ha.weakN henv W) ?_
+    have ih := HasArgs.weakN henv W h
+    rwa [show k = k + 0 from rfl, VExpr.liftTele_instTele, Nat.add_zero] at ih
+
+end VEnv
+
+/-- **The offset the two routes into D4 must agree on.**
+
+`args_ty` places the block's parameters at `nxi + i` in the recursive field's own
+`ξ`-context; the two weakenings that carry it into minor `q`'s `s`-th induction hypothesis
+add `off = nm + q` (between the fields and the parameters) and `d = nf - i + s` (below the
+fields).  Independently, `ihTypes` reads motive `r.idx` at
+`nxi + s + nf + q + (nm - 1 - r.idx)`, which puts the `nm` motives immediately below the
+parameters -- i.e. the parameters at `nxi + s + nf + q + nm`.  The two agree, which is what
+lets D4 identify the telescope `args_ty` supplies with the one the motive's type demands. -/
+theorem VInductDecl'.ih_param_offset {nxi i s nf q nm : Nat} (h : i ≤ nf) :
+    nxi + i + (nm + q) + (nf - i + s) = nxi + s + nf + q + nm := by omega
