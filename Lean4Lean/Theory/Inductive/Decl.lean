@@ -569,4 +569,81 @@ def VEnv.addInduct' (env : VEnv) (D : VInductDecl') : Option VEnv := do
   let env ← env.addIndRecs D
   return env.addIndRules D
 
+/-! ## K1's skeleton: what a constructor's *stored* type gives back
+
+`addDecl.WF`'s `inductDecl` branch has to turn a `Lean.Declaration.inductDecl` into a
+`VInductDecl'`, and **that is not a function**: `VInductDecl'` is a decomposed record carrying
+data the kernel computes *while checking*.  `VIndType.indices`, `D.params`, `D.lvl`,
+`VIndField.lvl`, `VIndField.recArg` and `D.isLE` are all unrecoverable from the declaration —
+`T.type` is only *definitionally* a pi-telescope (F1), and `D.lvl` occurs in no stored type at
+all (`Theory/Inductive/DeclExamples.lean`).  So the translation is a *relation*, with those
+fields existential and tied by `IsDefEqU`.
+
+What **is** recoverable is the constructor side, and for a sharp reason: by F2 the kernel walks
+a constructor's pi-spine *without* `whnf`, so `VIndCtor.type` is that telescope on the nose.
+This section is that half — a pure function, with a round-trip theorem, and no `whnf` anywhere.
+
+`splitPis` splits at an *exact* count rather than peeling maximally.  That is deliberate: a
+field's type may itself be a `forallE` (`Iff.intro`'s `mp : a → b`), and a maximal peel would
+walk into the last one's codomain.  Splitting at `np + |fields|` cannot. -/
+
+namespace VExpr
+
+/-- Split off exactly `n` leading `forallE` binders. -/
+def splitPis : Nat → VExpr → List VExpr × VExpr
+  | 0, e => ([], e)
+  | n+1, .forallE A B => let (As, b) := splitPis n B; (A :: As, b)
+  | _+1, e => ([], e)
+
+theorem splitPis_mkPi : ∀ {As : List VExpr} {B : VExpr},
+    splitPis As.length (mkPi As B) = (As, B)
+  | [], _ => rfl
+  | A :: As, B => by
+    rw [List.length_cons, mkPi, splitPis, splitPis_mkPi (As := As) (B := B)]
+
+/-- The argument spine of an application, left to right. -/
+def spineArgs : VExpr → List VExpr
+  | .app f a => f.spineArgs ++ [a]
+  | _ => []
+
+theorem spineArgs_mkApp : ∀ (as : List VExpr) (f : VExpr),
+    (mkApp f as).spineArgs = f.spineArgs ++ as
+  | [], f => by rw [mkApp, List.append_nil]
+  | a :: as, f => by
+    rw [mkApp, spineArgs_mkApp as, spineArgs, List.append_assoc]
+    rfl
+
+@[simp] theorem spineArgs_const {c : Name} {ls : List VLevel} :
+    (VExpr.const c ls).spineArgs = [] := rfl
+
+end VExpr
+
+/-- **The constructor skeleton.**  From the number of parameters and a constructor's *stored*
+type, read back the three syntactic components of `VIndCtor`: the parameter binders, the field
+binder types, and the result's non-parameter arguments.
+
+`VIndField.lvl` and `VIndField.recArg` are *not* here — they are `checkPositivity`/`isRecArg`
+output, and the relation supplies them. -/
+def VIndCtor.skeleton (np : Nat) (nf : Nat) (ty : VExpr) :
+    List VExpr × List VExpr × List VExpr :=
+  let (tele, body) := VExpr.splitPis (np + nf) ty
+  (tele.take np, tele.drop np, body.spineArgs.drop np)
+
+/-- **The round trip.**  `skeleton` inverts `VIndCtor.type` on the nose — no `whnf`, no
+conversion, no side condition beyond the parameter count that `VIndCtor.WF.params_len`
+records. -/
+theorem VIndCtor.skeleton_type (C : VIndCtor) (D : VInductDecl') (j : Nat)
+    (hp : C.params.length = D.np) :
+    VIndCtor.skeleton D.np C.fields.length (C.type D j)
+      = (C.params, C.fields.map (·.type), C.args) := by
+  have hlen : (C.params ++ C.fields.map (·.type)).length = D.np + C.fields.length := by
+    rw [List.length_append, List.length_map, hp]
+  rw [VIndCtor.skeleton, VIndCtor.type, ← hlen, VExpr.splitPis_mkPi]
+  refine Prod.ext ?_ (Prod.ext ?_ ?_)
+  · exact List.take_left' hp
+  · exact List.drop_left' hp
+  · show (VIndCtor.canonResult C D j).spineArgs.drop D.np = C.args
+    rw [VIndCtor.canonResult, VInductDecl'.tyApp, VExpr.spineArgs_mkApp, VExpr.spineArgs_const,
+      List.nil_append, List.drop_left' (by simp)]
+
 end Lean4Lean

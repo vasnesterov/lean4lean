@@ -1261,5 +1261,62 @@ example : fooDecl'.recUvars = fooDecl.recUvars := rfl
 -- …and the ι-rule, for completeness: nothing `addInduct'` stores sees `lvl`
 example : fooDecl'.iotaRules = fooDecl.iotaRules := rfl
 
+/-! ### K1's skeleton, against Lean's own constructor types
+
+`VIndCtor.skeleton_type` says the splitter inverts `VIndCtor.type`.  That is a statement about
+the *record*; what the translation will actually be handed is the constant Lean stores.  These
+check the splitter against `vconst(type_of% …)` — the same ground truth the recursor
+comparisons above use — so a mismatch between the record and the kernel shows up here rather
+than being assumed away.
+
+Covered: no fields (`Eq.refl`), no parameters and a recursive field (`Nat.succ`), parameters
+*and* an index with a higher-order recursive field (`Acc.intro`), and fields whose types are
+themselves `forallE` (`Iff.intro` — the case a *maximal* pi-peel would walk past). -/
+
+example : VIndCtor.skeleton eqDecl.np eqRefl.fields.length (vconst(type_of% @Eq.refl)).type
+    = (eqRefl.params, eqRefl.fields.map (·.type), eqRefl.args) := rfl
+
+example : VIndCtor.skeleton natDecl.np natZero.fields.length (vconst(type_of% @Nat.zero)).type
+    = (natZero.params, natZero.fields.map (·.type), natZero.args) := rfl
+
+example : VIndCtor.skeleton natDecl.np natSucc.fields.length (vconst(type_of% @Nat.succ)).type
+    = (natSucc.params, natSucc.fields.map (·.type), natSucc.args) := rfl
+
+example : VIndCtor.skeleton accDecl.np accIntro.fields.length
+      (vconst(type_of% @Acc.intro)).type
+    = (accIntro.params, accIntro.fields.map (·.type), accIntro.args) := rfl
+
+example : VIndCtor.skeleton iffDecl.np iffIntro.fields.length
+      (vconst(type_of% @Iff.intro)).type
+    = (iffIntro.params, iffIntro.fields.map (·.type), iffIntro.args) := rfl
+
+example : VIndCtor.skeleton nonemptyDecl.np nonemptyIntro.fields.length
+      (vconst(type_of% @Nonempty.intro)).type
+    = (nonemptyIntro.params, nonemptyIntro.fields.map (·.type), nonemptyIntro.args) := rfl
+
+/-! #### The mutant
+
+Two validation suites in this tree were blind to a universe-parameter shift inside a field
+type, so the splitter is checked against one before it is trusted.  `lvlMkMutant` differs from
+`lvlMk` only in that its field types read `.param 1` where the real ones read `.param 0`.
+
+The test is stated *positively*: each side pins the level index the splitter actually returns.
+A pass that normalised, erased or defaulted universe parameters would make one of the two
+`rfl`s fail, rather than making an inequality silently true. -/
+
+def lvlMkMutant : VIndCtor :=
+  { lvlMk with fields := lvlMk.fields.map fun F =>
+      { F with type := F.type.instL [.param 1] } }
+
+example : (VIndCtor.skeleton lvlDecl.np lvlMk.fields.length
+      (lvlMk.type lvlDecl 0)).2.1.head? = some (VExpr.sort (.param 0)) := rfl
+
+example : (VIndCtor.skeleton lvlDecl.np lvlMkMutant.fields.length
+      (lvlMkMutant.type lvlDecl 0)).2.1.head? = some (VExpr.sort (.param 1)) := rfl
+
+-- and the splitter still round-trips on the mutant: it is faithful, not merely sensitive
+example : VIndCtor.skeleton lvlDecl.np lvlMkMutant.fields.length (lvlMkMutant.type lvlDecl 0)
+    = (lvlMkMutant.params, lvlMkMutant.fields.map (·.type), lvlMkMutant.args) := rfl
+
 end InductiveDeclExamples
 end Lean4Lean
