@@ -910,3 +910,64 @@ the recursion at `n` applies to corresponding codomain values — take the bot-k
 
 Estimate: one recursion on `n`, 35 of 36 cases `Compat`-closed, plus the two-sub-case argument
 at `forallE`. 40–80 lines. Not machine-checked as a whole; `common_of_not_forallE` is.
+
+---
+
+## Session update 6: `join_sort` refuted; `ParamsExtra.extra_pat` was unsatisfiable and is now peeled
+
+### `join_sort` is FALSE — refuted before it was built
+
+Approved at 40–80 lines. Tested first, and the test refutes it: `join_sort_fails`, sorry-free.
+
+`cx_refutes`'s two shapes both satisfy `LRS.TyDefEq` for **one and the same `A B`**, are
+`Compat`, are each classified by a sort, and share none. The `ValTyPi2` witness is built with
+`A = B = ∀ (_ : Sort 0), Sort 0`: the term-level fields are reflexivity at `.sort .zero`, and
+`PiDefEq`'s two components land in `LRS.TyDefEq` at a `.bot`-or-`.indTy` shape, where the
+clause is `True`.
+
+The mechanism is `piDefEq_cannot_see`, also machine-checked — `PiDefEq` constrains a family
+**pointwise in the key**, and at every key typed at `cxB` at most one of the two families has
+a non-`.bot` value:
+
+| `p` | `cxF.app p` | `cxF'.app p` |
+|---|---|---|
+| `⊥` | `⊥` | `⊥` |
+| `.sort true` | `.indTy false` | `⊥` |
+| `.indTy true` | `⊥` | `.indTy true` |
+
+So the disagreeing values sit at keys the other family does not reach, and the relativisation
+is vacuous at exactly the one constructor pair where `common_of_not_forallE` said it was
+needed. That is the first diagnosis sentence one layer up.
+
+**Every relativisation of `IsType.common` tried so far is now refuted**: `Compat`-only
+(`cx_refutes`), `LE_Interp`-relative (`le_interp_common_fails`), `TyDefEq`-relative
+(`join_sort_fails`). What is *not* refuted is `common_sort` — the sort read off the **term's
+universe** — which is proved.
+
+### `SExpr.ParamsExtra.extra_pat` was unsatisfiable
+
+Reported by the Params stream, machine-checked, and confirmed against this tree. The field
+asked for `p.MatchesS` on the **unpeeled** `df.lhs`; `Pattern.MatchesS.not_lam` (twenty lines
+above it in the same file) says a pattern never matches a `lam`, and `SExpr.mk` and
+`SExpr.instL` are both structural on `lam`. Every real rule shape has binders.
+
+> **No `ParamsExtra` instance existed for any real environment, and `LE_Interp.strongSoundS`
+> carries `[ParamsExtra]` — so it, and everything downstream of it, was vacuous.**
+
+This is PLAN's original "`extra_pat` is unsatisfiable" entry. The mainline `VEnv.Params`
+version was cured by λ-peeling (`Pat.extra_delta` / `_quot` / `_iota` in
+`Theory/Typing/PatternRules.lean`); this copy never was. The field now mirrors the mainline,
+with `Δ`, `L`, `R` and the check clauses discharged over `Δ.reverse ++ Γ`.
+
+Two regression tests land with it, stated as conditionals on a hypothetical unpeeled field so
+they cannot rot: `unpeeled_extra_pat_unsatisfiable` (any `lam`-headed lhs gives `False`) and
+`iota_lhs_lam` (every ι-rule's lhs *is* `lam`-headed). Both `[propext, Quot.sound]`, no
+`sorryAx`. `iota_lhs_lam` is proved from `Theory/Inductive/Decl.lean` alone, so
+`Experimental/SExpr.lean` still does not import `PatternRules.lean`.
+
+**Cost, measured.** `SExpr.lean` compiles clean. `ShapeLogRel.lean` gains exactly **2 errors,
+both in `strongSoundS`'s `extra` case** — honest ones: both sides are now `mkLams Δ _` and the
+matched redex is the body. Running the existing argument under `Δ` needs (a) a congruence
+"`LE_Interp` respects the body of a `.lam`" (short — the binder is shared by both sides), and
+(b) the two IHs and `W` transported under the telescope, needing `StrongSound` inversion
+through `lam`. Neither is written; this is reported rather than absorbed.

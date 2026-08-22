@@ -181,7 +181,11 @@ downstream is sorry-tainted until the keystone lands.
 Three separate findings say the same thing: the `VEnv.Params` / `Pattern`
 abstraction as it stands cannot describe real ι-rules.
 
-*`extra_pat` is unsatisfiable.* `VDefEq.lhs` as built by the `vdefeq(...)`
+*`extra_pat` is unsatisfiable.* **(Mainline cured by λ-peeling; the `Experimental/SExpr.lean`
+copy was cured on 2026-08-23 by the same peel — see that file's `ParamsExtra.extra_pat`
+docstring and its two regression tests `unpeeled_extra_pat_unsatisfiable` / `iota_lhs_lam`.
+Until then `SExpr.ParamsExtra` had no instance for any real environment, so
+`LE_Interp.strongSoundS` and everything downstream of it was vacuous.)** `VDefEq.lhs` as built by the `vdefeq(...)`
 elaborator is a lambda-abstracted closed term — `Theory/Quot.lean`'s `quotDefEq`
 is `fun α r β f c a => Quot.lift … (Quot.mk r a)` — but `Pattern.Matches` only
 matches `.const`/`.app` spines and never sees through a `.lam`. So no `Params`
