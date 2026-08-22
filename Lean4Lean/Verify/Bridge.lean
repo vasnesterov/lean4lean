@@ -80,7 +80,8 @@ def VEnvs.trivial : VEnvs := ⟨fun _ => .empty⟩
 
 theorem hasPrimitives_empty : VEnv.HasPrimitives .empty := by
   constructor <;>
-    simp +decide [VEnv.contains, VEnv.empty, VEnv.ReflectsNatNatNat, VEnv.ReflectsNatNatBool]
+    simp +decide [VEnv.contains, VEnv.empty, VEnv.ReflectsNatNat, VEnv.ReflectsNatNatNat,
+      VEnv.ReflectsNatNatBool, VEnv.ReflectsNatBitwise]
 
 /-- **Item 1.** Any kernel environment whose constant map is empty and which has not
 run `init_quot` is modelled by the everywhere-empty `VEnvs`.

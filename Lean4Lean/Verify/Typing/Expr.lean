@@ -134,6 +134,10 @@ def VExpr.trLiteral : Literal → VExpr
   | .natVal n => .natLit n
   | .strVal s => .app .stringOfList (.listCharLit s.toList)
 
+def VEnv.ReflectsNatNat (env : VEnv) (fc : Name) (f : Nat → Nat) :=
+  env.contains fc →
+  ∀ a, env.IsDefEqU 0 [] (.app (.const fc []) (.natLit a)) (.natLit (f a))
+
 def VEnv.ReflectsNatNatNat (env : VEnv) (fc : Name) (f : Nat → Nat → Nat) :=
   env.contains fc →
   ∀ a b, env.IsDefEqU 0 [] (.app (.app (.const fc []) (.natLit a)) (.natLit b)) (.natLit (f a b))
@@ -141,6 +145,25 @@ def VEnv.ReflectsNatNatNat (env : VEnv) (fc : Name) (f : Nat → Nat → Nat) :=
 def VEnv.ReflectsNatNatBool (env : VEnv) (fc : Name) (f : Nat → Nat → Bool) :=
   env.contains fc →
   ∀ a b, env.IsDefEqU 0 [] (.app (.app (.const fc []) (.natLit a)) (.natLit b)) (.boolLit (f a b))
+
+/-- The term `f` computes the boolean operation `g` on boolean literals. This is what the
+`Nat.land`/`Nat.lor`/`Nat.xor` branches of the primitive recognizer check about the boolean
+operation they pass to `Nat.bitwise`. -/
+def VEnv.ReflectsBoolBoolBool (env : VEnv) (f : VExpr) (g : Bool → Bool → Bool) :=
+  ∀ a b, env.IsDefEqU 0 [] (.app (.app f (.boolLit a)) (.boolLit b)) (.boolLit (g a b))
+
+/-- `Nat.bitwise` is the one primitive whose semantics are second order: it is applied to a
+boolean operation supplied by the *later* declaration of `Nat.land`/`Nat.lor`/`Nat.xor`, so
+the operation is in general a term that does not exist yet when `Nat.bitwise` is recognized.
+The statement is therefore relativized to an arbitrary extension `env'` of `env`; without
+that relativization the field would not be monotone (`ReflectsBoolBoolBool` occurs
+negatively, and a later declaration may introduce a new `f`). -/
+def VEnv.ReflectsNatBitwise (env : VEnv) :=
+  env.contains ``Nat.bitwise →
+  ∀ (env' : VEnv), env ≤ env' → ∀ (f : VExpr) (g : Bool → Bool → Bool),
+    env'.ReflectsBoolBoolBool f g → ∀ a b, env'.IsDefEqU 0 []
+      (.app (.app (.app (.const ``Nat.bitwise []) f) (.natLit a)) (.natLit b))
+      (.natLit (Nat.bitwise g a b))
 
 structure VEnv.HasPrimitives (env : VEnv) : Prop where
   bool : env.contains ``Bool → env.contains ``Bool.false ∧ env.contains ``Bool.true
@@ -151,6 +174,7 @@ structure VEnv.HasPrimitives (env : VEnv) : Prop where
   natSucc : env.constants ``Nat.succ = some ci →
     ci = { uvars := 0, type := .forallE .nat .nat }
   natAdd : env.ReflectsNatNatNat ``Nat.add Nat.add
+  natPred : env.ReflectsNatNat ``Nat.pred Nat.pred
   natSub : env.ReflectsNatNatNat ``Nat.sub Nat.sub
   natMul : env.ReflectsNatNatNat ``Nat.mul Nat.mul
   natPow : env.ReflectsNatNatNat ``Nat.pow Nat.pow
@@ -159,6 +183,7 @@ structure VEnv.HasPrimitives (env : VEnv) : Prop where
   natDiv : env.ReflectsNatNatNat ``Nat.div Nat.div
   natBEq : env.ReflectsNatNatBool ``Nat.beq Nat.beq
   natBLE : env.ReflectsNatNatBool ``Nat.ble Nat.ble
+  natBitwise : env.ReflectsNatBitwise
   natLAnd : env.ReflectsNatNatNat ``Nat.land Nat.land
   natLOr : env.ReflectsNatNatNat ``Nat.lor Nat.lor
   natXor : env.ReflectsNatNatNat ``Nat.xor Nat.xor

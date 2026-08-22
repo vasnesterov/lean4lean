@@ -107,6 +107,7 @@ theorem VEnv.HasPrimitives.addConst {env env' : VEnv} (H : env.HasPrimitives)
   · intro ci h; apply H.natZero; rwa [← same (hprims (by simp))]
   · intro ci h; apply H.natSucc; rwa [← same (hprims (by simp))]
   · intro h a b; exact (H.natAdd (oldContains (hprims (by simp)) h) a b).mono le
+  · intro h a; exact (H.natPred (oldContains (hprims (by simp)) h) a).mono le
   · intro h a b; exact (H.natSub (oldContains (hprims (by simp)) h) a b).mono le
   · intro h a b; exact (H.natMul (oldContains (hprims (by simp)) h) a b).mono le
   · intro h a b; exact (H.natPow (oldContains (hprims (by simp)) h) a b).mono le
@@ -115,6 +116,8 @@ theorem VEnv.HasPrimitives.addConst {env env' : VEnv} (H : env.HasPrimitives)
   · intro h a b; exact (H.natDiv (oldContains (hprims (by simp)) h) a b).mono le
   · intro h a b; exact (H.natBEq (oldContains (hprims (by simp)) h) a b).mono le
   · intro h a b; exact (H.natBLE (oldContains (hprims (by simp)) h) a b).mono le
+  · intro h env'' le' f g hfg
+    exact H.natBitwise (oldContains (hprims (by simp)) h) env'' (le.trans le') f g hfg
   · intro h a b; exact (H.natLAnd (oldContains (hprims (by simp)) h) a b).mono le
   · intro h a b; exact (H.natLOr (oldContains (hprims (by simp)) h) a b).mono le
   · intro h a b; exact (H.natXor (oldContains (hprims (by simp)) h) a b).mono le
@@ -129,6 +132,7 @@ theorem VEnv.HasPrimitives.addDefEq {env : VEnv} (H : env.HasPrimitives) :
     (env.addDefEq df).HasPrimitives :=
   { H with
     natAdd h a b := (H.natAdd h a b).mono VEnv.addDefEq_le
+    natPred h a := (H.natPred h a).mono VEnv.addDefEq_le
     natSub h a b := (H.natSub h a b).mono VEnv.addDefEq_le
     natMul h a b := (H.natMul h a b).mono VEnv.addDefEq_le
     natPow h a b := (H.natPow h a b).mono VEnv.addDefEq_le
@@ -137,6 +141,7 @@ theorem VEnv.HasPrimitives.addDefEq {env : VEnv} (H : env.HasPrimitives) :
     natDiv h a b := (H.natDiv h a b).mono VEnv.addDefEq_le
     natBEq h a b := (H.natBEq h a b).mono VEnv.addDefEq_le
     natBLE h a b := (H.natBLE h a b).mono VEnv.addDefEq_le
+    natBitwise h env' le' := H.natBitwise h env' (VEnv.addDefEq_le.trans le')
     natLAnd h a b := (H.natLAnd h a b).mono VEnv.addDefEq_le
     natLOr h a b := (H.natLOr h a b).mono VEnv.addDefEq_le
     natXor h a b := (H.natXor h a b).mono VEnv.addDefEq_le
