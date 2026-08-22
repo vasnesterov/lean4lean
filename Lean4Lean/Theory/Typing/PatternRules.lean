@@ -29,7 +29,13 @@ second finds **under-recording**, which is invisible from the definition's side 
 construction: a constructor that fails to record something still elaborates, still typechecks,
 and still looks complete.
 
-The two instances here:
+**Work backwards from `pat_uniq` first.**  It is the only field whose conclusion mentions
+`r`, so it is the only one that constrains the *data* rather than the pattern — and it has
+now produced three under-recordings in this file, while the three genuinely pattern-only
+fields produced none.  If a class has one field that constrains the encoding, that field is
+where the whole audit should start.
+
+The instances here:
 
 * `Params.pat_uniq` concludes `r ≍ r'`, so it is *not* a statement about the pattern alone.
   Instantiated at `p₁ = p₂ = p₃` with `Pattern.inter_self` it forces the datum to be a
@@ -40,6 +46,10 @@ The two instances here:
   registered patterns, i.e. a cross-block name fact.  Deriving it needs the two constants to
   be declared, which `env.defeqs (D.iotaRule …)` does not give — hence the two
   `env.constants … = some …` hypotheses on `Pat.iota`.
+* `pat_uniq` again, on the δ side: at `p₁ = p₂ = p₃ = .const c` it forces `v = v'`, so the
+  rule's *value* must be determined by its head constant.  `env.defeqs` alone does not give
+  that; it needs `VEnv.WF`'s declaration history, since `addConst` is what rejects a second
+  δ-rule for the same name.
 
 Neither is visible by reading `Pat`.  Both are visible immediately from the field.
 

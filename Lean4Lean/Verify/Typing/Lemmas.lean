@@ -1523,9 +1523,9 @@ theorem TrProj.instL (H : TrProj env U Γ s i e e') :
       obtain ⟨l', _, rfl⟩ := List.mem_map.1 hl; exact VLevel.WF.inst hls
   · simpa [List.map_map, Function.comp_def, VExpr.instL_instL] using h8.instL hls
   · simpa [List.map_map, Function.comp_def, VExpr.instL_instL] using h9.instL hls
-  · refine h10.imp id fun h => ?_
+  · refine h10.imp id fun h k hk hg => ?_
     rw [← VLevel.inst_inst]
-    exact VLevel.inst_congr_l h
+    exact VLevel.inst_congr_l (h k hk hg)
 
 section
 

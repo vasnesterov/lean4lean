@@ -195,6 +195,28 @@ theorem VIndCtor.not_fieldUsed_skips {C : VIndCtor} {D : VInductDecl'} {j k i : 
   have := VExpr.skips'_mkPi_getElem (k := 0) hs hm
   simpa [show 0 + (i - (k+1)) = i - 1 - k from by omega] using this
 
+
+/-! ## Level bookkeeping for the projection
+
+`recApp_hasType''` states the major premise's type with the block's head at
+`D.selfLvls.map (·.inst ls)`; `projCore` and `TrProj` carry it at the use site's `us`.
+These agree. -/
+
+theorem map_getD_range {l : List VLevel} : (List.range l.length).map (l.getD · .zero) = l := by
+  refine List.ext_getElem (by simp) fun n h1 h2 => ?_
+  simp at h1
+  simp [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem h2]
+
+/-- `selfLvls` instantiated at the projection's level list is the use site's `us` — whether
+or not a fresh elimination universe was prepended. -/
+theorem VInductDecl'.selfLvls_inst (D : VInductDecl') (a : VLevel) {us : List VLevel}
+    (h : us.length = D.uvars) :
+    D.selfLvls.map (VLevel.inst (if D.isLE then a :: us else us)) = us := by
+  simp only [VInductDecl'.selfLvls, List.map_map, Function.comp_def, VLevel.inst]
+  split
+  · rw [← h]; simpa using map_getD_range (l := us)
+  · rw [← h]; exact map_getD_range
+
 /-- The stored telescopes of a structure are closed at their declared arities.
 
 This is what makes `projTerm` commute with context operations, and it is a genuine

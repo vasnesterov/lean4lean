@@ -118,12 +118,30 @@ inductive TrProj : List VExpr → Name → Nat → VExpr → VExpr → Prop
     (hus : ∀ l ∈ us, l.WF U) →
     env.HasArgs U Γ (D.params.map (VExpr.instL us)) ps →
     env.HasArgs U Γ (VExpr.instAllTele (T.indices.map (VExpr.instL us)) ps) ιs →
-    -- F17's side condition, in the form the encoding needs: either the block eliminates
-    -- into an arbitrary universe, or the field is a proof.  The kernel enforces the
-    -- strictly syntactic version — `inferProj` guards every dependent field domain and
-    -- the projected domain with `isProp dom` whenever the structure's sort is not
-    -- `isNeverZero` (`TypeChecker.lean:233`).
-    (D.isLE = true ∨ (C.fields.getD i default).lvl.inst us ≈ .zero) →
+    -- **F17, transcribed.**  Either the block eliminates into an arbitrary universe, or
+    -- every field the encoding's motives actually project must be a proof.
+    --
+    -- `inferProj` (`TypeChecker.lean:249-259`) walks the field telescope and checks
+    -- `isProp dom` — when the structure's sort is not `isNeverZero` — for the projected
+    -- field and for each earlier field whose binder is *used* by the rest of the
+    -- telescope, dropping unused ones with `else r := b` and no check at all.
+    -- `VIndCtor.FieldUsed` is the abstract image of that `b.hasLooseBVars`.
+    --
+    -- The guard matters: `structure Bar : Prop where (n : Nat) (h : True)` is not
+    -- large-eliminating, yet both kernels accept a hand-built `.proj Bar 1`, because
+    -- field 0 is unused by `h`'s type.  A blanket `∀ k ≤ i` would reject it — a
+    -- divergence from the C++ kernel, and a second narrowing of the `bugs-found` item 10
+    -- kind.  Measured, not assumed.
+    --
+    -- Discharged in `inferProj.WF` from those same checks, like the clauses above.
+    --
+    -- Note the reachability caveat: in practice `isLE = false` plus a projection already
+    -- forces every *involved* field to be a `Prop`, and a one-type/one-constructor block
+    -- with all-`Prop` fields satisfies `LECond`, so Lean would have set `isLE = true`.
+    -- This branch is reachable only because `VInductDecl'.isLE` is a *claim* the record
+    -- permits to be conservative rather than a derived fact.  Recorded, not relied on.
+    (D.isLE = true ∨ ∀ k, k ≤ i → (k = i ∨ C.FieldUsed D 0 k) →
+      (C.fields.getD k default).lvl.inst us ≈ .zero) →
     TrProj Γ S i e (D.projTerm T C us ps ιs i e)
 
 def VEnv.ContainsLits (env : VEnv) : Literal → Prop
