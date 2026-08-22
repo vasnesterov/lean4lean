@@ -106,6 +106,52 @@ def projTerm (ps is : List VExpr) (i : Nat) (e : VExpr) : VExpr :=
 
 end VInductDecl'
 
+/-! ## Commutation with universe instantiation
+
+`projTerm` is built from its inputs by operations that all commute with `instL`, and the
+stored data it splices in is moved to `us` first (see `projCore`), so `instL` distributes
+with no side conditions.  This is what `TrProj.instL` runs on.
+
+Note this is exactly the equation that would have been **false** before the `instL us` fix
+in `projCore`: the stored field type would have kept a universe parameter of the block,
+which `instL ls` would then have rewritten, while `us.map (·.inst ls)` on the right would
+not have reached it. -/
+
+/-- Missing companion to `VExpr.instL_instAll` (`Theory/Inductive/Telescope.lean`).
+Belongs there; kept here to avoid editing a file another stream owns. -/
+@[simp] theorem _root_.Lean4Lean.VExpr.instL_instAllTele :
+    (instAllTele As as k).map (VExpr.instL ls) =
+      instAllTele (As.map (VExpr.instL ls)) (as.map (VExpr.instL ls)) k := by
+  induction As generalizing k <;> simp [*]
+
+namespace VInductDecl'
+
+variable (D : VInductDecl') (T : VIndType) (C : VIndCtor) (us : List VLevel)
+
+theorem projCore_instL (ps is : List VExpr) (i : Nat) (earlier : List VExpr) (e : VExpr) :
+    (D.projCore T C us ps is i earlier e).instL ls =
+      D.projCore T C (us.map (VLevel.inst ls)) (ps.map (VExpr.instL ls))
+        (is.map (VExpr.instL ls)) i (earlier.map (VExpr.instL ls)) (e.instL ls) := by
+  simp [projCore, VExpr.instL, List.map_map, Function.comp_def, VExpr.instL_instL]
+  split <;> simp [VLevel.inst_inst]
+
+theorem projArgs_instL : ∀ (i : Nat) (ps is : List VExpr),
+    (D.projArgs T C us ps is i).map (VExpr.instL ls) =
+      D.projArgs T C (us.map (VLevel.inst ls)) (ps.map (VExpr.instL ls))
+        (is.map (VExpr.instL ls)) i
+  | 0, _, _ => rfl
+  | i+1, ps, is => by
+    simp [projArgs, projArgs_instL i, projCore_instL, List.map_map,
+      Function.comp_def, VExpr.instL]
+
+theorem projTerm_instL (ps is : List VExpr) (i : Nat) (e : VExpr) :
+    (D.projTerm T C us ps is i e).instL ls =
+      D.projTerm T C (us.map (VLevel.inst ls)) (ps.map (VExpr.instL ls))
+        (is.map (VExpr.instL ls)) i (e.instL ls) := by
+  simp [projTerm, projCore_instL, projArgs_instL, List.map_map, Function.comp_def]
+
+end VInductDecl'
+
 /-- `env` declares `S` as a structure: a single-constructor inductive block, with `T` its
 one type and `C` its one constructor.
 

@@ -1463,7 +1463,14 @@ theorem ofLevel_mkLevelIMax'
 
 variable! {ls : List VLevel} (hls : ∀ l ∈ ls, l.WF U') in
 theorem TrProj.instL (H : TrProj env U Γ s i e e') :
-    TrProj env U' (Γ.map (VExpr.instL ls)) s i (e.instL ls) (e'.instL ls) := sorry
+    TrProj env U' (Γ.map (VExpr.instL ls)) s i (e.instL ls) (e'.instL ls) := by
+  let .mk h1 h2 h3 h4 h5 h6 h7 := H
+  rw [VInductDecl'.projTerm_instL]
+  refine .mk h1 ?_ (by simp [h3]) (by simp [h4]) (by simp [h5]) h6 ?_
+  · simpa [VExpr.instL, List.map_append] using h2.instL hls
+  · refine h7.imp id fun h => ?_
+    rw [← VLevel.inst_inst]
+    exact VLevel.inst_congr_l h
 
 section
 
