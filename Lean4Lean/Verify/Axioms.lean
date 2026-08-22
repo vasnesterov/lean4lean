@@ -265,8 +265,18 @@ def mkData' (h : UInt64) (depth : Nat := 0) (hasMVar hasParam : Bool := false) :
     depth.toUInt64.shiftLeft 40
 
 /-- This exists only for the bit-twiddling proofs, it shouldn't appear
-in the main results, which use the functions below instead -/
-axiom mkData_eq : @mkData = @mkData'
+in the main results, which use the functions below instead.
+
+The hypothesis `H : d < 2 ^ 24` is essential. The previous unconditional form
+`@mkData = @mkData'` was **false, and jointly inconsistent with `hasParam_eq` /
+`hasMVar_eq`**: for `d ≥ 2 ^ 24` the C function `lean_level_mk_data` calls
+`lean_internal_panic` and *aborts the process*, whereas the Lean-side
+`panic! ... : Level.Data` reduces to `default = 0`. Asserting the equation on
+that branch therefore claims a return value the implementation never produces,
+and makes e.g. `(Level.succ^[2 ^ 24] (.param `x)).hasParam` provably `false`
+while `hasParam'` is `true`. See `docs/axiom-audit.md` §4 (and §5.4). -/
+axiom mkData_eq {h : UInt64} {d : Nat} {mv hp : Bool} (H : d < 2 ^ 24) :
+    mkData h d mv hp = mkData' h d mv hp
 
 def hasParam' : Level → Bool
   | .param .. => true
@@ -321,8 +331,18 @@ def mkData'
   looseBVarRange.toUInt64.shiftLeft 44
 
 /-- This exists only for the bit-twiddling proofs, it shouldn't appear
-in the main results, which use the functions below instead -/
-axiom mkData_eq : @mkData = @mkData'
+in the main results, which use the functions below instead.
+
+The hypothesis `H : br ≤ 2 ^ 20 - 1` is essential. The previous unconditional
+form `@mkData = @mkData'` was **false**: for `looseBVarRange > 2 ^ 20 - 1` the C
+function `lean_expr_mk_data` calls `lean_internal_panic` and *aborts the
+process*, whereas the `assert!` in `mkData'` elaborates to
+`if _ then _ else panic! _` and `panic! ... : Expr.Data` reduces to
+`default = 0`. Asserting the equation on that branch claims a return value the
+implementation never produces. See `docs/axiom-audit.md` §4 (and §5.4). -/
+axiom mkData_eq {h : UInt64} {br : Nat} {d : UInt32} {fv ev lv lp : Bool}
+    (H : br ≤ 2 ^ 20 - 1) :
+    mkData h br d fv ev lv lp = mkData' h br d fv ev lv lp
 
 @[inline] def mkAppData' (fData : Data) (aData : Data) : Data :=
   let depth          := max fData.approxDepth.toUInt16 aData.approxDepth.toUInt16 + 1

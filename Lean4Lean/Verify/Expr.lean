@@ -258,7 +258,7 @@ private theorem mkData_flags (H : br ≤ 2 ^ 20 - 1) :
     (mkData h br d fv ev lv lp).hasExprMVar = ev ∧
     (mkData h br d fv ev lv lp).hasLevelMVar = lv ∧
     (mkData h br d fv ev lv lp).hasLevelParam = lp := by
-  rw [mkData_eq, mkData', if_pos H]
+  rw [mkData_eq H, mkData', if_pos H]
   simp [Data.hasFVar, Data.hasExprMVar, Data.hasLevelMVar, Data.hasLevelParam,
     (· == ·), ← UInt64.toBitVec_inj]
   have hh : h.toUInt32.toUInt64.toBitVec ≤ 0xffffffff#64 :=
@@ -303,31 +303,16 @@ private theorem mkData_hasLevelParam (H : br ≤ 2 ^ 20 - 1) :
     (mkData h br d fv ev lv lp).hasLevelParam = lp := by
   exact (mkData_flags H).2.2.2
 
-private theorem mkData_flags_of_false (br d h) :
-    (mkData h br d false false false false).hasFVar = false ∧
-    (mkData h br d false false false false).hasExprMVar = false ∧
-    (mkData h br d false false false false).hasLevelMVar = false ∧
-    (mkData h br d false false false false).hasLevelParam = false := by
-  by_cases H : br ≤ 2 ^ 20 - 1
-  · exact mkData_flags H
-  · rw [mkData_eq, mkData', if_neg H]
-    exact ⟨rfl, rfl, rfl, rfl⟩
-
-private theorem mkData_hasFVar_of_false (br d h) :
-    (mkData h br d false false false false).hasFVar = false :=
-  (mkData_flags_of_false br d h).1
-
-private theorem mkData_hasExprMVar_of_false (br d h) :
-    (mkData h br d false false false false).hasExprMVar = false :=
-  (mkData_flags_of_false br d h).2.1
-
-private theorem mkData_hasLevelMVar_of_false (br d h) :
-    (mkData h br d false false false false).hasLevelMVar = false :=
-  (mkData_flags_of_false br d h).2.2.1
-
-private theorem mkData_hasLevelParam_of_false (br d h) :
-    (mkData h br d false false false false).hasLevelParam = false :=
-  (mkData_flags_of_false br d h).2.2.2
+/-
+`mkData_flags_of_false` and its four `_of_false` corollaries used to live here.
+They claimed the flags of `mkData h br d false false false false` are all
+`false` for an *unrestricted* `br`, and the only way to prove the `br > 2^20-1`
+case was to unfold the `assert!` of `mkData'` into `panic! _ = (0 : Expr.Data)`
+— i.e. they were the one place that used the panic branch of `Expr.mkData_eq`
+as a fact. See `docs/axiom-audit.md` §4. With the corrected axiom they are
+exactly `mkData_flags H`, so they have been removed; their users (the `bvar`
+cases below) must supply the bound instead.
+-/
 
 private theorem mkAppData_flag (i : Nat) (hi : i < 4) :
     (mkAppData fData aData).toBitVec.getLsbD (40 + i) = flagAt
@@ -400,7 +385,11 @@ def hasFVar' : Expr → Bool
 theorem hasFVar_eq (e : Expr) : e.hasFVar = e.hasFVar' := by
   change e.data.hasFVar = e.hasFVar'
   induction e with
-  | bvar => simp [Expr.data, hasFVar', mkData_hasFVar_of_false]
+  | bvar i =>
+    simp only [Expr.data, hasFVar']
+    apply mkData_hasFVar
+    -- NOT PROVABLE: `Expr.bvar i` is unbounded, so `i + 1 ≤ 2 ^ 20 - 1` needs the
+    -- `BVarBounded` machinery of `docs/axiom-audit.md` §3.1.
   | fvar | mvar | sort | const | lit =>
     simp only [Expr.data, hasFVar']
     apply mkData_hasFVar
@@ -436,7 +425,11 @@ def hasExprMVar' : Expr → Bool
 @[simp] theorem hasExprMVar_eq (e : Expr) : e.hasExprMVar = e.hasExprMVar' := by
   change e.data.hasExprMVar = e.hasExprMVar'
   induction e with
-  | bvar => simp [Expr.data, hasExprMVar', mkData_hasExprMVar_of_false]
+  | bvar i =>
+    simp only [Expr.data, hasExprMVar']
+    apply mkData_hasExprMVar
+    -- NOT PROVABLE: `Expr.bvar i` is unbounded, so `i + 1 ≤ 2 ^ 20 - 1` needs the
+    -- `BVarBounded` machinery of `docs/axiom-audit.md` §3.1.
   | fvar | mvar | sort | const | lit =>
     simp only [Expr.data, hasExprMVar']
     apply mkData_hasExprMVar
@@ -472,7 +465,11 @@ def hasLevelMVar' : Expr → Bool
 @[simp] theorem hasLevelMVar_eq (e : Expr) : e.hasLevelMVar = e.hasLevelMVar' := by
   change e.data.hasLevelMVar = e.hasLevelMVar'
   induction e with
-  | bvar => simp [Expr.data, hasLevelMVar', mkData_hasLevelMVar_of_false]
+  | bvar i =>
+    simp only [Expr.data, hasLevelMVar']
+    apply mkData_hasLevelMVar
+    -- NOT PROVABLE: `Expr.bvar i` is unbounded, so `i + 1 ≤ 2 ^ 20 - 1` needs the
+    -- `BVarBounded` machinery of `docs/axiom-audit.md` §3.1.
   | fvar | mvar | sort | const | lit =>
     simp only [Expr.data, hasLevelMVar']
     apply mkData_hasLevelMVar
@@ -508,7 +505,11 @@ def hasLevelParam' : Expr → Bool
 @[simp] theorem hasLevelParam_eq (e : Expr) : e.hasLevelParam = e.hasLevelParam' := by
   change e.data.hasLevelParam = e.hasLevelParam'
   induction e with
-  | bvar => simp [Expr.data, hasLevelParam', mkData_hasLevelParam_of_false]
+  | bvar i =>
+    simp only [Expr.data, hasLevelParam']
+    apply mkData_hasLevelParam
+    -- NOT PROVABLE: `Expr.bvar i` is unbounded, so `i + 1 ≤ 2 ^ 20 - 1` needs the
+    -- `BVarBounded` machinery of `docs/axiom-audit.md` §3.1.
   | fvar | mvar | sort | const | lit =>
     simp only [Expr.data, hasLevelParam']
     apply mkData_hasLevelParam
@@ -564,7 +565,7 @@ attribute [local reducible] Data
 
 theorem mkData_looseBVarRange (H : br ≤ 2^20 - 1) :
     (mkData h br d fv ev lv lp).looseBVarRange.toNat = br := by
-  rw [mkData_eq, mkData', if_pos H]; dsimp only [Data.looseBVarRange, -Nat.reducePow]
+  rw [mkData_eq H, mkData', if_pos H]; dsimp only [Data.looseBVarRange, -Nat.reducePow]
   have : br.toUInt64.toUInt32.toNat = br := by simp; omega
   refine .trans ?_ this; congr 2
   refine UInt64.eq_of_toBitVec_eq ?_
