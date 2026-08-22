@@ -135,14 +135,25 @@ hypothesis is unsatisfiable: those checks carry no usable semantic content
 through the current interface. Fix: rewrite `defeq1`/`defeq2` with
 `withLocalDecl`-bound fvars, as the `Nat.div`/`Nat.mod` branches already do.
 
-Both fixes are implementation changes to `Lean4Lean/Primitive.lean`; re-run the
-arena afterwards, since they make the recognizer stricter. The remaining content
-is then genuinely large: 15 reflection theorems relating the GMP-accelerated
-`Nat` operations to their Lean definitions, including `Nat.div`/`Nat.mod` (fuel
-recursion through `Nat.modCore.go`) and `Nat.gcd`/`Nat.bitwise`
-(`WellFounded.Nat.fix`, `Acc.rec`). Nothing in the repo supports this today —
-`ReflectsNatNat*` is only ever consumed. Independent of every other workstream,
-so it can be picked up at any time.
+Both fixes have landed, along with three further gaps the audit turned up.
+`VEnv.HasPrimitives` had no field for `Nat.pred` or `Nat.bitwise` even though the
+`Nat.sub` and `land`/`lor`/`xor` branches depend on their semantics; both are now
+pinned. `Nat.bitwise` is second order — `Nat.land`'s value is `Nat.bitwise`
+applied to a combinator from a later declaration — so the obvious field puts
+`ReflectsBoolBoolBool` in negative position and is **not monotone**, which a
+`HasPrimitives` invariant must be; the field is relativized to an arbitrary
+extension instead. And every arithmetic branch was building `Nat`/`Bool` literals
+and depending on other primitives without requiring any of them present; those
+are now explicit `env.contains` guards.
+
+What remains is genuinely large: **16** reflection theorems relating the
+GMP-accelerated `Nat` operations to their Lean definitions, including
+`Nat.div`/`Nat.mod` (fuel recursion through `Nat.modCore.go`) and
+`Nat.gcd`/`Nat.bitwise` (`WellFounded.Nat.fix`, `Acc.rec`). `natBitwise` is the
+hard one: it quantifies over all extensions, so its proof must use only monotone
+facts. Nothing in the repo supports any of this today — `ReflectsNatNat*` is only
+ever consumed. Independent of every other workstream, so it can be picked up at
+any time.
 
 ### Link 2 — `Lean4Lean/Theory/` (abstract metatheory)
 
