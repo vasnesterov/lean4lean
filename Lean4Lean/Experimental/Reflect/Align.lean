@@ -47,6 +47,19 @@ Nothing here mentions `SExpr.IsDefEq`, so this file does not depend on the shape
 its only import from `Experimental/` is `Bridge.lean`, which is `SExpr.lean` plus the `mk`
 homomorphism lemmas.  `[Params]` appears only because `SLevel.mk_inj` carries it as a
 section variable, and is confined to the second half of the file.
+
+## Working note: a `simp` lemma that has already fired
+
+**When a `rw`/`simp` lemma will not fire on a goal that visibly contains its pattern, check
+whether some other `simp` lemma has already rewritten that goal into a normal form — and if
+so, state the normal form as well.**
+
+Two streams have now lost a round to this.  Here it was `SLevel.map_mk_map_rep`, stated as
+`(ls.map rep).map mk = ls`, which never matches: `List.map_map` is itself `simp` and rewrites
+the goal to `ls.map (mk ∘ rep) = ls` first.  The fix is `SLevel.mk_comp_rep : mk ∘ rep = id`,
+the same fact in the shape the goal actually reaches.  The other instance is recorded at
+`Theory/Inductive/Lemmas.lean:47–51`, in a file this stream would never open — hence the
+copy.
 -/
 
 namespace Lean4Lean
@@ -194,6 +207,40 @@ theorem IsDefEq.alignL (henv : Ordered env) (hΓ : OnCtx Γ (env.IsType U))
     (h : env.IsDefEq U Γ e₁ e₂ A) {e₁' : VExpr} (w : e₁'.LevelWF U)
     (eq : SExpr.mk e₁ = SExpr.mk e₁') : env.IsDefEq U Γ e₁' e₂ A :=
   (h.symm.alignR henv hΓ w eq).symm
+
+/-! ## Descent, keeping the type
+
+`IsDefEq.descend` (`Theory/Typing/Strong.lean`) drops the type into an existential, which is
+all `IsDefEqU` needs.  The `forallE_inv` statement in `Theory/Typing/Injectivity.lean` is
+sharper — it says the components are equal *at a sort* — so the capstone needs the same
+descent with the type kept.  Same proof; only the last line differs. -/
+
+omit [Params] in
+theorem _root_.Lean4Lean.VExpr.LevelWF.mono (le : U ≤ U') {e : VExpr} :
+    e.LevelWF U → e.LevelWF U' := by
+  induction e with intro h <;> simp [VExpr.LevelWF] at h ⊢
+  | sort => exact VLevel.WF.mono le h
+  | const _ us => exact fun _ hu => VLevel.WF.mono le (h _ hu)
+  | app _ _ ih1 ih2 | lam _ _ ih1 ih2 | forallE _ _ ih1 ih2 => exact ⟨ih1 h.1, ih2 h.2⟩
+
+omit [Params] in
+/-- `IsDefEq.descend` with the type retained: the descended derivation lives at
+`A.instL (VLevel.params U)`, which is a sort whenever `A` was. -/
+theorem IsDefEq.descend' {U U' : Nat} {e₁ e₂ A a₁ a₂ : VExpr}
+    (henv : Ordered env) (hΓ : OnCtx Γ (env.IsType U))
+    (H : env.IsDefEq U' Γ e₁ e₂ A)
+    (h1 : EqUpToLevels U' e₁ a₁) (h2 : EqUpToLevels U' e₂ a₂)
+    (w1 : a₁.LevelWF U) (w2 : a₂.LevelWF U) :
+    env.IsDefEq U Γ a₁ a₂ (A.instL (VLevel.params U)) := by
+  have key := H.instL (ls := VLevel.params U) VLevel.params_wf
+  rw [OnCtx.instL_id (CtxStrong.strong henv hΓ).levelWF] at key
+  have E1 : EqUpToLevels U (e₁.instL (VLevel.params U)) a₁ := by
+    have h := EqUpToLevels.instL' (U := U) VLevel.params_wf h1
+    rwa [VExpr.LevelWF.instL_id w1] at h
+  have E2 : EqUpToLevels U (e₂.instL (VLevel.params U)) a₂ := by
+    have h := EqUpToLevels.instL' (U := U) VLevel.params_wf h2
+    rwa [VExpr.LevelWF.instL_id w2] at h
+  exact ((key.eqUpToLevels henv hΓ E2).symm.eqUpToLevels henv hΓ E1).symm
 
 end VEnv
 

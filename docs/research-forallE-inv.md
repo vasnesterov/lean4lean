@@ -1308,3 +1308,95 @@ C1–C3/C5 (`SExpr.forallE_inv` → retype at a sort → reflect twice → `IsDe
 The seam held: neither `Align.lean` nor `Induction.lean` imports
 `Experimental/UniqueTyping.lean`, so neither depends on `ShapeLogRelAdequacy.lean` or
 `ShapeLogRel.lean`, and both built clean throughout while `ShapeLogRel.lean` was dirty.
+
+---
+
+# 16. C is done: `IsDefEqU.forallE_inv`, relative to `Params`
+
+```lean
+theorem VEnv.IsDefEqU.forallE_inv_params [Params] [SExpr.ParamsExtra]
+    {Γ : List VExpr} {A B A' B' : VExpr} {U : Nat}
+    (hΓ : OnCtx Γ (Params.env.IsType U))
+    (H : Params.env.IsDefEqU U Γ (.forallE A B) (.forallE A' B')) :
+    (∃ u, Params.env.IsDefEq U Γ A A' (.sort u)) ∧
+    ∃ u, Params.env.IsDefEq U (A::Γ) B B' (.sort u)
+```
+
+Same conclusion as `Theory/Typing/Injectivity.lean:23–31`, `Params`-relative in the style of
+`BridgeInjectivity.lean`'s `sort_inv_params`.
+
+| File | Lines | |
+|---|---|---|
+| `Experimental/Reflect/Align.lean` | 247 | alignment core, `descend'`, `LevelWF.mono` |
+| `Experimental/Reflect/Induction.lean` | 211 | the 14-case reflection |
+| `Experimental/Reflect/Capstone.lean` | 87 | `sortUniq` + `forallE_inv_params` |
+| | **545** | zero `sorry` |
+
+## 16.1 The chain
+
+Forward with `VEnv.IsDefEq.toSExpr`; retype at a sort; `SExpr.forallE_inv`; `reflect` each
+component; `IsDefEq.descend'` each back to `U`.
+
+The retype step is the one piece the §12 scoping did not spell out. `SExpr.forallE_inv`
+needs the ambient type to be a sort and `IsDefEqU` supplies an arbitrary `V`. The move:
+`(SExpr.IsDefEq.toHasTypeS H' hΓ').1.toStructural` yields a *structural* `HasTypeS`
+derivation of `.forallE X Y`, which can only be `HasTypeS.forallE`, hence at
+`.sort (.imax u v)`; its `transport` component then converts reflexivity at that sort into
+`Γ' ⊢ .sort (imax u v) ≡ mk V`, and `defeqDF` retypes `H'`. This is a cousin of the
+`HasTypeS.uniq` move at `BridgeInjectivity.lean:56–66` but goes through `toStructural`
+directly, which is shorter.
+
+`IsDefEq.descend'` (new, `Align.lean`) is `IsDefEq.descend` with the type kept rather than
+existentially quantified — needed because `Injectivity.lean`'s statement is the sharper one,
+"the components are equal *at a sort*", and the descended type
+`(.sort uv).instL (VLevel.params U)` is a sort definitionally. Same proof, last line differs.
+
+`VExpr.LevelWF.mono` (also new) is what lets the input's `U`-level-well-formedness meet the
+reflection's `U₁ ≥ U`.
+
+## 16.2 The taint is exactly the pre-existing one
+
+| Declaration | Axioms |
+|---|---|
+| `reflect` | `[propext, Classical.choice, Quot.sound]` |
+| `sortUniq` | `+ sorryAx` |
+| `forallE_inv_params` | `+ sorryAx` |
+| `sort_inv_params` *(pre-existing)* | `+ sorryAx` |
+
+**The reflection itself is `sorry`-free.** The `sorryAx` enters only through
+`SExpr.IsDefEq.strong`, via `uniq_sort` and `SExpr.forallE_inv` — i.e. the new result
+carries *no more* taint than the `sort_inv_params` that was already there, and clears at the
+same moment: when the `indTy` migration repairs `strong`.
+
+## 16.3 C5 is not doable yet, and for a known reason
+
+Rewiring `Theory/Typing/Injectivity.lean` so `forallE_inv` is proved rather than derived from
+`forallE_inv_stratified` requires a `Params`/`ParamsExtra` **instance** for an arbitrary
+`env` with `VEnv.WF env`. Nothing in the repo instantiates either — the same blocker
+`sort_inv_params` has had since it landed, and the reason `BridgeInjectivity.lean` also
+stops at the `_params` form. Recorded in `Capstone.lean`'s docstring, including the fact
+that once an instance exists **the arrow reverses**: this proof does not go through the
+stratified form, so `Injectivity.lean:23–31` would be replaced rather than reused.
+
+## 16.4 A verification caveat, recorded because it nearly became a false claim
+
+`Capstone.lean` first elaborated clean against a `ShapeLogRel.olean` from an earlier green
+state. Moments later `lake build` tried to rebuild that module, failed (the migration stream
+was mid-edit, five errors), and **removed the olean** — so the result was real but had
+become unreproducible, and reporting it as "verified" would have been wrong. The stream then
+went green and the capstone built for real, 43 jobs.
+
+Generalising: an elaboration that succeeded against an olean lake has since discarded is not
+a verified result. This is the same family as §12.8's staleness warning, but the failure
+shape is the opposite — there the tool served a stale environment silently; here the
+evidence evaporated after the fact.
+
+## 16.5 What `forallE_inv` unblocks
+
+`TrExpr.beta` (`Verify/Typing/Lemmas.lean:2094`, domain half only — §1), the two sites at
+`Verify/TypeChecker/InferType.lean:276, 286` (both halves), `Params.pat_wf`
+(`ChurchRosser.lean:36`), and three of the four remaining `TrProj` sorries — all once a
+`Params` instance exists.
+
+Not `IsDefEq.uniq`: that consumes `forallE_inv_stratified` (`UniqueTyping.lean:43`), which is
+item **C4** and out of scope here.

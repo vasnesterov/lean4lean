@@ -175,6 +175,13 @@ theorem reflect (henv : VEnv.Ordered Params.env) (huniq : SortUniq) :
     exact ⟨U₁, .lam Av (.app ev.lift (.bvar 0)), ev, .forallE Av Bv, le,
       by simp [SExpr.mk, hA, he], he, by simp [SExpr.mk, hA, hB], .eta d.hasType.1⟩
   | proofIrrel _ _ _ ih1 ih2 ih3 =>
+    -- The only three-premise rule, hence the only case reconciling three universe counts
+    -- rather than two.  It also has the one place where `≈` and `=` come apart at the
+    -- bottom of the level algebra, and that is deliberate, not a typo: the `SExpr` rule
+    -- says the proposition's sort is `SLevel.zero`, so a chosen representative `zv`
+    -- satisfies only `SLevel.mk zv = SLevel.zero`, i.e. `zv ≈ VLevel.zero` — *not*
+    -- `zv = VLevel.zero`.  `VEnv.IsDefEq.proofIrrel` demands the literal `.sort .zero`, so
+    -- the gap is closed by a `sortDF`/`defeqDF` retype (`hp0` below) rather than by `rfl`.
     intro Γ U hΓm hΓ
     obtain ⟨U₁, pv, _, S, le₁, hp, _, hS, d1⟩ := ih1 Γ U hΓm hΓ
     obtain ⟨zv, rfl, hzv⟩ := SExpr.mk_eq_sort hS
