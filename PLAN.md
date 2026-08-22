@@ -293,12 +293,32 @@ Landed since the plan was written:
   relative to a `Params` instance.
 - `docs/design-inductive.md` — the keystone specification.
 
-Known defect, not yet fixed: **`SExpr.Params.extra_pat` is a standalone `axiom`
-that proves `False`.** With the ordered environment
-`(∅ : VEnv).addDefEq ⟨0, .sort .zero, .sort .zero, .sort (.succ .zero)⟩` it
-yields `∃ …, False ∧ …`. Nothing in `kernel_sound`'s cone touches it, so guard 2
-does not catch it — but the whole injectivity route runs through `Params`, so it
-must become a class field before any instance is built.
+- `Theory/SetModel/Inaccessible.lean` — Foundation's inaccessible-cardinal
+  formulas reflected into Lean predicates with `Defined` instances,
+  `exists_inaccessibleChain`, Π/Σ closure with the hypotheses split finely, and
+  least fixed points. 706 lines, sorry-free.
+- `Theory/Inductive/Telescope.lean` — the telescope algebra the keystone is built
+  on. 894 lines, sorry-free.
+- `Primitive.lean` — both refutations of `checkPrimitiveDef.WF` closed; arena
+  unchanged at 185/6/0.
+- `Experimental/` — `SExpr.Params.extra_pat` moved from a standalone `axiom` into
+  a `ParamsExtra` class, so there are now zero axioms under the `Lean4Lean`
+  namespace in that cone.
+
+Three statements have been found **false, not merely unproved**, each with a
+machine-checked refutation. `checkPrimitiveDef.WF` (twice, both now fixed);
+`∃ ves, ves.WF (Kernel.Environment.empty ‵main)` (the SMap stage flag, fixed);
+and `SExpr.IsDefEq.strong`, which lacks the `Ctx.WF Γ` hypothesis its `VExpr`
+analogue carries — `IsDefEqStrong.bvar` demands the looked-up type be a type
+while `IsDefEq.bvar` assumes nothing about the context. A fourth is open:
+`VEnv.HasPrimitives` has no field for `Nat.pred` or `Nat.bitwise`, yet the
+`Nat.sub` and `Nat.land`/`lor`/`xor` branches of the recognizer depend on their
+semantics, so an environment defining `Nat.pred := fun _ => 0` satisfies
+`HasPrimitives` and still passes the `Nat.sub` check.
+
+The lesson is worth stating: on this project, when a statement resists proof, the
+first hypothesis should be that it is false. Four of the harder-looking sorries
+turned out to be.
 
 ## Ground rules for contributors
 
