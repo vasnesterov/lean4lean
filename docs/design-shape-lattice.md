@@ -237,3 +237,54 @@ the function *reducing*. `unfold_iff` closes cases with `cases n <;> rfl`; five 
 elsewhere are `nofun` (`WShape.HasType.lam_isType` and neighbours). Both work only because
 `hasType` computes. This is a property of the file, not of those sites — worth knowing before
 costing any future clause change.
+
+---
+
+## `IsType.common` is false — machine-checked counterexample
+
+`WShape.IsType.common` — "two compatible classifying shapes share a sort" —
+
+```lean
+theorem WShape.IsType.common {a a' : WShape n} (hC : a.Compat a')
+    (h : a.IsType) (h' : a'.IsType) : ∃ r, a.HasType (.sort r) ∧ a'.HasType (.sort r)
+```
+
+**is false.** It was approved twice — first at `Shape` as "a derived fact, not a change to any
+statement", then moved to `WShape` on the argument that the `.forallE` case needs
+`ShapeFun.WF`'s `∃ y, (.bot, y) ∈ f`. Neither placement rescues it: `WF` is simply too weak.
+
+The witness, at `n = 2`, with `b = b' = .sort true`:
+
+```lean
+cxF  = [(⊥, ⊥), (.sort true,  .indTy false)]     cxA  = .forallE b cxF
+cxF' = [(⊥, ⊥), (.indTy true, .indTy true )]     cxA' = .forallE b cxF'
+```
+
+Checked by computation: `Shape.Compat cxA cxA' = true`; `cxA` is classified by `.sort false`
+and *not* `.sort true`; `cxA'` by `.sort true` and *not* `.sort false`. `Shape.WF cxA` and
+`Shape.WF cxA'` both hold. So both are legitimate `WShape`s, they are compatible, each is
+classified by a sort, and no sort classifies both.
+
+**Why it survives `Compat`.** `ShapeFun.Compat R f f' = f.all fun (x, y) => f'.all fun
+(x', y') => R x x' → R y y'` — the obligation on *values* is guarded by the *keys*. The only
+pair that would force `Compat (.indTy false) (.indTy true)` (i.e. `false = true`) has keys
+`.sort true` and `.indTy true`, which are different constructors and therefore incompatible,
+so the implication never fires. Every other pair routes through `⊥`, which is compatible with
+everything.
+
+**Both suspected blockers were checked and are satisfied.** `ShapeFun.WF`'s join-closure holds
+(every key pair joins to a key already in the family) and its monotonicity clause holds (the
+only non-trivial obligation is `⊥ ≤ k → ⊥ ≤ value`, and `⊥` is bottom). Do not expect `WF` to
+be where a proof attempt dies; it isn't.
+
+**The general fact, which outlives this lemma:** `Compat` on `.forallE` shapes does not
+constrain the codomains' universe *at all* when the domains disagree. Two Pi-shapes can be
+compatible while one is `Prop`-valued and the other `Type`-valued. This is a real gap in the
+shape lattice, not an artifact of `IsType` — it was invisible only because `.type` forced
+every classifying shape to `true`, leaving nothing to disagree about. The `ShapeS.indTy`
+parameterisation did not introduce it; it exposed it.
+
+The Lean witness (`cx_refutes`, sorry-free, with the four `decide`-checked clauses as a live
+regression test on `Compat`/`WF`/`hasType`) lands with the `indTy` migration — it needs
+`ShapeS.indTy`'s boolean parameter and so cannot compile against the pre-migration tree. It is
+carried in the migration WIP under `section CounterexampleProbe`.
