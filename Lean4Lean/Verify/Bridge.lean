@@ -225,7 +225,8 @@ This is the one link of the chain that the refinement layer cannot supply today:
 only exposes `∃ ds, VEnv.WF' ds venv`, with no control over the tail of `ds`, and `AddInduct`
 (`Verify/Environment/Basic.lean`) has no constructors, so `TrEnv` provably contains no inductive
 declaration at all — while `stdPrelude` is mostly `.inductDecl`s. Discharging it needs the
-inductive-declaration workstream (`VInductDecl.WF`/`VEnv.addInduct`/`AddInduct`) plus a
+inductive-declaration workstream (`AddInduct`'s constructors, against `VInductDecl'.WF` /
+`VEnv.addInduct'`) plus a
 `foldAddDecl`-level invariant recording that the first `pre.length` steps were exactly the
 prelude. -/
 def PreludeBridge (pre : List Declaration) : Prop :=

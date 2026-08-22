@@ -46,13 +46,21 @@ section Statement
 variable [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖]
 variable {env : VEnv} {nv : ℕ} (M : ModelData V) (L : LevelAssign env nv)
 
-/-- **Part 1**: a proposition denotes a subset of `{•}`. -/
-def PropSound (Γ : List VExpr) (e : VExpr) : Prop :=
-  L.IsProp M Γ e → ∀ ρ ∈ interpCtx M L Γ, (interp M L Γ e).toFun ρ ⊆ ({pt} : V)
+/-- **Part 1**: a proposition denotes a subset of `{•}`.
 
-/-- **Part 2**: a proof denotes `•`. -/
+Stated *unconditionally* — the guard "and `e` really is a proposition" is
+attached in `Sound` below, where it can be phrased as a condition on the
+judgement's **type** rather than on `L.IsProp`.  This matters: `L.lvl Γ e` is
+total, so it returns junk at terms that are not types, and `L.IsProp M Γ e` is
+therefore junk-satisfiable.  A part-1 field guarded by `L.IsProp` would be
+unprovable for those junk instances. -/
+def PropSound (Γ : List VExpr) (e : VExpr) : Prop :=
+  ∀ ρ ∈ interpCtx M L Γ, (interp M L Γ e).toFun ρ ⊆ ({pt} : V)
+
+/-- **Part 2**: a proof denotes `•`.  Also unconditional; see `Sound.proof`,
+which derives it where the type is known to be a proposition. -/
 def ProofSound (Γ : List VExpr) (e : VExpr) : Prop :=
-  L.IsProof M Γ e → ∀ ρ ∈ interpCtx M L Γ, (interp M L Γ e).toFun ρ = pt
+  ∀ ρ ∈ interpCtx M L Γ, (interp M L Γ e).toFun ρ = pt
 
 /-- **Part 3**: a term denotes an element of the denotation of its type. -/
 def TypeSound (Γ : List VExpr) (e A : VExpr) : Prop :=
@@ -62,19 +70,35 @@ def TypeSound (Γ : List VExpr) (e A : VExpr) : Prop :=
 def EqSound (Γ : List VExpr) (e₁ e₂ : VExpr) : Prop :=
   ∀ ρ ∈ interpCtx M L Γ, (interp M L Γ e₁).toFun ρ = (interp M L Γ e₂).toFun ρ
 
-/-- Every universe level occurring in a judgement evaluates strictly below `n`.
-This is the explicit bound: `Sound` is stated for a *fixed* `n` and a *fixed*
-chain of `n` inaccessibles, never for an existential one. -/
-def SoundBound (n : ℕ) (Γ : List VExpr) (e A : VExpr) : Prop :=
-  (∀ B ∈ A :: e :: Γ, (L.lvl Γ B).eval M.ls < n) ∧ (L.srt Γ e).eval M.ls < n
+/-- **Soundness**, in the form the induction proves it.
 
-/-- **Soundness**, in the form the induction proves it.  All **four** parts are
-carried; see the note on part 2 in the ledger. -/
+**Two fields, not four.**  Part 1 is a corollary of part 3 — if the type is
+`.sort u` with `u` evaluating to `0` then `⟦A⟧ρ = U κ 0 = ℘{•}`, so `⟦e⟧ρ ∈ ⟦A⟧ρ`
+*is* `⟦e⟧ρ ⊆ {•}` — and part 2 is a corollary of parts 1 and 3.  So the
+induction carries only parts 3 and 4; `Sound.prop` and `Sound.proof` recover the
+other two where they are consumed.
+
+Note that the recovered part 1 is guarded by the *judgement* saying `e₁` is a
+proposition (`A = .sort u`, `u` evaluating to `0`), never by `L.IsProp`.  That
+matters: `L.lvl Γ e` is total, so it returns junk at terms that are not types,
+and a field guarded by `L.IsProp` would be unprovable at those junk instances. -/
 structure Sound (Γ : List VExpr) (e₁ e₂ A : VExpr) : Prop where
-  prop : PropSound M L Γ e₁
-  proof : ProofSound M L Γ e₁
-  type : TypeSound M L Γ e₁ A
+  /-- **Part 4** -/
   eq : EqSound M L Γ e₁ e₂
+  /-- **Part 3** -/
+  type : TypeSound M L Γ e₁ A
+
+variable {M L}
+
+/-- Soundness is symmetric, and cheaply so: part 3 for the right-hand side
+follows from part 4 and part 3 for the left.  This is what lets the `symm` rule
+be a one-liner. -/
+theorem Sound.symm {Γ : List VExpr} {e₁ e₂ A : VExpr} (h : Sound M L Γ e₁ e₂ A) :
+    Sound M L Γ e₂ e₁ A where
+  eq ρ hρ := (h.eq ρ hρ).symm
+  type ρ hρ := h.eq ρ hρ ▸ h.type ρ hρ
+
+variable (M L)
 
 end Statement
 
@@ -273,6 +297,19 @@ theorem proofSound_of {Γ : List VExpr} {e A : VExpr} {ρ : V}
     (h3 : (interp M L Γ e).toFun ρ ∈ (interp M L Γ A).toFun ρ) :
     (interp M L Γ e).toFun ρ = pt :=
   mem_singleton_iff.mp (h1 _ h3)
+
+/-- **Part 1**, recovered.  A `Prop` denotes a subset of `{•}`. -/
+theorem Sound.prop {Γ : List VExpr} {e₁ e₂ A : VExpr} (h : Sound M L Γ e₁ e₂ A)
+    {u : VLevel} (hA : A = .sort u) (h0 : u.eval M.ls = 0) : PropSound M L Γ e₁ :=
+  fun ρ hρ ↦ propSound_of_mem_sort M L h0 (hA ▸ h.type ρ hρ)
+
+/-- **Part 2**, recovered.  A proof denotes `•`.  Consumes part 1 for the
+*type*, which is why the rules that need it carry a sort derivation for the
+type. -/
+theorem Sound.proof {Γ : List VExpr} {e e' A A' : VExpr} {u : VLevel}
+    (hA : Sound M L Γ A A' (.sort u)) (h0 : u.eval M.ls = 0)
+    (he : Sound M L Γ e e' A) : ProofSound M L Γ e :=
+  fun ρ hρ ↦ proofSound_of M L (Sound.prop M L hA rfl h0 ρ hρ) (he.type ρ hρ)
 
 end Derived
 
@@ -486,7 +523,7 @@ theorem lamDF_sound_eq {Γ : List VExpr} {A A' body body' : VExpr} {ρ : V}
     (hctx : interp M L (A' :: Γ) body' = interp M L (A :: Γ) body')
     (hsplit : L.IsProof M (A :: Γ) body ↔ L.IsProof M (A' :: Γ) body')
     (hA : (interp M L Γ A).toFun ρ = (interp M L Γ A').toFun ρ)
-    (hbody : ∀ v, (interp M L (A :: Γ) body).toFun (snoc ρ v)
+    (hbody : ∀ v ∈ (interp M L Γ A).toFun ρ, (interp M L (A :: Γ) body).toFun (snoc ρ v)
       = (interp M L (A :: Γ) body').toFun (snoc ρ v)) :
     (interp M L Γ (.lam A body)).toFun ρ = (interp M L Γ (.lam A' body')).toFun ρ := by
   by_cases hp : L.IsProof M (A :: Γ) body
@@ -494,14 +531,14 @@ theorem lamDF_sound_eq {Γ : List VExpr} {A A' body body' : VExpr} {ρ : V}
   · rw [interp_lam_type M L hp, interp_lam_type M L (fun x ↦ hp (hsplit.mpr x)), hctx]
     ext y
     rw [mem_mkLam_iff, mem_mkLam_iff, hA]
-    exact exists_congr fun v ↦ and_congr_right fun _ ↦ by rw [hbody v]
+    exact exists_congr fun v ↦ and_congr_right fun hv ↦ by rw [hbody v (by rwa [hA])]
 
 /-- **`forallEDF`, part 4.** -/
 theorem forallEDF_sound_eq {Γ : List VExpr} {A A' body body' : VExpr} {ρ : V}
     (hctx : interp M L (A' :: Γ) body' = interp M L (A :: Γ) body')
     (hsplit : L.IsProp M (A :: Γ) body ↔ L.IsProp M (A' :: Γ) body')
     (hA : (interp M L Γ A).toFun ρ = (interp M L Γ A').toFun ρ)
-    (hbody : ∀ v, (interp M L (A :: Γ) body).toFun (snoc ρ v)
+    (hbody : ∀ v ∈ (interp M L Γ A).toFun ρ, (interp M L (A :: Γ) body).toFun (snoc ρ v)
       = (interp M L (A :: Γ) body').toFun (snoc ρ v)) :
     (interp M L Γ (.forallE A body)).toFun ρ
       = (interp M L Γ (.forallE A' body')).toFun ρ := by
@@ -509,7 +546,7 @@ theorem forallEDF_sound_eq {Γ : List VExpr} {A A' body body' : VExpr} {ρ : V}
   · rw [interp_forallE_prop M L hp, interp_forallE_prop M L (hsplit.mp hp), hctx]
     ext z
     rw [mem_mkForallProp_iff, mem_mkForallProp_iff, hA]
-    exact and_congr_right fun _ ↦ forall₂_congr fun v _ ↦ by rw [hbody v]
+    exact and_congr_right fun _ ↦ forall₂_congr fun v hv ↦ by rw [hbody v (by rwa [hA])]
   · rw [interp_forallE_type M L hp, interp_forallE_type M L (fun x ↦ hp (hsplit.mpr x)), hctx]
     ext f
     rw [mem_mkForallType_iff, mem_mkForallType_iff, hA]
@@ -517,9 +554,9 @@ theorem forallEDF_sound_eq {Γ : List VExpr} {A A' body body' : VExpr} {ρ : V}
     · congr! 2
       ext y
       rw [mem_mkFamUnion_iff, mem_mkFamUnion_iff, hA]
-      exact exists_congr fun v ↦ and_congr_right fun _ ↦ by rw [hbody v]
-    · exact forall₂_congr fun v _ ↦ forall_congr' fun y ↦ imp_congr_right fun _ ↦ by
-        rw [hbody v]
+      exact exists_congr fun v ↦ and_congr_right fun hv ↦ by rw [hbody v (by rwa [hA])]
+    · exact forall₂_congr fun v hv ↦ forall_congr' fun y ↦ imp_congr_right fun _ ↦ by
+        rw [hbody v (by rwa [hA])]
 
 omit [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖] in
 /-- The `lam` clause lands in the `forallE` clause, given the values do. -/

@@ -886,5 +886,125 @@ example : ((mutDecl.ihTypes 2 forestCons).take 1).length
       + ((forestCons.fields.map (·.type)).drop 1).length
     = forestCons.fields.length - 1 + 1 := rfl
 
+/-! ## `Nonempty` — the `isLE := false` case
+
+The four blocks above are all large eliminators, so none of them exercises the
+`isLE = false` path: `elimLvl = .zero`, `recUvars = uvars` (no fresh universe prepended),
+`selfLvls = VLevel.params uvars` (the identity, so `atRec` is the identity and **no
+`swap01` is needed**).  `Nonempty` is the prelude's small eliminator, and
+`Theory/Consistency.lean`'s `nonemptyIndDecl` has to be expressible in this record. -/
+
+def nonemptyIntro : VIndCtor where
+  name := ``Nonempty.intro
+  params := [.sort (.param 0)]
+  fields := [{ type := .bvar 0, lvl := .param 0, recArg := none }]
+  args := []
+
+def nonemptyType : VIndType where
+  name := ``Nonempty
+  type := mkPi [.sort (.param 0)] (.sort .zero)
+  indices := []
+  ctors := [nonemptyIntro]
+
+/-- `Nonempty.{u} : Sort u → Prop`, a **small** eliminator: its single field has level
+`u`, which is not `≈ 0`, and there are no result indices for it to occur in — so `LECond`
+fails and `isLE` must be `false`. -/
+def nonemptyDecl : VInductDecl' where
+  uvars := 1
+  params := [.sort (.param 0)]
+  lvl := .zero
+  isLE := false
+  types := [nonemptyType]
+
+example : nonemptyDecl.isLE = false := rfl
+example : nonemptyDecl.elimLvl = .zero := rfl
+example : nonemptyDecl.recUvars = nonemptyDecl.uvars := rfl
+example : nonemptyDecl.selfLvls = VLevel.params nonemptyDecl.uvars := rfl
+-- `atRec` is the identity here, which is what makes `swap01` unnecessary below
+example : nonemptyDecl.atRecTele nonemptyDecl.params = nonemptyDecl.params := rfl
+example : nonemptyDecl.atRec (nonemptyDecl.tyApp 0 0 []) = nonemptyDecl.tyApp' 0 0 [] := rfl
+
+example : nonemptyType.type = nonemptyType.canonType nonemptyDecl := rfl
+example : nonemptyType.canonType nonemptyDecl = (vconst(type_of% @Nonempty)).type := rfl
+example : nonemptyIntro.type nonemptyDecl 0 = (vconst(type_of% @Nonempty.intro)).type := rfl
+
+-- **the recursor, against Lean's own `Nonempty.rec` — no level renaming**
+example : nonemptyDecl.recType 0 = (vconst(type_of% @Nonempty.rec)).type := rfl
+example : nonemptyDecl.recUvars = (vconst(type_of% @Nonempty.rec)).uvars := rfl
+
+example : mkPi (motiveCtx nonemptyDecl 0) (nonemptyDecl.motiveType 0)
+    = vexpr(∀ (α : Sort u), Nonempty α → Prop) := rfl
+example : mkPi (minorPreCtx nonemptyDecl 0) (nonemptyDecl.minorType 0 0 nonemptyIntro)
+    = vexpr(∀ (α : Sort u) (motive : Nonempty α → Prop),
+        (a : α) → motive (Nonempty.intro a)) := rfl
+
+-- the ι-rule
+example : nonemptyDecl.ihValues nonemptyIntro = [] := rfl
+example : nonemptyDecl.iotaLam 0 nonemptyIntro
+    = vexpr(fun (α : Sort u) (motive : Nonempty α → Prop)
+        (intro : (a : α) → motive (Nonempty.intro a)) (a : α) => intro a) := rfl
+example : mkLams (nonemptyDecl.iotaCtx nonemptyIntro)
+      (nonemptyDecl.iotaLhs 0 nonemptyIntro)
+    = vexpr(fun (α : Sort u) (motive : Nonempty α → Prop)
+        (intro : (a : α) → motive (Nonempty.intro a)) (a : α) =>
+        @Nonempty.rec α motive intro (Nonempty.intro a)) := rfl
+
+example : (VEnv.empty.addInduct' nonemptyDecl).isSome := rfl
+example : nonemptyDecl.allNames = [``Nonempty, ``Nonempty.intro, ``Nonempty.rec] := rfl
+
+/-! ## `Iff` — the third prelude literal
+
+`uvars = 0` but `isLE = true`: both fields are proofs, so `LECond`'s second disjunct holds
+and a fresh elimination universe *is* prepended (`recUvars = 1`), while `selfLvls = []`
+because the block has no universes of its own. -/
+
+def iffIntro : VIndCtor where
+  name := ``Iff.intro
+  params := [.sort .zero, .sort .zero]
+  fields :=
+    [{ type := mkPi [.bvar 1] (.bvar 1), lvl := .zero, recArg := none },
+     { type := mkPi [.bvar 1] (.bvar 3), lvl := .zero, recArg := none }]
+  args := []
+
+def iffType : VIndType where
+  name := ``Iff
+  type := mkPi [.sort .zero, .sort .zero] (.sort .zero)
+  indices := []
+  ctors := [iffIntro]
+
+def iffDecl : VInductDecl' where
+  uvars := 0
+  params := [.sort .zero, .sort .zero]
+  lvl := .zero
+  isLE := true
+  types := [iffType]
+
+example : iffDecl.uvars = 0 := rfl
+example : iffDecl.recUvars = 1 := rfl
+example : iffDecl.selfLvls = [] := rfl
+example : iffDecl.elimLvl = .param 0 := rfl
+
+example : iffType.type = iffType.canonType iffDecl := rfl
+example : iffType.canonType iffDecl = (vconst(type_of% Iff)).type := rfl
+example : iffIntro.type iffDecl 0 = (vconst(type_of% @Iff.intro)).type := rfl
+
+-- **the recursor, against Lean's own `Iff.rec`**
+example : iffDecl.recType 0 = (vconst(type_of% @Iff.rec)).type := rfl
+example : iffDecl.recUvars = (vconst(type_of% @Iff.rec)).uvars := rfl
+
+example : iffDecl.ihValues iffIntro = [] := rfl
+example : iffDecl.iotaLam 0 iffIntro
+    = vexpr(fun (a b : Prop) (motive : Iff a b → Sort u)
+        (intro : (mp : a → b) → (mpr : b → a) → motive (Iff.intro mp mpr))
+        (mp : a → b) (mpr : b → a) => intro mp mpr) := rfl
+
+example : (VEnv.empty.addInduct' iffDecl).isSome := rfl
+
+/-- All three of `Theory/Consistency.lean`'s prelude literals are expressible: `Eq`
+(`isLE`, indices), `Iff` (`isLE`, `uvars = 0`), `Nonempty` (**not** `isLE`). -/
+example : (VEnv.empty.addInduct' eqDecl).isSome
+    ∧ (VEnv.empty.addInduct' iffDecl).isSome
+    ∧ (VEnv.empty.addInduct' nonemptyDecl).isSome := ⟨rfl, rfl, rfl⟩
+
 end InductiveDeclExamples
 end Lean4Lean

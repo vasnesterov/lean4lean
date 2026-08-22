@@ -100,16 +100,15 @@ nonrec theorem AddQuot.le (H : AddQuot m₁ m₂ env₁ env₂) : env₁ ≤ env
   open AddQuot1 in (le <| le <| le <| le fun _ _ h => h.2 ▸ VEnv.addDefEq_le) _ _ H
 
 /-- This definition is essentially a `sorry`: it should relate `addInductive`'s
-effect on the constant map to `VEnv.addInduct` (which is itself a `sorry`,
-see `Lean4Lean.Theory.Inductive`), but it currently has no constructors, so the
-`TrEnv'.induct` case below can never fire and environments containing inductives
-are outside the verified `TrEnv` relation. -/
-inductive AddInduct (m₁ : ConstMap) (env₁ : VEnv) (decl : VInductDecl)
+effect on the constant map to `VEnv.addInduct'` (`Lean4Lean.Theory.Inductive.Decl`),
+but it currently has no constructors, so the `TrEnv'.induct` case below can never fire
+and environments containing inductives are outside the verified `TrEnv` relation. -/
+inductive AddInduct (m₁ : ConstMap) (env₁ : VEnv) (decl : VInductDecl')
     (m₂ : ConstMap) (env₂ : VEnv) : Prop
   -- TODO
 
 nonrec theorem AddInduct.to_addInduct
-    (H : AddInduct m₁ env₁ decl m₂ env₂) : env₁.addInduct decl = some env₂ :=
+    (H : AddInduct m₁ env₁ decl m₂ env₂) : env₁.addInduct' decl = some env₂ :=
   nomatch H
 
 /-- Insert a whole block of definitions into the constant map. -/

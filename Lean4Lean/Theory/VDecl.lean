@@ -1,4 +1,4 @@
-import Lean4Lean.Theory.VEnv
+import Lean4Lean.Theory.Inductive.Decl
 
 namespace Lean4Lean
 
@@ -11,19 +11,19 @@ structure VDefVal extends VConstVal where
 def VDefVal.toDefEq (v : VDefVal) : VDefEq :=
   ⟨v.uvars, .const v.name (VLevel.params v.uvars), v.value, v.type⟩
 
-structure VInductiveType extends VConstVal where
-  ctors : List VConstVal
+/-- A declaration step of the abstract theory.
 
-structure VInductDecl where
-  uvars : Nat
-  nparams : Nat
-  types : List VInductiveType
-
+`induct` carries `VInductDecl'` (`Lean4Lean/Theory/Inductive/Decl.lean`), the *structured*
+inductive declaration that keeps the parameter/index/field telescopes explicitly. The
+earlier flat `VInductDecl`, which stored only the closed types of the block, could not work:
+the kernel `whnf`s at every step of an inductive's pi-spine, so the telescopes the recursor
+is built from are not recoverable from the stored types, and no `addInduct` could be written
+against it. -/
 inductive VDecl where
   | axiom (_ : VConstVal)
   | def (_ : VDefVal)
   | opaque (_ : VDefVal)
   | example (_ : VDefVal)
   | quot
-  | induct (_ : VInductDecl)
+  | induct (_ : VInductDecl')
   | mutualDef (_ : List VDefVal)

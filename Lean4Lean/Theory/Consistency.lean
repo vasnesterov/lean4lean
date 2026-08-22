@@ -28,46 +28,108 @@ by axiom-free declaration steps types an inhabitant of `∀ p : Prop, p`.
   constant, so that consistency does not depend on which inductives the
   environment happens to declare.
 
-* KNOWN STATEMENT GAPS (tracked): the `.induct` case of `VDecl.WF` uses
-  `VInductDecl.WF` and `VEnv.addInduct`, which are currently `sorry`-backed
-  definitions in `Lean4Lean.Theory.Inductive`. Until they are defined, the
-  meaning of the prelude's inductive steps (and hence of this statement) is
-  incomplete.
+* The `.induct` case of `VDecl.WF` is `VInductDecl'.WF` / `VEnv.addInduct'`
+  (`Lean4Lean.Theory.Inductive.Decl`), so the three prelude inductives below are
+  given in the structured form that carries their parameter/index/field
+  telescopes. Each is checked against Lean's own declaration by an
+  `example … := rfl` immediately after it, so this file failing to build *is*
+  that check failing.
 -/
 
 namespace Lean4Lean
 
-/-! ## The standard prelude -/
+open VExpr (mkPi)
+
+/-! ## The standard prelude
+
+The three inductive declarations are `VInductDecl'` literals: the flat
+`VInductDecl` that used to live here stored only the block's closed types, from
+which the recursor's telescopes are not recoverable (the kernel `whnf`s at every
+step of the pi-spine). See `Lean4Lean/Theory/Inductive/Decl.lean` §"Why a
+structured record", and `Theory/Inductive/DeclExamples.lean` for the same shape
+validated on `Eq`, `Nat`, `Acc` and a mutual block. -/
 
 /-- The declaration of `Eq` as an inductive type:
-`inductive Eq : {α : Sort u} → α → α → Prop` with constructor `Eq.refl`. -/
-def eqIndDecl : VInductDecl where
+`inductive Eq.{u} {α : Sort u} (a : α) : α → Prop` with constructor `Eq.refl`.
+`α` and `a` are the two parameters; the third argument is an index. -/
+def eqIndDecl : VInductDecl' where
   uvars := 1
-  nparams := 2
+  params := [.sort (.param 0), .bvar 0]
+  lvl := .zero
+  isLE := true
   types := [{
-    toVConstant := vconst(type_of% @Eq)
     name := ``Eq
-    ctors := [{ toVConstant := vconst(type_of% @Eq.refl), name := ``Eq.refl }] }]
+    type := mkPi [.sort (.param 0), .bvar 0, .bvar 1] (.sort .zero)
+    indices := [.bvar 1]
+    ctors := [{
+      name := ``Eq.refl
+      params := [.sort (.param 0), .bvar 0]
+      fields := []
+      args := [.bvar 0] }] }]
+
+example : (vconst(type_of% @Eq)).uvars = eqIndDecl.uvars := rfl
+example : (vconst(type_of% @Eq)).type = (eqIndDecl.types.getD 0 default).type := rfl
+example : (eqIndDecl.types.getD 0 default).type
+    = (eqIndDecl.types.getD 0 default).canonType eqIndDecl := rfl
+example : (vconst(type_of% @Eq.refl)).type
+    = ((eqIndDecl.types.getD 0 default).ctors.getD 0 default).type eqIndDecl 0 := rfl
+example : (vconst(type_of% @Eq.rec)).uvars = eqIndDecl.recUvars := rfl
 
 /-- The declaration of `Iff` as an inductive type (a structure, i.e. a
 one-constructor inductive; its projections are definable, so they are not part
-of the prelude). -/
-def iffIndDecl : VInductDecl where
+of the prelude). Both propositions are parameters, and there are no indices. -/
+def iffIndDecl : VInductDecl' where
   uvars := 0
-  nparams := 2
+  params := [.sort .zero, .sort .zero]
+  lvl := .zero
+  isLE := true
   types := [{
-    toVConstant := vconst(type_of% @Iff)
     name := ``Iff
-    ctors := [{ toVConstant := vconst(type_of% @Iff.intro), name := ``Iff.intro }] }]
+    type := mkPi [.sort .zero, .sort .zero] (.sort .zero)
+    indices := []
+    ctors := [{
+      name := ``Iff.intro
+      params := [.sort .zero, .sort .zero]
+      fields :=
+        -- `mp : a → b` over `[b, a]`, then `mpr : b → a` over `[mp, b, a]`
+        [{ type := .forallE (.bvar 1) (.bvar 1), lvl := .zero, recArg := none },
+         { type := .forallE (.bvar 1) (.bvar 3), lvl := .zero, recArg := none }]
+      args := [] }] }]
 
-/-- The declaration of `Nonempty` as an inductive type. -/
-def nonemptyIndDecl : VInductDecl where
+example : (vconst(type_of% @Iff)).uvars = iffIndDecl.uvars := rfl
+example : (vconst(type_of% @Iff)).type = (iffIndDecl.types.getD 0 default).type := rfl
+example : (iffIndDecl.types.getD 0 default).type
+    = (iffIndDecl.types.getD 0 default).canonType iffIndDecl := rfl
+example : (vconst(type_of% @Iff.intro)).type
+    = ((iffIndDecl.types.getD 0 default).ctors.getD 0 default).type iffIndDecl 0 := rfl
+example : (vconst(type_of% @Iff.rec)).uvars = iffIndDecl.recUvars := rfl
+
+/-- The declaration of `Nonempty` as an inductive type.  Unlike `Eq` and `Iff`
+this is *not* a large eliminator: its single constructor's single field `val : α`
+is not a proof and does not occur among the constructor's result indices (there
+are none), so `Nonempty.rec` eliminates only into `Prop`. -/
+def nonemptyIndDecl : VInductDecl' where
   uvars := 1
-  nparams := 1
+  params := [.sort (.param 0)]
+  lvl := .zero
+  isLE := false
   types := [{
-    toVConstant := vconst(type_of% @Nonempty)
     name := ``Nonempty
-    ctors := [{ toVConstant := vconst(type_of% @Nonempty.intro), name := ``Nonempty.intro }] }]
+    type := mkPi [.sort (.param 0)] (.sort .zero)
+    indices := []
+    ctors := [{
+      name := ``Nonempty.intro
+      params := [.sort (.param 0)]
+      fields := [{ type := .bvar 0, lvl := .param 0, recArg := none }]
+      args := [] }] }]
+
+example : (vconst(type_of% @Nonempty)).uvars = nonemptyIndDecl.uvars := rfl
+example : (vconst(type_of% @Nonempty)).type = (nonemptyIndDecl.types.getD 0 default).type := rfl
+example : (nonemptyIndDecl.types.getD 0 default).type
+    = (nonemptyIndDecl.types.getD 0 default).canonType nonemptyIndDecl := rfl
+example : (vconst(type_of% @Nonempty.intro)).type
+    = ((nonemptyIndDecl.types.getD 0 default).ctors.getD 0 default).type nonemptyIndDecl 0 := rfl
+example : (vconst(type_of% @Nonempty.rec)).uvars = nonemptyIndDecl.recUvars := rfl
 
 /-- The axiom `propext : ∀ {a b : Prop}, (a ↔ b) → a = b`. -/
 def propextConst : VConstVal :=
