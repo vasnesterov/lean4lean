@@ -1640,3 +1640,50 @@ theorem VInductDecl'.addInduct'_ctor_interface {env env' : VEnv} {D : VInductDec
     ∃ T, D.types[j]? = some T ∧ C ∈ T.ctors ∧ VIndCtor.Interface env' D j T C := by
   obtain ⟨T, hT, hmem⟩ := VInductDecl'.mem_ctorsAll hC
   exact ⟨T, hT, hmem, (hR.ctors j T hT C hmem).interface henv' (VEnv.addInduct'_ctors he hC)⟩
+
+/-! ## D4: the induction-hypothesis telescope -/
+
+/-- A declaration-order telescope is a well-formed context as soon as each entry is a type
+in the context of its own prefix.  Induction is from the *right*, since the last entry of
+the telescope is the innermost of the context. -/
+theorem VEnv.OnCtx.ofTele {env : VEnv} {U : Nat} : ∀ {As Γ : List VExpr},
+    OnCtx Γ (env.IsType U) →
+    (∀ s A, As[s]? = some A → env.IsType U ((As.take s).reverse ++ Γ) A) →
+    OnCtx (As.reverse ++ Γ) (env.IsType U)
+  | [], Γ, hΓ, _ => by simpa using hΓ
+  | A :: As, Γ, hΓ, h => by
+    have hA : env.IsType U Γ A := by simpa using h 0 A rfl
+    rw [VExpr.tele_ctx_cons]
+    refine VEnv.OnCtx.ofTele ⟨hΓ, hA⟩ fun s B hB => ?_
+    have hs := h (s + 1) B (by simpa using hB)
+    rwa [List.take_succ_cons, VExpr.tele_ctx_cons] at hs
+
+namespace VInductDecl'
+variable {env : VEnv} {D : VInductDecl'}
+
+/-- **D4's body.**  The `s`-th induction hypothesis of minor `q`: `motive_{r.idx}` applied
+to the recursive field's index terms `π` and to `fieldᵢ` applied to its own `ξ` variables.
+
+The offsets are `ih_param_offset`'s: `args_ty` places the parameters at `nxi + i`, the two
+weakenings add `off = nm + q` and `d = nf - i + s`, and the motive index puts them at
+`nxi + s + nf + q + nm`.  Those agree, which is what makes `hz`'s type the one the motive
+demands. -/
+theorem ihBody_hasType {T' : VIndType} {r : VIndRecArg} {i s nxi nf q off d : Nat}
+    {Γ ιs : List VExpr} {z : VExpr}
+    (hT' : D.types[r.idx]? = some T') (hridx : r.idx < D.nm)
+    (hlen : ιs.length = T'.indices.length)
+    (hoff : off = D.nm + q) (hd : d = nf - i + s) (hi : i ≤ nf)
+    (hmot : Lookup Γ (nxi + s + nf + q + (D.nm - 1 - r.idx))
+      ((D.motiveType r.idx).liftN (nxi + s + nf + q + (D.nm - 1 - r.idx) + 1)))
+    (hidx : env.HasArgs D.recUvars Γ
+      (liftTele (nxi + s + nf + q + (D.nm - 1 - r.idx) + 1)
+        (liftTele r.idx (D.atRecTele T'.indices) 0) 0) ιs)
+    (hz : env.HasType D.recUvars Γ z (D.tyApp' r.idx (nxi + i + off + d) ιs)) :
+    env.HasType D.recUvars Γ
+      ((VExpr.bvar (nxi + s + nf + q + (D.nm - 1 - r.idx))).mkApp (ιs ++ [z]))
+      (.sort D.elimLvl) := by
+  refine motiveApp_hasType' hT' hmot hidx ?_
+  rw [tyApp'_instAll (D := D) (M := nxi + i + off + d) hlen (by omega)]
+  exact hz
+
+end VInductDecl'

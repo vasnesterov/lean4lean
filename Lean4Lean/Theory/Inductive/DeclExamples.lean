@@ -826,5 +826,26 @@ example : (accIntro.type accDecl 0).piArity
 example : (accIntro.canonResult accDecl 0).appArity
     = accDecl.np + accType.indices.length := rfl
 
+/-! ### D4's body: `ihBody_hasType`'s subject is the `ihTypes` entry's body
+
+`Acc.intro`'s recursive field: `i = 1, s = 0, nxi = 2, nf = 2, q = 0, nm = 1, r.idx = 0`,
+so `off = 1`, `d = 1`, and the motive index `K = nxi + s + nf + q + (nm-1-r.idx) = 4`. -/
+
+example : (accDecl.ihTypes 0 accIntro)[0]!
+    = mkPi (shiftTele (accDecl.nm + 0) (accIntro.fields.length - 1 + 0) 1
+        (accDecl.atRecTele accIntroRec.binders))
+      ((VExpr.bvar 4).mkApp
+        ((accIntroRec.args.map fun a =>
+            VExpr.shift (accDecl.nm + 0) (accIntro.fields.length - 1 + 0) 1
+              (accDecl.atRec a) accIntroRec.binders.length)
+          ++ [(VExpr.bvar 2).mkApp (bvars 0 accIntroRec.binders.length)])) := rfl
+
+/-- The offset identity `ihBody_hasType` turns on: `args_ty`'s parameter offset after both
+weakenings, `nxi + i + off + d`, equals the motive's `K + 1 + r.idx`.  Both are 5 for
+`Acc.intro`, and 7 for `Forest'.cons`'s second (`s = 1`) recursive field. -/
+example : 2 + 1 + (accDecl.nm + 0) + (accIntro.fields.length - 1 + 0)
+    = 4 + 1 + accIntroRec.idx := rfl
+example : 0 + 1 + (mutDecl.nm + 2) + (forestCons.fields.length - 1 + 1) = 5 + 1 + 1 := rfl
+
 end InductiveDeclExamples
 end Lean4Lean

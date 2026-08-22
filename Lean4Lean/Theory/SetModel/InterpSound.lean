@@ -680,6 +680,79 @@ theorem extra_sound_type (hC : M.Coherent L) {df : VDefEq} {ls : List VLevel}
 
 end Const
 
+/-! ## Towards `cnst`: the two lemmas the construction rests on
+
+`ModelData.cnst` is to be built by induction over the declaration list.  Two
+facts make that induction *extend* rather than revisit, and both are made
+precise here.
+-/
+
+section CnstStep
+
+variable [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖]
+
+/-- `e` mentions only constants on which the two assignments agree. -/
+def ConstsAgree (c₁ c₂ : Name → List ℕ → V) (ls : List ℕ) : VExpr → Prop
+  | .bvar _ => True
+  | .sort _ => True
+  | .const n us => c₁ n (us.map (·.eval ls)) = c₂ n (us.map (·.eval ls))
+  | .app a b => ConstsAgree c₁ c₂ ls a ∧ ConstsAgree c₁ c₂ ls b
+  | .lam a b => ConstsAgree c₁ c₂ ls a ∧ ConstsAgree c₁ c₂ ls b
+  | .forallE a b => ConstsAgree c₁ c₂ ls a ∧ ConstsAgree c₁ c₂ ls b
+
+/-- **Environment-independence, made precise.**  The interpretation depends on
+the constant assignment only through the constants that actually occur in the
+term.  This is the payoff for making `cnst` a parameter instead of unfolding
+constants: as the declaration list grows, every term already interpreted keeps
+its denotation, so the induction only ever *extends* `cnst`.
+
+Note also that the three proof-splitting decisions do not mention `cnst` at all
+— they are `(L.srt Γ ·).eval ls = 0` — so the two sides take the same branch
+definitionally, and the proof needs no split-agreement hypothesis. -/
+theorem interp_cnst_congr {env : VEnv} {nv : ℕ} (L : LevelAssign env nv)
+    {κ : ℕ → V} {ls : List ℕ} {c₁ c₂ : Name → List ℕ → V} :
+    ∀ (e : VExpr) (Γ : List VExpr), ConstsAgree c₁ c₂ ls e →
+      interp ⟨κ, ls, c₁⟩ L Γ e = interp ⟨κ, ls, c₂⟩ L Γ e
+  | .bvar i, Γ, _ => by
+    refine DefFun.ext (funext fun ρ ↦ ?_); rw [interp_bvar, interp_bvar]
+  | .sort u, Γ, _ => by
+    refine DefFun.ext (funext fun ρ ↦ ?_); rw [interp_sort, interp_sort]
+  | .const c us, Γ, h => by
+    refine DefFun.ext (funext fun ρ ↦ ?_); rw [interp_const, interp_const]; exact h
+  | .app f a, Γ, ⟨hf, ha⟩ => by
+    refine DefFun.ext (funext fun ρ ↦ ?_)
+    by_cases hp : L.IsProof ⟨κ, ls, c₁⟩ Γ f
+    · rw [interp_app_proof ⟨κ, ls, c₁⟩ L hp, interp_app_proof ⟨κ, ls, c₂⟩ L hp]
+    · rw [interp_app_type ⟨κ, ls, c₁⟩ L hp, interp_app_type ⟨κ, ls, c₂⟩ L hp,
+        interp_cnst_congr L f Γ hf, interp_cnst_congr L a Γ ha]
+  | .lam A b, Γ, ⟨hA, hb⟩ => by
+    refine DefFun.ext (funext fun ρ ↦ ?_)
+    by_cases hp : L.IsProof ⟨κ, ls, c₁⟩ (A :: Γ) b
+    · rw [interp_lam_proof ⟨κ, ls, c₁⟩ L hp, interp_lam_proof ⟨κ, ls, c₂⟩ L hp]
+    · rw [interp_lam_type ⟨κ, ls, c₁⟩ L hp, interp_lam_type ⟨κ, ls, c₂⟩ L hp,
+        interp_cnst_congr L A Γ hA, interp_cnst_congr L b (A :: Γ) hb]
+  | .forallE A B, Γ, ⟨hA, hB⟩ => by
+    refine DefFun.ext (funext fun ρ ↦ ?_)
+    by_cases hp : L.IsProp ⟨κ, ls, c₁⟩ (A :: Γ) B
+    · rw [interp_forallE_prop ⟨κ, ls, c₁⟩ L hp, interp_forallE_prop ⟨κ, ls, c₂⟩ L hp,
+        interp_cnst_congr L A Γ hA, interp_cnst_congr L B (A :: Γ) hB]
+    · rw [interp_forallE_type ⟨κ, ls, c₁⟩ L hp, interp_forallE_type ⟨κ, ls, c₂⟩ L hp,
+        interp_cnst_congr L A Γ hA, interp_cnst_congr L B (A :: Γ) hB]
+
+/-- A level assignment for a larger environment restricts to one for a smaller.
+So a *single* `L` can be fixed for the final environment and used at every stage
+of the induction — the assignment never has to be rebuilt as `env` grows. -/
+def LevelAssign.mono {env env' : VEnv} {nv : ℕ} (h : env ≤ env')
+    (L : LevelAssign env' nv) : LevelAssign env nv where
+  lvl := L.lvl
+  srt := L.srt
+  lvl_wf := L.lvl_wf
+  srt_wf := L.srt_wf
+  lvl_sound ht := L.lvl_sound (ht.mono h)
+  srt_sound ht := L.srt_sound (ht.mono h)
+
+end CnstStep
+
 /-!
 ## Ledger: what soundness consumes, case by case
 

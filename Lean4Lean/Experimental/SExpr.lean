@@ -1,4 +1,5 @@
 import Lean4Lean.Theory.Inductive.Decl
+import Lean4Lean.Theory.Inductive.Lemmas
 import Lean4Lean.Theory.Typing.Lemmas
 import Lean4Lean.Theory.Typing.Pattern
 
@@ -734,13 +735,13 @@ class ParamsExtra [Params] where
     env.constants c = some ci →
     ∃ (D : VInductDecl') (j : Nat) (T : VIndType) (C : VIndCtor),
       D.types[j]? = some T ∧ C ∈ T.ctors ∧ C.name = c ∧
-      ci = ⟨D.uvars, C.type D j⟩ ∧
       (C.params ++ C.fields.map (·.type)).length = cl.arity ∧
       classify T.name = some (.indTy (D.np + T.indices.length)) ∧
-      C.args.length = T.indices.length ∧
       D.lvl ≠ .zero ∧
-      env.HasType D.uvars ((C.fields.map (·.type)).reverse ++ C.params.reverse)
-        (C.canonResult D j) (.sort D.lvl)
+      -- Everything the declaration side owns is bundled: the stored constant (so `ci` is
+      -- determined), arities, `args_len`, the result sort over `C.params.reverse`, and the
+      -- split closedness facts.  Widening this is a field of `Interface`, not a clause here.
+      VIndCtor.Interface env D j T C
 
 def CtorBundle.IsCtor (c : Name) : Prop :=
   ∃ cl, Params.classify c = some cl ∧ cl matches .ctor .. | .etaCtor ..
