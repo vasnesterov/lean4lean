@@ -279,7 +279,62 @@ So `AxiomsValidated` is not new work; it is the place where work already done
 gets attached. It is a hypothesis about the *declaration list*, not about the
 model, which is why it belongs on the handoff side of the boundary.
 
+## `Coherent` had to move to the empty context
+
+Attempting the induction turned up a second problem, smaller than the axiom one
+but equally fatal to the induction as originally stated. `Coherent`'s three
+fields quantified over an arbitrary context `Γ` and `ρ ∈ interpCtx M L Γ`. But
+`Γ`'s own types may mention a constant the induction has not yet declared, so
+extending `cnst` changes the *hypothesis* of the field, not just its conclusion —
+and the step cannot be taken.
+
+Everything a declaration declares is closed, so the fix is to state all three
+fields at `Γ = []`, `ρ = ∅`, and recover the general-context form where it is
+consumed. That recovery is `interp_closed_ctx`: a closed term has the same
+denotation in every context. It is a corollary of weakening, so it costs
+`LevelAssign.Stable` — already an obligation — and nothing else.
+`constDF_sound_type`, `extra_sound_eq` and `extra_sound_type` now take
+`env.Ordered` and `L.Stable` and go through it. All still green.
+
+## The step of the induction is now proved
+
+Two new lemmas in `InterpSound.lean` carry out the actual step, for the two ways
+a declaration changes the environment:
+
+* **`coherentOn_addConst`** — adding a constant at a name the environment does
+  not yet use preserves everything already established. The one fact it needs is
+  that an earlier declaration's type mentions only earlier constants, which is
+  new (see below).
+* **`coherentOn_addDefEq`** — `addDefEq` does not touch `constants`, so nothing
+  has to be transported and the two new obligations are exactly the equation and
+  its typing.
+
+`CoherentOn M L env` separates the environment being talked about from the
+environment of the level assignment, so a single `L` for the *final* environment
+serves the whole induction and nothing is ever rebuilt.
+
+## A missing syntactic fact, now supplied: `Lean4Lean/Theory/SetModel/Consts.lean`
+
+`coherentOn_addConst` needs **an earlier declaration's type cannot mention a
+later declaration's constant**, and the repo did not have it. It is the exact
+analogue, for constants, of `Ordered.closed` / `Ordered.closedC` in
+`Theory/Typing/Lemmas.lean`, which say the same thing for de Bruijn indices, and
+it is proved the same way:
+
+| | de Bruijn version (existing) | constant version (new) |
+|---|---|---|
+| predicate | `VExpr.ClosedN` | `VExpr.ConstsIn` |
+| context form | `CtxClosed` | `CtxConstsIn` |
+| `IsDefEq` induction | `IsDefEq.closedN'` | `IsDefEq.constsIn` |
+| tied off by | `Ordered.closed` | `Ordered.constsIn` |
+| corollary used | `Ordered.closedC` | `Ordered.constsInC`, `Ordered.constsInD` |
+
+Nothing in `Consts.lean` is set-theoretic. It lives under `SetModel/` only
+because `Theory/Typing/` is owned by another stream; it would be at home next to
+`Ordered.closed`, and should be moved there when that file is free.
+
 ## The remaining open items, ranked
+
 
 1. **`IsDefEqU.sort_inv`** — gives `LevelAssign`, hence the interpretation.
    Single `sorry`, highest value in the project.
@@ -291,7 +346,16 @@ model, which is why it belongs on the handoff side of the boundary.
    nothing to assign to. The set-theoretic side is finished and waiting —
    `SetModel/IndStage.lean` and `SetModel/IndCard.lean` supply the family, its
    constructors, its recursor and its ι-rule, all as members of the stage.
-3. **`ModelData.cnst` and `ModelData.Coherent`** — an induction over the
+3. **Assembling the thirteen soundness cases into one `Sound` theorem.** This
+   turned out to be a prerequisite for `cnst`, not a successor to it. The `.def`
+   step has to show the body's denotation inhabits the declared type, and that
+   is soundness applied to `VDefVal.WF`'s `HasType env ci.uvars [] ci.value
+   ci.type`. So soundness and coherence are proved *together*, by the outer
+   induction on the declaration list: at each stage, the thirteen-case induction
+   runs against the coherence already established for that environment, and then
+   the step lemmas extend it. This is not circular, but it does mean the two
+   cannot be finished independently.
+4. **`ModelData.cnst` and `ModelData.Coherent`** — an induction over the
    declaration list, which `VEnv.WF'` already orders. This is where the
    well-foundedness that Carneiro's `|c| = |e| + 1` clause needs actually lives;
    displacing it here is what made the term recursion in `SetModel/Interp.lean`
@@ -306,8 +370,9 @@ model, which is why it belongs on the handoff side of the boundary.
    | `.quot` | `Quot`, `Quot.mk`, `Quot.lift`, `Quot.ind` and `quotDefEq` | ready — `addQuot` is concrete, model side in `Universe.lean` |
    | `.induct` | whatever `addInduct` introduces | blocked on item 2 |
 
-   Two lemmas were built this stage to make the induction tractable, both now
-   proved in `InterpSound.lean`:
+   The step is proved (`coherentOn_addConst`, `coherentOn_addDefEq`); what
+   remains is the outer recursion, blocked on items 2 and 3. Two further lemmas
+   were built this stage, both proved in `InterpSound.lean`:
 
    * **`interp_cnst_congr`** — the interpretation is environment-independent in a
      precise sense: `interp M L Γ e` depends on `M.cnst` only at the constants
@@ -318,5 +383,5 @@ model, which is why it belongs on the handoff side of the boundary.
      to any smaller one, so a single `L` for the final environment can be fixed
      up front and reused at every stage, rather than rebuilt.
 
-   Item 3 is independent of item 1 and of the injectivity stream; it is *not*
-   independent of item 2.
+   Item 4 is independent of item 1 and of the injectivity stream; it is *not*
+   independent of items 2 and 3.

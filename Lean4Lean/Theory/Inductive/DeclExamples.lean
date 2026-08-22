@@ -865,5 +865,26 @@ example : (mutDecl.ihTypes 2 forestCons)[1]?
 example : (mutDecl.ihTypes 2 forestCons).take 1
     = [mutDecl.ihType 2 forestCons 0 { binders := [], idx := 0, args := [] } 0] := rfl
 
+/-! ### Splitting the field telescope at `i`
+
+The cut on the second block is `i`, not `0` — if it were `0` the later fields would be
+shifted wrongly, so these `rfl`s pin it. -/
+
+example : liftTele 1 (accDecl.atRecTele (accIntro.fields.map (·.type))) 0
+    = liftTele 1 (accDecl.atRecTele ((accIntro.fields.map (·.type)).take 1)) 0
+      ++ liftTele 1 (accDecl.atRecTele ((accIntro.fields.map (·.type)).drop 1)) 1 := rfl
+
+example : liftTele 4 (mutDecl.atRecTele (forestCons.fields.map (·.type))) 0
+    = liftTele 4 (mutDecl.atRecTele ((forestCons.fields.map (·.type)).take 1)) 0
+      ++ liftTele 4 (mutDecl.atRecTele ((forestCons.fields.map (·.type)).drop 1)) 1 := rfl
+
+-- `liftN_ihCtx`'s length side condition really is `d = nf - i + s`
+example : ((accDecl.ihTypes 0 accIntro).take 0).length
+      + ((accIntro.fields.map (·.type)).drop 1).length
+    = accIntro.fields.length - 1 + 0 := rfl
+example : ((mutDecl.ihTypes 2 forestCons).take 1).length
+      + ((forestCons.fields.map (·.type)).drop 1).length
+    = forestCons.fields.length - 1 + 1 := rfl
+
 end InductiveDeclExamples
 end Lean4Lean

@@ -1,5 +1,6 @@
 import Lean4Lean.Theory.SetModel.InterpSubst
 import Lean4Lean.Theory.VDecl
+import Lean4Lean.Theory.SetModel.Consts
 
 /-!
 # Soundness: the statement, and what it consumes
@@ -784,6 +785,118 @@ def LevelAssign.mono {env env' : VEnv} {nv : ℕ} (h : env ≤ env')
 
 end CnstStep
 
+section CoherentStep
+
+variable [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖]
+
+/-! ### The step of the induction
+
+With `Coherent` at the empty context, extending `cnst` at a fresh name is
+harmless: the only thing that could break is an *earlier* type's denotation, and
+by `Ordered.constsInC` an earlier type mentions only earlier constants.
+
+`CoherentOn` separates the environment being talked about from the environment
+of the level assignment, so that a single `L` for the final environment serves
+the whole induction and `LevelAssign.mono` is never needed inside it. -/
+
+/-- `ModelData.Coherent`, but for an environment other than `L`'s own — the form
+the induction over the declaration list needs. -/
+structure CoherentOn {envF : VEnv} {nv : ℕ} (M : ModelData V) (L : LevelAssign envF nv)
+    (env : VEnv) : Prop where
+  const_type : ∀ {c : Name} {ci : VConstant} {us : List VLevel},
+    env.constants c = some ci → us.length = ci.uvars →
+      M.cnst c (us.map (·.eval M.ls)) ∈ (interp M L [] (ci.type.instL us)).toFun ∅
+  defeq : ∀ {df : VDefEq} {us : List VLevel}, env.defeqs df → us.length = df.uvars →
+    (interp M L [] (df.lhs.instL us)).toFun ∅ = (interp M L [] (df.rhs.instL us)).toFun ∅
+  defeq_type : ∀ {df : VDefEq} {us : List VLevel}, env.defeqs df → us.length = df.uvars →
+    (interp M L [] (df.lhs.instL us)).toFun ∅ ∈ (interp M L [] (df.type.instL us)).toFun ∅
+
+theorem ModelData.Coherent.of_on {env : VEnv} {nv : ℕ} {M : ModelData V}
+    {L : LevelAssign env nv} (h : CoherentOn M L env) : M.Coherent L :=
+  ⟨h.const_type, h.defeq, h.defeq_type⟩
+
+omit [SetStructure V] [Nonempty V] [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖] in
+theorem ConstsAgree.of_constsIn {c₁ c₂ : Name → List ℕ → V} {ls : List ℕ} :
+    ∀ {e : VExpr}, e.ConstsIn (fun n ↦ ∀ us, c₁ n us = c₂ n us) → ConstsAgree c₁ c₂ ls e
+  | .bvar _, _ | .sort _, _ => trivial
+  | .const .., h => h _
+  | .app .., ⟨h1, h2⟩ | .lam .., ⟨h1, h2⟩ | .forallE .., ⟨h1, h2⟩ =>
+    ⟨of_constsIn h1, of_constsIn h2⟩
+
+/-- Extend a constant assignment at one name. -/
+noncomputable def cnstUpdate (c : Name → List ℕ → V) (n : Name) (v : List ℕ → V) :
+    Name → List ℕ → V := fun m ↦ if m = n then v else c m
+
+omit [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖] in
+theorem VEnv.addConst_spec {env env' : VEnv} {n : Name} {ci : VConstant}
+    (h : env.addConst n ci = some env') :
+    env.constants n = none ∧
+      (∀ {m cm}, env'.constants m = some cm → (m = n ∧ cm = ci) ∨ env.constants m = some cm) ∧
+      (∀ df, env'.defeqs df ↔ env.defeqs df) := by
+  unfold VEnv.addConst at h
+  split at h
+  · exact absurd h nofun
+  · rename_i hn
+    cases h
+    refine ⟨hn, fun {m cm} hm ↦ ?_, fun _ ↦ Iff.rfl⟩
+    simp only at hm
+    split at hm
+    · exact .inl ⟨(‹n = m›).symm, (Option.some_inj.1 hm).symm⟩
+    · exact .inr hm
+
+/-- **The step lemma for a fresh constant.**  Adding a constant at a name the
+environment does not yet use preserves everything already established: by
+`Ordered.constsInC` an earlier declaration's type mentions only earlier
+constants, so `interp_cnst_congr` applies to it unchanged. -/
+theorem coherentOn_addConst {envF : VEnv} {nv : ℕ} (L : LevelAssign envF nv)
+    {env env' : VEnv} (henv : env.Ordered) {n : Name} {ci : VConstant}
+    (hadd : env.addConst n ci = some env')
+    {κ : ℕ → V} {ls : List ℕ} {c : Name → List ℕ → V} {v : List ℕ → V}
+    (hC : CoherentOn ⟨κ, ls, c⟩ L env)
+    (hv : ∀ {us : List VLevel}, us.length = ci.uvars →
+      v (us.map (·.eval ls)) ∈
+        (interp ⟨κ, ls, cnstUpdate c n v⟩ L [] (ci.type.instL us)).toFun ∅) :
+    CoherentOn ⟨κ, ls, cnstUpdate c n v⟩ L env' := by
+  obtain ⟨hnone, hconst, hdefeq⟩ := VEnv.addConst_spec hadd
+  have hnc : ¬ env.contains n := fun ⟨_, h⟩ ↦ by rw [hnone] at h; exact absurd h nofun
+  -- an expression mentioning only *old* constants keeps its denotation
+  have key : ∀ {e : VExpr}, e.ConstsIn env.contains →
+      interp ⟨κ, ls, cnstUpdate c n v⟩ L [] e = interp ⟨κ, ls, c⟩ L [] e := fun he ↦
+    interp_cnst_congr L _ [] <| ConstsAgree.of_constsIn <| he.mono fun m hm _ ↦ by
+      simp only [cnstUpdate, if_neg (fun h : m = n ↦ hnc (h ▸ hm))]
+  refine ⟨fun {d ci' us} hd hlen ↦ ?_, fun {df us} hd hlen ↦ ?_, fun {df us} hd hlen ↦ ?_⟩
+  · rcases hconst hd with ⟨rfl, rfl⟩ | hd'
+    · show cnstUpdate c d v d _ ∈ _
+      rw [show cnstUpdate c d v d = v from if_pos rfl]
+      exact hv hlen
+    · rw [key (VExpr.ConstsIn.instL.2 (henv.constsInC hd'))]
+      have hne : d ≠ n := fun h ↦ hnc ⟨_, h ▸ hd'⟩
+      simpa only [cnstUpdate, if_neg hne] using hC.const_type hd' hlen
+  · have hd' := (hdefeq df).1 hd
+    obtain ⟨hl, hr, _⟩ := henv.constsInD hd'
+    rw [key (VExpr.ConstsIn.instL.2 hl), key (VExpr.ConstsIn.instL.2 hr)]
+    exact hC.defeq hd' hlen
+  · have hd' := (hdefeq df).1 hd
+    obtain ⟨hl, _, ht⟩ := henv.constsInD hd'
+    rw [key (VExpr.ConstsIn.instL.2 hl), key (VExpr.ConstsIn.instL.2 ht)]
+    exact hC.defeq_type hd' hlen
+
+/-- **The step lemma for a defining equation.**  `addDefEq` does not touch
+`constants`, so nothing has to be transported; the two new obligations are
+exactly the equation and its typing. -/
+theorem coherentOn_addDefEq {envF : VEnv} {nv : ℕ} {L : LevelAssign envF nv}
+    {env : VEnv} {M : ModelData V} (hC : CoherentOn M L env) {df : VDefEq}
+    (h1 : ∀ {us : List VLevel}, us.length = df.uvars →
+      (interp M L [] (df.lhs.instL us)).toFun ∅ = (interp M L [] (df.rhs.instL us)).toFun ∅)
+    (h2 : ∀ {us : List VLevel}, us.length = df.uvars →
+      (interp M L [] (df.lhs.instL us)).toFun ∅ ∈ (interp M L [] (df.type.instL us)).toFun ∅) :
+    CoherentOn M L (env.addDefEq df) :=
+  ⟨hC.const_type,
+    fun hd hlen ↦ hd.elim (fun h ↦ h ▸ h1 (h ▸ hlen)) fun h ↦ hC.defeq h hlen,
+    fun hd hlen ↦ hd.elim (fun h ↦ h ▸ h2 (h ▸ hlen)) fun h ↦ hC.defeq_type h hlen⟩
+
+end CoherentStep
+
 /-! ## `Coherent` is not provable as stated — axioms have to be validated
 
 Trying to build `cnst` turns up a problem with the target itself, and it is a
@@ -832,28 +945,36 @@ end Axioms
 /-!
 ### What remains of the construction, and what blocks it
 
-With `AxiomsValidated` added, the induction over `ds` splits by `VDecl`:
+With `AxiomsValidated` added and the step lemmas proved, the induction over `ds`
+splits by `VDecl`:
 
-| Declaration | Value of `cnst` | Status |
+| Declaration | Value of `cnst` | What discharges the step |
 |---|---|---|
-| `.axiom ci` | supplied by `AxiomsValidated` | ready |
-| `.def`, `.opaque`, `.example`, `.mutualDef` | `⟦ci.value⟧` at the earlier assignment | ready |
-| `.quot` | `Quot`, `Quot.mk`, `Quot.lift`, `Quot.ind` and `quotDefEq` | `addQuot` is concrete; the model side is in `SetModel/Universe.lean` |
+| `.axiom ci` | supplied by `AxiomsValidated` | `coherentOn_addConst` |
+| `.def`, `.opaque`, `.example`, `.mutualDef` | `⟦ci.value⟧` at the earlier stage | `coherentOn_addConst` + `coherentOn_addDefEq`, plus **soundness at the earlier environment** |
+| `.quot` | `Quot`, `Quot.mk`, `Quot.lift`, `Quot.ind` and `quotDefEq` | same; `addQuot` is concrete, model side in `SetModel/Universe.lean` |
 | `.induct` | the constants `addInduct` introduces | **blocked** |
 
-`.induct` is blocked upstream, not here: `VEnv.addInduct` and `VInductDecl.WF`
-are still `sorry` *definitions* in `Theory/Inductive.lean`, so the environment
-after an inductive declaration is opaque and there is nothing to assign values
-to.  The set-theoretic side is ready and waiting — `SetModel/IndStage.lean` and
+Two things are still missing, and neither is in this file.
+
+**1. `.induct` is blocked upstream.** `VEnv.addInduct` and `VInductDecl.WF` are
+still `sorry` *definitions* in `Theory/Inductive.lean`, so the environment after
+an inductive declaration is opaque and there is nothing to assign values to. The
+set-theoretic side is ready and waiting — `SetModel/IndStage.lean` and
 `SetModel/IndCard.lean` give the family, its constructors, its recursor and its
 ι-rule, all as members of the stage — but it cannot be connected until the
 abstract spec exists.
 
-So `cnst` is blocked on the same keystone as everything else, and the ledger's
-open list is unchanged in length: `sort_inv`, the inductive spec, and now the
-axiom-validation hypothesis, which is discharged by the three standard axioms.
+**2. Soundness and coherence have to be proved together.** The `.def` step must
+show that the body's denotation inhabits the declared type, and that is
+soundness applied to `VDefVal.WF`'s `HasType env ci.uvars [] ci.value ci.type`.
+So the outer induction on the declaration list runs the thirteen-case induction
+at each stage, against the coherence already established for that stage, and
+then extends it with the step lemmas. This is not circular — each use of
+soundness is at a strictly earlier environment — but it does mean the thirteen
+cases have to be assembled into a single `Sound` theorem *before* `cnst` can be
+finished, rather than after.
 -/
-
 /-!
 ## Ledger: what soundness consumes, case by case
 
