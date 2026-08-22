@@ -46,9 +46,18 @@ retires M1, M2, M3, `VEnv.Sig`, and `IsDefEqU.const_forallE_inv`, i.e. both of t
 design could see no route to.  What a `Params` instance needs from here is `addInduct_WF`,
 which `addInduct'_ordered` (below) has reduced to D6 and E5.
 
-A plumbing note that cost a round: prefer standalone `have`s with fully spelled-out
-statements over `conv_lhs => rw [...]` nested inside a `have := by`.  And
-`length_atRecTele` lives in `VInductDecl'`, not `VExpr`.
+**3. Plumbing habits that have each cost a round.**
+
+* Prefer standalone `have`s with fully spelled-out statements over `conv_lhs => rw [...]`
+  nested inside a `have := by`.  Where a rewrite needs an index lined up, take the length
+  as an *equation* and `subst` it -- see `VExpr.map_instAll_bvars'`.
+* Isolate arithmetic into named `omega` lemmas (`ih_param_offset`, `rec_tele_offset`,
+  `rec_dom_offset`) so the assembly never reasons about offsets inline.
+* Do not carry a redundant variable alongside the term it abbreviates.  Dropping `ni` in
+  favour of `T.indices.length` in `motiveApp_hasType` removed a whole class of rewriting.
+* `rw [VExpr.liftN]` unfolds only the outer constructor; use
+  `simp only [VExpr.liftN, ...]` when a `liftN` is buried under one.
+* `length_atRecTele` lives in `VInductDecl'`, not `VExpr`, and takes `D` explicitly.
 -/
 
 open VExpr (mkPi mkLams mkApp bvars liftTele instTele shift shiftTele instAll)
@@ -1031,6 +1040,17 @@ end VExpr
 
 namespace VEnv
 
+theorem HasArgs.instL {env : VEnv} {U U' : Nat} {Γ : List VExpr} {ls : List VLevel}
+    (hls : ∀ l ∈ ls, l.WF U') :
+    ∀ {As as}, env.HasArgs U Γ As as →
+      env.HasArgs U' (Γ.map (VExpr.instL ls)) (As.map (VExpr.instL ls))
+        (as.map (VExpr.instL ls))
+  | _, _, .nil => .nil
+  | _, _, .cons ha h => by
+    refine .cons (ha.instL hls) ?_
+    have ih := HasArgs.instL hls h
+    rwa [VExpr.instL_instTele] at ih
+
 theorem HasArgs.weakN {env : VEnv} {U n k} {Γ Γ' : List VExpr} (henv : Ordered env)
     (W : Ctx.LiftN n k Γ Γ') :
     ∀ {As as}, env.HasArgs U Γ As as →
@@ -1236,6 +1256,22 @@ is a variable, so it goes through `HasArgs.bvars` + `mkApp'`.  Two offset identi
 work, and they are isolated as `omega` lemmas below so the assembly never has to reason
 about arithmetic inline. -/
 
+/-- `HasArgs` transported from the block's universe numbering to the recursor's. -/
+theorem VInductDecl'.atRec_hasArgs {env : VEnv} (D : VInductDecl') {Γ As as : List VExpr}
+    (h : env.HasArgs D.uvars Γ As as) :
+    env.HasArgs D.recUvars (D.atRecCtx Γ) (D.atRecTele As) (as.map D.atRec) :=
+  h.instL D.selfLvls_wf
+
+/-- Offset 3: the minor premise's telescope collapse.  `nf` is the field count, `nr` the
+number of induction hypotheses, `off = nm + q`. -/
+theorem VInductDecl'.minor_tele_offset {nm q nf nr t : Nat} (ht : t < nm) :
+    nf + (nm + q) + nr = t + (nr + nf + q + (nm - 1 - t) + 1) := by omega
+
+/-- Offset 4: the minor premise's domain match — the constructor application's type is
+exactly what the motive demands after eating the index terms. -/
+theorem VInductDecl'.minor_dom_offset {nm q nf nr t ni : Nat} (ht : t < nm) :
+    (nr + nf + q + (nm - 1 - t)) + 1 + (ni + t) - ni = nr + nf + (nm + q) := by omega
+
 /-- Offset 1: the telescope `HasArgs.bvars` supplies and the one the motive's type demands
 collapse to the same lift. -/
 theorem VInductDecl'.rec_tele_offset {nm nmin ni j : Nat} (hj : j < nm) :
@@ -1255,12 +1291,15 @@ theorem VExpr.map_instAll_bvars' {as : List VExpr} {n : Nat} (h : as.length = n)
 namespace VInductDecl'
 variable {env : VEnv} {D : VInductDecl'}
 
-/-- Applying `motive_j`'s stored `I_j p ι` to `bvars 1 ni` shifts the parameter block down
-by `ni` and returns the index variables, landing on the major premise's own type. -/
-theorem tyApp'_instAll_bvars {j ni K : Nat} (h : K + 1 + j = 1 + ni + D.nmin + D.nm) :
-    VExpr.instAll ((D.tyApp' j (ni + j) (bvars 0 ni)).liftN (K + 1) ni) (bvars 1 ni) 0
-      = (D.tyApp' j (ni + D.nmin + D.nm) (bvars 0 ni)).liftN 1 0 := by
-  have hlen : (bvars 1 ni).length = ni := VExpr.length_bvars
+/-- **The motive's index-telescope computation.**  Applying `motive_j`'s stored `I_j p ι`
+to index arguments `ιs` shifts the parameter block down by `ni` and returns `ιs`.
+
+`ιs` is arbitrary: D6 instantiates it at `bvars 1 ni` (the index *variables*), D5 at the
+constructor's index *terms*. -/
+theorem tyApp'_instAll {j ni K M : Nat} {ιs : List VExpr} (hlen : ιs.length = ni)
+    (h : K + 1 + (ni + j) - ni = M) :
+    VExpr.instAll ((D.tyApp' j (ni + j) (bvars 0 ni)).liftN (K + 1) ni) ιs 0
+      = D.tyApp' j M ιs := by
   have hL : (D.tyApp' j (ni + j) (bvars 0 ni)).liftN (K + 1) ni
       = (VExpr.const (D.types.getD j default).name D.selfLvls).mkApp
           (bvars (K + 1 + (ni + j)) D.np ++ bvars 0 ni) := by
@@ -1268,19 +1307,56 @@ theorem tyApp'_instAll_bvars {j ni K : Nat} (h : K + 1 + j = 1 + ni + D.nmin + D
       VExpr.map_liftN_bvars_lo (Nat.le_add_right ni j),
       VExpr.map_liftN_bvars_hi (Nat.le_of_eq (Nat.zero_add ni))]
     rfl
-  have hR : (D.tyApp' j (ni + D.nmin + D.nm) (bvars 0 ni)).liftN 1 0
-      = (VExpr.const (D.types.getD j default).name D.selfLvls).mkApp
-          (bvars (1 + (ni + D.nmin + D.nm)) D.np ++ bvars 1 ni) := by
-    rw [VInductDecl'.tyApp', VExpr.liftN_mkApp, List.map_append,
-      VExpr.map_liftN_bvars_lo (Nat.zero_le _), VExpr.map_liftN_bvars_lo (Nat.zero_le _)]
-    rfl
-  have hoff : K + 1 + (ni + j) - (bvars 1 ni).length = 1 + (ni + D.nmin + D.nm) := by
-    rw [hlen]; omega
-  rw [hL, hR, VExpr.instAll_mkApp, VExpr.instAll_const, List.map_append,
-    VExpr.map_instAll_bvars_ge (by rw [hlen]; omega), hoff,
+  rw [hL, VInductDecl'.tyApp', VExpr.instAll_mkApp, VExpr.instAll_const, List.map_append,
+    VExpr.map_instAll_bvars_ge (by rw [hlen]; omega), hlen, h,
     VExpr.map_instAll_bvars' hlen]
 
-/-- **D6's body.**  `hidx` is discharged by `HasArgs.bvars` at the call site. -/
+/-- Applying `motive_j`'s stored `I_j p ι` to `bvars 1 ni` lands on the major premise's own
+type: the D6 instance of `tyApp'_instAll`. -/
+theorem tyApp'_instAll_bvars {j ni K : Nat} (h : K + 1 + j = 1 + ni + D.nmin + D.nm) :
+    VExpr.instAll ((D.tyApp' j (ni + j) (bvars 0 ni)).liftN (K + 1) ni) (bvars 1 ni) 0
+      = (D.tyApp' j (ni + D.nmin + D.nm) (bvars 0 ni)).liftN 1 0 := by
+  have hR : (D.tyApp' j (ni + D.nmin + D.nm) (bvars 0 ni)).liftN 1 0
+      = D.tyApp' j (1 + (ni + D.nmin + D.nm)) (bvars 1 ni) := by
+    rw [VInductDecl'.tyApp', VInductDecl'.tyApp', VExpr.liftN_mkApp, List.map_append,
+      VExpr.map_liftN_bvars_lo (Nat.zero_le _), VExpr.map_liftN_bvars_lo (Nat.zero_le _)]
+    rfl
+  rw [hR, tyApp'_instAll (D := D) (M := 1 + (ni + D.nmin + D.nm)) VExpr.length_bvars
+    (by omega)]
+
+/-- **The motive application, generically.**  Motive `t`, sitting at offset `K`, applied to
+index arguments `ιs` and a major premise `z`.
+
+Stated with `ιs` and `z` arbitrary because it is used twice: `recType`'s body applies the
+motive to the index *variables* and the major *variable* (D6), while a minor premise applies
+it to the constructor's index *terms* and to a constructor *application* (D5).  Only the two
+hypotheses differ. -/
+theorem motiveApp_hasType' {T : VIndType} {t K : Nat} {Γ ιs : List VExpr} {z : VExpr}
+    (hT : D.types[t]? = some T)
+    (hmot : Lookup Γ K ((D.motiveType t).liftN (K + 1)))
+    (hidx : env.HasArgs D.recUvars Γ
+      (liftTele (K + 1) (liftTele t (D.atRecTele T.indices) 0) 0) ιs)
+    (hz : env.HasType D.recUvars Γ z
+      (VExpr.instAll ((D.tyApp' t (T.indices.length + t)
+        (bvars 0 T.indices.length)).liftN (K + 1) T.indices.length) ιs 0)) :
+    env.HasType D.recUvars Γ ((VExpr.bvar K).mkApp (ιs ++ [z])) (.sort D.elimLvl) := by
+  have hm0 : env.HasType D.recUvars Γ (.bvar K) ((D.motiveType t).liftN (K + 1)) := .bvar hmot
+  have hlenX : (D.atRecTele T.indices).length = T.indices.length :=
+    VInductDecl'.length_atRecTele D
+  have hmot' : (D.motiveType t).liftN (K + 1)
+      = mkPi (liftTele (K + 1) (liftTele t (D.atRecTele T.indices) 0) 0)
+          ((VExpr.forallE (D.tyApp' t (T.indices.length + t) (bvars 0 T.indices.length))
+              (.sort D.elimLvl)).liftN (K + 1) T.indices.length) := by
+    simp only [VInductDecl'.motiveType, getD_types hT]
+    rw [VExpr.liftN_mkPi, VExpr.length_liftTele, hlenX, Nat.zero_add]
+  rw [hmot'] at hm0
+  have happ := VEnv.HasType.mkApp' hidx hm0
+  simp only [VExpr.liftN, VExpr.instAll_forallE, VExpr.instAll_sort] at happ
+  rw [VExpr.mkApp_concat]
+  exact happ.app hz
+
+/-- **D6's body**, the variables-only instance of `motiveApp_hasType'`.  `hidx` is
+discharged by `HasArgs.bvars` at the call site. -/
 theorem motiveApp_hasType {T : VIndType} {j : Nat} {Γ : List VExpr}
     (hT : D.types[j]? = some T) (hj : j < D.nm)
     (hmot : Lookup Γ (1 + T.indices.length + D.nmin + (D.nm - 1 - j))
@@ -1295,34 +1371,44 @@ theorem motiveApp_hasType {T : VIndType} {j : Nat} {Γ : List VExpr}
       ((VExpr.bvar (1 + T.indices.length + D.nmin + (D.nm - 1 - j))).mkApp
         (bvars 1 T.indices.length ++ [.bvar 0]))
       (.sort D.elimLvl) := by
-  have hm0 : env.HasType D.recUvars Γ
-      (.bvar (1 + T.indices.length + D.nmin + (D.nm - 1 - j)))
-      ((D.motiveType j).liftN (1 + T.indices.length + D.nmin + (D.nm - 1 - j) + 1)) :=
-    .bvar hmot
-  have hlenX : (D.atRecTele T.indices).length = T.indices.length :=
-    VInductDecl'.length_atRecTele D
-  have hmot' : (D.motiveType j).liftN (1 + T.indices.length + D.nmin + (D.nm - 1 - j) + 1)
-      = mkPi (liftTele (1 + T.indices.length + D.nmin + (D.nm - 1 - j) + 1)
-                (liftTele j (D.atRecTele T.indices) 0) 0)
-          ((VExpr.forallE (D.tyApp' j (T.indices.length + j) (bvars 0 T.indices.length))
-              (.sort D.elimLvl)).liftN
-            (1 + T.indices.length + D.nmin + (D.nm - 1 - j) + 1) T.indices.length) := by
-    simp only [VInductDecl'.motiveType, getD_types hT]
-    rw [VExpr.liftN_mkPi, VExpr.length_liftTele, hlenX, Nat.zero_add]
   have hcol : liftTele (1 + T.indices.length)
         (liftTele (D.nm + D.nmin) (D.atRecTele T.indices) 0) 0
       = liftTele (1 + T.indices.length + D.nmin + (D.nm - 1 - j) + 1)
           (liftTele j (D.atRecTele T.indices) 0) 0 := by
     rw [VExpr.liftTele_collapse₂, VExpr.liftTele_collapse₂]
     exact congrArg (liftTele · _ _) (VInductDecl'.rec_tele_offset hj)
-  rw [hmot'] at hm0
   rw [hcol] at hidx
-  have happ := VEnv.HasType.mkApp' hidx hm0
-  simp only [VExpr.liftN, VExpr.instAll_forallE, VExpr.instAll_sort] at happ
+  refine motiveApp_hasType' hT hmot hidx ?_
   rw [tyApp'_instAll_bvars (D := D) (j := j) (ni := T.indices.length)
-      (K := 1 + T.indices.length + D.nmin + (D.nm - 1 - j))
-      (VInductDecl'.rec_dom_offset hj)] at happ
-  rw [VExpr.mkApp_concat]
-  exact happ.app (.bvar hmaj)
+    (K := 1 + T.indices.length + D.nmin + (D.nm - 1 - j)) (VInductDecl'.rec_dom_offset hj)]
+  exact .bvar hmaj
+
+/-- **D5's body**, the terms-and-application instance of `motiveApp_hasType'`.
+
+`hidx` comes from `VIndCtor.WF.args_ty` after `atRec` and the two weakenings; `hz` from the
+constructor constant applied to the parameters and fields.  Everything offset-related is in
+`minor_dom_offset`. -/
+theorem minorBody_hasType {T : VIndType} {C : VIndCtor} {t q nr : Nat} {Γ : List VExpr}
+    (hT : D.types[t]? = some T) (ht : t < D.nm)
+    (hlen : C.args.length = T.indices.length)
+    (hmot : Lookup Γ (nr + C.fields.length + q + (D.nm - 1 - t))
+      ((D.motiveType t).liftN (nr + C.fields.length + q + (D.nm - 1 - t) + 1)))
+    (hidx : env.HasArgs D.recUvars Γ
+      (liftTele (nr + C.fields.length + q + (D.nm - 1 - t) + 1)
+        (liftTele t (D.atRecTele T.indices) 0) 0)
+      (C.args.map fun a => VExpr.shift (D.nm + q) nr C.fields.length (D.atRec a)))
+    (hz : env.HasType D.recUvars Γ
+      (D.ctorApp' C (nr + C.fields.length + (D.nm + q)) (bvars nr C.fields.length))
+      (D.tyApp' t (nr + C.fields.length + (D.nm + q))
+        (C.args.map fun a => VExpr.shift (D.nm + q) nr C.fields.length (D.atRec a)))) :
+    env.HasType D.recUvars Γ
+      ((VExpr.bvar (nr + C.fields.length + q + (D.nm - 1 - t))).mkApp
+        ((C.args.map fun a => VExpr.shift (D.nm + q) nr C.fields.length (D.atRec a))
+          ++ [D.ctorApp' C (nr + C.fields.length + (D.nm + q)) (bvars nr C.fields.length)]))
+      (.sort D.elimLvl) := by
+  refine motiveApp_hasType' hT hmot hidx ?_
+  rw [tyApp'_instAll (D := D) (M := nr + C.fields.length + (D.nm + q))
+    (by rw [List.length_map, hlen]) (VInductDecl'.minor_dom_offset ht)]
+  exact hz
 
 end VInductDecl'

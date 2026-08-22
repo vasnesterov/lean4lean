@@ -900,6 +900,17 @@ theorem checkedIsDefEq.WF {c : VContext} {s : VState} {a b : Expr}
   refine (checkType.WF hb).bind fun _ _ _ ⟨b', _, _, hb', _, _⟩ => ?_
   exact (isDefEq.WF ha' hb').mono fun _ _ _ h => ⟨a', b', ha', hb', h⟩
 
+/-- What `checkedTypeIs` establishes. -/
+theorem checkedTypeIs.WF {c : VContext} {s : VState} {e ty : Expr}
+    (he : e.FVarsIn (· ∈ c.vlctx.fvars)) (hty : ty.FVarsIn (· ∈ c.vlctx.fvars)) :
+    M.WF c s (Lean4Lean.Environment.checkedTypeIs e ty) fun r _ =>
+      ∃ e' A' ty', c.TrExprS e e' ∧ c.HasType e' A' ∧ c.TrExprS ty ty' ∧
+        (r = true → c.IsDefEqU A' ty') := by
+  unfold Lean4Lean.Environment.checkedTypeIs
+  refine (checkType.WF he).bind fun _ _ _ ⟨e', A', _, he', hA', hty1⟩ => ?_
+  refine (checkType.WF hty).bind fun _ _ _ ⟨ty', _, _, hty', _, _⟩ => ?_
+  exact (isDefEq.WF hA' hty').mono fun _ _ _ h => ⟨e', A', ty', he', hty1, hty', h⟩
+
 /-- `checkedIsDefEq` when the caller can build both translations itself. -/
 theorem checkedIsDefEq.WF' {c : VContext} {s : VState} {a b : Expr} {a' b' : VExpr}
     (ha : c.TrExprS a a') (hb : c.TrExprS b b') :
@@ -1035,12 +1046,14 @@ namespace TypeChecker
 variable {c : VContext}
 
 /-- The variable a `withLocalDecl` has just bound. -/
-theorem trExprS_lastFVar {m : MLCtx} {id name ty ty' bi} [cwf : c.MLCWF (.vlam id name ty ty' bi m)] :
+theorem trExprS_lastFVar {m : MLCtx} {id name ty ty' bi}
+    [cwf : c.MLCWF (.vlam id name ty ty' bi m)] :
     (c.withMLC (.vlam id name ty ty' bi m)).TrExprS (.fvar id) (.bvar 0) := by
   refine .fvar (A := ty'.lift) ?_
   simp [VContext.withMLC, VLCtx.find?, VLCtx.next, VLocalDecl.value, VLocalDecl.type]
 
-theorem hasType_lastFVar {m : MLCtx} {id name ty ty' bi} [cwf : c.MLCWF (.vlam id name ty ty' bi m)] :
+theorem hasType_lastFVar {m : MLCtx} {id name ty ty' bi}
+    [cwf : c.MLCWF (.vlam id name ty ty' bi m)] :
     (c.withMLC (.vlam id name ty ty' bi m)).HasType (.bvar 0) ty'.lift := .bvar .zero
 
 /-- A value known to have type `Nat → A`, applied to one `Nat`. -/
@@ -1484,11 +1497,66 @@ namespace TypeChecker
 
 variable {c : VContext}
 
-/-- `Nat → Char`, the type `Char.ofNat` is pinned to. -/
-theorem trExprS_natChar_inv {nm bi e'}
-    (h : c.TrExprS (.forallE nm (.const ``Nat []) (.const ``Char []) bi) e') :
-    e' = .forallE .nat .char := by
-  obtain ⟨_, _, rfl, h1, _, h3⟩ := trExprS_arrow_inv h
-  cases trExprS_const_nil_inv h1; cases trExprS_const_nil_inv h3; rfl
-
 end TypeChecker
+
+/-! Raw (context-free) versions of the inversions, for the branches whose obligation is about
+the declared type and is discharged inside `PrimitiveResult.preserves`, where no `VContext` is
+in scope. -/
+
+theorem trExprS_const_nil_inv' {env : VEnv} {Us Δ} {n : Name} {e' : VExpr}
+    (h : TrExprS env Us Δ (.const n []) e') : e' = .const n [] := by
+  let .const _ h2 _ := h
+  simp at h2; subst h2; rfl
+
+theorem trExprS_arrow_inv' {env : VEnv} {Us Δ} {nm : Name} {A B : Expr} {bi} {e' : VExpr}
+    (h : TrExprS env Us Δ (.forallE nm A B bi) e') :
+    ∃ A' B', e' = .forallE A' B' ∧ TrExprS env Us Δ A A' ∧
+      TrExprS env Us ((none, .vlam A') :: Δ) B B' :=
+  let .forallE _ _ h3 h4 := h; ⟨_, _, rfl, h3, h4⟩
+
+/-- `Nat → Char`, the type `Char.ofNat` is pinned to. -/
+theorem trExprS_natChar_inv' {env : VEnv} {Us Δ} {nm bi e'}
+    (h : TrExprS env Us Δ (.forallE nm (.const ``Nat []) (.const ``Char []) bi) e') :
+    e' = .forallE .nat .char := by
+  obtain ⟨_, _, rfl, h1, h3⟩ := trExprS_arrow_inv' h
+  cases trExprS_const_nil_inv' h1; cases trExprS_const_nil_inv' h3; rfl
+
+theorem trExprS_const_zero_inv' {env : VEnv} {Us Δ} {n : Name} {e' : VExpr}
+    (h : TrExprS env Us Δ (.const n [.zero]) e') : e' = .const n [.zero] := by
+  let .const _ h2 _ := h
+  simp [VLevel.ofLevel] at h2
+  rw [← h2]
+
+/-- `List Char`, and `List Char → String`, the type `String.ofList` is pinned to. -/
+theorem trExprS_constAppChar_inv' {env : VEnv} {Us Δ} {n : Name} {e'}
+    (h : TrExprS env Us Δ (.app (.const n [.zero]) (.const ``Char [])) e') :
+    e' = .app (.const n [.zero]) .char := by
+  let .app _ _ g3 g4 := h
+  cases trExprS_const_nil_inv' g4
+  cases trExprS_const_zero_inv' g3
+  rfl
+
+theorem trExprS_listChar_inv' {env : VEnv} {Us Δ} {e'}
+    (h : TrExprS env Us Δ (.app (.const ``List [.zero]) (.const ``Char [])) e') :
+    e' = .listChar := trExprS_constAppChar_inv' h
+
+/-- `Char → List Char → List Char`, the type of `List.cons` at `Char`. -/
+theorem trExprS_consType_inv' {env : VEnv} {Us Δ} {n₁ n₂ bi₁ bi₂ e'}
+    (h : TrExprS env Us Δ (.forallE n₁ (.const ``Char [])
+      (.forallE n₂ (.app (.const ``List [.zero]) (.const ``Char []))
+        (.app (.const ``List [.zero]) (.const ``Char [])) bi₂) bi₁) e') :
+    e' = .forallE .char (.forallE .listChar .listChar) := by
+  obtain ⟨_, _, rfl, h1, h3⟩ := trExprS_arrow_inv' h
+  cases trExprS_const_nil_inv' h1
+  obtain ⟨_, _, rfl, g1, g3⟩ := trExprS_arrow_inv' h3
+  cases trExprS_listChar_inv' g1
+  cases trExprS_listChar_inv' g3
+  rfl
+
+theorem trExprS_listCharString_inv' {env : VEnv} {Us Δ} {nm bi e'}
+    (h : TrExprS env Us Δ (.forallE nm (.app (.const ``List [.zero]) (.const ``Char []))
+      (.const ``String []) bi) e') : e' = .forallE .listChar .string := by
+  obtain ⟨_, _, rfl, h1, h3⟩ := trExprS_arrow_inv' h
+  cases trExprS_const_nil_inv' h3
+  cases trExprS_listChar_inv' h1
+  rfl

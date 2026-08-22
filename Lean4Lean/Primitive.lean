@@ -262,10 +262,10 @@ forces `v.type` to agree with that inferred type, so the set of declarations `ad
 does not change -- only which check rejects a bad one first, and hence the error message.
 
 Cost: measured over the work `addDefinition` actually runs (this recognizer followed by the body
-check, in one `M.run`, best of 5 x 40 iterations, all 18 primitives), 62.6 ms here against
-63.4 ms before the change -- neutral, because the body check `addDefinition` performs afterwards
-shares this one's `inferTypeC` entries. The whole recognizer is ~0.07% of the 83 s the Kernel
-Arena's `init` test spends on 53090 declarations. -/
+check, in one `M.run`, best of 5 x 40 iterations, all 18 primitives), 65.2 ms here against
+63.4 ms before the change -- within noise, because the body check `addDefinition` performs
+afterwards shares this one's `inferTypeC` entries. The whole recognizer is ~0.08% of the 83 s
+the Kernel Arena's `init` test spends on 53090 declarations. -/
 def checkPrimValue (v : DefinitionVal) (ty : Expr) (fail : ∀ {α}, M α) : M Unit := do
   _root_.Lean.Kernel.Environment.checkNoMVarNoFVar (← getEnv) v.name v.value
   _ ← checkType ty
@@ -290,6 +290,13 @@ def checkedIsDefEq (a b : Expr) : M Bool := do
   _ ← checkType a
   _ ← checkType b
   isDefEq a b
+
+/-- Check that `e`'s inferred type is `ty`, with `ty` itself type-checked first -- again so that
+both sides of the `isDefEq` have translations. -/
+def checkedTypeIs (e ty : Expr) : M Bool := do
+  let t ← checkType e
+  _ ← checkType ty
+  isDefEq t ty
 
 def checkPrimitiveDef (v : DefinitionVal) : M Bool := do
   unless v.safety == .safe do return false
@@ -526,9 +533,9 @@ def checkPrimitiveDef (v : DefinitionVal) : M Bool := do
     -- List Char : Type
     _ ← checkIsType q(List Char)
     -- @List.nil.{0} Char : List Char
-    unless ← isDefEq (← checkType q(List.nil (α := Char))) q(List Char) do fail
+    unless ← checkedTypeIs q(List.nil (α := Char)) q(List Char) do fail
     -- @List.cons.{0} Char : Char → List Char → List Char
-    unless ← isDefEq (← checkType q(List.cons (α := Char))) q(Char → List Char → List Char) do fail
+    unless ← checkedTypeIs q(List.cons (α := Char)) q(Char → List Char → List Char) do fail
     -- String.ofList : List Char → String, compared syntactically as for `Char.ofNat` above
     unless v.type == q(List Char → String) do fail
   | _ => return false

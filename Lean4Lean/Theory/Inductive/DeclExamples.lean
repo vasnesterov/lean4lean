@@ -729,5 +729,39 @@ example : accDecl.recType 0
         ((VExpr.bvar (1 + accType.indices.length + accDecl.nmin + (accDecl.nm - 1 - 0))).mkApp
           (bvars 1 accType.indices.length ++ [.bvar 0]))) := rfl
 
+/-! ### D5's body: `minorBody_hasType`'s subject is `minorType`'s body
+
+For `Acc.intro` (`q = t = 0`, so `nr = 1`, `nf = 2`, `off = nm + q = 1`, and the motive
+index is `nr + nf + q + (nm-1-t) = 3`). -/
+
+example : (accDecl.ihTypes 0 accIntro).length = 1 := rfl
+example : accDecl.minorType 0 0 accIntro
+    = mkPi (liftTele 1 (accDecl.atRecTele (accIntro.fields.map (·.type)))
+        ++ accDecl.ihTypes 0 accIntro)
+      ((VExpr.bvar 3).mkApp
+        ((accIntro.args.map fun a => VExpr.shift 1 1 2 (accDecl.atRec a))
+          ++ [accDecl.ctorApp' accIntro 4 (bvars 1 2)])) := rfl
+
+-- the two minor offsets, on `Acc.intro` and on `Forest'.cons` (`q = 2, t = 1, nr = nf = 2`)
+example : accIntro.fields.length + (accDecl.nm + 0) + (accDecl.ihTypes 0 accIntro).length
+    = 0 + ((accDecl.ihTypes 0 accIntro).length + accIntro.fields.length + 0
+        + (accDecl.nm - 1 - 0) + 1) :=
+  VInductDecl'.minor_tele_offset (by decide)
+example : ((accDecl.ihTypes 0 accIntro).length + accIntro.fields.length + 0
+      + (accDecl.nm - 1 - 0)) + 1 + (accType.indices.length + 0) - accType.indices.length
+    = (accDecl.ihTypes 0 accIntro).length + accIntro.fields.length + (accDecl.nm + 0) :=
+  VInductDecl'.minor_dom_offset (by decide)
+
+example : (mutDecl.ihTypes 2 forestCons).length = 2 := rfl
+example : forestCons.fields.length + (mutDecl.nm + 2) + (mutDecl.ihTypes 2 forestCons).length
+    = 1 + ((mutDecl.ihTypes 2 forestCons).length + forestCons.fields.length + 2
+        + (mutDecl.nm - 1 - 1) + 1) :=
+  VInductDecl'.minor_tele_offset (by decide)
+example : ((mutDecl.ihTypes 2 forestCons).length + forestCons.fields.length + 2
+      + (mutDecl.nm - 1 - 1)) + 1 + ((mutDecl.types[1]!).indices.length + 1)
+      - (mutDecl.types[1]!).indices.length
+    = (mutDecl.ihTypes 2 forestCons).length + forestCons.fields.length + (mutDecl.nm + 2) :=
+  VInductDecl'.minor_dom_offset (by decide)
+
 end InductiveDeclExamples
 end Lean4Lean
