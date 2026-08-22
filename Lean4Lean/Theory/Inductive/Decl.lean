@@ -132,9 +132,6 @@ abbrev nmin : Nat := D.ctorsAll.length
 
 def blockNames : List Name := D.types.map (·.name)
 
-/-- Every name the declaration introduces: the types, their recursors, the constructors. -/
-def allNames : List Name :=
-  D.types.flatMap fun T => T.name :: Lean.mkRecName T.name :: T.ctors.map (·.name)
 
 /-- The elimination universe (F10): a *fresh* parameter prepended at index 0 for a large
 eliminator, `.zero` otherwise. -/
@@ -223,16 +220,40 @@ The kernel checks constructors in an environment that already contains the block
 constants (`Add.lean:458`), and a constructor's type mentions them.  So `WF` stages the
 environment, mirroring `declareInductiveTypes` / `checkConstructors`. -/
 
+/-- The block's type constants, in declaration order. -/
+def VInductDecl'.typeConsts (D : VInductDecl') : List (Name × VConstant) :=
+  D.types.map fun T => (T.name, ⟨D.uvars, T.type⟩)
+
+/-- The block's constructor constants, in kernel order (grouped by type). -/
+def VInductDecl'.ctorConsts (D : VInductDecl') : List (Name × VConstant) :=
+  D.ctorsAll.map fun (j, C) => (C.name, ⟨D.uvars, C.type D j⟩)
+
+/-- Add a list of named constants left to right.  `none` as soon as one name is already
+taken, so success implies every name is fresh *and* the list has no duplicates. -/
+def VEnv.addConstList (env : VEnv) (cs : List (Name × VConstant)) : Option VEnv :=
+  cs.foldlM (fun env c => env.addConst c.1 c.2) env
+
 /-- Add only the block's type constants. -/
 def VEnv.addIndTypes (env : VEnv) (D : VInductDecl') : Option VEnv :=
-  D.types.foldlM (fun env T => env.addConst T.name ⟨D.uvars, T.type⟩) env
+  env.addConstList D.typeConsts
 
 /-- Add the block's constructors, on top of `addIndTypes`. -/
 def VEnv.addIndCtors (env : VEnv) (D : VInductDecl') : Option VEnv :=
-  D.types.zipIdx.foldlM (fun env (T, j) =>
-    T.ctors.foldlM (fun env C => env.addConst C.name ⟨D.uvars, C.type D j⟩) env) env
+  env.addConstList D.ctorConsts
 
 /-! ## Well-formedness (design §4) -/
+
+/-- `IsDefEqU` refined to say the two sides are equal **as types**.
+
+Stronger than `IsDefEqU`, and it is what the refinement naturally produces: the kernel
+walks a pi-spine with `whnf` and `ensureSort`, and each step is a `forallEDF`/`sortDF`
+congruence, all of which are typed at a sort.  Going back from `IsDefEqU` would need
+`IsDefEqU.of_l`, which lives in `Typing/UniqueTyping.lean` -- downstream of the
+injectivity stream and of `VEnv.WF`, hence of `addInduct_WF` itself.  Recording the sort
+here keeps the inductive spec out of that cycle. -/
+def VEnv.IsDefEqType (env : VEnv) (U : Nat) (Γ : List VExpr) (A B : VExpr) : Prop :=
+  ∃ u, env.IsDefEq U Γ A B (.sort u)
+
 
 /-- Well-formedness of one constructor field.  `Γ` is
 `((C.fields.take i).map (·.type)).reverse ++ D.params.reverse`, the context of field `i`. -/
@@ -249,7 +270,13 @@ structure VIndField.WF (env : VEnv) (D : VInductDecl') (Γ : List VExpr) (i : Na
   strictly of the shape `∀ ξ, I_j params π` with `ξ` and `π` themselves block-free. -/
   pos :
     match F.recArg with
-    | none => D.NoBlock F.type
+    | none =>
+      -- **Only definitionally** block-free: `checkPositivity` (`Add.lean:190`) applies
+      -- `hasIndOcc` to `whnf dom`, not to `dom`.  Both kernels accept
+      -- `| mk : (r : T) -> (fun _ : T => Nat) r -> T`, whose stored field type mentions
+      -- both the block constant and the earlier recursive field `r`; only its whnf is
+      -- block-free.  A syntactic `D.NoBlock F.type` here would reject it.
+      ∃ A, D.NoBlock A ∧ env.IsDefEqType D.uvars Γ F.type A
     | some r =>
       r.idx < D.nm ∧
       r.args.length = (D.types.getD r.idx default).indices.length ∧
@@ -257,7 +284,7 @@ structure VIndField.WF (env : VEnv) (D : VInductDecl') (Γ : List VExpr) (i : Na
       (∀ a ∈ r.args, D.NoBlock a) ∧
       OnCtx (r.binders.reverse ++ Γ) (env.IsType D.uvars) ∧
       env.HasType D.uvars (r.binders.reverse ++ Γ) (r.canonResult D i) (.sort D.lvl) ∧
-      env.IsDefEqU D.uvars Γ F.type (r.canonType D i)
+      env.IsDefEqType D.uvars Γ F.type (r.canonType D i)
 
 /-- Well-formedness of one constructor, stated in the environment that already contains
 the block's *type* constants. -/
@@ -285,7 +312,7 @@ structure VIndType.WF (env : VEnv) (D : VInductDecl') (T : VIndType) : Prop wher
   /-- F1/F4: the stored type is only *definitionally* the canonical pi-telescope, because
   the kernel whnfs at every spine step; and the block's common `lvl` need only be
   `isEquiv` to each type's result level. -/
-  canon : env.IsDefEqU D.uvars [] T.type (T.canonType D)
+  canon : env.IsDefEqType D.uvars [] T.type (T.canonType D)
 
 /-- Carneiro's `Γ; t : F ⊢ K LE`, in the form F9 (`isLargeEliminator`, `Add.lean:258`)
 delivers it.  Purely syntactic/level-theoretic: no environment appears.
@@ -459,10 +486,21 @@ def iotaRules : List VDefEq :=
 
 end VInductDecl'
 
+/-- The block's recursor constants, in declaration order. -/
+def VInductDecl'.recConsts (D : VInductDecl') : List (Name × VConstant) :=
+  D.types.zipIdx.map fun (T, j) => (Lean.mkRecName T.name, ⟨D.recUvars, D.recType j⟩)
+
+/-- Everything `addInduct'` declares, in the order it declares it. -/
+def VInductDecl'.allConsts (D : VInductDecl') : List (Name × VConstant) :=
+  D.typeConsts ++ D.ctorConsts ++ D.recConsts
+
+/-- Every name the declaration introduces: the types, then the constructors, then the
+recursors -- the order in which `addInduct'` adds them. -/
+def VInductDecl'.allNames (D : VInductDecl') : List Name := D.allConsts.map (·.1)
+
 /-- Add the block's recursors, on top of `addIndCtors`. -/
 def VEnv.addIndRecs (env : VEnv) (D : VInductDecl') : Option VEnv :=
-  D.types.zipIdx.foldlM (fun env (T, j) =>
-    env.addConst (Lean.mkRecName T.name) ⟨D.recUvars, D.recType j⟩) env
+  env.addConstList D.recConsts
 
 /-- Add the block's ι-rules. -/
 def VEnv.addIndRules (env : VEnv) (D : VInductDecl') : VEnv :=

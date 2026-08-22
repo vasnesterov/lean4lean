@@ -1,4 +1,4 @@
-import Lean4Lean.Theory.Inductive.Decl
+import Lean4Lean.Theory.Inductive.Lemmas
 import Lean4Lean.Theory.Meta
 
 /-!
@@ -86,7 +86,7 @@ example : eqDecl.ctorsAll = [(0, eqRefl)] := rfl
 example : eqDecl.recUvars = 2 := rfl
 example : eqDecl.elimLvl = .param 0 := rfl
 example : eqDecl.selfLvls = [.param 1] := rfl
-example : eqDecl.allNames = [``Eq, ``Eq.rec, ``Eq.refl] := rfl
+example : eqDecl.allNames = [``Eq, ``Eq.refl, ``Eq.rec] := rfl
 
 -- the stored type really is the canonical one, and it is the real `Eq`
 example : eqType.type = eqType.canonType eqDecl := rfl
@@ -355,8 +355,14 @@ example : mutDecl.nmin = 3 := rfl
 example : mutDecl.ctorsAll = [(0, treeNode), (1, forestNil), (1, forestCons)] := rfl
 example : mutDecl.recUvars = 1 := rfl
 example : mutDecl.allNames =
-    [``Tree', ``Tree'.rec, ``Tree'.node,
-     ``Forest', ``Forest'.rec, ``Forest'.nil, ``Forest'.cons] := rfl
+    [``Tree', ``Forest',
+     ``Tree'.node, ``Forest'.nil, ``Forest'.cons,
+     ``Tree'.rec, ``Forest'.rec] := rfl
+example : mutDecl.allConsts.map (·.2) =
+    [⟨0, vexpr(Type)⟩, ⟨0, vexpr(Type)⟩,
+     ⟨0, treeNode.type mutDecl 0⟩, ⟨0, forestNil.type mutDecl 1⟩,
+     ⟨0, forestCons.type mutDecl 1⟩,
+     ⟨1, mutDecl.recType 0⟩, ⟨1, mutDecl.recType 1⟩] := rfl
 
 example : treeNode.type mutDecl 0 = (vconst(type_of% @Tree'.node)).type := rfl
 example : forestNil.type mutDecl 1 = (vconst(type_of% @Forest'.nil)).type := rfl
@@ -430,6 +436,66 @@ example : (VEnv.empty.addInduct' natDecl).isSome := rfl
 example : (VEnv.empty.addInduct' mutDecl).isSome := rfl
 example : (VEnv.empty.addInduct' accDecl).isSome := rfl
 example : (VEnv.empty.addInduct' eqDecl).isSome := rfl
+
+/-! ## `atRec`: the block-to-recursor universe renumbering -/
+
+example : eqDecl.atRecTele eqDecl.params = [.sort (.param 1), .bvar 0] := rfl
+example : natDecl.atRecTele natDecl.params = [] := rfl
+example : accDecl.atRecTele accDecl.params
+    = [.sort (.param 1), mkPi [.bvar 0, .bvar 1] (.sort .zero)] := rfl
+-- `atRec_tyApp` on the nose
+example : eqDecl.atRec (eqDecl.tyApp 0 0 [.bvar 0]) = eqDecl.tyApp' 0 0 [.bvar 0] := rfl
+example : accDecl.atRec (accDecl.tyApp 0 2 [.bvar 1]) = accDecl.tyApp' 0 2 [.bvar 1] := rfl
+-- for a `uvars = 0` block it is the identity on the recursor construction's inputs
+example : mutDecl.atRecTele (treeNode.fields.map (·.type)) = [.const ``Forest' []] := rfl
+
+/-! ## Staging bookkeeping -/
+
+example : eqDecl.allNames.Nodup := by decide
+example : natDecl.allNames.Nodup := by decide
+example : accDecl.allNames.Nodup := by decide
+example : mutDecl.allNames.Nodup := by decide
+
+example : natDecl.typeConsts = [(``Nat, ⟨0, vexpr(Type)⟩)] := rfl
+example : natDecl.ctorConsts =
+    [(``Nat.zero, ⟨0, vconst(type_of% @Nat.zero).type⟩),
+     (``Nat.succ, ⟨0, vconst(type_of% @Nat.succ).type⟩)] := rfl
+example : natDecl.recConsts = [(``Nat.rec, ⟨1, vconst(type_of% @Nat.rec).type⟩)] := rfl
+
+-- `mem_ctorsAll` on the mutual block: `Forest'.cons` is the `q = 2` constructor of type 1
+example : ∃ T, mutDecl.types[1]? = some T ∧ forestCons ∈ T.ctors :=
+  VInductDecl'.mem_ctorsAll (D := mutDecl) (List.Mem.tail _ (List.Mem.tail _ (List.Mem.head _)))
+
+-- the accessors, concretely
+example (env : VEnv) (h : VEnv.empty.addInduct' natDecl = some env) :
+    env.constants ``Nat = some ⟨0, .sort (.succ .zero)⟩ :=
+  VEnv.addInduct'_types h (.head _)
+
+example (env : VEnv) (h : VEnv.empty.addInduct' natDecl = some env) :
+    env.constants ``Nat.succ = some ⟨0, natSucc.type natDecl 0⟩ :=
+  VEnv.addInduct'_ctors h (.tail _ (.head _))
+
+example (env : VEnv) (h : VEnv.empty.addInduct' natDecl = some env) :
+    env.constants (Lean.mkRecName ``Nat) = some ⟨1, natDecl.recType 0⟩ :=
+  VEnv.addInduct'_recs h (.head _)
+
+example (env : VEnv) (h : VEnv.empty.addInduct' mutDecl = some env) :
+    env.constants ``Forest'.cons = some ⟨0, forestCons.type mutDecl 1⟩ :=
+  VEnv.addInduct'_ctors h (.tail _ (.tail _ (.head _)))
+
+example (env : VEnv) (h : VEnv.empty.addInduct' mutDecl = some env) :
+    env.constants (Lean.mkRecName ``Forest') = some ⟨1, mutDecl.recType 1⟩ :=
+  VEnv.addInduct'_recs h (.tail _ (.head _))
+
+-- a name the block does not declare is untouched
+example (env : VEnv) (h : VEnv.empty.addInduct' natDecl = some env) :
+    env.constants ``List = none :=
+  VEnv.addInduct'_constants_of_not_mem h (by decide)
+
+-- the ι-rules are all present
+example (env : VEnv) (h : VEnv.empty.addInduct' mutDecl = some env) :
+    env.defeqs (mutDecl.iotaRule 1 2 forestCons) :=
+  VEnv.addInduct'_defeqs h _ (List.Mem.tail _ (List.Mem.tail _ (List.Mem.head _)))
 
 end InductiveDeclExamples
 end Lean4Lean
