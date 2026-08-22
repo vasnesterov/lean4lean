@@ -678,6 +678,60 @@ The chain of reduction, recorded so it is not rediscovered:
 universe index: the honest `setQuotient` by the *equivalence closure* of the
 relation above `Prop`, and the proof-irrelevant answer at `Prop` itself.
 
+### One requirement, stated in three vocabularies
+
+Worth connecting once so a future reader does not have to notice it three times.
+The same requirement appears as:
+
+* **`Theory/Consistency.lean`** — the prelude must pin the *genuine* inductive
+  declarations of `Eq`, `Iff` and `Nonempty`, not merely constants of the right
+  type.
+* **`kernel_sound`'s design note** — `propext` over a nonstandard `Eq` would
+  honestly prove `False`.
+* **`SetModel/PreludeSpec.lean`** — the specs say strictly more than
+  `Coherent.const_type`. `const_type` asks only that a constant's value *inhabit*
+  its declared type; the specs pin *which function it is*.
+
+That gap — inhabiting the type versus being the intended element of it — is the
+whole content of the requirement, and it is why the standard axioms cannot be
+validated against `SetModel/Universe.lean` alone.
+
+### `Quot`'s value layer, and what it cost
+
+`quotRel`, `quotEqv`, `quotVal`, with `quotVal_mem_U` and full joint
+definability (`quotRel_definable`, `eqvStep_definable₃`, `quotEqv_definable`,
+`setQuotient_definable₂`, `quotVal_definable`). All proved.
+
+This was expected to be mechanical and was not. Everything the model puts inside
+a `mkLam` must be `ℒₛₑₜ`-definable **jointly in all its arguments**, because the
+fibre map varies with the domain element — a strictly stronger demand than
+anything `Universe.lean` needed, where `eqvStep_definable` fixes the carrier and
+relation and is definable only in the stage. Plain `definability` reaches none
+of the joint versions. Three things were needed together:
+
+1. the `mem_ext_iff` route — restate `T = f a b` as a membership formula, then
+   call `definability` (already the idiom used by `eqvStep_definable` itself);
+2. passing `sep`'s definability argument **explicitly** instead of through its
+   `autoParam`, because the `autoParam` runs `definability` without the local
+   hypotheses that make it succeed;
+3. **replacing `lfp` by its Π₁ characterisation.** `eqvClosure` is `lfp`, hence
+   `⋂ˢ` of the prefixed points, and `⋂ˢ`'s membership condition carries a
+   nonemptiness *existential*. That existential is what makes `definability`
+   diverge — it is the difference between the version that fails and the version
+   that succeeds. `quotEqv` states the same set by its universal property and
+   goes through.
+
+Without (2) and (3) the failure is
+`aesop: internal error during proof reconstruction: goal N was not normalised`,
+i.e. Foundation gap #1, which is therefore broader than "arity ≥ 4 composition":
+it is also triggered by an existential nested under a set quantifier.
+
+**Generalisable lesson:** a least fixed point is fine to *reason* with and bad to
+*compute inside a definable function*. Where a definable version is needed,
+state the fixed point by its universal property instead. `Ind` and `indRec`
+(`SetModel/Inductive.lean`) are also `lfp`s, so the same substitution will be
+needed when the `.induct` oracle is built.
+
 ### The pattern: uniform in ZFC, not uniform across `Sort 0`
 
 That split is the **third** time this session a statement that reads uniformly
@@ -692,11 +746,15 @@ has needed a level-sensitive case analysis:
    `{{•}}`, which is not a subset of `{•}`. The set-theoretic quotient of a
    proposition is not a proposition.
 
-The pattern is worth naming, because a fourth is likely: **a construction that
-is uniform in ZFC is rarely uniform across `Sort 0` versus `Sort (u+1)`, because
-`Prop` is proof-irrelevant and impredicative while the higher universes are
-neither.** In each case the uniform statement was not merely harder to prove —
-it was false, and the case split is what makes it true.
+The pattern is worth naming, and is now a **standing check**: **a construction
+that is uniform in ZFC is rarely uniform across `Sort 0` versus `Sort (u+1)`,
+because `Prop` is proof-irrelevant and impredicative while the higher universes
+are neither.** In each case the uniform statement was not merely harder to prove
+— it was false, and the case split is what makes it true.
+
+So: *before proving any new uniform statement about the interpretation, evaluate
+it at `u = 0` first.* Five minutes, with the same payoff profile as the pre-proof
+truth check that has now caught five false statements.
 
 ### What is left of `cnst`
 

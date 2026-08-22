@@ -64,7 +64,33 @@ theorem VLCtx.WF.fvwf : ∀ {Δ}, VLCtx.WF env U Δ → Δ.FVWF
   | [], h => h
   | _ :: _, ⟨h1, h2, _⟩ => ⟨h1.fvwf, h2⟩
 
-def TrProj : ∀ (Γ : List VExpr) (structName : Name) (idx : Nat) (e : VExpr), VExpr → Prop := sorry
+/-- The abstract counterpart of `Lean.Expr.proj`.
+
+`VExpr` has no projection constructor, so a projection has to be translated into the term
+it *is*: an application of the structure's recursor,
+`VInductDecl'.projTerm` (`Theory/Inductive/Structure.lean`).  The structure's level and
+parameter arguments are not syntactically present in `.proj s i e` — they have to be read
+off the *type of `e`* — which is why this takes `env` and `U`; `TrExprS` has both in scope
+at the only call site.
+
+Given `Γ, s, i, e`, every remaining input is pinned by the premises, so `e''` is a
+function of them *provided* `s` determines the block.  That last step is the one thing
+`VEnv.IsStructure` deliberately does not supply (ledger G4); see `TrProj.uniq`. -/
+variable (env : VEnv) (U : Nat) in
+inductive TrProj : List VExpr → Name → Nat → VExpr → VExpr → Prop
+  | mk {S : Name} {D T C us ps ιs Γ e i} :
+    env.IsStructure S D T C →
+    -- the level and parameter arguments, read off the type of `e`
+    env.HasType U Γ e ((VExpr.const S us).mkApp (ps ++ ιs)) →
+    us.length = D.uvars → ps.length = D.np → ιs.length = T.indices.length →
+    i < C.fields.length →
+    -- F17's side condition, in the form the encoding needs: either the block eliminates
+    -- into an arbitrary universe, or the field is a proof.  The kernel enforces the
+    -- strictly syntactic version — `inferProj` guards every dependent field domain and
+    -- the projected domain with `isProp dom` whenever the structure's sort is not
+    -- `isNeverZero` (`TypeChecker.lean:233`).
+    (D.isLE = true ∨ (C.fields.getD i default).lvl.inst us ≈ .zero) →
+    TrProj Γ S i e (D.projTerm T C us ps ιs i e)
 
 def VEnv.ContainsLits (env : VEnv) : Literal → Prop
   | .natVal _ => env.contains ``Nat
