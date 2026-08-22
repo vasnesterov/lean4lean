@@ -667,6 +667,14 @@ class ParamsExtra [Params] where
   The declaration is *carried* rather than looked up, because `VEnv.Sig` (design §7.7) does
   not exist yet; switching to a lookup when it does is mechanical.
 
+  Two deliberate choices, both flagged by the keystone stream. The head arity is
+  `D.np + T.indices.length`, which is constructor-*independent* — `C.args.length` would
+  assert that one `classify` value equals a per-constructor quantity, rescued only by
+  `args_len`. And the result is stated over `C.params.reverse`, not `D.params.reverse`, so
+  that every clause is read off `ci.type = mkPi (C.params ++ …) …` in **one** context;
+  `VIndCtor.WF.result'` is the transport that delivers it. `C.params` and `D.params` are
+  only *definitionally* equal, so mixing the two would silently mix contexts.
+
   There is deliberately **no** `D.lvl ≠ 0` claim. `Eq.refl : ∀ {α : Sort u} (a : α), a = a`
   has a `Prop` codomain, yet `Eq.refl` must still be `classify`-ed as a constructor, because
   `Eq.rec`'s ι-rule pattern-matches on it and `Pattern.WF` demands a `.ctor` leaf there. The
@@ -680,8 +688,8 @@ class ParamsExtra [Params] where
       D.types[j]? = some T ∧ C ∈ T.ctors ∧ C.name = c ∧
       ci = ⟨D.uvars, C.type D j⟩ ∧
       (C.params ++ C.fields.map (·.type)).length = cl.arity ∧
-      classify T.name = some (.indTy (D.np + C.args.length)) ∧
-      env.HasType D.uvars ((C.fields.map (·.type)).reverse ++ D.params.reverse)
+      classify T.name = some (.indTy (D.np + T.indices.length)) ∧
+      env.HasType D.uvars ((C.fields.map (·.type)).reverse ++ C.params.reverse)
         (C.canonResult D j) (.sort D.lvl)
 
 def CtorBundle.IsCtor (c : Name) : Prop :=

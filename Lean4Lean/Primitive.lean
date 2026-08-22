@@ -276,6 +276,21 @@ recognizer must not run `inferType`, which assumes its argument is already well-
 it has not checked. -/
 def checkIsType (e : Expr) : M Expr := do ensureSort (← checkType e) e
 
+/-- `isDefEq`, with both sides type-checked first.
+
+The recognizer's equations are built from the definition's value *and* from other primitives
+that are merely required to be present (`Nat.pred` in the `Nat.sub` branch, `Nat.add` in
+`Nat.mul`, and so on). `VEnv.HasPrimitives` pins those primitives' behaviour at numerals but not
+their types, so a term like `Nat.add (mul y x) y` need not be well-typed at all; comparing it
+with `isDefEq` would again record an untranslatable term in the `EquivManager` (see
+`checkPrimValue`). Type-checking both sides first is the uniform remedy, and it is what lets the
+verification read a `TrExprS` witness off each comparison instead of having to reconstruct one
+from typing facts the recognizer never checks. -/
+def checkedIsDefEq (a b : Expr) : M Bool := do
+  _ ← checkType a
+  _ ← checkType b
+  isDefEq a b
+
 def checkPrimitiveDef (v : DefinitionVal) : M Bool := do
   unless v.safety == .safe do return false
   let fail {α} : M α := throw <| .other s!"invalid form for primitive def {v.name}"
@@ -298,11 +313,11 @@ def checkPrimitiveDef (v : DefinitionVal) : M Bool := do
   -- content. `withLocalDecl` performs exactly the comparison `isDefEqForall` would have made,
   -- but on well-typed terms.
   let defeqT1 (ty : Expr) (f g : Expr → Expr) : M Bool :=
-    withLocalDecl `x .default ty fun x => isDefEq (f x) (g x)
+    withLocalDecl `x .default ty fun x => checkedIsDefEq (f x) (g x)
   let defeq1 := defeqT1 q(Nat)
   let defeq2 (f g : Expr → Expr → Expr) : M Bool :=
     withLocalDecl `y .default q(Nat) fun y =>
-    withLocalDecl `x .default q(Nat) fun x => isDefEq (f y x) (g y x)
+    withLocalDecl `x .default q(Nat) fun x => checkedIsDefEq (f y x) (g y x)
   let env ← getEnv
   match v.name with
   | ``Nat.add =>
@@ -319,7 +334,7 @@ def checkPrimitiveDef (v : DefinitionVal) : M Bool := do
     -- pred : Nat → Nat
     checkPrimValue v q(Nat → Nat) fail
     let pred := mkApp v.value
-    unless ← isDefEq (pred zero) zero do fail
+    unless ← checkedIsDefEq (pred zero) zero do fail
     unless ← defeq1 (fun x => pred (succ x)) (fun x => x) do fail
   | ``Nat.sub =>
     unless env.contains ``Nat && env.contains ``Nat.pred && v.levelParams.isEmpty do fail
@@ -409,7 +424,7 @@ def checkPrimitiveDef (v : DefinitionVal) : M Bool := do
     -- beq : Nat → Nat → Bool
     checkPrimValue v q(Nat → Nat → Bool) fail
     let beq := mkApp2 v.value
-    unless ← isDefEq (beq zero zero) tru do fail
+    unless ← checkedIsDefEq (beq zero zero) tru do fail
     unless ← defeq1 (fun x => beq zero (succ x)) (fun _ => fal) do fail
     unless ← defeq1 (fun x => beq (succ x) zero) (fun _ => fal) do fail
     unless ← defeq2 (fun y x => beq (succ y) (succ x)) (fun y x => beq y x) do fail
@@ -418,7 +433,7 @@ def checkPrimitiveDef (v : DefinitionVal) : M Bool := do
     -- ble : Nat → Nat → Bool
     checkPrimValue v q(Nat → Nat → Bool) fail
     let ble := mkApp2 v.value
-    unless ← isDefEq (ble zero zero) tru do fail
+    unless ← checkedIsDefEq (ble zero zero) tru do fail
     unless ← defeq1 (fun x => ble zero (succ x)) (fun _ => tru) do fail
     unless ← defeq1 (fun x => ble (succ x) zero) (fun _ => fal) do fail
     unless ← defeq2 (fun y x => ble (succ y) (succ x)) (fun y x => ble y x) do fail
@@ -473,10 +488,10 @@ def checkPrimitiveDef (v : DefinitionVal) : M Bool := do
     checkPrimValue v q(Nat → Nat → Nat) fail
     let .app (.const ``Nat.bitwise []) xor := v.value | fail
     let xor := mkApp2 xor
-    unless ← isDefEq (xor fal fal) fal do fail
-    unless ← isDefEq (xor tru fal) tru do fail
-    unless ← isDefEq (xor fal tru) tru do fail
-    unless ← isDefEq (xor tru tru) fal do fail
+    unless ← checkedIsDefEq (xor fal fal) fal do fail
+    unless ← checkedIsDefEq (xor tru fal) tru do fail
+    unless ← checkedIsDefEq (xor fal tru) tru do fail
+    unless ← checkedIsDefEq (xor tru tru) fal do fail
   | ``Nat.shiftLeft =>
     unless env.contains ``Nat && env.contains ``Nat.mul && v.levelParams.isEmpty do fail
     -- shiftLeft : Nat → Nat → Nat

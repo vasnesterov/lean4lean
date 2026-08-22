@@ -10,9 +10,21 @@ the case analysis below is **analysis, not a completed proof**, and is marked as
 such. Weakening and substitution, which several cases consume, *are* proved
 (`SetModel/InterpSubst.lean`, sorry-free).
 
+## Status
+
+`beta` and `eta` — the two cases named below as able to refute the ledger — are
+now **proved**, sorry-free, in `SetModel/InterpSound.lean` (`beta_sound`,
+`eta_sound`), with their induction hypotheses as explicit arguments. **Neither
+uses any injectivity fact.** The remaining eleven cases are still analysis.
+
+One claim from the first version of this ledger was **wrong and is corrected
+below**: part 2 is a genuine branch of the induction, not a corollary of parts 1
+and 3.
+
 ## Headline
 
 **No injectivity fact beyond `IsDefEqU.sort_inv` appears in any case.**
+Confirmed by proof for `beta` and `eta`; analysis for the other eleven.
 
 `sort_inv` is already packaged as `LevelAssign` (`SetModel/Interp.lean`). The
 other two `sorry`s in `Theory/Typing/Injectivity.lean` —
@@ -46,9 +58,20 @@ Carneiro proves four things by one simultaneous induction
 3. `⟦Γ ⊢ e⟧ ρ ∈ ⟦Γ ⊢ α⟧ ρ`;
 4. `Γ ⊢ e₁ ≡ e₂ : α` implies `⟦e₁⟧ ρ = ⟦e₂⟧ ρ`.
 
-**Part 2 is a corollary of parts 1 and 3**, not a fourth branch of the induction:
-if `α` is a proposition then `⟦α⟧ρ ⊆ {•}` and `⟦e⟧ρ ∈ ⟦α⟧ρ`, so `⟦e⟧ρ = •`.
-That is `proofSound_of` in `InterpSound.lean`. The induction carries three parts.
+**Correction.** The first version of this ledger claimed part 2 is a corollary of
+parts 1 and 3. It is not, and the induction carries **four** parts.
+
+The tempting argument is: if `α` is a proposition then `⟦α⟧ρ ⊆ {•}` by part 1 and
+`⟦e⟧ρ ∈ ⟦α⟧ρ` by part 3, so `⟦e⟧ρ = •`. But part 1 is about the *subject* of a
+judgement, and this needs it for the *type* — i.e. for `Γ ⊢ α : sort u`, which is
+**not a subderivation** of `Γ ⊢ e : α`. Recovering it would need validity plus a
+separate induction, and there is no gain: proving part 2 directly is easy in every
+case, because the interpretation returns `•` structurally in the `app` and `lam`
+clauses. Both `beta` and `eta` consume part 2 for a premise term in their proof
+branch, so it has to be carried regardless.
+
+`PropSound`/`ProofSound` in `InterpSound.lean` are stated accordingly, each
+conditional on the relevant split (`L.IsProp` / `L.IsProof`).
 
 ## A consistency fact used throughout
 
@@ -76,24 +99,32 @@ arithmetic — no injectivity. It is used in `appDF`, `lamDF` and `beta`.
 | `lamDF` | graph is a function into `⋃⟦B⟧`; split agreement | IHs; both bodies live in `A::Γ` | none |
 | `forallEDF` | `U_mem_succ` at `imax u v` | IHs | none |
 | `defeqDF` | IH part 4 on the type gives `⟦A⟧ρ = ⟦B⟧ρ` | IH | none |
-| `beta` | — | **substitution** + part 3 for `e'` (Carneiro's entanglement) + the graph is a function | none |
-| `eta` | — | **weakening** for `e.lift` + an internal function equals its own graph | none |
+| `beta` | — | **substitution** + part 3 for `e'` (entanglement) + part 2 for `e` + `mkLam_value` | none — **proved** |
+| `eta` | — | **weakening** for `e.lift` + part 2/3 for `e` + `function_eq_graph` | none — **proved** |
 | `proofIrrel` | — | part 1 gives `⟦p⟧ρ ⊆ {•}`, part 3 puts both values in it | none |
 | `extra` | `cnst` coherence with `env.defeqs` | same | none |
 
-### Notes on the two cases I would check first
+### The two cases that could have refuted the ledger — both now proved
 
-**`beta`.** `⟦(λA.e) e'⟧ρ = (graph) ‘ ⟦e'⟧ρ = ⟦e⟧(snoc ρ ⟦e'⟧ρ) = ⟦e.inst e'⟧ρ`.
-The middle step needs `⟦e'⟧ρ ∈ ⟦A⟧ρ` — which is part 3 for `e'`, i.e. exactly
-the entanglement Carneiro flags. In `SetModel/InterpSubst.lean` this is the
-`top` field of `AgreeInst`, stated as a hypothesis rather than proved, so the
-substitution lemma is available to the induction without circularity.
+**`beta` (`beta_sound`).** `⟦(λA.e) e'⟧ρ = (graph) ‘ ⟦e'⟧ρ = ⟦e⟧(snoc ρ ⟦e'⟧ρ) =
+⟦e[e'/0]⟧ρ`. The middle step needs `⟦e'⟧ρ ∈ ⟦A⟧ρ` — part 3 for `e'`, exactly the
+entanglement Carneiro flags; in `InterpSubst.lean` it is the `top` field of
+`AgreeInst`, stated rather than proved, so substitution is available to the
+induction without circularity. The proof branch (`λA.e` is a proof) needs part 2
+for `e`. Both branches use only substitution, `mkLam_value`, and the split
+agreement. **No inversion.**
 
-**`eta`.** `⟦λA. (lift e) (bvar 0)⟧ρ` is `{⟨v, ⟦e⟧ρ ‘ v⟩ | v ∈ ⟦A⟧ρ}` after
-weakening, and this equals `⟦e⟧ρ` because an internal function equals its own
-graph. That is surjective pairing for `Y ^ X`, provable from
-`function_eq_of_subset` and `value_eq_of_kpair_mem`; the `Prop` branch is
-separate and immediate (both sides are `•`).
+**`eta` (`eta_sound`).** After weakening, `⟦λA. (e↑) (bvar 0)⟧ρ` is
+`{⟨v, ⟦e⟧ρ ‘ v⟩ | v ∈ ⟦A⟧ρ}`, and this equals `⟦e⟧ρ` because an internal
+function equals its own graph (`function_eq_graph`). **This needed no new
+set-theoretic extensionality principle**: `value_eq_of_kpair_mem` and
+`kpair_value_mem`, already in `SetModel/Rank.lean` for other reasons, are
+exactly enough. The `Prop` branch is immediate (both sides are `•`, by part 2
+for `e`). **No inversion.**
+
+Supporting facts proved alongside: `mkLam_mem_function` (the `lam` clause really
+is an internal function on its domain) and `mkLam_value` (applying it is
+substitution into the body).
 
 ## Full ingredient list
 
@@ -107,7 +138,7 @@ separate and immediate (both sides are `•`).
 | `U_mem_succ` + explicit bound | `sortDF`, `forallEDF` | **proved** |
 | `piProp_mem_UProp` | part 1, `forallE` case | **proved** |
 | validity (`Γ ⊢ e : A → IsType Γ A`) | `appDF`, to level the `∀` | available, `Theory/Typing/` |
-| internal function = its graph | `eta` | routine, not yet written |
+| `function_eq_graph` (a function is its graph) | `eta` | **proved** |
 | `ModelData.cnst` coherence | `constDF`, `extra` | **open** — see below |
 | `IsDefEqU.sort_inv` | packaged as `LevelAssign` | **open**, one `sorry` |
 | `IsDefEqU.forallE_inv` | — | **not needed** |
