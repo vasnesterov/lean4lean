@@ -724,4 +724,258 @@ Checked: `lake build` of `Theory.Typing.Injectivity`, `Theory.Typing.ChurchRosse
 the only `sorry` warning being the pre-existing `ChurchRosser.lean:1266`. Every new
 declaration reports `depends on axioms: [propext, Quot.sound]`.
 
-The reflection induction itself was **not** attempted; it is scoped as its own task.
+The reflection induction itself was **not** attempted; it is scoped as its own task — §12.
+
+---
+
+# 12. Scoping the reflection induction
+
+Scoping only; nothing built. Tree at `b63575b` (`M Experimental/ShapeLogRel.lean`, the
+migration). Estimates are ranges with a confidence tag; anything I would otherwise have
+called "assembly" is broken out with its own line, per the two streams that were burned by
+not doing that.
+
+**Headline: the `trans'` partition is clean, and cleaner than expected — but not in the way
+the question assumed.** `trans'` need not be eliminated before the induction at all. Doing
+it *inside* the induction is strictly better and leaves nothing open. §12.2.
+
+**Second headline, deflationary: delivering `forallE_inv` does not unblock `IsDefEq.uniq`.**
+`uniq` consumes `forallE_inv_stratified` (`UniqueTyping.lean:43`), not `forallE_inv`. That
+is item **C4**, it has the lowest confidence in the whole estimate, and it needs a
+`HasTypeStratified` inversion lemma that does not exist. Scheduling that as "assembly"
+is exactly the trap. §12.5.
+
+## 12.1 The statement, and why it must quantify over `Γ` and `U`
+
+```lean
+theorem reflect (henv : Ordered env) :
+    ∀ {Γ' e₁' e₂' A'}, SExpr.IsDefEq Γ' e₁' e₂' A' →
+      ∀ (Γ : List VExpr) (U : Nat), Γ.map SExpr.mk = Γ' → OnCtx Γ (env.IsType U) →
+        ∃ U' e₁ e₂ A, U ≤ U' ∧
+          SExpr.mk e₁ = e₁' ∧ SExpr.mk e₂ = e₂' ∧ SExpr.mk A = A' ∧
+          env.IsDefEq U' Γ e₁ e₂ A
+```
+
+Three design points, each forced:
+
+* **Preimages are existential, not computed.** A global structural `rep : SExpr → VExpr`
+  looks tidier but does not commute with `SExpr.instL` on the nose, so `const` and `extra`
+  would need `≈`-slack in their *types* and hence a `defeqDF` each. With existentials those
+  two cases land exactly, via `SExpr.mk_instL` (`Bridge.lean:109`) and the fact that a
+  representative function is a genuine section of `SLevel.mk`. The slack moves to the cases
+  that need alignment anyway.
+* **`Γ` is universally quantified** (over `VExpr` contexts whose `mk`-image is `Γ'`), because
+  the binder cases must instantiate it at `Aᵥ :: Γ` where `Aᵥ` is produced by a *sibling*
+  premise's IH. In `beta` the binder's preimage comes from premise 2 and is needed for
+  premise 1 — impossible if `Γ` is fixed.
+* **`U` is universally quantified and `U ≤ U'` is in the conclusion**, so `hΓ` can be lifted
+  to whatever count a sibling branch produced. Lifting is one line: `OnCtx.mono`
+  (`Lemmas.lean:163`) composed with `IsDefEq.mono_uvars` (`Strong.lean:757`).
+
+*Fallback if the `∃ U'` bookkeeping gets noisy in practice:* state `U'` universally with a
+"every level occurring has a `U'`-well-formed representative" side condition instead. I do
+not recommend starting there — the max-taking is three tokens per case — but it is the
+escape hatch if `mono_uvars` applications start dominating.
+
+## 12.2 The `trans'` partition
+
+**Of the 14 constructors of `SExpr.IsDefEq` (`SExpr.lean:656–680`), exactly one is
+`trans'`, and it is *not* blocked.**
+
+The assumption behind the question was that `trans'` must be eliminated first, by
+`IsDefEq.toIsDefEq'` (`Experimental/UniqueTyping.lean:260`), whose `huniq` hypothesis is
+sort-uniqueness stated **with no `Ctx.WF`** — and that is genuinely open, because
+`uniq_sort` (`:186`) requires `Ctx.WF Γ` and the docstring at `:252–259` explains that the
+`toIsDefEq'` induction cannot maintain it (neither `IsDefEq.beta` nor `IsDefEqStrong.beta`
+types its binder).
+
+**Do the elimination inside the reflection instead.** The reflection's motive already
+carries `OnCtx Γ (env.IsType U)` on the `VExpr` side, and §9.4 established that the `VExpr`
+side *can* maintain context well-formedness through `beta`, because `IsDefEq.isType`
+(`Lemmas.lean:872`) exists and `SExpr` has no analogue. `OnCtx.toSExpr` (`Bridge.lean:203`)
+turns that invariant into the `Ctx.WF Γ'` that `uniq_sort` wants. So the `trans'` case reads:
+
+1. `uniq_sort h1 h2 (hΓ.toSExpr) : u = v` — applied to `trans'`'s own two SExpr premises,
+   at the same context, with `Ctx.WF` supplied by the invariant we are already carrying;
+2. `SLevel.mk_inj` (`Bridge.lean:64`) turns `mk uᵥ = mk vᵥ` into `uᵥ ≈ vᵥ`;
+3. `sortDF` + `defeqDF` retypes the second IH from `.sort vᵥ` to `.sort uᵥ`;
+4. proceed exactly as the `trans` case.
+
+`uniq_sort` is a *proved theorem* (sorry-tainted through `IsDefEq.strong`, like everything
+else here), not an open hypothesis. So:
+
+| | Cases | Status |
+|---|---|---|
+| Independent of `trans'`-elimination | 13 — `bvar symm trans sort const appDF lamDF forallEDF defeqDF beta eta proofIrrel extra` | buildable now |
+| Depends on it | 1 — `trans'` | **also buildable now**, via `uniq_sort` with `Ctx.WF` in hand |
+
+**Nothing is left open, and nothing is serialised behind the migration.** The whole chain
+compiles today and becomes sorry-free the moment `SExpr.IsDefEq.strong` lands. That is a
+better answer than "mostly unblocked with a blocked tail": there is no tail.
+
+*The instruction that follows from this:* **reflect `SExpr.IsDefEq`, not `IsDefEq'`.** If
+someone reflects `IsDefEq'` instead, they inherit `huniq` as an open hypothesis for no gain;
+and if they reflect `IsDefEq` but try to justify `trans'` on the `VExpr` side, that *is*
+circular — it needs `VExpr`-side `uniq`. The partition is clean only for one of the three
+designs, so it should be written down as a decision, not rediscovered.
+
+This is the third time in this task that an obstacle was a choice of vantage rather than a
+fact about the objects — after "reflect at `U'`, not at `U`" (§9) and "state the hypothesis
+at the reflection's count, not the ambient one" (§11). The prompt is worth keeping: **when a
+case looks like it needs new machinery, check first whether it needs a different `U` or a
+different place to stand.**
+
+## 12.3 The induction, itemised
+
+Reference points for calibration, all in-tree: `VEnv.IsDefEq.toSExpr` (`Bridge.lean:176–201`)
+is the *forward* direction — 26 lines for 13 cases, trivial because `mk` is a homomorphism
+and `SExpr` has no side conditions to discharge. The reverse is asymmetric precisely because
+side conditions must be *produced* and preimages *aligned*. The closest same-shape analogues
+are `IsDefEqStrong.instL` (`Strong.lean:300–339`, ~40 lines, no alignment) and
+`EqUpToLevels.defeq` (`Strong.lean:533–610`, ~78 lines, with alignment).
+
+| # | Group | Cases | Est. lines | Confidence |
+|---|---|---|---|---|
+| B1 | free | `bvar`, `symm` | 15 | high |
+| B2 | level side conditions only | `sort`, `const`, `extra` | 30 | high — spiked, §9.2 |
+| B3 | congruence + alignment | `appDF`, `defeqDF`, `proofIrrel` | 90–120 | medium |
+| B4 | binder cases (context extension + alignment) | `lamDF`, `forallEDF`, `beta` | 100–140 | medium |
+| B5 | η | `eta` | 20–30 | medium |
+| B6 | `trans` (align middle term *and* type) | `trans` | 40–50 | medium |
+| B7 | `trans'` (B6 + `uniq_sort` + `mk_inj`) | `trans'` | 30–40 | medium |
+| | **Induction total** | **14** | **325–425** | |
+
+Notes on the harder groups:
+
+* **B3/B4/B6 all do the same thing** — two sibling IHs produce two preimages of the same
+  `SExpr` term, and they must be made one. That is item A6 below; build it first and these
+  become short. If A6 is not factored out, expect these three groups to double.
+* **B4's ordering subtlety.** In `beta`, premise 1 lives at `A::Γ` but the binder's preimage
+  `Aᵥ` comes from premise 2. The universally-quantified `Γ` in the motive is what makes this
+  legal; `OnCtx (Aᵥ::Γ)` then comes from `IsDefEq.isType` on premise 2's IH (§9.4).
+* **B5** needs `SExpr.mk_lift` (`Bridge.lean:106`); `VExpr.inst_liftN_bvar0`
+  (`Bridge.lean:32`) exists for the forward direction and may or may not be needed here.
+
+## 12.4 Infrastructure, itemised (before any case)
+
+| # | Item | Est. lines | Confidence |
+|---|---|---|---|
+| A1 | `repL : SLevel → VLevel`, a section of `SLevel.mk` (`SExpr.lean:63` carries the witness; `Exists.choose`) | 8 | high |
+| A2 | `mk`-skeleton inversion, six constructors + list case; equivalently `mk` surjectivity | 50 | **medium-low** |
+| A3 | `mk e = mk e' → e.LevelWF U → e'.LevelWF U → EqUpToLevels U e e'` | 30 | high — proved in the spike as `SameLevels.toEqUpToLevels` |
+| A4 | `Lookup (Γ.map mk) i A' → ∃ A, Lookup Γ i A ∧ mk A = A'` (inverse of `Bridge.lean:163`) | 12 | high |
+| A5 | `OnCtx` lifted in `U` — `OnCtx.mono` ∘ `IsDefEq.mono_uvars` | 4 | high |
+| A6 | **the alignment combinator**: `mk x = mk y → IsType Γ x → IsDefEq Γ x y (.sort w)`, from A3 + `IsDefEq.eqUpToLevels` | 15 | high |
+| | **Infrastructure total** | **~120** | |
+
+A2 is the one to watch: six constructors, and the `const` case needs surjectivity at the
+list level. It is the sort of item that has come in at twice its estimate here before.
+
+**A3 is the piece of the spike that did *not* land**, and deliberately: it mentions `mk`, so
+it belongs in `Experimental/Bridge.lean` (or a new `Experimental/Reflect.lean`), not in the
+mainline. A6 is its only consumer and pays for itself across six cases.
+
+## 12.5 Assembly, itemised — including the trap
+
+| # | Item | Est. lines | Confidence |
+|---|---|---|---|
+| C1 | `SExpr.forallE_inv` (`ShapeLogRelAdequacy.lean:462`) → the two component defeqs, retyped at a sort — the `HasTypeS.uniq` move already written twice at `BridgeInjectivity.lean:56–66` | 20 | high |
+| C2 | reflect each component, then `IsDefEq.descend` each to `U` | 30 | high |
+| C3 | state `IsDefEqU.forallE_inv` in `Injectivity.lean`'s shape, relative to `[Params] [ParamsExtra]` | 15 | high |
+| C4 | **`forallE_inv_stratified` from `forallE_inv` + `sort_inv`** | **80–150** | **low** |
+| C5 | rewire `Injectivity.lean`: today `forallE_inv` (`:23–31`) is *derived from* `forallE_inv_stratified`; the arrow reverses | 10 | high |
+| | **Assembly total** | **155–225** | |
+
+**C4 is the trap and it should be scheduled as its own task, not as a tail.** Three facts:
+
+1. `IsDefEq.uniq` (`UniqueTyping.lean:13`) consumes `forallE_inv_stratified` at `:43`, not
+   `forallE_inv`. So C1–C3 unblock only the three direct consumers
+   (`Verify/Typing/Lemmas.lean:2095`, `Verify/TypeChecker/InferType.lean:276, 286`) — **not**
+   the ~80 `uniq` sites across eight `Verify/` files.
+2. The stratified conclusion carries `HasTypeStratified` derivations at specific indices
+   (`Injectivity.lean:18–21`). Recovering them from `h2`/`h3` needs a **`forallE` inversion
+   lemma for `HasTypeStratified` that does not exist**: `Strong.lean` has `hasType` (`:980`),
+   `mono` (`:992`), `to_core` (`:1030`) and `isType` (`:1037`), and nothing that inverts a
+   `.forallE` subject.
+3. The level mismatch — the stratified derivation sits at some `u₀`, the defeq at the `u`
+   `forallE_inv` produced — is bridged by `HasTypeStratified.defeq` (`:947`ff) *given*
+   `u₀ ≈ u`, i.e. **given `sort_inv`**. So C4 additionally consumes the other injectivity
+   statement. Fine, since `sort_inv` is the shape route's other deliverable — but it means
+   C4 cannot start before `sort_inv` lands, whereas B and C1–C3 can.
+
+My analysis says C4 goes through. It is **[inferred]**, not machine-checked, and it is the
+item I would expect to be wrong about.
+
+## 12.6 What the landed lemmas are actually used for
+
+Asked directly, and the answer is partly deflationary. Of the seven declarations in
+`Strong.lean:733–819`:
+
+| Landed lemma | Used by |
+|---|---|
+| `VLevel.exists_wf` (`:737`) | case `sort` |
+| `VLevel.exists_wf_list` (`:745`) | cases `const`, `extra` |
+| `IsDefEq.mono_uvars` (`:757`) | every case with ≥2 premises — 8 of 14 — and A5 |
+| `VLevel.WF.mono` (`:733`) | A5, and wherever a `WF` is lifted |
+| `IsDefEq.descend` (`:805`) | **once, in C2** — not in any case |
+| `EqUpToLevels.instL'` (`:779`) | internal to `descend` |
+| `OnCtx.instL_id` (`:794`) | internal to `descend` |
+
+So: **four of the seven are induction machinery, three are the exit ramp.** What the
+induction actually leans on most heavily is the *alignment* machinery — A3 and A6 — and that
+did not land, because it mentions `mk` and therefore cannot live in the mainline. The right
+reading is that what landed is correctly shaped for the two ends (`∃ U'` threading in, the
+descent out) and says nothing either way about the middle. That was the honest expectation
+going in and it survived contact.
+
+## 12.7 Total, and how I would schedule it
+
+| | Lines | |
+|---|---|---|
+| A — infrastructure | ~120 | A2 is the risk |
+| B — the induction, 14 cases | 325–425 | build A6 first |
+| C1–C3, C5 — assembly to `forallE_inv` | ~75 | |
+| C4 — `forallE_inv_stratified` | 80–150 | **own task; low confidence; needs `sort_inv`** |
+| **Total** | **~600–770** | |
+
+Compare: my last pass priced the Carneiro stratification at 2000–3000 lines of churn on
+*finished* proof. This is 600–770 lines of new proof with no churn. The comparison still
+favours the shape route, and by more than it did.
+
+Schedule:
+
+1. **A1–A6 and B1–B2 now** — no dependencies, and B2 is already spiked.
+2. **A6, then B3/B4/B6/B7** — all four collapse onto the alignment combinator.
+3. **C1–C3, C5** — gives `forallE_inv` and unblocks the three direct consumers.
+4. **C4 separately, after `sort_inv`** — and re-scope it once the `HasTypeStratified`
+   inversion lemma has been attempted, because that is where the estimate will move.
+
+Nothing in 1–3 waits on the `indTy` migration. All of it inherits the `SExpr.IsDefEq.strong`
+taint and clears when the migration does.
+
+## 12.8 On LSP staleness — asked for, and yes, warn the other streams
+
+I saw two distinct behaviours this session and only one of them is safe:
+
+* **Source changed, not rebuilt** → `lean_run_code` returns an **error**, *"Imports are out
+  of date and must be rebuilt"*, and refuses. Safe: it declines rather than guessing. This
+  is what blocked me from importing `Experimental/Bridge.lean` during the spike.
+* **Module rebuilt after the worker started** → `lean_run_code` returns an **info**,
+  *"Imports are out of date and should be rebuilt"*, and then **answers from the stale
+  environment**. I asked for `#print axioms` on seven freshly-built declarations and got
+  seven `Unknown constant` errors, with the `.olean` on disk 19 seconds *newer* than the
+  source and containing all seven. A negative result from that state is worthless and does
+  not look it.
+
+Practical rules worth passing on:
+
+* `lean_diagnostic_messages` **on the file you are editing** is reliable — it elaborates
+  live against built imports, and it correctly reported my `Strong.lean` edit as clean.
+* After a `lake build`, verify new declarations with `lake env lean` on a temp file, **not**
+  `lean_run_code`.
+* Treat the *info*-severity "should be rebuilt" as invalidating any negative result in that
+  response. The error-severity "must be rebuilt" is fine — it refuses.
+
+Two environment notes while I am here: `lake` is not on `PATH` for the Bash tool
+(`~/.elan/bin/lake`), and `ripgrep` is absent, so `lean_local_search` fails outright with an
+installation message — use `grep -rn --include=*.lean` instead.
