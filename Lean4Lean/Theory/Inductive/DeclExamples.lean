@@ -1232,5 +1232,34 @@ theorem fooRecCtx : ∃ env₃, fooDecl.RecCtx env₃ := by
   have o2 := VInductDecl'.addIndCtors_ordered o1 fooDecl_WF h1 h2
   exact ⟨e2, fooDecl_WF.recCtx h1 h2 VEnv.LE.rfl o2⟩
 
+/-! ### `D.lvl` is in none of the stored types
+
+`SExpr.ParamsExtra.ctor_ty` asks for `classify T.name = some (.indTy _ rel)` with
+`rel = true ↔ D.lvl ≠ .zero`, so `rel` has to be a function of the *name*.  Four times now an
+F1 obstruction has been dissolved by reading the fact off a **different** stored constant —
+arities off `env.constants`, the `.indTy` arity off the recursor's type, which is
+syntactically informative where `T.type` is not.  That move has no target here.
+
+`fooDecl'` differs from `fooDecl` only in `lvl`, and all three stored types — the block type's,
+the constructor's, and the recursor's — are *identical* on the nose.  So no constant carries
+the block's result universe: `D.lvl` reaches the environment only through `VIndType.WF.canon`
+and `VIndCtor.WF.result`, both of which are typing judgements, not syntax. -/
+
+def fooDecl' : VInductDecl' := { fooDecl with lvl := .succ .zero }
+
+example : fooDecl.lvl = VLevel.zero := rfl
+example : fooDecl'.lvl = VLevel.succ .zero := rfl
+
+-- the block type's stored type
+example : (fooDecl'.types.getD 0 default).type = (fooDecl.types.getD 0 default).type := rfl
+-- the constructor's stored type
+example : ((fooDecl'.types.getD 0 default).ctors.getD 0 default).type fooDecl' 0
+        = ((fooDecl.types.getD 0 default).ctors.getD 0 default).type fooDecl 0 := rfl
+-- the recursor's stored type, and its universe count
+example : fooDecl'.recType 0 = fooDecl.recType 0 := rfl
+example : fooDecl'.recUvars = fooDecl.recUvars := rfl
+-- …and the ι-rule, for completeness: nothing `addInduct'` stores sees `lvl`
+example : fooDecl'.iotaRules = fooDecl.iotaRules := rfl
+
 end InductiveDeclExamples
 end Lean4Lean
