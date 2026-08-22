@@ -279,12 +279,23 @@ inductive Pat (env : VEnv) : (p : Pattern) → p.RHS × p.Check → Prop
       -- `addInduct'` gave them.  Not decoration: see `Pat.rec_ne_ctor`.
       env.constants (Lean.mkRecName T.name) = some ⟨D.recUvars, D.recType j⟩ →
       env.constants C.name = some ⟨D.uvars, C.type D j⟩ →
+      -- F3.  Recorded because `Pat.isCtorLeaf_piArity` has to reconcile the pattern's
+      -- constructor arity, which `iotaPat` states as `D.np + |C.fields|`, with the Π-count of
+      -- the *stored* type, which binds `C.params`.  Every construction site holds it
+      -- (`VEnv.RuleShape.iota` carries it, from `VIndCtor.WF.params_len`).
+      C.params.length = D.np →
       Pat env (D.iotaPat T C) (D.iotaRHSOf j q T C h, D.iotaCheckOf T C hargs)
   /-- The quotient rule.  `env.constants ``Quot.lift` is not decoration: it is what
   `Pat.quotLift_ne_ctor` needs, exactly as `Pat.iota`'s two constant fields feed
-  `rec_ne_ctor`.  `Quot.mk`'s constant is deliberately *not* recorded — nothing consumes it,
-  and an unconsumed field hides which premises are load-bearing. -/
+  `rec_ne_ctor`.
+
+  `Quot.mk`'s constant was deliberately *not* recorded here for as long as nothing consumed
+  it.  `Pat.isCtorLeaf_piArity` now does — it reads every constructor leaf's arity off the
+  stored type, and `Quot.mk` is a constructor leaf — so the field is added.  The earlier
+  absence was correct at the time and is exactly the discipline the module docstring asks
+  for: a field with no consumer hides which premises are load-bearing. -/
   | quot : env.defeqs quotDefEq → env.constants ``Quot.lift = some quotLiftConst →
+      env.constants ``Quot.mk = some quotMkConst →
       Pat env quotPat (quotRHS, quotCheck)
 
 /-! ## The global name-distinctness side condition
@@ -409,7 +420,8 @@ theorem VIndCtor.args_closed {env : VEnv} {D : VInductDecl'} {j : Nat} {T : VInd
 the corresponding `Pat` constructor asks for. -/
 inductive VEnv.RuleShape (env : VEnv) : VDefEq → Prop
   | delta (ci : VDefVal) : ci.value.Closed → RuleShape env ci.toDefEq
-  | quot : env.constants ``Quot.lift = some quotLiftConst → RuleShape env quotDefEq
+  | quot : env.constants ``Quot.lift = some quotLiftConst →
+      env.constants ``Quot.mk = some quotMkConst → RuleShape env quotDefEq
   /-- `args_len` is the R3 field: `iotaPat` reports the recursor arity as
   `np + nm + nmin + T.indices.length` while the rule's spine carries `|C.args|` index
   arguments, and nothing in `Pat.iota`'s data relates them.  It is discharged from
@@ -445,7 +457,7 @@ inductive VEnv.RuleShape (env : VEnv) : VDefEq → Prop
 theorem VEnv.RuleShape.mono {env env' : VEnv} (hle : env ≤ env') {df} :
     env.RuleShape df → env'.RuleShape df
   | .delta ci h => .delta ci h
-  | .quot h => .quot (hle.constants h)
+  | .quot h h' => .quot (hle.constants h) (hle.constants h')
   | .iota D j q T C h1 h2 h3 h8 h4 h5 h6 h7 hD s1 s2 s3 s4 =>
       .iota D j q T C h1 h2 h3 h8 h4 h5 (hle.constants h6) (hle.constants h7)
         hD s1 s2 s3 (s4.trans hle)
@@ -496,9 +508,11 @@ theorem VEnv.ruleShape_quot {env env' : VEnv} (h : env.addQuot = some env')
   obtain ⟨e1, e2, e3, e4, h1, h2, h3, h4, rfl⟩ := VEnv.addQuot_stages h
   have hlift : e4.constants ``Quot.lift = some quotLiftConst :=
     (VEnv.addConst_le h4).constants (VEnv.addConst_self h3)
+  have hmk : e4.constants ``Quot.mk = some quotMkConst :=
+    ((VEnv.addConst_le h3).trans (VEnv.addConst_le h4)).constants (VEnv.addConst_self h2)
   intro df hdf
   rcases (hdf : _ ∨ _) with rfl | hdf
-  · exact .quot hlift
+  · exact .quot hlift hmk
   · rw [VEnv.addConst_defeqs h4, VEnv.addConst_defeqs h3, VEnv.addConst_defeqs h2,
       VEnv.addConst_defeqs h1] at hdf
     refine (ih df hdf).mono (VEnv.LE.trans ?_ VEnv.addDefEq_le)
@@ -1347,6 +1361,7 @@ theorem Pat.extra_delta {env : VEnv} {U : Nat} {Γ : List VExpr}
 are literally `bvar 5` and `bvar 4` on both leaves, but each clause is still an `IsDefEqU`. -/
 theorem Pat.extra_quot {env : VEnv} {U : Nat} {Γ : List VExpr} {ls : List VLevel}
     (hdf : env.defeqs quotDefEq) (hlift : env.constants ``Quot.lift = some quotLiftConst)
+    (hmk : env.constants ``Quot.mk = some quotMkConst)
     (hlen : ls.length = quotDefEq.uvars) :
     ∃ Δ L R p r m1 m2,
       quotDefEq.lhs.instL ls = mkLams Δ L ∧ quotDefEq.rhs.instL ls = mkLams Δ R ∧
@@ -1362,7 +1377,7 @@ theorem Pat.extra_quot {env : VEnv} {U : Nat} {Γ : List VExpr} {ls : List VLeve
   have hΔ : ((VExpr.peelLams quotDefEq.lhs).1.map (VExpr.instL ls)).reverse.length = 6 := by
     simp [show (VExpr.peelLams quotDefEq.lhs).1.length = 6 from rfl]
   refine ⟨_, _, _, quotPat, (quotRHS, quotCheck), m1, m2,
-    instL_quotDefEq_lhs hlen2, instL_quotDefEq_rhs, .quot hdf hlift, hm, ?_, ?_⟩
+    instL_quotDefEq_lhs hlen2, instL_quotDefEq_rhs, .quot hdf hlift hmk, hm, ?_, ?_⟩
   · show (quotCheck).OK _ m1 m2
     rw [quotCheck, iotaCheck_OK]
     refine ⟨?_, by simp, ?_⟩
@@ -1552,7 +1567,7 @@ theorem Pat.extra_iota {env : VEnv} {U : Nat} {Γ : List VExpr}
     (henv : env.Ordered) (hI : D.IotaCtx env)
     (hcl : (D.iotaLam q C).Closed)
     (hargs : ∀ a ∈ C.args, (mkLams (C.params ++ C.fields.map (·.type)) a).Closed)
-    (hal : C.args.length = T.indices.length)
+    (hal : C.args.length = T.indices.length) (hplen : C.params.length = D.np)
     (hT : D.types[j]? = some T) (hC : C ∈ T.ctors)
     (hdf : env.defeqs (D.iotaRule j q C))
     (hrec : env.constants (Lean.mkRecName T.name) = some ⟨D.recUvars, D.recType j⟩)
@@ -1601,7 +1616,7 @@ theorem Pat.extra_iota {env : VEnv} {U : Nat} {Γ : List VExpr}
       VExpr.bvars_add (lo := 0) (m := D.np + D.nm + D.nmin) (n := C.fields.length),
       Nat.zero_add]
   refine ⟨_, _, _, _, _, m1, m2, hL, hR,
-    .iota hcl hargs hT hC hdf hrec hctor, hM, ?_, hRHS⟩
+    .iota hcl hargs hT hC hdf hrec hctor hplen, hM, ?_, hRHS⟩
   show (D.iotaCheckOf T C hargs).OK
     (env.IsDefEqU U (((D.iotaCtx C).map (VExpr.instL ls)).reverse ++ Γ)) m1 m2
   rw [VInductDecl'.iotaCheckOf]
@@ -1700,10 +1715,178 @@ theorem Pat.extra {env : VEnv} (henv : env.WF) {U : Nat} {Γ : List VExpr}
   have ho := VEnv.WF.ordered henv
   cases henv.ruleShape hdf with
   | delta ci hcl => exact Pat.extra_delta hcl hdf hlen
-  | quot hlift => exact Pat.extra_quot hdf hlift hlen
-  | iota D j q T C hcl hargs hal _ hT hC hrec hctor hD s1 s2 s3 s4 =>
+  | quot hlift hmk => exact Pat.extra_quot hdf hlift hmk hlen
+  | iota D j q T C hcl hargs hal hplen hT hC hrec hctor hD s1 s2 s3 s4 =>
     exact Pat.extra_iota ho (VInductDecl'.iotaCtx_of_staged ho hD s1 s2 s3 s4)
-      hcl hargs hal hT hC hdf hrec hctor hlsWF hlen
+      hcl hargs hal hplen hT hC hdf hrec hctor hlsWF hlen
+
+/-! ## The leaf roles: what a `classify` function has to be told
+
+`Lean4Lean.Params` (the shape model's class, `Experimental/SExpr.lean`) carries a field
+`classify : Name → Option Classification` and a field
+`pat_wf : Pat p r → Pattern.WF classify p`.  Unfolding `Pattern.WF` at the two registered
+shapes leaves exactly three demands on `classify`:
+
+* the recursor leaf `R` of an ι- or quot-pattern of recursor arity `M` must get `.symb (M+1)`,
+* the constructor leaf `K` of arity `N` must get `.ctor N`,
+* a δ-rule's head `c` must get `.symb 0`.
+
+so `classify` is a three-way cascade and its correctness is: the three roles are **mutually
+exclusive**, and each name's arity is recoverable.  Both are settled here, in a form that
+mentions no `Classification` — `Theory/` must not import `Experimental/`, so the shim that
+actually builds the instance lives downstream of both and should be thin.
+
+**The arities are read off the stored constants, not off the patterns.**  That is the
+design choice that makes the cascade cheap: a `classify` computing `.ctor N` from the
+*pattern* would need "same constructor name ⇒ same `N`" across all registered patterns, and
+the `Quot.mk`-versus-a-block-constructor instance of that is not available (it needs the
+`VEnv.WF'` declaration history to see that `addQuot` and `addInduct'` are different steps).
+Computing it as `(env.constants K).type.piArity` sidesteps the question entirely: if two
+patterns did share a constructor leaf, they would share its *constant*, hence its Π-count,
+hence agree.  Uniqueness stops being an obligation and becomes a consequence.
+
+Two facts had to be *recorded* to make that work, both found by working backwards from the
+obligation, which is the method the module docstring is about:
+
+* `C.params.length = D.np` on `Pat.iota`, because the pattern states the constructor arity as
+  `D.np + |C.fields|` while the stored type binds `C.params`;
+* `env.constants ``Quot.mk` on `Pat.quot`, because `Quot.mk` is a constructor leaf and its
+  arity now has to be read off its constant.  That field was deliberately absent while nothing
+  consumed it, and its absence was right at the time.
+
+**The downstream shim.**  `classify` and `pat_wf` mention `Classification` and `Pattern.WF`,
+which live in `Experimental/SExpr.lean`; `Theory/` must not import `Experimental/`, so they
+belong in a module downstream of both.  That shim is **written and machine-checked** (65
+lines, `[propext, Classical.choice, Quot.sound]`, no `sorryAx`), and it is short because
+everything above is done:
+
+    noncomputable def VEnv.classify (env : VEnv) (c : Name) : Option Classification :=
+      if ∃ n, Pat.IsRecLeaf env c n then
+        some (.symb ((env.constants c).elim 0 (·.type.piArity)))
+      else if ∃ n, Pat.IsCtorLeaf env c n then
+        some (.ctor ((env.constants c).elim 0 (·.type.piArity)))
+      else if Pat.IsDeltaHead env c then some (.symb 0) else none
+
+with one auxiliary (`Pattern.WF cl ((Pattern.const c).varN n) top k ↔ cl c = some …`, a
+four-line induction), the three cascade equations from the exclusivity lemmas below, and
+
+    noncomputable def paramsOfWF {e : VEnv} (henv : e.WF) (U : Nat) : Params :=
+      Params.mk e henv.ordered U (Pat e) e.classify Pat.simple
+        (e.classify_pat_wf henv) (Pat.uniq henv)
+
+So **all eight fields of the shape model's `Params` are discharged for an arbitrary
+`VEnv.WF env`**.  What remains for the shape-model route is `SExpr.ParamsExtra`, whose
+`extra_pat` is refuted as stated (see the closing section) and whose `ctor_ty` is satisfiable.
+`Classical.choice` enters exactly once, in the cascade's decidability, and nowhere else. -/
+
+/-- `piArity` counts what `peelPis` peels. -/
+theorem VExpr.piArity_eq_length_peelPis : ∀ e : VExpr, e.piArity = (peelPis e).1.length
+  | .forallE _ B => by rw [VExpr.piArity, VExpr.peelPis, piArity_eq_length_peelPis B]; rfl
+  | .bvar .. | .sort .. | .const .. | .app .. | .lam .. => rfl
+
+theorem VInductDecl'.recType_piArity (D : VInductDecl') (j : Nat) :
+    (D.recType j).piArity
+      = D.np + D.nm + D.nmin + (D.types.getD j default).indices.length + 1 := by
+  rw [VExpr.piArity_eq_length_peelPis, VInductDecl'.length_peelPis_recType]
+
+/-- `c` is the **recursor leaf** of a registered pattern, at recursor arity `n`. -/
+inductive Pat.IsRecLeaf (env : VEnv) : Lean.Name → Nat → Prop
+  | iota {D : VInductDecl'} {j q : Nat} {T : VIndType} {C : VIndCtor} :
+      D.types[j]? = some T → env.defeqs (D.iotaRule j q C) →
+      env.constants (Lean.mkRecName T.name) = some ⟨D.recUvars, D.recType j⟩ →
+      IsRecLeaf env (Lean.mkRecName T.name) (D.np + D.nm + D.nmin + T.indices.length)
+  | quot : env.defeqs quotDefEq → env.constants ``Quot.lift = some quotLiftConst →
+      IsRecLeaf env ``Quot.lift 5
+
+/-- `c` is the **constructor leaf** of a registered pattern, at constructor arity `n`. -/
+inductive Pat.IsCtorLeaf (env : VEnv) : Lean.Name → Nat → Prop
+  | iota {D : VInductDecl'} {j q : Nat} {C : VIndCtor} :
+      env.defeqs (D.iotaRule j q C) →
+      env.constants C.name = some ⟨D.uvars, C.type D j⟩ →
+      C.params.length = D.np →
+      IsCtorLeaf env C.name (D.np + C.fields.length)
+  | quot : env.defeqs quotDefEq → env.constants ``Quot.mk = some quotMkConst →
+      IsCtorLeaf env ``Quot.mk 3
+
+/-- `c` heads a δ-rule of `env`. -/
+def Pat.IsDeltaHead (env : VEnv) (c : Lean.Name) : Prop :=
+  ∃ u v t, env.defeqs ⟨u, .const c (VLevel.params u), v, t⟩
+
+/-- **Every registered pattern, in role form.**  This is the case split the shim's `pat_wf`
+does; `Pattern.WF` then unfolds against the cascade. -/
+theorem Pat.roles {env : VEnv} {p : Pattern} {r : p.RHS × p.Check} (h : Pat env p r) :
+    (∃ c, p = .const c ∧ Pat.IsDeltaHead env c) ∨
+    ∃ R M K N, p = (SimplePattern.iota R M K N).toPattern ∧
+      Pat.IsRecLeaf env R M ∧ Pat.IsCtorLeaf env K N := by
+  cases h with
+  | delta _ hdf => exact .inl ⟨_, rfl, _, _, _, hdf⟩
+  | @iota D j q T C _ _ hTj _ hdf hrec hctor hplen =>
+    exact .inr ⟨_, _, _, _, rfl, .iota hTj hdf hrec, .iota hdf hctor hplen⟩
+  | quot hdf hlift hmk => exact .inr ⟨_, _, _, _, rfl, .quot hdf hlift, .quot hdf hmk⟩
+
+/-- The recursor leaf's arity is the Π-count of its stored type, minus the major premise. -/
+theorem Pat.IsRecLeaf.piArity {env : VEnv} {c : Lean.Name} {n : Nat}
+    (h : Pat.IsRecLeaf env c n) :
+    ∃ ci, env.constants c = some ci ∧ ci.type.piArity = n + 1 := by
+  cases h with
+  | @iota D j q T C hTj _ hrec =>
+    exact ⟨_, hrec, by rw [show (VConstant.type ⟨D.recUvars, D.recType j⟩) = D.recType j from rfl,
+      VInductDecl'.recType_piArity, VInductDecl'.getD_types hTj]⟩
+  | quot _ hlift => exact ⟨_, hlift, rfl⟩
+
+/-- The constructor leaf's arity is the Π-count of its stored type — *because* the pattern
+states it as `D.np + |C.fields|` while the stored type binds `C.params`, which is what the
+recorded `C.params.length = D.np` reconciles. -/
+theorem Pat.IsCtorLeaf.piArity {env : VEnv} {c : Lean.Name} {n : Nat}
+    (h : Pat.IsCtorLeaf env c n) :
+    ∃ ci, env.constants c = some ci ∧ ci.type.piArity = n := by
+  cases h with
+  | @iota D j q C _ hctor hplen =>
+    exact ⟨_, hctor, by rw [show (VConstant.type ⟨D.uvars, C.type D j⟩) = C.type D j from rfl,
+      VIndCtor.type_piArity, hplen]⟩
+  | quot _ hmk => exact ⟨_, hmk, rfl⟩
+
+/-- **Role exclusivity, 1 of 3.**  A recursor leaf is never a constructor leaf — the same
+fact `pat_app_uniq` bottoms out in, restated on the roles. -/
+theorem Pat.IsRecLeaf.ne_ctorLeaf {env : VEnv} {R K : Lean.Name} {m n : Nat}
+    (h : Pat.IsRecLeaf env R m) (h' : Pat.IsCtorLeaf env K n) : R ≠ K := by
+  cases h with
+  | @iota D j q T C hTj _ hrec =>
+    cases h' with
+    | iota _ hctor' _ => exact _root_.Lean4Lean.rec_ne_ctor hTj hrec hctor'
+    | quot => exact mkRecName_ne_quotMk _
+  | quot _ hlift =>
+    cases h' with
+    | iota _ hctor' _ => exact quotLift_ne_ctor hlift hctor'
+    | quot => exact by decide
+
+theorem Pat.IsRecLeaf.not_ctorLeaf {env : VEnv} {c : Lean.Name} {m n : Nat}
+    (h : Pat.IsRecLeaf env c m) (h' : Pat.IsCtorLeaf env c n) : False :=
+  h.ne_ctorLeaf h' rfl
+
+/-- **Role exclusivity, 2 of 3.** -/
+theorem Pat.IsDeltaHead.ne_recLeaf {env : VEnv} (henv : env.WF) {c R : Lean.Name} {n : Nat}
+    (h : Pat.IsDeltaHead env c) (h' : Pat.IsRecLeaf env R n) : c ≠ R := by
+  obtain ⟨u, v, t, hdf'⟩ := h
+  cases h' with
+  | iota hTj hdf _ => exact Pat.deltaHead_ne_recName henv hdf hTj hdf'
+  | quot hdf _ => exact fun hc => Pat.deltaHead_ne_quot henv hdf (hc ▸ hdf') (by decide)
+
+theorem Pat.IsDeltaHead.not_recLeaf {env : VEnv} (henv : env.WF) {c : Lean.Name} {n : Nat}
+    (h : Pat.IsDeltaHead env c) (h' : Pat.IsRecLeaf env c n) : False :=
+  h.ne_recLeaf henv h' rfl
+
+/-- **Role exclusivity, 3 of 3.** -/
+theorem Pat.IsDeltaHead.ne_ctorLeaf {env : VEnv} (henv : env.WF) {c K : Lean.Name} {n : Nat}
+    (h : Pat.IsDeltaHead env c) (h' : Pat.IsCtorLeaf env K n) : c ≠ K := by
+  obtain ⟨u, v, t, hdf'⟩ := h
+  cases h' with
+  | iota hdf _ _ => exact Pat.deltaHead_ne_ctorName henv hdf hdf'
+  | quot hdf _ => exact fun hc => Pat.deltaHead_ne_quot henv hdf (hc ▸ hdf') (by decide)
+
+theorem Pat.IsDeltaHead.not_ctorLeaf {env : VEnv} (henv : env.WF) {c : Lean.Name} {n : Nat}
+    (h : Pat.IsDeltaHead env c) (h' : Pat.IsCtorLeaf env c n) : False :=
+  h.ne_ctorLeaf henv h' rfl
 
 /-! ## `Params.extra_pat` — done, and what it cost
 

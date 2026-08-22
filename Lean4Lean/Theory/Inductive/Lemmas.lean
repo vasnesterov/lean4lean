@@ -1720,7 +1720,27 @@ theorem VIndCtor.canonResult_instL (C : VIndCtor) (D : VInductDecl') (j : Nat)
 `ctor_ty` itself lives in `Experimental/SExpr.lean`.  This bundles what it needs from this
 side so that widening it is a matter of concluding one structure rather than adding a clause
 per case -- which is the pattern that has already cost two round-trips (`hu0`, then
-`args_len` + closedness). -/
+`args_len` + closedness).
+
+**What `Interface` does *not* say, and therefore what `ctor_ty` does not say.**  Every field
+below is a statement about `env` and about the *data* `D`, `j`, `T`, `C`.  There is no field
+saying `D.WF env`, and none saying that `D` was ever added to `env` -- and `ctor_ty`, which
+concludes `∃ D j T C, ... ∧ Interface env D j T C`, adds neither.  So a consumer reading
+`ctor_ty` as "this constant is a constructor of a block that was really declared" is relying
+on something it does not state.  This is not hypothetical: `ctor_ty` is satisfiable for
+`Quot.mk` *only* by fabricating a `VInductDecl'` that describes `Quot` -- `uvars := 1`,
+`params := [Sort u, α → α → Prop]`, one field, no indices -- since `addQuot` declares
+`Quot.mk` and no inductive block ever does.  Every field below then holds of that fabricated
+`D` against `addQuot`'s stored types (the result `Quot α r` is `D.tyApp j 1 []` on the nose,
+because `bvars 1 2 = [.bvar 2, .bvar 1]`).  The discharge is legitimate and is how the
+obligation gets met; what is illegitimate is inferring provenance from it.
+
+If a consumer ever needs real provenance, the field to add is `D.WF env` (or the staging data
+`Theory/Typing/PatternRules.lean`'s `VEnv.RuleShape.iota` carries) -- and adding it would make
+the `Quot.mk` case *unsatisfiable*, so it must not be added without also splitting `Quot` out
+of the classification.  Recording the trade here because it is invisible from the definition's
+side, which is the failure mode `Theory/Typing/PatternRules.lean`'s module docstring is
+about. -/
 
 structure VIndCtor.Interface (env : VEnv) (D : VInductDecl') (j : Nat) (T : VIndType)
     (C : VIndCtor) : Prop where
