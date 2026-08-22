@@ -1,4 +1,5 @@
 import Lean4Lean.Theory.SetModel.InterpSubst
+import Lean4Lean.Theory.VDecl
 
 /-!
 # Soundness: the statement, and what it consumes
@@ -752,6 +753,76 @@ def LevelAssign.mono {env env' : VEnv} {nv : ℕ} (h : env ≤ env')
   srt_sound ht := L.srt_sound (ht.mono h)
 
 end CnstStep
+
+/-! ## `Coherent` is not provable as stated — axioms have to be validated
+
+Trying to build `cnst` turns up a problem with the target itself, and it is a
+real one rather than a technicality.
+
+`Coherent.const_type` says every constant's value inhabits its declared type.
+For a **definition** that is discharged by taking the value to be the denotation
+of the body.  For an **axiom** there is no body, and `VDecl.WF`'s `.axiom` case
+requires only `ci.WF env` — that the declared type *is a type*, not that it is
+inhabited.  So
+
+```
+axiom bad : False
+```
+
+extends a well-formed environment to a well-formed environment, and in the model
+`⟦False⟧ρ = ∅`, so no value of `cnst` can satisfy `const_type`.  **`Coherent` is
+therefore unprovable for an arbitrary well-formed environment**, and no amount of
+care in the induction will fix that.
+
+This is not a defect in the model; it is the correct shape, and it lines up with
+the main theorem, which assumes `∀ d ∈ ds, Declaration.IsAxiomFree d` on the
+user's declarations and admits only the standard prelude's three axioms — each of
+which the model *does* validate:
+
+* `propext` — `propext_of_mem_UProp` (`SetModel/Universe.lean`);
+* `Classical.choice` — `exists_choiceFunction_mem_U`, an internal choice function
+  living one stage up;
+* `Quot.sound` — `eqvClosure`, `setQuotient`, `exists_quotient_lift`.
+
+So the missing hypothesis is exactly "the environment's axioms are validated",
+and it is a hypothesis about the *declaration list*, not about the model. -/
+section Axioms
+
+variable [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖]
+
+structure AxiomsValidated {env : VEnv} {nv : ℕ} (M : ModelData V)
+    (L : LevelAssign env nv) (ds : List VDecl) : Prop where
+  axioms : ∀ {ci : VConstVal}, (VDecl.axiom ci) ∈ ds → ∀ {ls : List VLevel},
+    ls.length = ci.toVConstant.uvars → ∀ {Γ : List VExpr} {ρ : V}, ρ ∈ interpCtx M L Γ →
+      M.cnst ci.name (ls.map (·.eval M.ls))
+        ∈ (interp M L Γ (ci.toVConstant.type.instL ls)).toFun ρ
+
+end Axioms
+
+/-!
+### What remains of the construction, and what blocks it
+
+With `AxiomsValidated` added, the induction over `ds` splits by `VDecl`:
+
+| Declaration | Value of `cnst` | Status |
+|---|---|---|
+| `.axiom ci` | supplied by `AxiomsValidated` | ready |
+| `.def`, `.opaque`, `.example`, `.mutualDef` | `⟦ci.value⟧` at the earlier assignment | ready |
+| `.quot` | `Quot`, `Quot.mk`, `Quot.lift`, `Quot.ind` and `quotDefEq` | `addQuot` is concrete; the model side is in `SetModel/Universe.lean` |
+| `.induct` | the constants `addInduct` introduces | **blocked** |
+
+`.induct` is blocked upstream, not here: `VEnv.addInduct` and `VInductDecl.WF`
+are still `sorry` *definitions* in `Theory/Inductive.lean`, so the environment
+after an inductive declaration is opaque and there is nothing to assign values
+to.  The set-theoretic side is ready and waiting — `SetModel/IndStage.lean` and
+`SetModel/IndCard.lean` give the family, its constructors, its recursor and its
+ι-rule, all as members of the stage — but it cannot be connected until the
+abstract spec exists.
+
+So `cnst` is blocked on the same keystone as everything else, and the ledger's
+open list is unchanged in length: `sort_inv`, the inductive spec, and now the
+axiom-validation hypothesis, which is discharged by the three standard axioms.
+-/
 
 /-!
 ## Ledger: what soundness consumes, case by case

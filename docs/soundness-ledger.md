@@ -242,31 +242,81 @@ injectivity fact.
 | `LevelAssign.Stable` (4 fields) | `InterpSubst.lean` | the assignment commutes with weakening and substitution |
 | `CtxInvariant` | `InterpSound.lean` | the assignment cannot distinguish definitionally equal contexts |
 | `ModelData.Coherent` (3 fields) | `InterpSound.lean` | constants inhabit their types; `env.defeqs` holds in the model |
+| `AxiomsValidated` | `InterpSound.lean` | **new** — each axiom in the declaration list has an inhabited type in the model |
 
 The first three are automatic for an assignment built the natural way — a
 syntactic recursion mirroring `inferType` — and for well-typed input follow from
-`sort_inv` together with `IsDefEq.weakN` / `instN` / `defeqDFC`. The fourth is a
-genuine construction, described below.
+`sort_inv` together with `IsDefEq.weakN` / `instN` / `defeqDFC`. The last two are
+genuine constructions, described below.
 
-## The two remaining open items, ranked
+## `Coherent` needed a fifth obligation, and the reason is not a technicality
+
+Attempting the `cnst` induction turned up that **`ModelData.Coherent` is not
+provable for an arbitrary well-formed environment.** `Coherent.const_type` says a
+constant's value inhabits its declared type. `VDecl.WF`'s `.axiom` case requires
+only that the declared type *is a type* — not that it is inhabited. So
+
+```
+axiom bad : False
+```
+
+extends a well-formed environment to a well-formed environment, `⟦False⟧ρ = ∅`,
+and no choice of `cnst` can satisfy `const_type`. This is a fact about the
+statement, not about the proof: no induction fixes it.
+
+The fix is the right one and was always implicit in the main theorem.
+`kernel_sound` assumes `∀ d ∈ ds, Declaration.IsAxiomFree d` on the user's
+declarations and admits only the standard prelude's three axioms — and the model
+validates all three already:
+
+| Axiom | Model-side validation |
+|---|---|
+| `propext` | `propext_of_mem_UProp` (`SetModel/Universe.lean`) |
+| `Classical.choice` | `exists_choiceFunction_mem_U` — an internal choice function one stage up |
+| `Quot.sound` | `eqvClosure`, `setQuotient`, `exists_quotient_lift` |
+
+So `AxiomsValidated` is not new work; it is the place where work already done
+gets attached. It is a hypothesis about the *declaration list*, not about the
+model, which is why it belongs on the handoff side of the boundary.
+
+## The remaining open items, ranked
 
 1. **`IsDefEqU.sort_inv`** — gives `LevelAssign`, hence the interpretation.
    Single `sorry`, highest value in the project.
-2. **`ModelData.cnst` and a proof of `ModelData.Coherent`** — an induction over
-   the declaration list, which `VEnv.WF'` already orders. This is where the
+2. **`VEnv.addInduct` / `VInductDecl.WF`** — `sorry` *definitions* in
+   `Theory/Inductive.lean`. These now block `cnst` too, not just the typing
+   stream: the `.induct` case of the induction has to say what values the
+   constants an inductive declaration introduces receive, and until `addInduct`
+   is a definition the post-declaration environment is opaque and there is
+   nothing to assign to. The set-theoretic side is finished and waiting —
+   `SetModel/IndStage.lean` and `SetModel/IndCard.lean` supply the family, its
+   constructors, its recursor and its ι-rule, all as members of the stage.
+3. **`ModelData.cnst` and `ModelData.Coherent`** — an induction over the
+   declaration list, which `VEnv.WF'` already orders. This is where the
    well-foundedness that Carneiro's `|c| = |e| + 1` clause needs actually lives;
    displacing it here is what made the term recursion in `SetModel/Interp.lean`
    structural, and discharging it is what makes that trade honest.
 
-   Two facts make the induction tractable, both worth stating before starting:
+   The induction now splits cleanly by `VDecl`:
 
-   * **The interpretation is environment-independent.** `interp M L Γ e` mentions
-     `env` only through `L`; it never consults `env.constants` or `env.defeqs`.
-     So as the environment grows along `ds`, earlier terms keep their
-     denotations — the induction only ever *extends* `cnst`, and nothing has to
-     be revisited.
-   * **Only `cnst` is recursive.** Everything else in `ModelData` is data, so the
-     recursion to justify is exactly "a constant's value is the denotation of its
-     definition's body" over an already well-ordered list.
+   | Declaration | Value of `cnst` | Status |
+   |---|---|---|
+   | `.axiom` | supplied by `AxiomsValidated` | ready |
+   | `.def`, `.opaque`, `.example`, `.mutualDef` | `⟦ci.value⟧` at the earlier assignment | ready |
+   | `.quot` | `Quot`, `Quot.mk`, `Quot.lift`, `Quot.ind` and `quotDefEq` | ready — `addQuot` is concrete, model side in `Universe.lean` |
+   | `.induct` | whatever `addInduct` introduces | blocked on item 2 |
 
-   Independent of item 1 and of the injectivity stream.
+   Two lemmas were built this stage to make the induction tractable, both now
+   proved in `InterpSound.lean`:
+
+   * **`interp_cnst_congr`** — the interpretation is environment-independent in a
+     precise sense: `interp M L Γ e` depends on `M.cnst` only at the constants
+     that actually occur in `e` (`ConstsAgree`). So as the environment grows
+     along `ds`, earlier terms keep their denotations — the induction only ever
+     *extends* `cnst`, and nothing has to be revisited.
+   * **`LevelAssign.mono`** — a `LevelAssign` for a larger environment restricts
+     to any smaller one, so a single `L` for the final environment can be fixed
+     up front and reused at every stage, rather than rebuilt.
+
+   Item 3 is independent of item 1 and of the injectivity stream; it is *not*
+   independent of item 2.

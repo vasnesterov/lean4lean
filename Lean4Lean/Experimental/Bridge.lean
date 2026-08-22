@@ -24,6 +24,35 @@ namespace Lean4Lean
 
 open Lean4Lean Params
 
+/-! ## A `VExpr` identity the `eta` case needs -/
+
+/-- Lifting over the binder at height `k+1` and then substituting `.bvar 0` at `k` is the
+identity. `VEnv.IsDefEqStrong.eta`'s body has type `(B.liftN 1 1).inst (.bvar 0)`, which the
+`SExpr` side wants to see as `B`; `VExpr.inst_liftN` only covers the `k`-aligned case. -/
+theorem VExpr.inst_liftN_bvar0 : ∀ (e : VExpr) (k : Nat),
+    (VExpr.liftN 1 e (k+1)).inst (.bvar 0) k = e := by
+  intro e
+  induction e with
+  | bvar i =>
+    intro k
+    show VExpr.instVar (liftVar 1 i (k+1)) (.bvar 0) k = _
+    rcases Nat.lt_or_ge i k with h | h
+    · rw [show liftVar 1 i (k+1) = i from if_pos (Nat.lt_succ_of_lt h)]
+      simp [VExpr.instVar, h]
+    rcases Nat.eq_or_lt_of_le h with h2 | h2
+    · rw [show liftVar 1 i (k+1) = i from if_pos (by omega)]
+      simp only [VExpr.instVar, if_neg (show ¬ i < k by omega), if_pos (show i = k by omega)]
+      simp [VExpr.liftN, liftVar, h2]
+    · rw [show liftVar 1 i (k+1) = 1 + i from if_neg (by omega)]
+      simp only [VExpr.instVar, if_neg (show ¬ 1 + i < k by omega),
+        if_neg (show 1 + i ≠ k by omega)]
+      congr 1; omega
+  | sort => intro k; rfl
+  | const => intro k; rfl
+  | app _ _ ih1 ih2 => intro k; simp [VExpr.liftN, VExpr.inst, ih1, ih2]
+  | lam _ _ ih1 ih2 => intro k; simp [VExpr.liftN, VExpr.inst, ih1, ih2 (k+1)]
+  | forallE _ _ ih1 ih2 => intro k; simp [VExpr.liftN, VExpr.inst, ih1, ih2 (k+1)]
+
 variable [Params]
 
 /-! ## Levels -/

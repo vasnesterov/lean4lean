@@ -1032,6 +1032,21 @@ theorem IsDefEqStrong.weak' (W : Ctx.Lift' ρ Γ Γ') (H : IsDefEqStrong Γ e1 e
       ClosedN.lift'_eq hA3.mkS.instL .zero]
     exact .extra h1 h2 i3 i4
 
+/-- Every context is reachable from the empty one by a lift. `Ctx.Lift'.skip` carries no
+typing side condition, so this is pure list recursion. -/
+theorem Ctx.Lift'.nil : ∀ Γ : List SExpr, ∃ ρ, Ctx.Lift' ρ [] Γ
+  | [] => ⟨.refl, .refl⟩
+  | _::Γ => let ⟨_, h⟩ := Ctx.Lift'.nil Γ; ⟨_, h.skip⟩
+
+/-- A judgment about closed terms holds in every context. `VEnv.IsDefEqStrong.extra` types
+`df.type.instL ls` only at `[]`, but the `VExpr → SExpr` bridge needs it at `Γ`. -/
+theorem IsDefEqStrong.closed_weak {Γ : List SExpr} {e1 e2 A : SExpr}
+    (h1 : e1.ClosedN 0) (h2 : e2.ClosedN 0) (hA : A.ClosedN 0)
+    (H : IsDefEqStrong [] e1 e2 A) : IsDefEqStrong Γ e1 e2 A := by
+  obtain ⟨ρ, hρ⟩ := Ctx.Lift'.nil Γ
+  have := H.weak' hρ
+  rwa [h1.lift'_eq .zero, h2.lift'_eq .zero, hA.lift'_eq .zero] at this
+
 variable (HasType : List SExpr → SExpr → SExpr → Prop)
 inductive Ctx.Subst (Γ : List SExpr) : SExpr.Subst → List SExpr → Prop where
   | nil : Ctx.Subst Γ σ []

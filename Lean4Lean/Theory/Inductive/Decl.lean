@@ -505,11 +505,18 @@ def iotaType (j : Nat) (C : VIndCtor) : VExpr :=
 
 /-- One ι-rule.
 
-`rhs` is the η-expansion `λ Γ'. (iotaLam) Γ'` rather than `iotaLam`'s body, for two
-load-bearing reasons: it is literally what `reduceRecursor` computes (an unreduced
-β-redex chain, `Reduce.lean:99–107`), and it makes `Params.extra_pat` hold on the nose,
+**Do not "simplify" `rhs` to `iotaLam`'s body.**  It is the η-expansion `λ Γ'. (iotaLam) Γ'`
+for two load-bearing reasons: it is literally what `reduceRecursor` computes (an unreduced
+β-redex chain, `Reduce.lean:99–107`), and it makes `Params.extra_pat` hold **on the nose**,
 since the pattern's right-hand side is `RHS.fixed (iotaLam …)` applied to the matched
-argument paths. -/
+argument paths.
+
+That second reason has since become the decisive one.  The `Params` obligation for ι-rules
+is now just four fields -- `pat_simple`, `pat_uniq`, `pat_wf`, `extra_pat` (the design's
+four `pat_major_*` fields never existed, and the three `pat_app_*` ones have no consumer) --
+and of those, `pat_simple` holds by construction of `SimplePattern.iota` and `extra_pat`'s
+λ-peeled form matches this `rhs` definitionally.  So the shape chosen here is what leaves
+`pat_wf` as the only field with real content. -/
 def iotaRule (j q : Nat) (C : VIndCtor) : VDefEq :=
   let Γ' := D.iotaCtx C
   { uvars := D.recUvars

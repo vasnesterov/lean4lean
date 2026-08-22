@@ -279,7 +279,15 @@ def inferType' (e : Expr) (inferOnly : Bool) : RecM Expr := do
     | .proj s idx e => inferProj s idx e (← inferType' e inferOnly)
     | .fvar n => inferFVar (← readThe Context) n
     | .mvar _ => throw <| .other "kernel type checker does not support meta variables"
-    | .bvar _ => unreachable!
+    | .bvar _ =>
+      -- Unreachable: the `hasLooseBVars` test above rejects every expression with a loose
+      -- bound variable, and a bare `.bvar` is one. The C++ kernel writes `lean_unreachable()`
+      -- here; we reject instead, so that the checker stays total and never continues from a
+      -- `default` value -- not even if the cached `looseBVarRange` field of the incoming
+      -- `Expr` were to lie about its contents (lean4#8554).
+      throw <| .other
+        s!"type checker does not support loose bound variables, \
+           replace them with free variables before invoking it"
     | .sort l =>
       if !inferOnly then
         checkLevel (← readThe Context) l

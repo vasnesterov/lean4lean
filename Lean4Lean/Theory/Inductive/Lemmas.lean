@@ -1714,3 +1714,57 @@ theorem VInductDecl'.ihTypes_take (D : VInductDecl') (q s : Nat) (C : VIndCtor) 
 
 @[simp] theorem VInductDecl'.length_ihTypes (D : VInductDecl') (q : Nat) (C : VIndCtor) :
     (D.ihTypes q C).length = C.recFields.length := by simp [VInductDecl'.ihTypes]
+
+/-! ### D4: the `ξ`-telescope and the per-entry `IsType` -/
+
+namespace VInductDecl'
+variable {env : VEnv} {D : VInductDecl'}
+
+/-- **The two weakenings compose into `shift`.**  A recursive field's `ξ`-telescope, carried
+from the field's own context into minor `q`'s `s`-th ih context: `Ctx.LiftN off i` inserts
+the motives and minors between the fields and the parameters, `Ctx.LiftN d 0` inserts the
+later fields and the earlier ihs, and `liftTele_liftTele_eq_shiftTele` collapses the pair to
+the `shiftTele off d i` that `ihType` uses. -/
+theorem onCtxXi (henv : VEnv.Ordered env) {off d i : Nat} {Γ₁ Γ₂ Γ₃ X : List VExpr}
+    (W₁ : Ctx.LiftN off i Γ₁ Γ₂) (W₂ : Ctx.LiftN d 0 Γ₂ Γ₃)
+    (hΓ₂ : OnCtx Γ₂ (env.IsType D.recUvars)) (hΓ₃ : OnCtx Γ₃ (env.IsType D.recUvars))
+    (hX : OnCtx (X.reverse ++ Γ₁) (env.IsType D.recUvars)) :
+    OnCtx ((shiftTele off d i X 0).reverse ++ Γ₃) (env.IsType D.recUvars) := by
+  have h1 := VEnv.OnCtx.weakTele henv W₁ hΓ₂ hX
+  have h2 := VEnv.OnCtx.weakTele henv W₂ hΓ₃ h1
+  have he := VExpr.liftTele_liftTele_eq_shiftTele (d := d) (off := off) (As := X) (i := i)
+    (j := 0)
+  rw [Nat.add_zero] at he
+  rwa [he] at h2
+
+/-- **D4, per entry.**  The `s`-th induction hypothesis of minor `q` is a type.
+
+`hξ` is `onCtxXi`; the remaining three are the same hypotheses `ihBody_hasType` takes, and
+are discharged against the concrete context by `HasArgs.weakN` (for `hidx`, from
+`VIndField.WF.pos`'s `args_ty`), `lookup_motive` (for `hmot`) and `appBVars` after
+`IsDefEqType.defeq` (for `hz`). -/
+theorem ihType_isType {T' : VIndType} {r : VIndRecArg} {C : VIndCtor}
+    {q i s nxi nf off d : Nat} {Γ ιs : List VExpr} {z : VExpr}
+    (hT' : D.types[r.idx]? = some T') (hridx : r.idx < D.nm)
+    (hlen : ιs.length = T'.indices.length)
+    (hoff : off = D.nm + q) (hd : d = nf - i + s) (hi : i ≤ nf)
+    (hnf : nf = C.fields.length) (hnxi : nxi = r.binders.length)
+    (hιs : ιs = r.args.map fun a => VExpr.shift off d i (D.atRec a) nxi)
+    (hz' : z = (VExpr.bvar (nxi + s + (nf - 1 - i))).mkApp (bvars 0 nxi))
+    (hξ : OnCtx ((shiftTele off d i (D.atRecTele r.binders) 0).reverse ++ Γ)
+      (env.IsType D.recUvars))
+    (hmot : Lookup ((shiftTele off d i (D.atRecTele r.binders) 0).reverse ++ Γ)
+      (nxi + s + nf + q + (D.nm - 1 - r.idx))
+      ((D.motiveType r.idx).liftN (nxi + s + nf + q + (D.nm - 1 - r.idx) + 1)))
+    (hidx : env.HasArgs D.recUvars
+      ((shiftTele off d i (D.atRecTele r.binders) 0).reverse ++ Γ)
+      (liftTele (nxi + s + nf + q + (D.nm - 1 - r.idx) + 1)
+        (liftTele r.idx (D.atRecTele T'.indices) 0) 0) ιs)
+    (hz : env.HasType D.recUvars
+      ((shiftTele off d i (D.atRecTele r.binders) 0).reverse ++ Γ) z
+      (D.tyApp' r.idx (nxi + i + off + d) ιs)) :
+    env.IsType D.recUvars Γ (D.ihType q C i r s) := by
+  subst hnf hnxi hoff hd hιs hz'
+  exact VEnv.IsType.mkPi hξ ⟨_, ihBody_hasType hT' hridx hlen rfl rfl hi hmot hidx hz⟩
+
+end VInductDecl'
