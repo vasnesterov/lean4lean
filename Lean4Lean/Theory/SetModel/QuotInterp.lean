@@ -224,18 +224,18 @@ section Typing
 
 variable {env : VEnv} {nv : ℕ} {u : VLevel}
 
-theorem quotRelTy_type :
-    env.HasType nv [.sort u] quotRelTy (.sort (.imax u (.imax u (.succ .zero)))) :=
+theorem quotRelTy_type {Δ : List VExpr} :
+    env.HasType nv (.sort u :: Δ) quotRelTy (.sort (.imax u (.imax u (.succ .zero)))) :=
   .forallEDF (VEnv.IsDefEq.bvar .zero)
     (.forallEDF (VEnv.IsDefEq.bvar (.succ .zero)) (.sortDF trivial trivial rfl))
 
-theorem quotCod_type (hu : u.WF nv) :
-    env.HasType nv [.sort u] (.forallE quotRelTy (.sort u))
+theorem quotCod_type (hu : u.WF nv) {Δ : List VExpr} :
+    env.HasType nv (.sort u :: Δ) (.forallE quotRelTy (.sort u))
       (.sort (.imax (.imax u (.imax u (.succ .zero))) (.succ u))) :=
   .forallEDF quotRelTy_type (.sortDF hu hu rfl)
 
-theorem quotSortU_type (hu : u.WF nv) :
-    env.HasType nv (quotRelTy :: [VExpr.sort u]) (.sort u) (.sort (.succ u)) :=
+theorem quotSortU_type (hu : u.WF nv) {Δ : List VExpr} :
+    env.HasType nv (quotRelTy :: VExpr.sort u :: Δ) (.sort u) (.sort (.succ u)) :=
   .sortDF hu hu rfl
 
 end Typing
@@ -260,12 +260,13 @@ section MkTyping
 variable {env : VEnv} {nv : ℕ} {u : VLevel}
 
 /-- `α`, seen from inside the `r` binder. -/
-theorem bvar1_sortU : env.HasType nv [quotRelTy, VExpr.sort u] (.bvar 1) (.sort u) :=
+theorem bvar1_sortU {Δ : List VExpr} :
+    env.HasType nv (quotRelTy :: VExpr.sort u :: Δ) (.bvar 1) (.sort u) :=
   VEnv.IsDefEq.bvar (.succ .zero)
 
 /-- `α`, seen from inside the `a` binder. -/
-theorem bvar2_sortU :
-    env.HasType nv [VExpr.bvar 1, quotRelTy, VExpr.sort u] (.bvar 2) (.sort u) :=
+theorem bvar2_sortU {Δ : List VExpr} :
+    env.HasType nv (VExpr.bvar 1 :: quotRelTy :: VExpr.sort u :: Δ) (.bvar 2) (.sort u) :=
   VEnv.IsDefEq.bvar (.succ (.succ .zero))
 
 /-- `Quot` itself, at the level the block is instantiated with. -/
@@ -277,8 +278,9 @@ theorem quotConst_type (hq : env.constants ``Quot = some quotConst) (hu : u.WF n
 
 /-- **The codomain is well-typed.**  `constDF`, then two `appDF`s; the two `inst`
 computations come out to the lifted context types on the nose. -/
-theorem quotMkCod_type (hq : env.constants ``Quot = some quotConst) (hu : u.WF nv) :
-    env.HasType nv [VExpr.bvar 1, quotRelTy, VExpr.sort u] (quotMkCod u) (.sort u) :=
+theorem quotMkCod_type (hq : env.constants ``Quot = some quotConst) (hu : u.WF nv)
+    {Δ : List VExpr} :
+    env.HasType nv (VExpr.bvar 1 :: quotRelTy :: VExpr.sort u :: Δ) (quotMkCod u) (.sort u) :=
   VEnv.IsDefEq.appDF
     (VEnv.IsDefEq.appDF (quotConst_type hq hu) bvar2_sortU)
     (VEnv.IsDefEq.bvar (.succ .zero))
@@ -383,6 +385,44 @@ theorem quotMkVal_mem (i : ℕ) {α r a : V} (ha : a ∈ α) :
   · rw [if_neg (fun h : α = ∅ ↦ by rw [h] at ha; exact absurd ha (by simp))]
     exact mem_singleton_iff.2 rfl
   · exact mem_setQuotient_iff.2 ⟨a, ha, rfl⟩
+
+/-! ### `Quot.mk`'s witness splits on the level, and this time it is the *shape*
+
+Run the `u = 0` check on `Quot.mk`'s type before building anything:
+
+* `quotMkCod u` = `Quot α r` has sort `u` (`quotMkCod_type`);
+* `∀ (a : α), Quot α r` has sort `imax u u`, which evaluates to `u`;
+* `∀ (r : α → α → Prop), …` has sort `imax _ (imax u u)`;
+* `∀ (α : Sort u), …` has sort `imax (u+1) (…)`.
+
+At `u.eval = 0` every one of those `imax`es collapses to `0`, so **the whole
+type of `Quot.mk` is a proposition** and its denotation is a subset of `{•}`.
+The witness cannot be a nest of three λs; it has to be `•`.
+
+This is the fourth level-sensitive split the standing check has caught, and it
+differs from the previous three in kind: those changed the *value* of a
+construction, this one changes the *shape of the witness*.  A nested-λ witness
+would have been simply wrong here, not merely harder to prove — and nothing in
+the `u ≠ 0` development would have hinted at it. -/
+
+section MkTypingSpine
+
+variable {env : VEnv} {nv : ℕ} {u : VLevel}
+
+theorem quotMkInner_type (hq : env.constants ``Quot = some quotConst) (hu : u.WF nv)
+    {Δ : List VExpr} :
+    env.HasType nv (quotRelTy :: VExpr.sort u :: Δ) (.forallE (.bvar 1) (quotMkCod u))
+      (.sort (.imax u u)) :=
+  .forallEDF bvar1_sortU (quotMkCod_type hq hu)
+
+theorem quotMkMid_type (hq : env.constants ``Quot = some quotConst) (hu : u.WF nv)
+    {Δ : List VExpr} :
+    env.HasType nv (VExpr.sort u :: Δ)
+      (.forallE quotRelTy (.forallE (.bvar 1) (quotMkCod u)))
+      (.sort (.imax (.imax u (.imax u (.succ .zero))) (.imax u u))) :=
+  .forallEDF quotRelTy_type (quotMkInner_type hq hu)
+
+end MkTypingSpine
 
 /-! ### The membership obligation -/
 

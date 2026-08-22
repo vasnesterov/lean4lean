@@ -164,6 +164,25 @@ theorem DefEqHeadsDeclared.addDefEq_declared {env : VEnv} {df : VDefEq}
   · exact hnew c hd
   · exact H x c hx hd
 
+/-- `NoRuleFor` transfers along `addConst`, since declaring a constant does not touch the
+rules.  This is what the `.def` case needs: by the time the rule is added its head *is*
+declared, so the proxy is unavailable there too — but the real condition was established one
+step earlier and simply carries over. -/
+theorem NoRuleFor.addConst {env env' : VEnv} {n ci c} (h : env.addConst n ci = some env')
+    (H : env.NoRuleFor c) : env'.NoRuleFor c := by
+  rw [NoRuleFor, addConst_defeqs h]; exact H
+
+theorem NoRuleFor.addConsts {env env' : VEnv} {cis c} :
+    env.addConsts cis = some env' → env.NoRuleFor c → env'.NoRuleFor c := by
+  induction cis generalizing env with
+  | nil => intro h H; cases h; exact H
+  | cons ci cis ih =>
+    intro h H
+    rw [VEnv.addConsts, List.foldlM_cons] at h
+    cases hh : env.addConst ci.name ci.toVConstant with
+    | none => rw [hh] at h; exact absurd h (by simp)
+    | some e => rw [hh] at h; exact ih h (H.addConst hh)
+
 /-! ## The `.unsafeDef` fold
 
 `addConsts` declares the whole block, then `addDefEqs` adds the whole block's rules.  Both are
