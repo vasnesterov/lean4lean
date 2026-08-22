@@ -1,5 +1,143 @@
 import Lean4Lean.Verify.TypeChecker.Basic
 
+/-!
+# R6: which `ConstantInfo` shapes a checker at `safety` can actually meet
+
+`TrEnv'.no_inductInfo` (`Verify/Environment/Extension.lean`) is proved only at
+`safety = .unsafe`, and `Verify/Environment.lean` dodges the gap by instantiating its
+`VEnvs` bundle there.  `VContext` carries a single `trenv : TrEnv safety env venv` at the
+`safety` the checker was invoked at and cannot dodge, so the vacuity arguments for
+`reduceProjCore.WF`, `inferProj.WF` and `reduceRecursor.WF`'s `inductiveReduceRec` branch
+need a version that is uniform in `safety`.
+
+**`no_inductInfo` does not generalise** — see `no_inductInfo_false_at_safe` below, which is a
+machine-checked refutation, not a remark.  An *unsafe* inductive has
+`ConstantInfo.safety = .unsafe`, `¬ .safe ≤ .unsafe`, so `TrEnv'.ignore` admits it into the
+constant map while the `VEnv` stays empty.  The map at `safety = .safe` really can contain an
+`.inductInfo`.
+
+What *is* uniform is the same statement **guarded by `safety ≤ ci.safety`** — the guard
+`TrEnv.find?_iff` already carries, and the one that makes `ignore` contradictory in every
+case rather than only at `.unsafe`.  It is not an added hypothesis: a caller holding a
+`TrExprS` for the term names the constant in the `VEnv`, and `find?_iff` turns that into the
+guard.  `TrEnv.find?_shape` and `VContext.not_inductInfo` below are that route, end to end.
+
+(The mechanism the scope predicted — "the absence of an `.inductInfo` shape in
+`TrConstant`" — is not the one that works: `TrConstant` never cases on the `ConstantInfo`
+constructor, so it accepts `.inductInfo` happily.  The shapes are constrained by `TrEnv'`'s
+*constructors*, so the proof is an induction over `TrEnv'` after all, with `ignore`
+discharged by the guard.)
+
+This belongs next to `no_inductInfo` in `Verify/Environment/Extension.lean`; it lives here
+because that file is another stream's.  `Reduce.lean` is imported by `WHNF.lean`,
+`InferType.lean` and `IsDefEq.lean`, so every consumer sees it from here.
+-/
+
+namespace Lean4Lean
+open Lean hiding Environment Exception
+open Kernel
+
+/-- An unsafe inductive: legal, and invisible to the safe fragment. -/
+private def unsafeInductVal : InductiveVal :=
+  { name := `R6.Witness, levelParams := [], type := .sort (.succ .zero),
+    numParams := 0, numIndices := 0, all := [`R6.Witness], ctors := [],
+    numNested := 0, isRec := false, isUnsafe := true, isReflexive := false }
+
+/-- **`TrEnv'.no_inductInfo` is false off `safety = .unsafe`.**  Recorded live so it cannot
+rot: this is why `find?_shape` below is guarded rather than unconditional. -/
+theorem no_inductInfo_false_at_safe {C : ConstMap} (hwf : C.WF) (he : ∀ n, C.find? n = none) :
+    TrEnv' .safe (C.insert `R6.Witness (.inductInfo unsafeInductVal)) false .empty ∧
+    (C.insert `R6.Witness (.inductInfo unsafeInductVal)).find? `R6.Witness
+      = some (.inductInfo unsafeInductVal) := by
+  refine ⟨.ignore (ci := .inductInfo unsafeInductVal) (he _) (by decide) (.empty hwf he), ?_⟩
+  rw [hwf.find?_insert]; simp
+
+/-- **R6.**  A constant the checker running at `safety` may actually *use* is one of the five
+shapes `TrEnv'` inserts.  Uniform in `safety`: the guard makes `ignore` contradictory. -/
+theorem TrEnv'.find?_shape (H : TrEnv' safety C Q venv)
+    (h : C.find? name = some ci) (hs : safety ≤ ci.safety) :
+    (∃ v, ci = .axiomInfo v) ∨ (∃ v, ci = .defnInfo v) ∨ (∃ v, ci = .thmInfo v) ∨
+    (∃ v, ci = .opaqueInfo v) ∨ (∃ v, ci = .quotInfo v) := by
+  induction H with
+  | empty _ hfind => rw [hfind] at h; cases h
+  | ignore hn hhidden H ih =>
+    rw [H.map_wf.find?_insert] at h; split at h
+    · cases h; exact absurd hs hhidden
+    · exact ih h
+  | «axiom» _ _ _ _ H ih =>
+    rw [H.map_wf.find?_insert] at h
+    split at h <;> [(cases h; exact .inl ⟨_, rfl⟩); exact ih h]
+  | defn _ _ _ _ H ih =>
+    rw [H.map_wf.find?_insert] at h
+    split at h <;> [(cases h; exact .inr (.inl ⟨_, rfl⟩)); exact ih h]
+  | thm _ _ _ _ _ H ih =>
+    rw [H.map_wf.find?_insert] at h
+    split at h <;> [(cases h; exact .inr (.inr (.inl ⟨_, rfl⟩))); exact ih h]
+  | «opaque» _ _ _ _ H ih =>
+    rw [H.map_wf.find?_insert] at h
+    split at h <;> [(cases h; exact .inr (.inr (.inr (.inl ⟨_, rfl⟩)))); exact ih h]
+  | unsafeDef _ _ hnd hfr _ _ _ H ih =>
+    obtain h | ⟨_, _, _, h2⟩ := insertDefs_find? H.map_wf hfr hnd h
+    · exact ih h
+    · exact .inr (.inl ⟨_, h2.symm⟩)
+  | quot hready hadd H ih =>
+    obtain ⟨lp₁, ty₁, env₁, _, hn₁, _,
+      lp₂, ty₂, env₂, _, hn₂, _,
+      lp₃, ty₃, env₃, _, hn₃, _,
+      lp₄, ty₄, env₄, _, hn₄, _, rfl, _⟩ := hadd
+    have wf₀ := H.map_wf
+    have wf₁ := wf₀.insert ``Quot
+      (.quotInfo { name := ``Quot, kind := .type, levelParams := lp₁, type := ty₁ }) hn₁
+    have wf₂ := wf₁.insert ``Quot.mk
+      (.quotInfo { name := ``Quot.mk, kind := .ctor, levelParams := lp₂, type := ty₂ }) hn₂
+    have wf₃ := wf₂.insert ``Quot.lift
+      (.quotInfo { name := ``Quot.lift, kind := .lift, levelParams := lp₃, type := ty₃ }) hn₃
+    rw [wf₃.find?_insert] at h
+    split at h <;> [(cases h; exact .inr (.inr (.inr (.inr ⟨_, rfl⟩)))); skip]
+    rw [wf₂.find?_insert] at h
+    split at h <;> [(cases h; exact .inr (.inr (.inr (.inr ⟨_, rfl⟩)))); skip]
+    rw [wf₁.find?_insert] at h
+    split at h <;> [(cases h; exact .inr (.inr (.inr (.inr ⟨_, rfl⟩)))); skip]
+    rw [wf₀.find?_insert] at h
+    split at h <;> [(cases h; exact .inr (.inr (.inr (.inr ⟨_, rfl⟩)))); exact ih h]
+  | induct _ hadd => cases hadd
+
+/-- The same, on a `Kernel.Environment`, with the guard obtained from the `VEnv` side —
+which is where a caller holding a `TrExprS` gets it. -/
+theorem TrEnv.find?_shape (H : TrEnv safety env venv) {name ci}
+    (hv : ∃ ci', venv.constants name = some ci') (h : env.find? name = some ci) :
+    (∃ v, ci = .axiomInfo v) ∨ (∃ v, ci = .defnInfo v) ∨ (∃ v, ci = .thmInfo v) ∨
+    (∃ v, ci = .opaqueInfo v) ∨ (∃ v, ci = .quotInfo v) := by
+  obtain ⟨ci₀, h₀, hs⟩ := H.find?_iff.2 hv
+  cases h₀.symm.trans h
+  refine TrEnv'.find?_shape (name := name) H ?_ hs
+  rw [← H.map_wf.find?'_eq_find?]; exact h
+
+theorem TrEnv.not_inductInfo (H : TrEnv safety env venv) {name v}
+    (hv : ∃ ci', venv.constants name = some ci')
+    (h : env.find? name = some (.inductInfo v)) : False := by
+  rcases H.find?_shape hv h with ⟨_,h⟩|⟨_,h⟩|⟨_,h⟩|⟨_,h⟩|⟨_,h⟩ <;> cases h
+
+theorem TrEnv.not_ctorInfo (H : TrEnv safety env venv) {name v}
+    (hv : ∃ ci', venv.constants name = some ci')
+    (h : env.find? name = some (.ctorInfo v)) : False := by
+  rcases H.find?_shape hv h with ⟨_,h⟩|⟨_,h⟩|⟨_,h⟩|⟨_,h⟩|⟨_,h⟩ <;> cases h
+
+theorem TrEnv.not_recInfo (H : TrEnv safety env venv) {name v}
+    (hv : ∃ ci', venv.constants name = some ci')
+    (h : env.find? name = some (.recInfo v)) : False := by
+  rcases H.find?_shape hv h with ⟨_,h⟩|⟨_,h⟩|⟨_,h⟩|⟨_,h⟩|⟨_,h⟩ <;> cases h
+
+/-- **The form a `.WF` proof meets.**  The name comes from a translated `.const`, so the
+`safety` guard is free: `inferProj`'s `let .inductInfo I_val ← env.get I_name | fail` fails,
+uniformly in `safety`, with no `.unsafe` instantiation and no appeal to `AddInduct`. -/
+theorem TypeChecker.VContext.not_inductInfo (c : TypeChecker.VContext) {name us us' v}
+    (hc : c.TrExprS (.const name us) (.const name us'))
+    (h : c.env.find? name = some (.inductInfo v)) : False :=
+  let .const h1 _ _ := hc; c.trenv.not_inductInfo ⟨_, h1⟩ h
+
+end Lean4Lean
+
 namespace Lean4Lean.TypeChecker.Inner
 open Lean hiding Environment Exception
 open Kernel
