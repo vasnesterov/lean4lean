@@ -3,9 +3,86 @@ import Lean4Lean.Verify.TypeChecker.Reduce
 namespace Lean4Lean.TypeChecker.Inner
 open Lean hiding Environment Exception
 
+/-- **`inductiveReduceRec` never fires, today** — and it returns `none` *before* any monadic
+step, so this is an equation on the value rather than a `RecM.WF`.
+
+Its second line is `let some (.recInfo info) := env.find? recFn | return none`, and the
+constant map at the checker's `safety` holds no `.recInfo` that a *translated* term can name
+(`TrEnv.not_recInfo`).  The head `recFn` comes from `e`, which the hypothesis says is
+translated, so the `safety ≤ ci.safety` guard R6 wants is free.
+
+Superseded when `AddInduct` gains constructors; at that point this branch needs the ι rule,
+K-like reduction (lemma M3 of `docs/design-inductive.md`) and structure eta
+(`docs/research-structeta.md`), none of which exist. -/
+theorem inductiveReduceRec_eq_none {c : VContext} {e₀ st₀} (h : c.TrExprS e₀ st₀)
+    {m : Type → Type} [Monad m] (whnf inferType isDefEq) :
+    _root_.Lean4Lean.inductiveReduceRec c.env e₀ whnf inferType isDefEq
+      = (pure none : m (Option Expr)) := by
+  unfold _root_.Lean4Lean.inductiveReduceRec
+  obtain ⟨f', hf⟩ := head_tr h
+  split <;> [skip; rfl]
+  rename_i recFn ls heq
+  rw [heq] at hf
+  let .const hc _ _ := hf
+  split <;> [skip; rfl]
+  rename_i info heq2
+  exact absurd heq2 fun hh => c.trenv.not_recInfo ⟨_, hc⟩ hh
+
+/-- **The one blocked half of `reduceRecursor`.**  `quotReduceRec` *is* reachable — unlike
+everything else downstream of `AddInduct` — because `TrEnv'.quot` fires on `AddQuot`, which
+never inspects `Eq`: the `QuotReady` premise is on the `VEnv` side and an `axiomDecl` named
+`Eq` satisfies it.  So a `VContext` with `quotInit = true` and `Quot.lift` in its map exists.
+
+It is blocked on **const-application injectivity** (ledger I13), not on anything about
+inductives:
+
+* `quotDefEq` binds *one* `α` and *one* `r` and uses each in **both** the `Quot.lift` head and
+  the `Quot.mk` argument (`bvar 5`/`bvar 4` in both positions), so every instance of the rule
+  forces the two to agree.  No choice of spine dodges it.
+* `quotReduceRec` checks only the head name and `isAppOfArity ``Quot.mk 3`.  So does the C++
+  kernel (`~/lean4/src/kernel/quot.h:39-69`) — we mirror it faithfully, and it is sound
+  because `Quot` really is injective.
+* Hence the last component of `IsDefEq.extra_applied`'s `hargs` — `a : α` for the `a` read off
+  the whnf'd `Quot.mk` and the `α` read off the head — is a *reconciliation* obligation, i.e.
+  `Quot α r ≡ Quot α' r' → α ≡ α'`.
+
+`Theory/Typing/PatternRules.lean`'s `quotCheck` meets the identical hazard from the other
+side and resolves it by making the *matcher refuse* (two `defeq` clauses, discharged by
+reflexivity where `extra_pat` sees the rule's own variables).  The kernel does not refuse, so
+this must **derive** what the pattern framework **assumes**.
+
+A second, independent gap: `VEnv.addQuot` adds exactly one `VDefEq`, the `Quot.lift` rule,
+while `quotReduceRec` reduces `Quot.ind` too.  That half is still derivable — `Quot.ind`'s
+motive is `Quot α r → Prop`, so both sides inhabit the same `Prop` and `IsDefEq.proofIrrel`
+applies — but it is a different argument from `extra`, and needs the same spine inversion.
+
+The peel itself is *not* a cost: `VEnv.IsDefEq.extra_applied`
+(`Theory/Inductive/StructureClosed.lean`) states it once for any `VDefEq` whose `lhs`/`rhs`/
+`type` share a `mkLams`/`mkPi` telescope. -/
+theorem quotReduceRec.WF {c : VContext} {s : VState} (he : c.TrExprS e e') :
+    RecM.WF c s (quotReduceRec e whnf) fun oe _ =>
+      ∀ e₁, oe = some e₁ → c.FVarsBelow e e₁ ∧ c.TrExpr e₁ e' := sorry
+
 theorem reduceRecursor.WF {c : VContext} {s : VState} (he : c.TrExprS e e') :
     RecM.WF c s (reduceRecursor e) fun oe _ =>
-      ∀ e₁, oe = some e₁ → c.FVarsBelow e e₁ ∧ c.TrExpr e₁ e' := sorry
+      ∀ e₁, oe = some e₁ → c.FVarsBelow e e₁ ∧ c.TrExpr e₁ e' := by
+  unfold reduceRecursor
+  refine .getEnv ?_
+  have hjp : ∀ {s' : VState} (_ : Unit), RecM.WF c s'
+      (bind (_root_.Lean4Lean.inductiveReduceRec c.env e whnf (fun e => inferType e) isDefEq)
+        fun x => inferType'.match_1 (fun _ => RecM (Option Expr)) x (fun r => pure (some r))
+          fun _ => pure none)
+      (fun oe _ => ∀ e₁, oe = some e₁ → c.FVarsBelow e e₁ ∧ c.TrExpr e₁ e') := by
+    intro s' _
+    rw [inductiveReduceRec_eq_none he]
+    exact .pureBind (.pure nofun)
+  dsimp only
+  split
+  · refine (quotReduceRec.WF he).bind fun r _ _ hr => ?_
+    cases r with
+    | none => exact hjp ⟨⟩
+    | some r => exact .pure fun _ eq => hr _ (by cases eq; rfl)
+  · exact hjp ⟨⟩
 
 theorem whnfFVar.WF {c : VContext} {s : VState} (he : c.TrExprS (.fvar fv) e') :
     RecM.WF c s (whnfFVar (.fvar fv) cheapProj) fun e₁ _ =>

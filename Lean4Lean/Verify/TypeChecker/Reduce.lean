@@ -278,9 +278,61 @@ theorem reduceNat.WF {c : VContext} (he : c.TrExprS e e') :
     refine p2.toU.symm.trans c.Ewf c.Δwf ?_
     exact ⟨_, ha1.appDF <| a3.of_r c.Ewf c.Δwf ha2⟩
 
+/-- The head of a translated application spine is itself translated. -/
+theorem head_tr {c : VContext} {e₁ st₁} (h : c.TrExprS e₁ st₁) :
+    ∃ f', c.TrExprS e₁.getAppFn f' :=
+  let ⟨_, hstk⟩ := AppStack.build <| e₁.mkAppList_getAppArgsList ▸ h
+  ⟨_, hstk.tr⟩
+
+/-- **`reduceProjCore` never fires, today.**  Not because its guard rejects — it has none
+worth the name: it reads `numParams` off whatever constructor it finds and indexes blindly
+(`TypeChecker.lean:351-359`).  What stops it is that the constant map, at the `safety` the
+checker runs at, holds no `.ctorInfo` that a *translated* term can name — `TrEnv.not_ctorInfo`,
+the R6 corollary above.
+
+This is the same rescue as `reduceBinNatOpG.WF`'s and `inferProj`'s: **the hypothesis, not
+the check.**  The struct was already translated, so its head constant is in the `VEnv`, and
+`find?_iff` turns that into the `safety ≤ ci.safety` guard R6 needs.
+
+Superseded when `AddInduct` gains constructors: at that point `.ctorInfo` becomes reachable
+and the real argument — `TrProj`'s `IsStructure` pins the block, so a constructor of another
+type cannot appear under a well-translated projection — takes over.  That argument needs
+`mkC = C.name`, hence `HasInduct` uniqueness (ledger G4), and is not available today. -/
+theorem reduceProjCore_none {c : VContext} {s : VState} {i e₀ st₀} (h : c.TrExprS e₀ st₀) :
+    RecM.WF c s (reduceProjCore i e₀) fun oe _ => oe = none := by
+  have hget : ∀ {name}, (c.env.get name).WF fun ci => c.env.find? name = some ci := by
+    intro name; simp [Environment.get]; split <;> [refine .pure ‹_›; exact .throw]
+  have key : ∀ {e₁ st₁ s'}, c.TrExprS e₁ st₁ →
+      RecM.WF c s' (e₁.withApp fun mk args => do
+        let .const mkC _ := mk | return none
+        let env ← getEnv
+        let .ctorInfo mkInfo ← env.get mkC | return none
+        return args[mkInfo.numParams + i]?) fun oe _ => oe = none := by
+    intro e₁ st₁ s' h1
+    rw [Expr.withApp_eq]
+    obtain ⟨f', hf⟩ := head_tr h1
+    split <;> [skip; exact .pure rfl]
+    rename_i mkC us heq
+    rw [heq] at hf
+    let .const hc _ _ := hf
+    refine .getEnv <| (M.WF.liftExcept hget).lift.bind fun ci _ _ hci => ?_
+    cases ci <;> first
+      | exact absurd hci fun hh => c.trenv.not_ctorInfo ⟨_, hc⟩ hh
+      | exact .pure rfl
+  unfold reduceProjCore
+  dsimp only
+  split
+  · rename_i str
+    have hlit : c.TrExprS (Expr.strLitToConstructor str) st₀ := by
+      let .lit _ h' := h; exact h'
+    exact (whnf.WF hlit).bind fun _ _ _ hh => key hh.2.choose_spec.1
+  · exact key h
+
 theorem reduceProjCore.WF (he : c.TrExprS (.proj n i e) e') :
     RecM.WF c s (reduceProjCore i e) fun oe _ =>
-      ∀ e₁, oe = some e₁ → c.FVarsBelow (.proj n i e) e₁ ∧ c.TrExpr e₁ e' := sorry
+      ∀ e₁, oe = some e₁ → c.FVarsBelow (.proj n i e) e₁ ∧ c.TrExpr e₁ e' := by
+  have .proj hst _ := he
+  exact (reduceProjCore_none hst).mono fun _ _ _ hq _ eq => absurd (hq ▸ eq) nofun
 
 theorem reduceProj.WF (he : c.TrExprS (.proj n i e) e') :
     RecM.WF c s (reduceProj i e cheapProj) fun oe _ =>
