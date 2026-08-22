@@ -1354,6 +1354,115 @@ theorem NormalEq.appDF_proofIrrel {Γ : List VExpr} {f a b A B P e₂' : VExpr}
   have hBab := IsDefEq.instDF henv.ordered hΓ hB hab
   exact .proofIrrel hBa (l1.app l3) (hBab.defeq' he₂')
 
+/-! ## `parRed`'s `appDF` × `extra` case, modulo the descent
+
+The case reduces to one lemma about `NormalEq` and `Matches` alone — no `parRed`, hence no
+recursion.  That was not obvious: the direct routes (fire on the left with `ParRed.rfl` at
+the leaves, or reduce the leaves and then fire) both need `parRed` **at the leaves**, which
+are strict subterms of `f₂`/`b` and so out of reach of `induction H1`'s two hypotheses.
+
+What makes it work is that `ih1`/`ih2` accept an *arbitrary* `ParRed Γ f₂ e₂'`, not just the
+one at hand.  So: reduce `f₂`'s and `b`'s matched arguments **first** (`parRed_leaves`), feed
+that to the induction hypotheses, and descend the resulting `NormalEq` against the pattern.
+The rule then fires on the left with `ParRed.rfl` at every leaf, and the leaf obligations are
+discharged by the descent's own `NormalEq` facts.  One round, no recursion. -/
+
+/-- Reduce a matched term's arguments in place.  The spine is untouched, so the result still
+matches the same pattern, with the reduced arguments. -/
+theorem Pattern.Matches.parRed_leaves {Γ : List VExpr} :
+    ∀ {q : Pattern} {g : VExpr} {m1 : q.LPath → List VLevel} {m2 m2' : q.Path → VExpr},
+      q.Matches g m1 m2 → (∀ x, Γ ⊢ m2 x ≫ m2' x) →
+      ∃ g', Γ ⊢ g ≫ g' ∧ q.Matches g' m1 m2'
+  | .const c, _, _, _, m2', .const, _ => ⟨_, .const, by
+      have : m2' = nofun := funext nofun
+      subst this; exact .const⟩
+  | .var q, _, _, _, m2', .var h, hr => by
+    obtain ⟨g', h1, h2⟩ := parRed_leaves h (m2' := fun x => m2' (some x)) (fun x => hr (some x))
+    refine ⟨.app g' (m2' none), .app h1 (hr none), ?_⟩
+    have : m2' = (·.elim (m2' none) fun x => m2' (some x)) := funext fun x => by cases x <;> rfl
+    rw [this]; exact .var h2
+  | .app q₁ q₂, _, _, _, m2', .app h1 h2, hr => by
+    obtain ⟨g1, a1, b1⟩ := parRed_leaves h1 (m2' := fun x => m2' (.inl x)) (fun x => hr (.inl x))
+    obtain ⟨g2, a2, b2⟩ := parRed_leaves h2 (m2' := fun x => m2' (.inr x)) (fun x => hr (.inr x))
+    refine ⟨.app g1 g2, .app a1 a2, ?_⟩
+    have : m2' = Sum.elim (fun x => m2' (.inl x)) (fun x => m2' (.inr x)) :=
+      funext fun x => by cases x <;> rfl
+    rw [this]; exact .app b1 b2
+
+variable! (hΓ : OnCtx Γ (IsType env univs)) in
+/-- The `IsDefEqU` counterpart of `NormalEq.apply_pat`. -/
+theorem IsDefEqU.apply_pat {p : Pattern} {r : p.RHS}
+    {m1 : p.LPath → List VLevel} {m2 m2' : p.Path → VExpr}
+    (ih : ∀ x A, Γ ⊢ m2 x : A → Γ ⊢ m2 x ≡ m2' x)
+    (he : Γ ⊢ Pattern.RHS.apply m1 m2 r : A) :
+    Γ ⊢ Pattern.RHS.apply m1 m2 r ≡ Pattern.RHS.apply m1 m2' r := by
+  induction r generalizing A with simp [Pattern.RHS.apply] at he ⊢
+  | fixed c => exact ⟨_, he⟩
+  | app hf ha ih1 ih2 =>
+    let ⟨_, _, h1, h2⟩ := he.app_inv henv hΓ
+    exact ⟨_, ((ih1 h1).of_l henv hΓ h1).appDF ((ih2 h2).of_l henv hΓ h2)⟩
+  | var path => exact ih path _ he
+
+variable! (hΓ : OnCtx Γ (IsType env univs)) in
+/-- **E6′**: the `IsDefEqU`-hypothesis variant of `Check.OK.congr_normalEq`.  Needed because
+the arguments the rule fired on are related to the ones it will fire on by a *parallel
+reduction*, which gives only `IsDefEqU`. -/
+theorem _root_.Lean4Lean.Pattern.Check.OK.congr_defeq {p : Pattern} (ck : p.Check)
+    {m1 : p.LPath → List VLevel} {m2 m2' : p.Path → VExpr}
+    (hd : ∀ x A, Γ ⊢ m2 x : A → Γ ⊢ m2 x ≡ m2' x)
+    (H : ck.OK (IsDefEqU env univs Γ) m1 m2) :
+    ck.OK (IsDefEqU env univs Γ) m1 m2' := by
+  refine H.map fun a b h => ?_
+  obtain ⟨T, hT⟩ := h
+  have ha := IsDefEqU.apply_pat hΓ hd hT.hasType.1
+  have hb := IsDefEqU.apply_pat hΓ hd hT.hasType.2
+  exact (ha.symm.trans henv hΓ ⟨_, hT⟩).trans henv hΓ hb
+
+/-- **`parRed`'s `appDF` × `extra` case, given the descent.**  Sorry-free; the only remaining
+obligation is `descent`, whose statement belongs with its two escapes (`etaL` at a spine node,
+which makes the left term a β-redex — scoping item E4 — and the argument-side conditions —
+E5), since those determine its shape.  `NormalEq.appDF_proofIrrel` above is the third escape,
+already discharged. -/
+theorem NormalEq.appDF_extra_of_descend {Γ : List VExpr} {f A B a b f₂ : VExpr}
+    (descent : ∀ {q : Pattern} {g g' : VExpr} {n1 : q.LPath → List VLevel}
+      {n2 : q.Path → VExpr}, Γ ⊢ g ≡ₚ g' → q.Matches g' n1 n2 →
+      ∃ n, q.Matches g n1 n ∧ ∀ x, Γ ⊢ n x ≡ₚ n2 x)
+    (hΓ : OnCtx Γ (IsType env univs))
+    (l1 : Γ ⊢ f : .forallE A B) (l3 : Γ ⊢ a : A)
+    (ih1 : ∀ {e₂'}, Γ ⊢ f₂ ≫ e₂' → ∃ e₁', Γ ⊢ f ≫* e₁' ∧ Γ ⊢ e₁' ≡ₚ e₂')
+    (ih2 : ∀ {e₂'}, Γ ⊢ b ≫ e₂' → ∃ e₁', Γ ⊢ a ≫* e₁' ∧ Γ ⊢ e₁' ≡ₚ e₂')
+    {p : Pattern} {r : p.RHS × p.Check} {m1 m2 m2'}
+    (r1 : Params.Pat p r) (r2 : p.Matches (f₂.app b) m1 m2)
+    (r3 : Pattern.Check.OK (IsDefEqU env univs Γ) m1 m2 r.snd)
+    (r4 : ∀ x, Γ ⊢ m2 x ≫ m2' x) :
+    ∃ e₁', Γ ⊢ f.app a ≫* e₁' ∧ Γ ⊢ e₁' ≡ₚ Pattern.RHS.apply m1 m2' r.fst := by
+  cases r2 with
+  | var h => exact absurd r1 Params.pat_not_var
+  | @app q₁ _ f1 g1 q₂ _ f2 g2 h1 h2 =>
+    obtain ⟨f₂', hpf, hmf⟩ :=
+      Pattern.Matches.parRed_leaves h1 (m2' := fun x => m2' (.inl x)) (fun x => r4 (.inl x))
+    obtain ⟨b', hpb, hmb⟩ :=
+      Pattern.Matches.parRed_leaves h2 (m2' := fun x => m2' (.inr x)) (fun x => r4 (.inr x))
+    obtain ⟨tf, hf1, hf2⟩ := ih1 hpf
+    obtain ⟨ta, ha1, ha2⟩ := ih2 hpb
+    obtain ⟨n1, hn1, hn1'⟩ := descent hf2 hmf
+    obtain ⟨n2, hn2, hn2'⟩ := descent ha2 hmb
+    have hne : ∀ x, Γ ⊢ Sum.elim n1 n2 x ≡ₚ m2' x := by
+      rintro (x|x)
+      · exact hn1' x
+      · exact hn2' x
+    have hck : Pattern.Check.OK (IsDefEqU env univs Γ) (p := q₁.app q₂)
+        (Sum.elim f1 f2) (Sum.elim n1 n2) r.snd :=
+      Pattern.Check.OK.congr_defeq hΓ _ (fun x _ hty => by
+        have hd : Γ ⊢ Sum.elim g1 g2 x ≡ m2' x := ⟨_, (r4 x).defeq hΓ hty⟩
+        exact hd.trans henv hΓ ((hne x).defeq hΓ).symm) r3
+    have hfire : Γ ⊢ tf.app ta ≫
+        Pattern.RHS.apply (p := q₁.app q₂) (Sum.elim f1 f2) (Sum.elim n1 n2) r.fst :=
+      .extra r1 (.app hn1 hn2) hck (fun _ => .rfl)
+    have hty : Γ ⊢ tf.app ta : B.inst ta := (hf1.hasType hΓ l1).app (ha1.hasType hΓ l3)
+    refine ⟨_, (ParRedS.app hf1 ha1).tail hfire, ?_⟩
+    exact NormalEq.apply_pat hΓ (fun (x : (q₁.app q₂).Path) _ _ => hne x) (hfire.hasType hΓ hty)
+
 variable! (hΓ : OnCtx Γ (IsType env univs)) in
 theorem NormalEq.parRed (H1 : Γ ⊢ e₁ ≡ₚ e₂) (H2 : Γ ⊢ e₂ ≫ e₂') :
     ∃ e₁', Γ ⊢ e₁ ≫* e₁' ∧ Γ ⊢ e₁' ≡ₚ e₂' := by
