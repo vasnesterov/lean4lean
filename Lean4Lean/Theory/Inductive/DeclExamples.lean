@@ -819,5 +819,12 @@ example : (eqRefl.canonResult eqDecl 0).instL [.param 7]
     = (VExpr.const ``Eq [.param 7]).mkApp
         [VExpr.bvar 1, VExpr.bvar 0, VExpr.bvar 0] := rfl
 
+-- the bundled interface, instantiated: every clause holds for `Acc.intro`
+example : accIntro.args.length = accType.indices.length := rfl
+example : (accIntro.type accDecl 0).piArity
+    = accIntro.params.length + accIntro.fields.length := VIndCtor.type_piArity ..
+example : (accIntro.canonResult accDecl 0).appArity
+    = accDecl.np + accType.indices.length := rfl
+
 end InductiveDeclExamples
 end Lean4Lean

@@ -107,6 +107,28 @@ theorem mk_inst_of {a : VExpr} : ∀ {e : VExpr} {k : Nat} {σ : Subst},
 
 end SExpr
 
+/-! ## Telescopes
+
+`VIndCtor.type` is `mkPi (C.params ++ C.fields.map (·.type)) (C.canonResult D j)`, and
+`canonResult` is `mkApp`-shaped, so translating `ctor_ty` into a `CtorBundle` needs `mk` to
+commute with both. Note `CtorBundle.rhs` folds its argument list the *other* way from
+`mkApp`, which is why the bundle's `args` is the reverse of the declaration's. -/
+
+theorem mk_mkPi : ∀ {L : List VExpr} {B : VExpr},
+    mk (VExpr.mkPi L B) = (L.map mk).foldr .forallE (mk B)
+  | [], _ => rfl
+  | _::L, B => by simp [VExpr.mkPi, mk_mkPi (L := L) (B := B)]
+
+theorem mk_mkApp : ∀ {as : List VExpr} {f : VExpr},
+    mk (f.mkApp as) = (as.map mk).foldl .app (mk f)
+  | [], _ => rfl
+  | _::as, f => by simp [VExpr.mkApp, mk_mkApp (as := as)]
+
+/-- `CtorBundle.rhs`'s argument fold, in terms of `mkApp`'s. -/
+theorem foldr_app_eq_foldl {as : List SExpr} {f : SExpr} :
+    as.foldr (fun A acc => acc.app A) f = as.reverse.foldl .app f := by
+  simp [List.foldl_reverse]
+
 /-! ## Contexts -/
 
 theorem Lookup.toSExpr {Γ : List VExpr} {i : Nat} {A : VExpr} (H : Lookup Γ i A) :

@@ -33,15 +33,15 @@ class Params where
     p₁ = p₂ ∧ p₂ = p₃ ∧ r ≍ r'
   -- pat_wf : Pat p r → p.Matches e m1 m2 → HasType env univs Γ e A →
   --   r.2.OK (IsDefEqU env univs Γ) m1 m2 → IsDefEqU env univs Γ e (r.1.apply m1 m2)
-  /-- The function side of an application sub-pattern contains no application
-  sub-pattern: a registered pattern nests at most one sub-pattern, in argument position.
-  Uncommented for `WHRed.determ`; already present on the mainline `VEnv.Params`. -/
-  pat_app_l : Pat p r → Subpattern (.app p₁ p₂) p → ¬Subpattern (.app p₃ p₄) p₁
-  /-- No registered pattern matches inside another's function spine. -/
-  pat_app_l_uniq : Pat p r → Pat p' r' → Subpattern (.app p₁ p₂) p →
-    Subpattern (.app p₁' p₂') p' → Subpattern (.var p₃) p₁ → p₁'.inter p₃ = none
-  pat_app_uniq : Pat p r → Pat p' r' → Subpattern (.app p₁ p₂) p →
-    Subpattern (.app p₁' p₂') p' → Subpattern p₃ p₁ → Subpattern p₃' p₂' → p₃.inter p₃' = none
+  -- The mainline `VEnv.Params` also carries these three. They are deliberately *not* fields
+  -- here: `WHRed.determ` was expected to need them and does not (see `not_of_matchesS`), so
+  -- as fields they would be obligations on every `Params` instance with no consumer.
+  -- Uncomment when something actually needs them.
+  -- pat_app_l : Pat p r → Subpattern (.app p₁ p₂) p → ¬Subpattern (.app p₃ p₄) p₁
+  -- pat_app_l_uniq : Pat p r → Pat p' r' → Subpattern (.app p₁ p₂) p →
+  --   Subpattern (.app p₁' p₂') p' → Subpattern (.var p₃) p₁ → p₁'.inter p₃ = none
+  -- pat_app_uniq : Pat p r → Pat p' r' → Subpattern (.app p₁ p₂) p →
+  --   Subpattern (.app p₁' p₂') p' → Subpattern p₃ p₁ → Subpattern p₃' p₂' → p₃.inter p₃' = none
   -- pat_app_r_arity : Pat p r → Pat p' r' → Subpattern (.app p₁ p₂) p →
   --   Subpattern (.app p₁' p₂') p' → Arity (.const c) n p₂ → Arity (.const c) n' p₂' → n = n'
   -- extra_pat : env.defeqs df → (∀ l ∈ ls, l.WF uvars) → ls.length = df.uvars →
@@ -737,6 +737,7 @@ class ParamsExtra [Params] where
       ci = ⟨D.uvars, C.type D j⟩ ∧
       (C.params ++ C.fields.map (·.type)).length = cl.arity ∧
       classify T.name = some (.indTy (D.np + T.indices.length)) ∧
+      C.args.length = T.indices.length ∧
       D.lvl ≠ .zero ∧
       env.HasType D.uvars ((C.fields.map (·.type)).reverse ++ C.params.reverse)
         (C.canonResult D j) (.sort D.lvl)
@@ -779,9 +780,19 @@ structure CtorBundle (c : Name) (cl : CtorBundle.IsCtor c) : Type where
   hlen : Ts.length = cl.cl.1.arity
   hclI : Params.classify I = some (.indTy args.length)
   hu0 : u ≠ .zero
+  /-- `rhs` is closed — written out, since `rhs` is defined after this structure.
+
+  Without this `SExpr.IsDefEqStrong` is **not closed under weakening**: `const` carries one
+  bundle for *all* contexts, so lifting its equation premise needs
+  `((F cl).rhs ls).lift' ρ = (F cl).rhs ls`. `Ts` and `args` come from the declaration and
+  really are closed; not saying so made the judgment subtly wrong. -/
+  hclosed : ∀ ls, ClosedN (Ts.foldr .forallE (args.foldr (fun A acc => acc.app A)
+    (.const I ls))) 0
 
 def CtorBundle.rhs (H : CtorBundle c cl) (ls : List SLevel) : SExpr :=
   H.Ts.foldr .forallE (H.args.foldr (fun A acc => acc.app A) (.const H.I ls))
+
+theorem CtorBundle.rhs_closed (H : CtorBundle c cl) (ls) : (H.rhs ls).ClosedN 0 := H.hclosed ls
 
 section
 local notation:65 (priority := high) Γ " ⊢ " e1 " : " A:36 => IsDefEqStrong Γ e1 e1 A
@@ -972,6 +983,53 @@ theorem IsDefEq.weak' (W : Ctx.Lift' ρ Γ Γ') (H : Γ ⊢ e1 ≡ e2 : A) :
     have ⟨⟨hA1, _⟩, hA2, hA3⟩ := henv.closed.2 h1
     rw [hA1.mkS.instL.lift'_eq .zero, hA2.mkS.instL.lift'_eq .zero, hA3.mkS.instL.lift'_eq .zero]
     exact .extra h1 h2
+
+/-- Weakening for the decorated judgment. Needs `CtorBundle.hclosed`: `const` carries one
+bundle for *all* contexts, so lifting its equation premise requires the bundle's `rhs` to be
+closed. -/
+theorem IsDefEqStrong.weak' (W : Ctx.Lift' ρ Γ Γ') (H : IsDefEqStrong Γ e1 e2 A) :
+    IsDefEqStrong Γ' (e1.lift' ρ) (e2.lift' ρ) (A.lift' ρ) := by
+  induction H generalizing ρ Γ' with
+  | bvar h _ ihA => exact .bvar (h.weak' W) (ihA W)
+  | symm _ ih => exact .symm (ih W)
+  | trans _ _ _ ihA ih1 ih2 => exact .trans (ihA W) (ih1 W) (ih2 W)
+  | trans' _ _ ih1 ih2 => exact .trans' (ih1 W) (ih2 W)
+  | sort => exact .sort
+  | const h1 h2 _ F _ ihT ihFeq =>
+    have hT := ihT W
+    rw [ClosedN.lift'_eq (henv.closedC h1).mkS.instL .zero] at hT ⊢
+    refine .const h1 h2 hT F fun cl => ?_
+    have h := ihFeq cl W
+    rwa [ClosedN.lift'_eq (henv.closedC h1).mkS.instL .zero,
+      ClosedN.lift'_eq ((F cl).rhs_closed _) .zero] at h
+  | appDF _ _ _ _ ihA ihf iha ihBa =>
+    have hBa := ihBa W
+    simp only [SExpr.lift', SExpr.lift'_inst_hi] at hBa ⊢
+    exact .appDF (ihA W) (ihf W) (iha W) hBa
+  | lamDF _ _ _ _ ihA ihB ihb ihb' =>
+    exact .lamDF (ihA W) (ihB W.cons) (ihb W.cons) (ihb' W.cons)
+  | forallEDF _ _ _ ihA ihb ihb' => exact .forallEDF (ihA W) (ihb W.cons) (ihb' W.cons)
+  | defeqDF _ _ ih1 ih2 => exact .defeqDF (ih1 W) (ih2 W)
+  | beta _ _ _ _ ih1 ih2 ih3 ih4 =>
+    have h3 := ih3 W; have h4 := ih4 W
+    simp only [SExpr.lift', SExpr.lift'_inst_hi] at h3 h4 ⊢
+    exact .beta (ih1 W.cons) (ih2 W) h3 h4
+  | @eta _ e A B _ _ ih1 ih2 =>
+    have eq : (SExpr.lam A (.app e.lift (.bvar 0))).lift' ρ
+        = .lam (A.lift' ρ) (.app ((e.lift' ρ).lift) (.bvar 0)) := by
+      simp only [SExpr.lift']; congr 1; simp [← SExpr.lift'_comp]
+    have h2 := ih2 W
+    rw [eq] at h2 ⊢
+    exact .eta (ih1 W) h2
+  | proofIrrel _ _ _ ih1 ih2 ih3 => exact .proofIrrel (ih1 W) (ih2 W) (ih3 W)
+  | extra h1 h2 _ _ ih3 ih4 =>
+    have ⟨⟨hA1, _⟩, hA2, hA3⟩ := henv.closed.2 h1
+    have i3 := ih3 W; have i4 := ih4 W
+    rw [ClosedN.lift'_eq hA1.mkS.instL .zero, ClosedN.lift'_eq hA3.mkS.instL .zero] at i3
+    rw [ClosedN.lift'_eq hA2.mkS.instL .zero, ClosedN.lift'_eq hA3.mkS.instL .zero] at i4
+    rw [ClosedN.lift'_eq hA1.mkS.instL .zero, ClosedN.lift'_eq hA2.mkS.instL .zero,
+      ClosedN.lift'_eq hA3.mkS.instL .zero]
+    exact .extra h1 h2 i3 i4
 
 variable (HasType : List SExpr → SExpr → SExpr → Prop)
 inductive Ctx.Subst (Γ : List SExpr) : SExpr.Subst → List SExpr → Prop where
@@ -1346,8 +1404,12 @@ form.
 
 The spine of a matched term bottoms out at a `const`, so the only way it could reduce is
 by `extra` — and then two registered patterns would match the same term, so `pat_uniq`
-forces the sub-pattern to *be* the whole pattern, contradicting properness. Note this needs
-only `pat_uniq`; `pat_app_l` and friends are not required here.
+forces the sub-pattern to *be* the whole pattern, contradicting properness.
+
+This needs **only** `pat_uniq`. The `pat_app_l` / `pat_app_l_uniq` / `pat_app_uniq` family
+exists to compare two patterns' *function spines*; comparing the registered pattern against
+its own sub-pattern instead is strictly shorter and needs none of them. Please do not
+reintroduce the longer route.
 -/
 theorem WHRed.not_of_matchesS {p : Pattern} {r} (hp : Params.Pat p r) :
     ∀ {q : Pattern} {e : SExpr} {m1 m2}, q.MatchesS e m1 m2 →

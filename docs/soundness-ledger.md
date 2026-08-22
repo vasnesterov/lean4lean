@@ -30,9 +30,14 @@ supplies. **None uses any injectivity fact.**
 | `proofIrrel` | `proofIrrel_sound` |
 | `symm`, `trans` | immediate from the IHs (`Eq.symm`, `Eq.trans`) |
 
-Not done: `constDF` and `extra`, both of which need `ModelData.cnst` and its
-coherence with `env.defeqs`. Also outstanding: parts 3 for `lamDF`/`forallEDF`
-(the `∈` direction; part 4 is proved), which the analysis says needs nothing new.
+**All thirteen cases are now covered.** `lamDF`/`forallEDF` part 3 are
+`lamDF_sound_type`, `forallEDF_sound_prop`, `forallEDF_sound_type`; `constDF`
+and `extra` are `constDF_sound_eq`/`_type` and `extra_sound_eq`/`_type`, proved
+from `ModelData.Coherent`, which is the specification the constant-assignment
+construction has to meet.
+
+What remains is not a case but a *construction*: `ModelData.cnst` itself,
+together with a proof of `Coherent`, by induction over the declaration list.
 
 Two corrections to earlier versions of this ledger, both found by doing the
 proofs, are recorded below: **part 2** and **context conversion**.
@@ -183,6 +188,28 @@ Supporting facts proved alongside: `mkLam_mem_function` (the `lam` clause really
 is an internal function on its domain) and `mkLam_value` (applying it is
 substitution into the body).
 
+## The universe bound is spent in exactly two places
+
+This should not be folklore, so it is recorded precisely.
+
+1. **`sortDF_sound`**, through `U_mem_succ : U κ i ∈ U κ (i+1)`, needing
+   `i = l.eval M.ls < n`.
+2. **`forallEDF_sound_type`**, through `mkForallType_mem_U`, needing
+   `i < n` where `i + 1` is the target index `(imax u v).eval`.
+
+They are *not* the same mechanism, and an earlier summary that said both go
+through `U_mem_succ` was wrong. `sortDF` is a universe being an element of the
+next universe. `forallEDF` part 3 is a *closure* fact: the dependent product is
+assembled by `repl_mem_vsetV'` (replacement, hence regularity), `sUnion_mem_U`
+(free) and `function_mem_U` (limit-ness), and lands in the same stage its
+components do. So the two spend the bound against different tiers of
+`SetModel/Universe.lean`'s closure table.
+
+Nothing else spends it. In particular **`forallEDF_sound_prop` spends nothing**:
+a `∀` over a proposition lands in `U₀` for an arbitrary domain, so the `Prop`
+layer of a derivation contributes zero to `n`. That is the model's statement of
+impredicativity and it is what makes the bound tight rather than merely finite.
+
 ## Full ingredient list
 
 | Ingredient | Consumed by | Status |
@@ -198,18 +225,48 @@ substitution into the body).
 | `piProp_mem_UProp` | part 1, `forallE` case | **proved** |
 | validity (`Γ ⊢ e : A → IsType Γ A`) | `appDF`, to level the `∀` | available, `Theory/Typing/` |
 | `function_eq_graph` (a function is its graph) | `eta` | **proved** |
-| `ModelData.cnst` coherence | `constDF`, `extra` | **open** — see below |
+| `ModelData.Coherent` | `constDF`, `extra` | specification **stated**; construction **open** |
 | `IsDefEqU.sort_inv` | packaged as `LevelAssign` | **open**, one `sorry` |
 | `IsDefEqU.forallE_inv` | — | **not needed** |
 | `IsDefEqU.sort_forallE_inv` | — | **not needed** |
+
+## The non-injectivity obligations — the handoff specification
+
+This is the list of everything a `LevelAssign` / `ModelData` construction owes,
+i.e. what has to be supplied before soundness is unconditional. None of it is an
+injectivity fact.
+
+| Obligation | Where declared | What it says |
+|---|---|---|
+| `LevelAssign.lvl_sound`, `srt_sound` | `Interp.lean` | the assignment agrees with the typing rules — this *is* `sort_inv`, in functional form |
+| `LevelAssign.Stable` (4 fields) | `InterpSubst.lean` | the assignment commutes with weakening and substitution |
+| `CtxInvariant` | `InterpSound.lean` | the assignment cannot distinguish definitionally equal contexts |
+| `ModelData.Coherent` (3 fields) | `InterpSound.lean` | constants inhabit their types; `env.defeqs` holds in the model |
+
+The first three are automatic for an assignment built the natural way — a
+syntactic recursion mirroring `inferType` — and for well-typed input follow from
+`sort_inv` together with `IsDefEq.weakN` / `instN` / `defeqDFC`. The fourth is a
+genuine construction, described below.
 
 ## The two remaining open items, ranked
 
 1. **`IsDefEqU.sort_inv`** — gives `LevelAssign`, hence the interpretation.
    Single `sorry`, highest value in the project.
-2. **`ModelData.cnst` and its coherence** — an induction over the declaration
-   list (which `VEnv.WF'` already orders), assigning each constant a value and
-   showing the assignment validates `env.defeqs`. This is where the
+2. **`ModelData.cnst` and a proof of `ModelData.Coherent`** — an induction over
+   the declaration list, which `VEnv.WF'` already orders. This is where the
    well-foundedness that Carneiro's `|c| = |e| + 1` clause needs actually lives;
-   displacing it here is what makes the term recursion in `SetModel/Interp.lean`
-   structural. Independent of item 1 and of the injectivity stream.
+   displacing it here is what made the term recursion in `SetModel/Interp.lean`
+   structural, and discharging it is what makes that trade honest.
+
+   Two facts make the induction tractable, both worth stating before starting:
+
+   * **The interpretation is environment-independent.** `interp M L Γ e` mentions
+     `env` only through `L`; it never consults `env.constants` or `env.defeqs`.
+     So as the environment grows along `ds`, earlier terms keep their
+     denotations — the induction only ever *extends* `cnst`, and nothing has to
+     be revisited.
+   * **Only `cnst` is recursive.** Everything else in `ModelData` is data, so the
+     recursion to justify is exactly "a constant's value is the denotation of its
+     definition's body" over an already well-ordered list.
+
+   Independent of item 1 and of the injectivity stream.

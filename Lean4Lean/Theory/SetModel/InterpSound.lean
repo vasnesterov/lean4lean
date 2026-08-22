@@ -519,7 +519,166 @@ theorem forallEDF_sound_eq {Γ : List VExpr} {A A' body body' : VExpr} {ρ : V}
     · exact forall₂_congr fun v _ ↦ forall_congr' fun y ↦ imp_congr_right fun _ ↦ by
         rw [hbody v]
 
+omit [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖] in
+/-- The `lam` clause lands in the `forallE` clause, given the values do. -/
+theorem mkLam_mem_mkForallType {G : V → V} {hG : ℒₛₑₜ-function₁[V] G}
+    {F : V → V → V} {hF : ℒₛₑₜ-function₂[V] F}
+    {Fb : V → V → V} {hFb : ℒₛₑₜ-function₂[V] Fb} {ρ : V}
+    (h : ∀ v ∈ G ρ, F ρ v ∈ Fb ρ v) :
+    mkLam G hG F hF ρ ∈ mkForallType G hG Fb hFb ρ := by
+  refine mem_mkForallType_iff.mpr ⟨mem_function.intro (fun p hp ↦ ?_) (fun v hv ↦ ?_), ?_⟩
+  · obtain ⟨v, hv, rfl⟩ := mem_mkLam_iff.mp hp
+    exact kpair_mem_iff.mpr ⟨hv, mem_mkFamUnion_iff.mpr ⟨v, hv, h v hv⟩⟩
+  · refine ExistsUnique.intro (F ρ v) (mem_mkLam_iff.mpr ⟨v, hv, rfl⟩) fun y hy ↦ ?_
+    obtain ⟨v', hv', he⟩ := mem_mkLam_iff.mp hy
+    obtain ⟨rfl, rfl⟩ := kpair_inj he
+    rfl
+  · intro v hv y hy
+    obtain ⟨v', hv', he⟩ := mem_mkLam_iff.mp hy
+    obtain ⟨rfl, rfl⟩ := kpair_inj he
+    exact h v hv
+
+/-- **`lamDF`, part 3.**  The proof branch uses that a proof's denotation is `•`
+and that it lies in the codomain; the type branch is `mkLam_mem_mkForallType`.
+No inversion. -/
+theorem lamDF_sound_type {Γ : List VExpr} {A B body : VExpr} {ρ : V}
+    (hsplit : L.IsProof M (A :: Γ) body ↔ L.IsProp M (A :: Γ) B)
+    (h3 : ∀ v ∈ (interp M L Γ A).toFun ρ,
+      (interp M L (A :: Γ) body).toFun (snoc ρ v) ∈ (interp M L (A :: Γ) B).toFun (snoc ρ v))
+    (h2 : L.IsProof M (A :: Γ) body → ∀ v ∈ (interp M L Γ A).toFun ρ,
+      (interp M L (A :: Γ) body).toFun (snoc ρ v) = pt) :
+    (interp M L Γ (.lam A body)).toFun ρ ∈ (interp M L Γ (.forallE A B)).toFun ρ := by
+  by_cases hp : L.IsProof M (A :: Γ) body
+  · rw [interp_lam_proof M L hp, interp_forallE_prop M L (hsplit.mp hp)]
+    refine mem_mkForallProp_iff.mpr ⟨rfl, fun v hv ↦ ?_⟩
+    rw [← h2 hp v hv]
+    exact h3 v hv
+  · rw [interp_lam_type M L hp, interp_forallE_type M L (fun x ↦ hp (hsplit.mpr x))]
+    exact mkLam_mem_mkForallType h3
+
+/-- The `forallE` clause lands in a universe.  **This is the second and last
+place the universe bound is spent**, and — unlike `sortDF` — it is spent through
+the *closure* properties of the stage (`repl_mem_vsetV'`, `sUnion_mem_U`,
+`function_mem_U`), not through `U_mem_succ`.  It needs `i < n`. -/
+theorem mkForallType_mem_U {n : ℕ} {κ : ℕ → V} (hκ : IsInaccessibleChain n κ) {i : ℕ}
+    (hi : i < n) {G : V → V} {hG : ℒₛₑₜ-function₁[V] G} {F : V → V → V}
+    {hF : ℒₛₑₜ-function₂[V] F} {ρ : V}
+    (hGm : G ρ ∈ U κ (i + 1)) (hFm : ∀ v ∈ G ρ, F ρ v ∈ U κ (i + 1)) :
+    mkForallType G hG F hF ρ ∈ U κ (i + 1) := by
+  have hk := hκ.inaccessible i hi
+  have hko : IsOrdinal (κ i) := hk.isOrdinal
+  have hrepl : repl (F ρ) (by definability) (G ρ) ∈ U κ (i + 1) := by
+    rw [U_succ] at hGm hFm ⊢
+    exact repl_mem_vsetV' hk hGm (F ρ) (by definability) hFm
+  have hfam : mkFamUnion G hG F hF ρ ∈ U κ (i + 1) := by
+    rw [mkFamUnion]; exact sUnion_mem_U hko hrepl
+  exact mem_U_of_subset_of_mem hko sep_subset (function_mem_U hκ hi hGm hfam)
+
+/-- **`forallEDF`, part 3, `Prop` branch.**  A `∀` over a proposition lands in
+`U₀` with **no** universe bound at all — this is impredicativity, and it is why
+the `Prop` layer of a derivation contributes nothing to `n`. -/
+theorem forallEDF_sound_prop {Γ : List VExpr} {A B : VExpr} (hp : L.IsProp M (A :: Γ) B)
+    (ρ : V) : (interp M L Γ (.forallE A B)).toFun ρ ∈ (UProp : V) :=
+  interp_forallE_prop_mem_UProp M L hp ρ
+
+/-- **`forallEDF`, part 3, type branch.**  `i + 1` is the target universe index
+— `(imax u v).eval` when `v.eval ≠ 0` — and `hi : i < n` is the bound. -/
+theorem forallEDF_sound_type {n : ℕ} {κ : ℕ → V} (hκ : IsInaccessibleChain n κ) {i : ℕ}
+    (hi : i < n) {Γ : List VExpr} {A B : VExpr} {ρ : V} (hp : ¬ L.IsProp M (A :: Γ) B)
+    (hA : (interp M L Γ A).toFun ρ ∈ U κ (i + 1))
+    (hB : ∀ v ∈ (interp M L Γ A).toFun ρ,
+      (interp M L (A :: Γ) B).toFun (snoc ρ v) ∈ U κ (i + 1)) :
+    (interp M L Γ (.forallE A B)).toFun ρ ∈ U κ (i + 1) := by
+  rw [interp_forallE_type M L hp]
+  exact mkForallType_mem_U hκ hi hA hB
+
 end Congruence
+
+/-! ## The constant assignment, and the last two cases
+
+`ModelData.cnst` is supplied rather than computed, which is what made the term
+recursion in `SetModel/Interp.lean` structural (`soundness.tex`'s
+`|c| = |e| + 1` clause is the reason Carneiro's measure is not).  Discharging it
+is what makes that trade honest rather than a relocation: **the well-foundedness
+lives here**, in an induction over the declaration list that `VEnv.WF'` already
+orders.
+
+Two things make that induction tractable, and both are worth stating.
+
+* **The interpretation is environment-independent.**  `interp M L Γ e` mentions
+  `env` only through `L`; it never consults `env.constants` or `env.defeqs`.  So
+  as the environment grows along `ds`, earlier terms keep their denotations and
+  the induction only ever *extends* `cnst`.  Nothing has to be revisited.
+* **Only `cnst` is recursive.**  Everything else in `ModelData` is data.  So the
+  recursion to be justified is exactly "a constant's value is the denotation of
+  its definition's body", on a list that is already well-ordered by
+  `VEnv.WF'`.
+
+What the two cases need from it is packaged as `Coherent`.
+-/
+
+section Const
+
+variable [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖]
+variable {env : VEnv} {nv : ℕ} (M : ModelData V) (L : LevelAssign env nv)
+
+/-- **The obligation on the constant assignment.**  This is the whole of what
+`constDF` and `extra` consume, and therefore the specification that the
+induction over the declaration list has to meet. -/
+structure ModelData.Coherent : Prop where
+  /-- a constant's value inhabits its declared type -/
+  const_type : ∀ {c : Name} {ci : VConstant} {ls : List VLevel},
+    env.constants c = some ci → ls.length = ci.uvars →
+    ∀ {Γ : List VExpr} {ρ : V}, ρ ∈ interpCtx M L Γ →
+      M.cnst c (ls.map (·.eval M.ls)) ∈ (interp M L Γ (ci.type.instL ls)).toFun ρ
+  /-- the environment's definitional equations hold in the model -/
+  defeq : ∀ {df : VDefEq} {ls : List VLevel}, env.defeqs df → ls.length = df.uvars →
+    ∀ {Γ : List VExpr} {ρ : V}, ρ ∈ interpCtx M L Γ →
+      (interp M L Γ (df.lhs.instL ls)).toFun ρ = (interp M L Γ (df.rhs.instL ls)).toFun ρ
+  /-- …and both sides inhabit the equated type -/
+  defeq_type : ∀ {df : VDefEq} {ls : List VLevel}, env.defeqs df → ls.length = df.uvars →
+    ∀ {Γ : List VExpr} {ρ : V}, ρ ∈ interpCtx M L Γ →
+      (interp M L Γ (df.lhs.instL ls)).toFun ρ ∈ (interp M L Γ (df.type.instL ls)).toFun ρ
+
+omit [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖] in
+theorem map_eval_eq_of_forall₂ : ∀ {ls ls' : List VLevel}, List.Forall₂ (· ≈ ·) ls ls' →
+    ls.map (·.eval M.ls) = ls'.map (·.eval M.ls)
+  | [], [], _ => rfl
+  | _ :: _, _ :: _, .cons h t => by
+    simp [VLevel.equiv_def.mp h M.ls, map_eval_eq_of_forall₂ t]
+
+/-- **`constDF`, part 4.**  A constant's denotation depends on the *evaluated*
+levels, so equivalent level lists give the same value.  Needs nothing from
+`Coherent`. -/
+theorem constDF_sound_eq {c : Name} {ls ls' : List VLevel}
+    (h : List.Forall₂ (· ≈ ·) ls ls') (Γ : List VExpr) (ρ : V) :
+    (interp M L Γ (.const c ls)).toFun ρ = (interp M L Γ (.const c ls')).toFun ρ := by
+  rw [interp_const, interp_const, map_eval_eq_of_forall₂ M h]
+
+/-- **`constDF`, part 3.** -/
+theorem constDF_sound_type (hC : M.Coherent L) {c : Name} {ci : VConstant} {ls : List VLevel}
+    (hc : env.constants c = some ci) (hlen : ls.length = ci.uvars)
+    {Γ : List VExpr} {ρ : V} (hρ : ρ ∈ interpCtx M L Γ) :
+    (interp M L Γ (.const c ls)).toFun ρ ∈ (interp M L Γ (ci.type.instL ls)).toFun ρ := by
+  rw [interp_const]
+  exact hC.const_type hc hlen hρ
+
+/-- **`extra`, part 4.**  This is the case the coherence field `defeq` exists
+for. -/
+theorem extra_sound_eq (hC : M.Coherent L) {df : VDefEq} {ls : List VLevel}
+    (hdf : env.defeqs df) (hlen : ls.length = df.uvars)
+    {Γ : List VExpr} {ρ : V} (hρ : ρ ∈ interpCtx M L Γ) :
+    (interp M L Γ (df.lhs.instL ls)).toFun ρ = (interp M L Γ (df.rhs.instL ls)).toFun ρ :=
+  hC.defeq hdf hlen hρ
+
+/-- **`extra`, part 3.** -/
+theorem extra_sound_type (hC : M.Coherent L) {df : VDefEq} {ls : List VLevel}
+    (hdf : env.defeqs df) (hlen : ls.length = df.uvars)
+    {Γ : List VExpr} {ρ : V} (hρ : ρ ∈ interpCtx M L Γ) :
+    (interp M L Γ (df.lhs.instL ls)).toFun ρ ∈ (interp M L Γ (df.type.instL ls)).toFun ρ :=
+  hC.defeq_type hdf hlen hρ
+
+end Const
 
 /-!
 ## Ledger: what soundness consumes, case by case

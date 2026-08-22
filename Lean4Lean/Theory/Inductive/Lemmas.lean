@@ -58,6 +58,12 @@ which `addInduct'_ordered` (below) has reduced to D6 and E5.
 * `rw [VExpr.liftN]` unfolds only the outer constructor; use
   `simp only [VExpr.liftN, ...]` when a `liftN` is buried under one.
 * `length_atRecTele` lives in `VInductDecl'`, not `VExpr`, and takes `D` explicitly.
+* `++` on lists is **left**-associative (`infixl:65`), but `List.append_assoc` is a `simp`
+  lemma that normalises to the *right*.  So `a ++ b ++ c` elaborates as `(a ++ b) ++ c` --
+  `Ctx.LiftN.zero` applies to it with no `rw` at all -- while anything you prove by `simpa`
+  comes out re-associated as `a ++ (b ++ c)`.  Expect `simpa using h` rather than `exact h`
+  whenever a context crosses that boundary, and do not "fix" a `rw [← List.append_assoc]`
+  that fails: it fails because the term was already left-associated.
 -/
 
 open VExpr (mkPi mkLams mkApp bvars liftTele instTele shift shiftTele instAll)
@@ -1582,3 +1588,55 @@ theorem VIndCtor.canonResult_instL (C : VIndCtor) (D : VInductDecl') (j : Nat)
         (bvars C.fields.length D.np ++ C.args.map (VExpr.instL ls)) := by
   simp only [VIndCtor.canonResult, VInductDecl'.tyApp, VExpr.instL_mkApp, List.map_append,
     VExpr.map_instL_bvars, VExpr.instL, VInductDecl'.ownLvls, VLevel.inst_map_id hls]
+
+/-! ## `VIndCtor.Interface`: everything `ParamsExtra.ctor_ty` should conclude
+
+`ctor_ty` itself lives in `Experimental/SExpr.lean`.  This bundles what it needs from this
+side so that widening it is a matter of concluding one structure rather than adding a clause
+per case -- which is the pattern that has already cost two round-trips (`hu0`, then
+`args_len` + closedness). -/
+
+structure VIndCtor.Interface (env : VEnv) (D : VInductDecl') (j : Nat) (T : VIndType)
+    (C : VIndCtor) : Prop where
+  /-- The stored constant, on the nose -- not up to defeq. -/
+  const : env.constants C.name = some ⟨D.uvars, C.type D j⟩
+  /-- The binder count of the stored type; exact, since the result is an application. -/
+  arity : (C.type D j).piArity = C.params.length + C.fields.length
+  /-- Needed if the classification splits parameters from fields (`.etaCtor p a`). -/
+  params_len : C.params.length = D.np
+  /-- The head-arity of the result, stated constructor-*independently*. -/
+  head_arity : (C.canonResult D j).appArity = D.np + T.indices.length
+  /-- The clause the shape-model stream asked for. -/
+  args_len : C.args.length = T.indices.length
+  /-- The result sort, in the context the stored type actually binds (`C.params`, not
+  `D.params` -- see `VIndCtor.WF.result'`). -/
+  result : env.HasType D.uvars ((C.fields.map (·.type)).reverse ++ C.params.reverse)
+    (C.canonResult D j) (.sort D.lvl)
+  /-- Closedness.  `CtorBundle` carries the telescope and the indices *separately*, so the
+  split form is what it needs; the indices are closed at `np + nf`, not at `0`. -/
+  type_closed : VExpr.ClosedN (C.type D j) 0
+  tele_closed : VExpr.ClosedTele (C.params ++ C.fields.map (·.type)) 0
+  args_closed : ∀ a ∈ C.args, VExpr.ClosedN a (C.params.length + C.fields.length)
+
+theorem VIndCtor.WF.interface {env : VEnv} {D : VInductDecl'} {j T C}
+    (henv : VEnv.Ordered env) (h : VIndCtor.WF env D j T C)
+    (hconst : env.constants C.name = some ⟨D.uvars, C.type D j⟩) :
+    VIndCtor.Interface env D j T C where
+  const := hconst
+  arity := VIndCtor.type_piArity ..
+  params_len := h.params_len
+  head_arity := h.canonResult_appArity
+  args_len := h.args_len
+  result := h.result' henv
+  type_closed := h.type_closed henv
+  tele_closed := h.tele_closed henv
+  args_closed := h.args_closed henv
+
+/-- The interface, for every constructor of a block just added by `addInduct'`. -/
+theorem VInductDecl'.addInduct'_ctor_interface {env env' : VEnv} {D : VInductDecl'}
+    (henv' : VEnv.Ordered env') (hR : D.RecCtx env')
+    (he : env.addInduct' D = some env') {j : Nat} {C : VIndCtor}
+    (hC : (j, C) ∈ D.ctorsAll) :
+    ∃ T, D.types[j]? = some T ∧ C ∈ T.ctors ∧ VIndCtor.Interface env' D j T C := by
+  obtain ⟨T, hT, hmem⟩ := VInductDecl'.mem_ctorsAll hC
+  exact ⟨T, hT, hmem, (hR.ctors j T hT C hmem).interface henv' (VEnv.addInduct'_ctors he hC)⟩
