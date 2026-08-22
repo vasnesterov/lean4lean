@@ -452,3 +452,201 @@ invariant true.**
 That closes the loop. The join family is repairable, the missing hypothesis is
 `LE_Interp`-relative as suspected, and the fact that makes it hold is the same fact the
 `indTy` parameterisation exists to record.
+
+---
+
+## Session update: the `indTy` parameterisation lands `hu0`, and `proofIrrel` is now false
+
+Measured on a fresh build of the WIP pair (`scratchpad/{SExpr,ShapeLogRel}.indTy-wip19.lean`,
+which must be restored together):
+
+| | error instances | distinct error lines |
+|---|---|---|
+| WIP as inherited (fresh `SExpr.olean`) | 181 | 132 |
+| WIP at handoff | **9** | **9** |
+
+The earlier "144 instances / 105 lines" figure was taken against a stale `SExpr.olean`; it is
+not comparable. Rebuild `Lean4Lean.Experimental.SExpr` before measuring `ShapeLogRel.lean`.
+
+### `CtorBundle.hu0` is repaired — the migration's stated purpose is met
+
+`hu0 : u ≠ .zero` is gone. In its place:
+
+```lean
+hrel : rel = true ↔ u ≠ .zero
+```
+
+This is not an invented hypothesis. It is `ParamsExtra.ctor_ty`'s existing
+`(rel = true ↔ D.lvl ≠ .zero)`, now readable off the head constant because
+`Classification.indTy` carries the boolean. `u` is the sort of `CtorBundle.rhs`, whose head is
+`I` applied to its arguments, and `imax x y = .zero ↔ y = .zero`, so `u ≠ .zero` says exactly
+that the inductive's result universe is not `Prop`.
+
+`LE_Interp.build_spine`, `hu0`'s only consumer, is **green**. Two changes were needed:
+
+* its telescope helper was strengthened from "propagates `≠ .zero` downwards" to the full
+  equivalence `u_body = .zero ↔ u = .zero`. Both directions run the same argument through
+  `SLevel.imax_eq_zero` (already an iff) and the `h_imax_defeq` transport; only the forward
+  one was previously used, because `hu0` was all that was on offer;
+* the head's type-shape is `.sort rel` rather than `.sort true`, with
+  `decide (u_body ≠ .zero) = rel` discharged from `hrel`.
+
+`LE_Interp.Const.compat_join`'s `indTy`/`indTy` case now discharges its obligation by
+`injection` on `classify c` — the first place in the file where the parameterisation pays for
+itself, and the machine-checked half of the co-realizability argument in the section above.
+
+### The `.type`-as-universe migration is complete
+
+`IsType a := ∃ r, HasType a (.sort r)` now reaches every site: `Shape.IsType`,
+`WShape.IsType` (restated with `WShape.HasType` rather than `Shape.IsType a.1`, so that
+destructuring yields a hypothesis whose head supports dot-notation), a new `TShape.IsType`,
+`Valuation.Fits.cons`, `InterpTyped.hsort`, `LE_Interp.sound_app`/`sound_lam`'s hypotheses,
+`LR.Subst1`, `LR.SubstWF.cons`, `LR.lift_succ_aux`, `LR.TyDefEq.lift`,
+`LRS.PiDefEq.lift_aux`. `WShape.IsType.common`, which is false and had zero consumers, is
+deleted; its prose and witness stay.
+
+Helpers introduced, each replacing an idiom that stopped working:
+
+* `WShape.HasType.toIsType` — replaces `HasType.toType`;
+* `WShape.HasType.bot_bot` / `TShape.HasType.bot_bot` — `.bot' (.bot' .sort)` no longer
+  determines its sort booleans;
+* `WShape.IsType.not_lam` / `.not_ctor` — `casesOn'`'s `lam`/`ctor` cases used to close by
+  `trivial`, because `trivial` tries `contradiction` and `HasType (.lam ..) .type` *reduced*
+  to `false = true`. An existential does not reduce;
+* `WShape.indTy_join_indTy`.
+
+### `WShape.HasType.proofIrrel` is FALSE under the parameterisation — machine-checked
+
+The previous handoff read the sort-polymorphic experiment's cluster 2 as "the boolean is
+needed, which is what the parameterisation supplies". **That reading is wrong.** Witness
+(`proofIrrel_fails`, sorry-free, `rfl`-checked, in `section CounterexampleProbe`), at `n = 1`:
+
+```
+a := .indTy false          x := .ctor `Foo` []
+
+Shape.hasType x a      = true     -- clause `.ctor _ _, .indTy _ => true`
+Shape.hasType a .prop  = true     -- clause `.indTy r, .sort r' => r = r'`
+x ≠ .bot                          -- different constructors
+Shape.WF a, Shape.WF x            -- `WF (.indTy _)` is `True`; `WF (.ctor c [])` vacuous
+```
+
+The parameterisation gives the shape layer the *ability* to distinguish `Prop`-valued
+inductives; it does not *use* it, because `HasTypeU.ctor : HasTypeU (.ctor c l) (.indTy r)`
+still fires at every `r`. Nothing inside `proofIrrel` can repair this — the fix has to be at
+the `ctor` rule.
+
+So the three-way tension now has **three** refuted resolutions rather than two:
+
+1. `hu0` asserted that (ii) never happens for classified constructors — `Eq.refl` refutes it;
+2. the sort-polymorphic rule dropped the distinction — `proofIrrel` refutes it;
+3. the parameterisation *records* the distinction without *acting* on it in `HasTypeU.ctor` —
+   `proofIrrel_fails` refutes it.
+
+Only denying (i) is left, which is the `Const.ctor` lead. It remains untested and gated.
+
+### What the 9 remaining errors are
+
+Two families, both needing a decision rather than a proof:
+
+* **the join family (7)** — `WShape.HasType.join`'s `go_dom`/`go_pi`, `WShape.HasDom.join`,
+  `LE_Interp.compat_join`, `LE_Interp.sound_lam` (×2), `LRS.PiDefEq.join` (×2). `go_dom` dies
+  at `ih ha a2.isType b2.isType`, which is `IsType.common` — false. The repair is the
+  `LE_Interp`-relative hypothesis, i.e. adding a hypothesis. `sound_lam`'s two are the same
+  obstruction from the other side: its `suffices` yields `(b.app x).IsType` per `x`, and
+  `HasTypeLam.iff` wants one sort for the whole codomain family;
+* **`proofIrrel` (2, one a knock-on)** — the section above.
+
+### Downstream
+
+`ShapeLogRelAdequacy.lean` consumes `LR.TyDefEq.lift`, `TShape.HasType.proofIrrel`,
+`.isType` and the join family, and will need the same `IsType` treatment when the pair lands.
+It was not touched.
+
+---
+
+## Session update 2: the `LE_Interp`-relative join repair is refuted; §7 lands `proofIrrel`
+
+Both items were approved and both were taken. One succeeded, one is refuted with a
+machine-checked witness. State: **9 error instances at 9 lines** (unchanged in count, but the
+composition changed: `proofIrrel` is proved, and one new error is §7's residue).
+
+### The approved join repair is FALSE — `le_interp_common_fails`
+
+The approval rested on: every call site sits under `LE_Interp.compat_join` at the same `M`, so
+"both shapes realize the same term" is an invariant already in scope; and the counterexample
+shapes cannot co-realize, because both would have to factor through `Const.indTy` at the same
+head constant.
+
+The **premise** is now machine-checked: `LE_Interp.Const.compat_join`'s `indTy`/`indTy` case
+discharges its obligation by `injection` on `classify c`. The **conclusion** does not follow.
+
+```lean
+private theorem le_interp_common_fails :
+    ¬ ∀ {n : Nat} {ρ : Valuation} {A : SExpr} {a a' : WShape n},
+        LE_Interp ρ a.T A → LE_Interp ρ a'.T A → a.IsType → a'.IsType →
+        ∃ r, a.HasType (.sort r) ∧ a'.HasType (.sort r)
+```
+
+sorry-free. The escape is `LE_Interp.bvar : m ≤ ρ i → LE_Interp ρ m (.bvar i)`, which puts no
+condition on `ρ` at all. `cxA.Compat cxA'` holds, so `WShape.Compat.iff` hands over an upper
+bound — their join — and setting `ρ i` to it makes *both* realize `.bvar i` under the *same*
+valuation. The join is classified by no sort.
+
+The `Const.indTy` argument is correct for `.indTy` shapes reached *through `Const`*. It never
+reaches `bvar`, where the shape comes from the valuation and nothing forces it through `Const`.
+
+**The defect is that `compat_join` quantifies over an arbitrary `ρ` with no well-formedness
+hypothesis** — the same shape of defect as `SExpr.IsDefEq.strong`'s missing `Ctx.WF` and
+`VEnv.Params.pat_wf`'s missing `OnCtx`, now on *valuations* rather than contexts. PLAN.md
+already states the rule; valuations are its third instance. Note `ρ i := cxA.join cxA'` is a
+shape that has **no type at all**; `Valuation.Fits` never produces one, but `compat_join` does
+not ask for `Fits`.
+
+### What is true instead
+
+```lean
+theorem WShape.IsType.common_of_le {a a' z : WShape n}
+    (le1 : a ≤ z) (le2 : a' ≤ z) (hz : z.IsType) (h : a.IsType) (h' : a'.IsType) :
+    ∃ r, a.HasType (.sort r) ∧ a'.HasType (.sort r)
+```
+
+Proved, three lines of `HasType.retype`. `Compat a a'` says *some* upper bound exists; what
+the join family needs is a **classified** one. So the open question is not "is
+co-realizability enough" — it is not — but **can each call site produce a classified upper
+bound, and from where?** `a.join a'` is circular. The non-circular candidates all live in
+`Valuation.Fits`, whose `cons` field already carries exactly "any shape realizing `A` has a
+classified upper bound realizing `A`". Threading `Fits` (or a weaker "typed valuation"
+predicate) into `compat_join` is the next thing to cost, and it is a hypothesis on `ρ`, not on
+the shapes.
+
+### §7: `proofIrrel` is proved
+
+Three edits, and nothing else in the file broke:
+
+* `Shape.hasType`'s `| _+1, .ctor _ _, .indTy _ => true` became `| _+1, .ctor _ _, .indTy r => r`;
+* `Shape.HasTypeU.ctor` and `WShape.HasTypeU.ctor` gated to `.indTy true`;
+* `Shape.HasType.indTy_false_bot` / `WShape.HasType.indTy_false_bot` — `.indTy false`
+  classifies only `.bot` — and `proofIrrel`'s new `indTy` case is one line of it.
+
+`proofIrrel_gated` is the regression test. The three-way tension is now resolved in the shape
+layer: three resolutions refuted (each machine-checked), the fourth — denying (i) — works.
+
+### §7's residue, and its measured cost
+
+`LE_Interp.build_spine` builds a constructor application's shape as
+`WShape.ctor' c rargs.reverse`, pinned by `LE_Interp.Matches.app`. For a `Prop`-valued
+inductive that shape must be `.bot`. `WShape.ctor'`'s existing `.bot` fallback is guarded by
+`IsStruct c`, not by `Prop`-ness, and `Classification.ctor` does not carry the boolean, so the
+guard cannot be written. The remaining change is `Classification.ctor (arity) (rel)` and
+`.etaCtor (params args) (rel)`, then one more disjunct in `ctor'`'s `dif`.
+
+Measured by probe (run, then reverted):
+
+| | cost |
+|---|---|
+| `SExpr.lean` | **2 edits, compiles clean** — the inductive + `Classification.arity`, plus restating `Pattern.WF`'s `.const` clause as `if top then cl c = some (.symb n) else ∃ r, cl c = some (.ctor n r)` |
+| `ShapeLogRel.lean` | **107 error instances at 60 lines**, *before* `ctor'`'s guard is touched |
+| `ctor'`'s guard | unmeasured; 59 occurrences, and the `.bot`-branch discharges in `Matches.matches_inter`, `Const.compat_join` and `unique` use `head_wf` + `IsStruct` and will stop working |
+
+The earlier estimate — "one more disjunct in an existing `dif`" — was wrong by an order of
+magnitude. The disjunct is one line; the boolean it tests costs 107 instances to introduce.
