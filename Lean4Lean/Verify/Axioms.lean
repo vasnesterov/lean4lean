@@ -294,13 +294,20 @@ using `mkData_eq` and friends, but this has not been done yet -/
 @[inline] private def mkIMaxCore (u v : Level) (elseK : Unit → Level) : Level :=
   if v.isNeverZero then mkLevelMax' u v
   else if v.isZero then v
-  else if u.isZero || u matches .succ .zero then v
+  else if u.isZero then v
   else if u == v then u
   else elseK ()
 
 open private mkLevelIMaxCore from Lean.Level in
-/-- Workaround for https://github.com/leanprover/lean4/pull/7631#issuecomment-3289800246 -/
-@[simp] axiom mkLevelIMaxCore_eq (e : Expr) (n : Nat) : mkLevelIMaxCore = mkIMaxCore
+/-- `mkIMaxCore` is a verbatim copy of the private `Lean.Level.mkLevelIMaxCore`,
+so this holds by `rfl` and need not be assumed.
+
+It was previously an axiom, and a *false* one: the model carried an extra
+`|| u matches .succ .zero` disjunct in the third branch which upstream has in
+neither `v4.33.0-rc2` nor master. Since `mkLevelIMaxCore` is a plain
+`private def` rather than an `opaque`, the equation is decidable, and the axiom
+proved `False` on its own -- see `docs/axiom-audit.md`. -/
+@[simp] theorem mkLevelIMaxCore_eq : mkLevelIMaxCore = mkIMaxCore := rfl
 
 end Level
 
