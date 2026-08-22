@@ -773,6 +773,61 @@ where a constructor or recursor is a *deeper* nest than `Quot` is. Estimating
 `.induct` as "the model side is finished and waiting" was too optimistic on
 exactly this axis.
 
+### The combinator library, and `Quot`'s `const_type`
+
+`SetModel/Definability.lean` — ten lemmas in the five categories scoped in
+advance: projections, environment reads, argument substitution/weakening, and
+the three binder formers precomposed. The boundedness claim held; nothing was
+added beyond the list except `mkLam_mem_interp_forallE'`, which belongs to the
+"binder formers" category.
+
+`quotFn_mem` — **`Quot`'s `const_type` obligation — is proved.** Two nested λs,
+each one application.
+
+Three things made it work, and only the first was anticipated:
+
+1. **Explicit `.comp` instead of search.** The failure was the *depth* symptom,
+   not the bug: `DefinableFunction₂.comp` is registered and applies, `aesop`
+   just could not find it within fifty rule applications. Applying it by hand
+   discharges in one step. So the library is not new mathematics — it is the
+   compositions the interpretation already uses, each stated once.
+
+2. **Read the environment, do not capture.** `interp`'s own `lam` clause writes
+   its fibre map as a function of `ρ`, recovering bound variables with `ρ ‘ k`
+   rather than capturing them from an enclosing binder. The first attempt at
+   `Quot` captured `α` directly, which is what made every layer need a bespoke
+   proof. Rewritten in the environment-passing style, the nesting composes.
+
+3. **Prove the introduction rule schematically.** Applying
+   `mkLam_mem_mkForallType` at a concrete call site makes `whnf` unify two
+   `ℒₛₑₜ`-definability *proof terms*, which at that size hangs.
+   `mkLam_mem_interp_forallE'` states the same thing with those proofs as
+   variables, so the hard unification happens once, against metavariables.
+
+### A new instance of the `isDefEq` hazard: do not ascribe coercion indices
+
+Found by bisection while the above was failing, and worth its own line because
+the diagnosis is counter-intuitive. This loops:
+
+```lean
+have hval : (snoc ∅ α) ‘ ((0 : ℕ) : V) = α := snoc_value_at_len M L hnil
+```
+
+and this does not:
+
+```lean
+have hval := snoc_value_at_len M L (v := α) hnil
+rw [List.length_nil] at hval
+```
+
+The lemma's index is `((Γ.length : ℕ) : V)`. Ascribing `((0 : ℕ) : V)` asks
+`whnf` to reconcile two *coercion shapes*, which unfolds the set-theoretic
+numerals; rewriting `List.length_nil` at the `ℕ` level instead is one syntactic
+step. **Take the lemma's own form and adjust the index afterwards.** The
+symptom is indistinguishable from the `mkLam` unification blow-up — both are
+`whnf` timeouts at the theorem header — which is why bisecting to the individual
+`have` was necessary rather than reasoning about which step "looked expensive".
+
 ### The pattern: uniform in ZFC, not uniform across `Sort 0`
 
 That split is the **third** time this session a statement that reads uniformly

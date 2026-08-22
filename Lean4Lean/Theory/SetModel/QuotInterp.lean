@@ -1,4 +1,5 @@
 import Lean4Lean.Theory.SetModel.Cnst
+import Lean4Lean.Theory.SetModel.Definability
 
 /-!
 # The interpretation of `Quot`
@@ -239,42 +240,70 @@ theorem quotSortU_type (hu : u.WF nv) :
 
 end Typing
 
-/-! ### Where this stops, and why
+section Interp
 
-The next step is the two `mkLam` layers that turn `quotVal` into an element of
-`⟦∀ (α : Sort u) (r : α → α → Prop), Sort u⟧`.  It is **not** written here,
-because attempting it showed that the boundary between "value layer" and
-"plumbing" does not exist:
+variable [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖]
+variable {envF : VEnv} {nv : ℕ} {M : ModelData V} {L : LevelAssign envF nv} {u : VLevel}
 
-`mkLam`'s fibre map is itself a value-layer object.  So each nested λ introduces
-a *new composite function* that needs its own joint-definability proof, and
-`definability` cannot compose the ones already proved — each needs a bespoke
-`mem_ext_iff` restatement, and the restatements get harder as the nesting
-deepens.  Concretely, the inner λ needs
+/-- Definability of the inner fibre map.  Written in the **environment-passing
+style** — `α` is read back out of `ρ` rather than captured — which is what makes
+the nesting compose. -/
+theorem quotFib_fibre_definable (M : ModelData V) (u : VLevel) :
+    ℒₛₑₜ-function₂[V] (fun ρ r ↦ quotVal (ρ ‘ ((0 : ℕ) : V)) r (u.eval M.ls)) :=
+  definable₂_comp₁ (quotVal_definable _) (value_definable _)
 
-* `ℒₛₑₜ-function₂ (fun _ r ↦ quotVal α r i)` — the dummy-argument weakening of
-  `quotVal_definable₁`, and
-* `ℒₛₑₜ-function₁ (fun α ↦ mkLam … (snoc ∅ α))` — the outer fibre map,
+/-- The inner λ, as a function of the environment: for the carrier recorded in
+`ρ`, the map sending a relation to the quotient. -/
+noncomputable def quotFib (M : ModelData V) (L : LevelAssign envF nv) (u : VLevel) : V → V :=
+  mkLam (interp M L [.sort u] quotRelTy).toFun (interp M L [.sort u] quotRelTy).definable
+    (fun ρ r ↦ quotVal (ρ ‘ ((0 : ℕ) : V)) r (u.eval M.ls)) (quotFib_fibre_definable M u)
 
-and neither goes through, although the *abstract* form of the first
-(`ℒₛₑₜ-function₁ f ⊢ ℒₛₑₜ-function₂ (fun _ y ↦ f y)`) does when `f` is an opaque
-hypothesis.  The difference is that `definability` re-unfolds `quotVal` instead
-of using the supplied lemma.
+theorem quotFib_definable : ℒₛₑₜ-function₁[V] (quotFib M L u) :=
+  mkLam_definable _ _ _ _
 
-What is missing is a small library of **`mkLam` definability combinators** —
-above all a joint form
+/-- **The denotation of `Quot` at universe `u`.**  Two nested λs, each one
+application of the combinators. -/
+noncomputable def quotFn (M : ModelData V) (L : LevelAssign envF nv) (u : VLevel) : V :=
+  mkLam (interp M L [] (.sort u)).toFun (interp M L [] (.sort u)).definable
+    (fun ρ α ↦ quotFib M L u (snoc ρ α))
+    (by have := quotFib_definable (M := M) (L := L) (u := u); definability)
+    ∅
 
-```
-mkLam_definable₂ :
-  (G definable in (a, ρ)) → (F definable in (a, ρ, v)) →
-  ℒₛₑₜ-function₁ (fun a ↦ mkLam (G a) _ (F a) _ (ρ a))
-```
+/-! ### The membership obligation -/
 
-which would make each nested λ one application rather than a bespoke proof.
-This is not specific to `Quot`: a constructor or a recursor is a deeper nest
-than `Quot` is, so the same combinators are a prerequisite for the `.induct`
-oracle, not an optional convenience.
--/
+variable {n : ℕ} {κ : ℕ → V}
 
+set_option maxHeartbeats 1000000 in
+theorem quotFib_mem (hκ : IsInaccessibleChain n M.κ) (hu : u.WF nv)
+    (hi : u.eval M.ls < n) {α : V} (hα : α ∈ U M.κ (u.eval M.ls)) :
+    quotFib M L u (snoc ∅ α)
+      ∈ (interp M L [.sort u] (.forallE quotRelTy (.sort u))).toFun (snoc ∅ α) := by
+  have hnil : (∅ : V) ∈ interpCtx M L ([] : List VExpr) := by
+    rw [interpCtx_nil]; exact mem_singleton_iff.2 rfl
+  -- NB: `hval`'s type is deliberately *not* ascribed.  Writing `((0 : ℕ) : V)`
+  -- where the lemma has `((Γ.length : ℕ) : V)` sends `whnf` into a loop: the
+  -- two coercion shapes differ and unifying them unfolds the set-theoretic
+  -- numerals.  Take the lemma's own form, then rewrite the index at `ℕ`.
+  have hval := snoc_value_at_len M L (v := α) hnil
+  rw [List.length_nil] at hval
+  unfold quotFib
+  refine mkLam_mem_interp_forallE' (env₀ := envF) (Γ := [VExpr.sort u]) (A := quotRelTy)
+    (B := VExpr.sort u) (v := .succ u) (ρ := snoc ∅ α)
+    VEnv.LE.rfl (quotSortU_type hu) (Nat.succ_ne_zero _) _ fun r _ ↦ ?_
+  rw [hval, interp_sort]
+  exact quotVal_mem_U hκ hi hα
+
+set_option maxHeartbeats 1000000 in
+/-- **`Quot`'s `const_type` obligation.** -/
+theorem quotFn_mem (hκ : IsInaccessibleChain n M.κ) (hu : u.WF nv)
+    (hi : u.eval M.ls < n) :
+    quotFn M L u ∈ (interp M L [] (quotConst.type.instL [u])).toFun ∅ := by
+  show quotFn M L u ∈ (interp M L [] (.forallE (.sort u) (.forallE quotRelTy (.sort u)))).toFun ∅
+  refine mkLam_mem_interp_forallE' (env₀ := envF) VEnv.LE.rfl (quotCod_type hu)
+    (fun h ↦ Nat.succ_ne_zero _ (imax_eq_zero_iff.1 h)) _ fun α hα ↦ ?_
+  rw [interp_sort] at hα
+  exact quotFib_mem hκ hu hi hα
+
+end Interp
 
 end Lean4Lean.SetModel

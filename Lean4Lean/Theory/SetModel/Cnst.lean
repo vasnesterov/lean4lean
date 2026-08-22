@@ -276,6 +276,27 @@ theorem mkLam_mem_interp_forallE (hle : env₀ ≤ envF)
   rw [interp_forallE_type M L (fun hp ↦ hv ((isProp_iff hle hB).1 hp))]
   exact mkLam_mem_mkForallType h
 
+/-- **Introduction, proper codomain, environment-passing form.**
+
+The same statement as `mkLam_mem_interp_forallE` but with the fibre map taking
+the environment, which is the form a *nested* λ needs — see
+`SetModel/Definability.lean` on why capturing the outer variable instead breaks
+the composition.
+
+Proving it once, schematically, also matters for elaboration: applied directly,
+`mkLam_mem_mkForallType` has to unify the two `ℒₛₑₜ`-definability *proof terms*,
+and at a concrete call site those are large enough to hang `whnf`. Here they are
+variables. -/
+theorem mkLam_mem_interp_forallE' (hle : env₀ ≤ envF)
+    (hB : env₀.HasType nv (A :: Γ) B (.sort v)) (hv : v.eval M.ls ≠ 0)
+    {F : V → V → V} (hF : ℒₛₑₜ-function₂[V] F)
+    (h : ∀ w ∈ (interp M L Γ A).toFun ρ,
+      F ρ w ∈ (interp M L (A :: Γ) B).toFun (snoc ρ w)) :
+    mkLam (interp M L Γ A).toFun (interp M L Γ A).definable F hF ρ
+      ∈ (interp M L Γ (.forallE A B)).toFun ρ := by
+  rw [interp_forallE_type M L (fun hp ↦ hv ((isProp_iff hle hB).1 hp))]
+  exact mkLam_mem_mkForallType h
+
 end Forall
 
 /-! ## Discharging the oracle -/

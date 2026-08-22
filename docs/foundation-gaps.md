@@ -432,6 +432,25 @@ theorem rank_induction (P : V → Prop) (hP : ℒₛₑₜ-predicate P)
 
 ## The `isDefEq` divergence hazard, and the discipline that avoids it
 
+**New instance (2026-08): coercion indices.** Ascribing a type to a `have` whose
+index is a coerced numeral loops, where taking the lemma's own form does not:
+
+```lean
+-- loops at whnf, 1M heartbeats
+have hval : (snoc ∅ α) ‘ ((0 : ℕ) : V) = α := snoc_value_at_len M L hnil
+-- fine
+have hval := snoc_value_at_len M L (v := α) hnil
+rw [List.length_nil] at hval
+```
+
+The lemma's index is `((Γ.length : ℕ) : V)`; ascribing `((0 : ℕ) : V)` asks
+`whnf` to reconcile two coercion shapes and it unfolds the von Neumann numerals.
+Rewriting at the `ℕ` level is one syntactic step. The discipline is the same as
+for the other instances — **do not ascribe a type that differs from the lemma's
+even when the two are "obviously" equal** — but this one is worth calling out
+because the difference is invisible at a glance and the symptom is identical to
+the unrelated `mkLam` proof-term blow-up.
+
 This is not a missing lemma; it is a property of the `Ordinal V` encoding that
 costs hours if you meet it without warning. It bit us in **every one of the six
 files**, and each time it presented as a hang, never as a type error.
