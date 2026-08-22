@@ -2,6 +2,7 @@ import Lean4Lean.Theory.Typing.PatternDecode
 import Lean4Lean.Theory.Inductive.Lemmas
 import Lean4Lean.Theory.Typing.DeltaUnique
 import Lean4Lean.Theory.Typing.EnvLemmas
+import Lean4Lean.Theory.Inductive.StructureClosed
 
 /-!
 # `Pat`: which patterns an environment's rules are
@@ -1116,6 +1117,67 @@ theorem Pat.uniq {env : VEnv} (henv : env.WF) {p₁ p₂ p₃ p₄ : Pattern}
           obtain ⟨x, hx, rfl⟩ := Pattern.inter_app_var hi
           obtain ⟨hR, -, -⟩ := Pattern.inter_varN_const hx
           exact absurd hR (by decide)
+
+/-! ### The ι-rule's substitution identity
+
+The ι index clauses compare the recursor's index arguments — stored in the rule as
+`(atRec a).liftN off nf` — against `iotaComputed`'s entries, which are `mkLams tel a` applied
+to the *matched constructor arguments*.  β-reducing the latter (`VEnv.IsDefEq.betaMkLams`)
+leaves an `instAll`, and these two lemmas say that `instAll` is the `liftN` the rule already
+performed.
+
+The statement was machine-checked on three probes *before* being proved: a hand derivation
+of the offsets gave `bvar 2` where the identity needs `bvar 3`, because `instVar` lifts its
+argument by `k` at `i = k`, which is easy to miss.  The check is cheap and it catches the
+error in both directions — a false statement believed true, and a true statement about to be
+abandoned as false. -/
+
+/-- Substituting a *displaced* variable block: the `n` variables at levels `k … k+n-1`
+replaced by the run sitting `R` binders above the bottom is exactly a lift by `R` above `k`.
+
+Induction on `X`, not on `n`: the substituted list is fixed and only `k` moves, which is what
+makes the binder cases line up.  Inducting on `n` fails — the intermediate term is no longer
+closed at the level the induction hypothesis wants. -/
+theorem VExpr.instAll_bvars_shift : ∀ {X : VExpr} {k n R : Nat}, X.ClosedN (k + n) →
+    instAll X (bvars R n) k = X.liftN R k := by
+  intro X
+  induction X with
+  | bvar i =>
+    intro k n R h
+    rcases Nat.lt_or_ge i k with hik | hik
+    · rw [VExpr.instAll_bvar_lt' hik]
+      simp [VExpr.liftN, liftVar, hik]
+    · have hlt : i < k + n := h
+      rw [VExpr.instAll_bvar_get (t := k + n - i - 1) (a := .bvar (R + i - k))
+        (by rw [VExpr.getElem?_bvars, if_pos (by omega)]; congr 2; omega) (by simp; omega)]
+      simp only [VExpr.liftN]
+      congr 1
+      rw [liftVar_le (Nat.zero_le _), liftVar_le hik]
+      omega
+  | sort => intro k n R h; simp [VExpr.instAll_sort, VExpr.liftN]
+  | const => intro k n R h; simp [VExpr.instAll_const, VExpr.liftN]
+  | app f a ih1 ih2 =>
+    intro k n R h
+    rw [VExpr.instAll_app, ih1 h.1, ih2 h.2]; rfl
+  | lam A b ih1 ih2 =>
+    intro k n R h
+    rw [VExpr.instAll_lam, ih1 h.1, ih2 (show b.ClosedN (k+1+n) by
+      have := h.2; simpa [Nat.add_right_comm] using this)]
+    rfl
+  | forallE A b ih1 ih2 =>
+    intro k n R h
+    rw [VExpr.instAll_forallE, ih1 h.1, ih2 (show b.ClosedN (k+1+n) by
+      have := h.2; simpa [Nat.add_right_comm] using this)]
+    rfl
+
+/-- **The ι-rule's substitution identity.**  Substituting a constructor telescope's own
+variables — the parameters displaced `off` binders up by the motives and minors, the fields
+at the bottom — is exactly `liftN off nf`, which is how the rule stores them. -/
+theorem VExpr.instAll_bvars₂ {X : VExpr} {np nf off : Nat} (h : X.ClosedN (nf + np)) :
+    instAll X (bvars (nf + off) np ++ bvars 0 nf) 0 = X.liftN off nf := by
+  rw [← VExpr.map_liftN_bvars_lo (m := nf) (lo := off) (n := np) (Nat.zero_le _),
+    VExpr.instAll_map_liftN_bvars (by simpa using h),
+    VExpr.instAll_bvars_shift (by simpa using h)]
 
 /-! ### The ι-rule's shape after level instantiation -/
 
