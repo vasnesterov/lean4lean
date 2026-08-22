@@ -516,6 +516,12 @@ theorem Ctx.Inter.right (H : Ctx.Inter Γ Γ₁ l₁ Γ₂ l₂ Δ) : Ctx.Lift' 
 
 theorem Ctx.Inter.left (H : Ctx.Inter Γ Γ₁ l₁ Γ₂ l₂ Δ) : Ctx.Lift' l₁ Γ₁ Δ := H.symm.right
 
+/-- The `SExpr` mirror of `Pattern.Matches`. It deliberately still keeps a **single**
+level list rather than the `p.LPath → List SLevel` map that the `VExpr`-side `Matches`
+now carries: exploiting per-leaf levels here would mean indexing `LE_Interp.Matches` and
+`LE_Interp.Const` by `LPath` too, which is shape-model-core work. Until then `applyS`
+ignores an `RHS.fixed`'s `LPath` and instantiates every leaf at the head's levels — the
+pre-`LPath` semantics, unchanged. -/
 inductive _root_.Lean4Lean.Pattern.MatchesS :
     (p : Pattern) → SExpr → List SLevel → (p.Path → SExpr) → Prop
   | const : MatchesS (.const c) (.const c ls) ls nofun
@@ -525,12 +531,12 @@ inductive _root_.Lean4Lean.Pattern.MatchesS :
 
 def _root_.Lean4Lean.Pattern.RHS.applyS {p : Pattern}
     (m1 : List SLevel) (m2 : p.Path → SExpr) : p.RHS → SExpr
-  | .fixed c _ => .instL m1 (.mk c)
+  | .fixed c _ _ => .instL m1 (.mk c)
   | .var path => m2 path
   | .app f a => .app (f.applyS m1 m2) (a.applyS m1 m2)
 
 def _root_.Lean4Lean.Pattern.RHS.Closed {p : Pattern} : p.RHS → Prop
-  | .fixed c _ => c.Closed
+  | .fixed c _ _ => c.Closed
   | .var _ => True
   | .app f a => f.Closed ∧ a.Closed
 
@@ -540,10 +546,19 @@ theorem _root_.Lean4Lean.Pattern.RHS.Closed.applyS {p : Pattern} {m1 m2} :
   | .var _, _, h2 => h2 _
   | .app .., h1, h2 => ⟨h1.1.applyS _ h2, h1.2.applyS _ h2⟩
 
+/-- The term-level obligations of a `Check`.
+
+A `Check.level x i y j` obligation is emitted as a defeq between two *sorts*: on the
+`SExpr` side `SLevel` is already quotiented by `≈`, and
+`SExpr.sort_inv : Γ ⊢ .sort u ≡ .sort v : V → u = v` turns that defeq back into the level
+equation. So no separate level-checking predicate is needed here, and `WHRed.extra` keeps
+its single `defeqsS` premise. -/
 def _root_.Lean4Lean.Pattern.Check.defeqsS {p : Pattern}
     (m1 : List SLevel) (m2 : p.Path → SExpr) : p.Check → List (SExpr × SExpr)
   | .true => []
   | .defeq a b rest => (a.applyS m1 m2, b.applyS m1 m2) :: rest.defeqsS m1 m2
+  | .level _ i _ j rest =>
+    (.sort (m1.getD i .zero), .sort (m1.getD j .zero)) :: rest.defeqsS m1 m2
 
 section
 set_option hygiene false

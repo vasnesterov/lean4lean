@@ -3315,7 +3315,7 @@ variable {p : Pattern} (ls : List SLevel) (m2 : p.Path → TShape)
   (R : TShape → SExpr → Prop) in
 inductive LE_Interp.RHS : TShape → p.RHS → Prop
   | bot : RHS (WShape.T .bot) r
-  | const : R m ((SExpr.mk e).instL ls) → RHS m (.fixed e cl)
+  | const : R m ((SExpr.mk e).instL ls) → RHS m (.fixed e lp cl)
   | var : m ≤ m2 path → RHS m (.var path)
   | app : RHS (WShape.T (n := n + 1) f) F → RHS a.T A → m ≤ (f.app a).T → RHS m (.app F A)
 
@@ -3670,7 +3670,7 @@ theorem LE_Interp.RHS.closed
     (H : RHS m1 m2 R m r) : RHS m1 m2 (fun e A => A.ClosedN ∧ R e A) m r := by
   induction H with
   | bot => exact .bot
-  | @const _ _ cl h1 => exact .const ⟨cl.mkS.instL, h1⟩
+  | @const _ _ _ cl h1 => exact .const ⟨cl.mkS.instL, h1⟩
   | var h1 => exact .var h1
   | app hf ha h1 ih_f ih_a => exact .app ih_f ih_a h1
 

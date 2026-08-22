@@ -153,7 +153,7 @@ theorem ParRed.apply_pat {p : Pattern} (r : p.RHS) {m1 m2 m3}
 theorem Pattern.RHS.apply_liftN {p : Pattern} (r : p.RHS) {m1 m2} :
     (r.apply m1 m2).liftN k n = r.apply m1 (fun a => (m2 a).liftN k n) := by
   induction r with simp! [*]
-  | fixed _ h => exact instL_liftN.symm.trans ((h.liftN_eq (Nat.zero_le _)).symm ▸ rfl)
+  | fixed _ _ h => exact instL_liftN.symm.trans ((h.liftN_eq (Nat.zero_le _)).symm ▸ rfl)
 
 -- theorem IsDefEqU.applyL {p : Pattern} (r : p.RHS) {m1 m1' m2}
 --     (H : ∀ a, List.Forall₂ (· ≈ ·) (m1 a) (m1' a))
@@ -245,7 +245,7 @@ theorem CParRed.exists (H : TY.HasType Γ e A) : ∃ e', CParRed TY Γ e e' := b
     · suffices ∃ m3 : p.Path → VExpr, ∀ a, CParRed TY Γ (m2 a) (m3 a) from
         let ⟨_, h3⟩ := this; ⟨_, .extra h1 hp2 hp3 h3⟩
       clear H r h1 hp3
-      induction p generalizing e m1 A with
+      induction p generalizing e A with
       | const => exact ⟨nofun, nofun⟩
       | app f a ih1 ih2 =>
         let .app hm1 hm2 := hp2
