@@ -87,8 +87,30 @@ Because `AddInduct` is empty, `TrEnv` provably contains no inductive
 today. `stdPrelude` is mostly `.inductDecl`s, so the refinement layer currently
 says nothing about it.
 
-Not started: a `foldAddDecl` iteration lemma, and the axiom-free bookkeeping.
-`Verify/Soundness.lean` does not even import `Verify/Environment.lean` yet.
+`Verify/Bridge.lean` (new) now carries the Phase C scaffolding: the `foldAddDecl`
+iteration lemma over `addDecl.WF`, the `TrExprS` inversion turning a kernel-level
+`∀ p : Prop, p` into a `VExpr`-level proof of `falseProp` (this one is
+unconditional), and the export `not_leanTTConsistent_of_kernel_proves_false`. It
+mirrors the four definitions from the frozen `Soundness.lean` rather than
+importing it, since `Soundness.lean` will eventually import Bridge; the mirrors
+are checked defeq to the originals.
+
+Three gaps there are explicit hypotheses rather than sorries:
+
+- `AddDeclWF fuel` — `addDecl.WF` is stated only for `fuel := {}`, but
+  `kernel_sound` quantifies over all fuel. Mechanical: everything below
+  `Environment/Checker.lean` is already fuel-polymorphic; fuel is pinned only by
+  optional-argument defaults in eight lemma statements, ~25 lines across three
+  files, no proof bodies change.
+- `HasEmptyModel` — **a real defect.** `Kernel.Environment.empty` builds its
+  constant map as `{ stage₁ }` with `stage₁ := false`, while `TrEnv'.empty` and
+  `Aligned.empty` pin the literal `({} : ConstMap)`, whose `stage₁` defaults to
+  `true`. No other `TrEnv'` rule can produce `VEnv.empty` at that map, so
+  `∃ ves, ves.WF (Kernel.Environment.empty ‵main)` is underivable today. Fix by
+  weakening the two `empty` constructors to any map with `map₁ = ∅ ∧ map₂ = ∅`.
+- `PreludeBridge` — blocked on the inductive keystone: `TrEnv'.wf` yields
+  `∃ ds, VEnv.WF' ds venv` with no control over the tail, while `VEnv.LeanWF`
+  demands the tail be exactly `leanPrelude.reverse`.
 
 #### Workstream: primitive reflection (`checkPrimitiveDef.WF`)
 
@@ -135,13 +157,41 @@ Open:
 | `VInductDecl.WF`, `VEnv.addInduct` — `sorry` **definitions** | `Theory/Inductive.lean` | **the keystone**; the spec of inductive types does not exist |
 | `addInduct_WF` | `Theory/Typing/InductiveLemmas.lean` | blocked on the above |
 | `IsDefEqU.sort_inv`, `.forallE_inv_stratified`, `.sort_forallE_inv` | `Theory/Typing/Injectivity.lean` | route found — see below |
-| `NormalEq.parRed`, two ι-rule cases | `Theory/Typing/ChurchRosser.lean` | grindy but routine |
+| `NormalEq.parRed`, the `appDF` × `extra` case | `Theory/Typing/ChurchRosser.lean` | needs two new `Params` axioms — see below |
 | `IsDefEqU.weakN_iff`, forward direction | `Theory/Typing/UniqueTyping.lean:174` | routine-ish strengthening |
 | nothing instantiates `VEnv.Params` | — | `addInduct` must produce `Pattern`-shaped ι-rules satisfying the orthogonality axioms |
 | `leanTT_equiconsistent_zfc_omega_inaccessibles` | `Theory/Equiconsistency.lean` | the model; only the `→` direction is needed |
 
 `VEnv.WF.ordered` routes through `addInduct_WF`, so every `henv : VEnv.WF env`
 downstream is sorry-tainted until the keystone lands.
+
+#### `Params` and `Pattern` need redesigning — this is part of the keystone
+
+Three separate findings say the same thing: the `VEnv.Params` / `Pattern`
+abstraction as it stands cannot describe real ι-rules.
+
+*`extra_pat` is unsatisfiable.* `VDefEq.lhs` as built by the `vdefeq(...)`
+elaborator is a lambda-abstracted closed term — `Theory/Quot.lean`'s `quotDefEq`
+is `fun α r β f c a => Quot.lift … (Quot.mk r a)` — but `Pattern.Matches` only
+matches `.const`/`.app` spines and never sees through a `.lam`. So no `Params`
+instance can exist for any environment containing an iota or quot rule, which is
+why none exists in the repo. Either `VDefEq` moves to applied form (rule
+variables as pattern metavariables) or `Matches` learns to see through the
+abstraction; `quotDefEq` has to be re-encoded either way.
+
+*Two axioms are missing.* The remaining `NormalEq.parRed` case needs (a) the
+major premise of a recursor pattern to have a type not defeq to a `forallE`,
+which excludes the `etaL` case — a lam only parallel-reduces to a lam, and an
+inductive type is never a Π-type; and (b) small elimination: if the major premise
+is a proof then the whole redex is a proof, which is the real `Acc.rec` /
+`Quot.lift`-over-a-Prop case. Both are facts about the inductive *declaration*
+that the `Pat` abstraction hides. Carneiro's corresponding proof uses exactly
+these two, one silently.
+
+*The consequence for phasing.* `addInduct` must not merely produce ι-rules — it
+must produce ones that provably satisfy the `Params` axioms including these two.
+That is now part of the keystone's acceptance criteria, and it is why
+`ChurchRosser.lean` and `HeadReduction.lean` are vacuous today.
 
 #### Workstream: injectivity
 
