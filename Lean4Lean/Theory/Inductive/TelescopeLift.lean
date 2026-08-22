@@ -171,6 +171,60 @@ theorem ClosedTele.map_instL : ∀ {As : List VExpr} {k ls},
   | [], _, _, _ => trivial
   | _ :: _, _, _, h => ⟨h.1.instL, ClosedTele.map_instL h.2⟩
 
+/-- Entry `i` of a telescope closed at `k` is closed at `k + i`. -/
+theorem ClosedTele.getElem? {A : VExpr} : ∀ {As : List VExpr} {k i : Nat},
+    ClosedTele As k → As[i]? = some A → A.ClosedN (k + i) := by
+  intro As
+  induction As with
+  | nil => intro k i _ hA; simp at hA
+  | cons B As ih =>
+    intro k i h hA
+    cases i with
+    | zero => cases hA; simpa using h.1
+    | succ i =>
+      have := ih (k := k+1) (i := i) h.2 (by simpa using hA)
+      rw [← Nat.add_assoc]; simpa [Nat.add_right_comm] using this
+
+/-! ## `instAll` against `inst`
+
+The same development for `inst`, which `TrProj.instN` needs.  Same shape: unconditional
+first, closed corollary second. -/
+
+theorem inst_instAll' {a : VExpr} {m : Nat} : ∀ {as : List VExpr} {A : VExpr} {j},
+    (instAll A as j).inst a (m + j)
+      = instAll (A.inst a (m + j + as.length)) (as.map (·.inst a m)) j
+  | [], _, _ => rfl
+  | b :: as, A, j => by
+    simp only [instAll_cons, List.map_cons, List.length_cons, List.length_map]
+    rw [inst_instAll' (as := as) (A := A.inst b (j + as.length)) (j := j),
+      show m + j + as.length = m + (j + as.length) from by omega, inst_inst_hi,
+      show m + (j + as.length) + 1 = m + j + (as.length + 1) from by omega]
+
+theorem inst_instAll {A a : VExpr} {as : List VExpr} {m j : Nat}
+    (h : A.ClosedN (j + as.length)) :
+    (instAll A as j).inst a (m + j) = instAll A (as.map (·.inst a m)) j := by
+  rw [inst_instAll', h.instN_eq (by omega)]
+
+theorem inst_instAllTele {a : VExpr} {as : List VExpr} {m : Nat} :
+    ∀ {As : List VExpr} {j}, ClosedTele As (j + as.length) →
+    instTele a (instAllTele As as j) (m + j) = instAllTele As (as.map (·.inst a m)) j
+  | [], _, _ => rfl
+  | A :: As, j, h => by
+    simp only [instAllTele_cons, instTele_cons]
+    rw [inst_instAll h.1]
+    refine congrArg _ ?_
+    have := inst_instAllTele (a := a) (as := as) (m := m) (As := As) (j := j+1)
+      (by simpa [Nat.add_right_comm] using h.2)
+    simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using this
+
+theorem inst_bvars {a : VExpr} {lo n k : Nat} (h : lo + n ≤ k) :
+    (bvars lo n).map (·.inst a k) = bvars lo n := by
+  induction n with
+  | zero => rfl
+  | succ n ih =>
+    simp only [bvars, List.map_cons, inst, instVar, if_pos (show lo + n < k by omega)]
+    rw [ih (by omega)]
+
 end VExpr
 
 end Lean4Lean

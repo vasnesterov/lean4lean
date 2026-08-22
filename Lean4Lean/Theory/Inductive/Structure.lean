@@ -1,4 +1,5 @@
 import Lean4Lean.Theory.Inductive.Decl
+import Lean4Lean.Theory.Inductive.TelescopeLift
 
 /-!
 # Structures and their projections
@@ -152,6 +153,217 @@ theorem projTerm_instL (ps is : List VExpr) (i : Nat) (e : VExpr) :
 
 end VInductDecl'
 
+/-- The stored telescopes of a structure are closed at their declared arities.
+
+This is what makes `projTerm` commute with context operations, and it is a genuine
+precondition rather than a proof-strategy artifact: `projCore` splices the stored data in
+via `instAll A as k`, and
+
+```
+(instAll A as k).lift' (ρ.consN (k + |as|))
+  = instAll (A.lift' (ρ.consN (k + |as|))) (as.map (·.lift' ρ)) k
+```
+
+is a `projCore` at lifted arguments only when `A.lift' (ρ.consN (k + |as|)) = A`, i.e. when
+`A` is closed at `k + |as|` — which is exactly the declared arity at each splice site.
+Without it a stored entry can carry a variable pointing at the ambient context, which the
+left-hand lift moves and the right-hand one cannot; see the `decide`-checked refutation in
+the scratchpad witness `ProjTermLiftNeedsClosed.lean`.
+
+Not a hypothesis: `VEnv.IsStructure.projClosed` (`Theory/Inductive/StructureClosed.lean`)
+derives it from `IsStructure` plus `Ordered env`. -/
+structure VInductDecl'.ProjClosed (D : VInductDecl') (T : VIndType) (C : VIndCtor) : Prop where
+  /-- Index `j` lives over `params ++ indices<j`. -/
+  indices : VExpr.ClosedTele T.indices D.np
+  /-- Field `j` lives over `params ++ fields<j`. -/
+  fields : VExpr.ClosedTele (C.fields.map (·.type)) D.np
+
+
+namespace VInductDecl'
+
+variable (D : VInductDecl') (T : VIndType) (C : VIndCtor) (us : List VLevel)
+
+/-! ### Commutation with `lift'`
+
+Unlike `instL`, these carry `ProjClosed`: `projCore` splices the stored telescopes in with
+`instAll`, and an entry not closed at its declared arity keeps a variable reaching into the
+ambient context, which the lift moves on one side of the equation and not the other.  See
+`VExpr.lift'_instAll` and the refutation recorded at `ProjClosed`. -/
+
+theorem length_projArgs : ∀ {i : Nat} {ps is : List VExpr},
+    (D.projArgs T C us ps is i).length = i
+  | 0, _, _ => rfl
+  | i+1, ps, is => by simp [projArgs, length_projArgs (i := i)]
+
+theorem projCore_lift' (hcl : D.ProjClosed T C) {ps is earlier : List VExpr} {e : VExpr}
+    {i : Nat} {ρ : Lift}
+    (hps : ps.length = D.np) (his : is.length = T.indices.length)
+    (hearlier : earlier.length = i) (hi : i < C.fields.length) :
+    (D.projCore T C us ps is i earlier e).lift' ρ =
+      D.projCore T C us (ps.map (·.lift' ρ)) (is.map (·.lift' ρ)) i
+        (earlier.map (·.lift' (ρ.consN (is.length + 1)))) (e.lift' ρ) := by
+  have hidx : VExpr.ClosedTele (T.indices.map (VExpr.instL us)) (0 + ps.length) := by
+    simpa [hps] using VExpr.ClosedTele.map_instL hcl.indices
+  have hfldeq : (C.fields.map fun F => F.type.instL us)
+      = (C.fields.map (·.type)).map (VExpr.instL us) := by simp [List.map_map, Function.comp_def]
+  have hfld : VExpr.ClosedTele (C.fields.map fun F => F.type.instL us) (0 + ps.length) := by
+    rw [hfldeq]; simpa [hps] using VExpr.ClosedTele.map_instL hcl.fields
+  have hget : (C.fields.map (·.type))[i]? = some (C.fields.getD i default).type := by
+    rw [List.getElem?_map, List.getElem?_eq_getElem hi]
+    simp [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hi]
+  have hftype : ((C.fields.getD i default).type.instL us).ClosedN
+      (0 + (ps.map (·.liftN (is.length+1)) ++ earlier).length) := by
+    have := (VExpr.ClosedTele.getElem? hcl.fields hget).instL (ls := us)
+    simpa [hps, hearlier] using this
+  have e1 : liftTele' ρ (VExpr.instAllTele (T.indices.map (VExpr.instL us)) ps)
+      = VExpr.instAllTele (T.indices.map (VExpr.instL us)) (ps.map (·.lift' ρ)) :=
+    VExpr.lift'_instAllTele (ρ := ρ) (k := 0) (by simpa using hidx)
+  have e2 : liftTele' ρ (VExpr.instAllTele (C.fields.map fun F => F.type.instL us) ps)
+      = VExpr.instAllTele (C.fields.map fun F => F.type.instL us) (ps.map (·.lift' ρ)) :=
+    VExpr.lift'_instAllTele (ρ := ρ) (k := 0) (by simpa using hfld)
+  have e3 : (VExpr.instAll ((C.fields.getD i default).type.instL us)
+        (ps.map (·.liftN (is.length+1)) ++ earlier)).lift' (ρ.consN is.length).cons
+      = VExpr.instAll ((C.fields.getD i default).type.instL us)
+        ((ps.map (·.liftN (is.length+1)) ++ earlier).map (·.lift' (ρ.consN (is.length+1)))) :=
+    VExpr.lift'_instAll (ρ := ρ.consN (is.length+1)) (k := 0) hftype
+  have e4 : (bvars 0 is.length).map (·.lift' (ρ.consN is.length)) = bvars 0 is.length :=
+    VExpr.lift'_bvars (lo := 0) (n := is.length) (ρ := ρ.consN is.length)
+      (by simpa using Lift.consN_fixes)
+  simp only [projCore, VExpr.lift'_mkApp, VExpr.lift', List.map_append, List.map_cons,
+    List.map_nil, VExpr.lift'_mkLams, List.length_map, VExpr.length_instAllTele, ← his]
+  rw [e1, e2, e3, e4,
+    Lift.consN_fixes.liftVar_eq (show C.fields.length - 1 - i < C.fields.length by omega)]
+  simp only [List.map_append, List.map_map, Function.comp_def, VExpr.liftN_lift']
+
+theorem projArgs_lift' (hcl : D.ProjClosed T C) :
+    ∀ {i : Nat} {ps is : List VExpr} {ρ : Lift},
+    ps.length = D.np → is.length = T.indices.length → i ≤ C.fields.length → ρ.Fixes 1 →
+    (D.projArgs T C us ps is i).map (·.lift' ρ)
+      = D.projArgs T C us (ps.map (·.lift' ρ)) (is.map (·.lift' ρ)) i
+  | 0, _, _, _, _, _, _, _ => rfl
+  | i+1, ps, is, ρ, hps, his, hi, hρ => by
+    have hinner := projArgs_lift' hcl (i := i)
+      (ps := ps.map (·.liftN (is.length+1))) (is := bvars 1 is.length)
+      (ρ := ρ.consN (is.length+1)) (by simpa using hps) (by simpa using his)
+      (by omega) (Lift.consN_fixes.le (by omega))
+    have hbv : (bvars 1 is.length).map (·.lift' (ρ.consN (is.length+1))) = bvars 1 is.length :=
+      VExpr.lift'_bvars (lo := 1) (n := is.length) (ρ := ρ.consN (is.length+1))
+        (by rw [Nat.add_comm]; exact Lift.consN_fixes)
+    simp only [projArgs, List.map_append, List.map_cons, List.map_nil]
+    rw [projArgs_lift' hcl (i := i) hps his (by omega) hρ,
+      projCore_lift' D T C us hcl hps his (D.length_projArgs T C us) (by omega),
+      hinner, hbv]
+    simp only [VExpr.lift', hρ.liftVar_eq (show 0 < 1 by omega),
+      List.map_map, Function.comp_def, VExpr.liftN_lift', List.length_map]
+
+theorem projTerm_lift' (hcl : D.ProjClosed T C) {ps is : List VExpr} {e : VExpr}
+    {i : Nat} {ρ : Lift}
+    (hps : ps.length = D.np) (his : is.length = T.indices.length) (hi : i < C.fields.length) :
+    (D.projTerm T C us ps is i e).lift' ρ =
+      D.projTerm T C us (ps.map (·.lift' ρ)) (is.map (·.lift' ρ)) i (e.lift' ρ) := by
+  have hbv : (bvars 1 is.length).map (·.lift' (ρ.consN (is.length+1))) = bvars 1 is.length :=
+    VExpr.lift'_bvars (lo := 1) (n := is.length) (ρ := ρ.consN (is.length+1))
+      (by rw [Nat.add_comm]; exact Lift.consN_fixes)
+  simp only [projTerm]
+  rw [projCore_lift' D T C us hcl hps his (D.length_projArgs T C us) hi,
+    projArgs_lift' D T C us hcl (i := i) (ps := ps.map (·.liftN (is.length+1)))
+      (is := bvars 1 is.length) (ρ := ρ.consN (is.length+1))
+      (by simpa using hps) (by simpa using his) (by omega) (Lift.consN_fixes.le (by omega)),
+    hbv]
+  simp only [List.map_map, Function.comp_def, VExpr.liftN_lift', List.length_map]
+
+theorem projCore_instN (hcl : D.ProjClosed T C) {ps is earlier : List VExpr} {e e₀ : VExpr}
+    {i k : Nat}
+    (hps : ps.length = D.np) (his : is.length = T.indices.length)
+    (hearlier : earlier.length = i) (hi : i < C.fields.length) :
+    (D.projCore T C us ps is i earlier e).inst e₀ k =
+      D.projCore T C us (ps.map (·.inst e₀ k)) (is.map (·.inst e₀ k)) i
+        (earlier.map (·.inst e₀ (k + is.length + 1))) (e.inst e₀ k) := by
+  have hidx : VExpr.ClosedTele (T.indices.map (VExpr.instL us)) (0 + ps.length) := by
+    simpa [hps] using VExpr.ClosedTele.map_instL hcl.indices
+  have hfldeq : (C.fields.map fun F => F.type.instL us)
+      = (C.fields.map (·.type)).map (VExpr.instL us) := by simp [List.map_map, Function.comp_def]
+  have hfld : VExpr.ClosedTele (C.fields.map fun F => F.type.instL us) (0 + ps.length) := by
+    rw [hfldeq]; simpa [hps] using VExpr.ClosedTele.map_instL hcl.fields
+  have hget : (C.fields.map (·.type))[i]? = some (C.fields.getD i default).type := by
+    rw [List.getElem?_map, List.getElem?_eq_getElem hi]
+    simp [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hi]
+  have hftype : ((C.fields.getD i default).type.instL us).ClosedN
+      (0 + (ps.map (·.liftN (is.length+1)) ++ earlier).length) := by
+    have := (VExpr.ClosedTele.getElem? hcl.fields hget).instL (ls := us)
+    simpa [hps, hearlier] using this
+  have e1 : VExpr.instTele e₀ (VExpr.instAllTele (T.indices.map (VExpr.instL us)) ps) k
+      = VExpr.instAllTele (T.indices.map (VExpr.instL us)) (ps.map (·.inst e₀ k)) :=
+    VExpr.inst_instAllTele (m := k) (j := 0) (by simpa using hidx)
+  have e2 : VExpr.instTele e₀ (VExpr.instAllTele (C.fields.map fun F => F.type.instL us) ps) k
+      = VExpr.instAllTele (C.fields.map fun F => F.type.instL us) (ps.map (·.inst e₀ k)) :=
+    VExpr.inst_instAllTele (m := k) (j := 0) (by simpa using hfld)
+  have e3 : (VExpr.instAll ((C.fields.getD i default).type.instL us)
+        (ps.map (·.liftN (is.length+1)) ++ earlier)).inst e₀ (k + is.length + 1)
+      = VExpr.instAll ((C.fields.getD i default).type.instL us)
+        ((ps.map (·.liftN (is.length+1)) ++ earlier).map (·.inst e₀ (k + is.length + 1))) :=
+    VExpr.inst_instAll (m := k + is.length + 1) (j := 0) hftype
+  have e4 : (bvars 0 is.length).map (·.inst e₀ (k + is.length)) = bvars 0 is.length :=
+    VExpr.inst_bvars (by omega)
+  simp only [projCore, VExpr.inst_mkApp, VExpr.inst, VExpr.instVar, List.map_append,
+    List.map_cons, List.map_nil, VExpr.inst_mkLams, List.length_map,
+    VExpr.length_instAllTele, ← his]
+  have e5 : ∀ (n : Nat) (l : List VExpr),
+      l.map (fun x => (x.liftN n).inst e₀ (k + n)) = l.map (fun x => (x.inst e₀ k).liftN n) :=
+    fun n l => List.map_congr_left fun x _ => by
+      rw [Nat.add_comm k n]; exact (VExpr.liftN_instN_lo n x e₀ k 0 (Nat.zero_le _)).symm
+  rw [e1, e2, e3, e4, if_pos (show C.fields.length - 1 - i < k + C.fields.length by omega)]
+  simp only [List.map_append, List.map_map, Function.comp_def, Nat.add_assoc, e5]
+
+theorem projArgs_instN (hcl : D.ProjClosed T C) :
+    ∀ {i : Nat} {ps is : List VExpr} {e₀ : VExpr} {k : Nat},
+    ps.length = D.np → is.length = T.indices.length → i ≤ C.fields.length → 1 ≤ k →
+    (D.projArgs T C us ps is i).map (·.inst e₀ k)
+      = D.projArgs T C us (ps.map (·.inst e₀ k)) (is.map (·.inst e₀ k)) i
+  | 0, _, _, _, _, _, _, _, _ => rfl
+  | i+1, ps, is, e₀, k, hps, his, hi, hk => by
+    have hinner := projArgs_instN hcl (i := i)
+      (ps := ps.map (·.liftN (is.length+1))) (is := bvars 1 is.length)
+      (e₀ := e₀) (k := k + is.length + 1)
+      (by simpa using hps) (by simpa using his) (by omega) (by omega)
+    have hbv : (bvars 1 is.length).map (·.inst e₀ (k + is.length + 1)) = bvars 1 is.length :=
+      VExpr.inst_bvars (by omega)
+    have e5 : ∀ (l : List VExpr),
+        l.map (fun x => (x.liftN (is.length+1)).inst e₀ (k + is.length + 1))
+          = l.map (fun x => (x.inst e₀ k).liftN (is.length+1)) :=
+      fun l => List.map_congr_left fun x _ => by
+        rw [show k + is.length + 1 = k + (is.length + 1) from by omega, Nat.add_comm k]
+        exact (VExpr.liftN_instN_lo (is.length+1) x e₀ k 0 (Nat.zero_le _)).symm
+    simp only [projArgs, List.map_append, List.map_cons, List.map_nil]
+    rw [projArgs_instN hcl (i := i) hps his (by omega) hk,
+      projCore_instN D T C us hcl hps his (D.length_projArgs T C us) (by omega),
+      hinner, hbv]
+    simp only [VExpr.inst, VExpr.instVar, if_pos (show 0 < k by omega),
+      List.map_map, Function.comp_def, e5, List.length_map]
+
+theorem projTerm_instN (hcl : D.ProjClosed T C) {ps is : List VExpr} {e e₀ : VExpr}
+    {i k : Nat}
+    (hps : ps.length = D.np) (his : is.length = T.indices.length) (hi : i < C.fields.length) :
+    (D.projTerm T C us ps is i e).inst e₀ k =
+      D.projTerm T C us (ps.map (·.inst e₀ k)) (is.map (·.inst e₀ k)) i (e.inst e₀ k) := by
+  have hbv : (bvars 1 is.length).map (·.inst e₀ (k + is.length + 1)) = bvars 1 is.length :=
+    VExpr.inst_bvars (by omega)
+  have e5 : ∀ (l : List VExpr),
+      l.map (fun x => (x.liftN (is.length+1)).inst e₀ (k + is.length + 1))
+        = l.map (fun x => (x.inst e₀ k).liftN (is.length+1)) :=
+    fun l => List.map_congr_left fun x _ => by
+      rw [show k + is.length + 1 = k + (is.length + 1) from by omega, Nat.add_comm k]
+      exact (VExpr.liftN_instN_lo (is.length+1) x e₀ k 0 (Nat.zero_le _)).symm
+  simp only [projTerm]
+  rw [projCore_instN D T C us hcl hps his (D.length_projArgs T C us) hi,
+    projArgs_instN D T C us hcl (i := i) (ps := ps.map (·.liftN (is.length+1)))
+      (is := bvars 1 is.length) (e₀ := e₀) (k := k + is.length + 1)
+      (by simpa using hps) (by simpa using his) (by omega) (by omega),
+    hbv]
+  simp only [List.map_map, Function.comp_def, e5, List.length_map]
+
+end VInductDecl'
+
 /-- `env` declares `S` as a structure: a single-constructor inductive block, with `T` its
 one type and `C` its one constructor.
 
@@ -178,31 +390,6 @@ structure VEnv.IsStructure (env : VEnv) (S : Lean.Name)
   noRec : C.recFields = []
   /-- The block was declared, well-formedly, at some point in `env`'s past. -/
   decl : ∃ env₀ env₁, D.WF env₀ ∧ env₀.addInduct' D = some env₁ ∧ env₁ ≤ env
-
-/-- The stored telescopes of a structure are closed at their declared arities.
-
-This is what makes `projTerm` commute with context operations, and it is a genuine
-precondition rather than a proof-strategy artifact: `projCore` splices the stored data in
-via `instAll A as k`, and
-
-```
-(instAll A as k).lift' (ρ.consN (k + |as|))
-  = instAll (A.lift' (ρ.consN (k + |as|))) (as.map (·.lift' ρ)) k
-```
-
-is a `projCore` at lifted arguments only when `A.lift' (ρ.consN (k + |as|)) = A`, i.e. when
-`A` is closed at `k + |as|` — which is exactly the declared arity at each splice site.
-Without it a stored entry can carry a variable pointing at the ambient context, which the
-left-hand lift moves and the right-hand one cannot; see the `decide`-checked refutation in
-the scratchpad witness `ProjTermLiftNeedsClosed.lean`.
-
-Not a hypothesis: `VEnv.IsStructure.projClosed` (`Theory/Inductive/StructureClosed.lean`)
-derives it from `IsStructure` plus `Ordered env`. -/
-structure VInductDecl'.ProjClosed (D : VInductDecl') (T : VIndType) (C : VIndCtor) : Prop where
-  /-- Index `j` lives over `params ++ indices<j`. -/
-  indices : VExpr.ClosedTele T.indices D.np
-  /-- Field `j` lives over `params ++ fields<j`. -/
-  fields : VExpr.ClosedTele (C.fields.map (·.type)) D.np
 
 namespace VEnv.IsStructure
 

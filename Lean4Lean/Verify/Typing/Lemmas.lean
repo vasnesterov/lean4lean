@@ -1,5 +1,6 @@
 import Batteries.Data.String.Lemmas
 import Lean4Lean.Verify.Typing.Expr
+import Lean4Lean.Theory.Inductive.StructureClosed
 import Lean4Lean.Verify.Expr
 import Lean4Lean.Theory.Typing.Strong
 import Lean4Lean.Theory.Typing.UniqueTyping
@@ -569,7 +570,11 @@ end VLCtx
 
 theorem TrProj.weak' (henv : Ordered env) (W : Ctx.Lift' n Γ Γ')
     (H : TrProj env U Γ s i e e') :
-    TrProj env U Γ' s i (e.lift' n) (e'.lift' n) := sorry
+    TrProj env U Γ' s i (e.lift' n) (e'.lift' n) := by
+  let .mk h1 h2 h3 h4 h5 h6 h7 := H
+  rw [VInductDecl'.projTerm_lift' _ _ _ _ (h1.projClosed henv) h4 h5 h6]
+  refine .mk h1 ?_ h3 (by simp [h4]) (by simp [h5]) h6 h7
+  simpa [VExpr.lift'_mkApp, List.map_append, VExpr.lift'] using h2.weak' henv W
 
 theorem TrProj.weakN (henv : Ordered env) (W : Ctx.LiftN n k Γ Γ')
     (H : TrProj env U Γ s i e e') :
@@ -1194,7 +1199,11 @@ theorem TrExprS.instN_var (W : VLCtx.InstN Δ₀ e₀' A₀ dk k Δ₁ Δ) (H : 
 
 theorem TrProj.instN (henv : Ordered env) (W : Ctx.InstN Γ₀ e₀ A₀ k Γ₁ Γ)
     (t₀ : env.HasType U Γ₀ e₀ A₀) (H : TrProj env U Γ₁ s i e e') :
-    TrProj env U Γ s i (e.inst e₀ k) (e'.inst e₀ k) := sorry
+    TrProj env U Γ s i (e.inst e₀ k) (e'.inst e₀ k) := by
+  let .mk h1 h2 h3 h4 h5 h6 h7 := H
+  rw [VInductDecl'.projTerm_instN _ _ _ _ (h1.projClosed henv) h4 h5 h6]
+  refine .mk h1 ?_ h3 (by simp [h4]) (by simp [h5]) h6 h7
+  simpa [VExpr.inst_mkApp, List.map_append, VExpr.inst] using h2.instN henv W t₀
 
 variable! (henv : Ordered env) (h₀ : TrExprS env Us Δ₀ e₀ e₀')
   (t₀ : env.HasType Us.length Δ₀.toCtx e₀' A₀) in
