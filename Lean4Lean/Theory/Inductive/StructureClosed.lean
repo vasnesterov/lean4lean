@@ -537,7 +537,15 @@ theorem VExpr.map_instAll_bvars_bot {as bs : List VExpr} {n : Nat} (h : bs.lengt
 /-- **The ι-rule's left-hand side at a concrete spine.**  `iotaLhs` is the recursor applied
 to the ι-context's own variables; substituting `ps`, the motive, the minor premise and the
 constructor's fields turns it into exactly the recursor application `projCore` builds, with
-the major premise the constructor applied to `ps` and `fs`. -/
+the major premise the constructor applied to `ps` and `fs`.
+
+**This equality is load-bearing and is not routine.**  `projCore` (`Structure.lean`) and
+`iotaLhs` (`Decl.lean`) were written independently, by different streams, for different
+purposes — one to *encode* `Expr.proj`, the other to state the ι-rule — and they meet here
+on the nose, with no transport.  That is what makes `TrProj`'s encoding *the same object*
+the kernel's ι-rule reduces, rather than merely a term with the same type.  Had the two
+drifted by even one lift, every use of the minor-premise obligation would have needed a
+transport lemma. -/
 theorem VInductDecl'.iotaLhs_instAll (D : VInductDecl') (T : VIndType) (C : VIndCtor)
     {us : List VLevel} {ps fs : List VExpr} {k : Nat} {mot minor : VExpr}
     (hnm : D.nm = 1) (hnmin : D.nmin = 1) (hTd : D.types.getD 0 default = T)
@@ -596,6 +604,34 @@ theorem VInductDecl'.iotaLhs_instAll (D : VInductDecl') (T : VIndType) (C : VInd
     VLevel.params_inst hlvl, List.map_cons, List.map_nil, List.append_assoc]
   rw [e1, e2, e3, e5]
   simp only [e4]
+  simp
+
+/-- The ι-rule's right-hand side is the η-expansion `λ Γ'. iotaLam Γ'`; at a saturated spine
+the wrapper collapses and only `iotaLam` applied to the spine survives. -/
+theorem VInductDecl'.iotaRhsBody_instAll (D : VInductDecl') (C : VIndCtor)
+    {ls : List VLevel} {spine : List VExpr} (hcl : VExpr.ClosedN (D.iotaLam 0 C) 0)
+    (hn : spine.length = (D.iotaCtx C).length) :
+    VExpr.instAll (((D.iotaLam 0 C).mkApp (bvars 0 (D.iotaCtx C).length)).instL ls) spine
+      = ((D.iotaLam 0 C).instL ls).mkApp spine := by
+  rw [VExpr.instL_mkApp, VExpr.map_instL_bvars, VExpr.instAll_mkApp,
+    (hcl.instL (ls := ls)).instAll_eq, VExpr.map_instAll_bvars' hn]
+
+/-- `iotaLam`'s body applied to the spine: the minor premise applied to the fields. -/
+theorem VInductDecl'.iotaLamBody_instAll (D : VInductDecl') (C : VIndCtor)
+    {ls : List VLevel} {ps fs : List VExpr} {mot minor : VExpr}
+    (hrec : C.recFields = []) (hps : ps.length = D.np)
+    (hfs : fs.length = C.fields.length) :
+    VExpr.instAll
+        (((VExpr.bvar C.fields.length).mkApp (bvars 0 C.fields.length ++ D.ihValues C)).instL ls)
+        (ps ++ [mot, minor] ++ fs)
+      = minor.mkApp fs := by
+  have hlen : (ps ++ [mot, minor] ++ fs).length = D.np + 1 + 1 + C.fields.length := by
+    simp [hps, hfs]; omega
+  simp only [VInductDecl'.ihValues, hrec, List.map_nil, List.append_nil,
+    VExpr.instL_mkApp, VExpr.instL, VExpr.map_instL_bvars, VExpr.instAll_mkApp]
+  rw [VExpr.instAll_bvar_get (t := ps.length + 1) (a := minor)
+      (by simp [List.getElem?_append_right, hps]) (by rw [hlen, hps]; omega),
+    VExpr.map_instAll_bvars_bot hfs]
   simp
 
 end Lean4Lean
