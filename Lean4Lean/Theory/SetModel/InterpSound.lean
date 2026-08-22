@@ -623,23 +623,46 @@ section Const
 variable [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖]
 variable {env : VEnv} {nv : ℕ} (M : ModelData V) (L : LevelAssign env nv)
 
-/-- **The obligation on the constant assignment.**  This is the whole of what
-`constDF` and `extra` consume, and therefore the specification that the
-induction over the declaration list has to meet. -/
+/-- **Closed terms do not see the context.**  A closed `e` has the same
+denotation in every context, at every environment in it.  This is a corollary of
+weakening, so it costs `L.Stable` — already an obligation — and nothing else.
+
+It is what lets `Coherent` be stated at the empty context, which in turn is what
+lets the induction over the declaration list take a step: see the note below. -/
+theorem interp_closed_ctx (hS : L.Stable) {e : VExpr} (hcl : e.ClosedN 0)
+    {Γ : List VExpr} {ρ : V} (hρ : ρ ∈ interpCtx M L Γ) :
+    (interp M L Γ e).toFun ρ = (interp M L [] e).toFun ∅ := by
+  have hW : Ctx.LiftN Γ.length 0 [] Γ := by
+    have h0 := Ctx.LiftN.zero (n := Γ.length) (Γ := ([] : List VExpr)) Γ rfl
+    rwa [List.append_nil] at h0
+  have hnil : (∅ : V) ∈ interpCtx M L ([] : List VExpr) := by
+    rw [interpCtx_nil]; exact mem_singleton_iff.2 rfl
+  have := interp_liftN M L hS (n := Γ.length) (j := 0) e (k := 0) hW rfl hcl
+    (ρ := ∅) (ρ' := ρ) hnil hρ (fun _ h => absurd h (Nat.not_lt_zero _))
+  rwa [hcl.liftN_eq (Nat.zero_le _)] at this
+
+/-- **The obligation on the constant assignment.**
+
+Everything a declaration declares is *closed*, so all three fields are stated at
+the empty context; `interp_closed_ctx` recovers the general-context form, which
+is what `constDF` and `extra` actually consume.
+
+Stating them at the empty context is not cosmetic.  With an arbitrary `Γ` the
+fields quantify over `ρ ∈ interpCtx M L Γ`, and `Γ`'s own types may mention a
+constant that the induction has not yet declared — so the *hypothesis* of the
+field changes when `cnst` is extended, and the induction cannot take a step.  At
+the empty context there is no such dependence. -/
 structure ModelData.Coherent : Prop where
   /-- a constant's value inhabits its declared type -/
   const_type : ∀ {c : Name} {ci : VConstant} {ls : List VLevel},
     env.constants c = some ci → ls.length = ci.uvars →
-    ∀ {Γ : List VExpr} {ρ : V}, ρ ∈ interpCtx M L Γ →
-      M.cnst c (ls.map (·.eval M.ls)) ∈ (interp M L Γ (ci.type.instL ls)).toFun ρ
+      M.cnst c (ls.map (·.eval M.ls)) ∈ (interp M L [] (ci.type.instL ls)).toFun ∅
   /-- the environment's definitional equations hold in the model -/
   defeq : ∀ {df : VDefEq} {ls : List VLevel}, env.defeqs df → ls.length = df.uvars →
-    ∀ {Γ : List VExpr} {ρ : V}, ρ ∈ interpCtx M L Γ →
-      (interp M L Γ (df.lhs.instL ls)).toFun ρ = (interp M L Γ (df.rhs.instL ls)).toFun ρ
+    (interp M L [] (df.lhs.instL ls)).toFun ∅ = (interp M L [] (df.rhs.instL ls)).toFun ∅
   /-- …and both sides inhabit the equated type -/
   defeq_type : ∀ {df : VDefEq} {ls : List VLevel}, env.defeqs df → ls.length = df.uvars →
-    ∀ {Γ : List VExpr} {ρ : V}, ρ ∈ interpCtx M L Γ →
-      (interp M L Γ (df.lhs.instL ls)).toFun ρ ∈ (interp M L Γ (df.type.instL ls)).toFun ρ
+    (interp M L [] (df.lhs.instL ls)).toFun ∅ ∈ (interp M L [] (df.type.instL ls)).toFun ∅
 
 omit [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖] in
 theorem map_eval_eq_of_forall₂ : ∀ {ls ls' : List VLevel}, List.Forall₂ (· ≈ ·) ls ls' →
@@ -657,27 +680,34 @@ theorem constDF_sound_eq {c : Name} {ls ls' : List VLevel}
   rw [interp_const, interp_const, map_eval_eq_of_forall₂ M h]
 
 /-- **`constDF`, part 3.** -/
-theorem constDF_sound_type (hC : M.Coherent L) {c : Name} {ci : VConstant} {ls : List VLevel}
+theorem constDF_sound_type (henv : env.Ordered) (hS : L.Stable) (hC : M.Coherent L)
+    {c : Name} {ci : VConstant} {ls : List VLevel}
     (hc : env.constants c = some ci) (hlen : ls.length = ci.uvars)
     {Γ : List VExpr} {ρ : V} (hρ : ρ ∈ interpCtx M L Γ) :
     (interp M L Γ (.const c ls)).toFun ρ ∈ (interp M L Γ (ci.type.instL ls)).toFun ρ := by
-  rw [interp_const]
-  exact hC.const_type hc hlen hρ
+  rw [interp_const, interp_closed_ctx M L hS (henv.closedC hc).instL hρ]
+  exact hC.const_type hc hlen
 
 /-- **`extra`, part 4.**  This is the case the coherence field `defeq` exists
 for. -/
-theorem extra_sound_eq (hC : M.Coherent L) {df : VDefEq} {ls : List VLevel}
+theorem extra_sound_eq (henv : env.Ordered) (hS : L.Stable) (hC : M.Coherent L)
+    {df : VDefEq} {ls : List VLevel}
     (hdf : env.defeqs df) (hlen : ls.length = df.uvars)
     {Γ : List VExpr} {ρ : V} (hρ : ρ ∈ interpCtx M L Γ) :
-    (interp M L Γ (df.lhs.instL ls)).toFun ρ = (interp M L Γ (df.rhs.instL ls)).toFun ρ :=
-  hC.defeq hdf hlen hρ
+    (interp M L Γ (df.lhs.instL ls)).toFun ρ = (interp M L Γ (df.rhs.instL ls)).toFun ρ := by
+  have hcl := henv.closed.2 hdf
+  rw [interp_closed_ctx M L hS hcl.1.1.instL hρ, interp_closed_ctx M L hS hcl.2.1.instL hρ]
+  exact hC.defeq hdf hlen
 
 /-- **`extra`, part 3.** -/
-theorem extra_sound_type (hC : M.Coherent L) {df : VDefEq} {ls : List VLevel}
+theorem extra_sound_type (henv : env.Ordered) (hS : L.Stable) (hC : M.Coherent L)
+    {df : VDefEq} {ls : List VLevel}
     (hdf : env.defeqs df) (hlen : ls.length = df.uvars)
     {Γ : List VExpr} {ρ : V} (hρ : ρ ∈ interpCtx M L Γ) :
-    (interp M L Γ (df.lhs.instL ls)).toFun ρ ∈ (interp M L Γ (df.type.instL ls)).toFun ρ :=
-  hC.defeq_type hdf hlen hρ
+    (interp M L Γ (df.lhs.instL ls)).toFun ρ ∈ (interp M L Γ (df.type.instL ls)).toFun ρ := by
+  have hcl := henv.closed.2 hdf
+  rw [interp_closed_ctx M L hS hcl.1.1.instL hρ, interp_closed_ctx M L hS hcl.1.2.instL hρ]
+  exact hC.defeq_type hdf hlen
 
 end Const
 

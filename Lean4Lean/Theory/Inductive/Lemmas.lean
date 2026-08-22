@@ -58,6 +58,10 @@ which `addInduct'_ordered` (below) has reduced to D6 and E5.
 * `rw [VExpr.liftN]` unfolds only the outer constructor; use
   `simp only [VExpr.liftN, ...]` when a `liftN` is buried under one.
 * `length_atRecTele` lives in `VInductDecl'`, not `VExpr`, and takes `D` explicitly.
+* A lemma stated at cut `i + j` will not `rw` against a term at cut `i`, even when you
+  instantiate `j := 0` and the two are definitionally equal -- `rw` is syntactic.  Instantiate
+  the lemma into a `have`, `rw [Nat.add_zero]` inside it, and rewrite with that.  This bit
+  `liftTele_liftTele_eq_shiftTele` in `onCtxXi`.
 * `++` on lists is **left**-associative (`infixl:65`), but `List.append_assoc` is a `simp`
   lemma that normalises to the *right*.  So `a ++ b ++ c` elaborates as `(a ++ b) ++ c` --
   `Ctx.LiftN.zero` applies to it with no `rw` at all -- while anything you prove by `simpa`
@@ -1768,3 +1772,40 @@ theorem ihType_isType {T' : VIndType} {r : VIndRecArg} {C : VIndCtor}
   exact VEnv.IsType.mkPi hξ ⟨_, ihBody_hasType hT' hridx hlen rfl rfl hi hmot hidx hz⟩
 
 end VInductDecl'
+
+/-! ### Splitting the field telescope at `i`
+
+D4's `W₂` needs the minor's field context decomposed as "the fields after `i`, over the
+context of the fields before `i`".  That is `liftTele_append` plus the `take`/`drop` split,
+and it is where the `++` associativity has to be paid. -/
+
+theorem VExpr.liftTele_split {n i : Nat} {A B : List VExpr} (h : A.length = i) :
+    liftTele n (A ++ B) 0 = liftTele n A 0 ++ liftTele n B i := by
+  rw [VExpr.liftTele_append, h, Nat.zero_add]
+
+theorem VInductDecl'.atRecTele_take_drop (D : VInductDecl') (i : Nat) (Φ : List VExpr) :
+    D.atRecTele Φ = D.atRecTele (Φ.take i) ++ D.atRecTele (Φ.drop i) := by
+  rw [← VInductDecl'.atRecTele_append, List.take_append_drop]
+
+/-- The minor's field context, split at field `i`.  `Γi'` (the right-hand nesting) is the
+context of the fields *before* `i`, which is where a recursive field's `ξ`-telescope and its
+`args_ty` live. -/
+theorem VInductDecl'.fieldCtx_split (D : VInductDecl') {off i : Nat} {Φ Γq : List VExpr}
+    (h : (Φ.take i).length = i) :
+    (liftTele off (D.atRecTele Φ) 0).reverse ++ Γq
+      = (liftTele off (D.atRecTele (Φ.drop i)) i).reverse
+        ++ ((liftTele off (D.atRecTele (Φ.take i)) 0).reverse ++ Γq) := by
+  rw [D.atRecTele_take_drop i Φ, VExpr.liftTele_append, VInductDecl'.length_atRecTele, h,
+    Nat.zero_add, List.reverse_append, List.append_assoc]
+
+/-- The `Ctx.LiftN` D4 needs for its outer weakening: the `s` earlier induction hypotheses
+and the `nf - i` later fields, inserted below the context of the fields before `i`. -/
+theorem VInductDecl'.liftN_ihCtx (D : VInductDecl') {off i s d : Nat} {Φ Γq V : List VExpr}
+    (h : (Φ.take i).length = i) (hd : (V.take s).length + (Φ.drop i).length = d) :
+    Ctx.LiftN d 0 ((liftTele off (D.atRecTele (Φ.take i)) 0).reverse ++ Γq)
+      ((V.take s).reverse ++ ((liftTele off (D.atRecTele Φ) 0).reverse ++ Γq)) := by
+  rw [D.fieldCtx_split h, ← List.append_assoc]
+  refine .zero _ ?_
+  rw [List.length_append, List.length_reverse, List.length_reverse,
+    VExpr.length_liftTele, VInductDecl'.length_atRecTele]
+  exact hd
