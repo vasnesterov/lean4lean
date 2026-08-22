@@ -267,3 +267,93 @@ relied on, the cheap confirmation is to build the two-declaration environment an
 I also did not verify that C4 is achievable; it is the one link in §5's chain that
 `docs/research-forallE-inv.md` marks low-confidence, and if it fails the whole of route 1
 reverts to being circular.
+
+---
+
+# 10. Follow-up: the witnesses, the statements, and C4
+
+## 10.1 W1 and W2 are machine-checked
+
+`Lean4Lean/Theory/Typing/ConstInvWitness.lean`, building clean. Axiom cones:
+
+| | |
+|---|---|
+| `w1`, `w2`, `w1_forces`, `w2_forces` | `[propext, Quot.sound]` — **no `sorryAx`** |
+| `absurd_of_prop_eq_propArrow` | `+ sorryAx`, via `sort_forallE_inv` |
+
+So the *derivations* — that `f Prop ≡ f (Prop → Prop)` and that `mkP A ≡ mkP B` — are
+sorry-free. Only the final step, "and that conclusion is impossible", leans on
+`sort_forallE_inv`. That taint is unavoidable rather than incidental: refuting a definitional
+equality is precisely what `Injectivity.lean` exists to do, so any witness of this class must
+bottom out in one of its statements. I checked whether a different choice of arguments could
+avoid it and it cannot — two *sorts* inhabiting the same type necessarily have the same
+level, so no instance of W1/W2 lands on a disequality that is provable today.
+
+`w2` is the one that matters: `env.defeqs` is not mentioned in its statement, so the witness
+stands in an environment with **no rules at all**, and `IsDefEq.proofIrrel` closes it with no
+reduction whatever. `RuleFreeHead` cannot exclude it under any reading.
+
+They are landed as **regression tests**, not prose: `drop_ruleFreeHead_inconsistent` and
+`drop_isType_inconsistent` each take the injectivity statement with one side condition
+removed and derive `False`. Removing a condition from `const_app_inv` later turns one of
+these into a proof of `False` from a provable hypothesis, and the file stops compiling.
+
+## 10.2 Statements fixed
+
+`Theory/Typing/Injectivity.lean` now carries `VExpr.headConst?`, `VEnv.RuleFreeHead`,
+`IsDefEqU.const_app_inv` (B, both side conditions) and `IsDefEqU.const_forallE_inv` (A), with
+a module docstring separating the three facts and naming each consumer. **(C) rigidity is
+deliberately not stated there**: its faithful form mentions weak-head reduction, which lives
+downstream in `HeadReduction.lean`, and writing a reduction-free approximation is exactly how
+one gets a fourth wrong statement. It is recorded as ledger item I13b instead, to be stated
+where the reduction relation is in scope.
+
+`docs/design-inductive.md` gains rows I13a/I13b and a correction note; the old recommendation
+to pick I13 up "in the `SExpr` bridge, where `Shape.ctor'` already exists" is **withdrawn**
+there, since `Shape.ctor'` classifies *constructor* applications and the type formers in
+question fall under the argument-free `indTy`.
+
+## 10.3 C4 is achievable — and I had the difficulty in the wrong place
+
+**Verdict: achievable. Route 1 survives.**
+
+I previously marked C4 low-confidence because I expected the `HasTypeStratified` inversion to
+be the hard part. It is not: **13 lines, first try**, structurally identical to the existing
+`HasTypeStratified.to_core` and `.isType`, with the only new content a `.mono` in the `defeq`
+case. Machine-checked in the scratchpad.
+
+The real difficulty is one step further on, and it is a *level alignment*.
+`forallE_inv_stratified`'s conclusion pins the **same** `u` in the `IsDefEq` and in the
+`HasTypeStratified` — and `uniq` genuinely uses that pinning (`UniqueTyping.lean:55`, where
+`.sortDF … e3.symm` and `d3.instN` must meet at one level). But `forallE_inv` hands back a
+level unrelated to the one the stratified hypothesis carries, and reconciling two types of
+the same term on the `VExpr` side **is** `uniq`. Circular.
+
+**It is not circular on the `SExpr` side, and that is what rescues it.** SExpr-side unique
+typing is already proved: `SExpr.HasTypeS.uniq` (`Experimental/UniqueTyping.lean:92`). So the
+alignment is available there for free:
+
+1. `VEnv.HasType.toSExpr` (`Bridge.lean:208`) pushes the stratified hypothesis' typing
+   `Γ ⊢ A : .sort u` forward;
+2. `SExpr.forallE_inv` (`ShapeLogRelAdequacy.lean:462`) gives the component defeq at some
+   `u'`, and `IsDefEq.toHasTypeS` (`Experimental/UniqueTyping.lean:179`) a second typing of
+   `mk A`;
+3. `HasTypeS.uniq` then `SExpr.sort_inv` (`:472`) give `SLevel.mk u = u'`;
+4. `SLevel.mk_inj` (`Bridge.lean:64`) turns that into `u ≈ u'`, and `sortDF`/`defeqDF` retype
+   on the `VExpr` side.
+
+So the fix is a strengthened capstone lemma — `forallE_inv` *at a specified level* — rather
+than anything in `Injectivity.lean`. **[inferred, but every link is a named proved lemma]**
+
+Revised C4 estimate, all **structural** (no de Bruijn arithmetic anywhere in it):
+
+| Item | Est. |
+|---|---|
+| `HasTypeStratified.forallE_inv'` | **13, machine-checked** |
+| `forallE_inv_at` in `Experimental/Reflect/Capstone.lean` | 30–50 |
+| assembly of `forallE_inv_stratified` | 40–60 |
+| **total** | **85–125** |
+
+Against the earlier 80–150 with low confidence — same range, now with the risk located and
+one third of it already checked. The dependency chain for route 1 therefore holds: C4 →
+`uniq` → `ChurchRosser` → (A), (B), (C) together.

@@ -1309,7 +1309,9 @@ pattern:
 | I10 | `Params.extra_pat` restatement + fix `church_rosser`'s `extra` case (§7.1) | medium | 80 |
 | I11 | M1 (major typing), from B7 | medium | 200 |
 | I12 | M2 (inductive heads are rule-free), from I1 | easy | 80 |
-| I13 | `IsDefEqU.const_forallE_inv` — **new statement in `Injectivity.lean`**; belongs to the injectivity/`ShapeLogRel` stream, not here | **research** | ? |
+| I13 | `IsDefEqU.const_forallE_inv` — **disjointness only**; now stated in `Injectivity.lean`. See I13a/I13b: this row does *not* cover what five consumers outside this design need | **research** | ? |
+| I13a | `IsDefEqU.const_app_inv` — **injectivity**, same head, needing **two** side conditions (`RuleFreeHead` *and* the application being a type); stated in `Injectivity.lean`, witnesses in `Theory/Typing/ConstInvWitness.lean` | **research** | ? |
+| I13b | **rigidity** — a term defeq to a const application reduces to one. Needed by `TrProj.weak'_inv`; deliberately not stated in `Injectivity.lean` because its faithful form mentions weak-head reduction | **research** | ? |
 | I14 | `pat_major_not_pi` from M1 + M2 + I13 | easy | 60 |
 | I15 | `pat_small` for ι- and δ-patterns; `pat_major_prop` in the small case (§7.6) | easy given D6 | 100 |
 | I16 | M3 (canonicity for subsingleton eliminators) and `pat_major_canonical` (§7.6) | **hard** | 400 |
@@ -1334,7 +1336,27 @@ Rough total for the `Theory/` half (A–J): 8–10k lines. `Verify/` (K): anothe
   route were abandoned, I9 becomes unprovable before Church–Rosser.
 * **I13** is the only item in the whole list that this design cannot see a route to. It
   is not inductive-specific (the quotient rule needs it too) and it should be routed to
-  the injectivity stream, where `Shape.ctor'` already exists.
+  the injectivity stream.
+
+  **Corrected after `docs/research-const-inv.md`.** Three things were being called I13, and
+  only the first is what this row states:
+
+  * **I13 (A) disjointness** — `const-app ≢ Π`. What `pat_major_not_pi` (I14) consumes, and
+    the only one this design needs.
+  * **I13a (B) injectivity** — what `reduceRecursor.WF`'s quotient branch, its `Quot.ind`
+    arm, `TrProj.uniq` and `TrProj.defeqDFC` need. **Requires a second side condition this
+    row never had**: the application must be a type. Without it `proofIrrel` identifies any
+    two applications landing in a proposition, with no reduction and no rule in the
+    environment — so `RuleFreeHead` does not repair it. Machine-checked as `w2` in
+    `Theory/Typing/ConstInvWitness.lean`.
+  * **I13b (C) rigidity** — what `TrProj.weak'_inv` needs. Not the same statement as either.
+
+  The recommendation below to pick this up in the `SExpr` bridge is **withdrawn**: the shape
+  lattice's `indTy` carries a `Bool` and no arguments (`ShapeLogRel.lean:360`), so the model
+  cannot distinguish `Quot α r` from `Quot α' r'`. `Shape.ctor'` is fine-grained but applies
+  to *constructor* applications, not type formers. Church–Rosser is the route, and it is no
+  longer circular now that `forallE_inv` arrives independently — see
+  `docs/research-const-inv.md` §4–5.
 * **I16** touches the one place where Lean's theory is genuinely non-confluent as a
   rewrite system (`typesys.tex:19–48`); expect the *statement* to move, not just the
   proof.
