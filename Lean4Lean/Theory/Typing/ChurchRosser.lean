@@ -1278,6 +1278,62 @@ theorem ParRedExt.parRed_beta :
       exact .defeqU_r henv hΓ H.symm this
   | _ => cases l.isApp eq
 
+/-- **The `proofIrrel` escape of `parRed`'s `appDF` × `extra` case** (scoping item E3).
+
+In that case the pattern's spine must be descended through `l5 : Γ ⊢ f ≡ₚ f₂`, and `Pat`
+forbids a top-level `.var` while `Matches.var` consumes an application node rather than
+matching anything — so **no spine position is free** and every `NormalEq` constructor has to
+be handled.  Two escape the descent: `etaL` (then `f` is a `.lam`, so `f.app a` is a β-redex)
+and `proofIrrel`, which is this lemma.  Here `f` need have no structure at all: it is related
+to `f₂` only by both being proofs.  The resolution is not to reduce — it is that `f.app a` is
+then *itself* a proof of the same proposition as the rule's output, so `≫*` is reflexive and
+`NormalEq.proofIrrel` closes it.
+
+The content is `∀ A, B` being a `Prop` forcing `B` to be one.  `HasType.forallE_inv` gives
+only `IsType`, with no sort relation, so the obvious route is `IsDefEqU.sort_inv` — **and
+that would be circular**, since it is one of the facts confluence exists to deliver.  What
+keeps the route open is that sort-uniqueness for a term with two sort typings is available
+*independently*: `Experimental/Reflect/Capstone.lean`'s `sort_uniq_of_hasType` proves it via
+the `SExpr` side, explicitly not through `uniq` or `sort_inv`.
+
+`hsu` is that fact, taken as an explicit hypothesis rather than added to `Params`: the
+`Params` class is being instantiated by another stream and a new field is an obligation on
+them, so the decision to promote it belongs to whoever owns that.  It should become a
+`Params` field, discharged by `sort_uniq_of_hasType` once an instance exists.
+
+**On the axiom cone.**  This proof is `sorry`-tainted today through `IsDefEq.uniq` and
+`IsDefEqU.of_l`, whose cone is the Π/sort inversion family (`sort_inv`,
+`forallE_inv_stratified`).  That family is supplied by **reflection** given a `Params`
+instance — `sort_inv`/`sort_forallE_inv` in `Experimental/BridgeInjectivity.lean`,
+`forallE_inv` in `Capstone.lean`.  It does **not** touch the const-application family
+(`const_app_inv`, `const_forallE_inv`), which is what confluence itself delivers.  That
+separation is the precise sense in which this route is not circular, and it is checkable:
+grep this proof for the const-application lemmas and find none. -/
+theorem NormalEq.appDF_proofIrrel {Γ : List VExpr} {f a b A B P e₂' : VExpr}
+    (hsu : ∀ {Γ e u v}, OnCtx Γ (IsType env univs) →
+      Γ ⊢ e : .sort u → Γ ⊢ e : .sort v → u ≈ v)
+    (hΓ : OnCtx Γ (IsType env univs))
+    (l1 : Γ ⊢ f : .forallE A B) (l3 : Γ ⊢ a : A) (l6 : Γ ⊢ a ≡ₚ b)
+    (hp : Γ ⊢ P : .sort .zero) (hf : Γ ⊢ f : P)
+    (he₂' : Γ ⊢ e₂' : B.inst b) :
+    Γ ⊢ .app f a ≡ₚ e₂' := by
+  -- `P` and `∀ A, B` are both types of `f`, so the Π-type is a `Prop`…
+  obtain ⟨u, hPBu⟩ := hf.uniq henv hΓ l1
+  have hu0 : u ≈ .zero := hsu hΓ hPBu.hasType.1 hp
+  obtain ⟨⟨uA, hA⟩, v, hB⟩ := IsType.forallE_inv henv.ordered ⟨u, hPBu.hasType.2⟩
+  have himax : VLevel.imax uA v ≈ u := hsu hΓ (hA.forallE hB) hPBu.hasType.2
+  -- …hence so is its codomain, and so is `B.inst a`.
+  have hv0 : v ≈ .zero := VLevel.imax_eq_zero.1 (himax.trans hu0)
+  have hΓA : OnCtx (A::Γ) (IsType env univs) := by exact ⟨hΓ, _, hA⟩
+  have hB0 : (A::Γ) ⊢ B : .sort .zero :=
+    (IsDefEq.sortDF (hB.sort_r henv.ordered hΓA)
+      (show VLevel.WF univs VLevel.zero from trivial) hv0).defeq hB
+  have hBa : Γ ⊢ B.inst a : .sort .zero := hB0.instN henv.ordered .zero l3
+  -- both sides inhabit it, so proof irrelevance closes the case with no reduction at all
+  have hab := IsDefEqU.of_l henv hΓ (l6.defeq hΓ) l3
+  have hBab := IsDefEq.instDF henv.ordered hΓ hB hab
+  exact .proofIrrel hBa (l1.app l3) (hBab.defeq' he₂')
+
 variable! (hΓ : OnCtx Γ (IsType env univs)) in
 theorem NormalEq.parRed (H1 : Γ ⊢ e₁ ≡ₚ e₂) (H2 : Γ ⊢ e₂ ≫ e₂') :
     ∃ e₁', Γ ⊢ e₁ ≫* e₁' ∧ Γ ⊢ e₁' ≡ₚ e₂' := by
