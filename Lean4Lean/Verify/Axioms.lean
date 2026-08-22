@@ -459,8 +459,27 @@ def abstract1 (v : FVarId) : Expr → (k :_:= 0) → Expr
   | e, [], _ => e
   | e, a :: as, k => abstractList (abstract1 a e k) as k
 
-/-- This could be an `@[implemented_by]` -/
-@[simp] axiom abstract_eq (e : Expr) (xs : List FVarId) :
+/--
+This could be an `@[implemented_by]`, but only under the hypotheses `he` and `hx`.
+
+The previous statement of this axiom (without `he`, `hx`) was **false**, for two
+independent reasons:
+
+* The C `abstract` (`kernel/abstract.cpp`) rewrites only `fvar`/`mvar` nodes and
+  leaves `bvar`s untouched, so it *captures* loose bvars, while `abstract1`
+  shifts them.  Counterexample: for `e = .app (.fvar x) (.bvar 0)`, `xs = [x]`,
+  `e.abstract #[.fvar x] = .app (.bvar 0) (.bvar 0)` but
+  `e.abstractList xs = .app (.bvar 0) (.bvar 1)`.
+* On duplicates, `abstract` scans `i = n-1 … 0` and takes the **last** match,
+  while the sequential `abstractList` gives the first-abstracted variable the
+  *highest* index.  Counterexample: for `e = .fvar x`, `xs = [x, x]`,
+  `e.abstract #[.fvar x, .fvar x] = .bvar 0` but `e.abstractList xs = .bvar 1`.
+
+Requiring `e` to be loose-bvar-free and `xs` to be duplicate-free makes the two
+agree.  See `docs/axiom-audit.md` §5.2.
+-/
+@[simp] axiom abstract_eq (e : Expr) (xs : List FVarId)
+    (he : e.looseBVarRange' = 0) (hx : xs.Nodup) :
     e.abstract ⟨xs.map .fvar⟩ = e.abstractList xs
 
 /-- This could be an `@[implemented_by]` -/
