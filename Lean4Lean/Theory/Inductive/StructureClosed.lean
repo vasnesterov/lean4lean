@@ -132,4 +132,49 @@ theorem VEnv.HasArgs.instN {env : VEnv} {U k} {Γ₀ Γ₁ Γ : List VExpr} {e�
       VExpr.instTele_instTele (As := As) (a := a) (b := e₀) (m := k) (j := 0)
     rwa [hcomm] at ih
 
+/-! ## `IotaCtx` from `IsStructure`
+
+`VInductDecl'.WF.recCtx` takes `(hle : env₂ ≤ env₃) (henv₃ : env₃.Ordered)`, so it produces
+`RecCtx` at *any* environment above the staged one — no `Ordered env₀` is needed, and the
+recursor constants transport along `≤` from `addInduct'_constants`. -/
+
+theorem VInductDecl'.addInduct'_stages {D : VInductDecl'} {env env' : VEnv}
+    (h : env.addInduct' D = some env') :
+    ∃ env₁ env₂ env₃, env.addIndTypes D = some env₁ ∧ env₁.addIndCtors D = some env₂ ∧
+      env₂.addIndRecs D = some env₃ ∧ env₃.addIndRules D = env' := by
+  rw [VEnv.addInduct'_eq, Option.map_eq_some_iff] at h
+  obtain ⟨eF, h1, hF⟩ := h
+  simp only [VInductDecl'.allConsts, VEnv.addConstList_append, Option.bind_eq_some_iff] at h1
+  obtain ⟨e₂, ⟨e₁, ha, hb⟩, hc⟩ := h1
+  exact ⟨e₁, e₂, eF, ha, hb, hc, hF⟩
+
+theorem VEnv.IsStructure.iotaCtx (henv : env.Ordered) (H : env.IsStructure S D T C) :
+    D.IotaCtx env := by
+  obtain ⟨env₀, envF, hWF, hadd, hle⟩ := H.decl
+  obtain ⟨env₁, env₂, env₃, h1, h2, h3, hF⟩ := VInductDecl'.addInduct'_stages hadd
+  have hle₂ : env₂ ≤ env :=
+    ((VEnv.addIndRecs_le h3).trans (hF ▸ VEnv.addIndRules_le)).trans hle
+  refine ⟨hWF.recCtx h1 h2 hle₂ henv, fun j T' hT' => ?_⟩
+  refine hle.constants (VEnv.addInduct'_constants hadd
+    (Lean.mkRecName T'.name, ⟨D.recUvars, D.recType j⟩) ?_)
+  simp only [VInductDecl'.allConsts, VInductDecl'.recConsts, List.mem_append, List.mem_map]
+  exact .inr ⟨(T', j), List.mk_mem_zipIdx_iff_getElem?.2 hT', rfl⟩
+
+/-! ## `IsDefEq` at a spine
+
+`Theory/Inductive/Lemmas.lean:604` has `HasType.mkApp'`; there is no `IsDefEq` counterpart.
+Same small gap as `Telescope.lean` having every `liftN` lemma and no `lift'` one.  This is
+what applies an ι-rule, which `IsDefEq.extra` delivers λ-abstracted, to a concrete spine. -/
+
+theorem VEnv.IsDefEq.mkApp' {env : VEnv} {U : Nat} :
+    ∀ {As as Γ f g B}, env.HasArgs U Γ As as → env.IsDefEq U Γ f g (VExpr.mkPi As B) →
+      env.IsDefEq U Γ (f.mkApp as) (g.mkApp as) (VExpr.instAll B as)
+  | _, _, _, _, _, _, .nil, hf => hf
+  | A :: As, a :: as, Γ, f, g, B, .cons ha has, hf => by
+    have h1 := hf.appDF ha
+    rw [VExpr.inst_mkPi_zero] at h1
+    have hlen : as.length = As.length := has.length_eq.symm.trans VExpr.length_instTele
+    rw [VExpr.mkApp_cons, VExpr.mkApp_cons, VExpr.instAll_cons, Nat.zero_add, hlen]
+    exact VEnv.IsDefEq.mkApp' has h1
+
 end Lean4Lean
