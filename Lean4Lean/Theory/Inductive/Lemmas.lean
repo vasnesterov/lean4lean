@@ -2674,6 +2674,64 @@ theorem instAllTele_cons_args : ∀ {As : List VExpr} {a as k},
       show k + as.length + 1 = k + 1 + as.length from by omega,
       instAllTele_cons_args (As := As)]
 
+/-- **Reading a value out of a saturated substitution.**  `instAll e as k` replaces the
+variable at position `k + |as| - 1 - t` by `as[t]`, weakened past the `k` binders below the
+window.  Stated with the index as an equation so callers never meet a truncated subtraction. -/
+theorem instAll_bvar_get : ∀ {as : List VExpr} {k t B : Nat} {a : VExpr}, as[t]? = some a →
+    k + as.length = B + 1 + t → instAll (.bvar B) as k = a.liftN k 0
+  | [], _, _, _, _, h, _ => by simp at h
+  | a₀ :: as, k, 0, B, a, h, hB => by
+    rw [List.getElem?_cons_zero, Option.some.injEq] at h
+    subst h
+    have hB' : B = k + as.length := by simp at hB; omega
+    subst hB'
+    rw [instAll_cons,
+      show (VExpr.bvar (k + as.length)).inst a₀ (k + as.length) = a₀.liftN (k + as.length) 0 from by
+        simp only [inst, instVar, if_neg (Nat.lt_irrefl _), if_true],
+      ← liftN'_liftN' (n1 := k) (n2 := as.length) (k1 := 0) (k2 := k)
+        (Nat.zero_le _) (Nat.le_of_eq (Nat.add_zero k).symm),
+      instAll_liftN]
+  | a₀ :: as, k, t + 1, B, a, h, hB => by
+    rw [List.getElem?_cons_succ] at h
+    have hlt : B < k + as.length := by simp at hB; omega
+    rw [instAll_cons,
+      show (VExpr.bvar B).inst a₀ (k + as.length) = VExpr.bvar B from by
+        simp only [inst, instVar, if_pos hlt],
+      instAll_bvar_get h (by simp at hB ⊢; omega)]
+
+/-- Below the substitution window, `instAll` is the identity. -/
+theorem instAll_bvar_lt' : ∀ {as : List VExpr} {k i : Nat}, i < k →
+    instAll (.bvar i) as k = .bvar i
+  | [], _, _, _ => rfl
+  | a₀ :: as, k, i, h => by
+    rw [instAll_cons,
+      show (VExpr.bvar i).inst a₀ (k + as.length) = VExpr.bvar i from by
+        simp only [inst, instVar, if_pos (show i < k + as.length by omega)],
+      instAll_bvar_lt' h]
+
+theorem map_instAll_bvars_lt {as : List VExpr} {lo k : Nat} :
+    ∀ {n : Nat}, lo + n ≤ k → (bvars lo n).map (instAll · as k) = bvars lo n
+  | 0, _ => rfl
+  | n + 1, h => by
+    rw [bvars_succ, List.map_cons, instAll_bvar_lt' (show lo + n < k by omega),
+      map_instAll_bvars_lt (show lo + n ≤ k by omega)]
+
+/-- A `bvars` block sitting at the *top* of the substitution window picks out the first `n`
+values, each weakened past the `k` binders below the window. -/
+theorem map_instAll_bvars_top {as : List VExpr} {lo n k : Nat}
+    (hk : k ≤ lo) (h : lo + n = k + as.length) :
+    (bvars lo n).map (instAll · as k) = (as.take n).map (liftN k · 0) := by
+  have hn : n ≤ as.length := by omega
+  refine List.ext_getElem? fun m => ?_
+  rw [List.getElem?_map, List.getElem?_map, getElem?_bvars, List.getElem?_take]
+  rcases Nat.lt_or_ge m n with hm | hm
+  · rw [if_pos hm, if_pos hm]
+    obtain ⟨a, ha⟩ : ∃ a, as[m]? = some a := ⟨_, List.getElem?_eq_getElem (by omega)⟩
+    rw [ha, Option.map_some, Option.map_some, Option.some.injEq]
+    exact instAll_bvar_get ha (by omega)
+  · rw [if_neg (by omega), if_neg (by omega)]
+    rfl
+
 /-- The `R`-fold generalisation of `instAll_liftN_bvars`: instantiating `n` of the `R + n`
 inserted binders by the identity spine leaves a lift by `R`. -/
 theorem instAll_liftN_bvars₂ (n R k : Nat) (e : VExpr) :
@@ -3254,6 +3312,116 @@ theorem iotaRules_WF (hI : D.IotaCtx env) : ∀ df ∈ D.iotaRules, df.WF env :=
     · rw [List.getElem?_eq_none hge] at hT; exact absurd hT (by simp)
   exact VInductDecl'.iotaRule_WF hI hT hj hC hqC
 
+
+end VInductDecl'
+
+namespace VInductDecl'
+variable {env : VEnv} {D : VInductDecl'}
+
+/-- The major premise's type, once the parameter/motive/minor block and then the index terms
+have been substituted: `I_u ps ιs`, with the parameters read straight off the spine. -/
+theorem tyApp'_instAll_spine (D : VInductDecl') {u ni : Nat} {ps rest ιs : List VExpr}
+    (hps : ps.length = D.np) (hrest : rest.length = D.nm + D.nmin) (hlen : ιs.length = ni) :
+    VExpr.instAll
+        (VExpr.instAll (D.tyApp' u (ni + D.nmin + D.nm) (bvars 0 ni)) (ps ++ rest) ni) ιs 0
+      = (VExpr.const (D.types.getD u default).name D.selfLvls).mkApp (ps ++ ιs) := by
+  have hcancel : ∀ x : VExpr, VExpr.instAll (x.liftN ni 0) ιs 0 = x := by
+    intro x; rw [← hlen]; exact VExpr.instAll_liftN ιs x 0
+  rw [VInductDecl'.tyApp', VExpr.instAll_mkApp, VExpr.instAll_const, List.map_append,
+    VExpr.map_instAll_bvars_top (by omega)
+      (by rw [List.length_append, hps, hrest]; omega),
+    VExpr.map_instAll_bvars_lt (Nat.le_of_eq (Nat.zero_add ni)),
+    List.take_left' hps, VExpr.instAll_mkApp, VExpr.instAll_const, List.map_append,
+    List.map_map, VExpr.map_instAll_bvars' hlen]
+  simp only [Function.comp_def, hcancel, List.map_id']
+
+/-- **The recursor applied to a fully concrete spine.**  Unlike `recApp_hasType`, the
+parameter, motive and minor blocks are arbitrary well-typed terms rather than variables of
+the canonical recursor context, and the result type is *the caller's own motive* applied to
+the indices and the major premise.
+
+This is the form a refinement-layer consumer needs, where the motive and minor are terms it
+built rather than `bvars`.  What the caller owes:
+
+* `hspine` -- the parameters, motives and minors instantiate the recursor's first three
+  blocks.  This is where "this term inhabits the motive's binder type" enters; the spec side
+  only says the binder types *are* types (`motiveType_isType`, `minorType_isType`).
+* `hidx` -- the index terms, against the index telescope with the spine already substituted.
+  For a block with no indices this is `HasArgs Γ [] []`, i.e. `.nil`.
+* `he` -- the major premise inhabits `I_u ps ιs`, stated in exactly that form.
+
+The environment interface is `D.IotaCtx env`: `RecCtx` plus the block's recursor constants
+at their generated types.  `addInduct'` produces it (`VInductDecl'.WF.iotaCtx`). -/
+theorem recApp_hasType' (hI : D.IotaCtx env) {u : Nat} {T' : VIndType}
+    (hT' : D.types[u]? = some T') (hu : u < D.nm)
+    {Γ ps ms mins ιs : List VExpr} {e mot : VExpr}
+    (hps : ps.length = D.np) (hms : ms.length = D.nm) (hmins : mins.length = D.nmin)
+    (hspine : env.HasArgs D.recUvars Γ
+      (D.atRecTele D.params ++ D.motives ++ D.minors) (ps ++ (ms ++ mins)))
+    (hmot : ms[u]? = some mot)
+    (hlen : ιs.length = T'.indices.length)
+    (hidx : env.HasArgs D.recUvars Γ
+      (VExpr.instAllTele (liftTele (D.nm + D.nmin) (D.atRecTele T'.indices))
+        (ps ++ (ms ++ mins)) 0) ιs)
+    (he : env.HasType D.recUvars Γ e
+      ((VExpr.const T'.name D.selfLvls).mkApp (ps ++ ιs))) :
+    env.HasType D.recUvars Γ
+      ((VExpr.const (Lean.mkRecName T'.name) (VLevel.params D.recUvars)).mkApp
+        (ps ++ (ms ++ mins) ++ (ιs ++ [e])))
+      (mot.mkApp (ιs ++ [e])) := by
+  have hR := hI.toRecCtx
+  have henv := hR.ordered
+  have hty := VInductDecl'.recType_isType hR hT' hu (VInductDecl'.onCtxMinors hR)
+  have hclosed : VExpr.ClosedN (D.recType u) 0 := hty.choose_spec.closedN henv trivial
+  -- the recursor constant, in `Γ`
+  have hrecΓ : env.HasType D.recUvars Γ
+      (.const (Lean.mkRecName T'.name) (VLevel.params D.recUvars)) (D.recType u) := by
+    have h := (VEnv.HasType.const0 (hI.recConsts u T' hT') hty).weakN henv
+      (by simpa using Ctx.LiftN.zero (n := Γ.length) (Γ := ([] : List VExpr)) Γ rfl)
+    rwa [(show VExpr.ClosedN
+        (VExpr.const (Lean.mkRecName T'.name) (VLevel.params D.recUvars)) 0 from trivial).liftN_eq
+      (Nat.zero_le _), hclosed.liftN_eq (Nat.zero_le _)] at h
+  rw [VInductDecl'.recType, getD_types hT'] at hrecΓ
+  -- split the telescope after the minors, keeping the major premise in the second block
+  have hrec1 : env.HasType D.recUvars Γ
+      (.const (Lean.mkRecName T'.name) (VLevel.params D.recUvars))
+      (mkPi (D.atRecTele D.params ++ D.motives ++ D.minors)
+        (mkPi (liftTele (D.nm + D.nmin) (D.atRecTele T'.indices)
+            ++ [D.tyApp' u (T'.indices.length + D.nmin + D.nm) (bvars 0 T'.indices.length)])
+          ((VExpr.bvar (1 + T'.indices.length + D.nmin + (D.nm - 1 - u))).mkApp
+            (bvars 1 T'.indices.length ++ [VExpr.bvar 0])))) := by
+    simp only [VExpr.mkPi_append] at hrecΓ ⊢
+    exact hrecΓ
+  have h1 := VEnv.HasType.mkApp' hspine hrec1
+  rw [VExpr.instAll_mkPi, VExpr.instAllTele_append, VExpr.length_liftTele,
+    VInductDecl'.length_atRecTele, Nat.zero_add, List.length_append,
+    VExpr.length_liftTele, VInductDecl'.length_atRecTele, List.length_cons,
+    List.length_nil] at h1
+  -- the major premise, at the substituted domain
+  have he' : env.HasType D.recUvars Γ e
+      (VExpr.instAll (VExpr.instAll
+        (D.tyApp' u (T'.indices.length + D.nmin + D.nm) (bvars 0 T'.indices.length))
+        (ps ++ (ms ++ mins)) T'.indices.length) ιs 0) := by
+    rw [D.tyApp'_instAll_spine hps (by rw [List.length_append, hms, hmins]) hlen,
+      getD_types hT']
+    exact he
+  have hfinal := VEnv.HasType.mkApp' (VEnv.HasArgs.concat hidx he') h1
+  rw [← VExpr.mkApp_append] at hfinal
+  -- the codomain: the motive variable resolves to `mot`, and its `ni + 1` lifts cancel
+  have hz : (ιs ++ [e]).length = T'.indices.length + 1 := by
+    rw [List.length_append, hlen]; rfl
+  simp only [Nat.zero_add] at hfinal
+  have hget : (ps ++ (ms ++ mins))[D.np + u]? = some mot := by
+    rw [List.getElem?_append_right (by omega), hps, Nat.add_sub_cancel_left,
+      List.getElem?_append_left (by omega)]
+    exact hmot
+  rw [show bvars 1 T'.indices.length ++ [VExpr.bvar 0] = bvars 0 (T'.indices.length + 1) from by
+      rw [VExpr.bvars_add (m := T'.indices.length) (n := 1)]; rfl,
+    VExpr.instAll_mkApp, VExpr.map_instAll_bvars_lt (Nat.le_of_eq (Nat.zero_add _)),
+    VExpr.instAll_bvar_get hget
+      (by rw [List.length_append, List.length_append, hps, hms, hmins]; omega),
+    VExpr.instAll_mkApp, VExpr.map_instAll_bvars' hz, ← hz, VExpr.instAll_liftN] at hfinal
+  exact hfinal
 
 end VInductDecl'
 

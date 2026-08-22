@@ -30,6 +30,17 @@ The recursor prepends a fresh elimination universe at index 0 (F10), so the bloc
 universes shift up by one (`selfLvls`).  Lean numbers universes by order of first
 appearance, which puts the block's universe first.  `swap01` bridges the two; it is a pure
 renaming, and it is applied only where a universe actually occurs.
+
+**Before adding a block with two or more universe parameters, read this.**  `vconst(type_of% X)`
+numbers universes by order of first appearance *in `X`'s own type*, and that order is not
+stable across the declarations of one block.  For a two-universe `LvlWit'.{u, v}` one gets
+`LvlWit'` numbered `[v, u]` (the index `Sort v` comes first), `LvlWit'.mk` numbered `[u, v]`
+(its first field is `Sort u`), and `LvlWit'.rec` numbered `[v, u, elim]` — three *different*
+renamings needed in one block, none of them `swap01`.  Every block below has at most one
+universe parameter, so **this convention has never been exercised**; the checks passing is
+not evidence that it works.  Either give each comparison its own renaming, or pick a
+declaration whose universes appear in the same order everywhere (which is what `LvlWit`
+below does, by using a single parameter).
 -/
 
 -- the `vexpr(…)` binders are only there to fix the de Bruijn context
