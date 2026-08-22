@@ -30,7 +30,32 @@ not here.
 namespace Lean4Lean
 
 /-!
-## Two notes for anyone continuing this file
+## Notes for anyone continuing this file
+
+**0. Abstract the offsets; prove the widening once about the abstracted shape.**  This is the
+technique this file rewards, and it has now paid three times.  Every term the recursor
+construction builds is *one formula in a handful of de Bruijn offsets*, reused at several
+depths.  Do not prove a fact about the instance you happen to need: name the shape with its
+offsets as parameters, prove the moves between offsets once about that shape, and instantiate
+at each caller.
+
+* `tyApp'_instAll` / `tyApp'_instAll'` -- the block-type application with the parameter offset
+  free; the second was needed because the recursor's major-premise domain puts the parameters
+  at `ni + nmin + nm`, not at `ni + j`.
+* `recApp_hasType` -- the recursor's five-block spine with the depth `lo` and the block `Ξ`
+  above the minors as parameters.  Used at `lo = nf` for the ι-rule's left-hand side and at
+  `lo = nxi + nf` for each induction-hypothesis *value*.  Writing it monolithically first and
+  then abstracting is fine; abstracting it is what made the second use assembly.
+* `ihShape` -- an induction-hypothesis type with `off`/`d` and the two variable positions
+  free.  The two moves the ι-rule needs (`off` from `nm + q` to `nm + nmin`, `d` past the `s`
+  earlier ihs) are then one lemma each, and `ihType_shift` is five lines instead of a second
+  traversal of `ihType`'s definition.
+
+The dual move, for *duplication* rather than traversal, is `recField_facts`: when two callers
+need the same bundle of facts, quantify over what they disagree about rather than writing the
+bundle twice.  D4 splits the index telescope at `u := r.idx`, the ι-rule at `u := 0`, so `u`
+and `L` are universally quantified inside the conclusion.  Re-verify the original caller after
+extracting -- that is what makes the refactor safe.
 
 **1. Check `Theory/Inductive/Telescope.lean` before estimating.**  Twice in this
 development a step was priced by its *shape* and turned out to be two applications of a
@@ -2620,6 +2645,71 @@ theorem HasArgs.of_lifts {env : VEnv} {U : Nat} {Γ : List VExpr} :
 
 end VEnv
 
+/-! ### Splitting a saturated application into two blocks
+
+`iotaLam`'s body applies the minor premise to the field variables *and* the
+induction-hypothesis values, so both the telescope and the `instAll` on the codomain have to
+be split after the field block. -/
+
+namespace VExpr
+
+/-- `instAll` over a concatenated spine: consume the first block with the second block's
+length added to the cut, then the second. -/
+theorem instAll_append : ∀ {as bs : List VExpr} {e k},
+    instAll e (as ++ bs) k = instAll (instAll e as (k + bs.length)) bs k
+  | [], _, _, _ => by simp
+  | a :: as, bs, e, k => by
+    have h : k + (as ++ bs).length = k + bs.length + as.length := by simp; omega
+    rw [List.cons_append, instAll_cons, h, instAll_append (as := as), instAll_cons]
+
+theorem instAllTele_nil_args : ∀ {As : List VExpr} {k}, instAllTele As [] k = As
+  | [], _ => rfl
+  | _ :: _, _ => by rw [instAllTele_cons, instAll_nil, instAllTele_nil_args]
+
+theorem instAllTele_cons_args : ∀ {As : List VExpr} {a as k},
+    instAllTele As (a :: as) k = instAllTele (instTele a As (k + as.length)) as k
+  | [], _, _, _ => rfl
+  | A :: As, a, as, k => by
+    rw [instAllTele_cons, instAll_cons, instTele_cons, instAllTele_cons,
+      show k + as.length + 1 = k + 1 + as.length from by omega,
+      instAllTele_cons_args (As := As)]
+
+/-- The `R`-fold generalisation of `instAll_liftN_bvars`: instantiating `n` of the `R + n`
+inserted binders by the identity spine leaves a lift by `R`. -/
+theorem instAll_liftN_bvars₂ (n R k : Nat) (e : VExpr) :
+    instAll (liftN (R + n) e (k + n)) (bvars 0 n) k = liftN R e (k + n) := by
+  rw [← liftN'_liftN_hi e R n (k + n), instAll_liftN_bvars]
+
+theorem instAllTele_liftTele_bvars₂ (n R : Nat) : ∀ (As : List VExpr) (k : Nat),
+    instAllTele (liftTele (R + n) As (k + n)) (bvars 0 n) k = liftTele R As (k + n)
+  | [], _ => rfl
+  | A :: As, k => by
+    rw [liftTele_cons, instAllTele_cons, instAll_liftN_bvars₂, liftTele_cons,
+      show k + n + 1 = k + 1 + n from by omega, instAllTele_liftTele_bvars₂ n R As (k + 1)]
+
+end VExpr
+
+namespace VEnv
+
+/-- `HasArgs` over a concatenated telescope.  The second block must be stated with the first
+block's arguments already substituted -- that is what `instAllTele_liftTele_bvars₂` computes
+for the minor premise's induction-hypothesis block. -/
+theorem HasArgs.append {env : VEnv} {U : Nat} {Γ : List VExpr} :
+    ∀ {As as Bs bs : List VExpr}, HasArgs env U Γ As as →
+      HasArgs env U Γ (VExpr.instAllTele Bs as 0) bs →
+      HasArgs env U Γ (As ++ Bs) (as ++ bs)
+  | _, _, _, _, .nil, h => by rwa [VExpr.instAllTele_nil_args] at h
+  | A₀ :: As, a₀ :: as, Bs, bs, .cons h0 h, hB => by
+    refine .cons h0 ?_
+    show HasArgs env U Γ (VExpr.instTele a₀ (As ++ Bs)) (as ++ bs)
+    rw [VExpr.instTele_append, Nat.zero_add]
+    refine HasArgs.append h ?_
+    rw [VExpr.instAllTele_cons_args, Nat.zero_add] at hB
+    rwa [show As.length = as.length from by
+      have h2 := h.length_eq; rwa [VExpr.length_instTele] at h2]
+
+end VEnv
+
 /-! ### An induction-hypothesis type, moved from minor `q` to the ι-rule
 
 `ihType` is a single formula in four offsets, so the two moves the ι-rule needs -- widening
@@ -2691,6 +2781,91 @@ theorem VInductDecl'.ihType_shift (D : VInductDecl') {q q' R s i : Nat} {C : VIn
     D.ihShape_add_off (by omega) (by omega),
     D.ihShape_add_d (by omega) (by omega)]
   congr 1 <;> omega
+
+namespace VInductDecl'
+variable {env : VEnv} {D : VInductDecl'}
+
+@[simp] theorem length_ihValues (D : VInductDecl') (C : VIndCtor) :
+    (D.ihValues C).length = C.recFields.length := by simp [VInductDecl'.ihValues]
+
+/-- **The minor premise's body is a lift by `nr`.**  It mentions the fields, the motives and
+the parameters, but never an induction hypothesis -- which is what lets the ih half of
+`minorBody_instAll` collapse by `instAll_liftN`. -/
+theorem minorBody_eq_liftN (D : VInductDecl') (j q : Nat) (C : VIndCtor) :
+    (VExpr.bvar (C.recFields.length + C.fields.length + q + (D.nm - 1 - j))).mkApp
+        ((C.args.map fun a => VExpr.shift (D.nm + q) C.recFields.length C.fields.length
+            (D.atRec a))
+          ++ [D.ctorApp' C (C.recFields.length + C.fields.length + (D.nm + q))
+              (bvars C.recFields.length C.fields.length)])
+      = ((VExpr.bvar (C.fields.length + q + (D.nm - 1 - j))).mkApp
+          ((C.args.map fun a => (D.atRec a).liftN (D.nm + q) C.fields.length)
+            ++ [D.ctorApp' C (C.fields.length + (D.nm + q)) (bvars 0 C.fields.length)])).liftN
+        C.recFields.length 0 := by
+  simp only [VExpr.liftN_mkApp, List.map_append, List.map_map, List.map_cons, List.map_nil,
+    Function.comp_def, VExpr.shift_def, VInductDecl'.ctorApp',
+    VExpr.map_liftN_bvars_lo (Nat.zero_le _), VExpr.liftN, liftVar, Nat.not_lt_zero,
+    ite_false, Nat.add_zero, Nat.add_assoc]
+
+/-- **…and that lift, widened from minor `q`'s offsets to the block's, is `iotaType`.** -/
+theorem minorBody_liftN_eq (D : VInductDecl') {j q R : Nat} (C : VIndCtor)
+    (hR : q + R = D.nmin) :
+    ((VExpr.bvar (C.fields.length + q + (D.nm - 1 - j))).mkApp
+        ((C.args.map fun a => (D.atRec a).liftN (D.nm + q) C.fields.length)
+          ++ [D.ctorApp' C (C.fields.length + (D.nm + q)) (bvars 0 C.fields.length)])).liftN
+      R C.fields.length
+      = D.iotaType j C := by
+  rw [VInductDecl'.iotaType, VExpr.liftN_mkApp, List.map_append, List.map_map,
+    List.map_cons, List.map_nil,
+    show (VExpr.bvar (C.fields.length + q + (D.nm - 1 - j))).liftN R C.fields.length
+        = VExpr.bvar (C.fields.length + D.nmin + (D.nm - 1 - j)) from by
+      simp only [VExpr.liftN, liftVar,
+        if_neg (show ¬ (C.fields.length + q + (D.nm - 1 - j) < C.fields.length) by omega)]
+      congr 1
+      omega,
+    VInductDecl'.ctorApp', VInductDecl'.ctorApp', VExpr.liftN_mkApp, List.map_append,
+    VExpr.map_liftN_bvars_lo (Nat.le_add_right ..),
+    VExpr.map_liftN_bvars_hi (Nat.le_of_eq (Nat.zero_add _)),
+    show R + (C.fields.length + (D.nm + q)) = C.fields.length + (D.nm + D.nmin) from by omega]
+  refine congrArg _ (congrArg (· ++ _) ?_)
+  refine List.map_congr_left fun a _ => ?_
+  rw [Function.comp_apply, VExpr.liftN'_liftN_hi,
+    show D.nm + q + R = D.nm + D.nmin from by omega]
+
+/-- **The minor premise's codomain, saturated.**  `minorType q`'s body, weakened into the
+ι-rule's context and then applied to the field variables and the induction-hypothesis
+*values*, is exactly `iotaType`.
+
+`instAll_append` splits the spine after the fields: the field half collapses by
+`instAll_liftN_bvars` (the `K`-lift contains the `nf` binders the identity spine
+instantiates) and the ih half by `instAll_liftN` (the body is a lift by `nr`). -/
+theorem minorBody_instAll (D : VInductDecl') {j q : Nat} (C : VIndCtor) (hq : q < D.nmin) :
+    VExpr.instAll
+      (((VExpr.bvar (C.recFields.length + C.fields.length + q + (D.nm - 1 - j))).mkApp
+          ((C.args.map fun a => VExpr.shift (D.nm + q) C.recFields.length C.fields.length
+              (D.atRec a))
+            ++ [D.ctorApp' C (C.recFields.length + C.fields.length + (D.nm + q))
+                (bvars C.recFields.length C.fields.length)])).liftN
+        (C.fields.length + (D.nmin - 1 - q) + 1)
+        (C.fields.length + C.recFields.length))
+      (bvars 0 C.fields.length ++ D.ihValues C) 0
+      = D.iotaType j C := by
+  rw [D.minorBody_eq_liftN j q C, VExpr.instAll_append,
+    show (D.ihValues C).length = C.recFields.length from D.length_ihValues C,
+    Nat.zero_add,
+    show C.fields.length + (D.nmin - 1 - q) + 1
+        = (D.nmin - 1 - q + 1) + C.fields.length from by omega,
+    ← VExpr.liftN'_liftN_hi _ (D.nmin - 1 - q + 1) C.fields.length
+      (C.fields.length + C.recFields.length),
+    show C.fields.length + C.recFields.length = C.recFields.length + C.fields.length from by
+      omega,
+    VExpr.instAll_liftN_bvars,
+    ← VExpr.liftN'_comm _ (D.nmin - 1 - q + 1) C.recFields.length C.fields.length 0
+      (Nat.zero_le _),
+    show C.recFields.length = (D.ihValues C).length from (D.length_ihValues C).symm,
+    VExpr.instAll_liftN,
+    D.minorBody_liftN_eq (R := D.nmin - 1 - q + 1) C (by omega)]
+
+end VInductDecl'
 
 /-- The situation in which the ι-rules are checked: everything `RecCtx` provides, plus the
 block's recursor constants at their generated types.  `addIndRecs` produces exactly this,
@@ -2806,6 +2981,12 @@ theorem recApp_hasType (hI : D.IotaCtx env) {u lo M : Nat} {T' : VIndType}
   rwa [VInductDecl'.recCod_instAll (nf := lo) (M := M) hlen (by omega) (by omega),
     ← VExpr.mkApp_append] at hfinal
 
+theorem iotaCtx_reverse (D : VInductDecl') (C : VIndCtor) :
+    (D.iotaCtx C).reverse ++ ([] : List VExpr)
+      = (liftTele (D.nm + D.nmin) (D.atRecTele (C.fields.map (·.type))) 0).reverse
+        ++ (D.minors.reverse ++ D.motives.reverse ++ (D.atRecTele D.params).reverse) := by
+  simp [VInductDecl'.iotaCtx]
+
 /-- **The ι-rule's induction-hypothesis values.**  The `s`-th ih *value* is `I_{r.idx}.rec`
 applied, under the recursive field's own `ξ`-telescope, to the parameters, motives, minors,
 the field's index terms and the field applied to its `ξ` variables -- and its type is the
@@ -2882,6 +3063,97 @@ theorem ihValue_hasType (hI : D.IotaCtx env) {j i : Nat} {T : VIndType} {C : VIn
   rw [getD_types hT']
   exact VEnv.HasType.mkLams (by simpa using hξ) hbody
 
+/-- **E5's right-hand side, before η-expansion.**  `iotaLam` is the minor premise applied to
+the field variables and the induction-hypothesis values, abstracted over the ι-rule's whole
+binder context.
+
+The field block instantiates by `HasArgs.bvars`; the ih block by `HasArgs.of_lifts`, whose
+per-entry obligation is `ihType_shift` (the minor's `s`-th ih binder, moved to the ι-rule's
+offsets, is a lift by `s` of an `s`-independent type) together with `ihValue_hasType`.  The
+codomain is `minorBody_instAll`. -/
+theorem iotaLam_hasType (hI : D.IotaCtx env) {j q : Nat} {T : VIndType} {C : VIndCtor}
+    (hT : D.types[j]? = some T) (_hj : j < D.nm) (hC : C ∈ T.ctors)
+    (hqC : D.ctorsAll[q]? = some (j, C)) :
+    env.HasType D.recUvars [] (D.iotaLam q C) (mkPi (D.iotaCtx C) (D.iotaType j C)) := by
+  have hR := hI.toRecCtx
+  have henv := hR.ordered
+  have hq : q < D.nmin := by
+    rcases Nat.lt_or_ge q D.ctorsAll.length with h | h
+    · exact h
+    · rw [List.getElem?_eq_none h] at hqC; exact absurd hqC (by simp)
+  have hΓι := VInductDecl'.onCtxIota hR hT hC
+  refine VEnv.HasType.mkLams (Γ := []) (by rw [D.iotaCtx_reverse C]; exact hΓι) ?_
+  rw [D.iotaCtx_reverse C]
+  -- the minor premise variable, and its type split after the field block
+  have hminors : D.minors[q]? = some (D.minorType q j C) := by
+    rw [VInductDecl'.minors_getElem?, hqC]; rfl
+  have hm : env.HasType D.recUvars
+      ((liftTele (D.nm + D.nmin) (D.atRecTele (C.fields.map (·.type))) 0).reverse
+        ++ (D.minors.reverse ++ D.motives.reverse ++ (D.atRecTele D.params).reverse))
+      (.bvar (C.fields.length + (D.nmin - 1 - q)))
+      ((D.minorType q j C).liftN (C.fields.length + (D.nmin - 1 - q) + 1)) := by
+    refine .bvar ?_
+    have h := Lookup.of_reverse hminors
+      (liftTele (D.nm + D.nmin) (D.atRecTele (C.fields.map (·.type))) 0).reverse
+      (D.motives.reverse ++ (D.atRecTele D.params).reverse)
+    simp only [List.length_reverse, VExpr.length_liftTele, VInductDecl'.length_atRecTele,
+      List.length_map, VInductDecl'.length_minors] at h
+    simpa using h
+  rw [VInductDecl'.minorType, VExpr.liftN_mkPi, VExpr.liftTele_append,
+    VExpr.length_liftTele, VInductDecl'.length_atRecTele, List.length_map, Nat.zero_add,
+    VExpr.liftTele_collapse₂,
+    show D.nm + q + (C.fields.length + (D.nmin - 1 - q) + 1) = D.nm + D.nmin + C.fields.length
+      from by omega,
+    VInductDecl'.length_ihTypes, List.length_append, VExpr.length_liftTele,
+    VInductDecl'.length_atRecTele, List.length_map, VInductDecl'.length_ihTypes] at hm
+  -- the field block
+  have hfields : env.HasArgs D.recUvars
+      ((liftTele (D.nm + D.nmin) (D.atRecTele (C.fields.map (·.type))) 0).reverse
+        ++ (D.minors.reverse ++ D.motives.reverse ++ (D.atRecTele D.params).reverse))
+      (liftTele (D.nm + D.nmin + C.fields.length) (D.atRecTele (C.fields.map (·.type))) 0)
+      (bvars 0 C.fields.length) := by
+    have h := VEnv.HasArgs.bvars (env := env) (U := D.recUvars) (Δ := [])
+      (As := liftTele (D.nm + D.nmin) (D.atRecTele (C.fields.map (·.type))) 0)
+      (Γ₀ := D.minors.reverse ++ D.motives.reverse ++ (D.atRecTele D.params).reverse)
+    simp only [List.length_nil, Nat.zero_add, VExpr.length_liftTele,
+      VInductDecl'.length_atRecTele, List.length_map, List.nil_append] at h
+    rwa [VExpr.liftTele_collapse₂] at h
+  -- the induction-hypothesis block
+  have hihs : env.HasArgs D.recUvars
+      ((liftTele (D.nm + D.nmin) (D.atRecTele (C.fields.map (·.type))) 0).reverse
+        ++ (D.minors.reverse ++ D.motives.reverse ++ (D.atRecTele D.params).reverse))
+      (VExpr.instAllTele
+        (liftTele (C.fields.length + (D.nmin - 1 - q) + 1) (D.ihTypes q C) C.fields.length)
+        (bvars 0 C.fields.length) 0) (D.ihValues C) := by
+    have hcollapse : VExpr.instAllTele
+        (liftTele (C.fields.length + (D.nmin - 1 - q) + 1) (D.ihTypes q C) C.fields.length)
+        (bvars 0 C.fields.length) 0
+        = liftTele (D.nmin - 1 - q + 1) (D.ihTypes q C) C.fields.length := by
+      have h := VExpr.instAllTele_liftTele_bvars₂ C.fields.length (D.nmin - 1 - q + 1)
+        (D.ihTypes q C) 0
+      rw [Nat.zero_add] at h
+      rw [show C.fields.length + (D.nmin - 1 - q) + 1
+          = D.nmin - 1 - q + 1 + C.fields.length from by omega]
+      exact h
+    rw [hcollapse]
+    refine VEnv.HasArgs.of_lifts (by simp) fun s A b hA hb => ?_
+    rw [VInductDecl'.ihValues, List.getElem?_map] at hb
+    obtain ⟨⟨i, r⟩, hir, rfl⟩ := Option.map_eq_some_iff.1 hb
+    obtain ⟨F, hF, hrec⟩ := VIndCtor.mem_recFields (List.mem_of_getElem? hir)
+    have hi : i < C.fields.length := by
+      rcases Nat.lt_or_ge i C.fields.length with h | h
+      · exact h
+      · rw [List.getElem?_eq_none h] at hF; exact absurd hF (by simp)
+    rw [VExpr.getElem?_liftTele, VInductDecl'.ihTypes_getElem?, hir] at hA
+    simp only [Option.map_some, Option.some.injEq] at hA
+    refine ⟨D.ihType D.nmin C i r 0, ?_, ?_⟩
+    · rw [← hA, ← D.ihType_shift (q := q) (R := D.nmin - 1 - q + 1) hi (by omega)]
+    · exact VInductDecl'.ihValue_hasType hI hT hC hF hrec
+  -- saturate, and compute the codomain
+  have hfinal := VEnv.HasType.mkApp' (VEnv.HasArgs.append hfields hihs) hm
+  rw [Nat.zero_add] at hfinal
+  rwa [D.minorBody_instAll C hq] at hfinal
+
 /-- **E5's left-hand side**: `recApp_hasType` at the ι-rule's own depth, with the index
 arguments coming from `VIndCtor.WF.args_ty` and the major premise from
 `ctorApp'_hasType`. -/
@@ -2950,3 +3222,63 @@ theorem iotaLhs_hasType (hI : D.IotaCtx env) {j : Nat} {T : VIndType} {C : VIndC
     simp [Nat.add_assoc]
   rw [hterm, VInductDecl'.iotaType]
   exact hfinal
+
+/-- **E5.**  Each ι-rule is a well-formed `VDefEq`: both sides have the rule's own type in
+the empty context.  The right-hand side is the η-expansion `λ Γ'. (iotaLam) Γ'`, which is
+`appBVars` against the closed `iotaLam`. -/
+theorem iotaRule_WF (hI : D.IotaCtx env) {j q : Nat} {T : VIndType} {C : VIndCtor}
+    (hT : D.types[j]? = some T) (hj : j < D.nm) (hC : C ∈ T.ctors)
+    (hqC : D.ctorsAll[q]? = some (j, C)) : (D.iotaRule j q C).WF env := by
+  have hR := hI.toRecCtx
+  have henv := hR.ordered
+  have hCall : (j, C) ∈ D.ctorsAll := List.mem_of_getElem? hqC
+  have hΓι := VInductDecl'.onCtxIota hR hT hC
+  have hlam := VInductDecl'.iotaLam_hasType hI hT hj hC hqC
+  refine ⟨?_, ?_⟩
+  · exact VEnv.HasType.mkLams (Γ := []) (by rw [D.iotaCtx_reverse C]; exact hΓι)
+      (by rw [D.iotaCtx_reverse C]; exact VInductDecl'.iotaLhs_hasType hI hT hj hC hCall)
+  · refine VEnv.HasType.mkLams (Γ := []) (by rw [D.iotaCtx_reverse C]; exact hΓι) ?_
+    have h := VEnv.HasType.appBVars (As := D.iotaCtx C) (Γ := []) henv
+      (by rw [D.iotaCtx_reverse C]; exact hΓι) hlam
+    rwa [(hlam.closedN henv trivial).liftN_eq (Nat.zero_le _)] at h
+
+theorem iotaRules_WF (hI : D.IotaCtx env) : ∀ df ∈ D.iotaRules, df.WF env := by
+  intro df hdf
+  simp only [VInductDecl'.iotaRules, List.mem_map] at hdf
+  obtain ⟨⟨⟨j, C⟩, q⟩, hjCq, rfl⟩ := hdf
+  have hqC : D.ctorsAll[q]? = some (j, C) := List.mk_mem_zipIdx_iff_getElem?.1 hjCq
+  obtain ⟨T, hT, hC⟩ := VInductDecl'.mem_ctorsAll (List.mem_of_getElem? hqC)
+  have hj : j < D.nm := by
+    rcases Nat.lt_or_ge j D.types.length with hlt | hge
+    · exact hlt
+    · rw [List.getElem?_eq_none hge] at hT; exact absurd hT (by simp)
+  exact VInductDecl'.iotaRule_WF hI hT hj hC hqC
+
+
+end VInductDecl'
+
+/-! ## The keystone
+
+D5 (`onCtxMinors`), D6 (`recType_isType`) and E5 (`iotaRules_WF`) discharge every obligation
+of `addInduct'_ordered`. -/
+
+/-- `addIndRecs` produces exactly the `IotaCtx` the ι-rules are checked in. -/
+theorem VInductDecl'.WF.iotaCtx {env env₁ env₂ env₃ : VEnv} {D : VInductDecl'}
+    (h : D.WF env) (henv : env.Ordered)
+    (he₁ : env.addIndTypes D = some env₁) (he₂ : env₁.addIndCtors D = some env₂)
+    (he₃ : env₂.addIndRecs D = some env₃) : D.IotaCtx env₃ := by
+  have o1 := VInductDecl'.addIndTypes_ordered henv h he₁
+  have o2 := VInductDecl'.addIndCtors_ordered o1 h he₁ he₂
+  have hR2 : D.RecCtx env₂ := h.recCtx he₁ he₂ VEnv.LE.rfl o2
+  have o3 := VInductDecl'.addIndRecs_ordered hR2 (VInductDecl'.onCtxMinors hR2) he₃
+  refine ⟨h.recCtx he₁ he₂ (VEnv.addIndRecs_le he₃) o3, fun j T hT => ?_⟩
+  exact VEnv.addConstList_constants he₃ (Lean.mkRecName T.name, ⟨D.recUvars, D.recType j⟩)
+    (List.mem_map_of_mem (List.mk_mem_zipIdx_iff_getElem?.2 hT))
+
+/-- **`addInduct'` preserves `Ordered`.**  Every obligation is discharged: the three
+`addConstList` stages, the type and constructor constants, D6 for the recursors, and E5 for
+the ι-rules. -/
+theorem VInductDecl'.addInduct'_ordered_final {env env' : VEnv} {D : VInductDecl'}
+    (henv : env.Ordered) (h : D.WF env) (he : env.addInduct' D = some env') : env'.Ordered :=
+  VInductDecl'.addInduct'_ordered'' henv h
+    (fun h1 h2 h3 => VInductDecl'.iotaRules_WF (h.iotaCtx henv h1 h2 h3)) he

@@ -1006,5 +1006,120 @@ example : (VEnv.empty.addInduct' eqDecl).isSome
     ∧ (VEnv.empty.addInduct' iffDecl).isSome
     ∧ (VEnv.empty.addInduct' nonemptyDecl).isSome := ⟨rfl, rfl, rfl⟩
 
+/-! ## `LvlWit` — a universe parameter inside a *field* type and an *index* type
+
+**Why this block exists.**  Every other block in this file is blind to a whole class of
+error: the one where `atRec`/`atRecTele` is *omitted* at one of the sites where a stored
+telescope is spliced into a recursor-side term.  Catching that needs two conditions at once —
+a universe parameter occurring in the spliced telescope, and a use at levels other than the
+block's own, since at `ownLvls` the `instL` is the identity and the omission is invisible.
+
+`Eq` and `Acc` cover the *parameter* telescope (`.sort (.param 0)` is a parameter type, and
+both are `isLE`).  Nothing covered the other sites: no field type, index type or recursive
+field's `ξ`/`π` anywhere above contains a universe parameter — `Nat`, `Tree'`/`Forest'` and
+`Iff` have `uvars = 0`, `Nonempty` has `isLE := false` so `atRec` is the identity, and
+`Eq`/`Acc` build every field and index type out of `bvar`/`app` alone.
+
+`LvlWit` closes that gap.  It has no parameters at all, and puts a universe parameter in
+*four* spliced positions: the index type (`Sort u`), a field type (`Sort u`), a recursive
+field's `ξ`-binder (`Sort u`) and its `π` (`PUnit.{u}`).  It is `isLE`, so
+`selfLvls = [.param 1] ≠ ownLvls = [.param 0]` and every `instL` here is non-trivial: drop
+`atRec` at any one of those four sites and the checks below fail. -/
+inductive LvlWit : Sort u → Type u where
+  | mk (f : Sort u) (r : Sort u → LvlWit PUnit.{u}) : LvlWit PUnit.{u}
+  | mk2 (β : Sort u) : LvlWit β
+
+/-- `Sort u → LvlWit PUnit.{u}`: the recursive field of `LvlWit.mk`, whose `ξ`-binder *and*
+whose index argument each carry a universe parameter. -/
+def lvlMkRec : VIndRecArg where
+  binders := [.sort (.param 0)]
+  idx := 0
+  args := [.const ``PUnit [.param 0]]
+
+def lvlMk : VIndCtor where
+  name := ``LvlWit.mk
+  params := []
+  fields :=
+    [{ type := .sort (.param 0), lvl := .succ (.param 0), recArg := none },
+     { type := mkPi lvlMkRec.binders
+         ((VExpr.const ``LvlWit [.param 0]).mkApp [.const ``PUnit [.param 0]])
+       lvl := .imax (.succ (.param 0)) (.succ (.param 0))
+       recArg := some lvlMkRec }]
+  args := [.const ``PUnit [.param 0]]
+
+def lvlMk2 : VIndCtor where
+  name := ``LvlWit.mk2
+  params := []
+  fields := [{ type := .sort (.param 0), lvl := .succ (.param 0), recArg := none }]
+  args := [.bvar 0]
+
+def lvlType : VIndType where
+  name := ``LvlWit
+  type := mkPi [.sort (.param 0)] (.sort (.succ (.param 0)))
+  indices := [.sort (.param 0)]
+  ctors := [lvlMk, lvlMk2]
+
+/-- `LvlWit.{u} : Sort u → Type u`, with no parameters and one index. -/
+def lvlDecl : VInductDecl' where
+  uvars := 1
+  params := []
+  lvl := .succ (.param 0)
+  isLE := true
+  types := [lvlType]
+
+example : lvlDecl.np = 0 := rfl
+example : lvlDecl.nm = 1 := rfl
+example : lvlDecl.nmin = 2 := rfl
+example : lvlDecl.recUvars = 2 := rfl
+-- the point of the block: `atRec` is *not* the identity here
+example : lvlDecl.ownLvls = [.param 0] := rfl
+example : lvlDecl.selfLvls = [.param 1] := rfl
+example : lvlMk.recFields = [(1, lvlMkRec)] := rfl
+
+example : lvlType.type = lvlType.canonType lvlDecl := rfl
+example : lvlType.canonType lvlDecl = (vconst(type_of% @LvlWit)).type := rfl
+example : (vconst(type_of% @LvlWit)).uvars = lvlDecl.uvars := rfl
+example : lvlMk.type lvlDecl 0 = (vconst(type_of% @LvlWit.mk)).type := rfl
+example : lvlMk2.type lvlDecl 0 = (vconst(type_of% @LvlWit.mk2)).type := rfl
+example : (lvlMk.fields[1]!).type = lvlMkRec.canonType lvlDecl 1 := rfl
+
+-- the motive and the two minor premises: `atRecTele` on the index telescope and on the
+-- field types, at `selfLvls`
+example : swap01 (mkPi (motiveCtx lvlDecl 0) (lvlDecl.motiveType 0)) =
+    vexpr((a : Sort u) → LvlWit a → Sort v) := rfl
+example : swap01 (mkPi (minorPreCtx lvlDecl 0) (lvlDecl.minorType 0 0 lvlMk)) =
+    vexpr(∀ (motive : (a : Sort u) → LvlWit a → Sort v),
+      (f : Sort u) → (r : Sort u → LvlWit PUnit.{u}) →
+        ((a : Sort u) → motive PUnit.{u} (r a)) →
+        motive PUnit.{u} (LvlWit.mk f r)) := rfl
+example : swap01 (mkPi (minorPreCtx lvlDecl 1) (lvlDecl.minorType 1 0 lvlMk2)) =
+    vexpr(∀ (motive : (a : Sort u) → LvlWit a → Sort v)
+      (mk : (f : Sort u) → (r : Sort u → LvlWit PUnit.{u}) →
+        ((a : Sort u) → motive PUnit.{u} (r a)) → motive PUnit.{u} (LvlWit.mk f r)),
+      (β : Sort u) → motive β (LvlWit.mk2 β)) := rfl
+
+-- **the recursor type, against Lean's own `LvlWit.rec`**
+example : swap01 (lvlDecl.recType 0) = (vconst(type_of% @LvlWit.rec)).type := rfl
+example : lvlDecl.recUvars = (vconst(type_of% @LvlWit.rec)).uvars := rfl
+
+-- the ι-rules: `ihValues` splices the recursive field's `ξ` and `π`, both of which carry a
+-- universe parameter here
+example : swap01 (mkLams (lvlDecl.iotaCtx lvlMk) ((lvlDecl.ihValues lvlMk)[0]!)) =
+    vexpr(fun (motive : (a : Sort u) → LvlWit a → Sort v)
+      (mk : (f : Sort u) → (r : Sort u → LvlWit PUnit.{u}) →
+        ((a : Sort u) → motive PUnit.{u} (r a)) → motive PUnit.{u} (LvlWit.mk f r))
+      (mk2 : (β : Sort u) → motive β (LvlWit.mk2 β))
+      (f : Sort u) (r : Sort u → LvlWit PUnit.{u}) =>
+      fun (a : Sort u) => @LvlWit.rec motive mk mk2 PUnit.{u} (r a)) := rfl
+example : swap01 (mkLams (lvlDecl.iotaCtx lvlMk) (lvlDecl.iotaLhs 0 lvlMk)) =
+    vexpr(fun (motive : (a : Sort u) → LvlWit a → Sort v)
+      (mk : (f : Sort u) → (r : Sort u → LvlWit PUnit.{u}) →
+        ((a : Sort u) → motive PUnit.{u} (r a)) → motive PUnit.{u} (LvlWit.mk f r))
+      (mk2 : (β : Sort u) → motive β (LvlWit.mk2 β))
+      (f : Sort u) (r : Sort u → LvlWit PUnit.{u}) =>
+      @LvlWit.rec motive mk mk2 PUnit.{u} (LvlWit.mk f r)) := rfl
+
+example : (VEnv.empty.addInduct' lvlDecl).isSome := rfl
+
 end InductiveDeclExamples
 end Lean4Lean
