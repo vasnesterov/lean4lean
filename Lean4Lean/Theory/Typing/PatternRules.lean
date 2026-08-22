@@ -1526,12 +1526,27 @@ theorem VEnv.isDefEqU_of_mem_bvars {env : VEnv} {U : Nat} {Δ Γ : List VExpr} {
 (`iotaRule` stores both sides as `mkLams (iotaCtx C) _`), the body is `iotaLhs`, and
 `instL_iotaLhs` puts it in `matches_iota_paths`' shape.
 
-**`OnCtx Γ` is not needed.**  `Params.extra_pat`'s docstring predicts that it is — the index
-clauses do β-reduce a `mkLams` and `IsDefEq.beta` does need the function typed.  But the
-β-reduction happens in the rule's *own* binder context, which is closed, and
-`IsDefEq.weakR` moves the result over an arbitrary `Γ` on nothing but `CtxClosed`.  So the
-argument is real and the conclusion drawn from it is not; the field's hypothesis is harmless
-(its one caller holds it) but no case of `extra_pat` consumes it. -/
+**`OnCtx Γ` is not needed — and the standing claim that it is, is wrong.**
+`Params.extra_pat`'s docstring (`Theory/Typing/ChurchRosser.lean`, the paragraph beginning
+"`hΓ` is not optional") argues: the ι index clauses β-reduce a `mkLams`, `IsDefEq.beta` needs
+the function typed, typing a `mkLams` needs `OnCtx` of its telescope *over `Γ`*, and that
+unfolds to include `OnCtx Γ`.  Every step of that is true and the conclusion still does not
+follow, because it assumes the β-reduction is performed over `Γ`.  It need not be: the redex
+is the rule's *own* left-hand side, so the reduction is done in `(D.iotaCtx C).reverse`, which
+is closed, and `IsDefEq.weakR` then carries the finished `IsDefEqU` over an arbitrary `Γ` on
+`CtxClosed` alone.  See `VInductDecl'.iota_index_clause`, which is stated in exactly that
+closed context, and the two lines of `Pat.extra_iota` that transport it (`IsDefEqU.instL`,
+then `IsDefEq.weakR`).
+
+So: no case of `extra_pat` consumes `hΓ` — `Pat.extra_delta`, `Pat.extra_quot`,
+`Pat.extra_iota` and `Pat.extra` all do without it.  The field keeps the hypothesis (it makes
+the field *weaker*, hence easier for an instance, and its one caller holds it), but nobody
+should infer from that docstring that an `extra_pat` proof must have `OnCtx Γ` available.
+This is not a refutation of the field, only of the necessity argument for its hypothesis.
+
+The companion claim about `pat_wf`'s own `hΓ` is a *different* argument — it goes through
+`HasType.app_inv` and `H.strong henv hΓ`, which really do need a well-formed context — and is
+untouched by this. -/
 theorem Pat.extra_iota {env : VEnv} {U : Nat} {Γ : List VExpr}
     {D : VInductDecl'} {j q : Nat} {T : VIndType} {C : VIndCtor} {ls : List VLevel}
     (henv : env.Ordered) (hI : D.IotaCtx env)
@@ -1713,6 +1728,46 @@ by `Pat.extra`.  `Params`' six fields are now five proved (`pat_simple`, `pat_un
 * **Step 4** — `VInductDecl'.iota_index_clause`, then `IsDefEqU.instL` and `IsDefEq.weakR`.
 * **Step 5** — `iotaLevelPairs` against `selfLvls`, entry by entry; both sides are the same
   level, so each clause is `rfl`.
+
+### Is instantiating `VEnv.Params` circular?  No — and the reason is a name collision
+
+The worry: `pat_wf` needs `IsDefEqU.forallE_inv`; the only proof of `forallE_inv` is
+`Experimental/Reflect/Capstone.lean`'s `forallE_inv_params`, which is stated `[Params]`-relative;
+so instantiating `Params` would need `Params`.
+
+**There are two classes called `Params`, and Capstone consumes the other one.**
+
+* `Lean4Lean.VEnv.Params` (`Theory/Typing/ChurchRosser.lean`) — the mainline class this file
+  instantiates.  Ten fields; `pat_wf` is the semantic one (`Matches` + `HasType` + `Check.OK`
+  ⟹ `IsDefEqU`), and it is what needs `forallE_inv`.
+* `Lean4Lean.Params` (`Experimental/SExpr.lean`) — the shape model's class.  Eight fields;
+  its `pat_wf` is `Pat p r → Pattern.WF classify p`, a **purely syntactic** condition (the
+  recursor leaf is a `.symb` of the right arity, the constructor leaf a `.ctor`).  The
+  mainline's semantic `pat_wf`, `pat_app_*` and `extra_pat` are present in that file only as
+  commented-out fields, with a note saying they are deliberately not fields there.
+
+Capstone sits in `namespace Lean4Lean` and does not `open VEnv`, so its bare `Params` is the
+second one.  Three independent checks, all machine-run rather than read off:
+
+1. `#print Lean4Lean.Params` shows the eight fields and the syntactic `pat_wf`.
+2. `#check @VEnv.IsDefEqU.forallE_inv_params` shows its instance arguments are
+   `[Params] [SExpr.ParamsExtra]`, i.e. the shape-model pair.
+3. `Theory/Typing/ChurchRosser.lean` is **not in Capstone's import cone** (27 modules; this
+   file, `Injectivity.lean` and `ChurchRosser.lean` are all absent), so `VEnv.Params.pat_wf`
+   is not even nameable there.
+
+So the dependency is `VEnv.Params.pat_wf` → `forallE_inv` → `Lean4Lean.Params` +
+`SExpr.ParamsExtra`, and it terminates.  It is not a cycle, and it is not a stratification
+either — the two classes are simply different.  The module order also works: this file's cone
+(42 modules) and Capstone's (27) each exclude the other and both exclude `ChurchRosser.lean`,
+so one new module can import both, build the shape-model instance, obtain `forallE_inv`, prove
+`pat_wf`, and build the mainline instance.
+
+Two things this does *not* say.  The shape-model instance is real work in its own right —
+`classify` has to be produced for an arbitrary `VEnv.WF env`, and `SExpr.ParamsExtra` also
+carries `ctor_ty` — and Capstone's results are still `sorryAx`-tainted through
+`SExpr.forallE_inv`, `SExpr.sort_inv`, `SExpr.HasTypeS.uniq` and `SExpr.IsDefEq.toHasTypeS`,
+which is the shape-model stream's own frontier, not a `Params` obligation.
 
 ### Two findings
 
