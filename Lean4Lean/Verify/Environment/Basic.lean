@@ -1,3 +1,4 @@
+import Lean4Lean.Std.SMap
 import Lean4Lean.Verify.LocalContext
 import Lean4Lean.Theory.Typing.EnvLemmas
 
@@ -126,7 +127,14 @@ def TrDefBlock (cis : List DefinitionVal) (cis' : List VDefVal) : Prop :=
 
 variable (safety : DefinitionSafety) in
 inductive TrEnv' : ConstMap → Bool → VEnv → Prop where
-  | empty : TrEnv' {} false .empty
+  /-- The base case: any *empty* constant map, at either `SMap` stage, models `VEnv.empty`.
+
+  This is deliberately not pinned to the literal `({} : ConstMap)`: `Kernel.Environment.empty`
+  builds its constant map at stage 2 (`stage₁ := false`), while `({} : ConstMap)` has
+  `stage₁ = true`, and the two are therefore not equal. Since nothing downstream inspects
+  the stage, the constructor asks only for the two facts that are actually used: the map is
+  well-formed, and it has no entries. -/
+  | empty : C.WF → (∀ n, C.find? n = none) → TrEnv' C false .empty
   | ignore :
     C.find? ci.name = none → ¬safety ≤ ci.safety →
     TrEnv' C Q env →

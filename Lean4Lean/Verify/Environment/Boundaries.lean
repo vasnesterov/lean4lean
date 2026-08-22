@@ -29,7 +29,7 @@ structure PrimitiveResult (checked : VEnv) (v : DefinitionVal) (allow : Bool) : 
 
 /-- Verification boundary for Lean4Lean's syntactic primitive-definition recognizer. -/
 theorem checkPrimitiveDef.WF {env : Environment} {ves : VEnvs} (wf : ves.WF env)
-    (v : DefinitionVal) :
-    (Environment.checkPrimitiveDef v).WF (.mk' wf .safe v.levelParams) {} fun allow _ =>
+    (v : DefinitionVal) (fuel : FuelConfig := {}) :
+    (Environment.checkPrimitiveDef v).WF (.mk' wf .safe v.levelParams fuel) {} fun allow _ =>
       PrimitiveResult (ves.venv .safe) v allow := by
   sorry

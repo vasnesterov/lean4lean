@@ -17,7 +17,7 @@ theorem TrEnv.exists_addConst (H : TrEnv safety env venv) (hn : env.find? name =
 theorem TrEnv'.no_inductInfo (H : TrEnv' .unsafe C Q venv) :
     C.find? name ≠ some (.inductInfo info) := by
   induction H with
-  | empty => simp [SMap.find?]
+  | empty _ hfind => simp [hfind]
   | ignore hn hhidden H ih =>
     rename_i C' Q' env' ci
     exact False.elim <| hhidden (by cases ci.safety <;> rfl)

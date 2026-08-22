@@ -7,15 +7,17 @@ open Kernel
 
 open private Lean.Kernel.Environment.add from Lean.Environment
 
-theorem addAxiom.WF {env : Environment} {ves : VEnvs} (wf : ves.WF env) (v : AxiomVal) :
-    (addAxiom env v).WF fun env' =>
+theorem addAxiom.WF {env : Environment} {ves : VEnvs} (wf : ves.WF env) (v : AxiomVal)
+    (fuel : FuelConfig := {}) :
+    (addAxiom env v (check := true) (fuel := fuel)).WF fun env' =>
       ∃ ves' : VEnvs, ves'.WF env' ∧ ∃ ci' : VConstVal, ∀ safety,
         (ves.venv safety).AddConst safety (.axiomInfo v) ci'.toVConstant (ves'.venv safety) := by
   let checkSafety : DefinitionSafety := if v.isUnsafe then .unsafe else .safe
   have hsafety : checkSafety ≤ (ConstantInfo.axiomInfo v).safety := by
     cases v.isUnsafe <;> exact DefinitionSafety.le_rfl
   unfold addAxiom
-  refine (checkConstantVal.WF wf (.axiomInfo v) false hsafety).run wf |>.bind fun _ h => ?_
+  refine (checkConstantVal.WF wf (.axiomInfo v) false hsafety (fuel := fuel)).run wf
+    |>.bind fun _ h => ?_
   obtain ⟨ci', htr, hci, hn, hnonprim⟩ := h
   have ⟨ves', hwf, hstep⟩ := addConst.WF wf (.axiomInfo v) ci' checkSafety ?_ htr hci hn
     (hnonprim rfl) fun _ _ htr hci hadd old => ?_
@@ -25,13 +27,13 @@ theorem addAxiom.WF {env : Environment} {ves : VEnvs} (wf : ves.WF env) (v : Axi
   · exact .axiom htr (by rwa [← old.map_wf.find?'_eq_find?]) hci hadd old
 
 theorem addDefinition.WF {env : Environment} {ves : VEnvs} (wf : ves.WF env)
-    (v : DefinitionVal) :
-    (addDefinition env v).WF fun env' =>
+    (v : DefinitionVal) (fuel : FuelConfig := {}) :
+    (addDefinition env v (check := true) (fuel := fuel)).WF fun env' =>
       ∃ ves' : VEnvs, ves'.WF env' ∧ (∀ safety, ves.venv safety ≤ ves'.venv safety) ∧
         (v.safety ≠ .unsafe → ∃ ci' : VDefVal, ∀ safety,
           (ves.venv safety).AddDef safety (.defnInfo v) ci' (ves'.venv safety)) := by
   unfold addDefinition; split
-  · refine checkConstantVal.WF wf (.defnInfo v) false DefinitionSafety.unsafe_le
+  · refine checkConstantVal.WF wf (.defnInfo v) false DefinitionSafety.unsafe_le (fuel := fuel)
       |>.run wf |>.bind fun _ ⟨ci0, htr, hwfc, hn, hnonprim⟩ => ?_
     refine (checkNoMVarNoFVar.WF _ _ _).bind fun _ h => ?_
     have ⟨vesA, wfA, hstepA⟩ := addConst.WF wf (.axiomInfo { v with isUnsafe := true }) ci0
@@ -40,7 +42,7 @@ theorem addDefinition.WF {env : Environment} {ves : VEnvs} (wf : ves.WF env)
         .axiom htr' (by rwa [← old.map_wf.find?'_eq_find?]) hci' hadd' old
     have hadd := (hstepA .unsafe).2.2
     refine checkBodyCore.WF (wfA.toVEnvAt .unsafe) (.defnDecl v)
-      v.levelParams v.type v.value ci0.type (htr.1.2.2.mono (VEnv.addConst_le hadd)) h
+      v.levelParams v.type v.value ci0.type (htr.1.2.2.mono (VEnv.addConst_le hadd)) h _ fuel
       |>.run1 _ |>.bind fun _ h3 => ?_
     obtain ⟨value', hvalue, hvalueType⟩ := h3
     have hciWF : (⟨ci0, value'⟩ : VDefVal).WF (vesA.venv .unsafe) := by
@@ -49,7 +51,7 @@ theorem addDefinition.WF {env : Environment} {ves : VEnvs} (wf : ves.WF env)
     have ⟨ves', hwf', hmono'⟩ := addUnsafeDef.WF wf v ⟨ci0, value'⟩ (vesA.venv .unsafe)
       ‹_› htr hwfc hadd hvalue hciWF hn (hnonprim rfl)
     exact .pure ⟨ves', hwf', hmono', (nomatch · ‹_›)⟩
-  refine (checkDefinition.WF wf v).run wf |>.bind
+  refine (checkDefinition.WF wf v fuel).run wf |>.bind
     fun _ ⟨allow, ci', hp, hu, ht, hname, hvalue, hci, hfresh, hnonprim⟩ => ?_
   have hle : v.safety ≤ .safe := DefinitionSafety.le_safe
   have hmono := wf.mono hle
@@ -72,11 +74,12 @@ theorem addDefinition.WF {env : Environment} {ves : VEnvs} (wf : ves.WF env)
     · exact hp.preserves rfl (wf.mono DefinitionSafety.le_safe) wf.tr.wf wf.hasPrimitives
         (hsf.mono (wf.mono hs)) (hci.mono (hmono.trans (wf.mono hs))) hadd
 
-theorem addTheorem.WF {env : Environment} {ves : VEnvs} (wf : ves.WF env) (v : TheoremVal) :
-    (addTheorem env v).WF fun env' =>
+theorem addTheorem.WF {env : Environment} {ves : VEnvs} (wf : ves.WF env) (v : TheoremVal)
+    (fuel : FuelConfig := {}) :
+    (addTheorem env v (check := true) (fuel := fuel)).WF fun env' =>
       ∃ ves' : VEnvs, ves'.WF env' ∧ ∃ ci' : VConstVal, ∀ safety,
         (ves.venv safety).AddConst safety (.thmInfo v) ci'.toVConstant (ves'.venv safety) := by
-  refine (checkTheorem.WF wf v).run wf |>.bind fun _ h => ?_
+  refine (checkTheorem.WF wf v fuel).run wf |>.bind fun _ h => ?_
   obtain ⟨ci', htr, hbody, hprop, hn, hnonprim⟩ := h
   have ⟨ves', hwf, hstep⟩ := addConst.WF wf (.thmInfo v) ci'.toVConstVal .safe
     (fun _ _ => DefinitionSafety.le_safe) htr.1 ⟨_, hprop⟩ hn hnonprim
@@ -88,14 +91,15 @@ theorem addTheorem.WF {env : Environment} {ves : VEnvs} (wf : ves.WF env) (v : T
   exact .thm htr' (by rwa [← old.map_wf.find?'_eq_find?]) (hbody.mono hle)
     (hprop.mono hle) hadd old
 
-theorem addOpaque.WF {env : Environment} {ves : VEnvs} (wf : ves.WF env) (v : OpaqueVal) :
-    (addOpaque env v).WF fun env' =>
+theorem addOpaque.WF {env : Environment} {ves : VEnvs} (wf : ves.WF env) (v : OpaqueVal)
+    (fuel : FuelConfig := {}) :
+    (addOpaque env v (check := true) (fuel := fuel)).WF fun env' =>
       ∃ ves' : VEnvs, ves'.WF env' ∧ ∃ ci' : VConstVal, ∀ safety,
         (ves.venv safety).AddConst safety (.opaqueInfo v) ci'.toVConstant (ves'.venv safety) := by
   let checkSafety : DefinitionSafety := if v.isUnsafe then .unsafe else .safe
   have hsafety : (ConstantInfo.opaqueInfo v).safety = checkSafety := by
     cases v.isUnsafe <;> rfl
-  refine (checkOpaque.WF wf v).run wf |>.bind fun _ h => ?_
+  refine (checkOpaque.WF wf v fuel).run wf |>.bind fun _ h => ?_
   obtain ⟨ci', hu, ht, hname, hvalue, hciC, hci, hfresh, hnonprim⟩ := h
   have hle : checkSafety ≤ .safe := DefinitionSafety.le_safe
   have hmono := wf.mono hle
@@ -146,8 +150,8 @@ private theorem Except.WF.throwBind {e : ε} {f : α → Except ε β} {Q : β �
     ((throw e : Except ε α) >>= f).WF Q := fun _ h => nomatch h
 
 theorem addMutual.WF {env : Environment} {ves : VEnvs} (wf : ves.WF env)
-    (vs : List DefinitionVal) :
-    (addMutual env vs).WF fun env' =>
+    (vs : List DefinitionVal) (fuel : FuelConfig := {}) :
+    (addMutual env vs (check := true) (fuel := fuel)).WF fun env' =>
       ∃ ves' : VEnvs, ves'.WF env' ∧ ∀ safety, ves.venv safety ≤ ves'.venv safety := by
   unfold addMutual
   simp only [reduceIte]
@@ -169,7 +173,7 @@ theorem addMutual.WF {env : Environment} {ves : VEnvs} (wf : ves.WF env)
     split <;> [exact .bindThrow .throw; rename_i hfound]
     simp at hsafety hlp hfound
     rw [← hlp]
-    refine (checkConstantVal.WF wf (.defnInfo v) false ?_ s).bind ?_
+    refine (checkConstantVal.WF wf (.defnInfo v) false ?_ s fuel).bind ?_
     · rw [ConstantInfo.defnInfo_safety, hsafety]; exact DefinitionSafety.le_rfl
     refine fun _ _ _ ⟨ci', htr, hciw, hn, hnp⟩ => .pure ?_
     exact ⟨hfound, ⟨⟨ci', .bvar 0⟩, ⟨htr, hciw, hn, hnp rfl⟩, hsafety, rfl⟩, rfl⟩
@@ -199,7 +203,7 @@ theorem addMutual.WF {env : Environment} {ves : VEnvs} (wf : ves.WF env)
     refine (TypeChecker.M.WF.liftExcept
       (checkNoMVarNoFVar.WF _ v.name v.value)).bind fun _ _ _ hclosed => ?_
     have hclosed' : v.value.FVarsIn
-        (· ∈ (TypeChecker.VContext.mk1 wfA v.levelParams).vlctx.fvars) := by
+        (· ∈ (TypeChecker.VContext.mk1 wfA v.levelParams fuel).vlctx.fvars) := by
       simpa [TypeChecker.VContext.mk1] using hclosed
     refine hd.2.2 ▸ (TypeChecker.checkType.WF hclosed').bind
       fun valType _ _ ⟨value', valType', _, hval, hvalTy, hhasType⟩ => ?_
@@ -222,15 +226,18 @@ theorem addMutual.WF {env : Environment} {ves : VEnvs} (wf : ves.WF env)
 /-- Successful checked addition preserves well-formedness and extends every safety-indexed
 abstract environment. The only declaration form still outstanding is inductives, which need a
 constructive `AddInduct` model. -/
-theorem addDecl.WF {env : Environment} {ves : VEnvs} (wf : ves.WF env) (decl : Declaration) :
-    (addDecl env decl (check := true) (fuel := {})).WF fun env' =>
+theorem addDecl.WF {env : Environment} {ves : VEnvs} (wf : ves.WF env) (decl : Declaration)
+    (fuel : FuelConfig := {}) :
+    (addDecl env decl (check := true) (fuel := fuel)).WF fun env' =>
       ∃ ves' : VEnvs, ves'.WF env' ∧ ∀ safety, ves.venv safety ≤ ves'.venv safety := by
   cases decl with
-  | axiomDecl v => exact (addAxiom.WF wf v).mono fun _ ⟨ves', hwf, _, h⟩ => ⟨ves', hwf, (h · |>.le)⟩
-  | thmDecl v => exact (addTheorem.WF wf v).mono fun _ ⟨ves', hwf, _, h⟩ => ⟨ves', hwf, (h · |>.le)⟩
-  | defnDecl v => exact (addDefinition.WF wf v).mono fun _ ⟨ves', hwf, h, _⟩ => ⟨ves', hwf, h⟩
+  | axiomDecl v =>
+    exact (addAxiom.WF wf v fuel).mono fun _ ⟨ves', hwf, _, h⟩ => ⟨ves', hwf, (h · |>.le)⟩
+  | thmDecl v =>
+    exact (addTheorem.WF wf v fuel).mono fun _ ⟨ves', hwf, _, h⟩ => ⟨ves', hwf, (h · |>.le)⟩
+  | defnDecl v => exact (addDefinition.WF wf v fuel).mono fun _ ⟨ves', hwf, h, _⟩ => ⟨ves', hwf, h⟩
   | opaqueDecl v =>
-    exact (addOpaque.WF wf v).mono fun _ ⟨ves', hwf, _, h⟩ => ⟨ves', hwf, (h · |>.le)⟩
+    exact (addOpaque.WF wf v fuel).mono fun _ ⟨ves', hwf, _, h⟩ => ⟨ves', hwf, (h · |>.le)⟩
   | quotDecl => exact addQuot.WF wf
-  | mutualDefnDecl vs => exact addMutual.WF wf vs
+  | mutualDefnDecl vs => exact addMutual.WF wf vs fuel
   | inductDecl _ _ _ _ => sorry

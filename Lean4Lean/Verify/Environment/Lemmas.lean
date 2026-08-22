@@ -24,7 +24,8 @@ theorem TrDefVal.mono {env env' : VEnv} (henv : env ≤ env')
 
 variable (safety : DefinitionSafety) in
 inductive Aligned : ConstMap → VEnv → Prop where
-  | empty : Aligned {} .empty
+  /-- As `TrEnv'.empty`: any well-formed *empty* constant map, at either `SMap` stage. -/
+  | empty : C.WF → (∀ n, C.find? n = none) → Aligned C .empty
   | ignoreConst : Aligned C venv → C.find? n = none → ¬safety ≤ ci.safety →
     ci.name = n → Aligned (C.insert n ci) venv
   | const : Aligned C venv → C.find? n = none → TrConstant safety venv ci ci' →
@@ -33,7 +34,7 @@ inductive Aligned : ConstMap → VEnv → Prop where
 
 theorem Aligned.map_wf (H : Aligned safety C venv) : C.WF := by
   induction H with
-  | empty => exact .empty
+  | empty hwf _ => exact hwf
   | ignoreConst _ h1 _ _ ih
   | const _ h1 _ _ _ ih => exact ih.insert _ _ h1
   | defeq _ ih => exact ih
@@ -41,7 +42,7 @@ theorem Aligned.map_wf (H : Aligned safety C venv) : C.WF := by
 theorem Aligned.find?_iff (H : Aligned safety C venv) :
     (∃ ci, C.find? name = some ci ∧ safety ≤ ci.safety) ↔ ∃ ci, venv.constants name = some ci := by
   induction H with
-  | empty => simp [SMap.find?, VEnv.empty]
+  | empty _ hfind => simp [hfind, VEnv.empty]
   | ignoreConst H _ h2 _ ih =>
     simp [H.map_wf.find?_insert]; split <;> [skip; assumption]
     rename_i eq1 eq2; subst eq2; simp [← ih, *]
@@ -103,7 +104,7 @@ theorem Aligned.insertDefs : ∀ {cis : List DefinitionVal} {cis' : List VDefVal
 
 theorem TrEnv'.aligned (H : TrEnv' safety C Q venv) : Aligned safety C venv := by
   induction H with
-  | empty => exact .empty
+  | empty hwf hfind => exact .empty hwf hfind
   | ignore h1 h2 _ ih => exact ih.ignoreConst h1 h2 rfl
   | «axiom» h1 h2 _ h _ ih => exact ih.const h2 h1 h rfl
   | thm h1 h2 _ _ h _ ih => exact ih.const h2 h1.1.1 h rfl
@@ -125,7 +126,7 @@ theorem Aligned.find? (H : Aligned safety C venv)
       (∃ ci', env₂.constants name = some ci' ∧ TrConstant safety env₂ ci ci')
     | ⟨_, h1, h2⟩ => ⟨_, H.constants h1, h2.mono H⟩
   induction H with
-  | empty => simp [SMap.find?] at h
+  | empty _ hfind => simp [hfind] at h
   | ignoreConst h1 _ _ _ ih =>
     rw [h1.map_wf.find?_insert] at h; split at h
     · cases h; contradiction
@@ -143,7 +144,7 @@ theorem Aligned.find?_uniq (H : Aligned safety C venv)
     (h : C.find? name = some ci) (hs : venv.constants name = some ci') :
     ci.name = name ∧ TrConstant safety venv ci ci' := by
   induction H with
-  | empty => simp [SMap.find?] at h
+  | empty _ hfind => simp [hfind] at h
   | ignoreConst H h2 h3 _ ih =>
     simp [H.map_wf.find?_insert] at h; split at h
     · rename_i n ci _ h'; subst n h'
@@ -220,7 +221,7 @@ theorem TrEnv'.of_value (H : TrEnv' safety C Q venv) (h : C.find? name = some ci
       C.find? name = some ci ∨ n = name ∧ ci' = ci := by
     rw [hC.find?_insert]; simp; split <;> simp +contextual [*]
   induction H with
-  | empty => simp [SMap.find?] at h
+  | empty _ hfind => simp [hfind] at h
   | ignore h1 h2 H ih =>
     obtain h | ⟨rfl, rfl⟩ := this H.map_wf h
     · exact ih h
