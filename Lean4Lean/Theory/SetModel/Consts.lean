@@ -154,11 +154,50 @@ theorem Ordered.constsInC {env : VEnv} {n : Name} {ci : VConstant} (H : Ordered 
     (h : env.constants n = some ci) : ci.type.ConstsIn env.contains :=
   let ⟨_, h⟩ := H.constsIn.1 h; h.1
 
+/-- **The invariant the constant-assignment induction carries.**  Every declared
+type, and every side of every defining equation, mentions only constants that
+are themselves declared.
+
+`Ordered` implies it, but `Ordered` is too strong for the *intermediate* stages
+of a block: adding an inductive's constructors passes through environments in
+which the block's types are declared but its recursors are not, and those are
+not `Ordered` on their own.  This weaker invariant is preserved by each
+individual `addConst`, which is what the list-extension step needs. -/
+def ConstsClosed (env : VEnv) : Prop :=
+  (∀ {n : Name} {ci : VConstant}, env.constants n = some ci →
+    ci.type.ConstsIn env.contains) ∧
+  (∀ {df : VDefEq}, env.defeqs df →
+    df.lhs.ConstsIn env.contains ∧ df.rhs.ConstsIn env.contains ∧
+      df.type.ConstsIn env.contains)
+
+/-- Adding one fresh constant preserves it, provided the new type mentions only
+constants already declared. -/
+theorem ConstsClosed.addConst {env env' : VEnv} {n : Name} {ci : VConstant}
+    (H : env.ConstsClosed) (hadd : env.addConst n ci = some env')
+    (hci : ci.type.ConstsIn env.contains) : env'.ConstsClosed := by
+  have hle : env ≤ env' := addConst_le hadd
+  have hmono : ∀ {e : VExpr}, e.ConstsIn env.contains → e.ConstsIn env'.contains :=
+    fun h ↦ h.mono fun _ ↦ hle.contains
+  unfold VEnv.addConst at hadd
+  split at hadd
+  · exact absurd hadd nofun
+  · subst_vars
+    cases hadd
+    refine ⟨fun {m cm} hm ↦ ?_, fun hd ↦ ?_⟩
+    · simp only at hm
+      split at hm
+      · cases hm; exact hmono hci
+      · exact hmono (H.1 hm)
+    · exact ⟨hmono (H.2 hd).1, hmono (H.2 hd).2.1, hmono (H.2 hd).2.2⟩
+
 /-- The same, for the two sides and the type of a defining equation. -/
 theorem Ordered.constsInD {env : VEnv} {df : VDefEq} (H : Ordered env) (h : env.defeqs df) :
     df.lhs.ConstsIn env.contains ∧ df.rhs.ConstsIn env.contains ∧
       df.type.ConstsIn env.contains :=
   let ⟨h1, h2⟩ := H.constsIn.2 h; ⟨h1.1, h2.1, h2.2⟩
+
+theorem Ordered.constsClosed {env : VEnv} (H : Ordered env) : env.ConstsClosed :=
+  ⟨fun h ↦ H.constsInC h, fun h ↦ H.constsInD h⟩
 
 end VEnv
 

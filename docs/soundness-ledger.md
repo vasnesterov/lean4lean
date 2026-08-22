@@ -325,7 +325,8 @@ injectivity fact.
 | `LevelAssign.Stable` (4 fields) | `InterpSubst.lean` | the assignment commutes with weakening and substitution |
 | `CtxInvariant L R` + `R (A'::Γ) (A::Γ)` for `A ≡ A'` | `InterpSound.lean`, `SoundInduction.lean` | the assignment cannot distinguish definitionally equal contexts |
 | `ModelData.Coherent` (3 fields) | `InterpSound.lean` | constants inhabit their types; `env.defeqs` holds in the model |
-| `AxiomsValidated` | `InterpSound.lean` | **new** — each axiom in the declaration list has an inhabited type in the model |
+| `AxiomsValidated` | `InterpSound.lean` | each axiom in the declaration list has an inhabited type in the model |
+| `CoherentOn.const_congr` | `InterpSound.lean` | **new** — equivalent level arguments give the same value |
 
 The first three are automatic for an assignment built the natural way — a
 syntactic recursion mirroring `inferType` — and for well-typed input follow from
@@ -416,7 +417,159 @@ Nothing in `Consts.lean` is set-theoretic. It lives under `SetModel/` only
 because `Theory/Typing/` is owned by another stream; it would be at home next to
 `Ordered.closed`, and should be moved there when that file is free.
 
+## Building `cnst` turned up two more statement facts, and one blocker
+
+### Blocker: `VDecl.mutualDef` refutes `leanTTConsistent`
+
+`VDecl.WF.mutualDef` typechecks each member's *value* in `env'` — the
+environment that already carries the block's own constants. So a member may be
+defined to be itself, and
+
+```
+def f : (∀ p : Prop, p) := f
+```
+
+is a well-formed, axiom-free declaration step. The counterexample is
+machine-checked in `Lean4Lean/Theory/MutualDefUnsound.lean`: `selfRef_wf` shows
+the step is `VDecl.WF` over *any* environment where the name is free, and
+`selfRef_inconsistent` shows the result types an inhabitant of `falseProp`.
+
+**This is not an implementation divergence.** Both kernels agree, and both are
+right:
+
+* a **safe** mutual block is rejected outright by the C++ kernel
+  (`src/kernel/environment.cpp`, `add_mutual`) and by `Lean4Lean.addMutual`;
+* a **`partial`/`unsafe`** block is accepted by both, and
+  `partial def bad : False := bad` really does land in the environment.
+
+That is sound for Lean because such constants carry a `DefinitionSafety` tag the
+kernel refuses to use while checking a safe declaration. **The abstract theory
+models no such tag** — `VConstant` is `⟨uvars, type⟩` — so the fragment
+`Theory/Consistency.lean` calls "pure", which lists `mutualDef`, is not
+consistent.
+
+The fix is a specification decision, not a proof, and it is not mine to take.
+Two shapes: drop `mutualDef` from `VDecl` and keep `partial`/`unsafe`
+declarations out of the `VEnv` entirely (`TrEnv'.mutualDef` is already only
+reachable with `safety := .unsafe`), or give `VConstant` a safety flag and state
+consistency for the safe fragment. Until one lands, `ModelData.Coherent` is not
+provable for any environment containing a `mutualDef` step — there is no fixed
+point for `cnst` — and neither is `leanTTConsistent`.
+
+### `cnst` had to be reindexed by level *syntax*
+
+`ModelData.cnst` was `Name → List ℕ → V`, indexed by the level arguments'
+evaluations at `M.ls`. That makes `constDF`'s part 4 free, and it makes the
+assignment **unconstructible**: a definition's value would have to satisfy
+`cnst c (us.map (·.eval ls)) = ⟦value.instL us⟧`, so `⟦value.instL us⟧` would
+have to depend on `us` only through its evaluation. That is true for well-typed
+input, but proving it is a whole induction over the derivation, because the
+proof-splitting decisions `L.srt Γ (f.instL us)` are functions of the *syntax*
+and only their evaluations agree.
+
+`cnst` is now `Name → List VLevel → V`. The obligation moves to a new
+`Coherent` field, `const_congr`, and soundness discharges it in one line:
+`IsDefEq.instL_r` (`Theory/Typing/Strong.lean`) gives
+`env.IsDefEq nv [] (e.instL ls) (e.instL ls') (A.instL ls)` for `ls ≈ ls'`
+pointwise, and `sound_nil` turns that into equality of denotations.
+
+### `Coherent` was unsatisfiable without a level bound
+
+`const_type` quantified over *all* level arguments `ls`. Take
+`axiom foo.{u} : Sort u`. Then it demands `cnst foo [w] ∈ U κ (w.eval M.ls)` for
+every `w` — including `w` whose evaluation runs past the end of the chain, where
+`κ` is an arbitrary function and `U κ i` can be empty. No assignment satisfies
+that, for any environment declaring a universe-polymorphic constant.
+
+`CoherentOn` now carries a bound `n` and its three substantive fields are
+guarded by `∀ l ∈ ls, l.eval M.ls < n`. Soundness takes
+`hC : ∀ n, IsInaccessibleChain n M.κ → CoherentOn M L env₀ n`, and the `constDF`
+and `extra` cases raise their own threshold to `lvlBound` of the level arguments
+they are given. This is the same threshold discipline as `SoundAbove`, now
+applied to the constant assignment as well — and it is forced for the same
+reason.
+
+### Soundness is now relative to a sub-environment
+
+`soundAbove` takes `hle : env₀ ≤ envF` and runs on a derivation in `env₀` while
+`L` remains the assignment for the final environment. Without this the coherence
+induction cannot use soundness at an earlier stage at all, since `Coherent`'s
+statement is tied to `L`'s own environment. Every use of `lvl_sound`/`srt_sound`
+goes through `HasType.mono hle`.
+
+## `cnst`: the assignment is defined and the definitional step is proved
+
+`SetModel/Cnst.lean`. Two things landed, both sorry-free.
+
+**`cnstOf`** — the assignment, by structural recursion on the declaration list
+in the order `VEnv.WF'` gives. Every form that adds a block of constants goes
+through the same parameterised step (`oracleExtend`), so no constructor list is
+hardcoded outside `cnstOf` itself. `.mutualDef` has no image; the line will
+delete with the constructor.
+
+**`coherentOn_defConst` / `coherentOn_defEq`** — the `.def` and `.opaque` steps,
+which are the ones only the model side can write, because they are the ones that
+consume soundness:
+
+* `const_congr` from `IsDefEq.instL_r` — instantiating at pointwise-equivalent
+  level lists gives definitionally equal terms — plus `sound_nil`;
+* `const_type` from `IsDefEq.instL` and `VDefVal.WF`, plus `sound_nil`;
+* the defining equation from `VLevel.inst_map_id`, which turns
+  `.const c (params uvars)` instantiated at `us` into `.const c us`, so the
+  left-hand side's denotation *is* the value `defExtend` assigned;
+* the transport between old and new assignment from `interp_cnst_congr` and
+  `Ordered.constsIn`.
+
+### The threshold moved inside `Coherent`, and that simplified everything
+
+The previous entry gave `CoherentOn` a bound parameter `n`. That was wrong in an
+instructive way: the construction of a `.def`'s value goes through `sound_nil`,
+whose threshold depends on the *level instantiation*, so a single `n` for the
+whole structure forced a shift `chain (n + k)` with `k` extracted from the
+declaration list — which in turn would have required `soundAbove` to produce its
+threshold as an explicit function rather than an `∃`.
+
+Wrapping each field individually removes all of it:
+
+```
+def Above (M : ModelData V) (P : Prop) : Prop := ∃ m, IsInaccessibleChain m M.κ → P
+```
+
+Each `Coherent` field is `Above M (…)`, thresholds compose by `max` exactly as
+they already did in the induction, and `SoundAbove` is now literally
+`Above M (Sound …)`. The `constDF` and `extra` cases obtain the constant's own
+threshold and fold it into theirs.
+
+### A weaker invariant than `Ordered`, for the intermediate stages
+
+`coherentOn_addConst` used to want `env.Ordered`. That is too strong for the
+stages *inside* a block: adding an inductive's constructors passes through an
+environment where the block's types are declared but its recursors are not, and
+that is not `Ordered`. It only ever used two consequences, so those are now the
+hypothesis — `VEnv.ConstsClosed` (`SetModel/Consts.lean`), preserved by each
+individual `addConst` and implied by `Ordered`.
+
+### What is left of `cnst`
+
+* the list form of the two step lemmas (`addConstList`, `addDefEqList`) —
+  mechanical, and the freshness bookkeeping is the only fiddly part;
+* the outer induction over `VEnv.WF'`, assembling the per-form steps;
+* the oracle's obligations for the three forms whose values the model supplies:
+  `.axiom` (the three standard axioms, all already validated in
+  `SetModel/Universe.lean`), `.quot` (same file), `.induct` (`IndStage.lean` and
+  `IndCard.lean`, still to be connected to `VInductDecl'`).
+
+`addInduct'` is `addIndTypes ▸ addIndCtors ▸ addIndRecs ▸ addIndRules` — three
+`addConstList` folds and one `addDefEq` fold — so the list step lemmas cover it
+with no new shape. Checked against `Theory/Inductive/Decl.lean`: a constructor's
+type mentions only the block's *types* (declared in the previous phase), and a
+recursor's type mentions types and constructors (both declared earlier), so the
+phase-wise hypothesis "each type mentions only constants of the environment at
+the start of this phase" holds. No interface mismatch.
+
 ## The remaining open items, ranked
+
+
 
 
 1. **`IsDefEqU.sort_inv`** — gives `LevelAssign`, hence the interpretation.
@@ -430,7 +583,10 @@ because `Theory/Typing/` is owned by another stream; it would be at home next to
    elimination universe: it is not uniform across inductives — a small
    eliminator such as `Nonempty` fails large elimination and its recursor takes
    one universe parameter where `Eq`'s takes two.
-3. **`ModelData.cnst` and `ModelData.Coherent`** — an induction over the
+3. **`VDecl.mutualDef`** — decided: the constructor is being removed and
+   `partial`/`unsafe` declarations will get no `VEnv` image. Another stream owns
+   the change.
+4. **`ModelData.cnst` and `ModelData.Coherent`** — an induction over the
    declaration list, which `VEnv.WF'` already orders. This is where the
    well-foundedness that Carneiro's `|c| = |e| + 1` clause needs actually lives;
    displacing it here is what made the term recursion in `SetModel/Interp.lean`
@@ -459,5 +615,5 @@ because `Theory/Typing/` is owned by another stream; it would be at home next to
      to any smaller one, so a single `L` for the final environment can be fixed
      up front and reused at every stage, rather than rebuilt.
 
-   Item 3 is independent of item 1 and of the injectivity stream; it is *not*
-   independent of item 2. Soundness — its other prerequisite — is now done.
+   Item 4 is independent of item 1 and of the injectivity stream; it is *not*
+   independent of items 2 and 3. Soundness — its other prerequisite — is done.

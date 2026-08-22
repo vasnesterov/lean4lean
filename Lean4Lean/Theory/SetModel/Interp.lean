@@ -40,7 +40,7 @@ the three is and is not required.
   `let` is elaborated away before this layer.  So the "`let` unfolds by
   substitution" half of Carneiro's non-structural measure does not arise.
 * **Constants need not unfold.**  A constant is interpreted by a supplied
-  *constant assignment* `cnst : Name → List ℕ → V`, exactly as the universe level
+  *constant assignment* `cnst : Name → List VLevel → V`, exactly as the universe level
   is supplied by `LevelAssign`.  Constructing the assignment for a well-formed
   environment is a separate induction over the declaration list (`VEnv.WF'`
   already orders it), and it is that induction — not this one — that needs the
@@ -214,11 +214,22 @@ inaccessibles giving the universe sequence, the valuation of universe
 parameters, and the interpretation of constants.
 
 `cnst` is supplied rather than computed, so that the recursion below need not
-unfold constants; see the module docstring. -/
+unfold constants; see the module docstring.
+
+**`cnst` is indexed by the level arguments as *syntax*, not by their values.**
+Indexing by `List ℕ` — the evaluations at `ls` — looks more canonical and makes
+`constDF`'s part 4 free, but it makes the assignment unconstructible: a
+definition's value would have to satisfy `cnst c (us.map (·.eval ls)) =
+⟦value.instL us⟧`, so `⟦value.instL us⟧` would have to depend on `us` only
+through its evaluation at `ls`. That is *true* for well-typed input, but it is a
+whole induction over the derivation to prove, because the proof-splitting
+decisions `L.srt Γ (f.instL us)` are functions of the syntax and only their
+evaluations agree. Indexing by `List VLevel` moves that obligation to
+`Coherent.const_congr`, where soundness discharges it in one line. -/
 structure ModelData (V : Type*) [SetStructure V] [Nonempty V] where
   κ : ℕ → V
   ls : List ℕ
-  cnst : Name → List ℕ → V
+  cnst : Name → List VLevel → V
 
 /-- **What proof splitting needs.**
 
@@ -309,7 +320,7 @@ proof splitting happens: `app`, `lam` and `forallE`. -/
 noncomputable def interp : List VExpr → VExpr → DefFun V
   | Γ, .bvar i => ⟨fun ρ ↦ ρ ‘ ((Γ.length - 1 - i : ℕ) : V), by definability⟩
   | _, .sort u => ⟨fun _ ↦ U M.κ (u.eval M.ls), by definability⟩
-  | _, .const c us => ⟨fun _ ↦ M.cnst c (us.map (·.eval M.ls)), by definability⟩
+  | _, .const c us => ⟨fun _ ↦ M.cnst c us, by definability⟩
   | Γ, .app f a =>
     if L.IsProof M Γ f then ⟨fun _ ↦ (pt : V), by definability⟩
     else ⟨fun ρ ↦ ((interp Γ f).toFun ρ) ‘ ((interp Γ a).toFun ρ), by
@@ -358,7 +369,7 @@ lemma interp_sort (Γ : List VExpr) (u : VLevel) (ρ : V) :
     (interp M L Γ (.sort u)).toFun ρ = U M.κ (u.eval M.ls) := by rw [interp]
 
 lemma interp_const (Γ : List VExpr) (c : Name) (us : List VLevel) (ρ : V) :
-    (interp M L Γ (.const c us)).toFun ρ = M.cnst c (us.map (·.eval M.ls)) := by rw [interp]
+    (interp M L Γ (.const c us)).toFun ρ = M.cnst c us := by rw [interp]
 
 /-- A proof application is the proof object; the value is discarded. -/
 lemma interp_app_proof {Γ : List VExpr} {f a : VExpr} (h : L.IsProof M Γ f) (ρ : V) :

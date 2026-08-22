@@ -679,28 +679,63 @@ theorem interp_closed_ctx (hS : L.Stable) {e : VExpr} (hcl : e.ClosedN 0)
     (ρ := ∅) (ρ' := ρ) hnil hρ (fun _ h => absurd h (Nat.not_lt_zero _))
   rwa [hcl.liftN_eq (Nat.zero_le _)] at this
 
-/-- **The obligation on the constant assignment.**
+/-- `P` holds once the chain of inaccessibles is long enough.  The threshold is
+produced by whoever proves the statement and never depends on the model; see
+`SoundInduction.lean`'s note on why the bound cannot live on the judgement.
 
-Everything a declaration declares is *closed*, so all three fields are stated at
-the empty context; `interp_closed_ctx` recovers the general-context form, which
-is what `constDF` and `extra` actually consume.
+Every `Coherent` field is wrapped in this.  It has to be: `const_type` for
+`axiom foo.{u} : Sort u` asserts `cnst foo [w] ∈ U κ (w.eval ls)`, and for `w`
+evaluating past the end of the chain `U κ` is junk and can be empty.  Wrapping
+each field *per instantiation* — rather than parameterising the whole structure
+by one bound — is what lets the construction use `sound_nil` directly, whose
+threshold likewise depends on the instantiation. -/
+def Above (M : ModelData V) (P : Prop) : Prop :=
+  ∃ m : ℕ, IsInaccessibleChain m M.κ → P
+
+theorem Above.pure {M : ModelData V} {P : Prop} (h : P) : Above M P := ⟨0, fun _ ↦ h⟩
+
+theorem Above.imp {M : ModelData V} {P Q : Prop} (h : Above M P) (f : P → Q) : Above M Q :=
+  Exists.imp (fun _ g hc ↦ f (g hc)) h
+
+/-- **The obligation on the constant assignment.**  This is the whole of what
+`constDF` and `extra` consume, and therefore the specification that the
+induction over the declaration list has to meet.
+
+Everything a declaration declares is *closed*, so all fields are stated at the
+empty context; `interp_closed_ctx` recovers the general-context form.
 
 Stating them at the empty context is not cosmetic.  With an arbitrary `Γ` the
 fields quantify over `ρ ∈ interpCtx M L Γ`, and `Γ`'s own types may mention a
-constant that the induction has not yet declared — so the *hypothesis* of the
-field changes when `cnst` is extended, and the induction cannot take a step.  At
-the empty context there is no such dependence. -/
-structure ModelData.Coherent : Prop where
+constant the induction has not yet declared — so the *hypothesis* of the field
+changes when `cnst` is extended, and the induction cannot take a step.  At the
+empty context there is no such dependence.
+
+The environment talked about is a parameter, separate from `L`'s own: the
+coherence induction establishes this for each prefix of the declaration list
+while a single `L` for the final environment serves throughout. -/
+structure CoherentOn {envF : VEnv} {nv : ℕ} (M : ModelData V) (L : LevelAssign envF nv)
+    (env : VEnv) : Prop where
+  /-- **equivalent level arguments give the same value.**  Free when `cnst` is
+  indexed by evaluations; an obligation now that it is indexed by syntax.  It is
+  discharged at construction by soundness: `e.instL ls` and `e.instL ls'` are
+  definitionally equal when `ls ≈ ls'` pointwise (`EqUpToLevels`). -/
+  const_congr : ∀ {c : Name} {ls ls' : List VLevel}, (∀ l ∈ ls, l.WF nv) →
+    (∀ l ∈ ls', l.WF nv) → List.Forall₂ (· ≈ ·) ls ls' →
+    Above M (M.cnst c ls = M.cnst c ls')
   /-- a constant's value inhabits its declared type -/
   const_type : ∀ {c : Name} {ci : VConstant} {ls : List VLevel},
-    env.constants c = some ci → ls.length = ci.uvars →
-      M.cnst c (ls.map (·.eval M.ls)) ∈ (interp M L [] (ci.type.instL ls)).toFun ∅
+    env.constants c = some ci → (∀ l ∈ ls, l.WF nv) → ls.length = ci.uvars →
+      Above M (M.cnst c ls ∈ (interp M L [] (ci.type.instL ls)).toFun ∅)
   /-- the environment's definitional equations hold in the model -/
-  defeq : ∀ {df : VDefEq} {ls : List VLevel}, env.defeqs df → ls.length = df.uvars →
-    (interp M L [] (df.lhs.instL ls)).toFun ∅ = (interp M L [] (df.rhs.instL ls)).toFun ∅
+  defeq : ∀ {df : VDefEq} {ls : List VLevel}, env.defeqs df → (∀ l ∈ ls, l.WF nv) →
+    ls.length = df.uvars →
+    Above M ((interp M L [] (df.lhs.instL ls)).toFun ∅
+      = (interp M L [] (df.rhs.instL ls)).toFun ∅)
   /-- …and both sides inhabit the equated type -/
-  defeq_type : ∀ {df : VDefEq} {ls : List VLevel}, env.defeqs df → ls.length = df.uvars →
-    (interp M L [] (df.lhs.instL ls)).toFun ∅ ∈ (interp M L [] (df.type.instL ls)).toFun ∅
+  defeq_type : ∀ {df : VDefEq} {ls : List VLevel}, env.defeqs df → (∀ l ∈ ls, l.WF nv) →
+    ls.length = df.uvars →
+    Above M ((interp M L [] (df.lhs.instL ls)).toFun ∅
+      ∈ (interp M L [] (df.type.instL ls)).toFun ∅)
 
 omit [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖] in
 theorem map_eval_eq_of_forall₂ : ∀ {ls ls' : List VLevel}, List.Forall₂ (· ≈ ·) ls ls' →
@@ -709,43 +744,42 @@ theorem map_eval_eq_of_forall₂ : ∀ {ls ls' : List VLevel}, List.Forall₂ (�
   | _ :: _, _ :: _, .cons h t => by
     simp [VLevel.equiv_def.mp h M.ls, map_eval_eq_of_forall₂ t]
 
-/-- **`constDF`, part 4.**  A constant's denotation depends on the *evaluated*
-levels, so equivalent level lists give the same value.  Needs nothing from
-`Coherent`. -/
+/-- **`constDF`, part 4.**  Equivalent level lists give the same value.  This is
+the one case that consumes `Coherent.const_congr`. -/
 theorem constDF_sound_eq {c : Name} {ls ls' : List VLevel}
-    (h : List.Forall₂ (· ≈ ·) ls ls') (Γ : List VExpr) (ρ : V) :
+    (hcc : M.cnst c ls = M.cnst c ls') (Γ : List VExpr) (ρ : V) :
     (interp M L Γ (.const c ls)).toFun ρ = (interp M L Γ (.const c ls')).toFun ρ := by
-  rw [interp_const, interp_const, map_eval_eq_of_forall₂ M h]
+  rw [interp_const, interp_const, hcc]
 
 /-- **`constDF`, part 3.** -/
-theorem constDF_sound_type (henv : env.Ordered) (hS : L.Stable) (hC : M.Coherent L)
-    {c : Name} {ci : VConstant} {ls : List VLevel}
-    (hc : env.constants c = some ci) (hlen : ls.length = ci.uvars)
+theorem constDF_sound_type {env₀ : VEnv} (henv : env₀.Ordered) (hS : L.Stable)
+    {c : Name} {ci : VConstant} {ls : List VLevel} (hc : env₀.constants c = some ci)
+    (hct : M.cnst c ls ∈ (interp M L [] (ci.type.instL ls)).toFun ∅)
     {Γ : List VExpr} {ρ : V} (hρ : ρ ∈ interpCtx M L Γ) :
     (interp M L Γ (.const c ls)).toFun ρ ∈ (interp M L Γ (ci.type.instL ls)).toFun ρ := by
   rw [interp_const, interp_closed_ctx M L hS (henv.closedC hc).instL hρ]
-  exact hC.const_type hc hlen
+  exact hct
 
 /-- **`extra`, part 4.**  This is the case the coherence field `defeq` exists
 for. -/
-theorem extra_sound_eq (henv : env.Ordered) (hS : L.Stable) (hC : M.Coherent L)
-    {df : VDefEq} {ls : List VLevel}
-    (hdf : env.defeqs df) (hlen : ls.length = df.uvars)
+theorem extra_sound_eq {env₀ : VEnv} (henv : env₀.Ordered) (hS : L.Stable)
+    {df : VDefEq} {ls : List VLevel} (hdf : env₀.defeqs df)
+    (hd : (interp M L [] (df.lhs.instL ls)).toFun ∅ = (interp M L [] (df.rhs.instL ls)).toFun ∅)
     {Γ : List VExpr} {ρ : V} (hρ : ρ ∈ interpCtx M L Γ) :
     (interp M L Γ (df.lhs.instL ls)).toFun ρ = (interp M L Γ (df.rhs.instL ls)).toFun ρ := by
   have hcl := henv.closed.2 hdf
   rw [interp_closed_ctx M L hS hcl.1.1.instL hρ, interp_closed_ctx M L hS hcl.2.1.instL hρ]
-  exact hC.defeq hdf hlen
+  exact hd
 
 /-- **`extra`, part 3.** -/
-theorem extra_sound_type (henv : env.Ordered) (hS : L.Stable) (hC : M.Coherent L)
-    {df : VDefEq} {ls : List VLevel}
-    (hdf : env.defeqs df) (hlen : ls.length = df.uvars)
+theorem extra_sound_type {env₀ : VEnv} (henv : env₀.Ordered) (hS : L.Stable)
+    {df : VDefEq} {ls : List VLevel} (hdf : env₀.defeqs df)
+    (hd : (interp M L [] (df.lhs.instL ls)).toFun ∅ ∈ (interp M L [] (df.type.instL ls)).toFun ∅)
     {Γ : List VExpr} {ρ : V} (hρ : ρ ∈ interpCtx M L Γ) :
     (interp M L Γ (df.lhs.instL ls)).toFun ρ ∈ (interp M L Γ (df.type.instL ls)).toFun ρ := by
   have hcl := henv.closed.2 hdf
   rw [interp_closed_ctx M L hS hcl.1.1.instL hρ, interp_closed_ctx M L hS hcl.1.2.instL hρ]
-  exact hC.defeq_type hdf hlen
+  exact hd
 
 end Const
 
@@ -761,13 +795,13 @@ section CnstStep
 variable [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖]
 
 /-- `e` mentions only constants on which the two assignments agree. -/
-def ConstsAgree (c₁ c₂ : Name → List ℕ → V) (ls : List ℕ) : VExpr → Prop
+def ConstsAgree (c₁ c₂ : Name → List VLevel → V) : VExpr → Prop
   | .bvar _ => True
   | .sort _ => True
-  | .const n us => c₁ n (us.map (·.eval ls)) = c₂ n (us.map (·.eval ls))
-  | .app a b => ConstsAgree c₁ c₂ ls a ∧ ConstsAgree c₁ c₂ ls b
-  | .lam a b => ConstsAgree c₁ c₂ ls a ∧ ConstsAgree c₁ c₂ ls b
-  | .forallE a b => ConstsAgree c₁ c₂ ls a ∧ ConstsAgree c₁ c₂ ls b
+  | .const n us => c₁ n us = c₂ n us
+  | .app a b => ConstsAgree c₁ c₂ a ∧ ConstsAgree c₁ c₂ b
+  | .lam a b => ConstsAgree c₁ c₂ a ∧ ConstsAgree c₁ c₂ b
+  | .forallE a b => ConstsAgree c₁ c₂ a ∧ ConstsAgree c₁ c₂ b
 
 /-- **Environment-independence, made precise.**  The interpretation depends on
 the constant assignment only through the constants that actually occur in the
@@ -779,8 +813,8 @@ Note also that the three proof-splitting decisions do not mention `cnst` at all
 — they are `(L.srt Γ ·).eval ls = 0` — so the two sides take the same branch
 definitionally, and the proof needs no split-agreement hypothesis. -/
 theorem interp_cnst_congr {env : VEnv} {nv : ℕ} (L : LevelAssign env nv)
-    {κ : ℕ → V} {ls : List ℕ} {c₁ c₂ : Name → List ℕ → V} :
-    ∀ (e : VExpr) (Γ : List VExpr), ConstsAgree c₁ c₂ ls e →
+    {κ : ℕ → V} {ls : List ℕ} {c₁ c₂ : Name → List VLevel → V} :
+    ∀ (e : VExpr) (Γ : List VExpr), ConstsAgree c₁ c₂ e →
       interp ⟨κ, ls, c₁⟩ L Γ e = interp ⟨κ, ls, c₂⟩ L Γ e
   | .bvar i, Γ, _ => by
     refine DefFun.ext (funext fun ρ ↦ ?_); rw [interp_bvar, interp_bvar]
@@ -836,33 +870,18 @@ by `Ordered.constsInC` an earlier type mentions only earlier constants.
 of the level assignment, so that a single `L` for the final environment serves
 the whole induction and `LevelAssign.mono` is never needed inside it. -/
 
-/-- `ModelData.Coherent`, but for an environment other than `L`'s own — the form
-the induction over the declaration list needs. -/
-structure CoherentOn {envF : VEnv} {nv : ℕ} (M : ModelData V) (L : LevelAssign envF nv)
-    (env : VEnv) : Prop where
-  const_type : ∀ {c : Name} {ci : VConstant} {us : List VLevel},
-    env.constants c = some ci → us.length = ci.uvars →
-      M.cnst c (us.map (·.eval M.ls)) ∈ (interp M L [] (ci.type.instL us)).toFun ∅
-  defeq : ∀ {df : VDefEq} {us : List VLevel}, env.defeqs df → us.length = df.uvars →
-    (interp M L [] (df.lhs.instL us)).toFun ∅ = (interp M L [] (df.rhs.instL us)).toFun ∅
-  defeq_type : ∀ {df : VDefEq} {us : List VLevel}, env.defeqs df → us.length = df.uvars →
-    (interp M L [] (df.lhs.instL us)).toFun ∅ ∈ (interp M L [] (df.type.instL us)).toFun ∅
-
-theorem ModelData.Coherent.of_on {env : VEnv} {nv : ℕ} {M : ModelData V}
-    {L : LevelAssign env nv} (h : CoherentOn M L env) : M.Coherent L :=
-  ⟨h.const_type, h.defeq, h.defeq_type⟩
 
 omit [SetStructure V] [Nonempty V] [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖] in
-theorem ConstsAgree.of_constsIn {c₁ c₂ : Name → List ℕ → V} {ls : List ℕ} :
-    ∀ {e : VExpr}, e.ConstsIn (fun n ↦ ∀ us, c₁ n us = c₂ n us) → ConstsAgree c₁ c₂ ls e
+theorem ConstsAgree.of_constsIn {c₁ c₂ : Name → List VLevel → V} :
+    ∀ {e : VExpr}, e.ConstsIn (fun n ↦ ∀ us, c₁ n us = c₂ n us) → ConstsAgree c₁ c₂ e
   | .bvar _, _ | .sort _, _ => trivial
   | .const .., h => h _
   | .app .., ⟨h1, h2⟩ | .lam .., ⟨h1, h2⟩ | .forallE .., ⟨h1, h2⟩ =>
     ⟨of_constsIn h1, of_constsIn h2⟩
 
 /-- Extend a constant assignment at one name. -/
-noncomputable def cnstUpdate (c : Name → List ℕ → V) (n : Name) (v : List ℕ → V) :
-    Name → List ℕ → V := fun m ↦ if m = n then v else c m
+noncomputable def cnstUpdate (c : Name → List VLevel → V) (n : Name) (v : List VLevel → V) :
+    Name → List VLevel → V := fun m ↦ if m = n then v else c m
 
 omit [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖] in
 theorem VEnv.addConst_spec {env env' : VEnv} {n : Name} {ci : VConstant}
@@ -886,51 +905,66 @@ environment does not yet use preserves everything already established: by
 `Ordered.constsInC` an earlier declaration's type mentions only earlier
 constants, so `interp_cnst_congr` applies to it unchanged. -/
 theorem coherentOn_addConst {envF : VEnv} {nv : ℕ} (L : LevelAssign envF nv)
-    {env env' : VEnv} (henv : env.Ordered) {n : Name} {ci : VConstant}
-    (hadd : env.addConst n ci = some env')
-    {κ : ℕ → V} {ls : List ℕ} {c : Name → List ℕ → V} {v : List ℕ → V}
+    {env env' : VEnv} (henv : env.ConstsClosed) {nm : Name} {ci : VConstant}
+    (hadd : env.addConst nm ci = some env')
+    {κ : ℕ → V} {ls : List ℕ} {c : Name → List VLevel → V} {v : List VLevel → V}
     (hC : CoherentOn ⟨κ, ls, c⟩ L env)
-    (hv : ∀ {us : List VLevel}, us.length = ci.uvars →
-      v (us.map (·.eval ls)) ∈
-        (interp ⟨κ, ls, cnstUpdate c n v⟩ L [] (ci.type.instL us)).toFun ∅) :
-    CoherentOn ⟨κ, ls, cnstUpdate c n v⟩ L env' := by
+    (hvc : ∀ {us us' : List VLevel}, (∀ l ∈ us, l.WF nv) → (∀ l ∈ us', l.WF nv) →
+      List.Forall₂ (· ≈ ·) us us' → Above (V := V) ⟨κ, ls, c⟩ (v us = v us'))
+    (hv : ∀ {us : List VLevel}, (∀ l ∈ us, l.WF nv) → us.length = ci.uvars →
+      Above (V := V) ⟨κ, ls, c⟩
+        (v us ∈ (interp ⟨κ, ls, cnstUpdate c nm v⟩ L [] (ci.type.instL us)).toFun ∅)) :
+    CoherentOn ⟨κ, ls, cnstUpdate c nm v⟩ L env' := by
   obtain ⟨hnone, hconst, hdefeq⟩ := VEnv.addConst_spec hadd
-  have hnc : ¬ env.contains n := fun ⟨_, h⟩ ↦ by rw [hnone] at h; exact absurd h nofun
+  have hnc : ¬ env.contains nm := fun ⟨_, h⟩ ↦ by rw [hnone] at h; exact absurd h nofun
   -- an expression mentioning only *old* constants keeps its denotation
   have key : ∀ {e : VExpr}, e.ConstsIn env.contains →
-      interp ⟨κ, ls, cnstUpdate c n v⟩ L [] e = interp ⟨κ, ls, c⟩ L [] e := fun he ↦
+      interp ⟨κ, ls, cnstUpdate c nm v⟩ L [] e = interp ⟨κ, ls, c⟩ L [] e := fun he ↦
     interp_cnst_congr L _ [] <| ConstsAgree.of_constsIn <| he.mono fun m hm _ ↦ by
-      simp only [cnstUpdate, if_neg (fun h : m = n ↦ hnc (h ▸ hm))]
-  refine ⟨fun {d ci' us} hd hlen ↦ ?_, fun {df us} hd hlen ↦ ?_, fun {df us} hd hlen ↦ ?_⟩
+      simp only [cnstUpdate, if_neg (fun h : m = nm ↦ hnc (h ▸ hm))]
+  refine ⟨fun {d us us'} hw hw' hdd ↦ ?_, fun {d ci' us} hd hwf hlen ↦ ?_,
+    fun {df us} hd hwf hlen ↦ ?_, fun {df us} hd hwf hlen ↦ ?_⟩
+  · by_cases hdn : d = nm
+    · subst hdn
+      refine Above.imp (hvc (us := us) (us' := us') hw hw' hdd) fun h ↦ ?_
+      show cnstUpdate c d v d us = cnstUpdate c d v d us'
+      rw [show cnstUpdate c d v d = v from if_pos rfl]; exact h
+    · refine Above.imp (hC.const_congr (c := d) hw hw' hdd) fun h ↦ ?_
+      show cnstUpdate c nm v d us = cnstUpdate c nm v d us'
+      simpa only [cnstUpdate, if_neg hdn] using h
   · rcases hconst hd with ⟨rfl, rfl⟩ | hd'
-    · show cnstUpdate c d v d _ ∈ _
-      rw [show cnstUpdate c d v d = v from if_pos rfl]
-      exact hv hlen
-    · rw [key (VExpr.ConstsIn.instL.2 (henv.constsInC hd'))]
-      have hne : d ≠ n := fun h ↦ hnc ⟨_, h ▸ hd'⟩
-      simpa only [cnstUpdate, if_neg hne] using hC.const_type hd' hlen
+    · refine Above.imp (hv hwf hlen) fun h ↦ ?_
+      show cnstUpdate c d v d us ∈ _
+      rw [show cnstUpdate c d v d = v from if_pos rfl]; exact h
+    · refine Above.imp (hC.const_type hd' hwf hlen) fun h ↦ ?_
+      have hne : d ≠ nm := fun hh ↦ hnc ⟨_, hh ▸ hd'⟩
+      rw [key (VExpr.ConstsIn.instL.2 (henv.1 hd'))]
+      show cnstUpdate c nm v d us ∈ _
+      simpa only [cnstUpdate, if_neg hne] using h
   · have hd' := (hdefeq df).1 hd
-    obtain ⟨hl, hr, _⟩ := henv.constsInD hd'
-    rw [key (VExpr.ConstsIn.instL.2 hl), key (VExpr.ConstsIn.instL.2 hr)]
-    exact hC.defeq hd' hlen
+    obtain ⟨hl, hr, _⟩ := henv.2 hd'
+    refine Above.imp (hC.defeq hd' hwf hlen) fun h ↦ ?_
+    rw [key (VExpr.ConstsIn.instL.2 hl), key (VExpr.ConstsIn.instL.2 hr)]; exact h
   · have hd' := (hdefeq df).1 hd
-    obtain ⟨hl, _, ht⟩ := henv.constsInD hd'
-    rw [key (VExpr.ConstsIn.instL.2 hl), key (VExpr.ConstsIn.instL.2 ht)]
-    exact hC.defeq_type hd' hlen
+    obtain ⟨hl, _, ht⟩ := henv.2 hd'
+    refine Above.imp (hC.defeq_type hd' hwf hlen) fun h ↦ ?_
+    rw [key (VExpr.ConstsIn.instL.2 hl), key (VExpr.ConstsIn.instL.2 ht)]; exact h
 
 /-- **The step lemma for a defining equation.**  `addDefEq` does not touch
 `constants`, so nothing has to be transported; the two new obligations are
 exactly the equation and its typing. -/
 theorem coherentOn_addDefEq {envF : VEnv} {nv : ℕ} {L : LevelAssign envF nv}
     {env : VEnv} {M : ModelData V} (hC : CoherentOn M L env) {df : VDefEq}
-    (h1 : ∀ {us : List VLevel}, us.length = df.uvars →
-      (interp M L [] (df.lhs.instL us)).toFun ∅ = (interp M L [] (df.rhs.instL us)).toFun ∅)
-    (h2 : ∀ {us : List VLevel}, us.length = df.uvars →
-      (interp M L [] (df.lhs.instL us)).toFun ∅ ∈ (interp M L [] (df.type.instL us)).toFun ∅) :
+    (h1 : ∀ {us : List VLevel}, (∀ l ∈ us, l.WF nv) → us.length = df.uvars →
+      Above M ((interp M L [] (df.lhs.instL us)).toFun ∅
+        = (interp M L [] (df.rhs.instL us)).toFun ∅))
+    (h2 : ∀ {us : List VLevel}, (∀ l ∈ us, l.WF nv) → us.length = df.uvars →
+      Above M ((interp M L [] (df.lhs.instL us)).toFun ∅
+        ∈ (interp M L [] (df.type.instL us)).toFun ∅)) :
     CoherentOn M L (env.addDefEq df) :=
-  ⟨hC.const_type,
-    fun hd hlen ↦ hd.elim (fun h ↦ h ▸ h1 (h ▸ hlen)) fun h ↦ hC.defeq h hlen,
-    fun hd hlen ↦ hd.elim (fun h ↦ h ▸ h2 (h ▸ hlen)) fun h ↦ hC.defeq_type h hlen⟩
+  ⟨hC.const_congr, hC.const_type,
+    fun hd hwf hlen ↦ hd.elim (fun h ↦ h ▸ h1 hwf (h ▸ hlen)) fun h ↦ hC.defeq h hwf hlen,
+    fun hd hwf hlen ↦ hd.elim (fun h ↦ h ▸ h2 hwf (h ▸ hlen)) fun h ↦ hC.defeq_type h hwf hlen⟩
 
 end CoherentStep
 
@@ -973,9 +1007,8 @@ variable [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖]
 structure AxiomsValidated {env : VEnv} {nv : ℕ} (M : ModelData V)
     (L : LevelAssign env nv) (ds : List VDecl) : Prop where
   axioms : ∀ {ci : VConstVal}, (VDecl.axiom ci) ∈ ds → ∀ {ls : List VLevel},
-    ls.length = ci.toVConstant.uvars → ∀ {Γ : List VExpr} {ρ : V}, ρ ∈ interpCtx M L Γ →
-      M.cnst ci.name (ls.map (·.eval M.ls))
-        ∈ (interp M L Γ (ci.toVConstant.type.instL ls)).toFun ρ
+    (∀ l ∈ ls, l.WF nv) → ls.length = ci.toVConstant.uvars →
+      M.cnst ci.name ls ∈ (interp M L [] (ci.toVConstant.type.instL ls)).toFun ∅
 
 end Axioms
 
