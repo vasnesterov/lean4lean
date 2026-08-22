@@ -23,21 +23,46 @@ stream owns.
 
 ---
 
+> ## UPDATE — spike on obstacle (iii), at `6065f46`
+>
+> **Obstacle (iii) is refuted as an obstacle. Machine-checked.** I tried to build the
+> counterexample and failed, and the failure is not "I ran out of ideas" — the positive
+> statement that dissolves it is now proved, sorry-free, from mainline lemmas only, and its
+> axiom cone is `[propext, Quot.sound]`. Details and the Lean text: **§9**, scratch file at
+> `<scratchpad>/Descent.lean`.
+>
+> The one-line reason: substituting `VLevel.params U` for the levels of a derivation
+> (a) makes *any* level `U`-well-formed (`VLevel.WF.inst` + `VLevel.params_wf`),
+> (b) is the identity on `U`-well-formed terms (`VExpr.LevelWF.instL_id`),
+> (c) preserves `≈` (`VLevel.inst_congr_l`), and
+> (d) is admissible on derivations (`IsDefEq.instL`).
+> So reflect at any `U'` you like and substitute back down; the conclusion, whose levels are
+> already `U`-well-formed, is untouched.
+>
+> Consequences for the ranking below: route 1 loses its dominant unknown and keeps only the
+> `trans'` obstacle, which is **half-proved and shares its blocker with `sort_inv`**. Route 3
+> is retired — **neither** of the two fixes I costed is needed, so the migration keeps
+> `SExpr.lean` byte-for-byte. Route 2's relative case is correspondingly weaker: I would now
+> stay on the shape route. The revised recommendation is §10.
+
+---
+
 ## Bottom line
 
-**The narrowed reflection really is the shortest route, and it is not as narrow as hoped.**
+**The narrowed reflection really is the shortest route.** *(As first written: "…and it is
+not as narrow as hoped." The spike in §9 removed the reason for that caveat.)*
 
-Ranked, risk-adjusted:
+Ranked, risk-adjusted (revised after the spike):
 
 | # | Route | Verdict |
 |---|---|---|
-| 1 | **Reflection `SExpr → VExpr`, narrowed at the conclusion** | The only route whose destination is reachable. Three obstacles, not two — the third (level well-formedness) is new and I give a witness. One of the three is already half-proved, and the *fixup* the narrowing was supposed to buy is **already proved** (`IsDefEq.eqUpToLevels`, `Strong.lean:694`). |
-| 2 | **Full Carneiro conversion-alternation stratification** | Its value has gone *up* since my last report, because it delivers all three injectivity statements and the shape route delivers only two. ~2300 lines of churn, known-true destination. The honest fallback, and possibly the honest primary — see §7. |
-| 3 | Add level-WF side conditions to `SExpr.IsDefEq` | Not a route on its own; the cheapest known fix for obstacle (iii) of route 1. Undoes a deliberate simplification (`Bridge.lean:18–20`). |
-| 4 | Re-base the logical relation on `VExpr` | Removes the reflection problem at the root. Prohibitive (8479 lines written against `SExpr`), but *less* prohibitive than it looks, because `eqUpToLevels` supplies the level congruences `SLevel` exists to avoid. Name it, don't take it. |
+| 1 | **Reflection `SExpr → VExpr`, narrowed at the conclusion** | The route. Of the three obstacles I named, (ii) was never real, **(iii) is now refuted (§9)**, and (i) `trans'` is half-proved with its blocker shared with `sort_inv`. The *fixup* the narrowing was supposed to buy is already proved (`IsDefEq.eqUpToLevels`, `Strong.lean:694`). |
+| 2 | Full Carneiro conversion-alternation stratification | Still the fallback, and still delivers all three statements where the shape route delivers two. But ~2300 lines of churn against a route whose only remaining obstacle is shared with work already scheduled. Do not switch. |
+| 3 | ~~Add level-WF side conditions to `SExpr.IsDefEq`~~ | **Retired by §9.** Not needed. Costing it was the third deliverable of the spike; the answer is that both fixes are unnecessary and the migration pays nothing. |
+| 4 | Re-base the logical relation on `VExpr` | Prohibitive (8479 lines written against `SExpr`). Name it, don't take it. |
 | 5 | Weaken/restate the three consumers | **Impossible.** All three genuinely need Pi-injectivity; §6 gives the failure point in each. |
 | 6 | Read it off the set model | **Impossible.** `forallE_inv`'s conclusion is a derivation, and the interpretation is not injective. Witness in §5. |
-| 7 | Confluence, given `sort_inv` for free | **Still circular**, and for a *different* reason than `sort_inv` was. §4. This is the most decision-relevant finding. |
+| 7 | Confluence, given `sort_inv` for free | **Still circular**, and for a *different* reason than `sort_inv` was. §4. |
 
 The one piece of unambiguously good news: `IsDefEq.eqUpToLevels` (`Theory/Typing/Strong.lean:694–698`)
 is proved and sorry-free, and it is exactly the lemma the representative-choice
@@ -269,7 +294,15 @@ case, and see whether the WF gap is real in practice or whether the derivations 
 actually emits happen to stay inside the WF fragment. On this development that check has
 repeatedly been the whole story.
 
-### Summary of route 1
+> **↑ Everything from "So a chosen representative…" to here was written before the spike and
+> is superseded by §9.** The witness above is correct and is now machine-checked; the
+> *inference drawn from it* — that it obstructs the reflection — is wrong. The threading
+> question ("can the invariant be threaded instead of fixed?") had the right answer, **no**,
+> and the wrong conclusion: the invariant does not need to be threaded, because the levels
+> can be repaired at the end instead of maintained throughout. Neither (iii-a) nor (iii-b)
+> is needed.
+
+### Summary of route 1 *(revised after §9)*
 
 | Piece | Status |
 |---|---|
@@ -277,8 +310,10 @@ repeatedly been the whole story.
 | fixup `rep(mk A) → A` | **proved** (`Strong.lean:694`) |
 | `trans'`-elimination | **half-proved**, blocked on `SExpr.IsDefEq.strong` — *shared with `sort_inv`* |
 | `const`/`CtorBundle` | **not an obstacle** on the plain judgment |
-| level well-formedness | **new, unpriced, dominant** |
-| congruence/`extra` cases of the induction | mechanical, unwritten |
+| level well-formedness | **not an obstacle** — refuted in §9, machine-checked |
+| `∃ U'` threading (monotonicity, finiteness) | **proved** in §9 |
+| context well-formedness through the induction | **available** on the `VExpr` side (§9.4) — the step `toIsDefEq'` cannot take |
+| congruence cases of the induction | mechanical, unwritten — the remaining bulk |
 
 ---
 
@@ -443,9 +478,13 @@ which is unpriced and could be anywhere from a hundred lines to an `SExpr.lean` 
 (iii) turns out to require fix (iii-a) or (iii-b), the two routes are close enough that I
 would not bet on route 1.
 
+> **Superseded by §9.** Obstacle (iii) requires neither fix. Route 1's remaining cost is
+> `SExpr.IsDefEq.strong` — already on the `sort_inv` bill — plus the reflection induction.
+> Route 2 loses the comparison and I would not switch. Revised recommendation: §10.
+
 ---
 
-## 8. Recommendation
+## 8. Recommendation *(as written before the spike — see §10 for the revision)*
 
 1. **Spend one session on obstacle (iii) before anything else.** Write the narrowed
    reflection statement for a single component, and attempt only the `const` case. The
@@ -477,5 +516,178 @@ would not bet on route 1.
   its blocker with `sort_inv`, so its marginal cost is near zero.
 * The narrowing buys the *fixup*, and the fixup is **already proved** (`Strong.lean:694`).
   It buys nothing else.
-* There is a **third** obstacle, level well-formedness, and it is the one I would plan
-  around.
+* ~~There is a **third** obstacle, level well-formedness, and it is the one I would plan
+  around.~~ **Withdrawn: §9.** The witness was right, the inference from it was wrong.
+
+---
+
+# 9. Spike: obstacle (iii), refuted
+
+Executed at `6065f46` (`M Theory/Inductive/{Structure,StructureClosed,TelescopeLift}.lean`,
+`M Theory/Typing/PatternDecode.lean`, `M Verify/Typing/{Expr,Lemmas}.lean`). Nothing under
+`Lean4Lean/Experimental/` was touched — it could not even be imported, since its `.olean`s
+are stale against the modified `Theory/Inductive` and `Theory/Typing` sources. Everything
+below therefore imports **only** `Lean4Lean.Theory.Typing.Strong`, which is a stronger
+result than I set out to get: the resolution needs nothing from the migrating files.
+
+Full text: `<scratchpad>/Descent.lean`, 170 lines. Every declaration below is
+machine-checked, `sorry`-free, and `#print axioms` reports `[propext, Quot.sound]`.
+
+## 9.1 The refutation attempt, and where it fails
+
+The counterexample I was hunting had to be: `A`, `A'` level-well-formed at `U`, `Γ`
+well-formed, with `SExpr.IsDefEq (Γ.map mk) (mk A) (mk A') X` derivable and
+`env.IsDefEqU U Γ A A'` not — the SExpr derivation forced through levels no `U`-well-formed
+`VExpr` can express.
+
+**It cannot exist, because the ill-formed levels can be repaired at the end rather than
+avoided throughout.** The repair is substitution of `VLevel.params U`, and the mainline
+already has every property it needs:
+
+| Property | Lemma | Cite |
+|---|---|---|
+| makes **any** level `U`-WF | `VLevel.WF.inst` + `VLevel.params_wf` | `VLevel.lean:143`, `:130` |
+| identity on `U`-WF levels/terms | `VLevel.inst_id`, `VExpr.LevelWF.instL_id` | `VLevel.lean:132`, `VExpr.lean:175` |
+| preserves `≈` | `VLevel.inst_congr_l` | `VLevel.lean:164` |
+| admissible on derivations | `IsDefEq.instL` | `Lemmas.lean:593–595` |
+| discharges the residual slack | `IsDefEq.eqUpToLevels` | `Strong.lean:694–698` |
+
+The first three are exactly the properties I had failed to look for when I wrote §3. The
+crucial one is the **first**: `VLevel.inst` sends `.param i ↦ ls.getD i .zero`
+(`VLevel.lean:113–118`), so out-of-range parameters go to `.zero` *by definition of the
+substitution*, and `WF.inst` then makes the result `U`-WF unconditionally. There is no
+invariant to maintain.
+
+## 9.2 Reflecting *up*: the level side conditions cost nothing
+
+The three `SExpr` rules with no level premise reflect at a large enough `U'`, each in two
+lines. `VLevel.exists_wf`/`exists_wf_list` supply the bound; `IsDefEq.mono_uvars` combines
+the branches of an induction by taking the max. All proved in the spike file.
+
+```lean
+theorem const_case_reflects {env : VEnv} {Γ : List VExpr} {c ci} {lsᵥ : List VLevel}
+    (h1 : env.constants c = some ci) (h2 : lsᵥ.length = ci.uvars) :
+    ∃ U', env.IsDefEq U' Γ (.const c lsᵥ) (.const c lsᵥ) (ci.type.instL lsᵥ) := by
+  obtain ⟨U', hU'⟩ := VLevel.exists_wf_list lsᵥ
+  exact ⟨U', .constDF h1 hU' hU' h2 (Lean4Lean.List.Forall₂.rfl fun _ _ => rfl)⟩
+```
+
+`sort_case_reflects` and `extra_case_reflects` are the same three lines against
+`SExpr.lean:663` and `:679`. **That is the whole of the `const` case this spike was scoped
+to.** It is not hard; it was only ever hard if you insisted on reflecting at the ambient `U`.
+
+The type also lands on the nose, with no `≈`-slack: `SExpr.mk_instL` (`Bridge.lean:107–110`)
+gives `mk (ci.type.instL lsᵥ) = (mk ci.type).instL (lsᵥ.map mk)`, and a representative
+function is a genuine section of `SLevel.mk` (`SExpr.lean:63` carries the witness), so
+`lsᵥ.map mk = ls` exactly.
+
+## 9.3 Descending back down
+
+```lean
+/-- Same skeleton, `≈`-equivalent levels, no well-formedness demanded — i.e. `mk e = mk e'`. -/
+inductive SameLevels : VExpr → VExpr → Prop | bvar | const | sort | app | lam | forallE
+
+theorem descent {env : VEnv} {Γ : List VExpr} {U U' : Nat}
+    (henv : Ordered env) (hΓ : OnCtx Γ (env.IsType U))
+    (H : env.IsDefEq U' Γ e₁ e₂ A)
+    (h1 : SameLevels e₁ a₁) (h2 : SameLevels e₂ a₂)
+    (w1 : a₁.LevelWF U) (w2 : a₂.LevelWF U) :
+    env.IsDefEqU U Γ a₁ a₂
+```
+
+A derivation at **any** universe-parameter count, between terms that agree up to level
+equivalence with `U`-level-well-formed terms, descends to `U`. The proof is eleven lines:
+`instL (params U)` the whole derivation, note the context is unchanged
+(`CtxStrong.strong … |>.levelWF` plus `LevelWF.instL_id` pointwise), and discharge the two
+endpoints with `eqUpToLevels`.
+
+`SameLevels` is definitionally the relation `SExpr.mk e = SExpr.mk e'` — same skeleton,
+componentwise `≈` levels — by `SLevel.mk_inj` (`Bridge.lean:64`). I state it natively rather
+than as `mk e = mk e'` only so the file need not import `Experimental/`.
+
+## 9.4 A second thing the spike settled
+
+`toIsDefEq'` cannot maintain `Ctx.WF` through its induction, because neither
+`SExpr.IsDefEq.beta` nor `IsDefEqStrong.beta` carries a premise typing the binder — the
+docstring at `Experimental/UniqueTyping.lean:252–259` records this, and it is why
+`uniq_sort`'s hypothesis is not dischargeable there.
+
+**The reflection induction does not inherit that problem**, because the `VExpr` side has
+`IsDefEq.isType` (`Lemmas.lean:872–873`) and the `SExpr` side has no analogue:
+
+```lean
+example (henv : Ordered env) (hΓ : OnCtx Γ (env.IsType U)) (h : env.HasType U Γ e' A) :
+    OnCtx (A :: Γ) (env.IsType U) := ⟨hΓ, h.isType henv hΓ⟩
+```
+
+`beta`'s second premise types `e'` at `A`, which already makes `A` a type. So the context
+well-formedness that `eqUpToLevels` needs at every node is available. Machine-checked.
+
+## 9.5 The witness, machine-checked
+
+```lean
+example : ¬ VLevel.WF 0 (.imax (.param 7) .zero) := by decide
+example : VLevel.WF 0 .zero := by decide
+example : (VLevel.imax (.param 7) .zero) ≈ (VLevel.zero) := by
+  simp [VLevel.equiv_def, VLevel.eval, Lean.Nat.imax]
+```
+
+The witness from §3 is real: these two `VLevel`s share an `SLevel` and only one is
+well-formed at `U = 0`. What §3 got wrong was the inference — a representative *can* be
+ill-formed, and it does not matter.
+
+## 9.6 Costing the two fixes — the spike's third deliverable
+
+* **(iii-a)** WF side conditions on `SExpr.IsDefEq.const` and `.extra`: **not needed.**
+* **(iii-b)** Strengthened LR payload: **not needed.**
+
+So the answer to "which one preserves what the migration has already built" is: **neither is
+required, and `SExpr.lean` is untouched.** The migration in flight — 101 error sites — keeps
+every line. That is the strongest form the answer could have taken, and it is the reason I
+would not now switch routes.
+
+## 9.7 What I could *not* settle, and what would still refute route 1
+
+The residual risk is entirely obstacle (i), and it is worth stating sharply because it is
+where a refutation would now have to come from.
+
+`trans'` (`SExpr.lean:662`) is the only rule of `SExpr.IsDefEq` with no `VExpr` counterpart,
+and its admissibility rests on `SExpr`-side sort uniqueness. Tracing that:
+`toIsDefEq'` ← `uniq_sort` (`Experimental/UniqueTyping.lean:186`) ← `HasTypeS.uniq` (`:92`),
+and `HasTypeS.uniq` consumes `SExpr.forallE_inv` and `SExpr.sort_inv` from the shape model
+plus `IsDefEq.subst` (`SExpr.lean:1270`), which is proved *through* `IsDefEq.strong`
+(`:878`) — still a `sorry`, still carrying the `hu0` defect (`:764`, `:789`, `:867`).
+**[verified]**
+
+So: **if `SExpr.IsDefEq.strong` turns out to be irreparably false rather than repairable,
+`trans'` loses its justification and both `sort_inv` and `forallE_inv` fall with it.** That
+is a single point of failure for the whole shape route, and it is not new — it is the item I
+flagged in the previous pass. It is also the thing I would attack next.
+
+I also did not attempt the reflection induction itself. Its congruence cases are mechanical
+(`IsDefEq'`'s constructors are `VEnv.IsDefEq`'s, one for one, modulo the level conditions
+now handled), but "mechanical" on this development has meant a few hundred lines more than
+once.
+
+---
+
+# 10. Revised recommendation
+
+1. **Stay on the shape route.** Obstacle (iii) is gone at no cost to `SExpr.lean`, so the
+   argument for switching to the Carneiro stratification — which rested on route 1 having an
+   unpriced dominant unknown — no longer holds. The migration's 101 sites keep their value.
+2. **Attack `SExpr.IsDefEq.strong` next, and interrogate it before proving it.** It is now
+   the single point of failure for `sort_inv`, `forallE_inv`, `trans'`-elimination and
+   `IsDefEq.subst` at once (§9.7). Its docstring already calls it false as stated for the
+   `hu0` reason; the question worth answering first is whether the *repaired* statement is
+   true.
+3. **Then write the reflection.** In this order: `∃ U'`-threading (proved, §9.2), the
+   congruence cases (unwritten), `trans'` via `toIsDefEq'` (needs 2), the descent (proved,
+   §9.3). The pieces at the two ends are done; the middle is the work.
+4. Items 2–6 of §8 stand unchanged: no confluence, no set model, no consumer restatement,
+   consumer A needs only the domain half, keep `Params.pat_wf` parked.
+5. **Consider promoting the §9 lemmas out of the scratchpad.** `IsDefEq.mono_uvars`,
+   `VLevel.exists_wf{,_list}` and `descent` are general facts about the mainline theory with
+   no `Experimental/` dependency; they belong next to `IsDefEq.eqUpToLevels` in
+   `Theory/Typing/Strong.lean` whenever that file is free. I did not put them there — this
+   was a read-only spike outside the scratchpad.
