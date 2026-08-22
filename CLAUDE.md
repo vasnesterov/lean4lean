@@ -12,6 +12,6 @@ Soft guideline (not a hard rule): keep the implementation close to the official 
 ## References
 
 - `~/lean-type-theory` — Carneiro, *The Type Theory of Lean*: `typesys.tex` (spec blueprint, incl. inductives), `soundness.tex` (ZFC + n-inaccessibles model), `unique.tex`, `axioms.tex`.
-- `~/lean4/src/kernel` — the official C++ kernel (tag `v4.33.0-rc2`), the implementation this checker mirrors.
+- `~/lean4/src/kernel` — the official C++ kernel (current master), the implementation this checker mirrors.
 - `~/lean-kernel-arena` — kernel test suite (goal 1).
 - `~/Foundation` — checkout of the Foundation dependency (fork `vasnesterov/Foundation`, branch `lean4lean-dev`).
