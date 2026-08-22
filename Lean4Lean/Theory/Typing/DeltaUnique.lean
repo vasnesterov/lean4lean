@@ -101,18 +101,60 @@ theorem DefEqHeadsUnique.addDefEq_notDelta {env : VEnv} {df : VDefEq}
   · exact absurd hd' (hnd c)
   · exact H x y c hx hy hd hd'
 
+/-! ### Relativising freshness
+
+`.def` and `.unsafeDef` have different shapes.  `.def` does `addConst` and then `addDefEq` on
+the *same* name, so at the moment the rule is added its head is fresh.  `.unsafeDef` declares
+*all* of a block's constants and only then adds *all* of its rules, so by the time a rule is
+added its head has been declared several steps back and freshness is no longer in hand.
+
+A fact that stops holding as you move forward usually wants relativising rather than
+re-proving.  The relativisation here is to state what is actually needed — *no existing rule
+has this head* — instead of the proxy that happened to be available in the `.def` case, *this
+head is undeclared*.  `NoRuleFor` is preserved by adding rules with other heads, which the
+proxy is not, so it survives the second traversal; and it follows from the proxy via
+`DefEqHeadsDeclared` whenever the proxy does hold.
+
+This works because `addConsts` leaves `defeqs` untouched: declaredness can be taken against
+the environment before the block's constants were added, while uniqueness is tracked against
+the environment in hand. -/
+
+/-- No rule of `env` is a δ-rule with head `c`. -/
+def NoRuleFor (env : VEnv) (c : Lean.Name) : Prop :=
+  ∀ df, env.defeqs df → ¬ IsDeltaRule df c
+
+/-- The proxy implies the real condition: an undeclared head can carry no rule. -/
+theorem noRuleFor_of_not_contains {env : VEnv} {c} (Hd : env.DefEqHeadsDeclared)
+    (h : ¬ env.contains c) : env.NoRuleFor c :=
+  fun df hdf hd => h (Hd df c hdf hd)
+
+/-- `NoRuleFor` survives adding a rule with a different head — which the "undeclared"
+proxy would not. -/
+theorem NoRuleFor.addDefEq {env : VEnv} {c} {df : VDefEq}
+    (H : env.NoRuleFor c) (hne : ¬ IsDeltaRule df c) : (env.addDefEq df).NoRuleFor c := by
+  rintro x (rfl | hx) hd
+  · exact hne hd
+  · exact H x hx hd
+
+/-- **The load-bearing step, in its relativised form.**  Adding a δ-rule none of whose heads
+already carries a rule preserves uniqueness. -/
+theorem DefEqHeadsUnique.addDefEq_noRule {env : VEnv} {df : VDefEq}
+    (Hu : env.DefEqHeadsUnique) (hfresh : ∀ c, IsDeltaRule df c → env.NoRuleFor c) :
+    (env.addDefEq df).DefEqHeadsUnique := by
+  rintro x y c (rfl | hx) (rfl | hy) hd hd'
+  · rfl
+  · exact absurd hd' (hfresh c hd y hy)
+  · exact absurd hd (hfresh c hd' x hx)
+  · exact Hu x y c hx hy hd hd'
+
 /-- **The load-bearing step.**  Adding a δ-rule whose head is *fresh* — not yet a declared
 constant — preserves uniqueness, precisely because `DefEqHeadsDeclared` rules out an existing
 rule with that head.  This is where the two invariants need each other. -/
 theorem DefEqHeadsUnique.addDefEq_fresh {env : VEnv} {df : VDefEq}
     (Hd : env.DefEqHeadsDeclared) (Hu : env.DefEqHeadsUnique)
     (hfresh : ∀ c, IsDeltaRule df c → ¬ env.contains c) :
-    (env.addDefEq df).DefEqHeadsUnique := by
-  rintro x y c (rfl | hx) (rfl | hy) hd hd'
-  · rfl
-  · exact absurd (Hd y c hy hd') (hfresh c hd)
-  · exact absurd (Hd x c hx hd) (hfresh c hd')
-  · exact Hu x y c hx hy hd hd'
+    (env.addDefEq df).DefEqHeadsUnique :=
+  Hu.addDefEq_noRule fun c hd => noRuleFor_of_not_contains Hd (hfresh c hd)
 
 /-- …and preserves declaredness, provided the head has just been declared. -/
 theorem DefEqHeadsDeclared.addDefEq_declared {env : VEnv} {df : VDefEq}
@@ -121,6 +163,41 @@ theorem DefEqHeadsDeclared.addDefEq_declared {env : VEnv} {df : VDefEq}
   rintro x c (rfl | hx) hd
   · exact hnew c hd
   · exact H x c hx hd
+
+/-! ## The `.unsafeDef` fold
+
+`addConsts` declares the whole block, then `addDefEqs` adds the whole block's rules.  Both are
+folds over the same list, and freshness has to survive both — which it does, in the
+`NoRuleFor` form, because each step only adds a rule with a *different* head. -/
+
+theorem toDefEq_isDeltaRule {ci : VDefVal} {c : Lean.Name} :
+    IsDeltaRule ci.toDefEq c ↔ c = ci.name := by
+  constructor
+  · rintro ⟨ls, h⟩; exact (VExpr.const.injEq .. ▸ h : _ ∧ _).1.symm
+  · rintro rfl; exact ⟨_, rfl⟩
+
+theorem addDefEqs_declared : ∀ {cis : List VDefVal} {env : VEnv},
+    env.DefEqHeadsDeclared → (∀ ci ∈ cis, env.contains ci.name) →
+    (env.addDefEqs cis).DefEqHeadsDeclared
+  | [], _, H, _ => H
+  | ci :: cis, env, H, hc => by
+    refine addDefEqs_declared (cis := cis)
+      (H.addDefEq_declared fun c hd => ?_) (fun ci' hci' => ?_)
+    · rw [toDefEq_isDeltaRule.1 hd]; exact hc ci (.head _)
+    · exact hc ci' (.tail _ hci')
+
+theorem addDefEqs_unique : ∀ {cis : List VDefVal} {env : VEnv},
+    env.DefEqHeadsUnique → (∀ ci ∈ cis, env.NoRuleFor ci.name) →
+    cis.Pairwise (fun a b => a.name ≠ b.name) →
+    (env.addDefEqs cis).DefEqHeadsUnique
+  | [], _, H, _, _ => H
+  | ci :: cis, env, H, hno, hp => by
+    have hne := (List.pairwise_cons.1 hp).1
+    refine addDefEqs_unique (cis := cis)
+      (H.addDefEq_noRule fun c hd => ?_) (fun ci' hci' => ?_) (List.pairwise_cons.1 hp).2
+    · rw [toDefEq_isDeltaRule.1 hd]; exact hno ci (.head _)
+    · exact (hno ci' (.tail _ hci')).addDefEq fun hd =>
+        hne ci' hci' (toDefEq_isDeltaRule.1 hd).symm
 
 end VEnv
 end Lean4Lean

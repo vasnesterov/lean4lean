@@ -217,6 +217,38 @@ theorem VInductDecl'.selfLvls_inst (D : VInductDecl') (a : VLevel) {us : List VL
   · rw [← h]; simpa using map_getD_range (l := us)
   · rw [← h]; exact map_getD_range
 
+
+/-! ## Naming `projCore`'s components
+
+`projCore` builds its level list, motive and minor premise inline.  Typing it means talking
+about each separately, so they get names here and `projCore_eq` (which is `rfl`) puts the
+application back together. -/
+
+/-- The recursor's level arguments for the `i`-th projection. -/
+def VInductDecl'.projLvls (D : VInductDecl') (C : VIndCtor) (us : List VLevel) (i : Nat) :
+    List VLevel :=
+  if D.isLE then (C.fields.getD i default).lvl.inst us :: us else us
+
+/-- The motive `projCore` hands the recursor. -/
+def VIndType.projMotive (T : VIndType) (C : VIndCtor) (us : List VLevel)
+    (ps is : List VExpr) (i : Nat) (earlier : List VExpr) : VExpr :=
+  mkLams (VExpr.instAllTele (T.indices.map (VExpr.instL us)) ps) <|
+    .lam ((VExpr.const T.name us).mkApp (ps.map (·.liftN is.length) ++ bvars 0 is.length)) <|
+      VExpr.instAll ((C.fields.getD i default).type.instL us)
+        (ps.map (·.liftN (is.length+1)) ++ earlier)
+
+/-- The minor premise `projCore` hands the recursor: `fun f₀ … f_{n-1} => fᵢ`. -/
+def VIndCtor.projMinor (C : VIndCtor) (us : List VLevel) (ps : List VExpr) (i : Nat) : VExpr :=
+  mkLams (VExpr.instAllTele (C.fields.map fun F => F.type.instL us) ps)
+    (.bvar (C.fields.length - 1 - i))
+
+theorem VInductDecl'.projCore_eq (D : VInductDecl') (T : VIndType) (C : VIndCtor)
+    (us : List VLevel) (ps is : List VExpr) (i : Nat) (earlier : List VExpr) (e : VExpr) :
+    D.projCore T C us ps is i earlier e
+      = (VExpr.const (Lean.mkRecName T.name) (D.projLvls C us i)).mkApp
+          (ps ++ [T.projMotive C us ps is i earlier, C.projMinor us ps i] ++ is ++ [e]) :=
+  rfl
+
 /-- The stored telescopes of a structure are closed at their declared arities.
 
 This is what makes `projTerm` commute with context operations, and it is a genuine

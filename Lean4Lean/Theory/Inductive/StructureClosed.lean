@@ -177,4 +177,30 @@ theorem VEnv.IsDefEq.mkApp' {env : VEnv} {U : Nat} :
     rw [VExpr.mkApp_cons, VExpr.mkApp_cons, VExpr.instAll_cons, Nat.zero_add, hlen]
     exact VEnv.IsDefEq.mkApp' has h1
 
+/-! ## The motive's declared type
+
+`recApp_hasType''`'s `hspine` asks for the motive at `instAll ((D.motiveType 0).instL ls) ps`.
+This computes that to the type `HasType.mkLams` produces for `VIndType.projMotive`. -/
+
+theorem motiveType_instL_instAll (D : VInductDecl') (T : VIndType) (C : VIndCtor)
+    {us : List VLevel} {ps : List VExpr} {i : Nat}
+    (hT : D.types.getD 0 default = T)
+    (hus : us.length = D.uvars) (hps : ps.length = D.np) :
+    VExpr.instAll ((D.motiveType 0).instL (D.projLvls C us i)) ps
+      = VExpr.mkPi (VExpr.instAllTele (T.indices.map (VExpr.instL us)) ps)
+          (.forallE ((VExpr.const T.name us).mkApp
+              (ps.map (·.liftN T.indices.length) ++ VExpr.bvars 0 T.indices.length))
+            (.sort (D.elimLvl.inst (D.projLvls C us i)))) := by
+  have hself : D.selfLvls.map (VLevel.inst (D.projLvls C us i)) = us := by
+    rw [VInductDecl'.projLvls]; exact D.selfLvls_inst _ hus
+  simp only [VInductDecl'.motiveType, hT, VExpr.liftTele_zero, VInductDecl'.atRecTele,
+    VExpr.instL_mkPi, VInductDecl'.tyApp', VExpr.instL_mkApp, VExpr.instL,
+    VExpr.map_instL_bvars, List.map_append, VExpr.instAll_mkPi, VExpr.instAll_forallE,
+    VExpr.instAll_sort, VExpr.instAll_mkApp, VExpr.instAll_const,
+    List.map_map, Function.comp_def, VExpr.instL_instL, hself,
+    List.length_map, Nat.zero_add, Nat.add_zero]
+  rw [VExpr.map_instAll_bvars_top (Nat.le_refl _) (by simp [hps]),
+    VExpr.map_instAll_bvars_lt (Nat.le_of_eq (Nat.zero_add _)),
+    List.take_of_length_le (by simp [hps])]
+
 end Lean4Lean

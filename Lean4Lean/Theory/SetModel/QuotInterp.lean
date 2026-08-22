@@ -240,6 +240,51 @@ theorem quotSortU_type (hu : u.WF nv) :
 
 end Typing
 
+/-! ### `Quot.mk`'s spine
+
+`Quot.mk : ∀ (α : Sort u) (r : α → α → Prop) (a : α), Quot α r`.  Unlike `Quot`,
+whose spine was `sortDF`/`bvar`/`forallEDF` throughout, the codomain here is a
+*constant application*, so it needs `constDF` and two `appDF`s — this is the
+cost that a constructor pays once, and it is what makes `Quot.mk` more expensive
+than `Quot` rather than the extra λ. -/
+
+/-- The codomain `Quot α r`, over `[α, r-type, Sort u]`. -/
+def quotMkCod (u : VLevel) : VExpr :=
+  .app (.app (.const ``Quot [u]) (.bvar 2)) (.bvar 1)
+
+example (u : VLevel) : quotMkConst.type.instL [u]
+    = .forallE (.sort u) (.forallE quotRelTy (.forallE (.bvar 1) (quotMkCod u))) := rfl
+
+section MkTyping
+
+variable {env : VEnv} {nv : ℕ} {u : VLevel}
+
+/-- `α`, seen from inside the `r` binder. -/
+theorem bvar1_sortU : env.HasType nv [quotRelTy, VExpr.sort u] (.bvar 1) (.sort u) :=
+  VEnv.IsDefEq.bvar (.succ .zero)
+
+/-- `α`, seen from inside the `a` binder. -/
+theorem bvar2_sortU :
+    env.HasType nv [VExpr.bvar 1, quotRelTy, VExpr.sort u] (.bvar 2) (.sort u) :=
+  VEnv.IsDefEq.bvar (.succ (.succ .zero))
+
+/-- `Quot` itself, at the level the block is instantiated with. -/
+theorem quotConst_type (hq : env.constants ``Quot = some quotConst) (hu : u.WF nv)
+    {Γ : List VExpr} :
+    env.HasType nv Γ (.const ``Quot [u]) (.forallE (.sort u) (.forallE quotRelTy (.sort u))) :=
+  VEnv.IsDefEq.constDF hq (by simpa using hu) (by simpa using hu) rfl
+    (List.Forall₂.cons rfl .nil)
+
+/-- **The codomain is well-typed.**  `constDF`, then two `appDF`s; the two `inst`
+computations come out to the lifted context types on the nose. -/
+theorem quotMkCod_type (hq : env.constants ``Quot = some quotConst) (hu : u.WF nv) :
+    env.HasType nv [VExpr.bvar 1, quotRelTy, VExpr.sort u] (quotMkCod u) (.sort u) :=
+  VEnv.IsDefEq.appDF
+    (VEnv.IsDefEq.appDF (quotConst_type hq hu) bvar2_sortU)
+    (VEnv.IsDefEq.bvar (.succ .zero))
+
+end MkTyping
+
 section Interp
 
 variable [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖]
@@ -268,6 +313,29 @@ noncomputable def quotFn (M : ModelData V) (L : LevelAssign envF nv) (u : VLevel
     (fun ρ α ↦ quotFib M L u (snoc ρ α))
     (by have := quotFib_definable (M := M) (L := L) (u := u); definability)
     ∅
+
+/-! ### Computing `Quot`'s denotation
+
+`Quot.mk`'s codomain is `Quot α r`, so its obligation needs the *value* of the
+function `quotFn` at `α` and then at `r`, not merely its membership.  Two
+applications of `mkLam_value`, one per λ. -/
+
+section Values
+
+variable {envF : VEnv} {nv : ℕ} {M : ModelData V} {L : LevelAssign envF nv} {u : VLevel}
+
+theorem quotFn_value {α : V} (hα : α ∈ U M.κ (u.eval M.ls)) :
+    (quotFn M L u) ‘ α = quotFib M L u (snoc ∅ α) := by
+  unfold quotFn
+  exact mkLam_value (by rw [interp_sort]; exact hα)
+
+theorem quotFib_value {ρ r : V}
+    (hr : r ∈ (interp M L [.sort u] quotRelTy).toFun ρ) :
+    (quotFib M L u ρ) ‘ r = quotVal (ρ ‘ ((0 : ℕ) : V)) r (u.eval M.ls) := by
+  unfold quotFib
+  exact mkLam_value hr
+
+end Values
 
 /-! ### Towards `Quot.mk`
 
