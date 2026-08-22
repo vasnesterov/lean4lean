@@ -1,6 +1,7 @@
 import Lean4Lean.Theory.Typing.PatternDecode
 import Lean4Lean.Theory.Inductive.Lemmas
 import Lean4Lean.Theory.Typing.DeltaUnique
+import Lean4Lean.Theory.Typing.EnvLemmas
 
 /-!
 # `Pat`: which patterns an environment's rules are
@@ -147,6 +148,59 @@ def iotaCheckOf (T : VIndType) (C : VIndCtor)
 
 end VInductDecl'
 
+/-! ## `extra_pat`, one rule shape at a time -/
+
+/-- Instantiating the identity level substitution at a full list returns the list.  This is
+what turns a δ-rule's stored `.const c (params u)` into `.const c ls`. -/
+theorem VLevel.map_inst_params {u : Nat} {ls : List VLevel} (h : ls.length = u) :
+    (VLevel.params u).map (VLevel.inst ls) = ls := by
+  subst h
+  refine List.ext_getElem (by simp [VLevel.params]) fun i h1 h2 => ?_
+  simp [VLevel.params, VLevel.inst, List.getD_eq_getElem?_getD, List.getElem?_eq_getElem h2]
+
+/-! ## The quotient rule's pattern, datum and check
+
+`Theory/Quot.lean`'s rule is `fun α r β f c a => Quot.lift α r β f c (Quot.mk r a) ≡ f a`.
+Its λ-peeled left-hand side is `iota`-shaped — measured, not inferred: six binders, a
+six-long recursor spine and a three-long major-premise spine, so the pattern is
+`SimplePattern.iota ``Quot.lift 5 ``Quot.mk 3`.  But it comes from no `VInductDecl'`, and
+`Pat.iota` cannot be bent to fit it because `Lean.mkRecName n = ``Quot.lift` is impossible
+(`Name.str` injectivity).  Hence a third constructor.
+
+This is `PLAN.md`'s "`extra_pat` is unsatisfiable" finding one layer down: λ-peeling fixed
+the *shape* mismatch, but the quot pattern's *provenance* was never given a home. -/
+
+/-- The quotient rule's pattern. -/
+def quotPat : Pattern := (SimplePattern.iota ``Quot.lift 5 ``Quot.mk 3).toPattern
+
+/-- The quotient rule's right-hand side, `f a`.
+
+`f` is the matched *recursor* argument at index 3 of 5, whose path is `some none`
+(`Pattern.argPath`'s outermost `.var` holds the last argument), and `a` is the matched
+*constructor* argument at index 2 of 3, reached as `drop 2` of that side's paths.  The head
+is therefore a matched argument, not a closed term — which is exactly why `iotaRHS` was
+generalised to `spineRHS`. -/
+def quotRHS : quotPat.RHS :=
+  spineRHS ``Quot.lift ``Quot.mk 5 3 (Pattern.RHS.var (Sum.inl (some none))) 0 2
+
+/-- The quotient rule's check.  **Not `Check.true`** — each clause exists for a specific
+`pat_wf` obligation, and `Theory/Typing/PatternDecode.lean`'s header explains why dropping
+them would make `pat_wf` unprovable by anyone rather than merely unproved:
+
+* the two `defeq` clauses (`np = 2`) pair the recursor leaf's first two arguments with the
+  constructor leaf's — `α` and `r`.  Both leaves bind them, and an arbitrary match
+  `Quot.lift α r β f c (Quot.mk α' r' a)` would otherwise fire the rule with `r ≠ r'`, at
+  which point `f a` need not even be well-typed.  In the rule itself they are literally the
+  same variables (`bvar 5` and `bvar 4` on both sides), so the clauses hold by reflexivity
+  where `extra_pat` discharges them.
+* no index clauses (`k = 5`, `computed = []`): `Quot` has no indices, so
+  `(argPaths _ 5).drop 5` is empty and the block is vacuous.
+* the level clause `(0, 0)`: the rule stores `Quot.lift.{p0, p1}` against `Quot.mk.{p0}`, so
+  `pat_wf` must bridge a matched `Quot.mk.{u'}` to the `Quot.mk.{u}` the left-hand side
+  expects, which needs `u ≈ u'`. -/
+def quotCheck : quotPat.Check :=
+  iotaCheck ``Quot.lift ``Quot.mk 5 3 2 5 [] [(0, 0)]
+
 /-- **The `Pat` relation.**  One constructor per rule shape; see the module docstring for why
 this is an inductive family rather than an existential. -/
 inductive Pat (env : VEnv) : (p : Pattern) → p.RHS × p.Check → Prop
@@ -162,6 +216,12 @@ inductive Pat (env : VEnv) : (p : Pattern) → p.RHS × p.Check → Prop
       env.constants (Lean.mkRecName T.name) = some ⟨D.recUvars, D.recType j⟩ →
       env.constants C.name = some ⟨D.uvars, C.type D j⟩ →
       Pat env (D.iotaPat T C) (D.iotaRHSOf j q T C h, D.iotaCheckOf T C hargs)
+  /-- The quotient rule.  `env.constants ``Quot.lift` is not decoration: it is what
+  `Pat.quotLift_ne_ctor` needs, exactly as `Pat.iota`'s two constant fields feed
+  `rec_ne_ctor`.  `Quot.mk`'s constant is deliberately *not* recorded — nothing consumes it,
+  and an unconsumed field hides which premises are load-bearing. -/
+  | quot : env.defeqs quotDefEq → env.constants ``Quot.lift = some quotLiftConst →
+      Pat env quotPat (quotRHS, quotCheck)
 
 /-! ## The global name-distinctness side condition
 
@@ -221,6 +281,181 @@ theorem rec_ne_ctor {env : VEnv} {D D' : VInductDecl'} {j j' : Nat} {T : VIndTyp
   rw [h, hctor, Option.some_inj] at hrec
   exact recType_ne_ctorType hT (congrArg VConstant.type hrec).symm
 
+/-- No recursor name is `Quot.lift` or `Quot.mk`: `mkRecName n` ends in the segment `"rec"`.
+Pure `Name.str` injectivity — no environment, no provenance. -/
+theorem mkRecName_ne_quotLift (n : Lean.Name) : Lean.mkRecName n ≠ ``Quot.lift := by
+  intro h; simp [Lean.mkRecName] at h
+
+theorem mkRecName_ne_quotMk (n : Lean.Name) : Lean.mkRecName n ≠ ``Quot.mk := by
+  intro h; simp [Lean.mkRecName] at h
+
+/-- `Quot.lift` is never a registered constructor's name.  Same argument as `rec_ne_ctor`,
+and it needs the constants for the same reason: under its binders `Quot.lift`'s stored type
+is a `bvar` (its result is the motive-free `β`), while a constructor's is `I p args`, a
+`const`. -/
+theorem quotLift_ne_ctor {env : VEnv} {D : VInductDecl'} {j : Nat} {C : VIndCtor}
+    (hlift : env.constants ``Quot.lift = some quotLiftConst)
+    (hctor : env.constants C.name = some ⟨D.uvars, C.type D j⟩) :
+    (``Quot.lift : Lean.Name) ≠ C.name := fun h => by
+  rw [h, hctor, Option.some_inj] at hlift
+  have h2 := congrArg VExpr.piBodyHead (congrArg VConstant.type hlift)
+  rw [C.piBodyHead_type D j, show VExpr.piBodyHead quotLiftConst.type = .bvar 3 from rfl] at h2
+  exact absurd h2 (by nofun)
+
+/-! ## `RuleShape`: what a rule of a well-formed environment looks like
+
+`extra_pat` quantifies over an arbitrary `df` with `env.defeqs df` and must produce a `Pat`,
+so it needs to know that `df` is a δ-rule, the quotient rule, or an ι-rule — together with
+the data each `Pat` constructor asks for.
+
+**This is the one piece of design §7.7's `VEnv.Sig` that survives.**  The key invariants of
+`Theory/Typing/DeltaUnique.lean` replaced `Sig`'s `kind`, `sound` and `coherent`; `Sig.defeqs`
+— "every defeq is a δ-rule of a `def`, an ι-rule of a `rec`, or the quot rule" — is real and
+cannot be routed around, because nothing else can tell `extra_pat` what shape a rule has.
+
+It is also the natural home for the two families of side conditions `Pat` needs, both of
+which are facts about "what a rule in a well-formed environment looks like": closedness of
+the δ-value and of `iotaLam`, and `C.args.length = T.indices.length`. -/
+
+/-- Closedness of a `def`'s value: it is typed in the empty context. -/
+theorem VDefVal.value_closed {env : VEnv} {ci : VDefVal} (henv : env.Ordered) (h : ci.WF env) :
+    ci.value.Closed := (h.closedN' henv.closed trivial).1
+
+/-- Closedness of `iotaLam`: `iotaLam_hasType` types it in the empty context. -/
+theorem VInductDecl'.iotaLam_closed {env : VEnv} {D : VInductDecl'} (henv : env.Ordered)
+    (hI : D.IotaCtx env) {j q : Nat} {T : VIndType} {C : VIndCtor}
+    (hT : D.types[j]? = some T) (hj : j < D.nm) (hC : C ∈ T.ctors)
+    (hqC : D.ctorsAll[q]? = some (j, C)) : (D.iotaLam q C).Closed :=
+  ((VInductDecl'.iotaLam_hasType hI hT hj hC hqC).closedN' henv.closed trivial).1
+
+/-- Closedness of each result index abstracted over the constructor's binders.  Read off the
+constructor's *stored type*, which is `∀ params fields, I_j p args` — so its telescope and
+its arguments are closed together, and neither needs a separate argument. -/
+theorem VIndCtor.args_closed {env : VEnv} {D : VInductDecl'} {j : Nat} {T : VIndType}
+    {C : VIndCtor} (henv : env.Ordered) (hC : C.WF env D j T) :
+    ∀ a ∈ C.args, (mkLams (C.params ++ C.fields.map (·.type)) a).Closed := by
+  obtain ⟨u, hty⟩ := hC.isType henv
+  have h0 := (hty.closedN' henv.closed trivial).1
+  rw [VIndCtor.type, VExpr.closedN_mkPi, VIndCtor.canonResult, VInductDecl'.tyApp,
+    VExpr.closedN_mkApp] at h0
+  intro a ha
+  exact VExpr.closedN_mkLams.2 ⟨h0.1, h0.2.2 a (List.mem_append_right _ ha)⟩
+
+/-- **Every rule of a well-formed environment has one of three shapes**, carrying exactly what
+the corresponding `Pat` constructor asks for. -/
+inductive VEnv.RuleShape (env : VEnv) : VDefEq → Prop
+  | delta (ci : VDefVal) : ci.value.Closed → RuleShape env ci.toDefEq
+  | quot : env.constants ``Quot.lift = some quotLiftConst → RuleShape env quotDefEq
+  /-- `args_len` is the R3 field: `iotaPat` reports the recursor arity as
+  `np + nm + nmin + T.indices.length` while the rule's spine carries `|C.args|` index
+  arguments, and nothing in `Pat.iota`'s data relates them.  It is discharged from
+  `VIndCtor.WF.args_len` in `WF'.ruleShape` below; the obligation lands on whoever builds a
+  `RuleShape`, it does not disappear. -/
+  | iota (D : VInductDecl') (j q : Nat) (T : VIndType) (C : VIndCtor) :
+      (D.iotaLam q C).Closed →
+      (∀ a ∈ C.args, (mkLams (C.params ++ C.fields.map (·.type)) a).Closed) →
+      C.args.length = T.indices.length →
+      D.types[j]? = some T → C ∈ T.ctors →
+      env.constants (Lean.mkRecName T.name) = some ⟨D.recUvars, D.recType j⟩ →
+      env.constants C.name = some ⟨D.uvars, C.type D j⟩ →
+      RuleShape env (D.iotaRule j q C)
+
+theorem VEnv.RuleShape.mono {env env' : VEnv} (hle : env ≤ env') {df} :
+    env.RuleShape df → env'.RuleShape df
+  | .delta ci h => .delta ci h
+  | .quot h => .quot (hle.constants h)
+  | .iota D j q T C h1 h2 h3 h4 h5 h6 h7 =>
+      .iota D j q T C h1 h2 h3 h4 h5 (hle.constants h6) (hle.constants h7)
+
+/-! ### The four substantial arms
+
+Separate lemmas rather than `cases` branches, so that unification fixes each step's data
+instead of the proof depending on the order in which `VDecl.WF`'s auto-bound implicits are
+generalised — the same reason `WF'.keys` is written this way. -/
+
+theorem VEnv.ruleShape_def {env env' : VEnv} {ci : VDefVal} (henv : env.Ordered)
+    (hci : ci.WF env) (h : env.addConst ci.name ci.toVConstant = some env')
+    (ih : ∀ df, env.defeqs df → env.RuleShape df) :
+    ∀ df, (env'.addDefEq ci.toDefEq).defeqs df → (env'.addDefEq ci.toDefEq).RuleShape df := by
+  intro df hdf
+  rcases (hdf : _ ∨ _) with rfl | hdf
+  · exact .delta _ (VDefVal.value_closed henv hci)
+  · rw [VEnv.addConst_defeqs h] at hdf
+    exact (ih df hdf).mono ((VEnv.addConst_le h).trans VEnv.addDefEq_le)
+
+theorem VEnv.ruleShape_unsafeDef {env env' : VEnv} {cis : List VDefVal} (henv : env.Ordered)
+    (hcon : ∀ ci ∈ cis, ci.toVConstant.WF env) (h : env.addConsts cis = some env')
+    (hval : ∀ ci ∈ cis, ci.WF env') (ih : ∀ df, env.defeqs df → env.RuleShape df) :
+    ∀ df, (env'.addDefEqs cis).defeqs df → (env'.addDefEqs cis).RuleShape df := by
+  have henv₁ := VEnv.addConsts_ordered henv hcon h
+  intro df hdf
+  rcases VEnv.addDefEqs_defeqs hdf with ⟨ci, hci, rfl⟩ | hdf
+  · exact .delta _ (VDefVal.value_closed henv₁ (hval ci hci))
+  · rw [VEnv.addConsts_defeqs h] at hdf
+    exact (ih df hdf).mono ((VEnv.addConsts_le h).trans (VEnv.addDefEqs_le cis _))
+
+theorem VEnv.ruleShape_quot {env env' : VEnv} (h : env.addQuot = some env')
+    (ih : ∀ df, env.defeqs df → env.RuleShape df) :
+    ∀ df, env'.defeqs df → env'.RuleShape df := by
+  obtain ⟨e1, e2, e3, e4, h1, h2, h3, h4, rfl⟩ := VEnv.addQuot_stages h
+  have hlift : e4.constants ``Quot.lift = some quotLiftConst :=
+    (VEnv.addConst_le h4).constants (VEnv.addConst_self h3)
+  intro df hdf
+  rcases (hdf : _ ∨ _) with rfl | hdf
+  · exact .quot hlift
+  · rw [VEnv.addConst_defeqs h4, VEnv.addConst_defeqs h3, VEnv.addConst_defeqs h2,
+      VEnv.addConst_defeqs h1] at hdf
+    refine (ih df hdf).mono (VEnv.LE.trans ?_ VEnv.addDefEq_le)
+    exact ((VEnv.addConst_le h1).trans (VEnv.addConst_le h2)).trans
+      ((VEnv.addConst_le h3).trans (VEnv.addConst_le h4))
+
+theorem VEnv.ruleShape_induct {env env' : VEnv} {D : VInductDecl'} (henv : env.Ordered)
+    (hdecl : D.WF env) (h : env.addInduct' D = some env')
+    (ih : ∀ df, env.defeqs df → env.RuleShape df) :
+    ∀ df, env'.defeqs df → env'.RuleShape df := by
+  obtain ⟨e1, e2, e3, h1, h2, h3, rfl⟩ := VEnv.addInduct'_stages h
+  have hI := hdecl.iotaCtx henv h1 h2 h3
+  have he1 := VInductDecl'.addIndTypes_ordered henv hdecl h1
+  have hle : env ≤ e3 := ((VEnv.addConstList_le h1).trans (VEnv.addConstList_le h2)).trans
+    (VEnv.addConstList_le h3)
+  intro df hdf
+  rcases VEnv.addDefEqList_mem _ hdf with hdf | hdf
+  · obtain ⟨j, q, C, hqC, rfl⟩ := VInductDecl'.mem_iotaRules hdf
+    have hCall : (j, C) ∈ D.ctorsAll := List.mem_of_getElem? hqC
+    obtain ⟨T, hT, hCT⟩ := VInductDecl'.mem_ctorsAll hCall
+    have hj : j < D.nm := by
+      obtain ⟨hj, -⟩ := List.getElem?_eq_some_iff.1 hT; exact hj
+    have hCwf := hdecl.ctors e1 h1 j T hT C hCT
+    exact .iota D j q T C
+      (VInductDecl'.iotaLam_closed hI.toRecCtx.ordered hI hT hj hCT hqC)
+      (VIndCtor.args_closed he1 hCwf) hCwf.args_len hT hCT
+      ((VEnv.addDefEqList_le _ _).constants (VEnv.addConstList_constants h3 _
+        (List.mem_map.2 ⟨(T, j), List.mk_mem_zipIdx_iff_getElem?.2 hT, rfl⟩)))
+      ((VEnv.addDefEqList_le _ _).constants ((VEnv.addConstList_le h3).constants
+        (VEnv.addConstList_constants h2 _ (List.mem_map.2 ⟨(j, C), hCall, rfl⟩))))
+  · rw [VEnv.addConstList_defeqs h3, VEnv.addConstList_defeqs h2,
+      VEnv.addConstList_defeqs h1] at hdf
+    exact (ih df hdf).mono (hle.trans (VEnv.addDefEqList_le _ _))
+
+/-- **`Params`' half of `Sig.defeqs`.**  Seven arms, same shape as `WF'.keys`. -/
+theorem VEnv.WF'.ruleShape {ds : List VDecl} {env : VEnv} (H : VEnv.WF' ds env) :
+    ∀ df, env.defeqs df → env.RuleShape df := by
+  induction H with
+  | empty => nofun
+  | @decl _ _ _ _ hd hds ih =>
+    have henv := VEnv.WF.ordered ⟨_, hds⟩
+    cases hd with
+    | «axiom» _ h | «opaque» _ h =>
+      exact fun df hdf => (ih df (VEnv.addConst_defeqs h ▸ hdf)).mono (VEnv.addConst_le h)
+    | «example» _ => exact ih
+    | «def» hci h => exact VEnv.ruleShape_def henv hci h ih
+    | unsafeDef hcon h hval => exact VEnv.ruleShape_unsafeDef henv hcon h hval ih
+    | quot _ h => exact VEnv.ruleShape_quot h ih
+    | induct hdecl h => exact VEnv.ruleShape_induct henv hdecl h ih
+
+theorem VEnv.WF.ruleShape {env : VEnv} (h : env.WF) {df} (hdf : env.defeqs df) :
+    env.RuleShape df := WF'.ruleShape h.choose_spec df hdf
+
 /-- **`Params.pat_simple`.**  Immediate from the shape of the family: every constructor's
 pattern index is a `SimplePattern.toPattern` by construction. -/
 theorem Pat.simple {env : VEnv} {p : Pattern} {r : p.RHS × p.Check} (h : Pat env p r) :
@@ -228,6 +463,7 @@ theorem Pat.simple {env : VEnv} {p : Pattern} {r : p.RHS × p.Check} (h : Pat en
   cases h with
   | delta => exact ⟨.defn _, rfl⟩
   | iota => exact ⟨.iota .., rfl⟩
+  | quot => exact ⟨.iota .., rfl⟩
 
 /-- The number of leading Πs of a recursor's stored type: `params ++ motives ++ minors ++
 indices`, then the major premise.  What makes this usable is that `np`, `nm` and `nmin` are
@@ -281,63 +517,101 @@ theorem Pat.app_sub_iota {D : VInductDecl'} {T C} {p₁ p₂ : Pattern}
   | appL h => exact absurd h Subpattern.not_app_varN
   | appR h => exact absurd h Subpattern.not_app_varN
 
-/-- A δ-pattern has no `.app` subpattern, so both `Pat`s in the `pat_app_*` fields are ι. -/
+/-- **What a registered pattern's two leaves supply.**  Both `pat_app_*` fields need exactly
+two facts about the recursor leaf `R`, the constructor leaf `K` and the recursor arity `M`:
+that `R` is never another pattern's `K`, and that `R` determines `M`.  Naming the pair keeps
+the two `Pat` shapes from being spelled out four times in each field. -/
+inductive Pat.Leaves (env : VEnv) : Lean.Name → Lean.Name → Nat → Prop
+  | iota (D : VInductDecl') (j : Nat) (T : VIndType) (C : VIndCtor) :
+      D.types[j]? = some T →
+      env.constants (Lean.mkRecName T.name) = some ⟨D.recUvars, D.recType j⟩ →
+      env.constants C.name = some ⟨D.uvars, C.type D j⟩ →
+      Leaves env (Lean.mkRecName T.name) C.name (D.np + D.nm + D.nmin + T.indices.length)
+  | quot : env.constants ``Quot.lift = some quotLiftConst →
+      Leaves env ``Quot.lift ``Quot.mk 5
+
+/-- No pattern's recursor leaf is any pattern's constructor leaf. -/
+theorem Pat.Leaves.rec_ne_ctor {env : VEnv} {R K M R' K' M'}
+    (h : Pat.Leaves env R K M) (h' : Pat.Leaves env R' K' M') : R ≠ K' := by
+  cases h with
+  | iota D j T C hTj hrec hctor =>
+    cases h' with
+    | iota D' j' T' C' hTj' hrec' hctor' => exact _root_.Lean4Lean.rec_ne_ctor hTj hrec hctor'
+    | quot => exact mkRecName_ne_quotMk _
+  | quot hlift =>
+    cases h' with
+    | iota D' j' T' C' hTj' hrec' hctor' => exact quotLift_ne_ctor hlift hctor'
+    | quot => exact by decide
+
+/-- A recursor leaf determines its pattern's arity. -/
+theorem Pat.Leaves.arity {env : VEnv} {R K M R' K' M'}
+    (h : Pat.Leaves env R K M) (h' : Pat.Leaves env R' K' M') (hR : R = R') : M = M' := by
+  cases h with
+  | iota D j T C hTj hrec hctor =>
+    cases h' with
+    | iota D' j' T' C' hTj' hrec' hctor' => exact Pat.rec_arity_uniq hTj' hTj hrec' hrec hR
+    | quot => exact absurd hR (mkRecName_ne_quotLift _)
+  | quot hlift =>
+    cases h' with
+    | iota D' j' T' C' hTj' hrec' hctor' => exact absurd hR.symm (mkRecName_ne_quotLift _)
+    | quot => rfl
+
+/-- A δ-pattern has no `.app` subpattern, so both `Pat`s in the `pat_app_*` fields are ι or
+quot; either way the `.app` subpattern is the whole pattern, and its leaves are `Leaves`. -/
 theorem Pat.app_sub_inv {env : VEnv} {p : Pattern} {r : p.RHS × p.Check} {p₁ p₂}
     (h : Pat env p r) (hs : Subpattern (.app p₁ p₂) p) :
-    ∃ (D : VInductDecl') (j : Nat) (T : VIndType) (C : VIndCtor),
-      D.types[j]? = some T ∧
-      env.constants (Lean.mkRecName T.name) = some ⟨D.recUvars, D.recType j⟩ ∧
-      env.constants C.name = some ⟨D.uvars, C.type D j⟩ ∧
-      p₁ = (Pattern.const (Lean.mkRecName T.name)).varN
-             (D.np + D.nm + D.nmin + T.indices.length) ∧
-      p₂ = (Pattern.const C.name).varN (D.np + C.fields.length) := by
+    ∃ R K M N, p₁ = (Pattern.const R).varN M ∧ p₂ = (Pattern.const K).varN N ∧
+      Pat.Leaves env R K M := by
   cases h with
   | delta => exact absurd hs.const_inv nofun
   | @iota D j q T C _ _ hTj hCT hdf hrec hctor =>
     obtain ⟨rfl, rfl⟩ := Pat.app_sub_iota hs
-    exact ⟨D, j, T, C, hTj, hrec, hctor, rfl, rfl⟩
+    exact ⟨_, _, _, _, rfl, rfl, .iota D j T C hTj hrec hctor⟩
+  | quot hdf hlift =>
+    rw [quotPat, SimplePattern.toPattern] at hs
+    cases hs with
+    | refl => exact ⟨_, _, _, _, rfl, rfl, .quot hlift⟩
+    | appL h => exact absurd h Subpattern.not_app_varN
+    | appR h => exact absurd h Subpattern.not_app_varN
 
-/-- **`Params.pat_app_l_uniq`.**  One ι-pattern's recursor chain, cut short, cannot intersect
-another's: same recursor name forces same arity (`Pat.rec_arity_uniq`), and the cut chain is
-strictly shorter. -/
+/-- **`Params.pat_app_l_uniq`.**  One pattern's recursor chain, cut short, cannot intersect
+another's: the same recursor leaf forces the same arity (`Pat.Leaves.arity`), and the cut
+chain is strictly shorter. -/
 theorem Pat.app_l_uniq {env : VEnv} {p p' p₁ p₂ p₁' p₂' p₃ : Pattern}
     {r : p.RHS × p.Check} {r' : p'.RHS × p'.Check}
     (h : Pat env p r) (h' : Pat env p' r') (hs : Subpattern (.app p₁ p₂) p)
     (hs' : Subpattern (.app p₁' p₂') p') (hv : Subpattern (.var p₃) p₁) :
     p₁'.inter p₃ = none := by
-  obtain ⟨D, j, T, C, hTj, hrec, hctor, rfl, rfl⟩ := h.app_sub_inv hs
-  obtain ⟨D', j', T', C', hTj', hrec', hctor', rfl, rfl⟩ := h'.app_sub_inv hs'
+  obtain ⟨R, K, M, N, rfl, rfl, hL⟩ := h.app_sub_inv hs
+  obtain ⟨R', K', M', N', rfl, rfl, hL'⟩ := h'.app_sub_inv hs'
   obtain ⟨k, hk, hkk⟩ := hv.varN_const_inv
   cases k with
   | zero => exact absurd hkk nofun
   | succ k =>
     cases (Pattern.var.injEq .. ▸ hkk : _ = _)
-    cases hn : ((Pattern.const (Lean.mkRecName T'.name)).varN
-        (D'.np + D'.nm + D'.nmin + T'.indices.length)).inter
-        ((Pattern.const (Lean.mkRecName T.name)).varN k) with
+    cases hn : ((Pattern.const R').varN M').inter ((Pattern.const R).varN k) with
     | none => rfl
     | some x =>
       obtain ⟨hR, hM, -⟩ := Pattern.inter_varN_const hn
-      have := Pat.rec_arity_uniq hTj hTj' hrec hrec' hR
+      have := hL.arity hL' hR.symm
       omega
 
 /-- **`Params.pat_app_uniq`.**  One pattern's recursor leaf against another's constructor
-leaf: `rec_ne_ctor`. -/
+leaf: `Pat.Leaves.rec_ne_ctor`. -/
 theorem Pat.app_uniq {env : VEnv} {p p' p₁ p₂ p₁' p₂' p₃ p₃' : Pattern}
     {r : p.RHS × p.Check} {r' : p'.RHS × p'.Check}
     (h : Pat env p r) (h' : Pat env p' r') (hs : Subpattern (.app p₁ p₂) p)
     (hs' : Subpattern (.app p₁' p₂') p')
     (h3 : Subpattern p₃ p₁) (h3' : Subpattern p₃' p₂') : p₃.inter p₃' = none := by
-  obtain ⟨D, j, T, C, hTj, hrec, hctor, rfl, rfl⟩ := h.app_sub_inv hs
-  obtain ⟨D', j', T', C', hTj', hrec', hctor', rfl, rfl⟩ := h'.app_sub_inv hs'
+  obtain ⟨R, K, M, N, rfl, rfl, hL⟩ := h.app_sub_inv hs
+  obtain ⟨R', K', M', N', rfl, rfl, hL'⟩ := h'.app_sub_inv hs'
   obtain ⟨k, -, rfl⟩ := h3.varN_const_inv
   obtain ⟨k', -, rfl⟩ := h3'.varN_const_inv
-  cases hn : ((Pattern.const (Lean.mkRecName T.name)).varN k).inter
-      ((Pattern.const C'.name).varN k') with
+  cases hn : ((Pattern.const R).varN k).inter ((Pattern.const K').varN k') with
   | none => rfl
   | some x =>
     obtain ⟨hR, -, -⟩ := Pattern.inter_varN_const hn
-    exact absurd hR (rec_ne_ctor hTj hrec hctor')
+    exact absurd hR (hL.rec_ne_ctor hL')
 
 /-! ## `Params.pat_uniq`
 
@@ -623,8 +897,17 @@ theorem Pat.iota_data_uniq {env : VEnv} (henv : env.WF)
   refine iotaDatum_congr hR hK hM hN hlam (by omega) hnp harg (by rw [hpar, hfld]) ?_
   rw [VInductDecl'.iotaLevelPairs, VInductDecl'.iotaLevelPairs, huv, hle]
 
+/-- A δ-rule's head is none of the quotient rule's leaves: `KeyHeadDelta` identifies the two
+rules, and a δ-rule's left-hand side is a bare constant while `quotDefEq`'s is a lam. -/
+theorem Pat.deltaHead_ne_quot {env : VEnv} (henv : env.WF)
+    (hdf : env.defeqs quotDefEq) {c : Lean.Name} {u : Nat} {v t : VExpr}
+    (hdf' : env.defeqs ⟨u, .const c (VLevel.params u), v, t⟩) (hmem : c ∈ quotDefEq.key) :
+    False :=
+  VEnv.not_isDeltaRule_quotDefEq c
+    (henv.keyHeadDelta _ _ c hdf' hdf VEnv.IsDeltaRule.const hmem ▸ VEnv.IsDeltaRule.const)
+
 /-- **`Params.pat_uniq`**.  See the table in the section header for which lemma closes which
-of the nine cases. -/
+case. -/
 theorem Pat.uniq {env : VEnv} (henv : env.WF) {p₁ p₂ p₃ p₄ : Pattern}
     {r : p₁.RHS × p₁.Check} {r' : p₂.RHS × p₂.Check}
     (h : Pat env p₁ r) (h' : Pat env p₂ r') (hs : Subpattern p₃ p₁)
@@ -637,6 +920,7 @@ theorem Pat.uniq {env : VEnv} (henv : env.WF) {p₁ p₂ p₃ p₄ : Pattern}
       obtain ⟨rfl, rfl⟩ := Pattern.inter_const_const hi
       exact ⟨rfl, rfl, heq_of_eq (Pat.uniq_delta henv (.delta hv hdf) (.delta hv' hdf'))⟩
     | iota => exact absurd hi Pattern.inter_app_const
+    | quot => exact absurd hi Pattern.inter_app_const
   | @iota D j q T C hcl hargs hTj hCT hdf hrec hctor =>
     simp only [VInductDecl'.iotaPat_eq, SimplePattern.toPattern] at hs ⊢
     cases hs with
@@ -652,6 +936,10 @@ theorem Pat.uniq {env : VEnv} (henv : env.WF) {p₁ p₂ p₃ p₄ : Pattern}
           simp only [VInductDecl'.iotaPat_eq, SimplePattern.toPattern, hR, hM, hK, hN]
         exact ⟨hp, hp.symm,
           Pat.iota_data_uniq henv hTj hTj' hdf hdf' hrec hrec' hctor hctor' hp⟩
+      | quot hdf' hlift' =>
+        obtain ⟨x, y, hx, hy, rfl⟩ := Pattern.inter_app_app hi
+        obtain ⟨hR, -, -⟩ := Pattern.inter_varN_const hx
+        exact absurd hR.symm (mkRecName_ne_quotLift _)
     | appL hsl =>
       obtain ⟨k, hk, rfl⟩ := hsl.varN_const_inv
       cases k with
@@ -663,6 +951,7 @@ theorem Pat.uniq {env : VEnv} (henv : env.WF) {p₁ p₂ p₃ p₄ : Pattern}
         | iota =>
           simp only [VInductDecl'.iotaPat_eq, SimplePattern.toPattern] at hi
           exact absurd hi Pattern.inter_app_const
+        | quot => exact absurd hi Pattern.inter_app_const
       | succ k =>
         cases h' with
         | delta => exact absurd hi Pattern.inter_const_var
@@ -672,6 +961,10 @@ theorem Pat.uniq {env : VEnv} (henv : env.WF) {p₁ p₂ p₃ p₄ : Pattern}
           obtain ⟨hR, hM, -⟩ := Pattern.inter_varN_const hx
           have := Pat.rec_arity_uniq hTj hTj' hrec hrec' hR
           omega
+        | quot hdf' hlift' =>
+          obtain ⟨x, hx, rfl⟩ := Pattern.inter_app_var hi
+          obtain ⟨hR, -, -⟩ := Pattern.inter_varN_const hx
+          exact absurd hR.symm (mkRecName_ne_quotLift _)
     | appR hsr =>
       obtain ⟨k, hk, rfl⟩ := hsr.varN_const_inv
       cases k with
@@ -683,6 +976,7 @@ theorem Pat.uniq {env : VEnv} (henv : env.WF) {p₁ p₂ p₃ p₄ : Pattern}
         | iota =>
           simp only [VInductDecl'.iotaPat_eq, SimplePattern.toPattern] at hi
           exact absurd hi Pattern.inter_app_const
+        | quot => exact absurd hi Pattern.inter_app_const
       | succ k =>
         cases h' with
         | delta => exact absurd hi Pattern.inter_const_var
@@ -691,5 +985,87 @@ theorem Pat.uniq {env : VEnv} (henv : env.WF) {p₁ p₂ p₃ p₄ : Pattern}
           obtain ⟨x, hx, rfl⟩ := Pattern.inter_app_var hi
           obtain ⟨hR, hM, -⟩ := Pattern.inter_varN_const hx
           exact absurd hR (rec_ne_ctor hTj' hrec' hctor)
+        | quot hdf' hlift' =>
+          obtain ⟨x, hx, rfl⟩ := Pattern.inter_app_var hi
+          obtain ⟨hR, -, -⟩ := Pattern.inter_varN_const hx
+          exact absurd hR (quotLift_ne_ctor hlift' hctor)
+  | quot hdf hlift =>
+    simp only [quotPat, SimplePattern.toPattern] at hs ⊢
+    cases hs with
+    | refl =>
+      cases h' with
+      | delta => exact absurd hi Pattern.inter_const_app
+      | @iota D' j' q' T' C' hcl' hargs' hTj' hCT' hdf' hrec' hctor' =>
+        simp only [VInductDecl'.iotaPat_eq, SimplePattern.toPattern] at hi
+        obtain ⟨x, y, hx, hy, rfl⟩ := Pattern.inter_app_app hi
+        obtain ⟨hR, -, -⟩ := Pattern.inter_varN_const hx
+        exact absurd hR (mkRecName_ne_quotLift _)
+      | quot => exact ⟨rfl, rfl, HEq.rfl⟩
+    | appL hsl =>
+      obtain ⟨k, hk, rfl⟩ := hsl.varN_const_inv
+      cases k with
+      | zero =>
+        cases h' with
+        | @delta c' u' v' t' hv' hdf' =>
+          obtain ⟨rfl, -⟩ := Pattern.inter_const_const hi
+          exact absurd (Pat.deltaHead_ne_quot henv hdf hdf'
+            (by rw [VEnv.key_quotDefEq]; exact List.mem_cons_self)) not_false
+        | iota =>
+          simp only [VInductDecl'.iotaPat_eq, SimplePattern.toPattern] at hi
+          exact absurd hi Pattern.inter_app_const
+        | quot => exact absurd hi Pattern.inter_app_const
+      | succ k =>
+        cases h' with
+        | delta => exact absurd hi Pattern.inter_const_var
+        | @iota D' j' q' T' C' hcl' hargs' hTj' hCT' hdf' hrec' hctor' =>
+          simp only [VInductDecl'.iotaPat_eq, SimplePattern.toPattern] at hi
+          obtain ⟨x, hx, rfl⟩ := Pattern.inter_app_var hi
+          obtain ⟨hR, -, -⟩ := Pattern.inter_varN_const hx
+          exact absurd hR (mkRecName_ne_quotLift _)
+        | quot =>
+          obtain ⟨x, hx, rfl⟩ := Pattern.inter_app_var hi
+          obtain ⟨-, hM, -⟩ := Pattern.inter_varN_const hx
+          omega
+    | appR hsr =>
+      obtain ⟨k, hk, rfl⟩ := hsr.varN_const_inv
+      cases k with
+      | zero =>
+        cases h' with
+        | @delta c' u' v' t' hv' hdf' =>
+          obtain ⟨rfl, -⟩ := Pattern.inter_const_const hi
+          exact absurd (Pat.deltaHead_ne_quot henv hdf hdf'
+            (by rw [VEnv.key_quotDefEq]; exact List.mem_cons_of_mem _ List.mem_cons_self))
+            not_false
+        | iota =>
+          simp only [VInductDecl'.iotaPat_eq, SimplePattern.toPattern] at hi
+          exact absurd hi Pattern.inter_app_const
+        | quot => exact absurd hi Pattern.inter_app_const
+      | succ k =>
+        cases h' with
+        | delta => exact absurd hi Pattern.inter_const_var
+        | @iota D' j' q' T' C' hcl' hargs' hTj' hCT' hdf' hrec' hctor' =>
+          simp only [VInductDecl'.iotaPat_eq, SimplePattern.toPattern] at hi
+          obtain ⟨x, hx, rfl⟩ := Pattern.inter_app_var hi
+          obtain ⟨hR, -, -⟩ := Pattern.inter_varN_const hx
+          exact absurd hR (mkRecName_ne_quotMk _)
+        | quot =>
+          obtain ⟨x, hx, rfl⟩ := Pattern.inter_app_var hi
+          obtain ⟨hR, -, -⟩ := Pattern.inter_varN_const hx
+          exact absurd hR (by decide)
+
+/-- **`Params.extra_pat` for a δ-rule.**  No λ-peeling (the left-hand side is already a bare
+constant), no check clauses, and the datum's value is the rule's own. -/
+theorem Pat.extra_delta {env : VEnv} {U : Nat} {Γ : List VExpr}
+    {ci : VDefVal} {ls : List VLevel} (hcl : ci.value.Closed)
+    (hdf : env.defeqs ci.toDefEq) (hlen : ls.length = ci.uvars) :
+    ∃ Δ L R p r m1 m2,
+      (ci.toDefEq).lhs.instL ls = mkLams Δ L ∧ (ci.toDefEq).rhs.instL ls = mkLams Δ R ∧
+      Pat env p r ∧ Pattern.Matches p L m1 m2 ∧
+      (r.2).OK (env.IsDefEqU U (Δ.reverse ++ Γ)) m1 m2 ∧ R = (r.1).apply m1 m2 := by
+  refine ⟨[], .const ci.name ls, ci.value.instL ls, .const ci.name,
+    (deltaRHS ci.name ci.value hcl, .true), _, _, ?_, rfl, .delta hcl hdf,
+    .const, trivial, rfl⟩
+  show VExpr.const ci.name ((VLevel.params ci.uvars).map (VLevel.inst ls)) = _
+  rw [VLevel.map_inst_params hlen]; rfl
 
 end Lean4Lean

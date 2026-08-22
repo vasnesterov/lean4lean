@@ -330,6 +330,81 @@ theorem liftN_instAll {n : Nat} : ∀ {as : List VExpr} {X : VExpr} {k : Nat},
       ← liftN_instN_lo n X a (k + as.length) k (Nat.le_add_right ..),
       liftN_instAll (as := as) (X := X.inst a (k + as.length)) (k := k)]
 
+/-! ## `liftTele` as a `liftTele'`
+
+`Telescope.lean` develops `liftTele`; the `lift'` layer above develops `liftTele'`.  These
+two lemmas are the bridge, and they are what lets the `instAll` commutation results below be
+stated in the `liftN` form their consumers need. -/
+
+theorem liftTele_eq_liftTele' : ∀ {As : List VExpr} {n k : Nat},
+    liftTele n As k = liftTele' ((Lift.skipN .refl n).consN k) As
+  | [], _, _ => rfl
+  | A :: As, n, k => by
+    rw [VExpr.liftTele_cons, VExpr.liftTele'_cons, ← lift'_consN_skipN,
+      liftTele_eq_liftTele' (As := As) (n := n) (k := k+1)]
+    rfl
+
+/-- Weakening a saturated telescope is saturating it at weakened arguments. -/
+theorem liftTele_instAllTele₀ {n : Nat} {as As : List VExpr} (h : ClosedTele As as.length) :
+    liftTele n (instAllTele As as) = instAllTele As (as.map (·.liftN n)) := by
+  rw [liftTele_eq_liftTele' (k := 0),
+    show ((Lift.skipN .refl n).consN 0) = Lift.skipN .refl n from rfl,
+    lift'_instAllTele₀ h]
+  refine congrArg (instAllTele As) (List.map_congr_left fun x _ => ?_)
+  exact (liftN_eq_lift' (e := x) (k := n)).symm
+
+/-- `instAllTele` above a weakened region: the telescope version of `liftN_instAll`. -/
+theorem instAllTele_liftTele {n : Nat} : ∀ {As as : List VExpr} {k : Nat},
+    instAllTele (liftTele n As k) as (k + n) = liftTele n (instAllTele As as k) k
+  | [], _, _ => rfl
+  | A :: As, as, k => by
+    rw [VExpr.liftTele_cons, VExpr.instAllTele_cons, VExpr.instAllTele_cons,
+      VExpr.liftTele_cons, liftN_instAll,
+      show k + n + 1 = (k+1) + n from by omega,
+      instAllTele_liftTele (As := As) (as := as) (k := k+1)]
+
+theorem instAllTele_liftTele₀ {n : Nat} {As as : List VExpr} :
+    instAllTele (liftTele n As) as n = liftTele n (instAllTele As as) := by
+  simpa using instAllTele_liftTele (n := n) (As := As) (as := as) (k := 0)
+
+/-! ## Reading entries out of `bvars` and `instAllTele` -/
+
+theorem map_liftN_bvars_one : ∀ {n : Nat}, (bvars 0 n).map (·.liftN 1 0) = bvars 1 n
+  | 0 => rfl
+  | n+1 => by
+    rw [VExpr.bvars_succ, List.map_cons, VExpr.bvars_succ, map_liftN_bvars_one (n := n)]
+    simp [VExpr.liftN, liftVar, Nat.add_comm]
+
+theorem bvars_getD :
+    ∀ {n k lo : Nat}, k < n → (bvars lo n).getD k default = .bvar (lo + n - 1 - k)
+  | n+1, 0, lo, _ => by simp [bvars_succ, List.getD]
+  | n+1, k+1, lo, h => by
+    rw [bvars_succ, List.getD_cons_succ, bvars_getD (n := n) (k := k) (by omega)]
+    congr 1; omega
+
+/-- The `i`-th entry of an instantiated telescope. -/
+theorem instAllTele_getElem? : ∀ {As : List VExpr} {as : List VExpr} {k i : Nat},
+    (instAllTele As as k)[i]? = (As[i]?).map (instAll · as (k + i)) := by
+  intro As
+  induction As with
+  | nil => intro as k i; simp
+  | cons A As ih =>
+    intro as k i
+    match i with
+    | 0 => simp
+    | i+1 =>
+      rw [VExpr.instAllTele_cons, List.getElem?_cons_succ, List.getElem?_cons_succ,
+        ih (as := as) (k := k+1) (i := i)]
+      simp [Nat.add_right_comm, Nat.add_assoc]
+
+theorem instAllTele_getD {As as : List VExpr} {j k : Nat} (hk : k < As.length) :
+    (instAllTele As as j).getD k default = instAll (As.getD k default) as (j + k) := by
+  have h := instAllTele_getElem? (As := As) (as := as) (k := j) (i := k)
+  rw [List.getElem?_eq_getElem hk] at h
+  rw [List.getD_eq_getElem?_getD, h, List.getD_eq_getElem?_getD,
+    List.getElem?_eq_getElem hk]
+  rfl
+
 end VExpr
 
 end Lean4Lean

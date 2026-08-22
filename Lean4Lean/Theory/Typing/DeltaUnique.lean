@@ -1,6 +1,7 @@
 import Lean4Lean.Theory.Typing.Env
 import Lean4Lean.Theory.Inductive.Lemmas
 import Lean4Lean.Theory.Typing.PatternDecode
+import Lean4Lean.Theory.Typing.EnvLemmas
 
 /-!
 # Each constant name carries at most one δ-rule
@@ -264,18 +265,6 @@ theorem DefEqHeadsUnique.addConsts {env env' : VEnv} {cis} :
     cases hh : env.addConst ci.name ci.toVConstant with
     | none => rw [hh] at h; exact absurd h (by simp)
     | some e => rw [hh] at h; exact ih h (H.addConst hh)
-
-/-- Every name of the block carries no rule in the post-`addConsts` environment: freshness
-against the *pre*-block environment, transported forward.  This is the hypothesis
-`addDefEqs_unique` consumes. -/
-theorem addConsts_le : ∀ {cis : List VDefVal} {env env' : VEnv},
-    env.addConsts cis = some env' → env ≤ env'
-  | [], _, _, h => by cases h; exact VEnv.LE.rfl
-  | ci :: cis, env, env', h => by
-    rw [VEnv.addConsts, List.foldlM_cons] at h
-    cases hh : env.addConst ci.name ci.toVConstant with
-    | none => rw [hh] at h; exact absurd h (by simp)
-    | some e => rw [hh] at h; exact (addConst_le hh).trans (addConsts_le h)
 
 theorem addConsts_contains {env env' : VEnv} {cis} :
     env.addConsts cis = some env' → ∀ ci ∈ cis, env'.contains ci.name := by
@@ -560,6 +549,9 @@ theorem key_of_isDeltaRule {df : VDefEq} {c} (h : IsDeltaRule df c) : df.key = [
     (VExpr.headName b).toList ++ ((VExpr.spine b).2.getLast?.bind VExpr.headName).toList) = _
   rw [hl]; rfl
 
+/-- The quotient rule's key.  Computed, not assumed. -/
+theorem key_quotDefEq : quotDefEq.key = [``Quot.lift, ``Quot.mk] := rfl
+
 /-- Every key name of every rule is a declared constant.  Generalises `DefEqHeadsDeclared`. -/
 def KeysDeclared (env : VEnv) : Prop := ∀ df, env.defeqs df → ∀ n ∈ df.key, env.contains n
 
@@ -770,6 +762,49 @@ theorem VInductDecl'.iotaRules_pairwise_major (D : VInductDecl')
 
 namespace VEnv
 
+
+/-! ## Which rules a step adds
+
+`extra_pat` must produce a `Pat` from `env.defeqs df` alone, so it needs to know that `df` is
+one of the three shapes a declaration can contribute.  These three lemmas invert the two
+rule-folds and the single `addDefEq`; `RuleShape` (`Theory/Typing/PatternRules.lean`) is what
+they feed. -/
+
+theorem addDefEqs_le : ∀ (cis : List VDefVal) (env : VEnv), env ≤ env.addDefEqs cis
+  | [], _ => VEnv.LE.rfl
+  | ci :: cis, env => addDefEq_le.trans (addDefEqs_le cis (env.addDefEq ci.toDefEq))
+
+theorem addDefEqs_defeqs : ∀ {cis : List VDefVal} {env : VEnv} {df},
+    (env.addDefEqs cis).defeqs df → (∃ ci ∈ cis, df = ci.toDefEq) ∨ env.defeqs df
+  | [], _, _, h => .inr h
+  | ci :: cis, env, df, h => by
+    rcases addDefEqs_defeqs (cis := cis) h with ⟨ci', hci', rfl⟩ | h
+    · exact .inl ⟨ci', .tail _ hci', rfl⟩
+    · rcases (h : df = ci.toDefEq ∨ env.defeqs df) with rfl | h
+      · exact .inl ⟨ci, .head _, rfl⟩
+      · exact .inr h
+
+theorem addDefEqList_mem : ∀ (dfs : List VDefEq) {env : VEnv} {df},
+    (dfs.foldl VEnv.addDefEq env).defeqs df → df ∈ dfs ∨ env.defeqs df
+  | [], _, _, h => .inr h
+  | df' :: dfs, env, df, h => by
+    rcases addDefEqList_mem dfs h with h | h
+    · exact .inl (.tail _ h)
+    · rcases (h : df = df' ∨ env.defeqs df) with rfl | h
+      · exact .inl (.head _)
+      · exact .inr h
+
+end VEnv
+
+/-- Each ι-rule of a block, with the `ctorsAll` index its minor premise sits at — which is
+what `iotaLam_hasType` needs. -/
+theorem VInductDecl'.mem_iotaRules {D : VInductDecl'} {df : VDefEq} (h : df ∈ D.iotaRules) :
+    ∃ j q C, D.ctorsAll[q]? = some (j, C) ∧ df = D.iotaRule j q C := by
+  rw [VInductDecl'.iotaRules, List.mem_map] at h
+  obtain ⟨⟨⟨j, C⟩, q⟩, hm, rfl⟩ := h
+  exact ⟨j, q, C, List.mk_mem_zipIdx_iff_getElem?.1 hm, rfl⟩
+
+namespace VEnv
 
 /-! ## The `WF'` induction for the key invariants
 

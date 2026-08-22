@@ -467,9 +467,36 @@ def iotaLeafCtor (r c : Lean.Name) (m n : Nat) :
     (SimplePattern.iota r m c n).toPattern.LPath :=
   Sum.inr (Pattern.LPath.head _)
 
-/-- An ι-rule's right-hand side: a closed term at the recursor leaf's levels, applied to the
-first `k` matched *recursor* arguments and then the matched *constructor* arguments from `i`
-on.
+/-- **A rule's right-hand side, in general**: a head applied to the first `k` matched
+*recursor* arguments and then the matched *constructor* arguments from `i` on.
+
+The head is an arbitrary `p.RHS`, not a closed term.  That generality is not speculative: a
+right-hand side *is* "a head applied to matched arguments", and the head happening to be
+closed is a property of the ι case, not of the notion.  `Theory/Quot.lean`'s rule is the
+witness — `quotDefEq`'s right-hand side is `f a`, whose head `f` is itself a matched
+recursor argument, so it is expressible here and not by `iotaRHS`. -/
+def spineRHS (r c : Lean.Name) (m n : Nat)
+    (head : (SimplePattern.iota r m c n).toPattern.RHS) (k i : Nat) :
+    (SimplePattern.iota r m c n).toPattern.RHS :=
+  Pattern.RHS.mkApp head
+    ((((Pattern.argPaths (.const r) m).take k).map fun x =>
+        (Pattern.RHS.var (p := (SimplePattern.iota r m c n).toPattern) (Sum.inl x)))
+      ++ (((Pattern.argPaths (.const c) n).drop i).map fun y =>
+        (Pattern.RHS.var (p := (SimplePattern.iota r m c n).toPattern) (Sum.inr y))))
+
+theorem spineRHS_apply {r c : Lean.Name} {m n : Nat} {head} {k i : Nat}
+    {m1 m2} {as bs : List VExpr}
+    (ha : (Pattern.argPaths (.const r) m).map (fun p => m2 (Sum.inl p)) = as)
+    (hb : (Pattern.argPaths (.const c) n).map (fun p => m2 (Sum.inr p)) = bs) :
+    (spineRHS r c m n head k i).apply m1 m2
+      = (head.apply m1 m2).mkApp (as.take k ++ bs.drop i) := by
+  subst ha; subst hb
+  rw [spineRHS, Pattern.RHS.apply_mkApp, List.map_append, List.map_map, List.map_map,
+    List.map_take, List.map_drop]
+  rfl
+
+/-- An ι-rule's right-hand side: `spineRHS` at a *closed* head, instantiated at the recursor
+leaf's levels.
 
 For `VInductDecl'.iotaRule` the closed term is `iotaLam`, `k = np + nm + nmin` (parameters,
 motives, minors — taken from the recursor's side) and `i = np` (the constructor's fields,
@@ -478,22 +505,15 @@ itself the two copies of the parameters are literally the same variables, so eit
 would do; a `Check.defeq` clause is what makes the choice sound for an arbitrary match. -/
 def iotaRHS (r c : Lean.Name) (m n : Nat) (v : VExpr) (h : v.Closed) (k i : Nat) :
     (SimplePattern.iota r m c n).toPattern.RHS :=
-  Pattern.RHS.mkApp (Pattern.RHS.fixed v (Pattern.LPath.head _) h)
-    ((((Pattern.argPaths (.const r) m).take k).map fun x =>
-        (Pattern.RHS.var (p := (SimplePattern.iota r m c n).toPattern) (Sum.inl x)))
-      ++ (((Pattern.argPaths (.const c) n).drop i).map fun y =>
-        (Pattern.RHS.var (p := (SimplePattern.iota r m c n).toPattern) (Sum.inr y))))
+  spineRHS r c m n (Pattern.RHS.fixed v (Pattern.LPath.head _) h) k i
 
 theorem iotaRHS_apply {r c : Lean.Name} {m n : Nat} {v : VExpr} {h : v.Closed} {k i : Nat}
     {m1 m2} {as bs : List VExpr}
     (ha : (Pattern.argPaths (.const r) m).map (fun p => m2 (Sum.inl p)) = as)
     (hb : (Pattern.argPaths (.const c) n).map (fun p => m2 (Sum.inr p)) = bs) :
     (iotaRHS r c m n v h k i).apply m1 m2
-      = (v.instL (m1 (Pattern.LPath.head _))).mkApp (as.take k ++ bs.drop i) := by
-  subst ha; subst hb
-  rw [iotaRHS, Pattern.RHS.apply_mkApp, List.map_append, List.map_map, List.map_map,
-    List.map_take, List.map_drop]
-  rfl
+      = (v.instL (m1 (Pattern.LPath.head _))).mkApp (as.take k ++ bs.drop i) :=
+  spineRHS_apply ha hb
 
 /-! ## The checks
 

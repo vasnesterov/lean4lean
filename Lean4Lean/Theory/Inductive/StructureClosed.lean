@@ -1,4 +1,5 @@
 import Lean4Lean.Theory.Inductive.Lemmas
+import Lean4Lean.Theory.Inductive.RecApp
 import Lean4Lean.Theory.Inductive.Structure
 
 /-!
@@ -839,5 +840,781 @@ theorem instAll_field_isType {env : VEnv} {U : Nat} {S : Lean.Name}
   have := VEnv.HasType.instAll henv (VEnv.HasArgs.append hqs hearlier)
     (ftype_hasType henv H hI h3 h7 hcl hi Δ)
   rwa [VExpr.instAll_sort] at this
+
+/-! # Typing `VInductDecl'.projTerm`
+
+Everything `TrProj.wf` needs about the projection term, except the two steps that need
+`VEnv.WF` (`IsDefEqU.trans`/`.of_l`) and therefore live in `Verify/Typing/Lemmas.lean`
+next to `TrProj.wf` itself.
+
+The argument is a strong induction on the field index — `projCore`'s motive for field `i`
+mentions the projections of fields `< i`, so the statement has to be available at every
+smaller index and at several different contexts, which is what `ProjHasType` packages.
+
+The pieces, in the order the induction uses them:
+
+* `projArgs_hasArgs` — the earlier projections inhabit the field-prefix telescope: the
+  induction hypothesis, packaged as a `HasArgs`;
+* `projMotive_hasType` / `projMotiveBody_hasType` — the motive inhabits the recursor's
+  motive binder;
+* `projCore_hasType` — the plumbing of `recApp_hasType''` with the motive and the minor
+  premise left abstract;
+* `projMotiveBody_instAll` — the type side: the motive applied to the index terms and the
+  major premise *is* the projected field's type.
+
+The minor arm (`projMinor_hasType`, in `Verify/Typing/Lemmas.lean`) is the one with
+semantic content: the minor premise's declared codomain is the motive applied to the
+constructor, which β-reduces to `Aᵢ[ps, proj₀ (mk ps fs), …]`, and each of those
+projections is `fₖ` **by the ι rule** (`iota_law` + `projMinor_app`).
+-/
+
+section
+
+
+variable {env : VEnv} {U : Nat}
+
+/-- Peel a whole `mkPi` telescope out of an `IsType`. -/
+theorem VEnv.IsType.mkPi_inv (henv : env.Ordered) :
+    ∀ {As : List VExpr} {B Γ}, OnCtx Γ (env.IsType U) → env.IsType U Γ (VExpr.mkPi As B) →
+      OnCtx (As.reverse ++ Γ) (env.IsType U) ∧ env.IsType U (As.reverse ++ Γ) B := by
+  intro As
+  induction As with
+  | nil => intro B Γ hΓ h; exact ⟨hΓ, h⟩
+  | cons A As ih =>
+    intro B Γ hΓ h
+    obtain ⟨hA, hB⟩ := (h : env.IsType U Γ (.forallE A (VExpr.mkPi As B))).forallE_inv henv
+    have := ih (B := B) (Γ := A :: Γ) ⟨hΓ, hA⟩ hB
+    simpa using this
+
+
+namespace VExpr
+
+/-- The index block of a saturated substitution `as ++ [b]`: `bvars 1 n` picks out `as`. -/
+theorem map_instAll_bvars_mid {as : List VExpr} {b : VExpr} {n : Nat} (h : as.length = n) :
+    (bvars 1 n).map (VExpr.instAll · (as ++ [b]) 0) = as := by
+  rw [← map_liftN_bvars_one, List.map_map]
+  have hx : ∀ x : VExpr, instAll (x.liftN 1 0) (as ++ [b]) 0 = instAll x as 0 :=
+    fun x => VExpr.instAll_liftN_snoc (k := 0)
+  simp only [Function.comp_def, hx]
+  exact map_instAll_bvars' h
+
+/-- The identity spine below a lifted prefix: substituting `as` weakened past the `k`
+binders it sits above, together with those binders' own variables, is substituting `as`
+at cut `k`. -/
+theorem instAll_map_liftN_bvars {X : VExpr} {as : List VExpr} {k : Nat}
+    (h : X.ClosedN (k + as.length)) :
+    instAll X (as.map (·.liftN k) ++ bvars 0 k) 0 = instAll X as k := by
+  have h1 : instAll X (as.map (·.liftN k)) k = (instAll X as k).liftN k k := by
+    have h0 := lift'_instAll (A := X) (ρ := Lift.skipN .refl k) (as := as) (k := k) h
+    rw [lift'_consN_skipN] at h0
+    rw [h0]
+    exact congrArg (instAll X · k)
+      (List.map_congr_left fun x _ => liftN_eq_lift' (e := x) (k := k))
+  rw [instAll_append, VExpr.length_bvars, Nat.zero_add, h1]
+  simpa using instAll_liftN_bvars k 0 (instAll X as k)
+
+/-- The split used to identify the minor premise's field variable with the projected type. -/
+theorem instAll_split_bvars {X : VExpr} {as : List VExpr} {k n : Nat} (hkn : k ≤ n)
+    (h : X.ClosedN (k + as.length)) :
+    instAll X (as.map (·.liftN n) ++ bvars (n - k) k) 0 = (instAll X as k).liftN (n - k) 0 := by
+  have e1 : as.map (·.liftN n) = (as.map (·.liftN k)).map (·.liftN (n - k) 0) := by
+    rw [List.map_map]
+    refine List.map_congr_left fun p _ => ?_
+    simp only [Function.comp_def]
+    rw [liftN'_liftN' (n1 := k) (n2 := n - k) (k1 := 0) (k2 := 0) (Nat.le_refl _)
+      (Nat.zero_le _), show k + (n - k) = n from by omega]
+  have e2 : bvars (n - k) k = (bvars 0 k).map (·.liftN (n - k) 0) := by
+    rw [map_liftN_bvars_lo (Nat.le_refl 0), Nat.add_zero]
+  rw [e1, e2, ← List.map_append]
+  have h0 := lift'_instAll (A := X) (ρ := Lift.skipN .refl (n - k))
+    (as := as.map (·.liftN k) ++ bvars 0 k) (k := 0) (by simpa [Nat.add_comm] using h)
+  simp only [Lift.consN] at h0
+  simp only [← liftN_eq_lift'] at h0
+  rw [instAll_map_liftN_bvars h] at h0
+  exact h0.symm
+
+/-- The last entry of a saturated substitution. -/
+theorem instAll_bvar_zero {as : List VExpr} {b : VExpr} :
+    VExpr.instAll (.bvar 0) (as ++ [b]) 0 = b := by
+  have hget : (as ++ [b])[as.length]? = some b := by simp
+  have := VExpr.instAll_bvar_get (k := 0) (B := 0) hget (by simp; omega)
+  simpa using this
+
+end VExpr
+
+/-- The de Bruijn index of the `i`-th entry of a telescope, in the telescope's own
+context. -/
+theorem Lookup.tele_getElem : ∀ {As Γ : List VExpr} {i : Nat}, i < As.length →
+    Lookup (As.reverse ++ Γ) (As.length - 1 - i)
+      ((As.getD i default).liftN (As.length - i)) := by
+  intro As Γ i hi
+  have hget : As.getD i default = As[i] := by
+    simp [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hi]
+  have hsplit : As = As.take i ++ As[i] :: As.drop (i+1) := by
+    rw [← List.drop_eq_getElem_cons hi, List.take_append_drop]
+  have hrev0 : As.reverse = (As.drop (i+1)).reverse ++ As[i] :: (As.take i).reverse := by
+    simp
+  have hlen : (As.drop (i+1)).reverse.length = As.length - 1 - i := by simp; omega
+  rw [hget, hrev0, List.append_assoc, List.cons_append]
+  have h := Lookup.append (As.drop (i+1)).reverse (A := As[i])
+    (Γ := (As.take i).reverse ++ Γ)
+  rw [hlen, show As.length - 1 - i + 1 = As.length - i from by omega] at h
+  exact h
+
+variable {env : VEnv} {U : Nat}
+
+theorem VEnv.HasArgs.toDF {Γ : List VExpr} :
+    ∀ {As as}, env.HasArgs U Γ As as → env.HasArgsDF U Γ As as as
+  | _, _, .nil => .nil
+  | _, _, .cons ha h => .cons ha h.toDF
+
+theorem VEnv.HasArgsDF.append {Γ : List VExpr} :
+    ∀ {As as as' Bs bs bs' : List VExpr}, env.HasArgsDF U Γ As as as' →
+      env.HasArgsDF U Γ (VExpr.instAllTele Bs as 0) bs bs' →
+      env.HasArgsDF U Γ (As ++ Bs) (as ++ bs) (as' ++ bs')
+  | _, _, _, _, _, _, .nil, h => by rwa [VExpr.instAllTele_nil_args] at h
+  | A₀ :: As, a₀ :: as, a₀' :: as', Bs, bs, bs', .cons h0 h, hB => by
+    refine .cons h0 ?_
+    show env.HasArgsDF U Γ (VExpr.instTele a₀ (As ++ Bs)) (as ++ bs) (as' ++ bs')
+    rw [VExpr.instTele_append, Nat.zero_add]
+    refine VEnv.HasArgsDF.append h ?_
+    rw [VExpr.instAllTele_cons_args, Nat.zero_add] at hB
+    rwa [show As.length = as.length from by
+      have h2 := h.left.length_eq; rwa [VExpr.length_instTele] at h2]
+
+theorem VEnv.HasArgsDF.ofMap {Γ : List VExpr} {As as : List VExpr} {f g : Nat → VExpr} :
+    ∀ {i : Nat}, i ≤ As.length →
+      (∀ k, k < i → env.IsDefEq U Γ (f k) (g k)
+        (VExpr.instAll (As.getD k default) (as ++ (List.range k).map f))) →
+      env.HasArgsDF U Γ (VExpr.instAllTele (As.take i) as)
+        ((List.range i).map f) ((List.range i).map g)
+  | 0, _, _ => by simp; exact .nil
+  | i+1, hi, h => by
+    have hlt : i < As.length := by omega
+    have htake : As.take (i+1) = As.take i ++ [As.getD i default] := by
+      rw [List.take_add_one, List.getElem?_eq_getElem hlt]
+      simp [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hlt]
+    rw [List.range_succ, List.map_append, List.map_append, htake, VExpr.instAllTele_append]
+    refine VEnv.HasArgsDF.append (VEnv.HasArgsDF.ofMap (by omega) fun k hk => h k (by omega)) ?_
+    have hlen : ((List.range i).map f).length = i := by simp
+    simp only [List.length_take, Nat.zero_add, Nat.min_def]
+    rw [if_pos (by omega)]
+    simp only [VExpr.instAllTele_cons, VExpr.instAllTele_nil, List.map_cons, List.map_nil]
+    refine .cons ?_ .nil
+    have := h i (by omega)
+    rwa [VExpr.instAll_append, hlen, Nat.zero_add] at this
+
+/-- `IsDefEq.weakR` for a whole spine. -/
+theorem VEnv.HasArgs.weakR (henv : env.Ordered) {Δ Γ : List VExpr} (hcc : CtxClosed Δ) :
+    ∀ {As as}, env.HasArgs U Δ As as → env.HasArgs U (Δ ++ Γ) As as
+  | _, _, .nil => .nil
+  | _, _, .cons ha h => .cons (VEnv.IsDefEq.weakR henv hcc ha Γ) (VEnv.HasArgs.weakR henv hcc h)
+
+/-- **Partial saturated substitution.**  `HasType.instAll` substitutes a spine for the whole
+context above `Γ`; this substitutes it for the *outer* block `As` only, leaving the inner
+block `Bs` as binders. -/
+theorem VEnv.HasType.instAllUnder (henv : env.Ordered) {Γ : List VExpr} :
+    ∀ {As as Bs : List VExpr} {b B : VExpr}, env.HasArgs U Γ As as →
+      env.HasType U ((As ++ Bs).reverse ++ Γ) b B →
+      env.HasType U ((VExpr.instAllTele Bs as).reverse ++ Γ)
+        (VExpr.instAll b as Bs.length) (VExpr.instAll B as Bs.length)
+  | [], [], Bs, b, B, .nil, hb => by
+    simpa [VExpr.instAllTele_nil_args] using hb
+  | A :: As, a :: as, Bs, b, B, .cons ha has, hb => by
+    have hlen : as.length = As.length := has.length_eq.symm.trans VExpr.length_instTele
+    have hb' : env.HasType U ((As ++ Bs).reverse ++ A :: Γ) b B := by simpa using hb
+    have hW := VExpr.Ctx.instN_tele Γ a A (As ++ Bs)
+    have h1 := VEnv.HasType.instN henv hW hb' ha
+    rw [VExpr.instTele_append, Nat.zero_add] at h1
+    have ih := VEnv.HasType.instAllUnder henv (As := VExpr.instTele a As) (as := as)
+      (Bs := VExpr.instTele a Bs As.length) has h1
+    rw [VExpr.instAllTele_cons_args, Nat.zero_add, hlen, VExpr.instAll_cons, VExpr.instAll_cons,
+      hlen]
+    simpa [VExpr.length_instTele, List.length_append, Nat.add_comm] using ih
+
+theorem VEnv.HasArgs.instAllUnder (henv : env.Ordered) {Γ : List VExpr} :
+    ∀ {As as Bs Xs xs : List VExpr}, env.HasArgs U Γ As as →
+      env.HasArgs U ((As ++ Bs).reverse ++ Γ) Xs xs →
+      env.HasArgs U ((VExpr.instAllTele Bs as).reverse ++ Γ)
+        (VExpr.instAllTele Xs as Bs.length) (xs.map (VExpr.instAll · as Bs.length))
+  | [], [], Bs, Xs, xs, .nil, hX => by
+    simpa [VExpr.instAllTele_nil_args] using hX
+  | A :: As, a :: as, Bs, Xs, xs, .cons ha has, hX => by
+    have hlen : as.length = As.length := has.length_eq.symm.trans VExpr.length_instTele
+    have hX' : env.HasArgs U ((As ++ Bs).reverse ++ A :: Γ) Xs xs := by simpa using hX
+    have hW := VExpr.Ctx.instN_tele Γ a A (As ++ Bs)
+    have h1 := VEnv.HasArgs.instN henv hW ha hX'
+    rw [VExpr.instTele_append, Nat.zero_add] at h1
+    have ih := VEnv.HasArgs.instAllUnder henv (As := VExpr.instTele a As) (as := as)
+      (Bs := VExpr.instTele a Bs As.length) has h1
+    rw [VExpr.instAllTele_cons_args, Nat.zero_add, hlen, VExpr.instAllTele_cons_args, hlen]
+    have hmap : (xs.map (VExpr.instAll · (a :: as) Bs.length))
+        = (xs.map (·.inst a (Bs.length + as.length))).map (VExpr.instAll · as Bs.length) := by
+      simp [List.map_map, Function.comp_def]
+    rw [hmap, hlen]
+    simpa [VExpr.length_instTele, List.length_append, Nat.add_comm] using ih
+
+section
+variable {env : VEnv} {U : Nat} {S : Lean.Name} {D : VInductDecl'} {T : VIndType}
+  {C : VIndCtor} {us : List VLevel}
+
+theorem VEnv.IsStructure.types0 (H : env.IsStructure S D T C) : D.types[0]? = some T := by
+  rw [H.types]; rfl
+
+theorem VEnv.IsStructure.typesD (H : env.IsStructure S D T C) :
+    D.types.getD 0 default = T := by rw [H.types]; rfl
+
+theorem VEnv.IsStructure.memCtor (H : env.IsStructure S D T C) : C ∈ T.ctors := by
+  rw [H.ctors]; exact List.mem_singleton_self _
+
+theorem VEnv.IsStructure.memCtorsAll (H : env.IsStructure S D T C) : (0, C) ∈ D.ctorsAll := by
+  simp [VInductDecl'.ctorsAll, H.types, H.ctors]
+
+theorem VInductDecl'.projLvls_wf (h7 : ∀ l ∈ us, l.WF U) (k : Nat) :
+    ∀ l ∈ D.projLvls C us k, l.WF U := by
+  unfold VInductDecl'.projLvls
+  cases D.isLE <;> simp
+  · exact h7
+  · exact ⟨VLevel.WF.inst h7, h7⟩
+
+theorem VInductDecl'.projLvls_length (h3 : us.length = D.uvars) (k : Nat) :
+    (D.projLvls C us k).length = D.recUvars := by
+  unfold VInductDecl'.projLvls VInductDecl'.recUvars
+  cases D.isLE <;> simp [h3]
+
+theorem VInductDecl'.selfLvls_projLvls (h3 : us.length = D.uvars) (k : Nat) :
+    D.selfLvls.map (VLevel.inst (D.projLvls C us k)) = us := by
+  rw [VInductDecl'.projLvls]; exact D.selfLvls_inst _ h3
+
+theorem VInductDecl'.atRec_instL (h3 : us.length = D.uvars) (k : Nat) (e : VExpr) :
+    (D.atRec e).instL (D.projLvls C us k) = e.instL us := by
+  simp only [VInductDecl'.atRec, VExpr.instL_instL,
+    VInductDecl'.selfLvls_projLvls (C := C) h3 k]
+
+theorem VInductDecl'.atRecTele_instL (h3 : us.length = D.uvars) (k : Nat) (As : List VExpr) :
+    (D.atRecTele As).map (VExpr.instL (D.projLvls C us k)) = As.map (VExpr.instL us) := by
+  simp only [VInductDecl'.atRecTele, List.map_map, Function.comp_def, VExpr.instL_instL,
+    VInductDecl'.selfLvls_projLvls (C := C) h3 k]
+
+theorem VInductDecl'.atRecTele_params_instL (h3 : us.length = D.uvars) (k : Nat) :
+    (D.atRecTele D.params).map (VExpr.instL (D.projLvls C us k)) = D.params.map (VExpr.instL us) :=
+  VInductDecl'.atRecTele_instL (C := C) h3 k _
+
+
+/-- The parameter context, moved to the use site. -/
+theorem onCtxParams_instL (henv : env.Ordered) (hI : D.IotaCtx env)
+    (h7 : ∀ l ∈ us, l.WF U) :
+    OnCtx ((D.params.map (VExpr.instL us)).reverse) (env.IsType U) := by
+  have := OnCtx.instL (env := env) (ls := us) (U' := U) h7 hI.toRecCtx.params
+  rwa [List.map_reverse] at this
+
+theorem motive_declType_isType (henv : env.Ordered) (hI : D.IotaCtx env)
+    (H : env.IsStructure S D T C) (h3 : us.length = D.uvars) (h7 : ∀ l ∈ us, l.WF U)
+    {Γ ps : List VExpr}
+    (hpsA : env.HasArgs U Γ (D.params.map (VExpr.instL us)) ps) {k : Nat} :
+    env.IsType U Γ (VExpr.instAll ((D.motiveType 0).instL (D.projLvls C us k)) ps) := by
+  have hR := hI.toRecCtx
+  obtain ⟨u, hmot0⟩ := VInductDecl'.motiveType_isType hR H.types0 (M := []) (by simp)
+    (by simpa using hR.onCtxParams)
+  have h1 := VEnv.HasType.instL (ls := D.projLvls C us k) (U' := U)
+    (VInductDecl'.projLvls_wf h7 k) hmot0
+  simp only [List.nil_append] at h1
+  rw [List.map_reverse, VInductDecl'.atRecTele_params_instL h3] at h1
+  simp only [VExpr.instL] at h1
+  have hOn := onCtxParams_instL (D := D) (us := us) henv hI h7
+  have h2 := VEnv.IsDefEq.weakR henv (OnCtx.ctxClosed henv hOn) h1 Γ
+  have h4 := VEnv.HasType.instAll henv hpsA h2
+  rw [VExpr.instAll_sort] at h4
+  exact ⟨_, h4⟩
+
+theorem minor_declType_isType (henv : env.Ordered) (hI : D.IotaCtx env)
+    (H : env.IsStructure S D T C) (h3 : us.length = D.uvars) (h7 : ∀ l ∈ us, l.WF U)
+    {Γ ps : List VExpr} {mot : VExpr} {k : Nat}
+    (hspine : env.HasArgs U Γ ((D.atRecTele D.params).map (VExpr.instL (D.projLvls C us k))
+        ++ D.motives.map (VExpr.instL (D.projLvls C us k))) (ps ++ [mot])) :
+    env.IsType U Γ
+      (VExpr.instAll ((D.minorType 0 0 C).instL (D.projLvls C us k)) (ps ++ [mot])) := by
+  have hR := hI.toRecCtx
+  have hnm : (0:Nat) < D.nm := by rw [H.nm_eq]; omega
+  obtain ⟨u, hmin0⟩ := VInductDecl'.minorType_isType hR H.types0 hnm H.memCtor H.memCtorsAll
+    (q := 0) (M := []) (by simp) (by simpa using VInductDecl'.onCtxMotives hR)
+  have h1 := VEnv.HasType.instL (ls := D.projLvls C us k) (U' := U)
+    (VInductDecl'.projLvls_wf h7 k) hmin0
+  simp only [List.nil_append, List.map_append, List.map_reverse] at h1
+  simp only [VExpr.instL] at h1
+  rw [← List.reverse_append] at h1
+  have hOn : OnCtx (((D.atRecTele D.params).map (VExpr.instL (D.projLvls C us k))
+      ++ D.motives.map (VExpr.instL (D.projLvls C us k))).reverse) (env.IsType U) := by
+    have := OnCtx.instL (env := env) (ls := D.projLvls C us k) (U' := U)
+      (VInductDecl'.projLvls_wf h7 k)
+      (by simpa using VInductDecl'.onCtxMotives (D := D) (env := env) hR)
+    rw [← List.reverse_append, List.map_reverse, List.map_append] at this
+    exact this
+  have h2 := VEnv.IsDefEq.weakR henv (OnCtx.ctxClosed henv hOn) h1 Γ
+  have h4 := VEnv.HasType.instAll henv hspine h2
+  rw [VExpr.instAll_sort] at h4
+  exact ⟨_, h4⟩
+
+/-- `projCore`'s motive for field `i` at parameter spine `ps`, spelled out. -/
+def projMotiveTerm (D : VInductDecl') (T : VIndType) (C : VIndCtor) (us : List VLevel)
+    (ps : List VExpr) (i : Nat) : VExpr :=
+  VExpr.mkLams (VExpr.instAllTele (T.indices.map (VExpr.instL us)) ps)
+    (.lam ((VExpr.const T.name us).mkApp
+        (ps.map (·.liftN T.indices.length) ++ bvars 0 T.indices.length))
+      (VExpr.instAll ((C.fields.getD i default).type.instL us)
+        (ps.map (·.liftN (T.indices.length+1))
+          ++ D.projArgs T C us (ps.map (·.liftN (T.indices.length+1)))
+              (bvars 1 T.indices.length) i)))
+
+theorem VIndType.projMotive_eq' (D : VInductDecl') (T : VIndType) (C : VIndCtor)
+    (us : List VLevel) {ps is : List VExpr} {i : Nat}
+    (h : is.length = T.indices.length) :
+    T.projMotive C us ps is i
+        (D.projArgs T C us (ps.map (·.liftN (is.length+1))) (bvars 1 is.length) i)
+      = projMotiveTerm D T C us ps i := by
+  rw [VIndType.projMotive, h, projMotiveTerm]
+
+theorem VIndType.projMotive_eq (T : VIndType) (C : VIndCtor) (us : List VLevel)
+    {ps is : List VExpr} {i : Nat} {earlier : List VExpr}
+    (h : is.length = T.indices.length) :
+    T.projMotive C us ps is i earlier
+      = VExpr.mkLams (VExpr.instAllTele (T.indices.map (VExpr.instL us)) ps)
+          (.lam ((VExpr.const T.name us).mkApp
+              (ps.map (·.liftN T.indices.length) ++ bvars 0 T.indices.length))
+            (VExpr.instAll ((C.fields.getD i default).type.instL us)
+              (ps.map (·.liftN (T.indices.length+1)) ++ earlier))) := by
+  rw [VIndType.projMotive, h]
+
+/-- Field `i`'s stored type, at the use site's levels, is closed at `np + i`. -/
+theorem ftype_closedN (hcl : D.ProjClosed T C) {i : Nat} (hi : i < C.fields.length) :
+    ((C.fields.getD i default).type.instL us).ClosedN (D.np + i) := by
+  have hget : (C.fields.map (·.type))[i]? = some (C.fields.getD i default).type := by
+    rw [List.getElem?_map, List.getElem?_eq_getElem hi]
+    simp [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hi]
+  exact (VExpr.ClosedTele.getElem? hcl.fields hget).instL
+
+/-- `projCore`'s motive commutes with a weakening of the parameter block. -/
+theorem projMotive_liftN (D : VInductDecl') (T : VIndType) (C : VIndCtor) (us : List VLevel)
+    (hcl : D.ProjClosed T C) {i : Nat} (hi : i < C.fields.length)
+    {ps : List VExpr} {n : Nat} (hps : ps.length = D.np) :
+    (VExpr.mkLams (VExpr.instAllTele (T.indices.map (VExpr.instL us)) ps)
+      (.lam ((VExpr.const T.name us).mkApp
+          (ps.map (·.liftN T.indices.length) ++ bvars 0 T.indices.length))
+        (VExpr.instAll ((C.fields.getD i default).type.instL us)
+          (ps.map (·.liftN (T.indices.length+1))
+            ++ D.projArgs T C us (ps.map (·.liftN (T.indices.length+1)))
+                (bvars 1 T.indices.length) i)))).liftN n
+    = VExpr.mkLams (VExpr.instAllTele (T.indices.map (VExpr.instL us)) (ps.map (·.liftN n)))
+      (.lam ((VExpr.const T.name us).mkApp
+          ((ps.map (·.liftN n)).map (·.liftN T.indices.length) ++ bvars 0 T.indices.length))
+        (VExpr.instAll ((C.fields.getD i default).type.instL us)
+          ((ps.map (·.liftN n)).map (·.liftN (T.indices.length+1))
+            ++ D.projArgs T C us ((ps.map (·.liftN n)).map (·.liftN (T.indices.length+1)))
+                (bvars 1 T.indices.length) i))) := by
+  have hclI : VExpr.ClosedTele (T.indices.map (VExpr.instL us)) ps.length := by
+    rw [hps]; exact VExpr.ClosedTele.map_instL hcl.indices
+  have hpmap : ∀ m : Nat, (ps.map (·.liftN (T.indices.length + m))).map (·.liftN n (T.indices.length + m))
+      = (ps.map (·.liftN n)).map (·.liftN (T.indices.length + m)) := by
+    intro m
+    rw [List.map_map, List.map_map]
+    refine List.map_congr_left fun p _ => ?_
+    simp only [Function.comp_def]
+    rw [VExpr.liftN'_liftN' (Nat.zero_le _) (Nat.le_add_right _ _), VExpr.liftN_liftN,
+      Nat.add_comm]
+  rw [VExpr.liftN_mkLams, VExpr.liftTele_instAllTele₀ hclI, VExpr.length_instAllTele,
+    List.length_map, Nat.zero_add]
+  refine congrArg _ ?_
+  simp only [VExpr.liftN]
+  congr 1
+  · rw [VExpr.liftN_mkApp, VExpr.liftN, List.map_append, VExpr.map_liftN_bvars_hi (by omega)]
+    congr 2
+    simpa using hpmap 0
+  · have hL : (ps.map (·.liftN (T.indices.length+1))
+        ++ D.projArgs T C us (ps.map (·.liftN (T.indices.length+1)))
+            (bvars 1 T.indices.length) i).length = D.np + i := by
+      simp [hps, D.length_projArgs]
+    have hclosed : ((C.fields.getD i default).type.instL us).ClosedN
+        (0 + (ps.map (·.liftN (T.indices.length+1))
+          ++ D.projArgs T C us (ps.map (·.liftN (T.indices.length+1)))
+              (bvars 1 T.indices.length) i).length) := by
+      rw [Nat.zero_add, hL]; exact ftype_closedN hcl hi
+    have h0 := VExpr.lift'_instAll
+      (A := (C.fields.getD i default).type.instL us)
+      (ρ := (Lift.skipN .refl n).consN (T.indices.length + 1))
+      (as := ps.map (·.liftN (T.indices.length+1))
+        ++ D.projArgs T C us (ps.map (·.liftN (T.indices.length+1)))
+            (bvars 1 T.indices.length) i)
+      (k := 0) hclosed
+    rw [Lift.consN_consN, Nat.add_zero, VExpr.lift'_consN_skipN] at h0
+    rw [h0, List.map_append]
+    congr 2
+    · simp only [VExpr.lift'_consN_skipN]
+      exact hpmap 1
+    · rw [D.projArgs_lift' T C us hcl (by simp [hps]) (by simp) (Nat.le_of_lt hi)
+        (Lift.consN_fixes.le (by omega))]
+      simp only [VExpr.lift'_consN_skipN]
+      rw [VExpr.map_liftN_bvars_hi (by omega), hpmap 1]
+
+/-- **Step 4, the type side.**  The motive's body, saturated by index terms and a major
+premise, is field `i`'s type with the parameters and the earlier projections of that major
+premise substituted. -/
+theorem projMotiveBody_instAll (D : VInductDecl') (T : VIndType) (C : VIndCtor)
+    (us : List VLevel) (hcl : D.ProjClosed T C) {i : Nat} (hi : i < C.fields.length)
+    {ps js : List VExpr} {x : VExpr} (hps : ps.length = D.np)
+    (hjs : js.length = T.indices.length) :
+    VExpr.instAll
+      (VExpr.instAll ((C.fields.getD i default).type.instL us)
+        (ps.map (·.liftN (T.indices.length+1))
+          ++ D.projArgs T C us (ps.map (·.liftN (T.indices.length+1)))
+              (bvars 1 T.indices.length) i))
+      (js ++ [x])
+      = VExpr.instAll ((C.fields.getD i default).type.instL us)
+          (ps ++ (List.range i).map fun k => D.projTerm T C us ps js k x) := by
+  have hlen : (js ++ [x]).length = T.indices.length + 1 := by simp [hjs]
+  have hL : (ps.map (·.liftN (T.indices.length+1))
+      ++ D.projArgs T C us (ps.map (·.liftN (T.indices.length+1)))
+          (bvars 1 T.indices.length) i).length = D.np + i := by
+    simp [hps, D.length_projArgs]
+  have hcancel : ∀ p : VExpr,
+      VExpr.instAll (p.liftN (T.indices.length+1)) (js ++ [x]) 0 = p := by
+    intro p; rw [← hlen]; exact VExpr.instAll_liftN _ _ _
+  rw [VExpr.instAll_instAll (by rw [hL]; exact ftype_closedN hcl hi)]
+  congr 1
+  rw [List.map_append]
+  congr 1
+  · simp [List.map_map, Function.comp_def, hcancel]
+  · rw [D.projArgs_eq_map, List.map_map]
+    refine List.map_congr_left fun k hk => ?_
+    simp only [Function.comp_def]
+    rw [D.projTerm_instAll T C us hcl (by simp at hk; omega) (by simp [hps]) (by simp)]
+    congr 1
+    · simp [List.map_map, Function.comp_def, hcancel]
+    · exact VExpr.map_instAll_bvars_mid hjs
+    · exact VExpr.instAll_bvar_zero
+
+/-- The conclusion of `projTerm_hasType` at one field index, as a named predicate: the
+strong induction quantifies `Γ`, `ps`, `ιs`, `e` *after* the index, so the induction
+hypothesis has to be applied at several different contexts. -/
+def ProjHasType (env : VEnv) (U : Nat) (S : Lean.Name) (D : VInductDecl') (T : VIndType)
+    (C : VIndCtor) (us : List VLevel) (k : Nat) : Prop :=
+  ∀ {Γ ps ιs : List VExpr} {e : VExpr}, OnCtx Γ (env.IsType U) →
+    env.HasType U Γ e ((VExpr.const S us).mkApp (ps ++ ιs)) →
+    ps.length = D.np → ιs.length = T.indices.length →
+    env.HasArgs U Γ (D.params.map (VExpr.instL us)) ps →
+    env.HasArgs U Γ (VExpr.instAllTele (T.indices.map (VExpr.instL us)) ps) ιs →
+    env.HasType U Γ (D.projTerm T C us ps ιs k e)
+      (VExpr.instAll ((C.fields.getD k default).type.instL us)
+        (ps ++ (List.range k).map fun m => D.projTerm T C us ps ιs m e))
+
+/-- The motive's own binder context: the index telescope and the major-premise binder. -/
+theorem motiveCtx_wf (henv : env.Ordered) (hI : D.IotaCtx env)
+    (H : env.IsStructure S D T C) (h3 : us.length = D.uvars) (h7 : ∀ l ∈ us, l.WF U)
+    {Γ ps : List VExpr} (hΓ : OnCtx Γ (env.IsType U)) (hps : ps.length = D.np)
+    (hpsA : env.HasArgs U Γ (D.params.map (VExpr.instL us)) ps) :
+    OnCtx ((VExpr.instAllTele (T.indices.map (VExpr.instL us)) ps).reverse ++ Γ)
+        (env.IsType U) ∧
+      env.IsType U ((VExpr.instAllTele (T.indices.map (VExpr.instL us)) ps).reverse ++ Γ)
+        ((VExpr.const T.name us).mkApp
+          (ps.map (·.liftN T.indices.length) ++ bvars 0 T.indices.length)) := by
+  have hmotIT := motive_declType_isType henv hI H h3 h7 hpsA (k := 0)
+  rw [motiveType_instL_instAll D T C H.typesD h3 hps] at hmotIT
+  obtain ⟨hOnΔ1, hfa⟩ := VEnv.IsType.mkPi_inv henv hΓ hmotIT
+  exact ⟨hOnΔ1, (hfa.forallE_inv henv).1⟩
+
+theorem fields_getD_map (hk : k < C.fields.length) :
+    (C.fields.map fun F => F.type.instL us).getD k default
+      = (C.fields.getD k default).type.instL us := by
+  rw [List.getD_eq_getElem?_getD, List.getElem?_map, List.getElem?_eq_getElem hk,
+    List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hk]
+  rfl
+
+/-- **The earlier projections inhabit the field prefix telescope.**  This is the induction
+hypothesis packaged as a `HasArgs`, in the motive's own binder context. -/
+theorem projArgs_hasArgs (henv : env.Ordered) (hI : D.IotaCtx env)
+    (H : env.IsStructure S D T C) (h3 : us.length = D.uvars) (h7 : ∀ l ∈ us, l.WF U)
+    (hcl : D.ProjClosed T C) {i : Nat} (hi : i ≤ C.fields.length)
+    (IH : ∀ k, k < i → ProjHasType env U S D T C us k)
+    {Γ ps : List VExpr} (hΓ : OnCtx Γ (env.IsType U)) (hps : ps.length = D.np)
+    (hpsA : env.HasArgs U Γ (D.params.map (VExpr.instL us)) ps) :
+    env.HasArgs U
+      (((VExpr.const T.name us).mkApp
+          (ps.map (·.liftN T.indices.length) ++ bvars 0 T.indices.length))
+        :: ((VExpr.instAllTele (T.indices.map (VExpr.instL us)) ps).reverse ++ Γ))
+      (VExpr.instAllTele ((C.fields.take i).map fun F => F.type.instL us)
+        (ps.map (·.liftN (T.indices.length+1))))
+      (D.projArgs T C us (ps.map (·.liftN (T.indices.length+1)))
+        (bvars 1 T.indices.length) i) := by
+  obtain ⟨hOnΔ1, hctorTy⟩ := motiveCtx_wf henv hI H h3 h7 hΓ hps hpsA
+  have hclI : VExpr.ClosedTele (T.indices.map (VExpr.instL us)) ps.length := by
+    rw [hps]; exact VExpr.ClosedTele.map_instL hcl.indices
+  have hΔ : OnCtx
+      (((VExpr.const T.name us).mkApp
+          (ps.map (·.liftN T.indices.length) ++ bvars 0 T.indices.length))
+        :: ((VExpr.instAllTele (T.indices.map (VExpr.instL us)) ps).reverse ++ Γ))
+      (env.IsType U) := ⟨hOnΔ1, hctorTy⟩
+  have hW : Ctx.LiftN (T.indices.length + 1) 0 Γ
+      (((VExpr.const T.name us).mkApp
+          (ps.map (·.liftN T.indices.length) ++ bvars 0 T.indices.length))
+        :: ((VExpr.instAllTele (T.indices.map (VExpr.instL us)) ps).reverse ++ Γ)) := by
+    have := Ctx.LiftN.zero (Γ := Γ) (n := T.indices.length + 1)
+      (((VExpr.const T.name us).mkApp
+          (ps.map (·.liftN T.indices.length) ++ bvars 0 T.indices.length))
+        :: (VExpr.instAllTele (T.indices.map (VExpr.instL us)) ps).reverse) (by simp)
+    simpa using this
+  have hqs := VEnv.HasArgs.weakN henv hW hpsA
+  rw [VExpr.liftTele_eq_self (VExpr.ClosedTele.map_instL hcl.params) (Nat.zero_le _)] at hqs
+  have hjs := VEnv.HasArgs.bvars (env := env) (U := U)
+    (Δ := [(VExpr.const T.name us).mkApp
+      (ps.map (·.liftN T.indices.length) ++ bvars 0 T.indices.length)])
+    (As := VExpr.instAllTele (T.indices.map (VExpr.instL us)) ps) (Γ₀ := Γ)
+  rw [List.length_cons, List.length_nil, VExpr.length_instAllTele, List.length_map,
+    show 0 + 1 = 1 from rfl, Nat.add_comm 1 T.indices.length,
+    VExpr.liftTele_instAllTele₀ hclI, List.singleton_append] at hjs
+  have hbv0 : env.HasType U
+      (((VExpr.const T.name us).mkApp
+          (ps.map (·.liftN T.indices.length) ++ bvars 0 T.indices.length))
+        :: ((VExpr.instAllTele (T.indices.map (VExpr.instL us)) ps).reverse ++ Γ))
+      (.bvar 0)
+      ((VExpr.const S us).mkApp
+        (ps.map (·.liftN (T.indices.length+1)) ++ bvars 1 T.indices.length)) := by
+    have h := VEnv.HasType.bvar (env := env) (U := U) (Lookup.zero
+      (Γ := (VExpr.instAllTele (T.indices.map (VExpr.instL us)) ps).reverse ++ Γ)
+      (ty := (VExpr.const T.name us).mkApp
+        (ps.map (·.liftN T.indices.length) ++ bvars 0 T.indices.length)))
+    rw [VExpr.lift, VExpr.liftN_mkApp, VExpr.liftN, List.map_append, List.map_map, Function.comp_def,
+      VExpr.map_liftN_bvars_lo (Nat.zero_le _)] at h
+    simp only [VExpr.liftN_liftN] at h
+    rw [← H.name]
+    exact h
+  rw [D.projArgs_eq_map, List.map_take]
+  refine VEnv.HasArgs.ofMap (by simp; omega) fun k hk => ?_
+  have hk' : k < C.fields.length := by omega
+  have := IH k hk hΔ hbv0 (by simp [hps]) (by simp) hqs hjs
+  rwa [fields_getD_map hk']
+
+/-- **The motive's body is a type**, at the recursor's elimination level. -/
+theorem projMotiveBody_hasType (henv : env.Ordered) (hI : D.IotaCtx env)
+    (H : env.IsStructure S D T C) (h3 : us.length = D.uvars) (h7 : ∀ l ∈ us, l.WF U)
+    (hcl : D.ProjClosed T C) {i : Nat} (hi : i < C.fields.length)
+    (hlv : (C.fields.getD i default).lvl.inst us ≈ D.elimLvl.inst (D.projLvls C us i))
+    {Γ ps : List VExpr} (hps : ps.length = D.np)
+    (hpsA : env.HasArgs U Γ (D.params.map (VExpr.instL us)) ps)
+    {earlier : List VExpr}
+    (hearlier : env.HasArgs U
+      (((VExpr.const T.name us).mkApp
+          (ps.map (·.liftN T.indices.length) ++ bvars 0 T.indices.length))
+        :: ((VExpr.instAllTele (T.indices.map (VExpr.instL us)) ps).reverse ++ Γ))
+      (VExpr.instAllTele ((C.fields.take i).map fun F => F.type.instL us)
+        (ps.map (·.liftN (T.indices.length+1))))
+      earlier) :
+    env.HasType U
+      (((VExpr.const T.name us).mkApp
+          (ps.map (·.liftN T.indices.length) ++ bvars 0 T.indices.length))
+        :: ((VExpr.instAllTele (T.indices.map (VExpr.instL us)) ps).reverse ++ Γ))
+      (VExpr.instAll ((C.fields.getD i default).type.instL us)
+        (ps.map (·.liftN (T.indices.length+1)) ++ earlier))
+      (.sort (D.elimLvl.inst (D.projLvls C us i))) := by
+  have hW : Ctx.LiftN (T.indices.length + 1) 0 Γ
+      (((VExpr.const T.name us).mkApp
+          (ps.map (·.liftN T.indices.length) ++ bvars 0 T.indices.length))
+        :: ((VExpr.instAllTele (T.indices.map (VExpr.instL us)) ps).reverse ++ Γ)) := by
+    have := Ctx.LiftN.zero (Γ := Γ) (n := T.indices.length + 1)
+      (((VExpr.const T.name us).mkApp
+          (ps.map (·.liftN T.indices.length) ++ bvars 0 T.indices.length))
+        :: (VExpr.instAllTele (T.indices.map (VExpr.instL us)) ps).reverse) (by simp)
+    simpa using this
+  have hqs := VEnv.HasArgs.weakN henv hW hpsA
+  rw [VExpr.liftTele_eq_self (VExpr.ClosedTele.map_instL hcl.params) (Nat.zero_le _)] at hqs
+  have hbody := instAll_field_isType henv H hI h3 h7 hcl hi hqs hearlier
+  exact VEnv.IsDefEq.defeqDF
+    (VEnv.IsDefEq.sortDF (VLevel.WF.inst h7)
+      (VLevel.WF.inst (VInductDecl'.projLvls_wf (C := C) h7 i)) hlv) hbody
+
+/-- **Step 1's motive arm.**  `projCore`'s motive inhabits the recursor's motive binder. -/
+theorem projMotive_hasType (henv : env.Ordered) (hI : D.IotaCtx env)
+    (H : env.IsStructure S D T C) (h3 : us.length = D.uvars) (h7 : ∀ l ∈ us, l.WF U)
+    (hcl : D.ProjClosed T C) {i : Nat} (hi : i < C.fields.length)
+    (hlv : (C.fields.getD i default).lvl.inst us ≈ D.elimLvl.inst (D.projLvls C us i))
+    {Γ ps : List VExpr} (hΓ : OnCtx Γ (env.IsType U)) (hps : ps.length = D.np)
+    (hpsA : env.HasArgs U Γ (D.params.map (VExpr.instL us)) ps)
+    {earlier : List VExpr}
+    (hearlier : env.HasArgs U
+      (((VExpr.const T.name us).mkApp
+          (ps.map (·.liftN T.indices.length) ++ bvars 0 T.indices.length))
+        :: ((VExpr.instAllTele (T.indices.map (VExpr.instL us)) ps).reverse ++ Γ))
+      (VExpr.instAllTele ((C.fields.take i).map fun F => F.type.instL us)
+        (ps.map (·.liftN (T.indices.length+1))))
+      earlier) :
+    env.HasType U Γ
+      (VExpr.mkLams (VExpr.instAllTele (T.indices.map (VExpr.instL us)) ps)
+        (.lam ((VExpr.const T.name us).mkApp
+            (ps.map (·.liftN T.indices.length) ++ bvars 0 T.indices.length))
+          (VExpr.instAll ((C.fields.getD i default).type.instL us)
+            (ps.map (·.liftN (T.indices.length+1)) ++ earlier))))
+      (VExpr.instAll ((D.motiveType 0).instL (D.projLvls C us i)) ps) := by
+  obtain ⟨hOnΔ1, uc, hctorTy⟩ := motiveCtx_wf henv hI H h3 h7 hΓ hps hpsA
+  rw [motiveType_instL_instAll D T C H.typesD h3 hps]
+  exact VEnv.HasType.mkLams hOnΔ1 (VEnv.HasType.lam hctorTy
+    (projMotiveBody_hasType henv hI H h3 h7 hcl hi hlv hps hpsA hearlier))
+
+/-- The constructor's index arguments, at the use site, over the field telescope. -/
+theorem ctorArgs_hasArgs (henv : env.Ordered) (hI : D.IotaCtx env)
+    (H : env.IsStructure S D T C) (h7 : ∀ l ∈ us, l.WF U)
+    {Γ ps : List VExpr}
+    (hpsA : env.HasArgs U Γ (D.params.map (VExpr.instL us)) ps) :
+    env.HasArgs U
+      ((VExpr.instAllTele (C.fields.map fun F => F.type.instL us) ps).reverse ++ Γ)
+      (VExpr.liftTele C.fields.length
+        (VExpr.instAllTele (T.indices.map (VExpr.instL us)) ps))
+      (C.args.map fun a => VExpr.instAll (a.instL us) ps C.fields.length) := by
+  have hR := hI.toRecCtx
+  have hCwf : VIndCtor.WF env D 0 T C := hR.ctors 0 T H.types0 C H.memCtor
+  have hOn0 : OnCtx (((C.fields.map (·.type)).reverse ++ D.params.reverse).map (VExpr.instL us))
+      (env.IsType U) := OnCtx.instL h7 (hCwf.onCtxAllFields henv)
+  have h1 := VEnv.HasArgs.instL (U' := U) (ls := us) h7 hCwf.args_ty
+  simp only [List.map_append, List.map_reverse, VExpr.instL_liftTele, List.map_map,
+    Function.comp_def] at h1 hOn0
+  rw [← List.reverse_append] at h1 hOn0
+  have h2 := VEnv.HasArgs.weakR (Γ := Γ) henv (OnCtx.ctxClosed henv hOn0) h1
+  have h3 := VEnv.HasArgs.instAllUnder henv hpsA h2
+  rw [List.length_map, VExpr.instAllTele_liftTele₀ (n := C.fields.length)
+      (As := T.indices.map (VExpr.instL us)) (as := ps)] at h3
+  simpa [List.map_map, Function.comp_def] using h3
+
+/-- The constructor applied to the parameters and its own field variables. -/
+theorem ctorApp_hasType (henv : env.Ordered) (hI : D.IotaCtx env)
+    (H : env.IsStructure S D T C) (h3 : us.length = D.uvars) (h7 : ∀ l ∈ us, l.WF U)
+    {Γ ps : List VExpr} (hps : ps.length = D.np)
+    (hpsA : env.HasArgs U Γ (D.params.map (VExpr.instL us)) ps) :
+    env.HasType U
+      ((VExpr.instAllTele (C.fields.map fun F => F.type.instL us) ps).reverse ++ Γ)
+      ((VExpr.const C.name us).mkApp
+        (ps.map (·.liftN C.fields.length) ++ bvars 0 C.fields.length))
+      ((VExpr.const T.name us).mkApp (ps.map (·.liftN C.fields.length)
+        ++ C.args.map fun a => VExpr.instAll (a.instL us) ps C.fields.length)) := by
+  have hR := hI.toRecCtx
+  have hCwf : VIndCtor.WF env D 0 T C := hR.ctors 0 T H.types0 C H.memCtor
+  have h0 := VInductDecl'.ctorApp'_hasType hR H.types0 H.memCtor H.memCtorsAll
+    (m := 0) (Δ := []) rfl (by simpa using hR.onCtxParams)
+  simp only [VExpr.liftTele_zero, List.nil_append, VExpr.liftN_zero, Nat.add_zero] at h0
+  have hOn0 : OnCtx (((C.fields.map (·.type)).reverse ++ D.params.reverse).map (VExpr.instL us))
+      (env.IsType U) := OnCtx.instL h7 (hCwf.onCtxAllFields henv)
+  simp only [List.map_append, List.map_reverse, List.map_map, Function.comp_def] at hOn0
+  rw [← List.reverse_append] at hOn0
+  have h1 := VEnv.HasType.instL (U' := U) (ls := D.projLvls C us 0)
+    (VInductDecl'.projLvls_wf h7 0) h0
+  rw [List.map_append, List.map_reverse, List.map_reverse,
+    VInductDecl'.atRecTele_instL (C := C) h3 0, VInductDecl'.atRecTele_instL (C := C) h3 0,
+    ← List.reverse_append, VInductDecl'.atRec_instL (C := C) h3 0] at h1
+  simp only [VInductDecl'.ctorApp', VExpr.instL_mkApp, VExpr.instL, VExpr.map_instL_bvars,
+    List.map_append, VInductDecl'.selfLvls_projLvls (C := C) h3 0,
+    VIndCtor.canonResult, VInductDecl'.tyApp, H.typesD, VInductDecl'.ownLvls,
+    VLevel.params_inst h3, List.map_map, Function.comp_def] at h1
+  have h2 := VEnv.IsDefEq.weakR henv (OnCtx.ctxClosed henv hOn0) h1 Γ
+  have h3' := VEnv.HasType.instAllUnder henv hpsA h2
+  rw [List.length_map] at h3'
+  rw [VExpr.instAll_mkApp, VExpr.instAll_const, VExpr.instAll_mkApp, VExpr.instAll_const,
+    List.map_append, List.map_append,
+    VExpr.map_instAll_bvars_top (Nat.le_refl _) (by simp [hps]),
+    VExpr.map_instAll_bvars_lt (Nat.le_of_eq (Nat.zero_add _)),
+    List.take_of_length_le (by simp [hps])] at h3'
+  simpa [List.map_map, Function.comp_def] using h3'
+
+/-- The constructor's result indices are closed over `params ++ fields`. -/
+theorem args_closedN (henv : env.Ordered) (hI : D.IotaCtx env)
+    (H : env.IsStructure S D T C) :
+    ∀ a ∈ C.args, VExpr.ClosedN a (C.fields.length + D.np) := by
+  have hCwf : VIndCtor.WF env D 0 T C := hI.toRecCtx.ctors 0 T H.types0 C H.memCtor
+  have hcc : CtxClosed ((C.fields.map (·.type)).reverse ++ D.params.reverse) :=
+    OnCtx.ctxClosed henv (hCwf.onCtxAllFields henv)
+  have hlen : ((C.fields.map (·.type)).reverse ++ D.params.reverse).length
+      = C.fields.length + D.np := by simp [VInductDecl'.np]
+  have h := VEnv.IsDefEq.closedN henv hCwf.result hcc
+  rw [hlen, VIndCtor.canonResult, VInductDecl'.tyApp, VExpr.closedN_mkApp] at h
+  intro a ha
+  exact h.2 _ (List.mem_append_right _ ha)
+
+theorem projMotiveTerm_liftN (henv : env.Ordered) (H : env.IsStructure S D T C)
+    (hcl : D.ProjClosed T C) {i : Nat} (hi : i < C.fields.length)
+    {ps : List VExpr} {n : Nat} (hps : ps.length = D.np) :
+    (projMotiveTerm D T C us ps i).liftN n = projMotiveTerm D T C us (ps.map (·.liftN n)) i := by
+  rw [projMotiveTerm, projMotiveTerm, projMotive_liftN D T C us hcl hi hps]
+
+theorem projMotiveTerm_hasType (henv : env.Ordered) (hI : D.IotaCtx env)
+    (H : env.IsStructure S D T C) (h3 : us.length = D.uvars) (h7 : ∀ l ∈ us, l.WF U)
+    (hcl : D.ProjClosed T C) {i : Nat} (hi : i < C.fields.length)
+    (hlvi : (C.fields.getD i default).lvl.inst us ≈ D.elimLvl.inst (D.projLvls C us i))
+    (hIH : ∀ k, k < i → ProjHasType env U S D T C us k)
+    {Γ ps : List VExpr} (hΓ : OnCtx Γ (env.IsType U)) (hps : ps.length = D.np)
+    (hpsA : env.HasArgs U Γ (D.params.map (VExpr.instL us)) ps) :
+    env.HasType U Γ (projMotiveTerm D T C us ps i)
+      (VExpr.instAll ((D.motiveType 0).instL (D.projLvls C us i)) ps) := by
+  rw [projMotiveTerm]
+  exact projMotive_hasType henv hI H h3 h7 hcl hi hlvi hΓ hps hpsA
+    (projArgs_hasArgs henv hI H h3 h7 hcl (Nat.le_of_lt hi) hIH hΓ hps hpsA)
+
+theorem VInductDecl'.motives_eq (H : env.IsStructure S D T C) : D.motives = [D.motiveType 0] := by
+  rw [VInductDecl'.motives, H.nm_eq]; rfl
+
+theorem VInductDecl'.minors_eq (H : env.IsStructure S D T C) :
+    D.minors = [D.minorType 0 0 C] := by
+  simp [VInductDecl'.minors, VInductDecl'.ctorsAll, H.types, H.ctors]
+
+/-- **The plumbing of `recApp_hasType''`**, with the motive and the minor premise abstract:
+`projCore`'s spine, re-associated, at any motive and minor inhabiting the recursor's
+declared binders. -/
+theorem projCore_hasType (henv : env.Ordered) (hI : D.IotaCtx env)
+    (H : env.IsStructure S D T C) (h3 : us.length = D.uvars) (h7 : ∀ l ∈ us, l.WF U)
+    {i : Nat} {Γ ps ιs : List VExpr} {e mot minor B : VExpr}
+    (hps : ps.length = D.np) (hιs : ιs.length = T.indices.length)
+    (he : env.HasType U Γ e ((VExpr.const S us).mkApp (ps ++ ιs)))
+    (hpsA : env.HasArgs U Γ (D.params.map (VExpr.instL us)) ps)
+    (hιsA : env.HasArgs U Γ (VExpr.instAllTele (T.indices.map (VExpr.instL us)) ps) ιs)
+    (hmotT : env.HasType U Γ mot
+      (VExpr.instAll ((D.motiveType 0).instL (D.projLvls C us i)) ps))
+    (hminT : env.HasType U Γ minor
+      (VExpr.instAll ((D.minorType 0 0 C).instL (D.projLvls C us i)) (ps ++ [mot])))
+    (hconv : ∃ u, env.IsDefEq U Γ (mot.mkApp (ιs ++ [e])) B (.sort u)) :
+    env.HasType U Γ
+      ((VExpr.const (Lean.mkRecName T.name) (D.projLvls C us i)).mkApp
+        (ps ++ [mot, minor] ++ ιs ++ [e])) B := by
+  have hnm := H.nm_eq
+  have hnmin := H.nmin_eq
+  have hP : env.HasArgs U Γ
+      ((D.atRecTele D.params).map (VExpr.instL (D.projLvls C us i))) ps := by
+    rw [VInductDecl'.atRecTele_params_instL (C := C) h3]; exact hpsA
+  have hM : env.HasArgs U Γ
+      (VExpr.instAllTele (D.motives.map (VExpr.instL (D.projLvls C us i))) ps 0) [mot] := by
+    rw [VInductDecl'.motives_eq H]; exact .cons hmotT .nil
+  have hMinB : env.HasArgs U Γ
+      (VExpr.instAllTele (D.minors.map (VExpr.instL (D.projLvls C us i))) (ps ++ [mot]) 0)
+      [minor] := by
+    rw [VInductDecl'.minors_eq H]; exact .cons hminT .nil
+  have hspine := VEnv.HasArgs.append (VEnv.HasArgs.append hP hM) hMinB
+  rw [List.append_assoc ps] at hspine
+  have hidx : env.HasArgs U Γ
+      (VExpr.instAllTele
+        (liftTele (D.nm + D.nmin) ((D.atRecTele T.indices).map
+          (VExpr.instL (D.projLvls C us i))))
+        (ps ++ ([mot] ++ [minor])) 0) ιs := by
+    rw [D.idxTele_collapse T C hnm hnmin h3]; exact hιsA
+  have he' : env.HasType U Γ e
+      ((VExpr.const T.name (D.selfLvls.map (VLevel.inst (D.projLvls C us i)))).mkApp
+        (ps ++ ιs)) := by
+    rw [VInductDecl'.selfLvls_projLvls (C := C) h3, H.name]; exact he
+  have hmain := VInductDecl'.recApp_hasType'' hI H.types0 (by omega)
+    (VInductDecl'.projLvls_wf h7 i) (VInductDecl'.projLvls_length (C := C) h3 i) hps
+    (by simp [hnm]) (by simp [hnmin]) hspine rfl hιs hidx he'
+  obtain ⟨u, hconv⟩ := hconv
+  have hmain' : env.HasType U Γ
+      ((VExpr.const (Lean.mkRecName T.name) (D.projLvls C us i)).mkApp
+        (ps ++ [mot, minor] ++ ιs ++ [e])) (mot.mkApp (ιs ++ [e])) := by
+    simpa [List.append_assoc] using hmain
+  exact VEnv.IsDefEq.defeqDF hconv hmain'
+
+
+end
+
+end
 
 end Lean4Lean
