@@ -36,15 +36,31 @@ Mutual families are the special case where `Idx` is a disjoint union
 changes, so the non-mutual indexed treatment already covers the mutual one via
 `disjUnion`.
 
-## The one place this does not match §2.2
+## On design item F8, and on interleaving
 
-Design item **F8** allows a later *non-recursive* field's type to mention an
-earlier *recursive* field's value.  In that case `Fld q` itself depends on the
-family being defined, and the datum above cannot express it: `Fld : V → V` is
-`W`-independent by construction.  Everything else in §2.2 — dependent
-non-recursive telescopes, recursive fields with binders `ξ` and index arguments
-`π`, arbitrarily many constructors, arbitrary index sets — is covered.  See the
-module note at the end for what F8 would require.
+**F8 is vacuous, so `Fld : V → V` is correct as written.**  A mutual block's
+types are type-checked before any of them is declared, so every index telescope
+and every recursive field's binders `ξ` and index arguments `π` are block-free.
+A later non-recursive field's type may *syntactically* mention an earlier
+recursive field's binder, but nothing in scope has the block constant in its
+type, so such a field's type is definitionally equal to a block-free,
+recursive-field-free one.  The interpretation is defeq-invariant, hence `Fld q`
+really is independent of the approximation `W`.
+
+**The telescope is flat, and this datum does not assume otherwise.**  `Fld q` is
+an *unconstrained* set: it is the iterated dependent sum of the non-recursive
+fields taken **in declaration position**, interleaved with the recursive ones,
+and later non-recursive fields may depend on earlier ones.  A recursive field's
+binders and indices may depend on earlier non-recursive fields, which is why
+`Pos q a`, `posIdx q a b` and `resIdx q a` all take the non-recursive data `a`
+as an argument.  (`Pos q a` sees *all* of `a`, including components declared
+after the recursive field in question; that is harmless — the interpretation of
+`ξ_j` simply ignores them.)  Nothing anywhere assumes the non-recursive fields
+are collected in front.
+
+So all of §2.2 is covered: dependent non-recursive telescopes in declaration
+position, recursive fields with binders `ξ` and index arguments `π` depending on
+earlier fields, arbitrarily many constructors, arbitrary index sets.
 
 ## The carrier
 
@@ -742,16 +758,12 @@ end NoRecursion
 union `disjUnion` of the per-type index sets and have `resIdx`/`posIdx` land in
 the appropriate summand.  Nothing in this file assumes `Idx` is indecomposable.
 
-**Not covered — design item F8.**  `IndSignature.Fld : V → V` does not depend on
-the family being constructed, so a later non-recursive field whose *type*
-mentions an earlier *recursive* field is inexpressible here.  Supporting it
-means replacing `Fld q` by a monotone `Fld q : V → V` (a function of the
-current approximation `W`) and `Pos`/`posIdx`/`resIdx` by maps defined on the
-resulting dependent sum.  `indStep` stays monotone, so formation and the
-induction principle survive unchanged; what needs redoing is the rank argument
-for the recursor, since the "non-recursive data" `a` would itself contain
-elements of the family.  Flagging this now, as requested: **if the syntactic
-side really intends to allow F8, this datum must change.**
+**Design item F8 — resolved, no change needed.**  See the module docstring: the
+dependence F8 contemplates is always vacuous, because a mutual block's types are
+checked before any is declared and so every recursive field's binders and
+indices are block-free.  `Fld : V → V` is therefore correct, and the flat
+interleaved telescope is handled (`Pos`, `posIdx`, `resIdx` all take the
+non-recursive data as an argument).
 
 **Not covered — existence of the carrier `D`.**  Everything is relative to
 `IsIndCarrier S D`.  Producing such a `D` inside `Vset κ` is the transfinite

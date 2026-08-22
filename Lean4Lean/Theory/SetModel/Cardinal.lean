@@ -353,28 +353,21 @@ theorem exists_cardLE_of_mem_vsetV (hk : IsInaccessible k) {A : V} (hA : A ∈ v
 
 /-! ## The payoff: full replacement inside `Vset κ` -/
 
-/-- **Rank bound along an arbitrary index set.**  The generalisation of
-`exists_rank_bound_of_regular` from an ordinal index set to any `A ∈ Vset κ`:
-transport the family along an injection `A → a ∈ κ` and apply regularity
-there. -/
-theorem exists_rank_bound_of_mem_vsetV (hk : IsInaccessible k) {A : V} (hA : A ∈ vsetV k)
-    (F : V → V) (hF : ℒₛₑₜ-function₁ F) (hFA : ∀ x ∈ A, F x ∈ vsetV k) :
-    ∃ b ∈ k, ∀ x ∈ A, F x ⊆ vsetV b := by
+/-- **Regularity along an arbitrary index set.**  The generalisation of
+`IsRegular` from an ordinal index set to any `B` that injects into a member of
+`κ`: transport the family along the injection and apply regularity there.  This
+is the workhorse behind everything below. -/
+theorem exists_bound_of_cardLE (hk : IsInaccessible k) {A a : V} (hak : a ∈ k)
+    (hAa : A ≤# a) (G : V → V) (hgdef : ℒₛₑₜ-function₁[V] G)
+    (hrk : ∀ x ∈ A, G x ∈ k) : ∃ b ∈ k, ∀ x ∈ A, G x ∈ b := by
   have hko : IsOrdinal k := hk.isOrdinal
-  have hrk : ∀ x ∈ A, rankV (F x) ∈ k := by
-    intro x hx
-    have h1 : rank (F x) < (IsOrdinal.toOrdinal k : Ordinal V) :=
-      mem_Vset_iff_rank_lt.mp (mem_vsetV_iff_mem_Vset.mp (hFA x hx))
-    have h2 : (rank (F x)).val ∈ (IsOrdinal.toOrdinal k : Ordinal V).val := lt_def.mp h1
-    exact h2
-  have hgdef : ℒₛₑₜ-function₁[V] (fun x ↦ rankV (F x)) := by definability
-  obtain ⟨a, hak, f, hf, hinj⟩ := exists_cardLE_of_mem_vsetV hk hA
+  obtain ⟨f, hf, hinj⟩ := hAa
   -- transport `x ↦ rank (F x)` along the injection `f : A → a`
   obtain ⟨g, hgsub, hg⟩ : ∃ g : V, g ⊆ a ×ˢ k ∧ ∀ t v : V, (⟨t, v⟩ₖ : V) ∈ g ↔ t ∈ a ∧
-      ((∀ x ∈ A, (⟨x, t⟩ₖ : V) ∈ f → v = rankV (F x)) ∧
+      ((∀ x ∈ A, (⟨x, t⟩ₖ : V) ∈ f → v = G x) ∧
         ((¬∃ x ∈ A, (⟨x, t⟩ₖ : V) ∈ f) → v = ∅)) := by
     refine ⟨sep (a ×ˢ k) (fun p ↦ ∃ t ∈ a, ∃ v : V, p = ⟨t, v⟩ₖ ∧
-      ((∀ x ∈ A, (⟨x, t⟩ₖ : V) ∈ f → v = rankV (F x)) ∧
+      ((∀ x ∈ A, (⟨x, t⟩ₖ : V) ∈ f → v = G x) ∧
         ((¬∃ x ∈ A, (⟨x, t⟩ₖ : V) ∈ f) → v = ∅))), sep_subset, fun t v ↦ ?_⟩
     rw [mem_sep_iff]
     constructor
@@ -395,7 +388,7 @@ theorem exists_rank_bound_of_mem_vsetV (hk : IsInaccessible k) {A : V} (hA : A �
       · obtain ⟨x, hx, hxt⟩ := hex
         have huniq : ∀ x' ∈ A, (⟨x', t⟩ₖ : V) ∈ f → x' = x := fun x' _ hx't ↦
           hinj x' x t hx't hxt
-        refine ExistsUnique.intro (rankV (F x))
+        refine ExistsUnique.intro (G x)
           ((hg t _).mpr ⟨ht, fun x' hx' hx't ↦ by rw [huniq x' hx' hx't], fun hn ↦
             absurd ⟨x, hx, hxt⟩ hn⟩) fun v hv ↦ ?_
         exact ((hg t v).mp hv).2.1 x hx hxt
@@ -404,15 +397,38 @@ theorem exists_rank_bound_of_mem_vsetV (hk : IsInaccessible k) {A : V} (hA : A �
           fun v hv ↦ ?_
         exact ((hg t v).mp hv).2.2 hex
   obtain ⟨b, hbk, hbrange⟩ := hk.regular a hak g hgmem
-  have hbo : IsOrdinal b := IsOrdinal.of_mem hbk
   refine ⟨b, hbk, fun x hx ↦ ?_⟩
   have hxt : (⟨x, f ‘ x⟩ₖ : V) ∈ f := kpair_value_mem hf hx
   have hta : f ‘ x ∈ a := value_mem_of_mem_function hf hx
-  have hmem : (⟨f ‘ x, rankV (F x)⟩ₖ : V) ∈ g :=
+  have hmem : (⟨f ‘ x, G x⟩ₖ : V) ∈ g :=
     (hg _ _).mpr ⟨hta, fun x' hx' hx't ↦ by rw [hinj x' x (f ‘ x) hx't hxt],
       fun hn ↦ absurd ⟨x, hx, hxt⟩ hn⟩
-  have hmb : rankV (F x) ∈ b := hbrange _ (mem_range_of_kpair_mem hmem)
-  have hlt : rank (F x) < (IsOrdinal.toOrdinal b : Ordinal V) := lt_def.mpr hmb
+  exact hbrange _ (mem_range_of_kpair_mem hmem)
+
+/-- Regularity along any index set that is a member of the stage. -/
+theorem exists_bound_of_mem_vsetV (hk : IsInaccessible k) {A : V} (hA : A ∈ vsetV k)
+    (G : V → V) (hG : ℒₛₑₜ-function₁[V] G) (hGA : ∀ x ∈ A, G x ∈ k) :
+    ∃ b ∈ k, ∀ x ∈ A, G x ∈ b := by
+  obtain ⟨a, hak, hAa⟩ := exists_cardLE_of_mem_vsetV hk hA
+  exact exists_bound_of_cardLE hk hak hAa G hG hGA
+
+/-- The rank form: the ranks of a stage-valued definable family over an index
+set in the stage are uniformly bounded below `κ`. -/
+theorem exists_rank_bound_of_mem_vsetV (hk : IsInaccessible k) {A : V} (hA : A ∈ vsetV k)
+    (F : V → V) (hF : ℒₛₑₜ-function₁ F) (hFA : ∀ x ∈ A, F x ∈ vsetV k) :
+    ∃ b ∈ k, ∀ x ∈ A, F x ⊆ vsetV b := by
+  have hko : IsOrdinal k := hk.isOrdinal
+  have hrk : ∀ x ∈ A, rankV (F x) ∈ k := by
+    intro x hx
+    have h1 : rank (F x) < (IsOrdinal.toOrdinal k : Ordinal V) :=
+      mem_Vset_iff_rank_lt.mp (mem_vsetV_iff_mem_Vset.mp (hFA x hx))
+    have h2 : (rank (F x)).val ∈ (IsOrdinal.toOrdinal k : Ordinal V).val := lt_def.mp h1
+    exact h2
+  obtain ⟨b, hbk, hbound⟩ :=
+    exists_bound_of_mem_vsetV hk hA (fun x ↦ rankV (F x)) (by definability) hrk
+  have hbo : IsOrdinal b := IsOrdinal.of_mem hbk
+  refine ⟨b, hbk, fun x hx ↦ ?_⟩
+  have hlt : rank (F x) < (IsOrdinal.toOrdinal b : Ordinal V) := lt_def.mpr (hbound x hx)
   have hsub : F x ⊆ Vset (IsOrdinal.toOrdinal b : Ordinal V) :=
     subset_trans (subset_Vset_rank (F x)) (Vset_mono (le_of_lt hlt))
   exact hsub
