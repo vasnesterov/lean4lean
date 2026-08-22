@@ -512,10 +512,18 @@ since the pattern's right-hand side is `RHS.fixed (iotaLam …)` applied to the 
 argument paths.
 
 That second reason has since become the decisive one.  The `Params` obligation for ι-rules
-is now just four fields -- `pat_simple`, `pat_uniq`, `pat_wf`, `extra_pat` (the design's
-four `pat_major_*` fields never existed, and the three `pat_app_*` ones have no consumer) --
-and of those, `pat_simple` holds by construction of `SimplePattern.iota` and `extra_pat`'s
-λ-peeled form matches this `rhs` definitionally.  So the shape chosen here is what leaves
+is six fields: `pat_simple`, `pat_uniq`, `pat_wf`, `extra_pat`, `pat_app_l_uniq` and
+`pat_app_uniq`.  The design's four `pat_major_*` fields never existed; `pat_app_l` did, had
+no consumer, and has been deleted.  **`pat_app_l_uniq` and `pat_app_uniq` do have
+consumers** (`Typing/HeadReduction.lean:158` and `:160`) -- an earlier version of this note
+claimed all three `pat_app_*` were dead, which was wrong.
+
+Of the six, `pat_simple` holds by construction of `SimplePattern.iota`, `extra_pat`'s
+λ-peeled form matches this `rhs` definitionally, and the three orthogonality fields reduce
+to arithmetic on `Pattern.varN` depths plus one global side condition — **no recursor name
+equals any constructor name**, which within a block follows from `addInduct'`'s freshness
+but across blocks must be assumed.  State that side condition explicitly wherever it is
+used; do not leave it implicit in a proof.  So the shape chosen here is what leaves
 `pat_wf` as the only field with real content. -/
 def iotaRule (j q : Nat) (C : VIndCtor) : VDefEq :=
   let Γ' := D.iotaCtx C

@@ -383,6 +383,18 @@ while `IsDefEq.bvar` assumes nothing about the context. A fourth is open:
 semantics, so an environment defining `Nat.pred := fun _ => 0` satisfies
 `HasPrimitives` and still passes the `Nat.sub` check.
 
+A fourth statement was found **under-hypothesised rather than false**, and the distinction
+is worth keeping: `VEnv.Params.pat_wf` quantified over an arbitrary `Γ` with no
+`OnCtx Γ (env.IsType univs)`, while both routes to proving it — `HasType.app_inv` and
+`IsDefEq.uniq` — require a well-formed context. It is very likely *true* (an ill-formed `Γ`
+only lets `bvar` carry junk types), but was unprovable by any route in the tree. Its only
+consumer already had `hΓ` in scope, so the hypothesis was added at zero cost.
+
+That is the same structural defect as `SExpr.IsDefEq.strong`, which *was* false for exactly
+this reason. Twice is a pattern: **a rule stated about an arbitrary `Γ` with no
+well-formedness hypothesis should be treated as suspect by default on this project** — check
+whether the `VExpr` analogue carries `Ctx.WF Γ` / `OnCtx Γ` before trying to prove it.
+
 The lesson is worth stating: on this project, when a statement resists proof, the
 first hypothesis should be that it is false. Four of the harder-looking sorries
 turned out to be.

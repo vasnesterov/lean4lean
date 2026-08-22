@@ -17,9 +17,25 @@ class Params where
   pat_simple : Pat p r → ∃ sp : SimplePattern, p = sp.toPattern
   pat_uniq : Pat p₁ r → Pat p₂ r' → Subpattern p₃ p₁ → p₂.inter p₃ = some p₄ →
     p₁ = p₂ ∧ p₂ = p₃ ∧ r ≍ r'
-  pat_wf : Pat p r → p.Matches e m1 m2 → HasType env univs Γ e A →
+  /--
+  `hΓ` is not optional.  Proving this field means applying the λ-abstracted rule
+  (`VDefEq.lhs = mkLams Δ L`) to the matched arguments, and `IsDefEq.appDF` needs each
+  argument well-typed at the *declared* domain -- so the typing of `e` has to be inverted.
+  Both available routes require a well-formed context: `HasType.app_inv`
+  (`Typing/Strong.lean`) goes through `H.strong henv hΓ`, and `IsDefEq.uniq`
+  (`Typing/UniqueTyping.lean`) takes `hΓ` directly.  Without it the field is very likely
+  still *true* -- an ill-formed `Γ` only lets `bvar` carry junk types, while the application
+  rules still pin the recursor's arguments -- but it is not provable by any route in the
+  tree.  The sole consumer (`NormalEq.parRed`'s `extra` case, below) already has `hΓ` in
+  scope and passes it to `.trans_l henv hΓ` in the same expression, so this costs nothing.
+
+  Compare `SExpr.IsDefEq.strong`, which was *false* for the same structural reason.  On this
+  development, a rule stated about an arbitrary `Γ` with no well-formedness hypothesis
+  should be treated as suspect by default.
+  -/
+  pat_wf : Pat p r → p.Matches e m1 m2 → OnCtx Γ (IsType env univs) →
+    HasType env univs Γ e A →
     r.2.OK (IsDefEqU env univs Γ) m1 m2 → IsDefEqU env univs Γ e (r.1.apply m1 m2)
-  pat_app_l : Pat p r → Subpattern (.app p₁ p₂) p → ¬Subpattern (.app p₃ p₄) p₁
   pat_app_l_uniq : Pat p r → Pat p' r' → Subpattern (.app p₁ p₂) p →
     Subpattern (.app p₁' p₂') p' → Subpattern (.var p₃) p₁ → p₁'.inter p₃ = none
   pat_app_uniq : Pat p r → Pat p' r' → Subpattern (.app p₁ p₂) p →
@@ -637,8 +653,8 @@ theorem ParRed.defeq (H : Γ ⊢ e ≫ e') (he : Γ ⊢ e : A) : Γ ⊢ e ≡ e'
       (.symm <| .appDF (.symm <| .lamDF hA (ih1 ⟨hΓ, _, hA⟩ hb)) (.symm <| ih2 hΓ ha))
       (.beta (ih1 ⟨hΓ, _, hA⟩ hb).hasType.2 (ih2 hΓ ha).hasType.2)
   | @extra p r e m1 m2 Γ m2' h1 h2 h3 _ ih =>
-    exact .trans_l henv hΓ he <| .transU_r henv hΓ (pat_wf h1 h2 he h3) <|
-     .apply_pat hΓ (fun _ _ h => ⟨_, ih _ hΓ h⟩) (.defeqU_l henv hΓ (pat_wf h1 h2 he h3) he)
+    exact .trans_l henv hΓ he <| .transU_r henv hΓ (pat_wf h1 h2 hΓ he h3) <|
+     .apply_pat hΓ (fun _ _ h => ⟨_, ih _ hΓ h⟩) (.defeqU_l henv hΓ (pat_wf h1 h2 hΓ he h3) he)
 
 variable! (hΓ : OnCtx Γ (IsType env univs)) in
 theorem ParRed.hasType (H : Γ ⊢ e ≫ e') (he : Γ ⊢ e : A) : Γ ⊢ e' : A :=

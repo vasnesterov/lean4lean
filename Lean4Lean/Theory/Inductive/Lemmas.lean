@@ -68,8 +68,12 @@ telescope algebra first.
 design describes four fields -- `pat_major_not_pi`, `pat_major_prop`, `pat_small`,
 `pat_major_canonical` -- that **do not exist** in the class as it stands.  Their absence
 retires M1, M2, M3, `VEnv.Sig`, and `IsDefEqU.const_forallE_inv`, i.e. both of the items the
-design could see no route to.  What a `Params` instance needs from here is `addInduct_WF`,
-which `addInduct'_ordered` (below) has reduced to D6 and E5.
+design could see no route to.
+
+An earlier version of this note also said the three `pat_app_*` fields have no consumer.
+That was wrong: `pat_app_l_uniq` and `pat_app_uniq` are used at
+`Typing/HeadReduction.lean:158` and `:160`.  Only `pat_app_l` was dead, and it has been
+deleted.  `pat_wf` has since gained an `OnCtx Γ` hypothesis -- see its docstring for why.
 
 **3. Plumbing habits that have each cost a round.**
 
