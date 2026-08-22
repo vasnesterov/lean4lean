@@ -33,6 +33,23 @@ Only `.def` and `.unsafeDef` contribute rules whose left-hand side is a bare con
 when `Γ'` is non-empty and otherwise an application, since `iotaLhs` always carries at least
 the major premise.  Restricting the statement to bare-`const` heads is what keeps those two
 cases to a shape computation instead of an argument about their contents.
+
+## Note: `do`-notation blocks `Option.bind_eq_some_iff` — the remedy
+
+`addConsts`, `addConstList`, `addQuot` and `addInduct'` are all written with `do` notation,
+and `simp only [Option.bind_eq_some_iff]` does **not** fire on the elaborated term; adding
+`Option.bind` to the simp set does not help either.  A turn was lost to this before the
+remedy was found, so the pair is recorded together:
+
+* for a `foldlM` (`addConsts`, `addConstList`) — `rw [VEnv.addConsts, List.foldlM_cons]` and
+  then `cases hh : env.addConst …`, as in `addConsts_fresh` below;
+* for a fixed `bind` chain (`addQuot`, `addInduct'`) — restate it as an explicit `.bind`
+  chain inside `rw [show … from rfl, Option.bind_eq_some_iff]`, as in `addQuot_stages` below
+  and in `VEnv.addInduct'_stages` (`Theory/Inductive/Lemmas.lean`).
+
+Same remedy, same cause: the surprise is *reduction behaviour*, not mathematics.  It recurs —
+`Pattern.inter` in `Theory/Typing/Pattern.lean` is written the same way and its inversion
+lemmas (`PatternDecode.lean`) need the second form verbatim.
 -/
 
 namespace Lean4Lean

@@ -229,6 +229,116 @@ theorem Pat.simple {env : VEnv} {p : Pattern} {r : p.RHS × p.Check} (h : Pat en
   | delta => exact ⟨.defn _, rfl⟩
   | iota => exact ⟨.iota .., rfl⟩
 
+/-- The number of leading Πs of a recursor's stored type: `params ++ motives ++ minors ++
+indices`, then the major premise.  What makes this usable is that `np`, `nm` and `nmin` are
+`abbrev`s for list lengths, so the count is definitional and needs no `VInductDecl'.WF`. -/
+theorem VInductDecl'.length_peelPis_recType (D : VInductDecl') (j : Nat) :
+    (VExpr.peelPis (D.recType j)).1.length
+      = D.np + D.nm + D.nmin + (D.types.getD j default).indices.length + 1 := by
+  rw [VInductDecl'.recType, VExpr.peelPis_mkPi, VExpr.peelPis_forallE]
+  simp [VExpr.mkApp_concat, VExpr.peelPis, VInductDecl'.length_atRecTele, VInductDecl'.motives,
+    VInductDecl'.minors, VInductDecl'.np, VInductDecl'.nm, VInductDecl'.nmin]
+  omega
+
+/-- **Same recursor name ⇒ same recursor arity.**  Two registered ι-patterns whose recursor
+leaves carry the same name name the *same constant*, hence the same stored type, and a
+recursor's arity is the number of leading Πs of that type. -/
+theorem Pat.rec_arity_uniq {env : VEnv} {D D' : VInductDecl'} {j j' : Nat}
+    {T T' : VIndType} (hTj : D.types[j]? = some T) (hTj' : D'.types[j']? = some T')
+    (hrec : env.constants (Lean.mkRecName T.name) = some ⟨D.recUvars, D.recType j⟩)
+    (hrec' : env.constants (Lean.mkRecName T'.name) = some ⟨D'.recUvars, D'.recType j'⟩)
+    (hname : Lean.mkRecName T'.name = Lean.mkRecName T.name) :
+    D'.np + D'.nm + D'.nmin + T'.indices.length = D.np + D.nm + D.nmin + T.indices.length := by
+  rw [hname, hrec, Option.some_inj] at hrec'
+  have h := congrArg (fun e => (VExpr.peelPis (VConstant.type e)).1.length) hrec'
+  simp only [VInductDecl'.length_peelPis_recType, D.getD_types hTj, D'.getD_types hTj'] at h
+  omega
+
+/-! ## `Params.pat_app_l_uniq` and `Params.pat_app_uniq`
+
+**Neither needs any provenance.**  Both quantify over `Subpattern (.app p₁ p₂) p`, and the
+only `.app` subpattern of a registered pattern is an ι-pattern *in full* — a δ-pattern has
+none at all, and a `varN` chain's subpatterns are chains, never applications.  So both fields
+reduce to `varN`-chain arithmetic plus one name fact each, and both name facts are already
+in the tree: `rec_ne_ctor` (a recursor name is never a constructor name, by stored-type
+shapes) and `Pat.rec_arity_uniq` (same recursor name ⇒ same arity, by the Π-count of the
+stored type).  This is worth stating because the ledger routes all of group I through I1;
+these two do not touch it. -/
+
+theorem Subpattern.not_app_varN {q1 q2 : Pattern} {c n}
+    (h : Subpattern (.app q1 q2) ((Pattern.const c).varN n)) : False := by
+  obtain ⟨k, -, hk⟩ := h.varN_const_inv
+  cases k <;> exact absurd hk nofun
+
+/-- The only `.app` subpattern of an ι-pattern is the pattern itself. -/
+theorem Pat.app_sub_iota {D : VInductDecl'} {T C} {p₁ p₂ : Pattern}
+    (h : Subpattern (.app p₁ p₂) (D.iotaPat T C)) :
+    p₁ = (Pattern.const (Lean.mkRecName T.name)).varN (D.np + D.nm + D.nmin + T.indices.length)
+      ∧ p₂ = (Pattern.const C.name).varN (D.np + C.fields.length) := by
+  rw [VInductDecl'.iotaPat_eq, SimplePattern.toPattern] at h
+  cases h with
+  | refl => exact ⟨rfl, rfl⟩
+  | appL h => exact absurd h Subpattern.not_app_varN
+  | appR h => exact absurd h Subpattern.not_app_varN
+
+/-- A δ-pattern has no `.app` subpattern, so both `Pat`s in the `pat_app_*` fields are ι. -/
+theorem Pat.app_sub_inv {env : VEnv} {p : Pattern} {r : p.RHS × p.Check} {p₁ p₂}
+    (h : Pat env p r) (hs : Subpattern (.app p₁ p₂) p) :
+    ∃ (D : VInductDecl') (j : Nat) (T : VIndType) (C : VIndCtor),
+      D.types[j]? = some T ∧
+      env.constants (Lean.mkRecName T.name) = some ⟨D.recUvars, D.recType j⟩ ∧
+      env.constants C.name = some ⟨D.uvars, C.type D j⟩ ∧
+      p₁ = (Pattern.const (Lean.mkRecName T.name)).varN
+             (D.np + D.nm + D.nmin + T.indices.length) ∧
+      p₂ = (Pattern.const C.name).varN (D.np + C.fields.length) := by
+  cases h with
+  | delta => exact absurd hs.const_inv nofun
+  | @iota D j q T C _ _ hTj hCT hdf hrec hctor =>
+    obtain ⟨rfl, rfl⟩ := Pat.app_sub_iota hs
+    exact ⟨D, j, T, C, hTj, hrec, hctor, rfl, rfl⟩
+
+/-- **`Params.pat_app_l_uniq`.**  One ι-pattern's recursor chain, cut short, cannot intersect
+another's: same recursor name forces same arity (`Pat.rec_arity_uniq`), and the cut chain is
+strictly shorter. -/
+theorem Pat.app_l_uniq {env : VEnv} {p p' p₁ p₂ p₁' p₂' p₃ : Pattern}
+    {r : p.RHS × p.Check} {r' : p'.RHS × p'.Check}
+    (h : Pat env p r) (h' : Pat env p' r') (hs : Subpattern (.app p₁ p₂) p)
+    (hs' : Subpattern (.app p₁' p₂') p') (hv : Subpattern (.var p₃) p₁) :
+    p₁'.inter p₃ = none := by
+  obtain ⟨D, j, T, C, hTj, hrec, hctor, rfl, rfl⟩ := h.app_sub_inv hs
+  obtain ⟨D', j', T', C', hTj', hrec', hctor', rfl, rfl⟩ := h'.app_sub_inv hs'
+  obtain ⟨k, hk, hkk⟩ := hv.varN_const_inv
+  cases k with
+  | zero => exact absurd hkk nofun
+  | succ k =>
+    cases (Pattern.var.injEq .. ▸ hkk : _ = _)
+    cases hn : ((Pattern.const (Lean.mkRecName T'.name)).varN
+        (D'.np + D'.nm + D'.nmin + T'.indices.length)).inter
+        ((Pattern.const (Lean.mkRecName T.name)).varN k) with
+    | none => rfl
+    | some x =>
+      obtain ⟨hR, hM, -⟩ := Pattern.inter_varN_const hn
+      have := Pat.rec_arity_uniq hTj hTj' hrec hrec' hR
+      omega
+
+/-- **`Params.pat_app_uniq`.**  One pattern's recursor leaf against another's constructor
+leaf: `rec_ne_ctor`. -/
+theorem Pat.app_uniq {env : VEnv} {p p' p₁ p₂ p₁' p₂' p₃ p₃' : Pattern}
+    {r : p.RHS × p.Check} {r' : p'.RHS × p'.Check}
+    (h : Pat env p r) (h' : Pat env p' r') (hs : Subpattern (.app p₁ p₂) p)
+    (hs' : Subpattern (.app p₁' p₂') p')
+    (h3 : Subpattern p₃ p₁) (h3' : Subpattern p₃' p₂') : p₃.inter p₃' = none := by
+  obtain ⟨D, j, T, C, hTj, hrec, hctor, rfl, rfl⟩ := h.app_sub_inv hs
+  obtain ⟨D', j', T', C', hTj', hrec', hctor', rfl, rfl⟩ := h'.app_sub_inv hs'
+  obtain ⟨k, -, rfl⟩ := h3.varN_const_inv
+  obtain ⟨k', -, rfl⟩ := h3'.varN_const_inv
+  cases hn : ((Pattern.const (Lean.mkRecName T.name)).varN k).inter
+      ((Pattern.const C'.name).varN k') with
+  | none => rfl
+  | some x =>
+    obtain ⟨hR, -, -⟩ := Pattern.inter_varN_const hn
+    exact absurd hR (rec_ne_ctor hTj hrec hctor')
+
 /-! ## `Params.pat_uniq`
 
 The case analysis is driven entirely by the two hypotheses `Subpattern p₃ p₁` and
@@ -252,33 +362,6 @@ which-leaf) cases reduces to a statement about *names*:
 The three bold entries are the ones that need what this file's header calls a `VEnv.Sig`
 (design §7.7, ledger I1) and are stated as separate obligations below.  Everything else is
 proved here. -/
-
-/-- The number of leading Πs of a recursor's stored type: `params ++ motives ++ minors ++
-indices`, then the major premise.  What makes this usable is that `np`, `nm` and `nmin` are
-`abbrev`s for list lengths, so the count is definitional and needs no `VInductDecl'.WF`. -/
-theorem VInductDecl'.length_peelPis_recType (D : VInductDecl') (j : Nat) :
-    (VExpr.peelPis (D.recType j)).1.length
-      = D.np + D.nm + D.nmin + (D.types.getD j default).indices.length + 1 := by
-  rw [VInductDecl'.recType, VExpr.peelPis_mkPi, VExpr.peelPis_forallE]
-  simp [VExpr.mkApp_concat, VExpr.peelPis, VInductDecl'.length_atRecTele, VInductDecl'.motives,
-    VInductDecl'.minors, VInductDecl'.np, VInductDecl'.nm, VInductDecl'.nmin]
-  omega
-
-/-- **Same recursor name ⇒ same recursor arity.**  Two registered ι-patterns whose recursor
-leaves carry the same name name the *same constant*, hence the same stored type, and a
-recursor's arity is the number of leading Πs of that type.  This is what rules out one
-ι-pattern's recursor chain being a strict prefix of another's — the case where `p₃` sits
-below `p₁`'s recursor leaf but `p₂` is shorter. -/
-theorem Pat.rec_arity_uniq {env : VEnv} {D D' : VInductDecl'} {j j' : Nat}
-    {T T' : VIndType} (hTj : D.types[j]? = some T) (hTj' : D'.types[j']? = some T')
-    (hrec : env.constants (Lean.mkRecName T.name) = some ⟨D.recUvars, D.recType j⟩)
-    (hrec' : env.constants (Lean.mkRecName T'.name) = some ⟨D'.recUvars, D'.recType j'⟩)
-    (hname : Lean.mkRecName T'.name = Lean.mkRecName T.name) :
-    D'.np + D'.nm + D'.nmin + T'.indices.length = D.np + D.nm + D.nmin + T.indices.length := by
-  rw [hname, hrec, Option.some_inj] at hrec'
-  have h := congrArg (fun e => (VExpr.peelPis (VConstant.type e)).1.length) hrec'
-  simp only [VInductDecl'.length_peelPis_recType, D.getD_types hTj, D'.getD_types hTj'] at h
-  omega
 
 /-- **`pat_uniq` at a δ-pattern.**  A δ-rule's value is determined by its head constant
 (`VEnv.WF.delta_uniq`), and everything else in the datum is derived from the head, so the
