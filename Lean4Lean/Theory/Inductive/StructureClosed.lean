@@ -634,4 +634,23 @@ theorem VInductDecl'.iotaLamBody_instAll (D : VInductDecl') (C : VIndCtor)
     VExpr.map_instAll_bvars_bot hfs]
   simp
 
+namespace VExpr
+
+/-- A term weakened past `n` binders, then saturated by a spine whose last `n` arguments
+fill them, is unchanged.  Generalises `instAll_liftN_snoc` from one binder to `n`. -/
+theorem instAll_liftN_append {X : VExpr} {as bs : List VExpr} {k n : Nat} (h : bs.length = n) :
+    instAll (liftN n X k) (as ++ bs) k = instAll X as k := by
+  rw [instAll_append, h, liftN_instAll, ← h, instAll_liftN]
+
+/-- The telescope version.  This is what collapses the recursor's index telescope, which
+`recType` states over `params ++ motives ++ minors`. -/
+theorem instAllTele_liftTele_append : ∀ {As as bs : List VExpr} {k n : Nat}, bs.length = n →
+    instAllTele (liftTele n As k) (as ++ bs) k = instAllTele As as k
+  | [], _, _, _, _, _ => rfl
+  | A :: As, as, bs, k, n, h => by
+    rw [liftTele_cons, instAllTele_cons, instAllTele_cons, instAll_liftN_append h,
+      instAllTele_liftTele_append (As := As) (as := as) (bs := bs) (k := k+1) h]
+
+end VExpr
+
 end Lean4Lean

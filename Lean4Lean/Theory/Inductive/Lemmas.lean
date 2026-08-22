@@ -88,6 +88,23 @@ This has now been the source of the surprise three times, always in the indexing
 in the mathematics.  Cost when unprepared: two failed attempts and ~30 lines.  Cost with the
 rule in hand: zero.
 
+**0c. An intermediate you prove inline is invisible to consumers, even when it is exactly
+what they need.**  When a proof's structure has a *named* intermediate — a `refine … ?_`
+whose goal is a meaningful statement in its own right — export it.  It costs nothing, and the
+alternative is a consumer rebuilding forty to sixty lines that already exist inside your
+proof.
+
+`iotaLamBody_hasType` is the worked example: it was a `?_` inside `iotaLam_hasType`, and a
+consumer needed it because `IsDefEq.beta` takes the *body* typing as primitive — every
+β-reduction of a `mkLams` needs the body typed under its telescope, which the `mkLams`-level
+statement does not give.  The tempting alternative, weakening the β lemma to consume
+`HasType Γ (mkLams As b) (mkPi As B)`, walks into `forallE_inv` via `HasType.lam_inv`'s
+existential codomain.
+
+This is a sharper rule than "state your interfaces", because the intermediate was never
+*stated* as anything.  Grep your own proofs for `refine … ?_` and `suffices`: each one is a
+statement you have already proved and not published.
+
 **1. Check `Theory/Inductive/Telescope.lean` before estimating.**  Twice in this
 development a step was priced by its *shape* and turned out to be two applications of a
 lemma that was already there with exactly the right side conditions.  `ih_telescope_eq`
@@ -3090,6 +3107,12 @@ theorem recApp_hasType (hI : D.IotaCtx env) {u lo M : Nat} {T' : VIndType}
   rwa [VInductDecl'.recCod_instAll (nf := lo) (M := M) hlen (by omega) (by omega),
     ← VExpr.mkApp_append] at hfinal
 
+theorem iotaCtx_reverse' (D : VInductDecl') (C : VIndCtor) :
+    (D.iotaCtx C).reverse
+      = (liftTele (D.nm + D.nmin) (D.atRecTele (C.fields.map (·.type))) 0).reverse
+        ++ (D.minors.reverse ++ D.motives.reverse ++ (D.atRecTele D.params).reverse) := by
+  simp [VInductDecl'.iotaCtx]
+
 theorem iotaCtx_reverse (D : VInductDecl') (C : VIndCtor) :
     (D.iotaCtx C).reverse ++ ([] : List VExpr)
       = (liftTele (D.nm + D.nmin) (D.atRecTele (C.fields.map (·.type))) 0).reverse
@@ -3172,18 +3195,20 @@ theorem ihValue_hasType (hI : D.IotaCtx env) {j i : Nat} {T : VIndType} {C : VIn
   rw [getD_types hT']
   exact VEnv.HasType.mkLams (by simpa using hξ) hbody
 
-/-- **E5's right-hand side, before η-expansion.**  `iotaLam` is the minor premise applied to
-the field variables and the induction-hypothesis values, abstracted over the ι-rule's whole
-binder context.
+/-- **E5's right-hand side, before η-expansion — the body.**  `iotaLam` is the minor premise
+applied to the field variables and the induction-hypothesis values.
 
-The field block instantiates by `HasArgs.bvars`; the ih block by `HasArgs.of_lifts`, whose
-per-entry obligation is `ihType_shift` (the minor's `s`-th ih binder, moved to the ι-rule's
-offsets, is a lift by `s` of an `s`-independent type) together with `ihValue_hasType`.  The
-codomain is `minorBody_instAll`. -/
-theorem iotaLam_hasType (hI : D.IotaCtx env) {j q : Nat} {T : VIndType} {C : VIndCtor}
-    (hT : D.types[j]? = some T) (_hj : j < D.nm) (hC : C ∈ T.ctors)
+Exported rather than left as a `refine … ?_` inside `iotaLam_hasType` because `IsDefEq.beta`
+takes the *body* typing as primitive: every β-reduction of a `mkLams` needs the body typed
+under its telescope, so a consumer reducing `(iotaLam …).mkApp spine` needs exactly this and
+cannot get it from `iotaLam_hasType`.  See note 0c. -/
+theorem iotaLamBody_hasType (hI : D.IotaCtx env) {j q : Nat} {T : VIndType} {C : VIndCtor}
+    (hT : D.types[j]? = some T) (hC : C ∈ T.ctors)
     (hqC : D.ctorsAll[q]? = some (j, C)) :
-    env.HasType D.recUvars [] (D.iotaLam q C) (mkPi (D.iotaCtx C) (D.iotaType j C)) := by
+    env.HasType D.recUvars (D.iotaCtx C).reverse
+      ((VExpr.bvar (C.fields.length + (D.nmin - 1 - q))).mkApp
+        (bvars 0 C.fields.length ++ D.ihValues C))
+      (D.iotaType j C) := by
   have hR := hI.toRecCtx
   have henv := hR.ordered
   have hq : q < D.nmin := by
@@ -3191,8 +3216,7 @@ theorem iotaLam_hasType (hI : D.IotaCtx env) {j q : Nat} {T : VIndType} {C : VIn
     · exact h
     · rw [List.getElem?_eq_none h] at hqC; exact absurd hqC (by simp)
   have hΓι := VInductDecl'.onCtxIota hR hT hC
-  refine VEnv.HasType.mkLams (Γ := []) (by rw [D.iotaCtx_reverse C]; exact hΓι) ?_
-  rw [D.iotaCtx_reverse C]
+  rw [D.iotaCtx_reverse' C]
   -- the minor premise variable, and its type split after the field block
   have hminors : D.minors[q]? = some (D.minorType q j C) := by
     rw [VInductDecl'.minors_getElem?, hqC]; rfl
@@ -3262,6 +3286,16 @@ theorem iotaLam_hasType (hI : D.IotaCtx env) {j q : Nat} {T : VIndType} {C : VIn
   have hfinal := VEnv.HasType.mkApp' (VEnv.HasArgs.append hfields hihs) hm
   rw [Nat.zero_add] at hfinal
   rwa [D.minorBody_instAll C hq] at hfinal
+
+/-- **E5's right-hand side, before η-expansion.**  `HasType.mkLams` over
+`iotaLamBody_hasType`. -/
+theorem iotaLam_hasType (hI : D.IotaCtx env) {j q : Nat} {T : VIndType} {C : VIndCtor}
+    (hT : D.types[j]? = some T) (_hj : j < D.nm) (hC : C ∈ T.ctors)
+    (hqC : D.ctorsAll[q]? = some (j, C)) :
+    env.HasType D.recUvars [] (D.iotaLam q C) (mkPi (D.iotaCtx C) (D.iotaType j C)) :=
+  VEnv.HasType.mkLams (Γ := [])
+    (by rw [D.iotaCtx_reverse C]; exact VInductDecl'.onCtxIota hI.toRecCtx hT hC)
+    (by rw [List.append_nil]; exact iotaLamBody_hasType hI hT hC hqC)
 
 /-- **E5's left-hand side**: `recApp_hasType` at the ι-rule's own depth, with the index
 arguments coming from `VIndCtor.WF.args_ty` and the major premise from
