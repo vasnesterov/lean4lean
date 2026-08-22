@@ -1356,15 +1356,25 @@ theorem NormalEq.appDF_proofIrrel {Γ : List VExpr} {f a b A B P e₂' : VExpr}
 
 /-! ## Handoff: what is left of `parRed`'s `extra` case
 
-**State.**  The `appDF` × `extra` case is `NormalEq.appDF_extra_of_descend` below, which is
-sorry-free.  The one open obligation is its `descent` hypothesis, stated there verbatim.
-`sortDF`/`constDF`/`lamDF`/`forallEDF`/`etaR`/`proofIrrel` × `extra` were already closed
-(`cases r2` refutes them); `appDF` was the only live one.
+**State.**  `NormalEq.parRed` is closed: every case, `appDF` × `extra` included, is a proof
+term.  What is left sits in the three lemmas it rests on --- `NormalEq.descend`,
+`NormalEq.descend_beta` and `NormalEq.appDF_extra_of_descend` --- as eleven `sorry`s, all in
+escape branches.  **The "Open cases, and what each needs" list in the `DescentOut` section
+below is the authoritative inventory**; it groups them into four items and says what each needs.  In
+short: the measure for iterated eta (item 1), `hsu` for proof propagation (item 2), the two
+missing `Params` axioms for argument positions (item 3), and one more descent for E4 at the
+top node (item 4).
 
-**Why `descent` has the shape it has — do not "simplify" it.**  The obvious statement,
-"`g` matches the same pattern at the same `m1`", is **unsatisfiable**, and a version of this
-lemma asking for it was landed and then withdrawn.  `NormalEq.constDF` relates `.const c ls`
-to `.const c ls'` with only `ls ≈ ls'`, while `Matches` pins the level list exactly:
+Proved here: the whole non-escape spine (E2), and the single-layer E4 dance
+(`descend_beta`) --- the case where the function side of an application has eta-expanded, so
+the node is a β-redex.
+
+**Why the descent has the shape it has — do not "simplify" it.**  Two constraints are not
+negotiable.
+
+*Fresh level lists.*  "`g` matches the same pattern at the same `m1`" is **unsatisfiable**:
+`NormalEq.constDF` relates `.const c ls` to `.const c ls'` with only `ls ≈ ls'`, while
+`Matches` pins the level list exactly:
 
     example (h : Pattern.Matches (.const c) (.const c ls') (fun _ => ls) nofun) : ls = ls' :=
       by cases h; rfl        -- machine-checked
@@ -1373,37 +1383,14 @@ So as soon as the spine's head is related by `constDF` at genuinely different (b
 levels, no descent can return the original `m1`.  Hence the fresh `n1'` with
 `Forall₂ (· ≈ ·) (n1' lp) (n1 lp)`.  The resulting drift is absorbed *inside*
 `appDF_extra_of_descend` — `Pattern.Check.OK.map_levels` on the way in,
-`NormalEq.apply_instL` on the way out — so a prover of `descent` need not think about it.
+`NormalEq.apply_instL` on the way out — so a prover of the descent need not think about it.
 The two `VLevel.WF` outputs are in the interface because `apply_instL` needs both lists
-well-formed and `constDF` carries both facts already; supplying them there is free and saves
-the caller a "matched levels of a typed term are WF" lemma that nobody has written.
+well-formed and `constDF` carries both facts already; supplying them there is free (and
+`Pattern.Matches.levelWF` below is what pays for it in the `refl` case).
 
-**What remains, in order.**
-
-1. *The non-escape spine* (scoping item E2).  Induct on the `Matches` derivation and case on
-   the `NormalEq`.  At `.const`: `refl` and `constDF` (this is where `n1' ≠ n1`).  At `.var`
-   and `.app`: `refl` and `appDF`, recursing on the function side and — for `.app` — on the
-   argument side too.  `sortDF`/`lamDF`/`forallEDF`/`etaR` are refuted by the shape of the
-   right-hand term, which `Matches` pins to a `.const`/`.app`.
-
-2. *The `etaL` escape* (E4).  `NormalEq.etaL` makes the left term a `.lam` at a spine node,
-   so the enclosing application is a β-redex and the left term **reduces**; the conclusion
-   has to allow `Γ ⊢ g ≫* g''` before matching.  The eta-tower is bounded, and
-   `ParRedExt.parRed_beta` above is the worked precedent for exactly this shape: induction on
-   the *term* via `VExpr.brecOn` with `ParRedExt` tracking the layers and an
-   `l.depth ≤ Γ.length` bound.
-
-3. *The `proofIrrel` escape*.  Already discharged at the top node by
-   `NormalEq.appDF_proofIrrel` above; deeper nodes propagate it upward by the same argument.
-   It needs sort-uniqueness (`hsu` there), which should become a `Params` field — see that
-   lemma's docstring for why it was not added unilaterally and what discharges it.
-
-4. *The argument-side conditions* (E5).  At an argument position the left term is **not**
-   applied, so an `etaL` there yields no redex and the descent is genuinely stuck.  This is
-   what the two conditions in `PLAN.md` are for — the major premise's type is not a Π, and
-   small elimination — and `Theory/Typing/PatternRules.lean`'s `RuleShape` is the vehicle
-   that discharges them per rule shape (δ has no major premise; quot's is a `Quot.mk`
-   application typed `Quot α r`; ι's is a constructor application of an inductive type).
+*Reduction and escapes.*  A version of the descent without them was landed and withdrawn: it
+is refuted by `etaL` and by `proofIrrel`, which say nothing about the left term.  See the
+`DescentOut` section.
 
 **A namespace trap, recorded because it is silent.**  `parRed_of_matches` was first declared
 as `Pattern.Matches.parRed_leaves` inside `namespace VEnv`.  That creates `VEnv.Pattern`,
@@ -1476,10 +1463,312 @@ theorem _root_.Lean4Lean.Pattern.Check.OK.congr_defeq {p : Pattern} (ck : p.Chec
   have hb := IsDefEqU.apply_pat hΓ hd hT.hasType.2
   exact (ha.symm.trans henv hΓ ⟨_, hT⟩).trans henv hΓ hb
 
-/-- **`parRed`'s `appDF` × `extra` case, given the descent.**  Sorry-free.
+/-! ## The descent (scoping items E2, E4)
 
-Note what `descent` may *not* assume: that the left term matches at the **same** level lists.
-`NormalEq.constDF` relates `.const c ls` to `.const c ls'` with only `ls ≈ ls'`, while
+`NormalEq.descend` walks a `NormalEq` down a pattern spine: given `Γ ⊢ g ≡ₚ g'` and a match
+of `g'`, it reduces `g` to a term matching the same pattern, with `≈`-related level lists and
+`NormalEq`-related arguments.  That is what lets `parRed`'s `appDF` × `extra` case fire the
+rule on the *left*.
+
+**The interface this replaced was false.**  A first version asked for `q.Matches g n1' n`
+with no reduction and no escapes.  That statement is refuted by `NormalEq.etaL`, which
+relates a `.lam` to anything of Π type -- and no `.lam` matches any pattern; the same goes
+for `NormalEq.proofIrrel`, whose left term is an arbitrary proof.  Concretely, with
+`c` a constant of Π type, `Γ ⊢ .lam A e ≡ₚ .const c ls` and `(.const c).Matches (.const c ls)`
+are both derivable and no witness exists.  Those two cases are therefore not "open goals" but
+counterexamples, and they are what `DescentOut`'s extra disjuncts exist to carry. -/
+
+omit [Params] in
+theorem _root_.Lean4Lean.VLevel.forall₂_equiv_refl :
+    ∀ ls : List VLevel, List.Forall₂ (· ≈ ·) ls ls
+  | [] => .nil
+  | _ :: ls => .cons (VLevel.equiv_def'.2 rfl) (VLevel.forall₂_equiv_refl ls)
+
+variable! (hΓ : OnCtx Γ (IsType env univs)) in
+/-- The level lists a pattern reads off a **well-typed** term are well-formed.  This is the
+"matched levels of a typed term are WF" lemma `descent`'s interface would otherwise force on
+its caller; the levels come out of `HasType.const_inv` at the `const` leaves. -/
+theorem _root_.Lean4Lean.Pattern.Matches.levelWF {p : Pattern} {e : VExpr} {m1 m2}
+    (H : p.Matches e m1 m2) (H2 : Γ ⊢ e : V) : ∀ lp, ∀ l ∈ m1 lp, VLevel.WF univs l := by
+  induction H generalizing V with
+  | const =>
+    have ⟨_, _, hls, _⟩ := H2.const_inv henv hΓ
+    exact fun _ => hls
+  | var _ ih =>
+    have ⟨_, _, hf, _⟩ := H2.app_inv henv hΓ
+    exact ih hf
+  | app _ _ ih1 ih2 =>
+    have ⟨_, _, hf, ha⟩ := H2.app_inv henv hΓ
+    rintro (x|x)
+    · exact ih1 hf x
+    · exact ih2 ha x
+
+variable! (hΓ : OnCtx Γ (IsType env univs)) in
+/-- The `refl` case of `descent`, at every node of the spine at once: nothing moves, the
+level lists are unchanged and each matched argument is `NormalEq` to itself. -/
+theorem NormalEq.descent_refl {q : Pattern} {e A : VExpr}
+    {n1 : q.LPath → List VLevel} {n2 : q.Path → VExpr}
+    (hm : q.Matches e n1 n2) (he : Γ ⊢ e : A) :
+    ∃ n1' n, q.Matches e n1' n ∧
+      (∀ lp, List.Forall₂ (· ≈ ·) (n1' lp) (n1 lp)) ∧
+      (∀ lp, ∀ l ∈ n1' lp, VLevel.WF univs l) ∧
+      (∀ lp, ∀ l ∈ n1 lp, VLevel.WF univs l) ∧
+      (∀ x, Γ ⊢ n x ≡ₚ n2 x) :=
+  ⟨n1, n2, hm, fun _ => VLevel.forall₂_equiv_refl _, hm.levelWF hΓ he, hm.levelWF hΓ he,
+    fun x => have ⟨_, h⟩ := hm.hasType hΓ he x; .refl h⟩
+
+/-! ### `DescentOut`: the descent with its escapes in the conclusion
+
+The two escape constructors (`etaL`, `proofIrrel`) constrain nothing about the left term, so
+nothing can be concluded about it *at that node*.  Both are therefore returned to the node
+**above**, where the term sits in an application and something can be done: a `.lam` there
+heads a β-redex (E4), and a proof there is `NormalEq.appDF_proofIrrel`.  Reduction is then
+unavoidable, which is why the first disjunct carries a `≫*` -- and so does the `.lam` escape,
+since the body may eta-expand again.
+
+**Open cases, and what each needs.**  Eleven `sorry`s remain across `descend_beta`,
+`descend` and `appDF_extra_of_descend`.  None of their goals is known false; they fall into
+four groups.
+
+1. *The measure* (`descend_beta`'s body-`.lam` escape and `descend`'s two `hredl = .tail`
+   cases -- three of the eleven).  When the eta-expansion is **iterated**
+   -- the lam's body is itself a `.lam` related by `etaL` -- the node reduces to a `.lam` and
+   must pass a `.lam` escape upward.  Its body is `e''.inst a₁ 1`, an *instantiated* term, so
+   the `sizeOf` measure that drives `descend` is lost and the caller cannot recurse into it.
+   (`descend_beta` handles *one* layer, which is why the single-eta case goes through; the
+   `.tail` cases exist only because `DescentEscape` allows a reduction, and only these
+   sorried branches ever produce one.)
+
+   Three fixes were considered and two survive.
+
+   * **Rejected: carry `sizeOf e < sizeOf g` in the escape.**  Then the base case is free and
+     the iterated case is unprovable -- which would make `DescentOut` itself *false* rather
+     than merely unproved.  A sorried branch is recoverable; a false definition downstream
+     lemmas quantify over is not.  Likewise, dropping the `≫*` from the `.lam` escape (so
+     that `g = .lam A e` syntactically, and the body is a subterm) makes the iterated case's
+     goal false.  The current shape is the weakest one that stays true.
+   * **Height-indexed `NormalEq`.**  `NormalEq.instN` is defined by mapping each constructor
+     to itself, so it preserves the *shape* of the derivation -- a height index would survive
+     the instantiation that `sizeOf` does not, and the eta descent goes to a strict
+     subderivation (`etaL`'s premise) just as the spine descent does (`appDF`'s).  Cost: an
+     index on `NormalEq` (or a height-indexed copy) and re-running the inductions.
+   * **k-ary pending arguments.**  Follow `ParRedExt.parRed_beta`'s discipline -- never
+     instantiate *during* the recursion -- by stating the `.lam` escape as "given `k` further
+     arguments, the term reduces to a match of `q.varN k`" (`Pattern.varN` exists already).
+     A node that receives such an escape then *applies* it to its own argument and
+     instantiates only the answer, so nothing is ever re-descended after a substitution.  The
+     one-argument version of this does not typecheck: its payload would have to be
+     `DescentOut` at the enlarged pattern `.var q`, i.e. a definition recursive in a *growing*
+     argument.  Carrying the arity explicitly is what breaks that cycle.
+
+   Either way, keep the *data* form (`g ≫* .lam A e` together with the body's `NormalEq`) in
+   the escape as well: item 4 below consumes it through `NormalEq.etaL`, at a node that has
+   no further argument to feed a functional form.
+2. *E3, proof propagation* (`descend`'s two function-is-a-proof cases).  If the function child is a
+   proof then so is the application -- that is `NormalEq.appDF_proofIrrel`'s argument, and it
+   needs its `hsu` (sort uniqueness for a term with two sort typings, `Experimental/Reflect/
+   Capstone.lean`'s `sort_uniq_of_hasType`).  `hsu` should become a `Params` field; see that
+   lemma's docstring.  At the *top* node this is already discharged -- there the two sides
+   are known to inhabit the same `P`, so `Params.pat_wf` finishes it without `hsu`.
+3. *E5, the argument side* (five: `descend`'s two argument-escape cases and its function-lam
+   × argument-escape case, and `descend_beta`'s two argument-of-the-eta cases).  An argument position must *match* a pattern, and a `.lam` or
+   a proof there never will: this is where `PLAN.md`'s two missing `Params` axioms bite (the
+   major premise's type is not a Π; small elimination, guarded by the `Eq` correction).
+   `Theory/Typing/PatternRules.lean`'s `RuleShape` is the vehicle.
+4. *E4 at the top node* (`appDF_extra_of_descend`).  `f.app a` reduces to a `.lam`, so the
+   rule never fires on the left and the two sides are related by `etaL`.  What is missing is
+   one more descent, on the lam's body at the pattern `.var (q₁.app q₂)` -- literally
+   `descend_beta`'s dance one level up -- plus the observation that the rule fires under the
+   `lift`.  Independent of 1-3. -/
+
+/-- The two escapes: the left term is (reduces to) a `.lam`, or it is a proof.  Neither says
+anything that lets it match a pattern, so both are passed up to the enclosing application. -/
+def DescentEscape (Γ : List VExpr) (g g' : VExpr) : Prop :=
+  (∃ A e B, ParRedS Γ g (.lam A e) ∧ HasType env univs Γ g' (.forallE A B) ∧
+      NormalEq (A::Γ) e (.app g'.lift (.bvar 0))) ∨
+  (∃ P, HasType env univs Γ P (.sort .zero) ∧
+      HasType env univs Γ g P ∧ HasType env univs Γ g' P)
+
+/-- The three outcomes of descending a `NormalEq` into a matched term at one spine node. -/
+def DescentOut (Γ : List VExpr) (q : Pattern) (g g' : VExpr)
+    (n1 : q.LPath → List VLevel) (n2 : q.Path → VExpr) : Prop :=
+  (∃ t n1' n, ParRedS Γ g t ∧ q.Matches t n1' n ∧
+      (∀ lp, List.Forall₂ (· ≈ ·) (n1' lp) (n1 lp)) ∧
+      (∀ lp, ∀ l ∈ n1' lp, VLevel.WF univs l) ∧
+      (∀ lp, ∀ l ∈ n1 lp, VLevel.WF univs l) ∧
+      (∀ x, NormalEq Γ (n x) (n2 x))) ∨
+  DescentEscape Γ g g'
+
+/-- **The E4 dance.**  The function side of an application has eta-expanded -- the `NormalEq`
+into it was `etaL`, so it is a `.lam` and the application is a β-redex.
+
+Rather than β-reducing and descending again (the reduct is no smaller, so nothing would
+terminate), the descent goes *under the binder*: the eta-expanded right-hand side
+`f₂.lift.app (.bvar 0)` is matched by the pattern `.var q₁`, and the lam's body is a strict
+subterm, so `IH` applies to it.  The single instantiation happens afterwards, on the answer:
+`ParRedS.inst` for the reduction, `Pattern.matches_instN` for the match, `NormalEq.instN` for
+the arguments.  The body's own argument at the new `.var` node is `NormalEq` to `.bvar 0`, so
+in the good case it *is* `.bvar 0` and instantiating puts the original argument back
+untouched -- which is what lets both the `.var` and the `.app` node finish. -/
+theorem NormalEq.descend_beta {N : Nat}
+    (IH : ∀ m, m < N → ∀ {g : VExpr}, sizeOf g ≤ m →
+      ∀ {Γ : List VExpr} {q : Pattern} {g' : VExpr}
+        {n1 : q.LPath → List VLevel} {n2 : q.Path → VExpr},
+        OnCtx Γ (IsType env univs) → NormalEq Γ g g' → q.Matches g' n1 n2 →
+        DescentOut Γ q g g' n1 n2)
+    {Γ : List VExpr} {q₁ : Pattern} {A e f₂ a₁ a₂ A₀ B₀ B : VExpr}
+    {m1 : q₁.LPath → List VLevel} {g1 : q₁.Path → VExpr}
+    (hΓ : OnCtx Γ (IsType env univs)) (hsze : sizeOf e < N)
+    (l2 : Γ ⊢ f₂ : .forallE A₀ B₀) (l3 : Γ ⊢ a₁ : A₀) (l6 : Γ ⊢ a₁ ≡ₚ a₂)
+    (hf : q₁.Matches f₂ m1 g1) (hty : Γ ⊢ f₂ : .forallE A B)
+    (hbody : A::Γ ⊢ e ≡ₚ .app f₂.lift (.bvar 0)) :
+    (∃ s u1 ug, ParRedS Γ (.app (.lam A e) a₁) (.app s a₁) ∧ q₁.Matches s u1 ug ∧
+        (∀ lp, List.Forall₂ (· ≈ ·) (u1 lp) (m1 lp)) ∧
+        (∀ lp, ∀ l ∈ u1 lp, VLevel.WF univs l) ∧
+        (∀ lp, ∀ l ∈ m1 lp, VLevel.WF univs l) ∧
+        (∀ x, Γ ⊢ ug x ≡ₚ g1 x)) ∨
+      DescentEscape Γ (.app (.lam A e) a₁) (.app f₂ a₂) := by
+  have ⟨⟨_, hA⟩, _, hB⟩ := have ⟨_, h⟩ := hty.isType henv hΓ; h.forallE_inv henv
+  have hΓA : OnCtx (A::Γ) (IsType env univs) := ⟨hΓ, _, hA⟩
+  have ⟨⟨_, u1⟩, _, u2⟩ := (hty.uniqU henv hΓ l2).forallE_inv henv hΓ
+  have haA : Γ ⊢ a₁ : A := u1.symm.defeq l3
+  have hmlift : q₁.Matches f₂.lift m1 (fun x => (g1 x).lift) :=
+    Pattern.matches_liftN.2 ⟨g1, hf, fun _ => rfl⟩
+  match IH _ hsze (Nat.le_refl _) hΓA hbody (.var hmlift) with
+  | .inl ⟨t, u1', u2', hred, hmt, hlv, hwa, hwb, hn⟩ =>
+    cases hmt with
+    | @var _ tf _ tg ta hmtf =>
+      rename_i hmtf
+      cases (hn none : (A::Γ) ⊢ ta ≡ₚ .bvar 0) with
+      | refl _ =>
+        refine .inl ⟨tf.inst a₁, u1', fun x => (tg x).inst a₁, ?_,
+          Pattern.matches_instN hmtf, hlv, hwa, hwb, ?_⟩
+        · have := ParRedS.inst hΓ haA hred (a' := a₁) .rfl
+          simp [VExpr.inst] at this
+          exact .trans (.tail .rfl (.beta .rfl .rfl)) this
+        · intro x
+          have := NormalEq.instN haA .zero (hn (some x))
+          simpa [VExpr.inst_lift] using this
+      | etaL h1 h2 =>
+        -- **E5**: the argument position of the eta-expansion is itself a `.lam`.
+        sorry
+      | proofIrrel h1 h2 h3 =>
+        -- **E5/E3**: the argument position of the eta-expansion is a proof.
+        sorry
+  | .inr (.inl _) =>
+    -- The body is a `.lam` too: a *second* eta layer.  This is item 1 of the inventory --
+    -- the node reduces to a `.lam` whose body is instantiated, and the measure is lost.
+    sorry
+  | .inr (.inr ⟨P, hP, hp1, hp2⟩) =>
+    -- The body is a proof, so the β-redex is a proof of `P.inst a₁`, and so is `f₂.app a₂`.
+    refine .inr (.inr ⟨P.inst a₁, hP.instN henv .zero haA, (hA.lam hp1).app haA, ?_⟩)
+    have h1 : Γ ⊢ .app f₂ a₁ : P.inst a₁ := by
+      have := hp2.instN henv .zero haA
+      simpa [VExpr.inst, VExpr.inst_lift] using this
+    have hd : Γ ⊢ a₁ ≡ a₂ : A₀ := (l6.defeq hΓ).of_l henv hΓ l3
+    exact HasType.defeqU_r henv hΓ (h1.uniqU henv hΓ (l2.app l3)).symm
+      (IsDefEq.appDF l2 hd).hasType.2
+
+/-- **The descent**, with its escapes in the conclusion.  Induction is on the *left* term
+(`ParRedExt.parRed_beta` is the precedent): the `appDF` case recurses on the two children,
+and the E4 dance -- where the function child has eta-expanded, so the node is a β-redex --
+recurses on the lam's *body*, which is still a strict subterm of the node. -/
+theorem NormalEq.descend : ∀ (N : Nat) {g : VExpr}, sizeOf g ≤ N →
+    ∀ {Γ : List VExpr} {q : Pattern} {g' : VExpr}
+      {n1 : q.LPath → List VLevel} {n2 : q.Path → VExpr},
+      OnCtx Γ (IsType env univs) → Γ ⊢ g ≡ₚ g' → q.Matches g' n1 n2 →
+      DescentOut Γ q g g' n1 n2 := by
+  intro N
+  induction N using Nat.strongRecOn with | _ N IH => ?_
+  intro g hsz Γ q g' n1 n2 hΓ hne hm
+  cases hne with
+  | refl h =>
+    obtain ⟨u1, u2, hmt, hlv, hwa, hwb, hn⟩ := descent_refl hΓ hm h
+    exact .inl ⟨_, u1, u2, .rfl, hmt, hlv, hwa, hwb, hn⟩
+  | sortDF _ _ _ => cases hm
+  | lamDF _ _ _ => cases hm
+  | forallEDF _ _ _ _ => cases hm
+  | etaR _ _ => cases hm
+  | etaL h1 h2 => exact .inr (.inl ⟨_, _, _, .rfl, h1, h2⟩)
+  | proofIrrel h1 h2 h3 => exact .inr (.inr ⟨_, h1, h2, h3⟩)
+  | constDF h1 h2 h3 h4 h5 =>
+    cases hm
+    exact .inl ⟨_, _, _, .rfl, .const, fun _ => h5, fun _ => h2, fun _ => h3, nofun⟩
+  | @appDF _ f₁ A₀ B₀ f₂ a₁ a₂ l1 l2 l3 l4 l5 l6 =>
+    have hszf : sizeOf f₁ < N := by simp at hsz; omega
+    have hsza : sizeOf a₁ < N := by simp at hsz; omega
+    cases hm with
+    | @var q₁ _ m1 g1 hf =>
+      rename_i hf
+      match IH _ hszf (Nat.le_refl _) hΓ l5 hf with
+      | .inl ⟨t, u1, u2, hred, hmt, hlv, hwa, hwb, hn⟩ =>
+        refine .inl ⟨.app t a₁, u1, (·.elim a₁ u2), .app hred .rfl, .var hmt, hlv, hwa, hwb, ?_⟩
+        rintro (_|x)
+        · exact l6
+        · exact hn x
+      | .inr (.inl ⟨A, e, B, hredl, hty, hbody⟩) =>
+        cases hredl with
+        | tail _ _ => sorry
+        | rfl =>
+          match descend_beta IH hΓ (by simp at hszf; omega) l2 l3 l6 hf hty hbody with
+          | .inl ⟨t, u1, u2, hred, hmt, hlv, hwa, hwb, hn⟩ =>
+            refine .inl ⟨_, u1, (·.elim a₁ u2), hred, .var hmt, hlv, hwa, hwb, ?_⟩
+            rintro (_|x)
+            · exact l6
+            · exact hn x
+          | .inr esc => exact .inr esc
+      | .inr (.inr ⟨P, hP, hp1, hp2⟩) => sorry
+    | @app q₁ _ m1 g1 q₂ _ m2 g2 hf ha =>
+      rename_i ha
+      match IH _ hszf (Nat.le_refl _) hΓ l5 hf, IH _ hsza (Nat.le_refl _) hΓ l6 ha with
+      | .inl ⟨t, u1, u2, hred, hmt, hlv, hwa, hwb, hn⟩,
+        .inl ⟨s, v1, v2, hred2, hms, hlv2, hwa2, hwb2, hn2⟩ =>
+        refine .inl ⟨.app t s, Sum.elim u1 v1, Sum.elim u2 v2, .app hred hred2, .app hmt hms,
+          ?_, ?_, ?_, ?_⟩ <;> rintro (x|x)
+        · exact hlv x
+        · exact hlv2 x
+        · exact hwa x
+        · exact hwa2 x
+        · exact hwb x
+        · exact hwb2 x
+        · exact hn x
+        · exact hn2 x
+      | .inl _, .inr (.inl _) => sorry
+      | .inl _, .inr (.inr _) => sorry
+      | .inr (.inl ⟨A, e, B, hredl, hty, hbody⟩),
+        .inl ⟨s, v1, v2, hred2, hms, hlv2, hwa2, hwb2, hn2⟩ =>
+        cases hredl with
+        | tail _ _ => sorry
+        | rfl =>
+          match descend_beta IH hΓ (by simp at hszf; omega) l2 l3 l6 hf hty hbody with
+          | .inl ⟨t, u1, u2, hred, hmt, hlv, hwa, hwb, hn⟩ =>
+            refine .inl ⟨.app t s, Sum.elim u1 v1, Sum.elim u2 v2,
+              .trans hred (ParRedS.app .rfl hred2), .app hmt hms, ?_, ?_, ?_, ?_⟩ <;> rintro (x|x)
+            · exact hlv x
+            · exact hlv2 x
+            · exact hwa x
+            · exact hwa2 x
+            · exact hwb x
+            · exact hwb2 x
+            · exact hn x
+            · exact hn2 x
+          | .inr esc => exact .inr esc
+      | .inr (.inl _), .inr _ => sorry
+      | .inr (.inr ⟨P, hP, hp1, hp2⟩), _ => sorry
+
+/-- **`parRed`'s `appDF` × `extra` case.**  One `sorry`: E4 at the top node (item 4 of the
+`DescentOut` inventory).
+
+The descent is taken **once, on the whole node** `tf.app ta` against the whole pattern, not
+once per child.  That matters: a child-by-child descent hands the `.lam` escape back here,
+where it would have to be resolved a second time; taking the node whole leaves `descend` to
+run its own β-dance internally, and what escapes here is only what escapes at the top.  The
+`.lam` escape is still possible (`f.app a` may itself reduce to a `.lam`) — that is the one
+`sorry`; the proof escape is discharged, since there both sides inhabit the same `P` and
+`Params.pat_wf` types the rule's output at it.
+
+Note what the descent may *not* assume: that the left term matches at the **same** level
+lists.  `NormalEq.constDF` relates `.const c ls` to `.const c ls'` with only `ls ≈ ls'`, while
 `Matches` pins the list exactly (`cases` on `Matches (.const c) (.const c ls') (fun _ => ls) _`
 forces `ls = ls'`).  So a descent returning the original `m1` is unsatisfiable as soon as the
 spine's head is related by `constDF` — the first version of this lemma asked for exactly that
@@ -1487,23 +1776,11 @@ and was vacuous.  The interface therefore returns a fresh `n1'` with
 `Forall₂ (· ≈ ·) (n1' lp) (n1 lp)`, and the level drift is absorbed here by
 `Check.OK.map_levels` on the way in and `NormalEq.apply_instL` on the way out.  The two
 `WF` outputs are there because `apply_instL` needs both lists well-formed and `constDF`
-carries both facts already.
-
-The remaining obligation is `descent` itself, whose statement belongs with its escapes —
-`etaL` at a spine node (which makes the left term a β-redex: scoping item E4) and the
-argument-side conditions (E5) — since those determine its shape.
-`NormalEq.appDF_proofIrrel` above is the third escape, already discharged. -/
+carries both facts already. -/
 theorem NormalEq.appDF_extra_of_descend {Γ : List VExpr} {f A B a b f₂ : VExpr}
-    (descent : ∀ {q : Pattern} {g g' : VExpr}
-      {n1 : q.LPath → List VLevel} {n2 : q.Path → VExpr},
-      Γ ⊢ g ≡ₚ g' → q.Matches g' n1 n2 →
-      ∃ n1' n, q.Matches g n1' n ∧
-        (∀ lp, List.Forall₂ (· ≈ ·) (n1' lp) (n1 lp)) ∧
-        (∀ lp, ∀ l ∈ n1' lp, VLevel.WF univs l) ∧
-        (∀ lp, ∀ l ∈ n1 lp, VLevel.WF univs l) ∧
-        (∀ x, Γ ⊢ n x ≡ₚ n2 x))
     (hΓ : OnCtx Γ (IsType env univs))
-    (l1 : Γ ⊢ f : .forallE A B) (l3 : Γ ⊢ a : A)
+    (l1 : Γ ⊢ f : .forallE A B) (l2 : Γ ⊢ f₂ : .forallE A B)
+    (l3 : Γ ⊢ a : A) (l4 : Γ ⊢ b : A)
     (ih1 : ∀ {e₂'}, Γ ⊢ f₂ ≫ e₂' → ∃ e₁', Γ ⊢ f ≫* e₁' ∧ Γ ⊢ e₁' ≡ₚ e₂')
     (ih2 : ∀ {e₂'}, Γ ⊢ b ≫ e₂' → ∃ e₁', Γ ⊢ a ≫* e₁' ∧ Γ ⊢ e₁' ≡ₚ e₂')
     {p : Pattern} {r : p.RHS × p.Check} {m1 m2 m2'}
@@ -1520,60 +1797,66 @@ theorem NormalEq.appDF_extra_of_descend {Γ : List VExpr} {f A B a b f₂ : VExp
       parRed_of_matches h2 (m2' := fun x => m2' (.inr x)) (fun x => r4 (.inr x))
     obtain ⟨tf, hf1, hf2⟩ := ih1 hpf
     obtain ⟨ta, ha1, ha2⟩ := ih2 hpb
-    obtain ⟨f1', n1, hn1, hlv1, hw1', hw1, hn1'⟩ := descent hf2 hmf
-    obtain ⟨f2', n2, hn2, hlv2, hw2', hw2, hn2'⟩ := descent ha2 hmb
-    have hne : ∀ x, Γ ⊢ Sum.elim n1 n2 x ≡ₚ m2' x := by
-      rintro (x|x)
-      · exact hn1' x
-      · exact hn2' x
-    have hlv : ∀ lp, List.Forall₂ (· ≈ ·) (Sum.elim f1' f2' lp) (Sum.elim f1 f2 lp) := by
-      rintro (x|x)
-      · exact hlv1 x
-      · exact hlv2 x
-    have flipeq : ∀ {l1 l2 : List VLevel},
-        List.Forall₂ (· ≈ ·) l1 l2 → List.Forall₂ (· ≈ ·) l2 l1 := by
-      intro l1 l2 h
-      induction h with
-      | nil => exact .nil
-      | cons h _ ih => exact .cons h.symm ih
-    have hlvs : ∀ lp, List.Forall₂ (· ≈ ·) (Sum.elim f1 f2 lp) (Sum.elim f1' f2' lp) :=
-      fun lp => flipeq (hlv lp)
-    have hwA : ∀ lp, ∀ l ∈ Sum.elim f1' f2' lp, VLevel.WF univs l := by
-      rintro (x|x)
-      · exact hw1' x
-      · exact hw2' x
-    have hwB : ∀ lp, ∀ l ∈ Sum.elim f1 f2 lp, VLevel.WF univs l := by
-      rintro (x|x)
-      · exact hw1 x
-      · exact hw2 x
-    have hck : Pattern.Check.OK (IsDefEqU env univs Γ) (p := q₁.app q₂)
-        (Sum.elim f1' f2') (Sum.elim n1 n2) r.snd := by
-      refine r3.map_levels (fun x i y j hl => ?_) (fun u v h => ?_)
-      · exact ((VLevel.forall₂_getD (hlv x) i).trans hl).trans
-          (VLevel.forall₂_getD (hlv y) j).symm
-      · obtain ⟨T, hT⟩ := h
-        have step : ∀ (w : (q₁.app q₂).RHS) {C},
-            Γ ⊢ Pattern.RHS.apply (p := q₁.app q₂) (Sum.elim f1 f2) (Sum.elim g1 g2) w : C →
-            Γ ⊢ Pattern.RHS.apply (p := q₁.app q₂) (Sum.elim f1 f2) (Sum.elim g1 g2) w ≡
-                Pattern.RHS.apply (p := q₁.app q₂) (Sum.elim f1' f2') (Sum.elim n1 n2) w := by
-          intro w C hw
-          have hins := NormalEq.apply_instL (p := q₁.app q₂) (r := w) hΓ hwB hwA hlvs hw
-          have ⟨_, hh⟩ := hins.defeq hΓ
-          refine (hins.defeq hΓ).trans henv hΓ
-            (IsDefEqU.apply_pat hΓ (fun x _ hty => ?_) hh.hasType.2)
-          have hd : Γ ⊢ Sum.elim g1 g2 x ≡ m2' x := ⟨_, (r4 x).defeq hΓ hty⟩
-          exact hd.trans henv hΓ ((hne x).defeq hΓ).symm
-        exact ((step u hT.hasType.1).symm.trans henv hΓ ⟨_, hT⟩).trans henv hΓ (step v hT.hasType.2)
-    have hfire : Γ ⊢ tf.app ta ≫
-        Pattern.RHS.apply (p := q₁.app q₂) (Sum.elim f1' f2') (Sum.elim n1 n2) r.fst :=
-      .extra r1 (.app hn1 hn2) hck (fun _ => .rfl)
-    have hty : Γ ⊢ tf.app ta : B.inst ta := (hf1.hasType hΓ l1).app (ha1.hasType hΓ l3)
-    refine ⟨_, (ParRedS.app hf1 ha1).tail hfire, ?_⟩
-    have hstep1 := NormalEq.apply_instL (p := q₁.app q₂) (r := r.fst) hΓ hwA hwB hlv
-      (hfire.hasType hΓ hty)
-    refine hstep1.trans hΓ ?_
-    have ⟨_, hh⟩ := hstep1.defeq hΓ
-    exact NormalEq.apply_pat hΓ (fun (x : (q₁.app q₂).Path) _ _ => hne x) hh.hasType.2
+    have heq : Sum.elim (fun x => m2' (Sum.inl x)) (fun x => m2' (Sum.inr x)) = m2' :=
+      funext fun x => by cases x <;> rfl
+    have hmnode : (q₁.app q₂).Matches (f₂'.app b') (Sum.elim f1 f2) m2' := heq ▸ .app hmf hmb
+    have htf : Γ ⊢ tf : .forallE A B := hf1.hasType hΓ l1
+    have hta : Γ ⊢ ta : A := ha1.hasType hΓ l3
+    have hnode : Γ ⊢ tf.app ta ≡ₚ f₂'.app b' :=
+      .appDF htf (hpf.hasType hΓ l2) hta (hpb.hasType hΓ l4) hf2 ha2
+    have hck' : Pattern.Check.OK (IsDefEqU env univs Γ) (p := q₁.app q₂)
+        (Sum.elim f1 f2) m2' r.snd :=
+      r3.congr_defeq hΓ _ fun x _ hty => ⟨_, (r4 x).defeq hΓ hty⟩
+    match NormalEq.descend _ (Nat.le_refl _) hΓ hnode hmnode with
+    | .inl ⟨t, n1', n, hred, hmt, hlv, hwA, hwB, hne⟩ =>
+      have flipeq : ∀ {l1 l2 : List VLevel},
+          List.Forall₂ (· ≈ ·) l1 l2 → List.Forall₂ (· ≈ ·) l2 l1 := by
+        intro l1 l2 h
+        induction h with
+        | nil => exact .nil
+        | cons h _ ih => exact .cons h.symm ih
+      have hlvs : ∀ lp, List.Forall₂ (· ≈ ·) (Sum.elim f1 f2 lp) (n1' lp) :=
+        fun lp => flipeq (hlv lp)
+      have hck : Pattern.Check.OK (IsDefEqU env univs Γ) (p := q₁.app q₂) n1' n r.snd := by
+        refine r3.map_levels (fun x i y j hl => ?_) (fun u v h => ?_)
+        · exact ((VLevel.forall₂_getD (hlv x) i).trans hl).trans
+            (VLevel.forall₂_getD (hlv y) j).symm
+        · obtain ⟨T, hT⟩ := h
+          have step : ∀ (w : (q₁.app q₂).RHS) {C},
+              Γ ⊢ Pattern.RHS.apply (p := q₁.app q₂) (Sum.elim f1 f2) (Sum.elim g1 g2) w : C →
+              Γ ⊢ Pattern.RHS.apply (p := q₁.app q₂) (Sum.elim f1 f2) (Sum.elim g1 g2) w ≡
+                  Pattern.RHS.apply (p := q₁.app q₂) n1' n w := by
+            intro w C hw
+            have hins := NormalEq.apply_instL (p := q₁.app q₂) (r := w) hΓ hwB hwA hlvs hw
+            have ⟨_, hh⟩ := hins.defeq hΓ
+            refine (hins.defeq hΓ).trans henv hΓ
+              (IsDefEqU.apply_pat hΓ (fun x _ hty => ?_) hh.hasType.2)
+            have hd : Γ ⊢ Sum.elim g1 g2 x ≡ m2' x := ⟨_, (r4 x).defeq hΓ hty⟩
+            exact hd.trans henv hΓ ((hne x).defeq hΓ).symm
+          exact ((step u hT.hasType.1).symm.trans henv hΓ ⟨_, hT⟩).trans henv hΓ
+            (step v hT.hasType.2)
+      have hfire : Γ ⊢ t ≫ Pattern.RHS.apply (p := q₁.app q₂) n1' n r.fst :=
+        .extra r1 hmt hck (fun _ => .rfl)
+      have hty : Γ ⊢ t : B.inst ta := hred.hasType hΓ (htf.app hta)
+      refine ⟨_, ((ParRedS.app hf1 ha1).trans hred).tail hfire, ?_⟩
+      have hstep1 := NormalEq.apply_instL (p := q₁.app q₂) (r := r.fst) hΓ hwA hwB hlv
+        (hfire.hasType hΓ hty)
+      refine hstep1.trans hΓ ?_
+      have ⟨_, hh⟩ := hstep1.defeq hΓ
+      exact NormalEq.apply_pat hΓ (fun (x : (q₁.app q₂).Path) _ _ => hne x) hh.hasType.2
+    | .inr (.inl ⟨A', e', B', hredl, hty', hbody⟩) =>
+      -- **E4 at the top node.**  `f.app a` reduces to a `.lam`, so the rule never fires on
+      -- the left and the two sides are related by `etaL` instead.  `etaL` needs
+      -- `A'::Γ ⊢ e' ≡ₚ (RHS.apply ..).lift.app (.bvar 0)`, while `hbody` gives the same with
+      -- the *redex* `(f₂'.app b').lift` in place of its contractum: the missing step is one
+      -- more descent, at the pattern `.var (q₁.app q₂)`, on `e'` -- which is the same dance
+      -- as `descend_beta`, at the top node.  See the note above `DescentOut`.
+      sorry
+    | .inr (.inr ⟨P, hP, hp1, hp2⟩) =>
+      -- **E3 at the top node**: both sides are proofs, so no reduction is needed.  The rule's
+      -- output inhabits the same `Prop` by `Params.pat_wf`.
+      exact ⟨_, ParRedS.app hf1 ha1,
+        .proofIrrel hP hp1 ((Params.pat_wf r1 hmnode hΓ hp2 hck').of_l henv hΓ hp2).hasType.2⟩
 
 variable! (hΓ : OnCtx Γ (IsType env univs)) in
 theorem NormalEq.parRed (H1 : Γ ⊢ e₁ ≡ₚ e₂) (H2 : Γ ⊢ e₂ ≫ e₂') :
@@ -1621,14 +1904,10 @@ theorem NormalEq.parRed (H1 : Γ ⊢ e₁ ≡ₚ e₂) (H2 : Γ ⊢ e₂ ≫ e�
         (.app (.defeqU_l henv hΓ (a2.defeq hΓ).symm (d1.lam d2)) l3)
       exact ⟨_, .trans (a1.app b1) h1, h2.trans hΓ (.instN_r hΓ' l3 b2 .zero d2)⟩
     | extra r1 r2 r3 r4 =>
-      -- **HANDOFF.**  This case is *done modulo one lemma*: it is exactly
-      -- `NormalEq.appDF_extra_of_descend` above (sorry-free), applied with
-      --   `descent := ?`, `hΓ`, `l1`, `l3`, `ih1 (hΓ ·)`, `ih2 (hΓ ·)`, `r1`, `r2`, `r3`, `r4`.
-      -- Everything else in the case is discharged.  What is missing is `descent`, whose
-      -- statement is spelled out verbatim as that lemma's first hypothesis.  See the
-      -- `## Handoff` note at the head of this section for what remains and why the
-      -- statement has the shape it does.
-      sorry
+      -- The case is `NormalEq.appDF_extra_of_descend` above, which descends the whole node
+      -- with `NormalEq.descend`.
+      exact NormalEq.appDF_extra_of_descend hΓ l1 l2 l3 l4
+        (fun h => ih1 hΓ h) (fun h => ih2 hΓ h) r1 r2 r3 r4
   | lamDF l1 l2 l3 ih1 =>
     cases H2 with
     | lam r1 r2 =>
