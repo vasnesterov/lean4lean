@@ -1354,6 +1354,64 @@ theorem NormalEq.appDF_proofIrrel {Γ : List VExpr} {f a b A B P e₂' : VExpr}
   have hBab := IsDefEq.instDF henv.ordered hΓ hB hab
   exact .proofIrrel hBa (l1.app l3) (hBab.defeq' he₂')
 
+/-! ## Handoff: what is left of `parRed`'s `extra` case
+
+**State.**  The `appDF` × `extra` case is `NormalEq.appDF_extra_of_descend` below, which is
+sorry-free.  The one open obligation is its `descent` hypothesis, stated there verbatim.
+`sortDF`/`constDF`/`lamDF`/`forallEDF`/`etaR`/`proofIrrel` × `extra` were already closed
+(`cases r2` refutes them); `appDF` was the only live one.
+
+**Why `descent` has the shape it has — do not "simplify" it.**  The obvious statement,
+"`g` matches the same pattern at the same `m1`", is **unsatisfiable**, and a version of this
+lemma asking for it was landed and then withdrawn.  `NormalEq.constDF` relates `.const c ls`
+to `.const c ls'` with only `ls ≈ ls'`, while `Matches` pins the level list exactly:
+
+    example (h : Pattern.Matches (.const c) (.const c ls') (fun _ => ls) nofun) : ls = ls' :=
+      by cases h; rfl        -- machine-checked
+
+So as soon as the spine's head is related by `constDF` at genuinely different (but `≈`)
+levels, no descent can return the original `m1`.  Hence the fresh `n1'` with
+`Forall₂ (· ≈ ·) (n1' lp) (n1 lp)`.  The resulting drift is absorbed *inside*
+`appDF_extra_of_descend` — `Pattern.Check.OK.map_levels` on the way in,
+`NormalEq.apply_instL` on the way out — so a prover of `descent` need not think about it.
+The two `VLevel.WF` outputs are in the interface because `apply_instL` needs both lists
+well-formed and `constDF` carries both facts already; supplying them there is free and saves
+the caller a "matched levels of a typed term are WF" lemma that nobody has written.
+
+**What remains, in order.**
+
+1. *The non-escape spine* (scoping item E2).  Induct on the `Matches` derivation and case on
+   the `NormalEq`.  At `.const`: `refl` and `constDF` (this is where `n1' ≠ n1`).  At `.var`
+   and `.app`: `refl` and `appDF`, recursing on the function side and — for `.app` — on the
+   argument side too.  `sortDF`/`lamDF`/`forallEDF`/`etaR` are refuted by the shape of the
+   right-hand term, which `Matches` pins to a `.const`/`.app`.
+
+2. *The `etaL` escape* (E4).  `NormalEq.etaL` makes the left term a `.lam` at a spine node,
+   so the enclosing application is a β-redex and the left term **reduces**; the conclusion
+   has to allow `Γ ⊢ g ≫* g''` before matching.  The eta-tower is bounded, and
+   `ParRedExt.parRed_beta` above is the worked precedent for exactly this shape: induction on
+   the *term* via `VExpr.brecOn` with `ParRedExt` tracking the layers and an
+   `l.depth ≤ Γ.length` bound.
+
+3. *The `proofIrrel` escape*.  Already discharged at the top node by
+   `NormalEq.appDF_proofIrrel` above; deeper nodes propagate it upward by the same argument.
+   It needs sort-uniqueness (`hsu` there), which should become a `Params` field — see that
+   lemma's docstring for why it was not added unilaterally and what discharges it.
+
+4. *The argument-side conditions* (E5).  At an argument position the left term is **not**
+   applied, so an `etaL` there yields no redex and the descent is genuinely stuck.  This is
+   what the two conditions in `PLAN.md` are for — the major premise's type is not a Π, and
+   small elimination — and `Theory/Typing/PatternRules.lean`'s `RuleShape` is the vehicle
+   that discharges them per rule shape (δ has no major premise; quot's is a `Quot.mk`
+   application typed `Quot α r`; ι's is a constructor application of an inductive type).
+
+**A namespace trap, recorded because it is silent.**  `parRed_of_matches` was first declared
+as `Pattern.Matches.parRed_leaves` inside `namespace VEnv`.  That creates `VEnv.Pattern`,
+which then shadows `_root_.Lean4Lean.Pattern` at *every later use site in the section* — the
+linter reports it as an ambiguous-`open` warning, not an error, and the failures surface far
+away as "expected `Pattern.LPath ?m` but got `q₁.LPath ⊕ q₂.LPath`".  Do not put helpers
+about `Pattern` under a `Pattern.*` name while inside `namespace VEnv`. -/
+
 /-! ## `parRed`'s `appDF` × `extra` case, modulo the descent
 
 The case reduces to one lemma about `NormalEq` and `Matches` alone — no `parRed`, hence no
@@ -1563,6 +1621,13 @@ theorem NormalEq.parRed (H1 : Γ ⊢ e₁ ≡ₚ e₂) (H2 : Γ ⊢ e₂ ≫ e�
         (.app (.defeqU_l henv hΓ (a2.defeq hΓ).symm (d1.lam d2)) l3)
       exact ⟨_, .trans (a1.app b1) h1, h2.trans hΓ (.instN_r hΓ' l3 b2 .zero d2)⟩
     | extra r1 r2 r3 r4 =>
+      -- **HANDOFF.**  This case is *done modulo one lemma*: it is exactly
+      -- `NormalEq.appDF_extra_of_descend` above (sorry-free), applied with
+      --   `descent := ?`, `hΓ`, `l1`, `l3`, `ih1 (hΓ ·)`, `ih2 (hΓ ·)`, `r1`, `r2`, `r3`, `r4`.
+      -- Everything else in the case is discharged.  What is missing is `descent`, whose
+      -- statement is spelled out verbatim as that lemma's first hypothesis.  See the
+      -- `## Handoff` note at the head of this section for what remains and why the
+      -- statement has the shape it does.
       sorry
   | lamDF l1 l2 l3 ih1 =>
     cases H2 with
