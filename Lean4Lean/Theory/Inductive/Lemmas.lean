@@ -1687,3 +1687,30 @@ theorem ihBody_hasType {T' : VIndType} {r : VIndRecArg} {i s nxi nf q off d : Na
   exact hz
 
 end VInductDecl'
+
+/-! ### `ihTypes` is a `zipIdx.map`: reading off entries and prefixes
+
+`getElem?_zipIdx` is upstream and `@[simp]`; only `take_zipIdx` is missing.  With `ihType`
+factored out (`Decl.lean`), both statements are readable. -/
+
+theorem List.take_zipIdx {α : Type _} : ∀ {l : List α} {j s},
+    (l.zipIdx j).take s = (l.take s).zipIdx j
+  | [], _, _ => by simp
+  | _ :: _, _, 0 => by simp
+  | _ :: _, _, _+1 => by
+    rw [List.zipIdx_cons, List.take_succ_cons, List.take_succ_cons, List.zipIdx_cons,
+      take_zipIdx]
+
+theorem VInductDecl'.ihTypes_getElem? (D : VInductDecl') (q s : Nat) (C : VIndCtor) :
+    (D.ihTypes q C)[s]? = (C.recFields[s]?).map fun ir => D.ihType q C ir.1 ir.2 s := by
+  simp only [VInductDecl'.ihTypes, List.getElem?_map, List.getElem?_zipIdx, Option.map_map,
+    Nat.zero_add]
+  rfl
+
+theorem VInductDecl'.ihTypes_take (D : VInductDecl') (q s : Nat) (C : VIndCtor) :
+    (D.ihTypes q C).take s
+      = (C.recFields.take s).zipIdx.map fun ir => D.ihType q C ir.1.1 ir.1.2 ir.2 := by
+  rw [VInductDecl'.ihTypes, ← List.map_take, List.take_zipIdx]
+
+@[simp] theorem VInductDecl'.length_ihTypes (D : VInductDecl') (q : Nat) (C : VIndCtor) :
+    (D.ihTypes q C).length = C.recFields.length := by simp [VInductDecl'.ihTypes]

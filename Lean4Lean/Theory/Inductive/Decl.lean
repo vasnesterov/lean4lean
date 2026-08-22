@@ -401,23 +401,27 @@ Minor `q` — the `q`-th entry `(t, C)` of `ctorsAll` — lives over
 `params ++ motives ++ minors<q`, so `off := nm + q` binders separate its fields from the
 parameters.  This is `mkRecInfos.loopCtors`/`loopU` (`Add.lean:379–393`) transcribed. -/
 
-/-- The induction-hypothesis telescope of minor `q` (F14's `δ`), in declaration order,
-over `params ++ motives ++ minors<q ++ fields`.
+/-- One entry of `ihTypes`: the induction hypothesis for the recursive field at declaration
+position `i`, which is the `s`-th recursive field of `C`.
 
 `d` counts the binders sitting below `fields<i`: the remaining fields `i…nf-1` plus the
 `s` induction hypotheses already introduced. -/
-def ihTypes (q : Nat) (C : VIndCtor) : List VExpr :=
+def ihType (q : Nat) (C : VIndCtor) (i : Nat) (r : VIndRecArg) (s : Nat) : VExpr :=
   let off := D.nm + q
   let nf := C.fields.length
-  C.recFields.zipIdx.map fun ((i, r), s) =>
-    let d := nf - i + s
-    let nxi := r.binders.length
-    mkPi (shiftTele off d i (D.atRecTele r.binders)) <|
-      (VExpr.bvar (nxi + s + nf + q + (D.nm - 1 - r.idx))).mkApp <|
-        -- `r.args` are not a telescope: they all live in the same context, one `ξ`-scope
-        -- deep, so the inner-binder count is `nxi` for every one of them.
-        r.args.map (fun a => shift off d i (D.atRec a) nxi) ++
-        [(VExpr.bvar (nxi + s + (nf - 1 - i))).mkApp (bvars 0 nxi)]
+  let d := nf - i + s
+  let nxi := r.binders.length
+  mkPi (shiftTele off d i (D.atRecTele r.binders)) <|
+    (VExpr.bvar (nxi + s + nf + q + (D.nm - 1 - r.idx))).mkApp <|
+      -- `r.args` are not a telescope: they all live in the same context, one `ξ`-scope
+      -- deep, so the inner-binder count is `nxi` for every one of them.
+      r.args.map (fun a => shift off d i (D.atRec a) nxi) ++
+      [(VExpr.bvar (nxi + s + (nf - 1 - i))).mkApp (bvars 0 nxi)]
+
+/-- The induction-hypothesis telescope of minor `q` (F14's `δ`), in declaration order,
+over `params ++ motives ++ minors<q ++ fields`. -/
+def ihTypes (q : Nat) (C : VIndCtor) : List VExpr :=
+  C.recFields.zipIdx.map fun ((i, r), s) => D.ihType q C i r s
 
 def minorType (q t : Nat) (C : VIndCtor) : VExpr :=
   let off := D.nm + q

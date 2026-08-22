@@ -847,5 +847,23 @@ example : 2 + 1 + (accDecl.nm + 0) + (accIntro.fields.length - 1 + 0)
     = 4 + 1 + accIntroRec.idx := rfl
 example : 0 + 1 + (mutDecl.nm + 2) + (forestCons.fields.length - 1 + 1) = 5 + 1 + 1 := rfl
 
+/-! ### `ihTypes` entry/prefix plumbing
+
+`getElem?` and `take` read back to `C.recFields`, with `ihType` naming the entry. -/
+
+example : (accDecl.ihTypes 0 accIntro)[0]?
+    = some (accDecl.ihType 0 accIntro 1 accIntroRec 0) := rfl
+example : (accDecl.ihTypes 0 accIntro).length = accIntro.recFields.length := rfl
+example : (accDecl.ihTypes 0 accIntro).take 0 = [] := rfl
+
+-- the mutual block's two-recursive-field constructor, where `s` actually varies
+example : forestCons.recFields
+    = [(0, { binders := [], idx := 0, args := [] }),
+       (1, { binders := [], idx := 1, args := [] })] := rfl
+example : (mutDecl.ihTypes 2 forestCons)[1]?
+    = some (mutDecl.ihType 2 forestCons 1 { binders := [], idx := 1, args := [] } 1) := rfl
+example : (mutDecl.ihTypes 2 forestCons).take 1
+    = [mutDecl.ihType 2 forestCons 0 { binders := [], idx := 0, args := [] } 0] := rfl
+
 end InductiveDeclExamples
 end Lean4Lean
