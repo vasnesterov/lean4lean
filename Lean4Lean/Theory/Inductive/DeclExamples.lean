@@ -497,5 +497,73 @@ example (env : VEnv) (h : VEnv.empty.addInduct' mutDecl = some env) :
     env.defeqs (mutDecl.iotaRule 1 2 forestCons) :=
   VEnv.addInduct'_defeqs h _ (List.Mem.tail _ (List.Mem.tail _ (List.Mem.head _)))
 
+/-! ## The recursor chain: shapes consumed by `tyApp'_hasType` / `motiveType_isType`
+
+`HasType.appBVars₂` concludes at the term `f.mkApp (bvars (|Bs| + m) |As| ++ bvars 0 |Bs|)`.
+These check that `tyApp'` really is that term, at the offsets `motiveType` and `recType`
+use -- i.e. that D1's statement is about the construction and not about a near miss. -/
+
+-- `Acc`: parameters at offset `ni + t = 1 + 0`, the single index at offset 0
+example : accDecl.tyApp' 0 (accType.indices.length + 0) (bvars 0 accType.indices.length)
+    = (VExpr.const ``Acc accDecl.selfLvls).mkApp
+        (bvars (accType.indices.length + 0) (accDecl.atRecTele accDecl.params).length
+          ++ bvars 0 (accDecl.atRecTele accType.indices).length) := rfl
+
+-- `Eq`: same, one parameter block of length 2
+example : eqDecl.tyApp' 0 (eqType.indices.length + 0) (bvars 0 eqType.indices.length)
+    = (VExpr.const ``Eq eqDecl.selfLvls).mkApp
+        (bvars (eqType.indices.length + 0) (eqDecl.atRecTele eqDecl.params).length
+          ++ bvars 0 (eqDecl.atRecTele eqType.indices).length) := rfl
+
+-- the mutual block exercises `m = t = 1`: motive 2's major premise sits one binder
+-- above motive 1
+example : mutDecl.motiveType 1 = .forallE (mutDecl.tyApp' 1 (0 + 1) []) (.sort mutDecl.elimLvl) :=
+  rfl
+example : mutDecl.tyApp' 1 (0 + 1) []
+    = (VExpr.const ``Forest' mutDecl.selfLvls).mkApp
+        (bvars (0 + 1) (mutDecl.atRecTele mutDecl.params).length ++ bvars 0 0) := rfl
+
+-- `motiveType`'s telescope decomposition, as `IsType.mkPi` sees it
+example : accDecl.motiveType 0
+    = mkPi (liftTele 0 (accDecl.atRecTele accType.indices))
+        (.forallE (accDecl.tyApp' 0 (accType.indices.length + 0)
+          (bvars 0 accType.indices.length)) (.sort accDecl.elimLvl)) := rfl
+
+-- `onCtxMotives` iterates over exactly `D.motives`
+example : (List.range mutDecl.nm).map mutDecl.motiveType = mutDecl.motives := rfl
+example : (List.range 1).map mutDecl.motiveType = mutDecl.motives.take 1 := rfl
+
+-- `elimLvl_wf`, concretely
+example : eqDecl.elimLvl.WF eqDecl.recUvars := by decide
+example : natDecl.elimLvl.WF natDecl.recUvars := by decide
+example : accDecl.elimLvl.WF accDecl.recUvars := by decide
+example : mutDecl.elimLvl.WF mutDecl.recUvars := by decide
+
+-- `getD_types`
+example : mutDecl.types.getD 1 default = mutDecl.types[1]! := rfl
+
+/-! ### D4's missing premise, validated as a *statement*
+
+D4 must type `motive_{r.idx} π (fieldᵢ x)`, which needs each `π_u` typed against
+`I_{r.idx}`'s index telescope.  That telescope, moved into the context
+`ξ.reverse ++ (fields<i).reverse ++ params.reverse` where the parameters sit `|ξ| + i`
+binders up, is `liftTele (|ξ| + i) T'.indices`.  These check that it lines up with what
+`Lookup` actually assigns to `r.args` -- i.e. that the proposed `args_ty` premise is the
+right statement, not a guess. -/
+
+-- `Acc.intro`'s recursive field: `h : ∀ y, r y x → Acc α r y`, so `π = [y]` and the index
+-- type is `α`, which in `[r y x, α, x, r, α]` is `.bvar 4` -- exactly `Lookup … 1`.
+example : liftTele (accIntroRec.binders.length + 1) accType.indices = [VExpr.bvar 4] := rfl
+example : accIntroRec.args = [VExpr.bvar 1] := rfl
+-- and the constructor's own result indices: `x : α`, `α` is `.bvar 3` in `[h, x, r, α]`
+example : liftTele accIntro.fields.length accType.indices = [VExpr.bvar 3] := rfl
+example : accIntro.args = [VExpr.bvar 1] := rfl
+-- `Eq.refl`: `a : α`, and `α` is `.bvar 1` in `[a, α]`
+example : liftTele eqRefl.fields.length eqType.indices = [VExpr.bvar 1] := rfl
+example : eqRefl.args = [VExpr.bvar 0] := rfl
+-- index-free blocks: the premise is vacuous
+example : liftTele natSucc.fields.length (natDecl.types[0]!).indices = [] := rfl
+example : liftTele forestCons.fields.length (mutDecl.types[1]!).indices = [] := rfl
+
 end InductiveDeclExamples
 end Lean4Lean

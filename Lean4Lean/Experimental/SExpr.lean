@@ -1,3 +1,4 @@
+import Lean4Lean.Theory.Inductive.Decl
 import Lean4Lean.Theory.Typing.Lemmas
 import Lean4Lean.Theory.Typing.Pattern
 
@@ -643,25 +644,30 @@ class ParamsExtra [Params] where
   /--
   Constructor types are Π-telescopes over their inductive type.
 
-  If `classify` says `c` is a constructor of arity `n`, then `c`'s type is definitionally
-  a Π-telescope of exactly `n` binders whose head is an application of an `indTy`-classified
-  constant, living in a nonzero sort.
+  Stated as a **syntactic** equation on `ci.type`, because `VIndCtor.type`
+  (`Theory/Inductive/Decl.lean`) is a computing `def`: the binder count, the head constant
+  and the head's arguments are all readable by `simp`, with no conversion reasoning at all.
+  `SExpr.mk_instL` (`Experimental/Bridge.lean`) then transports it to `SExpr`.
 
-  This is **not** derivable from `Params`: `classify` is an uninterpreted field and nothing
-  else in `Params` relates it to `env.constants`. It is the one place where the shape model
-  consumes data about inductive declarations, and it is what `IsDefEq.strong` needs in order
-  to populate the `CtorBundle` payload of `IsDefEqStrong.const`. Whoever builds the instance
-  must supply it — i.e. it is an obligation on the inductive specification
-  (`VInductDecl.WF` / `VEnv.addInduct`), not on this file.
+  The declaration is *carried* rather than looked up, because `VEnv.Sig` (design §7.7) does
+  not exist yet; switching to a lookup when it does is mechanical.
+
+  There is deliberately **no** `D.lvl ≠ 0` claim. `Eq.refl : ∀ {α : Sort u} (a : α), a = a`
+  has a `Prop` codomain, yet `Eq.refl` must still be `classify`-ed as a constructor, because
+  `Eq.rec`'s ι-rule pattern-matches on it and `Pattern.WF` demands a `.ctor` leaf there. The
+  result sort is supplied instead — this is `VIndCtor.WF.result`'s content — and guarding on
+  it is the shape model's job. See `CtorBundle` for where that guard is still missing.
   -/
-  ctor_ty {c : Name} {cl : Classification} {ci : VConstant} {ls : List SLevel}
-      {Γ : List SExpr} :
+  ctor_ty {c : Name} {cl : Classification} {ci : VConstant} :
     classify c = some cl → (cl matches .ctor .. | .etaCtor ..) →
-    env.constants c = some ci → ls.length = ci.uvars →
-    ∃ (I : Name) (Ts args : List SExpr) (u : SLevel),
-      Ts.length = cl.arity ∧ classify I = some (.indTy args.length) ∧ u ≠ .zero ∧
-      Γ ⊢ (SExpr.mk ci.type).instL ls ≡
-        Ts.foldr .forallE (args.foldr (fun A acc => acc.app A) (.const I ls)) : .sort u
+    env.constants c = some ci →
+    ∃ (D : VInductDecl') (j : Nat) (T : VIndType) (C : VIndCtor),
+      D.types[j]? = some T ∧ C ∈ T.ctors ∧ C.name = c ∧
+      ci = ⟨D.uvars, C.type D j⟩ ∧
+      (C.params ++ C.fields.map (·.type)).length = cl.arity ∧
+      classify T.name = some (.indTy (D.np + C.args.length)) ∧
+      env.HasType D.uvars ((C.fields.map (·.type)).reverse ++ D.params.reverse)
+        (C.canonResult D j) (.sort D.lvl)
 
 def CtorBundle.IsCtor (c : Name) : Prop :=
   ∃ cl, Params.classify c = some cl ∧ cl matches .ctor .. | .etaCtor ..
@@ -672,6 +678,27 @@ def CtorBundle.IsCtor.cl (H : CtorBundle.IsCtor c) :
   match Params.classify c, H with
   | some cl, H => refine ⟨cl, ?_⟩; obtain ⟨_, ⟨⟩, H⟩ := H; exact ⟨rfl, H⟩
 
+/--
+The Π-telescope decomposition of a constructor's type, as `IsDefEqStrong.const` consumes it.
+
+**KNOWN DEFECT — `hu0` is false.** `Eq.refl : ∀ {α : Sort u} (a : α), a = a` has sort
+`imax (u+1) (imax u 0) = 0`, so `u = .zero` for it; yet `Eq.refl` must be `classify`-ed as
+a constructor, because `Eq.rec`'s ι-rule pattern-matches on it and `Pattern.WF` demands a
+`.ctor` leaf there. So `CtorBundle Eq.refl` is uninhabited while `IsDefEqStrong.const`
+demands `∀ cl, CtorBundle c cl` — i.e. this is a *second*, independent reason that
+`IsDefEq.strong` is false as stated (the first is the missing `Ctx.WF`; see
+`not_strong_of_isDefEq`). It is not a soundness hole: `IsDefEq.strong` is a `sorry`.
+
+Fixing it means dropping `hu0` and giving `LE_Interp.build_spine`
+(`ShapeLogRel.lean`, the `app`/`nil` case) a `.bot` branch for `Prop`-valued inductives,
+where a constructor application is a proof and carries no `ctor` shape. Deleting `hu0`
+alone leaves exactly one hole, at the `this W hu0 hcit` call that feeds
+`LE_Interp.apps_realize`'s type-shape argument. The `mkPi`/`mkApp` reordering of `rhs`
+below (to match `VIndCtor.type`) touches the same lines and should be done with it.
+
+`ParamsExtra.ctor_ty` has already been restated without any nonzero-sort claim, and
+supplies `VIndCtor.WF.result`'s result-sort fact instead.
+-/
 structure CtorBundle (c : Name) (cl : CtorBundle.IsCtor c) : Type where
   I : Name
   Ts : List SExpr

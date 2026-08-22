@@ -675,3 +675,169 @@ theorem VInductDecl'.WF.onCtxParamsAtRec (h : D.WF env) :
     OnCtx (D.atRecTele D.params).reverse (env.IsType D.recUvars) := by
   have := D.atRec_onCtx h.params
   rwa [VInductDecl'.atRecCtx, List.map_reverse] at this
+
+/-! ## B6: telescope weakening
+
+Weakening a context by `n` binders at cut `k` weakens a declaration-order telescope over it
+into `liftTele n · k`, and moves the cut past the telescope's own length. -/
+
+/-- **B6.** -/
+theorem Ctx.LiftN.tele : ∀ {As : List VExpr} {n k} {Γ Γ' : List VExpr},
+    Ctx.LiftN n k Γ Γ' →
+    Ctx.LiftN n (k + As.length) (As.reverse ++ Γ) ((liftTele n As k).reverse ++ Γ')
+  | [], _, _, _, _, W => by simpa using W
+  | A :: As, n, k, Γ, Γ', W => by
+    rw [VExpr.tele_ctx_cons, VExpr.liftTele_cons, VExpr.tele_ctx_cons, List.length_cons,
+      show k + (As.length + 1) = (k + 1) + As.length from by omega]
+    exact Ctx.LiftN.tele (As := As) W.succ
+
+namespace VEnv
+
+/-- The `OnCtx` counterpart of B6: a well-formed telescope stays well-formed after the
+context under it is weakened. -/
+theorem OnCtx.weakTele {env : VEnv} {U n k} {Γ Γ' : List VExpr} (henv : Ordered env)
+    (W : Ctx.LiftN n k Γ Γ') (hΓ' : OnCtx Γ' (env.IsType U)) :
+    ∀ {As : List VExpr}, OnCtx (As.reverse ++ Γ) (env.IsType U) →
+      OnCtx ((liftTele n As k).reverse ++ Γ') (env.IsType U)
+  | [], _ => by simpa using hΓ'
+  | A :: As, hAs => by
+    rw [VExpr.tele_ctx_cons] at hAs
+    have hA : env.IsType U Γ A := OnCtx.head_of_append hAs
+    rw [VExpr.liftTele_cons, VExpr.tele_ctx_cons]
+    exact OnCtx.weakTele henv W.succ ⟨hΓ', hA.weakN henv W⟩ hAs
+
+/-- **Two-block saturated application.**  Apply a *closed* `f : mkPi (As ++ Bs) R` to the
+variables of `As` and of `Bs`, where `m` further binders were inserted between the two
+blocks.  This is the shape every application in the recursor construction has: the
+parameters sit at one offset and the indices/fields at another, with the motives and minors
+in between. -/
+theorem HasType.appBVars₂ {env : VEnv} {U m} {As Bs Γ₀ Γ₁ : List VExpr} {f R : VExpr}
+    (henv : Ordered env) (hfc : VExpr.ClosedN f 0)
+    (hf : env.HasType U Γ₀ f (mkPi (As ++ Bs) R))
+    (hAs : OnCtx (As.reverse ++ Γ₀) (env.IsType U))
+    (hBs : OnCtx (Bs.reverse ++ As.reverse ++ Γ₀) (env.IsType U))
+    (W : Ctx.LiftN m 0 (As.reverse ++ Γ₀) Γ₁)
+    (hΓ₁ : OnCtx Γ₁ (env.IsType U)) :
+    env.HasType U ((liftTele m Bs).reverse ++ Γ₁)
+      (f.mkApp (bvars (Bs.length + m) As.length ++ bvars 0 Bs.length))
+      (R.liftN m Bs.length) := by
+  -- step 1: apply to the `As` block
+  rw [VExpr.mkPi_append] at hf
+  have h1 := HasType.appBVars henv hAs hf
+  rw [hfc.liftN_eq (Nat.zero_le _)] at h1
+  -- step 2: weaken past the `m` inserted binders
+  have h2 := h1.weakN henv W
+  rw [VExpr.liftN_mkApp_bvars_lo (Nat.le_refl 0), hfc.liftN_eq (Nat.zero_le _),
+    VExpr.liftN_mkPi, Nat.zero_add] at h2
+  -- step 3: apply to the `Bs` block
+  have hBs' : OnCtx ((liftTele m Bs).reverse ++ Γ₁) (env.IsType U) :=
+    OnCtx.weakTele henv W hΓ₁ (by rw [← List.append_assoc]; exact hBs)
+  have h3 := HasType.appBVars henv hBs' h2
+  rw [VExpr.liftN_mkApp_bvars_lo (Nat.zero_le _), hfc.liftN_eq (Nat.zero_le _),
+    ← VExpr.mkApp_append] at h3
+  simpa using h3
+
+end VEnv
+
+/-! ## The recursor's working environment -/
+
+theorem VIndType.WF.mono {env env' : VEnv} {D : VInductDecl'} {T : VIndType}
+    (hle : env ≤ env') (h : VIndType.WF env D T) : VIndType.WF env' D T where
+  indices := OnCtx.mono (fun hh => hh.mono hle) h.indices
+  isType := h.isType.mono hle
+  canon := h.canon.mono hle
+
+/-- The situation in which the recursor is built: an ordered environment containing the
+block's type constants at their stored types, in which every type of the block is
+well-formed.  `addIndTypes` followed by `addIndCtors` produces exactly this. -/
+structure VInductDecl'.RecCtx (env : VEnv) (D : VInductDecl') : Prop where
+  ordered : env.Ordered
+  params : OnCtx D.params.reverse (env.IsType D.uvars)
+  types : ∀ T ∈ D.types, VIndType.WF env D T
+  consts : ∀ T ∈ D.types, env.constants T.name = some ⟨D.uvars, T.type⟩
+
+/-- `RecCtx` from the declaration's well-formedness and any environment above the one the
+block's types were added to. -/
+theorem VInductDecl'.WF.recCtx {env env₁ env₂ : VEnv} {D : VInductDecl'}
+    (h : D.WF env) (he : env.addIndTypes D = some env₁) (hle : env₁ ≤ env₂)
+    (henv₂ : env₂.Ordered) : D.RecCtx env₂ where
+  ordered := henv₂
+  params := OnCtx.mono (fun hh => hh.mono ((VEnv.addIndTypes_le he).trans hle)) h.params
+  types T hT := (h.types T hT).mono ((VEnv.addIndTypes_le he).trans hle)
+  consts T hT := hle.constants <|
+    VEnv.addConstList_constants he (T.name, ⟨D.uvars, T.type⟩) (List.mem_map_of_mem hT)
+
+namespace VInductDecl'
+variable {env : VEnv} {D : VInductDecl'}
+
+theorem elimLvl_wf : D.elimLvl.WF D.recUvars := by
+  simp only [elimLvl, recUvars]
+  by_cases h : D.isLE <;> simp [h, VLevel.WF]
+
+theorem RecCtx.onCtxParams (hR : D.RecCtx env) :
+    OnCtx (D.atRecTele D.params).reverse (env.IsType D.recUvars) := by
+  have := D.atRec_onCtx hR.params
+  rwa [VInductDecl'.atRecCtx, List.map_reverse] at this
+
+theorem RecCtx.onCtxIndices (hR : D.RecCtx env) {T : VIndType} (hT : T ∈ D.types) :
+    OnCtx ((D.atRecTele T.indices).reverse ++ (D.atRecTele D.params).reverse)
+      (env.IsType D.recUvars) := (hR.types T hT).onCtxIndicesAtRec
+
+theorem getD_types (hT : D.types[t]? = some T) : D.types.getD t default = T := by
+  rw [List.getD_eq_getElem?_getD, hT]; rfl
+
+/-! ### D1: an inductive type of the block, saturated -/
+
+/-- **D1.**  `I_t.{selfLvls}` applied to the parameters -- which sit `T.indices.length + m`
+binders away -- and to its own index variables is a type, at the recursor's universe
+numbering.  `m` is the number of binders (motives, minors) inserted between the parameter
+block and the index block. -/
+theorem tyApp'_hasType (hR : D.RecCtx env) {t : Nat} {T : VIndType}
+    (hT : D.types[t]? = some T) {m : Nat} {Γ₁ : List VExpr}
+    (W : Ctx.LiftN m 0 (D.atRecTele D.params).reverse Γ₁)
+    (hΓ₁ : OnCtx Γ₁ (env.IsType D.recUvars)) :
+    env.HasType D.recUvars ((liftTele m (D.atRecTele T.indices)).reverse ++ Γ₁)
+      (D.tyApp' t (T.indices.length + m) (bvars 0 T.indices.length))
+      (.sort (D.lvl.inst D.selfLvls)) := by
+  have hmem : T ∈ D.types := List.mem_of_getElem? hT
+  have hf := (hR.types T hmem).tyConst_hasType hR.ordered (hR.consts T hmem) (Γ := [])
+  have h := VEnv.HasType.appBVars₂ (As := D.atRecTele D.params) (Bs := D.atRecTele T.indices)
+    (Γ₀ := []) (m := m) hR.ordered (f := .const T.name D.selfLvls) trivial
+    (by simpa using hf) (by simpa using hR.onCtxParams)
+    (by simpa using hR.onCtxIndices hmem) (by simpa using W) hΓ₁
+  simpa [VInductDecl'.tyApp', VInductDecl'.np, hT, VExpr.liftN] using h
+
+/-! ### D3: the motives -/
+
+/-- **D3.**  Motive `t` is a type in the context `params ++ motives<t`. -/
+theorem motiveType_isType (hR : D.RecCtx env) {t : Nat} {T : VIndType}
+    (hT : D.types[t]? = some T) {M : List VExpr} (hMlen : M.length = t)
+    (hM : OnCtx (M ++ (D.atRecTele D.params).reverse) (env.IsType D.recUvars)) :
+    env.IsType D.recUvars (M ++ (D.atRecTele D.params).reverse) (D.motiveType t) := by
+  have hmem : T ∈ D.types := List.mem_of_getElem? hT
+  have W : Ctx.LiftN t 0 (D.atRecTele D.params).reverse (M ++ (D.atRecTele D.params).reverse) :=
+    .zero M hMlen
+  have hI : OnCtx ((liftTele t (D.atRecTele T.indices)).reverse ++
+      (M ++ (D.atRecTele D.params).reverse)) (env.IsType D.recUvars) :=
+    VEnv.OnCtx.weakTele hR.ordered W hM (hR.onCtxIndices hmem)
+  rw [VInductDecl'.motiveType, getD_types hT]
+  exact VEnv.IsType.mkPi hI (VEnv.IsType.forallE ⟨_, tyApp'_hasType hR hT W hM⟩
+    ⟨_, VEnv.HasType.sort (Γ := _) elimLvl_wf⟩)
+
+/-- The motive telescope is a well-formed context over the parameters. -/
+theorem onCtxMotivesTake (hR : D.RecCtx env) : ∀ t, t ≤ D.nm →
+    OnCtx (((List.range t).map D.motiveType).reverse ++ (D.atRecTele D.params).reverse)
+      (env.IsType D.recUvars)
+  | 0, _ => by simpa using hR.onCtxParams
+  | t+1, ht => by
+    obtain ⟨T, hT⟩ : ∃ T, D.types[t]? = some T :=
+      ⟨_, List.getElem?_eq_getElem (Nat.lt_of_lt_of_le (Nat.lt_succ_self t) ht)⟩
+    rw [List.range_succ, List.map_append, List.reverse_append, List.append_assoc]
+    exact ⟨onCtxMotivesTake hR t (by omega),
+      motiveType_isType hR hT (by simp) (onCtxMotivesTake hR t (by omega))⟩
+
+theorem onCtxMotives (hR : D.RecCtx env) :
+    OnCtx (D.motives.reverse ++ (D.atRecTele D.params).reverse) (env.IsType D.recUvars) :=
+  onCtxMotivesTake hR D.nm (Nat.le_refl _)
+
+end VInductDecl'

@@ -32,22 +32,39 @@ Boundaries.lean` is expected to produce those from the recognizer's `isDefEq` ch
 
 The main reusable pieces are:
 
-* `VEnv.HasPrimitives.natLit_hasType` — numerals are `Nat`s;
+* `VEnv.HasPrimitives.natLit_hasType` and `VEnv.NatLits` — numerals are `Nat`s.  The reflection
+  lemmas take `NatLits`, not the whole `HasPrimitives` record: at the assembly site the
+  reflection fact has to hold in the *extended* environment, whose `HasPrimitives` record is
+  the thing being built, so requiring the record would be circular.  `NatLits` transfers from
+  the smaller environment by `VEnv.NatLits.mono`, and so do the auxiliary reflection facts the
+  `Nat.sub`/`mul`/`pow`/`shiftLeft`/`shiftRight` branches consume (`hprim.natPred hc` &c.);
 * `IsDefEqU.app_congr_arg`, `IsDefEqU.app2_congr_arg1`, `IsDefEqU.app_congr_fn` — congruence
   that extracts the typing it needs from the equation it is chaining onto, so no separate
   hypothesis about the type of the operator is required;
 * `VEnv.reflects_rec2`, `VEnv.reflects_rec2_tail`, `VEnv.reflects_rec2_diag` — the three
-  recursion shapes the nine operations fall into.
+  recursion shapes the nine operations fall into;
+* `VEnv.PrimField`, `VEnv.HasPrimitives.addDef`, `VEnv.const_defeq_value` — the environment
+  side: which single `HasPrimitives` field a declaration is responsible for, how the other
+  twenty-one transfer across the step that adds it, and the defining equation
+  `.const v.name [] ≡ v.value` that step contributes.
 
 A finished branch therefore reads, e.g. for `Nat.add`,
 
-    VEnv.ReflectsNatNatNat.of_defeq henv hprim hnat hFty hdef
-      (VEnv.reflects_natAdd henv hprim hnat h0 hS)
+    VEnv.ReflectsNatNatNat.of_defeq henv hlit hFty hdef
+      (VEnv.reflects_natAdd henv hlit h0 hS)
 
 where `h0`/`hS` come from `IsDefEqU.instNat`/`IsDefEqU.instNat2`; the resulting `VExpr.inst`
 applications are computed by `simp [VExpr.inst]` together with the `@[simp]` lemmas below and
 `VExpr.ClosedN.instN_eq` for the value `F` itself (which is closed, by `IsDefEq.closedN`
-applied to `hFty`).
+applied to `hFty`).  Feeding that to `primField_Nat_add.2` and `VEnv.HasPrimitives.addDef`
+yields the `HasPrimitives` record `PrimitiveResult.preserves` demands.
+
+**`checkPrimitiveDef.WF` cannot yet consume any of this**: the recognizer calls
+`TypeChecker.isDefEq` on `v.type` and on terms built from `v.value` before either has been
+type-checked, which pollutes the `EquivManager` and makes `TypeChecker.VState.WF` — hence the
+`M.WF` obligation — fail.  See the docstring of `checkPrimitiveDef.WF` in
+`Lean4Lean/Verify/Environment/Boundaries.lean` for the counterexample and the required change
+to `Lean4Lean/Primitive.lean`.
 
 Note that `checkPrimitiveDef`'s `defeq2` binds the outer variable first, so `bvar 1` is the
 *outer* one; which of the two is the operation's first argument differs per branch
@@ -137,6 +154,19 @@ theorem boolLit_hasType (hprim : env.HasPrimitives) (hbool : env.contains ``Bool
 
 end VEnv.HasPrimitives
 
+/-- Everything the reflection lemmas below need from `VEnv.HasPrimitives`: numerals are `Nat`s.
+Taking this rather than the whole record matters at the assembly site, where the reflection
+fact has to be established in the *extended* environment whose `HasPrimitives` record is what
+is being built -- passing the record itself would be circular, while `NatLits` transfers from
+the smaller environment by `NatLits.mono`. -/
+def VEnv.NatLits (env : VEnv) : Prop := ∀ n : Nat, env.HasType 0 [] (.natLit n) .nat
+
+theorem VEnv.HasPrimitives.natLits {env : VEnv} (hprim : env.HasPrimitives)
+    (hnat : env.contains ``Nat) : env.NatLits := fun n => hprim.natLit_hasType hnat n
+
+theorem VEnv.NatLits.mono {env env' : VEnv} (hle : env ≤ env') (h : env.NatLits) : env'.NatLits :=
+  fun n => (h n).mono hle
+
 /-! ## Congruence
 
 The recognizer never checks the *type* of an auxiliary constant such as `Nat.pred`, so a
@@ -183,21 +213,20 @@ theorem IsDefEqU.app_congr_fn (henv : env.WF) {f g a A B : VExpr}
 the equations arrive in a context `.nat :: Γ`.  These lemmas substitute numerals for those
 variables. -/
 
-theorem IsDefEqU.instNat (henv : env.WF) (hprim : env.HasPrimitives)
-    (hnat : env.contains ``Nat) {Γ : List VExpr} {e₁ e₂ : VExpr}
+theorem IsDefEqU.instNat (henv : env.WF) (hlit : env.NatLits)
+    {Γ : List VExpr} {e₁ e₂ : VExpr}
     (H : env.IsDefEqU 0 (.nat :: Γ) e₁ e₂) (n : Nat) :
     env.IsDefEqU 0 Γ (e₁.inst (.natLit n)) (e₂.inst (.natLit n)) :=
-  IsDefEqU.instN henv.ordered .zero H (hprim.natLit_hasType hnat n)
+  IsDefEqU.instN henv.ordered .zero H ((hlit n).weak0 henv.ordered)
 
 /-- Two nested `withLocalDecl`s.  `checkPrimitiveDef`'s `defeq2` introduces its `y` binder
 first, so `bvar 1` is `y` and `bvar 0` is the inner `x`: here `n` is substituted for `bvar 0`
 and `m` for `bvar 1`. -/
-theorem IsDefEqU.instNat2 (henv : env.WF) (hprim : env.HasPrimitives)
-    (hnat : env.contains ``Nat) {e₁ e₂ : VExpr}
+theorem IsDefEqU.instNat2 (henv : env.WF) (hlit : env.NatLits) {e₁ e₂ : VExpr}
     (H : env.IsDefEqU 0 [.nat, .nat] e₁ e₂) (m n : Nat) :
     env.IsDefEqU 0 [] ((e₁.inst (.natLit n)).inst (.natLit m))
       ((e₂.inst (.natLit n)).inst (.natLit m)) :=
-  (H.instNat henv hprim hnat n).instNat henv hprim hnat m
+  (H.instNat henv hlit n).instNat henv hlit m
 
 /-! ## Recursion shapes
 
@@ -268,18 +297,18 @@ After `VEnv.addDefEq`, `IsDefEq.extra0` gives `.const fc [] ≡ F`; these lemmas
 the two arguments.  `hFty` is available from the recognizer's `isDefEq v.type q(Nat → …)` check
 together with `TrDefVal`'s `env.HasType 0 [] F type'`. -/
 
-theorem ReflectsNatNat.of_defeq (henv : env.WF) (hprim : env.HasPrimitives)
-    (hnat : env.contains ``Nat) {fc : Name} {F : VExpr} {g : Nat → Nat}
+theorem ReflectsNatNat.of_defeq (henv : env.WF) (hlit : env.NatLits)
+    {fc : Name} {F : VExpr} {g : Nat → Nat}
     (hFty : env.HasType 0 [] F (.forallE .nat .nat))
     (hdef : env.IsDefEqU 0 [] (.const fc []) F)
     (H : ∀ a, env.IsDefEqU 0 [] (.app F (.natLit a)) (.natLit (g a))) :
     env.ReflectsNatNat fc g := by
   intro _ a
   refine IsDefEqU.trans henv trivial ?_ (H a)
-  exact IsDefEqU.app_congr_fn henv hdef hFty (hprim.natLit_hasType hnat a)
+  exact IsDefEqU.app_congr_fn henv hdef hFty (hlit a)
 
-theorem ReflectsNatNatNat.of_defeq (henv : env.WF) (hprim : env.HasPrimitives)
-    (hnat : env.contains ``Nat) {fc : Name} {F : VExpr} {g : Nat → Nat → Nat}
+theorem ReflectsNatNatNat.of_defeq (henv : env.WF) (hlit : env.NatLits)
+    {fc : Name} {F : VExpr} {g : Nat → Nat → Nat}
     (hFty : env.HasType 0 [] F (.forallE .nat (.forallE .nat .nat)))
     (hdef : env.IsDefEqU 0 [] (.const fc []) F)
     (H : ∀ a b, env.IsDefEqU 0 [] (.app (.app F (.natLit a)) (.natLit b)) (.natLit (g a b))) :
@@ -287,14 +316,14 @@ theorem ReflectsNatNatNat.of_defeq (henv : env.WF) (hprim : env.HasPrimitives)
   intro _ a b
   refine IsDefEqU.trans henv trivial ?_ (H a b)
   have h1 : env.IsDefEqU 0 [] (.app (.const fc []) (.natLit a)) (.app F (.natLit a)) :=
-    IsDefEqU.app_congr_fn henv hdef hFty (hprim.natLit_hasType hnat a)
+    IsDefEqU.app_congr_fn henv hdef hFty (hlit a)
   have h2 : env.HasType 0 [] (.app F (.natLit a)) (.forallE .nat .nat) := by
-    have := hFty.app (hprim.natLit_hasType hnat a)
+    have := hFty.app (hlit a)
     rwa [VExpr.inst, VExpr.inst_nat, VExpr.inst_nat] at this
-  exact IsDefEqU.app_congr_fn henv h1 h2 (hprim.natLit_hasType hnat b)
+  exact IsDefEqU.app_congr_fn henv h1 h2 (hlit b)
 
-theorem ReflectsNatNatBool.of_defeq (henv : env.WF) (hprim : env.HasPrimitives)
-    (hnat : env.contains ``Nat) {fc : Name} {F : VExpr} {g : Nat → Nat → Bool}
+theorem ReflectsNatNatBool.of_defeq (henv : env.WF) (hlit : env.NatLits)
+    {fc : Name} {F : VExpr} {g : Nat → Nat → Bool}
     (hFty : env.HasType 0 [] F (.forallE .nat (.forallE .nat .bool)))
     (hdef : env.IsDefEqU 0 [] (.const fc []) F)
     (H : ∀ a b, env.IsDefEqU 0 [] (.app (.app F (.natLit a)) (.natLit b)) (.boolLit (g a b))) :
@@ -302,11 +331,11 @@ theorem ReflectsNatNatBool.of_defeq (henv : env.WF) (hprim : env.HasPrimitives)
   intro _ a b
   refine IsDefEqU.trans henv trivial ?_ (H a b)
   have h1 : env.IsDefEqU 0 [] (.app (.const fc []) (.natLit a)) (.app F (.natLit a)) :=
-    IsDefEqU.app_congr_fn henv hdef hFty (hprim.natLit_hasType hnat a)
+    IsDefEqU.app_congr_fn henv hdef hFty (hlit a)
   have h2 : env.HasType 0 [] (.app F (.natLit a)) (.forallE .nat .bool) := by
-    have := hFty.app (hprim.natLit_hasType hnat a)
+    have := hFty.app (hlit a)
     rwa [VExpr.inst, VExpr.inst_nat, VExpr.inst_bool] at this
-  exact IsDefEqU.app_congr_fn henv h1 h2 (hprim.natLit_hasType hnat b)
+  exact IsDefEqU.app_congr_fn henv h1 h2 (hlit b)
 
 end VEnv
 
@@ -321,8 +350,7 @@ namespace VEnv
 variable {env : VEnv}
 
 /-- `Nat.add`: `add x 0 ≡ x` and `add y (succ x) ≡ succ (add y x)`. -/
-theorem reflects_natAdd (henv : env.WF) (hprim : env.HasPrimitives)
-    (hnat : env.contains ``Nat) {F : VExpr}
+theorem reflects_natAdd (henv : env.WF) (hlit : env.NatLits) {F : VExpr}
     (h0 : ∀ a : Nat, env.IsDefEqU 0 [] (.app (.app F (.natLit a)) .natZero) (.natLit a))
     (hS : ∀ a b : Nat, env.IsDefEqU 0 []
       (.app (.app F (.natLit a)) (.app .natSucc (.natLit b)))
@@ -331,7 +359,7 @@ theorem reflects_natAdd (henv : env.WF) (hprim : env.HasPrimitives)
   refine reflects_rec2 henv (S := fun _ e => .app .natSucc e) (g := Nat.add) h0 hS ?_
   intro a b e he
   refine IsDefEqU.app_congr_arg henv (a := .natLit (Nat.add a b)) ?_ he
-  exact ⟨_, hprim.natLit_hasType hnat (Nat.add a (b + 1))⟩
+  exact ⟨_, hlit (Nat.add a (b + 1))⟩
 
 /-- `Nat.pred`: `pred 0 ≡ 0` and `pred (succ x) ≡ x`.  Not a recursion. -/
 theorem reflects_natPred {F : VExpr}
@@ -342,8 +370,9 @@ theorem reflects_natPred {F : VExpr}
   | _ + 1 => hS _
 
 /-- `Nat.sub`: `sub x 0 ≡ x` and `sub y (succ x) ≡ Nat.pred (sub y x)`. -/
-theorem reflects_natSub (henv : env.WF) (hprim : env.HasPrimitives)
-    (hpred : env.contains ``Nat.pred) {F : VExpr}
+theorem reflects_natSub (henv : env.WF)
+    (hpred : ∀ n : Nat, env.IsDefEqU 0 []
+      (.app (.const ``Nat.pred []) (.natLit n)) (.natLit (Nat.pred n))) {F : VExpr}
     (h0 : ∀ a : Nat, env.IsDefEqU 0 [] (.app (.app F (.natLit a)) .natZero) (.natLit a))
     (hS : ∀ a b : Nat, env.IsDefEqU 0 []
       (.app (.app F (.natLit a)) (.app .natSucc (.natLit b)))
@@ -352,11 +381,13 @@ theorem reflects_natSub (henv : env.WF) (hprim : env.HasPrimitives)
   refine reflects_rec2 henv (S := fun _ e => .app (.const ``Nat.pred []) e) (g := Nat.sub)
     h0 hS ?_
   intro a b e he
-  exact IsDefEqU.app_congr_arg henv (hprim.natPred hpred (Nat.sub a b)) he
+  exact IsDefEqU.app_congr_arg henv (hpred (Nat.sub a b)) he
 
 /-- `Nat.mul`: `mul x 0 ≡ 0` and `mul y (succ x) ≡ Nat.add (mul y x) y`. -/
-theorem reflects_natMul (henv : env.WF) (hprim : env.HasPrimitives)
-    (hadd : env.contains ``Nat.add) {F : VExpr}
+theorem reflects_natMul (henv : env.WF)
+    (hadd : ∀ a b : Nat, env.IsDefEqU 0 []
+      (.app (.app (.const ``Nat.add []) (.natLit a)) (.natLit b)) (.natLit (Nat.add a b)))
+    {F : VExpr}
     (h0 : ∀ a : Nat, env.IsDefEqU 0 [] (.app (.app F (.natLit a)) .natZero) .natZero)
     (hS : ∀ a b : Nat, env.IsDefEqU 0 []
       (.app (.app F (.natLit a)) (.app .natSucc (.natLit b)))
@@ -365,11 +396,13 @@ theorem reflects_natMul (henv : env.WF) (hprim : env.HasPrimitives)
   refine reflects_rec2 henv
     (S := fun a e => .app (.app (.const ``Nat.add []) e) (.natLit a)) (g := Nat.mul) h0 hS ?_
   intro a b e he
-  exact IsDefEqU.app2_congr_arg1 henv (hprim.natAdd hadd (Nat.mul a b) a) he
+  exact IsDefEqU.app2_congr_arg1 henv (hadd (Nat.mul a b) a) he
 
 /-- `Nat.pow`: `pow x 0 ≡ 1` and `pow y (succ x) ≡ Nat.mul (pow y x) y`. -/
-theorem reflects_natPow (henv : env.WF) (hprim : env.HasPrimitives)
-    (hmul : env.contains ``Nat.mul) {F : VExpr}
+theorem reflects_natPow (henv : env.WF)
+    (hmul : ∀ a b : Nat, env.IsDefEqU 0 []
+      (.app (.app (.const ``Nat.mul []) (.natLit a)) (.natLit b)) (.natLit (Nat.mul a b)))
+    {F : VExpr}
     (h0 : ∀ a : Nat, env.IsDefEqU 0 [] (.app (.app F (.natLit a)) .natZero)
       (.app .natSucc .natZero))
     (hS : ∀ a b : Nat, env.IsDefEqU 0 []
@@ -379,7 +412,7 @@ theorem reflects_natPow (henv : env.WF) (hprim : env.HasPrimitives)
   refine reflects_rec2 henv
     (S := fun a e => .app (.app (.const ``Nat.mul []) e) (.natLit a)) (g := Nat.pow) h0 hS ?_
   intro a b e he
-  exact IsDefEqU.app2_congr_arg1 henv (hprim.natMul hmul (Nat.pow a b) a) he
+  exact IsDefEqU.app2_congr_arg1 henv (hmul (Nat.pow a b) a) he
 
 /-- `Nat.beq`. -/
 theorem reflects_natBEq (henv : env.WF) {F : VExpr}
@@ -413,8 +446,10 @@ theorem reflects_natBLE (henv : env.WF) {F : VExpr}
 
 /-- `Nat.shiftLeft`: `shl x 0 ≡ x` and `shl x (succ y) ≡ shl (Nat.mul 2 x) y`.  Note that here
 the recognizer's `defeq2` binds `y` outermost, so the *second* argument is the outer one. -/
-theorem reflects_natShiftLeft (henv : env.WF) (hprim : env.HasPrimitives)
-    (hmul : env.contains ``Nat.mul) {F : VExpr}
+theorem reflects_natShiftLeft (henv : env.WF)
+    (hmul : ∀ a b : Nat, env.IsDefEqU 0 []
+      (.app (.app (.const ``Nat.mul []) (.natLit a)) (.natLit b)) (.natLit (Nat.mul a b)))
+    {F : VExpr}
     (h0 : ∀ a : Nat, env.IsDefEqU 0 [] (.app (.app F (.natLit a)) .natZero) (.natLit a))
     (hS : ∀ a b : Nat, env.IsDefEqU 0 []
       (.app (.app F (.natLit a)) (.app .natSucc (.natLit b)))
@@ -425,11 +460,13 @@ theorem reflects_natShiftLeft (henv : env.WF) (hprim : env.HasPrimitives)
     (T := fun a => .app (.app (.const ``Nat.mul []) (.natLit 2)) (.natLit a))
     (t := fun a => Nat.mul 2 a) (g := Nat.shiftLeft) h0 hS ?_ (fun _ _ => rfl)
   intro a
-  exact hprim.natMul hmul 2 a
+  exact hmul 2 a
 
 /-- `Nat.shiftRight`: `shr x 0 ≡ x` and `shr x (succ y) ≡ Nat.div (shr x y) 2`. -/
-theorem reflects_natShiftRight (henv : env.WF) (hprim : env.HasPrimitives)
-    (hdiv : env.contains ``Nat.div) {F : VExpr}
+theorem reflects_natShiftRight (henv : env.WF)
+    (hdiv : ∀ a b : Nat, env.IsDefEqU 0 []
+      (.app (.app (.const ``Nat.div []) (.natLit a)) (.natLit b)) (.natLit (Nat.div a b)))
+    {F : VExpr}
     (h0 : ∀ a : Nat, env.IsDefEqU 0 [] (.app (.app F (.natLit a)) .natZero) (.natLit a))
     (hS : ∀ a b : Nat, env.IsDefEqU 0 []
       (.app (.app F (.natLit a)) (.app .natSucc (.natLit b)))
@@ -440,6 +477,273 @@ theorem reflects_natShiftRight (henv : env.WF) (hprim : env.HasPrimitives)
     (S := fun _ e => .app (.app (.const ``Nat.div []) e) (.natLit 2)) (g := Nat.shiftRight)
     h0 hS ?_
   intro a b e he
-  exact IsDefEqU.app2_congr_arg1 henv (hprim.natDiv hdiv (Nat.shiftRight a b) 2) he
+  exact IsDefEqU.app2_congr_arg1 henv (hdiv (Nat.shiftRight a b) 2) he
+
+end VEnv
+
+
+/-! ## Transferring `VEnv.HasPrimitives` across the step that adds one constant
+
+`PrimitiveResult.preserves` in `Lean4Lean/Verify/Environment/Boundaries.lean` must produce a
+whole `VEnv.HasPrimitives` record for `(env'.addDefEq ci'.toDefEq)`, given one for the
+environment the recognizer ran in.  Twenty-one of the twenty-two fields are about names other
+than the one being declared, so they transfer mechanically; the twenty-second is the branch's
+actual content.  `VEnv.PrimField` names that field and `VEnv.HasPrimitives.addDef` does the
+transfer, so a recognizer branch only ever has to supply `PrimField`. -/
+
+namespace VEnv
+
+variable {env env' : VEnv}
+
+theorem contains.mono (hle : env ≤ env') (h : env.contains n) : env'.contains n :=
+  let ⟨_, hci⟩ := h; ⟨_, hle.1 hci⟩
+
+theorem contains_of_constants_eq (hc : env'.constants n = env.constants n)
+    (h : env'.contains n) : env.contains n :=
+  let ⟨ci, hci⟩ := h; ⟨ci, hc ▸ hci⟩
+
+theorem constants_addConst {n m : Name} {ci : VConstant}
+    (h : env.addConst n ci = some env') (hm : m ≠ n) : env'.constants m = env.constants m := by
+  rw [VEnv.addConst] at h
+  split at h
+  · exact absurd h nofun
+  · cases h; simp [Ne.symm hm]
+
+theorem constants_addConst_addDefEq {n m : Name} {ci : VConstant} {df : VDefEq}
+    (h : env.addConst n ci = some env') (hm : m ≠ n) :
+    (env'.addDefEq df).constants m = env.constants m := by
+  show env'.constants m = env.constants m; exact constants_addConst h hm
+
+theorem constants_self_addDefEq {n : Name} {ci : VConstant} {df : VDefEq}
+    (h : env.addConst n ci = some env') : (env'.addDefEq df).constants n = some ci := by
+  show env'.constants n = some ci; exact VEnv.addConst_self h
+
+theorem ReflectsNatNat.mono {fc g} (hle : env ≤ env')
+    (hc : env'.constants fc = env.constants fc) (H : env.ReflectsNatNat fc g) :
+    env'.ReflectsNatNat fc g := fun h a => (H (contains_of_constants_eq hc h) a).mono hle
+
+theorem ReflectsNatNatNat.mono {fc g} (hle : env ≤ env')
+    (hc : env'.constants fc = env.constants fc) (H : env.ReflectsNatNatNat fc g) :
+    env'.ReflectsNatNatNat fc g := fun h a b => (H (contains_of_constants_eq hc h) a b).mono hle
+
+theorem ReflectsNatNatBool.mono {fc g} (hle : env ≤ env')
+    (hc : env'.constants fc = env.constants fc) (H : env.ReflectsNatNatBool fc g) :
+    env'.ReflectsNatNatBool fc g := fun h a b => (H (contains_of_constants_eq hc h) a b).mono hle
+
+/-- `ReflectsNatBitwise` is already relativized to every extension, so it transfers without
+touching its `ReflectsBoolBoolBool` premise -- which is exactly why the field is stated that
+way (the premise occurs negatively, so a non-relativized version would not be monotone). -/
+theorem ReflectsNatBitwise.mono (hle : env ≤ env')
+    (hc : env'.constants ``Nat.bitwise = env.constants ``Nat.bitwise)
+    (H : env.ReflectsNatBitwise) : env'.ReflectsNatBitwise :=
+  fun h env₂ hle₂ f g hg a b => H (contains_of_constants_eq hc h) env₂ (hle.trans hle₂) f g hg a b
+
+/-- The names `Environment.checkPrimitiveInductive`, not `checkPrimitiveDef`, is responsible
+for.  A `.defnDecl` can never carry one of them, so the corresponding `HasPrimitives` fields
+always transfer unchanged. -/
+def primInductiveNames : List Name :=
+  [``Bool, ``Bool.false, ``Bool.true, ``Nat, ``Nat.zero, ``Nat.succ]
+
+/-- The single `VEnv.HasPrimitives` field that a declaration named `n` is responsible for;
+`True` for a name that is not a primitive at all. -/
+def PrimField (env : VEnv) (n : Name) : Prop :=
+  if n = ``Nat.add then env.ReflectsNatNatNat ``Nat.add Nat.add else
+  if n = ``Nat.pred then env.ReflectsNatNat ``Nat.pred Nat.pred else
+  if n = ``Nat.sub then env.ReflectsNatNatNat ``Nat.sub Nat.sub else
+  if n = ``Nat.mul then env.ReflectsNatNatNat ``Nat.mul Nat.mul else
+  if n = ``Nat.pow then env.ReflectsNatNatNat ``Nat.pow Nat.pow else
+  if n = ``Nat.gcd then env.ReflectsNatNatNat ``Nat.gcd Nat.gcd else
+  if n = ``Nat.mod then env.ReflectsNatNatNat ``Nat.mod Nat.mod else
+  if n = ``Nat.div then env.ReflectsNatNatNat ``Nat.div Nat.div else
+  if n = ``Nat.beq then env.ReflectsNatNatBool ``Nat.beq Nat.beq else
+  if n = ``Nat.ble then env.ReflectsNatNatBool ``Nat.ble Nat.ble else
+  if n = ``Nat.bitwise then env.ReflectsNatBitwise else
+  if n = ``Nat.land then env.ReflectsNatNatNat ``Nat.land Nat.land else
+  if n = ``Nat.lor then env.ReflectsNatNatNat ``Nat.lor Nat.lor else
+  if n = ``Nat.xor then env.ReflectsNatNatNat ``Nat.xor Nat.xor else
+  if n = ``Nat.shiftLeft then env.ReflectsNatNatNat ``Nat.shiftLeft Nat.shiftLeft else
+  if n = ``Nat.shiftRight then env.ReflectsNatNatNat ``Nat.shiftRight Nat.shiftRight else
+  if n = ``Char.ofNat then
+    ∀ {ci : VConstant}, env.constants ``Char.ofNat = some ci →
+      ci = { uvars := 0, type := .forallE .nat .char }
+  else if n = ``String.ofList then
+    ∀ {ci : VConstant}, env.constants ``String.ofList = some ci →
+      ci = { uvars := 0, type := .forallE .listChar .string } ∧
+      env.HasType 0 [] .listCharNil .listChar ∧
+      env.HasType 0 [] .listCharCons (.forallE .char <| .forallE .listChar .listChar)
+  else True
+
+@[simp] theorem primField_Nat_add :
+    env.PrimField ``Nat.add ↔ env.ReflectsNatNatNat ``Nat.add Nat.add := by simp [PrimField]
+
+@[simp] theorem primField_Nat_pred :
+    env.PrimField ``Nat.pred ↔ env.ReflectsNatNat ``Nat.pred Nat.pred := by simp [PrimField]
+
+@[simp] theorem primField_Nat_sub :
+    env.PrimField ``Nat.sub ↔ env.ReflectsNatNatNat ``Nat.sub Nat.sub := by simp [PrimField]
+
+@[simp] theorem primField_Nat_mul :
+    env.PrimField ``Nat.mul ↔ env.ReflectsNatNatNat ``Nat.mul Nat.mul := by simp [PrimField]
+
+@[simp] theorem primField_Nat_pow :
+    env.PrimField ``Nat.pow ↔ env.ReflectsNatNatNat ``Nat.pow Nat.pow := by simp [PrimField]
+
+@[simp] theorem primField_Nat_gcd :
+    env.PrimField ``Nat.gcd ↔ env.ReflectsNatNatNat ``Nat.gcd Nat.gcd := by simp [PrimField]
+
+@[simp] theorem primField_Nat_mod :
+    env.PrimField ``Nat.mod ↔ env.ReflectsNatNatNat ``Nat.mod Nat.mod := by simp [PrimField]
+
+@[simp] theorem primField_Nat_div :
+    env.PrimField ``Nat.div ↔ env.ReflectsNatNatNat ``Nat.div Nat.div := by simp [PrimField]
+
+@[simp] theorem primField_Nat_beq :
+    env.PrimField ``Nat.beq ↔ env.ReflectsNatNatBool ``Nat.beq Nat.beq := by simp [PrimField]
+
+@[simp] theorem primField_Nat_ble :
+    env.PrimField ``Nat.ble ↔ env.ReflectsNatNatBool ``Nat.ble Nat.ble := by simp [PrimField]
+
+@[simp] theorem primField_Nat_bitwise :
+    env.PrimField ``Nat.bitwise ↔ env.ReflectsNatBitwise := by simp [PrimField]
+
+@[simp] theorem primField_Nat_land :
+    env.PrimField ``Nat.land ↔ env.ReflectsNatNatNat ``Nat.land Nat.land := by simp [PrimField]
+
+@[simp] theorem primField_Nat_lor :
+    env.PrimField ``Nat.lor ↔ env.ReflectsNatNatNat ``Nat.lor Nat.lor := by simp [PrimField]
+
+@[simp] theorem primField_Nat_xor :
+    env.PrimField ``Nat.xor ↔ env.ReflectsNatNatNat ``Nat.xor Nat.xor := by simp [PrimField]
+
+@[simp] theorem primField_Nat_shiftLeft :
+    env.PrimField ``Nat.shiftLeft ↔ env.ReflectsNatNatNat ``Nat.shiftLeft Nat.shiftLeft := by
+  simp [PrimField]
+
+@[simp] theorem primField_Nat_shiftRight :
+    env.PrimField ``Nat.shiftRight ↔ env.ReflectsNatNatNat ``Nat.shiftRight Nat.shiftRight := by
+  simp [PrimField]
+
+@[simp] theorem primField_Char_ofNat :
+    env.PrimField ``Char.ofNat ↔
+      ∀ {ci : VConstant}, env.constants ``Char.ofNat = some ci →
+        ci = { uvars := 0, type := .forallE .nat .char } := by simp [PrimField]
+
+@[simp] theorem primField_String_ofList :
+    env.PrimField ``String.ofList ↔
+      ∀ {ci : VConstant}, env.constants ``String.ofList = some ci →
+        ci = { uvars := 0, type := .forallE .listChar .string } ∧
+        env.HasType 0 [] .listCharNil .listChar ∧
+        env.HasType 0 [] .listCharCons (.forallE .char <| .forallE .listChar .listChar) := by
+  simp [PrimField]
+
+/-- Transfer `HasPrimitives` across an extension whose only new constant is `n`. -/
+theorem HasPrimitives.extend {n : Name} (hprim : env.HasPrimitives) (hle : env ≤ env')
+    (hagree : ∀ {m}, m ≠ n → env'.constants m = env.constants m)
+    (hstruct : n ∉ primInductiveNames) (hnew : env'.PrimField n) : env'.HasPrimitives := by
+  simp only [primInductiveNames, List.mem_cons, List.not_mem_nil, or_false, not_or] at hstruct
+  obtain ⟨hB, hBf, hBt, hN, hNz, hNs⟩ := hstruct
+  refine
+    { bool := ?_, boolFalse := ?_, boolTrue := ?_, nat := ?_, natZero := ?_, natSucc := ?_
+      natAdd := ?_, natPred := ?_, natSub := ?_, natMul := ?_, natPow := ?_, natGcd := ?_
+      natMod := ?_, natDiv := ?_, natBEq := ?_, natBLE := ?_, natBitwise := ?_
+      natLAnd := ?_, natLOr := ?_, natXor := ?_, natShiftLeft := ?_, natShiftRight := ?_
+      charOfNat := ?_, stringOfList := ?_ }
+  · exact fun h =>
+      have ⟨h1, h2⟩ := hprim.bool (contains_of_constants_eq (hagree (Ne.symm hB)) h)
+      ⟨h1.mono hle, h2.mono hle⟩
+  · exact fun h => hprim.boolFalse (hagree (Ne.symm hBf) ▸ h)
+  · exact fun h => hprim.boolTrue (hagree (Ne.symm hBt) ▸ h)
+  · exact fun h =>
+      have ⟨h1, h2⟩ := hprim.nat (contains_of_constants_eq (hagree (Ne.symm hN)) h)
+      ⟨h1.mono hle, h2.mono hle⟩
+  · exact fun h => hprim.natZero (hagree (Ne.symm hNz) ▸ h)
+  · exact fun h => hprim.natSucc (hagree (Ne.symm hNs) ▸ h)
+  all_goals first
+    | (by_cases h : n = ``Nat.add
+       · subst h; exact (primField_Nat_add).1 hnew
+       · exact hprim.natAdd.mono hle (hagree (Ne.symm h)))
+    | (by_cases h : n = ``Nat.pred
+       · subst h; exact (primField_Nat_pred).1 hnew
+       · exact hprim.natPred.mono hle (hagree (Ne.symm h)))
+    | (by_cases h : n = ``Nat.sub
+       · subst h; exact (primField_Nat_sub).1 hnew
+       · exact hprim.natSub.mono hle (hagree (Ne.symm h)))
+    | (by_cases h : n = ``Nat.mul
+       · subst h; exact (primField_Nat_mul).1 hnew
+       · exact hprim.natMul.mono hle (hagree (Ne.symm h)))
+    | (by_cases h : n = ``Nat.pow
+       · subst h; exact (primField_Nat_pow).1 hnew
+       · exact hprim.natPow.mono hle (hagree (Ne.symm h)))
+    | (by_cases h : n = ``Nat.gcd
+       · subst h; exact (primField_Nat_gcd).1 hnew
+       · exact hprim.natGcd.mono hle (hagree (Ne.symm h)))
+    | (by_cases h : n = ``Nat.mod
+       · subst h; exact (primField_Nat_mod).1 hnew
+       · exact hprim.natMod.mono hle (hagree (Ne.symm h)))
+    | (by_cases h : n = ``Nat.div
+       · subst h; exact (primField_Nat_div).1 hnew
+       · exact hprim.natDiv.mono hle (hagree (Ne.symm h)))
+    | (by_cases h : n = ``Nat.beq
+       · subst h; exact (primField_Nat_beq).1 hnew
+       · exact hprim.natBEq.mono hle (hagree (Ne.symm h)))
+    | (by_cases h : n = ``Nat.ble
+       · subst h; exact (primField_Nat_ble).1 hnew
+       · exact hprim.natBLE.mono hle (hagree (Ne.symm h)))
+    | (by_cases h : n = ``Nat.bitwise
+       · subst h; exact (primField_Nat_bitwise).1 hnew
+       · exact hprim.natBitwise.mono hle (hagree (Ne.symm h)))
+    | (by_cases h : n = ``Nat.land
+       · subst h; exact (primField_Nat_land).1 hnew
+       · exact hprim.natLAnd.mono hle (hagree (Ne.symm h)))
+    | (by_cases h : n = ``Nat.lor
+       · subst h; exact (primField_Nat_lor).1 hnew
+       · exact hprim.natLOr.mono hle (hagree (Ne.symm h)))
+    | (by_cases h : n = ``Nat.xor
+       · subst h; exact (primField_Nat_xor).1 hnew
+       · exact hprim.natXor.mono hle (hagree (Ne.symm h)))
+    | (by_cases h : n = ``Nat.shiftLeft
+       · subst h; exact (primField_Nat_shiftLeft).1 hnew
+       · exact hprim.natShiftLeft.mono hle (hagree (Ne.symm h)))
+    | (by_cases h : n = ``Nat.shiftRight
+       · subst h; exact (primField_Nat_shiftRight).1 hnew
+       · exact hprim.natShiftRight.mono hle (hagree (Ne.symm h)))
+    | (by_cases h : n = ``Char.ofNat
+       · subst h; exact fun hci => (primField_Char_ofNat).1 hnew hci
+       · exact fun hci => hprim.charOfNat (hagree (Ne.symm h) ▸ hci))
+    | (by_cases h : n = ``String.ofList
+       · subst h; exact fun hci => (primField_String_ofList).1 hnew hci
+       · exact fun hci =>
+           have ⟨a1, a2, a3⟩ := hprim.stringOfList (hagree (Ne.symm h) ▸ hci)
+           ⟨a1, a2.mono hle, a3.mono hle⟩)
+
+/-- The form `PrimitiveResult.preserves` needs: the recognizer's declaration is added as a
+constant and then as a defining equation, so the only new constant is `v.name`. -/
+theorem HasPrimitives.addDef {v : VDefVal} (hprim : env.HasPrimitives)
+    (hadd : env.addConst v.name v.toVConstant = some env')
+    (hstruct : v.name ∉ primInductiveNames)
+    (hnew : (env'.addDefEq v.toDefEq).PrimField v.name) :
+    (env'.addDefEq v.toDefEq).HasPrimitives :=
+  hprim.extend ((VEnv.addConst_le hadd).trans VEnv.addDefEq_le)
+    (fun hm => constants_addConst_addDefEq hadd hm) hstruct hnew
+
+theorem _root_.Lean4Lean.VLevel.params_zero : VLevel.params 0 = [] := by simp [VLevel.params]
+
+/-- The defining equation the declaration contributes, in the form the reflection lemmas
+consume: `.const v.name [] ≡ v.value`.  `VLevel.params 0 = []`, so the level arguments vanish
+exactly when the declaration has no level parameters -- which the recognizer checks. -/
+theorem const_defeq_value {v : VDefVal} (hv : v.uvars = 0)
+    (hty : v.toVConstant.WF env) (hval : env.HasType v.uvars [] v.value v.type)
+    (hadd : env.addConst v.name v.toVConstant = some env') :
+    (env'.addDefEq v.toDefEq).IsDefEqU 0 [] (.const v.name []) v.value := by
+  have hle : env ≤ env'.addDefEq v.toDefEq := (VEnv.addConst_le hadd).trans VEnv.addDefEq_le
+  have hlhs : (env'.addDefEq v.toDefEq).HasType v.uvars []
+      (.const v.name (VLevel.params v.uvars)) v.type :=
+    VEnv.HasType.const0 (constants_self_addDefEq hadd) (hty.mono hle)
+  have hdf : (v.toDefEq).WF (env'.addDefEq v.toDefEq) := ⟨hlhs, hval.mono hle⟩
+  have h := VEnv.IsDefEq.extra0 (df := v.toDefEq) VEnv.addDefEq_self hdf
+  rw [show (v.toDefEq).uvars = v.uvars from rfl, hv] at h
+  rw [show (v.toDefEq).lhs = .const v.name (VLevel.params v.uvars) from rfl, hv,
+    VLevel.params_zero] at h
+  exact ⟨_, h⟩
 
 end VEnv
