@@ -74,3 +74,18 @@ only for whole-project builds or work in other checkouts (e.g. Foundation).
   in `Lean4Lean/Theory/Typing/Injectivity.lean`, and ultimately the two
   model constructions behind the main theorem.
 - `Lean4Lean/Experimental/` is scratch space; it is not part of the goal.
+
+## References
+
+- `~/lean-type-theory` — LaTeX source of M. Carneiro, *The Type Theory of
+  Lean* (2019), the authoritative paper behind this project. Consult it
+  before designing any spec or proof: `typesys.tex` (the typing rules that
+  `Lean4Lean/Theory` formalizes, including inductives — the blueprint for
+  `VInductDecl.WF`/`VEnv.addInduct`), `soundness.tex` (the ZFC +
+  n-inaccessibles model — the blueprint for the main theorem's `←`
+  direction), `unique.tex` (unique typing / `UniqueTyping.lean`
+  conjectures), `axioms.tex` (propext, Quot.sound, choice), `Wtypes.tex`,
+  `normalization.tex`.
+- `~/lean-kernel-arena` — the Kernel Arena checkout used for goal 1.
+- `~/Foundation` — working checkout of the Foundation fork (branch
+  `lean4lean-dev`).
