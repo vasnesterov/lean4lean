@@ -585,7 +585,25 @@ This section is that half — a pure function, with a round-trip theorem, and no
 
 `splitPis` splits at an *exact* count rather than peeling maximally.  That is deliberate: a
 field's type may itself be a `forallE` (`Iff.intro`'s `mp : a → b`), and a maximal peel would
-walk into the last one's codomain.  Splitting at `np + |fields|` cannot. -/
+walk into the last one's codomain.  Splitting at `np + |fields|` cannot.
+
+**Where each field comes from.**  Read off `Lean4Lean/Inductive/Add.lean`, since the checker's
+phases are what witness the relation.  `checkInductiveTypes` walks each *type*'s pi-spine with
+`whnf` at every step (F1); `checkConstructors` walks each *constructor*'s **without** `whnf`
+(F2).  That asymmetry is the whole reason one half is a function and the other is not.
+
+| field | supplied by | how |
+|---|---|---|
+| `uvars` | declaration | `lparams.length` |
+| `types[j].name`, `.type` | declaration | stored, verbatim |
+| `ctors[q].params/fields.type/args` | declaration | `VIndCtor.skeleton` below, by F2 |
+| `D.params` | **constructor side** | *not* the type's pi-spine (F1 blocks it) — tie to `C.params` via `VIndCtor.WF.params_eq`, where the fact already holds |
+| `types[j].indices` | checker, *count only* | `stats.nindices` is a `Nat`; the index fvars are `withLocalDecl`-bound and dropped.  Existential, tied by `VIndType.WF.canon` |
+| `D.lvl` | checker | `stats.resultLevel`, after `ensureSort`.  It occurs in **no stored type** (`DeclExamples`), so `canon` / `VIndCtor.WF.result` is the only tie — do not look for a syntactic route |
+| `fields[i].lvl` | checker | `ensureType dom` in `checkConstructors` |
+| `fields[i].recArg` | checker | `checkPositivity`/`isRecArg` — **skipped when `isUnsafe`**, which is why `TrIndDecl` is stated for safe blocks only |
+| `D.isLE` | checker | `isLargeEliminator` |
+-/
 
 namespace VExpr
 
