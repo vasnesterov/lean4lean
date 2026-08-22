@@ -328,6 +328,43 @@ theorem VEnv.IsDefEq.betaMkLams {env : VEnv} {U : Nat} (henv : env.Ordered) :
       Nat.zero_add, hlen]
     exact hstep.trans hih
 
+/-- **A λ-abstracted `VDefEq` rule, applied to a concrete spine and β-reduced.**
+
+`VDefEq.lhs`/`.rhs` as the `vdefeq(...)` elaborator builds them are closed λ-abstractions
+sharing one telescope, while every *consumer* meets the rule already applied: the checker's
+redex, `projCore`'s recursor application, a `Pattern` match.  `IsDefEq.extra` delivers the
+abstractions; this delivers the instance.
+
+Three rules need exactly this peel and it is the same peel each time — `iota_law` below (the
+ι rule at a constructor spine), `Theory/Typing/PatternRules.lean`'s quotient `extra_pat`, and
+`reduceRecursor.WF`'s `quotReduceRec` branch.  Stated once here so it is not re-derived a
+fourth time; `iota_law` predates it and is left as it stands rather than churned.
+
+Note what the caller still owes: `hargs`.  For a rule that binds one variable and uses it in
+two spine positions — `quotDefEq`'s `α` and `r` appear in both the `Quot.lift` head and the
+`Quot.mk` argument — the corresponding component of `hargs` is a *reconciliation* obligation,
+not bookkeeping, and no choice of `as` avoids it. -/
+theorem VEnv.IsDefEq.extra_applied {env : VEnv} {U : Nat} {Γ : List VExpr} {df : VDefEq}
+    (henv : env.Ordered) (hdf : env.defeqs df) {ls : List VLevel}
+    (hls : ∀ l ∈ ls, l.WF U) (hlen : ls.length = df.uvars)
+    {As : List VExpr} {lhs rhs ty : VExpr}
+    (hl : df.lhs = mkLams As lhs) (hr : df.rhs = mkLams As rhs) (ht : df.type = mkPi As ty)
+    {as : List VExpr}
+    (hOn : OnCtx ((As.map (VExpr.instL ls)).reverse ++ Γ) (env.IsType U))
+    (hargs : env.HasArgs U Γ (As.map (VExpr.instL ls)) as)
+    (hlhsTy : env.HasType U ((As.map (VExpr.instL ls)).reverse ++ Γ)
+      (lhs.instL ls) (ty.instL ls))
+    (hrhsTy : env.HasType U ((As.map (VExpr.instL ls)).reverse ++ Γ)
+      (rhs.instL ls) (ty.instL ls)) :
+    env.IsDefEq U Γ (VExpr.instAll (lhs.instL ls) as) (VExpr.instAll (rhs.instL ls) as)
+      (VExpr.instAll (ty.instL ls) as) := by
+  have hextra := VEnv.IsDefEq.extra (Γ := Γ) hdf hls hlen
+  rw [hl, hr, ht, VExpr.instL_mkLams, VExpr.instL_mkLams, VExpr.instL_mkPi] at hextra
+  have hstep := VEnv.IsDefEq.mkApp' hargs hextra
+  have hL := VEnv.IsDefEq.betaMkLams henv hOn hargs hlhsTy
+  have hR := VEnv.IsDefEq.betaMkLams henv hOn hargs hrhsTy
+  exact hL.symm.trans (hstep.trans hR)
+
 namespace VExpr
 
 /-- **Composing two saturated substitutions.**  If `X` is closed at `|L|`, substituting `L`
