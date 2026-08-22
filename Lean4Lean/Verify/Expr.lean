@@ -948,8 +948,11 @@ theorem instantiateList_instantiate1_comm (h : a.looseBVarRange' = 0) :
   congr 1; refine (instantiate1'_instantiate1' (j := 0) ..).trans ?_
   rw [liftLooseBVars_eq_self (by simp [h])]
 
-theorem instantiateRev_push {e : Expr} {subst a} :
+theorem instantiateRev_push {e : Expr} {subst a} (ha : a.looseBVarRange' = 0)
+    (hs : ∀ x ∈ subst, x.looseBVarRange' = 0) :
     instantiateRev e (subst.push a) = instantiateRev (e.instantiate1' a) subst := by
+  rw [instantiateRev_eq, instantiateRev_eq,
+    instantiate_eq _ _ (by simpa using ⟨ha, hs⟩), instantiate_eq _ _ (by simpa using hs)]
   let ⟨subst⟩ := subst; simp [instantiateList]
 
 theorem abstractList_eq_foldl {e : Expr} {as k} :

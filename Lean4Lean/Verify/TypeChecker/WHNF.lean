@@ -84,6 +84,10 @@ theorem whnfCore'.WF {c : VContext} {s : VState} (he : c.TrExprS e e') :
           simp [or_imp, forall_and] at this ⊢
           exact this.2) |>.mkAppRevList (es := l₁)
       simp [← Expr.mkAppRevList_reverse, ← Expr.mkAppRevList_append, ← h5] at br
+      have hl₂ : ∀ x ∈ l₂, x.looseBVarRange' = 0 := fun x hx =>
+        ((c.mlctx.noBV ▸ he.closed).getAppArgsRevList
+          (h5 ▸ List.mem_append_right _ hx)).looseBVarRange_zero
+      rw [Expr.instantiate_eq _ _ (by simpa using hl₂)]
       have := h2.rebuild_mkAppRevList c.Ewf c.Δwf stk.tr <|
         e.mkAppRevList_getAppArgsRevList ▸ he
       have ⟨_, a1, a2⟩ := this.beta c.Ewf c.Δwf br
