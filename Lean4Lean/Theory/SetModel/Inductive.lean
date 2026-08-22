@@ -765,20 +765,13 @@ indices are block-free.  `Fld : V → V` is therefore correct, and the flat
 interleaved telescope is handled (`Pos`, `posIdx`, `resIdx` all take the
 non-recursive data as an argument).
 
-**Not covered — existence of the carrier `D`.**  Everything is relative to
-`IsIndCarrier S D`.  Producing such a `D` inside `Vset κ` is the transfinite
-iteration of §10.  Its cardinal-arithmetic prerequisite is now **closed**:
-`SetModel/Cardinal.lean` proves `exists_cardLE_of_mem` (`|V_β| < κ`) and hence
-`repl_mem_vsetV'` and `range_mem_vsetV`, so a stage-valued function on any
-`B ∈ Vset κ` has its range inside the stage.
+**The carrier is no longer a hypothesis.**  `SetModel/IndStage.lean` proves
+`isIndCarrier_vsetV`: with full replacement inside `Vset κ` available, the stage
+itself is a carrier, so every theorem in this file holds outright for a signature
+whose components live in the stage (see the `…_stage` forms there).  And
+`SetModel/IndCard.lean` proves `Ind_mem_vsetV`: the family is a *member* of the
+stage, not merely a subset of `Idx ×ˢ Vset κ`.
 
-What is left is the *closure-ordinal* argument: iterate
-`Φ₀(S) = {⟨q,⟨a,f⟩ₖ⟩ₖ | q ∈ Q, a ∈ Fld q, f ∈ S ^ Pos q a}` along the ordinals
-with `transrec`, show each stage lies in `Vset κ` (this is exactly what
-`range_mem_vsetV` now supplies), and show the iteration stabilises at some
-`λ < κ` — the last step being regularity applied to the index set `Pos q a`,
-also now available via `exists_rank_bound_of_mem_vsetV`.  No further
-prerequisite is missing; it is bounded, ordinary work.
 -/
 
 end Lean4Lean.SetModel

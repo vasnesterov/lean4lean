@@ -18,10 +18,10 @@ signature whose components live in the stage, and every theorem of
 principle, the recursor, the ι-rule, the subsingleton analysis — applies with no
 carrier hypothesis left over.
 
-What is *not* settled here is `Ind S (vsetV κ) ∈ Vset κ` — the family as a
-*member* of the stage rather than a subset of it.  Two clean reductions are
-proved (`Ind_mem_vsetV_of_carrier`, `Ind_mem_vsetV_of_cardLE`) and the residue is
-stated precisely at the end of the file.
+What is not settled *here* is `Ind S (vsetV κ) ∈ Vset κ` — the family as a
+*member* of the stage rather than a subset of it.  Two reductions are proved
+(`Ind_mem_vsetV_of_carrier`, `Ind_mem_vsetV_of_cardLE`); `SetModel/IndCard.lean`
+discharges the second and so closes the statement.
 -/
 
 namespace Lean4Lean.SetModel
@@ -264,31 +264,17 @@ inaccessible `κ`: `isIndCarrier_vsetV`, and with it every theorem of
 not depend on which carrier inside the stage is used, so the construction is
 canonical.
 
-**Open — one statement.**  `Ind S (vsetV κ) ∈ Vset κ`, i.e. the family as a
-*member* of the stage.  Reduced here to either
+**Now closed.**  `Ind S (vsetV κ) ∈ Vset κ` is proved in `SetModel/IndCard.lean`
+as `Ind_mem_vsetV`, by the cardinality reduction below: every node of a
+well-founded tree is at finite depth, so the family injects into
+`℘ (Seq 𝒫 ×ˢ Sig)` and strong-limitness bounds that below `κ`.  No Hartogs'
+theorem and no cofinality argument are involved.
+
+The two reductions proved here are what that construction consumes:
 
 * a carrier `D ∈ Vset κ` (`Ind_mem_vsetV_of_carrier`), or
-* a cardinality bound `Ind S (vsetV κ) ≤# c ∈ κ` (`Ind_mem_vsetV_of_cardLE`).
-
-Both reductions are proved; what neither reduction supplies is the bound itself,
-and the reason is worth recording because it is *not* the same obstruction as
-before.  The transfinite iteration
-`T γ = ⋃_{β<γ} {⟨q,⟨a,f⟩ₖ⟩ₖ | f ∈ (T β) ^ Pos q a}` stays inside `Vset κ` at
-every stage (that is `repl_mem_vsetV'` and is now available), but it stabilises
-at some `λ < κ` only if `cf λ` exceeds every `|Pos q a|` — and producing such a
-`λ` below an inaccessible needs a *cardinal successor*, i.e. Hartogs' theorem:
-that the ordinals injecting into a set `X` form an ordinal not injecting into
-`X`.  That in turn needs the Mostowski collapse of well-orderings onto ordinals,
-which Foundation does not have and which is a development in its own right —
-comparable in size to `Cardinal.lean`.
-
-Equivalently, via `Ind_mem_vsetV_of_cardLE`: bound `|Ind|` directly.  Every node
-of a well-founded tree sits at *finite* depth from the root, so `Ind` injects
-into the partial labelled functions on finite sequences from `⋃_{q,a} Pos q a`,
-giving `|Ind| ≤ 2^{|Seq 𝒫|} < κ` by strong-limitness.  This route needs finite
-sequences (an `ω`-recursion, available via `transrec`) and the tree-to-path
-encoding, but **no** Hartogs.  It is the cheaper of the two and is the
-recommended next step.
+* a cardinality bound `Ind S (vsetV κ) ≤# c ∈ κ` (`Ind_mem_vsetV_of_cardLE`)
+  — this is the one `IndCard.lean` uses.
 
 Note the practical consequence of the gap being *only* this: the family is a
 well-defined set with all its constructors, its recursor and its ι-rule, and the
