@@ -1,5 +1,6 @@
 import Lean4Lean.Theory.Typing.PatternRules
 import Lean4Lean.Experimental.SExpr
+import Lean4Lean.Experimental.Bridge
 
 /-!
 # The shape model's `Params`, instantiated
@@ -170,5 +171,214 @@ complete-looking*.  It named one consequence of the single-list design (`applyS`
 cost estimate reads exactly like a complete one.  That is a distinct failure from a stale
 docstring, and harder to catch: a stale note can be checked against the code, while a complete
 -looking partial note gives a reader no signal that anything is missing. -/
+
+/-! ## B1–B4: `SExpr.ParamsExtra.extra_pat`, by transport
+
+The peel was shaped clause-for-clause against `Theory/Typing/PatternRules.lean`'s `Pat.extra`,
+so this is a transport rather than a proof.  Two facts make it one:
+
+* **`SExpr.mk` is surjective.**  `SExpr` mirrors `VExpr` with `SLevel` for `VLevel`, and every
+  `SLevel` *is* `SLevel.mk` of some `VLevel` — that is its subtype property.  So the arbitrary
+  `Γ : List SExpr` and `ls : List SLevel` of `extra_pat` both have `VExpr`/`VLevel` preimages,
+  and `Pat.extra` can simply be instantiated at them.  Without this the check clauses would
+  need an `SExpr`-side right-weakening (`Γ` is arbitrary while `Pat.extra`'s judgements live in
+  `Δ.reverse`), and `Ctx.Lift'` cannot express appending on the right — it grows a context at
+  the front, which shifts indices.
+* **`extra_pat` asks nothing about level well-formedness**, while `Pat.extra` needs it.  Any
+  single `VLevel` mentions finitely many parameters, so a large enough `U` makes a whole list
+  well-formed at once, and `Pat.extra`'s `U` is universally quantified. -/
+
+theorem VLevel.wf_mono : ∀ {l : VLevel} {m n : Nat}, m ≤ n → l.WF m → l.WF n
+  | .zero, _, _, _, _ => trivial
+  | .succ l, _, _, h, hl => VLevel.wf_mono (l := l) h hl
+  | .max _ _, _, _, h, hl => ⟨VLevel.wf_mono h hl.1, VLevel.wf_mono h hl.2⟩
+  | .imax _ _, _, _, h, hl => ⟨VLevel.wf_mono h hl.1, VLevel.wf_mono h hl.2⟩
+  | .param i, _, _, h, hl => Nat.lt_of_lt_of_le hl h
+
+theorem VLevel.exists_wf : ∀ l : VLevel, ∃ n, l.WF n
+  | .zero => ⟨0, trivial⟩
+  | .succ l => let ⟨n, h⟩ := VLevel.exists_wf l; ⟨n, h⟩
+  | .max l₁ l₂ | .imax l₁ l₂ =>
+    let ⟨n₁, h₁⟩ := VLevel.exists_wf l₁; let ⟨n₂, h₂⟩ := VLevel.exists_wf l₂
+    ⟨Nat.max n₁ n₂, VLevel.wf_mono (Nat.le_max_left ..) h₁,
+      VLevel.wf_mono (Nat.le_max_right ..) h₂⟩
+  | .param i => ⟨i + 1, Nat.lt_succ_self i⟩
+
+theorem VLevel.exists_wf_list : ∀ ls : List VLevel, ∃ n, ∀ l ∈ ls, l.WF n
+  | [] => ⟨0, by simp⟩
+  | l :: ls => by
+    obtain ⟨n₁, h₁⟩ := VLevel.exists_wf l
+    obtain ⟨n₂, h₂⟩ := VLevel.exists_wf_list ls
+    refine ⟨Nat.max n₁ n₂, fun x hx => ?_⟩
+    rcases List.mem_cons.1 hx with rfl | hx
+    · exact VLevel.wf_mono (Nat.le_max_left ..) h₁
+    · exact VLevel.wf_mono (Nat.le_max_right ..) (h₂ x hx)
+
+/-- Every `SLevel` is `SLevel.mk` of a `VLevel` — its defining property, as a surjection. -/
+theorem SLevel.mk_surj (s : SLevel) : ∃ l : VLevel, SLevel.mk l = s :=
+  let ⟨l, h⟩ := s.2; ⟨l, Subtype.ext h⟩
+
+theorem SLevel.mk_surj_list : ∀ ls : List SLevel, ∃ vs : List VLevel, vs.map SLevel.mk = ls
+  | [] => ⟨[], rfl⟩
+  | s :: ls =>
+    let ⟨l, hl⟩ := SLevel.mk_surj s
+    let ⟨vs, hvs⟩ := SLevel.mk_surj_list ls
+    ⟨l :: vs, by rw [List.map_cons, hl, hvs]⟩
+
+/-- …and hence `SExpr.mk` is surjective: `SExpr` is `VExpr` with `SLevel` in place of
+`VLevel`, node for node. -/
+theorem SExpr.mk_surj : ∀ e : SExpr, ∃ v : VExpr, SExpr.mk v = e
+  | .bvar i => ⟨.bvar i, rfl⟩
+  | .sort u => let ⟨l, hl⟩ := SLevel.mk_surj u; ⟨.sort l, by rw [← hl]; rfl⟩
+  | .const c ls => let ⟨vs, hvs⟩ := SLevel.mk_surj_list ls; ⟨.const c vs, by rw [← hvs]; rfl⟩
+  | .app f a =>
+    let ⟨f', hf⟩ := SExpr.mk_surj f; let ⟨a', ha⟩ := SExpr.mk_surj a
+    ⟨.app f' a', by rw [← hf, ← ha]; rfl⟩
+  | .lam A e =>
+    let ⟨A', hA⟩ := SExpr.mk_surj A; let ⟨e', he⟩ := SExpr.mk_surj e
+    ⟨.lam A' e', by rw [← hA, ← he]; rfl⟩
+  | .forallE A B =>
+    let ⟨A', hA⟩ := SExpr.mk_surj A; let ⟨B', hB⟩ := SExpr.mk_surj B
+    ⟨.forallE A' B', by rw [← hA, ← hB]; rfl⟩
+
+theorem SExpr.mk_surj_list : ∀ es : List SExpr, ∃ vs : List VExpr, vs.map SExpr.mk = es
+  | [] => ⟨[], rfl⟩
+  | e :: es =>
+    let ⟨v, hv⟩ := SExpr.mk_surj e
+    let ⟨vs, hvs⟩ := SExpr.mk_surj_list es
+    ⟨v :: vs, by rw [List.map_cons, hv, hvs]⟩
+
+theorem SExpr.mk_mkLams : ∀ {As : List VExpr} {b : VExpr},
+    SExpr.mk (VExpr.mkLams As b) = SExpr.mkLams (As.map SExpr.mk) (SExpr.mk b)
+  | [], _ => rfl
+  | _ :: As, b => by
+    rw [VExpr.mkLams, show SExpr.mk (VExpr.lam _ _) = .lam (SExpr.mk _) (SExpr.mk _) from rfl,
+      SExpr.mk_mkLams (As := As), List.map_cons, SExpr.mkLams]
+
+/-- The level map of a `VExpr`-side match, pushed to `SExpr`. -/
+abbrev Pattern.mkL {p : Pattern} (m1 : p.LPath → List VLevel) : p.LPath → List SLevel :=
+  fun x => (m1 x).map SLevel.mk
+
+/-- The argument map of a `VExpr`-side match, pushed to `SExpr`. -/
+abbrev Pattern.mkP {p : Pattern} (m2 : p.Path → VExpr) : p.Path → SExpr :=
+  fun y => SExpr.mk (m2 y)
+
+/-- **`Matches` transports to `MatchesS`.**  The two are structurally identical — `const`,
+`var`, `app` with the same maps — so this is one induction with `SExpr.mk` pushed through.
+
+Stated with the two maps existential and pinned *pointwise*, because the constructors build
+them from `Sum.elim`/`Option.elim` and rewriting under a binder to match `mkL`/`mkP` on the
+nose is fragile; one `funext` at the use site is cheaper. -/
+theorem Pattern.Matches.toS {p : Pattern} {e : VExpr} {m1 m2}
+    (H : Pattern.Matches p e m1 m2) :
+    ∃ n1 n2, p.MatchesS (SExpr.mk e) n1 n2 ∧
+      (∀ x, n1 x = (m1 x).map SLevel.mk) ∧ (∀ y, n2 y = SExpr.mk (m2 y)) := by
+  induction H with
+  | const => exact ⟨_, _, .const, fun _ => rfl, fun x => x.elim⟩
+  | var _ ih =>
+    obtain ⟨n1, n2, hm, h1, h2⟩ := ih
+    exact ⟨n1, _, .var hm, h1, fun y => by cases y with
+      | none => rfl
+      | some y => exact h2 y⟩
+  | app _ _ ih1 ih2 =>
+    obtain ⟨n1, n2, hm, h1, h2⟩ := ih1
+    obtain ⟨n1', n2', hm', h1', h2'⟩ := ih2
+    exact ⟨_, _, .app hm hm', fun x => by cases x with
+      | inl x => exact h1 x
+      | inr x => exact h1' x, fun y => by cases y with
+      | inl y => exact h2 y
+      | inr y => exact h2' y⟩
+
+/-- **`RHS.apply` transports to `applyS`.**  `mk_instL` handles the `fixed` leaf; the rest is
+structural. -/
+theorem Pattern.RHS.mk_apply [Params] {p : Pattern} {m1 m2} : ∀ r : p.RHS,
+    SExpr.mk (r.apply m1 m2) = r.applyS (Pattern.mkL m1) (Pattern.mkP m2)
+  | .fixed c lp _ => SExpr.mk_instL
+  | .var _ => rfl
+  | .app f a => by
+    rw [Pattern.RHS.apply, Pattern.RHS.applyS,
+      show SExpr.mk (VExpr.app _ _) = .app (SExpr.mk _) (SExpr.mk _) from rfl,
+      Pattern.RHS.mk_apply f, Pattern.RHS.mk_apply a]
+
+/-- `SLevel.zero` is `SLevel.mk VLevel.zero`, so `getD` commutes with `mk`. -/
+theorem SLevel.getD_map (l : List VLevel) (i : Nat) :
+    (l.map SLevel.mk).getD i .zero = SLevel.mk (l.getD i .zero) := by
+  rw [List.getD_eq_getElem?_getD, List.getD_eq_getElem?_getD, List.getElem?_map]
+  cases l[i]? <;> rfl
+
+/-- **`Check.OK` transports to the `dfs` list.**  A `defeq` clause becomes its `IsDefEqU`
+witness pushed through `VEnv.IsDefEq.toSExpr`; a `level` clause becomes a *reflexive* sort
+judgement, because on the `SExpr` side `SLevel` is already quotiented by `≈`, so the two sides
+of the clause are literally the same `SLevel` (`SLevel.mk_congr`) and `IsDefEq.sort` applies
+with no well-formedness side condition. -/
+theorem Pattern.Check.toDfs [Params] {p : Pattern} {m1 m2} {Γ : List VExpr} {U : Nat} :
+    ∀ ck : p.Check, ck.OK (Params.env.IsDefEqU U Γ) m1 m2 →
+      ∃ dfs : List (SExpr × SExpr × SExpr),
+        dfs.map (·.2) = ck.defeqsS (Pattern.mkL m1) (Pattern.mkP m2) ∧
+        ∀ a b A, (A, a, b) ∈ dfs → SExpr.IsDefEq (Γ.map SExpr.mk) a b A
+  | .true, _ => ⟨[], rfl, by simp⟩
+  | .defeq x y rest, h => by
+    obtain ⟨dfs, hmap, hall⟩ := Pattern.Check.toDfs rest h.2
+    obtain ⟨A, hA⟩ := h.1
+    refine ⟨(SExpr.mk A, x.applyS (Pattern.mkL m1) (Pattern.mkP m2),
+      y.applyS (Pattern.mkL m1) (Pattern.mkP m2)) :: dfs, by rw [List.map_cons, hmap]; rfl, ?_⟩
+    intro a b B hb
+    rcases List.mem_cons.1 hb with he | hb
+    · cases he
+      rw [← Pattern.RHS.mk_apply, ← Pattern.RHS.mk_apply]
+      exact VEnv.IsDefEq.toSExpr hA
+    · exact hall a b B hb
+  | .level x i y j rest, h => by
+    obtain ⟨dfs, hmap, hall⟩ := Pattern.Check.toDfs rest h.2
+    refine ⟨(SExpr.sort (SLevel.succ (SLevel.mk ((m1 x).getD i .zero))),
+      SExpr.sort ((Pattern.mkL m1 x).getD i .zero),
+      SExpr.sort ((Pattern.mkL m1 y).getD j .zero)) :: dfs,
+      by rw [List.map_cons, hmap]; rfl, ?_⟩
+    intro a b B hb
+    rcases List.mem_cons.1 hb with he | hb
+    · cases he
+      rw [SLevel.getD_map, SLevel.getD_map, SLevel.mk_congr h.1]
+      exact .sort
+    · exact hall a b B hb
+
+/-- **`SExpr.ParamsExtra.extra_pat`, for `paramsOfWF`.**  The field's statement, discharged by
+transporting `Theory/Typing/PatternRules.lean`'s `Pat.extra` across `SExpr.mk`.
+
+The two preimages are what make it a transport: `ls` and `Γ` are arbitrary on the `SExpr`
+side, and `SExpr.mk` is surjective, so `Pat.extra` is instantiated at their `VExpr` preimages
+rather than weakened into place.  `U` is chosen to bound the preimage level list, which is the
+only thing `Pat.extra` asks for that the field does not. -/
+theorem extra_pat_paramsOfWF {e : VEnv} (henv : e.WF) (univs : Nat)
+    (Γ : List SExpr) {df : VDefEq} {ls : List SLevel}
+    (hdf : e.defeqs df) (hlen : ls.length = df.uvars) :
+    letI : Params := paramsOfWF henv univs
+    ∃ Δ L R p r m1 m2 dfs,
+      SExpr.instL ls (SExpr.mk df.lhs) = SExpr.mkLams Δ L ∧
+      SExpr.instL ls (SExpr.mk df.rhs) = SExpr.mkLams Δ R ∧
+      Pat e p r ∧ p.MatchesS L m1 m2 ∧
+      (dfs : List (SExpr × SExpr × SExpr)).map (·.2) = r.2.defeqsS m1 m2 ∧
+      (∀ a b A, (A, a, b) ∈ dfs → SExpr.IsDefEq (Δ.reverse ++ Γ) a b A) ∧
+      R = r.1.applyS m1 m2 := by
+  letI inst : Params := paramsOfWF henv univs
+  obtain ⟨vs, rfl⟩ := SLevel.mk_surj_list ls
+  obtain ⟨ΓV, rfl⟩ := SExpr.mk_surj_list Γ
+  obtain ⟨n, hn⟩ := VLevel.exists_wf_list vs
+  have hlen' : vs.length = df.uvars := by rwa [List.length_map] at hlen
+  obtain ⟨Δ, L, R, p, r, m1, m2, hL, hR, hpat, hm, hck, hRHS⟩ :=
+    Pat.extra henv (Γ := ΓV) (U := n) hdf hn hlen'
+  obtain ⟨n1, n2, hmS, e1, e2⟩ := hm.toS
+  obtain ⟨dfs, hmap, hall⟩ :=
+    Pattern.Check.toDfs (Γ := Δ.reverse ++ ΓV) (U := n) r.2 hck
+  have he1 : n1 = Pattern.mkL m1 := funext e1
+  have he2 : n2 = Pattern.mkP m2 := funext e2
+  subst he1; subst he2
+  refine ⟨Δ.map SExpr.mk, SExpr.mk L, SExpr.mk R, p, r, _, _, dfs, ?_, ?_, hpat, hmS,
+    hmap, ?_, ?_⟩
+  · rw [← SExpr.mk_instL, hL, SExpr.mk_mkLams]
+  · rw [← SExpr.mk_instL, hR, SExpr.mk_mkLams]
+  · intro a b A hmem
+    have := hall a b A hmem
+    rwa [List.map_append, List.map_reverse] at this
+  · rw [hRHS, Pattern.RHS.mk_apply]
 
 end Lean4Lean
