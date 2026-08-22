@@ -39,15 +39,55 @@ where
   | [], b => b
   | x :: xs, b => go xs (mkBindingList1 isLambda lctx xs.reverse x b)
 
-theorem mkBinding_eq :
+theorem _root_.Nat.foldRev_congr_fun {α : Type u} {n : Nat} {f g : (i : Nat) → i < n → α → α}
+    (h : ∀ i hi a, f i hi a = g i hi a) (init : α) :
+    Nat.foldRev n f init = Nat.foldRev n g init := by
+  induction n generalizing init with
+  | zero => rfl
+  | succ n ih => simp only [Nat.foldRev_succ, h]; exact ih (fun i hi a => h i _ a) _
+
+/--
+`mkBinding` calls `Expr.abstract`, which (unlike the model `abstractList`) captures loose
+bvars and resolves repeated variables last-wins.  `hb`/`hlc` (everything abstracted is
+loose-bvar-free) and `hnd` (`xs` has no duplicates) are exactly the side conditions of
+`Expr.abstract_eq`; see `docs/axiom-audit.md` §5.2.
+-/
+theorem mkBinding_eq (hb : b.looseBVarRange' = 0) (hnd : xs.Nodup)
+    (hlc : ∀ x ∈ xs, ∀ d, lctx.find? x = some d →
+      d.type.looseBVarRange' = 0 ∧ ∀ v ∈ d.value? true, v.looseBVarRange' = 0) :
     mkBinding isLambda lctx ⟨xs.map .fvar⟩ b = mkBindingList isLambda lctx xs b := by
   simp only [mkBinding, List.getElem_toArray, Expr.abstractRange_eq, Expr.hasLooseBVar_eq,
-    Expr.abstract_eq, ← Array.take_eq_extract, List.take_toArray, Bool.and_false,
+    ← Array.take_eq_extract, List.take_toArray, Bool.and_false,
     ← List.map_take, List.getElem_map, Expr.lowerLooseBVars_eq]
   dsimp only [Array.size]
   simp only [List.getElem_eq_getElem?_get, Option.get_eq_getD (fallback := default)]
+  rw [Expr.abstract_eq _ _ hb hnd]
+  refine (Nat.foldRev_congr_fun (g := fun i _ a =>
+    mkBindingList1 isLambda lctx (xs.take i) (xs[i]?.getD default) a) ?_ _).trans ?_
+  · intro i hi a
+    have hi' : i < xs.length := by simpa using hi
+    have hx : xs[i]?.getD default = xs[i] := by simp [hi']
+    have hnd' : (xs.take i).Nodup := hnd.sublist (List.take_sublist ..)
+    show (match lctx.findFVar? (Expr.fvar (xs[i]?.getD default)) with | _ => _) = _
+    rw [show lctx.findFVar? (Expr.fvar (xs[i]?.getD default)) =
+      lctx.find? (xs[i]?.getD default) from rfl]
+    unfold mkBindingList1
+    rcases hd : lctx.find? (xs[i]?.getD default) with _ | d
+    · rfl
+    · have ⟨ht, hv⟩ := hlc _ (hx ▸ List.getElem_mem hi') d hd
+      cases d with
+      | cdecl _ _ _ ty =>
+        dsimp only
+        simp only [LocalDecl.type] at ht
+        rw [Expr.abstract_eq _ _ ht hnd']; rfl
+      | ldecl _ _ _ ty val nd =>
+        dsimp only
+        simp only [LocalDecl.type] at ht
+        have hv' : val.looseBVarRange' = 0 := hv _ (by cases nd <;> simp [LocalDecl.value?])
+        rw [Expr.abstract_eq _ _ ht hnd', Expr.abstract_eq _ _ hv' hnd']; rfl
   change Nat.foldRev _ (fun i x =>
     mkBindingList1 isLambda lctx (xs.take i) (xs[i]?.getD default)) .. = mkBindingList.go ..
+  clear hb hnd hlc
   rw [List.length_map]; generalize eq : xs.length = n
   generalize b.abstractList xs = b
   induction n generalizing xs b with
@@ -307,6 +347,30 @@ theorem TrLCtx'.find?_of_mem (henv : env.WF) (H : TrLCtx' env Us ds Δ)
       refine ⟨_, _, ⟨_, _, h1, rfl, rfl⟩, fun _ h => h2 _ h.1, fun _ h => h3 _ h.1, ?_, ?_⟩
       · simpa using h4.weakFV henv (.skip_fvar _ _ .refl) this
       · simpa using h5.weakFV henv (.skip_fvar _ _ .refl) this
+
+theorem _root_.Lean.LocalDecl.value?_ldecl {i fv n ty val nd k} :
+    (LocalDecl.ldecl i fv n ty val nd k).value? true = some val := by cases nd <;> rfl
+
+/-- Every type (and let-value) recorded in a well-formed local context is loose-bvar-free.
+This is the side condition `Expr.abstract_eq` needs; see `docs/axiom-audit.md` §5.2. -/
+theorem TrLCtx'.closed_of_mem : TrLCtx' env Us ds Δ → d ∈ ds →
+    d.type.looseBVarRange' = 0 ∧ ∀ v ∈ d.value? true, v.looseBVarRange' = 0
+  | .nil, h => nomatch h
+  | .cons h1 h2, hm => by
+    rcases List.mem_cons.1 hm with rfl | hm
+    · have hbv := h1.noBV
+      cases h2 with
+      | vlam ht _ =>
+        exact ⟨(hbv ▸ ht.closed).looseBVarRange_zero, by simp [LocalDecl.value?]⟩
+      | vlet ht hv _ =>
+        refine ⟨(hbv ▸ ht.closed).looseBVarRange_zero, fun v h => ?_⟩
+        rw [LocalDecl.value?_ldecl] at h; simp at h; subst h
+        exact (hbv ▸ hv.closed).looseBVarRange_zero
+    · exact h1.closed_of_mem hm
+
+theorem TrLCtx.closed_of_find? (H : TrLCtx env Us lctx Δ) (h : lctx.find? x = some d) :
+    d.type.looseBVarRange' = 0 ∧ ∀ v ∈ d.value? true, v.looseBVarRange' = 0 :=
+  H.2.closed_of_mem (List.mem_of_find?_eq_some (H.1.find?_eq_find?_toList ▸ h))
 
 theorem TrLCtx.find?_of_mem (henv : env.WF) (H : TrLCtx env Us lctx Δ)
     (hm : decl ∈ lctx.toList) :
