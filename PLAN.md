@@ -303,6 +303,23 @@ two build-time adequacy `#eval`s keep passing. Guard checks 1–3 continue to
 police the axiom cone. **Do not make this edit until there is a finished proof
 to insert, and flag it to the human when you do.**
 
+## The critical path, as it now stands
+
+The model side defined the interpretation without needing Carneiro's size
+measure — `VExpr` has no `let`, and the constant assignment is a parameter rather
+than something to unfold, so the recursion is structural. That narrowed the
+endgame to a single chain:
+
+> the keystone's `addInduct'` metatheory → a `VEnv.Params` instance →
+> `IsDefEqU.sort_inv` → the level assignment → the interpretation,
+> unconditionally → soundness → `leanTTConsistent` → `kernel_sound`.
+
+`sort_inv` is the pivot. It is **the only one of the three injectivity statements
+the interpretation needs** — `forallE_inv` and `sort_forallE_inv` bite later, in
+soundness's congruence cases — and it is already proved on the shape-model side
+relative to a `Params` instance. So the two things gating everything are the
+keystone and the shape model's own frontier.
+
 ## Progress log
 
 Landed since the plan was written:
