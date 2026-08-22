@@ -249,6 +249,31 @@ theorem DefEqHeadsUnique.addConsts {env env' : VEnv} {cis} :
 /-- Every name of the block carries no rule in the post-`addConsts` environment: freshness
 against the *pre*-block environment, transported forward.  This is the hypothesis
 `addDefEqs_unique` consumes. -/
+theorem addConsts_le : ∀ {cis : List VDefVal} {env env' : VEnv},
+    env.addConsts cis = some env' → env ≤ env'
+  | [], _, _, h => by cases h; exact VEnv.LE.rfl
+  | ci :: cis, env, env', h => by
+    rw [VEnv.addConsts, List.foldlM_cons] at h
+    cases hh : env.addConst ci.name ci.toVConstant with
+    | none => rw [hh] at h; exact absurd h (by simp)
+    | some e => rw [hh] at h; exact (addConst_le hh).trans (addConsts_le h)
+
+theorem addConsts_contains {env env' : VEnv} {cis} :
+    env.addConsts cis = some env' → ∀ ci ∈ cis, env'.contains ci.name := by
+  induction cis generalizing env with
+  | nil => simp
+  | cons ci cis ih =>
+    intro h
+    rw [VEnv.addConsts, List.foldlM_cons] at h
+    cases hh : env.addConst ci.name ci.toVConstant with
+    | none => rw [hh] at h; exact absurd h (by simp)
+    | some e =>
+      rw [hh] at h
+      intro ci' hci'
+      rcases List.mem_cons.1 hci' with rfl | hci'
+      · exact ⟨_, (addConsts_le h).constants (addConst_self hh)⟩
+      · exact ih h ci' hci'
+
 theorem noRuleFor_addConsts {env env' : VEnv} {cis} (h : env.addConsts cis = some env')
     (Hd : env.DefEqHeadsDeclared) : ∀ ci ∈ cis, env'.NoRuleFor ci.name :=
   fun ci hci => (noRuleFor_of_not_contains Hd (addConsts_fresh h ci hci)).addConsts h
@@ -287,6 +312,108 @@ theorem addDefEqs_unique : ∀ {cis : List VDefVal} {env : VEnv},
     · rw [toDefEq_isDeltaRule.1 hd]; exact hno ci (.head _)
     · exact (hno ci' (.tail _ hci')).addDefEq fun hd =>
         hne ci' hci' (toDefEq_isDeltaRule.1 hd).symm
+
+/-! ## The rule-fold for `quot` and `induct`
+
+Neither contributes a bare-`const`-headed rule, so both reduce to folding
+`addDefEq_notDelta`.  `addQuot` adds a single rule and `addIndRules` a `foldl` of them, so the
+list version covers both. -/
+
+theorem addDefEqList_notDelta : ∀ (dfs : List VDefEq) {env : VEnv},
+    (∀ df ∈ dfs, ∀ c, ¬ IsDeltaRule df c) →
+    env.DefEqHeadsDeclared → env.DefEqHeadsUnique →
+    (dfs.foldl VEnv.addDefEq env).DefEqHeadsDeclared
+      ∧ (dfs.foldl VEnv.addDefEq env).DefEqHeadsUnique
+  | [], _, _, Hd, Hu => ⟨Hd, Hu⟩
+  | df :: dfs, _env, hnd, Hd, Hu =>
+    addDefEqList_notDelta dfs (fun x hx => hnd x (.tail _ hx))
+      (Hd.addDefEq_notDelta (hnd df (.head _)))
+      (Hu.addDefEq_notDelta (hnd df (.head _)))
+
+/-! ### The two shape computations
+
+A rule is excluded from the δ statement as soon as its left-hand side is *not* a bare
+constant.  For `quot` and `induct` that is a computation on the shape, not an argument about
+the contents. -/
+
+/-- A `lam` is not a bare constant. -/
+theorem not_isDeltaRule_of_lam {u : Nat} {A b v t : VExpr} :
+    ∀ c, ¬ IsDeltaRule ⟨u, .lam A b, v, t⟩ c := by rintro c ⟨ls, ⟨⟩⟩
+
+/-- Nor is an application. -/
+theorem not_isDeltaRule_of_app {u : Nat} {f a v t : VExpr} :
+    ∀ c, ¬ IsDeltaRule ⟨u, .app f a, v, t⟩ c := by rintro c ⟨ls, ⟨⟩⟩
+
+/-- `mkLams` of a non-constant body is never a bare constant: either it binds something, and
+is a `lam`, or it is the body itself. -/
+theorem not_isDeltaRule_mkLams {u : Nat} {As : List VExpr} {b v t : VExpr}
+    (hb : ∀ c ls, b ≠ .const c ls) : ∀ c, ¬ IsDeltaRule ⟨u, VExpr.mkLams As b, v, t⟩ c := by
+  cases As with
+  | nil => rintro c ⟨ls, h⟩; exact hb c ls h
+  | cons A As => rintro c ⟨ls, ⟨⟩⟩
+
+/-! ## `addConstList`: the `induct` stages
+
+`addIndTypes`/`addIndCtors`/`addIndRecs` are all `addConstList`, a fold of `addConst` over
+`List (Name × VConstant)`.  Note 1b: this is a *different* list type from `addConsts`, so the
+lemmas above do not transfer and these are their own inductions. -/
+
+theorem DefEqHeadsDeclared.addConstList {env env' : VEnv} {cs} :
+    env.addConstList cs = some env' → env.DefEqHeadsDeclared → env'.DefEqHeadsDeclared := by
+  induction cs generalizing env with
+  | nil => intro h H; cases h; exact H
+  | cons c cs ih =>
+    intro h H
+    rw [VEnv.addConstList, List.foldlM_cons] at h
+    cases hh : env.addConst c.1 c.2 with
+    | none => rw [hh] at h; exact absurd h (by simp)
+    | some e => rw [hh] at h; exact ih h (H.addConst hh)
+
+theorem DefEqHeadsUnique.addConstList {env env' : VEnv} {cs} :
+    env.addConstList cs = some env' → env.DefEqHeadsUnique → env'.DefEqHeadsUnique := by
+  induction cs generalizing env with
+  | nil => intro h H; cases h; exact H
+  | cons c cs ih =>
+    intro h H
+    rw [VEnv.addConstList, List.foldlM_cons] at h
+    cases hh : env.addConst c.1 c.2 with
+    | none => rw [hh] at h; exact absurd h (by simp)
+    | some e => rw [hh] at h; exact ih h (H.addConst hh)
+
+/-- An ι-rule's left-hand side is never a bare constant: `iotaLhs` is an application (it
+always carries at least the major premise), so `mkLams` of it is a `lam` or that
+application. -/
+theorem not_isDeltaRule_iotaRule (D : VInductDecl') (j q : Nat) (C : VIndCtor) :
+    ∀ c, ¬ IsDeltaRule (D.iotaRule j q C) c := by
+  refine not_isDeltaRule_mkLams (fun c ls => ?_)
+  rw [VInductDecl'.iotaLhs, VExpr.mkApp_concat]
+  nofun
+
+/-- `quotDefEq`'s left-hand side is `fun α r β f c a => …`, a `lam`. -/
+theorem not_isDeltaRule_quotDefEq : ∀ c, ¬ IsDeltaRule quotDefEq c := by
+  rintro c ⟨ls, h⟩; exact absurd h nofun
+
+/-! ## Remaining: the `WF'` assembly
+
+Every primitive is in place.  What is left is the induction over `VEnv.WF'` itself — seven
+`cases` arms, each a single application of the lemmas above:
+
+* `axiom`, `opaque` — `addConst` lifting;  `example` — nothing changes;
+* `def` — `addConst` lifting, then `addDefEq_declared` and `addDefEq_noRule`, with freshness
+  taken on the pre-`addConst` environment and carried by `NoRuleFor.addConst`;
+* `unsafeDef` — `addConsts` lifting, then `addDefEqs_declared`/`addDefEqs_unique` fed by
+  `addConsts_contains`, `noRuleFor_addConsts` and `addConsts_nodup`;
+* `quot` — `addConst` lifting ×3, then `addDefEq_notDelta` with `not_isDeltaRule_quotDefEq`;
+* `induct` — `addConstList` lifting ×3, then `addDefEqList_notDelta` with
+  `not_isDeltaRule_iotaRule`.
+
+The one snag found while assembling it: `addQuot` and `addInduct'` are written with `do`
+notation, and `simp only [Option.bind_eq_some_iff]` does *not* fire on the resulting term —
+the same mismatch that `addConsts_fresh` above works around by `rw [VEnv.addConsts,
+List.foldlM_cons]` followed by `cases hh : env.addConst …`.  The staged forms need the same
+treatment (or `VEnv.addInduct'_stages` from `Theory/Inductive/Lemmas.lean`, which already does
+this decomposition and would need that import). -/
+
 
 end VEnv
 end Lean4Lean
