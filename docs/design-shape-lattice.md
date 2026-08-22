@@ -327,3 +327,50 @@ conclusion to. It is which `HasDom` / `HasTypePi` / `HasTypeLam` joins are *true
 consumers of the current ones re-derived from that. Note that `go_lam` calls `go_dom` with
 `.rfl` — the *same* domain on both sides — so the same-domain case is unaffected and is
 probably where the salvageable statement lives.
+
+## No `HasType` join is true, and `HasDom`'s escape hatch does not help
+
+Two further passes, both negative, both settled by kernel computation.
+
+**Pass 1 — `WShape.HasTypeLam.join` is false, so `go_lam` does not survive either.** `go_lam`
+calls `go_dom` with `.rfl` and so never needs the false domain fact *directly*, but it recurses
+into `join` at the lambda-family's **values**, and those may themselves be `.forallE` shapes.
+Embedding the witness there reproduces the obstruction one level in. With
+`lB = [(⊥, .sort true)]`, `lF = [(⊥, jM)]`, `lF' = [(⊥, jM')]`:
+
+```
+hasType jM  (lB.app ⊥) = true
+hasType jM' (lB.app ⊥) = true
+hasType (jM.join jM') (lB.app ⊥) = false          -- `lam_join_fails`
+```
+
+`ShapeFun.join` merges the two bot-keyed entries by joining their values, so
+`HasTypeLam (lF.join lF') a lB` would have to make the third `true`. **Conclusion: no
+`HasType` join in the family is true — not `join`, not `go_pi`, not `go_lam`.**
+
+**Pass 2 — `HasDom`'s `∃`-with-`≤` does not absorb the failure.** The hypothesis was that
+`HasDom`'s witness need only be `≤` the joined key, so a bot-keyed element could discharge it.
+It cannot: the witness must still satisfy `x'.HasType a` at the **joined** domain. With
+`f = f' = jF = [(⊥, ⊥)]` the only candidate is `⊥` itself, and
+
+```
+hasType (⊥ : Shape 2) cxA  = true
+hasType (⊥ : Shape 2) cxA' = true
+hasType (⊥ : Shape 2) (cxA.join cxA') = false     -- `hasDom_escape_fails`
+```
+
+**The `≤` relaxation is on the key, never on the type**, so it cannot absorb a failure that is
+about the type. `HasDom.join` is false for the same reason everything else is.
+
+### Where this leaves the join layer
+
+Every join lemma in the `HasType` family is false: `HasType.join`, `HasDom.join`,
+`HasTypePi.join`, `HasTypeLam.join`, and the `mono_l`-wrappers `HasType.join'`,
+`HasDom.join'`, `TShape.HasType.join`, `TShape.HasType.join'` that inherit from them. Neither
+of the two structural hopes — restricting to equal domains, or leaning on `HasDom`'s `≤` —
+survives contact.
+
+The single sentence that explains all of it: **`Shape.join` is not a join in the typed sense.**
+It is a join on *shapes*, and `hasType` is not closed under it — two shapes can both be
+classified while their join is classified by nothing. Any lemma asserting that joining
+preserves typing is asking `Shape.join` to be something it isn't.
