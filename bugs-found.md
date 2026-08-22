@@ -255,6 +255,135 @@ because they are what `kernel_sound` is stated against.
       C++ kernel — a `divergences.md` entry — and needs an arena run to confirm
       nothing real depends on it.
 
+11. **Nested inductives are accepted by `addDecl` and cannot be modelled at all,
+    so `addDecl.WF`'s `inductDecl` branch is unprovable as stated.** The same
+    shape of hole as item 10, one layer up: not a missing convenience, but a
+    declaration form the checker accepts and the refinement says nothing about.
+
+    `Environment.addInductive` does not stop when `AddInductive.run` returns.
+    For `numNested ≠ 0` it **discards** that environment and rebuilds from the
+    original one (`Inductive/Add.lean:747-776`), re-emitting every constructor
+    and recursor with `restoreNested`-rewritten types and rules, plus the
+    auxiliary recursors under renamed names (`mkAuxRecNameMap`); the `_nested.*`
+    inductives and their constructors never reach the final environment. The
+    restored types mention `List (Tree α)` where the auxiliary block declared
+    `_nested.List_1 α`, and **those two constants are not definitionally
+    equal**. So the final environment is not `addInduct' env D` for any `D`
+    (`docs/design-inductive.md:73-74`), and since `TrEnv'`'s only inductive rule
+    is `induct`, which demands exactly that, no `TrEnv'` derivation exists.
+
+    `kernel_sound` quantifies over arbitrary `Declaration` lists, so the branch
+    has to cover this. Three exits, and it is not really a choice:
+
+    * **Thread `numNested = 0` through `addDecl.WF`.** Only relocates the hole —
+      `Verify/Bridge.lean`'s `AddDeclWF` and `kernel_sound` need the branch
+      unconditionally.
+    * **Reject nested inductives in the checker.** **Dead**: see item 12. Costs
+      nothing measurable in the arena and breaks anything importing Lean's own
+      syntax tree.
+    * **Extend the spec with `docs/design-inductive.md` §9.3 companion types** —
+      a `VIndType` that names an already-declared `J` at a parameter
+      instantiation, contributing only a new recursor and ι-rules. XL, and the
+      only exit that closes the hole. Two constraints known up front:
+      `VInductDecl'` currently has no notion of a type whose head is anything but
+      `.const I_j ownLvls`, and `restoreNested` is a rewrite applied *after* the
+      block is checked, so the companion story must explain why the rewritten
+      types are well-typed without re-checking them.
+
+## In the stop condition itself
+
+Neither of these is a bug in a kernel or in a proof. They are defects in the
+*instruments* `CLAUDE.md` uses to decide when the project is done — goal 1 (the
+Kernel Arena suite) and `Verify/Guard.lean`'s check 3. They are recorded here
+because an instrument that mismeasures is exactly as dangerous as a false lemma,
+and neither is visible from inside the thing it measures.
+
+12. **Goal 1 has zero nested-inductive coverage: a regression breaking nested
+    inductives entirely would pass the stop condition.**
+
+    `CLAUDE.md` goal 1 is "the Kernel Arena suite passes, every non-`either` test
+    correct." Making `Environment.addInductive` reject every nested block
+    outright — a one-line `throw` right after `numNested` is computed
+    (`Inductive/Add.lean:768`) — changes **nothing**: all 191 test verdicts are
+    byte-identical to the baseline, and the summary stays 185 correct / 6 either
+    / 0 incorrect. That includes the two whole-library replays, `init` (53090
+    declarations, 1.4 min) and `std` (2.3 min).
+
+    **The patch was verified live before the null result was trusted.** Three
+    positive controls, run against the patched build:
+
+    * `inductive RT | node : List RT → RT` → rejected;
+    * `inductive AT | node : Array AT → AT`, the `Lean.Syntax.node` shape →
+      rejected;
+    * a plain non-nested inductive → accepted.
+
+    Nested inductives are not rare. In the loaded environment there are **53 of
+    them out of 2893 inductives**, including `Lean.Syntax`, `Lean.MessageData`,
+    `Lean.IR.FnBody`, `Lean.Doc.Part` and a dozen `Grind.Arith.Cutsat`
+    constraint types. By module root: `Init` 1, `Std` 2, `Lean` 50.
+
+    **Traced cause.** `import Init` contains exactly one nested inductive,
+    `Lean.Syntax`, at `numNested = 2`, declared in `Init.Prelude`; its *stored*
+    constructor types really do mention the nested occurrences
+    (`Lean.Syntax.node : SourceInfo → SyntaxNodeKind → Array Syntax → Syntax`,
+    `Lean.Syntax.ident : … → List Syntax.Preresolved → Syntax`), so replaying it
+    would take the nested path. It is not replayed, because **the export does not
+    contain it**: grepping the 310 MB `init.ndjson` produced by `lean4export`
+    3.1.0 finds `Lean.Syntax.Preresolved.decl` and
+    `Lean.Syntax.Preresolved.namespace` — a different, non-nested inductive — and
+    no `Lean.Syntax`.
+
+    Two alternative explanations were ruled out first, which is what makes this a
+    finding rather than a suspicion:
+
+    * `Replay` does not skip inductives. `Replay.lean:192-210` rebuilds
+      `.inductDecl lparams nparams types false` from the stored `ConstantInfo`
+      and its stored constructor types, and sends it to `addDecl`.
+    * lean4lean's own classifier is not at fault. `ElimNestedInductive` catches
+      nesting through `List` *and* through `Array`, as the two controls above
+      show.
+
+    Whether `lean4export` ought to emit `Lean.Syntax` is the exporter's business,
+    not this project's, and the investigation stopped there. The consequence for
+    this project holds regardless of the cause: **goal 1 does not certify
+    nested-inductive support, so it cannot be read as certifying that the checker
+    accepts what Lean's kernel accepts.** Closing the gap means adding
+    nested-inductive tests to the suite, which is a change to the arena rather
+    than to this repository.
+
+    This measurement was taken to price one of the three exits from item 11
+    above — rejecting nested inductives in the checker. That exit is **dead**,
+    but on real-world evidence rather than arena evidence: it would break
+    anything importing Lean's own syntax tree, and `Lean4Lean.Replay` on any real
+    module would fail immediately.
+
+13. **Guard 3's count over-reports obstacles by an order of magnitude, and cannot
+    move for most of them.** Conservative rather than dangerous, but it has been
+    read as a progress metric and is not one.
+
+    Guard 3 (`Verify/Guard.lean:182`) classifies a constant as an implementation
+    gap when `env.contains (n ++ "_unsafe_rec")`. That test does **not** mean
+    `partial`: Lean emits `_unsafe_rec` for *well-founded-compiled* definitions
+    too, purely as a compiler artefact. The tell was already in the whitelist —
+    `Lean4Lean.TypeChecker.Methods.withFuel` is a plain structural `def` on `Nat`
+    whose `WF` lemma is proved by `match n with | 0 | n+1`, and guard 3 flags it.
+
+    What actually blocks reasoning is being `.opaqueInfo` — no body, no equation
+    lemmas. Measured over the 22 inductive-side whitelist entries: **2** were
+    genuinely opaque (`AddInductive.getElimLevel.loop`,
+    `ElimNestedInductive.mkUniqueName.loop`, the only two carrying neither fuel
+    nor a `termination_by`); the other 20 already had equation lemmas and unfold
+    theorems. Both have since been bounded, so the inductive cone's
+    reasoning-blocked count is **0** — while guard 3 still reads 54/54, and can
+    only fall if a loop becomes *structurally* recursive, which most of these
+    cannot be.
+
+    The guard still does its real job: nothing new and opaque enters
+    `addDecl`'s cone without sign-off. `Guard.lean` is frozen and was not
+    touched. What should change is the reading — `CLAUDE.md` says "shrinking the
+    allowlist is progress", and for this workstream it is not a measure of
+    progress at all.
+
 ## In the 32 frozen axioms
 
 Not yet audited. `Lean4Lean/Verify/Axioms.lean` asserts 32 unproven facts about
