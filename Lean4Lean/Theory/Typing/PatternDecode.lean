@@ -76,6 +76,11 @@ The companion to `peelLams`, used to tell a recursor's stored type from a constr
 are `mkPi` telescopes, and what distinguishes them is the *head of the body* — a `bvar` for
 the recursor's motive application, a `const` for the constructor's `I p args`. -/
 
+theorem peelLams_mkLams : ∀ (As : List VExpr) (b : VExpr),
+    peelLams (mkLams As b) = (As ++ (peelLams b).1, (peelLams b).2)
+  | [], _ => rfl
+  | A :: As, b => by rw [VExpr.mkLams_cons, peelLams_lam, peelLams_mkLams As b]; rfl
+
 /-- Split a term into its maximal leading `forallE` telescope and the body underneath. -/
 def peelPis : VExpr → List VExpr × VExpr
   | .forallE A b => let r := peelPis b; (A :: r.1, r.2)
@@ -132,6 +137,18 @@ theorem peelPis_mkApp_app : ∀ (as : List VExpr) (f a : VExpr),
     peelPis (mkApp (.app f a) as) = ([], mkApp (.app f a) as)
   | [], _, _ => rfl
   | b :: as, f, a => by rw [VExpr.mkApp_cons, peelPis_mkApp_app as]
+
+/-- The head constant of a term, if the head is a constant at all. -/
+def constName : VExpr → Option Name
+  | .const c _ => some c
+  | _ => none
+
+/-- The constant heading a term's application spine. -/
+def headName (e : VExpr) : Option Name := constName (spine e).1
+
+@[simp] theorem headName_mkApp {c : Name} {ls as} :
+    headName (mkApp (.const c ls) as) = some c := by
+  rw [headName, spine_mkApp (by nofun)]; rfl
 
 /-- The head of a term's body, after all leading pis are peeled: the discriminator. -/
 def piBodyHead (e : VExpr) : VExpr := (spine (peelPis e).2).1
@@ -619,6 +636,16 @@ theorem inter_var_var {f f' p} : (Pattern.var f).inter (.var f') = some p →
   rw [show (Pattern.var f).inter (.var f') = (f.inter f').bind (fun x => some (.var x)) from rfl,
     Option.bind_eq_some_iff]
   rintro ⟨x, hx, hp⟩; exact ⟨x, hx, (Option.some_inj.1 hp).symm⟩
+
+/-- Two `varN` chains over constants are equal only if both the name and the depth agree. -/
+theorem varN_const_inj {c c' : Lean.Name} : ∀ {m k},
+    (Pattern.const c).varN m = (Pattern.const c').varN k → c = c' ∧ m = k
+  | 0, 0, h => ⟨(Pattern.const.injEq .. ▸ h : _ = _), rfl⟩
+  | 0, _+1, h => absurd h nofun
+  | _+1, 0, h => absurd h nofun
+  | _+1, _+1, h => by
+    obtain ⟨rfl, rfl⟩ := varN_const_inj (Pattern.var.injEq .. ▸ h : _ = _)
+    exact ⟨rfl, rfl⟩
 
 /-- **The `varN` case.**  Two `varN` chains over constants intersect only if both the name
 and the depth agree — the arity is as rigid as the head. -/

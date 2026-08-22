@@ -408,7 +408,11 @@ theorem Pat.deltaHead_ne_recName {env : VEnv} (henv : env.WF)
     (hdf : env.defeqs (D.iotaRule j q C)) (hTj : D.types[j]? = some T)
     {c : Lean.Name} {u : Nat} {v t : VExpr}
     (hdf' : env.defeqs ⟨u, .const c (VLevel.params u), v, t⟩) :
-    c ≠ Lean.mkRecName T.name := sorry
+    c ≠ Lean.mkRecName T.name := by
+  rintro rfl
+  have := henv.keyHeadDelta _ _ (Lean.mkRecName T.name) hdf' hdf VEnv.IsDeltaRule.const
+    (by rw [VInductDecl'.key_iotaRule, D.getD_types hTj]; exact List.mem_cons_self)
+  exact VEnv.not_isDeltaRule_iotaRule D j q C _ (this ▸ VEnv.IsDeltaRule.const)
 
 /-- **Obligation 2 (needs `VEnv.Sig`; ledger I1).**  A δ-rule's head is never the constructor
 name of a registered ι-rule.  Same route as Obligation 1, reading the *major premise's* head
@@ -419,23 +423,64 @@ theorem Pat.deltaHead_ne_ctorName {env : VEnv} (henv : env.WF)
     (hdf : env.defeqs (D.iotaRule j q C)) (hTj : D.types[j]? = some T) (hCT : C ∈ T.ctors)
     {c : Lean.Name} {u : Nat} {v t : VExpr}
     (hdf' : env.defeqs ⟨u, .const c (VLevel.params u), v, t⟩) :
-    c ≠ C.name := sorry
+    c ≠ C.name := by
+  rintro rfl
+  have := henv.keyHeadDelta _ _ C.name hdf' hdf VEnv.IsDeltaRule.const
+    (by rw [VInductDecl'.key_iotaRule]; exact List.mem_cons_of_mem _ List.mem_cons_self)
+  exact VEnv.not_isDeltaRule_iotaRule D j q C _ (this ▸ VEnv.IsDeltaRule.const)
 
-/-- **Obligation 3 (needs `VEnv.Sig`; ledger I1, and G4).**  Two registered ι-rules with the
-same pattern carry the same datum.
+/-- Reading the two leaf names off an ι-pattern. -/
+theorem VInductDecl'.iotaPat_inj {D D' : VInductDecl'} {T T' : VIndType} {C C' : VIndCtor}
+    (h : D.iotaPat T C = D'.iotaPat T' C') :
+    Lean.mkRecName T.name = Lean.mkRecName T'.name ∧
+      D.np + D.nm + D.nmin + T.indices.length = D'.np + D'.nm + D'.nmin + T'.indices.length ∧
+      C.name = C'.name ∧ D.np + C.fields.length = D'.np + C'.fields.length := by
+  rw [VInductDecl'.iotaPat_eq, VInductDecl'.iotaPat_eq, SimplePattern.toPattern,
+    SimplePattern.toPattern] at h
+  obtain ⟨hf, ha⟩ := (Pattern.app.injEq ..).mp h
+  obtain ⟨h1, h2⟩ := Pattern.varN_const_inj hf
+  obtain ⟨h3, h4⟩ := Pattern.varN_const_inj ha
+  exact ⟨h1, h2, h3, h4⟩
 
-This is the strongest of the three, and it is `pat_uniq`'s real content on the ι side: the
-pattern records only `(recName, recArity, ctorName, ctorArity)`, while the datum depends on
-`D.iotaLam q C`, `D.np`, `D.nm + D.nmin`, `C.args`, `C.params`, `C.fields`, `D.uvars` and
-`D.isLE`.  So it asks that the *block be recoverable from the constructor's name* — ledger G4
-("a name belongs to at most one block"), which the design doc lists as needing `VEnv.Sig`.
+/-- **The payoff of `KeyMajorUnique`.**  Two registered ι-rules with the same pattern are the
+*same rule*: the pattern pins the constructor's name, the key's last entry is that name, and
+a rule is determined by it.  No block recovery — hence no ledger G4 — is involved.
 
-Two of the eight components do come for free from the fields `Pat.iota` already carries:
-`D.uvars = D'.uvars` from the two `env.constants C.name` facts, and then `D.isLE = D'.isLE`
-because `recUvars = if isLE then uvars + 1 else uvars` and the two `recUvars` agree.  The rest
-does not: recovering `C.params`/`C.fields`/`C.args` from `C.type D j` would need injectivity
-of `VIndCtor.type`, and splitting its telescope at `np` needs `C.params.length = D.np`, which
-lives in `VInductDecl'.WF` and is not available here. -/
+This is what reduces Obligation 3 below to a statement with no environment in it. -/
+theorem Pat.iota_rule_uniq {env : VEnv} (henv : env.WF)
+    {D D' : VInductDecl'} {j q j' q' : Nat} {T T' : VIndType} {C C' : VIndCtor}
+    (hdf : env.defeqs (D.iotaRule j q C)) (hdf' : env.defeqs (D'.iotaRule j' q' C'))
+    (hp : D.iotaPat T C = D'.iotaPat T' C') :
+    D.iotaRule j q C = D'.iotaRule j' q' C' := by
+  obtain ⟨-, -, hname, -⟩ := VInductDecl'.iotaPat_inj hp
+  refine henv.keyMajorUnique _ _ C.name hdf hdf' ?_ ?_ <;>
+    rw [VInductDecl'.key_iotaRule] <;> simp [hname]
+
+/-- **Obligation 3 — the datum, from the rule.**  Two registered ι-rules with the same
+pattern carry the same datum.
+
+The *environment* half of this is now discharged: `Pat.iota_rule_uniq` above turns the shared
+pattern into `D.iotaRule j q C = D'.iotaRule j' q' C'`, an equation between two closed terms.
+What is left is purely syntactic — read the datum's components back out of the rule:
+
+* `D.iotaLam q C = D'.iotaLam q' C'` — from the rule's `rhs`, by `mkLams`/`mkApp`
+  injectivity, once the two `iotaCtx`s are known equal;
+* `D.np = D'.np` and `D.nm + D.nmin = D'.nm + D'.nmin` — from `iotaLhs`'s argument spine.
+  The parameter block and the field block are adjacent `bvars` runs, separated by a gap of
+  `nm + nmin ≥ 1` (`hTj` forces `nm ≥ 1`), which is what makes the split readable;
+* `C.params`, `C.fields.map (·.type)`, `C.args` — from `iotaCtx`/`iotaLhs`, modulo
+  `D.atRec = VExpr.instL D.selfLvls`.  **This is the step the level-WF side conditions on
+  `Pat.iota` are for**: `selfLvls` is a renaming, injective only on terms whose level
+  parameters are in range, so `Pat.iota` must record `LevelWF D.uvars` for `C.params`,
+  `C.fields.map (·.type)` and `C.args`.  Each is discharged by the instance-builder from
+  `VIndCtor.WF` (`params_eq`, `fields`, `args_ty`, `result`) through `IsDefEq.levelWF`
+  (`Theory/Typing/Strong.lean`); the obligation lands on whoever builds `Pat`, it does not
+  disappear.  The fields are to be added together with this proof, not before it: an
+  unconsumed premise is exactly what this development has four times declined to record.
+* `D.uvars = D'.uvars` and `D.isLE = D'.isLE` are free from the two `env.constants C.name`
+  facts (`recUvars = if isLE then uvars + 1 else uvars`), which settles `iotaLevelPairs`.
+
+No `VEnv.Sig` and no ledger G4: the block is never recovered from a name. -/
 theorem Pat.iota_data_uniq {env : VEnv} (henv : env.WF)
     {D D' : VInductDecl'} {j q j' q' : Nat} {T T' : VIndType} {C C' : VIndCtor}
     {hcl : (D.iotaLam q C).Closed} {hcl' : (D'.iotaLam q' C').Closed}
