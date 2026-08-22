@@ -148,8 +148,6 @@ def iotaCheckOf (T : VIndType) (C : VIndCtor)
 
 end VInductDecl'
 
-/-! ## `extra_pat`, one rule shape at a time -/
-
 /-- Instantiating the identity level substitution at a full list returns the list.  This is
 what turns a δ-rule's stored `.const c (params u)` into `.const c ls`. -/
 theorem VLevel.map_inst_params {u : Nat} {ls : List VLevel} (h : ls.length = u) :
@@ -157,6 +155,71 @@ theorem VLevel.map_inst_params {u : Nat} {ls : List VLevel} (h : ls.length = u) 
   subst h
   refine List.ext_getElem (by simp [VLevel.params]) fun i h1 h2 => ?_
   simp [VLevel.params, VLevel.inst, List.getD_eq_getElem?_getD, List.getElem?_eq_getElem h2]
+
+/-! ## The typing layer
+
+A `Check.defeq` clause between two *syntactically equal* matched arguments is still a
+judgement, not an equation: `IsDefEqU e e` demands that `e` be well typed.  For a rule's own
+match those arguments are `bvar`s pointing into the rule's λ-telescope, and `IsDefEq.bvar`
+assumes nothing beyond the lookup — so the whole obligation is that the index is in range.
+
+This layer is small but it is *not* free, and it is easy to miss: "the two sides are the same
+expression" settles the equality and leaves the judgement untouched. -/
+
+theorem Lookup.exists_of_lt : ∀ {Δ : List VExpr} {i : Nat}, i < Δ.length → ∀ Γ,
+    ∃ A, Lookup (Δ ++ Γ) i A
+  | _ :: _, 0, _, _ => ⟨_, .zero⟩
+  | _ :: Δ, i+1, h, Γ => by
+    obtain ⟨B, hB⟩ := Lookup.exists_of_lt (Δ := Δ) (i := i) (by simpa using h) Γ
+    exact ⟨B.lift, hB.succ⟩
+
+theorem VEnv.isDefEqU_bvar {env : VEnv} {U : Nat} {Δ Γ : List VExpr} {i : Nat}
+    (h : i < Δ.length) : env.IsDefEqU U (Δ ++ Γ) (.bvar i) (.bvar i) :=
+  let ⟨_, hA⟩ := Lookup.exists_of_lt h Γ; ⟨_, .bvar hA⟩
+
+/-! ### The quotient rule's argument lists and paths, computed -/
+
+def quotLiftArgs : List VExpr := [.bvar 5, .bvar 4, .bvar 3, .bvar 2, .bvar 1]
+def quotMkArgs : List VExpr := [.bvar 5, .bvar 4, .bvar 0]
+
+theorem argPaths5 (c : Lean.Name) : Pattern.argPaths (.const c) 5
+    = [some (some (some (some none))), some (some (some none)), some (some none), some none,
+       none] := rfl
+
+theorem argPaths3 (c : Lean.Name) : Pattern.argPaths (.const c) 3
+    = [some (some none), some none, none] := rfl
+
+theorem instL_peelLams_quotDefEq_lhs {ls : List VLevel} (hlen : ls.length = 2) :
+    (VExpr.peelLams quotDefEq.lhs).2.instL ls
+      = (VExpr.const ``Quot.lift ls).mkApp
+          (quotLiftArgs ++ [(VExpr.const ``Quot.mk [ls.getD 0 .zero]).mkApp quotMkArgs]) := by
+  show ((VExpr.const ``Quot.lift (VLevel.params 2)).mkApp
+      (quotLiftArgs ++ [(VExpr.const ``Quot.mk [.param 0]).mkApp quotMkArgs])).instL ls = _
+  simp only [VExpr.instL_mkApp, VExpr.instL, VLevel.map_inst_params hlen, quotLiftArgs,
+    quotMkArgs, List.map_cons, List.map_nil, List.map_append]
+  rfl
+
+theorem instL_quotDefEq_lhs {ls : List VLevel} (hlen : ls.length = 2) :
+    quotDefEq.lhs.instL ls
+      = mkLams ((VExpr.peelLams quotDefEq.lhs).1.map (VExpr.instL ls))
+          ((VExpr.const ``Quot.lift ls).mkApp
+            (quotLiftArgs ++ [(VExpr.const ``Quot.mk [ls.getD 0 .zero]).mkApp quotMkArgs])) := by
+  have h := congrArg (VExpr.instL ls) (VExpr.mkLams_peelLams quotDefEq.lhs)
+  rw [VExpr.instL_mkLams] at h
+  rw [← h, instL_peelLams_quotDefEq_lhs hlen]
+
+/-- The two sides share their λ-telescope, so a single `Δ` serves both — which `extra_pat`
+requires and the `vdefeq` elaborator happens to deliver. -/
+theorem instL_quotDefEq_rhs {ls : List VLevel} :
+    quotDefEq.rhs.instL ls
+      = mkLams ((VExpr.peelLams quotDefEq.lhs).1.map (VExpr.instL ls))
+          ((VExpr.bvar 2).mkApp [.bvar 0]) := by
+  have h := congrArg (VExpr.instL ls) (VExpr.mkLams_peelLams quotDefEq.rhs)
+  rw [VExpr.instL_mkLams] at h
+  rw [← h]
+  rfl
+
+/-! ## `extra_pat`, one rule shape at a time -/
 
 /-! ## The quotient rule's pattern, datum and check
 
@@ -1067,5 +1130,46 @@ theorem Pat.extra_delta {env : VEnv} {U : Nat} {Γ : List VExpr}
     .const, trivial, rfl⟩
   show VExpr.const ci.name ((VLevel.params ci.uvars).map (VLevel.inst ls)) = _
   rw [VLevel.map_inst_params hlen]; rfl
+
+/-- **`Params.extra_pat` for the quotient rule.**  Six binders peel off, the body matches
+`quotPat`, and the two parameter clauses are reflexivity *plus* the typing layer: `α` and `r`
+are literally `bvar 5` and `bvar 4` on both leaves, but each clause is still an `IsDefEqU`. -/
+theorem Pat.extra_quot {env : VEnv} {U : Nat} {Γ : List VExpr} {ls : List VLevel}
+    (hdf : env.defeqs quotDefEq) (hlift : env.constants ``Quot.lift = some quotLiftConst)
+    (hlen : ls.length = quotDefEq.uvars) :
+    ∃ Δ L R p r m1 m2,
+      quotDefEq.lhs.instL ls = mkLams Δ L ∧ quotDefEq.rhs.instL ls = mkLams Δ R ∧
+      Pat env p r ∧ Pattern.Matches p L m1 m2 ∧
+      (r.2).OK (env.IsDefEqU U (Δ.reverse ++ Γ)) m1 m2 ∧ R = (r.1).apply m1 m2 := by
+  have hlen2 : ls.length = 2 := hlen
+  obtain ⟨m1, m2, hm, hml, hmr, hpa, hpb⟩ :=
+    matches_iota_paths ``Quot.lift ``Quot.mk ls [ls.getD 0 .zero] (m := 5) (n := 3)
+      quotLiftArgs quotMkArgs rfl rfl
+  have ea := hpa; have eb := hpb
+  rw [argPaths5] at ea; rw [argPaths3] at eb
+  simp only [quotLiftArgs, quotMkArgs, List.map, List.cons.injEq, and_true] at ea eb
+  have hΔ : ((VExpr.peelLams quotDefEq.lhs).1.map (VExpr.instL ls)).reverse.length = 6 := by
+    simp [show (VExpr.peelLams quotDefEq.lhs).1.length = 6 from rfl]
+  refine ⟨_, _, _, quotPat, (quotRHS, quotCheck), m1, m2,
+    instL_quotDefEq_lhs hlen2, instL_quotDefEq_rhs, .quot hdf hlift, hm, ?_, ?_⟩
+  · show (quotCheck).OK _ m1 m2
+    rw [quotCheck, iotaCheck_OK]
+    refine ⟨?_, by simp, ?_⟩
+    · rw [argPaths5, argPaths3]
+      simp only [List.take, List.zip, List.zipWith, List.mem_cons, List.not_mem_nil, or_false]
+      rintro xy (rfl | rfl | ⟨⟩)
+      · rw [ea.1, eb.1]; exact VEnv.isDefEqU_bvar (by omega)
+      · rw [ea.2.1, eb.2.1]; exact VEnv.isDefEqU_bvar (by omega)
+    · rintro ij hij
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at hij
+      cases hij
+      rw [show (Pattern.LPath.head (SimplePattern.iota ``Quot.lift 5 ``Quot.mk 3).toPattern)
+          = Sum.inl (Pattern.LPath.head _) from rfl, hml,
+        show iotaLeafCtor ``Quot.lift ``Quot.mk 5 3 = Sum.inr (Pattern.LPath.head _) from rfl,
+        hmr]
+      exact rfl
+  · show _ = (quotRHS).apply m1 m2
+    rw [quotRHS, spineRHS_apply hpa hpb]
+    exact congrArg (fun e => e.mkApp [VExpr.bvar 0]) ea.2.2.2.1.symm
 
 end Lean4Lean
