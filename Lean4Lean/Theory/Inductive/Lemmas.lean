@@ -48,6 +48,10 @@ which `addInduct'_ordered` (below) has reduced to D6 and E5.
 
 **3. Plumbing habits that have each cost a round.**
 
+Two of the entries below are the same phenomenon: **a `@[simp]` lemma that has already
+fired changes what `rw` can see.**  If a rewrite "obviously" applies and does not, check
+whether the goal is already displaying the normalised form.
+
 * Prefer standalone `have`s with fully spelled-out statements over `conv_lhs => rw [...]`
   nested inside a `have := by`.  Where a rewrite needs an index lined up, take the length
   as an *equation* and `subst` it -- see `VExpr.map_instAll_bvars'`.
@@ -1809,3 +1813,33 @@ theorem VInductDecl'.liftN_ihCtx (D : VInductDecl') {off i s d : Nat} {Φ Γq V 
   rw [List.length_append, List.length_reverse, List.length_reverse,
     VExpr.length_liftTele, VInductDecl'.length_atRecTele]
   exact hd
+
+/-- **D4's `hidx`.**  `VIndField.WF.pos`'s `args_ty`, carried from the recursive field's own
+context into minor `q`'s `s`-th ih context by `atRec` and the two weakenings, lands on
+exactly the telescope the motive's type demands.
+
+`harith` is `ih_param_offset`: the parameters reach the same offset by either route. -/
+theorem VInductDecl'.ihArgs_hasArgs {env : VEnv} {D : VInductDecl'} {T' : VIndType}
+    {r : VIndRecArg} {i nxi off d u L : Nat} {Γfield Γa Γξs : List VExpr}
+    (henv : VEnv.Ordered env)
+    (hargs : env.HasArgs D.uvars (r.binders.reverse ++ Γfield)
+      (liftTele (nxi + i) T'.indices) r.args)
+    (W₁ : Ctx.LiftN off (nxi + i)
+      ((D.atRecTele r.binders).reverse ++ D.atRecCtx Γfield) Γa)
+    (W₂ : Ctx.LiftN d nxi Γa Γξs)
+    (hle : nxi ≤ nxi + i + off) (harith : nxi + i + off + d = u + L) :
+    env.HasArgs D.recUvars Γξs
+      (liftTele L (liftTele u (D.atRecTele T'.indices) 0) 0)
+      (r.args.map fun a => VExpr.shift off d i (D.atRec a) nxi) := by
+  have h0 := D.atRec_hasArgs hargs
+  rw [VInductDecl'.atRecCtx, List.map_append, List.map_reverse] at h0
+  rw [show D.atRecTele (liftTele (nxi + i) T'.indices)
+      = liftTele (nxi + i) (D.atRecTele T'.indices) 0 from VInductDecl'.atRec_liftTele D] at h0
+  have h1 := VEnv.HasArgs.weakN henv W₁ h0
+  have h2 := VEnv.HasArgs.weakN henv W₂ h1
+  rw [VInductDecl'.ih_telescope_eq hle harith] at h2
+  have hmap : List.map (fun x => VExpr.liftN d x nxi)
+        (List.map (fun x => VExpr.liftN off x (nxi + i)) (List.map D.atRec r.args))
+      = r.args.map fun a => VExpr.shift off d i (D.atRec a) nxi := by
+    simp only [List.map_map, Function.comp_def, VExpr.shift, Nat.add_comm i nxi]
+  rwa [hmap] at h2
