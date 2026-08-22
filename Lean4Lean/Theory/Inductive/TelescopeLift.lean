@@ -33,6 +33,14 @@ latter rather than peeling — `instAll_instAll` in `StructureClosed.lean`.
 
 If a fourth arrives, write the unconditional form first and do not rediscover this.
 
+*A note on notes.*  Every heuristic recorded during this development needed narrowing after
+contact with use, and always the same way: the first formulation encoded the surface form of
+the single instance it came from.  "Grep before writing" became **grep for the shape, not the
+name** (three lemmas existed under identifiers no name-search would find — one was declared
+`_root_.Lean4Lean.OnCtx.instL` inside another namespace).  "State the general version"
+needed the boundary condition at `instAllCongrSort`.  Expect the same of the rule above, and
+of the next one anyone writes here.
+
 ## Side conditions
 
 `instAll` is the only one needing a side condition.  `instAll A as k` splices `as` into

@@ -162,7 +162,7 @@ theorem inferLambda.loop.WF {c : VContext} {e₀ : Expr}
     refine (inferType.WF' ?_ hinf).bind fun ty _ _ ⟨e', ty', hb, h1, h2, h3⟩ => ?_
     · apply hr.instantiateList; simp [← eqfvs]; exact m.fvarRevList_prefix.subset
     refine .stateWF fun wf => .getLCtx <| .pure ?_
-    have ⟨_, h2', e2⟩ := h2.trExpr c.Ewf.ordered wf.trctx.wf
+    have ⟨_, h2', e2⟩ := h2.trExpr c.Ewf wf.trctx.wf
       |>.cheapBetaReduce c.Ewf wf.trctx.wf m.noBV
     have h3 := h3.defeqU_r c.Ewf mwf.1.tr.wf.toCtx e2.symm
     let ⟨h1', h2''⟩ := mwf.1.mkLambda_trS c.Ewf h1 h3 n hn
@@ -393,7 +393,7 @@ theorem inferLet.loop.WF {c : VContext} {e₀ : Expr}
   · subst ei; refine (inferType.WF' ?_ hinf).bind fun ty _ _ ⟨e', ty', hb, h1, h2, h3⟩ => ?_
     · apply hr.instantiateList; simp [← eqfvs]; exact m.fvarRevList_prefix.subset
     refine .stateWF fun wf => .getLCtx <| .pure ?_
-    have ⟨_, hty, e2⟩ := h2.trExpr c.Ewf.ordered wf.trctx.wf
+    have ⟨_, hty, e2⟩ := h2.trExpr c.Ewf wf.trctx.wf
       |>.cheapBetaReduce c.Ewf wf.trctx.wf m.noBV
     have h3 := h3.defeqU_r c.Ewf mwf.1.tr.wf.toCtx e2.symm
     let ⟨h1', h2'⟩ := mwf.1.mkLet_trS c.Ewf h1 h3 n hn nds hnds

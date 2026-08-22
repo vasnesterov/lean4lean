@@ -880,18 +880,79 @@ theorem TrExpr.fvarsList (H : TrExpr env Us Δ e e') : e.fvarsList ⊆ Δ.fvars 
 
 /-- Restated with the two contexts identified.  The `Δ`/`Γ` of the original statement were
 unrelated, which claimed the translation is context-independent; the sole consumer (the
-`proj` case of `TrExprS.wf`) instantiates them to the same context. -/
-theorem TrProj.wf (henv : Ordered env) (hΓ : OnCtx Γ (env.IsType U))
+`proj` case of `TrExprS.wf`) instantiates them to the same context.
+
+**Plan of the remaining proof.**  Every ingredient below exists and is sorry-free in
+`Theory/Inductive/{Structure,StructureClosed,TelescopeLift,RecApp}.lean`; what is left is
+assembly.  Written out arm by arm so a successor starts from the plan, not a goal state.
+
+**Step 0 — the statement to prove first.**  `wf` is a corollary of a strengthened lemma,
+because `projCore`'s motive for field `i` mentions the projections of fields `< i`, so the
+induction must be on the field index:
+
+```
+theorem projTerm_hasType (henv : env.Ordered) (H : env.IsStructure S D T C)
+    (h3 : us.length = D.uvars) (h7 : ∀ l ∈ us, l.WF U) :
+  ∀ i, i < C.fields.length →
+    (D.isLE = true ∨ ∀ k, k ≤ i → (k = i ∨ C.FieldUsed D 0 k) →
+      (C.fields.getD k default).lvl.inst us ≈ .zero) →
+    ∀ {Γ ps ιs e}, OnCtx Γ (env.IsType U) →
+      env.HasType U Γ e ((VExpr.const S us).mkApp (ps ++ ιs)) →
+      ps.length = D.np → ιs.length = T.indices.length →
+      env.HasArgs U Γ (D.params.map (VExpr.instL us)) ps →
+      env.HasArgs U Γ (VExpr.instAllTele (T.indices.map (VExpr.instL us)) ps) ιs →
+      env.HasType U Γ (D.projTerm T C us ps ιs i e)
+        (VExpr.instAll ((C.fields.getD i default).type.instL us)
+          (ps ++ (List.range i).map (fun k => D.projTerm T C us ps ιs k e)))
+```
+
+`Γ`/`ps`/`ιs`/`e` are quantified *after* `i` so the IH applies at the shifted context;
+`induction i using Nat.strongRecOn`.  This skeleton is verified to elaborate, and
+`recApp_hasType''` applies to it with `u := 0`, `ms := [mot]`, `mins := [minor]`, its
+subject term matching the goal's **syntactically** (checked side by side).
+
+**Step 1 — `hspine`.**  `HasArgs.append` twice, over
+`(atRecTele params).map (instL ls) ++ motives.map (instL ls) ++ minors.map (instL ls)`.
+* parameters: the recorded `HasArgs`, after rewriting `(atRecTele D.params).map (instL ls)`
+  to `D.params.map (instL us)` by `VExpr.instL_instL` + `VInductDecl'.selfLvls_inst`.
+* motive: type is `motiveType_instL_instAll`; inhabit it by `HasType.mkLams` then
+  `HasType.lam`, whose body obligation is `instAll_field_isType` — supply its two `HasArgs`
+  from the recorded parameter premise (weakened by `HasArgs.weakN`, telescope fixed by
+  `VExpr.liftTele_eq_self` since parameters are closed) and from `HasArgs.ofMap` fed by the
+  **induction hypothesis**, using `VInductDecl'.projArgs_eq_map`.  If `D.isLE = false`,
+  convert the sort with the F17 premise via `sortDF`/`defeqDF`.
+* minor: type is `minorType_instL_instAll`; inhabit by `HasType.mkLams`, leaving
+  `.bvar (nf-1-i)` to be typed at the motive-applied codomain.  Its `Lookup` type is
+  `(instAll ftype_i ps i).liftN (nf-i)`, so this needs
+  `IsDefEq.instAllCongrSort` with the spine `[proj_j ctorapp]` versus `[fieldvar_j]`,
+  each entry from `iota_law` chained with `projMinor_app` (this is why `wf` takes
+  `VEnv.WF env`: the two land at different types and `IsDefEqU.trans`/`of_l` are needed).
+
+**Step 2 — `hidx`.**  `VInductDecl'.idxTele_collapse`, then the recorded index premise.
+
+**Step 3 — `he`.**  The recorded typing, after `VInductDecl'.selfLvls_inst` rewrites
+`(const T.name (selfLvls.map (inst ls)))` to `(const S us)` (`H.name : T.name = S`).
+
+**Step 4 — the type side.**  `recApp_hasType''` concludes at `mot.mkApp (ιs ++ [e])`;
+convert to the stated type with `IsDefEq.betaMkLams` (note
+`mkLams As (.lam X b) = mkLams (As ++ [X]) b`) and then the equation
+`VIndType.projMotive_instAll`-shaped computation: `VExpr.instAll_instAll` to compose the two
+substitutions (`ftype` is closed at `np + i` by `ProjClosed`), `VExpr.instAll_liftN` to undo
+the parameter lift, `VExpr.map_instAll_bvars_mid` for the index block, and
+`VInductDecl'.projTerm_instAll` to turn projections of `.bvar 0` into projections of `e`.
+
+**Step 5 — `wf`.**  `⟨_, projTerm_hasType …⟩`; `VExpr.WF` needs only *some* type. -/
+theorem TrProj.wf (henv : VEnv.WF env) (hΓ : OnCtx Γ (env.IsType U))
     (H1 : TrProj env U Γ s i e e') (H2 : VExpr.WF env U Γ e) :
     VExpr.WF env U Γ e' := sorry
 
 theorem TrExpr.wf (H : TrExpr env Us Δ e e') : VExpr.WF env Us.length Δ.toCtx e' :=
   let ⟨_, _, _, H⟩ := H; ⟨_, H.hasType.2⟩
 
-variable! (henv : Ordered env) {Us : List Name} (hΔ : VLCtx.WF env Us.length Δ) in
+variable! (henv : VEnv.WF env) {Us : List Name} (hΔ : VLCtx.WF env Us.length Δ) in
 theorem TrExprS.wf (H : TrExprS env Us Δ e e') : VExpr.WF env Us.length Δ.toCtx e' := by
   induction H with
-  | bvar h1 | fvar h1 => exact ⟨_, hΔ.find?_wf henv h1⟩
+  | bvar h1 | fvar h1 => exact ⟨_, hΔ.find?_wf henv.ordered h1⟩
   | sort h1 => exact ⟨_, HasType.sort (.of_ofLevel h1)⟩
   | const h1 h2 h3 => exact ⟨_,
     HasType.const h1 (.of_mapM_ofLevel h2) ((List.mapM_eq_some.1 h2).length_eq.symm.trans h3)⟩
@@ -905,7 +966,7 @@ theorem TrExprS.wf (H : TrExprS env Us Δ e e') : VExpr.WF env Us.length Δ.toCt
   | lit _ _ ih | mdata _ ih => exact ih hΔ
   | proj _ h2 ih => exact h2.wf henv hΔ.toCtx (ih hΔ)
 
-variable! (henv : Ordered env) {Us : List Name} (hΔ : VLCtx.WF env Us.length Δ) in
+variable! (henv : VEnv.WF env) {Us : List Name} (hΔ : VLCtx.WF env Us.length Δ) in
 theorem TrExprS.trExpr (H : TrExprS env Us Δ e e') : TrExpr env Us Δ e e' :=
   ⟨_, H, H.wf henv hΔ⟩
 

@@ -782,4 +782,62 @@ theorem iota_law {env : VEnv} {U : Nat} {S : Lean.Name}
   rw [← hlamEq] at hLam
   exact hL.symm.trans (hstep.trans (hR.trans hLam))
 
+/-- **Part 2 of the ι step.**  The minor premise `fun f₀ … f_{n-1} => fᵢ` applied to the
+fields β-reduces to the `k`-th field.  Together with `iota_law` this gives
+`proj_k (C.mk ps fs) ≡ fs[k]`. -/
+theorem projMinor_app {env : VEnv} {U : Nat} (henv : env.Ordered)
+    {Γ ps fs : List VExpr} {C : VIndCtor} {us : List VLevel} {k : Nat} {B : VExpr}
+    (hk : k < C.fields.length) (hfs : fs.length = C.fields.length)
+    (hOn : OnCtx ((VExpr.instAllTele (C.fields.map fun F => F.type.instL us) ps).reverse ++ Γ)
+      (env.IsType U))
+    (hA : env.HasArgs U Γ (VExpr.instAllTele (C.fields.map fun F => F.type.instL us) ps) fs)
+    (hb : env.HasType U
+      ((VExpr.instAllTele (C.fields.map fun F => F.type.instL us) ps).reverse ++ Γ)
+      (.bvar (C.fields.length - 1 - k)) B) :
+    env.IsDefEq U Γ ((C.projMinor us ps k).mkApp fs) (fs.getD k default)
+      (VExpr.instAll B fs) := by
+  have hget : fs[k]? = some (fs.getD k default) := by
+    have : k < fs.length := by omega
+    rw [List.getElem?_eq_getElem this]
+    simp [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem this]
+  have h := VEnv.IsDefEq.betaMkLams henv hOn hA hb
+  rw [VExpr.instAll_bvar_get hget (by rw [hfs]; omega)] at h
+  simpa [VIndCtor.projMinor] using h
+
+/-- **The dual of `HasType.mkApp'`.**  Substituting a whole telescope of well-typed
+arguments into a term typed in that telescope's context. -/
+theorem VEnv.HasType.instAll {env : VEnv} {U : Nat} (henv : env.Ordered) {Γ : List VExpr} :
+    ∀ {As as : List VExpr} {b B : VExpr}, env.HasArgs U Γ As as →
+      env.HasType U (As.reverse ++ Γ) b B →
+      env.HasType U Γ (VExpr.instAll b as) (VExpr.instAll B as)
+  | [], [], _, _, .nil, hb => hb
+  | A :: As, a :: as, b, B, .cons ha has, hb => by
+    have hW := Ctx.instN_tele Γ a A As
+    have hb2 : env.HasType U (As.reverse ++ A :: Γ) b B := by
+      rwa [List.reverse_cons, List.append_assoc, List.singleton_append] at hb
+    have hb' := VEnv.HasType.instN henv hW hb2 ha
+    have hlen : as.length = As.length := has.length_eq.symm.trans VExpr.length_instTele
+    rw [VExpr.instAll_cons, VExpr.instAll_cons, Nat.zero_add, hlen]
+    exact VEnv.HasType.instAll henv has hb'
+
+/-- **`projMotive`'s body is a type.**  Field `i`'s stored type, with the parameters and the
+earlier fields' spine substituted, is a type at the field's recorded sort.  The caller
+supplies the two `HasArgs`: the parameters, and the earlier projections (which come from the
+induction hypothesis via `HasArgs.ofMap`). -/
+theorem instAll_field_isType {env : VEnv} {U : Nat} {S : Lean.Name}
+    {D : VInductDecl'} {T : VIndType} {C : VIndCtor} {us : List VLevel}
+    (henv : env.Ordered) (H : env.IsStructure S D T C) (hI : D.IotaCtx env)
+    (h3 : us.length = D.uvars) (h7 : ∀ l ∈ us, l.WF U) (hcl : D.ProjClosed T C)
+    {i : Nat} (hi : i < C.fields.length)
+    {Δ qs earlier : List VExpr}
+    (hqs : env.HasArgs U Δ (D.params.map (VExpr.instL us)) qs)
+    (hearlier : env.HasArgs U Δ
+      (VExpr.instAllTele ((C.fields.take i).map (fun F => F.type.instL us)) qs) earlier) :
+    env.HasType U Δ
+      (VExpr.instAll ((C.fields.getD i default).type.instL us) (qs ++ earlier))
+      (.sort ((C.fields.getD i default).lvl.inst us)) := by
+  have := VEnv.HasType.instAll henv (VEnv.HasArgs.append hqs hearlier)
+    (ftype_hasType henv H hI h3 h7 hcl hi Δ)
+  rwa [VExpr.instAll_sort] at this
+
 end Lean4Lean
