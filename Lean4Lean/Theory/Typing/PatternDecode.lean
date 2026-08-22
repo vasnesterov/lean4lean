@@ -206,6 +206,68 @@ def decodeSimple (e : VExpr) : Option SimplePattern :=
       | _ => none
   | _ => none
 
+/-! ### The whole argument list at once
+
+`argPath` is `Option`-valued, so selecting an argument for an `RHS` would need a total
+selector, and `(varN q n).Path` is `Empty` when `n = 0` — there is no default to fall back
+on.  Producing the *list* of all `n` paths instead sidesteps that: `RHS.var` can be mapped
+over it, and the readback becomes a single list equation rather than an indexed family. -/
+
+namespace Pattern
+
+/-- All `n` argument paths of a `varN` chain, left to right.  The outermost `.var` holds the
+last argument, hence `map some ++ [none]`. -/
+def argPaths (q : Pattern) : (n : Nat) → List (Pattern.varN q n).Path
+  | 0 => []
+  | n+1 => argPathsSucc q n (argPaths q n)
+where
+  /-- The successor step, written at the *unfolded* type `List (Option _)`.
+
+  This is not cosmetic.  Inlining it makes `++` elaborate its `HAppend` instance at
+  `List (varN q (n+1)).Path`; `rw [List.length_append]` then fails to match even though the
+  two types are definitionally equal, because `rw` is syntactic and the instance is not.
+  Naming the step gives every lemma below a clean type to `show` its way into. -/
+  argPathsSucc (q : Pattern) (n : Nat) (l : List (Pattern.varN q n).Path) :
+      List (Option (Pattern.varN q n).Path) :=
+    l.map some ++ [none]
+
+@[simp] theorem length_argPaths (q : Pattern) : ∀ n, (argPaths q n).length = n
+  | 0 => rfl
+  | n+1 => by
+    show (argPaths.argPathsSucc q n (argPaths q n)).length = n + 1
+    rw [argPaths.argPathsSucc, List.length_append, List.length_map, length_argPaths q n]
+    rfl
+
+/-- **Readback, as a list equation.**  Matching a constant applied to `as` against the
+`varN` chain of depth `as.length` recovers `as` exactly by mapping the match over
+`argPaths`.
+
+Indexed by a depth variable `n` with `as.length = n` rather than by `as.length` itself —
+see note 0b at the head of `Theory/Inductive/Lemmas.lean`; `(as ++ [a]).length` does not
+reduce, so a snoc induction cannot rewrite the `Path`'s index. -/
+theorem matches_varN_argPaths (c : Lean.Name) (ls : List VLevel) :
+    ∀ (n : Nat) (as : List VExpr), as.length = n →
+    ∃ m2, Matches (Pattern.varN (.const c) n)
+        ((VExpr.const c ls).mkApp as) (fun _ => ls) m2 ∧
+      (argPaths (.const c) n).map m2 = as
+  | 0, as, h => by
+    rw [List.length_eq_zero_iff.1 h]
+    exact ⟨nofun, .const, rfl⟩
+  | n+1, as, h => by
+    obtain rfl | ⟨as', a, rfl⟩ := List.eq_concat as
+    · simp at h
+    have hlen : as'.length = n := by simpa using h
+    obtain ⟨g, hg, hga⟩ := matches_varN_argPaths c ls n as' hlen
+    -- the domain ascription keeps `List.map`'s instance at the unfolded type; see
+    -- `argPaths.argPathsSucc`
+    refine ⟨(fun x : Option (Pattern.varN (.const c) n).Path => x.elim a g), ?_, ?_⟩
+    · rw [VExpr.mkApp_concat]; exact .var hg
+    · show List.map _ (argPaths.argPathsSucc (.const c) n (argPaths (.const c) n)) = _
+      rw [argPaths.argPathsSucc, List.map_append, List.map_map, List.map_cons, List.map_nil]
+      exact congrArg (· ++ [a]) hga
+
+end Pattern
+
 /-! ## Building an `RHS` and a `Check`
 
 `Pattern.RHS` and `Pattern.Check` are cons-shaped: `RHS` has a binary `app`, `Check` threads

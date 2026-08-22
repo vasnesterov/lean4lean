@@ -73,6 +73,17 @@ The same move handles truncated subtraction: state `k + as.length = B + 1 + t` r
 normal form.  `VExpr.instAll_bvar_get` and
 `Pattern.matches_varN_mkApp` (`Theory/Typing/PatternDecode.lean`) are the two instances.
 
+*The sharper form, when the dependent type is the element type of a list.*  If you build a
+`List T` where `T` itself reduces — `(varN q (n+1)).Path`, which unfolds to
+`Option (varN q n).Path` — then `++`, `List.map` and friends elaborate their **instances** at
+the un-reduced type, and `rw [List.length_append]` fails to match even though the two types
+are definitionally equal: `rw` is syntactic and the instance is not.  Neither a type
+ascription on the body nor `show` on the goal is enough, because the *function* being mapped
+carries the un-reduced domain too.  What works is to name the recursion step as a separate
+definition at the reduced type and ascribe the mapped function's domain:
+`Pattern.argPaths.argPathsSucc` (`Theory/Typing/PatternDecode.lean`) is the worked example,
+and its docstring says why.
+
 This has now been the source of the surprise three times, always in the indexing rather than
 in the mathematics.  Cost when unprepared: two failed attempts and ~30 lines.  Cost with the
 rule in hand: zero.
