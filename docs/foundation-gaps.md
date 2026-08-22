@@ -107,6 +107,43 @@ Nothing else changed. So the widened statement of this gap is: `definability`
 reports the same undiagnosable internal error for **at least two structurally
 unrelated reasons**, and the arity fix addresses only one of them.
 
+### 1c. `definability` silently discards its `config` argument
+
+```lean
+macro "definability" (config)? : tactic =>
+  `(tactic| aesop (config := { terminal := true }) (rule_sets := [Definability]))
+```
+
+(`Basic/Definability.lean:502`.) The `(config)?` is parsed and then **never
+referenced in the expansion**, so `definability (config := …)` type-checks,
+runs, and ignores what you asked for. A one-line fix; but until it lands there
+is no way to tune the tactic except by calling `aesop` directly with the rule
+set.
+
+### The depth limit is *masking* the bug, not competing with it
+
+This is the important correction, and it came from testing rather than
+reasoning. The natural reading of 1a/1b is that some goals exhaust the search
+budget and others trip the internal error. That is wrong. On the goal
+
+```lean
+ℒₛₑₜ-function₂ (fun ρ r ↦ quotVal (ρ ‘ 0) r i)     -- with quotVal_definable in context
+```
+
+* at the default limits: `maximum rule application depth (30) was reached`;
+* calling `aesop` directly with `maxRuleApplicationDepth := 300`,
+  `maxRuleApplications := 5000`: `internal error … goal 106 was not normalised`.
+
+**Raising the limits does not fix the search; it exposes the defect underneath.**
+So "`definability` needs a depth bump for downstream users" would have been the
+wrong report — a bump alone makes this class of goals fail *differently*, not
+succeed. The depth ceiling is currently the only thing keeping the failure
+legible.
+
+That also sharpens what to send upstream: the reproduction should be run at
+raised limits, or the maintainers will see the depth message and conclude it is
+a tuning question.
+
 ### Which failures are bugs, and which are limitations
 
 The two symptoms need separating, because only one of them is worth a report:
@@ -524,6 +561,7 @@ the boundary at all.
 |---|---|---|---|---|
 | 1a | `definability` blind to arity 4–5 | `Basic/Definability.lean:477` | debugging cycle; blocks all recursors | **2 lines** |
 | 1b | same internal error, second trigger: `∃` under a set quantifier | unknown — rule set or `aesop` | second debugging cycle; forces restating `lfp`s | unknown; **worth reporting** |
+| 1c | `definability` parses `config` and discards it | `Basic/Definability.lean:502` | no way to tune the tactic | **1 line** |
 | 2 | `value_eq_of_kpair_mem` | `SetTheory/Function.lean` | ~20 lines, used in 4 files | ~20 lines |
 | 3 | No cardinal arithmetic | new `SetTheory/Cardinal.lean` | 458 lines | medium |
 | 4 | No `sep`-as-definable-function | `SetTheory/Z.lean` | 6 × ~8 lines | ~15 lines |

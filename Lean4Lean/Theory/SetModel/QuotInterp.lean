@@ -269,6 +269,53 @@ noncomputable def quotFn (M : ModelData V) (L : LevelAssign envF nv) (u : VLevel
     (by have := quotFib_definable (M := M) (L := L) (u := u); definability)
     ∅
 
+/-! ### Towards `Quot.mk`
+
+`Quot.mk : ∀ (α : Sort u) (r : α → α → Prop) (a : α), Quot α r` — one λ deeper
+than `Quot`, and the value layer costs exactly one more of each thing: one
+`mem_ext_iff` lemma for the new primitive it uses (`eqvClass`), one for the
+value itself, and one `.comp` for the fibre. See the ledger for the measurement. -/
+
+theorem eqvClass_definable₃ : ℒₛₑₜ-function₃[V] (fun A R x ↦ eqvClass A R x) := by
+  suffices ℒₛₑₜ-relation₄[V] (fun T A R x ↦ T = eqvClass A R x) by exact this
+  have e : ∀ T A R x : V, T = eqvClass A R x ↔ ∀ z, z ∈ T ↔ (z ∈ A ∧ (⟨x, z⟩ₖ : V) ∈ R) := by
+    intro T A R x; rw [mem_ext_iff]; simp [eqvClass]
+  simp only [e]
+  definability
+
+/-- **The denotation of `Quot.mk α r a`.**  At `Prop` it is the proof object;
+above that it is the equivalence class. -/
+noncomputable def quotMkVal (α r a : V) (i : ℕ) : V :=
+  if i = 0 then (pt : V) else eqvClass α (quotEqv α (quotRel α r)) a
+
+theorem quotMkVal_definable (i : ℕ) :
+    ℒₛₑₜ-function₃[V] (fun α r a ↦ quotMkVal α r a i) := by
+  by_cases h : i = 0
+  · subst h; simp only [quotMkVal]; definability
+  · simp only [quotMkVal, if_neg h]
+    have h1 := quotRel_definable (V := V)
+    have h2 := quotEqv_definable (V := V)
+    have h3 := eqvClass_definable₃ (V := V)
+    definability
+
+/-- The fibre map for `Quot.mk`'s innermost λ, in environment-passing style:
+`α` and `r` are read out of `ρ` at indices `0` and `1`. -/
+theorem quotMk_fibre_definable (i : ℕ) :
+    ℒₛₑₜ-function₂[V] (fun ρ a ↦ quotMkVal (ρ ‘ ((0 : ℕ) : V)) (ρ ‘ ((1 : ℕ) : V)) a i) := by
+  have hf := quotMkVal_definable (V := V) i
+  have g1 : ℒₛₑₜ-function₂[V] (fun (ρ _ : V) ↦ ρ ‘ ((0 : ℕ) : V)) := by definability
+  have g2 : ℒₛₑₜ-function₂[V] (fun (ρ _ : V) ↦ ρ ‘ ((1 : ℕ) : V)) := by definability
+  exact hf.comp g1 g2 definable_snd
+
+/-- `Quot.mk`'s value lands in `Quot`'s. -/
+theorem quotMkVal_mem (i : ℕ) {α r a : V} (ha : a ∈ α) :
+    quotMkVal α r a i ∈ quotVal α r i := by
+  rw [quotMkVal, quotVal]
+  split
+  · rw [if_neg (fun h : α = ∅ ↦ by rw [h] at ha; exact absurd ha (by simp))]
+    exact mem_singleton_iff.2 rfl
+  · exact mem_setQuotient_iff.2 ⟨a, ha, rfl⟩
+
 /-! ### The membership obligation -/
 
 variable {n : ℕ} {κ : ℕ → V}

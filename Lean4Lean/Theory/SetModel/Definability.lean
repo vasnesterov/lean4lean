@@ -25,7 +25,11 @@ explicitly discharges in one step what the tactic cannot find in fifty. That is
 all these combinators are — the compositions the interpretation actually uses,
 each stated once so the call site is one application.
 
-## The environment-passing discipline
+## READ THIS BEFORE WRITING YOUR FIRST `mkLam`
+
+**The discipline that makes `interp` compose is the same one that makes anything
+built alongside it compose.**  If you are starting the constructor or recursor
+layer, this section is the one that matters; the lemmas below are bookkeeping.
 
 There is a second, cheaper lesson embedded here. `interp`'s own `lam` clause
 writes its fibre map as a function of the *environment*:

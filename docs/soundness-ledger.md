@@ -828,6 +828,50 @@ symptom is indistinguishable from the `mkLam` unification blow-up — both are
 `whnf` timeouts at the theorem header — which is why bisecting to the individual
 `have` was necessary rather than reasoning about which step "looked expensive".
 
+### Measured: what one more λ costs
+
+`Quot` has two nested λs, `Quot.mk` three, so `Quot.mk` is the first real
+measurement of `.induct`'s function layer — a constructor is the same
+construction one level deeper.
+
+**On the definability axis the growth is linear, and there is no new *kind* of
+work.** Going from two λs to three needed exactly:
+
+| | `Quot` (2 λs) | `Quot.mk` (3 λs) |
+|---|---|---|
+| new primitives needing a `mem_ext_iff` definability lemma | `quotRel`, `quotEqv`, plus `eqvStep₃`, `setQuotient₂` | `eqvClass₃` |
+| value definability | `quotVal_definable` | `quotMkVal_definable` — same proof shape, arity 3 |
+| fibre substitution | 1 × `definable₂_comp₁` | 1 × `DefinableFunction₃.comp`, same shape |
+
+I had extrapolated that each extra λ would need *new* substitution combinators
+and that this was the nonlinearity. **That was wrong**, and testing it rather
+than reasoning about it is what showed so: arity 3 went through with the same
+pattern as arity 2, because `DefinableFunction₃.comp` already exists and applies
+by hand exactly as `₂.comp` does.
+
+**The real cost driver is codomain shape, not nesting depth.** What `Quot.mk`
+needs that `Quot` did not is nothing to do with depth:
+
+* its codomain is `Quot α r` — a *constant application*, not a sort — so the
+  typing derivation needs `constDF` plus two `appDF`s and their `inst`
+  computations, where `Quot`'s spine was `sortDF`/`bvar`/`forallEDF` throughout;
+* connecting `⟦Quot α r⟧` to `quotVal` needs value-computation lemmas
+  (`mkLam_value` chains down the nest), which `Quot` never needed because its
+  codomain was a universe.
+
+**For `.induct` this is good news and it is specific.** A constructor's codomain
+is `I params indices` — a constant application — so every constructor pays the
+`constDF`/`appDF` cost *once*, and it does not compound with the number of
+fields. The per-field cost is one `.comp` and one `mkLam`, i.e. linear.
+
+**The one hard ceiling is arity.** Foundation's `DefinableFunction` abbreviations
+and their `comp` lemmas stop at **₅** (`DefinableRel` reaches ₆). A constructor
+with more than about four fields exceeds the supported API and must drop to the
+raw `DefinableFunction (k := n)` form with hand-rolled composition. That is a
+friction ceiling rather than an impossibility, but it is where the linear
+estimate stops being valid, and it is worth knowing before the constructor layer
+is scheduled.
+
 ### The pattern: uniform in ZFC, not uniform across `Sort 0`
 
 That split is the **third** time this session a statement that reads uniformly
