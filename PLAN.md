@@ -134,7 +134,7 @@ Open:
 |---|---|---|
 | `VInductDecl.WF`, `VEnv.addInduct` — `sorry` **definitions** | `Theory/Inductive.lean` | **the keystone**; the spec of inductive types does not exist |
 | `addInduct_WF` | `Theory/Typing/InductiveLemmas.lean` | blocked on the above |
-| `IsDefEqU.sort_inv`, `.forallE_inv_stratified`, `.sort_forallE_inv` | `Theory/Typing/Injectivity.lean` | research; circular with Church–Rosser |
+| `IsDefEqU.sort_inv`, `.forallE_inv_stratified`, `.sort_forallE_inv` | `Theory/Typing/Injectivity.lean` | route found — see below |
 | `NormalEq.parRed`, two ι-rule cases | `Theory/Typing/ChurchRosser.lean` | grindy but routine |
 | `IsDefEqU.weakN_iff`, forward direction | `Theory/Typing/UniqueTyping.lean:174` | routine-ish strengthening |
 | nothing instantiates `VEnv.Params` | — | `addInduct` must produce `Pattern`-shaped ι-rules satisfying the orthogonality axioms |
@@ -142,6 +142,42 @@ Open:
 
 `VEnv.WF.ordered` routes through `addInduct_WF`, so every `henv : VEnv.WF env`
 downstream is sorry-tainted until the keystone lands.
+
+#### Workstream: injectivity
+
+The circularity is real: `ChurchRosser.lean` uses the three injectivity
+statements 12 times directly and 23 more through `IsDefEq.uniq`, so they cannot
+be corollaries of `IsDefEq.church_rosser`. Two other routes are ruled out.
+Re-stratifying to Carneiro's `⊢_n` would mean re-indexing ~2300 lines of
+finished proof: the repo's `HasTypeStratified` indexes typing-derivation
+*height*, whereas Carneiro's index counts alternations on the conversion
+judgment, which is what makes `thm:0dinv`/`thm:1dinv` go through. And porting
+the logical relation to `VExpr` would reintroduce the level congruences that
+`SLevel` exists to kill.
+
+The viable route is the shape model already in `Experimental/`.
+`Experimental/ShapeLogRel.lean` (6100 lines) is **fully proved** — its `sorry`
+hits are inside a dead block comment — and `ShapeLogRelAdequacy.lean` proves all
+three injectivity statements for `SExpr`, a copy of `VExpr` with semantically
+quotiented levels and a heterogeneous `trans'` rule. Commit `84f2b04`
+("Finished injectivity! 🎉") is that work; it never reached the mainline because
+**there is no `SExpr ↔ VExpr` bridge**.
+
+`sort_inv` and `sort_forallE_inv` need only the *forward* translation
+`VExpr → SExpr`, since their conclusions are `u ≈ v` and `False`. Only
+`forallE_inv_stratified` needs the reverse reflection; `trans'`-elimination for
+it is already proved (`Experimental/UniqueTyping.lean:261`), leaving a
+representative-choice induction.
+
+Two things this changes elsewhere. `Experimental/SExpr.lean` has 25 open
+declarations and 1 axiom that the bridge may need. And `LR.adequacy`'s `const`
+case needs `Params.ctor_ty` — so **injectivity is not independent of the
+inductive-spec keystone** after all, and Phase A cannot fully close without
+Phase B.
+
+Also worth noting: `Params` is uninstantiated on *both* sides, and the two
+`Params` classes differ. Until `addInduct` supplies an instance,
+`ChurchRosser.lean` and `HeadReduction.lean` are vacuous.
 
 ### Link 3 — the model (not started)
 
