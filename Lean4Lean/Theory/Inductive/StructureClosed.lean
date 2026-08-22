@@ -203,20 +203,143 @@ theorem motiveType_instL_instAll (D : VInductDecl') (T : VIndType) (C : VIndCtor
     VExpr.map_instAll_bvars_lt (Nat.le_of_eq (Nat.zero_add _)),
     List.take_of_length_le (by simp [hps])]
 
-/-- A telescope weakened by one binder, then saturated by a spine whose last argument fills
-that binder, is unchanged: the extra argument is discarded.  This is what collapses the
-minor premise's field telescope, which `minorType` states over `params ++ motives`.
+/-- A term weakened by one binder, then saturated by a spine whose last argument fills that
+binder, is unchanged: the extra argument is discarded. -/
+theorem VExpr.instAll_liftN_snoc {X b : VExpr} {as : List VExpr} {k : Nat} :
+    VExpr.instAll (VExpr.liftN 1 X k) (as ++ [b]) k = VExpr.instAll X as k := by
+  rw [VExpr.instAll_append, show ([b] : List VExpr).length = 1 from rfl,
+    VExpr.liftN_instAll (n := 1) (as := as) (X := X) (k := k),
+    VExpr.instAll_cons, List.length_nil, Nat.add_zero, VExpr.inst_liftN, VExpr.instAll_nil]
 
-Lives here rather than in `TelescopeLift.lean` because `VExpr.instAll_append` is in
-`Inductive/Lemmas.lean`. -/
+/-- The telescope version.  This is what collapses the minor premise's field telescope,
+which `minorType` states over `params ++ motives`. -/
 theorem VExpr.instAllTele_liftTele_snoc : ∀ {As as : List VExpr} {b : VExpr} {k : Nat},
     VExpr.instAllTele (VExpr.liftTele 1 As k) (as ++ [b]) k = VExpr.instAllTele As as k
   | [], _, _, _ => rfl
   | A :: As, as, b, k => by
     rw [VExpr.liftTele_cons, VExpr.instAllTele_cons, VExpr.instAllTele_cons,
-      VExpr.instAll_append, show ([b] : List VExpr).length = 1 from rfl,
-      VExpr.liftN_instAll (n := 1) (as := as) (X := A) (k := k),
-      VExpr.instAll_cons, List.length_nil, Nat.add_zero, VExpr.inst_liftN, VExpr.instAll_nil,
+      VExpr.instAll_liftN_snoc,
       VExpr.instAllTele_liftTele_snoc (As := As) (as := as) (b := b) (k := k+1)]
+
+/-! ## The minor premise's declared type -/
+
+theorem minorType_instL_instAll (D : VInductDecl') (C : VIndCtor)
+    {us : List VLevel} {ps : List VExpr} {i : Nat} {mot : VExpr}
+    (hnm : D.nm = 1) (hrec : C.recFields = [])
+    (hus : us.length = D.uvars) (hps : ps.length = D.np) :
+    VExpr.instAll ((D.minorType 0 0 C).instL (D.projLvls C us i)) (ps ++ [mot])
+      = mkPi (VExpr.instAllTele (C.fields.map fun F => F.type.instL us) ps)
+          ((mot.liftN C.fields.length).mkApp
+            (C.args.map (fun a => VExpr.instAll (a.instL us) ps C.fields.length) ++
+              [(VExpr.const C.name us).mkApp
+                (ps.map (·.liftN C.fields.length) ++ bvars 0 C.fields.length)])) := by
+  have hself : D.selfLvls.map (VLevel.inst (D.projLvls C us i)) = us := by
+    rw [VInductDecl'.projLvls]; exact D.selfLvls_inst _ hus
+  simp only [VInductDecl'.minorType, VInductDecl'.ihTypes, hrec, hnm, VInductDecl'.atRecTele,
+    VInductDecl'.atRec, VInductDecl'.ctorApp', List.zipIdx_nil, List.map_nil, List.length_nil,
+    List.append_nil, Nat.zero_add, Nat.add_zero, Nat.sub_self,
+    VExpr.instL_mkPi, VExpr.instL_liftTele, VExpr.instL_mkApp, VExpr.instL,
+    VExpr.map_instL_bvars, List.map_map, Function.comp_def, VExpr.instL_instL, hself,
+    VExpr.instAll_mkPi, VExpr.instAll_mkApp, VExpr.length_liftTele, List.length_map,
+    List.map_append, VExpr.shift, VExpr.liftN_zero, VExpr.instL_liftN,
+    List.map_cons, VExpr.instAllTele_liftTele_snoc, VExpr.instAll_liftN_snoc]
+  rw [VExpr.instAll_bvar_get (t := ps.length) (a := mot)
+      (by simp [List.getElem?_append_right]) (by simp [hps]; omega),
+    VExpr.map_instAll_bvars_top (Nat.le_succ _) (by simp [hps]; omega),
+    VExpr.map_instAll_bvars_lt (Nat.le_of_eq (Nat.zero_add _)),
+    List.take_left' hps]
+  simp only [VExpr.instAll_const]
+
+/-! ## Substituting a whole telescope
+
+`HasType.mkApp'` (`Inductive/Lemmas.lean:604`) applies a function to a spine; its dual —
+substituting a spine into a term typed in the spine's own context — is what types
+`projMotive`'s body, and does not exist upstream.  Building it needs a `Ctx.InstN` for a
+whole telescope, which in turn needs `instTele` restated in context order (`instCtx`),
+because `Ctx.InstN` peels the *innermost* binder while `instTele` indexes from the
+outermost. -/
+
+namespace VExpr
+
+/-- `instTele` in context order (innermost binder first). -/
+def instCtx (a : VExpr) : List VExpr → List VExpr
+  | [] => []
+  | B :: Δ => B.inst a Δ.length :: instCtx a Δ
+
+@[simp] theorem instCtx_nil : instCtx a [] = [] := rfl
+@[simp] theorem instCtx_cons : instCtx a (B :: Δ) = B.inst a Δ.length :: instCtx a Δ := rfl
+
+@[simp] theorem length_instCtx : ∀ {Δ : List VExpr} {a}, (instCtx a Δ).length = Δ.length
+  | [], _ => rfl
+  | _ :: _, _ => congrArg Nat.succ length_instCtx
+
+theorem instCtx_reverse_append : ∀ {As Δ : List VExpr} {a : VExpr},
+    instCtx a (As.reverse ++ Δ) = (instTele a As Δ.length).reverse ++ instCtx a Δ
+  | [], _, _ => rfl
+  | B :: As, Δ, a => by
+    rw [List.reverse_cons, List.append_assoc, List.singleton_append,
+      instCtx_reverse_append (As := As) (Δ := B :: Δ), instTele_cons, List.reverse_cons,
+      List.append_assoc, instCtx_cons, List.length_cons, List.singleton_append]
+
+theorem instCtx_reverse {As : List VExpr} {a : VExpr} :
+    instCtx a As.reverse = (instTele a As).reverse := by
+  simpa using instCtx_reverse_append (As := As) (Δ := []) (a := a)
+
+
+theorem Ctx.instN_ctx (Γ₀ : List VExpr) (a A : VExpr) : ∀ (Δ : List VExpr),
+    Ctx.InstN Γ₀ a A Δ.length (Δ ++ A :: Γ₀) (VExpr.instCtx a Δ ++ Γ₀)
+  | [] => .zero
+  | B :: Δ => (Ctx.instN_ctx Γ₀ a A Δ).succ
+
+theorem Ctx.instN_tele (Γ₀ : List VExpr) (a A : VExpr) (As : List VExpr) :
+    Ctx.InstN Γ₀ a A As.length (As.reverse ++ A :: Γ₀) ((VExpr.instTele a As).reverse ++ Γ₀) := by
+  have := Ctx.instN_ctx Γ₀ a A As.reverse
+  rwa [List.length_reverse, VExpr.instCtx_reverse] at this
+end VExpr
+
+/-! ## β-reduction of a saturated `mkLams` -/
+
+/-- **β-reduction of a saturated `mkLams`.**  `instAll` is documented as the β-normal form
+of `(mkLams As b).mkApp as`; this is that statement as a judgement. -/
+theorem VEnv.IsDefEq.betaMkLams {env : VEnv} {U : Nat} (henv : env.Ordered) :
+    ∀ {As as : List VExpr} {Γ : List VExpr} {b B : VExpr},
+      OnCtx (As.reverse ++ Γ) (env.IsType U) →
+      env.HasArgs U Γ As as → env.HasType U (As.reverse ++ Γ) b B →
+      env.IsDefEq U Γ ((mkLams As b).mkApp as) (VExpr.instAll b as) (VExpr.instAll B as)
+  | [], [], _, _, _, _, .nil, hb => hb
+  | A :: As, a :: as, Γ, b, B, hAs, .cons ha has, hb => by
+    have hAs' : OnCtx (As.reverse ++ A :: Γ) (env.IsType U) := by
+      rwa [List.reverse_cons, List.append_assoc, List.singleton_append] at hAs
+    have hb' : env.HasType U (As.reverse ++ A :: Γ) b B := by
+      rwa [List.reverse_cons, List.append_assoc, List.singleton_append] at hb
+    have hlam : env.HasType U (A :: Γ) (mkLams As b) (mkPi As B) :=
+      VEnv.HasType.mkLams hAs' hb'
+    have hbeta : env.IsDefEq U Γ ((VExpr.lam A (mkLams As b)).app a)
+        ((mkLams As b).inst a) ((mkPi As B).inst a) := VEnv.IsDefEq.beta hlam ha
+    rw [VExpr.inst_mkLams_zero] at hbeta
+    have hlen : as.length = As.length := has.length_eq.symm.trans VExpr.length_instTele
+    have hstep := VEnv.IsDefEq.mkApp' has (by rwa [VExpr.inst_mkPi_zero] at hbeta)
+    have hih := VEnv.IsDefEq.betaMkLams henv (As := VExpr.instTele a As) (as := as)
+      (b := b.inst a As.length) (B := B.inst a As.length)
+      ((Ctx.instN_tele Γ a A As).wf henv ha hAs').2 has
+      (VEnv.HasType.instN henv (Ctx.instN_tele Γ a A As) hb' ha)
+    rw [VExpr.mkLams_cons, VExpr.mkApp_cons, VExpr.instAll_cons, VExpr.instAll_cons,
+      Nat.zero_add, hlen]
+    exact hstep.trans hih
+
+namespace VExpr
+
+/-- **Composing two saturated substitutions.**  If `X` is closed at `|L|`, substituting `L`
+and then `M` is substituting `L`'s entries already `M`-substituted. -/
+theorem instAll_instAll {X : VExpr} {L : List VExpr} (h : X.ClosedN L.length) :
+    ∀ {M : List VExpr}, instAll (instAll X L) M = instAll X (L.map (instAll · M))
+  | [] => by simp
+  | b :: M => by
+    rw [instAll_cons, Nat.zero_add, show M.length = M.length + 0 from rfl,
+      inst_instAll (m := M.length) (j := 0) (by simpa using h),
+      instAll_instAll (X := X) (L := L.map (·.inst b M.length)) (by simpa using h) (M := M)]
+    simp only [List.map_map, Function.comp_def, instAll_cons, Nat.zero_add]
+
+end VExpr
 
 end Lean4Lean
