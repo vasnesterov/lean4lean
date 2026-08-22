@@ -342,4 +342,104 @@ theorem instAll_instAll {X : VExpr} {L : List VExpr} (h : X.ClosedN L.length) :
 
 end VExpr
 
+/-! ## Contexts from telescopes -/
+
+/-- A telescope closed at its declared arities gives a closed context when reversed onto a
+closed one. -/
+theorem VExpr.ClosedTele.ctxClosed : ∀ {As Γ : List VExpr},
+    VExpr.ClosedTele As Γ.length → CtxClosed Γ → CtxClosed (As.reverse ++ Γ)
+  | [], _, _, hΓ => hΓ
+  | A :: As, Γ, h, hΓ => by
+    have : CtxClosed (A :: Γ) := ⟨hΓ, h.1⟩
+    have := VExpr.ClosedTele.ctxClosed (As := As) (Γ := A :: Γ) (by simpa using h.2) this
+    simpa using this
+
+/-- A telescope closed at `0` is fixed by `liftTele`, which is what carries the parameter
+block through a weakening. -/
+theorem VExpr.liftTele_eq_self : ∀ {As : List VExpr} {n k j : Nat},
+    VExpr.ClosedTele As j → j ≤ k → VExpr.liftTele n As k = As
+  | [], _, _, _, _, _ => rfl
+  | A :: As, n, k, j, h, hk => by
+    rw [VExpr.liftTele_cons, h.1.liftN_eq hk,
+      VExpr.liftTele_eq_self (As := As) (n := n) (k := k+1) (j := j+1) h.2 (by omega)]
+
+/-- `ClosedTele` restricts to a prefix. -/
+theorem VExpr.ClosedTele.take : ∀ {As : List VExpr} {k i : Nat},
+    VExpr.ClosedTele As k → VExpr.ClosedTele (As.take i) k
+  | [], _, _, _ => by simp [VExpr.ClosedTele]
+  | _ :: _, _, 0, _ => by simp [VExpr.ClosedTele]
+  | A :: As, k, i+1, h => ⟨h.1, VExpr.ClosedTele.take (As := As) (i := i) h.2⟩
+
+/-! ## The projected field's type is a type
+
+Field `i`'s stored type, moved to the use site's levels and weakened into any context below
+the constructor's parameter-and-field-prefix telescope.  This is what `projMotive`'s body is
+built from. -/
+
+theorem ftype_hasType {env : VEnv} {U : Nat} {S : Lean.Name}
+    {D : VInductDecl'} {T : VIndType} {C : VIndCtor} {us : List VLevel}
+    (henv : env.Ordered) (H : env.IsStructure S D T C) (hI : D.IotaCtx env)
+    (h3 : us.length = D.uvars) (h7 : ∀ l ∈ us, l.WF U)
+    (hcl : D.ProjClosed T C) {i : Nat} (hi : i < C.fields.length) (Γ'' : List VExpr) :
+    env.HasType U
+      ((D.params.map (VExpr.instL us) ++
+        (C.fields.take i).map (fun F => F.type.instL us)).reverse ++ Γ'')
+      ((C.fields.getD i default).type.instL us)
+      (.sort ((C.fields.getD i default).lvl.inst us)) := by
+  have hT0 : D.types[0]? = some T := by rw [H.types]; rfl
+  have hC : C ∈ T.ctors := by rw [H.ctors]; exact List.mem_singleton_self _
+  have hCwf := hI.toRecCtx.ctors 0 T hT0 C hC
+  have hget : C.fields[i]? = some (C.fields.getD i default) := by
+    rw [List.getElem?_eq_getElem hi]
+    simp [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hi]
+  have hf := (hCwf.fields i _ hget).hasType
+  have hf2 := VEnv.HasType.instL (ls := us) (U' := U) h7 hf
+  -- the context, normalised
+  have hctx : ((((C.fields.take i).map (·.type)).reverse ++ D.params.reverse).map
+        (VExpr.instL us))
+      = (D.params.map (VExpr.instL us) ++
+          (C.fields.take i).map (fun F => F.type.instL us)).reverse := by
+    simp [List.map_reverse, List.map_map, Function.comp_def]
+  rw [hctx] at hf2
+  -- closedness of that context
+  have hcltele : VExpr.ClosedTele (D.params.map (VExpr.instL us) ++
+      (C.fields.take i).map (fun F => F.type.instL us)) 0 := by
+    refine VExpr.closedTele_append.2 ⟨VExpr.ClosedTele.map_instL hcl.params, ?_⟩
+    have : VExpr.ClosedTele ((C.fields.map (·.type)).take i) D.np :=
+      VExpr.ClosedTele.take hcl.fields
+    have := VExpr.ClosedTele.map_instL (ls := us) this
+    simpa [List.map_take, List.map_map, Function.comp_def, List.length_map] using this
+  have hcc : CtxClosed ((D.params.map (VExpr.instL us) ++
+      (C.fields.take i).map (fun F => F.type.instL us)).reverse) := by
+    have := VExpr.ClosedTele.ctxClosed (Γ := []) (As := D.params.map (VExpr.instL us) ++
+      (C.fields.take i).map (fun F => F.type.instL us)) (by simpa using hcltele) trivial
+    rwa [List.append_nil] at this
+  have := VEnv.IsDefEq.weakR henv hcc hf2 Γ''
+  simp only [VExpr.instL] at this
+  exact this
+
+/-- Build a `HasArgs` over an initial segment of a telescope from pointwise typings, where
+each entry's type is stated with the *earlier entries of the spine* already substituted —
+which is the form a recursive construction like `projArgs` produces. -/
+theorem VEnv.HasArgs.ofMap {env : VEnv} {U : Nat} {Γ : List VExpr}
+    {As as : List VExpr} {f : Nat → VExpr} : ∀ {i : Nat}, i ≤ As.length →
+      (∀ k, k < i → env.HasType U Γ (f k)
+        (VExpr.instAll (As.getD k default) (as ++ (List.range k).map f))) →
+      env.HasArgs U Γ (VExpr.instAllTele (As.take i) as) ((List.range i).map f)
+  | 0, _, _ => by simp; exact .nil
+  | i+1, hi, h => by
+    have hlt : i < As.length := by omega
+    have htake : As.take (i+1) = As.take i ++ [As.getD i default] := by
+      rw [List.take_add_one, List.getElem?_eq_getElem hlt]
+      simp [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hlt]
+    rw [List.range_succ, List.map_append, htake, VExpr.instAllTele_append]
+    refine VEnv.HasArgs.append (VEnv.HasArgs.ofMap (by omega) fun k hk => h k (by omega)) ?_
+    have hlen : ((List.range i).map f).length = i := by simp
+    simp only [List.length_take, Nat.zero_add, Nat.min_def]
+    rw [if_pos (by omega)]
+    simp only [VExpr.instAllTele_cons, VExpr.instAllTele_nil, List.map_cons, List.map_nil]
+    refine .cons ?_ .nil
+    have := h i (by omega)
+    rwa [VExpr.instAll_append, hlen, Nat.zero_add] at this
+
 end Lean4Lean

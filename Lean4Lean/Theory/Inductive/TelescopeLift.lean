@@ -20,6 +20,21 @@ sections it mirrors.
 3. **`lift'` against the telescope operations** — `mkApp`, `bvars`, `mkLams` (via
    `liftTele'`), and the one with real content, `instAll`.
 
+## Settled rule for this file: state the unconditional form first
+
+Three times now a substitution lemma about `instAll` has been stated with its closedness
+hypothesis in place and turned out to front-peel *wrongly* — `instAll A (a :: as) k`
+recurses on `A.inst a (k + |as|)`, which is **not** closed at `k + |as|`, because `a` brings
+ambient variables in, so the induction hypothesis is unavailable.  Each time the fix was the
+same: state the version with the operation also applied to `A` on the right (no hypothesis),
+which front-peels cleanly, and derive the closed corollary in one step.  See
+`lift'_instAll'`/`lift'_instAll`, `inst_instAll'`/`inst_instAll`, and — by iterating the
+latter rather than peeling — `instAll_instAll` in `StructureClosed.lean`.
+
+If a fourth arrives, write the unconditional form first and do not rediscover this.
+
+## Side conditions
+
 `instAll` is the only one needing a side condition.  `instAll A as k` splices `as` into
 `A`'s top `|as|` variables, so unless `A` is closed at `k + |as|` it still has variables
 reaching into the ambient context — and those move under a lift on one side of the equation

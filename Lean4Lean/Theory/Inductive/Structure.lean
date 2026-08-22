@@ -505,4 +505,30 @@ theorem nmin_eq (H : env.IsStructure S D T C) : D.nmin = 1 := by
 
 end VEnv.IsStructure
 
+/-- `projTerm_instN` iterated over a whole spine. -/
+theorem VInductDecl'.projTerm_instAll (D : VInductDecl') (T : VIndType) (C : VIndCtor)
+    (us : List VLevel) (hcl : D.ProjClosed T C) {i : Nat} (hi : i < C.fields.length) :
+    ∀ {M ps is : List VExpr} {e : VExpr}, ps.length = D.np →
+      is.length = T.indices.length →
+      VExpr.instAll (D.projTerm T C us ps is i e) M
+        = D.projTerm T C us (ps.map (VExpr.instAll · M)) (is.map (VExpr.instAll · M)) i
+            (VExpr.instAll e M)
+  | [], _, _, _, _, _ => by simp
+  | a :: M, ps, is, e, hps, his => by
+    rw [VExpr.instAll_cons, Nat.zero_add,
+      D.projTerm_instN T C us hcl hps his hi,
+      D.projTerm_instAll T C us hcl hi (M := M) (by simpa using hps) (by simpa using his)]
+    simp only [List.map_map, Function.comp_def, VExpr.instAll_cons, Nat.zero_add]
+
+/-- `projArgs` is the list of the earlier projections of `.bvar 0`. -/
+theorem VInductDecl'.projArgs_eq_map (D : VInductDecl') (T : VIndType) (C : VIndCtor)
+    (us : List VLevel) (ps is : List VExpr) :
+    ∀ i, D.projArgs T C us ps is i
+      = (List.range i).map (fun k => D.projTerm T C us ps is k (.bvar 0))
+  | 0 => rfl
+  | i+1 => by
+    rw [VInductDecl'.projArgs, D.projArgs_eq_map T C us ps is i, List.range_succ,
+      List.map_append]
+    rfl
+
 end Lean4Lean
