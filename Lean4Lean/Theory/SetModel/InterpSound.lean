@@ -228,6 +228,299 @@ theorem eta_sound (hS : L.Stable) {Γ : List VExpr} {A B e : VExpr}
 
 end BetaEta
 
+/-! ## Parts 1 and 2 are derived, not branches
+
+A second correction, and a simplification: **part 1 is a corollary of part 3**,
+because `⟦sort u⟧ρ = U κ (u.eval)` and `U κ 0` is literally `UProp = ℘ {•}`, so
+`⟦e⟧ρ ∈ ⟦sort u⟧ρ` with `u.eval = 0` *is* `⟦e⟧ρ ⊆ {•}`.  No induction is needed
+for it at all — only the judgement `Γ ⊢ e : sort u`, which is a premise wherever
+part 1 is used (`proofIrrel` is the example).
+
+Part 2 is then a corollary of part 3 plus part 1 applied to the *type*, which
+needs validity (`IsDefEq.isType`, available and sorry-free in
+`Theory/Typing/Lemmas.lean`).  It is still convenient to carry it through the
+induction — `beta` and `eta` consume it directly — but it is not independent
+content.
+-/
+
+section DefFunExt
+
+omit [Nonempty V] in
+theorem DefFun.ext {f g : DefFun V} (h : f.toFun = g.toFun) : f = g := by
+  cases f; cases g; simp_all
+
+end DefFunExt
+
+section Derived
+
+variable [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖]
+variable {env : VEnv} {nv : ℕ} (M : ModelData V) (L : LevelAssign env nv)
+
+/-- **Part 1 from part 3.**  A term of a `Prop`-level sort denotes a subset of
+`{•}`, because `U κ 0` is `℘ {•}` on the nose. -/
+theorem propSound_of_mem_sort {Γ : List VExpr} {e : VExpr} {u : VLevel} {ρ : V}
+    (hu : u.eval M.ls = 0)
+    (h : (interp M L Γ e).toFun ρ ∈ (interp M L Γ (.sort u)).toFun ρ) :
+    (interp M L Γ e).toFun ρ ⊆ ({pt} : V) := by
+  rw [interp_sort, hu, U_zero] at h
+  exact mem_UProp_iff.mp h
+
+/-- **Part 2 from parts 1 and 3.** -/
+theorem proofSound_of {Γ : List VExpr} {e A : VExpr} {ρ : V}
+    (h1 : (interp M L Γ A).toFun ρ ⊆ ({pt} : V))
+    (h3 : (interp M L Γ e).toFun ρ ∈ (interp M L Γ A).toFun ρ) :
+    (interp M L Γ e).toFun ρ = pt :=
+  mem_singleton_iff.mp (h1 _ h3)
+
+end Derived
+
+/-! ## The remaining cases
+
+Each is stated with its induction hypotheses as explicit arguments, so that it
+is machine-checked against exactly the premises the real induction supplies.
+-/
+
+section Cases
+
+variable [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖]
+variable {env : VEnv} {nv : ℕ} (M : ModelData V) (L : LevelAssign env nv)
+
+/-- A looked-up type is closed in its context. -/
+theorem Lookup.closedN : ∀ {Γ : List VExpr} {i : ℕ} {A : VExpr},
+    CtxClosed Γ → Lookup Γ i A → A.ClosedN Γ.length
+  | _ :: Γ, _, _, hΓ, .zero => by
+    have h : VExpr.ClosedN _ Γ.length := hΓ.2
+    simpa using h.liftN (n := 1) (j := 0)
+  | _ :: Γ, _, _, hΓ, .succ H => by
+    have h := Lookup.closedN hΓ.1 H
+    simpa using h.liftN (n := 1) (j := 0)
+
+/-- **The `bvar` case** (part 3).  The valuation is typed by construction; the
+`.lift` that `Lookup` inserts is discharged by weakening. -/
+theorem bvar_sound (hS : L.Stable) : ∀ {Γ : List VExpr} {i : ℕ} {A : VExpr},
+    CtxClosed Γ → Lookup Γ i A → ∀ {ρ : V}, ρ ∈ interpCtx M L Γ →
+    (interp M L Γ (.bvar i)).toFun ρ ∈ (interp M L Γ A).toFun ρ
+  | ty :: Γ, _, _, hΓ, .zero, ρ, hρ => by
+    obtain ⟨ρ₀, hρ₀, v, hv, rfl⟩ := (mem_interpCtx_cons M L).mp hρ
+    have hcl : ty.ClosedN Γ.length := hΓ.2
+    have hlift : (interp M L (ty :: Γ) ty.lift).toFun (snoc ρ₀ v)
+        = (interp M L Γ ty).toFun ρ₀ := by
+      refine interp_liftN M L hS (n := 1) (j := Γ.length) ty
+        (Ctx.LiftN.zero (n := 1) [ty] rfl) (by simp) hcl hρ₀ hρ ?_
+      intro p hp
+      have : liftPos 1 Γ.length p = p := by simp [liftPos]; omega
+      rw [this]
+      exact snoc_value_of_lt M L hρ₀ hp
+    rw [interp_bvar, hlift, show (ty :: Γ).length - 1 - 0 = Γ.length from by simp,
+      snoc_value_at_len M L hρ₀]
+    exact hv
+  | A :: Γ, _, _, hΓ, .succ (ty := ty) (n := m) H, ρ, hρ => by
+    obtain ⟨ρ₀, hρ₀, v, hv, rfl⟩ := (mem_interpCtx_cons M L).mp hρ
+    have hclA : A.ClosedN Γ.length := hΓ.2
+    have hclty : ty.ClosedN Γ.length := Lookup.closedN hΓ.1 H
+    have hm : m < Γ.length := H.lt
+    have hlift : (interp M L (A :: Γ) ty.lift).toFun (snoc ρ₀ v)
+        = (interp M L Γ ty).toFun ρ₀ := by
+      refine interp_liftN M L hS (n := 1) (j := Γ.length) ty
+        (Ctx.LiftN.zero (n := 1) [A] rfl) (by simp) hclty hρ₀ hρ ?_
+      intro p hp
+      have : liftPos 1 Γ.length p = p := by simp [liftPos]; omega
+      rw [this]
+      exact snoc_value_of_lt M L hρ₀ hp
+    rw [interp_bvar, hlift]
+    have hpos : (A :: Γ).length - 1 - (m + 1) = Γ.length - 1 - m := by simp; omega
+    rw [hpos, snoc_value_of_lt M L hρ₀ (by omega : Γ.length - 1 - m < Γ.length)]
+    have := bvar_sound hS hΓ.1 H hρ₀
+    rwa [interp_bvar] at this
+
+/-- **The `defeqDF` case.**  Part 3 transports along part 4 for the type; part 4
+is unchanged. -/
+theorem defeqDF_sound {Γ : List VExpr} {A B e : VExpr} {ρ : V}
+    (hAB : (interp M L Γ A).toFun ρ = (interp M L Γ B).toFun ρ)
+    (he : (interp M L Γ e).toFun ρ ∈ (interp M L Γ A).toFun ρ) :
+    (interp M L Γ e).toFun ρ ∈ (interp M L Γ B).toFun ρ := hAB ▸ he
+
+/-- **The `proofIrrel` case.**  Needs only part 3, three times: the premise
+`Γ ⊢ p : sort 0` gives `⟦p⟧ρ ⊆ {•}` by `propSound_of_mem_sort`, and both proofs
+land in it. -/
+theorem proofIrrel_sound {Γ : List VExpr} {p h h' : VExpr} {ρ : V}
+    (hp : (interp M L Γ p).toFun ρ ∈ (interp M L Γ (.sort .zero)).toFun ρ)
+    (hh : (interp M L Γ h).toFun ρ ∈ (interp M L Γ p).toFun ρ)
+    (hh' : (interp M L Γ h').toFun ρ ∈ (interp M L Γ p).toFun ρ) :
+    (interp M L Γ h).toFun ρ = (interp M L Γ h').toFun ρ := by
+  have hsub : (interp M L Γ p).toFun ρ ⊆ ({pt} : V) :=
+    propSound_of_mem_sort M L (u := .zero) rfl hp
+  rw [proofSound_of M L hsub hh, proofSound_of M L hsub hh']
+
+/-- **The `sortDF` case.**  This is where the universe bound is spent, and it is
+the only place: part 3 is `U κ i ∈ U κ (i+1)`, which needs `i < n` — the length
+of the inaccessible chain.  There is no `∃ k`: `n` and `κ` are fixed. -/
+theorem sortDF_sound {n : ℕ} {κ : ℕ → V} (hκ : IsInaccessibleChain n κ) (hMκ : M.κ = κ)
+    {Γ : List VExpr} {l l' : VLevel} (hll : l ≈ l') (hb : l.eval M.ls < n) (ρ : V) :
+    (interp M L Γ (.sort l)).toFun ρ = (interp M L Γ (.sort l')).toFun ρ ∧
+      (interp M L Γ (.sort l)).toFun ρ ∈ (interp M L Γ (.sort (.succ l))).toFun ρ := by
+  rw [interp_sort, interp_sort, interp_sort]
+  refine ⟨by rw [VLevel.equiv_def.mp hll], ?_⟩
+  subst hMκ
+  exact U_mem_succ hκ hb
+
+end Cases
+
+/-! ### Context conversion — a requirement the ledger did not have
+
+`lamDF` and `forallEDF` type their body premise in `A :: Γ` but their right-hand
+side is `lam A' body'` / `forallE A' body'`, whose interpretation uses
+`A' :: Γ`.  So the interpretation must not distinguish contexts that differ by a
+definitional equality.
+
+This is **not** an injectivity fact — it is a stability property of the level
+assignment, in the same family as `LevelAssign.Stable` — but it was missing from
+the ledger, and it is a genuine extra obligation on whoever constructs a
+`LevelAssign`.  It is discharged for well-typed input by `srt_sound`/`lvl_sound`
+together with context conversion (`IsDefEq.defeqDFC` in `Theory/Typing/`).
+-/
+
+section CtxConv
+
+variable [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖]
+variable {env : VEnv} {nv : ℕ} (M : ModelData V) (L : LevelAssign env nv)
+
+/-- A relation on contexts that the level assignment cannot see, closed under
+extending both sides by a common type. -/
+structure CtxInvariant (R : List VExpr → List VExpr → Prop) : Prop where
+  len : ∀ {Γ₁ Γ₂}, R Γ₁ Γ₂ → Γ₁.length = Γ₂.length
+  lvl : ∀ {Γ₁ Γ₂}, R Γ₁ Γ₂ → ∀ A, L.lvl Γ₁ A ≈ L.lvl Γ₂ A
+  srt : ∀ {Γ₁ Γ₂}, R Γ₁ Γ₂ → ∀ e, L.srt Γ₁ e ≈ L.srt Γ₂ e
+  cons : ∀ {Γ₁ Γ₂}, R Γ₁ Γ₂ → ∀ A, R (A :: Γ₁) (A :: Γ₂)
+
+/-- **Context conversion for the interpretation.** -/
+theorem interp_ctxInvariant {R : List VExpr → List VExpr → Prop} (hR : CtxInvariant L R) :
+    ∀ (e : VExpr) {Γ₁ Γ₂ : List VExpr}, R Γ₁ Γ₂ →
+      interp M L Γ₁ e = interp M L Γ₂ e
+  | .bvar i, Γ₁, Γ₂, h => by
+    refine DefFun.ext (funext fun ρ ↦ ?_); rw [interp_bvar, interp_bvar, hR.len h]
+  | .sort u, Γ₁, Γ₂, h => by
+    refine DefFun.ext (funext fun ρ ↦ ?_); rw [interp_sort, interp_sort]
+  | .const c us, Γ₁, Γ₂, h => by
+    refine DefFun.ext (funext fun ρ ↦ ?_); rw [interp_const, interp_const]
+  | .app f a, Γ₁, Γ₂, h => by
+    have hsp : L.IsProof M Γ₁ f ↔ L.IsProof M Γ₂ f := by
+      simp only [LevelAssign.IsProof, VLevel.equiv_def.mp (hR.srt h f) M.ls]
+    refine DefFun.ext (funext fun ρ ↦ ?_)
+    by_cases hp : L.IsProof M Γ₁ f
+    · rw [interp_app_proof M L hp, interp_app_proof M L (hsp.mp hp)]
+    · rw [interp_app_type M L hp, interp_app_type M L (fun x ↦ hp (hsp.mpr x)),
+        interp_ctxInvariant hR f h, interp_ctxInvariant hR a h]
+  | .lam A b, Γ₁, Γ₂, h => by
+    have hsp : L.IsProof M (A :: Γ₁) b ↔ L.IsProof M (A :: Γ₂) b := by
+      simp only [LevelAssign.IsProof, VLevel.equiv_def.mp (hR.srt (hR.cons h A) b) M.ls]
+    refine DefFun.ext (funext fun ρ ↦ ?_)
+    by_cases hp : L.IsProof M (A :: Γ₁) b
+    · rw [interp_lam_proof M L hp, interp_lam_proof M L (hsp.mp hp)]
+    · rw [interp_lam_type M L hp, interp_lam_type M L (fun x ↦ hp (hsp.mpr x)),
+        interp_ctxInvariant hR A h, interp_ctxInvariant hR b (hR.cons h A)]
+  | .forallE A B, Γ₁, Γ₂, h => by
+    have hsp : L.IsProp M (A :: Γ₁) B ↔ L.IsProp M (A :: Γ₂) B := by
+      simp only [LevelAssign.IsProp, VLevel.equiv_def.mp (hR.lvl (hR.cons h A) B) M.ls]
+    refine DefFun.ext (funext fun ρ ↦ ?_)
+    by_cases hp : L.IsProp M (A :: Γ₁) B
+    · rw [interp_forallE_prop M L hp, interp_forallE_prop M L (hsp.mp hp),
+        interp_ctxInvariant hR A h, interp_ctxInvariant hR B (hR.cons h A)]
+    · rw [interp_forallE_type M L hp, interp_forallE_type M L (fun x ↦ hp (hsp.mpr x)),
+        interp_ctxInvariant hR A h, interp_ctxInvariant hR B (hR.cons h A)]
+
+end CtxConv
+
+/-! ### The congruence cases -/
+
+section Congruence
+
+variable [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖]
+variable {env : VEnv} {nv : ℕ} (M : ModelData V) (L : LevelAssign env nv)
+
+/-- **`appDF`, part 4.**  The two splits agree by `srt_congr`, which comes from
+`LevelAssign` alone.  No inversion. -/
+theorem appDF_sound_eq {Γ : List VExpr} {f f' a a' : VExpr} {ρ : V}
+    (hsplit : L.IsProof M Γ f ↔ L.IsProof M Γ f')
+    (hf : (interp M L Γ f).toFun ρ = (interp M L Γ f').toFun ρ)
+    (ha : (interp M L Γ a).toFun ρ = (interp M L Γ a').toFun ρ) :
+    (interp M L Γ (.app f a)).toFun ρ = (interp M L Γ (.app f' a')).toFun ρ := by
+  by_cases hp : L.IsProof M Γ f
+  · rw [interp_app_proof M L hp, interp_app_proof M L (hsplit.mp hp)]
+  · rw [interp_app_type M L hp, interp_app_type M L (fun x ↦ hp (hsplit.mpr x)), hf, ha]
+
+/-- **`appDF`, part 3.**  The induction hypothesis already concerns the right
+domain and codomain — `A` and `B` are named in the rule — so nothing is
+inverted.  The proof branch uses that `pt ∈ piProp` unfolds to a universally
+quantified membership, which is instantiated at the argument. -/
+theorem appDF_sound_type (hS : L.Stable) {Γ : List VExpr} {A B f a : VExpr} {ρ : V}
+    (hclB : B.ClosedN (Γ.length + 1)) (hcla : a.ClosedN Γ.length)
+    (hρ : ρ ∈ interpCtx M L Γ)
+    (hf3 : (interp M L Γ f).toFun ρ ∈ (interp M L Γ (.forallE A B)).toFun ρ)
+    (ha3 : (interp M L Γ a).toFun ρ ∈ (interp M L Γ A).toFun ρ)
+    (hf2 : L.IsProof M Γ f → (interp M L Γ f).toFun ρ = pt)
+    (hsplit : L.IsProof M Γ f ↔ L.IsProp M (A :: Γ) B) :
+    (interp M L Γ (.app f a)).toFun ρ ∈ (interp M L Γ (B.inst a)).toFun ρ := by
+  have hρ₁ : snoc ρ ((interp M L Γ a).toFun ρ) ∈ interpCtx M L (A :: Γ) :=
+    (mem_interpCtx_cons M L).mpr ⟨ρ, hρ, _, ha3, rfl⟩
+  have hsub : (interp M L Γ (B.inst a)).toFun ρ
+      = (interp M L (A :: Γ) B).toFun (snoc ρ ((interp M L Γ a).toFun ρ)) := by
+    refine interp_inst M L hS (j := Γ.length) B (Γ₀ := Γ) (A₀ := A) (k := 0)
+      Ctx.InstN.zero (by simp) (by simpa using hclB) (by simpa using hcla) hρ hρ₁ ?_
+    exact agreeInst_zero M L hρ _ rfl
+  by_cases hp : L.IsProof M Γ f
+  · rw [interp_app_proof M L hp, hsub]
+    rw [interp_forallE_prop M L (hsplit.mp hp)] at hf3
+    rw [hf2 hp] at hf3
+    exact (mem_mkForallProp_iff.mp hf3).2 _ ha3
+  · rw [interp_app_type M L hp, hsub]
+    rw [interp_forallE_type M L (fun x ↦ hp (hsplit.mpr x))] at hf3
+    obtain ⟨hfn, hval⟩ := mem_mkForallType_iff.mp hf3
+    exact hval _ ha3 _ (kpair_value_mem hfn ha3)
+
+/-- **`lamDF`, part 4.**  `hctx` is the context-conversion equality; it is what
+`CtxInvariant` supplies. -/
+theorem lamDF_sound_eq {Γ : List VExpr} {A A' body body' : VExpr} {ρ : V}
+    (hctx : interp M L (A' :: Γ) body' = interp M L (A :: Γ) body')
+    (hsplit : L.IsProof M (A :: Γ) body ↔ L.IsProof M (A' :: Γ) body')
+    (hA : (interp M L Γ A).toFun ρ = (interp M L Γ A').toFun ρ)
+    (hbody : ∀ v, (interp M L (A :: Γ) body).toFun (snoc ρ v)
+      = (interp M L (A :: Γ) body').toFun (snoc ρ v)) :
+    (interp M L Γ (.lam A body)).toFun ρ = (interp M L Γ (.lam A' body')).toFun ρ := by
+  by_cases hp : L.IsProof M (A :: Γ) body
+  · rw [interp_lam_proof M L hp, interp_lam_proof M L (hsplit.mp hp)]
+  · rw [interp_lam_type M L hp, interp_lam_type M L (fun x ↦ hp (hsplit.mpr x)), hctx]
+    ext y
+    rw [mem_mkLam_iff, mem_mkLam_iff, hA]
+    exact exists_congr fun v ↦ and_congr_right fun _ ↦ by rw [hbody v]
+
+/-- **`forallEDF`, part 4.** -/
+theorem forallEDF_sound_eq {Γ : List VExpr} {A A' body body' : VExpr} {ρ : V}
+    (hctx : interp M L (A' :: Γ) body' = interp M L (A :: Γ) body')
+    (hsplit : L.IsProp M (A :: Γ) body ↔ L.IsProp M (A' :: Γ) body')
+    (hA : (interp M L Γ A).toFun ρ = (interp M L Γ A').toFun ρ)
+    (hbody : ∀ v, (interp M L (A :: Γ) body).toFun (snoc ρ v)
+      = (interp M L (A :: Γ) body').toFun (snoc ρ v)) :
+    (interp M L Γ (.forallE A body)).toFun ρ
+      = (interp M L Γ (.forallE A' body')).toFun ρ := by
+  by_cases hp : L.IsProp M (A :: Γ) body
+  · rw [interp_forallE_prop M L hp, interp_forallE_prop M L (hsplit.mp hp), hctx]
+    ext z
+    rw [mem_mkForallProp_iff, mem_mkForallProp_iff, hA]
+    exact and_congr_right fun _ ↦ forall₂_congr fun v _ ↦ by rw [hbody v]
+  · rw [interp_forallE_type M L hp, interp_forallE_type M L (fun x ↦ hp (hsplit.mpr x)), hctx]
+    ext f
+    rw [mem_mkForallType_iff, mem_mkForallType_iff, hA]
+    refine and_congr ?_ ?_
+    · congr! 2
+      ext y
+      rw [mem_mkFamUnion_iff, mem_mkFamUnion_iff, hA]
+      exact exists_congr fun v ↦ and_congr_right fun _ ↦ by rw [hbody v]
+    · exact forall₂_congr fun v _ ↦ forall_congr' fun y ↦ imp_congr_right fun _ ↦ by
+        rw [hbody v]
+
+end Congruence
+
 /-!
 ## Ledger: what soundness consumes, case by case
 

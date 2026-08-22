@@ -763,5 +763,61 @@ example : ((mutDecl.ihTypes 2 forestCons).length + forestCons.fields.length + 2
     = (mutDecl.ihTypes 2 forestCons).length + forestCons.fields.length + (mutDecl.nm + 2) :=
   VInductDecl'.minor_dom_offset (by decide)
 
+/-! ### D6: the decomposition `IsType.mkPi` performs on `recType`
+
+`recType`'s telescope reverses into the context `recType_isType` builds:
+indices, then minors, then motives, then parameters. -/
+
+example : (accDecl.atRecTele accDecl.params ++ accDecl.motives ++ accDecl.minors
+      ++ liftTele (accDecl.nm + accDecl.nmin) (accDecl.atRecTele accType.indices)).reverse
+    = (liftTele (accDecl.nm + accDecl.nmin) (accDecl.atRecTele accType.indices)).reverse
+      ++ (accDecl.minors.reverse ++ accDecl.motives.reverse
+          ++ (accDecl.atRecTele accDecl.params).reverse) := rfl
+
+example : (accDecl.atRecTele accDecl.params ++ accDecl.motives ++ accDecl.minors
+      ++ liftTele (accDecl.nm + accDecl.nmin)
+        (accDecl.atRecTele accType.indices)).reverse.length
+    = accDecl.np + accDecl.nm + accDecl.nmin + accType.indices.length := rfl
+
+/-- `Forest'.rec` pins the motive index in the `j ≠ 0` case: `1 + ni + nmin + (nm-1-j)`
+is `1 + 0 + 3 + 0 = 4`.  Since `mutDecl.recType 1` was already checked equal to
+`vconst(type_of% @Forest'.rec)`, this confirms `.bvar 4` really names `m2`. -/
+example : mutDecl.recType 1
+    = mkPi (mutDecl.atRecTele mutDecl.params ++ mutDecl.motives ++ mutDecl.minors
+        ++ liftTele (mutDecl.nm + mutDecl.nmin)
+          (mutDecl.atRecTele (mutDecl.types[1]!).indices))
+      (.forallE (mutDecl.tyApp' 1
+          ((mutDecl.types[1]!).indices.length + mutDecl.nmin + mutDecl.nm)
+          (bvars 0 (mutDecl.types[1]!).indices.length))
+        ((VExpr.bvar 4).mkApp
+          (bvars 1 (mutDecl.types[1]!).indices.length ++ [.bvar 0]))) := rfl
+
+-- and `lookup_motive`'s index for that case: `Δ = major :: indices ++ minors`, so
+-- `Δ.length + (nm-1-j) = (1 + 0 + 3) + 0 = 4`
+example : (1 + (mutDecl.types[1]!).indices.length + mutDecl.nmin) + (mutDecl.nm - 1 - 1)
+    = 4 := rfl
+
+/-! ### The constructor interface for `ctor_ty`
+
+`args_len`, and the fact that the result head carries the block's *own* universe parameters
+— so `instL ls` puts exactly `ls` there, which a consumer rebuilding the spine at a
+different level list needs. -/
+
+example : accIntro.args.length = accType.indices.length := rfl
+example : eqRefl.args.length = eqType.indices.length := rfl
+example : forestCons.args.length = (mutDecl.types[1]!).indices.length := rfl
+
+example : (accIntro.canonResult accDecl 0).instL [.param 5]
+    = (VExpr.const ``Acc [.param 5]).mkApp
+        (bvars accIntro.fields.length accDecl.np
+          ++ accIntro.args.map (VExpr.instL [.param 5])) :=
+  VIndCtor.canonResult_instL _ _ _ rfl
+example : (accIntro.canonResult accDecl 0).instL [.param 5]
+    = (VExpr.const ``Acc [.param 5]).mkApp
+        [VExpr.bvar 3, VExpr.bvar 2, VExpr.bvar 1] := rfl
+example : (eqRefl.canonResult eqDecl 0).instL [.param 7]
+    = (VExpr.const ``Eq [.param 7]).mkApp
+        [VExpr.bvar 1, VExpr.bvar 0, VExpr.bvar 0] := rfl
+
 end InductiveDeclExamples
 end Lean4Lean

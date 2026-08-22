@@ -1412,3 +1412,173 @@ theorem minorBody_hasType {T : VIndType} {C : VIndCtor} {t q nr : Nat} {Γ : Lis
   exact hz
 
 end VInductDecl'
+
+/-! ## Locating a motive in the context
+
+Both wrappers need `hmot`: the de Bruijn index `nm - 1 - j` into `D.motives.reverse` really
+names `motiveType j`.  `D.motives` is `(List.range nm).map motiveType`, so this is a
+statement about a reversed mapped range, proved by induction on `n`. -/
+
+theorem List.map_range_reverse_split {α} (f : Nat → α) : ∀ {n j : Nat}, j < n →
+    ∃ Ξ rest, ((List.range n).map f).reverse = Ξ ++ f j :: rest ∧ Ξ.length = n - 1 - j
+  | n+1, j, hj => by
+    rw [List.range_succ, List.map_append, List.reverse_append]
+    rcases Nat.lt_or_ge j n with h | h
+    · obtain ⟨Ξ, rest, he, hlen⟩ := List.map_range_reverse_split f h
+      refine ⟨f n :: Ξ, rest, ?_, ?_⟩
+      · simp only [List.map_cons, List.map_nil, List.reverse_cons, List.reverse_nil,
+          List.nil_append, List.cons_append, he]
+      · simp only [List.length_cons, hlen]; omega
+    · have : j = n := by omega
+      subst this
+      exact ⟨[], ((List.range j).map f).reverse, by simp, by simp⟩
+
+namespace VInductDecl'
+variable {env : VEnv} {D : VInductDecl'}
+
+/-- **`hmot`.**  Motive `j` sits `Δ.length + (nm - 1 - j)` binders down in any context whose
+motive block is `D.motives.reverse`. -/
+theorem lookup_motive {j : Nat} (hj : j < D.nm) (Δ Γ₀ : List VExpr) :
+    Lookup (Δ ++ D.motives.reverse ++ Γ₀) (Δ.length + (D.nm - 1 - j))
+      ((D.motiveType j).liftN (Δ.length + (D.nm - 1 - j) + 1)) := by
+  obtain ⟨Ξ, rest, he, hlen⟩ := List.map_range_reverse_split D.motiveType hj
+  have hsplit : Δ ++ D.motives.reverse ++ Γ₀
+      = (Δ ++ Ξ) ++ D.motiveType j :: (rest ++ Γ₀) := by
+    rw [VInductDecl'.motives, he]; simp
+  have hΞ : (Δ ++ Ξ).length = Δ.length + (D.nm - 1 - j) := by
+    rw [List.length_append, hlen]
+  rw [hsplit, ← hΞ]
+  exact Lookup.append _
+
+end VInductDecl'
+
+namespace VInductDecl'
+variable {env : VEnv} {D : VInductDecl'}
+
+@[simp] theorem length_motives : D.motives.length = D.nm := by simp [VInductDecl'.motives]
+@[simp] theorem length_minors : D.minors.length = D.nmin := by simp [VInductDecl'.minors]
+
+/-- **D6.**  The recursor's type is well-formed, given that the minor telescope is
+(`onCtxMinors`, D5).  Everything else -- the parameters, the motives (D3), the indices
+(B6), the major premise (D1) and the codomain (`motiveApp_hasType`) -- is discharged here. -/
+theorem recType_isType (hR : D.RecCtx env) {j : Nat} {T : VIndType}
+    (hT : D.types[j]? = some T) (hj : j < D.nm)
+    (hmin : OnCtx (D.minors.reverse ++ D.motives.reverse ++ (D.atRecTele D.params).reverse)
+      (env.IsType D.recUvars)) :
+    env.IsType D.recUvars [] (D.recType j) := by
+  have hmem : T ∈ D.types := List.mem_of_getElem? hT
+  have hlenEM : (D.minors.reverse ++ D.motives.reverse).length = D.nm + D.nmin := by
+    simp; omega
+  have W : Ctx.LiftN (D.nm + D.nmin) 0 (D.atRecTele D.params).reverse
+      (D.minors.reverse ++ D.motives.reverse ++ (D.atRecTele D.params).reverse) := by
+    exact .zero _ hlenEM
+  have hI := VEnv.OnCtx.weakTele hR.ordered W hmin (hR.onCtxIndices hmem)
+  have hdom := VInductDecl'.tyApp'_hasType hR hT W hmin
+  rw [show T.indices.length + (D.nm + D.nmin)
+      = T.indices.length + D.nmin + D.nm from by omega] at hdom
+  have hcod : env.HasType D.recUvars
+      (D.tyApp' j (T.indices.length + D.nmin + D.nm) (bvars 0 T.indices.length)
+        :: ((liftTele (D.nm + D.nmin) (D.atRecTele T.indices)).reverse
+            ++ (D.minors.reverse ++ D.motives.reverse ++ (D.atRecTele D.params).reverse)))
+      ((VExpr.bvar (1 + T.indices.length + D.nmin + (D.nm - 1 - j))).mkApp
+        (bvars 1 T.indices.length ++ [.bvar 0])) (.sort D.elimLvl) := by
+    refine VInductDecl'.motiveApp_hasType hT hj ?_ .zero ?_
+    · have h := VInductDecl'.lookup_motive (D := D) hj
+        (D.tyApp' j (T.indices.length + D.nmin + D.nm) (bvars 0 T.indices.length)
+          :: (liftTele (D.nm + D.nmin) (D.atRecTele T.indices)).reverse ++ D.minors.reverse)
+        (D.atRecTele D.params).reverse
+      simp only [List.length_cons, List.length_append, List.length_reverse,
+        VExpr.length_liftTele, VInductDecl'.length_atRecTele,
+        VInductDecl'.length_minors] at h
+      rw [show T.indices.length + 1 + D.nmin = 1 + T.indices.length + D.nmin from by omega] at h
+      simpa using h
+    · have h := VEnv.HasArgs.bvars (env := env) (U := D.recUvars)
+        (Δ := [D.tyApp' j (T.indices.length + D.nmin + D.nm) (bvars 0 T.indices.length)])
+        (As := liftTele (D.nm + D.nmin) (D.atRecTele T.indices))
+        (Γ₀ := D.minors.reverse ++ D.motives.reverse ++ (D.atRecTele D.params).reverse)
+      simp only [List.length_cons, List.length_nil, VExpr.length_liftTele,
+        VInductDecl'.length_atRecTele, Nat.zero_add] at h
+      simpa using h
+  rw [VInductDecl'.recType, getD_types hT]
+  refine VEnv.IsType.mkPi ?_ (VEnv.IsType.forallE ?_ ?_)
+  · simpa using hI
+  · exact ⟨_, by simpa using hdom⟩
+  · exact ⟨_, by simpa using hcod⟩
+
+end VInductDecl'
+
+/-- Stage 3: adding the block's recursors preserves `Ordered`, given D5. -/
+theorem VInductDecl'.addIndRecs_ordered {env env' : VEnv} {D : VInductDecl'}
+    (hR : D.RecCtx env)
+    (hmin : OnCtx (D.minors.reverse ++ D.motives.reverse ++ (D.atRecTele D.params).reverse)
+      (env.IsType D.recUvars))
+    (he : env.addIndRecs D = some env') : VEnv.Ordered env' := by
+  refine VEnv.addConstList_ordered hR.ordered (fun c hc => ?_) he
+  simp only [VInductDecl'.recConsts, List.mem_map] at hc
+  obtain ⟨⟨T, j⟩, hTj, rfl⟩ := hc
+  have hT : D.types[j]? = some T := List.mk_mem_zipIdx_iff_getElem?.1 hTj
+  have hj : j < D.nm := by
+    rcases Nat.lt_or_ge j D.types.length with h | h
+    · exact h
+    · rw [List.getElem?_eq_none h] at hT; exact absurd hT (by simp)
+  exact VInductDecl'.recType_isType hR hT hj hmin
+
+/-- **`addInduct'` preserves `Ordered`, with D6 discharged.**  The only remaining
+obligations are D5 (`hmin`, the minor telescope is a well-formed context) and E5
+(`hrules`, each ι-rule is a well-formed `VDefEq`). -/
+theorem VInductDecl'.addInduct'_ordered' {env env' : VEnv} {D : VInductDecl'}
+    (henv : env.Ordered) (h : D.WF env)
+    (hmin : ∀ {env₂ : VEnv}, D.RecCtx env₂ →
+      OnCtx (D.minors.reverse ++ D.motives.reverse ++ (D.atRecTele D.params).reverse)
+        (env₂.IsType D.recUvars))
+    (hrules : ∀ {env₃ : VEnv}, env ≤ env₃ → env₃.Ordered → ∀ df ∈ D.iotaRules, df.WF env₃)
+    (he : env.addInduct' D = some env') : env'.Ordered := by
+  refine VInductDecl'.addInduct'_ordered henv h (fun {env₁ env₂} h1 h2 c hc => ?_) hrules he
+  have o1 := VInductDecl'.addIndTypes_ordered henv h h1
+  have o2 := VInductDecl'.addIndCtors_ordered o1 h h1 h2
+  have hR : D.RecCtx env₂ := h.recCtx h1 h2 VEnv.LE.rfl o2
+  simp only [VInductDecl'.recConsts, List.mem_map] at hc
+  obtain ⟨⟨T, j⟩, hTj, rfl⟩ := hc
+  have hT : D.types[j]? = some T := List.mk_mem_zipIdx_iff_getElem?.1 hTj
+  have hj : j < D.nm := by
+    rcases Nat.lt_or_ge j D.types.length with hlt | hle
+    · exact hlt
+    · rw [List.getElem?_eq_none hle] at hT; exact absurd hT (by simp)
+  exact VInductDecl'.recType_isType hR hT hj (hmin hR)
+
+/-! ## The constructor interface for `ParamsExtra.ctor_ty`
+
+Everything a consumer destructuring `ci.type = C.type D j` needs, in one place.  `ci.type`
+is closed, so its binder telescope and its result indices are too -- which is what makes
+`IsDefEqStrong.weak'` provable for a bundle carrying them. -/
+
+theorem VIndCtor.WF.type_closed {env₁ : VEnv} {D : VInductDecl'} {j T C}
+    (henv : VEnv.Ordered env₁) (h : VIndCtor.WF env₁ D j T C) :
+    VExpr.ClosedN (C.type D j) 0 :=
+  (h.isType henv).choose_spec.closedN henv trivial
+
+/-- The constructor's binder telescope (parameters ++ field types) is closed. -/
+theorem VIndCtor.WF.tele_closed {env₁ : VEnv} {D : VInductDecl'} {j T C}
+    (henv : VEnv.Ordered env₁) (h : VIndCtor.WF env₁ D j T C) :
+    VExpr.ClosedTele (C.params ++ C.fields.map (·.type)) 0 :=
+  (VExpr.closedN_mkPi.1 (h.type_closed henv)).1
+
+/-- Each result index is closed under the constructor's binders. -/
+theorem VIndCtor.WF.args_closed {env₁ : VEnv} {D : VInductDecl'} {j T C}
+    (henv : VEnv.Ordered env₁) (h : VIndCtor.WF env₁ D j T C) :
+    ∀ a ∈ C.args, VExpr.ClosedN a (C.params.length + C.fields.length) := by
+  have hb := (VExpr.closedN_mkPi.1 (h.type_closed henv)).2
+  simp only [List.length_append, List.length_map, Nat.zero_add] at hb
+  rw [VIndCtor.canonResult, VInductDecl'.tyApp, VExpr.closedN_mkApp] at hb
+  exact fun a ha => hb.2 a (List.mem_append_right _ ha)
+
+/-- The constructor's result head carries the block's **own** universe parameters, i.e. the
+identity list.  So `instL ls` on the stored type puts exactly `ls` at the head — which is
+what a consumer rebuilding the spine at a different level list needs to know. -/
+theorem VIndCtor.canonResult_instL (C : VIndCtor) (D : VInductDecl') (j : Nat)
+    {ls : List VLevel} (hls : ls.length = D.uvars) :
+    (C.canonResult D j).instL ls
+      = (VExpr.const (D.types.getD j default).name ls).mkApp
+        (bvars C.fields.length D.np ++ C.args.map (VExpr.instL ls)) := by
+  simp only [VIndCtor.canonResult, VInductDecl'.tyApp, VExpr.instL_mkApp, List.map_append,
+    VExpr.map_instL_bvars, VExpr.instL, VInductDecl'.ownLvls, VLevel.inst_map_id hls]

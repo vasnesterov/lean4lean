@@ -33,11 +33,15 @@ class Params where
     p₁ = p₂ ∧ p₂ = p₃ ∧ r ≍ r'
   -- pat_wf : Pat p r → p.Matches e m1 m2 → HasType env univs Γ e A →
   --   r.2.OK (IsDefEqU env univs Γ) m1 m2 → IsDefEqU env univs Γ e (r.1.apply m1 m2)
-  -- pat_app_l : Pat p r → Subpattern (.app p₁ p₂) p → ¬Subpattern (.app p₃ p₄) p₁
-  -- pat_app_l_uniq : Pat p r → Pat p' r' → Subpattern (.app p₁ p₂) p →
-  --   Subpattern (.app p₁' p₂') p' → Subpattern (.var p₃) p₁ → p₁'.inter p₃ = none
-  -- pat_app_uniq : Pat p r → Pat p' r' → Subpattern (.app p₁ p₂) p →
-  --   Subpattern (.app p₁' p₂') p' → Subpattern p₃ p₁ → Subpattern p₃' p₂' → p₃.inter p₃' = none
+  /-- The function side of an application sub-pattern contains no application
+  sub-pattern: a registered pattern nests at most one sub-pattern, in argument position.
+  Uncommented for `WHRed.determ`; already present on the mainline `VEnv.Params`. -/
+  pat_app_l : Pat p r → Subpattern (.app p₁ p₂) p → ¬Subpattern (.app p₃ p₄) p₁
+  /-- No registered pattern matches inside another's function spine. -/
+  pat_app_l_uniq : Pat p r → Pat p' r' → Subpattern (.app p₁ p₂) p →
+    Subpattern (.app p₁' p₂') p' → Subpattern (.var p₃) p₁ → p₁'.inter p₃ = none
+  pat_app_uniq : Pat p r → Pat p' r' → Subpattern (.app p₁ p₂) p →
+    Subpattern (.app p₁' p₂') p' → Subpattern p₃ p₁ → Subpattern p₃' p₂' → p₃.inter p₃' = none
   -- pat_app_r_arity : Pat p r → Pat p' r' → Subpattern (.app p₁ p₂) p →
   --   Subpattern (.app p₁' p₂') p' → Arity (.const c) n p₂ → Arity (.const c) n' p₂' → n = n'
   -- extra_pat : env.defeqs df → (∀ l ∈ ls, l.WF uvars) → ls.length = df.uvars →
@@ -528,6 +532,44 @@ inductive _root_.Lean4Lean.Pattern.MatchesS :
   | var : MatchesS f f' f1 g1 → MatchesS (.var f) (.app f' a') f1 (·.elim a' g1)
   | app : MatchesS f f' f1 g1 → MatchesS a a' f2 g2 →
     MatchesS (.app f a) (.app f' a') f1 (Sum.elim g1 g2)
+
+/-- A pattern never matches a term whose head is a `lam`: `MatchesS`'s spine bottoms out
+at `const`, and neither `var` nor `app` accepts a `lam`. This is what separates a `beta`
+redex from an `extra` redex in `WHRed.determ`. -/
+theorem _root_.Lean4Lean.Pattern.MatchesS.not_lam {p : Pattern} {A e : SExpr} {m1 m2}
+    (H : p.MatchesS (.lam A e) m1 m2) : False := nomatch H
+
+/-- Two patterns matching the same term have a non-empty intersection. This is the
+`MatchesS` mirror of `Pattern.matches_inter`'s forward direction, and it is what feeds
+`Params.pat_uniq` in `WHRed.determ`. -/
+theorem _root_.Lean4Lean.Pattern.MatchesS.inter_exists {p : Pattern} {e : SExpr} {m1 m2}
+    (hp : p.MatchesS e m1 m2) :
+    ∀ {q : Pattern} {m3 m4}, q.MatchesS e m3 m4 → ∃ r, p.inter q = some r := by
+  induction hp with
+  | const => intro q _ _ hq; let .const := hq; simp [Pattern.inter]
+  | var _ ih =>
+    intro q _ _ hq
+    cases hq with
+    | var hq' => have ⟨_, h1⟩ := ih hq'; simp [Pattern.inter, h1]
+    | app hqf _ => have ⟨_, h1⟩ := ih hqf; simp [Pattern.inter, h1]
+  | app _ _ ihf iha =>
+    intro q _ _ hq
+    cases hq with
+    | var hq' => have ⟨_, h1⟩ := ihf hq'; simp [Pattern.inter, h1]
+    | app hqf hqa =>
+      have ⟨_, h1⟩ := ihf hqf; have ⟨_, h2⟩ := iha hqa
+      simp [Pattern.inter, h1, h2]
+
+/-- A pattern determines its own match. -/
+theorem _root_.Lean4Lean.Pattern.MatchesS.determ {p : Pattern} {e : SExpr} {m1 m2 m1' m2'}
+    (H1 : p.MatchesS e m1 m2) (H2 : p.MatchesS e m1' m2') : m1 = m1' ∧ m2 = m2' := by
+  induction H1 generalizing m1' with
+  | const => let .const := H2; exact ⟨rfl, rfl⟩
+  | var _ ih => let .var h := H2; have ⟨e1, e2⟩ := ih h; exact ⟨e1, by rw [e2]⟩
+  | app _ _ ih1 ih2 =>
+    let .app h1 h2 := H2
+    have ⟨e1, e2⟩ := ih1 h1; have ⟨_, e4⟩ := ih2 h2
+    exact ⟨e1, by rw [e2, e4]⟩
 
 def _root_.Lean4Lean.Pattern.RHS.applyS {p : Pattern}
     (m1 : List SLevel) (m2 : p.Path → SExpr) : p.RHS → SExpr
@@ -1290,23 +1332,91 @@ theorem WHNF.lam : WHNF Γ (.lam A e) := nofun
 theorem WHNF.sort : WHNF Γ (.sort A) := nofun
 theorem WHNF.forallE : WHNF Γ (.forallE A B) := nofun
 
+theorem _root_.Lean4Lean.Subpattern.ne_var_l {qf p : Pattern}
+    (h : Subpattern (.var qf) p) : qf ≠ p := by
+  rintro rfl; have := h.sizeOf_le; simp at this; omega
+
+theorem _root_.Lean4Lean.Subpattern.ne_app_l {qf qa p : Pattern}
+    (h : Subpattern (.app qf qa) p) : qf ≠ p := by
+  rintro rfl; have := h.sizeOf_le; simp at this; omega
+
+/--
+A term matched by a **proper** sub-pattern of a registered pattern is in weak-head normal
+form.
+
+The spine of a matched term bottoms out at a `const`, so the only way it could reduce is
+by `extra` — and then two registered patterns would match the same term, so `pat_uniq`
+forces the sub-pattern to *be* the whole pattern, contradicting properness. Note this needs
+only `pat_uniq`; `pat_app_l` and friends are not required here.
+-/
+theorem WHRed.not_of_matchesS {p : Pattern} {r} (hp : Params.Pat p r) :
+    ∀ {q : Pattern} {e : SExpr} {m1 m2}, q.MatchesS e m1 m2 →
+      Subpattern q p → q ≠ p → ∀ {Γ : List SExpr} {e' : SExpr}, ¬ WHRed Γ e e' := by
+  intro q e m1 m2 hq
+  induction hq with
+  | @const c ls =>
+    intro hsub hne _ _ H
+    let .extra a1 r2 _ _ := H
+    have ⟨_, hi⟩ := Pattern.MatchesS.inter_exists (.const (c := c) (ls := ls)) r2
+    rw [Pattern.inter_comm] at hi
+    obtain ⟨e1, e2, -⟩ := Params.pat_uniq hp a1 hsub hi
+    exact hne (e1.trans e2).symm
+  | @var qf f' f1 g1 a' hf ih =>
+    intro hsub hne _ _ H
+    cases H with
+    | app h1 => exact ih (.trans (.varL .refl) hsub) hsub.ne_var_l h1
+    | beta => exact hf.not_lam
+    | extra a1 r2 _ _ =>
+      have ⟨_, hi⟩ := Pattern.MatchesS.inter_exists (hf.var (a' := a')) r2
+      rw [Pattern.inter_comm] at hi
+      obtain ⟨e1, e2, -⟩ := Params.pat_uniq hp a1 hsub hi
+      exact hne (e1.trans e2).symm
+  | @app qf f' f1 g1 qa a' f2 g2 hf ha ihf _ =>
+    intro hsub hne _ _ H
+    cases H with
+    | app h1 => exact ihf (.trans (.appL .refl) hsub) hsub.ne_app_l h1
+    | beta => exact hf.not_lam
+    | extra a1 r2 _ _ =>
+      have ⟨_, hi⟩ := Pattern.MatchesS.inter_exists (hf.app ha) r2
+      rw [Pattern.inter_comm] at hi
+      obtain ⟨e1, e2, -⟩ := Params.pat_uniq hp a1 hsub hi
+      exact hne (e1.trans e2).symm
+
 theorem WHRed.determ (H1 : Γ ⊢ e ⤳ e₁) (H2 : Γ ⊢ e ⤳ e₂) : e₁ = e₂ := by
   induction H1 generalizing e₂ with
   | app l1 ih =>
     cases H2 with
     | app r1 => cases ih r1; rfl
     | beta => cases WHNF.lam _ l1
-    | extra => sorry
+    | extra a1 r2 _ _ =>
+      cases r2 with
+      | var hf => exact (WHRed.not_of_matchesS a1 hf (.varL .refl) (Subpattern.ne_var_l .refl) l1).elim
+      | app hf _ =>
+        exact (WHRed.not_of_matchesS a1 hf (.appL .refl) (Subpattern.ne_app_l .refl) l1).elim
   | beta =>
     cases H2 with
     | app r1 => cases WHNF.lam _ r1
     | beta => rfl
-    | extra _ r2 => sorry
-  | extra _ l2 =>
+    | extra _ r2 => cases r2 with
+      | var hf => exact hf.not_lam.elim
+      | app hf _ => exact hf.not_lam.elim
+  | extra a1 l2 _ _ =>
     cases H2 with
-    | beta => sorry
-    | app => sorry
-    | extra _ r2 => sorry
+    | beta => cases l2 with
+      | var hf => exact hf.not_lam.elim
+      | app hf _ => exact hf.not_lam.elim
+    | app r1 =>
+      cases l2 with
+      | var hf => exact (WHRed.not_of_matchesS a1 hf (.varL .refl) (Subpattern.ne_var_l .refl) r1).elim
+      | app hf _ =>
+        exact (WHRed.not_of_matchesS a1 hf (.appL .refl) (Subpattern.ne_app_l .refl) r1).elim
+    | extra a1' r2 _ _ =>
+      have ⟨_, hi⟩ := l2.inter_exists r2
+      rw [Pattern.inter_comm] at hi
+      obtain ⟨rfl, -, hr⟩ := Params.pat_uniq a1 a1' .refl hi
+      cases hr
+      obtain ⟨rfl, rfl⟩ := l2.determ r2
+      rfl
 
 def WHRedS (Γ : List SExpr) : SExpr → SExpr → Prop := ReflTransGen (WHRed Γ)
 scoped notation:65 Γ " ⊢ " e1 " ⤳* " e2:36 => WHRedS Γ e1 e2

@@ -12,14 +12,30 @@ such. Weakening and substitution, which several cases consume, *are* proved
 
 ## Status
 
-`beta` and `eta` — the two cases named below as able to refute the ledger — are
-now **proved**, sorry-free, in `SetModel/InterpSound.lean` (`beta_sound`,
-`eta_sound`), with their induction hypotheses as explicit arguments. **Neither
-uses any injectivity fact.** The remaining eleven cases are still analysis.
+**Eleven of the thirteen cases are proved**, sorry-free, in
+`SetModel/InterpSound.lean`, each with its induction hypotheses as explicit
+arguments so it is checked against exactly the premises the real induction
+supplies. **None uses any injectivity fact.**
 
-One claim from the first version of this ledger was **wrong and is corrected
-below**: part 2 is a genuine branch of the induction, not a corollary of parts 1
-and 3.
+| Proved | Lemma |
+|---|---|
+| `bvar` | `bvar_sound` |
+| `sortDF` | `sortDF_sound` |
+| `appDF` | `appDF_sound_eq`, `appDF_sound_type` |
+| `lamDF` | `lamDF_sound_eq` |
+| `forallEDF` | `forallEDF_sound_eq` |
+| `defeqDF` | `defeqDF_sound` |
+| `beta` | `beta_sound` |
+| `eta` | `eta_sound` |
+| `proofIrrel` | `proofIrrel_sound` |
+| `symm`, `trans` | immediate from the IHs (`Eq.symm`, `Eq.trans`) |
+
+Not done: `constDF` and `extra`, both of which need `ModelData.cnst` and its
+coherence with `env.defeqs`. Also outstanding: parts 3 for `lamDF`/`forallEDF`
+(the `∈` direction; part 4 is proved), which the analysis says needs nothing new.
+
+Two corrections to earlier versions of this ledger, both found by doing the
+proofs, are recorded below: **part 2** and **context conversion**.
 
 ## Headline
 
@@ -58,8 +74,26 @@ Carneiro proves four things by one simultaneous induction
 3. `⟦Γ ⊢ e⟧ ρ ∈ ⟦Γ ⊢ α⟧ ρ`;
 4. `Γ ⊢ e₁ ≡ e₂ : α` implies `⟦e₁⟧ ρ = ⟦e₂⟧ ρ`.
 
-**Correction.** The first version of this ledger claimed part 2 is a corollary of
-parts 1 and 3. It is not, and the induction carries **four** parts.
+**Correction, twice revised.** The first version claimed part 2 is a corollary of
+parts 1 and 3. The second version said it is a genuine branch. The settled
+position, from carrying out the proofs, is:
+
+**Part 1 is a corollary of part 3** — and needs no induction at all.
+`⟦sort u⟧ρ = U κ (u.eval)`, and `U κ 0` is literally `UProp = ℘ {•}`, so
+`⟦e⟧ρ ∈ ⟦sort u⟧ρ` with `u.eval = 0` *is* `⟦e⟧ρ ⊆ {•}` by `mem_UProp_iff`. That
+is `propSound_of_mem_sort`. It needs only the judgement `Γ ⊢ e : sort u`, which
+is a premise wherever part 1 is used — `proofIrrel` is the example, and it is
+now proved from part 3 alone.
+
+**Part 2 is a corollary of part 3 plus part 1 for the type**, which needs
+validity (`IsDefEq.isType`, available and sorry-free in `Theory/Typing/`). It is
+still convenient to carry through the induction, because `beta` and `eta`
+consume it directly for a premise, but it is not independent content. That is
+`proofSound_of`.
+
+The old argument for part 2 being irreducible was that part 1 for the *type* is
+not a subderivation. True, but validity supplies it, so the only cost is a
+dependency on `IsDefEq.isType` rather than a fourth induction.
 
 The tempting argument is: if `α` is a proposition then `⟦α⟧ρ ⊆ {•}` by part 1 and
 `⟦e⟧ρ ∈ ⟦α⟧ρ` by part 3, so `⟦e⟧ρ = •`. But part 1 is about the *subject* of a
@@ -86,22 +120,45 @@ and `imax u v` evaluates to `0` exactly when `v` does. So `f` is a proof iff `B`
 is a proposition. This follows from `srt_sound`, `lvl_sound` and level
 arithmetic — no injectivity. It is used in `appDF`, `lamDF` and `beta`.
 
+## A requirement the ledger did not have: context conversion
+
+`lamDF` and `forallEDF` type their body premise in `A :: Γ`:
+
+```
+Γ ⊢ A ≡ A' : sort u  →  A::Γ ⊢ body ≡ body' : B  →  Γ ⊢ lam A body ≡ lam A' body' : forallE A B
+```
+
+but the right-hand side's interpretation uses `A' :: Γ`. So the interpretation
+must not distinguish contexts differing by a definitional equality.
+
+This is **not** an injectivity fact — it is a stability property of the level
+assignment, in the same family as `LevelAssign.Stable` — so the headline is
+unaffected. But it is a genuine extra obligation on whoever constructs a
+`LevelAssign`, and it was missing from earlier versions of this ledger.
+
+`SetModel/InterpSound.lean` packages it as `CtxInvariant`, a relation on
+contexts that the level assignment cannot see, closed under extending both sides
+by a common type, and proves `interp_ctxInvariant`: the interpretation is
+constant along any such relation. For well-typed input the obligation is
+discharged by `srt_sound`/`lvl_sound` together with context conversion
+(`IsDefEq.defeqDFC` in `Theory/Typing/`).
+
 ## Case by case
 
 | Rule | Part 3 (`⟦e⟧ ∈ ⟦A⟧`) | Part 4 (`≡` ⟹ `=`) | Injectivity |
 |---|---|---|---|
-| `bvar` | valuation is typed (`mem_interpCtx_cons`) + **weakening** for the `.lift` in `Lookup` | — | none |
+| `bvar` | valuation is typed (`mem_interpCtx_cons`) + **weakening** for the `.lift` in `Lookup` | — | none — **proved** |
 | `symm` | — | IH | none |
 | `trans` | — | IH | none |
-| `sortDF` | `U_mem_succ`; **this is where the universe bound is spent** | `l ≈ l'` gives equal evaluations | none |
+| `sortDF` | `U_mem_succ`; **the only place the universe bound is spent** | `l ≈ l'` gives equal evaluations | none — **proved** |
 | `constDF` | `cnst` coherence | `ls ≈ ls'` + `cnst` coherence | none |
-| `appDF` | IH gives `⟦f⟧ρ ∈ ⟦forallE A B⟧ρ`; apply at `⟦a⟧ρ`; **substitution** for `B.inst a` | IHs + `srt_congr` for the split | none |
-| `lamDF` | graph is a function into `⋃⟦B⟧`; split agreement | IHs; both bodies live in `A::Γ` | none |
-| `forallEDF` | `U_mem_succ` at `imax u v` | IHs | none |
-| `defeqDF` | IH part 4 on the type gives `⟦A⟧ρ = ⟦B⟧ρ` | IH | none |
+| `appDF` | IH gives `⟦f⟧ρ ∈ ⟦forallE A B⟧ρ`; apply at `⟦a⟧ρ`; **substitution** for `B.inst a` | IHs + `srt_congr` for the split | none — **proved** |
+| `lamDF` | graph is a function into `⋃⟦B⟧`; split agreement | IHs + **context conversion** | none — part 4 **proved** |
+| `forallEDF` | `U_mem_succ` at `imax u v` | IHs + **context conversion** | none — part 4 **proved** |
+| `defeqDF` | IH part 4 on the type gives `⟦A⟧ρ = ⟦B⟧ρ` | IH | none — **proved** |
 | `beta` | — | **substitution** + part 3 for `e'` (entanglement) + part 2 for `e` + `mkLam_value` | none — **proved** |
 | `eta` | — | **weakening** for `e.lift` + part 2/3 for `e` + `function_eq_graph` | none — **proved** |
-| `proofIrrel` | — | part 1 gives `⟦p⟧ρ ⊆ {•}`, part 3 puts both values in it | none |
+| `proofIrrel` | — | part 1 (derived from part 3) gives `⟦p⟧ρ ⊆ {•}`; part 3 puts both in it | none — **proved** |
 | `extra` | `cnst` coherence with `env.defeqs` | same | none |
 
 ### The two cases that could have refuted the ledger — both now proved
@@ -134,7 +191,9 @@ substitution into the body).
 | `interp_inst` (substitution) | `appDF` part 3, `beta` | **proved** |
 | `AgreeInst` entanglement | `beta` | **hypothesis by design** |
 | `LevelAssign.lvl_congr` / `srt_congr` | every congruence case | **proved** |
-| `LevelAssign.Stable` | `bvar`, `beta`, `eta` | hypothesis |
+| `LevelAssign.Stable` | `bvar`, `beta`, `eta`, `appDF` | hypothesis |
+| `CtxInvariant` (context conversion) | `lamDF`, `forallEDF` | hypothesis — **new** |
+| validity (`IsDefEq.isType`) | part 2 from part 1 + part 3 | available, sorry-free |
 | `U_mem_succ` + explicit bound | `sortDF`, `forallEDF` | **proved** |
 | `piProp_mem_UProp` | part 1, `forallE` case | **proved** |
 | validity (`Γ ⊢ e : A → IsType Γ A`) | `appDF`, to level the `∀` | available, `Theory/Typing/` |
