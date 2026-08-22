@@ -961,4 +961,334 @@ theorem WF.keyMajorUnique {env : VEnv} (h : env.WF) : env.KeyMajorUnique :=
   (WF'.keys h.choose_spec).2.2
 
 end VEnv
+
+/-! # Part III: an inductive type's name is not a rule key
+
+`Params`' `classify` must report `.indTy` for a block type's name, and its cascade tests the
+recursor-leaf, constructor-leaf and δ-head roles first.  So it needs: **`T.name` plays none of
+those roles.**
+
+The first formulation of that asked *"what kind of object is this name?"* — three separate
+negations, which is the `kind`/`KindMatches` content Part II's header says these invariants
+deliberately do not provide, and which would have needed a `VEnv.Sig`.  It reformulates,
+because `VDefEq.key` already names exactly the three things to exclude: a recursor leaf **is**
+a key's head, a constructor leaf **is** its last, a δ-head **is** the whole key
+(`key_of_isDeltaRule`), and `Quot.lift`/`Quot.mk` **are** `quotDefEq.key` (`key_quotDefEq`).
+All four collapse into `T.name ∉ df.key`, which is a *"which rule owns this name?"* question —
+"no rule owns `T.name`" — and lands inside the frame after all.
+
+**Why the syntactic route is unavailable, and this one is needed.**  Every other
+name-disjointness fact here (`rec_ne_ctor`, `quotLift_ne_ctor`) works by distinguishing
+*stored types*: a recursor's `piBodyHead` is a `.bvar`, a constructor's a `.const`.  For a
+block type name that route is closed by **F1**: `VIndType.WF` gives only
+`canon : IsDefEqType [] T.type (mkPi (params ++ indices) (.sort lvl))`, so `T.type` is
+*definitionally* a Π-telescope ending in a sort and **syntactically anything at all** — it
+could be a `recType`.  Separating them semantically is Π/sort inversion, which is downstream
+of the very `Params` instance this feeds.  Provenance is the only remaining route.
+
+**A separate induction, deliberately.**  These two clauses could have been threaded through
+Part II's triple, turning it into a quintuple in nine lemmas.  They are carried by their own
+`WF'` induction instead, which *consumes* `WF'.keys` as a black box at the one arm that needs
+it.  That costs one extra traversal and touches no existing proof. -/
+
+namespace VEnv
+
+/-- Every registered ι-rule's block type name is a declared constant.  The analogue of
+`KeysDeclared`, and it exists for the same reason: it is what turns a freshness fact about a
+newly declared name into a disequation. -/
+def IotaTypeDeclared (env : VEnv) : Prop :=
+  ∀ (D : VInductDecl') (j q : Nat) (C : VIndCtor),
+    env.defeqs (D.iotaRule j q C) → env.contains (D.types.getD j default).name
+
+/-- **No rule owns a block type's name.**  With `key_of_isDeltaRule`, `key_quotDefEq` and
+`key_iotaRule`, this single clause says `T.name` is not a δ-rule's head, not `Quot.lift` or
+`Quot.mk`, and not any registered ι-rule's recursor or constructor leaf. -/
+def IotaTypeNotKey (env : VEnv) : Prop :=
+  ∀ (D : VInductDecl') (j q : Nat) (C : VIndCtor),
+    env.defeqs (D.iotaRule j q C) →
+    ∀ df, env.defeqs df → (D.types.getD j default).name ∉ df.key
+
+/-- Both clauses mention only `defeqs` and `contains`, so a step that leaves the rules alone
+lifts both at once. -/
+theorem iotaTypes_mono {env env' : VEnv} (hd : env'.defeqs = env.defeqs) (hle : env ≤ env')
+    (H : env.IotaTypeDeclared ∧ env.IotaTypeNotKey) :
+    env'.IotaTypeDeclared ∧ env'.IotaTypeNotKey := by
+  refine ⟨fun D j q C hdf => ?_, fun D j q C hdf df hdf' => ?_⟩
+  · obtain ⟨ci, hci⟩ := H.1 D j q C (hd ▸ hdf); exact ⟨ci, hle.constants hci⟩
+  · exact H.2 D j q C (hd ▸ hdf) df (hd ▸ hdf')
+
+/-- **The step for a rule that is not an ι-rule** — `def`, `unsafeDef` and `quot`.
+
+`hne` is the *relativised* form of "the new rule's key names are fresh": by the time the rule
+is added its key names are declared (`.unsafeDef` and `quot` declare everything first), so the
+freshness proxy is gone, exactly as `NoRuleFor` relativises `DefEqHeadsDeclared`.  What is
+actually needed — no registered ι-rule's type name is among them — survives the intervening
+`addConst`s because they do not touch `defeqs`. -/
+theorem iotaTypes_addDefEq {env : VEnv} {df : VDefEq}
+    (H : env.IotaTypeDeclared ∧ env.IotaTypeNotKey)
+    (hnotiota : ∀ (D : VInductDecl') (j q : Nat) (C : VIndCtor), df ≠ D.iotaRule j q C)
+    (hne : ∀ (D : VInductDecl') (j q : Nat) (C : VIndCtor), env.defeqs (D.iotaRule j q C) →
+      (D.types.getD j default).name ∉ df.key) :
+    (env.addDefEq df).IotaTypeDeclared ∧ (env.addDefEq df).IotaTypeNotKey := by
+  refine ⟨fun D j q C hdf => ?_, fun D j q C hdf x hx => ?_⟩
+  · rcases (hdf : _ ∨ _) with rfl | hdf
+    · exact absurd rfl (hnotiota D j q C)
+    · exact H.1 D j q C hdf
+  · rcases (hdf : _ ∨ _) with rfl | hdf
+    · exact absurd rfl (hnotiota D j q C)
+    · rcases (hx : _ ∨ _) with rfl | hx
+      · exact hne D j q C hdf
+      · exact H.2 D j q C hdf x hx
+
+/-- The δ-fold, for `.unsafeDef`.  Each rule of the block is a δ-rule whose head was fresh
+before the block's constants were declared. -/
+theorem iotaTypes_addDefEqs : ∀ {cis : List VDefVal} {env : VEnv},
+    (env.IotaTypeDeclared ∧ env.IotaTypeNotKey) →
+    (∀ ci ∈ cis, ∀ (D : VInductDecl') (j q : Nat) (C : VIndCtor),
+      env.defeqs (D.iotaRule j q C) → (D.types.getD j default).name ≠ ci.name) →
+    (env.addDefEqs cis).IotaTypeDeclared ∧ (env.addDefEqs cis).IotaTypeNotKey
+  | [], _, H, _ => H
+  | ci :: cis, env, H, hne => by
+    have hkey : ci.toDefEq.key = [ci.name] := rfl
+    have hnd : ∀ (D : VInductDecl') (j q : Nat) (C : VIndCtor),
+        D.iotaRule j q C ≠ ci.toDefEq := by
+      intro D j q C h
+      exact not_isDeltaRule_iotaRule D j q C ci.name
+        (show IsDeltaRule (D.iotaRule j q C) ci.name by rw [h]; exact toDefEq_isDeltaRule.2 rfl)
+    have step := iotaTypes_addDefEq H (fun D j q C h => (hnd D j q C) h.symm)
+      (by
+        intro D j q C hdf hmem
+        rw [hkey] at hmem
+        exact hne ci (.head _) D j q C hdf (List.mem_singleton.1 hmem))
+    refine iotaTypes_addDefEqs (cis := cis) step ?_
+    intro ci' hci' D j q C hdf
+    rcases (hdf : _ ∨ _) with hdf | hdf
+    · exact absurd hdf (hnd D j q C)
+    · exact hne ci' (.tail _ hci') D j q C hdf
+
+/-- **The step for an ι-rule** — only `induct` adds these.  Three obligations beyond the
+previous step: the new rule's own type name must be declared, must miss its own key, and must
+miss every existing key; and no existing ι-rule's type name may be in the new key. -/
+theorem iotaTypes_addDefEq_iota {env : VEnv} {df : VDefEq}
+    (H : env.IotaTypeDeclared ∧ env.IotaTypeNotKey)
+    (hdecl : ∀ (D : VInductDecl') (j q : Nat) (C : VIndCtor), df = D.iotaRule j q C →
+      env.contains (D.types.getD j default).name)
+    (hself : ∀ (D : VInductDecl') (j q : Nat) (C : VIndCtor), df = D.iotaRule j q C →
+      (D.types.getD j default).name ∉ df.key)
+    (hnew : ∀ (D : VInductDecl') (j q : Nat) (C : VIndCtor), df = D.iotaRule j q C →
+      ∀ df', env.defeqs df' → (D.types.getD j default).name ∉ df'.key)
+    (hold : ∀ (D : VInductDecl') (j q : Nat) (C : VIndCtor), env.defeqs (D.iotaRule j q C) →
+      (D.types.getD j default).name ∉ df.key) :
+    (env.addDefEq df).IotaTypeDeclared ∧ (env.addDefEq df).IotaTypeNotKey := by
+  refine ⟨fun D j q C hdf => ?_, fun D j q C hdf x hx => ?_⟩
+  · rcases (hdf : _ ∨ _) with rfl | hdf
+    · exact hdecl D j q C rfl
+    · exact H.1 D j q C hdf
+  · rcases (hdf : _ ∨ _) with rfl | hdf
+    · rcases (hx : _ ∨ _) with rfl | hx
+      · exact hself D j q C rfl
+      · exact hnew D j q C rfl x hx
+    · rcases (hx : _ ∨ _) with rfl | hx
+      · exact hold D j q C hdf
+      · exact H.2 D j q C hdf x hx
+
+/-- The ι-fold, for `induct`. -/
+theorem iotaTypes_addDefEqList_iota : ∀ (dfs : List VDefEq) {env : VEnv},
+    (env.IotaTypeDeclared ∧ env.IotaTypeNotKey) →
+    (∀ df ∈ dfs, ∀ (D : VInductDecl') (j q : Nat) (C : VIndCtor), df = D.iotaRule j q C →
+      env.contains (D.types.getD j default).name) →
+    (∀ df ∈ dfs, ∀ (D : VInductDecl') (j q : Nat) (C : VIndCtor), df = D.iotaRule j q C →
+      ∀ df' ∈ dfs, (D.types.getD j default).name ∉ df'.key) →
+    (∀ df ∈ dfs, ∀ (D : VInductDecl') (j q : Nat) (C : VIndCtor), df = D.iotaRule j q C →
+      ∀ df', env.defeqs df' → (D.types.getD j default).name ∉ df'.key) →
+    (∀ df ∈ dfs, ∀ (D : VInductDecl') (j q : Nat) (C : VIndCtor),
+      env.defeqs (D.iotaRule j q C) → (D.types.getD j default).name ∉ df.key) →
+    ((dfs.foldl VEnv.addDefEq env).IotaTypeDeclared ∧
+      (dfs.foldl VEnv.addDefEq env).IotaTypeNotKey)
+  | [], _, H, _, _, _, _ => H
+  | df :: dfs, env, H, hdecl, hblock, hnew, hold => by
+    have step := iotaTypes_addDefEq_iota H (hdecl df (.head _))
+      (fun D j q C hq => hblock df (.head _) D j q C hq df (.head _))
+      (hnew df (.head _)) (hold df (.head _))
+    refine iotaTypes_addDefEqList_iota dfs step
+      (fun x hx D j q C hq => ⟨_, VEnv.LE.constants VEnv.addDefEq_le
+        (hdecl x (.tail _ hx) D j q C hq).choose_spec⟩)
+      (fun x hx D j q C hq y hy => hblock x (.tail _ hx) D j q C hq y (.tail _ hy)) ?_ ?_
+    · intro x hx D j q C hq df' hdf'
+      rcases (hdf' : _ ∨ _) with rfl | hdf'
+      · exact hblock x (.tail _ hx) D j q C hq df' (.head _)
+      · exact hnew x (.tail _ hx) D j q C hq df' hdf'
+    · intro x hx D j q C hdf
+      rcases (hdf : _ ∨ _) with hdf | hdf
+      · exact hblock df (.head _) D j q C hdf.symm x (.tail _ hx)
+      · exact hold x (.tail _ hx) D j q C hdf
+
+/-! ## The four arms -/
+
+theorem iotaTypes_def {env env' : VEnv} {ci : VDefVal}
+    (h : env.addConst ci.name ci.toVConstant = some env')
+    (ih : env.IotaTypeDeclared ∧ env.IotaTypeNotKey) :
+    (env'.addDefEq ci.toDefEq).IotaTypeDeclared ∧
+      (env'.addDefEq ci.toDefEq).IotaTypeNotKey := by
+  have hfresh : ¬ env.contains ci.name := by
+    rintro ⟨x, hx⟩; rw [addConst_constants_eq_none h] at hx; exact absurd hx nofun
+  refine iotaTypes_addDefEq (iotaTypes_mono (addConst_defeqs h) (addConst_le h) ih)
+    (fun D j q C hq => not_isDeltaRule_iotaRule D j q C ci.name
+      (show IsDeltaRule (D.iotaRule j q C) ci.name by
+        rw [← hq]; exact toDefEq_isDeltaRule.2 rfl))
+    ?_
+  intro D j q C hdf hmem
+  rw [addConst_defeqs h] at hdf
+  exact hfresh (List.mem_singleton.1
+    (show (D.types.getD j default).name ∈ [ci.name] from hmem) ▸ ih.1 D j q C hdf)
+
+theorem iotaTypes_unsafeDef {env env' : VEnv} {cis : List VDefVal}
+    (h : env.addConsts cis = some env')
+    (ih : env.IotaTypeDeclared ∧ env.IotaTypeNotKey) :
+    (env'.addDefEqs cis).IotaTypeDeclared ∧ (env'.addDefEqs cis).IotaTypeNotKey := by
+  refine iotaTypes_addDefEqs (iotaTypes_mono (addConsts_defeqs h) (addConsts_le h) ih) ?_
+  intro ci hci D j q C hdf heq
+  rw [addConsts_defeqs h] at hdf
+  exact addConsts_fresh h ci hci (heq ▸ ih.1 D j q C hdf)
+
+theorem iotaTypes_quot {env env' : VEnv} (h : env.addQuot = some env')
+    (ih : env.IotaTypeDeclared ∧ env.IotaTypeNotKey) :
+    env'.IotaTypeDeclared ∧ env'.IotaTypeNotKey := by
+  obtain ⟨e1, e2, e3, e4, h1, h2, h3, h4, rfl⟩ := addQuot_stages h
+  have hdefeqs : e4.defeqs = env.defeqs := by
+    rw [addConst_defeqs h4, addConst_defeqs h3, addConst_defeqs h2, addConst_defeqs h1]
+  have hmk : ¬ env.contains ``Quot.mk := by
+    rintro ⟨x, hx⟩
+    have := (addConst_le h1).constants hx
+    rw [addConst_constants_eq_none h2] at this; exact absurd this nofun
+  have hlift : ¬ env.contains ``Quot.lift := by
+    rintro ⟨x, hx⟩
+    have := (addConst_le h2).constants ((addConst_le h1).constants hx)
+    rw [addConst_constants_eq_none h3] at this; exact absurd this nofun
+  refine iotaTypes_addDefEq (iotaTypes_mono hdefeqs
+      (((addConst_le h1).trans (addConst_le h2)).trans
+        ((addConst_le h3).trans (addConst_le h4))) ih) ?_ ?_
+  · intro D j q C hq
+    have hk := congrArg VDefEq.key hq
+    rw [key_quotDefEq, VInductDecl'.key_iotaRule] at hk
+    have : (Lean.mkRecName (D.types.getD j default).name : Lean.Name) = ``Quot.lift :=
+      (List.cons.injEq .. ▸ hk).1.symm
+    simp [Lean.mkRecName] at this
+  · intro D j q C hdf hmem
+    rw [hdefeqs] at hdf
+    rw [key_quotDefEq] at hmem
+    rcases List.mem_cons.1 hmem with he | he
+    · exact hlift (he ▸ ih.1 D j q C hdf)
+    · exact hmk (List.mem_singleton.1 he ▸ ih.1 D j q C hdf)
+
+theorem _root_.Lean4Lean.mkRecName_inj {m n : Lean.Name}
+    (h : Lean.mkRecName m = Lean.mkRecName n) : m = n := by
+  simpa [Lean.mkRecName] using h
+
+/-- **The `induct` arm.**  The one place both clauses have content, and the only one needing
+`KeysDeclared` — to know an existing key name is declared, hence distinct from the block's
+freshly declared type names. -/
+theorem iotaTypes_induct {env env' : VEnv} {D' : VInductDecl'}
+    (h : env.addInduct' D' = some env') (hkeys : env.KeysDeclared)
+    (ih : env.IotaTypeDeclared ∧ env.IotaTypeNotKey) :
+    env'.IotaTypeDeclared ∧ env'.IotaTypeNotKey := by
+  obtain ⟨e1, e2, e3, h1, h2, h3, rfl⟩ := addInduct'_stages h
+  have hdefeqs : e3.defeqs = env.defeqs := by
+    rw [addConstList_defeqs h3, addConstList_defeqs h2, addConstList_defeqs h1]
+  have hle : env ≤ e3 :=
+    ((addConstList_le h1).trans (addConstList_le h2)).trans (addConstList_le h3)
+  have htyfresh : ∀ n ∈ D'.blockNames, ¬ env.contains n := by
+    rintro n hn ⟨x, hx⟩
+    rw [(addConstList_fresh h1).1 n (by rwa [VInductDecl'.typeConsts_names])] at hx
+    exact absurd hx nofun
+  have hctorfresh : ∀ n ∈ D'.ctorConsts.map (·.1), ¬ env.contains n := by
+    rintro n hn ⟨x, hx⟩
+    have := (addConstList_le h1).constants hx
+    rw [(addConstList_fresh h2).1 n hn] at this; exact absurd this nofun
+  have hrecfresh : ∀ n ∈ D'.recConsts.map (·.1), ¬ env.contains n := by
+    rintro n hn ⟨x, hx⟩
+    have := (addConstList_le h2).constants ((addConstList_le h1).constants hx)
+    rw [(addConstList_fresh h3).1 n hn] at this; exact absurd this nofun
+  have htydecl : ∀ n ∈ D'.blockNames, e1.contains n := by
+    intro n hn
+    obtain ⟨c, hc, rfl⟩ := List.mem_map.1 (by rwa [← VInductDecl'.typeConsts_names] at hn)
+    exact ⟨_, addConstList_constants h1 c hc⟩
+  have htyne : ∀ n ∈ D'.blockNames,
+      n ∉ D'.ctorConsts.map (·.1) ∧ n ∉ D'.recConsts.map (·.1) := by
+    intro n hn
+    obtain ⟨x, hx⟩ := htydecl n hn
+    refine ⟨fun hc => ?_, fun hc => ?_⟩
+    · rw [(addConstList_fresh h2).1 n hc] at hx; exact absurd hx nofun
+    · have hx2 := (addConstList_le h2).constants hx
+      rw [(addConstList_fresh h3).1 n hc] at hx2; exact absurd hx2 nofun
+  have hkey : ∀ df ∈ D'.iotaRules, ∀ n ∈ df.key,
+      n ∈ D'.ctorConsts.map (·.1) ∨ n ∈ D'.recConsts.map (·.1) := by
+    intro df hdf n hn
+    obtain ⟨j, C, hjC, hk⟩ := VInductDecl'.mem_key_iotaRules hdf
+    obtain ⟨T, hT, hC⟩ := VInductDecl'.mem_ctorsAll hjC
+    rw [hk] at hn
+    rcases List.mem_cons.1 hn with rfl | hn
+    · refine .inr (List.mem_map.2 ⟨_, List.mem_map.2 ⟨(T, j), ?_, rfl⟩, ?_⟩)
+      · exact List.mk_mem_zipIdx_iff_getElem?.2 hT
+      · rw [D'.getD_types hT]
+    · cases List.mem_singleton.1 hn
+      exact .inl (List.mem_map.2 ⟨_, List.mem_map.2 ⟨(j, C), hjC, rfl⟩, rfl⟩)
+  have hfresh : ∀ df ∈ D'.iotaRules, ∀ n ∈ df.key, ¬ env.contains n := by
+    intro df hdf n hn
+    rcases hkey df hdf n hn with hm | hm
+    · exact hctorfresh n hm
+    · exact hrecfresh n hm
+  have hname : ∀ df ∈ D'.iotaRules, ∀ (D : VInductDecl') (j q : Nat) (C : VIndCtor),
+      df = D.iotaRule j q C → (D.types.getD j default).name ∈ D'.blockNames := by
+    intro df hdf D j q C hq
+    obtain ⟨j', q', C', hqC', rfl⟩ := VInductDecl'.mem_iotaRules hdf
+    obtain ⟨T', hT', hC'⟩ := VInductDecl'.mem_ctorsAll (List.mem_of_getElem? hqC')
+    have hk := congrArg VDefEq.key hq
+    rw [VInductDecl'.key_iotaRule, VInductDecl'.key_iotaRule] at hk
+    have he := mkRecName_inj (List.cons.injEq .. ▸ hk).1.symm
+    rw [he, D'.getD_types hT']
+    exact List.mem_map.2 ⟨T', List.mem_of_getElem? hT', rfl⟩
+  refine iotaTypes_addDefEqList_iota D'.iotaRules
+    (iotaTypes_mono hdefeqs hle ih) ?_ ?_ ?_ ?_
+  · intro df hdf D j q C hq
+    exact ⟨_, ((addConstList_le h2).trans (addConstList_le h3)).constants
+      (htydecl _ (hname df hdf D j q C hq)).choose_spec⟩
+  · intro df hdf D j q C hq df' hdf' hmem
+    rcases hkey df' hdf' _ hmem with hm | hm
+    · exact (htyne _ (hname df hdf D j q C hq)).1 hm
+    · exact (htyne _ (hname df hdf D j q C hq)).2 hm
+  · intro df hdf D j q C hq df' hdf' hmem
+    rw [hdefeqs] at hdf'
+    exact htyfresh _ (hname df hdf D j q C hq) (hkeys df' hdf' _ hmem)
+  · intro df hdf D j q C hdf' hmem
+    rw [hdefeqs] at hdf'
+    exact hfresh df hdf _ hmem (ih.1 D j q C hdf')
+
+/-- **Part III's induction.**  It consumes `WF'.keys` at the `induct` arm rather than being
+threaded through it — one extra traversal, no existing proof touched. -/
+theorem WF'.iotaTypes {ds : List VDecl} {env : VEnv} (H : VEnv.WF' ds env) :
+    env.IotaTypeDeclared ∧ env.IotaTypeNotKey := by
+  induction H with
+  | empty => exact ⟨fun _ _ _ _ h => h.elim, fun _ _ _ _ h => h.elim⟩
+  | @decl env d env' ds hd hds ih =>
+    cases hd with
+    | «axiom» _ h | «opaque» _ h =>
+      exact iotaTypes_mono (addConst_defeqs h) (addConst_le h) ih
+    | «example» _ => exact ih
+    | «def» _ h => exact iotaTypes_def h ih
+    | unsafeDef _ h _ => exact iotaTypes_unsafeDef h ih
+    | quot _ h => exact iotaTypes_quot h ih
+    | induct _ h => exact iotaTypes_induct h (WF'.keys hds).1 ih
+
+theorem WF.iotaTypeDeclared {env : VEnv} (h : env.WF) : env.IotaTypeDeclared :=
+  (WF'.iotaTypes h.choose_spec).1
+
+/-- **The payoff.**  No rule of a well-formed environment has an inductive type's name in its
+key — so a block type name is not a recursor leaf, not a constructor leaf, not `Quot.lift` or
+`Quot.mk`, and heads no δ-rule. -/
+theorem WF.iotaTypeNotKey {env : VEnv} (h : env.WF) : env.IotaTypeNotKey :=
+  (WF'.iotaTypes h.choose_spec).2
+
+end VEnv
+
 end Lean4Lean

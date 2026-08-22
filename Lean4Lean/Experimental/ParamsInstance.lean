@@ -146,55 +146,29 @@ above mentions it. -/
     (e.classify_pat_wf henv) (Pat.uniq henv)
 
 
-/-! ## B1–B4 blocker: `defeqsS` collapses the ι-rule's level clauses
+/-! ## The `defeqsS` level-clause blocker — fixed upstream, recorded here
 
-`Pattern.MatchesS` records a **single** `List SLevel` for a whole match — its `app` rule keeps
-the function side's list and discards the argument side's — where the `VExpr`-side
-`Pattern.Matches` records one list *per leaf* (`m1 : p.LPath → List VLevel`).  `MatchesS`'s
-docstring calls that deliberate and prices the cost as `applyS` ignoring an `RHS.fixed`'s
-`LPath`.  That is not the only cost.
+This file briefly carried a lemma (`iota_defeqsS_emits_level`) witnessing a defect one layer
+under the `extra_pat` λ-peel: `Pattern.MatchesS` recorded a **single** `List SLevel` for a whole
+match, its `app` rule keeping the function side's list and discarding the argument side's,
+and `Pattern.Check.defeqsS` then read *both* indices of a `Check.level x i y j` clause out of
+that one list.  On the `VExpr` side the clause is `(m1 x).getD i ≈ (m1 y).getD j` — the
+recursor leaf's list against the constructor leaf's — which is what makes `iotaLevelPairs`'
+`(i+1, i)` true when `isLE` prepends a fresh elimination universe.  Collapsed to one list it
+became `ls.getD (i+1) = ls.getD i`, relating the elimination universe to a block parameter,
+and `extra_pat` quantifies over every `ls` — so `ParamsExtra` was still unsatisfiable after the
+peel, for `List`, `Prod`, and every large eliminator with a universe parameter.
 
-`Pattern.Check.defeqsS` also drops the two `LPath`s of a `Check.level x i y j` clause and
-reads **both** indices out of the one list.  On the `VExpr` side that clause is
-`(m1 x).getD i ≈ (m1 y).getD j` — the *recursor* leaf's list against the *constructor* leaf's,
-which is what makes `iotaLevelPairs`' `(i+1, i)` true: `selfLvls` is the block's parameters
-shifted by one when `isLE` prepends a fresh elimination universe, so both sides are
-`ls.getD (i+1)`.  Read out of one list it becomes `ls.getD (i+1) = ls.getD i`, relating the
-elimination universe to a block parameter.
+`MatchesS` now carries `p.LPath → List SLevel` and its `app` rule keeps **both** sides, and
+`defeqsS` reads `(m1 x)` and `(m1 y)` from the two leaves.  The witness lemma is deleted rather
+than left to rot: it no longer typechecks, and a record that reads as a live constraint is
+worse than none — the same failure this stream flagged twice in `SExpr.lean`'s own docstrings.
 
-`extra_pat` quantifies over *every* `ls` with `ls.length = df.uvars`, and satisfying its `dfs`
-obligation at a level clause forces the two sorts equal (`SExpr.sort_inv`).  So for a block
-with `isLE = true` and `uvars ≥ 1` — `List`, `Prod`, any large eliminator with a universe
-parameter — the obligation below is false.
+What the episode is worth keeping for: the deferral note that hid it was *documented and
+complete-looking*.  It named one consequence of the single-list design (`applyS` ignoring an
+`RHS.fixed`'s `LPath`, "the pre-`LPath` semantics, unchanged") and not the other, and a partial
+cost estimate reads exactly like a complete one.  That is a distinct failure from a stale
+docstring, and harder to catch: a stale note can be checked against the code, while a complete
+-looking partial note gives a reader no signal that anything is missing. -/
 
-The lemma is the half that can be checked while `ShapeLogRel.lean` is red: it shows the
-obligation really is emitted.  The other half is `SExpr.sort_inv`, which is proved but lives
-in `ShapeLogRelAdequacy.lean`, downstream of the red file. -/
-
-theorem Pattern.Check.mem_defeqsS_append {p : Pattern} {m1 m2} {x} :
-    ∀ c d : p.Check, x ∈ d.defeqsS m1 m2 → x ∈ (c.append d).defeqsS m1 m2
-  | .true, _, h => h
-  | .defeq .., d, h => List.mem_cons_of_mem _ (mem_defeqsS_append _ d h)
-  | .level .., d, h => List.mem_cons_of_mem _ (mem_defeqsS_append _ d h)
-
-theorem Pattern.Check.mem_defeqsS_ofLevels {p : Pattern} {m1 m2} :
-    ∀ (l : List (p.LPath × Nat × p.LPath × Nat)) {t}, t ∈ l →
-      (SExpr.sort (m1.getD t.2.1 .zero), SExpr.sort (m1.getD t.2.2.2 .zero))
-        ∈ (Check.ofLevels l).defeqsS m1 m2
-  | (_, _, _, _) :: l, t, h => by
-    rcases List.mem_cons.1 h with rfl | h
-    · exact List.mem_cons_self ..
-    · exact List.mem_cons_of_mem _ (mem_defeqsS_ofLevels l h)
-
-/-- **The obligation is emitted.**  For a large-eliminating block, `defeqsS` asks for a defeq
-between `sort (ls.getD (k+1))` and `sort (ls.getD k)` — two entries of the *same* `ls`. -/
-theorem iota_defeqsS_emits_level {D : VInductDecl'} {T : VIndType} {C : VIndCtor}
-    (h : ∀ a ∈ C.args, (VExpr.mkLams (C.params ++ C.fields.map (·.type)) a).Closed)
-    (ls : List SLevel) (m2 : (D.iotaPat T C).Path → SExpr) {k : Nat}
-    (hk : k < D.uvars) (hLE : D.isLE = true) :
-    (SExpr.sort (ls.getD (k+1) .zero), SExpr.sort (ls.getD k .zero))
-      ∈ (D.iotaCheckOf T C h).defeqsS ls m2 := by
-  refine Pattern.Check.mem_defeqsS_append _ _ (Pattern.Check.mem_defeqsS_append _ _ ?_)
-  refine Pattern.Check.mem_defeqsS_ofLevels (m1 := ls) (m2 := m2) _
-    (t := (Pattern.LPath.head _, k + 1, iotaLeafCtor _ _ _ _, k)) ?_
-  exact List.mem_map.2 ⟨(k + 1, k), List.mem_map.2 ⟨k, List.mem_range.2 hk, by simp [hLE]⟩, rfl⟩
+end Lean4Lean

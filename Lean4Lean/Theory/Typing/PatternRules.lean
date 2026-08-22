@@ -1888,6 +1888,76 @@ theorem Pat.IsDeltaHead.not_ctorLeaf {env : VEnv} (henv : env.WF) {c : Lean.Name
     (h : Pat.IsDeltaHead env c) (h' : Pat.IsCtorLeaf env c n) : False :=
   h.ne_ctorLeaf henv h' rfl
 
+/-! ### The fourth role: a block type's name
+
+`classify` must report `.indTy` for a block type's name, and its cascade tests the three roles
+above first — so it needs `T.name` to play none of them.  Every other name-disjointness fact
+in this file distinguishes *stored types* (`rec_ne_ctor` compares `piBodyHead`), and that route
+is closed here by **F1**: `VIndType.WF` makes `T.type` only *definitionally* a Π-telescope
+ending in a sort, hence syntactically anything — it could be a `recType`.
+
+`VEnv.WF.iotaTypeNotKey` (`Theory/Typing/DeltaUnique.lean`, Part III) supplies it by
+provenance instead, and a single clause covers all three roles at once because `VDefEq.key`
+already names them: a recursor leaf is a key's head, a constructor leaf its last, a δ-head the
+whole key. -/
+
+/-- `c` is the name of a block type of a registered ι-pattern, with `rel` recording whether the
+block is `Type`-valued — the `rel` of `SExpr.ParamsExtra.ctor_ty`. -/
+inductive Pat.IsIndTyName (env : VEnv) : Lean.Name → Nat → Bool → Prop
+  | iota {D : VInductDecl'} {j q : Nat} {T : VIndType} {C : VIndCtor} {rel : Bool} :
+      D.types[j]? = some T → env.defeqs (D.iotaRule j q C) →
+      (rel = true ↔ D.lvl ≠ .zero) →
+      IsIndTyName env T.name (D.np + T.indices.length) rel
+
+/-- Each of the three roles exhibits a rule whose key contains the name.  This is the whole
+bridge between the roles and `IotaTypeNotKey`. -/
+theorem Pat.IsRecLeaf.mem_key {env : VEnv} {c : Lean.Name} {n : Nat}
+    (h : Pat.IsRecLeaf env c n) : ∃ df, env.defeqs df ∧ c ∈ df.key := by
+  cases h with
+  | @iota D j q T C hTj hdf _ =>
+    exact ⟨_, hdf, by rw [VInductDecl'.key_iotaRule, VInductDecl'.getD_types hTj]
+                      exact List.mem_cons_self ..⟩
+  | quot hdf _ => exact ⟨_, hdf, by rw [VEnv.key_quotDefEq]; exact List.mem_cons_self ..⟩
+
+theorem Pat.IsCtorLeaf.mem_key {env : VEnv} {c : Lean.Name} {n : Nat}
+    (h : Pat.IsCtorLeaf env c n) : ∃ df, env.defeqs df ∧ c ∈ df.key := by
+  cases h with
+  | @iota D j q C hdf _ _ =>
+    exact ⟨_, hdf, by rw [VInductDecl'.key_iotaRule]
+                      exact List.mem_cons_of_mem _ (List.mem_cons_self ..)⟩
+  | quot hdf _ =>
+    exact ⟨_, hdf, by rw [VEnv.key_quotDefEq]
+                      exact List.mem_cons_of_mem _ (List.mem_cons_self ..)⟩
+
+theorem Pat.IsDeltaHead.mem_key {env : VEnv} {c : Lean.Name}
+    (h : Pat.IsDeltaHead env c) : ∃ df, env.defeqs df ∧ c ∈ df.key := by
+  obtain ⟨u, v, t, hdf⟩ := h
+  exact ⟨_, hdf, by rw [VEnv.key_of_isDeltaRule VEnv.IsDeltaRule.const]
+                    exact List.mem_cons_self ..⟩
+
+/-- **Role exclusivity for the fourth role.**  One lemma covers all three, because all three
+reduce to "some rule's key contains `c`". -/
+theorem Pat.IsIndTyName.not_key {env : VEnv} (henv : env.WF) {c : Lean.Name} {n : Nat}
+    {rel : Bool} (h : Pat.IsIndTyName env c n rel)
+    (h' : ∃ df, env.defeqs df ∧ c ∈ df.key) : False := by
+  obtain ⟨df, hdf, hmem⟩ := h'
+  cases h with
+  | @iota D j q T C rel hTj hiota _ =>
+    exact VEnv.WF.iotaTypeNotKey henv D j q C hiota df hdf
+      (by rw [VInductDecl'.getD_types hTj]; exact hmem)
+
+theorem Pat.IsIndTyName.not_recLeaf {env : VEnv} (henv : env.WF) {c n rel m}
+    (h : Pat.IsIndTyName env c n rel) (h' : Pat.IsRecLeaf env c m) : False :=
+  h.not_key henv h'.mem_key
+
+theorem Pat.IsIndTyName.not_ctorLeaf {env : VEnv} (henv : env.WF) {c n rel m}
+    (h : Pat.IsIndTyName env c n rel) (h' : Pat.IsCtorLeaf env c m) : False :=
+  h.not_key henv h'.mem_key
+
+theorem Pat.IsIndTyName.not_deltaHead {env : VEnv} (henv : env.WF) {c n rel}
+    (h : Pat.IsIndTyName env c n rel) (h' : Pat.IsDeltaHead env c) : False :=
+  h.not_key henv h'.mem_key
+
 /-! ## `Params.extra_pat` — done, and what it cost
 
 All three cases are proved: `Pat.extra_delta`, `Pat.extra_quot`, `Pat.extra_iota`, dispatched

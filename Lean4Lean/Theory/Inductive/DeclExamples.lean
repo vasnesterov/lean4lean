@@ -1,4 +1,5 @@
 import Lean4Lean.Theory.Inductive.Lemmas
+import Lean4Lean.Theory.Inductive.Structure
 import Lean4Lean.Theory.Meta
 
 /-!
@@ -1131,6 +1132,105 @@ example : swap01 (mkLams (lvlDecl.iotaCtx lvlMk) (lvlDecl.iotaLhs 0 lvlMk)) =
       @LvlWit.rec motive mk mk2 PUnit.{u} (LvlWit.mk f r)) := rfl
 
 example : (VEnv.empty.addInduct' lvlDecl).isSome := rfl
+
+/-! ## A declaration that is well-formed — the predicate, not just the encoding
+
+Everything above validates the *encoding*: `recType`, `iotaLhs`, `ihValues` and friends are
+compared against Lean's own kernel by `rfl`.  None of it says that any declaration satisfies
+`VInductDecl'.WF`, and until this section nothing in the tree did — `WF` had 36 consumers and
+no witness.  That is the same gap that let four classes stay unsatisfiable this session: a
+predicate nothing is ever asked to satisfy cannot be caught by anything downstream, because
+downstream is vacuous.
+
+`fooDecl` is deliberately the *smallest* declaration that still exercises the three parts
+with content:
+
+* `VIndField.WF.pos` on its `none` branch — a non-recursive field, so the block-freeness is
+  the definitional one;
+* `VIndField.WF.level` in the `Prop` case — `imax (.succ .zero) .zero ≤ .zero`, which holds
+  only because `imax _ 0 = 0`, the clause `divergences.md` records as weaker than the
+  kernel's;
+* `VIndCtor.WF.result` in the **staged** environment — the constructor's result mentions
+  `Foo`, which exists only after `addIndTypes`, so this is the clause that forces `WF.ctors`
+  to be stated over `env₁` rather than `env`.
+
+`Prop`-valued is not incidental: it is the case that `ParamsExtra.ctor_ty` asserted was
+impossible (`D.lvl ≠ .zero`) before that clause was found false and replaced. -/
+
+/-- `inductive Foo : Prop | mk : Prop → Foo` — one `Prop`-valued type, one constructor with
+one non-recursive field. -/
+def fooDecl : VInductDecl' where
+  uvars := 0
+  params := []
+  lvl := .zero
+  types := [{ name := `Foo, type := .sort .zero, indices := [],
+              ctors := [{ name := `Foo.mk, params := [],
+                          fields := [{ type := .sort .zero, lvl := .succ .zero,
+                                       recArg := none }],
+                          args := [] }] }]
+  isLE := false
+
+/-- **The first `VInductDecl'.WF` witness in the tree.** -/
+theorem fooDecl_WF : fooDecl.WF .empty where
+  types_ne := by simp [fooDecl]
+  params := trivial
+  types := by
+    intro T hT
+    simp [fooDecl] at hT
+    subst hT
+    exact { indices := trivial
+            isType := ⟨_, .sortDF trivial trivial (.refl _)⟩
+            canon := ⟨_, .sortDF trivial trivial (.refl _)⟩ }
+  ctors := by
+    intro env₁ he j T hT C hC
+    match j, hT with
+    | 0, hT =>
+      simp [fooDecl] at hT
+      subst hT
+      simp at hC
+      subst hC
+      have hc : env₁.constants `Foo = some ⟨0, VExpr.sort .zero⟩ := by
+        simp [VEnv.addIndTypes, VEnv.addConstList, VInductDecl'.typeConsts, fooDecl,
+          VEnv.addConst, VEnv.empty] at he
+        subst he; simp
+      refine { params_len := rfl, params_eq := .zero, fields := ?_,
+               args_len := rfl, args_fresh := by simp, args_ty := .nil,
+               result := .constDF hc nofun nofun rfl .nil }
+      intro i F hF
+      match i, hF with
+      | 0, hF =>
+        simp at hF
+        subst hF
+        exact { hasType := .sortDF trivial trivial (.refl _)
+                level := fun ls => by simp [VLevel.eval, fooDecl, Lean.Nat.imax]
+                pos := ⟨.sort .zero, by simp [VInductDecl'.NoBlock, VExpr.NoConsts],
+                        _, .sortDF trivial trivial (.refl _)⟩ }
+  isLE := by simp [fooDecl]
+
+/-- …and `addInduct'` accepts it. -/
+theorem fooEnv_eq : ∃ e, VEnv.empty.addInduct' fooDecl = some e := ⟨_, rfl⟩
+
+noncomputable def fooEnv : VEnv := fooEnv_eq.choose
+
+/-- A witness for `VEnv.IsStructure`, hence for `VInductDecl'.ProjClosed`'s consumer. -/
+theorem fooEnv_IsStructure :
+    fooEnv.IsStructure `Foo fooDecl (fooDecl.types[0]!)
+      ((fooDecl.types[0]!).ctors[0]!) where
+  types := rfl
+  name := rfl
+  ctors := rfl
+  noRec := rfl
+  decl := ⟨.empty, fooEnv, fooDecl_WF, fooEnv_eq.choose_spec, VEnv.LE.rfl⟩
+
+/-- A witness for `VInductDecl'.RecCtx` — the situation the whole recursor construction is
+stated over, and the hypothesis of `onCtxMinors`, `recType_isType` and `iotaRules_WF`. -/
+theorem fooRecCtx : ∃ env₃, fooDecl.RecCtx env₃ := by
+  obtain ⟨e1, h1⟩ : ∃ e, VEnv.empty.addIndTypes fooDecl = some e := ⟨_, rfl⟩
+  obtain ⟨e2, h2⟩ : ∃ e, e1.addIndCtors fooDecl = some e := by
+    rw [← Option.isSome_iff_exists]; revert h1; rintro ⟨⟩; rfl
+  have o1 := VInductDecl'.addIndTypes_ordered .empty fooDecl_WF h1
+  have o2 := VInductDecl'.addIndCtors_ordered o1 fooDecl_WF h1 h2
+  exact ⟨e2, fooDecl_WF.recCtx h1 h2 VEnv.LE.rfl o2⟩
 
 end InductiveDeclExamples
 end Lean4Lean
