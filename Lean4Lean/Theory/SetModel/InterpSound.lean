@@ -182,6 +182,7 @@ which follows from `srt_sound`/`lvl_sound` and level arithmetic.
 
 No injectivity fact appears. -/
 theorem beta_sound (hS : L.Stable) {Γ : List VExpr} {A e e' : VExpr}
+    (hte' : env.HasType nv Γ e' A)
     (hcle : e.ClosedN (Γ.length + 1)) (hcle' : e'.ClosedN Γ.length)
     (h3e' : ∀ ρ ∈ interpCtx M L Γ, (interp M L Γ e').toFun ρ ∈ (interp M L Γ A).toFun ρ)
     (h2e : L.IsProof M (A :: Γ) e →
@@ -196,7 +197,7 @@ theorem beta_sound (hS : L.Stable) {Γ : List VExpr} {A e e' : VExpr}
   -- substitution, at `k = 0`
   have hsub : (interp M L Γ (e.inst e')).toFun ρ = (interp M L (A :: Γ) e).toFun (snoc ρ w) := by
     refine interp_inst M L hS (j := Γ.length) e (Γ₀ := Γ) (A₀ := A) (k := 0)
-      Ctx.InstN.zero (by simp)
+      Ctx.InstN.zero hte' (by simp)
       (by simpa using hcle) (by simpa using hcle') hρ hρ₁ ?_
     exact agreeInst_zero M L hρ w rfl
   by_cases hp : L.IsProof M Γ (.lam A e)
@@ -493,6 +494,7 @@ domain and codomain — `A` and `B` are named in the rule — so nothing is
 inverted.  The proof branch uses that `pt ∈ piProp` unfolds to a universally
 quantified membership, which is instantiated at the argument. -/
 theorem appDF_sound_type (hS : L.Stable) {Γ : List VExpr} {A B f a : VExpr} {ρ : V}
+    (hta : env.HasType nv Γ a A)
     (hclB : B.ClosedN (Γ.length + 1)) (hcla : a.ClosedN Γ.length)
     (hρ : ρ ∈ interpCtx M L Γ)
     (hf3 : (interp M L Γ f).toFun ρ ∈ (interp M L Γ (.forallE A B)).toFun ρ)
@@ -505,7 +507,7 @@ theorem appDF_sound_type (hS : L.Stable) {Γ : List VExpr} {A B f a : VExpr} {ρ
   have hsub : (interp M L Γ (B.inst a)).toFun ρ
       = (interp M L (A :: Γ) B).toFun (snoc ρ ((interp M L Γ a).toFun ρ)) := by
     refine interp_inst M L hS (j := Γ.length) B (Γ₀ := Γ) (A₀ := A) (k := 0)
-      Ctx.InstN.zero (by simp) (by simpa using hclB) (by simpa using hcla) hρ hρ₁ ?_
+      Ctx.InstN.zero hta (by simp) (by simpa using hclB) (by simpa using hcla) hρ hρ₁ ?_
     exact agreeInst_zero M L hρ _ rfl
   by_cases hp : L.IsProof M Γ f
   · rw [interp_app_proof M L hp, hsub]

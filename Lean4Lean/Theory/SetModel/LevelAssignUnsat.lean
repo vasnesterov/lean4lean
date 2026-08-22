@@ -124,7 +124,7 @@ theorem no_levelAssign (env : VEnv) (nv : ℕ) : IsEmpty (LevelAssignUnguarded e
   rw [e1] at e0
   simp [VLevel.eval, List.getD_eq_getElem?_getD] at e0
 
-/-! ## 2. `LevelAssign.Stable` is unsatisfiable — and this one is *not* repaired
+/-! ## 2. `LevelAssign.Stable` was unsatisfiable — repaired
 
 Same family, same cause: a relation that fails to constrain something its
 consumers assume is constrained.
@@ -144,12 +144,12 @@ whose left side does not mention `A₀` while the right side is pinned by
 `lvl_sound` to `A₀`'s own level.  Taking `A₀ := .sort .zero` and
 `A₀ := .sort (.succ .zero)` with the same `e₀` forces `.zero ≈ .succ .zero`.
 
-**Consequence: every theorem taking `L.Stable` as a hypothesis is currently
-vacuous**, including `soundAbove` and everything downstream of it.
+**Consequence, while it stood: every theorem taking `L.Stable` as a hypothesis
+was vacuous**, including `soundAbove` and everything downstream of it.
 
-**The repair** is the same shape as the first: add the hypothesis the consumers
-already have, namely that the substituted term is well-typed at the type it
-replaces —
+**The repair**, now applied, is the same shape as the first: add the hypothesis
+the consumers already have, namely that the substituted term is well-typed at
+the type it replaces —
 
 ```
 lvl_instN : … → env.HasType nv Γ₀ e₀ A₀ → ∀ B, L.lvl Γ (B.inst e₀ k) ≈ L.lvl Γ₁ B
@@ -158,9 +158,19 @@ lvl_instN : … → env.HasType nv Γ₀ e₀ A₀ → ∀ B, L.lvl Γ (B.inst e
 and likewise for `srt_instN`.  With it the counterexample dies, because a single
 `e₀` cannot have both `.sort .zero` and `.sort (.succ .zero)` as its type.  The
 `liftN` fields need no repair: `Ctx.LiftN` constrains everything it mentions, and
-weakening-invariance of the assignment is not in tension with `lvl_sound`. -/
+weakening-invariance of the assignment is not in tension with `lvl_sound`.
 
-theorem no_stable {env : VEnv} {nv : ℕ} (L : LevelAssign env nv) : ¬ L.Stable := by
+As with `LevelAssign`, the refutation is kept checkable by stating it against a
+local copy of the pre-repair field. -/
+
+/-- `LevelAssign.Stable`'s `lvl_instN` as it was before the repair: no
+requirement that the substituted term be typed at the type it replaces. -/
+structure StableUnguarded {env : VEnv} {nv : ℕ} (L : LevelAssign env nv) : Prop where
+  lvl_instN : ∀ {Γ₀ : List VExpr} {e₀ A₀ : VExpr} {k : ℕ} {Γ₁ Γ : List VExpr},
+    Ctx.InstN Γ₀ e₀ A₀ k Γ₁ Γ → ∀ B : VExpr, L.lvl Γ (B.inst e₀ k) ≈ L.lvl Γ₁ B
+
+theorem no_stable {env : VEnv} {nv : ℕ} (L : LevelAssign env nv) :
+    ¬ StableUnguarded L := by
   intro hS
   have h0 := hS.lvl_instN (Γ₀ := []) (e₀ := .sort .zero) (A₀ := .sort .zero)
     (k := 0) (Γ₁ := [VExpr.sort .zero]) (Γ := []) .zero (.bvar 0)

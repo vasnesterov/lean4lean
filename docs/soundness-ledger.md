@@ -1076,6 +1076,58 @@ and likewise `srt_instN`. A single `e₀` cannot have both `.sort .zero` and
 `.sort (.succ .zero)` as its type, so the counterexample dies. The `liftN`
 fields need no repair: `Ctx.LiftN` constrains everything it mentions.
 
+### The `Stable` repair, applied — and it was mechanical, as predicted
+
+`lvl_instN` and `srt_instN` now take `env.HasType nv Γ₀ e₀ A₀`. Fallout: four
+files, every one of them supplying the fact it already had.
+
+* `interp_inst` gains the hypothesis and threads it through its six recursive
+  calls unchanged — the typing is about `Γ₀ ⊢ e₀ : A₀`, which does not vary as
+  the recursion goes under binders, so `W.succ` reuses the same proof.
+* `beta_sound` gains `env.HasType nv Γ e' A`, supplied in `soundAbove`'s `beta`
+  case by the rule's own premise `Γ ⊢ e' : A`.
+* `appDF_sound_type` gains `env.HasType nv Γ a A`, supplied by `appDF`'s premise
+  `Γ ⊢ a ≡ a' : A`.
+
+Nothing needed a fact the syntax side does not license, which was the outcome to
+watch for: had some consumer genuinely lacked the typing, the model would have
+been substituting terms the theory never permits substituting.
+
+**Soundness is no longer vacuous.** `soundAbove`, `sound`, `sound_nil`,
+`beta_sound`, `eta_sound`, `interp_liftN` and `interp_inst` now have a
+hypothesis that is not provably empty.
+
+### `CtxInvariant` paired with `hRd` is consistent, and the reason is the diagnostic
+
+`CtxInvariant L R` is trivially satisfiable alone (`R := Eq`), so testing the
+field in isolation proves nothing; it is always used with
+
+```
+hRd : env.IsDefEq nv Γ A A' (.sort u) → R (A' :: Γ) (A :: Γ)
+```
+
+and the pair is what matters. It is consistent, and *why* is the useful part:
+
+> **The defect signature is a structure quantifying over a relation *parameter*
+> that the relation's own constructors never constrain.**
+
+* `IsDefEq.bvar` puts no condition on the context — `LevelAssign` broke.
+* `Ctx.InstN` declares `e₀` as a parameter its `zero` constructor never mentions
+  — `Stable` broke.
+* `hRd`'s `A` and `A'` are **not** free: they arrive with a derivation
+  `Γ ⊢ A ≡ A' : .sort u`, and that derivation is exactly what reconciles the two
+  demands, through context conversion.
+
+Machine-checked as `ctxInvariant_lvl_agrees` (`SetModel/CoherentWitness.lean`):
+on every well-typed `B` — where `CtxInvariant.lvl` has content — the level
+demanded in `A :: Γ` and in `A' :: Γ` coincide, by `lvl_sound` on both sides and
+`IsDefEq.defeqDFC` to move the typing across.
+
+This gives the audit a cheap test to run before building: **look at the
+hypotheses of the relation the structure quantifies over, and ask which of its
+parameters its constructors leave free.** Both defects were visible from the
+inductive declaration alone.
+
 ### The pattern behind both, and where to look next
 
 `LevelAssign` failed because `IsDefEq.bvar` has no side condition on the context;
@@ -1086,10 +1138,9 @@ to supply, and nothing forced the discrepancy because no witness existed.
 
 The remaining structures in the tower, by the same criterion: `ModelData` is
 plain data and trivially inhabited; `AxiomsValidated` is vacuous at `ds = []`;
-`CtxInvariant` is satisfiable alone (take `R := Eq`) but is always used together
-with a second hypothesis relating defeq-differing contexts, and **that pair has
-not been tested jointly** — it is the next one to check. `IndSignature`,
-`IsStageSignature` and `IsSubsingletonSignature` are untested.
+`CtxInvariant` paired with `hRd` has now been tested and is consistent (above).
+`IndSignature`, `IsStageSignature` and `IsSubsingletonSignature` remain
+untested.
 
 ## The remaining open items, ranked
 

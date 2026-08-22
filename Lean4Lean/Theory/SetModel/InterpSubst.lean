@@ -119,10 +119,17 @@ structure LevelAssign.Stable (L : LevelAssign env nv) : Prop where
     L.lvl Γ' (A.liftN n k) ≈ L.lvl Γ A
   srt_liftN : ∀ {n k : ℕ} {Γ Γ' : List VExpr}, Ctx.LiftN n k Γ Γ' → ∀ e : VExpr,
     L.srt Γ' (e.liftN n k) ≈ L.srt Γ e
+  /-- **The `env.HasType` hypothesis is load-bearing.**  `Ctx.InstN` declares
+  `e₀` as a *parameter* that its `zero` constructor never mentions, so without
+  this the relation holds for an arbitrary `e₀` and the field collapses: see
+  `no_stable` in `SetModel/LevelAssignUnsat.lean`.  Every consumer substitutes a
+  term it has already typed. -/
   lvl_instN : ∀ {Γ₀ : List VExpr} {e₀ A₀ : VExpr} {k : ℕ} {Γ₁ Γ : List VExpr},
-    Ctx.InstN Γ₀ e₀ A₀ k Γ₁ Γ → ∀ B : VExpr, L.lvl Γ (B.inst e₀ k) ≈ L.lvl Γ₁ B
+    Ctx.InstN Γ₀ e₀ A₀ k Γ₁ Γ → env.HasType nv Γ₀ e₀ A₀ →
+    ∀ B : VExpr, L.lvl Γ (B.inst e₀ k) ≈ L.lvl Γ₁ B
   srt_instN : ∀ {Γ₀ : List VExpr} {e₀ A₀ : VExpr} {k : ℕ} {Γ₁ Γ : List VExpr},
-    Ctx.InstN Γ₀ e₀ A₀ k Γ₁ Γ → ∀ e : VExpr, L.srt Γ (e.inst e₀ k) ≈ L.srt Γ₁ e
+    Ctx.InstN Γ₀ e₀ A₀ k Γ₁ Γ → env.HasType nv Γ₀ e₀ A₀ →
+    ∀ e : VExpr, L.srt Γ (e.inst e₀ k) ≈ L.srt Γ₁ e
 
 theorem Ctx.LiftN.length : ∀ {n k : ℕ} {Γ Γ' : List VExpr},
     Ctx.LiftN n k Γ Γ' → Γ'.length = Γ.length + n
@@ -350,12 +357,12 @@ interpretation in the right set — that is soundness, and it is supplied by the
 main induction. -/
 theorem interp_inst (hS : L.Stable) {j : ℕ} :
     ∀ (e : VExpr) {Γ₀ Γ₁ Γ : List VExpr} {e₀ A₀ : VExpr} {k : ℕ},
-      Ctx.InstN Γ₀ e₀ A₀ k Γ₁ Γ → Γ.length - k = j →
+      Ctx.InstN Γ₀ e₀ A₀ k Γ₁ Γ → env.HasType nv Γ₀ e₀ A₀ → Γ.length - k = j →
       e.ClosedN Γ₁.length → (e₀.liftN k).ClosedN Γ.length →
       ∀ {ρ ρ₁ : V}, ρ ∈ interpCtx M L Γ → ρ₁ ∈ interpCtx M L Γ₁ →
       AgreeInst M L j Γ.length k e₀ Γ ρ₁ ρ →
       (interp M L Γ (e.inst e₀ k)).toFun ρ = (interp M L Γ₁ e).toFun ρ₁
-  | .bvar i, Γ₀, Γ₁, Γ, e₀, A₀, k, W, hj, hcl, hcl₀, ρ, ρ₁, hρ, hρ₁, hag => by
+  | .bvar i, Γ₀, Γ₁, Γ, e₀, A₀, k, W, he₀, hj, hcl, hcl₀, ρ, ρ₁, hρ, hρ₁, hag => by
     have hlen := Ctx.InstN.length W
     have hkle := Ctx.InstN.le W
     have hi : i < Γ₁.length := hcl
@@ -378,21 +385,21 @@ theorem interp_inst (hS : L.Stable) {j : ℕ} :
           simp only [instPos, ← hj, hlen]; split <;> omega
         rw [← hp]
         exact (hpos _ (by omega)).symm
-  | .sort u, Γ₀, Γ₁, Γ, e₀, A₀, k, W, hj, hcl, hcl₀, ρ, ρ₁, hρ, hρ₁, hag => by
+  | .sort u, Γ₀, Γ₁, Γ, e₀, A₀, k, W, he₀, hj, hcl, hcl₀, ρ, ρ₁, hρ, hρ₁, hag => by
     rw [show (VExpr.sort u).inst e₀ k = .sort u from rfl, interp_sort, interp_sort]
-  | .const c us, Γ₀, Γ₁, Γ, e₀, A₀, k, W, hj, hcl, hcl₀, ρ, ρ₁, hρ, hρ₁, hag => by
+  | .const c us, Γ₀, Γ₁, Γ, e₀, A₀, k, W, he₀, hj, hcl, hcl₀, ρ, ρ₁, hρ, hρ₁, hag => by
     rw [show (VExpr.const c us).inst e₀ k = .const c us from rfl, interp_const, interp_const]
-  | .app f a, Γ₀, Γ₁, Γ, e₀, A₀, k, W, hj, hcl, hcl₀, ρ, ρ₁, hρ, hρ₁, hag => by
+  | .app f a, Γ₀, Γ₁, Γ, e₀, A₀, k, W, he₀, hj, hcl, hcl₀, ρ, ρ₁, hρ, hρ₁, hag => by
     obtain ⟨hf, ha⟩ := hcl
     have hsplit : L.IsProof M Γ (f.inst e₀ k) ↔ L.IsProof M Γ₁ f := by
-      simp only [LevelAssign.IsProof, VLevel.equiv_def.mp (hS.srt_instN W f) M.ls]
+      simp only [LevelAssign.IsProof, VLevel.equiv_def.mp (hS.srt_instN W he₀ f) M.ls]
     by_cases hp : L.IsProof M Γ₁ f
     · rw [show (VExpr.app f a).inst e₀ k = .app (f.inst e₀ k) (a.inst e₀ k) from rfl,
         interp_app_proof M L (hsplit.mpr hp), interp_app_proof M L hp]
     · rw [show (VExpr.app f a).inst e₀ k = .app (f.inst e₀ k) (a.inst e₀ k) from rfl,
         interp_app_type M L (fun h => hp (hsplit.mp h)), interp_app_type M L hp,
-        interp_inst hS f W hj hf hcl₀ hρ hρ₁ hag, interp_inst hS a W hj ha hcl₀ hρ hρ₁ hag]
-  | .lam A b, Γ₀, Γ₁, Γ, e₀, A₀, k, W, hj, hcl, hcl₀, ρ, ρ₁, hρ, hρ₁, hag => by
+        interp_inst hS f W he₀ hj hf hcl₀ hρ hρ₁ hag, interp_inst hS a W he₀ hj ha hcl₀ hρ hρ₁ hag]
+  | .lam A b, Γ₀, Γ₁, Γ, e₀, A₀, k, W, he₀, hj, hcl, hcl₀, ρ, ρ₁, hρ, hρ₁, hag => by
     obtain ⟨hA, hb⟩ := hcl
     have hlen := Ctx.InstN.length W
     have hkle := Ctx.InstN.le W
@@ -402,10 +409,10 @@ theorem interp_inst (hS : L.Stable) {j : ℕ} :
       have hx := hcl₀.liftN (n := 1) (j := 0)
       rw [VExpr.liftN_liftN] at hx
       simpa using hx
-    have hAeq := interp_inst hS A W hj hA hcl₀ hρ hρ₁ hag
+    have hAeq := interp_inst hS A W he₀ hj hA hcl₀ hρ hρ₁ hag
     have hsplit : L.IsProof M (A.inst e₀ k :: Γ) (b.inst e₀ (k + 1)) ↔
         L.IsProof M (A :: Γ₁) b := by
-      simp only [LevelAssign.IsProof, VLevel.equiv_def.mp (hS.srt_instN W' b) M.ls]
+      simp only [LevelAssign.IsProof, VLevel.equiv_def.mp (hS.srt_instN W' he₀ b) M.ls]
     by_cases hp : L.IsProof M (A :: Γ₁) b
     · rw [show (VExpr.lam A b).inst e₀ k = .lam (A.inst e₀ k) (b.inst e₀ (k + 1)) from rfl,
         interp_lam_proof M L (hsplit.mpr hp), interp_lam_proof M L hp]
@@ -414,12 +421,12 @@ theorem interp_inst (hS : L.Stable) {j : ℕ} :
       ext y
       rw [mem_mkLam_iff, mem_mkLam_iff, hAeq]
       refine exists_congr fun v ↦ and_congr_right fun hv ↦ ?_
-      rw [interp_inst hS b W' hj' hb hcl₀'
+      rw [interp_inst hS b W' he₀ hj' hb hcl₀'
         ((mem_interpCtx_cons M L).mpr ⟨ρ, hρ, v, by rwa [hAeq], rfl⟩)
         ((mem_interpCtx_cons M L).mpr ⟨ρ₁, hρ₁, v, hv, rfl⟩)
         (AgreeInst.snoc M L hS (by omega) (by omega) rfl (by omega) hcl₀ hρ hρ₁
           (by rwa [hAeq]) hag)]
-  | .forallE A B, Γ₀, Γ₁, Γ, e₀, A₀, k, W, hj, hcl, hcl₀, ρ, ρ₁, hρ, hρ₁, hag => by
+  | .forallE A B, Γ₀, Γ₁, Γ, e₀, A₀, k, W, he₀, hj, hcl, hcl₀, ρ, ρ₁, hρ, hρ₁, hag => by
     obtain ⟨hA, hB⟩ := hcl
     have hlen := Ctx.InstN.length W
     have hkle := Ctx.InstN.le W
@@ -429,15 +436,15 @@ theorem interp_inst (hS : L.Stable) {j : ℕ} :
       have hx := hcl₀.liftN (n := 1) (j := 0)
       rw [VExpr.liftN_liftN] at hx
       simpa using hx
-    have hAeq := interp_inst hS A W hj hA hcl₀ hρ hρ₁ hag
+    have hAeq := interp_inst hS A W he₀ hj hA hcl₀ hρ hρ₁ hag
     have hsplit : L.IsProp M (A.inst e₀ k :: Γ) (B.inst e₀ (k + 1)) ↔
         L.IsProp M (A :: Γ₁) B := by
-      simp only [LevelAssign.IsProp, VLevel.equiv_def.mp (hS.lvl_instN W' B) M.ls]
+      simp only [LevelAssign.IsProp, VLevel.equiv_def.mp (hS.lvl_instN W' he₀ B) M.ls]
     have hBeq : ∀ v ∈ (interp M L Γ₁ A).toFun ρ₁,
         (interp M L (A.inst e₀ k :: Γ) (B.inst e₀ (k + 1))).toFun (snoc ρ v) =
           (interp M L (A :: Γ₁) B).toFun (snoc ρ₁ v) := by
       intro v hv
-      exact interp_inst hS B W' hj' hB hcl₀'
+      exact interp_inst hS B W' he₀ hj' hB hcl₀'
         ((mem_interpCtx_cons M L).mpr ⟨ρ, hρ, v, by rwa [hAeq], rfl⟩)
         ((mem_interpCtx_cons M L).mpr ⟨ρ₁, hρ₁, v, hv, rfl⟩)
         (AgreeInst.snoc M L hS (by omega) (by omega) rfl (by omega) hcl₀ hρ hρ₁

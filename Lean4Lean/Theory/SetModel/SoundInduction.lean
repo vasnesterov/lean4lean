@@ -226,7 +226,7 @@ theorem soundAbove : ∀ {Γ : List VExpr} {e₁ e₂ A : VExpr},
     · show _ ↔ _
       unfold LevelAssign.IsProof
       rw [VLevel.equiv_def.mp (L.srt_congr (h5.defeq.mono hle)) M.ls]
-    · exact appDF_sound_type M L hS hclB hcla hρ (sf.type ρ hρ) (sa.type ρ hρ)
+    · exact appDF_sound_type M L hS ((h6.trans h6.symm).defeq.mono hle) hclB hcla hρ (sf.type ρ hρ) (sa.type ρ hρ)
         (fun hp ↦ Sound.proof M L sFA (hpf.mp hp) sf ρ hρ) hsp
   | @lamDF Γ A A' u B v body body' h1 h2 h3 h4 h5 h6 h7 ihA ihB ihB' ihb ihb' =>
     refine fun hΓ ↦ ?_
@@ -281,7 +281,8 @@ theorem soundAbove : ∀ {Γ : List VExpr} {e₁ e₂ A : VExpr},
     have hsplit : L.IsProof M Γ (.lam A e) ↔ L.IsProof M (A :: Γ) e := by
       rw [isProof_iff hle hlam.defeq hFA.defeq ⟨h1, h2⟩, hpe]; exact imax_eq_zero_iff
     have heq : EqSound M L Γ (.app (.lam A e) e') (e.inst e') := fun ρ hρ ↦
-      beta_sound M L hS (h5.defeq.closedN henv hΓA) (h6.defeq.closedN henv hΓ)
+      beta_sound M L hS (h6.defeq.mono hle) (h5.defeq.closedN henv hΓA)
+        (h6.defeq.closedN henv hΓ)
         se'.type
         (fun hp ρ' hρ' ↦ Sound.proof M L sB (hpe.mp hp) se ρ' hρ')
         hsplit hρ

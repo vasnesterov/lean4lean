@@ -1,4 +1,5 @@
 import Lean4Lean.Theory.SetModel.Cnst
+import Lean4Lean.Theory.Typing.Lemmas
 
 /-!
 # `CoherentOn` is satisfiable — a witness with every field firing
@@ -101,5 +102,45 @@ theorem coherentOn_witness {envF : VEnv} {nv : ℕ} (L : LevelAssign envF nv)
       ∈ (interp (V := V) ⟨κ, ls, fun _ _ ↦ ∅⟩ L [] ((VExpr.sort .zero).instL us)).toFun ∅
     rw [show (VExpr.const c []).instL us = .const c [] from rfl, interp_const, hsort]
     exact empty_mem_UProp
+
+/-! ## `CtxInvariant` paired with `hRd` is consistent — and *why* is the point
+
+`CtxInvariant L R` is trivially satisfiable alone (take `R := Eq`), so testing
+the field in isolation proves nothing.  It is always used together with a second
+hypothesis relating defeq-differing contexts,
+
+```
+hRd : env.IsDefEq nv Γ A A' (.sort u) → R (A' :: Γ) (A :: Γ)
+```
+
+and "two constraints on one object" is exactly the shape that broke
+`LevelAssign`.  So the pair is what must be tested.
+
+**It is consistent, and for a structural reason worth stating**, because it is
+the diagnostic that separates this case from the two refutations:
+
+> The defect signature is a structure quantifying over a relation **parameter**
+> that the relation's own constructors never constrain.
+
+* `IsDefEq.bvar` places no condition on the context — so `LevelAssign`'s two
+  fields could be pointed at a context holding an ill-formed level.
+* `Ctx.InstN` declares `e₀` as a parameter its `zero` constructor never mentions
+  — so `Stable`'s `lvl_instN` could be pointed at an arbitrary substituted term.
+* `hRd`'s `A` and `A'` are **not** free: they come with a derivation
+  `Γ ⊢ A ≡ A' : .sort u`.  That derivation is exactly what makes the two demands
+  agree, via context conversion (`IsDefEq.defeqDFC`, proved).
+
+`ctxInvariant_lvl_agrees` below is that argument, machine-checked: on every
+well-typed `B` — which is where `CtxInvariant.lvl` has content — the level
+demanded in `A :: Γ` and the level demanded in `A' :: Γ` are the same. -/
+
+theorem ctxInvariant_lvl_agrees {env : VEnv} {nv : ℕ} (L : LevelAssign env nv)
+    (henv : env.Ordered) {Γ : List VExpr} {A A' B : VExpr} {u w : VLevel}
+    (h : env.IsDefEq nv Γ A A' (.sort u)) (hww : w.WF nv)
+    (hB : env.HasType nv (A :: Γ) B (.sort w)) :
+    L.lvl (A :: Γ) B ≈ L.lvl (A' :: Γ) B := by
+  have hctx : VEnv.IsDefEqCtx env nv Γ (A :: Γ) (A' :: Γ) := .succ .zero h
+  have hB' : env.HasType nv (A' :: Γ) B (.sort w) := hB.defeqDFC henv hctx
+  exact (L.lvl_sound hww hB).trans (L.lvl_sound hww hB').symm
 
 end Lean4Lean.SetModel
