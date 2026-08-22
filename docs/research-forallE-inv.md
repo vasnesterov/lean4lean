@@ -686,8 +686,42 @@ once.
    §9.3). The pieces at the two ends are done; the middle is the work.
 4. Items 2–6 of §8 stand unchanged: no confluence, no set model, no consumer restatement,
    consumer A needs only the domain half, keep `Params.pat_wf` parked.
-5. **Consider promoting the §9 lemmas out of the scratchpad.** `IsDefEq.mono_uvars`,
-   `VLevel.exists_wf{,_list}` and `descent` are general facts about the mainline theory with
-   no `Experimental/` dependency; they belong next to `IsDefEq.eqUpToLevels` in
-   `Theory/Typing/Strong.lean` whenever that file is free. I did not put them there — this
-   was a read-only spike outside the scratchpad.
+5. ~~Consider promoting the §9 lemmas out of the scratchpad.~~ **Done** — see §11.
+
+---
+
+# 11. Landed
+
+`Theory/Typing/Strong.lean`, +120 lines, immediately after `IsDefEq.eqUpToLevels`
+(`:694`), under a section note `### Descending a derivation to a smaller universe-parameter
+count` (`:701`) that states the repair-at-the-end argument, names the four supporting
+lemmas, and records the `.imax (.param 7) .zero` witness together with the inference that
+does *not* follow from it. Provenance points back to §9.
+
+| Declaration | Cite | Note |
+|---|---|---|
+| `VLevel.WF.mono` | `:733` | monotone in the parameter count |
+| `VLevel.exists_wf` | `:737` | every level is WF at *some* count |
+| `VLevel.exists_wf_list` | `:745` | list version — the `∃ U'` an induction produces |
+| `IsDefEq.mono_uvars` | `:757` | combine the `U'`s of an induction's branches |
+| `EqUpToLevels.instL'` | `:779` | substituting WF levels lands `EqUpToLevels` at the substituted count |
+| `OnCtx.instL_id` | `:794` | the context survives the substitution untouched |
+| `IsDefEq.descend` | `:805` | the descent itself |
+
+Two changes from the scratch version, both simplifications:
+
+* **No new inductive.** The scratch proof used a bespoke `SameLevels` (skeleton + `≈`
+  levels, no well-formedness). It is unnecessary: state the hypotheses as
+  `EqUpToLevels U' e a`, at the *reflection's* count rather than the ambient one, and the
+  existing datatype does the job. A caller with `mk e = mk a` and `a.LevelWF U ≤ U'` gets
+  there via `VLevel.WF.mono`.
+* `EqUpToLevels.instL'` is the reusable half of what `SameLevels.instL` was, and is named
+  against the existing `EqUpToLevels.instL` (`:239`), which is a different statement — one
+  term at two `≈`-equivalent level lists, rather than two terms at one list.
+
+Checked: `lake build` of `Theory.Typing.Injectivity`, `Theory.Typing.ChurchRosser`,
+`Theory.SetModel.SoundInduction`, `Verify.Typing.Lemmas`, `Verify.Primitive` — all clean,
+the only `sorry` warning being the pre-existing `ChurchRosser.lean:1266`. Every new
+declaration reports `depends on axioms: [propext, Quot.sound]`.
+
+The reflection induction itself was **not** attempted; it is scoped as its own task.
