@@ -206,6 +206,72 @@ def decodeSimple (e : VExpr) : Option SimplePattern :=
       | _ => none
   | _ => none
 
+/-! ## Building an `RHS` and a `Check`
+
+`Pattern.RHS` and `Pattern.Check` are cons-shaped: `RHS` has a binary `app`, `Check` threads
+a `rest`.  Both rule shapes need to build one from a *list* — the ι-rule's right-hand side
+is `iotaLam` applied to a whole spine of matched paths, and its check is three groups of
+clauses concatenated — so the list-shaped constructors and their `apply`/`OK` laws come
+first. -/
+
+namespace Pattern
+
+/-- `RHS` applied to a spine. -/
+def RHS.mkApp {p : Pattern} (f : p.RHS) : List p.RHS → p.RHS
+  | [] => f
+  | a :: as => (f.app a).mkApp as
+
+theorem RHS.apply_mkApp {p : Pattern} {m1 m2} (f : p.RHS) : ∀ as : List p.RHS,
+    (f.mkApp as).apply m1 m2 = VExpr.mkApp (f.apply m1 m2) (as.map (RHS.apply m1 m2))
+  | [] => rfl
+  | a :: as => by
+    rw [RHS.mkApp, apply_mkApp (f.app a) as, RHS.apply, List.map_cons, VExpr.mkApp_cons]
+
+/-- Concatenate two check lists. -/
+def Check.append {p : Pattern} : p.Check → p.Check → p.Check
+  | .true, d => d
+  | .defeq x y rest, d => .defeq x y (rest.append d)
+  | .level x i y j rest, d => .level x i y j (rest.append d)
+
+theorem Check.OK_append {p : Pattern} {df m1 m2} : ∀ c d : p.Check,
+    (c.append d).OK df m1 m2 ↔ c.OK df m1 m2 ∧ d.OK df m1 m2
+  | .true, d => by simp [Check.append, Check.OK]
+  | .defeq x y rest, d => by
+    rw [Check.append, Check.OK, Check.OK, Check.OK_append rest d]
+    exact ⟨fun ⟨h, h1, h2⟩ => ⟨⟨h, h1⟩, h2⟩, fun ⟨⟨h, h1⟩, h2⟩ => ⟨h, h1, h2⟩⟩
+  | .level x i y j rest, d => by
+    rw [Check.append, Check.OK, Check.OK, Check.OK_append rest d]
+    exact ⟨fun ⟨h, h1, h2⟩ => ⟨⟨h, h1⟩, h2⟩, fun ⟨⟨h, h1⟩, h2⟩ => ⟨h, h1, h2⟩⟩
+
+/-- A block of `defeq` clauses. -/
+def Check.ofDefeqs {p : Pattern} : List (p.RHS × p.RHS) → p.Check
+  | [] => .true
+  | (x, y) :: rest => .defeq x y (ofDefeqs rest)
+
+theorem Check.OK_ofDefeqs {p : Pattern} {df m1 m2} : ∀ l : List (p.RHS × p.RHS),
+    (Check.ofDefeqs l).OK df m1 m2
+      ↔ ∀ xy ∈ l, df (xy.1.apply m1 m2) (xy.2.apply m1 m2)
+  | [] => by simp [Check.ofDefeqs, Check.OK]
+  | (x, y) :: rest => by
+    rw [Check.ofDefeqs, Check.OK, Check.OK_ofDefeqs rest]
+    simp
+
+/-- A block of `level` clauses. -/
+def Check.ofLevels {p : Pattern} : List (p.LPath × Nat × p.LPath × Nat) → p.Check
+  | [] => .true
+  | (x, i, y, j) :: rest => .level x i y j (ofLevels rest)
+
+theorem Check.OK_ofLevels {p : Pattern} {df m1 m2} :
+    ∀ l : List (p.LPath × Nat × p.LPath × Nat),
+    (Check.ofLevels l).OK df m1 m2
+      ↔ ∀ t ∈ l, ((m1 t.1).getD t.2.1 .zero ≈ (m1 t.2.2.1).getD t.2.2.2 .zero)
+  | [] => by simp [Check.ofLevels, Check.OK]
+  | (x, i, y, j) :: rest => by
+    rw [Check.ofLevels, Check.OK, Check.OK_ofLevels rest]
+    simp
+
+end Pattern
+
 /-! ## Decoder correctness
 
 Two shapes, each proved directly rather than by construction — the decoder cannot know

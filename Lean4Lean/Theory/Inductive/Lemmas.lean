@@ -57,6 +57,26 @@ bundle twice.  D4 splits the index telescope at `u := r.idx`, the ι-rule at `u 
 and `L` are universally quantified inside the conclusion.  Re-verify the original caller after
 extracting -- that is what makes the refactor safe.
 
+**0b. When a statement is indexed by a length or a depth, carry the index as a *variable
+plus an equation*, not as the expression.**  Write `(n : Nat) (as : List _) (h : as.length = n)`
+and induct on `n`, not `∀ as, P as.length`.
+
+The reason is specific and it is not "dependent types are fiddly": `(as ++ [a]).length` does
+not *reduce* to `as.length + 1`.  So if a dependent type is indexed by `as.length` — a
+`Pattern.varN q n`'s `Path`, a `Fin`, a vector — a snoc induction on the list cannot rewrite
+the index.  `rw` fails with "motive is not type correct", and constructors of the dependent
+type will not even typecheck against the un-normalised index.  Inducting on `n` and
+decomposing the list inside keeps every `varN q (n+1)` definitionally a `.var`.
+
+The same move handles truncated subtraction: state `k + as.length = B + 1 + t` rather than
+`B = k + as.length - 1 - t`, so callers meet an `omega` goal instead of a `Nat`-subtraction
+normal form.  `VExpr.instAll_bvar_get` and
+`Pattern.matches_varN_mkApp` (`Theory/Typing/PatternDecode.lean`) are the two instances.
+
+This has now been the source of the surprise three times, always in the indexing rather than
+in the mathematics.  Cost when unprepared: two failed attempts and ~30 lines.  Cost with the
+rule in hand: zero.
+
 **1. Check `Theory/Inductive/Telescope.lean` before estimating.**  Twice in this
 development a step was priced by its *shape* and turned out to be two applications of a
 lemma that was already there with exactly the right side conditions.  `ih_telescope_eq`
