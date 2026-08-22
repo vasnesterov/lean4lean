@@ -422,7 +422,83 @@ theorem quotMkMid_type (hq : env.constants ``Quot = some quotConst) (hu : u.WF n
       (.sort (.imax (.imax u (.imax u (.succ .zero))) (.imax u u))) :=
   .forallEDF quotRelTy_type (quotMkInner_type hq hu)
 
+/-- `α → α → Prop` lifted twice, i.e. the type `.bvar 1` has in `Γ₃`.  It is
+also `quotRelTy.inst (.bvar 2)`, syntactically — which is what lets the second
+`appDF` fire without any transport. -/
+theorem quotRelTyLift_type {Δ : List VExpr} :
+    env.HasType nv (VExpr.bvar 1 :: quotRelTy :: VExpr.sort u :: Δ)
+      (.forallE (.bvar 2) (.forallE (.bvar 3) (.sort .zero)))
+      (.sort (.imax u (.imax u (.succ .zero)))) :=
+  .forallEDF bvar2_sortU
+    (.forallEDF (VEnv.IsDefEq.bvar (.succ (.succ (.succ .zero))))
+      (.sortDF trivial trivial rfl))
+
+/-- The type of `Quot`'s own constant, in any context. -/
+theorem quotConstTy_type (hu : u.WF nv) {Δ : List VExpr} :
+    env.HasType nv Δ (.forallE (.sort u) (.forallE quotRelTy (.sort u)))
+      (.sort (.imax (.succ u) (.imax (.imax u (.imax u (.succ .zero))) (.succ u)))) :=
+  .forallEDF (.sortDF hu hu rfl) (quotCod_type hu)
+
+/-- The type of `Quot` applied to one argument. -/
+theorem quotAppTy_type (hu : u.WF nv) {Δ : List VExpr} :
+    env.HasType nv (VExpr.bvar 1 :: quotRelTy :: VExpr.sort u :: Δ)
+      (.forallE (.forallE (.bvar 2) (.forallE (.bvar 3) (.sort .zero))) (.sort u))
+      (.sort (.imax (.imax u (.imax u (.succ .zero))) (.succ u))) :=
+  .forallEDF quotRelTyLift_type (.sortDF hu hu rfl)
+
 end MkTypingSpine
+
+/-! ### Computing `Quot α r` inside `Quot.mk`'s spine -/
+
+section MkCod
+
+variable [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖]
+variable {envF env₀ : VEnv} {nv : ℕ} {M : ModelData V} {L : LevelAssign envF nv} {u : VLevel}
+
+/-- **The codomain of `Quot.mk` denotes what `Quot` says it does.**  Two
+`interp_app_type` steps — neither partial application is a proof, since the sort
+of each is an `imax` whose right argument is `u+1` — then the two `mkLam_value`
+steps of `Quot`'s own nest. -/
+theorem interp_quotMkCod (hle : env₀ ≤ envF)
+    (hq : env₀.constants ``Quot = some quotConst) (hu : u.WF nv)
+    (hcnst : M.cnst ``Quot [u] = quotFn M L u)
+    {α r a : V} (hα : α ∈ U M.κ (u.eval M.ls))
+    (hr : r ∈ (interp M L [VExpr.sort u] quotRelTy).toFun (snoc ∅ α)) :
+    (interp M L [VExpr.bvar 1, quotRelTy, VExpr.sort u] (quotMkCod u)).toFun
+        (snoc (snoc (snoc ∅ α) r) a)
+      = quotVal α r (u.eval M.ls) := by
+  have hnil : (∅ : V) ∈ interpCtx M L ([] : List VExpr) := by
+    rw [interpCtx_nil]; exact mem_singleton_iff.2 rfl
+  have hρ₁ : snoc ∅ α ∈ interpCtx M L [VExpr.sort u] :=
+    (mem_interpCtx_cons M L).mpr ⟨∅, hnil, α, by rw [interp_sort]; exact hα, rfl⟩
+  have hρ₂ : snoc (snoc ∅ α) r ∈ interpCtx M L [quotRelTy, VExpr.sort u] :=
+    (mem_interpCtx_cons M L).mpr ⟨_, hρ₁, r, hr, rfl⟩
+  -- the two environment reads
+  have v1 := snoc_value_at_len M L (v := α) hnil
+  rw [List.length_nil] at v1
+  have v2 := snoc_value_at_len M L (v := r) hρ₁
+  have v3 := snoc_value_of_lt M L (v := r) hρ₁ (j := 0) (by simp)
+  have v4 := snoc_value_of_lt M L (v := a) hρ₂ (j := 0) (by simp)
+  have v5 := snoc_value_of_lt M L (v := a) hρ₂ (j := 1) (by simp)
+  simp only [List.length_cons, List.length_nil] at v2
+  -- neither partial application is a proof
+  have hnp1 : ¬ L.IsProof M [VExpr.bvar 1, quotRelTy, VExpr.sort u] (.const ``Quot [u]) := by
+    rw [isProof_iff hle (quotConst_type hq hu) (quotConstTy_type hu)
+      ⟨hu, ⟨hu, hu, trivial⟩, hu⟩]
+    exact fun h ↦ Nat.succ_ne_zero _ (imax_eq_zero_iff.1 (imax_eq_zero_iff.1 h))
+  have hnp2 : ¬ L.IsProof M [VExpr.bvar 1, quotRelTy, VExpr.sort u]
+      (.app (.const ``Quot [u]) (.bvar 2)) := by
+    rw [isProof_iff hle (VEnv.IsDefEq.appDF (quotConst_type hq hu) bvar2_sortU)
+      (quotAppTy_type hu) ⟨⟨hu, hu, trivial⟩, hu⟩]
+    exact fun h ↦ Nat.succ_ne_zero _ (imax_eq_zero_iff.1 h)
+  show (interp M L _ (.app (.app (.const ``Quot [u]) (.bvar 2)) (.bvar 1))).toFun _ = _
+  rw [interp_app_type M L hnp2, interp_app_type M L hnp1, interp_const, interp_bvar,
+    interp_bvar, hcnst]
+  show ((quotFn M L u) ‘ ((snoc (snoc (snoc ∅ α) r) a) ‘ ((0 : ℕ) : V))) ‘
+    ((snoc (snoc (snoc ∅ α) r) a) ‘ ((1 : ℕ) : V)) = _
+  rw [v4, v3, v1, v5, v2, quotFn_value hα, quotFib_value hr, v1]
+
+end MkCod
 
 /-! ### The membership obligation -/
 

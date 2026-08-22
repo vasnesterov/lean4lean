@@ -1,4 +1,5 @@
 import Lean4Lean.Theory.SetModel.Cnst
+import Lean4Lean.Theory.SetModel.Inductive
 import Lean4Lean.Theory.Typing.Lemmas
 
 /-!
@@ -142,5 +143,52 @@ theorem ctxInvariant_lvl_agrees {env : VEnv} {nv : ℕ} (L : LevelAssign env nv)
   have hctx : VEnv.IsDefEqCtx env nv Γ (A :: Γ) (A' :: Γ) := .succ .zero h
   have hB' : env.HasType nv (A' :: Γ) B (.sort w) := hB.defeqDFC henv hctx
   exact (L.lvl_sound hww hB).trans (L.lvl_sound hww hB').symm
+
+/-! ## The three inductive-side structures pass the declaration check
+
+Applying the test to `IndSignature`, `IsStageSignature` and
+`IsSubsingletonSignature`: **none of them quantifies over syntax at all.**
+
+That is the sharper form of the diagnostic. `LevelAssign` and
+`LevelAssign.Stable` broke because they quantified over `List VExpr` and
+`VExpr` — objects the *syntax* side supplies, at a generality it never intends
+to produce. These three quantify only over their own set-theoretic data: every
+binder is bounded by `S.Q` or `S.Fld q`, which the structure itself provides.
+There is no external relation whose parameters could be left free, so the defect
+signature cannot fire.
+
+`IndSignature` is plain data plus four definability facts about the very
+functions it supplies. `IsStageSignature` is four membership conditions bounded
+by `S.Q`/`S.Fld`. `IsSubsingletonSignature` is two conditions likewise bounded.
+
+Witnesses below for the two that need no side conditions, chosen so the fields
+do real work rather than being vacuous: two distinct field values, so
+`fld_det` is a genuine injectivity requirement rather than a statement about a
+one-element set. `IsStageSignature` additionally needs `S.Q`, `S.Idx` and the
+`Fld`/`Pos` values to sit below a given stage, so a witness for it is relative
+to a choice of `k`; it is the least exposed of the three by the criterion above
+and is left at the declaration check. -/
+
+/-- A one-constructor signature with two non-recursive field values and no
+recursive positions.  `resIdx` is the identity on fields, which is what makes
+`fld_det` non-vacuous. -/
+noncomputable def witSig : IndSignature V where
+  Idx := insert (∅ : V) {({∅} : V)}
+  Q := {(∅ : V)}
+  Fld _ := insert (∅ : V) {({∅} : V)}
+  Pos _ _ := ∅
+  posIdx _ _ _ := ∅
+  resIdx _ a := a
+  Fld_definable := by definability
+  Pos_definable := by definability
+  posIdx_definable := by definability
+  resIdx_definable := by definability
+
+/-- **`IsSubsingletonSignature` is satisfiable**, with `fld_det` doing real work:
+the field set has two elements and they are separated by `resIdx`. -/
+theorem witSig_subsingleton : IsSubsingletonSignature (witSig (V := V)) where
+  single q hq q' hq' := by
+    rw [mem_singleton_iff.1 hq, mem_singleton_iff.1 hq']
+  fld_det _ _ _ _ _ _ h := h
 
 end Lean4Lean.SetModel

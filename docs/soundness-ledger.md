@@ -1139,8 +1139,38 @@ to supply, and nothing forced the discrepancy because no witness existed.
 The remaining structures in the tower, by the same criterion: `ModelData` is
 plain data and trivially inhabited; `AxiomsValidated` is vacuous at `ds = []`;
 `CtxInvariant` paired with `hRd` has now been tested and is consistent (above).
-`IndSignature`, `IsStageSignature` and `IsSubsingletonSignature` remain
-untested.
+So have the three inductive-side structures — see below. **The audit of
+`SetModel/` is complete: two defects, both repaired, everything else witnessed
+or cleared at the declaration level.**
+
+### The three inductive-side structures pass, and the reason sharpens the test
+
+`IndSignature`, `IsStageSignature`, `IsSubsingletonSignature`: **none of them
+quantifies over syntax at all.**
+
+That is the sharper form of the diagnostic. `LevelAssign` and `Stable` broke
+because they quantified over `List VExpr` and `VExpr` — objects the *syntax*
+side supplies, at a generality it never intends to produce. These three quantify
+only over their own set-theoretic data: every binder is bounded by `S.Q` or
+`S.Fld q`, which the structure itself provides. There is no external relation
+whose parameters could be left free, so the signature cannot fire.
+
+So the triage procedure now has three steps, cheapest first:
+
+1. **Does the structure quantify over syntax at all?** If not, the defect
+   family cannot occur — its binders are bounded by data it owns.
+2. **If it does: which parameters of the relations it quantifies over do those
+   relations' constructors leave free?** Both defects were visible here, from
+   the inductive declaration alone.
+3. **Only then build a witness** — and make the fields do real work, or the
+   witness is a formality.
+
+`witSig` and `witSig_subsingleton` (`SetModel/CoherentWitness.lean`) witness the
+first and third, with two distinct field values so `fld_det` is a genuine
+injectivity requirement rather than a statement about a one-element set.
+`IsStageSignature` needs its data to sit below a chosen stage, so a witness for
+it is relative to a `k`; it is the least exposed of the three by step 1 and is
+left at the declaration check.
 
 ## The remaining open items, ranked
 
