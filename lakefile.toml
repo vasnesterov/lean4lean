@@ -6,10 +6,12 @@ name = "batteries"
 git = "https://github.com/leanprover-community/batteries"
 rev = "v4.33.0-rc2"
 
+# Pinned to an exact commit (not the branch) so `lake update` cannot move it;
+# changing this pin requires human sign-off (see CLAUDE.md).
 [[require]]
 name = "Foundation"
 git = "https://github.com/vasnesterov/Foundation"
-rev = "lean4lean-dev"
+rev = "e17ebdbb2e2ffa63b8ca0341c818d88215f3c888"
 
 [[require]]
 scope = "leanprover"

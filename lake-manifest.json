@@ -18,7 +18,7 @@
    "rev": "e17ebdbb2e2ffa63b8ca0341c818d88215f3c888",
    "name": "Foundation",
    "manifestFile": "lake-manifest.json",
-   "inputRev": "lean4lean-dev",
+   "inputRev": "e17ebdbb2e2ffa63b8ca0341c818d88215f3c888",
    "inherited": false,
    "configFile": "lakefile.toml"},
   {"url": "https://github.com/leanprover-community/batteries",
