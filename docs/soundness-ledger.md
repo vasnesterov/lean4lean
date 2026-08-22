@@ -732,6 +732,47 @@ state the fixed point by its universal property instead. `Ind` and `indRec`
 (`SetModel/Inductive.lean`) are also `lfp`s, so the same substitution will be
 needed when the `.induct` oracle is built.
 
+### The "value layer / plumbing" boundary does not exist
+
+I split `Quot`'s work into a value layer (done) and mechanical plumbing (the two
+`mkLam` applications). That split is wrong, and the second attempt at
+"mechanical" is what showed it.
+
+**`mkLam`'s fibre map is itself a value-layer object.** Each nested λ introduces
+a new composite function needing its own joint-definability proof, and
+`definability` cannot compose the proofs already established — each needs a
+bespoke `mem_ext_iff` restatement, harder as the nesting deepens. For `Quot`
+(two λs) the two outstanding obligations are
+
+* `ℒₛₑₜ-function₂ (fun _ r ↦ quotVal α r i)`, the dummy-argument weakening of
+  `quotVal_definable₁`;
+* `ℒₛₑₜ-function₁ (fun α ↦ mkLam … (snoc ∅ α))`, the outer fibre map.
+
+Neither goes through — although the *abstract* form of the first,
+`ℒₛₑₜ-function₁ f ⊢ ℒₛₑₜ-function₂ (fun _ y ↦ f y)`, does when `f` is an opaque
+hypothesis. Isolating that difference is the diagnosis: `definability`
+re-unfolds `quotVal` instead of using the supplied lemma, so supplying more
+lemmas does not help.
+
+**What is missing is a small library of `mkLam` definability combinators**,
+above all a joint form
+
+```
+mkLam_definable₂ :
+  (G definable in (a, ρ)) → (F definable in (a, ρ, v)) →
+  ℒₛₑₜ-function₁ (fun a ↦ mkLam (G a) _ (F a) _ (ρ a))
+```
+
+making each nested λ one application rather than a bespoke proof.
+
+This is the third finding in a row from the same source, and they compound:
+joint definability is needed at all (found building `quotRel`); `lfp` must be
+replaced by its Π₁ form (found building `quotEqv`); and nesting needs
+combinators (found here). All three are prerequisites for the `.induct` oracle,
+where a constructor or recursor is a *deeper* nest than `Quot` is. Estimating
+`.induct` as "the model side is finished and waiting" was too optimistic on
+exactly this axis.
+
 ### The pattern: uniform in ZFC, not uniform across `Sort 0`
 
 That split is the **third** time this session a statement that reads uniformly

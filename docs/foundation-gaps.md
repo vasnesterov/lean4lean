@@ -19,7 +19,7 @@ lives in `Lean4Lean/Theory/SetModel/`.
 
 ---
 
-## 1. `definability` cannot see four-argument functions
+## 1. `definability` fails opaquely — two distinct causes, one of them a bug
 
 **Severity: highest.** This one is a one-line fix upstream, it silently blocks
 real work, and it fails with an undiagnosable error.
@@ -77,6 +77,96 @@ attribute [aesop 5 (rule_sets := [Definability]) safe]
 
 **Our workaround:** the same two lines, in `SetModel/Inductive.lean` just after
 the `open`s. A pure aesop rule-set addition; Foundation untouched.
+
+### 1b. The same error has a second, unrelated trigger
+
+Registering `₄.comp`/`₅.comp` does **not** exhaust this failure mode. Building
+`Quot`'s denotation (`SetModel/QuotInterp.lean`) hit
+
+```
+aesop: internal error during proof reconstruction: goal 70 was not normalised
+```
+
+with the composition rules already registered, on a goal of arity 3. The trigger
+is different: **an existential nested under a quantifier over sets.**
+
+We isolated it rather than working around it, by proving the same statement in
+two forms that differ only in that clause. `eqvClosure A R` is `lfp`, i.e.
+`⋂ˢ` of the prefixed points, and `⋂ˢ`'s membership condition is
+
+```
+p ∈ ⋂ˢ X  ↔  IsNonempty X ∧ ∀ S ∈ X, p ∈ S
+```
+
+* With the `IsNonempty` clause — `definability` fails with the internal error.
+* Without it, stating the same set by its universal property
+  (`quotEqv A R := {p ∈ A ×ˢ A ; ∀ S ∈ ℘(A ×ˢ A), eqvStep A R S ⊆ S → p ∈ S}`)
+  — `definability` succeeds.
+
+Nothing else changed. So the widened statement of this gap is: `definability`
+reports the same undiagnosable internal error for **at least two structurally
+unrelated reasons**, and the arity fix addresses only one of them.
+
+### Which failures are bugs, and which are limitations
+
+The two symptoms need separating, because only one of them is worth a report:
+
+| symptom | verdict |
+|---|---|
+| `Tactic 'aesop' failed … maximum rule application depth (30) was reached` | **limitation.** Honest failure, names its own cause, fixable by raising limits or supplying lemmas. |
+| `aesop: internal error during proof reconstruction: goal N was not normalised` | **bug.** An internal invariant violation, not a proof-search failure. |
+
+A tactic that cannot prove a goal should say so. This one reports a violated
+internal invariant, which means proof reconstruction reached a state the
+implementation did not expect. That is a defect regardless of whether the goal
+was provable.
+
+### Worth reporting upstream: yes
+
+Recorded as a judgement since `Foundation` is pinned and this is not a "fix it"
+question.
+
+**Report it, to Foundation first.** The reasoning:
+
+* It is a genuine bug by the criterion above, not a strength limitation.
+* It is cheap to report: `quotEqv` versus the `⋂ˢ` form is a minimal
+  reproduction that isolates one clause, and `SetModel/QuotInterp.lean` carries
+  both halves already.
+* It is expensive to *not* report: the error names neither the tactic's
+  difficulty nor the offending subterm, so every encounter costs a debugging
+  cycle. We have now lost two.
+* The likely root cause is in the interaction between Foundation's
+  `Definability` rule set and `aesop`'s normalisation, not in `aesop` alone —
+  which is why Foundation is the right first recipient. They are better placed
+  than we are to decide whether to forward it.
+
+What we cannot say from here is whether the underlying defect is aesop's or is
+provoked by a particular rule's shape in the `Definability` set. Both symptoms
+disappear under the workarounds below, so we have no evidence isolating that.
+
+### The three workarounds, and when each is needed
+
+In increasing order of how much they change the statement:
+
+1. **The `mem_ext_iff` route.** Restate `T = f a b …` as a first-order
+   membership formula and call `definability` on that. This is Foundation's own
+   idiom — `eqvStep_definable` is proved this way — and it is the first thing to
+   try.
+2. **Pass `sep`'s (or `repl`'s) definability argument explicitly** rather than
+   through its `autoParam`. The `autoParam` runs `definability` *without* the
+   local hypotheses that make it succeed, so a definition can fail to elaborate
+   even when the corresponding standalone lemma is provable. See also gap #8.
+3. **Replace a least fixed point by its Π₁ characterisation.** Needed when the
+   fixed point appears inside a function that must itself be definable. This is
+   the one that changes the statement, and it is worth stating as a rule:
+
+   > A least fixed point is fine to *reason* with and bad to *compute inside a
+   > definable function*. Where a definable version is needed, state the fixed
+   > point by its universal property instead.
+
+   This is not only about quotients. `Ind` and `indRec`
+   (`SetModel/Inductive.lean`) are also `lfp`s, so the same substitution is
+   already known to be needed when the inductive oracle is built.
 
 ---
 
@@ -413,7 +503,8 @@ the boundary at all.
 
 | # | Gap | Home in Foundation | Cost here | Fix size |
 |---|---|---|---|---|
-| 1 | `definability` blind to arity 4–5 | `Basic/Definability.lean:477` | debugging cycle; blocks all recursors | **2 lines** |
+| 1a | `definability` blind to arity 4–5 | `Basic/Definability.lean:477` | debugging cycle; blocks all recursors | **2 lines** |
+| 1b | same internal error, second trigger: `∃` under a set quantifier | unknown — rule set or `aesop` | second debugging cycle; forces restating `lfp`s | unknown; **worth reporting** |
 | 2 | `value_eq_of_kpair_mem` | `SetTheory/Function.lean` | ~20 lines, used in 4 files | ~20 lines |
 | 3 | No cardinal arithmetic | new `SetTheory/Cardinal.lean` | 458 lines | medium |
 | 4 | No `sep`-as-definable-function | `SetTheory/Z.lean` | 6 × ~8 lines | ~15 lines |
@@ -425,7 +516,13 @@ the boundary at all.
 | 10 | No `V_α` / `rank` / `∈`-induction | new `SetTheory/Rank.lean` | 606 lines | large |
 | — | `isDefEq` divergence hazard | — | recurring; see above | docs, or a `V`-level API |
 
-If only two things are contributed upstream, they should be **#1** (two lines,
-unblocks an entire class of constructions, and is currently undiagnosable) and
-**#2** (twenty lines, and without it the library can define functions but not
-apply them).
+If only two things are contributed upstream, they should be **#1** (see below)
+and **#2** (twenty lines, and without it the library can define functions but
+not apply them).
+
+**#1 is now two items.** #1a is the two-line `attribute` addition — trivial,
+known, and unblocks an entire class of constructions. #1b is a defect we can
+reproduce but not diagnose: the identical internal error, on a goal of arity 3,
+with the composition rules already registered. Only #1b is a *bug report* rather
+than a contribution; see "Worth reporting upstream" under gap 1 for the criterion
+separating the two and the minimal reproduction.

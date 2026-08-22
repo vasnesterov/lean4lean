@@ -153,6 +153,20 @@ theorem quotVal_zero_eq (α r : V) :
   · obtain ⟨hz, hne⟩ := mem_sep_iff.1 hz
     rw [if_neg hne]; exact hz
 
+theorem quotVal_definable₁ (α : V) (i : ℕ) : ℒₛₑₜ-function₁[V] (fun r ↦ quotVal α r i) := by
+  by_cases h : i = 0
+  · subst h
+    suffices ℒₛₑₜ-relation[V] (fun T r ↦ T = quotVal α r 0) by exact this
+    have e : ∀ T r : V, T = quotVal α r 0 ↔ ∀ z, z ∈ T ↔ (z ∈ ({pt} : V) ∧ α ≠ ∅) := by
+      intro T r; rw [quotVal_zero_eq, mem_ext_iff]; simp [mem_sep_iff]
+    simp only [e]
+    definability
+  · simp only [quotVal, if_neg h]
+    have h1 := quotRel_definable (V := V)
+    have h2 := quotEqv_definable (V := V)
+    have h3 := setQuotient_definable₂ (V := V)
+    definability
+
 theorem quotVal_definable (i : ℕ) : ℒₛₑₜ-function₂[V] (fun α r ↦ quotVal α r i) := by
   by_cases h : i = 0
   · subst h
@@ -191,5 +205,76 @@ theorem quotVal_mem_U {i : ℕ} (hi : i < n) {α r : V} (hα : α ∈ U κ i) :
     exact setQuotient_mem_U hκ (Nat.lt_of_succ_lt hi) hα
 
 end
+
+/-! ## `Quot`'s denotation, and its `const_type` obligation
+
+`quotConst.type.instL [u]` is, definitionally,
+`∀ (α : Sort u) (r : α → α → Prop), Sort u` — checked by `rfl` below.  The
+typing derivations for its pi-spine are built by hand from `sortDF`, `bvar` and
+`forallEDF`; no inversion principle is used, so this costs no injectivity. -/
+
+/-- `α → α → Prop`, over the context `[Sort u]`. -/
+def quotRelTy : VExpr := .forallE (.bvar 0) (.forallE (.bvar 1) (.sort .zero))
+
+example (u : VLevel) :
+    quotConst.type.instL [u] = .forallE (.sort u) (.forallE quotRelTy (.sort u)) := rfl
+
+section Typing
+
+variable {env : VEnv} {nv : ℕ} {u : VLevel}
+
+theorem quotRelTy_type :
+    env.HasType nv [.sort u] quotRelTy (.sort (.imax u (.imax u (.succ .zero)))) :=
+  .forallEDF (VEnv.IsDefEq.bvar .zero)
+    (.forallEDF (VEnv.IsDefEq.bvar (.succ .zero)) (.sortDF trivial trivial rfl))
+
+theorem quotCod_type (hu : u.WF nv) :
+    env.HasType nv [.sort u] (.forallE quotRelTy (.sort u))
+      (.sort (.imax (.imax u (.imax u (.succ .zero))) (.succ u))) :=
+  .forallEDF quotRelTy_type (.sortDF hu hu rfl)
+
+theorem quotSortU_type (hu : u.WF nv) :
+    env.HasType nv (quotRelTy :: [VExpr.sort u]) (.sort u) (.sort (.succ u)) :=
+  .sortDF hu hu rfl
+
+end Typing
+
+/-! ### Where this stops, and why
+
+The next step is the two `mkLam` layers that turn `quotVal` into an element of
+`⟦∀ (α : Sort u) (r : α → α → Prop), Sort u⟧`.  It is **not** written here,
+because attempting it showed that the boundary between "value layer" and
+"plumbing" does not exist:
+
+`mkLam`'s fibre map is itself a value-layer object.  So each nested λ introduces
+a *new composite function* that needs its own joint-definability proof, and
+`definability` cannot compose the ones already proved — each needs a bespoke
+`mem_ext_iff` restatement, and the restatements get harder as the nesting
+deepens.  Concretely, the inner λ needs
+
+* `ℒₛₑₜ-function₂ (fun _ r ↦ quotVal α r i)` — the dummy-argument weakening of
+  `quotVal_definable₁`, and
+* `ℒₛₑₜ-function₁ (fun α ↦ mkLam … (snoc ∅ α))` — the outer fibre map,
+
+and neither goes through, although the *abstract* form of the first
+(`ℒₛₑₜ-function₁ f ⊢ ℒₛₑₜ-function₂ (fun _ y ↦ f y)`) does when `f` is an opaque
+hypothesis.  The difference is that `definability` re-unfolds `quotVal` instead
+of using the supplied lemma.
+
+What is missing is a small library of **`mkLam` definability combinators** —
+above all a joint form
+
+```
+mkLam_definable₂ :
+  (G definable in (a, ρ)) → (F definable in (a, ρ, v)) →
+  ℒₛₑₜ-function₁ (fun a ↦ mkLam (G a) _ (F a) _ (ρ a))
+```
+
+which would make each nested λ one application rather than a bespoke proof.
+This is not specific to `Quot`: a constructor or a recursor is a deeper nest
+than `Quot` is, so the same combinators are a prerequisite for the `.induct`
+oracle, not an optional convenience.
+-/
+
 
 end Lean4Lean.SetModel
