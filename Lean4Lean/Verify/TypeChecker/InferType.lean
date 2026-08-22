@@ -415,10 +415,23 @@ theorem inferLet.WF
   refine (c.withMLC_self ▸ inferLet.loop.WF (Nat.zero_le _) [] rfl rfl rfl rfl rfl ?_ hr) hinf
   exact fun P hP he => ⟨(AllAbove.wf wf.trctx.wf.fvwf).2 hP, he.mono fun _ h _ => h, fun _ => id⟩
 
+/-- **Restated.**  The conclusion used to read `∃ ty', c.TrTyping (.proj st i e) ty e' ty'`,
+reusing the `e'` bound by `he` — the translation of the *struct*.  `TrTyping` unfolds to
+include `TrExprS (.proj st i e) e'`, so that demanded the recursor application
+`S.rec … e'` be equal to `e'` itself, which is impossible; it elaborated only because the
+enclosing goal at the call site quantifies `e'` existentially.  Every sibling in this file
+writes `∃ e' ty'`; this one had dropped the first existential.  Fixed, with the bound names
+primed twice so they cannot shadow the hypotheses' `e'`/`ty'`.
+
+Still `sorry`, and deliberately so: it is **vacuously true today** (`TrProj` has no
+inhabitants until the keystone lands), and it stays open until `bugs-found.md` item 10 —
+the kernel accepts `.proj` on a *recursive* single-constructor inductive, which `TrProj`
+cannot model — is decided.  See also the note on `TrProj.wf` (`Verify/Typing/Lemmas.lean`)
+for the second, independent, `.proj` case the encoding does not yet cover. -/
 theorem inferProj.WF
     (he : c.TrExprS e e') (hty : c.TrExprS ety ety') (hasty : c.HasType e' ty') :
     (inferProj st i e ety).WF c s fun ty _ =>
-      ∃ ty', c.TrTyping (.proj st i e) ty e' ty' := sorry
+      ∃ e'' ty'', c.TrTyping (.proj st i e) ty e'' ty'' := sorry
 
 theorem literal_is_primitive (H : n = ``Nat ∨ n = ``Char.ofNat ∨ n = ``String.ofList)  :
     Environment.primitives.contains n := by
@@ -487,7 +500,7 @@ theorem inferType'.WF
     exact hF ⟨hb, .mdata h1, h⟩
   · refine (inferType'.WF (by exact h1) ?_).bind fun _ _ _ ⟨_, _, hb, h1, h2, h3⟩ => ?_
     · exact fun h => let ⟨_, .proj h ..⟩ := hinf h; ⟨_, h⟩
-    exact (inferProj.WF h1 h2 h3).bind fun ty _ _ ⟨ty', h⟩ => hF h
+    exact (inferProj.WF h1 h2 h3).bind fun ty _ _ ⟨_, _, h⟩ => hF h
   · exact .readThe <| (M.WF.liftExcept inferFVar.WF).lift.bind fun _ _ _ ⟨_, _, h⟩ => hF h
   · exact .throw
   · exact .throw

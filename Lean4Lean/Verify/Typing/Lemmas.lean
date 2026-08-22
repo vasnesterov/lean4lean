@@ -878,73 +878,403 @@ theorem TrExpr.fvarsIn (H : TrExpr env Us Δ e e') : FVarsIn (· ∈ Δ.fvars) e
 theorem TrExpr.fvarsList (H : TrExpr env Us Δ e e') : e.fvarsList ⊆ Δ.fvars :=
   (fvarsIn_iff.1 H.fvarsIn).1
 
+/-! ## `TrProj.wf`
+
+`Theory/Inductive/StructureClosed.lean` carries everything about `projTerm`'s typing that
+needs only `env.Ordered`; the two steps below need `VEnv.WF` — the ι law lands the earlier
+projection and the corresponding field variable at *different* types, so `IsDefEqU.trans`
+and `.of_l` are unavoidable, and those are `Theory/Typing/UniqueTyping.lean`'s, hence gated
+on the injectivity stream's three `sorry`s.  `projTerm_hasType` is sorry-free in itself; its
+axiom cone contains `sorryAx` through exactly that route and no other. -/
+
+section
+open VExpr
+
+theorem projMinor_hasType {env : VEnv} {U : Nat} {S : Lean.Name}
+    {D : VInductDecl'} {T : VIndType} {C : VIndCtor} {us : List VLevel}
+    (henv : VEnv.WF env) (hI : D.IotaCtx env) (H : env.IsStructure S D T C)
+    (h3 : us.length = D.uvars) (h7 : ∀ l ∈ us, l.WF U) (hcl : D.ProjClosed T C) :
+    ∀ i, i < C.fields.length →
+      (∀ k, k ≤ i → (C.fields.getD k default).lvl.inst us
+        ≈ D.elimLvl.inst (D.projLvls C us k)) →
+      (∀ k, k < i → ProjHasType env U S D T C us k) →
+      ∀ {Γ ps : List VExpr}, OnCtx Γ (env.IsType U) → ps.length = D.np →
+        env.HasArgs U Γ (D.params.map (VExpr.instL us)) ps →
+        env.HasType U Γ (C.projMinor us ps i)
+          (VExpr.instAll ((D.minorType 0 0 C).instL (D.projLvls C us i))
+            (ps ++ [projMotiveTerm D T C us ps i])) := by
+  have hord := henv.ordered
+  have hCwf : VIndCtor.WF env D 0 T C := hI.toRecCtx.ctors 0 T H.types0 C H.memCtor
+  intro i
+  induction i using Nat.strongRecOn with
+  | _ i IHmin =>
+  intro hi hlv hIH Γ ps hΓ hps hpsA
+  have hqsl : (ps.map (·.liftN C.fields.length)).length = D.np := by simp [hps]
+  have hmotT := projMotiveTerm_hasType hord hI H h3 h7 hcl hi (hlv i (Nat.le_refl _))
+    hIH hΓ hps hpsA
+  have hPM : env.HasArgs U Γ ((D.atRecTele D.params).map (VExpr.instL (D.projLvls C us i))
+      ++ D.motives.map (VExpr.instL (D.projLvls C us i)))
+      (ps ++ [projMotiveTerm D T C us ps i]) := by
+    refine VEnv.HasArgs.append ?_ ?_
+    · rw [VInductDecl'.atRecTele_params_instL (C := C) h3]; exact hpsA
+    · rw [VInductDecl'.motives_eq H]; exact .cons hmotT .nil
+  have hminIT := minor_declType_isType hord hI H h3 h7 hPM
+  rw [minorType_instL_instAll D C H.nm_eq H.noRec h3 hps] at hminIT ⊢
+  obtain ⟨hOnΔF, hcodIT⟩ := VEnv.IsType.mkPi_inv hord hΓ hminIT
+  rw [VIndCtor.projMinor]
+  refine VEnv.HasType.mkLams hOnΔF ?_
+  -- ## the field context, and the constructor applied to it
+  have hWF : Ctx.LiftN C.fields.length 0 Γ
+      ((VExpr.instAllTele (C.fields.map fun F => F.type.instL us) ps).reverse ++ Γ) :=
+    Ctx.LiftN.zero _ (by simp)
+  have hqsA := VEnv.HasArgs.weakN hord hWF hpsA
+  rw [VExpr.liftTele_eq_self (VExpr.ClosedTele.map_instL hcl.params) (Nat.zero_le _)] at hqsA
+  have hclI : VExpr.ClosedTele (T.indices.map (VExpr.instL us)) ps.length := by
+    rw [hps]; exact VExpr.ClosedTele.map_instL hcl.indices
+  have hfeq : (C.fields.map fun F => F.type.instL us)
+      = (C.fields.map (·.type)).map (VExpr.instL us) := by
+    simp [List.map_map, Function.comp_def]
+  have hclF : VExpr.ClosedTele (C.fields.map fun F => F.type.instL us) ps.length := by
+    rw [hps, hfeq]; exact VExpr.ClosedTele.map_instL hcl.fields
+  have hargsA := ctorArgs_hasArgs hord hI H h7 hpsA
+  rw [VExpr.liftTele_instAllTele₀ hclI] at hargsA
+  have hctorT := ctorApp_hasType hord hI H h3 h7 hps hpsA
+  have hargsl : (C.args.map fun a =>
+      VExpr.instAll (a.instL us) ps C.fields.length).length = T.indices.length := by
+    simp [hCwf.args_len]
+  have hfieldsA : env.HasArgs U
+      ((VExpr.instAllTele (C.fields.map fun F => F.type.instL us) ps).reverse ++ Γ)
+      (VExpr.instAllTele (C.fields.map fun F => F.type.instL us)
+        (ps.map (·.liftN C.fields.length))) (bvars 0 C.fields.length) := by
+    have h := VEnv.HasArgs.bvars (env := env) (U := U) (Δ := [])
+      (As := VExpr.instAllTele (C.fields.map fun F => F.type.instL us) ps) (Γ₀ := Γ)
+    rw [List.length_nil, VExpr.length_instAllTele, List.length_map, Nat.zero_add,
+      VExpr.liftTele_instAllTele₀ hclF, List.nil_append] at h
+    exact h
+  -- ## the induction hypothesis, at the constructor's spine
+  have hIHc : ∀ k, k < i → env.HasType U
+      ((VExpr.instAllTele (C.fields.map fun F => F.type.instL us) ps).reverse ++ Γ)
+      (D.projTerm T C us (ps.map (·.liftN C.fields.length))
+        (C.args.map fun a => VExpr.instAll (a.instL us) ps C.fields.length) k
+        ((VExpr.const C.name us).mkApp
+          (ps.map (·.liftN C.fields.length) ++ bvars 0 C.fields.length)))
+      (VExpr.instAll ((C.fields.getD k default).type.instL us)
+        (ps.map (·.liftN C.fields.length)
+          ++ (List.range k).map fun m => D.projTerm T C us (ps.map (·.liftN C.fields.length))
+              (C.args.map fun a => VExpr.instAll (a.instL us) ps C.fields.length) m
+              ((VExpr.const C.name us).mkApp
+                (ps.map (·.liftN C.fields.length) ++ bvars 0 C.fields.length)))) :=
+    fun k hk => hIH k hk hOnΔF (by rw [← H.name]; exact hctorT) hqsl hargsl hqsA hargsA
+  -- ## the ι law: an earlier projection of the constructor is the corresponding field
+  have hiota : ∀ k, k < i → env.IsDefEqU U
+      ((VExpr.instAllTele (C.fields.map fun F => F.type.instL us) ps).reverse ++ Γ)
+      (D.projTerm T C us (ps.map (·.liftN C.fields.length))
+        (C.args.map fun a => VExpr.instAll (a.instL us) ps C.fields.length) k
+        ((VExpr.const C.name us).mkApp
+          (ps.map (·.liftN C.fields.length) ++ bvars 0 C.fields.length)))
+      (.bvar (C.fields.length - 1 - k)) := by
+    intro k hk
+    have hkf : k < C.fields.length := by omega
+    have hmotk := projMotiveTerm_hasType hord hI H h3 h7 hcl hkf (hlv k (by omega))
+      (fun m hm => hIH m (by omega)) hOnΔF hqsl hqsA
+    have hmink := IHmin k hk hkf (fun m hm => hlv m (by omega))
+      (fun m hm => hIH m (by omega)) hOnΔF hqsl hqsA
+    have hPMk : env.HasArgs U
+        ((VExpr.instAllTele (C.fields.map fun F => F.type.instL us) ps).reverse ++ Γ)
+        ((D.atRecTele D.params).map (VExpr.instL (D.projLvls C us k))
+          ++ D.motives.map (VExpr.instL (D.projLvls C us k)))
+        (ps.map (·.liftN C.fields.length)
+          ++ [projMotiveTerm D T C us (ps.map (·.liftN C.fields.length)) k]) := by
+      refine VEnv.HasArgs.append ?_ ?_
+      · rw [VInductDecl'.atRecTele_params_instL (C := C) h3]; exact hqsA
+      · rw [VInductDecl'.motives_eq H]; exact .cons hmotk .nil
+    have hminITk := minor_declType_isType hord hI H h3 h7 hPMk
+    rw [minorType_instL_instAll D C H.nm_eq H.noRec h3 hqsl] at hminITk
+    obtain ⟨hOnMk, -⟩ := VEnv.IsType.mkPi_inv hord hOnΔF hminITk
+    have hPMMk := VEnv.HasArgs.append hPMk
+      (show env.HasArgs U _
+          (VExpr.instAllTele (D.minors.map (VExpr.instL (D.projLvls C us k)))
+            (ps.map (·.liftN C.fields.length)
+              ++ [projMotiveTerm D T C us (ps.map (·.liftN C.fields.length)) k]) 0)
+          [C.projMinor us (ps.map (·.liftN C.fields.length)) k] by
+        rw [VInductDecl'.minors_eq H]; exact .cons hmink .nil)
+    have hFk : env.HasArgs U
+        ((VExpr.instAllTele (C.fields.map fun F => F.type.instL us) ps).reverse ++ Γ)
+        (VExpr.instAllTele
+          ((liftTele (D.nm + D.nmin) (D.atRecTele (C.fields.map (·.type)))).map
+            (VExpr.instL (D.projLvls C us k)))
+          ((ps.map (·.liftN C.fields.length)
+            ++ [projMotiveTerm D T C us (ps.map (·.liftN C.fields.length)) k])
+            ++ [C.projMinor us (ps.map (·.liftN C.fields.length)) k]) 0)
+        (bvars 0 C.fields.length) := by
+      rw [VExpr.instL_liftTele, VInductDecl'.atRecTele_instL (C := C) h3, ← hfeq,
+        List.append_assoc, List.singleton_append,
+        VExpr.instAllTele_liftTele_append
+          (bs := [projMotiveTerm D T C us (ps.map (·.liftN C.fields.length)) k,
+            C.projMinor us (ps.map (·.liftN C.fields.length)) k])
+          (by simp [H.nm_eq, H.nmin_eq])]
+      exact hfieldsA
+    have hspine := VEnv.HasArgs.append hPMMk hFk
+    have hargsEqk : (C.args.map fun a => VExpr.instAll
+          (VExpr.instAll (a.instL us) (ps.map (·.liftN C.fields.length)) C.fields.length)
+          (bvars 0 C.fields.length))
+        = C.args.map fun a => VExpr.instAll (a.instL us) ps C.fields.length := by
+      refine List.map_congr_left fun a ha => ?_
+      have hsp := VExpr.instAll_append (as := ps.map (·.liftN C.fields.length))
+        (bs := bvars 0 C.fields.length) (e := a.instL us) (k := 0)
+      rw [VExpr.length_bvars, Nat.zero_add] at hsp
+      rw [← hsp]
+      exact VExpr.instAll_map_liftN_bvars
+        (by simpa [hps, Nat.add_comm] using (args_closedN hord hI H a ha).instL)
+    have hiota0 := iota_law hord hI H h3 h7 H.nm_eq H.nmin_eq H.noRec (k := k)
+      (Γ := (VExpr.instAllTele (C.fields.map fun F => F.type.instL us) ps).reverse ++ Γ)
+      (ps := ps.map (·.liftN C.fields.length)) (fs := bvars 0 C.fields.length)
+      hOnΔF hqsl (by simp) (VInductDecl'.projLvls_wf h7 k)
+      (VInductDecl'.projLvls_length (C := C) h3 k) H.typesD
+      (by simpa [VInductDecl'.iotaCtx, List.append_assoc, List.map_append] using hspine)
+    rw [hargsEqk] at hiota0
+    have hbvark := Lookup.tele_getElem
+      (As := VExpr.instAllTele (C.fields.map fun F => F.type.instL us)
+        (ps.map (·.liftN C.fields.length)))
+      (Γ := (VExpr.instAllTele (C.fields.map fun F => F.type.instL us) ps).reverse ++ Γ)
+      (i := k) (by simp [hkf])
+    rw [VExpr.length_instAllTele, List.length_map] at hbvark
+    have hminapp := projMinor_app hord (C := C) (us := us)
+      (ps := ps.map (·.liftN C.fields.length)) (k := k) hkf (by simp) hOnMk hfieldsA
+      (VEnv.HasType.bvar hbvark)
+    rw [bvars_getD hkf, Nat.zero_add] at hminapp
+    rw [VInductDecl'.projTerm, VInductDecl'.projCore_eq,
+      VIndType.projMotive_eq' D T C us hargsl]
+    exact VEnv.IsDefEqU.trans henv hOnΔF ⟨_, hiota0⟩ ⟨_, hminapp⟩
+  -- ## the right spine: the minor premise's own field variables
+  have hrgt : ∀ k, k < C.fields.length → env.HasType U
+      ((VExpr.instAllTele (C.fields.map fun F => F.type.instL us) ps).reverse ++ Γ)
+      (.bvar (C.fields.length - 1 - k))
+      (VExpr.instAll ((C.fields.getD k default).type.instL us)
+        (ps.map (·.liftN C.fields.length)
+          ++ (List.range k).map fun m => VExpr.bvar (C.fields.length - 1 - m))) := by
+    intro k hk
+    have hbv : ((List.range k).map fun m => (VExpr.bvar (C.fields.length - 1 - m)))
+        = bvars (C.fields.length - k) k := by
+      rw [VExpr.bvars_eq_map_range]
+      refine List.map_congr_left fun m hm => ?_
+      simp only [List.mem_range] at hm
+      congr 1
+      omega
+    rw [hbv, VExpr.instAll_split_bvars (by omega)
+      (by simpa [hps, Nat.add_comm] using ftype_closedN hcl hk)]
+    have hb := Lookup.tele_getElem
+      (As := VExpr.instAllTele (C.fields.map fun F => F.type.instL us) ps) (Γ := Γ) (i := k)
+      (by simp [hk])
+    rw [VExpr.length_instAllTele, List.length_map, instAllTele_getD (by simp [hk]),
+      Nat.zero_add, fields_getD_map hk] at hb
+    exact .bvar hb
+  have hr := VEnv.HasArgs.ofMap (env := env) (U := U)
+    (Γ := (VExpr.instAllTele (C.fields.map fun F => F.type.instL us) ps).reverse ++ Γ)
+    (As := C.fields.map fun F => F.type.instL us) (as := ps.map (·.liftN C.fields.length))
+    (f := fun m => VExpr.bvar (C.fields.length - 1 - m)) (i := i) (by simp; omega)
+    (fun k hk => by rw [fields_getD_map (by omega)]; exact hrgt k (by omega))
+  rw [← List.map_take] at hr
+  have hDFearlier := VEnv.HasArgsDF.ofMap (env := env) (U := U)
+    (Γ := (VExpr.instAllTele (C.fields.map fun F => F.type.instL us) ps).reverse ++ Γ)
+    (As := C.fields.map fun F => F.type.instL us) (as := ps.map (·.liftN C.fields.length))
+    (f := fun m => D.projTerm T C us (ps.map (·.liftN C.fields.length))
+      (C.args.map fun a => VExpr.instAll (a.instL us) ps C.fields.length) m
+      ((VExpr.const C.name us).mkApp
+        (ps.map (·.liftN C.fields.length) ++ bvars 0 C.fields.length)))
+    (g := fun m => VExpr.bvar (C.fields.length - 1 - m)) (i := i) (by simp; omega)
+    (fun k hk => by
+      rw [fields_getD_map (by omega)]
+      exact VEnv.IsDefEqU.of_l henv hOnΔF (hiota k hk) (hIHc k hk))
+  rw [← List.map_take] at hDFearlier
+  have hDF := VEnv.HasArgsDF.append hqsA.toDF hDFearlier
+  have hrfull := VEnv.HasArgs.append hqsA hr
+  have hΓ' : OnCtx ((D.params.map (VExpr.instL us)
+      ++ (C.fields.take i).map fun F => F.type.instL us).reverse
+      ++ ((VExpr.instAllTele (C.fields.map fun F => F.type.instL us) ps).reverse ++ Γ))
+      (env.IsType U) := by
+    have h0 := OnCtx.instL (env := env) (ls := us) (U' := U) h7 (hCwf.onCtxFields hord i)
+    rw [List.map_append, List.map_reverse, List.map_reverse, ← List.reverse_append] at h0
+    simp only [List.map_map, Function.comp_def] at h0
+    exact OnCtx.appendR hord hOnΔF (OnCtx.ctxClosed hord h0) h0
+  have hcong := VEnv.IsDefEq.instAllCongrSort hord hDF hrfull hΓ'
+    (ftype_hasType hord H hI h3 h7 hcl hi _)
+  -- ## the β-reduction of the lifted motive
+  have hearlierQ := projArgs_hasArgs hord hI H h3 h7 hcl (Nat.le_of_lt hi)
+    (fun m hm => hIH m hm) hOnΔF hqsl hqsA
+  have hbodyQ := projMotiveBody_hasType hord hI H h3 h7 hcl hi (hlv i (Nat.le_refl _))
+    hqsl hqsA hearlierQ
+  obtain ⟨hOnQ, hctorTyQ⟩ := motiveCtx_wf hord hI H h3 h7 hOnΔF hqsl hqsA
+  have hctorInstQ : VExpr.instAll ((VExpr.const T.name us).mkApp
+      ((ps.map (·.liftN C.fields.length)).map (·.liftN T.indices.length)
+        ++ bvars 0 T.indices.length))
+      (C.args.map fun a => VExpr.instAll (a.instL us) ps C.fields.length) 0
+      = (VExpr.const T.name us).mkApp (ps.map (·.liftN C.fields.length)
+        ++ C.args.map fun a => VExpr.instAll (a.instL us) ps C.fields.length) := by
+    have hcancel : ∀ p : VExpr, VExpr.instAll (p.liftN T.indices.length)
+        (C.args.map fun a => VExpr.instAll (a.instL us) ps C.fields.length) 0 = p := by
+      intro p; rw [← hargsl]; exact VExpr.instAll_liftN _ _ _
+    rw [VExpr.instAll_mkApp, VExpr.instAll_const, List.map_append, List.map_map,
+      VExpr.map_instAll_bvars' hargsl]
+    simp [Function.comp_def, hcancel]
+  have hArgsQ := VEnv.HasArgs.concat hargsA
+    (show env.HasType U _ _ _ by rw [hctorInstQ]; exact hctorT)
+  have hbetaQ := VEnv.IsDefEq.betaMkLams hord
+    (as := (C.args.map fun a => VExpr.instAll (a.instL us) ps C.fields.length)
+      ++ [(VExpr.const C.name us).mkApp
+        (ps.map (·.liftN C.fields.length) ++ bvars 0 C.fields.length)])
+    (by simp only [List.reverse_append, List.reverse_cons, List.reverse_nil,
+          List.nil_append, List.cons_append]
+        exact ⟨hOnQ, hctorTyQ⟩)
+    hArgsQ
+    (by simp only [List.reverse_append, List.reverse_cons, List.reverse_nil,
+          List.nil_append, List.cons_append]
+        exact hbodyQ)
+  rw [VExpr.mkLams_append, VExpr.instAll_sort,
+    projMotiveBody_instAll D T C us hcl hi (ps := ps.map (·.liftN C.fields.length))
+      (js := C.args.map fun a => VExpr.instAll (a.instL us) ps C.fields.length)
+      (x := (VExpr.const C.name us).mkApp
+        (ps.map (·.liftN C.fields.length) ++ bvars 0 C.fields.length)) hqsl hargsl] at hbetaQ
+  -- ## assemble
+  rw [projMotiveTerm_liftN hord H hcl hi hps, projMotiveTerm]
+  exact VEnv.IsDefEq.defeqDF
+    (hbetaQ.trans (VEnv.IsDefEq.defeqDF (VEnv.IsDefEq.sortDF (VLevel.WF.inst h7)
+      (VLevel.WF.inst (VInductDecl'.projLvls_wf (C := C) h7 i)) (hlv i (Nat.le_refl _)))
+      hcong)).symm (hrgt i hi)
+
+set_option maxHeartbeats 1000000 in
+theorem projTerm_hasType {env : VEnv} {U : Nat} {S : Lean.Name}
+    {D : VInductDecl'} {T : VIndType} {C : VIndCtor} {us : List VLevel}
+    (henv : VEnv.WF env) (H : env.IsStructure S D T C)
+    (h3 : us.length = D.uvars) (h7 : ∀ l ∈ us, l.WF U) :
+    ∀ i, i < C.fields.length →
+      (∀ k, k ≤ i → (C.fields.getD k default).lvl.inst us
+          ≈ D.elimLvl.inst (D.projLvls C us k)) →
+      ProjHasType env U S D T C us i := by
+  have hord := henv.ordered
+  have hI := H.iotaCtx hord
+  have hcl := H.projClosed hord
+  intro i
+  induction i using Nat.strongRecOn with
+  | _ i IH =>
+  intro hi hlv Γ ps ιs e hΓ he hps hιs hpsA hιsA
+  have hIH : ∀ k, k < i → ProjHasType env U S D T C us k := fun k hk =>
+    IH k hk (by omega) (fun m hm => hlv m (by omega))
+  have hearlier := projArgs_hasArgs hord hI H h3 h7 hcl (Nat.le_of_lt hi) hIH hΓ hps hpsA
+  have hmotT := projMotiveTerm_hasType hord hI H h3 h7 hcl hi (hlv i (Nat.le_refl _))
+    hIH hΓ hps hpsA
+  have hbodyT := projMotiveBody_hasType hord hI H h3 h7 hcl hi (hlv i (Nat.le_refl _))
+    hps hpsA hearlier
+  obtain ⟨hOnΔ1, hctorTyIT⟩ := motiveCtx_wf hord hI H h3 h7 hΓ hps hpsA
+  rw [VInductDecl'.projTerm, VInductDecl'.projCore_eq,
+    VIndType.projMotive_eq' D T C us hιs]
+  refine projCore_hasType hord hI H h3 h7 hps hιs he hpsA hιsA hmotT ?_ ?_
+  · -- Step 1, the minor arm
+    exact projMinor_hasType henv hI H h3 h7 hcl i hi hlv hIH hΓ hps hpsA
+  · -- Step 4, the type side
+    have hctorInst : VExpr.instAll ((VExpr.const T.name us).mkApp
+        (ps.map (·.liftN T.indices.length) ++ bvars 0 T.indices.length)) ιs 0
+        = (VExpr.const S us).mkApp (ps ++ ιs) := by
+      have hcancel : ∀ p : VExpr, VExpr.instAll (p.liftN T.indices.length) ιs 0 = p := by
+        intro p; rw [← hιs]; exact VExpr.instAll_liftN _ _ _
+      rw [VExpr.instAll_mkApp, VExpr.instAll_const, List.map_append, List.map_map,
+        VExpr.map_instAll_bvars' hιs, H.name]
+      simp [Function.comp_def, hcancel]
+    have hArgs : env.HasArgs U Γ
+        (VExpr.instAllTele (T.indices.map (VExpr.instL us)) ps
+          ++ [(VExpr.const T.name us).mkApp
+                (ps.map (·.liftN T.indices.length) ++ bvars 0 T.indices.length)])
+        (ιs ++ [e]) := VEnv.HasArgs.concat hιsA (by rw [hctorInst]; exact he)
+    have hbeta := VEnv.IsDefEq.betaMkLams hord (as := ιs ++ [e])
+      (by simp only [List.reverse_append, List.reverse_cons, List.reverse_nil,
+            List.nil_append, List.cons_append]
+          exact ⟨hOnΔ1, hctorTyIT⟩)
+      hArgs
+      (by simp only [List.reverse_append, List.reverse_cons, List.reverse_nil,
+            List.nil_append, List.cons_append]
+          exact hbodyT)
+    rw [VExpr.mkLams_append, VExpr.instAll_sort] at hbeta
+    rw [projMotiveBody_instAll D T C us hcl hi (x := e) hps hιs] at hbeta
+    exact ⟨_, hbeta⟩
+
+end
+
 /-- Restated with the two contexts identified.  The `Δ`/`Γ` of the original statement were
 unrelated, which claimed the translation is context-independent; the sole consumer (the
 `proj` case of `TrExprS.wf`) instantiates them to the same context.
 
-**Plan of the remaining proof.**  Every ingredient below exists and is sorry-free in
-`Theory/Inductive/{Structure,StructureClosed,TelescopeLift,RecApp}.lean`; what is left is
-assembly.  Written out arm by arm so a successor starts from the plan, not a goal state.
+**What is proved, and what is left.**  `projTerm_hasType` (just above) proves this whenever
+the elimination level the encoding uses is legal at *every* field index `≤ i`:
 
-**Step 0 — the statement to prove first.**  `wf` is a corollary of a strengthened lemma,
-because `projCore`'s motive for field `i` mentions the projections of fields `< i`, so the
-induction must be on the field index:
+    ∀ k ≤ i, (C.fields.getD k default).lvl.inst us ≈ D.elimLvl.inst (D.projLvls C us k)
 
-```
-theorem projTerm_hasType (henv : env.Ordered) (H : env.IsStructure S D T C)
-    (h3 : us.length = D.uvars) (h7 : ∀ l ∈ us, l.WF U) :
-  ∀ i, i < C.fields.length →
-    (D.isLE = true ∨ ∀ k, k ≤ i → (k = i ∨ C.FieldUsed D 0 k) →
-      (C.fields.getD k default).lvl.inst us ≈ .zero) →
-    ∀ {Γ ps ιs e}, OnCtx Γ (env.IsType U) →
-      env.HasType U Γ e ((VExpr.const S us).mkApp (ps ++ ιs)) →
-      ps.length = D.np → ιs.length = T.indices.length →
-      env.HasArgs U Γ (D.params.map (VExpr.instL us)) ps →
-      env.HasArgs U Γ (VExpr.instAllTele (T.indices.map (VExpr.instL us)) ps) ιs →
-      env.HasType U Γ (D.projTerm T C us ps ιs i e)
-        (VExpr.instAll ((C.fields.getD i default).type.instL us)
-          (ps ++ (List.range i).map (fun k => D.projTerm T C us ps ιs k e)))
-```
+* If `D.isLE = true` that premise is a reflexivity — `elimLvl` is `.param 0` and `projLvls`
+  prepends exactly `lvl_k.inst us` — so **the large-eliminating case is finished**, and that
+  is the case every `Type`-valued structure falls in.
+* If `D.isLE = false` the premise reads `∀ k ≤ i, lvl_k.inst us ≈ .zero`, while `TrProj`
+  records only the *guarded* F17 form
+  `∀ k ≤ i, (k = i ∨ C.FieldUsed D 0 k) → lvl_k.inst us ≈ .zero`.  The two differ exactly on
+  fields `k < i` that the rest of the constructor's telescope does not use, and the `sorry`
+  below is that difference — nothing else.
 
-`Γ`/`ps`/`ιs`/`e` are quantified *after* `i` so the IH applies at the shifted context;
-`induction i using Nat.strongRecOn`.  This skeleton is verified to elaborate, and
-`recApp_hasType''` applies to it with `u := 0`, `ms := [mot]`, `mins := [minor]`, its
-subject term matching the goal's **syntactically** (checked side by side).
+**That difference is not a missing lemma; it is the case the guard exists for.**  Take
+`structure Foo (α : Type) where (a : α) (h : True)`, declared with `isLE = false`
+(`VInductDecl'.isLE` is a *claim*, constrained by `WF` only in the `true` direction, so such
+a record is legal).  Field 0 is used neither by `True` nor by the constructor's result, so
+`TrProj env U Γ Foo 1 e _` is derivable — as it must be, since both kernels accept
+`.proj Foo 1` there: `inferProj` drops an unused binder with `r := b` and no `isProp` check.
+But `D.projTerm … 0 x` is then **ill-typed**: its motive body is `α`, a `Sort u`, and a
+non-large-eliminating recursor demands a `Prop` motive.  So the induction cannot be run at
+`k = 0`.  No rearrangement fixes this: `projTerm … 1 e` is well-typed only because `instAll`
+*discards* the projection of field 0, and every route from "`Aᵢ` does not mention field `k`"
+to "field `k`'s binder may be dropped from the context" is **strengthening** —
+`HasType.weakN_iff` / `IsDefEqU.weakN_iff` (`Theory/Typing/UniqueTyping.lean:174`, `sorry`),
+whose only planned route is Church-Rosser, itself gated on a `VEnv.Params` instance.
+`VIndCtor.not_fieldUsed_skips` (`Theory/Inductive/Structure.lean`) is the skip fact; it is
+stated and unused for exactly this reason.
 
-**Step 1 — `hspine`.**  `HasArgs.append` twice, over
-`(atRecTele params).map (instL ls) ++ motives.map (instL ls) ++ minors.map (instL ls)`.
-* parameters: the recorded `HasArgs`, after rewriting `(atRecTele D.params).map (instL ls)`
-  to `D.params.map (instL us)` by `VExpr.instL_instL` + `VInductDecl'.selfLvls_inst`.
-* motive: type is `motiveType_instL_instAll`; inhabit it by `HasType.mkLams` then
-  `HasType.lam`, whose body obligation is `instAll_field_isType` — supply its two `HasArgs`
-  from the recorded parameter premise (weakened by `HasArgs.weakN`, telescope fixed by
-  `VExpr.liftTele_eq_self` since parameters are closed) and from `HasArgs.ofMap` fed by the
-  **induction hypothesis**, using `VInductDecl'.projArgs_eq_map`.  If `D.isLE = false`,
-  convert the sort with the F17 premise via `sortDF`/`defeqDF`.
-* minor: type is `minorType_instL_instAll`; inhabit by `HasType.mkLams`, leaving
-  `.bvar (nf-1-i)` to be typed at the motive-applied codomain.  Its `Lookup` type is
-  `(instAll ftype_i ps i).liftN (nf-i)`, so this needs
-  `IsDefEq.instAllCongrSort` with the spine `[proj_j ctorapp]` versus `[fieldvar_j]`,
-  each entry from `iota_law` chained with `projMinor_app` (this is why `wf` takes
-  `VEnv.WF env`: the two land at different types and `IsDefEqU.trans`/`of_l` are needed).
+Also note the minor arm needs the *same* skip-awareness, and there it is cheap: the
+congruence `instAllCongrSort` may be run on a *mixed* spine (`proj_k (mk ps fs)` at used `k`,
+the field variable `fₖ` at unused `k`), because both are well-typed in the minor's own
+context and the substituted results are syntactically equal.  Only the motive arm is stuck,
+because in the motive's context — `ι…, x : S ps ι` — an unused field's type has no
+inhabitant at all.
 
-**Step 2 — `hidx`.**  `VInductDecl'.idxTele_collapse`, then the recorded index premise.
-
-**Step 3 — `he`.**  The recorded typing, after `VInductDecl'.selfLvls_inst` rewrites
-`(const T.name (selfLvls.map (inst ls)))` to `(const S us)` (`H.name : T.name = S`).
-
-**Step 4 — the type side.**  `recApp_hasType''` concludes at `mot.mkApp (ιs ++ [e])`;
-convert to the stated type with `IsDefEq.betaMkLams` (note
-`mkLams As (.lam X b) = mkLams (As ++ [X]) b`) and then the equation
-`VIndType.projMotive_instAll`-shaped computation: `VExpr.instAll_instAll` to compose the two
-substitutions (`ftype` is closed at `np + i` by `ProjClosed`), `VExpr.instAll_liftN` to undo
-the parameter lift, `VExpr.map_instAll_bvars_mid` for the index block, and
-`VInductDecl'.projTerm_instAll` to turn projections of `.bvar 0` into projections of `e`.
-
-**Step 5 — `wf`.**  `⟨_, projTerm_hasType …⟩`; `VExpr.WF` needs only *some* type. -/
+Three ways out, each a decision rather than a proof:
+1. land `IsDefEqU.weakN_iff` (PLAN calls it "routine-ish"; it is not — it is genuine
+   strengthening and needs confluence);
+2. record in `VIndCtor.WF` the field typings in the unused-erased context, so the reduced
+   judgement is available without strengthening;
+3. change `TrProj`'s F17 clause to the blanket `∀ k ≤ i`, accepting a divergence from the
+   C++ kernel of the `bugs-found` item 10 kind (the `Foo` example above is then rejected,
+   and `inferProj.WF` becomes unprovable for it). -/
 theorem TrProj.wf (henv : VEnv.WF env) (hΓ : OnCtx Γ (env.IsType U))
     (H1 : TrProj env U Γ s i e e') (H2 : VExpr.WF env U Γ e) :
-    VExpr.WF env U Γ e' := sorry
+    VExpr.WF env U Γ e' := by
+  obtain @⟨_, D, T, C, us, ps, ιs, _, _, _, HS, he, h3, h4, h5, hi, h7, hpsA, hιsA, hF⟩ := H1
+  refine ⟨_, projTerm_hasType henv HS h3 h7 _ hi ?_ hΓ he h4 h5 hpsA hιsA⟩
+  intro k hk
+  by_cases hLE : D.isLE = true
+  · -- large elimination: `elimLvl.inst (projLvls C us k)` *is* `lvl_k.inst us`.
+    simp only [VInductDecl'.elimLvl, VInductDecl'.projLvls, hLE, if_true, VLevel.inst,
+      List.getD_cons_zero]
+    rfl
+  · simp only [Bool.not_eq_true] at hLE
+    rw [VInductDecl'.elimLvl, VInductDecl'.projLvls, if_neg (by simp [hLE]),
+      if_neg (by simp [hLE])]
+    rcases hF with h | h
+    · exact absurd h (by simp [hLE])
+    · rcases Nat.eq_or_lt_of_le hk with rfl | hlt
+      · -- the projected field itself: F17 covers it (`k = i`)
+        simpa [VLevel.inst] using h k (Nat.le_refl _) (.inl rfl)
+      · by_cases hu : C.FieldUsed D 0 k
+        · -- an earlier field the telescope *uses*: F17 covers it too
+          simpa [VLevel.inst] using h k hk (.inr hu)
+        · -- **The gap**, and the only one.  Field `k < i` is unused, so F17 says nothing
+          -- about `lvl_k`, and `lvl_k ≉ 0` is possible (`Foo` in the docstring above).
+          -- `projTerm … k x` is then genuinely ill-typed, even though `projTerm … i e`
+          -- is fine, because `instAll` discards it.  Closing this needs strengthening.
+          sorry
 
 theorem TrExpr.wf (H : TrExpr env Us Δ e e') : VExpr.WF env Us.length Δ.toCtx e' :=
   let ⟨_, _, _, H⟩ := H; ⟨_, H.hasType.2⟩
