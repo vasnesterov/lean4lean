@@ -5,7 +5,7 @@ Goal: a fully verified Lean 4 kernel — complete the implementation, specificat
 ## Stop condition
 
 1. The Kernel Arena suite passes: `uv run lka.py run --checker lean4lean-local` in `~/lean-kernel-arena`, every non-`either` test correct.
-2. `Lean4Lean.leanTT_equiconsistent_zfc_omega_inaccessibles` (`Lean4Lean/Theory/Equiconsistency.lean`) is proven — no `sorry` in its cone, axioms at most `propext`/`Classical.choice`/`Quot.sound`, nothing else — with its statement unchanged. Filling the statement's `sorry`-backed definitions (`VInductDecl.WF`, `VEnv.addInduct`, `AddInduct`, `TrProj`) is required, but needs human review; any other statement-layer change is forbidden.
+2. **Soundness of the Lean kernel**: `Lean4Lean.kernel_sound` (`Lean4Lean/Verify/Soundness.lean`) is proven — if the executable checker accepts the standard prelude plus axiom-free declarations and certifies a safe proof of `∀ p : Prop, p`, then ZFC + {≥ n inaccessibles | n ∈ ω} is inconsistent. No `sorry` in its proof cone; axioms at most `propext`/`Classical.choice`/`Quot.sound` plus `Lean4Lean/Verify/Axioms.lean`. Its statement (everything `Soundness.lean` defines, and the Foundation side it imports) must remain unchanged; the file's build-time adequacy `#eval` checks must keep passing. Everything else — `Lean4Lean/Theory`, the abstract spec, `addDecl.WF` — is proof machinery the swarm may freely design.
 
 Soft guideline (not a hard rule): keep the implementation close to the official C++ kernel (`~/lean4/src/kernel`, pinned at the toolchain version) — divergences belong in `divergences.md`, and faithful mirroring is how this project finds bugs in the C++ kernel (see `bugs-found.md`).
 
