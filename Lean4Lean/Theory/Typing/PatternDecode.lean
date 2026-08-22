@@ -334,6 +334,138 @@ theorem Check.OK_ofLevels {p : Pattern} {df m1 m2} :
 
 end Pattern
 
+/-! ## The right-hand sides
+
+Both shapes' right-hand sides are "a closed term, instantiated at a leaf's levels, applied to
+some of the matched arguments".  Neither construction needs to know it is about an inductive
+block: the ι-shape is parameterised by *where* to cut the two argument lists, and the tie-in
+to `VInductDecl'.iotaRule` happens at the use site. -/
+
+/-- A δ-rule's right-hand side: the closed value, at the head's levels. -/
+def deltaRHS (c : Lean.Name) (v : VExpr) (h : v.Closed) : (Pattern.const c).RHS :=
+  .fixed v () h
+
+@[simp] theorem deltaRHS_apply {c v h m1 m2} :
+    (deltaRHS c v h).apply m1 m2 = v.instL (m1 ()) := rfl
+
+/-- The constructor's `const` leaf of an ι-pattern.  (The recursor's is `LPath.head`.) -/
+def iotaLeafCtor (r c : Lean.Name) (m n : Nat) :
+    (SimplePattern.iota r m c n).toPattern.LPath :=
+  Sum.inr (Pattern.LPath.head _)
+
+/-- An ι-rule's right-hand side: a closed term at the recursor leaf's levels, applied to the
+first `k` matched *recursor* arguments and then the matched *constructor* arguments from `i`
+on.
+
+For `VInductDecl'.iotaRule` the closed term is `iotaLam`, `k = np + nm + nmin` (parameters,
+motives, minors — taken from the recursor's side) and `i = np` (the constructor's fields,
+its parameters being dropped because the recursor's copies were already taken).  In the rule
+itself the two copies of the parameters are literally the same variables, so either side
+would do; a `Check.defeq` clause is what makes the choice sound for an arbitrary match. -/
+def iotaRHS (r c : Lean.Name) (m n : Nat) (v : VExpr) (h : v.Closed) (k i : Nat) :
+    (SimplePattern.iota r m c n).toPattern.RHS :=
+  Pattern.RHS.mkApp (Pattern.RHS.fixed v (Pattern.LPath.head _) h)
+    ((((Pattern.argPaths (.const r) m).take k).map fun x =>
+        (Pattern.RHS.var (p := (SimplePattern.iota r m c n).toPattern) (Sum.inl x)))
+      ++ (((Pattern.argPaths (.const c) n).drop i).map fun y =>
+        (Pattern.RHS.var (p := (SimplePattern.iota r m c n).toPattern) (Sum.inr y))))
+
+theorem iotaRHS_apply {r c : Lean.Name} {m n : Nat} {v : VExpr} {h : v.Closed} {k i : Nat}
+    {m1 m2} {as bs : List VExpr}
+    (ha : (Pattern.argPaths (.const r) m).map (fun p => m2 (Sum.inl p)) = as)
+    (hb : (Pattern.argPaths (.const c) n).map (fun p => m2 (Sum.inr p)) = bs) :
+    (iotaRHS r c m n v h k i).apply m1 m2
+      = (v.instL (m1 (Pattern.LPath.head _))).mkApp (as.take k ++ bs.drop i) := by
+  subst ha; subst hb
+  rw [iotaRHS, Pattern.RHS.apply_mkApp, List.map_append, List.map_map, List.map_map,
+    List.map_take, List.map_drop]
+  rfl
+
+/-! ## The checks
+
+**Do not simplify these to `Check.true`.**
+
+`extra_pat` alone would be satisfied by `Check.true`: the rule's own left-hand side has the
+recursor's and the constructor's copies of the parameters as *literally the same variables*,
+so any clause relating them holds by `rfl` and dropping the clauses only makes `extra_pat`
+easier.  That is precisely the trap.  `pat_wf` quantifies over an **arbitrary** well-typed
+`e` matching the pattern — `rec.{ls} a₁ … a_m (c.{ls'} b₁ … b_n)` with the `aᵢ` and `bⱼ`
+unrelated terms and `ls`, `ls'` unrelated level lists — and the *only* lever for pinning
+them together is the check.  With `Check.true` the redex's reduct is not determined by the
+match, `pat_wf` becomes unprovable by anyone, and nothing in the tree records why.
+
+So the clauses below are the ones `pat_wf` demands, and `extra_pat` discharges them for
+real:
+
+* `iotaParamsCheck` — the recursor's `i`-th parameter argument is defeq to the
+  constructor's.  Needed because `iotaRHS` takes the parameters from the recursor's side
+  while the major premise supplies the constructor's.
+* `iotaIndicesCheck` — the recursor's index arguments are defeq to the constructor's result
+  indices, computed from its parameters and fields.  Without this the ι-rule would fire on
+  a redex whose index arguments disagree with the major premise's type.
+* `iotaLevelsCheck` — the level list at the recursor leaf agrees with the one at the
+  constructor leaf, entry by entry.  `Pattern.Matches` deliberately records a list at every
+  `const` leaf rather than one for the whole match, for exactly this.
+
+`Check.true` is correct only for a δ-rule, where the head carries no arguments at all. -/
+
+/-- The parameter-agreement clauses: recursor argument `t` against constructor argument `t`,
+for the first `np` of each. -/
+def iotaParamsCheck (r c : Lean.Name) (m n np : Nat) :
+    (SimplePattern.iota r m c n).toPattern.Check :=
+  Pattern.Check.ofDefeqs <|
+    (((Pattern.argPaths (.const r) m).take np).zip ((Pattern.argPaths (.const c) n).take np)).map
+      fun xy =>
+        (Pattern.RHS.var (p := (SimplePattern.iota r m c n).toPattern) (Sum.inl xy.1),
+         Pattern.RHS.var (p := (SimplePattern.iota r m c n).toPattern) (Sum.inr xy.2))
+
+/-- The index-agreement clauses: the recursor's index arguments — everything after the first
+`k` — against the supplied computed indices. -/
+def iotaIndicesCheck (r c : Lean.Name) (m n k : Nat)
+    (computed : List (SimplePattern.iota r m c n).toPattern.RHS) :
+    (SimplePattern.iota r m c n).toPattern.Check :=
+  Pattern.Check.ofDefeqs <|
+    (((Pattern.argPaths (.const r) m).drop k).zip computed).map fun xy =>
+      (Pattern.RHS.var (p := (SimplePattern.iota r m c n).toPattern) (Sum.inl xy.1), xy.2)
+
+/-- The level-agreement clauses: entry `ij.1` of the recursor leaf's list against entry
+`ij.2` of the constructor leaf's. -/
+def iotaLevelsCheck (r c : Lean.Name) (m n : Nat) (pairs : List (Nat × Nat)) :
+    (SimplePattern.iota r m c n).toPattern.Check :=
+  Pattern.Check.ofLevels <|
+    pairs.map fun ij =>
+      (Pattern.LPath.head _, ij.1, iotaLeafCtor r c m n, ij.2)
+
+/-- The whole ι-check. -/
+def iotaCheck (r c : Lean.Name) (m n np k : Nat)
+    (computed : List (SimplePattern.iota r m c n).toPattern.RHS) (pairs : List (Nat × Nat)) :
+    (SimplePattern.iota r m c n).toPattern.Check :=
+  (iotaParamsCheck r c m n np).append
+    ((iotaIndicesCheck r c m n k computed).append (iotaLevelsCheck r c m n pairs))
+
+theorem iotaCheck_OK {r c : Lean.Name} {m n np k : Nat} {computed pairs} {df m1 m2} :
+    (iotaCheck r c m n np k computed pairs).OK df m1 m2
+      ↔ (∀ xy ∈ ((Pattern.argPaths (.const r) m).take np).zip
+              ((Pattern.argPaths (.const c) n).take np),
+            df (m2 (Sum.inl xy.1)) (m2 (Sum.inr xy.2)))
+        ∧ (∀ xy ∈ ((Pattern.argPaths (.const r) m).drop k).zip computed,
+            df (m2 (Sum.inl xy.1)) (xy.2.apply m1 m2))
+        ∧ (∀ ij ∈ pairs,
+            ((m1 (Pattern.LPath.head _)).getD ij.1 .zero
+              ≈ (m1 (iotaLeafCtor r c m n)).getD ij.2 .zero)) := by
+  rw [iotaCheck, Pattern.Check.OK_append, Pattern.Check.OK_append, iotaParamsCheck,
+    iotaIndicesCheck, iotaLevelsCheck, Pattern.Check.OK_ofDefeqs,
+    Pattern.Check.OK_ofDefeqs, Pattern.Check.OK_ofLevels]
+  simp only [List.mem_map]
+  constructor
+  · rintro ⟨h1, h2, h3⟩
+    exact ⟨fun xy hxy => h1 _ ⟨xy, hxy, rfl⟩, fun xy hxy => h2 _ ⟨xy, hxy, rfl⟩,
+      fun ij hij => h3 _ ⟨ij, hij, rfl⟩⟩
+  · rintro ⟨h1, h2, h3⟩
+    exact ⟨by rintro _ ⟨xy, hxy, rfl⟩; exact h1 xy hxy,
+      by rintro _ ⟨xy, hxy, rfl⟩; exact h2 xy hxy,
+      by rintro _ ⟨ij, hij, rfl⟩; exact h3 ij hij⟩
+
 /-! ## Decoder correctness
 
 Two shapes, each proved directly rather than by construction — the decoder cannot know
@@ -350,6 +482,24 @@ theorem decodeSimple_iota (r c : Lean.Name) (ls ls' : List VLevel) (as bs : List
     VExpr.spine_mkApp (e := VExpr.const c ls') (by nofun),
     List.reverse_append, List.reverse_cons, List.reverse_nil, List.nil_append,
     List.singleton_append, List.length_reverse]
+
+/-- **The ι-shape matches its pattern, with both argument lists read back.**  The `varN`
+readback on each side, combined.  Both level lists are recorded — the recursor's at every
+left leaf and the constructor's at every right leaf — which is what lets a `Check.level`
+clause relate them. -/
+theorem matches_iota_paths (r c : Lean.Name) (ls ls' : List VLevel) {m n : Nat}
+    (as bs : List VExpr) (hm : as.length = m) (hn : bs.length = n) :
+    ∃ m1 m2, Pattern.Matches (SimplePattern.iota r m c n).toPattern
+        ((VExpr.const r ls).mkApp (as ++ [(VExpr.const c ls').mkApp bs])) m1 m2 ∧
+      (∀ x, m1 (Sum.inl x) = ls) ∧ (∀ y, m1 (Sum.inr y) = ls') ∧
+      (Pattern.argPaths (.const r) m).map (fun p => m2 (Sum.inl p)) = as ∧
+      (Pattern.argPaths (.const c) n).map (fun p => m2 (Sum.inr p)) = bs := by
+  obtain ⟨g1, hg1, hga1⟩ := Pattern.matches_varN_argPaths r ls m as hm
+  obtain ⟨g2, hg2, hga2⟩ := Pattern.matches_varN_argPaths c ls' n bs hn
+  refine ⟨Sum.elim (fun _ => ls) (fun _ => ls'), Sum.elim g1 g2, ?_,
+    fun _ => rfl, fun _ => rfl, hga1, hga2⟩
+  rw [VExpr.mkApp_concat]
+  exact .app hg1 hg2
 
 /-- **The ι-shape matches its pattern.**  Both level lists are recorded — the recursor's at
 the left leaf and the constructor's at the right — which is what lets a `Check.level` clause
