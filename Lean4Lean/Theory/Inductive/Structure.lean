@@ -69,11 +69,18 @@ def projCore (ps is : List VExpr) (i : Nat) (earlier : List VExpr) (e : VExpr) :
   let ni := is.length
   let F := C.fields.getD i default
   let lvls := if D.isLE then F.lvl.inst us :: us else us
+  -- Everything read out of `D`/`T`/`C` is stored at the *block's own* universe numbering
+  -- (`VInductDecl'.ownLvls`), so it has to be moved to the use site's `us` before being
+  -- spliced into a term built at `us`.  This is the same step `VInductDecl'.atRec`
+  -- performs for the recursor construction, at `selfLvls` instead.
+  let ftype := F.type.instL us
+  let ftypes := C.fields.map fun F => F.type.instL us
+  let indices := T.indices.map (·.instL us)
   let mot :=
-    mkLams (instAllTele T.indices ps) <|
+    mkLams (instAllTele indices ps) <|
       .lam ((VExpr.const T.name us).mkApp (ps.map (·.liftN ni) ++ bvars 0 ni)) <|
-        instAll F.type (ps.map (·.liftN (ni+1)) ++ earlier)
-  let minor := mkLams (instAllTele (C.fields.map (·.type)) ps) (.bvar (nf - 1 - i))
+        instAll ftype (ps.map (·.liftN (ni+1)) ++ earlier)
+  let minor := mkLams (instAllTele ftypes ps) (.bvar (nf - 1 - i))
   (VExpr.const (Lean.mkRecName T.name) lvls).mkApp (ps ++ [mot, minor] ++ is ++ [e])
 
 /-- `[proj 0 (.bvar 0), …, proj (i-1) (.bvar 0)]`: the earlier projections of a

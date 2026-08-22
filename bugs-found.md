@@ -208,6 +208,53 @@ because they are what `kernel_sound` is stated against.
    `Bridge.lean`) and is not on the critical path, since the fragment is already
    closed.
 
+10. **`.proj` on a *recursive* single-constructor inductive is accepted by both
+    kernels and cannot be modelled by `TrProj`.** `VExpr` has no projection
+    constructor, so `TrProj` (`Verify/Typing/Expr.lean`) translates `Expr.proj`
+    into the recursor application `VInductDecl'.projTerm`
+    (`Theory/Inductive/Structure.lean`), whose minor premise is
+    `fun f₀ … f_{n-1} => fᵢ` — it binds only the constructor's fields. A
+    constructor with recursive fields has a minor premise that *also* binds the
+    induction hypotheses (`D.ihTypes`), so that term has the wrong arity, and
+    `VEnv.IsStructure.noRec : C.recFields = []` therefore restricts `TrProj` to
+    non-recursive constructors.
+
+    `structure` never emits a recursive constructor, so the elaborator cannot
+    produce this — but `kernel_sound` quantifies over arbitrary `Declaration`
+    lists, and `inferProj` (`TypeChecker.lean:233`) checks only that the type has
+    a single constructor and enough parameters. It never looks at recursiveness.
+
+    **Measured, not predicted.** With
+
+    ```lean
+    inductive R : Type | mk : R → Nat → R   -- isRec = true, isStructure = false
+    ```
+
+    hand-built declarations `fun r : R => r.0 : R → R` and
+    `fun r : R => r.1 : R → Nat`, containing `Expr.proj`, are **accepted by
+    Lean's own kernel and by `Lean4Lean.addDecl` alike** — for the recursive
+    field as well as the ordinary one. They also *reduce*: with `r₀ : R` an
+    axiom, `theorem _ : pr1 (R.mk r₀ 7) = 7 := Eq.refl 7` is accepted by both
+    kernels, so ι-reduction fires through the hand-built projection and the term
+    is fully computational, not merely well-typed.
+
+    So this is a hole in the proof, not a missing convenience: `addDecl`
+    succeeds, `TrProj` has no derivation, hence `TrExprS` has none,
+    `addDecl.WF`'s conclusion is unavailable, and the soundness argument says
+    nothing about an environment the checker accepted.
+
+    Two ways out, neither implemented — recorded and costed first:
+
+    * **Generalise the minor premise** over `D.ihTypes`, dropping `noRec`. Keeps
+      both kernels in agreement and needs no arena run, but the generalised term
+      cannot be validated the way `projTerm` is: no real Lean structure
+      exercises it, so `StructureExamples.lean` would have nothing to compare
+      against, and the de Bruijn arithmetic would rest on review alone.
+    * **Have `addDecl` reject `.proj` when the constructor has recursive
+      fields.** Smaller and checkable, but it is a deliberate divergence from the
+      C++ kernel — a `divergences.md` entry — and needs an arena run to confirm
+      nothing real depends on it.
+
 ## In the 32 frozen axioms
 
 Not yet audited. `Lean4Lean/Verify/Axioms.lean` asserts 32 unproven facts about

@@ -229,5 +229,68 @@ example : mkLams subtypeCtx
       @Subtype.rec α p (fun x => p (@Subtype.rec α p (fun _ => α) (fun v h => v) x))
         (fun v h => h) s) := rfl
 
+/-! ## `TP` — a field type that mentions a universe parameter
+
+**This block exists because the other four could not catch a real bug.**  `Prod`, `Sigma`,
+`And` and `Subtype` all have field types built only from `bvar`/`app`, with no `Sort` in
+them, so every check above passes whether or not `projCore` moves the stored field types
+from the block's own universe numbering to the use site's `us`.  It did not, and the
+motive came out carrying a dangling `.param` of the block.
+
+Catching it needs two things at once: a field whose *type* contains a universe parameter,
+and a use at levels **other than** the block's own — instantiating at `ownLvls` makes
+`instL` the identity and hides the bug.  Hence `snd : Type v`, used at `us = [0, 0]`.
+
+There is no such structure in core, so this one is declared here. -/
+
+structure TP (α : Type u) where
+  fst : α
+  snd : Type v
+
+def tpParams : List VExpr := [.sort (.succ (.param 0))]
+
+def tpMk : VIndCtor where
+  name := ``TP.mk
+  params := tpParams
+  fields :=
+    [{ type := .bvar 0, lvl := .succ (.param 0), recArg := none },
+     { type := .sort (.succ (.param 1)), lvl := .succ (.succ (.param 1)), recArg := none }]
+  args := []
+
+def tpType : VIndType where
+  name := ``TP
+  type := mkPi tpParams (.sort (.max (.succ (.param 0)) (.succ (.succ (.param 1)))))
+  indices := []
+  ctors := [tpMk]
+
+def tpDecl : VInductDecl' where
+  uvars := 2
+  params := tpParams
+  lvl := .max (.succ (.param 0)) (.succ (.succ (.param 1)))
+  isLE := true
+  types := [tpType]
+
+example : tpType.canonType tpDecl = (vconst(type_of% @TP)).type := rfl
+example : tpMk.type tpDecl 0 = (vconst(type_of% @TP.mk)).type := rfl
+example : rot3 (tpDecl.recType 0) = (vconst(type_of% @TP.rec)).type := rfl
+example : tpMk.recFields = [] := rfl
+
+/-- `TP.{0,0} Nat`, i.e. the block used at levels other than its own. -/
+def tpCtx00 : List VExpr := [(VExpr.const ``TP [.zero, .zero]).mkApp [.const ``Nat []]]
+
+/-- `(p : TP.{0,0} Nat).snd : Type 0`.  The stored field type is `Sort (v+1)`; the motive
+must read `Sort 1`.  Before the `instL us` fix it read `Sort (.param 1 + 1)` — a universe
+parameter with nothing to bind it — and this `rfl` failed. -/
+example : mkLams tpCtx00
+    (tpDecl.projTerm tpType tpMk [.zero, .zero] [.const ``Nat []] [] 1 (.bvar 0)) =
+    vexpr(fun (p : TP Nat) => @TP.rec Nat (fun _ => Type) (fun a b => b) p) := rfl
+
+/-- The first field at the same concrete levels, where the *minor premise* carries the
+level-bearing binder. -/
+example : mkLams tpCtx00
+    (tpDecl.projTerm tpType tpMk [.zero, .zero] [.const ``Nat []] [] 0 (.bvar 0)) =
+    vexpr(fun (p : TP Nat) =>
+      @TP.rec Nat (fun _ => Nat) (fun (a : Nat) (b : Type) => a) p) := rfl
+
 end StructureExamples
 end Lean4Lean

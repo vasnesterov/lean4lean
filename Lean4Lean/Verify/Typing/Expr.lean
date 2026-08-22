@@ -1,4 +1,5 @@
 import Lean4Lean.Theory.Typing.Basic
+import Lean4Lean.Theory.Inductive.Structure
 import Lean4Lean.Verify.NameGenerator
 import Lean4Lean.Verify.VLCtx
 import Lean4Lean.Verify.Axioms
@@ -64,6 +65,7 @@ theorem VLCtx.WF.fvwf : ∀ {Δ}, VLCtx.WF env U Δ → Δ.FVWF
   | [], h => h
   | _ :: _, ⟨h1, h2, _⟩ => ⟨h1.fvwf, h2⟩
 
+variable (env : VEnv) (U : Nat) in
 /-- The abstract counterpart of `Lean.Expr.proj`.
 
 `VExpr` has no projection constructor, so a projection has to be translated into the term
@@ -76,7 +78,6 @@ at the only call site.
 Given `Γ, s, i, e`, every remaining input is pinned by the premises, so `e''` is a
 function of them *provided* `s` determines the block.  That last step is the one thing
 `VEnv.IsStructure` deliberately does not supply (ledger G4); see `TrProj.uniq`. -/
-variable (env : VEnv) (U : Nat) in
 inductive TrProj : List VExpr → Name → Nat → VExpr → VExpr → Prop
   | mk {S : Name} {D T C us ps ιs Γ e i} :
     env.IsStructure S D T C →
@@ -126,7 +127,9 @@ inductive TrExprS : VLCtx → Expr → VExpr → Prop
     TrExprS Δ (.letE name ty val body nd) body'
   | lit : env.ContainsLits l → TrExprS Δ l.toConstructor e → TrExprS Δ (.lit l) e
   | mdata : TrExprS Δ e e' → TrExprS Δ (.mdata d e) e'
-  | proj : TrExprS Δ e e' → TrProj Δ.toCtx s i e' e'' → TrExprS Δ (.proj s i e) e''
+  | proj :
+    TrExprS Δ e e' → TrProj env Us.length Δ.toCtx s i e' e'' →
+    TrExprS Δ (.proj s i e) e''
 
 def TrExpr (env : VEnv) (Us : List Name) (Δ : VLCtx) (e : Expr) (e' : VExpr) : Prop :=
   ∃ e₂, TrExprS env Us Δ e e₂ ∧ env.IsDefEqU Us.length Δ.toCtx e₂ e'
