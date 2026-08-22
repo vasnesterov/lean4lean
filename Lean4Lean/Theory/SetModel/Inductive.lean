@@ -97,24 +97,6 @@ function. -/
 lemma rank_lt_of_kpair_mem {f b y : V} (h : (⟨b, y⟩ₖ : V) ∈ f) : rank y < rank f :=
   lt_trans (rank_lt_kpair_right b y) (rank_lt_of_mem h)
 
-/-- **Rank induction**, derived from Foundation's transfinite induction on
-ordinals.  External well-founded recursion on `V` is *not* available (a model of
-`𝗭𝗙` need not be externally well-founded), so this internal form is what the
-recursor is built on. -/
-theorem rank_induction (P : V → Prop) (hP : ℒₛₑₜ-predicate P)
-    (ih : ∀ x : V, (∀ y : V, rank y < rank x → P y) → P x) : ∀ x : V, P x := by
-  have key : ∀ α : Ordinal V, ∀ x : V, rankV x = α.val → P x := by
-    refine transfinite_induction (fun c ↦ ∀ x : V, rankV x = c → P x) (by definability) ?_
-    intro α ihα x hx
-    refine ih x fun y hy ↦ ?_
-    have hy' : rank y < α := by
-      have : rank y < rank x := hy
-      have hxe : rank x = α := Ordinal.ext hx
-      exact hxe ▸ this
-    exact ihα (rank y) hy' y rfl
-  intro x
-  exact key (rank x) x rfl
-
 end RankAux
 
 /-! ## The signature -/
@@ -439,13 +421,6 @@ lemma rank_lt_indCtorVal {q a f b y : V} (h : (⟨b, y⟩ₖ : V) ∈ f) :
     rank y < rank (indCtorVal q a f) :=
   lt_trans (rank_lt_of_kpair_mem h)
     (lt_trans (rank_lt_kpair_right a f) (rank_lt_kpair_right q (⟨a, f⟩ₖ : V)))
-
-lemma kpair_value_mem {X Y g b : V} (hg : g ∈ (Y ^ X : V)) (hb : b ∈ X) :
-    (⟨b, g ‘ b⟩ₖ : V) ∈ g := by
-  obtain ⟨y, -, hy⟩ := exists_of_mem_function hg b hb
-  have : IsFunction g := IsFunction.of_mem hg
-  rw [value_eq_of_kpair_mem hy]
-  exact hy
 
 variable (hS : S.WF) (hD : IsIndCarrier S D) (hE : IsMinorPremise S D R e)
 
@@ -780,12 +755,18 @@ side really intends to allow F8, this datum must change.**
 
 **Not covered — existence of the carrier `D`.**  Everything is relative to
 `IsIndCarrier S D`.  Producing such a `D` inside `Vset κ` is the transfinite
-iteration of §10, and it needs to bound `range f` for `f : Pos q a → Vset β`
-with `Pos q a` an arbitrary member of `Vset κ` — i.e. full replacement inside
-`V_κ`, which is the cardinal-arithmetic gap recorded in `Inaccessible.lean`
-(`∀ β < κ, ∃ a ∈ κ, Vset β ≤# a`).  `repl_mem_vsetV` only supplies replacement
-along an *ordinal* index set.  This is the single remaining obstruction on the
-model side of inductive types, and it is the same obstruction as before.
+iteration of §10.  Its cardinal-arithmetic prerequisite is now **closed**:
+`SetModel/Cardinal.lean` proves `exists_cardLE_of_mem` (`|V_β| < κ`) and hence
+`repl_mem_vsetV'` and `range_mem_vsetV`, so a stage-valued function on any
+`B ∈ Vset κ` has its range inside the stage.
+
+What is left is the *closure-ordinal* argument: iterate
+`Φ₀(S) = {⟨q,⟨a,f⟩ₖ⟩ₖ | q ∈ Q, a ∈ Fld q, f ∈ S ^ Pos q a}` along the ordinals
+with `transrec`, show each stage lies in `Vset κ` (this is exactly what
+`range_mem_vsetV` now supplies), and show the iteration stabilises at some
+`λ < κ` — the last step being regularity applied to the index set `Pos q a`,
+also now available via `exists_rank_bound_of_mem_vsetV`.  No further
+prerequisite is missing; it is bounded, ordinary work.
 -/
 
 end Lean4Lean.SetModel

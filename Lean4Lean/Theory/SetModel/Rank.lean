@@ -473,6 +473,52 @@ theorem rank_mono {x y : V} (h : x ⊆ y) : rank x ≤ rank y :=
   have h' : rank (Vset α) < α := lt_of_not_ge h
   exact mem_irrefl _ (mem_Vset_iff_rank_lt.mpr h')
 
+/-! ## Two general-purpose lemmas that live here because everything imports it -/
+
+/-- `f ‘ x = y` whenever `⟨x, y⟩ₖ ∈ f`.  Foundation proves `value_mem_range` but
+never this; it is needed by every construction that actually *applies* an
+internal function. -/
+lemma value_eq_of_kpair_mem {f x y : V} [IsFunction f] (h : ⟨x, y⟩ₖ ∈ f) : f ‘ x = y := by
+  ext z
+  constructor
+  · intro hz
+    have hz' : z ∈ ⋃ˢ (range f) ∧ ∃ w, z ∈ w ∧ ⟨x, w⟩ₖ ∈ f := by simpa [value] using hz
+    obtain ⟨-, w, hzw, hxw⟩ := hz'
+    have hw : w = y := IsFunction.unique hxw h
+    exact hw ▸ hzw
+  · intro hz
+    have hu : z ∈ ⋃ˢ (range f) := mem_sUnion_iff.mpr ⟨y, mem_range_of_kpair_mem h, hz⟩
+    have h' : z ∈ ⋃ˢ (range f) ∧ ∃ w, z ∈ w ∧ ⟨x, w⟩ₖ ∈ f := ⟨hu, y, hz, h⟩
+    simpa [value] using h'
+
+/-- `⟨b, g ‘ b⟩ₖ ∈ g` for `b` in the domain: the companion of
+`value_eq_of_kpair_mem`. -/
+lemma kpair_value_mem {X Y g b : V} (hg : g ∈ (Y ^ X : V)) (hb : b ∈ X) :
+    (⟨b, g ‘ b⟩ₖ : V) ∈ g := by
+  obtain ⟨y, -, hy⟩ := exists_of_mem_function hg b hb
+  have : IsFunction g := IsFunction.of_mem hg
+  rw [value_eq_of_kpair_mem hy]
+  exact hy
+
+/-- **Rank induction**, derived from Foundation's transfinite induction on
+ordinals.  External well-founded recursion on `V` is *not* available — a model of
+`𝗭𝗙` need not be externally well-founded, and `Ordinal V`'s order *is* the
+model's membership — so this internal form is what ∈-recursive constructions
+have to be built on. -/
+theorem rank_induction (P : V → Prop) (hP : ℒₛₑₜ-predicate P)
+    (ih : ∀ x : V, (∀ y : V, rank y < rank x → P y) → P x) : ∀ x : V, P x := by
+  have key : ∀ α : Ordinal V, ∀ x : V, rankV x = α.val → P x := by
+    refine transfinite_induction (fun c ↦ ∀ x : V, rankV x = c → P x) (by definability) ?_
+    intro α ihα x hx
+    refine ih x fun y hy ↦ ?_
+    have hy' : rank y < α := by
+      have hlt : rank y < rank x := hy
+      have hxe : rank x = α := Ordinal.ext hx
+      exact hxe ▸ hlt
+    exact ihα (rank y) hy' y rfl
+  intro x
+  exact key (rank x) x rfl
+
 /-! ## Closure properties of `V_α`
 
 None of these needs a large cardinal; the exact hypothesis is stated in each

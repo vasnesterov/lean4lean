@@ -363,22 +363,6 @@ not be the denotation of `Classical.choice`.
 
 section Choice
 
-/-- `f ‘ x = y` whenever `⟨x, y⟩ₖ ∈ f`.  Foundation proves `value_mem_range`
-but never this. -/
-lemma value_eq_of_kpair_mem [V↓[ℒₛₑₜ] ⊧* 𝗭] {f x y : V} [IsFunction f]
-    (h : ⟨x, y⟩ₖ ∈ f) : f ‘ x = y := by
-  ext z
-  constructor
-  · intro hz
-    have hz' : z ∈ ⋃ˢ (range f) ∧ ∃ w, z ∈ w ∧ ⟨x, w⟩ₖ ∈ f := by simpa [value] using hz
-    obtain ⟨-, w, hzw, hxw⟩ := hz'
-    have hw : w = y := IsFunction.unique hxw h
-    exact hw ▸ hzw
-  · intro hz
-    have hu : z ∈ ⋃ˢ (range f) := mem_sUnion_iff.mpr ⟨y, mem_range_of_kpair_mem h, hz⟩
-    have h' : z ∈ ⋃ˢ (range f) ∧ ∃ w, z ∈ w ∧ ⟨x, w⟩ₖ ∈ f := ⟨hu, y, hz, h⟩
-    simpa [value] using h'
-
 variable [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖]
 
 omit [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] in

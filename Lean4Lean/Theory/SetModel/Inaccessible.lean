@@ -38,15 +38,13 @@ the closure properties of `Vset κ` that the Carneiro model needs.
 `IsStrongLimit` is used exactly once, to prove limit-ness; `IsRegular` is used
 exactly once, in `exists_rank_bound_of_regular`.
 
-## Gap
+## Note on the index set
 
-`repl_mem_vsetV` takes its index set to be an element `a ∈ κ`.  Upgrading it to
-an arbitrary `A ∈ Vset κ` requires `∀ β < κ, ∃ a ∈ κ, Vset β ≤# a` (i.e.
-`|V_β| < κ`), whose usual proof needs infinite cardinal arithmetic
-(`|α × β| = max` for infinite cardinals, monotonicity of `℘` under injections,
-a choice of injections at limit stages).  Foundation's `SetTheory/Function.lean`
-supplies only `CardLE`/`CardLT`/`CardEQ`, `cardLE_of_subset` and
-`cardLT_power`, so that is out of reach here and is left out deliberately.
+`repl_mem_vsetV` below takes its index set to be an element `a ∈ κ`, because
+that is all `IsRegular` directly provides.  The generalisation to an arbitrary
+`A ∈ Vset κ` needs `∀ β < κ, ∃ a ∈ κ, Vset β ≤# a` (i.e. `|V_β| < κ`); that is
+proved in `SetModel/Cardinal.lean` as `exists_cardLE_of_mem`, and the general
+replacement is `repl_mem_vsetV'` there.
 -/
 
 namespace Lean4Lean.SetModel
