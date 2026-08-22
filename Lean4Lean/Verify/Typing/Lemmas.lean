@@ -1217,37 +1217,85 @@ the elimination level the encoding uses is legal at *every* field index `≤ i`:
   fields `k < i` that the rest of the constructor's telescope does not use, and the `sorry`
   below is that difference — nothing else.
 
-**That difference is not a missing lemma; it is the case the guard exists for.**  Take
-`structure Foo (α : Type) where (a : α) (h : True)`, declared with `isLE = false`
-(`VInductDecl'.isLE` is a *claim*, constrained by `WF` only in the `true` direction, so such
-a record is legal).  Field 0 is used neither by `True` nor by the constructor's result, so
-`TrProj env U Γ Foo 1 e _` is derivable — as it must be, since both kernels accept
-`.proj Foo 1` there: `inferProj` drops an unused binder with `r := b` and no `isProp` check.
-But `D.projTerm … 0 x` is then **ill-typed**: its motive body is `α`, a `Sort u`, and a
-non-large-eliminating recursor demands a `Prop` motive.  So the induction cannot be run at
-`k = 0`.  No rearrangement fixes this: `projTerm … 1 e` is well-typed only because `instAll`
-*discards* the projection of field 0, and every route from "`Aᵢ` does not mention field `k`"
-to "field `k`'s binder may be dropped from the context" is **strengthening** —
-`HasType.weakN_iff` / `IsDefEqU.weakN_iff` (`Theory/Typing/UniqueTyping.lean:174`, `sorry`),
-whose only planned route is Church-Rosser, itself gated on a `VEnv.Params` instance.
-`VIndCtor.not_fieldUsed_skips` (`Theory/Inductive/Structure.lean`) is the skip fact; it is
-stated and unused for exactly this reason.
+**The witness, and it is forced rather than merely permitted.**  `structure Bar : Prop where
+(n : Nat) (h : True)` — the example `TrProj`'s own F17 comment already measures against both
+kernels.  Its `LECond` is outright **false**: `D.lvl = .zero` is not `IsNeverZero`, and at
+field 0 neither `lvl₀ ≈ .zero` (it is `Nat`) nor `.bvar 1 ∈ C.args` (`C.args = []`, no
+indices).  Since `VInductDecl'.WF.isLE : D.isLE = true → D.LECond`, `isLE = true` is
+unavailable, so `isLE = false` is **forced** here — tightening the `isLE` claim to an iff
+would not help, and that route needs no further thought.  Field 0 is used neither by `True`
+nor by the constructor's result, so `TrProj env U Γ Bar 1 e _` is derivable — as it must be,
+since both kernels accept `.proj Bar 1`: `inferProj` drops an unused binder with `r := b`
+and no `isProp` check.  But `D.projTerm … 0 x` is then **ill-typed**: its motive body is
+`Nat`, a `Sort 1`, and a non-large-eliminating recursor demands a `Prop` motive.  So the
+induction cannot be run at `k = 0`.
 
-Also note the minor arm needs the *same* skip-awareness, and there it is cheap: the
-congruence `instAllCongrSort` may be run on a *mixed* spine (`proj_k (mk ps fs)` at used `k`,
-the field variable `fₖ` at unused `k`), because both are well-typed in the minor's own
-context and the substituted results are syntactically equal.  Only the motive arm is stuck,
-because in the motive's context — `ι…, x : S ps ι` — an unused field's type has no
-inhabitant at all.
+(A `Type`-valued variant exists — `structure Foo (α : Type) where (a : α) (h : True)` with
+`isLE = false`, legal because the claim is only constrained in the `true` direction — but it
+is merely *permitted*, so `Bar` is the one to reason from.)
 
-Three ways out, each a decision rather than a proof:
-1. land `IsDefEqU.weakN_iff` (PLAN calls it "routine-ish"; it is not — it is genuine
-   strengthening and needs confluence);
-2. record in `VIndCtor.WF` the field typings in the unused-erased context, so the reduced
-   judgement is available without strengthening;
-3. change `TrProj`'s F17 clause to the blanket `∀ k ≤ i`, accepting a divergence from the
-   C++ kernel of the `bugs-found` item 10 kind (the `Foo` example above is then rejected,
-   and `inferProj.WF` becomes unprovable for it). -/
+`projTerm … 1 e` is well-typed only because `instAll` *discards* the projection of field 0.
+`VIndCtor.not_fieldUsed_skips` (`Theory/Inductive/Structure.lean`) is the skip fact behind
+that; it is stated and unused for exactly this reason.
+
+**Why transcribing `inferProj`'s loop does not close it.**  The obvious reformulation —
+require well-typedness only at positions that actually occur, the proof-level image of
+`if b.hasLooseBVars then instantiate else r := b` — was tried and does not remove the
+obstruction.  Its *entry point* works: with only the parameter spine typed,
+
+    IsType Δ (mkPi (instAllTele ((C.fields.take i).map (·.type.instL us)) qs)
+                   (instAll ((C.fields.getD i default).type.instL us) qs i))
+
+follows from `ftype_hasType` + `IsType.mkPi` + `HasType.instAll`, with no field argument
+anywhere (checked: it elaborates).  Peeling is then `IsType.forallE_inv`, and a *used*
+binder is discharged by `HasType.instN` at `k = 0` with the induction hypothesis's
+projection.  But an *unused* binder becomes the judgement
+
+    IsType (dom :: Δ) (X.liftN 1)  ⟹  IsType Δ X
+
+which is literally `(IsType.weakN_iff henv hΔ Ctx.LiftN.one).1` — strengthening, not
+something adjacent to it.  The reason is structural: **`inferProj` never establishes that
+`r` is a type.**  It rewrites a term and returns it; its `r := b` step is sound because the
+kernel separately knows `C.type` is well-formed *in the full context*.  `TrProj.wf` demands
+a judgement over `Δ`, which contains no field binders at all, so every field binder must be
+eliminated — substitution eliminates a used one, and an unused one can only be *removed*.
+No reformulation of the conclusion avoids this, because the conclusion's context has one
+fewer binder than the source's.
+
+**The rescoped target.**  That reformulation is still worth doing when the time comes,
+because it shrinks the ask.  Processing outermost-first and immediately either substituting
+or stripping keeps the context exactly `Δ` before and after every step, so the residue is at
+most `i` instances of
+
+    Ctx.LiftN 1 0 Δ (dom :: Δ)
+
+— `n = 1`, `k = 0`, over `Δ` itself — rather than general strengthening.  `k > 0` does not
+reduce to `k = 0`, so this is a genuinely smaller statement than `IsDefEqU.weakN_iff`
+(`Theory/Typing/UniqueTyping.lean:174`, `sorry`), and `NormalEq.weakN_inv_DFC`
+(`Theory/Typing/ChurchRosser.lean:311`) is the lemma that delivers this instance most
+directly.  Both are gated on a `VEnv.Params` instance.  Note also that PLAN calls
+`IsDefEqU.weakN_iff` "routine-ish"; it is not — it is genuine strengthening and needs
+confluence.
+
+The rest of that reformulation is bounded and needs no new mathematics: the peel loop,
+transporting the skip fact through `instL us` (`VExpr.Skips.of_instL`) and through
+`instAll qs` (a small lemma; `qs` substitutes only at strictly higher positions), and
+identifying the accumulated result with `instAll ftypeᵢ (qs ++ earlier)`.
+
+**Two routes considered and set aside.**
+* Record in `VIndCtor.WF` the field typings in the unused-erased context.  True, and it
+  removes the strengthening — but the checker does not establish it: `checkConstructors`
+  checks each field's domain in a context containing the earlier binders, unused ones
+  included.  It would be a recorded premise with no discharge site, which is the one thing
+  this development has consistently refused.  Last resort only, and then with that
+  limitation stated.
+* Change `TrProj`'s F17 clause to the blanket `∀ k ≤ i`.  Declined: it rejects `.proj Bar 1`,
+  which both kernels accept, and `inferProj.WF` becomes unprovable for it — the second
+  narrowing of the `bugs-found` item 10 kind.
+
+**Sequencing.**  Re-evaluate when `VEnv.Params` completes.  If confluence arrives with it,
+the rescoped target above is the answer.  `TrProj.weak'_inv`, `.defeqDFC` and `.uniq` all
+unblock on the same event. -/
 theorem TrProj.wf (henv : VEnv.WF env) (hΓ : OnCtx Γ (env.IsType U))
     (H1 : TrProj env U Γ s i e e') (H2 : VExpr.WF env U Γ e) :
     VExpr.WF env U Γ e' := by
@@ -1271,9 +1319,11 @@ theorem TrProj.wf (henv : VEnv.WF env) (hΓ : OnCtx Γ (env.IsType U))
         · -- an earlier field the telescope *uses*: F17 covers it too
           simpa [VLevel.inst] using h k hk (.inr hu)
         · -- **The gap**, and the only one.  Field `k < i` is unused, so F17 says nothing
-          -- about `lvl_k`, and `lvl_k ≉ 0` is possible (`Foo` in the docstring above).
+          -- about `lvl_k`, and `lvl_k ≉ 0` is possible (`Bar` in the docstring above).
           -- `projTerm … k x` is then genuinely ill-typed, even though `projTerm … i e`
-          -- is fine, because `instAll` discards it.  Closing this needs strengthening.
+          -- is fine, because `instAll` discards it.  Closing this is one `Ctx.LiftN.one`
+          -- strengthening step per unused field; see the docstring, and re-evaluate when
+          -- `VEnv.Params` lands.
           sorry
 
 theorem TrExpr.wf (H : TrExpr env Us Δ e e') : VExpr.WF env Us.length Δ.toCtx e' :=
