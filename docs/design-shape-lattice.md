@@ -971,3 +971,180 @@ matched redex is the body. Running the existing argument under `Δ` needs (a) a 
 "`LE_Interp` respects the body of a `.lam`" (short — the binder is shared by both sides), and
 (b) the two IHs and `W` transported under the telescope, needing `StrongSound` inversion
 through `lam`. Neither is written; this is reported rather than absorbed.
+
+---
+
+## Session update 7: §7's residue is a design problem with no exit
+
+Three exits were scoped; all three are now closed, two of them machine-checked this session.
+This section states the problem at its sharpest, then inventories what a redesign would have
+to change. **It is not a proposal.**
+
+### The tension, minimally
+
+Three properties. Each is stated as precisely as its witness states it.
+
+**(i) `Eq.refl` has a `.ctor` shape.** `LE_Interp.Matches.app`'s index is
+`WShape.ctor' c' rargs'.reverse`, and `Pattern.WF`'s `.const` clause demands a non-top
+constant leaf be `classify`-ed `.ctor`. `Eq.rec`'s ι-rule must be a `Pattern`, because
+`ParamsExtra.extra_pat` demands every `env.defeqs` rule be covered by some `Pat p r` and
+`Params.pat_wf` demands `p.WF classify`. And the rule cannot simply be dropped:
+`eq_large_eliminates` (proved) shows `@Eq.rec`'s motive is `Sort u_1`, so
+`Eq.rec (motive := fun b _ => Nat) 7 rfl` is a `Nat` — not a proof, and its ι-redex is not
+one either.
+
+**(ii) `Eq`'s type-shape is `.indTy false`.** `Classification.indTy` carries `rel`, and
+`ParamsExtra.ctor_ty` ties `rel = true ↔ D.lvl ≠ .zero`. `D.lvl` is the block's common result
+universe, and it is `.zero` for `Eq`. This is a fact about the environment, not a design
+choice.
+
+**(iii) `proofIrrel`.** `WShape.HasType.proofIrrel (ha : HasType a .prop) (hx : HasType x a) :
+x = .bot` — everything at a `Prop` has shape `.bot`.
+
+The three are inconsistent, and the obstruction mentions neither `LE_Interp` nor `Params`:
+
+```lean
+private theorem ctor_not_prop_typed (a : Shape 1) (h : Shape.hasType piX a = true) :
+    Shape.hasType a (Shape.prop (n := 1)) = false
+```
+
+**Proved.** No shape both classifies a `.ctor` and is itself `Prop`-valued. So `Eq.refl`
+cannot simultaneously *have* a `.ctor` shape and *be typed* at its own type.
+
+### The two exits, refuted
+
+**Exit 1 — give up `proofIrrel` at Prop-valued inductives. FALSE.**
+`exit1_bvar_separates` + `exit1_witness`, proved, and they need **no `Params` instance and no
+environment**. `strongSoundS`'s `proofIrrel` case must show
+`LE_Interp ρ m h ↔ LE_Interp ρ m h'` for two proofs of the same `Prop`; two proof *variables*
+are the sharpest instance, because `LE_Interp.bvar` reads the shape straight off the
+valuation, so the two sides see `ρ 0` and `ρ 1` and separate the moment those differ and
+`m ≰ .bot`. `Valuation.Fits.cons` pushes `x` with `x.HasType a` for an `a` realizing the
+variable's type; when that type is a Prop-valued inductive, §7's gating forces `x = .bot`
+(`indTy_false_bot`) and both entries collapse. Exit 1 removes exactly that, `Fits` then admits
+a non-`.bot` proof shape, and the lemma applies. Cost if taken anyway: 1 case in
+`strongSoundS`, 1 use at `Adequacy:428` — and it fails **false and loud**, killing the
+adequacy route to `sort_inv`.
+
+**Exit 2 — give up the `.ctor` leaf in ι-patterns. Both forms closed.**
+(β) — `Pattern.WF` demands `rel = true` at ctor leaves — is refuted by `eq_large_eliminates`
+above, and its failure mode is **vacuous**: `ParamsExtra` becomes unsatisfiable for every
+environment containing `Eq`, with no instance in the tree to notice.
+(α) — keep the rule, give the leaf a `.bot` shape — is refuted by
+`toy_unique_fails`. `Matches.unique`'s `app` case recovers `c'` and `rargs'` *from* the leaf
+shape (`head_wf` → `classify c' = .ctor` → `IsStruct c' = false` → `ctor'` takes its `.ctor`
+branch → `WShape.ctor.inj` + `List.reverse_inj`), so it rests on the leaf being **injective**.
+`ctor'_inj_of_not_struct` proves that injectivity holds today and why; `ToyMatches`, a
+miniature of the `app`/`var` interaction parameterised by the leaf function, then shows
+injective leaf ⇒ uniqueness (`toy_unique_of_inj`) and collapsing leaf ⇒ **uniqueness is
+false**. Measured cost had it been taken: 2 edits in `SExpr.lean`, **107 error instances at 60
+lines** in `ShapeLogRel.lean` *before* `ctor'`'s guard is touched, and then `unique`.
+
+**Exit 3 — give up `InterpTyped`'s totality — degenerates to Exit 1.** The blunt form costs
++21 errors, and the failures (`True.bot_r'`, `True.ty_forallE_inv`) name what the field is
+*for*: `InterpTyped`'s classification is what lets the model **destructure** a shape.
+`sound_app` uses it to learn a function's shape is a `.forallE` before applying it. So the
+interpretation needs a classifying shape only for terms it destructures — and every
+non-`proofIrrel` consumer sits at a `.forallE` or `.sort` type-shape, while a term whose type
+is a Prop-valued inductive is never applied and never a binder's domain. The targeted
+exemption therefore never fires at those sites and costs exactly `proofIrrel`'s input.
+
+### Which of the three is least load-bearing
+
+Not (ii): it is a fact about `Eq`, not a choice.
+
+Not (iii), and this is worth stating carefully, because it looks like the negotiable one.
+`proofIrrel` is not an extra constraint bolted onto the model — **it *is* the model's
+treatment of proofs.** The shape lattice has no representation of proof content; collapsing
+every proof to `.bot` is what makes proof irrelevance hold in it, and `strongSoundS` needs
+that at exactly one case. Give it up and the case is false, as Exit 1 shows.
+
+**(i) is the least load-bearing, but not in the way (α) and (β) tried.** What the model needs
+from a constructor leaf is not that the *shape* be `.ctor` — it is that the matched argument
+list be **recoverable**. Today those are the same thing, because
+`LE_Interp.Matches.app`'s index *is* `WShape.ctor' c' rargs'.reverse`: the shape is the only
+record of `rargs'`. `unique` then reads the arguments back out of it, which is why a
+`.bot` leaf destroys the lemma rather than merely complicating it.
+
+    The shape is doing double duty: it is both the term's semantic shape and the pattern
+    matcher's bookkeeping. §7 forces those two roles apart, and the model has no way to
+    separate them.
+
+### What a redesign would have to change — inventory, not proposal
+
+| component | verdict | reach |
+|---|---|---|
+| `Shape`, `Shape.hasType` | **gains a case; already done** | §7's gating (`.ctor _ _, .indTy r => r`) is applied and `proofIrrel` is proved. Nothing further needed here. |
+| `Pattern.WF` | **unchanged** | must keep demanding a `.ctor` leaf, or `Eq.rec`'s rule stops being a pattern — that is (β), refuted. |
+| `LE_Interp.const` / `InterpTyped` | **unchanged** | Exit 3 degenerates to Exit 1; the classification is load-bearing for destructuring. |
+| `Classification.ctor` / `.etaCtor` | **gains a field** | the Prop-ness guard must be decidable from the name, so the boolean has to live in `classify`. **Measured: 2 edits in `SExpr.lean` (clean) + 107 instances at 60 lines in `ShapeLogRel.lean`.** |
+| `LE_Interp.Matches` | **changes shape** | its index must carry the matched arguments *independently of the leaf shape*, so a proof-valued leaf can be `.bot` without losing `rargs'`. Reaches `Matches` itself and `matches_inter`, `compat_join`, `unique`, `mono_l`, `arity`, `head_wf`, `head_wf_eq`, `lift`, `of_matchesS`, plus `Const.pat`, `build_spine` and `RHS.of_applyS`. **≈12–15 declarations.** |
+
+So the cost *to know* is: the 107-instance `Classification` change, plus re-indexing
+`LE_Interp.Matches` across ≈12–15 declarations. Neither number is a guess — the first is
+measured, the second is a count of the consumers.
+
+### Do the other two groups survive it?
+
+**The join family: independent.** Its obstruction is `IsType.common` at `forallE`/`forallE` —
+about the *domains* of Pi-shapes — and has nothing to do with `.ctor` leaves or `proofIrrel`.
+Three relativisations are *refuted* — `Compat`-only (`cx_refutes`), `LE_Interp`-relative
+(`le_interp_common_fails`), `TyDefEq`-relative (`join_sort_fails`). A fourth, the
+classified-upper-bound form `common_of_le`, is **proved but not producible**: obtaining the
+single upper bound at a call site needs `LE_Interp.join'`, which is `compat_join.2` and so one
+of the broken sites — circular. The survivor that is both true *and* producible is
+`common_sort`, which reads the sort off the **term's universe**. A §7 redesign neither helps
+nor hurts any of this.
+
+**The λ-peel: independent, and survives.** It is about `extra_pat`'s statement shape and
+`SExpr.mkLams`, and touches `MatchesS`, not `Matches`. Its two residual errors, in
+`strongSoundS`'s `extra` case, are about λ-telescopes.
+
+**The per-leaf level lists: not invalidated, and overlapping.** Its one open obligation is
+that `LE_Interp.Const.pat` binds its level map existentially, so `Const` cannot record it —
+and closing that means `LE_Interp.Const` and `LE_Interp.Matches` indexed by `LPath`. **That is
+the same re-indexing the §7 redesign needs**, for the same reason: `Const`/`Matches` carry
+less than the model needs, and the shape is being asked to make up the difference. The two
+would be done together, and the per-leaf obligation would likely close as a side effect.
+
+---
+
+## Session update 8: per-leaf level lists — the second `ParamsExtra` vacuity
+
+The λ-peel (update 6) was **not enough**. `ParamsExtra` was still unsatisfiable, so
+`strongSoundS` was still vacuous.
+
+`Pattern.MatchesS` recorded a *single* `List SLevel` for a whole match — its `app` rule kept
+the function side's list and discarded the argument side's — where the `VExpr`-side `Matches`
+records one per leaf. Its docstring called that deliberate and priced it at one consequence:
+`applyS` ignoring an `RHS.fixed`'s `LPath`. **There was a second, and it was fatal.**
+`Check.defeqsS` also dropped the two `LPath`s of a `Check.level x i y j` clause and read
+*both* indices out of the one list. On the `VExpr` side that clause relates the **recursor**
+leaf's list to the **constructor** leaf's — which is what makes `iotaLevelPairs`' `(i+1, i)`
+true, since `selfLvls` is the block's parameters shifted by one when `isLE` prepends a fresh
+elimination universe, so both sides evaluate to `ls.getD (i+1)`. Read out of one list it
+degenerated to `ls.getD (i+1) = ls.getD i`, relating the elimination universe to a block
+parameter — and `extra_pat` quantifies over every `ls` of the right length. **False for any
+large eliminator with a universe parameter: `List`, `Prod`, `Sum`, `Sigma`.**
+
+Fixed. `MatchesS`, `RHS.applyS` and `Check.defeqsS` carry `p.LPath → List SLevel`;
+`LE_Interp.RHS` gained the `LPath` index; `LE_Interp.Const` dropped its shared `ls`;
+`Const.pat` binds the map; `build_spine` reads the head leaf via `Pattern.LPath.head`.
+
+**Measured:** `SExpr.lean` **4 edits, compiles clean**. `ShapeLogRel.lean` **+1 error over
+baseline**. The intermediate counts are worth recording because they are almost entirely
+cascade — **318 → 26 → 16 → 12**. The 318 was *one* root failure: Lean drops an unused
+`variable`, so `LE_Interp.Const` silently lost its `ls` and `LE_Interp` stopped elaborating,
+taking two hundred lines with it. Do not read an early count on this refactor as a cost.
+
+The one obligation left is the `Const.pat` level-map gap described in update 7.
+
+### The rule this leaves behind
+
+> **A deferral must never be stated as "the cost is X". State it as "the cost includes X; not
+> audited for others."**
+
+A stale docstring can be caught by checking it against the code. A complete-*looking* partial
+deferral gives the reader no signal that anything is missing, so it survives every check — and
+this one concealed an unsatisfiable class through a whole session that was explicitly hunting
+unsatisfiable classes.

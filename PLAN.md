@@ -168,7 +168,7 @@ Open:
 | `VInductDecl.WF`, `VEnv.addInduct` — `sorry` **definitions** | `Theory/Inductive.lean` | superseded — see `Theory/Inductive/Decl.lean`; the swap into `VDecl` is still to schedule |
 | `addInduct_WF` | `Theory/Typing/InductiveLemmas.lean` | blocked on the above |
 | `IsDefEqU.sort_inv`, `.forallE_inv_stratified`, `.sort_forallE_inv` | `Theory/Typing/Injectivity.lean` | route found — see below |
-| `NormalEq.parRed`, the `appDF` × `extra` case | `Theory/Typing/ChurchRosser.lean` | needs two new `Params` axioms — see below |
+| `NormalEq.descend` / `.descend_beta` / `.appDF_extra_of_descend`, escape branches | `Theory/Typing/ChurchRosser.lean` | `NormalEq.parRed` itself is closed; 11 `sorry`s left, needing the two new `Params` axioms (below), `hsu`, and a measure for iterated eta — inventory in the file |
 | `IsDefEqU.weakN_iff`, forward direction | `Theory/Typing/UniqueTyping.lean:174` | routine-ish strengthening |
 | nothing instantiates `VEnv.Params` | — | `addInduct` must produce `Pattern`-shaped ι-rules satisfying the orthogonality axioms |
 | `leanTT_equiconsistent_zfc_omega_inaccessibles` | `Theory/Equiconsistency.lean` | the model; only the `→` direction is needed |
@@ -255,6 +255,50 @@ Phase B.
 Also worth noting: `Params` is uninstantiated on *both* sides, and the two
 `Params` classes differ. Until `addInduct` supplies an instance,
 `ChurchRosser.lean` and `HeadReduction.lean` are vacuous.
+
+##### Status correction, 2026-08-23 (shape-model stream)
+
+Three things above are now known to be wrong or misleading. Detail and every
+witness: `docs/design-shape-lattice.md`, session updates 1–8.
+
+*"`ShapeLogRel.lean` is fully proved" is true and misleading.* It was proved
+under a hypothesis class with **no instance and no possible instance**.
+`SExpr.ParamsExtra` was unsatisfiable for two independent reasons — `extra_pat`
+asked for `MatchesS` on an unpeeled λ-abstracted left-hand side, which no rule
+shape can satisfy; and `Pattern.MatchesS` kept one level list per *match* rather
+than one per *leaf*, which degenerated a `Check.level` clause to
+`ls.getD (i+1) = ls.getD i`, false for any large eliminator with a universe
+parameter. `LE_Interp.strongSoundS` carries `[ParamsExtra]`, so it and
+everything downstream was **vacuous**, not proved. Both are now fixed in the
+migration WIP (λ-peel mirroring `Pat.extra`; per-leaf `p.LPath → List SLevel`),
+at a measured cost of 2 + 4 edits in `SExpr.lean` and +3 errors in
+`ShapeLogRel.lean`.
+
+*The route has hit a design problem with no exit.* `CtorBundle.hu0` and
+`ctor_ty`'s `D.lvl ≠ .zero` were both false and are repaired, but the repair
+exposes a three-way inconsistency at `Eq.refl`: it must **have** a `.ctor` shape
+(its ι-rule's pattern needs a `.ctor` leaf, and `Eq` *large*-eliminates so the
+rule cannot be dropped), it must **be typed** (`InterpTyped` demands a
+classifying shape), and `proofIrrel` demands every proof have shape `.bot`.
+`ctor_not_prop_typed` (proved) says no shape both classifies a `.ctor` and is
+itself `Prop`-valued. All three exits are refuted, two machine-checked
+(`exit1_bvar_separates`, `toy_unique_fails`). Cost *to know* whether a redesign
+works: a measured 107-instance change to `Classification.ctor`, plus re-indexing
+`LE_Interp.Matches` across ≈12–15 declarations. Compare the ~2300-line
+re-stratification priced above.
+
+*A correction to the "two missing axioms" item.* Small elimination — "if the
+major premise is a proof the whole redex is a proof" — does **not** cover the
+subsingleton eliminators. `Eq` is `Prop`-valued and large-eliminates
+(`eq_large_eliminates`, proved). Guard any use of it accordingly; the shape
+model came within one approval of dropping `Eq`'s ι-rule on the strength of it.
+
+*Independent of all the above:* three relativisations of `IsType.common` are
+refuted — `Compat`-only, `LE_Interp`-relative, `TyDefEq`-relative — and a
+fourth, the classified-upper-bound form, is proved but **not producible** at any
+call site without circularity. The survivor that is both true and producible is
+`common_sort` (proved): the shared sort comes from the **term's universe**, not
+from the shapes and not from an upper bound.
 
 ### Link 3 — the model
 
@@ -348,6 +392,17 @@ Landed since the plan was written:
   arbitrary model of ZF. 560 lines, sorry-free.
 - `Theory/Typing/ChurchRosser.lean` — the `constDF` × `extra` case of
   `NormalEq.parRed`.
+- `Theory/Typing/ChurchRosser.lean` — **`NormalEq.parRed` is closed**: every case,
+  `appDF` × `extra` included, is now a proof term. It rests on `NormalEq.descend`
+  (the descent, E2), `NormalEq.descend_beta` (the single-layer E4 dance) and
+  `NormalEq.appDF_extra_of_descend`, which carry eleven `sorry`s between them,
+  all in escape branches; the inventory in the file's `DescentOut` section is
+  authoritative. Two findings worth carrying: the previous descent interface (no
+  reduction, no escapes) is **false**, refuted by `NormalEq.etaL` and
+  `.proofIrrel`, both of which constrain nothing about the left term — it is
+  deleted; and the iterated-eta case needs a measure that survives
+  instantiation (`sizeOf` does not), for which the file records two viable routes
+  and one that would make the statement false.
 - `Experimental/Bridge.lean`, `Experimental/BridgeInjectivity.lean` — the forward
   `VExpr → SExpr` simulation, and `sort_inv` / `sort_forallE_inv` for `VExpr`
   relative to a `Params` instance.
