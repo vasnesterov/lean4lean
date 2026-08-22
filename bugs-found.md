@@ -6,7 +6,7 @@
 * https://github.com/leanprover/lean4/issues/10475
 * https://github.com/leanprover/lean4/issues/10511
 
-Nothing new here from the `kernel_sound` work so far. Three pieces of upstream
+Nothing new here from the `kernel_sound` work so far. Four pieces of upstream
 behaviour did turn out to constrain the specification, and are recorded because a
 reader will otherwise assume the opposite:
 
@@ -26,6 +26,38 @@ reader will otherwise assume the opposite:
   (`.mdata { borrowed := true }` around each `Nat` domain). Structural
   comparison of a declared type against `q(Nat → Nat → Nat)`, which is what the
   `Char.ofNat` branch does, is therefore not available for them.
+* **The safe/`partial`/`unsafe` boundary is enforced identically by both
+  kernels, in every syntactic position — a verified non-bug.** Recorded so the
+  next person does not have to re-run the experiments. The check is
+  `type_checker::infer_constant`, `~/lean4/src/kernel/type_checker.cpp:109-117`,
+  guarded by `!infer_only`; its lean4lean mirror is
+  `Lean4Lean/TypeChecker.lean:125-131`. `inferOnly` is threaded faithfully into
+  every subterm by `inferType'` when it is `false`, so there is no fast-path
+  escape hatch.
+
+  Both kernels **accept** `partial def bad : (∀ p : Prop, p) := bad` and its
+  `unsafe` twin, submitted as a `.mutualDefnDecl`, and both **reject** a *safe*
+  `.mutualDefnDecl` outright with `invalid mutual definition, declaration is not
+  tagged as unsafe/partial`. So a kernel-level `mutualDefnDecl` is only ever
+  `partial`/`unsafe`.
+
+  Eleven safe consumers of such a constant were built by hand and run through
+  `Lean4Lean.addDecl` and `Lean.Kernel.Environment.addDeclCore` on the *same*
+  environment, and eight of them again against an environment the C++ kernel had
+  built for itself. All are rejected by both, with byte-identical messages —
+  `invalid declaration, safe declaration must not contain partial declaration
+  'L4LBadP'` and `invalid declaration, it uses unsafe declaration 'L4LBadU'`.
+  The positions, tag in parentheses: a `defnDecl`'s value (`partial`, `unsafe`);
+  a `thmDecl`'s value (`partial`, `unsafe`); an `axiomDecl`'s **type**
+  (`partial`); behind a beta redex, `(fun f => f False) bad` (`partial`); in a
+  `let` value (`partial`); under `.mdata` (`partial`); an `opaqueDecl`'s value
+  (`partial`); and the **constructor type of an `inductDecl`** (`partial`,
+  `unsafe`).
+
+  The consequence for the specification: **the safe fragment is closed**, so a
+  `partial`/`unsafe` constant can be given no image at all in the `safe`-level
+  abstract environment without losing anything the kernel accepts. Entry 9 below
+  is the fix that relies on this.
 
 ## In the lean4lean kernel implementation
 
@@ -123,6 +155,58 @@ because they are what `kernel_sound` is stated against.
    nonzero, which fails for `Eq.refl`, whose codomain is a `Prop` — yet `Eq.refl`
    must still classify as a constructor, because `Eq.rec`'s ι-rule matches on it.
    **Statement fixed**; `hu0` recorded with its exact location.
+
+9. **`VDecl.WF.mutualDef` refuted `leanTTConsistent`.** The rule typechecked each
+   member's *value* in `env'`, the environment that already carries the block's
+   own constants, so `def f : (∀ p : Prop, p) := f` was a well-formed,
+   axiom-free step over any environment in which one name is free. Since
+   `VDecl.isAxiomFree` admitted it and `VEnv.LeanWF` asked for nothing more, the
+   consistency statement that links 1 and 2 of `PLAN.md` compose through was
+   **false, not merely unproved**. `Theory/MutualDefUnsound.lean` is the
+   machine-checked witness (`selfRef_wf`, `selfRef_inconsistent`), kept as a
+   regression test rather than deleted: nothing else pins the exclusion, and if
+   the step is ever readmitted to the pure fragment that file goes red.
+
+   **This is not a kernel bug and not a divergence.** Both kernels reject a safe
+   mutual block and refuse to look through a `partial`/`unsafe` constant while
+   checking a safe declaration (fourth bullet under "In Lean's own kernel"). The
+   abstract theory simply modelled no safety tag: `VConstant` is
+   `⟨uvars, type⟩` and `VDecl.WF` had no safety condition anywhere.
+
+   **Fixed**, but *not* by dropping the constructor — that turned out to be
+   impossible, for a reason worth recording. The refinement layer keeps three
+   safety-indexed models (`VEnvs`), and the `partial`/`unsafe` ones must carry
+   the block's defining equations: `ConstantInfo.deltaValue?`
+   (`Lean4Lean/Declaration.lean:15`) is `some` for *every* `.defnInfo`, and
+   `isDelta` (`Lean4Lean/TypeChecker.lean:427`) has no safety guard, so the
+   kernel really does delta-unfold a `partial` definition — confirmed by running
+   `whnf` on one at `safety := .partial` and `.unsafe`, which reduces. Without
+   the equations `TrEnv'.of_value` is false, and with them the step is
+   necessarily circular. Removing the constructor outright would additionally
+   require deleting the `.partial`/`.unsafe` levels of `VEnvs` and making
+   `safety = .safe` a `VContext` invariant, since `Aligned.find?` at
+   `safety := .unsafe` owes an image for every constant
+   (`Verify/TypeChecker/InferType.lean:85` is the consumer).
+
+   What landed instead: the constructor is renamed `VDecl.unsafeDef` and
+   documented as the sole impure former; `VDecl.isPure` (which replaces
+   `isAxiomFree` in `VEnv.LeanWF`) is `False` on it as well as on `.axiom`; and
+   `TrEnv'.unsafeDef` gains a **safety gate** — at least one member must carry a
+   `DefinitionSafety` other than `.safe`. Because `TrDefBlock .safe` forces every
+   member to be `.safe`, the gate is unsatisfiable at `safety := .safe`, which
+   `TrEnv'.wf_noUnsafe` turns into the fact that the safe-level model is built
+   without the circular step; `partial`/`unsafe` constants reach it only through
+   `TrEnv'.ignore`, which gives them no counterpart at all. The gate is
+   discharged from the tag the kernel itself checked — `addMutual.WF` takes it
+   from the `if let .safe := v₀.safety then throw` branch it has just ruled out,
+   and `addUnsafeDef.WF` from `v.safety = .unsafe` — not assumed.
+
+   **Held, not rejected**: collapsing `VEnvs` to the single `safe` model would be
+   a net simplification and would let the constructor go entirely. It is
+   cross-cutting (`Verify/TypeChecker.lean`, `TypeChecker/Basic.lean`,
+   `InferType.lean`, `Primitive.lean`, all of `Verify/Environment/`,
+   `Bridge.lean`) and is not on the critical path, since the fragment is already
+   closed.
 
 ## In the 32 frozen axioms
 
