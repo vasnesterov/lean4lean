@@ -276,15 +276,26 @@ def isLargeEliminator (stats : InductiveStats) (indTypes : Array InductiveType) 
     loop ctor.type 0 #[] (← readThe Context).fuel.inductiveFuel
   | _ => return false
 
-partial -- TODO: remove
+/-- The recursor's elimination universe: `.zero` for a small eliminator, otherwise the first
+of `u`, `u_1`, `u_2`, … that is not already a level parameter of the declaration.
+
+The search is *bounded* rather than left `partial`, so that the function has a body and
+equation lemmas and can be reasoned about at all. The bound costs nothing: the candidates
+`u`, `u_1`, `u_2`, … are pairwise distinct, so among any `lparams.length + 1` of them at
+least one is absent from `lparams`, and the `0` case is unreachable. Freshness is exactly
+what `docs/design-inductive.md` F10 rests on — `getRecLevelParams elimLevel lparams` must be
+`u :: lparams` with `u ∉ lparams`. -/
 def getElimLevel (stats : InductiveStats) (indTypes : Array InductiveType) :
     M Level := do
   unless ← isLargeEliminator stats indTypes do return .zero
   let {lparams, ..} ← read
-  let rec loop u i := Id.run do
-    unless lparams.contains u do return .param u
-    loop ((`u).appendIndexAfter i) (i + 1)
-  return loop `u 1
+  return .param (loop lparams `u 1 (lparams.length + 1))
+where
+  /-- The first of `u`, `u_i`, `u_(i+1)`, … that is not in `lps`. -/
+  loop (lps : List Name) (u : Name) (i : Nat) : Nat → Name
+    | 0 => u
+    | fuel + 1 =>
+      if lps.contains u then loop lps ((`u).appendIndexAfter i) (i + 1) fuel else u
 
 def isKTarget (stats : InductiveStats) (indTypes : Array InductiveType) : M Bool := do
   let #[indType] := indTypes | return false
@@ -563,6 +574,8 @@ structure State where
   lvls : List Level
   newTypes : Array InductiveType
   nextIdx : Nat := 1
+  /-- Search bound for `mkUniqueName`, seeded by `run` from `FuelConfig.inductiveFuel`. -/
+  fuel : Nat := 0
   deriving Inhabited
 
 abbrev M := ReaderT Environment <| StateT State <| Except Exception
@@ -571,15 +584,26 @@ instance : MonadNameGenerator M where
   getNGen := return (← get).ngen
   setNGen ngen := modify fun s => { s with ngen }
 
--- TODO: remove partial
-partial def mkUniqueName (n : Name) : M Name := fun env s =>
-  let rec loop i :=
-    let r := n.appendIndexAfter i
-    if env.contains r then
-      loop (i + 1)
-    else
-      pure (r, { s with nextIdx := i + 1 })
-  loop s.nextIdx
+/-- A name of the form `n_i` that the environment does not already use.
+
+Bounded rather than `partial`, so that the function has a body and equation lemmas and can be
+reasoned about at all. The bound is `FuelConfig.inductiveFuel`, the same counter every other
+structural loop in this file uses, and exhaustion is a *rejection* (`.deepRecursion`) rather
+than a silently colliding name — which keeps the property `Verify/Soundness.lean` relies on,
+that more fuel only ever enlarges the accepted set. `nextIdx` still advances across calls, so
+successive searches do not retry names this one rejected.
+
+A count of the environment's constants would be the tight bound, but neither `SMap` nor
+`PersistentHashMap` stores a size, so computing it would be `O(|env|)` per call. -/
+def mkUniqueName (n : Name) : M Name := fun env s => loop env n s s.nextIdx s.fuel
+where
+  loop (env : Environment) (n : Name) (s : State) (i : Nat) :
+      Nat → Except Exception (Name × State)
+    | 0 => throw <| .other "deep recursion: ElimNestedInductive.mkUniqueName"
+    | fuel + 1 =>
+      let r := n.appendIndexAfter i
+      if env.contains r then loop env n s (i + 1) fuel
+      else pure (r, { s with nextIdx := i + 1 })
 
 def illFormed : Exception :=
   .other "invalid nested inductive datatype, ill-formed declaration"
@@ -685,6 +709,7 @@ def run (fuel nparams : Nat) (types : List InductiveType) : M Result := do
   let I :: _ := types
     | throw <| .other s!"invalid empty (mutual) inductive datatype declaration, \
         it must contain at least one inductive type."
+  modify fun s => { s with fuel }
   withParams I.type nparams fun lctx _ params => do
   let rec loop i
   | 0 => throw <| .other "deep recursion: ElimNestedInductive.run.loop"
