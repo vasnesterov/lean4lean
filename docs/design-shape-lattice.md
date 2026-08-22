@@ -1148,3 +1148,95 @@ A stale docstring can be caught by checking it against the code. A complete-*loo
 deferral gives the reader no signal that anything is missing, so it survives every check — and
 this one concealed an unsatisfiable class through a whole session that was explicitly hunting
 unsatisfiable classes.
+
+---
+
+## Session update 9: the re-indexing, scoped — 28 rows, and the earlier ≈12–15 was an undercount
+
+### Row zero: the statement is sufficient, and it is checked
+
+"The index carries the matched arguments independently of the leaf shape" **is** sufficient for
+`Matches.unique`. `ToyMatchesR` and `toy_unique_of_record` (both proved) put the matched datum
+in the *index* and leave the shape as `leaf rec`, still free to collapse; uniqueness then holds
+**for any `leaf`, injective or not** — `toy_unique_of_record_bot` instantiates it at exactly
+the collapsing leaf that `toy_unique_fails` refutes. So `unique` stops needing leaf
+injectivity, which was the obstruction. Row zero clears.
+
+### The record type
+
+`MArg n`, level-indexed like `Shape`: `.shape (x : WShape n) : MArg n` for a `var` position,
+`.ctor (c : Name) (l : List (MArg n)) : MArg (n+1)` for an `app` position, with
+`MArg.toShape : MArg n → WShape n` derived.
+
+Two things constrain it, and both were found by checking rather than assuming:
+
+**It must carry shapes, not just term-level data.** `Matches.var`'s index entry *is* the
+argument shape and `unique`'s induction needs it. A names-and-levels-only record — which would
+have been term-determined, and so automatically shared between two interpretations — does not
+close the induction.
+
+**`Const`'s index must move too.** Leaving `Const` on shapes and having `Const.pat` bind the
+record existentially re-introduces the collapse one level up, at `Const.compat_join`'s
+`pat`/`pat` case — the same gap as the per-leaf `lsm`, for the same reason. That is what makes
+this one change rather than two. It is also where the earlier count went wrong: **≈12–15
+counted `Matches`' consumers and missed that `Const` consumes the index**, and therefore needs
+an order, a join and a lift on it.
+
+One refinement worth having before writing row 3: `matches_inter` relates matches of two
+*different* patterns, so `MArg.Compat` must handle the mixed `.shape`/`.ctor` pair;
+`compat_join` relates two matches of the *same* pattern, so `MArg.join` is only ever applied to
+pattern-aligned pairs. **Compat total, join partial.**
+
+### The rows
+
+`M` mechanical (retype, proof unchanged) · `P` positional (indices move, structure unchanged) ·
+`S` structural (needs a new argument or definition).
+
+| # | | row |
+|---|---|---|
+| | | **A — the record type (new)** |
+| 1 | S | `MArg` + `MArg.toShape` |
+| 2 | M | `MArg.lift` and its `lift_lift`/`lift_self` |
+| 3 | S | `MArg.LE` and order lemmas |
+| 4 | S | `MArg.Compat` — **total**, incl. the mixed pair |
+| 5 | S | `MArg.join` on pattern-aligned pairs + `Join.mk` |
+| 6 | S | `toShape` monotone; commutes with `lift`, `join` |
+| | | **B — `Matches` re-indexed** |
+| 7 | S | `LE_Interp.Matches` (inductive) |
+| 8 | M | `varN_const_head` |
+| 9–11 | P | `arity`, `head_wf`, `head_wf_eq` |
+| 12 | S | `mono_l` (needs `MArg.LE`) |
+| 13 | S | `matches_inter` (needs total `Compat`) |
+| 14 | S | `compat_join` (needs `join`) |
+| 15 | M | `unique` — **gets shorter**; the `ctor'`-injectivity step goes |
+| 16 | M | `lift` |
+| 17 | P | `of_matchesS` |
+| | | **C — `Const` re-indexed** |
+| 18 | S | `LE_Interp.Const` (inductive) |
+| 19 | P | `mono` |
+| 20 | S | `mono_l` (needs `MArg.LE`) |
+| 21 | M | `lift` |
+| 22–23 | P | `closed`, `compat_mismatch` |
+| 24 | S | `compat_join` — **where update 8's open obligation closes** |
+| | | **D — consumers** |
+| 25 | P | `LE_Interp.const` and the lemmas casing on it |
+| 26 | P | `apps_realize` / `apps_realize_inv` |
+| 27 | S | `build_spine` — builds the record from the `MatchesS` |
+| 28 | P | `strongSoundS`'s `pat` and `extra` cases |
+
+**28 rows: 9 structural, 8 positional, 6 mechanical**, plus group A being a small lattice.
+`Shape`'s own LE/Compat/join API in this file runs ~200 lines; `MArg`'s has no
+`forallE`/`lam`/`sort` cases, so ~80–120.
+
+### What it buys, and what it does not
+
+**Buys both problems.** §7's `.ctor`-leaf obstruction — the leaf may collapse to `.bot` for a
+Prop-valued head without `unique` noticing — and update 8's open obligation, which closes at
+row 24 because `Const` finally records what it needs.
+
+**Still required on top, for §7:** `Classification.ctor`/`.etaCtor` gain the boolean,
+separately measured at 2 edits in `SExpr.lean` and **107 instances at 60 lines** in
+`ShapeLogRel.lean`.
+
+**Does not touch** the join family (its obstruction is about Pi-shape *domains*) or the λ-peel
+(which lives on `MatchesS`). Both survive unchanged.
