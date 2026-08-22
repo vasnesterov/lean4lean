@@ -979,3 +979,332 @@ Practical rules worth passing on:
 Two environment notes while I am here: `lake` is not on `PATH` for the Bash tool
 (`~/.elan/bin/lake`), and `ripgrep` is absent, so `lean_local_search` fails outright with an
 installation message — use `grep -rn --include=*.lean` instead.
+
+---
+
+# 13. A6 landed, and the collapse measured
+
+`Lean4Lean/Reflect/Align.lean`, 147 lines, no errors, no warnings, no `sorry`. Axiom cones
+are `[propext, Quot.sound]` throughout, except `SLevel.mk_rep`, which adds
+`Classical.choice` (it is `Exists.choose`); all three are on `Verify/Guard.lean`'s
+whitelist. Verified with `lake env lean`, not `lean_run_code` — see §12.8, which bit twice
+during this session.
+
+## 13.1 What is in it
+
+The A-group, minus A4:
+
+| Item | Contents |
+|---|---|
+| A2 | `SExpr.mk_eq_{bvar,sort,const,app,lam,forallE}` — six skeleton inversions |
+| A1 | `SLevel.rep` and `SLevel.mk_rep` — a section of `SLevel.mk` |
+| A5 | `OnCtx.mono_uvars` |
+| A3 | `EqUpToLevels.of_mk` — `mk x = mk y` plus level-well-formedness is `EqUpToLevels` |
+| A6 | `IsDefEq.align{T,R,L}` — retype / retarget-right / retarget-left |
+
+A4 (`Lookup` inversion through `mk`, ~12 lines) is not written; it is needed only by the
+`bvar` case.
+
+`[Params]` turns out to be needed only for `SLevel.mk_inj`'s sake, so the file is split:
+the six skeleton inversions, `SLevel.rep` and `OnCtx.mono_uvars` are `Params`-free, and only
+the alignment half carries the instance.
+
+## 13.2 The collapse: measured, and larger than estimated
+
+Three cases probed in scratch against the landed file, one from each group that was supposed
+to depend on A6. **Proof bodies, excluding the `example` signature:**
+
+| Group | Case | Estimated (§12.3) | Measured | |
+|---|---|---|---|---|
+| B6 | `trans` | 40–50 | **10** | one `alignL` + one `alignT` |
+| B3 | `appDF` | 90–120 *(for three cases)* | **12** | one `alignT` |
+| B4 | `lamDF` | 100–140 *(for three cases)* | **9** | **no alignment at all** |
+
+The collapse happened. Revised B:
+
+| Group | Cases | Was | Now |
+|---|---|---|---|
+| B1 | `bvar`, `symm` | 15 | ~12 |
+| B2 | `sort`, `const`, `extra` | 30 | ~30 |
+| B3 | `appDF`, `defeqDF`, `proofIrrel` | 90–120 | ~40 |
+| B4 | `lamDF`, `forallEDF`, `beta` | 100–140 | ~40 |
+| B5 | `eta` | 20–30 | ~15 |
+| B6 | `trans` | 40–50 | 10 |
+| B7 | `trans'` | 30–40 | ~20 |
+| | **case bodies** | **325–425** | **~170** |
+| | motive plumbing + `induction` scaffolding | not costed | **60–100** |
+| | **B total** | **325–425** | **230–270** |
+
+I am costing the scaffolding separately rather than folding it in, because it is the part I
+have *not* measured: the probes hand the induction hypotheses over in exactly the shape the
+case wants, and Lean's `induction ... with` will not. That is the same "assembly" error the
+itemisation exists to prevent, so it gets its own line.
+
+Revised total: **A ~160 + B 230–270 + C1–C3/C5 ~75 = 465–505 lines**, against 600–770 before
+C4 is excluded. C4 remains out of scope and unestimated here.
+
+## 13.3 A structural finding: the binder cases need no alignment
+
+`lamDF` came in at 9 lines and used none of A6. The reason generalises, and it changes which
+cases are "hard":
+
+**Alignment is needed exactly where two *sibling* premises independently produce a preimage
+of the same object.** In the binder cases they do not — the context preimage is *chosen* by
+the first premise's induction hypothesis and *threaded into* the second:
+
+```lean
+  obtain ⟨U₁, Av, A'v, S, le₁, hA, hA', hS, d1⟩ := ih1 U (Nat.le_refl _) hΓ
+  obtain ⟨uv, rfl, huv⟩ := SExpr.mk_eq_sort hS
+  obtain ⟨U₂, bv, b'v, Bv, le₂, hb, hb', hB, d2⟩ :=
+    ih2 (Av::Γ) U₁ (by simp [hA, hΓm]) ⟨hΓ.mono_uvars le₁, _, d1.hasType.1⟩
+```
+
+The universally-quantified `Γ` in the motive (§12.1) is what makes this legal, and it is
+what makes the binder cases cheap rather than expensive. So the split is:
+
+* **needs alignment (6):** `trans`, `trans'`, `appDF`, `defeqDF`, `proofIrrel`, and `beta`
+  (for the binder type shared between its two premises);
+* **needs none (8):** `bvar`, `symm`, `sort`, `const`, `extra`, `lamDF`, `forallEDF`, `eta`.
+
+§12.3 implied ten cases leaning on A6. It is six.
+
+## 13.4 Coupling: the answer to the question asked
+
+**No, the reflection body does not need `ShapeLogRel.lean` — with one exception, and the
+exception is separable.**
+
+* `Reflect/Align.lean` imports `Experimental.Bridge` (which is `SExpr.lean` plus the `mk`
+  homomorphism lemmas) and `Theory.Typing.Strong`. **No `ShapeLogRel`.** Confirmed by its
+  building.
+* 13 of the 14 cases need only `SExpr.IsDefEq`, i.e. `SExpr.lean`. **No `ShapeLogRel`.**
+* The `trans'` case needs `SExpr.IsDefEq.uniq_sort`, which lives in
+  `Experimental/UniqueTyping.lean` → `ShapeLogRelAdequacy.lean` → `ShapeLogRel.lean`. **That
+  one case couples.**
+
+**The separation is cheap and I would take it.** State the reflection with `trans'`'s
+sort-uniqueness as an explicit hypothesis in exactly `uniq_sort`'s shape — crucially *with*
+`Ctx.WF Γ`, which is what distinguishes it from `toIsDefEq'`'s open `huniq`:
+
+```lean
+(huniq : ∀ {Γ : List SExpr} {e₁ e₂ e₃ : SExpr} {u v : SLevel},
+   Γ ⊢ e₁ ≡ e₂ : .sort u → Γ ⊢ e₂ ≡ e₃ : .sort v → Ctx.WF Γ → u = v)
+```
+
+That is dischargeable **today** by `uniq_sort` (`Experimental/UniqueTyping.lean:186`). So the
+~250-line body imports only `Bridge`, and a ~10-line capstone importing `UniqueTyping`
+discharges the hypothesis. The bulk is then immune to the migration.
+
+Two further coupling facts the coordinator should have:
+
+* **`Reflect/Align.lean` is in no default build target.** `defaultTargets` are `Lean4Lean`,
+  `lean4lean`, `Lean4Lean.Theory`, `Lean4Lean.Verify`; the lib globs are
+  `Lean4Lean.{Theory,Verify,Tests}.*` and `Lean4Lean.Experimental.+`, none of which covers
+  `Lean4Lean.Reflect.*`. `lake build Lean4Lean.Reflect.Align` works on demand, but a bare
+  `lake build` will not touch it and it will rot silently. Fixing that is a `lakefile.toml`
+  change, which is a controlled file — **your call, not mine.**
+* **Rebuild churn is real.** `SExpr.lean` imports `Theory/Inductive/Lemmas.lean`, which the
+  keystone stream is editing; I hit a hard "imports out of date" mid-session and had to
+  rebuild `Experimental.Bridge` to continue. Expect that repeatedly. It is not a blocker —
+  the rebuild took seconds — but it means this stream cannot be fully insulated from the
+  other two no matter where the file lives.
+
+## 13.5 Next
+
+A4, then B in the order B2 → B1 → B4/B5 → B3 → B6 → B7, then C1–C3/C5. The motive plumbing
+(§13.2's separately-costed line) is the first thing to write, since every case depends on its
+exact shape; I would write it and prove `bvar` and `symm` against it before doing any other
+case, precisely to find out whether 60–100 is right.
+
+---
+
+# 14. A4 and the motive plumbing: 60–100 did not hold, it was 15
+
+Two files, both building, under `Lean4Lean/Experimental/Reflect/` (moved there from
+`Lean4Lean/Reflect/`, which no lib glob covered and which could not be given one — Lake
+refuses a lib whose modules import another lib's).
+
+| File | Lines | State |
+|---|---|---|
+| `Align.lean` | 177 | complete, no `sorry` |
+| `Induction.lean` | 126 | 5 of 14 cases proved, 9 `sorry` |
+
+## 14.1 A4
+
+`Lookup.of_map_mk` — `SExpr.Lookup (Γ.map mk) i A' → ∃ A, Lookup Γ i A ∧ mk A = A'`, the
+inverse of `Bridge.lean`'s `Lookup.toSExpr`. **11 lines**, estimated 12. The A-group is now
+complete.
+
+## 14.2 The measurement asked for
+
+Scaffolding, counted as the parts that exist *only* to support the induction — the
+`Reflects` definition, the `SortUniq` hypothesis, and the theorem signature with its `intro`
+and `induction`:
+
+| Piece | Lines |
+|---|---|
+| `Reflects` | 4 |
+| `SortUniq` | 5 |
+| signature + `intro` + `induction ... with` | 6 |
+| **total** | **15** |
+
+**Estimated 60–100. Actual 15.** The estimate was wrong in the safe direction, and the
+reason is worth recording because it is checkable: I had budgeted for `induction ... with`
+producing induction hypotheses in a shape the cases would have to massage. It does not.
+Stating the theorem as
+
+```lean
+∀ {Γ'} {e₁' e₂' A'}, SExpr.IsDefEq Γ' e₁' e₂' A' →
+  ∀ (Γ : List VExpr) (U : Nat), Γ.map SExpr.mk = Γ' →
+    OnCtx Γ (Params.env.IsType U) → Reflects Params.env Γ U e₁' e₂' A'
+```
+
+and then `intro …; induction H with` leaves the trailing `∀ Γ U, …` in the goal, so each
+`ih` arrives as `∀ Γ U, Γ.map mk = Γ' → OnCtx Γ … → Reflects …` — exactly the shape §13.2's
+probes assumed. **The transfer cost from probe to real induction was one line per case**
+(the `intro Γ U hΓm hΓ`).
+
+## 14.3 Five cases proved against the real motive
+
+Rather than stop at `bvar`/`symm`, I ported the three §13.2 probes in, because "the motive
+elaborates" and "the motive supports the measured cases" are different claims and only the
+second is worth anything.
+
+| Case | Group | Probe | In file |
+|---|---|---|---|
+| `bvar` | B1 | — | 6 |
+| `symm` | B1 | — | 4 |
+| `trans` | B6 | 10 | 11 |
+| `appDF` | B3 | 12 | 13 |
+| `lamDF` | B4 | 9 | 9 |
+| | | | **43** |
+
+So the motive is not merely well-formed; the two cases that need alignment and the one that
+needs context threading all go through it unchanged.
+
+## 14.4 Revised estimate
+
+| | Lines |
+|---|---|
+| A — `Align.lean`, complete | 177 |
+| B — 5 cases done | 43 |
+| B — 9 cases remaining *(B2 ~30, `forallEDF` ~9, `beta` ~20, `eta` ~15, `defeqDF` ~12, `proofIrrel` ~15, `trans'` ~20)* | ~121 |
+| B — scaffolding, measured | 15 |
+| C1–C3, C5 + capstone | ~85 |
+| **Total** | **~440** |
+
+Against 600–770 at §12 and 465–505 at §13. The remaining uncertainty is concentrated in
+three cases and I would not defend the numbers on the others:
+
+* **`beta`** — the only case with *both* sibling-preimage alignment and context extension.
+* **`eta`** — `lift` / `.bvar 0` bookkeeping through `mk`; `SExpr.mk_lift` exists, but the
+  shape `.lam A (.app e.lift (.bvar 0))` has to be matched on both sides.
+* **`const` / `extra`** — the level side conditions are spiked (§9.2), but at the `VExpr`
+  level; composing `SLevel.rep` with `SExpr.mk_instL` so the type lands on the nose has not
+  been done.
+
+## 14.5 The capstone seam, as approved
+
+`Induction.lean` takes `SortUniq` — `SExpr.IsDefEq.uniq_sort`'s exact statement, **with**
+`Ctx.WF Γ` — as a hypothesis, and imports only `Align.lean`. So neither file imports
+`Experimental/UniqueTyping.lean`, and neither depends on `ShapeLogRelAdequacy.lean` or
+`ShapeLogRel.lean`. Confirmed by their building while `ShapeLogRel.lean` is dirty in the
+working tree.
+
+Only the `trans'` case will use `huniq`, and the capstone that discharges it is the only
+file that will import the shape model.
+
+---
+
+# 15. B is complete: all 14 cases, no `sorry`
+
+`Lean4Lean.reflect` builds with **zero `sorry`** and axiom cone
+`[propext, Classical.choice, Quot.sound]` — `Classical.choice` entering through
+`SLevel.rep`, which is `Exists.choose`. All three within `Verify/Guard.lean`'s whitelist.
+
+| File | Lines | State |
+|---|---|---|
+| `Experimental/Reflect/Align.lean` | 200 | complete |
+| `Experimental/Reflect/Induction.lean` | 204 | complete |
+
+## 15.1 B2 first, as scoped — and the risky composition works
+
+`const`/`extra`/`sort` were taken first because their §9.2 spike was at the `VExpr` level
+and composing `SLevel.rep` with `SExpr.mk_instL` so the type lands on the nose was untried.
+
+**It works, and `by simp` closes it outright.** With `SLevel.rep` a section of `SLevel.mk`
+(`SLevel.mk_rep`), `SExpr.mk_instL` gives
+
+```
+mk (ci.type.instL (ls.map SLevel.rep)) = (mk ci.type).instL ((ls.map rep).map mk)
+                                       = (mk ci.type).instL ls
+```
+
+exactly — no `≈`-slack, so no `align` call in any of the three. `sort` 5 lines, `const` 6,
+`extra` 6: **17 against an estimate of 30.**
+
+**One snag worth recording, because it is a repeat of a documented one.** The obvious lemma
+`(ls.map rep).map mk = ls` never fires: `List.map_map` is itself `simp` and rewrites the goal
+to `ls.map (mk ∘ rep) = ls` first, at which point nothing matches. Fixed by also stating the
+simp-normal form, `SLevel.mk_comp_rep : mk ∘ rep = id`. This is exactly the
+"`@[simp]` lemma that has already fired changes what `rw` can see" note at
+`Theory/Inductive/Lemmas.lean:47–51` — same phenomenon, different file, and it cost one
+round here too.
+
+## 15.2 The other two named risks, also retired
+
+§14.4 named `beta`, `eta` and `const`/`extra` as the three places I would not defend the
+numbers. Having retired the third, I took the other two rather than the cheap cases, on the
+same reasoning as §14.3: the brief's stopping point retired B2's risk but left two named
+risks open, and finding them wrong after three routine cases is worse than finding them now.
+
+Both went through **first try**, and both for a reason that corrects §13.3:
+
+* **`beta` needs no alignment** (10 lines). The binder type `Av` is produced by premise 2's
+  induction hypothesis and *threaded into* premise 1's context, exactly as in `lamDF`. I had
+  listed it as needing alignment "for the binder type shared between its two premises";
+  that sharing is what makes it *not* need alignment, because the same `Av` is used twice
+  rather than produced twice.
+* **`eta` needs no alignment** (6 lines). Its single premise `Γ ⊢ e : .forallE A B` is a
+  `HasType`, so `d.hasType.1` is about one endpoint only and the second preimage `ev'` is
+  simply discarded.
+
+**Corrected split — alignment is needed in 4 cases, not 6:** `trans`, `trans'`, `appDF`,
+`defeqDF`, `proofIrrel` use `align*`; the other nine do not. (`proofIrrel` uses it twice.)
+
+## 15.3 Final measurements
+
+| Case | Group | Est. | Actual |
+|---|---|---|---|
+| `bvar` | B1 | — | 5 |
+| `symm` | B1 | — | 4 |
+| `sort` | B2 | ~10 | 5 |
+| `const` | B2 | ~10 | 6 |
+| `extra` | B2 | ~10 | 6 |
+| `eta` | B5 | ~15 | 6 |
+| `lamDF` | B4 | — | 9 |
+| `forallEDF` | B4 | ~9 | 10 |
+| `beta` | B4 | ~20 | 10 |
+| `trans` | B6 | — | 11 |
+| `defeqDF` | B3 | ~12 | 11 |
+| `appDF` | B3 | — | 13 |
+| `trans'` | B7 | ~20 | 13 |
+| `proofIrrel` | B3 | ~15 | 20 |
+| **`reflect`, signature to end** | | **179** | **136** |
+
+`proofIrrel` is the only case that overran, and only because it is the sole three-premise
+rule: three universe counts to reconcile rather than two, and a retype of the proposition's
+sort from the chosen representative `zv` to a literal `VLevel.zero` (via `mk_zero` and
+`mk_inj`, since `SLevel.mk zv = SLevel.zero` gives only `zv ≈ .zero`, not equality).
+
+Running totals against the three estimates: **§12 600–770 → §13 465–505 → §14 ~440 →
+actual 404 for A+B, with C remaining.**
+
+## 15.4 What remains
+
+Only C. The capstone (`SortUniq` discharged by `SExpr.IsDefEq.uniq_sort`, ~10 lines) and
+C1–C3/C5 (`SExpr.forallE_inv` → retype at a sort → reflect twice → `IsDefEq.descend` →
+`IsDefEqU.forallE_inv`, ~75 lines). C4 remains out of scope.
+
+The seam held: neither `Align.lean` nor `Induction.lean` imports
+`Experimental/UniqueTyping.lean`, so neither depends on `ShapeLogRelAdequacy.lean` or
+`ShapeLogRel.lean`, and both built clean throughout while `ShapeLogRel.lean` was dirty.

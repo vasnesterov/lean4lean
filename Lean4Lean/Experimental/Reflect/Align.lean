@@ -99,6 +99,29 @@ noncomputable def SLevel.rep (s : SLevel) : VLevel := s.2.choose
 
 @[simp] theorem SLevel.mk_rep (s : SLevel) : SLevel.mk s.rep = s := Subtype.ext s.2.choose_spec
 
+/-- Choosing representatives levelwise and mapping back is the identity.  This is what makes
+the `const` and `extra` cases land on the nose rather than up to `≈`: composed with
+`SExpr.mk_instL`, it gives `mk (e.instL (ls.map rep)) = (mk e).instL ls` exactly.
+
+Stated in the composed form too, because `List.map_map` is itself `simp` and fires first —
+without `mk_comp_rep` a goal `(ls.map rep).map mk = ls` normalises to
+`ls.map (mk ∘ rep) = ls` and then sticks. -/
+@[simp] theorem SLevel.mk_comp_rep : SLevel.mk ∘ SLevel.rep = id := funext SLevel.mk_rep
+
+@[simp] theorem SLevel.map_mk_map_rep (ls : List SLevel) :
+    (ls.map SLevel.rep).map SLevel.mk = ls := by simp
+
+/-- `VLevel.exists_wf_list` with the bound taken above an ambient count, which is the form
+the reflection's `U ≤ U'` conclusion wants. -/
+theorem VLevel.exists_wf_list_ge (U : Nat) (ls : List VLevel) :
+    ∃ U', U ≤ U' ∧ ∀ l ∈ ls, l.WF U' :=
+  let ⟨_, hn⟩ := VLevel.exists_wf_list ls
+  ⟨Nat.max U _, Nat.le_max_left .., fun _ hl => (hn _ hl).mono (Nat.le_max_right ..)⟩
+
+theorem VLevel.exists_wf_ge (U : Nat) (l : VLevel) : ∃ U', U ≤ U' ∧ l.WF U' :=
+  let ⟨_, hn⟩ := VLevel.exists_wf l
+  ⟨Nat.max U _, Nat.le_max_left .., hn.mono (Nat.le_max_right ..)⟩
+
 /-- `OnCtx (env.IsType ·)` lifted along `U ≤ U'`: the reflection's context invariant has to
 follow the `∃ U'` its branches produce. -/
 theorem OnCtx.mono_uvars {env : VEnv} {Γ : List VExpr} {U U' : Nat} (le : U ≤ U') :

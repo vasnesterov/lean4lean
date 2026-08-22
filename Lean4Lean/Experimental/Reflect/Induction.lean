@@ -113,14 +113,92 @@ theorem reflect (henv : VEnv.Ordered Params.env) (huniq : SortUniq) :
     exact ⟨_, .lam Av bv, .lam A'v b'v, .forallE Av Bv, Nat.le_trans le₁ le₂,
       by simp [SExpr.mk, hA, hb], by simp [SExpr.mk, hA', hb'], by simp [SExpr.mk, hA, hB],
       (d1.mono_uvars le₂).lamDF d2⟩
-  | trans' _ _ ih1 ih2 => sorry             -- B7, the only case using `huniq`
-  | sort => sorry                           -- B2
-  | const h1 h2 => sorry                    -- B2
-  | forallEDF _ _ ih1 ih2 => sorry          -- B4
-  | defeqDF _ _ ih1 ih2 => sorry            -- B3
-  | beta _ _ ih1 ih2 => sorry               -- B4
-  | eta _ ih => sorry                       -- B5
-  | proofIrrel _ _ _ ih1 ih2 ih3 => sorry   -- B3
-  | extra h1 h2 => sorry                    -- B2
+  | trans' h1 h2 ih1 ih2 =>
+    -- The only case that uses `huniq`, and the only reason the capstone exists.
+    intro Γ U hΓm hΓ
+    have huv := huniq h1 h2 (hΓm ▸ hΓ.toSExpr)
+    obtain ⟨U₁, Av, Bv, S₁, le₁, hA, hB, hS₁, d1⟩ := ih1 Γ U hΓm hΓ
+    obtain ⟨U₂, Bv', Cv, S₂, le₂, hB', hC, hS₂, d2⟩ := ih2 Γ U hΓm hΓ
+    refine have hΓ' := hΓ.mono_uvars (Nat.le_trans le₁ (Nat.le_max_left U₁ U₂)); ?_
+    have d1 := d1.mono_uvars (Nat.le_max_left U₁ U₂)
+    have d2 := d2.mono_uvars (Nat.le_max_right U₁ U₂)
+    have ⟨_, wB, wS₁⟩ := d1.levelWF (VEnv.CtxStrong.strong henv hΓ').levelWF
+    exact ⟨_, Av, Cv, S₁, Nat.le_trans le₁ (Nat.le_max_left ..), hA, hC, hS₁,
+      d1.trans <| (d2.alignL henv hΓ' wB (hB'.trans hB.symm)).alignT henv hΓ' wS₁
+        (hS₂.trans (huv ▸ hS₁).symm)⟩
+  | @sort _ l =>
+    intro Γ U _ _
+    obtain ⟨U', le, hU'⟩ := VLevel.exists_wf_ge U l.rep
+    exact ⟨U', .sort l.rep, .sort l.rep, .sort l.rep.succ, le, by simp, by simp, by simp,
+      .sortDF hU' hU' rfl⟩
+  | @const c ci _ ls h1 h2 =>
+    intro Γ U _ _
+    obtain ⟨U', le, hU'⟩ := VLevel.exists_wf_list_ge U (ls.map SLevel.rep)
+    exact ⟨U', .const c (ls.map SLevel.rep), .const c (ls.map SLevel.rep),
+      ci.type.instL (ls.map SLevel.rep), le, by simp, by simp, by simp,
+      .constDF h1 hU' hU' (by simpa using h2) (Lean4Lean.List.Forall₂.rfl fun _ _ => rfl)⟩
+  | forallEDF _ _ ih1 ih2 =>
+    intro Γ U hΓm hΓ
+    obtain ⟨U₁, Av, A'v, S, le₁, hA, hA', hS, d1⟩ := ih1 Γ U hΓm hΓ
+    obtain ⟨uv, rfl, huv⟩ := SExpr.mk_eq_sort hS
+    obtain ⟨U₂, bv, b'v, S₂, le₂, hb, hb', hB, d2⟩ :=
+      ih2 (Av::Γ) U₁ (by simp [hA, hΓm]) ⟨hΓ.mono_uvars le₁, _, d1.hasType.1⟩
+    obtain ⟨vv, rfl, hvv⟩ := SExpr.mk_eq_sort hB
+    exact ⟨_, .forallE Av bv, .forallE A'v b'v, .sort (.imax uv vv), Nat.le_trans le₁ le₂,
+      by simp [SExpr.mk, hA, hb], by simp [SExpr.mk, hA', hb'], by simp [huv, hvv],
+      (d1.mono_uvars le₂).forallEDF d2⟩
+  | defeqDF _ _ ih1 ih2 =>
+    intro Γ U hΓm hΓ
+    obtain ⟨U₁, Av, Bv, S, le₁, hAv, hBv, hS, d1⟩ := ih1 Γ U hΓm hΓ
+    obtain ⟨uv, rfl, _⟩ := SExpr.mk_eq_sort hS
+    obtain ⟨U₂, x, y, Av', le₂, hx, hy, hAv', d2⟩ := ih2 Γ U hΓm hΓ
+    refine have hΓ' := hΓ.mono_uvars (Nat.le_trans le₁ (Nat.le_max_left U₁ U₂)); ?_
+    have d1 := d1.mono_uvars (Nat.le_max_left U₁ U₂)
+    have d2 := d2.mono_uvars (Nat.le_max_right U₁ U₂)
+    have ⟨wAv, _, _⟩ := d1.levelWF (VEnv.CtxStrong.strong henv hΓ').levelWF
+    exact ⟨_, x, y, Bv, Nat.le_trans le₁ (Nat.le_max_left ..), hx, hy, hBv,
+      d1.defeqDF (d2.alignT henv hΓ' wAv (hAv'.trans hAv.symm))⟩
+  | beta _ _ ih1 ih2 =>
+    intro Γ U hΓm hΓ
+    obtain ⟨U₂, xv, xv', Av, le₂, hx, _, hA, d2⟩ := ih2 Γ U hΓm hΓ
+    refine have hΓ₂ := hΓ.mono_uvars le₂; ?_
+    obtain ⟨U₁, bv, bv', Bv, le₁, hb, _, hB, d1⟩ :=
+      ih1 (Av::Γ) U₂ (by simp [hA, hΓm]) ⟨hΓ₂, d2.isType henv hΓ₂⟩
+    exact ⟨_, .app (.lam Av bv) xv, bv.inst xv, Bv.inst xv, Nat.le_trans le₂ le₁,
+      by simp [SExpr.mk, hA, hb, hx], by simp [hb, hx], by simp [hB, hx],
+      ((d1.mono_uvars (Nat.le_refl _)).hasType.1).beta
+        ((d2.mono_uvars le₁).hasType.1)⟩
+  | eta _ ih =>
+    intro Γ U hΓm hΓ
+    obtain ⟨U₁, ev, _, T, le, he, _, hT, d⟩ := ih Γ U hΓm hΓ
+    obtain ⟨Av, Bv, rfl, hA, hB⟩ := SExpr.mk_eq_forallE hT
+    exact ⟨U₁, .lam Av (.app ev.lift (.bvar 0)), ev, .forallE Av Bv, le,
+      by simp [SExpr.mk, hA, he], he, by simp [SExpr.mk, hA, hB], .eta d.hasType.1⟩
+  | proofIrrel _ _ _ ih1 ih2 ih3 =>
+    intro Γ U hΓm hΓ
+    obtain ⟨U₁, pv, _, S, le₁, hp, _, hS, d1⟩ := ih1 Γ U hΓm hΓ
+    obtain ⟨zv, rfl, hzv⟩ := SExpr.mk_eq_sort hS
+    obtain ⟨U₂, hv, _, pv₂, le₂, hh, _, hp₂, d2⟩ := ih2 Γ U hΓm hΓ
+    obtain ⟨U₃, kv, _, pv₃, le₃, hk, _, hp₃, d3⟩ := ih3 Γ U hΓm hΓ
+    have hΓ' : OnCtx Γ (Params.env.IsType (Nat.max U₁ (Nat.max U₂ U₃))) :=
+      hΓ.mono_uvars (Nat.le_trans le₁ (Nat.le_max_left ..))
+    have d1 := d1.mono_uvars (Nat.le_max_left U₁ (Nat.max U₂ U₃))
+    have d2 := d2.mono_uvars
+      (Nat.le_trans (Nat.le_max_left U₂ U₃) (Nat.le_max_right U₁ (Nat.max U₂ U₃)))
+    have d3 := d3.mono_uvars
+      (Nat.le_trans (Nat.le_max_right U₂ U₃) (Nat.le_max_right U₁ (Nat.max U₂ U₃)))
+    have ⟨wpv, _, _⟩ := d1.levelWF (VEnv.CtxStrong.strong henv hΓ').levelWF
+    have hp0 : Params.env.HasType (Nat.max U₁ (Nat.max U₂ U₃)) Γ pv (.sort .zero) :=
+      (VEnv.IsDefEq.sortDF (l' := .zero) (d1.sort_r henv hΓ') trivial
+        (SLevel.mk_inj.1 (hzv.trans SLevel.mk_zero.symm))).defeqDF d1.hasType.1
+    exact ⟨_, hv, kv, pv, Nat.le_trans le₁ (Nat.le_max_left ..), hh, hk, hp,
+      .proofIrrel hp0 (d2.hasType.1.alignT henv hΓ' wpv (hp₂.trans hp.symm))
+        (d3.hasType.1.alignT henv hΓ' wpv (hp₃.trans hp.symm))⟩
+  | @extra df _ ls h1 h2 =>
+    intro Γ U _ _
+    obtain ⟨U', le, hU'⟩ := VLevel.exists_wf_list_ge U (ls.map SLevel.rep)
+    exact ⟨U', df.lhs.instL (ls.map SLevel.rep), df.rhs.instL (ls.map SLevel.rep),
+      df.type.instL (ls.map SLevel.rep), le, by simp, by simp, by simp,
+      .extra h1 hU' (by simpa using h2)⟩
 
 end Lean4Lean
