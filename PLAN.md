@@ -276,6 +276,30 @@ two build-time adequacy `#eval`s keep passing. Guard checks 1–3 continue to
 police the axiom cone. **Do not make this edit until there is a finished proof
 to insert, and flag it to the human when you do.**
 
+## Progress log
+
+Landed since the plan was written:
+
+- `Verify/Bridge.lean` — the Phase C scaffolding. `HasEmptyModel` and
+  `AddDeclWF fuel` are proved; `PreludeBridge` is the only remaining hypothesis,
+  blocked on the keystone.
+- `Theory/SetModel/Rank.lean` — cumulative hierarchy, membership induction,
+  transitive closure, rank, and the no-large-cardinal closure lemmas, inside an
+  arbitrary model of ZF. 560 lines, sorry-free.
+- `Theory/Typing/ChurchRosser.lean` — the `constDF` × `extra` case of
+  `NormalEq.parRed`.
+- `Experimental/Bridge.lean`, `Experimental/BridgeInjectivity.lean` — the forward
+  `VExpr → SExpr` simulation, and `sort_inv` / `sort_forallE_inv` for `VExpr`
+  relative to a `Params` instance.
+- `docs/design-inductive.md` — the keystone specification.
+
+Known defect, not yet fixed: **`SExpr.Params.extra_pat` is a standalone `axiom`
+that proves `False`.** With the ordered environment
+`(∅ : VEnv).addDefEq ⟨0, .sort .zero, .sort .zero, .sort (.succ .zero)⟩` it
+yields `∃ …, False ∧ …`. Nothing in `kernel_sound`'s cone touches it, so guard 2
+does not catch it — but the whole injectivity route runs through `Params`, so it
+must become a class field before any instance is built.
+
 ## Ground rules for contributors
 
 `Verify/Soundness.lean`, `Verify/Axioms.lean`, `Verify/Guard.lean` are frozen.
