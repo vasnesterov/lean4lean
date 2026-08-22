@@ -110,7 +110,7 @@ theorem TrEnv'.aligned (H : TrEnv' safety C Q venv) : Aligned safety C venv := b
   | thm h1 h2 _ _ h _ ih => exact ih.const h2 h1.1.1 h rfl
   | «opaque» h1 h2 _ h _ ih => exact ih.const h2 h1.1.1 h rfl
   | defn h1 h2 _ h _ ih => exact (ih.const h2 h1.1.1 h rfl).defeq
-  | mutualDef hblk hnd hfr _ hadd _ _ ih =>
+  | unsafeDef _ hblk hnd hfr _ hadd _ _ ih =>
     exact Aligned.addDefEqs <| ih.insertDefs hnd hfr
       (Lean4Lean.List.Forall₂.imp (fun _ _ h => h.1) hblk) hadd
   | quot _ h _ ih => exact ih.addQuot h
@@ -239,14 +239,14 @@ theorem TrEnv'.of_value (H : TrEnv' safety C Q venv) (h : C.find? name = some ci
         (H.defn h2 h3 h4 h1).wf.ordered.defEqWF VEnv.addDefEq_self
       let ⟨⟨⟨b1, b2, b3⟩, b4⟩, b5⟩ := h2
       refine ⟨_, b5.mono le, b2.symm ▸ b4.symm ▸ ⟨_, this.symm⟩⟩
-  | mutualDef hblk hnd hfr _ hadd _ H ih =>
+  | unsafeDef hns hblk hnd hfr _ hadd _ H ih =>
     have' le := (VEnv.addConsts_le hadd).trans VEnv.addDefEqs_le
     rcases insertDefs_find? H.map_wf hfr hnd h with h | ⟨d, hd, rfl, rfl⟩
     · exact (ih h).mono le
     · obtain ⟨d', hd', htr, hval⟩ := Lean4Lean.List.Forall₂.forall_exists_l hblk _ hd
       cases hv
       have hdefeq := VEnv.IsDefEq.extra0 (VEnv.addDefEqs_self hd')
-        ((H.mutualDef hblk hnd hfr ‹_› hadd ‹_›).wf.ordered.defEqWF (VEnv.addDefEqs_self hd'))
+        ((H.unsafeDef hns hblk hnd hfr ‹_› hadd ‹_›).wf.ordered.defEqWF (VEnv.addDefEqs_self hd'))
       let ⟨⟨b1, b2, b3⟩, b4⟩ := htr
       exact ⟨_, hval.mono VEnv.addDefEqs_le, b2.symm ▸ b4.symm ▸ ⟨_, hdefeq.symm⟩⟩
   | thm h2 h3 h4 h5 h1 H ih =>

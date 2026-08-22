@@ -174,3 +174,66 @@ If the scouting pass finds a shorter route to `sort_inv` that does not go throug
 `ShapeLogRel` adequacy, none of this needs doing. The `.bot`-clause finding is worth keeping
 regardless — it is a true statement that the model is currently too strong, independent of
 which route is taken.
+
+---
+
+## Result (appended after the check; the memo above is the pre-check snapshot)
+
+**Termination passes, at zero cost.** `Shape.hasType` elaborates with two `hasType.core`
+calls at the same `n`, with no `termination_by`, no `decreasing_by`, no annotation of any
+kind. Evidence: zero errors anywhere in the definition's range — a termination failure is
+reported at the `def` line, and there is nothing there. Run on the pristine file, so the
+result cannot be confounded with the `indTy` fallout.
+
+**Fallout: 8 error instances across 6 lines**, all in `Shape.HasType.unfold` and
+`Shape.HasType.unfold_iff`. `Shape.HasType.lift` and `Shape.HasType.toType` both stayed
+green.
+
+**Options 1-3 are moot.** No datatype change, no lattice change, no `Prop`-valued
+reformulation is needed.
+
+### But: landing Option 4 *alone* is semantically vacuous
+
+Discovered while repairing the 8 instances, and it changes when the change is worth making.
+
+`Shape.HasType.toType` — `HasType m (.sort r) → HasType m .type` — **remains true on the
+pristine file, and stayed green through the clause change**. That is the whole story: applying
+it pointwise to the codomains turns `core (fun _ => .sort false)` into
+`core (fun _ => .sort true)`, so
+
+```
+core (fun _ => .sort false) || core (fun _ => .sort true)   ≡   core (fun _ => .sort true)
+```
+
+The disjunction collapses to exactly the clause it replaced. The model is *not* made less
+strong; proofs of `Prop`-valued Pi-types are still excluded, because `toType` is what excludes
+them and `toType` is still there.
+
+`toType` only becomes false once `ShapeS.indTy` carries its sort — that is precisely the
+seventh-face finding. **So Option 4 buys nothing until the `indTy` parameterisation lands,
+and it is not a self-contained improvement.**
+
+### Consequence for sequencing
+
+The 8 repairs must go one of two ways, and neither is free standing alone:
+
+- **Weaken `Shape.HasTypeU.bot`'s premise to `∃ r, HasType x (.sort r)`** and
+  `Shape.HasTypeLam`'s first conjunct to `∃ r, HasTypePi b a r`. This is the right end state
+  — it makes `HasTypeU` mirror the new clauses exactly, checked constructor by constructor —
+  but it is part of the held `IsType` migration.
+- **Or add a collapse lemma** proving the disjunction equals its `true` disjunct via `toType`,
+  and repair the proofs with it. Minimal and honest, but that lemma is false the moment
+  `indTy` is parameterised, so it is written to be deleted.
+
+**Recommendation: do not land Option 4 standalone.** Land it as the first step of the
+`indTy`/`IsType` migration, where the first repair route is the correct one and costs nothing
+extra. If the scouting pass retires the `ShapeLogRel` route, Option 4 need never be landed
+at all.
+
+### Carried forward: the reduction-reliance tax
+
+Any change to `hasType`'s clauses costs proof repair proportional to how many proofs depend on
+the function *reducing*. `unfold_iff` closes cases with `cases n <;> rfl`; five negations
+elsewhere are `nofun` (`WShape.HasType.lam_isType` and neighbours). Both work only because
+`hasType` computes. This is a property of the file, not of those sites — worth knowing before
+costing any future clause change.

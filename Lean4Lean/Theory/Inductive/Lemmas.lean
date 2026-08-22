@@ -1820,17 +1820,17 @@ exactly the telescope the motive's type demands.
 
 `harith` is `ih_param_offset`: the parameters reach the same offset by either route. -/
 theorem VInductDecl'.ihArgs_hasArgs {env : VEnv} {D : VInductDecl'} {T' : VIndType}
-    {r : VIndRecArg} {i nxi off d u L : Nat} {Γfield Γa Γξs : List VExpr}
-    (henv : VEnv.Ordered env)
-    (hargs : env.HasArgs D.uvars (r.binders.reverse ++ Γfield)
-      (liftTele (nxi + i) T'.indices) r.args)
-    (W₁ : Ctx.LiftN off (nxi + i)
-      ((D.atRecTele r.binders).reverse ++ D.atRecCtx Γfield) Γa)
+    {i nxi p off d u L : Nat} {ξ ras Γfield Γa Γξs : List VExpr}
+    (henv : VEnv.Ordered env) (hp : p = nxi + i)
+    (hargs : env.HasArgs D.uvars (ξ.reverse ++ Γfield)
+      (liftTele p T'.indices) ras)
+    (W₁ : Ctx.LiftN off p ((D.atRecTele ξ).reverse ++ D.atRecCtx Γfield) Γa)
     (W₂ : Ctx.LiftN d nxi Γa Γξs)
     (hle : nxi ≤ nxi + i + off) (harith : nxi + i + off + d = u + L) :
     env.HasArgs D.recUvars Γξs
       (liftTele L (liftTele u (D.atRecTele T'.indices) 0) 0)
-      (r.args.map fun a => VExpr.shift off d i (D.atRec a) nxi) := by
+      (ras.map fun a => VExpr.shift off d i (D.atRec a) nxi) := by
+  subst hp
   have h0 := D.atRec_hasArgs hargs
   rw [VInductDecl'.atRecCtx, List.map_append, List.map_reverse] at h0
   rw [show D.atRecTele (liftTele (nxi + i) T'.indices)
@@ -1839,7 +1839,546 @@ theorem VInductDecl'.ihArgs_hasArgs {env : VEnv} {D : VInductDecl'} {T' : VIndTy
   have h2 := VEnv.HasArgs.weakN henv W₂ h1
   rw [VInductDecl'.ih_telescope_eq hle harith] at h2
   have hmap : List.map (fun x => VExpr.liftN d x nxi)
-        (List.map (fun x => VExpr.liftN off x (nxi + i)) (List.map D.atRec r.args))
-      = r.args.map fun a => VExpr.shift off d i (D.atRec a) nxi := by
+        (List.map (fun x => VExpr.liftN off x (nxi + i)) (List.map D.atRec ras))
+      = ras.map fun a => VExpr.shift off d i (D.atRec a) nxi := by
     simp only [List.map_map, Function.comp_def, VExpr.shift, Nat.add_comm i nxi]
   rwa [hmap] at h2
+
+/-! ## D5: the minor premises
+
+The last obligation of `addInduct'_ordered'` apart from E5.  The route is the one D6 used
+for the motives, one level deeper: the minor telescope is assembled by `ofTakes`, each
+minor's type by `IsType.mkPi` over its field block and its induction-hypothesis block, and
+its body by `minorBody_hasType`. -/
+
+/-- `OnCtx.ofTele` with the prefix's own well-formedness handed to the per-entry
+obligation.  Both of D5's telescopes need that: a minor premise is typed in the context of
+the earlier minors, an induction hypothesis in the context of the earlier ones. -/
+theorem VEnv.OnCtx.ofTakes {env : VEnv} {U : Nat} {As Γ : List VExpr}
+    (hΓ : OnCtx Γ (env.IsType U))
+    (h : ∀ s A, As[s]? = some A → OnCtx ((As.take s).reverse ++ Γ) (env.IsType U) →
+      env.IsType U ((As.take s).reverse ++ Γ) A) :
+    ∀ n, OnCtx ((As.take n).reverse ++ Γ) (env.IsType U)
+  | 0 => by simpa using hΓ
+  | n+1 => by
+    have ih := VEnv.OnCtx.ofTakes hΓ h n
+    cases hA : As[n]? with
+    | none => rw [List.take_add_one, hA]; simpa using ih
+    | some A =>
+      have he : (As.take (n+1)).reverse ++ Γ = A :: ((As.take n).reverse ++ Γ) := by
+        rw [List.take_add_one, hA]; simp
+      rw [he]
+      exact ⟨ih, h n A hA ih⟩
+
+theorem VEnv.OnCtx.ofTele₂ {env : VEnv} {U : Nat} {As Γ : List VExpr}
+    (hΓ : OnCtx Γ (env.IsType U))
+    (h : ∀ s A, As[s]? = some A → OnCtx ((As.take s).reverse ++ Γ) (env.IsType U) →
+      env.IsType U ((As.take s).reverse ++ Γ) A) :
+    OnCtx (As.reverse ++ Γ) (env.IsType U) := by
+  simpa using VEnv.OnCtx.ofTakes hΓ h As.length
+
+namespace VEnv
+
+/-- A defeq of contexts extends under a common prefix.  This is `VIndCtor.WF.defeqCtx`'s
+induction, stated once. -/
+theorem IsDefEqCtx.append {env : VEnv} {U : Nat} {Γ₁ Γ₂ : List VExpr}
+    (h : VEnv.IsDefEqCtx env U [] Γ₁ Γ₂) :
+    ∀ {Δ : List VExpr}, OnCtx (Δ ++ Γ₁) (env.IsType U) →
+      VEnv.IsDefEqCtx env U [] (Δ ++ Γ₁) (Δ ++ Γ₂)
+  | [], _ => h
+  | _ :: _, hΔ => .succ (IsDefEqCtx.append h hΔ.1) hΔ.2.choose_spec
+
+/-- Level re-indexing of a context defeq. -/
+theorem IsDefEqCtx.instL {env : VEnv} {U U' : Nat} {ls : List VLevel}
+    (hls : ∀ l ∈ ls, l.WF U') :
+    ∀ {Γ₀ Γ₁ Γ₂ : List VExpr}, VEnv.IsDefEqCtx env U Γ₀ Γ₁ Γ₂ →
+      VEnv.IsDefEqCtx env U' (Γ₀.map (VExpr.instL ls)) (Γ₁.map (VExpr.instL ls))
+        (Γ₂.map (VExpr.instL ls))
+  | _, _, _, .zero => .zero
+  | _, _, _, .succ h hA => .succ (IsDefEqCtx.instL hls h) (hA.instL hls)
+
+end VEnv
+
+namespace VInductDecl'
+variable {env : VEnv} {D : VInductDecl'}
+
+/-- **`tyApp` under `atRec` and a `shift`.**  A saturated block-type application, moved from
+the context it was recorded in into a recursor-side context, is the same application at the
+recursor's universe numbering with the parameter block relocated.
+
+Both places D5 needs this are instances: the minor premise's major argument
+(`i := nf`, `j := 0`) and a recursive field's result inside an induction hypothesis
+(`i` the field's index, `j := |ξ|`). -/
+theorem shift_atRec_tyApp (D : VInductDecl') {t k i off d K j : Nat} {args : List VExpr}
+    (hij : i + j ≤ k) (hK : d + (off + k) = K) :
+    VExpr.shift off d i (D.atRec (D.tyApp t k args)) j
+      = D.tyApp' t K (args.map fun a => VExpr.shift off d i (D.atRec a) j) := by
+  have h1 : D.atRec (D.tyApp t k args)
+      = (VExpr.const (D.types.getD t default).name D.selfLvls).mkApp
+        (bvars k D.np ++ args.map D.atRec) := by
+    simp only [VInductDecl'.tyApp, VInductDecl'.atRec_mkApp, List.map_append,
+      VInductDecl'.atRec_bvars, VInductDecl'.atRec_const,
+      VInductDecl'.ownLvls_inst_selfLvls]
+  rw [h1, VExpr.mkApp_append, VExpr.shift_mkApp, VExpr.shift_mkApp_bvars hij, hK,
+    VInductDecl'.tyApp', VExpr.mkApp_append, List.map_map]
+  rfl
+
+/-- **D5's major premise.**  The constructor `C` at the recursor's universe numbering,
+applied to the parameter variables and to its own field variables, has the canonical result
+type.  The content beyond `appBVars₂` is the F3 transport: the *stored* type binds
+`C.params`, while the ambient context carries `D.params`, so the application is built over
+`C.params` and moved across by `defeqDFC`. -/
+theorem ctorApp'_hasType (hR : D.RecCtx env) {t : Nat} {T : VIndType} {C : VIndCtor}
+    (hT : D.types[t]? = some T) (hC : C ∈ T.ctors) (hCall : (t, C) ∈ D.ctorsAll)
+    {m : Nat} {Δ : List VExpr} (hΔ : Δ.length = m)
+    (hΓ : OnCtx (Δ ++ (D.atRecTele D.params).reverse) (env.IsType D.recUvars)) :
+    env.HasType D.recUvars
+      ((liftTele m (D.atRecTele (C.fields.map (·.type)))).reverse
+        ++ (Δ ++ (D.atRecTele D.params).reverse))
+      (D.ctorApp' C (C.fields.length + m) (bvars 0 C.fields.length))
+      ((D.atRec (C.canonResult D t)).liftN m C.fields.length) := by
+  have henv := hR.ordered
+  have hCwf : VIndCtor.WF env D t T C := hR.ctors t T hT C hC
+  -- the F3 context defeq, at the recursor's universe numbering
+  have hpar : VEnv.IsDefEqCtx env D.recUvars [] (D.atRecTele D.params).reverse
+      (D.atRecTele C.params).reverse := by
+    have := VEnv.IsDefEqCtx.instL (ls := D.selfLvls) D.selfLvls_wf (hCwf.params_eq.symm henv)
+    simpa [VInductDecl'.atRecTele] using this
+  -- the field block, over each of the two parameter blocks
+  have hBsD : OnCtx ((D.atRecTele (C.fields.map (·.type))).reverse
+      ++ (D.atRecTele D.params).reverse) (env.IsType D.recUvars) := by
+    have := D.atRec_onCtx (hCwf.onCtxAllFields henv)
+    rwa [VInductDecl'.atRecCtx, List.map_append, List.map_reverse, List.map_reverse] at this
+  have hAs0 : OnCtx (D.atRecTele C.params).reverse (env.IsType D.recUvars) := by
+    have := D.atRec_onCtx hCwf.params_eq.isType
+    rwa [VInductDecl'.atRecCtx, List.map_reverse] at this
+  have hBs0 : OnCtx ((D.atRecTele (C.fields.map (·.type))).reverse
+      ++ (D.atRecTele C.params).reverse) (env.IsType D.recUvars) := by
+    have W := hCwf.defeqCtx henv (Δ := (C.fields.map (·.type)).reverse)
+      (hCwf.onCtxAllFields henv)
+    have := D.atRec_onCtx ((W.symm henv).isType)
+    rwa [VInductDecl'.atRecCtx, List.map_append, List.map_reverse, List.map_reverse] at this
+  -- the whole context, over each of the two parameter blocks
+  have WD : Ctx.LiftN m 0 (D.atRecTele D.params).reverse (Δ ++ (D.atRecTele D.params).reverse) :=
+    .zero Δ hΔ
+  have hbigD : OnCtx ((liftTele m (D.atRecTele (C.fields.map (·.type)))).reverse
+      ++ (Δ ++ (D.atRecTele D.params).reverse)) (env.IsType D.recUvars) :=
+    VEnv.OnCtx.weakTele henv WD hΓ hBsD
+  have hbigDC := hpar.append
+      (Δ := (liftTele m (D.atRecTele (C.fields.map (·.type)))).reverse ++ Δ)
+      (by rw [List.append_assoc]; exact hbigD)
+  simp only [List.append_assoc] at hbigDC
+  have hΓC : OnCtx (Δ ++ (D.atRecTele C.params).reverse) (env.IsType D.recUvars) :=
+    ((hpar.append hΓ).symm henv).isType
+  -- the constant, at the recursor's numbering
+  have hf : env.HasType D.recUvars ([] : List VExpr) (.const C.name D.selfLvls)
+      (mkPi (D.atRecTele C.params ++ D.atRecTele (C.fields.map (·.type)))
+        (D.atRec (C.canonResult D t))) := by
+    have h1 : env.HasType D.recUvars ([] : List VExpr) (.const C.name D.selfLvls)
+        (D.atRec (C.type D t)) :=
+      VEnv.HasType.const (hR.ctorConsts t C hCall) D.selfLvls_wf (by simp)
+    rwa [VIndCtor.type, VInductDecl'.atRec_mkPi, VInductDecl'.atRecTele_append] at h1
+  have WC : Ctx.LiftN m 0 ((D.atRecTele C.params).reverse ++ [])
+      (Δ ++ (D.atRecTele C.params).reverse) := by simpa using Ctx.LiftN.zero Δ hΔ
+  have happ := VEnv.HasType.appBVars₂ (As := D.atRecTele C.params)
+    (Bs := D.atRecTele (C.fields.map (·.type))) (Γ₀ := []) (m := m)
+    (f := .const C.name D.selfLvls) henv trivial
+    (by simpa using hf) (by simpa using hAs0) (by simpa using hBs0) WC hΓC
+  simp only [VInductDecl'.length_atRecTele, List.length_map, hCwf.params_len] at happ
+  exact VEnv.HasType.defeqDFC henv (hbigDC.symm henv) happ
+
+end VInductDecl'
+
+/-- Reading a recursive-field entry back: `recFields` is a `filterMap` over `zipIdx`, so an
+entry `(i, r)` really is field `i` with `recArg = some r`. -/
+theorem VIndCtor.mem_recFields {C : VIndCtor} {i : Nat} {r : VIndRecArg}
+    (h : (i, r) ∈ C.recFields) : ∃ F, C.fields[i]? = some F ∧ F.recArg = some r := by
+  simp only [VIndCtor.recFields, List.mem_filterMap, Option.map_eq_some_iff, Prod.mk.injEq] at h
+  obtain ⟨⟨F, i'⟩, hF, r', hr, rfl, rfl⟩ := h
+  exact ⟨F, List.mk_mem_zipIdx_iff_getElem?.1 hF, hr⟩
+
+namespace VInductDecl'
+variable {env : VEnv} {D : VInductDecl'}
+
+/-- **Where field `i` sits, seen from inside the `s`-th induction hypothesis.**  The minor's
+field block is split at `i+1`, which puts field `i` at the bottom of the part above it. -/
+theorem lookup_field (D : VInductDecl') {off i s nf : Nat} {Φ Γq V : List VExpr} {A : VExpr}
+    (hi : i < nf) (hnf : Φ.length = nf) (hA : Φ[i]? = some A) (hs : (V.take s).length = s) :
+    Lookup ((V.take s).reverse ++ ((liftTele off (D.atRecTele Φ) 0).reverse ++ Γq))
+      (s + (nf - 1 - i)) (((D.atRec A).liftN off i).liftN (s + (nf - 1 - i) + 1)) := by
+  have htake : (Φ.take i).length = i := by rw [List.length_take]; omega
+  have hpre : (liftTele off (D.atRecTele (Φ.take (i+1))) 0).reverse
+      = (D.atRec A).liftN off i :: (liftTele off (D.atRecTele (Φ.take i)) 0).reverse := by
+    rw [List.take_add_one, hA]
+    simp only [Option.toList_some, VInductDecl'.atRecTele_append]
+    rw [VExpr.liftTele_split (i := i)
+      (by rw [VInductDecl'.length_atRecTele]; exact htake)]
+    simp [VInductDecl'.atRecTele, VInductDecl'.atRec]
+  have hsplit1 := D.fieldCtx_split (off := off) (i := i+1) (Φ := Φ) (Γq := Γq)
+    (by rw [List.length_take]; omega)
+  rw [hsplit1, hpre]
+  have hΞ : ((V.take s).reverse
+      ++ (liftTele off (D.atRecTele (Φ.drop (i+1))) (i+1)).reverse).length
+      = s + (nf - 1 - i) := by
+    rw [List.length_append, List.length_reverse, List.length_reverse, VExpr.length_liftTele,
+      VInductDecl'.length_atRecTele, List.length_drop, hs, hnf]
+    omega
+  rw [← List.append_assoc, ← hΞ]
+  exact Lookup.append _
+
+end VInductDecl'
+
+theorem VEnv.IsDefEqType.weakN {env : VEnv} {U n k : Nat} {Γ Γ' : List VExpr} {A B : VExpr}
+    (henv : VEnv.Ordered env) (W : Ctx.LiftN n k Γ Γ')
+    (h : env.IsDefEqType U Γ A B) : env.IsDefEqType U Γ' (A.liftN n k) (B.liftN n k) :=
+  ⟨_, h.choose_spec.weakN henv W⟩
+
+namespace VInductDecl'
+variable {env : VEnv} {D : VInductDecl'}
+
+/-- **D4, per entry, fully assembled.**  The `s`-th induction hypothesis of minor `q` is a
+type in the context of the earlier ones.
+
+Everything is `ihType_isType` with its four hypotheses discharged: `hξ` by `onCtxXi`, `hmot`
+by `lookup_motive`, `hidx` by `ihArgs_hasArgs`, and `hz` by locating the recursive field
+(`lookup_field`), converting its type along `VIndField.WF.pos`'s recorded defeq, and
+applying it to its own `ξ` variables. -/
+theorem ihType_isType' (hR : D.RecCtx env) {t q s i : Nat} {T : VIndType} {C : VIndCtor}
+    {r : VIndRecArg} {F : VIndField}
+    (hT : D.types[t]? = some T) (hC : C ∈ T.ctors)
+    (hF : C.fields[i]? = some F) (hrec : F.recArg = some r)
+    {M : List VExpr} (hMlen : M.length = q)
+    (hM : OnCtx (M ++ D.motives.reverse ++ (D.atRecTele D.params).reverse)
+      (env.IsType D.recUvars))
+    (hsV : ((D.ihTypes q C).take s).length = s)
+    (hΓ₃ : OnCtx (((D.ihTypes q C).take s).reverse
+        ++ ((liftTele (D.nm + q) (D.atRecTele (C.fields.map (·.type))) 0).reverse
+          ++ (M ++ D.motives.reverse ++ (D.atRecTele D.params).reverse)))
+      (env.IsType D.recUvars)) :
+    env.IsType D.recUvars
+      (((D.ihTypes q C).take s).reverse
+        ++ ((liftTele (D.nm + q) (D.atRecTele (C.fields.map (·.type))) 0).reverse
+          ++ (M ++ D.motives.reverse ++ (D.atRecTele D.params).reverse)))
+      (D.ihType q C i r s) := by
+  have henv := hR.ordered
+  have hCwf : VIndCtor.WF env D t T C := hR.ctors t T hT C hC
+  have hi : i < C.fields.length := by
+    rcases Nat.lt_or_ge i C.fields.length with h | h
+    · exact h
+    · rw [List.getElem?_eq_none h] at hF; exact absurd hF (by simp)
+  have hmt : (C.fields.take i).map (·.type) = (C.fields.map (·.type)).take i := List.map_take ..
+  have hFwf := hCwf.fields i F hF
+  rw [hmt] at hFwf
+  have hpos := hFwf.pos
+  rw [hrec] at hpos
+  obtain ⟨hridx, hargl, -, -, hXi, -, hargs, hFdefeq⟩ := hpos
+  obtain ⟨T', hT'⟩ : ∃ T', D.types[r.idx]? = some T' := ⟨_, List.getElem?_eq_getElem hridx⟩
+  have hΦi : (C.fields.map (·.type))[i]? = some F.type := by rw [List.getElem?_map, hF]; rfl
+  have htakei : ((C.fields.map (·.type)).take i).length = i := by
+    rw [List.length_take, List.length_map]; omega
+  -- the parameter block, and the whole context below the fields
+  have WD : Ctx.LiftN (D.nm + q) 0 (D.atRecTele D.params).reverse
+      (M ++ D.motives.reverse ++ (D.atRecTele D.params).reverse) :=
+    .zero (M ++ D.motives.reverse)
+      (by rw [List.length_append, List.length_reverse, VInductDecl'.length_motives, hMlen]; omega)
+  have hac : D.atRecCtx (((C.fields.map (·.type)).take i).reverse ++ D.params.reverse)
+      = (D.atRecTele ((C.fields.map (·.type)).take i)).reverse
+        ++ (D.atRecTele D.params).reverse := by
+    rw [VInductDecl'.atRecCtx, List.map_append, List.map_reverse, List.map_reverse]; rfl
+  have hΓ₁ : OnCtx ((D.atRecTele ((C.fields.map (·.type)).take i)).reverse
+      ++ (D.atRecTele D.params).reverse) (env.IsType D.recUvars) := by
+    rw [← hac]
+    exact D.atRec_onCtx (by rw [← hmt]; exact hCwf.onCtxFields henv i)
+  have W₁ : Ctx.LiftN (D.nm + q) i
+      ((D.atRecTele ((C.fields.map (·.type)).take i)).reverse
+        ++ (D.atRecTele D.params).reverse)
+      ((liftTele (D.nm + q) (D.atRecTele ((C.fields.map (·.type)).take i)) 0).reverse
+        ++ (M ++ D.motives.reverse ++ (D.atRecTele D.params).reverse)) := by
+    have h := Ctx.LiftN.tele (As := D.atRecTele ((C.fields.map (·.type)).take i)) WD
+    rwa [show (0:Nat) + (D.atRecTele ((C.fields.map (·.type)).take i)).length = i from by
+      rw [Nat.zero_add, VInductDecl'.length_atRecTele]; exact htakei] at h
+  have W₂ : Ctx.LiftN (C.fields.length - i + s) 0
+      ((liftTele (D.nm + q) (D.atRecTele ((C.fields.map (·.type)).take i)) 0).reverse
+        ++ (M ++ D.motives.reverse ++ (D.atRecTele D.params).reverse))
+      (((D.ihTypes q C).take s).reverse
+        ++ ((liftTele (D.nm + q) (D.atRecTele (C.fields.map (·.type))) 0).reverse
+          ++ (M ++ D.motives.reverse ++ (D.atRecTele D.params).reverse))) :=
+    D.liftN_ihCtx htakei
+      (by rw [hsV, List.length_drop, List.length_map]; omega)
+  have hΓ₂ : OnCtx ((liftTele (D.nm + q) (D.atRecTele ((C.fields.map (·.type)).take i)) 0).reverse
+      ++ (M ++ D.motives.reverse ++ (D.atRecTele D.params).reverse))
+      (env.IsType D.recUvars) := VEnv.OnCtx.weakTele henv WD hM hΓ₁
+  have hX : OnCtx ((D.atRecTele r.binders).reverse
+      ++ ((D.atRecTele ((C.fields.map (·.type)).take i)).reverse
+        ++ (D.atRecTele D.params).reverse)) (env.IsType D.recUvars) := by
+    rw [← hac]
+    have h0 := D.atRec_onCtx hXi
+    rwa [VInductDecl'.atRecCtx, List.map_append, List.map_reverse] at h0
+  have hξ := VInductDecl'.onCtxXi (D := D) henv W₁ W₂ hΓ₂ hΓ₃ hX
+  -- `hmot`
+  have hmot : Lookup ((shiftTele (D.nm + q) (C.fields.length - i + s) i
+        (D.atRecTele r.binders) 0).reverse
+      ++ (((D.ihTypes q C).take s).reverse
+        ++ ((liftTele (D.nm + q) (D.atRecTele (C.fields.map (·.type))) 0).reverse
+          ++ (M ++ D.motives.reverse ++ (D.atRecTele D.params).reverse))))
+      (r.binders.length + s + C.fields.length + q + (D.nm - 1 - r.idx))
+      ((D.motiveType r.idx).liftN
+        (r.binders.length + s + C.fields.length + q + (D.nm - 1 - r.idx) + 1)) := by
+    have h := VInductDecl'.lookup_motive (D := D) hridx
+      ((shiftTele (D.nm + q) (C.fields.length - i + s) i (D.atRecTele r.binders) 0).reverse
+        ++ ((D.ihTypes q C).take s).reverse
+        ++ (liftTele (D.nm + q) (D.atRecTele (C.fields.map (·.type))) 0).reverse ++ M)
+      (D.atRecTele D.params).reverse
+    simp only [List.length_append, List.length_reverse, VExpr.length_shiftTele,
+      VInductDecl'.length_atRecTele, VExpr.length_liftTele, List.length_map, hsV, hMlen] at h
+    simpa using h
+  -- `hidx`
+  have W₁' : Ctx.LiftN (D.nm + q) (r.binders.length + i)
+      ((D.atRecTele r.binders).reverse
+        ++ D.atRecCtx (((C.fields.map (·.type)).take i).reverse ++ D.params.reverse))
+      ((liftTele (D.nm + q) (D.atRecTele r.binders) i).reverse
+        ++ ((liftTele (D.nm + q) (D.atRecTele ((C.fields.map (·.type)).take i)) 0).reverse
+          ++ (M ++ D.motives.reverse ++ (D.atRecTele D.params).reverse))) := by
+    rw [hac]
+    have h := Ctx.LiftN.tele (As := D.atRecTele r.binders) W₁
+    rwa [show i + (D.atRecTele r.binders).length = r.binders.length + i from by
+      rw [VInductDecl'.length_atRecTele]; omega] at h
+  have W₂' : Ctx.LiftN (C.fields.length - i + s) r.binders.length
+      ((liftTele (D.nm + q) (D.atRecTele r.binders) i).reverse
+        ++ ((liftTele (D.nm + q) (D.atRecTele ((C.fields.map (·.type)).take i)) 0).reverse
+          ++ (M ++ D.motives.reverse ++ (D.atRecTele D.params).reverse)))
+      ((shiftTele (D.nm + q) (C.fields.length - i + s) i (D.atRecTele r.binders) 0).reverse
+        ++ (((D.ihTypes q C).take s).reverse
+          ++ ((liftTele (D.nm + q) (D.atRecTele (C.fields.map (·.type))) 0).reverse
+            ++ (M ++ D.motives.reverse ++ (D.atRecTele D.params).reverse)))) := by
+    have h := Ctx.LiftN.tele (As := liftTele (D.nm + q) (D.atRecTele r.binders) i) W₂
+    rw [show (0:Nat) + (liftTele (D.nm + q) (D.atRecTele r.binders) i).length
+        = r.binders.length from by simp] at h
+    have he := VExpr.liftTele_liftTele_eq_shiftTele (d := C.fields.length - i + s)
+      (off := D.nm + q) (As := D.atRecTele r.binders) (i := i) (j := 0)
+    rw [Nat.add_zero] at he
+    rwa [he] at h
+  have hidx := VInductDecl'.ihArgs_hasArgs (D := D) (T' := T')
+    (u := r.idx) (L := r.binders.length + s + C.fields.length + q + (D.nm - 1 - r.idx) + 1)
+    henv rfl (hargs T' hT') W₁' W₂' (by omega) (by omega)
+  -- `hz`: the recursive field, applied to its own `ξ` variables
+  have hlook := D.lookup_field (off := D.nm + q) (i := i) (s := s) (nf := C.fields.length)
+    (Φ := C.fields.map (·.type)) (V := D.ihTypes q C) (A := F.type)
+    (Γq := M ++ D.motives.reverse ++ (D.atRecTele D.params).reverse)
+    hi (by simp) hΦi hsV
+  have hlook' : Lookup (((D.ihTypes q C).take s).reverse
+        ++ ((liftTele (D.nm + q) (D.atRecTele (C.fields.map (·.type))) 0).reverse
+          ++ (M ++ D.motives.reverse ++ (D.atRecTele D.params).reverse)))
+      (s + (C.fields.length - 1 - i))
+      (((D.atRec F.type).liftN (D.nm + q) i).liftN (C.fields.length - i + s) 0) := by
+    rw [show C.fields.length - i + s = s + (C.fields.length - 1 - i) + 1 from by omega]
+    exact hlook
+  have hdf0 : env.IsDefEqType D.recUvars
+      ((D.atRecTele ((C.fields.map (·.type)).take i)).reverse
+        ++ (D.atRecTele D.params).reverse)
+      (D.atRec F.type) (D.atRec (r.canonType D i)) := by
+    rw [← hac]; exact hFdefeq.instL D.selfLvls_wf
+  have hfun0 := (VEnv.IsDefEqType.weakN henv W₂
+    (VEnv.IsDefEqType.weakN henv W₁ hdf0)).defeq (.bvar hlook')
+  rw [show ((D.atRec (r.canonType D i)).liftN (D.nm + q) i).liftN (C.fields.length - i + s) 0
+        = mkPi (shiftTele (D.nm + q) (C.fields.length - i + s) i (D.atRecTele r.binders) 0)
+          (VExpr.shift (D.nm + q) (C.fields.length - i + s) i
+            (D.atRec (r.canonResult D i)) r.binders.length) from by
+      rw [show ((D.atRec (r.canonType D i)).liftN (D.nm + q) i).liftN
+            (C.fields.length - i + s) 0
+          = VExpr.shift (D.nm + q) (C.fields.length - i + s) i
+            (D.atRec (r.canonType D i)) 0 from by rw [VExpr.shift_def, Nat.add_zero],
+        VIndRecArg.canonType, VInductDecl'.atRec_mkPi, VExpr.shift_mkPi,
+        VInductDecl'.length_atRecTele, Nat.zero_add]] at hfun0
+  have htyp : VExpr.shift (D.nm + q) (C.fields.length - i + s) i
+        (D.atRec (r.canonResult D i)) r.binders.length
+      = D.tyApp' r.idx (r.binders.length + i + (D.nm + q) + (C.fields.length - i + s))
+        (r.args.map fun a => VExpr.shift (D.nm + q) (C.fields.length - i + s) i
+          (D.atRec a) r.binders.length) := by
+    rw [VIndRecArg.canonResult,
+      D.shift_atRec_tyApp (t := r.idx) (k := r.binders.length + i) (i := i)
+        (off := D.nm + q) (d := C.fields.length - i + s)
+        (K := r.binders.length + i + (D.nm + q) + (C.fields.length - i + s))
+        (j := r.binders.length) (args := r.args) (by omega) (by omega)]
+  have happ := VEnv.HasType.appBVars henv hξ hfun0
+  rw [VExpr.length_shiftTele, VInductDecl'.length_atRecTele,
+    show (VExpr.bvar (s + (C.fields.length - 1 - i))).liftN r.binders.length
+      = VExpr.bvar (r.binders.length + s + (C.fields.length - 1 - i)) from by
+        simp only [VExpr.liftN, liftVar, Nat.not_lt_zero, ite_false]
+        congr 1
+        omega,
+    htyp] at happ
+  exact VInductDecl'.ihType_isType (D := D) (T' := T') (q := q) (C := C) (i := i) (s := s)
+    hT' hridx (by rw [List.length_map, hargl, getD_types hT']) rfl rfl (Nat.le_of_lt hi)
+    rfl rfl rfl rfl hξ hmot hidx happ
+
+end VInductDecl'
+
+namespace VInductDecl'
+variable {env : VEnv} {D : VInductDecl'}
+
+/-- **D4.**  The induction-hypothesis telescope of minor `q` is a well-formed context over
+the minor's field block. -/
+theorem onCtxIhs (hR : D.RecCtx env) {t q : Nat} {T : VIndType} {C : VIndCtor}
+    (hT : D.types[t]? = some T) (hC : C ∈ T.ctors)
+    {M : List VExpr} (hMlen : M.length = q)
+    (hM : OnCtx (M ++ D.motives.reverse ++ (D.atRecTele D.params).reverse)
+      (env.IsType D.recUvars))
+    (hΓf : OnCtx ((liftTele (D.nm + q) (D.atRecTele (C.fields.map (·.type))) 0).reverse
+        ++ (M ++ D.motives.reverse ++ (D.atRecTele D.params).reverse))
+      (env.IsType D.recUvars)) :
+    OnCtx ((D.ihTypes q C).reverse
+        ++ ((liftTele (D.nm + q) (D.atRecTele (C.fields.map (·.type))) 0).reverse
+          ++ (M ++ D.motives.reverse ++ (D.atRecTele D.params).reverse)))
+      (env.IsType D.recUvars) := by
+  refine VEnv.OnCtx.ofTele₂ hΓf fun s A hA hpre => ?_
+  rw [VInductDecl'.ihTypes_getElem?] at hA
+  obtain ⟨⟨i, r⟩, hir, rfl⟩ := Option.map_eq_some_iff.1 hA
+  obtain ⟨F, hF, hrec⟩ := VIndCtor.mem_recFields (List.mem_of_getElem? hir)
+  have hs : s < C.recFields.length := by
+    rcases Nat.lt_or_ge s C.recFields.length with h | h
+    · exact h
+    · rw [List.getElem?_eq_none h] at hir; exact absurd hir (by simp)
+  have hsV : ((D.ihTypes q C).take s).length = s := by
+    rw [List.length_take, VInductDecl'.length_ihTypes]; omega
+  exact ihType_isType' hR hT hC hF hrec hMlen hM hsV hpre
+
+/-- **D5, per minor.**  Minor premise `q` is a type in the context of the parameters, the
+motives and the earlier minors. -/
+theorem minorType_isType (hR : D.RecCtx env) {t q : Nat} {T : VIndType} {C : VIndCtor}
+    (hT : D.types[t]? = some T) (ht : t < D.nm) (hC : C ∈ T.ctors)
+    (hCall : (t, C) ∈ D.ctorsAll)
+    {M : List VExpr} (hMlen : M.length = q)
+    (hM : OnCtx (M ++ D.motives.reverse ++ (D.atRecTele D.params).reverse)
+      (env.IsType D.recUvars)) :
+    env.IsType D.recUvars (M ++ D.motives.reverse ++ (D.atRecTele D.params).reverse)
+      (D.minorType q t C) := by
+  have henv := hR.ordered
+  have hCwf : VIndCtor.WF env D t T C := hR.ctors t T hT C hC
+  have hMD : (M ++ D.motives.reverse).length = D.nm + q := by
+    rw [List.length_append, List.length_reverse, VInductDecl'.length_motives, hMlen]; omega
+  have WD : Ctx.LiftN (D.nm + q) 0 (D.atRecTele D.params).reverse
+      (M ++ D.motives.reverse ++ (D.atRecTele D.params).reverse) := .zero (M ++ D.motives.reverse) hMD
+  have hacΦ : D.atRecCtx ((C.fields.map (·.type)).reverse ++ D.params.reverse)
+      = (D.atRecTele (C.fields.map (·.type))).reverse ++ (D.atRecTele D.params).reverse := by
+    rw [VInductDecl'.atRecCtx, List.map_append, List.map_reverse, List.map_reverse]; rfl
+  have hΦ : OnCtx ((D.atRecTele (C.fields.map (·.type))).reverse
+      ++ (D.atRecTele D.params).reverse) (env.IsType D.recUvars) := by
+    rw [← hacΦ]; exact D.atRec_onCtx (hCwf.onCtxAllFields henv)
+  have hΓf := VEnv.OnCtx.weakTele henv WD hM hΦ
+  have hΓV := onCtxIhs hR hT hC hMlen hM hΓf
+  -- `hmot`
+  have hmot : Lookup ((D.ihTypes q C).reverse
+      ++ ((liftTele (D.nm + q) (D.atRecTele (C.fields.map (·.type))) 0).reverse
+        ++ (M ++ D.motives.reverse ++ (D.atRecTele D.params).reverse)))
+      ((D.ihTypes q C).length + C.fields.length + q + (D.nm - 1 - t))
+      ((D.motiveType t).liftN
+        ((D.ihTypes q C).length + C.fields.length + q + (D.nm - 1 - t) + 1)) := by
+    have h := VInductDecl'.lookup_motive (D := D) ht
+      ((D.ihTypes q C).reverse
+        ++ (liftTele (D.nm + q) (D.atRecTele (C.fields.map (·.type))) 0).reverse ++ M)
+      (D.atRecTele D.params).reverse
+    simp only [List.length_append, List.length_reverse, VExpr.length_liftTele,
+      VInductDecl'.length_atRecTele, List.length_map, hMlen] at h
+    simpa using h
+  -- `hidx`
+  have W₁min : Ctx.LiftN (D.nm + q) C.fields.length
+      ((D.atRecTele ([] : List VExpr)).reverse
+        ++ D.atRecCtx ((C.fields.map (·.type)).reverse ++ D.params.reverse))
+      ((liftTele (D.nm + q) (D.atRecTele (C.fields.map (·.type))) 0).reverse
+        ++ (M ++ D.motives.reverse ++ (D.atRecTele D.params).reverse)) := by
+    rw [hacΦ]
+    have h := Ctx.LiftN.tele (As := D.atRecTele (C.fields.map (·.type))) WD
+    rwa [show (0:Nat) + (D.atRecTele (C.fields.map (·.type))).length = C.fields.length from by
+      rw [Nat.zero_add, VInductDecl'.length_atRecTele, List.length_map]] at h
+  have W₂min : Ctx.LiftN (D.ihTypes q C).length 0
+      ((liftTele (D.nm + q) (D.atRecTele (C.fields.map (·.type))) 0).reverse
+        ++ (M ++ D.motives.reverse ++ (D.atRecTele D.params).reverse))
+      ((D.ihTypes q C).reverse
+        ++ ((liftTele (D.nm + q) (D.atRecTele (C.fields.map (·.type))) 0).reverse
+          ++ (M ++ D.motives.reverse ++ (D.atRecTele D.params).reverse))) :=
+    .zero (D.ihTypes q C).reverse (by rw [List.length_reverse])
+  have hidx := VInductDecl'.ihArgs_hasArgs (D := D) (T' := T) (ξ := []) (ras := C.args)
+    (Γfield := (C.fields.map (·.type)).reverse ++ D.params.reverse)
+    (i := C.fields.length) (nxi := 0) (p := C.fields.length)
+    (off := D.nm + q) (d := (D.ihTypes q C).length) (u := t)
+    (L := (D.ihTypes q C).length + C.fields.length + q + (D.nm - 1 - t) + 1)
+    henv (by omega) hCwf.args_ty W₁min W₂min (by omega) (by omega)
+  -- `hz`
+  have hz0 := VInductDecl'.ctorApp'_hasType hR hT hC hCall (m := D.nm + q)
+    (Δ := M ++ D.motives.reverse) hMD hM
+  have hz := hz0.weakN henv
+    (Ctx.LiftN.zero (D.ihTypes q C).reverse (by rw [List.length_reverse]))
+  rw [show (D.ctorApp' C (C.fields.length + (D.nm + q)) (bvars 0 C.fields.length)).liftN
+        (D.ihTypes q C).length 0
+      = D.ctorApp' C ((D.ihTypes q C).length + C.fields.length + (D.nm + q))
+        (bvars (D.ihTypes q C).length C.fields.length) from by
+      rw [VInductDecl'.ctorApp', VInductDecl'.ctorApp', VExpr.liftN_mkApp, List.map_append,
+        VExpr.map_liftN_bvars_lo (Nat.zero_le _), VExpr.map_liftN_bvars_lo (Nat.zero_le _)]
+      simp only [VExpr.liftN, Nat.add_zero, Nat.add_assoc],
+    show ((D.atRec (C.canonResult D t)).liftN (D.nm + q) C.fields.length).liftN
+        (D.ihTypes q C).length 0
+      = D.tyApp' t ((D.ihTypes q C).length + C.fields.length + (D.nm + q))
+        (C.args.map fun a => VExpr.shift (D.nm + q) (D.ihTypes q C).length C.fields.length
+          (D.atRec a)) from by
+      rw [show ((D.atRec (C.canonResult D t)).liftN (D.nm + q) C.fields.length).liftN
+            (D.ihTypes q C).length 0
+          = VExpr.shift (D.nm + q) (D.ihTypes q C).length C.fields.length
+            (D.atRec (C.canonResult D t)) 0 from by rw [VExpr.shift_def, Nat.add_zero],
+        VIndCtor.canonResult,
+        D.shift_atRec_tyApp (t := t) (k := C.fields.length) (i := C.fields.length)
+          (off := D.nm + q) (d := (D.ihTypes q C).length)
+          (K := (D.ihTypes q C).length + C.fields.length + (D.nm + q)) (j := 0)
+          (args := C.args) (by omega) (by omega)]] at hz
+  -- assembly
+  simp only [VInductDecl'.minorType]
+  refine VEnv.IsType.mkPi ?_ ?_
+  · rw [List.reverse_append, List.append_assoc]; exact hΓV
+  · refine ⟨D.elimLvl, ?_⟩
+    rw [List.reverse_append, List.append_assoc]
+    exact VInductDecl'.minorBody_hasType hT ht hCwf.args_len hmot hidx hz
+
+end VInductDecl'
+
+namespace VInductDecl'
+variable {env : VEnv} {D : VInductDecl'}
+
+theorem minors_getElem? (D : VInductDecl') (q : Nat) :
+    D.minors[q]? = (D.ctorsAll[q]?).map fun tC => D.minorType q tC.1 tC.2 := by
+  simp only [VInductDecl'.minors, List.getElem?_map, List.getElem?_zipIdx, Option.map_map,
+    Nat.zero_add]
+  rfl
+
+/-- **D5.**  The minor telescope is a well-formed context over the parameters and the
+motives -- the last obligation of `addInduct'_ordered'` apart from E5. -/
+theorem onCtxMinors (hR : D.RecCtx env) :
+    OnCtx (D.minors.reverse ++ D.motives.reverse ++ (D.atRecTele D.params).reverse)
+      (env.IsType D.recUvars) := by
+  rw [List.append_assoc]
+  refine VEnv.OnCtx.ofTele₂ (onCtxMotives hR) fun q A hA hpre => ?_
+  rw [VInductDecl'.minors_getElem?] at hA
+  obtain ⟨⟨t, C⟩, htC, rfl⟩ := Option.map_eq_some_iff.1 hA
+  have hCall : (t, C) ∈ D.ctorsAll := List.mem_of_getElem? htC
+  obtain ⟨T, hT, hC⟩ := VInductDecl'.mem_ctorsAll hCall
+  have ht : t < D.nm := by
+    rcases Nat.lt_or_ge t D.types.length with h | h
+    · exact h
+    · rw [List.getElem?_eq_none h] at hT; exact absurd hT (by simp)
+  have hq : q < D.nmin := by
+    rcases Nat.lt_or_ge q D.ctorsAll.length with h | h
+    · exact h
+    · rw [List.getElem?_eq_none h] at htC; exact absurd htC (by simp)
+  have hMlen : (D.minors.take q).reverse.length = q := by
+    rw [List.length_reverse, List.length_take, VInductDecl'.length_minors]; omega
+  rw [← List.append_assoc] at hpre ⊢
+  exact minorType_isType hR hT ht hC hCall hMlen hpre
+
+end VInductDecl'
+
+/-- **`addInduct'` preserves `Ordered`, with D5 and D6 both discharged.**  E5 (`hrules`) is
+the only obligation left. -/
+theorem VInductDecl'.addInduct'_ordered'' {env env' : VEnv} {D : VInductDecl'}
+    (henv : env.Ordered) (h : D.WF env)
+    (hrules : ∀ {env₃ : VEnv}, env ≤ env₃ → env₃.Ordered → ∀ df ∈ D.iotaRules, df.WF env₃)
+    (he : env.addInduct' D = some env') : env'.Ordered :=
+  VInductDecl'.addInduct'_ordered' henv h (fun hR => VInductDecl'.onCtxMinors hR) hrules he

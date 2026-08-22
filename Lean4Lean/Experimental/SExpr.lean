@@ -845,7 +845,8 @@ version without it, because `IsDefEqStrong.bvar` demands `Γ ⊢ A : .sort u` fo
 looked-up type while `IsDefEq.bvar` says nothing about the context. This mirrors
 `hΓ : OnCtx Γ (env.IsType U)` in the `VExpr` analogue `VEnv.IsDefEq.strong`
 (`Theory/Typing/Strong.lean`). -/
-theorem IsDefEq.strong (hΓ : Ctx.WF Γ) : Γ ⊢ e1 ≡ e2 : A → IsDefEqStrong Γ e1 e2 A := sorry
+theorem IsDefEq.strong [ParamsExtra] (hΓ : Ctx.WF Γ) :
+    Γ ⊢ e1 ≡ e2 : A → IsDefEqStrong Γ e1 e2 A := sorry
 
 /-- `IsDefEqStrong` has no general reflexivity lemma, because its `trans` carries an extra
 `Γ ⊢ A : .sort u` premise. But when the type *is* a sort that premise is discharged by

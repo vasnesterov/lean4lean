@@ -95,7 +95,7 @@ theorem VEnv.WF.ordered : WF env → Ordered env
         rw [← (h1.levelWF ⟨⟩).2.2.instL_id]
         exact .const (addConst_self h2) VLevel.id_WF (by simp)
       · exact h1.mono (addConst_le h2)
-    | mutualDef h0 h1 h2 =>
+    | unsafeDef h0 h1 h2 =>
       exact VEnv.addDefEqs_ordered (VEnv.addConsts_ordered ih h0 h1)
         (VEnv.addConsts_constants h1) h2
     | «opaque» h1 h2 => exact .const ih (h1.isType ih ⟨⟩) h2

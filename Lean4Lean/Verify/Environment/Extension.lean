@@ -25,7 +25,7 @@ theorem TrEnv'.no_inductInfo (H : TrEnv' .unsafe C Q venv) :
   | defn _ _ _ _ H ih => rw [H.map_wf.find?_insert]; split <;> [simp; exact ih]
   | thm _ _ _ _ _ H ih => rw [H.map_wf.find?_insert]; split <;> [simp; exact ih]
   | «opaque» _ _ _ _ H ih => rw [H.map_wf.find?_insert]; split <;> [simp; exact ih]
-  | mutualDef _ hnd hfr _ _ _ H ih =>
+  | unsafeDef _ _ hnd hfr _ _ _ H ih =>
     intro h
     obtain h | ⟨_, _, _, h2⟩ := insertDefs_find? H.map_wf hfr hnd h <;> [exact ih h; cases h2]
   | quot hready hadd H ih =>
@@ -319,13 +319,19 @@ theorem VEnvAt.addAxioms {env : Environment} {venv : VEnv} {bs : DefinitionSafet
       h.2.2.2⟩
 
 /-- Add a whole mutual block. The headers were checked in `env`, the bodies in the temporary
-environment holding the entire block, which is `base` on the model side; `TrEnv'.mutualDef`
+environment holding the entire block, which is `base` on the model side; `TrEnv'.unsafeDef`
 consumes exactly that split.
+
+`hgate` is the safety gate of `TrEnv'.unsafeDef`, discharged from the tag `addMutual` itself
+checked: a block reaching here is non-empty and every member carries `bs`, which `addMutual`
+has already rejected if it is `.safe`. So the `safe`-level model always takes the
+`TrEnv'.ignoreDefs` branch below and the block gets no `VEnv` counterpart there.
 
 Like `addUnsafeDef.WF` this cannot conclude `VEnv.AddDef` for the members: the bodies may
 refer to each other, so they do not translate before the block is added. -/
 theorem addMutualBlock.WF {env : Environment} {ves : VEnvs} (wf : ves.WF env)
     (bs : DefinitionSafety) (vs : List DefinitionVal) (cis : List VDefVal) (base : VEnv)
+    (hgate : ∃ v ∈ vs, (ConstantInfo.defnInfo v).safety ≠ .safe)
     (hbs : ∀ v ∈ vs, v.safety = bs)
     (hnd : (vs.map (·.name)).Nodup)
     (hfresh : ∀ v ∈ vs, env.find? v.name = none)
@@ -378,7 +384,7 @@ theorem addMutualBlock.WF {env : Environment} {ves : VEnvs} (wf : ves.WF env)
       · obtain ⟨b, hb, heq⟩ := hbaseSf sf hv
         have hmono : ves.venv bs ≤ ves.venv sf := wf.mono hv
         have hbmono : base ≤ b := VEnv.addConsts_mono hmono hbase hb
-        refine heq ▸ TrEnv'.mutualDef (env := ves.venv sf) (env' := b) ?_ hnd hfreshMap
+        refine heq ▸ TrEnv'.unsafeDef (env := ves.venv sf) (env' := b) hgate ?_ hnd hfreshMap
           (fun ci hc => (hwfc ci hc).mono hmono) hb
           (fun ci hc => (hci ci hc).mono hbmono) (wf.tr (safety := sf))
         exact htr.imp fun _ _ h => ⟨⟨(h.1.1.sf_mono hv).mono hmono, h.1.2⟩, h.2.mono hbmono⟩
@@ -553,7 +559,9 @@ theorem addDef.WF {env : Environment} {ves : VEnvs} (wf : ves.WF env)
 
 /-- The unsafe branch of `addDefinition`. The constant is added to the environment as an axiom
 *before* its body is checked, so the body is translated in the extended environment `base` and
-the whole step is justified by `TrEnv'.mutualDef` with a one-element block.
+the whole step is justified by `TrEnv'.unsafeDef` with a one-element block — whose safety gate
+is discharged by `hunsafe`, the tag the kernel itself branched on. At `.safe` and `.partial`
+the constant is `TrEnv'.ignore`d and has no `VEnv` counterpart.
 
 Unlike `addDef.WF` this cannot conclude `VEnv.AddDef`: that would require the body to translate
 in the environment *before* the addition, which is false for a recursive unsafe definition. -/
@@ -583,8 +591,9 @@ theorem addUnsafeDef.WF {env : Environment} {ves : VEnvs} (wf : ves.WF env)
       change TrEnv' safety (env.constants.insert v.name (.defnInfo v)) env.quotInit _
       match safety with
       | .unsafe =>
-        have := TrEnv'.mutualDef (safety := .unsafe) (cis := [v]) (cis' := [ci'])
+        have := TrEnv'.unsafeDef (safety := .unsafe) (cis := [v]) (cis' := [ci'])
           (C := env.constants) (Q := env.quotInit) (env := ves.venv .unsafe) (env' := base)
+          ⟨v, .head _, by rw [ConstantInfo.defnInfo_safety, hunsafe]; decide⟩
           (.cons ⟨htr, hvalue⟩ .nil) (by simp) (by simpa using hnMap) (by simpa using hwfc)
           hadd' (by simpa using hci) wf.tr
         simpa [insertDefs, VEnv.addDefEqs] using this

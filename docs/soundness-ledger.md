@@ -549,10 +549,38 @@ that is not `Ordered`. It only ever used two consequences, so those are now the
 hypothesis — `VEnv.ConstsClosed` (`SetModel/Consts.lean`), preserved by each
 individual `addConst` and implied by `Ordered`.
 
+### The list forms are proved
+
+`coherentOn_addConstList` and `coherentOn_addDefEqFold`, both sorry-free.
+Between them they cover every way any declaration form extends the environment,
+`addInduct'` included — it is three `addConstList` folds and one `addDefEq`
+fold.
+
+The defeq fold needs no bookkeeping at all: `addDefEq` never touches
+`constants`, so each equation contributes exactly its own two obligations. The
+constant list needs one fact, `addConstList_fresh`: *every* name of a block is
+fresh for the environment the block is added to, not just the first — each later
+name is fresh for a larger environment, and `addConst` failing on a taken name
+gives it. That is what lets `interp_oracleExtend_eq` transport a denotation
+across the whole block at once, which in turn is what lets `OracleOK` be stated
+at the assignment the *finished* block produces rather than at each intermediate
+stage.
+
+### `.unsafeDef` stayed, under a purity predicate
+
+The `mutualDef` fix landed as a rename rather than a removal: `VDecl.unsafeDef`
+carries the same block, `VDecl.isPure` excludes it (and `.axiom`), and
+`Theory/Consistency.lean` states consistency for the pure fragment.
+`TrEnv'.unsafeDef` is gated on a non-`safe` `DefinitionSafety`, so the safe
+fragment never sees it.
+
+For `cnstOf` that means one line mapping `.unsafeDef` to the tail assignment,
+and the coherence theorem will carry `∀ d ∈ ds, d.isPure` — a hypothesis, not a
+vacuous case. There is no alternative: a self-referential block has no
+assignment, so any theorem covering it would be false.
+
 ### What is left of `cnst`
 
-* the list form of the two step lemmas (`addConstList`, `addDefEqList`) —
-  mechanical, and the freshness bookkeeping is the only fiddly part;
 * the outer induction over `VEnv.WF'`, assembling the per-form steps;
 * the oracle's obligations for the three forms whose values the model supplies:
   `.axiom` (the three standard axioms, all already validated in

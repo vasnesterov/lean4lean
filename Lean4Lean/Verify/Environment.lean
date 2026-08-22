@@ -156,7 +156,13 @@ theorem addMutual.WF {env : Environment} {ves : VEnvs} (wf : ves.WF env)
   unfold addMutual
   simp only [reduceIte]
   split <;> [rename_i _ v₀ rest; exact Except.WF.throw']
-  split <;> [exact Except.WF.throwBind; skip]
+  split <;> [exact Except.WF.throwBind; rename_i hnotsafe]
+  -- The safety gate of `TrEnv'.unsafeDef`: `addMutual` has just rejected a `safe` block, so
+  -- the head member is tagged `partial` or `unsafe`.
+  have hgate : ∃ v ∈ v₀ :: rest, (ConstantInfo.defnInfo v).safety ≠ .safe := by
+    refine ⟨v₀, .head _, ?_⟩
+    rw [ConstantInfo.defnInfo_safety]
+    exact fun h => hnotsafe h
   have hsf : v₀.safety ≤ (if v₀.safety == .unsafe then .unsafe else .safe) := by
     cases v₀.safety with
     | «partial» => exact DefinitionSafety.le_safe
@@ -218,7 +224,7 @@ theorem addMutual.WF {env : Environment} {ves : VEnvs} (wf : ves.WF env)
     hhdr.trans (h₂ := hRR) fun v ci ci' h1 h2 => by
       have hc : ci.toVConstant = ci'.toVConstant := congrArg VConstVal.toVConstant h2
       exact ⟨h2 ▸ h1.1, hc ▸ h1.2.1, h1.2.2.1, h1.2.2.2⟩
-  refine .pure <| addMutualBlock.WF wf v₀.safety (v₀ :: rest) cis base hbs hnd hfresh hnonprim
+  refine .pure <| addMutualBlock.WF wf v₀.safety (v₀ :: rest) cis base hgate hbs hnd hfresh hnonprim
     (fun ci hc => ?_) hbase0 ((this.and hbody).imp (fun _ _ h => ⟨h.1.1, h.2.1⟩)) (fun ci hc => ?_)
   · obtain ⟨v, -, h⟩ := this.forall_exists_r ci hc; exact h.2.1
   · obtain ⟨v, -, h⟩ := hbody.forall_exists_r ci hc; exact h.2

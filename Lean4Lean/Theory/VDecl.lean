@@ -18,7 +18,19 @@ inductive declaration that keeps the parameter/index/field telescopes explicitly
 earlier flat `VInductDecl`, which stored only the closed types of the block, could not work:
 the kernel `whnf`s at every step of an inductive's pi-spine, so the telescopes the recursor
 is built from are not recoverable from the stored types, and no `addInduct` could be written
-against it. -/
+against it.
+
+`unsafeDef` is the **impure** step, and the only one: it models a kernel
+`mutualDefnDecl` block, which both the C++ kernel and `Lean4Lean.addMutual`
+accept *only* when tagged `partial` or `unsafe`. Its members are typechecked in
+the environment that already carries the block's own constants, so
+`def f : (∀ p : Prop, p) := f` is a well-formed step (see
+`Theory/MutualDefUnsound.lean`) and any environment containing one is
+inconsistent. That is faithful — Lean's `partial`/`unsafe` constants really do
+inhabit any type — and it is why `VDecl.isPure` is `False` here and why
+`TrEnv'.unsafeDef` (`Verify/Environment/Basic.lean`) is gated on at least one
+member carrying a non-`safe` `DefinitionSafety` tag, which makes the rule
+unfireable at `safety := .safe`. The safe fragment therefore never sees it. -/
 inductive VDecl where
   | axiom (_ : VConstVal)
   | def (_ : VDefVal)
@@ -26,4 +38,4 @@ inductive VDecl where
   | example (_ : VDefVal)
   | quot
   | induct (_ : VInductDecl')
-  | mutualDef (_ : List VDefVal)
+  | unsafeDef (_ : List VDefVal)

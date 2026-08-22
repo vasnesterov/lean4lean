@@ -10,19 +10,34 @@ by axiom-free declaration steps types an inhabitant of `∀ p : Prop, p`.
 ## Design notes, for review
 
 * "Lean TT" here means: the pure declaration steps (`def`, `opaque`, `example`,
-  `mutualDef`, `induct`, `quot`) over the *standard prelude*, which consists of
+  `induct`, `quot`) over the *standard prelude*, which consists of
   the genuine declarations of `Eq`, `Iff`, `Nonempty` plus the three standard
   axioms `propext`, `Quot.sound`, `Classical.choice`. This matches the theory
   studied in Carneiro's *The Type Theory of Lean* (2019).
+
+* `VDecl.unsafeDef` is **not** a pure step and is excluded here. It models a
+  kernel `mutualDefnDecl`, which both kernels accept only when tagged
+  `partial`/`unsafe`; its members are checked in the environment that already
+  contains them, so `def f : (∀ p : Prop, p) := f` is a well-formed step and the
+  resulting environment is inconsistent (`Theory/MutualDefUnsound.lean` exhibits
+  exactly that, machine-checked). Lean is not thereby unsound: such constants
+  carry a `DefinitionSafety` tag that both kernels refuse to look through while
+  checking a safe declaration — verified empirically against both, in every
+  syntactic position, so the safe fragment really is closed. The abstract theory
+  models no tag, so the honest statement is that `unsafeDef` is impure.
+  Correspondingly `TrEnv'.unsafeDef` (`Verify/Environment/Basic.lean`) is gated
+  on a member with a non-`safe` tag, which makes it unfireable at
+  `safety := .safe`, and `TrEnv'.wf_pure` turns that into the fact that the
+  `safe`-level model is built by pure steps only.
 
 * The prelude must pin the actual inductive *declarations* of `Eq`, `Iff` and
   `Nonempty`, not merely constants of the right type: the standard axioms are
   sound only for the standard meanings of these names (e.g. `propext` over a
   nonstandard `Eq` proves `False`).
 
-* Arbitrary further `.axiom` steps are excluded by `VDecl.isAxiomFree`;
-  everything else is allowed, since well-formedness (`VDecl.WF`) already
-  requires each added declaration to typecheck.
+* Arbitrary further `.axiom` steps are excluded by `VDecl.isPure`, as is
+  `.unsafeDef`; everything else is allowed, since well-formedness (`VDecl.WF`)
+  already requires each added declaration to typecheck.
 
 * The false proposition is `∀ p : Prop, p` rather than a declared `False`
   constant, so that consistency does not depend on which inductives the
@@ -159,13 +174,6 @@ def leanPrelude : List VDecl := [
 
 /-! ## Consistency -/
 
-/-- A declaration step other than `.axiom`. All other steps are conservative:
-`VDecl.WF` requires them to typecheck, and (by the intended metatheory) they
-cannot introduce inconsistency over the standard prelude. -/
-def VDecl.isAxiomFree : VDecl → Prop
-  | .axiom _ => False
-  | _ => True
-
 /-- The canonical false proposition `∀ p : Prop, p`, as a `VExpr`.
 An environment is inconsistent iff this type is inhabited; unlike a declared
 `False` constant, it is available in every environment. -/
@@ -176,11 +184,12 @@ def VEnv.Consistent (env : VEnv) : Prop :=
   ¬∃ e, env.HasType 0 [] e falseProp
 
 /-- `env` is a standard Lean environment: obtained from the standard prelude by
-well-formed, axiom-free declaration steps. (`VEnv.WF'` lists declarations with
-the most recent first, so the prelude is the reversed suffix.) -/
+well-formed *pure* declaration steps (no further axioms, no `partial`/`unsafe`
+blocks). (`VEnv.WF'` lists declarations with the most recent first, so the
+prelude is the reversed suffix.) -/
 def VEnv.LeanWF (env : VEnv) : Prop :=
   ∃ ds : List VDecl, VEnv.WF' (ds ++ leanPrelude.reverse) env ∧
-    ∀ d ∈ ds, d.isAxiomFree
+    ∀ d ∈ ds, d.isPure
 
 /-- Consistency of Lean's type theory: no standard Lean environment proves
 `∀ p : Prop, p`. This is the Lean-side of the equiconsistency with

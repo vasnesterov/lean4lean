@@ -150,8 +150,21 @@ inductive TrEnv' : ConstMap → Bool → VEnv → Prop where
     env.addConst ci.name ci'.toVConstant = some env' →
     TrEnv' C Q env →
     TrEnv' (C.insert ci.name (.defnInfo ci)) Q (env'.addDefEq ci'.toDefEq)
-  /-- A mutual block, and an unsafe definition as the one-element case. -/
-  | mutualDef {cis : List DefinitionVal} {cis' : List VDefVal} :
+  /-- A `partial`/`unsafe` mutual block, and an unsafe definition as the one-element case.
+
+  The first hypothesis is the **safety gate**: at least one member must carry a
+  `DefinitionSafety` tag other than `.safe`. It is what keeps the rule out of the safe
+  fragment: `TrDefBlock .safe` forces `.safe ≤ ci.safety` for *every* member, i.e.
+  `ci.safety = .safe`, which contradicts the gate. So `TrEnv' .safe` can never take this
+  step (`TrEnv'.wf_pure`), and the model it builds never contains the circular
+  `VDecl.WF.unsafeDef`.
+
+  Both kernels reject a *safe* `mutualDefnDecl` outright ("invalid mutual definition,
+  declaration is not tagged as unsafe/partial"), so the gate discards nothing real; it is
+  discharged from the tag the kernel itself checked, not assumed
+  (`addMutualBlock.WF`, `addUnsafeDef.WF`). -/
+  | unsafeDef {cis : List DefinitionVal} {cis' : List VDefVal} :
+    (∃ ci ∈ cis, (ConstantInfo.defnInfo ci).safety ≠ .safe) →
     TrDefBlock safety env env' cis cis' →
     -- the block's names are distinct; `addMutual` checks this, as does lean4#14632
     (cis.map (·.name)).Nodup →
@@ -199,9 +212,9 @@ theorem TrEnv'.wf (H : TrEnv' safety C Q venv) : venv.WF := by
     have ⟨_, H⟩ := ih
     have := h1.1.2; dsimp [ConstantInfo.name, ConstantInfo.toConstantVal] at this
     exact ⟨_, H.decl <| .def h2 (this ▸ h3)⟩
-  | mutualDef _ _ _ h2 h3 h4 _ ih =>
+  | unsafeDef _ _ _ _ h2 h3 h4 _ ih =>
     have ⟨_, H⟩ := ih
-    exact ⟨_, H.decl <| .mutualDef h2 h3 h4⟩
+    exact ⟨_, H.decl <| .unsafeDef h2 h3 h4⟩
   | thm h1 _ h2 h3 h4 _ ih =>
     have ⟨_, H⟩ := ih
     have hn := h1.1.2
@@ -217,3 +230,59 @@ theorem TrEnv'.wf (H : TrEnv' safety C Q venv) : venv.WF := by
   | induct h1 h2 _ ih =>
     have ⟨_, H⟩ := ih
     exact ⟨_, H.decl <| .induct h1 h2.to_addInduct⟩
+
+/-- A `safe`-visible block is entirely `safe`-tagged, so the `unsafeDef` gate is unsatisfiable
+there. This is the whole content of the gate. -/
+theorem TrDefBlock.safe_not_unsafeDef {env env' : VEnv} {cis cis'}
+    (H : TrDefBlock .safe env env' cis cis') :
+    ¬ ∃ ci ∈ cis, (ConstantInfo.defnInfo ci).safety ≠ .safe := by
+  rintro ⟨ci, hci, hne⟩
+  obtain ⟨ci', -, htr, -⟩ := Lean4Lean.List.Forall₂.forall_exists_l H _ hci
+  exact hne (DefinitionSafety.le_antisymm DefinitionSafety.le_safe htr.1.1)
+
+/-- **The safe fragment is closed.** At `safety := .safe` the abstract environment is built
+by `VDecl` steps satisfying `VDecl.noUnsafe`: the only circular rule, `TrEnv'.unsafeDef`, is
+gated on a member tagged `partial`/`unsafe`, and `TrDefBlock .safe` forces every member to be
+tagged `safe`. `partial`/`unsafe` constants reach the safe model only through `TrEnv'.ignore`,
+which gives them no `VEnv` counterpart at all.
+
+This is what `VEnv.LeanWF` needs from the refinement layer; the remaining half of
+`VDecl.isPure` (no further `.axiom` steps) is bookkeeping about the kernel-level declaration
+list, not about `TrEnv'`. -/
+theorem TrEnv'.wf_noUnsafe (H : TrEnv' .safe C Q venv) :
+    ∃ ds, VEnv.WF' ds venv ∧ ∀ d ∈ ds, d.noUnsafe := by
+  have step {d : VDecl} {ds : List VDecl} (hd : d.noUnsafe)
+      (h : ∀ d ∈ ds, VDecl.noUnsafe d) : ∀ d' ∈ d :: ds, VDecl.noUnsafe d' := by
+    intro d' hd'
+    rcases List.mem_cons.1 hd' with rfl | h'
+    exacts [hd, h _ h']
+  induction H with
+  | empty => exact ⟨_, .empty, nofun⟩
+  | ignore _ _ _ ih => exact ih
+  | «axiom» _ _ h1 h2 _ ih =>
+    have ⟨_, H, hp⟩ := ih
+    exact ⟨_, H.decl <| .axiom (ci := ⟨_, _⟩) h1 h2, step trivial hp⟩
+  | defn h1 _ h2 h3 _ ih =>
+    have ⟨_, H, hp⟩ := ih
+    have := h1.1.2; dsimp [ConstantInfo.name, ConstantInfo.toConstantVal] at this
+    exact ⟨_, H.decl <| .def h2 (this ▸ h3), step trivial hp⟩
+  | unsafeDef hns hblk => exact absurd hns hblk.safe_not_unsafeDef
+  | thm h1 _ h2 h3 h4 _ ih =>
+    have ⟨_, H, hp⟩ := ih
+    have hn := h1.1.2
+    dsimp [ConstantInfo.name, ConstantInfo.toConstantVal] at hn
+    exact ⟨_, (H.decl (.example h2)).decl (.axiom ⟨_, h3⟩ (hn ▸ h4)),
+      step trivial (step trivial hp)⟩
+  | «opaque» h1 _ h2 h3 _ ih =>
+    have ⟨_, H, hp⟩ := ih
+    have := h1.1.2; dsimp [ConstantInfo.name, ConstantInfo.toConstantVal] at this
+    exact ⟨_, H.decl <| .opaque h2 (this ▸ h3), step trivial hp⟩
+  | quot h1 h2 _ ih =>
+    have ⟨_, H, hp⟩ := ih
+    exact ⟨_, H.decl <| .quot h1 h2.to_addQuot, step trivial hp⟩
+  | induct h1 h2 _ ih =>
+    have ⟨_, H, hp⟩ := ih
+    exact ⟨_, H.decl <| .induct h1 h2.to_addInduct, step trivial hp⟩
+
+nonrec theorem TrEnv.wf_noUnsafe {env : Environment} {venv : VEnv} (H : TrEnv .safe env venv) :
+    ∃ ds, VEnv.WF' ds venv ∧ ∀ d ∈ ds, d.noUnsafe := H.wf_noUnsafe
