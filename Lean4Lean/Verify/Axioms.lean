@@ -439,12 +439,26 @@ def instantiate1' (e : Expr) (subst : Expr) (d := 0) : Expr :=
 @[simp] axiom instantiateRev_eq (e : Expr) (subst) :
     e.instantiateRev subst = e.instantiate subst.reverse
 
-/-- This could be an `@[implemented_by]` -/
-@[simp] axiom instantiateRange_eq (e : Expr) (subst) :
+/-- This could be an `@[implemented_by]`.
+
+The hypotheses `h₁ : start ≤ stop` and `h₂ : stop ≤ subst.size` are essential.
+The previous unconditional form was **false**: `lean_expr_instantiate_range`
+(`kernel/instantiate.cpp:82`) starts with
+`if (b > e || e > sz) lean_internal_panic(...)` and so *aborts the process*
+outside the range, whereas `Array.extract` clamps and the right-hand side
+returns a value. Inside the range the two sides agree exactly.
+See `docs/axiom-audit.md` §6. -/
+@[simp] axiom instantiateRange_eq (e : Expr) (subst)
+    (h₁ : start ≤ stop) (h₂ : stop ≤ subst.size) :
     e.instantiateRange start stop subst = e.instantiate (subst.extract start stop)
 
-/-- This could be an `@[implemented_by]` -/
-@[simp] axiom instantiateRevRange_eq (e : Expr) (subst) :
+/-- This could be an `@[implemented_by]`.
+
+The hypotheses `h₁ : start ≤ stop` and `h₂ : stop ≤ subst.size` are essential;
+see `instantiateRange_eq` above and `docs/axiom-audit.md` §6. Out of range the
+C wrapper calls `lean_internal_panic` and aborts, while `Array.extract` clamps. -/
+@[simp] axiom instantiateRevRange_eq (e : Expr) (subst)
+    (h₁ : start ≤ stop) (h₂ : stop ≤ subst.size) :
     e.instantiateRevRange start stop subst = e.instantiateRev (subst.extract start stop)
 
 def abstract1 (v : FVarId) : Expr → (k :_:= 0) → Expr
