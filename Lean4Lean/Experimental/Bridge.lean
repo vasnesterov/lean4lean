@@ -146,6 +146,14 @@ theorem VEnv.IsDefEq.toSExpr {Γ : List VExpr} {e₁ e₂ A : VExpr} {U : Nat}
     rw [mk_instL, mk_instL, mk_instL]
     exact .extra h1 (by simpa using h3)
 
+/-- A well-formed `VExpr` context maps to a well-formed `SExpr` context. This makes the
+`Ctx.WF` hypothesis of the `SExpr`-side injectivity results free on the `VExpr` side: the
+statements in `Theory/Typing/Injectivity.lean` already carry `OnCtx Γ (env.IsType U)`. -/
+theorem _root_.Lean4Lean.OnCtx.toSExpr : ∀ {Γ : List VExpr} {U : Nat},
+    OnCtx Γ (Params.env.IsType U) → SExpr.Ctx.WF (Γ.map SExpr.mk)
+  | [], _, _ => trivial
+  | _::_, _, ⟨h1, _, h2⟩ => ⟨h1.toSExpr, _, VEnv.IsDefEq.toSExpr h2⟩
+
 theorem VEnv.HasType.toSExpr {Γ : List VExpr} {e A : VExpr} {U : Nat}
     (H : Params.env.HasType U Γ e A) :
     SExpr.IsDefEq (Γ.map SExpr.mk) (SExpr.mk e) (SExpr.mk e) (SExpr.mk A) :=

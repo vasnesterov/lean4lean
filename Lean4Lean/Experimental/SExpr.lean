@@ -729,20 +729,12 @@ scoped notation:65 "⊢ " Γ:36 => Ctx.WF Γ
 
 /-- Reflection of `IsDefEq` into the decorated judgment.
 
-**WARNING: this statement is FALSE.** `not_strong_of_isDefEq` (below) is a proof of its
-negation. It needs a `Ctx.WF Γ` hypothesis, mirroring `hΓ : OnCtx Γ (env.IsType U)` in the
-`VExpr` analogue `VEnv.IsDefEq.strong` (`Theory/Typing/Strong.lean`). The corrected
-statement is
-
-    theorem IsDefEq.strong (hΓ : Ctx.WF Γ) : Γ ⊢ e1 ≡ e2 : A → IsDefEqStrong Γ e1 e2 A
-
-Adopting it requires threading `Ctx.WF` through `LE_Interp.strongSound`, `LR.adequacy` and
-`SExpr.IsDefEq.toHasTypeS`. `LE_Interp.strongSoundS` / `LE_Interp.soundS` (the decorated
-forms, which need no such hypothesis) already exist for that purpose and now carry most of
-the internal call sites; what remains is `LR.Adequate.cons`, two `suffices` blocks inside
-`LR.adequacy`, and the four `LR.adequacy` corollaries. Do NOT build new results on this
-declaration until it is restated. -/
-theorem IsDefEq.strong : Γ ⊢ e1 ≡ e2 : A → IsDefEqStrong Γ e1 e2 A := sorry
+The `Ctx.WF Γ` hypothesis is **necessary**: `not_strong_of_isDefEq` below refutes the
+version without it, because `IsDefEqStrong.bvar` demands `Γ ⊢ A : .sort u` for the
+looked-up type while `IsDefEq.bvar` says nothing about the context. This mirrors
+`hΓ : OnCtx Γ (env.IsType U)` in the `VExpr` analogue `VEnv.IsDefEq.strong`
+(`Theory/Typing/Strong.lean`). -/
+theorem IsDefEq.strong (hΓ : Ctx.WF Γ) : Γ ⊢ e1 ≡ e2 : A → IsDefEqStrong Γ e1 e2 A := sorry
 
 /-- Erasing the decorations of `IsDefEqStrong` gives back `IsDefEq`. The `VExpr` analogue
 is `VEnv.IsDefEqStrong.defeq` in `Theory/Typing/Strong.lean`. -/
@@ -788,15 +780,12 @@ theorem IsDefEqStrong.bvar_lookup (H : IsDefEqStrong Γ e1 e2 A) :
   | extra _ _ _ _ ih3 ih4 => exact ⟨ih3.1, ih4.1, ih3.2.2⟩
 
 /--
-**`IsDefEq.strong` below is false as stated.**
+**Why `IsDefEq.strong` needs its `Ctx.WF Γ` hypothesis:** without it the statement is false.
 
 `IsDefEqStrong.bvar` demands `Γ ⊢ A : .sort u` for the looked-up type, while `IsDefEq.bvar`
 has no premise about the context at all, so an ill-formed context separates the two
 judgments. The `VExpr` analogue gets this right — `VEnv.IsDefEq.strong` in
 `Theory/Typing/Strong.lean` takes `hΓ : OnCtx Γ (env.IsType U)`.
-
-Closing `IsDefEq.strong` therefore requires first restating it with a `Ctx.WF Γ` hypothesis
-and threading that through `LE_Interp.strongSound`, `LR.adequacy` and `IsDefEq.toHasTypeS`.
 -/
 theorem not_strong_of_isDefEq :
     ¬ ∀ {Γ e1 e2 A}, IsDefEq Γ e1 e2 A → IsDefEqStrong Γ e1 e2 A := fun H => by
@@ -905,7 +894,14 @@ theorem Ctx.SubstEq.symm (W : Ctx.SubstEq Γ₀ σ σ' Γ) : Ctx.SubstEq Γ₀ �
   | cons W hA h ih => exact .cons ih hA (.defeqDF (.subst W hA) h.symm)
 
 theorem Ctx.SubstEq.lookup (W : Ctx.SubstEq Γ₀ σ σ' Γ) :
-    Lookup Γ i A → Γ₀ ⊢ σ i ≡ σ' i : A.subst σ := sorry
+    ∀ {i A}, Lookup Γ i A → Γ₀ ⊢ σ i ≡ σ' i : A.subst σ := by
+  induction W with
+  | nil => intro _ _ h; rw [subst_id]; exact .bvar h
+  | cons _ _ hh ih =>
+    intro _ _ h
+    cases h with
+    | zero => rw [lift_subst]; exact hh
+    | succ h => rw [lift_subst]; exact ih h
 
 theorem Ctx.SubstEq.lift (W : Ctx.SubstEq Γ₀ σ σ' Γ) (hA : Γ₀ ⊢ A.subst σ : .sort u) :
     Ctx.SubstEq (A.subst σ :: Γ₀) σ.lift σ'.lift (A :: Γ) := sorry

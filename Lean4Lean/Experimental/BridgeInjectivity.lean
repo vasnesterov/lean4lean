@@ -42,8 +42,9 @@ and `SExpr.sort_inv`.
 conclusion `SLevel.mk u = SLevel.mk v` is literally `u ≈ v`.
 -/
 theorem VEnv.IsDefEqU.sort_inv_params {Γ : List VExpr} {u v : VLevel} {U : Nat}
+    (hΓ : OnCtx Γ (Params.env.IsType U))
     (H : Params.env.IsDefEqU U Γ (.sort u) (.sort v)) : u ≈ v :=
-  let ⟨_, H⟩ := H.toSExpr; SLevel.mk_inj.1 (SExpr.sort_inv H)
+  let ⟨_, H⟩ := H.toSExpr; SLevel.mk_inj.1 (SExpr.sort_inv hΓ.toSExpr H)
 
 /--
 **Sort/Π disjointness**, relative to `Params`.
@@ -53,13 +54,15 @@ arbitrary one; the gap is closed on the `SExpr` side with `SExpr.HasTypeS.uniq`
 (`Experimental/UniqueTyping.lean`), which retypes the derivation at `.sort (mk u).succ`.
 -/
 theorem VEnv.IsDefEqU.sort_forallE_inv_params {Γ : List VExpr} {u : VLevel} {A B : VExpr}
-    {U : Nat} : ¬Params.env.IsDefEqU U Γ (.sort u) (.forallE A B) := by
+    {U : Nat} (hΓ : OnCtx Γ (Params.env.IsType U)) :
+    ¬Params.env.IsDefEqU U Γ (.sort u) (.forallE A B) := by
   rintro ⟨V, H⟩
+  have hΓ' := hΓ.toSExpr
   have H' := VEnv.IsDefEq.toSExpr H
-  have h1 := (SExpr.IsDefEq.toHasTypeS H').1
+  have h1 := (SExpr.IsDefEq.toHasTypeS H' hΓ').1
   have h2 : HasTypeS (Γ.map SExpr.mk) (.sort (SLevel.mk u))
       (.sort (SLevel.mk u).succ) true := .base .sort'
-  have ⟨_, hw⟩ := h1.uniq h2
-  exact SExpr.sort_forallE_inv (hw.defeqDF H')
+  have ⟨_, hw⟩ := h1.uniq hΓ' h2
+  exact SExpr.sort_forallE_inv hΓ' (hw.defeqDF H')
 
 end Lean4Lean

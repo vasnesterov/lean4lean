@@ -5258,6 +5258,15 @@ theorem LE_Interp.strongSoundS (H : IsDefEqStrong Γ M N A) : StrongSoundEq Γ M
       exact .mono hm_le_typed <| h_foldr_eq ▸ apps_realize W h_m_typed_HT.T ha
         (h_foldr_eq ▸ ih1.left) h_per_arg (.pat a1 hMatch (hRHS.mono_l hbnd))
 
+/-- Soundness from an already-established `StrongSoundEq`. Useful when the reflexive
+instance `StrongSoundEq Γ M M A` is needed, which `StrongSoundEq.rfl` supplies from
+`StrongSoundEq.left`/`.right` — `IsDefEqStrong` itself has no reflexivity lemma, because
+its `trans` rule carries an extra `Γ ⊢ A : .sort u` premise that the `VExpr` analogue
+does not. -/
+theorem LE_Interp.soundSS (H : StrongSoundEq Γ M N A) (W : Valuation.Fits Γ₀ Γ ρ) {m} :
+    (LE_Interp ρ m M ↔ LE_Interp ρ m N) ∧ (LE_Interp ρ m M → InterpTyped ρ m M A) :=
+  ⟨H.sound W, H.left.sound W⟩
+
 variable [ParamsExtra] in
 /-- Soundness from a *decorated* derivation. This is the form used inside inductions on
 `IsDefEqStrong`; it needs no context well-formedness hypothesis because the decorations
@@ -5267,13 +5276,13 @@ theorem LE_Interp.soundS (H : IsDefEqStrong Γ M N A) (W : Valuation.Fits Γ₀ 
   ⟨(strongSoundS H).sound W, (strongSoundS H).left.sound W⟩
 
 variable [ParamsExtra] in
-theorem LE_Interp.strongSound (H : Γ ⊢ M ≡ N : A) : StrongSoundEq Γ M N A :=
-  strongSoundS H.strong
+theorem LE_Interp.strongSound (hΓ : Ctx.WF Γ) (H : Γ ⊢ M ≡ N : A) : StrongSoundEq Γ M N A :=
+  strongSoundS (H.strong hΓ)
 
 variable [ParamsExtra] in
-theorem LE_Interp.sound (H : Γ ⊢ M ≡ N : A) (W : Valuation.Fits Γ₀ Γ ρ) {m} :
+theorem LE_Interp.sound (hΓ : Ctx.WF Γ) (H : Γ ⊢ M ≡ N : A) (W : Valuation.Fits Γ₀ Γ ρ) {m} :
     (LE_Interp ρ m M ↔ LE_Interp ρ m N) ∧ (LE_Interp ρ m M → InterpTyped ρ m M A) :=
-  soundS H.strong W
+  soundS (H.strong hΓ) W
 
 structure LogRelBase (Γ : List SExpr) (n : Nat) where
   /-- Term validity: `M ≡ N : A` at element-shape `m` and type-shape `a`. -/
