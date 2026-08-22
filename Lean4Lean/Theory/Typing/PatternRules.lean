@@ -1769,6 +1769,42 @@ carries `ctor_ty` — and Capstone's results are still `sorryAx`-tainted through
 `SExpr.forallE_inv`, `SExpr.sort_inv`, `SExpr.HasTypeS.uniq` and `SExpr.IsDefEq.toHasTypeS`,
 which is the shape-model stream's own frontier, not a `Params` obligation.
 
+### `SExpr.ParamsExtra.extra_pat` is unsatisfiable as stated — the λ-peeling defect, uncured
+
+`PLAN.md`'s original finding was that `extra_pat` cannot hold for any environment with a
+λ-abstracted rule, because `Pattern.Matches` walks only `const`/`app` spines.  The mainline
+field was fixed by peeling (`∃ Δ L R, df.lhs.instL ls = mkLams Δ L ∧ …`), which is why
+`Pat.extra` above exists at all.  **The `SExpr` copy was not fixed.**
+`SExpr.ParamsExtra.extra_pat` still asks for `p.MatchesS (.instL ls (.mk df.lhs)) m1 m2` on
+the unpeeled left-hand side, and `Pattern.MatchesS.not_lam` (proved, in the same file) says a
+pattern never matches a `lam`.  `SExpr.mk` and `SExpr.instL` are both structural on `lam`, so
+the `lam` survives both.
+
+Hence: **no `SExpr.ParamsExtra` instance exists for any environment carrying the quotient rule
+or any ι-rule** — `quotDefEq.lhs` is a six-binder `mkLams`, and `iotaRule`'s is a
+`mkLams (iotaCtx C)` whose telescope is never empty (`D.motives` has one entry per type and
+`D.types ≠ []`).  Machine-checked; the witness derives `False` from
+`[Params] [SExpr.ParamsExtra]` plus `env.defeqs quotDefEq`, and again from `env.defeqs
+(D.iotaRule j q C)`, with no `sorryAx` and no `Classical.choice`.  It lives with the stream
+that owns `Experimental/SExpr.lean`, since this file must not import `Experimental/`.
+
+So the route `pat_wf` → `forallE_inv` → shape-model instance is **not blocked by circularity
+but by an unsatisfiable field one step further out**, and the fix is the same peel the
+mainline already took.
+
+`ctor_ty`, by contrast, *is* satisfiable — traced, not assumed.  Note what it does not say,
+though: it requires only `VIndCtor.Interface env D j T C`, and asks neither for `D.WF env` nor
+for `D` to have been added to `env`.  `pat_simple` forces the quotient rule's pattern to be
+`SimplePattern.iota ``Quot.lift 5 ``Quot.mk 3` (a six-argument application cannot be a
+`.defn`, whose `toPattern` is a bare `.const`), so `Pattern.WF` forces
+`classify ``Quot.mk = some (.ctor 3)`, and `ctor_ty` then demands a block with a constructor
+named `Quot.mk`.  No such block is in any environment — `addQuot` is a separate extension —
+and the obligation is dischargeable only by *fabricating* a `VInductDecl'` describing `Quot`
+(`uvars := 1`, `params := [Sort u, α → α → Prop]`, one field, no indices), which every field of
+`Interface` then accepts against `addQuot`'s stored types.  That works, and it means `ctor_ty`
+records less provenance than its name suggests: a consumer reading it as "this constructor
+came from a real declaration" is relying on something it does not say.
+
 ### Two findings
 
 **`extra_pat`'s `OnCtx Γ` is not needed by any case.**  Its docstring argues that the ι index
