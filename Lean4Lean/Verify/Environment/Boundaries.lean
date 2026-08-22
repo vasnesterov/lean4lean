@@ -27,7 +27,23 @@ structure PrimitiveResult (checked : VEnv) (v : DefinitionVal) (allow : Bool) : 
     venv.addConst v.name ci'.toVConstant = some env' →
     (env'.addDefEq ci'.toDefEq).HasPrimitives
 
-/-- Verification boundary for Lean4Lean's syntactic primitive-definition recognizer. -/
+/-- Verification boundary for Lean4Lean's syntactic primitive-definition recognizer.
+
+Two earlier refutations of this statement have been closed on the implementation side
+(`Lean4Lean/Primitive.lean`):
+
+* the `Char.ofNat` and `String.ofList` branches now compare `v.type` with `==` (`Expr.eqv`,
+  structural up to binder names and binder info) rather than `isDefEq`, so the `VConstant`
+  that `TrConstant` reads off structurally is forced to be the one `VEnv.HasPrimitives`
+  demands; and
+* the `Nat` branches compare open terms under `withLocalDecl`-bound free variables instead of
+  wrapping them in the ill-typed pseudo-type `∀ _ : Nat, e`, which had no `TrExprS` witness and
+  therefore made every `isDefEq` spec vacuous.
+
+What remains is the substantive content: the 15 reflection theorems relating the primitive
+`Nat` operations to their Lean definitions (`VEnv.ReflectsNatNatNat`/`…Bool`), including the
+fuel recursion of `Nat.div`/`Nat.mod` and the `WellFounded.Nat.fix`/`Acc.rec` unfolding used by
+`Nat.gcd`/`Nat.bitwise`. -/
 theorem checkPrimitiveDef.WF {env : Environment} {ves : VEnvs} (wf : ves.WF env)
     (v : DefinitionVal) (fuel : FuelConfig := {}) :
     (Environment.checkPrimitiveDef v).WF (.mk' wf .safe v.levelParams fuel) {} fun allow _ =>
