@@ -872,6 +872,51 @@ friction ceiling rather than an impossibility, but it is where the linear
 estimate stops being valid, and it is worth knowing before the constructor layer
 is scheduled.
 
+### The `u = 0` check caught a fourth, and this one changes the witness *shape*
+
+Run on `Quot.mk : ∀ (α : Sort u) (r : α → α → Prop) (a : α), Quot α r` before
+building anything:
+
+* `Quot α r` has sort `u`;
+* `∀ (a : α), Quot α r` has sort `imax u u`;
+* `∀ (r : …), …` has sort `imax _ (imax u u)`;
+* `∀ (α : Sort u), …` has sort `imax (u+1) (…)`.
+
+At `u.eval = 0` every `imax` collapses to `0`, so **the whole type of `Quot.mk`
+is a proposition** and its denotation is a subset of `{•}`. The witness cannot
+be a nest of three λs — it must be `•`.
+
+The three earlier splits changed the *value* of a construction. This one changes
+the *shape of the witness*: a nested-λ witness is not harder to prove here, it
+is wrong, and nothing in the `u ≠ 0` development hints at it. The check cost
+five minutes and would otherwise have surfaced as an unprovable goal at the
+bottom of a three-deep nest.
+
+### `Quot.mk` progress, and what the spine lemmas cost
+
+Landed and green: the value layer (`quotMkVal` + definability + membership), the
+`mkLam_value` chain (`quotFn_value`, `quotFib_value`) that computes `Quot`'s
+denotation at a point, the codomain typing derivation (`quotConst_type`,
+`quotMkCod_type` — `constDF` plus two `appDF`s), and the spine
+(`quotMkInner_type`, `quotMkMid_type`).
+
+Two things worth recording from the derivation:
+
+* **The `inst`/`lift` computations came out on the nose.** `appDF` produces the
+  codomain type `(∀ r, Sort u).inst (.bvar 2)`, and the argument `.bvar 1` has
+  context type `(quotRelTy.lift).lift`. These are syntactically equal, so the
+  second `appDF` applies with no rewriting at all. That is worth knowing before
+  the constructor layer: the de Bruijn arithmetic of a constructor's spine
+  lines up by construction rather than needing transport lemmas.
+* **The spine lemmas are stated over an arbitrary context tail** (`Δ`), because
+  the `bvar` lookups only see the prefix. That makes them reusable at any depth,
+  which is what `Quot.ind` and `quotDefEq` will need.
+
+What remains for `Quot.mk` is the membership obligation itself, in both
+branches: `pt_mem_interp_forallE_prop` three times at `u.eval = 0`, and the
+nested `mkLam` route otherwise, both bottoming out at
+`⟦Quot α r⟧ρ = quotVal α r i` via the value chain.
+
 ### The pattern: uniform in ZFC, not uniform across `Sort 0`
 
 That split is the **third** time this session a statement that reads uniformly
@@ -894,7 +939,10 @@ are neither.** In each case the uniform statement was not merely harder to prove
 
 So: *before proving any new uniform statement about the interpretation, evaluate
 it at `u = 0` first.* Five minutes, with the same payoff profile as the pre-proof
-truth check that has now caught five false statements.
+truth check. It has now caught **four** level-sensitive splits, and the fourth
+(`Quot.mk`) changed the shape of the witness rather than the value of a
+construction — so the check is not only about getting a definition right, it is
+about not building the wrong object at all.
 
 ### What is left of `cnst`
 
