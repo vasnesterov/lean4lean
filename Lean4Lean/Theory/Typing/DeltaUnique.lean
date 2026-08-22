@@ -223,6 +223,36 @@ theorem addConsts_nodup : ∀ {cis : List VDefVal} {env env' : VEnv},
       refine .cons (fun b hb hne => ?_) (addConsts_nodup h)
       exact addConsts_fresh h b hb ⟨_, hne ▸ addConst_self hh⟩
 
+/-- Both invariants lift along `addConsts`, since declaring constants leaves the rules alone. -/
+theorem DefEqHeadsDeclared.addConsts {env env' : VEnv} {cis} :
+    env.addConsts cis = some env' → env.DefEqHeadsDeclared → env'.DefEqHeadsDeclared := by
+  induction cis generalizing env with
+  | nil => intro h H; cases h; exact H
+  | cons ci cis ih =>
+    intro h H
+    rw [VEnv.addConsts, List.foldlM_cons] at h
+    cases hh : env.addConst ci.name ci.toVConstant with
+    | none => rw [hh] at h; exact absurd h (by simp)
+    | some e => rw [hh] at h; exact ih h (H.addConst hh)
+
+theorem DefEqHeadsUnique.addConsts {env env' : VEnv} {cis} :
+    env.addConsts cis = some env' → env.DefEqHeadsUnique → env'.DefEqHeadsUnique := by
+  induction cis generalizing env with
+  | nil => intro h H; cases h; exact H
+  | cons ci cis ih =>
+    intro h H
+    rw [VEnv.addConsts, List.foldlM_cons] at h
+    cases hh : env.addConst ci.name ci.toVConstant with
+    | none => rw [hh] at h; exact absurd h (by simp)
+    | some e => rw [hh] at h; exact ih h (H.addConst hh)
+
+/-- Every name of the block carries no rule in the post-`addConsts` environment: freshness
+against the *pre*-block environment, transported forward.  This is the hypothesis
+`addDefEqs_unique` consumes. -/
+theorem noRuleFor_addConsts {env env' : VEnv} {cis} (h : env.addConsts cis = some env')
+    (Hd : env.DefEqHeadsDeclared) : ∀ ci ∈ cis, env'.NoRuleFor ci.name :=
+  fun ci hci => (noRuleFor_of_not_contains Hd (addConsts_fresh h ci hci)).addConsts h
+
 /-! ## The `.unsafeDef` fold
 
 `addConsts` declares the whole block, then `addDefEqs` adds the whole block's rules.  Both are

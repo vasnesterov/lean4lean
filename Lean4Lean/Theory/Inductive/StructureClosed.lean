@@ -653,4 +653,30 @@ theorem instAllTele_liftTele_append : ∀ {As as bs : List VExpr} {k n : Nat}, b
 
 end VExpr
 
+/-- `recApp_hasType''`'s index obligation, reduced to `TrProj`'s recorded one: the index
+telescope is stated over `params ++ motives ++ minors`, and the motive/minor block is
+discarded by the lift. -/
+theorem VInductDecl'.idxTele_collapse (D : VInductDecl') (T : VIndType) (C : VIndCtor)
+    {us : List VLevel} {ps : List VExpr} {k : Nat} {mot minor : VExpr}
+    (hnm : D.nm = 1) (hnmin : D.nmin = 1) (hus : us.length = D.uvars) :
+    VExpr.instAllTele
+        (VExpr.liftTele (D.nm + D.nmin)
+          ((D.atRecTele T.indices).map (VExpr.instL (D.projLvls C us k))))
+        (ps ++ ([mot] ++ [minor]))
+      = VExpr.instAllTele (T.indices.map (VExpr.instL us)) ps := by
+  have hself : D.selfLvls.map (VLevel.inst (D.projLvls C us k)) = us := by
+    rw [VInductDecl'.projLvls]; exact D.selfLvls_inst _ hus
+  simp only [VInductDecl'.atRecTele, List.map_map, Function.comp_def,
+    VExpr.instL_instL, hself, hnm, hnmin, List.singleton_append]
+  exact VExpr.instAllTele_liftTele_append (bs := [mot, minor]) rfl
+
+/-- A closed, well-formed telescope stays well-formed over any well-formed context.  The
+`instL` counterpart already exists as `OnCtx.instL` (`Theory/Typing/Lemmas.lean:628`). -/
+theorem OnCtx.appendR {env : VEnv} {U : Nat} {Γ : List VExpr} (henv : env.Ordered)
+    (hΓ : OnCtx Γ (env.IsType U)) :
+    ∀ {Δ : List VExpr}, CtxClosed Δ → OnCtx Δ (env.IsType U) → OnCtx (Δ ++ Γ) (env.IsType U)
+  | [], _, _ => hΓ
+  | _ :: _, hcl, ⟨h1, h2⟩ =>
+    ⟨OnCtx.appendR henv hΓ hcl.1 h1, h2.imp fun _ h => VEnv.IsDefEq.weakR henv hcl.1 h Γ⟩
+
 end Lean4Lean
