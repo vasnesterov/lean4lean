@@ -565,5 +565,42 @@ example : eqRefl.args = [VExpr.bvar 0] := rfl
 example : liftTele natSucc.fields.length (natDecl.types[0]!).indices = [] := rfl
 example : liftTele forestCons.fields.length (mutDecl.types[1]!).indices = [] := rfl
 
+/-! ### `HasArgs.bvars` and the `bvars_add₃` split used by `ihValues` / E1–E5
+
+`HasArgs.bvars` feeds `mkApp'` the telescope `liftTele (k + |As|) As`.  For the parameter
+block that is a no-op (parameters are closed), which is what makes the recursor's spines
+simple; for the index block it genuinely shifts. -/
+
+example : liftTele 5 (accDecl.atRecTele accDecl.params) = accDecl.atRecTele accDecl.params := rfl
+example : liftTele 5 (eqDecl.atRecTele eqDecl.params) = eqDecl.atRecTele eqDecl.params := rfl
+-- the index telescope is not closed, so it does move
+example : liftTele 3 (accDecl.atRecTele accType.indices) = [VExpr.bvar 4] := rfl
+example : liftTele 2 (accDecl.atRecTele accType.indices) = [VExpr.bvar 3] := rfl
+
+/-- `ihValues` applies `I_{r.idx}.rec` to three consecutive variable blocks -- parameters,
+motives, minors.  They are contiguous in the context, so `bvars_add₃` collapses them into a
+single spine for the concatenated telescope; without that, `mkApp'` would need three
+separate `HasArgs`.  Checked on `Acc` (`nxi = nf = 2`) and on the mutual block
+(`nxi = 0`, `nf = 1`). -/
+example : bvars (2 + 2 + (accDecl.nm + accDecl.nmin)) accDecl.np
+      ++ bvars (2 + 2 + accDecl.nmin) accDecl.nm ++ bvars (2 + 2) accDecl.nmin
+    = bvars (2 + 2) (accDecl.np + accDecl.nm + accDecl.nmin) := rfl
+
+example : bvars (0 + 1 + (mutDecl.nm + mutDecl.nmin)) mutDecl.np
+      ++ bvars (0 + 1 + mutDecl.nmin) mutDecl.nm ++ bvars (0 + 1) mutDecl.nmin
+    = bvars (0 + 1) (mutDecl.np + mutDecl.nm + mutDecl.nmin) := rfl
+
+example : bvars (0 + 1 + (natDecl.nm + natDecl.nmin)) natDecl.np
+      ++ bvars (0 + 1 + natDecl.nmin) natDecl.nm ++ bvars (0 + 1) natDecl.nmin
+    = bvars (0 + 1) (natDecl.np + natDecl.nm + natDecl.nmin) := rfl
+
+-- and the corresponding telescope really is the concatenation `recType` binds
+example : mutDecl.recType 0 = mkPi (mutDecl.atRecTele mutDecl.params ++ mutDecl.motives
+      ++ mutDecl.minors ++ liftTele (mutDecl.nm + mutDecl.nmin)
+        (mutDecl.atRecTele (mutDecl.types[0]!).indices))
+    (.forallE (mutDecl.tyApp' 0 (0 + mutDecl.nmin + mutDecl.nm) (bvars 0 0))
+      ((VExpr.bvar (1 + 0 + mutDecl.nmin + (mutDecl.nm - 1 - 0))).mkApp
+        (bvars 1 0 ++ [.bvar 0]))) := rfl
+
 end InductiveDeclExamples
 end Lean4Lean

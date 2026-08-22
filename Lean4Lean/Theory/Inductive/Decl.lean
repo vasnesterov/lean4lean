@@ -243,6 +243,15 @@ def VEnv.addIndCtors (env : VEnv) (D : VInductDecl') : Option VEnv :=
 
 /-! ## Well-formedness (design §4) -/
 
+/-- `as` is a well-typed instantiation of the declaration-order telescope `As`: each `aᵢ`
+is typed at `Aᵢ` with the earlier arguments already substituted.  This is the hypothesis
+shape of `HasType.mkApp'` ("apply a function of `mkPi` type to a whole spine"). -/
+inductive VEnv.HasArgs (env : VEnv) (U : Nat) (Γ : List VExpr) : List VExpr → List VExpr → Prop
+  | nil : HasArgs env U Γ [] []
+  | cons {A As a as} :
+    env.HasType U Γ a A → HasArgs env U Γ (VExpr.instTele a As) as →
+    HasArgs env U Γ (A :: As) (a :: as)
+
 /-- `IsDefEqU` refined to say the two sides are equal **as types**.
 
 Stronger than `IsDefEqU`, and it is what the refinement naturally produces: the kernel
@@ -284,6 +293,18 @@ structure VIndField.WF (env : VEnv) (D : VInductDecl') (Γ : List VExpr) (i : Na
       (∀ a ∈ r.args, D.NoBlock a) ∧
       OnCtx (r.binders.reverse ++ Γ) (env.IsType D.uvars) ∧
       env.HasType D.uvars (r.binders.reverse ++ Γ) (r.canonResult D i) (.sort D.lvl) ∧
+      -- The index arguments are well-typed against `I_{r.idx}`'s index telescope, moved
+      -- into `ξ.reverse ++ Γ` (where the parameters sit `|ξ| + i` binders up, which is
+      -- exactly where `bvars (|ξ|+i) np` points).  **Recorded, not derived**: extracting
+      -- it from the well-typedness of `I p π` is application inversion, and while
+      -- `HasType.app_inv` is available (`Typing/Strong.lean`), pinning the existential
+      -- domain it returns to the declared index telescope needs `IsDefEqU.forallE_inv`
+      -- (`Typing/Injectivity.lean`, `sorry`, and downstream of `VEnv.WF` hence of
+      -- `addInduct_WF`).  The refinement supplies it for free: `inferType` on an
+      -- application checks each argument against the domain.
+      (∀ T', D.types[r.idx]? = some T' →
+        env.HasArgs D.uvars (r.binders.reverse ++ Γ)
+          (liftTele (r.binders.length + i) T'.indices) r.args) ∧
       env.IsDefEqType D.uvars Γ F.type (r.canonType D i)
 
 /-- Well-formedness of one constructor, stated in the environment that already contains
@@ -299,8 +320,13 @@ structure VIndCtor.WF (env : VEnv) (D : VInductDecl') (j : Nat) (T : VIndType)
     F.WF env D (((C.fields.take i).map (·.type)).reverse ++ D.params.reverse) i
   /-- F5: the result is an application of `I_j` to the parameters and `args`… -/
   args_len : C.args.length = T.indices.length
-  /-- …with the non-parameter arguments free of the block's constants. -/
+  /-- …with the non-parameter arguments free of the block's constants… -/
   args_fresh : ∀ a ∈ C.args, D.NoBlock a
+  /-- …and well-typed against `I_j`'s index telescope, moved into the field context (where
+  the parameters sit `nf` binders up).  Recorded for the same reason as
+  `VIndField.WF.pos`'s clause. -/
+  args_ty : env.HasArgs D.uvars ((C.fields.map (·.type)).reverse ++ D.params.reverse)
+    (liftTele C.fields.length T.indices) C.args
   /-- The result type is a type; this also delivers well-typedness of `C.args`. -/
   result : env.HasType D.uvars ((C.fields.map (·.type)).reverse ++ D.params.reverse)
     (C.canonResult D j) (.sort D.lvl)

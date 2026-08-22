@@ -500,12 +500,6 @@ exactly the resulting type. -/
 
 namespace VEnv
 
-inductive HasArgs (env : VEnv) (U : Nat) (Γ : List VExpr) : List VExpr → List VExpr → Prop
-  | nil : HasArgs env U Γ [] []
-  | cons {A As a as} :
-    env.HasType U Γ a A → HasArgs env U Γ (instTele a As) as →
-    HasArgs env U Γ (A :: As) (a :: as)
-
 theorem HasArgs.length_eq {env : VEnv} :
     ∀ {As as}, HasArgs env U Γ As as → As.length = as.length
   | _, _, .nil => rfl
@@ -739,6 +733,113 @@ theorem HasType.appBVars₂ {env : VEnv} {U m} {As Bs Γ₀ Γ₁ : List VExpr} 
 
 end VEnv
 
+/-! ## `HasArgs` for a `bvars` spine
+
+The recursor's ι-rules and induction-hypothesis *values* apply a constant to a mixture of
+variable blocks and genuine terms, so `appBVars₂` is not enough there and a real `HasArgs`
+for a variable block is needed.  A telescope `As` sitting contiguously in the context, `k`
+binders down, is instantiated by its own variables `bvars k |As|` -- against the telescope
+re-indexed as `liftTele (k + |As|) As`, which is exactly what `Lookup` assigns. -/
+
+namespace VExpr
+
+/-- Instantiating a freshly-inserted variable one cut below where it was inserted. -/
+theorem inst_bvar_liftN : ∀ (e : VExpr) (m j : Nat),
+    (e.liftN (m+1) (j+1)).inst (.bvar m) j = e.liftN m j
+  | .bvar i, m, j => by
+    show instVar (liftVar (m+1) i (j+1)) (VExpr.bvar m) j = VExpr.bvar (liftVar m i j)
+    rcases Nat.lt_or_ge i j with h | h
+    · rw [liftVar_lt (show i < j+1 by omega), liftVar_lt h]
+      simp only [instVar, if_pos h]
+    · rcases Nat.eq_or_lt_of_le h with rfl | h
+      · rw [liftVar_lt (Nat.lt_succ_self _), liftVar_le (Nat.le_refl _)]
+        simp only [instVar, if_neg (Nat.lt_irrefl _)]
+        show VExpr.liftN j (VExpr.bvar m) 0 = _
+        rw [VExpr.liftN, liftVar_base']
+      · rw [liftVar_le (show j+1 ≤ i by omega), liftVar_le (show j ≤ i by omega)]
+        simp only [instVar, if_neg (show ¬ (m+1+i < j) by omega),
+          if_neg (show ¬ (m+1+i = j) by omega)]
+        congr 1; omega
+  | .sort _, _, _ | .const .., _, _ => rfl
+  | .app f a, m, j => by simp only [liftN, inst, inst_bvar_liftN]
+  | .lam A b, m, j => by
+    simp only [liftN, inst, inst_bvar_liftN A m j, inst_bvar_liftN b m (j+1)]
+  | .forallE A b, m, j => by
+    simp only [liftN, inst, inst_bvar_liftN A m j, inst_bvar_liftN b m (j+1)]
+
+theorem instTele_bvar_liftTele : ∀ {As : List VExpr} {m j : Nat},
+    instTele (.bvar m) (liftTele (m+1) As (j+1)) j = liftTele m As j
+  | [], _, _ => rfl
+  | A :: As, m, j => by
+    rw [liftTele_cons, instTele_cons, inst_bvar_liftN, liftTele_cons,
+      instTele_bvar_liftTele (As := As) (m := m) (j := j+1)]
+
+end VExpr
+
+theorem Lookup.append : ∀ (Ξ : List VExpr) {A Γ},
+    Lookup (Ξ ++ A :: Γ) Ξ.length (A.liftN (Ξ.length + 1))
+  | [], _, _ => .zero
+  | B :: Ξ, A, Γ => by
+    have := (Lookup.append Ξ (A := A) (Γ := Γ)).succ (A := B)
+    rw [show (A.liftN (Ξ.length + 1)).lift = A.liftN (Ξ.length + 1 + 1) from
+      VExpr.liftN_liftN ..] at this
+    simpa using this
+
+namespace VEnv
+
+/-- **The variable spine of a telescope.**  If `As` sits in the context `k` binders down,
+its own variables instantiate it. -/
+theorem HasArgs.bvars {env : VEnv} {U : Nat} {Δ : List VExpr} :
+    ∀ {As Γ₀ : List VExpr},
+      env.HasArgs U (Δ ++ As.reverse ++ Γ₀) (liftTele (Δ.length + As.length) As)
+        (bvars Δ.length As.length)
+  | [], _ => by simpa using HasArgs.nil
+  | A :: As, Γ₀ => by
+    rw [List.append_assoc, VExpr.tele_ctx_cons, ← List.append_assoc, List.length_cons,
+      show Δ.length + (As.length + 1) = (Δ.length + As.length) + 1 from by omega,
+      VExpr.liftTele_cons, VExpr.bvars_succ]
+    refine HasArgs.cons (.bvar ?_) ?_
+    · simpa using Lookup.append (Ξ := Δ ++ As.reverse) (A := A) (Γ := Γ₀)
+    · rw [VExpr.instTele_bvar_liftTele]
+      exact HasArgs.bvars (Δ := Δ) (As := As) (Γ₀ := A :: Γ₀)
+
+/-! ### Monotonicity of the well-formedness data -/
+
+theorem HasArgs.mono {env env' : VEnv} (hle : env ≤ env') :
+    ∀ {As as}, env.HasArgs U Γ As as → env'.HasArgs U Γ As as
+  | _, _, .nil => .nil
+  | _, _, .cons h1 h2 => .cons (h1.mono hle) (h2.mono hle)
+
+theorem IsDefEqCtx.mono {env env' : VEnv} (hle : env ≤ env') :
+    ∀ {Γ₀ Γ₁ Γ₂}, VEnv.IsDefEqCtx env U Γ₀ Γ₁ Γ₂ → VEnv.IsDefEqCtx env' U Γ₀ Γ₁ Γ₂
+  | _, _, _, .zero => .zero
+  | _, _, _, .succ h1 h2 => .succ (h1.mono hle) (h2.mono hle)
+
+end VEnv
+
+theorem VIndField.WF.mono {env env' : VEnv} {D : VInductDecl'} {Γ : List VExpr} {i F}
+    (hle : env ≤ env') (h : VIndField.WF env D Γ i F) : VIndField.WF env' D Γ i F where
+  hasType := h.hasType.mono hle
+  level := h.level
+  pos := by
+    have hp := h.pos
+    revert hp; cases F.recArg with
+    | none => exact fun ⟨A, h1, h2⟩ => ⟨A, h1, h2.mono hle⟩
+    | some r =>
+      exact fun ⟨h1, h2, h3, h4, h5, h6, h7, h8⟩ =>
+        ⟨h1, h2, h3, h4, OnCtx.mono (fun hh => hh.mono hle) h5, h6.mono hle,
+          fun T' hT' => (h7 T' hT').mono hle, h8.mono hle⟩
+
+theorem VIndCtor.WF.mono {env env' : VEnv} {D : VInductDecl'} {j T C}
+    (hle : env ≤ env') (h : VIndCtor.WF env D j T C) : VIndCtor.WF env' D j T C where
+  params_len := h.params_len
+  params_eq := h.params_eq.mono hle
+  fields i F hF := (h.fields i F hF).mono hle
+  args_len := h.args_len
+  args_fresh := h.args_fresh
+  args_ty := h.args_ty.mono hle
+  result := h.result.mono hle
+
 /-! ## The recursor's working environment -/
 
 theorem VIndType.WF.mono {env env' : VEnv} {D : VInductDecl'} {T : VIndType}
@@ -755,17 +856,36 @@ structure VInductDecl'.RecCtx (env : VEnv) (D : VInductDecl') : Prop where
   params : OnCtx D.params.reverse (env.IsType D.uvars)
   types : ∀ T ∈ D.types, VIndType.WF env D T
   consts : ∀ T ∈ D.types, env.constants T.name = some ⟨D.uvars, T.type⟩
+  ctors : ∀ j (T : VIndType), D.types[j]? = some T →
+    ∀ (C : VIndCtor), C ∈ T.ctors → VIndCtor.WF env D j T C
+  ctorConsts : ∀ j (C : VIndCtor), (j, C) ∈ D.ctorsAll →
+    env.constants C.name = some ⟨D.uvars, C.type D j⟩
 
 /-- `RecCtx` from the declaration's well-formedness and any environment above the one the
 block's types were added to. -/
-theorem VInductDecl'.WF.recCtx {env env₁ env₂ : VEnv} {D : VInductDecl'}
-    (h : D.WF env) (he : env.addIndTypes D = some env₁) (hle : env₁ ≤ env₂)
-    (henv₂ : env₂.Ordered) : D.RecCtx env₂ where
-  ordered := henv₂
-  params := OnCtx.mono (fun hh => hh.mono ((VEnv.addIndTypes_le he).trans hle)) h.params
-  types T hT := (h.types T hT).mono ((VEnv.addIndTypes_le he).trans hle)
-  consts T hT := hle.constants <|
+theorem VInductDecl'.WF.recCtx {env env₁ env₂ env₃ : VEnv} {D : VInductDecl'}
+    (h : D.WF env) (he : env.addIndTypes D = some env₁)
+    (he₂ : env₁.addIndCtors D = some env₂) (hle : env₂ ≤ env₃)
+    (henv₃ : env₃.Ordered) : D.RecCtx env₃ where
+  ordered := henv₃
+  params := OnCtx.mono (fun hh => hh.mono (le₁₃ he he₂ hle)) h.params
+  types T hT := (h.types T hT).mono (le₁₃ he he₂ hle)
+  consts T hT := (le₂₃ he₂ hle).constants <|
     VEnv.addConstList_constants he (T.name, ⟨D.uvars, T.type⟩) (List.mem_map_of_mem hT)
+  ctors j T hT C hC := (h.ctors env₁ he j T hT C hC).mono (le₂₃ he₂ hle)
+  ctorConsts j C hC := hle.constants <|
+    VEnv.addConstList_constants he₂ (C.name, ⟨D.uvars, C.type D j⟩)
+      (List.mem_map_of_mem hC)
+where
+  /-- `env ≤ env₃` -/
+  le₁₃ {env env₁ env₂ env₃ : VEnv} {D : VInductDecl'}
+      (he : env.addIndTypes D = some env₁) (he₂ : env₁.addIndCtors D = some env₂)
+      (hle : env₂ ≤ env₃) : env ≤ env₃ :=
+    (VEnv.addIndTypes_le he).trans ((VEnv.addIndCtors_le he₂).trans hle)
+  /-- `env₁ ≤ env₃` -/
+  le₂₃ {env₁ env₂ env₃ : VEnv} {D : VInductDecl'}
+      (he₂ : env₁.addIndCtors D = some env₂) (hle : env₂ ≤ env₃) : env₁ ≤ env₃ :=
+    (VEnv.addIndCtors_le he₂).trans hle
 
 namespace VInductDecl'
 variable {env : VEnv} {D : VInductDecl'}
@@ -841,3 +961,4 @@ theorem onCtxMotives (hR : D.RecCtx env) :
   onCtxMotivesTake hR D.nm (Nat.le_refl _)
 
 end VInductDecl'
+
