@@ -619,11 +619,49 @@ inductive IsDefEq : List SExpr → SExpr → SExpr → SExpr → Prop where
   | extra : env.defeqs df → ls.length = df.uvars →
     Γ ⊢ .instL ls (.mk df.lhs) ≡ .instL ls (.mk df.rhs) : .instL ls (.mk df.type)
 
-axiom Params.extra_pat (Γ) : env.defeqs df → ls.length = df.uvars →
-  ∃ p r m1 m2 dfs, Pat p r ∧ p.MatchesS (.instL ls (.mk df.lhs)) m1 m2 ∧
-    (dfs : List _).map (·.2) = r.2.defeqsS m1 m2 ∧
-    (∀ a b A, (A, a, b) ∈ dfs → Γ ⊢ a ≡ b : A) ∧
-    .instL ls (.mk df.rhs) = r.1.applyS m1 m2
+/--
+The pattern discipline for the environment's definitional equality rules: every `extra`
+rule of `env` is an instance of a `Pat`-registered pattern, whose `Check` side conditions
+hold in `Γ`.
+
+This is a class separate from `Params` only because `Params` has to be declared before
+`SExpr` exists, while this statement mentions `SExpr.IsDefEq`.
+
+It must **not** be an `axiom`. The statement is refutable: `Pat := fun _ _ => False`
+satisfies every field of `Params` vacuously, and then `extra_pat` yields `False` for any
+environment carrying a definitional equality rule. As an axiom it therefore made every
+downstream result silently vacuous — and `Experimental/` is outside `kernel_sound`'s cone,
+so `Verify/Guard.lean` would not have caught it.
+-/
+class ParamsExtra [Params] where
+  extra_pat (Γ : List SExpr) {df : VDefEq} {ls : List SLevel} :
+    env.defeqs df → ls.length = df.uvars →
+    ∃ p r m1 m2 dfs, Pat p r ∧ p.MatchesS (.instL ls (.mk df.lhs)) m1 m2 ∧
+      (dfs : List _).map (·.2) = r.2.defeqsS m1 m2 ∧
+      (∀ a b A, (A, a, b) ∈ dfs → Γ ⊢ a ≡ b : A) ∧
+      .instL ls (.mk df.rhs) = r.1.applyS m1 m2
+  /--
+  Constructor types are Π-telescopes over their inductive type.
+
+  If `classify` says `c` is a constructor of arity `n`, then `c`'s type is definitionally
+  a Π-telescope of exactly `n` binders whose head is an application of an `indTy`-classified
+  constant, living in a nonzero sort.
+
+  This is **not** derivable from `Params`: `classify` is an uninterpreted field and nothing
+  else in `Params` relates it to `env.constants`. It is the one place where the shape model
+  consumes data about inductive declarations, and it is what `IsDefEq.strong` needs in order
+  to populate the `CtorBundle` payload of `IsDefEqStrong.const`. Whoever builds the instance
+  must supply it — i.e. it is an obligation on the inductive specification
+  (`VInductDecl.WF` / `VEnv.addInduct`), not on this file.
+  -/
+  ctor_ty {c : Name} {cl : Classification} {ci : VConstant} {ls : List SLevel}
+      {Γ : List SExpr} :
+    classify c = some cl → (cl matches .ctor .. | .etaCtor ..) →
+    env.constants c = some ci → ls.length = ci.uvars →
+    ∃ (I : Name) (Ts args : List SExpr) (u : SLevel),
+      Ts.length = cl.arity ∧ classify I = some (.indTy args.length) ∧ u ≠ .zero ∧
+      Γ ⊢ (SExpr.mk ci.type).instL ls ≡
+        Ts.foldr .forallE (args.foldr (fun A acc => acc.app A) (.const I ls)) : .sort u
 
 def CtorBundle.IsCtor (c : Name) : Prop :=
   ∃ cl, Params.classify c = some cl ∧ cl matches .ctor .. | .etaCtor ..
@@ -684,16 +722,88 @@ inductive IsDefEqStrong : List SExpr → SExpr → SExpr → SExpr → Prop wher
     Γ ⊢ .instL ls (.mk df.lhs) ≡ .instL ls (.mk df.rhs) : .instL ls (.mk df.type)
 end
 
-theorem IsDefEq.strong : Γ ⊢ e1 ≡ e2 : A → IsDefEqStrong Γ e1 e2 A := sorry
-theorem IsDefEqStrong.defeq : IsDefEqStrong Γ e1 e2 A → Γ ⊢ e1 ≡ e2 : A := sorry
+def Ctx.WF : List SExpr → Prop
+  | [] => True
+  | A::Γ => WF Γ ∧ ∃ u, Γ ⊢ A : .sort u
+scoped notation:65 "⊢ " Γ:36 => Ctx.WF Γ
 
-theorem _root_.Lean4Lean.Params.ctor_ty
-    (hcl1 : Params.classify c = some cl) (hcl2 : cl matches .ctor .. | .etaCtor ..)
-    (hci : env.constants c = some ci) (h_len : ls.length = ci.uvars) :
-    ∃ (I : Name) (Ts args : List SExpr) (u : SLevel),
-      Ts.length = cl.arity ∧ Params.classify I = some (.indTy args.length) ∧ u ≠ .zero ∧
-      Γ ⊢ (SExpr.mk ci.type).instL ls ≡
-        Ts.foldr .forallE (args.foldr (fun A acc => acc.app A) (.const I ls)) : .sort u := sorry
+/-- Reflection of `IsDefEq` into the decorated judgment.
+
+**WARNING: this statement is FALSE.** `not_strong_of_isDefEq` (below) is a proof of its
+negation. It needs a `Ctx.WF Γ` hypothesis, mirroring `hΓ : OnCtx Γ (env.IsType U)` in the
+`VExpr` analogue `VEnv.IsDefEq.strong` (`Theory/Typing/Strong.lean`). The corrected
+statement is
+
+    theorem IsDefEq.strong (hΓ : Ctx.WF Γ) : Γ ⊢ e1 ≡ e2 : A → IsDefEqStrong Γ e1 e2 A
+
+Adopting it requires threading `Ctx.WF` through `LE_Interp.strongSound`, `LR.adequacy` and
+`SExpr.IsDefEq.toHasTypeS`. `LE_Interp.strongSoundS` / `LE_Interp.soundS` (the decorated
+forms, which need no such hypothesis) already exist for that purpose and now carry most of
+the internal call sites; what remains is `LR.Adequate.cons`, two `suffices` blocks inside
+`LR.adequacy`, and the four `LR.adequacy` corollaries. Do NOT build new results on this
+declaration until it is restated. -/
+theorem IsDefEq.strong : Γ ⊢ e1 ≡ e2 : A → IsDefEqStrong Γ e1 e2 A := sorry
+
+/-- Erasing the decorations of `IsDefEqStrong` gives back `IsDefEq`. The `VExpr` analogue
+is `VEnv.IsDefEqStrong.defeq` in `Theory/Typing/Strong.lean`. -/
+theorem IsDefEqStrong.defeq (H : IsDefEqStrong Γ e1 e2 A) : Γ ⊢ e1 ≡ e2 : A := by
+  induction H with
+  | bvar h _ _ => exact .bvar h
+  | symm _ ih => exact .symm ih
+  | trans _ _ _ _ ih1 ih2 => exact .trans ih1 ih2
+  | trans' _ _ ih1 ih2 => exact .trans' ih1 ih2
+  | sort => exact .sort
+  | const h1 h2 => exact .const h1 h2
+  | appDF _ _ _ _ _ ih2 ih3 _ => exact .appDF ih2 ih3
+  | lamDF _ _ _ _ ih1 _ ih3 _ => exact .lamDF ih1 ih3
+  | forallEDF _ _ _ ih1 ih2 _ => exact .forallEDF ih1 ih2
+  | defeqDF _ _ ih1 ih2 => exact .defeqDF ih1 ih2
+  | beta _ _ _ _ ih1 ih2 _ _ => exact .beta ih1 ih2
+  | eta _ _ ih1 _ => exact .eta ih1
+  | proofIrrel _ _ _ ih1 ih2 ih3 => exact .proofIrrel ih1 ih2 ih3
+  | extra h1 h2 => exact .extra h1 h2
+
+/-- Every bound variable occurring at the head of either side, or of the type, of an
+`IsDefEqStrong` judgment is in scope. (`IsDefEq` has no such property: its `bvar` rule has
+no premise about the context.) -/
+theorem IsDefEqStrong.bvar_lookup (H : IsDefEqStrong Γ e1 e2 A) :
+    (∀ i, e1 = .bvar i → ∃ B, Lookup Γ i B) ∧
+    (∀ i, e2 = .bvar i → ∃ B, Lookup Γ i B) ∧
+    (∀ i, A = .bvar i → ∃ B, Lookup Γ i B) := by
+  induction H with
+  | bvar h _ ih =>
+    exact ⟨fun _ e => by cases e; exact ⟨_, h⟩, fun _ e => by cases e; exact ⟨_, h⟩, ih.1⟩
+  | symm _ ih => exact ⟨ih.2.1, ih.1, ih.2.2⟩
+  | trans _ _ _ ihA ih1 ih2 => exact ⟨ih1.1, ih2.2.1, ihA.1⟩
+  | trans' _ _ ih1 ih2 => exact ⟨ih1.1, ih2.2.1, nofun⟩
+  | sort => exact ⟨nofun, nofun, nofun⟩
+  | const _ _ _ _ _ ih3 _ => exact ⟨nofun, nofun, ih3.1⟩
+  | appDF _ _ _ _ _ _ _ ihB => exact ⟨nofun, nofun, ihB.1⟩
+  | lamDF => exact ⟨nofun, nofun, nofun⟩
+  | forallEDF => exact ⟨nofun, nofun, nofun⟩
+  | defeqDF _ _ ih1 ih2 => exact ⟨ih2.1, ih2.2.1, ih1.2.1⟩
+  | beta _ _ _ _ _ _ _ ih4 => exact ⟨nofun, ih4.1, ih4.2.2⟩
+  | eta _ _ ih1 _ => exact ⟨nofun, ih1.1, nofun⟩
+  | proofIrrel _ _ _ ihp ihh ihh' => exact ⟨ihh.1, ihh'.1, ihp.1⟩
+  | extra _ _ _ _ ih3 ih4 => exact ⟨ih3.1, ih4.1, ih3.2.2⟩
+
+/--
+**`IsDefEq.strong` below is false as stated.**
+
+`IsDefEqStrong.bvar` demands `Γ ⊢ A : .sort u` for the looked-up type, while `IsDefEq.bvar`
+has no premise about the context at all, so an ill-formed context separates the two
+judgments. The `VExpr` analogue gets this right — `VEnv.IsDefEq.strong` in
+`Theory/Typing/Strong.lean` takes `hΓ : OnCtx Γ (env.IsType U)`.
+
+Closing `IsDefEq.strong` therefore requires first restating it with a `Ctx.WF Γ` hypothesis
+and threading that through `LE_Interp.strongSound`, `LR.adequacy` and `IsDefEq.toHasTypeS`.
+-/
+theorem not_strong_of_isDefEq :
+    ¬ ∀ {Γ e1 e2 A}, IsDefEq Γ e1 e2 A → IsDefEqStrong Γ e1 e2 A := fun H => by
+  have h : IsDefEq [SExpr.bvar 0] (.bvar 0) (.bvar 0) ((SExpr.bvar 0).lift) := .bvar .zero
+  obtain ⟨_, hB⟩ := (H h).bvar_lookup.2.2 1 rfl
+  let .succ h' := hB
+  nomatch h'
 
 theorem IsDefEq.hasType (H : Γ ⊢ e1 ≡ e2 : A) :
     Γ ⊢ e1 ≡ e1 : A ∧ Γ ⊢ e2 ≡ e2 : A := ⟨H.trans H.symm, H.symm.trans H⟩
@@ -744,11 +854,6 @@ theorem HasTypeStratifiedS.to_core (H : Γ ⊢ e : A !! n) :
 
 theorem HasTypeStratifiedS.isType (H : HasTypeStratifiedS Γ e A b n) :
     ∃ u, Γ ⊢ A : .sort u !! n - 1 := sorry
-
-def Ctx.WF : List SExpr → Prop
-  | [] => True
-  | A::Γ => WF Γ ∧ ∃ u, Γ ⊢ A : .sort u
-scoped notation:65 "⊢ " Γ:36 => Ctx.WF Γ
 
 variable (HasType : List SExpr → SExpr → SExpr → Prop)
 inductive Ctx.Subst (Γ : List SExpr) : SExpr.Subst → List SExpr → Prop where

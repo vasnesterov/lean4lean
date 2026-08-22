@@ -3,7 +3,7 @@ import Lean4Lean.Experimental.ShapeLogRel
 namespace Lean4Lean
 
 namespace SExpr
-variable [Params]
+variable [Params] [ParamsExtra]
 
 def LR.Adequate (Γ₀ Γ : List SExpr) (ρ : Valuation) (M N A : SExpr) (m a : WShape n) :=
   (∀ {{σ σ'}}, LR.SubstWF Γ₀ σ σ' Γ ρ →
@@ -118,16 +118,16 @@ theorem LR.adequacy (H : Γ ⊢ M ≡ N : A)
       cases h with
       | zero => exact lift_subst ▸ (h0.2 a hA).2 (.bvar hle) hmem
       | succ h' => exact lift_subst ▸ ih h' (LE_Interp.weak_iff.1 hA) hle
-  | symm H ih => exact .fits fun W => (ih ((LE_Interp.sound H.defeq W).1.2 hM) hA hmem).symm
+  | symm H ih => exact .fits fun W => (ih ((LE_Interp.soundS H W).1.2 hM) hA hmem).symm
   | trans _ H1 H2 ihA ih1 ih2 =>
-    exact .fits fun W => (ih1 hM hA hmem).trans (ih2 ((LE_Interp.sound H1.defeq W).1.1 hM) hA hmem)
+    exact .fits fun W => (ih1 hM hA hmem).trans (ih2 ((LE_Interp.soundS H1 W).1.1 hM) hA hmem)
   | trans' H1 H2 ih1 ih2 =>
     by_cases hm : m ≤ .bot; · exact WShape.le_bot.1 hm ▸ .bot hmem.isType
     rename_i A B u C v
     refine .fits fun W => ?_
     refine (ih1 hM hA hmem).trans' (v := v) (r := v ≠ .zero) ?_
-    refine have ihs1 := LE_Interp.sound H1.defeq W; have hM₂ := ihs1.1.1 hM; ?_
-    have ihs2 := LE_Interp.sound H2.defeq W (m := m.T)
+    refine have ihs1 := LE_Interp.soundS H1 W; have hM₂ := ihs1.1.1 hM; ?_
+    have ihs2 := LE_Interp.soundS H2 W (m := m.T)
     have ⟨a₂, s₂, b1, b2, b3, b4⟩ := ihs2.2 hM₂
     replace b4 := TShape.HasType.sort.mono_r b3.le_sort b4
     have := TShape.HasType.mono_r hA.le_sort .sort hmem.T
@@ -172,14 +172,14 @@ theorem LR.adequacy (H : Γ ⊢ M ≡ N : A)
         · exact fun hB hv hmb => (ihBa hB hv hmb).left
       · refine (LR _).conv ((LR _).symm_ty ?_) <| this W
           Hf.defeq.hasType.2 Ha.defeq.hasType.2 HBa.defeq.hasType.2
-          ((LE_Interp.sound Hf.defeq W.fits).1.1 hif) ((LE_Interp.sound Ha.defeq W.fits).1.1 hia)
-          ((LE_Interp.sound HBa.defeq W.fits).1.1 hA)
+          ((LE_Interp.soundS Hf W.fits).1.1 hif) ((LE_Interp.soundS Ha W.fits).1.1 hia)
+          ((LE_Interp.soundS HBa W.fits).1.1 hA)
           (fun hf hPi hmf => ?_) (fun ha hA hma => ?_) (fun hB hv hmb => ?_)
-        · have ⟨_, _, _, le, le', iB, iv, hmb⟩ := (LE_Interp.sound HBa.defeq W.fits).2 hA |>.out
+        · have ⟨_, _, _, le, le', iB, iv, hmb⟩ := (LE_Interp.soundS HBa W.fits).2 hA |>.out
           exact toValTy le le' hmem.isType iv hmb ((ihBa iB iv hmb).2 W.left)
-        · exact (ihf ((LE_Interp.sound Hf.defeq W.left.fits).1.2 hf) hPi hmf).symm.left
-        · exact (iha ((LE_Interp.sound Ha.defeq W.left.fits).1.2 ha) hA hma).symm.left
-        · exact (ihBa ((LE_Interp.sound HBa.defeq W.left.fits).1.2 hB) hv hmb).symm.left
+        · exact (ihf ((LE_Interp.soundS Hf W.left.fits).1.2 hf) hPi hmf).symm.left
+        · exact (iha ((LE_Interp.soundS Ha W.left.fits).1.2 ha) hA hma).symm.left
+        · exact (ihBa ((LE_Interp.soundS HBa W.left.fits).1.2 hB) hv hmb).symm.left
     intro F F' X X' σ σ' W hF hX hBa hif hia hA ihf iha ihBa
     have ⟨_, mf, _, le_nf, le_mf, hf', hPi, hmf⟩ := (LE_Interp.sound hF W.left.fits).2 hif |>.out
     have Af := ihf hf' hPi hmf
@@ -252,7 +252,7 @@ theorem LR.adequacy (H : Γ ⊢ M ≡ N : A)
       · exact this hM W fun _ hMb hBb hmb => (ihBody hMb hBb hmb).left
       · refine this ?_ W fun W hMb' hBb hmb => ?_
         · exact (LE_Interp.sound (.lamDF HA.defeq HBody.defeq) W.fits).1.1 hM
-        · exact (ihBody ((LE_Interp.sound HBody.defeq W).1.2 hMb') hBb hmb).symm.left
+        · exact (ihBody ((LE_Interp.soundS HBody W).1.2 hMb') hBb hmb).symm.left
     intro X Y X' Y' σ σ' hTerm W IH
     suffices ∀ n' b (f : WShapeFun _), n = n' + 1 → a ≍ (.forallE b f : WShape (n'+1)) →
         (LR Γ₀).DefEq (.subst (.lam X Y) σ) (.subst (.lam X' Y') σ')
@@ -275,7 +275,7 @@ theorem LR.adequacy (H : Γ ⊢ M ≡ N : A)
       HB.defeq.subst (W.left.toSubstEq.lift hTypA)
     have hA1 := hA.forallE_inv.1
     have ⟨_, a', _, le_n, le_a, hA', hSort, hmem'⟩ :=
-      (LE_Interp.sound HA.defeq W.left.fits).2 hA1 |>.out
+      (LE_Interp.soundS HA W.left.fits).2 hA1 |>.out
     have cons := Adequate.cons ihA HA.defeq
     obtain ⟨g, hg, htm⟩ := WShape.HasType.forallE_inv hmem
     unfold WShape.lam' at hg; split at hg <;> [skip; (subst hg; exact (LR _).bot hmem.isType)]
@@ -290,7 +290,7 @@ theorem LR.adequacy (H : Γ ⊢ M ≡ N : A)
       intro x x' p hp ha hv
       have W' := cons hp hA1 ha hv W.left
       have ⟨n', ab, _, le, le', iB, iv, hmb⟩ :=
-        (LE_Interp.sound HB.defeq W'.fits).2 (hA.forallE_inv'.2 p) |>.out
+        (LE_Interp.soundS HB W'.fits).2 (hA.forallE_inv'.2 p) |>.out
       exact toValTy le le' (aty.2 _ hp).toType iv hmb ((ihB iB iv hmb).1 W').1
     have beta {X Y t : SExpr} {σ} : Γ₀ ⊢ .app (.lam (X.subst σ) (Y.subst σ.lift)) t ⤳*
         Y.subst (σ.cons t) := inst_lift_cons (x := t) ▸ .tail .rfl .beta
@@ -305,7 +305,7 @@ theorem LR.adequacy (H : Γ ⊢ M ≡ N : A)
       · have vtAA' := toValTy le_n le_a aty.1.isType hSort hmem' ((ihA hA' hSort hmem').1 W).1
         have ha' : Γ₀ ⊢ x ≡ x' : A.subst σ' := (HA.defeq.hasType.1.subst W.toSubstEq).defeqDF ha
         have hv' := (LR Γ₀).conv vtAA' hv
-        have ⟨n', _, _, le, le', iB, iv, hmb⟩ := (LE_Interp.sound HB.defeq W'.fits).2 hBb_sd |>.out
+        have ⟨n', _, _, le, le', iB, iv, hmb⟩ := (LE_Interp.soundS HB W'.fits).2 hBb_sd |>.out
         have W2 := cons hp hA1 ha.hasType.1 ((LR Γ₀).left hv) W
         have vtBB := toValTy le le' (aty.2 _ hp).toType iv hmb ((ihB iB iv hmb).1 W2).1
         refine ((LR Γ₀).whr beta beta).2 <| (LR Γ₀).conv ((LR Γ₀).symm_ty vtBB) ?_
@@ -331,7 +331,7 @@ theorem LR.adequacy (H : Γ ⊢ M ≡ N : A)
     have cons := Adequate.cons ihA HA.defeq
     refine ⟨fun σ σ' W => ?_, fun σ W => ?_⟩ <;> (
       have ⟨_, a', _, le_n, le_a, hA', hSort, hmem'⟩ :=
-        (LE_Interp.sound HA.defeq W.left.fits).2 hA1 |>.out
+        (LE_Interp.soundS HA W.left.fits).2 hA1 |>.out
       have HAAσ := HA.defeq.subst W.left.toSubstEq
       have S' := W.toSubstEq.lift HAAσ.hasType.1)
     · have HAσ := HA.defeq.hasType.1.subst W.toSubstEq
@@ -348,7 +348,7 @@ theorem LR.adequacy (H : Γ ⊢ M ≡ N : A)
               have W' := cons hp hA1 (HAσ.defeqDF ha) ((LR Γ₀).conv this hv) W.symm.left )];
             have W' := cons hp hA1 ha.hasType.1 ((LR Γ₀).left hv) W] <;>
         · have ⟨_, _, _, le, le', iB, iv, hmb⟩ :=
-            (LE_Interp.sound HBody.defeq W'.fits).2 hB |>.out
+            (LE_Interp.soundS HBody W'.fits).2 hB |>.out
           exact toValTy le le' (aty.2 _ hp).toType iv hmb ((ihBody iB iv hmb).1 W').1
       · refine ⟨A'.subst σ, body'.subst σ.lift, A'.subst σ', body'.subst σ'.lift, u, v,
           .rfl, .rfl, HA'σ, HAAσ.defeqDF_l (HBody.defeq.hasType.2.subst S'), ?_, ?_⟩
@@ -363,7 +363,7 @@ theorem LR.adequacy (H : Γ ⊢ M ≡ N : A)
             ( have := toValTy le_n le_a aty.1.isType hSort hmem' ((ihA hA' hSort hmem').1 W).1
               have W' := cons hp hA1 (HAσ.defeqDF ha) ((LR Γ₀).conv this hv) W.symm.left )];
             have W' := cons hp hA1 ha ((LR Γ₀).left hv) W] <;>
-        · have ⟨_, _, _, le, le', iB, iv, hmb⟩ := (LE_Interp.sound HBody.defeq W'.fits).2 hB |>.out
+        · have ⟨_, _, _, le, le', iB, iv, hmb⟩ := (LE_Interp.soundS HBody W'.fits).2 hB |>.out
           exact toValTy le le' (aty.2 _ hp).toType iv hmb ((ihBody iB iv hmb).1 W').2
     · refine ⟨A.subst σ, body.subst σ.lift, A'.subst σ, body'.subst σ.lift, u, v,
         .rfl, .rfl, HAAσ, HBody.defeq.subst S', ?_, ?_⟩
@@ -372,18 +372,18 @@ theorem LR.adequacy (H : Γ ⊢ M ≡ N : A)
       refine ⟨fun _ _ p hp ha hv => ?_, fun _ p hp ha hv => ?_⟩ <;> (
         have hB := hM.forallE_inv'.2 p
         have W' := cons hp hA1 ha hv W
-        have ⟨_, _, _, le, le', iB, iv, hmb⟩ := (LE_Interp.sound HBody.defeq W'.fits).2 hB |>.out)
+        have ⟨_, _, _, le, le', iB, iv, hmb⟩ := (LE_Interp.soundS HBody W'.fits).2 hB |>.out)
       · exact ⟨toValTy le le' (aty.2 _ hp).toType iv hmb ((ihBody iB iv hmb).1 W').1,
                toValTy le le' (aty.2 _ hp).toType iv hmb ((ihBody iB iv hmb).1 W').2⟩
       · exact toValTy le le' (aty.2 _ hp).toType iv hmb ((ihBody iB iv hmb).2 W')
   | @defeqDF Γ A' B' u' _ _ Hty He ihTy ihE =>
     have tyConv {σ} (W : SubstWF Γ₀ σ σ Γ ρ) :=
-      have hA' := (LE_Interp.sound Hty.defeq W.fits).1.2 hA
+      have hA' := (LE_Interp.soundS Hty W.fits).1.2 hA
       have ⟨_, a', _, le_n, le_a, hA'', hSort, hmem'⟩ :=
-        (LE_Interp.sound Hty.defeq W.fits).2 hA' |>.out
+        (LE_Interp.soundS Hty W.fits).2 hA' |>.out
       toValTy le_n le_a hmem.isType hSort hmem' ((ihTy hA'' hSort hmem').2 W)
     refine ⟨fun σ σ' W => ?_, fun σ W => ?_⟩ <;>
-      have hA' := (LE_Interp.sound Hty.defeq W.left.fits).1.2 hA
+      have hA' := (LE_Interp.soundS Hty W.left.fits).1.2 hA
     · exact ⟨(LR Γ₀).conv (tyConv W.left) ((ihE hM hA' hmem).1 W).1,
              (LR Γ₀).conv (tyConv W.left) ((ihE hM hA' hmem).1 W).2⟩
     · exact (LR Γ₀).conv (tyConv W) ((ihE hM hA' hmem).2 W)
@@ -416,7 +416,7 @@ theorem LR.adequacy (H : Γ ⊢ M ≡ N : A)
     rw [inst_lift_cons, subst, lift_subst_cons]; rfl
   | proofIrrel Hp =>
     refine .fits fun W => ?_
-    have ⟨_, _, s, le_n, le_a, _, hSort, hmem'⟩ := (LE_Interp.sound Hp.defeq W).2 hA |>.out
+    have ⟨_, _, s, le_n, le_a, _, hSort, hmem'⟩ := (LE_Interp.soundS Hp W).2 hA |>.out
     have hS := WShape.HasType.mono_r hSort.le_sort' .sort hmem'; simp at hS
     have ha' := hS.mono_r ((TShape.LE.lift_l le_n).1 le_a) ((WShape.HasType.lift le_n).2 hmem)
     cases (WShape.lift_eq_bot le_n).1 (hS.proofIrrel ha')
@@ -428,7 +428,7 @@ theorem LR.adequacy (H : Γ ⊢ M ≡ N : A)
     · have ⟨⟨hA1, _⟩, hA2, hA3⟩ := Params.henv.closed.2 h1
       have := (ihl hM hA hmem).2 W; revert this
       rw [hA1.mkS.instL.subst_eq .zero, hA2.mkS.instL.subst_eq .zero, hA3.mkS.instL.subst_eq .zero]
-      let ⟨_, _, _, _, _, a1, a2, a3, a4, a5⟩ := Params.extra_pat Γ₀ h1 h2
+      let ⟨_, _, _, _, _, a1, a2, a3, a4, a5⟩ := ParamsExtra.extra_pat Γ₀ h1 h2
       exact ((LR _).whr .rfl (.tail .rfl (a5 ▸ .extra a1 a2 a3 a4))).1
 
 theorem forallE_whRed_l (d : Γ ⊢ A₀ ≡ SExpr.forallE B₁ F₁ : .sort s) :

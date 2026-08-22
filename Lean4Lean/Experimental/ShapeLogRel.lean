@@ -5051,8 +5051,8 @@ theorem LE_Interp.build_spine {m1 : p.Path → TShape} {m2} (a2 : p.MatchesS LHS
         Const.indTy (rargs := .replicate args.length .bot) (List.length_replicate ▸ hI) .rfl
           |>.lift k'.le_succ .mono
 
-theorem LE_Interp.strongSound (H : Γ ⊢ M ≡ N : A) : StrongSoundEq Γ M N A := by
-  replace H := H.strong
+variable [ParamsExtra] in
+theorem LE_Interp.strongSoundS (H : IsDefEqStrong Γ M N A) : StrongSoundEq Γ M N A := by
   induction H with
   | @bvar _ i A _ h h2 ih =>
     refine .rfl ⟨.bvar h, fun _ _ W _ h => ?_, .bvar h, .rfl⟩; clear h2 ih
@@ -5229,7 +5229,7 @@ theorem LE_Interp.strongSound (H : Γ ⊢ M ≡ N : A) : StrongSoundEq Γ M N A 
   | extra h1 h2 hTy_lhs hTy_rhs ih1 ih2 =>
     refine ⟨.extra h1 h2, fun Γ₀ ρ W m => ?_, ih1.left, ih2.left⟩
     by_cases hm : m ≤ .bot; · exact TShape.le_bot'.1 hm ▸ (sound_bot (A := default)).1
-    let ⟨p, r, m1, m2, dfs, a1, a2, a3, a4, a5⟩ := Params.extra_pat Γ₀ h1 h2
+    let ⟨p, r, m1, m2, dfs, a1, a2, a3, a4, a5⟩ := ParamsExtra.extra_pat Γ₀ h1 h2
     refine a5 ▸ ⟨fun hLE => ?_, fun hLE => ?_⟩
     · obtain ⟨_, built⟩ := Matches.of_matchesS a2 (Params.pat_wf a1) hLE
       obtain ⟨_, rargs, m_path, m_head, hMatch, hpath, hle, hConst⟩ := built _ (Nat.le_refl _)
@@ -5258,9 +5258,22 @@ theorem LE_Interp.strongSound (H : Γ ⊢ M ≡ N : A) : StrongSoundEq Γ M N A 
       exact .mono hm_le_typed <| h_foldr_eq ▸ apps_realize W h_m_typed_HT.T ha
         (h_foldr_eq ▸ ih1.left) h_per_arg (.pat a1 hMatch (hRHS.mono_l hbnd))
 
+variable [ParamsExtra] in
+/-- Soundness from a *decorated* derivation. This is the form used inside inductions on
+`IsDefEqStrong`; it needs no context well-formedness hypothesis because the decorations
+already carry the typing information. -/
+theorem LE_Interp.soundS (H : IsDefEqStrong Γ M N A) (W : Valuation.Fits Γ₀ Γ ρ) {m} :
+    (LE_Interp ρ m M ↔ LE_Interp ρ m N) ∧ (LE_Interp ρ m M → InterpTyped ρ m M A) :=
+  ⟨(strongSoundS H).sound W, (strongSoundS H).left.sound W⟩
+
+variable [ParamsExtra] in
+theorem LE_Interp.strongSound (H : Γ ⊢ M ≡ N : A) : StrongSoundEq Γ M N A :=
+  strongSoundS H.strong
+
+variable [ParamsExtra] in
 theorem LE_Interp.sound (H : Γ ⊢ M ≡ N : A) (W : Valuation.Fits Γ₀ Γ ρ) {m} :
     (LE_Interp ρ m M ↔ LE_Interp ρ m N) ∧ (LE_Interp ρ m M → InterpTyped ρ m M A) :=
-  ⟨(strongSound H).sound W, (strongSound H).left.sound W⟩
+  soundS H.strong W
 
 structure LogRelBase (Γ : List SExpr) (n : Nat) where
   /-- Term validity: `M ≡ N : A` at element-shape `m` and type-shape `a`. -/

@@ -12,13 +12,14 @@ to a `Params` instance for the environment in question*.
 
 What is still missing to close them in `Theory/Typing/Injectivity.lean`:
 
-1. **A `Params` instance.** `Injectivity.lean`'s statements quantify over every `env` with
-   `VEnv.WF env`; applying anything here needs `Params` with `Params.env = env`. Nothing
-   in the repo instantiates `SExpr.Params` (nor the analogous `VEnv.Params` used by
-   `Theory/Typing/ChurchRosser.lean`). A *trivial* instance (`Pat := fun _ _ => False`)
-   satisfies `pat_simple`/`pat_wf`/`pat_uniq` vacuously but makes the standalone
-   `axiom SExpr.Params.extra_pat` **false** for any environment with a defeq rule, so it
-   must not be used.
+1. **`Params` and `ParamsExtra` instances.** `Injectivity.lean`'s statements quantify over
+   every `env` with `VEnv.WF env`; applying anything here needs `Params` with
+   `Params.env = env`, plus `ParamsExtra`. Nothing in the repo instantiates either (nor the
+   analogous `VEnv.Params` used by `Theory/Typing/ChurchRosser.lean`). `Params` alone is
+   satisfiable trivially — `Pat := fun _ _ => False` discharges `pat_simple`/`pat_wf`/
+   `pat_uniq` vacuously — so `ParamsExtra` is the real content: with a trivial `Pat` its
+   `extra_pat` field is *false* for any environment carrying a definitional equality rule.
+   That is exactly why it is a class field and no longer an `axiom`.
 
 2. **`SExpr.LR.adequacy`'s `const` case** (`ShapeLogRelAdequacy.lean:154`) and the open
    declarations of `SExpr.lean` that the results below transitively use. See the module
@@ -31,7 +32,7 @@ namespace Lean4Lean
 
 open Lean4Lean Params SExpr
 
-variable [Params]
+variable [Params] [ParamsExtra]
 
 /--
 **Sort injectivity**, relative to `Params`. Uses only `VEnv.IsDefEq.toSExpr` (sorry-free)

@@ -12,7 +12,7 @@ From this we derive `uniq_sort` and admit a no-`trans'` variant `IsDefEq'`. -/
 namespace Lean4Lean
 open Params
 namespace SExpr
-variable [Params]
+variable [Params] [ParamsExtra]
 
 section
 set_option hygiene false
