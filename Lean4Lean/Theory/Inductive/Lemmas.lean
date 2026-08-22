@@ -102,6 +102,15 @@ construction", and the ι-rule's spine alignment — priced as this file's conce
 turned out to be two rewrites against it.  A lemma that is not merely present but *labelled
 for your use* will not be found by grepping for the shape you happen to have in mind.
 
+**1b. Grep for the *type*, not the concept.**  Three of four re-estimates on the δ-uniqueness
+unit came from a helper that did not exist, and the specific error each time was assuming
+that because a lemma exists for one list type the analogue exists for another —
+`addConstList_fresh` for `List (Name × VConstant)` does *not* give `addConsts_fresh` for
+`List VDefVal`.  Before pricing a step that uses a primitive, grep for something that would
+actually typecheck at the type you have, not for the idea.  Same family as note 1: the search
+is cheap and the assumption is expensive, and both failures come from searching for what you
+*mean* rather than for what would elaborate.
+
 **2. Read the current `VEnv.Params` class, not `docs/design-inductive.md` §7.6.**  The
 design describes four fields -- `pat_major_not_pi`, `pat_major_prop`, `pat_small`,
 `pat_major_canonical` -- that **do not exist** in the class as it stands.  Their absence

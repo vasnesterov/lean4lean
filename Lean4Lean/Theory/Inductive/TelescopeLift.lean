@@ -295,6 +295,18 @@ theorem skips'_mkPi_getElem : ∀ {As : List VExpr} {R : VExpr} {n k m : Nat} {A
         h.2 (by simpa using hm)
       rw [← Nat.add_assoc]; simpa [Nat.add_right_comm] using this
 
+/-! ## `instAll` above a weakened region -/
+
+/-- `instAll` above a weakened region commutes with the weakening. -/
+theorem liftN_instAll {n : Nat} : ∀ {as : List VExpr} {X : VExpr} {k : Nat},
+    instAll (liftN n X k) as (k + n) = liftN n (instAll X as k) k
+  | [], _, _ => rfl
+  | a :: as, X, k => by
+    rw [instAll_cons, instAll_cons,
+      show k + n + as.length = n + (k + as.length) from by omega,
+      ← liftN_instN_lo n X a (k + as.length) k (Nat.le_add_right ..),
+      liftN_instAll (as := as) (X := X.inst a (k + as.length)) (k := k)]
+
 end VExpr
 
 end Lean4Lean

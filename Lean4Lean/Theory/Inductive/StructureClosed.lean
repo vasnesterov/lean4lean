@@ -203,4 +203,20 @@ theorem motiveType_instL_instAll (D : VInductDecl') (T : VIndType) (C : VIndCtor
     VExpr.map_instAll_bvars_lt (Nat.le_of_eq (Nat.zero_add _)),
     List.take_of_length_le (by simp [hps])]
 
+/-- A telescope weakened by one binder, then saturated by a spine whose last argument fills
+that binder, is unchanged: the extra argument is discarded.  This is what collapses the
+minor premise's field telescope, which `minorType` states over `params ++ motives`.
+
+Lives here rather than in `TelescopeLift.lean` because `VExpr.instAll_append` is in
+`Inductive/Lemmas.lean`. -/
+theorem VExpr.instAllTele_liftTele_snoc : ∀ {As as : List VExpr} {b : VExpr} {k : Nat},
+    VExpr.instAllTele (VExpr.liftTele 1 As k) (as ++ [b]) k = VExpr.instAllTele As as k
+  | [], _, _, _ => rfl
+  | A :: As, as, b, k => by
+    rw [VExpr.liftTele_cons, VExpr.instAllTele_cons, VExpr.instAllTele_cons,
+      VExpr.instAll_append, show ([b] : List VExpr).length = 1 from rfl,
+      VExpr.liftN_instAll (n := 1) (as := as) (X := A) (k := k),
+      VExpr.instAll_cons, List.length_nil, Nat.add_zero, VExpr.inst_liftN, VExpr.instAll_nil,
+      VExpr.instAllTele_liftTele_snoc (As := As) (as := as) (b := b) (k := k+1)]
+
 end Lean4Lean

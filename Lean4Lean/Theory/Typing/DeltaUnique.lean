@@ -183,6 +183,46 @@ theorem NoRuleFor.addConsts {env env' : VEnv} {cis c} :
     | none => rw [hh] at h; exact absurd h (by simp)
     | some e => rw [hh] at h; exact ih h (H.addConst hh)
 
+/-! ## What `addConsts` succeeding tells you
+
+`addConst` rejects duplicates, so a successful `addConsts` says both that every name was
+fresh against the environment *before* the block and that the names are pairwise distinct.
+Neither exists in the tree for `List VDefVal`; `Inductive/Lemmas.lean`'s
+`addConstList_fresh` is the analogue for `List (Name × VConstant)` and does not transfer. -/
+
+/-- `addConst` succeeding means the name was free.  Stated here because the copy in
+`Theory/Inductive/Lemmas.lean` is not in this file's import closure — see note 1b. -/
+theorem addConst_constants_eq_none {env env' : VEnv} {name ci}
+    (h : env.addConst name ci = some env') : env.constants name = none := by
+  unfold VEnv.addConst at h; split at h <;> simp_all
+
+theorem addConsts_fresh : ∀ {cis : List VDefVal} {env env' : VEnv},
+    env.addConsts cis = some env' → ∀ ci ∈ cis, ¬ env.contains ci.name
+  | [], _, _, _ => by simp
+  | ci :: cis, env, env', h => by
+    rw [VEnv.addConsts, List.foldlM_cons] at h
+    cases hh : env.addConst ci.name ci.toVConstant with
+    | none => rw [hh] at h; exact absurd h (by simp)
+    | some e =>
+      rw [hh] at h
+      intro ci' hci'
+      rcases List.mem_cons.1 hci' with rfl | hci'
+      · rintro ⟨x, hx⟩; rw [addConst_constants_eq_none hh] at hx; exact absurd hx (by simp)
+      · exact fun hc => addConsts_fresh h ci' hci'
+          ⟨_, (addConst_le hh).constants hc.choose_spec⟩
+
+theorem addConsts_nodup : ∀ {cis : List VDefVal} {env env' : VEnv},
+    env.addConsts cis = some env' → cis.Pairwise (fun a b => a.name ≠ b.name)
+  | [], _, _, _ => .nil
+  | ci :: cis, env, env', h => by
+    rw [VEnv.addConsts, List.foldlM_cons] at h
+    cases hh : env.addConst ci.name ci.toVConstant with
+    | none => rw [hh] at h; exact absurd h (by simp)
+    | some e =>
+      rw [hh] at h
+      refine .cons (fun b hb hne => ?_) (addConsts_nodup h)
+      exact addConsts_fresh h b hb ⟨_, hne ▸ addConst_self hh⟩
+
 /-! ## The `.unsafeDef` fold
 
 `addConsts` declares the whole block, then `addDefEqs` adds the whole block's rules.  Both are
