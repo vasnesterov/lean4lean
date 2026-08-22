@@ -353,15 +353,19 @@ which-leaf) cases reduces to a statement about *names*:
 | δ | δ | `.const c` | `Pat.uniq_delta`, i.e. `VEnv.WF.delta_uniq` |
 | δ | ι | `.const c` | shape: `(.app _ _).inter (.const _) = none` |
 | ι | δ | `.const` at depth `>0` | shape: `(.const _).inter (.var _) = none` |
-| ι | δ | recursor leaf | **`Pat.deltaHead_ne_recName`** |
-| ι | δ | constructor leaf | **`Pat.deltaHead_ne_ctorName`** |
+| ι | δ | recursor leaf | `Pat.deltaHead_ne_recName` (`KeyHeadDelta`) |
+| ι | δ | constructor leaf | `Pat.deltaHead_ne_ctorName` (`KeyHeadDelta`) |
 | ι | ι | recursor chain, short | `Pat.rec_arity_uniq` |
 | ι | ι | constructor chain, short | `rec_ne_ctor` (already proved above) |
-| ι | ι | all of `p₁` | **`Pat.iota_data_uniq`** |
+| ι | ι | all of `p₁` | `Pat.iota_data_uniq` (`KeyMajorUnique`) |
 
-The three bold entries are the ones that need what this file's header calls a `VEnv.Sig`
-(design §7.7, ledger I1) and are stated as separate obligations below.  Everything else is
-proved here. -/
+The three bold entries are provenance facts — a rule that is syntactically an ι-rule of a
+block really was contributed by that block's declaration.  `env.defeqs` is a bare predicate
+with no memory of which declaration produced a rule, so none of them follows from the data
+`Pat` carries; they need the declaration history.  All three are now discharged by the *key*
+invariants of `Theory/Typing/DeltaUnique.lean` — `KeyHeadDelta` for the first two,
+`KeyMajorUnique` for the third — **without** a `VEnv.Sig` (design §7.7, ledger I1) and
+without ledger G4: the block is never recovered from a name, only the rule is. -/
 
 /-- **`pat_uniq` at a δ-pattern.**  A δ-rule's value is determined by its head constant
 (`VEnv.WF.delta_uniq`), and everything else in the datum is derived from the head, so the
@@ -419,8 +423,8 @@ name of a registered ι-rule.  Same route as Obligation 1, reading the *major pr
 instead of the spine's: `VInductDecl'.iotaLhs` ends in `D.ctorApp' C …`, whose spine head is
 `.const C.name D.selfLvls`. -/
 theorem Pat.deltaHead_ne_ctorName {env : VEnv} (henv : env.WF)
-    {D : VInductDecl'} {j q : Nat} {T : VIndType} {C : VIndCtor}
-    (hdf : env.defeqs (D.iotaRule j q C)) (hTj : D.types[j]? = some T) (hCT : C ∈ T.ctors)
+    {D : VInductDecl'} {j q : Nat} {C : VIndCtor}
+    (hdf : env.defeqs (D.iotaRule j q C))
     {c : Lean.Name} {u : Nat} {v t : VExpr}
     (hdf' : env.defeqs ⟨u, .const c (VLevel.params u), v, t⟩) :
     c ≠ C.name := by
@@ -456,44 +460,171 @@ theorem Pat.iota_rule_uniq {env : VEnv} (henv : env.WF)
   refine henv.keyMajorUnique _ _ C.name hdf hdf' ?_ ?_ <;>
     rw [VInductDecl'.key_iotaRule] <;> simp [hname]
 
-/-- **Obligation 3 — the datum, from the rule.**  Two registered ι-rules with the same
-pattern carry the same datum.
+/-! ### Reading the block's shape back out of the rule -/
 
-The *environment* half of this is now discharged: `Pat.iota_rule_uniq` above turns the shared
-pattern into `D.iotaRule j q C = D'.iotaRule j' q' C'`, an equation between two closed terms.
-What is left is purely syntactic — read the datum's components back out of the rule:
+@[simp] theorem VInductDecl'.length_iotaCtx (D : VInductDecl') (C : VIndCtor) :
+    (D.iotaCtx C).length = D.np + D.nm + D.nmin + C.fields.length := by
+  simp [VInductDecl'.iotaCtx, VInductDecl'.length_atRecTele, VInductDecl'.motives,
+    VInductDecl'.minors, VInductDecl'.np, VInductDecl'.nm, VInductDecl'.nmin]
+  omega
 
-* `D.iotaLam q C = D'.iotaLam q' C'` — from the rule's `rhs`, by `mkLams`/`mkApp`
-  injectivity, once the two `iotaCtx`s are known equal;
-* `D.np = D'.np` and `D.nm + D.nmin = D'.nm + D'.nmin` — from `iotaLhs`'s argument spine.
-  The parameter block and the field block are adjacent `bvars` runs, separated by a gap of
-  `nm + nmin ≥ 1` (`hTj` forces `nm ≥ 1`), which is what makes the split readable;
-* `C.params`, `C.fields.map (·.type)`, `C.args` — from `iotaCtx`/`iotaLhs`, modulo
-  `D.atRec = VExpr.instL D.selfLvls`.  **This is the step the level-WF side conditions on
-  `Pat.iota` are for**: `selfLvls` is a renaming, injective only on terms whose level
-  parameters are in range, so `Pat.iota` must record `LevelWF D.uvars` for `C.params`,
-  `C.fields.map (·.type)` and `C.args`.  Each is discharged by the instance-builder from
-  `VIndCtor.WF` (`params_eq`, `fields`, `args_ty`, `result`) through `IsDefEq.levelWF`
-  (`Theory/Typing/Strong.lean`); the obligation lands on whoever builds `Pat`, it does not
-  disappear.  The fields are to be added together with this proof, not before it: an
-  unconsumed premise is exactly what this development has four times declined to record.
-* `D.uvars = D'.uvars` and `D.isLE = D'.isLE` are free from the two `env.constants C.name`
-  facts (`recUvars = if isLE then uvars + 1 else uvars`), which settles `iotaLevelPairs`.
+theorem VInductDecl'.lamArity_iotaLhs (D : VInductDecl') (j : Nat) (C : VIndCtor) :
+    (D.iotaLhs j C).lamArity = 0 :=
+  VExpr.lamArity_mkApp _ _ (by simp)
 
-No `VEnv.Sig` and no ledger G4: the block is never recovered from a name. -/
+theorem VInductDecl'.lamArity_iotaRhsBody (D : VInductDecl') (q : Nat) (C : VIndCtor) :
+    ((D.iotaLam q C).mkApp (bvars 0 (D.iotaCtx C).length)).lamArity = 0 := by
+  cases h : (D.iotaCtx C).length with
+  | zero =>
+    rw [VExpr.bvars_zero, VExpr.mkApp_nil, VInductDecl'.iotaLam, VExpr.lamArity_mkLams, h,
+      Nat.zero_add]
+    exact VExpr.lamArity_mkApp_bvar _ _
+  | succ n => exact VExpr.lamArity_mkApp _ _ (by simp)
+
+/-- The gap is nonzero: `hTj` forces the block to have at least one type, hence at least one
+motive. -/
+theorem VInductDecl'.zero_lt_off {D : VInductDecl'} {j : Nat} {T : VIndType}
+    (hTj : D.types[j]? = some T) : 0 < D.nm + D.nmin := by
+  obtain ⟨hj, -⟩ := List.getElem?_eq_some_iff.1 hTj
+  exact Nat.lt_of_lt_of_le (Nat.lt_of_le_of_lt (Nat.zero_le j) hj) (Nat.le_add_right _ _)
+
+/-- **Reading the block's shape off the rule.**  `iotaLhs`'s major premise applies the
+constructor to the parameters *and* to its own fields, with the motives and minors in
+between; that gap separates `np` from `nf`.  The two `iotaCtx`s then give `nm + nmin`, and
+the rule's right-hand side gives `iotaLam`. -/
+theorem VInductDecl'.iotaRule_inj {D D' : VInductDecl'} {j q j' q' : Nat}
+    {T T' : VIndType} {C C' : VIndCtor}
+    (hTj : D.types[j]? = some T) (hTj' : D'.types[j']? = some T')
+    (hN : D.np + C.fields.length = D'.np + C'.fields.length)
+    (h : D.iotaRule j q C = D'.iotaRule j' q' C') :
+    D.np = D'.np ∧ C.fields.length = C'.fields.length ∧
+      D.nm + D.nmin = D'.nm + D'.nmin ∧ D.iotaLam q C = D'.iotaLam q' C' := by
+  obtain ⟨hctx, hlhs⟩ := VExpr.mkLams_inj_of_arity (D.lamArity_iotaLhs j C)
+    (D'.lamArity_iotaLhs j' C') (congrArg VDefEq.lhs h)
+  have hL : (D.iotaCtx C).length = (D'.iotaCtx C').length := congrArg List.length hctx
+  rw [VInductDecl'.length_iotaCtx, VInductDecl'.length_iotaCtx] at hL
+  rw [VInductDecl'.iotaLhs, VInductDecl'.iotaLhs] at hlhs
+  obtain ⟨-, hargs⟩ := VExpr.mkApp_inj_of_arity rfl rfl hlhs
+  obtain ⟨-, hX⟩ := List.append_singleton_inj.mp hargs
+  rw [VInductDecl'.ctorApp', VInductDecl'.ctorApp'] at hX
+  obtain ⟨-, hcargs⟩ := VExpr.mkApp_inj_of_arity rfl rfl hX
+  have hnp := VExpr.bvars_append_np_eq (VInductDecl'.zero_lt_off hTj)
+    (VInductDecl'.zero_lt_off hTj') hN hcargs
+  refine ⟨hnp, by omega, by omega, ?_⟩
+  obtain ⟨-, hbody⟩ := VExpr.mkLams_inj_of_arity (D.lamArity_iotaRhsBody q C)
+    (D'.lamArity_iotaRhsBody q' C') (congrArg VDefEq.rhs h)
+  rw [show (D.iotaCtx C).length = (D'.iotaCtx C').length from congrArg List.length hctx] at hbody
+  exact (VExpr.mkApp_inj rfl hbody).1
+
+/-- **Reading the constructor off its stored type.**  `VIndCtor.type` is
+`∀ params fields, I_j p args` with *raw* `params`, `fields` and `args` — no `atRec`, no
+`instL`.  This is why the datum needs no level-well-formedness side conditions on `Pat.iota`:
+everything `VInductDecl'.iotaComputed` mentions is recoverable from the constant that
+`Pat.iota` already requires to be declared, not from the `atRec`-ed copies inside the rule. -/
+theorem VIndCtor.type_inj {D D' : VInductDecl'} {j j' : Nat} {C C' : VIndCtor}
+    (hnp : D.np = D'.np) (hnf : C.fields.length = C'.fields.length)
+    (h : C.type D j = C'.type D' j') :
+    C.params = C'.params ∧ C.fields.map (·.type) = C'.fields.map (·.type) ∧
+      C.args = C'.args := by
+  rw [VIndCtor.type, VIndCtor.type, VIndCtor.canonResult, VIndCtor.canonResult,
+    VInductDecl'.tyApp, VInductDecl'.tyApp] at h
+  obtain ⟨htel, hbody⟩ := VExpr.mkPi_inj_of_arity (VExpr.piArity_mkApp_const ..)
+    (VExpr.piArity_mkApp_const ..) h
+  obtain ⟨hp, hf⟩ := List.append_inj' htel (by simp [hnf])
+  refine ⟨hp, hf, ?_⟩
+  obtain ⟨-, hargs⟩ := VExpr.mkApp_inj_of_arity rfl rfl hbody
+  rw [hnf, hnp] at hargs
+  exact List.append_cancel_left hargs
+
+/-! ### The datum, from the rule
+
+`Pat.iota_rule_uniq` turned the shared pattern into an equation between two closed terms;
+`VInductDecl'.iotaRule_inj` and `VIndCtor.type_inj` read the block's shape and the
+constructor's telescopes back out of it.  What is left is to see that the datum is a
+*function* of exactly those pieces — which `iotaDatum` says, `rfl`.
+
+**The level-well-formedness side conditions on `Pat.iota` turned out to be unnecessary, and
+were not added.**  The plan had been to recover `C.params`, `C.fields.map (·.type)` and
+`C.args` from their `D.atRec`-ed copies inside `iotaCtx`/`iotaLhs`, which needs
+`VExpr.instL D.selfLvls` to be injective and hence needs the terms' level parameters to be in
+range.  But those three are also carried, *raw*, by the constructor's stored type
+(`VIndCtor.type` is `∀ params fields, I_j p args` with no `instL` anywhere), and `Pat.iota`
+already requires that constant to be declared — for `pat_app_uniq`.  Reading them from there
+costs nothing and needs no side condition.  The `atRec`-ed copies were simply the wrong place
+to look. -/
+
+/-- The ι-datum as a function of the pattern's own parameters and the constructor's raw
+telescope data.  `Pat.iota`'s datum is this on the nose (`iotaDatum_eq`, by `rfl`), which is
+what turns `pat_uniq`'s heterogeneous conclusion into ten `Eq`s and a `subst`. -/
+def iotaDatum (R K : Lean.Name) (M N : Nat) (v : VExpr) (hv : v.Closed) (P np : Nat)
+    (args tel : List VExpr) (hargs : ∀ a ∈ args, (mkLams tel a).Closed)
+    (lp : List (Nat × Nat)) :
+    (SimplePattern.iota R M K N).toPattern.RHS × (SimplePattern.iota R M K N).toPattern.Check :=
+  (iotaRHS R K M N v hv P np,
+   iotaCheck R K M N np P
+     (args.pmap (fun a ha => Pattern.RHS.mkApp
+        (Pattern.RHS.fixed (p := (SimplePattern.iota R M K N).toPattern)
+          (mkLams tel a) (iotaLeafCtor R K M N) ha)
+        ((Pattern.argPaths (.const K) N).map fun y =>
+          Pattern.RHS.var (p := (SimplePattern.iota R M K N).toPattern) (Sum.inr y))) hargs)
+     lp)
+
+theorem iotaDatum_eq (D : VInductDecl') (j q : Nat) (T : VIndType) (C : VIndCtor)
+    (hcl : (D.iotaLam q C).Closed)
+    (hargs : ∀ a ∈ C.args, (mkLams (C.params ++ C.fields.map (·.type)) a).Closed) :
+    (D.iotaRHSOf j q T C hcl, D.iotaCheckOf T C hargs)
+      = iotaDatum (Lean.mkRecName T.name) C.name
+          (D.np + D.nm + D.nmin + T.indices.length) (D.np + C.fields.length)
+          (D.iotaLam q C) hcl (D.np + D.nm + D.nmin) D.np
+          C.args (C.params ++ C.fields.map (·.type)) hargs D.iotaLevelPairs := rfl
+
+theorem iotaDatum_congr {R K R' K' : Lean.Name} {M N M' N' : Nat} {v v' : VExpr}
+    {hv : v.Closed} {hv' : v'.Closed} {P np P' np' : Nat}
+    {args tel args' tel' : List VExpr}
+    {ha : ∀ a ∈ args, (mkLams tel a).Closed} {ha' : ∀ a ∈ args', (mkLams tel' a).Closed}
+    {lp lp' : List (Nat × Nat)}
+    (hR : R = R') (hK : K = K') (hM : M = M') (hN : N = N') (hvv : v = v')
+    (hP : P = P') (hnp : np = np') (haa : args = args') (htt : tel = tel') (hll : lp = lp') :
+    iotaDatum R K M N v hv P np args tel ha lp
+      ≍ iotaDatum R' K' M' N' v' hv' P' np' args' tel' ha' lp' := by
+  subst hR hK hM hN hvv hP hnp haa htt hll; rfl
+
+/-- **The ι side of `pat_uniq`.**  Two registered ι-rules with the same pattern carry the
+same datum.  The hypotheses are exactly `Pat.iota`'s fields; `D.uvars = D'.uvars` comes from
+the two constructor constants and `D.isLE = D'.isLE` then from the two recursor constants,
+which is what settles `iotaLevelPairs`. -/
 theorem Pat.iota_data_uniq {env : VEnv} (henv : env.WF)
     {D D' : VInductDecl'} {j q j' q' : Nat} {T T' : VIndType} {C C' : VIndCtor}
     {hcl : (D.iotaLam q C).Closed} {hcl' : (D'.iotaLam q' C').Closed}
     {hargs : ∀ a ∈ C.args, (mkLams (C.params ++ C.fields.map (·.type)) a).Closed}
     {hargs' : ∀ a ∈ C'.args, (mkLams (C'.params ++ C'.fields.map (·.type)) a).Closed}
-    (h : Pat env (D.iotaPat T C) (D.iotaRHSOf j q T C hcl, D.iotaCheckOf T C hargs))
-    (h' : Pat env (D'.iotaPat T' C') (D'.iotaRHSOf j' q' T' C' hcl', D'.iotaCheckOf T' C' hargs'))
+    (hTj : D.types[j]? = some T) (hTj' : D'.types[j']? = some T')
+    (hdf : env.defeqs (D.iotaRule j q C)) (hdf' : env.defeqs (D'.iotaRule j' q' C'))
+    (hrec : env.constants (Lean.mkRecName T.name) = some ⟨D.recUvars, D.recType j⟩)
+    (hrec' : env.constants (Lean.mkRecName T'.name) = some ⟨D'.recUvars, D'.recType j'⟩)
+    (hctor : env.constants C.name = some ⟨D.uvars, C.type D j⟩)
+    (hctor' : env.constants C'.name = some ⟨D'.uvars, C'.type D' j'⟩)
     (hp : D.iotaPat T C = D'.iotaPat T' C') :
     (D.iotaRHSOf j q T C hcl, D.iotaCheckOf T C hargs)
-      ≍ (D'.iotaRHSOf j' q' T' C' hcl', D'.iotaCheckOf T' C' hargs') := sorry
+      ≍ (D'.iotaRHSOf j' q' T' C' hcl', D'.iotaCheckOf T' C' hargs') := by
+  obtain ⟨hR, hM, hK, hN⟩ := VInductDecl'.iotaPat_inj hp
+  rw [hK, hctor', Option.some_inj] at hctor
+  have huv : D.uvars = D'.uvars := (congrArg VConstant.uvars hctor).symm
+  have hty : C.type D j = C'.type D' j' := (congrArg VConstant.type hctor).symm
+  rw [hR, hrec', Option.some_inj] at hrec
+  have hru : D.recUvars = D'.recUvars := (congrArg VConstant.uvars hrec).symm
+  have hle : D.isLE = D'.isLE := by
+    rw [VInductDecl'.recUvars, VInductDecl'.recUvars, huv] at hru
+    cases hb : D.isLE <;> cases hb' : D'.isLE <;> rw [hb, hb'] at hru <;> simp at hru ⊢
+  obtain ⟨hnp, hnf, hoff, hlam⟩ :=
+    VInductDecl'.iotaRule_inj hTj hTj' hN (Pat.iota_rule_uniq henv hdf hdf' hp)
+  obtain ⟨hpar, hfld, harg⟩ := VIndCtor.type_inj hnp hnf hty
+  rw [iotaDatum_eq, iotaDatum_eq]
+  refine iotaDatum_congr hR hK hM hN hlam (by omega) hnp harg (by rw [hpar, hfld]) ?_
+  rw [VInductDecl'.iotaLevelPairs, VInductDecl'.iotaLevelPairs, huv, hle]
 
-/-- **`Params.pat_uniq`**, reduced to the three obligations above.  Six of the nine cases are
-closed outright; see the table in the section header for which lemma closes which. -/
+/-- **`Params.pat_uniq`**.  See the table in the section header for which lemma closes which
+of the nine cases. -/
 theorem Pat.uniq {env : VEnv} (henv : env.WF) {p₁ p₂ p₃ p₄ : Pattern}
     {r : p₁.RHS × p₁.Check} {r' : p₂.RHS × p₂.Check}
     (h : Pat env p₁ r) (h' : Pat env p₂ r') (hs : Subpattern p₃ p₁)
@@ -519,8 +650,8 @@ theorem Pat.uniq {env : VEnv} (henv : env.WF) {p₁ p₂ p₃ p₄ : Pattern}
         obtain ⟨hK, hN, -⟩ := Pattern.inter_varN_const hy
         have hp : D.iotaPat T C = D'.iotaPat T' C' := by
           simp only [VInductDecl'.iotaPat_eq, SimplePattern.toPattern, hR, hM, hK, hN]
-        exact ⟨hp, hp.symm, Pat.iota_data_uniq henv (.iota hcl hargs hTj hCT hdf hrec hctor)
-          (.iota hcl' hargs' hTj' hCT' hdf' hrec' hctor') hp⟩
+        exact ⟨hp, hp.symm,
+          Pat.iota_data_uniq henv hTj hTj' hdf hdf' hrec hrec' hctor hctor' hp⟩
     | appL hsl =>
       obtain ⟨k, hk, rfl⟩ := hsl.varN_const_inv
       cases k with
@@ -548,7 +679,7 @@ theorem Pat.uniq {env : VEnv} (henv : env.WF) {p₁ p₂ p₃ p₄ : Pattern}
         cases h' with
         | @delta c' u' v' t' hv' hdf' =>
           obtain ⟨hc, -⟩ := Pattern.inter_const_const hi
-          exact absurd hc (Pat.deltaHead_ne_ctorName henv hdf hTj hCT hdf')
+          exact absurd hc (Pat.deltaHead_ne_ctorName henv hdf hdf')
         | iota =>
           simp only [VInductDecl'.iotaPat_eq, SimplePattern.toPattern] at hi
           exact absurd hi Pattern.inter_app_const

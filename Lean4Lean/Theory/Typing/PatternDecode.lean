@@ -138,6 +138,60 @@ theorem peelPis_mkApp_app : ∀ (as : List VExpr) (f a : VExpr),
   | [], _, _ => rfl
   | b :: as, f, a => by rw [VExpr.mkApp_cons, peelPis_mkApp_app as]
 
+/-! ## Arity facts, and the parameter/field split
+
+`Theory/Inductive/Telescope.lean` proves `mkApp`/`mkPi`/`mkLams` injectivity with an
+`_of_arity` side condition — "the head is not itself an application", "the body is not a pi",
+"the body is not a lam".  These discharge it for the shapes an ι-rule is built from. -/
+
+theorem lamArity_mkApp : ∀ (as : List VExpr) (f : VExpr), as ≠ [] → (mkApp f as).lamArity = 0
+  | [], _, h => absurd rfl h
+  | [_], _, _ => rfl
+  | _ :: _ :: as, f, _ => by rw [VExpr.mkApp_cons]; exact lamArity_mkApp _ _ nofun
+
+theorem lamArity_mkApp_bvar : ∀ (as : List VExpr) (i : Nat), (mkApp (.bvar i) as).lamArity = 0
+  | [], _ => rfl
+  | _ :: _, _ => lamArity_mkApp _ _ nofun
+
+theorem piArity_mkApp_ne_nil : ∀ (as : List VExpr) (f : VExpr), as ≠ [] →
+    (mkApp f as).piArity = 0
+  | [], _, h => absurd rfl h
+  | [_], _, _ => rfl
+  | _ :: _ :: as, f, _ => by rw [VExpr.mkApp_cons]; exact piArity_mkApp_ne_nil _ _ nofun
+
+theorem piArity_mkApp_const : ∀ (as : List VExpr) (c : Name) (ls : List VLevel),
+    (mkApp (.const c ls) as).piArity = 0
+  | [], _, _ => rfl
+  | _ :: _, _, _ => piArity_mkApp_ne_nil _ _ nofun
+
+/-- **The parameter/field split.**  A constructor application inside an ι-rule's major
+premise applies the constructor to the block's parameters — sitting `nf + off` binders up —
+and then to its own fields, at the bottom.  The two `bvars` runs are separated by a gap of
+`off ≥ 1` binders (the motives and minors), and that gap is what makes the split point
+readable off the list: without it the two runs would be contiguous and `np` and `nf` would
+not be separately recoverable. -/
+theorem bvars_append_np_eq : ∀ {np np' nf nf' off off' : Nat}, 0 < off → 0 < off' →
+    np + nf = np' + nf' →
+    bvars (nf + off) np ++ bvars 0 nf = bvars (nf' + off') np' ++ bvars 0 nf' →
+    np = np'
+  | 0, 0, _, _, _, _, _, _, _, _ => rfl
+  | 0, np'+1, nf, nf', off, off', ho, ho', hlen, h => by
+    obtain ⟨k, rfl⟩ : ∃ k, nf = k + 1 := ⟨np' + nf', by omega⟩
+    simp only [VExpr.bvars_succ, VExpr.bvars_zero, List.cons_append, List.nil_append] at h
+    have := (List.cons.injEq .. ▸ h : _ ∧ _).1
+    have := (VExpr.bvar.injEq .. ▸ this : _ = _)
+    omega
+  | np+1, 0, nf, nf', off, off', ho, ho', hlen, h => by
+    obtain ⟨k, rfl⟩ : ∃ k, nf' = k + 1 := ⟨np + nf, by omega⟩
+    simp only [VExpr.bvars_succ, VExpr.bvars_zero, List.cons_append, List.nil_append] at h
+    have := (List.cons.injEq .. ▸ h : _ ∧ _).1
+    have := (VExpr.bvar.injEq .. ▸ this : _ = _)
+    omega
+  | np+1, np'+1, nf, nf', off, off', ho, ho', hlen, h => by
+    simp only [VExpr.bvars_succ, List.cons_append] at h
+    have ht := (List.cons.injEq .. ▸ h : _ ∧ _).2
+    exact congrArg (· + 1) (bvars_append_np_eq ho ho' (by omega) ht)
+
 /-- The head constant of a term, if the head is a constant at all. -/
 def constName : VExpr → Option Name
   | .const c _ => some c
