@@ -1248,9 +1248,56 @@ theorem Ctx.SubstEq.symm (W : Ctx.SubstEq Γ₀ σ σ' Γ) :
     exact fun hΓ => .cons (ih hΓ.1) hA (.defeqDF (.subst hΓ.1 W hA) h.symm)
   | weak _ W' ih => exact fun hΓ => .weak (ih hΓ) W'
 
+/--
+Structural context conversion: `Γ` and `Γ'` agree except at one entry, where the two types
+are definitionally equal sorts.
+
+The prefix entries are demanded **identical**, not merely defeq. That is what lets
+`IsDefEq.convCtx` avoid a well-formedness hypothesis: routing this through `Ctx.SubstEq`
+instead would hit `Ctx.SubstEq.cons`'s `Γ ⊢ A : .sort u` premise at *every* prefix entry,
+and `IsDefEq.defeqDF_l'` carries no `Ctx.WF` to discharge it. `IsDefEqCtx` below is the
+defeq-at-every-level version, and is derived from this one rather than the other way round.
+-/
+inductive Ctx.Conv : List SExpr → List SExpr → Prop where
+  | here : Γ ⊢ A ≡ A' : .sort u → Ctx.Conv (A::Γ) (A'::Γ)
+  | cons : Ctx.Conv Γ Γ' → Ctx.Conv (B::Γ) (B::Γ')
+
+theorem Ctx.Conv.lookup (W : Ctx.Conv Γ Γ') (H : Lookup Γ i A) : Γ' ⊢ .bvar i : A := by
+  induction W generalizing i A with
+  | @here _ _ A' _ h =>
+    cases H with
+    | zero => exact .defeqDF (h.weak' (.one (A := A'))).symm (.bvar .zero)
+    | succ h' => exact .bvar (.succ h')
+  | cons _ ih =>
+    cases H with
+    | zero => exact .bvar .zero
+    | succ h' => exact (ih h').weak' .one
+
+theorem IsDefEq.convCtx (W : Ctx.Conv Γ Γ') (H : Γ ⊢ e1 ≡ e2 : A) : Γ' ⊢ e1 ≡ e2 : A := by
+  induction H generalizing Γ' with
+  | bvar h => exact W.lookup h
+  | symm _ ih => exact .symm (ih W)
+  | trans _ _ ih1 ih2 => exact .trans (ih1 W) (ih2 W)
+  | trans' _ _ ih1 ih2 => exact .trans' (ih1 W) (ih2 W)
+  | sort => exact .sort
+  | const h1 h2 => exact .const h1 h2
+  | appDF _ _ ih1 ih2 => exact .appDF (ih1 W) (ih2 W)
+  | lamDF _ _ ih1 ih2 => exact .lamDF (ih1 W) (ih2 W.cons)
+  | forallEDF _ _ ih1 ih2 => exact .forallEDF (ih1 W) (ih2 W.cons)
+  | defeqDF _ _ ih1 ih2 => exact .defeqDF (ih1 W) (ih2 W)
+  | beta _ _ ih1 ih2 => exact .beta (ih1 W.cons) (ih2 W)
+  | eta _ ih => exact .eta (ih W)
+  | proofIrrel _ _ _ ih1 ih2 ih3 => exact .proofIrrel (ih1 W) (ih2 W) (ih3 W)
+  | extra h1 h2 => exact .extra h1 h2
+
+theorem Ctx.Conv.append (h : Γ ⊢ A ≡ A' : .sort u) :
+    ∀ Δ : List SExpr, Ctx.Conv (Δ ++ A::Γ) (Δ ++ A'::Γ)
+  | [] => .here h
+  | _::Δ => (Ctx.Conv.append h Δ).cons
+
 theorem IsDefEq.defeqDF_l' (h1 : Γ ⊢ A ≡ A' : .sort u)
-    (h2 : Δ++A::Γ ⊢ e1 ≡ e2 : B) : Δ++A'::Γ ⊢ e1 ≡ e2 : B := by
-  sorry
+    (h2 : Δ++A::Γ ⊢ e1 ≡ e2 : B) : Δ++A'::Γ ⊢ e1 ≡ e2 : B :=
+  h2.convCtx (Ctx.Conv.append h1 Δ)
 
 theorem IsDefEq.defeqDF_l (h1 : Γ ⊢ A ≡ A' : .sort u)
     (h2 : A::Γ ⊢ e1 ≡ e2 : B) : A'::Γ ⊢ e1 ≡ e2 : B :=
