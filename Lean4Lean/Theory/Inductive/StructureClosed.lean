@@ -679,4 +679,107 @@ theorem OnCtx.appendR {env : VEnv} {U : Nat} {Γ : List VExpr} (henv : env.Order
   | _ :: _, hcl, ⟨h1, h2⟩ =>
     ⟨OnCtx.appendR henv hΓ hcl.1 h1, h2.imp fun _ h => VEnv.IsDefEq.weakR henv hcl.1 h Γ⟩
 
+/-! ## The ι law
+
+`projCore`'s recursor application at a *constructor* major premise reduces to the minor
+premise applied to the fields.  This is the one piece of `TrProj`'s metatheory with genuine
+semantic content: everything else is de Bruijn arithmetic.
+
+The chain is `IsDefEq.extra` (the rule) → `IsDefEq.mkApp'` (apply it at the spine) → three
+`betaMkLams` (peel the rule's two `mkLams` wrappers and `iotaLam`'s own), with
+`iotaLhs_instAll`, `iotaRhsBody_instAll` and `iotaLamBody_instAll` computing each reduct. -/
+
+theorem iota_law {env : VEnv} {U : Nat} {S : Lean.Name}
+    {D : VInductDecl'} {T : VIndType} {C : VIndCtor} {us : List VLevel}
+    (henv : env.Ordered) (hI : D.IotaCtx env) (H : env.IsStructure S D T C)
+    (h3 : us.length = D.uvars) (h7 : ∀ l ∈ us, l.WF U)
+    (hnm : D.nm = 1) (hnmin : D.nmin = 1) (hrec : C.recFields = [])
+    {k : Nat}
+    {Γ ps fs : List VExpr} {mot minor : VExpr}
+    (hΓ : OnCtx Γ (env.IsType U))
+    (hps : ps.length = D.np) (hfs : fs.length = C.fields.length)
+    (hlsWF : ∀ l ∈ D.projLvls C us k, l.WF U)
+    (hlslen : (D.projLvls C us k).length = D.recUvars)
+    (hTd : D.types.getD 0 default = T)
+    (hspine : env.HasArgs U Γ ((D.iotaCtx C).map (VExpr.instL (D.projLvls C us k)))
+      (ps ++ [mot, minor] ++ fs)) :
+    env.IsDefEq U Γ
+      ((VExpr.const (Lean.mkRecName T.name) (D.projLvls C us k)).mkApp
+        (ps ++ [mot, minor]
+          ++ C.args.map (fun a =>
+               VExpr.instAll (VExpr.instAll (a.instL us) ps C.fields.length) fs)
+          ++ [(VExpr.const C.name us).mkApp (ps ++ fs)]))
+      (minor.mkApp fs)
+      (VExpr.instAll ((D.iotaType 0 C).instL (D.projLvls C us k))
+        (ps ++ [mot, minor] ++ fs)) := by
+  have hT0 : D.types[0]? = some T := by rw [H.types]; rfl
+  have hC : C ∈ T.ctors := by rw [H.ctors]; exact List.mem_singleton_self _
+  have hqC : D.ctorsAll[0]? = some (0, C) := by
+    simp [VInductDecl'.ctorsAll, H.types, H.ctors]
+  have hCall : ((0 : Nat), C) ∈ D.ctorsAll := List.mem_of_getElem? hqC
+  have hj : (0 : Nat) < D.nm := by omega
+  have hclosed : VExpr.ClosedN (D.iotaLam 0 C) 0 :=
+    (VInductDecl'.iotaLam_hasType hI hT0 hj hC hqC).closedN henv trivial
+  have hn : (ps ++ [mot, minor] ++ fs).length = (D.iotaCtx C).length := by
+    simp [VInductDecl'.iotaCtx, VInductDecl'.atRecTele, VInductDecl'.motives,
+      VInductDecl'.minors, hps, hfs, hnm, hnmin, VInductDecl'.np]
+    omega
+  have hIotaOn : OnCtx ((D.iotaCtx C).reverse) (env.IsType D.recUvars) := by
+    rw [D.iotaCtx_reverse' C]; exact VInductDecl'.onCtxIota hI.toRecCtx hT0 hC
+  have hOn' : OnCtx (((D.iotaCtx C).map (VExpr.instL (D.projLvls C us k))).reverse)
+      (env.IsType U) := by
+    rw [← List.map_reverse]; exact OnCtx.instL hlsWF hIotaOn
+  have hcc : CtxClosed (((D.iotaCtx C).map (VExpr.instL (D.projLvls C us k))).reverse) :=
+    OnCtx.ctxClosed henv hOn'
+  have hOnCtx : OnCtx (((D.iotaCtx C).map (VExpr.instL (D.projLvls C us k))).reverse ++ Γ)
+      (env.IsType U) := OnCtx.appendR henv hΓ hcc hOn'
+  have hlhsTy : env.HasType U
+      (((D.iotaCtx C).map (VExpr.instL (D.projLvls C us k))).reverse ++ Γ)
+      ((D.iotaLhs 0 C).instL (D.projLvls C us k))
+      ((D.iotaType 0 C).instL (D.projLvls C us k)) := by
+    have h0 := VInductDecl'.iotaLhs_hasType hI hT0 hj hC hCall
+    rw [← D.iotaCtx_reverse' C] at h0
+    have h1 := VEnv.HasType.instL (ls := D.projLvls C us k) (U' := U) hlsWF h0
+    rw [List.map_reverse] at h1
+    exact VEnv.IsDefEq.weakR henv hcc h1 Γ
+  have hlamTy : env.HasType U
+      (((D.iotaCtx C).map (VExpr.instL (D.projLvls C us k))).reverse ++ Γ)
+      (((VExpr.bvar (C.fields.length + (D.nmin - 1 - 0))).mkApp
+        (bvars 0 C.fields.length ++ D.ihValues C)).instL (D.projLvls C us k))
+      ((D.iotaType 0 C).instL (D.projLvls C us k)) := by
+    have h0 := VInductDecl'.iotaLamBody_hasType hI hT0 hC hqC
+    have h1 := VEnv.HasType.instL (ls := D.projLvls C us k) (U' := U) hlsWF h0
+    rw [List.map_reverse] at h1
+    exact VEnv.IsDefEq.weakR henv hcc h1 Γ
+  have hrhsTy : env.HasType U
+      (((D.iotaCtx C).map (VExpr.instL (D.projLvls C us k))).reverse ++ Γ)
+      (((D.iotaLam 0 C).mkApp (bvars 0 (D.iotaCtx C).length)).instL (D.projLvls C us k))
+      ((D.iotaType 0 C).instL (D.projLvls C us k)) := by
+    have h0 := VInductDecl'.iotaLam_hasType hI hT0 hj hC hqC
+    have h1 := VEnv.HasType.instL (ls := D.projLvls C us k) (U' := U) hlsWF h0
+    simp only [List.map_nil, VExpr.instL_mkPi] at h1
+    have h2 := VEnv.IsDefEq.weak0 (Γ := Γ) henv h1
+    have h3 := VEnv.HasType.appBVars henv hOnCtx h2
+    rw [(hclosed.instL (ls := D.projLvls C us k)).liftN_eq (Nat.zero_le _)] at h3
+    simpa [VExpr.instL_mkApp, VExpr.map_instL_bvars] using h3
+  -- the chain
+  have hextra := VEnv.IsDefEq.extra (Γ := Γ) H.iotaDefeq hlsWF hlslen
+  simp only [VInductDecl'.iotaRule, VExpr.instL_mkLams, VExpr.instL_mkPi] at hextra
+  have hstep := VEnv.IsDefEq.mkApp' hspine hextra
+  have hL := VEnv.IsDefEq.betaMkLams henv hOnCtx hspine hlhsTy
+  have hR := VEnv.IsDefEq.betaMkLams henv hOnCtx hspine hrhsTy
+  have hLam := VEnv.IsDefEq.betaMkLams henv hOnCtx hspine hlamTy
+  rw [D.iotaLhs_instAll T C hnm hnmin hTd h3 hps hfs hlslen] at hL
+  rw [D.iotaRhsBody_instAll C hclosed hn] at hR
+  rw [show C.fields.length + (D.nmin - 1 - 0) = C.fields.length by simp [hnmin]] at hLam
+  rw [D.iotaLamBody_instAll C hrec hps hfs] at hLam
+  have hlamEq : (D.iotaLam 0 C).instL (D.projLvls C us k)
+      = mkLams ((D.iotaCtx C).map (VExpr.instL (D.projLvls C us k)))
+          (((VExpr.bvar C.fields.length).mkApp (bvars 0 C.fields.length ++ D.ihValues C)).instL
+            (D.projLvls C us k)) := by
+    simp only [VInductDecl'.iotaLam, VExpr.instL_mkLams]
+    rw [show C.fields.length + (D.nmin - 1 - 0) = C.fields.length by simp [hnmin]]
+  rw [← hlamEq] at hLam
+  exact hL.symm.trans (hstep.trans (hR.trans hLam))
+
 end Lean4Lean
