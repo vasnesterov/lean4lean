@@ -1,5 +1,6 @@
 import Lean4Lean.Theory.Typing.PatternDecode
 import Lean4Lean.Theory.Inductive.Lemmas
+import Lean4Lean.Theory.Typing.DeltaUnique
 
 /-!
 # `Pat`: which patterns an environment's rules are
@@ -227,5 +228,209 @@ theorem Pat.simple {env : VEnv} {p : Pattern} {r : p.RHS × p.Check} (h : Pat en
   cases h with
   | delta => exact ⟨.defn _, rfl⟩
   | iota => exact ⟨.iota .., rfl⟩
+
+/-! ## `Params.pat_uniq`
+
+The case analysis is driven entirely by the two hypotheses `Subpattern p₃ p₁` and
+`p₂.inter p₃ = some p₄`, inverted by the lemmas at the end of `PatternDecode.lean`.  Because
+`Subpattern.varN_const_inv` says a subpattern of a `varN` chain over a constant is a *shorter
+chain over the same constant*, and `Pattern.inter_varN_const` says two such chains intersect
+only when both name and depth agree, every one of the nine (constructor × constructor ×
+which-leaf) cases reduces to a statement about *names*:
+
+| `p₁` | `p₂` | `p₃` | what closes it |
+|---|---|---|---|
+| δ | δ | `.const c` | `Pat.uniq_delta`, i.e. `VEnv.WF.delta_uniq` |
+| δ | ι | `.const c` | shape: `(.app _ _).inter (.const _) = none` |
+| ι | δ | `.const` at depth `>0` | shape: `(.const _).inter (.var _) = none` |
+| ι | δ | recursor leaf | **`Pat.deltaHead_ne_recName`** |
+| ι | δ | constructor leaf | **`Pat.deltaHead_ne_ctorName`** |
+| ι | ι | recursor chain, short | `Pat.rec_arity_uniq` |
+| ι | ι | constructor chain, short | `rec_ne_ctor` (already proved above) |
+| ι | ι | all of `p₁` | **`Pat.iota_data_uniq`** |
+
+The three bold entries are the ones that need what this file's header calls a `VEnv.Sig`
+(design §7.7, ledger I1) and are stated as separate obligations below.  Everything else is
+proved here. -/
+
+/-- The number of leading Πs of a recursor's stored type: `params ++ motives ++ minors ++
+indices`, then the major premise.  What makes this usable is that `np`, `nm` and `nmin` are
+`abbrev`s for list lengths, so the count is definitional and needs no `VInductDecl'.WF`. -/
+theorem VInductDecl'.length_peelPis_recType (D : VInductDecl') (j : Nat) :
+    (VExpr.peelPis (D.recType j)).1.length
+      = D.np + D.nm + D.nmin + (D.types.getD j default).indices.length + 1 := by
+  rw [VInductDecl'.recType, VExpr.peelPis_mkPi, VExpr.peelPis_forallE]
+  simp [VExpr.mkApp_concat, VExpr.peelPis, VInductDecl'.length_atRecTele, VInductDecl'.motives,
+    VInductDecl'.minors, VInductDecl'.np, VInductDecl'.nm, VInductDecl'.nmin]
+  omega
+
+/-- **Same recursor name ⇒ same recursor arity.**  Two registered ι-patterns whose recursor
+leaves carry the same name name the *same constant*, hence the same stored type, and a
+recursor's arity is the number of leading Πs of that type.  This is what rules out one
+ι-pattern's recursor chain being a strict prefix of another's — the case where `p₃` sits
+below `p₁`'s recursor leaf but `p₂` is shorter. -/
+theorem Pat.rec_arity_uniq {env : VEnv} {D D' : VInductDecl'} {j j' : Nat}
+    {T T' : VIndType} (hTj : D.types[j]? = some T) (hTj' : D'.types[j']? = some T')
+    (hrec : env.constants (Lean.mkRecName T.name) = some ⟨D.recUvars, D.recType j⟩)
+    (hrec' : env.constants (Lean.mkRecName T'.name) = some ⟨D'.recUvars, D'.recType j'⟩)
+    (hname : Lean.mkRecName T'.name = Lean.mkRecName T.name) :
+    D'.np + D'.nm + D'.nmin + T'.indices.length = D.np + D.nm + D.nmin + T.indices.length := by
+  rw [hname, hrec, Option.some_inj] at hrec'
+  have h := congrArg (fun e => (VExpr.peelPis (VConstant.type e)).1.length) hrec'
+  simp only [VInductDecl'.length_peelPis_recType, D.getD_types hTj, D'.getD_types hTj'] at h
+  omega
+
+/-- **`pat_uniq` at a δ-pattern.**  A δ-rule's value is determined by its head constant
+(`VEnv.WF.delta_uniq`), and everything else in the datum is derived from the head, so the
+datum is a function of the pattern.  This is the consumer the whole of
+`Theory/Typing/DeltaUnique.lean` exists to supply. -/
+theorem Pat.uniq_delta {env : VEnv} (henv : env.WF) {c : Lean.Name}
+    {r r' : (Pattern.const c).RHS × (Pattern.const c).Check}
+    (h : Pat env (.const c) r) (h' : Pat env (.const c) r') : r = r' := by
+  cases h with
+  | delta hv hdf =>
+    cases h' with
+    | delta hv' hdf' => obtain ⟨-, -, rfl, -⟩ := henv.delta_uniq hdf hdf'; rfl
+
+/-! ### The three remaining obligations
+
+All three are *provenance* facts: they say that a rule which is syntactically an ι-rule of a
+block really was contributed by that block's declaration.  `env.defeqs` is a bare predicate
+with no memory of which declaration produced a rule, so none of them follows from the data
+`Pat` carries; they need the declaration history, i.e. `VEnv.Sig` (design §7.7, ledger I1) or
+per-fact slices of it proved by induction on `VEnv.WF'` in the style of
+`Theory/Typing/DeltaUnique.lean`.
+
+`DeltaUnique.lean` is exactly such a slice for the δ×δ case, and it is the reason the first
+row of the table above is closed.  These three are the remaining ones. **Do not discharge any
+of them by adding a hypothesis to `Pat`**: `Pat.iota`'s two `env.constants` fields were added
+for `pat_app_uniq` because a *stored-type* argument (`rec_ne_ctor`) could finish the job from
+them; there is no such argument here, since a `def` may legitimately be declared at a
+recursor's or a constructor's type. -/
+
+/-- **Obligation 1 (needs `VEnv.Sig`; ledger I1).**  A δ-rule's head is never the recursor
+name of a registered ι-rule.
+
+Route: within `VEnv.WF' ds env`, the ι-rule was added by an `.induct D''` step whose
+`addConstList D''.allConsts` succeeded, so `Lean.mkRecName T.name` was undeclared before that
+step; the δ-rule was added by a `.def`/`.unsafeDef` step whose `addConst` succeeded, so `c`
+was undeclared before *that* step.  `VEnv.addConst` rejects duplicates, so the later of the
+two steps would have failed.  Making that argument needs an invariant recording the head and
+major-premise names of every rule's λ-peeled left-hand side (`VExpr.peelLams`/`VExpr.spine`,
+already in `PatternDecode.lean`) together with their declaredness — the same seven-arm
+`VEnv.WF'` induction as `DefEqHeadsDeclared`/`DefEqHeadsUnique`.  Estimated 350–450 lines,
+shared with Obligation 2. -/
+theorem Pat.deltaHead_ne_recName {env : VEnv} (henv : env.WF)
+    {D : VInductDecl'} {j q : Nat} {T : VIndType} {C : VIndCtor}
+    (hdf : env.defeqs (D.iotaRule j q C)) (hTj : D.types[j]? = some T)
+    {c : Lean.Name} {u : Nat} {v t : VExpr}
+    (hdf' : env.defeqs ⟨u, .const c (VLevel.params u), v, t⟩) :
+    c ≠ Lean.mkRecName T.name := sorry
+
+/-- **Obligation 2 (needs `VEnv.Sig`; ledger I1).**  A δ-rule's head is never the constructor
+name of a registered ι-rule.  Same route as Obligation 1, reading the *major premise's* head
+instead of the spine's: `VInductDecl'.iotaLhs` ends in `D.ctorApp' C …`, whose spine head is
+`.const C.name D.selfLvls`. -/
+theorem Pat.deltaHead_ne_ctorName {env : VEnv} (henv : env.WF)
+    {D : VInductDecl'} {j q : Nat} {T : VIndType} {C : VIndCtor}
+    (hdf : env.defeqs (D.iotaRule j q C)) (hTj : D.types[j]? = some T) (hCT : C ∈ T.ctors)
+    {c : Lean.Name} {u : Nat} {v t : VExpr}
+    (hdf' : env.defeqs ⟨u, .const c (VLevel.params u), v, t⟩) :
+    c ≠ C.name := sorry
+
+/-- **Obligation 3 (needs `VEnv.Sig`; ledger I1, and G4).**  Two registered ι-rules with the
+same pattern carry the same datum.
+
+This is the strongest of the three, and it is `pat_uniq`'s real content on the ι side: the
+pattern records only `(recName, recArity, ctorName, ctorArity)`, while the datum depends on
+`D.iotaLam q C`, `D.np`, `D.nm + D.nmin`, `C.args`, `C.params`, `C.fields`, `D.uvars` and
+`D.isLE`.  So it asks that the *block be recoverable from the constructor's name* — ledger G4
+("a name belongs to at most one block"), which the design doc lists as needing `VEnv.Sig`.
+
+Two of the eight components do come for free from the fields `Pat.iota` already carries:
+`D.uvars = D'.uvars` from the two `env.constants C.name` facts, and then `D.isLE = D'.isLE`
+because `recUvars = if isLE then uvars + 1 else uvars` and the two `recUvars` agree.  The rest
+does not: recovering `C.params`/`C.fields`/`C.args` from `C.type D j` would need injectivity
+of `VIndCtor.type`, and splitting its telescope at `np` needs `C.params.length = D.np`, which
+lives in `VInductDecl'.WF` and is not available here. -/
+theorem Pat.iota_data_uniq {env : VEnv} (henv : env.WF)
+    {D D' : VInductDecl'} {j q j' q' : Nat} {T T' : VIndType} {C C' : VIndCtor}
+    {hcl : (D.iotaLam q C).Closed} {hcl' : (D'.iotaLam q' C').Closed}
+    {hargs : ∀ a ∈ C.args, (mkLams (C.params ++ C.fields.map (·.type)) a).Closed}
+    {hargs' : ∀ a ∈ C'.args, (mkLams (C'.params ++ C'.fields.map (·.type)) a).Closed}
+    (h : Pat env (D.iotaPat T C) (D.iotaRHSOf j q T C hcl, D.iotaCheckOf T C hargs))
+    (h' : Pat env (D'.iotaPat T' C') (D'.iotaRHSOf j' q' T' C' hcl', D'.iotaCheckOf T' C' hargs'))
+    (hp : D.iotaPat T C = D'.iotaPat T' C') :
+    (D.iotaRHSOf j q T C hcl, D.iotaCheckOf T C hargs)
+      ≍ (D'.iotaRHSOf j' q' T' C' hcl', D'.iotaCheckOf T' C' hargs') := sorry
+
+/-- **`Params.pat_uniq`**, reduced to the three obligations above.  Six of the nine cases are
+closed outright; see the table in the section header for which lemma closes which. -/
+theorem Pat.uniq {env : VEnv} (henv : env.WF) {p₁ p₂ p₃ p₄ : Pattern}
+    {r : p₁.RHS × p₁.Check} {r' : p₂.RHS × p₂.Check}
+    (h : Pat env p₁ r) (h' : Pat env p₂ r') (hs : Subpattern p₃ p₁)
+    (hi : p₂.inter p₃ = some p₄) : p₁ = p₂ ∧ p₂ = p₃ ∧ r ≍ r' := by
+  cases h with
+  | @delta c u v t hv hdf =>
+    cases hs.const_inv
+    cases h' with
+    | @delta c' u' v' t' hv' hdf' =>
+      obtain ⟨rfl, rfl⟩ := Pattern.inter_const_const hi
+      exact ⟨rfl, rfl, heq_of_eq (Pat.uniq_delta henv (.delta hv hdf) (.delta hv' hdf'))⟩
+    | iota => exact absurd hi Pattern.inter_app_const
+  | @iota D j q T C hcl hargs hTj hCT hdf hrec hctor =>
+    simp only [VInductDecl'.iotaPat_eq, SimplePattern.toPattern] at hs ⊢
+    cases hs with
+    | refl =>
+      cases h' with
+      | delta => exact absurd hi Pattern.inter_const_app
+      | @iota D' j' q' T' C' hcl' hargs' hTj' hCT' hdf' hrec' hctor' =>
+        simp only [VInductDecl'.iotaPat_eq, SimplePattern.toPattern] at hi
+        obtain ⟨x, y, hx, hy, rfl⟩ := Pattern.inter_app_app hi
+        obtain ⟨hR, hM, -⟩ := Pattern.inter_varN_const hx
+        obtain ⟨hK, hN, -⟩ := Pattern.inter_varN_const hy
+        have hp : D.iotaPat T C = D'.iotaPat T' C' := by
+          simp only [VInductDecl'.iotaPat_eq, SimplePattern.toPattern, hR, hM, hK, hN]
+        exact ⟨hp, hp.symm, Pat.iota_data_uniq henv (.iota hcl hargs hTj hCT hdf hrec hctor)
+          (.iota hcl' hargs' hTj' hCT' hdf' hrec' hctor') hp⟩
+    | appL hsl =>
+      obtain ⟨k, hk, rfl⟩ := hsl.varN_const_inv
+      cases k with
+      | zero =>
+        cases h' with
+        | @delta c' u' v' t' hv' hdf' =>
+          obtain ⟨hc, -⟩ := Pattern.inter_const_const hi
+          exact absurd hc (Pat.deltaHead_ne_recName henv hdf hTj hdf')
+        | iota =>
+          simp only [VInductDecl'.iotaPat_eq, SimplePattern.toPattern] at hi
+          exact absurd hi Pattern.inter_app_const
+      | succ k =>
+        cases h' with
+        | delta => exact absurd hi Pattern.inter_const_var
+        | @iota D' j' q' T' C' hcl' hargs' hTj' hCT' hdf' hrec' hctor' =>
+          simp only [VInductDecl'.iotaPat_eq, SimplePattern.toPattern] at hi
+          obtain ⟨x, hx, rfl⟩ := Pattern.inter_app_var hi
+          obtain ⟨hR, hM, -⟩ := Pattern.inter_varN_const hx
+          have := Pat.rec_arity_uniq hTj hTj' hrec hrec' hR
+          omega
+    | appR hsr =>
+      obtain ⟨k, hk, rfl⟩ := hsr.varN_const_inv
+      cases k with
+      | zero =>
+        cases h' with
+        | @delta c' u' v' t' hv' hdf' =>
+          obtain ⟨hc, -⟩ := Pattern.inter_const_const hi
+          exact absurd hc (Pat.deltaHead_ne_ctorName henv hdf hTj hCT hdf')
+        | iota =>
+          simp only [VInductDecl'.iotaPat_eq, SimplePattern.toPattern] at hi
+          exact absurd hi Pattern.inter_app_const
+      | succ k =>
+        cases h' with
+        | delta => exact absurd hi Pattern.inter_const_var
+        | @iota D' j' q' T' C' hcl' hargs' hTj' hCT' hdf' hrec' hctor' =>
+          simp only [VInductDecl'.iotaPat_eq, SimplePattern.toPattern] at hi
+          obtain ⟨x, hx, rfl⟩ := Pattern.inter_app_var hi
+          obtain ⟨hR, hM, -⟩ := Pattern.inter_varN_const hx
+          exact absurd hR (rec_ne_ctor hTj' hrec' hctor)
 
 end Lean4Lean

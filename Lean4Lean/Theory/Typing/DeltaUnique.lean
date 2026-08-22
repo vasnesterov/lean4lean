@@ -1,4 +1,5 @@
 import Lean4Lean.Theory.Typing.Env
+import Lean4Lean.Theory.Inductive.Lemmas
 
 /-!
 # Each constant name carries at most one δ-rule
@@ -393,26 +394,108 @@ theorem not_isDeltaRule_iotaRule (D : VInductDecl') (j q : Nat) (C : VIndCtor) :
 theorem not_isDeltaRule_quotDefEq : ∀ c, ¬ IsDeltaRule quotDefEq c := by
   rintro c ⟨ls, h⟩; exact absurd h nofun
 
-/-! ## Remaining: the `WF'` assembly
+/-! ## Staging `addQuot`
 
-Every primitive is in place.  What is left is the induction over `VEnv.WF'` itself — seven
-`cases` arms, each a single application of the lemmas above:
+`addQuot` and `addInduct'` are written with `do` notation, and `simp only
+[Option.bind_eq_some_iff]` does *not* fire on the resulting term — the same mismatch that
+`addConsts_fresh` above works around by `rw [VEnv.addConsts, List.foldlM_cons]` followed by
+`cases hh : env.addConst …`.  What does work is naming the `bind` chain explicitly and
+closing the identification by `rfl`, which is how `VEnv.addInduct'_stages`
+(`Theory/Inductive/Lemmas.lean`) already handles the `induct` side; this is its `quot`
+counterpart. -/
+
+theorem addQuot_stages {env env' : VEnv} (h : env.addQuot = some env') :
+    ∃ e1 e2 e3 e4, env.addConst ``Quot quotConst = some e1 ∧
+      e1.addConst ``Quot.mk quotMkConst = some e2 ∧
+      e2.addConst ``Quot.lift quotLiftConst = some e3 ∧
+      e3.addConst ``Quot.ind quotIndConst = some e4 ∧ env' = e4.addDefEq quotDefEq := by
+  rw [show env.addQuot
+      = (env.addConst ``Quot quotConst).bind (fun e1 =>
+        (e1.addConst ``Quot.mk quotMkConst).bind (fun e2 =>
+        (e2.addConst ``Quot.lift quotLiftConst).bind (fun e3 =>
+        (e3.addConst ``Quot.ind quotIndConst).bind (fun e4 =>
+          some (e4.addDefEq quotDefEq))))) from rfl,
+    Option.bind_eq_some_iff] at h
+  obtain ⟨e1, h1, h⟩ := h
+  rw [Option.bind_eq_some_iff] at h
+  obtain ⟨e2, h2, h⟩ := h
+  rw [Option.bind_eq_some_iff] at h
+  obtain ⟨e3, h3, h⟩ := h
+  rw [Option.bind_eq_some_iff] at h
+  obtain ⟨e4, h4, h5⟩ := h
+  exact ⟨e1, e2, e3, e4, h1, h2, h3, h4, (Option.some_inj.1 h5).symm⟩
+
+/-- No ι-rule of a block is a δ-rule: `iotaRules` is a `map` of `iotaRule`. -/
+theorem not_isDeltaRule_iotaRules {D : VInductDecl'} :
+    ∀ df ∈ D.iotaRules, ∀ c, ¬ IsDeltaRule df c := by
+  intro df hdf
+  rw [VInductDecl'.iotaRules, List.mem_map] at hdf
+  obtain ⟨⟨⟨j, C⟩, q⟩, _, rfl⟩ := hdf
+  exact fun c => not_isDeltaRule_iotaRule D j q C c
+
+/-! ## The `WF'` assembly
+
+Seven `cases` arms, each a single application of the lemmas above:
 
 * `axiom`, `opaque` — `addConst` lifting;  `example` — nothing changes;
 * `def` — `addConst` lifting, then `addDefEq_declared` and `addDefEq_noRule`, with freshness
   taken on the pre-`addConst` environment and carried by `NoRuleFor.addConst`;
 * `unsafeDef` — `addConsts` lifting, then `addDefEqs_declared`/`addDefEqs_unique` fed by
   `addConsts_contains`, `noRuleFor_addConsts` and `addConsts_nodup`;
-* `quot` — `addConst` lifting ×3, then `addDefEq_notDelta` with `not_isDeltaRule_quotDefEq`;
+* `quot` — `addConst` lifting ×4, then `addDefEq_notDelta` with `not_isDeltaRule_quotDefEq`;
 * `induct` — `addConstList` lifting ×3, then `addDefEqList_notDelta` with
   `not_isDeltaRule_iotaRule`.
+-/
 
-The one snag found while assembling it: `addQuot` and `addInduct'` are written with `do`
-notation, and `simp only [Option.bind_eq_some_iff]` does *not* fire on the resulting term —
-the same mismatch that `addConsts_fresh` above works around by `rw [VEnv.addConsts,
-List.foldlM_cons]` followed by `cases hh : env.addConst …`.  The staged forms need the same
-treatment (or `VEnv.addInduct'_stages` from `Theory/Inductive/Lemmas.lean`, which already does
-this decomposition and would need that import). -/
+/-- **Both invariants hold in every well-formed environment.**  They are proved together
+because neither step is available on its own; see the module docstring. -/
+theorem WF'.defEqHeads {ds : List VDecl} {env : VEnv} (H : VEnv.WF' ds env) :
+    env.DefEqHeadsDeclared ∧ env.DefEqHeadsUnique := by
+  induction H with
+  | empty => exact ⟨fun _ _ h _ => h.elim, fun _ _ _ h _ _ _ => h.elim⟩
+  | @decl env d env' ds hd _ ih =>
+    obtain ⟨Hd, Hu⟩ := ih
+    cases hd with
+    | «axiom» _ h | «opaque» _ h => exact ⟨Hd.addConst h, Hu.addConst h⟩
+    | «example» _ => exact ⟨Hd, Hu⟩
+    | «def» _ h =>
+      refine ⟨(Hd.addConst h).addDefEq_declared fun c hdr => ?_,
+        (Hu.addConst h).addDefEq_noRule fun c hdr => ?_⟩
+      · rw [toDefEq_isDeltaRule.1 hdr]; exact ⟨_, addConst_self h⟩
+      · rw [toDefEq_isDeltaRule.1 hdr]
+        exact NoRuleFor.addConst h (noRuleFor_of_not_contains Hd
+          (by rintro ⟨_, hx⟩; rw [addConst_constants_eq_none h] at hx; exact absurd hx nofun))
+    | unsafeDef _ h _ =>
+      exact ⟨addDefEqs_declared (Hd.addConsts h) (addConsts_contains h),
+        addDefEqs_unique (Hu.addConsts h) (noRuleFor_addConsts h Hd) (addConsts_nodup h)⟩
+    | quot _ h =>
+      obtain ⟨e1, e2, e3, e4, h1, h2, h3, h4, rfl⟩ := addQuot_stages h
+      exact ⟨(((Hd.addConst h1).addConst h2).addConst h3).addConst h4
+          |>.addDefEq_notDelta not_isDeltaRule_quotDefEq,
+        (((Hu.addConst h1).addConst h2).addConst h3).addConst h4
+          |>.addDefEq_notDelta not_isDeltaRule_quotDefEq⟩
+    | induct _ h =>
+      obtain ⟨e1, e2, e3, h1, h2, h3, rfl⟩ := addInduct'_stages h
+      exact addDefEqList_notDelta _ not_isDeltaRule_iotaRules
+        ((Hd.addConstList h1).addConstList h2 |>.addConstList h3)
+        ((Hu.addConstList h1).addConstList h2 |>.addConstList h3)
+
+theorem WF.defEqHeadsDeclared {env : VEnv} (h : env.WF) : env.DefEqHeadsDeclared :=
+  (WF'.defEqHeads h.choose_spec).1
+
+theorem WF.defEqHeadsUnique {env : VEnv} (h : env.WF) : env.DefEqHeadsUnique :=
+  (WF'.defEqHeads h.choose_spec).2
+
+/-- **The consumer.**  A δ-rule is determined by its head constant: universe count, level
+arguments, value and type all agree.  This is what `Params.pat_uniq` needs on the δ side,
+where `p₁ = p₂ = p₃ = .const c` forces the datum to be a function of the pattern. -/
+theorem WF.delta_uniq {env : VEnv} (H : env.WF) {c ls ls'} {u u' : Nat} {v v' t t' : VExpr}
+    (h : env.defeqs ⟨u, .const c ls, v, t⟩) (h' : env.defeqs ⟨u', .const c ls', v', t'⟩) :
+    u = u' ∧ ls = ls' ∧ v = v' ∧ t = t' := by
+  have := H.defEqHeadsUnique _ _ c h h' ⟨ls, rfl⟩ ⟨ls', rfl⟩
+  injection this with e1 e2 e3 e4
+  injection e2 with _ e2
+  exact ⟨e1, e2, e3, e4⟩
 
 
 end VEnv

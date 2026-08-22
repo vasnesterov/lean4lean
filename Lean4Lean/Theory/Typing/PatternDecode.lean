@@ -575,4 +575,87 @@ theorem matches_iota (r c : Lean.Name) (ls ls' : List VLevel) {m n : Nat}
   rw [VExpr.mkApp_concat]
   exact .app hg1 hg2
 
+/-! ## Inverting `Pattern.inter` and `Subpattern`
+
+`Params.pat_uniq` is driven entirely by these two: its hypotheses are `Subpattern p₃ p₁` and
+`p₂.inter p₃ = some p₄`, and every case of the proof begins by asking what shapes those two
+admit.  Both are stated as *inversions* — hypothesis in, structure out — rather than as
+`simp` lemmas, because `inter` is written with `do` notation and `simp only
+[Option.bind_eq_some_iff]` does not fire on the resulting term (the same mismatch recorded in
+`Theory/Typing/DeltaUnique.lean`); naming the `bind` chain and closing by `rfl` is what
+works. -/
+
+namespace Pattern
+
+theorem inter_const_const {c c' p} : (Pattern.const c).inter (.const c') = some p →
+    c = c' ∧ p = .const c := by
+  simp only [inter]; split
+  · rintro ⟨rfl⟩; exact ⟨‹_›, rfl⟩
+  · exact nofun
+
+theorem inter_const_app {c F A p} : (Pattern.const c).inter (.app F A) ≠ some p := nofun
+theorem inter_const_var {c f p} : (Pattern.const c).inter (.var f) ≠ some p := nofun
+theorem inter_app_const {F A c p} : (Pattern.app F A).inter (.const c) ≠ some p := nofun
+theorem inter_var_const {f c p} : (Pattern.var f).inter (.const c) ≠ some p := nofun
+
+theorem inter_app_var {F A f p} : (Pattern.app F A).inter (.var f) = some p →
+    ∃ x, F.inter f = some x ∧ p = .app x A := by
+  rw [show (Pattern.app F A).inter (.var f) = (F.inter f).bind (fun x => some (.app x A)) from rfl,
+    Option.bind_eq_some_iff]
+  rintro ⟨x, hx, hp⟩; exact ⟨x, hx, (Option.some_inj.1 hp).symm⟩
+
+theorem inter_app_app {F A F' A' p} : (Pattern.app F A).inter (.app F' A') = some p →
+    ∃ x y, F.inter F' = some x ∧ A.inter A' = some y ∧ p = .app x y := by
+  rw [show (Pattern.app F A).inter (.app F' A')
+      = (F.inter F').bind (fun x => (A.inter A').bind (fun y => some (.app x y))) from rfl,
+    Option.bind_eq_some_iff]
+  rintro ⟨x, hx, h⟩
+  rw [Option.bind_eq_some_iff] at h
+  obtain ⟨y, hy, hp⟩ := h
+  exact ⟨x, y, hx, hy, (Option.some_inj.1 hp).symm⟩
+
+theorem inter_var_var {f f' p} : (Pattern.var f).inter (.var f') = some p →
+    ∃ x, f.inter f' = some x ∧ p = .var x := by
+  rw [show (Pattern.var f).inter (.var f') = (f.inter f').bind (fun x => some (.var x)) from rfl,
+    Option.bind_eq_some_iff]
+  rintro ⟨x, hx, hp⟩; exact ⟨x, hx, (Option.some_inj.1 hp).symm⟩
+
+/-- **The `varN` case.**  Two `varN` chains over constants intersect only if both the name
+and the depth agree — the arity is as rigid as the head. -/
+theorem inter_varN_const {c c' : Lean.Name} : ∀ {m k p},
+    ((Pattern.const c).varN m).inter ((Pattern.const c').varN k) = some p →
+      c = c' ∧ m = k ∧ p = (Pattern.const c).varN m
+  | 0, 0, _, h => by obtain ⟨rfl, rfl⟩ := inter_const_const h; exact ⟨rfl, rfl, rfl⟩
+  | 0, _+1, _, h => absurd h inter_const_var
+  | _+1, 0, _, h => absurd h inter_var_const
+  | _+1, _+1, _, h => by
+    obtain ⟨x, hx, rfl⟩ := inter_var_var h
+    obtain ⟨rfl, rfl, rfl⟩ := inter_varN_const hx
+    exact ⟨rfl, rfl, rfl⟩
+
+end Pattern
+
+/-- A subpattern of a `varN` chain is either a shorter chain or a subpattern of its base. -/
+theorem Subpattern.varN_inv {q p : Pattern} : ∀ {n}, Subpattern q (p.varN n) →
+    (∃ k, k ≤ n ∧ q = p.varN k) ∨ Subpattern q p
+  | 0, h => .inr h
+  | n+1, h => by
+    cases h with
+    | refl => exact .inl ⟨n+1, Nat.le_refl _, rfl⟩
+    | varL h =>
+      rcases varN_inv h with ⟨k, hk, rfl⟩ | h
+      · exact .inl ⟨k, Nat.le_succ_of_le hk, rfl⟩
+      · exact .inr h
+
+/-- A constant has no proper subpatterns. -/
+theorem Subpattern.const_inv {q : Pattern} {c} (h : Subpattern q (.const c)) : q = .const c := by
+  cases h; rfl
+
+theorem Subpattern.varN_const_inv {q : Pattern} {c n}
+    (h : Subpattern q ((Pattern.const c).varN n)) :
+    ∃ k, k ≤ n ∧ q = (Pattern.const c).varN k := by
+  rcases h.varN_inv with h | h
+  · exact h
+  · exact ⟨0, Nat.zero_le _, h.const_inv⟩
+
 end Lean4Lean
