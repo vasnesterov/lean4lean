@@ -70,16 +70,17 @@ these two lemmas are how every case discharges its `hsplit` hypothesis. -/
 omit [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖] in
 /-- A type is a proposition exactly when its sort evaluates to `0`. -/
 theorem isProp_iff (hle : env₀ ≤ envF) {Γ : List VExpr} {A : VExpr} {u : VLevel}
-    (hA : env₀.HasType nv Γ A (.sort u)) : L.IsProp M Γ A ↔ u.eval M.ls = 0 := by
-  rw [LevelAssign.IsProp, VLevel.equiv_def.mp (L.lvl_sound (hA.mono hle)) M.ls]
+    (hA : env₀.HasType nv Γ A (.sort u)) (hw : u.WF nv) :
+    L.IsProp M Γ A ↔ u.eval M.ls = 0 := by
+  rw [LevelAssign.IsProp, VLevel.equiv_def.mp (L.lvl_sound hw (hA.mono hle)) M.ls]
 
 omit [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖] in
 /-- A term is a proof exactly when the sort of its type evaluates to `0`. -/
 theorem isProof_iff (hle : env₀ ≤ envF) {Γ : List VExpr} {e A : VExpr} {u : VLevel}
-    (he : env₀.HasType nv Γ e A) (hA : env₀.HasType nv Γ A (.sort u)) :
+    (he : env₀.HasType nv Γ e A) (hA : env₀.HasType nv Γ A (.sort u)) (hw : u.WF nv) :
     L.IsProof M Γ e ↔ u.eval M.ls = 0 := by
   rw [LevelAssign.IsProof, VLevel.equiv_def.mp (L.srt_sound (he.mono hle)) M.ls,
-    VLevel.equiv_def.mp (L.lvl_sound (hA.mono hle)) M.ls]
+    VLevel.equiv_def.mp (L.lvl_sound hw (hA.mono hle)) M.ls]
 
 
 
@@ -98,7 +99,7 @@ theorem sound_forallE (hle : env₀ ≤ envF) {R : List VExpr → List VExpr →
     (hRd : ∀ {Γ : List VExpr} {A A' : VExpr} {u : VLevel},
       env₀.IsDefEq nv Γ A A' (.sort u) → R (A' :: Γ) (A :: Γ))
     {m : ℕ} (hc : IsInaccessibleChain m M.κ)
-    {Γ : List VExpr} {A A' body body' : VExpr} {u v : VLevel}
+    {Γ : List VExpr} {A A' body body' : VExpr} {u v : VLevel} (hwv : v.WF nv)
     (hbu : u.eval M.ls ≤ m) (hbv : v.eval M.ls ≤ m)
     (h3 : env₀.IsDefEq nv Γ A A' (.sort u))
     (h4 : env₀.IsDefEq nv (A :: Γ) body body' (.sort v))
@@ -108,8 +109,8 @@ theorem sound_forallE (hle : env₀ ≤ envF) {R : List VExpr → List VExpr →
     Sound M L Γ (.forallE A body) (.forallE A' body') (.sort (.imax u v)) := by
   have hctx : interp M L (A' :: Γ) body' = interp M L (A :: Γ) body' :=
     interp_ctxInvariant M L hR body' (hRd h3)
-  have hpB : L.IsProp M (A :: Γ) body ↔ v.eval M.ls = 0 := isProp_iff hle (h4.trans h4.symm)
-  have hpB' : L.IsProp M (A' :: Γ) body' ↔ v.eval M.ls = 0 := isProp_iff hle (h5.symm.trans h5)
+  have hpB : L.IsProp M (A :: Γ) body ↔ v.eval M.ls = 0 := isProp_iff hle (h4.trans h4.symm) hwv
+  have hpB' : L.IsProp M (A' :: Γ) body' ↔ v.eval M.ls = 0 := isProp_iff hle (h5.symm.trans h5) hwv
   refine ⟨fun ρ hρ ↦ forallEDF_sound_eq M L hctx (hpB.trans hpB'.symm) (sA.eq ρ hρ)
     (fun w hw ↦ sb.eq (snoc ρ w) ((mem_interpCtx_cons M L).mpr ⟨ρ, hρ, w, hw, rfl⟩)),
     fun ρ hρ ↦ ?_⟩
@@ -216,18 +217,18 @@ theorem soundAbove : ∀ {Γ : List VExpr} {e₁ e₂ A : VExpr},
     have sa := k₄ (hc.le (by omega))
     have hFA : env₀.IsDefEqStrong nv Γ (.forallE A B) (.forallE A B) (.sort (.imax u v)) :=
       .forallEDF h1 h2 h3 h4 h4
-    have sFA := sound_forallE hle hR hRd hc (by omega) (by omega) h3.defeq h4.defeq h4.defeq sA sB
+    have sFA := sound_forallE hle hR hRd hc h2 (by omega) (by omega) h3.defeq h4.defeq h4.defeq sA sB
     have hpf : L.IsProof M Γ f ↔ (VLevel.imax u v).eval M.ls = 0 :=
-      isProof_iff hle (h5.trans h5.symm).defeq hFA.defeq
+      isProof_iff hle (h5.trans h5.symm).defeq hFA.defeq ⟨h1, h2⟩
     have hsp : L.IsProof M Γ f ↔ L.IsProp M (A :: Γ) B := by
-      rw [hpf, isProp_iff hle (h4.trans h4.symm).defeq]; exact imax_eq_zero_iff
+      rw [hpf, isProp_iff hle (h4.trans h4.symm).defeq h2]; exact imax_eq_zero_iff
     refine ⟨fun ρ hρ ↦ appDF_sound_eq M L ?_ (sf.eq ρ hρ) (sa.eq ρ hρ), fun ρ hρ ↦ ?_⟩
     · show _ ↔ _
       unfold LevelAssign.IsProof
       rw [VLevel.equiv_def.mp (L.srt_congr (h5.defeq.mono hle)) M.ls]
     · exact appDF_sound_type M L hS hclB hcla hρ (sf.type ρ hρ) (sa.type ρ hρ)
         (fun hp ↦ Sound.proof M L sFA (hpf.mp hp) sf ρ hρ) hsp
-  | @lamDF Γ A A' u B v body body' _ _ h3 h4 h5 h6 h7 ihA ihB ihB' ihb ihb' =>
+  | @lamDF Γ A A' u B v body body' h1 h2 h3 h4 h5 h6 h7 ihA ihB ihB' ihb ihb' =>
     refine fun hΓ ↦ ?_
     have hclA : A.ClosedN Γ.length := h3.defeq.closedN henv hΓ
     have hΓA : CtxClosed (A :: Γ) := ⟨hΓ, hclA⟩
@@ -239,10 +240,10 @@ theorem soundAbove : ∀ {Γ : List VExpr} {e₁ e₂ A : VExpr},
     have sB := k₂ (hc.le (by omega))
     have sb := k₃ (hc.le (by omega))
     have hpb : L.IsProof M (A :: Γ) body ↔ v.eval M.ls = 0 :=
-      isProof_iff hle (h6.trans h6.symm).defeq h4.defeq
+      isProof_iff hle (h6.trans h6.symm).defeq h4.defeq h2
     have hpb' : L.IsProof M (A' :: Γ) body' ↔ v.eval M.ls = 0 :=
-      isProof_iff hle (h7.symm.trans h7).defeq h5.defeq
-    have hpB : L.IsProp M (A :: Γ) B ↔ v.eval M.ls = 0 := isProp_iff hle h4.defeq
+      isProof_iff hle (h7.symm.trans h7).defeq h5.defeq h2
+    have hpB : L.IsProp M (A :: Γ) B ↔ v.eval M.ls = 0 := isProp_iff hle h4.defeq h2
     refine ⟨fun ρ hρ ↦ lamDF_sound_eq M L
         (interp_ctxInvariant M L hR body' (hRd h3.defeq)) (hpb.trans hpb'.symm) (sA.eq ρ hρ)
         (fun w hw ↦ sb.eq (snoc ρ w) ((mem_interpCtx_cons M L).mpr ⟨ρ, hρ, w, hw, rfl⟩)),
@@ -250,13 +251,13 @@ theorem soundAbove : ∀ {Γ : List VExpr} {e₁ e₂ A : VExpr},
         (fun w hw ↦ sb.type (snoc ρ w) ((mem_interpCtx_cons M L).mpr ⟨ρ, hρ, w, hw, rfl⟩))
         (fun hp w hw ↦ Sound.proof M L sB (hpb.mp hp) sb (snoc ρ w)
           ((mem_interpCtx_cons M L).mpr ⟨ρ, hρ, w, hw, rfl⟩))⟩
-  | @forallEDF Γ A A' u body body' v _ _ h3 h4 h5 ihA ihb ihb' =>
+  | @forallEDF Γ A A' u body body' v h1 h2 h3 h4 h5 ihA ihb ihb' =>
     refine fun hΓ ↦ ?_
     have hclA : A.ClosedN Γ.length := h3.defeq.closedN henv hΓ
     obtain ⟨m₁, k₁⟩ := ihA hΓ
     obtain ⟨m₂, k₂⟩ := ihb ⟨hΓ, hclA⟩
     refine ⟨max (max m₁ m₂) (max (u.eval M.ls) (v.eval M.ls)), fun hc ↦ ?_⟩
-    exact sound_forallE hle hR hRd hc (by omega) (by omega) h3.defeq h4.defeq h5.defeq
+    exact sound_forallE hle hR hRd hc h2 (by omega) (by omega) h3.defeq h4.defeq h5.defeq
       (k₁ (hc.le (by omega))) (k₂ (hc.le (by omega)))
   | @beta Γ A u B v e e' h1 h2 h3 h4 h5 h6 h7 h8 ihA ihB ihe ihe' ihBi ihei =>
     refine fun hΓ ↦ ?_
@@ -272,13 +273,13 @@ theorem soundAbove : ∀ {Γ : List VExpr} {e₁ e₂ A : VExpr},
     have se' := k₄ (hc.le (by omega))
     have sei := k₆ (hc.le (by omega))
     have hpe : L.IsProof M (A :: Γ) e ↔ v.eval M.ls = 0 :=
-      isProof_iff hle (h5.trans h5.symm).defeq h4.defeq
+      isProof_iff hle (h5.trans h5.symm).defeq h4.defeq h2
     have hFA : env₀.IsDefEqStrong nv Γ (.forallE A B) (.forallE A B) (.sort (.imax u v)) :=
       .forallEDF h1 h2 h3 h4 h4
     have hlam : env₀.IsDefEqStrong nv Γ (.lam A e) (.lam A e) (.forallE A B) :=
       .lamDF h1 h2 h3 h4 h4 h5 h5
     have hsplit : L.IsProof M Γ (.lam A e) ↔ L.IsProof M (A :: Γ) e := by
-      rw [isProof_iff hle hlam.defeq hFA.defeq, hpe]; exact imax_eq_zero_iff
+      rw [isProof_iff hle hlam.defeq hFA.defeq ⟨h1, h2⟩, hpe]; exact imax_eq_zero_iff
     have heq : EqSound M L Γ (.app (.lam A e) e') (e.inst e') := fun ρ hρ ↦
       beta_sound M L hS (h5.defeq.closedN henv hΓA) (h6.defeq.closedN henv hΓ)
         se'.type
@@ -296,13 +297,13 @@ theorem soundAbove : ∀ {Γ : List VExpr} {e₁ e₂ A : VExpr},
     have sA := k₁ (hc.le (by omega))
     have sB := k₂ (hc.le (by omega))
     have se := k₄ (hc.le (by omega))
-    have sFA := sound_forallE hle hR hRd hc (by omega) (by omega) h3.defeq h4.defeq h4.defeq sA sB
+    have sFA := sound_forallE hle hR hRd hc h2 (by omega) (by omega) h3.defeq h4.defeq h4.defeq sA sB
     have hFA : env₀.IsDefEqStrong nv Γ (.forallE A B) (.forallE A B) (.sort (.imax u v)) :=
       .forallEDF h1 h2 h3 h4 h4
     have hFAl : env₀.IsDefEqStrong nv (A :: Γ) (.forallE A.lift (B.liftN 1 1))
         (.forallE A.lift (B.liftN 1 1)) (.sort (.imax u v)) := .forallEDF h1 h2 h8 h5 h5
     have hpe : L.IsProof M Γ e ↔ (VLevel.imax u v).eval M.ls = 0 :=
-      isProof_iff hle h6.defeq hFA.defeq
+      isProof_iff hle h6.defeq hFA.defeq ⟨h1, h2⟩
     have hpev : L.IsProof M Γ e ↔ v.eval M.ls = 0 := hpe.trans imax_eq_zero_iff
     have hbv : env₀.IsDefEqStrong nv (A :: Γ) (.bvar 0) (.bvar 0) A.lift := .bvar .zero h1 h8
     have happ : env₀.IsDefEqStrong nv (A :: Γ)
@@ -311,11 +312,11 @@ theorem soundAbove : ∀ {Γ : List VExpr} {e₁ e₂ A : VExpr},
         .appDF h1 h2 h8 h5 h7 hbv (by rw [VExpr.instN_bvar0]; exact h4)
       rwa [VExpr.instN_bvar0] at c
     have hsplit₂ : L.IsProof M (A :: Γ) (.app e.lift (.bvar 0)) ↔ L.IsProof M Γ e := by
-      rw [isProof_iff hle happ.defeq h4.defeq, hpev]
+      rw [isProof_iff hle happ.defeq h4.defeq h2, hpev]
     have hsplit₃ : ¬ L.IsProof M Γ e → ¬ L.IsProp M (A :: Γ) B := by
-      rw [hpev, isProp_iff hle h4.defeq]; exact id
+      rw [hpev, isProp_iff hle h4.defeq h2]; exact id
     have hsplit₄ : L.IsProof M (A :: Γ) e.lift ↔ L.IsProof M Γ e := by
-      rw [isProof_iff hle h7.defeq hFAl.defeq, hpe]
+      rw [isProof_iff hle h7.defeq hFAl.defeq ⟨h1, h2⟩, hpe]
     have heq : EqSound M L Γ (.lam A (.app e.lift (.bvar 0))) e := fun ρ hρ ↦
       eta_sound M L hS (h6.defeq.closedN henv hΓ) se.type
         (fun hp ρ' hρ' ↦ Sound.proof M L sFA (hpe.mp hp) se ρ' hρ')

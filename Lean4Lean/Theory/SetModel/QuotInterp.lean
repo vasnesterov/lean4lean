@@ -444,7 +444,7 @@ theorem quotFib_mem (hκ : IsInaccessibleChain n M.κ) (hu : u.WF nv)
   unfold quotFib
   refine mkLam_mem_interp_forallE' (env₀ := envF) (Γ := [VExpr.sort u]) (A := quotRelTy)
     (B := VExpr.sort u) (v := .succ u) (ρ := snoc ∅ α)
-    VEnv.LE.rfl (quotSortU_type hu) (Nat.succ_ne_zero _) _ fun r _ ↦ ?_
+    VEnv.LE.rfl (quotSortU_type hu) hu (Nat.succ_ne_zero _) _ fun r _ ↦ ?_
   rw [hval, interp_sort]
   exact quotVal_mem_U hκ hi hα
 
@@ -455,7 +455,7 @@ theorem quotFn_mem (hκ : IsInaccessibleChain n M.κ) (hu : u.WF nv)
     quotFn M L u ∈ (interp M L [] (quotConst.type.instL [u])).toFun ∅ := by
   show quotFn M L u ∈ (interp M L [] (.forallE (.sort u) (.forallE quotRelTy (.sort u)))).toFun ∅
   refine mkLam_mem_interp_forallE' (env₀ := envF) VEnv.LE.rfl (quotCod_type hu)
-    (fun h ↦ Nat.succ_ne_zero _ (imax_eq_zero_iff.1 h)) _ fun α hα ↦ ?_
+    ⟨⟨hu, hu, trivial⟩, hu⟩ (fun h ↦ Nat.succ_ne_zero _ (imax_eq_zero_iff.1 h)) _ fun α hα ↦ ?_
   rw [interp_sort] at hα
   exact quotFib_mem hκ hu hi hα
 

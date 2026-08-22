@@ -255,9 +255,17 @@ structure LevelAssign (env : VEnv) (nv : ℕ) where
   srt : List VExpr → VExpr → VLevel
   lvl_wf : ∀ Γ A, (lvl Γ A).WF nv
   srt_wf : ∀ Γ e, (srt Γ e).WF nv
-  /-- `lvl` agrees with the typing rules wherever they apply -/
+  /-- `lvl` agrees with the typing rules wherever they apply.
+
+  **The `u.WF nv` hypothesis is load-bearing, not decoration.**  Without it this
+  field contradicts `lvl_wf`: `IsDefEq.bvar` has no side condition, so a context
+  may hold `.sort (.param nv)` and force `lvl Γ (.bvar 0) ≈ .param nv`, which no
+  `WF nv` level satisfies.  See `SetModel/LevelAssignUnsat.lean` for the
+  machine-checked counterexample to the unguarded form.  Every consumer has the
+  hypothesis available: the soundness induction runs on `IsDefEqStrong`, whose
+  rules all carry `u.WF uvars` explicitly. -/
   lvl_sound : ∀ {Γ : List VExpr} {A : VExpr} {u : VLevel},
-    env.HasType nv Γ A (.sort u) → lvl Γ A ≈ u
+    u.WF nv → env.HasType nv Γ A (.sort u) → lvl Γ A ≈ u
   /-- `srt` is the `lvl` of the term's type -/
   srt_sound : ∀ {Γ : List VExpr} {e A : VExpr},
     env.HasType nv Γ e A → srt Γ e ≈ lvl Γ A
@@ -270,14 +278,15 @@ include L in
 /-- A `LevelAssign` recovers `sort_inv` for types: two levels of the same type
 are equivalent. -/
 theorem lvl_uniq {Γ : List VExpr} {A : VExpr} {u v : VLevel}
+    (hwu : u.WF nv) (hwv : v.WF nv)
     (hu : env.HasType nv Γ A (.sort u)) (hv : env.HasType nv Γ A (.sort v)) : u ≈ v :=
-  (L.lvl_sound hu).symm.trans (L.lvl_sound hv)
+  (L.lvl_sound hwu hu).symm.trans (L.lvl_sound hwv hv)
 
 include L in
 /-- Definitionally equal types get equivalent levels. -/
-theorem lvl_congr {Γ : List VExpr} {A A' : VExpr} {u : VLevel}
+theorem lvl_congr {Γ : List VExpr} {A A' : VExpr} {u : VLevel} (hw : u.WF nv)
     (h : env.IsDefEq nv Γ A A' (.sort u)) : L.lvl Γ A ≈ L.lvl Γ A' :=
-  (L.lvl_sound (h.trans h.symm)).trans (L.lvl_sound (h.symm.trans h)).symm
+  (L.lvl_sound hw (h.trans h.symm)).trans (L.lvl_sound hw (h.symm.trans h)).symm
 
 include L in
 /-- Definitionally equal *terms* get equivalent sorts — so the case splits in

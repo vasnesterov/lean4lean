@@ -960,7 +960,72 @@ recursor's type mentions types and constructors (both declared earlier), so the
 phase-wise hypothesis "each type mentions only constants of the environment at
 the start of this phase" holds. No interface mismatch.
 
+## `LevelAssign` was unsatisfiable — found by audit, now repaired
+
+A tree-wide audit of instance-free classes asked whether a `LevelAssign` could
+be built for a small concrete environment without `sort_inv`. The answer turned
+out to be sharper than the question: **no `LevelAssign` existed for any
+environment, at any parameter count, because two of its fields contradicted each
+other.**
+
+`lvl_wf` demanded `(lvl Γ A).WF nv` for every `Γ`, with no hypothesis that `Γ`
+is well-formed. `lvl_sound` demanded `lvl Γ A ≈ u` whenever
+`env.HasType nv Γ A (.sort u)`, with no hypothesis on `u`. But `IsDefEq.bvar`
+has no side condition, so a context may hold `.sort (.param nv)` — not `WF nv` —
+and then `Γ ⊢ .bvar 0 : .sort (.param nv)` is derivable. One field forces
+`lvl Γ (.bvar 0) ≈ .param nv`, the other forces it `WF nv`, and no `WF nv` level
+is equivalent to `.param nv`: its evaluation reads only the first `nv` entries
+of the valuation, while `.param nv` reads the `nv`-th.
+
+Machine-checked in `SetModel/LevelAssignUnsat.lean` (`no_levelAssign`), stated
+against a local copy of the pre-repair structure so it stays checkable.
+
+**The repair**, applied: `lvl_sound` gains `u.WF nv`.
+
+```
+lvl_sound : ∀ {Γ A u}, u.WF nv → env.HasType nv Γ A (.sort u) → lvl Γ A ≈ u
+```
+
+It cost the consumers nothing. The soundness induction runs on `IsDefEqStrong`,
+whose every rule already carries `u.WF uvars` explicitly — the information was
+threaded all along and the structure simply failed to ask for it. Fallout was
+five files and entirely mechanical: `LevelAssign.mono`, `lvl_uniq`, `lvl_congr`,
+`isProp_iff`/`isProof_iff` (the hypothesis goes *last*, so the implicit level is
+fixed by the typing derivation before the WF proof is elaborated), the three
+`Cnst.lean` introduction rules, and two `QuotInterp` call sites. `srt_sound`
+needed no repair: it relates `srt Γ e` to `lvl Γ A`, both already constrained to
+be `WF nv`, so there is no conflict.
+
+### What the audit's narrow question actually answers to
+
+Even at `VEnv.empty` the obligations are **not vacuous**: `sortDF`, `bvar`,
+`forallEDF`, `lamDF`, `appDF`, `beta`, `eta` and `defeqDF` all fire without any
+constants, so the empty environment still carries the full pure type theory.
+After the repair, satisfiability is exactly:
+
+* `lvl_sound` ⟺ **`sort_inv` for that environment** — two `WF` sort-typings of
+  the same term have equivalent levels. The existing `LevelAssign.lvl_uniq`
+  proves the converse in one line, so these are equivalent, not merely related.
+* `srt_sound` ⟸ unique typing (two types of a term are defeq, hence have
+  equivalent levels via `lvl_congr`).
+
+So a witness is still blocked on `sort_inv`, at `VEnv.empty` as much as
+anywhere. What changed is that the target is now *achievable* rather than
+contradictory: before the repair, proving `sort_inv` would not have produced a
+`LevelAssign`, because none exists.
+
+### Why this was invisible
+
+Every consumer of `LevelAssign` takes one as input; its only producer was
+`LevelAssign.mono`, which takes one and returns one. No declaration in 547 ever
+forced the fields to be jointly satisfied. This is the exact failure mode the
+audit was commissioned to find, and the lesson generalises: **a structure whose
+producers all consume the same structure has never had its fields tested.**
+`CoherentOn` is in that position too — six producers, all six taking a
+`CoherentOn` — and is the next one to check.
+
 ## The remaining open items, ranked
+
 
 
 

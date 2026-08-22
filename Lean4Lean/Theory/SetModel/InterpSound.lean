@@ -851,7 +851,7 @@ def LevelAssign.mono {env env' : VEnv} {nv : ℕ} (h : env ≤ env')
   srt := L.srt
   lvl_wf := L.lvl_wf
   srt_wf := L.srt_wf
-  lvl_sound ht := L.lvl_sound (ht.mono h)
+  lvl_sound hw ht := L.lvl_sound hw (ht.mono h)
   srt_sound ht := L.srt_sound (ht.mono h)
 
 end CnstStep

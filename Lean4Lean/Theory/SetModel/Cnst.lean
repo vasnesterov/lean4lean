@@ -258,22 +258,22 @@ variable {env₀ : VEnv} {M : ModelData V} {Γ : List VExpr} {A B : VExpr} {u v 
 `{•}`, so inhabiting `⟦∀ x : A, B⟧` is exactly proving `B` pointwise — there is
 no function to build.  This is the rule the `Prop`-valued axioms use. -/
 theorem pt_mem_interp_forallE_prop (hle : env₀ ≤ envF)
-    (hB : env₀.HasType nv (A :: Γ) B (.sort v)) (hv : v.eval M.ls = 0)
+    (hB : env₀.HasType nv (A :: Γ) B (.sort v)) (hwv : v.WF nv) (hv : v.eval M.ls = 0)
     (h : ∀ w ∈ (interp M L Γ A).toFun ρ, pt ∈ (interp M L (A :: Γ) B).toFun (snoc ρ w)) :
     (pt : V) ∈ (interp M L Γ (.forallE A B)).toFun ρ := by
-  rw [interp_forallE_prop M L ((isProp_iff hle hB).2 hv)]
+  rw [interp_forallE_prop M L ((isProp_iff hle hB hwv).2 hv)]
   exact mem_mkForallProp_iff.2 ⟨rfl, h⟩
 
 /-- **Introduction, proper codomain.**  Any definable pointwise-correct function
 gives an element, as its graph. -/
 theorem mkLam_mem_interp_forallE (hle : env₀ ≤ envF)
-    (hB : env₀.HasType nv (A :: Γ) B (.sort v)) (hv : v.eval M.ls ≠ 0)
+    (hB : env₀.HasType nv (A :: Γ) B (.sort v)) (hwv : v.WF nv) (hv : v.eval M.ls ≠ 0)
     {F : V → V} (hF : ℒₛₑₜ-function₁[V] F)
     (h : ∀ w ∈ (interp M L Γ A).toFun ρ, F w ∈ (interp M L (A :: Γ) B).toFun (snoc ρ w)) :
     mkLam (interp M L Γ A).toFun (interp M L Γ A).definable (fun _ w ↦ F w)
         (by definability) ρ
       ∈ (interp M L Γ (.forallE A B)).toFun ρ := by
-  rw [interp_forallE_type M L (fun hp ↦ hv ((isProp_iff hle hB).1 hp))]
+  rw [interp_forallE_type M L (fun hp ↦ hv ((isProp_iff hle hB hwv).1 hp))]
   exact mkLam_mem_mkForallType h
 
 /-- **Introduction, proper codomain, environment-passing form.**
@@ -288,13 +288,13 @@ Proving it once, schematically, also matters for elaboration: applied directly,
 and at a concrete call site those are large enough to hang `whnf`. Here they are
 variables. -/
 theorem mkLam_mem_interp_forallE' (hle : env₀ ≤ envF)
-    (hB : env₀.HasType nv (A :: Γ) B (.sort v)) (hv : v.eval M.ls ≠ 0)
+    (hB : env₀.HasType nv (A :: Γ) B (.sort v)) (hwv : v.WF nv) (hv : v.eval M.ls ≠ 0)
     {F : V → V → V} (hF : ℒₛₑₜ-function₂[V] F)
     (h : ∀ w ∈ (interp M L Γ A).toFun ρ,
       F ρ w ∈ (interp M L (A :: Γ) B).toFun (snoc ρ w)) :
     mkLam (interp M L Γ A).toFun (interp M L Γ A).definable F hF ρ
       ∈ (interp M L Γ (.forallE A B)).toFun ρ := by
-  rw [interp_forallE_type M L (fun hp ↦ hv ((isProp_iff hle hB).1 hp))]
+  rw [interp_forallE_type M L (fun hp ↦ hv ((isProp_iff hle hB hwv).1 hp))]
   exact mkLam_mem_mkForallType h
 
 end Forall
