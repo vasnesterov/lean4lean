@@ -55,8 +55,24 @@ class Params where
   Note the `Check` obligations are discharged in the *extended* context `Δ.reverse ++ Γ`,
   which is exactly where the `ParRed.extra` step fires once `ParRed.lams` has wrapped it in
   `Δ.length` congruences.
+
+  `hΓ` is not optional, for the same reason as `pat_wf`'s.  An ι-rule's index clauses are
+  discharged by β-reducing `mkLams tel a` applied to the matched constructor arguments;
+  `IsDefEq.beta` needs the function typed, typing a `mkLams` needs its telescope to be a
+  well-formed context, and `OnCtx (tel.reverse ++ Δ.reverse ++ Γ)` unfolds to include
+  `OnCtx Γ`.  Tail-weakening is free for `Lookup` — which is why the δ and quot cases need
+  nothing — but `OnCtx` quantifies over every entry.  The sole consumer already holds the
+  fact: `NormalEq.parRed`'s `extra` case (below) sits inside `IsDefEq.church_rosser`, whose
+  `Γ` is an *index* of `IsDefEq`, so `induction H` reverts `hΓ` and reintroduces it in every
+  case — which is why the sibling cases use it freely.  So this costs one argument at one
+  call site.
+
+  Compare `SExpr.IsDefEq.strong`, which was *false* for exactly this reason, and `pat_wf`,
+  which was under-hypothesised for it.  Three for three: on this development a rule stated
+  about an arbitrary `Γ` with no well-formedness hypothesis is suspect by default.
   -/
-  extra_pat : env.defeqs df → (∀ l ∈ ls, l.WF uvars) → ls.length = df.uvars →
+  extra_pat : OnCtx Γ (IsType env univs) →
+    env.defeqs df → (∀ l ∈ ls, l.WF uvars) → ls.length = df.uvars →
     ∃ Δ L R p r m1 m2,
       df.lhs.instL ls = VExpr.mkLams Δ L ∧ df.rhs.instL ls = VExpr.mkLams Δ R ∧
       Pat p r ∧ p.Matches L m1 m2 ∧
@@ -1484,7 +1500,7 @@ theorem IsDefEq.church_rosser
     exact .normalEq hΓ <| .proofIrrel h1.hasType.1 h2.hasType.1 h3.hasType.1
   | @extra _ _ Γ h1 h2 h3 =>
     have h := IsDefEq.extra (Γ := Γ) h1 h2 h3
-    obtain ⟨Δ, L, R, p, r, m1, m2, e1, e2, a1, a2, a3, a4⟩ := extra_pat h1 h2 h3 (Γ := Γ)
+    obtain ⟨Δ, L, R, p, r, m1, m2, e1, e2, a1, a2, a3, a4⟩ := extra_pat hΓ h1 h2 h3 (Γ := Γ)
     have hstep : ParRed (Δ.reverse ++ Γ) L R := a4 ▸ ParRed.extra a1 a2 a3 fun _ => .rfl
     have hlams := ParRed.lams (Δ := Δ) hstep
     rw [← e1, ← e2] at hlams

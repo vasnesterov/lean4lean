@@ -119,6 +119,15 @@ construction", and the ι-rule's spine alignment — priced as this file's conce
 turned out to be two rewrites against it.  A lemma that is not merely present but *labelled
 for your use* will not be found by grepping for the shape you happen to have in mind.
 
+**1a. Read the whole tree; edit only your own files.**  Three lemmas that decided estimates
+on the `Params` stream were sitting in `Theory/Inductive/StructureClosed.lean`, a file that
+stream had been told not to *touch* and had therefore never *searched*:
+`VEnv.IsDefEq.betaMkLams` (the multi-β judgement for a saturated `mkLams`), `OnCtx.appendR`
+("a closed, well-formed telescope stays well-formed over any well-formed context"), and
+`iota_law`, whose sixty-line preamble is a complete worked template for moving a closed
+telescope's typing into `Δ.reverse ++ Γ`.  `betaMkLams` alone re-priced a step from 240 lines
+to 170.  Ownership is about writes; searching is free.
+
 **1b. Grep for the *type*, not the concept.**  Three of four re-estimates on the δ-uniqueness
 unit came from a helper that did not exist, and the specific error each time was assuming
 that because a lemma exists for one list type the analogue exists for another —
@@ -127,6 +136,15 @@ that because a lemma exists for one list type the analogue exists for another �
 actually typecheck at the type you have, not for the idea.  Same family as note 1: the search
 is cheap and the assumption is expensive, and both failures come from searching for what you
 *mean* rather than for what would elaborate.
+
+  Two worked examples where a *name* search failed and a *shape* search succeeded in one
+  query.  (i) `VEnv.IsDefEq.betaMkLams`: grepping `beta` under `Theory/Typing/` returns
+  nothing, while enumerating declarations whose statement mentions `mkLams`, `mkApp` and
+  `IsDefEq` together returns exactly one hit — the lemma.  (ii) `VEnv.addConsts_le` was
+  defined *twice*, here and in `Theory/Typing/EnvLemmas.lean`, and stayed invisible until one
+  file imported both: no name search finds a duplicate, because both names are correct.
+  Search by the shape of the statement, and when a definition feels like it should already
+  exist, check whether it exists twice.
 
 **2. Read the current `VEnv.Params` class, not `docs/design-inductive.md` §7.6.**  The
 design describes four fields -- `pat_major_not_pi`, `pat_major_prop`, `pat_small`,

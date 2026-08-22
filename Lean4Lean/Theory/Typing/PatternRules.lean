@@ -418,6 +418,7 @@ inductive VEnv.RuleShape (env : VEnv) : VDefEq → Prop
       (D.iotaLam q C).Closed →
       (∀ a ∈ C.args, (mkLams (C.params ++ C.fields.map (·.type)) a).Closed) →
       C.args.length = T.indices.length →
+      C.params.length = D.np →
       D.types[j]? = some T → C ∈ T.ctors →
       env.constants (Lean.mkRecName T.name) = some ⟨D.recUvars, D.recType j⟩ →
       env.constants C.name = some ⟨D.uvars, C.type D j⟩ →
@@ -427,8 +428,8 @@ theorem VEnv.RuleShape.mono {env env' : VEnv} (hle : env ≤ env') {df} :
     env.RuleShape df → env'.RuleShape df
   | .delta ci h => .delta ci h
   | .quot h => .quot (hle.constants h)
-  | .iota D j q T C h1 h2 h3 h4 h5 h6 h7 =>
-      .iota D j q T C h1 h2 h3 h4 h5 (hle.constants h6) (hle.constants h7)
+  | .iota D j q T C h1 h2 h3 h8 h4 h5 h6 h7 =>
+      .iota D j q T C h1 h2 h3 h8 h4 h5 (hle.constants h6) (hle.constants h7)
 
 /-! ### The four substantial arms
 
@@ -491,7 +492,7 @@ theorem VEnv.ruleShape_induct {env env' : VEnv} {D : VInductDecl'} (henv : env.O
     have hCwf := hdecl.ctors e1 h1 j T hT C hCT
     exact .iota D j q T C
       (VInductDecl'.iotaLam_closed hI.toRecCtx.ordered hI hT hj hCT hqC)
-      (VIndCtor.args_closed he1 hCwf) hCwf.args_len hT hCT
+      (VIndCtor.args_closed he1 hCwf) hCwf.args_len hCwf.params_len hT hCT
       ((VEnv.addDefEqList_le _ _).constants (VEnv.addConstList_constants h3 _
         (List.mem_map.2 ⟨(T, j), List.mk_mem_zipIdx_iff_getElem?.2 hT, rfl⟩)))
       ((VEnv.addDefEqList_le _ _).constants ((VEnv.addConstList_le h3).constants
@@ -1115,6 +1116,54 @@ theorem Pat.uniq {env : VEnv} (henv : env.WF) {p₁ p₂ p₃ p₄ : Pattern}
           obtain ⟨x, hx, rfl⟩ := Pattern.inter_app_var hi
           obtain ⟨hR, -, -⟩ := Pattern.inter_varN_const hx
           exact absurd hR (by decide)
+
+/-! ### The ι-rule's shape after level instantiation -/
+
+/-- The ι-rule's left-hand side after level instantiation: a recursor spine whose last
+argument is a constructor spine — exactly `matches_iota_paths`' shape. -/
+theorem VInductDecl'.instL_iotaLhs (D : VInductDecl') (j : Nat) (C : VIndCtor)
+    {ls : List VLevel} (hlen : ls.length = D.recUvars) :
+    (D.iotaLhs j C).instL ls
+      = (VExpr.const (Lean.mkRecName (D.types.getD j default).name) ls).mkApp
+          ((bvars (C.fields.length + (D.nm + D.nmin)) D.np
+              ++ bvars (C.fields.length + D.nmin) D.nm ++ bvars C.fields.length D.nmin
+              ++ C.args.map fun a =>
+                   ((D.atRec a).liftN (D.nm + D.nmin) C.fields.length).instL ls)
+            ++ [(VExpr.const C.name (D.selfLvls.map (VLevel.inst ls))).mkApp
+                  (bvars (C.fields.length + (D.nm + D.nmin)) D.np
+                    ++ bvars 0 C.fields.length)]) := by
+  rw [VInductDecl'.iotaLhs, VExpr.instL_mkApp]
+  simp only [VExpr.instL, VLevel.map_inst_params hlen, List.map_append, List.map_map,
+    VExpr.map_instL_bvars, List.map_cons, List.map_nil, VInductDecl'.ctorApp',
+    VExpr.instL_mkApp]
+  rfl
+
+/-- The recursor's spine is one contiguous `bvars` run followed by the index arguments: the
+parameter, motive and minor blocks sit immediately above the fields. -/
+theorem VInductDecl'.iotaLhs_args_split (D : VInductDecl') (C : VIndCtor) (rest : List VExpr) :
+    bvars (C.fields.length + (D.nm + D.nmin)) D.np ++ bvars (C.fields.length + D.nmin) D.nm
+        ++ bvars C.fields.length D.nmin ++ rest
+      = bvars C.fields.length (D.np + D.nm + D.nmin) ++ rest := by
+  rw [VExpr.bvars_add₃, ← Nat.add_assoc]
+
+/-- **The parameter-clause helper.**  If two matched lists have the same image, every zipped
+pair maps to the same term.  Simultaneous induction, so no indexing — the structural form of
+what would otherwise be a positional argument about `take` and `zip`. -/
+theorem List.zip_map_eq {α β : Type _} {P : List α} {Q : List β}
+    {f : α → VExpr} {g : β → VExpr} (h : P.map f = Q.map g) :
+    ∀ xy ∈ P.zip Q, f xy.1 = g xy.2 := by
+  induction P generalizing Q with
+  | nil => simp
+  | cons a P ih =>
+    cases Q with
+    | nil => simp
+    | cons b Q =>
+      simp only [List.map_cons, List.cons.injEq] at h
+      rw [List.zip_cons_cons]
+      intro xy hxy
+      rcases List.mem_cons.1 hxy with rfl | hxy
+      · exact h.1
+      · exact ih h.2 xy hxy
 
 /-- **`Params.extra_pat` for a δ-rule.**  No λ-peeling (the left-hand side is already a bare
 constant), no check clauses, and the datum's value is the rule's own. -/
