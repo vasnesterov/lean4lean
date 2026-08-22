@@ -12,13 +12,25 @@ open scoped _root_.List
 theorem fvarsIn_iff : FVarsIn P e ↔ (∀ fv ∈ e.fvarsList, P fv) ∧ FVarsIn (fun _ => True) e := by
   induction e <;> simp [FVarsIn, Expr.fvarsList, *] <;> grind
 
-theorem fvarsIn_iff_hasMVar : FVarsIn (fun _ => True) e ↔ e.hasMVar = false := by
-  rw [Expr.hasMVar, ← Expr.hasExprMVar, ← Expr.hasLevelMVar]; simp
+/-- The purely structural form; the cached-bit form is `fvarsIn_iff_hasMVar` below. -/
+theorem fvarsIn_iff_hasMVar' :
+    FVarsIn (fun _ => True) e ↔ (e.hasExprMVar' = false ∧ e.hasLevelMVar' = false) := by
   induction e <;> simp [FVarsIn, Expr.hasExprMVar', Expr.hasLevelMVar', and_assoc, and_left_comm, *]
 
-theorem fvarsList_eq_nil {e : Expr} : e.fvarsList = [] ↔ e.hasFVar = false := by
-  rw [Expr.hasFVar_eq]
+/-- Only the `←` direction of the former iff survives unconditionally, and it is the
+only one used: going from a cached `has*` bit to the structural traversal needs no
+`Expr.BVarBounded` hypothesis (see `Lean.Expr.hasFVar_eq_false`), while the converse
+does. -/
+theorem fvarsIn_iff_hasMVar (h : e.hasMVar = false) : FVarsIn (fun _ => True) e := by
+  rw [Expr.hasMVar, ← Expr.hasExprMVar, ← Expr.hasLevelMVar, Bool.or_eq_false_iff] at h
+  exact fvarsIn_iff_hasMVar'.2 ⟨Expr.hasExprMVar_eq_false h.1, Expr.hasLevelMVar_eq_false h.2⟩
+
+/-- The purely structural form; the cached-bit form is `fvarsList_eq_nil` below. -/
+theorem fvarsList_eq_nil' {e : Expr} : e.fvarsList = [] ↔ e.hasFVar' = false := by
   induction e <;> simp [Expr.fvarsList, Expr.hasFVar', and_assoc, *]
+
+theorem fvarsList_eq_nil {e : Expr} (h : e.hasFVar = false) : e.fvarsList = [] :=
+  fvarsList_eq_nil'.2 (Expr.hasFVar_eq_false h)
 
 theorem FVarsIn.mp (H : ∀ fv, P fv → Q fv → R fv) :
     ∀ {e}, FVarsIn P e → FVarsIn Q e → FVarsIn R e
@@ -1991,10 +2003,20 @@ theorem BetaReduce.cheapBetaReduce (hc : e.Closed) : BetaReduce e e.cheapBetaRed
     have := eqr ▸ hc.getAppArgsList; simp [or_imp, forall_and] at this
     exact this.1
   unfold Expr.cheapBetaReduce.cont; split <;> rename_i h3
-  · simp [Expr.hasLooseBVars] at h3
-    rw [Expr.mkAppRange_eq (l₂ := l₂) (l₃ := []) (by simp [eq]) rfl (by simp [← eq])]
+  · -- `h3 : !fn.hasLooseBVars` is *not* used: the cached 20-bit `looseBVarRange` field cannot
+    -- be trusted (`docs/axiom-audit.md` §3.1), so this branch performs the substitution that
+    -- the C++ kernel skips. It is a beta reduction whether or not the bit was honest.
+    clear h3
+    have hinst : fn.instantiateRevRange 0 l₁.length e.getAppArgsList.toArray
+        = fn.instantiateList l₁.reverse := by
+      rw [Expr.instantiateRevRange_eq _ _ (Nat.zero_le _) (by simpa using h2),
+        Expr.instantiateRev_eq,
+        Expr.instantiate_eq _ _ (by
+          simp [eq]; exact fun a ha => (hl₁ a ha).looseBVarRange_zero)]
+      congr 1; simp [eq]
+    rw [hinst, Expr.mkAppRange_eq (l₂ := l₂) (l₃ := []) (by simp [eq]) rfl (by simp [← eq])]
     rw [← e.mkAppList_getAppArgsList, eqr]; simp
-    refine .mkAppList <| .inst_reduce hl₁ [] h1 (Expr.instantiateList_eq_self h3)
+    exact .mkAppList <| .inst_reduce hl₁ [] h1 (by simp)
   split <;> [rename_i n; exact .refl]
   have hc := h1.closed hc.getAppFn
   simp [Closed] at hc; rw [if_pos hc]

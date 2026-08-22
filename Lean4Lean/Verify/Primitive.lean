@@ -860,9 +860,9 @@ theorem checkNoMVarNoFVar.WF' (env : Environment) (name : Name) (e : Expr) :
     · rfl
     · rw [Environment.checkNoFVar, hf] at h; simp at h
   refine h1.bind fun _ hmv => h2.mono fun _ hfv => ?_
-  refine fvarsIn_iff.2 ⟨?_, fvarsIn_iff_hasMVar.2 hmv⟩
+  refine fvarsIn_iff.2 ⟨?_, fvarsIn_iff_hasMVar hmv⟩
   intro fv hmem
-  rw [fvarsList_eq_nil.2 hfv] at hmem
+  rw [fvarsList_eq_nil hfv] at hmem
   simp at hmem
 
 namespace TypeChecker

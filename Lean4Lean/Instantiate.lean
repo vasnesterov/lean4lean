@@ -15,8 +15,15 @@ def cheapBetaReduce (e : Expr) : Expr := Id.run do
   if !fn.isLambda then return e
   let args := e.getAppArgs
   let rec cont i fn :=
+    -- Divergence from the C++ kernel: where it drops the consumed arguments outright, we
+    -- apply the (then trivial) substitution. `Expr.hasLooseBVars` reads the cached 20-bit
+    -- `looseBVarRange` field, which is wrong for a term whose `bvar` indices overflow it
+    -- (lean4#8554); a cached bit that wrongly reported "no loose bvars" would otherwise
+    -- drop a substitution that is actually needed. `instantiateRevRange` is the identity
+    -- exactly when the bit is honest, so the value computed is unchanged. See
+    -- `divergences.md` and `docs/axiom-audit.md` §3.1.
     if !fn.hasLooseBVars then
-      mkAppRange fn i args.size args
+      mkAppRange (fn.instantiateRevRange 0 i args) i args.size args
     else if let .bvar n := fn then
       assert! n < i
       mkAppRange args[i - n - 1]! i args.size args

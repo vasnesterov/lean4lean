@@ -285,8 +285,18 @@ def mkData' (h : UInt64) (depth : Nat := 0) (hasMVar hasParam : Bool := false) :
     depth.toUInt64.shiftLeft 40
 
 /-- This exists only for the bit-twiddling proofs, it shouldn't appear
-in the main results, which use the functions below instead -/
-axiom mkData_eq : @mkData = @mkData'
+in the main results, which use the functions below instead.
+
+The hypothesis `H : d < 2 ^ 24` is essential. The previous unconditional form
+`@mkData = @mkData'` was **false, and jointly inconsistent with `hasParam_eq` /
+`hasMVar_eq`**: for `d ≥ 2 ^ 24` the C function `lean_level_mk_data` calls
+`lean_internal_panic` and *aborts the process*, whereas the Lean-side
+`panic! ... : Level.Data` reduces to `default = 0`. Asserting the equation on
+that branch therefore claims a return value the implementation never produces,
+and makes e.g. `(Level.succ^[2 ^ 24] (.param `x)).hasParam` provably `false`
+while `hasParam'` is `true`. See `docs/axiom-audit.md` §4 (and §5.4). -/
+axiom mkData_eq {h : UInt64} {d : Nat} {mv hp : Bool} (H : d < 2 ^ 24) :
+    mkData h d mv hp = mkData' h d mv hp
 
 def hasParam' : Level → Bool
   | .param .. => true
@@ -348,8 +358,18 @@ def mkData'
   looseBVarRange.toUInt64.shiftLeft 44
 
 /-- This exists only for the bit-twiddling proofs, it shouldn't appear
-in the main results, which use the functions below instead -/
-axiom mkData_eq : @mkData = @mkData'
+in the main results, which use the functions below instead.
+
+The hypothesis `H : br ≤ 2 ^ 20 - 1` is essential. The previous unconditional
+form `@mkData = @mkData'` was **false**: for `looseBVarRange > 2 ^ 20 - 1` the C
+function `lean_expr_mk_data` calls `lean_internal_panic` and *aborts the
+process*, whereas the `assert!` in `mkData'` elaborates to
+`if _ then _ else panic! _` and `panic! ... : Expr.Data` reduces to
+`default = 0`. Asserting the equation on that branch claims a return value the
+implementation never produces. See `docs/axiom-audit.md` §4 (and §5.4). -/
+axiom mkData_eq {h : UInt64} {br : Nat} {d : UInt32} {fv ev lv lp : Bool}
+    (H : br ≤ 2 ^ 20 - 1) :
+    mkData h br d fv ev lv lp = mkData' h br d fv ev lv lp
 
 @[inline] def mkAppData' (fData : Data) (aData : Data) : Data :=
   let depth          := max fData.approxDepth.toUInt16 aData.approxDepth.toUInt16 + 1
@@ -382,9 +402,64 @@ def looseBVarRange' : Expr → Nat
   | .forallE _ e1 e2 _ => max e1.looseBVarRange' (e2.looseBVarRange' - 1)
   | .letE _ e1 e2 e3 _ => max (max e1.looseBVarRange' e2.looseBVarRange') (e3.looseBVarRange' - 1)
 
+/-- Every `bvar` index occurring in `e` fits the 20-bit `looseBVarRange` field,
+so the cached range is exact for `e` and for every subterm of `e`.
+
+`.lam`/`.forallE`/`.letE` need only their children checked: the parent's own
+`mkData` argument is a `max` of quantities bounded by the children's ranges. -/
+def BVarBounded : Expr → Prop
+  | .bvar i => i + 1 ≤ 2^20 - 1
+  | .mdata _ b
+  | .proj _ _ b => b.BVarBounded
+  | .app f a => f.BVarBounded ∧ a.BVarBounded
+  | .lam _ t b _
+  | .forallE _ t b _ => t.BVarBounded ∧ b.BVarBounded
+  | .letE _ t v b _ => t.BVarBounded ∧ v.BVarBounded ∧ b.BVarBounded
+  | _ => True
+
 /-- This was false prior to the fix of lean4#8554; it should now be provable
-using `mkData_eq` and friends, but this has not been done yet -/
-@[simp] axiom looseBVarRange_eq (e : Expr) : e.looseBVarRange = e.looseBVarRange'
+using `mkData_eq` and friends, but this has not been done yet.
+
+The `BVarBounded` side condition is **required**: without it this axiom proves
+`False` on its own. `Expr.looseBVarRange` is a read of a 20-bit field
+(`Expr.Data.looseBVarRange c = (c >>> 44).toUInt32`), so it is `< 2^20`
+unconditionally, whereas `looseBVarRange'` is unbounded --
+`(Expr.bvar 1048575).looseBVarRange' = 2^20`. Upstream refuses to construct such
+a term at all (`lean_expr_mk_data` panics with "too many bound variables" when
+the range exceeds `1048575`), which is also why the RHS must *not* be patched to
+return `0` out of range: the C function aborts, it does not keep going with `0`.
+
+A bound on the top-level range does not suffice -- the field is computed
+bottom-up, so every subterm's `mkData` call must be in range; hence the
+per-subterm `BVarBounded`.
+
+See `docs/axiom-audit.md` §3.1 for the machine-checked witness and the analysis. -/
+@[simp] axiom looseBVarRange_eq (e : Expr) (h : e.BVarBounded) :
+    e.looseBVarRange = e.looseBVarRange'
+
+/-- The side condition on `looseBVarRange_eq` is strong enough to block the
+refutation in `docs/axiom-audit.md` §3.1: under `BVarBounded` the model range
+obeys the same `≤ 2^20 - 1` bound that `Expr.looseBVarRange_le` proves for the
+packed field, so the two sides are no longer forced apart. -/
+theorem BVarBounded.looseBVarRange'_le :
+    ∀ {e : Expr}, e.BVarBounded → e.looseBVarRange' ≤ 2^20 - 1 := by
+  intro e; induction e with
+  | bvar i => exact fun h => h
+  | mdata _ _ ih => exact ih
+  | proj _ _ _ ih => exact ih
+  | app _ _ ih1 ih2 =>
+    intro h; have h1 := ih1 h.1; have h2 := ih2 h.2
+    simp only [looseBVarRange']; omega
+  | lam _ _ _ _ ih1 ih2 =>
+    intro h; have h1 := ih1 h.1; have h2 := ih2 h.2
+    simp only [looseBVarRange']; omega
+  | forallE _ _ _ _ ih1 ih2 =>
+    intro h; have h1 := ih1 h.1; have h2 := ih2 h.2
+    simp only [looseBVarRange']; omega
+  | letE _ _ _ _ _ ih1 ih2 ih3 =>
+    intro h; have h1 := ih1 h.1; have h2 := ih2 h.2.1; have h3 := ih3 h.2.2
+    simp only [looseBVarRange']; omega
+  | _ => exact fun _ => Nat.zero_le _
 
 /-- This could be an `@[implemented_by]` -/
 @[simp] axiom replace_eq (e : Expr) (f) : e.replace f = e.replaceNoCache f

@@ -258,7 +258,7 @@ private theorem mkData_flags (H : br ≤ 2 ^ 20 - 1) :
     (mkData h br d fv ev lv lp).hasExprMVar = ev ∧
     (mkData h br d fv ev lv lp).hasLevelMVar = lv ∧
     (mkData h br d fv ev lv lp).hasLevelParam = lp := by
-  rw [mkData_eq, mkData', if_pos H]
+  rw [mkData_eq H, mkData', if_pos H]
   simp [Data.hasFVar, Data.hasExprMVar, Data.hasLevelMVar, Data.hasLevelParam,
     (· == ·), ← UInt64.toBitVec_inj]
   have hh : h.toUInt32.toUInt64.toBitVec ≤ 0xffffffff#64 :=
@@ -303,31 +303,16 @@ private theorem mkData_hasLevelParam (H : br ≤ 2 ^ 20 - 1) :
     (mkData h br d fv ev lv lp).hasLevelParam = lp := by
   exact (mkData_flags H).2.2.2
 
-private theorem mkData_flags_of_false (br d h) :
-    (mkData h br d false false false false).hasFVar = false ∧
-    (mkData h br d false false false false).hasExprMVar = false ∧
-    (mkData h br d false false false false).hasLevelMVar = false ∧
-    (mkData h br d false false false false).hasLevelParam = false := by
-  by_cases H : br ≤ 2 ^ 20 - 1
-  · exact mkData_flags H
-  · rw [mkData_eq, mkData', if_neg H]
-    exact ⟨rfl, rfl, rfl, rfl⟩
-
-private theorem mkData_hasFVar_of_false (br d h) :
-    (mkData h br d false false false false).hasFVar = false :=
-  (mkData_flags_of_false br d h).1
-
-private theorem mkData_hasExprMVar_of_false (br d h) :
-    (mkData h br d false false false false).hasExprMVar = false :=
-  (mkData_flags_of_false br d h).2.1
-
-private theorem mkData_hasLevelMVar_of_false (br d h) :
-    (mkData h br d false false false false).hasLevelMVar = false :=
-  (mkData_flags_of_false br d h).2.2.1
-
-private theorem mkData_hasLevelParam_of_false (br d h) :
-    (mkData h br d false false false false).hasLevelParam = false :=
-  (mkData_flags_of_false br d h).2.2.2
+/-
+`mkData_flags_of_false` and its four `_of_false` corollaries used to live here.
+They claimed the flags of `mkData h br d false false false false` are all
+`false` for an *unrestricted* `br`, and the only way to prove the `br > 2^20-1`
+case was to unfold the `assert!` of `mkData'` into `panic! _ = (0 : Expr.Data)`
+— i.e. they were the one place that used the panic branch of `Expr.mkData_eq`
+as a fact. See `docs/axiom-audit.md` §4. With the corrected axiom they are
+exactly `mkData_flags H`, so they have been removed; their users (the `bvar`
+cases below) must supply the bound instead.
+-/
 
 private theorem mkAppData_flag (i : Nat) (hi : i < 4) :
     (mkAppData fData aData).toBitVec.getLsbD (40 + i) = flagAt
@@ -382,6 +367,35 @@ private theorem let_looseBVarRange_le (ty val body : Expr) :
   have hbody := Data.looseBVarRange_le (d := body.data)
   omega
 
+/-! ### `BVarBounded` -/
+
+/-
+`Expr.BVarBounded` (`Verify/Axioms.lean`) is the side condition of the corrected
+`looseBVarRange_eq` axiom. It is a `Prop`-valued recursive `def`, so it has no
+equation lemmas of its own; without the `@[simp]` unfoldings below the axiom's
+side goal could essentially never be discharged by `simp`.
+-/
+
+@[simp] theorem bVarBounded_bvar : (Expr.bvar i).BVarBounded ↔ i + 1 ≤ 2 ^ 20 - 1 := .rfl
+@[simp] theorem bVarBounded_fvar : (Expr.fvar v).BVarBounded := trivial
+@[simp] theorem bVarBounded_mvar : (Expr.mvar v).BVarBounded := trivial
+@[simp] theorem bVarBounded_sort : (Expr.sort u).BVarBounded := trivial
+@[simp] theorem bVarBounded_const : (Expr.const c us).BVarBounded := trivial
+@[simp] theorem bVarBounded_lit : (Expr.lit l).BVarBounded := trivial
+@[simp] theorem bVarBounded_mdata :
+    (Expr.mdata d b).BVarBounded ↔ b.BVarBounded := .rfl
+@[simp] theorem bVarBounded_proj :
+    (Expr.proj s i b).BVarBounded ↔ b.BVarBounded := .rfl
+@[simp] theorem bVarBounded_app :
+    (Expr.app f a).BVarBounded ↔ f.BVarBounded ∧ a.BVarBounded := .rfl
+@[simp] theorem bVarBounded_lam :
+    (Expr.lam n t b bi).BVarBounded ↔ t.BVarBounded ∧ b.BVarBounded := .rfl
+@[simp] theorem bVarBounded_forallE :
+    (Expr.forallE n t b bi).BVarBounded ↔ t.BVarBounded ∧ b.BVarBounded := .rfl
+@[simp] theorem bVarBounded_letE :
+    (Expr.letE n t v b nd).BVarBounded ↔
+      t.BVarBounded ∧ v.BVarBounded ∧ b.BVarBounded := .rfl
+
 def hasFVar' : Expr → Bool
   | .fvar _ => true
   | .const ..
@@ -396,27 +410,67 @@ def hasFVar' : Expr → Bool
   | .forallE _ e1 e2 _ => e1.hasFVar' || e2.hasFVar'
   | .letE _ t v b _ => t.hasFVar' || v.hasFVar' || b.hasFVar'
 
-/-- The cached `hasFVar` bit agrees with structural traversal. -/
-theorem hasFVar_eq (e : Expr) : e.hasFVar = e.hasFVar' := by
-  change e.data.hasFVar = e.hasFVar'
+/-- The cached `hasFVar` bit is `false` only if structural traversal says so.
+
+This half needs **no** `BVarBounded` hypothesis: the only node whose `mkData`
+call can leave the 20-bit range is `bvar`, and `hasFVar' (.bvar _) = false`
+whatever the out-of-range `mkData` returns. Every other node combines its
+children's cached bits with `||` under a range bound that
+`Expr.Data.looseBVarRange_le` supplies unconditionally. -/
+theorem hasFVar_eq_false : ∀ {e : Expr}, e.hasFVar = false → e.hasFVar' = false := by
+  intro e
+  change e.data.hasFVar = false → e.hasFVar' = false
   induction e with
-  | bvar => simp [Expr.data, hasFVar', mkData_hasFVar_of_false]
+  | bvar i => exact fun _ => rfl
   | fvar | mvar | sort | const | lit =>
+    simp only [Expr.data, hasFVar', mkData_hasFVar (Nat.zero_le _)]
+    exact id
+  | app _ _ ih1 ih2 =>
+    simp only [Expr.data, hasFVar', mkAppData_hasFVar, Bool.or_eq_false_iff]
+    exact fun h => ⟨ih1 h.1, ih2 h.2⟩
+  | lam _ ty body _ ihty ihbody | forallE _ ty body _ ihty ihbody =>
+    simp only [Expr.data, mkDataForBinder, hasFVar',
+      mkData_hasFVar (binder_looseBVarRange_le ty body), Bool.or_eq_false_iff]
+    exact fun h => ⟨ihty h.1, ihbody h.2⟩
+  | letE _ ty val body _ ihty ihval ihbody =>
+    simp only [Expr.data, mkDataForLet, hasFVar',
+      mkData_hasFVar (let_looseBVarRange_le ty val body), Bool.or_eq_false_iff]
+    exact fun h => ⟨⟨ihty h.1.1, ihval h.1.2⟩, ihbody h.2⟩
+  | mdata _ e ih | proj _ _ e ih =>
+    simp only [Expr.data, hasFVar', mkData_hasFVar (Data.looseBVarRange_le (d := e.data))]
+    exact ih
+
+/-- The cached `hasFVar` bit agrees with structural traversal. -/
+theorem hasFVar_eq : ∀ {e : Expr}, e.BVarBounded → e.hasFVar = e.hasFVar' := by
+  intro e
+  change e.BVarBounded → e.data.hasFVar = e.hasFVar'
+  induction e with
+  | bvar i =>
+    intro h
+    simp only [Expr.data, hasFVar']
+    exact mkData_hasFVar h
+  | fvar | mvar | sort | const | lit =>
+    intro _
     simp only [Expr.data, hasFVar']
     apply mkData_hasFVar
     omega
   | app _ _ ih1 ih2 =>
+    intro h
     simp only [Expr.data, hasFVar']
-    rw [mkAppData_hasFVar, ih1, ih2]
+    rw [mkAppData_hasFVar, ih1 h.1, ih2 h.2]
   | lam _ ty body _ ihty ihbody | forallE _ ty body _ ihty ihbody =>
+    intro h
     simp only [Expr.data, mkDataForBinder, hasFVar']
-    rw [mkData_hasFVar (binder_looseBVarRange_le ty body), ihty, ihbody]
+    rw [mkData_hasFVar (binder_looseBVarRange_le ty body), ihty h.1, ihbody h.2]
   | letE _ ty val body _ ihty ihval ihbody =>
+    intro h
     simp only [Expr.data, mkDataForLet, hasFVar']
-    rw [mkData_hasFVar (let_looseBVarRange_le ty val body), ihty, ihval, ihbody]
+    rw [mkData_hasFVar (let_looseBVarRange_le ty val body), ihty h.1, ihval h.2.1,
+      ihbody h.2.2]
   | mdata _ e ih | proj _ _ e ih =>
+    intro h
     simp only [Expr.data, hasFVar']
-    rw [mkData_hasFVar (Data.looseBVarRange_le (d := e.data)), ih]
+    rw [mkData_hasFVar (Data.looseBVarRange_le (d := e.data)), ih h]
 
 def hasExprMVar' : Expr → Bool
   | .mvar _ => true
@@ -432,27 +486,64 @@ def hasExprMVar' : Expr → Bool
   | .forallE _ e1 e2 _ => e1.hasExprMVar' || e2.hasExprMVar'
   | .letE _ t v b _ => t.hasExprMVar' || v.hasExprMVar' || b.hasExprMVar'
 
-/-- The cached `hasExprMVar` bit agrees with structural traversal. -/
-@[simp] theorem hasExprMVar_eq (e : Expr) : e.hasExprMVar = e.hasExprMVar' := by
-  change e.data.hasExprMVar = e.hasExprMVar'
+/-- The cached `hasExprMVar` bit is `false` only if structural traversal says so.
+Unconditional; see `hasFVar_eq_false`. -/
+theorem hasExprMVar_eq_false :
+    ∀ {e : Expr}, e.hasExprMVar = false → e.hasExprMVar' = false := by
+  intro e
+  change e.data.hasExprMVar = false → e.hasExprMVar' = false
   induction e with
-  | bvar => simp [Expr.data, hasExprMVar', mkData_hasExprMVar_of_false]
+  | bvar i => exact fun _ => rfl
   | fvar | mvar | sort | const | lit =>
+    simp only [Expr.data, hasExprMVar', mkData_hasExprMVar (Nat.zero_le _)]
+    exact id
+  | app _ _ ih1 ih2 =>
+    simp only [Expr.data, hasExprMVar', mkAppData_hasExprMVar, Bool.or_eq_false_iff]
+    exact fun h => ⟨ih1 h.1, ih2 h.2⟩
+  | lam _ ty body _ ihty ihbody | forallE _ ty body _ ihty ihbody =>
+    simp only [Expr.data, mkDataForBinder, hasExprMVar',
+      mkData_hasExprMVar (binder_looseBVarRange_le ty body), Bool.or_eq_false_iff]
+    exact fun h => ⟨ihty h.1, ihbody h.2⟩
+  | letE _ ty val body _ ihty ihval ihbody =>
+    simp only [Expr.data, mkDataForLet, hasExprMVar',
+      mkData_hasExprMVar (let_looseBVarRange_le ty val body), Bool.or_eq_false_iff]
+    exact fun h => ⟨⟨ihty h.1.1, ihval h.1.2⟩, ihbody h.2⟩
+  | mdata _ e ih | proj _ _ e ih =>
+    simp only [Expr.data, hasExprMVar',
+      mkData_hasExprMVar (Data.looseBVarRange_le (d := e.data))]
+    exact ih
+
+/-- The cached `hasExprMVar` bit agrees with structural traversal. -/
+theorem hasExprMVar_eq : ∀ {e : Expr}, e.BVarBounded → e.hasExprMVar = e.hasExprMVar' := by
+  intro e
+  change e.BVarBounded → e.data.hasExprMVar = e.hasExprMVar'
+  induction e with
+  | bvar i =>
+    intro h
+    simp only [Expr.data, hasExprMVar']
+    exact mkData_hasExprMVar h
+  | fvar | mvar | sort | const | lit =>
+    intro _
     simp only [Expr.data, hasExprMVar']
     apply mkData_hasExprMVar
     omega
   | app _ _ ih1 ih2 =>
+    intro h
     simp only [Expr.data, hasExprMVar']
-    rw [mkAppData_hasExprMVar, ih1, ih2]
+    rw [mkAppData_hasExprMVar, ih1 h.1, ih2 h.2]
   | lam _ ty body _ ihty ihbody | forallE _ ty body _ ihty ihbody =>
+    intro h
     simp only [Expr.data, mkDataForBinder, hasExprMVar']
-    rw [mkData_hasExprMVar (binder_looseBVarRange_le ty body), ihty, ihbody]
+    rw [mkData_hasExprMVar (binder_looseBVarRange_le ty body), ihty h.1, ihbody h.2]
   | letE _ ty val body _ ihty ihval ihbody =>
+    intro h
     simp only [Expr.data, mkDataForLet, hasExprMVar']
-    rw [mkData_hasExprMVar (let_looseBVarRange_le ty val body), ihty, ihval, ihbody]
+    rw [mkData_hasExprMVar (let_looseBVarRange_le ty val body), ihty h.1, ihval h.2.1,
+      ihbody h.2.2]
   | mdata _ e ih | proj _ _ e ih =>
+    intro h
     simp only [Expr.data, hasExprMVar']
-    rw [mkData_hasExprMVar (Data.looseBVarRange_le (d := e.data)), ih]
+    rw [mkData_hasExprMVar (Data.looseBVarRange_le (d := e.data)), ih h]
 
 def hasLevelMVar' : Expr → Bool
   | .const _ ls => ls.any (·.hasMVar)
@@ -468,27 +559,64 @@ def hasLevelMVar' : Expr → Bool
   | .forallE _ e1 e2 _ => e1.hasLevelMVar' || e2.hasLevelMVar'
   | .letE _ t v b _ => t.hasLevelMVar' || v.hasLevelMVar' || b.hasLevelMVar'
 
-/-- The cached `hasLevelMVar` bit agrees with structural traversal. -/
-@[simp] theorem hasLevelMVar_eq (e : Expr) : e.hasLevelMVar = e.hasLevelMVar' := by
-  change e.data.hasLevelMVar = e.hasLevelMVar'
+/-- The cached `hasLevelMVar` bit is `false` only if structural traversal says so.
+Unconditional; see `hasFVar_eq_false`. -/
+theorem hasLevelMVar_eq_false :
+    ∀ {e : Expr}, e.hasLevelMVar = false → e.hasLevelMVar' = false := by
+  intro e
+  change e.data.hasLevelMVar = false → e.hasLevelMVar' = false
   induction e with
-  | bvar => simp [Expr.data, hasLevelMVar', mkData_hasLevelMVar_of_false]
+  | bvar i => exact fun _ => rfl
   | fvar | mvar | sort | const | lit =>
+    simp only [Expr.data, hasLevelMVar', mkData_hasLevelMVar (Nat.zero_le _)]
+    exact id
+  | app _ _ ih1 ih2 =>
+    simp only [Expr.data, hasLevelMVar', mkAppData_hasLevelMVar, Bool.or_eq_false_iff]
+    exact fun h => ⟨ih1 h.1, ih2 h.2⟩
+  | lam _ ty body _ ihty ihbody | forallE _ ty body _ ihty ihbody =>
+    simp only [Expr.data, mkDataForBinder, hasLevelMVar',
+      mkData_hasLevelMVar (binder_looseBVarRange_le ty body), Bool.or_eq_false_iff]
+    exact fun h => ⟨ihty h.1, ihbody h.2⟩
+  | letE _ ty val body _ ihty ihval ihbody =>
+    simp only [Expr.data, mkDataForLet, hasLevelMVar',
+      mkData_hasLevelMVar (let_looseBVarRange_le ty val body), Bool.or_eq_false_iff]
+    exact fun h => ⟨⟨ihty h.1.1, ihval h.1.2⟩, ihbody h.2⟩
+  | mdata _ e ih | proj _ _ e ih =>
+    simp only [Expr.data, hasLevelMVar',
+      mkData_hasLevelMVar (Data.looseBVarRange_le (d := e.data))]
+    exact ih
+
+/-- The cached `hasLevelMVar` bit agrees with structural traversal. -/
+theorem hasLevelMVar_eq : ∀ {e : Expr}, e.BVarBounded → e.hasLevelMVar = e.hasLevelMVar' := by
+  intro e
+  change e.BVarBounded → e.data.hasLevelMVar = e.hasLevelMVar'
+  induction e with
+  | bvar i =>
+    intro h
+    simp only [Expr.data, hasLevelMVar']
+    exact mkData_hasLevelMVar h
+  | fvar | mvar | sort | const | lit =>
+    intro _
     simp only [Expr.data, hasLevelMVar']
     apply mkData_hasLevelMVar
     omega
   | app _ _ ih1 ih2 =>
+    intro h
     simp only [Expr.data, hasLevelMVar']
-    rw [mkAppData_hasLevelMVar, ih1, ih2]
+    rw [mkAppData_hasLevelMVar, ih1 h.1, ih2 h.2]
   | lam _ ty body _ ihty ihbody | forallE _ ty body _ ihty ihbody =>
+    intro h
     simp only [Expr.data, mkDataForBinder, hasLevelMVar']
-    rw [mkData_hasLevelMVar (binder_looseBVarRange_le ty body), ihty, ihbody]
+    rw [mkData_hasLevelMVar (binder_looseBVarRange_le ty body), ihty h.1, ihbody h.2]
   | letE _ ty val body _ ihty ihval ihbody =>
+    intro h
     simp only [Expr.data, mkDataForLet, hasLevelMVar']
-    rw [mkData_hasLevelMVar (let_looseBVarRange_le ty val body), ihty, ihval, ihbody]
+    rw [mkData_hasLevelMVar (let_looseBVarRange_le ty val body), ihty h.1, ihval h.2.1,
+      ihbody h.2.2]
   | mdata _ e ih | proj _ _ e ih =>
+    intro h
     simp only [Expr.data, hasLevelMVar']
-    rw [mkData_hasLevelMVar (Data.looseBVarRange_le (d := e.data)), ih]
+    rw [mkData_hasLevelMVar (Data.looseBVarRange_le (d := e.data)), ih h]
 
 def hasLevelParam' : Expr → Bool
   | .const _ ls => ls.any (·.hasParam)
@@ -504,27 +632,65 @@ def hasLevelParam' : Expr → Bool
   | .forallE _ e1 e2 _ => e1.hasLevelParam' || e2.hasLevelParam'
   | .letE _ t v b _ => t.hasLevelParam' || v.hasLevelParam' || b.hasLevelParam'
 
-/-- The cached `hasLevelParam` bit agrees with structural traversal. -/
-@[simp] theorem hasLevelParam_eq (e : Expr) : e.hasLevelParam = e.hasLevelParam' := by
-  change e.data.hasLevelParam = e.hasLevelParam'
+/-- The cached `hasLevelParam` bit is `false` only if structural traversal says so.
+Unconditional; see `hasFVar_eq_false`. -/
+theorem hasLevelParam_eq_false :
+    ∀ {e : Expr}, e.hasLevelParam = false → e.hasLevelParam' = false := by
+  intro e
+  change e.data.hasLevelParam = false → e.hasLevelParam' = false
   induction e with
-  | bvar => simp [Expr.data, hasLevelParam', mkData_hasLevelParam_of_false]
+  | bvar i => exact fun _ => rfl
   | fvar | mvar | sort | const | lit =>
+    simp only [Expr.data, hasLevelParam', mkData_hasLevelParam (Nat.zero_le _)]
+    exact id
+  | app _ _ ih1 ih2 =>
+    simp only [Expr.data, hasLevelParam', mkAppData_hasLevelParam, Bool.or_eq_false_iff]
+    exact fun h => ⟨ih1 h.1, ih2 h.2⟩
+  | lam _ ty body _ ihty ihbody | forallE _ ty body _ ihty ihbody =>
+    simp only [Expr.data, mkDataForBinder, hasLevelParam',
+      mkData_hasLevelParam (binder_looseBVarRange_le ty body), Bool.or_eq_false_iff]
+    exact fun h => ⟨ihty h.1, ihbody h.2⟩
+  | letE _ ty val body _ ihty ihval ihbody =>
+    simp only [Expr.data, mkDataForLet, hasLevelParam',
+      mkData_hasLevelParam (let_looseBVarRange_le ty val body), Bool.or_eq_false_iff]
+    exact fun h => ⟨⟨ihty h.1.1, ihval h.1.2⟩, ihbody h.2⟩
+  | mdata _ e ih | proj _ _ e ih =>
+    simp only [Expr.data, hasLevelParam',
+      mkData_hasLevelParam (Data.looseBVarRange_le (d := e.data))]
+    exact ih
+
+/-- The cached `hasLevelParam` bit agrees with structural traversal. -/
+theorem hasLevelParam_eq :
+    ∀ {e : Expr}, e.BVarBounded → e.hasLevelParam = e.hasLevelParam' := by
+  intro e
+  change e.BVarBounded → e.data.hasLevelParam = e.hasLevelParam'
+  induction e with
+  | bvar i =>
+    intro h
+    simp only [Expr.data, hasLevelParam']
+    exact mkData_hasLevelParam h
+  | fvar | mvar | sort | const | lit =>
+    intro _
     simp only [Expr.data, hasLevelParam']
     apply mkData_hasLevelParam
     omega
   | app _ _ ih1 ih2 =>
+    intro h
     simp only [Expr.data, hasLevelParam']
-    rw [mkAppData_hasLevelParam, ih1, ih2]
+    rw [mkAppData_hasLevelParam, ih1 h.1, ih2 h.2]
   | lam _ ty body _ ihty ihbody | forallE _ ty body _ ihty ihbody =>
+    intro h
     simp only [Expr.data, mkDataForBinder, hasLevelParam']
-    rw [mkData_hasLevelParam (binder_looseBVarRange_le ty body), ihty, ihbody]
+    rw [mkData_hasLevelParam (binder_looseBVarRange_le ty body), ihty h.1, ihbody h.2]
   | letE _ ty val body _ ihty ihval ihbody =>
+    intro h
     simp only [Expr.data, mkDataForLet, hasLevelParam']
-    rw [mkData_hasLevelParam (let_looseBVarRange_le ty val body), ihty, ihval, ihbody]
+    rw [mkData_hasLevelParam (let_looseBVarRange_le ty val body), ihty h.1, ihval h.2.1,
+      ihbody h.2.2]
   | mdata _ e ih | proj _ _ e ih =>
+    intro h
     simp only [Expr.data, hasLevelParam']
-    rw [mkData_hasLevelParam (Data.looseBVarRange_le (d := e.data)), ih]
+    rw [mkData_hasLevelParam (Data.looseBVarRange_le (d := e.data)), ih h]
 
 end Expr
 
@@ -564,7 +730,7 @@ attribute [local reducible] Data
 
 theorem mkData_looseBVarRange (H : br ≤ 2^20 - 1) :
     (mkData h br d fv ev lv lp).looseBVarRange.toNat = br := by
-  rw [mkData_eq, mkData', if_pos H]; dsimp only [Data.looseBVarRange, -Nat.reducePow]
+  rw [mkData_eq H, mkData', if_pos H]; dsimp only [Data.looseBVarRange, -Nat.reducePow]
   have : br.toUInt64.toUInt32.toNat = br := by simp; omega
   refine .trans ?_ this; congr 2
   refine UInt64.eq_of_toBitVec_eq ?_
@@ -1080,13 +1246,17 @@ theorem instantiateLevelParamsCore_eq :
     instantiateLevelParamsCore s e =
     instantiateLevelParamsCore' true (fun x => (s x).getD (.param x)) e := by
   simp [instantiateLevelParamsCore]
-  have (e) (H : e.hasLevelParam' = true →
+  -- The case split is on the **cached** `hasLevelParam` bit, which is what
+  -- `replaceFn` actually tests. Going from the cached bit to the structural one
+  -- is the unconditional direction (`hasLevelParam_eq_false`), so no
+  -- `BVarBounded` hypothesis is needed anywhere in this proof.
+  have (e) (H : e.hasLevelParam = true →
         replaceNoCache (instantiateLevelParamsCore.replaceFn s) e =
         instantiateLevelParamsCore' true (fun x => (s x).getD (Level.param x)) e) :
       replaceNoCache (instantiateLevelParamsCore.replaceFn s) e =
       instantiateLevelParamsCore' true (fun x => (s x).getD (Level.param x)) e := by
-    cases eq : e.hasLevelParam' <;> [skip; exact H eq]
-    rw [instantiateLevelParamsCore_eq_self eq]
+    cases eq : e.hasLevelParam <;> [skip; exact H eq]
+    rw [instantiateLevelParamsCore_eq_self (hasLevelParam_eq_false eq)]
     suffices ∀ f, f e = some e → replaceNoCache f e = e by
       apply this; simp [instantiateLevelParamsCore.replaceFn, eq]
     intro f eq; cases e <;> simp only [replaceNoCache, eq]
