@@ -382,9 +382,64 @@ def looseBVarRange' : Expr → Nat
   | .forallE _ e1 e2 _ => max e1.looseBVarRange' (e2.looseBVarRange' - 1)
   | .letE _ e1 e2 e3 _ => max (max e1.looseBVarRange' e2.looseBVarRange') (e3.looseBVarRange' - 1)
 
+/-- Every `bvar` index occurring in `e` fits the 20-bit `looseBVarRange` field,
+so the cached range is exact for `e` and for every subterm of `e`.
+
+`.lam`/`.forallE`/`.letE` need only their children checked: the parent's own
+`mkData` argument is a `max` of quantities bounded by the children's ranges. -/
+def BVarBounded : Expr → Prop
+  | .bvar i => i + 1 ≤ 2^20 - 1
+  | .mdata _ b
+  | .proj _ _ b => b.BVarBounded
+  | .app f a => f.BVarBounded ∧ a.BVarBounded
+  | .lam _ t b _
+  | .forallE _ t b _ => t.BVarBounded ∧ b.BVarBounded
+  | .letE _ t v b _ => t.BVarBounded ∧ v.BVarBounded ∧ b.BVarBounded
+  | _ => True
+
 /-- This was false prior to the fix of lean4#8554; it should now be provable
-using `mkData_eq` and friends, but this has not been done yet -/
-@[simp] axiom looseBVarRange_eq (e : Expr) : e.looseBVarRange = e.looseBVarRange'
+using `mkData_eq` and friends, but this has not been done yet.
+
+The `BVarBounded` side condition is **required**: without it this axiom proves
+`False` on its own. `Expr.looseBVarRange` is a read of a 20-bit field
+(`Expr.Data.looseBVarRange c = (c >>> 44).toUInt32`), so it is `< 2^20`
+unconditionally, whereas `looseBVarRange'` is unbounded --
+`(Expr.bvar 1048575).looseBVarRange' = 2^20`. Upstream refuses to construct such
+a term at all (`lean_expr_mk_data` panics with "too many bound variables" when
+the range exceeds `1048575`), which is also why the RHS must *not* be patched to
+return `0` out of range: the C function aborts, it does not keep going with `0`.
+
+A bound on the top-level range does not suffice -- the field is computed
+bottom-up, so every subterm's `mkData` call must be in range; hence the
+per-subterm `BVarBounded`.
+
+See `docs/axiom-audit.md` §3.1 for the machine-checked witness and the analysis. -/
+@[simp] axiom looseBVarRange_eq (e : Expr) (h : e.BVarBounded) :
+    e.looseBVarRange = e.looseBVarRange'
+
+/-- The side condition on `looseBVarRange_eq` is strong enough to block the
+refutation in `docs/axiom-audit.md` §3.1: under `BVarBounded` the model range
+obeys the same `≤ 2^20 - 1` bound that `Expr.looseBVarRange_le` proves for the
+packed field, so the two sides are no longer forced apart. -/
+theorem BVarBounded.looseBVarRange'_le :
+    ∀ {e : Expr}, e.BVarBounded → e.looseBVarRange' ≤ 2^20 - 1 := by
+  intro e; induction e with
+  | bvar i => exact fun h => h
+  | mdata _ _ ih => exact ih
+  | proj _ _ _ ih => exact ih
+  | app _ _ ih1 ih2 =>
+    intro h; have h1 := ih1 h.1; have h2 := ih2 h.2
+    simp only [looseBVarRange']; omega
+  | lam _ _ _ _ ih1 ih2 =>
+    intro h; have h1 := ih1 h.1; have h2 := ih2 h.2
+    simp only [looseBVarRange']; omega
+  | forallE _ _ _ _ ih1 ih2 =>
+    intro h; have h1 := ih1 h.1; have h2 := ih2 h.2
+    simp only [looseBVarRange']; omega
+  | letE _ _ _ _ _ ih1 ih2 ih3 =>
+    intro h; have h1 := ih1 h.1; have h2 := ih2 h.2.1; have h3 := ih3 h.2.2
+    simp only [looseBVarRange']; omega
+  | _ => exact fun _ => Nat.zero_le _
 
 /-- This could be an `@[implemented_by]` -/
 @[simp] axiom replace_eq (e : Expr) (f) : e.replace f = e.replaceNoCache f
