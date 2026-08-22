@@ -77,14 +77,30 @@ preserve which constants a term mentions, and its `defeq` constructor is unavail
 `v.value` (5 `eqvManager` keys mentioning the absent constant, with the real `Nat.add` body
 wrapped in the same redex).
 
-The fix belongs in `Lean4Lean/Primitive.lean`: each branch must obtain `TrExprS` witnesses
-before comparing, e.g. by guarding with `Environment.checkNoMVarNoFVar` and replacing
-`isDefEq v.type q(Nat → Nat → Nat)` with `isDefEq (← checkType v.value) q(Nat → Nat → Nat)`,
-which both supplies the `TrExprS` for `v.value` that `defeq1`/`defeq2` need and pins the
-value's type.  Note that comparing `v.type` syntactically with `==`, as the `Char.ofNat` branch
-does, is *not* available here: the declared types of the `Nat` primitives carry `@&` borrow
-annotations (`.mdata { borrowed := true }` around each `Nat` domain), so `==` would reject
-them.  Once the recognizer produces those witnesses, the nine branches above are drop-in. -/
+**This is a broken contract, not a soundness bug.**  Run on that declaration, both
+`Lean4Lean.addDecl` and Lean's own C++ kernel reject it with `(kernel) unknown constant
+'NoSuchType'` -- `checkConstantVal`'s `checkType v.type` runs immediately after the recognizer
+and catches it.  What is broken is only the recognizer's postcondition: `checkDefinition.WF`
+binds `checkPrimitiveDef.WF` and then continues from the resulting state, so it needs that state
+to satisfy `VState.WF`, and it does not.
+
+The fix belongs in `Lean4Lean/Primitive.lean` (or in `addDefinition`'s ordering in
+`Lean4Lean/Environment.lean`): the recognizer must see typed input.  Either run it after
+`checkConstantVal` and the body check rather than before -- only `checkName`'s `allowPrimitive`
+argument depends on its result -- or have each branch obtain the witnesses itself, guarding with
+`Environment.checkNoMVarNoFVar` and replacing `isDefEq v.type q(Nat → Nat → Nat)` with
+`isDefEq (← checkType v.value) q(Nat → Nat → Nat)`, which both supplies the `TrExprS` for
+`v.value` that `defeq1`/`defeq2` need and pins the value's type.  Note that comparing `v.type`
+syntactically with `==`, as the `Char.ofNat` branch does, is *not* available here: the declared
+types of the `Nat` primitives carry `@&` borrow annotations, e.g. `Nat.pred` is
+
+    Expr.forallE `a._@._internal._hyg.0
+      (Expr.mdata { entries := [(`borrowed, DataValue.ofBool true)] } (Expr.const `Nat []))
+      (Expr.const `Nat []) BinderInfo.default
+
+so `Expr.eqv` against `q(Nat → Nat)` is `false` (`Char.ofNat`'s type carries no such `mdata`,
+which is why the `==` treatment works there).  Once the recognizer produces the witnesses, the
+nine branches above are drop-in. -/
 theorem checkPrimitiveDef.WF {env : Environment} {ves : VEnvs} (wf : ves.WF env)
     (v : DefinitionVal) (fuel : FuelConfig := {}) :
     (Environment.checkPrimitiveDef v).WF (.mk' wf .safe v.levelParams fuel) {} fun allow _ =>

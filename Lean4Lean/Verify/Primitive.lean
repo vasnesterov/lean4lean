@@ -167,6 +167,16 @@ theorem VEnv.HasPrimitives.natLits {env : VEnv} (hprim : env.HasPrimitives)
 theorem VEnv.NatLits.mono {env env' : VEnv} (hle : env ≤ env') (h : env.NatLits) : env'.NatLits :=
   fun n => (h n).mono hle
 
+/-- The `Bool` analogue of `VEnv.NatLits`, for the `Nat.land`/`lor`/`xor` branches, whose
+recognizer compares open terms under a `Bool`-typed free variable. -/
+def VEnv.BoolLits (env : VEnv) : Prop := ∀ b : Bool, env.HasType 0 [] (.boolLit b) .bool
+
+theorem VEnv.HasPrimitives.boolLits {env : VEnv} (hprim : env.HasPrimitives)
+    (hbool : env.contains ``Bool) : env.BoolLits := fun b => hprim.boolLit_hasType hbool b
+
+theorem VEnv.BoolLits.mono {env env' : VEnv} (hle : env ≤ env') (h : env.BoolLits) :
+    env'.BoolLits := fun b => (h b).mono hle
+
 /-! ## Congruence
 
 The recognizer never checks the *type* of an auxiliary constant such as `Nat.pred`, so a
@@ -218,6 +228,13 @@ theorem IsDefEqU.instNat (henv : env.WF) (hlit : env.NatLits)
     (H : env.IsDefEqU 0 (.nat :: Γ) e₁ e₂) (n : Nat) :
     env.IsDefEqU 0 Γ (e₁.inst (.natLit n)) (e₂.inst (.natLit n)) :=
   IsDefEqU.instN henv.ordered .zero H ((hlit n).weak0 henv.ordered)
+
+/-- The `Bool` analogue of `IsDefEqU.instNat`. -/
+theorem IsDefEqU.instBool (henv : env.WF) (hlit : env.BoolLits)
+    {Γ : List VExpr} {e₁ e₂ : VExpr}
+    (H : env.IsDefEqU 0 (.bool :: Γ) e₁ e₂) (b : Bool) :
+    env.IsDefEqU 0 Γ (e₁.inst (.boolLit b)) (e₂.inst (.boolLit b)) :=
+  IsDefEqU.instN henv.ordered .zero H ((hlit b).weak0 henv.ordered)
 
 /-- Two nested `withLocalDecl`s.  `checkPrimitiveDef`'s `defeq2` introduces its `y` binder
 first, so `bvar 1` is `y` and `bvar 0` is the inner `x`: here `n` is substituted for `bvar 0`
@@ -481,6 +498,75 @@ theorem reflects_natShiftRight (henv : env.WF)
 
 end VEnv
 
+
+/-! ## The three operations built on `Nat.bitwise`
+
+`Nat.land`, `Nat.lor` and `Nat.xor` are literally `Nat.bitwise` applied to a boolean
+combinator, and their recognizer branches check only that combinator's truth table.  The
+recursion is entirely inside `Nat.bitwise`, whose reflection is the `HasPrimitives` field
+`natBitwise` -- and that field is relativized to every extension precisely so that it can be
+used here, where the combinator is a term of the *later* declaration. -/
+
+namespace VEnv
+
+variable {env : VEnv}
+
+/-- `Nat.bitwise` applied to a combinator whose truth table is known.  This is
+`VEnv.HasPrimitives.natBitwise` instantiated at the environment itself. -/
+theorem reflects_natBitwiseApp (hbw : env.ReflectsNatBitwise) (hc : env.contains ``Nat.bitwise)
+    {f : VExpr} {g : Bool → Bool → Bool} (hf : env.ReflectsBoolBoolBool f g) (a b : Nat) :
+    env.IsDefEqU 0 [] (.app (.app (.app (.const ``Nat.bitwise []) f) (.natLit a)) (.natLit b))
+      (.natLit (Nat.bitwise g a b)) :=
+  hbw hc env VEnv.LE.rfl f g hf a b
+
+/-- `Nat.land`'s combinator: the recognizer checks `and false x ≡ false` and `and true x ≡ x`
+under a `Bool`-typed free variable. -/
+theorem reflectsBoolBoolBool_and {f : VExpr}
+    (h0 : ∀ b : Bool, env.IsDefEqU 0 [] (.app (.app f .boolFalse) (.boolLit b)) .boolFalse)
+    (h1 : ∀ b : Bool, env.IsDefEqU 0 [] (.app (.app f .boolTrue) (.boolLit b)) (.boolLit b)) :
+    env.ReflectsBoolBoolBool f and
+  | false, b => h0 b
+  | true, b => h1 b
+
+/-- `Nat.lor`'s combinator: `or false x ≡ x` and `or true x ≡ true`. -/
+theorem reflectsBoolBoolBool_or {f : VExpr}
+    (h0 : ∀ b : Bool, env.IsDefEqU 0 [] (.app (.app f .boolFalse) (.boolLit b)) (.boolLit b))
+    (h1 : ∀ b : Bool, env.IsDefEqU 0 [] (.app (.app f .boolTrue) (.boolLit b)) .boolTrue) :
+    env.ReflectsBoolBoolBool f or
+  | false, b => h0 b
+  | true, b => h1 b
+
+/-- `Nat.xor`'s combinator is `bne`, and the recognizer checks all four closed cases. -/
+theorem reflectsBoolBoolBool_bne {f : VExpr}
+    (hff : env.IsDefEqU 0 [] (.app (.app f .boolFalse) .boolFalse) .boolFalse)
+    (htf : env.IsDefEqU 0 [] (.app (.app f .boolTrue) .boolFalse) .boolTrue)
+    (hft : env.IsDefEqU 0 [] (.app (.app f .boolFalse) .boolTrue) .boolTrue)
+    (htt : env.IsDefEqU 0 [] (.app (.app f .boolTrue) .boolTrue) .boolFalse) :
+    env.ReflectsBoolBoolBool f bne
+  | false, false => hff
+  | true, false => htf
+  | false, true => hft
+  | true, true => htt
+
+/-- `Nat.land`, whose value the recognizer destructures as `Nat.bitwise and`. -/
+theorem reflects_natLAnd (hbw : env.ReflectsNatBitwise) (hc : env.contains ``Nat.bitwise)
+    {f : VExpr} (hf : env.ReflectsBoolBoolBool f and) (a b : Nat) :
+    env.IsDefEqU 0 [] (.app (.app (.app (.const ``Nat.bitwise []) f) (.natLit a)) (.natLit b))
+      (.natLit (Nat.land a b)) := reflects_natBitwiseApp hbw hc hf a b
+
+/-- `Nat.lor`, whose value the recognizer destructures as `Nat.bitwise or`. -/
+theorem reflects_natLOr (hbw : env.ReflectsNatBitwise) (hc : env.contains ``Nat.bitwise)
+    {f : VExpr} (hf : env.ReflectsBoolBoolBool f or) (a b : Nat) :
+    env.IsDefEqU 0 [] (.app (.app (.app (.const ``Nat.bitwise []) f) (.natLit a)) (.natLit b))
+      (.natLit (Nat.lor a b)) := reflects_natBitwiseApp hbw hc hf a b
+
+/-- `Nat.xor`, whose value the recognizer destructures as `Nat.bitwise bne`. -/
+theorem reflects_natXor (hbw : env.ReflectsNatBitwise) (hc : env.contains ``Nat.bitwise)
+    {f : VExpr} (hf : env.ReflectsBoolBoolBool f bne) (a b : Nat) :
+    env.IsDefEqU 0 [] (.app (.app (.app (.const ``Nat.bitwise []) f) (.natLit a)) (.natLit b))
+      (.natLit (Nat.xor a b)) := reflects_natBitwiseApp hbw hc hf a b
+
+end VEnv
 
 /-! ## Transferring `VEnv.HasPrimitives` across the step that adds one constant
 

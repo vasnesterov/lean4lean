@@ -68,9 +68,21 @@ and the verification was not sound.
    whose well-formedness invariant demands `TrExprS` witnesses on both sides,
    and untyped input has none. The recognizer returns `.ok true` on
    `Nat.pred : (fun _ : NoSuchType => Nat → Nat) NoSuchValue := fun n => n`,
-   whose type mentions constants absent from the environment. **Open**; whether
-   `addDecl` as a whole accepts it, or `checkConstantVal` rejects it immediately
-   afterwards, is being confirmed by running it.
+   whose type mentions constants absent from the environment, and its final
+   `eqvManager` merges that type with `Nat → Nat` into one class.
+
+   **Not a soundness bug — a broken postcondition.** Run end to end, both
+   `Lean4Lean.addDecl` and Lean's own kernel reject the declaration with
+   `unknown constant 'NoSuchType'`; `checkConstantVal`'s type check catches it
+   immediately after. Nothing unsound is accepted and the arena is unaffected.
+   What is false is `checkPrimitiveDef.WF`'s postcondition, since `M.WF` demands
+   the state *after* the recognizer satisfy `VState.WF` and `checkDefinition.WF`
+   continues from it. The C++ kernel has no analogue because it has no
+   `checkPrimitiveDef` at all, so this is a lean4lean-only proof-obligation
+   defect with no behavioural divergence. **Open**; the fix is either to run the
+   recognizer after `checkConstantVal`, or to have each branch obtain its own
+   witnesses by comparing against `checkType v.value` rather than the unchecked
+   `v.type`.
 
 ## In the lean4lean proof infrastructure
 
