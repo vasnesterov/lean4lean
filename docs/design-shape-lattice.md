@@ -737,3 +737,97 @@ costs 107 instances, *and* the disjunct is not the same kind of thing as the one
   premise is a proof, `proofIrrel` gives it shape `.bot`, and the whole redex is `.bot` — the
   shape model does not need the rule. It is also the "small elimination" fact PLAN.md already
   lists as a missing `Params` axiom for `NormalEq.parRed`.
+
+---
+
+## Session update 4: `Adequacy:89` clears, but by the term's universe; §7's (β) is refuted
+
+### Join family — `Adequacy:89` costed, and the answer is positive
+
+A common **classified upper bound** is *not* producible there. `InterpTyped.hsort` /
+`hsort'` yield a bound *per shape*, and joining the two to get a single one needs
+`LE_Interp.join'` = `compat_join.2`, one of the eight broken sites. Circular.
+
+**But a common sort is producible, and by a better route.** `InterpTyped.hsort'` gives, for
+each shape realizing `A`, an upper bound classified at `.sort (U ≠ .zero)` — and that boolean
+is a function of `U`, **the universe `A` lives at**, not of the shape. So the two bounds carry
+the *same* sort, and `HasType.retype` pulls the classification back down each separately. No
+join, no circularity:
+
+```lean
+theorem LE_Interp.common_sort {ρ A U} {a a' : WShape n}
+    (H : ∀ {b}, LE_Interp ρ b A → InterpTyped ρ b A (.sort U))
+    (h : LE_Interp ρ a.T A) (h' : LE_Interp ρ a'.T A)
+    (ha : a.IsType) (ha' : a'.IsType) :
+    ∃ r, a.HasType (.sort r) ∧ a'.HasType (.sort r)
+```
+
+**Proved**, sorry-free, in the parked file next to `InterpTyped.hsort`.
+
+`Adequacy:89` has every hypothesis: `HA : IsDefEqStrong Γ A A' (.sort u)` fixes `u`;
+`(LE_Interp.soundS HA W.fits).2` *is* the `H` (already used three times in the same proof);
+`hA₁` and `ha'` realize the same `A`; `hp.isType` and `ht.isType` are the two `IsType`s. So if
+`LogRel.join_ty`'s two `IsType` hypotheses become `m₁.HasType (.sort r) → m₂.HasType (.sort r)`
+at a **shared** `r`, `Adequacy:89` discharges it — "strengthen a hypothesis the caller already
+has".
+
+**So the chain is not dead — but the `∃ z` framing was wrong, mine included. The common sort
+comes from the term's universe, not from the shapes and not from an upper bound.**
+
+#### What is still open, and it is not at `Adequacy`
+
+A shared sort *at the top* does not reach `go_dom` — diagnosis sentence 1 again: a Pi-shape's
+shared codomain sort constrains the family's values, never its domains. `go_dom` needs the two
+**domains** to share a sort, and the domains correspond to the domain term `B₁`, whose own
+universe fixes their boolean. The fact must be re-supplied at every level from the accompanying
+term, not propagated from the level above.
+
+`join_ty`'s other consumer, `LRS.PiDefEq.join`, sits at the `LogRel` layer where the shape↔term
+link is `TyDefEq`, not `LE_Interp`, so `common_sort` does not apply. `ValTyPi2` *does* carry the
+domain term and its universe (`Γ ⊢ B₁ ≡ B₂ : .sort u`), so the information is present; what is
+missing is a `LogRel` field
+
+```
+ty_sort : TyDefEq A B m → m.IsType → Γ ⊢ A ≡ B : .sort u → m.HasType (.sort (u ≠ .zero))
+```
+
+plausible (checked by hand at `.bot`, `.sort`, `.forallE`, `.indTy`) but a **new obligation**,
+and essentially the substance of `sort_inv` itself. That is the next thing to cost, at `LRS`'s
+`join_ty` (`forallE` case), before any propagation is written.
+
+### §7 — (β) is refuted at `Eq`
+
+(β)'s premise was PLAN.md's *small elimination* fact: the major premise is a proof, so the
+whole redex is a proof and has shape `.bot`.
+
+**`Eq` is a `Prop` that large-eliminates.** `@Eq.rec`'s motive is `Sort u_1`, not `Prop`, so
+
+```lean
+private theorem eq_large_eliminates :
+    Eq.rec (motive := fun (b : Nat) (_ : (0:Nat) = b) => Nat) 7 (rfl : (0:Nat) = 0) = 7 := rfl
+```
+
+is a `Nat`, not a proof. `proofIrrel` does not apply and the redex's shape is not `.bot`. Small
+elimination covers `Acc.rec` and `Quot.lift`-over-a-`Prop`; it does **not** cover the
+subsingleton eliminators, and `Eq` is the one that started this.
+
+The consequence is the failure mode that is worst to detect. Under (β),
+`Params.pat_wf : Pat p r → p.WF classify` together with `ParamsExtra.extra_pat` (every
+`env.defeqs df` must be covered by some `Pat p r`) makes **`ParamsExtra` unsatisfiable for any
+environment containing `Eq`** — every real one, since `Eq` is in `stdPrelude`. Nothing in the
+tree would notice: there is no `ParamsExtra` instance, so every downstream result would go
+silently vacuous. `ParamsExtra`'s own docstring records that this project has already been
+burned by exactly that once.
+
+### Where §7's fork now stands
+
+- **(α)** `ctor'` falls back to `.bot` for Prop-valued inductives — 107 instances *plus*
+  restating `Matches.unique`, which looks false under it.
+- **(β)** refuted, above.
+- **(γ)** *observed, not proposed, not tested.* The tension at `Eq.refl` is between the
+  **shape** (`.ctor`, needed so the ι-rule's pattern has a `.ctor` leaf) and the **typing**
+  (`HasType (.ctor ..) (.indTy false)`, which §7 had to kill for `proofIrrel`). Only
+  `LE_Interp.const`'s `HasType` premise — reached through `apps_realize`'s `mty` — ties them
+  together. Decoupling them there would let `Eq.refl` keep its `.ctor` shape without being
+  classified by a Prop-valued inductive. Cost unknown: `strongSoundS`'s `proofIrrel` case uses
+  `TShape.HasType.proofIrrel` on exactly that premise. Do not act on it without testing.
