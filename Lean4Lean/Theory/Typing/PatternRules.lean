@@ -1283,4 +1283,79 @@ theorem Pat.extra_quot {env : VEnv} {U : Nat} {Γ : List VExpr} {ls : List VLeve
     rw [quotRHS, spineRHS_apply hpa hpb]
     exact congrArg (fun e => e.mkApp [VExpr.bvar 0]) ea.2.2.2.1.symm
 
+/-! ## `Params.extra_pat` for ι-rules — work list
+
+The δ and quot cases are proved above.  This is what the ι case needs; every lemma named here
+exists and is proved, so this is a work list rather than a design.
+
+### Step 0 — the staging field on `RuleShape.iota` (~40)
+
+The index clauses need `D.IotaCtx env` to reach `VInductDecl'.onCtxIota`, and `RuleShape.iota`
+does not carry it.  **Do not add `IotaCtx env` directly** — it would need an `IotaCtx.mono` for
+`RuleShape.mono`, and none exists.  Carry the *staging data* instead:
+
+    D.WF env₀ → env₀.addIndTypes D = some env₁ → env₁.addIndCtors D = some env₂ →
+    env₂.addIndRecs D = some env₃ → env₃ ≤ env
+
+`VInductDecl'.WF.recCtx` (`Theory/Inductive/Lemmas.lean:1022`) then gives `D.RecCtx env` for the
+current environment, and `WF.iotaCtx` (`:3537`) is the template for adding `recConsts`.
+`RuleShape.mono` stays a one-liner: extend `env₃ ≤ env` to `env₃ ≤ env'`.  Discharge at the
+`induct` arm of `WF'.ruleShape`, where all five facts are already in scope.
+
+**Why `WF.recCtx` is the whole trick, and why no search finds it.**  Its signature takes
+`hle : env₂ ≤ env₃` and `henv₃ : env₃.Ordered` and concludes `RecCtx env₃` — that is, the
+monotonicity is *built into the constructor* rather than stated as a lemma.  A name search for
+`RecCtx.mono` returns nothing.  A shape search returns nothing either, because there is no
+`mono` shape to look for.  Only reading the lemma finds it.  This is a distinct failure mode
+from the four grep-findable cases in note 1b of `Theory/Inductive/Lemmas.lean`: a successor
+with a grep discipline and no reading discipline will hit exactly this and price it as an
+unknown, as this stream first did.
+
+### Steps 1–6 — the assembly (~250)
+
+The template is `iota_law` (`Theory/Inductive/StructureClosed.lean:693`); its preamble
+(`:718`–`:765`) builds every context fact below for the structure case, and generalises.
+
+1. **(~20) `mkLams` forms.**  `df.lhs.instL ls = mkLams Δ L` and `df.rhs.instL ls = mkLams Δ R`
+   with `Δ := (D.iotaCtx C).map (VExpr.instL ls)`, via `VExpr.instL_mkLams` and the
+   `congrArg (VExpr.instL ls) (mkLams_peelLams …)` idiom used by `instL_quotDefEq_lhs` above.
+2. **(~30) The match.**  `VInductDecl'.instL_iotaLhs` (above) puts `L` in
+   `matches_iota_paths`' shape.  Two length facts: the recursor spine is `M` long by
+   `RuleShape.iota`'s `args_len` (`|C.args| = |T.indices|`), the constructor spine is `N` long
+   definitionally.
+3. **(~40) Parameter clauses.**  `iotaCheck_OK`'s first block.  Both leaves' first `np`
+   matched arguments are the *same* list `bvars (nf+off) np`, so `List.zip_map_eq` (above)
+   gives equality of the two sides and `VEnv.isDefEqU_bvar` (above) supplies the judgement.
+   Note the two are separate obligations — see the accounting note below.
+4. **(~80) Index clauses.**  `VEnv.IsDefEq.betaMkLams` (`StructureClosed.lean:305`) β-reduces
+   `iotaComputed`'s entries; `VExpr.instAll_bvars₂` (above) identifies the reduct with the
+   `(D.atRec a).liftN off nf` the rule stores.  Its three hypotheses come from the template:
+   `onCtxIota` → `OnCtx.instL` → `OnCtx.ctxClosed` → `OnCtx.appendR` for the context, and
+   `VEnv.IsDefEq.weakR` to move closed-context typings over `Γ`.  `hΓ` is what makes this
+   possible at all — see `Params.extra_pat`'s docstring.
+5. **(~40) Level clauses.**  `iotaLevelPairs` against `D.selfLvls.map (VLevel.inst ls)`; the
+   two sides are equal, so each clause is reflexivity of `≈`.  `VInductDecl'.selfLvls_inst`
+   is the computation (`iota_law` uses it as `hself`).
+6. **(~40) `R = r.1.apply m1 m2`.**  `iotaRHS_apply` reduces the right side to
+   `(iotaLam.instL ls).mkApp (as.take k ++ bs.drop np)`; then `iotaLhs_args_split` (above),
+   `List.take_left'`, `List.drop_left'` and `VExpr.bvars_add` give
+   `as.take k ++ bs.drop np = bvars 0 (D.iotaCtx C).length` — structural, at known split
+   points, no indexing.
+
+Also useful: `VInductDecl'.length_iotaCtx`, `VInductDecl'.iotaPat_eq`, `spineRHS_apply`.
+
+### The accounting note this stream would most like to pass on
+
+Two estimates moved on this work, and both moved the same way.  The typing layer of step 3 and
+the six blocks above were **both identified in advance** — neither was a surprise in substance
+— and both were priced *inside* a line that named something else.  The classification of each
+line as structural or positional was correct every time it was applied; the accounting was
+wrong twice.
+
+> Every line you name gets its own number.  A named line folded into another's estimate is
+> functionally unenumerated.
+
+Corollary, learned the same way: a heuristic that prices listed lines is not a check that the
+list is complete, and a correct total is not evidence that it was. -/
+
 end Lean4Lean
