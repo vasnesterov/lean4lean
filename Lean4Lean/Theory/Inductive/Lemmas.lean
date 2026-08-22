@@ -1162,3 +1162,47 @@ theorem VInductDecl'.addInduct'_ordered {env env' : VEnv} {D : VInductDecl'}
   have o3 := VEnv.addConstList_ordered o2 (hrec h1 h2) h3
   refine VEnv.addIndRules_ordered o3 (hrules ?_ o3)
   exact (VEnv.addIndTypes_le h1).trans ((VEnv.addIndCtors_le h2).trans (VEnv.addIndRecs_le h3))
+
+/-! ## Arities of a constructor's stored type
+
+These are what a `ParamsExtra.ctor_ty`-style obligation needs: the pi-arity of the stored
+constructor type, and the head-arity of its result. -/
+
+theorem VExpr.piArity_mkApp {f : VExpr} (h : f.piArity = 0) :
+    ∀ {as}, (VExpr.mkApp f as).piArity = 0
+  | [] => h
+  | _ :: _ => VExpr.piArity_mkApp (f := .app _ _) rfl
+
+/-- The result of a constructor is an application, never a `∀`. -/
+@[simp] theorem VIndCtor.canonResult_piArity (C : VIndCtor) (D : VInductDecl') (j : Nat) :
+    (C.canonResult D j).piArity = 0 := VExpr.piArity_mkApp rfl
+
+/-- **The constructor's arity.**  The stored type binds exactly the parameters and the
+fields; nothing further, because the result is an application. -/
+theorem VIndCtor.type_piArity (C : VIndCtor) (D : VInductDecl') (j : Nat) :
+    (C.type D j).piArity = C.params.length + C.fields.length := by
+  rw [VIndCtor.type, VExpr.piArity_mkPi, VIndCtor.canonResult_piArity, Nat.add_zero,
+    List.length_append, List.length_map]
+
+/-- **The head-arity of the constructor's result.**  `I_j` is applied to the parameters and
+to `C.args`; by `VIndCtor.WF.args_len` that count is `D.np + T.indices.length`, the same for
+every constructor of `T` -- which is what makes a per-name head-arity well defined. -/
+theorem VIndCtor.canonResult_appArity (C : VIndCtor) (D : VInductDecl') (j : Nat) :
+    (C.canonResult D j).appArity = D.np + C.args.length := by
+  rw [VIndCtor.canonResult, VInductDecl'.tyApp, VExpr.appArity_mkApp]
+  simp [VExpr.appArity]
+
+theorem VIndCtor.WF.canonResult_appArity {env : VEnv} {D : VInductDecl'} {j T C}
+    (h : VIndCtor.WF env D j T C) :
+    (C.canonResult D j).appArity = D.np + T.indices.length := by
+  rw [VIndCtor.canonResult_appArity, h.args_len]
+
+/-- `VIndCtor.WF.result`, transported to the constructor's **own** copy of the parameter
+telescope -- which is the context `C.type D j` actually binds (F3).  `WF.result` is stated
+over `D.params`; a consumer that reads the binder list off `ci.type` gets `C.params`, and
+the two are only definitionally equal.  This is the transport that joins them. -/
+theorem VIndCtor.WF.result' {env₁ : VEnv} {D : VInductDecl'} {j T C}
+    (henv : VEnv.Ordered env₁) (h : VIndCtor.WF env₁ D j T C) :
+    env₁.HasType D.uvars ((C.fields.map (·.type)).reverse ++ C.params.reverse)
+      (C.canonResult D j) (.sort D.lvl) :=
+  VEnv.HasType.defeqDFC henv (h.defeqCtx henv (h.onCtxAllFields henv)) h.result

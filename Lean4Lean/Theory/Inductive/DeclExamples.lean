@@ -664,5 +664,30 @@ example : (bvars 0 accIntroRec.args.length).map (VExpr.instAll · accIntroRec.ar
     = accIntroRec.args := VExpr.map_instAll_bvars _
 example : (bvars 0 1).map (VExpr.instAll · [VExpr.bvar 1] 0) = [VExpr.bvar 1] := rfl
 
+/-! ### `ParamsExtra.ctor_ty`'s arity clauses
+
+The pi-arity of a stored constructor type is exactly `|C.params| + |C.fields|` -- exact
+because the result is an application, never a `∀`. -/
+
+example : (accIntro.type accDecl 0).piArity
+    = (accIntro.params ++ accIntro.fields.map (·.type)).length :=
+  VIndCtor.type_piArity _ _ _
+example : (accIntro.type accDecl 0).piArity = 4 := rfl
+example : (eqRefl.type eqDecl 0).piArity = 2 := rfl
+example : (natZero.type natDecl 0).piArity = 0 := rfl
+example : (forestCons.type mutDecl 1).piArity = 2 := rfl
+
+/-- The head-arity of a constructor's result is `D.np + |C.args|`.  The clause is stated
+per-constructor but `classify T.name` is not, so what makes it well defined is
+`VIndCtor.WF.args_len`: **two constructors of the same type must agree**.  Checked on the
+two blocks that have more than one constructor per type. -/
+example : (accIntro.canonResult accDecl 0).appArity = accDecl.np + accIntro.args.length := rfl
+example : (accIntro.canonResult accDecl 0).appArity
+    = accDecl.np + accType.indices.length := rfl
+example : (natZero.canonResult natDecl 0).appArity
+    = (natSucc.canonResult natDecl 0).appArity := rfl
+example : (forestNil.canonResult mutDecl 1).appArity
+    = (forestCons.canonResult mutDecl 1).appArity := rfl
+
 end InductiveDeclExamples
 end Lean4Lean
