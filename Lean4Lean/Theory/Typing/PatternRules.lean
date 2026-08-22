@@ -116,7 +116,34 @@ inductive Pat (env : VEnv) : (p : Pattern) → p.RHS × p.Check → Prop
       (h : (D.iotaLam q C).Closed)
       (hargs : ∀ a ∈ C.args, (mkLams (C.params ++ C.fields.map (·.type)) a).Closed) :
       D.types[j]? = some T → C ∈ T.ctors → env.defeqs (D.iotaRule j q C) →
+      -- the two constants the pattern's leaves name are really declared, at the types
+      -- `addInduct'` gave them.  Not decoration: see `Pat.rec_ne_ctor`.
+      env.constants (Lean.mkRecName T.name) = some ⟨D.recUvars, D.recType j⟩ →
+      env.constants C.name = some ⟨D.uvars, C.type D j⟩ →
       Pat env (D.iotaPat T C) (D.iotaRHSOf j q T C h, D.iotaCheckOf T C hargs)
+
+/-! ## The global name-distinctness side condition
+
+`pat_app_uniq` bottoms out in `(.const r).inter (.const c) = none` where `r` is one
+registered pattern's *recursor* leaf and `c` another's *constructor* leaf — patterns that may
+come from different blocks.  So it needs: no recursor name is any constructor name, anywhere
+in the environment.
+
+Within a block that is `addInduct'`'s freshness (`allNames` is added by `addConstList`, which
+fails on a duplicate).  Across blocks it is **not** derivable from `addConstList_fresh`, which
+only gives freshness against the environment as it stood when *that* block was added.
+
+What makes it derivable is `VEnv.addConst` rejecting duplicates outright: a name declared
+twice is impossible in any environment built by declarations, so if a recursor name equalled
+a constructor name they would be the *same constant*, and their stored types would be equal.
+Those types are syntactically distinguishable — a recursor's, under its binders, is a motive
+application with a `bvar` head, a constructor's is `I p args` with a `const` head.
+
+That argument needs the two constants to be *present*, which `env.defeqs (D.iotaRule …)` does
+not give: a rule being in `defeqs` says nothing about `constants`.  Hence the two
+`env.constants … = some …` hypotheses on `Pat.iota` above.  They are discharged where the
+evidence exists — `VInductDecl'.WF.iotaCtx` supplies exactly these from `addInduct'` — rather
+than assumed globally. -/
 
 /-- **`Params.pat_simple`.**  Immediate from the shape of the family: every constructor's
 pattern index is a `SimplePattern.toPattern` by construction. -/
