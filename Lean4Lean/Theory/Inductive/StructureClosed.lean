@@ -494,8 +494,17 @@ theorem VEnv.IsDefEq.mkAppDF {env : VEnv} {U : Nat} :
 /-- **Substituting definitionally equal spines into a type gives definitionally equal
 types.**  Both spines must be `HasArgs`-typed: `HasArgsDF` instantiates the telescope by the
 *left* spine, so the right one needs its own chain (in practice `HasArgs.ofMap` supplies it).
-Specialised to a sort codomain, where `instAll` leaves the type alone and there is no drift
-between the two `betaMkLams` steps. -/
+Specialised to a sort codomain, and **the specialisation is what makes it provable**: the
+general statement would need `instAll B as ≡ instAll B as'` to even state its conclusion —
+the same congruence one level up.  With `B = .sort l` both sides are literally `.sort l`,
+the circularity dissolves, and the two `betaMkLams` steps have no type drift.
+
+This cuts against the "state the general version first" heuristic that holds elsewhere in
+this development (see the settled-rule note in `TelescopeLift.lean`).  It is not a
+counterexample to the heuristic so much as a case where **the generality buys nothing**: the
+only consumer is `projMotive`'s body, which is always a type, so restricting to a sort
+codomain costs no applicability at all.  Where generality is free, take it; where it is what
+creates the circularity and buys nothing, do not. -/
 theorem VEnv.IsDefEq.instAllCongrSort {env : VEnv} {U : Nat} (henv : env.Ordered)
     {Γ As as as' : List VExpr} {b : VExpr} {l : VLevel}
     (hDF : env.HasArgsDF U Γ As as as') (hr : env.HasArgs U Γ As as')
@@ -509,5 +518,84 @@ theorem VEnv.IsDefEq.instAllCongrSort {env : VEnv} {U : Nat} (henv : env.Ordered
     have := VEnv.IsDefEq.mkAppDF hDF (VEnv.HasType.mkLams hΓ hb)
     rwa [VExpr.instAll_sort] at this
   exact hL.symm.trans (hmid.trans hR)
+
+/-! ## The ι-rule at a concrete spine -/
+
+theorem VLevel.params_inst {ls : List VLevel} {n : Nat} (h : ls.length = n) :
+    (VLevel.params n).map (VLevel.inst ls) = ls := by
+  subst h
+  simp only [VLevel.params, List.map_map, Function.comp_def, VLevel.inst]
+  exact map_getD_range
+
+theorem VExpr.map_instAll_bvars_bot {as bs : List VExpr} {n : Nat} (h : bs.length = n) :
+    (bvars 0 n).map (VExpr.instAll · (as ++ bs) 0) = bs := by
+  have e1 : (bvars 0 n).map (VExpr.instAll · (as ++ bs) 0)
+      = ((bvars 0 n).map (VExpr.instAll · as bs.length)).map (VExpr.instAll · bs 0) := by
+    simp [List.map_map, Function.comp_def, VExpr.instAll_append]
+  rw [e1, VExpr.map_instAll_bvars_lt (by omega), VExpr.map_instAll_bvars' h]
+
+/-- **The ι-rule's left-hand side at a concrete spine.**  `iotaLhs` is the recursor applied
+to the ι-context's own variables; substituting `ps`, the motive, the minor premise and the
+constructor's fields turns it into exactly the recursor application `projCore` builds, with
+the major premise the constructor applied to `ps` and `fs`. -/
+theorem VInductDecl'.iotaLhs_instAll (D : VInductDecl') (T : VIndType) (C : VIndCtor)
+    {us : List VLevel} {ps fs : List VExpr} {k : Nat} {mot minor : VExpr}
+    (hnm : D.nm = 1) (hnmin : D.nmin = 1) (hTd : D.types.getD 0 default = T)
+    (hus : us.length = D.uvars) (hps : ps.length = D.np)
+    (hfs : fs.length = C.fields.length)
+    (hlvl : (D.projLvls C us k).length = D.recUvars) :
+    VExpr.instAll ((D.iotaLhs 0 C).instL (D.projLvls C us k))
+        (ps ++ [mot, minor] ++ fs)
+      = (VExpr.const (Lean.mkRecName T.name) (D.projLvls C us k)).mkApp
+          (ps ++ [mot, minor]
+            ++ C.args.map (fun a =>
+                 VExpr.instAll (VExpr.instAll (a.instL us) ps C.fields.length) fs)
+            ++ [(VExpr.const C.name us).mkApp (ps ++ fs)]) := by
+  have hself : D.selfLvls.map (VLevel.inst (D.projLvls C us k)) = us := by
+    rw [VInductDecl'.projLvls]; exact D.selfLvls_inst _ hus
+  have hlen : (ps ++ ([mot, minor] ++ fs)).length = D.np + 1 + 1 + C.fields.length := by
+    simp [hps, hfs]; omega
+  have hA : ps ++ ([mot, minor] ++ fs) = (ps ++ [mot, minor]) ++ fs := by simp
+  -- 1. the parameter block
+  have e1 : (bvars (C.fields.length + (1+1)) D.np).map
+      (VExpr.instAll · (ps ++ ([mot, minor] ++ fs)) 0) = ps := by
+    rw [VExpr.map_instAll_bvars_top (Nat.zero_le _) (by rw [hlen]; omega),
+      List.take_left' hps]
+    simp
+  -- 2, 3. the motive and minor
+  have e2 : (bvars (C.fields.length + 1) 1).map
+      (VExpr.instAll · (ps ++ ([mot, minor] ++ fs)) 0) = [mot] := by
+    simp only [VExpr.bvars, List.map_cons, List.map_nil]
+    rw [VExpr.instAll_bvar_get (t := ps.length) (a := mot)
+      (by simp [List.getElem?_append_right]) (by rw [hlen, hps]; omega)]
+    simp
+  have e3 : (bvars C.fields.length 1).map
+      (VExpr.instAll · (ps ++ ([mot, minor] ++ fs)) 0) = [minor] := by
+    simp only [VExpr.bvars, List.map_cons, List.map_nil]
+    rw [VExpr.instAll_bvar_get (t := ps.length + 1) (a := minor)
+      (by simp [List.getElem?_append_right, hps]) (by rw [hlen, hps]; omega)]
+    simp
+  -- 5. the field block inside the constructor application
+  have e5 : (bvars 0 C.fields.length).map
+      (VExpr.instAll · (ps ++ ([mot, minor] ++ fs)) 0) = fs := by
+    rw [hA]; exact VExpr.map_instAll_bvars_bot hfs
+  -- 4. the constructor's result indices
+  have e4 : ∀ a : VExpr,
+      (VExpr.liftN (1+1) (a.instL us) C.fields.length).instAll (ps ++ ([mot, minor] ++ fs))
+        = VExpr.instAll (VExpr.instAll (a.instL us) ps C.fields.length) fs := by
+    intro a
+    rw [hA, VExpr.instAll_append, hfs, VExpr.instAll_append]
+    congr 1
+    simp only [Nat.zero_add, List.length_cons, List.length_nil]
+    rw [VExpr.liftN_instAll (n := 1+1) (as := ps) (X := a.instL us) (k := C.fields.length)]
+    exact VExpr.instAll_liftN [mot, minor] _ _
+  simp only [VInductDecl'.iotaLhs, hnm, hnmin, hTd, VInductDecl'.ctorApp',
+    VInductDecl'.atRec, VExpr.instL_mkApp, VExpr.instL, List.map_append, List.map_map,
+    Function.comp_def, VExpr.instL_instL, hself, VExpr.map_instL_bvars,
+    VExpr.instAll_mkApp, VExpr.instAll_const, VExpr.instL_liftN,
+    VLevel.params_inst hlvl, List.map_cons, List.map_nil, List.append_assoc]
+  rw [e1, e2, e3, e5]
+  simp only [e4]
+  simp
 
 end Lean4Lean
