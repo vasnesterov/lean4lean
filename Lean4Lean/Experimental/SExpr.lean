@@ -737,7 +737,13 @@ class ParamsExtra [Params] where
       D.types[j]? = some T ∧ C ∈ T.ctors ∧ C.name = c ∧
       (C.params ++ C.fields.map (·.type)).length = cl.arity ∧
       classify T.name = some (.indTy (D.np + T.indices.length)) ∧
-      D.lvl ≠ .zero ∧
+      -- `D.lvl ≠ .zero` used to sit here.  It is **false**: `D.lvl` is the block's common
+      -- result universe, so it is `.zero` for every `Prop`-valued inductive (`Eq`, `And`,
+      -- `Or`, `Exists`, `False`) -- and those must be classified, since their recursors'
+      -- iota-rules pattern-match on their constructors.  With it, `ParamsExtra` was
+      -- unsatisfiable for any realistic environment, which no instance ever caught because
+      -- there is no `ParamsExtra` instance in the tree.  `CtorBundle.hu0` is the same claim
+      -- one layer down and is still there; see `IsDefEq.strong`.
       -- Everything the declaration side owns is bundled: the stored constant (so `ci` is
       -- determined), arities, `args_len`, the result sort over `C.params.reverse`, and the
       -- split closedness facts.  Widening this is a field of `Interface`, not a clause here.
@@ -844,7 +850,31 @@ The `Ctx.WF Γ` hypothesis is **necessary**: `not_strong_of_isDefEq` below refut
 version without it, because `IsDefEqStrong.bvar` demands `Γ ⊢ A : .sort u` for the
 looked-up type while `IsDefEq.bvar` says nothing about the context. This mirrors
 `hΓ : OnCtx Γ (env.IsType U)` in the `VExpr` analogue `VEnv.IsDefEq.strong`
-(`Theory/Typing/Strong.lean`). -/
+(`Theory/Typing/Strong.lean`).
+
+The `[ParamsExtra]` hypothesis is **also necessary**, and for an independent reason.
+`IsDefEqStrong.const` demands `∀ cl, CtorBundle c cl` for every `c` that `classify` calls a
+constructor, and a bundle carries `hclI : classify I = some (.indTy args.length)` plus an
+equation tying `ci.type` to a telescope headed by `I`. Under `[Params]` alone, `classify` is
+unconstrained *relative to `env`*: an instance may declare an arbitrary constant a
+constructor -- say `classify c = some (.ctor 0)` with `classify` `none` elsewhere -- and then
+no `I` satisfies `hclI`, so `CtorBundle c cl` is uninhabited while `IsDefEq.const` still
+derives the undecorated judgment. `ParamsExtra.ctor_ty` is exactly what rules this out.
+
+**This statement is still not provable, and the reason is not in the statement.** Two
+falsehoods remain downstream, both instances of the same hardwiring:
+
+* `CtorBundle.hu0 : u ≠ .zero` is false -- `CtorBundle Eq.refl` is uninhabited (see the
+  `CtorBundle` docstring above).
+* `ParamsExtra.ctor_ty` still claims `D.lvl ≠ .zero`, which is false for *every*
+  `Prop`-valued inductive (`Eq`, `And`, `Or`, `Exists`, `False`): `D.lvl` is the block's
+  common result universe, and for those it is `.zero`.
+
+The second matters more than the first. `ParamsExtra` currently has **no instance anywhere
+in the tree**, and with that clause it is unsatisfiable for any realistic environment -- so
+adding `[ParamsExtra]` makes this theorem *vacuously* true rather than true. Do not read the
+hypothesis as progress until `D.lvl ≠ .zero` is gone. Deleting both clauses is what the
+`ShapeS.indTy` parameterisation is for; `LE_Interp.build_spine` is `hu0`'s only consumer. -/
 theorem IsDefEq.strong [ParamsExtra] (hΓ : Ctx.WF Γ) :
     Γ ⊢ e1 ≡ e2 : A → IsDefEqStrong Γ e1 e2 A := sorry
 
@@ -1237,11 +1267,11 @@ theorem IsDefEqStrong.subst (W : Ctx.SubstEq Γ₀ σ σ' Γ) (H : IsDefEqStrong
 
 /-- Substitution for the undecorated judgment. The `Ctx.WF Γ` hypothesis comes from
 `IsDefEq.strong`; see `not_strong_of_isDefEq` for why it is unavoidable. -/
-theorem IsDefEq.subst (hΓ : Ctx.WF Γ) (W : Ctx.SubstEq Γ₀ σ σ' Γ)
+theorem IsDefEq.subst [ParamsExtra] (hΓ : Ctx.WF Γ) (W : Ctx.SubstEq Γ₀ σ σ' Γ)
     (H : Γ ⊢ e1 ≡ e2 : A) : Γ₀ ⊢ e1.subst σ ≡ e2.subst σ' : A.subst σ :=
   (H.strong hΓ).subst W
 
-theorem Ctx.SubstEq.symm (W : Ctx.SubstEq Γ₀ σ σ' Γ) :
+theorem Ctx.SubstEq.symm [ParamsExtra] (W : Ctx.SubstEq Γ₀ σ σ' Γ) :
     Ctx.WF Γ → Ctx.SubstEq Γ₀ σ' σ Γ := by
   induction W with
   | nil => exact fun _ => .nil
