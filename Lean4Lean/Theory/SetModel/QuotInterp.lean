@@ -500,6 +500,139 @@ theorem interp_quotMkCod (hle : env₀ ≤ envF)
 
 end MkCod
 
+/-! ### `Quot.mk`'s witness
+
+Three nested λs above `Prop`, and `•` at `Prop` — see the note above on why the
+level changes the *shape* of the witness and not merely a value. -/
+
+section MkFn
+
+variable [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖]
+variable {envF : VEnv} {nv : ℕ} {M : ModelData V} {L : LevelAssign envF nv} {u : VLevel}
+
+/-- Innermost λ: `fun a ↦ Quot.mk α r a`, with `α` and `r` read out of the
+environment at indices `0` and `1`. -/
+noncomputable def quotMkFibA (M : ModelData V) (L : LevelAssign envF nv) (u : VLevel) : V → V :=
+  mkLam (interp M L [quotRelTy, VExpr.sort u] (.bvar 1)).toFun
+    (interp M L [quotRelTy, VExpr.sort u] (.bvar 1)).definable
+    (fun ρ a ↦ quotMkVal (ρ ‘ ((0 : ℕ) : V)) (ρ ‘ ((1 : ℕ) : V)) a (u.eval M.ls))
+    (quotMk_fibre_definable _)
+
+theorem quotMkFibA_definable : ℒₛₑₜ-function₁[V] (quotMkFibA M L u) :=
+  mkLam_definable _ _ _ _
+
+/-- Middle λ, over the relation. -/
+noncomputable def quotMkFibR (M : ModelData V) (L : LevelAssign envF nv) (u : VLevel) : V → V :=
+  mkLam (interp M L [VExpr.sort u] quotRelTy).toFun
+    (interp M L [VExpr.sort u] quotRelTy).definable
+    (fun ρ r ↦ quotMkFibA M L u (snoc ρ r))
+    (by have := quotMkFibA_definable (M := M) (L := L) (u := u); definability)
+
+theorem quotMkFibR_definable : ℒₛₑₜ-function₁[V] (quotMkFibR M L u) :=
+  mkLam_definable _ _ _ _
+
+/-- **The denotation of `Quot.mk` at universe `u`.**  At `Prop` the whole type is
+a proposition, so the witness is `•`; above it, three λs. -/
+noncomputable def quotMkFn (M : ModelData V) (L : LevelAssign envF nv) (u : VLevel) : V :=
+  if u.eval M.ls = 0 then (pt : V)
+  else mkLam (interp M L [] (.sort u)).toFun (interp M L [] (.sort u)).definable
+    (fun ρ α ↦ quotMkFibR M L u (snoc ρ α))
+    (by have := quotMkFibR_definable (M := M) (L := L) (u := u); definability) ∅
+
+end MkFn
+
+section MkMem
+
+variable [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖]
+variable {envF env₀ : VEnv} {nv : ℕ} {M : ModelData V} {L : LevelAssign envF nv} {u : VLevel}
+
+/-- The environment reads shared by the two branches. -/
+theorem quotMk_env (hα : α ∈ U M.κ (u.eval M.ls))
+    (hr : r ∈ (interp M L [VExpr.sort u] quotRelTy).toFun (snoc ∅ α)) :
+    (snoc (snoc ∅ α) r) ‘ ((0 : ℕ) : V) = α ∧
+    (snoc (snoc ∅ α) r) ‘ ((1 : ℕ) : V) = r ∧
+    snoc (snoc ∅ α) r ∈ interpCtx M L [quotRelTy, VExpr.sort u] := by
+  have hnil : (∅ : V) ∈ interpCtx M L ([] : List VExpr) := by
+    rw [interpCtx_nil]; exact mem_singleton_iff.2 rfl
+  have hρ₁ : snoc ∅ α ∈ interpCtx M L [VExpr.sort u] :=
+    (mem_interpCtx_cons M L).mpr ⟨∅, hnil, α, by rw [interp_sort]; exact hα, rfl⟩
+  have v1 := snoc_value_at_len M L (v := α) hnil
+  rw [List.length_nil] at v1
+  have v2 := snoc_value_at_len M L (v := r) hρ₁
+  simp only [List.length_cons, List.length_nil] at v2
+  have v3 := snoc_value_of_lt M L (v := r) hρ₁ (j := 0) (by simp)
+  exact ⟨by rw [v3, v1], v2, (mem_interpCtx_cons M L).mpr ⟨_, hρ₁, r, hr, rfl⟩⟩
+
+/-- **The innermost λ.**  Above `Prop`. -/
+theorem quotMkFibA_mem (hle : env₀ ≤ envF)
+    (hq : env₀.constants ``Quot = some quotConst) (hu : u.WF nv)
+    (hcnst : M.cnst ``Quot [u] = quotFn M L u) (h0 : u.eval M.ls ≠ 0)
+    {α r : V} (hα : α ∈ U M.κ (u.eval M.ls))
+    (hr : r ∈ (interp M L [VExpr.sort u] quotRelTy).toFun (snoc ∅ α)) :
+    quotMkFibA M L u (snoc (snoc ∅ α) r)
+      ∈ (interp M L [quotRelTy, VExpr.sort u] (.forallE (.bvar 1) (quotMkCod u))).toFun
+          (snoc (snoc ∅ α) r) := by
+  obtain ⟨e0, e1, -⟩ := quotMk_env (M := M) (L := L) hα hr
+  unfold quotMkFibA
+  refine mkLam_mem_interp_forallE' (env₀ := env₀) hle (quotMkCod_type hq hu) hu h0 _
+    fun a ha ↦ ?_
+  rw [interp_bvar] at ha
+  rw [interp_quotMkCod hle hq hu hcnst hα hr]
+  show quotMkVal ((snoc (snoc ∅ α) r) ‘ ((0 : ℕ) : V))
+    ((snoc (snoc ∅ α) r) ‘ ((1 : ℕ) : V)) a (u.eval M.ls) ∈ _
+  rw [e0, e1]
+  refine quotMkVal_mem _ ?_
+  show a ∈ α
+  rw [← e0]
+  exact ha
+
+/-- **The middle λ.**  Above `Prop`. -/
+theorem quotMkFibR_mem (hle : env₀ ≤ envF)
+    (hq : env₀.constants ``Quot = some quotConst) (hu : u.WF nv)
+    (hcnst : M.cnst ``Quot [u] = quotFn M L u) (h0 : u.eval M.ls ≠ 0)
+    {α : V} (hα : α ∈ U M.κ (u.eval M.ls)) :
+    quotMkFibR M L u (snoc ∅ α)
+      ∈ (interp M L [VExpr.sort u]
+          (.forallE quotRelTy (.forallE (.bvar 1) (quotMkCod u)))).toFun (snoc ∅ α) := by
+  unfold quotMkFibR
+  refine mkLam_mem_interp_forallE' (env₀ := env₀) hle (quotMkInner_type hq hu) ⟨hu, hu⟩
+    (fun h ↦ h0 (imax_eq_zero_iff.1 h)) _ fun r hr ↦ ?_
+  exact quotMkFibA_mem hle hq hu hcnst h0 hα hr
+
+set_option maxHeartbeats 1000000 in
+/-- **`Quot.mk`'s `const_type` obligation**, in both branches. -/
+theorem quotMkFn_mem (hle : env₀ ≤ envF)
+    (hq : env₀.constants ``Quot = some quotConst) (hu : u.WF nv)
+    (hcnst : M.cnst ``Quot [u] = quotFn M L u) :
+    quotMkFn M L u ∈ (interp M L [] (quotMkConst.type.instL [u])).toFun ∅ := by
+  show quotMkFn M L u ∈ (interp M L []
+    (.forallE (.sort u) (.forallE quotRelTy (.forallE (.bvar 1) (quotMkCod u))))).toFun ∅
+  rw [quotMkFn]
+  split
+  · -- `Prop`: the whole type is a proposition, so the witness is `•`
+    rename_i h0
+    refine pt_mem_interp_forallE_prop (env₀ := env₀) hle (quotMkMid_type hq hu)
+      ⟨⟨hu, hu, trivial⟩, hu, hu⟩ (imax_eq_zero_iff.2 (imax_eq_zero_iff.2 h0)) fun α hα ↦ ?_
+    rw [interp_sort] at hα
+    refine pt_mem_interp_forallE_prop (env₀ := env₀) hle (quotMkInner_type hq hu) ⟨hu, hu⟩
+      (imax_eq_zero_iff.2 h0) fun r hr ↦ ?_
+    refine pt_mem_interp_forallE_prop (env₀ := env₀) hle (quotMkCod_type hq hu) hu h0
+      fun a ha ↦ ?_
+    obtain ⟨e0, -, -⟩ := quotMk_env (M := M) (L := L) hα hr
+    rw [interp_bvar] at ha
+    rw [interp_quotMkCod hle hq hu hcnst hα hr]
+    have hmem := quotMkVal_mem (α := α) (r := r) (a := a) (u.eval M.ls) (by rw [← e0]; exact ha)
+    rwa [quotMkVal, if_pos h0] at hmem
+  · -- above `Prop`: three λs
+    rename_i h0
+    refine mkLam_mem_interp_forallE' (env₀ := env₀) hle (quotMkMid_type hq hu)
+      ⟨⟨hu, hu, trivial⟩, hu, hu⟩
+      (fun h ↦ h0 (imax_eq_zero_iff.1 (imax_eq_zero_iff.1 h))) _ fun α hα ↦ ?_
+    rw [interp_sort] at hα
+    exact quotMkFibR_mem hle hq hu hcnst h0 hα
+
+end MkMem
+
 /-! ### The membership obligation -/
 
 variable {n : ℕ} {κ : ℕ → V}

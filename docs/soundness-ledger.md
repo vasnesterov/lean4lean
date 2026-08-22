@@ -917,6 +917,38 @@ branches: `pt_mem_interp_forallE_prop` three times at `u.eval = 0`, and the
 nested `mkLam` route otherwise, both bottoming out at
 `⟦Quot α r⟧ρ = quotVal α r i` via the value chain.
 
+### `Quot.mk` is complete, and `Quot.ind` will need something new
+
+`quotMkFn_mem` — **`Quot.mk`'s `const_type` obligation, both branches** — is
+proved. The witness splits on the level (`•` at `Prop`, three λs above it), and
+both branches bottom out at the same two facts: `interp_quotMkCod`, which
+computes `⟦Quot α r⟧` by two `interp_app_type` steps and two `mkLam_value` steps
+down `Quot`'s own nest, and `quotMkVal_mem`.
+
+**The `u = 0` check on `Quot.ind` comes out the other way, and that is
+informative.** Its type is
+
+```
+∀ (α : Sort u) (r : α → α → Prop) (β : Quot α r → Prop),
+  (∀ a : α, β (Quot.mk α r a)) → ∀ q : Quot α r, β q
+```
+
+whose innermost body `β q` is a `Prop` *by construction* — `β` lands in
+`Sort .zero` — so every `imax` in the five-binder spine collapses to `0` at
+**every** `u`. The whole type is a proposition, the witness is `•`
+unconditionally, and there is no level split. Contrast `Quot` and `Quot.mk`,
+whose codomains are `Sort u` and therefore did need one. The check is not a
+ritual: it distinguishes these cases rather than always firing.
+
+**What `Quot.ind` will need that the first two did not**: the bottom of the nest
+is `• ∈ ⟦β q⟧` for an arbitrary `q ∈ quotVal α r i`, with the hypothesis binder
+supplying `• ∈ ⟦β (Quot.mk α r a)⟧` for every `a ∈ α`. Bridging those requires
+**surjectivity of `Quot.mk`** — every element of the quotient is the class of
+some `a ∈ α` — which is `mem_setQuotient_iff`. That is the first of the four
+`Quot` obligations to need a real fact about `setQuotient` rather than
+membership arithmetic, and at `i = 0` it needs the corresponding
+proof-irrelevant statement instead.
+
 ### The pattern: uniform in ZFC, not uniform across `Sort 0`
 
 That split is the **third** time this session a statement that reads uniformly

@@ -488,6 +488,16 @@ even when the two are "obviously" equal** — but this one is worth calling out
 because the difference is invisible at a glance and the symptom is identical to
 the unrelated `mkLam` proof-term blow-up.
 
+**A second symptom of the same hazard: a normalisation tactic can move the cast
+the wrong way.** In `interp_quotMkCod`, `interp_bvar` produces indices of the
+form `((3 - 1 - 2 : ℕ) : V)`. Calling `norm_num` to reduce the arithmetic
+*pushes the cast inward*, replacing `↑(0 : ℕ)` by the `V`-numeral `0`, after
+which every `snoc` value lemma — all stated with `↑(j : ℕ)` — stops matching.
+The fix is the same rule (`show` with the reduced literal, never a tactic that
+touches the coercion), but the symptom is different enough to be worth its own
+line: someone who has met "an ascription reconciles two coercion shapes" will
+not recognise "`norm_num` pushed the cast" as the same problem.
+
 This is not a missing lemma; it is a property of the `Ordinal V` encoding that
 costs hours if you meet it without warning. It bit us in **every one of the six
 files**, and each time it presented as a hang, never as a type error.
