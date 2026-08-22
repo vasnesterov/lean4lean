@@ -431,8 +431,23 @@ def instantiate1' (e : Expr) (subst : Expr) (d := 0) : Expr :=
   | e, [], _ => e
   | e, a :: as, k => instantiateList (instantiate1' e a k) as k
 
-/-- This could be an `@[implemented_by]` -/
-@[simp] axiom instantiate_eq (e : Expr) (subst) :
+/--
+This could be an `@[implemented_by]`, but only under the closedness hypothesis `h`.
+
+The previous statement of this axiom (without `h`) was **false**: the real
+`Expr.instantiate` is *simultaneous* — a loose `bvar i` at binding depth `d` is
+replaced by `liftLooseBVars (subst[i-d]) 0 d` and the loose bvars *inside* the
+substituted term are neither re-substituted nor renumbered — whereas
+`instantiateList` is *sequential*, re-entering the result of each step.
+
+Counterexample: for `e = .bvar 0` and `subst = #[.bvar 0, .sort .zero]`,
+`e.instantiate subst = .bvar 0` but `e.instantiateList subst.toList = .sort .zero`.
+
+Requiring every substituend to be closed makes the two agree.
+See `docs/axiom-audit.md` §5.1.
+-/
+@[simp] axiom instantiate_eq (e : Expr) (subst : Array Expr)
+    (h : ∀ a ∈ subst, a.looseBVarRange' = 0) :
     e.instantiate subst = e.instantiateList subst.toList
 
 /-- This could be an `@[implemented_by]` -/
