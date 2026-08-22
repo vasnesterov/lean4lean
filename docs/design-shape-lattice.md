@@ -650,3 +650,90 @@ Measured by probe (run, then reverted):
 
 The earlier estimate — "one more disjunct in an existing `dif`" — was wrong by an order of
 magnitude. The disjunct is one line; the boolean it tests costs 107 instances to introduce.
+
+---
+
+## Session update 3: both cheap routes costed, both closed
+
+Two questions were asked before any lines were written. Both are answered negative, and both
+answers are specific.
+
+### 1. Threading `Fits` into `compat_join` does not reach the call sites
+
+Of the eight join-family error sites, **five have no valuation in scope at all** — not "no
+`Fits`", no `ρ`:
+
+| site | enclosing declaration | `ρ`? | `Fits`? |
+|---|---|---|---|
+| `go_dom`, `go_pi` (2) | `WShape.HasType.join` | no | no |
+| `WShape.HasDom.join` (1) | derived from `go_dom` | no | no |
+| `h4.isType.join ac a4.isType` (1) | `LE_Interp.compat_join` | yes | **no** |
+| `(hi3 x h).isType`, `hT1.isType.join'` (2) | `LE_Interp.sound_lam` | yes | **no**\* |
+| `htB₁.join hC_b htB₂`, unsolved (2) | `LRS.PiDefEq.join` | no | no |
+
+\* `sound_lam`'s single caller, `strongSoundS:5770`, does have `W : Fits`, so `sound_lam` and
+`sound_forallE` could take one. Nothing else can.
+
+`WShape.HasType.join` / `HasDom.join` are shape-lattice lemmas with no `ρ` in their
+statements. `LRS.PiDefEq.join`'s consumer is `LogRel.join_ty`, a **field of the abstract
+`LogRel` structure**, parameterised by `Γ` and `n` only — there is no valuation to thread,
+ever. And adding `Fits` to `compat_join` would push into `LE_Interp.compat` / `.join'` and
+thence into `LE_Interp.subst` and `LE_Interp.inst`, iff-statements about substitution with no
+`Fits` and no caller that has one.
+
+**So the hypothesis has to be the classified upper bound itself, carried as an argument.** One
+encouraging structural fact (checked against the definitions, *not* machine-checked): a
+classified upper bound propagates downwards. If `z.IsType`, `m₁ ≤ z`, `m₂ ≤ z` with
+`m₁ = .forallE a b`, `m₂ = .forallE a' b'`, then `forallE_le` gives `z = .forallE za zf` with
+`a ≤ za`, `a' ≤ za`, and `z.IsType` unfolds to `HasTypePi zf za r`, whose `HasDom zf za` gives
+`za.IsType` via `HasDom.isType`. So `za` is a classified upper bound for the *domains* —
+exactly what `go_dom` needs — and `zf`'s values serve one level further down. A single
+`∃ z, m₁ ≤ z ∧ m₂ ≤ z ∧ z.IsType` at the top may suffice for the whole family.
+
+If it does, the obligation lands on `LogRel.join_ty`'s three consumers — `PiDefEq.join`, the
+`LRS` instance's own `join_ty`, and `ShapeLogRelAdequacy:89`. **`Adequacy:89` is where the real
+data is, and it should be costed first**: if `Adequacy` cannot produce a classified upper
+bound, the whole chain is dead and nothing above it is worth writing.
+
+### 2. §7's residue: the bundle route is closed, and so is a second one
+
+**(i) `rel` from `CtorBundle.hclI` instead of `Classification.ctor`.** No. `rel` *is* in scope
+at `build_spine`'s failing site — the bundle is right there. But the boolean is needed at a
+**computation**, not a proof obligation: the shape is `WShape.ctor' c_a rargs_a.reverse`,
+pinned by `Matches.app`'s index, and `ctor'` is a `def` whose `dif` guard must be decidable
+from `c` alone. A `CtorBundle` exists only as a hypothesis inside `IsDefEqStrong.const` /
+`StrongSoundCore.const`; `Matches` and `ctor'` are elaborated with `[Params]` only. No fact can
+make a computed term `.bot`. Nor can the site dodge by choosing a different type-shape `a` for
+`apps_realize`: `a` must satisfy both `(.ctor' c l).HasType a` (which, after §7's gating and
+`WShape.indTy_le`, forces `a = .indTy true`) and `LE_Interp ρ a.T T` (which the `Const.indTy`
+chain gives only at `.indTy rel`).
+
+**(ii) Relax `Matches.app`'s index from `= .ctor' c' rargs'.reverse` to `≤`.** No — this
+refutes `LE_Interp.Matches.unique`, which recovers `c'` and `rargs'` *from* the index shape.
+Analysed, not machine-checked; stating it needs the datatype change first.
+
+### The disjunct is not analogous to the one already in the `dif`
+
+> The existing `.bot` fallback is **information-preserving**. A `Prop`-ness fallback would be
+> **information-destroying**.
+
+`WShape.ctor'`'s `.bot` branch fires exactly when `IsStruct c ∧ ¬ ListNonZero l`, and
+`ListNonZero l` is `∃ x ∈ l, ¬ x ≤ .bot` — so it fires **only when every argument is already
+`≤ .bot`**. Nothing is lost: `rargs'` is still recoverable (it is all `.bot`), which is why
+`matches_inter`, `Const.compat_join` and `unique` survive today. A disjunct keyed on
+`Prop`-ness fires with *arbitrary* arguments, and those three lose the recovery. They do not
+merely "stop working"; `unique` looks **false**.
+
+So the earlier estimate was wrong twice over: the disjunct is one line, the boolean it tests
+costs 107 instances, *and* the disjunct is not the same kind of thing as the one beside it.
+
+### The fork §7's residue actually presents
+
+- **(α)** `ctor'` falls back to `.bot` for `Prop`-valued inductives ⇒ `Matches.unique` (and
+  probably `matches_inter`) must be restated, or is false.
+- **(β)** `Pattern.WF` requires `rel = true` at constructor leaves, so a `Prop`-valued
+  inductive's ι-rule is simply not a `Pattern`. This is the resolution the `CtorBundle`
+  docstring already anticipated, and it may be right: for a `Prop`-valued inductive the major
+  premise is a proof, `proofIrrel` gives it shape `.bot`, and the whole redex is `.bot` — the
+  shape model does not need the rule. It is also the "small elimination" fact PLAN.md already
+  lists as a missing `Params` axiom for `NormalEq.parRed`.
