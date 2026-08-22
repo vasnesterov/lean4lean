@@ -2,6 +2,8 @@ import Lean4Lean.Verify.Typing.Expr
 import Lean4Lean.Theory.Typing.Strong
 import Lean4Lean.Theory.Typing.UniqueTyping
 import Lean4Lean.Theory.Typing.EnvLemmas
+import Lean4Lean.Verify.TypeChecker
+import Lean4Lean.Primitive
 
 /-!
 # Reflection lemmas for the primitive `Nat` operations
@@ -833,3 +835,299 @@ theorem const_defeq_value {v : VDefVal} (hv : v.uvars = 0)
   exact ⟨_, h⟩
 
 end VEnv
+
+/-! ## The recognizer's own type-checking steps
+
+`Lean4Lean.Environment.checkPrimValue` and `checkIsType` exist so that the recognizer never hands
+an unchecked term to `isDefEq`; these are their specifications.  Both *produce* the `TrExprS`
+witnesses the rest of the assembly needs, which is the whole point of the change. -/
+
+open Lean hiding Environment Exception
+open Kernel TypeChecker
+
+/-- `Verify/Environment/Checker.lean` proves this too, but it imports `Boundaries.lean`, so it
+cannot be the source for a lemma `Boundaries.lean` needs. -/
+theorem checkNoMVarNoFVar.WF' (env : Environment) (name : Name) (e : Expr) :
+    (Environment.checkNoMVarNoFVar env name e).WF fun _ => e.FVarsIn fun _ => False := by
+  have h1 : (Environment.checkNoMVar env name e).WF fun _ => e.hasMVar = false := by
+    intro _ h
+    cases hm : e.hasMVar
+    · rfl
+    · rw [Environment.checkNoMVar, hm] at h; simp at h
+  have h2 : (Environment.checkNoFVar env name e).WF fun _ => e.hasFVar = false := by
+    intro _ h
+    cases hf : e.hasFVar
+    · rfl
+    · rw [Environment.checkNoFVar, hf] at h; simp at h
+  refine h1.bind fun _ hmv => h2.mono fun _ hfv => ?_
+  refine fvarsIn_iff.2 ⟨?_, fvarsIn_iff_hasMVar.2 hmv⟩
+  intro fv hmem
+  rw [fvarsList_eq_nil.2 hfv] at hmem
+  simp at hmem
+
+namespace TypeChecker
+
+/-- What `checkPrimValue` establishes: both the declared shape `ty` and the definition's value
+have translations, and the value has the type `ty` denotes.  `hfail` is discharged by
+`M.WF.throw` at every call site, where `fail` is a `throw`. -/
+theorem checkPrimValue.WF {c : VContext} {s : VState} {v : Lean.DefinitionVal} {ty : Expr}
+    {fail : ∀ {α}, TypeChecker.M α}
+    (hfail : ∀ {α : Type} {s' : VState} {Q : α → VState → Prop}, M.WF c s' fail Q)
+    (hty : ty.FVarsIn (· ∈ c.vlctx.fvars)) :
+    M.WF c s (Lean4Lean.Environment.checkPrimValue v ty fail) fun _ _ =>
+      ∃ ty' F, c.TrExprS ty ty' ∧ c.TrExprS v.value F ∧ c.HasType F ty' := by
+  unfold Lean4Lean.Environment.checkPrimValue
+  refine M.WF.bind getEnv.WF fun _ _ _ h => ?_
+  obtain ⟨rfl, rfl⟩ := h
+  refine (M.WF.liftExcept (checkNoMVarNoFVar.WF' _ _ _)).bind fun _ _ _ hclosed => ?_
+  have hclosed' : v.value.FVarsIn (· ∈ c.vlctx.fvars) := hclosed.mono nofun
+  refine (checkType.WF hty).bind fun _ _ _ ⟨ty', _, _, hty', _, _⟩ => ?_
+  refine (checkType.WF hclosed').bind fun vt _ _ ⟨F, vt', _, hF, hvt, hFty⟩ => ?_
+  refine (isDefEq.WF hvt hty').bind fun b _ _ hb => ?_
+  split <;> [skip; exact hfail]
+  exact .pure ⟨ty', F, hty', hF, hFty.defeqU_r c.Ewf c.Δwf.toCtx (hb (by simpa using ‹_›))⟩
+
+/-- What `checkIsType` establishes: `e` has a translation and is a type. -/
+theorem checkIsType.WF {c : VContext} {s : VState} {e : Expr}
+    (he : e.FVarsIn (· ∈ c.vlctx.fvars)) :
+    M.WF c s (Lean4Lean.Environment.checkIsType e) fun _ _ =>
+      ∃ e', c.TrExprS e e' ∧ c.IsType e' := by
+  unfold Lean4Lean.Environment.checkIsType
+  refine (checkType.WF he).bind fun _ _ _ ⟨e', A', _, he', hA', hty⟩ => ?_
+  refine (ensureSort.WF hA').mono fun _ _ _ h => ?_
+  obtain ⟨⟨_, h1, h2⟩, u, rfl⟩ := h
+  let .sort h1 := h1
+  exact ⟨e', he', _, hty.defeqU_r c.Ewf c.Δwf.toCtx h2.symm⟩
+
+end TypeChecker
+
+namespace TypeChecker
+
+/-- `RecM.WF.withLocalDecl` at the `M` level, which is where the recognizer's `defeq1`/`defeq2`
+comparisons live. -/
+protected theorem M.WF.withLocalDecl {c : VContext} {m} [cwf : c.MLCWF m]
+    {s : VState} {f : Expr → M α} {Q name ty ty' bi}
+    (hty : (c.withMLC m).TrExprS ty ty')
+    (hty' : (c.withMLC m).IsType ty')
+    (H : ∀ id cwf' s', s ≤ s' → ¬s.ngen.Reserves id →
+      M.WF (c.withMLC (.vlam id name ty ty' bi m) (wf := cwf')) s' (f (.fvar id)) Q) :
+    M.WF (c.withMLC m) s (withLocalDecl name bi ty f) Q :=
+  RecM.WF.withLocalDecl (f := fun e => (f e : RecM α)) hty hty' VState.LE.rfl
+    (fun id cwf' s' h1 h2 => M.WF.lift (H id cwf' s' h1 h2)) _
+    (Methods.withFuel.WF (n := 0))
+
+end TypeChecker
+
+/-! ## Inverting the recognizer's shape checks
+
+`checkPrimValue` type-checks the shape `ty` as well as the value, so the branch gets a `TrExprS`
+for the shape.  Inverting it yields both the shape's translation and the facts about `Nat`
+(`TrExprS (.const ``Nat []) .nat`, `IsType .nat`) that the `withLocalDecl`s in `defeq1`/`defeq2`
+need -- in particular that `Nat` is declared with no universe parameters, which `env.contains`
+alone does not give. -/
+
+namespace TypeChecker
+
+variable {c : VContext}
+
+theorem trExprS_const_nil_inv {Δ : VLCtx} {n : Name} {e' : VExpr}
+    (h : TrExprS c.venv c.lparams Δ (.const n []) e') : e' = .const n [] := by
+  let .const _ h2 _ := h
+  simp at h2; subst h2; rfl
+
+theorem trExprS_arrow_inv {Δ : VLCtx} {nm : Name} {A B : Expr} {bi} {e' : VExpr}
+    (h : TrExprS c.venv c.lparams Δ (.forallE nm A B bi) e') :
+    ∃ A' B', e' = .forallE A' B' ∧
+      TrExprS c.venv c.lparams Δ A A' ∧ c.venv.IsType c.lparams.length Δ.toCtx A' ∧
+      TrExprS c.venv c.lparams ((none, .vlam A') :: Δ) B B' :=
+  let .forallE h1 _ h3 h4 := h; ⟨_, _, rfl, h3, h1, h4⟩
+
+/-- The `Nat` facts a branch needs, read off a successful check of a shape whose domain is
+`Nat`. -/
+structure NatFacts (c : VContext) : Prop where
+  tr : c.TrExprS (.const ``Nat []) .nat
+  isType : c.IsType .nat
+
+theorem NatFacts.of_arrow {nm B bi e'}
+    (h : c.TrExprS (.forallE nm (.const ``Nat []) B bi) e') : NatFacts c := by
+  have ⟨_, _, _, h1, h2, _⟩ := trExprS_arrow_inv h
+  cases trExprS_const_nil_inv h1
+  exact ⟨h1, h2⟩
+
+/-- `Nat → Nat`. -/
+theorem trExprS_natArrow1_inv {nm bi e'}
+    (h : c.TrExprS (.forallE nm (.const ``Nat []) (.const ``Nat []) bi) e') :
+    e' = .forallE .nat .nat := by
+  obtain ⟨_, _, rfl, h1, _, h3⟩ := trExprS_arrow_inv h
+  cases trExprS_const_nil_inv h1; cases trExprS_const_nil_inv h3; rfl
+
+/-- `Nat → Nat → Nat`. -/
+theorem trExprS_natArrow2_inv {nm₁ nm₂ bi₁ bi₂ e'}
+    (h : c.TrExprS (.forallE nm₁ (.const ``Nat [])
+      (.forallE nm₂ (.const ``Nat []) (.const ``Nat []) bi₂) bi₁) e') :
+    e' = .forallE .nat (.forallE .nat .nat) := by
+  obtain ⟨_, _, rfl, h1, _, h3⟩ := trExprS_arrow_inv h
+  cases trExprS_const_nil_inv h1
+  obtain ⟨_, _, rfl, h4, _, h5⟩ := trExprS_arrow_inv h3
+  cases trExprS_const_nil_inv h4; cases trExprS_const_nil_inv h5; rfl
+
+/-- `Nat → Nat → Bool`. -/
+theorem trExprS_natArrowBool_inv {nm₁ nm₂ bi₁ bi₂ e'}
+    (h : c.TrExprS (.forallE nm₁ (.const ``Nat [])
+      (.forallE nm₂ (.const ``Nat []) (.const ``Bool []) bi₂) bi₁) e') :
+    e' = .forallE .nat (.forallE .nat .bool) := by
+  obtain ⟨_, _, rfl, h1, _, h3⟩ := trExprS_arrow_inv h
+  cases trExprS_const_nil_inv h1
+  obtain ⟨_, _, rfl, h4, _, h5⟩ := trExprS_arrow_inv h3
+  cases trExprS_const_nil_inv h4; cases trExprS_const_nil_inv h5; rfl
+
+end TypeChecker
+
+/-! ## Building the terms the recognizer compares -/
+
+namespace TypeChecker
+
+variable {c : VContext}
+
+/-- The variable a `withLocalDecl` has just bound. -/
+theorem trExprS_lastFVar {m : MLCtx} {id name ty ty' bi} [cwf : c.MLCWF (.vlam id name ty ty' bi m)] :
+    (c.withMLC (.vlam id name ty ty' bi m)).TrExprS (.fvar id) (.bvar 0) := by
+  refine .fvar (A := ty'.lift) ?_
+  simp [VContext.withMLC, VLCtx.find?, VLCtx.next, VLocalDecl.value, VLocalDecl.type]
+
+theorem hasType_lastFVar {m : MLCtx} {id name ty ty' bi} [cwf : c.MLCWF (.vlam id name ty ty' bi m)] :
+    (c.withMLC (.vlam id name ty ty' bi m)).HasType (.bvar 0) ty'.lift := .bvar .zero
+
+/-- A value known to have type `Nat → A`, applied to one `Nat`. -/
+theorem trExprS_app1 {F a' A : VExpr} {value a : Expr}
+    (hF : c.TrExprS value F) (hFty : c.HasType F (.forallE .nat A))
+    (ha : c.TrExprS a a') (haty : c.HasType a' .nat) :
+    c.TrExprS (mkApp value a) (.app F a') ∧ c.HasType (.app F a') (A.inst a') :=
+  ⟨.app hFty haty hF ha, hFty.app haty⟩
+
+/-- A value known to have type `Nat → Nat → A`, applied to two `Nat`s. -/
+theorem trExprS_app2 {F a' b' A : VExpr} {value a b : Expr}
+    (hF : c.TrExprS value F) (hFty : c.HasType F (.forallE .nat (.forallE .nat A)))
+    (ha : c.TrExprS a a') (haty : c.HasType a' .nat)
+    (hb : c.TrExprS b b') (hbty : c.HasType b' .nat) :
+    c.TrExprS (mkApp2 value a b) (.app (.app F a') b') := by
+  have h1 : c.HasType (.app F a') (.forallE .nat (A.inst a' 1)) := by
+    have := hFty.app haty; rwa [VExpr.inst, VExpr.inst_nat] at this
+  exact .app h1 hbty (.app hFty haty hF ha) hb
+
+/-- The specialisation the `Nat` branches use: the shape is `Nat → Nat → Nat`, so the
+application's type is again `Nat`. -/
+theorem trExprS_app2_nat {F a' b' : VExpr} {value a b : Expr}
+    (hF : c.TrExprS value F) (hFty : c.HasType F (.forallE .nat (.forallE .nat .nat)))
+    (ha : c.TrExprS a a') (haty : c.HasType a' .nat)
+    (hb : c.TrExprS b b') (hbty : c.HasType b' .nat) :
+    c.TrExprS (mkApp2 value a b) (.app (.app F a') b') ∧
+    c.HasType (.app (.app F a') b') .nat := by
+  refine ⟨trExprS_app2 hF hFty ha haty hb hbty, ?_⟩
+  have h1 : c.HasType (.app F a') (.forallE .nat .nat) := by
+    have := hFty.app haty; rwa [VExpr.inst, VExpr.inst_nat, VExpr.inst_nat] at this
+  have := h1.app hbty; rwa [VExpr.inst_nat] at this
+
+theorem trExprS_app2_bool {F a' b' : VExpr} {value a b : Expr}
+    (hF : c.TrExprS value F) (hFty : c.HasType F (.forallE .nat (.forallE .nat .bool)))
+    (ha : c.TrExprS a a') (haty : c.HasType a' .nat)
+    (hb : c.TrExprS b b') (hbty : c.HasType b' .nat) :
+    c.TrExprS (mkApp2 value a b) (.app (.app F a') b') := trExprS_app2 hF hFty ha haty hb hbty
+
+/-- `Nat.succ` applied to a `Nat`. -/
+theorem trExprS_succ {a' : VExpr} {a : Expr} (hprim : c.venv.HasPrimitives)
+    (hnat : c.venv.contains ``Nat) (ha : c.TrExprS a a') (haty : c.HasType a' .nat) :
+    c.TrExprS (mkApp (.const ``Nat.succ []) a) (.app .natSucc a') ∧
+    c.HasType (.app .natSucc a') .nat := by
+  have ⟨h1, h2⟩ := TrExprS.natSucc (Us := c.lparams) (Δ := c.vlctx) hprim hnat
+  refine ⟨.app h2 haty h1 ha, ?_⟩
+  have := h2.app haty; rwa [VExpr.inst_nat] at this
+
+end TypeChecker
+
+/-! ## Moving closed facts under a `withLocalDecl` binder
+
+The recognizer's equations mention the definition's value, which is closed, so weakening it into
+the extended context is the identity on the abstract side. -/
+
+namespace TypeChecker
+
+variable {c : VContext}
+
+theorem TrExprS.weakLam {m : MLCtx} (mwf : c.MLCWF m) {id name ty ty' bi}
+    (cwf : c.MLCWF (.vlam id name ty ty' bi m)) {e : Expr} {e' : VExpr}
+    (h : (c.withMLC m (wf := mwf)).TrExprS e e') (hc : e'.ClosedN 0) :
+    (c.withMLC (.vlam id name ty ty' bi m) (wf := cwf)).TrExprS e e' := by
+  have := h.weakFV c.Ewf
+    (Δ' := (c.withMLC (.vlam id name ty ty' bi m) (wf := cwf)).vlctx)
+    (.skip_fvar _ _ .refl) cwf.1.tr.wf
+  rwa [hc.liftN_eq (Nat.zero_le _)] at this
+
+theorem HasType.weakLam {m : MLCtx} (mwf : c.MLCWF m) {id name ty ty' bi}
+    (cwf : c.MLCWF (.vlam id name ty ty' bi m)) {e' A' : VExpr}
+    (h : (c.withMLC m (wf := mwf)).HasType e' A') (hc : e'.ClosedN 0) (hA : A'.ClosedN 0) :
+    (c.withMLC (.vlam id name ty ty' bi m) (wf := cwf)).HasType e' A' := by
+  have := h.weakN c.Ewf.ordered (n := 1) (k := 0)
+    (Γ' := ty' :: (c.withMLC m (wf := mwf)).vlctx.toCtx) .one
+  rwa [hc.liftN_eq (Nat.zero_le _), hA.liftN_eq (Nat.zero_le _)] at this
+
+/-- `c.mlctx = .nil`, so the base context is empty and everything in it is closed. -/
+theorem closedN_of_nil {e' A' : VExpr} (hnil : c.vlctx = [])
+    (h : c.HasType e' A') : e'.ClosedN 0 ∧ A'.ClosedN 0 := by
+  have := h.closedN' c.Ewf.ordered.closed (Γ := c.vlctx.toCtx) (by rw [hnil]; trivial)
+  rw [hnil] at this
+  exact ⟨this.1, this.2.2⟩
+
+end TypeChecker
+
+namespace TypeChecker
+
+variable {c : VContext}
+
+/-- `M.WF.withLocalDecl` with the ambient context in the form the recognizer's branches meet it
+(`c`, rather than `c.withMLC c.mlctx`). -/
+protected theorem M.WF.withLocalDecl0 {s : VState} {f : Expr → M α} {Q name ty ty' bi}
+    (hty : c.TrExprS ty ty') (hty' : c.IsType ty')
+    (H : ∀ id (cwf' : c.MLCWF (.vlam id name ty ty' bi c.mlctx)) s', s ≤ s' →
+      ¬s.ngen.Reserves id →
+      M.WF (c.withMLC (.vlam id name ty ty' bi c.mlctx) (wf := cwf')) s' (f (.fvar id)) Q) :
+    M.WF c s (withLocalDecl name bi ty f) Q := by
+  have h := M.WF.withLocalDecl (c := c) (m := c.mlctx) (cwf := inferInstance)
+    (ty' := ty') (bi := bi) (name := name) (f := f)
+    (by rwa [VContext.withMLC_self]) (by rwa [VContext.withMLC_self]) H
+  rwa [VContext.withMLC_self] at h
+
+theorem TrExprS.weakLam0 {id name ty ty' bi}
+    (cwf : c.MLCWF (.vlam id name ty ty' bi c.mlctx)) {e : Expr} {e' : VExpr}
+    (h : c.TrExprS e e') (hc : e'.ClosedN 0) :
+    (c.withMLC (.vlam id name ty ty' bi c.mlctx) (wf := cwf)).TrExprS e e' :=
+  TrExprS.weakLam inferInstance cwf (by rwa [VContext.withMLC_self]) hc
+
+theorem HasType.weakLam0 {id name ty ty' bi}
+    (cwf : c.MLCWF (.vlam id name ty ty' bi c.mlctx)) {e' A' : VExpr}
+    (h : c.HasType e' A') (hc : e'.ClosedN 0) (hA : A'.ClosedN 0) :
+    (c.withMLC (.vlam id name ty ty' bi c.mlctx) (wf := cwf)).HasType e' A' :=
+  HasType.weakLam inferInstance cwf (by rwa [VContext.withMLC_self]) hc hA
+
+theorem NatFacts.contains (h : NatFacts c) : c.venv.contains ``Nat :=
+  let .const h1 _ _ := h.tr; ⟨_, h1⟩
+
+theorem NatFacts.weakLam0 {id name ty ty' bi}
+    (cwf : c.MLCWF (.vlam id name ty ty' bi c.mlctx)) (h : NatFacts c) :
+    NatFacts (c.withMLC (.vlam id name ty ty' bi c.mlctx) (wf := cwf)) :=
+  ⟨TrExprS.weakLam0 cwf h.tr trivial,
+   let ⟨_, hu⟩ := h.isType; ⟨_, HasType.weakLam0 cwf hu trivial trivial⟩⟩
+
+theorem trExprS_lastFVar0 {id name ty ty' bi}
+    (cwf : c.MLCWF (.vlam id name ty ty' bi c.mlctx)) :
+    (c.withMLC (.vlam id name ty ty' bi c.mlctx) (wf := cwf)).TrExprS (.fvar id) (.bvar 0) :=
+  trExprS_lastFVar
+
+theorem hasType_lastFVar0 {id name ty ty' bi}
+    (cwf : c.MLCWF (.vlam id name ty ty' bi c.mlctx)) (hc : ty'.ClosedN 0) :
+    (c.withMLC (.vlam id name ty ty' bi c.mlctx) (wf := cwf)).HasType (.bvar 0) ty' := by
+  have := hasType_lastFVar (c := c) (m := c.mlctx) (cwf := cwf) (id := id) (name := name)
+    (ty := ty) (ty' := ty') (bi := bi)
+  rwa [VExpr.lift, hc.liftN_eq (Nat.zero_le _)] at this
+
+end TypeChecker

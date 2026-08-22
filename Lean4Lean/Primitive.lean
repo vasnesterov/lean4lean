@@ -245,6 +245,37 @@ def unfoldNatWellFounded (e : Expr) (fvs : Array Expr) (eq_def : Expr) (fail : �
   unless ← isDefEq rhs rhs' do fail
   return (← getLCtx).mkLambda fvs rhs
 
+/-- Type-check a primitive definition's value, and compare its inferred type with `ty`.
+
+`checkPrimitiveDef` runs *before* `checkConstantVal`, so when the recognizer looks at them
+neither `v.type` nor `v.value` has been type-checked. Handing either to `isDefEq` compares terms
+that may have no translation into the abstract syntax at all, so the comparison carries no
+semantic content -- and worse, `isDefEq` records its verdict in the `EquivManager`, whose
+well-formedness invariant demands that both sides be translatable. A `Nat.pred` declared with
+type `(fun _ : NoSuchType => Nat → Nat) NoSuchValue` used to be accepted here, leaving that redex
+in the `EquivManager` (see `bugs-found.md`). `checkConstantVal` rejected the declaration a moment
+later, so nothing unsound was ever admitted, but the recognizer's postcondition was false.
+
+Both sides are therefore type-checked before anything is compared. The comparison is against the
+*inferred* type of the value rather than the declared `v.type`; `checkConstantVal` separately
+forces `v.type` to agree with that inferred type, so the set of declarations `addDecl` accepts
+does not change -- only which check rejects a bad one first, and hence the error message.
+
+Cost: measured over the work `addDefinition` actually runs (this recognizer followed by the body
+check, in one `M.run`, best of 5 x 40 iterations, all 18 primitives), 62.6 ms here against
+63.4 ms before the change -- neutral, because the body check `addDefinition` performs afterwards
+shares this one's `inferTypeC` entries. The whole recognizer is ~0.07% of the 83 s the Kernel
+Arena's `init` test spends on 53090 declarations. -/
+def checkPrimValue (v : DefinitionVal) (ty : Expr) (fail : ∀ {α}, M α) : M Unit := do
+  _root_.Lean.Kernel.Environment.checkNoMVarNoFVar (← getEnv) v.name v.value
+  _ ← checkType ty
+  unless ← isDefEq (← checkType v.value) ty do fail
+
+/-- `ensureType` with the *checking* type inference. Same reason as `checkPrimValue`: the
+recognizer must not run `inferType`, which assumes its argument is already well-typed, on a term
+it has not checked. -/
+def checkIsType (e : Expr) : M Expr := do ensureSort (← checkType e) e
+
 def checkPrimitiveDef (v : DefinitionVal) : M Bool := do
   unless v.safety == .safe do return false
   let fail {α} : M α := throw <| .other s!"invalid form for primitive def {v.name}"
@@ -277,7 +308,7 @@ def checkPrimitiveDef (v : DefinitionVal) : M Bool := do
   | ``Nat.add =>
     unless env.contains ``Nat && v.levelParams.isEmpty do fail
     -- add : Nat → Nat → Nat
-    unless ← isDefEq v.type q(Nat → Nat → Nat) do fail
+    checkPrimValue v q(Nat → Nat → Nat) fail
     let add := mkApp2 v.value
     -- add x 0 ≡ x
     unless ← defeq1 (fun x => add x zero) (fun x => x) do fail
@@ -286,28 +317,28 @@ def checkPrimitiveDef (v : DefinitionVal) : M Bool := do
   | ``Nat.pred =>
     unless env.contains ``Nat && v.levelParams.isEmpty do fail
     -- pred : Nat → Nat
-    unless ← isDefEq v.type q(Nat → Nat) do fail
+    checkPrimValue v q(Nat → Nat) fail
     let pred := mkApp v.value
     unless ← isDefEq (pred zero) zero do fail
     unless ← defeq1 (fun x => pred (succ x)) (fun x => x) do fail
   | ``Nat.sub =>
     unless env.contains ``Nat && env.contains ``Nat.pred && v.levelParams.isEmpty do fail
     -- sub : Nat → Nat → Nat
-    unless ← isDefEq v.type q(Nat → Nat → Nat) do fail
+    checkPrimValue v q(Nat → Nat → Nat) fail
     let sub := mkApp2 v.value
     unless ← defeq1 (fun x => sub x zero) (fun x => x) do fail
     unless ← defeq2 (fun y x => sub y (succ x)) (fun y x => pred (sub y x)) do fail
   | ``Nat.mul =>
     unless env.contains ``Nat && env.contains ``Nat.add && v.levelParams.isEmpty do fail
     -- mul : Nat → Nat → Nat
-    unless ← isDefEq v.type q(Nat → Nat → Nat) do fail
+    checkPrimValue v q(Nat → Nat → Nat) fail
     let mul := mkApp2 v.value
     unless ← defeq1 (fun x => mul x zero) (fun _ => zero) do fail
     unless ← defeq2 (fun y x => mul y (succ x)) (fun y x => add (mul y x) y) do fail
   | ``Nat.pow =>
     unless env.contains ``Nat && env.contains ``Nat.mul && v.levelParams.isEmpty do fail
     -- pow : Nat → Nat → Nat
-    unless ← isDefEq v.type q(Nat → Nat → Nat) do fail
+    checkPrimValue v q(Nat → Nat → Nat) fail
     let pow := mkApp2 v.value
     unless ← defeq1 (fun x => pow x zero) (fun _ => one) do fail
     unless ← defeq2 (fun y x => pow y (succ x)) (fun y x => mul (pow y x) y) do fail
@@ -315,7 +346,7 @@ def checkPrimitiveDef (v : DefinitionVal) : M Bool := do
     unless env.contains ``Nat && env.contains ``Bool
       && env.contains ``Nat.sub && env.contains ``Nat.ble && v.levelParams.isEmpty do fail
     -- mod : Nat → Nat → Nat
-    unless ← isDefEq v.type q(Nat → Nat → Nat) do fail
+    checkPrimValue v q(Nat → Nat → Nat) fail
     let mod := mkApp2 v.value
     unless ← defeq1 (fun x => mod zero x) (fun _ => zero) do fail
     unless ← isDefEq (← checkType q(@LE.le Nat _)) q(Nat → Nat → Prop) do fail
@@ -342,7 +373,7 @@ def checkPrimitiveDef (v : DefinitionVal) : M Bool := do
     unless env.contains ``Nat && env.contains ``Bool
       && env.contains ``Nat.sub && env.contains ``Nat.ble && v.levelParams.isEmpty do fail
     -- div : Nat → Nat → Nat
-    unless ← isDefEq v.type q(Nat → Nat → Nat) do fail
+    checkPrimValue v q(Nat → Nat → Nat) fail
     let div := mkApp2 v.value
     let c := Condition.natLE; c.check fail (dite := true)
     unless ← isDefEq (← checkType q(@LE.le Nat _)) q(Nat → Nat → Prop) do fail
@@ -365,7 +396,7 @@ def checkPrimitiveDef (v : DefinitionVal) : M Bool := do
   | ``Nat.gcd =>
     unless env.contains ``Nat && env.contains ``Nat.mod && v.levelParams.isEmpty do fail
     -- gcd : Nat → Nat → Nat
-    unless ← isDefEq v.type q(Nat → Nat → Nat) do fail
+    checkPrimValue v q(Nat → Nat → Nat) fail
     withLocalDecl `m .default q(Nat) fun m => do
     withLocalDecl `n .default q(Nat) fun n => do
     let gcd' ← unfoldNatWellFounded v.value #[m, n] q(type_of% Nat.gcd.eq_def) fail
@@ -376,7 +407,7 @@ def checkPrimitiveDef (v : DefinitionVal) : M Bool := do
   | ``Nat.beq =>
     unless env.contains ``Nat && env.contains ``Bool && v.levelParams.isEmpty do fail
     -- beq : Nat → Nat → Bool
-    unless ← isDefEq v.type q(Nat → Nat → Bool) do fail
+    checkPrimValue v q(Nat → Nat → Bool) fail
     let beq := mkApp2 v.value
     unless ← isDefEq (beq zero zero) tru do fail
     unless ← defeq1 (fun x => beq zero (succ x)) (fun _ => fal) do fail
@@ -385,7 +416,7 @@ def checkPrimitiveDef (v : DefinitionVal) : M Bool := do
   | ``Nat.ble =>
     unless env.contains ``Nat && env.contains ``Bool && v.levelParams.isEmpty do fail
     -- ble : Nat → Nat → Bool
-    unless ← isDefEq v.type q(Nat → Nat → Bool) do fail
+    checkPrimValue v q(Nat → Nat → Bool) fail
     let ble := mkApp2 v.value
     unless ← isDefEq (ble zero zero) tru do fail
     unless ← defeq1 (fun x => ble zero (succ x)) (fun _ => tru) do fail
@@ -396,7 +427,7 @@ def checkPrimitiveDef (v : DefinitionVal) : M Bool := do
       && env.contains ``Nat.add && env.contains ``Nat.div && env.contains ``Nat.mod
       && env.contains ``Nat.beq && v.levelParams.isEmpty do fail
     -- bitwise : Nat → Nat → Nat
-    unless ← isDefEq v.type q((Bool → Bool → Bool) → Nat → Nat → Nat) do fail
+    checkPrimValue v q((Bool → Bool → Bool) → Nat → Nat → Nat) fail
     withLocalDecl `f .default q(Bool → Bool → Bool) fun f => do
     withLocalDecl `n .default q(Nat) fun n => do
     withLocalDecl `m .default q(Nat) fun m => do
@@ -419,7 +450,7 @@ def checkPrimitiveDef (v : DefinitionVal) : M Bool := do
     unless env.contains ``Nat && env.contains ``Bool
       && env.contains ``Nat.bitwise && v.levelParams.isEmpty do fail
     -- land : Nat → Nat → Nat
-    unless ← isDefEq v.type q(Nat → Nat → Nat) do fail
+    checkPrimValue v q(Nat → Nat → Nat) fail
     let .app (.const ``Nat.bitwise []) and := v.value | fail
     let and := mkApp2 and
     -- `and : Bool → Bool → Bool`, so the free variable here is a `Bool`
@@ -429,7 +460,7 @@ def checkPrimitiveDef (v : DefinitionVal) : M Bool := do
     unless env.contains ``Nat && env.contains ``Bool
       && env.contains ``Nat.bitwise && v.levelParams.isEmpty do fail
     -- lor : Nat → Nat → Nat
-    unless ← isDefEq v.type q(Nat → Nat → Nat) do fail
+    checkPrimValue v q(Nat → Nat → Nat) fail
     let .app (.const ``Nat.bitwise []) or := v.value | fail
     let or := mkApp2 or
     -- `or : Bool → Bool → Bool`, so the free variable here is a `Bool`
@@ -439,7 +470,7 @@ def checkPrimitiveDef (v : DefinitionVal) : M Bool := do
     unless env.contains ``Nat && env.contains ``Bool
       && env.contains ``Nat.bitwise && v.levelParams.isEmpty do fail
     -- xor : Nat → Nat → Nat
-    unless ← isDefEq v.type q(Nat → Nat → Nat) do fail
+    checkPrimValue v q(Nat → Nat → Nat) fail
     let .app (.const ``Nat.bitwise []) xor := v.value | fail
     let xor := mkApp2 xor
     unless ← isDefEq (xor fal fal) fal do fail
@@ -449,21 +480,21 @@ def checkPrimitiveDef (v : DefinitionVal) : M Bool := do
   | ``Nat.shiftLeft =>
     unless env.contains ``Nat && env.contains ``Nat.mul && v.levelParams.isEmpty do fail
     -- shiftLeft : Nat → Nat → Nat
-    unless ← isDefEq v.type q(Nat → Nat → Nat) do fail
+    checkPrimValue v q(Nat → Nat → Nat) fail
     let shl := mkApp2 v.value
     unless ← defeq1 (fun x => shl x zero) (fun x => x) do fail
     unless ← defeq2 (fun y x => shl x (succ y)) (fun y x => shl (mul two x) y) do fail
   | ``Nat.shiftRight =>
     unless env.contains ``Nat && env.contains ``Nat.div && v.levelParams.isEmpty do fail
     -- shiftRight : Nat → Nat → Nat
-    unless ← isDefEq v.type q(Nat → Nat → Nat) do fail
+    checkPrimValue v q(Nat → Nat → Nat) fail
     let shr := mkApp2 v.value
     unless ← defeq1 (fun x => shr x zero) (fun x => x) do fail
     unless ← defeq2 (fun y x => shr x (succ y)) (fun y x => div (shr x y) two) do fail
   | ``Char.ofNat =>
     unless env.contains ``Nat && v.levelParams.isEmpty do fail
     -- Char : Type
-    _ ← ensureType q(Char)
+    _ ← checkIsType q(Char)
     -- @Char.ofNat : Nat → Char, compared *syntactically*.
     -- The declared type of a primitive is what pins down the constant's meaning, and it is read
     -- off structurally rather than up to defeq, so a defeq-but-differently-shaped type such as
@@ -476,9 +507,9 @@ def checkPrimitiveDef (v : DefinitionVal) : M Bool := do
       && env.contains ``List.nil && env.contains ``List.cons
       && v.levelParams.isEmpty do fail
     -- Char : Type
-    _ ← ensureType q(Char)
+    _ ← checkIsType q(Char)
     -- List Char : Type
-    _ ← ensureType q(List Char)
+    _ ← checkIsType q(List Char)
     -- @List.nil.{0} Char : List Char
     unless ← isDefEq (← checkType q(List.nil (α := Char))) q(List Char) do fail
     -- @List.cons.{0} Char : Char → List Char → List Char

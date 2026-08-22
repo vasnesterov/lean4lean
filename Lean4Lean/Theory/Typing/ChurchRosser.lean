@@ -24,9 +24,27 @@ class Params where
     Subpattern (.app p₁' p₂') p' → Subpattern (.var p₃) p₁ → p₁'.inter p₃ = none
   pat_app_uniq : Pat p r → Pat p' r' → Subpattern (.app p₁ p₂) p →
     Subpattern (.app p₁' p₂') p' → Subpattern p₃ p₁ → Subpattern p₃' p₂' → p₃.inter p₃' = none
+  /--
+  Every `extra` rule of `env` is a `Pat`-registered pattern **under some leading lambdas**.
+
+  The λ-peeling is forced: `VDefEq.lhs` is a closed term, so a rule with parameters is
+  λ-wrapped (`quotDefEq`'s lhs is `fun α r β f c a => Quot.lift α r β f c (Quot.mk r a)`),
+  while `Pattern.Matches` only walks `const`/`app` spines. Without peeling this field is
+  satisfiable only by environments whose every defeq is a bare δ-rule, which is why nothing
+  instantiates `Params`. Peeling leaves `IsDefEq`, `VDefEq`, `Matches`, the `vdefeq`
+  elaborator and `Theory/Quot.lean` untouched; the rejected alternative — storing `VDefEq`
+  in applied form — would force `quotDefEq`, the elaborator and `QuotLemmas.lean` to be
+  re-encoded.
+
+  Note the `Check` obligations are discharged in the *extended* context `Δ.reverse ++ Γ`,
+  which is exactly where the `ParRed.extra` step fires once `ParRed.lams` has wrapped it in
+  `Δ.length` congruences.
+  -/
   extra_pat : env.defeqs df → (∀ l ∈ ls, l.WF uvars) → ls.length = df.uvars →
-    ∃ p r m1 m2, Pat p r ∧ p.Matches (df.lhs.instL ls) m1 m2 ∧ r.2.OK (IsDefEqU env univs Γ) m1 m2 ∧
-    df.rhs.instL ls = r.1.apply m1 m2
+    ∃ Δ L R p r m1 m2,
+      df.lhs.instL ls = VExpr.mkLams Δ L ∧ df.rhs.instL ls = VExpr.mkLams Δ R ∧
+      Pat p r ∧ p.Matches L m1 m2 ∧
+      r.2.OK (IsDefEqU env univs (Δ.reverse ++ Γ)) m1 m2 ∧ R = r.1.apply m1 m2
 
 variable [Params]
 open Params
@@ -546,6 +564,14 @@ protected theorem ParRed.rfl : ∀ {e}, Γ ⊢ e ≫ e
   | .app .. => .app ParRed.rfl ParRed.rfl
   | .lam .. => .lam ParRed.rfl ParRed.rfl
   | .forallE .. => .forallE ParRed.rfl ParRed.rfl
+
+/-- `Δ.length` nested `lam` congruences. This is what turns a λ-peeled `extra_pat` back
+into a reduction of the rule's stored (λ-wrapped) left-hand side. -/
+theorem ParRed.lams {Δ : List VExpr} {L R : VExpr} :
+    ∀ {Γ}, ParRed (Δ.reverse ++ Γ) L R → ParRed Γ (VExpr.mkLams Δ L) (VExpr.mkLams Δ R) := by
+  induction Δ with
+  | nil => exact fun H => H
+  | cons A Δ ih => intro Γ H; exact .lam ParRed.rfl (ih (by simpa using H))
 
 theorem ParRed.weakN (W : Ctx.LiftN n k Γ Γ') (H : Γ ⊢ e1 ≫ e2) :
     Γ' ⊢ e1.liftN n k ≫ e2.liftN n k := by
@@ -1441,6 +1467,9 @@ theorem IsDefEq.church_rosser
   | proofIrrel h1 h2 h3 ih1 ih2 ih3 =>
     exact .normalEq hΓ <| .proofIrrel h1.hasType.1 h2.hasType.1 h3.hasType.1
   | @extra _ _ Γ h1 h2 h3 =>
-    have ⟨_, _, _, _, a1, a2, a3, a4⟩ := extra_pat h1 h2 h3 (Γ := Γ)
-    refine have h := .extra h1 h2 h3; mk h (.tail .rfl (.extra a1 a2 a3 fun _ => .rfl)) .rfl ?_
-    exact a4 ▸ .refl h.hasType.2
+    have h := IsDefEq.extra (Γ := Γ) h1 h2 h3
+    obtain ⟨Δ, L, R, p, r, m1, m2, e1, e2, a1, a2, a3, a4⟩ := extra_pat h1 h2 h3 (Γ := Γ)
+    have hstep : ParRed (Δ.reverse ++ Γ) L R := a4 ▸ ParRed.extra a1 a2 a3 fun _ => .rfl
+    have hlams := ParRed.lams (Δ := Δ) hstep
+    rw [← e1, ← e2] at hlams
+    exact mk h (.tail .rfl hlams) .rfl (.refl h.hasType.2)

@@ -1032,3 +1032,86 @@ parameters -- i.e. the parameters at `nxi + s + nf + q + nm`.  The two agree, wh
 lets D4 identify the telescope `args_ty` supplies with the one the motive's type demands. -/
 theorem VInductDecl'.ih_param_offset {nxi i s nf q nm : Nat} (h : i ≤ nf) :
     nxi + i + (nm + q) + (nf - i + s) = nxi + s + nf + q + nm := by omega
+
+/-! ## The telescope identification D4 needs
+
+Two routes reach the same telescope inside an induction hypothesis:
+
+* `args_ty` supplies `liftTele (nxi+i) X` in the recursive field's own `ξ`-context, which
+  the two weakenings turn into `liftTele d (liftTele off (liftTele (nxi+i) X) (nxi+i)) nxi`;
+* the motive's type supplies `liftTele L (liftTele u X)`, where `L` is the lift `Lookup`
+  assigns to motive `u`.
+
+They agree, and -- pleasantly -- with no closedness hypothesis at all: each side collapses
+by `liftTele_liftTele`, and `ih_param_offset` supplies the arithmetic. -/
+
+theorem VExpr.liftTele_collapse₃ {X : List VExpr} {a off d nxi : Nat} (h : nxi ≤ a + off) :
+    liftTele d (liftTele off (liftTele a X 0) a) nxi = liftTele (a + off + d) X 0 := by
+  rw [liftTele_liftTele (Nat.zero_le _) (by omega),
+    liftTele_liftTele (Nat.zero_le _) (by omega)]
+
+theorem VExpr.liftTele_collapse₂ {X : List VExpr} {u L : Nat} :
+    liftTele L (liftTele u X 0) 0 = liftTele (u + L) X 0 :=
+  liftTele_liftTele (Nat.le_refl _) (by omega)
+
+/-- **The telescope identification.**  `harith` is `ih_param_offset` plus
+`u + (nm - 1 - u) + 1 = nm` (valid for `u < nm`). -/
+theorem VInductDecl'.ih_telescope_eq {X : List VExpr} {a off d nxi u L : Nat}
+    (h : nxi ≤ a + off) (harith : a + off + d = u + L) :
+    liftTele d (liftTele off (liftTele a X 0) a) nxi = liftTele L (liftTele u X 0) 0 := by
+  rw [VExpr.liftTele_collapse₃ h, VExpr.liftTele_collapse₂, harith]
+
+/-! ## `instAll` on a `bvars` spine
+
+Applying a function to a spine `bvars L np ++ bvars 0 ni` and then instantiating the `ni`
+index arguments by genuine terms `π` leaves the parameter block shifted down by `ni` and
+replaces the index block by `π` itself. -/
+
+namespace VExpr
+
+theorem instAll_bvar_ge : ∀ {as : List VExpr} {j k}, k + as.length ≤ j →
+    instAll (.bvar j) as k = .bvar (j - as.length)
+  | [], _, _, _ => by simp
+  | a :: as, j, k, h => by
+    simp only [List.length_cons] at h
+    rw [instAll_cons,
+      show (VExpr.bvar j).inst a (k + as.length) = .bvar (j - 1) from by
+        simp only [inst, instVar, if_neg (show ¬ (j < k + as.length) by omega),
+          if_neg (show ¬ (j = k + as.length) by omega)],
+      instAll_bvar_ge (show k + as.length ≤ j - 1 by omega)]
+    simp only [List.length_cons]
+    congr 1
+    omega
+
+theorem map_instAll_bvars_ge {as : List VExpr} {lo n : Nat} (h : as.length ≤ lo) :
+    (bvars lo n).map (instAll · as 0) = bvars (lo - as.length) n := by
+  induction n with
+  | zero => rfl
+  | succ n ih =>
+    rw [bvars_succ, List.map_cons, ih, bvars_succ,
+      instAll_bvar_ge (show 0 + as.length ≤ lo + n by omega)]
+    congr 2
+    omega
+
+/-- The identity spine, instantiated by `as`, returns `as`. -/
+theorem map_instAll_bvars : ∀ (as : List VExpr),
+    (bvars 0 as.length).map (instAll · as 0) = as
+  | [] => rfl
+  | a :: as => by
+    have h1 : instAll (VExpr.bvar (0 + as.length)) (a :: as) 0 = a := by
+      rw [instAll_cons,
+        show (VExpr.bvar (0 + as.length)).inst a (0 + as.length) = a.liftN as.length 0 from by
+          simp [inst, instVar],
+        instAll_liftN]
+    have h2 : (bvars 0 as.length).map (instAll · (a :: as) 0) = as := by
+      have hc : (bvars 0 as.length).map (instAll · (a :: as) 0)
+          = (bvars 0 as.length).map (instAll · as 0) := by
+        refine List.map_congr_left fun e he => ?_
+        obtain ⟨v, hv, rfl⟩ := mem_bvars.1 he
+        rw [instAll_cons,
+          show (VExpr.bvar (0 + v)).inst a (0 + as.length) = .bvar (0 + v) from by
+            simp only [inst, instVar, Nat.zero_add, if_pos hv]]
+      rw [hc, map_instAll_bvars]
+    rw [List.length_cons, bvars_succ, List.map_cons, h1, h2]
+
+end VExpr

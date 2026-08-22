@@ -629,5 +629,40 @@ example : 0 + 1 + (mutDecl.nm + 2) + (forestCons.fields.length - 1 + 1)
 example : (0 + 1 + forestCons.fields.length + 2 + mutDecl.nm,
       0 + 1 + forestCons.fields.length + 2 + (mutDecl.nm - 1 - 1)) = (7, 5) := rfl
 
+/-! ### The telescope identification, checked against a hand computation
+
+For `Acc.intro`'s recursive field: `X = [α]`, `a = nxi + i = 3`, `off = nm + q = 1`,
+`d = nf - i + s = 1`, `nxi = 2`; and on the other side `u = r.idx = 0`, `L = m_idx + 1 = 5`.
+Route A lifts `[.bvar 1]` to `[.bvar 4]`, then `[.bvar 5]`, then `[.bvar 6]`; route B lifts
+it straight to `[.bvar 6]`.  Both the lemma and the arithmetic are checked. -/
+
+example : liftTele 1 (liftTele 1 (liftTele 3 (accDecl.atRecTele accType.indices) 0) 3) 2
+    = [VExpr.bvar 6] := rfl
+example : liftTele 5 (liftTele 0 (accDecl.atRecTele accType.indices) 0) 0
+    = [VExpr.bvar 6] := rfl
+example : liftTele 1 (liftTele 1 (liftTele 3 (accDecl.atRecTele accType.indices) 0) 3) 2
+    = liftTele 5 (liftTele 0 (accDecl.atRecTele accType.indices) 0) 0 :=
+  VInductDecl'.ih_telescope_eq (by omega) (by omega)
+
+-- the same for `Forest'.cons`'s second recursive field (`s = 1`), where the index
+-- telescope is empty so both routes are trivially `[]`
+example : liftTele 2 (liftTele 4 (liftTele 1 (mutDecl.atRecTele (mutDecl.types[1]!).indices) 0) 1) 0
+    = liftTele 6 (liftTele 1 (mutDecl.atRecTele (mutDecl.types[1]!).indices) 0) 0 :=
+  VInductDecl'.ih_telescope_eq (by omega) (by omega)
+
+/-! ### `instAll` on the recursor's spine
+
+Applying `I` to `bvars L np ++ bvars 0 ni` and then instantiating the `ni` index arguments
+by genuine terms `π` shifts the parameter block down by `ni` and returns `π` itself.  With
+`Acc`'s `π = [y] = [.bvar 1]` and the parameter block at 6: -/
+
+example : (bvars 6 accDecl.np).map (VExpr.instAll · [VExpr.bvar 1] 0)
+    = bvars 5 accDecl.np := VExpr.map_instAll_bvars_ge (by decide)
+example : (bvars 6 accDecl.np).map (VExpr.instAll · [VExpr.bvar 1] 0)
+    = [VExpr.bvar 6, VExpr.bvar 5] := rfl
+example : (bvars 0 accIntroRec.args.length).map (VExpr.instAll · accIntroRec.args 0)
+    = accIntroRec.args := VExpr.map_instAll_bvars _
+example : (bvars 0 1).map (VExpr.instAll · [VExpr.bvar 1] 0) = [VExpr.bvar 1] := rfl
+
 end InductiveDeclExamples
 end Lean4Lean

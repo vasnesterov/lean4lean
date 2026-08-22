@@ -1,4 +1,5 @@
 import Lean4Lean.Theory.VExpr
+import Lean4Lean.Theory.Inductive.Telescope
 
 namespace Lean4Lean
 

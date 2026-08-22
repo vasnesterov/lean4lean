@@ -141,13 +141,67 @@ fields, which is why `Pos`, `posIdx` and `resIdx` all take `a`. (`Pos q a` sees
 all of `a`, including components declared after the recursive field in question;
 harmless — `⟦ξⱼ⟧` ignores them.)
 
-**F8 is vacuous, and `VIndField.WF.pos` is what makes it so.** In the `none`
-branch, `pos` asks only for `∃ A, D.NoBlock A ∧ IsDefEqType … F.type A` — the
-field type is *definitionally* block-free. Since the interpretation is
-defeq-invariant (§4), `⟦F.type⟧` is independent of the family being constructed,
-so `Fld : V → V` is correct as written. Do not weaken `pos` to a syntactic
-`NoBlock`: that would reject types the kernel accepts, and it is also what keeps
-this interface simple.
+### Why `Fld : V → V` is well defined — the joint, spelled out
+
+This is the one place where the two sides of this boundary have to be glued, and
+neither side's own reasoning is sufficient. Stating it here because it was
+previously implicit in two documents at once.
+
+**The problem.** `VIndCtor.WF.fields` types field `i` in the context
+`((C.fields.take i).map (·.type)).reverse ++ D.params.reverse` — over *all*
+earlier fields, recursive ones included. So for a non-recursive field `F`,
+`⟦F.type⟧` is nominally a function of the earlier recursive components too, i.e.
+of elements of the family being constructed. But `Fld : V → V` takes only `q`.
+If that dependence were real, `Fld q` could not be defined before the family
+exists, `indStep` would not be an operator on a fixed carrier, and the whole
+construction in `SetModel/Inductive.lean` would not typecheck. This is design
+item F8.
+
+**The argument, in two steps.** Both are obligations on the syntax side.
+
+1. **`interp_congr` (§4).** `VIndField.WF.pos`, in the `none` branch, asks only
+   for `∃ A, D.NoBlock A ∧ env.IsDefEqType D.uvars Γ F.type A` — the field type
+   is *definitionally* block-free, not syntactically. Only defeq-invariance of
+   the interpretation licenses replacing `F.type` by `A`:
+   `⟦F.type⟧ = ⟦A⟧`. **Without `interp_congr` there is no first step at all**, so
+   `interp_congr` has to be stated and proved before `interpSig_wf` can even be
+   stated. That is why it is an obligation and not hygiene.
+
+2. **`NoBlock.indep` — a second, purely syntactic obligation.**
+   `interp_congr` is *necessary but not sufficient*. Block-freeness of `A` says
+   `A` mentions no constant of the block; it does **not** by itself say that `A`
+   is independent of a *variable* `r` whose type mentions the block. What is
+   needed is:
+
+   > If `A` is block-free and well-typed in a context containing recursive-field
+   > variables, then `⟦A⟧` does not depend on the values at those positions.
+
+   The reason this is true is that at constructor-checking time the block has no
+   eliminator — the recursors are added after all the constructors — so nothing
+   in scope can consume a value of type `I p π`. Any term that did consume `r`
+   would have to be applied to it through a function whose type mentions the
+   block, and such a function is not block-free and cannot be an earlier field
+   (that field's own `pos` would fail). The canonical example is
+   `| mk : (r : T) → (fun _ : T => Nat) r → T`: the second field's stored type
+   mentions both `T` and `r`, but its whnf `Nat` mentions neither, and it is the
+   whnf that `pos` provides.
+
+   This is a real lemma about the syntax, not a corollary of step 1, and it
+   should be proved alongside `interpSig`.
+
+**The escape hatch, if `NoBlock.indep` turns out to be hard or false.**
+Generalise the model side rather than the syntax side: replace `Fld : V → V` by
+a monotone `Fld : V → V → V` taking the current approximation of the family, and
+have `Pos`/`posIdx`/`resIdx` defined on the resulting dependent sum. `indStep`
+stays monotone, so formation (`Ind_mem_U_stage`) and the induction principle
+survive unchanged; what needs redoing is the rank argument for the recursor,
+since the "non-recursive data" `a` would then itself contain family elements.
+Tell the model side if this becomes necessary — it is a bounded change, but not
+a free one.
+
+**Do not weaken `pos` to a syntactic `NoBlock`.** That would make step 2 trivial,
+but it rejects types the kernel accepts (`checkPositivity` applies `hasIndOcc` to
+the whnf), so the spec would no longer refine the kernel.
 
 ### What the model gives back
 
@@ -237,36 +291,55 @@ the soundness theorem against `U κ n`, never against a limit of the sequence.
 
 ## 4. Defeq-invariance is part of the contract
 
-State it at the boundary:
+**Named obligation.** State it at the boundary:
 
 ```lean
-theorem interp_congr (h : env.IsDefEq uvars Γ e e' A) : ⟦e⟧ = ⟦e'⟧
+theorem interp_congr {Γ : List VExpr} {e e' A : VExpr}
+    (h : env.IsDefEq nv Γ e e' A) (ρ : V) (hρ : ρ ∈ interpCtx M L Γ) :
+    (interp M L Γ e).toFun ρ = (interp M L Γ e').toFun ρ
 ```
 
-rather than deriving it downstream. Two reasons.
+rather than deriving it downstream. Three reasons, in decreasing order of how
+much trouble skipping it causes.
 
-* The model *needs* it, and needs it early. §2's F8 argument is exactly an
-  appeal to it: `VIndField.WF.pos` gives only definitional block-freeness, so
-  `⟦F.type⟧` is well-defined as an `X`-independent set only because defeq terms
-  interpret equally.
-* Almost every model-side step replaces a type by a definitionally equal one —
-  `VIndType.WF.canon`, `VIndCtor.WF.params_eq`, and the `IsDefEqType` clauses
-  throughout `VIndField.WF` all hand the model a `≈` where it wants an `=`. If
-  invariance is a downstream lemma, every one of those becomes a separate
-  obligation.
+* **`interpSig` is not well defined without it.** §2's `Fld : V → V` is the
+  case: `VIndField.WF.pos` gives only *definitional* block-freeness, so the very
+  first step of showing `Fld q` independent of the family is an appeal to
+  `interp_congr`. Consequently `interp_congr` must be stated and proved **before
+  `interpSig_wf` can be stated at all** — it is not a downstream convenience.
+* **Almost every model-side step replaces a type by a definitionally equal
+  one.** `VIndType.WF.canon`, `VIndCtor.WF.params_eq`, and every `IsDefEqType`
+  clause in `VIndField.WF` hand the model a `≈` where it wants an `=`. Without
+  invariance each becomes a separate obligation.
+* **The interpretation's own case splits must be stable under `≡`.** Proof
+  splitting decides `app`/`lam`/`forallE` on `lvl` and `sort`; for the
+  congruence cases of soundness those decisions must agree on both sides of a
+  `≡`. That is `LevelAssign.lvl_congr` and `LevelAssign.srt_congr` in
+  `SetModel/Interp.lean` — both already proved there, from `LevelAssign` alone.
 
 Practically this means the interpretation should be defined on the *judgement*,
 or defined on terms with `interp_congr` proved by the same induction that proves
-totality — not bolted on afterwards.
+soundness — not bolted on afterwards. In Carneiro it is parts 3 and 4 of the
+soundness theorem (`soundness.tex:216`), proved by one induction; part 4 *is*
+`interp_congr`.
 
 ---
 
 ## What the model still needs from the syntax side
 
-Only the interpretation itself. It is blocked on Carneiro's proof-splitting,
-which needs the `lvl`/`sort` functions, which need unique typing — i.e. on
-`Theory/Typing/Injectivity.lean`. Nothing on the set-theoretic side is
-outstanding.
+The interpretation `⟦Γ ⊢ e⟧` is now **defined** — see `SetModel/Interp.lean` —
+relative to a `LevelAssign`, which packages exactly Carneiro's `lvl`/`sort`
+lemma. What remains from the syntax side is:
+
+1. **`IsDefEqU.sort_inv`**, which is all a `LevelAssign` needs. Notably *not*
+   `IsDefEqU.forallE_inv` or `IsDefEqU.sort_forallE_inv`: the interpretation's
+   definition uses neither.
+2. **`interp_congr`** (§4) and **`NoBlock.indep`** (§2), the two obligations that
+   make `interpSig` well defined.
+3. The constant assignment `ModelData.cnst` and its coherence with `env.defeqs`,
+   by induction over the declaration list.
+
+Nothing on the set-theoretic side is outstanding.
 
 ## Where things live
 
@@ -279,4 +352,5 @@ outstanding.
 | `SetModel/Inductive.lean` | `IndSignature`, `Ind`, constructors, recursor, ι-rule |
 | `SetModel/IndStage.lean` | `IsStageSignature`, the carrier discharged, the `…_stage` forms |
 | `SetModel/IndCard.lean` | `Ind_mem_vsetV` / `Ind_mem_U_stage` |
+| `SetModel/Interp.lean` | `LevelAssign`, `interp`, `interpCtx`, proof splitting |
 | `docs/foundation-gaps.md` | what Foundation is missing, and the `isDefEq` hazard |
