@@ -990,27 +990,31 @@ splits by `VDecl`:
 | `.axiom ci` | supplied by `AxiomsValidated` | `coherentOn_addConst` |
 | `.def`, `.opaque`, `.example`, `.mutualDef` | `⟦ci.value⟧` at the earlier stage | `coherentOn_addConst` + `coherentOn_addDefEq`, plus **soundness at the earlier environment** |
 | `.quot` | `Quot`, `Quot.mk`, `Quot.lift`, `Quot.ind` and `quotDefEq` | same; `addQuot` is concrete, model side in `SetModel/Universe.lean` |
-| `.induct` | the constants `addInduct` introduces | **blocked** |
+| `.induct` | the constants `addInduct'` introduces | `coherentOn_addConst` + `coherentOn_addDefEq`, plus the model side below |
 
-Two things are still missing, and neither is in this file.
+One thing is still missing, and it is not in this file.
 
-**1. `.induct` is blocked upstream.** `VEnv.addInduct` and `VInductDecl.WF` are
-still `sorry` *definitions* in `Theory/Inductive.lean`, so the environment after
-an inductive declaration is opaque and there is nothing to assign values to. The
-set-theoretic side is ready and waiting — `SetModel/IndStage.lean` and
-`SetModel/IndCard.lean` give the family, its constructors, its recursor and its
-ι-rule, all as members of the stage — but it cannot be connected until the
-abstract spec exists.
-
-**2. Soundness and coherence have to be proved together.** The `.def` step must
+**Soundness and coherence have to be proved together.** The `.def` step must
 show that the body's denotation inhabits the declared type, and that is
 soundness applied to `VDefVal.WF`'s `HasType env ci.uvars [] ci.value ci.type`.
 So the outer induction on the declaration list runs the thirteen-case induction
 at each stage, against the coherence already established for that stage, and
 then extends it with the step lemmas. This is not circular — each use of
 soundness is at a strictly earlier environment — but it does mean the thirteen
-cases have to be assembled into a single `Sound` theorem *before* `cnst` can be
-finished, rather than after.
+cases have to be assembled into a single `Sound` theorem (`SoundInduction.lean`)
+*before* `cnst` can be finished, rather than after.
+
+**The `.induct` case is no longer blocked.** `Theory/Inductive.lean`'s two
+`sorry` definitions are gone; `VDecl.induct` carries `VInductDecl'` and
+`VDecl.WF` uses `env.addInduct'`, both complete (`Theory/Inductive/Decl.lean`).
+The model side has been ready: `SetModel/IndStage.lean` and
+`SetModel/IndCard.lean` give the family, its constructors, its recursor and its
+ι-rule, all as members of the right stage. What remains is to match the two
+shapes up. One thing to watch when that is done: the elimination universe is
+*not* uniform across inductives — a small eliminator such as `Nonempty` fails
+large elimination and its recursor takes one universe parameter where `Eq`'s
+takes two, so a `.induct` case that quantifies the motive's universe uniformly
+will be wrong exactly there.
 -/
 /-!
 ## Ledger: what soundness consumes, case by case

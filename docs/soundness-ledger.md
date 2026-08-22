@@ -230,7 +230,90 @@ impredicativity and it is what makes the bound tight rather than merely finite.
 | `IsDefEqU.forallE_inv` | — | **not needed** |
 | `IsDefEqU.sort_forallE_inv` | — | **not needed** |
 
+## The induction is assembled — `SetModel/SoundInduction.lean`
+
+All thirteen cases are now tied together. `soundAbove` is proved, sorry-free,
+axioms `[propext, Classical.choice, Quot.sound]`, along with two corollaries:
+`sound` (from the ordinary judgement) and `sound_nil` (at the empty context,
+the form the coherence induction consumes).
+
+Three things had to change to make the induction go through, and each is a fact
+about the *statement*, found by attempting the proof.
+
+### 1. `Sound` carries two parts, not four
+
+Parts 1 and 2 are corollaries, and now literally so:
+
+* **Part 1 from part 3.** If the type is `.sort u` with `u` evaluating to `0`
+  then `⟦A⟧ρ = U κ 0 = ℘{•}`, so `⟦e⟧ρ ∈ ⟦A⟧ρ` *is* `⟦e⟧ρ ⊆ {•}`.
+  (`Sound.prop`.)
+* **Part 2 from parts 1 and 3.** (`Sound.proof`.)
+
+The guard on part 1 also had to move. It was `L.IsProp M Γ e`; but `L.lvl Γ e` is
+total, so it returns junk at terms that are not types and `L.IsProp` is
+junk-satisfiable — a field guarded that way is unprovable at those instances.
+The guard is now on the *judgement*: `A = .sort u` with `u` evaluating to `0`.
+Every rule that needs part 1 carries exactly such a premise.
+
+A consequence worth noting: `Sound.symm` is three lines, because part 3 for the
+right-hand side follows from part 4 and part 3 for the left. The `symm` rule of
+the induction is a one-liner.
+
+### 2. The induction runs on `IsDefEqStrong`, and that removes two `sorry`s
+
+`appDF` has to know whether `B` is a proposition — that is the branch `interp`
+takes — which means it needs `A::Γ ⊢ B : .sort v`. From plain `IsDefEq.appDF`
+that is `forallE_inv`. `IsDefEqStrong` (`Theory/Typing/Strong.lean`) carries it
+as a premise, and `IsDefEq.strong` converts, needing only `Ordered env` and a
+well-formed context. **`Strong.lean` is sorry-free.**
+
+So the ledger's headline is now stronger than it was:
+
+> Soundness consumes **no** injectivity fact at all. `sort_inv` is spent on
+> constructing `LevelAssign`, and nowhere else. `forallE_inv` and
+> `sort_forallE_inv` are not needed even indirectly.
+
+`IsDefEqStrong` also hands over `A'::Γ ⊢ body ≡ body' : B` in `lamDF`, which is
+what the context-conversion hypothesis needs, and the full sort data for `beta`
+and `eta`.
+
+### 3. The universe bound is a threshold, not a property of the judgement
+
+`SoundBound` bounded the levels of the *conclusion*. That cannot work, and the
+counterexample is small: in `appDF` the domain `A` does not occur in the
+conclusion at all, so
+
+```
+f : A → B     with  A : Sort 100,  B : Prop
+```
+
+has a conclusion whose levels are all `≤ 1` and a subderivation that needs the
+100th inaccessible. No bound on the conclusion is inherited by the premises.
+
+Nor can the bound be moved onto `L`: `L.lvl Γ (.sort k) = k+1` for every `k`, so
+no single `n` bounds a fixed environment's assignment. The bound is
+irreducibly per-derivation.
+
+What is true is that a derivation mentions finitely many levels. `SoundAbove`
+says exactly that:
+
+```
+∃ m : ℕ, IsInaccessibleChain m M.κ → Sound M L Γ e₁ e₂ A
+```
+
+The threshold is produced by the induction — each case takes the maximum of its
+premises' thresholds and the levels the rule itself names. The `∃` is over
+derivations and stands *outside* the quantification over models, so this is the
+schema form, not an `∃ k` about the model. Inheritance is then free, which is
+what makes the induction possible at all.
+
+The bound is still spent in exactly the two places the earlier analysis
+identified: `sortDF` (threshold `l.eval ls + 1`) and `forallEDF`'s type branch
+(threshold `max u.eval v.eval`). Every other case contributes nothing of its
+own.
+
 ## The non-injectivity obligations — the handoff specification
+
 
 This is the list of everything a `LevelAssign` / `ModelData` construction owes,
 i.e. what has to be supplied before soundness is unconditional. None of it is an
@@ -240,7 +323,7 @@ injectivity fact.
 |---|---|---|
 | `LevelAssign.lvl_sound`, `srt_sound` | `Interp.lean` | the assignment agrees with the typing rules — this *is* `sort_inv`, in functional form |
 | `LevelAssign.Stable` (4 fields) | `InterpSubst.lean` | the assignment commutes with weakening and substitution |
-| `CtxInvariant` | `InterpSound.lean` | the assignment cannot distinguish definitionally equal contexts |
+| `CtxInvariant L R` + `R (A'::Γ) (A::Γ)` for `A ≡ A'` | `InterpSound.lean`, `SoundInduction.lean` | the assignment cannot distinguish definitionally equal contexts |
 | `ModelData.Coherent` (3 fields) | `InterpSound.lean` | constants inhabit their types; `env.defeqs` holds in the model |
 | `AxiomsValidated` | `InterpSound.lean` | **new** — each axiom in the declaration list has an inhabited type in the model |
 
@@ -338,24 +421,16 @@ because `Theory/Typing/` is owned by another stream; it would be at home next to
 
 1. **`IsDefEqU.sort_inv`** — gives `LevelAssign`, hence the interpretation.
    Single `sorry`, highest value in the project.
-2. **`VEnv.addInduct` / `VInductDecl.WF`** — `sorry` *definitions* in
-   `Theory/Inductive.lean`. These now block `cnst` too, not just the typing
-   stream: the `.induct` case of the induction has to say what values the
-   constants an inductive declaration introduces receive, and until `addInduct`
-   is a definition the post-declaration environment is opaque and there is
-   nothing to assign to. The set-theoretic side is finished and waiting —
-   `SetModel/IndStage.lean` and `SetModel/IndCard.lean` supply the family, its
-   constructors, its recursor and its ι-rule, all as members of the stage.
-3. **Assembling the thirteen soundness cases into one `Sound` theorem.** This
-   turned out to be a prerequisite for `cnst`, not a successor to it. The `.def`
-   step has to show the body's denotation inhabits the declared type, and that
-   is soundness applied to `VDefVal.WF`'s `HasType env ci.uvars [] ci.value
-   ci.type`. So soundness and coherence are proved *together*, by the outer
-   induction on the declaration list: at each stage, the thirteen-case induction
-   runs against the coherence already established for that environment, and then
-   the step lemmas extend it. This is not circular, but it does mean the two
-   cannot be finished independently.
-4. **`ModelData.cnst` and `ModelData.Coherent`** — an induction over the
+2. **Connecting the `.induct` case.** No longer blocked: `VDecl.induct`
+   carries `VInductDecl'` and `VDecl.WF` uses `env.addInduct'`, both complete
+   (`Theory/Inductive/Decl.lean`). The set-theoretic side has been finished and
+   waiting — `SetModel/IndStage.lean` and `SetModel/IndCard.lean` supply the
+   family, its constructors, its recursor and its ι-rule, all as members of the
+   right stage. What remains is matching the two shapes up. Watch the
+   elimination universe: it is not uniform across inductives — a small
+   eliminator such as `Nonempty` fails large elimination and its recursor takes
+   one universe parameter where `Eq`'s takes two.
+3. **`ModelData.cnst` and `ModelData.Coherent`** — an induction over the
    declaration list, which `VEnv.WF'` already orders. This is where the
    well-foundedness that Carneiro's `|c| = |e| + 1` clause needs actually lives;
    displacing it here is what made the term recursion in `SetModel/Interp.lean`
@@ -370,8 +445,9 @@ because `Theory/Typing/` is owned by another stream; it would be at home next to
    | `.quot` | `Quot`, `Quot.mk`, `Quot.lift`, `Quot.ind` and `quotDefEq` | ready — `addQuot` is concrete, model side in `Universe.lean` |
    | `.induct` | whatever `addInduct` introduces | blocked on item 2 |
 
-   The step is proved (`coherentOn_addConst`, `coherentOn_addDefEq`); what
-   remains is the outer recursion, blocked on items 2 and 3. Two further lemmas
+   The step is proved (`coherentOn_addConst`, `coherentOn_addDefEq`) and so is
+   soundness (`SoundInduction.lean`), which the `.def` step consumes at a
+   strictly earlier environment; what remains is the outer recursion. Two further lemmas
    were built this stage, both proved in `InterpSound.lean`:
 
    * **`interp_cnst_congr`** — the interpretation is environment-independent in a
@@ -383,5 +459,5 @@ because `Theory/Typing/` is owned by another stream; it would be at home next to
      to any smaller one, so a single `L` for the final environment can be fixed
      up front and reused at every stage, rather than rebuilt.
 
-   Item 4 is independent of item 1 and of the injectivity stream; it is *not*
-   independent of items 2 and 3.
+   Item 3 is independent of item 1 and of the injectivity stream; it is *not*
+   independent of item 2. Soundness — its other prerequisite — is now done.
