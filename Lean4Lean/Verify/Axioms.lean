@@ -35,8 +35,26 @@ noncomputable def toList' (arr : PersistentArray α) : List α :=
 
 @[simp] theorem toList'_empty : (.empty : PersistentArray α).toList' = [] := rfl
 
-/-- We cannot prove this because `insertNewLeaf` is partial -/
-@[simp] axiom toList'_push {α} (arr : PersistentArray α) (x : α) :
+/--
+We cannot prove this because `insertNewLeaf` is partial.
+
+The previous statement of this axiom (without the `WF` hypothesis) was **false**:
+`insertNewLeaf`'s last clause is `| n, _, _, _ => n  -- unreachable`, which is
+reached whenever the root is a `leaf`, and `mkNewTail` then also resets
+`tail := #[]`, silently discarding the whole 32-element tail.
+
+Counterexample:
+```
+def bad : PersistentArray Nat :=
+  { root := .leaf #[], tail := Array.replicate 31 (7:Nat),
+    size := 31, shift := 5, tailOff := 0 }
+-- (bad.push 99).toList' = []
+-- bad.toList' ++ [99]   = [7,7,…,7,99]   (32 elements)
+```
+`bad` is of course not `WF`, and `WF` is exactly the hypothesis that rules this
+out.  See `docs/axiom-audit.md` §5.3.
+-/
+@[simp] axiom WF.toList'_push {α} {arr : PersistentArray α} (h : WF arr) (x : α) :
     (arr.push x).toList' = arr.toList' ++ [x]
 
 @[simp] theorem size_empty : (.empty : PersistentArray α).size = 0 := rfl
@@ -46,7 +64,9 @@ noncomputable def toList' (arr : PersistentArray α) : List α :=
   simp [push]; split <;> [rfl; (simp [mkNewTail]; split <;> rfl)]
 
 @[simp] theorem WF.toList'_length (h : WF arr) : arr.toList'.length = arr.size := by
-  induction h <;> simp [*]
+  induction h with
+  | empty => simp
+  | push h ih => simp [h.toList'_push, ih]
 
 end PersistentArray
 

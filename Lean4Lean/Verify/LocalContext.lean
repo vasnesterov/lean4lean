@@ -140,6 +140,7 @@ theorem WF.map_toList : WF lctx →
   | .nil => by simp [LocalContext.toList]
   | .cons h1 h2 _ h4 => by
     subst h1; simp [LocalContext.toList]
+    rw [h4.decls_wf.toList'_push]; simp
     refine h4.map_wf.toList'_insert _ _ |>.trans (.cons _ ?_)
     rw [List.filter_eq_self.2]; · exact h4.map_toList
     simp; rintro _ b h rfl
@@ -157,7 +158,7 @@ theorem WF.nodup : WF lctx → (lctx.toList.map (·.fvarId)).Nodup
   | .cons h1 h2 h3 h4 => by
     have := h4.nodup
     have := h4.find?_eq_find?_toList.symm.trans h2
-    simp_all [toList]
+    simp_all [toList, h4.decls_wf.toList'_push]
     simpa [eq_comm] using this
 
 protected theorem WF.mkLocalDecl
@@ -168,15 +169,19 @@ protected theorem WF.mkLetDecl
     (h1 : WF lctx) (h2 : lctx.find? fv = none) : WF (lctx.mkLetDecl fv name ty val bi kind) :=
   .cons rfl h2 rfl h1
 
-@[simp] theorem mkLocalDecl_toList {lctx : LocalContext} :
+/-- The `lctx.decls.WF` hypothesis is required: `PersistentArray.push` only appends
+to `toList'` on well-formed arrays. See `docs/axiom-audit.md` §5.3. -/
+theorem mkLocalDecl_toList {lctx : LocalContext} (h : lctx.decls.WF) :
     (lctx.mkLocalDecl fv name ty bi kind).toList =
     .cdecl lctx.decls.size fv name ty bi kind :: lctx.toList := by
-  simp [mkLocalDecl, toList]
+  simp [mkLocalDecl, toList, h.toList'_push]
 
-@[simp] theorem mkLetDecl_toList {lctx : LocalContext} :
+/-- The `lctx.decls.WF` hypothesis is required: `PersistentArray.push` only appends
+to `toList'` on well-formed arrays. See `docs/axiom-audit.md` §5.3. -/
+theorem mkLetDecl_toList {lctx : LocalContext} (h : lctx.decls.WF) :
     (lctx.mkLetDecl fv name ty val bi kind).toList =
     .ldecl lctx.decls.size fv name ty val bi kind :: lctx.toList := by
-  simp [mkLetDecl, toList]
+  simp [mkLetDecl, toList, h.toList'_push]
 
 end Lean.LocalContext
 
@@ -320,7 +325,8 @@ theorem TrLCtx.mkLocalDecl
     (h4 : env.IsType Us.length Δ.toCtx ty') :
     TrLCtx env Us (lctx.mkLocalDecl fv name ty bi kind)
       ((some (fv, ty.fvarsList), .vlam ty') :: Δ) :=
-  ⟨h1.1.mkLocalDecl h2, by simpa using .cons h1.2 (.vlam h3 h4)⟩
+  ⟨h1.1.mkLocalDecl h2, by
+    simpa [LocalContext.mkLocalDecl_toList h1.1.decls_wf] using .cons h1.2 (.vlam h3 h4)⟩
 
 theorem TrLCtx.mkLetDecl
     (h1 : TrLCtx env Us lctx Δ) (h2 : lctx.find? fv = none)
@@ -328,4 +334,5 @@ theorem TrLCtx.mkLetDecl
     (h5 : env.HasType Us.length Δ.toCtx val' ty') :
     TrLCtx env Us (lctx.mkLetDecl fv name ty val bi kind)
       ((some (fv, ty.fvarsList ++ val.fvarsList), .vlet ty' val') :: Δ) :=
-  ⟨h1.1.mkLetDecl h2, by simpa using .cons h1.2 (.vlet h3 h4 h5)⟩
+  ⟨h1.1.mkLetDecl h2, by
+    simpa [LocalContext.mkLetDecl_toList h1.1.decls_wf] using .cons h1.2 (.vlet h3 h4 h5)⟩
