@@ -1369,7 +1369,7 @@ discharged by the descent's own `NormalEq` facts.  One round, no recursion. -/
 
 /-- Reduce a matched term's arguments in place.  The spine is untouched, so the result still
 matches the same pattern, with the reduced arguments. -/
-theorem Pattern.Matches.parRed_leaves {Γ : List VExpr} :
+theorem parRed_of_matches {Γ : List VExpr} :
     ∀ {q : Pattern} {g : VExpr} {m1 : q.LPath → List VLevel} {m2 m2' : q.Path → VExpr},
       q.Matches g m1 m2 → (∀ x, Γ ⊢ m2 x ≫ m2' x) →
       ∃ g', Γ ⊢ g ≫ g' ∧ q.Matches g' m1 m2'
@@ -1377,13 +1377,13 @@ theorem Pattern.Matches.parRed_leaves {Γ : List VExpr} :
       have : m2' = nofun := funext nofun
       subst this; exact .const⟩
   | .var q, _, _, _, m2', .var h, hr => by
-    obtain ⟨g', h1, h2⟩ := parRed_leaves h (m2' := fun x => m2' (some x)) (fun x => hr (some x))
+    obtain ⟨g', h1, h2⟩ := parRed_of_matches h (m2' := fun x => m2' (some x)) (fun x => hr (some x))
     refine ⟨.app g' (m2' none), .app h1 (hr none), ?_⟩
     have : m2' = (·.elim (m2' none) fun x => m2' (some x)) := funext fun x => by cases x <;> rfl
     rw [this]; exact .var h2
   | .app q₁ q₂, _, _, _, m2', .app h1 h2, hr => by
-    obtain ⟨g1, a1, b1⟩ := parRed_leaves h1 (m2' := fun x => m2' (.inl x)) (fun x => hr (.inl x))
-    obtain ⟨g2, a2, b2⟩ := parRed_leaves h2 (m2' := fun x => m2' (.inr x)) (fun x => hr (.inr x))
+    obtain ⟨g1, a1, b1⟩ := parRed_of_matches h1 (m2' := fun x => m2' (.inl x)) (fun x => hr (.inl x))
+    obtain ⟨g2, a2, b2⟩ := parRed_of_matches h2 (m2' := fun x => m2' (.inr x)) (fun x => hr (.inr x))
     refine ⟨.app g1 g2, .app a1 a2, ?_⟩
     have : m2' = Sum.elim (fun x => m2' (.inl x)) (fun x => m2' (.inr x)) :=
       funext fun x => by cases x <;> rfl
@@ -1418,15 +1418,32 @@ theorem _root_.Lean4Lean.Pattern.Check.OK.congr_defeq {p : Pattern} (ck : p.Chec
   have hb := IsDefEqU.apply_pat hΓ hd hT.hasType.2
   exact (ha.symm.trans henv hΓ ⟨_, hT⟩).trans henv hΓ hb
 
-/-- **`parRed`'s `appDF` × `extra` case, given the descent.**  Sorry-free; the only remaining
-obligation is `descent`, whose statement belongs with its two escapes (`etaL` at a spine node,
-which makes the left term a β-redex — scoping item E4 — and the argument-side conditions —
-E5), since those determine its shape.  `NormalEq.appDF_proofIrrel` above is the third escape,
-already discharged. -/
+/-- **`parRed`'s `appDF` × `extra` case, given the descent.**  Sorry-free.
+
+Note what `descent` may *not* assume: that the left term matches at the **same** level lists.
+`NormalEq.constDF` relates `.const c ls` to `.const c ls'` with only `ls ≈ ls'`, while
+`Matches` pins the list exactly (`cases` on `Matches (.const c) (.const c ls') (fun _ => ls) _`
+forces `ls = ls'`).  So a descent returning the original `m1` is unsatisfiable as soon as the
+spine's head is related by `constDF` — the first version of this lemma asked for exactly that
+and was vacuous.  The interface therefore returns a fresh `n1'` with
+`Forall₂ (· ≈ ·) (n1' lp) (n1 lp)`, and the level drift is absorbed here by
+`Check.OK.map_levels` on the way in and `NormalEq.apply_instL` on the way out.  The two
+`WF` outputs are there because `apply_instL` needs both lists well-formed and `constDF`
+carries both facts already.
+
+The remaining obligation is `descent` itself, whose statement belongs with its escapes —
+`etaL` at a spine node (which makes the left term a β-redex: scoping item E4) and the
+argument-side conditions (E5) — since those determine its shape.
+`NormalEq.appDF_proofIrrel` above is the third escape, already discharged. -/
 theorem NormalEq.appDF_extra_of_descend {Γ : List VExpr} {f A B a b f₂ : VExpr}
-    (descent : ∀ {q : Pattern} {g g' : VExpr} {n1 : q.LPath → List VLevel}
-      {n2 : q.Path → VExpr}, Γ ⊢ g ≡ₚ g' → q.Matches g' n1 n2 →
-      ∃ n, q.Matches g n1 n ∧ ∀ x, Γ ⊢ n x ≡ₚ n2 x)
+    (descent : ∀ {q : Pattern} {g g' : VExpr}
+      {n1 : q.LPath → List VLevel} {n2 : q.Path → VExpr},
+      Γ ⊢ g ≡ₚ g' → q.Matches g' n1 n2 →
+      ∃ n1' n, q.Matches g n1' n ∧
+        (∀ lp, List.Forall₂ (· ≈ ·) (n1' lp) (n1 lp)) ∧
+        (∀ lp, ∀ l ∈ n1' lp, VLevel.WF univs l) ∧
+        (∀ lp, ∀ l ∈ n1 lp, VLevel.WF univs l) ∧
+        (∀ x, Γ ⊢ n x ≡ₚ n2 x))
     (hΓ : OnCtx Γ (IsType env univs))
     (l1 : Γ ⊢ f : .forallE A B) (l3 : Γ ⊢ a : A)
     (ih1 : ∀ {e₂'}, Γ ⊢ f₂ ≫ e₂' → ∃ e₁', Γ ⊢ f ≫* e₁' ∧ Γ ⊢ e₁' ≡ₚ e₂')
@@ -1440,28 +1457,65 @@ theorem NormalEq.appDF_extra_of_descend {Γ : List VExpr} {f A B a b f₂ : VExp
   | var h => exact absurd r1 Params.pat_not_var
   | @app q₁ _ f1 g1 q₂ _ f2 g2 h1 h2 =>
     obtain ⟨f₂', hpf, hmf⟩ :=
-      Pattern.Matches.parRed_leaves h1 (m2' := fun x => m2' (.inl x)) (fun x => r4 (.inl x))
+      parRed_of_matches h1 (m2' := fun x => m2' (.inl x)) (fun x => r4 (.inl x))
     obtain ⟨b', hpb, hmb⟩ :=
-      Pattern.Matches.parRed_leaves h2 (m2' := fun x => m2' (.inr x)) (fun x => r4 (.inr x))
+      parRed_of_matches h2 (m2' := fun x => m2' (.inr x)) (fun x => r4 (.inr x))
     obtain ⟨tf, hf1, hf2⟩ := ih1 hpf
     obtain ⟨ta, ha1, ha2⟩ := ih2 hpb
-    obtain ⟨n1, hn1, hn1'⟩ := descent hf2 hmf
-    obtain ⟨n2, hn2, hn2'⟩ := descent ha2 hmb
+    obtain ⟨f1', n1, hn1, hlv1, hw1', hw1, hn1'⟩ := descent hf2 hmf
+    obtain ⟨f2', n2, hn2, hlv2, hw2', hw2, hn2'⟩ := descent ha2 hmb
     have hne : ∀ x, Γ ⊢ Sum.elim n1 n2 x ≡ₚ m2' x := by
       rintro (x|x)
       · exact hn1' x
       · exact hn2' x
+    have hlv : ∀ lp, List.Forall₂ (· ≈ ·) (Sum.elim f1' f2' lp) (Sum.elim f1 f2 lp) := by
+      rintro (x|x)
+      · exact hlv1 x
+      · exact hlv2 x
+    have flipeq : ∀ {l1 l2 : List VLevel},
+        List.Forall₂ (· ≈ ·) l1 l2 → List.Forall₂ (· ≈ ·) l2 l1 := by
+      intro l1 l2 h
+      induction h with
+      | nil => exact .nil
+      | cons h _ ih => exact .cons h.symm ih
+    have hlvs : ∀ lp, List.Forall₂ (· ≈ ·) (Sum.elim f1 f2 lp) (Sum.elim f1' f2' lp) :=
+      fun lp => flipeq (hlv lp)
+    have hwA : ∀ lp, ∀ l ∈ Sum.elim f1' f2' lp, VLevel.WF univs l := by
+      rintro (x|x)
+      · exact hw1' x
+      · exact hw2' x
+    have hwB : ∀ lp, ∀ l ∈ Sum.elim f1 f2 lp, VLevel.WF univs l := by
+      rintro (x|x)
+      · exact hw1 x
+      · exact hw2 x
     have hck : Pattern.Check.OK (IsDefEqU env univs Γ) (p := q₁.app q₂)
-        (Sum.elim f1 f2) (Sum.elim n1 n2) r.snd :=
-      Pattern.Check.OK.congr_defeq hΓ _ (fun x _ hty => by
-        have hd : Γ ⊢ Sum.elim g1 g2 x ≡ m2' x := ⟨_, (r4 x).defeq hΓ hty⟩
-        exact hd.trans henv hΓ ((hne x).defeq hΓ).symm) r3
+        (Sum.elim f1' f2') (Sum.elim n1 n2) r.snd := by
+      refine r3.map_levels (fun x i y j hl => ?_) (fun u v h => ?_)
+      · exact ((VLevel.forall₂_getD (hlv x) i).trans hl).trans
+          (VLevel.forall₂_getD (hlv y) j).symm
+      · obtain ⟨T, hT⟩ := h
+        have step : ∀ (w : (q₁.app q₂).RHS) {C},
+            Γ ⊢ Pattern.RHS.apply (p := q₁.app q₂) (Sum.elim f1 f2) (Sum.elim g1 g2) w : C →
+            Γ ⊢ Pattern.RHS.apply (p := q₁.app q₂) (Sum.elim f1 f2) (Sum.elim g1 g2) w ≡
+                Pattern.RHS.apply (p := q₁.app q₂) (Sum.elim f1' f2') (Sum.elim n1 n2) w := by
+          intro w C hw
+          have hins := NormalEq.apply_instL (p := q₁.app q₂) (r := w) hΓ hwB hwA hlvs hw
+          have ⟨_, hh⟩ := hins.defeq hΓ
+          refine (hins.defeq hΓ).trans henv hΓ
+            (IsDefEqU.apply_pat hΓ (fun x _ hty => ?_) hh.hasType.2)
+          have hd : Γ ⊢ Sum.elim g1 g2 x ≡ m2' x := ⟨_, (r4 x).defeq hΓ hty⟩
+          exact hd.trans henv hΓ ((hne x).defeq hΓ).symm
+        exact ((step u hT.hasType.1).symm.trans henv hΓ ⟨_, hT⟩).trans henv hΓ (step v hT.hasType.2)
     have hfire : Γ ⊢ tf.app ta ≫
-        Pattern.RHS.apply (p := q₁.app q₂) (Sum.elim f1 f2) (Sum.elim n1 n2) r.fst :=
+        Pattern.RHS.apply (p := q₁.app q₂) (Sum.elim f1' f2') (Sum.elim n1 n2) r.fst :=
       .extra r1 (.app hn1 hn2) hck (fun _ => .rfl)
     have hty : Γ ⊢ tf.app ta : B.inst ta := (hf1.hasType hΓ l1).app (ha1.hasType hΓ l3)
     refine ⟨_, (ParRedS.app hf1 ha1).tail hfire, ?_⟩
-    exact NormalEq.apply_pat hΓ (fun (x : (q₁.app q₂).Path) _ _ => hne x) (hfire.hasType hΓ hty)
+    have hstep1 := NormalEq.apply_instL (p := q₁.app q₂) (r := r.fst) hΓ hwA hwB hlv
+      (hfire.hasType hΓ hty)
+    refine hstep1.trans hΓ ?_
+    have ⟨_, hh⟩ := hstep1.defeq hΓ
+    exact NormalEq.apply_pat hΓ (fun (x : (q₁.app q₂).Path) _ _ => hne x) hh.hasType.2
 
 variable! (hΓ : OnCtx Γ (IsType env univs)) in
 theorem NormalEq.parRed (H1 : Γ ⊢ e₁ ≡ₚ e₂) (H2 : Γ ⊢ e₂ ≫ e₂') :
