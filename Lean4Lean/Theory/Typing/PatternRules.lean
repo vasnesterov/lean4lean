@@ -414,8 +414,23 @@ inductive VEnv.RuleShape (env : VEnv) : VDefEq → Prop
   `np + nm + nmin + T.indices.length` while the rule's spine carries `|C.args|` index
   arguments, and nothing in `Pat.iota`'s data relates them.  It is discharged from
   `VIndCtor.WF.args_len` in `WF'.ruleShape` below; the obligation lands on whoever builds a
-  `RuleShape`, it does not disappear. -/
-  | iota (D : VInductDecl') (j q : Nat) (T : VIndType) (C : VIndCtor) :
+  `RuleShape`, it does not disappear.
+
+  The last five premises are the **staging data**: the environments the block was
+  declared over, together with `env₃ ≤ env`.  They are what `VInductDecl'.WF.recCtx` needs,
+  and `RuleShape.iotaCtx` below turns them into `D.IotaCtx env` — which is what the index
+  clauses of `extra_pat` need in order to reach `VInductDecl'.onCtxIota`.
+
+  **Why not carry `D.IotaCtx env` directly.**  `RuleShape.mono` would then need an
+  `IotaCtx.mono`, and none exists — `IotaCtx` is not monotone in `env` (`RecCtx.ordered`
+  is, but `VIndCtor.WF.params_eq` and friends are monotone only because *every* field of
+  `RecCtx` happens to be, which is a theorem nobody has stated).  The staging data is
+  monotone for free: only the last premise mentions `env`, and it is an `≤`.  This works
+  because `WF.recCtx`'s signature already takes `env₂ ≤ env₃` and `env₃.Ordered` and
+  concludes `RecCtx env₃`: the monotonicity is built into the constructor rather than
+  stated as a lemma, which is why no name or shape search finds it. -/
+  | iota {env₀ env₁ env₂ env₃ : VEnv}
+      (D : VInductDecl') (j q : Nat) (T : VIndType) (C : VIndCtor) :
       (D.iotaLam q C).Closed →
       (∀ a ∈ C.args, (mkLams (C.params ++ C.fields.map (·.type)) a).Closed) →
       C.args.length = T.indices.length →
@@ -423,14 +438,30 @@ inductive VEnv.RuleShape (env : VEnv) : VDefEq → Prop
       D.types[j]? = some T → C ∈ T.ctors →
       env.constants (Lean.mkRecName T.name) = some ⟨D.recUvars, D.recType j⟩ →
       env.constants C.name = some ⟨D.uvars, C.type D j⟩ →
+      D.WF env₀ → env₀.addIndTypes D = some env₁ → env₁.addIndCtors D = some env₂ →
+      env₂.addIndRecs D = some env₃ → env₃ ≤ env →
       RuleShape env (D.iotaRule j q C)
 
 theorem VEnv.RuleShape.mono {env env' : VEnv} (hle : env ≤ env') {df} :
     env.RuleShape df → env'.RuleShape df
   | .delta ci h => .delta ci h
   | .quot h => .quot (hle.constants h)
-  | .iota D j q T C h1 h2 h3 h8 h4 h5 h6 h7 =>
+  | .iota D j q T C h1 h2 h3 h8 h4 h5 h6 h7 hD s1 s2 s3 s4 =>
       .iota D j q T C h1 h2 h3 h8 h4 h5 (hle.constants h6) (hle.constants h7)
+        hD s1 s2 s3 (s4.trans hle)
+
+/-- **The staging data, cashed in.**  `WF.recCtx` gives `RecCtx env` from any environment
+above `env₂`, and `addIndRecs` supplies the recursor constants; together that is exactly
+`IotaCtx env`.  The only thing not carried by `RuleShape` is `env.Ordered`, which every
+consumer holds anyway (`VEnv.WF.ordered`). -/
+theorem VInductDecl'.iotaCtx_of_staged {env env₀ env₁ env₂ env₃ : VEnv} {D : VInductDecl'}
+    (henv : env.Ordered) (hD : D.WF env₀) (s1 : env₀.addIndTypes D = some env₁)
+    (s2 : env₁.addIndCtors D = some env₂) (s3 : env₂.addIndRecs D = some env₃)
+    (s4 : env₃ ≤ env) : D.IotaCtx env where
+  toRecCtx := hD.recCtx s1 s2 ((VEnv.addIndRecs_le s3).trans s4) henv
+  recConsts j T hT := s4.constants <|
+    VEnv.addConstList_constants s3 (Lean.mkRecName T.name, ⟨D.recUvars, D.recType j⟩)
+      (List.mem_map_of_mem (List.mk_mem_zipIdx_iff_getElem?.2 hT))
 
 /-! ### The four substantial arms
 
@@ -498,6 +529,7 @@ theorem VEnv.ruleShape_induct {env env' : VEnv} {D : VInductDecl'} (henv : env.O
         (List.mem_map.2 ⟨(T, j), List.mk_mem_zipIdx_iff_getElem?.2 hT, rfl⟩)))
       ((VEnv.addDefEqList_le _ _).constants ((VEnv.addConstList_le h3).constants
         (VEnv.addConstList_constants h2 _ (List.mem_map.2 ⟨(j, C), hCall, rfl⟩))))
+      hdecl h1 h2 h3 (VEnv.addDefEqList_le _ _)
   · rw [VEnv.addConstList_defeqs h3, VEnv.addConstList_defeqs h2,
       VEnv.addConstList_defeqs h1] at hdf
     exact (ih df hdf).mono (hle.trans (VEnv.addDefEqList_le _ _))
@@ -1179,6 +1211,37 @@ theorem VExpr.instAll_bvars₂ {X : VExpr} {np nf off : Nat} (h : X.ClosedN (nf 
     VExpr.instAll_map_liftN_bvars (by simpa using h),
     VExpr.instAll_bvars_shift (by simpa using h)]
 
+/-- The telescope version of `instAll_bvars_shift`: entry `i` is closed at `k + i + n`, so
+each is shifted independently.  This is what turns the ι-rule's field telescope, saturated at
+the parameter variables, into the lifted copy the rule's own context carries. -/
+theorem VExpr.instAllTele_bvars_shift : ∀ {As : List VExpr} {k n R : Nat},
+    VExpr.ClosedTele As (k + n) → instAllTele As (bvars R n) k = liftTele R As k
+  | [], _, _, _, _ => rfl
+  | A :: As, k, n, R, h => by
+    rw [VExpr.instAllTele_cons, VExpr.liftTele_cons, VExpr.instAll_bvars_shift h.1,
+      instAllTele_bvars_shift (As := As) (k := k + 1) (n := n) (R := R)
+        (by have := h.2; simpa [Nat.add_right_comm] using this)]
+
+/-- A spine's entries are individually well-typed.  `HasArgs` threads the substitution, which
+hides the plain fact that each argument has *some* type in the ambient context. -/
+theorem VEnv.HasArgs.hasType_of_mem {env : VEnv} {U : Nat} {Γ : List VExpr} :
+    ∀ {As as : List VExpr}, env.HasArgs U Γ As as → ∀ a ∈ as, ∃ A, env.HasType U Γ a A
+  | _, _, .nil => by simp
+  | _, _, .cons h1 h2 => by
+    intro a ha
+    rcases List.mem_cons.1 ha with rfl | ha
+    · exact ⟨_, h1⟩
+    · exact h2.hasType_of_mem a ha
+
+/-- `HasArgs` across a definitionally equal context.  Pure bookkeeping — it is `HasType`
+entrywise — but without it the F3 transport (`C.params` against `D.params`) cannot be done on
+a spine, only on a single application as `ctorApp'_hasType` does it. -/
+theorem VEnv.HasArgs.defeqDFC {env : VEnv} {U : Nat} {Γ₀ Γ₁ Γ₂ : List VExpr}
+    (henv : env.Ordered) (W : VEnv.IsDefEqCtx env U Γ₀ Γ₁ Γ₂) :
+    ∀ {As as : List VExpr}, env.HasArgs U Γ₁ As as → env.HasArgs U Γ₂ As as
+  | _, _, .nil => .nil
+  | _, _, .cons h1 h2 => .cons (h1.defeqDFC henv W) (h2.defeqDFC henv W)
+
 /-! ### The ι-rule's shape after level instantiation -/
 
 /-- The ι-rule's left-hand side after level instantiation: a recursor spine whose last
@@ -1226,6 +1289,43 @@ theorem List.zip_map_eq {α β : Type _} {P : List α} {Q : List β}
       rcases List.mem_cons.1 hxy with rfl | hxy
       · exact h.1
       · exact ih h.2 xy hxy
+
+/-- The relational form of `List.zip_map_eq`, for the index block — where the two sides are
+not equal, only definitionally so. -/
+theorem List.forall₂_map_map {α : Type _} {l : List α} {F G : α → VExpr}
+    {R : VExpr → VExpr → Prop} (h : ∀ a ∈ l, R (F a) (G a)) :
+    List.Forall₂ R (l.map F) (l.map G) := by
+  induction l with
+  | nil => exact .nil
+  | cons a l ih => exact .cons (h a (.head _)) (ih fun b hb => h b (.tail _ hb))
+
+theorem List.zip_map_rel {α β : Type _} {P : List α} {Q : List β}
+    {f : α → VExpr} {g : β → VExpr} {R : VExpr → VExpr → Prop}
+    (h : List.Forall₂ R (P.map f) (Q.map g)) : ∀ xy ∈ P.zip Q, R (f xy.1) (g xy.2) := by
+  induction P generalizing Q with
+  | nil => simp
+  | cons a P ih =>
+    cases Q with
+    | nil => simp
+    | cons b Q =>
+      simp only [List.map_cons] at h
+      cases h with
+      | cons hab hrest =>
+        rw [List.zip_cons_cons]
+        intro xy hxy
+        rcases List.mem_cons.1 hxy with rfl | hxy
+        · exact hab
+        · exact ih hrest xy hxy
+
+/-- `pmap` whose function ignores its proof argument only up to unfolding.  `iotaComputed`'s
+entries store the closedness proof inside `RHS.fixed`, and `RHS.apply` drops it — so the
+image is a plain `map`, but not syntactically. -/
+theorem List.map_pmap_eq_map {α β γ : Type _} {p : α → Prop} (k : β → γ) (f : ∀ a, p a → β)
+    (g : α → γ) (H : ∀ a (ha : p a), k (f a ha) = g a) :
+    ∀ (l : List α) (h : ∀ a ∈ l, p a), (l.pmap f h).map k = l.map g
+  | [], _ => rfl
+  | a :: l, h => by
+    rw [List.pmap, List.map_cons, List.map_cons, H, map_pmap_eq_map k f g H l]
 
 /-- **`Params.extra_pat` for a δ-rule.**  No λ-peeling (the left-hand side is already a bare
 constant), no check clauses, and the datum's value is the rule's own. -/
@@ -1283,79 +1383,375 @@ theorem Pat.extra_quot {env : VEnv} {U : Nat} {Γ : List VExpr} {ls : List VLeve
     rw [quotRHS, spineRHS_apply hpa hpb]
     exact congrArg (fun e => e.mkApp [VExpr.bvar 0]) ea.2.2.2.1.symm
 
-/-! ## `Params.extra_pat` for ι-rules — work list
+/-! ### The ι-rule's own match, and the three clause blocks it discharges -/
 
-The δ and quot cases are proved above.  This is what the ι case needs; every lemma named here
-exists and is proved, so this is a work list rather than a design.
+/-- **The index clause, at the rule's own match.**  `iotaComputed` abstracts a result index
+over the constructor's whole binder telescope and re-applies it to the *matched* constructor
+arguments; in the rule's own match those arguments are the rule's parameter and field
+variables, so the redex β-reduces (`betaMkLams`) to the substitution `instAll_bvars₂`
+identifies with the `liftN off nf` the rule stores.
 
-### Step 0 — the staging field on `RuleShape.iota` (~40)
+Everything here is at the recursor's universe numbering and in the rule's own binder context;
+`extra_pat` moves it to `ls` and over `Γ` with `IsDefEqU.instL` and `IsDefEq.weakR`.
 
-The index clauses need `D.IotaCtx env` to reach `VInductDecl'.onCtxIota`, and `RuleShape.iota`
-does not carry it.  **Do not add `IotaCtx env` directly** — it would need an `IotaCtx.mono` for
-`RuleShape.mono`, and none exists.  Carry the *staging data* instead:
+The F3 transport is what costs: `iotaComputed`'s telescope binds `C.params` (it is read off
+the constructor's *stored* type) while `iotaCtx` carries `D.params`, so the `HasArgs` for the
+variable spine is built over `C.params` and moved across — the spine analogue of what
+`ctorApp'_hasType` does with `appBVars₂` for a single application. -/
+theorem VInductDecl'.iota_index_clause {env : VEnv} {D : VInductDecl'} {j : Nat}
+    {T : VIndType} {C : VIndCtor} (henv : env.Ordered) (hR : D.RecCtx env)
+    (hT : D.types[j]? = some T) (hC : C ∈ T.ctors) {a : VExpr} (ha : a ∈ C.args) :
+    env.IsDefEqU D.recUvars (D.iotaCtx C).reverse
+      ((D.atRec a).liftN (D.nm + D.nmin) C.fields.length)
+      ((mkLams (D.atRecTele (C.params ++ C.fields.map (·.type))) (D.atRec a)).mkApp
+        (bvars (C.fields.length + (D.nm + D.nmin)) D.np ++ bvars 0 C.fields.length)) := by
+  have hCwf : VIndCtor.WF env D j T C := hR.ctors j T hT C hC
+  have hΓι : OnCtx ((D.iotaCtx C).reverse) (env.IsType D.recUvars) := by
+    rw [D.iotaCtx_reverse' C]; exact VInductDecl'.onCtxIota hR hT hC
+  -- the F3 context defeq, at the recursor's universe numbering
+  have hpar : VEnv.IsDefEqCtx env D.recUvars [] (D.atRecTele D.params).reverse
+      (D.atRecTele C.params).reverse := by
+    have := VEnv.IsDefEqCtx.instL (ls := D.selfLvls) D.selfLvls_wf (hCwf.params_eq.symm henv)
+    simpa [VInductDecl'.atRecTele] using this
+  have hAs0 : OnCtx (D.atRecTele C.params).reverse (env.IsType D.recUvars) := by
+    have := D.atRec_onCtx hCwf.params_eq.isType
+    rwa [VInductDecl'.atRecCtx, List.map_reverse] at this
+  have hBsD : OnCtx ((D.atRecTele (C.fields.map (·.type))).reverse
+      ++ (D.atRecTele D.params).reverse) (env.IsType D.recUvars) := by
+    have := D.atRec_onCtx (hCwf.onCtxAllFields henv)
+    rwa [VInductDecl'.atRecCtx, List.map_append, List.map_reverse, List.map_reverse] at this
+  have hBs0 : OnCtx ((D.atRecTele (C.fields.map (·.type))).reverse
+      ++ (D.atRecTele C.params).reverse) (env.IsType D.recUvars) := by
+    have W := hCwf.defeqCtx henv (Δ := (C.fields.map (·.type)).reverse)
+      (hCwf.onCtxAllFields henv)
+    have := D.atRec_onCtx ((W.symm henv).isType)
+    rwa [VInductDecl'.atRecCtx, List.map_append, List.map_reverse, List.map_reverse] at this
+  have hrev : (D.atRecTele (C.params ++ C.fields.map (·.type))).reverse
+      = (D.atRecTele (C.fields.map (·.type))).reverse ++ (D.atRecTele C.params).reverse := by
+    rw [VInductDecl'.atRecTele_append, List.reverse_append]
+  have hcc : CtxClosed ((D.atRecTele (C.params ++ C.fields.map (·.type))).reverse) := by
+    rw [hrev]; exact OnCtx.ctxClosed henv hBs0
+  have hOn : OnCtx ((D.atRecTele (C.params ++ C.fields.map (·.type))).reverse
+      ++ (D.iotaCtx C).reverse) (env.IsType D.recUvars) :=
+    OnCtx.appendR henv hΓι hcc (by rw [hrev]; exact hBs0)
+  -- the body: `a` is typed under the constructor's own telescope
+  obtain ⟨A, hA⟩ := hCwf.args_ty.hasType_of_mem a ha
+  have hACl : (D.atRec a).ClosedN (C.fields.length + D.np) := by
+    have h0 := hA.closedN henv (OnCtx.ctxClosed henv (hCwf.onCtxAllFields henv))
+    simp only [List.length_append, List.length_reverse, List.length_map] at h0
+    exact VExpr.ClosedN.instL h0
+  have hb : env.HasType D.recUvars
+      ((D.atRecTele (C.params ++ C.fields.map (·.type))).reverse ++ (D.iotaCtx C).reverse)
+      (D.atRec a) (D.atRec A) := by
+    have h1 := D.atRec_hasType hA
+    rw [VInductDecl'.atRecCtx, List.map_append, List.map_reverse, List.map_reverse] at h1
+    have h2 := VEnv.HasType.defeqDFC henv (hpar.append hBsD) h1
+    rw [← hrev] at h2
+    exact VEnv.IsDefEq.weakR henv hcc h2 _
+  -- the variable spine, built over `C.params` and moved across
+  have hΔlen : ((VExpr.liftTele (D.nm + D.nmin)
+        (D.atRecTele (C.fields.map (·.type))) 0).reverse
+      ++ D.minors.reverse ++ D.motives.reverse).length
+      = C.fields.length + (D.nm + D.nmin) := by
+    simp only [List.length_append, List.length_reverse, VExpr.length_liftTele,
+      VInductDecl'.length_atRecTele, List.length_map, VInductDecl'.length_minors,
+      VInductDecl'.length_motives]
+    omega
+  have hiotaR : (D.iotaCtx C).reverse
+      = (VExpr.liftTele (D.nm + D.nmin) (D.atRecTele (C.fields.map (·.type))) 0).reverse
+        ++ (D.minors.reverse ++ (D.motives.reverse ++ (D.atRecTele D.params).reverse)) := by
+    simp [VInductDecl'.iotaCtx]
+  have hDC : VEnv.IsDefEqCtx env D.recUvars [] ((D.iotaCtx C).reverse)
+      ((VExpr.liftTele (D.nm + D.nmin) (D.atRecTele (C.fields.map (·.type))) 0).reverse
+        ++ (D.minors.reverse ++ (D.motives.reverse ++ (D.atRecTele C.params).reverse))) := by
+    have h := hpar.append (Δ := (VExpr.liftTele (D.nm + D.nmin)
+        (D.atRecTele (C.fields.map (·.type))) 0).reverse
+      ++ D.minors.reverse ++ D.motives.reverse)
+      (by simp only [List.append_assoc]; rw [← hiotaR]; exact hΓι)
+    simp only [List.append_assoc] at h
+    rw [hiotaR]
+    exact h
+  have hP : env.HasArgs D.recUvars
+      ((VExpr.liftTele (D.nm + D.nmin) (D.atRecTele (C.fields.map (·.type))) 0).reverse
+        ++ (D.minors.reverse ++ (D.motives.reverse ++ (D.atRecTele C.params).reverse)))
+      (D.atRecTele C.params) (bvars (C.fields.length + (D.nm + D.nmin)) D.np) := by
+    have h := VEnv.HasArgs.bvars (env := env) (U := D.recUvars)
+      (Δ := (VExpr.liftTele (D.nm + D.nmin) (D.atRecTele (C.fields.map (·.type))) 0).reverse
+        ++ D.minors.reverse ++ D.motives.reverse)
+      (As := D.atRecTele C.params) (Γ₀ := [])
+    have hPcl : VExpr.ClosedTele (D.atRecTele C.params) 0 :=
+      VExpr.ClosedTele.of_onCtx (Γ := []) henv (by simpa using hAs0)
+    rw [hΔlen, VInductDecl'.length_atRecTele, hCwf.params_len,
+      hPcl.liftTele_eq (Nat.le_refl 0), List.append_nil] at h
+    simp only [List.append_assoc] at h
+    exact h
+  have hFcl : VExpr.ClosedTele (D.atRecTele (C.fields.map (·.type))) D.np := by
+    have := VExpr.ClosedTele.of_onCtx henv hBs0
+    simpa [VInductDecl'.length_atRecTele, hCwf.params_len] using this
+  have hF : env.HasArgs D.recUvars
+      ((VExpr.liftTele (D.nm + D.nmin) (D.atRecTele (C.fields.map (·.type))) 0).reverse
+        ++ (D.minors.reverse ++ (D.motives.reverse ++ (D.atRecTele C.params).reverse)))
+      (VExpr.instAllTele (D.atRecTele (C.fields.map (·.type)))
+        (bvars (C.fields.length + (D.nm + D.nmin)) D.np) 0) (bvars 0 C.fields.length) := by
+    rw [VExpr.instAllTele_bvars_shift (by simpa using hFcl)]
+    have h := VEnv.HasArgs.bvars (env := env) (U := D.recUvars) (Δ := [])
+      (As := VExpr.liftTele (D.nm + D.nmin) (D.atRecTele (C.fields.map (·.type))) 0)
+      (Γ₀ := D.minors.reverse ++ (D.motives.reverse ++ (D.atRecTele C.params).reverse))
+    simp only [List.length_nil, Nat.zero_add, VExpr.length_liftTele,
+      VInductDecl'.length_atRecTele, List.length_map, List.nil_append] at h
+    rw [VExpr.liftTele_collapse₂,
+      show D.nm + D.nmin + C.fields.length = C.fields.length + (D.nm + D.nmin) from by omega] at h
+    exact h
+  have hspine : env.HasArgs D.recUvars ((D.iotaCtx C).reverse)
+      (D.atRecTele (C.params ++ C.fields.map (·.type)))
+      (bvars (C.fields.length + (D.nm + D.nmin)) D.np ++ bvars 0 C.fields.length) := by
+    rw [VInductDecl'.atRecTele_append]
+    exact VEnv.HasArgs.defeqDFC henv (hDC.symm henv) (VEnv.HasArgs.append hP hF)
+  have hbeta := VEnv.IsDefEq.betaMkLams henv hOn hspine hb
+  rw [VExpr.instAll_bvars₂ hACl] at hbeta
+  exact ⟨_, hbeta.symm⟩
 
-    D.WF env₀ → env₀.addIndTypes D = some env₁ → env₁.addIndCtors D = some env₂ →
-    env₂.addIndRecs D = some env₃ → env₃ ≤ env
+/-! ### The ι-rule's own match, and the three clause blocks it discharges -/
 
-`VInductDecl'.WF.recCtx` (`Theory/Inductive/Lemmas.lean:1022`) then gives `D.RecCtx env` for the
-current environment, and `WF.iotaCtx` (`:3537`) is the template for adding `recConsts`.
-`RuleShape.mono` stays a one-liner: extend `env₃ ≤ env` to `env₃ ≤ env'`.  Discharge at the
-`induct` arm of `WF'.ruleShape`, where all five facts are already in scope.
+/-- Every entry of a variable block inside the rule's telescope is a well-typed variable.
+The `defeq` clauses of a rule's *own* match are between syntactically equal `bvar`s, so this
+plus `List.zip_map_eq` is the whole parameter block. -/
+theorem VEnv.isDefEqU_of_mem_bvars {env : VEnv} {U : Nat} {Δ Γ : List VExpr} {lo n : Nat}
+    (h : lo + n ≤ Δ.length) {e : VExpr} (he : e ∈ bvars lo n) :
+    env.IsDefEqU U (Δ ++ Γ) e e := by
+  obtain ⟨i, hi, rfl⟩ := VExpr.mem_bvars.1 he
+  exact VEnv.isDefEqU_bvar (by omega)
 
-**Why `WF.recCtx` is the whole trick, and why no search finds it.**  Its signature takes
-`hle : env₂ ≤ env₃` and `henv₃ : env₃.Ordered` and concludes `RecCtx env₃` — that is, the
-monotonicity is *built into the constructor* rather than stated as a lemma.  A name search for
-`RecCtx.mono` returns nothing.  A shape search returns nothing either, because there is no
-`mono` shape to look for.  Only reading the lemma finds it.  This is a distinct failure mode
-from the four grep-findable cases in note 1b of `Theory/Inductive/Lemmas.lean`: a successor
-with a grep discipline and no reading discipline will hit exactly this and price it as an
-unknown, as this stream first did.
+/-- **`Params.extra_pat` for an ι-rule.**  The rule's binder context peels off whole
+(`iotaRule` stores both sides as `mkLams (iotaCtx C) _`), the body is `iotaLhs`, and
+`instL_iotaLhs` puts it in `matches_iota_paths`' shape.
 
-### Steps 1–6 — the assembly (~250)
+**`OnCtx Γ` is not needed.**  `Params.extra_pat`'s docstring predicts that it is — the index
+clauses do β-reduce a `mkLams` and `IsDefEq.beta` does need the function typed.  But the
+β-reduction happens in the rule's *own* binder context, which is closed, and
+`IsDefEq.weakR` moves the result over an arbitrary `Γ` on nothing but `CtxClosed`.  So the
+argument is real and the conclusion drawn from it is not; the field's hypothesis is harmless
+(its one caller holds it) but no case of `extra_pat` consumes it. -/
+theorem Pat.extra_iota {env : VEnv} {U : Nat} {Γ : List VExpr}
+    {D : VInductDecl'} {j q : Nat} {T : VIndType} {C : VIndCtor} {ls : List VLevel}
+    (henv : env.Ordered) (hI : D.IotaCtx env)
+    (hcl : (D.iotaLam q C).Closed)
+    (hargs : ∀ a ∈ C.args, (mkLams (C.params ++ C.fields.map (·.type)) a).Closed)
+    (hal : C.args.length = T.indices.length)
+    (hT : D.types[j]? = some T) (hC : C ∈ T.ctors)
+    (hdf : env.defeqs (D.iotaRule j q C))
+    (hrec : env.constants (Lean.mkRecName T.name) = some ⟨D.recUvars, D.recType j⟩)
+    (hctor : env.constants C.name = some ⟨D.uvars, C.type D j⟩)
+    (hlsWF : ∀ l ∈ ls, l.WF U) (hlslen : ls.length = (D.iotaRule j q C).uvars) :
+    ∃ Δ L R p r m1 m2,
+      (D.iotaRule j q C).lhs.instL ls = mkLams Δ L ∧
+      (D.iotaRule j q C).rhs.instL ls = mkLams Δ R ∧
+      Pat env p r ∧ Pattern.Matches p L m1 m2 ∧
+      (r.2).OK (env.IsDefEqU U (Δ.reverse ++ Γ)) m1 m2 ∧ R = (r.1).apply m1 m2 := by
+  have hlen : ls.length = D.recUvars := hlslen
+  -- the two matched argument lists of the rule's own left-hand side
+  obtain ⟨m1, m2, hm, hml, hmr, hpa, hpb⟩ :=
+    matches_iota_paths (Lean.mkRecName T.name) C.name ls (D.selfLvls.map (VLevel.inst ls))
+      (m := D.np + D.nm + D.nmin + T.indices.length) (n := D.np + C.fields.length)
+      (bvars (C.fields.length + (D.nm + D.nmin)) D.np
+        ++ bvars (C.fields.length + D.nmin) D.nm ++ bvars C.fields.length D.nmin
+        ++ C.args.map fun a => ((D.atRec a).liftN (D.nm + D.nmin) C.fields.length).instL ls)
+      (bvars (C.fields.length + (D.nm + D.nmin)) D.np ++ bvars 0 C.fields.length)
+      (by simp only [List.length_append, VExpr.length_bvars, List.length_map, hal])
+      (by simp)
+  -- step 1: the two `mkLams` forms.  `iotaRule` stores both sides over the *same* telescope.
+  have hL : (D.iotaRule j q C).lhs.instL ls
+      = mkLams ((D.iotaCtx C).map (VExpr.instL ls)) ((D.iotaLhs j C).instL ls) := by
+    show (mkLams (D.iotaCtx C) (D.iotaLhs j C)).instL ls = _
+    rw [VExpr.instL_mkLams]
+  have hR : (D.iotaRule j q C).rhs.instL ls
+      = mkLams ((D.iotaCtx C).map (VExpr.instL ls))
+        (((D.iotaLam q C).mkApp (bvars 0 (D.iotaCtx C).length)).instL ls) := by
+    show (mkLams (D.iotaCtx C) ((D.iotaLam q C).mkApp (bvars 0 (D.iotaCtx C).length))).instL ls
+      = _
+    rw [VExpr.instL_mkLams]
+  -- step 2: the match
+  have hM : Pattern.Matches (D.iotaPat T C) ((D.iotaLhs j C).instL ls) m1 m2 := by
+    rw [D.instL_iotaLhs j C hlen, VInductDecl'.getD_types hT]; exact hm
+  -- step 6: the right-hand side, at the rule's own match
+  have hRHS : ((D.iotaLam q C).mkApp (bvars 0 (D.iotaCtx C).length)).instL ls
+      = (D.iotaRHSOf j q T C hcl).apply m1 m2 := by
+    rw [VInductDecl'.iotaRHSOf, iotaRHS_apply hpa hpb,
+      show (Pattern.LPath.head (SimplePattern.iota (Lean.mkRecName T.name)
+          (D.np + D.nm + D.nmin + T.indices.length) C.name
+          (D.np + C.fields.length)).toPattern) = Sum.inl (Pattern.LPath.head _) from rfl, hml,
+      VExpr.instL_mkApp, VExpr.map_instL_bvars, D.iotaLhs_args_split C,
+      List.take_left' (by simp), List.drop_left' (by simp),
+      VInductDecl'.length_iotaCtx,
+      VExpr.bvars_add (lo := 0) (m := D.np + D.nm + D.nmin) (n := C.fields.length),
+      Nat.zero_add]
+  refine ⟨_, _, _, _, _, m1, m2, hL, hR,
+    .iota hcl hargs hT hC hdf hrec hctor, hM, ?_, hRHS⟩
+  show (D.iotaCheckOf T C hargs).OK
+    (env.IsDefEqU U (((D.iotaCtx C).map (VExpr.instL ls)).reverse ++ Γ)) m1 m2
+  rw [VInductDecl'.iotaCheckOf]
+  refine iotaCheck_OK.2 ⟨?_, ?_, ?_⟩
+  · -- step 3: the parameter clauses.  Both leaves' first `np` matched arguments are the
+    -- *same* list, so `List.zip_map_eq` settles the equation and `isDefEqU_of_mem_bvars`
+    -- the judgement — two obligations, not one.
+    have hA : ((Pattern.argPaths (.const (Lean.mkRecName T.name))
+          (D.np + D.nm + D.nmin + T.indices.length)).take D.np).map (fun p => m2 (Sum.inl p))
+        = bvars (C.fields.length + (D.nm + D.nmin)) D.np := by
+      rw [List.map_take, hpa, List.append_assoc, List.append_assoc,
+        List.take_left' (by simp)]
+    have hB : ((Pattern.argPaths (.const C.name) (D.np + C.fields.length)).take D.np).map
+          (fun p => m2 (Sum.inr p)) = bvars (C.fields.length + (D.nm + D.nmin)) D.np := by
+      rw [List.map_take, hpb, List.take_left' (by simp)]
+    have heq := List.zip_map_eq (hA.trans hB.symm)
+    intro xy hxy
+    rw [← heq xy hxy]
+    refine VEnv.isDefEqU_of_mem_bvars (Δ := ((D.iotaCtx C).map (VExpr.instL ls)).reverse)
+      (lo := C.fields.length + (D.nm + D.nmin)) (n := D.np)
+      (by simp only [List.length_reverse, List.length_map, VInductDecl'.length_iotaCtx]; omega) ?_
+    rw [← hA]
+    exact List.mem_map_of_mem (List.of_mem_zip hxy).1
+  · -- step 4: the index clauses.  Both matched lists are `C.args`-indexed, so the block is
+    -- one `iota_index_clause` per result index, moved to `ls` and over `Γ`.
+    have hIdx : ((Pattern.argPaths (.const (Lean.mkRecName T.name))
+          (D.np + D.nm + D.nmin + T.indices.length)).drop (D.np + D.nm + D.nmin)).map
+          (fun p => m2 (Sum.inl p))
+        = C.args.map (fun a =>
+            ((D.atRec a).liftN (D.nm + D.nmin) C.fields.length).instL ls) := by
+      rw [List.map_drop, hpa, D.iotaLhs_args_split C, List.drop_left' (by simp)]
+    have hCmp : (D.iotaComputed T C hargs).map (Pattern.RHS.apply m1 m2)
+        = C.args.map (fun a =>
+            ((mkLams (C.params ++ C.fields.map (·.type)) a).instL
+                (D.selfLvls.map (VLevel.inst ls))).mkApp
+              (bvars (C.fields.length + (D.nm + D.nmin)) D.np
+                ++ bvars 0 C.fields.length)) := by
+      rw [VInductDecl'.iotaComputed]
+      refine List.map_pmap_eq_map _ _ _ (fun a hcla => ?_) _ _
+      refine (Pattern.RHS.apply_mkApp _ _).trans ?_
+      rw [VInductDecl'.ctorArgRHS]
+      refine congr (congrArg VExpr.mkApp ?_) ((List.map_map ..).trans hpb)
+      exact congrArg (fun l => VExpr.instL l (mkLams (C.params ++ C.fields.map (·.type)) a))
+        (hmr (Pattern.LPath.head _))
+    refine List.zip_map_rel (f := fun p => m2 (Sum.inl p)) (g := Pattern.RHS.apply m1 m2) ?_
+    rw [hIdx, hCmp]
+    refine List.forall₂_map_map fun a ha => ?_
+    have he2 : ((mkLams (D.atRecTele (C.params ++ C.fields.map (·.type))) (D.atRec a)).mkApp
+          (bvars (C.fields.length + (D.nm + D.nmin)) D.np ++ bvars 0 C.fields.length)).instL ls
+        = ((mkLams (C.params ++ C.fields.map (·.type)) a).instL
+              (D.selfLvls.map (VLevel.inst ls))).mkApp
+            (bvars (C.fields.length + (D.nm + D.nmin)) D.np ++ bvars 0 C.fields.length) := by
+      rw [VExpr.instL_mkApp, List.map_append, VExpr.map_instL_bvars, VExpr.map_instL_bvars,
+        VExpr.instL_mkLams, VExpr.instL_mkLams, VInductDecl'.atRecTele, List.map_map]
+      simp only [Function.comp_def, VExpr.instL_instL, VInductDecl'.atRec]
+    have hbase := (VInductDecl'.iota_index_clause henv hI.toRecCtx hT hC ha).instL
+      (U' := U) hlsWF
+    rw [List.map_reverse, he2] at hbase
+    have hccΔ : CtxClosed (((D.iotaCtx C).map (VExpr.instL ls)).reverse) := by
+      rw [← List.map_reverse]
+      refine OnCtx.ctxClosed henv (OnCtx.instL (U := D.recUvars) hlsWF ?_)
+      rw [D.iotaCtx_reverse' C]; exact VInductDecl'.onCtxIota hI.toRecCtx hT hC
+    obtain ⟨B, hB⟩ := hbase
+    exact ⟨B, VEnv.IsDefEq.weakR henv hccΔ hB Γ⟩
+  · -- step 5: the level clauses.  The recursor leaf's list is `ls` and the constructor
+    -- leaf's is `selfLvls` instantiated at `ls`, and `iotaLevelPairs` pairs the entries that
+    -- are literally the same level — so every clause is reflexivity of `≈`.
+    rintro ij hij
+    simp only [VInductDecl'.iotaLevelPairs, List.mem_map, List.mem_range] at hij
+    obtain ⟨i, hi, rfl⟩ := hij
+    rw [show (Pattern.LPath.head (SimplePattern.iota (Lean.mkRecName T.name)
+          (D.np + D.nm + D.nmin + T.indices.length) C.name
+          (D.np + C.fields.length)).toPattern) = Sum.inl (Pattern.LPath.head _) from rfl, hml,
+      show iotaLeafCtor (Lean.mkRecName T.name) C.name
+          (D.np + D.nm + D.nmin + T.indices.length) (D.np + C.fields.length)
+        = Sum.inr (Pattern.LPath.head _) from rfl, hmr,
+      show ((D.selfLvls.map (VLevel.inst ls)).getD i .zero)
+        = ls.getD (if D.isLE then i + 1 else i) .zero from by
+          rw [List.getD_eq_getElem?_getD, List.getElem?_map, VInductDecl'.selfLvls,
+            List.getElem?_map, List.getElem?_range hi]
+          rfl]
+    exact rfl
 
-The template is `iota_law` (`Theory/Inductive/StructureClosed.lean:693`); its preamble
-(`:718`–`:765`) builds every context fact below for the structure case, and generalises.
+/-- **`Params.extra_pat`, whole.**  `VEnv.WF.ruleShape` says every rule of a well-formed
+environment is a δ-rule, the quotient rule or an ι-rule, and carries exactly what the
+corresponding case needs; this dispatches on it.
 
-1. **(~20) `mkLams` forms.**  `df.lhs.instL ls = mkLams Δ L` and `df.rhs.instL ls = mkLams Δ R`
-   with `Δ := (D.iotaCtx C).map (VExpr.instL ls)`, via `VExpr.instL_mkLams` and the
-   `congrArg (VExpr.instL ls) (mkLams_peelLams …)` idiom used by `instL_quotDefEq_lhs` above.
-2. **(~30) The match.**  `VInductDecl'.instL_iotaLhs` (above) puts `L` in
-   `matches_iota_paths`' shape.  Two length facts: the recursor spine is `M` long by
-   `RuleShape.iota`'s `args_len` (`|C.args| = |T.indices|`), the constructor spine is `N` long
-   definitionally.
-3. **(~40) Parameter clauses.**  `iotaCheck_OK`'s first block.  Both leaves' first `np`
-   matched arguments are the *same* list `bvars (nf+off) np`, so `List.zip_map_eq` (above)
-   gives equality of the two sides and `VEnv.isDefEqU_bvar` (above) supplies the judgement.
-   Note the two are separate obligations — see the accounting note below.
-4. **(~80) Index clauses.**  `VEnv.IsDefEq.betaMkLams` (`StructureClosed.lean:305`) β-reduces
-   `iotaComputed`'s entries; `VExpr.instAll_bvars₂` (above) identifies the reduct with the
-   `(D.atRec a).liftN off nf` the rule stores.  Its three hypotheses come from the template:
-   `onCtxIota` → `OnCtx.instL` → `OnCtx.ctxClosed` → `OnCtx.appendR` for the context, and
-   `VEnv.IsDefEq.weakR` to move closed-context typings over `Γ`.  `hΓ` is what makes this
-   possible at all — see `Params.extra_pat`'s docstring.
-5. **(~40) Level clauses.**  `iotaLevelPairs` against `D.selfLvls.map (VLevel.inst ls)`; the
-   two sides are equal, so each clause is reflexivity of `≈`.  `VInductDecl'.selfLvls_inst`
-   is the computation (`iota_law` uses it as `hself`).
-6. **(~40) `R = r.1.apply m1 m2`.**  `iotaRHS_apply` reduces the right side to
-   `(iotaLam.instL ls).mkApp (as.take k ++ bs.drop np)`; then `iotaLhs_args_split` (above),
-   `List.take_left'`, `List.drop_left'` and `VExpr.bvars_add` give
-   `as.take k ++ bs.drop np = bvars 0 (D.iotaCtx C).length` — structural, at known split
-   points, no indexing.
+The `OnCtx Γ` the field offers is unused — see `Pat.extra_iota`'s docstring. -/
+theorem Pat.extra {env : VEnv} (henv : env.WF) {U : Nat} {Γ : List VExpr}
+    {df : VDefEq} {ls : List VLevel}
+    (hdf : env.defeqs df) (hlsWF : ∀ l ∈ ls, l.WF U) (hlen : ls.length = df.uvars) :
+    ∃ Δ L R p r m1 m2,
+      df.lhs.instL ls = mkLams Δ L ∧ df.rhs.instL ls = mkLams Δ R ∧
+      Pat env p r ∧ Pattern.Matches p L m1 m2 ∧
+      (r.2).OK (env.IsDefEqU U (Δ.reverse ++ Γ)) m1 m2 ∧ R = (r.1).apply m1 m2 := by
+  have ho := VEnv.WF.ordered henv
+  cases henv.ruleShape hdf with
+  | delta ci hcl => exact Pat.extra_delta hcl hdf hlen
+  | quot hlift => exact Pat.extra_quot hdf hlift hlen
+  | iota D j q T C hcl hargs hal _ hT hC hrec hctor hD s1 s2 s3 s4 =>
+    exact Pat.extra_iota ho (VInductDecl'.iotaCtx_of_staged ho hD s1 s2 s3 s4)
+      hcl hargs hal hT hC hdf hrec hctor hlsWF hlen
 
-Also useful: `VInductDecl'.length_iotaCtx`, `VInductDecl'.iotaPat_eq`, `spineRHS_apply`.
+/-! ## `Params.extra_pat` — done, and what it cost
 
-### The accounting note this stream would most like to pass on
+All three cases are proved: `Pat.extra_delta`, `Pat.extra_quot`, `Pat.extra_iota`, dispatched
+by `Pat.extra`.  `Params`' six fields are now five proved (`pat_simple`, `pat_uniq`,
+`pat_app_l_uniq`, `pat_app_uniq`, `extra_pat`) and one open (`pat_wf`, which needs
+`IsDefEqU.forallE_inv` and is deliberately left as the interface obligation).
 
-Two estimates moved on this work, and both moved the same way.  The typing layer of step 3 and
-the six blocks above were **both identified in advance** — neither was a surprise in substance
-— and both were priced *inside* a line that named something else.  The classification of each
-line as structural or positional was correct every time it was applied; the accounting was
-wrong twice.
+### What the ι case is made of
+
+* **Step 0** — the staging data on `RuleShape.iota`, cashed in by
+  `VInductDecl'.iotaCtx_of_staged`.  Carrying `D.IotaCtx env` directly would have needed an
+  `IotaCtx.mono`; the staging data is monotone for free because only its last premise mentions
+  `env`.  `VInductDecl'.WF.recCtx` does the work, and its monotonicity is *in its signature*
+  (`env₂ ≤ env₃ → env₃.Ordered → RecCtx env₃`), not in a lemma — no name or shape search finds
+  that, only reading it.
+* **Steps 1, 2, 6** — `VExpr.instL_mkLams` (both sides of `iotaRule` share one telescope, so
+  no `peelLams` is needed at all), `VInductDecl'.instL_iotaLhs` into `matches_iota_paths`, and
+  `iotaRHS_apply` + `iotaLhs_args_split` + `VExpr.bvars_add`.
+* **Step 3** — `List.zip_map_eq` for the equation, `VEnv.isDefEqU_of_mem_bvars` for the
+  judgement.  Two obligations, and the note below is why that is written twice.
+* **Step 4** — `VInductDecl'.iota_index_clause`, then `IsDefEqU.instL` and `IsDefEq.weakR`.
+* **Step 5** — `iotaLevelPairs` against `selfLvls`, entry by entry; both sides are the same
+  level, so each clause is `rfl`.
+
+### Two findings
+
+**`extra_pat`'s `OnCtx Γ` is not needed by any case.**  Its docstring argues that the ι index
+clauses need it, because they β-reduce a `mkLams` and `IsDefEq.beta` needs the function typed.
+The premise is right and the conclusion is wrong: the β-reduction happens in the rule's *own*
+binder context, which is closed, and `IsDefEq.weakR` carries the result over an arbitrary `Γ`
+on `CtxClosed` alone.  The field's hypothesis is harmless — its one caller holds it — but
+nothing consumes it, and `Pat.extra` ignores it.
+
+**The F3 transport is the whole cost of step 4.**  `iotaComputed` abstracts a result index
+over `C.params ++ fields` — the *constructor's* stored telescope — while `iotaCtx` carries
+`D.params`.  `iota_law`, the template, never meets this: it types its constructor spine with
+`ctorApp'_hasType`, which packages the transport through `appBVars₂` for a *single*
+application.  `betaMkLams` instead wants a `HasArgs` for the spine, and no spine-level
+analogue of that transport existed — hence `VEnv.HasArgs.defeqDFC`, `VEnv.HasArgs.hasType_of_mem`,
+`VExpr.instAllTele_bvars_shift`, and the two-block `HasArgs.bvars`/`HasArgs.append`
+construction inside `iota_index_clause`.
+
+### The accounting note, and its recurrence
+
+The estimate was 40 + 250 = 290 lines; the measurement is 41 + 369 = 410.  Steps 0, 1, 2, 3, 5
+and 6 came in at or under their numbers.  All of the overrun is step 4: priced at ~80, it cost
+~190 (113 for `iota_index_clause`, 63 for the four helpers it needed, ~15 for the block that
+consumes it).
+
+The previous stream left this warning:
 
 > Every line you name gets its own number.  A named line folded into another's estimate is
 > functionally unenumerated.
 
-Corollary, learned the same way: a heuristic that prices listed lines is not a check that the
-list is complete, and a correct total is not evidence that it was. -/
+Step 4's line named `betaMkLams`'s "three hypotheses" and then priced two of them — the
+`OnCtx` and the `HasType` — leaving the `HasArgs` named but unnumbered.  The warning was
+correct, was read, and was violated on the very line that carries it.  A prose list of
+dependencies is not an enumeration; **turn each named dependency into a row with a number
+before totalling**, and treat a dependency you have not located in the tree as its own row
+even when the lemma that consumes it is already priced.
+
+Corollary, unchanged: a heuristic that prices listed lines is not a check that the list is
+complete, and a correct total is not evidence that it was. -/
 
 end Lean4Lean
