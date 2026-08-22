@@ -128,6 +128,74 @@ theorem TrEnv.not_recInfo (H : TrEnv safety env venv) {name v}
     (h : env.find? name = some (.recInfo v)) : False := by
   rcases H.find?_shape hv h with ⟨_,h⟩|⟨_,h⟩|⟨_,h⟩|⟨_,h⟩|⟨_,h⟩ <;> cases h
 
+/-! ### The dual: which *rules* a `TrEnv'`-built environment can have
+
+R6 says which `ConstantInfo` shapes reach the constant map.  This says which `VDefEq`s reach
+the `VEnv`: only δ-rules and the quotient rule.  **Currently unconsumed** — it was proved for
+a route to `reduceProjCore.WF` that turned out not to be needed (the shorter route goes
+through `not_ctorInfo` above).  Kept because it is inventory, not a premise: it characterises
+`TrEnv'`, and anything asking "which rules can this environment have" — a `VEnv.Params`
+instance, `RuleShape`'s `TrEnv'`-side counterpart, an ι-rule-absence argument once
+`AddInduct` lands — wants exactly this. -/
+
+theorem VEnv.addConst_defeqs {env env' : VEnv} (h : env.addConst n ci = some env') :
+    env'.defeqs = env.defeqs := by
+  unfold VEnv.addConst at h; split at h <;> cases h; rfl
+
+theorem VEnv.addConsts_defeqs : ∀ {cis : List VDefVal} {env env' : VEnv},
+    env.addConsts cis = some env' → env'.defeqs = env.defeqs
+  | [], _, _, h => by rw [VEnv.addConsts, List.foldlM_nil] at h; cases h; rfl
+  | ci :: cis, env, env', h => by
+    rw [VEnv.addConsts, List.foldlM_cons] at h
+    cases h1 : env.addConst ci.name ci.toVConstant with
+    | none => rw [h1] at h; exact absurd h (by simp)
+    | some env₁ =>
+      rw [h1] at h
+      have h2 : env₁.addConsts cis = some env' := h
+      rw [VEnv.addConsts_defeqs (cis := cis) h2, VEnv.addConst_defeqs h1]
+
+theorem VEnv.addDefEqs_defeqs : ∀ {cis : List VDefVal} {env : VEnv} {df},
+    (env.addDefEqs cis).defeqs df → (∃ ci ∈ cis, df = ci.toDefEq) ∨ env.defeqs df
+  | [], _, _, h => .inr h
+  | ci :: cis, env, df, h => by
+    rw [VEnv.addDefEqs, List.foldl_cons] at h
+    rcases VEnv.addDefEqs_defeqs (cis := cis) (env := env.addDefEq ci.toDefEq) h with
+      ⟨ci', hci', rfl⟩ | h
+    · exact .inl ⟨_, .tail _ hci', rfl⟩
+    · rcases h with rfl | h
+      · exact .inl ⟨_, .head _, rfl⟩
+      · exact .inr h
+
+/-- **The dual of R6.**  A `TrEnv'`-built `VEnv` carries only δ-rules and the quotient rule —
+in particular no ι-rule, since `TrEnv'.induct` is vacuous.  Uniform in `safety`; unlike R6 no
+guard is needed, because `ignore` changes no rules. -/
+theorem TrEnv'.defeqs_shape (H : TrEnv' safety C Q venv) (h : venv.defeqs df) :
+    (∃ ci' : VDefVal, df = ci'.toDefEq) ∨ df = quotDefEq := by
+  induction H with
+  | empty => cases h
+  | ignore _ _ _ ih => exact ih h
+  | «axiom» _ _ _ hadd _ ih => exact ih (VEnv.addConst_defeqs hadd ▸ h)
+  | defn _ _ _ hadd _ ih =>
+    rcases h with rfl | h
+    · exact .inl ⟨_, rfl⟩
+    · exact ih (VEnv.addConst_defeqs hadd ▸ h)
+  | thm _ _ _ _ hadd _ ih => exact ih (VEnv.addConst_defeqs hadd ▸ h)
+  | «opaque» _ _ _ hadd _ ih => exact ih (VEnv.addConst_defeqs hadd ▸ h)
+  | unsafeDef _ _ _ _ _ hadd _ _ ih =>
+    rcases VEnv.addDefEqs_defeqs h with ⟨ci', _, rfl⟩ | h
+    · exact .inl ⟨_, rfl⟩
+    · exact ih (VEnv.addConsts_defeqs hadd ▸ h)
+  | quot _ hadd _ ih =>
+    obtain ⟨lp₁, ty₁, env₁, _, hn₁, ha₁,
+      lp₂, ty₂, env₂, _, hn₂, ha₂,
+      lp₃, ty₃, env₃, _, hn₃, ha₃,
+      lp₄, ty₄, env₄, _, hn₄, ha₄, _, rfl⟩ := hadd
+    rcases h with rfl | h
+    · exact .inr rfl
+    · exact ih (VEnv.addConst_defeqs ha₁ ▸ VEnv.addConst_defeqs ha₂ ▸
+        VEnv.addConst_defeqs ha₃ ▸ VEnv.addConst_defeqs ha₄ ▸ h)
+  | induct _ hadd => cases hadd
+
 /-- **The form a `.WF` proof meets.**  The name comes from a translated `.const`, so the
 `safety` guard is free: `inferProj`'s `let .inductInfo I_val ← env.get I_name | fail` fails,
 uniformly in `safety`, with no `.unsafe` instantiation and no appeal to `AddInduct`. -/
