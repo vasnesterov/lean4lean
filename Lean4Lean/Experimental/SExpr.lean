@@ -45,42 +45,50 @@ class Params where
 open Params
 variable [Params]
 
-/-- A semantically quotiented version of `VLevel`. This avoids the need for some congruences. -/
-def SLevel := { f : List Nat → Nat // ∃ l : VLevel, l.WF univs ∧ l.eval = f }
+/-- A semantically quotiented version of `VLevel`. This avoids the need for some congruences.
+
+The subtype condition is just "is the evaluation of *some* `VLevel`". It deliberately does
+**not** ask for `VLevel.WF univs`: the levels occurring in a constant's type `ci.type` are
+well-formed at `ci.uvars`, which has no relation to `univs`, and `SLevel.mk` must not lose
+them — otherwise `SExpr.mk` fails to commute with `VExpr.instL` at constants and the
+`const` rule of `SExpr.IsDefEq` stops being the image of `VEnv.IsDefEq.constDF`
+(see `SExpr.mk_instL`). Well-formedness of the levels of a term is tracked on the `VExpr`
+side by `VEnv.IsDefEq` itself, so nothing is lost by dropping it here. -/
+def SLevel := { f : List Nat → Nat // ∃ l : VLevel, l.eval = f }
 
 namespace SLevel
 
-def zero : SLevel := ⟨_, .zero, ⟨⟩, rfl⟩
+def zero : SLevel := ⟨_, .zero, rfl⟩
 
-def mk (l : VLevel) : SLevel := if h : l.WF univs then ⟨_, l, h, rfl⟩ else .zero
+def mk (l : VLevel) : SLevel := ⟨_, l, rfl⟩
+
+@[simp] theorem val_mk {l : VLevel} : (mk l).1 = l.eval := rfl
 
 def succ (l : SLevel) : SLevel :=
-  ⟨fun v => l.1 v + 1, let ⟨u, h1, h2⟩ := l.2; ⟨u.succ, h1, h2 ▸ rfl⟩⟩
+  ⟨fun v => l.1 v + 1, let ⟨u, h2⟩ := l.2; ⟨u.succ, h2 ▸ rfl⟩⟩
 
 def max (l₁ l₂ : SLevel) : SLevel :=
   ⟨fun v => (l₁.1 v).max (l₂.1 v),
-    let ⟨u, h1, h2⟩ := l₁.2; let ⟨v, h3, h4⟩ := l₂.2; ⟨u.max v, ⟨h1, h3⟩, h2 ▸ h4 ▸ rfl⟩⟩
+    let ⟨u, h2⟩ := l₁.2; let ⟨v, h4⟩ := l₂.2; ⟨u.max v, h2 ▸ h4 ▸ rfl⟩⟩
 
 def imax (l₁ l₂ : SLevel) : SLevel :=
   ⟨fun v => Lean.Nat.imax (l₁.1 v) (l₂.1 v),
-    let ⟨u, h1, h2⟩ := l₁.2; let ⟨v, h3, h4⟩ := l₂.2; ⟨u.imax v, ⟨h1, h3⟩, h2 ▸ h4 ▸ rfl⟩⟩
+    let ⟨u, h2⟩ := l₁.2; let ⟨v, h4⟩ := l₂.2; ⟨u.imax v, h2 ▸ h4 ▸ rfl⟩⟩
 
 def inst (ls : List SLevel) (l : SLevel) : SLevel := by
   refine ⟨fun v => l.1 (ls.map (·.1 v)), ?_⟩
   simp [funext_iff]
-  have ⟨ls', h3⟩ :
-      ∃ ls' : List VLevel, ls'.Forall₂ (fun l' l => l'.WF univs ∧ l'.eval = l.1) ls := by
+  have ⟨ls', h3⟩ : ∃ ls' : List VLevel, ls'.Forall₂ (fun l' l => l'.eval = l.1) ls := by
     induction ls with
     | nil => exact ⟨_, .nil⟩
     | cons a l ih =>
-      let ⟨l', h1, h2⟩ := a.2; let ⟨ls', h3⟩ := ih
-      exact ⟨l'::ls', .cons ⟨h1, h2⟩ h3⟩
-  have ⟨l', h1, h2⟩ := l.2
-  refine ⟨l'.inst ls', VLevel.WF.inst fun _ h => ?_, fun v => ?_⟩
-  · let ⟨_, h⟩ := h3.forall_exists_l _ h; exact h.2.1
-  · simp [VLevel.eval_inst, ← h2]; congr 1
-    rw [← List.forall₂_eq, List.forall₂_map_left_iff, List.forall₂_map_right_iff]
-    exact h3.imp fun _ _ h => congrFun h.2 _
+      let ⟨l', h2⟩ := a.2; let ⟨ls', h3⟩ := ih
+      exact ⟨l'::ls', .cons h2 h3⟩
+  have ⟨l', h2⟩ := l.2
+  refine ⟨l'.inst ls', fun v => ?_⟩
+  simp [VLevel.eval_inst, ← h2]; congr 1
+  rw [← List.forall₂_eq, List.forall₂_map_left_iff, List.forall₂_map_right_iff]
+  exact h3.imp fun _ _ h => congrFun h _
 
 end SLevel
 
