@@ -1042,3 +1042,25 @@ theorem HasTypeStratified.isType (H : HasTypeStratified env U Γ e A b n) :
   | @sort' _ l _ _ _ h _ => exact ⟨_, .base (.sort' (l := l.succ) (l' := l.succ) h h rfl)⟩
   | @forallE _ _ u _ _ v h1 h2 =>
     exact ⟨_, .base (.sort' (l := .imax u v) (l' := .imax u v) ⟨h1, h2⟩ ⟨h1, h2⟩ rfl)⟩
+
+/-- **Π-inversion for the stratified judgment.**  Structurally the same induction as
+`to_core` and `isType` above; the only new content is the `defeq` case's `.mono`, and the
+`1 ≤ n` conjunct, which holds because the structural `forallE` constructor concludes at
+`n+1` and neither wrapper can lower the index.
+
+This is what `forallE_inv_stratified` needs in order to be *derived* from the unstratified
+`forallE_inv` rather than proved from scratch — see
+`Experimental/Reflect/Capstone.lean`'s `forallE_inv_stratified_params`.  It is stated here,
+`Params`-free, because nothing about it belongs to the shape model. -/
+theorem HasTypeStratified.forallE_inv' {env : VEnv} {Γ : List VExpr} {A B V : VExpr}
+    {U n : Nat} {b : Bool} (H : HasTypeStratified env U Γ (.forallE A B) V b n) :
+    1 ≤ n ∧ ∃ u v, HasTypeStratified env U Γ A (.sort u) true (n-1) ∧
+      HasTypeStratified env U (A::Γ) B (.sort v) true (n-1) := by
+  generalize eq : VExpr.forallE A B = e at H
+  induction H with cases eq
+  | forallE _ _ h3 h4 =>
+    exact ⟨Nat.le_add_left .., _, _, by simpa using h3, by simpa using h4⟩
+  | base _ ih => exact ih rfl
+  | defeq _ _ _ _ _ _ _ ih =>
+    obtain ⟨_, u, v, h1, h2⟩ := ih rfl
+    exact ⟨Nat.le_add_left .., u, v, h1.mono (by omega), h2.mono (by omega)⟩

@@ -357,3 +357,39 @@ Revised C4 estimate, all **structural** (no de Bruijn arithmetic anywhere in it)
 Against the earlier 80–150 with low confidence — same range, now with the risk located and
 one third of it already checked. The dependency chain for route 1 therefore holds: C4 →
 `uniq` → `ChurchRosser` → (A), (B), (C) together.
+
+## 10.4 C4 landed
+
+Built, and **under estimate**: ~65 lines of proof against 85–125, all structural, no
+positional arithmetic. Every piece went through first try.
+
+| Piece | Where | Lines | Verified |
+|---|---|---|---|
+| `HasTypeStratified.forallE_inv'` | `Theory/Typing/Strong.lean` | 13 | **yes** — built, `[propext, Quot.sound]`, sorry-free |
+| `sort_uniq_of_hasType` | `Experimental/Reflect/Capstone.lean` | 9 | elaborated clean; see caveat |
+| `forallE_inv_at` | same | 15 | elaborated clean; see caveat |
+| `forallE_inv_stratified_params` | same | 28 | elaborated clean; see caveat |
+
+The shape of the proof is what §10.3 predicted. The domain half needs no alignment at all —
+`hA₀`'s level is exactly the one `forallE_inv_at` is asked for. The codomain half does, and
+asymmetrically: `h3` types `B'` in `A'::Γ` while the equality lives in `A::Γ`, so the two are
+brought together by `HasType.defeqDFC` along `A ≡ A'` and then compared with
+`sort_uniq_of_hasType`. The final `HasTypeStratified.defeq` retype consumes the `1 ≤ n'`
+conjunct that `forallE_inv'` was strengthened to carry, since it lands at `(n'-1)+1`.
+
+**Verification caveat, and it is the §16.4 hazard of `docs/research-forallE-inv.md` again.**
+The three `Capstone.lean` pieces elaborated clean under `lake env lean` against the
+`ShapeLogRel.olean` present at that moment. The shape stream then pushed an edit,
+`ShapeLogRel.lean` went red, and `lake` discarded that olean — so the axiom cones cannot
+currently be re-checked, and by the rule established there **this is not yet a verified
+result**. It should be re-checked the moment that stream is green; the expected cone is
+`[propext, Classical.choice, Quot.sound, sorryAx]`, matching `forallE_inv_params`, with the
+`sorryAx` entering through `SExpr.IsDefEq.strong` exactly as before.
+
+The mainline half is unaffected and fully verified, since it depends on nothing in
+`Experimental/`.
+
+*(Separately: `lake build Lean4Lean.Theory` is currently red at
+`Theory/Typing/PatternRules.lean:1359`, the keystone stream's file. `EnvLemmas` — its only
+route toward this work — does not import `Strong.lean`, and `Strong`, `Injectivity` and
+`ConstInvWitness` each build clean on their own, so that failure is unrelated to C4.)*
