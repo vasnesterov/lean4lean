@@ -49,15 +49,36 @@ Three refutations of this statement have been closed on the implementation side
   `TypeChecker.VState.WF` and with it this theorem's `M.WF` obligation. See `bugs-found.md`.
 
 What remains is the four operations whose equations the recognizer verifies through fuel
-recursion (`Nat.mod`, `Nat.div`) or `WellFounded.Nat.fix` (`Nat.gcd`, `Nat.bitwise`), together
-with `String.ofList`, whose branch is proof-ready but whose `do`-block nests four `if`s that the
-`split` tactic reaches in an inconvenient order. The other fourteen branches are discharged
-below, using the reflection theorems and the `VEnv.PrimField` / `VEnv.HasPrimitives.addDef`
-plumbing in `Lean4Lean/Verify/Primitive.lean`. -/
+recursion (`Nat.mod`, `Nat.div`) or `WellFounded.Nat.fix` (`Nat.gcd`, `Nat.bitwise`). The other
+fifteen branches are discharged below, using the reflection theorems and the `VEnv.PrimField` /
+`VEnv.HasPrimitives.addDef` plumbing in `Lean4Lean/Verify/Primitive.lean`.
+
+Those four are not merely unproved. Bug 4 of `bugs-found.md` -- handing untyped terms to
+`isDefEq`, which records its verdict in the `EquivManager` and so breaks `VState.WF` -- was
+fixed for the other fifteen branches by `checkPrimValue`/`checkIsType`/`checkedIsDefEq`/
+`checkedTypeIs`, but *not* for these four. They still compare terms neither side of which has
+been type-checked, both directly and through the helpers they share:
+
+* `Condition.check` (`Primitive.lean:125,133,134`) runs `inferType`, not `checkType`, on
+  `cond.prop`, `asBool` and `proof` -- and `inferType` assumes its argument is already
+  well-typed, which is the precondition the recognizer cannot have;
+* `Reflection.check` (`:50`), `Reflection.checkITE` (`:94,98,100`) and
+  `Reflection.checkNatDITE` (`:103-118`) compare against unchecked literal right-hand sides;
+* `unfoldWellFounded` (`:169-173`) and `unfoldNatWellFounded` (`:205,211,213,221,237,245`)
+  likewise;
+* and the branches themselves: `Nat.mod` (`:374,376,386,393`), `Nat.div` (`:401,403,410,417`),
+  `Nat.gcd` (`:427,428`), `Nat.bitwise` (`:470`).
+
+So this statement cannot be proved the way the other fifteen are, and the first step is to
+extend the same remedy to these sites. Whether a declaration exists that *exploits* the gap --
+passing the recognizer while leaving an untranslatable term in the `EquivManager` -- has not
+been established either way; the fifteen fixed branches were each closed without needing such a
+witness. Beyond that the four need genuinely new reflection arguments (fuel recursion for
+`mod`/`div`, `WellFounded.Nat.fix` for `gcd`/`bitwise`), which the fifteen did not. -/
 theorem checkPrimitiveDef.WF.rest {env : Environment} {ves : VEnvs} (wf : ves.WF env)
     (v : DefinitionVal) (fuel : FuelConfig)
     (hrest : v.name = ``Nat.mod ∨ v.name = ``Nat.div ∨ v.name = ``Nat.gcd ∨
-      v.name = ``Nat.bitwise ∨ v.name = ``String.ofList) :
+      v.name = ``Nat.bitwise) :
     (Environment.checkPrimitiveDef v).WF (.mk' wf .safe v.levelParams fuel) {} fun allow _ =>
       PrimitiveResult (ves.venv .safe) v allow := sorry
 
@@ -68,10 +89,10 @@ theorem checkPrimitiveDef.WF {env : Environment} {ves : VEnvs} (wf : ves.WF env)
       PrimitiveResult (ves.venv .safe) v allow := by
   obtain ⟨⟨name, lparams, type⟩, value, hints, safety, all⟩ := v
   by_cases hrest : name = ``Nat.mod ∨ name = ``Nat.div ∨ name = ``Nat.gcd ∨
-      name = ``Nat.bitwise ∨ name = ``String.ofList
+      name = ``Nat.bitwise
   · exact checkPrimitiveDef.WF.rest wf _ fuel hrest
   simp only [not_or] at hrest
-  obtain ⟨hrmod, hrdiv, hrgcd, hrbit, hrstr⟩ := hrest
+  obtain ⟨hrmod, hrdiv, hrgcd, hrbit⟩ := hrest
   have hfail {α : Type} {s' : VState} {Q : α → VState → Prop} {msg} :
       M.WF (.mk' wf .safe lparams fuel) s' (throw (Exception.other msg) : M α) Q := .throw
   unfold Environment.checkPrimitiveDef
@@ -1114,5 +1135,60 @@ theorem checkPrimitiveDef.WF {env : Environment} {ves : VEnvs} (wf : ves.WF env)
       · refine M.WF.bind (checkIsType.WF (by simp [FVarsIn])) fun _ _ _ _ => ?_
         exact M.WF.bindThrow .throw
       · exact M.WF.bindThrow .throw
-  · rename_i hname; exact absurd hname hrstr
+  · -- ``String.ofList
+    rename_i hname
+    split
+    · rename_i htyeq
+      split
+      · rename_i hguard
+        simp only [Bool.and_eq_true, List.isEmpty_iff] at hguard
+        obtain ⟨-, rfl⟩ := hguard
+        refine M.WF.bind (checkIsType.WF (by simp [FVarsIn] <;> rfl)) fun _ _ _ _ => ?_
+        refine M.WF.bind (checkIsType.WF (by simp [FVarsIn] <;> rfl)) fun _ _ _ _ => ?_
+        refine M.WF.bind (checkedTypeIs.WF (by simp [FVarsIn] <;> rfl) (by simp [FVarsIn] <;> rfl))
+          fun _ _ _ ⟨nil', A1, ty1, hnil, hnilT, hty1, hb1⟩ => ?_
+        split <;> [skip; exact M.WF.bindThrow .throw]
+        rename_i hb1t
+        refine M.WF.bind (checkedTypeIs.WF (by simp [FVarsIn] <;> rfl) (by simp [FVarsIn] <;> rfl))
+          fun _ _ _ ⟨cons', A2, ty2, hcons, hconsT, hty2, hb2⟩ => ?_
+        split <;> [skip; exact M.WF.bindThrow .throw]
+        rename_i hb2t
+        -- the two typing facts `PrimField ``String.ofList` needs, read off the two checked
+        -- comparisons the recognizer performed
+        cases trExprS_constAppChar_inv' hnil
+        cases trExprS_listChar_inv' hty1
+        cases trExprS_constAppChar_inv' hcons
+        cases trExprS_consType_inv' hty2
+        have hnilTy : (ves.venv .safe).HasType 0 [] .listCharNil .listChar :=
+          hnilT.defeqU_r (VContext.mk' wf .safe [] fuel).Ewf
+            (VContext.mk' wf .safe [] fuel).Δwf.toCtx (hb1 hb1t)
+        have hconsTy : (ves.venv .safe).HasType 0 []
+            .listCharCons (.forallE .char (.forallE .listChar .listChar)) :=
+          hconsT.defeqU_r (VContext.mk' wf .safe [] fuel).Ewf
+            (VContext.mk' wf .safe [] fuel).Δwf.toCtx (hb2 hb2t)
+        refine .pure ⟨fun _ => (by simpa using hsafe), fun _ => rfl, ?_⟩
+        intro _ sf venv env'' ci' hle hwf hprim2 htr hci hadd
+        refine preserves_glue_const (nm := ``String.ofList) hname rfl (by decide) ?_
+          hle hwf hprim2 htr hci hadd
+        intro venv2 ci2 hle2 hprim4 htype huv0 env₂ hle₂ hconst
+        have hteq := trExprS_listCharString_inv' (htype.eqv htyeq)
+        have hmono : ves.venv .safe ≤ env₂ := hle2.trans hle₂
+        rw [VEnv.primField_String_ofList]
+        intro ci hci2
+        rw [hconst] at hci2
+        cases hci2
+        refine ⟨?_, hnilTy.mono hmono, hconsTy.mono hmono⟩
+        show (⟨ci2.uvars, ci2.type⟩ : VConstant) = _
+        rw [huv0, hteq]
+      · exact M.WF.bindThrow .throw
+    · split
+      · refine M.WF.bind (checkIsType.WF (by simp [FVarsIn] <;> rfl)) fun _ _ _ _ => ?_
+        refine M.WF.bind (checkIsType.WF (by simp [FVarsIn] <;> rfl)) fun _ _ _ _ => ?_
+        refine M.WF.bind (checkedTypeIs.WF (by simp [FVarsIn] <;> rfl) (by simp [FVarsIn] <;> rfl))
+          fun _ _ _ _ => ?_
+        split <;> [skip; exact M.WF.bindThrow .throw]
+        refine M.WF.bind (checkedTypeIs.WF (by simp [FVarsIn] <;> rfl) (by simp [FVarsIn] <;> rfl))
+          fun _ _ _ _ => ?_
+        split <;> exact M.WF.bindThrow .throw
+      · exact M.WF.bindThrow .throw
   · exact .pure ⟨nofun, nofun, nofun⟩

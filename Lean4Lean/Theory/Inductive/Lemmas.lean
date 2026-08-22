@@ -1201,7 +1201,11 @@ end VEnv
 
 * `hrec` is D6 (`recType_isType`): each recursor's type is a well-formed constant in the
   environment that already has the block's types and constructors.
-* `hrules` is E5 (`iotaRule_WF`): each ι-rule is a well-formed `VDefEq` there.
+* `hrules` is E5 (`iotaRule_WF`): each ι-rule is a well-formed `VDefEq` in the environment
+  the recursors have just been added to.  It is stated over the *staged* environments, like
+  `hrec`: `env ≤ env₃` alone says nothing about `env₃` containing the block's types,
+  constructors or recursors, while every ι-rule's lhs is `I_j.rec` applied to a constructor
+  application, so the weaker form is not provable.
 
 Everything else -- the three `addConstList` stages, the type constants (`VIndType.WF`), the
 constructor constants (`VIndCtor.WF.isType`, which carries the F3 parameter transport), and
@@ -1210,14 +1214,15 @@ theorem VInductDecl'.addInduct'_ordered {env env' : VEnv} {D : VInductDecl'}
     (henv : env.Ordered) (h : D.WF env)
     (hrec : ∀ {env₁ env₂ : VEnv}, env.addIndTypes D = some env₁ →
       env₁.addIndCtors D = some env₂ → ∀ c ∈ D.recConsts, VConstant.WF env₂ c.2)
-    (hrules : ∀ {env₃ : VEnv}, env ≤ env₃ → env₃.Ordered → ∀ df ∈ D.iotaRules, df.WF env₃)
+    (hrules : ∀ {env₁ env₂ env₃ : VEnv}, env.addIndTypes D = some env₁ →
+      env₁.addIndCtors D = some env₂ → env₂.addIndRecs D = some env₃ →
+      ∀ df ∈ D.iotaRules, df.WF env₃)
     (he : env.addInduct' D = some env') : env'.Ordered := by
   obtain ⟨env₁, env₂, env₃, h1, h2, h3, rfl⟩ := VEnv.addInduct'_stages he
   have o1 := VInductDecl'.addIndTypes_ordered henv h h1
   have o2 := VInductDecl'.addIndCtors_ordered o1 h h1 h2
   have o3 := VEnv.addConstList_ordered o2 (hrec h1 h2) h3
-  refine VEnv.addIndRules_ordered o3 (hrules ?_ o3)
-  exact (VEnv.addIndTypes_le h1).trans ((VEnv.addIndCtors_le h2).trans (VEnv.addIndRecs_le h3))
+  exact VEnv.addIndRules_ordered o3 (hrules h1 h2 h3)
 
 /-! ## Arities of a constructor's stored type
 
@@ -1545,7 +1550,9 @@ theorem VInductDecl'.addInduct'_ordered' {env env' : VEnv} {D : VInductDecl'}
     (hmin : ∀ {env₂ : VEnv}, D.RecCtx env₂ →
       OnCtx (D.minors.reverse ++ D.motives.reverse ++ (D.atRecTele D.params).reverse)
         (env₂.IsType D.recUvars))
-    (hrules : ∀ {env₃ : VEnv}, env ≤ env₃ → env₃.Ordered → ∀ df ∈ D.iotaRules, df.WF env₃)
+    (hrules : ∀ {env₁ env₂ env₃ : VEnv}, env.addIndTypes D = some env₁ →
+      env₁.addIndCtors D = some env₂ → env₂.addIndRecs D = some env₃ →
+      ∀ df ∈ D.iotaRules, df.WF env₃)
     (he : env.addInduct' D = some env') : env'.Ordered := by
   refine VInductDecl'.addInduct'_ordered henv h (fun {env₁ env₂} h1 h2 c hc => ?_) hrules he
   have o1 := VInductDecl'.addIndTypes_ordered henv h h1
@@ -2379,6 +2386,300 @@ end VInductDecl'
 the only obligation left. -/
 theorem VInductDecl'.addInduct'_ordered'' {env env' : VEnv} {D : VInductDecl'}
     (henv : env.Ordered) (h : D.WF env)
-    (hrules : ∀ {env₃ : VEnv}, env ≤ env₃ → env₃.Ordered → ∀ df ∈ D.iotaRules, df.WF env₃)
+    (hrules : ∀ {env₁ env₂ env₃ : VEnv}, env.addIndTypes D = some env₁ →
+      env₁.addIndCtors D = some env₂ → env₂.addIndRecs D = some env₃ →
+      ∀ df ∈ D.iotaRules, df.WF env₃)
     (he : env.addInduct' D = some env') : env'.Ordered :=
   VInductDecl'.addInduct'_ordered' henv h (fun hR => VInductDecl'.onCtxMinors hR) hrules he
+
+/-! ## E5: the ι-rules
+
+`VDefEq.WF` asks for both sides of each rule to have the rule's own type in the empty
+context.  Both go through `HasType.mkLams` over `iotaCtx C`, whose `OnCtx` is D5 plus one
+`weakTele`; the content is in the two bodies. -/
+
+/-- **Locating an entry of a reversed telescope.**  If `l[q]? = some A` then, in any context
+whose `l`-block is `l.reverse`, the index `|Δ| + (|l| - 1 - q)` names `A`.  (`lookup_motive`
+is the `List.range`-specific version; this one is what the minors need, since `D.minors` is
+a `zipIdx.map` rather than a mapped range.) -/
+theorem Lookup.of_reverse {l : List VExpr} {q : Nat} {A : VExpr} (h : l[q]? = some A)
+    (Δ Γ₀ : List VExpr) :
+    Lookup (Δ ++ l.reverse ++ Γ₀) (Δ.length + (l.length - 1 - q))
+      (A.liftN (Δ.length + (l.length - 1 - q) + 1)) := by
+  have hq : q < l.length := by
+    rcases Nat.lt_or_ge q l.length with h' | h'
+    · exact h'
+    · rw [List.getElem?_eq_none h'] at h; exact absurd h (by simp)
+  have ha : l[q] = A := by
+    have h2 := List.getElem?_eq_getElem hq
+    rw [h] at h2; exact (Option.some_inj.1 h2).symm
+  have hsplit : l.reverse = (l.drop (q+1)).reverse ++ A :: (l.take q).reverse := by
+    have h1 : (l.take q ++ A :: l.drop (q+1)).reverse
+        = (l.drop (q+1)).reverse ++ A :: (l.take q).reverse := by simp
+    rw [← h1, ← ha, ← List.drop_eq_getElem_cons hq, List.take_append_drop]
+  have hΞ : (Δ ++ (l.drop (q+1)).reverse).length = Δ.length + (l.length - 1 - q) := by
+    simp only [List.length_append, List.length_reverse, List.length_drop]
+    omega
+  have hctx : Δ ++ l.reverse ++ Γ₀
+      = (Δ ++ (l.drop (q+1)).reverse) ++ A :: ((l.take q).reverse ++ Γ₀) := by
+    rw [hsplit]; simp
+  rw [hctx, ← hΞ]
+  exact Lookup.append _
+
+namespace VEnv
+
+/-- Extend a `HasArgs` by one more argument at the end of the telescope. -/
+theorem HasArgs.concat {env : VEnv} {U : Nat} {Γ : List VExpr} :
+    ∀ {As as A a}, HasArgs env U Γ As as → env.HasType U Γ a (VExpr.instAll A as 0) →
+      HasArgs env U Γ (As ++ [A]) (as ++ [a])
+  | _, _, A, a, .nil, ha => .cons (by simpa using ha) .nil
+  | A₀ :: As, a₀ :: as, A, a, .cons h0 h, ha => by
+    refine .cons h0 ?_
+    show HasArgs env U Γ (VExpr.instTele a₀ (As ++ [A])) (as ++ [a])
+    rw [VExpr.instTele_append, Nat.zero_add]
+    refine HasArgs.concat h ?_
+    rw [VExpr.instAll_cons, Nat.zero_add] at ha
+    rwa [show As.length = as.length from by
+      have h2 := h.length_eq; rwa [VExpr.length_instTele] at h2]
+
+end VEnv
+
+namespace VInductDecl'
+variable {env : VEnv} {D : VInductDecl'}
+
+/-- The `d := 0` companion of `shift_atRec_tyApp`: a plain weakening rather than a
+`shift`. -/
+theorem liftN_atRec_tyApp (D : VInductDecl') {t k i off K : Nat} {args : List VExpr}
+    (hik : i ≤ k) (hK : off + k = K) :
+    (D.atRec (D.tyApp t k args)).liftN off i
+      = D.tyApp' t K (args.map fun a => (D.atRec a).liftN off i) := by
+  have h1 : D.atRec (D.tyApp t k args)
+      = (VExpr.const (D.types.getD t default).name D.selfLvls).mkApp
+        (bvars k D.np ++ args.map D.atRec) := by
+    simp only [VInductDecl'.tyApp, VInductDecl'.atRec_mkApp, List.map_append,
+      VInductDecl'.atRec_bvars, VInductDecl'.atRec_const,
+      VInductDecl'.ownLvls_inst_selfLvls]
+  rw [h1, VExpr.mkApp_append, VExpr.liftN_mkApp, VExpr.liftN_mkApp_bvars_lo hik, hK,
+    VInductDecl'.tyApp', VExpr.mkApp_append, List.map_map]
+  rfl
+
+/-- `tyApp'_instAll` with the inner parameter offset left free: the recursor's major-premise
+domain is `I_j p ι` with the parameters at `ni + nmin + nm`, not at `ni + j`. -/
+theorem tyApp'_instAll' {j ni K₀ L M : Nat} {ιs : List VExpr} (hlen : ιs.length = ni)
+    (hni : ni ≤ K₀) (h : L + K₀ - ni = M) :
+    VExpr.instAll ((D.tyApp' j K₀ (bvars 0 ni)).liftN L ni) ιs 0 = D.tyApp' j M ιs := by
+  have hL : (D.tyApp' j K₀ (bvars 0 ni)).liftN L ni
+      = (VExpr.const (D.types.getD j default).name D.selfLvls).mkApp
+          (bvars (L + K₀) D.np ++ bvars 0 ni) := by
+    rw [VInductDecl'.tyApp', VExpr.liftN_mkApp, List.map_append,
+      VExpr.map_liftN_bvars_lo hni,
+      VExpr.map_liftN_bvars_hi (Nat.le_of_eq (Nat.zero_add ni))]
+    rfl
+  rw [hL, VInductDecl'.tyApp', VExpr.instAll_mkApp, VExpr.instAll_const, List.map_append,
+    VExpr.map_instAll_bvars_ge (by rw [hlen]; omega), hlen, h,
+    VExpr.map_instAll_bvars' hlen]
+
+/-- **The recursor's codomain, saturated.**  `recType`'s body -- the motive applied to the
+index variables and the major variable -- lifted past the minor's field block and then
+instantiated by the constructor's index *terms* and the constructor application, is exactly
+`iotaType`'s shape.  The spine `bvars 1 ni ++ [.bvar 0]` is `bvars 0 (ni+1)`, so this is one
+application of `map_instAll_bvars'`. -/
+theorem recCod_instAll {ni nf B M : Nat} {ιs : List VExpr} {z : VExpr}
+    (hlen : ιs.length = ni) (hB : ni + 1 ≤ B) (hM : nf + B - (ni + 1) = M) :
+    VExpr.instAll
+        (((VExpr.bvar B).mkApp (bvars 1 ni ++ [VExpr.bvar 0])).liftN nf (ni + 1))
+        (ιs ++ [z]) 0
+      = (VExpr.bvar M).mkApp (ιs ++ [z]) := by
+  have hb : bvars 1 ni ++ [VExpr.bvar 0] = bvars 0 (ni + 1) := by
+    rw [VExpr.bvars_add (m := ni) (n := 1)]; rfl
+  have hz : (ιs ++ [z]).length = ni + 1 := by rw [List.length_append, hlen]; rfl
+  rw [hb, VExpr.liftN_mkApp_bvars_hi (Nat.le_of_eq (Nat.zero_add _)), VExpr.instAll_mkApp,
+    VExpr.map_instAll_bvars' hz,
+    show (VExpr.bvar B).liftN nf (ni + 1) = VExpr.bvar (nf + B) from by
+      simp only [VExpr.liftN, liftVar, if_neg (show ¬ (B < ni + 1) by omega)],
+    VExpr.instAll_bvar_ge (by rw [hz]; omega), hz, hM]
+
+end VInductDecl'
+
+/-- The situation in which the ι-rules are checked: everything `RecCtx` provides, plus the
+block's recursor constants at their generated types.  `addIndRecs` produces exactly this,
+which is why `addInduct'_ordered`'s `hrules` is stated over the staged environments. -/
+structure VInductDecl'.IotaCtx (env : VEnv) (D : VInductDecl') : Prop where
+  toRecCtx : D.RecCtx env
+  recConsts : ∀ j (T : VIndType), D.types[j]? = some T →
+    env.constants (Lean.mkRecName T.name) = some ⟨D.recUvars, D.recType j⟩
+
+namespace VInductDecl'
+variable {env : VEnv} {D : VInductDecl'}
+
+/-- The ι-rule's binder context is well-formed: D5 plus one `weakTele` for the fields. -/
+theorem onCtxIota (hR : D.RecCtx env) {j : Nat} {T : VIndType} {C : VIndCtor}
+    (hT : D.types[j]? = some T) (hC : C ∈ T.ctors) :
+    OnCtx ((liftTele (D.nm + D.nmin) (D.atRecTele (C.fields.map (·.type))) 0).reverse
+        ++ (D.minors.reverse ++ D.motives.reverse ++ (D.atRecTele D.params).reverse))
+      (env.IsType D.recUvars) := by
+  have henv := hR.ordered
+  have hCwf : VIndCtor.WF env D j T C := hR.ctors j T hT C hC
+  have hacΦ : D.atRecCtx ((C.fields.map (·.type)).reverse ++ D.params.reverse)
+      = (D.atRecTele (C.fields.map (·.type))).reverse ++ (D.atRecTele D.params).reverse := by
+    rw [VInductDecl'.atRecCtx, List.map_append, List.map_reverse, List.map_reverse]; rfl
+  have hΦ : OnCtx ((D.atRecTele (C.fields.map (·.type))).reverse
+      ++ (D.atRecTele D.params).reverse) (env.IsType D.recUvars) := by
+    rw [← hacΦ]; exact D.atRec_onCtx (hCwf.onCtxAllFields henv)
+  exact VEnv.OnCtx.weakTele henv
+    (.zero (D.minors.reverse ++ D.motives.reverse) (by
+      rw [List.length_append, List.length_reverse, List.length_reverse,
+        VInductDecl'.length_minors, VInductDecl'.length_motives]; omega))
+    (VInductDecl'.onCtxMinors hR) hΦ
+
+/-- **The recursor, saturated.**  `I_u.rec` at the recursor's own level list, applied to the
+parameter, motive and minor variable blocks sitting `lo` binders up, then to index terms
+`ιs` and a major premise `z`, has type `motive_u ιs z`.
+
+`lo` and the block `Ξ` sitting above the minors are parameters because this is used at two
+different depths: the ι-rule's own left-hand side (`Ξ` the field block, `lo = nf`) and each
+induction-hypothesis *value* (`Ξ` the field block under a recursive field's `ξ`-telescope,
+`lo = nxi + nf`).
+
+The three variable blocks are contiguous in the context -- everything else sits *above*
+them -- so a single `appBVars` over `params ++ motives ++ minors` covers all three, and only
+the last two arguments need a real `HasArgs`.  The codomain computation is
+`recCod_instAll`. -/
+theorem recApp_hasType (hI : D.IotaCtx env) {u lo M : Nat} {T' : VIndType}
+    (hT' : D.types[u]? = some T') (hu : u < D.nm)
+    {Ξ ιs : List VExpr} {z : VExpr} (hΞ : Ξ.length = lo)
+    (hlen : ιs.length = T'.indices.length)
+    (hidx : env.HasArgs D.recUvars
+      (Ξ ++ (D.minors.reverse ++ D.motives.reverse ++ (D.atRecTele D.params).reverse))
+      (liftTele (D.nm + D.nmin + lo) (D.atRecTele T'.indices) 0) ιs)
+    (hz : env.HasType D.recUvars
+      (Ξ ++ (D.minors.reverse ++ D.motives.reverse ++ (D.atRecTele D.params).reverse))
+      z (D.tyApp' u (D.nm + D.nmin + lo) ιs))
+    (hM : lo + D.nmin + (D.nm - 1 - u) = M) :
+    env.HasType D.recUvars
+      (Ξ ++ (D.minors.reverse ++ D.motives.reverse ++ (D.atRecTele D.params).reverse))
+      ((VExpr.const (Lean.mkRecName T'.name) (VLevel.params D.recUvars)).mkApp
+        (bvars lo (D.np + D.nm + D.nmin) ++ (ιs ++ [z])))
+      ((VExpr.bvar M).mkApp (ιs ++ [z])) := by
+  have hR := hI.toRecCtx
+  have henv := hR.ordered
+  have hmin := VInductDecl'.onCtxMinors hR
+  -- the recursor constant, with its telescope split after the minors
+  have hrec0 : env.HasType D.recUvars ([] : List VExpr)
+      (.const (Lean.mkRecName T'.name) (VLevel.params D.recUvars)) (D.recType u) :=
+    VEnv.HasType.const0 (hI.recConsts u T' hT') (VInductDecl'.recType_isType hR hT' hu hmin)
+  rw [VInductDecl'.recType, getD_types hT'] at hrec0
+  have hrec1 : env.HasType D.recUvars ([] : List VExpr)
+      (.const (Lean.mkRecName T'.name) (VLevel.params D.recUvars))
+      (mkPi (D.atRecTele D.params ++ D.motives ++ D.minors)
+        (mkPi (liftTele (D.nm + D.nmin) (D.atRecTele T'.indices))
+          (.forallE (D.tyApp' u (T'.indices.length + D.nmin + D.nm)
+              (bvars 0 T'.indices.length))
+            ((VExpr.bvar (1 + T'.indices.length + D.nmin + (D.nm - 1 - u))).mkApp
+              (bvars 1 T'.indices.length ++ [.bvar 0]))))) := by
+    rw [← VExpr.mkPi_append]; exact hrec0
+  have hclosed : VExpr.ClosedN
+      (VExpr.const (Lean.mkRecName T'.name) (VLevel.params D.recUvars)) 0 := trivial
+  have hspine := VEnv.HasType.appBVars henv
+    (As := D.atRecTele D.params ++ D.motives ++ D.minors) (Γ := []) (by simpa using hmin) hrec1
+  rw [show ((D.atRecTele D.params ++ D.motives ++ D.minors).reverse ++ ([] : List VExpr))
+        = D.minors.reverse ++ D.motives.reverse ++ (D.atRecTele D.params).reverse from by simp,
+    show (D.atRecTele D.params ++ D.motives ++ D.minors).length = D.np + D.nm + D.nmin from by
+      simp [VInductDecl'.np]; omega,
+    hclosed.liftN_eq (Nat.zero_le _)] at hspine
+  -- weaken past `Ξ`, and re-split the telescope after the index block
+  have hspine3 : env.HasType D.recUvars
+      (Ξ ++ (D.minors.reverse ++ D.motives.reverse ++ (D.atRecTele D.params).reverse))
+      ((VExpr.const (Lean.mkRecName T'.name) (VLevel.params D.recUvars)).mkApp
+        (bvars lo (D.np + D.nm + D.nmin)))
+      (mkPi (liftTele (D.nm + D.nmin + lo) (D.atRecTele T'.indices) 0
+          ++ [(D.tyApp' u (T'.indices.length + D.nmin + D.nm)
+                (bvars 0 T'.indices.length)).liftN lo T'.indices.length])
+        (((VExpr.bvar (1 + T'.indices.length + D.nmin + (D.nm - 1 - u))).mkApp
+            (bvars 1 T'.indices.length ++ [VExpr.bvar 0])).liftN lo
+              (T'.indices.length + 1))) := by
+    rw [VExpr.mkPi_append]
+    have h := hspine.weakN henv (Ctx.LiftN.zero (n := lo) Ξ hΞ)
+    rw [VExpr.liftN_mkApp_bvars_lo (Nat.le_refl 0), hclosed.liftN_eq (Nat.zero_le _),
+      Nat.add_zero, VExpr.liftN_mkPi, VExpr.length_liftTele,
+      VInductDecl'.length_atRecTele, Nat.zero_add, VExpr.liftTele_collapse₂] at h
+    exact h
+  have hz' : env.HasType D.recUvars
+      (Ξ ++ (D.minors.reverse ++ D.motives.reverse ++ (D.atRecTele D.params).reverse)) z
+      (VExpr.instAll ((D.tyApp' u (T'.indices.length + D.nmin + D.nm)
+        (bvars 0 T'.indices.length)).liftN lo T'.indices.length) ιs 0) := by
+    rw [VInductDecl'.tyApp'_instAll' (D := D) (M := D.nm + D.nmin + lo) hlen
+      (by omega) (by omega)]
+    exact hz
+  have hfinal := VEnv.HasType.mkApp' (VEnv.HasArgs.concat hidx hz') hspine3
+  rwa [VInductDecl'.recCod_instAll (nf := lo) (M := M) hlen (by omega) (by omega),
+    ← VExpr.mkApp_append] at hfinal
+
+/-- **E5's left-hand side**: `recApp_hasType` at the ι-rule's own depth, with the index
+arguments coming from `VIndCtor.WF.args_ty` and the major premise from
+`ctorApp'_hasType`. -/
+theorem iotaLhs_hasType (hI : D.IotaCtx env) {j : Nat} {T : VIndType} {C : VIndCtor}
+    (hT : D.types[j]? = some T) (hj : j < D.nm) (hC : C ∈ T.ctors)
+    (hCall : (j, C) ∈ D.ctorsAll) :
+    env.HasType D.recUvars
+      ((liftTele (D.nm + D.nmin) (D.atRecTele (C.fields.map (·.type))) 0).reverse
+        ++ (D.minors.reverse ++ D.motives.reverse ++ (D.atRecTele D.params).reverse))
+      (D.iotaLhs j C) (D.iotaType j C) := by
+  have hR := hI.toRecCtx
+  have henv := hR.ordered
+  have hCwf : VIndCtor.WF env D j T C := hR.ctors j T hT C hC
+  have hmin := VInductDecl'.onCtxMinors hR
+  have hMD : (D.minors.reverse ++ D.motives.reverse).length = D.nm + D.nmin := by
+    rw [List.length_append, List.length_reverse, List.length_reverse,
+      VInductDecl'.length_minors, VInductDecl'.length_motives]; omega
+  have WD : Ctx.LiftN (D.nm + D.nmin) 0 (D.atRecTele D.params).reverse
+      (D.minors.reverse ++ D.motives.reverse ++ (D.atRecTele D.params).reverse) :=
+    .zero (D.minors.reverse ++ D.motives.reverse) hMD
+  have hacΦ : D.atRecCtx ((C.fields.map (·.type)).reverse ++ D.params.reverse)
+      = (D.atRecTele (C.fields.map (·.type))).reverse ++ (D.atRecTele D.params).reverse := by
+    rw [VInductDecl'.atRecCtx, List.map_append, List.map_reverse, List.map_reverse]; rfl
+  -- the index arguments
+  have Wf : Ctx.LiftN (D.nm + D.nmin) C.fields.length
+      ((D.atRecTele (C.fields.map (·.type))).reverse ++ (D.atRecTele D.params).reverse)
+      ((liftTele (D.nm + D.nmin) (D.atRecTele (C.fields.map (·.type))) 0).reverse
+        ++ (D.minors.reverse ++ D.motives.reverse ++ (D.atRecTele D.params).reverse)) := by
+    have h := Ctx.LiftN.tele (As := D.atRecTele (C.fields.map (·.type))) WD
+    rwa [show (0:Nat) + (D.atRecTele (C.fields.map (·.type))).length = C.fields.length from by
+      rw [Nat.zero_add, VInductDecl'.length_atRecTele, List.length_map]] at h
+  have hidx : env.HasArgs D.recUvars
+      ((liftTele (D.nm + D.nmin) (D.atRecTele (C.fields.map (·.type))) 0).reverse
+        ++ (D.minors.reverse ++ D.motives.reverse ++ (D.atRecTele D.params).reverse))
+      (liftTele (D.nm + D.nmin + C.fields.length) (D.atRecTele T.indices) 0)
+      (C.args.map fun a => (D.atRec a).liftN (D.nm + D.nmin) C.fields.length) := by
+    have h0 := D.atRec_hasArgs hCwf.args_ty
+    rw [hacΦ, VInductDecl'.atRec_liftTele] at h0
+    have h := VEnv.HasArgs.weakN henv Wf h0
+    rw [VExpr.liftTele_liftTele (Nat.zero_le _) (Nat.le_of_eq (Nat.add_zero _).symm),
+      show C.fields.length + (D.nm + D.nmin) = D.nm + D.nmin + C.fields.length from by omega,
+      List.map_map] at h
+    exact h
+  -- the major premise
+  have hz : env.HasType D.recUvars
+      ((liftTele (D.nm + D.nmin) (D.atRecTele (C.fields.map (·.type))) 0).reverse
+        ++ (D.minors.reverse ++ D.motives.reverse ++ (D.atRecTele D.params).reverse))
+      (D.ctorApp' C (C.fields.length + (D.nm + D.nmin)) (bvars 0 C.fields.length))
+      (D.tyApp' j (D.nm + D.nmin + C.fields.length)
+        (C.args.map fun a => (D.atRec a).liftN (D.nm + D.nmin) C.fields.length)) := by
+    have h := VInductDecl'.ctorApp'_hasType hR hT hC hCall (m := D.nm + D.nmin)
+      (Δ := D.minors.reverse ++ D.motives.reverse) hMD hmin
+    rwa [VIndCtor.canonResult, D.liftN_atRec_tyApp (Nat.le_refl _) rfl] at h
+  have hfinal := VInductDecl'.recApp_hasType hI hT hj
+    (Ξ := (liftTele (D.nm + D.nmin) (D.atRecTele (C.fields.map (·.type))) 0).reverse)
+    (M := C.fields.length + D.nmin + (D.nm - 1 - j))
+    (by rw [List.length_reverse, VExpr.length_liftTele, VInductDecl'.length_atRecTele,
+      List.length_map])
+    (by rw [List.length_map, hCwf.args_len]) hidx hz rfl
+  have hterm : D.iotaLhs j C
+      = (VExpr.const (Lean.mkRecName T.name) (VLevel.params D.recUvars)).mkApp
+        (bvars C.fields.length (D.np + D.nm + D.nmin)
+          ++ ((C.args.map fun a => (D.atRec a).liftN (D.nm + D.nmin) C.fields.length)
+            ++ [D.ctorApp' C (C.fields.length + (D.nm + D.nmin)) (bvars 0 C.fields.length)])) := by
+    rw [VInductDecl'.iotaLhs, getD_types hT, VExpr.bvars_add₃]
+    simp [Nat.add_assoc]
+  rw [hterm, VInductDecl'.iotaType]
+  exact hfinal

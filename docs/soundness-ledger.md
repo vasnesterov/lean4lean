@@ -579,6 +579,125 @@ and the coherence theorem will carry `∀ d ∈ ds, d.isPure` — a hypothesis, 
 vacuous case. There is no alternative: a self-referential block has no
 assignment, so any theorem covering it would be false.
 
+### Introduction rules for `∀`-denotations
+
+The oracle has to *produce* elements of `⟦ci.type⟧` for constants that are
+primitive, so it needs the two introduction rules for the `forallE` clause —
+the only place the model builds a witness from scratch rather than from a term.
+Both proved:
+
+* `pt_mem_interp_forallE_prop` — propositional codomain. A `Prop` denotes a
+  subset of `{•}`, so inhabiting `⟦∀ x : A, B⟧` is exactly proving `B`
+  pointwise; there is no function to build.
+* `mkLam_mem_interp_forallE` — proper codomain. Any definable pointwise-correct
+  function gives an element, as its graph.
+
+Plus `oracleOK_of` and `oracleOK_prop`, which discharge both `Above` wrappers by
+`Above.pure`: every primitive the model supplies is built outright rather than
+approximated, so no chain length is needed for the oracle's own obligations.
+
+### Finding: `.axiom` and `.quot` are **not** independent of `.induct`
+
+We had assumed the axiom and `Quot` obligations could be discharged against
+`SetModel/Universe.lean` alone, without waiting for the inductive interpretation.
+That is false, and the check is mechanical — collect the constants occurring in
+each primitive's type:
+
+| primitive | constants in its type |
+|---|---|
+| `Quot` | — |
+| `Quot.mk` | `Quot` |
+| `Quot.lift` | `Eq`, `Quot` |
+| `Quot.ind` | `Quot`, `Quot.mk` |
+| `quotDefEq` (its `type`) | `Eq` |
+| `propext` | `Iff`, `Eq` |
+| `Classical.choice` | `Nonempty` |
+| `Quot.sound` | `Eq`, `Quot`, `Quot.mk` |
+
+**`Quot` is the only primitive whose type mentions nothing else.** Every other
+one — the remaining three `Quot` operations, the ι-rule for `Quot.lift`, and all
+three standard axioms — has a type mentioning `Eq`, `Iff` or `Nonempty`, whose
+denotations come from the `.induct` oracle.
+
+So `propext`'s obligation is not "truth values are extensional"
+(`propext_of_mem_UProp`, which is the set-theoretic core and is proved) but
+"`⟦Eq α a b⟧ = {•}` exactly when `⟦a⟧ = ⟦b⟧`, and `⟦Iff p q⟧ = {•}` exactly when
+`⟦p⟧ = ⟦q⟧`" — statements *about the inductive interpretation*, which is what
+`Theory/Consistency.lean` already warns about when it says the prelude must pin
+the genuine declarations of `Eq`, `Iff` and `Nonempty` rather than constants of
+the right type. The set-theoretic core is then what closes the argument, not
+what constitutes it.
+
+### A design constraint found while sizing `Quot`'s own witness
+
+`Quot : {α : Sort u} → (α → α → Prop) → Sort u` cannot be interpreted by
+`setQuotient` uniformly. `setQuotient_mem_U` is stated at `U κ (i+1)`, and that
+is not an artefact: at `u = 0` the quotient of a subset of `{•}` is a set of
+equivalence classes, and `{•}` is not a member of `℘{•}` — the set-theoretic
+quotient of a proposition is not a proposition. The interpretation has to split
+on `u.eval = 0` and give the proof-irrelevant answer there (`{•}` if the domain
+is inhabited, `∅` otherwise), matching Lean, where `Quot r : Prop` for
+`α : Prop` and any inhabited `Prop` is `True`.
+
+### The prelude specifications — `SetModel/PreludeSpec.lean`
+
+Stated, deliberately not proved: `EqSpec`, `IffSpec`, `NonemptySpec`, the exact
+statements the `.induct` oracle must meet for `propext` and `Classical.choice`.
+Each is a `Prop`-valued definition, so the file is a specification written before
+the interpretation it constrains, not an assumption.
+
+Note what they say beyond `const_type`. `const_type` only asks that a constant's
+value inhabit its declared type; the specs pin *which* function it is. That
+extra content is precisely what `Theory/Consistency.lean` means when it insists
+the prelude pin the genuine declarations rather than constants of the right
+type.
+
+**Verdict: all three come out true, and none needs a side condition.** That was
+the point of writing them, so the negative result is worth recording. The one
+degenerate case that had to be inspected is `EqSpec` at `u.eval = 0`: the domain
+is then a member of `UProp`, hence a subset of `{•}`, so both elements are `•`
+and the equation says `{•}` — which is right, a `Prop` has at most one proof. It
+comes out consistent rather than needing a guard.
+
+The chain of reduction, recorded so it is not rediscovered:
+
+* `propext` ← `IffSpec` (turns an inhabitant of `⟦a ↔ b⟧` into `a = b`) and
+  `EqSpec` at level `.succ .zero` with `α := UProp` — note the level: `@Eq` is
+  applied at `α := Prop = Sort 0`, which lives in `Sort 1`.
+* `Classical.choice` ← `NonemptySpec` (turns an inhabitant into `α ≠ ∅`) and
+  `exists_choiceFunction_mem_U`. This is the only one of the three whose
+  obligation touches the chain: `i < n` and `𝗔𝗖`.
+* `Quot.sound` additionally needs the `Quot` interpretation.
+
+`propext_of_mem_UProp` does not appear in any of these. It is what will be spent
+*proving* `IffSpec`, not what `propext`'s obligation reduces to.
+
+### `Quot`'s value — `SetModel/QuotInterp.lean`
+
+`quotRel`, `quotVal`, `quotVal_mem_U`, all proved. `quotVal` splits on the
+universe index: the honest `setQuotient` by the *equivalence closure* of the
+relation above `Prop`, and the proof-irrelevant answer at `Prop` itself.
+
+### The pattern: uniform in ZFC, not uniform across `Sort 0`
+
+That split is the **third** time this session a statement that reads uniformly
+has needed a level-sensitive case analysis:
+
+1. `forallE`'s codomain — impredicative `mkForallProp` versus `mkForallType`,
+   split on whether the codomain is a `Prop`.
+2. `Coherent`'s level bound — `U κ i` is a real universe only below the chain
+   length, so `const_type` cannot quantify over all level arguments.
+3. `Quot` — `setQuotient_mem_U` is stated at `U κ (i+1)` and that is not an
+   artefact: the one equivalence class of `{•}` is `{•}`, so the quotient is
+   `{{•}}`, which is not a subset of `{•}`. The set-theoretic quotient of a
+   proposition is not a proposition.
+
+The pattern is worth naming, because a fourth is likely: **a construction that
+is uniform in ZFC is rarely uniform across `Sort 0` versus `Sort (u+1)`, because
+`Prop` is proof-irrelevant and impredicative while the higher universes are
+neither.** In each case the uniform statement was not merely harder to prove —
+it was false, and the case split is what makes it true.
+
 ### What is left of `cnst`
 
 * the outer induction over `VEnv.WF'`, assembling the per-form steps;
