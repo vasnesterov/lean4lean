@@ -179,6 +179,31 @@ structure VEnv.IsStructure (env : VEnv) (S : Lean.Name)
   /-- The block was declared, well-formedly, at some point in `env`'s past. -/
   decl : ∃ env₀ env₁, D.WF env₀ ∧ env₀.addInduct' D = some env₁ ∧ env₁ ≤ env
 
+/-- The stored telescopes of a structure are closed at their declared arities.
+
+This is what makes `projTerm` commute with context operations, and it is a genuine
+precondition rather than a proof-strategy artifact: `projCore` splices the stored data in
+via `instAll A as k`, and
+
+```
+(instAll A as k).lift' (ρ.consN (k + |as|))
+  = instAll (A.lift' (ρ.consN (k + |as|))) (as.map (·.lift' ρ)) k
+```
+
+is a `projCore` at lifted arguments only when `A.lift' (ρ.consN (k + |as|)) = A`, i.e. when
+`A` is closed at `k + |as|` — which is exactly the declared arity at each splice site.
+Without it a stored entry can carry a variable pointing at the ambient context, which the
+left-hand lift moves and the right-hand one cannot; see the `decide`-checked refutation in
+the scratchpad witness `ProjTermLiftNeedsClosed.lean`.
+
+Not a hypothesis: `VEnv.IsStructure.projClosed` (`Theory/Inductive/StructureClosed.lean`)
+derives it from `IsStructure` plus `Ordered env`. -/
+structure VInductDecl'.ProjClosed (D : VInductDecl') (T : VIndType) (C : VIndCtor) : Prop where
+  /-- Index `j` lives over `params ++ indices<j`. -/
+  indices : VExpr.ClosedTele T.indices D.np
+  /-- Field `j` lives over `params ++ fields<j`. -/
+  fields : VExpr.ClosedTele (C.fields.map (·.type)) D.np
+
 namespace VEnv.IsStructure
 
 variable {env env' : VEnv} {S : Lean.Name} {D : VInductDecl'} {T : VIndType} {C : VIndCtor}
