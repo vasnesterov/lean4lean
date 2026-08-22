@@ -240,19 +240,35 @@ Also worth noting: `Params` is uninstantiated on *both* sides, and the two
 `Params` classes differ. Until `addInduct` supplies an instance,
 `ChurchRosser.lean` and `HeadReduction.lean` are vacuous.
 
-### Link 3 — the model (not started)
+### Link 3 — the model
 
-Missing from Foundation and to be built in `Lean4Lean/Theory/SetModel/`:
-the cumulative hierarchy `V_α` and rank inside a model, cardinal arithmetic
-enough for strong-limit/regular, closure of `V_κ` under `Π`/`Σ`/least fixed
-points for inaccessible `κ`, the `U_n` sequence with `U_0 = {∅,{•}}`, a choice
-function on `U_ω`, then the interpretation `⟦Γ ⊢ e⟧` by well-founded recursion
-on Carneiro's size measure, and soundness by induction on `IsDefEq`.
+`Lean4Lean/Theory/SetModel/` is ~3200 lines, sorry-free, all internal to an
+arbitrary `V` with `[SetStructure V] [Nonempty V] [V ⊧* 𝗭𝗙]` — so it applies to
+whatever model Foundation's completeness theorem hands us.
 
-Foundation does supply: `Ordinal V` with transfinite induction, transfinite
-recursion (`Recursion.lean`), replacement gadgets (`ZF.lean`), `CardLE`/`CardLT`,
-power set, `ω`, and the definability instances needed to apply separation and
-replacement to the formulas we write.
+- `Rank.lean` — transfinite recursion repackaged as a usable function, `Vset`,
+  membership induction (which needed a transitive closure built from scratch),
+  rank, and the closure lemmas that need no large cardinal.
+- `Inaccessible.lean` — Foundation's inaccessible-cardinal formulas reflected
+  into Lean predicates with `Defined` instances, `exists_inaccessibleChain`
+  turning `M ⊧ atLeastInaccessibles n` into usable objects, and Π/Σ closure with
+  strong-limitness and regularity each spent in exactly one place.
+- `Universe.lean` — the `U_n` sequence, `propext`, impredicativity (free: no
+  large cardinal, no limit ordinal, only `𝗭`), an internal choice function, and
+  the equivalence closure and factorization that `Quot` needs.
+- `Inductive.lean` — inductive families as least fixed points, with injective
+  constructors, no junk, no confusion, the recursor built as an internal graph
+  (external well-founded recursion is unavailable: a model of ZF need not be
+  externally well-founded), and the ι-rule.
+- `Cardinal.lean` — full replacement inside `V_κ`.
+
+What remains: the carrier's closure-ordinal argument (bounded, ordinary work),
+and then the interpretation `⟦Γ ⊢ e⟧` itself — which needs Carneiro's proof
+splitting, hence the `lvl`/`sort` functions, hence unique typing, and so waits on
+the injectivity and keystone streams.
+
+Foundation's own gaps found along the way are written up in
+`docs/foundation-gaps.md`.
 
 ## Order of work
 
