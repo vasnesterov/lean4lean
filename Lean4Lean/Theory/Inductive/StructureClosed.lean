@@ -442,4 +442,72 @@ theorem VEnv.HasArgs.ofMap {env : VEnv} {U : Nat} {Γ : List VExpr}
     have := h i (by omega)
     rwa [VExpr.instAll_append, hlen, Nat.zero_add] at this
 
+/-! ## The ι-rule, and substituting definitionally equal spines -/
+
+
+
+
+
+/-- The block's single ι-rule is in the environment. -/
+theorem VEnv.IsStructure.iotaDefeq (H : env.IsStructure S D T C) :
+    env.defeqs (D.iotaRule 0 0 C) := by
+  obtain ⟨env₀, envF, hWF, hadd, hle⟩ := H.decl
+  refine hle.defeqs (VEnv.addInduct'_defeqs hadd _ ?_)
+  simp [VInductDecl'.iotaRules, VInductDecl'.ctorsAll, H.types, H.ctors]
+
+
+
+/-- `HasArgs` with the spine allowed to vary up to definitional equality.  The telescope
+is instantiated by the *left* spine, matching `HasArgs`. -/
+inductive VEnv.HasArgsDF (env : VEnv) (U : Nat) (Γ : List VExpr) :
+    List VExpr → List VExpr → List VExpr → Prop
+  | nil : HasArgsDF env U Γ [] [] []
+  | cons {A As a a' as as'} :
+    env.IsDefEq U Γ a a' A → HasArgsDF env U Γ (VExpr.instTele a As) as as' →
+    HasArgsDF env U Γ (A :: As) (a :: as) (a' :: as')
+
+theorem VEnv.HasArgsDF.left {env : VEnv} {U : Nat} {Γ : List VExpr} :
+    ∀ {As as as'}, env.HasArgsDF U Γ As as as' → env.HasArgs U Γ As as
+  | _, _, _, .nil => .nil
+  | _, _, _, .cons ha h => .cons ha.hasType.1 h.left
+
+theorem VEnv.HasArgsDF.length_eq {env : VEnv} {U : Nat} {Γ : List VExpr} :
+    ∀ {As as as'}, env.HasArgsDF U Γ As as as' → as.length = as'.length
+  | _, _, _, .nil => rfl
+  | _, _, _, .cons _ h => congrArg Nat.succ h.length_eq
+
+/-- Spine congruence with the arguments varying too. -/
+theorem VEnv.IsDefEq.mkAppDF {env : VEnv} {U : Nat} :
+    ∀ {As as as' Γ f g B}, env.HasArgsDF U Γ As as as' →
+      env.IsDefEq U Γ f g (VExpr.mkPi As B) →
+      env.IsDefEq U Γ (f.mkApp as) (g.mkApp as') (VExpr.instAll B as)
+  | _, _, _, _, _, _, _, .nil, hf => hf
+  | A :: As, a :: as, a' :: as', Γ, f, g, B, .cons ha has, hf => by
+    have h1 := hf.appDF ha
+    rw [VExpr.inst_mkPi_zero] at h1
+    have hlen : as.length = As.length := has.left.length_eq.symm.trans VExpr.length_instTele
+    rw [VExpr.mkApp_cons, VExpr.mkApp_cons, VExpr.instAll_cons, Nat.zero_add, hlen]
+    exact VEnv.IsDefEq.mkAppDF has h1
+
+
+
+/-- **Substituting definitionally equal spines into a type gives definitionally equal
+types.**  Both spines must be `HasArgs`-typed: `HasArgsDF` instantiates the telescope by the
+*left* spine, so the right one needs its own chain (in practice `HasArgs.ofMap` supplies it).
+Specialised to a sort codomain, where `instAll` leaves the type alone and there is no drift
+between the two `betaMkLams` steps. -/
+theorem VEnv.IsDefEq.instAllCongrSort {env : VEnv} {U : Nat} (henv : env.Ordered)
+    {Γ As as as' : List VExpr} {b : VExpr} {l : VLevel}
+    (hDF : env.HasArgsDF U Γ As as as') (hr : env.HasArgs U Γ As as')
+    (hΓ : OnCtx (As.reverse ++ Γ) (env.IsType U))
+    (hb : env.HasType U (As.reverse ++ Γ) b (.sort l)) :
+    env.IsDefEq U Γ (VExpr.instAll b as) (VExpr.instAll b as') (.sort l) := by
+  have hL := VEnv.IsDefEq.betaMkLams henv (As := As) (as := as) hΓ hDF.left hb
+  have hR := VEnv.IsDefEq.betaMkLams henv (As := As) (as := as') hΓ hr hb
+  rw [VExpr.instAll_sort] at hL hR
+  have hmid : env.IsDefEq U Γ ((mkLams As b).mkApp as) ((mkLams As b).mkApp as') (.sort l) := by
+    have := VEnv.IsDefEq.mkAppDF hDF (VEnv.HasType.mkLams hΓ hb)
+    rwa [VExpr.instAll_sort] at this
+  exact hL.symm.trans (hmid.trans hR)
+
 end Lean4Lean
