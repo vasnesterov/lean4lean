@@ -158,8 +158,56 @@ about these already:
 * `beta` will meet the substitution index if attempted at the index; unstratified it should
   not.
 
-**Attempt it unstratified as well as at the index** — the two settings differ exactly where
-substitution and context conversion appear, and this statement touches both.
+### `PropUniq` — the model's *other* import, and it is on the wrong side
+
+The model needs a second statement: **`PropUniq`** — `Γ ⊢ A : .sort u`, `Γ ⊢ A : .sort v`,
+`u ≈ 0` ⟹ `v ≈ 0` (i.e. "`IsProp` is well-defined on types", where `PropTypeAgree` is
+"`IsProof` is well-defined on terms"). Both are strictly weaker than `SortUniq`; that gain is
+real. But they do not behave alike.
+
+**Row-zero, run: `PropUniq` has `sort_inv`'s `trans` problem.** After shape inversion sends
+both typings to the shape-determined type, its residual is
+`.sort u ≡ₙ .sort v ⟹ (u ≈ 0 ↔ v ≈ 0)`. Machine-checked: `rfl`, `symm` and `sortDF` close, and
+`trans` does **not** — `.sort u ≡ₙ X ≡ₙ .sort v` needs `X` to be a sort and nothing says it is.
+
+The contrast with §5 is exact, and it is the same distinction:
+
+| | conclusion | `trans` |
+|---|---|---|
+| `PropConvInv` (`PropTypeAgree`'s residual) | *propagated along* the conversion | closes: `(ih1 d h).trans (ih2 d h)` |
+| `PropUniq`'s residual | *asserted of the endpoints* | fails: middle term need not be a sort |
+
+So `PropUniq` needs normalisation, which puts it in the `SortUniq` family — and the
+cumulativity check gives it no model route either. **Finishing `PropTypeAgree` does not
+discharge the model.**
+
+What `PropTypeAgree` *does* buy is on the syntactic side, and it is not small:
+`sort_not_proof` is `PropTypeAgree` at `e = .sort u`, so `PropTypeAgree` at `n` together with
+`DefInv n` — which is the induction hypothesis, not a circularity — gives `sort_not_proof` at
+`n` and closes `DefInv (n+1)`'s `proofIrrel` cases. That removes **one** of the two obstacles
+in §4. It does not remove the other: `trans`/normalisation survives untouched.
+
+### The remaining cases, with what is known
+
+**`forallEDF` resists on context conversion, and the target-preserving idea does not apply.**
+The statement here is *already* target-preserving — same term `B'`, same target `.sort .zero`
+— so the blocker is not an injectivity dependency but the index drop: context conversion for
+the conversion half at `n+1` needs it for the typing half at `n`, while the context conversion
+`A ≡ A'` is available only at `n+1`. Same family as the substitution gap. *Analysis, not
+machine-checked.*
+
+**`proofIrrel` is vacuous given the statement itself.** If `IsProp h` and `h : p : Prop`, then
+`h`'s two types `p` and `.sort .zero` disagree on propositionhood, contradicting
+`PropTypeAgree` at `h`. So it is not an obstruction to the *statement*, only a self-reference
+in the *induction* — and the measure gives `≤`, not `<`, as at `DefInv.sort_proofIrrel`.
+Attack it separately, not inside the induction. *Analysis.*
+
+**Unstratified is worse here, not better, and the reason is a port artifact.** The `sortDF`
+case needs a typing inversion for sorts, and unstratified that is
+`HasTypeStrong.sort_type` — which *provably takes `SortUniq` as a hypothesis*, because this
+tree's `IsDefEq` is type-indexed and composing conversions at two types is `uniq`
+(`Typing/SortUniq.lean` documents this). At the index, `HasTypeN.sort_inv` is free. **Work
+this statement at the index.**
 
 ---
 
