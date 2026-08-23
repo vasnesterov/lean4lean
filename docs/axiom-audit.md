@@ -1827,3 +1827,141 @@ The 23 class-(A) axioms remain jointly consistent by §12.2's DAG argument, and
 the environment sweep of §12.3 (item 5) still bounds where any contradiction
 could come from: no theorem anywhere asserts a behavioural property of any
 pinned opaque, so a contradiction can only arise between whitelisted axioms.
+
+---
+
+## 14. Two axioms outside every guard's view: `ptrEqExpr_eq`, `ptrEqConstantInfo_eq`
+
+`Lean4Lean/PtrEq.lean` used to declare two axioms alongside the `opaque`
+functions they constrain. Because they were **not** in `Verify/Axioms.lean`,
+guard 1 — which enumerates axioms by *defining module* — could not see them, and
+they were not in guard 2's whitelist either. That was a second latent guard-2
+failure of the same species as the generated-axiom one §12.5 closed: they sat
+outside `kernel_sound`'s cone only while the proof was incomplete.
+
+**Resolved:** the two `axiom` declarations were moved into `Verify/Axioms.lean`
+(which now imports `Lean4Lean.PtrEq` for the constants); the `opaque` functions
+stay where they were, so the checker keeps its low-level import and never sees
+the axioms. Every frozen axiom of this project is now declared in one file, and
+guard 1's reference set and guard 2's whitelist are one list again — 29.
+
+### 14.1 They are in the Bridge chain — 49 and 47 dependents
+
+Axiom-cone scan (`Lean.collectAxioms`), same instrument and same environment as
+§13.3's container scan: 127 `Lean4Lean` modules, 8781 non-internal declarations.
+
+| axiom | dependents |
+|---|---|
+| `Lean4Lean.ptrEqExpr_eq` | **49** |
+| `Lean4Lean.ptrEqConstantInfo_eq` | **47** |
+
+Both sets contain `Bridge.addDeclWF`, `Bridge.foldAddDecl_WF`,
+`Bridge.foldAddDecl_tr` and `Bridge.not_leanTTConsistent_of_kernel_proves_false`
+— **the same Bridge lemmas the three container axioms sit in.** So guard 2
+passes today only because `kernel_sound` is `sorry` and its cone reduces to
+`sorryAx`; the moment the proof routes through the Bridge chain, both enter the
+cone and guard 2 fails. Deletion is not available (contrast §11.2's
+`liftLooseBVars_eq`, which scanned to **0** and was deleted).
+
+### 14.2 What they assert — and why the historical defect **cannot apply**
+
+As elaborated:
+
+```lean
+@Lean4Lean.ptrEqExpr_eq : ∀ {a b : Expr}, Lean4Lean.ptrEqExpr a b = true → a = b
+```
+
+> **This is an implication constraining only the `true` branch, not an equation
+> — so it is *structurally immune* to the defect that produced both historical
+> `False`-proofs.** That defect is equational: it needs the axiom to *specify a
+> return value* on a branch where the implementation does something else — panic
+> and abort (§4, `Level.mkData_eq`), or silently return a fallback (§11.2,
+> `liftLooseBVars_eq`). An axiom that specifies **nothing** on the `false` branch
+> has no such branch to be wrong about.
+
+This is a different kind of claim from everything else in this document, and it
+should not be allowed to blur into the others. §11, §12.3 and §13.4 record
+*failed attacks* — "no attack succeeded", which is evidence and not proof. This
+is "**the defect cannot apply, by the shape of the statement**". It is an
+argument about form, and it does not weaken as attacks accumulate.
+
+**True of the implementation.** `ptrEqExpr` is `opaque` with body
+`unsafe ptrAddrUnsafe a == ptrAddrUnsafe b`. Two live heap objects at the same
+address are the same object, hence equal values; `Expr` and `ConstantInfo` are
+boxed inductives — every constructor carries fields — so there is no
+unboxed-scalar aliasing. The *unsound* direction, equal values ⇒ equal
+addresses, is exactly what is **not** asserted; it is false under copying, which
+is why the axiom is one-directional.
+
+**Consistent, with an exhibited model** (machine-checked, not argued):
+
+```lean
+example : ∃ f : Expr → Expr → Bool, ∀ a b, f a b = true → a = b :=
+  ⟨fun _ _ => false, by intro a b h; simp at h⟩
+example : ∃ f : ConstantInfo → ConstantInfo → Bool, ∀ a b, f a b = true → a = b :=
+  ⟨fun _ _ => false, by intro a b h; simp at h⟩
+```
+
+Nothing else in the tree constrains these two opaques, so they cannot
+participate in a joint inconsistency either. In §12.2's taxonomy this is class
+(A), and *stronger* than typical class (A): the model is **exhibited** rather
+than inferred from the DAG ordering.
+
+**Incidental.** A second candidate model, `fun a b => decide (a = b)`, failed to
+elaborate: there is no `DecidableEq Expr` instance in scope. That is consistent
+with §12.3's finding that no `LawfulBEq Expr` exists anywhere in the import
+closure — `Expr` carries `BEq` (via the opaque `Expr.eqv`) and nothing stronger.
+
+**Design note.** `PtrEq.lean`'s docstring explains why `withPtrEq` is unusable:
+the kernel genuinely behaves differently under pointer identity rather than
+treating it as an optimisation before a true equality test. Keeping the function
+`opaque` and asserting only the sound direction is the correct shape, and it is
+why the axiom cannot be discharged — `opaque` is load-bearing by design.
+
+### 14.3 The closing sweep: 29 axioms, all in one file, none outside the whitelist
+
+Enumerating every axiom **declared by** a `Lean4Lean.*` module (by defining
+module, not by grep) and checking each against `Guard.axiomWhitelist`.
+
+Before the move — the finding:
+
+* **29** axioms declared by `Lean4Lean.*` modules;
+* **27** whitelisted, all in `Lean4Lean.Verify.Axioms`;
+* **2** not whitelisted, both in `Lean4Lean.PtrEq`;
+* no others — the gap was exactly those two.
+
+After the move, re-derived by the same enumeration:
+
+```
+frozenAxioms   : 29
+axiomWhitelist : 32   (3 standard + frozen)
+axioms declared by Lean4Lean.* modules: 29
+    29  Lean4Lean.Verify.Axioms
+NOT whitelisted: 0  []
+```
+
+**29 declared in one file, 29 whitelisted, 0 outside.** Guard 1 prints 29.
+
+Note what moved and what did not: the count rose because the guard's *view* was
+widened to axioms already in force, not because anything new was assumed. Both
+had 49 and 47 dependents in the Bridge chain before the whitelist ever mentioned
+them.
+
+### 14.4 The trusted base, stated
+
+**29 axioms:**
+
+* **26 class (A)** — jointly consistent by §12.2's DAG argument: each pins a free
+  symbol to a total definable function, and the pinning relation is acyclic, so
+  an interpretation validating all of them exists in topological order.
+* **2 class (A) with an exhibited model** — `ptrEqExpr_eq`,
+  `ptrEqConstantInfo_eq` (§14.2). Structurally immune to the equational defect.
+* **3 class (B)** — `PersistentArray.WF.toList'_push`,
+  `PersistentHashMap.WF.toList'_insert`, `WF.find?_eq`: **bounded, not removed.**
+  The reachable surface is exactly the two generators (§11.7, §13.3), which rules
+  out the failure mode that actually produced a `False` here — an axiom stated
+  for arbitrary, including malformed, values — and it does **not** make the
+  axioms true on that domain, because no model of the HAMT or the
+  persistent-array trie exists.
+
+Class (B) is the whole residual consistency risk, and it is three axioms.

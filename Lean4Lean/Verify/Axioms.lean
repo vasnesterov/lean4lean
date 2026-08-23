@@ -2,6 +2,7 @@ import Batteries.Tactic.OpenPrivate
 import Lean4Lean.Std.Basic
 import Lean4Lean.Std.NodupKeys
 import Lean4Lean.Std.TreeMap
+import Lean4Lean.PtrEq
 
 namespace Std.TreeMap
 
@@ -876,3 +877,39 @@ def eqv' : (e1 e2 : Expr) → (strict : Bool := false) → Bool
 @[simp] axiom equal_eq (e1 e2 : Expr) : e1.equal e2 = e1.eqv' e2 (strict := true)
 
 end Expr
+end Lean
+
+/-! ## Pointer equality
+
+`Lean4Lean/PtrEq.lean` declares the two `opaque` functions `ptrEqExpr` and
+`ptrEqConstantInfo`, whose runtime implementation compares addresses. The two
+axioms below are the *only* thing the proofs are allowed to assume about them,
+and they are declared here rather than beside the opaques so that every frozen
+axiom of this project lives in one file — `Verify/Guard.lean`'s check 1
+enumerates axioms by defining module, so an axiom declared elsewhere is
+invisible to it.
+
+**Shape.** Each is an *implication constraining only the `true` branch*, not an
+equation. That makes them structurally immune to the defect that produced both
+historical `False`-proofs (§4, §11.2 of `docs/axiom-audit.md`): that defect needs
+an axiom to *specify a return value* on a branch where the implementation does
+something else, and these specify nothing on the `false` branch. The unsound
+direction — equal values ⇒ equal addresses, false under copying — is not
+asserted.
+
+**Consistent, with an exhibited model.** `fun _ _ => false` satisfies both, so
+neither can be inconsistent alone; and nothing else in the tree constrains these
+opaques, so neither can join a contradiction. See `docs/axiom-audit.md` §14.
+
+`withPtrEq` is not usable here — see `PtrEq.lean`'s docstring: the kernel really
+does behave differently under pointer identity rather than treating it as an
+optimisation before a true equality test. -/
+
+namespace Lean4Lean
+open Lean
+
+axiom ptrEqExpr_eq : ptrEqExpr a b → a = b
+
+axiom ptrEqConstantInfo_eq : ptrEqConstantInfo a b → a = b
+
+end Lean4Lean
