@@ -12,7 +12,7 @@ cached copy, stop and re-read this one.
 | statement | status |
 |---|---|
 | `PropTypeAgree` | **open.** Five of twelve conversion cases close. Three characterised obstructions: `forallEDF` (context conversion, index drop), `proofIrrel` (self-reference), `eta` (needs `SortForallEDisjoint`). `constDF`, `appDF`, `beta`, `extra` uncharacterised. |
-| `SortForallEDisjoint` | **one open case, and likely true.** Six of seven typing cases close from `DefInv` alone; only `AppCase` remains, and a refutation is *provably impossible* at the model's own witness (§9). **The hereditary shape agreement proposed for `AppCase` is now closed both ways** — as disjointness it is *equivalent* to the statement itself, as agreement it is *false* (§9, machine-checked). `AppCase` is the statement's own fixpoint. |
+| `SortForallEDisjoint` | **one open case, and likely true.** Six of seven typing cases close from `DefInv` alone; only `AppCase` remains, and a refutation is *provably impossible* at the model's own witness (§9). **Satisfiable** (`SortForallEDisjoint.zero`). **The hereditary shape agreement proposed for `AppCase` is now closed both ways** — as disjointness it is *equivalent* to the statement itself, as agreement it is *false* (§9, machine-checked). `AppCase` is the statement's own fixpoint. **The `common_sort` lead is now closed too (§11)** — the route has no untried idea left in this neighbourhood. |
 | `PropUniq`, `SortUniq` | **in the normalisation family, and no model route.** Both fail the criterion's `trans` test; `SortUniq` is refuted as a semantic consequence by the cumulativity check, and the model is parameterised on it. |
 | the reference | **two documented defects**, one machine-checked (§2a), one a reading result with a repair (§2b). |
 
@@ -65,6 +65,11 @@ no `bv_decide`, no axiom added.
 | `SortForallEDisjointH{,₂}.iff`, `SortForallEDisjoint.appCase` | `Typing/ShapeSpine.lean` | **the hereditary disjointness is equivalent to `SortForallEDisjoint`**, and `AppCase` follows from the statement itself — §9 |
 | `typeShapeAgree_false`, `substShapeAgree_false` | `Typing/ShapeSpine.lean` | **the agreement (`iff`) form is FALSE at `n = 1`**, by `SubstCRefute`'s witness lifted to a term with two types |
 | `SubstDisj`, `SubstDisj.zero`, `applyDisj`, `applyDisj_zero` | `Typing/ShapeSpine.lean` | the surviving form, named and shown satisfiable; with `DefInv` it gives spine determinism at a type |
+| `SortForallEDisjoint.zero`, `SortForallEDisjoint.AppCase.zero` | `Typing/UnivDiscrim.lean` | **the primitive the whole route funds is satisfiable**, at the base index, next to `DefInv.zero`/`SubstC.zero` |
+| `succ_eq_imax`, `univ_premises_satisfiable`, `strong_univ_premises_satisfiable` | `Typing/UnivDiscrim.lean` | **a universe does not discriminate a sort from a Π** — the `common_sort` lead, closed in both judgments (§11) |
+| `HasTypeStrong.regular`, `HasTypeStrong.sortType` | `Typing/UnivDiscrim.lean` | **regularity is free in the type-indexed judgment** — no `Ordered`, no `OnCtx`, no `CtxStrong`, no hypothesis at all. Contrast `IsDefEqStrong.isType'`, which needs all three |
+| `SortForallEDisjointSUniv.iff` | `Typing/UnivDiscrim.lean` | the universe-relativised statement **is** the statement — trap #11 in a new instance |
+| `appCase_ih_vacuous` | `Typing/UnivDiscrim.lean` | the `app` case's induction hypothesis at `f` is *vacuously true*, provable from `DefInv` with the sub-derivation unused |
 
 **The inversion lemmas are the asset.** They made the refutation a fifteen-line induction
 instead of a confluence argument, and they made the `:266` improvement a five-line proof.
@@ -149,7 +154,23 @@ one to use.
 > tolerates an arbitrary middle term at `trans`, the second does not.
 
 The second clause is the earlier form of the criterion and is now a special case of the first.
-Five applications, and it has predicted before explaining every time after the first:
+
+> **A companion test, because the criterion is necessary and not sufficient.**  At each
+> recursive position of the proposed induction, **is the induction hypothesis non-vacuous?**
+> Run it by instantiating the IH at that position and trying to prove it from the ambient
+> hypotheses *without the sub-derivation*; if that succeeds, the position carries no
+> information.
+>
+> `SortForallEDisjoint` is the case that forced this.  It **passes** the criterion outright —
+> its induction is on typing, so `trans` never arises — and it is still open, at `app`, for a
+> reason the criterion cannot see: the recursive position that could reach what the case needs
+> is `f`, whose type is a Π, and the IH there is guarded by "the type is sort-shaped".
+> `appCase_ih_vacuous` (`Typing/UnivDiscrim.lean`) proves that IH from `DefInv` alone, taking
+> no derivation about `f` as an argument.  So the `app` case is not a hard *use* of an
+> induction hypothesis — there is nothing there to use.
+
+Five applications of the criterion, and it has predicted before explaining every time after
+the first:
 
 | statement | induction sees a conversion? | conclusion | `trans` | outcome |
 |---|---|---|---|---|
@@ -357,6 +378,16 @@ this statement at the index.**
     logically equivalent to `SortForallEDisjoint` (`SortForallEDisjointH.iff`), because a spine
     peeled off a type of `e` is a type of the applied term. Before funding a strengthening,
     prove it is one — or check whether the target's own rules already derive the extra clause.
+    **Second instance, and it runs the other way**: adding a *hypothesis* can also leave the
+    statement unchanged, when the hypothesis is free. Relativising `SortForallEDisjoint` to
+    "each of the two types is itself a type at some universe" is *equivalent* to it in the
+    unstratified judgment (`SortForallEDisjointSUniv.iff`), because `HasTypeStrong` carries
+    regularity in every constructor. **Check both directions of "is this a different
+    statement" — adding premises is not automatically weakening.**
+12. **Free hypotheses hide in constructor premises.** `HasTypeStrong`'s rules each ship the
+    typing of the type they conclude at, so `HasTypeStrong.regular` needs no `Ordered`, no
+    `OnCtx` and no `CtxStrong` — while the neighbouring `IsDefEqStrong.isType'` needs all
+    three. Before pricing a lemma as "needs regularity", read the constructor list.
 
 ---
 
@@ -523,7 +554,9 @@ domains disagree*.  The one survivor there, `common_sort`, reads the sort off **
 universe** rather than off the shapes — the same shape of escape as "get the fact from the
 accompanying term, not from the relation".  Nothing there is reusable as-is (it is unproved,
 does not compile, and its `[ParamsExtra]` chain was vacuous twice), but that survivor is the
-one idea in it that this route has not tried.
+one idea in it that this route has not tried.  **It has now been tried; §11 closes it.**
+
+---
 
 ## 10. Four independent convergences on one family
 
@@ -539,3 +572,111 @@ several consumers share:
 Impredicative formation forces the collapse the model cannot avoid; proof irrelevance forces
 the identification.  Between them they close the semantic side for `SortUniq` and `PropUniq`
 both.
+
+---
+
+## 11. The `common_sort` lead — closed, and the route now has no untried idea here
+
+`docs/design-shape-lattice.md`'s one survivor was `LE_Interp.common_sort`, which escapes the
+refutations that killed `IsType.common` and every relativisation of it by **reading the sort
+off the term's universe** rather than off the shapes.  §9 flagged it as the one idea in that
+development this route had not tried.  It has now been tried.  **It is dead, and the negative
+is machine-checked in both judgments this repo has.**  `Typing/UnivDiscrim.lean`, sorry-free,
+`[propext, Quot.sound]`.
+
+### What `common_sort` actually does differently — get this before reusing the pattern
+
+```
+theorem LE_Interp.common_sort {ρ A U} {a a' : WShape n}
+    (H : ∀ {b}, LE_Interp ρ b A → InterpTyped ρ b A (.sort U))
+    (h : LE_Interp ρ a.T A) (h' : LE_Interp ρ a'.T A) (ha : a.IsType) (ha' : a'.IsType) :
+    ∃ r, a.HasType (.sort r) ∧ a'.HasType (.sort r)
+```
+
+Three parts, and all three matter:
+
+1. **the datum is not computed from the two objects being compared.**  Nothing relates `a` to
+   `a'`; `H` is applied to each separately.  It is supplied by a *third thing both are attached
+   to* — the syntactic type `A`;
+2. **it comes from a judgment one level up.**  The shared boolean is `decide (U ≠ .zero)`, a
+   function of `A`'s own type `.sort U`, which the caller (`Adequacy:89`) holds as
+   `IsDefEqStrong Γ A A' (.sort u)` — a type-indexed derivation that *ships with* its universe;
+3. **the hypothesis is a uniformity** (`∀ b, …`) at a fixed `U`, so instantiating twice gives
+   the same answer and there is no `∃`-common to construct.
+
+`common_sort` is therefore a **coherence lemma between two layers**: it transports a fact that
+is determinate on the *term* layer down to the *indeterminate shape* layer, at two shapes at
+once.  That is the whole trick, and it is what the refutations miss — `cx_refutes` builds two
+shapes with no term behind them, and `le_interp_common_fails` builds a common term under a
+valuation with no well-formedness constraint.
+
+### Why it does not transfer — two independent reasons
+
+**(a) In a one-layer setting the lemma degenerates to its own hypothesis.**
+`SortForallEDisjoint` has no shape layer.  The objects being compared (`B₀.inst a` and
+`B₁.inst a`, the two types of `.app f a`) and the accompanying object (`.app f a`) are all
+terms of the one syntax.  Written out there, `H` says "`A` is a type at universe `U`" — which
+is `common_sort`'s own hypothesis, with nothing left over.  *In a single-layer setting
+"consult the accompanying term" is "invoke the statement being proved"* — the same collapse
+`Apply.hasType` produced for the hereditary form, reached from a different direction.
+*Analysis.*
+
+**(b) The datum is empty: a universe does not determine a type's shape.**  Grant the
+level-`k+1` datum for free anyway.  Then, machine-checked:
+
+> **`succ_eq_imax`** — for *every* `u`, `.succ u ≈ .imax (.succ u) (.succ u)`.  So the sort
+> `.sort u` and the Π-type `∀ (_ : .sort u), .sort u` are types at **one and the same
+> universe** `.succ u`.  `.sort u : .sort (.succ u)` and `.forallE A B : .sort (.imax p q)`;
+> the ranges of `.succ` and `.imax` overlap, and `VLevel.imax_self` puts them on top of each
+> other.
+
+The disanalogy is exact.  In the shape model the datum read off the universe is the
+`Prop`/`Type` boolean, which *is* the fact needed, and fixing `U` cuts the classifying shapes
+down to one.  Here the fact needed is sort-shaped versus Π-shaped, and no universe carries it.
+
+**And the negative is judgment-independent**, which is what makes it decisive rather than an
+artifact of the index:
+
+* `univ_premises_satisfiable` — at the stratified index, every premise of the universe-relative
+  statement except "the two types have a common inhabitant" is simultaneously satisfiable, in
+  any context, at any index `n+1`, over any environment.  The relativisation removes **no
+  instance at all**;
+* `HasTypeStrong.regular` — **regularity is free in the unstratified type-indexed judgment.**
+  Every constructor already ships the typing of the type it concludes at, so the proof needs no
+  `Ordered`, no `OnCtx`, no `CtxStrong` and no hypothesis of any kind.  (Contrast
+  `IsDefEqStrong.isType'`, which needs all three.  Trap #12.)
+* `SortForallEDisjointSUniv.iff` — consequently, in that judgment the universe-relative
+  statement **is** the statement, one line each way.  Trap #11 in a new instance.
+* `strong_univ_premises_satisfiable` — and the *shared*-universe version, the only variant that
+  is genuinely weaker, has a premise that is consistent with a sort on one side and a Π on the
+  other.  Free datum, and it still separates nothing.
+
+### The variants checked and closed by the same fact
+
+* *the universe of the application.*  In `AppCase`, `.app f a : .sort u` says the application
+  *is* a type at universe `u`; on the other side it is a function and has no universe.  So `u`
+  is one half of the disjunction being refuted, not an independent handle.
+* *the codomain universes of `f`'s two Π-types.*  Suppose `Γ ⊢ B₀.inst a : .sort v₀` and
+  `Γ ⊢ B₁.inst a : .sort v₁` were free — they are not; obtaining them substitutes into a typing
+  derivation and meets `SubstC`'s index drop.  Then `v₀ ≈ .succ u` and `v₁ ≈ .imax p q`.  A
+  contradiction needs `v₀ ≉ v₁`, which nothing supplies, and **even `v₀ ≈ v₁` is consistent**,
+  by `succ_eq_imax`.  Dead twice over.
+
+### Two things landed along the way
+
+* **`SortForallEDisjoint` is satisfiable** (`SortForallEDisjoint.zero`, and
+  `.AppCase.zero`), at the base index, for the same reason `DefInv.zero` and `SubstC.zero`
+  hold: `≡₀` is equality, so `⊢₀` typing is syntactically unique (`HasTypeN.uniq_zero`).  The
+  route funds this statement as a primitive and nothing had instantiated it.
+* **The `app` case has no inductive content** (`appCase_ih_vacuous`) — see the companion test
+  in §5.  This is a sharper diagnosis than "the fixpoint": the case does not fail because the
+  IH is hard to use, it fails because the IH at `f` is vacuously true.
+
+### What this leaves
+
+Nothing here refutes `SortForallEDisjoint`; it is satisfiable and still open.  What is closed
+is the hope of proving it by reading a discriminating datum off a universe — and with it the
+last untried idea in this neighbourhood.  §8's conclusion now stands from a fourth direction:
+what is missing is a **reduction relation**, something that says what a middle term does.
+
+---
