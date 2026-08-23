@@ -1,5 +1,6 @@
 import Lean4Lean.Verify.Environment.Basic
 import Lean4Lean.Theory.Inductive.Decl
+import Lean4Lean.Theory.Consistency
 
 /-!
 # `TrIndDecl`: an inductive declaration and the `VInductDecl'` that models it
@@ -177,5 +178,98 @@ theorem no_trIndCtor_at_base {env : VEnv} {Us : List Name} {D : VInductDecl'} {j
     (hnone : env.constants ``Eq = none)
     (h : TrIndCtor env Us D j c C) : False :=
   no_trExprS_eqRefl_at_base hnone (hc ▸ h.2)
+
+/-! ## The witness: `Eq`
+
+A relation with no instance is the configuration that has produced every false statement found
+on this project, and the determinism lemmas above are only a *proxy* for satisfiability — they
+show the fields bite, not that anything satisfies them.  `no_trIndCtor_at_base` is likewise a
+refutation of the *wrong* shape, which is a different artifact from a witness of the right one.
+
+This is the witness: `Eq`, the first block of `stdPrelude`, against `Theory/Consistency.lean`'s
+`eqIndDecl` — the same literal `VEnv.LeanWF` is stated over, and whose ι-rule is checked
+against Lean's own stored recursor rule in `DeclExamples.lean`.
+
+It is built at the **staged** environment, which is the only environment `TrIndDecl` is ever
+evaluated at.  A witness at a fully-built environment would have gone through and proved
+nothing, since `Eq` would already be declared. -/
+
+def eqTypeE : Expr :=
+  .forallE `α (.sort (.param `u_1))
+    (.forallE `a (.bvar 0) (.forallE `b (.bvar 1) (.sort .zero) .default) .default) .implicit
+
+theorem tr_eqType : TrExprS VEnv.empty [`u_1] [] eqTypeE
+    (eqIndDecl.types.getD 0 default).type := by
+  have hu : VLevel.WF 1 (.param 0) := by decide
+  refine .forallE ⟨_, .sortDF hu hu (.refl _)⟩ ?_ (.sort rfl) ?_
+  · exact ⟨_, .forallEDF (.bvar .zero) (.forallEDF (.bvar (.succ .zero))
+      (.sortDF trivial trivial (.refl _)))⟩
+  · refine .forallE ⟨_, .bvar .zero⟩ ?_ (.bvar rfl) ?_
+    · exact ⟨_, .forallEDF (.bvar (.succ .zero)) (.sortDF trivial trivial (.refl _))⟩
+    · refine .forallE ⟨_, .bvar (.succ .zero)⟩ ?_ (.bvar rfl) (.sort rfl)
+      exact ⟨_, .sortDF trivial trivial (.refl _)⟩
+
+def eqReflTypeE : Expr :=
+  .forallE `α (.sort (.param `u_1))
+    (.forallE `a (.bvar 0)
+      (.app (.app (.app (.const ``Eq [.param `u_1]) (.bvar 1)) (.bvar 0)) (.bvar 0)) .default)
+    .implicit
+
+theorem eq_const_staged {env₁ : VEnv}
+    (h : VEnv.empty.addIndTypes eqIndDecl = some env₁) :
+    env₁.constants ``Eq = some ⟨1, (eqIndDecl.types.getD 0 default).type⟩ :=
+  VEnv.addConstList_constants h (``Eq, ⟨1, (eqIndDecl.types.getD 0 default).type⟩) (by exact List.Mem.head _)
+
+theorem tr_eqRefl {env₁ : VEnv} (h : VEnv.empty.addIndTypes eqIndDecl = some env₁) :
+    TrExprS env₁ [`u_1] [] eqReflTypeE
+      (((eqIndDecl.types.getD 0 default).ctors.getD 0 default).type eqIndDecl 0) := by
+  have hu : VLevel.WF 1 (.param 0) := by decide
+  have hEq := eq_const_staged h
+  have hc : ∀ Γ, env₁.HasType 1 Γ (.const ``Eq [.param 0])
+      (VExpr.mkPi [.sort (.param 0), .bvar 0, .bvar 1] (.sort .zero)) := fun Γ =>
+    VEnv.HasType.const (Γ := Γ) (U := 1) hEq
+      (by intro l hl; cases List.mem_singleton.1 hl; exact hu) rfl
+  have hCty : (((eqIndDecl.types.getD 0 default).ctors.getD 0 default).type eqIndDecl 0)
+      = VExpr.mkPi [.sort (.param 0), .bvar 0]
+          (.app (.app (.app (.const ``Eq [.param 0]) (.bvar 1)) (.bvar 0)) (.bvar 0)) := rfl
+  rw [hCty]
+  refine .forallE ⟨_, .sortDF hu hu (.refl _)⟩ ?_ (.sort rfl) ?_
+  · exact ⟨_, .forallEDF (.bvar .zero)
+      (.appDF (.appDF (.appDF (hc _) (.bvar (.succ .zero))) (.bvar .zero)) (.bvar .zero))⟩
+  · refine .forallE ⟨_, .bvar .zero⟩ ?_ (.bvar rfl) ?_
+    · exact ⟨_, .appDF (.appDF (.appDF (hc _) (.bvar (.succ .zero))) (.bvar .zero))
+        (.bvar .zero)⟩
+    · exact .app (.appDF (.appDF (hc _) (.bvar (.succ .zero))) (.bvar .zero)) (.bvar .zero)
+        (.app (.appDF (hc _) (.bvar (.succ .zero))) (.bvar .zero)
+          (.app (hc _) (.bvar (.succ .zero)) (.const hEq rfl rfl) (.bvar rfl))
+          (.bvar rfl))
+        (.bvar rfl)
+
+/-- `Eq`'s inductive type, transcribed from `Verify/Soundness.lean`'s `eqDecl`. -/
+def eqIndTypeE : InductiveType :=
+  { name := ``Eq, type := eqTypeE, ctors := [{ name := ``Eq.refl, type := eqReflTypeE }] }
+
+/-- **`TrIndDecl` is satisfiable**, at the declaration `stdPrelude` actually contains and the
+`VInductDecl'` `VEnv.LeanWF` is actually stated over. -/
+theorem trIndDecl_eq : TrIndDecl VEnv.empty [`u_1] 2 [eqIndTypeE] false eqIndDecl where
+  safe := rfl
+  uvars := rfl
+  np := rfl
+  length := rfl
+  trType := by
+    intro j t T ht hT
+    match j, ht, hT with
+    | 0, ht, hT => cases ht; cases hT; exact ⟨rfl, tr_eqType⟩
+  trCtorsLen := by
+    intro j t T ht hT
+    match j, ht, hT with
+    | 0, ht, hT => cases ht; cases hT; rfl
+  trCtors := by
+    intro env₁ h j t T ht hT q c C hc hC
+    match j, ht, hT with
+    | 0, ht, hT =>
+      cases ht; cases hT
+      match q, hc, hC with
+      | 0, hc, hC => cases hc; cases hC; exact ⟨rfl, tr_eqRefl h⟩
 
 end Lean4Lean
