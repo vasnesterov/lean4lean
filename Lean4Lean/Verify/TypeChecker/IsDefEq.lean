@@ -178,6 +178,52 @@ theorem tryEtaExpansion.WF {c : VContext} {s : VState}
   split <;> [exact .pure fun _ => h rfl; skip]
   exact (tryEtaExpansionCore.WF he₂ he₁).mono fun _ _ _ h hb => (h hb).symm
 
+/-- **Vacuity witness for `tryEtaStructCore.WF`.  Read this before proving that theorem.**
+
+`tryEtaStructCore` provably never returns `true` today, and this is the machine-checked
+statement of that.  Its second step is `let .ctorInfo fInfo ← env.get f | return false` on the
+head constant of `s`; `s` is translated, so its head is named in the `VEnv`, and
+`TrEnv.not_ctorInfo` (`Verify/TypeChecker/Reduce.lean`) then forbids the constant map from
+holding a `.ctorInfo` under that name.
+
+**Note what this statement does not mention: `e₁` plays no role at all.**  That is the
+signature of vacuity — `tryEtaStructCore.WF`'s conclusion `c.IsDefEqU e₁' e₂'` would be
+derived without any hypothesis relating `e₁` to `e₁'`, i.e. for a completely arbitrary `e₁'`.
+A "proof" of `tryEtaStructCore.WF` via this route establishes no relation between the two
+terms; it only re-states that the branch is dead.
+
+**Why it is dead, and when it stops being.**  `not_ctorInfo` holds only because `AddInduct`
+(`Verify/Environment/Basic.lean`) has no constructors, so `TrEnv'.induct` cannot fire and
+`TrEnv'.find?_shape` lists only the five non-inductive shapes.  The moment `AddInduct` becomes
+`AddInductStages` — complete, proved, and witnessed by `R10.Wit` in that same file —
+`find?_shape` gains `.inductInfo`/`.ctorInfo`/`.recInfo` and all three `not_*Info` lemmas
+become **false**.  This theorem then goes red, which is exactly why it is kept live: it is the
+marker that `tryEtaStructCore.WF` has no content yet, and it fails loudly rather than
+silently.
+
+The real proof needs `structEta`, a `VEnv.IsDefEq` constructor the abstract spec does not have
+(`docs/design-inductive.md:724-765`, `docs/research-structeta.md`), plus `TrProj`
+functionality. -/
+theorem tryEtaStructCore_never_true {c : VContext} {s : VState} (he₂ : c.TrExprS e₂ e₂') :
+    RecM.WF c s (tryEtaStructCore e₁ e₂) fun b _ => b = false := by
+  have hget : ∀ {name}, (c.env.get name).WF fun ci => c.env.find? name = some ci := by
+    intro name; simp [Kernel.Environment.get]; split <;> [refine .pure ‹_›; exact .throw]
+  unfold tryEtaStructCore
+  obtain ⟨f', hf⟩ := head_tr he₂
+  split <;> [skip; exact .pure rfl]
+  rename_i f us heq
+  rw [heq] at hf
+  let .const hc _ _ := hf
+  refine .getEnv <| (M.WF.liftExcept hget).lift.bind fun ci _ _ hci => ?_
+  cases ci <;> first
+    | exact absurd hci fun hh => c.trenv.not_ctorInfo ⟨_, hc⟩ hh
+    | exact .pure rfl
+
+/-- Still `sorry`.  It **is** closeable today — `(tryEtaStructCore_never_true he₂).mono
+fun _ _ _ h hb => absurd (h ▸ hb) nofun` discharges it in one line — but that close is
+vacuous, is discarded the moment `AddInduct` gains constructors, and would make the
+refinement layer read as complete on structure-eta when it has no content on it at all.
+See `tryEtaStructCore_never_true` for the full argument. -/
 theorem tryEtaStructCore.WF {c : VContext} {s : VState}
     (he₁ : c.TrExprS e₁ e₁') (he₂ : c.TrExprS e₂ e₂') :
     RecM.WF c s (tryEtaStructCore e₁ e₂) fun b _ => b → c.IsDefEqU e₁' e₂' := sorry
@@ -439,6 +485,38 @@ theorem tryStringLitExpansion.WF {c : VContext} {s : VState}
   split <;> [skip; exact .pure h]
   exact (tryStringLitExpansionCore.WF he₂ he₁).mono fun _ _ _ h hb => (h hb).symm
 
+/-- **Vacuity witness for `isDefEqUnitLike.WF`.**  Same shape as
+`tryEtaStructCore_never_true`, one step further in: the gate is
+`let .inductInfo { isRec := false, ctors := [c], numIndices := 0, .. } ← env.get I | return
+false` on the head constant of `whnf (inferType t)`, which is translated, so
+`TrEnv.not_inductInfo` kills it.
+
+Note again what is absent: **`e₂` plays no role.**  `isDefEqUnitLike.WF` claims
+`c.IsDefEqU e₁' e₂'`, and this witness shows the branch is dead without ever looking at the
+second term.  Dies with `AddInduct`, exactly as the sibling above; see its docstring for the
+mechanism and for what the real proof needs (`structEta` at zero fields, twice, plus a
+kernel→abstract `IsStructure` bridge — but **no** `TrProj`, since a zero-field structure has
+no projections). -/
+theorem isDefEqUnitLike_never_true {c : VContext} {s : VState} (he₁ : c.TrExprS e₁ e₁') :
+    RecM.WF c s (isDefEqUnitLike e₁ e₂) fun b _ => b = false := by
+  have hget : ∀ {name}, (c.env.get name).WF fun ci => c.env.find? name = some ci := by
+    intro name; simp [Kernel.Environment.get]; split <;> [refine .pure ‹_›; exact .throw]
+  unfold isDefEqUnitLike
+  refine (inferType.WF he₁).bind fun ty _ _ ⟨_, _, _, hty, _⟩ => ?_
+  refine (whnf.WF hty).bind fun tType _ _ ⟨_, _, htT, _⟩ => ?_
+  obtain ⟨f', hf⟩ := head_tr htT
+  split <;> [skip; exact .pure rfl]
+  rename_i I us heq
+  rw [heq] at hf
+  let .const hc _ _ := hf
+  refine .getEnv <| (M.WF.liftExcept hget).lift.bind fun ci _ _ hci => ?_
+  cases ci <;> first
+    | exact absurd hci fun hh => c.trenv.not_inductInfo ⟨_, hc⟩ hh
+    | exact .pure rfl
+
+/-- Still `sorry`, deliberately.  `(isDefEqUnitLike_never_true he₁).mono
+fun _ _ _ h hb => absurd (h ▸ hb) nofun` closes it today; that close is vacuous and is
+discarded when `AddInduct` lands.  See `isDefEqUnitLike_never_true`. -/
 theorem isDefEqUnitLike.WF {c : VContext} {s : VState}
     (he₁ : c.TrExprS e₁ e₁') (he₂ : c.TrExprS e₂ e₂') :
     RecM.WF c s (isDefEqUnitLike e₁ e₂) fun b _ => b = .true → c.IsDefEqU e₁' e₂' := sorry

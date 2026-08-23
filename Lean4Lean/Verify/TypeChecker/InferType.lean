@@ -433,6 +433,45 @@ theorem inferProj.WF
     (inferProj st i e ety).WF c s fun ty _ =>
       ∃ e'' ty'', c.TrTyping (.proj st i e) ty e'' ty'' := sorry
 
+/-- **Vacuity witness for `inferProj.WF`.**  The strongest form: `inferProj` provably
+*always throws* on a translated struct type, so `inferProj.WF` holds for **any**
+postcondition whatever — the `∃ e'' ty''` conclusion is never reached.
+
+The gate is `let .inductInfo I_val ← env.get I_name | fail` on the head constant of
+`whnf structType`.  That head is translated, hence named in the `VEnv`, hence
+`TrEnv.not_inductInfo` (`Verify/TypeChecker/Reduce.lean`, whose docstring already names
+`inferProj` as the intended consumer) forbids the constant map from holding an
+`.inductInfo` there.
+
+Note that `he` and `hasty` are unused: the struct term and its typing play no part.  That is
+the vacuity.  `not_inductInfo` holds only while `AddInduct` (`Verify/Environment/Basic.lean`)
+has no constructors; when it becomes `AddInductStages` this theorem goes red, and that is the
+point of keeping it.
+
+Beyond the vacuity, `inferProj.WF` is **false once the branch is live**, for a reason
+independent of everything above: `inferProj` never checks recursiveness, while
+`VEnv.IsStructure.noRec` requires `C.recFields = []`.  See `bugs-found.md` item 10 — the
+kernel accepts `.proj` on `inductive R | mk : R → Nat → R` and `TrProj` has no derivation for
+it.  So this `sorry` cannot be closed honestly until item 10 is decided, and closing it
+vacuously today would hide that. -/
+theorem inferProj_always_throws {c : VContext} {s : VState} (hty : c.TrExprS ety ety')
+    {Q : Expr → VState → Prop} : (inferProj st i e ety).WF c s Q := by
+  unfold inferProj
+  refine (whnf.WF hty).bind fun type _ _ ⟨_, _, htT, _⟩ => ?_
+  rw [Expr.withApp_eq]
+  refine .getEnv ?_
+  obtain ⟨f', hf⟩ := head_tr htT
+  split <;> [skip; exact .getLCtx .throw]
+  rename_i I_name us heq
+  rw [heq] at hf
+  let .const hc _ _ := hf
+  split <;> [exact .bind (Q := fun _ _ => False) (.getLCtx .throw) fun _ _ _ h => h.elim; skip]
+  dsimp only
+  refine (M.WF.liftExcept envGet.WF).lift.bind fun ci _ _ hci => ?_
+  cases ci <;> first
+    | exact absurd hci fun hh => c.trenv.not_inductInfo ⟨_, hc⟩ hh
+    | exact .getLCtx .throw
+
 theorem literal_is_primitive (H : n = ``Nat ∨ n = ``Char.ofNat ∨ n = ``String.ofList)  :
     Environment.primitives.contains n := by
   simp [Environment.primitives, NameSet.ofList]
