@@ -2453,6 +2453,111 @@ where `BindersIndep` is non-vacuous, and it is the configuration the model's
 `Pos q a` argument is actually stated over. Not current work; it is where the
 clause will first earn its keep.
 
+## The `WF`-witness gap is closed, at three configurations
+
+The item above — "the tree still has **no `VInductDecl'.WF` witness with a
+recursive field**, so *the clause admits `Acc`* is established about
+`BindersIndep` and not about the well-formedness predicate the translation
+consumes" — is closed. Three complete `VInductDecl'.WF` witnesses now exist in
+`Theory/Inductive/DeclExamples.lean`, all sorry-free and none of them touching
+`VIndRecArg.exists_indep`'s open obligation:
+
+| witness | axioms | what it adds |
+|---|---|---|
+| `accDecl_WF` | `propext`, `Quot.sound` — not even choice | parameters *and* indices, a two-binder `ξ`, a nontrivial `π`, `LECond`'s second disjunct |
+| `mutDecl_WF` | the three standard | two types in the block, cross-recursion (`recArg.idx` into the *other* type), two recursive fields in one constructor |
+| `wDecl_WF` | the three standard | a later recursive field whose `ξ` is **non-empty**, so the `Skips` obligation is evaluated |
+
+Why the reason this was worth doing is not "more coverage". A clause has as many
+vacuity levels as it has nested conditions, and a witness's honest measure is the
+**deepest level it reaches**, not whether it passes:
+
+| witness | earlier field recursive? | `ξ` non-empty? | `Skips` evaluated? |
+|---|---|---|---|
+| `fooDecl_WF` | — (no recursive field at all) | — | no |
+| `accDecl_WF` | no | yes | no |
+| `mutDecl_WF` | **yes** | no | no |
+| `wDecl_WF` | **yes** | **yes** | **yes** |
+
+Only the last row tests the clause's actual content. `wDecl` is
+`inductive W' (β : Prop) : Prop | mk : W' β → (β → W' β) → W' β`; its second
+recursive field has `ξ = [β]`, and in that field's context `[W' β, β]` the
+parameter is `.bvar 1` while the earlier recursive field is `.bvar 0`, so
+`(.bvar 1).Skips 1 0` is a computation that could have gone either way. `wRecBad`
+— the same declaration with `ξ = [.bvar 0]` — is refuted next to it, which is
+what shows the last column is not automatic. Both `wType.type` and
+`wMk.type wDecl 0` are `rfl`-checked against Lean's own `@W'` and `@W'.mk`, so
+the encoding is not a convenient fiction.
+
+**This is deliberately ahead of the port.** The note above records that under the
+companion design both fields of `Tree`/`List`'s companion constructor become
+recursive, and calls that "the first configuration where `BindersIndep` is
+non-vacuous". `wDecl` is that configuration, built against the current spec while
+the clause is still five lines from being changed. If the clause were wrong at
+that shape, it is much cheaper to learn it here than from the nested port.
+
+What is *still* only checked in isolation: nothing about `BindersIndep` itself —
+but `VIndRecArg.exists_indep` (the "the kernel's positivity check implies this
+clause" obligation) remains open, blocked on `IsDefEqU.forallE_inv` in
+`Typing/Injectivity.lean`. That debt is shared with three other cones, not new.
+
+## Hazard: `type_tac` is only correct while the target sort is a metavariable
+
+Recorded here because it costs a debugging round and, like the `isDefEq`
+coercion-index hazard above, it **reports an unrelated failure**. This is the
+failure mode that has been expensive all session: a wrong answer that looks like
+a different problem.
+
+`type_tac` (`Theory/Typing/Meta.lean`) has
+
+```lean
+| refine HasType.forallE (u := ?_) (v := ?_) ?_ ?_ <;> [skip; skip; type_tac; type_tac]
+```
+
+a **four**-slot `<;> [...]`. That arity is right only when the goal's sort is a
+metavariable, which is the case at every other use in the tree, because they all
+sit under `IsType`'s `∃ u`. When the target sort is **concrete** — as in
+`VIndField.WF.hasType`, which demands `.sort F.lvl` — unification solves `?u` and
+`?v` from `.sort (.imax ?u ?v)` at `refine` time, only two goals remain, the
+four-slot combinator fails, and `first` falls through to its last alternative.
+
+The error you actually see is therefore
+
+```
+Type mismatch
+  VEnv.HasType.lam ?m ?m
+has type
+  VEnv.HasType _ _ _ (lam _ _) (forallE _ _)
+but is expected to have type
+  … (sort (imax …))
+```
+
+— a complaint about `lam` on a goal containing no `lam`. Nothing in it points at
+`forallE`, at arity, or at the concrete sort.
+
+**Remedy**: apply the constructor directly, `.forallE (by type_tac) (by type_tac)`,
+and let `type_tac` handle only the sub-goals (whose sorts are again concrete but
+whose head symbols take the `bvar`/`app`/`const` branches, which have the right
+arity either way). Nesting it for a two-binder telescope is
+`.forallE (by type_tac) (.forallE (by type_tac) (by type_tac))`.
+
+Two further gotchas met at the same site, both of which also present as unrelated
+errors:
+
+* **A structure-instance goal carries an unreduced projection.** Inside
+  `refine { hasType := ?_, … }` the goal is stated at `{…}.type`, and
+  `type_tac`'s `refine` will not see a `forallE` through it. Hoist the judgement
+  into a `have` with the type spelled out.
+* **`.sort` resolves against the goal's head, not against `HasType`.** Under
+  `IsDefEqType` — i.e. `∃ u, IsDefEq …` — the anonymous-constructor hole has head
+  `VEnv.IsDefEq`, so `.sort` elaborates as `VEnv.IsDefEq.sort`, which does not
+  exist. Write `VEnv.HasType.sort` in full. Under a bare `IsType` the same
+  `⟨_, .sort _⟩` is fine, which is why this only bites on `VIndType.WF.canon`.
+
+`Meta.lean` is not this stream's file and was not touched; fixing the combinator
+there (`<;> [skip; skip; type_tac; type_tac]` → a form tolerant of solved level
+goals) would retire all of the first item.
+
 ## The remaining open items, ranked
 
 

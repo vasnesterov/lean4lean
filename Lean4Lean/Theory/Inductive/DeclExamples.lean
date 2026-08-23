@@ -1261,39 +1261,91 @@ theorem forestCons_BindersIndep : ∀ i (F : VIndField), forestCons.fields[i]? =
     cases hF; cases hr
     exact absurd hB nofun
 
-/-- A constructor with **two** recursive fields, the second carrying a binder: this is the
-shape that makes the clause do work.  `wDecl` is `inductive W : Prop | mk : W → (Foo → W) → W`,
-with `Foo` standing for any previously declared `Prop`.
+/-! ### The deepest rung: two recursive fields where the later one **carries a binder**
 
-The second field's `ξ = [Foo]` is a constant, so it skips the first field's variable and the
-clause holds — **non-vacuously**: the hypothesis `F'.recArg.isSome` is now `true`, so the
-`Skips` obligation is actually reached. -/
+`accDecl_WF` and `mutDecl_WF` at the end of this file both *reach* `binders_indep`'s
+hypothesis, but discharge the `Skips` obligation trivially: `Acc.intro` has no earlier
+*recursive* field, and `Forest'.cons`'s later recursive field has `ξ = []`.  A clause has as
+many vacuity levels as it has nested conditions, and the deepest one — **there is a binder,
+and it must actually skip the earlier recursive field's variable** — was still untested.
+
+`W'` is the smallest declaration that reaches it:
+
+```
+inductive W' (β : Prop) : Prop
+  | mk : W' β → (β → W' β) → W' β
+```
+
+Field 0 is recursive.  Field 1 is recursive with `ξ = [β]`, and in field 1's context
+`[W' β, β]` the parameter `β` is `.bvar 1` while field 0 is `.bvar 0` — so
+`(.bvar 1).Skips 1 0` is a real computation that could have come out either way.  `wRecBad`
+is the same shape with `ξ = [.bvar 0]`, and it is refuted.
+
+Worth building against the *current* spec rather than later: this is the configuration the
+nested/companion design produces for real, because a companion's substituted constructors turn
+several of `J`'s fields recursive at once.  If the clause were wrong here, learning it from
+five lines is much cheaper than learning it from the nested port. -/
+
+inductive W' (β : Prop) : Prop
+  | mk : W' β → (β → W' β) → W' β
+
 def wRec0 : VIndRecArg where binders := []; idx := 0; args := []
 
-def wRec1 : VIndRecArg where binders := [.const `Foo []]; idx := 0; args := []
+/-- `ξ = [β]`: the binder is the *parameter*, which sits one de Bruijn index past field 0. -/
+def wRec1 : VIndRecArg where binders := [.bvar 1]; idx := 0; args := []
 
-def wFields : List VIndField :=
-  [{ type := .const `W [], lvl := .zero, recArg := some wRec0 },
-   { type := mkPi wRec1.binders (.const `W []), lvl := .zero, recArg := some wRec1 }]
+def wMk : VIndCtor where
+  name := ``W'.mk
+  params := [.sort .zero]
+  fields :=
+    [{ type := (VExpr.const ``W' []).mkApp [.bvar 0], lvl := .zero, recArg := some wRec0 },
+     { type := mkPi wRec1.binders ((VExpr.const ``W' []).mkApp [.bvar 2]),
+       lvl := .zero, recArg := some wRec1 }]
+  args := []
 
-example : wRec1.BindersIndep (wFields.take 1) 1 := by
-  intro i' t F' hF' _ heq
-  obtain ⟨rfl, rfl⟩ : i' = 0 ∧ t = 0 := by omega
-  intro k B hB
-  match k, hB with
-  | 0, hB => cases hB; exact rfl
+def wType : VIndType where
+  name := ``W'
+  type := mkPi [.sort .zero] (.sort .zero)
+  indices := []
+  ctors := [wMk]
 
-/-- **…and the clause bites.**  Replace the second field's `ξ = [Foo]` by `ξ = [x]`, where `x`
-is the *first* (recursive) field's variable — the shape whose `⟦ξ⟧` the model cannot evaluate,
-because it needs the value `Pos` is being asked to type.  `BindersIndep` refutes it.
+def wDecl : VInductDecl' where
+  uvars := 0
+  params := [.sort .zero]
+  lvl := .zero
+  isLE := false
+  types := [wType]
+
+-- Ground truth: the hand-written `VExpr`s are Lean's own encoding, not a convenient fiction.
+example : wType.type = (vconst(type_of% @W')).type := rfl
+example : wMk.type wDecl 0 = (vconst(type_of% @W'.mk)).type := rfl
+example : (VEnv.empty.addInduct' wDecl).isSome := rfl
+example : wMk.recFields = [(0, wRec0), (1, wRec1)] := rfl
+
+/-- **The clause holds at the deepest rung.**  Both conditions bite: field 0 is recursive, and
+`ξ` is non-empty, so the proof really evaluates `(.bvar 1).Skips 1 0`. -/
+theorem wMk_BindersIndep : ∀ i (F : VIndField), wMk.fields[i]? = some F →
+    ∀ r, F.recArg = some r → r.BindersIndep (wMk.fields.take i) i := by
+  intro i F hF r hr i' t F' hF' hrec heq k B hB
+  match i, hF with
+  | 0, hF => cases hF; cases hr; omega
+  | 1, hF =>
+    cases hF; cases hr
+    obtain ⟨rfl, rfl⟩ : i' = 0 ∧ t = 0 := by omega
+    match k, hB with
+    | 0, hB => cases hB; exact rfl
+
+/-- **…and the clause bites.**  Replace `ξ = [β]` by `ξ = [x]`, where `x` is the *first*
+(recursive) field's variable — the shape whose `⟦ξ⟧` the model cannot evaluate, because it
+needs the value `Pos` is being asked to type.  `BindersIndep` refutes it.
 
 Without this, `binders_indep` could be a clause every `VIndRecArg` satisfies, in which case it
 would constrain nothing and the model would still be stuck. -/
 def wRecBad : VIndRecArg where binders := [.bvar 0]; idx := 0; args := []
 
-example : ¬ wRecBad.BindersIndep (wFields.take 1) 1 := by
+example : ¬ wRecBad.BindersIndep (wMk.fields.take 1) 1 := by
   intro h
-  have := h 0 0 wFields[0]! rfl (by simp [wFields]) rfl 0 (.bvar 0) rfl
+  have := h 0 0 wMk.fields[0]! rfl (by simp [wMk]) rfl 0 (.bvar 0) rfl
   rw [VExpr.skips_iff] at this; simp [VExpr.Skips'] at this
 
 /-- …and `addInduct'` accepts it. -/
@@ -1692,6 +1744,87 @@ theorem mutDecl_WF : mutDecl.WF .empty where
                   pos := ⟨by decide, rfl, nofun, nofun, ⟨trivial, _, by type_tac⟩, by type_tac,
                           fun T' hT' => by cases hT'; exact .nil, _, by type_tac⟩ }
   isLE := fun _ => .inl (by simp [VLevel.IsNeverZero, VLevel.eval, mutDecl])
+
+/-! ### …and `wDecl`, the deepest rung
+
+`accDecl_WF` reaches `binders_indep` with no earlier *recursive* field; `mutDecl_WF` reaches it
+with an earlier recursive field but `ξ = []`.  `wDecl_WF` reaches it with **both** conditions
+live, so the `Skips` obligation is a real computation on a real binder.
+
+Reporting the deepest level reached, per witness:
+
+| witness | earlier field recursive? | `ξ` non-empty? | `Skips` evaluated? |
+|---|---|---|---|
+| `fooDecl_WF` | — (no recursive field at all) | — | no |
+| `accDecl_WF` | no | yes | no |
+| `mutDecl_WF` | **yes** | no | no |
+| `wDecl_WF` | **yes** | **yes** | **yes** |
+
+That is the whole clause, and `wRecBad` above shows the last column could have come out the
+other way. -/
+
+theorem w_const_staged {env₁ : VEnv} (h : VEnv.empty.addIndTypes wDecl = some env₁) :
+    env₁.constants ``W' = some ⟨0, wType.type⟩ :=
+  VEnv.addConstList_constants h (``W', ⟨0, wType.type⟩) (by exact List.Mem.head _)
+
+theorem wDecl_WF : wDecl.WF .empty where
+  types_ne := by simp [wDecl]
+  params := ⟨trivial, _, .sort (by decide)⟩
+  types := by
+    intro T hT
+    simp [wDecl] at hT
+    subst hT
+    exact { indices := ⟨trivial, _, .sort (by decide)⟩
+            isType := ⟨_, by type_tac⟩
+            canon := ⟨_, by type_tac⟩ }
+  ctors := by
+    intro env₁ he j T hT C hC
+    have hw := w_const_staged he
+    match j, hT with
+    | 0, hT =>
+      simp [wDecl] at hT
+      subst hT
+      simp [wType] at hC
+      subst hC
+      refine { params_len := rfl, params_eq := .succ .zero (by type_tac), fields := ?_,
+               args_len := rfl, args_fresh := nofun, args_ty := .nil,
+               result := by type_tac }
+      intro i F hF
+      match i, hF with
+      | 0, hF =>
+        simp [wMk] at hF
+        subst hF
+        exact { hasType := by type_tac
+                level := fun ls => by simp [VLevel.eval, wDecl, Lean.Nat.imax]
+                binders_indep := wMk_BindersIndep 0 _ rfl
+                pos := ⟨by decide, rfl, nofun, nofun, ⟨trivial, _, .sort (by decide)⟩,
+                        by type_tac, fun T' hT' => by cases hT'; exact .nil,
+                        _, by type_tac⟩ }
+      | 1, hF =>
+        simp [wMk] at hF
+        subst hF
+        -- `β → W' β` is `Prop`-valued, but the pi rule delivers `imax 0 0`; and the pi has to
+        -- be built by `.forallE` rather than `type_tac`, whose four-slot `forallE` branch is
+        -- only correct while the target sort is a metavariable (see `docs/soundness-ledger.md`).
+        have hpi : env₁.HasType wDecl.uvars
+            ((List.map (fun x => x.type) (List.take 1 wMk.fields)).reverse
+              ++ wDecl.params.reverse)
+            (.forallE (.bvar 1) ((VExpr.const ``W' []).mkApp [.bvar 2]))
+            (.sort (.imax .zero .zero)) :=
+          .forallE (by type_tac) (by type_tac)
+        exact { hasType := VEnv.IsDefEq.defeq (u := .succ (.imax .zero .zero))
+                  (.sortDF (by decide) (by decide)
+                    (by simp [VLevel.equiv_def, VLevel.eval, Lean.Nat.imax])) hpi
+                level := fun ls => by simp [VLevel.eval, wDecl, Lean.Nat.imax]
+                -- **the deepest rung**: field 0 is recursive *and* `ξ = [β]` is non-empty, so
+                -- this really evaluates `(.bvar 1).Skips 1 0`
+                binders_indep := wMk_BindersIndep 1 _ rfl
+                pos := ⟨by decide, rfl,
+                        by simp [wRec1, VInductDecl'.NoBlock, VExpr.NoConsts], nofun,
+                        ⟨⟨⟨trivial, _, .sort (by decide)⟩, _, by type_tac⟩, _, by type_tac⟩,
+                        by type_tac, fun T' hT' => by cases hT'; exact .nil,
+                        _, hpi⟩ }
+  isLE := by simp [wDecl]
 
 end InductiveDeclExamples
 end Lean4Lean
