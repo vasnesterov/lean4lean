@@ -719,6 +719,97 @@ see "The residual obligation" below. Both rows stand.
 
 ---
 
+## 6. `SortForallEDisjoint` has no cheap model route either, and the reason is `proofIrrel`
+
+Asked from the syntactic side: *a term cannot have both a sort and a Π as its
+type* —
+
+```
+SortForallEDisjoint : Γ ⊢ e : .sort u → Γ ⊢ e : .forallE A B → False
+```
+
+— passes the cumulativity check that excluded `SortUniq` and `PropUniq` from
+semantic argument, so is a **cut-down** model available that separates "inhabits
+a sort" from "inhabits a Π" and needs neither proof-splitting nor a level
+assignment?
+
+**No.** Three things, in the order they decide it.
+
+### The premise is weaker than it looks
+
+Passing the cumulativity check shows that *that* extension does not refute the
+statement. It is evidence of **not being excluded**, not evidence that a route
+exists. Those are different, and the difference is the whole of this section.
+
+### The direct route is blocked, at a named instance
+
+A model refutation needs `⟦.sort u⟧ρ ∩ ⟦.forallE A B⟧ρ = ∅`. **In the model
+that exists they are not disjoint**, and two one-line facts (both machine-checked
+against `SetModel/`) say so:
+
+* `∅ ∈ UProp` — the `Prop` universe contains the empty set;
+* `∅ ∈ mkForallType G hG F hF ρ` whenever `G ρ = ∅` — the empty function is the
+  unique function out of an empty domain, so it inhabits *every* dependent
+  product over an empty domain.
+
+Take an empty type as the witness. `⟦False⟧ρ = ∅ ∈ ⟦Sort 0⟧ρ`, and
+`∅ ∈ ⟦∀ x : False, B⟧ρ`. The model is **consistent with** `False : ∀ x : False, B`
+— both memberships the argument would have to contradict simply hold. This is
+not "no argument was found"; it is the argument's premise failing at an instance
+one can name.
+
+The overlap is structural in ZF, not an encoding artifact: `Y ^ ∅ = {∅}` is a
+theorem, and universes contain `∅`. Separating them requires **tagging**, which
+is a new construction rather than a reading of the existing one.
+
+### Tagging is the only repair, and it needs the statement it would prove
+
+Tag type-values `⟨0, ·⟩` and function-values `⟨1, ·⟩`. Disjointness is then free
+by pair injectivity, and β, η and the constant equations survive — tags are a
+relabelling.
+
+It dies at **`proofIrrel`**. That is the one rule of the theory which identifies
+terms *without regard to their structure*: any two inhabitants of a proposition
+are equal, so their denotations are equal, so **the tag is constant on the
+inhabitants of every proposition**. A tag assignment therefore exists only if no
+proposition has both a sort-tagged and a Π-tagged inhabitant — i.e. only if a
+sort term inhabits no proposition, which is `sort_not_proof`
+(`Theory/Typing/SortUniq.lean`).
+
+And `sort_not_proof` *is* `PropTypeAgree` at `e = .sort u` (§5). So the cut-down
+model bottoms out at the same statement the full interpretation does, and it is
+the statement the syntactic route is trying to reach. **Circular.**
+
+This is the same shape as the impredicativity impossibility in §5: a specific
+rule of the theory destroys exactly the distinction the argument depends on.
+There, impredicative `∀`-formation forces the `{•}` collapse, so proof-splitting
+cannot be decided semantically. Here, `proofIrrel` forces the identification, so
+sorts and Πs cannot be separated semantically. **Both are facts about the
+setting, not about this construction.**
+
+### Two consequences worth acting on
+
+* **The overlap is raw material for a *refutation*.** Since the interpretation
+  does not separate the two, the standard model would validate a rule extension
+  that gives some term both types, if one can be written syntactically — exactly
+  `SortUniq.lean`'s method. `False` and `∀ x : False, B` is where to aim it. If
+  such a rule exists, `SortForallEDisjoint` is not a semantic consequence either
+  and the "cumulativity check passes" reading flips. (A model failing to decide
+  a statement is not evidence the statement is false; this is a test to run, not
+  a claim.)
+* **`sort_not_proof` is the higher-value ask.** Granted it, the tagged model
+  becomes available and *would* give `SortForallEDisjoint`. `SortUniq.lean`
+  independently calls `sort_not_proof` "the statement worth asking the model
+  stream for"; this section reaches the same conclusion from the model side.
+  Note it is not itself cheaply semantic — the obvious argument (`U κ i ≠ pt`,
+  a universe is not the proof object) needs soundness, hence the apparatus —
+  but it is the point where the whole family meets.
+
+*The honest alternative*, if a separating model is wanted anyway: tags defined
+by induction on derivations rather than on syntax, i.e. reducibility candidates
+— a normalization proof, which is the Church–Rosser-scale metatheory already
+priced, and is the syntactic route in semantic clothing.
+
 ## What the model still needs from the syntax side
 
 The interpretation `⟦Γ ⊢ e⟧` is now **defined** — see `SetModel/Interp.lean` —
