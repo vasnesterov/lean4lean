@@ -237,10 +237,29 @@ Attack it separately, not inside the induction. *Analysis.*
 Settled, machine-checked. The three characterised cases are **two** obstructions, not one and
 not three:
 
-* **`forallEDF`** wants **context conversion at a preserved index**, and its induction drops
-  an index exactly as `SubstC` does — the conversion is available at `n+1`, the typing
-  premises want it at `n`. Same family as the refutation in §2a, and by the arithmetic in §3
-  a rule cannot repair it.
+* **`forallEDF`** wants **context conversion at a preserved index**, and it is **not
+  refuted** — the attempt is recorded below because where it resists is informative.
+
+  *Diagnostic, machine-checked.* Context conversion at a preserved index closes for **every**
+  rule except `appDF`, `beta`, `eta`, `proofIrrel` — the same four the substitution wall
+  breaks at, and for the same reason (conclusion at `n+1`, typing premises at `n`, context
+  conversion available only at `n+1`). Notably the `bvar` case, which looks like the obvious
+  problem, closes cleanly: the fix-up conversion *is* the context conversion, weakened, and
+  `Stratified.weak` preserves the index.
+
+  *The conversion half is refutable*, by the same construction as §2a: in context `A'::Γ` the
+  term `.app (.lam A (.bvar 0)) (.bvar 0)` is not `⊢₀`-typeable — its typing wants
+  `.bvar 0 : A` at `⊢₀` while `Lookup` gives `A'` — so the `stuck` argument transfers and the
+  `beta` conversion `.app (.lam A (.bvar 0)) (.bvar 0) ≡₁ .bvar 0` does not transport.
+  ≈70 lines; not built, because it does not settle the question.
+
+  *The typing half — which is what `forallEDF` actually needs — resists*, and for a specific
+  reason: a typing's use of `bvar 0` at the wrong type is **repairable at index `n`** by
+  `conv` along the context conversion itself. The index-`n−1` sub-derivations that break
+  appear only *inside* conversions. So every counterexample that refutes the conversion half
+  fails to lift to the typing half.
+
+  **Status: the natural proof route for `forallEDF` is dead; the statement it needs is open.**
 * **`proofIrrel` and `eta` look alike and are not.** `proofIrrel`'s residual is exactly
   `PropNotProof`, and `propNotProof_of` derives that *from `PropTypeAgree` itself* — the same
   statement at another subject, measure `≤` not `<`, so it is self-reference.  `eta`'s
