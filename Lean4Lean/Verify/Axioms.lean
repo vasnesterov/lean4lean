@@ -1,18 +1,29 @@
 import Batteries.Tactic.OpenPrivate
 import Lean4Lean.Std.Basic
 import Lean4Lean.Std.NodupKeys
+import Lean4Lean.Std.TreeMap
 
 namespace Std.TreeMap
 
 variable {α : Type u} {β : Type v} {cmp : α → α → Ordering} {t : TreeMap α β cmp}
 
-/-- https://github.com/leanprover/lean4/issues/12798 -/
-axiom all_eq_all_toList {p : α → β → Bool} :
-    t.all p = t.toList.all fun a => p a.1 a.2
+/-- Was an axiom (https://github.com/leanprover/lean4/issues/12798); upstream has since
+added `Std.DTreeMap.Internal.Impl.all_eq_all_toListModel`, which proves it.
+See `docs/axiom-audit.md` §8. -/
+theorem all_eq_all_toList {p : α → β → Bool} :
+    t.all p = t.toList.all fun a => p a.1 a.2 := by
+  simp [TreeMap.all, TreeMap.toList, DTreeMap.all, DTreeMap.Const.toList,
+    Std.DTreeMap.Internal.Impl.all_eq_all_toListModel,
+    Std.DTreeMap.Internal.Impl.Const.toList_eq_toListModel_map, Function.comp_def]
 
-/-- https://github.com/leanprover/lean4/issues/12798 -/
-axiom any_eq_any_toList {p : α → β → Bool} :
-    t.any p = t.toList.any fun a => p a.1 a.2
+/-- Was an axiom (https://github.com/leanprover/lean4/issues/12798); upstream proved only
+the `all` form, so this uses the mirror lemma `Impl.any_eq_any_toListModel` in
+`Lean4Lean/Std/TreeMap.lean`. See `docs/axiom-audit.md` §8. -/
+theorem any_eq_any_toList {p : α → β → Bool} :
+    t.any p = t.toList.any fun a => p a.1 a.2 := by
+  simp [TreeMap.any, TreeMap.toList, DTreeMap.any, DTreeMap.Const.toList,
+    Std.DTreeMap.Internal.Impl.any_eq_any_toListModel,
+    Std.DTreeMap.Internal.Impl.Const.toList_eq_toListModel_map, Function.comp_def]
 
 end Std.TreeMap
 
