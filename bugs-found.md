@@ -31,6 +31,9 @@ reader will otherwise assume the opposite:
 
 Found while trying to prove `checkPrimitiveDef.WF`, the statement that the
 primitive-definition recognizer establishes what the abstract model assumes.
+Items marked **fixed downstream** are fixed in the fork this audit was run in;
+those fixes are separate changes and are *not* part of this one, so the defects
+are still present in this tree.
 `checkPrimitiveDef` is a lean4lean-only check (see `divergences.md`): Lean itself
 does not verify that primitives are declared with the right types and
 definitional behaviour, because it ships its prelude. lean4lean does verify it,
@@ -42,7 +45,7 @@ and the verification was not sound.
    `v.type` off structurally — but the recognizer only checked
    `isDefEq v.type q(Nat → Char)`. Declaring `Char.ofNat` at
    `(fun _ : Nat => Nat → Char) Nat.zero` passed the check and translated to a
-   different constant, so the recognizer's postcondition was false. **Fixed**:
+   different constant, so the recognizer's postcondition was false. **Fixed downstream**:
    those branches now compare with `Expr.eqv`.
 
 2. **The `Nat` equations were checked on deliberately ill-typed terms.**
@@ -51,7 +54,7 @@ and the verification was not sound.
    `TrExprS` witness and carried no semantic content whatsoever — every one of
    those checks was vacuous with respect to the model. `Nat.land` and `Nat.lor`
    additionally bound their `Bool` variable at type `Nat`, which is not merely
-   untranslatable but plainly ill-typed. **Fixed**: the equations are now checked
+   untranslatable but plainly ill-typed. **Fixed downstream**: the equations are now checked
    under `withLocalDecl`-bound free variables, as the `Nat.div`/`Nat.mod`
    branches already did.
 
@@ -60,7 +63,7 @@ and the verification was not sound.
    primitives' semantics, without requiring any of them in the environment. Each
    was implied by a later `checkType`, but only by inverting "type checking
    succeeded" — and the `TrExprS` witnesses the `isDefEq` specification demands
-   cannot be built before that inversion is available. **Fixed**: explicit
+   cannot be built before that inversion is available. **Fixed downstream**: explicit
    `env.contains` guards. They reject nothing new; the arena confirms it.
 
 4. **`checkPrimitiveDef` runs before `checkConstantVal`, so it calls `isDefEq` on
@@ -87,13 +90,15 @@ and the verification was not sound.
 ## In the lean4lean proof infrastructure
 
 Not kernel bugs — defects in the specification and its metatheory, which matter
-because they are what `kernel_sound` is stated against.
+because they are what the fork's end-to-end `kernel_sound` theorem is stated
+against. As above, **fixed downstream** means fixed in that fork, not in this
+change.
 
 5. **`VEnv.HasPrimitives` pinned neither `Nat.pred` nor `Nat.bitwise`,** yet the
    `Nat.sub` branch depends on the first and `land`/`lor`/`xor` on the second. An
    environment defining `Nat.pred := fun _ => 0` satisfied `HasPrimitives` and
    still passed the `Nat.sub` check, refuting the recognizer's postcondition.
-   **Fixed.** `Nat.bitwise`'s field needed care: it is second order, so the
+   **Fixed downstream.** `Nat.bitwise`'s field needed care: it is second order, so the
    obvious statement puts `ReflectsBoolBoolBool` in negative position and is not
    monotone, which a `HasPrimitives` invariant must be. It is relativized to an
    arbitrary extension instead.
@@ -104,7 +109,7 @@ because they are what `kernel_sound` is stated against.
    `stage₁` defaults to `true` — and no other `TrEnv'` rule can produce
    `VEnv.empty` at that map. So `∃ ves, ves.WF (Kernel.Environment.empty ‵main)`
    was underivable, which would have made every statement about a run of the
-   checker vacuous. **Fixed**: both `empty` constructors now take the two facts
+   checker vacuous. **Fixed downstream**: both `empty` constructors now take the two facts
    actually consumed downstream.
 
 7. **`SExpr.Params.extra_pat` was a standalone `axiom` that proves `False`.** It
@@ -112,7 +117,7 @@ because they are what `kernel_sound` is stated against.
    mentioning `SExpr.IsDefEq` was impossible. Guard 2 did not catch it because
    `Experimental/` is outside `kernel_sound`'s cone — but the whole injectivity
    route runs through `Params`, so anything proved that way would have been
-   vacuous. **Fixed**: it and `ctor_ty` now live in a companion class declared
+   vacuous. **Fixed downstream**: it and `ctor_ty` now live in a companion class declared
    after the judgment.
 
 8. **`SExpr.IsDefEq.strong` is false as stated,** for two independent reasons.
@@ -122,18 +127,21 @@ because they are what `kernel_sound` is stated against.
    witness. And `CtorBundle.hu0` asserts the constructor's result sort is
    nonzero, which fails for `Eq.refl`, whose codomain is a `Prop` — yet `Eq.refl`
    must still classify as a constructor, because `Eq.rec`'s ι-rule matches on it.
-   **Statement fixed**; `hu0` recorded with its exact location.
+   **Statement fixed downstream**; `hu0` recorded with its exact location.
 
 ## In the 32 frozen axioms
 
-Not yet audited. `Lean4Lean/Verify/Axioms.lean` asserts 32 unproven facts about
-*upstream Lean* functions, and guard 2 whitelists them, so they sit inside
-`kernel_sound`'s trusted cone: if one is false the end-to-end theorem is
-worthless. An audit is in progress; results in `docs/axiom-audit.md`.
+`Lean4Lean/Verify/Axioms.lean` asserts 32 unproven facts about *upstream Lean*
+functions — mostly that an `@[extern]` or `@[implemented_by]` function agrees
+with a pure-Lean model of it. Everything proved on top of the refinement layer
+rests on all 32, so if one is false the result is worthless, and if one is
+*inconsistent* then every statement above that layer is provable outright.
 
-The a-priori risk is concentrated in axioms relating an `@[extern]` or
-`@[implemented_by]` function to a pure model of it (which is exactly the gap
-those attributes create), axioms about `partial` functions, axioms about data
-structures whose statements may quietly assume a well-formedness invariant the
-caller has not established, and `Lean.Level.instLawfulBEqLevel`, since asserting
-a `LawfulBEq` instance is a strong claim.
+**Audited; results in [`docs/axiom-audit.md`](docs/axiom-audit.md).** Eleven of
+the 32 do not hold as stated, counting the two that hold only under a side
+condition they do not state. Two prove `False` on their own:
+`Lean.Expr.looseBVarRange_eq` (§3.1) equates an unbounded traversal with a read
+of a 20-bit field, and `Lean.Level.mkLevelIMaxCore_eq` (§3.2) states a
+`private def` equal to a model that does not match it — and since that def is
+not `opaque`, the equation is decidable and refutable by `decide`. Every verdict
+in the audit comes with a machine-checked witness (§11).

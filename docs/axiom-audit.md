@@ -5,8 +5,26 @@ Audited against toolchain **`leanprover/lean4:v4.33.0-rc2`**
 at `~/lean4/src` (master `fd0efc4`).
 
 This document is a **read-only audit**. Nothing in `Lean4Lean/` was changed.
-Every "proposed correction" below is a proposal only; `Verify/Axioms.lean` and
-`Verify/Guard.lean` remain byte-identical.
+Every "proposed correction" below is a proposal only; `Verify/Axioms.lean`
+remains byte-identical.
+
+> **Where the fork-specific names come from.** The audit was carried out in a
+> downstream fork that adds two files this repository does not have:
+> `Verify/Soundness.lean`, stating an end-to-end `Lean4Lean.kernel_sound`
+> theorem, and `Verify/Guard.lean`, a build-time check that `kernel_sound`'s
+> axiom cone stays inside a whitelist — the 32 axioms of `Verify/Axioms.lean`
+> plus the three standard ones. §0 and §9 below are written in those terms, and
+> they explain why an inconsistent whitelisted axiom is worse than an ordinary
+> false one: it is *pre-authorised*, so it makes the guarded theorem provable
+> without tripping the guard.
+>
+> Everything else in this document is about `Verify/Axioms.lean` as it stands
+> here, and does not depend on the fork. Each defect is a property of the
+> axiom's own statement versus the upstream Lean function it claims to model,
+> and each is backed by a machine-checked witness (§11) that builds against
+> this repository's `lean-toolchain`. The two axioms that prove `False` —
+> `Expr.looseBVarRange_eq` (§3.1) and `Level.mkLevelIMaxCore_eq` (§3.2) — do so
+> in this repository too, whether or not anything currently uses them.
 
 ---
 
