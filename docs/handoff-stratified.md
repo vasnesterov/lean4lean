@@ -6,9 +6,18 @@ cached copy, stop and re-read this one.
 
 **Target:** `Lean4Lean.VEnv.IsDefEqU.sort_inv` and its family in
 `Theory/Typing/Injectivity.lean`. **Still open, and the target statement has not moved.**
-What has changed is that the obstruction is now localised to a single named statement with
-three named, individually-blocked routes — and that a defect in the published metatheory this
-project is built on has been machine-checked.
+
+### Where the route stands, plainly
+
+| statement | status |
+|---|---|
+| `PropTypeAgree` | **open.** Five of twelve conversion cases close. Three characterised obstructions: `forallEDF` (context conversion, index drop), `proofIrrel` (self-reference), `eta` (needs `SortForallEDisjoint`). `constDF`, `appDF`, `beta`, `extra` uncharacterised. |
+| `SortForallEDisjoint` | **one open case, and likely true.** Six of seven typing cases close from `DefInv` alone; only `AppCase` remains, and a refutation is *provably impossible* at the model's own witness (§9). |
+| `PropUniq`, `SortUniq` | **in the normalisation family, and no model route.** Both fail the criterion's `trans` test; `SortUniq` is refuted as a semantic consequence by the cumulativity check, and the model is parameterised on it. |
+| the reference | **two documented defects**, one machine-checked (§2a), one a reading result with a repair (§2b). |
+
+The obstruction was diffuse and is now two named statements. What the route produced beyond
+that is in §7 — read it, because it is more than what it closed.
 
 ---
 
@@ -48,6 +57,10 @@ no `bv_decide`, no axiom added.
 | `IsDefEqU.sort_inv_of_defInv`, `sort_forallE_inv_of_defInv` | `Typing/UniqueTypingN.lean` | **the target reduced to `∀ n, DefInv`** — uses neither `uniq` nor `SubstC` |
 | `DefInv.sort_proofIrrel` | `Typing/UniqueTypingN.lean` | at the index, `unique.tex:266` needs only `DefInv` clause (1), not `SortUniq` |
 | `SubstCRefute.{lhs_not_hasType0, stuck, substC_false, defInv_forallE_inst_false}` | `Typing/SubstCRefute.lean` | the refutation |
+| `IsPropN`, `PropTypeAgree` | `Typing/UniqueTypingN.lean` | the set model's syntactic import, at the index |
+| `sortNotProof_of`, `forallENotProof_of` | `Typing/UniqueTypingN.lean` | **the payoff, checked not assumed**: `PropTypeAgree` + `DefInv` at `n` give "a sort is not a proof" and "a Π-type is not a proof" at `n` — both the induction hypothesis, so not circular |
+| `SortForallEDisjoint`, `SortForallEDisjoint.AppCase`, `sortForallEDisjoint_of` | `Typing/UniqueTypingN.lean` | the primitive `PropTypeAgree` needs, and six of its seven cases |
+| `PropNotProof`, `PropTypeAgree.{eta_case, proofIrrel_case}`, `propNotProof_of` | `Typing/UniqueTypingN.lean` | each case closes **from its residual and nothing else** — which is what makes the residual an exact obligation rather than an approximation |
 
 **The inversion lemmas are the asset.** They made the refutation a fifteen-line induction
 instead of a confluence argument, and they made the `:266` improvement a five-line proof.
@@ -106,7 +119,7 @@ where its consumers look.
 
 ---
 
-## 4. Where the obstruction now sits: one statement
+## 4. Where the obstruction sits: two statements
 
 **"A sort is not a proof", and its Π analogue.** `:180` is eliminated by the `K⁺` repair;
 `:266` needs only `DefInv` clause (1) (machine-checked); `:272` and clause (3)'s `proofIrrel`
@@ -132,7 +145,7 @@ one to use.
 > tolerates an arbitrary middle term at `trans`, the second does not.
 
 The second clause is the earlier form of the criterion and is now a special case of the first.
-Four applications, and it has predicted before explaining every time after the first:
+Five applications, and it has predicted before explaining every time after the first:
 
 | statement | induction sees a conversion? | conclusion | `trans` | outcome |
 |---|---|---|---|---|
@@ -316,9 +329,10 @@ this statement at the index.**
 7. **`nomatch` needs constructors.** It cannot see through a `def`; `simp [thedef] at h`.
 8. **A negative check licenses "not excluded", never "open".**  The cumulativity check shows
    `SortForallEDisjoint` is not *excluded* from semantic argument; it does not show a route
-   exists.  Writing "not excluded from a semantic argument in principle" was read as "a route
-   exists", a model enquiry was routed on it, and the first act of that enquiry was to correct
-   the premise.  State what a negative check does not rule out, never what it opens.
+   exists.  **It cost a round.**  Writing "not excluded from a semantic argument in principle"
+   was read as "a route exists"; the coordinator relayed the stronger reading and routed a
+   model enquiry on it, and the model stream's first act was to correct the premise.  State
+   what a negative check does not rule out, never what it opens.
 9. **Reasoning about vacuity is unreliable.** Two cases in the `PropTypeAgree` pass were
    called vacuous by inspection and one was wrong (`forallEDF`). Run it.
 
@@ -326,13 +340,21 @@ this statement at the index.**
 
 ## 7. What this route produced
 
-The target has not moved. Along the way: a machine-checked defect in the published metatheory
-this project is built on, a second defect with a repair, four candidate repairs closed by
-their own row-zero checks — one of them by an arithmetic argument that closes a whole family —
-a correction to the project's own model of the problem (unique typing is used in §§3–4 at
-three sites, not pervasively), and the reduction of a diffuse obstruction to one named
-statement with three individually-blocked routes. Plus the live lead in §5, whose row-zero
-came back positive.
+The target has not moved, and the route produced more than it closed. Along the way:
+
+* **a machine-checked defect in the published metatheory this project is built on** (§2a), and
+  a second defect with a repair (§2b);
+* **four candidate repairs closed by their own row-zero checks** (§3) — one of them by an
+  arithmetic argument that closes a whole family without mentioning its shape, so the
+  expensive machinery it would have needed was never the binding constraint;
+* **a correction to the project's own model of the problem**: unique typing is used in §§3–4
+  at three sites, not pervasively — and of those, `:180` is eliminated by the `K⁺` repair and
+  `:266`/`:272` are discharged by `sortNotProof_of`/`forallENotProof_of`;
+* **a diffuse obstruction reduced to two named statements**, each with its residual stated as
+  an exact obligation rather than a description;
+* **a criterion that predicts rather than explains** (§5), which reformulated itself on its
+  third application in the direction of being more predictive, and has now decided five
+  statements.
 
 Build the unknown first. Every one of these came from running the check that was flagged as
 unpriced, before building the thing it gated.
@@ -373,8 +395,22 @@ any counterexample to have an **application** subject.  The model's witness — 
 non-separation is real *and* cannot be lifted to syntax there.  The two facts are consistent
 rather than in tension: the model genuinely does not separate them, the syntax genuinely does.
 
-**The `app` case needs more than shape-disjointness under substitution.**  That much composes
-(checked).  But to *apply* it one needs `f`'s two Π-types related — `.forallE A₀ B₀ ≡
+**`AppCase` is the whole remaining content of the statement — and read this before starting
+it.**  Its first instinct will be that it inherits `SubstCRefute`'s refutation.  **It does
+not, and not obviously so.**  What `SubstC` says, and what is refuted, is that *a conversion
+survives substitution*.  What `AppCase` needs is only that *two shapes stay apart under it* —
+a sort never becomes a Π.  Those are different claims and the second is much weaker: a
+substituted term can fail to preserve a conversion while still never turning a sort into a Π.
+The counterexample in `SubstCRefute` does not refute the disjointness form — both sides of it
+are shape-inert — and the disjointness form **passes the criterion**: stated as a propagated
+iff (`X ≡ₙ Y ⟹ (IsSortLike X ↔ IsSortLike Y) ∧ (IsPiLike X ↔ IsPiLike Y)`), `trans` closes by
+composition, machine-checked.
+
+*One detail that matters:* the formulation decides it.  Stated as `¬(sort(B[a]) ∧ Π(B'[a]))` —
+the natural reading of "disjointness" — `trans` **fails**, because the middle term may be
+neither.  Stated as the propagated iff, it closes.  Same content; only one passes.
+
+**But the `app` case needs more than that disjointness.**  But to *apply* it one needs `f`'s two Π-types related — `.forallE A₀ B₀ ≡
 .forallE A₁ B₁` — which is `uniq` at `f`, and `uniq` is the broken thing.  What is actually
 required is a **hereditary** shape agreement:
 
