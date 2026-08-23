@@ -492,7 +492,21 @@ lemma. What remains from the syntax side is:
 3. The constant assignment `ModelData.cnst` and its coherence with `env.defeqs`,
    by induction over the declaration list. The `.quot` form of this is complete
    — all four `const_type` obligations and both `quotDefEq` obligations, in
-   `SetModel/QuotInterp.lean`. The `.induct` form is what `interpSig` is for.
+   `SetModel/QuotInterp.lean`. The `.induct` **step** is now complete too:
+   `coherentOn_addInduct` (`SetModel/IndInterp.lean`). It pushes the
+   per-constant `OracleOK` and the per-ι-rule obligations out to the caller,
+   where the translation supplies them.
+4. **The `VIndCtor → CtorData₃`/`Args` translation.** This is what `interpSig`
+   is fed by, and the only remaining `.induct` piece. The clause it was blocked
+   on has landed: `VIndField.WF.binders_indep` (`Theory/Inductive/Decl.lean`),
+   which makes a recursive field's `ξ` independent of the earlier *recursive*
+   fields, so `Pos q a` can be evaluated without `f`. It is checked against
+   `Acc` from this side, and bridged to `AvoidsAt`/`interp_avoids` by
+   `avoidsAt_of_forall`, `avoidsAt_of_skips` and `interp_indep_of_skips`
+   (`SetModel/IndInterp.lean`). Two caveats, both recorded in the ledger: the
+   clause's own discharge obligation (`VIndRecArg.exists_indep`) is `sorry`,
+   blocked on `IsDefEqU.forallE_inv`; and no `VInductDecl'.WF` witness in the
+   tree has a recursive field, so the clause is so far only tested in isolation.
 
 Nothing on the set-theoretic side is outstanding.
 
@@ -508,4 +522,6 @@ Nothing on the set-theoretic side is outstanding.
 | `SetModel/IndStage.lean` | `IsStageSignature`, the carrier discharged, the `…_stage` forms |
 | `SetModel/IndCard.lean` | `Ind_mem_vsetV` / `Ind_mem_U_stage` |
 | `SetModel/Interp.lean` | `LevelAssign`, `interp`, `interpCtx`, proof splitting |
+| `SetModel/IndInterp.lean` | `IndSignature₂`/`₃` and the port, `mkIndSignature₃`, `interpSig_wf`/`_stage`, `coherentOn_addInduct` |
+| `SetModel/Cnst.lean` | `cnstOf`, `oracleExtend`, `CoherentOn` and its `addConst`/`addDefEq`/`addConstList` steps |
 | `docs/foundation-gaps.md` | what Foundation is missing, and the `isDefEq` hazard |

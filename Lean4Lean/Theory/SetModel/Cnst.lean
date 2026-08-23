@@ -222,6 +222,42 @@ theorem coherentOn_addConstList (L : LevelAssign envF nv) (o : Name → List VLe
       (fun p hp ↦ (hocc p (.tail _ hp)).mono fun _ ↦ hle.contains)
       (fun p hp ↦ hcf ▸ hok p (.tail _ hp))
 
+/-! ### Reconciling a staged extension with a single one
+
+`VEnv.addInduct'` adds a block in **three** `addConstList` steps — types, then
+constructors, then recursors — while `cnstOf`'s `.induct` line performs **one**
+`oracleExtend o D.allNames`.  The `.induct` coherence step has to reconcile
+those, and the two lemmas below are what does it.
+
+Without them the three steps would have to be chained, and each intermediate
+`OracleOK` would be stated at a *partial* assignment — the type formers'
+obligation at an assignment where the constructors are not yet assigned — which
+would then need `interp_cnst_congr` to move.  Collapsing to a single
+`addConstList D.allConsts` avoids that entirely: every obligation is stated at
+the one assignment `cnstOf` actually produces. -/
+
+theorem addConstList_append : ∀ (l₁ l₂ : List (Name × VConstant)) {env env' : VEnv},
+    env.addConstList (l₁ ++ l₂) = some env' ↔
+      ∃ env₁, env.addConstList l₁ = some env₁ ∧ env₁.addConstList l₂ = some env'
+  | [], l₂, env, env' => by
+    simp only [List.nil_append]
+    exact ⟨fun h ↦ ⟨env, rfl, h⟩, fun ⟨_, h1, h2⟩ ↦ by cases h1; exact h2⟩
+  | q :: l₁, l₂, env, env' => by
+    rw [List.cons_append]
+    simp only [addConstList_cons]
+    constructor
+    · rintro ⟨e₁, h1, h2⟩
+      obtain ⟨e₂, h3, h4⟩ := (addConstList_append l₁ l₂).1 h2
+      exact ⟨e₂, ⟨e₁, h1, h3⟩, h4⟩
+    · rintro ⟨e₂, ⟨e₁, h1, h3⟩, h4⟩
+      exact ⟨e₁, h1, (addConstList_append l₁ l₂).2 ⟨e₂, h3, h4⟩⟩
+
+theorem oracleExtend_append (o : Name → List VLevel → V) :
+    ∀ (l₁ l₂ : List Name) (c : Name → List VLevel → V),
+      oracleExtend o (l₁ ++ l₂) c = oracleExtend o l₂ (oracleExtend o l₁ c)
+  | [], _, _ => rfl
+  | n :: l₁, l₂, c => oracleExtend_append o l₁ l₂ (cnstUpdate c n (o n))
+
 /-- **The step lemma for a block of defining equations.**  `addDefEq` never
 touches `constants`, so the fold needs no freshness bookkeeping at all: each
 equation contributes exactly its own two obligations. -/

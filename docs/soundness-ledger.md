@@ -2307,6 +2307,152 @@ assembly wants them only at `WF` levels the hypotheses need weakening. The chang
 is mechanical; it is flagged rather than done, because doing it before assembly
 knows what it wants is work that may be undone.
 
+## The `OracleOK` connection, closed — and the staging mismatch it exposed
+
+`coherentOn_addInduct` (`SetModel/IndInterp.lean`, section `InductStep`) is the
+`.induct` line of the `CoherentOn` induction: from a coherent `env`, the block's
+constants and the block's ι-rules, it produces `CoherentOn` for the environment
+`addInduct'` builds. Sorry-free, `[propext, Classical.choice, Quot.sound]`.
+Supporting: `addConstList_allConsts`, and in `Cnst.lean`
+`addConstList_append` / `oracleExtend_append` (both `[propext, Quot.sound]`).
+
+Everything it needs was already in place — `Above.and`, `Above.imp₂`,
+`Above.forall_mem`, `above_mem_congr`, `oracleOK_above` — and the proof is two
+lines. The finding is not the proof; it is what had to be seen before writing it.
+
+### The finding: the two sides stage the block differently
+
+`VEnv.addInduct'` adds the block in **three** `addConstList` steps —
+`addIndTypes`, then `addIndCtors`, then `addIndRecs` — and only then folds the
+ι-rules. `cnstOf`'s `.induct` line performs **one** `oracleExtend o D.allNames`.
+
+Chained in the obvious way, that mismatch is expensive. Each intermediate step
+would carry a `CoherentOn` at a *partial* assignment: the type formers' obligation
+stated in a world where the constructors are still unassigned, the constructors'
+where the recursors are. Moving each obligation from its partial assignment to
+the final one is exactly `interp_cnst_congr`'s job, and it would have to be
+invoked three times, with three freshness side-conditions about which names are
+not yet in the environment.
+
+None of that is necessary, because
+
+```
+D.allConsts = D.typeConsts ++ D.ctorConsts ++ D.recConsts
+```
+
+is definitional, and `addConstList` and `oracleExtend` both **distribute over
+`++`**. So the three steps collapse into one `addConstList D.allConsts` before
+the coherence argument starts, and `coherentOn_addConstList` — which already
+handles a whole list at a single final assignment — applies directly. The two
+distribution lemmas are eight lines together.
+
+> **Method: when two sides of an interface stage the same operation
+> differently, check whether either side's staging is a fold over an append
+> before paying to bridge them.** A bridge between stages costs congruence
+> lemmas and freshness conditions at every intermediate point; collapsing the
+> staging costs one associativity lemma per operation, and the collapse is
+> available whenever both operations are list folds — which, in this tree, they
+> usually are.
+
+The obligations `coherentOn_addInduct` pushes out to its caller are the
+per-constant `OracleOK` (already `Above`-wrapped in both fields, so no
+unconditional statement appears anywhere) and the per-ι-rule pair. Those are the
+translation's business, not the connection's.
+
+### What `.induct` has now, and what it lacks
+
+Has: the family, its constructors, its recursor, the ι-rule and the stage bound
+in the ported ₃ form; `mkIndSignature₃` with all six definability and both
+monotonicity obligations discharged; `interpSig_wf` and `interpSig_stage`; and
+now the coherence step that consumes them.
+
+Lacks: the translation `VIndCtor → CtorData₃`/`Args`, blocked on the `Decl.lean`
+clause that makes `Pos q a` computable from `a`. When that clause lands it gets
+checked against `Acc` **before** anything is built on it — a clause `Acc` fails
+leaves the translation blocked at the same site, not unblocked.
+
+So `.induct` remains **open**, and the model remains conditional on
+`LevelAssign` — unwitnessed, four consumers. Closing the connection changes
+neither label.
+
+## The `binders_indep` clause, checked at the consumption point
+
+The `Decl.lean` clause the translation was blocked on landed (`3c79601`) as
+`VIndRecArg.BindersIndep` + `VIndField.WF.binders_indep`. It was checked in
+isolation there. This is the **second, independent check** — done here rather
+than taken on report, because if the clause is stated in a way `Acc` fails, the
+translation is blocked at the same site rather than unblocked.
+
+### `Acc`, re-checked from this side
+
+Six machine checks, all green (`lake env lean` on a scratch file; the checks are
+closed computations, `BindersIndep` mentions no `VEnv`):
+
+1. `Acc.intro`'s earlier field is `{type := .bvar 1, recArg := none}` — **not**
+   recursive.
+2. `accIntroRec.BindersIndep (accIntro.fields.take 1) 1` holds.
+3. Its hypothesis set is **empty** — there is no `(i', F')` with
+   `pre[i']? = some F'` and `F'.recArg.isSome`. So it holds vacuously.
+4. **And `ξ` genuinely does mention the earlier field**:
+   `¬ (accIntroRec.binders[1]!).Skips' 1 1`. This is the check the isolation
+   pass does not force, and it is the one that matters — it shows the vacuity
+   is for the *stated* reason (the earlier field is non-recursive), not because
+   `Acc`'s `ξ` happens to be independent of everything. A clause quantified over
+   all earlier fields would fail here, and `Acc` would be gone.
+
+### The finding: two index conventions, and truncated subtraction between them
+
+Checking the clause "at the consumption point" turned up something the isolation
+check could not.
+
+`BindersIndep` states `B.Skips 1 (k + t)`: **relative** de Bruijn indices,
+innermost 0, incremented under binders. `interp_avoids` (this file) states
+`AvoidsAt S n e` with `.bvar i ↦ ¬ S (n - 1 - i)`: **absolute** positions
+counted from the outside, because that is what an environment `ρ` is read at.
+
+The conversion `j = n - 1 - i` is a bijection only on well-scoped terms. With
+`Nat`'s truncated subtraction, any out-of-range `bvar` collapses to absolute
+position `0` and would falsely appear to read the **outermost** slot — the
+parameters. So the bridge needs a `ClosedN` hypothesis, which is free at the use
+site (the binders are well-typed in `r.binders.reverse ++ Γ`) but is not
+optional.
+
+> **Method: a clause checked in isolation is checked against its own
+> convention.** The failure this catches is not "the clause is wrong" but "the
+> clause and the consumer disagree about what an index means" — invisible from
+> either side alone, and silently *false* rather than a type error, because both
+> sides are `ℕ`.
+
+Three lemmas now hold the bridge in `SetModel/IndInterp.lean`, all sorry-free,
+`[propext, Classical.choice, Quot.sound]`, all first try:
+
+* **`avoidsAt_of_forall`** — `BindersIndep` gives one `Skips` per earlier
+  recursive field, i.e. a family of *singleton* avoid-sets, while
+  `interp_avoids` wants one predicate covering all of them. This unions them.
+  The clause's per-field shape therefore costs nothing here.
+* **`avoidsAt_of_skips`** — the index conversion, with the `ClosedN` side
+  condition and the extra-binder depth `d` that binder `k` of `ξ` sits at.
+* **`interp_indep_of_skips`** — the depth-0 corollary.
+
+The clause's own bookkeeping was checked against this file's, and agrees: with
+`i' + 1 + t = i`, field `i'` sits at de Bruijn index `t` in `Γ`, hence at
+absolute position `|Γ| - 1 - t = D.np + i'` — the recursive field's slot.
+
+### What remains unchecked, and it is not mine
+
+The tree still has **no `VInductDecl'.WF` witness with a recursive field**, so
+"the clause admits `Acc`" is established about `BindersIndep` and not about the
+well-formedness predicate the translation consumes. Routed to the `Decl.lean`
+stream. Until that witness exists, my checks above and theirs all test the same
+isolated object — more checks of one kind, not two kinds.
+
+Also noted for later: under the nested companion design a companion's
+constructors are derived and reclassified, and for `Tree`/`List` **both** fields
+of the companion constructor become recursive. That is the first configuration
+where `BindersIndep` is non-vacuous, and it is the configuration the model's
+`Pos q a` argument is actually stated over. Not current work; it is where the
+clause will first earn its keep.
+
 ## The remaining open items, ranked
 
 
@@ -2316,15 +2462,17 @@ knows what it wants is work that may be undone.
 
 1. **`IsDefEqU.sort_inv`** — gives `LevelAssign`, hence the interpretation.
    Single `sorry`, highest value in the project.
-2. **Connecting the `.induct` case.** No longer blocked: `VDecl.induct`
-   carries `VInductDecl'` and `VDecl.WF` uses `env.addInduct'`, both complete
-   (`Theory/Inductive/Decl.lean`). The set-theoretic side has been finished and
-   waiting — `SetModel/IndStage.lean` and `SetModel/IndCard.lean` supply the
-   family, its constructors, its recursor and its ι-rule, all as members of the
-   right stage. What remains is matching the two shapes up. Watch the
-   elimination universe: it is not uniform across inductives — a small
-   eliminator such as `Nonempty` fails large elimination and its recursor takes
-   one universe parameter where `Eq`'s takes two.
+2. **Connecting the `.induct` case.** Reduced to **one** remaining piece. The
+   model half is complete in its ported form (`SetModel/IndInterp.lean`):
+   `IndSignature₃`, `Ind₃` with its constructors, recursor, ι-rule and stage
+   bound; `mkIndSignature₃` discharging all six definability and both
+   monotonicity obligations; `interpSig_wf`, `interpSig_stage`; and
+   `coherentOn_addInduct`, the `CoherentOn` step for `addInduct'`. What is left
+   is the **translation** `VIndCtor → CtorData₃`/`Args`, blocked on a `Decl.lean`
+   clause making `Pos q a` computable from `a` — see "Re-measuring the
+   translation". Watch the elimination universe: it is not uniform across
+   inductives — a small eliminator such as `Nonempty` fails large elimination and
+   its recursor takes one universe parameter where `Eq`'s takes two.
 3. **`VDecl.mutualDef`** — decided: the constructor is being removed and
    `partial`/`unsafe` declarations will get no `VEnv` image. Another stream owns
    the change.
@@ -2341,7 +2489,7 @@ knows what it wants is work that may be undone.
    | `.axiom` | supplied by `AxiomsValidated` | ready |
    | `.def`, `.opaque`, `.example`, `.mutualDef` | `⟦ci.value⟧` at the earlier assignment | ready |
    | `.quot` | `Quot`, `Quot.mk`, `Quot.lift`, `Quot.ind` and `quotDefEq` | **done** — all four `const_type` obligations (`quotFn_mem`, `quotMkFn_mem`, `quotIndFn_mem`, `quotLiftFn_mem`) and both `quotDefEq` obligations (`quotDefEq_ok`). Open against `EqSpec`, which the `.induct` step owes |
-   | `.induct` | whatever `addInduct` introduces | blocked on item 2 |
+   | `.induct` | `oracleExtend o D.allNames` | step **proved** (`coherentOn_addInduct`); its `OracleOK`/ι-rule obligations wait on the translation |
 
    The step is proved (`coherentOn_addConst`, `coherentOn_addDefEq`) and so is
    soundness (`SoundInduction.lean`), which the `.def` step consumes at a

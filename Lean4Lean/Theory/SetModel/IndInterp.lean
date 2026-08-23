@@ -667,6 +667,92 @@ theorem interp_avoids {S : ℕ → Prop} : ∀ (e : VExpr) {Γ : List VExpr} {ρ
 
 end Locality
 
+/-! ### The bridge from `VIndRecArg.BindersIndep` to `AvoidsAt`
+
+`Theory/Inductive/Decl.lean` now records `VIndField.WF.binders_indep`: a
+recursive field's binder telescope `ξ` is independent of the *earlier recursive*
+fields, stated as `VExpr.Skips 1 (k + t)` per binder.  These two lemmas are the
+point where the translation will consume it, and they are here so the clause is
+checked against this file's convention rather than against its own docstring.
+
+**The two conventions differ, and the difference is not cosmetic.**  `Skips`
+counts de Bruijn indices *relative* to the binder depth (innermost is 0);
+`AvoidsAt` names *absolute* positions counted from the outside, because that is
+what `interp_avoids` needs — an environment `ρ` is read at absolute index `j`.
+Converting one to the other is `j = n - 1 - i`, and with truncated subtraction
+that map is only injective on well-scoped terms.  Hence the `ClosedN`
+hypothesis in `avoidsAt_of_skips`: without it, a `bvar` out of range collapses
+to absolute position `0` and would falsely appear to *read* the outermost slot.
+The hypothesis is free at the use site — the field types in question are
+well-typed in `r.binders.reverse ++ Γ`, hence closed at that length.
+
+`BindersIndep` gives one `Skips` per earlier recursive field, i.e. a family of
+*singleton* avoid-sets, while `interp_avoids` wants one predicate covering all
+of them at once.  `avoidsAt_of_forall` performs that union; it is the reason the
+clause's per-field shape costs nothing here. -/
+
+/-- `AvoidsAt` in a predicate that is covered by a family of predicates each of
+which the term avoids.  Used to turn `BindersIndep`'s per-field `Skips` clauses
+into a single avoid-set over all recursive-field positions. -/
+theorem avoidsAt_of_forall {T : ℕ → Prop} {P : ℕ → ℕ → Prop}
+    (hT : ∀ j, T j → ∃ m, P m j) :
+    ∀ (e : VExpr) {n : ℕ}, (∀ m, AvoidsAt (P m) n e) → AvoidsAt T n e
+  | .bvar i, _, h => fun hj ↦ let ⟨m, hm⟩ := hT _ hj; h m hm
+  | .sort _, _, _ => trivial
+  | .const _ _, _, _ => trivial
+  | .app f a, _, h =>
+    ⟨avoidsAt_of_forall hT f fun m ↦ (h m).1, avoidsAt_of_forall hT a fun m ↦ (h m).2⟩
+  | .lam A b, _, h =>
+    ⟨avoidsAt_of_forall hT A fun m ↦ (h m).1, avoidsAt_of_forall hT b fun m ↦ (h m).2⟩
+  | .forallE A b, _, h =>
+    ⟨avoidsAt_of_forall hT A fun m ↦ (h m).1, avoidsAt_of_forall hT b fun m ↦ (h m).2⟩
+
+/-- **`Skips` at relative index `k + d` is `AvoidsAt` at absolute position
+`n - 1 - k`.**  `n` is the length of the context the term is scoped in before
+the extra `d` binders; `k` is the de Bruijn index, within that context, of the
+slot being avoided.  `ClosedN` is what makes the index conversion injective —
+see the section comment. -/
+theorem avoidsAt_of_skips {n : ℕ} : ∀ (e : VExpr) {d k : ℕ},
+    e.ClosedN (n + d) → k < n → e.Skips' 1 (k + d) →
+    AvoidsAt (fun j ↦ j = n - 1 - k) (n + d) e
+  | .bvar i, d, k, hc, hk, hs => by
+    show ¬ (n + d - 1 - i = n - 1 - k)
+    simp only [VExpr.ClosedN] at hc
+    simp only [VExpr.Skips'] at hs
+    omega
+  | .sort _, _, _, _, _, _ => trivial
+  | .const _ _, _, _, _, _, _ => trivial
+  | .app f a, d, k, hc, hk, hs =>
+    ⟨avoidsAt_of_skips f hc.1 hk hs.1, avoidsAt_of_skips a hc.2 hk hs.2⟩
+  | .lam A b, d, k, hc, hk, hs =>
+    ⟨avoidsAt_of_skips A hc.1 hk hs.1,
+      (Nat.add_assoc n d 1) ▸ avoidsAt_of_skips (d := d + 1) b
+        ((Nat.add_assoc n d 1) ▸ hc.2) hk ((Nat.add_assoc k d 1) ▸ hs.2)⟩
+  | .forallE A b, d, k, hc, hk, hs =>
+    ⟨avoidsAt_of_skips A hc.1 hk hs.1,
+      (Nat.add_assoc n d 1) ▸ avoidsAt_of_skips (d := d + 1) b
+        ((Nat.add_assoc n d 1) ▸ hc.2) hk ((Nat.add_assoc k d 1) ▸ hs.2)⟩
+
+/-- The depth-0 corollary: a term that `Skips` a variable has an interpretation
+independent of what sits in that slot.
+
+**Use `avoidsAt_of_skips` directly for the binders themselves.**  Binder `k` of
+`ξ` is scoped in `(r.binders.take k).reverse ++ Γ`, i.e. at depth `d = k` over
+`Γ` — which is exactly why `BindersIndep` writes `Skips 1 (k + t)` rather than
+`Skips 1 t`, and why `avoidsAt_of_skips` carries `d`.  Checked against the
+clause's own bookkeeping: with `i' + 1 + t = i`, field `i'` sits at de Bruijn
+index `t` in `Γ`, i.e. absolute position `|Γ| - 1 - t = D.np + i'` — the
+recursive field's slot, as required. -/
+theorem interp_indep_of_skips {envF : VEnv} {nv : ℕ} {M : ModelData V}
+    {L : LevelAssign envF nv} {Γ : List VExpr} {e : VExpr} {k : ℕ} {ρ ρ' : V}
+    (hc : e.ClosedN Γ.length) (hk : k < Γ.length)
+    (hs : e.Skips 1 k) (hρ : IsSeq ρ Γ.length) (hρ' : IsSeq ρ' Γ.length)
+    (h : ∀ j < Γ.length, j ≠ Γ.length - 1 - k → ρ ‘ ((j : ℕ) : V) = ρ' ‘ ((j : ℕ) : V)) :
+    (interp M L Γ e).toFun ρ = (interp M L Γ e).toFun ρ' :=
+  interp_avoids e
+    (avoidsAt_of_skips (n := Γ.length) (d := 0) e hc hk (VExpr.skips_iff.1 hs))
+    hρ hρ' h
+
 /-! ## The escape hatch: an approximation-indexed signature
 
 **Ruled in.**  `docs/model-interface.md` §2 offers this as the alternative to
@@ -1664,6 +1750,64 @@ theorem mkIndSignature₃_stage {k Idx : V} {cs : List (CtorData₃ V)}
     show tagCase₂ 0 (cs.map fun c ↦ fun _ a ↦ tagUnionF 0 c.poss a) ((j : ℕ) : V) a ∈ vsetV k
     rw [show ((j : ℕ) : V) = ((0 + j : ℕ) : V) from by norm_num, hat]
     exact hpos cs[j] (List.getElem_mem hj) a
+
+/-! ## The `OracleOK` connection: the `.induct` step, assembled
+
+The last `.induct` piece that does not need the translation.  Everything here is
+about *shape*: given the per-constant and per-rule obligations in the wrapped
+form the model produces, this is the step `VEnv.WF'`'s induction consumes.
+
+**The staging mismatch, and why it is not a problem.**  `VEnv.addInduct'` adds
+the block in three `addConstList` steps — types, constructors, recursors — while
+`cnstOf`'s `.induct` line performs a single `oracleExtend o D.allNames`.  Chained
+naively, each intermediate `OracleOK` would be stated at a *partial* assignment
+(the type formers' obligation where the constructors are unassigned), needing
+`interp_cnst_congr` to move.  `addConstList_append` collapses the three into one
+`addConstList D.allConsts`, so **every obligation is stated at the one assignment
+`cnstOf` actually produces**, and `oracleExtend_append` reconciles the names. -/
+
+section InductStep
+
+variable {envF : VEnv} {nv : ℕ} {L : LevelAssign envF nv} {κ : ℕ → V} {ls : List ℕ}
+
+/-- `addInduct'` is one constant-list extension followed by the ι-rules.
+
+Stated in the direction the outer induction uses it: it will have `addInduct'`
+in hand and need the collapsed form. -/
+theorem addConstList_allConsts {env e₃ : VEnv} {D : VInductDecl'}
+    {e₁ e₂ : VEnv}
+    (h1 : env.addConstList D.typeConsts = some e₁)
+    (h2 : e₁.addConstList D.ctorConsts = some e₂)
+    (h3 : e₂.addConstList D.recConsts = some e₃) :
+    env.addConstList D.allConsts = some e₃ := by
+  rw [show D.allConsts = D.typeConsts ++ (D.ctorConsts ++ D.recConsts) from by
+    simp [VInductDecl'.allConsts, List.append_assoc]]
+  exact (addConstList_append _ _).2 ⟨e₁, h1, (addConstList_append _ _).2 ⟨e₂, h2, h3⟩⟩
+
+/-- **The `.induct` coherence step.**  The constants and the ι-rules, in the
+shape `VEnv.WF'`'s induction consumes, with every obligation `Above`-wrapped and
+stated at the single assignment `cnstOf` produces. -/
+theorem coherentOn_addInduct (L : LevelAssign envF nv) (o : Name → List VLevel → V)
+    (D : VInductDecl') {env e₁ : VEnv} {c c' : Name → List VLevel → V}
+    (hc' : c' = oracleExtend o D.allNames c)
+    (hcl : env.ConstsClosed) (hC : CoherentOn ⟨κ, ls, c⟩ L env)
+    (hadd : env.addConstList D.allConsts = some e₁)
+    (hocc : ∀ p ∈ D.allConsts, p.2.type.ConstsIn env.contains)
+    (hok : ∀ p ∈ D.allConsts, OracleOK L κ ls o c' p.1 p.2)
+    (hrules : ∀ df ∈ D.iotaRules, ∀ {us : List VLevel}, (∀ l ∈ us, l.WF nv) →
+      us.length = df.uvars →
+      Above (V := V) ⟨κ, ls, c'⟩
+          ((interp ⟨κ, ls, c'⟩ L [] (df.lhs.instL us)).toFun ∅
+            = (interp ⟨κ, ls, c'⟩ L [] (df.rhs.instL us)).toFun ∅) ∧
+        Above (V := V) ⟨κ, ls, c'⟩
+          ((interp ⟨κ, ls, c'⟩ L [] (df.lhs.instL us)).toFun ∅
+            ∈ (interp ⟨κ, ls, c'⟩ L [] (df.type.instL us)).toFun ∅)) :
+    CoherentOn ⟨κ, ls, c'⟩ L (e₁.addIndRules D) := by
+  subst hc'
+  exact coherentOn_addDefEqFold D.iotaRules
+    (coherentOn_addConstList L o D.allConsts hcl hC hadd hocc hok) hrules
+
+end InductStep
 
 end Lean4Lean.SetModel
 
