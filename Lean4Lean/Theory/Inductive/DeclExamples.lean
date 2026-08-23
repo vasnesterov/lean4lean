@@ -1222,7 +1222,12 @@ witness proves nothing about the clause.  This section is the real check.  `Bind
 **pure syntax** (no `VEnv` occurs in it), so each check is a closed computation.
 
 Three checks, in increasing strength: the motivating family, a non-vacuous instance, and a
-refutation showing the clause is not trivially true. -/
+refutation showing the clause is not trivially true.
+
+These check `BindersIndep` *in isolation*, which is not the same as showing that a full
+`VIndCtor.WF` containing it is inhabited.  `accDecl_WF` and `mutDecl_WF` at the end of this
+file are that: complete `VInductDecl'.WF` witnesses whose constructors have recursive fields,
+so `binders_indep` is discharged there as one clause among the others rather than alone. -/
 
 /-- **`Acc` satisfies it** — the family that motivated the clause, since it is a
 large-eliminating subsingleton whose eliminator `Ind_subsingleton` must reach.
@@ -1231,7 +1236,7 @@ It satisfies it *vacuously*: `Acc.intro`'s recursive field is field 1, and the o
 field is `x : α`, which is **not** recursive.  That is exactly the point — `ξ = [α, r y x]`
 does mention `x`, and a clause that forbade dependence on *all* earlier fields would reject
 `Acc`. -/
-example : accIntroRec.BindersIndep (accIntro.fields.take 1) 1 := by
+theorem accIntroRec_BindersIndep : accIntroRec.BindersIndep (accIntro.fields.take 1) 1 := by
   intro i' t F' hF' hrec heq
   match i', heq with
   | 0, heq => simp [accIntro] at hF'; subst hF'; exact absurd hrec (by simp)
@@ -1243,8 +1248,11 @@ obligation is reached with nothing to check.
 
 Every constructor of `natDecl`, `mutDecl`, `accDecl`, `eqDecl`, `iffDecl`, `nonemptyDecl`,
 `lvlDecl` and `fooDecl` was enumerated: none has a recursive field that both follows another
-recursive field *and* carries a binder, so the clause rejects nothing in this tree. -/
-example : ∀ i (F : VIndField), forestCons.fields[i]? = some F →
+recursive field *and* carries a binder, so the clause rejects nothing in this tree.
+
+Stated over *all* of `forestCons`'s fields rather than just the second, because
+`mutDecl_WF` below consumes it as `VIndCtor.WF`'s `fields` clause needs it. -/
+theorem forestCons_BindersIndep : ∀ i (F : VIndField), forestCons.fields[i]? = some F →
     ∀ r, F.recArg = some r → r.BindersIndep (forestCons.fields.take i) i := by
   intro i F hF r hr i' t F' hF' _ heq k B hB
   match i, hF with
@@ -1455,6 +1463,235 @@ example : accDecl.iotaLam 0 accIntro = vrecrule(Acc.rec, 0) := rfl
 -- and the two `Prop`-valued blocks of `stdPrelude`
 example : iffDecl.iotaLam 0 iffIntro = vrecrule(Iff.rec, 0) := rfl
 example : nonemptyDecl.iotaLam 0 nonemptyIntro = vrecrule(Nonempty.rec, 0) := rfl
+
+/-! ## `Acc` — a full `VInductDecl'.WF` witness *with a recursive field*
+
+`fooDecl_WF` above is the tree's first `VInductDecl'.WF` witness, but `fooDecl`'s single field
+is non-recursive, so it discharges `VIndField.WF.binders_indep` *and* the entire `some r`
+branch of `VIndField.WF.pos` by `nofun`.  That left the configuration that actually matters —
+a constructor with a recursive field — with no witness at all.
+
+That is the shape every vacuity finding on this project has had: impeccable machinery above an
+instance that does not exist.  It matters more since `binders_indep` landed, because
+strengthening `VIndField.WF` makes everything *above* it (`addInduct_WF`) easier and everything
+*below* it harder to satisfy.
+
+`accDecl` is the right target.  `Acc` is the family that motivated `binders_indep`; it is a
+large-eliminating subsingleton, so `isLE := true` and `LECond`'s **second** disjunct are
+exercised rather than the cheap `IsNeverZero` one; its recursive field carries a two-binder `ξ`
+and a nontrivial `π`; and its eliminator is what the set model's subsingleton argument needs.
+
+**Built at the staged environment.**  `WF.ctors` quantifies over `env₁` with
+`env.addIndTypes D = some env₁`, and that is the only environment the clause is ever evaluated
+at.  `Acc.intro`'s recursive field *and* its result both mention the constant `Acc`, so at
+`VEnv.empty` this clause is unsatisfiable — which is precisely the defect
+`no_trIndCtor_at_base` (`Verify/Environment/Induct.lean`) records for the refinement's
+analogous relation, found by attempting a witness rather than by inspection. -/
+
+/-- The staged environment really does carry `Acc` at its stored type.  Everything in
+`accIntro_WF` that mentions the constant goes through this. -/
+theorem acc_const_staged {env₁ : VEnv} (h : VEnv.empty.addIndTypes accDecl = some env₁) :
+    env₁.constants ``Acc = some ⟨1, accType.type⟩ :=
+  VEnv.addConstList_constants h (``Acc, ⟨1, accType.type⟩) (by exact List.Mem.head _)
+
+/-- `α : Sort u, r : α → α → Prop` is a well-formed telescope — **at any environment**, since
+it mentions no constant.  Stated that way because `WF.params` needs it at `VEnv.empty` and
+`VIndField.WF.pos`'s `OnCtx` clause needs the same telescope at the *staged* environment. -/
+theorem accDecl_params_WF {env : VEnv} :
+    OnCtx accDecl.params.reverse (env.IsType accDecl.uvars) :=
+  ⟨⟨trivial, _, .sort (by decide)⟩, _, by type_tac⟩
+
+/-- `Acc` eliminates large by `LECond`'s **second** disjunct: one type, one constructor, and
+each field is either `Prop`-valued (the recursive one) or appears among the result's index
+arguments (`x`, which is `Acc`'s single index).  The cheap `IsNeverZero` disjunct is not
+available — `accDecl.lvl` is `.zero`. -/
+theorem accDecl_LECond : accDecl.LECond := by
+  refine .inr ⟨accType, rfl, .inr ⟨accIntro, rfl, ?_⟩⟩
+  rintro (_|_|i) F hF
+  · -- field 0 is `x : α`, and `x` *is* the result's index argument
+    exact .inr (by simp [accIntro])
+  · -- field 1 is the recursive one, and it is `Prop`-valued
+    exact .inl (by simp [accIntro] at hF; subst hF; rfl)
+  · simp [accIntro] at hF
+
+/-- The type side.  `canon` is reflexivity here — `accType.type = accType.canonType accDecl`
+on the nose (checked by the `rfl` example above), so F1's definitional slack is unused by
+this block; `lvlDecl` is where it bites. -/
+theorem accType_WF : VIndType.WF .empty accDecl accType where
+  indices := ⟨accDecl_params_WF, _, by type_tac⟩
+  isType := ⟨_, by type_tac⟩
+  canon := ⟨_, by type_tac⟩
+
+theorem accIntro_WF {env₁ : VEnv} (h : VEnv.empty.addIndTypes accDecl = some env₁) :
+    VIndCtor.WF env₁ accDecl 0 accType accIntro := by
+  have hc := acc_const_staged h
+  refine { params_len := rfl, params_eq := ?_, fields := ?_,
+           args_len := rfl, args_fresh := ?_, args_ty := ?_, result := ?_ }
+  · -- `accIntro.params` is `accDecl.params` on the nose, so F3's slack is unused here
+    exact .succ (.succ .zero (by type_tac)) (by type_tac)
+  · intro i F hF
+    match i, hF with
+    | 0, hF =>
+      simp [accIntro] at hF
+      subst hF
+      exact { hasType := by type_tac
+              level := fun ls => by simp [VLevel.eval, accDecl, Lean.Nat.imax]
+              binders_indep := nofun
+              pos := ⟨.bvar 1, by simp [VInductDecl'.NoBlock, VExpr.NoConsts],
+                      _, by type_tac⟩ }
+    | 1, hF =>
+      simp [accIntro] at hF
+      subst hF
+      -- The field's stored type, typed at the sort the pi rule actually delivers.
+      --
+      -- Two reasons this is a `have` with the pi spelled out rather than one `type_tac`.
+      -- (i) Inside the structure instance the goal carries the unreduced projection
+      -- `{…}.type`, which `type_tac`'s `refine` will not see a `forallE` through.
+      -- (ii) `type_tac`'s `forallE` branch is `refine HasType.forallE (u := ?_) (v := ?_) ?_ ?_`
+      -- followed by a **four**-slot `<;> [skip; skip; type_tac; type_tac]`.  That is right only
+      -- while the target sort is a metavariable (as under `IsType`, where every other use in
+      -- this file sits): here the sort is *concrete*, so unification solves `u` and `v`, only
+      -- two goals remain, and the four-slot combinator fails.  Applying `.forallE` directly
+      -- sidesteps it.
+      have hpi : env₁.HasType accDecl.uvars
+          ((List.map (fun x => x.type) (List.take 1 accIntro.fields)).reverse
+            ++ accDecl.params.reverse)
+          (.forallE (.bvar 2)
+            (.forallE (((VExpr.bvar 2).app (.bvar 0)).app (.bvar 1))
+              ((((VExpr.const `Acc [VLevel.param 0]).app (.bvar 4)).app (.bvar 3)).app (.bvar 1))))
+          (.sort (.imax (.param 0) (.imax .zero .zero))) :=
+        .forallE (by type_tac) (.forallE (by type_tac) (by type_tac))
+      -- Goals come out in *declaration* order: hasType, level, pos, binders_indep.
+      refine { hasType := ?_, level := ?_, binders_indep := ?_, pos := ?_ }
+      · -- `∀ (y : α), r y x → Acc r y` is `Prop`-valued, but the pi rule delivers the sort
+        -- `imax u (imax 0 0)`, which is only *equivalent* to `0`.  One `defeqDF` closes it —
+        -- the same slack `VIndField.WF.level` is stated against.
+        exact VEnv.IsDefEq.defeq (u := .succ (.imax (.param 0) (.imax .zero .zero)))
+          (.sortDF (by decide) (by decide)
+            (by simp [VLevel.equiv_def, VLevel.eval, Lean.Nat.imax])) hpi
+      · exact fun ls => by simp [VLevel.eval, accDecl, Lean.Nat.imax]
+      · refine ⟨by decide, rfl, ?_, ?_, ?_, ?_, ?_, ?_⟩
+        · simp [accIntroRec, VInductDecl'.NoBlock, VExpr.NoConsts]
+        · simp [accIntroRec, VInductDecl'.NoBlock, VExpr.NoConsts]
+        · -- `ξ.reverse ++ Γ` is `[r y x, y, x, r, α]`
+          exact ⟨⟨⟨accDecl_params_WF, _, by type_tac⟩, _, by type_tac⟩, _, by type_tac⟩
+        · -- `Acc α r y` really is a `Prop` — no `imax` slack here
+          exact by type_tac
+        · exact fun T' hT' => by cases hT'; exact .cons (by type_tac) .nil
+        · -- `F.type` *is* `canonType` on the nose, so this is `IsType`, not a real conversion
+          exact ⟨_, hpi⟩
+      · exact fun r hr => by cases hr; exact accIntroRec_BindersIndep
+  · intro a ha
+    simp [accIntro] at ha
+    subst ha
+    simp [VInductDecl'.NoBlock, VExpr.NoConsts]
+  · exact .cons (by type_tac) .nil
+  · exact by type_tac
+
+theorem accDecl_WF : accDecl.WF .empty where
+  types_ne := by simp [accDecl]
+  params := accDecl_params_WF
+  types := by
+    intro T hT
+    simp [accDecl] at hT
+    subst hT
+    exact accType_WF
+  ctors := by
+    intro env₁ he j T hT C hC
+    match j, hT with
+    | 0, hT =>
+      simp [accDecl] at hT
+      subst hT
+      simp [accType] at hC
+      subst hC
+      exact accIntro_WF he
+  isLE := fun _ => accDecl_LECond
+
+/-! ### …and `mutDecl`, the two-type case
+
+`accDecl_WF` covers a recursive field.  `mutDecl_WF` covers the two configurations it does
+*not*: a block with **more than one type** — so `addIndTypes` stages two constants and
+`WF.ctors` genuinely ranges over `j` — and a constructor with **two recursive fields**, which
+is the shape `binders_indep` was added for and the one the nested/companion design will make
+routine (a companion's substituted constructors turn several of `J`'s fields recursive at
+once).
+
+`Forest'.cons`'s second recursive field has an earlier *recursive* field, so `binders_indep`
+is reached here with its hypothesis satisfied rather than skipped. -/
+
+theorem tree_const_staged {env₁ : VEnv} (h : VEnv.empty.addIndTypes mutDecl = some env₁) :
+    env₁.constants ``Tree' = some ⟨0, .sort (.succ .zero)⟩ :=
+  VEnv.addConstList_constants h (``Tree', ⟨0, .sort (.succ .zero)⟩) (by exact List.Mem.head _)
+
+theorem forest_const_staged {env₁ : VEnv} (h : VEnv.empty.addIndTypes mutDecl = some env₁) :
+    env₁.constants ``Forest' = some ⟨0, .sort (.succ .zero)⟩ :=
+  VEnv.addConstList_constants h (``Forest', ⟨0, .sort (.succ .zero)⟩)
+    (by exact List.Mem.tail _ (List.Mem.head _))
+
+theorem mutDecl_WF : mutDecl.WF .empty where
+  types_ne := by simp [mutDecl]
+  params := trivial
+  types := by
+    intro T hT
+    simp [mutDecl] at hT
+    rcases hT with rfl | rfl <;>
+      exact { indices := trivial, isType := ⟨_, .sort (by decide)⟩,
+              canon := ⟨_, VEnv.HasType.sort (by decide)⟩ }
+  ctors := by
+    intro env₁ he j T hT C hC
+    have ht := tree_const_staged he
+    have hf := forest_const_staged he
+    match j, hT with
+    | 0, hT =>
+      simp [mutDecl] at hT
+      subst hT
+      simp at hC
+      subst hC
+      refine { params_len := rfl, params_eq := .zero, fields := ?_,
+               args_len := rfl, args_fresh := nofun, args_ty := .nil, result := by type_tac }
+      intro i F hF
+      match i, hF with
+      | 0, hF =>
+        simp [treeNode] at hF
+        subst hF
+        exact { hasType := by type_tac
+                level := fun ls => by simp [VLevel.eval, mutDecl, Lean.Nat.imax]
+                -- no earlier field at all, so vacuous
+                binders_indep := by rintro r ⟨⟩ i' t F' hF'; simp at hF'
+                pos := ⟨by decide, rfl, nofun, nofun, trivial, by type_tac,
+                        fun T' hT' => by cases hT'; exact .nil, _, by type_tac⟩ }
+    | 1, hT =>
+      simp [mutDecl] at hT
+      subst hT
+      simp at hC
+      rcases hC with rfl | rfl
+      · -- `Forest'.nil`: no fields
+        exact { params_len := rfl, params_eq := .zero, fields := nofun,
+                args_len := rfl, args_fresh := nofun, args_ty := .nil, result := by type_tac }
+      · refine { params_len := rfl, params_eq := .zero, fields := ?_,
+                 args_len := rfl, args_fresh := nofun, args_ty := .nil,
+                 result := by type_tac }
+        intro i F hF
+        match i, hF with
+        | 0, hF =>
+          simp [forestCons] at hF
+          subst hF
+          exact { hasType := by type_tac
+                  level := fun ls => by simp [VLevel.eval, mutDecl, Lean.Nat.imax]
+                  binders_indep := forestCons_BindersIndep 0 _ rfl
+                  pos := ⟨by decide, rfl, nofun, nofun, trivial, by type_tac,
+                          fun T' hT' => by cases hT'; exact .nil, _, by type_tac⟩ }
+        | 1, hF =>
+          simp [forestCons] at hF
+          subst hF
+          exact { hasType := by type_tac
+                  level := fun ls => by simp [VLevel.eval, mutDecl, Lean.Nat.imax]
+                  -- **the non-vacuous case**: field 0 is recursive, so the clause's
+                  -- hypothesis holds and `ξ = []` is what discharges it
+                  binders_indep := forestCons_BindersIndep 1 _ rfl
+                  pos := ⟨by decide, rfl, nofun, nofun, ⟨trivial, _, by type_tac⟩, by type_tac,
+                          fun T' hT' => by cases hT'; exact .nil, _, by type_tac⟩ }
+  isLE := fun _ => .inl (by simp [VLevel.IsNeverZero, VLevel.eval, mutDecl])
 
 end InductiveDeclExamples
 end Lean4Lean
