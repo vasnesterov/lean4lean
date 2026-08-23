@@ -667,4 +667,209 @@ theorem interp_avoids {S : ℕ → Prop} : ∀ (e : VExpr) {Γ : List VExpr} {ρ
 
 end Locality
 
+/-! ## The escape hatch: an approximation-indexed signature
+
+**Ruled in.**  `docs/model-interface.md` §2 offers this as the alternative to
+`NoBlock.indep`, and it is the one taken: *generalise the model side rather
+than the syntax side.*  `Fld` takes the family's current approximation, so a
+non-recursive field's domain may legitimately mention family elements and **no
+independence argument is needed at all** — the disjointness family
+`NoBlock.indep` bottoms out in is simply never consulted.
+
+The deciding factor was decoupling rather than cost: this lets the model side
+progress independently of an obligation that already has three consumers.
+
+### Why this is additive rather than a rewrite
+
+The generalisation is conservative in *both* directions:
+
+* every `IndSignature` is an `IndSignature₂` whose `Fld` ignores the
+  approximation (`IndSignature.toTwo`) — nothing already proved is lost;
+* every `IndSignature₂` specialises at a fixed approximation to an ordinary
+  `IndSignature` (`IndSignature₂.at`) — so `Inductive.lean`, `IndStage.lean`
+  and `IndCard.lean` apply **stage-wise, unchanged**.
+
+The bridge is definitional: one step of the generalised operator at `W` *is* one
+step of the ordinary operator for the signature specialised at `W`. Every
+pointwise fact about `indStep` therefore transfers for free, and the only
+genuinely new obligation is monotonicity — which is exactly the one field the
+structure adds, and the only place it is spent. -/
+
+/-- A signature whose field data may depend on the family's current
+approximation. -/
+structure IndSignature₂ (V : Type*) [SetStructure V] where
+  Idx : V
+  Q : V
+  /-- `Fld W q`: the non-recursive field data of `q`, **relative to the current
+  approximation `W`**.  This is the whole change. -/
+  Fld : V → V → V
+  Pos : V → V → V
+  posIdx : V → V → V → V
+  resIdx : V → V → V
+  Fld_definable : ℒₛₑₜ-function₂[V] Fld
+  Pos_definable : ℒₛₑₜ-function₂[V] Pos
+  posIdx_definable : ℒₛₑₜ-function₃[V] posIdx
+  resIdx_definable : ℒₛₑₜ-function₂[V] resIdx
+  /-- **The new obligation, and the only one.**  Without it the operator is not
+  monotone and the least fixed point does not exist. -/
+  Fld_mono : ∀ {W₁ W₂ : V}, W₁ ⊆ W₂ → ∀ q : V, Fld W₁ q ⊆ Fld W₂ q
+
+/-- Specialise at a fixed approximation.  This is what lets every existing
+result about `IndSignature` be used stage-wise. -/
+noncomputable def IndSignature₂.at (S : IndSignature₂ V) (W : V) : IndSignature V where
+  Idx := S.Idx
+  Q := S.Q
+  Fld := S.Fld W
+  Pos := S.Pos
+  posIdx := S.posIdx
+  resIdx := S.resIdx
+  Fld_definable := by have := S.Fld_definable; definability
+  Pos_definable := S.Pos_definable
+  posIdx_definable := S.posIdx_definable
+  resIdx_definable := S.resIdx_definable
+
+/-- An ordinary signature is one whose field data ignores the approximation, so
+the generalisation loses nothing. -/
+noncomputable def IndSignature.toTwo (S : IndSignature V) : IndSignature₂ V where
+  Idx := S.Idx
+  Q := S.Q
+  Fld := fun _ q ↦ S.Fld q
+  Pos := S.Pos
+  posIdx := S.posIdx
+  resIdx := S.resIdx
+  Fld_definable := by have := S.Fld_definable; definability
+  Pos_definable := S.Pos_definable
+  posIdx_definable := S.posIdx_definable
+  resIdx_definable := S.resIdx_definable
+  Fld_mono := fun _ _ _ hz ↦ hz
+
+/-- The round trip is the identity, on the nose. -/
+theorem IndSignature.at_toTwo (S : IndSignature V) (W : V) : S.toTwo.at W = S := rfl
+
+section Operator₂
+
+variable {S : IndSignature₂ V} {D : V}
+
+/-- One step of the generalised operator.  **Definitionally** one step of the
+ordinary operator at the signature specialised to the current approximation. -/
+noncomputable def indStep₂ (S : IndSignature₂ V) (D W : V) : V := indStep (S.at W) D W
+
+theorem indStep₂_eq (S : IndSignature₂ V) (D W : V) :
+    indStep₂ S D W = indStep (S.at W) D W := rfl
+
+theorem mem_indStep₂_iff {W p : V} :
+    p ∈ indStep₂ S D W ↔ p ∈ S.Idx ×ˢ D ∧
+      ∃ q ∈ S.Q, ∃ a ∈ S.Fld W q, ∃ f ∈ (D ^ S.Pos q a : V),
+        (∀ b ∈ S.Pos q a, (⟨S.posIdx q a b, f ‘ b⟩ₖ : V) ∈ W) ∧
+        p = ⟨S.resIdx q a, ⟨q, ⟨a, f⟩ₖ⟩ₖ⟩ₖ := mem_indStep_iff' (S.at W) D
+
+theorem indStep₂_definable (S : IndSignature₂ V) (D : V) :
+    ℒₛₑₜ-function₁[V] (indStep₂ S D) := by
+  suffices ℒₛₑₜ-relation[V] (fun T W ↦ T = indStep₂ S D W) by exact this
+  have hF := S.Fld_definable
+  have hP := S.Pos_definable
+  have hI := S.posIdx_definable
+  have hR := S.resIdx_definable
+  have e : ∀ T W : V, T = indStep₂ S D W ↔ ∀ p, p ∈ T ↔ p ∈ S.Idx ×ˢ D ∧
+      ∃ q ∈ S.Q, ∃ a ∈ S.Fld W q, ∃ f ∈ (D ^ S.Pos q a : V),
+        (∀ b ∈ S.Pos q a, (⟨S.posIdx q a b, f ‘ b⟩ₖ : V) ∈ W) ∧
+        p = ⟨S.resIdx q a, ⟨q, ⟨a, f⟩ₖ⟩ₖ⟩ₖ := by
+    intro T W
+    rw [mem_ext_iff]
+    simp only [mem_indStep₂_iff]
+  simp only [e]
+  definability
+
+/-- **The one new obligation, spent.**  `Fld_mono` is used exactly once, to move
+the field datum along the approximation; every other clause is monotone for the
+same reason it was before. -/
+theorem indStep₂_isMonotoneOn (S : IndSignature₂ V) (D : V) :
+    IsMonotoneOn (S.Idx ×ˢ D) (indStep₂ S D) where
+  mono W₁ W₂ h p hp := by
+    rw [mem_indStep₂_iff] at hp ⊢
+    obtain ⟨hb, q, hq, a, ha, f, hf, hrec, he⟩ := hp
+    exact ⟨hb, q, hq, a, S.Fld_mono h q _ ha, f, hf, fun b hbp ↦ h _ (hrec b hbp), he⟩
+  maps := (indStep_isMonotoneOn (S.at (S.Idx ×ˢ D)) D).maps
+
+/-- **The inductive family, over an approximation-indexed signature.**
+Formation is unchanged: `lfp` needs only monotonicity and definability. -/
+noncomputable def Ind₂ (S : IndSignature₂ V) (D : V) : V :=
+  lfp (S.Idx ×ˢ D) (indStep₂ S D) (indStep₂_definable S D)
+
+theorem Ind₂_subset : Ind₂ S D ⊆ S.Idx ×ˢ D := lfp_subset (indStep₂_isMonotoneOn S D)
+
+theorem indStep₂_Ind₂ : indStep₂ S D (Ind₂ S D) = Ind₂ S D :=
+  apply_lfp (indStep₂_isMonotoneOn S D)
+
+/-- **The generalisation is conservative on the fixed point too.**  For a
+signature that ignores the approximation, the generalised family is the old
+one — so nothing built on `Ind` is invalidated. -/
+theorem Ind₂_toTwo (S : IndSignature V) (D : V) : Ind₂ S.toTwo D = Ind S D := rfl
+
+/-- Enlarging the approximation only enlarges the step — the signature enters
+`indStep` in exactly one place. -/
+theorem indStep_at_mono (S : IndSignature₂ V) (D : V) {W₁ W₂ : V} (h : W₁ ⊆ W₂) (X : V) :
+    indStep (S.at W₁) D X ⊆ indStep (S.at W₂) D X := by
+  intro p hp
+  rw [mem_indStep_iff'] at hp ⊢
+  obtain ⟨hb, q, hq, a, ha, f, hf, hrec, he⟩ := hp
+  exact ⟨hb, q, hq, a, S.Fld_mono h q _ ha, f, hf, hrec, he⟩
+
+theorem Ind_at_subset (S : IndSignature₂ V) (D : V) :
+    (Ind (S.at (Ind₂ S D)) D : V) ⊆ (Ind₂ S D : V) := by
+  refine lfp_subset_of_prefixed (indStep_isMonotoneOn _ D)
+    (Ind₂_subset (S := S) (D := D)) (fun p hp ↦ ?_)
+  have h : p ∈ indStep₂ S D (Ind₂ S D) := hp
+  rwa [indStep₂_Ind₂ (S := S) (D := D)] at h
+
+set_option maxHeartbeats 1000000 in
+/-- **The generalised family is the ordinary family of the signature specialised
+at itself.**
+
+This is what makes the escape hatch nearly free.  `Ind₂` is *not* by definition
+an instance of `Ind` — its operator's signature moves with the approximation —
+but at the fixed point the two coincide, so **every existing theorem about
+`Ind` applies to `Ind₂` verbatim**, at `S.at (Ind₂ S D)`: the constructors, no
+confusion, the induction principle, the recursor, and the ι-rule.
+
+Both inclusions are leastness arguments, and `Fld_mono` is spent once in each. -/
+theorem Ind₂_eq_Ind_at (S : IndSignature₂ V) (D : V) :
+    Ind₂ S D = Ind (S.at (Ind₂ S D)) D := by
+  refine subset_antisymm ?_ (Ind_at_subset S D)
+  refine lfp_subset_of_prefixed (indStep₂_isMonotoneOn S D)
+    (Ind_subset (S.at (Ind₂ S D)) D) (fun z hz ↦ ?_)
+  have hz' := indStep_at_mono S D (Ind_at_subset S D)
+    (Ind (S.at (Ind₂ S D)) D) z hz
+  rwa [indStep_Ind (S.at (Ind₂ S D)) D] at hz'
+
+/-! ### The recursor transfers, and the rank argument needs no redoing
+
+`model-interface.md` §2 priced this escape hatch as "what needs redoing is the
+rank argument for the recursor, since the non-recursive data `a` would then
+itself contain family elements".
+
+**That cost is not incurred.**  The inequality driving the recursion is
+`rank_lt_indCtorVal : (⟨b, y⟩ₖ : V) ∈ f → rank y < rank (⟨q, ⟨a, f⟩ₖ⟩ₖ : V)`
+(`SetModel/Inductive.lean`), and its proof is
+`rank y < rank f < rank ⟨a, f⟩ₖ < rank ⟨q, ⟨a, f⟩ₖ⟩ₖ` — it descends through the
+*recursive-position function* `f` and **never inspects `a` at all**.  Whether
+`a` contains family elements is irrelevant to it.
+
+Combined with `Ind₂_eq_Ind_at`, the recursor and its ι-rule transfer by
+rewriting, as below.  The real adaptation cost of the escape hatch is
+`IsStageSignature`, whose `fld_mem` must now be asked of `Fld W q` — bounded,
+mechanical, and not a rank argument. -/
+
+theorem indRec₂_mem {S : IndSignature₂ V} {D R : V} {e : V → V → V → V → V}
+    {he : ℒₛₑₜ-function₄[V] e}
+    (hS : (S.at (Ind₂ S D)).WF) (hD : IsIndCarrier (S.at (Ind₂ S D)) D)
+    (hE : IsMinorPremise (S.at (Ind₂ S D)) D R e)
+    {p : V} (hp : p ∈ Ind₂ S D) :
+    indRec (S.at (Ind₂ S D)) D R e he p ∈ R := by
+  rw [Ind₂_eq_Ind_at] at hp
+  exact indRec_mem hS hD hE hp
+
+end Operator₂
+
 end Lean4Lean.SetModel
+

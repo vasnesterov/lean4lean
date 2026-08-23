@@ -1820,6 +1820,58 @@ are already blocked on*", which is only visible once you push the reduction to
 its base case. A difficulty estimate that stops at "this looks hard" would have
 hidden that the blocker is shared.
 
+## The escape hatch, built — and it was cheaper than priced
+
+Ruled in and landed in `SetModel/IndInterp.lean`, sorry-free,
+`[propext, Classical.choice, Quot.sound]`. `IndSignature₂` carries
+`Fld : V → V → V` over the family's current approximation plus one new field,
+`Fld_mono`. A non-recursive field's domain may now mention family elements, so
+**the disjointness family `NoBlock.indep` bottoms out in is never consulted.**
+
+**Conservative in both directions, which is what kept it additive.**
+`IndSignature.toTwo` embeds the old notion (`Fld` ignores the approximation);
+`IndSignature₂.at` specialises back at a fixed approximation; and
+`IndSignature.at_toTwo` is `rfl`. So `Inductive.lean`, `IndStage.lean` and
+`IndCard.lean` — 1600 lines of proved material — were not touched.
+
+`Fld_mono` is spent in exactly two places: `indStep₂_isMonotoneOn` and
+`indStep_at_mono`. Everything else about the operator is unchanged, because the
+signature enters `indStep` in exactly one clause.
+
+### The priced cost was not incurred, and the reason is checkable
+
+§2 priced this as "what needs redoing is the rank argument for the recursor,
+since the non-recursive data `a` would then itself contain family elements".
+**It does not need redoing.** The inequality driving the recursion is
+
+> `rank_lt_indCtorVal : ⟨b, y⟩ₖ ∈ f → rank y < rank ⟨q, ⟨a, f⟩ₖ⟩ₖ`
+
+and its proof descends `rank y < rank f < rank ⟨a,f⟩ₖ < rank ⟨q,⟨a,f⟩ₖ⟩ₖ` —
+through the *recursive-position function* `f`, **never inspecting `a`**. What
+`a` contains is irrelevant to well-foundedness.
+
+The theorem that turns that observation into transfer:
+
+> **`Ind₂_eq_Ind_at` — the generalised family is the ordinary family of the
+> signature specialised at itself.**
+
+`Ind₂` is not by definition an instance of `Ind` (its operator's signature moves
+with the approximation), but at the fixed point they coincide. Both inclusions
+are leastness arguments. Consequence: **every existing theorem about `Ind`
+transfers by one rewrite** — constructors, no confusion, the induction
+principle, the recursor, the ι-rule. `indRec₂_mem` is the worked instance, and
+its proof is `rw [Ind₂_eq_Ind_at] at hp; exact indRec_mem …`.
+
+The genuine adaptation cost is `IsStageSignature`, whose `fld_mem` must now be
+asked of `Fld W q`. Bounded, mechanical, and not a rank argument.
+`docs/model-interface.md` §2 is corrected.
+
+**Method note.** The estimate that made this look expensive named the right
+*structural* change and the wrong *consequence*: it reasoned that `a` would
+contain family elements without checking whether anything downstream reads `a`.
+Nothing does. **Before pricing a change by what it alters, check what actually
+consumes the thing altered** — the rank lemma's three-line proof settled it.
+
 ### Caveat left standing: the all-levels quantification
 
 `quotDefEq_ok` takes `hEq`, `hcnst`, `hcnstMk` and `hcnstL` quantified over

@@ -189,15 +189,52 @@ item F8.
    This is a real lemma about the syntax, not a corollary of step 1, and it
    should be proved alongside `interpSig`.
 
-**The escape hatch, if `NoBlock.indep` turns out to be hard or false.**
-Generalise the model side rather than the syntax side: replace `Fld : V → V` by
-a monotone `Fld : V → V → V` taking the current approximation of the family, and
-have `Pos`/`posIdx`/`resIdx` defined on the resulting dependent sum. `indStep`
-stays monotone, so formation (`Ind_mem_U_stage`) and the induction principle
-survive unchanged; what needs redoing is the rank argument for the recursor,
-since the "non-recursive data" `a` would then itself contain family elements.
-Tell the model side if this becomes necessary — it is a bounded change, but not
-a free one.
+**The escape hatch — taken, and built.** `SetModel/IndInterp.lean`.
+
+`NoBlock.indep` was measured and it bottoms out in `Injectivity.lean`'s
+disjointness family (`const_forallE_inv`, stated-but-open, plus an unstated "a
+constant application is not a sort"). That family already has two other
+consumers, so the model side was generalised instead:
+
+```lean
+structure IndSignature₂ (V) [SetStructure V] where
+  Fld : V → V → V                 -- Fld W q, at the current approximation W
+  Fld_mono : ∀ {W₁ W₂}, W₁ ⊆ W₂ → ∀ q, Fld W₁ q ⊆ Fld W₂ q
+  …                               -- Idx, Q, Pos, posIdx, resIdx as before
+```
+
+A non-recursive field's domain may now legitimately mention family elements, so
+**no independence argument is needed at all** and the disjointness family is
+never consulted. The deciding factor was decoupling, not cost: this lets the
+model progress independently of the tree's most contested obligation.
+
+*The generalisation is conservative in both directions*, which is what keeps it
+additive rather than a rewrite — `IndSignature.toTwo` embeds the old notion,
+`IndSignature₂.at` specialises back at a fixed approximation, and
+`IndSignature.at_toTwo` is `rfl`.
+
+*And the price was overstated here.* The paragraph this replaces said the rank
+argument for the recursor would need redoing, "since the non-recursive data `a`
+would then itself contain family elements". **It does not.** The inequality
+driving the recursion is
+
+```lean
+rank_lt_indCtorVal : (⟨b, y⟩ₖ : V) ∈ f → rank y < rank (⟨q, ⟨a, f⟩ₖ⟩ₖ : V)
+```
+
+whose proof descends `rank y < rank f < rank ⟨a,f⟩ₖ < rank ⟨q,⟨a,f⟩ₖ⟩ₖ` — through
+the *recursive-position function* `f`, **never inspecting `a`**. Together with
+
+```lean
+theorem Ind₂_eq_Ind_at (S : IndSignature₂ V) (D : V) :
+    Ind₂ S D = Ind (S.at (Ind₂ S D)) D
+```
+
+— the generalised family *is* the ordinary family of the signature specialised
+at itself — every existing theorem about `Ind` transfers by one rewrite;
+`indRec₂_mem` is the worked instance. The genuine adaptation cost is
+`IsStageSignature`, whose `fld_mem` must now be asked of `Fld W q`: bounded,
+mechanical, and not a rank argument.
 
 **Do not weaken `pos` to a syntactic `NoBlock`.** That would make step 2 trivial,
 but it rejects types the kernel accepts (`checkPositivity` applies `hasIndOcc` to
