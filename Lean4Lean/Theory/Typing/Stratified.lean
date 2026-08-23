@@ -71,7 +71,12 @@ inductive Stratified : Nat → List VExpr → VExpr → VExpr → Bool → Prop 
     Γ ⊢[n] .const c ls : ci.type.instL ls
   | app : (Γ ⊢[n] f : .forallE A B) → (Γ ⊢[n] a : A) → Γ ⊢[n] .app f a : B.inst a
   | lam : (Γ ⊢[n] A : .sort u) → (A::Γ ⊢[n] body : B) → Γ ⊢[n] .lam A body : .forallE A B
+  /-- The two `WF` premises are here for the same reason `HasTypeStrong` carries them:
+  `thm:utype`'s `forallE` case must build a `sortDF` between `.imax u v` and `.imax u' v'`,
+  and `sortDF` needs both levels well-formed.  Nothing else records them, and they cannot be
+  recovered afterwards without the soundness direction (which needs `uniq`). -/
   | forallE :
+    u.WF U → v.WF U →
     (Γ ⊢[n] A : .sort u) → (A::Γ ⊢[n] B : .sort v) →
     Γ ⊢[n] .forallE A B : .sort (.imax u v)
   /-- The reference's conversion rule (`axioms.tex:19`), and the only coupling point. -/
@@ -135,7 +140,7 @@ theorem Stratified.mono {m n : Nat} (le : m ≤ n) {Γ e₁ e₂ b}
   | const h1 h2 h3 => exact .const h1 h2 h3
   | app _ _ ih1 ih2 => exact .app (ih1 le) (ih2 le)
   | lam _ _ ih1 ih2 => exact .lam (ih1 le) (ih2 le)
-  | forallE _ _ ih1 ih2 => exact .forallE (ih1 le) (ih2 le)
+  | forallE h1 h2 _ _ ih1 ih2 => exact .forallE h1 h2 (ih1 le) (ih2 le)
   | conv _ _ ih1 ih2 => exact .conv (ih1 le) (ih2 le)
   | rfl => exact .rfl
   | symm _ ih =>
@@ -234,14 +239,14 @@ theorem IsDefEqStrong.stratifyN {Γ e₁ e₂ A} (H : env.IsDefEqStrong U Γ e�
     · exact Stratified.lam (tA.mono (by omega)) (tb.mono (by omega))
     · exact .conv (.forallEDF (.symm (cA.mono (by omega))) .rfl)
         (Stratified.lam (tA'.mono (by omega)) (tb'.mono (by omega)))
-  | forallEDF _ _ _ _ _ ih3 ih4 ih5 =>
+  | forallEDF hu hv _ _ _ ih3 ih4 ih5 =>
     obtain ⟨n₃, cA, tA, tA'⟩ := ih3
     obtain ⟨n₄, cb, tb, _⟩ := ih4
     obtain ⟨n₅, _, _, tb'⟩ := ih5
     refine ⟨max n₃ (max n₄ n₅) + 1, ?_, ?_, ?_⟩
     · exact .forallEDF (cA.mono (by omega)) (cb.mono (by omega))
-    · exact Stratified.forallE (tA.mono (by omega)) (tb.mono (by omega))
-    · exact Stratified.forallE (tA'.mono (by omega)) (tb'.mono (by omega))
+    · exact Stratified.forallE hu hv (tA.mono (by omega)) (tb.mono (by omega))
+    · exact Stratified.forallE hu hv (tA'.mono (by omega)) (tb'.mono (by omega))
   | defeqDF _ _ _ ih2 ih3 =>
     obtain ⟨n₂, cAB, _, _⟩ := ih2
     obtain ⟨n₃, ce, te1, te2⟩ := ih3

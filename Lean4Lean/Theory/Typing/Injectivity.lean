@@ -81,6 +81,30 @@ def VExpr.headConst? : VExpr → Option Lean.Name
   | .lam _ b => b.headConst?
   | _ => none
 
+/-- The head of an application spine, **without** peeling λ — unlike `headConst?`, which
+does.  `headConst?` is the right instrument for `extra` (a rule's lhs is λ-abstracted);
+`spineHead` is the right one for `beta`, where the spine head is a `.lam` and `headConst?`
+would look straight through it. -/
+def VExpr.spineHead : VExpr → VExpr
+  | .app f _ => VExpr.spineHead f
+  | e => e
+
+theorem VExpr.spineHead_mkApp : ∀ (as : List VExpr) (f : VExpr),
+    VExpr.spineHead (f.mkApp as) = VExpr.spineHead f
+  | [], _ => rfl
+  | a :: as, f => VExpr.spineHead_mkApp as (.app f a)
+
+theorem VExpr.headConst?_instL : ∀ (e : VExpr) (ls : List VLevel),
+    (e.instL ls).headConst? = e.headConst?
+  | .const _ _, _ | .bvar _, _ | .sort _, _ | .forallE _ _, _ => rfl
+  | .app f _, ls => VExpr.headConst?_instL f ls
+  | .lam _ b, ls => VExpr.headConst?_instL b ls
+
+theorem VExpr.headConst?_mkApp : ∀ (as : List VExpr) (f : VExpr),
+    (f.mkApp as).headConst? = f.headConst?
+  | [], _ => rfl
+  | a :: as, f => VExpr.headConst?_mkApp as (.app f a)
+
 namespace VEnv
 
 /-- `c` heads no definitional-equality rule of `env`.
@@ -303,7 +327,43 @@ identify a term with a Π, because a Π is a type. -/
 theorem IsDefEqU.const_forallE_inv (henv : VEnv.WF env) (hΓ : OnCtx Γ (env.IsType U))
     {c : Lean.Name} {ls : List VLevel} {as : List VExpr}
     (hrigid : RuleFreeHead env c) :
-    ¬ env.IsDefEqU U Γ ((VExpr.const c ls).mkApp as) (.forallE A B) := sorry
+    ¬ env.IsDefEqU U Γ ((VExpr.const c ls).mkApp as) (.forallE A B) := by
+  have aux : ∀ {Γ : List VExpr} {e₁ e₂ T : VExpr}, env.IsDefEqStrong U Γ e₁ e₂ T →
+      ∀ (ls : List VLevel) (as A B : _),
+        (e₁ = (VExpr.const c ls).mkApp as ∧ e₂ = .forallE A B) ∨
+        (e₂ = (VExpr.const c ls).mkApp as ∧ e₁ = .forallE A B) → False := by
+    intro Γ e₁ e₂ T H
+    induction H with
+    | symm _ ih => exact fun ls as A B h => ih ls as A B h.symm
+    | defeqDF _ _ _ _ ih => exact ih
+    | trans _ _ ih1 ih2 =>
+      -- OPEN: the middle term is arbitrary.  Same hole as `sort_inv`'s `trans`.
+      intro ls as A B h; sorry
+    | proofIrrel _ _ _ ih1 ih2 ih3 =>
+      -- OPEN: needs "a Π is not a proof" — `VEnv.SortUniq`, exactly as `sort_inv` does.
+      intro ls as A B h; sorry
+    | extra h1 h2 h3 =>
+      rintro ls as A B (⟨he, -⟩ | ⟨-, hf⟩)
+      · exact hrigid _ h1 (by rw [← VExpr.headConst?_instL, he, VExpr.headConst?_mkApp]; rfl)
+      · exact henv.instL_lhs_ne_forallE h1 _ _ _ hf
+    | beta _ _ _ _ _ _ _ _ =>
+      rintro ls as A B (⟨he, -⟩ | ⟨-, hf⟩)
+      · have hs := congrArg VExpr.spineHead he
+        rw [VExpr.spineHead_mkApp] at hs; exact absurd hs nofun
+      · exact absurd hf nofun
+    | eta _ _ _ _ _ _ _ _ =>
+      rintro ls as A B (⟨he, -⟩ | ⟨-, hf⟩)
+      · have hs := congrArg VExpr.spineHead he
+        rw [VExpr.spineHead_mkApp] at hs; exact absurd hs nofun
+      · exact absurd hf nofun
+    | forallEDF _ _ _ _ _ =>
+      rintro ls as A B (⟨he, -⟩ | ⟨he, -⟩) <;>
+        (have hs := congrArg VExpr.spineHead he
+         rw [VExpr.spineHead_mkApp] at hs; exact absurd hs nofun)
+    | bvar _ _ _ | sortDF _ _ _ | constDF _ _ _ _ _ _ _ _ | appDF _ _ _ _ _ _ _
+    | lamDF _ _ _ _ _ _ _ =>
+      rintro ls as A B (⟨_, hf⟩ | ⟨_, hf⟩) <;> exact absurd hf nofun
+  exact fun ⟨_, h⟩ => aux (h.strong henv.ordered hΓ) ls as A B (.inl ⟨rfl, rfl⟩)
 
 /-- **(A) Disjointness, sort half** — a rule-free constant application is not a sort.
 
