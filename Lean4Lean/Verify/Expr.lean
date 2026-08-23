@@ -4,7 +4,6 @@ import Lean4Lean.Verify.Level
 import Lean4Lean.Expr
 import Lean4Lean.Instantiate
 import Batteries.Data.String.Lemmas
-import Std.Tactic.BVDecide
 
 open Lean4Lean
 
@@ -200,12 +199,64 @@ end DataValue
 
 namespace Expr
 
+/-! ### Bit facts about `Expr.Data`
+
+The four lemmas below (`Data.looseBVarRange_le`, `mkData_flags`,
+`mkData_looseBVarRange`, `mkAppData_looseBVarRange`) were previously discharged
+with `bv_decide`, which checks its LRAT certificate by *compiling and running*
+the checker (`Lean.Meta.nativeEqTrue`) and then minting a fresh
+`…_native.bv_decide.ax_N` axiom from the runtime result — the same trust model
+as `native_decide`, and the kernel never sees a proof. Worse, each invocation
+mints a *fresh anonymous* axiom, so the trust surface grows per use and is
+invisible to a by-name whitelist review. The proofs below get the same facts
+from `simp` + `omega` over `Nat`, so they add nothing to the trusted base.
+
+The `Expr.Data` layout is a perfect 64-bit fit and every field is read back by
+plain division and remainder:
+
+    bits  0-31  hash        (`h.toUInt32`)
+    bits 32-39  approxDepth (a `UInt8`)
+    bit  40     hasFVar
+    bit  41     hasExprMVar
+    bit  42     hasLevelMVar
+    bit  43     hasLevelParam
+    bits 44-63  looseBVarRange  (needs `H : br ≤ 2 ^ 20 - 1`)
+-/
+
+private theorem uint64_shiftRight (a b : UInt64) : a.shiftRight b = a >>> b := rfl
+private theorem uint64_land (a b : UInt64) : a.land b = a &&& b := rfl
+private theorem uint64_shiftLeft (a b : UInt64) : a.shiftLeft b = a <<< b := rfl
+
+private theorem toUInt64_toNat (b : Bool) : b.toUInt64.toNat = if b then 1 else 0 := by
+  cases b <;> rfl
+
+/-- A `UInt64` whose `toNat` is `0` or `1` compares to `1` exactly as that bit. -/
+private theorem uint64_beq_one {x : UInt64} {b : Bool} (h : x.toNat = if b then 1 else 0) :
+    (x == 1) = b := by
+  have hx : x = (if b then 1 else 0 : UInt64) := by
+    refine UInt64.toNat_inj.mp ?_; cases b <;> simp [h]
+  rw [hx]; cases b <;> decide
+
+/-- One step of "this `UInt64` addition does not wrap". Chained left to right it
+turns the seven-summand `mkData'` packing into `Nat` addition. -/
+private theorem toNat_add_eq {x y : UInt64} {m n : Nat} (hx : x.toNat = m) (hy : y.toNat = n)
+    (h : m + n < 2 ^ 64) : (x + y).toNat = m + n := by
+  rw [UInt64.toNat_add, hx, hy, Nat.mod_eq_of_lt h]
+
+private theorem uint64_shiftRight_44_le (c : UInt64) :
+    (c.shiftRight 44).toNat ≤ 2 ^ 20 - 1 := by
+  have : c.toNat < 2 ^ 64 := c.toBitVec.isLt
+  simp only [uint64_shiftRight, UInt64.toNat_shiftRight, UInt64.toNat_ofNat, Nat.reducePow,
+    Nat.reduceMod, Nat.shiftRight_eq_div_pow]
+  omega
+
+/-- The `looseBVarRange` field is the top 20 bits of a 64-bit word, so it is
+below `2 ^ 20` for *every* `Data`, with no side condition. -/
 theorem Data.looseBVarRange_le :
     (Data.looseBVarRange d).toNat ≤ 2 ^ 20 - 1 := by
   rw [Data.looseBVarRange]
   suffices (UInt64.shiftRight d 44).toNat ≤ 2 ^ 20 - 1 by simp; omega
-  show d.toBitVec >>> 44#64 ≤ 0xfffff#64
-  bv_decide
+  exact uint64_shiftRight_44_le d
 
 private theorem Data.flag_eq_getLsbD (d : Data) (n : UInt64) (hn : n < 64) :
     ((d.shiftRight n).land 1 == 1) = d.toBitVec.getLsbD n.toNat := by
@@ -253,39 +304,90 @@ private def flagAt (fv ev lv lp : Bool) : Nat → Bool
 set_option allowUnsafeReducibility true
 attribute [local reducible] Data
 
+/-- The seven `mkData'` summands live in disjoint bit ranges and their sum fits
+64 bits, so the `UInt64` addition never wraps. Built bottom-up through
+`toNat_add_eq`: throwing all seven nested `% 2 ^ 64`s at `omega` at once does
+not terminate. -/
+private theorem pack_toNat (a : UInt32) (dep : UInt8) (fv ev lv lp : Bool) (br : Nat)
+    (H : br ≤ 2 ^ 20 - 1) :
+    (a.toUInt64 + dep.toUInt64.shiftLeft 32 + fv.toUInt64.shiftLeft 40 +
+      ev.toUInt64.shiftLeft 41 + lv.toUInt64.shiftLeft 42 + lp.toUInt64.shiftLeft 43 +
+      br.toUInt64.shiftLeft 44).toNat
+      = a.toNat + dep.toNat * 2 ^ 32 + (if fv then 1 else 0) * 2 ^ 40
+        + (if ev then 1 else 0) * 2 ^ 41 + (if lv then 1 else 0) * 2 ^ 42
+        + (if lp then 1 else 0) * 2 ^ 43 + br * 2 ^ 44 := by
+  have ha : a.toNat < 2 ^ 32 := a.toBitVec.isLt
+  have hdep : dep.toNat < 2 ^ 8 := dep.toBitVec.isLt
+  have hbd : ∀ b : Bool, (if b then 1 else 0) < 2 := by decide
+  have h0 := hbd fv; have h1 := hbd ev; have h2 := hbd lv; have h3 := hbd lp
+  have e0 : a.toUInt64.toNat = a.toNat := by simp
+  have e1 : (dep.toUInt64.shiftLeft 32).toNat = dep.toNat * 2 ^ 32 := by
+    simp [uint64_shiftLeft, UInt64.toNat_shiftLeft, Nat.shiftLeft_eq]; omega
+  have e2 : (fv.toUInt64.shiftLeft 40).toNat = (if fv then 1 else 0) * 2 ^ 40 := by
+    simp [uint64_shiftLeft, UInt64.toNat_shiftLeft, Nat.shiftLeft_eq, toUInt64_toNat]; omega
+  have e3 : (ev.toUInt64.shiftLeft 41).toNat = (if ev then 1 else 0) * 2 ^ 41 := by
+    simp [uint64_shiftLeft, UInt64.toNat_shiftLeft, Nat.shiftLeft_eq, toUInt64_toNat]; omega
+  have e4 : (lv.toUInt64.shiftLeft 42).toNat = (if lv then 1 else 0) * 2 ^ 42 := by
+    simp [uint64_shiftLeft, UInt64.toNat_shiftLeft, Nat.shiftLeft_eq, toUInt64_toNat]; omega
+  have e5 : (lp.toUInt64.shiftLeft 43).toNat = (if lp then 1 else 0) * 2 ^ 43 := by
+    simp [uint64_shiftLeft, UInt64.toNat_shiftLeft, Nat.shiftLeft_eq, toUInt64_toNat]; omega
+  have e6 : (br.toUInt64.shiftLeft 44).toNat = br * 2 ^ 44 := by
+    simp [uint64_shiftLeft, UInt64.toNat_shiftLeft, Nat.shiftLeft_eq]; omega
+  have p1 := toNat_add_eq e0 e1 (by omega)
+  have p2 := toNat_add_eq p1 e2 (by omega)
+  have p3 := toNat_add_eq p2 e3 (by omega)
+  have p4 := toNat_add_eq p3 e4 (by omega)
+  have p5 := toNat_add_eq p4 e5 (by omega)
+  exact toNat_add_eq p5 e6 (by omega)
+
+/-- The five field reads of a `UInt64` packed as
+`a + dep·2³² + fv·2⁴⁰ + ev·2⁴¹ + lv·2⁴² + lp·2⁴³ + br·2⁴⁴`, with the summands in
+disjoint bit ranges. Pure `Nat` arithmetic: every read is a division and a
+remainder by a literal. -/
+private theorem packed_fields {c : UInt64} {a dep nfv nev nlv nlp br : Nat}
+    (ha : a < 2 ^ 32) (hdep : dep < 2 ^ 8) (hfv : nfv < 2) (hev : nev < 2) (hlv : nlv < 2)
+    (hlp : nlp < 2) (hbr : br < 2 ^ 20)
+    (hc : c.toNat = a + dep * 2 ^ 32 + nfv * 2 ^ 40 + nev * 2 ^ 41 + nlv * 2 ^ 42
+      + nlp * 2 ^ 43 + br * 2 ^ 44) :
+    ((c.shiftRight 40).land 1).toNat = nfv
+    ∧ ((c.shiftRight 41).land 1).toNat = nev
+    ∧ ((c.shiftRight 42).land 1).toNat = nlv
+    ∧ ((c.shiftRight 43).land 1).toNat = nlp
+    ∧ (c.shiftRight 44).toUInt32.toNat = br := by
+  refine ⟨?_, ?_, ?_, ?_, ?_⟩ <;>
+    simp only [uint64_shiftRight, uint64_land, UInt64.toNat_toUInt32, UInt64.toNat_shiftRight,
+      UInt64.toNat_and, UInt64.toNat_ofNat, Nat.reduceMod, Nat.reducePow, Nat.and_one_is_mod,
+      Nat.shiftRight_eq_div_pow, hc] <;>
+    omega
+
+/-- All five packed fields of `mkData'`, in range. -/
+private theorem mkData'_fields {h : UInt64} {br : Nat} {d : UInt32} {fv ev lv lp : Bool}
+    (H : br ≤ 2 ^ 20 - 1) :
+    (mkData' h br d fv ev lv lp).hasFVar = fv ∧
+    (mkData' h br d fv ev lv lp).hasExprMVar = ev ∧
+    (mkData' h br d fv ev lv lp).hasLevelMVar = lv ∧
+    (mkData' h br d fv ev lv lp).hasLevelParam = lp ∧
+    (mkData' h br d fv ev lv lp).looseBVarRange.toNat = br := by
+  have hbd : ∀ b : Bool, (if b then 1 else 0) < 2 := by decide
+  have hc : (mkData' h br d fv ev lv lp : UInt64).toNat
+      = h.toUInt32.toNat + (if d > 255 then (255 : UInt8) else d.toUInt8).toNat * 2 ^ 32
+        + (if fv then 1 else 0) * 2 ^ 40 + (if ev then 1 else 0) * 2 ^ 41
+        + (if lv then 1 else 0) * 2 ^ 42 + (if lp then 1 else 0) * 2 ^ 43 + br * 2 ^ 44 := by
+    rw [mkData', if_pos H]; exact pack_toNat _ _ _ _ _ _ _ H
+  obtain ⟨f0, f1, f2, f3, f4⟩ :=
+    packed_fields (c := (mkData' h br d fv ev lv lp : UInt64))
+      h.toUInt32.toBitVec.isLt (if d > 255 then (255 : UInt8) else d.toUInt8).toBitVec.isLt
+      (hbd fv) (hbd ev) (hbd lv) (hbd lp) (by omega) hc
+  exact ⟨uint64_beq_one f0, uint64_beq_one f1, uint64_beq_one f2, uint64_beq_one f3, f4⟩
+
 private theorem mkData_flags (H : br ≤ 2 ^ 20 - 1) :
     (mkData h br d fv ev lv lp).hasFVar = fv ∧
     (mkData h br d fv ev lv lp).hasExprMVar = ev ∧
     (mkData h br d fv ev lv lp).hasLevelMVar = lv ∧
     (mkData h br d fv ev lv lp).hasLevelParam = lp := by
-  rw [mkData_eq H, mkData', if_pos H]
-  simp [Data.hasFVar, Data.hasExprMVar, Data.hasLevelMVar, Data.hasLevelParam,
-    (· == ·), ← UInt64.toBitVec_inj]
-  have hh : h.toUInt32.toUInt64.toBitVec ≤ 0xffffffff#64 :=
-    Nat.le_of_lt_succ h.toUInt32.1.1.2
-  have hb : ∀ (b : Bool), b.toUInt64.toBitVec ≤ 1#64 := by decide
-  have hfv := hb fv
-  have hev := hb ev
-  have hlv := hb lv
-  have hlp := hb lp
-  have hnat : br.toUInt64.toNat = br := by simp; omega
-  have hbr : br.toUInt64.toBitVec ≤ 0xfffff#64 := (hnat ▸ H :)
-  let depth : UInt8 := if d > 255 then 255 else d.toUInt8
-  have hd : depth.toUInt64.toBitVec ≤ 0xff#64 := Nat.le_of_lt_succ depth.1.1.2
-  let data :=
-    h.toUInt32.toUInt64.toBitVec +
-    depth.toUInt64.toBitVec <<< 32#64 +
-    fv.toUInt64.toBitVec <<< 40#64 +
-    ev.toUInt64.toBitVec <<< 41#64 +
-    lv.toUInt64.toBitVec <<< 42#64 +
-    lp.toUInt64.toBitVec <<< 43#64 +
-    br.toUInt64.toBitVec <<< 44#64
-  change
-    decide (data >>> 40#64 &&& 1#64 = 1#64) = fv ∧
-    decide (data >>> 41#64 &&& 1#64 = 1#64) = ev ∧
-    decide (data >>> 42#64 &&& 1#64 = 1#64) = lv ∧
-    decide (data >>> 43#64 &&& 1#64 = 1#64) = lp
-  bv_decide
+  rw [mkData_eq H]
+  obtain ⟨f0, f1, f2, f3, -⟩ := mkData'_fields H
+  exact ⟨f0, f1, f2, f3⟩
 
 private theorem mkData_hasFVar (H : br ≤ 2 ^ 20 - 1) :
     (mkData h br d fv ev lv lp).hasFVar = fv := by
@@ -730,33 +832,32 @@ attribute [local reducible] Data
 
 theorem mkData_looseBVarRange (H : br ≤ 2^20 - 1) :
     (mkData h br d fv ev lv lp).looseBVarRange.toNat = br := by
-  rw [mkData_eq H, mkData', if_pos H]; dsimp only [Data.looseBVarRange, -Nat.reducePow]
-  have : br.toUInt64.toUInt32.toNat = br := by simp; omega
-  refine .trans ?_ this; congr 2
-  refine UInt64.eq_of_toBitVec_eq ?_
-  have : br.toUInt64.toNat = br := by simp; omega
-  have : br.toUInt64.toBitVec ≤ 0xfffff#64 := (this ▸ H :)
-  have : h.toUInt32.toUInt64.toBitVec ≤ 0xffffffff#64 :=
-    show h.toUInt32.toNat ≤ 2^32-1 by simp; omega
-  have : (if d > 255 then 255 else d.toUInt8).toUInt64.toBitVec ≤ 0xff#64 :=
-    Nat.le_of_lt_succ (if d > 255 then 255 else d.toUInt8).1.1.2
-  have hb : ∀ (b : Bool), b.toUInt64.toBitVec ≤ 1#64 := by decide
-  have := hb fv; have := hb ev; have := hb lv; have := hb lp
-  change
-    (h.toUInt32.toUInt64.toBitVec +
-      (if d > 255 then 255 else d.toUInt8).toUInt64.toBitVec <<< 32#64 +
-      fv.toUInt64.toBitVec <<< 40#64 +
-      ev.toUInt64.toBitVec <<< 41#64 +
-      lv.toUInt64.toBitVec <<< 42#64 +
-      lp.toUInt64.toBitVec <<< 43#64 +
-      br.toUInt64.toBitVec <<< 44#64) >>> 44#64 =
-    br.toUInt64.toBitVec
-  bv_decide
+  rw [mkData_eq H]; exact (mkData'_fields H).2.2.2.2
 
 theorem looseBVarRange_le : looseBVarRange e ≤ 2^20 - 1 := Data.looseBVarRange_le
 
 theorem _root_.UInt32.max_toNat (a b : UInt32) : (max a b).toNat = max a.toNat b.toNat := by
   simp +instances only [instMaxUInt32, maxOfLe, UInt32.le_iff_toNat_le, Nat.instMax]; split <;> rfl
+
+/-- `mkAppData'` assembles its word with `|||` rather than `+`, so the `+`-based
+`pack_toNat` does not apply. The extra idea is that `>>>` distributes over `|||`
+(`Nat.shiftRight_or_distrib`): the field read is computed piecewise and the three
+pieces below bit 44 vanish, which is cheaper than proving the disjuncts disjoint.
+The `b &&& 15 <<< 40` piece is the four flag bits copied from the operands, and
+is bounded by the mask alone -- nothing is assumed about `b`. -/
+private theorem or_packed_field44 {b c a m : UInt64}
+    (hc : c.toNat < 2 ^ 32) (ha : a.toNat < 2 ^ 8) (hm : m.toNat < 2 ^ 20) :
+    ((b &&& (15 : UInt64) <<< (40 : UInt64) ||| c ||| a <<< (32 : UInt64) |||
+      m <<< (44 : UInt64)) >>> (44 : UInt64)) = m := by
+  have hb : b.toNat &&& 16492674416640 ≤ 16492674416640 := Nat.and_le_right
+  refine UInt64.toNat_inj.mp ?_
+  simp only [UInt64.toNat_shiftRight, UInt64.toNat_or, UInt64.toNat_and, UInt64.toNat_shiftLeft,
+    UInt64.toNat_ofNat, Nat.reduceMod, Nat.reducePow, Nat.shiftLeft_eq, Nat.reduceMul,
+    Nat.shiftRight_or_distrib]
+  rw [Nat.shiftRight_eq_zero _ 44 (by omega), Nat.shiftRight_eq_zero _ 44 (by omega),
+    Nat.shiftRight_eq_zero _ 44 (by omega), Nat.shiftRight_eq_div_pow]
+  simp only [Nat.zero_or, Nat.reducePow]
+  omega
 
 theorem mkAppData_looseBVarRange :
     (mkAppData fData aData).looseBVarRange = max fData.looseBVarRange aData.looseBVarRange := by
@@ -771,17 +872,12 @@ theorem mkAppData_looseBVarRange :
   generalize (ite (_ > (255 : UInt16)) _ _ : UInt8) = a
   generalize HOr.hOr (α := UInt64) fData _ = b
   generalize UInt64.toUInt32 _ = c
-  apply UInt64.eq_of_toBitVec_eq
-  change m.toUInt64.toBitVec ≤ 0xfffff#64 at hm
-  have : c.toUInt64.toBitVec ≤ 0xffffffff#64 := Nat.le_of_lt_succ c.1.1.2
-  have : a.toUInt64.toBitVec ≤ 0xff#64 := Nat.le_of_lt_succ a.1.1.2
-  change
-    (b.toBitVec &&& 15#64 <<< 40#64 |||
-      c.toUInt64.toBitVec |||
-      a.toUInt64.toBitVec <<< 32#64 |||
-      m.toUInt64.toBitVec <<< 44#64) >>> 44#64 =
-    m.toUInt64.toBitVec
-  bv_decide
+  refine or_packed_field44 ?_ ?_ ?_
+  · rw [UInt32.toNat_toUInt64]; exact c.toBitVec.isLt
+  · rw [UInt8.toNat_toUInt64]; exact a.toBitVec.isLt
+  · rw [UInt32.toNat_toUInt64]
+    rw [UInt32.le_iff_toNat_le] at hm
+    simp at hm ⊢; omega
 
 def getAppArgsList : Expr → (r : List Expr := []) → List Expr
   | .app f a, r => f.getAppArgsList (a :: r)
