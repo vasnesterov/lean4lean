@@ -12,7 +12,7 @@ cached copy, stop and re-read this one.
 | statement | status |
 |---|---|
 | `PropTypeAgree` | **open.** Five of twelve conversion cases close. Three characterised obstructions: `forallEDF` (context conversion, index drop), `proofIrrel` (self-reference), `eta` (needs `SortForallEDisjoint`). `constDF`, `appDF`, `beta`, `extra` uncharacterised. |
-| `SortForallEDisjoint` | **one open case, and likely true.** Six of seven typing cases close from `DefInv` alone; only `AppCase` remains, and a refutation is *provably impossible* at the model's own witness (§9). |
+| `SortForallEDisjoint` | **one open case, and likely true.** Six of seven typing cases close from `DefInv` alone; only `AppCase` remains, and a refutation is *provably impossible* at the model's own witness (§9). **The hereditary shape agreement proposed for `AppCase` is now closed both ways** — as disjointness it is *equivalent* to the statement itself, as agreement it is *false* (§9, machine-checked). `AppCase` is the statement's own fixpoint. |
 | `PropUniq`, `SortUniq` | **in the normalisation family, and no model route.** Both fail the criterion's `trans` test; `SortUniq` is refuted as a semantic consequence by the cumulativity check, and the model is parameterised on it. |
 | the reference | **two documented defects**, one machine-checked (§2a), one a reading result with a repair (§2b). |
 
@@ -61,6 +61,10 @@ no `bv_decide`, no axiom added.
 | `sortNotProof_of`, `forallENotProof_of` | `Typing/UniqueTypingN.lean` | **the payoff, checked not assumed**: `PropTypeAgree` + `DefInv` at `n` give "a sort is not a proof" and "a Π-type is not a proof" at `n` — both the induction hypothesis, so not circular |
 | `SortForallEDisjoint`, `SortForallEDisjoint.AppCase`, `sortForallEDisjoint_of` | `Typing/UniqueTypingN.lean` | the primitive `PropTypeAgree` needs, and six of its seven cases |
 | `PropNotProof`, `PropTypeAgree.{eta_case, proofIrrel_case}`, `propNotProof_of` | `Typing/UniqueTypingN.lean` | each case closes **from its residual and nothing else** — which is what makes the residual an exact obligation rather than an approximation |
+| `Apply`, `Apply.{conv_head, hasType}`, `Apply₂.{left,right}` | `Typing/ShapeSpine.lean` | spines at the index; `hasType` is the collapse lemma — a spine result is a type of the applied term |
+| `SortForallEDisjointH{,₂}.iff`, `SortForallEDisjoint.appCase` | `Typing/ShapeSpine.lean` | **the hereditary disjointness is equivalent to `SortForallEDisjoint`**, and `AppCase` follows from the statement itself — §9 |
+| `typeShapeAgree_false`, `substShapeAgree_false` | `Typing/ShapeSpine.lean` | **the agreement (`iff`) form is FALSE at `n = 1`**, by `SubstCRefute`'s witness lifted to a term with two types |
+| `SubstDisj`, `SubstDisj.zero`, `applyDisj`, `applyDisj_zero` | `Typing/ShapeSpine.lean` | the surviving form, named and shown satisfiable; with `DefInv` it gives spine determinism at a type |
 
 **The inversion lemmas are the asset.** They made the refutation a fifteen-line induction
 instead of a confluence argument, and they made the `:266` improvement a five-line proof.
@@ -154,6 +158,14 @@ Five applications, and it has predicted before explaining every time after the f
 | `PropUniq` | yes | endpoint-asserted | fails | needs normalisation |
 | `SortForallEDisjoint` | **no** — induction on *typing* | — | never arises | tractable, 6 of 7 cases |
 | shape-disjointness under substitution | yes | propagated | closes | does **not** inherit `SubstC`'s refutation |
+| shape-***agreement*** under substitution | yes | propagated | closes | **FALSE** — `substShapeAgree_false` |
+
+**Row 5 was under-specified and row 6 is the correction.** "Shape-disjointness under
+substitution" names two different statements — a negation and an `iff` — and the criterion
+separates them the wrong way round from what one wants: the `iff` is the one that composes at
+`trans`, and the `iff` is **false**, refuted by the `SubstC` counterexample with no extra
+construction.  The negation is true-as-far-as-known and does *not* compose.  §9 has the
+detail; the general lesson is trap #10.
 
 Route future statements through this before attempting them.
 
@@ -335,6 +347,16 @@ this statement at the index.**
    what a negative check does not rule out, never what it opens.
 9. **Reasoning about vacuity is unreliable.** Two cases in the `PropTypeAgree` pass were
    called vacuous by inspection and one was wrong (`forallEDF`). Run it.
+10. **A statement that passes the criterion may pass it for free.** "The propagated iff
+    `trans`-closes, machine-checked" was recorded for shape-disjointness and was *true* — of
+    the version stated about a **conversion**, where it is not a theorem but a triviality
+    (`SortLike` composes with `trans'`). The version that does the work is stated about a
+    **substitution**, and it is false (`substShapeAgree_false`). Before recording a criterion
+    pass, check the statement is the one the consumer needs *and* that the pass cost something.
+11. **A "strengthening" can be the same statement.** The hereditary shape-disjointness is
+    logically equivalent to `SortForallEDisjoint` (`SortForallEDisjointH.iff`), because a spine
+    peeled off a type of `e` is a type of the applied term. Before funding a strengthening,
+    prove it is one — or check whether the target's own rules already derive the extra clause.
 
 ---
 
@@ -410,18 +432,98 @@ composition, machine-checked.
 the natural reading of "disjointness" — `trans` **fails**, because the middle term may be
 neither.  Stated as the propagated iff, it closes.  Same content; only one passes.
 
-**But the `app` case needs more than that disjointness.**  But to *apply* it one needs `f`'s two Π-types related — `.forallE A₀ B₀ ≡
-.forallE A₁ B₁` — which is `uniq` at `f`, and `uniq` is the broken thing.  What is actually
-required is a **hereditary** shape agreement:
+*Read the paragraph above with one correction, because it was the trap.*  The propagated iff
+that `trans`-closes is stated **about a conversion** — `X ≡ₙ Y ⟹ (SortLike X ↔ SortLike Y)` —
+and in that form it is not merely tractable, it is **free**: `SortLike X := ∃u, Γ ⊢ₙ X ≡ .sort u`
+composes with `X ≡ₙ Y` by `trans'`, no induction at all.  It is therefore no leverage.  The
+statement that does the work is the one **about a substitution**, and that one is false.  See
+below.
+
+### The hereditary shape agreement, priced — both horns machine-checked
+
+`Theory/Typing/ShapeSpine.lean` (new, sorry-free, `[propext, Quot.sound]`).  The primitive
+proposed for `AppCase` was:
 
 > the types of a term agree on shape, **and** their codomains agree on shape after
 > instantiation at any argument typed at both domains.
 
-That is a shape-only weakening of unique typing, and it is the primitive to price next.  Note
-`docs/design-shape-lattice.md` and `Lean4Lean/Experimental/` aimed at something of this form;
-per §2 of the older handoff everything there is unproved and `SExpr.ParamsExtra.extra_pat` is
-unsatisfiable as stated — but the *shape* of the idea is the right one, and it is worth reading
-before rebuilding it.
+It has two readings, and **both are closed**.
+
+**(1) As disjointness — the usable reading — it is *equivalent to `SortForallEDisjoint`
+itself*.**  `SortForallEDisjointH.iff`, machine-checked, and the joint-spine version the
+sentence literally asks for (argument typed at *both* domains) collapses the same way
+(`SortForallEDisjointH₂.iff`).  The collapse is one lemma:
+
+    Apply.hasType :  Γ ⊢ₙ e : T  →  Apply Γ T args R  →  Γ ⊢ₙ e a₁ ⋯ aₖ : R
+
+A spine peeled off a type of `e` is a type of the *applied term*, so quantifying over spines
+quantifies over terms — which the unstrengthened statement already does.  The hereditary
+clause is **derivable, not additional**.
+
+And `AppCase` follows from `SortForallEDisjoint` in one line
+(`SortForallEDisjoint.appCase`): `Stratified.app` already gives `.app f a` the type `B₀.inst a`,
+and `conv` retypes it at the sort.  So **`AppCase` is the statement's own fixpoint**, and
+nothing equivalent to the statement can close it.  *This is the finding to carry: the app case
+is not a gap that a cleverer statement of the same strength will fill.*
+
+**(2) As agreement — an `iff` of shape predicates, the reading that *would* be stronger — it
+is FALSE.**  `typeShapeAgree_false`, at `n = 1` over the empty environment.  The witness is
+`SubstCRefute`'s, lifted from a substituted conversion to *a term with two types*, which is the
+hypothesis `SubstCRefute` explicitly declined to supply:
+
+    A := .sort (succ p)     D := (fun _ : A => x) x     P := ∀ (_ : A), D      (P closed)
+
+    [P] ⊢₁ .bvar 0 : P                     and    [P] ⊢₁ .bvar 0 : ∀ (_ : A), .bvar 0
+                                                  (retyped by `forallEDF` of the beta step)
+
+so the single term `.app (.bvar 0) a` has the two types `lhs` (stuck: `⊢₁`-related to nothing
+but itself) and `a = .sort (max p p)` (a sort).  One is sort-shaped, the other is not.
+`P` is a well-formed type (`P_type`), so the refutation does not turn on a junk context.
+
+What it does **not** refute: `SortForallEDisjoint` (neither type is a Π), and `PropTypeAgree`
+(`lhs` is typed at `.sort (succ p)`, not at `Prop`).  What dies is exactly the *agreement*
+reading.  The same witness refutes the substitution form directly (`substShapeAgree_false`),
+which is the §5 table's new row 6.
+
+**The shape of the bind, stated once.**  The usable form is asserted of endpoints and does not
+compose; the composable form is an `iff` and is false.  A transitive relation implying
+disjointness would have to classify the stuck term: the witness forces it to relate `lhs` to a
+sort, so transitivity forbids it from relating `lhs` to any Π — i.e. it has already decided the
+target question at `lhs`.  That is §8's conclusion reached from a third direction: what is
+missing is a **reduction relation**, something that says what the middle term does.
+
+### What is left, named rather than described
+
+    SubstDisj env U n :
+      Γ ⊢ₙ a : A  →  A::Γ ⊢ₙ B ≡ B'  →
+      Apply Γ (B.inst a) args R₁ → Apply Γ (B'.inst a) args R₂ →
+      Γ ⊢ₙ R₁ ≡ .sort u  →  Γ ⊢ₙ R₂ ≡ .forallE C D  →  False
+
+Not equivalent to `SortForallEDisjoint` (it is about two types with no common term, so
+`Apply.hasType` does not collapse it), **satisfiable** (`SubstDisj.zero`, the base index, next
+to `DefInv.zero`/`SubstC.zero`), and it buys one thing, machine-checked:
+
+    applyDisj :  DefInv → SubstDisj → two spines off *one* type cannot end at a sort and a Π
+
+— from `DefInv`'s clause (2) with **no induction on the spine**, which is what a `bvar` case
+needs.  *But do not route `SubstDisj` as sufficient without pricing the `lam` case first.*
+Analysis, not machine-checked: a spine induction on typing trades the open `app` case for two
+others.  `app` closes (the IH applies at `f` with the spine extended by `a`); `bvar` reduces to
+`applyDisj`; **`lam` does not close** — its two types are `.forallE A B` and `.forallE A B₂`
+for two types `B, B₂` of the body, and bridging them under instantiation needs an existence
+step (a spine on the middle) that only the refuted `∀∃` form provides.  Consistent with (1):
+the difficulty moves, it does not shrink.
+
+*On `docs/design-shape-lattice.md` and `Lean4Lean/Experimental/`, read as instructed.*  That
+development is the same idea carried much further — a shape lattice with a logical relation —
+and its recorded refutations are the same obstruction at a different altitude: `IsType.common`
+false, and every relativisation of it (`Compat`-only, `LE_Interp`-relative, `TyDefEq`-relative)
+refuted, each because *two compatible Π-shapes need not share a codomain sort when their
+domains disagree*.  The one survivor there, `common_sort`, reads the sort off **the term's
+universe** rather than off the shapes — the same shape of escape as "get the fact from the
+accompanying term, not from the relation".  Nothing there is reusable as-is (it is unproved,
+does not compile, and its `[ParamsExtra]` chain was vacuous twice), but that survivor is the
+one idea in it that this route has not tried.
 
 ## 10. Four independent convergences on one family
 
