@@ -2045,11 +2045,55 @@ approximation `lfp_subset_of_prefixed` supplies — not at `Ind₃ S D`. The old
 `Ind_induction` is the same in this respect; it is invisible there only because
 its `Fld` does not move.
 
+### The recursor and the ι-rule are ported
+
+`IsIndCarrier₃`, `IsMinorPremise₃`, `indCtor₃`, `mem_indStep₃_iff_of_carrier`,
+`recStep₃` (+ two membership lemmas, definability, monotonicity), `recGraph₃`
+(+ subset, fixed point, membership), `recGraph₃_unique`, `recGraph₃_total`,
+`isFunction_recGraph₃`, `indRec₃`, `indRec₃_kpair_mem`, `indRec₃_mem`,
+`indRecTuple₃` (+ three lemmas), and **`indRec₃_indCtor₃` — the ι-rule**. All
+sorry-free, `[propext, Classical.choice, Quot.sound]`.
+
+**The estimate's shape held throughout.** Every one of these is the original
+proof plus one destructured or supplied component. The only two corrections
+needed were restoring steps I had dropped by hand while transcribing, not
+anything the port demanded.
+
+### The one declaration that needed more than an added component
+
+Reported here rather than in a summary, as the drift signal.
+
+`recGraph₃_total` runs `Ind₃_induction`, and the induction hands its step data
+**at the approximation, not at the fixed point**. The old proof's target set is
+a `sep` of `S.Idx ×ˢ D`, which gives `a ∈ S.Fld P q` where `mem_recGraph₃_iff`
+wants `a ∈ S.Fld (Ind₃ S D) q` — and `P ⊄ Ind₃ S D`, so nothing carries it.
+
+The fix is one word: `sep` over `Ind₃ S D` instead of over `S.Idx ×ˢ D`. Then
+`P ⊆ Ind₃ S D` and `Fld_mono`/`Args_mono` move the step data across. Small — but
+it is exactly the invariant flagged when `Ind₃_induction` landed: *an invariant
+that is invisible because nothing moves breaks silently once something starts
+moving.* It surfaced two declarations later, in the first proof that needed it.
+
+Two other structures also had to take the approximation as a parameter for the
+same reason: `IsIndCarrier₃` and `IsMinorPremise₃` quantify over `W`, because a
+form fixed at `Ind₃ S D` would not apply inside the induction.
+
 ### Remaining
 
-`IsIndCarrier₃`/`IsMinorPremise₃`, the recursor's graph (`recStep`, `recGraph`,
-`recGraph_total`, `indRec`) and the ι-rule, then `IsStageSignature₃` and
-`IndCard`'s bounds. All the same added-conjunct shape.
+`IsStageSignature₃` and the stage membership `Ind₃_mem_vsetV`.
+
+The cheap route, which avoids porting `IndCard.lean` at all: prove
+`Ind₃ S D ⊆ Ind (S.at (S.Idx ×ˢ D)) D` by `Ind₃_induction` — the step's
+`a ∈ S.Fld (Ind (S.at W₀) D) q` moves to `S.Fld W₀ q` by `Fld_mono` and
+`Ind_subset`, which is exactly what `ctor_mem_Ind` at `S.at W₀` wants — and then
+conclude from `Ind_mem_vsetV` that `Ind₃` is a subset of a member of `vsetV k`.
+
+**The one fact that route needs and I have not confirmed exists**: subsets of
+members of `vsetV k` are members, i.e. rank monotonicity under `⊆`.
+`SetModel/Rank.lean` has `Vset_mono`, `subset_Vset_rank`,
+`subset_Vset_of_mem_Vset` and `mem_Vset_iff_rank_lt`; whether they compose into
+it, or whether `IndCard`'s bounded-rank argument (`IndStage.lean:247`) has to be
+rerun, is the next thing to check — before writing, not after.
 
 ### Caveat left standing: the all-levels quantification
 

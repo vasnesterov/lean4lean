@@ -1046,9 +1046,323 @@ theorem ctor_mem_Ind₃ {q a f : V} (hq : q ∈ S.Q)
   rw [← indStep₃_Ind₃ (S := S) (D := D), mem_indStep₃_iff]
   exact ⟨hmem, q, hq, a, ha, f, hf, hok, hrec, rfl⟩
 
+/-! ### Carrier and minor premise, ported
+
+Both quantify over the approximation `W`.  That is not decoration: `Ind₃_induction`
+hands its step data at the approximation `lfp_subset_of_prefixed` supplies, which
+is *not* the fixed point, so a form fixed at `Ind₃ S D` would not apply inside
+the induction.  The old versions have no such parameter only because their `Fld`
+does not move. -/
+
+structure IsIndCarrier₃ (S : IndSignature₃ V) (D : V) : Prop where
+  ctor_mem : ∀ W : V, ∀ q ∈ S.Q, ∀ a ∈ S.Fld W q, ∀ f ∈ (D ^ S.Pos q a : V),
+    (⟨a, f⟩ₖ : V) ∈ S.Args W q → (⟨q, ⟨a, f⟩ₖ⟩ₖ : V) ∈ D
+
+structure IsMinorPremise₃ (S : IndSignature₃ V) (D R : V) (e : V → V → V → V → V) :
+    Prop where
+  mem : ∀ W : V, ∀ q ∈ S.Q, ∀ a ∈ S.Fld W q, ∀ f ∈ (D ^ S.Pos q a : V),
+    ∀ h ∈ (R ^ S.Pos q a : V), (⟨a, f⟩ₖ : V) ∈ S.Args W q → e q a f h ∈ R
+
+/-- The constructor value, tagged with its result index. -/
+noncomputable def indCtor₃ (S : IndSignature₃ V) (q a f : V) : V :=
+  ⟨S.resIdx q a, indCtorVal q a f⟩ₖ
+
+/-- The bound in `indStep₃` is redundant once the carrier is one. -/
+theorem mem_indStep₃_iff_of_carrier (hWF : S.toIndSignature₂.WF)
+    (hD : IsIndCarrier₃ S D) {W p : V} :
+    p ∈ indStep₃ S D W ↔
+      ∃ q ∈ S.Q, ∃ a ∈ S.Fld W q, ∃ f ∈ (D ^ S.Pos q a : V),
+        (⟨a, f⟩ₖ : V) ∈ S.Args W q ∧
+        (∀ b ∈ S.Pos q a, (⟨S.posIdx q a b, f ‘ b⟩ₖ : V) ∈ W) ∧
+        p = indCtor₃ S q a f := by
+  rw [mem_indStep₃_iff]
+  refine ⟨fun h ↦ h.2, fun h ↦ ⟨?_, h⟩⟩
+  obtain ⟨q, hq, a, ha, f, hf, hok, -, rfl⟩ := h
+  exact kpair_mem_iff.mpr ⟨hWF.resIdx_mem W q hq a ha, hD.ctor_mem W q hq a ha f hf hok⟩
+
+/-! ### The recursor's graph, ported
+
+The graph is built over the completed family, so its `Fld`/`Args` are read at
+`Ind₃ S D`. -/
+
+noncomputable def recStep₃ (S : IndSignature₃ V) (D R : V) (e : V → V → V → V → V)
+    (he : ℒₛₑₜ-function₄[V] e) (g : V) : V :=
+  {p ∈ (S.Idx ×ˢ D) ×ˢ R ;
+    ∃ q ∈ S.Q, ∃ a ∈ S.Fld (Ind₃ S D) q, ∃ f ∈ (D ^ S.Pos q a : V),
+      ∃ h ∈ (R ^ S.Pos q a : V),
+      (⟨a, f⟩ₖ : V) ∈ S.Args (Ind₃ S D) q ∧
+      (∀ b ∈ S.Pos q a, (⟨⟨S.posIdx q a b, f ‘ b⟩ₖ, h ‘ b⟩ₖ : V) ∈ g) ∧
+      p = ⟨indCtor₃ S q a f, e q a f h⟩ₖ}
+
+variable {R : V} {e : V → V → V → V → V}
+
+theorem mem_recStep₃_iff' {he : ℒₛₑₜ-function₄[V] e} {g p : V} :
+    p ∈ recStep₃ S D R e he g ↔ p ∈ (S.Idx ×ˢ D) ×ˢ R ∧
+      ∃ q ∈ S.Q, ∃ a ∈ S.Fld (Ind₃ S D) q, ∃ f ∈ (D ^ S.Pos q a : V),
+        ∃ h ∈ (R ^ S.Pos q a : V),
+        (⟨a, f⟩ₖ : V) ∈ S.Args (Ind₃ S D) q ∧
+        (∀ b ∈ S.Pos q a, (⟨⟨S.posIdx q a b, f ‘ b⟩ₖ, h ‘ b⟩ₖ : V) ∈ g) ∧
+        p = ⟨indCtor₃ S q a f, e q a f h⟩ₖ := mem_sep_iff
+
+theorem mem_recStep₃_iff (hWF : S.toIndSignature₂.WF)
+    (hD : IsIndCarrier₃ S D) (hE : IsMinorPremise₃ S D R e)
+    {he : ℒₛₑₜ-function₄[V] e} {g p : V} :
+    p ∈ recStep₃ S D R e he g ↔
+      ∃ q ∈ S.Q, ∃ a ∈ S.Fld (Ind₃ S D) q, ∃ f ∈ (D ^ S.Pos q a : V),
+        ∃ h ∈ (R ^ S.Pos q a : V),
+        (⟨a, f⟩ₖ : V) ∈ S.Args (Ind₃ S D) q ∧
+        (∀ b ∈ S.Pos q a, (⟨⟨S.posIdx q a b, f ‘ b⟩ₖ, h ‘ b⟩ₖ : V) ∈ g) ∧
+        p = ⟨indCtor₃ S q a f, e q a f h⟩ₖ := by
+  rw [mem_recStep₃_iff']
+  refine ⟨fun h ↦ h.2, fun h ↦ ⟨?_, h⟩⟩
+  obtain ⟨q, hq, a, ha, f, hf, h, hh, hok, -, rfl⟩ := h
+  exact kpair_mem_iff.mpr
+    ⟨kpair_mem_iff.mpr ⟨hWF.resIdx_mem _ q hq a ha, hD.ctor_mem _ q hq a ha f hf hok⟩,
+      hE.mem _ q hq a ha f hf h hh hok⟩
+
+theorem recStep₃_definable (S : IndSignature₃ V) (D R : V) (e : V → V → V → V → V)
+    (he : ℒₛₑₜ-function₄[V] e) : ℒₛₑₜ-function₁[V] (recStep₃ S D R e he) := by
+  suffices ℒₛₑₜ-relation[V] (fun T g ↦ T = recStep₃ S D R e he g) by exact this
+  have hF := S.Fld_definable
+  have hP := S.Pos_definable
+  have hI := S.posIdx_definable
+  have hR := S.resIdx_definable
+  have hA := S.Args_definable
+  have eq : ∀ T g : V, T = recStep₃ S D R e he g ↔ ∀ p, p ∈ T ↔
+      p ∈ (S.Idx ×ˢ D) ×ˢ R ∧
+      ∃ q ∈ S.Q, ∃ a ∈ S.Fld (Ind₃ S D) q, ∃ f ∈ (D ^ S.Pos q a : V),
+        ∃ h ∈ (R ^ S.Pos q a : V),
+        (⟨a, f⟩ₖ : V) ∈ S.Args (Ind₃ S D) q ∧
+        (∀ b ∈ S.Pos q a, (⟨⟨S.posIdx q a b, f ‘ b⟩ₖ, h ‘ b⟩ₖ : V) ∈ g) ∧
+        p = ⟨indCtor₃ S q a f, e q a f h⟩ₖ := by
+    intro T g
+    rw [mem_ext_iff]
+    simp only [mem_recStep₃_iff']
+  simp only [eq, indCtor₃, indCtorVal]
+  definability
+
+theorem recStep₃_isMonotoneOn (S : IndSignature₃ V) (D R : V) (e : V → V → V → V → V)
+    (he : ℒₛₑₜ-function₄[V] e) :
+    IsMonotoneOn ((S.Idx ×ˢ D) ×ˢ R) (recStep₃ S D R e he) where
+  mono g₁ g₂ hg p hp := by
+    rw [mem_recStep₃_iff'] at hp ⊢
+    obtain ⟨hb, q, hq, a, ha, f, hf, h, hh, hok, hrec, heq⟩ := hp
+    exact ⟨hb, q, hq, a, ha, f, hf, h, hh, hok, fun b hbp ↦ hg _ (hrec b hbp), heq⟩
+  maps := sep_subset
+
+noncomputable def recGraph₃ (S : IndSignature₃ V) (D R : V) (e : V → V → V → V → V)
+    (he : ℒₛₑₜ-function₄[V] e) : V :=
+  lfp ((S.Idx ×ˢ D) ×ˢ R) (recStep₃ S D R e he) (recStep₃_definable S D R e he)
+
+theorem recGraph₃_subset {he : ℒₛₑₜ-function₄[V] e} :
+    recGraph₃ S D R e he ⊆ (S.Idx ×ˢ D) ×ˢ R :=
+  lfp_subset (recStep₃_isMonotoneOn S D R e he)
+
+theorem recStep₃_recGraph₃ {he : ℒₛₑₜ-function₄[V] e} :
+    recStep₃ S D R e he (recGraph₃ S D R e he) = recGraph₃ S D R e he :=
+  apply_lfp (recStep₃_isMonotoneOn S D R e he)
+
+theorem mem_recGraph₃_iff (hWF : S.toIndSignature₂.WF)
+    (hD : IsIndCarrier₃ S D) (hE : IsMinorPremise₃ S D R e)
+    {he : ℒₛₑₜ-function₄[V] e} {p : V} :
+    p ∈ recGraph₃ S D R e he ↔
+      ∃ q ∈ S.Q, ∃ a ∈ S.Fld (Ind₃ S D) q, ∃ f ∈ (D ^ S.Pos q a : V),
+        ∃ h ∈ (R ^ S.Pos q a : V),
+        (⟨a, f⟩ₖ : V) ∈ S.Args (Ind₃ S D) q ∧
+        (∀ b ∈ S.Pos q a,
+          (⟨⟨S.posIdx q a b, f ‘ b⟩ₖ, h ‘ b⟩ₖ : V) ∈ recGraph₃ S D R e he) ∧
+        p = ⟨indCtor₃ S q a f, e q a f h⟩ₖ := by
+  conv_lhs => rw [← recStep₃_recGraph₃ (S := S) (D := D) (R := R) (e := e) (he := he)]
+  exact mem_recStep₃_iff hWF hD hE
+
+/-! ### Totality, single-valuedness, and the recursor
+
+`recGraph_unique₃` ports with one extra destructured component and nothing else.
+
+`recGraph_total₃` is **the one declaration in the port that needed more than
+that**, and the reason is the invariant made visible above: `Ind₃_induction`
+hands its step data at the approximation, not at the fixed point, so the old
+proof's target set — a `sep` of `S.Idx ×ˢ D` — gives `a ∈ S.Fld P q` where
+`mem_recGraph₃_iff` wants `a ∈ S.Fld (Ind₃ S D) q`, and `P ⊄ Ind₃ S D`.
+
+The fix is one word: `sep` over `Ind₃ S D` instead of over `S.Idx ×ˢ D`.  Then
+`P ⊆ Ind₃ S D` and `Fld_mono`/`Args_mono` carry the step data across.  Small,
+but genuinely more than an added component — recorded here rather than in a
+summary, because that is where the estimate would drift if it drifted. -/
+
+section RecursorTotal₃
+
+variable {S : IndSignature₃ V} {D R : V} {e : V → V → V → V → V}
+  {he : ℒₛₑₜ-function₄[V] e}
+variable (hWF : S.toIndSignature₂.WF) (hD : IsIndCarrier₃ S D)
+  (hE : IsMinorPremise₃ S D R e)
+
+include hWF hD hE
+
+theorem recGraph₃_unique : ∀ x i₁ i₂ v₁ v₂ : V,
+    (⟨⟨i₁, x⟩ₖ, v₁⟩ₖ : V) ∈ recGraph₃ S D R e he →
+    (⟨⟨i₂, x⟩ₖ, v₂⟩ₖ : V) ∈ recGraph₃ S D R e he → v₁ = v₂ := by
+  refine rank_induction (fun x ↦ ∀ i₁ i₂ v₁ v₂ : V,
+    (⟨⟨i₁, x⟩ₖ, v₁⟩ₖ : V) ∈ recGraph₃ S D R e he →
+    (⟨⟨i₂, x⟩ₖ, v₂⟩ₖ : V) ∈ recGraph₃ S D R e he → v₁ = v₂) (by definability) ?_
+  intro x ih i₁ i₂ v₁ v₂ h₁ h₂
+  obtain ⟨q, hq, a, ha, f, hf, h, hh, -, hrec, heq⟩ :=
+    (mem_recGraph₃_iff hWF hD hE).mp h₁
+  obtain ⟨q', hq', a', ha', f', hf', h', hh', -, hrec', heq'⟩ :=
+    (mem_recGraph₃_iff hWF hD hE).mp h₂
+  obtain ⟨hc, rfl⟩ := kpair_inj heq
+  obtain ⟨hc', rfl⟩ := kpair_inj heq'
+  obtain ⟨-, hx⟩ := kpair_inj hc
+  obtain ⟨-, hx'⟩ := kpair_inj hc'
+  obtain ⟨rfl, hp⟩ := kpair_inj (hx ▸ hx' : (indCtorVal q a f : V) = indCtorVal q' a' f')
+  obtain ⟨rfl, rfl⟩ := kpair_inj hp
+  suffices hhh : h = h' by rw [hhh]
+  refine function_ext hh hh' fun b hb y hy hyh ↦ ?_
+  have hfun : IsFunction h := IsFunction.of_mem hh
+  have hval : h ‘ b = y := value_eq_of_kpair_mem hyh
+  have hrk : rank (f ‘ b) < rank x := by
+    rw [hx]; exact rank_lt_indCtorVal (kpair_value_mem hf hb)
+  have := ih (f ‘ b) hrk (S.posIdx q a b) (S.posIdx q a b) (h ‘ b) (h' ‘ b)
+    (hrec b hb) (hrec' b hb)
+  rw [hval] at this
+  rw [this]
+  exact kpair_value_mem hh' hb
+
+theorem recGraph₃_total : ∀ p ∈ Ind₃ S D,
+    ∃ v : V, (⟨p, v⟩ₖ : V) ∈ recGraph₃ S D R e he := by
+  have key : Ind₃ S D ⊆
+      {p ∈ Ind₃ S D ; ∃ v : V, (⟨p, v⟩ₖ : V) ∈ recGraph₃ S D R e he} := by
+    refine Ind₃_induction (subset_trans sep_subset Ind₃_subset) ?_
+    intro q hq a ha f hf hok hrec
+    have hPsub : {p ∈ Ind₃ S D ; ∃ v : V, (⟨p, v⟩ₖ : V) ∈ recGraph₃ S D R e he}
+        ⊆ Ind₃ S D := sep_subset
+    -- the step data, moved from the approximation to the fixed point
+    have ha' : a ∈ S.Fld (Ind₃ S D) q := S.Fld_mono hPsub q _ ha
+    have hok' : (⟨a, f⟩ₖ : V) ∈ S.Args (Ind₃ S D) q := S.Args_mono hPsub q _ hok
+    have hrec' : ∀ b ∈ S.Pos q a, (⟨S.posIdx q a b, f ‘ b⟩ₖ : V) ∈ Ind₃ S D :=
+      fun b hb ↦ hPsub _ (hrec b hb)
+    obtain ⟨h, hmemh⟩ : ∃ h : V, ∀ p : V, p ∈ h ↔ ∃ b ∈ S.Pos q a, ∃ v : V,
+        p = ⟨b, v⟩ₖ ∧ (⟨⟨S.posIdx q a b, f ‘ b⟩ₖ, v⟩ₖ : V) ∈ recGraph₃ S D R e he := by
+      refine ⟨sep (S.Pos q a ×ˢ R) (fun p ↦ ∃ b ∈ S.Pos q a, ∃ v : V,
+        p = ⟨b, v⟩ₖ ∧ (⟨⟨S.posIdx q a b, f ‘ b⟩ₖ, v⟩ₖ : V) ∈ recGraph₃ S D R e he),
+        fun p ↦ ?_⟩
+      rw [mem_sep_iff]
+      refine ⟨fun h ↦ h.2, fun h ↦ ⟨?_, h⟩⟩
+      obtain ⟨b, hb, v, rfl, hv⟩ := h
+      exact kpair_mem_iff.mpr ⟨hb, (kpair_mem_iff.mp (recGraph₃_subset _ hv)).2⟩
+    have hkp : ∀ b y : V, (⟨b, y⟩ₖ : V) ∈ h ↔ b ∈ S.Pos q a ∧
+        (⟨⟨S.posIdx q a b, f ‘ b⟩ₖ, y⟩ₖ : V) ∈ recGraph₃ S D R e he := by
+      intro b y
+      rw [hmemh]
+      refine ⟨?_, fun hy ↦ ⟨b, hy.1, y, rfl, hy.2⟩⟩
+      rintro ⟨b', hb', v, hev, hv⟩
+      obtain ⟨rfl, rfl⟩ := kpair_inj hev
+      exact ⟨hb', hv⟩
+    have hhmem : h ∈ (R ^ S.Pos q a : V) := by
+      refine mem_function.intro (fun p hp ↦ ?_) (fun b hb ↦ ?_)
+      · obtain ⟨b, hb, v, rfl, hv⟩ := hmemh p |>.mp hp
+        exact kpair_mem_iff.mpr ⟨hb, (kpair_mem_iff.mp (recGraph₃_subset _ hv)).2⟩
+      · obtain ⟨-, v, hv⟩ := mem_sep_iff.mp (hrec b hb)
+        refine ExistsUnique.intro v ((hkp b v).mpr ⟨hb, hv⟩) fun v' hv' ↦ ?_
+        exact recGraph₃_unique hWF hD hE (f ‘ b) _ _ v' v ((hkp b v').mp hv').2 hv
+    refine mem_sep_iff.mpr ⟨ctor_mem_Ind₃ hq ?_ ha' hf hok' hrec', e q a f h,
+      (mem_recGraph₃_iff hWF hD hE).mpr
+        ⟨q, hq, a, ha', f, hf, h, hhmem, hok', fun b hb ↦ ?_, rfl⟩⟩
+    · exact kpair_mem_iff.mpr
+        ⟨hWF.resIdx_mem _ q hq a ha', hD.ctor_mem _ q hq a ha' f hf hok'⟩
+    · exact ((hkp b (h ‘ b)).mp (kpair_value_mem hhmem hb)).2
+  intro p hp
+  exact (mem_sep_iff.mp (key p hp)).2
+
+theorem isFunction_recGraph₃ : IsFunction (recGraph₃ S D R e he) := by
+  refine isFunction_iff.mpr (mem_function.intro (fun p hp ↦ ?_) (fun x hx ↦ ?_))
+  · obtain ⟨q, hq, a, ha, f, hf, h, hh, hok, hrec, rfl⟩ :=
+      (mem_recGraph₃_iff hWF hD hE).mp hp
+    exact kpair_mem_iff.mpr ⟨mem_domain_of_kpair_mem hp, mem_range_of_kpair_mem hp⟩
+  · obtain ⟨v, hv⟩ := mem_domain_iff.mp hx
+    refine ExistsUnique.intro v hv fun v' hv' ↦ ?_
+    obtain ⟨i, -, y, -, rfl⟩ :=
+      mem_prod_iff.mp (kpair_mem_iff.mp (recGraph₃_subset _ hv)).1
+    exact recGraph₃_unique hWF hD hE y i i v' v hv' hv
+
+/-- **The recursor.** -/
+noncomputable def indRec₃ (S : IndSignature₃ V) (D R : V) (e : V → V → V → V → V)
+    (he : ℒₛₑₜ-function₄[V] e) (p : V) : V := (recGraph₃ S D R e he) ‘ p
+
+theorem indRec₃_kpair_mem {p : V} (hp : p ∈ Ind₃ S D) :
+    (⟨p, indRec₃ S D R e he p⟩ₖ : V) ∈ recGraph₃ S D R e he := by
+  obtain ⟨v, hv⟩ := recGraph₃_total hWF hD hE p hp
+  have : IsFunction (recGraph₃ S D R e he) := isFunction_recGraph₃ hWF hD hE
+  rw [indRec₃, value_eq_of_kpair_mem hv]
+  exact hv
+
+/-- **The recursor lands in the motive.** -/
+theorem indRec₃_mem {p : V} (hp : p ∈ Ind₃ S D) : indRec₃ S D R e he p ∈ R :=
+  (kpair_mem_iff.mp (recGraph₃_subset _ (indRec₃_kpair_mem hWF hD hE hp))).2
+
+/-! ### The ι-rule, ported
+
+Every declaration here is the old one plus the admissibility component; nothing
+needed restructuring. -/
+
+/-- The internal tuple of recursive results. -/
+noncomputable def indRecTuple₃ (S : IndSignature₃ V) (D R : V) (e : V → V → V → V → V)
+    (he : ℒₛₑₜ-function₄[V] e) (q a f : V) : V :=
+  {p ∈ S.Pos q a ×ˢ R ;
+    ∃ b ∈ S.Pos q a, p = ⟨b, indRec₃ S D R e he (⟨S.posIdx q a b, f ‘ b⟩ₖ)⟩ₖ}
+
+theorem mem_indRecTuple₃_iff {q a f b y : V}
+    (hrec : ∀ b ∈ S.Pos q a, (⟨S.posIdx q a b, f ‘ b⟩ₖ : V) ∈ Ind₃ S D) :
+    (⟨b, y⟩ₖ : V) ∈ indRecTuple₃ S D R e he q a f ↔
+      b ∈ S.Pos q a ∧ y = indRec₃ S D R e he (⟨S.posIdx q a b, f ‘ b⟩ₖ) := by
+  rw [indRecTuple₃, mem_sep_iff]
+  constructor
+  · rintro ⟨-, b', hb', hev⟩
+    obtain ⟨rfl, rfl⟩ := kpair_inj hev
+    exact ⟨hb', rfl⟩
+  · rintro ⟨hb, rfl⟩
+    exact ⟨kpair_mem_iff.mpr ⟨hb, indRec₃_mem hWF hD hE (hrec b hb)⟩, b, hb, rfl⟩
+
+theorem indRecTuple₃_mem_function {q a f : V}
+    (hrec : ∀ b ∈ S.Pos q a, (⟨S.posIdx q a b, f ‘ b⟩ₖ : V) ∈ Ind₃ S D) :
+    indRecTuple₃ S D R e he q a f ∈ (R ^ S.Pos q a : V) := by
+  refine mem_function.intro (fun p hp ↦ ?_) (fun b hb ↦ ?_)
+  · obtain ⟨-, b, hb, rfl⟩ := mem_sep_iff.mp hp
+    exact kpair_mem_iff.mpr ⟨hb, indRec₃_mem hWF hD hE (hrec b hb)⟩
+  · refine ExistsUnique.intro (indRec₃ S D R e he (⟨S.posIdx q a b, f ‘ b⟩ₖ))
+      ((mem_indRecTuple₃_iff hWF hD hE hrec).mpr ⟨hb, rfl⟩) fun y hy ↦ ?_
+    exact ((mem_indRecTuple₃_iff hWF hD hE hrec).mp hy).2
+
+theorem indRecTuple₃_value {q a f b : V}
+    (hrec : ∀ b ∈ S.Pos q a, (⟨S.posIdx q a b, f ‘ b⟩ₖ : V) ∈ Ind₃ S D)
+    (hb : b ∈ S.Pos q a) :
+    (indRecTuple₃ S D R e he q a f) ‘ b
+      = indRec₃ S D R e he (⟨S.posIdx q a b, f ‘ b⟩ₖ) := by
+  have hfun : IsFunction (indRecTuple₃ S D R e he q a f) :=
+    IsFunction.of_mem (indRecTuple₃_mem_function hWF hD hE hrec)
+  exact value_eq_of_kpair_mem ((mem_indRecTuple₃_iff hWF hD hE hrec).mpr ⟨hb, rfl⟩)
+
+/-- **The ι-rule**, ported: `F (ctor q a f) = e q a f (F ∘ f)`.  The one new
+hypothesis is admissibility of `⟨a, f⟩ₖ`, which is exactly the fact that was
+missing and made `CtorData` unbuildable. -/
+theorem indRec₃_indCtor₃ {q a f : V} (hq : q ∈ S.Q) (ha : a ∈ S.Fld (Ind₃ S D) q)
+    (hf : f ∈ (D ^ S.Pos q a : V)) (hok : (⟨a, f⟩ₖ : V) ∈ S.Args (Ind₃ S D) q)
+    (hrec : ∀ b ∈ S.Pos q a, (⟨S.posIdx q a b, f ‘ b⟩ₖ : V) ∈ Ind₃ S D) :
+    indRec₃ S D R e he (indCtor₃ S q a f)
+      = e q a f (indRecTuple₃ S D R e he q a f) := by
+  have hfun : IsFunction (recGraph₃ S D R e he) := isFunction_recGraph₃ hWF hD hE
+  refine value_eq_of_kpair_mem ((mem_recGraph₃_iff hWF hD hE).mpr
+    ⟨q, hq, a, ha, f, hf, _, indRecTuple₃_mem_function hWF hD hE hrec, hok,
+      fun b hb ↦ ?_, rfl⟩)
+  rw [indRecTuple₃_value hWF hD hE hrec hb]
+  exact indRec₃_kpair_mem hWF hD hE (hrec b hb)
+
+end RecursorTotal₃
+
 end Operator₃
 
 end Lean4Lean.SetModel
+
 
 
 
