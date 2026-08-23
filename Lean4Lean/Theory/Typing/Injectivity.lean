@@ -28,8 +28,13 @@ name `const_forallE_inv`, while five consumers across two streams need the secon
 third.  Distinguishing them is the point of this section; see `docs/research-const-inv.md`
 §1.
 
-* **(A) Disjointness** — a rule-free constant application is not a Π.  `const_forallE_inv`
-  below.  Consumer: `pat_major_not_pi` (ledger I14).
+* **(A) Disjointness** — a rule-free constant application is not a Π, and is not a sort.
+  `const_forallE_inv` and `const_sort_inv` below.  **Three independent consumers, found by
+  three streams separately:** `pat_major_not_pi` (ledger I14); this file's own inversion
+  targets; and the set model's block-freeness lemma, whose base cases are exactly these two.
+  The sort half went unstated in this tree until the third consumer asked for it — a missing
+  statement is worse than an open one, because an open one is visible in a `sorry` count and
+  a missing one is invisible until someone needs it.
 * **(B) Injectivity** — two applications of the *same* constant force their level and
   argument lists to agree.  `const_app_inv` below.  Consumers:
   `Verify/TypeChecker/WHNF.lean`'s `reduceRecursor.WF` quotient branch and its `Quot.ind`
@@ -299,3 +304,19 @@ theorem IsDefEqU.const_forallE_inv (henv : VEnv.WF env) (hΓ : OnCtx Γ (env.IsT
     {c : Lean.Name} {ls : List VLevel} {as : List VExpr}
     (hrigid : RuleFreeHead env c) :
     ¬ env.IsDefEqU U Γ ((VExpr.const c ls).mkApp as) (.forallE A B) := sorry
+
+/-- **(A) Disjointness, sort half** — a rule-free constant application is not a sort.
+
+Stated for the same reason `const_forallE_inv` is, and with the same side condition and the
+same absence of an `IsType` one: `proofIrrel` cannot identify a constant application with a
+sort, because that would make a sort a proof, which `VEnv.sort_not_proof`
+(`Theory/Typing/SortUniq.lean`) refutes given `VEnv.SortUniq`.
+
+**This statement did not exist in the tree until its third consumer asked for it.**  It is
+needed by the set model's block-freeness lemma at the same base case that needs
+`const_forallE_inv`, and nothing had ever written it down.  It is `sorry` like its sibling;
+the point of stating it is that the next consumer finds a statement rather than a gap. -/
+theorem IsDefEqU.const_sort_inv (henv : VEnv.WF env) (hΓ : OnCtx Γ (env.IsType U))
+    {c : Lean.Name} {ls : List VLevel} {as : List VExpr} {u : VLevel}
+    (hrigid : RuleFreeHead env c) :
+    ¬ env.IsDefEqU U Γ ((VExpr.const c ls).mkApp as) (.sort u) := sorry
