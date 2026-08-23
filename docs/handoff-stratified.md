@@ -34,6 +34,13 @@ Two things a fresh reader will otherwise re-derive:
 2. **Every repair to the alternation index is closed by one arithmetic argument** (§3 below).
    The argument does not mention the repair's shape, so it closes the family: depth-0 rules,
    general-depth `Ctx.InstN` rules, explicit substitutions, and context morphisms alike.
+3. **The logical-relation route is scoped and priced out** — §13 and `docs/logrel-scope.md`.
+   Before quoting §8's last bullet, read §13: two of that bullet's three claims were wrong,
+   and the route's own row-zero is **machine-checked** in `Theory/Typing/LogRelRowZero.lean`.
+   The finding with the widest reach is (b) there, and it is not about logical relations at
+   all: **the environment class every target in `Injectivity.lean` is stated over is not
+   normalising**, so it blocks any normalisation-flavoured route and needs a `Verify/`-side
+   re-cut first.
 
 The general rule the previous handoff drew — *necessity has to be checked against the
 specification, not the tree* — held up and then paid again in the opposite direction: this
@@ -434,9 +441,12 @@ prices it — an option set, not a recommendation:
 * **A sorts-only normalisation is not a shortcut.** "A term convertible with a sort reduces to
   a sort" is not closed under its own induction: its `appDF` case needs the function's
   argument to reduce to a λ, dragging in Π-shape.
-* **A different metatheory** (algorithmic conversion plus a logical relation) breaks the
-  typing/conversion circle without a reduction relation at all. Standard in the literature,
-  outside anything `~/lean-type-theory` provides, and large.
+* **A different metatheory** (algorithmic conversion plus a logical relation). ~~breaks the
+  typing/conversion circle without a reduction relation at all~~ — **that description was
+  wrong twice, and the route is now priced out. See `docs/logrel-scope.md` (§13 below).** It
+  does *not* avoid a reduction relation (every such development is built on weak-head
+  reduction); it avoids *confluence*. And it is not outside what this repo has:
+  `Experimental/LogRel.lean` is a genuine typed Kripke logical relation.
 
 ---
 
@@ -803,5 +813,63 @@ tainted from two independent sources: its own 5 sorries and the imported `IsDefE
 `Params` does *not* carry unique typing — that enters by import, per declaration.
 Stale figures to correct if touched: `Injectivity.lean:183`, `RawDefEq.lean:26`,
 `Stratified.lean:416`, `Experimental/ShapeLogRel.lean:1187`.
+
+---
+
+## 13. The logical-relation route — scoped and priced out (`docs/logrel-scope.md`)
+
+§8's last remaining option was scoped. **Verdict: do not build.** The full document is
+`docs/logrel-scope.md`; what a reader of *this* file needs is these five items.
+
+**(a) Two corrections to how the option was described here.** A logical relation does **not**
+avoid a reduction relation — it is built on weak-head reduction, and what it avoids is
+Church–Rosser. So §8's conclusion ("what is missing is a reduction relation") is *satisfied*
+by the route rather than bypassed. And it is not outside what the repo has:
+`Experimental/LogRel.lean` (379 lines) is a textbook typed Kripke logical relation —
+`Classifier` (a PER bundle), Kripke weakening, reducible substitutions, `fundamental` — and
+`Experimental/ShapeLogRel.lean` is the coarsened version at **8435 lines**.
+
+**(b) The decisive row-zero, machine-checked, and it is new.**
+`Theory/Typing/LogRelRowZero.lean` (sorry-free, `[propext, Quot.sound]`): **`VEnv.WF` admits
+an environment, one declaration step from empty, whose weak-head reduction has a two-cycle
+between closed terms that are both well typed** (`exists_wf_env_headStep_cycle`,
+`headStep_not_wf`). `VDecl.unsafeDef` typechecks its members in the environment already
+carrying the block's constants, so two members naming each other install `f ≡ g` and
+`g ≡ f`. Every open statement in `Injectivity.lean` is quantified over exactly that class.
+**No normalisation argument of any kind can establish them as stated.** *Not claimed: that
+the statements are false there.* Aiming a refutation of `sort_inv` at such an environment is
+a cheap untried thread.
+
+The repair — restrict to `VEnv.LeanWF` — is already done on the *model* side
+(`Verify/Bridge.lean:236`) and **not** on the algorithm side: `VContext` carries an arbitrary
+`DefinitionSafety`, and `TrProj.uniq` / `TrProj.defeqDFC` / `TrProj.weak'_inv` /
+`reduceRecursor.WF` all run there. That mismatch is a prerequisite for *any* normalisation
+route and is owned by the `Verify/` stream.
+
+**(c) The two feared assumptions do not bite — and this reverses §10.** Machine-checked
+(`imax_measure`, `imax_domain_unbounded`): where a Π-type is **not** a proposition the
+hierarchy is predicative and both component levels are bounded by its own; where it **is**,
+the domain's level is unbounded — and that is exactly the case where proof irrelevance makes
+recursion unnecessary. **Impredicativity is confined to precisely the case proof irrelevance
+trivialises.** §10's two facts point the other way here. Trap #8 applies: this licenses "not
+excluded", not "open", and it does not move the verdict. It also forces a design fact: the
+relation must be a family indexed by a *level valuation*, since `VLevel.imax u v` is `0` at
+some valuations and `max u v` at others.
+
+**(d) Nothing in this tree becomes wrong under the route** — it adds no rule to any judgment.
+`Strong.lean`, `DeclRules.lean` and the `Pattern*`/`DeltaUnique` cone (~6500 lines) carry
+over; the stratified cone (`Stratified`, `UniqueTypingN`, both refutation files,
+`ShapeSpine`, `UnivDiscrim` — ~2550 lines) goes **dead but stays true**. Contrast candidate 1
+of `options-circularity-breakers.md`, which made `SubstCRefute` false.
+
+**(e) There is no cheaper sub-target, and `PropUniq` + `PropTypeAgree` is not one.** The
+whole injectivity family comes from a single lemma — `LRIsType.irrel` ("the relation at a
+type is unique"), which is *already proved sorry-free* in `Experimental/LogRel.lean:157`,
+from determinism of weak-head reduction. So the route delivers everything at once and no
+part of it separately. And two apparent escapes from the model's two imports are closed: a
+**derivation-directed** interpretation relocates `PropUniq` to a coherence obligation which
+**is `PropUniq`** (`HasTypeStrong.lam` picks a codomain sort; two derivations may pick
+different ones — trap #11 again), and a **type-directed** one removes `PropSplit` but *is* a
+logical relation.
 
 ---
