@@ -1463,13 +1463,85 @@ only *definitionally* `α` — `TrExprS` is syntactic, so the two translate to d
 That matters here and not merely cosmetically: `TrExprS.inst_fvar` requires the pushed
 `VLocalDecl` to be the very `.vlam B` the target's `forallE` supplies, so the pushed type's
 translation **must** be `B`.  It is therefore taken as the hypothesis `hcta` rather than
-absorbed, and `hcta` is **not** universally true — a constructor binder of type
-`optParam Nat 0` refutes it.
+absorbed, and `hcta` is **not** universally true.
 
-The principled discharge is not to strengthen `hcta` but to weaken what the invariant claims:
-carry `VEnv.IsDefEqCtx` between the fvar walk's context and the spec's `Γ`, exactly as
-`VIndCtor.WF.params_eq` already does for the parameter telescope, where the spec absorbs the
-identical slack.  That is a `Theory/`-side shape question, so it is reported rather than made. -/
+**It is false in practice, not only in principle — measured, not argued.**  Over a full `Lean`
+environment, `Expr.consumeTypeAnnotations` is *not* the identity on **263 of 13408**
+constructor binder domains (4716 constructors), i.e. ~2%.  Real instances:
+
+    Lean.Compiler.LCNF.LetValue.proj   autoParam (Purity = .pure) …   ↦  Purity = .pure
+    Std.Roc.Sliceable.mk               outParam.{v+2} Type.{v}        ↦  Type.{v}
+    Lean.Grind.ToInt.Div.mk            outParam IntInterval           ↦  IntInterval
+
+So on ~2% of real constructors the kernel's local context records a binder type that is not
+the constructor's stored domain, and `VLCtx.toCtx_mkFVars`'s claim that the fvar walk's context
+*is* the spec's `Γ` is wrong for those declarations.  This is **not** a divergence: the C++
+kernel calls `consume_type_annotations` at exactly the two `mk_local_decl` sites
+(`~/lean4/src/kernel/inductive.cpp:222,227`), so both kernels do the same thing.
+
+### Why the `IsDefEqCtx` weakening cannot be built yet
+
+The shape is right — `outParam α` and `autoParam α t` δ-reduce to `α`, so the true relation is
+definitional equality, and `VIndCtor.WF.params_eq` already absorbs exactly this slack for the
+parameter telescope.  But two facts have to hold before it can be written, and the first is
+fatal today:
+
+1. **`Lean.Expr.consumeTypeAnnotations` is `partial`, hence an `opaque` with no Lean body.**
+   Verified structurally, not by reading: it is reachable from `Lean4Lean.addDecl`, and a
+   cone scan finds **48** body-less opaques there of which **28** are not mentioned by any
+   axiom of `Verify/Axioms.lean` — this one among them (there is no `consumeTypeAnnotations'`
+   model anywhere in the tree).  Nothing can be proved about its result, so no translation of
+   `dom.consumeTypeAnnotations` can be exhibited *at all* — weakened or not.  This is the
+   `Lean.Expr.findImpl?` blocker again, in a place nobody had looked, and `Guard.lean`'s
+   check 3 is blind to it for the same reason: it filters to constants defined in
+   `Lean4Lean.*` modules.  It reaches **eleven** distinct binder-introducing loops —
+   `checkInductiveTypes.loopInd.loop`, `checkConstructors.loop`, `checkPositivity.loop`,
+   `isRecArg.loop`, `isLargeEliminator.loop`, and all six of `mkRecInfos.*` — i.e. every
+   `withLocalDecl` site in the inductive adder.
+
+   **The fix is the `anySubterm` fix, and it was checked rather than proposed.**  Written by
+   pattern-matching on the application shape instead of through the partial `appFn!`/`appArg!`,
+   it is structurally recursive — each call descends to a strict subterm — so it needs no fuel
+   and has a body:
+
+       def consumeTypeAnnotations' : Expr → Expr
+         | e@(.app (.app (.const n _) α) _) =>
+             if n == ``optParam || n == ``autoParam then consumeTypeAnnotations' α else e
+         | e@(.app (.const n _) α) =>
+             if n == ``outParam || n == ``semiOutParam then consumeTypeAnnotations' α else e
+         | e => e
+
+   Differentially checked against the opaque over every binder domain of every constructor and
+   inductive type in a full `Lean` environment: **15799 compared, 15799 agree, 0
+   disagreements**.  The arity conditions match `isOptParam`/`isOutParam`'s `isAppOfArity`,
+   including the over- and under-applied cases, which fall through to `e` on both sides.
+   Dropping the call is *not* an option: the C++ kernel makes it too, so removing it would be
+   a genuine divergence.  `Lean4Lean/Inductive/Add.lean` is a file this stream does not own, so
+   this is a recommendation with its measurement attached, not a change.
+
+2. **A target-preserving context-defeq transport for `TrExprS` is missing.**  `defeqDFC` and
+   `defeqDFC'` (`Verify/Typing/Lemmas.lean:1423,1481`) both let the *target* move
+   (`∃ e₂, …` and `TrExpr`), and re-inverting a moved target at a `forallE` needs pi
+   injectivity.  What is needed instead is
+
+       TrExprS.defeqDFC_target :
+         VEnv.WF env → (Δ₁ and Δ₂ agree on every `ofv` and every `vlet` *value*, and their
+           `vlam` types are pairwise `IsDefEq`) → TrExprS env Us Δ₁ e e' → TrExprS env Us Δ₂ e e'
+
+   **This is provable and is *not* injectivity-blocked** — all eleven cases were checked.
+   `bvar`/`fvar` preserve the target because `find?`'s value is determined by position and by
+   the `vlet` values, both of which the relation fixes; `app`/`lam`/`forallE`/`letE` transport
+   their `HasType`/`IsType` premises by `defeqDFC` and reuse the IH's target; and the `proj`
+   case — the one that looks blocked — is fine because a target-*preserving* statement may
+   **reuse** the same `us`/`ps`/`ιs` rather than re-deriving them, so it never needs
+   `TrProj.uniq`.  `defeqDFC` reads as blocked only because it re-derives them existentially.
+   Anyone pricing this as part of the injectivity family should not.
+
+Until (1) is fixed, `hcta` stays a stated hypothesis, false as written, and labelled so at its
+own definition — a hypothesis discharged at every real call site is exactly the kind that
+erodes into a technicality, and the next person to reuse this lemma would inherit a false
+claim with no warning.  The live measurement in `Lean4Lean/Tests/KernelHardening.lean` exists
+so the "2%" cannot quietly become "never". -/
 
 /-- The number of leading `forallE` binders — the *syntactic* pi-arity.  `TrExprS` does not
 determine it (`.mdata`/`.letE` translate through), so the loop invariant tracks it. -/
@@ -1632,9 +1704,11 @@ in `C.args` — which is `VInductDecl'.LECond`'s per-field disjunction verbatim,
 
 Two hypotheses, both real and both stated rather than absorbed:
 
-* `hcta` is the `consumeTypeAnnotations` obligation of the section note.  It is **false in
-  general** (`optParam Nat 0`), and the principled discharge is an `IsDefEqCtx` on the
-  context rather than a strengthening here.
+* `hcta` is the `consumeTypeAnnotations` obligation of the section note.  It is **false**, and
+  false on ~2% of the constructors of a real `Lean` environment, not merely in principle.  Do
+  not read it as a technicality: discharging it needs `Lean.Expr.consumeTypeAnnotations` to
+  stop being a body-less `opaque` (an implementation change, see the note), and *then* an
+  `IsDefEqCtx` weakening of this invariant.  Both are named precisely there.
 * `hSmall` is the level side, handed the *pre-push* translation and asked about the
   *post-push* run, because `ensureType dom` executes inside `withLocalDecl`.  The weakening
   between the two is the caller's, which is where the choice of `VIndField.lvl` lives anyway. -/

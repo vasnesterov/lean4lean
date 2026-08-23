@@ -360,4 +360,59 @@ run_meta do
     mkPosProp `L4LKpos8 (.forallE `g (.forallE `b (kboxE natE) (C `L4LKpos8) .default)
       (C `L4LKpos8) .default)
 
+/-! ## `consumeTypeAnnotations` really fires
+
+Both kernels record `consume_type_annotations(dom)` as a constructor binder's local-context
+type, not `dom` itself (`~/lean4/src/kernel/inductive.cpp:222,227`;
+`Lean4Lean/Inductive/Add.lean`, the 13 `withLocalDecl` sites).  So the abstract context of the
+fvar walk is the *stripped* telescope, only definitionally the constructor's stored one — which
+makes `M.WF.elim_loop`'s `hcta` hypothesis false (`Verify/Inductive/Add.lean`, "The one
+obligation this cannot discharge").
+
+The temptation is to read that as a technicality that never bites. It bites: the check below
+fails the build unless the stripping is a genuine non-identity on a real environment. It exists
+so the measurement cannot quietly decay into "in principle only" — an assumption nobody
+re-tests is exactly how a false hypothesis becomes invisible.
+
+Deliberately **not** an exact count: the number moves with the prelude. The assertion is that
+it is non-zero, plus one named witness whose annotation is `outParam`. -/
+
+/-- `(binder domains, those the stripping changes)` over a pi spine. -/
+private partial def annotatedBinders : Expr → Nat × Nat
+  | .forallE _ d b _ =>
+    let (n, h) := annotatedBinders b
+    (n + 1, h + if d.consumeTypeAnnotations == d then 0 else 1)
+  | _ => (0, 0)
+
+/-- The first binder domain the stripping changes, if any. -/
+private partial def firstAnnotated : Expr → Option Expr
+  | .forallE _ d b _ => if d.consumeTypeAnnotations == d then firstAnnotated b else some d
+  | _ => none
+
+run_meta do
+  let env ← getEnv
+  let mut ctors : Nat := 0
+  let mut binders : Nat := 0
+  let mut hits : Nat := 0
+  for (_, ci) in env.constants.toList do
+    if let .ctorInfo v := ci then
+      let (n, h) := annotatedBinders v.type
+      ctors := ctors + 1
+      binders := binders + n
+      hits := hits + h
+  if hits == 0 then
+    throwError "`consumeTypeAnnotations` is the identity on every constructor binder domain \
+      of this environment ({ctors} constructors, {binders} binders). Either the prelude \
+      changed or the function did; `M.WF.elim_loop`'s `hcta` note claims the opposite and \
+      must be re-measured."
+  logInfo m!"consumeTypeAnnotations fires on {hits}/{binders} constructor binder domains \
+    ({ctors} constructors)"
+  -- A named witness, so the *shape* is pinned and not just the count.
+  let some (.ctorInfo w) := env.find? ``Std.Roc.Sliceable.mk
+    | logInfo "witness Std.Roc.Sliceable.mk absent; count assertion above still stands"
+  let some dom := firstAnnotated w.type
+    | throwError "witness Std.Roc.Sliceable.mk no longer carries a stripped binder domain"
+  unless dom.getAppFn.isConstOf ``outParam do
+    throwError "witness's annotation is no longer `outParam`: {dom.getAppFn}"
+
 end Lean4Lean.Tests.KernelHardening
