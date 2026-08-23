@@ -1534,3 +1534,128 @@ mechanical; `Verify/Level.lean` is owned by another stream and was not touched.
 
 A cheap standing check, worth adding wherever the guard lives: no axiom whose
 name contains `_native` may appear in any cone, whitelisted or not.
+
+---
+
+## 13. The #31/#15 cross-section, and the container axioms' reachable set
+
+Two follow-ups to §12, run with both sides in hand. Neither found an
+inconsistency. One corrects a recorded justification; the other bounds class
+(B)'s risk without removing it.
+
+### 13.1 "#31 depends on #15" is a **documentation artifact**
+
+§1's table annotates `Expr.eqv_eq` with "**Depends on 15.**", and §12.2 lists it
+as *using* `Level.beq`. §12.3's attack 1 already showed the pair cannot be forced
+apart. The remaining question is different: **is the recorded dependency real at
+the proof level, or is it a note about meaning?** It is the latter, and the
+distinction matters.
+
+Measured with a constant-dependency scan (statement + value + the `brecOn`
+helper):
+
+| declaration | mentions `Level.instLawfulBEqLevel`? |
+|---|---|
+| `Lean.Expr.eqv_eq` | **no** |
+| `Lean.Expr.eqv'` | **no** |
+| `Lean.Expr.eqv'._f` | **no** |
+
+There is no proof-level dependency at all. What #31's *truth* actually rests on
+is strictly weaker and different in kind: that `BEq Level` is **the same
+function** the C comparison uses.
+
+* `example : (BEq.beq : Level → Level → Bool) = Lean.Level.beq := rfl` — the
+  instance *is* `Level.beq`, definitionally.
+* `Level.beq` is `@[extern "lean_level_eq"]`.
+* `kernel/expr_eq_fn.cpp:84` compares a `const`'s levels with
+  `compare(const_levels(a), const_levels(b), [](level const & l1, level const & l2)
+  { return l1 == l2; })`, and `:53` compares `sort_level(a) == sort_level(b)` —
+  i.e. `operator==(level, level)`, which is that same symbol.
+
+**Sameness is what #31 needs; lawfulness is what #15 asserts.** They are
+independent: if #15 were refuted — if `lean_level_eq` did any normalisation and
+so were not structural — **#31 would be unaffected**, because both sides of
+`eqv_eq` would use the same non-structural comparison and would still agree.
+
+That is why the annotation is worth removing rather than leaving as a harmless
+approximation: it invites the inference *"refuting 15 propagates to 31"*, which
+is false, and it is the §7.3 shape again — a right verdict resting on a wrong
+recorded reason. *(Frozen-file docs only; no code change proposed.)*
+
+### 13.2 The `LawfulBEq Expr` route, re-swept over the whole import closure
+
+§12.3 records that the attack which *would* have worked — a core
+`LawfulBEq Expr`, which `eqv'` refutes since at `strict := false` it ignores
+binder names and binder info — fails because core has no such instance. That
+check was against core. Re-run as an environment-wide scan for **any** instance
+whose type is `LawfulBEq Expr` or `LawfulBEq Level` anywhere in this repo's
+import closure (core + Batteries + Foundation + `Lean4Lean`):
+
+```
+LawfulBEq instances for Expr/Level in the import closure: [Lean.Level.instLawfulBEqLevel]
+```
+
+The only one is axiom #15 itself, and it is for `Level`, not `Expr`. The route is
+closed over the whole closure, not merely over core.
+
+### 13.3 `WF` is exactly the reachable set for the `PersistentHashMap` axioms too
+
+§11.7 established this for `PersistentArray.WF.toList'_push`: `WF` is generated
+by `empty` and `push`, and `lean4lean` uses no other `PersistentArray`
+operation, so `WF` is the reachable set rather than an approximation of it. The
+same argument **does** hold for `WF.toList'_insert` (#4) and `WF.find?_eq` (#5),
+by a slightly longer chain, since the maps are never touched directly — they
+arrive through `Lean.Kernel.Environment`'s `ConstMap = SMap Name ConstantInfo`.
+
+A constant-dependency scan over `Lean4Lean.*` finds only **7** distinct
+`PersistentHashMap`/`PersistentArray` constants referenced at all, none of them
+`insert`/`find?`; the operations come in via `SMap`, whose used surface is five
+functions — `insert`, `find?`, `find?'`, `stage`, `fromHashMap`. Following each:
+
+* `structure SMap` declares `map₂ : PHashMap α β := {}` — the persistent half
+  **defaults to empty**.
+* `fromHashMap m s = { map₁ := m, stage₁ := s }` sets only `map₁` and the stage,
+  so it leaves `map₂ = ∅`. It never builds a non-empty `PersistentHashMap`.
+* `SMap.insert ⟨false, m₁, m₂⟩ k v = ⟨false, m₁, m₂.insert k v⟩` — the only
+  operation that grows `map₂`, and it is `PersistentHashMap.insert`. At stage 1
+  it touches the `HashMap` only.
+* `find?` / `find?'` only read; `stage` / `switch` only flip a `Bool`.
+* The single construction site is
+  `Kernel.Environment.mk (constants := SMap.fromHashMap constantMap false)`
+  (`Lean4Lean/Environment/Basic.lean:123`) — **stage 2**, so every later insert
+  lands in `map₂`, starting from `∅`.
+
+So every `PersistentHashMap` value this checker can produce is
+`empty` followed by `insert`s — precisely `WF`'s two generators. `erase`,
+`modify`, `insertIfNew`, `ofList` and the rest of the API are unreachable.
+
+**What this does and does not buy.** It rules out the failure mode that actually
+produced a `False` here: §5.3's `toList'_push` was false because it was stated
+for arbitrary — including unreachable, malformed — arrays. A hypothesis that is
+exactly the reachable set cannot be applied outside its intended domain. It does
+**not** make the axioms true *on* that domain: no model of the HAMT or of the
+persistent-array trie exists, so an error in the algorithms themselves would not
+be caught by this argument. Class (B) risk is **bounded, not removed**, and
+§12.4's assessment stands.
+
+### 13.4 Failed attacks in this section
+
+1. **#31 + #15 forced apart** — fails; §12.3's reason confirmed, and strengthened
+   by 13.1: there is not even a proof-level dependency to exploit.
+2. **#31 + any `LawfulBEq Expr`** — fails; no such instance exists in the whole
+   import closure (13.2).
+3. **`WF` too weak for the `PersistentHashMap` axioms** (i.e. some reachable map
+   is built by an operation outside `empty`/`insert`) — fails; the `SMap` surface
+   is five functions and only one of them writes `map₂` (13.3).
+
+### 13.5 Evidence strength
+
+| claim | evidence |
+|---|---|
+| #31 has no proof-level dependency on #15 | constant-dependency scan (complete over statement, value, `brecOn` helper) |
+| #31 rests on *sameness*, not lawfulness | `rfl` on the instance **+** `@[extern]` name **+** C source reading |
+| no `LawfulBEq Expr` in the closure | environment-wide instance scan (complete search) |
+| `WF` is the reachable set for #4/#5 | constant-dependency scan **+** source reading of all five `SMap` entry points |
+| #4/#5 are *true* | **none — still no model.** Unchanged from §12.4 |
+
+The last row is the point of the table.
