@@ -168,7 +168,7 @@ Open:
 | `VInductDecl.WF`, `VEnv.addInduct` — `sorry` **definitions** | `Theory/Inductive.lean` | superseded — see `Theory/Inductive/Decl.lean`; the swap into `VDecl` is still to schedule |
 | `addInduct_WF` | `Theory/Typing/InductiveLemmas.lean` | blocked on the above |
 | `IsDefEqU.sort_inv`, `.forallE_inv_stratified`, `.sort_forallE_inv` | `Theory/Typing/Injectivity.lean` | route found — see below |
-| `NormalEq.descend` / `.descend_beta` / `.appDF_extra_of_descend`, escape branches | `Theory/Typing/ChurchRosser.lean` | `NormalEq.parRed` itself is closed; 11 `sorry`s left, needing the two new `Params` axioms (below), `hsu`, and a measure for iterated eta — inventory in the file |
+| `NormalEq.descend` / `.appDF_extra_of_descend`, escape branches | `Theory/Typing/ChurchRosser.lean` | `NormalEq.parRed` itself is closed, and so is all of E4 (the eta tower); 6 `sorry`s left, needing `hsu` and the two missing `Params` axioms **as explicit hypotheses, not new fields** — inventory in the file |
 | `IsDefEqU.weakN_iff`, forward direction | `Theory/Typing/UniqueTyping.lean:174` | routine-ish strengthening |
 | nothing instantiates `VEnv.Params` | — | `addInduct` must produce `Pattern`-shaped ι-rules satisfying the orthogonality axioms |
 | `leanTT_equiconsistent_zfc_omega_inaccessibles` | `Theory/Equiconsistency.lean` | the model; only the `→` direction is needed |
@@ -394,15 +394,23 @@ Landed since the plan was written:
   `NormalEq.parRed`.
 - `Theory/Typing/ChurchRosser.lean` — **`NormalEq.parRed` is closed**: every case,
   `appDF` × `extra` included, is now a proof term. It rests on `NormalEq.descend`
-  (the descent, E2), `NormalEq.descend_beta` (the single-layer E4 dance) and
-  `NormalEq.appDF_extra_of_descend`, which carry eleven `sorry`s between them,
-  all in escape branches; the inventory in the file's `DescentOut` section is
-  authoritative. Two findings worth carrying: the previous descent interface (no
-  reduction, no escapes) is **false**, refuted by `NormalEq.etaL` and
-  `.proofIrrel`, both of which constrain nothing about the left term — it is
-  deleted; and the iterated-eta case needs a measure that survives
-  instantiation (`sizeOf` does not), for which the file records two viable routes
-  and one that would make the statement false.
+  (the descent, E2 + E4) and `NormalEq.appDF_extra_of_descend`, which carry six
+  `sorry`s between them, all in escape branches; the inventory in the file is
+  authoritative. **E4 — the eta tower, at any depth — is proved.** Three findings
+  worth carrying:
+  - the previous descent interface (no reduction, no escapes) is **false**,
+    refuted by `NormalEq.etaL` and `.proofIrrel`, both of which constrain nothing
+    about the left term; it is deleted.
+  - height-indexing `NormalEq` does **not** close the iterated-eta case, even
+    though `NormalEq.instN` does preserve derivation height. The consumer must
+    also repair the argument mismatch (`a₁` left against `a₂` right), which goes
+    through `NormalEq.trans` — and `trans (.etaL _ ih) H₂` recurses on `H₂`
+    wrapped in a fresh `appDF`, so the composite grows by a constant per eta
+    layer while the consumer's budget grows by one.
+  - what does work needs no new measure at all: carry the **answer** under the
+    pending binders (`DescentLam k`) rather than the data. Consuming a layer is
+    then instantiation of an answer and producing one is re-wrapping; neither
+    recurses, and the only recursion left is on the lam's body, a strict subterm.
 - `Experimental/Bridge.lean`, `Experimental/BridgeInjectivity.lean` — the forward
   `VExpr → SExpr` simulation, and `sort_inv` / `sort_forallE_inv` for `VExpr`
   relative to a `Params` instance.

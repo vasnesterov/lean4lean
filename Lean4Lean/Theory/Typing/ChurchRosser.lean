@@ -1357,17 +1357,19 @@ theorem NormalEq.appDF_proofIrrel {Γ : List VExpr} {f a b A B P e₂' : VExpr}
 /-! ## Handoff: what is left of `parRed`'s `extra` case
 
 **State.**  `NormalEq.parRed` is closed: every case, `appDF` × `extra` included, is a proof
-term.  What is left sits in the three lemmas it rests on --- `NormalEq.descend`,
-`NormalEq.descend_beta` and `NormalEq.appDF_extra_of_descend` --- as eleven `sorry`s, all in
-escape branches.  **The "Open cases, and what each needs" list in the `DescentOut` section
-below is the authoritative inventory**; it groups them into four items and says what each needs.  In
-short: the measure for iterated eta (item 1), `hsu` for proof propagation (item 2), the two
-missing `Params` axioms for argument positions (item 3), and one more descent for E4 at the
-top node (item 4).
+term.  What is left sits in `NormalEq.descend` (five) and `NormalEq.appDF_extra_of_descend`
+(one), all in escape branches.  **The "Open cases, and what each needs" list below is the
+authoritative inventory**; it groups them into three items.  In short: `hsu` for proof
+propagation (item 1), the two missing `Params` axioms for argument positions -- as explicit
+hypotheses, *not* as new `Params` fields (item 2), and the firing step under pending eta
+layers for E4 at the top node (item 3).
 
-Proved here: the whole non-escape spine (E2), and the single-layer E4 dance
-(`descend_beta`) --- the case where the function side of an application has eta-expanded, so
-the node is a β-redex.
+Proved here: the whole non-escape spine (E2), and **all of E4** --- the eta tower, at any
+depth.  `DescentLam` carries the *answer* under the pending binders, so consuming a layer is
+instantiation of an answer (`DescentLam.instN`, `.beta`) and producing one is re-wrapping
+(`descend`'s `etaL` case).  Neither recurses, so the measure question that blocked the
+iterated case does not arise; see that section for why height-indexing `NormalEq` would not
+have closed it.
 
 **Why the descent has the shape it has — do not "simplify" it.**  Two constraints are not
 negotiable.
@@ -1517,157 +1519,178 @@ theorem NormalEq.descent_refl {q : Pattern} {e A : VExpr}
   ⟨n1, n2, hm, fun _ => VLevel.forall₂_equiv_refl _, hm.levelWF hΓ he, hm.levelWF hΓ he,
     fun x => have ⟨_, h⟩ := hm.hasType hΓ he x; .refl h⟩
 
-/-! ### `DescentOut`: the descent with its escapes in the conclusion
+/-! ### The escapes, and what is open
 
-The two escape constructors (`etaL`, `proofIrrel`) constrain nothing about the left term, so
-nothing can be concluded about it *at that node*.  Both are therefore returned to the node
-**above**, where the term sits in an application and something can be done: a `.lam` there
-heads a β-redex (E4), and a proof there is `NormalEq.appDF_proofIrrel`.  Reduction is then
-unavoidable, which is why the first disjunct carries a `≫*` -- and so does the `.lam` escape,
-since the body may eta-expand again.
+`NormalEq.etaL` and `.proofIrrel` constrain nothing about the left term, so nothing can be
+concluded about it *at that node*.  `etaL` is handled by `DescentLam` (below): the answer is
+computed under the pending binders and instantiated by whichever node supplies the argument.
+`proofIrrel` is returned to the node above, where the term sits in an application and
+`NormalEq.appDF_proofIrrel` applies.
 
-**Open cases, and what each needs.**  Eleven `sorry`s remain across `descend_beta`,
-`descend` and `appDF_extra_of_descend`.  None of their goals is known false; they fall into
-four groups.
+**Open cases, and what each needs.**  Six `sorry`s remain, five in `descend` and one in
+`appDF_extra_of_descend`.  None of their goals is known false, and none of them is a measure
+problem any more; they fall into three groups.
 
-1. *The measure* (`descend_beta`'s body-`.lam` escape and `descend`'s two `hredl = .tail`
-   cases -- three of the eleven).  When the eta-expansion is **iterated**
-   -- the lam's body is itself a `.lam` related by `etaL` -- the node reduces to a `.lam` and
-   must pass a `.lam` escape upward.  Its body is `e''.inst a₁ 1`, an *instantiated* term, so
-   the `sizeOf` measure that drives `descend` is lost and the caller cannot recurse into it.
-   (`descend_beta` handles *one* layer, which is why the single-eta case goes through; the
-   `.tail` cases exist only because `DescentEscape` allows a reduction, and only these
-   sorried branches ever produce one.)
+1. *E3, proof propagation* (`descend`'s two function-is-a-proof cases).  If the function child
+   is a proof then so is the application -- that is `NormalEq.appDF_proofIrrel`'s argument,
+   and it needs its `hsu` (sort uniqueness for a term with two sort typings,
+   `Experimental/Reflect/Capstone.lean`'s `sort_uniq_of_hasType`).  Take `hsu` as an explicit
+   hypothesis on the lemmas that need it, the way `appDF_proofIrrel` already does, and promote
+   it to a `Params` field only once a consumer exists to discharge it.  At the *top* node this
+   is already discharged: there both sides are known to inhabit the same `P`, so
+   `Params.pat_wf` finishes it without `hsu`.
 
-   Three fixes were considered and two survive.
+2. *E5, the argument side* (`descend`'s three remaining `.app`-node cases).  An argument
+   position must *match* `q₂`, and a `.lam` or a proof there never will.  This is where
+   `PLAN.md`'s two missing `Params` axioms bite (the major premise's type is not a Π; small
+   elimination, which is **false unguarded** -- `Eq` is a `Prop` that large-eliminates -- so
+   the guard has to be right).  Do **not** add them as `Params` fields: `Params` now has an
+   instance, so a new field is an obligation someone must discharge.  Carry them as explicit
+   hypotheses on the lemmas that need them.  `Theory/Typing/PatternRules.lean`'s `RuleShape`
+   is the vehicle for discharging them per rule shape.
 
-   * **Rejected: carry `sizeOf e < sizeOf g` in the escape.**  Then the base case is free and
-     the iterated case is unprovable -- which would make `DescentOut` itself *false* rather
-     than merely unproved.  A sorried branch is recoverable; a false definition downstream
-     lemmas quantify over is not.  Likewise, dropping the `≫*` from the `.lam` escape (so
-     that `g = .lam A e` syntactically, and the body is a subterm) makes the iterated case's
-     goal false.  The current shape is the weakest one that stays true.
-   * **Height-indexed `NormalEq`.**  `NormalEq.instN` is defined by mapping each constructor
-     to itself, so it preserves the *shape* of the derivation -- a height index would survive
-     the instantiation that `sizeOf` does not, and the eta descent goes to a strict
-     subderivation (`etaL`'s premise) just as the spine descent does (`appDF`'s).  Cost: an
-     index on `NormalEq` (or a height-indexed copy) and re-running the inductions.
-   * **k-ary pending arguments.**  Follow `ParRedExt.parRed_beta`'s discipline -- never
-     instantiate *during* the recursion -- by stating the `.lam` escape as "given `k` further
-     arguments, the term reduces to a match of `q.varN k`" (`Pattern.varN` exists already).
-     A node that receives such an escape then *applies* it to its own argument and
-     instantiates only the answer, so nothing is ever re-descended after a substitution.  The
-     one-argument version of this does not typecheck: its payload would have to be
-     `DescentOut` at the enlarged pattern `.var q`, i.e. a definition recursive in a *growing*
-     argument.  Carrying the arity explicitly is what breaks that cycle.
+   Note the shape of the first of these three: the function child came back with an answer at
+   `k+1` layers, and peeling one gives an answer at `.var q₁`, whose argument position is
+   unconstrained -- while an `.app q₁ q₂` node needs it to match `q₂`.  So it is the same
+   obligation, arriving under a binder.
 
-   Either way, keep the *data* form (`g ≫* .lam A e` together with the body's `NormalEq`) in
-   the escape as well: item 4 below consumes it through `NormalEq.etaL`, at a node that has
-   no further argument to feed a functional form.
-2. *E3, proof propagation* (`descend`'s two function-is-a-proof cases).  If the function child is a
-   proof then so is the application -- that is `NormalEq.appDF_proofIrrel`'s argument, and it
-   needs its `hsu` (sort uniqueness for a term with two sort typings, `Experimental/Reflect/
-   Capstone.lean`'s `sort_uniq_of_hasType`).  `hsu` should become a `Params` field; see that
-   lemma's docstring.  At the *top* node this is already discharged -- there the two sides
-   are known to inhabit the same `P`, so `Params.pat_wf` finishes it without `hsu`.
-3. *E5, the argument side* (five: `descend`'s two argument-escape cases and its function-lam
-   × argument-escape case, and `descend_beta`'s two argument-of-the-eta cases).  An argument position must *match* a pattern, and a `.lam` or
-   a proof there never will: this is where `PLAN.md`'s two missing `Params` axioms bite (the
-   major premise's type is not a Π; small elimination, guarded by the `Eq` correction).
-   `Theory/Typing/PatternRules.lean`'s `RuleShape` is the vehicle.
-4. *E4 at the top node* (`appDF_extra_of_descend`).  `f.app a` reduces to a `.lam`, so the
-   rule never fires on the left and the two sides are related by `etaL`.  What is missing is
-   one more descent, on the lam's body at the pattern `.var (q₁.app q₂)` -- literally
-   `descend_beta`'s dance one level up -- plus the observation that the rule fires under the
-   `lift`.  Independent of 1-3. -/
+3. *E4 at the top node* (`appDF_extra_of_descend`).  `f.app a` reduces to a `.lam`, so the
+   rule never fires on the left and the two sides are related by `etaL` instead.  With
+   `DescentLam` in hand this is no longer a measure question: what is missing is the firing
+   step *under* `k+1` pending layers -- the `.inl ⟨0, …⟩` branch of that lemma does it at zero
+   layers, and the general case is that branch indexed by `k`, closed by `NormalEq.etaL` at
+   each layer.  Independent of 1-2. -/
 
-/-- The two escapes: the left term is (reduces to) a `.lam`, or it is a proof.  Neither says
-anything that lets it match a pattern, so both are passed up to the enclosing application. -/
-def DescentEscape (Γ : List VExpr) (g g' : VExpr) : Prop :=
-  (∃ A e B, ParRedS Γ g (.lam A e) ∧ HasType env univs Γ g' (.forallE A B) ∧
-      NormalEq (A::Γ) e (.app g'.lift (.bvar 0))) ∨
-  (∃ P, HasType env univs Γ P (.sort .zero) ∧
-      HasType env univs Γ g P ∧ HasType env univs Γ g' P)
+/-! ### `DescentLam`: the answer, carried under `k` pending eta layers
 
-/-- The three outcomes of descending a `NormalEq` into a matched term at one spine node. -/
-def DescentOut (Γ : List VExpr) (q : Pattern) (g g' : VExpr)
-    (n1 : q.LPath → List VLevel) (n2 : q.Path → VExpr) : Prop :=
-  (∃ t n1' n, ParRedS Γ g t ∧ q.Matches t n1' n ∧
+**Why the answer and not the data.**  An escape that says only "`g` reduces to a `.lam` whose
+body is `NormalEq` to the eta-expanded right-hand side" forces its consumer to *descend that
+body*, and after the consumer's β-step the body is `e.inst a₁` -- an instantiated term, which
+`sizeOf` does not bound.  Height-indexing `NormalEq` does not rescue it either, although
+`NormalEq.instN` does preserve derivation height (it maps every constructor to itself): the
+consumer must also repair the argument mismatch, `a₁` on the left against `a₂` on the right,
+and that goes through `NormalEq.trans`, which is **not** height-bounded --
+`trans (.etaL _ ih) H₂` recurses on `H₂` wrapped in a fresh `appDF`, so the composite grows
+by a constant per eta layer while the consumer's budget grows by one.  (`instN_r`, the other
+route to the repair, is an induction on the *term*, so it is not height-bounded either.)
+
+`DescentLam k` carries the answer already computed under the `k` binders.  Consuming it is
+then instantiation of an *answer* (`DescentLam.beta`), and producing it is re-wrapping
+(`descend`'s `etaL` case).  Neither recurses, so no new measure is needed: the recursion that
+remains is `descend`'s own, on the lam's body, which is a strict subterm. -/
+
+theorem ParRedS.instN (H₀' : Γ₀ ⊢ a₁ : A₀) (W : Ctx.InstN Γ₀ a₁ A₀ j Γ₁ Γ)
+    (H : Γ₁ ⊢ e ≫* e') : Γ ⊢ e.inst a₁ j ≫* e'.inst a₁ j := by
+  induction H with
+  | rfl => exact .rfl
+  | tail _ h ih => exact ih.tail (ParRed.instN .rfl H₀' W h)
+
+/-- The descent's answer at a node, under `k` pending eta layers.
+
+`DescentLam 0` is the descent proper: the left term reduces to one that matches, at levels
+`≈` the right term's, with `NormalEq` arguments.  `DescentLam (k+1)` says the left term
+reduces to a `.lam` whose body already carries the answer at `k` layers -- against the
+eta-expanded right-hand side `g'.lift.app (.bvar 0)`, which the enlarged pattern `.var q`
+matches. -/
+def DescentLam : Nat → (Γ : List VExpr) → (q : Pattern) → VExpr → VExpr →
+    (q.LPath → List VLevel) → (q.Path → VExpr) → Prop
+  | 0, Γ, q, g, _, n1, n2 =>
+    ∃ t n1' n, ParRedS Γ g t ∧ q.Matches t n1' n ∧
       (∀ lp, List.Forall₂ (· ≈ ·) (n1' lp) (n1 lp)) ∧
       (∀ lp, ∀ l ∈ n1' lp, VLevel.WF univs l) ∧
       (∀ lp, ∀ l ∈ n1 lp, VLevel.WF univs l) ∧
-      (∀ x, NormalEq Γ (n x) (n2 x))) ∨
-  DescentEscape Γ g g'
+      (∀ x, NormalEq Γ (n x) (n2 x))
+  | k+1, Γ, q, g, g', n1, n2 =>
+    ∃ A e B, ParRedS Γ g (.lam A e) ∧ HasType env univs Γ g' (.forallE A B) ∧
+      DescentLam k (A::Γ) (.var q) e (.app g'.lift (.bvar 0)) n1
+        (fun x => x.elim (.bvar 0) fun y => (n2 y).lift)
 
-/-- **The E4 dance.**  The function side of an application has eta-expanded -- the `NormalEq`
-into it was `etaL`, so it is a `.lam` and the application is a β-redex.
+/-- The two outcomes of descending a `NormalEq` into a matched term at one spine node: the
+answer (possibly under pending eta layers), or the proof escape.  The latter constrains
+nothing about the left term, so it is resolved by the node above -- see
+`NormalEq.appDF_proofIrrel`. -/
+def DescentOut (Γ : List VExpr) (q : Pattern) (g g' : VExpr)
+    (n1 : q.LPath → List VLevel) (n2 : q.Path → VExpr) : Prop :=
+  (∃ k, DescentLam k Γ q g g' n1 n2) ∨
+  (∃ P, HasType env univs Γ P (.sort .zero) ∧
+      HasType env univs Γ g P ∧ HasType env univs Γ g' P)
 
-Rather than β-reducing and descending again (the reduct is no smaller, so nothing would
-terminate), the descent goes *under the binder*: the eta-expanded right-hand side
-`f₂.lift.app (.bvar 0)` is matched by the pattern `.var q₁`, and the lam's body is a strict
-subterm, so `IH` applies to it.  The single instantiation happens afterwards, on the answer:
-`ParRedS.inst` for the reduction, `Pattern.matches_instN` for the match, `NormalEq.instN` for
-the arguments.  The body's own argument at the new `.var` node is `NormalEq` to `.bvar 0`, so
-in the good case it *is* `.bvar 0` and instantiating puts the original argument back
-untouched -- which is what lets both the `.var` and the `.app` node finish. -/
-theorem NormalEq.descend_beta {N : Nat}
-    (IH : ∀ m, m < N → ∀ {g : VExpr}, sizeOf g ≤ m →
-      ∀ {Γ : List VExpr} {q : Pattern} {g' : VExpr}
-        {n1 : q.LPath → List VLevel} {n2 : q.Path → VExpr},
-        OnCtx Γ (IsType env univs) → NormalEq Γ g g' → q.Matches g' n1 n2 →
-        DescentOut Γ q g g' n1 n2)
-    {Γ : List VExpr} {q₁ : Pattern} {A e f₂ a₁ a₂ A₀ B₀ B : VExpr}
+/-- Replace the right-hand arguments by pointwise-equal ones. -/
+theorem DescentLam.congr_args {k : Nat} {Γ : List VExpr} {q : Pattern} {g g' : VExpr}
+    {n1 : q.LPath → List VLevel} {n2 n2' : q.Path → VExpr}
+    (h : ∀ x, n2 x = n2' x) (H : DescentLam k Γ q g g' n1 n2) :
+    DescentLam k Γ q g g' n1 n2' := funext h ▸ H
+
+/-- Prepend a reduction to an answer. -/
+theorem DescentLam.head {k : Nat} {Γ : List VExpr} {q : Pattern} {g g₀ g' : VExpr}
+    {n1 : q.LPath → List VLevel} {n2 : q.Path → VExpr}
+    (hred : Γ ⊢ g ≫* g₀) (H : DescentLam k Γ q g₀ g' n1 n2) : DescentLam k Γ q g g' n1 n2 := by
+  cases k with
+  | zero => let ⟨t, u1, u2, h, rest⟩ := H; exact ⟨t, u1, u2, hred.trans h, rest⟩
+  | succ k => let ⟨A, e, B, h, rest⟩ := H; exact ⟨A, e, B, hred.trans h, rest⟩
+
+/-- An answer survives instantiation: the left side at `a₁`, the right side at any `a₂` it is
+`NormalEq` to.  Nothing here recurses on a `NormalEq`, so the repair at the leaves
+(`instN` then `instN_r`, composed by `trans`) costs nothing. -/
+theorem DescentLam.instN : ∀ {k : Nat} {Γ₀ Γ₁ Γ : List VExpr} {a₁ a₂ A₀ : VExpr} {j : Nat}
+    {q : Pattern} {g g' : VExpr} {n1 : q.LPath → List VLevel} {n2 : q.Path → VExpr},
+    OnCtx Γ₁ (IsType env univs) → Γ₀ ⊢ a₁ : A₀ → Γ₀ ⊢ a₁ ≡ₚ a₂ →
+    (∀ x, ∃ T, Γ₁ ⊢ n2 x : T) → Ctx.InstN Γ₀ a₁ A₀ j Γ₁ Γ →
+    DescentLam k Γ₁ q g g' n1 n2 →
+    DescentLam k Γ q (g.inst a₁ j) (g'.inst a₂ j) n1 (fun x => (n2 x).inst a₂ j) := by
+  intro k
+  induction k with
+  | zero =>
+    rintro Γ₀ Γ₁ Γ a₁ a₂ A₀ j q g g' n1 n2 hΓ₁ h₀ H' hn2 W ⟨t, u1, u2, hred, hmt, hlv, hwa, hwb, hn⟩
+    have ⟨_, hΓ⟩ := W.wf henv h₀ hΓ₁
+    refine ⟨t.inst a₁ j, u1, fun x => (u2 x).inst a₁ j,
+      ParRedS.instN h₀ W hred, Pattern.matches_instN hmt, hlv, hwa, hwb, fun x => ?_⟩
+    have ⟨_, hT⟩ := hn2 x
+    exact (NormalEq.instN h₀ W (hn x)).trans hΓ (NormalEq.instN_r hΓ₁ h₀ H' W hT)
+  | succ k ih =>
+    rintro Γ₀ Γ₁ Γ a₁ a₂ A₀ j q g g' n1 n2 hΓ₁ h₀ H' hn2 W ⟨A, e, B, hred, hty, D⟩
+    have ⟨_, hΓ⟩ := W.wf henv h₀ hΓ₁
+    have ⟨⟨_, hA⟩, _, _⟩ := have ⟨_, h⟩ := hty.isType henv hΓ₁; h.forallE_inv henv
+    have hΓ₁A : OnCtx (A::Γ₁) (IsType env univs) := ⟨hΓ₁, _, hA⟩
+    have hn2' : ∀ (x : Option q.Path), ∃ T,
+        (A::Γ₁) ⊢ (x.elim (.bvar 0) fun y => (n2 y).lift) : T := by
+      rintro (_|x)
+      · exact ⟨_, .bvar .zero⟩
+      · exact have ⟨_, h⟩ := hn2 x; ⟨_, h.weakN henv .one⟩
+    have hty' : Γ ⊢ g'.inst a₂ j : (VExpr.forallE A B).inst a₁ j :=
+      (((NormalEq.instN_r hΓ₁ h₀ H' W hty).defeq hΓ).of_l henv hΓ
+        (hty.instN henv W h₀)).hasType.2
+    have hinner := ih (q := .var q) hΓ₁A h₀ H' hn2' W.succ D
+    refine ⟨A.inst a₁ j, e.inst a₁ (j+1), B.inst a₁ (j+1), ?_, hty', ?_⟩
+    · simpa [VExpr.inst] using ParRedS.instN h₀ W hred
+    · simp [VExpr.inst, ← VExpr.lift_instN_lo] at hinner
+      refine DescentLam.congr_args (fun x => ?_) hinner
+      cases x <;> simp [VExpr.inst, VExpr.lift_instN_lo]
+
+/-- **Consuming an answer**: the function side of an application has eta-expanded (its answer
+sits under a pending layer), so the node is a β-redex; β-reduce and instantiate the answer.
+One layer is peeled, the argument is put back untouched. -/
+theorem DescentLam.beta {k : Nat} {Γ : List VExpr} {q₁ : Pattern} {A e f₂ a₁ a₂ : VExpr}
     {m1 : q₁.LPath → List VLevel} {g1 : q₁.Path → VExpr}
-    (hΓ : OnCtx Γ (IsType env univs)) (hsze : sizeOf e < N)
-    (l2 : Γ ⊢ f₂ : .forallE A₀ B₀) (l3 : Γ ⊢ a₁ : A₀) (l6 : Γ ⊢ a₁ ≡ₚ a₂)
-    (hf : q₁.Matches f₂ m1 g1) (hty : Γ ⊢ f₂ : .forallE A B)
-    (hbody : A::Γ ⊢ e ≡ₚ .app f₂.lift (.bvar 0)) :
-    (∃ s u1 ug, ParRedS Γ (.app (.lam A e) a₁) (.app s a₁) ∧ q₁.Matches s u1 ug ∧
-        (∀ lp, List.Forall₂ (· ≈ ·) (u1 lp) (m1 lp)) ∧
-        (∀ lp, ∀ l ∈ u1 lp, VLevel.WF univs l) ∧
-        (∀ lp, ∀ l ∈ m1 lp, VLevel.WF univs l) ∧
-        (∀ x, Γ ⊢ ug x ≡ₚ g1 x)) ∨
-      DescentEscape Γ (.app (.lam A e) a₁) (.app f₂ a₂) := by
-  have ⟨⟨_, hA⟩, _, hB⟩ := have ⟨_, h⟩ := hty.isType henv hΓ; h.forallE_inv henv
-  have hΓA : OnCtx (A::Γ) (IsType env univs) := ⟨hΓ, _, hA⟩
-  have ⟨⟨_, u1⟩, _, u2⟩ := (hty.uniqU henv hΓ l2).forallE_inv henv hΓ
-  have haA : Γ ⊢ a₁ : A := u1.symm.defeq l3
-  have hmlift : q₁.Matches f₂.lift m1 (fun x => (g1 x).lift) :=
-    Pattern.matches_liftN.2 ⟨g1, hf, fun _ => rfl⟩
-  match IH _ hsze (Nat.le_refl _) hΓA hbody (.var hmlift) with
-  | .inl ⟨t, u1', u2', hred, hmt, hlv, hwa, hwb, hn⟩ =>
-    cases hmt with
-    | @var _ tf _ tg ta hmtf =>
-      rename_i hmtf
-      cases (hn none : (A::Γ) ⊢ ta ≡ₚ .bvar 0) with
-      | refl _ =>
-        refine .inl ⟨tf.inst a₁, u1', fun x => (tg x).inst a₁, ?_,
-          Pattern.matches_instN hmtf, hlv, hwa, hwb, ?_⟩
-        · have := ParRedS.inst hΓ haA hred (a' := a₁) .rfl
-          simp [VExpr.inst] at this
-          exact .trans (.tail .rfl (.beta .rfl .rfl)) this
-        · intro x
-          have := NormalEq.instN haA .zero (hn (some x))
-          simpa [VExpr.inst_lift] using this
-      | etaL h1 h2 =>
-        -- **E5**: the argument position of the eta-expansion is itself a `.lam`.
-        sorry
-      | proofIrrel h1 h2 h3 =>
-        -- **E5/E3**: the argument position of the eta-expansion is a proof.
-        sorry
-  | .inr (.inl _) =>
-    -- The body is a `.lam` too: a *second* eta layer.  This is item 1 of the inventory --
-    -- the node reduces to a `.lam` whose body is instantiated, and the measure is lost.
-    sorry
-  | .inr (.inr ⟨P, hP, hp1, hp2⟩) =>
-    -- The body is a proof, so the β-redex is a proof of `P.inst a₁`, and so is `f₂.app a₂`.
-    refine .inr (.inr ⟨P.inst a₁, hP.instN henv .zero haA, (hA.lam hp1).app haA, ?_⟩)
-    have h1 : Γ ⊢ .app f₂ a₁ : P.inst a₁ := by
-      have := hp2.instN henv .zero haA
-      simpa [VExpr.inst, VExpr.inst_lift] using this
-    have hd : Γ ⊢ a₁ ≡ a₂ : A₀ := (l6.defeq hΓ).of_l henv hΓ l3
-    exact HasType.defeqU_r henv hΓ (h1.uniqU henv hΓ (l2.app l3)).symm
-      (IsDefEq.appDF l2 hd).hasType.2
+    (hΓ : OnCtx Γ (IsType env univs)) (haA : Γ ⊢ a₁ : A)
+    (hg1 : ∀ x, ∃ T, Γ ⊢ g1 x : T) (l6 : Γ ⊢ a₁ ≡ₚ a₂)
+    (D : DescentLam k (A::Γ) (.var q₁) e (.app f₂.lift (.bvar 0)) m1
+      (fun x => x.elim (.bvar 0) fun y => (g1 y).lift)) :
+    DescentLam k Γ (.var q₁) (e.inst a₁) (.app f₂ a₂) m1 (fun x => x.elim a₂ g1) := by
+  have hΓA : OnCtx (A::Γ) (IsType env univs) := ⟨hΓ, haA.isType henv hΓ⟩
+  have hn2 : ∀ (x : Option q₁.Path), ∃ T,
+      (A::Γ) ⊢ (x.elim (.bvar 0) fun y => (g1 y).lift) : T := by
+    rintro (_|x)
+    · exact ⟨_, .bvar .zero⟩
+    · exact have ⟨_, h⟩ := hg1 x; ⟨_, h.weakN henv .one⟩
+  have H := DescentLam.instN (q := .var q₁) hΓA haA l6 hn2 .zero D
+  have heq : (fun (x : (Pattern.var q₁).Path) =>
+        ((x.elim (.bvar 0) fun y => (g1 y).lift : VExpr)).inst a₂) =
+      (fun (x : (Pattern.var q₁).Path) => x.elim a₂ g1) :=
+    funext fun x => by cases x <;> simp [VExpr.inst, VExpr.inst_lift]
+  rw [heq] at H
+  simpa [VExpr.inst, VExpr.inst_lift] using H
+
 
 /-- **The descent**, with its escapes in the conclusion.  Induction is on the *left* term
 (`ParRedExt.parRed_beta` is the precedent): the `appDF` case recurses on the two children,
@@ -1684,16 +1707,36 @@ theorem NormalEq.descend : ∀ (N : Nat) {g : VExpr}, sizeOf g ≤ N →
   cases hne with
   | refl h =>
     obtain ⟨u1, u2, hmt, hlv, hwa, hwb, hn⟩ := descent_refl hΓ hm h
-    exact .inl ⟨_, u1, u2, .rfl, hmt, hlv, hwa, hwb, hn⟩
+    exact .inl ⟨0, _, u1, u2, .rfl, hmt, hlv, hwa, hwb, hn⟩
   | sortDF _ _ _ => cases hm
   | lamDF _ _ _ => cases hm
   | forallEDF _ _ _ _ => cases hm
   | etaR _ _ => cases hm
-  | etaL h1 h2 => exact .inr (.inl ⟨_, _, _, .rfl, h1, h2⟩)
-  | proofIrrel h1 h2 h3 => exact .inr (.inr ⟨_, h1, h2, h3⟩)
+  | proofIrrel h1 h2 h3 => exact .inr ⟨_, h1, h2, h3⟩
   | constDF h1 h2 h3 h4 h5 =>
     cases hm
-    exact .inl ⟨_, _, _, .rfl, .const, fun _ => h5, fun _ => h2, fun _ => h3, nofun⟩
+    exact .inl ⟨0, _, _, _, .rfl, .const, fun _ => h5, fun _ => h2, fun _ => h3, nofun⟩
+  | etaL h1 h2 =>
+    -- The left term *is* a `.lam`: descend its body against the eta-expanded right-hand
+    -- side, which the enlarged pattern `.var q` matches, and re-wrap.  The body is a strict
+    -- subterm, so this is the same `sizeOf` recursion as everywhere else.
+    have ⟨⟨_, hA⟩, _, hB⟩ := have ⟨_, h⟩ := h1.isType henv hΓ; h.forallE_inv henv
+    have hΓA : OnCtx (_::Γ) (IsType env univs) := ⟨hΓ, _, hA⟩
+    have hmlift : q.Matches g'.lift n1 (fun x => (n2 x).lift) :=
+      Pattern.matches_liftN.2 ⟨n2, hm, fun _ => rfl⟩
+    match IH _ (by simp at hsz; omega) (Nat.le_refl _) hΓA h2 (.var hmlift) with
+    | .inl ⟨k, D⟩ => exact .inl ⟨k+1, _, _, _, .rfl, h1, D⟩
+    | .inr ⟨P, hP, hp1, hp2⟩ =>
+      -- The body is a proof, so the `.lam` is a proof: `∀ A, P` is a `Prop` by `imax_zero`.
+      have hwf := have ⟨_, h⟩ := hA.isType henv hΓ; h.sort_inv henv
+      have hb0 := HasType.app (h1.weak henv) (.bvar .zero)
+      simp [instN_bvar0] at hb0
+      have hBP := hb0.uniqU henv hΓA hp2
+      exact .inr ⟨_,
+        IsDefEq.defeq (.sortDF (by exact ⟨hwf, ⟨⟩⟩) (by trivial) VLevel.imax_zero)
+          (hA.forallE hP),
+        hA.lam hp1,
+        HasType.defeqU_r henv hΓ ⟨_, .forallEDF hA (hBP.of_l henv hΓA hB)⟩ h1⟩
   | @appDF _ f₁ A₀ B₀ f₂ a₁ a₂ l1 l2 l3 l4 l5 l6 =>
     have hszf : sizeOf f₁ < N := by simp at hsz; omega
     have hsza : sizeOf a₁ < N := by simp at hsz; omega
@@ -1701,60 +1744,55 @@ theorem NormalEq.descend : ∀ (N : Nat) {g : VExpr}, sizeOf g ≤ N →
     | @var q₁ _ m1 g1 hf =>
       rename_i hf
       match IH _ hszf (Nat.le_refl _) hΓ l5 hf with
-      | .inl ⟨t, u1, u2, hred, hmt, hlv, hwa, hwb, hn⟩ =>
-        refine .inl ⟨.app t a₁, u1, (·.elim a₁ u2), .app hred .rfl, .var hmt, hlv, hwa, hwb, ?_⟩
+      | .inl ⟨0, t, u1, u2, hred, hmt, hlv, hwa, hwb, hn⟩ =>
+        refine .inl ⟨0, .app t a₁, u1, (·.elim a₁ u2), ParRedS.app hred .rfl, .var hmt,
+          hlv, hwa, hwb, ?_⟩
         rintro (_|x)
         · exact l6
         · exact hn x
-      | .inr (.inl ⟨A, e, B, hredl, hty, hbody⟩) =>
-        cases hredl with
-        | tail _ _ => sorry
-        | rfl =>
-          match descend_beta IH hΓ (by simp at hszf; omega) l2 l3 l6 hf hty hbody with
-          | .inl ⟨t, u1, u2, hred, hmt, hlv, hwa, hwb, hn⟩ =>
-            refine .inl ⟨_, u1, (·.elim a₁ u2), hred, .var hmt, hlv, hwa, hwb, ?_⟩
-            rintro (_|x)
-            · exact l6
-            · exact hn x
-          | .inr esc => exact .inr esc
-      | .inr (.inr ⟨P, hP, hp1, hp2⟩) => sorry
+      | .inl ⟨k+1, A, e, B, hred, hty, D⟩ =>
+        -- the function side eta-expanded: β-reduce and instantiate its answer
+        have ⟨⟨_, u1⟩, _, _⟩ := (hty.uniqU henv hΓ l2).forallE_inv henv hΓ
+        exact .inl ⟨k, DescentLam.head
+          (.trans (ParRedS.app hred .rfl) (.tail .rfl (.beta .rfl .rfl)))
+          (DescentLam.beta hΓ (u1.symm.defeq l3) (fun x => hf.hasType hΓ l2 x) l6 D)⟩
+      | .inr ⟨P, hP, hp1, hp2⟩ =>
+        -- **E3**: the function side is a proof, so the application is one too -- but showing
+        -- that needs `NormalEq.appDF_proofIrrel`'s `hsu`.  See the inventory, item 2.
+        sorry
     | @app q₁ _ m1 g1 q₂ _ m2 g2 hf ha =>
       rename_i ha
-      match IH _ hszf (Nat.le_refl _) hΓ l5 hf, IH _ hsza (Nat.le_refl _) hΓ l6 ha with
-      | .inl ⟨t, u1, u2, hred, hmt, hlv, hwa, hwb, hn⟩,
-        .inl ⟨s, v1, v2, hred2, hms, hlv2, hwa2, hwb2, hn2⟩ =>
-        refine .inl ⟨.app t s, Sum.elim u1 v1, Sum.elim u2 v2, .app hred hred2, .app hmt hms,
-          ?_, ?_, ?_, ?_⟩ <;> rintro (x|x)
-        · exact hlv x
-        · exact hlv2 x
-        · exact hwa x
-        · exact hwa2 x
-        · exact hwb x
-        · exact hwb2 x
-        · exact hn x
-        · exact hn2 x
-      | .inl _, .inr (.inl _) => sorry
-      | .inl _, .inr (.inr _) => sorry
-      | .inr (.inl ⟨A, e, B, hredl, hty, hbody⟩),
-        .inl ⟨s, v1, v2, hred2, hms, hlv2, hwa2, hwb2, hn2⟩ =>
-        cases hredl with
-        | tail _ _ => sorry
-        | rfl =>
-          match descend_beta IH hΓ (by simp at hszf; omega) l2 l3 l6 hf hty hbody with
-          | .inl ⟨t, u1, u2, hred, hmt, hlv, hwa, hwb, hn⟩ =>
-            refine .inl ⟨.app t s, Sum.elim u1 v1, Sum.elim u2 v2,
-              .trans hred (ParRedS.app .rfl hred2), .app hmt hms, ?_, ?_, ?_, ?_⟩ <;> rintro (x|x)
-            · exact hlv x
-            · exact hlv2 x
-            · exact hwa x
-            · exact hwa2 x
-            · exact hwb x
-            · exact hwb2 x
-            · exact hn x
-            · exact hn2 x
-          | .inr esc => exact .inr esc
-      | .inr (.inl _), .inr _ => sorry
-      | .inr (.inr ⟨P, hP, hp1, hp2⟩), _ => sorry
+      rcases IH _ hszf (Nat.le_refl _) hΓ l5 hf with ⟨kf, Df⟩ | escf
+      · rcases IH _ hsza (Nat.le_refl _) hΓ l6 ha with ⟨ka, Da⟩ | esca
+        · cases kf with
+          | succ kf =>
+            -- **E5**: the function side eta-expanded at an `.app` node.  Peeling the layer
+            -- gives an answer at `.var q₁`, whose argument position is unconstrained, while
+            -- this node needs it to match `q₂`.  See the inventory, item 3.
+            sorry
+          | zero =>
+            cases ka with
+            | succ ka =>
+              -- **E5**: an argument position that eta-expanded never matches `q₂`.
+              sorry
+            | zero =>
+              obtain ⟨t, u1, u2, hred, hmt, hlv, hwa, hwb, hn⟩ := Df
+              obtain ⟨s, v1, v2, hred2, hms, hlv2, hwa2, hwb2, hn2⟩ := Da
+              refine .inl ⟨0, .app t s, Sum.elim u1 v1, Sum.elim u2 v2,
+                ParRedS.app hred hred2, .app hmt hms, ?_, ?_, ?_, ?_⟩ <;> rintro (x|x)
+              · exact hlv x
+              · exact hlv2 x
+              · exact hwa x
+              · exact hwa2 x
+              · exact hwb x
+              · exact hwb2 x
+              · exact hn x
+              · exact hn2 x
+        · -- **E5**: an argument position that is a proof never matches `q₂`.
+          sorry
+      · -- **E3**: the function side is a proof; see item 2.
+        sorry
+
 
 /-- **`parRed`'s `appDF` × `extra` case.**  One `sorry`: E4 at the top node (item 4 of the
 `DescentOut` inventory).
@@ -1808,7 +1846,7 @@ theorem NormalEq.appDF_extra_of_descend {Γ : List VExpr} {f A B a b f₂ : VExp
         (Sum.elim f1 f2) m2' r.snd :=
       r3.congr_defeq hΓ _ fun x _ hty => ⟨_, (r4 x).defeq hΓ hty⟩
     match NormalEq.descend _ (Nat.le_refl _) hΓ hnode hmnode with
-    | .inl ⟨t, n1', n, hred, hmt, hlv, hwA, hwB, hne⟩ =>
+    | .inl ⟨0, t, n1', n, hred, hmt, hlv, hwA, hwB, hne⟩ =>
       have flipeq : ∀ {l1 l2 : List VLevel},
           List.Forall₂ (· ≈ ·) l1 l2 → List.Forall₂ (· ≈ ·) l2 l1 := by
         intro l1 l2 h
@@ -1844,15 +1882,15 @@ theorem NormalEq.appDF_extra_of_descend {Γ : List VExpr} {f A B a b f₂ : VExp
       refine hstep1.trans hΓ ?_
       have ⟨_, hh⟩ := hstep1.defeq hΓ
       exact NormalEq.apply_pat hΓ (fun (x : (q₁.app q₂).Path) _ _ => hne x) hh.hasType.2
-    | .inr (.inl ⟨A', e', B', hredl, hty', hbody⟩) =>
-      -- **E4 at the top node.**  `f.app a` reduces to a `.lam`, so the rule never fires on
-      -- the left and the two sides are related by `etaL` instead.  `etaL` needs
-      -- `A'::Γ ⊢ e' ≡ₚ (RHS.apply ..).lift.app (.bvar 0)`, while `hbody` gives the same with
-      -- the *redex* `(f₂'.app b').lift` in place of its contractum: the missing step is one
-      -- more descent, at the pattern `.var (q₁.app q₂)`, on `e'` -- which is the same dance
-      -- as `descend_beta`, at the top node.  See the note above `DescentOut`.
+    | .inl ⟨k+1, A', e', B', hredl, hty', hbody⟩ =>
+      -- **E4 at the top node** (inventory item 3).  `f.app a` reduces to a `.lam`, so the
+      -- rule never fires on the left and the two sides are related by `etaL` instead.
+      -- `hbody` is the answer under the `k+1` pending layers; what is missing is the firing
+      -- step *under* those layers -- the `.inl ⟨0, …⟩` branch above, indexed by `k`, closed
+      -- by `NormalEq.etaL` at each layer.  Not a measure question: `DescentLam` already
+      -- carries the answer, so nothing has to be re-descended.
       sorry
-    | .inr (.inr ⟨P, hP, hp1, hp2⟩) =>
+    | .inr ⟨P, hP, hp1, hp2⟩ =>
       -- **E3 at the top node**: both sides are proofs, so no reduction is needed.  The rule's
       -- output inhabits the same `Prop` by `Params.pat_wf`.
       exact ⟨_, ParRedS.app hf1 ha1,
