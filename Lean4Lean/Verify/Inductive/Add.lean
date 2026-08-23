@@ -131,6 +131,13 @@ structure VContext extends Context where
   (`TrLCtx.find?_eq_none`), and the `VLCtx` side has the `cons` simp lemmas that make the
   push case one line. -/
   reserves : ∀ fv ∈ mlctx.vlctx.fvars, ngen.Reserves fv
+  /-- **Created by composition, not relocated.**  The bridge to the type checker (A5) runs it
+  at a *fresh* state, whose generator reserves nothing.  So the type checker's `ngen_wf`
+  obligation can only be met by knowing our fvars are not *its* fvars — a fact neither
+  framework ever needed, because the two generators had never met.  `fvars_mint` says every
+  fvar here was minted by our generator; `prefix_ne` says our generator is not the kernel's. -/
+  fvars_mint : ∀ fv ∈ mlctx.vlctx.fvars, ∃ i, fv = ⟨.num ngen.namePrefix i⟩
+  prefix_ne : ngen.namePrefix ≠ `_kernel_fresh
 
 @[simp] abbrev VContext.vlctx (c : VContext) := c.mlctx.vlctx
 
@@ -173,7 +180,14 @@ def VContext.push (c : VContext) (name : Name) (ty : Expr) (ty' : VExpr) (bi : B
       rw [TypeChecker.MLCtx.vlctx, VLCtx.fvars_cons_some, List.mem_cons] at hfv
       rcases hfv with rfl | hfv
       · exact NameGenerator.next_reserves_self
-      · exact (c.reserves fv hfv).mono NameGenerator.LE.next }
+      · exact (c.reserves fv hfv).mono NameGenerator.LE.next
+    fvars_mint := by
+      intro fv hfv
+      rw [TypeChecker.MLCtx.vlctx, VLCtx.fvars_cons_some, List.mem_cons] at hfv
+      rcases hfv with rfl | hfv
+      · exact ⟨c.ngen.idx, rfl⟩
+      · exact c.fvars_mint fv hfv
+    prefix_ne := c.prefix_ne }
 
 @[simp] theorem VContext.push_lctx (c : VContext) {name ty ty' bi htr hty} :
     (c.push name ty ty' bi htr hty).lctx = c.lctx.mkLocalDecl ⟨c.ngen.curr⟩ name ty bi := rfl
@@ -226,6 +240,212 @@ def VContext.toTC (c : VContext) : TypeChecker.VContext where
   mlctx := c.mlctx
   mlctx_wf := c.mlctx_wf
   lctx_eq := c.lctx_eq
+
+/-- Our fvars are reserved by the type checker's *fresh* generator — vacuously, because they
+carry a different prefix.  This is the obligation composition manufactured. -/
+theorem VContext.reserves_kernel (c : VContext) {fv : FVarId}
+    (h : fv ∈ c.vlctx.fvars) : ({} : TypeChecker.VState).ngen.Reserves fv := by
+  intro i hi
+  obtain ⟨j, hj⟩ := c.fvars_mint fv h
+  rw [hj] at hi
+  simp only [FVarId.mk.injEq, Name.num.injEq] at hi
+  exact absurd hi.1 c.prefix_ne
+
+/-- The type checker's state invariant at the fresh state.  Every cache is empty; the context
+invariant is ours; the generator condition is `reserves_kernel`. -/
+theorem VContext.toTC_state_wf (c : VContext) :
+    TypeChecker.VState.WF c.toTC {} where
+  trctx := c.mlctx_wf.tr
+  ngen_wf _ h := c.reserves_kernel h
+  ectx := ⟨_, _, c.mlctx_wf.tr.wf, .refl, .empty, fun _ h => c.reserves_kernel h⟩
+  inferTypeI_wf := .empty
+  inferTypeC_wf := .empty
+  whnfCore_wf := .empty
+  whnf_wf := .empty
+  unfold_wf _ := by simp
+
+/-- **A5, at the `Except` level.**  Running the type checker from our context, at a fresh
+state, and discarding it.  Mirrors `TypeChecker.M.WF.run1`, which pins `lctx := {}`; ours
+runs at the local context we have actually built. -/
+theorem VContext.run_WF {c : VContext} {x : TypeChecker.M α} {Q : α → Prop}
+    (h : TypeChecker.M.WF c.toTC {} x fun a _ => Q a) :
+    ∀ a, TypeChecker.M.run c.env c.safety c.lctx c.lparams (fuel := c.fuel) x = .ok a → Q a := by
+  intro a eq
+  simp [TypeChecker.M.run, Functor.map, Except.map] at eq
+  split at eq <;> cases eq; rename_i eq
+  let ⟨_, _, _, _, H⟩ := h c.toTC_state_wf _ _ eq
+  exact H
+
+/-- **A5.**  A verified type-checker computation, lifted into `AddInductive.M`.  The
+postcondition transfers with the type checker's state existentially dropped, because the lift
+runs a fresh state and discards it — which is why this is one lemma rather than a
+state-compatible restatement of every phase. -/
+theorem M.WF.liftTC {c : VContext} {x : TypeChecker.M α} {Q : α → Prop}
+    (h : TypeChecker.M.WF c.toTC {} x fun a _ => Q a) :
+    M.WF c.toContext (liftM x) Q := VContext.run_WF h
+
+/-! ## A4: the environment-change rule
+
+`withEnv env x = withReader (fun c => { c with env }) x`, so the *combinator* half is
+`M.WF.withReader` and costs nothing.  All the content is in rebuilding the `VContext` at the
+new environment.
+
+**Row zero, run against the prediction "is there an invariant that neither side maintains once
+they are composed?".  Answer: yes — `mlctx_wf`.**
+
+- The **type checker** never changes its environment.  `Lean4Lean/TypeChecker.lean` has no
+  `withEnv`; its only `env :=` is inside a commented-out line (994) and `M.run`'s initial
+  record.  So `MLCtx.WF`'s behaviour under a growing `VEnv` is a question that framework never
+  had to ask, and `MLCtx.WF.mono` does not exist in the tree.
+- The **adder** changes its environment twice (`Inductive/Add.lean:469, 471`) but has no
+  local-context invariant to maintain: `LocalContext` does not mention `env`.
+
+Composed, `checkInductiveTypes` binds `stats` — whose `params`, `indConsts` and `lctx` are
+fvars checked at the *old* environment — and `run` then carries them under two `withEnv`s.  So
+a context built and verified at `venv` is used at `venv'`, and that is precisely the obligation
+neither framework owned.  `TrExprS.mono` (`Verify/Typing/Lemmas.lean:723`) exists, but only for
+single expressions; the context-level lifting below is new.
+
+`hasPrimitives`, `safePrimitives` and `trenv` are *hypotheses* here rather than derived:
+`HasPrimitives.extend` (`Verify/Primitive.lean:728`) transfers across an extension with exactly
+one new constant, and the adder adds a whole block.  The caller (R12) holds these from the
+`TrEnv` extension lemmas. -/
+
+/-- **Environment-monotonicity of the type checker's context invariant.**  Absent upstream
+because the type checker never changes environments; see the A4 note. -/
+theorem _root_.Lean4Lean.TypeChecker.MLCtx.WF.mono {env env' : VEnv} {Us : List Name}
+    (henv : env ≤ env') :
+    ∀ {c : TypeChecker.MLCtx}, c.WF env Us → c.WF env' Us
+  | .nil, h => h
+  | .vlam .., ⟨h1, h2, h3, h4⟩ => ⟨h1.mono henv, h2, h3.mono henv, h4.mono henv⟩
+  | .vlet .., ⟨h1, h2, h3, h4, h5⟩ =>
+    ⟨h1.mono henv, h2, h3.mono henv, h4.mono henv, h5.mono henv⟩
+
+/-- **The abstract context, moved to a larger environment.**  Only `mlctx_wf` needs work; the
+freshness fields are environment-free, and the three environment facts are supplied by the
+caller because the adder's extension adds many constants at once. -/
+def VContext.withEnv (c : VContext) (env' : Environment) (venv' : VEnv)
+    (hle : c.venv ≤ venv') (hprim : VEnv.HasPrimitives venv')
+    (hsafe : ∀ {n ci}, env'.find? n = some ci →
+      Environment.primitives.contains n → ci.safety = .safe ∧ ci.levelParams = [])
+    (htr : TrEnv c.safety env' venv') : VContext :=
+  { c with
+    env := env'
+    venv := venv'
+    hasPrimitives := hprim
+    safePrimitives := hsafe
+    trenv := htr
+    mlctx_wf := c.mlctx_wf.mono hle }
+
+@[simp] theorem VContext.withEnv_lctx (c : VContext) {env' venv' hle hprim hsafe htr} :
+    (c.withEnv env' venv' hle hprim hsafe htr).lctx = c.lctx := rfl
+
+@[simp] theorem VContext.withEnv_ngen (c : VContext) {env' venv' hle hprim hsafe htr} :
+    (c.withEnv env' venv' hle hprim hsafe htr).ngen = c.ngen := rfl
+
+@[simp] theorem VContext.withEnv_vlctx (c : VContext) {env' venv' hle hprim hsafe htr} :
+    (c.withEnv env' venv' hle hprim hsafe htr).vlctx = c.vlctx := rfl
+
+/-- **A4.**  `withEnv` runs its body in the context moved to the new environment. -/
+theorem M.WF.withEnv {c : VContext} {x : M α} {Q : α → Prop} {env' venv' hle hprim hsafe htr}
+    (h : x.WF (c.withEnv env' venv' hle hprim hsafe htr).toContext Q) :
+    (AddInductive.withEnv env' x).WF c.toContext Q := h
+
+/-! ## A6: `getEnv`, and the `StateT Nat` layer
+
+**Row zero.**  `getEnv` is not a rule of `AddInductive.M` at all: `Inductive/Add.lean` opens
+`TypeChecker`, so the `getEnv` at lines 203 and 483 is `TypeChecker.getEnv` reaching `M`
+through the `MonadLift` instance.  It could therefore go through `M.WF.liftTC`, but that
+would drag in the whole `VState.WF` bridge to read a reader field, so it gets its own
+one-line rule.
+
+The `StateT Nat` layer (`Inductive/Add.lean:482`, wrapping the recursor loop; the state is
+`mkRecRules`' `minorIdx`) is a second monad and would ordinarily need a second combinator
+family with its own state discipline.  It does not, because **no postcondition in this
+development mentions the counter**: `minorIdx` only picks which minor premise a recursor rule
+refers to, and that is checked structurally, not through the counter's value.  So `SM.WF`
+quantifies over the incoming state and discards the outgoing one, and every rule below is the
+`M.WF` rule with an extra `intro n`.  `run'` is then definitional. -/
+
+/-- `getEnv`, as a `WF` rule.  The environment is the reader's. -/
+theorem M.WF.getEnv {c : Context} {Q : Environment → Prop} (H : Q c.env) :
+    (liftM TypeChecker.getEnv : M Environment).WF c Q := by rintro _ ⟨⟩; exact H
+
+/-- Positive check that the rule fires on the term the source actually writes: at
+`Inductive/Add.lean:203` and `:483`, `getEnv` is `TypeChecker.getEnv` reaching `M` through the
+`MonadLift` instance, and this `example` elaborates it in exactly that way. -/
+example (c : Context) : M.WF c (TypeChecker.getEnv : M Environment) (· = c.env) :=
+  M.WF.getEnv rfl
+
+/-- Positive check that A4's rule fires on `Inductive/Add.lean`'s own combinator (line 54),
+at the two call sites' shape (lines 469, 471). -/
+example (c : VContext) (env' : Environment) (venv' : VEnv) (hle : c.venv ≤ venv')
+    (hprim : VEnv.HasPrimitives venv')
+    (hsafe : ∀ {n ci}, env'.find? n = some ci →
+      Environment.primitives.contains n → ci.safety = .safe ∧ ci.levelParams = [])
+    (htr : TrEnv c.safety env' venv') :
+    M.WF c.toContext (AddInductive.withEnv env' (TypeChecker.getEnv : M Environment))
+      (· = env') :=
+  M.WF.withEnv (hle := hle) (hprim := hprim) (hsafe := hsafe) (htr := htr) (M.WF.getEnv rfl)
+
+/-- The `StateT Nat` analogue of `M.WF`.  Universally quantified over the incoming counter and
+silent about the outgoing one — see the A6 note for why that is enough. -/
+def SM.WF (c : Context) (x : StateT Nat M α) (Q : α → Prop) : Prop :=
+  ∀ n a n', x n c = .ok (a, n') → Q a
+
+theorem SM.WF.pure {c : Context} {Q : α → Prop} (H : Q a) :
+    SM.WF c (pure a : StateT Nat M α) Q := by
+  rintro _ _ _ ⟨⟩; exact H
+
+theorem SM.WF.throw {c : Context} {Q : α → Prop} {e} :
+    SM.WF c (throw e : StateT Nat M α) Q := nofun
+
+theorem SM.WF.bind {c : Context} {x : StateT Nat M α} {f : α → StateT Nat M β} {Q R}
+    (h1 : SM.WF c x Q) (h2 : ∀ a, Q a → SM.WF c (f a) R) : SM.WF c (x >>= f) R := by
+  intro n b n' eq
+  replace eq : (x n c >>= fun p => f p.1 p.2 c) = .ok (b, n') := eq
+  cases hx : x n c with
+  | error => rw [hx] at eq; exact absurd eq nofun
+  | ok p => rw [hx] at eq; exact h2 p.1 (h1 n p.1 p.2 hx) _ _ _ eq
+
+theorem SM.WF.mono {c : Context} {x : StateT Nat M α} {Q R}
+    (h1 : SM.WF c x Q) (h2 : ∀ a, Q a → R a) : SM.WF c x R :=
+  fun n a n' e => h2 a (h1 n a n' e)
+
+theorem SM.WF.map {c : Context} {x : StateT Nat M α} {f : α → β} {Q R}
+    (h1 : SM.WF c x Q) (h2 : ∀ a, Q a → R (f a)) : SM.WF c (f <$> x) R := by
+  rw [map_eq_pure_bind]; exact h1.bind fun _ h => .pure (h2 _ h)
+
+/-- An `M` computation lifted into the counter layer keeps its postcondition. -/
+theorem SM.WF.lift {c : Context} {x : M α} {Q} (h : x.WF c Q) :
+    SM.WF c (liftM x : StateT Nat M α) Q := by
+  intro n a n' eq
+  replace eq : (x c >>= fun a => .ok (a, n)) = .ok (a, n') := eq
+  cases hx : x c with
+  | error => rw [hx] at eq; exact absurd eq nofun
+  | ok b => rw [hx] at eq; cases eq; exact h _ hx
+
+theorem SM.WF.forIn {c : Context} {f : α → β → StateT Nat M (ForInStep β)}
+    {Inv : List α → β → Prop}
+    (H : ∀ a as b, Inv (a :: as) b →
+      SM.WF c (f a b) fun r => ∃ b', r = .yield b' ∧ Inv as b') :
+    ∀ {xs : List α} {b : β}, Inv xs b → SM.WF c (forIn xs b f) fun b' => Inv [] b'
+  | [], _, h => .pure h
+  | a :: as, b, h => by
+    rw [List.forIn_cons]
+    refine (H a as b h).bind fun r hr => ?_
+    obtain ⟨b', rfl, hinv⟩ := hr
+    exact SM.WF.forIn H hinv
+
+/-- **A6.**  Running the counter layer and discarding the counter.  Definitional, because
+`SM.WF` was already stated with the outgoing state discarded. -/
+theorem M.WF.stateT_run' {c : Context} {x : StateT Nat M α} {Q} {n : Nat}
+    (h : SM.WF c x Q) : (StateT.run' x n : M α).WF c Q := by
+  intro a eq
+  replace eq : (x n c >>= fun p => .ok p.1) = .ok a := eq
+  cases hx : x n c with
+  | error => rw [hx] at eq; exact absurd eq nofun
+  | ok p => rw [hx] at eq; cases eq; exact h n p.1 p.2 hx
 
 end AddInductive
 end Lean4Lean
