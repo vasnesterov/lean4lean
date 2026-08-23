@@ -122,6 +122,27 @@ case need exactly this.
 
 ## 5. The live lead: `PropTypeAgree`
 
+**The criterion, first, because it predicts rather than explains.**
+
+> A conclusion **propagated along** a conversion tolerates an arbitrary middle term.
+> One **asserted of** its endpoints does not.
+
+`sort_inv`'s `trans` case fails because `.sort u ≡ e₂ ≡ .sort v` says nothing about `e₂`; the
+IHs do not apply. It has now decided three statements — it explained why the equality form was
+hopeless, predicted that `PropTypeAgree`'s binary form would close `trans` (it does, by
+composition), and predicted that `PropUniq` would not (it does not). Apply it before
+attempting any new statement on this route.
+
+**And an irony worth stating, because the natural reasoning goes the other way.** The obvious
+move is to attack these statements *unstratified*, since closing there would make the index
+unnecessary. It is the wrong move: unstratified, the sort inversion these proofs need is
+`HasTypeStrong.sort_type`, which *provably takes `SortUniq` as a hypothesis*, because this
+tree's `IsDefEq` is type-indexed and composing conversions at two types **is** unique typing.
+At the index, `HasTypeN.sort_inv` is free. So the setting that looks like the escape is the
+one carrying the port's own defect, and the index — whose published metatheory is refuted in
+§2 — is where this family of cases is cheap.
+
+
 The model stream has re-parameterised and now imports one statement:
 
 > `Γ ⊢ e : A`, `Γ ⊢ e : A'`, `A` a proposition ⟹ `A'` a proposition.
@@ -181,11 +202,20 @@ So `PropUniq` needs normalisation, which puts it in the `SortUniq` family — an
 cumulativity check gives it no model route either. **Finishing `PropTypeAgree` does not
 discharge the model.**
 
-What `PropTypeAgree` *does* buy is on the syntactic side, and it is not small:
-`sort_not_proof` is `PropTypeAgree` at `e = .sort u`, so `PropTypeAgree` at `n` together with
-`DefInv n` — which is the induction hypothesis, not a circularity — gives `sort_not_proof` at
-`n` and closes `DefInv (n+1)`'s `proofIrrel` cases. That removes **one** of the two obstacles
-in §4. It does not remove the other: `trans`/normalisation survives untouched.
+What `PropTypeAgree` *does* buy is on the syntactic side, and **both halves are now checked
+rather than assumed**:
+
+* `sortNotProof_of` and `forallENotProof_of` (landed, sorry-free, `Typing/UniqueTypingN.lean`):
+  `PropTypeAgree` at `n` together with `DefInv` at `n` — both the induction hypothesis, so
+  nothing is circular — give "a sort is not a proof" and "a Π-type is not a proof" at `n`.
+  *(Note the second is not "a Π is not a proposition", which is false: `∀ x : α, β` is a
+  proposition whenever `β` is. It says a term whose type is a Π does not also inhabit a
+  proposition.)*
+* With those, **`DefInv (n+1)` clause (1) closes in every case except `trans`** — machine-
+  checked. `proofIrrel` closes outright.
+
+So this removes **one** of the two obstacles in §4 and leaves the other standing alone:
+`trans`/normalisation, and nothing else.
 
 ### The remaining cases, with what is known
 
@@ -241,3 +271,26 @@ came back positive.
 
 Build the unknown first. Every one of these came from running the check that was flagged as
 unpriced, before building the thing it gated.
+
+---
+
+## 8. What is left after `PropTypeAgree`: `trans` alone
+
+If `PropTypeAgree` lands, the residual of the whole route is one case. Framing for whoever
+prices it — an option set, not a recommendation:
+
+* **The criterion says `trans` cannot be dodged by reformulation.** Clause (1)'s conclusion is
+  inherently asserted of its endpoints ("both are sorts, and their levels agree"), so no
+  propagated-along restatement of it exists. It needs a *reduction relation* — something that
+  says what the middle term does.
+* **`unique.tex` §§3–4 (κ-reduction + Church–Rosser) is now materially cheaper than it looked.**
+  Its uses of unique typing were measured at three sites; `:180` is eliminated by the `K⁺`
+  repair (§2b), and `:266`/`:272` are exactly what `sortNotProof_of`/`forallENotProof_of`
+  discharge. So if `PropTypeAgree` lands, §§3–4 restated over `IsDefEqN` has **no remaining
+  unique-typing dependency** — it becomes transcription plus one rule repair.
+* **A sorts-only normalisation is not a shortcut.** "A term convertible with a sort reduces to
+  a sort" is not closed under its own induction: its `appDF` case needs the function's
+  argument to reduce to a λ, dragging in Π-shape.
+* **A different metatheory** (algorithmic conversion plus a logical relation) breaks the
+  typing/conversion circle without a reduction relation at all. Standard in the literature,
+  outside anything `~/lean-type-theory` provides, and large.

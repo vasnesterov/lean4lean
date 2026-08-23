@@ -508,5 +508,69 @@ theorem DefInv.sort_proofIrrel
   VLevel.succ_congr_iff.1
     (dinv1 (IsDefEqN.trans' (HasTypeN.sort_inv h2).2 (IsDefEqN.symm' (HasTypeN.sort_inv h3).2)))
 
+/-! ## `PropTypeAgree`, and what it buys
+
+The set model's sole syntactic import (after its re-parameterisation) is
+
+> `Γ ⊢ e : A`, `Γ ⊢ e : A'`, `A` a proposition ⟹ `A'` a proposition.
+
+It is strictly weaker than unique typing — binary, not an equality — and it passes the
+cumulativity check that refuted `SortUniq` (cumulativity retypes at *sorts* and never gives a
+proof a second type).
+
+**The criterion that decides these statements**, and it has now predicted twice before
+explaining: *a conclusion **propagated along** a conversion tolerates an arbitrary middle
+term; one **asserted of** its endpoints does not.*  `sort_inv`'s `trans` case fails because
+`.sort u ≡ e₂ ≡ .sort v` says nothing about `e₂`.  `PropTypeAgree`'s residual —
+`A ≡ₙ A' ⟹ (IsProp A ↔ IsProp A')` — is of the first kind, and its `trans` case closes by
+composition.  `PropUniq`, the model's *other* import, is of the second kind and inherits
+`sort_inv`'s wall.
+
+**Status of the residual**, machine-checked at the index: `rfl`, `symm`, `trans` (composition),
+`sortDF` (retype along the level equivalence) and `lamDF` (vacuous by `DefInv` clause (3))
+close; `constDF`, `forallEDF`, `appDF`, `beta`, `eta`, `proofIrrel`, `extra` are open.
+`forallEDF` resists on context conversion — which is *already* target-preserving here, so the
+blocker is the index drop rather than an injectivity dependency — and `proofIrrel` is vacuous
+*given the statement itself*, so it wants a separate argument rather than a case in the
+induction.
+
+Work this statement **at the index, not unstratified.**  Unstratified the `sortDF` case needs
+`HasTypeStrong.sort_type`, which provably takes `SortUniq` as a hypothesis because this tree's
+`IsDefEq` is type-indexed; at the index `HasTypeN.sort_inv` is free.  The setting that looks
+like the escape is the one carrying the port's own defect. -/
+
+/-- `A` is a proposition. -/
+abbrev IsPropN (env : VEnv) (U n : Nat) (Γ : List VExpr) (A : VExpr) : Prop :=
+  env.HasTypeN U n Γ A (.sort .zero)
+
+/-- **The set model's syntactic import**, at the index. -/
+def PropTypeAgree (env : VEnv) (U n : Nat) : Prop :=
+  ∀ {Γ : List VExpr} {e A A' : VExpr},
+    env.HasTypeN U n Γ e A → env.HasTypeN U n Γ e A' →
+    IsPropN env U n Γ A → IsPropN env U n Γ A'
+
+/-- **The payoff, checked rather than assumed: a sort is not a proof.**
+
+This is `Theory/Typing/SortUniq.lean`'s `sort_not_proof` at the index, and it is derived here
+from `PropTypeAgree` and `DefInv` *at the same index* — so in the induction that proves
+`DefInv (n+1)`, both are available as the induction hypothesis and nothing is circular. -/
+theorem sortNotProof_of (dinv : env.DefInv U n) (pta : env.PropTypeAgree U n)
+    {Γ : List VExpr} {p : VExpr} {u : VLevel}
+    (h1 : env.HasTypeN U n Γ p (.sort .zero)) (h2 : env.HasTypeN U n Γ (.sort u) p) :
+    False := by
+  have h4 : IsPropN env U n Γ (.sort (.succ u)) := pta h2 (.sort (HasTypeN.sort_inv h2).1) h1
+  exact absurd (congrFun (dinv.sort (HasTypeN.sort_inv h4).2) []) (by simp [VLevel.eval])
+
+/-- **The payoff, second half: a Π-type is not a proof.**  Note this is *not* "a Π-type is not
+a proposition", which is false — `∀ x : α, β` is a proposition whenever `β` is.  It says a
+*term whose type is a Π* does not also inhabit a proposition. -/
+theorem forallENotProof_of (dinv : env.DefInv U n) (pta : env.PropTypeAgree U n)
+    {Γ : List VExpr} {p A B : VExpr}
+    (h1 : env.HasTypeN U n Γ p (.sort .zero)) (h2 : env.HasTypeN U n Γ (.forallE A B) p) :
+    False := by
+  obtain ⟨u, v, hu, hv, hA, hB, _⟩ := HasTypeN.forallE_inv h2
+  have h4 : IsPropN env U n Γ (.sort (.imax u v)) := pta h2 (.forallE hu hv hA hB) h1
+  exact absurd (congrFun (dinv.sort (HasTypeN.sort_inv h4).2) []) (by simp [VLevel.eval])
+
 end VEnv
 end Lean4Lean
