@@ -2115,6 +2115,73 @@ predict where they will be needed, but precisely because you cannot** — and th
 moment they stop reading as idle remarks is the moment it is too late to write
 them.
 
+## Re-measuring the translation: it is **not** transcription, and the reason is new
+
+I measured `VIndCtor → CtorData` as blocker-free transcription once, before the
+escape hatch changed its shape, and it was not. The port has changed the shape
+again, so I re-measured before building — enumerating what consumes the
+translation's output rather than checking the first consumer to hand.
+
+**It comes back "not transcription" a second time, at a site the port does not
+cover.**
+
+### The finding: `Pos` has no `Args`-shaped escape
+
+`Pos q a` is the disjoint union over the constructor's recursive fields of
+`⟦r.binders⟧`. `Decl.lean` specifies `r.binders` as "*`ξ`, in declaration order,
+over `params ++ fields<i`. Contains no block constant*" — block-free, but living
+over a context that **includes earlier recursive fields**. So evaluating it
+needs their values.
+
+`Pos : V → V → V` takes only `(q, a)`. It cannot take `f`, because `Pos q a` is
+what *types* `f`. So either `a` carries the recursive fillers, or `r.binders`
+does not depend on them — and the second is `NoBlock.indep`, restated at
+`r.binders` instead of at the `pos`-clause's `A`. Same statement, same
+disjointness family, different site.
+
+**The port fixed `Fld`'s dependence on `f` and could not fix `Pos`'s**, because
+`Args` works by constraining the pair `⟨a, f⟩ₖ` *after* `f` has a type, and
+`Pos` is upstream of that.
+
+### Why `a` cannot simply carry the fillers
+
+That is the obvious escape and the enumeration kills it, with a named family.
+
+`IsSubsingletonSignature.fld_det` asks `resIdx q a = resIdx q a' → a = a'`.
+`Ind_subsingleton`'s proof (`Inductive.lean:648`) uses it to pin `a` from the
+index and *then* pins `f` by the rank induction hypothesis — which is exactly
+how it handles families that do have recursive fields. Put the fillers inside
+`a` and `fld_det` must determine them from the result index, which it cannot;
+the rank IH can no longer be reached.
+
+The family this breaks is **`Acc`** — a large-eliminating subsingleton with a
+recursive field, whose eliminator is not optional. Note this is a *sharper*
+refutation than the one that killed the redundant-copy design earlier: that one
+was "some subsingleton might break", this one names the family and the line of
+the proof that stops working.
+
+### Options, priced
+
+1. **`NoBlock.indep` at `r.binders`.** Same disjointness family, now known to be
+   in `sort_inv`'s equivalence class, i.e. behind the 3000–6000-line stratified
+   Church–Rosser build.
+2. **Generalise `Pos` further.** Does not help: the dependence is on `f`'s
+   *values*, not on the approximation, and anything that makes `Pos` a superset
+   computable without them puts junk positions into `f`, reintroducing the
+   junk-in-the-carrier problem one level down.
+3. **Record it in the specification rather than derive it** — require
+   `r.binders` to be independent of recursive-field variables as part of
+   `VIndField.WF`. `Decl.lean` already uses exactly this device, twice, and says
+   so: `VIndField.lvl` is "*recorded, not derived*" because `sort_inv` is open,
+   and the `HasArgs` clause likewise. This is the same situation and the same
+   remedy, and it is a `Decl.lean` change (not mine).
+
+**Recommendation: 3.** It is precedented in the file that would carry it, it is
+a clause about the syntax rather than a model-side generalisation, and unlike
+options 1 and 2 it does not wait on the contested obligation. The cost is one
+more recorded-not-derived clause and whatever it takes to show the kernel's
+positivity check implies it.
+
 ### `.induct`: what it now has, and what it still lacks
 
 **Has** — all sorry-free, `[propext, Classical.choice, Quot.sound]`:
@@ -2129,12 +2196,32 @@ them.
 * the definability toolkit and the assembly (`mkIndSignature`) from earlier
   rounds.
 
-**Lacks** — one thing, and it is the same one as before the port:
+**Lacks** — one thing, and the re-measurement above says what it costs:
 
 * **the translation `VIndCtor → CtorData`/`Args`.** The syntactic half. The port
-  removed its *obstruction* (nothing now forces `a` and `f` apart) but not the
-  work: reading the per-constructor data off `Decl.lean`'s record, with choice
-  on `WF.pos`'s chain-free existential and that file's context conventions.
+  removed the obstruction at `Fld` (nothing now forces `a` and `f` apart) but
+  not the one at `Pos`, which has no `Args`-shaped escape. Blocked on a
+  `NoBlock.indep`-shaped clause for `r.binders`, for which the recommended
+  route is a recorded-not-derived clause in `Decl.lean` rather than the
+  disjointness family.
+
+### Method, not an anecdote: why prophylactic notes are load-bearing
+
+Recorded here as method because it has now fired three times, twice outside the
+subsystem it was written about.
+
+> Write the note at the moment the property is *observed*, not when it is
+> needed — because you cannot predict where it will be needed, and the moment
+> you *can* say where, you have already paid for the knowledge.
+
+If such notes only ever fired inside the subsystem they described, writing them
+early would just be tidiness. What makes the practice load-bearing is that they
+fire elsewhere: the moving-invariant note fired two declarations later in its
+own file; the diverging-search note, written about `definability`, diagnosed a
+**`whnf` unification** failure; and a remedy written for `mkLam_mem_mkForallType`
+closed `Ind₃_subset_Ind_of` **two files away**. None was aimed where it landed.
+The corollary for practice: the notes that feel least worth writing — the idle
+remarks about a property that currently costs nothing — are the ones to write.
 
 So `.induct` is **open**, and the model remains conditional on `LevelAssign` —
 unwitnessed, four consumers. A closed port does not change either label.
