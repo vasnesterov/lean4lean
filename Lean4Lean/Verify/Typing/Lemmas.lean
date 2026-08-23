@@ -1991,10 +1991,16 @@ theorem BetaReduce.cheapBetaReduce (hc : e.Closed) : BetaReduce e e.cheapBetaRed
     have := eqr ▸ hc.getAppArgsList; simp [or_imp, forall_and] at this
     exact this.1
   unfold Expr.cheapBetaReduce.cont; split <;> rename_i h3
-  · simp [Expr.hasLooseBVars] at h3
-    rw [Expr.mkAppRange_eq (l₂ := l₂) (l₃ := []) (by simp [eq]) rfl (by simp [← eq])]
+  · -- `h3 : !fn.hasLooseBVars` is *not* used: the cached 20-bit `looseBVarRange` field cannot
+    -- be trusted, so this branch performs the substitution that the C++ kernel skips. It is a
+    -- beta reduction whether or not the bit was honest.
+    clear h3
+    have hinst : fn.instantiateRevRange 0 l₁.length e.getAppArgsList.toArray
+        = fn.instantiateList l₁.reverse := by
+      simp; congr 1; simp [eq]
+    rw [hinst, Expr.mkAppRange_eq (l₂ := l₂) (l₃ := []) (by simp [eq]) rfl (by simp [← eq])]
     rw [← e.mkAppList_getAppArgsList, eqr]; simp
-    refine .mkAppList <| .inst_reduce hl₁ [] h1 (Expr.instantiateList_eq_self h3)
+    exact .mkAppList <| .inst_reduce hl₁ [] h1 (by simp)
   split <;> [rename_i n; exact .refl]
   have hc := h1.closed hc.getAppFn
   simp [Closed] at hc; rw [if_pos hc]

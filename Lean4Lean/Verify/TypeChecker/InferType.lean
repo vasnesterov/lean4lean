@@ -460,7 +460,7 @@ theorem inferType'.WF
     exact (inferProj.WF h1 h2 h3).bind fun ty _ _ ⟨ty', h⟩ => hF h
   · exact .readThe <| (M.WF.liftExcept inferFVar.WF).lift.bind fun _ _ _ ⟨_, _, h⟩ => hF h
   · exact .throw
-  · rename_i h _; simp [Expr.hasLooseBVars, Expr.looseBVarRange'] at h
+  · exact .throw
   · split <;> rename_i h
     · refine .readThe <| (M.WF.liftExcept (checkLevel.WF h1)).lift.bind fun _ _ _ ⟨_, h⟩ => ?_
       exact hF (infer_sort h)

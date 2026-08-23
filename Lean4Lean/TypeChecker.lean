@@ -279,7 +279,15 @@ def inferType' (e : Expr) (inferOnly : Bool) : RecM Expr := do
     | .proj s idx e => inferProj s idx e (← inferType' e inferOnly)
     | .fvar n => inferFVar (← readThe Context) n
     | .mvar _ => throw <| .other "kernel type checker does not support meta variables"
-    | .bvar _ => unreachable!
+    | .bvar _ =>
+      -- Unreachable: the `hasLooseBVars` test above rejects every expression with a loose
+      -- bound variable, and a bare `.bvar` is one. The C++ kernel writes `lean_unreachable()`
+      -- here; we reject instead, so that the checker stays total and never continues from a
+      -- `default` value -- not even if the cached `looseBVarRange` field of the incoming
+      -- `Expr` were to lie about its contents (lean4#8554).
+      throw <| .other
+        s!"type checker does not support loose bound variables, \
+           replace them with free variables before invoking it"
     | .sort l =>
       if !inferOnly then
         checkLevel (← readThe Context) l
@@ -553,12 +561,16 @@ def isDefEqLambda (t s : Expr) (subst : Array Expr := #[]) : RecM Bool :=
       let tType := tDom.instantiateRev subst
       if !(← isDefEq tType sType) then return false
       pure (some sType)
-    if tBody.hasLooseBVars || sBody.hasLooseBVars then
-      let sType := sType.getD (sDom.instantiateRev subst)
-      withLocalDecl name bi sType fun fv => do
-        isDefEqLambda tBody sBody (subst.push fv)
-    else
-      isDefEqLambda tBody sBody (subst.push default)
+    -- Divergence from the C++ kernel: it skips the local declaration when
+    -- `tBody.hasLooseBVars || sBody.hasLooseBVars` is false, pushing `default` instead of a
+    -- free variable. That test reads the cached 20-bit `looseBVarRange` field, which is
+    -- wrong for a term whose `bvar` indices overflow it (lean4#8554), and a bit that wrongly
+    -- reported "no loose bvars" would compare the two bodies with `default` substituted for
+    -- the binder. When the bit is honest the two branches compute the same answer -- the
+    -- pushed value is never looked at -- so nothing changes but the cost. See `divergences.md`.
+    let sType := sType.getD (sDom.instantiateRev subst)
+    withLocalDecl name bi sType fun fv => do
+      isDefEqLambda tBody sBody (subst.push fv)
   | t, s => isDefEq (t.instantiateRev subst) (s.instantiateRev subst)
 
 /-- If `t` and `s` are for-all expressions, checks that their domains are defeq and recurses on the
@@ -572,12 +584,16 @@ def isDefEqForall (t s : Expr) (subst : Array Expr := #[]) : RecM Bool :=
       let tType := tDom.instantiateRev subst
       if !(← isDefEq tType sType) then return false
       pure (some sType)
-    if tBody.hasLooseBVars || sBody.hasLooseBVars then
-      let sType := sType.getD (sDom.instantiateRev subst)
-      withLocalDecl name bi sType fun fv =>
-        isDefEqForall tBody sBody (subst.push fv)
-    else
-      isDefEqForall tBody sBody (subst.push default)
+    -- Divergence from the C++ kernel: it skips the local declaration when
+    -- `tBody.hasLooseBVars || sBody.hasLooseBVars` is false, pushing `default` instead of a
+    -- free variable. That test reads the cached 20-bit `looseBVarRange` field, which is
+    -- wrong for a term whose `bvar` indices overflow it (lean4#8554), and a bit that wrongly
+    -- reported "no loose bvars" would compare the two bodies with `default` substituted for
+    -- the binder. When the bit is honest the two branches compute the same answer -- the
+    -- pushed value is never looked at -- so nothing changes but the cost. See `divergences.md`.
+    let sType := sType.getD (sDom.instantiateRev subst)
+    withLocalDecl name bi sType fun fv =>
+      isDefEqForall tBody sBody (subst.push fv)
   | t, s => isDefEq (t.instantiateRev subst) (s.instantiateRev subst)
 
 /-- Decides definitional equality of `t` and `s` in the cases that can be settled without
