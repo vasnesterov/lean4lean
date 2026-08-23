@@ -41,6 +41,14 @@ Two things a fresh reader will otherwise re-derive:
    all: **the environment class every target in `Injectivity.lean` is stated over is not
    normalising**, so it blocks any normalisation-flavoured route and needs a `Verify/`-side
    re-cut first.
+4. **§13(b)'s conclusion does not hold at its own witness — §14, machine-checked.** The
+   cycle `LogRelRowZero.lean` exhibits is between two *proofs of one proposition*, which
+   `proofIrrel` identifies anyway, so it breaks **reduction** without enlarging
+   **conversion**: `Theory/Typing/CycleConv.lean` shows `loopEnv`'s conversion relation *is*
+   that of a rule-free, `noUnsafe` environment. `sort_inv` also **survives** refutation
+   there. And the re-cut §13(b) asks for would not help: `sort_inv`'s `proofIrrel` case is
+   live **over the empty environment**, from the context alone. Do not re-run either check
+   without reading §14.
 
 The general rule the previous handoff drew — *necessity has to be checked against the
 specification, not the tree* — held up and then paid again in the opposite direction: this
@@ -78,6 +86,10 @@ no `bv_decide`, no axiom added.
 | `HasTypeStrong.regular`, `HasTypeStrong.sortType` | `Typing/UnivDiscrim.lean` | **regularity is free in the type-indexed judgment** — no `Ordered`, no `OnCtx`, no `CtxStrong`, no hypothesis at all. Contrast `IsDefEqStrong.isType'`, which needs all three |
 | `SortForallEDisjointSUniv.iff` | `Typing/UnivDiscrim.lean` | the universe-relativised statement **is** the statement — trap #11 in a new instance |
 | `appCase_ih_vacuous` | `Typing/UnivDiscrim.lean` | the `app` case's induction hypothesis at `f` is *vacuously true*, provable from `DefInv` with the sub-derivation unused |
+| `loop_conv_iff`, `loopEnv_conv_iff`, `sort_inv_transfer` | `Typing/CycleConv.lean` | **the δ-cycle of `LogRelRowZero.lean` adds no conversions** — `loopEnv`'s conversion relation *is* that of `loopEnv2`, which has no rule at all; so the six targets there are the targets at a cycle-free environment (§14) |
+| `loopEnv2_wf_noUnsafe`, `loopEnv2_no_defeqs` | `Typing/CycleConv.lean` | …and `loopEnv2` is `VEnv.WF` by two `.axiom` steps, `noUnsafe`, rule-free |
+| `empty_ctx_inconsistent` | `Typing/CycleConv.lean` | **the `proofIrrel` obstruction is not an environment fact**: `sort_inv`'s own hypotheses inhabit every proposition over `VEnv.empty`, from the context |
+| `propLoopEnv`, `propLoop_headStep_not_wf`, `propLoop_no_direct_collapse` | `Typing/CycleConv.lean` | the row-zero cycle re-aimed at a block of *propositions*, where the collapse recipe provably does not apply |
 
 **The inversion lemmas are the asset.** They made the refutation a fifteen-line induction
 instead of a confluence argument, and they made the `:266` improvement a five-line proof.
@@ -840,6 +852,15 @@ carrying the block's constants, so two members naming each other install `f ≡ 
 the statements are false there.* Aiming a refutation of `sort_inv` at such an environment is
 a cheap untried thread.
 
+> **Superseded in part — read §14 before using this paragraph.** The thread was pulled.
+> `sort_inv` is **not** refutable there (§14.1), and more importantly the bolded sentence is
+> **wrong at this witness**: `loopEnv`'s two members are proofs of one proposition, so
+> `proofIrrel` already identifies them and the two rules add *nothing* to the conversion
+> relation. `Theory/Typing/CycleConv.lean` machine-checks that `loopEnv.IsDefEq` **is**
+> `loopEnv2.IsDefEq`, where `loopEnv2` has no rule at all and is `VEnv.WF` by two `.axiom`
+> steps. `headStep_not_wf` stands; what it is evidence *for* does not. A witness that
+> survives the collapse — `propLoopEnv` — is in the same file.
+
 The repair — restrict to `VEnv.LeanWF` — is already done on the *model* side
 (`Verify/Bridge.lean:236`) and **not** on the algorithm side: `VContext` carries an arbitrary
 `DefinitionSafety`, and `TrProj.uniq` / `TrProj.defeqDFC` / `TrProj.weak'_inv` /
@@ -873,3 +894,179 @@ different ones — trap #11 again), and a **type-directed** one removes `PropSpl
 logical relation.
 
 ---
+
+## 14. The environment class — the cycle is a reduction fact, not a conversion fact
+
+**This section corrects §13(b) and `docs/logrel-scope.md` §1 at their own witness.** New
+machine-checked file: `Theory/Typing/CycleConv.lean` (sorry-free, `[propext, Quot.sound]`).
+
+### 14.1 The refutation attempt — `sort_inv` was **not** refuted
+
+§13(b) named "aiming a refutation of `sort_inv` at a `.unsafeDef` environment" as the cheap
+untried thread. It was tried. **`sort_inv` survives**, and so does the rest of the family;
+the reason is structural rather than a failure of ingenuity, and it is worth writing down so
+nobody re-runs it.
+
+To make `.sort u ≡ .sort v` with `u ≉ v` the derivation must, somewhere, take a step whose
+two endpoints are a sort and a non-sort. Only three rules can:
+
+* **`extra`** — excluded outright in *every* `VEnv.WF` environment by
+  `WF.instL_lhs_ne_sort` (`DeclRules.lean:253`): every rule's lhs is a `.const`, an `.app`
+  or a `.lam`. `.unsafeDef` changes nothing here — its rules are δ-rules like any other, and
+  `WF'.defeq_isDeclRule` covers the `unsafeDef` case explicitly.
+* **`beta` / `eta` / congruence** — these do relate a sort to a non-sort (a sort is
+  β-equal to a redex), but composing two of them back down to a sort re-imposes the
+  original obligation: `appDF`+`lamDF` on `(λA. .sort u) e ≡ (λA. .sort v) e'` reduces to
+  `.sort u ≡ .sort v`. A **discriminating** function — one sending two convertible arguments
+  to different sorts — would break this, and needs an ι-rule firing on two *different*
+  constructors that are nevertheless convertible. That needs large elimination from a
+  non-subsingleton `Prop`, which `VInductDecl'.WF.isLE` / `LECond`
+  (`Theory/Inductive/Decl.lean:447,467`) forbids. A δ-rule cannot discriminate: its rhs is
+  one term, so `F a` and `F b` differ only where the bound variable occurs, and congruence
+  already equates them when `a ≡ b`.
+* **`proofIrrel`** — needs a sort to be a **proof**: `Γ ⊢ p : .sort .zero` and
+  `Γ ⊢ .sort u : p`. Every route to that needs `.sort (u+1) ≡ p` at a common type, i.e. a
+  sort–non-sort conversion at a proposition — the thing being constructed. `unsafeDef`
+  does not open it either: a member's *value* is checked in `env.addConsts cis`, which
+  carries the block's constants but **not its defeqs** (`VDecl.WF.unsafeDef`), so no member
+  can be typed using the block's own equations, and a member declared at `.sort .zero`
+  needs its value to be a proposition.
+
+So the mechanism is a fixpoint: refuting `sort_inv` requires `sort_inv` to already fail. It
+cannot be entered from `VEnv.empty`. *Confidence: this paragraph is analysis, not a Lean
+proof — the two facts it leans on (`instL_lhs_ne_sort`, `LECond`) are machine-checked, the
+case enumeration is not.* **Reported the other way, as §13(b) asked: `sort_inv` survives
+refutation at a cycling environment.**
+
+### 14.2 …and the cycling witness turns out not to be a cycling witness — machine-checked
+
+The stronger result came out of the attempt. `LogRelRowZero.lean`'s `loopEnv` declares
+`f, g : ∀ p : Prop, p` with `f := g`, `g := f`. Both members are **proofs of one
+proposition**, and `IsDefEq.proofIrrel` identifies any two proofs of a proposition *with no
+rule in the environment at all*. Hence, in `CycleConv.lean`:
+
+| name | content |
+|---|---|
+| `loop_defeq_without_rules` | `f ≡ g` already holds in `loopEnv2` — `loopEnv` minus both rules |
+| `loop_conv_iff`, `loopEnv_conv_iff` | `loopEnv.IsDefEq` **is** `loopEnv2.IsDefEq`; likewise `IsDefEqU` |
+| `loopEnv2_no_defeqs` | `loopEnv2` has **no** definitional-equality rule, so no `HeadStep.delta` |
+| `loopEnv2_wf_noUnsafe` | and it is `VEnv.WF` by two `.axiom` steps, `∀ d ∈ ds, d.noUnsafe` |
+| `sort_inv_transfer` | so `sort_inv` at `loopEnv` **is** `sort_inv` at that cycle-free, `noUnsafe` environment — and the same one-line transfer works for each of the six |
+
+**What this does and does not overturn.** `headStep_not_wf` stays true: the reduction really
+does cycle. What does not follow — and what §13(b) and `logrel-scope.md` §1 assert — is that
+*the statements* are out of reach there. At that witness they are exactly the statements at
+an axiom-only environment. The witness is evidence about reduction and no evidence about the
+targets. `logrel-scope.md`'s verdict on the logical-relation route does not depend on this
+(its §§3–4 stand on their own); the sentence that needs withdrawing is "so a logical relation
+cannot deliver them **as stated**".
+
+**A witness that does survive the collapse** is in the same file: `propLoopEnv`, the same
+one-step-from-empty block with the members declared at `.sort .zero` — `A : Prop := B`,
+`B : Prop := A`. Now the members are *propositions*, not proofs, and the collapse recipe
+would need `Γ ⊢ .sort .zero : .sort .zero`, a sort that is a proof
+(`propLoop_no_direct_collapse`, from `SortUniq`). `propLoop_headStep_not_wf` is the cycle.
+*Not proved: that its `A ≡ B` is a genuinely new conversion — only that this collapse
+argument does not reach it (trap #8).* **Anyone restating the row-zero check should restate
+it at `propLoopEnv`.**
+
+### 14.3 The weakest hypothesis that excludes the cycle — and it is already in the tree
+
+Not `VEnv.LeanWF`: that also bans `.axiom` steps, which the kernel must accept. The right
+predicate is the one `Theory/Typing/Env.lean` already defines and `Verify/` already proves:
+
+```lean
+∃ ds, VEnv.WF' ds env ∧ ∀ d ∈ ds, d.noUnsafe        -- VDecl.noUnsafe
+```
+
+`.unsafeDef` is the **only** `VDecl` former that can install a rule whose rhs mentions the
+block's own constants, so it is the only source of a δ-cycle; `.def` checks its value before
+the constant exists, `.induct`/`.quot` install structural rules, `.axiom` installs none. And
+`TrEnv'.wf_noUnsafe` (`Verify/Environment/Basic.lean:419`) delivers exactly this.
+
+### 14.4 Does the obstruction disappear under it? — **No**, and this is the finding
+
+`loopEnv2` is `noUnsafe`, has no rules at all, and the six statements there are *the same
+statements*. More basically: `sort_inv`'s two open cases are `trans` and `proofIrrel`, and
+neither is an environment fact.
+
+* `trans`'s middle term is arbitrary in any environment.
+* `proofIrrel` bites where propositions are inhabited, and `sort_inv`'s hypotheses supply
+  that **over the empty environment, from the context alone** — `empty_ctx_inconsistent`
+  (`CycleConv.lean`): `OnCtx [falseProp] (VEnv.empty.IsType 0)` holds and `.bvar 0`
+  inhabits `∀ p : Prop, p`. No environment restriction can remove it.
+
+What `noUnsafe` buys is δ-termination — a **precondition for one proof technique**
+(normalisation), not a weakening of the goal. That is a real gain and the right cut to make
+if a normalisation route is ever attempted. It is not a restatement that makes anything
+provable by itself, and it should not be sold as one.
+
+### 14.5 Do the consumers survive? — **the `Theory/` side yes, the `Verify/` side no**
+
+Cone scan (transitive, arity-checked, not a grep). Only two files import `Injectivity.lean`:
+`UniqueTyping.lean` and `ConstInvWitness.lean`; **`Theory/SetModel/` is not in the cone at
+all** — its references are prose. 32 direct sites in 14 declarations.
+
+* **`const_app_inv`, `const_forallE_inv`, `const_sort_inv` have zero call sites in the whole
+  tree.** Their named consumers are themselves `sorry` (`TrProj.{uniq,defeqDFC,weak'_inv}`
+  `Verify/Typing/Lemmas.lean:693,708,1374`; `quotReduceRec.WF` `Verify/TypeChecker/WHNF.lean:63`
+  — note `reduceRecursor.WF` at `:66` is *proved*, the blocked one is `quotReduceRec.WF`),
+  documentary (`SetModel/IndInterp.lean:536`, whose "not stated anywhere" row for
+  `const_sort_inv` is now stale), or **nonexistent**: `pat_major_not_pi` is not a declaration
+  anywhere, only a planned field named in `Theory/Inductive/Lemmas.lean:150`.
+* **`sort_inv` + `forallE_inv_stratified` are the load-bearing pair**, and they reach
+  `Verify/` through a single gateway: `IsDefEq.uniq` (`UniqueTyping.lean:13`), whence the
+  ~28-member `UniqueTyping` family and ~230 uses across `Verify/`.
+* `forallE_inv` and `sort_forallE_inv`'s remaining consumers (`ChurchRosser.lean`,
+  `HeadReduction.lean`) sit inside `class Params`, which **has no instance in the tree**, so
+  they are already vacuous for an independent reason.
+
+**The blocker.** Every `Theory/` consumer takes `henv : VEnv.WF env` (or `Params.henv`) and
+would absorb a stronger hypothesis for free. Every `Verify/` consumer does not:
+
+| site | how it gets the environment |
+|---|---|
+| `inferApp.loop.WF` (`Verify/TypeChecker/InferType.lean:250`, uses at `:271,276,286`) | `c.Ewf`, from `VContext` |
+| `inferType.WF_uniq` (`Verify/TypeChecker/Basic.lean:885`, use at `:889`) | `c.Ewf`, from `VContext` |
+| `TrExpr.beta` (`Verify/Typing/Lemmas.lean:2571`, use at `:2586`) | explicit `henv`, supplied by callers from `VContext` |
+
+`VContext` (`Verify/TypeChecker/Basic.lean:190`) carries `safety : DefinitionSafety`
+**unconstrained**, and `VContext.Ewf` is `c.trenv.wf`, which holds at every safety level.
+`TrEnv'.wf_noUnsafe` requires `safety = .safe` **as a literal** — its `unsafeDef` case is
+discharged by `TrDefBlock.safe_not_unsafeDef`, stated only at `.safe`. And non-`.safe` is not
+hypothetical: `Environment.lean:78–80` **rejects** a `.safe` mutual block, so `addMutual`
+always runs at `.partial`/`.unsafe`, and `addAxiom`/`addDefinition` run at `.unsafe` for
+unsafe declarations.
+
+**So a `noUnsafe`-restricted `Injectivity.lean` does not serve its own consumers**, and that
+is as important as the restatement. `Verify/TypeChecker/Reduce.lean:4–33` is already an
+entire module about why `VContext`'s safety "cannot be dodged".
+
+### 14.6 What would have to change, and what would become false
+
+*Statements* (all in `Injectivity.lean`): `henv : VEnv.WF env` → the `noUnsafe` predicate,
+in all seven.
+
+*Consumers, `Theory/`* — mechanical hypothesis strengthening, nothing becomes false:
+`IsDefEq.uniq` and the ~28-member `UniqueTyping` family; `WF.sortUniq`
+(`SortUniqFacts.lean:20`); `ChurchRosser.Params.henv` and `HeadReduction`'s uses (vacuous
+today); `absurd_of_prop_eq_propArrow` (`ConstInvWitness.lean:138`).
+
+*Consumers, `Verify/`* — **owned by that stream, named here, not changed here.** Either
+(a) `VContext` gains a `noUnsafe` field, which forces `c.safety = .safe` and therefore
+splits `inferType.WF` into a `.safe` arm carrying the model obligation and a non-`.safe` arm
+carrying only termination/no-crash; or (b) the `VEnvs` family (`Verify/TypeChecker.lean:10`,
+`venv : DefinitionSafety → VEnv`) is used to route the injectivity obligation through the
+`.safe` model only. `addDecl.WF` (`Verify/Environment.lean:235`) already quantifies over all
+safety levels, so (a) is a real refactor and its size is unmeasured. Note the shape of the
+opportunity: `kernel_sound` needs only the `.safe` model
+(`Verify/Bridge.lean:236,249`), and a `partial` block contributes nothing to it, so the
+correctness of *its* check may not need to be sound at all — only total.
+
+**Nothing already proved becomes restatable-but-false.** Strengthening a hypothesis cannot
+falsify a proved theorem, and the check that matters — are the counterexample witnesses still
+in the smaller class? — passes: `ConstInvWitness.lean`'s `w1`/`w2` need a δ-rule and two
+axioms, installable by `.def` and `.axiom` steps, both `noUnsafe`; `SubstCRefute` and
+`SubstTRefute` are over `VEnv.empty`. The one thing that *does* go vacuous is any statement
+whose only witness is `loopEnv` — and by §14.2 that witness was never doing the work
+attributed to it.
