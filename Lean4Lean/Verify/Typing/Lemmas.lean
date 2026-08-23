@@ -12,13 +12,25 @@ open scoped _root_.List
 theorem fvarsIn_iff : FVarsIn P e ↔ (∀ fv ∈ e.fvarsList, P fv) ∧ FVarsIn (fun _ => True) e := by
   induction e <;> simp [FVarsIn, Expr.fvarsList, *] <;> grind
 
-theorem fvarsIn_iff_hasMVar : FVarsIn (fun _ => True) e ↔ e.hasMVar = false := by
-  rw [Expr.hasMVar, ← Expr.hasExprMVar, ← Expr.hasLevelMVar]; simp
+/-- The purely structural form; the cached-bit form is `fvarsIn_iff_hasMVar` below. -/
+theorem fvarsIn_iff_hasMVar' :
+    FVarsIn (fun _ => True) e ↔ (e.hasExprMVar' = false ∧ e.hasLevelMVar' = false) := by
   induction e <;> simp [FVarsIn, Expr.hasExprMVar', Expr.hasLevelMVar', and_assoc, and_left_comm, *]
 
-theorem fvarsList_eq_nil {e : Expr} : e.fvarsList = [] ↔ e.hasFVar = false := by
-  rw [Expr.hasFVar_eq]
+/-- Only the `←` direction of the former iff survives the correction of `mkData_eq`, and it
+is the only one used: going from a cached `has*` bit to the structural traversal needs no
+bound on the term's `bvar` indices (see `Lean.Expr.hasFVar_eq_false`), while the converse
+does. -/
+theorem fvarsIn_iff_hasMVar (h : e.hasMVar = false) : FVarsIn (fun _ => True) e := by
+  rw [Expr.hasMVar, ← Expr.hasExprMVar, ← Expr.hasLevelMVar, Bool.or_eq_false_iff] at h
+  exact fvarsIn_iff_hasMVar'.2 ⟨Expr.hasExprMVar_eq_false h.1, Expr.hasLevelMVar_eq_false h.2⟩
+
+/-- The purely structural form; the cached-bit form is `fvarsList_eq_nil` below. -/
+theorem fvarsList_eq_nil' {e : Expr} : e.fvarsList = [] ↔ e.hasFVar' = false := by
   induction e <;> simp [Expr.fvarsList, Expr.hasFVar', and_assoc, *]
+
+theorem fvarsList_eq_nil {e : Expr} (h : e.hasFVar = false) : e.fvarsList = [] :=
+  fvarsList_eq_nil'.2 (Expr.hasFVar_eq_false h)
 
 theorem FVarsIn.mp (H : ∀ fv, P fv → Q fv → R fv) :
     ∀ {e}, FVarsIn P e → FVarsIn Q e → FVarsIn R e

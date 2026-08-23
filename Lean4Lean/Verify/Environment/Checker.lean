@@ -54,9 +54,9 @@ theorem checkNoMVarNoFVar.WF (env : Environment) (name : Name) (e : Expr) :
   refine (checkNoMVar.WF env name e).bind fun _ hm =>
     (checkNoFVar.WF env name e).mono fun _ hf => ?_
   apply fvarsIn_iff.2
-  refine ⟨?_, fvarsIn_iff_hasMVar.2 hm⟩
+  refine ⟨?_, fvarsIn_iff_hasMVar hm⟩
   intro fv hmem
-  rw [fvarsList_eq_nil.2 hf] at hmem
+  rw [fvarsList_eq_nil hf] at hmem
   simp at hmem
 
 private theorem Except.WF.trivial (x : Except ε α) : x.WF fun _ => True :=
