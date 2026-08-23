@@ -945,3 +945,387 @@ cd ~/lean4lean && lake env lean <file>
 | `F_treemap.lean` | proofs of the two `Std.TreeMap` axioms |
 | `K_panic.lean` | `instantiateRange` aborts out of range |
 | `J2_usage.lean` | reverse-dependency scan: users of each axiom, and the 9 unwhitelisted axioms |
+
+---
+
+## 11. Adversarial pass on the `Expr` axioms: the `lean_is_scalar` guard class
+
+*Scope of this pass: the `Expr` axioms (17, 18, 20–32) and the container axioms
+(3–7). The `Level` section (8–16) and `Std.TreeMap` (1, 2) belong to other
+streams and were not touched.*
+
+The pass was run as an attempt to **derive `False`**, not to re-confirm verdicts.
+It did not find an inconsistency. It found one **false axiom** and a systematic
+gap in how §7.1 read the C entry points, plus three failed attacks worth
+recording so they are not re-run.
+
+### 11.1 The finding: every `Nat` argument crossing into C is bignum-guarded first
+
+Each `@[extern]` C entry point in scope that takes a `Nat` begins with a
+`lean_is_scalar` test — *before* the range test §6 and §7.1 record.
+`LEAN_MAX_SMALL_NAT = SIZE_MAX >> 1`, so the guard fires at `2^63` on 64-bit.
+
+| axiom | C guard (verbatim) | fallback | consequence |
+|---|---|---|---|
+| 21 `liftLooseBVars_eq` | `if (!lean_is_scalar(s) \|\| !lean_is_scalar(d))` | `return e;` | **FALSE** — see 11.2 |
+| 22 `lowerLooseBVars_eq` | `if (!lean_is_scalar(s) \|\| !lean_is_scalar(d) \|\| unbox(s) < unbox(d))` | `return e;` | attack fails — 11.3 |
+| 30 `hasLooseBVar_eq` | `if (!lean_is_scalar(i))` | `return false;` | attack fails — 11.3 |
+| 29 `abstractRange_eq` | `if (!lean_is_scalar(n))` | `abstract_core(e, array_size(subst), subst)` | attack fails — 11.4 |
+| 26 `instantiateRange_eq` | `if (!lean_is_scalar(begin) \|\| !lean_is_scalar(end))` | **`lean_internal_panic`** | side condition insufficient — 11.5 |
+| 27 `instantiateRevRange_eq` | same | **`lean_internal_panic`** | same |
+| 17 `Expr.mkData_eq` | `if (!is_scalar(bvarRange)) panic` *and* `if (range > 1048575) panic` | — | **covered** — 11.6 |
+
+§6 describes `lean_expr_instantiate_range` as *"starts with
+`if (b > e || e > sz) lean_internal_panic(...)`"*. That is the **second**
+statement of the function, not the first.
+
+### 11.2 Axiom 21 `Lean.Expr.liftLooseBVars_eq` is **false**
+
+```c
+extern "C" LEAN_EXPORT object * lean_expr_lift_loose_bvars(b_obj_arg e, b_obj_arg s, b_obj_arg d) {
+    if (!lean_is_scalar(s) || !lean_is_scalar(d)) { lean_inc(e); return e; }
+    return lift_loose_bvars(TO_REF(expr, e), lean_unbox(s), lean_unbox(d)).steal();
+}
+```
+
+Witness `e := .bvar 0`, `s := 0`, `d := 2^63`. Both halves are machine-checked,
+and they are **different kinds of evidence**:
+
+* **C side — differential test, compiled code.** `#eval` runs the `@[extern]`
+  implementation:
+  `#eval idx ((Expr.bvar 0).liftLooseBVars 0 (2^63))` prints `"bvar 0"`.
+* **Model side — kernel reduction, no compilation.**
+  `theorem : Expr.liftLooseBVars' (.bvar 0) 0 (2^63) = .bvar (2^63)` by `simp`,
+  and `… ≠ .bvar 0`. (`decide`/`simp` only; **no `native_decide`** anywhere in
+  this pass.)
+
+So the axiom asserts `.bvar 0 = .bvar (2^63)`.
+
+What makes this worse than 26/27: **the call completes.** There is no panic and
+no unrepresentable input — `2^63` is an ordinary `Nat` literal and `.bvar 0` an
+ordinary `Expr`. Only the *model's output* is not runtime-constructible, which is
+why the disagreement cannot be exhibited by evaluating both sides at once
+(`#eval` of the model's answer trips `lean_expr_mk_data`'s own panic,
+`INTERNAL PANIC: too many bound variables` — observed).
+
+**Not an inconsistency.** `Expr.liftLooseBVars` is `opaque @[extern]`, and a
+search of the toolchain source found **no theorem anywhere in core about it**, so
+there is no second fact to contradict. This is the same category as 12/17: an
+equation asserted on a branch the implementation handles differently.
+
+*Suggested fix (frozen file — needs sign-off):* add `d < 2^63`, or restate the
+axiom for `s d : USize`.
+
+### 11.3 Failed attacks: axioms 22 and 30
+
+Both carry the same guard, and both **survive**, for the same reason: the C
+fallback coincides with the model on every input a real `Expr` can supply.
+
+* **22.** The fallback is `return e`. With `s` non-scalar, every bvar index in a
+  constructible `e` is `< 2^20 < s`, so the model's `if i < s then i` also
+  leaves the term alone. Machine-checked:
+  `∀ i, i < 2^63 → lowerLooseBVars' (.bvar i) (2^63) 1 = .bvar i`. The other
+  three sign patterns (`s` scalar/`d` non-scalar, both non-scalar, `s < d`) all
+  land in the model's own `if s < d then e` branch.
+  *An earlier witness of mine, `(.bvar 7).lowerLooseBVars (2^63) 1`, was wrong:*
+  `#eval` returned `bvar 7` and so does the model.
+* **30.** The fallback is `return false`. For non-scalar `i`, no constructible
+  `e` contains `.bvar i`, so the model also returns `false`. Machine-checked:
+  `∀ i n, i ≠ n → hasLooseBVar' (.bvar i) n = false`. §7.1's entry already said
+  "including the non-scalar-index shortcut"; this confirms it.
+
+Both disagree only at `.bvar i` with `i ≥ 2^63`, which `lean_expr_mk_data`
+refuses to build.
+
+### 11.4 Failed attack: axiom 29 `abstractRange_eq`
+
+The only unconditional range axiom, and the guard is present — but the fallback
+is `lean_expr_abstract_core(e, lean_array_size(subst), subst)`, i.e. *the whole
+array*, and `Array.extract 0 n` clamps to the whole array for `n ≥ size`. The two
+agree at **every** input, logical or not. §7.1's verdict stands; the reason is
+the clamp, which §7.1 did not state.
+
+### 11.5 Axioms 26/27: the side condition is necessary but **not sufficient**
+
+`h₁ : start ≤ stop` and `h₂ : stop ≤ subst.size` exclude the second guard
+(`b > e || e > sz`). They do **not** exclude the first: `stop` may be non-scalar
+provided `subst.size` is too. That requires `subst.size ≥ 2^63`, which is
+expressible (`⟨List.replicate (2^63) e⟩`) though not constructible — so this is
+strictly weaker than 11.2, where the witness is an ordinary literal.
+
+*Suggested fix (frozen file — needs sign-off):* strengthen `h₂` to
+`stop ≤ subst.size ∧ subst.size < 2^63`, or state the axiom over `USize`.
+
+### 11.6 Axiom 17 `Expr.mkData_eq`: the Level-side consequence does **not** carry over
+
+The question §4 raises for the `Expr` twin is answered: `lean_expr_mk_data`
+panics twice — `if (!is_scalar(bvarRange))` and `if (range > 1048575)` — and the
+axiom's hypothesis `H : br ≤ 2^20 - 1` implies **both** are passed. The
+`approxDepth` clamp matches too (`if (approxDepth > 255) approxDepth = 255`
+against the model's `if approxDepth > 255 then 255 else …`). Unlike 12, which was
+jointly inconsistent with 13/14, the `Expr` `mkData_eq` is correctly guarded and
+no analogous consequence exists.
+
+### 11.7 Axiom 3 `PersistentArray.toList'_push`: the `WF` hypothesis is adequate
+
+§5.3 showed `WF` is *necessary*. It is also *sufficient for this codebase*, in
+the strongest available sense: `WF` is generated by `empty` and `push` only, and
+a reverse scan shows `lean4lean` uses **no other `PersistentArray` operation** —
+`push` (2 sites), `WF` (2), `toList'` (1), and nothing else. So `WF` is exactly
+the reachable set, not an approximation to it. The axiom stays unprovable while
+`insertNewLeaf` is `partial`; that is an implementation limit, not a gap in the
+hypothesis.
+
+### 11.8 What was not reached
+
+Axioms 4–7 (`PersistentHashMap` ×3, `Syntax.structEq_eq`) were not attacked in
+this pass. Axiom 31 `eqv_eq`'s dependency on 15 `instLawfulBEqLevel` was not
+pursued, because 15 is in another stream's section and the cross-section attack
+should be run jointly rather than from one side.
+
+### 11.9 Evidence strength in this section
+
+Kept separate on purpose, per §2:
+
+| claim | evidence |
+|---|---|
+| 21 is false | differential test (compiled C, `#eval`) **+** kernel-checked model side **+** source reading |
+| 22, 30, 29 survive | source reading **+** kernel-checked agreement lemmas |
+| 26/27 condition insufficient | source reading only — the witness is not constructible, so no differential test is possible |
+| 17 is covered | source reading only |
+| 3's hypothesis is adequate | source reading **+** reverse-dependency scan |
+
+No claim here is a proof, and none should be recorded as one.
+
+---
+
+## 12. Joint consistency: the `Level` thread closed, and a structural survey
+
+*(Added by the axiom-consistency stream. Machine-checked artefact:
+`Lean4Lean/Tests/AxiomConsistency.lean`, builds clean —
+`lake build Lean4Lean.Tests.AxiomConsistency`, exit 0.)*
+
+### 12.0 The method, and what it can and cannot show
+
+Consistency of this axiom set is not machine-checkable and is not the guard's
+job (guard 2 whitelists **by name**, deliberately: every entry asserts that a
+Lean model agrees with a C++ implementation, a claim about the world outside
+the proof). An *in*consistency, however, is machine-checkable — that is the
+asymmetry this section works with.
+
+The one positive instrument available is **model exhibition**. Almost every
+constant these axioms speak about is `opaque` (or `partial`, which compiles to
+`opaque`), i.e. a *free* symbol with no definitional unfolding. A set of
+assumptions about free symbols is consistent exactly when some definable
+function satisfies them all; exhibiting one is a relative-consistency proof and
+*is* machine-checkable. Where the model exists, the axiom is safe; where an
+axiom instead constrains a free symbol *through* a definable observation with
+provable properties, it can still be refutable — and that is where both known
+`False`-proofs lived.
+
+### 12.1 Axioms 13/14 (`Level.hasParam_eq`, `hasMVar_eq`) — **settled**
+
+The audit's "inconsistent (argued) (with 12)" verdict is **dead**, and the
+docstrings' claim that the two "should now be provable using `mkData_eq` and
+friends" is **also wrong**. Both are now machine-checked, in
+`Lean4Lean/Tests/AxiomConsistency.lean`:
+
+* **§1 `mkDataM`** — interpret `Level.mkData h d mv hp` as
+  `mkData' h (min d (2^24-1)) mv hp` (clamp instead of panic). It agrees with
+  `mkData'` below `2^24`, so it validates axiom 12, and it stores both flag bits
+  faithfully at *every* depth, so `mkDataM_validates_hasParam_eq` /
+  `mkDataM_validates_hasMVar_eq` hold **by induction on `Level`**.
+  ⇒ **12 + 13 + 14 are jointly consistent.** No contradiction survives the
+  `H : d < 2 ^ 24` repair.
+* **§2 `mkDataZ`** — interpret `mkData` as `mkData'` in range and `0` out of
+  range (what the *old*, unconditional `mkData_eq` forced, since
+  `panic! _ : Level.Data` reduces to `default = 0`). This still validates axiom
+  12, but `mkDataZ_refutes_hasParam_eq` / `..._hasMVar_eq` show it **falsifies**
+  13 and 14 on `succ^[2^24] (.param x)` / `succ^[2^24] (.mvar x)`.
+  ⇒ **13 and 14 are independent of 12.** They cannot be derived from
+  `mkData_eq` "and friends"; nothing constrains `mkData` at `d ≥ 2^24`.
+
+  Both models are stated against `dataOf f` — `Lean/Level.lean:98-106`'s
+  computed field with `mkData` replaced by `f` — and the file checks clause by
+  clause, by `rfl`, that `dataOf mkData` is the real `Level.data`.
+
+  (Note the reason the two *cannot* be validated against the implementation
+  either: at depth `2^24` `lean_level_mk_data` calls `lean_internal_panic` and
+  **aborts**. Beyond that depth the axioms assert something the implementation
+  has no behaviour for at all — consistent, but empty of implementation content.)
+
+* **§3 — the free win.** Restricted to levels the runtime can actually build,
+  both are **provable**:
+
+  ```lean
+  def dep : Level → Nat            -- structural depth
+  theorem hasParam_eq_of_dep (l : Level) (h : dep l < 2 ^ 24) : l.hasParam = l.hasParam'
+  theorem hasMVar_eq_of_dep  (l : Level) (h : dep l < 2 ^ 24) : l.hasMVar  = l.hasMVar'
+  theorem depth_eq_of_dep    (l : Level) (h : dep l < 2 ^ 24) : l.depth    = dep l
+  ```
+
+  `#print axioms hasParam_eq_of_dep` → `[propext, Classical.choice, Quot.sound,
+  Lean.Level.mkData_eq, …bv_decide LRAT certs]`. **No `hasParam_eq`, no
+  `hasMVar_eq`.** So axioms 13 and 14 can be **retired from the whitelist**
+  (29 → 27) at the cost of a `dep l < 2 ^ 24` side condition — the `Level`
+  analogue of `Expr.BVarBounded`, and strictly cheaper than it: `dep` is
+  strictly increasing on subterms, so the **single top-level bound suffices**,
+  no per-subterm recursion. Discharge sites are `Verify/Level.lean:94`
+  (`getUndefParam.F`), `Verify/Level.lean:140-145` (`substParams'`) and
+  `Verify/Expr.lean:549-550, 622-623` (`hasLevelMVar'`/`hasLevelParam'`).
+  Editing the frozen `Axioms.lean` needs sign-off; the proof is ready.
+
+### 12.2 Structural survey: what each axiom can possibly conflict with
+
+Computed mechanically (transitive closure of the axiom *statement* down to
+`opaque`/`axiom` constants). Every whitelisted axiom mentions at least one free
+symbol, so none is a bare claim about fully-defined Lean functions — the two
+`Std.TreeMap` axioms were the only ones of that shape, and §8 removed them.
+
+The free symbol each axiom **pins** (bold) and the ones it merely **uses**:
+
+| pins | axiom(s) | also uses |
+|---|---|---|
+| `Expr.abstract` | `abstract_eq` (cond.) | — |
+| `Expr.abstractRange` | `abstractRange_eq` | `Expr.abstract` |
+| `Expr.equal` | `equal_eq` | `Level.beq`, `Syntax.structEq` |
+| `Expr.eqv` | `eqv_eq` | `Level.beq`, `Syntax.structEq` |
+| `Expr.hasLooseBVar` | `hasLooseBVar_eq` | — |
+| `Expr.instantiate` | `instantiate_eq` (cond.) | — |
+| `Expr.instantiate1` | `instantiate1_eq` | — |
+| `Expr.instantiateRev` | `instantiateRev_eq` | `Expr.instantiate` |
+| `Expr.instantiateRange` | `instantiateRange_eq` (cond.) | `Expr.instantiate` |
+| `Expr.instantiateRevRange` | `instantiateRevRange_eq` (cond.) | `Expr.instantiateRev` |
+| `Expr.liftLooseBVars` | `liftLooseBVars_eq` | — |
+| `Expr.lowerLooseBVars` | `lowerLooseBVars_eq` | — |
+| `Expr.replaceImpl` | `replace_eq` | — |
+| `Expr.mkData` | `Expr.mkData_eq` (cond.), **`looseBVarRange_eq`** | — |
+| `Expr.mkAppData` | `mkAppData_eq`, **`looseBVarRange_eq`** | — |
+| `Level.mkData` | `Level.mkData_eq` (cond.), **`hasParam_eq`**, **`hasMVar_eq`** | (in `looseBVarRange_eq`) |
+| `Level.beq` | `instLawfulBEqLevel` | — |
+| `Level.mkMaxAux` | `mkMaxAux_eq` | `Level.beq` |
+| `Level.skipExplicit` | `skipExplicit_eq` | — |
+| `Level.isExplicitSubsumedAux` | `isExplicitSubsumedAux_eq` | — |
+| `Level.normalize` | `normalize_eq` | `Level.beq`, `isExplicitSubsumedAux` |
+| `Syntax.structEq` | `structEq_eq` | — |
+| `PHM.findAux` | **`WF.find?_eq`** | — |
+| `PHM.insertAux` | **`WF.toList'_insert`** | — |
+| `PHM.containsAux` | `findAux_isSome` | `PHM.findAux` |
+| `PArray.insertNewLeaf`, `mkNewPath` | **`WF.toList'_push`** | — |
+
+`mixHash`, `String.hash`, `String.Internal.append` and
+`System.Platform.getNumBits` also appear, but no whitelisted axiom constrains
+them, so they are inert parameters.
+
+Two facts follow.
+
+* **The relation is acyclic.** For every "definitional" pin `f = g`, `g` does
+  not transitively mention `f` — checked mechanically for `structEq'`,
+  `Total.mkMaxAux`, `Total.skipExplicit`, `Total.isExplicitSubsumedAux` and
+  `Total.normalize` (each reaches its opaque partner **zero** times). In
+  particular `Total.normalize` uses `Total.mkMaxAux` / `Total.skipExplicit`,
+  *not* the opaque originals, so `normalize_eq` is not a fixed-point equation
+  and the four `Level`-normalisation axioms can be interpreted bottom-up.
+  Likewise `instantiate → instantiateRev → instantiateRevRange`,
+  `instantiate → instantiateRange`, `abstract → abstractRange`,
+  `Level.beq → {mkMaxAux, normalize, eqv, equal}`,
+  `findAux → containsAux` are all DAG edges. A simultaneous interpretation
+  therefore exists in topological order, for all of class (A) below.
+* **Every axiom that pins nothing new is bold above.** Bold = the axiom
+  constrains a free symbol *through* a definable observation instead of
+  defining it. That is class (B): `looseBVarRange_eq`, `hasParam_eq`,
+  `hasMVar_eq`, `WF.toList'_push`, `WF.toList'_insert`, `WF.find?_eq` — **six**
+  axioms, and **both** historical `False`-proofs (§3.1 `looseBVarRange_eq`,
+  §5.3 `toList'_push`) were in it. Class (A), the other 23, is jointly
+  consistent by the DAG argument.
+
+### 12.3 Attacks attempted and failed
+
+Recorded because a serious failed attack is stronger evidence than a source
+reading, and weaker than a proof. None of these is a proof of consistency.
+
+1. **`instLawfulBEqLevel` (#15) + `eqv_eq` (#31)** — the flagged
+   cross-dependency. `Lean/Level.lean:255-256` shows `Level.beq` is
+   `@[extern "lean_level_eq"] opaque` (the `Level` inductive derives only
+   `Inhabited, Repr`), and `Lean/Expr.lean:808-809` shows `Expr.eqv` is a
+   *separate* opaque. So `Level.beq := structural equality` validates #15 and
+   `Expr.eqv := eqv'` validates #31, independently. **Fails at the first step:
+   there is no shared constant to force apart.** The route that *would* have
+   worked — a core `LawfulBEq Expr`, which `eqv'` refutes since it ignores
+   binder names and binder info at `strict := false` — does not exist (see 5).
+2. **`eqv_eq` (#31) + `equal_eq` (#30)** — if `Expr.equal` were defined in Lean
+   as `Expr.eqv` with a flag, the two axioms would give
+   `eqv' e₁ e₂ false = eqv' e₁ e₂ true`, refuted by any two `lam`s differing
+   only in binder name. **Fails:** `Lean/Expr.lean:818-819` shows `Expr.equal`
+   is an independent `@[extern "lean_expr_equal"] opaque`; nothing in Lean ties
+   it to `eqv`.
+3. **`instantiate*_eq` / `abstract*_eq` mutual definability** — if any of the
+   ten substitution/abstraction primitives were a Lean `def` in terms of
+   another, the "equivalent to …" equations could collide. **Fails:** all ten
+   (`instantiate`, `instantiate1`, `instantiateRev`, `instantiateRange`,
+   `instantiateRevRange`, `abstract`, `abstractRange`, `liftLooseBVars`,
+   `lowerLooseBVars`, `hasLooseBVar`) are independent `@[extern] opaque`s
+   (`Lean/Expr.lean:1329-1498`); the equivalences appear **only in docstrings**.
+   The only Lean-level links are the derived wrappers `replaceFVar` /
+   `replaceFVars`, which are *users*, not constraints.
+4. **`looseBVarRange_eq` (#18) at the `BVarBounded` boundary** — the §3.1
+   refutation's route re-run against the repaired axiom. Every `mkData` call in
+   the `Expr.data` computed field (`Lean/Expr.lean:470-513`) was checked against
+   what `BVarBounded` supplies: `.bvar i` needs `i+1 ≤ 2^20-1`, which *is*
+   `BVarBounded`'s `bvar` clause; `.lam`/`.forallE` pass `max t' (b'-1)` and
+   `.letE` passes `max (max t' v') (b'-1)`, both `≤` the children's bound by
+   `BVarBounded.looseBVarRange'_le`; `.mdata`/`.proj` pass through; `.app` goes
+   via `mkAppData`, which takes no `Nat` and needs no bound. `mkDataForBinder`
+   and `mkDataForLet` (`Lean/Expr.lean:178-181`) are verbatim pass-throughs to
+   `mkData`, so they introduce no argument permutation. **Fails: the side
+   condition is exactly, not approximately, what is needed.** It also follows
+   that #18 ought to be *provable* under `BVarBounded`, the same free win as
+   §12.1 — not attempted here.
+5. **Environment sweep: does anything already *prove* something about these
+   opaques?** A refutation could come from a pre-existing core/Batteries/
+   Foundation theorem contradicting an axiom's right-hand side. Enumerating
+   **every** constant in the imported environment whose *type* mentions any of
+   the 24 pinned opaques gives **28 hits: the 29 whitelisted axioms themselves,
+   plus exactly three auto-generated equation lemmas** —
+   `PersistentArray.mkNewTail.eq_1` (an unfolding equation) and the LCNF
+   `instantiateForall.go` `eq_def`/`_proof_1` (the latter is
+   `ps.size - (i+1) < ps.size - i`, with `instantiate1` occurring only as an
+   inert argument). **Fails: no theorem anywhere asserts a behavioural property
+   of any pinned opaque.** So no whitelisted axiom can contradict prior
+   knowledge; contradictions can only arise *between* whitelisted axioms, and
+   only via a shared pin or via class (B).
+6. **Off-by-one at the two `mkData` panic boundaries** — the shape of the two
+   bugs already found. `kernel/expr.cpp:109` panics on `range > 1048575`, and
+   `Expr.mkData_eq`'s hypothesis is `br ≤ 2^20 - 1 = 1048575`: **exact match**.
+   `kernel/level.cpp:47` panics on `d > 16777215`, and `Level.mkData_eq`'s is
+   `d < 2^24`, i.e. `d ≤ 16777215`: **exact match**. `BVarBounded`'s `bvar`
+   clause `i + 1 ≤ 2^20 - 1` matches the C guard exactly too. **Fails.**
+7. **`mkAppData_eq` (#17) is unconditional — is its `assert!` reachable?** Its
+   argument is `max fData.looseBVarRange aData.looseBVarRange`, a `max` of two
+   reads of `(c >>> 44).toUInt32`, hence `≤ 2^20-1` unconditionally, so the
+   `panic! = 0` branch is dead and the missing side condition costs nothing.
+   Line-by-line against `lean_expr_mk_app_data` (`kernel/expr.cpp:120-126`):
+   the depth arithmetic is `uint16_t` on **both** sides (the model's
+   `.toUInt16` matches, so there is no `uint8` wraparound at depth 255), the
+   `>255 → 255` clamp, the `uint32_t h` truncation and the shift amounts
+   32/40-43/44 all agree. **Fails.**
+
+### 12.4 What remains unverified
+
+* **Class (B), the `PersistentArray`/`PersistentHashMap` three**
+  (`WF.toList'_push`, `WF.toList'_insert`, `WF.find?_eq`). These constrain
+  `insertNewLeaf`/`mkNewPath`/`insertAux`/`findAux` through `toList'`, the same
+  shape as the two axioms that proved `False`. Their `WF` hypotheses block the
+  known counterexamples (§5.3), and no *new* attack succeeded, but **no model
+  has been exhibited**: doing so means proving the real persistent-array and
+  HAMT algorithms correct, which is the substance of the axioms. Highest
+  residual risk in the set.
+* **`Expr.looseBVarRange_eq` + `Expr.mkData_eq` + `mkAppData_eq`** — attack 4
+  fails and the hand analysis says a clamping model works exactly as
+  `mkDataM` does for `Level`, but the `Expr` model has **not been mechanised**
+  (its `data` field has eleven clauses against `Level`'s six). This is the
+  obvious next piece of work, and it doubles as the proof that would retire #18.
+* **Truth vs consistency.** Everything above is about consistency. The axioms
+  can be jointly consistent and still not describe the C++ kernel; that gap is
+  what guard 2's by-name whitelist exists to make visible, and §7's
+  differential testing is the evidence for it.
