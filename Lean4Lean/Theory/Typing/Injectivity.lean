@@ -131,7 +131,26 @@ close; the two that remain are the whole residual content of `sort_inv`:
     disjointness (`sort_forallE_inv`, below) and its `proofIrrel` case needs `SortUniq`.
 
   So this is a **joint development, not a layering fix**: sort-confluence, Π-injectivity and
-  universe uniqueness are one induction.  Two numbers for whoever prices it.  Of
+  universe uniqueness are one induction — *in this tree*.  **They are not in the reference,
+  and the difference is one definition.**  Carneiro's conversion judgment
+  (`~/lean-type-theory/axioms.tex:30–41`) is **three-place**, `Γ ⊢ e ≡ e'`; of its eleven
+  rules exactly one — application — mentions a type, and there `Γ ⊢ e ≡ e' : α` is stated
+  at `:41` to *abbreviate* a conjunction.  `symm`, `trans`, and the λ and ∀ congruences
+  carry no type.  `IsDefEq` here makes the type an *index*, so `trans` demands one `A` for
+  both halves and `lamDF` one level and one codomain.  That is what makes composing
+  `IsDefEqU` facts a theorem (`uniqU`) rather than a rule, which is what puts the
+  `UniqueTyping` family in 23 backbone declarations, and what forces `NormalEq`'s
+  constructors to carry shared type data where the reference's `≡ₚ` congruences
+  (`unique.tex:113–118`) carry none.  **So the Π-injectivity dependency above is an
+  artifact of this tree's port, not of the mathematics.**  The reference's proof never
+  incurs it; `Theory/Typing/RawDefEq.lean` transcribes its judgment and erases into it
+  (`IsDefEq.raw`, no injectivity, no unique typing — `defeqDF` erases to nothing).
+
+  What is *not* missing: Carneiro's separated typing judgment is already here.
+  `HasTypeStrong` and `HasTypeStratified` (`Strong.lean`) have **exactly one** constructor
+  mentioning conversion — `defeq` — and `HasTypeStratified` already carries the index.  The
+  single missing ingredient for `⊢_n` is that `defeq`'s conversion premise be drawn from a
+  *stratified* conversion relation rather than from the full unstratified `IsDefEq`.  Two numbers for whoever prices it.  Of
   `ChurchRosser.lean`'s 85 declarations, 6 use `IsDefEqU.forallE_inv`/`sort_inv` directly
   and 23 use the `UniqueTyping` family (`uniq`, `uniqU`, `trans_l/r`, `of_l/r`,
   `defeqU_*`, `transU_*`) — and those 23 are the backbone: `NormalEq.{symm,trans,defeq,parRed}`,
