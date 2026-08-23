@@ -1684,6 +1684,87 @@ three combinators and a transport lemma, all now built.
 wrapped, and do not weaken `WF.pos` to a syntactic `NoBlock`.** The remaining
 genuine blocker is `NoBlock.indep`, which is syntax-side and untouched.
 
+## `interpSig`, built on the settled shape: `SetModel/IndInterp.lean`
+
+New file, sorry-free, `[propext, Classical.choice, Quot.sound]`, in the build
+(`Lean4Lean.Theory.*` globs recursively, confirmed by the olean).
+
+**The factoring is the design decision.** `interpSig` splits into two halves
+that fail for entirely different reasons, so they are kept apart:
+
+* **the assembly** — turn per-constructor data into an `IndSignature`,
+  discharging its four *bundled definability obligations*. Built.
+* **the syntactic computation** — read that data off a `VInductDecl'`. De Bruijn
+  bookkeeping against `Decl.lean`, and the only place `NoBlock.indep` is needed.
+  Not built.
+
+Splitting them makes the assembly checkable now and reduces what is left to
+"compute a `CtorData` from a `VIndCtor`".
+
+### What is built
+
+`mkIndSignature (Idx params : V) (cs : List (CtorData V)) : IndSignature V` —
+tags are `0 … cs.length-1`, every component dispatches on the tag, and **all
+four definability proofs are discharged**. That was the real difficulty: an
+`IndSignature` bundles `Fld_definable`, `Pos_definable`, `posIdx_definable` and
+`resIdx_definable`, so nothing can be handed over until every component is
+definable jointly in all its arguments.
+
+The primitives beneath it, each general and reusable:
+
+| primitive | what it is |
+|---|---|
+| `teleFun` | the dependent sum of a telescope of **definable domains**, `DefFun`-valued; `Idx`, `Fld`, `Pos` are all instances. With `teleFun_isSeq` and `teleFun_read`, so its elements are usable as `interp` valuations |
+| `tagCase₁/₂/₃` | definable dispatch on a constructor tag, with `tagCase₁_at` reading it back |
+| `ite_eq_definable₁/₂/₃`, `ite_rel_definable₂` | definable two-way splits, on an equality and on a definable relation |
+| `tagUnionF` | the `n`-ary tagged union (`disjUnion` is only binary), definable in the valuation |
+| `tagPayload`, `tagSel₂` | decoding a tagged recursive position, and dispatching on its tag |
+| `teleDomains`, `argsVal` | the `VExpr` → `DefFun` bridge, and index-tuple construction |
+
+**`teleFun` is deliberately not stated over `List VExpr`.** A recursive field's
+stored type mentions the block, so `Fld`'s telescope is *not* the syntactic one.
+Taking `List (DefFun V)` lets the caller supply `⟦A⟧` at a non-recursive field
+and a singleton at a recursive one, and keeps the block-freeness question out of
+the assembly entirely.
+
+### Two things worth keeping
+
+**`DefFun`-valued recursion is forced, not stylistic.** `mkFamUnion` takes the
+fibre map's definability *as an argument*, so each step of `teleFun` needs the
+previous step's definability at definition time. A bare `V → V` recursion cannot
+be written at all. This is the same reason `interp` is `DefFun`-valued, and it
+will recur in every list-indexed set construction.
+
+**No Kuratowski projection was needed, and adding one would have been the wrong
+move.** `posIdx` receives a position `⟨tag, payload⟩ₖ` and needs the payload;
+Foundation has `kpair` and `kpair_inj` but no projection, and writing one needs
+a bounded search. It is unnecessary: `{⟨u, v⟩ₖ}` is already an internal
+*function* sending `u` to `v` — Foundation proves `IsFunction ({⟨x,y⟩ₖ} : V)` —
+so the payload is `({b} : V) ‘ tag`, and definability is `value`'s.
+**Reusing an existing definable operation beat adding a primitive**, which is
+the same check that found `interp_congr` inside `Sound.eq`.
+
+### `definability` diverging, and the fix that is not a bigger limit
+
+`tagSel₂_definable` failed with `maximum recursion depth`, and **raising
+`maxRecDepth` did not help** — this was `SetModel/Definability.lean`'s
+documented *first* failure mode, genuine divergence rather than depth:
+`tagPayload` unfolds to `value` of a singleton and the search chases the
+unfolding. The fix is to **abstract the offending function** so the search
+cannot unfold it — `eq_kpair_definable` is stated with `t` a variable and
+applied at `tagPayload i`. Cheaper than any limit, and the general form is:
+*when `definability` diverges, generalise the sub-term it is chasing into a
+hypothesis.*
+
+### What remains for `.induct`
+
+1. **`CtorData` from `VIndCtor`** — the syntactic half. Needs `Classical.choice`
+   on `WF.pos`'s block-free existential (chain-free, so unconditional), the
+   context conventions of `Decl.lean`, and `NoBlock.indep`.
+2. **`interpSig_stage` / `interpSig_wf`** — `Above`-wrapped, per §4.
+3. **Connecting to `OracleOK`** — wrapped throughout; `Above.and`,
+   `Above.imp₂`, `Above.forall_mem` and `above_mem_congr` are in place for it.
+
 ### Caveat left standing: the all-levels quantification
 
 `quotDefEq_ok` takes `hEq`, `hcnst`, `hcnstMk` and `hcnstL` quantified over

@@ -289,39 +289,127 @@ the soundness theorem against `U κ n`, never against a limit of the sequence.
 
 ---
 
-## 4. Defeq-invariance is part of the contract
+## 4. Defeq-invariance: already proved, and the wrapped form is enough
 
-**Named obligation.** State it at the boundary:
+> **This section previously said `interp_congr` was an unproved obligation owed
+> by the syntax side, and that `interpSig_wf` could not be stated until an
+> *unconditional* version existed. Both halves were wrong about the tree.** It
+> is proved, it has been for some time under another name, and the wrapped form
+> it comes in is sufficient. What follows is the corrected analysis; the
+> superseded claim is kept only as the note at the end, because *why* it was
+> wrong is reusable.
+
+### It exists: `SetModel/SoundInduction.lean:interp_congr`
 
 ```lean
-theorem interp_congr {Γ : List VExpr} {e e' A : VExpr}
-    (h : env.IsDefEq nv Γ e e' A) (ρ : V) (hρ : ρ ∈ interpCtx M L Γ) :
-    (interp M L Γ e).toFun ρ = (interp M L Γ e').toFun ρ
+theorem interp_congr {Γ : List VExpr} {e₁ e₂ B : VExpr}
+    (hΓ : OnCtx Γ (env₀.IsType nv)) (H : env₀.IsDefEq nv Γ e₁ e₂ B) :
+    Above M (EqSound M L Γ e₁ e₂)
 ```
 
-rather than deriving it downstream. Three reasons, in decreasing order of how
-much trouble skipping it causes.
+It is not new machinery. `Sound` has two fields, and `Sound.eq` is
+`EqSound M L Γ e₁ e₂`, which unfolds to exactly
+`∀ ρ ∈ interpCtx M L Γ, ⟦e₁⟧ρ = ⟦e₂⟧ρ`. So `interp_congr` is `sound` with the
+`type` half projected away — three lines — and it holds for arbitrary `B`, not
+only at `.sort u`. The section was right that in Carneiro this is part 4 of the
+soundness theorem proved by one induction with part 3. That is precisely what
+`SoundInduction.lean` does; the projection had simply never been named.
 
-* **`interpSig` is not well defined without it.** §2's `Fld : V → V` is the
-  case: `VIndField.WF.pos` gives only *definitional* block-freeness, so the very
-  first step of showing `Fld q` independent of the family is an appeal to
-  `interp_congr`. Consequently `interp_congr` must be stated and proved **before
-  `interpSig_wf` can be stated at all** — it is not a downstream convenience.
+### It is `Above`-wrapped, and that is enough
+
+`Above M P` is `∃ m, IsInaccessibleChain m M.κ → P`. Soundness is stated that
+way and cannot be stated otherwise: a derivation's premises can need
+arbitrarily higher inaccessibles than its conclusion, so no bound on the
+conclusion is inherited by the premises, and the bound cannot be moved onto `L`
+either, since `L.lvl Γ (.sort k) = k+1` for every `k`. See `SoundInduction.lean`'s
+module header.
+
+**The split that makes this work is data versus properties.**
+
+`cnstOf`'s `.induct` line is `oracleExtend o D.allNames …`, and
+`o : Name → List VLevel → V` is a plain function parameter — *data*, supplied
+with no chain in sight. So constructor and recursor **values** must be sets,
+defined unconditionally. That rules out the shape
+`Above M (∃ S : IndSignature V, …)`: data cannot be extracted from an `Above`.
+
+But `OracleOK`'s two fields are **already** `Above`-wrapped
+(`SetModel/Cnst.lean:183–186`), as are `ModelData.Coherent`'s four and the pair
+`coherentOn_addDefEqFold` consumes. So every **property** may be wrapped, and
+every consumer already expects it that way.
+
+| piece | status | why |
+|---|---|---|
+| `interpSig D hD levels params : IndSignature V` | **unconditional data** | its fields are `⟦A⟧` for the block-free `A` that `VIndCtor.WF`'s `pos` clause supplies; extracting `A` is `Classical.choice` on `∃ A, D.NoBlock A ∧ IsDefEqType … F.type A` — a **chain-free** existential |
+| the bundled `Fld_definable` &c. | **unconditional** | definability of `⟦A⟧` is `(interp …).definable`; no congr involved |
+| `interpSig_stage`, `interpSig_wf`, the `⟦ctorType⟧` connection | **`Above`-wrapped** | all `Prop`s, and every consumer takes `Above` |
+
+### Where the old claim went wrong: defining versus relating
+
+`Fld q` is *defined* from the block-free `A`. Knowing `⟦F.type⟧ = ⟦A⟧` is never
+needed to write the definition down — it is needed only to carry a membership
+proved at `A` over to `F.type`, and that is a `Prop`.
+
+That step is machine-checked in the wrapped form:
+
+```lean
+theorem above_mem_congr (hρ : ρ ∈ interpCtx M L Γ)
+    (hAA' : Above M (EqSound M L Γ A A'))
+    (h : Above M ((interp M L Γ e).toFun ρ ∈ (interp M L Γ A').toFun ρ)) :
+    Above M ((interp M L Γ e).toFun ρ ∈ (interp M L Γ A).toFun ρ)
+```
+
+The congr's threshold and the membership's threshold merge; nothing is
+unwrapped. `SetModel/SoundInduction.lean`.
+
+### The `Above` algebra this needs
+
+`Above` had only `pure` and `imp` — enough to *carry* one wrapped fact, not
+enough to *combine* two, which is what any construction with several
+chain-dependent properties needs. Now also in `SoundInduction.lean`:
+
+* `Above.and` — two thresholds merge by `max`, because `IsInaccessibleChain` is
+  downward closed (`IsInaccessibleChain.le`);
+* `Above.imp₂`;
+* `Above.forall_mem` — finitely many wrapped facts under one threshold, which an
+  inductive block needs immediately: one obligation per constructor.
+
+### Price of an unconditional version, if anyone still wants one
+
+De-`Above`-ing soundness cannot be done by bounding the chain, for the reason
+above. It would need a model with a **proper class of inaccessibles**, or a
+reflection argument. That is **a change to the model's foundational hypothesis,
+not a lemma** — the whole development is currently stated against an
+`n`-inaccessible-chain *schema*, and this would replace it. Against that, the
+wrapped route cost three combinators and one transport lemma.
+
+**Recommendation: build `interpSig` unconditionally, keep every property
+wrapped, and do not weaken `WF.pos` to a syntactic `NoBlock`.**
+
+### The other two reasons the old section gave, which still stand
+
 * **Almost every model-side step replaces a type by a definitionally equal
   one.** `VIndType.WF.canon`, `VIndCtor.WF.params_eq`, and every `IsDefEqType`
-  clause in `VIndField.WF` hand the model a `≈` where it wants an `=`. Without
-  invariance each becomes a separate obligation.
-* **The interpretation's own case splits must be stable under `≡`.** Proof
-  splitting decides `app`/`lam`/`forallE` on `lvl` and `sort`; for the
-  congruence cases of soundness those decisions must agree on both sides of a
-  `≡`. That is `LevelAssign.lvl_congr` and `LevelAssign.srt_congr` in
-  `SetModel/Interp.lean` — both already proved there, from `LevelAssign` alone.
+  clause in `VIndField.WF` hand the model a `≈` where it wants an `=`.
+  `above_mem_congr` is the shape each of those takes.
+* **The interpretation's own case splits must be stable under `≡`.** That is
+  `LevelAssign.lvl_congr` and `LevelAssign.srt_congr` in `SetModel/Interp.lean`,
+  both proved there from `LevelAssign` alone.
 
-Practically this means the interpretation should be defined on the *judgement*,
-or defined on terms with `interp_congr` proved by the same induction that proves
-soundness — not bolted on afterwards. In Carneiro it is parts 3 and 4 of the
-soundness theorem (`soundness.tex:216`), proved by one induction; part 4 *is*
-`interp_congr`.
+### Note to the next reader: check the tree before pricing the work
+
+This section priced work the tree had already made unnecessary, and it is the
+second time in two rounds that a doc here was accurate about *when it was
+written* and stale about *what exists now*. The check that would have caught
+both took seconds. Before building what a doc says you need:
+
+1. **Check whether an existing structure's field already unfolds to it.**
+   `Sound.eq` *was* `interp_congr`.
+2. **Check whether the consumer already accepts the weaker form.** `OracleOK`'s
+   fields were already `Above`-wrapped, so no unconditional version was ever
+   required.
+
+A document naming something as the first blocker is evidence about its own date,
+not about the current tree.
 
 ---
 
@@ -331,13 +419,25 @@ The interpretation `⟦Γ ⊢ e⟧` is now **defined** — see `SetModel/Interp.
 relative to a `LevelAssign`, which packages exactly Carneiro's `lvl`/`sort`
 lemma. What remains from the syntax side is:
 
-1. **`IsDefEqU.sort_inv`**, which is all a `LevelAssign` needs. Notably *not*
-   `IsDefEqU.forallE_inv` or `IsDefEqU.sort_forallE_inv`: the interpretation's
-   definition uses neither.
-2. **`interp_congr`** (§4) and **`NoBlock.indep`** (§2), the two obligations that
-   make `interpSig` well defined.
+1. **`IsDefEqU.sort_inv`**, which is what a `LevelAssign` needs — and nothing in
+   the tree exhibits a `LevelAssign`, so this is the one unwitnessed hypothesis
+   the whole set model rests on. Notably *not* `IsDefEqU.forallE_inv` or
+   `IsDefEqU.sort_forallE_inv`: the interpretation's definition uses neither.
+
+   **Caveat on scope.** "`sort_inv` is all a `LevelAssign` needs" is a claim
+   about the `lvl` field. `srt_sound` asks that `srt Γ e ≈ lvl Γ A` for *every*
+   `A` typing `e`, and `srt` can only choose one — so it also needs the sorts of
+   a term's two types to agree, and nothing links those without `A ≈ A'`, which
+   is unique typing. `LevelAssign.srt_uniq` (`SetModel/Interp.lean`) is the
+   necessary condition that makes this testable; the test is to attempt
+   `levelAssign_of_sort_inv` and see which hypothesis the second field demands.
+2. **`NoBlock.indep`** (§2) — the remaining obligation that makes `interpSig`
+   well defined. `interp_congr` is **no longer on this list**: it is proved
+   (§4), and its `Above`-wrapped form is sufficient.
 3. The constant assignment `ModelData.cnst` and its coherence with `env.defeqs`,
-   by induction over the declaration list.
+   by induction over the declaration list. The `.quot` form of this is complete
+   — all four `const_type` obligations and both `quotDefEq` obligations, in
+   `SetModel/QuotInterp.lean`. The `.induct` form is what `interpSig` is for.
 
 Nothing on the set-theoretic side is outstanding.
 
