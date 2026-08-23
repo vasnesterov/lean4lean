@@ -1707,6 +1707,34 @@ condition it needs is the one the axiom already states.
 
 **`Lean.Expr.looseBVarRange_eq` should be deleted: 28 → 27.**
 
+**Landed.** With the frozen-file exception, `Verify/Axioms.lean` now declares
+the theorem in place of the axiom and `Verify/Guard.lean` is re-pinned to 27.
+Verified rather than read:
+
+* `lake build` (all default targets, 1291 jobs) exits 0 — **zero downstream
+  churn**, as the identical-statement claim predicted;
+* guard 1 prints `declares exactly the 27 frozen axioms ✓`, guard 2 unchanged
+  (`within whitelist ✓`, still INCOMPLETE on `sorryAx`), guard 3 unchanged
+  (`54/54 remaining ✓`);
+* re-derived independently with guard 1's own instrument — enumerating
+  `axiomInfo` constants whose declaring module is `Lean4Lean.Verify.Axioms`,
+  not a grep — giving **27**, with `Lean.Expr.looseBVarRange_eq` absent from the
+  list and present as a `thmInfo` of the identical type;
+* `#print axioms Lean.Expr.looseBVarRange_eq` (with `pp.fullNames`) →
+  `[propext, Quot.sound, Lean.Expr.mkAppData_eq, Lean.Expr.mkData_eq]`, and no
+  `_native` axiom is reachable from `Axioms.lean`.
+
+*Layering:* the proof went inline into `Axioms.lean`, in a `section` with a
+`local reducible` attribute on `Expr.Data` and every helper `private`. This
+inverts nothing — everything it needs (`mkData'`, `mkAppData'`,
+`looseBVarRange'`, `BVarBounded`, and the two axioms) is already declared in
+that file above it. The `Verify/Level.lean` stream faced a genuinely different
+problem: its bit lemmas were needed by a *consumer* of the frozen file, so a
+shared home would have had to import `Axioms.lean`, and it chose duplication.
+The same choice applies to the helpers here: they duplicate facts
+`Verify/Expr.lean` also proves (still with `bv_decide`), and the private copies
+are deliberate for the same reason.
+
 ### 13.2 Why it goes through, and what `BVarBounded` is actually for
 
 Checking every `mkData` call in the `Expr.data` computed field

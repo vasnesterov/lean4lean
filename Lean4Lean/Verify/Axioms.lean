@@ -428,25 +428,206 @@ def BVarBounded : Expr → Prop
   | .letE _ t v b _ => t.BVarBounded ∧ v.BVarBounded ∧ b.BVarBounded
   | _ => True
 
-/-- This was false prior to the fix of lean4#8554; it should now be provable
-using `mkData_eq` and friends, but this has not been done yet.
+/-! ### `looseBVarRange_eq` is proved, not assumed
 
-The `BVarBounded` side condition is **required**: without it this axiom proves
-`False` on its own. `Expr.looseBVarRange` is a read of a 20-bit field
-(`Expr.Data.looseBVarRange c = (c >>> 44).toUInt32`), so it is `< 2^20`
-unconditionally, whereas `looseBVarRange'` is unbounded --
-`(Expr.bvar 1048575).looseBVarRange' = 2^20`. Upstream refuses to construct such
-a term at all (`lean_expr_mk_data` panics with "too many bound variables" when
-the range exceeds `1048575`), which is also why the RHS must *not* be patched to
-return `0` out of range: the C function aborts, it does not keep going with `0`.
+This was an axiom until `docs/axiom-audit.md` §13. It is **derivable** from
+`mkData_eq` and `mkAppData_eq` under the side condition it already carried, so
+it is now a theorem with an unchanged statement -- no consumer had to change.
+
+The `BVarBounded` side condition is **required**, absolutely and not just
+relative to some interpretation of the packing function: `Expr.looseBVarRange`
+is a read of a 20-bit field (`Expr.Data.looseBVarRange c = (c >>> 44).toUInt32`)
+so it is `< 2^20` whatever `mkData` returns, whereas `looseBVarRange'` is
+unbounded -- `(Expr.bvar 1048575).looseBVarRange' = 2^20`. Without the
+hypothesis the statement proved `False` on its own (§3.1); the refutation is
+preserved as a live theorem, `not_looseBVarRange_eq_unconditional` in
+`Lean4Lean/Tests/AxiomConsistencyExpr.lean`, so it cannot be re-broken silently.
+Upstream refuses to construct such a term at all (`lean_expr_mk_data` panics
+with "too many bound variables" when the range exceeds `1048575`), which is also
+why the RHS must *not* be patched to return `0` out of range: the C function
+aborts, it does not keep going with `0`.
 
 A bound on the top-level range does not suffice -- the field is computed
 bottom-up, so every subterm's `mkData` call must be in range; hence the
-per-subterm `BVarBounded`.
+per-subterm `BVarBounded`. Of its clauses only `bvar` does any work: every other
+`mkData` call in the `Expr.data` computed field passes an argument built from
+`looseBVarRange` *field reads*, which `dataLooseBVarRange_lt` below bounds
+unconditionally. The recursion exists only to reach the `bvar` leaves.
 
-See `docs/axiom-audit.md` §3.1 for the machine-checked witness and the analysis. -/
-@[simp] axiom looseBVarRange_eq (e : Expr) (h : e.BVarBounded) :
-    e.looseBVarRange = e.looseBVarRange'
+The proofs deliberately avoid `bv_decide`, which discharges its LRAT certificate
+by compiling and running the checker and then minting a fresh
+`..._native.bv_decide.ax_N` axiom from the runtime result -- the kernel never
+sees a proof (§12.5). `simp` + `omega` over `Nat` suffices. These are private
+duplicates of facts `Verify/Expr.lean` also proves, rather than a shared home,
+because a shared file would have to import this frozen one. -/
+
+section LooseBVarRangeEq
+set_option allowUnsafeReducibility true
+attribute [local reducible] Data
+
+private theorem shr (a b : UInt64) : a.shiftRight b = a >>> b := rfl
+private theorem shl (a b : UInt64) : a.shiftLeft b = a <<< b := rfl
+
+private theorem add64 {x y : UInt64} {a b : Nat} (hx : x.toNat = a) (hy : y.toNat = b)
+    (hab : a + b < 2 ^ 64) : (x + y).toNat = a + b := by
+  rw [UInt64.toNat_add, hx, hy]; omega
+
+private theorem shl64 {x n : UInt64} {a k : Nat} (hx : x.toNat = a) (hn : n.toNat % 64 = k)
+    (hb : a * 2 ^ k < 2 ^ 64) : (x.shiftLeft n).toNat = a * 2 ^ k := by
+  rw [shl, UInt64.toNat_shiftLeft, hx, hn, Nat.shiftLeft_eq]; omega
+
+private theorem btl (b : Bool) : b.toUInt64.toNat < 2 := by cases b <;> simp [Bool.toUInt64]
+
+/-- The cached `looseBVarRange` is a read of a 20-bit field, so it is `< 2 ^ 20`
+whatever `mkData` returns. Axiom-free: this is the provable property that makes
+the unconditional form refutable, and that makes `mkAppData'`'s `assert!`
+unreachable. -/
+private theorem dataLooseBVarRange_lt (c : Data) : c.looseBVarRange.toNat < 2 ^ 20 := by
+  have h : (c : UInt64).toNat < 2 ^ 64 := UInt64.toNat_lt_size c
+  simp only [Data.looseBVarRange, shr, UInt64.toNat_toUInt32, UInt64.toNat_shiftRight,
+    UInt64.toNat_ofNat, Nat.reduceMod, Nat.reducePow, Nat.shiftRight_eq_div_pow]
+  omega
+
+private theorem u32max_toNat (x y : UInt32) : (max x y).toNat = max x.toNat y.toNat := by
+  simp only [Max.max]
+  split <;> rename_i h <;> rw [UInt32.le_iff_toNat_le] at h <;> split <;> omega
+
+/-- Field read of a value packed as `lo + br * 2 ^ 44` with `lo` below the field. -/
+private theorem field44 {c : UInt64} {lo br : Nat} (hlo : lo < 2 ^ 44) (hbr : br < 2 ^ 20)
+    (hc : c.toNat = lo + br * 2 ^ 44) : (Data.looseBVarRange c).toNat = br := by
+  simp only [Data.looseBVarRange, shr, UInt64.toNat_toUInt32, UInt64.toNat_shiftRight,
+    UInt64.toNat_ofNat, Nat.reduceMod, Nat.reducePow, Nat.shiftRight_eq_div_pow, hc]
+  omega
+
+/-- Field read of a value assembled by `|||`. `>>>` distributes over `|||`, so
+the three sub-44 pieces vanish and the field survives. -/
+private theorem or44 {A B C D : UInt64} {r : Nat}
+    (hA : A.toNat < 2 ^ 44) (hB : B.toNat < 2 ^ 44) (hC : C.toNat < 2 ^ 44)
+    (hD : D.toNat = r * 2 ^ 44) (hr : r < 2 ^ 20) :
+    (Data.looseBVarRange (A ||| B ||| C ||| D)).toNat = r := by
+  have e1 : A.toNat >>> 44 = 0 := by rw [Nat.shiftRight_eq_div_pow]; omega
+  have e2 : B.toNat >>> 44 = 0 := by rw [Nat.shiftRight_eq_div_pow]; omega
+  have e3 : C.toNat >>> 44 = 0 := by rw [Nat.shiftRight_eq_div_pow]; omega
+  have e4 : D.toNat >>> 44 = r := by rw [Nat.shiftRight_eq_div_pow, hD]; omega
+  simp only [Data.looseBVarRange, shr, UInt64.toNat_toUInt32, UInt64.toNat_shiftRight,
+    UInt64.toNat_or, UInt64.toNat_ofNat, Nat.reduceMod, Nat.reducePow,
+    Nat.shiftRight_or_distrib, e1, e2, e3, e4]
+  simp; omega
+
+set_option maxHeartbeats 1000000 in
+private theorem mkData'_pack {h : UInt64} {br : Nat} {d : UInt32} {fv ev lv lp : Bool}
+    (H : br ≤ 2 ^ 20 - 1) :
+    ∃ lo < 2 ^ 44, (mkData' h br d fv ev lv lp : UInt64).toNat = lo + br * 2 ^ 44 := by
+  rw [mkData', if_pos H]
+  have hD : (if d > 255 then (255 : UInt8) else d.toUInt8).toNat < 256 := UInt8.toNat_lt_size _
+  have f1 := btl fv; have f2 := btl ev; have f3 := btl lv; have f4 := btl lp
+  have hb : h.toNat % 2 ^ 32 < 2 ^ 32 := Nat.mod_lt _ (by omega)
+  have t0 : (h.toUInt32.toUInt64).toNat = h.toNat % 2 ^ 32 := by simp
+  have t1 : ((if d > 255 then (255 : UInt8) else d.toUInt8).toUInt64.shiftLeft 32).toNat
+      = (if d > 255 then (255 : UInt8) else d.toUInt8).toNat * 2 ^ 32 :=
+    shl64 (by simp) (by simp) (by omega)
+  have s1 := add64 t0 t1 (by omega)
+  have t2 : (fv.toUInt64.shiftLeft 40).toNat = fv.toUInt64.toNat * 2 ^ 40 :=
+    shl64 rfl (by simp) (by omega)
+  have s2 := add64 s1 t2 (by omega)
+  have t3 : (ev.toUInt64.shiftLeft 41).toNat = ev.toUInt64.toNat * 2 ^ 41 :=
+    shl64 rfl (by simp) (by omega)
+  have s3 := add64 s2 t3 (by omega)
+  have t4 : (lv.toUInt64.shiftLeft 42).toNat = lv.toUInt64.toNat * 2 ^ 42 :=
+    shl64 rfl (by simp) (by omega)
+  have s4 := add64 s3 t4 (by omega)
+  have t5 : (lp.toUInt64.shiftLeft 43).toNat = lp.toUInt64.toNat * 2 ^ 43 :=
+    shl64 rfl (by simp) (by omega)
+  have s5 := add64 s4 t5 (by omega)
+  have t6 : (br.toUInt64.shiftLeft 44).toNat = br * 2 ^ 44 :=
+    shl64 (by simp; omega) (by simp) (by omega)
+  exact ⟨_, by omega, add64 s5 t6 (by omega)⟩
+
+private theorem mkData'_lbr {h : UInt64} {br : Nat} {d : UInt32} {fv ev lv lp : Bool}
+    (H : br ≤ 2 ^ 20 - 1) : (mkData' h br d fv ev lv lp).looseBVarRange.toNat = br := by
+  obtain ⟨lo, hlo, hc⟩ := mkData'_pack (h := h) (d := d) (fv := fv) (ev := ev) (lv := lv)
+    (lp := lp) H
+  exact field44 hlo (by omega) hc
+
+set_option maxHeartbeats 800000 in
+private theorem mkAppData'_lbr (f a : Data) :
+    (mkAppData' f a).looseBVarRange.toNat
+      = max f.looseBVarRange.toNat a.looseBVarRange.toNat := by
+  have hf := dataLooseBVarRange_lt f; have ha := dataLooseBVarRange_lt a
+  have hass : max f.looseBVarRange a.looseBVarRange ≤ (Nat.pow 2 20 - 1).toUInt32 := by
+    rw [UInt32.le_iff_toNat_le, u32max_toNat]; simp; omega
+  have h8 : (if max f.approxDepth.toUInt16 a.approxDepth.toUInt16 + 1 > 255 then (255 : UInt8)
+      else (max f.approxDepth.toUInt16 a.approxDepth.toUInt16 + 1).toUInt8).toNat < 256 :=
+    UInt8.toNat_lt_size _
+  rw [mkAppData', if_pos hass]
+  refine or44 ?_ ?_ ?_ ?_ (by omega)
+  · have h15 : ((15 : UInt64) <<< (40 : UInt64)).toNat = 16492674416640 := by simp
+    rw [UInt64.toNat_and, h15]
+    have := Nat.and_le_right (n := (f ||| a).toNat) (m := 16492674416640)
+    omega
+  · rw [UInt32.toNat_toUInt64, UInt64.toNat_toUInt32]
+    have : (mixHash f a).toNat % 2 ^ 32 < 2 ^ 32 := Nat.mod_lt _ (by omega)
+    omega
+  · rw [UInt64.toNat_shiftLeft, UInt8.toNat_toUInt64]
+    simp only [UInt64.toNat_ofNat, Nat.reduceMod, Nat.shiftLeft_eq, Nat.reducePow]
+    omega
+  · rw [UInt64.toNat_shiftLeft, UInt32.toNat_toUInt64, u32max_toNat]
+    simp only [UInt64.toNat_ofNat, Nat.reduceMod, Nat.shiftLeft_eq, Nat.reducePow]
+    omega
+
+private theorem mkData_lbr {h : UInt64} {br : Nat} {d : UInt32} {fv ev lv lp : Bool}
+    (H : br ≤ 2 ^ 20 - 1) : (mkData h br d fv ev lv lp).looseBVarRange.toNat = br := by
+  rw [mkData_eq H]; exact mkData'_lbr H
+
+private theorem mkAppData_lbr (f a : Data) :
+    (mkAppData f a).looseBVarRange.toNat
+      = max f.looseBVarRange.toNat a.looseBVarRange.toNat := by
+  rw [mkAppData_eq]; exact mkAppData'_lbr f a
+
+private theorem le_of_field (c : Data) : c.looseBVarRange.toNat ≤ 2 ^ 20 - 1 := by
+  have := dataLooseBVarRange_lt c; omega
+
+set_option maxHeartbeats 1000000 in
+private theorem data_lbr : ∀ (e : Expr), e.BVarBounded →
+    e.data.looseBVarRange.toNat = e.looseBVarRange' := by
+  intro e
+  induction e with
+  | bvar i => intro h; exact mkData_lbr h
+  | fvar _ => intro _; exact mkData_lbr (by omega)
+  | mvar _ => intro _; exact mkData_lbr (by omega)
+  | sort _ => intro _; exact mkData_lbr (by omega)
+  | const _n _us => intro _; exact mkData_lbr (by omega)
+  | lit _ => intro _; exact mkData_lbr (by omega)
+  | mdata _ b ih => intro h; exact (mkData_lbr (le_of_field b.data)).trans (ih h)
+  | proj _ _ b ih => intro h; exact (mkData_lbr (le_of_field b.data)).trans (ih h)
+  | app f a ihf iha =>
+    intro h; exact (mkAppData_lbr f.data a.data).trans (by rw [ihf h.1, iha h.2]; rfl)
+  | lam _ t b _ iht ihb =>
+    intro h
+    have hb : max t.data.looseBVarRange.toNat (b.data.looseBVarRange.toNat - 1) ≤ 2 ^ 20 - 1 := by
+      have := dataLooseBVarRange_lt t.data; have := dataLooseBVarRange_lt b.data; omega
+    exact (mkData_lbr hb).trans (by rw [iht h.1, ihb h.2]; rfl)
+  | forallE _ t b _ iht ihb =>
+    intro h
+    have hb : max t.data.looseBVarRange.toNat (b.data.looseBVarRange.toNat - 1) ≤ 2 ^ 20 - 1 := by
+      have := dataLooseBVarRange_lt t.data; have := dataLooseBVarRange_lt b.data; omega
+    exact (mkData_lbr hb).trans (by rw [iht h.1, ihb h.2]; rfl)
+  | letE _ t v b _ iht ihv ihb =>
+    intro h
+    have hb : max (max t.data.looseBVarRange.toNat v.data.looseBVarRange.toNat)
+        (b.data.looseBVarRange.toNat - 1) ≤ 2 ^ 20 - 1 := by
+      have := dataLooseBVarRange_lt t.data; have := dataLooseBVarRange_lt v.data
+      have := dataLooseBVarRange_lt b.data; omega
+    exact (mkData_lbr hb).trans (by rw [iht h.1, ihv h.2.1, ihb h.2.2]; rfl)
+
+/-- The cached `looseBVarRange` is exact on every `BVarBounded` term.
+
+Formerly an axiom; see `docs/axiom-audit.md` §13. Proved from `mkData_eq` and
+`mkAppData_eq`, which are the only assumptions in its cone. -/
+@[simp] theorem looseBVarRange_eq (e : Expr) (h : e.BVarBounded) :
+    e.looseBVarRange = e.looseBVarRange' := data_lbr e h
+
+end LooseBVarRangeEq
 
 /-- The side condition on `looseBVarRange_eq` is strong enough to block the
 refutation in `docs/axiom-audit.md` §3.1: under `BVarBounded` the model range
