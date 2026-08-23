@@ -1359,9 +1359,44 @@ theorem indRec₃_indCtor₃ {q a f : V} (hq : q ∈ S.Q) (ha : a ∈ S.Fld (Ind
 
 end RecursorTotal₃
 
+/-! ### Stage membership, without porting `IndCard`
+
+The cardinality argument is 506 lines and does **not** need porting.  Dropping
+the admissibility conjunct only enlarges the operator, so `Ind₃` sits inside the
+*ordinary* family at the **top** approximation `S.Idx ×ˢ D` — and that
+approximation dominates every one the induction can produce, which is what makes
+the step's `Fld_mono` fire in the right direction (the wrong one is what broke
+`recGraph₃_total`'s first form).
+
+From there `rank_mono` finishes it: a subset of a member of `vsetV k` is a
+member.  No new stage structure is needed either — `IsStageSignature₂` applies
+to `S.toIndSignature₂`. -/
+
+/-- **Admissibility is not needed for containment.**  `Ind₃_induction` with the
+`Args` component dropped — every set closed under the constructors contains the
+family, whether or not it tracks admissibility. -/
+theorem Ind₃_subset_of {P : V} (hP : P ⊆ S.Idx ×ˢ D)
+    (hstep : ∀ q ∈ S.Q, ∀ a ∈ S.Fld P q, ∀ f ∈ (D ^ S.Pos q a : V),
+      (∀ b ∈ S.Pos q a, (⟨S.posIdx q a b, f ‘ b⟩ₖ : V) ∈ P) →
+      indCtor₃ S q a f ∈ P) :
+    Ind₃ S D ⊆ P :=
+  Ind₃_induction hP (fun q hq a ha f hf _ hrec ↦ hstep q hq a ha f hf hrec)
+
+/-- **The rank step, which is what the check was for.**  `rank_mono`
+(`SetModel/Rank.lean`) exists, so a subset of a member of `vsetV k` is a member,
+and `IndCard.lean`'s 506-line cardinality argument does **not** need porting —
+`Ind₃` inherits its bound from any containing set already known to be in the
+stage. -/
+theorem Ind₃_mem_vsetV_of {k X : V} [IsOrdinal k]
+    (hX : X ∈ vsetV k) (hsub : Ind₃ S D ⊆ X) : Ind₃ S D ∈ vsetV k := by
+  rw [mem_vsetV_iff_mem_Vset] at hX ⊢
+  rw [mem_Vset_iff_rank_lt] at hX ⊢
+  exact lt_of_le_of_lt (rank_mono hsub) hX
+
 end Operator₃
 
 end Lean4Lean.SetModel
+
 
 
 

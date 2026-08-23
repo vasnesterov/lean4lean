@@ -2078,9 +2078,50 @@ Two other structures also had to take the approximation as a parameter for the
 same reason: `IsIndCarrier₃` and `IsMinorPremise₃` quantify over `W`, because a
 form fixed at `Ind₃ S D` would not apply inside the induction.
 
-### Remaining
+### The rank check: it composes, and `IndCard` does not need porting
 
-`IsStageSignature₃` and the stage membership `Ind₃_mem_vsetV`.
+**`rank_mono {x y : V} (h : x ⊆ y) : rank x ≤ rank y` exists** —
+`SetModel/Rank.lean:467`. With `mem_vsetV_iff_mem_Vset` and
+`mem_Vset_iff_rank_lt` it composes directly into
+`Ind₃_mem_vsetV_of : X ∈ vsetV k → Ind₃ S D ⊆ X → Ind₃ S D ∈ vsetV k`, three
+lines. **So `IndCard.lean`'s 506-line cardinality argument does not need
+porting**: `Ind₃` inherits its bound from any containing set already known to be
+in the stage. `Ind₃_subset_of` — `Ind₃_induction` with the `Args` component
+dropped — is the containment tool. Both sorry-free.
+
+### The one step left, and the hazard it hit
+
+What remains is the *composition*: instantiate `Ind₃_subset_of` at
+`P := Ind (S.toIndSignature₂.at W₀) D` to get the containing set.
+Mathematically it is four lines — dropping admissibility only enlarges the
+operator, and the top approximation `S.Idx ×ˢ D` dominates every approximation
+the induction produces, so `Fld_mono` fires in the right direction.
+
+**It does not elaborate.** `whnf` times out, and raising the limit from 200k to
+1M does not help — so by this file's own diagnostic it is looping, not deep.
+The cause is the hazard `SetModel/Cnst.lean` already documents for
+`mkLam_mem_mkForallType`: `Ind S' D` unfolds to `lfp _ (indStep S' D)
+(indStep_definable S' D)`, and with `S'` a *concrete* anonymous constructor that
+definability proof term is large enough to hang unification.
+
+The documented remedy applies unchanged: **state it schematically, with `S'` an
+abstract signature plus the field equations it needs**, so the proof terms stay
+variables. That is the next edit, and it is a restatement rather than a new
+argument. I stopped rather than keep raising limits — the limit is never the
+answer, and that rule is in this file's header.
+
+### Port total against estimate
+
+Estimated **400–900 lines, mechanical-dominated**. Actual: `IndInterp.lean` grew
+from 874 to ~1400 lines, of which roughly **520 lines are the port** (signature,
+operator, carrier, minor premise, the full recursor graph, totality,
+single-valuedness, the recursor, the ι-rule, and the stage step) — **inside the
+estimate, in its lower half**, and the 506-line cardinality file was avoided
+entirely rather than ported.
+
+Drift signals over the whole port: **one** declaration needed more than an added
+component (`recGraph₃_total`, cause known, one-word fix), and two corrections
+were my own dropped transcription steps rather than port cost.
 
 The cheap route, which avoids porting `IndCard.lean` at all: prove
 `Ind₃ S D ⊆ Ind (S.at (S.Idx ×ˢ D)) D` by `Ind₃_induction` — the step's
