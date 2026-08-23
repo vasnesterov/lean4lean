@@ -592,10 +592,21 @@ and not three, and the split is machine-checked below.
   propositionhood.
 
 So `PropTypeAgree` is **not self-sufficient**.  The primitive to route or fund is
-`SortForallEDisjoint`.  It passes the cumulativity check — cumulativity retypes at sorts and
-never gives a Π-typed term a sort type — so unlike `SortUniq` it is not excluded from a
-semantic argument in principle; whether a *model* can supply it is a separate question, since
-`Theory/SetModel/` remains parameterised on `LevelAssign` (see `Typing/SortUniq.lean`). -/
+`SortForallEDisjoint`.
+
+*On its semantic status, stated precisely.*  It passes the cumulativity check — cumulativity
+retypes at sorts and never gives a Π-typed term a sort type.  **That licenses "not excluded",
+not "open".**  A negative check rules a route out; passing one does not rule a route in.  In
+fact the model route is closed for a different reason: `Theory/SetModel/` is parameterised on
+`LevelAssign` (see `Typing/SortUniq.lean`), and a cut-down model bottoms out at
+`sort_not_proof` — which is `PropTypeAgree` at a sort, i.e. the same self-reference this
+docstring describes, reached from the semantic side.
+
+*And a refutation is provably impossible at the model's own witness.*
+`sortForallEDisjoint_of` below forces any counterexample to have an **application** subject;
+the witness at which the model fails to separate — `False` versus `∀ x : False, B` — is a
+**constant**, and the `const` case is proved.  So the model's non-separation is real and
+cannot be lifted to syntax there.  The two facts are consistent, not in tension. -/
 
 /-- **The primitive `PropTypeAgree` needs and does not contain**: no term has both a sort type
 and a Π type.  `eta`'s case of `PropTypeAgree` is exactly this and nothing else. -/

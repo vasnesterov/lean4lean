@@ -122,16 +122,27 @@ case need exactly this.
 
 ## 5. The live lead: `PropTypeAgree`
 
-**The criterion, first, because it predicts rather than explains.**
+**The criterion, first, because it predicts rather than explains.**  It reformulated itself on
+its third application, in the direction of being more predictive; the sharpened form is the
+one to use.
 
-> A conclusion **propagated along** a conversion tolerates an arbitrary middle term.
-> One **asserted of** its endpoints does not.
+> **Does the statement's induction ever have to look at a conversion derivation at all?**
+> If it does not, it is tractable.  If it does, it is tractable exactly when its conclusion is
+> **propagated along** the conversion rather than **asserted of** its endpoints — the first
+> tolerates an arbitrary middle term at `trans`, the second does not.
 
-`sort_inv`'s `trans` case fails because `.sort u ≡ e₂ ≡ .sort v` says nothing about `e₂`; the
-IHs do not apply. It has now decided three statements — it explained why the equality form was
-hopeless, predicted that `PropTypeAgree`'s binary form would close `trans` (it does, by
-composition), and predicted that `PropUniq` would not (it does not). Apply it before
-attempting any new statement on this route.
+The second clause is the earlier form of the criterion and is now a special case of the first.
+Four applications, and it has predicted before explaining every time after the first:
+
+| statement | induction sees a conversion? | conclusion | `trans` | outcome |
+|---|---|---|---|---|
+| `sort_inv` / `DefInv` clause (1) | yes | endpoint-asserted | fails | needs normalisation |
+| `PropTypeAgree` (residual `PropConvInv`) | yes | propagated | closes | tractable |
+| `PropUniq` | yes | endpoint-asserted | fails | needs normalisation |
+| `SortForallEDisjoint` | **no** — induction on *typing* | — | never arises | tractable, 6 of 7 cases |
+| shape-disjointness under substitution | yes | propagated | closes | does **not** inherit `SubstC`'s refutation |
+
+Route future statements through this before attempting them.
 
 **And an irony worth stating, because the natural reasoning goes the other way.** The obvious
 move is to attack these statements *unstratified*, since closing there would make the index
@@ -303,7 +314,12 @@ this statement at the index.**
 6. **`rfl` is captured.** Inside these files `rfl` can elaborate to `Stratified.rfl`; write
    `(Eq.refl true)` when an equation is meant.
 7. **`nomatch` needs constructors.** It cannot see through a `def`; `simp [thedef] at h`.
-8. **Reasoning about vacuity is unreliable.** Two cases in the `PropTypeAgree` pass were
+8. **A negative check licenses "not excluded", never "open".**  The cumulativity check shows
+   `SortForallEDisjoint` is not *excluded* from semantic argument; it does not show a route
+   exists.  Writing "not excluded from a semantic argument in principle" was read as "a route
+   exists", a model enquiry was routed on it, and the first act of that enquiry was to correct
+   the premise.  State what a negative check does not rule out, never what it opens.
+9. **Reasoning about vacuity is unreliable.** Two cases in the `PropTypeAgree` pass were
    called vacuous by inspection and one was wrong (`forallEDF`). Run it.
 
 ---
@@ -343,3 +359,45 @@ prices it — an option set, not a recommendation:
 * **A different metatheory** (algorithmic conversion plus a logical relation) breaks the
   typing/conversion circle without a reduction relation at all. Standard in the literature,
   outside anything `~/lean-type-theory` provides, and large.
+
+---
+
+## 9. `SortForallEDisjoint`: where it stands
+
+**Six of seven typing cases close from `DefInv` alone** (`sortForallEDisjoint_of`, sorry-free).
+`trans` never arises — this is an induction on typing.  Only `app` is open.
+
+**A refutation is provably impossible at the model's own witness.**  The six closed cases force
+any counterexample to have an **application** subject.  The model's witness — `False` versus
+`∀ x : False, B` — is a **constant**, and the `const` case is machine-checked.  So the model's
+non-separation is real *and* cannot be lifted to syntax there.  The two facts are consistent
+rather than in tension: the model genuinely does not separate them, the syntax genuinely does.
+
+**The `app` case needs more than shape-disjointness under substitution.**  That much composes
+(checked).  But to *apply* it one needs `f`'s two Π-types related — `.forallE A₀ B₀ ≡
+.forallE A₁ B₁` — which is `uniq` at `f`, and `uniq` is the broken thing.  What is actually
+required is a **hereditary** shape agreement:
+
+> the types of a term agree on shape, **and** their codomains agree on shape after
+> instantiation at any argument typed at both domains.
+
+That is a shape-only weakening of unique typing, and it is the primitive to price next.  Note
+`docs/design-shape-lattice.md` and `Lean4Lean/Experimental/` aimed at something of this form;
+per §2 of the older handoff everything there is unproved and `SExpr.ParamsExtra.extra_pat` is
+unsatisfiable as stated — but the *shape* of the idea is the right one, and it is worth reading
+before rebuilding it.
+
+## 10. Four independent convergences on one family
+
+Recorded because whatever breaks this open will almost certainly be a single argument that
+several consumers share:
+
+1. the syntactic cone's `proofIrrel` case (`sort_not_proof`);
+2. the set model's `LevelAssign.srt_sound` (`SortUniq` restated);
+3. `PropTypeAgree`'s own `proofIrrel` case — self-reference at another subject;
+4. the cut-down model, which bottoms out at `sort_not_proof` — i.e. at (3), from the opposite
+   direction.
+
+Impredicative formation forces the collapse the model cannot avoid; proof irrelevance forces
+the identification.  Between them they close the semantic side for `SortUniq` and `PropUniq`
+both.
