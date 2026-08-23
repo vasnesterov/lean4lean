@@ -1374,6 +1374,9 @@ Two facts follow.
 > of those six (#13, #14) are now closed by §12.1. **Four remain:**
 > `Expr.looseBVarRange_eq`, `PersistentArray.WF.toList'_push`,
 > `PersistentHashMap.WF.toList'_insert`, `PersistentHashMap.WF.find?_eq`.
+>
+> *(Updated: §13 closed `Expr.looseBVarRange_eq` too — it is derivable as
+> stated, at zero cost. **Three remain**, all container axioms; see §13.6.)*
 
 ### 12.3 Attacks attempted and failed
 
@@ -1460,11 +1463,12 @@ reading, and weaker than a proof. None of these is a proof of consistency.
   has been exhibited**: doing so means proving the real persistent-array and
   HAMT algorithms correct, which is the substance of the axioms. Highest
   residual risk in the set.
-* **`Expr.looseBVarRange_eq` + `Expr.mkData_eq` + `mkAppData_eq`** — attack 4
+* ~~**`Expr.looseBVarRange_eq` + `Expr.mkData_eq` + `mkAppData_eq`** — attack 4
   fails and the hand analysis says a clamping model works exactly as
   `mkDataM` does for `Level`, but the `Expr` model has **not been mechanised**
-  (its `data` field has eleven clauses against `Level`'s six). This is the
-  obvious next piece of work, and it doubles as the proof that would retire #18.
+  (its `data` field has eleven clauses against `Level`'s six).~~ **Done in
+  §13**: the hand analysis held, the clamping model is mechanised, and the
+  axiom turned out to be outright *derivable* rather than merely consistent.
 * **Truth vs consistency.** Everything above is about consistency. The axioms
   can be jointly consistent and still not describe the C++ kernel; that gap is
   what guard 2's by-name whitelist exists to make visible, and §7's
@@ -1659,3 +1663,139 @@ be caught by this argument. Class (B) risk is **bounded, not removed**, and
 | #4/#5 are *true* | **none — still no model.** Unchanged from §12.4 |
 
 The last row is the point of the table.
+
+---
+
+## 13. Class (B), second front: `Expr.looseBVarRange_eq` is a theorem
+
+*(Axiom-consistency stream. Machine-checked artefact:
+`Lean4Lean/Tests/AxiomConsistencyExpr.lean`; `lake build
+Lean4Lean.Tests.AxiomConsistencyExpr` exits 0. Measured against the **28**-axiom
+whitelist at `04a35ff`.)*
+
+§12.2 reduced the consistency question to class (B) — the six axioms that
+constrain a free symbol *through* a definable observation with provable
+properties — and closed two of them (#13, #14). This section closes a third,
+the one that originally proved `False`.
+
+The trio in play:
+
+| axiom | side condition |
+|---|---|
+| `Lean.Expr.mkData_eq` | `br ≤ 2 ^ 20 - 1` |
+| `Lean.Expr.mkAppData_eq` | none |
+| `Lean.Expr.looseBVarRange_eq` | `e.BVarBounded` |
+
+### 13.1 The result is *stronger* than the `Level` case
+
+For `Level`, §12.1 found `hasParam_eq` **independent** of `mkData_eq`: nothing
+constrains `Level.mkData` at depth `≥ 2 ^ 24`, so the axiom had to be replaced
+by a theorem carrying a *new* side condition, at a cost in discharge
+obligations. The `Expr` case is different and better:
+
+```lean
+theorem looseBVarRange_eq_proved (e : Expr) (h : e.BVarBounded) :
+    e.looseBVarRange = e.looseBVarRange'
+```
+
+`#print axioms` → `[propext, Quot.sound, Lean.Expr.mkAppData_eq,
+Lean.Expr.mkData_eq]`. The statement is **literally identical** to the axiom's
+(checked with `pp.fullNames`; `Lean.Expr.looseBVarRange_eq` does not appear in
+its own cone). So this is a **drop-in replacement at zero downstream cost** —
+unlike #13/#14 it introduces no new obligation anywhere, because the side
+condition it needs is the one the axiom already states.
+
+**`Lean.Expr.looseBVarRange_eq` should be deleted: 28 → 27.**
+
+### 13.2 Why it goes through, and what `BVarBounded` is actually for
+
+Checking every `mkData` call in the `Expr.data` computed field
+(`Lean/Expr.lean:471-513`) against what has to be `≤ 2 ^ 20 - 1`:
+
+| clause | range argument | bounded by |
+|---|---|---|
+| `const`, `sort`, `fvar`, `mvar`, `lit` | `0` | trivially |
+| `mdata`, `proj` | `e.data.looseBVarRange.toNat` | **`looseBVarRange_lt`**, unconditionally |
+| `lam`, `forallE` | `max t.…range (b.…range - 1)` | **`looseBVarRange_lt`**, unconditionally |
+| `letE` | `max (max t.… v.…) (b.… - 1)` | **`looseBVarRange_lt`**, unconditionally |
+| `app` | — (`mkAppData`, takes no `Nat`) | n/a |
+| `bvar idx` | `idx + 1` | **`BVarBounded` — the only clause that does any work** |
+
+So the operative content of `BVarBounded` is exactly *"every `bvar` index
+occurring in `e` is `< 2 ^ 20 - 1`"*; its recursion through `app`/`lam`/`letE`
+exists only to reach the `bvar` leaves. Every other call is bounded for free by
+the 20-bit field read. This is worth stating because it says the side condition
+cannot be weakened at the leaves and need not be strengthened anywhere else.
+
+### 13.3 The side condition is load-bearing — refuted, not merely separated
+
+For `Level` the evidence that the condition mattered was a *model separation*
+(§12.1 §2). Here something stronger is available, and it is recorded as a
+different strength of evidence:
+
+```lean
+theorem not_looseBVarRange_eq_unconditional :
+    ¬ ∀ e : Expr, e.looseBVarRange = e.looseBVarRange'
+```
+
+`#print axioms` → `[propext, Quot.sound]`. **No axiom at all**, and no
+interpretation of `mkData` can rescue it: `looseBVarRange` is a 20-bit field
+read and `looseBVarRange'` is unbounded, so `.bvar (2 ^ 20 - 1)` refutes the
+unconditional form outright. This is §3.1's original `False`-proof restated as a
+negation, so that it establishes the necessity of `BVarBounded` without
+introducing an inconsistency. `bvar_big_not_bvarBounded` records that the
+witness is not `BVarBounded`, so §13.1 and §13.3 do not collide.
+
+### 13.4 Joint consistency of the trio
+
+`mkDataC h br d … := mkData' h (min br (2 ^ 20 - 1)) d …` (clamp instead of
+panic, exactly as `mkDataM` does for `Level`) and `mkAppDataC := mkAppData'`
+validate `Expr.mkData_eq` and `Expr.mkAppData_eq` simultaneously
+(`mkDataC_validates_mkData_eq`, `mkAppDataC_validates_mkAppData_eq`, both
+axiom-free). With §13.1 — which *derives* `looseBVarRange_eq` from those two —
+that settles **joint consistency of all three**.
+
+### 13.5 Four more `bv_decide` axioms replaced
+
+§E0 of the artefact is kernel-checked throughout, and covers the remaining
+`_native` axioms in the repo. Before this section the environment contained
+four, all in `Verify/Expr.lean`:
+
+```
+Lean.Expr.Data.looseBVarRange_le._native.bv_decide.ax_1_7
+Lean.Expr.mkData_flags._native.bv_decide.ax_1_12          (private)
+Lean.Expr.mkData_looseBVarRange._native.bv_decide.ax_1_9
+Lean.Expr.mkAppData_looseBVarRange._native.bv_decide.ax_1_8
+```
+
+`looseBVarRange_lt`, `mkData'_looseBVarRange` and `mkAppData'_looseBVarRange`
+replace three of them; `mkData_flags` (the four flag bits) is the same technique
+and was not needed here. As in §12.5 they sit outside `kernel_sound`'s cone only
+because that cone is still 4 constants wide.
+
+The `|||`-structured `mkAppData'` needed one extra idea over the `+`-structured
+`mkData'`: `>>>` distributes over `|||` (`Nat.shiftRight_or_distrib`), so the
+field read is computed piecewise and the three sub-44 pieces vanish, rather than
+proving disjointness of the disjuncts.
+
+### 13.6 Class (B) after this section
+
+| axiom | status |
+|---|---|
+| `Level.hasParam_eq` | **closed** §12.1 — provable under `dep l < 2 ^ 24` |
+| `Level.hasMVar_eq` | **closed** §12.1 — same |
+| `Expr.looseBVarRange_eq` | **closed** §13.1 — provable as stated, zero cost |
+| `PersistentArray.WF.toList'_push` | open |
+| `PersistentHashMap.WF.toList'_insert` | open |
+| `PersistentHashMap.WF.find?_eq` | open |
+
+**Class (B) is now exactly the three container axioms**, and they share a shape
+the other three did not: their right-hand sides are not bit arithmetic but the
+correctness of a persistent-array and a HAMT algorithm, so "exhibit a model"
+means proving those algorithms correct. That is the whole remaining consistency
+risk in the file, and it belongs to the container stream.
+
+The 23 class-(A) axioms remain jointly consistent by §12.2's DAG argument, and
+the environment sweep of §12.3 (item 5) still bounds where any contradiction
+could come from: no theorem anywhere asserts a behavioural property of any
+pinned opaque, so a contradiction can only arise between whitelisted axioms.
