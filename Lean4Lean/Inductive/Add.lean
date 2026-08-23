@@ -8,6 +8,46 @@ open Kernel
 
 open private Lean.Kernel.Environment.add from Lean.Environment
 
+/--
+`anySubterm p e` is `true` iff some subterm of `e` satisfies `p`. "Subterm" here means `e`
+itself together with, recursively, the immediate children of every node — so for an
+application `f a b` the nodes `f a b`, `f a`, `f`, `a` and `b` are all tested.
+
+This is a total, structurally recursive stand-in for `(e.find? p).isSome`.
+`Lean.Expr.find?` is `Lean.Expr.findImpl?`, an `opaque` `@[extern "lean_find_expr"]`
+constant with *no* Lean-side body, so nothing about its result can be established without
+adding an interface axiom. Every use of it in this file consumes the result only through
+`.isSome`, i.e. asks a purely existential question, and for that question the C traversal's
+order, its short-circuiting and its pointer-identity cache are all invisible: `for_each_fn<true>`
+(`~/lean4/src/kernel/for_each_fn.cpp`) visits exactly the node set enumerated above, and the
+predicates used here are pure. So this walk returns the same `Bool` while depending on
+nothing outside Lean. The C++ kernel's `has_ind_occ` asks the same existential question.
+
+The traversal is delegated to `Lean.Expr.replaceNoCacheT` (`Lean4Lean/Expr.lean`), which is
+exactly this structural walk: it applies its callback to a node, and descends into the node's
+immediate children — the six recursive `Expr` constructors, an application's `f` and `a`
+included — precisely when the callback declines. Reusing it rather than writing a fresh
+recursion is deliberate: every recursive definition, structural or not, gets an
+`f._unsafe_rec` companion for code generation, and `Verify/Guard.lean`'s check 3 counts those,
+so a new walk would enlarge the frozen implementation-gap list. `replaceNoCacheT` is already
+in the checker's cone and on that list, and unlike `findImpl?` it is ordinary total Lean whose
+body can be unfolded in a proof.
+
+The callback never rewrites anything: it returns `some s` only to prune (on a hit, and once a
+hit has been recorded), and the returned expression is the input, so no rebuilding happens.
+Like the C traversal minus its pointer cache, this is `O(tree size)` rather than `O(dag size)`.
+-/
+def anySubterm (p : Expr → Bool) (e : Expr) : Bool :=
+  (Lean.Expr.replaceNoCacheT (m := StateM Bool) visit e |>.run false).2
+where
+  /-- `none` = descend into the children, `some s` = stop here (the answer is already `true`). -/
+  visit (s : Expr) : StateM Bool (Option Expr) := do
+    if ← get then return some s
+    if p s then
+      set true
+      return some s
+    return none
+
 namespace AddInductive
 open TypeChecker
 
@@ -116,9 +156,9 @@ def checkInductiveTypes
   loopInd 0 { (default : InductiveStats) with levels := (← read).lparams.map .param }
 
 def hasIndOcc (indConsts : Array Expr) (t : Expr) : Bool :=
-  (t.find? fun
+  anySubterm (fun
     | .const e _ => indConsts.any fun I => I.constName! == e
-    | _ => false).isSome
+    | _ => false) t
 
 /-- Return true if declaration is recursive -/
 def isRec (indTypes : Array InductiveType) (indConsts : Array Expr) : Bool :=
@@ -630,9 +670,9 @@ def isNestedInductiveApp? (e : Expr) : M (Option InductiveVal) := do
     if args[i]!.hasLooseBVars then
       looseBVars := true
     let newTypes := (← get).newTypes
-    if let some _ := args[i]!.find? fun
+    if anySubterm (fun
       | .const t _ => newTypes.any fun ty => t == ty.name
-      | _ => false
+      | _ => false) args[i]!
     then
       isNested := true
   if !isNested then return none
@@ -749,10 +789,10 @@ def mkAuxRecNameMap (env' : Environment) (types : List InductiveType) :
   return (oldRecNames.toList, recMap)
 
 def checkNoNestedAux (n : Name) (e : Expr) : Except Exception Unit := do
-  if (e.find? fun
+  if anySubterm (fun
       | .const c _ => (`_nested).isPrefixOf c
       | .proj s _ _ => (`_nested).isPrefixOf s
-      | _ => false).isSome then
+      | _ => false) e then
     throw <| .other s!"invalid declaration '{n}', it uses the reserved prefix '_nested'"
 
 def Environment.addInductive (env : Environment) (lparams : List Name) (nparams : Nat)
