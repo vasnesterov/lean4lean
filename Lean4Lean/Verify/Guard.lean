@@ -9,10 +9,10 @@ This file mechanically enforces the guardrails stated in `CLAUDE.md`. It is
 requires human sign-off. The checks run during elaboration and fail the build
 on violation; they are tests, not proofs, and nothing imports this file.
 
-1. **Axiom freeze**: `Lean4Lean/Verify/Axioms.lean` declares exactly the 29
+1. **Axiom freeze**: `Lean4Lean/Verify/Axioms.lean` declares exactly the 28
    axioms listed below (32 at commit `20e2d14`; see the whitelist).
 2. **Axiom whitelist**: the axioms of `kernel_sound` are contained in
-   {`propext`, `Classical.choice`, `Quot.sound`} ∪ the 29 frozen axioms
+   {`propext`, `Classical.choice`, `Quot.sound`} ∪ the 28 frozen axioms
    (∪ {`sorryAx`} while the proof is in progress). The build fails the moment
    any other axiom enters the proof cone. The check reports whether `sorryAx`
    is still present; the goal is met only when it reports COMPLETE.
@@ -30,7 +30,7 @@ on violation; they are tests, not proofs, and nothing imports this file.
 namespace Lean4Lean.Guard
 open Lean
 
-/-- The 29 axioms declared by `Lean4Lean/Verify/Axioms.lean`, plus the three
+/-- The 28 axioms declared by `Lean4Lean/Verify/Axioms.lean`, plus the three
 standard axioms.
 
 Re-pinned from the 32 of commit `20e2d14`, with sign-off, as two bugs were
@@ -43,10 +43,18 @@ hypothesis it was missing.
 Re-pinned again from 31 to 29: `Std.TreeMap.all_eq_all_toList` and
 `Std.TreeMap.any_eq_any_toList` are now proved from the upstream `DTreeMap`
 lemmas (see `docs/axiom-audit.md` §8), so they were **removed** from this list.
+
+Re-pinned again from 29 to 28: `Lean.Expr.liftLooseBVars_eq` was **deleted**. It
+was false — `lean_expr_lift_loose_bvars` returns `e` unchanged when `s` or `d`
+fails `lean_is_scalar`, while the model shifts — and an axiom-cone scan over
+every `Lean4Lean.*` declaration found it had **0** dependents, so deleting it
+was strictly better than adding a side condition. See `docs/axiom-audit.md`
+§11.2.
+
 Shrinking this list is progress; adding to it requires sign-off. -/
 def axiomWhitelist : List Name := [
   ``propext, ``Classical.choice, ``Quot.sound,
-  -- the 29 frozen axioms
+  -- the 28 frozen axioms
   `Lean.Expr.abstractRange_eq,
   `Lean.Expr.abstract_eq,
   `Lean.Expr.equal_eq,
@@ -57,7 +65,6 @@ def axiomWhitelist : List Name := [
   `Lean.Expr.instantiateRevRange_eq,
   `Lean.Expr.instantiateRev_eq,
   `Lean.Expr.instantiate_eq,
-  `Lean.Expr.liftLooseBVars_eq,
   `Lean.Expr.looseBVarRange_eq,
   `Lean.Expr.lowerLooseBVars_eq,
   `Lean.Expr.mkAppData_eq,
@@ -137,7 +144,7 @@ def implGapWhitelist : List Name := [
   `Lean4Lean.ptrEqExpr.unsafe_impl_2,                     -- implemented_by
   `List.all2]                                             -- partial
 
-/- Check 1: the frozen axiom file declares exactly the 29 whitelisted axioms. -/
+/- Check 1: the frozen axiom file declares exactly the 28 whitelisted axioms. -/
 #eval show CoreM Unit from do
   let env ← getEnv
   let some modIdx := env.getModuleIdx? `Lean4Lean.Verify.Axioms
@@ -151,13 +158,13 @@ def implGapWhitelist : List Name := [
   for n in declared.toList do
     unless frozen.contains n do
       throwError "guard VIOLATION: Axioms.lean declares {n}, \
-        which is not in the frozen 29-axiom whitelist. \
+        which is not in the frozen 28-axiom whitelist. \
         Changing that file requires human sign-off."
   for n in frozen.toList do
     unless declared.contains n do
       throwError "guard VIOLATION: frozen axiom {n} is no longer declared by \
         Axioms.lean. Changing that file requires human sign-off."
-  IO.println s!"guard 1: Axioms.lean declares exactly the 29 frozen axioms ✓"
+  IO.println s!"guard 1: Axioms.lean declares exactly the 28 frozen axioms ✓"
 
 /- Check 2: the axioms of `kernel_sound` are within the whitelist. -/
 #eval show CoreM Unit from do
@@ -170,7 +177,7 @@ def implGapWhitelist : List Name := [
     else unless allowed.contains n do
       throwError "guard VIOLATION: kernel_sound uses axiom {n}, which is \
         outside the whitelist (propext, Classical.choice, Quot.sound, and the \
-        29 frozen axioms of Axioms.lean). Adding an axiom requires human \
+        28 frozen axioms of Axioms.lean). Adding an axiom requires human \
         sign-off."
   if sorries then
     IO.println "guard 2: kernel_sound axioms within whitelist ✓ \
