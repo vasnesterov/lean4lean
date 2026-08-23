@@ -736,6 +736,39 @@ of `VContext.fresh`, which is what maintains the loop invariant's `Nodup`. -/
 theorem VContext.curr_not_mem (c : VContext) : (⟨c.ngen.curr⟩ : FVarId) ∉ c.vlctx.fvars :=
   fun h => c.ngen.not_reserves_self (c.reserves _ h)
 
+/-! ## A3′: the annotation-stripping rule
+
+`AddInductive.consumeAnnotations` replaced the body-less `Lean.Expr.consumeTypeAnnotations` in
+`Lean4Lean/Inductive/Add.lean`, so for the first time this step **has a body to unfold**.  The
+rule below is the payoff: the `isAnnotation e = false` branch returns the input *verbatim*, so
+the `hcta` obligation collapses on every binder that carries no annotation — measured at ~98%
+of the constructor binder domains of a real environment.  What is left is exactly the
+annotated case, where `optParam α d` really is only *definitionally* `α`. -/
+
+theorem M.WF.consumeAnnotations {c : Context} {e : Expr} {Q : Expr → Prop}
+    (hid : isAnnotation e = false → Q e)
+    (hann : isAnnotation e = true →
+      Q (Nat.repeat stripAnnotation c.fuel.inductiveFuel e)) :
+    M.WF c (AddInductive.consumeAnnotations e) Q := by
+  intro a ha
+  rw [AddInductive.consumeAnnotations] at ha
+  by_cases h : isAnnotation e = true
+  · rw [if_pos h] at ha
+    split at ha
+    · exact absurd ha nofun
+    · cases ha; exact hann h
+  · simp only [Bool.not_eq_true] at h
+    rw [if_neg (by simp [h])] at ha
+    cases ha; exact hid h
+
+/-- The un-annotated case in isolation: `consumeAnnotations` is the identity.  Stated
+separately because it is what makes the residual obligation *narrow* rather than merely
+*stated* — a hypothesis that is false but vacuous almost everywhere reads very differently
+from one that is false and always in play. -/
+theorem M.WF.consumeAnnotations_id {c : Context} {e : Expr} (h : isAnnotation e = false) :
+    M.WF c (AddInductive.consumeAnnotations e) (· = e) :=
+  M.WF.consumeAnnotations (fun _ => rfl) (fun h' => absurd (h ▸ h') nofun)
+
 /-! ## A3: the binder rule
 
 `withLocalDecl` (`Lean4Lean/LocalContext.lean`) is
@@ -1704,19 +1737,23 @@ in `C.args` — which is `VInductDecl'.LECond`'s per-field disjunction verbatim,
 
 Two hypotheses, both real and both stated rather than absorbed:
 
-* `hcta` is the `consumeTypeAnnotations` obligation of the section note.  It is **false**, and
-  false on ~2% of the constructors of a real `Lean` environment, not merely in principle.  Do
-  not read it as a technicality: discharging it needs `Lean.Expr.consumeTypeAnnotations` to
-  stop being a body-less `opaque` (an implementation change, see the note), and *then* an
-  `IsDefEqCtx` weakening of this invariant.  Both are named precisely there.
+* `hcta` is the annotation-stripping obligation of the section note, **now narrowed to the
+  annotated case**: `Lean4Lean.consumeAnnotations` replaced the body-less opaque, so
+  `M.WF.consumeAnnotations`'s identity branch discharges every binder with
+  `isAnnotation dom = false` — ~98% of a real environment's constructor binder domains.  What
+  is left is genuinely false and genuinely there: on an `optParam`/`autoParam`/`outParam`
+  binder the stripped type is only *definitionally* the stored one.  Do not read the remainder
+  as a technicality; closing it needs the `IsDefEqCtx` weakening and `defeqDFC_target`, both
+  named in the section note.
 * `hSmall` is the level side, handed the *pre-push* translation and asked about the
   *post-push* run, because `ensureType dom` executes inside `withLocalDecl`.  The weakening
   between the two is the caller's, which is where the choice of `VIndField.lvl` lives anyway. -/
 theorem M.WF.elim_loop {c₀ : VContext} {D : VInductDecl'} {C : VIndCtor} {j : Nat}
     {stats : InductiveStats} {Small : Nat → Prop}
     (hnp : stats.params.size = C.params.length)
-    (hcta : ∀ (c : VContext) (dom : Expr) (B : VExpr),
-      c.TrExprS dom B → c.TrExprS dom.consumeTypeAnnotations B)
+    (hcta : ∀ (c : VContext) (dom : Expr) (B : VExpr), isAnnotation dom = true →
+      c.TrExprS dom B →
+      c.TrExprS (Nat.repeat stripAnnotation c.fuel.inductiveFuel dom) B)
     (hSmall : ∀ (c c' : VContext) (l : List (FVarId × List FVarId × VExpr))
         (x : FVarId × List FVarId × VExpr) (dom : Expr) (k : Nat) (F : VIndField),
       c.vlctx = VLCtx.mkFVars l.reverse c₀.vlctx →
@@ -1752,10 +1789,14 @@ theorem M.WF.elim_loop {c₀ : VContext} {D : VInductDecl'} {C : VIndCtor} {j : 
             TrExprS c.venv c.lparams ((none, .vlam A) :: c.vlctx) body
               (VExpr.mkPi Bs' (C.canonResult D j)) := by
         cases h : inv.tr with | forallE h1 _ h3 h4 => exact ⟨h1, trivial, h3, h4⟩
-      refine M.WF.withLocalDecl (hcta c dom A hdom) hty ?_
+      -- The annotation step, which now has a body: on an un-annotated domain it is the
+      -- identity, so `hcta` is only consulted on the ~2% that carry one.
+      refine (M.WF.consumeAnnotations (Q := fun d => c.TrExprS d A)
+        (fun _ => hdom) (fun h => hcta c dom A h hdom)).bind fun dom' hdom' => ?_
+      refine M.WF.withLocalDecl hdom' hty ?_
       let fv : FVarId := ⟨c.ngen.curr⟩
-      let x : FVarId × List FVarId × VExpr := (fv, (dom.consumeTypeAnnotations).fvarsList, A)
-      let c' : VContext := c.push name dom.consumeTypeAnnotations A bi (hcta c dom A hdom) hty
+      let x : FVarId × List FVarId × VExpr := (fv, dom'.fvarsList, A)
+      let c' : VContext := c.push name dom' A bi hdom' hty
       show M.WF c'.toContext _ _
       -- The four invariant fields that do not depend on which branch is taken.
       have hvl : c'.vlctx = VLCtx.mkFVars (l ++ [x]).reverse c₀.vlctx := by

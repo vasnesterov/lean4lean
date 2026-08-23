@@ -1,4 +1,5 @@
 import Lean4Lean.Environment
+import Lean4Lean.Verify.Axioms
 
 /-!
 Executable regressions for the kernel hardening merged between Lean v4.32.2 and
@@ -360,22 +361,29 @@ run_meta do
     mkPosProp `L4LKpos8 (.forallE `g (.forallE `b (kboxE natE) (C `L4LKpos8) .default)
       (C `L4LKpos8) .default)
 
-/-! ## `consumeTypeAnnotations` really fires
+/-! ## Annotation stripping: it fires, and the in-tree replacement matches the opaque
 
 Both kernels record `consume_type_annotations(dom)` as a constructor binder's local-context
-type, not `dom` itself (`~/lean4/src/kernel/inductive.cpp:222,227`;
-`Lean4Lean/Inductive/Add.lean`, the 13 `withLocalDecl` sites).  So the abstract context of the
-fvar walk is the *stripped* telescope, only definitionally the constructor's stored one — which
-makes `M.WF.elim_loop`'s `hcta` hypothesis false (`Verify/Inductive/Add.lean`, "The one
-obligation this cannot discharge").
+type, not `dom` itself (`~/lean4/src/kernel/inductive.cpp:222,227`; the thirteen
+`withLocalDecl` sites in `Lean4Lean/Inductive/Add.lean`), so the abstract context of the fvar
+walk is the *stripped* telescope, only definitionally the constructor's stored one. That is
+what makes `M.WF.elim_loop`'s `hcta` hypothesis false on the annotated binders.
 
-The temptation is to read that as a technicality that never bites. It bites: the check below
-fails the build unless the stripping is a genuine non-identity on a real environment. It exists
-so the measurement cannot quietly decay into "in principle only" — an assumption nobody
-re-tests is exactly how a false hypothesis becomes invisible.
+`Lean.Expr.consumeTypeAnnotations` is `partial`, hence a body-less `opaque`, so
+`Lean4Lean.AddInductive.consumeAnnotations` replaced it. Two checks, and they guard different
+things:
 
-Deliberately **not** an exact count: the number moves with the prelude. The assertion is that
-it is non-zero, plus one named witness whose annotation is `outParam`. -/
+1. **The stripping is a genuine non-identity on a real environment.** The temptation is to
+   read `hcta` as a technicality that never bites. It bites, and this fails the build if that
+   ever stops being true — an assumption nobody re-tests is exactly how a false hypothesis
+   becomes invisible. Deliberately *not* an exact count, which would rot with the prelude:
+   non-zero, plus one named witness whose annotation is `outParam`.
+
+2. **The replacement agrees with the opaque, everywhere.** This is the regression that matters
+   for the swap: `stripAnnotation` matches on the application shape where the original went
+   through `isAppOfArity`, so an over- or under-applied annotation is exactly where the two
+   could part company. Checked over every binder domain of every constructor *and* inductive
+   type, at the default fuel. -/
 
 /-- `(binder domains, those the stripping changes)` over a pi spine. -/
 private partial def annotatedBinders : Expr → Nat × Nat
@@ -414,5 +422,161 @@ run_meta do
     | throwError "witness Std.Roc.Sliceable.mk no longer carries a stripped binder domain"
   unless dom.getAppFn.isConstOf ``outParam do
     throwError "witness's annotation is no longer `outParam`: {dom.getAppFn}"
+
+/-- Check 2: the in-tree replacement against the opaque it replaced. -/
+private partial def domsOf : Expr → Array Expr → Array Expr
+  | .forallE _ d b _, acc => domsOf b (acc.push d)
+  | _, acc => acc
+
+run_meta do
+  let env ← getEnv
+  let ctx : Lean4Lean.AddInductive.Context :=
+    { env := env.toKernelEnv, lparams := [], safety := .safe, allowPrimitive := false }
+  let mut all : Array Expr := #[]
+  for (_, ci) in env.constants.toList do
+    match ci with
+    | .ctorInfo v | .inductInfo v => all := domsOf v.type all
+    | _ => pure ()
+  let mut disagree : Nat := 0
+  let mut rejected : Nat := 0
+  let mut witness : Option (Expr × Expr × Expr) := none
+  for d in all do
+    match Lean4Lean.AddInductive.consumeAnnotations d ctx with
+    | .ok d' =>
+      unless d' == d.consumeTypeAnnotations do
+        disagree := disagree + 1
+        if witness.isNone then witness := some (d, d', d.consumeTypeAnnotations)
+    | .error _ => rejected := rejected + 1
+  if rejected != 0 then
+    throwError "`consumeAnnotations` exhausted its fuel on {rejected} of {all.size} binder \
+      domains; the default `inductiveFuel` is supposed to be far beyond any real annotation \
+      nesting depth."
+  if disagree != 0 then
+    let msg := match witness with
+      | some (d, d', o) => m!"  first: {d}\n  in-tree: {d'}\n  opaque:  {o}"
+      | none => m!""
+    throwError "`consumeAnnotations` disagrees with `Expr.consumeTypeAnnotations` on \
+      {disagree} of {all.size} binder domains.\n{msg}"
+  logInfo m!"consumeAnnotations agrees with the opaque on all {all.size} binder domains"
+
+/-! ## The unmodelled-opaque inventory
+
+`Verify/Guard.lean`'s check 3 catches `partial`/`@[extern]`/`@[implemented_by]` constants in
+`Lean4Lean.addDecl`'s cone, but **only those defined in `Lean4Lean.*` modules** — it opens with
+`unless (`Lean4Lean).isPrefixOf modName do continue`. Everything upstream is invisible to it.
+That is how `Lean.Expr.findImpl?` sat under the strict-positivity check, and how
+`Lean.Expr.consumeTypeAnnotations` sat under all thirteen of the inductive adder's binder
+sites: both body-less `opaque`s, both reachable, neither reported by anything.
+
+This is the missing half of that check: every body-less `opaque` reachable from `addDecl` that
+no axiom of `Verify/Axioms.lean` mentions. A name appearing here is *not* automatically a
+problem — most are modelled one level up, or have no observable result at all — but a name
+appearing here that is **not on the list below** is unclassified, and that is what fails the
+build.
+
+The classification, as of this writing (27 entries):
+
+* **Modelled through a wrapper that *is* axiomatised (11).** `Expr.replaceImpl` under
+  `Expr.replace_eq`; `Level.beq` under `Level.instLawfulBEqLevel`; `Level.getMaxArgsAux` under
+  `Level.normalize_eq`; the four `PersistentHashMap` aux functions and the two
+  `PersistentArray` ones under `PersistentHashMap.WF.find?_eq` / `.WF.toList'_insert` /
+  `findAux_isSome` / `PersistentArray.WF.toList'_push`; and the two `ptrEq*.unsafe_impl_2`
+  under `ptrEqExpr_eq` / `ptrEqConstantInfo_eq`. Flagged only because the axiom names the
+  wrapper, not the implementation. Not gaps.
+
+* **No observable result (7).** `EnvExtensionEntrySpec` and `EnvExtensionStateSpec` are opaque
+  *types*; `Std.Internal.idOpaque` likewise; `opaqueId` and the three `WellFounded.opaqueFix`
+  variants are reduction barriers Lean's well-founded compilation inserts. Nothing consumes a
+  value.
+
+* **Decision-irrelevant (6).** `Expr.dbgToString` and `Name.needsNoEscapeAsciiRest` reach only
+  error messages; `System.Platform.getNumBits` only word size; `mixHash`, `String.hash` and
+  `String.Internal.contains` feed hash buckets, and every hashtable lookup in the cone confirms
+  its hit with an equality test, so a wrong hash can cause a miss but not a wrong answer.
+
+* **Consumed only through a decidable observation (2).** `ptrAddrUnsafe` — the shape
+  `ptrEq a b = true → a = b` is why the two `ptrEq` axioms are structurally immune to the
+  value-on-the-wrong-branch defect. And `String.Internal.append`, reached by
+  `Name.appendIndexAfter` from `getElimLevel` and `ElimNestedInductive.mkUniqueName`: both call
+  sites *check* the produced name for collision, so a wrong append retries or rejects.
+
+* **Flagged (1).** `Lean.Name.quickCmpImpl.unsafe_impl_2`. `Lean.Name.quickCmp` has a verified
+  Lean body but carries `@[implemented_by quickCmpImpl]`, whose executed path is this opaque —
+  a **verified/executed divergence of exactly the kind check 3 exists to catch**, upstream and
+  therefore unseen. It orders `NameSet`/`NameMap`, and four constants in the checker's cone
+  depend on it: `AddInductive.checkConstructors` and `addMutual` for **duplicate-name
+  detection**, and `ElimNestedInductive.Result.getNestedIfAuxCtor`/`restoreNested` for the
+  nested-restoration map. Unlike a hash lookup, a tree lookup's answer is *not* re-confirmed by
+  an equality test, so a comparison that wrongly equated two names would silently miss a
+  duplicate constructor or restore the wrong nested type. Not fixed here; recorded so it is not
+  discovered a third time. -/
+
+/-- Body-less opaques in `Lean4Lean.addDecl`'s cone that no axiom of `Verify/Axioms.lean`
+mentions. Classified in the note above. Shrinking this list is progress; a name appearing that
+is not here means an unclassified opaque has entered the checker's cone. -/
+private def unmodelledConeOpaques : List String := [
+  "Lean.EnvExtensionEntrySpec",
+  "Lean.EnvExtensionStateSpec",
+  "Lean.Expr.dbgToString",
+  "Lean.Expr.replaceImpl",
+  "Lean.Level.beq",
+  "Lean.PersistentArray.insertNewLeaf",
+  "Lean.PersistentArray.mkNewPath",
+  "Lean.PersistentHashMap.containsAtAux",
+  "Lean.PersistentHashMap.findAtAux",
+  "Lean.PersistentHashMap.insertAtCollisionNodeAux",
+  "Lean.PersistentHashMap.insertAux",
+  "Lean.opaqueId",
+  "Lean4Lean.ptrEqConstantInfo.unsafe_impl_2",
+  "Lean4Lean.ptrEqExpr.unsafe_impl_2",
+  "String.Internal.append",
+  "String.Internal.contains",
+  "String.hash",
+  "System.Platform.getNumBits",
+  "WellFounded.opaqueFix₃",
+  "_private.Init.Data.Iterators.Basic.0.Std.Internal.idOpaque",
+  "_private.Init.Data.ToString.Name.0.Lean.Name.needsNoEscapeAsciiRest",
+  "_private.Init.WFExtrinsicFix.0.WellFounded.opaqueFix",
+  "_private.Init.WFExtrinsicFix.0.WellFounded.opaqueFix₂",
+  "_private.Lean.Data.Name.0.Lean.Name.quickCmpImpl.unsafe_impl_2",
+  "_private.Lean.Level.0.Lean.Level.getMaxArgsAux",
+  "mixHash",
+  "ptrAddrUnsafe"]
+
+run_meta do
+  let env ← getEnv
+  let mut visited : NameSet := {}
+  let mut stack : List Name := [``Lean4Lean.addDecl]
+  while h : stack ≠ [] do
+    let n := stack.head h; stack := stack.tail
+    if visited.contains n then continue
+    visited := visited.insert n
+    if let some ci := env.find? n then
+      for u in ci.getUsedConstantsAsSet.toList do
+        unless visited.contains u do stack := u :: stack
+      if let some impl := Compiler.getImplementedBy? env n then
+        unless visited.contains impl do stack := impl :: stack
+      let uRec := Name.str n "_unsafe_rec"
+      if env.contains uRec then unless visited.contains uRec do stack := uRec :: stack
+  let some modIdx := env.getModuleIdx? `Lean4Lean.Verify.Axioms
+    | throwError "module Lean4Lean.Verify.Axioms not found"
+  let mut modelled : NameSet := {}
+  for (n, ci) in env.constants.toList do
+    if let .axiomInfo _ := ci then
+      if env.getModuleIdxFor? n = some modIdx then
+        for u in ci.getUsedConstantsAsSet.toList do modelled := modelled.insert u
+  let allowed := unmodelledConeOpaques
+  let mut found : Nat := 0
+  for n in visited.toList do
+    if let some (.opaqueInfo _) := env.find? n then
+      unless modelled.contains n do
+        found := found + 1
+        unless allowed.contains n.toString do
+          throwError "unclassified body-less opaque in `Lean4Lean.addDecl`'s cone: {n}. \
+            No axiom of Verify/Axioms.lean mentions it and it is not in \
+            `unmodelledConeOpaques`. Classify it -- `Verify/Guard.lean`'s check 3 cannot see \
+            it, because that check filters to constants defined in `Lean4Lean.*` modules."
+  logInfo m!"unmodelled body-less opaques in addDecl's cone: {found} \
+    (classified: {allowed.length})"
 
 end Lean4Lean.Tests.KernelHardening
