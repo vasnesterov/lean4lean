@@ -291,7 +291,7 @@ end MkTyping
 section Interp
 
 variable [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖]
-variable {envF : VEnv} {nv : ℕ} {M : ModelData V} {L : LevelAssign envF nv} {u : VLevel}
+variable {envF : VEnv} {nv : ℕ} {M : ModelData V} {L : PropSplit envF nv} {u : VLevel}
 
 /-- Definability of the inner fibre map.  Written in the **environment-passing
 style** — `α` is read back out of `ρ` rather than captured — which is what makes
@@ -302,7 +302,7 @@ theorem quotFib_fibre_definable (M : ModelData V) (u : VLevel) :
 
 /-- The inner λ, as a function of the environment: for the carrier recorded in
 `ρ`, the map sending a relation to the quotient. -/
-noncomputable def quotFib (M : ModelData V) (L : LevelAssign envF nv) (u : VLevel) : V → V :=
+noncomputable def quotFib (M : ModelData V) (L : PropSplit envF nv) (u : VLevel) : V → V :=
   mkLam (interp M L [.sort u] quotRelTy).toFun (interp M L [.sort u] quotRelTy).definable
     (fun ρ r ↦ quotVal (ρ ‘ ((0 : ℕ) : V)) r (u.eval M.ls)) (quotFib_fibre_definable M u)
 
@@ -311,7 +311,7 @@ theorem quotFib_definable : ℒₛₑₜ-function₁[V] (quotFib M L u) :=
 
 /-- **The denotation of `Quot` at universe `u`.**  Two nested λs, each one
 application of the combinators. -/
-noncomputable def quotFn (M : ModelData V) (L : LevelAssign envF nv) (u : VLevel) : V :=
+noncomputable def quotFn (M : ModelData V) (L : PropSplit envF nv) (u : VLevel) : V :=
   mkLam (interp M L [] (.sort u)).toFun (interp M L [] (.sort u)).definable
     (fun ρ α ↦ quotFib M L u (snoc ρ α))
     (by have := quotFib_definable (M := M) (L := L) (u := u); definability)
@@ -325,7 +325,7 @@ applications of `mkLam_value`, one per λ. -/
 
 section Values
 
-variable {envF : VEnv} {nv : ℕ} {M : ModelData V} {L : LevelAssign envF nv} {u : VLevel}
+variable {envF : VEnv} {nv : ℕ} {M : ModelData V} {L : PropSplit envF nv} {u : VLevel}
 
 theorem quotFn_value {α : V} (hα : α ∈ U M.κ (u.eval M.ls)) :
     (quotFn M L u) ‘ α = quotFib M L u (snoc ∅ α) := by
@@ -1634,7 +1634,7 @@ end LiftTypingSpine
 
 section MkCod
 
-variable {envF env₀ : VEnv} {nv : ℕ} {M : ModelData V} {L : LevelAssign envF nv} {u : VLevel}
+variable {envF env₀ : VEnv} {nv : ℕ} {M : ModelData V} {L : PropSplit envF nv} {u : VLevel}
 
 /-- **The codomain of `Quot.mk` denotes what `Quot` says it does.**  Two
 `interp_app_type` steps — neither partial application is a proof, since the sort
@@ -1688,11 +1688,11 @@ level changes the *shape* of the witness and not merely a value. -/
 
 section MkFn
 
-variable {envF : VEnv} {nv : ℕ} {M : ModelData V} {L : LevelAssign envF nv} {u : VLevel}
+variable {envF : VEnv} {nv : ℕ} {M : ModelData V} {L : PropSplit envF nv} {u : VLevel}
 
 /-- Innermost λ: `fun a ↦ Quot.mk α r a`, with `α` and `r` read out of the
 environment at indices `0` and `1`. -/
-noncomputable def quotMkFibA (M : ModelData V) (L : LevelAssign envF nv) (u : VLevel) : V → V :=
+noncomputable def quotMkFibA (M : ModelData V) (L : PropSplit envF nv) (u : VLevel) : V → V :=
   mkLam (interp M L [quotRelTy, VExpr.sort u] (.bvar 1)).toFun
     (interp M L [quotRelTy, VExpr.sort u] (.bvar 1)).definable
     (fun ρ a ↦ quotMkVal (ρ ‘ ((0 : ℕ) : V)) (ρ ‘ ((1 : ℕ) : V)) a (u.eval M.ls))
@@ -1702,7 +1702,7 @@ theorem quotMkFibA_definable : ℒₛₑₜ-function₁[V] (quotMkFibA M L u) :=
   mkLam_definable _ _ _ _
 
 /-- Middle λ, over the relation. -/
-noncomputable def quotMkFibR (M : ModelData V) (L : LevelAssign envF nv) (u : VLevel) : V → V :=
+noncomputable def quotMkFibR (M : ModelData V) (L : PropSplit envF nv) (u : VLevel) : V → V :=
   mkLam (interp M L [VExpr.sort u] quotRelTy).toFun
     (interp M L [VExpr.sort u] quotRelTy).definable
     (fun ρ r ↦ quotMkFibA M L u (snoc ρ r))
@@ -1713,7 +1713,7 @@ theorem quotMkFibR_definable : ℒₛₑₜ-function₁[V] (quotMkFibR M L u) :=
 
 /-- **The denotation of `Quot.mk` at universe `u`.**  At `Prop` the whole type is
 a proposition, so the witness is `•`; above it, three λs. -/
-noncomputable def quotMkFn (M : ModelData V) (L : LevelAssign envF nv) (u : VLevel) : V :=
+noncomputable def quotMkFn (M : ModelData V) (L : PropSplit envF nv) (u : VLevel) : V :=
   if u.eval M.ls = 0 then (pt : V)
   else mkLam (interp M L [] (.sort u)).toFun (interp M L [] (.sort u)).definable
     (fun ρ α ↦ quotMkFibR M L u (snoc ρ α))
@@ -1747,7 +1747,7 @@ end MkFn
 
 section MkMem
 
-variable {envF env₀ : VEnv} {nv : ℕ} {M : ModelData V} {L : LevelAssign envF nv} {u : VLevel}
+variable {envF env₀ : VEnv} {nv : ℕ} {M : ModelData V} {L : PropSplit envF nv} {u : VLevel}
 
 /-- The environment reads shared by the two branches. -/
 theorem quotMk_env (hα : α ∈ U M.κ (u.eval M.ls))
@@ -1885,7 +1885,7 @@ hypothesis binder only speaks about classes of elements of the carrier. -/
 
 section IndMem
 
-variable {envF env₀ : VEnv} {nv : ℕ} {M : ModelData V} {L : LevelAssign envF nv} {u : VLevel}
+variable {envF env₀ : VEnv} {nv : ℕ} {M : ModelData V} {L : PropSplit envF nv} {u : VLevel}
 
 /-- The environment reads for `Quot.ind`'s spine, down to the motive. -/
 theorem quotInd_env {α r β : V} (hα : α ∈ U M.κ (u.eval M.ls))
@@ -2270,7 +2270,7 @@ it only changes the value, through `quotLiftVal`'s own split. -/
 
 section LiftFn
 
-variable {envF : VEnv} {nv : ℕ} {M : ModelData V} {L : LevelAssign envF nv} {u v : VLevel}
+variable {envF : VEnv} {nv : ℕ} {M : ModelData V} {L : PropSplit envF nv} {u v : VLevel}
 
 theorem quotLiftFib_fibre_definable (M : ModelData V) (u : VLevel) :
     ℒₛₑₜ-function₂[V] (fun ρ q ↦ quotLiftVal (ρ ‘ ((3 : ℕ) : V)) q (u.eval M.ls)) :=
@@ -2278,7 +2278,7 @@ theorem quotLiftFib_fibre_definable (M : ModelData V) (u : VLevel) :
 
 /-- Innermost λ, over the quotient element; `f` is read out of the environment
 at index `3`. -/
-noncomputable def quotLiftFibQ (M : ModelData V) (L : LevelAssign envF nv) (u v : VLevel) :
+noncomputable def quotLiftFibQ (M : ModelData V) (L : PropSplit envF nv) (u v : VLevel) :
     V → V :=
   mkLam (interp M L [quotLiftC v, quotLiftFTy, VExpr.sort v, quotRelTy, VExpr.sort u]
       (quotLiftQ u)).toFun
@@ -2293,7 +2293,7 @@ theorem quotLiftFibQ_definable : ℒₛₑₜ-function₁[V] (quotLiftFibQ M L u
 /-- The λ over the hypothesis.  Its domain is a subset of `{•}`, so this λ is a
 one-point function — but it is a genuine λ, not `•`, because its *codomain*
 `∀ q, β` is not a proposition. -/
-noncomputable def quotLiftFibC (M : ModelData V) (L : LevelAssign envF nv) (u v : VLevel) :
+noncomputable def quotLiftFibC (M : ModelData V) (L : PropSplit envF nv) (u v : VLevel) :
     V → V :=
   mkLam (interp M L [quotLiftFTy, VExpr.sort v, quotRelTy, VExpr.sort u] (quotLiftC v)).toFun
     (interp M L [quotLiftFTy, VExpr.sort v, quotRelTy, VExpr.sort u] (quotLiftC v)).definable
@@ -2303,7 +2303,7 @@ noncomputable def quotLiftFibC (M : ModelData V) (L : LevelAssign envF nv) (u v 
 theorem quotLiftFibC_definable : ℒₛₑₜ-function₁[V] (quotLiftFibC M L u v) :=
   mkLam_definable _ _ _ _
 
-noncomputable def quotLiftFibF (M : ModelData V) (L : LevelAssign envF nv) (u v : VLevel) :
+noncomputable def quotLiftFibF (M : ModelData V) (L : PropSplit envF nv) (u v : VLevel) :
     V → V :=
   mkLam (interp M L [VExpr.sort v, quotRelTy, VExpr.sort u] quotLiftFTy).toFun
     (interp M L [VExpr.sort v, quotRelTy, VExpr.sort u] quotLiftFTy).definable
@@ -2313,7 +2313,7 @@ noncomputable def quotLiftFibF (M : ModelData V) (L : LevelAssign envF nv) (u v 
 theorem quotLiftFibF_definable : ℒₛₑₜ-function₁[V] (quotLiftFibF M L u v) :=
   mkLam_definable _ _ _ _
 
-noncomputable def quotLiftFibB (M : ModelData V) (L : LevelAssign envF nv) (u v : VLevel) :
+noncomputable def quotLiftFibB (M : ModelData V) (L : PropSplit envF nv) (u v : VLevel) :
     V → V :=
   mkLam (interp M L [quotRelTy, VExpr.sort u] (.sort v)).toFun
     (interp M L [quotRelTy, VExpr.sort u] (.sort v)).definable
@@ -2323,7 +2323,7 @@ noncomputable def quotLiftFibB (M : ModelData V) (L : LevelAssign envF nv) (u v 
 theorem quotLiftFibB_definable : ℒₛₑₜ-function₁[V] (quotLiftFibB M L u v) :=
   mkLam_definable _ _ _ _
 
-noncomputable def quotLiftFibR (M : ModelData V) (L : LevelAssign envF nv) (u v : VLevel) :
+noncomputable def quotLiftFibR (M : ModelData V) (L : PropSplit envF nv) (u v : VLevel) :
     V → V :=
   mkLam (interp M L [VExpr.sort u] quotRelTy).toFun
     (interp M L [VExpr.sort u] quotRelTy).definable
@@ -2334,7 +2334,7 @@ theorem quotLiftFibR_definable : ℒₛₑₜ-function₁[V] (quotLiftFibR M L u
   mkLam_definable _ _ _ _
 
 /-- **The denotation of `Quot.lift` at `[u, v]`.** -/
-noncomputable def quotLiftFn (M : ModelData V) (L : LevelAssign envF nv) (u v : VLevel) : V :=
+noncomputable def quotLiftFn (M : ModelData V) (L : PropSplit envF nv) (u v : VLevel) : V :=
   if v.eval M.ls = 0 then (pt : V)
   else mkLam (interp M L [] (.sort u)).toFun (interp M L [] (.sort u)).definable
     (fun ρ α ↦ quotLiftFibR M L u v (snoc ρ α))
@@ -2380,7 +2380,7 @@ end LiftFn
 
 section LiftMem
 
-variable {envF env₀ : VEnv} {nv : ℕ} {M : ModelData V} {L : LevelAssign envF nv} {u v : VLevel}
+variable {envF env₀ : VEnv} {nv : ℕ} {M : ModelData V} {L : PropSplit envF nv} {u v : VLevel}
 
 /-- Reading a longer valuation below the new binder. -/
 theorem snoc_read {Γ : List VExpr} {ρ w : V} (hρ : ρ ∈ interpCtx M L Γ) {j : ℕ}
@@ -2797,7 +2797,7 @@ of *its* branches.  Nothing below case-splits on `u`. -/
 
 section DefEqMem
 
-variable {envF env₀ : VEnv} {nv : ℕ} {M : ModelData V} {L : LevelAssign envF nv} {u v : VLevel}
+variable {envF env₀ : VEnv} {nv : ℕ} {M : ModelData V} {L : PropSplit envF nv} {u v : VLevel}
 
 /-- `α → β` at `quotDefEq`'s innermost depth — `f`'s own type, needed to see
 that `f` is not a proof. -/

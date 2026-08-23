@@ -37,7 +37,7 @@ open LO LO.FirstOrder LO.FirstOrder.SetTheory
 
 variable {V : Type*} [SetStructure V] [Nonempty V]
 variable [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖]
-variable {envF : VEnv} {nv : ℕ} {L : LevelAssign envF nv} {κ : ℕ → V} {ls : List ℕ}
+variable {envF : VEnv} {nv : ℕ} {L : PropSplit envF nv} {κ : ℕ → V} {ls : List ℕ}
 
 /-- Extend an assignment along a list of names, each value taken from the
 oracle.  Every declaration form that adds a *block* of constants — `quot`,
@@ -52,7 +52,7 @@ noncomputable def oracleExtend (o : Name → List VLevel → V) :
 
 /-- `cnst` for a definition: the denotation of its body, at the assignment the
 earlier declarations produced. -/
-noncomputable def defExtend (L : LevelAssign envF nv) (κ : ℕ → V) (ls : List ℕ)
+noncomputable def defExtend (L : PropSplit envF nv) (κ : ℕ → V) (ls : List ℕ)
     (c : Name → List VLevel → V) (ci : VDefVal) : Name → List VLevel → V :=
   cnstUpdate c ci.name fun us ↦ (interp ⟨κ, ls, c⟩ L [] (ci.value.instL us)).toFun ∅
 
@@ -164,7 +164,7 @@ theorem addConstList_fresh :
 
 /-- Extending along a block of *fresh* names leaves untouched the denotation of
 anything that mentions only old constants. -/
-theorem interp_oracleExtend_eq (L : LevelAssign envF nv) (κ : ℕ → V) (ls : List ℕ)
+theorem interp_oracleExtend_eq (L : PropSplit envF nv) (κ : ℕ → V) (ls : List ℕ)
     {P : Name → Prop} :
     ∀ (ns : List Name) (c : Name → List VLevel → V), (∀ n ∈ ns, ¬ P n) →
       ∀ {e : VExpr}, e.ConstsIn P →
@@ -178,7 +178,7 @@ theorem interp_oracleExtend_eq (L : LevelAssign envF nv) (κ : ℕ → V) (ls : 
 
 /-- What the oracle owes for one constant, stated at the assignment the whole
 block produces. -/
-structure OracleOK (L : LevelAssign envF nv) (κ : ℕ → V) (ls : List ℕ)
+structure OracleOK (L : PropSplit envF nv) (κ : ℕ → V) (ls : List ℕ)
     (o c : Name → List VLevel → V) (n : Name) (ci : VConstant) : Prop where
   congr : ∀ {us us' : List VLevel}, (∀ l ∈ us, l.WF nv) → (∀ l ∈ us', l.WF nv) →
     List.Forall₂ (· ≈ ·) us us' → Above (V := V) ⟨κ, ls, c⟩ (o n us = o n us')
@@ -186,7 +186,7 @@ structure OracleOK (L : LevelAssign envF nv) (κ : ℕ → V) (ls : List ℕ)
     Above (V := V) ⟨κ, ls, c⟩ (o n us ∈ (interp ⟨κ, ls, c⟩ L [] (ci.type.instL us)).toFun ∅)
 
 /-- **The step lemma for a block of constants.** -/
-theorem coherentOn_addConstList (L : LevelAssign envF nv) (o : Name → List VLevel → V) :
+theorem coherentOn_addConstList (L : PropSplit envF nv) (o : Name → List VLevel → V) :
     ∀ (cs : List (Name × VConstant)) {env env' : VEnv} {c : Name → List VLevel → V},
       env.ConstsClosed → CoherentOn ⟨κ, ls, c⟩ L env →
       env.addConstList cs = some env' →
@@ -337,7 +337,7 @@ theorem mkLam_mem_interp_forallE' (hle : env₀ ≤ envF)
 application.**
 
 `interp` sends `.app f a` to `•` whenever `f` is a proof, and whether `f` is a
-proof is decided by `L.srt Γ f` and `M.ls` alone — **`M.cnst` does not appear**.
+proof is decided by `L.IsProofAt M.ls Γ f` alone — **`M.cnst` does not appear**.
 So if `f`'s type is a proposition, the denotation of `f a` is `•` no matter what
 value the constant assignment gives to any constant occurring in `f`.
 
@@ -365,7 +365,7 @@ trap in it.
 `interp` sends `.lam A b` to `•` when `b` is a proof and to a `mkLam` otherwise,
 so an equation between two `lam`s needs the two bodies to *agree* on `IsProof`
 before their pointwise equality is of any use.  **That agreement is not free.**
-`IsProof` is syntactic — it is `(L.srt Γ b).eval M.ls = 0` — so it does not
+`IsProof` is syntactic — it is `L.IsProofAt M.ls Γ b` — so it does not
 follow from the bodies denoting the same thing at every valuation.
 
 What it does follow from is the two bodies having the **same type**, via
@@ -471,7 +471,7 @@ def quotNames : List Name := [``Quot, ``Quot.mk, ``Quot.lift, ``Quot.ind]
 `o` is the oracle: it supplies the values the model cannot compute — axioms,
 the `Quot` primitives, and whatever an inductive declaration introduces.  Its
 obligations are `OracleOK`; everything else is computed. -/
-noncomputable def cnstOf (L : LevelAssign envF nv) (κ : ℕ → V) (ls : List ℕ)
+noncomputable def cnstOf (L : PropSplit envF nv) (κ : ℕ → V) (ls : List ℕ)
     (o : Name → List VLevel → V) : List VDecl → (Name → List VLevel → V)
   | [] => fun _ _ ↦ ∅
   | .axiom ci :: ds => cnstUpdate (cnstOf L κ ls o ds) ci.name (o ci.name)

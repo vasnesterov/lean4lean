@@ -29,7 +29,7 @@ open Lean4Lean.InductiveDeclExamples
 
 variable {V : Type*} [SetStructure V] [Nonempty V]
 variable [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖]
-variable {envF : VEnv} {nv : ℕ} (M : ModelData V) (L : LevelAssign envF nv)
+variable {envF : VEnv} {nv : ℕ} (M : ModelData V) (L : PropSplit envF nv)
 
 /-! ## `Acc` -/
 

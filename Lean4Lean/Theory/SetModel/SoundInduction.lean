@@ -25,7 +25,8 @@ all, so `f : A → B` with `A : Sort 100` and `B : Prop` has a conclusion whose
 levels are all `≤ 1` and a subderivation that needs the 100th inaccessible.  No
 bound on the conclusion can be inherited by the premises.
 
-Nor can the bound be moved onto `L`: `L.lvl Γ (.sort k) = k+1` for every `k`, so
+Nor can the bound be moved onto `L`: `L` decides propositionhood and names no
+level at all, while `.sort k` is typed at `k+1` for every `k`, so
 no single `n` bounds a fixed environment's assignment.
 
 What is true is that a *derivation* mentions finitely many levels.  `SoundAbove`
@@ -43,7 +44,7 @@ variable {V : Type*} [SetStructure V] [Nonempty V]
 
 section
 variable [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖]
-variable {envF env₀ : VEnv} {nv : ℕ} {M : ModelData V} {L : LevelAssign envF nv}
+variable {envF env₀ : VEnv} {nv : ℕ} {M : ModelData V} {L : PropSplit envF nv}
 
 /-- A chain of `n` inaccessibles is a chain of `m` inaccessibles for `m ≤ n`.
 This is what lets the induction take the maximum of its premises' thresholds. -/
@@ -103,7 +104,7 @@ theorem above_mem_congr {Γ : List VExpr} {e A A' : VExpr} {ρ : V}
 
 /-- **Soundness above a threshold.**  There is an `m`, determined by the
 derivation, such that any chain of `m` inaccessibles validates the judgement. -/
-def SoundAbove (M : ModelData V) (L : LevelAssign envF nv)
+def SoundAbove (M : ModelData V) (L : PropSplit envF nv)
     (Γ : List VExpr) (e₁ e₂ A : VExpr) : Prop :=
   Above M (Sound M L Γ e₁ e₂ A)
 
@@ -121,15 +122,14 @@ omit [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖] in
 theorem isProp_iff (hle : env₀ ≤ envF) {Γ : List VExpr} {A : VExpr} {u : VLevel}
     (hA : env₀.HasType nv Γ A (.sort u)) (hw : u.WF nv) :
     L.IsProp M Γ A ↔ u.eval M.ls = 0 := by
-  rw [LevelAssign.IsProp, VLevel.equiv_def.mp (L.lvl_sound hw (hA.mono hle)) M.ls]
+  exact L.prop_sound hw (hA.mono hle)
 
 omit [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖] in
 /-- A term is a proof exactly when the sort of its type evaluates to `0`. -/
 theorem isProof_iff (hle : env₀ ≤ envF) {Γ : List VExpr} {e A : VExpr} {u : VLevel}
     (he : env₀.HasType nv Γ e A) (hA : env₀.HasType nv Γ A (.sort u)) (hw : u.WF nv) :
     L.IsProof M Γ e ↔ u.eval M.ls = 0 := by
-  rw [LevelAssign.IsProof, VLevel.equiv_def.mp (L.srt_sound (he.mono hle)) M.ls,
-    VLevel.equiv_def.mp (L.lvl_sound hw (hA.mono hle)) M.ls]
+  exact L.proof_sound hw (he.mono hle) (hA.mono hle)
 
 
 
@@ -272,9 +272,8 @@ theorem soundAbove : ∀ {Γ : List VExpr} {e₁ e₂ A : VExpr},
     have hsp : L.IsProof M Γ f ↔ L.IsProp M (A :: Γ) B := by
       rw [hpf, isProp_iff hle (h4.trans h4.symm).defeq h2]; exact imax_eq_zero_iff
     refine ⟨fun ρ hρ ↦ appDF_sound_eq M L ?_ (sf.eq ρ hρ) (sa.eq ρ hρ), fun ρ hρ ↦ ?_⟩
-    · show _ ↔ _
-      unfold LevelAssign.IsProof
-      rw [VLevel.equiv_def.mp (L.srt_congr (h5.defeq.mono hle)) M.ls]
+    · exact L.proof_congr (u := VLevel.imax u v) ⟨h1, h2⟩ (h5.defeq.mono hle)
+        (hFA.defeq.mono hle)
     · exact appDF_sound_type M L hS ((h6.trans h6.symm).defeq.mono hle) hclB hcla hρ (sf.type ρ hρ) (sa.type ρ hρ)
         (fun hp ↦ Sound.proof M L sFA (hpf.mp hp) sf ρ hρ) hsp
   | @lamDF Γ A A' u B v body body' h1 h2 h3 h4 h5 h6 h7 ihA ihB ihB' ihb ihb' =>

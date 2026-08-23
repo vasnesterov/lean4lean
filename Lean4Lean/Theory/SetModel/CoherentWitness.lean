@@ -69,7 +69,7 @@ theorem witEnv_defeqs {c : Name} {df : VDefEq} :
 /-- **`CoherentOn` is satisfiable, with all four fields non-vacuous.**  Holds for
 an arbitrary `LevelAssign`, so `CoherentOn` adds no obstruction beyond the one
 `LevelAssign` already carries. -/
-theorem coherentOn_witness {envF : VEnv} {nv : ℕ} (L : LevelAssign envF nv)
+theorem coherentOn_witness {envF : VEnv} {nv : ℕ} (L : PropSplit envF nv)
     (κ : ℕ → V) (ls : List ℕ) (c : Name) :
     CoherentOn (V := V) ⟨κ, ls, fun _ _ ↦ ∅⟩ L (witEnv c) := by
   have hsort : ∀ (us : List VLevel) (ρ : V),
@@ -131,18 +131,23 @@ the diagnostic that separates this case from the two refutations:
   `Γ ⊢ A ≡ A' : .sort u`.  That derivation is exactly what makes the two demands
   agree, via context conversion (`IsDefEq.defeqDFC`, proved).
 
-`ctxInvariant_lvl_agrees` below is that argument, machine-checked: on every
-well-typed `B` — which is where `CtxInvariant.lvl` has content — the level
-demanded in `A :: Γ` and the level demanded in `A' :: Γ` are the same. -/
+`ctxInvariant_prop_agrees` below is that argument, machine-checked: on every
+well-typed `B` — which is where `CtxInvariant.prop` has content — the branch
+demanded in `A :: Γ` and the branch demanded in `A' :: Γ` are the same.
 
-theorem ctxInvariant_lvl_agrees {env : VEnv} {nv : ℕ} (L : LevelAssign env nv)
+*Restated for `PropSplit`* (`docs/model-interface.md` §5).  The argument does not
+change: it went through `lvl_sound` at a single `w`, and it now goes through
+`prop_sound` at that same `w`.  The conclusion is weaker — agreement of a
+branch rather than of a level — which is all `CtxInvariant` ever asked for. -/
+
+theorem ctxInvariant_prop_agrees {env : VEnv} {nv : ℕ} (L : PropSplit env nv)
     (henv : env.Ordered) {Γ : List VExpr} {A A' B : VExpr} {u w : VLevel}
-    (h : env.IsDefEq nv Γ A A' (.sort u)) (hww : w.WF nv)
+    {ls : List ℕ} (h : env.IsDefEq nv Γ A A' (.sort u)) (hww : w.WF nv)
     (hB : env.HasType nv (A :: Γ) B (.sort w)) :
-    L.lvl (A :: Γ) B ≈ L.lvl (A' :: Γ) B := by
+    L.IsPropAt ls (A :: Γ) B ↔ L.IsPropAt ls (A' :: Γ) B := by
   have hctx : VEnv.IsDefEqCtx env nv Γ (A :: Γ) (A' :: Γ) := .succ .zero h
   have hB' : env.HasType nv (A' :: Γ) B (.sort w) := hB.defeqDFC henv hctx
-  exact (L.lvl_sound hww hB).trans (L.lvl_sound hww hB').symm
+  exact (L.prop_sound hww hB).trans (L.prop_sound hww hB').symm
 
 /-! ## The three inductive-side structures pass the declaration check
 

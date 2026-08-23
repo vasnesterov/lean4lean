@@ -367,7 +367,7 @@ because a recursive field's stored type mentions the block. -/
 
 section Syntax
 
-variable {envF : VEnv} {nv : ℕ} (M : ModelData V) (L : LevelAssign envF nv)
+variable {envF : VEnv} {nv : ℕ} (M : ModelData V) (L : PropSplit envF nv)
 
 /-- The domain list of a syntactic telescope `Δ` (declaration order) over the
 context `Γ`: entry `i` is `⟦Δ[i]⟧` in the context extended by the previous
@@ -567,7 +567,7 @@ theorem value_of_not_mem_domain {f x : V} (h : x ∉ domain f) : f ‘ x = ∅ :
 
 section Locality
 
-variable {envF : VEnv} {nv : ℕ} {M : ModelData V} {L : LevelAssign envF nv}
+variable {envF : VEnv} {nv : ℕ} {M : ModelData V} {L : PropSplit envF nv}
 
 theorem mkFamUnion_congr_arg {G : V → V} {hG : ℒₛₑₜ-function₁[V] G} {F : V → V → V}
     {hF : ℒₛₑₜ-function₂[V] F} {ρ ρ' : V} (hGe : G ρ = G ρ')
@@ -744,7 +744,7 @@ clause's own bookkeeping: with `i' + 1 + t = i`, field `i'` sits at de Bruijn
 index `t` in `Γ`, i.e. absolute position `|Γ| - 1 - t = D.np + i'` — the
 recursive field's slot, as required. -/
 theorem interp_indep_of_skips {envF : VEnv} {nv : ℕ} {M : ModelData V}
-    {L : LevelAssign envF nv} {Γ : List VExpr} {e : VExpr} {k : ℕ} {ρ ρ' : V}
+    {L : PropSplit envF nv} {Γ : List VExpr} {e : VExpr} {k : ℕ} {ρ ρ' : V}
     (hc : e.ClosedN Γ.length) (hk : k < Γ.length)
     (hs : e.Skips 1 k) (hρ : IsSeq ρ Γ.length) (hρ' : IsSeq ρ' Γ.length)
     (h : ∀ j < Γ.length, j ≠ Γ.length - 1 - k → ρ ‘ ((j : ℕ) : V) = ρ' ‘ ((j : ℕ) : V)) :
@@ -1768,7 +1768,7 @@ naively, each intermediate `OracleOK` would be stated at a *partial* assignment
 
 section InductStep
 
-variable {envF : VEnv} {nv : ℕ} {L : LevelAssign envF nv} {κ : ℕ → V} {ls : List ℕ}
+variable {envF : VEnv} {nv : ℕ} {L : PropSplit envF nv} {κ : ℕ → V} {ls : List ℕ}
 
 /-- `addInduct'` is one constant-list extension followed by the ι-rules.
 
@@ -1787,7 +1787,7 @@ theorem addConstList_allConsts {env e₃ : VEnv} {D : VInductDecl'}
 /-- **The `.induct` coherence step.**  The constants and the ι-rules, in the
 shape `VEnv.WF'`'s induction consumes, with every obligation `Above`-wrapped and
 stated at the single assignment `cnstOf` produces. -/
-theorem coherentOn_addInduct (L : LevelAssign envF nv) (o : Name → List VLevel → V)
+theorem coherentOn_addInduct (L : PropSplit envF nv) (o : Name → List VLevel → V)
     (D : VInductDecl') {env e₁ : VEnv} {c c' : Name → List VLevel → V}
     (hc' : c' = oracleExtend o D.allNames c)
     (hcl : env.ConstsClosed) (hC : CoherentOn ⟨κ, ls, c⟩ L env)

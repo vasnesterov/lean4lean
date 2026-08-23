@@ -44,13 +44,13 @@ variable {V : Type*} [SetStructure V] [Nonempty V]
 section Statement
 
 variable [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖]
-variable {env : VEnv} {nv : ℕ} (M : ModelData V) (L : LevelAssign env nv)
+variable {env : VEnv} {nv : ℕ} (M : ModelData V) (L : PropSplit env nv)
 
 /-- **Part 1**: a proposition denotes a subset of `{•}`.
 
 Stated *unconditionally* — the guard "and `e` really is a proposition" is
 attached in `Sound` below, where it can be phrased as a condition on the
-judgement's **type** rather than on `L.IsProp`.  This matters: `L.lvl Γ e` is
+judgement's **type** rather than on `L.IsProp`.  This matters: `L.IsProp M Γ e` is
 total, so it returns junk at terms that are not types, and `L.IsProp M Γ e` is
 therefore junk-satisfiable.  A part-1 field guarded by `L.IsProp` would be
 unprovable for those junk instances. -/
@@ -80,7 +80,7 @@ other two where they are consumed.
 
 Note that the recovered part 1 is guarded by the *judgement* saying `e₁` is a
 proposition (`A = .sort u`, `u` evaluating to `0`), never by `L.IsProp`.  That
-matters: `L.lvl Γ e` is total, so it returns junk at terms that are not types,
+matters: `L.IsProp M Γ e` is total, so it answers junk at terms that are not types,
 and a field guarded by `L.IsProp` would be unprovable at those junk instances. -/
 structure Sound (Γ : List VExpr) (e₁ e₂ A : VExpr) : Prop where
   /-- **Part 4** -/
@@ -159,7 +159,7 @@ injectivity fact**.
 section BetaEta
 
 variable [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖]
-variable {env : VEnv} {nv : ℕ} (M : ModelData V) (L : LevelAssign env nv)
+variable {env : VEnv} {nv : ℕ} (M : ModelData V) (L : PropSplit env nv)
 
 /-- The valuation extended by the value of the substituted term satisfies
 `AgreeInst` at `k = 0` — the instance `beta` needs. -/
@@ -281,7 +281,7 @@ end DefFunExt
 section Derived
 
 variable [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖]
-variable {env : VEnv} {nv : ℕ} (M : ModelData V) (L : LevelAssign env nv)
+variable {env : VEnv} {nv : ℕ} (M : ModelData V) (L : PropSplit env nv)
 
 /-- **Part 1 from part 3.**  A term of a `Prop`-level sort denotes a subset of
 `{•}`, because `U κ 0` is `℘ {•}` on the nose. -/
@@ -323,7 +323,7 @@ is machine-checked against exactly the premises the real induction supplies.
 section Cases
 
 variable [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖]
-variable {env : VEnv} {nv : ℕ} (M : ModelData V) (L : LevelAssign env nv)
+variable {env : VEnv} {nv : ℕ} (M : ModelData V) (L : PropSplit env nv)
 
 /-- A looked-up type is closed in its context. -/
 theorem Lookup.closedN : ∀ {Γ : List VExpr} {i : ℕ} {A : VExpr},
@@ -423,14 +423,16 @@ together with context conversion (`IsDefEq.defeqDFC` in `Theory/Typing/`).
 section CtxConv
 
 variable [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖]
-variable {env : VEnv} {nv : ℕ} (M : ModelData V) (L : LevelAssign env nv)
+variable {env : VEnv} {nv : ℕ} (M : ModelData V) (L : PropSplit env nv)
 
 /-- A relation on contexts that the level assignment cannot see, closed under
 extending both sides by a common type. -/
 structure CtxInvariant (R : List VExpr → List VExpr → Prop) : Prop where
   len : ∀ {Γ₁ Γ₂}, R Γ₁ Γ₂ → Γ₁.length = Γ₂.length
-  lvl : ∀ {Γ₁ Γ₂}, R Γ₁ Γ₂ → ∀ A, L.lvl Γ₁ A ≈ L.lvl Γ₂ A
-  srt : ∀ {Γ₁ Γ₂}, R Γ₁ Γ₂ → ∀ e, L.srt Γ₁ e ≈ L.srt Γ₂ e
+  prop : ∀ {Γ₁ Γ₂}, R Γ₁ Γ₂ → ∀ (ls : List ℕ) (A : VExpr),
+    (L.IsPropAt ls Γ₁ A ↔ L.IsPropAt ls Γ₂ A)
+  proof : ∀ {Γ₁ Γ₂}, R Γ₁ Γ₂ → ∀ (ls : List ℕ) (e : VExpr),
+    (L.IsProofAt ls Γ₁ e ↔ L.IsProofAt ls Γ₂ e)
   cons : ∀ {Γ₁ Γ₂}, R Γ₁ Γ₂ → ∀ A, R (A :: Γ₁) (A :: Γ₂)
 
 /-- **Context conversion for the interpretation.** -/
@@ -445,7 +447,7 @@ theorem interp_ctxInvariant {R : List VExpr → List VExpr → Prop} (hR : CtxIn
     refine DefFun.ext (funext fun ρ ↦ ?_); rw [interp_const, interp_const]
   | .app f a, Γ₁, Γ₂, h => by
     have hsp : L.IsProof M Γ₁ f ↔ L.IsProof M Γ₂ f := by
-      simp only [LevelAssign.IsProof, VLevel.equiv_def.mp (hR.srt h f) M.ls]
+      exact hR.proof h M.ls f
     refine DefFun.ext (funext fun ρ ↦ ?_)
     by_cases hp : L.IsProof M Γ₁ f
     · rw [interp_app_proof M L hp, interp_app_proof M L (hsp.mp hp)]
@@ -453,7 +455,7 @@ theorem interp_ctxInvariant {R : List VExpr → List VExpr → Prop} (hR : CtxIn
         interp_ctxInvariant hR f h, interp_ctxInvariant hR a h]
   | .lam A b, Γ₁, Γ₂, h => by
     have hsp : L.IsProof M (A :: Γ₁) b ↔ L.IsProof M (A :: Γ₂) b := by
-      simp only [LevelAssign.IsProof, VLevel.equiv_def.mp (hR.srt (hR.cons h A) b) M.ls]
+      exact hR.proof (hR.cons h A) M.ls b
     refine DefFun.ext (funext fun ρ ↦ ?_)
     by_cases hp : L.IsProof M (A :: Γ₁) b
     · rw [interp_lam_proof M L hp, interp_lam_proof M L (hsp.mp hp)]
@@ -461,7 +463,7 @@ theorem interp_ctxInvariant {R : List VExpr → List VExpr → Prop} (hR : CtxIn
         interp_ctxInvariant hR A h, interp_ctxInvariant hR b (hR.cons h A)]
   | .forallE A B, Γ₁, Γ₂, h => by
     have hsp : L.IsProp M (A :: Γ₁) B ↔ L.IsProp M (A :: Γ₂) B := by
-      simp only [LevelAssign.IsProp, VLevel.equiv_def.mp (hR.lvl (hR.cons h A) B) M.ls]
+      exact hR.prop (hR.cons h A) M.ls B
     refine DefFun.ext (funext fun ρ ↦ ?_)
     by_cases hp : L.IsProp M (A :: Γ₁) B
     · rw [interp_forallE_prop M L hp, interp_forallE_prop M L (hsp.mp hp),
@@ -476,7 +478,7 @@ end CtxConv
 section Congruence
 
 variable [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖]
-variable {env : VEnv} {nv : ℕ} (M : ModelData V) (L : LevelAssign env nv)
+variable {env : VEnv} {nv : ℕ} (M : ModelData V) (L : PropSplit env nv)
 
 /-- **`appDF`, part 4.**  The two splits agree by `srt_congr`, which comes from
 `LevelAssign` alone.  No inversion. -/
@@ -661,7 +663,7 @@ What the two cases need from it is packaged as `Coherent`.
 section Const
 
 variable [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖]
-variable {env : VEnv} {nv : ℕ} (M : ModelData V) (L : LevelAssign env nv)
+variable {env : VEnv} {nv : ℕ} (M : ModelData V) (L : PropSplit env nv)
 
 /-- **Closed terms do not see the context.**  A closed `e` has the same
 denotation in every context, at every environment in it.  This is a corollary of
@@ -715,7 +717,7 @@ empty context there is no such dependence.
 The environment talked about is a parameter, separate from `L`'s own: the
 coherence induction establishes this for each prefix of the declaration list
 while a single `L` for the final environment serves throughout. -/
-structure CoherentOn {envF : VEnv} {nv : ℕ} (M : ModelData V) (L : LevelAssign envF nv)
+structure CoherentOn {envF : VEnv} {nv : ℕ} (M : ModelData V) (L : PropSplit envF nv)
     (env : VEnv) : Prop where
   /-- **equivalent level arguments give the same value.**  Free when `cnst` is
   indexed by evaluations; an obligation now that it is indexed by syntax.  It is
@@ -812,9 +814,9 @@ constants: as the declaration list grows, every term already interpreted keeps
 its denotation, so the induction only ever *extends* `cnst`.
 
 Note also that the three proof-splitting decisions do not mention `cnst` at all
-— they are `(L.srt Γ ·).eval ls = 0` — so the two sides take the same branch
+— they are `L.IsProofAt ls Γ ·` — so the two sides take the same branch
 definitionally, and the proof needs no split-agreement hypothesis. -/
-theorem interp_cnst_congr {env : VEnv} {nv : ℕ} (L : LevelAssign env nv)
+theorem interp_cnst_congr {env : VEnv} {nv : ℕ} (L : PropSplit env nv)
     {κ : ℕ → V} {ls : List ℕ} {c₁ c₂ : Name → List VLevel → V} :
     ∀ (e : VExpr) (Γ : List VExpr), ConstsAgree c₁ c₂ e →
       interp ⟨κ, ls, c₁⟩ L Γ e = interp ⟨κ, ls, c₂⟩ L Γ e
@@ -847,14 +849,14 @@ theorem interp_cnst_congr {env : VEnv} {nv : ℕ} (L : LevelAssign env nv)
 /-- A level assignment for a larger environment restricts to one for a smaller.
 So a *single* `L` can be fixed for the final environment and used at every stage
 of the induction — the assignment never has to be rebuilt as `env` grows. -/
-def LevelAssign.mono {env env' : VEnv} {nv : ℕ} (h : env ≤ env')
-    (L : LevelAssign env' nv) : LevelAssign env nv where
-  lvl := L.lvl
-  srt := L.srt
-  lvl_wf := L.lvl_wf
-  srt_wf := L.srt_wf
-  lvl_sound hw ht := L.lvl_sound hw (ht.mono h)
-  srt_sound ht := L.srt_sound (ht.mono h)
+def PropSplit.mono {env env' : VEnv} {nv : ℕ} (h : env ≤ env')
+    (L : PropSplit env' nv) : PropSplit env nv where
+  IsPropAt := L.IsPropAt
+  IsProofAt := L.IsProofAt
+  decProp := L.decProp
+  decProof := L.decProof
+  prop_sound hw ht := L.prop_sound hw (ht.mono h)
+  proof_sound hw he hA := L.proof_sound hw (he.mono h) (hA.mono h)
 
 end CnstStep
 
@@ -906,7 +908,7 @@ theorem VEnv.addConst_spec {env env' : VEnv} {n : Name} {ci : VConstant}
 environment does not yet use preserves everything already established: by
 `Ordered.constsInC` an earlier declaration's type mentions only earlier
 constants, so `interp_cnst_congr` applies to it unchanged. -/
-theorem coherentOn_addConst {envF : VEnv} {nv : ℕ} (L : LevelAssign envF nv)
+theorem coherentOn_addConst {envF : VEnv} {nv : ℕ} (L : PropSplit envF nv)
     {env env' : VEnv} (henv : env.ConstsClosed) {nm : Name} {ci : VConstant}
     (hadd : env.addConst nm ci = some env')
     {κ : ℕ → V} {ls : List ℕ} {c : Name → List VLevel → V} {v : List VLevel → V}
@@ -955,7 +957,7 @@ theorem coherentOn_addConst {envF : VEnv} {nv : ℕ} (L : LevelAssign envF nv)
 /-- **The step lemma for a defining equation.**  `addDefEq` does not touch
 `constants`, so nothing has to be transported; the two new obligations are
 exactly the equation and its typing. -/
-theorem coherentOn_addDefEq {envF : VEnv} {nv : ℕ} {L : LevelAssign envF nv}
+theorem coherentOn_addDefEq {envF : VEnv} {nv : ℕ} {L : PropSplit envF nv}
     {env : VEnv} {M : ModelData V} (hC : CoherentOn M L env) {df : VDefEq}
     (h1 : ∀ {us : List VLevel}, (∀ l ∈ us, l.WF nv) → us.length = df.uvars →
       Above M ((interp M L [] (df.lhs.instL us)).toFun ∅
@@ -1007,7 +1009,7 @@ section Axioms
 variable [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖]
 
 structure AxiomsValidated {env : VEnv} {nv : ℕ} (M : ModelData V)
-    (L : LevelAssign env nv) (ds : List VDecl) : Prop where
+    (L : PropSplit env nv) (ds : List VDecl) : Prop where
   axioms : ∀ {ci : VConstVal}, (VDecl.axiom ci) ∈ ds → ∀ {ls : List VLevel},
     (∀ l ∈ ls, l.WF nv) → ls.length = ci.toVConstant.uvars →
       M.cnst ci.name ls ∈ (interp M L [] (ci.toVConstant.type.instL ls)).toFun ∅

@@ -269,7 +269,7 @@ end Subsingleton
 
 section Ctor
 
-variable {envF : VEnv} {nv : ℕ} (M : ModelData V) (L : LevelAssign envF nv)
+variable {envF : VEnv} {nv : ℕ} (M : ModelData V) (L : PropSplit envF nv)
 variable (D : VInductDecl')
 
 /-- The context of field `i` of a constructor: the parameters and the *stored*

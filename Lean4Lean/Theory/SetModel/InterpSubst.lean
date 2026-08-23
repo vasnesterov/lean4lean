@@ -56,7 +56,7 @@ end Numerals
 section Valuation
 
 variable [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖]
-variable {env : VEnv} {nv : ℕ} (M : ModelData V) (L : LevelAssign env nv)
+variable {env : VEnv} {nv : ℕ} (M : ModelData V) (L : PropSplit env nv)
 
 /-- A valuation of `Γ` is an internal function whose domain is `|Γ|`. -/
 theorem interpCtx_domain : ∀ {Γ : List VExpr} {ρ : V}, ρ ∈ interpCtx M L Γ →
@@ -113,23 +113,27 @@ section Stable
 
 variable {env : VEnv} {nv : ℕ}
 
-/-- The level assignment commutes with weakening and substitution. -/
-structure LevelAssign.Stable (L : LevelAssign env nv) : Prop where
-  lvl_liftN : ∀ {n k : ℕ} {Γ Γ' : List VExpr}, Ctx.LiftN n k Γ Γ' → ∀ A : VExpr,
-    L.lvl Γ' (A.liftN n k) ≈ L.lvl Γ A
-  srt_liftN : ∀ {n k : ℕ} {Γ Γ' : List VExpr}, Ctx.LiftN n k Γ Γ' → ∀ e : VExpr,
-    L.srt Γ' (e.liftN n k) ≈ L.srt Γ e
+/-- The proof-splitting criterion commutes with weakening and substitution.
+
+Stated as `↔` on the two predicates rather than as `≈` on two levels: that is
+all four consumers ever extract from it, and it is the weakening
+`docs/model-interface.md` §5 measures. -/
+structure PropSplit.Stable (L : PropSplit env nv) : Prop where
+  prop_liftN : ∀ {n k : ℕ} {Γ Γ' : List VExpr}, Ctx.LiftN n k Γ Γ' →
+    ∀ (ls : List ℕ) (A : VExpr), (L.IsPropAt ls Γ' (A.liftN n k) ↔ L.IsPropAt ls Γ A)
+  proof_liftN : ∀ {n k : ℕ} {Γ Γ' : List VExpr}, Ctx.LiftN n k Γ Γ' →
+    ∀ (ls : List ℕ) (e : VExpr), (L.IsProofAt ls Γ' (e.liftN n k) ↔ L.IsProofAt ls Γ e)
   /-- **The `env.HasType` hypothesis is load-bearing.**  `Ctx.InstN` declares
   `e₀` as a *parameter* that its `zero` constructor never mentions, so without
   this the relation holds for an arbitrary `e₀` and the field collapses: see
   `no_stable` in `SetModel/LevelAssignUnsat.lean`.  Every consumer substitutes a
   term it has already typed. -/
-  lvl_instN : ∀ {Γ₀ : List VExpr} {e₀ A₀ : VExpr} {k : ℕ} {Γ₁ Γ : List VExpr},
+  prop_instN : ∀ {Γ₀ : List VExpr} {e₀ A₀ : VExpr} {k : ℕ} {Γ₁ Γ : List VExpr},
     Ctx.InstN Γ₀ e₀ A₀ k Γ₁ Γ → env.HasType nv Γ₀ e₀ A₀ →
-    ∀ B : VExpr, L.lvl Γ (B.inst e₀ k) ≈ L.lvl Γ₁ B
-  srt_instN : ∀ {Γ₀ : List VExpr} {e₀ A₀ : VExpr} {k : ℕ} {Γ₁ Γ : List VExpr},
+    ∀ (ls : List ℕ) (B : VExpr), (L.IsPropAt ls Γ (B.inst e₀ k) ↔ L.IsPropAt ls Γ₁ B)
+  proof_instN : ∀ {Γ₀ : List VExpr} {e₀ A₀ : VExpr} {k : ℕ} {Γ₁ Γ : List VExpr},
     Ctx.InstN Γ₀ e₀ A₀ k Γ₁ Γ → env.HasType nv Γ₀ e₀ A₀ →
-    ∀ e : VExpr, L.srt Γ (e.inst e₀ k) ≈ L.srt Γ₁ e
+    ∀ (ls : List ℕ) (e : VExpr), (L.IsProofAt ls Γ (e.inst e₀ k) ↔ L.IsProofAt ls Γ₁ e)
 
 theorem Ctx.LiftN.length : ∀ {n k : ℕ} {Γ Γ' : List VExpr},
     Ctx.LiftN n k Γ Γ' → Γ'.length = Γ.length + n
@@ -158,7 +162,7 @@ end Stable
 section Weakening
 
 variable [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖]
-variable {env : VEnv} {nv : ℕ} (M : ModelData V) (L : LevelAssign env nv)
+variable {env : VEnv} {nv : ℕ} (M : ModelData V) (L : PropSplit env nv)
 
 /-- Reindexing of valuation positions when `n` slots are inserted at position
 `j`.  Positions are counted from the *outside*, so `j` is invariant as the
@@ -217,7 +221,7 @@ theorem interp_liftN (hS : L.Stable) {n j : ℕ} :
   | .app f a, k, Γ, Γ', W, hj, hcl, ρ, ρ', hρ, hρ', hag => by
     obtain ⟨hf, ha⟩ := hcl
     have hsplit : L.IsProof M Γ' (f.liftN n k) ↔ L.IsProof M Γ f := by
-      simp only [LevelAssign.IsProof, VLevel.equiv_def.mp (hS.srt_liftN W f) M.ls]
+      exact hS.proof_liftN W M.ls f
     by_cases hp : L.IsProof M Γ f
     · rw [show (VExpr.app f a).liftN n k = .app (f.liftN n k) (a.liftN n k) from rfl,
         interp_app_proof M L (hsplit.mpr hp), interp_app_proof M L hp]
@@ -232,7 +236,7 @@ theorem interp_liftN (hS : L.Stable) {n j : ℕ} :
     have hj' : (A :: Γ).length - (k + 1) = j := by simp; omega
     have hsplit : L.IsProof M (A.liftN n k :: Γ') (b.liftN n (k + 1)) ↔
         L.IsProof M (A :: Γ) b := by
-      simp only [LevelAssign.IsProof, VLevel.equiv_def.mp (hS.srt_liftN W' b) M.ls]
+      exact hS.proof_liftN W' M.ls b
     by_cases hp : L.IsProof M (A :: Γ) b
     · rw [show (VExpr.lam A b).liftN n k = .lam (A.liftN n k) (b.liftN n (k + 1)) from rfl,
         interp_lam_proof M L (hsplit.mpr hp), interp_lam_proof M L hp]
@@ -254,7 +258,7 @@ theorem interp_liftN (hS : L.Stable) {n j : ℕ} :
     have hj' : (A :: Γ).length - (k + 1) = j := by simp; omega
     have hsplit : L.IsProp M (A.liftN n k :: Γ') (B.liftN n (k + 1)) ↔
         L.IsProp M (A :: Γ) B := by
-      simp only [LevelAssign.IsProp, VLevel.equiv_def.mp (hS.lvl_liftN W' B) M.ls]
+      exact hS.prop_liftN W' M.ls B
     have hAeq := interp_liftN hS A W hj hA hρ hρ' hag
     have hBeq : ∀ v ∈ (interp M L Γ A).toFun ρ,
         (interp M L (A.liftN n k :: Γ') (B.liftN n (k + 1))).toFun (snoc ρ' v) =
@@ -299,7 +303,7 @@ interpretation of the substituted term" — rather than being proved first.
 section Substitution
 
 variable [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖]
-variable {env : VEnv} {nv : ℕ} (M : ModelData V) (L : LevelAssign env nv)
+variable {env : VEnv} {nv : ℕ} (M : ModelData V) (L : PropSplit env nv)
 
 theorem Ctx.InstN.length₀ : ∀ {Γ₀ : List VExpr} {e₀ A₀ : VExpr} {k : ℕ} {Γ₁ Γ : List VExpr},
     Ctx.InstN Γ₀ e₀ A₀ k Γ₁ Γ → Γ.length = Γ₀.length + k
@@ -392,7 +396,7 @@ theorem interp_inst (hS : L.Stable) {j : ℕ} :
   | .app f a, Γ₀, Γ₁, Γ, e₀, A₀, k, W, he₀, hj, hcl, hcl₀, ρ, ρ₁, hρ, hρ₁, hag => by
     obtain ⟨hf, ha⟩ := hcl
     have hsplit : L.IsProof M Γ (f.inst e₀ k) ↔ L.IsProof M Γ₁ f := by
-      simp only [LevelAssign.IsProof, VLevel.equiv_def.mp (hS.srt_instN W he₀ f) M.ls]
+      exact hS.proof_instN W he₀ M.ls f
     by_cases hp : L.IsProof M Γ₁ f
     · rw [show (VExpr.app f a).inst e₀ k = .app (f.inst e₀ k) (a.inst e₀ k) from rfl,
         interp_app_proof M L (hsplit.mpr hp), interp_app_proof M L hp]
@@ -412,7 +416,7 @@ theorem interp_inst (hS : L.Stable) {j : ℕ} :
     have hAeq := interp_inst hS A W he₀ hj hA hcl₀ hρ hρ₁ hag
     have hsplit : L.IsProof M (A.inst e₀ k :: Γ) (b.inst e₀ (k + 1)) ↔
         L.IsProof M (A :: Γ₁) b := by
-      simp only [LevelAssign.IsProof, VLevel.equiv_def.mp (hS.srt_instN W' he₀ b) M.ls]
+      exact hS.proof_instN W' he₀ M.ls b
     by_cases hp : L.IsProof M (A :: Γ₁) b
     · rw [show (VExpr.lam A b).inst e₀ k = .lam (A.inst e₀ k) (b.inst e₀ (k + 1)) from rfl,
         interp_lam_proof M L (hsplit.mpr hp), interp_lam_proof M L hp]
@@ -439,7 +443,7 @@ theorem interp_inst (hS : L.Stable) {j : ℕ} :
     have hAeq := interp_inst hS A W he₀ hj hA hcl₀ hρ hρ₁ hag
     have hsplit : L.IsProp M (A.inst e₀ k :: Γ) (B.inst e₀ (k + 1)) ↔
         L.IsProp M (A :: Γ₁) B := by
-      simp only [LevelAssign.IsProp, VLevel.equiv_def.mp (hS.lvl_instN W' he₀ B) M.ls]
+      exact hS.prop_instN W' he₀ M.ls B
     have hBeq : ∀ v ∈ (interp M L Γ₁ A).toFun ρ₁,
         (interp M L (A.inst e₀ k :: Γ) (B.inst e₀ (k + 1))).toFun (snoc ρ v) =
           (interp M L (A :: Γ₁) B).toFun (snoc ρ₁ v) := by

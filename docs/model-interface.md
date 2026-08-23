@@ -543,16 +543,185 @@ not about the current tree.
 
 ---
 
+## 5. What proof-splitting actually requires: the model needs no level
+
+`Theory/Typing/SortUniq.lean` establishes that `SortUniq` is **not a semantic
+consequence** of Lean's rules — add cumulativity, which every nested-universe
+model validates, and it is false — and that `LevelAssign.srt_sound` *is*
+`SortUniq` restated. Together those say the model cannot discharge its own
+parameter, in principle rather than for want of effort. This section is the
+measurement of what the parameter would have to be instead.
+
+### The interface is two predicates, and that is a counted fact
+
+Machine-checked by scanning `Theory/SetModel/`, classifying **every**
+occurrence rather than the likely ones:
+
+* **92** occurrences of `.eval` in the directory. **15 involve `L.lvl`/`L.srt`,
+  and every one of them is the `= 0` test** — `LevelAssign.IsProp` /
+  `LevelAssign.IsProof` or a comment about them. The other **77** take their
+  level from the *syntax*: the `u` of `.sort u`, the `u`/`v` of a rule's
+  premises, a constant's level arguments `us`.
+* Every universe index the model ever forms is `U κ i` for a stage parameter `i`
+  or `U M.κ (u.eval M.ls)` for a **syntactic** `u`. **`L.lvl` supplies no
+  universe index anywhere.** In particular `mkLam`, `mkForallType` and
+  `mkForallProp` take no universe argument at all — the guess that `lvl` was
+  needed for one is wrong, and wrong in the favourable direction.
+* Every *fact* about `L` — `lvl_sound`, `srt_sound`, `lvl_congr`/`srt_congr`,
+  `Stable`'s four fields, `CtxInvariant`'s two — is consumed **only** by
+  rewriting inside a `… .eval M.ls = 0`. All **12** such sites are literally
+  `simp only [LevelAssign.IsProof, VLevel.equiv_def.mp … M.ls]`.
+* Two bridge lemmas, `isProp_iff` and `isProof_iff`
+  (`SoundInduction.lean:118–131`), are the entire interface between `L` and the
+  soundness induction. They have **15** uses, all insulated from any change to
+  `L`. Outside `SetModel/`, `LevelAssign` occurs only in `SortUniq.lean`'s prose.
+
+So what `interp` requires is **not a canonical level per term**. It is two
+Prop-valued predicates satisfying
+
+```
+IsProp  Γ A ↔ u.eval ls = 0     whenever Γ ⊢ A : .sort u   (u.WF)
+IsProof Γ e ↔ u.eval ls = 0     whenever Γ ⊢ e : A, Γ ⊢ A : .sort u
+```
+
+That is `PropSplit` (`SetModel/Interp.lean`). `LevelAssign.toPropSplit` embeds
+the old parameter; there is no converse, and there should not be — the
+weakening is the point.
+
+### Why a purely semantic criterion is impossible — keep this argument
+
+Before asking for a weaker parameter it is worth knowing that **no
+parameterisation removes the syntactic input entirely**, and the reason is about
+the setting rather than about this construction:
+
+* the `{•}` collapse at a `Prop` is **forced by impredicativity**. A genuine
+  dependent product of subsingletons *is* a subsingleton, so proof irrelevance
+  would be validated without any collapse — but its rank is that of the domain,
+  which impredicativity leaves unbounded, so it cannot inhabit a fixed
+  `U κ 0`. Only the collapse to a subset of `{•}` is rank-bounded;
+* and the collapse must be decided at `lam` and `app`, which **carry no type**.
+  The `forallE` split could be taken semantically (test `⟦B⟧ ⊆ {•}` pointwise,
+  a definable condition); the `lam` split cannot, because a term's *value*
+  being `•` is not the same as its type being a proposition.
+
+So proof-splitting is a syntactic decision, necessarily. The question is only
+*which* syntactic statement it imports.
+
+### The residual obligation, and it is not `SortUniq`
+
+`SortUniq.lean`'s cumulativity rule is stated for arbitrary `e`, so it refutes
+the ↔-form above directly: a proposition `P` gets `P : .sort 0` and
+`P : .sort 1`, forcing `IsProp Γ P` both ways. The repair is the **minimum
+convention** — `IsProp Γ A` means *some* sort of `A` evaluates to `0` — and it
+works because:
+
+* the `⇐` direction survives, and the non-`Prop` branch uses only its
+  contrapositive, so that branch is untouched;
+* where the `Prop` branch is taken against a rule's non-zero `v`, the obligation
+  is `⟦∀A,B⟧ρ ∈ U κ ((imax u v).eval)` with `⟦∀A,B⟧ = piProp ∈ U κ 0`, and
+  `U_mono` absorbs it. Part 1 for `B` is still available, since `IsProp` asserts
+  `B` genuinely has a zero sort.
+
+**One site is not absorbable, and it is the whole residue.** If a *term* `e` had
+a `Prop` type `A` and a non-`Prop` type `A'`, then `⟦e⟧ = pt` would have to lie
+in `⟦A'⟧` — a different set, not a bigger universe. So the model's irreducible
+syntactic import is
+
+> **`PropTypeAgree`** — `Γ ⊢ e : A`, `Γ ⊢ e : A'`, `A` a proposition ⟹ `A'` a
+> proposition.
+
+**The cumulativity check does not reach it.** That rule retypes at *sorts*; it
+never gives a proof a second type, so a term's types keep agreeing on
+propositionhood. This is the same shape as `SortUniq.lean`'s own observation
+that `sort_not_proof` survives cumulativity — and the connection is exact:
+
+> **`sort_not_proof` *is* `PropTypeAgree` at `e = .sort u`**, its two types
+> being `.sort (u+1)` and the proposition `p`.
+
+Two streams arrived at the same statement from opposite ends — one asking what
+survives the cumulativity check, one asking what the interpretation actually
+branches on. That agreement is better evidence for the target than either
+finding alone.
+
+**`PropTypeAgree` is not priced syntactically.** It follows from unique typing;
+whether it has a cheaper route is the injectivity stream's call, not this
+document's. What is settled here is that it, and not `sort_inv`, is what the
+model needs.
+
+### Built, and what the audit found
+
+**`PropSplit` is in the tree and the whole directory runs on it.** `interp` and
+every downstream file take `(L : PropSplit env nv)`; `LevelAssign` is kept, no
+longer used by the interpretation, and `LevelAssign.toPropSplit` is the bridge.
+Full build green, sorry-free, three standard axioms. `LevelAssign`'s own
+refutation file (`LevelAssignUnsat.lean`) still compiles and stays as the record
+of why the guards exist.
+
+Mechanically it was what the scan predicted: the `Stable` and `CtxInvariant`
+fields became `↔`s on the predicates, the 12 `simp only [LevelAssign.IsProof,
+VLevel.equiv_def.mp …]` sites became one-line `exact`s, and the 15 consumers of
+`isProp_iff`/`isProof_iff` did not move at all.
+
+**The audit — `SetModel/PropSplitAudit.lean`, run before anything was built on
+the result**, in three parts:
+
+1. *Upper bound*: `LevelAssign.toPropSplit` — the new parameter asks for nothing
+   the old one did not already give.
+2. *The fields do real work*: `prop_forces_false` (`Prop` is not a proposition)
+   and `prop_forces_true` (a variable of type `Prop` is), both from `prop_sound`
+   alone, so no constant predicate is a `PropSplit` (`propSplit_not_constant`).
+   The second is a `bvar` instance — the shape that refuted the unguarded
+   `LevelAssign`, here satisfied rather than contradictory.
+3. *Lower bound*: `propSplitOf` builds one, so satisfiability reduces to two
+   named statements about the judgement.
+
+**And the audit sharpened the residual, which the analysis above had merged.**
+The `↔`-form now in the tree needs **two** statements, not one:
+
+| | statement | reached by the cumulativity check? |
+|---|---|---|
+| `PropUniq` | the sorts of a **type** agree on being zero | **yes** — a proposition then has sorts `0` and `1` |
+| `PropTypeAgree` | the types of a **term** agree on being propositions | **no** — cumulativity retypes at sorts, never gives a proof a second type |
+
+Both are `Prop`-valued defs in `PropSplitAudit.lean`, and both are load-bearing
+in `propSplitOf` (machine-checked). **The minimum convention's job is precisely
+to delete the first row**: `U_mono` absorbs a `Prop` branch taken against a
+non-zero sort, leaving `PropTypeAgree` as the sole syntactic import. That is
+step 2, and it is **measured, not built** — see below.
+
+### Confidence split, kept deliberately
+
+* The interface scan is **machine-checked** (counts above, reproducible by
+  grep), and so is everything in `PropSplitAudit.lean`.
+* The minimum-convention analysis is **reasoning**, not a proof. What it costs
+  is now scoped: `prop_sound` splits into `prop_zero` (the surviving `⇐`) and
+  `prop_wit` (`IsProp` is witnessed by *some* zero sort); `isProp_iff` stops
+  being an `↔`, so its ~9 use-sites in `SoundInduction.lean` each need the
+  `Prop` branch justified by `piProp ∈ U κ 0 ⊆ U κ k` instead of by an equality
+  of branch conditions. `proof_sound` stays an `↔` — that is the half
+  `PropTypeAgree` pays for.
+* **`PropTypeAgree` is not priced syntactically.** It follows from unique
+  typing; whether it has a cheaper route is the injectivity stream's call.
+
+---
+
 ## What the model still needs from the syntax side
 
 The interpretation `⟦Γ ⊢ e⟧` is now **defined** — see `SetModel/Interp.lean` —
 relative to a `LevelAssign`, which packages exactly Carneiro's `lvl`/`sort`
 lemma. What remains from the syntax side is:
 
-1. **`IsDefEqU.sort_inv`**, which is what a `LevelAssign` needs — and nothing in
-   the tree exhibits a `LevelAssign`, so this is the one unwitnessed hypothesis
-   the whole set model rests on. Notably *not* `IsDefEqU.forallE_inv` or
-   `IsDefEqU.sort_forallE_inv`: the interpretation's definition uses neither.
+1. **`PropTypeAgree`** — not `IsDefEqU.sort_inv`. See §5: the interpretation
+   branches on propositionhood, never on a level, so what it imports is that a
+   term's types agree on being propositions. `sort_inv`/`SortUniq` is
+   *sufficient* (it gives a `LevelAssign`, which gives a `PropSplit`) and is
+   known **not** to be a semantic consequence; `PropTypeAgree` is what is
+   actually needed and is not refuted by the same check. Notably *not*
+   `IsDefEqU.forallE_inv` or `IsDefEqU.sort_forallE_inv`: the interpretation's
+   definition uses neither.
+
+   The paragraph below is the old scoping of this item, kept because its
+   diagnosis of `srt_sound` is what led to §5.
 
    **Caveat on scope.** "`sort_inv` is all a `LevelAssign` needs" is a claim
    about the `lvl` field. `srt_sound` asks that `srt Γ e ≈ lvl Γ A` for *every*
@@ -612,6 +781,7 @@ Nothing on the set-theoretic side is outstanding.
 | `SetModel/Interp.lean` | `LevelAssign`, `interp`, `interpCtx`, proof splitting |
 | `SetModel/IndInterp.lean` | `IndSignature₂`/`₃` and the port, `mkIndSignature₃`, `interpSig_wf`/`_stage`, `coherentOn_addInduct` |
 | `SetModel/CtorTrans.lean` | the `VIndCtor → CtorData₃`/`Args` translation, `interpSig₃`, `Ind₃_subsingleton` |
+| `SetModel/PropSplitAudit.lean` | `PropUniq`, `PropTypeAgree`, and the three-part satisfiability audit for `PropSplit` |
 | `SetModel/CtorTransExamples.lean` | the translation applied to `Acc`, `W'`, `Forest'.cons` |
 | `SetModel/Cnst.lean` | `cnstOf`, `oracleExtend`, `CoherentOn` and its `addConst`/`addDefEq`/`addConstList` steps |
 | `docs/foundation-gaps.md` | what Foundation is missing, and the `isDefEq` hazard |

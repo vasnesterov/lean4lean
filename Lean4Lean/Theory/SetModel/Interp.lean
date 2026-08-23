@@ -337,12 +337,119 @@ instance (M : ModelData V) (Γ : List VExpr) (e : VExpr) : Decidable (L.IsProof 
 
 end LevelAssign
 
+/-! ## What the interpretation actually needs: `PropSplit`
+
+`LevelAssign` gives the interpretation more than it uses, and the difference is
+not cosmetic — it is the difference between a parameter that **cannot** be
+supplied and one that might be.
+
+The scan is in `docs/model-interface.md` §5 and it is a count, not an
+impression: of the 92 occurrences of `.eval` in this directory, the 15 that
+mention `L.lvl`/`L.srt` are **all** the test `… = 0`; the other 77 take their
+level from the syntax. No universe index anywhere is formed from `L` — `mkLam`,
+`mkForallType` and `mkForallProp` take no universe argument at all. So `interp`
+never needs a *level*; it needs to know, at three nodes, whether something is a
+proposition.
+
+`PropSplit` is exactly that: two predicates, pinned to the judgement by the
+same `= 0` test the interpretation performs.
+
+**Why this is worth having.** `LevelAssign.srt_sound` *is* `SortUniq`
+(`Theory/Typing/SortUniq.lean`), which is **not a semantic consequence** of
+Lean's rules — add cumulativity, which every nested-universe model validates,
+and it is false. `PropSplit`'s conditions are strictly weaker, and the residual
+syntactic obligation they leave (`PropTypeAgree`: a term's types agree on being
+propositions) is *not* refuted by that check, because cumulativity retypes at
+sorts and never gives a proof a second type.
+
+**And no parameterisation can remove the syntactic input entirely.** The `{•}`
+collapse is forced by impredicativity — a genuine dependent product of
+subsingletons is a subsingleton, so proof irrelevance would hold without any
+collapse, but its rank is the domain's, which impredicativity leaves unbounded,
+so only the collapsed form is rank-bounded — and the collapse has to be decided
+at `lam` and `app`, which carry no type. Do not look for a semantic criterion. -/
+
+/-- **The proof-splitting criterion.**  A weakening of `LevelAssign` to what the
+interpretation consumes: no levels, only propositionhood.
+
+The predicates take the valuation `ls` explicitly rather than a `ModelData`, so
+that a `PropSplit` is independent of the model it is used with — the same
+arrangement `LevelAssign` had.
+
+Both guards (`u.WF nv`, and the typing premises) are load-bearing for the same
+reason they are in `LevelAssign`: see `SetModel/PropSplitAudit.lean`. -/
+structure PropSplit (env : VEnv) (nv : ℕ) where
+  /-- `A` is a proposition, at the universe valuation `ls`. -/
+  IsPropAt : List ℕ → List VExpr → VExpr → Prop
+  /-- `e` is a proof, at the universe valuation `ls`. -/
+  IsProofAt : List ℕ → List VExpr → VExpr → Prop
+  decProp : ∀ ls Γ A, Decidable (IsPropAt ls Γ A)
+  decProof : ∀ ls Γ e, Decidable (IsProofAt ls Γ e)
+  /-- The split agrees with the typing rules on types. -/
+  prop_sound : ∀ {ls : List ℕ} {Γ : List VExpr} {A : VExpr} {u : VLevel},
+    u.WF nv → env.HasType nv Γ A (.sort u) → (IsPropAt ls Γ A ↔ u.eval ls = 0)
+  /-- …and on terms. -/
+  proof_sound : ∀ {ls : List ℕ} {Γ : List VExpr} {e A : VExpr} {u : VLevel},
+    u.WF nv → env.HasType nv Γ e A → env.HasType nv Γ A (.sort u) →
+    (IsProofAt ls Γ e ↔ u.eval ls = 0)
+
+namespace PropSplit
+
+variable {env : VEnv} {nv : ℕ} (L : PropSplit env nv)
+
+/-- Proof splitting, on types.  Spelled at a `ModelData` so that every call site
+of the old `LevelAssign.IsProp` reads unchanged. -/
+def IsProp (M : ModelData V) (Γ : List VExpr) (A : VExpr) : Prop := L.IsPropAt M.ls Γ A
+
+/-- Proof splitting, on terms. -/
+def IsProof (M : ModelData V) (Γ : List VExpr) (e : VExpr) : Prop := L.IsProofAt M.ls Γ e
+
+instance (M : ModelData V) (Γ : List VExpr) (A : VExpr) : Decidable (L.IsProp M Γ A) :=
+  L.decProp _ _ _
+
+instance (M : ModelData V) (Γ : List VExpr) (e : VExpr) : Decidable (L.IsProof M Γ e) :=
+  L.decProof _ _ _
+
+include L in
+/-- Definitionally equal terms take the same branch.  Where `LevelAssign` needed
+`srt_congr`, this is immediate: both sides have the same type. -/
+theorem proof_congr {M : ModelData V} {Γ : List VExpr} {e e' A : VExpr} {u : VLevel}
+    (hw : u.WF nv) (h : env.IsDefEq nv Γ e e' A) (hA : env.HasType nv Γ A (.sort u)) :
+    L.IsProof M Γ e ↔ L.IsProof M Γ e' :=
+  (L.proof_sound hw (h.trans h.symm) hA).trans (L.proof_sound hw (h.symm.trans h) hA).symm
+
+include L in
+/-- Definitionally equal types take the same branch. -/
+theorem prop_congr {M : ModelData V} {Γ : List VExpr} {A A' : VExpr} {u : VLevel}
+    (hw : u.WF nv) (h : env.IsDefEq nv Γ A A' (.sort u)) :
+    L.IsProp M Γ A ↔ L.IsProp M Γ A' :=
+  (L.prop_sound hw (h.trans h.symm)).trans (L.prop_sound hw (h.symm.trans h)).symm
+
+end PropSplit
+
+/-- **The old parameter implies the new one.**  This is the upper bound of the
+audit: `PropSplit` asks for nothing `LevelAssign` did not already give, so
+re-parameterising cannot have strengthened anything.
+
+There is deliberately **no converse**: recovering a level from a
+propositionhood predicate is impossible, and that impossibility is the whole
+point of the weakening. -/
+def LevelAssign.toPropSplit {env : VEnv} {nv : ℕ} (L : LevelAssign env nv) :
+    PropSplit env nv where
+  IsPropAt ls Γ A := (L.lvl Γ A).eval ls = 0
+  IsProofAt ls Γ e := (L.srt Γ e).eval ls = 0
+  decProp _ _ _ := inferInstanceAs (Decidable (_ = _))
+  decProof _ _ _ := inferInstanceAs (Decidable (_ = _))
+  prop_sound {ls} _ _ _ hw ht := by rw [VLevel.equiv_def.mp (L.lvl_sound hw ht) ls]
+  proof_sound {ls} _ _ _ _ hw he hA := by
+    rw [VLevel.equiv_def.mp (L.srt_sound he) ls, VLevel.equiv_def.mp (L.lvl_sound hw hA) ls]
+
 /-! ## The interpretation -/
 
 section Interp
 
 variable [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖]
-variable {env : VEnv} {nv : ℕ} (M : ModelData V) (L : LevelAssign env nv)
+variable {env : VEnv} {nv : ℕ} (M : ModelData V) (L : PropSplit env nv)
 
 /-- `⟦Γ ⊢ e⟧` as a bundle of a function on valuations and its definability.
 
