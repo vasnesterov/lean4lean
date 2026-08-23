@@ -869,7 +869,55 @@ theorem indRec₂_mem {S : IndSignature₂ V} {D R : V} {e : V → V → V → V
   rw [Ind₂_eq_Ind_at] at hp
   exact indRec_mem hS hD hE hp
 
+/-! ### The stage and well-formedness conditions
+
+This is the `fld_mem` adaptation §2's escape hatch predicted, and it is the only
+adaptation the generalisation actually costs.  `Fld` now moves with the
+approximation, so `fld_mem` and `pos_mem` have to be asked of `Fld W q` — and it
+is enough to ask it of the approximations that can arise, namely the subsets of
+the ambient `S.Idx ×ˢ vsetV k`.
+
+Both conditions specialise to the ordinary ones at any such `W`, which together
+with `Ind₂_eq_Ind_at` is what makes every stage theorem transfer. -/
+
+structure IsStageSignature₂ (k : V) (S : IndSignature₂ V) : Prop where
+  idx_mem : S.Idx ∈ vsetV k
+  q_mem : S.Q ∈ vsetV k
+  fld_mem : ∀ W : V, W ⊆ (S.Idx ×ˢ vsetV k : V) → ∀ q ∈ S.Q, S.Fld W q ∈ vsetV k
+  pos_mem : ∀ W : V, W ⊆ (S.Idx ×ˢ vsetV k : V) → ∀ q ∈ S.Q, ∀ a ∈ S.Fld W q,
+    S.Pos q a ∈ vsetV k
+
+/-- The index maps land in `Idx`, at every approximation. -/
+structure IndSignature₂.WF (S : IndSignature₂ V) : Prop where
+  resIdx_mem : ∀ W : V, ∀ q ∈ S.Q, ∀ a ∈ S.Fld W q, S.resIdx q a ∈ S.Idx
+
+theorem IsStageSignature₂.at {k : V} {S : IndSignature₂ V} (h : IsStageSignature₂ k S)
+    {W : V} (hW : W ⊆ (S.Idx ×ˢ vsetV k : V)) : IsStageSignature k (S.at W) where
+  idx_mem := h.idx_mem
+  q_mem := h.q_mem
+  fld_mem := h.fld_mem W hW
+  pos_mem := h.pos_mem W hW
+
+theorem IndSignature₂.WF.at {S : IndSignature₂ V} (h : S.WF) (W : V) :
+    (S.at W).WF where
+  resIdx_mem := h.resIdx_mem W
+
+/-- **The family lands in the stage.**  `Ind_mem_vsetV`, transferred by one
+rewrite — the escape hatch costs nothing here either. -/
+theorem Ind₂_mem_vsetV {k : V} {S : IndSignature₂ V} (hk : IsInaccessible k)
+    (hS : IsStageSignature₂ k S) (hWF : S.WF) : Ind₂ S (vsetV k) ∈ vsetV k := by
+  rw [Ind₂_eq_Ind_at]
+  exact Ind_mem_vsetV hk (hS.at Ind₂_subset) (hWF.at _)
+
+/-- **…and in the universe sequence.** -/
+theorem Ind₂_mem_U_stage {n i : ℕ} {κ : ℕ → V} {S : IndSignature₂ V}
+    (hκ : IsInaccessibleChain n κ) (hi : i < n)
+    (hS : IsStageSignature₂ (κ i) S) (hWF : S.WF) :
+    Ind₂ S (U κ (i + 1)) ∈ U κ (i + 1) :=
+  Ind₂_mem_vsetV (hκ.inaccessible i hi) hS hWF
+
 end Operator₂
 
 end Lean4Lean.SetModel
+
 

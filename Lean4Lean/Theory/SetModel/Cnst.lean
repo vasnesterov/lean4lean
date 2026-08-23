@@ -387,6 +387,27 @@ theorem oracleOK_of
     OracleOK L κ ls o c n ci :=
   ⟨fun hw hw' hd ↦ Above.pure (hcg hw hw' hd), fun hw hl ↦ Above.pure (hty hw hl)⟩
 
+/-- **The chain-dependent form, which is what `OracleOK` already asks for.**
+
+`oracleOK_of` above takes *unconditional* obligations and wraps them with
+`Above.pure`, which is right for the `Quot` primitives — every one of them is
+built outright.  An inductive block is different: its signature's properties are
+only available above a threshold (`docs/model-interface.md` §4), so its
+obligations arrive already wrapped.
+
+Nothing has to be unwrapped to use them. `OracleOK`'s two fields *are* `Above`s,
+so this is the identity — and stating it is the point, because the shape of the
+`.induct` step turns on noticing that the consumer already accepts the weaker
+form. -/
+theorem oracleOK_above
+    (hcg : ∀ {us us' : List VLevel}, (∀ l ∈ us, l.WF nv) → (∀ l ∈ us', l.WF nv) →
+      List.Forall₂ (· ≈ ·) us us' → Above (V := V) ⟨κ, ls, c⟩ (o n us = o n us'))
+    (hty : ∀ {us : List VLevel}, (∀ l ∈ us, l.WF nv) → us.length = ci.uvars →
+      Above (V := V) ⟨κ, ls, c⟩
+        (o n us ∈ (interp ⟨κ, ls, c⟩ L [] (ci.type.instL us)).toFun ∅)) :
+    OracleOK L κ ls o c n ci :=
+  ⟨fun hw hw' hd ↦ hcg hw hw' hd, fun hw hl ↦ hty hw hl⟩
+
 /-- **A `Prop`-valued primitive.**  Its witness is `•` regardless of the level
 arguments, so `const_congr` is `rfl` and the whole obligation is that the
 proposition holds in the model.  `propext` and `Quot.sound` are both of this

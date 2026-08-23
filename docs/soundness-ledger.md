@@ -1872,6 +1872,49 @@ contain family elements without checking whether anything downstream reads `a`.
 Nothing does. **Before pricing a change by what it alters, check what actually
 consumes the thing altered** — the rank lemma's three-line proof settled it.
 
+## Stage, well-formedness, and the `OracleOK` connection
+
+All sorry-free, `[propext, Classical.choice, Quot.sound]`.
+
+**The `fld_mem` adaptation, which was the escape hatch's only real cost.**
+`IsStageSignature₂` and `IndSignature₂.WF` ask their conditions of `Fld W q`
+rather than `Fld q`, and it is enough to ask them of the approximations that can
+actually arise — the subsets of the ambient `S.Idx ×ˢ vsetV k`. Both specialise
+back at any such `W` (`IsStageSignature₂.at`, `IndSignature₂.WF.at`), so
+together with `Ind₂_eq_Ind_at` the stage results transfer by one rewrite:
+`Ind₂_mem_vsetV` and `Ind₂_mem_U_stage` are each three lines. The adaptation was
+as bounded as predicted, and it is now done.
+
+**`oracleOK_above` (`SetModel/Cnst.lean`).** `oracleOK_of` takes *unconditional*
+obligations and wraps them with `Above.pure`, which is right for the `Quot`
+primitives — every one is built outright. An inductive block's obligations
+arrive **already wrapped**, and nothing has to be unwrapped to use them:
+`OracleOK`'s two fields *are* `Above`s, so the lemma is the identity.
+
+Stating an identity is worth doing exactly when the fact it records is one
+people get wrong. §4 of `model-interface.md` priced an entire unconditional
+`interp_congr` on the assumption that the wrapped form would not do; the whole
+`.induct` step's shape turns on the consumer already accepting it. A named
+lemma makes that checkable instead of remembered.
+
+### The pattern this round is built on, named
+
+`Ind₂_eq_Ind_at` is the reason none of this cost what it was priced at, and the
+shape generalises:
+
+> **Reach for the identification theorem before the porting effort.** Do not
+> port the theory to the generalised object; prove the generalised object *is*
+> the ordinary object at a particular instantiation, and every existing theorem
+> transfers by one rewrite.
+
+Its precondition is the other half: **make the generalisation conservative in
+both directions** — an embedding one way (`IndSignature.toTwo`), a specialisation
+back (`IndSignature₂.at`), and an identity connecting them
+(`IndSignature.at_toTwo`, `rfl`). Then nothing downstream has to choose which
+notion it was written against, and the change is additive rather than a
+migration. Expect the inductive layer to force more generalisations; this is the
+shape to reuse for each.
+
 ### Caveat left standing: the all-levels quantification
 
 `quotDefEq_ok` takes `hEq`, `hcnst`, `hcnstMk` and `hcnstL` quantified over
