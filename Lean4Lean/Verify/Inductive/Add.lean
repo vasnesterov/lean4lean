@@ -114,9 +114,14 @@ Deleting a mechanism does not delete what it was maintaining. -/
 /-- The abstract counterpart of `AddInductive.Context`. -/
 structure VContext extends Context where
   venv : VEnv
+  /-- Carried because `TypeChecker.VContext` requires them, and A5 must build one. -/
+  hasPrimitives : VEnv.HasPrimitives venv
+  safePrimitives : env.find? n = some ci →
+    Environment.primitives.contains n → ci.safety = .safe ∧ ci.levelParams = []
   trenv : TrEnv safety env venv
-  vlctx : VLCtx
-  trlctx : TrLCtx venv lparams lctx vlctx
+  mlctx : TypeChecker.MLCtx
+  mlctx_wf : mlctx.WF venv lparams
+  lctx_eq : mlctx.lctx = lctx
   /-- **The relocated freshness invariant.**  The type checker keeps its `NameGenerator` in
   *state*, so freshness lives in `VState.WF`.  `AddInductive.M` keeps it in the *reader*
   (`withFreshId f c := f c.ngen.curr { c with ngen := c.ngen.next }`), so the obligation does
@@ -125,7 +130,13 @@ structure VContext extends Context where
   Stated over `vlctx.fvars` rather than `lctx.find?`: `TrLCtx` ties the two
   (`TrLCtx.find?_eq_none`), and the `VLCtx` side has the `cons` simp lemmas that make the
   push case one line. -/
-  reserves : ∀ fv ∈ vlctx.fvars, ngen.Reserves fv
+  reserves : ∀ fv ∈ mlctx.vlctx.fvars, ngen.Reserves fv
+
+@[simp] abbrev VContext.vlctx (c : VContext) := c.mlctx.vlctx
+
+/-- `TrLCtx` is *derived*, not stored — it is the content, and `MLCtx.WF` implies it. -/
+theorem VContext.trlctx (c : VContext) : TrLCtx c.venv c.lparams c.lctx c.vlctx :=
+  c.lctx_eq ▸ c.mlctx_wf.tr
 
 nonrec abbrev VContext.TrExprS (c : VContext) : Expr → VExpr → Prop :=
   TrExprS c.venv c.lparams c.vlctx
@@ -154,11 +165,12 @@ def VContext.push (c : VContext) (name : Name) (ty : Expr) (ty' : VExpr) (bi : B
   { c with
     lctx := c.lctx.mkLocalDecl ⟨c.ngen.curr⟩ name ty bi
     ngen := c.ngen.next
-    vlctx := (some (⟨c.ngen.curr⟩, ty.fvarsList), .vlam ty') :: c.vlctx
-    trlctx := c.trlctx.mkLocalDecl c.fresh htr hty
+    mlctx := .vlam ⟨c.ngen.curr⟩ name ty ty' bi c.mlctx
+    mlctx_wf := ⟨c.mlctx_wf, c.lctx_eq ▸ c.fresh, htr, hty⟩
+    lctx_eq := by rw [TypeChecker.MLCtx.lctx, c.lctx_eq]
     reserves := by
       intro fv hfv
-      rw [VLCtx.fvars_cons_some, List.mem_cons] at hfv
+      rw [TypeChecker.MLCtx.vlctx, VLCtx.fvars_cons_some, List.mem_cons] at hfv
       rcases hfv with rfl | hfv
       · exact NameGenerator.next_reserves_self
       · exact (c.reserves fv hfv).mono NameGenerator.LE.next }
@@ -182,6 +194,38 @@ theorem M.WF.withLocalDecl {c : VContext} {name : Name} {bi : BinderInfo} {ty : 
     (htr : c.TrExprS ty ty') (hty : c.IsType ty')
     (H : (k (.fvar ⟨c.ngen.curr⟩)).WF (c.push name ty ty' bi htr hty).toContext Q) :
     (withLocalDecl name bi ty k).WF c.toContext Q := H
+
+/-! ## A5: the bridge to the verified type checker
+
+`AddInductive.M` reaches `checkType`, `whnf`, `isDefEq`, `ensureSort` and `ensureType` through
+
+    instance : MonadLift TypeChecker.M M where
+      monadLift x c := x.run c.env c.safety c.lctx c.lparams (fuel := c.fuel)
+
+The lift **runs a fresh type-checker state and discards it**.  So the existing `.WF` lemmas —
+whose postconditions are `α → VState → Prop` — transfer with the state existentially dropped,
+rather than needing a state-compatible restatement.  That is what makes the bridge one lemma.
+
+**What the bridge does not launder.**  `inferType.WF` and `isDefEq.WF` close their
+`.inductInfo` cases with `TrEnv.not_inductInfo` (`InferType.lean:472`, `IsDefEq.lean:514`),
+which holds *only while* `AddInduct` has no constructors.  Both files say so in their own
+docstrings.  So the lemmas are true and their statements have content, but part of their
+current proof is vacuous **for exactly the declarations `AddInductive` adds** — the bridge is
+sound, and what it delivers is conditional on that debt being paid.  A clean `#print axioms`
+does not see this; only reading the proof does. -/
+
+/-- The type checker's abstract context, built from ours.  Everything it needs we now carry;
+`ngen` and `allowPrimitive` are ours alone and it does not use them. -/
+def VContext.toTC (c : VContext) : TypeChecker.VContext where
+  toContext :=
+    { env := c.env, safety := c.safety, lctx := c.lctx, lparams := c.lparams, fuel := c.fuel }
+  venv := c.venv
+  hasPrimitives := c.hasPrimitives
+  safePrimitives := c.safePrimitives
+  trenv := c.trenv
+  mlctx := c.mlctx
+  mlctx_wf := c.mlctx_wf
+  lctx_eq := c.lctx_eq
 
 end AddInductive
 end Lean4Lean
