@@ -715,6 +715,27 @@ def VContext.push (c : VContext) (name : Name) (ty : Expr) (ty' : VExpr) (bi : B
 @[simp] theorem VContext.push_ngen (c : VContext) {name ty ty' bi htr hty} :
     (c.push name ty ty' bi htr hty).ngen = c.ngen.next := rfl
 
+@[simp] theorem VContext.push_venv (c : VContext) {name ty ty' bi htr hty} :
+    (c.push name ty ty' bi htr hty).venv = c.venv := rfl
+
+@[simp] theorem VContext.push_lparams (c : VContext) {name ty ty' bi htr hty} :
+    (c.push name ty ty' bi htr hty).lparams = c.lparams := rfl
+
+/-- The pushed context's `VLCtx`, spelled out.  Used by the loop invariant to re-establish the
+`VLCtx.mkFVars` shape one binder at a time. -/
+@[simp] theorem VContext.push_vlctx' (c : VContext) {name ty ty' bi htr hty} :
+    (c.push name ty ty' bi htr hty).vlctx
+      = (some (⟨c.ngen.curr⟩, ty.fvarsList), .vlam ty') :: c.vlctx := rfl
+
+/-- The environment is well formed; `AddInductive.VContext`'s analogue of
+`TypeChecker.VContext.Ewf`. -/
+theorem VContext.Ewf (c : VContext) : VEnv.WF c.venv := c.trenv.wf
+
+/-- The fresh id is genuinely fresh among the abstract context's fvars — the `VLCtx`-side form
+of `VContext.fresh`, which is what maintains the loop invariant's `Nodup`. -/
+theorem VContext.curr_not_mem (c : VContext) : (⟨c.ngen.curr⟩ : FVarId) ∉ c.vlctx.fvars :=
+  fun h => c.ngen.not_reserves_self (c.reserves _ h)
+
 /-! ## A3: the binder rule
 
 `withLocalDecl` (`Lean4Lean/LocalContext.lean`) is
@@ -1196,6 +1217,25 @@ def VLCtx.mkFVars : List (FVarId × List FVarId × VExpr) → VLCtx → VLCtx
 @[simp] theorem VLCtx.mkFVars_cons {fv deps A l} {Δ : VLCtx} :
     VLCtx.mkFVars ((fv, deps, A) :: l) Δ = (some (fv, deps), .vlam A) :: VLCtx.mkFVars l Δ := rfl
 
+theorem VLCtx.mkFVars_append : ∀ (l₁ l₂ : List (FVarId × List FVarId × VExpr)) (Δ : VLCtx),
+    VLCtx.mkFVars (l₁ ++ l₂) Δ = VLCtx.mkFVars l₁ (VLCtx.mkFVars l₂ Δ)
+  | [], _, _ => rfl
+  | _ :: l₁, l₂, Δ => congrArg _ (VLCtx.mkFVars_append l₁ l₂ Δ)
+
+@[simp] theorem VLCtx.fvars_mkFVars : ∀ (l : List (FVarId × List FVarId × VExpr)) (Δ : VLCtx),
+    (VLCtx.mkFVars l Δ).fvars = l.map (·.1) ++ Δ.fvars
+  | [], _ => rfl
+  | _ :: l, Δ => congrArg _ (VLCtx.fvars_mkFVars l Δ)
+
+/-- **The fvar context *is* the spec's `Γ`.**  `VIndCtor.WF`'s clauses are all stated over
+`(telescope.map (·.type)).reverse ++ D.params.reverse`; this says the abstract context of the
+checker's fvar walk is that list, so no transport is needed between the two — which is the
+whole point of R1/R2. -/
+@[simp] theorem VLCtx.toCtx_mkFVars : ∀ (l : List (FVarId × List FVarId × VExpr)) (Δ : VLCtx),
+    (VLCtx.mkFVars l Δ).toCtx = l.map (·.2.2) ++ Δ.toCtx
+  | [], _ => rfl
+  | _ :: l, Δ => congrArg _ (VLCtx.toCtx_mkFVars l Δ)
+
 /-- The checker's binder walk only ever pushes `vlam`s, which is what discharges the `hctx`
 hypothesis of `TrExprS.noConsts` — see the note there. -/
 theorem VLCtx.allVLam_mkFVars {Δ : VLCtx} (h : Δ.AllVLam) :
@@ -1310,6 +1350,17 @@ theorem VIndCtor.canonResult_ne_forallE (C : VIndCtor) (D : VInductDecl') (j : N
     ∀ A B, C.canonResult D j ≠ .forallE A B :=
   VExpr.mkApp_ne_forallE (by rintro _ _ ⟨⟩)
 
+/-- Inverting the `VExpr` telescope at a `forallE`: the checker seeing a `.forallE` forces the
+remaining telescope to be non-empty, because a constructor's result is an application.  This is
+what makes "the loop ran exactly `np + nf` times" a *consequence* of success. -/
+theorem VExpr.mkPi_eq_forallE {Bs : List VExpr} {R A B : VExpr}
+    (hR : ∀ A B, R ≠ .forallE A B) (h : VExpr.mkPi Bs R = .forallE A B) :
+    ∃ Bs', Bs = A :: Bs' ∧ B = VExpr.mkPi Bs' R := by
+  cases Bs with
+  | nil => exact absurd h (hR _ _)
+  | cons B₀ Bs' => cases h; exact ⟨Bs', rfl, rfl⟩
+
+
 /-! ## R2, assembled: `type.getAppArgs ↦ C.args`
 
 The second half of the dictionary.  `isLargeEliminator` finishes with
@@ -1368,23 +1419,358 @@ is `VInductDecl'.LECond`'s right disjunct verbatim.
 constructor's canonical result. -/
 theorem VIndCtor.mem_args_of_mem_getAppArgs {env : VEnv} {Us : List Name} {Δ : VLCtx}
     {D : VInductDecl'} {C : VIndCtor} {j : Nat} {type : Lean.Expr}
-    {l : List (FVarId × List FVarId × VExpr)} {k fv deps A} {Δ₀ : VLCtx}
+    {l : List (FVarId × List FVarId × VExpr)} {np k fv deps A} {Δ₀ : VLCtx}
     (hΔ : Δ = VLCtx.mkFVars l.reverse Δ₀)
-    (hnd : (l.map (·.1)).Nodup) (hk : l[k]? = some (fv, deps, A))
-    (hlen : l.length = C.fields.length)
+    (hnd : (l.map (·.1)).Nodup) (hk : l[np + k]? = some (fv, deps, A))
+    (hlen : l.length = np + C.fields.length)
     (hres : TrExprS env Us Δ type (C.canonResult D j))
     (hmem : Lean.Expr.fvar fv ∈ type.getAppArgsRevList) :
     VExpr.bvar (C.fields.length - 1 - k) ∈ C.args := by
   subst hΔ
-  obtain ⟨B, hfind⟩ := VLCtx.find?_mkFVars_rev (Δ := Δ₀) hnd hk
-  obtain ⟨a', ha', hmem'⟩ := hres.mem_spineArgs _ hmem
-  rw [ha'.fvar_det hfind, hlen] at hmem'
-  rw [VIndCtor.canonResult, VInductDecl'.tyApp, VExpr.spineArgs_mkApp, VExpr.spineArgs_const,
-    List.nil_append, List.mem_append] at hmem'
-  refine hmem'.resolve_left (VExpr.not_mem_bvars_of_lt ?_)
-  have hlt : k < l.length := by
+  have hlt : np + k < l.length := by
     by_contra hc
     rw [List.getElem?_eq_none (Nat.le_of_not_lt hc)] at hk; exact absurd hk nofun
-  omega
+  obtain ⟨B, hfind⟩ := VLCtx.find?_mkFVars_rev (Δ := Δ₀) hnd hk
+  obtain ⟨a', ha', hmem'⟩ := hres.mem_spineArgs _ hmem
+  rw [ha'.fvar_det hfind, show l.length - 1 - (np + k) = C.fields.length - 1 - k by omega]
+    at hmem'
+  rw [VIndCtor.canonResult, VInductDecl'.tyApp, VExpr.spineArgs_mkApp, VExpr.spineArgs_const,
+    List.nil_append, List.mem_append] at hmem'
+  exact hmem'.resolve_left (VExpr.not_mem_bvars_of_lt (by omega))
 
+namespace AddInductive
+open Kernel
+
+/-! ## The loop invariant of `isLargeEliminator.loop`
+
+R7 and R8's scan branch share one gate, and this is it: **a successful run of
+`isLargeEliminator.loop` walked exactly the constructor's telescope.**  The dictionary above
+supplies the two halves of the correspondence; this is the induction that installs it.
+
+The loop is unusual among the checker's walks in that it binds *every* binder with
+`withLocalDecl`, parameters included — `checkConstructors.loop` substitutes `stats.params[i]!`
+instead — so after `m` steps the context is exactly `VLCtx.mkFVars` of the first `m` entries of
+`C.params ++ C.fields.map (·.type)`, and `VLCtx.toCtx_mkFVars` makes that *syntactically* the
+spec's `Γ`.
+
+### The one obligation this cannot discharge: `consumeTypeAnnotations`
+
+`withLocalDecl name bi dom.consumeTypeAnnotations` pushes the **annotation-stripped** domain,
+while `ensureType dom` and the target telescope use the raw one.  `Expr.consumeTypeAnnotations`
+removes `optParam`/`autoParam`/`outParam`/`semiOutParam` applications, and `optParam α d` is
+only *definitionally* `α` — `TrExprS` is syntactic, so the two translate to different `VExpr`s.
+
+That matters here and not merely cosmetically: `TrExprS.inst_fvar` requires the pushed
+`VLocalDecl` to be the very `.vlam B` the target's `forallE` supplies, so the pushed type's
+translation **must** be `B`.  It is therefore taken as the hypothesis `hcta` rather than
+absorbed, and `hcta` is **not** universally true — a constructor binder of type
+`optParam Nat 0` refutes it.
+
+The principled discharge is not to strengthen `hcta` but to weaken what the invariant claims:
+carry `VEnv.IsDefEqCtx` between the fvar walk's context and the spec's `Γ`, exactly as
+`VIndCtor.WF.params_eq` already does for the parameter telescope, where the spec absorbs the
+identical slack.  That is a `Theory/`-side shape question, so it is reported rather than made. -/
+
+/-- The number of leading `forallE` binders — the *syntactic* pi-arity.  `TrExprS` does not
+determine it (`.mdata`/`.letE` translate through), so the loop invariant tracks it. -/
+def _root_.Lean.Expr.piArity : Expr → Nat
+  | .forallE _ _ b _ => b.piArity + 1
+  | _ => 0
+
+/-- Instantiating an **fvar** preserves the head constructor, hence the pi-arity.  The
+restriction to fvars is not cosmetic: substituting a *pi* for a bound variable raises the
+arity, so the general statement is false.  The loop only ever substitutes `withLocalDecl`'s
+fvar. -/
+theorem _root_.Lean.Expr.piArity_instantiate1'_fvar :
+    ∀ (e : Expr) (v : FVarId) (k : Nat),
+      (Lean.Expr.instantiate1' e (.fvar v) k).piArity = e.piArity
+  | .forallE _ _ b _, v, k => by
+    rw [Lean.Expr.instantiate1', Lean.Expr.piArity, Lean.Expr.piArity,
+      Lean.Expr.piArity_instantiate1'_fvar b v (k+1)]
+  | .bvar _, _, _ => by
+    rw [Lean.Expr.instantiate1']
+    split
+    · rfl
+    · split
+      · rw [Lean.Expr.liftLooseBVars']; rfl
+      · rfl
+  | .fvar _, _, _ | .mvar _, _, _ | .sort _, _, _ | .const _ _, _, _
+  | .app _ _, _, _ | .lam .., _, _ | .letE .., _, _ | .lit _, _, _
+  | .mdata _ _, _, _ | .proj _ _ _, _, _ => by
+    rw [Lean.Expr.instantiate1'] <;> rfl
+
+/-- The `.fvar` companion of `Lean.Expr.eqv_sort`/`eqv_const` (`Verify/Expr.lean`), which is
+what turns `Array.contains` back into membership at the loop's final check. -/
+theorem _root_.Lean.Expr.eqv_fvar {e : Expr} {v : FVarId} :
+    (e == Lean.Expr.fvar v) = true ↔ e = Lean.Expr.fvar v := by
+  conv => lhs; simp [(· == ·)]
+  cases e <;> simp [Lean.Expr.eqv']
+
+/-- The state of `isLargeEliminator.loop`, refined.  `l` is the telescope walked so far in
+declaration order, `Bs` the telescope still to come. -/
+structure ElimLoopInv (c₀ : VContext) (D : VInductDecl') (C : VIndCtor) (j np : Nat)
+    (Small : Nat → Prop) (c : VContext)
+    (l : List (FVarId × List FVarId × VExpr)) (Bs : List VExpr)
+    (type : Expr) (toCheck : Array Expr) : Prop where
+  /-- The environment and level parameters do not move; only the local context grows. -/
+  venv : c.venv = c₀.venv
+  lparams : c.lparams = c₀.lparams
+  /-- **R1/R2's dictionary, as a loop invariant.** -/
+  vlctx : c.vlctx = VLCtx.mkFVars l.reverse c₀.vlctx
+  nodup : (l.map (·.1)).Nodup
+  /-- Walked plus remaining is the constructor's whole telescope. -/
+  tele : l.map (·.2.2) ++ Bs = C.params ++ C.fields.map (·.type)
+  /-- The `Expr` the loop holds translates to the `VExpr` telescope still to come. -/
+  tr : c.TrExprS type (VExpr.mkPi Bs (C.canonResult D j))
+  /-- **The loop cannot stop early.**  Not derivable from `tr`: a `.mdata`- or `.letE`-wrapped
+  domain translates to a `forallE` *target* without being a `forallE` itself, so the syntactic
+  spine has to be tracked separately.  `Expr.piArity` is preserved by `instantiate1`, which is
+  what makes this maintainable in one line.  The caller has the fact for free —
+  `checkConstructors` has already run and `isValidIndAppIdx` rejects any constructor whose
+  stored spine is not a literal `forallE` chain. -/
+  spine : Bs.length ≤ type.piArity
+  /-- Every field already walked is either recorded small or queued in `toCheck`. -/
+  done : ∀ k x, np ≤ k → l[k]? = some x → Small (k - np) ∨ Lean.Expr.fvar x.1 ∈ toCheck
+
+/-- Inverting `TrExprS` at a source `forallE`: the target is a `forallE` too.  Only
+`TrExprS.forallE` can derive it, which is what pins the telescope. -/
+theorem _root_.Lean4Lean.TrExprS.forallE_target {env : VEnv} {Us : List Name} {Δ : VLCtx}
+    {n : Name} {d b : Expr} {bi : BinderInfo} {X : VExpr}
+    (H : TrExprS env Us Δ (.forallE n d b bi) X) : ∃ A B, X = .forallE A B := by
+  cases H; exact ⟨_, _, rfl⟩
+
+/-- The walked prefix reaches the field telescope: at position `l.length ≥ np` the next entry
+of `C.params ++ C.fields.map (·.type)` is field `l.length - np`'s stored type.  Pure list
+arithmetic, but it is what turns "the loop is at binder `i`" into "the loop is at field
+`i - np`". -/
+theorem ElimLoopInv.field_at {C : VIndCtor} {np : Nat}
+    {l : List (FVarId × List FVarId × VExpr)} {A : VExpr} {Bs : List VExpr}
+    (htele : l.map (·.2.2) ++ (A :: Bs) = C.params ++ C.fields.map (·.type))
+    (hnp : np = C.params.length) (hge : np ≤ l.length) :
+    ∃ F, C.fields[l.length - np]? = some F ∧ F.type = A := by
+  subst hnp
+  have hlen : (l.map (·.2.2)).length = l.length := List.length_map ..
+  have h1 : (l.map (·.2.2) ++ (A :: Bs))[l.length]? = some A := by
+    rw [List.getElem?_append_right (by omega), hlen]; simp
+  rw [htele, List.getElem?_append_right (by omega), List.getElem?_map] at h1
+  cases hF : C.fields[l.length - C.params.length]? with
+  | none => rw [hF] at h1; exact absurd h1 nofun
+  | some F => rw [hF] at h1; exact ⟨F, rfl, Option.some.inj h1⟩
+
+/-- **The entry condition, from `TrIndCtor`.**  A relation with no instance proves nothing, so
+the invariant is exhibited at the state the loop actually starts in: nothing walked, the whole
+telescope ahead, an empty `toCheck`.  `tr` is `rfl` here — `VIndCtor.type` *is*
+`mkPi (params ++ fields) canonResult`, which is why the loop's target never has to be guessed.
+
+`spine` is the one field the caller must supply, and it is exactly the fact
+`checkConstructors` has already established; see the `spine` field's own docstring. -/
+theorem ElimLoopInv.start {c₀ : VContext} {D : VInductDecl'} {C : VIndCtor} {j : Nat}
+    {stats : InductiveStats} {Small : Nat → Prop} {ctorType : Expr}
+    (htr : c₀.TrExprS ctorType (C.type D j))
+    (hspine : (C.params ++ C.fields.map (·.type)).length ≤ ctorType.piArity) :
+    ElimLoopInv c₀ D C j stats.params.size Small c₀ []
+      (C.params ++ C.fields.map (·.type)) ctorType #[] where
+  venv := rfl
+  lparams := rfl
+  vlctx := rfl
+  nodup := by simp
+  tele := by simp
+  tr := htr
+  spine := hspine
+  done := by intro k x _ h; exact absurd h nofun
+
+/-- **The terminal case**, and the payoff of the whole R1/R2 section: when the loop stops, its
+`spine` field forces the remaining telescope to be empty, so `tr` says the `Expr` it stopped at
+translates to `C.canonResult D j` — and `VIndCtor.mem_args_of_mem_getAppArgs` turns
+`toCheck.all type.getAppArgs.contains` into `LECond`'s right disjunct. -/
+theorem ElimLoopInv.terminal {c₀ : VContext} {D : VInductDecl'} {C : VIndCtor} {j : Nat}
+    {stats : InductiveStats} {Small : Nat → Prop} {c : VContext}
+    {l : List (FVarId × List FVarId × VExpr)} {Bs : List VExpr} {type : Expr}
+    {toCheck : Array Expr}
+    (inv : ElimLoopInv c₀ D C j stats.params.size Small c l Bs type toCheck)
+    (hnp : stats.params.size = C.params.length) (hz : type.piArity = 0) :
+    M.WF c.toContext (Pure.pure (toCheck.all type.getAppArgs.contains) : M Bool)
+      (fun b => b = true → ∀ k F, C.fields[k]? = some F →
+        Small k ∨ VExpr.bvar (C.fields.length - 1 - k) ∈ C.args) := by
+  have hBs : Bs = [] := List.eq_nil_of_length_eq_zero (Nat.le_zero.1 (hz ▸ inv.spine))
+  subst hBs
+  have htele := inv.tele
+  rw [List.append_nil] at htele
+  have hlen : l.length = stats.params.size + C.fields.length := by
+    have := congrArg List.length htele
+    simp only [List.length_map, List.length_append] at this
+    omega
+  refine M.WF.pure ?_
+  intro hb k F hF
+  have hklt : k < C.fields.length := by
+    by_contra hc
+    rw [List.getElem?_eq_none (Nat.le_of_not_lt hc)] at hF; exact absurd hF nofun
+  have hlt : stats.params.size + k < l.length := by omega
+  obtain ⟨x, hx⟩ : ∃ x, l[stats.params.size + k]? = some x :=
+    ⟨_, List.getElem?_eq_getElem hlt⟩
+  rcases inv.done _ x (Nat.le_add_right ..) hx with hs | hmem
+  · exact .inl (by simpa using hs)
+  refine .inr ?_
+  have hcontains : type.getAppArgs.contains (Lean.Expr.fvar x.1) = true := by
+    rw [Array.all_eq_true] at hb
+    obtain ⟨i, hi, hgi⟩ := Array.getElem_of_mem hmem
+    exact hgi ▸ hb i hi
+  have hall : (Lean.Expr.fvar x.1) ∈ type.getAppArgsRevList := by
+    rw [Array.contains_iff_exists_mem_beq] at hcontains
+    obtain ⟨y, hy, hyeq⟩ := hcontains
+    rw [Lean.Expr.getAppArgs_eq_rev] at hy
+    have hy' : y ∈ type.getAppArgsRevList := by simpa using hy
+    rw [← Lean.Expr.eqv_fvar.1 (Lean.Expr.eqv_euc hyeq (Lean.Expr.eqv_refl _))]
+    exact hy'
+  exact VIndCtor.mem_args_of_mem_getAppArgs inv.vlctx inv.nodup (np := stats.params.size) hx
+    hlen (by simpa using inv.tr) hall
+
+/-- **The loop invariant.**  A successful `isLargeEliminator.loop` walked exactly the
+constructor's telescope, and every field it did not record as small has its de Bruijn variable
+in `C.args` — which is `VInductDecl'.LECond`'s per-field disjunction verbatim, so
+`VInductDecl'.LECond.of_scan` fires on it.
+
+Two hypotheses, both real and both stated rather than absorbed:
+
+* `hcta` is the `consumeTypeAnnotations` obligation of the section note.  It is **false in
+  general** (`optParam Nat 0`), and the principled discharge is an `IsDefEqCtx` on the
+  context rather than a strengthening here.
+* `hSmall` is the level side, handed the *pre-push* translation and asked about the
+  *post-push* run, because `ensureType dom` executes inside `withLocalDecl`.  The weakening
+  between the two is the caller's, which is where the choice of `VIndField.lvl` lives anyway. -/
+theorem M.WF.elim_loop {c₀ : VContext} {D : VInductDecl'} {C : VIndCtor} {j : Nat}
+    {stats : InductiveStats} {Small : Nat → Prop}
+    (hnp : stats.params.size = C.params.length)
+    (hcta : ∀ (c : VContext) (dom : Expr) (B : VExpr),
+      c.TrExprS dom B → c.TrExprS dom.consumeTypeAnnotations B)
+    (hSmall : ∀ (c c' : VContext) (l : List (FVarId × List FVarId × VExpr))
+        (x : FVarId × List FVarId × VExpr) (dom : Expr) (k : Nat) (F : VIndField),
+      c.vlctx = VLCtx.mkFVars l.reverse c₀.vlctx →
+      c'.vlctx = VLCtx.mkFVars (l ++ [x]).reverse c₀.vlctx →
+      l.length = stats.params.size + k →
+      C.fields[k]? = some F →
+      c.TrExprS dom F.type →
+      M.WF c'.toContext (liftM (TypeChecker.ensureType dom))
+        (fun s => s.sortLevel!.isAlwaysZero → Small k)) :
+    ∀ (fuel : Nat) (c : VContext) (l : List (FVarId × List FVarId × VExpr)) (Bs : List VExpr)
+      (type : Expr) (toCheck : Array Expr),
+      ElimLoopInv c₀ D C j stats.params.size Small c l Bs type toCheck →
+      M.WF c.toContext (isLargeEliminator.loop stats type l.length toCheck fuel)
+        (fun b => b = true → ∀ k F, C.fields[k]? = some F →
+          Small k ∨ VExpr.bvar (C.fields.length - 1 - k) ∈ C.args) := by
+  intro fuel
+  induction fuel with
+  | zero =>
+    intro c l Bs type toCheck _
+    rw [isLargeEliminator.loop]
+    exact M.WF.throw
+  | succ fuel ih =>
+    intro c l Bs type toCheck inv
+    cases type with
+    | forallE name dom body bi =>
+      rw [isLargeEliminator.loop]
+      -- The target must be a `forallE` too, so the remaining telescope is non-empty.
+      obtain ⟨A, B, hAB⟩ := inv.tr.forallE_target
+      obtain ⟨Bs', rfl, rfl⟩ := VExpr.mkPi_eq_forallE (C.canonResult_ne_forallE D j) hAB
+      -- Invert once: the domain's translation is the telescope head, and the body's is the tail.
+      obtain ⟨hty, -, hdom, hbody⟩ :
+          c.IsType A ∧ True ∧ c.TrExprS dom A ∧
+            TrExprS c.venv c.lparams ((none, .vlam A) :: c.vlctx) body
+              (VExpr.mkPi Bs' (C.canonResult D j)) := by
+        cases h : inv.tr with | forallE h1 _ h3 h4 => exact ⟨h1, trivial, h3, h4⟩
+      refine M.WF.withLocalDecl (hcta c dom A hdom) hty ?_
+      let fv : FVarId := ⟨c.ngen.curr⟩
+      let x : FVarId × List FVarId × VExpr := (fv, (dom.consumeTypeAnnotations).fvarsList, A)
+      let c' : VContext := c.push name dom.consumeTypeAnnotations A bi (hcta c dom A hdom) hty
+      show M.WF c'.toContext _ _
+      -- The four invariant fields that do not depend on which branch is taken.
+      have hvl : c'.vlctx = VLCtx.mkFVars (l ++ [x]).reverse c₀.vlctx := by
+        show ((some (fv, _), VLocalDecl.vlam A) :: c.vlctx) = _
+        rw [inv.vlctx, List.reverse_append]
+        rfl
+      have hnodup : ((l ++ [x]).map (·.1)).Nodup := by
+        rw [List.map_append, List.nodup_append]
+        refine ⟨inv.nodup, by simp, ?_⟩
+        intro a ha b hb hab
+        have hb' : b = fv := by simpa using hb
+        subst hb'; subst hab
+        refine c.curr_not_mem ?_
+        rw [inv.vlctx]
+        simp only [VLCtx.fvars_mkFVars, List.mem_append, List.map_reverse, List.mem_reverse]
+        exact .inl ha
+      have htele : (l ++ [x]).map (·.2.2) ++ Bs' = C.params ++ C.fields.map (·.type) := by
+        rw [List.map_append]; simpa using inv.tele
+      have htr : c'.TrExprS (body.instantiate1 (.fvar fv)) (VExpr.mkPi Bs' (C.canonResult D j)) := by
+        rw [Lean.Expr.instantiate1_eq]
+        exact hbody.inst_fvar c.Ewf.ordered c'.mlctx_wf.tr.wf
+      have hspine : Bs'.length ≤ (body.instantiate1 (.fvar fv)).piArity := by
+        rw [Lean.Expr.instantiate1_eq, Lean.Expr.piArity_instantiate1'_fvar]
+        have := inv.spine
+        simp only [Lean.Expr.piArity, List.length_cons] at this
+        omega
+      have hlen' : (l ++ [x]).length = l.length + 1 := by simp
+      -- The `done` field, given the branch's `toCheck`.
+      have hdone : ∀ (tc : Array Expr), (∀ e, e ∈ toCheck → e ∈ tc) →
+          (stats.params.size ≤ l.length →
+            Small (l.length - stats.params.size) ∨ Lean.Expr.fvar fv ∈ tc) →
+          ∀ k y, stats.params.size ≤ k → (l ++ [x])[k]? = some y →
+            Small (k - stats.params.size) ∨ Lean.Expr.fvar y.1 ∈ tc := by
+        intro tc hsub hnew k y hk hy
+        by_cases hlt : k < l.length
+        · rw [List.getElem?_append_left hlt] at hy
+          exact (inv.done k y hk hy).imp id (fun h => hsub _ h)
+        · have hkeq : k = l.length := by
+            have : k < (l ++ [x]).length := by
+              by_contra hc
+              rw [List.getElem?_eq_none (Nat.le_of_not_lt hc)] at hy; exact absurd hy nofun
+            rw [hlen'] at this; omega
+          subst hkeq
+          have : y = x := by
+            rw [List.getElem?_append_right (Nat.le_refl _)] at hy; simpa using hy.symm
+          subst this
+          exact hnew hk
+      by_cases hge : l.length ≥ stats.params.size
+      · -- Past the parameters: `ensureType` decides whether the field is queued.
+        simp only [hge, if_true]
+        obtain ⟨F, hF, rfl⟩ := ElimLoopInv.field_at inv.tele hnp hge
+        refine (hSmall c c' l x dom (l.length - stats.params.size) F inv.vlctx hvl
+          (by omega) hF hdom).bind fun s hs => ?_
+        by_cases hz : (!s.sortLevel!.isAlwaysZero) = true
+        · simp only [hz, if_true]
+          refine hlen' ▸ ih c' (l ++ [x]) Bs' _ _ ?_
+          exact { venv := inv.venv, lparams := inv.lparams, vlctx := hvl, nodup := hnodup, tele := htele
+                  tr := htr, spine := hspine
+                  done := hdone _ (fun _ h => Array.mem_push_of_mem _ h)
+                    fun _ => .inr (Array.mem_push_self ..) }
+        · simp only [hz, Bool.false_eq_true, if_false]
+          simp only [Bool.not_eq_true', Bool.not_eq_false] at hz
+          refine hlen' ▸ ih c' (l ++ [x]) Bs' _ _ ?_
+          exact { venv := inv.venv, lparams := inv.lparams, vlctx := hvl, nodup := hnodup, tele := htele
+                  tr := htr, spine := hspine
+                  done := hdone _ (fun _ h => h) fun _ => .inl (hs hz) }
+      · -- Still in the parameters: nothing queued, and no field index is in range.
+        simp only [hge, if_false]
+        refine hlen' ▸ ih c' (l ++ [x]) Bs' _ _ ?_
+        exact { venv := inv.venv, lparams := inv.lparams, vlctx := hvl, nodup := hnodup, tele := htele
+                tr := htr, spine := hspine
+                done := hdone _ (fun _ h => h) fun h => absurd h hge }
+    | _ =>
+      rw [isLargeEliminator.loop]
+      · exact inv.terminal hnp rfl
+      · intro _ _ _ _ h; exact absurd h (by simp)
+
+/-- **The gate closes.**  `M.WF.elim_loop`'s postcondition is `VInductDecl'.LECond.of_scan`'s
+hypothesis modulo the `Small` predicate, so choosing `Small k := (C.fields.getD k default).lvl ≈
+VLevel.zero` makes `of_scan` fire on a successful run directly.  Kept live so that the two ends
+of R8's scan branch cannot drift apart. -/
+theorem VInductDecl'.LECond.of_elimLoop {D : VInductDecl'} {T : VIndType} {C : VIndCtor}
+    {Small : Nat → Prop} (hT : D.types = [T]) (hC : T.ctors = [C])
+    (hlvl : ∀ k F, C.fields[k]? = some F → Small k → F.lvl ≈ VLevel.zero)
+    (h : ∀ k F, C.fields[k]? = some F →
+      Small k ∨ VExpr.bvar (C.fields.length - 1 - k) ∈ C.args) :
+    D.LECond :=
+  VInductDecl'.LECond.of_scan hT hC fun k F hF =>
+    (h k F hF).imp (hlvl k F hF) id
+
+end AddInductive
 end Lean4Lean

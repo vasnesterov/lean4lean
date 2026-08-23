@@ -4,6 +4,24 @@ import Lean4Lean.Environment
 Executable regressions for the kernel hardening merged between Lean v4.32.2 and
 v4.33.0-rc2.  The declarations are assembled manually so they exercise
 `Lean4Lean.addDecl` and `Lean4Lean.TypeChecker` directly.
+
+## Reaching the C++ kernel: use `addDeclCore`, never `Lean.addDecl`
+
+The *differential* probes at the bottom of this file compare the two kernels' verdicts, and
+the C++ side must be reached through `Lean.Kernel.Environment.addDeclCore`
+(`@[extern "lean_add_decl"]`), which type-checks synchronously and returns
+`Except Kernel.Exception _`.
+
+**`Lean.addDecl` is not usable for this and will give a silently wrong answer.**  Declaration
+checking is asynchronous: `Lean.addDecl` returns before the kernel has run, so a harness that
+adds a declaration, catches nothing, and restores the environment reports ACCEPT for a
+declaration the kernel in fact rejects.  This was hit while writing the positivity probes
+below — the first version reported that Lean accepted a projection out of a zero-field
+structure — and it was caught only because lean4lean disagreed and the disagreement was
+chased instead of the conclusion.  It is the project's recurring failure mode in a new
+costume: *absence of an error is not acceptance*.
+
+Anything asserting "the C++ kernel accepts/rejects X" belongs on `addDeclCore`.
 -/
 
 namespace Lean4Lean.Tests.KernelHardening
@@ -200,5 +218,146 @@ run_meta do
       (x := TypeChecker.checkType (deepNat 100)) with
   | .error e => throwError "deep term with sufficient recursion fuel failed: {← (e.toMessageData {}).toString}"
   | .ok ty => unless ty.isConstOf ``Nat do throwError "deep term inferred an unexpected type"
+
+/-! ## The positivity scope invariant, probed differentially
+
+`checkPositivity` rejects on `hasIndOcc`, a purely *syntactic* scan of a constructor field's
+type.  The abstract counterpart `VIndField.WF.pos` is about the field's *translation*, and
+`TrProj` translates `.proj S i e` by splicing in the parameter and index arguments read off
+the **type of `e`** — arguments that appear nowhere in `.proj S i e` itself.  So the question
+is whether a block constant can ride into those spliced arguments while `hasIndOcc` returns
+`false`.  In a strict-positivity check, an occurrence the check cannot see is the shape of a
+real defect, which is why this is a permanent regression rather than a one-off experiment.
+
+**It cannot**, and the reason is an invariant load-bearing in both kernels and stated in
+neither (`Lean4Lean/Verify/Inductive/Add.lean`, "The positivity scope invariant"):
+
+> At the point `checkConstructors` checks field `i`, every free variable in scope has a type
+> that is either definitionally free of the block's constants, or of the form `∀ ξ, I_j p args`.
+
+`checkPositivity`'s two `throw`s maintain it, and the second alternative is a **pi**, which is
+never the type of a projectable term.  Two facts finish it: **block-name freshness** (no
+existing constant mentions a block name, so δ-unfolding cannot *introduce* one — every block
+constant in `whnf t` came from `t`), and **`whnf` is head-only** (an occurrence either survives
+into an argument of the head-normal form, where `hasIndOcc` sees it, or is erased and is then
+absent from the spliced arguments too).
+
+`Kpos1` versus `Kpos4` is the pair that makes it convincing, and it is why an accepting
+control is not enough: a β-redex hiding the occurrence *inside* an index is **rejected**, one
+erasing the whole field type is **accepted**, and the difference is exactly whether the
+occurrence survives head-normalisation.
+
+Two structural facts the probes depend on, both easy to get wrong:
+
+* `Expr.proj` out of a **one-constructor type with indices** is legal in both kernels —
+  `infer_proj` checks `args.size = nparams + nindices` and never demands `nindices = 0`
+  (`~/lean4/src/kernel/type_checker.cpp:263`).  So `TrProj`'s index arguments are not vacuous,
+  and `KPosBox` below has to be declared by hand with `nparams := 0`, because the `inductive`
+  command would promote its index to a parameter.
+* `ElimNestedInductive.isNestedInductiveApp?` scans only `[0:numParams]`.  An occurrence in a
+  structure *parameter* is therefore consumed by nested-inductive elimination before
+  positivity ever sees it (`Ppos1`/`Ppos2`), so only an occurrence in an **index** reaches the
+  plain positivity check.  The parameter route and the index route must be probed separately. -/
+
+private structure KPosBox₀ (α : Type) : Type where
+  val : α
+
+/-- `KPosBox : Type → Type 1`, `mk : (a : Type) → KPosBox a`, with **`nparams = 0`** so `a` is
+an *index*.  One constructor, one field, hence projectable. -/
+private def kposBoxDecl : Declaration :=
+  let ctor : Constructor :=
+    { name := `KPosBox.mk
+      type := .forallE `a (.sort 1) (.app (.const `KPosBox []) (.bvar 0)) .default }
+  let ty : Expr := .forallE `_ (.sort 1) (.sort 2) .default
+  let it : InductiveType := { name := `KPosBox, type := ty, ctors := [ctor] }
+  .inductDecl [] 0 [it] false
+
+/-- Run one declaration through **both** kernels and require them to agree, and to agree with
+`expect`.  See the module docstring for why the C++ side is `addDeclCore`. -/
+private def bothKernels (label : String) (env : Kernel.Environment) (expect : Bool)
+    (d : Declaration) : MetaM Unit := do
+  let l4l := (Lean4Lean.addDecl env d).toOption.isSome
+  let cpp := (Lean.Kernel.Environment.addDeclCore env 0 512 d none).toOption.isSome
+  let say := fun b => if b then "accepted" else "rejected"
+  unless l4l == cpp do
+    throwError "{label}: the kernels disagree — lean4lean {say l4l}, C++ {say cpp}"
+  unless l4l == expect do
+    throwError "{label}: both kernels {say l4l} it; expected {say expect}"
+
+private def posArrow (a b : Expr) : Expr := .forallE `_ a b .default
+private def kboxE (a : Expr) : Expr := .app (.const `KPosBox []) a
+private def pboxE (a : Expr) : Expr := .app (.const ``KPosBox₀ []) a
+
+/-- A `Prop`-valued block, so the impredicative F6 level check admits fields of any universe
+and the probes are not derailed by universe arithmetic. -/
+private def mkPosProp (n : Name) (ctorTy : Expr) : Declaration :=
+  let ctor : Constructor := { name := n ++ `mk, type := ctorTy }
+  .inductDecl [] 0 [{ name := n, type := .sort .zero, ctors := [ctor] }] false
+
+private def mkPosTy (n : Name) (ctorTy : Expr) : Declaration :=
+  let ctor : Constructor := { name := n ++ `mk, type := ctorTy }
+  .inductDecl [] 0 [{ name := n, type := .sort 1, ctors := [ctor] }] false
+
+run_meta do
+  let env0 := (← getEnv).toKernelEnv
+  let C : Name → Expr := fun n => .const n []
+  let falseE : Expr := .const ``False []
+  let natE : Expr := .const ``Nat []
+  -- The indexed carrier itself must be declarable, and by both kernels.
+  bothKernels "indexed one-constructor carrier" env0 true kposBoxDecl
+  let env ← runM <| Lean4Lean.addDecl env0 kposBoxDecl
+
+  -- === parameter route: nested-inductive elimination takes it before positivity ===
+  bothKernels "Ppos1 mk : Box (P -> False) -> P" env false <|
+    mkPosTy `L4LPpos1 (posArrow (pboxE (posArrow (C `L4LPpos1) falseE)) (C `L4LPpos1))
+  bothKernels "Ppos2 mk : (b : Box (P -> False)) -> b.val -> P" env false <|
+    mkPosTy `L4LPpos2 (.forallE `b (pboxE (posArrow (C `L4LPpos2) falseE))
+      (posArrow (.proj ``KPosBox₀ 0 (.bvar 0)) (C `L4LPpos2)) .default)
+
+  -- === index route: nesting cannot fire, so this is the probe that matters ===
+  -- CONTROL: a projection out of an indexed one-constructor type is legal.
+  bothKernels "Kpos0 mk : (b : KPosBox Nat) -> b.0 -> K   [control]" env true <|
+    mkPosProp `L4LKpos0 (.forallE `b (kboxE natE)
+      (posArrow (.proj `KPosBox 0 (.bvar 0)) (C `L4LKpos0)) .default)
+  -- TARGET: the block occurs only in the *index* of `b`'s type.  The field type
+  -- `.proj KPosBox 0 b` contains no block constant at all, yet the declaration is rejected —
+  -- at the earlier field `b`, by `checkPositivity`'s `isValidIndApp?` branch.
+  bothKernels "Kpos1 mk : (b : KPosBox (K -> Nat)) -> b.0 -> K   [target]" env false <|
+    mkPosProp `L4LKpos1 (.forallE `b (kboxE (posArrow (C `L4LKpos1) natE))
+      (posArrow (.proj `KPosBox 0 (.bvar 0)) (C `L4LKpos1)) .default)
+  -- A beta redex hiding the occurrence *inside* the index does not help: `whnf` is head-only,
+  -- so `KPosBox ((fun _ => Nat) K)` is already in weak-head normal form.
+  bothKernels "Kpos3 redex inside the index" env false <|
+    mkPosProp `L4LKpos3 (.forallE `b
+      (kboxE (.app (.lam `x (.sort .zero) natE .default) (C `L4LKpos3)))
+      (posArrow (.proj `KPosBox 0 (.bvar 0)) (C `L4LKpos3)) .default)
+  -- ... whereas a redex over the *whole* field type is ACCEPTED, because the occurrence is
+  -- erased outright: the index is then `Nat`, so nothing reaches the spliced arguments either.
+  -- This is the other half of the dichotomy; without it the block above proves only that the
+  -- checker is conservative.
+  bothKernels "Kpos4 redex over the whole field type   [accepted: occurrence erased]" env true <|
+    mkPosProp `L4LKpos4 (.forallE `b
+      (.app (.lam `x (.sort .zero) (kboxE natE) .default) (C `L4LKpos4))
+      (posArrow (.proj `KPosBox 0 (.bvar 0)) (C `L4LKpos4)) .default)
+  -- The subject need not be a variable: an application of an earlier field is rejected at
+  -- that field, since its type is a pi whose codomain mentions the block.
+  bothKernels "Kpos5 subject is `f 0` for f : Nat -> KPosBox (K -> Nat)" env false <|
+    mkPosProp `L4LKpos5 (.forallE `f (posArrow natE (kboxE (posArrow (C `L4LKpos5) natE)))
+      (posArrow (.proj `KPosBox 0 (.app (.bvar 0) (mkRawNatLit 0))) (C `L4LKpos5)) .default)
+  -- Nor can a `let` hide it: the let *value* is a subterm, so the syntactic scan sees it.
+  bothKernels "Kpos6 subject is let-bound" env false <|
+    mkPosProp `L4LKpos6 (.forallE `b (kboxE (posArrow (C `L4LKpos6) natE))
+      (posArrow (.letE `y (kboxE (posArrow (C `L4LKpos6) natE)) (.bvar 0)
+        (.proj `KPosBox 0 (.bvar 0)) false) (C `L4LKpos6)) .default)
+  -- An occurrence only under a ξ binder of a recursive field takes the *other* throw branch.
+  bothKernels "Kpos7 occurrence under a xi binder   [non positive branch]" env false <|
+    mkPosProp `L4LKpos7 (.forallE `g
+      (.forallE `b (kboxE (posArrow (C `L4LKpos7) natE)) (C `L4LKpos7) .default)
+      (C `L4LKpos7) .default)
+  -- CONTROL for the previous one: the same shape with a block-free ξ domain is a legitimate
+  -- recursive field, so `Kpos7` is not rejected merely for being higher-order.
+  bothKernels "Kpos8 same with a block-free xi domain   [control]" env true <|
+    mkPosProp `L4LKpos8 (.forallE `g (.forallE `b (kboxE natE) (C `L4LKpos8) .default)
+      (C `L4LKpos8) .default)
 
 end Lean4Lean.Tests.KernelHardening
