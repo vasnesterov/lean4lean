@@ -483,6 +483,124 @@ theorem quotIndAp_type (hq : env.constants ``Quot = some quotConst) (hu : u.WF n
     (VEnv.IsDefEq.appDF (quotConst_type hq hu) bvar1_sortU)
     (VEnv.IsDefEq.bvar .zero)
 
+/-! ### `Quot.ind`'s spine
+
+`Quot.ind : ∀ (α : Sort u) (r : α → α → Prop) (β : Quot α r → Prop),
+  (∀ a : α, β (Quot.mk α r a)) → ∀ q : Quot α r, β q`
+
+Five binders. Every codomain here is `Sort .zero` *by construction* — `β` lands
+in `Prop` — so every `imax` collapses at every `u` and there is no level split;
+see the note in the ledger on when to expect one. -/
+
+/-- The motive's type, `Quot α r → Prop`, over `[r, α]`. -/
+def quotIndBeta (u : VLevel) : VExpr :=
+  .forallE (.app (.app (.const ``Quot [u]) (.bvar 1)) (.bvar 0)) (.sort .zero)
+
+/-- `Quot.mk α r a`, over `[a, β, r, α]`. -/
+def quotIndMkAp (u : VLevel) : VExpr :=
+  .app (.app (.app (.const ``Quot.mk [u]) (.bvar 3)) (.bvar 2)) (.bvar 0)
+
+/-- The inductive hypothesis, `∀ a : α, β (Quot.mk α r a)`, over `[β, r, α]`. -/
+def quotIndHyp (u : VLevel) : VExpr :=
+  .forallE (.bvar 2) ((VExpr.bvar 1).app (quotIndMkAp u))
+
+/-- The quantified quotient element's type, over `[h, β, r, α]`. -/
+def quotIndQ (u : VLevel) : VExpr :=
+  .app (.app (.const ``Quot [u]) (.bvar 3)) (.bvar 2)
+
+example (u : VLevel) : quotIndConst.type.instL [u]
+    = .forallE (.sort u) (.forallE quotRelTy (.forallE (quotIndBeta u)
+        (.forallE (quotIndHyp u) (.forallE (quotIndQ u) ((VExpr.bvar 2).app (.bvar 0)))))) := rfl
+
+theorem quotIndBeta_type (hq : env.constants ``Quot = some quotConst) (hu : u.WF nv)
+    {Δ : List VExpr} :
+    env.HasType nv (quotRelTy :: VExpr.sort u :: Δ) (quotIndBeta u)
+      (.sort (.imax u (.succ .zero))) :=
+  .forallEDF (quotIndAp_type hq hu) (.sortDF trivial trivial rfl)
+
+/-- `Quot.mk` itself, in any context. -/
+theorem quotMkConst_type (hqm : env.constants ``Quot.mk = some quotMkConst) (hu : u.WF nv)
+    {Δ : List VExpr} :
+    env.HasType nv Δ (.const ``Quot.mk [u])
+      (.forallE (.sort u) (.forallE quotRelTy (.forallE (.bvar 1) (quotMkCod u)))) :=
+  VEnv.IsDefEq.constDF hqm (by simpa using hu) (by simpa using hu) rfl
+    (List.Forall₂.cons rfl .nil)
+
+/-- `Quot.mk α r a`, with `α`, `r`, `a` at indices 3, 2, 0. -/
+theorem quotIndMkAp_type (hqm : env.constants ``Quot.mk = some quotMkConst) (hu : u.WF nv)
+    {Δ : List VExpr} :
+    env.HasType nv (VExpr.bvar 2 :: quotIndBeta u :: quotRelTy :: VExpr.sort u :: Δ)
+      (quotIndMkAp u)
+      (.app (.app (.const ``Quot [u]) (.bvar 3)) (.bvar 2)) :=
+  VEnv.IsDefEq.appDF
+    (VEnv.IsDefEq.appDF
+      (VEnv.IsDefEq.appDF (quotMkConst_type hqm hu)
+        (VEnv.IsDefEq.bvar (.succ (.succ (.succ .zero)))))
+      (VEnv.IsDefEq.bvar (.succ (.succ .zero))))
+    (VEnv.IsDefEq.bvar .zero)
+
+theorem quotIndHyp_type (hqm : env.constants ``Quot.mk = some quotMkConst) (hu : u.WF nv)
+    {Δ : List VExpr} :
+    env.HasType nv (quotIndBeta u :: quotRelTy :: VExpr.sort u :: Δ) (quotIndHyp u)
+      (.sort (.imax u .zero)) :=
+  .forallEDF (VEnv.IsDefEq.bvar (.succ (.succ .zero)))
+    (VEnv.IsDefEq.appDF (VEnv.IsDefEq.bvar (.succ .zero)) (quotIndMkAp_type hqm hu))
+
+theorem quotIndQ_type (hq : env.constants ``Quot = some quotConst) (hu : u.WF nv)
+    {Δ : List VExpr} :
+    env.HasType nv (quotIndHyp u :: quotIndBeta u :: quotRelTy :: VExpr.sort u :: Δ)
+      (quotIndQ u) (.sort u) :=
+  VEnv.IsDefEq.appDF
+    (VEnv.IsDefEq.appDF (quotConst_type hq hu) (VEnv.IsDefEq.bvar (.succ (.succ (.succ .zero)))))
+    (VEnv.IsDefEq.bvar (.succ (.succ .zero)))
+
+/-- `β q`, the innermost body.  Its type is `Sort .zero` *literally*, which is
+what makes the whole spine collapse uniformly. -/
+theorem quotIndBody_type {Δ : List VExpr} :
+    env.HasType nv
+      (quotIndQ u :: quotIndHyp u :: quotIndBeta u :: quotRelTy :: VExpr.sort u :: Δ)
+      ((VExpr.bvar 2).app (.bvar 0)) (.sort .zero) := by
+  have hb : env.HasType nv
+      (quotIndQ u :: quotIndHyp u :: quotIndBeta u :: quotRelTy :: VExpr.sort u :: Δ)
+      (.bvar 2)
+      (.forallE (.app (.app (.const ``Quot [u]) (.bvar 4)) (.bvar 3)) (.sort .zero)) :=
+    VEnv.IsDefEq.bvar (.succ (.succ .zero))
+  have hz : env.HasType nv
+      (quotIndQ u :: quotIndHyp u :: quotIndBeta u :: quotRelTy :: VExpr.sort u :: Δ)
+      (.bvar 0) (.app (.app (.const ``Quot [u]) (.bvar 4)) (.bvar 3)) :=
+    VEnv.IsDefEq.bvar .zero
+  exact VEnv.IsDefEq.appDF hb hz
+
+theorem quotIndT4_type (hq : env.constants ``Quot = some quotConst) (hu : u.WF nv)
+    {Δ : List VExpr} :
+    env.HasType nv (quotIndHyp u :: quotIndBeta u :: quotRelTy :: VExpr.sort u :: Δ)
+      (.forallE (quotIndQ u) ((VExpr.bvar 2).app (.bvar 0))) (.sort (.imax u .zero)) :=
+  .forallEDF (quotIndQ_type hq hu) quotIndBody_type
+
+theorem quotIndT3_type (hq : env.constants ``Quot = some quotConst)
+    (hqm : env.constants ``Quot.mk = some quotMkConst) (hu : u.WF nv) {Δ : List VExpr} :
+    env.HasType nv (quotIndBeta u :: quotRelTy :: VExpr.sort u :: Δ)
+      (.forallE (quotIndHyp u) (.forallE (quotIndQ u) ((VExpr.bvar 2).app (.bvar 0))))
+      (.sort (.imax (.imax u .zero) (.imax u .zero))) :=
+  .forallEDF (quotIndHyp_type hqm hu) (quotIndT4_type hq hu)
+
+theorem quotIndT2_type (hq : env.constants ``Quot = some quotConst)
+    (hqm : env.constants ``Quot.mk = some quotMkConst) (hu : u.WF nv) {Δ : List VExpr} :
+    env.HasType nv (quotRelTy :: VExpr.sort u :: Δ)
+      (.forallE (quotIndBeta u)
+        (.forallE (quotIndHyp u) (.forallE (quotIndQ u) ((VExpr.bvar 2).app (.bvar 0)))))
+      (.sort (.imax (.imax u (.succ .zero)) (.imax (.imax u .zero) (.imax u .zero)))) :=
+  .forallEDF (quotIndBeta_type hq hu) (quotIndT3_type hq hqm hu)
+
+theorem quotIndT1_type (hq : env.constants ``Quot = some quotConst)
+    (hqm : env.constants ``Quot.mk = some quotMkConst) (hu : u.WF nv) {Δ : List VExpr} :
+    env.HasType nv (VExpr.sort u :: Δ)
+      (.forallE quotRelTy (.forallE (quotIndBeta u)
+        (.forallE (quotIndHyp u) (.forallE (quotIndQ u) ((VExpr.bvar 2).app (.bvar 0))))))
+      (.sort (.imax (.imax u (.imax u (.succ .zero)))
+        (.imax (.imax u (.succ .zero)) (.imax (.imax u .zero) (.imax u .zero))))) :=
+  .forallEDF quotRelTy_type (quotIndT2_type hq hqm hu)
+
 end MkTypingSpine
 
 /-! ### Computing `Quot α r` inside `Quot.mk`'s spine -/

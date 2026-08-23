@@ -902,7 +902,14 @@ denotation at a point, the codomain typing derivation (`quotConst_type`,
 
 Two things worth recording from the derivation:
 
-* **The `inst`/`lift` computations came out on the nose.** `appDF` produces the
+* **The `inst`/`lift` computations came out on the nose — and have now three
+  times running.** This is worth stating as a positive expectation rather than a
+  repeated surprise: **the de Bruijn arithmetic of a constructor's spine lines up
+  by construction in this development.** `appDF` produces a codomain of the form
+  `B.inst (.bvar k)`, and the argument's context type is the correspondingly
+  lifted expression; these are syntactically equal, so the next `appDF` fires
+  with no rewriting. A transport lemma becoming necessary would be a signal that
+  something is off, not routine work. `appDF` produces the
   codomain type `(∀ r, Sort u).inst (.bvar 2)`, and the argument `.bvar 1` has
   context type `(quotRelTy.lift).lift`. These are syntactically equal, so the
   second `appDF` applies with no rewriting at all. That is worth knowing before
@@ -967,6 +974,40 @@ nonempty* and that element is `•` — which is exactly what `Quot.mk` denotes
 there. The surjection is witnessed by any inhabitant of the carrier, and one
 exists precisely because the quotient was inhabited. Above `Prop` it is
 `mem_setQuotient_iff` directly. One statement, both branches.
+
+### `Quot.ind`'s spine is typed, and a check on the way turned up why the
+### degenerate witness is safe
+
+The five-binder spine is complete and green: `quotIndBeta`, `quotIndMkAp`,
+`quotIndHyp`, `quotIndQ` and the body `β q`, with typing derivations for each and
+for the four nested `forallE`s above them. `quotMkConst_type` joins
+`quotConst_type`. The `inst`/`lift` alignment held through five more `appDF`s —
+three for `Quot.mk α r a` and two for `Quot α r` — with no transport.
+
+One derivation did need help, and it is a different failure from the coercion
+family: `Lookup` returns the context entry *lifted*, and `lift` does not compute
+through a `def`. `((quotIndBeta u).lift).lift.lift` is not syntactically a
+`forallE`, so `appDF` cannot see the function type. The fix is to ascribe the
+spelled-out lifted expression in a `have` — cheap, because no `interp` is
+involved. Worth knowing before the constructor layer, where every spine entry is
+a named definition.
+
+**And the check that matters.** Working out what `Quot.ind` needs at the bottom
+of its nest exposed a question about `Quot.mk`'s witness: at `u.eval = 0` it is
+`•`, so `⟦Quot.mk α r a⟧` would be `((• ‘ α) ‘ r) ‘ a` — junk — where
+`Quot.ind`'s hypothesis binder needs it to be `quotMkVal α r a 0 = •`.
+
+It is fine, and the reason is structural rather than lucky: at `u.eval = 0` the
+partial application `Quot.mk α r : ∀ a : α, Quot α r` has sort `imax u u`, which
+evaluates to `0`, so it *is a proof* and `interp_app_proof` fires — giving `•`
+**regardless of what `cnst Quot.mk` is**. The junk never surfaces because the
+proof splitting short-circuits it.
+
+So: **`interp`'s proof splitting is what makes a degenerate `Prop` witness safe.**
+Had the interpretation not split on proofs, `•` would have been type-correct at
+`Prop` and would still have broken `Quot.ind`. That is worth stating for the
+inductive layer, where every `Prop`-valued constructor will be in the same
+position.
 
 ### The pattern: uniform in ZFC, not uniform across `Sort 0`
 
