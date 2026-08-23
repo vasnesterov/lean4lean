@@ -168,7 +168,7 @@ Open:
 | `VInductDecl.WF`, `VEnv.addInduct` — `sorry` **definitions** | `Theory/Inductive.lean` | superseded — see `Theory/Inductive/Decl.lean`; the swap into `VDecl` is still to schedule |
 | `addInduct_WF` | `Theory/Typing/InductiveLemmas.lean` | blocked on the above |
 | `IsDefEqU.sort_inv`, `.forallE_inv_stratified`, `.sort_forallE_inv` | `Theory/Typing/Injectivity.lean` | route found — see below |
-| `NormalEq.descend` / `.appDF_extra_of_descend`, escape branches | `Theory/Typing/ChurchRosser.lean` | `NormalEq.parRed` itself is closed, and so is all of E4 (the eta tower); 6 `sorry`s left, needing `hsu` and the two missing `Params` axioms **as explicit hypotheses, not new fields** — inventory in the file |
+| `NormalEq.descend`, escape branches | `Theory/Typing/ChurchRosser.lean` | `NormalEq.parRed` and `appDF_extra_of_descend` are closed, and so is all of E4 (the eta tower, firing included); 5 `sorry`s left, **each waiting on a hypothesis** — `hsu`, and the two missing `Params` conditions **as explicit hypotheses, not new fields**; inventory in the file |
 | `IsDefEqU.weakN_iff`, forward direction | `Theory/Typing/UniqueTyping.lean:174` | routine-ish strengthening |
 | nothing instantiates `VEnv.Params` | — | `addInduct` must produce `Pattern`-shaped ι-rules satisfying the orthogonality axioms |
 | `leanTT_equiconsistent_zfc_omega_inaccessibles` | `Theory/Equiconsistency.lean` | the model; only the `→` direction is needed |
@@ -394,10 +394,11 @@ Landed since the plan was written:
   `NormalEq.parRed`.
 - `Theory/Typing/ChurchRosser.lean` — **`NormalEq.parRed` is closed**: every case,
   `appDF` × `extra` included, is now a proof term. It rests on `NormalEq.descend`
-  (the descent, E2 + E4) and `NormalEq.appDF_extra_of_descend`, which carry six
-  `sorry`s between them, all in escape branches; the inventory in the file is
-  authoritative. **E4 — the eta tower, at any depth — is proved.** Three findings
-  worth carrying:
+  (the descent, E2 + E4), which carries five `sorry`s, all in escape branches and
+  each blocked on a hypothesis another stream must supply; the inventory in the
+  file is authoritative. **E4 — the eta tower, at any depth, firing the rule
+  under any number of pending layers included — is proved**, and
+  `appDF_extra_of_descend` is sorry-free. Three findings worth carrying:
   - the previous descent interface (no reduction, no escapes) is **false**,
     refuted by `NormalEq.etaL` and `.proofIrrel`, both of which constrain nothing
     about the left term; it is deleted.
