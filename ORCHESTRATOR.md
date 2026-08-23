@@ -23,6 +23,15 @@ Do not resume merely to ask a question. If the answer needs the transcript, it b
 
 Exception: a short, immediate follow-up on work an agent has just reported, where spawning fresh costs more than it saves.
 
+## Frozen files
+
+`Verify/Soundness.lean`, `Verify/Axioms.lean`, `Verify/Guard.lean`.
+
+- **Never delegate a frozen-file edit to a subagent.** Not as a "narrow exception", not with a tight scope, not because the change is mechanical. Subagents may never touch these files under any circumstance.
+- **Never edit one yourself without explicit human approval for that specific change.** Prior approval of a similar change does not carry over.
+- The flow: the subagent proves the content in a file it owns and states exactly what the frozen edit would be; you ask the human; on approval you make the edit; then PR it for review as usual.
+- Watch for the shape of the request, not just its content. *"A check fails, so widen the whitelist"* is how a real failure gets laundered into a passing one. Verify independently that the assumption predates the change — a cone scan at the previous commit — and say so in the PR.
+
 ## Git
 
 - The orchestrator owns git. Agents never commit, push, or open PRs.

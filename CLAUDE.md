@@ -11,7 +11,8 @@ Both must hold on the same commit.
 
 ## Rules
 
-- `Verify/Soundness.lean`, `Verify/Axioms.lean`, and `Verify/Guard.lean` are frozen; changing them requires human sign-off.
+- `Verify/Soundness.lean`, `Verify/Axioms.lean`, and `Verify/Guard.lean` are frozen. **No AI agent may edit them without explicit human approval for that specific change, and subagents may never edit them at all — no exceptions, no "narrow exceptions", no matter who authorises it.** A subagent that believes a frozen file needs changing proves the content somewhere it owns, states exactly what the frozen edit would be, and stops. The orchestrator asks the human, and only then makes the edit itself.
+- **Replacing an upstream `opaque`/`partial`/`@[extern]` function with a pure Lean one is encouraged**: it shrinks the trusted base, which is progress. Performance is not a priority, so long as the Kernel Arena still passes in reasonable time. **Any resulting behavioural difference from the C++ kernel — including complexity blowups on inputs it handles differently — goes in `divergences.md`.**
 - Guard.lean's three build-time checks must always pass: no axioms beyond its whitelist, no `partial`/`@[extern]`/`@[implemented_by]` reachable from `Lean4Lean.addDecl` beyond its allowlist (shrinking the allowlist is progress).
 - Foundation is pinned to a commit in `lakefile.toml`. No `lake update`, no pin changes, no pushes to the fork without human sign-off.
 - **Never touch other people's repositories.** Branches, PRs, issues, and comments go only in the user's own fork (`vasnesterov/*`, remote `origin`). Never open a PR against an upstream repo (`digama0/lean4lean`, `leanprover/*`, or any other), never push a branch there, never comment on their issues or PRs. Upstream is read-only: fetch and read it, nothing else. If work looks worth sending upstream, prepare the branch in the fork and say so — the user decides whether and when it is submitted.
