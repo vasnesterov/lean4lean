@@ -80,8 +80,14 @@ structure TrIndDecl (env : VEnv) (Us : List Name) (nparams : Nat)
   trType : ∀ (j : Nat) t T, types[j]? = some t → D.types[j]? = some T → TrIndType env Us t T
   trCtorsLen : ∀ (j : Nat) t T, types[j]? = some t → D.types[j]? = some T →
     t.ctors.length = T.ctors.length
-  trCtors : ∀ (j : Nat) t T, types[j]? = some t → D.types[j]? = some T →
-    ∀ (q : Nat) c C, t.ctors[q]? = some c → T.ctors[q]? = some C → TrIndCtor env Us D j c C
+  /-- **Constructors are translated in the *staged* environment** — the one that already
+  contains the block's type constants — exactly as `VInductDecl'.WF.ctors` is stated, and for
+  the same reason.  See `no_trIndCtor_at_base` below: at the pre-block environment this clause
+  is *unsatisfiable for every real block*, because a constructor's result is `I p args` and
+  `TrExprS.const` demands `I` be declared. -/
+  trCtors : ∀ env₁, env.addIndTypes D = some env₁ →
+    ∀ (j : Nat) t T, types[j]? = some t → D.types[j]? = some T →
+    ∀ (q : Nat) c C, t.ctors[q]? = some c → T.ctors[q]? = some C → TrIndCtor env₁ Us D j c C
 
 /-! ## The fields do work
 
@@ -116,11 +122,60 @@ theorem TrIndDecl.name_eq {env Us np types iu} {D D' : VInductDecl'} {j : Nat} {
 /-- …and so are the constructors' names. -/
 theorem TrIndDecl.ctor_name_eq {env Us np types iu} {D D' : VInductDecl'}
     {j : Nat} {t : InductiveType} {T T' : VIndType}
-    {q : Nat} {c : Constructor} {C C' : VIndCtor}
+    {q : Nat} {c : Constructor} {C C' : VIndCtor} {env₁ env₁' : VEnv}
     (h : TrIndDecl env Us np types iu D) (h' : TrIndDecl env Us np types iu D')
+    (hs : env.addIndTypes D = some env₁) (hs' : env.addIndTypes D' = some env₁')
     (ht : types[j]? = some t) (hT : D.types[j]? = some T) (hT' : D'.types[j]? = some T')
     (hc : t.ctors[q]? = some c) (hC : T.ctors[q]? = some C) (hC' : T'.ctors[q]? = some C') :
     C.name = C'.name :=
-  ((h.trCtors j t T ht hT q c C hc hC).1).symm.trans (h'.trCtors j t T' ht hT' q c C' hc hC').1
+  ((h.trCtors env₁ hs j t T ht hT q c C hc hC).1).symm.trans
+    (h'.trCtors env₁' hs' j t T' ht hT' q c C' hc hC').1
+
+/-! ## Why the constructor clause is staged — and what attempting a witness found
+
+The first draft of `TrIndDecl` stated its constructor clause at the *pre-block* environment.
+Attempting the `Eq` witness is what showed that cannot work, and the reason is not special to
+`Eq`: **a constructor's result is `I p args`**, so its stored type mentions the block's own type
+constant, and `TrExprS.const` demands that constant be declared.  At the environment the block
+is being added *to*, it is not.
+
+So the first draft was unsatisfiable for **every** block with at least one constructor — not
+merely hard to witness.  That is the failure mode the whole `Params` episode turned on: each
+conjunct fine, the conjunction unsatisfiable at the environment where it is used.  The fix is
+to mirror `VInductDecl'.WF.ctors`, which stages for exactly this reason; the spec had already
+solved it and the refinement side had to be told.
+
+The lemma below is that finding, kept live so the staging cannot be quietly undone. -/
+
+/-- **The pre-block environment admits no translation of a constructor's stored type.**
+Stated at `Eq.refl`'s actual type (`Verify/Soundness.lean`'s `eqDecl`), which is the shape
+every constructor has: a result headed by the block's own type constant.  The target is left
+free, so this says *no* `VExpr` translates it — not merely that the intended one does not. -/
+theorem no_trExprS_eqRefl_at_base {env : VEnv} {Us : List Name} {Δ : VLCtx} {e' : VExpr}
+    (hnone : env.constants ``Eq = none)
+    (h : TrExprS env Us Δ (.forallE `α (.sort (.param `u_1))
+      (.forallE `a (.bvar 0)
+        (.app (.app (.app (.const ``Eq [.param `u_1]) (.bvar 1)) (.bvar 0)) (.bvar 0))
+        .default) .implicit) e') : False := by
+  cases h with | forallE _ _ _ h3 =>
+  cases h3 with | forallE _ _ _ h4 =>
+  cases h4 with | app _ _ h5 _ =>
+  cases h5 with | app _ _ h6 _ =>
+  cases h6 with | app _ _ h7 _ =>
+  cases h7 with | const h8 _ _ =>
+  rw [hnone] at h8
+  exact absurd h8 nofun
+
+/-- …hence no `TrIndCtor` at that environment, for the constructor the prelude actually
+declares.  This is what forces `trCtors`' staging. -/
+theorem no_trIndCtor_at_base {env : VEnv} {Us : List Name} {D : VInductDecl'} {j : Nat}
+    {c : Constructor} {C : VIndCtor}
+    (hc : c.type = .forallE `α (.sort (.param `u_1))
+      (.forallE `a (.bvar 0)
+        (.app (.app (.app (.const ``Eq [.param `u_1]) (.bvar 1)) (.bvar 0)) (.bvar 0))
+        .default) .implicit)
+    (hnone : env.constants ``Eq = none)
+    (h : TrIndCtor env Us D j c C) : False :=
+  no_trExprS_eqRefl_at_base hnone (hc ▸ h.2)
 
 end Lean4Lean
