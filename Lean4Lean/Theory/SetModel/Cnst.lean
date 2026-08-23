@@ -318,6 +318,58 @@ theorem interp_app_of_proof_sorted (hle : env₀ ≤ envF) {Γ : List VExpr} {f 
 
 end Forall
 
+/-! ## Defining equations: peel by type agreement, split only at the bodies
+
+Every ι-rule the model has to validate — `quotDefEq` now, every inductive's
+recursor equation later — is an equation between two λ-nests over the *same*
+binders, differing only in the bodies.  The step below is what peels one binder,
+and stating it generally is worth doing once because the naive version has a
+trap in it.
+
+`interp` sends `.lam A b` to `•` when `b` is a proof and to a `mkLam` otherwise,
+so an equation between two `lam`s needs the two bodies to *agree* on `IsProof`
+before their pointwise equality is of any use.  **That agreement is not free.**
+`IsProof` is syntactic — it is `(L.srt Γ b).eval M.ls = 0` — so it does not
+follow from the bodies denoting the same thing at every valuation.
+
+What it does follow from is the two bodies having the **same type**, via
+`isProof_iff` on each side.  For a defining equation that is exactly the
+situation: both sides are typed at `df.type`.  So the whole nest peels
+*uniformly*, with no case analysis at any binder, and whatever level split the
+equation needs appears once, at the bodies. -/
+
+section DefEqStep
+
+variable {env₀ : VEnv} {M : ModelData V} {Γ : List VExpr} {A B b b' : VExpr}
+variable {w : VLevel} {ρ : V}
+
+/-- **One binder of a defining equation, given the `IsProof` agreement.** -/
+theorem interp_lam_congr
+    (hp : L.IsProof M (A :: Γ) b ↔ L.IsProof M (A :: Γ) b')
+    (h : ∀ x ∈ (interp M L Γ A).toFun ρ,
+      (interp M L (A :: Γ) b).toFun (snoc ρ x) = (interp M L (A :: Γ) b').toFun (snoc ρ x)) :
+    (interp M L Γ (.lam A b)).toFun ρ = (interp M L Γ (.lam A b')).toFun ρ := by
+  by_cases hb : L.IsProof M (A :: Γ) b
+  · rw [interp_lam_proof M L hb, interp_lam_proof M L (hp.1 hb)]
+  · have hb' : ¬ L.IsProof M (A :: Γ) b' := fun h' ↦ hb (hp.2 h')
+    ext y
+    rw [mem_interp_lam_iff M L hb, mem_interp_lam_iff M L hb']
+    exact ⟨fun ⟨x, hx, hy⟩ ↦ ⟨x, hx, by rw [hy, h x hx]⟩,
+      fun ⟨x, hx, hy⟩ ↦ ⟨x, hx, by rw [hy, h x hx]⟩⟩
+
+/-- **One binder of a defining equation, from the shared type.**  This is the
+form a defeq obligation actually takes: the two bodies are typed at the same `B`,
+which is what supplies the `IsProof` agreement. -/
+theorem interp_lam_congr_of_type (hle : env₀ ≤ envF)
+    (hb : env₀.HasType nv (A :: Γ) b B) (hb' : env₀.HasType nv (A :: Γ) b' B)
+    (hB : env₀.HasType nv (A :: Γ) B (.sort w)) (hw : w.WF nv)
+    (h : ∀ x ∈ (interp M L Γ A).toFun ρ,
+      (interp M L (A :: Γ) b).toFun (snoc ρ x) = (interp M L (A :: Γ) b').toFun (snoc ρ x)) :
+    (interp M L Γ (.lam A b)).toFun ρ = (interp M L Γ (.lam A b')).toFun ρ :=
+  interp_lam_congr ((isProof_iff hle hb hB hw).trans (isProof_iff hle hb' hB hw).symm) h
+
+end DefEqStep
+
 /-! ## Discharging the oracle -/
 
 section Oracle

@@ -1451,6 +1451,178 @@ name. **Check this triangularity before assuming an inductive block's assignment
 needs a fixpoint** — for `Quot` it does not, and the reason is visible from the
 binder types alone.
 
+## The `PreludeSpec` vacuity audit: `EqSpec` is satisfiable
+
+`Quot.lift`'s and `quotDefEq`'s obligations are stated *against* `EqSpec`, which
+is a `PreludeSpec` statement — a `Prop`-valued definition nothing had ever had to
+meet. That is precisely the shape that can be quietly unsatisfiable, and a cone
+discharged against an unsatisfiable hypothesis is conditional on nothing. The
+tell in every vacuity finding this project has had is identical: **nobody had
+exhibited a witness.**
+
+**`preludeSpec_satisfiable` (`SetModel/PreludeSpec.lean`) exhibits one**, and it
+is joint — a single `ModelData` meeting `EqSpec` at every level, `IffSpec`, and
+`NonemptySpec` at every level, over an arbitrary `κ` and `ls`. Sorry-free,
+`[propext, Classical.choice, Quot.sound]`. Stating the three separately would
+have left open the failure mode that has bitten this development three times:
+each conjunct fine alone, the conjunction unsatisfiable.
+
+Three things about how the witness is built are worth keeping:
+
+* **It does not use a `LevelAssign`.** That structure was itself found
+  unsatisfiable once and repaired; building the prelude witnesses on top of it
+  would reproduce the hole the audit exists to close. `IsSeq` is the raw form of
+  `interpCtx_domain`'s conclusion — internal function, domain a numeral — and
+  needs only `κ`, `ls` and `𝗭𝗙`.
+* **It is environment-passing, not capturing.** The naive witness captures `α`
+  in the inner λ's *domain*, and then the outer `mkLam`'s fibre map is no longer
+  jointly definable. `SetModel/Definability.lean` says this about `interp`; it is
+  equally true of anything built alongside it, including a throwaway witness.
+* **Both branches of every `if` are exercised.** A witness whose conditional only
+  ever took one branch would say very little. `eqFn_refl` and `iffFn_same` fire
+  the `then` branch, `iffFn_diff` and `nonemptyFn_empty` fire the `else` branch
+  **unconditionally** — `UProp` holds two distinct elements with no chain
+  hypothesis at all — and `eqFn_distinct` fires `Eq`'s `else` branch under the
+  same `IsInaccessibleChain` the rest of the model already assumes. `Eq`'s
+  `else` branch *cannot* be reached without a chain, because at `U κ 0` every
+  carrier is a subset of `{•}` and so has at most one element.
+
+The audit came back clean. Recording that plainly is the point: an audit that
+only ever reports failures decays into one nobody runs.
+
+### Stated once, generally: peel by type agreement
+
+`interp_lam_congr` and `interp_lam_congr_of_type` now live in
+`SetModel/Cnst.lean` rather than in `QuotInterp`, because every ι-rule the
+inductive layer needs will take the same step. The trap they package:
+
+> `interp` sends `.lam A b` to `•` when `b` is a proof and to a `mkLam`
+> otherwise, so an equation between two `lam`s needs the bodies to **agree on
+> `IsProof`** before their pointwise equality is of any use — and that agreement
+> does *not* follow from the bodies denoting the same thing at every valuation,
+> because `IsProof` is syntactic. It follows from the two bodies having the
+> **same type**, which for a defining equation is automatic: both sides are typed
+> at `df.type`.
+
+So a defeq obligation peels its whole nest uniformly, with no case analysis at
+any binder, and whatever level split it needs appears exactly once, at the
+bodies. `quotDefEq_eq` is now six calls to `interp_lam_congr_of_type`.
+
+### Running the same audit one level down: the cone's real open hypothesis
+
+`EqSpec` was the hypothesis I was asked to witness, and it is witnessed. But the
+audit is only worth what its *next* question is worth, so: what else in the
+`Quot` cone has never been exhibited?
+
+Every result in `SetModel/` is parameterised by `L : LevelAssign envF nv`, and
+**nothing anywhere exhibits one.** `CoherentWitness.lean` says so explicitly —
+`coherentOn_witness` takes `L` as a hypothesis and its docstring records that "no
+unconditional witness is possible while `LevelAssign` [is unwitnessed]".
+
+This is **not** a new hidden vacuity: it is the project's tracked item #1, and
+`SetModel/Interp.lean`'s own header records it. It matters anyway, because it
+fixes what the `EqSpec` result does and does not buy. `EqSpec` is now discharged
+outright; the `Quot` cone's one remaining unwitnessed hypothesis is
+`LevelAssign`, and that is blocked on the two `sorry`s in
+`Theory/Typing/Injectivity.lean` (lines 124 and 128 — the `trans` and
+`proofIrrel` cases of `sort_inv`). No further set-model work changes that, and
+no set-model result should be described as unconditional until it does.
+
+Worth noting for scale: the *unguarded* form of `LevelAssign` was not merely
+unwitnessed, it was `IsEmpty` for **every** `env` and `nv` (`no_levelAssign`,
+`SetModel/LevelAssignUnsat.lean`). The guarded form has not been shown empty and
+is not expected to be — but it has also not been shown inhabited for a single
+`(env, nv)`, which is a weaker and possibly reachable target than the general
+construction.
+
+### A recorded claim that deserves testing before it is relied on
+
+`SetModel/Interp.lean`'s header states that `LevelAssign` is "exactly
+`IsDefEqU.sort_inv` in functional form (plus choice)". **I think that
+understates it, and it is worth checking before anyone plans around it.**
+
+`lvl` can indeed be built from `sort_inv` and choice: pick any WF sort of `A`;
+`lvl_sound` then needs only that two WF sorts of the same type agree, which is
+`sort_inv`. But `srt_sound` says `srt Γ e ≈ lvl Γ A` for **every** `A` typing
+`e`, and `srt` can only be defined by choosing *one* such `A`. Discharging it
+therefore needs `lvl Γ A ≈ lvl Γ A'` for any two types of the same term — and
+nothing links their sorts without first knowing `A ≈ A'`, which is *unique
+typing* (`Theory/Typing/UniqueTyping.lean`, itself carrying a `sorry`), strictly
+stronger than `sort_inv`.
+
+This is flagged, not asserted: I have not machine-checked either direction, and
+today's record is that both directions get refuted. The concrete test is to
+attempt `levelAssign_of_sort_inv` and see which hypothesis the `srt_sound` field
+actually demands. That construction does not exist anywhere in the tree, and
+building it — conditionally, so that `LevelAssign` falls out the moment
+`sort_inv` lands — looks like the highest-value self-contained piece the set
+model has left.
+
+## Scoping the `.induct` step, and one blocker removed
+
+Surveyed the whole bridge before starting it. The picture is sharper than the
+open-items list suggests.
+
+**Both ends are finished; the middle is empty.** The model side ends at *sets* —
+`Ind S D`, `indCtor S q a f`, `indRec S D R e he`, with `indRec_mem_stage` and
+`indRec_indCtor_stage` (`SetModel/IndStage.lean:125, :130`) giving membership and
+the ι-rule outright, and `Ind_mem_U_stage` (`IndCard.lean:499`) putting the
+family in the right universe. The syntax side ends at *`VExpr`s* — `D.recType j`,
+`D.iotaRule j q C`, `D.allConsts` (`Theory/Inductive/Decl.lean`). **Nothing
+connects them.** `interp` does not occur in any of the three inductive model
+files; `VInductDecl'` occurs in `SetModel/` only in prose. `cnstOf`'s `.induct`
+line uses `D.allNames : List Name` and nothing else.
+
+So the two obligations the step owes — `o n us ∈ ⟦ci.type.instL us⟧ ∅` for each
+of `D.allConsts`, and the `coherentOn_addDefEqFold` pair for each of
+`D.iotaRules` — have no `interp`-level counterpart yet. `indRec_mem_stage` is
+membership in an *abstract* codomain set `R`, not in an `interp`-produced one;
+`indRec_indCtor_stage` is an equation between set-level values, not between
+`⟦lhs⟧ ∅` and `⟦rhs⟧ ∅`. Contrast `quotLiftFn_mem` and `quotDefEq_ok`, which are
+in the right shape. Nothing of that shape exists for inductives.
+
+**`docs/model-interface.md` §2 already has the plan** — `interpSig`, its
+field-by-field translation table, and `interpSig_stage` / `interpSig_wf`. It
+names two blockers, both said to be owed by the syntax side. **One of them was
+already proved and nobody had noticed.**
+
+### `interp_congr` is a corollary of soundness, not an open obligation
+
+`model-interface.md` §4 says "**Without `interp_congr` there is no first step at
+all**, so `interp_congr` has to be stated and proved before `interpSig_wf` can
+even be stated." It does not exist in the tree under that name — but
+`SoundInduction.lean`'s `Sound` has *two* fields, and the `eq` field is
+`EqSound M L Γ e₁ e₂`, which unfolds to exactly
+`∀ ρ ∈ interpCtx M L Γ, ⟦e₁⟧ρ = ⟦e₂⟧ρ`. So `interp_congr` is `sound` with the
+`type` half projected away, and it is now stated and proved as
+`SetModel/SoundInduction.lean:interp_congr`, in three lines, holding for
+arbitrary `B` rather than only at `.sort u`.
+
+**But read the caveat before planning around it.** It is `Above`-wrapped,
+because soundness is: what is available is "there is a threshold `m` such that
+any chain of `m` inaccessibles makes the two denotations agree", *not* an
+unconditional equality of `DefFun`s. That is enough to **prove** things about a
+construction and not enough to **define** one by rewriting `⟦F.type⟧` to `⟦A⟧`,
+which is how §2 phrases `interpSig`'s first step. So the blocker is not removed
+so much as **relocated**: what `interpSig` needs is either an unconditional
+`interp_congr` (a different theorem — soundness would have to be de-`Above`d,
+which the module header of `SoundInduction.lean` explains cannot be done by
+bounding the chain) or a formulation of `interpSig` that only ever needs the
+`Above` form.
+
+That is a design question for whoever takes the bridge, and it is better asked
+now than discovered after `interpSig` is written. The second blocker,
+`NoBlock.indep`, is untouched and is genuinely syntax-side.
+
+### Caveat left standing: the all-levels quantification
+
+`quotDefEq_ok` takes `hEq`, `hcnst`, `hcnstMk` and `hcnstL` quantified over
+**all** `VLevel`s, including non-`WF` ones. That is the natural shape for a
+uniformly-defined `M.cnst` — which is what `oracleExtend` produces — but if the
+assembly wants them only at `WF` levels the hypotheses need weakening. The change
+is mechanical; it is flagged rather than done, because doing it before assembly
+knows what it wants is work that may be undone.
+
 ## The remaining open items, ranked
 
 

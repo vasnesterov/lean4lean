@@ -2799,23 +2799,6 @@ section DefEqMem
 
 variable {envF env₀ : VEnv} {nv : ℕ} {M : ModelData V} {L : LevelAssign envF nv} {u v : VLevel}
 
-/-- **Two `lam`s with the same binder agree once their bodies do.**  The
-`IsProof` hypothesis is not decoration: `IsProof` is syntactic, so it does not
-follow from the bodies being pointwise equal, and it has to be supplied from
-typing derivations for both. -/
-theorem interp_lam_congr {Γ : List VExpr} {A b b' : VExpr} {ρ : V}
-    (hp : L.IsProof M (A :: Γ) b ↔ L.IsProof M (A :: Γ) b')
-    (h : ∀ w ∈ (interp M L Γ A).toFun ρ,
-      (interp M L (A :: Γ) b).toFun (snoc ρ w) = (interp M L (A :: Γ) b').toFun (snoc ρ w)) :
-    (interp M L Γ (.lam A b)).toFun ρ = (interp M L Γ (.lam A b')).toFun ρ := by
-  by_cases hb : L.IsProof M (A :: Γ) b
-  · rw [interp_lam_proof M L hb, interp_lam_proof M L (hp.1 hb)]
-  · have hb' : ¬ L.IsProof M (A :: Γ) b' := fun h' ↦ hb (hp.2 h')
-    ext y
-    rw [mem_interp_lam_iff M L hb, mem_interp_lam_iff M L hb']
-    exact ⟨fun ⟨w, hw, hy⟩ ↦ ⟨w, hw, by rw [hy, h w hw]⟩,
-      fun ⟨w, hw, hy⟩ ↦ ⟨w, hw, by rw [hy, h w hw]⟩⟩
-
 /-- `α → β` at `quotDefEq`'s innermost depth — `f`'s own type, needed to see
 that `f` is not a proof. -/
 theorem quotDefFTy_type {env : VEnv} {Δ : List VExpr} :
@@ -3071,36 +3054,19 @@ theorem quotDefEq_eq (hle : env₀ ≤ envF)
   have hR := quotDefRhsBody_type (env := env₀) (nv := nv) (u := u) (v := v) (Δ := [])
   show (interp M L [] (quotDefNest u v (quotDefLhsBody u v))).toFun ∅
     = (interp M L [] (quotDefNest u v quotDefRhsBody)).toFun ∅
-  refine interp_lam_congr
-    ((isProof_iff hle (quotDefLam2_type heq hv hL) (quotDefT2_type heq hv)
-        (by simp [VLevel.WF, hu, hv])).trans
-      (isProof_iff hle (quotDefLam2_type heq hv hR) (quotDefT2_type heq hv)
-        (by simp [VLevel.WF, hu, hv])).symm) fun α hα ↦ ?_
+  refine interp_lam_congr_of_type hle (quotDefLam2_type heq hv hL) (quotDefLam2_type heq hv hR) (quotDefT2_type heq hv)
+    (by simp [VLevel.WF, hu, hv]) fun α hα ↦ ?_
   rw [interp_sort] at hα
-  refine interp_lam_congr
-    ((isProof_iff hle (quotDefLam3_type heq hv hL) (quotDefT3_type heq hv)
-        (by simp [VLevel.WF, hu, hv])).trans
-      (isProof_iff hle (quotDefLam3_type heq hv hR) (quotDefT3_type heq hv)
-        (by simp [VLevel.WF, hu, hv])).symm) fun r hr ↦ ?_
-  refine interp_lam_congr
-    ((isProof_iff hle (quotDefLam4_type heq hv hL) (quotDefT4_type heq hv)
-        (by simp [VLevel.WF, hu, hv])).trans
-      (isProof_iff hle (quotDefLam4_type heq hv hR) (quotDefT4_type heq hv)
-        (by simp [VLevel.WF, hu, hv])).symm) fun β hβ ↦ ?_
-  refine interp_lam_congr
-    ((isProof_iff hle (quotDefLam5_type heq hv hL) (quotDefT5_type heq hv)
-        (by simp [VLevel.WF, hu, hv])).trans
-      (isProof_iff hle (quotDefLam5_type heq hv hR) (quotDefT5_type heq hv)
-        (by simp [VLevel.WF, hu, hv])).symm) fun f hf ↦ ?_
-  refine interp_lam_congr
-    ((isProof_iff hle (quotDefLam6_type hL) quotDefT6_type
-        (by simp [VLevel.WF, hu, hv])).trans
-      (isProof_iff hle (quotDefLam6_type hR) quotDefT6_type
-        (by simp [VLevel.WF, hu, hv])).symm) fun c hc ↦ ?_
-  refine interp_lam_congr
-    ((isProof_iff hle hL (VEnv.IsDefEq.bvar (.succ (.succ (.succ .zero)))) hv).trans
-      (isProof_iff hle hR (VEnv.IsDefEq.bvar (.succ (.succ (.succ .zero)))) hv).symm)
-    fun a ha ↦ ?_
+  refine interp_lam_congr_of_type hle (quotDefLam3_type heq hv hL) (quotDefLam3_type heq hv hR) (quotDefT3_type heq hv)
+    (by simp [VLevel.WF, hu, hv]) fun r hr ↦ ?_
+  refine interp_lam_congr_of_type hle (quotDefLam4_type heq hv hL) (quotDefLam4_type heq hv hR) (quotDefT4_type heq hv)
+    (by simp [VLevel.WF, hu, hv]) fun β hβ ↦ ?_
+  refine interp_lam_congr_of_type hle (quotDefLam5_type heq hv hL) (quotDefLam5_type heq hv hR) (quotDefT5_type heq hv)
+    (by simp [VLevel.WF, hu, hv]) fun f hf ↦ ?_
+  refine interp_lam_congr_of_type hle (quotDefLam6_type hL) (quotDefLam6_type hR) quotDefT6_type
+    (by simp [VLevel.WF, hu, hv]) fun c hc ↦ ?_
+  refine interp_lam_congr_of_type hle hL hR
+    (VEnv.IsDefEq.bvar (.succ (.succ (.succ .zero)))) hv fun a ha ↦ ?_
   -- the bottom: `a` really does range over `α`
   replace ha : a ∈ (snoc (snoc (snoc (snoc (snoc ∅ α) r) β) f) c) ‘ ((0 : ℕ) : V) := by
     rw [interp_bvar] at ha; exact ha

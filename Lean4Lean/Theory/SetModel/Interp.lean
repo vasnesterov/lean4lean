@@ -283,6 +283,29 @@ theorem lvl_uniq {Γ : List VExpr} {A : VExpr} {u v : VLevel}
   (L.lvl_sound hwu hu).symm.trans (L.lvl_sound hwv hv)
 
 include L in
+/-- **A `LevelAssign` also recovers sort-uniqueness for *terms*** — and this is
+strictly more than `lvl_uniq`.
+
+`lvl_uniq` compares two levels of the *same* type, which is `sort_inv`'s content.
+`srt_sound` demands that `srt Γ e` equal `lvl Γ A` for **every** `A` that types
+`e`, so a `LevelAssign` also forces the sorts of a term's two *different* types
+to agree.
+
+This is recorded because it constrains how the assignment can be built. `srt`
+can only be defined by choosing one type of `e`, so discharging `srt_sound`
+requires knowing that the choice does not matter — and nothing links the sorts
+of `A` and `A'` without first knowing `A ≈ A'`, which is unique typing, not
+`sort_inv`. So the header's "`LevelAssign` is exactly `sort_inv` in functional
+form" is a claim about `lvl` alone; `srt_sound` has not been shown to follow
+from `sort_inv`, and this lemma is the necessary condition it implies. -/
+theorem srt_uniq {Γ : List VExpr} {e A A' : VExpr} {u u' : VLevel}
+    (hwu : u.WF nv) (hwu' : u'.WF nv)
+    (he : env.HasType nv Γ e A) (he' : env.HasType nv Γ e A')
+    (hA : env.HasType nv Γ A (.sort u)) (hA' : env.HasType nv Γ A' (.sort u')) : u ≈ u' :=
+  ((L.lvl_sound hwu hA).symm.trans (L.srt_sound he).symm).trans
+    ((L.srt_sound he').trans (L.lvl_sound hwu' hA'))
+
+include L in
 /-- Definitionally equal types get equivalent levels. -/
 theorem lvl_congr {Γ : List VExpr} {A A' : VExpr} {u : VLevel} (hw : u.WF nv)
     (h : env.IsDefEq nv Γ A A' (.sort u)) : L.lvl Γ A ≈ L.lvl Γ A' :=

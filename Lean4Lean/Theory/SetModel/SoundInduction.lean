@@ -353,6 +353,30 @@ theorem sound_nil {e₁ e₂ A : VExpr} (H : env₀.IsDefEq nv [] e₁ e₂ A) :
     rw [interpCtx_nil]; exact mem_singleton_iff.2 rfl
   exact ⟨(k hc).eq ∅ hnil, (k hc).type ∅ hnil⟩
 
+include hle henv hS hC hR hRd in
+/-- **Defeq-invariance of the interpretation** — `interp_congr`, the obligation
+`docs/model-interface.md` §4 names as the *first* thing the inductive bridge
+needs, and which it lists as unproved and owed by the syntax side.
+
+It is not a new theorem. It is `Sound.eq` with the `Sound.type` half dropped:
+the soundness induction already proves that definitionally equal terms denote
+equal values at every valuation of the context, and `interp_congr` is exactly
+that projection.
+
+Two things to notice before planning around it.
+
+* **It is `Above`-wrapped**, because soundness is. So what is available is
+  "there is a threshold `m` such that any chain of `m` inaccessibles makes the
+  two denotations agree", not an unconditional equality of `DefFun`s. That is
+  enough to *prove* things about a construction, and not enough to *define* one
+  by rewriting `⟦F.type⟧` to `⟦A⟧` — which is how `model-interface.md` §2 phrases
+  the first step of `interpSig`.
+* **It holds for arbitrary `B`, not just for `.sort u`** — the bridge needs it
+  only at types, but nothing about the proof is specific to them. -/
+theorem interp_congr {Γ : List VExpr} {e₁ e₂ B : VExpr}
+    (hΓ : OnCtx Γ (env₀.IsType nv)) (H : env₀.IsDefEq nv Γ e₁ e₂ B) :
+    Above M (EqSound M L Γ e₁ e₂) :=
+  (sound hle henv hS hC hR hRd hΓ H).imp Sound.eq
 
 end Induction
 
