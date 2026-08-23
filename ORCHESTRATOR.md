@@ -19,9 +19,13 @@ A handoff should carry what a newcomer cannot reconstruct cheaply:
 - the invariants and traps of the files involved
 - what the writer would pick up first, in one or two lines
 
-Do not resume merely to ask a question. If the answer needs the transcript, it belongs in the handoff.
+**"Resuming" includes sending a follow-up message.** `SendMessage` to an agent that has already reported — "next, do X", "now take Y", "continue with Z" — is a resume, and is what this rule forbids. There is no short-follow-up exception; that phrasing was here and it was read as a loophole wide enough to run a whole session through.
 
-Exception: a short, immediate follow-up on work an agent has just reported, where spawning fresh costs more than it saves.
+When a stream reports and there is more to do on its topic: ask it to write the handoff and stop, then spawn a fresh agent pointed at it. The next assignment goes in the *new agent's brief*, not in a message to the old one.
+
+Legitimate uses of `SendMessage`: relaying a fact a stream needs *for work already assigned* (another stream's finding, a blocker cleared, a correction to something you told it); telling a stream to stop; asking it to write its handoff. Not: giving it the next task.
+
+If the answer to a question needs the transcript, it belongs in the handoff.
 
 ## Frozen files
 
