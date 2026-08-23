@@ -9,6 +9,13 @@ MIGRATION WIP -- HANDOFF NOTE.  READ ALL OF THIS BEFORE TOUCHING EITHER FILE.
 !! missing" and is not.  Use the short name (namespaces are open at EOF) or the real prefix.
 !! Do NOT probe near :6152 -- that bare `end` closes a `mutual`, not a namespace.
 
+!! A MODULE'S BUILD STATUS COMES FROM AN EXIT CODE OR A FRESH TIMESTAMP -- NEVER from the
+!! absence of error lines naming it.  `lake` FAILS FAST here and never attempts this file's
+!! dependents, leaving their PREVIOUS oleans in place: `UniqueTyping`, `ShapeLogRelAdequacy`
+!! and `Reflect/Capstone` all carry stale artifacts.  Absence of a mention and absence of a
+!! failure are DIFFERENT FACTS.  Log formats also differ between `lake build` invocations
+!! (`error: <file>:L:C` vs `<file>:L:C: error`), so a grep for one shape silently returns 0.
+
 !! LINE NUMBERS GO STALE THE MOMENT THIS BANNER IS EDITED.  An error-position -> declaration
 !! mapping computed against an older copy yields a PLAUSIBLE WRONG ANSWER, not an error --
 !! same class as the primed-name regex below.  Re-derive positions from the same build.
@@ -949,6 +956,285 @@ Note on how this was settled: the enumerator (`Lean4Lean/Experimental/ShapeEnum.
 built for this question and then NOT NEEDED for it -- an existing hand-built witness already
 covered the case once the obligation was stated sharply enough.  Stating the obligation
 precisely was the expensive step, not searching for a witness.
+
+
+## 16. CONSUMER TABLE FOR THE `HasDom` DEFINITION CHANGE, 2026-08-23.
+
+Q: can `HasDom.iff`'s consumers supply a TYPED `x`?  If yes, the untyped `∀ x` is a defect and
+restricting it is a correction.  If no, restricting it is the forbidden move and it fails
+downstream instead of here.
+
+### The load-bearing definitional fact
+
+    def ShapeFun.WF (WF : Shape n → Prop) (f : ShapeFun n) : Prop :=
+      ((∃ y, (.bot, y) ∈ f) ∧ ∀ x ∈ f, ∀ y ∈ f, ...) ∧
+      ∀ x ∈ f, WF x.1 ∧ WF x.2                       -- <<< WELL-FORMED, NEVER TYPED
+
+A `WShapeFun`'s domain entries are required to be WF SHAPES.  Nothing anywhere requires them to
+have a type.  And `HasDom` itself only says SOME `x' ≤ x` in `f` is typed -- it types `x'`, not
+`x`.
+
+### The table (42 sites; classification is by the provenance of the instantiating argument)
+
+FREE -- site both CONSUMES and PRODUCES `HasDom`, so the restricted goal hands it the
+hypothesis.  6 sites:
+    3772 HasType.mono_r     3816 ih_dom            4327 HasType.join/go_dom
+    4785 HasDom.mono        6459, 6474 SoundEq.forallE_inv (`.2`, producing)
+
+CANNOT -- instantiated at a DOMAIN ENTRY of a `WShapeFun` (`(x,y) ∈ f`), which carries WF only.
+24 sites:
+    3755 HasDom.isType      3891 HasDom.iff ITSELF (← direction)
+    3899 HasTypePi.iff ←    3917, 3919 HasTypeLam.iff ←
+    4033, 4769 (simp [HasDom.def])
+    5643, 5644, 5687, 5688 LE_Interp.compat_join
+    5835, 5879 LE_Interp.subst
+    5970 forallE_inv        6016 lam_inv     (both via `f₁.2.2 _ hfm : x₁.WF ∧ y₁.WF`)
+    6157, 6183 sound_lam    6263, 6310 sound_forallE
+    6908, 6946 strongSoundS
+    7740 PiDefEq.lift_aux   7793, 7795 LamDefEq.lift_aux
+
+CANNOT -- instantiated at a plainly arbitrary `x`.  8 sites:
+    3905 HasTypePi.iff'     3929 HasTypeLam.iff'
+    6194, 6197 sound_lam    6283, 6297, 6319 sound_forallE
+    4593 HasType.proofIrrel
+
+PASSTHROUGH -- partial application, inherits its consumers' obligation.  4 sites:
+    6126 sound_app   7209 LamDefEq.mono_r_1   7374, 7375 PiDefEq.join
+
+### ANSWER: NO.  32 of 42 sites cannot supply a typed `x`; only 6 can.
+
+And the three that matter most are `HasDom.iff`, `HasTypePi.iff` and `HasTypeLam.iff`
+THEMSELVES -- the workhorses every other site goes through.  Their `←` directions instantiate
+at domain entries, so restricting `HasDom` breaks the very lemmas used to establish it.  The
+restriction would have to cascade into `HasTypePi` and `HasTypeLam` as well, and their reverse
+directions hit the same wall.
+
+By the coordinator's own criterion this is the FORBIDDEN version of a definition change:
+`HasDom`'s untyped `∀ x` is not a defect, it is what 32 sites rely on.  Restricting it dodges
+`go_dom_inner_fails` and re-emerges downstream, which is worse than failing here.
+
+METHOD NOTE: this table is a SOURCE READ of each site's instantiating argument -- the weaker
+instrument.  The definitional input (`ShapeFun.WF` gives WF, never typedness) is a read of a
+DEFINITION, which does not suffer the error-recovery problem that makes reading PROOFS
+unreliable.  The gap that WAS left open -- "no WF `WShapeFun` is forced to have typed
+entries" -- is now CLOSED by `wf_shapeFun_has_untyped_entry` (axiom-clean).
+
+
+## 17. OPTION SET AFTER THE JOIN FAMILY WAS RULED UNREPAIRABLE, 2026-08-23.
+
+### CORRECTION FIRST: "the Experimental cone is otherwise green" WAS WRONG all session.
+
+`lake` FAILS FAST at `ShapeLogRel` and never attempts its dependents, leaving their OLD oleans
+in place.  Measured mtimes:
+
+    Reflect/Capstone.olean        08-23 00:58   STALE
+    UniqueTyping.olean            08-23 00:56   STALE
+    ShapeLogRelAdequacy.olean     08-23 00:56   STALE
+    SExpr.olean                   08-23 02:13   fresh
+    ShapeLogRel.lean  (source)    08-23 03:04
+
+All three stale artifacts predate the breakage.  An `.olean` present is NOT evidence the module
+builds; my per-module error grep counted only `error: <file>.lean:` lines and so scored these
+as clean when they were simply never attempted.  This is the stale-environment trap, committed
+in my own REPORTING rather than in a proof.
+
+### What the shape model is actually FOR (measured, not inferred)
+
+    ShapeLogRel  ->  ShapeLogRelAdequacy   exports `sort_inv`, `forallE_inv`
+                 ->  Experimental/UniqueTyping   ("Using `sort_inv` and `forallE_inv` from
+                     `ShapeLogRelAdequacy` ... we prove type uniqueness up to defeq")
+                 ->  Reflect/Capstone      `sortUniq`, `VEnv.IsDefEqU.forallE_inv_params`,
+                                           relative to `[Params] [SExpr.ParamsExtra]`
+                 +   ParamsInstance        (instance for arbitrary `VEnv.WF env`; two fields
+                                           left: `classify`, `pat_wf`)
+                 ->  Theory/Typing/Injectivity
+
+And all SIX of `Theory/Typing/Injectivity`'s statements are `sorryAx`-backed (measured):
+`VEnv.IsDefEqU.{sort_inv, forallE_inv, forallE_inv_stratified, sort_forallE_inv,
+const_app_inv, const_forallE_inv}`.  So the shape model IS load-bearing for the injectivity
+route -- Capstone reaches it transitively through `UniqueTyping`.
+
+### OPTION 1 -- split `Compat` off the join.
+
+CHECK RUN: `compat_join` returns `⟨hc, ?_⟩` at :5836.  Component `.1` is `hc := .mono h3 a3
+hc1`; the failing `aty` line sits inside the SECOND component only.  So the `Compat` half does
+not textually depend on the broken line.
+NOT DECISIVE: `hc1` comes from `LE_Interp.Const.compat_join`, which carries its own error;
+whether that error is likewise confined to a `.2` position is UNCHECKED.
+VALUE: `subst`'s eight sites are four `.compat` + four `.join'`; this cleans the four.  It does
+NOT repair the join.  NOT PRICED.
+
+### OPTION 2 -- a different carrier: `Fits`'s upper bound instead of the lattice join.
+
+The idea: `Valuation.Fits.cons`'s second field supplies, for any shape realizing `A`, a
+CLASSIFIED upper bound realizing `A` -- an upper bound from the TYPING DERIVATION rather than
+computed by the lattice.  That is exactly the datum `go_dom` cannot obtain, and obtaining it
+this way never touches `HasDom`'s `∀ x`.
+CHECK RUN: the blocker is `subst` (8 sites, no `Fits`).  Its only consumer is `LE_Interp.inst`
+(:6039), whose consumers are at :6508, :6639, :7002, :7010 -- all inside `apps_realize` /
+`strongSoundS`, which DO carry `W : Fits`.  So `Fits` can reach `inst`.
+NOT CHECKED, and it is the same shape as the fact that killed the last two attempts: whether
+`Fits` survives `subst`'s `lam`/`forallE` induction steps, which apply the IH at `ρ.push x'.T`
+and therefore need `Fits.cons`'s field 2 -- the very field in question.  NOT PRICED.
+
+### OPTION 3 -- abandon the shape model.
+
+CHECK RUN: the replacement interface is SMALL.  `Experimental/UniqueTyping` consumes exactly
+two statements from the shape side -- `sort_inv` and `forallE_inv` from `ShapeLogRelAdequacy`
+-- and everything above it (UniqueTyping, Capstone, ParamsInstance, Injectivity) is written
+against those two STATEMENTS, not against the shape model's internals.  A grep of
+`UniqueTyping` for shape-side tokens returns only `LogRelAdequacy`.
+NOT CONCLUSIVE: `ShapeLogRelAdequacy`'s full export surface was not enumerated; two statements
+is the consumed set, not proven to be the whole seam.
+PRICE: whatever proves `sort_inv` / `forallE_inv` for `SExpr.IsDefEq`.  The named alternative
+is the ~2300-line Carneiro re-stratification.  NOT COSTED BY ME.
+
+
+## 18. THE TWO OPEN CHECKS OF SECTION 17, RUN.
+
+### CHECK 1 (Option 3) -- `ShapeLogRelAdequacy`'s export surface.  ANSWER: TWO STATEMENTS.
+
+`ShapeLogRelAdequacy` declares 16 things.  It is imported by EXACTLY ONE module,
+`Experimental/UniqueTyping`, which references exactly two of them:
+
+    SExpr.forallE_inv   -- 1 use  (:114)
+    SExpr.sort_inv      -- 4 uses (:130, :131, :149, :191)
+
+The other 14 are INTERNAL -- zero references from the only importer:
+    LR.Adequate + its 8 lemmas (bot, fits, refl, left, symm, trans, trans', cons)
+    LR.toValTy   LR.adequacyS   LR.adequacy   forallE_whRed_l   sort_forallE_inv
+
+Downstream of `UniqueTyping`: `BridgeInjectivity`, `Reflect/Capstone`.
+
+So replacing the shape model means RE-PROVING TWO STATEMENTS, not unwinding a cascade.
+Everything above the seam is written against the statements, not the model's internals.
+
+METHOD WARNING, recorded because the first attempt was WRONG: grepping the tree for the
+lemmas' BARE names returns hundreds of false hits, because `bot`, `refl`, `left`, `symm`,
+`trans`, `cons` are universal names and dot-notation (`h.symm`) is textually
+indistinguishable.  The measurement that works is the IMPORT GRAPH: only importers can
+reference a module's declarations at all.
+
+### CHECK 2 (Option 2) -- does `Fits` supply field 2 for the arbitrary `A` `subst` must push?
+### ANSWER: NO -- `Fits` does not carry that datum.
+
+Probe: `fits_field2_probe (W : Fits Γ₀ Γ ρ) (h : LE_Interp ρ a A) : ∃ a', a ≤ a' ∧
+LE_Interp ρ a' A ∧ a'.IsType`, by induction on `W`.  The two goals, read off the goal state:
+
+  case cons:  hf : ∀ {a}, LE_Interp ρ' a A' → ...     -- field 2 for `A'`, THE PUSHED TYPE
+              ih : LE_Interp ρ' a A → ...             -- right type, WRONG VALUATION (ρ', not ρ'.push x)
+              ⊢  ... at (ρ'.push x) for A
+  case nil:   no hypotheses at all
+              ⊢  ∃ a', a ≤ a' ∧ LE_Interp Valuation.nil a' A ∧ a'.IsType
+
+`Fits.cons` carries field 2 ONLY for the types it has already pushed; `ih` sits at the smaller
+valuation.  Neither reaches an arbitrary `A`.  And `subst`'s `lam` case pushes the LAM'S OWN
+DOMAIN, which is a term-derived `SExpr`, not a member of `Γ`.
+
+HONEST LIMIT: a failed proof attempt is NOT a refutation, and this is one -- the statement may
+still be true for reasons this induction does not see.  What the goal state DOES establish (it
+is data, not inference) is that Option 2's PREMISE -- "field 2 comes free from `Fits`" -- is
+false.  Field 2 would have to be proved independently, which is the same obligation the shape
+layer already failed at `go_dom`.
+
+
+## 19. THE TRACE: DO `sort_inv` / `forallE_inv` NEED THE JOIN FAMILY?  YES -- and the seam
+##     was VACUOUS anyway.
+
+### The path (both statements, measured)
+
+    sort_inv            (Adequacy:472)  -->  LE_Interp.sound
+    forallE_whRed_l     (Adequacy:445)  -->  LE_Interp.sound      [forallE_inv is one `cases`
+    forallE_inv         (Adequacy:462)  -->  forallE_whRed_l       away from forallE_whRed_l]
+
+    LE_Interp.sound  :=  soundS (H.strong hΓ) W
+    LE_Interp.soundS :=  ⟨(strongSoundS H).sound W, (strongSoundS H).left.sound W⟩
+    LE_Interp.soundSS -- CLEAN, but it merely PROJECTS an already-built `StrongSoundEq`
+
+So the single load-bearing step is `LE_Interp.strongSoundS`, and inside it:
+
+    sound_lam ...          -- JOIN FAMILY, 2 errors
+    RHS.of_applyS ...      -- JOIN FAMILY, sorry-backed
+    apps_realize W ...     -- JOIN FAMILY, sorry-backed
+    build_spine a2 W ...   -- SECTION 7 residue, 1 error
+
+ANSWER: the join is ON THE PATH, not merely near it.  Three separate join-family calls, in the
+one step both seam statements route through.
+
+### THE 12 ERRORS ARE THREE INDEPENDENT PROBLEMS, not one
+
+    JOIN FAMILY      (9)  HasType.join x2, HasDom.join, Const.compat_join, compat_join,
+                          sound_lam x2, PiDefEq.join x2
+    ParamsExtra PEEL (2)  strongSoundS -- `mkLams Δ L` mismatch; NOT a join error
+    SECTION 7        (1)  build_spine  -- `.ctor'`'s `r` argument
+
+### AND THE DECISIVE FACT: THE SEAM HAS NEVER HELD.
+
+`strongSoundS` carries `[ParamsExtra]`, and `SExpr.unpeeled_extra_pat_unsatisfiable`
+(AXIOM-CLEAN: propext, Quot.sound) proves `ParamsExtra` was UNSATISFIABLE before this
+session's peel.  So `strongSoundS` -- and `sort_inv`, `forallE_inv`, and every consumer
+(`UniqueTyping`, `BridgeInjectivity`, `Reflect/Capstone`) -- was VACUOUSLY TRUE.  The stale
+oleans on those three modules record exactly that vacuous version.
+
+Option 3 is therefore NOT "re-prove two statements the shape model established".  The shape
+model never established them.
+
+### THE REPLACEMENT'S ROW-ZERO CHECK (measured)
+
+    Theory/Typing/Strong.lean         1066 lines,  0 sorries   <-- stratification COMPLETE
+    Theory/Typing/Injectivity.lean     124 lines,  5 sorries
+    Theory/Typing/UniqueTyping.lean    279 lines,  1 sorry
+    Theory/Typing/ChurchRosser.lean   2207 lines, 11 sorries
+
+`IsDefEqU.forallE_inv` is DERIVED IN-FILE from `forallE_inv_stratified` via `.strong` and
+`.stratify` -- both from `Strong.lean`.  So the mainline needs exactly TWO proofs:
+`IsDefEqU.sort_inv` and `IsDefEqU.forallE_inv_stratified`, on a stratification layer that is
+already 1066 lines and SORRY-FREE.
+
+The "~2300 lines" figure is `ChurchRosser.lean`, which is a DIFFERENT file carrying its own 11
+sorries.  NOT CHECKED, and it is the row-zero question for this option: whether `sort_inv` /
+`forallE_inv_stratified` are provable from `Strong.lean` alone or require ChurchRosser's
+confluence results.  That check decides whether the replacement costs two proofs or two proofs
+plus a confluence development.
+
+
+## 20. THE CHURCHROSSER CHECK.  ANSWER: THEY CANNOT NEED CONFLUENCE -- IT WOULD BE CIRCULAR.
+
+Settled by the IMPORT GRAPH alone.  No ChurchRosser proof body was read (it carries 11 live
+sorries, so its proofs are unreliable by the rule in this banner's header); only imports and
+statement-level references.
+
+    ChurchRosser transitively imports Injectivity :  TRUE
+    Injectivity  transitively imports ChurchRosser:  FALSE
+
+The link is `Theory/Typing/UniqueTyping.lean`, whose FIRST import is `Injectivity` and which
+consumes `IsDefEqU.sort_inv` at :47, :50, :51, :54, :65, :69, :71, :80 ...; `ChurchRosser`
+imports that module (its own import line 3) and then consumes `IsDefEqU.forallE_inv` at 20+
+sites (:183, :188, :208, :211, :292, :313, :316, :362, :386, :404, :462, :467, :472, :487,
+:494, :544, :680, :686 ...) and `sort_inv` at :274, :481.
+
+So `ChurchRosser` sits STRICTLY ABOVE `Injectivity` and is one of its CONSUMERS.  Proving
+`IsDefEqU.sort_inv` / `IsDefEqU.forallE_inv_stratified` from confluence results would be
+circular.  Confluence is ruled OUT, not merely unnecessary.
+
+### What they may draw on: `Injectivity.lean`'s full transitive import set (35 modules)
+
+Substantive typing layer:
+    Theory.Typing.{Basic, Env, EnvLemmas, InductiveLemmas, Lemmas, Meta, QuotLemmas, Strong}
+plus Theory.Inductive.{Decl, Lemmas, Telescope}, Theory.{VEnv, VExpr, VLevel, VDecl, Quot,
+Meta}, and the Std/Batteries/Lean base.
+
+`Theory/Typing/Strong.lean` -- 1066 lines, ZERO sorries -- is in that set and supplies
+`HasTypeStratified`, `.strong` and `.stratify`, which is exactly the machinery
+`IsDefEqU.forallE_inv`'s in-file derivation already uses.
+
+### HONEST LIMIT ON WHAT THIS PROVES
+
+The import graph is a STRUCTURAL BOUND: it establishes that confluence CANNOT be used, and it
+enumerates what IS available.  It does NOT establish that the two statements ARE provable from
+that set.  If they need something genuinely new, that is new mathematics -- not a missing
+import -- and no reading of any file will show it.  What would settle THAT is an attempted
+proof, not a measurement.
 
 -/
 
@@ -4779,6 +5065,37 @@ theorem WShape.HasDom.single :
         · exact ⟨_, _, .inr ⟨hx, rfl, rfl⟩, bot_le, h1, HasType.bot_iff.2 h2⟩
     · refine ⟨_, _, .inr ⟨h, rfl, rfl⟩, .rfl, .rfl, HasType.bot_iff.2 ?_⟩
       obtain h | ⟨_, h⟩ := H <;> [exact h.isType; exact h]
+
+/-- **`ShapeFun.WF` DOES NOT IMPLY ITS DOMAIN ENTRIES ARE TYPED.**  Machine-checked witness for
+the load-bearing input of banner section 16, so that claim rests on a proof rather than on a
+reading of `ShapeFun.WF`'s text.
+
+`WShapeFun.single uDW .bot` is well-formed BY CONSTRUCTION (`single` returns the subtype, so
+its `.2` component is the WF proof), and its domain entry `uDW := cxA ⊔ cxA'` has NO TYPE AT
+ALL -- not merely "is not a type".  `cxA` and `cxA'` share no sort (`cx_refutes`), so their
+join is a `.forallE` that classifies at neither `.sort false` nor `.sort true`, and a
+`.forallE` shape has no other possible classifier.
+
+Consequence: the 32 sites of section 16 that instantiate `HasDom` at a domain entry genuinely
+cannot produce typedness -- there is nothing to produce it from. -/
+private theorem cxJ_compat : WShape.Compat (⟨cxA, cxA_wf⟩ : WShape 2) ⟨cxA', cxA'_wf⟩ := by
+  show Shape.Compat cxA cxA' = true; rfl
+
+private def uDW : WShape 2 := WShape.join ⟨cxA, cxA_wf⟩ ⟨cxA', cxA'_wf⟩
+
+private theorem uDW_val : uDW.1 = Shape.join cxA cxA' := WShape.join_val cxJ_compat
+
+private theorem uDW_untyped : ∀ c : WShape 2, ¬ uDW.HasType c := by
+  rintro ⟨c, cwf⟩ h
+  rw [WShape.HasType, uDW_val] at h
+  cases c <;> first
+    | exact Bool.noConfusion h
+    | (rename_i r; cases r <;> exact Bool.noConfusion h)
+
+private theorem wf_shapeFun_has_untyped_entry :
+    ∃ (f : WShapeFun 2) (x y : WShape 2), (x, y) ∈ f ∧ ∀ c : WShape 2, ¬ x.HasType c :=
+  ⟨WShapeFun.single uDW .bot, uDW, .bot,
+    WShapeFun.mem_single.2 (Or.inl rfl), uDW_untyped⟩
 
 theorem WShape.HasDom.mono {r} (le : a ≤ a') (h : a'.HasType (.sort r)) (H : HasDom f a) :
     HasDom f a' :=

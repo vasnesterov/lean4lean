@@ -1,3 +1,760 @@
+/-
+================================================================================
+MIGRATION WIP -- HANDOFF NOTE.  READ ALL OF THIS BEFORE TOUCHING EITHER FILE.
+================================================================================
+
+## 0. The two-file rule (breaks the tree if ignored)
+
+These two files must be restored TOGETHER:
+    scratchpad/SExpr.indTy-wip29.lean       -> Lean4Lean/Experimental/SExpr.lean
+    scratchpad/ShapeLogRel.indTy-wip29.lean -> Lean4Lean/Experimental/ShapeLogRel.lean
+
+`Classification.indTy` carries a `rel : Bool` and `CtorBundle` carries `hrel` instead of
+`hu0` in SExpr.lean; the pristine ShapeLogRel.lean calls `.indTy` with one argument and reads
+`hu0`.  Restoring one alone does not compile.  After restoring SExpr.lean you MUST
+`lake build Lean4Lean.Experimental.SExpr` before measuring ShapeLogRel.lean, or you are
+measuring against a stale `.olean`.  (The "144 instances / 105 lines" recorded at an earlier
+handoff was exactly that mistake: the byte-identical file measures 181/132 on a fresh build.)
+
+State: **12 error instances at 12 distinct lines.**  NOT green.  Measure with
+    lake env lean -DmaxErrors=600 Lean4Lean/Experimental/ShapeLogRel.lean
+`set_option maxErrors` does NOT take in-file, so a raw `lake build` count is a FLOOR.
+Do not use the FRONT line number as a metric while the banner is being edited.
+
+## 0a. WHAT THE 12 ERRORS ARE
+
+  (A) THE JOIN FAMILY -- 8 instances: `WShape.HasType.join`'s `go_dom` and `go_pi`,
+      `WShape.HasDom.join`, `LE_Interp.compat_join`, `LE_Interp.sound_lam` (x2),
+      `LRS.PiDefEq.join` (x2).
+      **The approved `LE_Interp`-relative repair is REFUTED.  See section 4.**
+
+  (B) SECTION 7's RESIDUE -- 1 instance, in `LE_Interp.build_spine`'s `.ctor'` branch.
+      Section 7 has LANDED in part: `WShape.HasType.proofIrrel` is now TRUE and PROVED.
+      What is left is that a `Prop`-valued inductive's constructor application must carry
+      shape `.bot`, and `WShape.ctor'` cannot see `Prop`-ness yet.  See section 7.
+
+  (C) THE `extra_pat` PEEL -- 2 instances, in `LE_Interp.strongSoundS`'s `extra` case.
+      The price of removing a VACUITY, not a regression.  See section 9.
+
+  (D) PER-LEAF LEVEL LISTS -- 1 instance, in `LE_Interp.Const.compat_join`'s `pat`/`pat` case.
+      Removes the SECOND `ParamsExtra` vacuity; one obligation left.  See section 11.
+
+## 1. What this migration is for -- AND WHAT HAS LANDED
+
+`CtorBundle.hu0 : u <> .zero` was FALSE (`CtorBundle Eq.refl` uninhabited: `Eq.refl`'s sort is
+`imax (u+1) (imax u 0) = 0`).  **REPAIRED; `LE_Interp.build_spine`'s `hu0` use is green.**
+`hu0` is replaced by
+
+    hrel : rel = true <-> u <> .zero
+
+which is not an invented hypothesis: it is `ParamsExtra.ctor_ty`'s existing
+`(rel = true <-> D.lvl <> .zero)`, now readable off the head constant because
+`Classification.indTy` carries the boolean.  `build_spine`'s telescope helper was strengthened
+from "propagates `<> .zero` downwards" to the full equivalence (`SLevel.imax_eq_zero` was
+already an iff), and the head's type-shape is `.sort rel` with `decide (u_body <> .zero) = rel`
+discharged from `hrel`.
+
+The `.type`-as-universe -> `IsType` migration is COMPLETE across the file.  Helpers added:
+`WShape.HasType.toIsType` (replaces `toType`), `WShape.HasType.bot_bot` /
+`TShape.HasType.bot_bot`, `WShape.IsType.not_lam` / `.not_ctor`, `WShape.indTy_join_indTy`,
+`WShape.IsType.common_of_le`, `Shape.HasType.indTy_false_bot` /
+`WShape.HasType.indTy_false_bot`.
+
+## 2. SIX REFUTED STATEMENTS -- do not re-propose these
+
+Witnesses are in `section CounterexampleProbe` (and, for (f), just after
+`LE_Interp.compat`).  `cx_refutes`, `j_refutes`, `le_interp_common_fails` are full
+`not-forall` proofs; `lam_join_fails`, `hasDom_escape_fails` are `rfl`-checked computations.
+
+  (a) `WShape.IsType.common` : Compat a a' -> a.IsType -> a'.IsType ->
+                               exists r, a.HasType (.sort r) /\ a'.HasType (.sort r)
+      FALSE.  Witness `cxA`/`cxA'`.  Mechanism: `ShapeFun.Compat`'s obligation on VALUES is
+      guarded by the KEYS, so the pair that would force `false = true` has incompatible keys
+      and never fires.  Join-closure and monotonicity of `ShapeFun.WF` were BOTH checked and
+      are SATISFIED -- `WF` is not where a proof attempt dies.  The declaration is DELETED
+      (it had zero consumers); `WShape.IsType.common_of_le` is its true form (section 4).
+
+  (b) `WShape.HasType.join`     -- FALSE (`j_refutes`).  Already shares `a`, so "restrict to
+                                   equal domains" is NOT a repair.
+  (c) `WShape.HasDom.join`      -- FALSE (`hasDom_escape_fails`).
+  (d) `WShape.HasTypeLam.join`  -- FALSE (`lam_join_fails`), so `go_lam` dies too.
+  (e) `WShape.HasType.proofIrrel` under the *un-gated* `ctor` rule -- FALSE.  **This one is
+      now FIXED rather than merely recorded**; see section 7.  `proofIrrel_gated` is the
+      regression test.
+  (f) **NEW AND IMPORTANT.**  The `LE_Interp`-relative repair of the join family:
+
+          LE_Interp rho a.T A -> LE_Interp rho a'.T A -> a.IsType -> a'.IsType ->
+            exists r, a.HasType (.sort r) /\ a'.HasType (.sort r)
+
+      is FALSE (`le_interp_common_fails`).  See section 4.
+
+## 3. THE THREE DIAGNOSIS SENTENCES
+
+  * A Pi-shape's shared codomain sort constrains the family's VALUES, never its DOMAINS.
+  * The `<=` relaxation is on the KEY, never on the TYPE.
+  * `Shape.join` is not a join in the typed sense.  It joins SHAPES; `hasType` is not closed
+    under it.  Any lemma asserting that joining preserves typing is asking `Shape.join` to be
+    something it isn't.
+
+## 4. THE JOIN FAMILY: THE APPROVED REPAIR IS REFUTED, AND WHAT IS TRUE INSTEAD
+
+The approved plan was: all seven consumers sit under `LE_Interp.compat_join` at the SAME `M`,
+so "both shapes realize the same term" is an invariant already in scope, and adding it to the
+join lemmas records a fact the callers hold.  The premise of the supporting argument -- that
+`LE_Interp.Const.indTy`'s boolean is a function of the head constant -- is now
+machine-checked (`Const.compat_join`'s `indTy`/`indTy` case discharges by `injection` on
+`classify c`).
+
+**The conclusion still does not follow.**  `le_interp_common_fails` is a sorry-free
+`not-forall` proof.  The escape is
+
+    LE_Interp.bvar : m <= rho i -> LE_Interp rho m (.bvar i)
+
+which puts NO condition on `rho`.  `cxA.Compat cxA'` holds, so `WShape.Compat.iff` hands us an
+upper bound -- their join -- and setting `rho i` to it makes BOTH realize `.bvar i` under the
+SAME valuation.  The join is classified by no sort, so no common sort exists.  The
+`Const.indTy` argument is correct *for `.indTy` shapes reached through `Const`*; it does not
+reach `bvar`, where the shape comes from the valuation and nothing forces it through `Const`.
+
+    THE DEFECT IS THAT `compat_join` QUANTIFIES OVER AN ARBITRARY `rho` WITH NO
+    WELL-FORMEDNESS HYPOTHESIS.
+
+That is the same shape of defect as `SExpr.IsDefEq.strong`'s missing `Ctx.WF` and
+`VEnv.Params.pat_wf`'s missing `OnCtx`, now on VALUATIONS rather than contexts.  PLAN.md
+already records the rule: *a statement about an arbitrary context with no well-formedness
+hypothesis should be treated as suspect by default on this project.*  Valuations are the
+third instance.  `rho i := cxA.join cxA'` is a shape that has NO TYPE AT ALL; `Valuation.Fits`
+never produces one, but `compat_join` does not ask for `Fits`.
+
+**WHAT IS TRUE** (`WShape.IsType.common_of_le`, proved, three lines of `HasType.retype`):
+
+    a <= z -> a' <= z -> z.IsType -> a.IsType -> a'.IsType ->
+      exists r, a.HasType (.sort r) /\ a'.HasType (.sort r)
+
+`Compat a a'` says *some* upper bound exists; what is needed is a **classified** one.  So the
+question for whoever takes this next is not "is co-realizability enough" (it is not) but:
+
+    CAN EACH CALL SITE PRODUCE A CLASSIFIED UPPER BOUND, AND IF SO, FROM WHERE?
+
+The obvious candidate `a.join a'` is circular -- its classification is what is being proved.
+
+### COSTED: threading `Fits` DOES NOT REACH THE CALL SITES.  Scoped before writing any lines.
+
+Of the 8 join-family error sites, **5 have no valuation in scope at all** -- not "no `Fits`",
+no `rho`:
+
+  | site                                   | enclosing declaration      | rho? | Fits? |
+  |----------------------------------------|----------------------------|------|-------|
+  | `go_dom`, `go_pi`               (2)    | `WShape.HasType.join`      | NO   | no    |
+  | `WShape.HasDom.join`            (1)    | (derived from `go_dom`)    | NO   | no    |
+  | `h4.isType.join ac a4.isType`   (1)    | `LE_Interp.compat_join`    | yes  | NO    |
+  | `(hi3 x h).isType`, `hT1.isType.join'` (2) | `LE_Interp.sound_lam`  | yes  | NO*   |
+  | `htB1.join hC_b htB2`, unsolved (2)    | `LRS.PiDefEq.join`         | NO   | no    |
+
+  (*) `sound_lam`'s single caller, `strongSoundS:5770`, does have `W : Fits`, so `sound_lam`
+  and `sound_forallE` COULD take one.  Nothing else can.
+
+`WShape.HasType.join` and `WShape.HasDom.join` are shape-lattice lemmas: there is no `rho`
+anywhere in their statements.  `LRS.PiDefEq.join`'s consumer is `LogRel.join_ty`, a FIELD of
+the abstract `LogRel` structure --
+
+    join_ty : m1.Compat m2 -> m1.IsType -> m2.IsType ->
+              TyDefEq A B m1 -> TyDefEq A B m2 -> TyDefEq A B (m1.join m2)
+
+-- which is parameterised by `Gamma` and `n` only.  There is no valuation to thread, ever.
+
+Adding `Fits` to `compat_join` would also push into `LE_Interp.compat` / `.join'` and thence
+into `LE_Interp.subst` and `LE_Interp.inst`, which are iff-statements about substitution with
+no `Fits` and no caller that has one.
+
+### SO THE HYPOTHESIS HAS TO BE THE CLASSIFIED UPPER BOUND ITSELF, CARRIED AS AN ARGUMENT
+
+The one encouraging structural fact, checked against the definitions but NOT machine-checked:
+a classified upper bound PROPAGATES DOWNWARDS through the recursion.  If `z.IsType` and
+`m1 <= z`, `m2 <= z` with `m1 = .forallE a b`, `m2 = .forallE a' b'`, then `forallE_le` gives
+`z = .forallE za zf` with `a <= za` and `a' <= za`, and `z.IsType` unfolds to
+`HasTypePi zf za r`, whose `HasDom zf za` gives `za.IsType` by `HasDom.isType`.  So `za` is a
+classified upper bound for the DOMAINS -- exactly what `go_dom` needs -- and `zf`'s values
+serve one level further down.  A single `exists z, m1 <= z /\ m2 <= z /\ z.IsType` at the top
+may therefore be enough for the whole family.
+
+### COSTED AT `Adequacy:89`.  IT CLEARS -- BUT NOT BY AN UPPER BOUND.
+
+A common CLASSIFIED UPPER BOUND is NOT producible there.  `InterpTyped.hsort` /
+`InterpTyped.hsort'` yield a bound PER SHAPE, and joining the two to get a single one needs
+`LE_Interp.join'`, which is `compat_join.2` -- one of the eight broken sites.  Circular.
+
+**But a common SORT is producible, and by a better route.**  `InterpTyped.hsort'` gives, for
+each shape realizing `A`, an upper bound classified at `.sort (U <> .zero)` -- and that
+boolean is a function of `U`, THE UNIVERSE `A` LIVES AT, not of the shape.  So the two bounds
+carry the SAME sort, and `HasType.retype` pulls the classification back down each of them
+separately.  No join, no circularity.  That is `LE_Interp.common_sort`, PROVED (search for it
+next to `InterpTyped.hsort`):
+
+    (H : forall {b}, LE_Interp rho b A -> InterpTyped rho b A (.sort U)) ->
+    LE_Interp rho a.T A -> LE_Interp rho a'.T A -> a.IsType -> a'.IsType ->
+      exists r, a.HasType (.sort r) /\ a'.HasType (.sort r)
+
+`Adequacy:89` has every hypothesis: `HA : IsDefEqStrong Gamma A A' (.sort u)` fixes `u`,
+`(LE_Interp.soundS HA W.fits).2` IS the `H` (it is already used three times in the same
+proof), `hA1` and `ha'` realize the same `A`, and `hp.isType` / `ht.isType` are the two
+`IsType`s.  So if `LogRel.join_ty`'s two `IsType` hypotheses become
+`m1.HasType (.sort r) -> m2.HasType (.sort r)` at a SHARED `r`, `Adequacy:89` discharges it.
+That is "strengthen a hypothesis the caller already has", the sanctioned shape.
+
+    SO THE CHAIN IS NOT DEAD.  BUT THE `exists z` FRAMING IS THE WRONG ONE, AND SO IS MINE
+    FROM THE PREVIOUS HANDOFF: THE COMMON SORT COMES FROM THE TERM'S UNIVERSE, NOT FROM THE
+    SHAPES AND NOT FROM AN UPPER BOUND.
+
+### WHAT IS STILL OPEN, AND IT IS NOT AT `Adequacy`
+
+A shared sort AT THE TOP does not reach `go_dom`.  That is diagnosis sentence 1: a Pi-shape's
+shared codomain sort constrains the family's VALUES, never its DOMAINS.  `go_dom` needs the
+two DOMAINS to share a sort, and the domains correspond to the DOMAIN TERM `B1`, whose own
+universe is what fixes their boolean.  So the fact has to be re-supplied at every level from
+the accompanying term, not propagated from the level above.
+
+`join_ty`'s other consumer, `LRS.PiDefEq.join`, sits at the `LogRel` layer, where the
+shape/term link is `TyDefEq`, not `LE_Interp` -- so `common_sort` is not applicable there.
+`ValTyPi2` DOES carry the domain term and its universe (`Gamma |- B1 == B2 : .sort u`), so the
+information is present; what is missing is a `LogRel` field connecting a validated type's
+shape to that universe, something like
+
+    ty_sort : TyDefEq A B m -> m.IsType -> Gamma |- A == B : .sort u ->
+              m.HasType (.sort (u <> .zero))
+
+### COSTED.  NOT CIRCULAR WITH `sort_inv`, AND IT DOES NOT NEED THE UNIVERSE AT ALL.
+
+**Circularity check first, and it comes out negative.**  I called `ty_sort` "essentially the
+substance of `sort_inv`"; that was too pessimistic.  `sort_inv` needs the LEVEL (`u ~~ v`);
+the shape model needs only the BOOLEAN `decide (u <> .zero)`, and the boolean is recoverable
+from a `SoundEq` between sorts by `LE_Interp.le_sort`, whose entire proof is a two-case
+induction on `LE_Interp` (`bot`, `sort`) and touches nothing.  The technique is already used
+in `build_spine`'s `imax` argument (`... .le_sort'` then `WShape.sort_le.1` then `injection`).
+So there is no circularity here, unlike the three earlier cases.
+
+**And the universe is not needed either.**  Stating the field with `u` in it forces the caller
+to reconcile two universes; `LRS`'s `join_ty` `forallE` case has `hBB : ... : .sort u` from
+`h1` and `hBB' : ... : .sort u'` from `h2`, over the SAME `B1 B2` (after the two `determ`s).
+Applying a universe-carrying `ty_sort` twice would leave `decide (u <> 0)` against
+`decide (u' <> 0)`.  Dropping the universe removes the problem:
+
+    join_sort : m1.Compat m2 -> TyDefEq A B m1 -> TyDefEq A B m2 ->
+                m1.IsType -> m2.IsType ->
+                exists r, m1.HasType (.sort r) /\ m2.HasType (.sort r)
+
+-- i.e. `IsType.common` relativised to `TyDefEq` at a common `A B`, the same move `common_sort`
+makes one layer down.  `join_ty` ALREADY has `hC : m1.Compat m2`, so the caller supplies
+nothing new.
+
+**Why it should be provable, case by case.**  `Shape.IsType.common_of_not_forallE` (PROVED,
+just above `WShape.IsType.common_of_le`) says `Compat` alone pins the sort in THIRTY-FIVE of
+the thirty-six constructor pairs; `cx_refutes`'s counterexample is confined to
+`forallE`/`forallE`.  Concretely `Compat` kills every cross-constructor pair, `.bot` is
+classified at every sort, `.sort`/`.sort` are both classified only at `.sort true`,
+`.indTy`/`.indTy` have equal booleans by `Compat`, and `.lam`/`.ctor` are excluded by
+`IsType`.  At `forallE`/`forallE`, `ValTyPi2` supplies what `Compat` cannot: both
+`PiDefEq`s carry `IH.TyDefEq (F1.inst a) (F2.inst a) (f_i.app p)` over the SAME `F1 F2`, so
+the recursion at `n` applies to corresponding codomain values -- take the bot-keyed element
+that `ShapeFun.WF` guarantees (`WShapeFun.bot_mem`).  Two sub-cases: if some value is not
+`.bot` its sort is unique and pins `r_i`; if every value is `.bot` then `HasTypePi f_i b_i r`
+holds for EVERY `r` and either choice works.
+
+ESTIMATE: one recursion on `n`, thirty-six cases of which thirty-five are `Compat`-closed,
+plus the two-sub-case argument at `forallE`.  Call it 40-80 lines.  NOT machine-checked as a
+whole -- what IS machine-checked is `common_of_not_forallE`, which is the half where
+`cx_refutes` bites.
+
+## 5. `PUnit.{u}` -- `.indTy` cannot carry a CONSTANT-level boolean by `decide`
+
+`PUnit.{u} : Sort u` is `Prop`-valued at `u = 0` and `Type`-valued at `u > 0`, and
+`PUnit.unit` must be classified as a constructor.  So no single boolean is correct for a
+constant computed syntactically; `IsNeverZero` is wrong for `PUnit.{1}` and `not (. ~~ .zero)`
+is wrong for `PUnit.{0}`.  The boolean is therefore bound EXISTENTIALLY in
+`ParamsExtra.ctor_ty` and tied propositionally, NOT by `decide`.  `CtorBundle.hrel` is the
+same tie one layer down; `build_spine` converts it to `decide (u_body <> .zero) = rel` only
+AFTER `u_body` is a concrete term.
+
+## 6. THE THREE-WAY TENSION, AND HOW IT WAS RESOLVED
+
+    (i)   `Eq.refl` is classified as a constructor (its iota-rule needs a `.ctor` leaf),
+          so it gets a `.ctor` shape;
+    (ii)  `Eq` is `Prop`-valued;
+    (iii) `proofIrrel` says everything at a `Prop` has shape `.bot`.
+
+These three cannot all hold.  THREE resolutions were refuted, each machine-checked:
+  - `hu0` asserted (ii) never happens for classified constructors -- `Eq.refl` refutes it;
+  - the sort-polymorphic `.indTy` rule dropped the distinction -- `proofIrrel` refutes it;
+  - the parameterisation RECORDED the distinction without ACTING on it in `HasTypeU.ctor`
+    -- the witness now kept as `proofIrrel_gated`'s history refutes it.
+The fourth, denying (i), is section 7 and is the one that works.
+
+## 7. SECTION 7 HAS LANDED IN PART.  `proofIrrel` IS PROVED.
+
+What was done (three edits, and it is the whole of the shape layer's side):
+
+  * `Shape.hasType`'s clause `| _+1, .ctor _ _, .indTy _ => true` became
+    `| _+1, .ctor _ _, .indTy r => r`;
+  * `Shape.HasTypeU.ctor` and `WShape.HasTypeU.ctor` were gated to `.indTy true`;
+  * `Shape.HasType.indTy_false_bot` / `WShape.HasType.indTy_false_bot` are the new fact --
+    `.indTy false` classifies only `.bot` -- and `WShape.HasType.proofIrrel`'s new `indTy`
+    case is one line of it.
+
+`proofIrrel_gated` is the regression test.  Nothing else in the file broke.
+
+WHAT IS LEFT, AND ITS MEASURED COST.  `LE_Interp.build_spine` builds the shape of a
+constructor application as `WShape.ctor' c rargs.reverse`, pinned by `LE_Interp.Matches.app`.
+For a `Prop`-valued inductive that shape must be `.bot` -- the application is a proof.
+`WShape.ctor'`'s existing `.bot` fallback is guarded by `IsStruct c` (i.e. `classify c` is
+`.etaCtor`), not by `Prop`-ness, and `Classification.ctor` does not carry the boolean, so the
+guard cannot be written.  So the remaining change is:
+
+    Classification.ctor (arity) (rel) and .etaCtor (params args) (rel),
+    then `WShape.ctor'`'s `dif` gains the `Prop`-ness disjunct.
+
+### TWO CHEAPER ROUTES WERE CHECKED FIRST.  BOTH ARE CLOSED.
+
+**(i) Get `rel` from `CtorBundle.hclI` instead of from `Classification.ctor`.**  NO.  `rel`
+IS in scope at `build_spine`'s failing site -- the bundle is right there.  But the boolean is
+needed at a COMPUTATION, not at a proof obligation: the shape is
+`WShape.ctor' c_a rargs_a.reverse`, pinned by `Matches.app`'s index, and `ctor'` is a `def`
+whose `dif` guard must be decidable from `c` alone.  A `CtorBundle` exists only as a
+hypothesis inside `IsDefEqStrong.const` / `StrongSoundCore.const`; `Matches` and `ctor'` are
+elaborated with `[Params]` only.  No fact can make a computed term `.bot`.
+Nor can the site dodge by choosing a different type-shape `a` for `apps_realize`: `a` must
+satisfy BOTH `(.ctor' c l).HasType a` (which, after section 7's gating and
+`WShape.indTy_le`, forces `a = .indTy true`) and `LE_Interp rho a.T T` (which the
+`Const.indTy` chain gives only at `.indTy rel`).
+
+**(ii) Relax `Matches.app`'s index from `= .ctor' c' rargs'.reverse` to `<=`, so the
+`Prop`-valued case can pick `.bot` without any datatype change.**  NO -- this refutes
+`LE_Interp.Matches.unique`.  `unique` recovers `c'` and `rargs'` FROM the index shape (see its
+proof: `head_wf` gives `classify c'` is a `.ctor`, hence `IsStruct c' = false`, hence `ctor'`
+takes its `.ctor` branch, hence the shape is injective in `rargs'`).  Under `<=`, two
+derivations with different `rargs'` share the index `.bot :: rargs` and produce different
+path-maps.  Analysed, not machine-checked -- stating it needs the datatype change first.
+
+### AND THE SAME MECHANISM IS WHY THE `dif` DISJUNCT IS NOT "ONE MORE DISJUNCT"
+
+    The existing `.bot` fallback is INFORMATION-PRESERVING.  A `Prop`-ness fallback would be
+    INFORMATION-DESTROYING.
+
+`WShape.ctor'`'s `.bot` branch fires exactly when `IsStruct c /\ not (ListNonZero l)`, and
+`ListNonZero l` is `exists x in l, not (x <= .bot)` -- so the branch fires ONLY WHEN EVERY
+ARGUMENT IS ALREADY `<= .bot`.  Nothing is lost: `rargs'` is still recoverable (it is all
+`.bot`), which is why `matches_inter`, `Const.compat_join` and `unique` survive today.  A
+disjunct keyed on `Prop`-ness fires with ARBITRARY arguments, and those three lose the
+recovery.  They do not merely "stop working"; `unique` looks FALSE.
+
+So section 7's residue is a genuine fork:
+
+  (alpha) `ctor'` falls back to `.bot` for `Prop`-valued inductives
+          => `Matches.unique` (and probably `matches_inter`) must be restated or is false.
+          Cost: 107 instances PLUS that.
+
+  (beta)  `Pattern.WF` requires `rel = true` at constructor leaves, so a `Prop`-valued
+          inductive's iota-rule is simply not a `Pattern`.
+          **REFUTED -- see `eq_large_eliminates` in `section CounterexampleProbe`.**
+          The premise was PLAN.md's small-elimination fact: the major premise is a proof, so
+          the whole redex is a proof and has shape `.bot`.  `Eq` is a `Prop` that LARGE-
+          eliminates -- `@Eq.rec`'s motive is `Sort u_1` -- so `Eq.rec ... (Eq.refl a)` at a
+          `Type`-valued motive is a `Nat`, not a proof.  Small elimination covers `Acc.rec`
+          and `Quot.lift`-over-a-`Prop`; it does not cover the subsingleton eliminators, and
+          `Eq` is the one that started this.
+          Consequence: `Params.pat_wf` + `ParamsExtra.extra_pat` would make `ParamsExtra`
+          UNSATISFIABLE for any environment containing `Eq` -- every real one.  Nothing in the
+          tree would notice, because there is no `ParamsExtra` instance; every downstream
+          result would go silently vacuous.  `ParamsExtra`'s docstring records that this
+          project has already been burned by exactly that once.
+
+  (gamma) Decouple at `LE_Interp.const`'s `HasType` premise, so `Eq.refl` keeps its `.ctor`
+          shape without being classified by a `Prop`-valued inductive.
+          **REFUTED -- see `ctor_not_prop_typed` in `section CounterexampleProbe`.**
+          Probed by actually removing the premise: 36 errors, all mechanical arity fixes
+          EXCEPT one, at `strongSoundS`'s `const` case, which builds
+          `InterpTyped ρ m (.const c ls) A` with that premise LITERALLY as the `HasType`
+          field (`.mk b3 (.const b1 b2 .rfl b4 b5 b6 b7) b5 b4` -- `b4` twice).  There is
+          nothing else to put there.  And the reason is not about where the premise sits:
+          `ctor_not_prop_typed` says **no shape both classifies a `.ctor` and is itself
+          `Prop`-valued**, so `InterpTyped`'s slot cannot be filled for `Eq.refl` at its
+          natural shape wherever the premise lives.
+
+ALL THREE ROUTES ARE CLOSED.  Section 7's residue is a DESIGN PROBLEM, and the sharpest
+statement of it is this:
+
+    Section 7 makes `proofIrrel` true by ruling that a `.ctor` shape is never classified by a
+    `Prop`-valued inductive.  But `Eq.refl` must HAVE a `.ctor` shape (its iota-rule's pattern
+    needs a `.ctor` leaf, and `Eq` LARGE-eliminates so that rule cannot be dropped), and it
+    must BE TYPED (`InterpTyped` demands a classifying shape for every realized term).  Those
+    two are now inconsistent for one and the same term, and no relocation of a premise
+    reconciles them -- the obstruction is `ctor_not_prop_typed`, which mentions neither
+    `LE_Interp` nor `Params`.
+
+Anything that resolves it must give up one of: `proofIrrel` at `Prop`-valued inductives; the
+`.ctor` leaf in iota-patterns; or `InterpTyped`'s totality on realized terms.
+
+MEASURED, not estimated (probe run and reverted):
+  * SExpr.lean side: **2 edits and it compiles clean** -- the inductive plus
+    `Classification.arity`, and one restatement of `Pattern.WF`'s `.const` clause from
+    `cl c = some (if top then .symb n else .ctor n)` to
+    `if top then cl c = some (.symb n) else exists r, cl c = some (.ctor n r)`.
+  * ShapeLogRel.lean side: **107 error instances at 60 distinct lines**, BEFORE `ctor'`'s
+    guard is touched at all.  Most look mechanical (pattern arity, unpacking the
+    existential), and it is the same order as the `IsType` migration that went 181 -> 9.
+  * On top of that, `ctor'` has 59 occurrences and the `.bot`-branch discharges in
+    `Matches.matches_inter`, `Const.compat_join` and `unique` currently use `head_wf` +
+    `IsStruct` and will stop working.  That risk is unmeasured.
+
+The banner's earlier estimate ("one more disjunct in an existing `dif`") was WRONG twice
+over: the disjunct is one line, but the boolean it tests costs 107 instances to introduce,
+AND the disjunct is not analogous to the one already there -- see the
+information-preserving/destroying paragraph above.
+
+## 9. `ParamsExtra.extra_pat` WAS UNSATISFIABLE.  IT IS NOW λ-PEELED.
+
+`SExpr.ParamsExtra.extra_pat` asked for `p.MatchesS (.instL ls (.mk df.lhs))` on the
+**unpeeled** left-hand side.  `Pattern.MatchesS` bottoms out at `const` and never accepts a
+`lam` (`Pattern.MatchesS.not_lam`, proved in the same file), and both `SExpr.mk` and
+`SExpr.instL` are structural on `lam`, so a binder in `df.lhs` survives both.  Every rule
+shape in a real environment has binders -- `quotDefEq.lhs` is `fun α r β f c a => ...`, and an
+iota-rule's lhs is `mkLams (iotaCtx C) _` with `iotaCtx` never empty.
+
+    => NO `ParamsExtra` INSTANCE EXISTED FOR ANY REAL ENVIRONMENT, and `LE_Interp.strongSoundS`
+       carries `[ParamsExtra]`, SO IT AND EVERYTHING DOWNSTREAM OF IT WAS VACUOUS.
+
+This is `PLAN.md`'s original "`extra_pat` is unsatisfiable" finding.  The MAINLINE
+`VEnv.Params.extra_pat` was cured by λ-peeling (that is what `Pat.extra` /
+`Pat.extra_delta` / `Pat.extra_quot` / `Pat.extra_iota` in `Theory/Typing/PatternRules.lean`
+are for); this copy never was.  The field now mirrors the mainline:
+
+    exists Δ L R p r m1 m2 dfs,
+      instL ls (mk df.lhs) = SExpr.mkLams Δ L /\ instL ls (mk df.rhs) = SExpr.mkLams Δ R /\
+      Pat p r /\ p.MatchesS L m1 m2 /\ ... /\
+      (forall a b A, (A,a,b) in dfs -> Δ.reverse ++ Γ |- a == b : A) /\ R = r.1.applyS m1 m2
+
+Two REGRESSION TESTS land with it, in `SExpr.lean` just after the class, stated as
+conditionals on a hypothetical unpeeled field so that they cannot rot:
+`SExpr.unpeeled_extra_pat_unsatisfiable` (any `lam`-headed lhs gives `False`) and
+`SExpr.iota_lhs_lam` (every iota-rule's lhs IS `lam`-headed).  Anyone who un-peels the field
+can instantiate the first with it and read off `False`.  Both are
+`[propext, Quot.sound]`, no `sorryAx`.
+
+COST, MEASURED: `SExpr.lean` compiles clean (the peel plus a small `SExpr.mkLams`).
+`ShapeLogRel.lean` gains exactly **2 errors, both in `strongSoundS`'s `extra` case**, and they
+are honest: both sides are now `mkLams Δ _` and the matched redex is the BODY.  Running the
+existing argument under `Δ` needs
+  (a) a congruence "`LE_Interp` respects the body of a `.lam`" -- a short `cases` on the
+      `lam`/`bot` rules, and the binder `A` is shared by both sides; and
+  (b) the two IHs and `W` transported under the telescope, which needs `StrongSound`
+      inversion through `lam`.
+Neither is written.  `iota_lhs_lam` is proved from `Theory/Inductive/Decl.lean` alone, so
+this file still does NOT import `Theory/Typing/PatternRules.lean`.
+
+## 10. THE THREE SECTION-7 EXITS, COSTED.  THE CHOICE IS BINARY.
+
+Measured by probe (each applied, counted, reverted).  Baseline is 11.
+
+### Exit 1 -- give up `proofIrrel` at `Prop`-valued inductives.  **1 case.  FALSE, not vacuous.**
+
+Deleting `WShape.HasType.proofIrrel` / `TShape.HasType.proofIrrel` costs exactly **one new
+error**, in `strongSoundS`'s `proofIrrel` case, plus one use at `ShapeLogRelAdequacy:428`.
+Nothing else in either file touches it.
+
+But the case does not merely become unproved -- it becomes FALSE.  It has to show
+`forall rho m, LE_Interp rho m h <-> LE_Interp rho m h'` for two UNRELATED proofs of the same
+`Prop`.  The only way a bi-implication holds for every `m` is if every shape realizing either
+side is `<= .bot`, and `LE_Interp.bot` then gives both directions.  So collapsing proofs to
+`.bot` is not *a* route to that case -- it is its entire content.  Concretely: undo section
+7's gating and `Eq.refl` gets a `.ctor` shape via `Const.ctor`, so
+`LE_Interp rho (.ctor' ..).T (Eq.refl a)` holds while `LE_Interp rho (.ctor' ..).T h'` for an
+opaque `h'` needs `.ctor' .. <= rho i` and fails.
+(Not machine-checked: exhibiting it needs a `classify` that reports `.ctor`, i.e. a `Params`
+instance, so it is a `Params`-relative construction rather than a shape computation.)
+
+`strongSoundS` is the adequacy engine, so this kills the route to `sort_inv`.  It fails LOUD.
+
+### Exit 2 -- give up the `.ctor` leaf in iota-patterns.  **No variant survives.**
+
+Two forms, both closed:
+  * (beta) `Pattern.WF` demands `rel = true` at ctor leaves, so a `Prop`-valued inductive's
+    iota-rule is not a `Pattern` at all.  REFUTED (`eq_large_eliminates`): `Eq` is a `Prop`
+    that LARGE-eliminates, so its rule cannot be dropped; and dropping it makes
+    `ParamsExtra` unsatisfiable for every environment containing `Eq`.  Fails VACUOUS -- the
+    worst mode, and the one this file was already caught by once (section 9).
+  * keep the rule but give the leaf a different SHAPE.  That is exactly (alpha):
+    `Classification.ctor`/`.etaCtor` gain the boolean and `WShape.ctor'` gains a `Prop`-ness
+    disjunct.  Measured: **2 edits in SExpr.lean (clean) + 107 error instances at 60 lines in
+    ShapeLogRel.lean**, before `ctor'`'s guard is touched -- and then `Matches.unique` looks
+    FALSE under it, because `unique` recovers `c'`/`rargs'` FROM the leaf shape and a `.bot`
+    leaf destroys them.  The relaxation of `Matches.app`'s index to `<=` is the same thing and
+    fails the same way.
+
+### Exit 3 -- give up `InterpTyped`'s totality.  **It degenerates to Exit 1.**
+
+Blunt probe (drop the `m'.HasType a` conjunct outright): **32 errors, +21 over baseline**, in
+`InterpTyped.bot/mk/out/hsort'`, `sound_app`, `sound_lam`, `sound_forallE`, `apps_realize`
+and five places in `strongSoundS`.
+
+The failures name what the field is FOR, and it answers the question directly.  The errors are
+`True.bot_r'` and `True.ty_forallE_inv`: **`InterpTyped`'s classification is what lets the
+model DESTRUCTURE a shape** -- `sound_app` uses it (through `TShape.HasType.ty_forallE_inv`)
+to learn that a function's shape is a `.forallE` before applying it, and `sound_lam` /
+`sound_forallE` use it to build their `HasDom` obligations.  So the interpretation does need a
+classifying shape, but only for terms it destructures.
+
+Now the targeted form -- exempt only `Prop`-valued types, e.g. weaken the conjunct to
+`m'.HasType a \/ a.HasType .prop`.  Every non-`proofIrrel` consumer of the classification sits
+at a `.forallE` or `.sort` type-shape (application, lambda, Pi-formation), and a term whose
+type is a `Prop`-valued INDUCTIVE is never applied and never a binder's domain.  So the
+exemption never fires at those sites, and the ONLY thing it costs is `proofIrrel`'s input.
+
+    => TARGETED EXIT 3 IS EXIT 1.  There are not three exits; there are two.
+
+### The decision, as narrowly as it can be put
+
+    (I)  `proofIrrel` at `Prop`-valued inductives -- 1 case, and it goes FALSE and loud; or
+    (II) 107 instances plus restating `Matches.unique`, which looks FALSE under the change.
+
+## 11. PER-LEAF LEVEL LISTS.  THE SECOND `ParamsExtra` VACUITY, AND ITS FIX.
+
+Section 9 peeled `extra_pat`'s λ-telescope.  **That was not enough**: `ParamsExtra` was still
+unsatisfiable, so `strongSoundS` was still vacuous.
+
+`Pattern.MatchesS` recorded a SINGLE `List SLevel` for a whole match -- its `app` rule kept the
+function side's list and discarded the argument side's -- where the `VExpr`-side `Matches`
+records one per leaf.  Its docstring called that deliberate and priced it at one consequence
+(`applyS` ignoring an `RHS.fixed`'s `LPath`).  There was a second, and it was fatal:
+`Check.defeqsS` also dropped the two `LPath`s of a `Check.level x i y j` clause and read BOTH
+indices out of the one list.  On the `VExpr` side that clause relates the RECURSOR leaf's list
+to the CONSTRUCTOR leaf's -- which is what makes `iotaLevelPairs`' `(i+1, i)` true, since
+`selfLvls` is the block's parameters shifted by one when `isLE` prepends a fresh elimination
+universe, so both sides evaluate to `ls.getD (i+1)`.  Read out of one list it degenerated to
+`ls.getD (i+1) = ls.getD i`, and `extra_pat` demands that for ARBITRARY `ls`.  False for any
+large eliminator with a universe parameter: `List`, `Prod`, `Sum`, `Sigma`.
+
+FIXED.  `MatchesS`, `RHS.applyS` and `Check.defeqsS` now carry `p.LPath → List SLevel`;
+`LE_Interp.RHS` gained the `LPath` index; `LE_Interp.Const` dropped its shared `ls` (17 call
+sites, mechanical -- Lean drops an unused `variable`, so the arity changes whether you want it
+to or not); `Const.pat` binds the map; `build_spine` reads the head leaf with
+`Pattern.LPath.head`.
+
+MEASURED, not estimated: `SExpr.lean` **4 edits, compiles clean**.  `ShapeLogRel.lean`
+**+1 error over baseline** -- and the intermediate counts are worth knowing, because they are
+almost all cascade: 318 at first (one root failure, `LE_Interp` not elaborating), 26 after the
+`Const` call sites, 16 after the `pat` binder, 12 after `build_spine`.  Do not read an early
+count on this refactor as a cost.
+
+THE ONE OBLIGATION LEFT is in `LE_Interp.Const.compat_join`'s `pat`/`pat` case: `Const.pat`
+binds `lsm` existentially (its type depends on `p`, which that rule binds), so `Const` has
+nowhere to record the map, and the two `Const`s -- which describe the same term and so do
+agree -- cannot be shown to.  Closing it means `LE_Interp.Const` and `LE_Interp.Matches`
+indexed by `LPath`.  That, and only that, is the "shape-model-core work" the old docstring
+named.
+
+## 12. THE RE-INDEXING, SCOPED.  28 ROWS, AND THE EARLIER ~12-15 WAS AN UNDERCOUNT.
+
+### Row zero: is the statement sufficient?  YES, and it is checked.
+
+"The index carries the matched arguments independently of the leaf shape" is sufficient for
+`Matches.unique`.  `ToyMatchesR` + `toy_unique_of_record` (both proved, in `section
+ExitProbes`) put the matched datum in the INDEX and leave the shape as `leaf rec`, still free
+to collapse; uniqueness then holds **for any `leaf`, injective or not** --
+`toy_unique_of_record_bot` instantiates it at the collapsing leaf that `toy_unique_fails`
+refutes.  So `unique` stops needing leaf injectivity, which was the obstruction.
+
+### The record type it needs
+
+`MArg n`, level-indexed like `Shape`:  `.shape (x : WShape n) : MArg n`  (a `var` position)
+and `.ctor (c : Name) (l : List (MArg n)) : MArg (n+1)`  (an `app` position), with
+`MArg.toShape : MArg n -> WShape n` derived.  The record must carry SHAPES, not just
+term-level data: `Matches.var`'s index entry is the argument shape and `unique`'s induction
+needs it, so a names-only record does not close the induction.
+
+`Const`'s index must move to `List (MArg n)` as well.  Leaving it as shapes and having
+`Const.pat` bind the record existentially re-introduces the collapse one level up, at
+`Const.compat_join`'s `pat`/`pat` case -- the same gap as the per-leaf `lsm`, and for the same
+reason.  That is what makes this one change rather than two, and it is also why the earlier
+count was short: it counted `Matches`' consumers and missed that `Const` CONSUMES THE INDEX
+and so needs an order, a join and a lift on it.
+
+One refinement worth having before row 3: `Matches.matches_inter` relates matches of two
+DIFFERENT patterns `p` and `q`, so `MArg.Compat` must handle the mixed
+`.shape` / `.ctor` pair; `Matches.compat_join` relates two matches of the SAME `p`, so
+`MArg.join` is only ever applied to pattern-aligned pairs and needs no mixed case.  **Compat
+total, join partial.**
+
+### The rows
+
+Arithmetic: `M` mechanical (retype, proof unchanged), `P` positional (binder/index positions
+move, structure unchanged), `S` structural (needs a new argument or definition).
+
+    GROUP A -- the record type (new)
+     1  S  `MArg` datatype and `MArg.toShape`
+     2  M  `MArg.lift` + its `lift_lift`/`lift_self` lemmas
+     3  S  `MArg.LE` and its order lemmas (refl, trans, `le_shape`, `le_ctor`)
+     4  S  `MArg.Compat` -- TOTAL, incl. the mixed pair (needed by `matches_inter`)
+     5  S  `MArg.join` on pattern-aligned pairs + `Join.mk` (join is the lub)
+     6  S  `toShape` monotone, and commutes with `lift` and `join`
+        Group A is a small lattice, but it is a lattice: compare `Shape`'s own
+        LE/Compat/join API in this file, which runs ~200 lines.  `MArg`'s has no
+        `forallE`/`lam`/`sort` cases, so ~80-120.
+
+    GROUP B -- `Matches` re-indexed (11 rows)
+     7  S  `LE_Interp.Matches` (inductive) -- index becomes `List (MArg n)`
+     8  M  `Matches.varN_const_head`
+     9  P  `Matches.arity`               (`.length` survives)
+    10  P  `Matches.head_wf`
+    11  P  `Matches.head_wf_eq`
+    12  S  `Matches.mono_l`              (needs `MArg.LE`)
+    13  S  `Matches.matches_inter`       (needs total `MArg.Compat`)
+    14  S  `Matches.compat_join`         (needs `MArg.join`)
+    15  M  `Matches.unique`              -- gets SHORTER: the `ctor'`-injectivity step goes
+    16  M  `Matches.lift`                (needs `MArg.lift`)
+    17  P  `Matches.of_matchesS`
+
+    GROUP C -- `Const` re-indexed (7 rows)
+    18  S  `LE_Interp.Const` (inductive) -- `ctor`/`indTy` read `.length` and `toShape`;
+           `lam` injects a bare shape with `MArg.shape`
+    19  P  `Const.mono`
+    20  S  `Const.mono_l`                (needs `MArg.LE`)
+    21  M  `Const.lift`                  (needs `MArg.lift`)
+    22  P  `Const.closed`
+    23  P  `Const.compat_mismatch`       (`.length` only)
+    24  S  `Const.compat_join`           (needs `MArg.join`; this is where the per-leaf
+           obligation of section 11 closes, since `Const` now records what it needs)
+
+    GROUP D -- consumers (4 rows)
+    25  P  `LE_Interp.const` (the rule) and the `LE_Interp` lemmas that case on it
+    26  P  `LE_Interp.apps_realize` / `apps_realize_inv`
+    27  S  `LE_Interp.build_spine`       -- builds the record from the `MatchesS`
+    28  P  `strongSoundS`'s `pat` and `extra` cases
+
+    28 rows: 9 structural, 8 positional, 6 mechanical, 5 in group A that are a small lattice.
+
+### GROUP A IS BUILT.  Rows 1-6, green, ZERO new errors.
+
+`MArg` and its lattice are in the file, just above `LE_Interp.Matches`: **16 declarations,
+145 lines (~118 of code)** -- inside the 80-120 estimate.  Rows 1-5 (`MArg`, `shape`, `ctor`,
+`toShape`, `lift`, `ble`/`LE`, `Compat`, `join`) compiled with no repairs at all; row 6 is the
+four homomorphism lemmas `toShape_lift` / `toShape_mono` / `toShape_compat` / `toShape_join`,
+which are what the consumer rows actually consume and nothing more.
+
+Two things the build settled that the scope only guessed:
+
+  * `toShape_lift` needs `n <= m`.  `WShape.lift` truncates downwards, so the equation is
+    false without it.  Harmless -- `Matches.lift` and `Const.lift` are upward-only -- but it
+    means row 16 and row 21 inherit the hypothesis.
+  * `join`'s fallback should be `.shape (toShape x |>.join (toShape y))`, not `.shape .bot`.
+    With `.bot` the join equation needs an alignment side-condition; with the fallback it
+    holds under `Compat` alone, in every case.  That is why row 6 came out at four lemmas
+    rather than four plus an `Aligned` predicate.
+
+### What it buys, and what it does not
+
+Buys: section 7's `.ctor`-leaf obstruction (the leaf may collapse to `.bot` for a
+`Prop`-valued head without `unique` noticing) AND section 11's open obligation (row 24).
+Still needed on top, for section 7: `Classification.ctor`/`.etaCtor` gain the boolean --
+separately measured at 2 edits in `SExpr.lean` and **107 instances at 60 lines** here.
+
+Does not touch: the join family (groups A of section 0a), whose obstruction is about Pi-shape
+DOMAINS; or the lambda-peel (group C), which lives on `MatchesS`.  Both survive unchanged.
+
+## 13. THE `bvar` TEST.  POSITIVE, AND PARTIAL -- READ BOTH HALVES.
+
+### The positive half, proved: the refuting witness cannot be planted in a typed valuation
+
+`jM_no_typed_bound` (next to `IsType.common_of_le`).  Every shape-level relativisation died to
+the same trick: `Compat` guarantees an upper bound, so put it in `rho i` and let
+`LE_Interp.bvar` read the bad pair straight off the valuation.  That trick **requires an
+untyped valuation entry**:
+
+    z above both is `.forallE z1 z2` whose domain z1 is above BOTH `cxA` and `cxA'`
+    (`forallE_le`); `z.IsType` unfolds through `HasTypePi z2 z1 r` to `HasDom z2 z1`, which
+    gives `z1.IsType` by `HasDom.isType`; and `IsType.common_of_le` then hands `cxA`/`cxA'`
+    a common sort, which `cx_refutes` says they do not have.
+
+So `j_refutes`'s and `le_interp_common_fails`'s witnesses have NO typed common upper bound, and
+`Valuation.Fits` never produces one.  The earlier measurement -- "threading `Fits` does not
+reach 5 of 8 sites" -- indeed no longer binds: 4 of those 5 are the shape-layer lemmas this
+plan RETIRES rather than proves.
+
+### The partial half, and it changes the shape of the work
+
+The `bvar` case still does not close on that alone.  Proving
+`(m1.join m2).HasType (a1.join a2)` there needs `(a1.join a2).IsType` first, to `mono_r` both
+sides up to the joined type.  `common_sort` gives `a1` and `a2` a SHARED SORT -- but
+`j_refutes`'s pair shares a sort too (`.sort true`), so a shared sort is not what excludes it;
+the absence of a common CLASSIFIED UPPER BOUND is.  And `Valuation.Fits.cons`'s second field
+supplies a classified upper bound for each shape realizing `A` SEPARATELY, not one for both.
+
+The only route to a common one is `Fits`'s field applied to `a1.join a2` -- which needs
+`LE_Interp rho (a1.join a2) A`, i.e. `compat_join`'s own conclusion.  **Inside the induction
+that is available from the IH** (the `const` case already computes it as `ih1 hrho a5`);
+outside it, it is circular.
+
+    => `compat_join` must prove `Compat`, `LE_Interp (join)` and the typing fact in ONE
+       simultaneous induction, with `Fits` threaded -- not as a lemma applied afterwards.
+
+### What that costs, over the 6-8 already reported
+
+`compat_join` gains a `Fits`-style hypothesis, and its callers must supply it.  The blocker to
+check first is `LE_Interp.subst`: it uses `.compat`/`.join'` EIGHT times, has no `Fits`, and
+CONSTRUCTS the valuations it uses (`rho1.join rho2`, pointwise) -- so it would have to
+establish the hypothesis for a joined valuation rather than assume it, and `Fits.join` does
+not exist.  That is the next thing to test, and it is the join family's row zero.
+
+## 8. Working notes for editing this file
+
+  * `set_option maxErrors` does not take -- see section 0.
+  * A grouped `match` pattern produces ONE GOAL PER ALTERNATIVE.  `split` on `Shape.hasType`
+    fans out to twelve, not eight; `split` tags them `h_1 ... h_12`.
+  * Inside `first | ... | ...`, a `by` block nested in an `exact` is POSTPONED: every
+    alternative must fail SYNCHRONOUSLY -- write `(refine ... ?_; tac)`, never
+    `exact ... (by tac)`.
+  * Inside `first`, a compound branch `(tac1; tac2)` FAILS when `tac1` closes the goal.
+  * Lean reports errors BY LINE, not by declaration name.  Filter by line span.
+  * `exacts [...]`, `set`, and `by_contra` are NOT available (no Mathlib).  Use
+    `Decidable.byContradiction`, or `Bool.eq_iff_iff` + `of_decide_eq_true`/`decide_eq_true`
+    for `decide _ = b` goals -- that is how `build_spine`'s `hdec` is proved.
+  * `have <pattern> := e` elaborates through `match` and refuses a motive with metavariables;
+    `obtain` does not.  Destructure with `obtain` and EXPLICIT names.
+  * `WShape.casesOn'`'s `lam`/`ctor` cases used to be closed by `trivial`, because `trivial`
+    tries `contradiction` and `HasType (.lam ..) .type` reduced to `false = true`.  Under
+    `IsType` it does not reduce; use
+    `absurd (WShape.HasType.isType h) WShape.IsType.not_lam` (resp. `.not_ctor`).
+  * `LE_Interp.Const.indTy`'s `cases`-pattern binder order is `{rel} {m} {rargs}` -- the
+    `@indTy` pattern is `| @indTy _ _ rargs hct m_le`.  Get it from `#check @...`; auto-bound
+    implicit order is not source order.
+  * **NEVER write `def SExpr.foo` inside `namespace SExpr`.**  It declares
+    `Lean4Lean.SExpr.SExpr.foo` and thereby CREATES the namespace `Lean4Lean.SExpr.SExpr`;
+    every later `SExpr.Bar` written inside `namespace Lean4Lean.SExpr`, in this file or in any
+    consumer, then resolves there first and fails.  `SExpr.mkLams` did this and broke
+    `Experimental/LogRel.lean` with `Unknown constant Lean4Lean.SExpr.SExpr.Subst` -- a file
+    this stream does not touch.  It is the namespace trap doubled, and it surfaces at a
+    CONSUMER, far from the cause.
+  * **Build the whole `Lean4Lean.Experimental` cone, not just your own two files.**
+    `lake build Lean4Lean.Experimental.ShapeLogRelAdequacy` succeeds while `LogRel.lean` is
+    broken, because `LogRel` is not on that path.  Build every module under
+    `Lean4Lean/Experimental/` and read the FIRST failure, which may be in a file you never
+    edited.
+  * **A deferral must never be stated as "the cost is X".**  State it as "the cost includes
+    X; not audited for others."  `MatchesS`'s single level list was deferred with one
+    consequence named (`applyS` ignoring an `LPath`) and a second unnamed one that made
+    `ParamsExtra` unsatisfiable and `strongSoundS` vacuous.  A stale docstring can be caught
+    by checking it against the code; a complete-LOOKING partial deferral gives the reader no
+    signal that anything is missing, so it survives every check.  Sibling of the stale-doc
+    rule above, and worse.
+  * **A scripted block replacement silently ate `private def piX`/`piA` this session and the
+    file still elaborated**, because Lean auto-bound the now-undefined names as implicit
+    variables and the errors surfaced three components later as bogus type mismatches.  After
+    any scripted edit that replaces a *range*, grep that the definitions it spanned are still
+    there.
+
+Full background, all witnesses and all prose: docs/design-shape-lattice.md.
+Remove this banner when the migration lands.
+================================================================================
+-/
+
 import Lean4Lean.Theory.Inductive.Decl
 import Lean4Lean.Theory.Inductive.Lemmas
 import Lean4Lean.Theory.Typing.Lemmas
@@ -10,10 +767,15 @@ inductive Classification where
   | ctor (arity : Nat)
   | etaCtor (params args : Nat)
   | symb (arity : Nat)
-  | indTy (arity : Nat)
+  /-- `rel` records whether the inductive is `Type`-valued (`true`) or `Prop`-valued
+  (`false`). It is genuinely part of how a constant classifies, and it must live here rather
+  than be looked up: `LE_Interp.Const.indTy` needs the shape's sort boolean to be a function
+  of the *constant*, which is what makes two shapes over the same head unable to disagree
+  about it -- see `docs/design-shape-lattice.md`. -/
+  | indTy (arity : Nat) (rel : Bool)
 
 def Classification.arity : Classification → Nat
-  | .ctor k | .symb k | .indTy k => k
+  | .ctor k | .symb k | .indTy k _ => k
   | .etaCtor p a => p + a
 
 def Pattern.WF (cl : Name → Option Classification) :
@@ -521,18 +1283,32 @@ theorem Ctx.Inter.right (H : Ctx.Inter Γ Γ₁ l₁ Γ₂ l₂ Δ) : Ctx.Lift' 
 
 theorem Ctx.Inter.left (H : Ctx.Inter Γ Γ₁ l₁ Γ₂ l₂ Δ) : Ctx.Lift' l₁ Γ₁ Δ := H.symm.right
 
-/-- The `SExpr` mirror of `Pattern.Matches`. It deliberately still keeps a **single**
-level list rather than the `p.LPath → List SLevel` map that the `VExpr`-side `Matches`
-now carries: exploiting per-leaf levels here would mean indexing `LE_Interp.Matches` and
-`LE_Interp.Const` by `LPath` too, which is shape-model-core work. Until then `applyS`
-ignores an `RHS.fixed`'s `LPath` and instantiates every leaf at the head's levels — the
-pre-`LPath` semantics, unchanged. -/
+/-- The `SExpr` mirror of `Pattern.Matches`, carrying a `p.LPath → List SLevel` map — one
+level list **per leaf**, as the `VExpr`-side `Matches` does.
+
+**This used to keep a single list, and that was a defect, not a simplification.** The old
+docstring priced the deferral at one consequence — `applyS` ignoring an `RHS.fixed`'s
+`LPath` — and there was a second. `Check.defeqsS` also dropped the two `LPath`s of a
+`Check.level x i y j` clause and read *both* indices out of the one list. On the `VExpr` side
+that clause relates the **recursor** leaf's list to the **constructor** leaf's, which is what
+makes `iotaLevelPairs`' `(i+1, i)` true: `selfLvls` is the block's parameters shifted by one
+when `isLE` prepends a fresh elimination universe, so both sides evaluate to `ls.getD (i+1)`.
+Read out of one list it degenerated to `ls.getD (i+1) = ls.getD i`, relating the elimination
+universe to a block parameter — and `extra_pat` quantifies over every `ls` of the right
+length, so it demanded that for arbitrary `ls`. **False for any large eliminator with a
+universe parameter: `List`, `Prod`, `Sum`, `Sigma`.** So `ParamsExtra` was still
+unsatisfiable after the λ-peel, and `strongSoundS` was still vacuous.
+
+The cost of carrying the map is much smaller than the old note guessed: four edits here
+(this inductive, `RHS.applyS`, `Check.defeqsS`, and `MatchesS.determ`), and on the shape side
+`LE_Interp.RHS` gains the `LPath` index while `LE_Interp.Const` drops its shared `ls`. One
+obligation is left open there; see `ShapeLogRel.lean`'s banner, section 11. -/
 inductive _root_.Lean4Lean.Pattern.MatchesS :
-    (p : Pattern) → SExpr → List SLevel → (p.Path → SExpr) → Prop
-  | const : MatchesS (.const c) (.const c ls) ls nofun
+    (p : Pattern) → SExpr → (p.LPath → List SLevel) → (p.Path → SExpr) → Prop
+  | const : MatchesS (.const c) (.const c ls) (fun _ => ls) nofun
   | var : MatchesS f f' f1 g1 → MatchesS (.var f) (.app f' a') f1 (·.elim a' g1)
   | app : MatchesS f f' f1 g1 → MatchesS a a' f2 g2 →
-    MatchesS (.app f a) (.app f' a') f1 (Sum.elim g1 g2)
+    MatchesS (.app f a) (.app f' a') (Sum.elim f1 f2) (Sum.elim g1 g2)
 
 /-- A pattern never matches a term whose head is a `lam`: `MatchesS`'s spine bottoms out
 at `const`, and neither `var` nor `app` accepts a `lam`. This is what separates a `beta`
@@ -564,17 +1340,17 @@ theorem _root_.Lean4Lean.Pattern.MatchesS.inter_exists {p : Pattern} {e : SExpr}
 /-- A pattern determines its own match. -/
 theorem _root_.Lean4Lean.Pattern.MatchesS.determ {p : Pattern} {e : SExpr} {m1 m2 m1' m2'}
     (H1 : p.MatchesS e m1 m2) (H2 : p.MatchesS e m1' m2') : m1 = m1' ∧ m2 = m2' := by
-  induction H1 generalizing m1' with
+  induction H1 with
   | const => let .const := H2; exact ⟨rfl, rfl⟩
   | var _ ih => let .var h := H2; have ⟨e1, e2⟩ := ih h; exact ⟨e1, by rw [e2]⟩
   | app _ _ ih1 ih2 =>
     let .app h1 h2 := H2
-    have ⟨e1, e2⟩ := ih1 h1; have ⟨_, e4⟩ := ih2 h2
-    exact ⟨e1, by rw [e2, e4]⟩
+    have ⟨e1, e2⟩ := ih1 h1; have ⟨e3, e4⟩ := ih2 h2
+    exact ⟨by rw [e1, e3], by rw [e2, e4]⟩
 
 def _root_.Lean4Lean.Pattern.RHS.applyS {p : Pattern}
-    (m1 : List SLevel) (m2 : p.Path → SExpr) : p.RHS → SExpr
-  | .fixed c _ _ => .instL m1 (.mk c)
+    (m1 : p.LPath → List SLevel) (m2 : p.Path → SExpr) : p.RHS → SExpr
+  | .fixed c lp _ => .instL (m1 lp) (.mk c)
   | .var path => m2 path
   | .app f a => .app (f.applyS m1 m2) (a.applyS m1 m2)
 
@@ -597,11 +1373,11 @@ A `Check.level x i y j` obligation is emitted as a defeq between two *sorts*: on
 equation. So no separate level-checking predicate is needed here, and `WHRed.extra` keeps
 its single `defeqsS` premise. -/
 def _root_.Lean4Lean.Pattern.Check.defeqsS {p : Pattern}
-    (m1 : List SLevel) (m2 : p.Path → SExpr) : p.Check → List (SExpr × SExpr)
+    (m1 : p.LPath → List SLevel) (m2 : p.Path → SExpr) : p.Check → List (SExpr × SExpr)
   | .true => []
   | .defeq a b rest => (a.applyS m1 m2, b.applyS m1 m2) :: rest.defeqsS m1 m2
-  | .level _ i _ j rest =>
-    (.sort (m1.getD i .zero), .sort (m1.getD j .zero)) :: rest.defeqsS m1 m2
+  | .level x i y j rest =>
+    (.sort ((m1 x).getD i .zero), .sort ((m1 y).getD j .zero)) :: rest.defeqsS m1 m2
 
 section
 set_option hygiene false
@@ -678,6 +1454,22 @@ inductive IsDefEq : List SExpr → SExpr → SExpr → SExpr → Prop where
   | extra : env.defeqs df → ls.length = df.uvars →
     Γ ⊢ .instL ls (.mk df.lhs) ≡ .instL ls (.mk df.rhs) : .instL ls (.mk df.type)
 
+/-- λ-telescope builder, mirroring `VExpr.mkLams`.  Needed only to state `extra_pat`'s peel;
+see that field's docstring.
+
+**Declared WITHOUT an `SExpr.` prefix on purpose.**  This sits inside `namespace SExpr`, so
+`def SExpr.mkLams` would declare `Lean4Lean.SExpr.SExpr.mkLams` and thereby CREATE the
+namespace `Lean4Lean.SExpr.SExpr`.  Every later `SExpr.Foo` written inside
+`namespace Lean4Lean.SExpr` -- in this file or any consumer -- then resolves there first and
+fails.  It surfaced as `Unknown constant Lean4Lean.SExpr.SExpr.Subst` in
+`Experimental/LogRel.lean`, a file this stream does not otherwise touch. -/
+def mkLams : List SExpr → SExpr → SExpr
+  | [], b => b
+  | A :: As, b => .lam A (mkLams As b)
+
+@[simp] theorem mkLams_nil {b} : mkLams [] b = b := rfl
+@[simp] theorem mkLams_cons {A As b} : mkLams (A :: As) b = .lam A (mkLams As b) := rfl
+
 /--
 The pattern discipline for the environment's definitional equality rules: every `extra`
 rule of `env` is an instance of a `Pat`-registered pattern, whose `Check` side conditions
@@ -693,12 +1485,45 @@ downstream result silently vacuous — and `Experimental/` is outside `kernel_so
 so `Verify/Guard.lean` would not have caught it.
 -/
 class ParamsExtra [Params] where
+  /--
+  **λ-peeled.**  The unpeeled form -- asking for `p.MatchesS (.instL ls (.mk df.lhs))` on the
+  left-hand side as stored -- is UNSATISFIABLE, and `unpeeled_extra_pat_unsatisfiable` below
+  is the proof.  `Pattern.MatchesS` bottoms out at `const` and never accepts a `lam`
+  (`Pattern.MatchesS.not_lam`), while `SExpr.mk` and `SExpr.instL` are both structural on
+  `lam`, so a binder in `df.lhs` survives both.  And every rule shape in a real environment
+  has binders: `quotDefEq.lhs` is `fun α r β f c a => …` (six), and an ι-rule's lhs is
+  `mkLams (iotaCtx C) _` with `iotaCtx` never empty.  So the unpeeled field admits no
+  instance for any environment carrying a quotient rule or an ι-rule -- i.e. any real one.
+
+  This mirrors the cure the mainline `VEnv.Params.extra_pat` already has; see
+  `Pat.extra_delta` / `Pat.extra_quot` / `Pat.extra_iota` in
+  `Theory/Typing/PatternRules.lean`, and `PLAN.md`'s "`extra_pat` is unsatisfiable" entry.
+  The two sides share their telescope `Δ`, which is what lets the check clauses be discharged
+  over `Δ.reverse ++ Γ`.
+
+  **The shape below is the mainline's, clause for clause**, so that an instance can transport
+  `Pat.extra` across `SExpr.mk` rather than reprove anything.  Against
+  `Theory/Typing/PatternRules.lean`'s
+
+      Pat.extra : ∃ Δ L R p r m1 m2,
+        df.lhs.instL ls = mkLams Δ L ∧ df.rhs.instL ls = mkLams Δ R ∧
+        Pat env p r ∧ Pattern.Matches p L m1 m2 ∧
+        (r.2).OK (env.IsDefEqU U (Δ.reverse ++ Γ)) m1 m2 ∧ R = (r.1).apply m1 m2
+
+  the binder order, the six conjuncts, their order, the `Δ.reverse ++ Γ` on the check side and
+  the orientation of the last equation all agree.  The only differences are the `SExpr`
+  spellings -- `.instL ls (.mk ·)` for `.instL ls`, `MatchesS` for `Matches`, and the `dfs`
+  list in place of `Check.OK`, which is how this file has encoded the check side since
+  `WHRed.extra` and is not something the peel introduced. -/
   extra_pat (Γ : List SExpr) {df : VDefEq} {ls : List SLevel} :
     env.defeqs df → ls.length = df.uvars →
-    ∃ p r m1 m2 dfs, Pat p r ∧ p.MatchesS (.instL ls (.mk df.lhs)) m1 m2 ∧
+    ∃ Δ L R p r m1 m2 dfs,
+      .instL ls (.mk df.lhs) = mkLams Δ L ∧
+      .instL ls (.mk df.rhs) = mkLams Δ R ∧
+      Pat p r ∧ p.MatchesS L m1 m2 ∧
       (dfs : List _).map (·.2) = r.2.defeqsS m1 m2 ∧
-      (∀ a b A, (A, a, b) ∈ dfs → Γ ⊢ a ≡ b : A) ∧
-      .instL ls (.mk df.rhs) = r.1.applyS m1 m2
+      (∀ a b A, (A, a, b) ∈ dfs → Δ.reverse ++ Γ ⊢ a ≡ b : A) ∧
+      R = r.1.applyS m1 m2
   /--
   Constructor types are Π-telescopes over their inductive type.
 
@@ -718,36 +1543,107 @@ class ParamsExtra [Params] where
   `VIndCtor.WF.result'` is the transport that delivers it. `C.params` and `D.params` are
   only *definitionally* equal, so mixing the two would silently mix contexts.
 
-  `D.lvl ≠ .zero` is asserted, and that is the whole content of the (13.3) decision: a
-  constructor of a `Prop`-valued block is not a *computational* constructor, so `classify`
-  must not report `.ctor` for it. `Eq.refl : ∀ {α : Sort u} (a : α), a = a` has a `Prop`
-  codomain, so under this field `classify Eq.refl` is not `.ctor`, `CtorBundle.IsCtor
-  Eq.refl` is false, and `∀ cl, CtorBundle c cl` is vacuous — which is exactly what makes
-  `CtorBundle.hu0` true wherever it is demanded. `Pattern.WF` must be relaxed to accept a
-  non-`.ctor` leaf at such a position, so that `Eq.rec`'s ι-rule is still a pattern.
+  **`D.lvl ≠ .zero` is NOT asserted. It was, and it was false.** `D.lvl` is the block's
+  common result universe, so it is `.zero` for *every* `Prop`-valued inductive — `Eq`, `And`,
+  `Or`, `Exists`, `False` — and those must be classified, because their recursors' ι-rules
+  pattern-match on their constructors. Asserting it made this class unsatisfiable for any
+  realistic environment, and nothing caught that, because there is no `ParamsExtra` instance
+  in the tree. What the field asserts now is the *tie* `rel = true ↔ D.lvl ≠ .zero`, which
+  **records** the block's `Prop`-ness in the classification instead of forbidding it.
+
+  Two consequences, both opposite to what the old text said:
+
+  * `classify Eq.refl` **is** `.ctor` (with `rel = false`), so `CtorBundle.IsCtor Eq.refl`
+    holds and `∀ cl, CtorBundle c cl` is *not* vacuous. `CtorBundle.hu0` was therefore false;
+    it has been replaced by `hrel : rel = true ↔ u ≠ .zero` — see that structure's docstring.
+  * **`Pattern.WF` does NOT need relaxing.** It still demands a `.ctor` leaf at a constructor
+    position (its `.const` clause), `Eq.refl` still supplies one, and `Eq.rec`'s ι-rule is
+    still a pattern. Relaxing it was route (β) of the `.indTy` migration, and (β) is
+    *refuted*: `Eq` is a `Prop` that **large**-eliminates, so its ι-rule cannot be dropped —
+    see `eq_large_eliminates` in `Experimental/ShapeLogRel.lean`, and that file's banner §7.
 
   The sort of `ci.type` is `imax … D.lvl` and `imax x y = .zero ↔ y = .zero`, so
-  `D.lvl ≠ .zero` is equivalent to the constructor's type not being a `Prop` — i.e. to
-  `CtorBundle.hu0`. The result-sort clause is `VIndCtor.WF.result'`'s content.
+  `D.lvl ≠ .zero` is equivalent to the constructor's type not being a `Prop`; that equivalence
+  is what makes the tie above the right way to state it. The result-sort clause is
+  `VIndCtor.WF.result'`'s content.
+
+  *(This paragraph replaces one that survived the change it described, and the replacement is
+  recorded rather than silently made: a docstring that outlives its own fix is worse than no
+  docstring, because it reads as a live constraint. The Params stream read the old text,
+  concluded `Params` + `ParamsExtra` were newly jointly unsatisfiable — and it was right about
+  the world the text described, since `Pattern.WF` is indeed unrelaxed — and only disconfirmed
+  it by reading the field body below.)*
   -/
   ctor_ty {c : Name} {cl : Classification} {ci : VConstant} :
     classify c = some cl → (cl matches .ctor .. | .etaCtor ..) →
     env.constants c = some ci →
-    ∃ (D : VInductDecl') (j : Nat) (T : VIndType) (C : VIndCtor),
+    ∃ (D : VInductDecl') (j : Nat) (T : VIndType) (C : VIndCtor) (rel : Bool),
       D.types[j]? = some T ∧ C ∈ T.ctors ∧ C.name = c ∧
       (C.params ++ C.fields.map (·.type)).length = cl.arity ∧
-      classify T.name = some (.indTy (D.np + T.indices.length)) ∧
+      classify T.name = some (.indTy (D.np + T.indices.length) rel) ∧
+      -- `rel` is the block's result universe, recorded in the classification so that the
+      -- shape model can read it off the head constant alone.
+      (rel = true ↔ D.lvl ≠ .zero) ∧
       -- `D.lvl ≠ .zero` used to sit here.  It is **false**: `D.lvl` is the block's common
       -- result universe, so it is `.zero` for every `Prop`-valued inductive (`Eq`, `And`,
       -- `Or`, `Exists`, `False`) -- and those must be classified, since their recursors'
       -- iota-rules pattern-match on their constructors.  With it, `ParamsExtra` was
       -- unsatisfiable for any realistic environment, which no instance ever caught because
-      -- there is no `ParamsExtra` instance in the tree.  `CtorBundle.hu0` is the same claim
-      -- one layer down and is still there; see `IsDefEq.strong`.
+      -- there is no `ParamsExtra` instance in the tree.  `CtorBundle.hu0` was the same claim
+      -- one layer down; it has been repaired too, and is now `hrel`.
       -- Everything the declaration side owns is bundled: the stored constant (so `ci` is
       -- determined), arities, `args_len`, the result sort over `C.params.reverse`, and the
       -- split closedness facts.  Widening this is a field of `Interface`, not a clause here.
       VIndCtor.Interface env D j T C
+
+/-! ### Regression tests for `ParamsExtra.extra_pat`'s λ-peel
+
+These are stated as *conditionals on an unpeeled field*, so they cannot rot: they hold
+whatever the real field says, and anyone who restates `extra_pat` without the peel can
+instantiate `unpeeled` with it and read off `False`. -/
+
+/-- **The unpeeled form of `extra_pat` is unsatisfiable for any rule whose left-hand side is
+a `lam`.**  `Pattern.MatchesS` bottoms out at `const` and never accepts a `lam`
+(`Pattern.MatchesS.not_lam`), and both `SExpr.mk` and `SExpr.instL` are structural on `lam`,
+so the binder survives both. -/
+theorem unpeeled_extra_pat_unsatisfiable [Params]
+    (unpeeled : ∀ {df : VDefEq} {ls : List SLevel}, env.defeqs df → ls.length = df.uvars →
+      ∃ p r m1 m2, Pat p r ∧ p.MatchesS (.instL ls (.mk df.lhs)) m1 m2)
+    {df : VDefEq} {A b : VExpr} (hdf : env.defeqs df) (hlam : df.lhs = VExpr.lam A b) :
+    False := by
+  obtain ⟨p, r, m1, m2, _, hM⟩ :=
+    unpeeled (ls := List.replicate df.uvars (SLevel.mk .zero)) hdf (by simp)
+  rw [hlam] at hM
+  exact hM.not_lam
+
+/-- **And every ι-rule's left-hand side IS a `lam`**, because `iotaCtx` is never empty
+(`D.motives` has one entry per type of the block and `D.types ≠ []`).  With
+`unpeeled_extra_pat_unsatisfiable` this says: no environment carrying an inductive admits an
+unpeeled `ParamsExtra`.  The quotient rule is the same story --
+`quotDefEq.lhs = fun α r β f c a => …`, six binders -- and is not repeated here only because
+it would cost this file an import of `Theory.Quot`. -/
+theorem iota_lhs_lam {D : VInductDecl'} {j q : Nat} {C : VIndCtor} {T : VIndType}
+    (hT : D.types[j]? = some T) : ∃ A b, (D.iotaRule j q C).lhs = VExpr.lam A b := by
+  refine ⟨(D.iotaCtx C).headD default,
+    VExpr.mkLams ((D.iotaCtx C).tail) (D.iotaLhs j C), ?_⟩
+  show VExpr.mkLams (D.iotaCtx C) (D.iotaLhs j C) = _
+  -- `iotaCtx` contains `D.motives`, one entry per type of the block, and `hT` says the block
+  -- has at least a `j`-th type.  Proved from `Decl.lean` alone, so this file needs no import
+  -- of `Theory.Typing.PatternRules` (where `length_iotaCtx` lives).
+  have hne : D.iotaCtx C ≠ [] := by
+    have hj : j < D.types.length := (List.getElem?_eq_some_iff.1 hT).1
+    have hmot : D.motives ≠ [] := by
+      intro h
+      have hl : D.motives.length = 0 := by rw [h]; rfl
+      simp only [VInductDecl'.motives, List.length_map, List.length_range,
+        VInductDecl'.nm] at hl
+      omega
+    intro h
+    simp only [VInductDecl'.iotaCtx, List.append_assoc, List.append_eq_nil_iff] at h
+    exact hmot h.2.1
+  cases hc : D.iotaCtx C with
+  | nil => exact absurd hc hne
+  | cons X Xs => rw [VExpr.mkLams]; rfl
 
 def CtorBundle.IsCtor (c : Name) : Prop :=
   ∃ cl, Params.classify c = some cl ∧ cl matches .ctor .. | .etaCtor ..
@@ -761,23 +1657,27 @@ def CtorBundle.IsCtor.cl (H : CtorBundle.IsCtor c) :
 /--
 The Π-telescope decomposition of a constructor's type, as `IsDefEqStrong.const` consumes it.
 
-**KNOWN DEFECT — `hu0` is false.** `Eq.refl : ∀ {α : Sort u} (a : α), a = a` has sort
-`imax (u+1) (imax u 0) = 0`, so `u = .zero` for it; yet `Eq.refl` must be `classify`-ed as
-a constructor, because `Eq.rec`'s ι-rule pattern-matches on it and `Pattern.WF` demands a
-`.ctor` leaf there. So `CtorBundle Eq.refl` is uninhabited while `IsDefEqStrong.const`
-demands `∀ cl, CtorBundle c cl` — i.e. this is a *second*, independent reason that
-`IsDefEq.strong` is false as stated (the first is the missing `Ctx.WF`; see
-`not_strong_of_isDefEq`). It is not a soundness hole: `IsDefEq.strong` is a `sorry`.
+**REPAIRED — the old `hu0 : u ≠ .zero` was false and is gone.** `Eq.refl :
+∀ {α : Sort u} (a : α), a = a` has sort `imax (u+1) (imax u 0) = 0`, so `u = .zero` for it;
+yet `Eq.refl` must be `classify`-ed as a constructor, because `Eq.rec`'s ι-rule
+pattern-matches on it and `Pattern.WF` demands a `.ctor` leaf there. So `CtorBundle Eq.refl`
+was uninhabited while `IsDefEqStrong.const` demands `∀ cl, CtorBundle c cl` — a *second*,
+independent reason that `IsDefEq.strong` was false as stated (the first is the missing
+`Ctx.WF`; see `not_strong_of_isDefEq`).
 
-Fixing it means dropping `hu0` and giving `LE_Interp.build_spine`
-(`ShapeLogRel.lean`, the `app`/`nil` case) a `.bot` branch for `Prop`-valued inductives,
-where a constructor application is a proof and carries no `ctor` shape. Deleting `hu0`
-alone leaves exactly one hole, at the `this W hu0 hcit` call that feeds
-`LE_Interp.apps_realize`'s type-shape argument. The `mkPi`/`mkApp` reordering of `rhs`
-below (to match `VIndCtor.type`) touches the same lines and should be done with it.
+What replaces it is `hrel : rel = true ↔ u ≠ .zero`, which is *not* an extra assumption
+chosen to make a proof go through: it is exactly the fact `ParamsExtra.ctor_ty` already
+supplies (`rel = true ↔ D.lvl ≠ .zero`), now readable off the head constant because
+`Classification.indTy` carries the boolean. `u` is the sort of `rhs`, whose head is `I`
+applied to its arguments, and `imax x y = .zero ↔ y = .zero`, so `u ≠ .zero` is exactly the
+inductive's result universe being non-`Prop`.
 
-`ParamsExtra.ctor_ty` has already been restated without any nonzero-sort claim, and
-supplies `VIndCtor.WF.result`'s result-sort fact instead.
+The only consumer, `LE_Interp.build_spine` (`ShapeLogRel.lean`, the `app`/`nil` case), used
+`hu0` to force the head's type-shape to `.sort true`; it now takes `.sort rel` and discharges
+`decide (u_body ≠ .zero) = rel` from `hrel`.
+
+The `mkPi`/`mkApp` reordering of `rhs` below (to match `VIndCtor.type`) touches the same
+lines and should be done with it.
 -/
 structure CtorBundle (c : Name) (cl : CtorBundle.IsCtor c) : Type where
   I : Name
@@ -785,8 +1685,12 @@ structure CtorBundle (c : Name) (cl : CtorBundle.IsCtor c) : Type where
   args : List SExpr
   u : SLevel
   hlen : Ts.length = cl.cl.1.arity
-  hclI : Params.classify I = some (.indTy args.length)
-  hu0 : u ≠ .zero
+  /-- The inductive's result universe, as recorded by `classify`. -/
+  rel : Bool
+  hclI : Params.classify I = some (.indTy args.length rel)
+  /-- The recorded sort boolean is exactly "the constructor's type is not a proposition".
+  Replaces the false `hu0 : u ≠ .zero`; see the structure docstring. -/
+  hrel : rel = true ↔ u ≠ .zero
   /-- `rhs` is closed — written out, since `rhs` is defined after this structure.
 
   Without this `SExpr.IsDefEqStrong` is **not closed under weakening**: `const` carries one
@@ -854,27 +1758,29 @@ looked-up type while `IsDefEq.bvar` says nothing about the context. This mirrors
 
 The `[ParamsExtra]` hypothesis is **also necessary**, and for an independent reason.
 `IsDefEqStrong.const` demands `∀ cl, CtorBundle c cl` for every `c` that `classify` calls a
-constructor, and a bundle carries `hclI : classify I = some (.indTy args.length)` plus an
+constructor, and a bundle carries `hclI : classify I = some (.indTy args.length rel)` plus an
 equation tying `ci.type` to a telescope headed by `I`. Under `[Params]` alone, `classify` is
 unconstrained *relative to `env`*: an instance may declare an arbitrary constant a
 constructor -- say `classify c = some (.ctor 0)` with `classify` `none` elsewhere -- and then
 no `I` satisfies `hclI`, so `CtorBundle c cl` is uninhabited while `IsDefEq.const` still
 derives the undecorated judgment. `ParamsExtra.ctor_ty` is exactly what rules this out.
 
-**This statement is still not provable, and the reason is not in the statement.** Two
-falsehoods remain downstream, both instances of the same hardwiring:
+**This statement is still a `sorry`, but its hypotheses are no longer known-unsatisfiable.**
+Three hardwired falsehoods used to sit downstream; all three are repaired:
 
-* `CtorBundle.hu0 : u ≠ .zero` is false -- `CtorBundle Eq.refl` is uninhabited (see the
-  `CtorBundle` docstring above).
-* `ParamsExtra.ctor_ty` still claims `D.lvl ≠ .zero`, which is false for *every*
-  `Prop`-valued inductive (`Eq`, `And`, `Or`, `Exists`, `False`): `D.lvl` is the block's
-  common result universe, and for those it is `.zero`.
+* `CtorBundle.hu0 : u ≠ .zero` -- false, `CtorBundle Eq.refl` was uninhabited. Now
+  `hrel : rel = true ↔ u ≠ .zero` (see the `CtorBundle` docstring above).
+* `ParamsExtra.ctor_ty`'s `D.lvl ≠ .zero` -- false for *every* `Prop`-valued inductive
+  (`Eq`, `And`, `Or`, `Exists`, `False`), since `D.lvl` is the block's common result universe.
+  Now the tie `rel = true ↔ D.lvl ≠ .zero` (see that field's docstring).
+* `ParamsExtra.extra_pat` asked for `MatchesS` on the **unpeeled** left-hand side, which no
+  rule shape can satisfy. Now λ-peeled, mirroring the mainline `Pat.extra`; the two
+  regression tests below pin it.
 
-The second matters more than the first. `ParamsExtra` currently has **no instance anywhere
-in the tree**, and with that clause it is unsatisfiable for any realistic environment -- so
-adding `[ParamsExtra]` makes this theorem *vacuously* true rather than true. Do not read the
-hypothesis as progress until `D.lvl ≠ .zero` is gone. Deleting both clauses is what the
-`ShapeS.indTy` parameterisation is for; `LE_Interp.build_spine` is `hu0`'s only consumer. -/
+`ParamsExtra` still has **no instance in the tree**, so `[ParamsExtra]` does not yet make this
+theorem true — but it is now an open obligation rather than a vacuous one, and the `Params`
+stream is constructing an instance against exactly these fields. The `Ctx.WF Γ` hypothesis is
+the fourth repair and is in the statement already; see `not_strong_of_isDefEq`. -/
 theorem IsDefEq.strong [ParamsExtra] (hΓ : Ctx.WF Γ) :
     Γ ⊢ e1 ≡ e2 : A → IsDefEqStrong Γ e1 e2 A := sorry
 
