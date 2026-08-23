@@ -447,5 +447,188 @@ theorem M.WF.stateT_run' {c : Context} {x : StateT Nat M α} {Q} {n : Nat}
   | error => rw [hx] at eq; exact absurd eq nofun
   | ok p => rw [hx] at eq; cases eq; exact h n p.1 p.2 hx
 
+/-! # Part II: the checker's phases against `VInductDecl'.WF`
+
+The framework above exists to state, for each phase of `Lean4Lean/Inductive/Add.lean`, which
+clause of `VInductDecl'.WF` its success establishes.  Three phases are covered here.
+
+**Inherited debt, stated once.**  Every one of these calls into the type checker, and
+`TypeChecker.ensureType.WF`, `checkType.WF`, `isDefEq.WF`, `whnf.WF` are all `sorryAx`-tainted
+through the five declared `sorry`s in `Verify/TypeChecker/{InferType,IsDefEq,WHNF}.lean`
+(PLAN.md's projection / ι-reduction / structure-eta gaps).  The taint is *real*, not error
+recovery: `Verify/TypeChecker*` builds with zero errors.  So the rows below are **complete but
+not clean**; they become unconditional exactly when those five close, and nobody should read
+"R6–R8 done" as unconditional.  The framework itself (Part I) is `sorryAx`-free.
+
+## R6: the field's recorded level and level bound
+
+`checkConstructors` (`Add.lean:225–227`) does, for each non-parameter argument:
+
+```
+let s ← ensureType dom
+unless stats.resultLevel.isAlwaysZero || stats.resultLevel.geq' s.sortLevel! do throw …
+```
+
+Success gives exactly the two clauses of `VIndField.WF` that **do not mention `recArg`** —
+`hasType` and `level` — so R6 is independent of R7, and neither has to wait for the other. -/
+
+/-- `ensureType`, lifted into `AddInductive.M`.  The existential is `ensureType.WF`'s own: it
+re-derives a translation of `e` rather than reusing the one handed in, and pinning the two
+together needs `TrExprS.uniq`, which yields an `IsDefEqU` rather than an equality.  Leaving it
+existential costs nothing here, because R1/R2 pin the recorded field type anyway. -/
+theorem M.WF.ensureType {c : VContext} {e : Expr} {e' : VExpr} (he : c.TrExprS e e') :
+    M.WF c.toContext (liftM (TypeChecker.ensureType e)) fun s =>
+      ∃ e'' u u', c.TrExprS e e'' ∧ s = .sort u ∧
+        VLevel.ofLevel c.lparams u = some u' ∧ c.HasType e'' (.sort u') :=
+  M.WF.liftTC ((TypeChecker.ensureType.WF (c := c.toTC) (s := {}) he).mono
+    fun _ _ _ ⟨e'', h1, u, u', h2, h3, h4⟩ => ⟨e'', u, u', h1, h2, h3, h4⟩)
+
+/-- **The pure half of R6.**  The kernel's F6 guard is *strictly stronger* than Carneiro's
+`imax ℓ ℓ' ≤ ℓ'` (see `Theory/Inductive/Decl.lean`, `VIndField.WF.level`), and both of its
+disjuncts imply it outright — neither needs the other's negation.  `imax a b ≤ b` because
+`Nat.imax a b` is `0` when `b` is `0` and `max a b` otherwise. -/
+theorem VIndField.level_of_geq {lvl dlvl : VLevel} (h : lvl ≤ dlvl ∨ dlvl ≈ VLevel.zero) :
+    VLevel.imax lvl dlvl ≤ dlvl := by
+  intro ls
+  simp only [VLevel.eval, Lean.Nat.imax]
+  cases h with
+  | inl h => split <;> simp_all [h ls]
+  | inr h =>
+    have := VLevel.equiv_def.1 h ls
+    simp only [VLevel.eval] at this
+    simp [this]
+
+/-- **R6.**  The checker's field step, as it appears in `checkConstructors`.  Success produces
+a field level with both `VIndField.WF.hasType` and `VIndField.WF.level`, for *any* choice of
+`recArg` — which is why R7 is a separate row rather than a precondition of this one. -/
+theorem M.WF.field_step {c : VContext} {D : VInductDecl'} {dom : Expr} {e' : VExpr}
+    {resultLevel : Lean.Level} (hU : c.lparams.length = D.uvars)
+    (hlvl : VLevel.ofLevel c.lparams resultLevel = some D.lvl) (he : c.TrExprS dom e') :
+    M.WF c.toContext
+      (do
+        let s ← liftM (TypeChecker.ensureType dom)
+        unless resultLevel.isAlwaysZero || resultLevel.geq' s.sortLevel! do
+          MonadExcept.throw (Exception.other "level too big")
+        Pure.pure s)
+      fun s => ∃ (ty : VExpr) (lvl : VLevel) (u : Lean.Level),
+        c.TrExprS dom ty ∧ s = Lean.Expr.sort u ∧ VLevel.ofLevel c.lparams u = some lvl ∧
+        c.venv.HasType D.uvars c.vlctx.toCtx ty (.sort lvl) ∧
+        VLevel.imax lvl D.lvl ≤ D.lvl := by
+  refine (M.WF.ensureType he).bind fun s hs => ?_
+  obtain ⟨ty, u, lvl, h1, rfl, h2, h3⟩ := hs
+  simp only [Lean.Expr.sortLevel!]
+  by_cases hg : (resultLevel.isAlwaysZero || resultLevel.geq' u) = true
+  case neg =>
+    simp only [Bool.not_eq_true] at hg
+    simp only [hg, Bool.false_eq_true, if_false]
+    exact M.WF.bind (M.WF.throw (Q := fun _ => False)) fun _ h => h.elim
+  case pos =>
+    simp only [hg, if_true]
+    simp only [Bool.or_eq_true] at hg
+    refine M.WF.pure ⟨ty, lvl, u, h1, rfl, h2, hU ▸ h3, VIndField.level_of_geq ?_⟩
+    rcases hg with hz | hge
+    · exact .inr (Lean4Lean.ofLevel_isAlwaysZero hlvl hz)
+    · exact .inl (Lean.Level.geq'_wf hlvl h2 hge)
+
+
+/-! ## R7: strict positivity — **blocked on an unmodelled `@[extern] opaque`**
+
+`checkPositivity` (`Add.lean:184`) rejects on `hasIndOcc stats.indConsts …`; its *success*
+is what would establish `VIndField.WF.pos`, whose `none` branch is the positive statement
+`∃ A, D.NoBlock A ∧ env.IsDefEqType D.uvars Γ F.type A`.  The only evidence for it is
+`hasIndOcc (← whnf dom) = false`.  So R7 must read `hasIndOcc`.
+
+```
+def hasIndOcc (indConsts : Array Expr) (t : Expr) : Bool :=
+  (t.find? fun | .const e _ => indConsts.any fun I => I.constName! == e | _ => false).isSome
+```
+
+and `Lean.Expr.find? p e = findImpl? p e` where (`~/lean4/src/Lean/Util/FindExpr.lean:16`)
+
+```
+@[extern "lean_find_expr"] opaque findImpl? (p : @& (Expr → Bool)) (e : @& Expr) : Option Expr
+```
+
+**`findImpl?` is `opaque`: it has no body at all.**  Not `partial`, not
+`@[implemented_by]` — there is nothing in Lean to unfold, so no amount of work inside this
+file can say what `hasIndOcc` computes.  Giving it a meaning requires a new interface axiom in
+`Lean4Lean/Verify/Axioms.lean`, alongside `Lean.Expr.replace_eq`, `Lean.Expr.abstract_eq` and
+the rest.  That file is frozen, and the change would move its count in the wrong direction.
+**So R7 is blocked, and it is blocked on a policy question rather than a proof difficulty.**
+
+Note this is *not* a `Guard.lean` check-3 violation: check 3 filters to constants defined in
+`Lean4Lean.*` modules (`unless (`Lean4Lean).isPrefixOf modName do continue`), and `findImpl?`
+is upstream.  It is a **trusted-base** fact, not a guard-list fact — the strict-positivity
+check, one of the two places where an inductive declaration can be unsound, currently rests on
+a C function with no Lean-side model, and nothing in the tree records that.
+
+**The recommended fix is not an axiom.**  `hasIndOcc` uses `find?` only through `.isSome`, so
+it is asking "does any subterm match?", and the traversal order and the extern cache are both
+invisible to the answer.  Replacing it with a structurally recursive `Expr` walk in
+`Lean4Lean/Inductive/Add.lean` removes the dependency outright — shrinking the trusted base
+rather than growing the axiom list, and faithful to the C++ kernel, whose `has_ind_occ` is the
+same existential question.  That is an edit to a file this stream does not own, so it is a
+recommendation, not a change.
+
+## R8: the large-elimination flag
+
+`isLargeEliminator` (`Add.lean:258`) has two branches, and they separate cleanly.
+
+**The `isNotZero` branch closes here** — `stats.isNotZero` is `resultLevel.isNeverZero`
+(`Add.lean:101`), and `ofLevel_isNeverZero` carries it to `D.lvl.IsNeverZero`, which is
+`LECond`'s first disjunct verbatim.
+
+**The scan branch is gated on R1/R2**, and this is worth stating precisely because the
+*direction* of the gate is the opposite of what the row's price assumed.  The scan itself is
+sound in exactly the direction `LECond` needs: `isAlwaysZero` is a sound-but-incomplete
+syntactic test, and a field is pushed onto `toCheck` when it *fails*, so a field **absent**
+from `toCheck` really does have `F.lvl ≈ .zero` (`ofLevel_isAlwaysZero`), and a field
+**present** in it is covered by the final `toCheck.all type.getAppArgs.contains`.  No
+completeness is needed anywhere.  What is missing is the correspondence between the loop's
+accumulated fvars and the spec's field indices — `arg_i ↦ .bvar (nf-1-i)` and
+`type.getAppArgs ↦ C.args` — which is `TrIndCtor`'s telescope pinning, i.e. **R1/R2**, not a
+row I hold as done.  The per-field step below is the part that does not depend on it. -/
+
+/-- **R8, the `isNotZero` branch.**  `stats.isNotZero` is `resultLevel.isNeverZero`, so a
+large eliminator justified by it lands on `LECond`'s first disjunct. -/
+theorem VInductDecl'.LECond.of_isNotZero {D : VInductDecl'} {Us : List Name}
+    {resultLevel : Lean.Level} (hlvl : VLevel.ofLevel Us resultLevel = some D.lvl)
+    (h : resultLevel.isNeverZero) : D.LECond :=
+  .inl (Lean4Lean.ofLevel_isNeverZero hlvl h)
+
+/-- Positive check that the `isNotZero` branch is not vacuous: a `Type`-valued block really
+does reach `LECond` through it, with no hypothesis discharged by accident. -/
+example : (VInductDecl'.mk 0 [] (.succ .zero) [] false).LECond :=
+  VInductDecl'.LECond.of_isNotZero (Us := []) (resultLevel := .succ .zero) rfl rfl
+
+/-- **R8, the scan's per-field step.**  A field the scan does *not* push onto `toCheck` has
+`isAlwaysZero` on its inferred sort, hence `F.lvl ≈ .zero` — `LECond`'s left disjunct for that
+field.  `isAlwaysZero` is incomplete, but the implication runs in the sound direction, so
+nothing here is hostage to that. -/
+theorem M.WF.elim_field_step {c : VContext} {dom : Expr} {e' : VExpr}
+    (he : c.TrExprS dom e') :
+    M.WF c.toContext (liftM (TypeChecker.ensureType dom)) fun s =>
+      ∃ (ty : VExpr) (lvl : VLevel) (u : Lean.Level),
+        c.TrExprS dom ty ∧ s = Lean.Expr.sort u ∧
+        c.venv.HasType c.lparams.length c.vlctx.toCtx ty (.sort lvl) ∧
+        (u.isAlwaysZero → lvl ≈ VLevel.zero) := by
+  refine (M.WF.ensureType he).mono fun _ h => ?_
+  obtain ⟨ty, u, lvl, h1, rfl, h2, h3⟩ := h
+  exact ⟨ty, lvl, u, h1, rfl, h3, fun hz => Lean4Lean.ofLevel_isAlwaysZero h2 hz⟩
+
+/-- **R8's remaining obligation, stated.**  Everything the scan branch still needs is this
+one implication, and its hypothesis is exactly R1/R2's telescope pinning: that the loop's
+`i`-th binder is the spec's `i`-th field and that the result's spine arguments are `C.args`.
+Kept as a theorem rather than a comment so that R1/R2 landing makes it fire. -/
+theorem VInductDecl'.LECond.of_scan {D : VInductDecl'} {T : VIndType} {C : VIndCtor}
+    (hT : D.types = [T]) (hC : T.ctors = [C])
+    (h : ∀ i (F : VIndField), C.fields[i]? = some F →
+      F.lvl ≈ VLevel.zero ∨ VExpr.bvar (C.fields.length - 1 - i) ∈ C.args) :
+    D.LECond := .inr ⟨T, hT, .inr ⟨C, hC, h⟩⟩
+
+/-- The empty-constructor case, which `isLargeEliminator` returns `true` for outright. -/
+theorem VInductDecl'.LECond.of_no_ctors {D : VInductDecl'} {T : VIndType}
+    (hT : D.types = [T]) (hC : T.ctors = []) : D.LECond := .inr ⟨T, hT, .inl hC⟩
+
 end AddInductive
 end Lean4Lean

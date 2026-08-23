@@ -53,13 +53,33 @@ different declaration steps.  Reading it off the constant makes the question dis
 patterns sharing a leaf share its constant, hence its Π-count, hence agree.  The obligation
 becomes a consequence.
 
-## A symptom worth recognising
+## A symptom worth recognising: errors reported far from their cause
 
 An earlier draft of `paramsOfWF` was placed after `end Lean4Lean` by accident.  Auto-bound
 implicits then turned `VEnv` and `Params` into fresh universe-polymorphic variables and the
 file elaborated far enough to report `Invalid field notation … `e` has type `VEnv``, which
-reads as a dot-notation problem and is in fact a namespace problem.  **A field-notation error
-on a name that obviously has that field means the enclosing namespace is not what you think.**
+reads as a dot-notation problem and is in fact a namespace problem.
+
+Three more instances have since occurred, and they share one shape: **an error reported at a
+*use* site whose real cause is at a *binder* site.**  The general rule, in the order to check:
+
+1. **Arity.**  `VIndCtor.WF` takes five arguments; supplying four made the partial application
+   a function, and the error appeared as a field-notation failure on the receiver.
+2. **A postcondition lambda swallowing a computation argument.**  `TypeChecker.M.WF` is
+   `(c) (vs) (x) (Q)`; writing `M.WF c {} fun a _ => Q a` fed the *postcondition* into the `x`
+   slot, forcing `α := TypeChecker.Context`, and the error surfaced fifteen lines later as a
+   type mismatch in `Q a`.  Whenever a `WF`-style predicate takes both a computation and a
+   postcondition, a missing computation argument is silently absorbed by the postcondition,
+   because both are functions.
+3. **A structure field shadowing the parameter it was named after.**  In `TrIndDecl` a field
+   `types` shadowed the parameter `types`, so `types[j]?` in a later field referred to the
+   field; it surfaced as an unrelated `Invalid field notation` on `t.ctors`.
+4. **The enclosing namespace**, as above.
+
+So: **a field-notation or type mismatch on a name that obviously has that type means the
+receiver is not what you think — check arity, then whether a function-valued argument was
+absorbed by another, then shadowing, then the namespace.**  Reading the error's location is
+the last thing to do, not the first.
 -/
 
 namespace Lean4Lean
