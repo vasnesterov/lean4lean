@@ -1724,11 +1724,19 @@ theorem mkIndSignature₃_wf {Idx : V} {cs : List (CtorData₃ V)}
     rw [hres]
     exact h cs[k] (List.getElem_mem hk) W a (by rwa [hfld] at ha)
 
-/-- **`interpSig_stage`, at the assembly level.** -/
+/-- **`interpSig_stage`, at the assembly level.**
+
+`hpos` asks for the position set only **above an element of `Fld`**, matching
+`IsStageSignature₂.pos_mem`.  It previously quantified over an arbitrary `a : V`,
+which is not merely stronger than needed but **false at the translation**:
+`Pos q a` evaluates `⟦ξ⟧` at `a ↾ (np + i)`, and for a junk `a` that reads
+`⟦.bvar j⟧` off an unbounded valuation, so no stage contains the result.  A side
+condition that is stated but unsatisfiable is exactly the failure mode this
+project keeps hitting; the premise is now the one the structure actually uses. -/
 theorem mkIndSignature₃_stage {k Idx : V} {cs : List (CtorData₃ V)}
     (hIdx : Idx ∈ vsetV k) (hQ : ((cs.length : ℕ) : V) ∈ vsetV k)
     (hfld : ∀ c ∈ cs, ∀ W : V, c.flds W ∈ vsetV k)
-    (hpos : ∀ c ∈ cs, ∀ a : V, tagUnionF 0 c.poss a ∈ vsetV k) :
+    (hpos : ∀ c ∈ cs, ∀ W : V, ∀ a ∈ c.flds W, tagUnionF 0 c.poss a ∈ vsetV k) :
     IsStageSignature₂ k (mkIndSignature₃ Idx cs).toIndSignature₂ where
   idx_mem := hIdx
   q_mem := hQ
@@ -1742,14 +1750,19 @@ theorem mkIndSignature₃_stage {k Idx : V} {cs : List (CtorData₃ V)}
     rw [show ((j : ℕ) : V) = ((0 + j : ℕ) : V) from by norm_num, hat]
     exact hfld cs[j] (List.getElem_mem hj) W
   pos_mem := by
-    intro W _ q hq a _
+    intro W _ q hq a ha
     obtain ⟨j, hj, rfl⟩ := (mem_ofNat_iff cs.length q).1 hq
     have hc : cs[j]? = some cs[j] := List.getElem?_eq_getElem hj
+    have hfldeq : (mkIndSignature₃ Idx cs).Fld W ((j : ℕ) : V) = cs[j].flds W := by
+      show tagCaseSnd 0 (cs.map (·.flds)) W ((j : ℕ) : V) = _
+      have hat2 := tagCaseSnd_at (V := V) 0 (cs.map (·.flds)) j (cs[j].flds)
+        (by rw [List.getElem?_map, hc]; rfl) W
+      simpa using hat2
     have hat := tagCase₂_at (V := V) 0 (cs.map fun c ↦ fun _ a ↦ tagUnionF 0 c.poss a) j
       (fun _ a ↦ tagUnionF 0 cs[j].poss a) (by rw [List.getElem?_map, hc]; rfl) a
     show tagCase₂ 0 (cs.map fun c ↦ fun _ a ↦ tagUnionF 0 c.poss a) ((j : ℕ) : V) a ∈ vsetV k
     rw [show ((j : ℕ) : V) = ((0 + j : ℕ) : V) from by norm_num, hat]
-    exact hpos cs[j] (List.getElem_mem hj) a
+    exact hpos cs[j] (List.getElem_mem hj) W a (by rwa [hfldeq] at ha)
 
 /-! ## The `OracleOK` connection: the `.induct` step, assembled
 

@@ -809,4 +809,379 @@ theorem interpSig₃_ctorData (Dcar params : V) (A : ℕ → ℕ → VExpr) {q j
 
 end Ctor
 
+/-! ## Satisfying `IsSubsingletonSignature₃`
+
+`Ind₃_subsingleton` is proved *against* the hypothesis; a hypothesis with no
+instance proves nothing, so this section is the other half.
+
+Two of the four fields hold for **every** declaration and are discharged here in
+that generality:
+
+* `posIdx_det` — `posIdxVals` is literally `fun _a x ↦ …`, so `posIdx` never
+  consults `a` at all.  This is not a coincidence of the layout: a recursive
+  occurrence's index tuple `⟦π⟧` is evaluated at the *position*, over
+  `ξ.reverse ++ fldCtx`, and the `a`-slot of `posIdx` is vestigial.
+* `pos_det` and `fld_det` reduce, at a one-constructor declaration, to two facts
+  about the valuation: `Pos` sees only `a ↾ (np + i)`, and `Args` pins the
+  recursive slots to `f`.  `ctorFldSet_congr_of` below is the reduction; the
+  instance is `SetModel/CtorTransExamples.lean`.
+
+The tag-combinator congruences come first, because each of `Fld`, `Pos`,
+`posIdx` reaches its per-constructor entry through a different one. -/
+
+section SubsingletonSat
+
+/-- `tagUnionF` sees `a` only through the summand functions. -/
+theorem tagUnionF_congr : ∀ (i : ℕ) (As : List (V → V)) {a a' : V},
+    (∀ A ∈ As, A a = A a') → tagUnionF (V := V) i As a = tagUnionF i As a'
+  | _, [], _, _, _ => rfl
+  | i, A :: As, a, a', h => by
+    show ((({((i : ℕ) : V)} : V) ×ˢ A a) ∪ tagUnionF (i + 1) As a)
+      = ((({((i : ℕ) : V)} : V) ×ˢ A a') ∪ tagUnionF (i + 1) As a')
+    rw [h A (.head _), tagUnionF_congr (i + 1) As fun B hB ↦ h B (.tail _ hB)]
+
+/-- `tagCase₂` dispatches on its *first* argument, so a congruence in the second
+passes through entrywise. -/
+theorem tagCase₂_congr_snd : ∀ (i : ℕ) (fs : List (V → V → V)) {a a' : V},
+    (∀ f ∈ fs, ∀ q : V, f q a = f q a') → ∀ q : V,
+      tagCase₂ (V := V) i fs q a = tagCase₂ i fs q a'
+  | _, [], _, _, _, _ => rfl
+  | i, f :: fs, a, a', h, q => by
+    show (if q = ((i : ℕ) : V) then _ else _) = (if q = ((i : ℕ) : V) then _ else _)
+    by_cases hq : q = ((i : ℕ) : V)
+    · rw [if_pos hq, if_pos hq]; exact h f (.head _) q
+    · rw [if_neg hq, if_neg hq]
+      exact tagCase₂_congr_snd (i + 1) fs (fun g hg ↦ h g (.tail _ hg)) q
+
+/-- `tagSel₂` dispatches on its *second* argument, so a congruence in the first
+passes through entrywise. -/
+theorem tagSel₂_congr_fst : ∀ (i : ℕ) (ps : List (V → V → V)),
+    (∀ p ∈ ps, ∀ a a' x : V, p a x = p a' x) → ∀ a a' b : V,
+      tagSel₂ (V := V) i ps a b = tagSel₂ i ps a' b
+  | _, [], _, _, _, _ => rfl
+  | i, p :: ps, h, a, a', b => by
+    show (if b = (⟨((i : ℕ) : V), tagPayload i b⟩ₖ : V) then _ else _)
+      = (if b = (⟨((i : ℕ) : V), tagPayload i b⟩ₖ : V) then _ else _)
+    by_cases hb : b = (⟨((i : ℕ) : V), tagPayload i b⟩ₖ : V)
+    · rw [if_pos hb, if_pos hb]; exact h p (.head _) a a' _
+    · rw [if_neg hb, if_neg hb]
+      exact tagSel₂_congr_fst (i + 1) ps (fun r hr ↦ h r (.tail _ hr)) a a' b
+
+theorem tagCase₃_congr_snd : ∀ (i : ℕ) (fs : List (V → V → V → V)),
+    (∀ f ∈ fs, ∀ q a a' b : V, f q a b = f q a' b) → ∀ q a a' b : V,
+      tagCase₃ (V := V) i fs q a b = tagCase₃ i fs q a' b
+  | _, [], _, _, _, _, _ => rfl
+  | i, f :: fs, h, q, a, a', b => by
+    show (if q = ((i : ℕ) : V) then _ else _) = (if q = ((i : ℕ) : V) then _ else _)
+    by_cases hq : q = ((i : ℕ) : V)
+    · rw [if_pos hq, if_pos hq]; exact h f (.head _) q a a' b
+    · rw [if_neg hq, if_neg hq]
+      exact tagCase₃_congr_snd (i + 1) fs (fun g hg ↦ h g (.tail _ hg)) q a a' b
+
+section Ctor'
+
+variable {envF : VEnv} {nv : ℕ} (M : ModelData V) (L : PropSplit envF nv)
+variable (D : VInductDecl')
+
+/-- Membership in the zipped constructor list, read back. -/
+theorem mem_of_mem_zipIdx {α : Type*} {l : List α} {p : α × ℕ} (h : p ∈ l.zipIdx) :
+    p.1 ∈ l :=
+  List.mem_of_getElem? (List.mk_mem_zipIdx_iff_getElem?.1 (by simpa using h))
+
+/-- **`posIdx` does not read `a`.** -/
+theorem ctorData_posIdxs_indep (Dcar params : V) (A : ℕ → VExpr) (j : ℕ) (C : VIndCtor) :
+    ∀ p ∈ (ctorData M L D Dcar params A j C).posIdxs, ∀ a a' x : V, p a x = p a' x := by
+  intro p hp a a' x
+  obtain ⟨r, -, rfl⟩ := List.mem_map.1 (by exact hp : p ∈ posIdxVals M L D params C)
+  rfl
+
+/-- **`posIdx_det` holds at every declaration**, with no hypothesis at all. -/
+theorem interpSig₃_posIdx_indep (Dcar params : V) (A : ℕ → ℕ → VExpr) (q a a' b : V) :
+    (interpSig₃ M L D Dcar params A).posIdx q a b
+      = (interpSig₃ M L D Dcar params A).posIdx q a' b := by
+  refine tagCase₃_congr_snd 0 _ ?_ q a a' b
+  rintro f hf q x y b
+  obtain ⟨c, hc, rfl⟩ := List.mem_map.1 hf
+  obtain ⟨p, -, rfl⟩ := List.mem_map.1 hc
+  exact tagSel₂_congr_fst 0 _ (ctorData_posIdxs_indep M L D _ _ _ _ _) _ _ _
+
+/-- **`Pos` sees `a` only through the prefixes its recursive fields sit over.**
+So `pos_det` at a declaration follows from `resIdx` determining those prefixes,
+which is what a subsingleton's result index does. -/
+theorem interpSig₃_Pos_congr (Dcar params : V) (A : ℕ → ℕ → VExpr) {a a' : V}
+    (h : ∀ p ∈ D.ctorsAll, ∀ P ∈ posDoms M L D p.2, P a = P a') (q : V) :
+    (interpSig₃ M L D Dcar params A).Pos q a
+      = (interpSig₃ M L D Dcar params A).Pos q a' := by
+  refine tagCase₂_congr_snd 0 _ ?_ q
+  rintro f hf q
+  obtain ⟨c, hc, rfl⟩ := List.mem_map.1 hf
+  obtain ⟨p, hp, rfl⟩ := List.mem_map.1 hc
+  exact tagUnionF_congr 0 _ (h p.1 (mem_of_mem_zipIdx hp))
+
+end Ctor'
+
+end SubsingletonSat
+
+/-! ## The two assembly obligations, reduced to this data
+
+`mkIndSignature₃_wf` and `mkIndSignature₃_stage` are stated over an abstract
+`cs`.  Instantiating them at `interpSig₃` is pure plumbing, and it is worth
+doing separately from discharging them, because it **names exactly what the
+syntax side still owes** — and the two obligations owe very different things:
+
+| obligation | what remains |
+|---|---|
+| `interpSig₃_wf` | one statement per constructor: *the result-index tuple `⟦C.args⟧` inhabits the block member's index telescope `⟦T.indices⟧`*.  That is soundness part 1 at `C.args`, plus `interp_congr` to move from the stored field types to the block-free `A` that `Fld` is built from.  Nothing else survives the reduction. |
+| `interpSig₃_stage` | four stage memberships, of which `Q` is a numeral and `Idx`, `Fld`, `Pos` are telescope sums.  These need `⟦_⟧ ∈ U κ (i+1)` for the *domains* (soundness part 3) **and** the closure of a stage under `teleFun`/`tagUnionF`, which is set-theoretic and not yet proved — see the note below. |
+
+**The stage side is not blocked on syntax alone.**  `teleFun`'s elements are
+internal *sequences*, so `(teleFun Gs).toFun ρ ∈ vsetV k` needs `snoc ρ x` to be
+in the stage, i.e. closure of `vsetV k` under `∪`, singletons and `kpair`, none
+of which `SetModel/Universe.lean` currently records.  That tower is missing on
+the **model** side, and it is a prerequisite for `interpSig₃_stage` independent
+of anything the syntax supplies. -/
+
+section Obligations
+
+variable {envF : VEnv} {nv : ℕ} (M : ModelData V) (L : PropSplit envF nv)
+variable (D : VInductDecl')
+
+/-- Landing in a tagged union at a named summand. -/
+theorem mem_tagUnionF_of : ∀ (i : ℕ) (As : List (V → V)) (k : ℕ) (A : V → V),
+    getElem? As k = some A → ∀ {a y : V}, y ∈ A a →
+      (⟨((i + k : ℕ) : V), y⟩ₖ : V) ∈ tagUnionF (V := V) i As a
+  | _, [], k, _, h, _, _, _ => by simp at h
+  | i, A' :: As, 0, A, h, a, y, hy => by
+    have hA : A' = A := by simpa using h
+    subst hA
+    rw [Nat.add_zero]
+    exact mem_tagUnionF_cons.2 (Or.inl ⟨y, hy, rfl⟩)
+  | i, A' :: As, k + 1, A, h, a, y, hy => by
+    refine mem_tagUnionF_cons.2 (Or.inr ?_)
+    have ih := mem_tagUnionF_of (i + 1) As k A (by simpa using h) hy
+    rwa [show i + 1 + k = i + (k + 1) from by omega] at ih
+
+/-- **`Idx`, entered at a block member.**  This is the whole of `Idx`'s
+interface: an index tuple of member `j` is an element of the block's `Idx`. -/
+theorem mem_idxSet_of {params t : V} (j : ℕ) (T : VIndType) (hT : getElem? D.types j = some T)
+    (ht : t ∈ (teleFun (teleDomains M L D.params.reverse T.indices)).toFun params) :
+    (⟨((j : ℕ) : V), t⟩ₖ : V) ∈ idxSet M L D params := by
+  have h := mem_tagUnionF_of (V := V) 0
+    (D.types.map fun T ↦ fun _ : V ↦
+      (teleFun (teleDomains M L D.params.reverse T.indices)).toFun params) j
+    (fun _ : V ↦ (teleFun (teleDomains M L D.params.reverse T.indices)).toFun params)
+    (by rw [List.getElem?_map, hT]; rfl) (a := ∅) ht
+  rwa [show ((0 + j : ℕ) : V) = ((j : ℕ) : V) from by norm_num] at h
+
+/-- Reading a constructor back out of the assembled list. -/
+theorem mem_interpSig₃_cs {Dcar params : V} {A : ℕ → ℕ → VExpr} {c : CtorData₃ V}
+    (hc : c ∈ D.ctorsAll.zipIdx.map
+      fun p ↦ ctorData M L D Dcar params (A p.2) p.1.1 p.1.2) :
+    ∃ (q j : ℕ) (C : VIndCtor), getElem? D.ctorsAll q = some (j, C) ∧
+      c = ctorData M L D Dcar params (A q) j C := by
+  obtain ⟨p, hp, rfl⟩ := List.mem_map.1 hc
+  exact ⟨p.2, p.1.1, p.1.2, List.mk_mem_zipIdx_iff_getElem?.1 (by simpa using hp), rfl⟩
+
+/-- **`interpSig_wf` at this data.**  Everything the assembly needed is gone
+except the one semantic statement named in the table above. -/
+theorem interpSig₃_wf {Dcar params : V} {A : ℕ → ℕ → VExpr}
+    (h : ∀ (q j : ℕ) (C : VIndCtor), getElem? D.ctorsAll q = some (j, C) →
+      ∃ T, getElem? D.types j = some T ∧
+        ∀ a ∈ ctorFldSet M L D Dcar (A q) params C,
+          argsVal M L ((C.fields.map (·.type)).reverse ++ D.params.reverse)
+              C.args a params
+            ∈ (teleFun (teleDomains M L D.params.reverse T.indices)).toFun params) :
+    (interpSig₃ M L D Dcar params A).toIndSignature₂.WF := by
+  refine mkIndSignature₃_wf ?_
+  rintro c hc W a ha
+  obtain ⟨q, j, C, hq, rfl⟩ := mem_interpSig₃_cs M L D hc
+  obtain ⟨T, hT, hres⟩ := h q j C hq
+  exact mem_idxSet_of M L D j T hT (hres a ha)
+
+/-- **`interpSig_stage` at this data**, reduced the same way. -/
+theorem interpSig₃_stage {k Dcar params : V} {A : ℕ → ℕ → VExpr}
+    (hIdx : idxSet M L D params ∈ vsetV k)
+    (hQ : ((D.nmin : ℕ) : V) ∈ vsetV k)
+    (hfld : ∀ (q j : ℕ) (C : VIndCtor), getElem? D.ctorsAll q = some (j, C) →
+      ctorFldSet M L D Dcar (A q) params C ∈ vsetV k)
+    (hpos : ∀ (q j : ℕ) (C : VIndCtor), getElem? D.ctorsAll q = some (j, C) →
+      ∀ a ∈ ctorFldSet M L D Dcar (A q) params C,
+        tagUnionF 0 (posDoms M L D C) a ∈ vsetV k) :
+    IsStageSignature₂ k (interpSig₃ M L D Dcar params A).toIndSignature₂ := by
+  refine mkIndSignature₃_stage hIdx ?_ ?_ ?_
+  · rw [show (D.ctorsAll.zipIdx.map
+        fun p ↦ ctorData M L D Dcar params (A p.2) p.1.1 p.1.2).length = D.nmin from by
+      rw [List.length_map, List.length_zipIdx]]
+    exact hQ
+  · rintro c hc W
+    obtain ⟨q, j, C, hq, rfl⟩ := mem_interpSig₃_cs M L D hc
+    exact hfld q j C hq
+  · rintro c hc W a ha
+    obtain ⟨q, j, C, hq, rfl⟩ := mem_interpSig₃_cs M L D hc
+    exact hpos q j C hq a ha
+
+end Obligations
+
+/-! ## Stage closure for valuations and tagged unions
+
+`interpSig₃_stage`'s four memberships are about `teleFun` sums and `tagUnionF`
+unions, whose elements are internal *sequences*.  It looked as though this
+needed closure lemmas the model did not have — and that reading was wrong, in
+the way §4 warns about: `SetModel/Rank.lean` already records `insert_mem_Vset`,
+`kpair_mem_Vset`, `domain_mem_Vset`, `union_mem_Vset`, `prod_mem_Vset` and
+`singleton_mem_Vset`, and `mem_vsetV_iff_mem_Vset` is `Iff.rfl`.  So the whole
+set-theoretic half is four short lemmas over machinery that was already there,
+and only the **domains** — `⟦A⟧ ∈ vsetV k`, soundness part 3 — are owed by the
+syntax side.
+
+*Recorded because the check took under a minute and would have saved a wrong
+paragraph in `docs/model-interface.md`: before declaring a model-side
+prerequisite missing, grep for it at the `Vset` level rather than at the `U`
+level.* -/
+
+section StageClosure
+
+variable {k : V}
+
+/-- A stage is transitive. -/
+theorem mem_vsetV_of_mem_of_mem_vsetV (hk : IsInaccessible k) {a b : V}
+    (ha : a ∈ vsetV k) (hb : b ∈ a) : b ∈ vsetV k := by
+  haveI : IsOrdinal k := hk.isOrdinal
+  exact mem_vsetV_iff_mem_Vset.2
+    (subset_Vset_of_mem_Vset (mem_vsetV_iff_mem_Vset.1 ha) b hb)
+
+theorem ofNat_mem_vsetV (hk : IsInaccessible k) (n : ℕ) : ((n : ℕ) : V) ∈ vsetV k := by
+  haveI : IsOrdinal k := hk.isOrdinal
+  exact mem_vsetV_of_mem_of_mem_vsetV hk (mem_vsetV_of_mem hk.omega_mem) (ofNat_mem_ω n)
+
+/-- **Extending a valuation stays in the stage.**  This is the step the
+`teleFun` induction needs, and it is `insert` over `kpair` over `domain`. -/
+theorem snoc_mem_vsetV (hk : IsInaccessible k) {ρ x : V}
+    (hρ : ρ ∈ vsetV k) (hx : x ∈ vsetV k) : (snoc ρ x : V) ∈ vsetV k := by
+  haveI : IsOrdinal k := hk.isOrdinal
+  have h : (snoc ρ x : V) = insert (⟨domain ρ, x⟩ₖ : V) ρ := rfl
+  rw [h]
+  refine mem_vsetV_iff_mem_Vset.2 (insert_mem_Vset hk.isLimitOrdinal
+    (kpair_mem_Vset hk.isLimitOrdinal (domain_mem_Vset (mem_vsetV_iff_mem_Vset.1 hρ))
+      (mem_vsetV_iff_mem_Vset.1 hx)) (mem_vsetV_iff_mem_Vset.1 hρ))
+
+/-- **A telescope sum stays in the stage**, given only that each domain does.
+So `Fld`'s and `Idx`'s stage memberships reduce to `⟦_⟧ ∈ vsetV k` for the
+domains, with nothing left over. -/
+theorem teleFun_mem_vsetV (hk : IsInaccessible k) :
+    ∀ (Gs : List (DefFun V)) {ρ : V}, ρ ∈ vsetV k →
+      (∀ G ∈ Gs, ∀ σ : V, σ ∈ vsetV k → G.toFun σ ∈ vsetV k) →
+      (teleFun Gs).toFun ρ ∈ vsetV k
+  | [], ρ, hρ, _ => by
+    haveI : IsOrdinal k := hk.isOrdinal
+    rw [teleFun_nil]
+    exact mem_vsetV_iff_mem_Vset.2
+      (singleton_mem_Vset hk.isLimitOrdinal (mem_vsetV_iff_mem_Vset.1 hρ))
+  | G :: Gs, ρ, hρ, hG => by
+    haveI : IsOrdinal k := hk.isOrdinal
+    have hGρ : G.toFun ρ ∈ vsetV k := hG G (.head _) ρ hρ
+    have hfib : ∀ x ∈ G.toFun ρ, (teleFun Gs).toFun (snoc ρ x) ∈ vsetV k := fun x hx ↦
+      teleFun_mem_vsetV hk Gs
+        (snoc_mem_vsetV hk hρ (mem_vsetV_of_mem_of_mem_vsetV hk hGρ hx))
+        (fun H hH σ hσ ↦ hG H (.tail _ hH) σ hσ)
+    have hdef : ℒₛₑₜ-function₁[V] (fun x ↦ (teleFun Gs).toFun (snoc ρ x)) := by
+      have := (teleFun Gs).definable; definability
+    have hrepl := repl_mem_vsetV' hk hGρ _ hdef hfib
+    have hun : (⋃ˢ (repl (fun x ↦ (teleFun Gs).toFun (snoc ρ x)) hdef (G.toFun ρ)) : V)
+        ∈ vsetV k :=
+      mem_vsetV_iff_mem_Vset.2 (sUnion_mem_Vset (mem_vsetV_iff_mem_Vset.1 hrepl))
+    refine mem_vsetV_iff_mem_Vset.2 (mem_Vset_of_subset_of_mem (fun y hy ↦ ?_)
+      (mem_vsetV_iff_mem_Vset.1 hun))
+    obtain ⟨x, hx, hyx⟩ := mem_teleFun_cons.1 hy
+    exact mem_sUnion_iff.2 ⟨_, (repl_spec hdef).2 ⟨x, hx, rfl⟩, hyx⟩
+
+/-- **A tagged union stays in the stage**, given only that each summand does.
+So `Pos`'s and `Idx`'s stage memberships reduce the same way. -/
+theorem tagUnionF_mem_vsetV (hk : IsInaccessible k) :
+    ∀ (i : ℕ) (As : List (V → V)) {a : V}, (∀ A ∈ As, A a ∈ vsetV k) →
+      tagUnionF i As a ∈ vsetV k
+  | _, [], _, _ => by
+    haveI : IsOrdinal k := hk.isOrdinal
+    show (∅ : V) ∈ vsetV k
+    exact mem_vsetV_iff_mem_Vset.2 (empty_mem_Vset hk.isLimitOrdinal)
+  | i, A :: As, a, h => by
+    haveI : IsOrdinal k := hk.isOrdinal
+    show ((({((i : ℕ) : V)} : V) ×ˢ A a) ∪ tagUnionF (i + 1) As a : V) ∈ vsetV k
+    have h1 : (({((i : ℕ) : V)} : V) ×ˢ A a : V) ∈ vsetV k :=
+      mem_vsetV_iff_mem_Vset.2 (prod_mem_Vset hk.isLimitOrdinal
+        (singleton_mem_Vset hk.isLimitOrdinal
+          (mem_vsetV_iff_mem_Vset.1 (ofNat_mem_vsetV hk i)))
+        (mem_vsetV_iff_mem_Vset.1 (h A (.head _))))
+    have h2 := tagUnionF_mem_vsetV hk (i + 1) As (fun B hB ↦ h B (.tail _ hB))
+    exact mem_vsetV_iff_mem_Vset.2 (union_mem_Vset hk.isLimitOrdinal
+      (mem_vsetV_iff_mem_Vset.1 h1) (mem_vsetV_iff_mem_Vset.1 h2))
+
+/-! ### The stage obligation, all the way down to the domains -/
+
+section StageReduction
+
+variable {envF : VEnv} {nv : ℕ} (M : ModelData V) (L : PropSplit envF nv)
+variable (D : VInductDecl')
+
+theorem restrict_subset {f c : V} : (f ↾ c : V) ⊆ f :=
+  fun _ hp ↦ (mem_restrict_iff.1 hp).1
+
+/-- **`Idx` is in the stage** as soon as the parameter valuation and the index
+telescopes' domains are. -/
+theorem idxSet_mem_vsetV (hk : IsInaccessible k) {params : V}
+    (hparams : params ∈ vsetV k)
+    (h : ∀ T ∈ D.types, ∀ G ∈ teleDomains M L D.params.reverse T.indices,
+      ∀ σ : V, σ ∈ vsetV k → G.toFun σ ∈ vsetV k) :
+    idxSet M L D params ∈ vsetV k := by
+  refine tagUnionF_mem_vsetV hk 0 _ ?_
+  rintro P hP
+  obtain ⟨T, hT, rfl⟩ := List.mem_map.1 hP
+  exact teleFun_mem_vsetV hk _ hparams (h T hT)
+
+/-- **`Pos` is in the stage above every element of `Fld`** as soon as `Fld` is
+and the recursive fields' `ξ`-domains are.  The prefix costs nothing: a stage is
+transitive and `a ↾ n ⊆ a`. -/
+theorem posDoms_mem_vsetV (hk : IsInaccessible k) {Dcar params a : V} {A : ℕ → VExpr}
+    {C : VIndCtor} (hFld : ctorFldSet M L D Dcar A params C ∈ vsetV k)
+    (ha : a ∈ ctorFldSet M L D Dcar A params C)
+    (h : ∀ (i : ℕ) (r : VIndRecArg), (i, r) ∈ C.recFields →
+      ∀ G ∈ teleDomains M L (fldCtx D C i) r.binders,
+        ∀ σ : V, σ ∈ vsetV k → G.toFun σ ∈ vsetV k) :
+    tagUnionF 0 (posDoms M L D C) a ∈ vsetV k := by
+  haveI : IsOrdinal k := hk.isOrdinal
+  have hav : a ∈ vsetV k := mem_vsetV_of_mem_of_mem_vsetV hk hFld ha
+  refine tagUnionF_mem_vsetV hk 0 _ ?_
+  rintro P hP
+  obtain ⟨p, hp, rfl⟩ := List.mem_map.1 hP
+  obtain ⟨r, hr, rfl⟩ := List.mem_map.1 hp
+  refine teleFun_mem_vsetV hk _ ?_ (h r.1 r.2 hr)
+  exact mem_vsetV_iff_mem_Vset.2 (mem_Vset_of_subset_of_mem restrict_subset
+    (mem_vsetV_iff_mem_Vset.1 hav))
+
+/-- **`interpSig₃_stage`, reduced to the domains.**  Only `⟦_⟧ ∈ vsetV k` for
+the three families of domains survives, plus `params ∈ vsetV k`; the numeral `Q`
+and every telescope/tagged-union step is discharged. -/
+theorem interpSig₃_stage_of_domains (hk : IsInaccessible k) {Dcar params : V}
+    {A : ℕ → ℕ → VExpr} (hparams : params ∈ vsetV k)
+    (hidx : ∀ T ∈ D.types, ∀ G ∈ teleDomains M L D.params.reverse T.indices,
+      ∀ σ : V, σ ∈ vsetV k → G.toFun σ ∈ vsetV k)
+    (hfld : ∀ (q j : ℕ) (C : VIndCtor), getElem? D.ctorsAll q = some (j, C) →
+      ∀ G ∈ fldDoms M L Dcar (A q) D.params.reverse 0 C.fields,
+        ∀ σ : V, σ ∈ vsetV k → G.toFun σ ∈ vsetV k)
+    (hxi : ∀ (q j : ℕ) (C : VIndCtor), getElem? D.ctorsAll q = some (j, C) →
+      ∀ (i : ℕ) (r : VIndRecArg), (i, r) ∈ C.recFields →
+        ∀ G ∈ teleDomains M L (fldCtx D C i) r.binders,
+          ∀ σ : V, σ ∈ vsetV k → G.toFun σ ∈ vsetV k) :
+    IsStageSignature₂ k (interpSig₃ M L D Dcar params A).toIndSignature₂ := by
+  have hfld' : ∀ (q j : ℕ) (C : VIndCtor), getElem? D.ctorsAll q = some (j, C) →
+      ctorFldSet M L D Dcar (A q) params C ∈ vsetV k := fun q j C hq ↦
+    teleFun_mem_vsetV hk _ hparams (hfld q j C hq)
+  exact interpSig₃_stage M L D (idxSet_mem_vsetV M L D hk hparams hidx)
+    (ofNat_mem_vsetV hk D.nmin) hfld'
+    (fun q j C hq a ha ↦ posDoms_mem_vsetV M L D hk (hfld' q j C hq) ha (hxi q j C hq))
+
+end StageReduction
+
+end StageClosure
+
 end Lean4Lean.SetModel

@@ -8,6 +8,14 @@ actually consume; neither side can design this boundary alone.
 The model side is complete apart from the interpretation itself. Everything
 cited here is proved, sorry-free, in `SetModel/`.
 
+> **Standing label, and it must travel with every result quoted from here.**
+> The interpretation is parameterised by `PropSplit` (§5), and **nothing in the
+> tree exhibits one.** Its two residual syntactic imports are `PropUniq` and
+> `PropTypeAgree`; every known syntactic route to either is currently closed by
+> machine-checked negatives. Everything below is proved *against* that
+> parameter and stays valid, but a completed `.induct` is **not** an
+> unconditional result, and should not be reported as one.
+
 Throughout:
 
 ```lean
@@ -326,12 +334,54 @@ preserved: domains first (`pos_det`), then `f` by the rank induction, then `a`
 large-eliminating subsingleton** instead of by every declaration. That is the
 whole trade, and it is why the translation is not blocked.
 
-**Not checked, and it is the next thing to check**: that
-`IsSubsingletonSignature₃` is satisfiable at `Acc` under this layout. The
-theorem is proved against the hypothesis; the hypothesis has no instance yet.
-`docs/soundness-ledger.md`'s standing warning about constructions resting on
-uninhabited hypotheses applies to it and not to the translation, whose own
-hypothesis (`VIndCtor.WF`) is instantiated in `SetModel/CtorTransExamples.lean`.
+**Checked — the instance exists.** `accSig_isSubsingleton`
+(`SetModel/CtorTransExamples.lean`) is `IsSubsingletonSignature₃` at `Acc`'s
+signature, sorry-free, `[propext, Classical.choice, Quot.sound]`. So the
+ledger's objection is now closed in both directions: the theorem holds against
+the restated hypothesis, *and* the restated hypothesis holds at the family the
+ledger named as the one the layout would kill.
+
+Four things the instance settles, in decreasing order of how surprising they
+were.
+
+1. **`fld_det` is where `Args` earns its place, and it goes through.** `a`'s
+   recursive slot is a function on `Pos q a` agreeing pointwise with `f`, so
+   `f = f'` forces the slots equal by `function_ext`. That is the step the
+   ledger predicted would fail, and the prediction was about `fld_det`'s old
+   statement, not about `Acc`.
+2. **`posIdx_det` is free at *every* declaration**, not just at `Acc`:
+   `interpSig₃_posIdx_indep` (`SetModel/CtorTrans.lean`) proves it with no
+   hypothesis at all, because `posIdxVals`' entries are literally
+   `fun _a x ↦ …` — a recursive occurrence's `⟦π⟧` is evaluated at the
+   *position*, and `posIdx`'s `a` slot is vestigial. One of the four fields is
+   therefore not a per-declaration obligation at all.
+3. **`pos_det` is `resIdx` determining a prefix.** `Pos` reads `a` only through
+   `a ↾ (np + i)` (`interpSig₃_Pos_congr`, also general), and at `Acc` the
+   result index *is* the field-0 slot, so the prefix is determined on the nose.
+4. **No syntactic hypothesis is used, and the block-free replacements `A` are
+   left arbitrary.** None of the four fields inspects a field *domain*, only the
+   shape of the valuation. The one hypothesis is `IsSeq params 2`, which
+   `isSeq_params` supplies and which is separately exhibited (`isSeq_two`).
+
+The instance is then **used**, not merely stated: `accInd_subsingleton` and
+`accIndRec_indep_of_proof` are `Ind₃_subsingleton` and `indRec₃_indep_of_proof`
+at it, with the subsingleton hypothesis discharged.
+
+### `Fld ≠ ∅` is not a theorem, and asking for it is the wrong ask
+
+`exists_mem_args` is stated *above every element of `Fld`*, and the standing
+worry is that this makes it vacuous. Both directions are now separated and
+proved, and the conjunct that was asked for is not one of them:
+
+* **`Fld ≠ ∅` is false in general and no amount of soundness will fix it.** A
+  constructor whose field types are uninhabited has no applications — `Acc` over
+  an empty `α`, or `Foo | mk : False → Foo` with no parameters at all.
+  `not_mem_accFldSet_of_slot_empty` is that direction.
+* **What *would* be a defect is `Fld` inhabited with `Args` empty above it**,
+  and that is exactly what `exists_mem_args` rules out. `accArgs_nonempty` is
+  `exists_mem_args` at `Acc` with its antecedent discharged from the two slot
+  domains rather than assumed, so the admissibility condition is satisfiable and
+  not merely stated.
 
 ### What the model gives back
 
@@ -864,13 +914,53 @@ lemma. What remains from the syntax side is:
    obligations `coherentOn_addInduct` pushes to its caller: the per-constant
    `OracleOK` (a constructor's and a recursor's value inhabiting its declared
    type) and the per-ι-rule pair. Those are the `Quot.mk`-shaped work, one
-   nesting level deeper, and they are what will consume `interpSig₃_stage` /
-   `_wf` — which are also still to be discharged at this data, since
-   `mkIndSignature₃_wf`'s `resIdx a ∈ Idx` and `mkIndSignature₃_stage`'s
-   membership hypotheses both need soundness and the typing judgements, not just
-   the syntax.
+   nesting level deeper.
 
-Nothing on the set-theoretic side is outstanding.
+5. **`interpSig₃_wf` / `_stage` at this data** — the *plumbing* is now done
+   (`SetModel/CtorTrans.lean`, section "The two assembly obligations, reduced to
+   this data"), and doing it separately from discharging them was worth it,
+   because the two obligations turn out to owe completely different things.
+
+   | obligation | what the reduction leaves |
+   |---|---|
+   | `interpSig₃_wf` | **one statement per constructor**: the result-index tuple `⟦C.args⟧` inhabits the block member's index telescope `⟦T.indices⟧`. Nothing else survives — in particular the *recursive* fields contribute nothing, since `resIdx` does not read them. |
+   | `interpSig₃_stage` | four stage memberships: `Q` (a numeral), and `Idx`, `Fld`, `Pos` (telescope sums). |
+
+   **The `wf` row bottoms out at `interp_congr`, which is proved.** Run at `Acc`
+   (`accSig_wf`), the per-constructor statement collapses to "the block-free
+   replacement for field 0's type denotes what `α` denotes" — §4's congruence
+   and nothing more. `accInd_subsingleton_of_congr` composes it with the
+   subsingleton instance, leaving `IsIndCarrier₃` as the only standing
+   hypothesis, and that one is not specific to `Acc`.
+
+   **The `stage` row is reduced all the way to the domains** —
+   `interpSig₃_stage_of_domains`. `teleFun`'s elements are internal *sequences*,
+   so it needs `snoc ρ x` in the stage; that looked like a missing model-side
+   tower, and **it was not** — `SetModel/Rank.lean` already has
+   `insert_mem_Vset`, `kpair_mem_Vset`, `domain_mem_Vset`, `union_mem_Vset`,
+   `prod_mem_Vset`, `singleton_mem_Vset`, and `mem_vsetV_iff_mem_Vset` is
+   `Iff.rfl`. `snoc_mem_vsetV`, `teleFun_mem_vsetV` and `tagUnionF_mem_vsetV`
+   are four short lemmas over that, all proved. *Recorded because the check
+   took under a minute and the wrong reading survived a whole paragraph of this
+   document: grep at the `Vset` level, not the `U` level.*
+
+   What is left is exactly `⟦_⟧ ∈ vsetV k` for three families of domains — the
+   index telescopes, the field domains, the recursive fields' `ξ` — plus
+   `params ∈ vsetV k`. That is soundness part 3 and nothing else.
+
+   **A defect found and fixed on the way.** `mkIndSignature₃_stage`'s `hpos`
+   quantified over an **arbitrary** `a : V`, while `IsStageSignature₂.pos_mem`
+   only ever uses it above an element of `Fld`. The stronger form is not merely
+   wasteful, it is **false at the translation**: `Pos q a` evaluates `⟦ξ⟧` at
+   `a ↾ (np + i)`, so a junk `a` reads `⟦.bvar j⟧` off an unbounded valuation
+   and no stage contains the result. Had the reduction been done by assuming
+   the assembly-level hypothesis rather than by attempting to discharge it, the
+   whole `stage` line would have rested on an unsatisfiable premise — the exact
+   failure mode `docs/soundness-ledger.md` keeps warning about, caught here only
+   because the premise was pushed down to something checkable. The premise is
+   now the one the structure actually uses.
+
+Nothing else on the set-theoretic side is outstanding.
 
 ## Where things live
 
@@ -885,8 +975,8 @@ Nothing on the set-theoretic side is outstanding.
 | `SetModel/IndCard.lean` | `Ind_mem_vsetV` / `Ind_mem_U_stage` |
 | `SetModel/Interp.lean` | `LevelAssign`, `interp`, `interpCtx`, proof splitting |
 | `SetModel/IndInterp.lean` | `IndSignature₂`/`₃` and the port, `mkIndSignature₃`, `interpSig_wf`/`_stage`, `coherentOn_addInduct` |
-| `SetModel/CtorTrans.lean` | the `VIndCtor → CtorData₃`/`Args` translation, `interpSig₃`, `Ind₃_subsingleton` |
+| `SetModel/CtorTrans.lean` | the `VIndCtor → CtorData₃`/`Args` translation, `interpSig₃`, `Ind₃_subsingleton`, the tag-combinator congruences, `interpSig₃_wf`/`_stage`, `interpSig₃_stage_of_domains`, stage closure for `snoc`/`teleFun`/`tagUnionF` |
 | `SetModel/PropSplitAudit.lean` | `PropUniq`, `PropTypeAgree`, and the three-part satisfiability audit for `PropSplit` |
-| `SetModel/CtorTransExamples.lean` | the translation applied to `Acc`, `W'`, `Forest'.cons` |
+| `SetModel/CtorTransExamples.lean` | the translation applied to `Acc`, `W'`, `Forest'.cons`; the `IsSubsingletonSignature₃` instance and `accSig_wf` |
 | `SetModel/Cnst.lean` | `cnstOf`, `oracleExtend`, `CoherentOn` and its `addConst`/`addDefEq`/`addConstList` steps |
 | `docs/foundation-gaps.md` | what Foundation is missing, and the `isDefEq` hazard |
