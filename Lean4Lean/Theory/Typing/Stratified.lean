@@ -370,6 +370,39 @@ pieces that do not exist yet:
    definitionally equal to the matched term — which needs `forallE_inv`.  Nothing
    instantiates it.  At this index that stops being circular for the same reason (2) does.
 
+### Estimate versus actual, for (1)
+
+An earlier pass priced (1) at 3–4× its 111-line estimate on the grounds that it needed two
+devices the estimate omitted — a substitution lemma at the index, and a core/conversion
+separation.  Both have now been settled, and the overrun is smaller than that:
+
+* **Substitution and weakening at the index: built, 116 lines, sorry-free** (`weakN`,
+  `weak`, `instN`, `inst0` below, plus the two `WF` premises on `forallE`).  That is *under*
+  the 120–200 estimated for it, and it is the piece that propagates — all 35 of
+  `ChurchRosser.lean`'s `instN`/`weakN`-using declarations draw on it, so it is paid once.
+* **The core/conversion separation is not needed.**  `thm:utype`'s double induction can peel
+  conversions on the second derivation with a nested induction under a subject-shape
+  generalisation, which is exactly how `HasType.app_inv` (`Strong.lean`) inverts an
+  application without one.  `HasTypeStrong` has the separation for convenience, not
+  necessity.  So the one item that was a *definition change* rather than an addition is
+  struck.
+
+Remaining for (1): the `DefInv` predicate, the level-`n` congruence helpers (each needs an
+`n = 0` branch through `IsDefEqN.zero_iff`, since conversion rules live at `n+1` while
+`thm:utype`'s conclusion is at `n`), and the double induction itself — call it 150 lines,
+**still an estimate**.  Prerequisite (1) therefore looks like ~270 lines against 111, about
+2.4×, and the propagating half of it is already paid.
+
+### Two traps this file cost, both of the "reads right, is wrong" family
+
+* `Stratified.bvar` has **one more implicit than `IsDefEq.bvar`** (the index `n`), so the
+  case pattern `| @bvar _ i ty h =>` copied from `IsDefEq.instN` silently binds `h` to the
+  *index* and leaves the `Lookup` premise inaccessible.  It typechecks — `h : Nat` — and
+  fails much later with `Nat` where a `Lookup` was wanted.  Copying a case pattern between
+  two judgments requires counting implicits, not matching names.
+* The index arithmetic in `instN` must be written `m + n`, never `n + m`; see that lemma's
+  docstring.
+
 **Do not confuse the two classes named `Params`.**  `Lean4Lean.VEnv.Params`
 (`ChurchRosser.lean:12`) and `Lean4Lean.Params` (`Experimental/SExpr.lean:787`) are
 different classes with different fields, distinguished only by namespace.
@@ -377,6 +410,122 @@ different classes with different fields, distinguished only by namespace.
 one has no instance.  A name search cannot tell them apart, and statements in this repo of
 the form "`Params` is/isn't instantiated" are ambiguous unless they carry the namespace.
 -/
+
+/-! ## Weakening and substitution at the index
+
+`ChurchRosser.lean` uses `instN`/`weakN` 52 and 73 times across 35 of its 86 declarations,
+so the stratified analogues are load-bearing for the whole transfer, not just for
+`thm:utype`.  Both are single inductions here rather than the pair the ambient judgment
+needs, because typing and conversion share one inductive — and the statement is uniform in
+`b` for a reason worth noting: when `b = true` the second expression is the *type* and must
+be lifted too, and when `b = false` it is the other side of a conversion and must be lifted
+as well.  The same formula is correct for both readings.
+
+The conversion cases are markedly cheaper than their ambient counterparts: `IsDefEqN`'s
+conclusions carry no type, so the `liftN_inst_hi`/`inst_inst_hi` rewrites that
+`IsDefEq.weakN`/`IsDefEq.instN` need on `appDF`, `beta` and `extra` largely disappear.  That
+is the type-index artifact showing up as arithmetic, one more time.
+-/
+
+theorem Stratified.weakN {m k : Nat} (henv : Ordered env) (W : Ctx.LiftN m k Γ Γ')
+    (H : Stratified env U n Γ e₁ e₂ b) :
+    Stratified env U n Γ' (e₁.liftN m k) (e₂.liftN m k) b := by
+  induction H generalizing k Γ' with
+  | bvar h => exact .bvar (h.weakN W)
+  | sort h => exact .sort h
+  | const h1 h2 h3 =>
+    rw [(henv.closedC h1).instL.liftN_eq (Nat.zero_le _)]
+    exact .const h1 h2 h3
+  | app _ _ ih1 ih2 => exact VExpr.liftN_inst_hi .. ▸ .app (ih1 W) (ih2 W)
+  | lam _ _ ih1 ih2 => exact .lam (ih1 W) (ih2 W.succ)
+  | forallE h1 h2 _ _ ih1 ih2 => exact .forallE h1 h2 (ih1 W) (ih2 W.succ)
+  | conv _ _ ih1 ih2 => exact .conv (ih1 W) (ih2 W)
+  | rfl => exact .rfl
+  | symm _ ih => exact .symm (ih W)
+  | trans _ _ ih1 ih2 => exact .trans (ih1 W) (ih2 W)
+  | sortDF h1 h2 h3 => exact .sortDF h1 h2 h3
+  | constDF h1 h2 h3 h4 h5 => exact .constDF h1 h2 h3 h4 h5
+  | appDF _ _ _ _ _ _ ih1 ih2 ih3 ih4 ih5 ih6 =>
+    exact .appDF (ih1 W) (ih2 W) (ih3 W) (ih4 W) (ih5 W) (ih6 W)
+  | lamDF _ _ ih1 ih2 => exact .lamDF (ih1 W) (ih2 W.succ)
+  | forallEDF _ _ ih1 ih2 => exact .forallEDF (ih1 W) (ih2 W.succ)
+  | beta _ _ ih1 ih2 => exact VExpr.liftN_instN_hi .. ▸ .beta (ih1 W.succ) (ih2 W)
+  | eta _ ih =>
+    have := Stratified.eta (ih W)
+    simp [VExpr.liftN]; rwa [← VExpr.lift_liftN']
+  | proofIrrel _ _ _ ih1 ih2 ih3 => exact .proofIrrel (ih1 W) (ih2 W) (ih3 W)
+  | extra h1 h2 h3 =>
+    have ⟨⟨hA1, _⟩, hA2, hA3⟩ := henv.closed.2 h1
+    rw [hA1.instL.liftN_eq (Nat.zero_le _), hA2.instL.liftN_eq (Nat.zero_le _)]
+    exact .extra h1 h2 h3
+
+theorem Stratified.weak (henv : Ordered env) (H : Stratified env U n Γ e₁ e₂ b) :
+    Stratified env U n (A :: Γ) (e₁.lift) (e₂.lift) b := H.weakN henv .one
+
+/-- **Substitution at the index** — the reference's `thm:subst` (`typesys.tex`), which it
+proves once for the ambient judgment before the stratification exists.
+
+**The index is not preserved, and that is not a defect.**  Substitution splices `e₀`'s
+typing derivation in at every `bvar` occurrence, so the result carries `e₀`'s conversion
+depth as well as `H`'s.  The conclusion is therefore at `m + n`, not `n`.  Writing it in
+that order rather than `n + m` is load-bearing: `Nat.add` recurses on its second argument,
+so `m + (n+1)` reduces to `(m+n)+1` definitionally, which is what lets the conversion rules
+— all of which conclude at a successor — unify.  `n + m` does not reduce and the proof does
+not go through. -/
+theorem Stratified.instN {m k : Nat} (henv : Ordered env)
+    (h₀ : HasTypeN env U m Γ₀ e₀ A₀) (W : Ctx.InstN Γ₀ e₀ A₀ k Γ₁ Γ)
+    (H : Stratified env U n Γ₁ e₁ e₂ b) :
+    Stratified env U (m + n) Γ (e₁.inst e₀ k) (e₂.inst e₀ k) b := by
+  induction H generalizing Γ k with
+  | @bvar _ i ty _ h =>
+    dsimp [VExpr.inst]
+    induction W generalizing i ty with
+    | zero =>
+      cases h with
+      | zero => simpa [VExpr.inst_lift] using h₀.mono (Nat.le_add_right ..)
+      | succ h => simpa [VExpr.inst_lift] using Stratified.bvar h
+    | succ _ ih =>
+      cases h with
+      | zero =>
+        simp only [VExpr.instVar, Nat.zero_lt_succ, if_pos]
+        rw [← Nat.add_comm 1, ← VExpr.liftN_instN_lo (hj := Nat.zero_le _)]
+        exact .bvar .zero
+      | succ h =>
+        simp only [VExpr.instVar_succ]
+        rw [← Nat.add_comm 1, ← VExpr.liftN_instN_lo (hj := Nat.zero_le _)]
+        exact (ih h).weak henv
+  | sort h => exact .sort h
+  | const h1 h2 h3 =>
+    rw [(henv.closedC h1).instL.instN_eq (Nat.zero_le _)]
+    exact .const h1 h2 h3
+  | app _ _ ih1 ih2 => exact VExpr.inst_inst_hi .. ▸ .app (ih1 W) (ih2 W)
+  | lam _ _ ih1 ih2 => exact .lam (ih1 W) (ih2 W.succ)
+  | forallE h1 h2 _ _ ih1 ih2 => exact .forallE h1 h2 (ih1 W) (ih2 W.succ)
+  | conv _ _ ih1 ih2 => exact .conv (ih1 W) (ih2 W)
+  | rfl => exact .rfl
+  | symm _ ih => exact .symm (ih W)
+  | trans _ _ ih1 ih2 => exact .trans (ih1 W) (ih2 W)
+  | sortDF h1 h2 h3 => exact .sortDF h1 h2 h3
+  | constDF h1 h2 h3 h4 h5 => exact .constDF h1 h2 h3 h4 h5
+  | appDF _ _ _ _ _ _ ih1 ih2 ih3 ih4 ih5 ih6 =>
+    exact .appDF (ih1 W) (ih2 W) (ih3 W) (ih4 W) (ih5 W) (ih6 W)
+  | lamDF _ _ ih1 ih2 => exact .lamDF (ih1 W) (ih2 W.succ)
+  | forallEDF _ _ ih1 ih2 => exact .forallEDF (ih1 W) (ih2 W.succ)
+  | beta _ _ ih1 ih2 => exact VExpr.inst_inst_hi .. ▸ .beta (ih1 W.succ) (ih2 W)
+  | eta _ ih =>
+    have := Stratified.eta (ih W)
+    rw [VExpr.lift, VExpr.liftN_instN_lo (hj := Nat.zero_le _), Nat.add_comm 1] at this
+    exact this
+  | proofIrrel _ _ _ ih1 ih2 ih3 => exact .proofIrrel (ih1 W) (ih2 W) (ih3 W)
+  | extra h1 h2 h3 =>
+    have ⟨⟨hA1, _⟩, hA2, _⟩ := henv.closed.2 h1
+    rw [hA1.instL.instN_eq (Nat.zero_le _), hA2.instL.instN_eq (Nat.zero_le _)]
+    exact .extra h1 h2 h3
+
+/-- The form `thm:utype`'s `app` case needs: substitute a single term at the head. -/
+theorem IsDefEqN.inst0 (henv : Ordered env) {m n : Nat} {Γ : List VExpr} {A a B B' : VExpr}
+    (h₀ : env.HasTypeN U m Γ a A) (H : env.IsDefEqN U n (A :: Γ) B B') :
+    env.IsDefEqN U (m + n) Γ (B.inst a) (B'.inst a) := Stratified.instN henv h₀ .zero H
 
 end VEnv
 end Lean4Lean
