@@ -983,6 +983,17 @@ Each `@[extern]` C entry point in scope that takes a `Nat` begins with a
 `if (b > e || e > sz) lean_internal_panic(...)`"*. That is the **second**
 statement of the function, not the first.
 
+> **Method note — read the entry point, not the worker.** This is the failure
+> this project keeps hitting: a reading that is accurate about what it looked at
+> and silent about what came before it. §7.1's entries describe the *worker*
+> functions (`lift_loose_bvars`, `has_loose_bvar`, `instantiate_core`) faithfully;
+> what they skip is the `extern "C"` wrapper, which is where argument validation
+> lives. **For any `@[extern]` axiom, read the wrapper first and enumerate every
+> early return before reading the algorithm.** A `Nat` argument crossing into C is
+> boxed, so it is *always* bignum-guarded; the guard either panics or silently
+> substitutes a fallback value, and the fallback is what the axiom has to match.
+> Seven of the fourteen axioms in this scope sit on such a guard.
+
 ### 11.2 Axiom 21 `Lean.Expr.liftLooseBVars_eq` is **false**
 
 ```c
@@ -1017,8 +1028,51 @@ search of the toolchain source found **no theorem anywhere in core about it**, s
 there is no second fact to contradict. This is the same category as 12/17: an
 equation asserted on a branch the implementation handles differently.
 
-*Suggested fix (frozen file — needs sign-off):* add `d < 2^63`, or restate the
-axiom for `s d : USize`.
+#### The fix: **delete the axiom**, do not patch it
+
+The choice between `d < 2^63` and a `USize` restatement was to be made on which
+one the consumers satisfy without new work. Measuring that answered a different
+question: **there are no consumers.**
+
+A scan of every non-internal `Lean4Lean.*` declaration, collecting each one's
+axiom cone (`Lean.collectAxioms`), gives:
+
+| axiom | dependent `Lean4Lean` declarations |
+|---|---|
+| **`Lean.Expr.liftLooseBVars_eq`** | **0** |
+| `Lean.Expr.instantiateRange_eq` | 35 |
+| `Lean.Expr.lowerLooseBVars_eq` | 41 |
+| `Lean.Expr.hasLooseBVar_eq` | 41 |
+| `Lean.Expr.abstractRange_eq` | 41 |
+| `Lean.Expr.instantiateRevRange_eq` | 43 |
+| `Lean.Expr.replace_eq` | 44 |
+| `Lean.Expr.mkData_eq`, `mkAppData_eq` | 48 each |
+| `Lean.Syntax.structEq_eq` | 66 |
+| `Lean.PersistentArray.WF.toList'_push` | 113 |
+| `Lean.PersistentHashMap.findAux_isSome` | 105 |
+| `Lean.PersistentHashMap.WF.toList'_insert`, `WF.find?_eq` | 162 each |
+
+`liftLooseBVars_eq` is the only one at zero, and it is zero for a structural
+reason, not by accident: **the checker never calls `Expr.liftLooseBVars`.** A
+reverse scan finds no occurrence of `liftLooseBVars` or `lowerLooseBVars` outside
+`Verify/` and `Experimental/`, and the only textual matches inside `Verify/` are
+`liftLooseBVars_eq_self`, `liftLooseBVars_zero` and `liftLooseBVars_add` — all
+theorems about the **model** `liftLooseBVars'`, none about the opaque constant.
+The axiom is `@[simp]`, so it has no explicit call sites either way; the cone
+scan is what settles it, because a `@[simp]` lemma that fires does appear in the
+proof term.
+
+So deleting it cannot break a proof, and it removes a live false axiom rather
+than domesticating one. `CLAUDE.md` counts shrinking the whitelist as progress;
+this is the rare case where the correct fix is subtraction.
+
+*Fallback, if the reviewer prefers to keep the statement for future use:* the C
+guard is `!lean_is_scalar(s) || !lean_is_scalar(d)`, so **both** arguments must be
+bounded — the hypothesis is `s < 2^63 ∧ d < 2^63`, not `d < 2^63` alone. A `USize`
+restatement does not fit without changing the signature, since
+`Expr.liftLooseBVars : Expr → Nat → Nat → Expr`.
+
+*Either way this is a frozen-file change and needs sign-off.*
 
 ### 11.3 Failed attacks: axioms 22 and 30
 
@@ -1080,12 +1134,50 @@ the reachable set, not an approximation to it. The axiom stays unprovable while
 `insertNewLeaf` is `partial`; that is an implementation limit, not a gap in the
 hypothesis.
 
-### 11.8 What was not reached
+### 11.8 The container axioms 4–7: four more failed attacks
 
-Axioms 4–7 (`PersistentHashMap` ×3, `Syntax.structEq_eq`) were not attacked in
-this pass. Axiom 31 `eqv_eq`'s dependency on 15 `instLawfulBEqLevel` was not
-pursued, because 15 is in another stream's section and the cross-section attack
-should be run jointly rather than from one side.
+**6 `findAux_isSome` — survives.** The suspicious feature is the statement's
+generality: no `WF`, no `PartialEquivBEq`, no `LawfulHashable`, and an arbitrary
+`node`. That is nevertheless fine, because both sides use the *same* `==` and the
+two functions are parallel clause for clause, including the collision path
+(`findAtAux` / `containsAtAux`, which differ only in returning `some vals[i]`
+versus `true`). The `entries[j]!` panic-index is shared: whatever `default :
+Entry` is, `findAux` returns `some v`/`none` exactly when `containsAux` returns
+`true`/`false`. Unprovable only because all four functions are `partial`; they
+are in fact total (nodes are inductive, so the `ref` recursion is well-founded).
+
+**4 `WF.toList'_insert` and 5 `WF.find?_eq` — survive a non-reflexive `BEq`.**
+The attack: `PartialEquivBEq` requires symmetry and transitivity but **not
+reflexivity**, so `⟨fun _ _ => false⟩` is a legal instance, and `LawfulHashable`
+(`a == b → hash a = hash b`) is then vacuous. Under it, `a == a` is false, so a
+key can be inserted twice and the filter `(¬a == ·.1)` deletes nothing. Both
+axioms still hold: `find?` degenerates to `none` on both sides, and for
+`toList'_insert` the left side gains a second entry for `a` exactly as the
+unfiltered right side does. The permutation survives.
+
+**7 `Syntax.structEq_eq` — survives, but the reason in §7.3 is not the whole
+story.** Upstream's `structEq` compares `rawVal` with
+`Substring.Raw.Internal.beq`, while the model `structEq'` uses `==`. §7.3 says
+`Internal.beq` *is* the `BEq Substring.Raw` instance at runtime. Two corrections:
+
+* It is **not** a definitional identity. `example : @Substring.Raw.Internal.beq =
+  (· == ·) := rfl` **fails** — `Internal.beq` is `opaque @[extern]`, while the
+  instance is `⟨Substring.Raw.beq⟩` with `beq` a plain `def`. The identity holds
+  through the linker: `@[extern "lean_substring_beq"]` on `Internal.beq` pairs
+  with `@[export lean_substring_beq] Internal.beqImpl := Substring.Raw.beq`. That
+  is a genuinely weaker kind of assurance than definitional equality, and it is
+  why this axiom can never be discharged by unfolding.
+* The attack that motivated the check — `Internal.beq` being *position*-sensitive
+  while `==` is content-only — **fails**. `Substring.Raw.sameAs` is the
+  position-sensitive comparison, and `structEq` does not use it. Differential
+  test: substrings with the same content over *different* underlying strings and
+  at *different* `startPos` (`"xfoo".drop 1` vs `"foo"`, `startPos` 1 vs 0) give
+  `structEq = structEq' = true`; differing content and differing `val` both give
+  `false = false`.
+
+**Axiom 31 `eqv_eq` — deliberately not attacked.** Its dependency on 15
+`instLawfulBEqLevel` is a cross-section question, and running it from one side
+only is the weaker test. To be run jointly with the `Level` stream.
 
 ### 11.9 Evidence strength in this section
 
@@ -1094,12 +1186,19 @@ Kept separate on purpose, per §2:
 | claim | evidence |
 |---|---|
 | 21 is false | differential test (compiled C, `#eval`) **+** kernel-checked model side **+** source reading |
+| 21 has no consumers, so delete it | **axiom-cone scan** of every `Lean4Lean.*` declaration **+** reverse-dependency scan |
 | 22, 30, 29 survive | source reading **+** kernel-checked agreement lemmas |
 | 26/27 condition insufficient | source reading only — the witness is not constructible, so no differential test is possible |
 | 17 is covered | source reading only |
 | 3's hypothesis is adequate | source reading **+** reverse-dependency scan |
+| 6 survives | source reading only |
+| 4, 5 survive a non-reflexive `BEq` | source reading **+** hand-executed instance argument; *not* machine-checked |
+| 7 survives | differential test **+** `rfl`-refutation of the definitional reading **+** source reading |
 
-No claim here is a proof, and none should be recorded as one.
+No claim here is a proof, and none should be recorded as one. The cone scan is
+the strongest instrument used in this pass — it is a complete search over the
+environment, not a sample — which is why the 21 recommendation is *delete* rather
+than *weaken*.
 
 ---
 
