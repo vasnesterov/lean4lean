@@ -88,8 +88,8 @@ Verdicts:
 | 10 | `Lean.Level.isExplicitSubsumedAux_eq` | true | verbatim transcription |
 | 11 | `Lean.Level.normalize_eq` | true | clause-by-clause identical; agrees on 21 523 360 levels |
 | 12 | `Lean.Level.mkData_eq` | **false** *(source)* | asserts a *return value* (`0`) where the C function calls `lean_internal_panic` and aborts; jointly inconsistent with 13/14 |
-| 13 | `Lean.Level.hasParam_eq` | **inconsistent (argued)** (with 12) | a level of depth ≥ 2²⁴ gets `data = 0`, so `hasParam = false ≠ hasParam'` |
-| 14 | `Lean.Level.hasMVar_eq` | **inconsistent (argued)** (with 12) | same mechanism |
+| 13 | `Lean.Level.hasParam_eq` | ~~inconsistent (argued) (with 12)~~ → **consistent, independent, and provable under a side condition** | the argued route needed the *unconditional* 12; with `H : d < 2^24` it is dead. §12.1 exhibits a model of 12+13+14 (machine-checked), a second model of 12 that refutes 13/14 (so 13 is *not* derivable from 12), and `hasParam_eq_of_dep`, which proves 13 outright from 12 under `dep l < 2^24` |
+| 14 | `Lean.Level.hasMVar_eq` | ~~inconsistent (argued) (with 12)~~ → same as 13 | see §12.1; `hasMVar_eq_of_dep` |
 | 15 | `Lean.Level.instLawfulBEqLevel` | true | C `operator==(level,level)` is exactly structural equality |
 | 16 | `Lean.Level.mkLevelIMaxCore_eq` | **INCONSISTENT (alone)** | `mkIMaxCore` has an extra `\|\| u matches .succ .zero` branch upstream does not have |
 | 17 | `Lean.Expr.mkData_eq` | **false** *(source)* | same panic-vs-abort mismatch as 12 |
@@ -112,7 +112,11 @@ Verdicts:
 **Score, out of 32:**
 
 * **2 inconsistent on their own** — #16, #19. Each proves `False` with no help.
-* **3 jointly inconsistent (argued, not mechanised)** — #12 with either of #13, #14.
+* ~~**3 jointly inconsistent (argued, not mechanised)** — #12 with either of #13,
+  #14.~~ **Withdrawn:** the argument needed the *unconditional* #12 and dies with
+  the `H : d < 2^24` repair. §12.1 machine-checks a joint model. #13 and #14 are
+  now *provable* under a `dep l < 2^24` side condition and can leave the
+  whitelist.
 * **4 false of the implementation** — #3, #17, #24, #28 (#12 is false in the same
   sense and is already counted above).
 * **2 true only under a side condition they do not state** — #26, #27.
@@ -1285,13 +1289,17 @@ reading, and weaker than a proof. None of these is a proof of consistency.
    opaques?** A refutation could come from a pre-existing core/Batteries/
    Foundation theorem contradicting an axiom's right-hand side. Enumerating
    **every** constant in the imported environment whose *type* mentions any of
-   the 24 pinned opaques gives **28 hits: the 29 whitelisted axioms themselves,
-   plus exactly three auto-generated equation lemmas** —
-   `PersistentArray.mkNewTail.eq_1` (an unfolding equation) and the LCNF
-   `instantiateForall.go` `eq_def`/`_proof_1` (the latter is
-   `ps.size - (i+1) < ps.size - i`, with `instantiate1` occurring only as an
-   inert argument). **Fails: no theorem anywhere asserts a behavioural property
-   of any pinned opaque.** So no whitelisted axiom can contradict prior
+   the 27 pinned opaques (private manglings such as
+   `_private.Lean.Level.0.Lean.Level.mkMaxAux` resolved, not grepped) gives
+   **25 hits: 21 of the whitelisted axioms themselves, plus exactly four
+   auto-generated lemmas** — `PersistentArray.mkNewTail.eq_1` (an unfolding
+   equation) and the LCNF `instantiateForall.go` `eq_def` / `_unary.eq_def` /
+   `_unary._proof_1` (the last being `ps.size - (i+1) < ps.size - i`, with
+   `instantiate1` occurring only as an inert argument). The other 8 whitelisted
+   axioms reach their opaque only after unfolding a definition, which is
+   precisely class (B) plus `replace_eq` and `instLawfulBEqLevel`.
+   **Fails: no theorem anywhere asserts a behavioural property of any pinned
+   opaque.** So no whitelisted axiom can contradict prior
    knowledge; contradictions can only arise *between* whitelisted axioms, and
    only via a shared pin or via class (B).
 6. **Off-by-one at the two `mkData` panic boundaries** — the shape of the two
