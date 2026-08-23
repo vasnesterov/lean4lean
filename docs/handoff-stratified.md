@@ -14,7 +14,8 @@ cached copy, stop and re-read this one.
 | `PropTypeAgree` | **open.** Five of twelve conversion cases close. Three characterised obstructions: `forallEDF` (context conversion, index drop), `proofIrrel` (self-reference), `eta` (needs `SortForallEDisjoint`). `constDF`, `appDF`, `beta`, `extra` uncharacterised. |
 | `SortForallEDisjoint` | **one open case, and likely true.** Six of seven typing cases close from `DefInv` alone; only `AppCase` remains, and a refutation is *provably impossible* at the model's own witness (§9). **Satisfiable** (`SortForallEDisjoint.zero`). **The hereditary shape agreement proposed for `AppCase` is now closed both ways** — as disjointness it is *equivalent* to the statement itself, as agreement it is *false* (§9, machine-checked). `AppCase` is the statement's own fixpoint. **The `common_sort` lead is now closed too (§11)** — the route has no untried idea left in this neighbourhood. |
 | `PropUniq`, `SortUniq` | **in the normalisation family, and no model route.** Both fail the criterion's `trans` test; `SortUniq` is refuted as a semantic consequence by the cumulativity check, and the model is parameterised on it. |
-| the reference | **two documented defects**, one machine-checked (§2a), one a reading result with a repair (§2b). |
+| `unique.tex` §§3–4 at the index (the reduction relation §8 asks for) | **closed (§12).** Its two substitution lemmas — and a third site nobody had counted — all need `SubstT`, substitution into a *typing* at a preserved index. That is a different statement from the already-refuted `SubstC`, and it is **also false**, machine-checked (`SubstTRefute.lean`). |
+| the reference | **three documented defects**: two in §2 (one machine-checked, one a reading result with a repair) and `thm:ckappa`'s base case, machine-checked (§12). |
 
 The obstruction was diffuse and is now two named statements. What the route produced beyond
 that is in §7 — read it, because it is more than what it closed.
@@ -423,11 +424,13 @@ prices it — an option set, not a recommendation:
   inherently asserted of its endpoints ("both are sorts, and their levels agree"), so no
   propagated-along restatement of it exists. It needs a *reduction relation* — something that
   says what the middle term does.
-* **`unique.tex` §§3–4 (κ-reduction + Church–Rosser) is now materially cheaper than it looked.**
-  Its uses of unique typing were measured at three sites; `:180` is eliminated by the `K⁺`
-  repair (§2b), and `:266`/`:272` are exactly what `sortNotProof_of`/`forallENotProof_of`
-  discharge. So if `PropTypeAgree` lands, §§3–4 restated over `IsDefEqN` has **no remaining
-  unique-typing dependency** — it becomes transcription plus one rule repair.
+* **`unique.tex` §§3–4 (κ-reduction + Church–Rosser) — ~~is now materially cheaper than it
+  looked~~ IS CLOSED AT THE INDEX. See §12; this bullet is superseded.** What it got right:
+  §§3–4's *unique-typing* dependency really is only three sites, `:180` is eliminated by the
+  `K⁺` repair (§2b), and `:266`/`:272` are what `sortNotProof_of`/`forallENotProof_of`
+  discharge. What it missed is that unique typing was never the binding constraint:
+  §§3–4 substitutes at a fixed index at three sites of its own, all three need `SubstT`, and
+  `SubstT` is false. "Transcription plus one rule repair" is wrong.
 * **A sorts-only normalisation is not a shortcut.** "A term convertible with a sort reduces to
   a sort" is not closed under its own induction: its `appDF` case needs the function's
   argument to reduce to a λ, dragging in Π-shape.
@@ -678,5 +681,127 @@ Nothing here refutes `SortForallEDisjoint`; it is satisfiable and still open.  W
 is the hope of proving it by reading a discriminating datum off a universe — and with it the
 last untried idea in this neighbourhood.  §8's conclusion now stands from a fourth direction:
 what is missing is a **reduction relation**, something that says what a middle term does.
+
+---
+
+## 12. Does §§3–4 survive the substitution obstruction? — **No.**
+
+§8 concluded that what is missing is a reduction relation, i.e. `unique.tex` §§3–4 restated
+over `IsDefEqN`.  Before funding that, the row-zero was: §§3–4 takes the same substitution
+step at `item:p_subst` (`:126`) and `item:gg_subst` (`:162`) — does it die there too?
+
+**It does.  `Typing/SubstTRefute.lean` (new, sorry-free, `[propext, Quot.sound]`).**
+
+### The sites need a *different* statement from the one already refuted — and it is false too
+
+This is the thing to get right before quoting anything else.  `thm:utype`'s application case
+needs `SubstC`: substitution into a **conversion** at a preserved index.  Neither §§3–4 site
+does.  Both need
+
+    SubstT env U n :
+      Γ₀ ⊢ₙ e₀ : A₀ → Ctx.InstN Γ₀ e₀ A₀ k Γ₁ Γ → Γ₁ ⊢ₙ e : B → Γ ⊢ₙ e[e₀]ₖ : B[e₀]ₖ
+
+— substitution into a **typing** at a preserved index — because what each has to reconstruct
+is a `⊢ₙ` *typing premise*:
+
+| site | the premise it must reconstruct | where it lives |
+|---|---|---|
+| `item:p_subst` (`:126`) | `≡ₚ`'s `proofIrrel` rule's three typings (and `refl`'s one) | `unique.tex:113`, `:118` |
+| `item:gg_subst` (`:162`) | `K⁺`'s side condition `Γ ⊢ intro inv[p,h] : α` | `unique.tex:150` |
+| **`thm:ckappa`'s β case** (`:251`) — *a third site, previously unrecorded* | `≡ᵏ`'s own side condition `Γ ⊢ e₁,e₂ : α` (`:240`) at the contractum `e[e'/x]` | `unique.tex:240` |
+
+`SubstT` is genuinely weaker than `SubstC`, and the difference is real: a typing at `n` may
+use `conv` at `n`, so the `⊢ₙ` typing of the substituted term is directly usable, which is
+exactly what `SubstC` cannot do.  **`SubstCRefute`'s witness does not refute it** — there the
+broken conversion is between two *uninhabited* types.
+
+**`SubstT` is nevertheless false**, `substT_false`, at `n = 1` over the empty environment.
+The move is one line of context: put `SubstCRefute`'s redex `C := (fun _ : A => #0) #0` in
+the **context**.  Then `#0`'s `Lookup` type is `C.lift` and `hBB'` weakened retypes it as
+`#1`, so `[C, A] ⊢₁ #0 : #1`; substituting `a` for the `A`-variable leaves `[lhs] ⊢₁ #0 : a`,
+which `SubstCRefute.stuck` forbids.  `C` is a genuine type (`C_type`, at `⊢₀`), so the
+context is well-formed.  *This is the hypothesis `SubstCRefute` declined to supply — a term
+carrying both types — and a context variable supplies it for free, `Lookup` giving one and
+`conv` the other.*
+
+### The `j`/`k` answer, in §3's notation
+
+At both sites **`j = k = n`**, and for a reason that is *stronger* than the one that closed
+the repair family.  There, `j = k` came from `thm:utype`'s application case.  Here it comes
+from §3's own convention (`unique.tex:64`): **the entire §§3–4 development has exactly one
+typing judgment, `⊢ₙ`.**  There is no lower index to reach for — the substituted term's
+typing arrives as `Γ ⊢ₙ e₂ : α` (`:162` supplies it explicitly; `:126` omits it, which is a
+separate small gap since the proofIrrel case cannot be proved without it), and every premise
+to be reconstructed is at `⊢ₙ`.  `Stratified.instN` lands at `j + k = 2n`.
+
+Raising the index is not an option downstream either: `thm:1dinv` (`:266`, `:272`) consumes
+the `≡ₚ` it gets by applying **unique typing at `n`**, and the outer induction (`:283`) has
+unique typing only at `n`.  A `≡ₚ` at `2n` demands it at `2n`.
+
+### The depth matters, and it is the depth the sites use
+
+`substT_false` is at **depth 1** (`Ctx.InstN … 1 …`, i.e. under one binder).  At depth 0 the
+statement is *not* refuted here and may well be true — the two arrangements that would refute
+it either need a binder above the substituted variable (which forces depth ≥ 1) or a *closed*
+context entry, and a closed conversion survives substitution.  That is not a loophole: both
+`p_subst` and `gg_subst` recurse under λ (`unique.tex:114`, `:140`), so their inductions need
+the general-depth statement, which is the one that is false.
+
+*Checked, and worth knowing because it is the natural next guess:* subject reduction for β at
+a preserved index is **not** refuted by this witness family.  The `ShapeSpine`-style
+arrangement (`P := ∀(_:A), C` closed, in the context) re-derives the contractum's type
+through a conversion the substitution cannot touch.  So the sites differ in how hard the
+refutation bites, and one should not assume a single counterexample settles all three.
+
+### Confidence, kept apart
+
+* **Machine-checked:** `SubstT` is false at `n = 1`, depth 1 (`substT_false`).
+* **Analysis:** each of the three sites' proof route runs through `SubstT` at depth ≥ 1 and
+  has no alternative — the only two ways to obtain a `⊢ₙ` typing of a substituted term are
+  substitution (refuted) and `conv` along a `⊢ₙ` conversion (`SubstC`, refuted).
+* **Not established, and not claimed:** that `item:p_subst` and `item:gg_subst` are
+  themselves *false*.  Refuting the route is not refuting the statement.  A refutation of
+  `p_subst` looks constructible — two context variables whose common propositionhood holds
+  only through the broken conversion, so `proofIrrel` cannot re-fire after substitution — but
+  it needs `≡ₚ` defined at the index (9 constructors) plus a second `stuck`, a few hundred
+  lines, and **it was not built**.  Until it is, the honest statement is *the reference's
+  proof of §§3–4 does not go through at the index, by a machine-checked false lemma*, not
+  *§§3–4 is false*.
+
+### A third defect in the reference, found on the way
+
+`thm:ckappa`'s **base case is false as stated** — `sorts_defEq1` and
+`sorts_no_common_hasType0`, machine-checked.  `unique.tex:285` says that at `n = 0` both
+`≡ᵏ` and `≡` "mean `e = e'`".  Under the §3 convention `≡` is `⊢ₙ₊₁ = ⊢₁`, and `⊢₁` is
+strictly larger than syntactic equality (`sortDF` has no typing premise), while `⊢₀` typing
+*is* syntactically unique — so `.sort (max p p)` and `.sort p` are `⊢₁`-convertible with **no
+common `⊢₀` type**, and `≡ᵏ`'s side condition (`:240`) fails on them.  The outer induction
+(`:283`) therefore has no base case, and `:252` uses `thm:ckappa` at `n` to get it at `n+1`,
+so this is load-bearing.  Plausibly repairable by dropping "for some `α`" to two independent
+typings — but that is exactly the side condition §3's (R2) arithmetic rests on, so the repair
+must be re-priced rather than assumed.
+
+### What this leaves
+
+**The §§3–4 route is closed at the index.**  It is not "expensive transcription"; its two
+substitution lemmas have no proof there, and a third site nobody had counted needs the same
+thing.  §8's option list is down to its last entry: a different metatheory (algorithmic
+conversion plus a logical relation), which breaks the typing/conversion circle without a
+reduction relation, is outside anything `~/lean-type-theory` provides, and is large.  That is
+a project-owner decision, not a stream decision.
+
+### `ChurchRosser.lean`, re-measured (the old figures were stale)
+
+2207 lines, **88 declarations** (not 85/86), **5 `sorry`s** (not 11) — all five in
+`NormalEq.descend` (lines 1759, 1769, 1774, 1789, 1791).  The file **compiles**, with one
+`declaration uses sorry` warning, and is in the default build via `Lean4Lean/Theory.lean` and
+`HeadReduction.lean`.  **18 of 88** declarations import the uniqueness family directly
+(`.uniq`/`.uniqU`/`IsDefEqU.sort_inv`/`IsDefEqU.forallE_inv`), 67 use-sites — not 23 of 85.
+`IsDefEq.church_rosser`'s axiom cone is `[propext, sorryAx, Classical.choice, Quot.sound]`,
+tainted from two independent sources: its own 5 sorries and the imported `IsDefEq.uniq`.
+**Nothing instantiates `VEnv.Params`**, so all 88 declarations are vacuous as they stand, and
+`Params` does *not* carry unique typing — that enters by import, per declaration.
+Stale figures to correct if touched: `Injectivity.lean:183`, `RawDefEq.lean:26`,
+`Stratified.lean:416`, `Experimental/ShapeLogRel.lean:1187`.
 
 ---

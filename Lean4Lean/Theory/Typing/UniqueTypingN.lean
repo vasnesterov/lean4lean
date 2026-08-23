@@ -65,20 +65,35 @@ What this does to the reference's induction: `DefInv 0` (proved) gives `uniq 0` 
 holds), which the reference's §§3–4 would turn into `DefInv 1`.  The next step needs
 `uniq 1`, and `SubstC 1` is false.  **The induction cannot pass `n = 1`.**
 
-## The gap is not local to `thm:utype`
+## The gap is not local to `thm:utype` — but it is not literally `SubstC` elsewhere
 
-`unique.tex` §§3–4 substitutes at a fixed index twice more, and both are the same wall:
+`unique.tex` §§3–4 substitutes at a fixed index three times more:
 
-* `item:p_subst` (`unique.tex:126`) substitutes into `≡ₚ`, whose *reflexivity* rule
-  (`unique.tex:113`) carries a typing premise `Γ ⊢ e : α` — a `⊢ₙ` typing, under the §3
-  convention stated at `unique.tex:64`.  Substituting a `⊢ₙ`-typed term into it lands at
-  `⊢₂ₙ`.  The reference's proof is "All parts are easy inductions."
+* `item:p_subst` (`unique.tex:126`) substitutes into `≡ₚ`, whose *reflexivity* and *proof
+  irrelevance* rules (`unique.tex:113`, `:118`) carry typing premises `Γ ⊢ e : α` — `⊢ₙ`
+  typings, under the §3 convention stated at `unique.tex:64`.  The reference's proof is "All
+  parts are easy inductions."
 * `item:gg_subst` (`unique.tex:162`) substitutes into `≫ᵏ`, whose `K⁺` rule carries
   `Γ ⊢ intro inv[p,h] : α` — and `unique.tex:107` says outright that this side condition
   "can also be written as a collection of `≡` judgments at `⊢ₙ`".
+* `thm:ckappa`'s β case (`unique.tex:251`) has to meet `≡ᵏ`'s own side condition
+  `Γ ⊢ e₁,e₂ : α` (`unique.tex:240`) at the contractum `e[e'/x]`.
 
-So the plan "restate §§3–4 over `IsDefEqN`" meets this obstruction at least three times, not
-once.  Pricing that transcription without pricing this is optimistic.
+**These are *not* `SubstC`.**  Each has to reconstruct a `⊢ₙ` **typing** of a substituted
+term, not a `⊢ₙ` conversion, and that is a strictly weaker demand: a typing at `n` may use
+`conv` at `n`, so the substituted term's own `⊢ₙ` typing is directly usable — which is
+exactly what a conversion at `n`, whose typing premises sit at `n−1`, cannot do.  So the
+counterexample in `SubstCRefute` does not settle them; it relates two *uninhabited* types.
+
+The statement they need is `VEnv.SubstT` (`Theory/Typing/SubstTRefute.lean`), and **it is
+false as well** — at `n = 1`, at substitution depth 1, which is the depth `p_subst`'s and
+`gg_subst`'s inductions actually use, since both recurse under λ.  The witness is this one
+plus a single move: put the redex in the *context*, where `Lookup` supplies one type and
+`conv` the other.
+
+So the plan "restate §§3–4 over `IsDefEqN`" is not expensive transcription — it has no proof
+at the index at all.  See `docs/handoff-stratified.md` §12, which also records what is *not*
+established: refuting the route is not refuting `item:p_subst`/`item:gg_subst` themselves.
 
 ## What would actually fix it, and why the obvious repair does not
 
