@@ -386,6 +386,33 @@ theorem quotMkVal_mem (i : ℕ) {α r a : V} (ha : a ∈ α) :
     exact mem_singleton_iff.2 rfl
   · exact mem_setQuotient_iff.2 ⟨a, ha, rfl⟩
 
+/-- **`Quot.mk` is surjective onto the quotient.**  This is the first fact about
+`setQuotient` the `Quot` obligations need that is not membership arithmetic, and
+`Quot.ind` is what needs it: its conclusion quantifies over an arbitrary element
+of the quotient while its hypothesis only speaks about classes of elements.
+
+It holds uniformly across the level split, which was not guaranteed — the
+degenerate branch has already produced one non-uniformity in this development.
+At `Prop` the quotient is `{•}` when the carrier is inhabited and `∅` otherwise,
+so an element of it forces the carrier nonempty and is itself `•`, which is what
+`Quot.mk` denotes there. -/
+theorem quotVal_surj {α r q : V} {i : ℕ} (hq : q ∈ quotVal α r i) :
+    ∃ a ∈ α, q = quotMkVal α r a i := by
+  rw [quotVal] at hq
+  split at hq
+  · rename_i h0
+    have hα : α ≠ ∅ := by
+      intro hα; rw [if_pos hα] at hq; exact absurd hq (by simp)
+    rw [if_neg hα] at hq
+    have hne : ∃ a : V, a ∈ α := by
+      by_contra hc
+      exact hα (subset_empty_iff_eq_empty.mp fun z hz ↦ absurd ⟨z, hz⟩ hc)
+    obtain ⟨a, ha⟩ := hne
+    exact ⟨a, ha, by rw [mem_singleton_iff.1 hq, quotMkVal, if_pos h0]⟩
+  · rename_i h0
+    obtain ⟨x, hx, rfl⟩ := mem_setQuotient_iff.1 hq
+    exact ⟨x, hx, by rw [quotMkVal, if_neg h0]⟩
+
 /-! ### `Quot.mk`'s witness splits on the level, and this time it is the *shape*
 
 Run the `u = 0` check on `Quot.mk`'s type before building anything:
@@ -446,13 +473,22 @@ theorem quotAppTy_type (hu : u.WF nv) {Δ : List VExpr} :
       (.sort (.imax (.imax u (.imax u (.succ .zero))) (.succ u))) :=
   .forallEDF quotRelTyLift_type (.sortDF hu hu rfl)
 
+/-- `Quot α r` where `α` and `r` sit at de Bruijn indices 1 and 0 — the shape
+`Quot.ind`'s motive needs, one binder shallower than `quotMkCod`. -/
+theorem quotIndAp_type (hq : env.constants ``Quot = some quotConst) (hu : u.WF nv)
+    {Δ : List VExpr} :
+    env.HasType nv (quotRelTy :: VExpr.sort u :: Δ)
+      (.app (.app (.const ``Quot [u]) (.bvar 1)) (.bvar 0)) (.sort u) :=
+  VEnv.IsDefEq.appDF
+    (VEnv.IsDefEq.appDF (quotConst_type hq hu) bvar1_sortU)
+    (VEnv.IsDefEq.bvar .zero)
+
 end MkTypingSpine
 
 /-! ### Computing `Quot α r` inside `Quot.mk`'s spine -/
 
 section MkCod
 
-variable [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖]
 variable {envF env₀ : VEnv} {nv : ℕ} {M : ModelData V} {L : LevelAssign envF nv} {u : VLevel}
 
 /-- **The codomain of `Quot.mk` denotes what `Quot` says it does.**  Two
@@ -507,7 +543,6 @@ level changes the *shape* of the witness and not merely a value. -/
 
 section MkFn
 
-variable [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖]
 variable {envF : VEnv} {nv : ℕ} {M : ModelData V} {L : LevelAssign envF nv} {u : VLevel}
 
 /-- Innermost λ: `fun a ↦ Quot.mk α r a`, with `α` and `r` read out of the
@@ -543,7 +578,6 @@ end MkFn
 
 section MkMem
 
-variable [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖]
 variable {envF env₀ : VEnv} {nv : ℕ} {M : ModelData V} {L : LevelAssign envF nv} {u : VLevel}
 
 /-- The environment reads shared by the two branches. -/

@@ -940,14 +940,33 @@ unconditionally, and there is no level split. Contrast `Quot` and `Quot.mk`,
 whose codomains are `Sort u` and therefore did need one. The check is not a
 ritual: it distinguishes these cases rather than always firing.
 
-**What `Quot.ind` will need that the first two did not**: the bottom of the nest
-is `• ∈ ⟦β q⟧` for an arbitrary `q ∈ quotVal α r i`, with the hypothesis binder
-supplying `• ∈ ⟦β (Quot.mk α r a)⟧` for every `a ∈ α`. Bridging those requires
-**surjectivity of `Quot.mk`** — every element of the quotient is the class of
-some `a ∈ α` — which is `mem_setQuotient_iff`. That is the first of the four
-`Quot` obligations to need a real fact about `setQuotient` rather than
-membership arithmetic, and at `i = 0` it needs the corresponding
-proof-irrelevant statement instead.
+**So the rule has a sharper form than "check at `u = 0`":**
+
+> Ask whether the codomain's `Prop`-ness is **by construction** or **by
+> instantiation**. If a codomain is literally `Sort .zero` in the syntax, the
+> `imax`es collapse uniformly and there is no split. If it is `Sort u` for a
+> bound `u`, expect one.
+
+That tells the next person *when* to expect a split rather than to test every
+time — `Quot` and `Quot.mk` are the second kind, `Quot.ind` the first.
+
+**What `Quot.ind` needs that the first two did not**: the bottom of the nest is
+`• ∈ ⟦β q⟧` for an arbitrary `q ∈ quotVal α r i`, while the hypothesis binder
+supplies `• ∈ ⟦β (Quot.mk α r a)⟧` only for `a ∈ α`. Bridging those is
+**surjectivity of `Quot.mk`**.
+
+`quotVal_surj` — proved. It is the first of the four `Quot` obligations to need
+a real fact about `setQuotient` rather than membership arithmetic, and the risk
+worth flagging in advance was the degenerate branch, which has already produced
+one non-uniformity here.
+
+**It came out uniform**, and the reason is worth recording because it is not an
+accident of the proof: at `Prop` the quotient is `{•}` when the carrier is
+inhabited and `∅` otherwise, so possessing an element of it *forces the carrier
+nonempty* and that element is `•` — which is exactly what `Quot.mk` denotes
+there. The surjection is witnessed by any inhabitant of the carrier, and one
+exists precisely because the quotient was inhabited. Above `Prop` it is
+`mem_setQuotient_iff` directly. One statement, both branches.
 
 ### The pattern: uniform in ZFC, not uniform across `Sort 0`
 
