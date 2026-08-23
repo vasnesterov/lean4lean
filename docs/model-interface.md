@@ -213,10 +213,22 @@ additive rather than a rewrite — `IndSignature.toTwo` embeds the old notion,
 `IndSignature₂.at` specialises back at a fixed approximation, and
 `IndSignature.at_toTwo` is `rfl`.
 
-*And the price was overstated here.* The paragraph this replaces said the rank
-argument for the recursor would need redoing, "since the non-recursive data `a`
-would then itself contain family elements". **It does not.** The inequality
-driving the recursion is
+> **⚠ Status: the formation half is built and the translation half is blocked.**
+> `IndSignature₂` and everything below it are proved, but **no translation from
+> a `VIndCtor` to an `IndSignature₂` is known that satisfies the constructor's
+> typing obligation** — `a` and `f` are quantified independently in `indStep`,
+> `IsIndCarrier` and `IsMinorPremise`, so putting the family elements in `a`
+> duplicates them (and forces `Pos = ∅`, which starves the minor premise), while
+> keeping `a` non-recursive leaves `f` unrelated to the filler that justified
+> it. See the ledger entry "`CtorData` from `VIndCtor` did not land". Closing it
+> needs either `NoBlock.indep` after all, or a further generalisation to a
+> dependent set of argument tuples — which is a real port of `Inductive.lean`.
+
+*And one price stated here was overstated — though not the one that matters.*
+The paragraph this replaces said the rank argument for the recursor would need
+redoing, "since the non-recursive data `a` would then itself contain family
+elements". **The rank argument does not.** The inequality driving the recursion
+is
 
 ```lean
 rank_lt_indCtorVal : (⟨b, y⟩ₖ : V) ∈ f → rank y < rank (⟨q, ⟨a, f⟩ₖ⟩ₖ : V)
@@ -232,9 +244,15 @@ theorem Ind₂_eq_Ind_at (S : IndSignature₂ V) (D : V) :
 
 — the generalised family *is* the ordinary family of the signature specialised
 at itself — every existing theorem about `Ind` transfers by one rewrite;
-`indRec₂_mem` is the worked instance. The genuine adaptation cost is
-`IsStageSignature`, whose `fld_mem` must now be asked of `Fld W q`: bounded,
-mechanical, and not a rank argument.
+`indRec₂_mem` is the worked instance. `IsStageSignature`'s `fld_mem` adaptation
+(`IsStageSignature₂`) is likewise bounded and done.
+
+**But "not a rank argument" was the wrong thing to check.** What the escape
+hatch actually breaks is the recursor's *interface*, not its well-foundedness:
+`IsMinorPremise` delivers recursive results only through `h ∈ R ^ Pos q a`, so a
+design that moves the family elements into `a` and empties `Pos` starves it. The
+lesson, recorded because it cost a round: **enumerate the consumers, not the
+first one that comes to hand.**
 
 **Do not weaken `pos` to a syntactic `NoBlock`.** That would make step 2 trivial,
 but it rejects types the kernel accepts (`checkPositivity` applies `hasIndOcc` to

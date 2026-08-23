@@ -1915,6 +1915,80 @@ notion it was written against, and the change is additive rather than a
 migration. Expect the inductive layer to force more generalisations; this is the
 shape to reuse for each.
 
+## `CtorData` from `VIndCtor` did not land, and why is the finding
+
+I went to build it as transcription. It is not transcription: **the escape hatch,
+as one paragraph, does not determine a design that satisfies the constructor's
+typing obligation.** This only became visible on attempting the use, which is
+the third time today that has been the thing that found the problem.
+
+**Nothing landed is invalidated.** `IndSignature₂`, `Ind₂_eq_Ind_at`,
+`indRec₂_mem`, `Ind₂_mem_U_stage`, `oracleOK_above` are theorems about *any*
+`IndSignature₂` and remain machine-checked. What is open is whether a
+`VIndCtor` can be *translated into* one.
+
+### The obstruction, precisely
+
+`a` and `f` are quantified **independently** everywhere the model consumes them
+— quoted from `SetModel/Inductive.lean`:
+
+```lean
+indStep …   := {p ∈ … ; ∃ q ∈ S.Q, ∃ a ∈ S.Fld q, ∃ f ∈ (D ^ S.Pos q a : V), …}
+IsIndCarrier.ctor_mem  : ∀ q ∈ S.Q, ∀ a ∈ S.Fld q, ∀ f ∈ (D ^ S.Pos q a : V), …
+IsMinorPremise.mem     : ∀ q ∈ S.Q, ∀ a ∈ S.Fld q, ∀ f ∈ (D ^ S.Pos q a : V), ∀ h …
+```
+
+Nothing ties `f` to `a`. That forces a choice, and both horns fail:
+
+* **Put the family elements in `a`** (what §2 says: "the non-recursive data `a`
+  would then itself contain family elements"). Then `f` *duplicates* them, and
+  `IsIndCarrier`'s `∀ f` admits pairs where `f` disagrees with `a`'s copies, so
+  the carrier holds junk. Avoiding that forces `Pos q a = ∅` — at which point
+  `h ∈ R ^ ∅` carries no recursive results and **the minor premise `e q a f h`
+  receives none**. The recursor stops computing.
+* **Keep `a` non-recursive, justified by *some* filler from `W`.** Then `Fld` is
+  monotone and definable, but `indStep` supplies an *arbitrary* `f`, unrelated
+  to the filler that justified `a`. The family is too big and the constructor's
+  `const_type` obligation — which needs the field types checked against the
+  `f` actually supplied — fails.
+
+### Correcting my own earlier report
+
+I wrote that the escape hatch's priced cost, the recursor's rank argument, "is
+not incurred", having checked `rank_lt_indCtorVal` and found it never inspects
+`a`. **That is true and it answered the wrong question.** Well-foundedness is
+untouched; what breaks is the recursor's *interface* — `IsMinorPremise` and
+`IsIndCarrier`, which quantify over `f` independently of `a`. I applied "check
+backward from the consumer" to one consumer and not to the two that decide it.
+The rule catches this only if you enumerate the consumers rather than the first
+one that comes to hand.
+
+### The two ways to close it
+
+1. **Prove `NoBlock.indep`** — then `Fld q` never needs family elements, the
+   original design stands, and none of this arises. Blocked on
+   `Injectivity.lean`'s disjointness family, which the injectivity stream's
+   stratified relation may be about to make cheap. *This is the moment to
+   revisit that*, per the standing offer: what I now need is more than the rank
+   argument.
+2. **Generalise the model side further than §2 says** — replace the product
+   `a ∈ Fld q`, `f ∈ D ^ Pos q a` by a signature-supplied *dependent set of
+   argument tuples* `Args W q`, monotone in `W`, with `a` and `f` mutually
+   consistent by construction. This works — the rank argument still descends
+   through `f`, and the recursor keeps its interface — but it is a **real port**
+   of `Inductive.lean`, not an additive change: `indStep`, `IsIndCarrier`,
+   `IsMinorPremise`, `recStep` and `indRec` all quantify over the product and
+   would quantify over `Args` instead. The identification-theorem pattern does
+   *not* rescue it this time: the old theory is stated over the product shape,
+   so old theorems are instances of the new ones rather than the reverse, and
+   instances do not prove the general case.
+
+**Recommendation: (1), if the disjointness family is close.** Option 2's cost is
+the thing the escape hatch was chosen to avoid, and paying it to avoid an
+obligation that may be days from opening is the trade the original ruling
+already rejected — with the difference that the price is now known to be a port
+rather than a rank argument.
+
 ### Caveat left standing: the all-levels quantification
 
 `quotDefEq_ok` takes `hEq`, `hcnst`, `hcnstMk` and `hcnstL` quantified over
