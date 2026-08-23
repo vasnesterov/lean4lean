@@ -1453,7 +1453,220 @@ theorem Ind₃_mem_U_stage {n i : ℕ} {κ : ℕ → V} {S : IndSignature₃ V}
 
 end Operator₃
 
+/-! ## The ₃ assembly: `interpSig_stage` and `interpSig_wf`, at the assembly level
+
+These are the two proofs `docs/model-interface.md` §2 asks for.  They belong to
+the **assembly** half — per-constructor data to a signature — which the port
+closed and which the blocked translation does not gate.
+
+The port changed `Fld` from `V → V` to `V → V → V`, taking the approximation
+*first* and the tag *second*.  So the tag dispatch now has to be definable in
+the **second** argument, which `tagCase₁` cannot do: hence `tagCaseSnd`. -/
+
+/-- A definable split on an equality with the **second** argument. -/
+theorem ite_eq_snd_definable₂ {c : V} {f g : V → V → V}
+    (hf : ℒₛₑₜ-function₂[V] f) (hg : ℒₛₑₜ-function₂[V] g) :
+    ℒₛₑₜ-function₂[V] (fun w q ↦ if q = c then f w q else g w q) := by
+  suffices ℒₛₑₜ-relation₃[V] (fun T w q ↦ T = if q = c then f w q else g w q) by exact this
+  have e : ∀ T w q : V, (T = if q = c then f w q else g w q) ↔
+      ((q = c → T = f w q) ∧ (q ≠ c → T = g w q)) := by
+    intro T w q; by_cases h : q = c <;> simp [h]
+  simp only [e]
+  definability
+
+/-- Dispatch on the tag, which is the **second** argument.  The entries see only
+the approximation, because `Fld W q` does not otherwise depend on `q`. -/
+noncomputable def tagCaseSnd : ℕ → List (V → V) → V → V → V
+  | _, [], _, _ => ∅
+  | i, f :: fs, w, q => if q = ((i : ℕ) : V) then f w else tagCaseSnd (i + 1) fs w q
+
+theorem tagCaseSnd_definable : ∀ (i : ℕ) (fs : List (V → V)),
+    (∀ f ∈ fs, ℒₛₑₜ-function₁[V] f) → ℒₛₑₜ-function₂[V] (tagCaseSnd i fs)
+  | i, [], _ => by
+    have h0 : (tagCaseSnd i ([] : List (V → V)) : V → V → V) = fun _ _ ↦ (∅ : V) := rfl
+    rw [h0]; definability
+  | i, f :: fs, h => by
+    have hf := h f (.head _)
+    have hrest := tagCaseSnd_definable (i + 1) fs fun g hg ↦ h g (.tail _ hg)
+    have h0 : (tagCaseSnd i (f :: fs) : V → V → V)
+        = fun w q ↦ if q = ((i : ℕ) : V) then f w else tagCaseSnd (i + 1) fs w q := rfl
+    rw [h0]
+    exact ite_eq_snd_definable₂ (by definability) hrest
+
+/-- Monotone in the approximation as soon as every entry is — the test is on the
+tag, which does not move. -/
+theorem tagCaseSnd_mono : ∀ (i : ℕ) (fs : List (V → V)) {W₁ W₂ : V},
+    (∀ f ∈ fs, f W₁ ⊆ f W₂) → ∀ q : V, tagCaseSnd i fs W₁ q ⊆ tagCaseSnd i fs W₂ q
+  | _, [], _, _, _, _ => fun _ hz ↦ hz
+  | i, f :: fs, W₁, W₂, h, q => by
+    show (if q = ((i : ℕ) : V) then _ else _) ⊆ (if q = ((i : ℕ) : V) then _ else _)
+    by_cases hq : q = ((i : ℕ) : V)
+    · rw [if_pos hq, if_pos hq]; exact h f (.head _)
+    · rw [if_neg hq, if_neg hq]
+      exact tagCaseSnd_mono (i + 1) fs (fun g hg ↦ h g (.tail _ hg)) q
+
+theorem tagCaseSnd_at : ∀ (i : ℕ) (fs : List (V → V)) (k : ℕ) (f : V → V),
+    fs[k]? = some f → ∀ w : V, tagCaseSnd i fs w (((i + k : ℕ)) : V) = f w
+  | i, g :: fs, 0, f, h, w => by
+    have hgf : g = f := by simpa using h
+    subst hgf
+    simp only [Nat.add_zero]
+    show (if _ = _ then _ else _) = _
+    rw [if_pos rfl]
+  | i, g :: fs, k + 1, f, h, w => by
+    show (if _ = _ then _ else _) = _
+    rw [if_neg (ofNat_ne_ofNat (by omega))]
+    have ih := tagCaseSnd_at (i + 1) fs k f (by simpa using h) w
+    have e : i + 1 + k = i + (k + 1) := by omega
+    rw [e] at ih
+    exact ih
+
+theorem tagCase₂_at : ∀ (i : ℕ) (fs : List (V → V → V)) (k : ℕ) (f : V → V → V),
+    fs[k]? = some f → ∀ a : V,
+      tagCase₂ i fs (((i + k : ℕ)) : V) a = f (((i + k : ℕ)) : V) a
+  | i, g :: fs, 0, f, h, a => by
+    have hgf : g = f := by simpa using h
+    subst hgf
+    simp only [Nat.add_zero]
+    show (if _ = _ then _ else _) = _
+    rw [if_pos rfl]
+  | i, g :: fs, k + 1, f, h, a => by
+    show (if _ = _ then _ else _) = _
+    rw [if_neg (ofNat_ne_ofNat (by omega))]
+    have ih := tagCase₂_at (i + 1) fs k f (by simpa using h) a
+    have e : i + 1 + k = i + (k + 1) := by omega
+    rw [e] at ih
+    exact ih
+
+/-- The tags really are the numerals below `n`. -/
+theorem mem_ofNat_iff : ∀ (n : ℕ) (q : V),
+    q ∈ ((n : ℕ) : V) ↔ ∃ k, k < n ∧ q = ((k : ℕ) : V)
+  | 0, q => by
+    constructor
+    · intro h
+      rw [show ((0 : ℕ) : V) = ∅ from by simp [zero_def]] at h
+      exact absurd h (by simp)
+    · rintro ⟨k, hk, -⟩; omega
+  | n + 1, q => by
+    rw [num_succ_def, mem_succ_iff]
+    constructor
+    · rintro (rfl | h)
+      · exact ⟨n, by omega, rfl⟩
+      · obtain ⟨k, hk, rfl⟩ := (mem_ofNat_iff n q).1 h
+        exact ⟨k, by omega, rfl⟩
+    · rintro ⟨k, hk, rfl⟩
+      rcases Nat.lt_succ_iff_lt_or_eq.1 hk with h | rfl
+      · exact Or.inr ((mem_ofNat_iff n _).2 ⟨k, h, rfl⟩)
+      · exact Or.inl rfl
+
+/-- Per-constructor data for the ported signature.  `flds` and `args` now take
+the approximation and must be monotone in it — the two obligations the port
+added, pushed out to the caller where they belong. -/
+structure CtorData₃ (V : Type*) [SetStructure V] where
+  flds : V → V
+  flds_definable : ℒₛₑₜ-function₁[V] flds
+  flds_mono : ∀ {W₁ W₂ : V}, W₁ ⊆ W₂ → flds W₁ ⊆ flds W₂
+  poss : List (V → V)
+  poss_definable : ∀ p ∈ poss, ℒₛₑₜ-function₁[V] p
+  posIdxs : List (V → V → V)
+  posIdxs_definable : ∀ p ∈ posIdxs, ℒₛₑₜ-function₂[V] p
+  resIdx : V → V
+  resIdx_definable : ℒₛₑₜ-function₁[V] resIdx
+  args : V → V
+  args_definable : ℒₛₑₜ-function₁[V] args
+  args_mono : ∀ {W₁ W₂ : V}, W₁ ⊆ W₂ → args W₁ ⊆ args W₂
+
+/-- **The ported assembly.**  All six definability obligations and both
+monotonicity obligations discharged. -/
+noncomputable def mkIndSignature₃ (Idx : V) (cs : List (CtorData₃ V)) :
+    IndSignature₃ V where
+  Idx := Idx
+  Q := ((cs.length : ℕ) : V)
+  Fld := tagCaseSnd 0 (cs.map (·.flds))
+  Pos := tagCase₂ 0 (cs.map fun c ↦ fun _ a ↦ tagUnionF 0 c.poss a)
+  posIdx := tagCase₃ 0 (cs.map fun c ↦ fun _ a b ↦ tagSel₂ 0 c.posIdxs a b)
+  resIdx := tagCase₂ 0 (cs.map fun c ↦ fun _ a ↦ c.resIdx a)
+  Args := tagCaseSnd 0 (cs.map (·.args))
+  Fld_definable := by
+    refine tagCaseSnd_definable _ _ fun f hf ↦ ?_
+    obtain ⟨c, -, rfl⟩ := List.mem_map.1 hf
+    exact c.flds_definable
+  Pos_definable := by
+    refine tagCase₂_definable _ _ fun f hf ↦ ?_
+    obtain ⟨c, -, rfl⟩ := List.mem_map.1 hf
+    exact definable₂_const₁ (tagUnionF_definable 0 c.poss c.poss_definable)
+  posIdx_definable := by
+    refine tagCase₃_definable _ _ fun f hf ↦ ?_
+    obtain ⟨c, -, rfl⟩ := List.mem_map.1 hf
+    have := tagSel₂_definable 0 c.posIdxs c.posIdxs_definable
+    definability
+  resIdx_definable := by
+    refine tagCase₂_definable _ _ fun f hf ↦ ?_
+    obtain ⟨c, -, rfl⟩ := List.mem_map.1 hf
+    exact definable₂_const₁ c.resIdx_definable
+  Fld_mono := by
+    refine fun h ↦ tagCaseSnd_mono _ _ fun f hf ↦ ?_
+    obtain ⟨c, -, rfl⟩ := List.mem_map.1 hf
+    exact c.flds_mono h
+  Args_definable := by
+    refine tagCaseSnd_definable _ _ fun f hf ↦ ?_
+    obtain ⟨c, -, rfl⟩ := List.mem_map.1 hf
+    exact c.args_definable
+  Args_mono := by
+    refine fun h ↦ tagCaseSnd_mono _ _ fun f hf ↦ ?_
+    obtain ⟨c, -, rfl⟩ := List.mem_map.1 hf
+    exact c.args_mono h
+
+/-- **`interpSig_wf`, at the assembly level.** -/
+theorem mkIndSignature₃_wf {Idx : V} {cs : List (CtorData₃ V)}
+    (h : ∀ c ∈ cs, ∀ W : V, ∀ a ∈ c.flds W, c.resIdx a ∈ Idx) :
+    (mkIndSignature₃ Idx cs).toIndSignature₂.WF where
+  resIdx_mem := by
+    intro W q hq a ha
+    obtain ⟨k, hk, rfl⟩ := (mem_ofNat_iff cs.length q).1 hq
+    have hc : cs[k]? = some cs[k] := List.getElem?_eq_getElem hk
+    have hfld : (mkIndSignature₃ Idx cs).Fld W ((k : ℕ) : V) = cs[k].flds W := by
+      show tagCaseSnd 0 (cs.map (·.flds)) W ((k : ℕ) : V) = _
+      have hat := tagCaseSnd_at (V := V) 0 (cs.map (·.flds)) k (cs[k].flds)
+        (by rw [List.getElem?_map, hc]; rfl) W
+      simpa using hat
+    have hres : (mkIndSignature₃ Idx cs).resIdx ((k : ℕ) : V) a = cs[k].resIdx a := by
+      show tagCase₂ 0 (cs.map fun c ↦ fun _ a ↦ c.resIdx a) ((k : ℕ) : V) a = _
+      have hat := tagCase₂_at (V := V) 0 (cs.map fun c ↦ fun _ a ↦ c.resIdx a) k
+        (fun _ a ↦ cs[k].resIdx a) (by rw [List.getElem?_map, hc]; rfl) a
+      simpa using hat
+    rw [hres]
+    exact h cs[k] (List.getElem_mem hk) W a (by rwa [hfld] at ha)
+
+/-- **`interpSig_stage`, at the assembly level.** -/
+theorem mkIndSignature₃_stage {k Idx : V} {cs : List (CtorData₃ V)}
+    (hIdx : Idx ∈ vsetV k) (hQ : ((cs.length : ℕ) : V) ∈ vsetV k)
+    (hfld : ∀ c ∈ cs, ∀ W : V, c.flds W ∈ vsetV k)
+    (hpos : ∀ c ∈ cs, ∀ a : V, tagUnionF 0 c.poss a ∈ vsetV k) :
+    IsStageSignature₂ k (mkIndSignature₃ Idx cs).toIndSignature₂ where
+  idx_mem := hIdx
+  q_mem := hQ
+  fld_mem := by
+    intro W _ q hq
+    obtain ⟨j, hj, rfl⟩ := (mem_ofNat_iff cs.length q).1 hq
+    have hc : cs[j]? = some cs[j] := List.getElem?_eq_getElem hj
+    have hat := tagCaseSnd_at (V := V) 0 (cs.map (·.flds)) j (cs[j].flds)
+      (by rw [List.getElem?_map, hc]; rfl) W
+    show tagCaseSnd 0 (cs.map (·.flds)) W ((j : ℕ) : V) ∈ vsetV k
+    rw [show ((j : ℕ) : V) = ((0 + j : ℕ) : V) from by norm_num, hat]
+    exact hfld cs[j] (List.getElem_mem hj) W
+  pos_mem := by
+    intro W _ q hq a _
+    obtain ⟨j, hj, rfl⟩ := (mem_ofNat_iff cs.length q).1 hq
+    have hc : cs[j]? = some cs[j] := List.getElem?_eq_getElem hj
+    have hat := tagCase₂_at (V := V) 0 (cs.map fun c ↦ fun _ a ↦ tagUnionF 0 c.poss a) j
+      (fun _ a ↦ tagUnionF 0 cs[j].poss a) (by rw [List.getElem?_map, hc]; rfl) a
+    show tagCase₂ 0 (cs.map fun c ↦ fun _ a ↦ tagUnionF 0 c.poss a) ((j : ℕ) : V) a ∈ vsetV k
+    rw [show ((j : ℕ) : V) = ((0 + j : ℕ) : V) from by norm_num, hat]
+    exact hpos cs[j] (List.getElem_mem hj) a
+
 end Lean4Lean.SetModel
+
 
 
 

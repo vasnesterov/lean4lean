@@ -2205,6 +2205,52 @@ positivity check implies it.
   route is a recorded-not-derived clause in `Decl.lean` rather than the
   disjointness family.
 
+## `interpSig_stage` and `interpSig_wf`, at the assembly level
+
+The two proofs `docs/model-interface.md` §2 asks for, in the half the port
+closed and the blocked translation does not gate. All sorry-free,
+`[propext, Classical.choice, Quot.sound]`.
+
+* **`mkIndSignature₃`** — the ported assembly: per-constructor `CtorData₃` to an
+  `IndSignature₃`, discharging **all six definability obligations and both
+  monotonicity obligations**. The two the port added (`Fld_mono`, `Args_mono`)
+  are pushed out to the caller, where they belong: a `CtorData₃` carries
+  `flds_mono` and `args_mono` as fields.
+* **`mkIndSignature₃_wf`** — `interpSig_wf`.
+* **`mkIndSignature₃_stage`** — `interpSig_stage`.
+
+New machinery, all general: `tagCaseSnd` with its definability, **monotonicity**
+and read-back, because the port moved `Fld` from `V → V` to `V → V → V` and the
+tag became the *second* argument — `tagCase₁` dispatches on the first and cannot
+do it. Plus `ite_eq_snd_definable₂`, `tagCase₂_at`, and `mem_ofNat_iff` (the
+tags really are the numerals below `n`, which every read-back needs).
+
+Everything in this round elaborated first try. No drift.
+
+### Method: "enumerate the consumers" means *read their proofs*
+
+Stated in this form because the short version reads as a list-making exercise
+and is then done uselessly.
+
+> **A consumer's statement tells you what it concludes. Only its proof tells you
+> what it uses.**
+
+Both re-measurements of the translation turned on exactly this. The design that
+puts recursive fillers into `a` satisfies every consumer *statement* in the
+enumeration — `IsSubsingletonSignature`'s included, since `fld_det` is just an
+implication. It is `Ind_subsingleton`'s **proof** (`Inductive.lean:648`) that
+shows `fld_det` is used to pin `a` from the index *before* the rank induction
+hypothesis pins `f`, so burying the fillers in `a` strands the argument at a
+step no statement mentions.
+
+The failure mode this guards against, named from three attempts on one piece:
+
+> **Correct about the site I was looking at, silent about the one I was not.**
+
+Two of three measurements on the `VIndCtor` translation failed that way. The
+remedy is not "look harder" — it is mechanical: enumerate the consumers, then
+open each one's proof rather than its signature.
+
 ### Method, not an anecdote: why prophylactic notes are load-bearing
 
 Recorded here as method because it has now fired three times, twice outside the
