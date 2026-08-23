@@ -46,10 +46,52 @@ derivation under a binder requires it.
 | `SubstCRefute.stuck`, `substC_false` | **restatable and FALSE.** By design: the two hypotheses of the counterexample use only rules the candidate keeps, so `SubstC` becoming a theorem makes the refutation's conclusion derivable. This is the candidate working, not the candidate failing — but it means the refutation must be *deleted*, not ported |
 | `DefInv` | **restatable but insufficient.** A conversion's subject becomes an arbitrary instance, and a variable instantiates to anything (`(.bvar 0).inst a = a`, checked), so subject-shape inversion must now handle a variable subject. `DefInv` grows clauses the reference does not have — at least "a sort is not `⊢ₙ`-equal to a variable" and its Π analogue |
 
-**The risk that is not priced.** `thm:1dinv` proves definitional inversion by **inverting**
-`⊢ₙ₊₁ X ≡ Y`, and so do `thm:gg_compat` and `thm:tri`. A substitution rule gives each of them
-a case whose subject is an arbitrary substituted term. That is the same shape of failure one
-level down, and it is why this candidate is not obviously a repair rather than a relocation.
+**The unpriced risk, now run — and it fails.  This candidate is dead, and so is its whole
+family.**
+
+The risk was recorded here as "`thm:1dinv`, `thm:gg_compat` and `thm:tri` each gain a case
+with an arbitrary substituted subject".  Running it corrects that description twice, and the
+correction is worse, not better.
+
+*First, the case lands in one place, not three.*  `instC` is added to `⊢ₙ`, not to `≡ₚ` or
+`≫ᵏ`.  `thm:gg_compat` inducts on `≡ₚ` and `thm:tri` on `≫ᵏ`, so neither gains a case, and
+`thm:1dinv` proceeds *via* `thm:ckappa` rather than by inducting on `≡`.  The single proof
+that gains a case is **`thm:ckappa`** (`unique.tex:243`).
+
+*Second, that one case is not merely hard — it is unsatisfiable, by index arithmetic.*  Write
+`k` for the index a candidate instantiation rule concludes at and `j` for the index of its
+typing premise.
+
+* **(R1) `thm:utype`'s application case forces `j = k`.**  The `app` rule hands it
+  `Γ ⊢ₙ e₂ : A` and an induction hypothesis at index `n`, and its conclusion must be at index
+  `n`.  There is no lower-index typing of `e₂` to be had.
+* **(R2) `thm:ckappa` forces `j ≤ k−1`.**  `≡ᵏ` is defined (`unique.tex:240`) with the side
+  condition `Γ ⊢ e₁,e₂ : α`, which under the §3 convention (`unique.tex:64`) is a `⊢ₖ₋₁`
+  typing.  So every conversion derivable at index `k` must relate `⊢ₖ₋₁`-typeable terms.  With
+  the substituted term typed at index `j = k`, `e[a]` is in general only `⊢ₖ`-typeable.
+
+`j = k` and `j ≤ k−1` are contradictory.  **No indexing of an instantiation rule satisfies
+both**, and that argument does not mention the rule's *depth*, its premise shape, or whether
+it instantiates one variable or a whole context morphism.  It kills the depth-0 rule, the
+general-depth `Ctx.InstN` rule, and the explicit-substitution / context-morphism formulation
+named as "the missing machinery" — all of them, for the same reason.
+
+**Both halves are machine-checked**, at `k = 1`:
+
+* (R1) holds: with the rule, `SubstC` is `fun h H => .instC h H`.
+* (R2) fails: `[] ⊢₁ .app (.lam A (.bvar 0)) a ≡ a` becomes derivable
+  (`.instC aa_hasType1 hBB'`), while `SubstCRefute.lhs_not_hasType0` — landed, sorry-free —
+  proves that term is not `⊢₀`-typeable **in any context**.  So `thm:ckappa` at index 1 has a
+  conversion with no `≡ᵏ` chain, and `thm:1dinv` loses its analysis route for exactly the new
+  rule.
+
+*And the side condition cannot simply be relaxed to `⊢ₖ`.*  `↝ᵏ`'s `K⁺` rule and `≡ₚ`'s
+reflexivity and proof-irrelevance rules all carry `⊢ₙ` typing premises; moving them to `⊢ₙ₊₁`
+makes a conversion at `n+1` depend on typings at `n+1`, which is precisely the circularity the
+index exists to break.
+
+**Verdict: do not build.**  The candidate does not repair the obstruction, it relocates it —
+and the relocation is now demonstrated rather than suspected.
 
 **`Theory/` definition change?** `Stratified.lean` is in this stream's ownership. If the rule
 has to go into the **ambient** judgment (`Theory/Typing/Basic.lean`'s `IsDefEq`), that is not
@@ -173,28 +215,35 @@ by another stream — not this one's to write.
 
 ---
 
-## Ranking (after the `unique.tex:180` check)
+## State of play: every candidate has now failed its own row-zero check
 
-The check was run and it inverted the order.
+| candidate | row-zero check | outcome |
+|---|---|---|
+| 1. instantiation as a rule | does `thm:ckappa` absorb the new case? | **no** — `j = k` (R1) contradicts `j ≤ k−1` (R2); both halves machine-checked. Kills the whole family, general-depth and context-morphism forms included |
+| 2. another stratification | is there a measure? | **no** — height gives `≤` not `<`; the reference offers no alternative; the tension is generic to the family |
+| 3. de-stratify | how many uses of unique typing? | **three** — two reduce, `unique.tex:180` does not, and is additionally broken as written |
+| 4. `sort_not_proof` from the model | which statement can a model reach? | **it works**, but it is an input to candidate 3, not a route by itself |
 
-1. **Candidate 1** (instantiation as a rule).  It is now the only candidate that both closes
-   the application case and serves `unique.tex:180` — and it serves `:180` for free, because
-   in the stratified setting that site's "unique typing" is *unique typing at `⊢ₙ`*, i.e. the
-   induction hypothesis, which is exactly what repairing `thm:utype` restores.  Its cost is
-   the context machinery: the general-depth rule needs a `Ctx.InstN` premise plus
-   lift/instantiate commutation lemmas **for contexts**, which this tree does not have.  That
-   cost should be stated up front rather than discovered.
-2. **Candidate 4** (`sort_not_proof` from the model) — still worth doing, now as an
-   independent simplification rather than as candidate 3's enabler: it removes two of the
-   three unique-typing sites whichever route is taken, and the cumulativity check shows it is
-   the *only* one of the two statements a model can reach.  Recorded in `SortUniq.lean`'s
-   docstring, where the question gets asked.
-3. **Candidate 3** (de-stratify) — **withdrawn.**  Two of its three sites reduce; the third
-   needs full `uniq` on an arbitrary subject, and is additionally broken as written.
-4. **Candidate 2** (another stratification) — would not fund.
+So the alternation-index route is closed at three independent points, and the repair family
+for the first point is closed by arithmetic. **This is a third obstruction and it is reported
+rather than worked around.**
 
-## What this check cost, and what it bought
+What remains is a genuine choice between two things, and neither is an increment:
 
-It cost one reading pass and it changed the funding decision, which is what a row-zero check
-is for.  It also turned up a second apparent gap in the reference
-(`reference-gap-thm-utype.md` §11) — unformalized, unlike the first.
+* **Abandon the alternation index.** Candidate 3 is the only survivor in outline, and its
+  single blocker is `unique.tex:180`. Worth noting that the blocker has moved since it was
+  withdrawn: `reference-gap-thm-utype.md` §11.2's `K⁺` repair changes that site's rule set, so
+  whether the repaired site still needs full `uniq` — rather than a typing side condition — is
+  **open and unchecked**. That is the one thread worth pulling before anything larger.
+* **A different metatheory** — algorithmic conversion plus a logical relation, which breaks
+  the typing/conversion circle without an alternation count at all. Large, standard in the
+  literature, and outside anything `~/lean-type-theory` provides.
+
+Candidate 4 is worth doing under either, and is small.
+
+## What the checks cost, and what they bought
+
+Four row-zero checks, three of which changed a funding decision and none of which cost more
+than a session. The last one — this one — was flagged as unpriced from the first round and
+was the only thing between the plan and a build; running it before the expensive context
+machinery is what kept that machinery from being written into an obstructed development.
