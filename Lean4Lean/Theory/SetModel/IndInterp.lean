@@ -714,6 +714,9 @@ structure IndSignature₂ (V : Type*) [SetStructure V] where
   monotone and the least fixed point does not exist. -/
   Fld_mono : ∀ {W₁ W₂ : V}, W₁ ⊆ W₂ → ∀ q : V, Fld W₁ q ⊆ Fld W₂ q
 
+attribute [instance] IndSignature₂.Fld_definable IndSignature₂.Pos_definable
+  IndSignature₂.posIdx_definable IndSignature₂.resIdx_definable
+
 /-- Specialise at a fixed approximation.  This is what lets every existing
 result about `IndSignature` be used stage-wise. -/
 noncomputable def IndSignature₂.at (S : IndSignature₂ V) (W : V) : IndSignature V where
@@ -918,6 +921,134 @@ theorem Ind₂_mem_U_stage {n i : ℕ} {κ : ℕ → V} {S : IndSignature₂ V}
 
 end Operator₂
 
+/-! ## The port: admissible argument tuples
+
+**Ruled in after `CtorData` failed.**  The obstruction was that `a` and `f` are
+quantified *independently*, so nothing ties the recursive arguments actually
+supplied to the ones the non-recursive field types were checked against.  The
+fix is to let the signature say which pairs it accepts.
+
+### Why the cheap alternative was rejected
+
+There is a tempting design that avoids the port: put a redundant copy of the
+recursive fillers inside `a`, accept that the carrier then holds junk pairs
+where the copy disagrees with `f`, and note that the interpretation never
+produces them.  Formation, the recursor and the ι-rule all survive that.
+
+**It breaks large elimination for subsingletons, in fact and not merely in
+proof.**  `IsSubsingletonSignature.fld_det` asks
+`resIdx q a = resIdx q a' → a = a'`; with a redundant copy, two fillers give the
+same result index and different `a`, so `Ind_subsingleton` becomes *false* — the
+family genuinely holds distinct elements at one index.  `Eq`, `Iff` and every
+proof-irrelevant family with large elimination go through exactly there, and
+`EqSpec` is about one of them.  Ruled out on that ground.
+
+### The shape of the change
+
+`Args W q` is a set of pairs `⟨a, f⟩ₖ`, monotone in the approximation.  Every
+consumer of the product shape gains **one conjunct**, not a new shape — which is
+why the port's proofs stay short.  There is no identification theorem to be had
+here: the old theory is stated over the product, so old theorems are *instances*
+of the new ones rather than the reverse, and instances do not prove the general
+case.  Do not look for one. -/
+
+structure IndSignature₃ (V : Type*) [SetStructure V] extends IndSignature₂ V where
+  /-- Which `⟨a, f⟩ₖ` pairs the constructor accepts.  This is the whole port. -/
+  Args : V → V → V
+  Args_definable : ℒₛₑₜ-function₂[V] Args
+  Args_mono : ∀ {W₁ W₂ : V}, W₁ ⊆ W₂ → ∀ q : V, Args W₁ q ⊆ Args W₂ q
+
+attribute [instance] IndSignature₃.Args_definable
+
+section Operator₃
+
+variable {S : IndSignature₃ V} {D : V}
+
+/-- One step of the operator, with the admissibility conjunct. -/
+noncomputable def indStep₃ (S : IndSignature₃ V) (D W : V) : V :=
+  {p ∈ S.Idx ×ˢ D ;
+    ∃ q ∈ S.Q, ∃ a ∈ S.Fld W q, ∃ f ∈ (D ^ S.Pos q a : V),
+      (⟨a, f⟩ₖ : V) ∈ S.Args W q ∧
+      (∀ b ∈ S.Pos q a, (⟨S.posIdx q a b, f ‘ b⟩ₖ : V) ∈ W) ∧
+      p = ⟨S.resIdx q a, ⟨q, ⟨a, f⟩ₖ⟩ₖ⟩ₖ}
+
+theorem mem_indStep₃_iff {W p : V} :
+    p ∈ indStep₃ S D W ↔ p ∈ S.Idx ×ˢ D ∧
+      ∃ q ∈ S.Q, ∃ a ∈ S.Fld W q, ∃ f ∈ (D ^ S.Pos q a : V),
+        (⟨a, f⟩ₖ : V) ∈ S.Args W q ∧
+        (∀ b ∈ S.Pos q a, (⟨S.posIdx q a b, f ‘ b⟩ₖ : V) ∈ W) ∧
+        p = ⟨S.resIdx q a, ⟨q, ⟨a, f⟩ₖ⟩ₖ⟩ₖ := mem_sep_iff
+
+theorem indStep₃_definable (S : IndSignature₃ V) (D : V) :
+    ℒₛₑₜ-function₁[V] (indStep₃ S D) := by
+  suffices ℒₛₑₜ-relation[V] (fun T W ↦ T = indStep₃ S D W) by exact this
+  have hF := S.Fld_definable
+  have hP := S.Pos_definable
+  have hI := S.posIdx_definable
+  have hR := S.resIdx_definable
+  have hA := S.Args_definable
+  have e : ∀ T W : V, T = indStep₃ S D W ↔ ∀ p, p ∈ T ↔ p ∈ S.Idx ×ˢ D ∧
+      ∃ q ∈ S.Q, ∃ a ∈ S.Fld W q, ∃ f ∈ (D ^ S.Pos q a : V),
+        (⟨a, f⟩ₖ : V) ∈ S.Args W q ∧
+        (∀ b ∈ S.Pos q a, (⟨S.posIdx q a b, f ‘ b⟩ₖ : V) ∈ W) ∧
+        p = ⟨S.resIdx q a, ⟨q, ⟨a, f⟩ₖ⟩ₖ⟩ₖ := by
+    intro T W
+    rw [mem_ext_iff]
+    simp only [mem_indStep₃_iff]
+  simp only [e]
+  definability
+
+/-- Monotone, and the two new fields are spent here and only here. -/
+theorem indStep₃_isMonotoneOn (S : IndSignature₃ V) (D : V) :
+    IsMonotoneOn (S.Idx ×ˢ D) (indStep₃ S D) where
+  mono W₁ W₂ h p hp := by
+    rw [mem_indStep₃_iff] at hp ⊢
+    obtain ⟨hb, q, hq, a, ha, f, hf, hok, hrec, he⟩ := hp
+    exact ⟨hb, q, hq, a, S.Fld_mono h q _ ha, f, hf, S.Args_mono h q _ hok,
+      fun b hbp ↦ h _ (hrec b hbp), he⟩
+  maps := sep_subset
+
+noncomputable def Ind₃ (S : IndSignature₃ V) (D : V) : V :=
+  lfp (S.Idx ×ˢ D) (indStep₃ S D) (indStep₃_definable S D)
+
+theorem Ind₃_subset : Ind₃ S D ⊆ S.Idx ×ˢ D := lfp_subset (indStep₃_isMonotoneOn S D)
+
+theorem indStep₃_Ind₃ : indStep₃ S D (Ind₃ S D) = Ind₃ S D :=
+  apply_lfp (indStep₃_isMonotoneOn S D)
+
+/-- **The induction principle**, ported.  One extra hypothesis component; the
+proof is `Ind_induction`'s, otherwise unchanged — which is the evidence that the
+port is an added conjunct rather than a reshape.
+
+Note the step is stated at `P`, not at `Ind₃ S D`: `lfp_subset_of_prefixed`
+supplies the approximation, and it is `P`.  The old `Ind_induction` is the same
+in this respect; the difference is invisible there only because its `Fld` does
+not move. -/
+theorem Ind₃_induction {P : V} (hP : P ⊆ S.Idx ×ˢ D)
+    (hstep : ∀ q ∈ S.Q, ∀ a ∈ S.Fld P q, ∀ f ∈ (D ^ S.Pos q a : V),
+      (⟨a, f⟩ₖ : V) ∈ S.Args P q →
+      (∀ b ∈ S.Pos q a, (⟨S.posIdx q a b, f ‘ b⟩ₖ : V) ∈ P) →
+      (⟨S.resIdx q a, ⟨q, ⟨a, f⟩ₖ⟩ₖ⟩ₖ : V) ∈ P) :
+    Ind₃ S D ⊆ P := by
+  refine lfp_subset_of_prefixed (indStep₃_isMonotoneOn S D) hP fun p hp ↦ ?_
+  rw [mem_indStep₃_iff] at hp
+  obtain ⟨-, q, hq, a, ha, f, hf, hok, hrec, rfl⟩ := hp
+  exact hstep q hq a ha f hf hok hrec
+
+/-- **Constructor membership**, ported.  The admissibility conjunct is the one
+new hypothesis. -/
+theorem ctor_mem_Ind₃ {q a f : V} (hq : q ∈ S.Q)
+    (hmem : (⟨S.resIdx q a, ⟨q, ⟨a, f⟩ₖ⟩ₖ⟩ₖ : V) ∈ S.Idx ×ˢ D)
+    (ha : a ∈ S.Fld (Ind₃ S D) q) (hf : f ∈ (D ^ S.Pos q a : V))
+    (hok : (⟨a, f⟩ₖ : V) ∈ S.Args (Ind₃ S D) q)
+    (hrec : ∀ b ∈ S.Pos q a, (⟨S.posIdx q a b, f ‘ b⟩ₖ : V) ∈ Ind₃ S D) :
+    (⟨S.resIdx q a, ⟨q, ⟨a, f⟩ₖ⟩ₖ⟩ₖ : V) ∈ Ind₃ S D := by
+  rw [← indStep₃_Ind₃ (S := S) (D := D), mem_indStep₃_iff]
+  exact ⟨hmem, q, hq, a, ha, f, hf, hok, hrec, rfl⟩
+
+end Operator₃
+
 end Lean4Lean.SetModel
+
 
 

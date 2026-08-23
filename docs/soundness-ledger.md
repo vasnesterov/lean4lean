@@ -1989,6 +1989,68 @@ obligation that may be days from opening is the trade the original ruling
 already rejected — with the difference that the price is now known to be a port
 rather than a rank argument.
 
+## The port: priced by enumeration first, then started
+
+Ruled in after the disjointness family was shown to sit in `sort_inv`'s
+equivalence class. **Priced by enumerating the consumers before committing**,
+which is what the last round's failure taught, and the enumeration paid twice.
+
+### It found a cheap alternative — and ruled it out
+
+Put a redundant copy of the recursive fillers inside `a`, accept that the
+carrier then holds junk pairs where the copy disagrees with `f`, and note that
+the interpretation never produces them. Formation, the recursor and the ι-rule
+all survive that; it would have avoided the port entirely.
+
+**It breaks large elimination for subsingletons — in fact, not in proof.**
+`IsSubsingletonSignature.fld_det` asks `resIdx q a = resIdx q a' → a = a'`; with
+a redundant copy two fillers give the same result index and different `a`, so
+`Ind_subsingleton` becomes *false*. `Eq`, `Iff` and every proof-irrelevant family
+with large elimination go through exactly there, and `EqSpec` is about one of
+them. Rejected on that specific, checkable ground rather than on a feeling.
+
+Worth noting *how* it was caught: by walking the enumerated consumer list, not by
+attempting the build. The rule works when you enumerate.
+
+### The price
+
+41 declarations mention the product shape directly across `Inductive.lean`,
+`IndStage.lean` and `IndCard.lean`; 121 declarations and ~1570 lines total.
+**But the change is an added conjunct, not a reshape** — `∃ a ∈ Fld q, ∃ f ∈
+D^Pos q a, …` becomes the same with `⟨a,f⟩ₖ ∈ Args W q` conjoined. Every
+destructuring gains one component; every construction gains one obligation.
+Estimate **400–900 lines touched, mechanical-dominated** — consistent with what
+§2 always implied for a model-side generalisation, and far below the
+3000–6000-line Church–Rosser alternative. The stop condition was not met, so I
+proceeded.
+
+The cardinality argument is the one place that could have been expensive and is
+not: `Args W q` is a *subset* of the product, so `IndCard`'s bounds only get
+smaller.
+
+### Landed: the operator layer
+
+`IndSignature₃` (extending `IndSignature₂` with `Args`, `Args_definable`,
+`Args_mono`), `indStep₃` with its membership lemma and definability,
+`indStep₃_isMonotoneOn`, `Ind₃`, `Ind₃_subset`, `indStep₃_Ind₃`,
+`Ind₃_induction`, `ctor_mem_Ind₃`. Sorry-free,
+`[propext, Classical.choice, Quot.sound]`.
+
+`Ind₃_induction`'s proof is `Ind_induction`'s verbatim plus one destructured
+component — which is the evidence, rather than the claim, that the estimate's
+shape is right.
+
+One thing the port makes visible: the induction step is stated at `P`, the
+approximation `lfp_subset_of_prefixed` supplies — not at `Ind₃ S D`. The old
+`Ind_induction` is the same in this respect; it is invisible there only because
+its `Fld` does not move.
+
+### Remaining
+
+`IsIndCarrier₃`/`IsMinorPremise₃`, the recursor's graph (`recStep`, `recGraph`,
+`recGraph_total`, `indRec`) and the ι-rule, then `IsStageSignature₃` and
+`IndCard`'s bounds. All the same added-conjunct shape.
+
 ### Caveat left standing: the all-levels quantification
 
 `quotDefEq_ok` takes `hEq`, `hcnst`, `hcnstMk` and `hcnstL` quantified over
