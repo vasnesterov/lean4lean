@@ -627,6 +627,59 @@ theorem PropTypeAgree.proofIrrel_case (hnp : env.PropNotProof U n)
     (IsPropN env U n Γ h ↔ IsPropN env U n Γ h') :=
   ⟨fun hp => absurd (hnp hp h1 h2) not_false, fun hp => absurd (hnp hp h1 h3) not_false⟩
 
+/-- The one case of `SortForallEDisjoint` that does not close: the subject is an application,
+whose type is not shape-pinned.  Relating the two types needs the function's two Π-types plus
+substitution — and only a *disjointness* consequence of it, not the equality form refuted in
+`Theory/Typing/SubstCRefute.lean`. -/
+def SortForallEDisjoint.AppCase (env : VEnv) (U n : Nat) : Prop :=
+  ∀ {Γ : List VExpr} {f a A₀ B₀ A B : VExpr} {u : VLevel},
+    env.HasTypeN U n Γ f (.forallE A₀ B₀) → env.HasTypeN U n Γ a A₀ →
+    env.IsDefEqN U n Γ (B₀.inst a) (.sort u) →
+    env.HasTypeN U n Γ (.app f a) (.forallE A B) → False
+
+/-- **`SortForallEDisjoint` closes in six of its seven typing cases**, from `DefInv` alone.
+`trans` never arises — it is a *conversion* rule, and this is an induction on typing — so the
+statement is on the tractable side of the criterion, and more decisively than `PropTypeAgree`,
+which does have a conversion induction underneath it.
+
+**What this says about refuting it:** any counterexample must have an **application** as its
+subject.  In particular a *constant* subject cannot be one, so the model's failure to separate
+`False` from `∀ x : False, B` — real, and structural in ZF — **cannot be lifted to a syntactic
+derivation at that instance**, because the `const` case below proves the syntactic statement
+there. -/
+theorem sortForallEDisjoint_of {Γ e T b} (H : Stratified env U n Γ e T b) :
+    SortForallEDisjoint.AppCase env U n → env.DefInv U n → b = true →
+    ∀ u A B, env.IsDefEqN U n Γ T (.sort u) →
+    env.HasTypeN U n Γ e (.forallE A B) → False := by
+  induction H with
+  | bvar h =>
+    intro _ dinv _ u A B hT H2
+    obtain ⟨_, hl, hc⟩ := H2.bvar_inv
+    exact dinv.sort_forallE (IsDefEqN.trans' (IsDefEqN.symm' hT) (Lookup.uniq h hl ▸ hc))
+  | sort _ =>
+    intro _ dinv _ u A B hT H2
+    exact dinv.sort_forallE (HasTypeN.sort_inv H2).2
+  | const h1 _ _ =>
+    intro _ dinv _ u A B hT H2
+    obtain ⟨_, h1', _, _, hc⟩ := HasTypeN.const_inv H2
+    cases Option.some.inj (h1'.symm.trans h1)
+    exact dinv.sort_forallE (IsDefEqN.trans' (IsDefEqN.symm' hT) hc)
+  | lam _ _ =>
+    intro _ dinv _ u A B hT _
+    exact dinv.sort_forallE (IsDefEqN.symm' hT)
+  | forallE _ _ _ _ =>
+    intro _ dinv _ u A B hT H2
+    obtain ⟨_, _, _, _, _, _, hc⟩ := HasTypeN.forallE_inv H2
+    exact dinv.sort_forallE hc
+  | conv h _ _ ih2 =>
+    intro happ dinv _ u A₁ B₁ hT H2
+    exact ih2 happ dinv (Eq.refl true) u A₁ B₁ (IsDefEqN.trans' h hT) H2
+  | app hf ha _ _ =>
+    intro happ _ _ u A B hT H2
+    exact happ hf ha hT H2
+  | rfl | symm | trans | sortDF | constDF | appDF | lamDF | forallEDF | beta | eta
+  | proofIrrel | extra => intro _ _ hb; exact nomatch hb
+
 /-- **The split, machine-checked:** `PropNotProof` *is* `PropTypeAgree` at another subject, so
 `proofIrrel` is self-reference.  There is no corresponding derivation for
 `SortForallEDisjoint`, which is why that one is a genuinely missing primitive. -/
