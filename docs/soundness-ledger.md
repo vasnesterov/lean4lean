@@ -1340,9 +1340,8 @@ prerequisite: `quotDefEq` is
 `fun α r β f c a => Quot.lift α r β f c (Quot.mk α r a) ≡ f a`, so both its
 obligations are about a six-λ nest whose left-hand body is a full `Quot.lift`
 application. Nothing about it can be stated before `Quot.lift`'s denotation
-exists. That is now done, so `quotDefEq` is unblocked.
-
-What it still needs, precisely:
+exists. `Quot.lift` was built first, and then `quotDefEq` — see below. What
+`quotDefEq` needed, and which is now all built:
 
 * **`Quot.lift`'s application spine** — a `¬IsProof` for each of the five proper
   prefixes of `Quot.lift α r β f c`, and `isProof_iff` wants a typing *and* a
@@ -1373,6 +1372,84 @@ What it still needs, precisely:
   proved for the *right*-hand nest (`fun α r β f c a => f a`) and transported
   across the equation; its bottom is `f ‘ a ∈ β`, which is already
   `quotLift_f_props`.
+
+## `quotDefEq` is discharged, and the split criterion worked prospectively
+
+`quotDefEq_ok` (`SetModel/QuotInterp.lean`) delivers **both** obligations in the
+exact shape `coherentOn_addDefEqFold` consumes — the level list destructured
+from `us.length = quotDefEq.uvars`, both `Above` wrappers discharged by
+`Above.pure`. Sorry-free, `[propext, Classical.choice, Quot.sound]`. That
+statement being accepted is itself the check that `quotDefEq_eq` and
+`quotDefEq_mem` are the right two propositions: it is copied from the fold's
+hypothesis rather than restated.
+
+**The level-split criterion was run before writing a line, and it held.** The
+type is `∀ α r β f c (a : α), β`; the innermost codomain is `β`, a
+level-carrying expression of sort `v`, and every sort in the chain bottoms at
+`imax u v`. Prediction: **`v` splits, `u` does not.** Outcome: no proof in the
+`quotDefEq` layer branches on `u`. The `u`-split lives entirely inside
+`interp_quotDefMkAp` and `quotLiftVal_quotMkVal`, both already proved in both
+branches, so it never surfaces. This is the first time the criterion was used to
+*schedule* work rather than to explain a surprise after the fact.
+
+### The cross-check passed, and that is the report
+
+The five successive `inst` types of `Quot.lift`'s partial applications were
+computed by Lean, transcribed, and then checked by `appDF` — which produces the
+`inst` itself and will not elaborate against a wrong transcription. All five
+elaborated first try, as did the five sort derivations above them. The
+cross-check is mandatory, not diligent; recording that it found nothing is the
+point of running it.
+
+### Four copies of one shape that are *not* shifts of one another
+
+`Quot.lift`'s hypothesis `∀ a b, r a b → f a = f b` appears once in each of
+`quotLiftTy2 … quotLiftTy5`, and it is tempting to write one lemma and reuse it
+at four shifts. **That is wrong.** Each `inst` step replaces a *different*
+binder, so the `β` and `f` references land on different binders depending on how
+many have been consumed: at `quotLiftTy5` the motive is still the outer
+`quotLiftFTy` (index 5), while at `quotLiftTy4` and below it is the freshly
+bound one (index 3). The two lowest copies *do* coincide with the already-defined
+`quotLiftRab` and `quotLiftEqAp` — but only because there both `β` and `f` are
+freshly bound and land exactly where `Quot.lift`'s own spine puts them.
+
+The general form: **under a chain of instantiations, a repeated subterm's de
+Bruijn indices are not a uniform shift of the original; they depend on how many
+of the binders it refers to have already been consumed.** Assume the shift and
+you write four wrong lemmas that all look right.
+
+### Peel by type agreement, split only at the bodies
+
+`interp_lam_congr` needs the two bodies to agree on `IsProof`, and `IsProof` is
+syntactic — it does not follow from the bodies being pointwise equal. But it
+*does* follow from the two bodies having the **same type**, via `isProof_iff`
+twice, and that holds at every level of a defeq between two nests over the same
+binders. So all six λs peel **uniformly, with no case split**, and the level
+split appears only once, at the bodies. At `v = 0` both bodies are applications
+of a proof-sorted head — `Quot.lift α r β f c` on the left, `f` on the right — so
+`interp_app_of_proof_sorted` gives `•` on both sides without consulting the
+constant assignment; above it, the ι-rule fires. This is the shape to reuse for
+every ι-rule the inductive layer will need.
+
+### The `Quot` block's constant equations are triangular, not recursive
+
+Worth recording before the inductive block asks the same question. The
+denotations depend on `M.cnst` as follows:
+
+| constant | its denotation mentions |
+|---|---|
+| `Quot` | — |
+| `Quot.mk` | — |
+| `Quot.lift` | `Eq`, `Quot` |
+| `Quot.ind` | — (it is `•`) |
+
+So the four defining equations `M.cnst n us = …Fn …` can be satisfied in
+sequence, with no fixpoint, in exactly the order `quotNames` already lists.
+`quotIndFn_mem` and `quotLiftFn_mem` take the *other* constants' equations as
+hypotheses, which is consistent precisely because no denotation mentions its own
+name. **Check this triangularity before assuming an inductive block's assignment
+needs a fixpoint** — for `Quot` it does not, and the reason is visible from the
+binder types alone.
 
 ## The remaining open items, ranked
 
@@ -1407,7 +1484,7 @@ What it still needs, precisely:
    |---|---|---|
    | `.axiom` | supplied by `AxiomsValidated` | ready |
    | `.def`, `.opaque`, `.example`, `.mutualDef` | `⟦ci.value⟧` at the earlier assignment | ready |
-   | `.quot` | `Quot`, `Quot.mk`, `Quot.lift`, `Quot.ind` and `quotDefEq` | all four `const_type` obligations **proved** (`quotFn_mem`, `quotMkFn_mem`, `quotIndFn_mem`, `quotLiftFn_mem`); `quotDefEq` outstanding, see above |
+   | `.quot` | `Quot`, `Quot.mk`, `Quot.lift`, `Quot.ind` and `quotDefEq` | **done** — all four `const_type` obligations (`quotFn_mem`, `quotMkFn_mem`, `quotIndFn_mem`, `quotLiftFn_mem`) and both `quotDefEq` obligations (`quotDefEq_ok`). Open against `EqSpec`, which the `.induct` step owes |
    | `.induct` | whatever `addInduct` introduces | blocked on item 2 |
 
    The step is proved (`coherentOn_addConst`, `coherentOn_addDefEq`) and so is

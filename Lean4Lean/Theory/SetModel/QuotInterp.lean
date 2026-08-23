@@ -1026,6 +1026,608 @@ theorem quotLiftFCod_type {Δ : List VExpr} :
       (.bvar 1) (.sort v) :=
   VEnv.IsDefEq.bvar (.succ .zero)
 
+/-! ### `quotDefEq`'s spine
+
+`quotDefEq` is `fun α r β f c a => Quot.lift α r β f c (Quot.mk α r a) ≡ f a`,
+so both its obligations are about a six-λ nest whose left body is a full
+`Quot.lift` application.  Computing that body's denotation needs a `¬IsProof`
+for each of the five proper prefixes of `Quot.lift α r β f c`, and `isProof_iff`
+wants a typing *and* a sort derivation for each.
+
+**The types below were computed by Lean** (successive `inst`s of `Quot.lift`'s
+type) and then written out; the `appDF`s in `quotLiftAp1_type` … `quotLiftAp5_type`
+are what check them, since `appDF` produces the `inst` and will not typecheck
+against a wrong transcription.  Do not adjust these to fit a spine — if a
+derivation disagrees with the computed type, the derivation is wrong.
+
+*Level split, decided before building.*  Every sort in the chain bottoms out at
+`imax u v`, so all five prefixes are non-proofs exactly when `v ≠ 0`: the split
+is on the **codomain** parameter only.  `u` never splits the shape here; it
+splits only the value, inside `quotLiftVal`. -/
+
+/-- The type of `Quot.lift α`, over `[a, c, f, β, r, α]`. -/
+def quotLiftTy2 (u v : VLevel) : VExpr :=
+  .forallE (.forallE (.bvar 5) (.forallE (.bvar 6) (.sort .zero)))
+    (.forallE (.sort v)
+      (.forallE (.forallE (.bvar 7) (.bvar 1))
+        (.forallE (.forallE (.bvar 8) (.forallE (.bvar 9)
+            (.forallE quotLiftRab (quotLiftEqAp v))))
+          (.forallE (.app (.app (.const ``Quot [u]) (.bvar 9)) (.bvar 3)) (.bvar 3)))))
+
+/-- The type of `Quot.lift α r`. -/
+def quotLiftTy3 (u v : VLevel) : VExpr :=
+  .forallE (.sort v)
+    (.forallE (.forallE (.bvar 6) (.bvar 1))
+      (.forallE (.forallE (.bvar 7) (.forallE (.bvar 8)
+          (.forallE (.app (.app (.bvar 8) (.bvar 1)) (.bvar 0)) (quotLiftEqAp v))))
+        (.forallE (.app (.app (.const ``Quot [u]) (.bvar 8)) (.bvar 7)) (.bvar 3))))
+
+/-- The type of `Quot.lift α r β`. -/
+def quotLiftTy4 (u v : VLevel) : VExpr :=
+  .forallE (.forallE (.bvar 5) (.bvar 4))
+    (.forallE (.forallE (.bvar 6) (.forallE (.bvar 7)
+        (.forallE (.app (.app (.bvar 7) (.bvar 1)) (.bvar 0))
+          (.app (.app (.app (.const ``Eq [v]) (.bvar 7)) (.app (.bvar 3) (.bvar 2)))
+            (.app (.bvar 3) (.bvar 1))))))
+      (.forallE (.app (.app (.const ``Quot [u]) (.bvar 7)) (.bvar 6)) (.bvar 6)))
+
+/-- The type of `Quot.lift α r β f`. -/
+def quotLiftTy5 (u v : VLevel) : VExpr :=
+  .forallE (.forallE (.bvar 5) (.forallE (.bvar 6)
+      (.forallE (.app (.app (.bvar 6) (.bvar 1)) (.bvar 0))
+        (.app (.app (.app (.const ``Eq [v]) (.bvar 6)) (.app (.bvar 5) (.bvar 2)))
+          (.app (.bvar 5) (.bvar 1))))))
+    (.forallE (.app (.app (.const ``Quot [u]) (.bvar 6)) (.bvar 5)) (.bvar 5))
+
+/-- The type of `Quot.lift α r β f c`. -/
+def quotLiftTy6 (u : VLevel) : VExpr :=
+  .forallE (.app (.app (.const ``Quot [u]) (.bvar 5)) (.bvar 4)) (.bvar 4)
+
+/-- `Quot.mk α r a` with `α`, `r`, `a` at indices 5, 4, 0. -/
+def quotDefMkAp (u : VLevel) : VExpr :=
+  .app (.app (.app (.const ``Quot.mk [u]) (.bvar 5)) (.bvar 4)) (.bvar 0)
+
+/-- `Quot.lift α r β f c (Quot.mk α r a)`, over `[a, c, f, β, r, α]`. -/
+def quotDefLhsBody (u v : VLevel) : VExpr :=
+  .app (.app (.app (.app (.app (.app (.const ``Quot.lift [u, v]) (.bvar 5)) (.bvar 4))
+    (.bvar 3)) (.bvar 2)) (.bvar 1)) (quotDefMkAp u)
+
+/-- `f a`, over `[a, c, f, β, r, α]`. -/
+def quotDefRhsBody : VExpr := .app (.bvar 2) (.bvar 0)
+
+/-- The six-λ prefix both sides of `quotDefEq` share. -/
+def quotDefNest (u v : VLevel) (b : VExpr) : VExpr :=
+  .lam (.sort u) (.lam quotRelTy (.lam (.sort v) (.lam quotLiftFTy (.lam (quotLiftC v)
+    (.lam (.bvar 4) b)))))
+
+example (u v : VLevel) : quotDefEq.lhs.instL [u, v] = quotDefNest u v (quotDefLhsBody u v) := rfl
+example (u v : VLevel) : quotDefEq.rhs.instL [u, v] = quotDefNest u v quotDefRhsBody := rfl
+example (u v : VLevel) : quotDefEq.type.instL [u, v]
+    = .forallE (.sort u) (.forallE quotRelTy (.forallE (.sort v) (.forallE quotLiftFTy
+        (.forallE (quotLiftC v) (.forallE (.bvar 4) (.bvar 3)))))) := rfl
+
+section DefEqTypingSpine
+
+variable {env : VEnv} {nv : ℕ} {u v : VLevel}
+
+/-- `Quot.lift` itself. -/
+theorem quotLiftConst_type (hql : env.constants ``Quot.lift = some quotLiftConst)
+    (hu : u.WF nv) (hv : v.WF nv) {Γ : List VExpr} :
+    env.HasType nv Γ (.const ``Quot.lift [u, v])
+      (.forallE (.sort u) (.forallE quotRelTy (.forallE (.sort v)
+        (.forallE quotLiftFTy (.forallE (quotLiftC v)
+          (.forallE (quotLiftQ u) (.bvar 3))))))) :=
+  VEnv.IsDefEq.constDF hql (by simp [hu, hv]) (by simp [hu, hv]) rfl
+    (List.Forall₂.cons rfl (List.Forall₂.cons rfl .nil))
+
+theorem quotLiftConstTy_type (hq : env.constants ``Quot = some quotConst)
+    (heq : env.constants ``Eq = some eqConst) (hu : u.WF nv) (hv : v.WF nv)
+    {Δ : List VExpr} :
+    env.HasType nv Δ
+      (.forallE (.sort u) (.forallE quotRelTy (.forallE (.sort v)
+        (.forallE quotLiftFTy (.forallE (quotLiftC v)
+          (.forallE (quotLiftQ u) (.bvar 3)))))))
+      (.sort (.imax (.succ u) (.imax (.imax u (.imax u (.succ .zero)))
+        (.imax (.succ v) (.imax (.imax u v)
+          (.imax (.imax u (.imax u (.imax .zero .zero))) (.imax u v))))))) :=
+  .forallEDF (.sortDF hu hu rfl) (quotLiftT1_type hq heq hu hv)
+
+/-! The five partial applications.  Each `appDF` here is the cross-check on the
+corresponding `quotLiftTyk`: it will not elaborate against a wrong index. -/
+
+theorem quotLiftAp1_type (hql : env.constants ``Quot.lift = some quotLiftConst)
+    (hu : u.WF nv) (hv : v.WF nv) {Δ : List VExpr} :
+    env.HasType nv (VExpr.bvar 4 :: quotLiftC v :: quotLiftFTy :: VExpr.sort v ::
+        quotRelTy :: VExpr.sort u :: Δ)
+      (.app (.const ``Quot.lift [u, v]) (.bvar 5)) (quotLiftTy2 u v) :=
+  VEnv.IsDefEq.appDF (quotLiftConst_type hql hu hv)
+    (VEnv.IsDefEq.bvar (.succ (.succ (.succ (.succ (.succ .zero))))))
+
+theorem quotLiftAp2_type (hql : env.constants ``Quot.lift = some quotLiftConst)
+    (hu : u.WF nv) (hv : v.WF nv) {Δ : List VExpr} :
+    env.HasType nv (VExpr.bvar 4 :: quotLiftC v :: quotLiftFTy :: VExpr.sort v ::
+        quotRelTy :: VExpr.sort u :: Δ)
+      (.app (.app (.const ``Quot.lift [u, v]) (.bvar 5)) (.bvar 4)) (quotLiftTy3 u v) :=
+  VEnv.IsDefEq.appDF (quotLiftAp1_type hql hu hv)
+    (VEnv.IsDefEq.bvar (.succ (.succ (.succ (.succ .zero)))))
+
+theorem quotLiftAp3_type (hql : env.constants ``Quot.lift = some quotLiftConst)
+    (hu : u.WF nv) (hv : v.WF nv) {Δ : List VExpr} :
+    env.HasType nv (VExpr.bvar 4 :: quotLiftC v :: quotLiftFTy :: VExpr.sort v ::
+        quotRelTy :: VExpr.sort u :: Δ)
+      (.app (.app (.app (.const ``Quot.lift [u, v]) (.bvar 5)) (.bvar 4)) (.bvar 3))
+      (quotLiftTy4 u v) :=
+  VEnv.IsDefEq.appDF (quotLiftAp2_type hql hu hv)
+    (VEnv.IsDefEq.bvar (.succ (.succ (.succ .zero))))
+
+theorem quotLiftAp4_type (hql : env.constants ``Quot.lift = some quotLiftConst)
+    (hu : u.WF nv) (hv : v.WF nv) {Δ : List VExpr} :
+    env.HasType nv (VExpr.bvar 4 :: quotLiftC v :: quotLiftFTy :: VExpr.sort v ::
+        quotRelTy :: VExpr.sort u :: Δ)
+      (.app (.app (.app (.app (.const ``Quot.lift [u, v]) (.bvar 5)) (.bvar 4)) (.bvar 3))
+        (.bvar 2)) (quotLiftTy5 u v) :=
+  VEnv.IsDefEq.appDF (quotLiftAp3_type hql hu hv)
+    (VEnv.IsDefEq.bvar (.succ (.succ .zero)))
+
+theorem quotLiftAp5_type (hql : env.constants ``Quot.lift = some quotLiftConst)
+    (hu : u.WF nv) (hv : v.WF nv) {Δ : List VExpr} :
+    env.HasType nv (VExpr.bvar 4 :: quotLiftC v :: quotLiftFTy :: VExpr.sort v ::
+        quotRelTy :: VExpr.sort u :: Δ)
+      (.app (.app (.app (.app (.app (.const ``Quot.lift [u, v]) (.bvar 5)) (.bvar 4))
+        (.bvar 3)) (.bvar 2)) (.bvar 1)) (quotLiftTy6 u) :=
+  VEnv.IsDefEq.appDF (quotLiftAp4_type hql hu hv) (VEnv.IsDefEq.bvar (.succ .zero))
+
+/-! The sorts of those five types.  They are built inside out; the four copies
+of the hypothesis's shape are genuinely different expressions, not shifts of one
+another, because each `inst` step replaces a *different* binder — at
+`quotLiftTy5` the motive `f` is still the outer `quotLiftFTy`, while at
+`quotLiftTy4` and below it is the freshly bound one.  Every sort bottoms out at
+`imax u v`. -/
+
+/-- `Quot α r → β`, innermost. -/
+theorem quotLiftTy6_type (hq : env.constants ``Quot = some quotConst) (hu : u.WF nv)
+    {Δ : List VExpr} :
+    env.HasType nv (VExpr.bvar 4 :: quotLiftC v :: quotLiftFTy :: VExpr.sort v ::
+        quotRelTy :: VExpr.sort u :: Δ) (quotLiftTy6 u) (.sort (.imax u v)) :=
+  .forallEDF
+    (quotAp_type hq hu (VEnv.IsDefEq.bvar (.succ (.succ (.succ (.succ (.succ .zero))))))
+      (VEnv.IsDefEq.bvar (.succ (.succ (.succ (.succ .zero))))))
+    (VEnv.IsDefEq.bvar (.succ (.succ (.succ (.succ .zero)))))
+
+/-- The hypothesis's shape as it stands in `quotLiftTy5`. -/
+theorem quotLiftC5at0_type (heq : env.constants ``Eq = some eqConst) (hv : v.WF nv)
+    {Δ : List VExpr} :
+    env.HasType nv (VExpr.bvar 4 :: quotLiftC v :: quotLiftFTy :: VExpr.sort v ::
+        quotRelTy :: VExpr.sort u :: Δ)
+      (.forallE (.bvar 5) (.forallE (.bvar 6)
+        (.forallE (.app (.app (.bvar 6) (.bvar 1)) (.bvar 0))
+          (.app (.app (.app (.const ``Eq [v]) (.bvar 6)) (.app (.bvar 5) (.bvar 2)))
+            (.app (.bvar 5) (.bvar 1))))))
+      (.sort (.imax u (.imax u (.imax .zero .zero)))) :=
+  .forallEDF (VEnv.IsDefEq.bvar (.succ (.succ (.succ (.succ (.succ .zero))))))
+    (.forallEDF (VEnv.IsDefEq.bvar (.succ (.succ (.succ (.succ (.succ (.succ .zero)))))))
+      (.forallEDF
+        (VEnv.IsDefEq.appDF
+          (show env.HasType nv _ (.app (.bvar 6) (.bvar 1))
+              (.forallE (.bvar 7) (.sort .zero)) from
+            VEnv.IsDefEq.appDF
+              (show env.HasType nv _ (.bvar 6)
+                  (.forallE (.bvar 7) (.forallE (.bvar 8) (.sort .zero))) from
+                VEnv.IsDefEq.bvar (.succ (.succ (.succ (.succ (.succ (.succ .zero)))))))
+              (VEnv.IsDefEq.bvar (.succ .zero)))
+          (VEnv.IsDefEq.bvar .zero))
+        (VEnv.IsDefEq.appDF
+          (show env.HasType nv _
+              (.app (.app (.const ``Eq [v]) (.bvar 6)) (.app (.bvar 5) (.bvar 2)))
+              (.forallE (.bvar 6) (.sort .zero)) from
+            VEnv.IsDefEq.appDF
+              (show env.HasType nv _ (.app (.const ``Eq [v]) (.bvar 6))
+                  (.forallE (.bvar 6) (.forallE (.bvar 7) (.sort .zero))) from
+                VEnv.IsDefEq.appDF (eqConst_type heq hv)
+                  (VEnv.IsDefEq.bvar (.succ (.succ (.succ (.succ (.succ (.succ .zero))))))))
+              (show env.HasType nv _ (.app (.bvar 5) (.bvar 2)) (.bvar 6) from
+                VEnv.IsDefEq.appDF
+                  (show env.HasType nv _ (.bvar 5) (.forallE (.bvar 8) (.bvar 7)) from
+                    VEnv.IsDefEq.bvar (.succ (.succ (.succ (.succ (.succ .zero))))))
+                  (VEnv.IsDefEq.bvar (.succ (.succ .zero)))))
+          (show env.HasType nv _ (.app (.bvar 5) (.bvar 1)) (.bvar 6) from
+            VEnv.IsDefEq.appDF
+              (show env.HasType nv _ (.bvar 5) (.forallE (.bvar 8) (.bvar 7)) from
+                VEnv.IsDefEq.bvar (.succ (.succ (.succ (.succ (.succ .zero))))))
+              (VEnv.IsDefEq.bvar (.succ .zero))))))
+
+theorem quotLiftTy5_type (hq : env.constants ``Quot = some quotConst)
+    (heq : env.constants ``Eq = some eqConst) (hu : u.WF nv) (hv : v.WF nv)
+    {Δ : List VExpr} :
+    env.HasType nv (VExpr.bvar 4 :: quotLiftC v :: quotLiftFTy :: VExpr.sort v ::
+        quotRelTy :: VExpr.sort u :: Δ) (quotLiftTy5 u v)
+      (.sort (.imax (.imax u (.imax u (.imax .zero .zero))) (.imax u v))) :=
+  .forallEDF (quotLiftC5at0_type heq hv)
+    (.forallEDF
+      (quotAp_type hq hu
+        (VEnv.IsDefEq.bvar (.succ (.succ (.succ (.succ (.succ (.succ .zero)))))))
+        (VEnv.IsDefEq.bvar (.succ (.succ (.succ (.succ (.succ .zero)))))))
+      (VEnv.IsDefEq.bvar (.succ (.succ (.succ (.succ (.succ .zero)))))))
+
+/-- The hypothesis's shape as it stands in `quotLiftTy4` — the motive is now the
+freshly bound `f`, at index 3. -/
+theorem quotLiftC5at1_type (heq : env.constants ``Eq = some eqConst) (hv : v.WF nv)
+    {Δ : List VExpr} :
+    env.HasType nv (VExpr.forallE (.bvar 5) (.bvar 4) :: VExpr.bvar 4 :: quotLiftC v ::
+        quotLiftFTy :: VExpr.sort v :: quotRelTy :: VExpr.sort u :: Δ)
+      (.forallE (.bvar 6) (.forallE (.bvar 7)
+        (.forallE (.app (.app (.bvar 7) (.bvar 1)) (.bvar 0))
+          (.app (.app (.app (.const ``Eq [v]) (.bvar 7)) (.app (.bvar 3) (.bvar 2)))
+            (.app (.bvar 3) (.bvar 1))))))
+      (.sort (.imax u (.imax u (.imax .zero .zero)))) :=
+  .forallEDF (VEnv.IsDefEq.bvar (.succ (.succ (.succ (.succ (.succ (.succ .zero)))))))
+    (.forallEDF
+      (VEnv.IsDefEq.bvar (.succ (.succ (.succ (.succ (.succ (.succ (.succ .zero))))))))
+      (.forallEDF
+        (VEnv.IsDefEq.appDF
+          (show env.HasType nv _ (.app (.bvar 7) (.bvar 1))
+              (.forallE (.bvar 8) (.sort .zero)) from
+            VEnv.IsDefEq.appDF
+              (show env.HasType nv _ (.bvar 7)
+                  (.forallE (.bvar 8) (.forallE (.bvar 9) (.sort .zero))) from
+                VEnv.IsDefEq.bvar
+                  (.succ (.succ (.succ (.succ (.succ (.succ (.succ .zero))))))))
+              (VEnv.IsDefEq.bvar (.succ .zero)))
+          (VEnv.IsDefEq.bvar .zero))
+        (VEnv.IsDefEq.appDF
+          (show env.HasType nv _
+              (.app (.app (.const ``Eq [v]) (.bvar 7)) (.app (.bvar 3) (.bvar 2)))
+              (.forallE (.bvar 7) (.sort .zero)) from
+            VEnv.IsDefEq.appDF
+              (show env.HasType nv _ (.app (.const ``Eq [v]) (.bvar 7))
+                  (.forallE (.bvar 7) (.forallE (.bvar 8) (.sort .zero))) from
+                VEnv.IsDefEq.appDF (eqConst_type heq hv)
+                  (VEnv.IsDefEq.bvar
+                    (.succ (.succ (.succ (.succ (.succ (.succ (.succ .zero)))))))))
+              (show env.HasType nv _ (.app (.bvar 3) (.bvar 2)) (.bvar 7) from
+                VEnv.IsDefEq.appDF
+                  (show env.HasType nv _ (.bvar 3) (.forallE (.bvar 9) (.bvar 8)) from
+                    VEnv.IsDefEq.bvar (.succ (.succ (.succ .zero))))
+                  (VEnv.IsDefEq.bvar (.succ (.succ .zero)))))
+          (show env.HasType nv _ (.app (.bvar 3) (.bvar 1)) (.bvar 7) from
+            VEnv.IsDefEq.appDF
+              (show env.HasType nv _ (.bvar 3) (.forallE (.bvar 9) (.bvar 8)) from
+                VEnv.IsDefEq.bvar (.succ (.succ (.succ .zero))))
+              (VEnv.IsDefEq.bvar (.succ .zero))))))
+
+theorem quotLiftTy4_type (hq : env.constants ``Quot = some quotConst)
+    (heq : env.constants ``Eq = some eqConst) (hu : u.WF nv) (hv : v.WF nv)
+    {Δ : List VExpr} :
+    env.HasType nv (VExpr.bvar 4 :: quotLiftC v :: quotLiftFTy :: VExpr.sort v ::
+        quotRelTy :: VExpr.sort u :: Δ) (quotLiftTy4 u v)
+      (.sort (.imax (.imax u v)
+        (.imax (.imax u (.imax u (.imax .zero .zero))) (.imax u v)))) :=
+  .forallEDF
+    (.forallEDF (VEnv.IsDefEq.bvar (.succ (.succ (.succ (.succ (.succ .zero))))))
+      (VEnv.IsDefEq.bvar (.succ (.succ (.succ (.succ .zero))))))
+    (.forallEDF (quotLiftC5at1_type heq hv)
+      (.forallEDF
+        (quotAp_type hq hu
+          (VEnv.IsDefEq.bvar
+            (.succ (.succ (.succ (.succ (.succ (.succ (.succ .zero))))))))
+          (VEnv.IsDefEq.bvar (.succ (.succ (.succ (.succ (.succ (.succ .zero))))))))
+        (VEnv.IsDefEq.bvar (.succ (.succ (.succ (.succ (.succ (.succ .zero)))))))))
+
+/-- The hypothesis's shape as it stands in `quotLiftTy3`.  From here down the
+`Eq` application is literally `quotLiftEqAp`, because both `β` and `f` are freshly
+bound and sit at the same indices as in `Quot.lift`'s own spine. -/
+theorem quotLiftC5at2_type (heq : env.constants ``Eq = some eqConst) (hv : v.WF nv)
+    {Δ : List VExpr} :
+    env.HasType nv (VExpr.forallE (.bvar 6) (.bvar 1) :: VExpr.sort v :: VExpr.bvar 4 ::
+        quotLiftC v :: quotLiftFTy :: VExpr.sort v :: quotRelTy :: VExpr.sort u :: Δ)
+      (.forallE (.bvar 7) (.forallE (.bvar 8)
+        (.forallE (.app (.app (.bvar 8) (.bvar 1)) (.bvar 0)) (quotLiftEqAp v))))
+      (.sort (.imax u (.imax u (.imax .zero .zero)))) :=
+  .forallEDF
+    (VEnv.IsDefEq.bvar (.succ (.succ (.succ (.succ (.succ (.succ (.succ .zero))))))))
+    (.forallEDF
+      (VEnv.IsDefEq.bvar
+        (.succ (.succ (.succ (.succ (.succ (.succ (.succ (.succ .zero)))))))))
+      (.forallEDF
+        (VEnv.IsDefEq.appDF
+          (show env.HasType nv _ (.app (.bvar 8) (.bvar 1))
+              (.forallE (.bvar 9) (.sort .zero)) from
+            VEnv.IsDefEq.appDF
+              (show env.HasType nv _ (.bvar 8)
+                  (.forallE (.bvar 9) (.forallE (.bvar 10) (.sort .zero))) from
+                VEnv.IsDefEq.bvar
+                  (.succ (.succ (.succ (.succ (.succ (.succ (.succ (.succ .zero)))))))))
+              (VEnv.IsDefEq.bvar (.succ .zero)))
+          (VEnv.IsDefEq.bvar .zero))
+        (VEnv.IsDefEq.appDF
+          (show env.HasType nv _
+              (.app (.app (.const ``Eq [v]) (.bvar 4)) (.app (.bvar 3) (.bvar 2)))
+              (.forallE (.bvar 4) (.sort .zero)) from
+            VEnv.IsDefEq.appDF
+              (show env.HasType nv _ (.app (.const ``Eq [v]) (.bvar 4))
+                  (.forallE (.bvar 4) (.forallE (.bvar 5) (.sort .zero))) from
+                VEnv.IsDefEq.appDF (eqConst_type heq hv)
+                  (VEnv.IsDefEq.bvar (.succ (.succ (.succ (.succ .zero))))))
+              (show env.HasType nv _ (.app (.bvar 3) (.bvar 2)) (.bvar 4) from
+                VEnv.IsDefEq.appDF
+                  (show env.HasType nv _ (.bvar 3) (.forallE (.bvar 10) (.bvar 5)) from
+                    VEnv.IsDefEq.bvar (.succ (.succ (.succ .zero))))
+                  (VEnv.IsDefEq.bvar (.succ (.succ .zero)))))
+          (show env.HasType nv _ (.app (.bvar 3) (.bvar 1)) (.bvar 4) from
+            VEnv.IsDefEq.appDF
+              (show env.HasType nv _ (.bvar 3) (.forallE (.bvar 10) (.bvar 5)) from
+                VEnv.IsDefEq.bvar (.succ (.succ (.succ .zero))))
+              (VEnv.IsDefEq.bvar (.succ .zero))))))
+
+theorem quotLiftTy3_type (hq : env.constants ``Quot = some quotConst)
+    (heq : env.constants ``Eq = some eqConst) (hu : u.WF nv) (hv : v.WF nv)
+    {Δ : List VExpr} :
+    env.HasType nv (VExpr.bvar 4 :: quotLiftC v :: quotLiftFTy :: VExpr.sort v ::
+        quotRelTy :: VExpr.sort u :: Δ) (quotLiftTy3 u v)
+      (.sort (.imax (.succ v) (.imax (.imax u v)
+        (.imax (.imax u (.imax u (.imax .zero .zero))) (.imax u v))))) :=
+  .forallEDF (.sortDF hv hv rfl)
+    (.forallEDF
+      (.forallEDF
+        (VEnv.IsDefEq.bvar (.succ (.succ (.succ (.succ (.succ (.succ .zero)))))))
+        (VEnv.IsDefEq.bvar (.succ .zero)))
+      (.forallEDF (quotLiftC5at2_type heq hv)
+        (.forallEDF
+          (quotAp_type hq hu
+            (VEnv.IsDefEq.bvar
+              (.succ (.succ (.succ (.succ (.succ (.succ (.succ (.succ .zero)))))))))
+            (VEnv.IsDefEq.bvar
+              (.succ (.succ (.succ (.succ (.succ (.succ (.succ .zero)))))))))
+          (VEnv.IsDefEq.bvar (.succ (.succ (.succ .zero)))))))
+
+/-- The hypothesis's shape as it stands in `quotLiftTy2` — now the relation too
+is freshly bound, so the body is literally `quotLiftRab`. -/
+theorem quotLiftC5at3_type (heq : env.constants ``Eq = some eqConst) (hv : v.WF nv)
+    {Δ : List VExpr} :
+    env.HasType nv (VExpr.forallE (.bvar 7) (.bvar 1) :: VExpr.sort v ::
+        VExpr.forallE (.bvar 5) (.forallE (.bvar 6) (.sort .zero)) :: VExpr.bvar 4 ::
+        quotLiftC v :: quotLiftFTy :: VExpr.sort v :: quotRelTy :: VExpr.sort u :: Δ)
+      (.forallE (.bvar 8) (.forallE (.bvar 9)
+        (.forallE quotLiftRab (quotLiftEqAp v))))
+      (.sort (.imax u (.imax u (.imax .zero .zero)))) :=
+  .forallEDF
+    (VEnv.IsDefEq.bvar
+      (.succ (.succ (.succ (.succ (.succ (.succ (.succ (.succ .zero)))))))))
+    (.forallEDF
+      (VEnv.IsDefEq.bvar
+        (.succ (.succ (.succ (.succ (.succ (.succ (.succ (.succ (.succ .zero))))))))))
+      (.forallEDF
+        (VEnv.IsDefEq.appDF
+          (show env.HasType nv _ (.app (.bvar 4) (.bvar 1))
+              (.forallE (.bvar 10) (.sort .zero)) from
+            VEnv.IsDefEq.appDF
+              (show env.HasType nv _ (.bvar 4)
+                  (.forallE (.bvar 10) (.forallE (.bvar 11) (.sort .zero))) from
+                VEnv.IsDefEq.bvar (.succ (.succ (.succ (.succ .zero)))))
+              (VEnv.IsDefEq.bvar (.succ .zero)))
+          (VEnv.IsDefEq.bvar .zero))
+        (VEnv.IsDefEq.appDF
+          (show env.HasType nv _
+              (.app (.app (.const ``Eq [v]) (.bvar 4)) (.app (.bvar 3) (.bvar 2)))
+              (.forallE (.bvar 4) (.sort .zero)) from
+            VEnv.IsDefEq.appDF
+              (show env.HasType nv _ (.app (.const ``Eq [v]) (.bvar 4))
+                  (.forallE (.bvar 4) (.forallE (.bvar 5) (.sort .zero))) from
+                VEnv.IsDefEq.appDF (eqConst_type heq hv)
+                  (VEnv.IsDefEq.bvar (.succ (.succ (.succ (.succ .zero))))))
+              (show env.HasType nv _ (.app (.bvar 3) (.bvar 2)) (.bvar 4) from
+                VEnv.IsDefEq.appDF
+                  (show env.HasType nv _ (.bvar 3) (.forallE (.bvar 11) (.bvar 5)) from
+                    VEnv.IsDefEq.bvar (.succ (.succ (.succ .zero))))
+                  (VEnv.IsDefEq.bvar (.succ (.succ .zero)))))
+          (show env.HasType nv _ (.app (.bvar 3) (.bvar 1)) (.bvar 4) from
+            VEnv.IsDefEq.appDF
+              (show env.HasType nv _ (.bvar 3) (.forallE (.bvar 11) (.bvar 5)) from
+                VEnv.IsDefEq.bvar (.succ (.succ (.succ .zero))))
+              (VEnv.IsDefEq.bvar (.succ .zero))))))
+
+theorem quotLiftTy2_type (hq : env.constants ``Quot = some quotConst)
+    (heq : env.constants ``Eq = some eqConst) (hu : u.WF nv) (hv : v.WF nv)
+    {Δ : List VExpr} :
+    env.HasType nv (VExpr.bvar 4 :: quotLiftC v :: quotLiftFTy :: VExpr.sort v ::
+        quotRelTy :: VExpr.sort u :: Δ) (quotLiftTy2 u v)
+      (.sort (.imax (.imax u (.imax u (.succ .zero)))
+        (.imax (.succ v) (.imax (.imax u v)
+          (.imax (.imax u (.imax u (.imax .zero .zero))) (.imax u v)))))) :=
+  .forallEDF
+    (.forallEDF (VEnv.IsDefEq.bvar (.succ (.succ (.succ (.succ (.succ .zero))))))
+      (.forallEDF
+        (VEnv.IsDefEq.bvar (.succ (.succ (.succ (.succ (.succ (.succ .zero)))))))
+        (.sortDF trivial trivial rfl)))
+    (.forallEDF (.sortDF hv hv rfl)
+      (.forallEDF
+        (.forallEDF
+          (VEnv.IsDefEq.bvar
+            (.succ (.succ (.succ (.succ (.succ (.succ (.succ .zero))))))))
+          (VEnv.IsDefEq.bvar (.succ .zero)))
+        (.forallEDF (quotLiftC5at3_type heq hv)
+          (.forallEDF
+            (quotAp_type hq hu
+              (VEnv.IsDefEq.bvar
+                (.succ (.succ (.succ (.succ (.succ (.succ (.succ (.succ
+                  (.succ .zero))))))))))
+              (VEnv.IsDefEq.bvar (.succ (.succ (.succ .zero)))))
+            (VEnv.IsDefEq.bvar (.succ (.succ (.succ .zero))))))))
+
+/-! #### `Quot.mk` at `quotDefEq`'s indices, and the two bodies -/
+
+theorem quotDefMkAp1_type (hqm : env.constants ``Quot.mk = some quotMkConst) (hu : u.WF nv)
+    {Δ : List VExpr} :
+    env.HasType nv (VExpr.bvar 4 :: quotLiftC v :: quotLiftFTy :: VExpr.sort v ::
+        quotRelTy :: VExpr.sort u :: Δ)
+      (.app (.const ``Quot.mk [u]) (.bvar 5))
+      (.forallE (.forallE (.bvar 5) (.forallE (.bvar 6) (.sort .zero)))
+        (.forallE (.bvar 6) (.app (.app (.const ``Quot [u]) (.bvar 7)) (.bvar 1)))) :=
+  VEnv.IsDefEq.appDF (quotMkConst_type hqm hu)
+    (VEnv.IsDefEq.bvar (.succ (.succ (.succ (.succ (.succ .zero))))))
+
+theorem quotDefMkAp1Ty_type (hq : env.constants ``Quot = some quotConst) (hu : u.WF nv)
+    {Δ : List VExpr} :
+    env.HasType nv (VExpr.bvar 4 :: quotLiftC v :: quotLiftFTy :: VExpr.sort v ::
+        quotRelTy :: VExpr.sort u :: Δ)
+      (.forallE (.forallE (.bvar 5) (.forallE (.bvar 6) (.sort .zero)))
+        (.forallE (.bvar 6) (.app (.app (.const ``Quot [u]) (.bvar 7)) (.bvar 1))))
+      (.sort (.imax (.imax u (.imax u (.succ .zero))) (.imax u u))) :=
+  .forallEDF
+    (.forallEDF (VEnv.IsDefEq.bvar (.succ (.succ (.succ (.succ (.succ .zero))))))
+      (.forallEDF
+        (VEnv.IsDefEq.bvar (.succ (.succ (.succ (.succ (.succ (.succ .zero)))))))
+        (.sortDF trivial trivial rfl)))
+    (.forallEDF
+      (VEnv.IsDefEq.bvar (.succ (.succ (.succ (.succ (.succ (.succ .zero)))))))
+      (quotAp_type hq hu
+        (VEnv.IsDefEq.bvar
+          (.succ (.succ (.succ (.succ (.succ (.succ (.succ .zero))))))))
+        (VEnv.IsDefEq.bvar (.succ .zero))))
+
+theorem quotDefMkAp2_type (hqm : env.constants ``Quot.mk = some quotMkConst) (hu : u.WF nv)
+    {Δ : List VExpr} :
+    env.HasType nv (VExpr.bvar 4 :: quotLiftC v :: quotLiftFTy :: VExpr.sort v ::
+        quotRelTy :: VExpr.sort u :: Δ)
+      (.app (.app (.const ``Quot.mk [u]) (.bvar 5)) (.bvar 4))
+      (.forallE (.bvar 5) (.app (.app (.const ``Quot [u]) (.bvar 6)) (.bvar 5))) :=
+  VEnv.IsDefEq.appDF (quotDefMkAp1_type hqm hu)
+    (VEnv.IsDefEq.bvar (.succ (.succ (.succ (.succ .zero)))))
+
+theorem quotDefMkAp2Ty_type (hq : env.constants ``Quot = some quotConst) (hu : u.WF nv)
+    {Δ : List VExpr} :
+    env.HasType nv (VExpr.bvar 4 :: quotLiftC v :: quotLiftFTy :: VExpr.sort v ::
+        quotRelTy :: VExpr.sort u :: Δ)
+      (.forallE (.bvar 5) (.app (.app (.const ``Quot [u]) (.bvar 6)) (.bvar 5)))
+      (.sort (.imax u u)) :=
+  .forallEDF (VEnv.IsDefEq.bvar (.succ (.succ (.succ (.succ (.succ .zero))))))
+    (quotAp_type hq hu
+      (VEnv.IsDefEq.bvar (.succ (.succ (.succ (.succ (.succ (.succ .zero)))))))
+      (VEnv.IsDefEq.bvar (.succ (.succ (.succ (.succ (.succ .zero)))))))
+
+theorem quotDefMkAp_type (hqm : env.constants ``Quot.mk = some quotMkConst) (hu : u.WF nv)
+    {Δ : List VExpr} :
+    env.HasType nv (VExpr.bvar 4 :: quotLiftC v :: quotLiftFTy :: VExpr.sort v ::
+        quotRelTy :: VExpr.sort u :: Δ) (quotDefMkAp u)
+      (.app (.app (.const ``Quot [u]) (.bvar 5)) (.bvar 4)) :=
+  VEnv.IsDefEq.appDF (quotDefMkAp2_type hqm hu) (VEnv.IsDefEq.bvar .zero)
+
+/-- **The left body is well-typed, at the motive.**  This is the step that makes
+`quotLiftTy6`'s codomain do its work: `(.bvar 4).inst (quotDefMkAp u)` is
+`.bvar 3`, i.e. `β`, with no transport. -/
+theorem quotDefLhsBody_type (hql : env.constants ``Quot.lift = some quotLiftConst)
+    (hqm : env.constants ``Quot.mk = some quotMkConst) (hu : u.WF nv) (hv : v.WF nv)
+    {Δ : List VExpr} :
+    env.HasType nv (VExpr.bvar 4 :: quotLiftC v :: quotLiftFTy :: VExpr.sort v ::
+        quotRelTy :: VExpr.sort u :: Δ) (quotDefLhsBody u v) (.bvar 3) :=
+  VEnv.IsDefEq.appDF (quotLiftAp5_type hql hu hv) (quotDefMkAp_type hqm hu)
+
+theorem quotDefRhsBody_type {Δ : List VExpr} :
+    env.HasType nv (VExpr.bvar 4 :: quotLiftC v :: quotLiftFTy :: VExpr.sort v ::
+        quotRelTy :: VExpr.sort u :: Δ) quotDefRhsBody (.bvar 3) :=
+  VEnv.IsDefEq.appDF
+    (show env.HasType nv _ (.bvar 2) (.forallE (.bvar 5) (.bvar 4)) from
+      VEnv.IsDefEq.bvar (.succ (.succ .zero)))
+    (VEnv.IsDefEq.bvar .zero)
+
+/-! #### `quotDefEq`'s type, and the shared λ-nest
+
+The type's sorts coincide with `Quot.lift`'s at every level — `∀ q : Quot α r, β`
+and `∀ a : α, β` both have sort `imax u v` — so only the innermost lemma is new. -/
+
+theorem quotDefT6_type {Δ : List VExpr} :
+    env.HasType nv (quotLiftC v :: quotLiftFTy :: VExpr.sort v :: quotRelTy ::
+        VExpr.sort u :: Δ) (.forallE (.bvar 4) (.bvar 3)) (.sort (.imax u v)) :=
+  .forallEDF (VEnv.IsDefEq.bvar (.succ (.succ (.succ (.succ .zero)))))
+    (VEnv.IsDefEq.bvar (.succ (.succ (.succ .zero))))
+
+theorem quotDefT5_type (heq : env.constants ``Eq = some eqConst) (hv : v.WF nv)
+    {Δ : List VExpr} :
+    env.HasType nv (quotLiftFTy :: VExpr.sort v :: quotRelTy :: VExpr.sort u :: Δ)
+      (.forallE (quotLiftC v) (.forallE (.bvar 4) (.bvar 3)))
+      (.sort (.imax (.imax u (.imax u (.imax .zero .zero))) (.imax u v))) :=
+  .forallEDF (quotLiftC_type heq hv) quotDefT6_type
+
+theorem quotDefT4_type (heq : env.constants ``Eq = some eqConst) (hv : v.WF nv)
+    {Δ : List VExpr} :
+    env.HasType nv (VExpr.sort v :: quotRelTy :: VExpr.sort u :: Δ)
+      (.forallE quotLiftFTy (.forallE (quotLiftC v) (.forallE (.bvar 4) (.bvar 3))))
+      (.sort (.imax (.imax u v)
+        (.imax (.imax u (.imax u (.imax .zero .zero))) (.imax u v)))) :=
+  .forallEDF quotLiftFTy_type (quotDefT5_type heq hv)
+
+theorem quotDefT3_type (heq : env.constants ``Eq = some eqConst) (hv : v.WF nv)
+    {Δ : List VExpr} :
+    env.HasType nv (quotRelTy :: VExpr.sort u :: Δ)
+      (.forallE (.sort v)
+        (.forallE quotLiftFTy (.forallE (quotLiftC v) (.forallE (.bvar 4) (.bvar 3)))))
+      (.sort (.imax (.succ v) (.imax (.imax u v)
+        (.imax (.imax u (.imax u (.imax .zero .zero))) (.imax u v))))) :=
+  .forallEDF (.sortDF hv hv rfl) (quotDefT4_type heq hv)
+
+theorem quotDefT2_type (heq : env.constants ``Eq = some eqConst) (hv : v.WF nv)
+    {Δ : List VExpr} :
+    env.HasType nv (VExpr.sort u :: Δ)
+      (.forallE quotRelTy (.forallE (.sort v)
+        (.forallE quotLiftFTy (.forallE (quotLiftC v) (.forallE (.bvar 4) (.bvar 3))))))
+      (.sort (.imax (.imax u (.imax u (.succ .zero)))
+        (.imax (.succ v) (.imax (.imax u v)
+          (.imax (.imax u (.imax u (.imax .zero .zero))) (.imax u v)))))) :=
+  .forallEDF quotRelTy_type (quotDefT3_type heq hv)
+
+/-! The λ-nest, stated once over an arbitrary body: `quotDefEq`'s two sides
+differ only there, so every level below is shared. -/
+
+variable {b : VExpr}
+
+theorem quotDefLam6_type {Δ : List VExpr}
+    (hb : env.HasType nv (VExpr.bvar 4 :: quotLiftC v :: quotLiftFTy :: VExpr.sort v ::
+      quotRelTy :: VExpr.sort u :: Δ) b (.bvar 3)) :
+    env.HasType nv (quotLiftC v :: quotLiftFTy :: VExpr.sort v :: quotRelTy ::
+        VExpr.sort u :: Δ) (.lam (.bvar 4) b) (.forallE (.bvar 4) (.bvar 3)) :=
+  .lamDF (VEnv.IsDefEq.bvar (.succ (.succ (.succ (.succ .zero))))) hb
+
+theorem quotDefLam5_type (heq : env.constants ``Eq = some eqConst) (hv : v.WF nv)
+    {Δ : List VExpr}
+    (hb : env.HasType nv (VExpr.bvar 4 :: quotLiftC v :: quotLiftFTy :: VExpr.sort v ::
+      quotRelTy :: VExpr.sort u :: Δ) b (.bvar 3)) :
+    env.HasType nv (quotLiftFTy :: VExpr.sort v :: quotRelTy :: VExpr.sort u :: Δ)
+      (.lam (quotLiftC v) (.lam (.bvar 4) b))
+      (.forallE (quotLiftC v) (.forallE (.bvar 4) (.bvar 3))) :=
+  .lamDF (quotLiftC_type heq hv) (quotDefLam6_type hb)
+
+theorem quotDefLam4_type (heq : env.constants ``Eq = some eqConst) (hv : v.WF nv)
+    {Δ : List VExpr}
+    (hb : env.HasType nv (VExpr.bvar 4 :: quotLiftC v :: quotLiftFTy :: VExpr.sort v ::
+      quotRelTy :: VExpr.sort u :: Δ) b (.bvar 3)) :
+    env.HasType nv (VExpr.sort v :: quotRelTy :: VExpr.sort u :: Δ)
+      (.lam quotLiftFTy (.lam (quotLiftC v) (.lam (.bvar 4) b)))
+      (.forallE quotLiftFTy (.forallE (quotLiftC v) (.forallE (.bvar 4) (.bvar 3)))) :=
+  .lamDF quotLiftFTy_type (quotDefLam5_type heq hv hb)
+
+theorem quotDefLam3_type (heq : env.constants ``Eq = some eqConst) (hv : v.WF nv)
+    {Δ : List VExpr}
+    (hb : env.HasType nv (VExpr.bvar 4 :: quotLiftC v :: quotLiftFTy :: VExpr.sort v ::
+      quotRelTy :: VExpr.sort u :: Δ) b (.bvar 3)) :
+    env.HasType nv (quotRelTy :: VExpr.sort u :: Δ)
+      (.lam (.sort v) (.lam quotLiftFTy (.lam (quotLiftC v) (.lam (.bvar 4) b))))
+      (.forallE (.sort v)
+        (.forallE quotLiftFTy (.forallE (quotLiftC v) (.forallE (.bvar 4) (.bvar 3))))) :=
+  .lamDF (.sortDF hv hv rfl) (quotDefLam4_type heq hv hb)
+
+theorem quotDefLam2_type (heq : env.constants ``Eq = some eqConst) (hv : v.WF nv)
+    {Δ : List VExpr}
+    (hb : env.HasType nv (VExpr.bvar 4 :: quotLiftC v :: quotLiftFTy :: VExpr.sort v ::
+      quotRelTy :: VExpr.sort u :: Δ) b (.bvar 3)) :
+    env.HasType nv (VExpr.sort u :: Δ)
+      (.lam quotRelTy
+        (.lam (.sort v) (.lam quotLiftFTy (.lam (quotLiftC v) (.lam (.bvar 4) b)))))
+      (.forallE quotRelTy (.forallE (.sort v)
+        (.forallE quotLiftFTy (.forallE (quotLiftC v) (.forallE (.bvar 4) (.bvar 3)))))) :=
+  .lamDF quotRelTy_type (quotDefLam3_type heq hv hb)
+
+end DefEqTypingSpine
+
 end LiftTypingSpine
 
 /-! ### Computing `Quot α r` inside `Quot.mk`'s spine -/
@@ -2180,6 +2782,605 @@ theorem quotLiftFn_mem (hle : env₀ ≤ envF)
     exact quotLiftVal_mem hfun hgraph hcod hsub hresp hq5
 
 end LiftMem
+
+/-! ## `quotDefEq`
+
+`fun α r β f c a => Quot.lift α r β f c (Quot.mk α r a) ≡ f a`, with two
+obligations: the equation and the membership.
+
+*Level split, decided before building.*  The type is `∀ α r β f c (a : α), β`,
+whose innermost codomain is `β` — a level-carrying expression of sort `v` — and
+whose every sort bottoms at `imax u v`.  So **`v` splits and `u` does not**: at
+`v = 0` both nests are proof-sorted and the equation is `• = •`, while at
+`v ≠ 0` the `u`-split stays inside `quotLiftVal_quotMkVal`, which holds in both
+of *its* branches.  Nothing below case-splits on `u`. -/
+
+section DefEqMem
+
+variable {envF env₀ : VEnv} {nv : ℕ} {M : ModelData V} {L : LevelAssign envF nv} {u v : VLevel}
+
+/-- **Two `lam`s with the same binder agree once their bodies do.**  The
+`IsProof` hypothesis is not decoration: `IsProof` is syntactic, so it does not
+follow from the bodies being pointwise equal, and it has to be supplied from
+typing derivations for both. -/
+theorem interp_lam_congr {Γ : List VExpr} {A b b' : VExpr} {ρ : V}
+    (hp : L.IsProof M (A :: Γ) b ↔ L.IsProof M (A :: Γ) b')
+    (h : ∀ w ∈ (interp M L Γ A).toFun ρ,
+      (interp M L (A :: Γ) b).toFun (snoc ρ w) = (interp M L (A :: Γ) b').toFun (snoc ρ w)) :
+    (interp M L Γ (.lam A b)).toFun ρ = (interp M L Γ (.lam A b')).toFun ρ := by
+  by_cases hb : L.IsProof M (A :: Γ) b
+  · rw [interp_lam_proof M L hb, interp_lam_proof M L (hp.1 hb)]
+  · have hb' : ¬ L.IsProof M (A :: Γ) b' := fun h' ↦ hb (hp.2 h')
+    ext y
+    rw [mem_interp_lam_iff M L hb, mem_interp_lam_iff M L hb']
+    exact ⟨fun ⟨w, hw, hy⟩ ↦ ⟨w, hw, by rw [hy, h w hw]⟩,
+      fun ⟨w, hw, hy⟩ ↦ ⟨w, hw, by rw [hy, h w hw]⟩⟩
+
+/-- `α → β` at `quotDefEq`'s innermost depth — `f`'s own type, needed to see
+that `f` is not a proof. -/
+theorem quotDefFTy_type {env : VEnv} {Δ : List VExpr} :
+    env.HasType nv (VExpr.bvar 4 :: quotLiftC v :: quotLiftFTy :: VExpr.sort v ::
+        quotRelTy :: VExpr.sort u :: Δ)
+      (.forallE (.bvar 5) (.bvar 4)) (.sort (.imax u v)) :=
+  .forallEDF (VEnv.IsDefEq.bvar (.succ (.succ (.succ (.succ (.succ .zero))))))
+    (VEnv.IsDefEq.bvar (.succ (.succ (.succ (.succ .zero)))))
+
+/-- **`Quot.mk α r a` at `quotDefEq`'s indices.**  Both branches, and the `Prop`
+one again needs neither the constant nor the value chain. -/
+theorem interp_quotDefMkAp (hle : env₀ ≤ envF)
+    (hq : env₀.constants ``Quot = some quotConst)
+    (hqm : env₀.constants ``Quot.mk = some quotMkConst) (hu : u.WF nv)
+    (hcnstMk : M.cnst ``Quot.mk [u] = quotMkFn M L u) {ρ α r a : V}
+    (e0 : ρ ‘ ((0 : ℕ) : V) = α) (e1 : ρ ‘ ((1 : ℕ) : V) = r)
+    (e5 : ρ ‘ ((5 : ℕ) : V) = a) (hα : α ∈ U M.κ (u.eval M.ls))
+    (hr : r ∈ (interp M L [VExpr.sort u] quotRelTy).toFun (snoc ∅ α)) (ha : a ∈ α) :
+    (interp M L [VExpr.bvar 4, quotLiftC v, quotLiftFTy, VExpr.sort v, quotRelTy,
+        VExpr.sort u] (quotDefMkAp u)).toFun ρ = quotMkVal α r a (u.eval M.ls) := by
+  show (interp M L _ (.app (.app (.app (.const ``Quot.mk [u]) (.bvar 5)) (.bvar 4))
+    (.bvar 0))).toFun _ = _
+  by_cases h0 : u.eval M.ls = 0
+  · rw [quotMkVal, if_pos h0]
+    exact interp_app_of_proof_sorted hle (quotDefMkAp2_type hqm hu)
+      (quotDefMkAp2Ty_type hq hu) ⟨hu, hu⟩ (imax_eq_zero_iff.2 h0) _ _
+  · have hnp1 : ¬ L.IsProof M [VExpr.bvar 4, quotLiftC v, quotLiftFTy, VExpr.sort v,
+        quotRelTy, VExpr.sort u] (.const ``Quot.mk [u]) := by
+      rw [isProof_iff hle (quotMkConst_type hqm hu) (quotMkConstTy_type hq hu)
+        ⟨hu, ⟨hu, hu, trivial⟩, hu, hu⟩]
+      exact fun hz ↦ h0 (imax_eq_zero_iff.1 (imax_eq_zero_iff.1 (imax_eq_zero_iff.1 hz)))
+    have hnp2 : ¬ L.IsProof M [VExpr.bvar 4, quotLiftC v, quotLiftFTy, VExpr.sort v,
+        quotRelTy, VExpr.sort u] (.app (.const ``Quot.mk [u]) (.bvar 5)) := by
+      rw [isProof_iff hle (quotDefMkAp1_type hqm hu) (quotDefMkAp1Ty_type hq hu)
+        ⟨⟨hu, hu, trivial⟩, hu, hu⟩]
+      exact fun hz ↦ h0 (imax_eq_zero_iff.1 (imax_eq_zero_iff.1 hz))
+    have hnp3 : ¬ L.IsProof M [VExpr.bvar 4, quotLiftC v, quotLiftFTy, VExpr.sort v,
+        quotRelTy, VExpr.sort u]
+        (.app (.app (.const ``Quot.mk [u]) (.bvar 5)) (.bvar 4)) := by
+      rw [isProof_iff hle (quotDefMkAp2_type hqm hu) (quotDefMkAp2Ty_type hq hu) ⟨hu, hu⟩]
+      exact fun hz ↦ h0 (imax_eq_zero_iff.1 hz)
+    obtain ⟨q0, q1, -⟩ := quotMk_env (M := M) (L := L) hα hr
+    have ha' : a ∈ (interp M L [quotRelTy, VExpr.sort u] (.bvar 1)).toFun
+        (snoc (snoc ∅ α) r) := by
+      rw [interp_bvar]
+      show a ∈ (snoc (snoc ∅ α) r) ‘ ((0 : ℕ) : V)
+      rw [q0]; exact ha
+    rw [interp_app_type M L hnp3, interp_app_type M L hnp2, interp_app_type M L hnp1,
+      interp_const, interp_bvar, interp_bvar, interp_bvar, hcnstMk]
+    show (((quotMkFn M L u) ‘ (ρ ‘ ((0 : ℕ) : V))) ‘ (ρ ‘ ((1 : ℕ) : V))) ‘
+      (ρ ‘ ((5 : ℕ) : V)) = _
+    rw [e0, e1, e5, quotMkFn_value h0 hα, quotMkFibR_value hr, quotMkFibA_value ha', q0, q1]
+
+/-- `f a` denotes `f ‘ a`.  Needs `v ≠ 0`: at a `Prop` codomain `f` is itself a
+proof. -/
+theorem interp_quotDefRhsBody (hle : env₀ ≤ envF) (hu : u.WF nv) (hv : v.WF nv)
+    (h0 : v.eval M.ls ≠ 0) {ρ f a : V}
+    (e3 : ρ ‘ ((3 : ℕ) : V) = f) (e5 : ρ ‘ ((5 : ℕ) : V) = a) :
+    (interp M L [VExpr.bvar 4, quotLiftC v, quotLiftFTy, VExpr.sort v, quotRelTy,
+        VExpr.sort u] quotDefRhsBody).toFun ρ = f ‘ a := by
+  have hnpf : ¬ L.IsProof M [VExpr.bvar 4, quotLiftC v, quotLiftFTy, VExpr.sort v,
+      quotRelTy, VExpr.sort u] (.bvar 2) := by
+    rw [isProof_iff hle
+      (show env₀.HasType nv _ (.bvar 2) (.forallE (.bvar 5) (.bvar 4)) from
+        VEnv.IsDefEq.bvar (.succ (.succ .zero)))
+      quotDefFTy_type ⟨hu, hv⟩]
+    exact fun hz ↦ h0 (imax_eq_zero_iff.1 hz)
+  show (interp M L _ (.app (.bvar 2) (.bvar 0))).toFun _ = _
+  rw [interp_app_type M L hnpf, interp_bvar, interp_bvar]
+  show (ρ ‘ ((3 : ℕ) : V)) ‘ (ρ ‘ ((5 : ℕ) : V)) = _
+  rw [e3, e5]
+
+set_option maxHeartbeats 2000000 in
+/-- **The ι-rule, at a single valuation.**  Six `interp_app_type` steps to reach
+`Quot.lift`'s denotation, then its five-λ value chain, then
+`quotLiftVal_quotMkVal`.  The `Quot.mk` argument is computed separately, and its
+own `u`-split is entirely inside `interp_quotDefMkAp` and
+`quotLiftVal_quotMkVal`: nothing here branches on `u`. -/
+theorem interp_quotDefLhsBody (hle : env₀ ≤ envF)
+    (hq : env₀.constants ``Quot = some quotConst)
+    (hqm : env₀.constants ``Quot.mk = some quotMkConst)
+    (heq : env₀.constants ``Eq = some eqConst)
+    (hql : env₀.constants ``Quot.lift = some quotLiftConst)
+    (hu : u.WF nv) (hv : v.WF nv) (h0 : v.eval M.ls ≠ 0) (hEq : EqSpec M v)
+    (hcnst : M.cnst ``Quot [u] = quotFn M L u)
+    (hcnstMk : M.cnst ``Quot.mk [u] = quotMkFn M L u)
+    (hcnstL : M.cnst ``Quot.lift [u, v] = quotLiftFn M L u v)
+    {α r β f c a : V} (hα : α ∈ U M.κ (u.eval M.ls))
+    (hr : r ∈ (interp M L [VExpr.sort u] quotRelTy).toFun (snoc ∅ α))
+    (hβ : β ∈ (interp M L [quotRelTy, VExpr.sort u] (.sort v)).toFun (snoc (snoc ∅ α) r))
+    (hf : f ∈ (interp M L [VExpr.sort v, quotRelTy, VExpr.sort u] quotLiftFTy).toFun
+      (snoc (snoc (snoc ∅ α) r) β))
+    (hc : c ∈ (interp M L [quotLiftFTy, VExpr.sort v, quotRelTy, VExpr.sort u]
+      (quotLiftC v)).toFun (snoc (snoc (snoc (snoc ∅ α) r) β) f))
+    (ha : a ∈ α) :
+    (interp M L [VExpr.bvar 4, quotLiftC v, quotLiftFTy, VExpr.sort v, quotRelTy,
+        VExpr.sort u] (quotDefLhsBody u v)).toFun
+      (snoc (snoc (snoc (snoc (snoc (snoc ∅ α) r) β) f) c) a) = f ‘ a := by
+  have hnil : (∅ : V) ∈ interpCtx M L ([] : List VExpr) := by
+    rw [interpCtx_nil]; exact mem_singleton_iff.2 rfl
+  have hw₁ : snoc ∅ α ∈ interpCtx M L [VExpr.sort u] :=
+    (mem_interpCtx_cons M L).mpr ⟨∅, hnil, α, by rw [interp_sort]; exact hα, rfl⟩
+  have hw₂ : snoc (snoc ∅ α) r ∈ interpCtx M L [quotRelTy, VExpr.sort u] :=
+    (mem_interpCtx_cons M L).mpr ⟨_, hw₁, r, hr, rfl⟩
+  have hw₃ : snoc (snoc (snoc ∅ α) r) β ∈
+      interpCtx M L [VExpr.sort v, quotRelTy, VExpr.sort u] :=
+    (mem_interpCtx_cons M L).mpr ⟨_, hw₂, β, hβ, rfl⟩
+  have hw₄ : snoc (snoc (snoc (snoc ∅ α) r) β) f ∈
+      interpCtx M L [quotLiftFTy, VExpr.sort v, quotRelTy, VExpr.sort u] :=
+    (mem_interpCtx_cons M L).mpr ⟨_, hw₃, f, hf, rfl⟩
+  have hw₅ : snoc (snoc (snoc (snoc (snoc ∅ α) r) β) f) c ∈
+      interpCtx M L [quotLiftC v, quotLiftFTy, VExpr.sort v, quotRelTy, VExpr.sort u] :=
+    (mem_interpCtx_cons M L).mpr ⟨_, hw₄, c, hc, rfl⟩
+  -- the environment reads, level by level
+  have b0 : (snoc ∅ α) ‘ ((0 : ℕ) : V) = α := snoc_top (M := M) (L := L) hnil (by simp)
+  have c0 : (snoc (snoc ∅ α) r) ‘ ((0 : ℕ) : V) = α :=
+    snoc_read (M := M) (L := L) hw₁ (by simp) b0
+  have c1 : (snoc (snoc ∅ α) r) ‘ ((1 : ℕ) : V) = r :=
+    snoc_top (M := M) (L := L) hw₁ (by simp)
+  have d0 : (snoc (snoc (snoc ∅ α) r) β) ‘ ((0 : ℕ) : V) = α :=
+    snoc_read (M := M) (L := L) hw₂ (by simp) c0
+  have d1 : (snoc (snoc (snoc ∅ α) r) β) ‘ ((1 : ℕ) : V) = r :=
+    snoc_read (M := M) (L := L) hw₂ (by simp) c1
+  have d2 : (snoc (snoc (snoc ∅ α) r) β) ‘ ((2 : ℕ) : V) = β :=
+    snoc_top (M := M) (L := L) hw₂ (by simp)
+  have e0 : (snoc (snoc (snoc (snoc ∅ α) r) β) f) ‘ ((0 : ℕ) : V) = α :=
+    snoc_read (M := M) (L := L) hw₃ (by simp) d0
+  have e1 : (snoc (snoc (snoc (snoc ∅ α) r) β) f) ‘ ((1 : ℕ) : V) = r :=
+    snoc_read (M := M) (L := L) hw₃ (by simp) d1
+  have e2 : (snoc (snoc (snoc (snoc ∅ α) r) β) f) ‘ ((2 : ℕ) : V) = β :=
+    snoc_read (M := M) (L := L) hw₃ (by simp) d2
+  have e3 : (snoc (snoc (snoc (snoc ∅ α) r) β) f) ‘ ((3 : ℕ) : V) = f :=
+    snoc_top (M := M) (L := L) hw₃ (by simp)
+  have g0 : (snoc (snoc (snoc (snoc (snoc ∅ α) r) β) f) c) ‘ ((0 : ℕ) : V) = α :=
+    snoc_read (M := M) (L := L) hw₄ (by simp) e0
+  have g1 : (snoc (snoc (snoc (snoc (snoc ∅ α) r) β) f) c) ‘ ((1 : ℕ) : V) = r :=
+    snoc_read (M := M) (L := L) hw₄ (by simp) e1
+  have g3 : (snoc (snoc (snoc (snoc (snoc ∅ α) r) β) f) c) ‘ ((3 : ℕ) : V) = f :=
+    snoc_read (M := M) (L := L) hw₄ (by simp) e3
+  have g4 : (snoc (snoc (snoc (snoc (snoc ∅ α) r) β) f) c) ‘ ((4 : ℕ) : V) = c :=
+    snoc_top (M := M) (L := L) hw₄ (by simp)
+  have f0 := snoc_read (M := M) (L := L) (w := a) hw₅ (by simp) g0
+  have f1 := snoc_read (M := M) (L := L) (w := a) hw₅ (by simp) g1
+  have f2 := snoc_read (M := M) (L := L) (w := a) hw₅ (by simp)
+    (snoc_read (M := M) (L := L) hw₄ (by simp) e2)
+  have f3 := snoc_read (M := M) (L := L) (w := a) hw₅ (by simp) g3
+  have f4 := snoc_read (M := M) (L := L) (w := a) hw₅ (by simp) g4
+  have f5 : (snoc (snoc (snoc (snoc (snoc (snoc ∅ α) r) β) f) c) a) ‘ ((5 : ℕ) : V) = a :=
+    snoc_top (M := M) (L := L) hw₅ (by simp)
+  -- what the two content-carrying binders give
+  have hβ' := hβ
+  rw [interp_sort] at hβ'
+  have hα' := hα
+  obtain ⟨hfun, hgraph, hcod⟩ := quotLift_f_props (env₀ := env₀) hle hv h0 hw₃ d0 d2 hf
+  have hresp := quotLift_respects (env₀ := env₀) hle heq hu hv h0 hEq hw₄ e0 e1 e2 e3
+    hβ' hcod hc
+  have hsub : u.eval M.ls = 0 → α ⊆ ({pt} : V) := by
+    intro hi; rw [hi, U_zero] at hα'; exact mem_UProp_iff.1 hα'
+  have hmk : quotMkVal α r a (u.eval M.ls) ∈
+      (interp M L [quotLiftC v, quotLiftFTy, VExpr.sort v, quotRelTy, VExpr.sort u]
+        (quotLiftQ u)).toFun (snoc (snoc (snoc (snoc (snoc ∅ α) r) β) f) c) := by
+    rw [interp_quotLiftQ (env₀ := env₀) hle hq hu hcnst g0 g1 hα hr]
+    exact quotMkVal_mem _ ha
+  -- the six non-proof conditions, all decided by `v ≠ 0`
+  have hnpc : ¬ L.IsProof M [VExpr.bvar 4, quotLiftC v, quotLiftFTy, VExpr.sort v,
+      quotRelTy, VExpr.sort u] (.const ``Quot.lift [u, v]) := by
+    rw [isProof_iff hle (quotLiftConst_type hql hu hv) (quotLiftConstTy_type hq heq hu hv)
+      (by simp [VLevel.WF, hu, hv])]
+    exact fun hz ↦ h0 (imax_eq_zero_iff.1 (imax_eq_zero_iff.1 (imax_eq_zero_iff.1
+      (imax_eq_zero_iff.1 (imax_eq_zero_iff.1 (imax_eq_zero_iff.1 hz))))))
+  have hnp1 : ¬ L.IsProof M [VExpr.bvar 4, quotLiftC v, quotLiftFTy, VExpr.sort v,
+      quotRelTy, VExpr.sort u] (.app (.const ``Quot.lift [u, v]) (.bvar 5)) := by
+    rw [isProof_iff hle (quotLiftAp1_type hql hu hv) (quotLiftTy2_type hq heq hu hv)
+      (by simp [VLevel.WF, hu, hv])]
+    exact fun hz ↦ h0 (imax_eq_zero_iff.1 (imax_eq_zero_iff.1 (imax_eq_zero_iff.1
+      (imax_eq_zero_iff.1 (imax_eq_zero_iff.1 hz)))))
+  have hnp2 : ¬ L.IsProof M [VExpr.bvar 4, quotLiftC v, quotLiftFTy, VExpr.sort v,
+      quotRelTy, VExpr.sort u]
+      (.app (.app (.const ``Quot.lift [u, v]) (.bvar 5)) (.bvar 4)) := by
+    rw [isProof_iff hle (quotLiftAp2_type hql hu hv) (quotLiftTy3_type hq heq hu hv)
+      (by simp [VLevel.WF, hu, hv])]
+    exact fun hz ↦ h0 (imax_eq_zero_iff.1 (imax_eq_zero_iff.1 (imax_eq_zero_iff.1
+      (imax_eq_zero_iff.1 hz))))
+  have hnp3 : ¬ L.IsProof M [VExpr.bvar 4, quotLiftC v, quotLiftFTy, VExpr.sort v,
+      quotRelTy, VExpr.sort u]
+      (.app (.app (.app (.const ``Quot.lift [u, v]) (.bvar 5)) (.bvar 4)) (.bvar 3)) := by
+    rw [isProof_iff hle (quotLiftAp3_type hql hu hv) (quotLiftTy4_type hq heq hu hv)
+      (by simp [VLevel.WF, hu, hv])]
+    exact fun hz ↦ h0 (imax_eq_zero_iff.1 (imax_eq_zero_iff.1 (imax_eq_zero_iff.1 hz)))
+  have hnp4 : ¬ L.IsProof M [VExpr.bvar 4, quotLiftC v, quotLiftFTy, VExpr.sort v,
+      quotRelTy, VExpr.sort u]
+      (.app (.app (.app (.app (.const ``Quot.lift [u, v]) (.bvar 5)) (.bvar 4)) (.bvar 3))
+        (.bvar 2)) := by
+    rw [isProof_iff hle (quotLiftAp4_type hql hu hv) (quotLiftTy5_type hq heq hu hv)
+      (by simp [VLevel.WF, hu, hv])]
+    exact fun hz ↦ h0 (imax_eq_zero_iff.1 (imax_eq_zero_iff.1 hz))
+  have hnp5 : ¬ L.IsProof M [VExpr.bvar 4, quotLiftC v, quotLiftFTy, VExpr.sort v,
+      quotRelTy, VExpr.sort u]
+      (.app (.app (.app (.app (.app (.const ``Quot.lift [u, v]) (.bvar 5)) (.bvar 4))
+        (.bvar 3)) (.bvar 2)) (.bvar 1)) := by
+    rw [isProof_iff hle (quotLiftAp5_type hql hu hv) (quotLiftTy6_type hq hu) ⟨hu, hv⟩]
+    exact fun hz ↦ h0 (imax_eq_zero_iff.1 hz)
+  -- the five arguments, read out of the environment
+  have r5 : (interp M L [VExpr.bvar 4, quotLiftC v, quotLiftFTy, VExpr.sort v, quotRelTy,
+      VExpr.sort u] (.bvar 5)).toFun
+        (snoc (snoc (snoc (snoc (snoc (snoc ∅ α) r) β) f) c) a) = α := by
+    rw [interp_bvar]; exact f0
+  have r4 : (interp M L [VExpr.bvar 4, quotLiftC v, quotLiftFTy, VExpr.sort v, quotRelTy,
+      VExpr.sort u] (.bvar 4)).toFun
+        (snoc (snoc (snoc (snoc (snoc (snoc ∅ α) r) β) f) c) a) = r := by
+    rw [interp_bvar]; exact f1
+  have r3 : (interp M L [VExpr.bvar 4, quotLiftC v, quotLiftFTy, VExpr.sort v, quotRelTy,
+      VExpr.sort u] (.bvar 3)).toFun
+        (snoc (snoc (snoc (snoc (snoc (snoc ∅ α) r) β) f) c) a) = β := by
+    rw [interp_bvar]; exact f2
+  have r2 : (interp M L [VExpr.bvar 4, quotLiftC v, quotLiftFTy, VExpr.sort v, quotRelTy,
+      VExpr.sort u] (.bvar 2)).toFun
+        (snoc (snoc (snoc (snoc (snoc (snoc ∅ α) r) β) f) c) a) = f := by
+    rw [interp_bvar]; exact f3
+  have r1 : (interp M L [VExpr.bvar 4, quotLiftC v, quotLiftFTy, VExpr.sort v, quotRelTy,
+      VExpr.sort u] (.bvar 1)).toFun
+        (snoc (snoc (snoc (snoc (snoc (snoc ∅ α) r) β) f) c) a) = c := by
+    rw [interp_bvar]; exact f4
+  show (interp M L _ (.app (.app (.app (.app (.app (.app (.const ``Quot.lift [u, v])
+    (.bvar 5)) (.bvar 4)) (.bvar 3)) (.bvar 2)) (.bvar 1)) (quotDefMkAp u))).toFun _ = _
+  rw [interp_app_type M L hnp5, interp_app_type M L hnp4, interp_app_type M L hnp3,
+    interp_app_type M L hnp2, interp_app_type M L hnp1, interp_app_type M L hnpc,
+    interp_const, hcnstL, r5, r4, r3, r2, r1,
+    interp_quotDefMkAp (env₀ := env₀) hle hq hqm hu hcnstMk f0 f1 f5 hα hr ha,
+    quotLiftFn_value h0 hα, quotLiftFibR_value hr, quotLiftFibB_value hβ,
+    quotLiftFibF_value hf, quotLiftFibC_value hc, quotLiftFibQ_value hmk, g3,
+    quotLiftVal_quotMkVal hfun hgraph hsub hresp ha]
+
+set_option maxHeartbeats 2000000 in
+/-- **`quotDefEq`'s equation.**  Six `interp_lam_congr` peel the shared nest —
+uniformly, with no case split, because the `IsProof` agreement at each level
+comes from the two bodies having the *same type*, not from any level condition.
+The split appears only at the bottom, and only on `v`: at `v = 0` both bodies
+are applications of a proof-sorted head, so both denote `•` and the constant
+assignment is never consulted; above it, the ι-rule fires. -/
+theorem quotDefEq_eq (hle : env₀ ≤ envF)
+    (hq : env₀.constants ``Quot = some quotConst)
+    (hqm : env₀.constants ``Quot.mk = some quotMkConst)
+    (heq : env₀.constants ``Eq = some eqConst)
+    (hql : env₀.constants ``Quot.lift = some quotLiftConst)
+    (hu : u.WF nv) (hv : v.WF nv) (hEq : EqSpec M v)
+    (hcnst : M.cnst ``Quot [u] = quotFn M L u)
+    (hcnstMk : M.cnst ``Quot.mk [u] = quotMkFn M L u)
+    (hcnstL : M.cnst ``Quot.lift [u, v] = quotLiftFn M L u v) :
+    (interp M L [] (quotDefEq.lhs.instL [u, v])).toFun ∅
+      = (interp M L [] (quotDefEq.rhs.instL [u, v])).toFun ∅ := by
+  have hL := quotDefLhsBody_type (env := env₀) (nv := nv) (u := u) (v := v) (Δ := []) hql hqm hu hv
+  have hR := quotDefRhsBody_type (env := env₀) (nv := nv) (u := u) (v := v) (Δ := [])
+  show (interp M L [] (quotDefNest u v (quotDefLhsBody u v))).toFun ∅
+    = (interp M L [] (quotDefNest u v quotDefRhsBody)).toFun ∅
+  refine interp_lam_congr
+    ((isProof_iff hle (quotDefLam2_type heq hv hL) (quotDefT2_type heq hv)
+        (by simp [VLevel.WF, hu, hv])).trans
+      (isProof_iff hle (quotDefLam2_type heq hv hR) (quotDefT2_type heq hv)
+        (by simp [VLevel.WF, hu, hv])).symm) fun α hα ↦ ?_
+  rw [interp_sort] at hα
+  refine interp_lam_congr
+    ((isProof_iff hle (quotDefLam3_type heq hv hL) (quotDefT3_type heq hv)
+        (by simp [VLevel.WF, hu, hv])).trans
+      (isProof_iff hle (quotDefLam3_type heq hv hR) (quotDefT3_type heq hv)
+        (by simp [VLevel.WF, hu, hv])).symm) fun r hr ↦ ?_
+  refine interp_lam_congr
+    ((isProof_iff hle (quotDefLam4_type heq hv hL) (quotDefT4_type heq hv)
+        (by simp [VLevel.WF, hu, hv])).trans
+      (isProof_iff hle (quotDefLam4_type heq hv hR) (quotDefT4_type heq hv)
+        (by simp [VLevel.WF, hu, hv])).symm) fun β hβ ↦ ?_
+  refine interp_lam_congr
+    ((isProof_iff hle (quotDefLam5_type heq hv hL) (quotDefT5_type heq hv)
+        (by simp [VLevel.WF, hu, hv])).trans
+      (isProof_iff hle (quotDefLam5_type heq hv hR) (quotDefT5_type heq hv)
+        (by simp [VLevel.WF, hu, hv])).symm) fun f hf ↦ ?_
+  refine interp_lam_congr
+    ((isProof_iff hle (quotDefLam6_type hL) quotDefT6_type
+        (by simp [VLevel.WF, hu, hv])).trans
+      (isProof_iff hle (quotDefLam6_type hR) quotDefT6_type
+        (by simp [VLevel.WF, hu, hv])).symm) fun c hc ↦ ?_
+  refine interp_lam_congr
+    ((isProof_iff hle hL (VEnv.IsDefEq.bvar (.succ (.succ (.succ .zero)))) hv).trans
+      (isProof_iff hle hR (VEnv.IsDefEq.bvar (.succ (.succ (.succ .zero)))) hv).symm)
+    fun a ha ↦ ?_
+  -- the bottom: `a` really does range over `α`
+  replace ha : a ∈ (snoc (snoc (snoc (snoc (snoc ∅ α) r) β) f) c) ‘ ((0 : ℕ) : V) := by
+    rw [interp_bvar] at ha; exact ha
+  show (interp M L [VExpr.bvar 4, quotLiftC v, quotLiftFTy, VExpr.sort v, quotRelTy,
+      VExpr.sort u] (quotDefLhsBody u v)).toFun _
+    = (interp M L [VExpr.bvar 4, quotLiftC v, quotLiftFTy, VExpr.sort v, quotRelTy,
+      VExpr.sort u] quotDefRhsBody).toFun _
+  by_cases h0 : v.eval M.ls = 0
+  · -- both bodies eliminate a proof-sorted head
+    show (interp M L _ (.app (.app (.app (.app (.app (.app (.const ``Quot.lift [u, v])
+        (.bvar 5)) (.bvar 4)) (.bvar 3)) (.bvar 2)) (.bvar 1)) (quotDefMkAp u))).toFun _
+      = (interp M L _ (.app (.bvar 2) (.bvar 0))).toFun _
+    rw [interp_app_of_proof_sorted hle (quotLiftAp5_type hql hu hv) (quotLiftTy6_type hq hu)
+        ⟨hu, hv⟩ (imax_eq_zero_iff.2 h0) _ _,
+      interp_app_of_proof_sorted hle
+        (show env₀.HasType nv _ (.bvar 2) (.forallE (.bvar 5) (.bvar 4)) from
+          VEnv.IsDefEq.bvar (.succ (.succ .zero)))
+        quotDefFTy_type ⟨hu, hv⟩ (imax_eq_zero_iff.2 h0) _ _]
+  · -- the ι-rule
+    have hnil : (∅ : V) ∈ interpCtx M L ([] : List VExpr) := by
+      rw [interpCtx_nil]; exact mem_singleton_iff.2 rfl
+    have hw₁ : snoc ∅ α ∈ interpCtx M L [VExpr.sort u] :=
+      (mem_interpCtx_cons M L).mpr ⟨∅, hnil, α, by rw [interp_sort]; exact hα, rfl⟩
+    have hw₂ : snoc (snoc ∅ α) r ∈ interpCtx M L [quotRelTy, VExpr.sort u] :=
+      (mem_interpCtx_cons M L).mpr ⟨_, hw₁, r, hr, rfl⟩
+    have hw₃ : snoc (snoc (snoc ∅ α) r) β ∈
+        interpCtx M L [VExpr.sort v, quotRelTy, VExpr.sort u] :=
+      (mem_interpCtx_cons M L).mpr ⟨_, hw₂, β, hβ, rfl⟩
+    have hw₄ : snoc (snoc (snoc (snoc ∅ α) r) β) f ∈
+        interpCtx M L [quotLiftFTy, VExpr.sort v, quotRelTy, VExpr.sort u] :=
+      (mem_interpCtx_cons M L).mpr ⟨_, hw₃, f, hf, rfl⟩
+    have b0 : (snoc ∅ α) ‘ ((0 : ℕ) : V) = α := snoc_top (M := M) (L := L) hnil (by simp)
+    have c0 : (snoc (snoc ∅ α) r) ‘ ((0 : ℕ) : V) = α :=
+      snoc_read (M := M) (L := L) hw₁ (by simp) b0
+    have d0 : (snoc (snoc (snoc ∅ α) r) β) ‘ ((0 : ℕ) : V) = α :=
+      snoc_read (M := M) (L := L) hw₂ (by simp) c0
+    have e0 : (snoc (snoc (snoc (snoc ∅ α) r) β) f) ‘ ((0 : ℕ) : V) = α :=
+      snoc_read (M := M) (L := L) hw₃ (by simp) d0
+    have g0 : (snoc (snoc (snoc (snoc (snoc ∅ α) r) β) f) c) ‘ ((0 : ℕ) : V) = α :=
+      snoc_read (M := M) (L := L) hw₄ (by simp) e0
+    rw [g0] at ha
+    have e3 : (snoc (snoc (snoc (snoc ∅ α) r) β) f) ‘ ((3 : ℕ) : V) = f :=
+      snoc_top (M := M) (L := L) hw₃ (by simp)
+    have g3 : (snoc (snoc (snoc (snoc (snoc ∅ α) r) β) f) c) ‘ ((3 : ℕ) : V) = f :=
+      snoc_read (M := M) (L := L) hw₄ (by simp) e3
+    have hw₅ : snoc (snoc (snoc (snoc (snoc ∅ α) r) β) f) c ∈
+        interpCtx M L [quotLiftC v, quotLiftFTy, VExpr.sort v, quotRelTy, VExpr.sort u] :=
+      (mem_interpCtx_cons M L).mpr ⟨_, hw₄, c, hc, rfl⟩
+    have f3 : (snoc (snoc (snoc (snoc (snoc (snoc ∅ α) r) β) f) c) a) ‘ ((3 : ℕ) : V) = f :=
+      snoc_read (M := M) (L := L) hw₅ (by simp) g3
+    have f5 : (snoc (snoc (snoc (snoc (snoc (snoc ∅ α) r) β) f) c) a) ‘ ((5 : ℕ) : V) = a :=
+      snoc_top (M := M) (L := L) hw₅ (by simp)
+    rw [interp_quotDefLhsBody (env₀ := env₀) hle hq hqm heq hql hu hv h0 hEq hcnst hcnstMk
+      hcnstL hα hr hβ hf hc ha,
+      interp_quotDefRhsBody (env₀ := env₀) hle hu hv h0 f3 f5]
+
+set_option maxHeartbeats 2000000 in
+/-- **`quotDefEq`'s membership obligation.**  Proved for the *right*-hand nest
+and moved across the equation: the right body is `f a`, whose membership is
+already `quotLift_f_props`.  `Quot.lift`'s value chain is not re-run. -/
+theorem quotDefEq_mem (hle : env₀ ≤ envF)
+    (hq : env₀.constants ``Quot = some quotConst)
+    (hqm : env₀.constants ``Quot.mk = some quotMkConst)
+    (heq : env₀.constants ``Eq = some eqConst)
+    (hql : env₀.constants ``Quot.lift = some quotLiftConst)
+    (hu : u.WF nv) (hv : v.WF nv) (hEq : EqSpec M v)
+    (hcnst : M.cnst ``Quot [u] = quotFn M L u)
+    (hcnstMk : M.cnst ``Quot.mk [u] = quotMkFn M L u)
+    (hcnstL : M.cnst ``Quot.lift [u, v] = quotLiftFn M L u v) :
+    (interp M L [] (quotDefEq.lhs.instL [u, v])).toFun ∅
+      ∈ (interp M L [] (quotDefEq.type.instL [u, v])).toFun ∅ := by
+  have hR := quotDefRhsBody_type (env := env₀) (nv := nv) (u := u) (v := v) (Δ := [])
+  rw [quotDefEq_eq hle hq hqm heq hql hu hv hEq hcnst hcnstMk hcnstL]
+  show (interp M L [] (.lam (.sort u) (.lam quotRelTy (.lam (.sort v) (.lam quotLiftFTy
+      (.lam (quotLiftC v) (.lam (.bvar 4) quotDefRhsBody))))))).toFun ∅ ∈
+    (interp M L [] (.forallE (.sort u) (.forallE quotRelTy (.forallE (.sort v)
+      (.forallE quotLiftFTy (.forallE (quotLiftC v)
+        (.forallE (.bvar 4) (.bvar 3)))))))).toFun ∅
+  have hnil : (∅ : V) ∈ interpCtx M L ([] : List VExpr) := by
+    rw [interpCtx_nil]; exact mem_singleton_iff.2 rfl
+  by_cases h0 : v.eval M.ls = 0
+  · -- `Prop` codomain: the nest is `•`, and so is everything below it
+    rw [interp_lam_proof M L
+      ((isProof_iff hle (quotDefLam2_type heq hv hR) (quotDefT2_type heq hv)
+        (by simp [VLevel.WF, hu, hv])).2
+        (imax_eq_zero_iff.2 (imax_eq_zero_iff.2 (imax_eq_zero_iff.2
+          (imax_eq_zero_iff.2 (imax_eq_zero_iff.2 h0))))))]
+    refine pt_mem_interp_forallE_prop (env₀ := env₀) hle (quotDefT2_type heq hv)
+      (by simp [VLevel.WF, hu, hv])
+      (imax_eq_zero_iff.2 (imax_eq_zero_iff.2 (imax_eq_zero_iff.2
+        (imax_eq_zero_iff.2 (imax_eq_zero_iff.2 h0))))) fun α hα ↦ ?_
+    rw [interp_sort] at hα
+    refine pt_mem_interp_forallE_prop (env₀ := env₀) hle (quotDefT3_type heq hv)
+      (by simp [VLevel.WF, hu, hv])
+      (imax_eq_zero_iff.2 (imax_eq_zero_iff.2 (imax_eq_zero_iff.2
+        (imax_eq_zero_iff.2 h0)))) fun r hr ↦ ?_
+    refine pt_mem_interp_forallE_prop (env₀ := env₀) hle (quotDefT4_type heq hv)
+      (by simp [VLevel.WF, hu, hv])
+      (imax_eq_zero_iff.2 (imax_eq_zero_iff.2 (imax_eq_zero_iff.2 h0))) fun β hβ ↦ ?_
+    refine pt_mem_interp_forallE_prop (env₀ := env₀) hle (quotDefT5_type heq hv)
+      (by simp [VLevel.WF, hu, hv])
+      (imax_eq_zero_iff.2 (imax_eq_zero_iff.2 h0)) fun f hf ↦ ?_
+    refine pt_mem_interp_forallE_prop (env₀ := env₀) hle quotDefT6_type
+      (by simp [VLevel.WF, hu, hv]) (imax_eq_zero_iff.2 h0) fun c hc ↦ ?_
+    refine pt_mem_interp_forallE_prop (env₀ := env₀) hle
+      (VEnv.IsDefEq.bvar (.succ (.succ (.succ .zero)))) hv h0 fun a ha ↦ ?_
+    -- the `f` binder, being propositional, already asserts `• ∈ β`
+    have hprop : L.IsProp M (VExpr.bvar 2 :: [VExpr.sort v, quotRelTy, VExpr.sort u])
+        (.bvar 1) := (isProp_iff hle quotLiftFCod_type hv).2 h0
+    replace hf : f ∈ (interp M L [VExpr.sort v, quotRelTy, VExpr.sort u]
+        (VExpr.forallE (.bvar 2) (.bvar 1))).toFun (snoc (snoc (snoc ∅ α) r) β) := hf
+    obtain ⟨rfl, hstep⟩ := (mem_interp_forallE_prop_iff (M := M) (L := L) hprop).1 hf
+    have hw₁ : snoc ∅ α ∈ interpCtx M L [VExpr.sort u] :=
+      (mem_interpCtx_cons M L).mpr ⟨∅, hnil, α, by rw [interp_sort]; exact hα, rfl⟩
+    have hw₂ : snoc (snoc ∅ α) r ∈ interpCtx M L [quotRelTy, VExpr.sort u] :=
+      (mem_interpCtx_cons M L).mpr ⟨_, hw₁, r, hr, rfl⟩
+    have hw₃ : snoc (snoc (snoc ∅ α) r) β ∈
+        interpCtx M L [VExpr.sort v, quotRelTy, VExpr.sort u] :=
+      (mem_interpCtx_cons M L).mpr ⟨_, hw₂, β, hβ, rfl⟩
+    have hw₄ : snoc (snoc (snoc (snoc ∅ α) r) β) pt ∈
+        interpCtx M L [quotLiftFTy, VExpr.sort v, quotRelTy, VExpr.sort u] :=
+      (mem_interpCtx_cons M L).mpr ⟨_, hw₃, pt, hf, rfl⟩
+    have hw₅ : snoc (snoc (snoc (snoc (snoc ∅ α) r) β) pt) c ∈
+        interpCtx M L [quotLiftC v, quotLiftFTy, VExpr.sort v, quotRelTy, VExpr.sort u] :=
+      (mem_interpCtx_cons M L).mpr ⟨_, hw₄, c, hc, rfl⟩
+    have b0 : (snoc ∅ α) ‘ ((0 : ℕ) : V) = α := snoc_top (M := M) (L := L) hnil (by simp)
+    have c0 : (snoc (snoc ∅ α) r) ‘ ((0 : ℕ) : V) = α :=
+      snoc_read (M := M) (L := L) hw₁ (by simp) b0
+    have d0 : (snoc (snoc (snoc ∅ α) r) β) ‘ ((0 : ℕ) : V) = α :=
+      snoc_read (M := M) (L := L) hw₂ (by simp) c0
+    have d2 : (snoc (snoc (snoc ∅ α) r) β) ‘ ((2 : ℕ) : V) = β :=
+      snoc_top (M := M) (L := L) hw₂ (by simp)
+    have e0 : (snoc (snoc (snoc (snoc ∅ α) r) β) pt) ‘ ((0 : ℕ) : V) = α :=
+      snoc_read (M := M) (L := L) hw₃ (by simp) d0
+    have g0 : (snoc (snoc (snoc (snoc (snoc ∅ α) r) β) pt) c) ‘ ((0 : ℕ) : V) = α :=
+      snoc_read (M := M) (L := L) hw₄ (by simp) e0
+    rw [interp_bvar] at ha
+    replace ha : a ∈ (snoc (snoc (snoc (snoc (snoc ∅ α) r) β) pt) c) ‘ ((0 : ℕ) : V) := ha
+    rw [g0] at ha
+    have hadom : a ∈ (interp M L [VExpr.sort v, quotRelTy, VExpr.sort u]
+        (.bvar 2)).toFun (snoc (snoc (snoc ∅ α) r) β) := by
+      rw [interp_bvar]
+      show a ∈ (snoc (snoc (snoc ∅ α) r) β) ‘ ((0 : ℕ) : V)
+      rw [d0]; exact ha
+    have hβpt := hstep a hadom
+    rw [interp_bvar] at hβpt
+    replace hβpt : (pt : V) ∈ (snoc (snoc (snoc (snoc ∅ α) r) β) a) ‘ ((2 : ℕ) : V) := hβpt
+    rw [snoc_read (M := M) (L := L) hw₃ (by simp) d2] at hβpt
+    rw [interp_bvar]
+    show (pt : V) ∈ (snoc (snoc (snoc (snoc (snoc (snoc ∅ α) r) β) pt) c) a) ‘ ((2 : ℕ) : V)
+    rw [snoc_read (M := M) (L := L) hw₅ (by simp)
+      (snoc_read (M := M) (L := L) hw₄ (by simp)
+        (snoc_read (M := M) (L := L) hw₃ (by simp) d2))]
+    exact hβpt
+  · -- above `Prop`: six λs, and `f a ∈ β` at the bottom
+    rw [interp_lam_type M L
+      (fun hz ↦ h0 (imax_eq_zero_iff.1 (imax_eq_zero_iff.1 (imax_eq_zero_iff.1
+        (imax_eq_zero_iff.1 (imax_eq_zero_iff.1
+          ((isProof_iff hle (quotDefLam2_type heq hv hR) (quotDefT2_type heq hv)
+            (by simp [VLevel.WF, hu, hv])).1 hz)))))))]
+    refine mkLam_mem_interp_forallE' (env₀ := env₀) hle (quotDefT2_type heq hv)
+      (by simp [VLevel.WF, hu, hv])
+      (fun hz ↦ h0 (imax_eq_zero_iff.1 (imax_eq_zero_iff.1 (imax_eq_zero_iff.1
+        (imax_eq_zero_iff.1 (imax_eq_zero_iff.1 hz)))))) _ fun α hα ↦ ?_
+    rw [interp_sort] at hα
+    rw [interp_lam_type M L
+      (fun hz ↦ h0 (imax_eq_zero_iff.1 (imax_eq_zero_iff.1 (imax_eq_zero_iff.1
+        (imax_eq_zero_iff.1
+          ((isProof_iff hle (quotDefLam3_type heq hv hR) (quotDefT3_type heq hv)
+            (by simp [VLevel.WF, hu, hv])).1 hz))))))]
+    refine mkLam_mem_interp_forallE' (env₀ := env₀) hle (quotDefT3_type heq hv)
+      (by simp [VLevel.WF, hu, hv])
+      (fun hz ↦ h0 (imax_eq_zero_iff.1 (imax_eq_zero_iff.1 (imax_eq_zero_iff.1
+        (imax_eq_zero_iff.1 hz))))) _ fun r hr ↦ ?_
+    rw [interp_lam_type M L
+      (fun hz ↦ h0 (imax_eq_zero_iff.1 (imax_eq_zero_iff.1 (imax_eq_zero_iff.1
+        ((isProof_iff hle (quotDefLam4_type heq hv hR) (quotDefT4_type heq hv)
+          (by simp [VLevel.WF, hu, hv])).1 hz)))))]
+    refine mkLam_mem_interp_forallE' (env₀ := env₀) hle (quotDefT4_type heq hv)
+      (by simp [VLevel.WF, hu, hv])
+      (fun hz ↦ h0 (imax_eq_zero_iff.1 (imax_eq_zero_iff.1 (imax_eq_zero_iff.1 hz))))
+      _ fun β hβ ↦ ?_
+    rw [interp_lam_type M L
+      (fun hz ↦ h0 (imax_eq_zero_iff.1 (imax_eq_zero_iff.1
+        ((isProof_iff hle (quotDefLam5_type heq hv hR) (quotDefT5_type heq hv)
+          (by simp [VLevel.WF, hu, hv])).1 hz))))]
+    refine mkLam_mem_interp_forallE' (env₀ := env₀) hle (quotDefT5_type heq hv)
+      (by simp [VLevel.WF, hu, hv])
+      (fun hz ↦ h0 (imax_eq_zero_iff.1 (imax_eq_zero_iff.1 hz))) _ fun f hf ↦ ?_
+    rw [interp_lam_type M L
+      (fun hz ↦ h0 (imax_eq_zero_iff.1
+        ((isProof_iff hle (quotDefLam6_type hR) quotDefT6_type
+          (by simp [VLevel.WF, hu, hv])).1 hz)))]
+    refine mkLam_mem_interp_forallE' (env₀ := env₀) hle quotDefT6_type
+      (by simp [VLevel.WF, hu, hv]) (fun hz ↦ h0 (imax_eq_zero_iff.1 hz)) _ fun c hc ↦ ?_
+    rw [interp_lam_type M L
+      (fun hz ↦ h0 ((isProof_iff hle hR
+        (VEnv.IsDefEq.bvar (.succ (.succ (.succ .zero)))) hv).1 hz))]
+    refine mkLam_mem_interp_forallE' (env₀ := env₀) hle
+      (VEnv.IsDefEq.bvar (.succ (.succ (.succ .zero)))) hv h0 _ fun a ha ↦ ?_
+    -- the context, and the bottom
+    have hw₁ : snoc ∅ α ∈ interpCtx M L [VExpr.sort u] :=
+      (mem_interpCtx_cons M L).mpr ⟨∅, hnil, α, by rw [interp_sort]; exact hα, rfl⟩
+    have hw₂ : snoc (snoc ∅ α) r ∈ interpCtx M L [quotRelTy, VExpr.sort u] :=
+      (mem_interpCtx_cons M L).mpr ⟨_, hw₁, r, hr, rfl⟩
+    have hw₃ : snoc (snoc (snoc ∅ α) r) β ∈
+        interpCtx M L [VExpr.sort v, quotRelTy, VExpr.sort u] :=
+      (mem_interpCtx_cons M L).mpr ⟨_, hw₂, β, hβ, rfl⟩
+    have hw₄ : snoc (snoc (snoc (snoc ∅ α) r) β) f ∈
+        interpCtx M L [quotLiftFTy, VExpr.sort v, quotRelTy, VExpr.sort u] :=
+      (mem_interpCtx_cons M L).mpr ⟨_, hw₃, f, hf, rfl⟩
+    have hw₅ : snoc (snoc (snoc (snoc (snoc ∅ α) r) β) f) c ∈
+        interpCtx M L [quotLiftC v, quotLiftFTy, VExpr.sort v, quotRelTy, VExpr.sort u] :=
+      (mem_interpCtx_cons M L).mpr ⟨_, hw₄, c, hc, rfl⟩
+    have b0 : (snoc ∅ α) ‘ ((0 : ℕ) : V) = α := snoc_top (M := M) (L := L) hnil (by simp)
+    have c0 : (snoc (snoc ∅ α) r) ‘ ((0 : ℕ) : V) = α :=
+      snoc_read (M := M) (L := L) hw₁ (by simp) b0
+    have d0 : (snoc (snoc (snoc ∅ α) r) β) ‘ ((0 : ℕ) : V) = α :=
+      snoc_read (M := M) (L := L) hw₂ (by simp) c0
+    have d2 : (snoc (snoc (snoc ∅ α) r) β) ‘ ((2 : ℕ) : V) = β :=
+      snoc_top (M := M) (L := L) hw₂ (by simp)
+    have e0 : (snoc (snoc (snoc (snoc ∅ α) r) β) f) ‘ ((0 : ℕ) : V) = α :=
+      snoc_read (M := M) (L := L) hw₃ (by simp) d0
+    have e2 : (snoc (snoc (snoc (snoc ∅ α) r) β) f) ‘ ((2 : ℕ) : V) = β :=
+      snoc_read (M := M) (L := L) hw₃ (by simp) d2
+    have e3 : (snoc (snoc (snoc (snoc ∅ α) r) β) f) ‘ ((3 : ℕ) : V) = f :=
+      snoc_top (M := M) (L := L) hw₃ (by simp)
+    have g0 : (snoc (snoc (snoc (snoc (snoc ∅ α) r) β) f) c) ‘ ((0 : ℕ) : V) = α :=
+      snoc_read (M := M) (L := L) hw₄ (by simp) e0
+    have g2 : (snoc (snoc (snoc (snoc (snoc ∅ α) r) β) f) c) ‘ ((2 : ℕ) : V) = β :=
+      snoc_read (M := M) (L := L) hw₄ (by simp) e2
+    have g3 : (snoc (snoc (snoc (snoc (snoc ∅ α) r) β) f) c) ‘ ((3 : ℕ) : V) = f :=
+      snoc_read (M := M) (L := L) hw₄ (by simp) e3
+    have f3 : (snoc (snoc (snoc (snoc (snoc (snoc ∅ α) r) β) f) c) a) ‘ ((3 : ℕ) : V) = f :=
+      snoc_read (M := M) (L := L) hw₅ (by simp) g3
+    have f5 : (snoc (snoc (snoc (snoc (snoc (snoc ∅ α) r) β) f) c) a) ‘ ((5 : ℕ) : V) = a :=
+      snoc_top (M := M) (L := L) hw₅ (by simp)
+    obtain ⟨-, -, hcod⟩ := quotLift_f_props (env₀ := env₀) hle hv h0 hw₃ d0 d2 hf
+    rw [interp_bvar] at ha
+    replace ha : a ∈ (snoc (snoc (snoc (snoc (snoc ∅ α) r) β) f) c) ‘ ((0 : ℕ) : V) := ha
+    rw [g0] at ha
+    rw [interp_quotDefRhsBody (env₀ := env₀) hle hu hv h0 f3 f5, interp_bvar]
+    show f ‘ a ∈ (snoc (snoc (snoc (snoc (snoc (snoc ∅ α) r) β) f) c) a) ‘ ((2 : ℕ) : V)
+    rw [snoc_read (M := M) (L := L) hw₅ (by simp) g2]
+    exact hcod a ha
+
+/-- **Both of `quotDefEq`'s obligations, in the shape `coherentOn_addDefEqFold`
+consumes.**  The level list is destructured from `us.length = quotDefEq.uvars`
+and both `Above` wrappers are `Above.pure`: nothing in the `Quot` block needs
+the inaccessible chain, since every primitive is built outright rather than
+approximated. -/
+theorem quotDefEq_ok (hle : env₀ ≤ envF)
+    (hq : env₀.constants ``Quot = some quotConst)
+    (hqm : env₀.constants ``Quot.mk = some quotMkConst)
+    (heq : env₀.constants ``Eq = some eqConst)
+    (hql : env₀.constants ``Quot.lift = some quotLiftConst)
+    (hEq : ∀ w : VLevel, EqSpec M w)
+    (hcnst : ∀ w : VLevel, M.cnst ``Quot [w] = quotFn M L w)
+    (hcnstMk : ∀ w : VLevel, M.cnst ``Quot.mk [w] = quotMkFn M L w)
+    (hcnstL : ∀ w w' : VLevel, M.cnst ``Quot.lift [w, w'] = quotLiftFn M L w w')
+    {us : List VLevel} (hw : ∀ l ∈ us, l.WF nv) (hl : us.length = quotDefEq.uvars) :
+    Above M ((interp M L [] (quotDefEq.lhs.instL us)).toFun ∅
+        = (interp M L [] (quotDefEq.rhs.instL us)).toFun ∅) ∧
+      Above M ((interp M L [] (quotDefEq.lhs.instL us)).toFun ∅
+        ∈ (interp M L [] (quotDefEq.type.instL us)).toFun ∅) := by
+  rw [show quotDefEq.uvars = 2 from rfl] at hl
+  obtain ⟨u, v, rfl⟩ : ∃ u v, us = [u, v] := by
+    match us with
+    | [] => simp at hl
+    | [_] => simp at hl
+    | [a, b] => exact ⟨a, b, rfl⟩
+    | _ :: _ :: _ :: _ => simp at hl
+  have hu : u.WF nv := hw u (by simp)
+  have hv : v.WF nv := hw v (by simp)
+  exact ⟨Above.pure (quotDefEq_eq hle hq hqm heq hql hu hv (hEq v) (hcnst u) (hcnstMk u)
+      (hcnstL u v)),
+    Above.pure (quotDefEq_mem hle hq hqm heq hql hu hv (hEq v) (hcnst u) (hcnstMk u)
+      (hcnstL u v))⟩
+
+end DefEqMem
 
 end Lift
 
