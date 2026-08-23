@@ -473,6 +473,16 @@ theorem quotAppTy_type (hu : u.WF nv) {Δ : List VExpr} :
       (.sort (.imax (.imax u (.imax u (.succ .zero))) (.succ u))) :=
   .forallEDF quotRelTyLift_type (.sortDF hu hu rfl)
 
+/-- **`Quot` applied to any two well-typed arguments.**  Stated generally rather
+than once per de Bruijn index pair: the spine needs it at `(2,1)`, `(1,0)`,
+`(3,2)` and `(4,3)`, and those differ only in which `Lookup` supplies the
+arguments. -/
+theorem quotAp_type (hq : env.constants ``Quot = some quotConst) (hu : u.WF nv)
+    {Γ : List VExpr} {A R : VExpr} (hA : env.HasType nv Γ A (.sort u))
+    (hR : env.HasType nv Γ R (quotRelTy.inst A)) :
+    env.HasType nv Γ (.app (.app (.const ``Quot [u]) A) R) (.sort u) :=
+  VEnv.IsDefEq.appDF (VEnv.IsDefEq.appDF (quotConst_type hq hu) hA) hR
+
 /-- `Quot α r` where `α` and `r` sit at de Bruijn indices 1 and 0 — the shape
 `Quot.ind`'s motive needs, one binder shallower than `quotMkCod`. -/
 theorem quotIndAp_type (hq : env.constants ``Quot = some quotConst) (hu : u.WF nv)
@@ -553,6 +563,20 @@ theorem quotIndQ_type (hq : env.constants ``Quot = some quotConst) (hu : u.WF nv
   VEnv.IsDefEq.appDF
     (VEnv.IsDefEq.appDF (quotConst_type hq hu) (VEnv.IsDefEq.bvar (.succ (.succ (.succ .zero)))))
     (VEnv.IsDefEq.bvar (.succ (.succ .zero)))
+
+/-- The motive's type as it appears at the bottom of `Quot.ind`'s nest, i.e.
+`quotIndBeta` lifted three times.  Stated in already-lifted form: `lift` does
+not compute through a `def`, so `appDF` cannot see the `forallE` otherwise. -/
+theorem quotIndBetaLift_type (hq : env.constants ``Quot = some quotConst) (hu : u.WF nv)
+    {Δ : List VExpr} :
+    env.HasType nv
+      (quotIndQ u :: quotIndHyp u :: quotIndBeta u :: quotRelTy :: VExpr.sort u :: Δ)
+      (.forallE (.app (.app (.const ``Quot [u]) (.bvar 4)) (.bvar 3)) (.sort .zero))
+      (.sort (.imax u (.succ .zero))) :=
+  .forallEDF
+    (quotAp_type hq hu (VEnv.IsDefEq.bvar (.succ (.succ (.succ (.succ .zero)))))
+      (VEnv.IsDefEq.bvar (.succ (.succ (.succ .zero)))))
+    (.sortDF trivial trivial rfl)
 
 /-- `β q`, the innermost body.  Its type is `Sort .zero` *literally*, which is
 what makes the whole spine collapse uniformly. -/
@@ -691,6 +715,30 @@ noncomputable def quotMkFn (M : ModelData V) (L : LevelAssign envF nv) (u : VLev
   else mkLam (interp M L [] (.sort u)).toFun (interp M L [] (.sort u)).definable
     (fun ρ α ↦ quotMkFibR M L u (snoc ρ α))
     (by have := quotMkFibR_definable (M := M) (L := L) (u := u); definability) ∅
+
+/-! ### `Quot.mk`'s value chain
+
+Above `Prop`, one `mkLam_value` per λ.  At `Prop` there is nothing to state:
+`Quot.mk α r` is proof-sorted there, so `interp_app_of_proof_sorted` gives `•`
+without consulting the assignment at all. -/
+
+theorem quotMkFn_value (h0 : u.eval M.ls ≠ 0) {α : V} (hα : α ∈ U M.κ (u.eval M.ls)) :
+    (quotMkFn M L u) ‘ α = quotMkFibR M L u (snoc ∅ α) := by
+  rw [quotMkFn, if_neg h0]
+  exact mkLam_value (by rw [interp_sort]; exact hα)
+
+theorem quotMkFibR_value {ρ r : V}
+    (hr : r ∈ (interp M L [VExpr.sort u] quotRelTy).toFun ρ) :
+    (quotMkFibR M L u ρ) ‘ r = quotMkFibA M L u (snoc ρ r) := by
+  unfold quotMkFibR
+  exact mkLam_value hr
+
+theorem quotMkFibA_value {ρ a : V}
+    (ha : a ∈ (interp M L [quotRelTy, VExpr.sort u] (.bvar 1)).toFun ρ) :
+    (quotMkFibA M L u ρ) ‘ a
+      = quotMkVal (ρ ‘ ((0 : ℕ) : V)) (ρ ‘ ((1 : ℕ) : V)) a (u.eval M.ls) := by
+  unfold quotMkFibA
+  exact mkLam_value ha
 
 end MkFn
 

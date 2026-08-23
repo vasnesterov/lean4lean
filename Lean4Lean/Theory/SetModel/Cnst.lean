@@ -297,6 +297,25 @@ theorem mkLam_mem_interp_forallE' (hle : env₀ ≤ envF)
   rw [interp_forallE_type M L (fun hp ↦ hv ((isProp_iff hle hB hwv).1 hp))]
   exact mkLam_mem_mkForallType h
 
+/-- **The interpretation is insensitive to the value stored at a proof-sorted
+application.**
+
+`interp` sends `.app f a` to `•` whenever `f` is a proof, and whether `f` is a
+proof is decided by `L.srt Γ f` and `M.ls` alone — **`M.cnst` does not appear**.
+So if `f`'s type is a proposition, the denotation of `f a` is `•` no matter what
+value the constant assignment gives to any constant occurring in `f`.
+
+This is a fact about `interp`, not about any particular constant, and it is what
+makes a degenerate `Prop` witness safe: assigning `•` to a `Prop`-valued
+constant cannot corrupt anything downstream, because every elimination of it
+short-circuits before the assignment is consulted.  Every `Prop`-valued
+constructor of an inductive sits in this position. -/
+theorem interp_app_of_proof_sorted (hle : env₀ ≤ envF) {Γ : List VExpr} {f A : VExpr}
+    {v : VLevel} (hf : env₀.HasType nv Γ f A) (hA : env₀.HasType nv Γ A (.sort v))
+    (hw : v.WF nv) (h0 : v.eval M.ls = 0) (a : VExpr) (ρ : V) :
+    (interp M L Γ (.app f a)).toFun ρ = pt :=
+  interp_app_proof M L ((isProof_iff hle hf hA hw).2 h0) ρ
+
 end Forall
 
 /-! ## Discharging the oracle -/

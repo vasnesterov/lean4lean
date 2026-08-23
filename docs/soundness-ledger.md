@@ -1005,9 +1005,14 @@ proof splitting short-circuits it.
 
 So: **`interp`'s proof splitting is what makes a degenerate `Prop` witness safe.**
 Had the interpretation not split on proofs, `•` would have been type-correct at
-`Prop` and would still have broken `Quot.ind`. That is worth stating for the
-inductive layer, where every `Prop`-valued constructor will be in the same
-position.
+`Prop` and would still have broken `Quot.ind`.
+
+Stated once, as `interp_app_of_proof_sorted` (`SetModel/Cnst.lean`), rather than
+rediscovered per constant: *whether `f` is a proof is decided by `L.srt Γ f` and
+`M.ls` alone — `M.cnst` does not appear* — so if `f`'s type is a proposition,
+`⟦f a⟧ρ = •` **no matter what the assignment gives to any constant occurring in
+`f`.** That is a fact about `interp`, and every `Prop`-valued constructor of an
+inductive will sit in exactly this position.
 
 ### The pattern: uniform in ZFC, not uniform across `Sort 0`
 
