@@ -1,5 +1,6 @@
 import Lean4Lean.Theory.Typing.EnvLemmas
 import Lean4Lean.Theory.Typing.Strong
+import Lean4Lean.Theory.Typing.DeclRules
 
 /-!
 # Structural inversion principles we cannot prove yet
@@ -9,10 +10,16 @@ Six statements, in two families.
 ## Sorts and Π-types
 
 `sort_inv`, `forallE_inv_stratified`, `forallE_inv`, `sort_forallE_inv` — the original four.
-`forallE_inv` is *derived* from the stratified form here; note that
-`Experimental/Reflect/Capstone.lean` now proves it directly, relative to a `Params`
-instance, **without** going through the stratified form, so when a `Params` instance lands
-the arrow reverses and this derivation is replaced rather than reused.
+`forallE_inv` is *derived* from the stratified form here.
+
+**Do not plan against `Experimental/Reflect/Capstone.lean`.**  An earlier version of this
+docstring said Capstone "now proves `forallE_inv` directly, relative to a `Params`
+instance", and that the arrow would reverse once an instance landed.  That route is closed:
+the `Params`-style side condition its main result carries is *provably unsatisfiable*, so
+everything it exports is vacuously true.  Its proof *shapes* are still worth reading —
+`sort_uniq_of_hasType` and `forallE_inv_stratified_params` name the real obligations
+correctly — but nothing there is available as a proof.  Treat every statement under
+`Lean4Lean/Experimental/` as unproved regardless of how it reads.
 
 ## Constant applications — three different facts, and they are not interchangeable
 
@@ -60,7 +67,7 @@ namespace Lean4Lean
 /-- The head constant of an application spine, under any number of leading lambdas.
 
 Spelled out here rather than reusing `PatternDecode.lean`'s `peelLams`/`spine` so that this
-file keeps its two-import list; the λ-peeling matters because a rule with parameters stores
+file keeps a short import list; the λ-peeling matters because a rule with parameters stores
 its left-hand side λ-abstracted (`Theory/Quot.lean`'s `quotDefEq`, `VInductDecl'.iotaRule`),
 while a δ-rule's is the bare `.const c (VLevel.params _)`. -/
 def VExpr.headConst? : VExpr → Option Lean.Name
@@ -80,9 +87,123 @@ by a recursor, and `quotDefEq` headed by `Quot.lift` (`Theory/Typing/PatternRule
 def RuleFreeHead (env : VEnv) (c : Lean.Name) : Prop :=
   ∀ df, env.defeqs df → VExpr.headConst? df.lhs ≠ some c
 
-theorem IsDefEqU.sort_inv (henv : VEnv.WF env) (hΓ : OnCtx Γ (env.IsType U))
-    (h1 : env.IsDefEqU U Γ (.sort u) (.sort v)) : u ≈ v := sorry
+/-- **NOT PROVED.**  `sort_inv` is still `sorry`-backed; what has changed is that the
+`sorry` is now *two labelled holes inside the induction* rather than one opaque hole, so
+`#print axioms Lean4Lean.VEnv.IsDefEqU.sort_inv` still reports `sorryAx`.
 
+The proof below is the induction on `IsDefEqStrong` written out.  Nine of its eleven cases
+close; the two that remain are the whole residual content of `sort_inv`:
+
+* **`trans`** — `Γ ⊢ .sort u ≡ e ≡ .sort v` with `e` arbitrary.  Closing it means knowing
+  that a term convertible with a sort *reduces* to a sort: a confluence or normalisation
+  statement.  Nothing upstream of this file supplies one, and
+  `Theory/Typing/ChurchRosser.lean` structurally cannot: it imports this file and consumes
+  `IsDefEqU.forallE_inv` at 20+ sites.  Carneiro (`~/lean-type-theory/unique.tex`
+  §Church–Rosser) breaks the loop by indexing conversion with the number of alternations
+  against typing and re-running the whole κ-reduction development at each index;
+  `HasTypeStratified` is **not** that index — its `defeq` premise carries a full,
+  unstratified `IsDefEq`.
+
+* **`proofIrrel`** — `Γ ⊢ p : .sort .zero`, `Γ ⊢ .sort u : p`, `Γ ⊢ .sort v : p`.
+  Refuting the hypothesis means showing a sort is never a proof.  **This case is closed
+  outright by `VEnv.sort_not_proof` (`Theory/Typing/SortUniq.lean`), given `VEnv.SortUniq` —
+  universe uniqueness, `Γ ⊢ e : .sort u → Γ ⊢ e : .sort v → u ≈ v`.**  It is *not* closable
+  without it: even the step that reads `p ≡ .sort u.succ` off the second premise fails,
+  because its induction's `defeq` case holds the equation `A ≡ B` at the level the
+  derivation chose and the inductive hypothesis at the level `A` was separately found to
+  inhabit, and retyping either to the other is exactly universe uniqueness.  (An earlier
+  version of this docstring called that step routine.  It is not; the residual goal is
+  machine-witnessed in `HasTypeStrong.sort_type`, whose `huniq` argument is used precisely
+  there.)  Carneiro gets universe uniqueness from unique typing *at the previous
+  stratification index* (`unique.tex:266`); here nothing supplies it.
+
+The other nine cases really are closed, and in particular:
+
+* **`extra` is not the obstacle.**  It is discharged outright by
+  `VEnv.WF.instL_lhs_ne_sort` (`Theory/Typing/DeclRules.lean`): in a `VEnv.WF` environment
+  every definitional-equality rule is a δ-rule, the quotient rule, or an ι-rule, and none
+  of those has a `.sort` left-hand side.  Recording that mechanically is half the point of
+  writing this induction out.
+* `beta`, `eta` and every congruence case are vacuous — their left endpoint is an `.app`,
+  a `.lam`, a `.bvar`, a `.const` or a `.forallE`, never a `.sort`.
+
+**Net reduction.**  Granted `VEnv.SortUniq`, every open statement in this file's Π/sort
+family collapses to the single `trans` case above — i.e. to normalisation.  `SortUniq` is
+itself open (nothing in the tree exhibits one), and `Theory/Typing/SortUniqFacts.lean`
+checks that it is no stronger than this family, so the two are plausibly a single
+obligation rather than two.  Note the stakes: these two cases also block
+`Theory/SetModel/`, whose every result is parameterised by a `LevelAssign` that nobody has
+constructed. -/
+theorem IsDefEqU.sort_inv (henv : VEnv.WF env) (hΓ : OnCtx Γ (env.IsType U))
+    (h1 : env.IsDefEqU U Γ (.sort u) (.sort v)) : u ≈ v := by
+  have aux : ∀ {Γ : List VExpr} {e1 e2 A : VExpr}, env.IsDefEqStrong U Γ e1 e2 A →
+      ∀ u v : VLevel, e1 = .sort u → e2 = .sort v → u ≈ v := by
+    intro Γ e1 e2 A H
+    induction H with
+    | sortDF _ _ h3 => rintro _ _ ⟨⟩ ⟨⟩; exact h3
+    | symm _ ih => rintro u v rfl rfl; exact (ih _ _ rfl rfl).symm
+    | defeqDF _ _ _ _ ih => exact ih
+    | extra h1 => exact fun u _ h _ => absurd h (henv.instL_lhs_ne_sort h1 _ u)
+    | trans _ _ ih1 ih2 =>
+      -- OPEN: `Γ ⊢ .sort u ≡ e₂ ≡ .sort v`; needs `e₂` to reduce to a sort.
+      rintro u v rfl rfl; sorry
+    | proofIrrel h1 h2 h3 ih1 ih2 ih3 =>
+      -- OPEN: `Γ ⊢ .sort u, .sort v : p` with `Γ ⊢ p : .sort .zero`; needs
+      -- "a sort is not a proof".
+      rintro u v rfl rfl; sorry
+    | _ => rintro u v ⟨⟩ ⟨⟩
+  obtain ⟨_, h1⟩ := h1
+  exact aux (h1.strong henv.ordered hΓ) _ _ rfl rfl
+
+/-- **NOT PROVED**, and — unlike `sort_inv` — *not* reducible to the conversion-derivation
+content alone.  Attempting the same induction on `IsDefEqStrong` that `sort_inv` uses shows
+this statement needs **two independent things**, only one of which `sort_inv` shares:
+
+1. the `trans` content of `sort_inv` — normalisation (see its docstring), and
+2. **universe uniqueness** — `Γ ⊢ e : .sort u → Γ ⊢ e : .sort v → u ≈ v`, packaged as
+   `VEnv.SortUniq` in `Theory/Typing/SortUniq.lean`.
+
+These are the same two primitives `sort_inv` needs, so the family really is one obligation
+and not several.  What is different here is that (2) is needed by the *structural* cases,
+not only by `proofIrrel`.
+
+*The two bullets below are analysis of the induction, not a machine-checked impossibility;
+the corresponding claim for `sort_inv`'s `proofIrrel` case is machine-witnessed, in
+`HasTypeStrong.sort_type`.*  (2) is forced by the *shape* of the conclusion, not by any
+particular proof strategy: each
+conjunct pairs a conversion `A ≡ A'` (resp. `B ≡ B'`) *at a level* `u` with a
+`HasTypeStratified` derivation of `A` (resp. `B`) *at that same level* `u` and *at the index
+`n` inherited from the hypothesis `h2`*.  The conversion's level comes from the derivation
+being inverted; the stratified derivation's level comes from `h2` via
+`HasTypeStratified.forallE_inv'`; nothing upstream of this file aligns them.  Concretely,
+even the two easiest cases fail:
+
+* `forallEDF` — the structural case — hands back `Γ ⊢ A ≡ A' : .sort u` and
+  `A::Γ ⊢ B ≡ B' : .sort v`, while `h2.forallE_inv'` hands back `Γ ⊢ A : .sort u₀ !! n-1`
+  and `A::Γ ⊢ B : .sort v₀ !! n-1`.  Retyping either side at the other's level needs
+  `u ≈ u₀` / `v ≈ v₀`.
+* `symm` — goal 2 closes (its `B`-side components arrive already paired), but goal 1 needs
+  `A`'s stratified derivation at index `n`, and the induction hypothesis supplies `A'`'s at
+  index `n'`.
+
+Bumping the index is free (`HasTypeStratified.mono`); aligning the *levels* is not.
+`Theory/Typing/Lemmas.lean`'s `HasType.sort_inv` is only "the level is `WF U`", and there is
+no universe-uniqueness lemma anywhere upstream: the one in the tree, `IsDefEq.uniq`
+(`Theory/Typing/UniqueTyping.lean`), is this lemma's own consumer.  This is the same
+"pinning" difficulty that `Experimental/Reflect/Capstone.lean:95–99` describes and that its
+`sort_uniq_of_hasType` was built to supply — and that route is closed (see the module
+docstring).
+
+So `forallE_inv_stratified` is not provable by induction on the conversion derivation in
+isolation.  Closing it needs either a joint induction with `IsDefEq.uniq`, or a route
+(a model, or Carneiro's stratified Church–Rosser) that delivers universe uniqueness
+independently.
+
+Worth knowing before restating it: **both consumers discard the first conjunct's
+`HasTypeStratified` component** — `IsDefEq.uniq` (`UniqueTyping.lean:43`) binds only the
+second conjunct, and `forallE_inv` below takes only the `IsDefEq`.  Dropping it would
+weaken the statement at no cost to anyone, but it does *not* unblock the proof: the second
+conjunct needs exactly the same level alignment for `B`. -/
 theorem IsDefEqU.forallE_inv_stratified (henv : VEnv.WF env) (hΓ : OnCtx Γ (env.IsType U))
     (h1 : env.IsDefEqU U Γ (.forallE A B) (.forallE A' B'))
     (h2 : env.HasTypeStratified U Γ (.forallE A B) V true n)
