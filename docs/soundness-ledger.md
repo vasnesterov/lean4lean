@@ -1765,6 +1765,61 @@ hypothesis.*
 3. **Connecting to `OracleOK`** — wrapped throughout; `Above.and`,
    `Above.imp₂`, `Above.forall_mem` and `above_mem_congr` are in place for it.
 
+## `NoBlock.indep`, measured — and it is a third consumer of the same family
+
+Taken first, as the only piece of the syntactic half whose difficulty was
+unmeasured. It **splits into two halves of completely different difficulty**,
+which is why measuring it was worth doing before the transcription work:
+
+1. **Model half** — *if `A` never reads those positions, `⟦A⟧` ignores them.*
+   **Built**: `interp_avoids` (`SetModel/IndInterp.lean`), unconditional,
+   sorry-free, with `AvoidsAt` (a position-level "never reads" predicate, stated
+   on positions rather than de Bruijn indices because that is what `interp`
+   reads) and four `mk*_congr_arg` lemmas for `mkFamUnion`/`mkLam`/
+   `mkForallProp`/`mkForallType`. All independently reusable.
+2. **Syntactic half** — *a block-free, well-typed field type never reads a
+   recursive-field position.* Open. `VExpr.NoConsts` is about constants only
+   (`.bvar _ => True`), so block-freeness says nothing about bound variables on
+   its own; this is where all the content is.
+
+### The measurement
+
+It is **true**, and every branch of the argument bottoms out in the same place.
+If a block-free well-typed `A : Sort ℓ` reads a recursive-field variable
+`r : I p π`, then `r` occurs either as an argument (forcing a block-free
+function of type `∀ _ : I p π, B`, which no parameter, earlier field, earlier
+constant or `lam` can supply), or as a binder type (forcing `I p π` to be a
+sort), or in head position (forcing `I p π` to be a Π).
+
+The last two, and the base case of the first, are **disjointness of a constant
+application from the other head forms**:
+
+| what it needs | status |
+|---|---|
+| `IsDefEqU.const_forallE_inv` — a constant application is not a Π | **stated, `sorry`** (`Theory/Typing/Injectivity.lean`) |
+| "a constant application is not a sort" | **not stated anywhere** |
+
+So `NoBlock.indep` is not an isolated obligation. It is a **third independent
+consumer of `Injectivity.lean`'s disjointness family** — alongside
+`LevelAssign` (via `sort_inv`) and the injectivity stream's own targets — plus
+one statement nobody has written down. That reframes it: the question is not
+"how hard is `NoBlock.indep`" but "is the disjointness family worth another
+consumer".
+
+**Recommendation: take `model-interface.md` §2's own escape hatch.** Replace
+`Fld : V → V` by a monotone `Fld : V → V → V` over the family's current
+approximation. It needs *no* disjointness at all, and its cost is bounded and
+known — a redo of the recursor's rank argument, since the non-recursive data
+would then itself contain family elements. Against an open family that has
+resisted all day and now has three consumers, a bounded model-side change is the
+cheaper side of the trade. The decision is not mine; both sides are now priced.
+
+**Method note.** This is the second time today that measuring the unknown first
+paid: the answer was not "hard" or "easy" but "*already blocked on something we
+are already blocked on*", which is only visible once you push the reduction to
+its base case. A difficulty estimate that stops at "this looks hard" would have
+hidden that the blocker is shared.
+
 ### Caveat left standing: the all-levels quantification
 
 `quotDefEq_ok` takes `hEq`, `hcnst`, `hcnstMk` and `hcnstL` quantified over

@@ -39,6 +39,27 @@ Both are stated so that the definability proof is available at the point of
 definition, which is what `mkFamUnion` demands: it takes the fibre map's
 definability as an argument, so a bundled `DefFun` result is the only shape in
 which the recursion can be written at all.
+
+## Two things to know before adding to this file
+
+**`DefFun`-valued recursion is forced, not stylistic.** `mkFamUnion` takes the
+fibre map's definability *as an argument*, so each step of a list-indexed
+recursion needs the previous step's definability **at definition time**. A bare
+`V → V` recursion cannot be written at all — not "is harder to prove about",
+*cannot be written*. This is why `interp` is `DefFun`-valued and why `teleFun`
+is, and it will recur in every list-indexed set construction the inductive layer
+needs. Reach for `DefFun` first rather than discovering it after a rewrite.
+
+**When `definability` diverges, generalise what it is chasing — the limit is
+never the answer.** `tagSel₂_definable` failed with `maximum recursion depth`,
+and raising `maxRecDepth` did *not* help. That is `SetModel/Definability.lean`'s
+documented **first** failure mode: genuine divergence from unfolding, not
+insufficient depth. Here `tagPayload` unfolds to `value` of a singleton and the
+search chases the unfolding. The fix is to abstract the offending sub-term into
+a hypothesis so the search cannot unfold it — `eq_kpair_definable` is stated
+with `t` a *variable* and applied at `tagPayload i`. That is cheaper than any
+limit, and the diagnostic is: if raising the limit does not help, the search is
+not deep, it is looping.
 -/
 
 namespace Lean4Lean.SetModel
@@ -470,5 +491,180 @@ theorem mkIndSignature_Fld (Idx params : V) (cs : List (CtorData V))
     (cs.map fun c ↦ fun _ : V ↦ (teleFun c.flds).toFun params) k
     (fun _ ↦ (teleFun c.flds).toFun params) (by rw [List.getElem?_map, h]; rfl)
   simpa using hat
+
+/-! ## `NoBlock.indep`, measured
+
+`docs/model-interface.md` §2 names `NoBlock.indep` as the second obligation
+making `interpSig` well defined:
+
+> If `A` is block-free and well-typed in a context containing recursive-field
+> variables, then `⟦A⟧` does not depend on the values at those positions.
+
+It splits, and the two halves are of completely different difficulty:
+
+1. **model half** — *if `A` never reads those positions, `⟦A⟧` ignores them.*
+   That is `interp_avoids` below. Proved here, unconditionally.
+2. **syntactic half** — *a block-free, well-typed field type never reads a
+   recursive-field position.* Open, and see the measurement below.
+
+`VExpr.NoConsts` is about constants only (`.bvar _ => True`), so block-freeness
+says *nothing* about bound variables on its own; half 2 is where all the content
+is.
+
+### The measurement of half 2
+
+It is **true**, and the argument is uniform: suppose block-free well-typed
+`A : Sort ℓ` reads a recursive-field variable `r : I p π`. Every way `r` can
+occur forces something the environment cannot supply.
+
+* `r` in argument position, `.app f r`: then `f : ∀ _ : I p π, B`, and `f` is a
+  block-free subterm of `A`. `f` cannot be a parameter (parameters are typed
+  before the block exists), nor an earlier field (its `pos` would have to give
+  either a block-free type up to defeq, or the recursive shape
+  `∀ ξ, I_j p π` whose `ξ` must be block-free — neither holds), nor an earlier
+  constant (typed before the block), nor a `lam` (its binder type mentions the
+  block). What is left is a nested application, and the same argument recurses
+  on its head.
+* `r` as a binder type, `.lam r _` or `.forallE r _`: needs `I p π` to be a
+  sort.
+* `r` in head position, `.app r x`: needs `I p π` to be a Π.
+
+The last two, and the base of the first, are all **disjointness of a constant
+application from the other head forms** — in this repository:
+
+| what half 2 needs | status |
+|---|---|
+| `IsDefEqU.const_forallE_inv` — a constant application is not a Π | **stated, `sorry`** (`Theory/Typing/Injectivity.lean`) |
+| "a constant application is not a sort" | **not stated anywhere** |
+
+So `NoBlock.indep` is not an isolated obligation: it is **another consumer of
+`Injectivity.lean`'s disjointness family**, the same family that has resisted
+elsewhere, plus one statement nobody has written down. That is the measurement,
+and it argues for `model-interface.md` §2's own escape hatch — a monotone
+`Fld : V → V → V` over the family's current approximation, which needs no
+disjointness at all and costs a redo of the recursor's rank argument. That
+trade is now priced on both sides; the decision is not mine to take. -/
+
+/-- `e`, read in a context of length `n`, never reads a position satisfying `S`.
+
+Stated on *positions* rather than de Bruijn indices because that is what
+`interp` reads: `.bvar i` in a context of length `n` reads position
+`n - 1 - i`. -/
+def AvoidsAt (S : ℕ → Prop) : ℕ → VExpr → Prop
+  | n, .bvar i => ¬ S (n - 1 - i)
+  | _, .sort _ => True
+  | _, .const _ _ => True
+  | n, .app f a => AvoidsAt S n f ∧ AvoidsAt S n a
+  | n, .lam A b => AvoidsAt S n A ∧ AvoidsAt S (n + 1) b
+  | n, .forallE A b => AvoidsAt S n A ∧ AvoidsAt S (n + 1) b
+
+theorem value_of_not_mem_domain {f x : V} (h : x ∉ domain f) : f ‘ x = ∅ := by
+  ext z
+  simp only [value, mem_sep_iff]
+  constructor
+  · rintro ⟨-, y, -, hy⟩; exact absurd (mem_domain_of_kpair_mem hy) h
+  · intro hz; exact absurd hz (by simp)
+
+section Locality
+
+variable {envF : VEnv} {nv : ℕ} {M : ModelData V} {L : LevelAssign envF nv}
+
+theorem mkFamUnion_congr_arg {G : V → V} {hG : ℒₛₑₜ-function₁[V] G} {F : V → V → V}
+    {hF : ℒₛₑₜ-function₂[V] F} {ρ ρ' : V} (hGe : G ρ = G ρ')
+    (hFe : ∀ v ∈ G ρ, F ρ v = F ρ' v) :
+    mkFamUnion G hG F hF ρ = mkFamUnion G hG F hF ρ' := by
+  ext y
+  rw [mem_mkFamUnion_iff, mem_mkFamUnion_iff]
+  exact ⟨fun ⟨v, hv, hy⟩ ↦ ⟨v, hGe ▸ hv, (hFe v hv) ▸ hy⟩,
+    fun ⟨v, hv, hy⟩ ↦ ⟨v, hGe ▸ hv, (hFe v (hGe ▸ hv)).symm ▸ hy⟩⟩
+
+theorem mkLam_congr_arg {G : V → V} {hG : ℒₛₑₜ-function₁[V] G} {F : V → V → V}
+    {hF : ℒₛₑₜ-function₂[V] F} {ρ ρ' : V} (hGe : G ρ = G ρ')
+    (hFe : ∀ v ∈ G ρ, F ρ v = F ρ' v) :
+    mkLam G hG F hF ρ = mkLam G hG F hF ρ' := by
+  ext y
+  rw [mem_mkLam_iff, mem_mkLam_iff]
+  exact ⟨fun ⟨v, hv, hy⟩ ↦ ⟨v, hGe ▸ hv, by rw [hy, hFe v hv]⟩,
+    fun ⟨v, hv, hy⟩ ↦ ⟨v, hGe ▸ hv, by rw [hy, hFe v (hGe ▸ hv)]⟩⟩
+
+theorem mkForallProp_congr_arg {G : V → V} {hG : ℒₛₑₜ-function₁[V] G} {F : V → V → V}
+    {hF : ℒₛₑₜ-function₂[V] F} {ρ ρ' : V} (hGe : G ρ = G ρ')
+    (hFe : ∀ v ∈ G ρ, F ρ v = F ρ' v) :
+    mkForallProp G hG F hF ρ = mkForallProp G hG F hF ρ' := by
+  ext y
+  rw [mem_mkForallProp_iff, mem_mkForallProp_iff, ← hGe]
+  refine and_congr_right fun _ ↦ ⟨fun hh v hv ↦ ?_, fun hh v hv ↦ ?_⟩
+  · rw [← hFe v hv]; exact hh v hv
+  · rw [hFe v hv]; exact hh v hv
+
+theorem mkForallType_congr_arg {G : V → V} {hG : ℒₛₑₜ-function₁[V] G} {F : V → V → V}
+    {hF : ℒₛₑₜ-function₂[V] F} {ρ ρ' : V} (hGe : G ρ = G ρ')
+    (hFe : ∀ v ∈ G ρ, F ρ v = F ρ' v) :
+    mkForallType G hG F hF ρ = mkForallType G hG F hF ρ' := by
+  have hU : mkFamUnion G hG F hF ρ = mkFamUnion G hG F hF ρ' :=
+    mkFamUnion_congr_arg hGe hFe
+  ext y
+  rw [mem_mkForallType_iff, mem_mkForallType_iff, hU, ← hGe]
+  refine and_congr_right fun _ ↦ ⟨fun hh v hv z hz ↦ ?_, fun hh v hv z hz ↦ ?_⟩
+  · rw [← hFe v hv]; exact hh v hv z hz
+  · rw [hFe v hv]; exact hh v hv z hz
+
+/-- **The model half of `NoBlock.indep`.**  `interp` reads a valuation only at
+the positions the term does not avoid, so two valuations agreeing off `S` give
+the same denotation to any term avoiding `S`. -/
+theorem interp_avoids {S : ℕ → Prop} : ∀ (e : VExpr) {Γ : List VExpr} {ρ ρ' : V},
+    AvoidsAt S Γ.length e → IsSeq ρ Γ.length → IsSeq ρ' Γ.length →
+    (∀ j < Γ.length, ¬ S j → ρ ‘ ((j : ℕ) : V) = ρ' ‘ ((j : ℕ) : V)) →
+    (interp M L Γ e).toFun ρ = (interp M L Γ e).toFun ρ'
+  | .bvar i, Γ, ρ, ρ', he, hρ, hρ', h => by
+    rw [interp_bvar, interp_bvar]
+    rcases Nat.eq_zero_or_pos Γ.length with h0 | h0
+    · rw [value_of_not_mem_domain (f := ρ) (by rw [hρ.2, h0]; simp [zero_def]),
+        value_of_not_mem_domain (f := ρ') (by rw [hρ'.2, h0]; simp [zero_def])]
+    · exact h _ (by omega) he
+  | .sort _, _, _, _, _, _, _, _ => by rw [interp_sort, interp_sort]
+  | .const _ _, _, _, _, _, _, _, _ => by rw [interp_const, interp_const]
+  | .app f a, Γ, ρ, ρ', he, hρ, hρ', h => by
+    by_cases hp : L.IsProof M Γ f
+    · rw [interp_app_proof M L hp, interp_app_proof M L hp]
+    · rw [interp_app_type M L hp, interp_app_type M L hp,
+        interp_avoids f he.1 hρ hρ' h, interp_avoids a he.2 hρ hρ' h]
+  | .lam A b, Γ, ρ, ρ', he, hρ, hρ', h => by
+    have hstep : ∀ v : V, ∀ j < Γ.length + 1, ¬ S j →
+        (snoc ρ v) ‘ ((j : ℕ) : V) = (snoc ρ' v) ‘ ((j : ℕ) : V) := by
+      intro v j hj hS
+      rcases Nat.lt_or_ge j Γ.length with hlt | hge
+      · rw [hρ.read_lt hlt, hρ'.read_lt hlt]; exact h j hlt hS
+      · have : j = Γ.length := by omega
+        subst this
+        rw [hρ.read_top, hρ'.read_top]
+    have hGe := interp_avoids A he.1 hρ hρ' h
+    have hFe : ∀ v : V, (interp M L (A :: Γ) b).toFun (snoc ρ v)
+        = (interp M L (A :: Γ) b).toFun (snoc ρ' v) := fun v ↦
+      interp_avoids b (Γ := A :: Γ) he.2 hρ.snoc' hρ'.snoc' (hstep v)
+    by_cases hp : L.IsProof M (A :: Γ) b
+    · rw [interp_lam_proof M L hp, interp_lam_proof M L hp]
+    · rw [interp_lam_type M L hp, interp_lam_type M L hp]
+      exact mkLam_congr_arg hGe fun v _ ↦ hFe v
+  | .forallE A b, Γ, ρ, ρ', he, hρ, hρ', h => by
+    have hstep : ∀ v : V, ∀ j < Γ.length + 1, ¬ S j →
+        (snoc ρ v) ‘ ((j : ℕ) : V) = (snoc ρ' v) ‘ ((j : ℕ) : V) := by
+      intro v j hj hS
+      rcases Nat.lt_or_ge j Γ.length with hlt | hge
+      · rw [hρ.read_lt hlt, hρ'.read_lt hlt]; exact h j hlt hS
+      · have : j = Γ.length := by omega
+        subst this
+        rw [hρ.read_top, hρ'.read_top]
+    have hGe := interp_avoids A he.1 hρ hρ' h
+    have hFe : ∀ v : V, (interp M L (A :: Γ) b).toFun (snoc ρ v)
+        = (interp M L (A :: Γ) b).toFun (snoc ρ' v) := fun v ↦
+      interp_avoids b (Γ := A :: Γ) he.2 hρ.snoc' hρ'.snoc' (hstep v)
+    by_cases hp : L.IsProp M (A :: Γ) b
+    · rw [interp_forallE_prop M L hp, interp_forallE_prop M L hp]
+      exact mkForallProp_congr_arg hGe fun v _ ↦ hFe v
+    · rw [interp_forallE_type M L hp, interp_forallE_type M L hp]
+      exact mkForallType_congr_arg hGe fun v _ ↦ hFe v
+
+end Locality
 
 end Lean4Lean.SetModel
