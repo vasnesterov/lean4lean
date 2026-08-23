@@ -463,5 +463,50 @@ theorem IsDefEqU.sort_forallE_inv_of_defInv (henv : Ordered env) {Γ : List VExp
   let ⟨n, hc⟩ := h.stratifyN henv hΓ
   (dinv n).sort_forallE hc
 
+/-! ## Can `DefInv` be proved directly, without `uniq`?
+
+Asked because `uniq` is gone for `n ≥ 1` (`SubstCRefute`) while `DefInv` survives and is what
+the two reductions above actually need.  Attempted: the direct induction on the conversion
+derivation, all three clauses.  Everything closes except
+
+* **`trans`** — `.sort u ≡ₙ e ≡ₙ .sort v` with `e` arbitrary — for all three clauses;
+* **`proofIrrel`** — for all three clauses;
+* **`symm`, clause (2) only** — the IH lands `B ≡ B'` in context `A'::Γ` while the conclusion
+  is in `A::Γ`, so it wants context conversion at a preserved index.  That is the same family
+  as the refuted `SubstC` (at a `bvar 0` occurrence the context's new head type is reachable
+  only through a conversion, which raises the index), though it has not been refuted here.
+
+Of these, `proofIrrel` **is** improved by the index, and `sort_proofIrrel` below is the
+statement of that: unstratified, `Injectivity.lean`'s `proofIrrel` case needs `VEnv.SortUniq`
+— universe uniqueness for an *arbitrary* subject.  At the index it needs only clause (1)
+itself, on a different instance, and not even the `Prop`-ness premise.
+
+It still does not close, and the reason is worth recording so it is not re-attempted: the
+instance it recurses on is *not smaller*.  The derivation it builds has height
+`max(h₂,h₃) + O(1)` against the `proofIrrel` node's `max(h₁,h₂,h₃) + 1`, so the obvious
+well-founded measure gives `≤`, not `<`.
+
+And `trans` cannot even be *stated* as a residual hypothesis without new machinery: any
+formulation that avoids naming a reduction relation — e.g. "`Γ ⊢ₙ .sort u ≡ e` and
+`Γ ⊢ₙ e ≡ .sort v` give `u ≈ v`" — is equivalent to clause (1) itself, by `trans`.  Saying
+what is missing requires "`e` reduces to a sort", i.e. the κ-reduction of `unique.tex` §3.
+
+So: `DefInv` does not yield to a direct argument, and the machinery it needs is the same
+§§3–4 development in which the substitution obstruction was found at two further sites. -/
+
+/-- The `proofIrrel` case of clause (1), at the index: it reduces to clause (1) itself.
+
+Contrast `Theory/Typing/SortUniq.lean`'s `sort_not_proof`, which discharges the same case for
+the unstratified judgment but needs `VEnv.SortUniq`.  Here the two `sort` typings are inverted
+by `HasTypeN.sort_inv` and composed, and clause (1) finishes.  The `Γ ⊢ₙ p : .sort .zero`
+premise is not needed at all. -/
+theorem DefInv.sort_proofIrrel
+    (dinv1 : ∀ {Γ : List VExpr} {u v : VLevel}, env.IsDefEqN U n Γ (.sort u) (.sort v) → u ≈ v)
+    {Γ : List VExpr} {p : VExpr} {u v : VLevel}
+    (h2 : env.HasTypeN U n Γ (.sort u) p) (h3 : env.HasTypeN U n Γ (.sort v) p) :
+    u ≈ v :=
+  VLevel.succ_congr_iff.1
+    (dinv1 (IsDefEqN.trans' (HasTypeN.sort_inv h2).2 (IsDefEqN.symm' (HasTypeN.sort_inv h3).2)))
+
 end VEnv
 end Lean4Lean
