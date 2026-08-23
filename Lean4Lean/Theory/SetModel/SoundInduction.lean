@@ -52,6 +52,55 @@ theorem IsInaccessibleChain.le {m n : ℕ} {κ : ℕ → V} (h : m ≤ n)
   inaccessible i hi := H.inaccessible i (Nat.lt_of_lt_of_le hi h)
   mem i j hij hj := H.mem i j hij (Nat.lt_of_lt_of_le hj h)
 
+/-! ### The `Above` algebra
+
+`Above M P` is `∃ m, IsInaccessibleChain m M.κ → P`.  Only `pure` and `imp`
+existed, which is enough to *carry* a single wrapped fact and not enough to
+*combine* two — and combining is what any construction with more than one
+chain-dependent property needs.  `Above` is closed under conjunction because
+`IsInaccessibleChain` is downward closed, which is exactly what
+`IsInaccessibleChain.le` says. -/
+
+/-- **Two thresholds combine**, by taking the maximum. -/
+theorem Above.and {P Q : Prop} (hP : Above M P) (hQ : Above M Q) : Above M (P ∧ Q) := by
+  obtain ⟨m, f⟩ := hP
+  obtain ⟨k, g⟩ := hQ
+  exact ⟨max m k, fun hc ↦
+    ⟨f (hc.le (Nat.le_max_left m k)), g (hc.le (Nat.le_max_right m k))⟩⟩
+
+theorem Above.imp₂ {P Q R : Prop} (hP : Above M P) (hQ : Above M Q) (f : P → Q → R) :
+    Above M R := (hP.and hQ).imp fun h ↦ f h.1 h.2
+
+/-- Finitely many wrapped facts come under one threshold. -/
+theorem Above.forall_mem {α : Type*} : ∀ (xs : List α) {p : α → Prop},
+    (∀ x ∈ xs, Above M (p x)) → Above M (∀ x ∈ xs, p x)
+  | [], _, _ => Above.pure (by simp)
+  | x :: xs, p, h =>
+    ((h x (.head _)).and (Above.forall_mem xs fun y hy ↦ h y (.tail _ hy))).imp
+      fun ⟨hx, hxs⟩ y hy ↦ by
+        rcases List.mem_cons.1 hy with rfl | hy'
+        · exact hx
+        · exact hxs y hy'
+
+/-- **The step `docs/model-interface.md` §4 says needs an *unconditional*
+`interp_congr` — done with the wrapped one.**
+
+§4 argues that because a field's type is only *definitionally* block-free, one
+has to replace `F.type` by the block-free `A`, and that only an unconditional
+`⟦F.type⟧ = ⟦A⟧` licenses it.  The replacement it actually needs is this: a
+membership proved at `A` transported to `F.type`.  That is a `Prop`, so it
+passes through `Above` unchanged — the threshold from the congr and the
+threshold from the membership merge by `Above.and`, and nothing has to be
+unwrapped.
+
+So a wrapped `interp_congr` suffices for every *use*.  What it cannot do is
+supply *data*; see the note on `interpSig` in the ledger. -/
+theorem above_mem_congr {Γ : List VExpr} {e A A' : VExpr} {ρ : V}
+    (hρ : ρ ∈ interpCtx M L Γ) (hAA' : Above M (EqSound M L Γ A A'))
+    (h : Above M ((interp M L Γ e).toFun ρ ∈ (interp M L Γ A').toFun ρ)) :
+    Above M ((interp M L Γ e).toFun ρ ∈ (interp M L Γ A).toFun ρ) :=
+  hAA'.imp₂ h fun he hm ↦ (he ρ hρ) ▸ hm
+
 /-- **Soundness above a threshold.**  There is an `m`, determined by the
 derivation, such that any chain of `m` inaccessibles validates the judgement. -/
 def SoundAbove (M : ModelData V) (L : LevelAssign envF nv)

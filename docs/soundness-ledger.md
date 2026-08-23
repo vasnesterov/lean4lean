@@ -1614,6 +1614,76 @@ That is a design question for whoever takes the bridge, and it is better asked
 now than discovered after `interpSig` is written. The second blocker,
 `NoBlock.indep`, is untouched and is genuinely syntax-side.
 
+## Settled: `interpSig` can be formulated wrapped-only. No unconditional `interp_congr` is needed.
+
+The question was whether `interpSig` can be written so it only ever *uses* the
+`Above`-wrapped `interp_congr`, or whether it genuinely needs an unconditional
+one. **It can. The split is data versus properties, and it falls on the right
+side of the line.**
+
+### Why: the oracle's *values* are unconditional, its *properties* are not
+
+`cnstOf`'s `.induct` line is `oracleExtend o D.allNames …`, and `o : Name →
+List VLevel → V` is a plain function parameter — **data, supplied with no chain
+in sight.** So an inductive's constructor and recursor *values* have to be
+actual sets, defined unconditionally. That rules out the tempting shape
+`Above M (∃ S : IndSignature V, …)`: you cannot extract data from an `Above`.
+
+But `OracleOK`'s own two fields are **already** `Above`-wrapped
+(`Cnst.lean:183–186`), as are `Coherent`'s four and the pair
+`coherentOn_addDefEqFold` consumes. So every *property* of the signature may be
+wrapped, and every consumer already expects it that way.
+
+The split is therefore:
+
+| piece | status | why |
+|---|---|---|
+| `interpSig D hD levels params : IndSignature V` | **unconditional data** | its fields are `⟦A⟧` for the block-free `A` that `VIndCtor.WF`'s `pos` clause provides; extracting `A` is `Classical.choice` on `∃ A, D.NoBlock A ∧ IsDefEqType … F.type A` (`Decl.lean:288`), a **chain-free** existential |
+| `Fld_definable` and friends (bundled in the structure) | **unconditional** | definability of `⟦A⟧` is `(interp …).definable`; no congr |
+| `interpSig_stage`, `interpSig_wf`, the `⟦ctorType⟧` connection | **`Above`-wrapped** | all `Prop`s, and every consumer takes `Above` |
+
+### What §4 actually needs, and it is not what it says
+
+`docs/model-interface.md` §4 says "**Without `interp_congr` there is no first
+step at all**, so `interp_congr` has to be stated and proved before
+`interpSig_wf` can even be stated." That **conflates defining with relating.**
+`Fld q` is *defined* from `A`; knowing `⟦F.type⟧ = ⟦A⟧` is never needed to write
+the definition down. It is needed only to carry a membership proved at `A` over
+to `F.type`, which is a `Prop`.
+
+That step is now machine-checked in the wrapped form: `above_mem_congr`
+(`SetModel/SoundInduction.lean`) transports a membership across a definitional
+change of type entirely inside `Above` — the congr's threshold and the
+membership's threshold merge, and nothing is ever unwrapped.
+
+### The algebra that made it possible, and that was missing
+
+`Above` had only `pure` and `imp` — enough to *carry* one wrapped fact, not
+enough to *combine* two, which is what any construction with several
+chain-dependent properties needs. Added, all sorry-free:
+
+* `Above.and` — two thresholds merge by `max`, because `IsInaccessibleChain` is
+  downward closed (`IsInaccessibleChain.le`);
+* `Above.imp₂`;
+* `Above.forall_mem` — finitely many wrapped facts come under one threshold,
+  which an inductive block needs, one obligation per constructor.
+
+### Price of the alternative, if anyone still wants it
+
+An unconditional `interp_congr` would require de-`Above`-ing soundness, and
+`SoundInduction.lean`'s header already explains why that cannot be done by
+bounding the chain: a derivation's premises can need arbitrarily higher
+inaccessibles than its conclusion, so no bound on the conclusion is inherited,
+and the bound cannot be moved onto `L` either since `L.lvl Γ (.sort k) = k+1`
+for every `k`. Getting it would mean a model with a proper class of
+inaccessibles, or a reflection argument — **a change to the model's
+foundational hypothesis, not a lemma.** Against that, the wrapped route costs
+three combinators and a transport lemma, all now built.
+
+**Recommendation: build `interpSig` unconditionally, keep every property
+wrapped, and do not weaken `WF.pos` to a syntactic `NoBlock`.** The remaining
+genuine blocker is `NoBlock.indep`, which is syntax-side and untouched.
+
 ### Caveat left standing: the all-levels quantification
 
 `quotDefEq_ok` takes `hEq`, `hcnst`, `hcnstMk` and `hcnstL` quantified over
