@@ -15,6 +15,7 @@ cached copy, stop and re-read this one.
 | `SortForallEDisjoint` | **one open case, and likely true.** Six of seven typing cases close from `DefInv` alone; only `AppCase` remains, and a refutation is *provably impossible* at the model's own witness (§9). **Satisfiable** (`SortForallEDisjoint.zero`). **The hereditary shape agreement proposed for `AppCase` is now closed both ways** — as disjointness it is *equivalent* to the statement itself, as agreement it is *false* (§9, machine-checked). `AppCase` is the statement's own fixpoint. **The `common_sort` lead is now closed too (§11)** — the route has no untried idea left in this neighbourhood. |
 | `PropUniq`, `SortUniq` | **in the normalisation family, and no model route.** Both fail the criterion's `trans` test; `SortUniq` is refuted as a semantic consequence by the cumulativity check, and the model is parameterised on it. |
 | `unique.tex` §§3–4 at the index (the reduction relation §8 asks for) | **closed (§12).** Its two substitution lemmas — and a third site nobody had counted — all need `SubstT`, substitution into a *typing* at a preserved index. That is a different statement from the already-refuted `SubstC`, and it is **also false**, machine-checked (`SubstTRefute.lean`). |
+| the model route (`docs/thesis-architecture.md` §8) | **closed at its row zero (§15).** Item 2 (the Prop-shadow of the `app` case) removes `SubstC` and buys `InstLvl` + `PropUniq` instead; item 1 (stratified regularity, two-typing form) is **machine-checked false**, by a witness that avoids this tree's `rfl` deviation. The stage-`n+1` obligations have no admissible order. |
 | the reference | **three documented defects**: two in §2 (one machine-checked, one a reading result with a repair) and `thm:ckappa`'s base case, machine-checked (§12). |
 
 The obstruction was diffuse and is now two named statements. What the route produced beyond
@@ -49,6 +50,13 @@ Two things a fresh reader will otherwise re-derive:
    there. And the re-cut §13(b) asks for would not help: `sort_inv`'s `proofIrrel` case is
    live **over the empty environment**, from the context alone. Do not re-run either check
    without reading §14.
+5. **The model route of `docs/thesis-architecture.md` §8 is closed at its own row zero —
+   §15, machine-checked.** Its item 2 (the Prop-shadow of `thm:utype`'s `app` case) does
+   remove `SubstC`, and does not close: it buys two new statements instead. Its item 1
+   (stratified regularity in the two-typing form), which that document calls "the whole
+   route's row zero", is **false** — `Theory/Typing/PropShadow.lean`, by a witness that avoids
+   this tree's `rfl` deviation and therefore transfers to the reference. Do not re-open §8
+   without reading §15; the trap it cost is #17.
 
 The general rule the previous handoff drew — *necessity has to be checked against the
 specification, not the tree* — held up and then paid again in the opposite direction: this
@@ -60,8 +68,9 @@ underivability result holds a fortiori for the reference.
 
 ## 1. What is proved, sorry-free
 
-All `#print axioms` clean: `propext` and `Quot.sound` only. No `sorryAx`, no `native_decide`,
-no `bv_decide`, no axiom added.
+All `#print axioms` clean: `propext` and `Quot.sound` only, plus `Classical.choice` in the two
+`PropShadow.lean` entries that go through `VLevel.imax_eq_zero`. All three are on `Guard.lean`'s
+whitelist. No `sorryAx`, no `native_decide`, no `bv_decide`, no axiom added.
 
 | Name | File | What |
 |---|---|---|
@@ -86,6 +95,8 @@ no `bv_decide`, no axiom added.
 | `HasTypeStrong.regular`, `HasTypeStrong.sortType` | `Typing/UnivDiscrim.lean` | **regularity is free in the type-indexed judgment** — no `Ordered`, no `OnCtx`, no `CtxStrong`, no hypothesis at all. Contrast `IsDefEqStrong.isType'`, which needs all three |
 | `SortForallEDisjointSUniv.iff` | `Typing/UnivDiscrim.lean` | the universe-relativised statement **is** the statement — trap #11 in a new instance |
 | `appCase_ih_vacuous` | `Typing/UnivDiscrim.lean` | the `app` case's induction hypothesis at `f` is *vacuously true*, provable from `DefInv` with the sub-derivation unused |
+| `app_shadow_arith`, `app_shadow_of`, `InstLvl`, `PropUniq`, `LvlConvInv`, `lvlConvInv_of_defInv_sort` | `Typing/PropShadow.lean` | the Prop-shadow of `thm:utype`'s `app` case: **the arithmetic closes without `SubstC`**, and the case's remaining price, named — §15.1 |
+| `regularity_two_typing_false`, `tyRhs_not_hasType0`, `trans_derivation_with_untyped_middle` | `Typing/PropShadow.lean` | **the model route's row zero is false**: a `⊢₁` conversion between two Π-*types* whose right endpoint has no `⊢₀` universe — §15.2 |
 | `loop_conv_iff`, `loopEnv_conv_iff`, `sort_inv_transfer` | `Typing/CycleConv.lean` | **the δ-cycle of `LogRelRowZero.lean` adds no conversions** — `loopEnv`'s conversion relation *is* that of `loopEnv2`, which has no rule at all; so the six targets there are the targets at a cycle-free environment (§14) |
 | `loopEnv2_wf_noUnsafe`, `loopEnv2_no_defeqs` | `Typing/CycleConv.lean` | …and `loopEnv2` is `VEnv.WF` by two `.axiom` steps, `noUnsafe`, rule-free |
 | `empty_ctx_inconsistent` | `Typing/CycleConv.lean` | **the `proofIrrel` obstruction is not an environment fact**: `sort_inv`'s own hypotheses inhabit every proposition over `VEnv.empty`, from the context |
@@ -1070,3 +1081,135 @@ axioms, installable by `.def` and `.axiom` steps, both `noUnsafe`; `SubstCRefute
 `SubstTRefute` are over `VEnv.empty`. The one thing that *does* go vacuous is any statement
 whose only witness is `loopEnv` — and by §14.2 that witness was never doing the work
 attributed to it.
+
+---
+
+## 15. The model route (`docs/thesis-architecture.md` §8) — its row zero is refuted
+
+`Theory/Typing/PropShadow.lean` (new, sorry-free, `[propext, Classical.choice, Quot.sound]`).
+Two checks, run in the order `docs/thesis-architecture.md` §8 prescribes.
+
+### 15.1 The Prop-shadow of `thm:utype`'s `app` case (§8 item 2)
+
+§8 item 2 was the one genuinely untried idea that reading produced: `thm:utype`'s `app` case
+needs only `lvl(B₀.inst a) ≈ 0 ↔ lvl(B₁.inst a) ≈ 0`, and `imax ℓ₁ ℓ₂ ≈ 0 ↔ ℓ₂ ≈ 0`, so the
+shadow of the case might close from `DefInv` clause (1) alone.
+
+**Machine-checked, the positive half** (`app_shadow_arith`): from the induction hypothesis at
+`f` in shadow form, the two *codomain universes* `v₀`, `v₁` agree on propositionhood.  It uses
+**no `DefInv` clause, no `SubstC`, and nothing about the argument `a`**.  So the answer to the
+literal question is: **the case does not need `SubstC`.**
+
+**And it does not close.**  The case is about the universes of `B₀.inst a` and `B₁.inst a`,
+while `v₀`, `v₁` are the universes of `B₀`, `B₁` *under the binder*.  `app_shadow_of` (also
+machine-checked) is the case in full, and it prices the gap at two new statements, neither of
+them `SubstC` and neither of them `DefInv` clause (1):
+
+| statement | what it is | status |
+|---|---|---|
+| `InstLvl` — `Γ ⊢ₙ a : A`, `A::Γ ⊢ₙ B : .sort v` ⟹ `Γ ⊢ₙ B.inst a : .sort v` | `SubstT` at **depth 0** with a **closed** target type | **not refuted, not proved.** `SubstTRefute`'s witness is at depth 1; `SubstCRefute`'s witness *satisfies* it (`substCRefute_witness_satisfies_instLvl`). Only `m = 0` is reachable (`InstLvl.of_hasTypeN_zero`) |
+| `PropUniq` at subject `B₀.inst a` | §5's second model import | in the `sort_inv` family, **and the subject is not a subterm** of `.app f a`, so the running induction cannot supply it |
+
+**And the *other* cases do not close either**, which §8 item 2 did not price.  In the full
+statement every non-`app` case closes by `trans` on the shape-determined type; in the shadow
+the shape-inversion lemmas deliver `Γ ⊢ₙ T ≡ A`, a *conversion*, and a universe has to be
+carried across it.  That is `LvlConvInv` (named in the file).  Its *sort* instance is free from
+`DefInv` clause (1) — `lvlConvInv_of_defInv_sort`, and in the strong form `u ≈ u'` — which is
+precisely why the shape cases do **not** reduce to clause (1): they need it at an arbitrary
+type.
+
+*Trap #10, third instance.* "The app case needs only the shadow" is true of the *arithmetic*
+and false of the *case*.  The shadow weakens the conclusion of `thm:utype`, and weakening the
+conclusion also weakens what every `trans`/`conv` step can transport — so the cases that were
+free in the full statement stop being free.  **A weakening is not automatically a weakening
+uniformly across an induction.**
+
+### 15.2 §8 item 1 — "the whole route's row zero" — is FALSE
+
+    Γ ⊢ₙ₊₁ e ≡ e' → (∃A, Γ ⊢ₙ e : A) ∧ (∃A', Γ ⊢ₙ e' : A')
+
+`regularity_two_typing_false`, at `n + 1 = 1` over `VEnv.empty`.  Note this is the *two-typing*
+form §8 item 1 explicitly proposed **as the repair** for `sorts_no_common_hasType0`'s
+common-type form ("Not the common-type form — that *is* unique typing").  The repair is
+refuted; the common-type form was already refuted in §12.
+
+    A₁ := .sort (max p p)      A₂ := .sort p           (max p p ≈ p, A₁ ≠ A₂ syntactically)
+
+    [] ⊢₁ .lam A₁ (.bvar 0)  ≡  .lam A₂ (.app (.lam A₁ (.bvar 0)) (.bvar 0))
+
+`sortDF` on the domains, `symm (beta …)` on the bodies, closed by `lamDF`.  The right endpoint
+has no `⊢₀` type (`rhs_not_hasType0`): typing it wants `.bvar 0` at the λ's *annotated* domain
+`A₁` while `Lookup` gives `A₂`, and `≡₀` is syntactic equality.
+
+Four properties make it decisive rather than an artifact, and each was checked:
+
+* **it does not use this tree's one deviation from the reference.**  `Stratified.rfl` is
+  unconditional here while `axioms.tex:31`'s `refl` carries a typing premise, so a witness
+  built from `rfl` at a junk term would prove nothing about the reference.  This one uses
+  `sortDF`, `beta`, `symm`, `lamDF` — verified against `axioms.tex:30–41` to have identical
+  premises there;
+* **the left endpoint *is* `⊢₀`-typeable** (`lhs_hasType0`), so it is not a well-formedness
+  accident spoiling the whole conversion;
+* **both endpoints are `⊢₁`-typeable** (`rhs_hasType1`), so what fails is exactly the index
+  *drop* the route needs;
+* **it survives at the level of types**, which is what `lvl` is defined on: replacing `lamDF`
+  by `forallEDF` — same premises — gives two Π-*types*, the left with a `⊢₀` universe
+  (`tyLhs_hasType0`), the right with a `⊢₁` universe (`tyRhs_hasType1`) and **no `⊢₀` universe
+  at all** (`tyRhs_not_hasType0`).  The context is `[]`, so the witness also survives
+  `soundness.tex:376`'s `⟦Γ⟧ ≠ ∅` side condition.
+
+### 15.3 What this does to the route: the stage-`n+1` obligations have no admissible order
+
+`docs/thesis-architecture.md` §5 fixes the order — (4) at `n+1` first, then (1) and clause (3),
+then (2) — and shows (2) at `n+1` is blocked by `SubstC`.  15.2 closes the other end.
+
+* **(4) before (2)**, the prescribed order, needs the *stage-`n`* interpretation to be defined
+  on the endpoints of a `⊢ₙ₊₁` conversion.  `tyRhs_not_hasType0` says it is not.  The reasoning
+  that made the order look safe — "a `⊢ₙ₊₁` conversion's typing premises are `⊢ₙ`, so the terms
+  it relates are interpretable by the stage-`n` model" — is about a **rule's premises**, while
+  the obligation is about a **conversion's endpoints**.  The witness separates the two.
+* **(2) before (4)**, i.e. build the stage-`n+1` interpretation first, is §5's blocked branch.
+
+The restriction that would save the first branch — state (4) only for conversions whose
+endpoints happen to be `⊢ₙ`-typed — loses exactly what the route existed for.
+`trans_derivation_with_untyped_middle` is a `⊢₁` derivation both of whose endpoints have `⊢₀`
+universes and whose `trans` node's middle term has none, so the restricted statement does not
+compose at `trans` — and `trans` is what §4 calls the model route's "real leverage".
+
+**Net: `docs/thesis-architecture.md`'s §8 list is closed at items 1 and 2, and items 3–5 are
+gated behind them.  The reference is closed as a source of a plan.**  §4's observation stands
+and is worth keeping — a model *does* give sort injectivity without confluence, at any index
+where it can be built — but nothing builds it above `n = 0`.
+
+### 15.4 Confidence, kept apart
+
+* **Machine-checked** (`Theory/Typing/PropShadow.lean`, sorry-free): `app_shadow_arith`;
+  `app_shadow_of`; `lvlConvInv_of_defInv_sort`; `InstLvl.zero`, `InstLvl.of_hasTypeN_zero`,
+  `substCRefute_witness_satisfies_instLvl`; `regularity_two_typing_false` and its `'` form;
+  `lhs_hasType0`, `rhs_hasType1`, `rhs_not_hasType0`, `tyLhs_hasType0`, `tyRhs_hasType1`,
+  `tyRhs_not_hasType0`, `trans_middle_has_no_stage_universe`,
+  `trans_derivation_with_untyped_middle`.
+* **Analysis** (not machine-checked): that the 15.2 witness transfers to the reference.  Two
+  directions were checked by hand against `axioms.tex:30–41`: the rules used have identical
+  premises there, and the non-typeability argument is pure inversion on rule *shapes*, so the
+  reference's extra permissiveness (its `lam` typing rule omits `Γ ⊢ α : 𝒰_ℓ`, which this tree
+  carries) opens no additional route — the argument turns on the variable rule and the
+  annotation, not on the dropped premise.  Its weakening rule cannot apply at `Γ = []`.
+* **Analysis:** that the shadow's non-`app` cases all reduce to `LvlConvInv`.  The reduction
+  was worked case by case on paper against the six `HasTypeN.*_inv` lemmas; it was not built,
+  because 15.2 makes the statement it feeds unreachable.
+* **Not established, and not claimed:** that part (4) of the joint induction is *false*; that
+  §8 item 1's statement fails for `n ≥ 1` (for `n ≥ 1` this witness is `⊢ₙ`-typeable, since
+  `sortDF` is then available inside a `⊢ₙ` typing, and no general-`n` witness was built — the
+  obstruction to lifting it is that inverting `.forallE A B ≡₁ .forallE C D` needs `DefInv`
+  clause (2) at `1`); that `InstLvl` is false; that `PropTypeAgree` or `SortForallEDisjoint`
+  are affected — they are not, and §5 and §9 stand unchanged.
+
+### 15.5 The trap this added
+
+17. **A rule's premises are not a derivation's endpoints.**  "`⊢ₙ₊₁` conversions have `⊢ₙ`
+    typing premises, so their terms are `⊢ₙ`-typed" is false, and it is the load-bearing step
+    of an entire route.  The premise-free rules (`sortDF`, `lamDF`, `forallEDF`, and the
+    reference's `symm`/`trans`) build conversions whose *conclusions* mention terms no premise
+    ever typed.  Before relying on "the judgment carries its typings", check the rules that
+    carry none.
