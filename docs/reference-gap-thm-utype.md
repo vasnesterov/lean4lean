@@ -344,14 +344,75 @@ Church–Rosser proof — fails on it.
 
 **Scope, again.** This says the *bullet's argument* is wrong and that the *lemma as stated*
 appears false for `Prop`-quotients with large elimination. It does not say Church–Rosser is
-false; the lemma may be repairable by restricting `≡ₚ`'s `lift` compatibility rule, or by
-handling the case as the reference handles other proof-irrelevance collisions. Nothing here
-is machine-checked.
+false. Nothing in this section is machine-checked.
+
+### 11.1 Is the bullet's argument invalid? — **Yes, settled, and separably from the rest**
+
+`Quot.lift {α : Sort u} {r : α → α → Prop} {β : Sort v}` — `u` and `v` are independent.
+Verified twice: `~/lean4/src/Init/Prelude.lean:442–443`, and this repo's own spec, where
+`Theory/Quot.lean`'s `quotLiftConst` is `type_of% @Quot.lift` and adds no constraint. So from
+"the quotient is a `Prop`" one gets that its *source* `α` is a `Prop`, and nothing whatever
+about the *output* `β`. The bullet's "then `β : P`" does not follow, independently of whether
+the lemma survives by another route. **The published argument for this case is invalid.**
+
+### 11.2 Does a repair work? — **Yes, and it is the reference's own device**
+
+The repair is *not* the one first suggested here (restricting `≡ₚ`'s `lift` compatibility
+rule). That would be wrong-headed: `≡ₚ` has to be large enough for `thm:ckappa`, and in a
+spine encoding `lift`-compatibility is just application congruence.
+
+The right repair is to **extend `↝ᵏ`/`≫ᵏ` with a `K⁺` rule for `Prop`-quotients**, exactly
+parallel to the one `unique.tex:103` already gives subsingleton inductives:
+
+    (P SS, Γ ⊢ intro inv[p,h] : α) / rec_P C e p h ↝ᵏ e inv[p,h] v          -- reference's
+    (Quot R : P, Γ ⊢ mk_R (inv q) : Quot R) / lift R β f h q ↝ᵏ f (inv q)   -- the analogue
+
+and every clause of the reference's own justification transfers verbatim:
+
+* *`inv` exists.* `unique.tex:109` needs `intro inv[p,h] ≡ h` by proof irrelevance; here
+  `mk_R (inv q) ≡ q` holds for the same reason, both inhabiting `Quot R : P`. And `inv` is
+  definable: with `α : P`, every `f : α → α` respects `R`, so `inv q := lift R α (fun a => a)
+  _ q`.
+* *`inv`'s reduction behaviour is irrelevant.* `unique.tex:109` says of its own `inv` that
+  "it doesn't really matter if these terms reduce or not … since they are proofs and are thus
+  going to be pushed into the proof irrelevance relation". `inv q : α : P` is a proof. Same
+  sentence, same reason.
+* *The failing case then closes.* `lift R β f h q ≫ᵏ f' (inv q)'`, and
+  `f' (inv q)' ≡ₚ f' a₃'` by application congruence with `(inv q)' ≡ₚ a₃'` by proof
+  irrelevance, both inhabiting `α : P`.
+* *`thm:tri` and `thm:gg_compat` already carry a rule of this shape* — the reference threads
+  its inductive `K⁺` through both (`:208–213`), so the new case has a template.
+
+And the reference *knows* the situation exists: `typesys.tex:50` says of `Prop`-quotients that
+"`lift` acts like a subsingleton eliminator in this case". Its §3 rule set does not act on
+that sentence. **So this is a missing case in a rule set, not an obstruction** — the same
+species of defect as §§1–10, one level down.
+
+Note what the repair does *not* touch: Lean's kernel does not reduce `Quot.lift f h q` for a
+variable `q`, and it does not need to. `↝ᵏ`/`≡ₚ` are analysis devices for the *ideal* `≡`;
+only `⇔ ⊆ ≡` is required of the kernel.
+
+### 11.3 What would settle the counterexample mechanically — **bounded, ~300–450 lines**
+
+Not decision-critical any more (11.2 makes the gap repairable), but scoped as asked.
+
+The negative half needs *complete* definitions of both relations — an under-approximated
+`≫ᵏ` would under-count reducts and make the refutation unsound. That looks expensive, and it
+is not, for one reason: **choose an environment with no inductive types.** With only
+`Theory/Quot.lean`'s `addQuot` constants and `quotDefEq`, the inductive `ι` and `K⁺` rules are
+vacuous and both relations collapse to about twelve constructors — `≫ᵏ`: var, λ, app, ∀, β,
+`ι_q`; `≡ₚ`: refl, λ, app, ∀, two `η`, proof irrelevance. Then two inversion lemmas, of the
+same shape as `SubstCRefute.stuck`: a `lift`-spine reduces only componentwise, and no
+`lift`-spine is `≡ₚ` a variable applied to an argument.
+
+No other stream's files, no `Theory/` definition change — it would be a new file under
+`Theory/Typing/`, defining the two relations for the refutation only.
 
 **Why it matters for planning.** `:180` was the third of the three sites where §§3–4 needs
 unique typing, and the one that decided between two candidate repairs
-(`docs/options-circularity-breakers.md`). It cannot be discharged as written, because as
-written it does not go through.
+(`docs/options-circularity-breakers.md`). It cannot be discharged *as written* — 11.1 settles
+that. But 11.2 means §§3–4 is repairable rather than dead, so the ranking established after
+the `:180` check stands.
 
 ---
 

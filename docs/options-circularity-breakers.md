@@ -124,10 +124,12 @@ unstratified means proving `uniq` unstratified, which is `thm:unique` itself —
 
 *And it is worse than that: the site is not correct as written.*  See
 `reference-gap-thm-utype.md` §11 — the bullet concludes that the lift's **output** type is a
-`Prop`, which does not follow, and the reference's own `typesys.tex:50` configuration is a
-counterexample to the lemma the bullet is proving.  So the third site cannot be discharged
-*as written* because it does not go through; it needs re-derivation before its dependence on
-unique typing can even be assessed.
+`Prop`, which does not follow (settled, §11.1), and the reference's own `typesys.tex:50`
+configuration is a counterexample to the lemma the bullet is proving.  §11.2 supplies the
+repair — a `K⁺` rule for `Prop`-quotients, the reference's own device for subsingleton
+eliminators — so §§3–4 is repairable rather than dead, and the site's re-derivation is a
+known quantity rather than an open one.  It still needs unique typing afterwards, which is
+what sinks *this* candidate.
 
 **Verdict: do not build.**  Two of three sites reduce; the third does not, and is broken.
 The number that made this candidate attractive — three — is right, but one of the three is
