@@ -572,5 +572,69 @@ theorem forallENotProof_of (dinv : env.DefInv U n) (pta : env.PropTypeAgree U n)
   have h4 : IsPropN env U n Γ (.sort (.imax u v)) := pta h2 (.forallE hu hv hA hB) h1
   exact absurd (congrFun (dinv.sort (HasTypeN.sort_inv h4).2) []) (by simp [VLevel.eval])
 
+/-! ## Is `PropTypeAgree` closable at the index? — **No: one new primitive is needed**
+
+Three of its open cases were characterised as blocked.  They are **two** obstructions, not one
+and not three, and the split is machine-checked below.
+
+* **`forallEDF`** wants **context conversion at a preserved index** — `A::Γ ⊢ₙ B' : .sort .zero`
+  transported to `A'::Γ` along `A ≡ₙ A'`.  Its induction drops an index exactly as
+  `SubstC` does (the conversion is available at `n+1`, the typing premises want it at `n`), so
+  it is in the family refuted in `Theory/Typing/SubstCRefute.lean`, and by the arithmetic in
+  `docs/options-circularity-breakers.md` a rule cannot repair it.
+
+* **`proofIrrel` is a self-reference; `eta` is a new statement.**  These look alike and are
+  not.  `proofIrrel`'s residual is exactly `PropNotProof`, and `propNotProof_of` shows that is
+  an *instance of `PropTypeAgree` itself* — so it is the same statement at a different
+  subject, with the measure giving `≤` not `<`.  `eta`'s residual is exactly
+  `SortForallEDisjoint`, which is **not** an instance of `PropTypeAgree`: it is a separate
+  weakening of unique typing, about a term's types being a sort versus a Π rather than about
+  propositionhood.
+
+So `PropTypeAgree` is **not self-sufficient**.  The primitive to route or fund is
+`SortForallEDisjoint`.  It passes the cumulativity check — cumulativity retypes at sorts and
+never gives a Π-typed term a sort type — so unlike `SortUniq` it is not excluded from a
+semantic argument in principle; whether a *model* can supply it is a separate question, since
+`Theory/SetModel/` remains parameterised on `LevelAssign` (see `Typing/SortUniq.lean`). -/
+
+/-- **The primitive `PropTypeAgree` needs and does not contain**: no term has both a sort type
+and a Π type.  `eta`'s case of `PropTypeAgree` is exactly this and nothing else. -/
+def SortForallEDisjoint (env : VEnv) (U n : Nat) : Prop :=
+  ∀ {Γ : List VExpr} {e A B : VExpr} {u : VLevel},
+    env.HasTypeN U n Γ e (.sort u) → env.HasTypeN U n Γ e (.forallE A B) → False
+
+/-- No term is both a proposition and a proof.  `proofIrrel`'s case of `PropTypeAgree` is
+exactly this — and `propNotProof_of` below shows it is `PropTypeAgree` itself at another
+subject, so that case is self-reference rather than a missing statement. -/
+def PropNotProof (env : VEnv) (U n : Nat) : Prop :=
+  ∀ {Γ : List VExpr} {e p : VExpr},
+    env.HasTypeN U n Γ e (.sort .zero) → env.HasTypeN U n Γ p (.sort .zero) →
+    env.HasTypeN U n Γ e p → False
+
+/-- `eta`'s case closes from `SortForallEDisjoint` and `DefInv`, and needs nothing else. -/
+theorem PropTypeAgree.eta_case (dinv : env.DefInv U n) (hd : env.SortForallEDisjoint U n)
+    {Γ : List VExpr} {A B e : VExpr} (he : env.HasTypeN U n Γ e (.forallE A B)) :
+    (IsPropN env U n Γ (.lam A (.app e.lift (.bvar 0))) ↔ IsPropN env U n Γ e) := by
+  refine ⟨fun hp => ?_, fun hp => absurd (hd hp he) not_false⟩
+  obtain ⟨_, _, _, _, hcc⟩ := HasTypeN.lam_inv hp
+  exact absurd (IsDefEqN.symm' hcc) dinv.sort_forallE
+
+/-- `proofIrrel`'s case closes from `PropNotProof`, and needs nothing else. -/
+theorem PropTypeAgree.proofIrrel_case (hnp : env.PropNotProof U n)
+    {Γ : List VExpr} {p h h' : VExpr}
+    (h1 : env.HasTypeN U n Γ p (.sort .zero))
+    (h2 : env.HasTypeN U n Γ h p) (h3 : env.HasTypeN U n Γ h' p) :
+    (IsPropN env U n Γ h ↔ IsPropN env U n Γ h') :=
+  ⟨fun hp => absurd (hnp hp h1 h2) not_false, fun hp => absurd (hnp hp h1 h3) not_false⟩
+
+/-- **The split, machine-checked:** `PropNotProof` *is* `PropTypeAgree` at another subject, so
+`proofIrrel` is self-reference.  There is no corresponding derivation for
+`SortForallEDisjoint`, which is why that one is a genuinely missing primitive. -/
+theorem propNotProof_of (dinv : env.DefInv U n) (pta : env.PropTypeAgree U n) :
+    env.PropNotProof U n := by
+  intro Γ e p hep hp hepp
+  have := pta hepp hep hp
+  exact absurd (congrFun (dinv.sort (HasTypeN.sort_inv this).2) []) (by simp [VLevel.eval])
+
 end VEnv
 end Lean4Lean

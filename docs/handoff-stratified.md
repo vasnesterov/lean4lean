@@ -232,6 +232,36 @@ machine-checked.*
 in the *induction* — and the measure gives `≤`, not `<`, as at `DefInv.sort_proofIrrel`.
 Attack it separately, not inside the induction. *Analysis.*
 
+### Is `PropTypeAgree` closable at the index? — **No. One new primitive is needed.**
+
+Settled, machine-checked. The three characterised cases are **two** obstructions, not one and
+not three:
+
+* **`forallEDF`** wants **context conversion at a preserved index**, and its induction drops
+  an index exactly as `SubstC` does — the conversion is available at `n+1`, the typing
+  premises want it at `n`. Same family as the refutation in §2a, and by the arithmetic in §3
+  a rule cannot repair it.
+* **`proofIrrel` and `eta` look alike and are not.** `proofIrrel`'s residual is exactly
+  `PropNotProof`, and `propNotProof_of` derives that *from `PropTypeAgree` itself* — the same
+  statement at another subject, measure `≤` not `<`, so it is self-reference.  `eta`'s
+  residual is exactly `SortForallEDisjoint`, and there is **no** such derivation: it is a
+  separate weakening of unique typing, about a term's types being a sort versus a Π rather
+  than about propositionhood.
+
+**The primitive, named:**
+
+    SortForallEDisjoint env U n :
+      Γ ⊢ₙ e : .sort u  →  Γ ⊢ₙ e : .forallE A B  →  False
+
+`PropTypeAgree.eta_case` and `PropTypeAgree.proofIrrel_case` (landed, sorry-free) show each
+case closes from its residual and nothing else, so this is the precise obligation, not a
+description of a gap.
+
+It **passes the cumulativity check** — cumulativity retypes at sorts and never gives a Π-typed
+term a sort type — so unlike `SortUniq` it is not excluded from a semantic argument in
+principle. Whether the *model* can supply it is a separate question, since `Theory/SetModel/`
+remains parameterised on `LevelAssign`.
+
 **Unstratified is worse here, not better, and the reason is a port artifact.** The `sortDF`
 case needs a typing inversion for sorts, and unstratified that is
 `HasTypeStrong.sort_type` — which *provably takes `SortUniq` as a hypothesis*, because this
