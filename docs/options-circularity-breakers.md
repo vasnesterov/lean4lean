@@ -247,3 +247,59 @@ Four row-zero checks, three of which changed a funding decision and none of whic
 than a session. The last one — this one — was flagged as unpriced from the first round and
 was the only thing between the plan and a build; running it before the expensive context
 machinery is what kept that machinery from being written into an obstructed development.
+
+---
+
+## After the `:180` thread and candidate 4: the obstruction reduces to one statement
+
+Two checks were run after the table above. Both landed, and together they replace "three
+independent closure points" with something much sharper.
+
+### The repaired `:180` site does **not** need unique typing
+
+*Reading result about a **repaired** rule set — two steps from anything machine-checked, and
+the lowest-confidence item in this document. Labelled accordingly.*
+
+The original bullet's `uniq` was in service of the invalid `β : P` step (`reference-gap-thm-utype.md`
+§11.1). With the quotient `K⁺` rule (§11.2), the case is discharged by a different route that
+needs no unique typing at all:
+
+* `e₁ = lift α₁ R₁ β₁ f₁ h₁ q₁ ≫ᵏ f₁' a₃'`, taking the reconstructed parameter `b := a₃`.
+  The reference's own inductive `K⁺` explicitly permits this: `unique.tex:154` says
+  "the `≡ₚ` hypothesis in the `ι` rule allows some freedom of choice of the parameters `b`".
+* Its side conditions are a *typing* (`Γ ⊢ₙ mk_{R₁} a₃ : Quot R₁`, from `a₃ : α₃` and
+  `α₁ ≡ α₃` by conversion) and a `≡` judgment (`mk_{R₁} a₃ ≡ q₁`, from `q₁ ≡ₚ mk_{R₃} a₃` plus
+  congruence) — exactly the form `unique.tex:107` already uses for the inductive `K⁺`.
+* Then `f₁' a₃' ≡ₚ f₃' a₃'` by application congruence, from the induction hypothesis on
+  `f₁ ≡ₚ f₃`.
+
+So the one site that needed `uniq` on an *arbitrary* subject is eliminated. Of the three,
+`:266` needs only `DefInv` clause (1) (`DefInv.sort_proofIrrel`, machine-checked), and `:272`
+plus clause (3)'s `proofIrrel` case need **"a sort is not a proof" and its Π analogue**.
+
+### Candidate 4 is blocked, and by the same fact the cumulativity check predicted
+
+`Theory/SetModel/` is parameterised throughout on `(L : LevelAssign env nv)` — `InterpSound.lean`
+carries it in every section — and **nothing in the directory constructs one**. `LevelAssign`'s
+`srt_sound` field *is* `SortUniq` restated; `Interp.lean`'s own `srt_uniq` docstring says so.
+
+So "get `sort_not_proof` from the model" presupposes a `LevelAssign`, which presupposes
+`SortUniq`, which the cumulativity check shows **no model can supply**. The two findings are
+the same fact seen from either end. The escape hatch, if anyone wants it: `LevelAssign` exists
+to decide proof-splitting (`IsProp`/`IsProof` are defined from `L.lvl`/`L.srt`); a model with a
+proof-splitting criterion that does not require a canonical level per term would not need it.
+That is a question for the model stream, not this one.
+
+### Where that leaves everything
+
+**One statement now carries the whole route: "a sort is not a proof" (and its Π analogue).**
+
+* *Syntactically*, unstratified, it needs `uniq` — `SortUniq.lean` derives it that way — and
+  the self-reference has no decreasing measure (`reference-gap-thm-utype.md` §9a).
+* *Semantically*, it needs the model, which is parameterised on `SortUniq`.
+* *At the stratified index* it is the induction hypothesis — which is what the index is
+  **for**, and the index is broken by the substitution gap that no rule repairs.
+
+That is a better handover than "closed at three points": it is one named statement, with three
+known routes to it and a specific reason each is blocked. Anyone resuming should attack that
+statement, not the route.

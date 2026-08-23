@@ -63,6 +63,15 @@ request is unanswerable in principle, not merely hard.
 It is also the statement two of `unique.tex`'s three uses of unique typing reduce to
 (`docs/options-circularity-breakers.md`).
 
+**And the model is parameterised on it.**  `Theory/SetModel/` carries
+`(L : LevelAssign env nv)` through every section of `InterpSound.lean`, and nothing in that
+directory constructs one.  `LevelAssign.srt_sound` *is* `SortUniq` restated — `Interp.lean`'s
+own `srt_uniq` docstring says as much.  So the two facts meet: no model can prove `SortUniq`,
+and this model cannot be instantiated without it.  If that is to be broken, it is by giving
+the model a proof-splitting criterion that does not require a canonical level per term
+(`LevelAssign.IsProp`/`IsProof` are defined from `lvl`/`srt`) — a question for the model
+stream.
+
 *This subsection is analysis, not a Lean proof — it is the one claim in this file that is
 not machine-checked.  Making it rigorous costs a scratch copy of `IsDefEq` with the
 cumulativity rule added and a re-run of the model's soundness proof.*
