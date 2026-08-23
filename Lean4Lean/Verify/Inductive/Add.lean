@@ -95,5 +95,93 @@ theorem M.WF.forIn {c : Context} {f : α → β → M (ForInStep β)} {Inv : Lis
     obtain ⟨b', rfl, hinv⟩ := hr
     exact M.WF.forIn H hinv
 
+/-! ## A1: the abstract context
+
+`AddInductive.Context` carries the kernel environment, a `LocalContext`, the level parameters
+and a `NameGenerator`.  Its abstract counterpart carries the `VEnv`, the `VLCtx`, and the
+invariants tying them.
+
+**It does not use `MLCtx`.**  The type checker's `VContext` stores an `MLCtx` and *derives*
+`trlctx` from `MLCtx.WF`; `MLCtx` is that framework's plumbing for `withMLC`, not the context's
+content.  Carrying `TrLCtx` directly gives the same context — and `TrLCtx` lives in
+`Verify/LocalContext.lean`, so this section never needed `MLCtx` at all.
+
+**The `reserves` field is the invariant that did *not* disappear with the state.**  See its
+docstring: the type checker keeps its `NameGenerator` in state, so freshness lives in
+`VState.WF`; `AddInductive.M` keeps it in the reader, so the obligation moves into the context.
+Deleting a mechanism does not delete what it was maintaining. -/
+
+/-- The abstract counterpart of `AddInductive.Context`. -/
+structure VContext extends Context where
+  venv : VEnv
+  trenv : TrEnv safety env venv
+  vlctx : VLCtx
+  trlctx : TrLCtx venv lparams lctx vlctx
+  /-- **The relocated freshness invariant.**  The type checker keeps its `NameGenerator` in
+  *state*, so freshness lives in `VState.WF`.  `AddInductive.M` keeps it in the *reader*
+  (`withFreshId f c := f c.ngen.curr { c with ngen := c.ngen.next }`), so the obligation does
+  not disappear with the state — it moves here.
+
+  Stated over `vlctx.fvars` rather than `lctx.find?`: `TrLCtx` ties the two
+  (`TrLCtx.find?_eq_none`), and the `VLCtx` side has the `cons` simp lemmas that make the
+  push case one line. -/
+  reserves : ∀ fv ∈ vlctx.fvars, ngen.Reserves fv
+
+nonrec abbrev VContext.TrExprS (c : VContext) : Expr → VExpr → Prop :=
+  TrExprS c.venv c.lparams c.vlctx
+nonrec abbrev VContext.TrExpr (c : VContext) : Expr → VExpr → Prop :=
+  TrExpr c.venv c.lparams c.vlctx
+nonrec abbrev VContext.IsType (c : VContext) : VExpr → Prop :=
+  c.venv.IsType c.lparams.length c.vlctx.toCtx
+nonrec abbrev VContext.HasType (c : VContext) : VExpr → VExpr → Prop :=
+  c.venv.HasType c.lparams.length c.vlctx.toCtx
+nonrec abbrev VContext.IsDefEqU (c : VContext) : VExpr → VExpr → Prop :=
+  c.venv.IsDefEqU c.lparams.length c.vlctx.toCtx
+
+/-- The local context is well-formed, from the translation. -/
+theorem VContext.lctx_wf (c : VContext) : c.lctx.WF := c.trlctx.1
+
+/-- The fresh id is not already declared — the analogue of `VState.WF.find?_eq_none`, derived
+from the relocated invariant instead of from the state. -/
+theorem VContext.fresh (c : VContext) : c.lctx.find? ⟨c.ngen.curr⟩ = none :=
+  c.trlctx.find?_eq_none.2 fun h => c.ngen.not_reserves_self (c.reserves _ h)
+
+/-- **Extending the context with a fresh binder.**  The shape all 13 `withLocalDecl` uses have.
+`ngen` advances, so `reserves` is re-established by `Reserves.mono` on the tail and
+`next_reserves_self` on the new id. -/
+def VContext.push (c : VContext) (name : Name) (ty : Expr) (ty' : VExpr) (bi : BinderInfo)
+    (htr : c.TrExprS ty ty') (hty : c.IsType ty') : VContext :=
+  { c with
+    lctx := c.lctx.mkLocalDecl ⟨c.ngen.curr⟩ name ty bi
+    ngen := c.ngen.next
+    vlctx := (some (⟨c.ngen.curr⟩, ty.fvarsList), .vlam ty') :: c.vlctx
+    trlctx := c.trlctx.mkLocalDecl c.fresh htr hty
+    reserves := by
+      intro fv hfv
+      rw [VLCtx.fvars_cons_some, List.mem_cons] at hfv
+      rcases hfv with rfl | hfv
+      · exact NameGenerator.next_reserves_self
+      · exact (c.reserves fv hfv).mono NameGenerator.LE.next }
+
+@[simp] theorem VContext.push_lctx (c : VContext) {name ty ty' bi htr hty} :
+    (c.push name ty ty' bi htr hty).lctx = c.lctx.mkLocalDecl ⟨c.ngen.curr⟩ name ty bi := rfl
+
+@[simp] theorem VContext.push_ngen (c : VContext) {name ty ty' bi htr hty} :
+    (c.push name ty ty' bi htr hty).ngen = c.ngen.next := rfl
+
+/-! ## A3: the binder rule
+
+`withLocalDecl` (`Lean4Lean/LocalContext.lean`) is
+`withFreshId fun id => withReader (·.mkLocalDecl ⟨id⟩ name ty bi) (k (.fvar ⟨id⟩))`, and
+`AddInductive`'s two instances make that run the body at exactly `VContext.push`'s context:
+`withFreshId` supplies `c.ngen.curr` and advances the generator, `withReader` extends the local
+context.  So the rule is `rfl` on the context and the content is `push`'s obligations. -/
+
+theorem M.WF.withLocalDecl {c : VContext} {name : Name} {bi : BinderInfo} {ty : Expr}
+    {ty' : VExpr} {k : Expr → M α} {Q : α → Prop}
+    (htr : c.TrExprS ty ty') (hty : c.IsType ty')
+    (H : (k (.fvar ⟨c.ngen.curr⟩)).WF (c.push name ty ty' bi htr hty).toContext Q) :
+    (withLocalDecl name bi ty k).WF c.toContext Q := H
+
 end AddInductive
 end Lean4Lean
