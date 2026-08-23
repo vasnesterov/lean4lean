@@ -31,8 +31,428 @@ mechanical, and the context is where the reuse question lives.
 -/
 
 namespace Lean4Lean
-namespace AddInductive
 open Lean hiding Environment Exception
+
+/-! # Part 0: the occurrence check, specified
+
+`checkPositivity`'s only evidence is `hasIndOcc stats.indConsts (← whnf dom) = false`, and until
+recently that could not be read at all: `hasIndOcc` went through `Lean.Expr.find?`, i.e.
+`Lean.Expr.findImpl?`, an `@[extern] opaque` with **no Lean-side body**.  Nothing inside a proof
+can say what a body-less constant computes, so R7 needed a new interface axiom and was blocked
+on a policy question rather than a proof difficulty.
+
+**That dependency is gone.**  `Lean4Lean.anySubterm` (`Lean4Lean/Inductive/Add.lean`) replaces
+all three `find?` call sites; it delegates to `Lean.Expr.replaceNoCacheT` (`Lean4Lean/Expr.lean`),
+ordinary total Lean whose body unfolds in a proof.
+
+**Measured, not assumed, and measured structurally rather than by grep.**  A transitive-closure
+scan of `Lean4Lean.addDecl`'s cone — `getUsedConstantsAsSet`, following `@[implemented_by]`
+targets and `_unsafe_rec` companions, i.e. `Guard.lean`'s check-3 traversal — reports
+`Lean.Expr.find?`, `Lean.Expr.findImpl?`, `Lean.Expr.findExtImpl?` and `Lean.Expr.occurs` all
+**absent**, and `Lean.Expr.replaceNoCacheT`, `Lean4Lean.anySubterm`,
+`Lean4Lean.AddInductive.hasIndOcc` all **reachable**.  A textual check of
+`Lean4Lean/Inductive/Add.lean` would not have settled this, since the call could have arrived
+through any of the cone's other 1000-odd constants.
+
+This section is the specification: a pure structural predicate `anySub`, and
+`anySubterm_eq : anySubterm p e = anySub p e`.  It costs **no axiom** — the whole section is
+`propext`-only, which is already on `Guard.lean`'s whitelist as a standard axiom. -/
+
+/-- The pure structural reading of `anySubterm p e`: does `p` hold of `e` or of any of its
+descendants?  "Descendant" is the node set `Expr.replaceNoCacheT` visits — an application's
+`f` and `a`, a binder's domain and body, a `mdata`/`proj` payload, a `letE`'s three
+components — which is also the node set the C traversal `for_each_fn<true>` visits. -/
+def anySub (p : Expr → Bool) (e : Expr) : Bool :=
+  p e || match e with
+    | .forallE _ d b _ => anySub p d || anySub p b
+    | .lam _ d b _ => anySub p d || anySub p b
+    | .mdata _ b => anySub p b
+    | .letE _ t v b _ => anySub p t || anySub p v || anySub p b
+    | .app f a => anySub p f || anySub p a
+    | .proj _ _ b => anySub p b
+    | _ => false
+
+/-- `anySub`'s defining equation, in the uniform form.  The generated equation lemmas split on
+the constructor and so cannot rewrite under a variable `e`; `eq_def` can. -/
+theorem anySub_eq (p : Expr → Bool) (e : Expr) : anySub p e = (p e || match e with
+    | .forallE _ d b _ => anySub p d || anySub p b
+    | .lam _ d b _ => anySub p d || anySub p b
+    | .mdata _ b => anySub p b
+    | .letE _ t v b _ => anySub p t || anySub p v || anySub p b
+    | .app f a => anySub p f || anySub p a
+    | .proj _ _ b => anySub p b
+    | _ => false) := by rw [anySub.eq_def]
+
+namespace anySubterm
+
+variable {α β : Type}
+
+/-- `StateM Bool`'s `bind`, projected to the state.  `rfl` by structure eta on the pair. -/
+theorem sbind (x : StateM Bool α) (f : α → StateM Bool β) (b : Bool) :
+    ((x >>= f) b).2 = ((f (x b).1) (x b).2).2 := rfl
+
+theorem spure (a : α) (b : Bool) : ((pure a : StateM Bool α) b).2 = b := rfl
+
+/-- The callback, run.  It never rewrites: on a hit (or once a hit is recorded) it returns the
+node unchanged, purely to prune; otherwise it declines and `replaceNoCacheT` descends. -/
+theorem visit_run (p : Expr → Bool) (e : Expr) (b : Bool) :
+    (anySubterm.visit p e b) = (if b || p e then (some e, true) else (none, false)) := by
+  cases b <;> [skip; simp [anySubterm.visit, StateT.bind, bind, get, getThe, MonadStateOf.get,
+      StateT.get, pure, StateT.pure]]
+  by_cases hp : p e = true <;>
+    simp [anySubterm.visit, StateT.bind, bind, get, getThe, MonadStateOf.get, StateT.get,
+      pure, StateT.pure, set, MonadStateOf.set, StateT.set, hp]
+
+/-- **The traversal computes `anySub`, from any starting state.**  The generalisation over the
+incoming state `b` is what makes the induction go through: a node's two children are run in
+sequence, the second starting from whatever the first left. -/
+theorem run_visit (p : Expr → Bool) : ∀ (e : Expr) (b : Bool),
+    (Lean.Expr.replaceNoCacheT (m := StateM Bool) (anySubterm.visit p) e b).2
+      = (b || anySub p e) := by
+  have key : ∀ (e : Expr) (b : Bool), (b || p e) = true →
+      (Lean.Expr.replaceNoCacheT (m := StateM Bool) (anySubterm.visit p) e b).2
+        = (b || anySub p e) := by
+    intro e b h
+    rw [Lean.Expr.replaceNoCacheT.eq_def, sbind, visit_run, if_pos h]
+    simp only [spure]
+    rw [anySub_eq, ← Bool.or_assoc, h, Bool.true_or]
+  intro e
+  induction e with
+  | app f a ihf iha =>
+    intro b
+    by_cases h : (b || p (.app f a)) = true
+    · exact key _ _ h
+    · simp only [Bool.or_eq_true, not_or, Bool.not_eq_true] at h
+      obtain ⟨hb, hp⟩ := h
+      subst hb
+      rw [Lean.Expr.replaceNoCacheT.eq_def, sbind, visit_run]
+      simp only [Bool.false_or, hp, Bool.false_eq_true, if_false]
+      rw [sbind, sbind, spure, iha, ihf, anySub_eq (e := .app f a)]
+      simp [hp]
+  | lam n d bd bi ihd ihb =>
+    intro b
+    by_cases h : (b || p (.lam n d bd bi)) = true
+    · exact key _ _ h
+    · simp only [Bool.or_eq_true, not_or, Bool.not_eq_true] at h
+      obtain ⟨hb, hp⟩ := h
+      subst hb
+      rw [Lean.Expr.replaceNoCacheT.eq_def, sbind, visit_run]
+      simp only [Bool.false_or, hp, Bool.false_eq_true, if_false]
+      rw [sbind, sbind, spure, ihb, ihd, anySub_eq (e := .lam n d bd bi)]
+      simp [hp]
+  | forallE n d bd bi ihd ihb =>
+    intro b
+    by_cases h : (b || p (.forallE n d bd bi)) = true
+    · exact key _ _ h
+    · simp only [Bool.or_eq_true, not_or, Bool.not_eq_true] at h
+      obtain ⟨hb, hp⟩ := h
+      subst hb
+      rw [Lean.Expr.replaceNoCacheT.eq_def, sbind, visit_run]
+      simp only [Bool.false_or, hp, Bool.false_eq_true, if_false]
+      rw [sbind, sbind, spure, ihb, ihd, anySub_eq (e := .forallE n d bd bi)]
+      simp [hp]
+  | letE n t v bd nd iht ihv ihb =>
+    intro b
+    by_cases h : (b || p (.letE n t v bd nd)) = true
+    · exact key _ _ h
+    · simp only [Bool.or_eq_true, not_or, Bool.not_eq_true] at h
+      obtain ⟨hb, hp⟩ := h
+      subst hb
+      rw [Lean.Expr.replaceNoCacheT.eq_def, sbind, visit_run]
+      simp only [Bool.false_or, hp, Bool.false_eq_true, if_false]
+      rw [sbind, sbind, sbind, spure, ihb, ihv, iht, anySub_eq (e := .letE n t v bd nd)]
+      simp [hp, Bool.or_assoc]
+  | mdata dt bd ihb =>
+    intro b
+    by_cases h : (b || p (.mdata dt bd)) = true
+    · exact key _ _ h
+    · simp only [Bool.or_eq_true, not_or, Bool.not_eq_true] at h
+      obtain ⟨hb, hp⟩ := h
+      subst hb
+      rw [Lean.Expr.replaceNoCacheT.eq_def, sbind, visit_run]
+      simp only [Bool.false_or, hp, Bool.false_eq_true, if_false]
+      rw [sbind, spure, ihb, anySub_eq (e := .mdata dt bd)]
+      simp [hp]
+  | proj s i bd ihb =>
+    intro b
+    by_cases h : (b || p (.proj s i bd)) = true
+    · exact key _ _ h
+    · simp only [Bool.or_eq_true, not_or, Bool.not_eq_true] at h
+      obtain ⟨hb, hp⟩ := h
+      subst hb
+      rw [Lean.Expr.replaceNoCacheT.eq_def, sbind, visit_run]
+      simp only [Bool.false_or, hp, Bool.false_eq_true, if_false]
+      rw [sbind, spure, ihb, anySub_eq (e := .proj s i bd)]
+      simp [hp]
+  | bvar i =>
+    intro b
+    by_cases h : (b || p (.bvar i)) = true
+    · exact key _ _ h
+    · simp only [Bool.or_eq_true, not_or, Bool.not_eq_true] at h
+      obtain ⟨hb, hp⟩ := h
+      subst hb
+      rw [Lean.Expr.replaceNoCacheT.eq_def, sbind, visit_run]
+      simp only [Bool.false_or, hp, Bool.false_eq_true, if_false, spure]
+      rw [anySub_eq (e := .bvar i)]
+      simp [hp]
+  | fvar i =>
+    intro b
+    by_cases h : (b || p (.fvar i)) = true
+    · exact key _ _ h
+    · simp only [Bool.or_eq_true, not_or, Bool.not_eq_true] at h
+      obtain ⟨hb, hp⟩ := h
+      subst hb
+      rw [Lean.Expr.replaceNoCacheT.eq_def, sbind, visit_run]
+      simp only [Bool.false_or, hp, Bool.false_eq_true, if_false, spure]
+      rw [anySub_eq (e := .fvar i)]
+      simp [hp]
+  | mvar i =>
+    intro b
+    by_cases h : (b || p (.mvar i)) = true
+    · exact key _ _ h
+    · simp only [Bool.or_eq_true, not_or, Bool.not_eq_true] at h
+      obtain ⟨hb, hp⟩ := h
+      subst hb
+      rw [Lean.Expr.replaceNoCacheT.eq_def, sbind, visit_run]
+      simp only [Bool.false_or, hp, Bool.false_eq_true, if_false, spure]
+      rw [anySub_eq (e := .mvar i)]
+      simp [hp]
+  | sort u =>
+    intro b
+    by_cases h : (b || p (.sort u)) = true
+    · exact key _ _ h
+    · simp only [Bool.or_eq_true, not_or, Bool.not_eq_true] at h
+      obtain ⟨hb, hp⟩ := h
+      subst hb
+      rw [Lean.Expr.replaceNoCacheT.eq_def, sbind, visit_run]
+      simp only [Bool.false_or, hp, Bool.false_eq_true, if_false, spure]
+      rw [anySub_eq (e := .sort u)]
+      simp [hp]
+  | const c us =>
+    intro b
+    by_cases h : (b || p (.const c us)) = true
+    · exact key _ _ h
+    · simp only [Bool.or_eq_true, not_or, Bool.not_eq_true] at h
+      obtain ⟨hb, hp⟩ := h
+      subst hb
+      rw [Lean.Expr.replaceNoCacheT.eq_def, sbind, visit_run]
+      simp only [Bool.false_or, hp, Bool.false_eq_true, if_false, spure]
+      rw [anySub_eq (e := .const c us)]
+      simp [hp]
+  | lit l =>
+    intro b
+    by_cases h : (b || p (.lit l)) = true
+    · exact key _ _ h
+    · simp only [Bool.or_eq_true, not_or, Bool.not_eq_true] at h
+      obtain ⟨hb, hp⟩ := h
+      subst hb
+      rw [Lean.Expr.replaceNoCacheT.eq_def, sbind, visit_run]
+      simp only [Bool.false_or, hp, Bool.false_eq_true, if_false, spure]
+      rw [anySub_eq (e := .lit l)]
+      simp [hp]
+
+end anySubterm
+
+/-- **The checker's occurrence test, specified.**  No axiom, no `opaque`: the right-hand side
+is a total structural function of `p` and `e`. -/
+theorem anySubterm_eq (p : Expr → Bool) (e : Expr) : anySubterm p e = anySub p e := by
+  rw [anySubterm]; exact (anySubterm.run_visit p e false).trans (Bool.false_or _)
+
+/-- `hasIndOcc`, specified.  Note the C++ kernel's `has_ind_occ` asks the same existential
+question, so this is a specification of the mirrored check, not of a divergence. -/
+theorem hasIndOcc_eq (indConsts : Array Expr) (t : Expr) :
+    AddInductive.hasIndOcc indConsts t
+      = anySub (fun | .const e _ => indConsts.any fun I => I.constName! == e | _ => false) t :=
+  anySubterm_eq ..
+
+/-! ## Destructors
+
+`anySub p e = false` is the hypothesis `checkPositivity`'s success hands over; these are the
+projections a consumer needs.  All are `simp`-driven from `anySub_eq`. -/
+
+theorem anySub_self {p : Expr → Bool} {e : Expr} (h : anySub p e = false) : p e = false := by
+  rw [anySub_eq] at h; simpa using (Bool.or_eq_false_iff.1 h).1
+
+theorem anySub_app {p : Expr → Bool} {f a : Expr} (h : anySub p (.app f a) = false) :
+    anySub p f = false ∧ anySub p a = false := by
+  rw [anySub_eq] at h; simp only [Bool.or_eq_false_iff] at h; exact ⟨h.2.1, h.2.2⟩
+
+theorem anySub_forallE {p : Expr → Bool} {n d b bi} (h : anySub p (.forallE n d b bi) = false) :
+    anySub p d = false ∧ anySub p b = false := by
+  rw [anySub_eq] at h; simp only [Bool.or_eq_false_iff] at h; exact ⟨h.2.1, h.2.2⟩
+
+theorem anySub_lam {p : Expr → Bool} {n d b bi} (h : anySub p (.lam n d b bi) = false) :
+    anySub p d = false ∧ anySub p b = false := by
+  rw [anySub_eq] at h; simp only [Bool.or_eq_false_iff] at h; exact ⟨h.2.1, h.2.2⟩
+
+theorem anySub_letE {p : Expr → Bool} {n t v b nd} (h : anySub p (.letE n t v b nd) = false) :
+    anySub p t = false ∧ anySub p v = false ∧ anySub p b = false := by
+  rw [anySub_eq] at h; simp only [Bool.or_eq_false_iff] at h; exact ⟨h.2.1.1, h.2.1.2, h.2.2⟩
+
+theorem anySub_mdata {p : Expr → Bool} {d b} (h : anySub p (.mdata d b) = false) :
+    anySub p b = false := by
+  rw [anySub_eq] at h; simpa using (Bool.or_eq_false_iff.1 h).2
+
+theorem anySub_proj {p : Expr → Bool} {s i b} (h : anySub p (.proj s i b) = false) :
+    anySub p b = false := by
+  rw [anySub_eq] at h; simpa using (Bool.or_eq_false_iff.1 h).2
+
+/-! ## From the syntactic check to `VExpr.NoConsts`
+
+`VIndField.WF.pos`'s `none` branch is `∃ A, D.NoBlock A ∧ …`, and `NoBlock` is
+`VExpr.NoConsts D.blockNames` — a statement about the **translated** term.  The checker's
+evidence is about the **source** term.  The bridge below is the transfer, by induction on
+`TrExprS`.
+
+### Three side conditions, and why each is a finding rather than bookkeeping
+
+`TrExprS` is not constant-preserving: two of its rules put constants into the `VExpr` that
+are not in the `Expr` at all, and one reads a `VExpr` out of the context rather than out of
+the term.  So the transfer needs exactly three hypotheses, and each records a place where
+`hasIndOcc` is *blind* — a genuine incompleteness of the syntactic check relative to the
+abstract predicate, not an artifact of this proof.
+
+* `hctx` — a `.bvar`/`.fvar` translates to whatever the `VLCtx` maps it to.  For a `vlam`
+  entry that is `.bvar _`, which is block-free outright; for a `vlet` entry it is the *value*,
+  an arbitrary term the source variable does not display.  Threaded through the induction,
+  so the binder cases have to re-establish it — which is why `NoConsts.liftN` is needed.
+
+* `hlit` — `TrExprS.lit` translates `.lit l` through `l.toConstructor`, so a numeral
+  introduces `Nat.zero`/`Nat.succ` and a string literal `String.ofList`, `List.nil`,
+  `List.cons`, `Char.ofNat`.  `hasIndOcc` sees a `.lit` node and no `.const` node at all.
+  A block declaring an inductive *type* under one of those six names would therefore pass
+  the positivity check while its translation mentions the block — the freshness of the block
+  names in the pre-block environment does not rule this out, because the literal is
+  translated at the *staged* environment where the block's types are already declared.
+
+* `hproj` — `TrProj` expands `.proj s i e` into `VInductDecl'.projTerm`, which splices in the
+  structure's recursor name, its stored field types, **and the parameter/index arguments `ps`,
+  `ιs` read off the type of `e`**.  Those arguments are not syntactically present in
+  `.proj s i e`, so a block occurrence carried only by them is invisible to `hasIndOcc`.
+  This is the sharper of the two: the field types and recursor name come from a declaration
+  that predates the block, but `ps` is an arbitrary term of the local context.
+
+None of the three is discharged here, and none should be quietly assumed: they are the exact
+statement of what `hasIndOcc` does not see.  The C++ kernel's `has_ind_occ` is equally blind,
+so this is a question about the *specification* `VIndField.WF.pos` versus both kernels, not a
+divergence between them. -/
+
+theorem VExpr.NoConsts.liftN {S : List Name} {n : Nat} :
+    ∀ {e : VExpr} {k : Nat}, e.NoConsts S → (e.liftN n k).NoConsts S
+  | .bvar _, _, h | .sort _, _, h | .const .., _, h => h
+  | .app .., _, h | .lam .., _, h | .forallE .., _, h => ⟨h.1.liftN, h.2.liftN⟩
+
+/-- Extending the `VLCtx` preserves the "every looked-up value is block-free" invariant, given
+that the new entry's own value is.  For a `vlam` that value is `.bvar 0`; for a `vlet` it is the
+translated let-value, which the induction supplies. -/
+theorem VLCtx.noConsts_cons {S : List Name} {Δ : VLCtx} {ofv} {d : VLocalDecl}
+    (hd : VExpr.NoConsts S d.value)
+    (h : ∀ v x A, Δ.find? v = some (x, A) → VExpr.NoConsts S x) :
+    ∀ v x A, VLCtx.find? ((ofv, d) :: Δ) v = some (x, A) → VExpr.NoConsts S x := by
+  intro v x A hv
+  rw [VLCtx.find?] at hv
+  split at hv
+  · cases hv; exact hd
+  · rename_i v' _
+    cases hf : Δ.find? v' with
+    | none => rw [hf] at hv; exact absurd hv nofun
+    | some q => rw [hf] at hv; cases hv; exact (h _ _ _ hf).liftN
+
+/-- The only case that consumes `hpS`: a source constant translates to the same constant, so
+the syntactic miss is the abstract miss. -/
+theorem noConsts_const {S : List Name} {p : Expr → Bool} {c : Name} {us : List Lean.Level}
+    {us' : List VLevel} (hpS : ∀ c us, c ∈ S → p (.const c us) = true)
+    (h : anySub p (.const c us) = false) : VExpr.NoConsts S (.const c us') := by
+  show c ∉ S
+  intro hc
+  have h2 := anySub_self h
+  rw [hpS c us hc] at h2
+  exact absurd h2 nofun
+
+/-- **The transfer.**  Sorry-free and axiom-clean; every gap is an explicit hypothesis.
+See the section note for what each hypothesis records. -/
+theorem TrExprS.noConsts {env : VEnv} {Us : List Name} {S : List Name} {p : Expr → Bool}
+    (hpS : ∀ c us, c ∈ S → p (.const c us) = true)
+    (hlit : ∀ l : Lean.Literal, anySub p l.toConstructor = false)
+    (hproj : ∀ Γ s i x y, TrProj env Us.length Γ s i x y →
+      VExpr.NoConsts S x → VExpr.NoConsts S y) :
+    ∀ {Δ : VLCtx} {e : Expr} {e' : VExpr}, TrExprS env Us Δ e e' →
+      (∀ v x A, Δ.find? v = some (x, A) → VExpr.NoConsts S x) →
+      anySub p e = false → VExpr.NoConsts S e' := by
+  intro Δ e e' H
+  induction H with
+  | bvar h => exact fun hctx _ => hctx _ _ _ h
+  | fvar h => exact fun hctx _ => hctx _ _ _ h
+  | sort => exact fun _ _ => trivial
+  | const _ _ _ => exact fun _ h => noConsts_const hpS h
+  | app _ _ _ _ ihf iha =>
+    intro hctx h
+    exact ⟨ihf hctx (anySub_app h).1, iha hctx (anySub_app h).2⟩
+  | lam _ _ _ ihd ihb =>
+    intro hctx h
+    refine ⟨ihd hctx (anySub_lam h).1, ihb ?_ (anySub_lam h).2⟩
+    exact VLCtx.noConsts_cons trivial hctx
+  | forallE _ _ _ _ ihd ihb =>
+    intro hctx h
+    refine ⟨ihd hctx (anySub_forallE h).1, ihb ?_ (anySub_forallE h).2⟩
+    exact VLCtx.noConsts_cons trivial hctx
+  | letE _ _ _ _ iht ihv ihb =>
+    intro hctx h
+    obtain ⟨_, hv, hb⟩ := anySub_letE h
+    exact ihb (VLCtx.noConsts_cons (ihv hctx hv) hctx) hb
+  | lit _ _ ih => exact fun hctx _ => ih hctx (hlit _)
+  | mdata _ ih => exact fun hctx h => ih hctx (anySub_mdata h)
+  | proj _ hp ih => exact fun hctx h => hproj _ _ _ _ _ hp (ih hctx (anySub_proj h))
+
+/-! ### The hypotheses bite, and are satisfiable
+
+Two positive checks.  The first is not merely a check — it is the connector the caller needs,
+since `hasIndOcc`'s predicate is phrased over an `Array Expr` of `.const` nodes while
+`NoConsts` is phrased over a `List Name`.  The second exhibits `hlit` holding non-vacuously
+for numerals, and shows exactly which two names a block may not steal. -/
+
+/-- `hpS`, discharged for the checker's own predicate: if every name of `S` is the head of one
+of `stats.indConsts`, the predicate fires on it. -/
+theorem hasIndOcc_hpS {indConsts : Array Expr} {S : List Name}
+    (hS : ∀ c ∈ S, ∃ I ∈ indConsts, I.constName! = c) (c : Name) (us : List Lean.Level)
+    (hc : c ∈ S) :
+    (fun e => match e with
+      | .const e _ => indConsts.any fun I => I.constName! == e
+      | _ => false) (Lean.Expr.const c us) = true := by
+  obtain ⟨I, hI, hIc⟩ := hS c hc
+  show (indConsts.any fun I => I.constName! == c) = true
+  obtain ⟨i, hi, rfl⟩ := Array.getElem_of_mem hI
+  exact Array.any_eq_true.2 ⟨i, hi, by simp [hIc]⟩
+
+/-- `hlit` holds for numerals as soon as the block steals neither `Nat.zero` nor `Nat.succ`.
+`Literal.toConstructor` is *not* fully expanded — `natLitToConstructor (n+1)` is
+`.app (.const Nat.succ []) (.lit (.natVal n))` — so this is a finite check, with no induction
+on `n` and no dependence on how deep the numeral is. -/
+theorem anySub_natLit {p : Expr → Bool}
+    (hp : ∀ e : Lean.Expr, p e = true → ∃ c us, e = .const c us)
+    (h0 : p (.const ``Nat.zero []) = false) (h1 : p (.const ``Nat.succ []) = false) (n : Nat) :
+    anySub p (Lean.Literal.toConstructor (.natVal n)) = false := by
+  have hne : ∀ e : Lean.Expr, (∀ c us, e ≠ .const c us) → p e = false := by
+    intro e he
+    cases hh : p e with
+    | false => rfl
+    | true => obtain ⟨c, us, rfl⟩ := hp e hh; exact absurd rfl (he c us)
+  cases n with
+  | zero =>
+    show anySub p (.const ``Nat.zero []) = false
+    rw [anySub_eq]; simpa using h0
+  | succ n =>
+    have hc : anySub p (Lean.Expr.const ``Nat.succ []) = false := by
+      rw [anySub_eq]; simpa using h1
+    have hlp : p (Lean.Expr.lit (.natVal n)) = false := hne _ (by simp)
+    have hl : anySub p (Lean.Expr.lit (.natVal n)) = false := by
+      rw [anySub_eq]; simpa using hlp
+    have happ : p ((Lean.Expr.const ``Nat.succ []).app (.lit (.natVal n))) = false :=
+      hne _ (by simp)
+    show anySub p (.app (.const ``Nat.succ []) (.lit (.natVal n))) = false
+    rw [anySub_eq]; simp [happ, hc, hl]
+
+namespace AddInductive
 open Kernel
 
 variable {α β : Type}
@@ -531,44 +951,42 @@ theorem M.WF.field_step {c : VContext} {D : VInductDecl'} {dom : Expr} {e' : VEx
     · exact .inl (Lean.Level.geq'_wf hlvl h2 hge)
 
 
-/-! ## R7: strict positivity — **blocked on an unmodelled `@[extern] opaque`**
+/-! ## R7: strict positivity — **unblocked; the occurrence check is now specified**
 
-`checkPositivity` (`Add.lean:184`) rejects on `hasIndOcc stats.indConsts …`; its *success*
-is what would establish `VIndField.WF.pos`, whose `none` branch is the positive statement
+`checkPositivity` (`Add.lean:224`) rejects on `hasIndOcc stats.indConsts …`; its *success*
+is what establishes `VIndField.WF.pos`, whose `none` branch is the positive statement
 `∃ A, D.NoBlock A ∧ env.IsDefEqType D.uvars Γ F.type A`.  The only evidence for it is
-`hasIndOcc (← whnf dom) = false`.  So R7 must read `hasIndOcc`.
+`hasIndOcc (← whnf dom) = false`, so R7 must read `hasIndOcc`.
 
-```
-def hasIndOcc (indConsts : Array Expr) (t : Expr) : Bool :=
-  (t.find? fun | .const e _ => indConsts.any fun I => I.constName! == e | _ => false).isSome
-```
+**The blocker was removed and this row was re-measured against the tree rather than against
+the old note.**  `hasIndOcc` no longer goes through `Lean.Expr.find?` / the body-less
+`@[extern] opaque findImpl?`; it goes through `Lean4Lean.anySubterm`, whose traversal is
+`Lean.Expr.replaceNoCacheT` — total Lean that unfolds in a proof.  Part 0 of this file is the
+specification: `anySubterm_eq` and `hasIndOcc_eq`, proved with **no new axiom** (`propext`
+and `Quot.sound` only, both already standard).  The previous note's recommendation — "replace
+it with a structural walk rather than assert an axiom" — is what happened, and this row is the
+confirmation that it was sufficient.
 
-and `Lean.Expr.find? p e = findImpl? p e` where (`~/lean4/src/Lean/Util/FindExpr.lean:16`)
+### What R7 still needs, precisely
 
-```
-@[extern "lean_find_expr"] opaque findImpl? (p : @& (Expr → Bool)) (e : @& Expr) : Option Expr
-```
+1. **The syntactic→abstract transfer.**  `TrExprS.noConsts` (Part 0), sorry-free, modulo three
+   named hypotheses that are *findings*, not bookkeeping: `hasIndOcc` is blind to constants a
+   `vlet` binding hides, to constants a literal expands into, and — the sharpest — to the
+   parameter/index arguments `TrProj` reads off the *type* of a projected term.  See that
+   section's note.  The C++ `has_ind_occ` is blind in exactly the same three ways, so this is a
+   question about `VIndField.WF.pos` versus both kernels, not a divergence between them.
 
-**`findImpl?` is `opaque`: it has no body at all.**  Not `partial`, not
-`@[implemented_by]` — there is nothing in Lean to unfold, so no amount of work inside this
-file can say what `hasIndOcc` computes.  Giving it a meaning requires a new interface axiom in
-`Lean4Lean/Verify/Axioms.lean`, alongside `Lean.Expr.replace_eq`, `Lean.Expr.abstract_eq` and
-the rest.  That file is frozen, and the change would move its count in the wrong direction.
-**So R7 is blocked, and it is blocked on a policy question rather than a proof difficulty.**
+2. **The sort upgrade.**  `whnf.WF` delivers `c.TrExpr e₁ e'`, i.e. an `IsDefEqU`.
+   `VIndField.WF.pos` wants `VEnv.IsDefEqType` — an `IsDefEq` *at a sort*.  There is no lemma
+   in the tree taking `IsDefEqU A B` plus `HasType A (.sort u)` to `IsDefEqType A B`; the route
+   is type uniqueness (`IsDefEq.uniq`, `Theory/Typing/UniqueTyping.lean`), which the type
+   checker's own proofs already use, so it adds no taint beyond Part II's inherited debt — but
+   it is a step, not a rewrite, and it is not done here.
 
-Note this is *not* a `Guard.lean` check-3 violation: check 3 filters to constants defined in
-`Lean4Lean.*` modules (`unless (`Lean4Lean).isPrefixOf modName do continue`), and `findImpl?`
-is upstream.  It is a **trusted-base** fact, not a guard-list fact — the strict-positivity
-check, one of the two places where an inductive declaration can be unsound, currently rests on
-a C function with no Lean-side model, and nothing in the tree records that.
-
-**The recommended fix is not an axiom.**  `hasIndOcc` uses `find?` only through `.isSome`, so
-it is asking "does any subterm match?", and the traversal order and the extern cache are both
-invisible to the answer.  Replacing it with a structurally recursive `Expr` walk in
-`Lean4Lean/Inductive/Add.lean` removes the dependency outright — shrinking the trusted base
-rather than growing the axiom list, and faithful to the C++ kernel, whose `has_ind_occ` is the
-same existential question.  That is an edit to a file this stream does not own, so it is a
-recommendation, not a change.
+3. **The context correspondence — which is R1/R2.**  `checkPositivity.loop` recurses under
+   `withLocalDecl`, so its evidence lands in an *fvar* context, while `pos` is stated at
+   `((C.fields.take i).map (·.type)).reverse ++ D.params.reverse`.  Relating the two is the
+   same telescope pinning R8's scan branch needs.  So R7 and R8 share a gate, and it is R1/R2.
 
 ## R8: the large-elimination flag
 
@@ -578,16 +996,27 @@ recommendation, not a change.
 (`Add.lean:101`), and `ofLevel_isNeverZero` carries it to `D.lvl.IsNeverZero`, which is
 `LECond`'s first disjunct verbatim.
 
-**The scan branch is gated on R1/R2**, and this is worth stating precisely because the
+**The scan branch was gated on R1/R2**, and this is worth stating precisely because the
 *direction* of the gate is the opposite of what the row's price assumed.  The scan itself is
 sound in exactly the direction `LECond` needs: `isAlwaysZero` is a sound-but-incomplete
 syntactic test, and a field is pushed onto `toCheck` when it *fails*, so a field **absent**
 from `toCheck` really does have `F.lvl ≈ .zero` (`ofLevel_isAlwaysZero`), and a field
 **present** in it is covered by the final `toCheck.all type.getAppArgs.contains`.  No
-completeness is needed anywhere.  What is missing is the correspondence between the loop's
+completeness is needed anywhere.  What was missing is the correspondence between the loop's
 accumulated fvars and the spec's field indices — `arg_i ↦ .bvar (nf-1-i)` and
-`type.getAppArgs ↦ C.args` — which is `TrIndCtor`'s telescope pinning, i.e. **R1/R2**, not a
-row I hold as done.  The per-field step below is the part that does not depend on it. -/
+`type.getAppArgs ↦ C.args`.
+
+**That correspondence is now the R1/R2 section at the end of this file**, and both halves are
+proved: `VLCtx.find?_mkFVars_rev` is `arg_k ↦ .bvar (nf-1-k)` and
+`VIndCtor.mem_args_of_mem_getAppArgs` takes `arg_k ∈ type.getAppArgs` to
+`.bvar (nf-1-k) ∈ C.args` — `of_scan`'s right disjunct, on the nose.  What remains between
+that and `of_scan` firing is the *loop invariant itself*: that a successful run of
+`isLargeEliminator.loop` leaves the accumulated binder list equal to `C.fields` (with the
+`Nodup` the `NameGenerator` supplies) and stops at a `type` translating to
+`C.canonResult D j`.  That is an `M.WF` induction over the loop, using R1's
+`TrExprS.forallE_inst_fvar` at each step and `VIndCtor.canonResult_ne_forallE` to pin where it
+stops; it is stated here as the remaining obligation rather than assumed.  The per-field step
+below never depended on it. -/
 
 /-- **R8, the `isNotZero` branch.**  `stats.isNotZero` is `resultLevel.isNeverZero`, so a
 large eliminator justified by it lands on `LECond`'s first disjunct. -/
@@ -631,4 +1060,209 @@ theorem VInductDecl'.LECond.of_no_ctors {D : VInductDecl'} {T : VIndType}
     (hT : D.types = [T]) (hC : T.ctors = []) : D.LECond := .inr ⟨T, hT, .inl hC⟩
 
 end AddInductive
+
+/-! # R1/R2: the telescope, pinned
+
+Both R7 and R8's scan branch need the same thing, and it is neither a level fact nor a
+positivity fact: **the checker walks a constructor's pi-spine binding fvars, while the spec
+indexes the same spine by de Bruijn level.**  Every clause of `VIndCtor.WF` — `fields`, `pos`,
+`args_ty`, `result` — is stated in the context
+`((C.fields.take i).map (·.type)).reverse ++ D.params.reverse`, and every fact the checker
+produces is stated about an fvar.  This section is the dictionary.
+
+Two halves, and they are independent:
+
+* **R1, the binder step.**  Destructuring `.forallE name dom body bi` and running the body
+  under `withLocalDecl` corresponds to peeling one `VExpr.forallE` and pushing one `vlam`.
+  This is `TrExprS.forallE_inst_fvar` below; it is `TrExprS`'s own inversion composed with
+  the existing `TrExprS.inst_fvar`, so it costs nothing new.
+
+* **R2, the index arithmetic.**  A fvar bound `i` binders from the *innermost* end looks up to
+  `.bvar i`.  In declaration order that is `arg_k ↦ .bvar (n - 1 - k)` — the shape
+  `VInductDecl'.LECond` is stated with, and the shape `VIndCtor.WF.fields` needs.
+
+`VLCtx.mkFVars` below is stored **innermost-first**, matching `VLCtx` itself rather than the
+declaration order the spec's telescopes use; `find?_mkFVars_rev` is the one place the two
+orders meet, and stating both makes the `n - 1 - k` appear exactly once. -/
+
+/-- The local context the checker's binder walk builds: one `vlam` fvar entry per binder,
+**innermost first**, on top of `Δ`. -/
+def VLCtx.mkFVars : List (FVarId × List FVarId × VExpr) → VLCtx → VLCtx
+  | [], Δ => Δ
+  | (fv, deps, A) :: l, Δ => (some (fv, deps), .vlam A) :: VLCtx.mkFVars l Δ
+
+@[simp] theorem VLCtx.mkFVars_nil {Δ : VLCtx} : VLCtx.mkFVars [] Δ = Δ := rfl
+
+@[simp] theorem VLCtx.mkFVars_cons {fv deps A l} {Δ : VLCtx} :
+    VLCtx.mkFVars ((fv, deps, A) :: l) Δ = (some (fv, deps), .vlam A) :: VLCtx.mkFVars l Δ := rfl
+
+/-- **R2, innermost-first.**  The fvar `i` binders in from the innermost end is `.bvar i`.
+The `Nodup` hypothesis is what stops a shadowed fvar from resolving to the wrong binder; the
+checker supplies it from its `NameGenerator` (`VContext.reserves`/`fvars_mint`). -/
+theorem VLCtx.find?_mkFVars {Δ : VLCtx} :
+    ∀ {l : List (FVarId × List FVarId × VExpr)} {i fv deps A},
+      (l.map (·.1)).Nodup → l[i]? = some (fv, deps, A) →
+      ∃ B, (VLCtx.mkFVars l Δ).find? (.inr fv) = some (.bvar i, B)
+  | (fv₀, deps₀, A₀) :: l, 0, fv, deps, A, _, hi => by
+    cases hi
+    refine ⟨A₀.lift, ?_⟩
+    simp [VLCtx.mkFVars, VLCtx.find?, VLCtx.next, VLocalDecl.value, VLocalDecl.type]
+  | (fv₀, deps₀, A₀) :: l, i+1, fv, deps, A, hnd, hi => by
+    simp only [List.getElem?_cons_succ] at hi
+    have hmem : (fv, deps, A) ∈ l := List.mem_of_getElem? hi
+    have hnd' : (l.map (·.1)).Nodup := by
+      simpa using (List.nodup_cons.1 (by simpa using hnd)).2
+    have hne : ¬ (fv₀ = fv) := by
+      simp only [List.map_cons, List.nodup_cons] at hnd
+      intro h; subst h
+      exact hnd.1 (List.mem_map.2 ⟨_, hmem, rfl⟩)
+    obtain ⟨B, hB⟩ := VLCtx.find?_mkFVars (Δ := Δ) hnd' hi
+    refine ⟨B.liftN 1, ?_⟩
+    simp only [VLCtx.mkFVars, VLCtx.find?, VLCtx.next, beq_iff_eq, hne, if_false, hB,
+      VLocalDecl.depth]
+    simp [VExpr.liftN]
+
+/-- **R2, in declaration order** — the form `VInductDecl'.LECond` and `VIndCtor.WF.fields` are
+stated in.  `l` here is the telescope as the checker pushes it, outermost first, so entry `k`
+is field `k` and resolves to `.bvar (l.length - 1 - k)`. -/
+theorem VLCtx.find?_mkFVars_rev {Δ : VLCtx} {l : List (FVarId × List FVarId × VExpr)}
+    {k fv deps A} (hnd : (l.map (·.1)).Nodup) (hk : l[k]? = some (fv, deps, A)) :
+    ∃ B, (VLCtx.mkFVars l.reverse Δ).find? (.inr fv) = some (.bvar (l.length - 1 - k), B) := by
+  have hlt : k < l.length := by
+    by_contra h
+    rw [List.getElem?_eq_none (Nat.le_of_not_lt h)] at hk; exact absurd hk nofun
+  refine VLCtx.find?_mkFVars (deps := deps) (A := A)
+    (by simpa [List.map_reverse] using List.nodup_reverse.2 hnd) ?_
+  rw [List.getElem?_reverse (by omega)]
+  have : l.length - 1 - (l.length - 1 - k) = k := by omega
+  rw [this]; exact hk
+
+/-- **`mkFVars` is the shape the checker actually builds** — checked against A3's own binder
+rule rather than asserted.  One `AddInductive.VContext.push` (which is what `withLocalDecl`
+runs the body at, by `M.WF.withLocalDecl`) prepends exactly one `mkFVars` entry, with the
+`deps` field `MLCtx.vlctx` supplies.  `rfl`, which is the point: no coercion sits between the
+dictionary and the framework. -/
+theorem AddInductive.VContext.push_vlctx (c : AddInductive.VContext)
+    {name : Name} {ty : Expr} {ty' : VExpr} {bi : BinderInfo} {htr hty} :
+    (c.push name ty ty' bi htr hty).vlctx
+      = VLCtx.mkFVars [(⟨c.ngen.curr⟩, ty.fvarsList, ty')] c.vlctx := rfl
+
+/-- Positive check that the index arithmetic is the one `VInductDecl'.LECond` asks for, and
+that the statement is not vacuous: with two binders, the **first** declared resolves to
+`.bvar 1` and the second to `.bvar 0` — i.e. `arg_k ↦ .bvar (n - 1 - k)`, `n = 2`. -/
+example (fv₀ fv₁ : FVarId) (A₀ A₁ : VExpr) (h : fv₀ ≠ fv₁) :
+    (∃ B, (VLCtx.mkFVars [(fv₀, [], A₀), (fv₁, [], A₁)].reverse []).find? (.inr fv₀)
+        = some (.bvar 1, B)) ∧
+    (∃ B, (VLCtx.mkFVars [(fv₀, [], A₀), (fv₁, [], A₁)].reverse []).find? (.inr fv₁)
+        = some (.bvar 0, B)) :=
+  ⟨VLCtx.find?_mkFVars_rev (by simp [h]) (k := 0) rfl,
+   VLCtx.find?_mkFVars_rev (by simp [h]) (k := 1) rfl⟩
+
+/-! ## R1: the binder step -/
+
+/-- **R1.**  One step of the checker's spine walk, refined.  The `Expr` side destructures a
+`.forallE` and instantiates the body with a fresh fvar (`withLocalDecl` + `instantiate1`); the
+`VExpr` side peels one `VExpr.forallE` and pushes one `vlam`.  Both halves come out of
+`TrExprS`'s own inversion — the target is *given* as `.forallE A B`, so constructor injectivity
+pins the domain and codomain rather than leaving them existential. -/
+theorem TrExprS.forallE_inst_fvar {env : VEnv} {Us : List Name} {Δ : VLCtx}
+    {name : Name} {dom body : Expr} {bi : BinderInfo} {A B : VExpr} {fv deps}
+    (henv : VEnv.Ordered env)
+    (hΔ : VLCtx.WF env Us.length ((some (fv, deps), .vlam A) :: Δ))
+    (H : TrExprS env Us Δ (.forallE name dom body bi) (.forallE A B)) :
+    TrExprS env Us Δ dom A ∧
+      TrExprS env Us ((some (fv, deps), .vlam A) :: Δ) (body.instantiate1' (.fvar fv)) B := by
+  cases H with
+  | forallE _ _ hdom hbody => exact ⟨hdom, hbody.inst_fvar henv hΔ⟩
+
+/-- The spine at the end of the walk is **not** a `forallE`, so the checker's loop cannot stop
+early and cannot run long: a constructor's stored type is `mkPi (params ++ fields) result` and
+`result` is an application.  This is what makes "the loop ran exactly `np + nf` times" a
+consequence of success rather than an assumption. -/
+theorem VExpr.mkApp_ne_forallE : ∀ {as : List VExpr} {f : VExpr},
+    (∀ A B, f ≠ .forallE A B) → ∀ A B, VExpr.mkApp f as ≠ .forallE A B
+  | [], _, hf => hf
+  | _ :: as, f, _ => VExpr.mkApp_ne_forallE (as := as) (f := f.app _) (by rintro _ _ ⟨⟩)
+
+theorem VIndCtor.canonResult_ne_forallE (C : VIndCtor) (D : VInductDecl') (j : Nat) :
+    ∀ A B, C.canonResult D j ≠ .forallE A B :=
+  VExpr.mkApp_ne_forallE (by rintro _ _ ⟨⟩)
+
+/-! ## R2, assembled: `type.getAppArgs ↦ C.args`
+
+The second half of the dictionary.  `isLargeEliminator` finishes with
+`toCheck.all type.getAppArgs.contains`, and `VInductDecl'.LECond` asks for
+`.bvar (nf - 1 - k) ∈ C.args`.  Four steps, each one lemma:
+
+1. an argument of the checker's spine translates to a member of the target's `spineArgs`
+   (`TrExprS.mem_spineArgs`);
+2. an fvar's translation is *determined* by the context, so the member is exactly
+   `.bvar (nf - 1 - k)` (`TrExprS.fvar_det` with R2's `find?_mkFVars_rev`);
+3. the target's `spineArgs` at a constructor result is `bvars nf np ++ C.args`;
+4. `bvars nf np` holds only indices `≥ nf`, so a field index lands in `C.args`.
+
+Step 4 is the argument `VInductDecl'.LECond`'s own docstring makes informally ("a field
+variable can never be one of the `nparams` leading parameter arguments"); it is discharged
+here rather than assumed. -/
+
+/-- An fvar's translation is pinned by the context — `TrExprS` on a `.fvar` has exactly one
+rule and it reads `find?`.  This is what turns "some translation of `arg` is in the spine"
+into "`.bvar (nf-1-k)` is in the spine". -/
+theorem TrExprS.fvar_det {env : VEnv} {Us : List Name} {Δ : VLCtx} {fv : FVarId} {x y A : VExpr}
+    (H : TrExprS env Us Δ (.fvar fv) x) (h : Δ.find? (.inr fv) = some (y, A)) : x = y := by
+  cases H with | fvar h' => rw [h] at h'; exact (congrArg Prod.fst (Option.some.inj h')).symm
+
+/-- Step 1.  Stated over `getAppArgsRevList` (`Verify/Expr.lean`), the structural reading of
+`Expr.getAppArgs`; `getAppArgs_eq_rev` converts. -/
+theorem TrExprS.mem_spineArgs {env : VEnv} {Us : List Name} {Δ : VLCtx} :
+    ∀ {e : Expr} {e' : VExpr}, TrExprS env Us Δ e e' →
+      ∀ a ∈ e.getAppArgsRevList, ∃ a', TrExprS env Us Δ a a' ∧ a' ∈ e'.spineArgs := by
+  intro e
+  induction e with
+  | app f b ihf _ =>
+    intro e' H a ha
+    cases H with
+    | app _ _ hf hb =>
+      rw [Lean.Expr.getAppArgsRevList, List.mem_cons] at ha
+      rcases ha with rfl | ha
+      · exact ⟨_, hb, by rw [VExpr.spineArgs]; simp⟩
+      · obtain ⟨a', ha', hmem⟩ := ihf hf a ha
+        exact ⟨a', ha', by rw [VExpr.spineArgs]; exact List.mem_append_left _ hmem⟩
+  | _ => intro e' H a ha; simp [Lean.Expr.getAppArgsRevList] at ha
+
+/-- Step 4.  A de Bruijn index below the telescope's floor is not one of its variables. -/
+theorem VExpr.not_mem_bvars_of_lt {m lo n : Nat} (h : m < lo) :
+    VExpr.bvar m ∉ VExpr.bvars lo n := by
+  intro hm
+  obtain ⟨i, _, hi⟩ := VExpr.mem_bvars.1 hm
+  simp only [VExpr.bvar.injEq] at hi
+  omega
+
+/-- **R2, assembled.**  If the checker's `k`-th field fvar appears among the spine arguments of
+the constructor's result, then the spec's `.bvar (n - 1 - k)` is a member of `C.args` — which
+is `VInductDecl'.LECond`'s right disjunct verbatim.
+
+`hres` is where R1's telescope walk lands: the result the loop stops at translates to the
+constructor's canonical result. -/
+theorem VIndCtor.mem_args_of_mem_getAppArgs {env : VEnv} {Us : List Name} {Δ : VLCtx}
+    {D : VInductDecl'} {C : VIndCtor} {j : Nat} {type : Lean.Expr}
+    {l : List (FVarId × List FVarId × VExpr)} {k fv deps A} {Δ₀ : VLCtx}
+    (hΔ : Δ = VLCtx.mkFVars l.reverse Δ₀)
+    (hnd : (l.map (·.1)).Nodup) (hk : l[k]? = some (fv, deps, A))
+    (hlen : l.length = C.fields.length)
+    (hres : TrExprS env Us Δ type (C.canonResult D j))
+    (hmem : Lean.Expr.fvar fv ∈ type.getAppArgsRevList) :
+    VExpr.bvar (C.fields.length - 1 - k) ∈ C.args := by
+  subst hΔ
+  obtain ⟨B, hfind⟩ := VLCtx.find?_mkFVars_rev (Δ := Δ₀) hnd hk
+  obtain ⟨a', ha', hmem'⟩ := hres.mem_spineArgs _ hmem
+  rw [ha'.fvar_det hfind, hlen] at hmem'
+  rw [VIndCtor.canonResult, VInductDecl'.tyApp, VExpr.spineArgs_mkApp, VExpr.spineArgs_const,
+    List.nil_append, List.mem_append] at hmem'
+  refine hmem'.resolve_left (VExpr.not_mem_bvars_of_lt ?_)
+  have hlt : k < l.length := by
+    by_contra hc
+    rw [List.getElem?_eq_none (Nat.le_of_not_lt hc)] at hk; exact absurd hk nofun
+  omega
+
 end Lean4Lean
