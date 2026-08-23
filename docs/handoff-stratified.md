@@ -1,269 +1,195 @@
 # Handoff: the stratified route to `IsDefEqU.sort_inv`
 
-Written at a boundary, for a fresh reader with no context. Everything below is either
-machine-checked (names given, axioms given) or explicitly marked as analysis.
+Rewritten after four candidate repairs failed their own row-zero checks. **The previous
+version of this file described a route that is now known to be closed**; if you are reading a
+cached copy, stop and re-read this one.
 
 **Target:** `Lean4Lean.VEnv.IsDefEqU.sort_inv` and its family in
-`Lean4Lean/Theory/Typing/Injectivity.lean`. **Still open.** Five sorry-free files have landed
-on this route and none of them moves the target statement. That is the accurate summary; do
-not read the volume of landed work as progress on the goal.
+`Theory/Typing/Injectivity.lean`. **Still open, and the target statement has not moved.**
+What has changed is that the obstruction is now localised to a single named statement with
+three named, individually-blocked routes — and that a defect in the published metatheory this
+project is built on has been machine-checked.
 
 ---
 
-## 0. Read this first, or you will re-derive a wrong conclusion
+## 0. Read this first
 
-Two days of work in this tree concluded that sort-confluence, Π-injectivity and universe
-uniqueness are one inseparable induction — that the circularity is *mathematical*. **That
-conclusion is wrong, and it is wrong in a way that is invisible from inside the tree**,
-because every definition, proof and dependency here is consistent with it.
+Two things a fresh reader will otherwise re-derive:
 
-The truth, settled by reading eleven lines of the reference
-(`~/lean-type-theory/axioms.tex:30–41`):
+1. **The reference's proof of `thm:utype` is invalid**, machine-checked, over the empty
+   environment. Not "hard", not "unproved" — the inference it uses at `unique.tex:51` is
+   false. `docs/reference-gap-thm-utype.md` is the write-up; read its **§4 (scope)** before
+   quoting anything else, because the *statement* of `thm:utype` is **not** refuted and
+   `DefInv` in its literal form is **not** refuted.
+2. **Every repair to the alternation index is closed by one arithmetic argument** (§3 below).
+   The argument does not mention the repair's shape, so it closes the family: depth-0 rules,
+   general-depth `Ctx.InstN` rules, explicit substitutions, and context morphisms alike.
 
-- **Carneiro's conversion judgment is three-place**, `Γ ⊢ e ≡ e'`. Of its eleven rules
-  **exactly one** — application — mentions a type, and there `Γ ⊢ e ≡ e' : α` is stated at
-  `:41` to *abbreviate* `Γ ⊢ e ≡ e' ∧ Γ ⊢ e : α ∧ Γ ⊢ e' : α`. `symm` and `trans` carry no
-  type. The λ and ∀ congruences carry no type. The conversion rule (`:19`) belongs to the
-  **typing** judgment, not to `≡`.
-- **`VEnv.IsDefEq` makes the type an index**, so every rule shares it: `trans` demands one
-  `A` for both halves, `lamDF` one level and one codomain. `IsDefEqU` — the reference's
-  actual judgment — is *derived*, the opposite direction.
-
-**Consequence, and this is the whole finding:** composing two `IsDefEqU` facts is a theorem
-here (`IsDefEq.uniqU`) where the reference has a rule. That is why `UniqueTyping.lean` must
-export `trans_l`, `trans_r`, `transU_*`, `of_l`, `of_r`, `defeqU_*` — **a family with no
-counterpart in the reference** — and why `ChurchRosser.lean` uses that family in 23 of its 85
-declarations, including every backbone lemma. The same pressure forces `NormalEq`'s
-constructors to carry *shared* type data (its `appDF` demands one `.forallE A B` typing both
-functions) where the reference's `≡ₚ` congruences (`unique.tex:113–118`) carry none.
-
-**So the Π-injectivity dependency in the confluence development is an artifact of this
-tree's port, not of the mathematics.** The reference's proof never incurs it.
-
-Mechanically checked, not read off prose: `Theory/Typing/RawDefEq.lean` transcribes the
-reference's judgment as `VEnv.IsDefEqRaw` and erases into it (`IsDefEq.raw`, axioms
-`[propext]` only, no injectivity, no unique typing). In that proof **the conversion rule
-`defeqDF` erases to nothing** — its case is `exact ih2`. In the three-place presentation the
-conversion rule has no content. That is the sharpest available demonstration that the port
-added content rather than transcribing it.
-
-**General rule this yields, and it recurred:** *when a question is about whether something is
-necessary, the tree can only tell you what it currently does; necessity has to be checked
-against the specification it claims to implement.* `CLAUDE.md` lists
-`~/lean-type-theory/` as the spec blueprint. Open it early.
+The general rule the previous handoff drew — *necessity has to be checked against the
+specification, not the tree* — held up and then paid again in the opposite direction: this
+time the specification was the thing that was wrong, and the check that settled which way it
+ran was verifying that this tree's one deviation only *enlarges* the judgment, so an
+underivability result holds a fortiori for the reference.
 
 ---
 
-## 1. What is proved
+## 1. What is proved, sorry-free
 
-All axiom lists below are from `#print axioms`, taken at handoff time. `Quot.sound` and
-`propext` are standard; the whitelist in `Verify/Axioms.lean` governs what ultimately
-matters. **Nothing here uses `sorryAx`** except where explicitly noted, and nothing uses
-`native_decide`/`bv_decide` (checked, not assumed).
+All `#print axioms` clean: `propext` and `Quot.sound` only. No `sorryAx`, no `native_decide`,
+no `bv_decide`, no axiom added.
 
-| Name | File | Axioms |
+| Name | File | What |
 |---|---|---|
-| `VEnv.WF.defeq_isDeclRule` | `Typing/DeclRules.lean` | `propext, Quot.sound` |
-| `VEnv.WF.instL_lhs_ne_sort` | `Typing/DeclRules.lean` | `propext, Quot.sound` |
-| `VEnv.WF.instL_lhs_ne_forallE` | `Typing/DeclRules.lean` | `propext, Quot.sound` |
-| `VEnv.HasTypeStrong.sort_type` | `Typing/SortUniq.lean` | `propext, Quot.sound` |
-| `VEnv.sort_not_proof` | `Typing/SortUniq.lean` | `propext, Classical.choice, Quot.sound` |
-| `VEnv.IsDefEq.raw` | `Typing/RawDefEq.lean` | `propext` |
-| `VEnv.Stratified.mono` | `Typing/Stratified.lean` | `propext` |
-| `VEnv.IsDefEqN.zero_iff` | `Typing/Stratified.lean` | `propext` |
-| `VEnv.IsDefEqStrong.stratifyN` | `Typing/Stratified.lean` | `propext, Quot.sound` |
-| `VEnv.IsDefEq.stratifyN` | `Typing/Stratified.lean` | `propext, Quot.sound` |
-| `VEnv.Stratified.weakN` | `Typing/Stratified.lean` | `propext, Quot.sound` |
-| `VEnv.Stratified.instN` | `Typing/Stratified.lean` | `propext, Quot.sound` |
-| `VEnv.IsDefEqN.inst0` | `Typing/Stratified.lean` | `propext, Quot.sound` |
+| `Stratified.{mono, weakN, instN}`, `IsDefEqN.{zero_iff, inst0}`, `IsDefEq.stratifyN` | `Typing/Stratified.lean` | the index, the four n-provability basics, weakening and substitution |
+| `DefInv`, `DefInv.zero` | `Typing/UniqueTypingN.lean` | definitional inversion (`unique.tex:29–35`) and `thm:0dinv` |
+| `SubstC`, `SubstC.zero`, `SubstC.of_hasTypeN_zero` | `Typing/UniqueTypingN.lean` | the inference at `unique.tex:51`, isolated; true at `n = 0` and on the conversion-free fragment |
+| `HasTypeN.{bvar,sort,const,app,lam,forallE}_inv` | `Typing/UniqueTypingN.lean` | subject-shape inversion at the index — **the most reusable thing here** |
+| `Stratified.uniq`, `HasTypeN.uniq_zero` | `Typing/UniqueTypingN.lean` | `thm:utype` from `DefInv` + `SubstC`; content only at `n = 0` |
+| `IsDefEqU.sort_inv_of_defInv`, `sort_forallE_inv_of_defInv` | `Typing/UniqueTypingN.lean` | **the target reduced to `∀ n, DefInv`** — uses neither `uniq` nor `SubstC` |
+| `DefInv.sort_proofIrrel` | `Typing/UniqueTypingN.lean` | at the index, `unique.tex:266` needs only `DefInv` clause (1), not `SortUniq` |
+| `SubstCRefute.{lhs_not_hasType0, stuck, substC_false, defInv_forallE_inst_false}` | `Typing/SubstCRefute.lean` | the refutation |
 
-One deliberate exception: `VEnv.WF.sortUniq` (`Typing/SortUniqFacts.lean`) has no literal
-`sorry` but reports `sorryAx`, because it derives `SortUniq` *from* `sort_inv` + `uniq`. It
-exists only as an upper bound on the strength of the `SortUniq` hypothesis — evidence the
-reduction in `SortUniq.lean` smuggles in nothing extra. It is **not** evidence `SortUniq`
-holds.
-
-### What the pieces are
-
-- **`DeclRules.lean`** — every definitional-equality rule of a `VEnv.WF` environment is a
-  δ-rule, the quotient rule, or an ι-rule; hence no rule's `lhs` is a `.sort` or a
-  `.forallE`. This is the "⊆" direction the tree lacked. *Overlaps
-  `Typing/PatternRules.lean`'s richer `VEnv.RuleShape`*; kept small only because
-  `Injectivity.lean` cannot afford `PatternRules`' import cone. If consolidating, keep
-  `RuleShape` and delete `VDefEq.IsDeclRule`.
-- **`SortUniq.lean`** — `VEnv.SortUniq`, universe uniqueness
-  (`Γ ⊢ e : .sort u → Γ ⊢ e : .sort v → u ≈ v`), stated as a hypothesis, plus
-  `sort_not_proof` which closes `sort_inv`'s `proofIrrel` case *given* it.
-- **`RawDefEq.lean`** — the reference's three-place judgment, plus the erasure. §0 above.
-- **`Stratified.lean`** — Carneiro's `⊢ₙ` alternation index (`unique.tex:10–15`) as one
-  inductive with a `Bool` discriminator, all four of the reference's "n-provability basics",
-  `≡₀ = syntactic equality` (`thm:0dinv`, the base case), and weakening + substitution at
-  the index.
+**The inversion lemmas are the asset.** They made the refutation a fifteen-line induction
+instead of a confluence argument, and they made the `:266` improvement a five-line proof.
+Reach for them before writing any new induction over `Stratified`.
 
 ---
 
-## 2. What is stated but open
+## 2. The two reference defects, with confidence levels
 
-`Injectivity.lean` has **six** sorried declarations. `IsDefEqU.forallE_inv` is derived
-in-file and carries no `sorry` of its own.
+Do not blur these.
 
-| Statement | Blocked on |
-|---|---|
-| `IsDefEqU.sort_inv` | **two labelled holes inside the induction**: `trans` (normalisation) and `proofIrrel` (`SortUniq`). Nine of eleven cases close; `extra` is discharged by `DeclRules`. |
-| `IsDefEqU.forallE_inv_stratified` | `trans`, plus `SortUniq` in its **structural** cases (`forallEDF`, `symm`) — its conclusion pairs a conversion at level `u` with a stratified typing at that same `u`, and nothing aligns them. |
-| `IsDefEqU.sort_forallE_inv` | same family |
-| `IsDefEqU.const_app_inv` | same family (untouched) |
-| `IsDefEqU.const_forallE_inv` | **two labelled holes**, the same two as `sort_inv`. Eleven of thirteen cases close. |
-| `IsDefEqU.const_sort_inv` | same; skeleton not written, identical modulo `instL_lhs_ne_sort` |
+**(a) `unique.tex:51` — machine-checked, empty environment.** `thm:utype`'s application case
+uses "from `Γ,x:α ⊢ₙ β ≡ β'` and `Γ ⊢ₙ e₂ : α`, conclude `Γ ⊢ₙ β[e₂/x] ≡ β'[e₂/x]`". False at
+`n = 1`. The counterexample puts the type mismatch **under an application**, where no
+premise-free rule reaches — a first attempt that put it in a *binder annotation* was **not** a
+counterexample, because `lamDF` + `sortDF`, both premise-free, repaired it. Write-up:
+`docs/reference-gap-thm-utype.md`.
 
-**Everything reduces to two primitives:** normalisation (the `trans` case) and universe
-uniqueness (`SortUniq`). Given `SortUniq`, the whole family collapses to `trans` alone.
-
-**`SortUniq` is the highest-value target in the tree** — four independent consumers: this
-syntactic cone, `Theory/SetModel/`'s `LevelAssign.srt_sound`, any confluence development, and
-`IsDefEq.uniq`. Nothing in the tree exhibits one.
-
----
-
-## 3. Tried and failed, with the failing step
-
-This is the expensive half. Each entry says where it broke.
-
-- **Confluence via `ChurchRosser.lean`.** Structurally circular *as the file stands*: it
-  imports `Injectivity` and its backbone rests on the `UniqueTyping` family. **Not circular
-  in the mathematics** — see §0.
-- **"Restrict the goal to sorts and the dependency goes away."** No. The dependency lives in
-  `NormalEq`'s *definition* (shared type data across both sides), so it survives any
-  restriction of the conclusion. Separately, the minimal strengthening that closes `trans` —
-  `IsDefEqStrong Γ e₁ e₂ A → (e₁ ≫* .sort u → ∃ w, u ≈ w ∧ e₂ ≫* .sort w)` — is **not closed
-  under its own induction**: its `appDF` case needs `f'` to reduce to a λ whenever `f` does,
-  dragging in Π-shape.
-- **"The uniqueness family evaporates at the stratified index."** Half true and the wrong
-  half. The **83** retyping uses (`trans_l/r`, `transU_l/r`, `of_l/r`, `defeqU_l/r`) do
-  evaporate — each is "move a conversion to a type" or "compose at different types", and at
-  the index `trans`/`conv` are rules. The **26** `uniq`/`uniqU` uses do **not**; they become
-  the *induction hypothesis* (`unique.tex:64` says so outright). *That relocation, not their
-  disappearance, is what breaks the circularity.* The counterexample that catches the wrong
-  version: `≡ₚ → ≡`'s app case still needs a shared function type.
-- **The experimental shape model** (`Lean4Lean/Experimental/`) never supplied these. Treat
-  everything there as unproved. `SExpr.ParamsExtra.extra_pat` is unsatisfiable as stated.
-- **A set-model route** is blocked on the same two cases: `LevelAssign` needs universe
-  uniqueness, which is strictly more than `sort_inv`.
-- **`extra` was never the obstacle**, for any statement in the family. `DeclRules` closes it
-  mechanically. Do not spend effort there.
-- **Rule-freeness (`RuleFreeHead`) is weaker than it looks.** It discharges exactly the
-  `extra` case, and only on the `lhs` side — the mirrored case needs
-  `DeclRules.instL_lhs_ne_forallE`. Disjointness is in `sort_inv`'s equivalence class, not
-  cheaper.
+**(b) `unique.tex:180` — reading result with a worked configuration, plus a repair.** The
+bullet concludes the lift's *output* type is a `Prop`; it does not follow, since
+`Quot.lift`'s `{α : Sort u}` and `{β : Sort v}` are independent (verified against
+`~/lean4/src/Init/Prelude.lean:443` and this repo's `quotLiftConst`). The reference's own
+`typesys.tex:50` configuration is a counterexample to `thm:gg_compat`. **Repairable**, by the
+reference's own device: a `K⁺` rule for `Prop`-quotients, exactly parallel to the one
+`unique.tex:103` gives subsingleton inductives, with every clause of its justification
+transferring verbatim. `reference-gap-thm-utype.md` §11.
 
 ---
 
-## 4. The estimate, and why it moved both ways
+## 3. Four candidates, four row-zero failures
 
-`thm:utype` at the index was estimated at **111 lines** (re-index `UniqueTyping.lean`'s
-`IsDefEq.uniq`). It then moved to **3–4×**, then back to **~2.4×**. Both moves were on
-evidence and the history is more informative than the number.
+| candidate | check | outcome |
+|---|---|---|
+| instantiation as a rule | does `thm:ckappa` absorb the new case? | **no**, by arithmetic — see below |
+| a different stratification | is there a measure? | **no** — height gives `≤` not `<`; the tension is generic to the family |
+| de-stratify | how many uses of unique typing in §§3–4? | **three**; `:180` now eliminated, `:266` reduced, `:272` remains |
+| `sort_not_proof` from the model | which statement can a model reach? | **blocked** — the model is *parameterised* on `SortUniq` |
 
-- **Up:** building into it surfaced two devices the estimate omitted — a substitution lemma
-  at the index, and a core/conversion separation. The second was a *definition change*, not
-  an addition, which is what made the route look structural.
-- **Down, and this is the consequential part:** the **core/conversion separation is not
-  needed**. `thm:utype`'s double induction can peel conversions on the second derivation with
-  a nested induction under a subject-shape generalisation — exactly how
-  `HasType.app_inv` (`Strong.lean`) inverts an application without one. `HasTypeStrong` has
-  the separation for convenience. The definition-change item is struck.
-- **Substitution + weakening came in at 116 lines, under the 120–200 estimated**, and it is
-  the piece that *propagates*: all 35 of `ChurchRosser.lean`'s `instN`/`weakN`-using
-  declarations draw on it. It is paid once, and it is paid.
+**The arithmetic that closed the first family.** Write `k` for the index an instantiation rule
+concludes at and `j` for its typing premise's index.
 
-A derived figure also corrected: §§3–4 was re-read as **3000–6000 lines** on the assumption
-that the substrate cost recurs per declaration. **It does not.** Back to **1500–2500**.
+* **(R1) `thm:utype`'s application case forces `j = k`** — the `app` rule hands it
+  `Γ ⊢ₙ e₂ : A` and an IH at index `n`, and its conclusion must be at `n`.
+* **(R2) `thm:ckappa` forces `j ≤ k−1`** — `≡ᵏ` is defined (`unique.tex:240`) with the side
+  condition `Γ ⊢ e₁,e₂ : α`, a `⊢ₖ₋₁` typing under the §3 convention (`unique.tex:64`).
 
-Measured, not estimated, on `ChurchRosser.lean` with comments stripped: 86 declarations;
-83 retyping uses; 26 `uniq`/`uniqU` uses; 52 `instN` and 73 `weakN` uses across 35
-declarations.
+Both halves machine-checked at `k = 1`. The argument never mentions the rule's depth or
+premise shape, so it closes explicit substitutions and context morphisms too — **the context
+machinery was never the binding constraint.**
 
----
-
-## 5. Traps
-
-All the same shape: **something that reads right, typechecks, and is wrong.** Five found in
-one session. Structural instruments held (import graphs, arity checks, elaborated
-references, fully qualified names); textual ones did not.
-
-1. **Arity.** `forallE_inv` names two unrelated families. Of 44 textual hits in
-   `ChurchRosser.lean` only **12** are the injectivity one; the other 30 are the
-   one-argument family in `Typing/Lemmas.lean` (`HasType.forallE_inv`, `IsType.sort_inv` —
-   the latter only says "the level is `WF U`"). A plain grep overcounts ~3.5×. An earlier
-   report of "20+ sites" was inflated this way.
-2. **Namespace collision.** `Lean4Lean.VEnv.Params` (`ChurchRosser.lean:12`, the mainline
-   class, **no instance**) and `Lean4Lean.Params` (`Experimental/SExpr.lean:787`, different
-   fields) are different classes. `Experimental/ParamsInstance.lean`'s `paramsOfWF`
-   instantiates the **second**. Two contradictory-sounding claims in this repo are both true
-   of different classes. **Standing rule: a claim about whether something is instantiated
-   must carry its namespace, or it is not a claim.**
-3. **Case-pattern implicits.** `Stratified.bvar` has one more implicit than `IsDefEq.bvar`
-   (the index `n`), so the pattern `| @bvar _ i ty h =>` copied from the `IsDefEq.instN`
-   template silently binds `h` to the *index* and leaves the `Lookup` inaccessible. It
-   typechecks — `h : Nat` — and fails several inference steps later. **Copying a case pattern
-   between two judgments requires counting implicits, not matching names.**
-4. **Two head notions.** `VExpr.headConst?` **peels λ**; `VExpr.spineHead` (added in
-   `Injectivity.lean`) does not. `headConst?` is right for `extra` (a rule's lhs is
-   λ-abstracted) and *wrong* for `beta`, where the spine head is a `.lam` and `headConst?`
-   looks straight through it.
-5. **Index arithmetic.** `Stratified.instN`'s conclusion must be written `m + n`, never
-   `n + m`. `Nat.add` recurses on its second argument, so only `m + (n+1)` reduces to
-   `(m+n)+1` — which is what lets the conversion rules (all concluding at a successor)
-   unify. `n + m` does not reduce and the proof does not go through.
-
-**Standing warning, hit twice:** *wherever the reference relies on typing and conversion
-being separate judgments, this tree needs a combined statement.* Root cause: `HasType e A` is
-*defined* as `IsDefEq e e A`. Instances so far — (a) the type index makes `IsDefEqU`
-composition a theorem not a rule (§0); (b) the reference's basics (3) and (4) cannot be two
-lemmas here, because in `IsDefEqStrong` a conversion rule's typing premises are diagonal
-instances of the conversion judgment itself, so a split induction has nothing to feed
-`appDF`, `beta`, `eta` or `proofIrrel`. Expect more in §§3–4; reach for a combined statement
-before proving two lemmas that cannot see each other's induction hypotheses.
+**The model check.** `Theory/SetModel/` is parameterised throughout on
+`(L : LevelAssign env nv)` and nothing constructs one; `LevelAssign.srt_sound` *is* `SortUniq`
+restated. And `SortUniq` is **false in the cumulative extension**, which any nested-universe
+model validates — so no model can supply it. Recorded in `Typing/SortUniq.lean`'s docstring,
+where its consumers look.
 
 ---
 
-## 6. One deviation from the reference — do not let this get absorbed
+## 4. Where the obstruction now sits: one statement
 
-`Stratified`'s `rfl` is **unconditional**; the reference's reflexivity rule
-(`axioms.tex:31`) requires `Γ ⊢ e : α`.
+**"A sort is not a proof", and its Π analogue.** `:180` is eliminated by the `K⁺` repair;
+`:266` needs only `DefInv` clause (1) (machine-checked); `:272` and clause (3)'s `proofIrrel`
+case need exactly this.
 
-Why: it makes `≡₀` *exactly* syntactic equality, which is the reference's own stipulation for
-level 0, and it repairs a genuine gap. Carneiro states monotonicity as "(2) follows from
-(1)", but **at `m = 0` it does not**: `⊢₀ α ≡ β` is `α = β` with no typing content, while
-`⊢₁ α ≡ β` through a typing-guarded `refl` would demand `Γ ⊢₀ α : γ`, which need not hold for
-an ill-typed `α`. Unconditional `rfl` closes it and changes nothing about well-typed terms,
-since `rfl` relates a term only to itself.
-
-This is flagged in `Stratified.lean`'s module docstring as a deviation. Keep it flagged.
+* *Syntactically*, unstratified, it needs `uniq`, and the self-reference has no decreasing
+  measure — the obvious height measure gives `≤`, not `<`.
+* *Semantically*, it needs the model, which is parameterised on `SortUniq`.
+* *At the stratified index* it is the induction hypothesis — which is what the index is
+  **for**, and the index is broken by (a) above with no repair.
 
 ---
 
-## 7. Where to pick up
+## 5. The live lead: `PropTypeAgree`
 
-1. **`thm:utype` at the index** (`unique.tex:40–53`). Needs: the `DefInv` predicate
-   (`unique.tex:30–35`, three clauses); level-`n` congruence helpers — each needs an `n = 0`
-   branch through `IsDefEqN.zero_iff`, because conversion rules live at `n+1` while
-   `thm:utype`'s conclusion is at `n`; then the double induction, using
-   `IsDefEqN.inst0` for the `app` case (already built). Do **not** add a core/conversion
-   separation; nested induction under a subject-shape generalisation suffices (§4).
-   Note the reference's `thm:utype` needs **no numeric measure** — the repo's 111-line
-   `IsDefEq.uniq` is long only because it also manufactures stratified sort witnesses.
-2. **A `VEnv.Params` analogue** — *check the namespace, there are two classes by that name*
-   (trap 2). Its `pat_wf` is semantic and needs `forallE_inv`; at the index that stops being
-   circular for the same reason `uniq` does.
+The model stream has re-parameterised and now imports one statement:
 
-The direction proved is the one the target needs: `sort_inv` follows from "definitional
-inversion at every `n`" plus `IsDefEqU.stratifyN` alone. The converse
-(`IsDefEqN n → IsDefEqU`) is the reference's regularity upgrade, needs `uniq`, and is **not**
-required — do not spend effort on it before something asks.
+> `Γ ⊢ e : A`, `Γ ⊢ e : A'`, `A` a proposition ⟹ `A'` a proposition.
 
-**Useful prior traces** (this project has three times re-derived what it had already
-answered): `docs/research-injectivity.md` §§2–3 maps `unique.tex` onto the repo
-table-by-table; `docs/research-sort-inv.md` prices the alternatives;
-`docs/research-forallE-inv.md` §9 explains the level-descent machinery in `Strong.lean`.
-Grep `docs/` before deep-diving any dependency.
+`sort_not_proof` is this at `e = .sort u`, so the two routes converged on it independently.
+**It is strictly weaker than unique typing** (binary, not an equality) and it **passes the
+cumulativity check** that refuted `SortUniq`.
+
+**Row-zero, run: `trans` does *not* block it.** This is the finding that makes it worth
+pursuing. Every case of `PropTypeAgree` reduces, via the inversion lemmas, to the residual
+
+    PropConvInv : Γ ⊢ₙ A ≡ A'  ⟹  (IsProp A ↔ IsProp A')
+
+and in that form `trans` **closes by composition** — `(ih1 d h).trans (ih2 d h)` — because the
+property is *propagated along* the conversion rather than asserted of its endpoints. That is
+exactly what `sort_inv`'s equality form is not, and it is why the arbitrary middle term that
+blocks `sort_inv` is harmless here. `symm` likewise, given the `↔` form (the directed form
+fails on `symm`, so state it as an iff).
+
+Six of twelve conversion cases close, machine-checked in a scratch file:
+
+* `rfl`, `symm`, `trans` — by composition;
+* `sortDF` — retype the sort along the level equivalence;
+* `lamDF` — **vacuous** given `DefInv` clause (3) (a λ's type is a Π, never `Prop`);
+* the seven typing constructors die on `b = false`.
+
+Open: `constDF`, `forallEDF`, `appDF`, `beta`, `eta`, `proofIrrel`, `extra`. Two things known
+about these already:
+
+* `forallEDF` is **not** vacuous — a Π *can* be a proposition (`imax u v ≈ 0` iff `v ≈ 0`,
+  `VLevel.imax_eq_zero`), and the induction hypothesis is exactly about the codomain, which is
+  what decides it. It resists on **context conversion** (`A::Γ` versus `A'::Γ`), the same
+  thing that blocks `DefInv` clause (2)'s `symm` case.
+* `beta` will meet the substitution index if attempted at the index; unstratified it should
+  not.
+
+**Attempt it unstratified as well as at the index** — the two settings differ exactly where
+substitution and context conversion appear, and this statement touches both.
+
+---
+
+## 6. Traps that cost real time
+
+1. **Arity.** `forallE_inv` names two unrelated families; a plain grep overcounts ~3.5×.
+2. **Namespace.** `Lean4Lean.VEnv.Params` and `Lean4Lean.Params` are different classes. A
+   claim about instantiation must carry its namespace.
+3. **Case-pattern implicits.** `Stratified.bvar` has one more implicit than `IsDefEq.bvar`.
+   Copying a case pattern between judgments requires counting implicits, not matching names.
+   `induction ... with | ctor h1 h2` binds only explicit fields and IHs.
+4. **Two head notions.** `VExpr.headConst?` peels λ; `VExpr.spineHead` does not.
+5. **Index arithmetic.** `Stratified.instN` must be written `m + n`, never `n + m`.
+6. **`rfl` is captured.** Inside these files `rfl` can elaborate to `Stratified.rfl`; write
+   `(Eq.refl true)` when an equation is meant.
+7. **`nomatch` needs constructors.** It cannot see through a `def`; `simp [thedef] at h`.
+8. **Reasoning about vacuity is unreliable.** Two cases in the `PropTypeAgree` pass were
+   called vacuous by inspection and one was wrong (`forallEDF`). Run it.
+
+---
+
+## 7. What this route produced
+
+The target has not moved. Along the way: a machine-checked defect in the published metatheory
+this project is built on, a second defect with a repair, four candidate repairs closed by
+their own row-zero checks — one of them by an arithmetic argument that closes a whole family —
+a correction to the project's own model of the problem (unique typing is used in §§3–4 at
+three sites, not pervasively), and the reduction of a diffuse obstruction to one named
+statement with three individually-blocked routes. Plus the live lead in §5, whose row-zero
+came back positive.
+
+Build the unknown first. Every one of these came from running the check that was flagged as
+unpriced, before building the thing it gated.
