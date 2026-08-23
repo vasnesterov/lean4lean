@@ -1269,6 +1269,111 @@ injectivity requirement rather than a statement about a one-element set.
 it is relative to a `k`; it is the least exposed of the three by step 1 and is
 left at the declaration check.
 
+## `Quot.ind` and `Quot.lift` are discharged
+
+### `Quot.ind`: the spine's prediction held, with no level split
+
+`quotIndFn_mem` (`SetModel/QuotInterp.lean`) is proved, sorry-free, on
+`[propext, Classical.choice, Quot.sound]`. Five `pt_mem_interp_forallE_prop` in
+a row, witness `•` at every one, **no case split on any level anywhere in the
+membership proof.** The prediction recorded with the spine was that there would
+be none, and it survived contact.
+
+The reason is worth stating because it is a criterion, not an accident: every
+codomain in `Quot.ind`'s type is `Sort .zero` **literally** — the motive `β`
+lands in `Prop` by construction — so each `imax` above it collapses without ever
+consulting `u`. Contrast `Quot.mk`, whose innermost codomain is `Quot α r : Sort u`
+and whose whole type therefore becomes a proposition exactly at `u = 0`. **The
+test is whether the innermost codomain is a syntactic `Sort .zero` or a
+level-carrying expression**; that decides whether the witness needs a split,
+before any proof is attempted.
+
+The one split that does occur is confined to `interp_quotIndMkAp`, which
+computes a *value*: at `u.eval = 0` the partial application `Quot.mk α r` is
+proof-sorted and `interp_app_of_proof_sorted` returns `•` without consulting
+`M.cnst` at all — so that branch needs neither the constant hypothesis nor
+`Quot.mk`'s value chain. That is what keeps the split out of the membership.
+
+### `Quot.lift`: proved, and it needed everything the other three did not
+
+`quotLiftFn_mem` is proved, sorry-free, same three axioms. It is the first of
+the four `Quot` operations that is genuinely different in kind, in four ways:
+
+1. **Two universe parameters.** The witness splits on `v`, the *codomain* level:
+   the type is a proposition exactly when `imax u v = 0`, i.e. when `v = 0`. The
+   carrier level `u` never degenerates the witness — it only changes the value.
+   So the standing `u = 0` check needs restating: **run it on every level
+   parameter separately, and expect the answer to differ between them.**
+2. **A hypothesis binder that is eliminated, not carried.** Without `c` the
+   image of a class under `f` need not be a singleton and the witness would not
+   land in `β` at all. This is the only place in the `Quot` block where a `Prop`
+   argument is consumed, and it is exactly why `Quot.lift` is the first whose
+   type mentions a second constant (`Eq`). `EqSpec` (`SetModel/PreludeSpec.lean`)
+   is what turns the *existence* of `c` into an equation between values;
+   `quotLift_respects` is the only consumer.
+3. **`quotEqv`'s elimination rule was needed, and the `Π₁` form paid off.**
+   `quotEqv` was defined by its universal property rather than as `lfp`, for
+   definability, and the docstring recorded that nothing needed the two to
+   agree. `Quot.lift` needs to stretch `c` — which speaks only about `r` — over
+   the closure. With the `Π₁` form that is one line: instantiate the universal
+   property at the kernel of `f`, which is `eqvStep`-closed exactly because `f`
+   respects `r`. Going through `eqvClosure_least` would first have required
+   proving the two definitions equal. **A definition chosen for one reason
+   (definability) turned out to be the one with the cheap elimination rule.**
+   `isEquivalenceOn_quotEqv` is likewise proved directly, without the
+   comparison.
+4. **The value is a union, not a choice.** `quotLiftVal f q i` is
+   `⋃ˢ (image f q)` above a `Prop` carrier and `f ‘ •` at one. No appeal to `AC`
+   and no representative selection: `c` makes the image a singleton and `⋃ˢ`
+   reads it out. `exists_quotient_lift` (`SetModel/Universe.lean`), which
+   produces a lift by an existential, is *not* usable here — it gives `∃ g`, and
+   a `mkLam` needs a definable function of the parameters.
+
+The ι-rule at the value level (`quotLiftVal_quotMkVal`) holds in both branches,
+and the degenerate one is not vacuous: at a `Prop` carrier `α ⊆ {•}`, so the
+representative `a` *is* `•` and the two sides agree on the nose.
+
+### `quotDefEq` is **not** the next step after `Quot.ind` — `Quot.lift` was
+
+The handover into this stage read "`Quot.ind`, then `quotDefEq`". That skips a
+prerequisite: `quotDefEq` is
+`fun α r β f c a => Quot.lift α r β f c (Quot.mk α r a) ≡ f a`, so both its
+obligations are about a six-λ nest whose left-hand body is a full `Quot.lift`
+application. Nothing about it can be stated before `Quot.lift`'s denotation
+exists. That is now done, so `quotDefEq` is unblocked.
+
+What it still needs, precisely:
+
+* **`Quot.lift`'s application spine** — a `¬IsProof` for each of the five proper
+  prefixes of `Quot.lift α r β f c`, and `isProof_iff` wants a typing *and* a
+  sort derivation for each. The types are the successive `inst`s, and they are
+  worth recording because they are easy to get wrong by hand. Over the context
+  `[.bvar 4, quotLiftC v, quotLiftFTy, .sort v, quotRelTy, .sort u]` (indices
+  `0 = a, 1 = c, 2 = f, 3 = β, 4 = r, 5 = α`), with `E := .const Eq [v]`:
+
+  | after | type |
+  |---|---|
+  | `Quot.lift α` | `∀ (.bvar 5) (.bvar 6), Sort 0` → `∀ Sort v, ∀ (∀ (.bvar 7), .bvar 1), ∀ (∀ (.bvar 8), ∀ (.bvar 9), ∀ (r a b), E …), ∀ (Quot (.bvar 9) (.bvar 3)), .bvar 3` |
+  | `Quot.lift α r` | `∀ Sort v, ∀ (∀ (.bvar 6), .bvar 1), ∀ (∀ (.bvar 7), ∀ (.bvar 8), ∀ ((.bvar 8) a b), E …), ∀ (Quot (.bvar 8) (.bvar 7)), .bvar 3` |
+  | `Quot.lift α r β` | `∀ (∀ (.bvar 5), .bvar 4), ∀ (∀ (.bvar 6), ∀ (.bvar 7), ∀ ((.bvar 7) a b), E (.bvar 7) …), ∀ (Quot (.bvar 7) (.bvar 6)), .bvar 6` |
+  | `Quot.lift α r β f` | `∀ (∀ (.bvar 5), ∀ (.bvar 6), ∀ ((.bvar 6) a b), E (.bvar 6) ((.bvar 5) a) ((.bvar 5) b)), ∀ (Quot (.bvar 6) (.bvar 5)), .bvar 5` |
+  | `Quot.lift α r β f c` | `∀ (Quot (.bvar 5) (.bvar 4)), .bvar 4` |
+
+  Every one is non-proof exactly when `v ≠ 0`, since each sort bottoms out at
+  `imax u v`.
+* **`Quot.mk` at indices `(5, 4, 0)`** — the analogue of `quotMkAp1/2_type`,
+  which are stated at `(3, 2, 0)` for `Quot.ind`'s context.
+* **`interp_lam_congr`** — two `lam`s with the same binder type have the same
+  denotation once their bodies do. *This needs the two bodies to agree on
+  `IsProof`, which is not free*: `IsProof` is syntactic, so it has to come from
+  `srt_congr` on a defeq derivation, or from typing derivations for both bodies.
+  That is the reason the equation cannot be reduced to its bodies without the
+  spine above.
+* **The membership obligation is the cheap half.** `⟦lhs⟧ ∅ ∈ ⟦type⟧ ∅` can be
+  proved for the *right*-hand nest (`fun α r β f c a => f a`) and transported
+  across the equation; its bottom is `f ‘ a ∈ β`, which is already
+  `quotLift_f_props`.
+
 ## The remaining open items, ranked
 
 
@@ -1302,7 +1407,7 @@ left at the declaration check.
    |---|---|---|
    | `.axiom` | supplied by `AxiomsValidated` | ready |
    | `.def`, `.opaque`, `.example`, `.mutualDef` | `⟦ci.value⟧` at the earlier assignment | ready |
-   | `.quot` | `Quot`, `Quot.mk`, `Quot.lift`, `Quot.ind` and `quotDefEq` | ready — `addQuot` is concrete, model side in `Universe.lean` |
+   | `.quot` | `Quot`, `Quot.mk`, `Quot.lift`, `Quot.ind` and `quotDefEq` | all four `const_type` obligations **proved** (`quotFn_mem`, `quotMkFn_mem`, `quotIndFn_mem`, `quotLiftFn_mem`); `quotDefEq` outstanding, see above |
    | `.induct` | whatever `addInduct` introduces | blocked on item 2 |
 
    The step is proved (`coherentOn_addConst`, `coherentOn_addDefEq`) and so is
