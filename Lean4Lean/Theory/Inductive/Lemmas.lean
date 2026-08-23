@@ -973,9 +973,14 @@ theorem IsDefEqCtx.mono {env env' : VEnv} (hle : env ≤ env') :
 
 end VEnv
 
-theorem VIndField.WF.mono {env env' : VEnv} {D : VInductDecl'} {Γ : List VExpr} {i F}
-    (hle : env ≤ env') (h : VIndField.WF env D Γ i F) : VIndField.WF env' D Γ i F where
+theorem VIndField.WF.mono {env env' : VEnv} {D : VInductDecl'} {pre : List VIndField}
+    {Γ : List VExpr} {i F}
+    (hle : env ≤ env') (h : VIndField.WF env D pre Γ i F) :
+    VIndField.WF env' D pre Γ i F where
   hasType := h.hasType.mono hle
+  -- `binders_indep` is pure syntax: no environment appears in `BindersIndep`, so it is
+  -- carried across a weakening unchanged.
+  binders_indep := h.binders_indep
   level := h.level
   pos := by
     have hp := h.pos

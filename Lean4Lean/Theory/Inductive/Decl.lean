@@ -264,10 +264,50 @@ def VEnv.IsDefEqType (env : VEnv) (U : Nat) (Γ : List VExpr) (A B : VExpr) : Pr
   ∃ u, env.IsDefEq U Γ A B (.sort u)
 
 
+/-- **A recursive field's binders `ξ` may not mention an earlier *recursive* field.**
+
+`pre` is the fields before this one in declaration order (`C.fields.take i` at the only call
+site, so `pre.length = i`).  The context of field `i` is
+`(pre.map (·.type)).reverse ++ D.params.reverse`, so field `i'` sits at de Bruijn index `t`
+where `i' + 1 + t = i`, and binder `k` of `ξ` lives `k` binders deeper — hence `k + t`.
+
+The index is carried as `t` *plus the equation*, not as `i - 1 - i'`, per note 0b of
+`Theory/Inductive/Lemmas.lean`: this way a caller meets an `omega` goal rather than a
+truncated-subtraction normal form.
+
+## Why the model needs it
+
+The set model's `Pos q a` is the disjoint union, over the constructor's recursive fields, of
+`⟦r.binders⟧` — and it is what *types* the recursive filler `f`, so it is a function of
+`(q, a)` alone and structurally cannot receive `f`.  Evaluating `⟦r.binders⟧` therefore has
+the parameters and the *non-recursive* earlier fields available and nothing else.
+
+Both alternatives were measured and both fail.  Putting the recursive fillers into `a`
+breaks `fld_det`, which `Ind_subsingleton` uses to pin `a` from the result index before
+pinning `f` by the rank induction; the family that kills is **`Acc`**, a large-eliminating
+subsingleton with a recursive field, whose eliminator is not optional.  And weakening `Pos`
+to a superset computable without `f` injects junk positions, because the dependence is on
+the *values* rather than on an approximation.
+
+## What it does not restrict
+
+Only `binders`.  `r.args` are evaluated where `f` is in scope, so they are untouched — and
+`VIndField.WF.pos`'s `none` branch stays exactly as it was, which `docs/model-interface.md`
+§2 requires.
+
+The clause is **vacuous for `Acc`**: its recursive field's `ξ = [α, r y x]` mentions only
+`x`, the earlier *non*-recursive field.  It is vacuous for every constructor with at most
+one recursive field, which is every witness in `DeclExamples.lean`. -/
+def VIndRecArg.BindersIndep (r : VIndRecArg) (pre : List VIndField) (i : Nat) : Prop :=
+  ∀ (i' t : Nat) (F' : VIndField), pre[i']? = some F' → F'.recArg.isSome →
+    i' + 1 + t = i → ∀ (k : Nat) (B : VExpr), r.binders[k]? = some B → B.Skips 1 (k + t)
+
 /-- Well-formedness of one constructor field.  `Γ` is
-`((C.fields.take i).map (·.type)).reverse ++ D.params.reverse`, the context of field `i`. -/
-structure VIndField.WF (env : VEnv) (D : VInductDecl') (Γ : List VExpr) (i : Nat)
-    (F : VIndField) : Prop where
+`((C.fields.take i).map (·.type)).reverse ++ D.params.reverse`, the context of field `i`, and
+`pre` is `C.fields.take i` — the fields that context is built from.  `pre` carries what `Γ`
+erases: which of the earlier fields are *recursive*, which `binders_indep` needs. -/
+structure VIndField.WF (env : VEnv) (D : VInductDecl') (pre : List VIndField)
+    (Γ : List VExpr) (i : Nat) (F : VIndField) : Prop where
   /-- The recorded sort really is a sort of the field's type. -/
   hasType : env.HasType D.uvars Γ F.type (.sort F.lvl)
   /-- Carneiro's level constraint.  The kernel checks the strictly stronger
@@ -312,6 +352,54 @@ structure VIndField.WF (env : VEnv) (D : VInductDecl') (Γ : List VExpr) (i : Na
         env.HasArgs D.uvars (r.binders.reverse ++ Γ)
           (liftTele (r.binders.length + i) T'.indices) r.args) ∧
       env.IsDefEqType D.uvars Γ F.type (r.canonType D i)
+  /-- **The recorded `ξ` is independent of the earlier recursive fields**
+  (`VIndRecArg.BindersIndep`).
+
+  *Recorded, not derived*, in the same style as `pos`'s index clause and
+  `VIndCtor.WF.args_ty`: the kernel performs no such check, so nothing in the refinement
+  hands this over for free.  What discharges it is that `ξ` is only required to be
+  *definitionally* the stored binder — see `VIndRecArg.exists_indep` below, which is stated
+  and open. -/
+  binders_indep : ∀ r, F.recArg = some r → r.BindersIndep pre i
+
+/-- **Discharge obligation for `VIndField.WF.binders_indep` — stated, not proved.**
+
+The clause is not something the kernel checks, so it must be *arranged* by whoever builds the
+`VIndRecArg`.  That is possible because `binders` is only required to be definitionally the
+stored binder telescope (`pos`'s last conjunct is an `IsDefEqType`, not an equation), so a
+binder that mentions an earlier recursive field may be replaced by a defeq one that does not.
+
+**Why it should be true.**  For a binder `B : Sort u` in `ξ` to depend on the *value* of an
+earlier recursive field `a : ∀ ξ₀, I p π₀`, something in scope must eliminate an `I`.  At the
+staged environment nothing can: `I`'s recursor does not exist yet, `I` has no ι-rules, the
+parameters were typed before `I` was declared, and an earlier field of type
+`(∀ ξ₀, I p π₀) → Sort u` is itself ill-formed — `pos`'s `none` branch needs it definitionally
+block-free and its `some` branch needs the shape `∀ ξ, I p π`, and it is neither.  So every
+occurrence of `a` in a well-formed `B` sits under a redex and disappears under `whnf`; the
+`(fun _ : T => Nat) r` example in `pos`'s `none`-branch comment is the shape.
+
+**Why it is a `sorry` and not a proof.**  Turning "nothing eliminates `I`" into a defeq
+argument is the injectivity family — it needs `IsDefEqU.forallE_inv`
+(`Typing/Injectivity.lean`, open) to rule out the ill-formed field above, and that is
+downstream of `VEnv.WF` hence of `addInduct_WF`.  A missing statement is worse than an open
+one: an open one shows up in a `sorry` count, a missing one is invisible until someone needs
+it.
+
+`r'` keeps `idx`, `args` and the binder *count*, so only the binder *types* move; every
+de Bruijn index in `args` and in the result therefore still points where it did. -/
+theorem VIndRecArg.exists_indep {env : VEnv} {D : VInductDecl'} {Γ : List VExpr}
+    {pre : List VIndField} {i : Nat} {F : VIndField} {r : VIndRecArg}
+    (hlen : pre.length = i)
+    (hΓ : Γ = (pre.map (·.type)).reverse ++ D.params.reverse)
+    (hty : env.HasType D.uvars Γ F.type (.sort F.lvl))
+    (hbind : ∀ B ∈ r.binders, D.NoBlock B)
+    (hdefeq : env.IsDefEqType D.uvars Γ F.type (r.canonType D i)) :
+    ∃ r' : VIndRecArg,
+      r'.idx = r.idx ∧ r'.args = r.args ∧ r'.binders.length = r.binders.length ∧
+      (∀ B ∈ r'.binders, D.NoBlock B) ∧
+      env.IsDefEqType D.uvars Γ F.type (r'.canonType D i) ∧
+      r'.BindersIndep pre i := by
+  sorry
 
 /-- Well-formedness of one constructor, stated in the environment that already contains
 the block's *type* constants. -/
@@ -323,7 +411,8 @@ structure VIndCtor.WF (env : VEnv) (D : VInductDecl') (j : Nat) (T : VIndType)
   params_eq : VEnv.IsDefEqCtx env D.uvars [] C.params.reverse D.params.reverse
   /-- Every field is well-formed in its own context. -/
   fields : ∀ i (F : VIndField), C.fields[i]? = some F →
-    F.WF env D (((C.fields.take i).map (·.type)).reverse ++ D.params.reverse) i
+    F.WF env D (C.fields.take i)
+      (((C.fields.take i).map (·.type)).reverse ++ D.params.reverse) i
   /-- F5: the result is an application of `I_j` to the parameters and `args`… -/
   args_len : C.args.length = T.indices.length
   /-- …with the non-parameter arguments free of the block's constants… -/
@@ -712,8 +801,17 @@ and F1 blocks reading it off `T.type`.  But `VIndCtor.params` **is** recoverable
 translation should not try to recover `D.params` at all — it should take the constructor's copy,
 which the skeleton hands back, and carry the tie.
 
-This is the transport discipline: *choose the point where the fact already holds* rather than
-recovering it where it does not. -/
+This is the transport discipline, and it has now paid seven times across this tree, so it is
+worth stating as the first thing to try rather than the last:
+
+> **When a field is not syntactically recoverable, do not look for a cleverer way to recover
+> it.  Look for a place where a well-formedness judgement already asserts it, and tie there.**
+
+`D.params` is the clean case — `VIndCtor.WF.params_eq` asserts exactly the needed equality, and
+it is in scope wherever the constructor is well-formed.  The same reading disposed of the
+`Params` arity obligations (read the arity off the stored constant, where two patterns sharing
+a leaf must agree), of `extra_pat`'s context weakening (take a preimage rather than transport),
+and of the `.indTy` role question (`VDefEq.key` already names the roles to exclude). -/
 theorem ctor_params_skeleton {env : VEnv} {D : VInductDecl'} {j : Nat} {T : VIndType}
     {C : VIndCtor} (henv : VEnv.Ordered env) (h : VIndCtor.WF env D j T C) :
     VEnv.IsDefEqCtx env D.uvars []

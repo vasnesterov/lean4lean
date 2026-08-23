@@ -1203,9 +1203,90 @@ theorem fooDecl_WF : fooDecl.WF .empty where
         subst hF
         exact { hasType := .sortDF trivial trivial (.refl _)
                 level := fun ls => by simp [VLevel.eval, fooDecl, Lean.Nat.imax]
+                -- `fooDecl`'s only field is non-recursive, so this clause is vacuous here.
+                -- The section below checks it on families that do have recursive fields.
+                binders_indep := nofun
                 pos := ⟨.sort .zero, by simp [VInductDecl'.NoBlock, VExpr.NoConsts],
                         _, .sortDF trivial trivial (.refl _)⟩ }
   isLE := by simp [fooDecl]
+
+/-! ## `VIndField.WF.binders_indep` is satisfiable, and it bites
+
+`binders_indep` (`Theory/Inductive/Decl.lean`) restricts a recursive field's `ξ` to be
+independent of *earlier recursive* fields, because the set model's `Pos q a` must evaluate
+`⟦ξ⟧` without the recursive filler `f` that `Pos q a` itself types.
+
+A clause nothing satisfies is the configuration that produced every vacuity finding on this
+project, and `fooDecl_WF` discharges it by `nofun` — its only field is non-recursive, so that
+witness proves nothing about the clause.  This section is the real check.  `BindersIndep` is
+**pure syntax** (no `VEnv` occurs in it), so each check is a closed computation.
+
+Three checks, in increasing strength: the motivating family, a non-vacuous instance, and a
+refutation showing the clause is not trivially true. -/
+
+/-- **`Acc` satisfies it** — the family that motivated the clause, since it is a
+large-eliminating subsingleton whose eliminator `Ind_subsingleton` must reach.
+
+It satisfies it *vacuously*: `Acc.intro`'s recursive field is field 1, and the only earlier
+field is `x : α`, which is **not** recursive.  That is exactly the point — `ξ = [α, r y x]`
+does mention `x`, and a clause that forbade dependence on *all* earlier fields would reject
+`Acc`. -/
+example : accIntroRec.BindersIndep (accIntro.fields.take 1) 1 := by
+  intro i' t F' hF' hrec heq
+  match i', heq with
+  | 0, heq => simp [accIntro] at hF'; subst hF'; exact absurd hrec (by simp)
+
+/-- **`Forest'.cons` satisfies it** — `mutDecl`'s `cons : Tree' → Forest' → Forest'` is the
+only constructor in this file with *two* recursive fields, so it is the closest real case to
+what the clause constrains.  Its second recursive field has `ξ = []`, so the `Skips`
+obligation is reached with nothing to check.
+
+Every constructor of `natDecl`, `mutDecl`, `accDecl`, `eqDecl`, `iffDecl`, `nonemptyDecl`,
+`lvlDecl` and `fooDecl` was enumerated: none has a recursive field that both follows another
+recursive field *and* carries a binder, so the clause rejects nothing in this tree. -/
+example : ∀ i (F : VIndField), forestCons.fields[i]? = some F →
+    ∀ r, F.recArg = some r → r.BindersIndep (forestCons.fields.take i) i := by
+  intro i F hF r hr i' t F' hF' _ heq k B hB
+  match i, hF with
+  | 0, hF => cases hF; cases hr; omega
+  | 1, hF =>
+    cases hF; cases hr
+    exact absurd hB nofun
+
+/-- A constructor with **two** recursive fields, the second carrying a binder: this is the
+shape that makes the clause do work.  `wDecl` is `inductive W : Prop | mk : W → (Foo → W) → W`,
+with `Foo` standing for any previously declared `Prop`.
+
+The second field's `ξ = [Foo]` is a constant, so it skips the first field's variable and the
+clause holds — **non-vacuously**: the hypothesis `F'.recArg.isSome` is now `true`, so the
+`Skips` obligation is actually reached. -/
+def wRec0 : VIndRecArg where binders := []; idx := 0; args := []
+
+def wRec1 : VIndRecArg where binders := [.const `Foo []]; idx := 0; args := []
+
+def wFields : List VIndField :=
+  [{ type := .const `W [], lvl := .zero, recArg := some wRec0 },
+   { type := mkPi wRec1.binders (.const `W []), lvl := .zero, recArg := some wRec1 }]
+
+example : wRec1.BindersIndep (wFields.take 1) 1 := by
+  intro i' t F' hF' _ heq
+  obtain ⟨rfl, rfl⟩ : i' = 0 ∧ t = 0 := by omega
+  intro k B hB
+  match k, hB with
+  | 0, hB => cases hB; exact rfl
+
+/-- **…and the clause bites.**  Replace the second field's `ξ = [Foo]` by `ξ = [x]`, where `x`
+is the *first* (recursive) field's variable — the shape whose `⟦ξ⟧` the model cannot evaluate,
+because it needs the value `Pos` is being asked to type.  `BindersIndep` refutes it.
+
+Without this, `binders_indep` could be a clause every `VIndRecArg` satisfies, in which case it
+would constrain nothing and the model would still be stuck. -/
+def wRecBad : VIndRecArg where binders := [.bvar 0]; idx := 0; args := []
+
+example : ¬ wRecBad.BindersIndep (wFields.take 1) 1 := by
+  intro h
+  have := h 0 0 wFields[0]! rfl (by simp [wFields]) rfl 0 (.bvar 0) rfl
+  rw [VExpr.skips_iff] at this; simp [VExpr.Skips'] at this
 
 /-- …and `addInduct'` accepts it. -/
 theorem fooEnv_eq : ∃ e, VEnv.empty.addInduct' fooDecl = some e := ⟨_, rfl⟩
