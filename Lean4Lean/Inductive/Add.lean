@@ -305,12 +305,19 @@ def checkConstructors (indTypes : Array InductiveType)
   let env ← getEnv
   for h : idx in [:indTypes.size] do
     let indType := indTypes[idx]
-    let mut foundCtors : NameSet := {}
+    -- `List Name` rather than `NameSet`: a `NameSet` is an `RBTree` ordered by
+    -- `Lean.Name.quickCmp`, whose *executed* path is `@[implemented_by quickCmpImpl]` and thence
+    -- the body-less opaque `quickCmpImpl.unsafe_impl_2` (a pointer-equality fast path).  Unlike
+    -- a hash lookup, a tree lookup is not re-confirmed by an equality test, so a comparison that
+    -- wrongly reported `eq` would silently accept a duplicate constructor.  `List.contains` runs
+    -- `Name.beq`, whose Lean body *is* its specification.  Quadratic in the constructor count;
+    -- see `divergences.md`.
+    let mut foundCtors : List Name := []
     for ctor in indType.ctors do
       let n := ctor.name
       if foundCtors.contains n then
         throw <| .other s!"duplicate constructor name '{n}'"
-      foundCtors := foundCtors.insert n
+      foundCtors := n :: foundCtors
       let t := ctor.type
       env.checkNoMVarNoFVar n t
       _ ← checkType t
@@ -624,7 +631,12 @@ structure Result where
   nparams : Nat
   lctx : LocalContext
   params : Array Expr -- the fvars declared in `lctx`
-  aux2nested : NameMap Expr -- exprs are open over `params`, like the C++ `m_aux2nested`
+  /-- Exprs are open over `params`, like the C++ `m_aux2nested`.  An association list rather
+  than a `NameMap`, so that lookup runs `Name.beq` instead of `Name.quickCmp`, whose executed
+  path is a body-less opaque; the keys are `mkUniqueName`'s output and so are distinct, and
+  `List.lookup` returns the first match, which is the most recently pushed — the same
+  last-write-wins semantics `NameMap.insert` has. -/
+  aux2nested : List (Name × Expr)
   types : List InductiveType
 
 instance [MonadStateOf NameGenerator m] : MonadNameGenerator m where
@@ -635,7 +647,7 @@ namespace Result
 
 def getNestedIfAuxCtor (r : Result) (env' : Environment) (c : Name) : Option (Expr × Name) := do
   let .ctorInfo { induct, .. } ← env'.find? c | none
-  return (← r.aux2nested.find? induct, induct)
+  return (← r.aux2nested.lookup induct, induct)
 
 def restoreCtorName (r : Result) (env' : Environment) (c : Name) : Name := Id.run do
   let (e, name) := (r.getNestedIfAuxCtor env' c).get!
@@ -643,7 +655,7 @@ def restoreCtorName (r : Result) (env' : Environment) (c : Name) : Name := Id.ru
   c.replacePrefix name I
 
 def restoreNested (r : Result) (env' : Environment) (e : Expr)
-    (auxRec : NameMap Name := {}) : Expr :=
+    (auxRec : List (Name × Name) := []) : Expr :=
   Id.run <| StateT.run' (s := { namePrefix := `_nested_fresh : NameGenerator }) do
   let pi := e.isForall
   let mut e := e
@@ -660,10 +672,10 @@ def restoreNested (r : Result) (env' : Environment) (e : Expr)
     | _ => unreachable!
   e := e.replace fun t => do
     if let .const c ls := t then
-      if let some recName := auxRec.find? c then
+      if let some recName := auxRec.lookup c then
         return .const recName ls
     let .const c _ := t.getAppFn | none
-    if let some nested := r.aux2nested.find? c then
+    if let some nested := r.aux2nested.lookup c then
       let args := t.getAppArgs
       assert! args.size ≥ r.nparams
       return mkAppRange ((nested.abstract r.params).instantiateRev As) r.nparams args.size args
@@ -835,13 +847,13 @@ def run (fuel nparams : Nat) (types : List InductiveType) : M Result := do
       modify fun s => { s with newTypes := s.newTypes.set! i { indType with ctors } }
       loop (i+1) fuel
     else
-      let aux2nested := s.nestedAux.foldl (fun m (e, n) => m.insert n e) {}
+      let aux2nested := s.nestedAux.foldl (fun m (e, n) => (n, e) :: m) []
       return { s with nparams := params.size, lctx, params, aux2nested, types := s.newTypes.toList }
   loop 0 fuel
 end ElimNestedInductive
 
 def mkAuxRecNameMap (env' : Environment) (types : List InductiveType) :
-    List Name × NameMap Name := Id.run do
+    List Name × List (Name × Name) := Id.run do
   let mainType :: _ := types | unreachable!
   let ntypes := types.length
   let mainName := mainType.name
@@ -849,13 +861,13 @@ def mkAuxRecNameMap (env' : Environment) (types : List InductiveType) :
   let allNames := mainInfo.all
   assert! allNames.length > ntypes
   let mut oldRecNames := #[]
-  let mut recMap : NameMap Name := {}
+  let mut recMap : List (Name × Name) := []
   let mut nextIdx := 1
   for indName in allNames.drop ntypes do
     let oldRecName := mkRecName indName
     let newRecName := (mkRecName mainName).appendIndexAfter nextIdx
     nextIdx := nextIdx + 1
-    recMap := recMap.insert oldRecName newRecName
+    recMap := (oldRecName, newRecName) :: recMap
     oldRecNames := oldRecNames.push oldRecName
   return (oldRecNames.toList, recMap)
 
@@ -876,7 +888,9 @@ def Environment.addInductive (env : Environment) (lparams : List Name) (nparams 
       checkNoNestedAux ctor.name ctor.type
   let res ← ElimNestedInductive.run fuel.inductiveFuel nparams types env
     |>.run' { lvls := lparams.map .param, newTypes := types.toArray }
-  let numNested := res.aux2nested.size
+  -- `nestedAux`'s names are `mkUniqueName`'s output, hence pairwise distinct, so the list's
+  -- length is the number of distinct keys a `NameMap` would have held.
+  let numNested := res.aux2nested.length
   let safety := if isUnsafe then .unsafe else .safe
   let env' ← AddInductive.run nparams res.types numNested
     { env, allowPrimitive, lparams, fuel, safety }
@@ -885,7 +899,7 @@ def Environment.addInductive (env : Environment) (lparams : List Name) (nparams 
   let (recNames', recNameMap') := mkAuxRecNameMap env' types
   (·.2) <$> StateT.run (s := env) do
   let processRec recName := do
-    let newRecName := recNameMap'.getD recName recName
+    let newRecName := (recNameMap'.lookup recName).getD recName
     let some (.recInfo recInfo) := env'.find? recName | unreachable!
     let newRecType := res.restoreNested env' recInfo.type recNameMap'
     let newRules ← recInfo.rules.mapM fun rule => do
@@ -913,7 +927,7 @@ def Environment.addInductive (env : Environment) (lparams : List Name) (nparams 
   -- so no auxiliary declaration is in scope.  Mirrors `src/kernel/inductive.cpp:1317-1324`.
   TypeChecker.M.run (← get) (safety := safety) (lctx := res.lctx)
       (lparams := lparams) (fuel := fuel) do
-    res.aux2nested.forM fun _ e => do _ ← TypeChecker.checkType e
+    res.aux2nested.forM fun (_, e) => do _ ← TypeChecker.checkType e
   -- Re-check everything `restoreNested` rewrote: the constructor types, and the recursor types
   -- and computation rules.  Those terms are rewritten *after* the auxiliary block was checked
   -- and are not otherwise checked in the final environment; the inductive types themselves are
@@ -924,9 +938,9 @@ def Environment.addInductive (env : Environment) (lparams : List Name) (nparams 
   let mut recNames : Array Name := #[]
   for indType in types do
     let r := mkRecName indType.name
-    recNames := recNames.push (recNameMap'.getD r r)
+    recNames := recNames.push ((recNameMap'.lookup r).getD r)
   for recName in recNames' do
-    recNames := recNames.push (recNameMap'.getD recName recName)
+    recNames := recNames.push ((recNameMap'.lookup recName).getD recName)
   TypeChecker.M.run final (safety := safety) (lctx := {}) (lparams := lparams) (fuel := fuel) do
     for indType in types do
       let some (.inductInfo ind) := final.find? indType.name | unreachable!

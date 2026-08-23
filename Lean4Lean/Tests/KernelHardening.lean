@@ -140,6 +140,48 @@ private def nestedIllTypedParams : Declaration :=
         (.forallE `l l (.app (.const `L4LKE []) (.bvar 1)) .default) .default }]
   }] false
 
+/-! ## Duplicate constructor names, and the comparison that decides them
+
+`checkConstructors` rejects an inductive type declaring the same constructor name twice.  Until
+now the membership test ran through `NameSet`, i.e. an `RBTree` ordered by `Lean.Name.quickCmp`,
+whose *executed* path is `@[implemented_by quickCmpImpl]` and thence
+`quickCmpImpl.unsafe_impl_2` — a **body-less opaque** (`quickCmpImpl` opens with
+`if unsafe ptrEq n₁ n₂ then .eq`).  That is a verified/executed divergence of exactly the kind
+`Verify/Guard.lean`'s check 3 exists to catch, sitting upstream where check 3 structurally
+cannot see it, because it filters to constants defined in `Lean4Lean.*` modules.
+
+It matters here more than a hash lookup would: a `PersistentHashMap` hit is re-confirmed by an
+equality test, so a wrong hash causes a miss and not a wrong answer.  A **tree** lookup's answer
+is not re-confirmed by anything, so a comparison that wrongly reported `eq` would silently
+accept a duplicate constructor.
+
+The guard now runs `List.contains`, i.e. `Name.beq`, whose Lean body *is* its specification.
+The two probes below pin both directions of that membership test — a duplicate is rejected *for
+the duplicate-name reason*, and two distinct names are accepted.
+
+**The Kernel Arena does not cover this.**  `tutorial/138_DupConCon` is exactly this shape and it
+is still rejected with the guard disabled, by a later duplicate-declaration check; the arena
+therefore cannot distinguish the branch.  These probes were verified by disabling
+`foundCtors.contains` and confirming the *message* changes. -/
+
+private def dupCtorDecl : Declaration :=
+  .inductDecl [] 0 [{
+    name := `L4LDupCtor
+    type := .sort 1
+    ctors := [
+      { name := `L4LDupCtor.mk, type := .const `L4LDupCtor [] },
+      { name := `L4LDupCtor.mk, type := .const `L4LDupCtor [] }]
+  }] false
+
+private def twoCtorDecl : Declaration :=
+  .inductDecl [] 0 [{
+    name := `L4LTwoCtor
+    type := .sort 1
+    ctors := [
+      { name := `L4LTwoCtor.a, type := .const `L4LTwoCtor [] },
+      { name := `L4LTwoCtor.b, type := .const `L4LTwoCtor [] }]
+  }] false
+
 private partial def deepNat : Nat → Expr
   | 0 => .const ``Nat.zero []
   | n + 1 => .app (.const ``Nat.succ []) (deepNat n)
@@ -163,6 +205,16 @@ run_meta do
       mkPartial `L4LMutGoodA [] (.const ``Nat []) (mkRawNatLit 0),
       mkPartial `L4LMutGoodB [] (.const ``Bool []) (.const ``Bool.true [])] with
   | .error e => throwError "valid mutual block was rejected: {← (e.toMessageData {}).toString}"
+  | .ok _ => pure ()
+
+  -- `checkConstructors`' duplicate-name guard, both directions.  The message is asserted, not
+  -- merely the rejection: with the guard disabled this declaration is still rejected, by a
+  -- later check with a different message, so only the message pins the branch.
+  expectError "inductive with a duplicate constructor name" "duplicate constructor name" <|
+    Lean4Lean.addDecl env dupCtorDecl
+  match Lean4Lean.addDecl env twoCtorDecl with
+  | .error e => throwError "inductive with two distinct constructor names was rejected: \
+      {← (e.toMessageData {}).toString}"
   | .ok _ => pure ()
 
   -- lean4#14613/#14615: normalized `Prop` controls inductive classification and recursor levels.
@@ -500,16 +552,28 @@ The classification, as of this writing (27 entries):
   `Name.appendIndexAfter` from `getElimLevel` and `ElimNestedInductive.mkUniqueName`: both call
   sites *check* the produced name for collision, so a wrong append retries or rejects.
 
-* **Flagged (1).** `Lean.Name.quickCmpImpl.unsafe_impl_2`. `Lean.Name.quickCmp` has a verified
-  Lean body but carries `@[implemented_by quickCmpImpl]`, whose executed path is this opaque —
+* **Reachable only through a type (1).** `Lean.Name.quickCmpImpl.unsafe_impl_2`.
+  `Lean.Name.quickCmp` has a verified Lean body but carries `@[implemented_by quickCmpImpl]`,
+  whose executed path is this opaque (`quickCmpImpl` opens `if unsafe ptrEq n₁ n₂ then .eq`) —
   a **verified/executed divergence of exactly the kind check 3 exists to catch**, upstream and
-  therefore unseen. It orders `NameSet`/`NameMap`, and four constants in the checker's cone
-  depend on it: `AddInductive.checkConstructors` and `addMutual` for **duplicate-name
-  detection**, and `ElimNestedInductive.Result.getNestedIfAuxCtor`/`restoreNested` for the
-  nested-restoration map. Unlike a hash lookup, a tree lookup's answer is *not* re-confirmed by
-  an equality test, so a comparison that wrongly equated two names would silently miss a
-  duplicate constructor or restore the wrong nested type. Not fixed here; recorded so it is not
-  discovered a third time. -/
+  therefore unseen. It orders `NameSet`/`NameMap`, and unlike a hash lookup a tree lookup's
+  answer is *not* re-confirmed by an equality test, so a comparison that wrongly reported `eq`
+  would silently miss a duplicate constructor or restore the wrong nested type.
+
+  Four constants used to reach it through code that runs: `AddInductive.checkConstructors` and
+  `addMutual` for **duplicate-name detection**, and
+  `ElimNestedInductive.Result.getNestedIfAuxCtor`/`restoreNested` for the nested-restoration
+  map. Three of the four are now `List`-based and run `Name.beq` instead; the fourth,
+  `Lean4Lean.addMutual`, is in `Lean4Lean/Environment.lean` and is tracked by
+  `quickCmpExecutors` below.
+
+  It cannot leave the cone, and the reason is structural rather than fixable here:
+  `Lean.LocalContext`'s field `auxDeclToFullName : FVarIdMap Name` mentions `Name.quickCmp` in
+  its *type*, and `FVarIdMap` is an `RBMap` keyed by it. Every lean4lean function whose type
+  mentions `LocalContext` therefore reaches `quickCmp` structurally. This kernel never writes
+  that field — it is `{}` on every `LocalContext` it builds, and `RBMap.empty` never calls the
+  comparator — so the reachability is type-level only. Removing it would mean replacing
+  `Lean.LocalContext`, not anything in this repo. -/
 
 /-- Body-less opaques in `Lean4Lean.addDecl`'s cone that no axiom of `Verify/Axioms.lean`
 mentions. Classified in the note above. Shrinking this list is progress; a name appearing that
@@ -578,5 +642,69 @@ run_meta do
             it, because that check filters to constants defined in `Lean4Lean.*` modules."
   logInfo m!"unmodelled body-less opaques in addDecl's cone: {found} \
     (classified: {allowed.length})"
+
+/-! ## `Name.quickCmp` is no longer *executed* by anything in this repo
+
+The inventory above explains why `Name.quickCmp` cannot leave `addDecl`'s cone: it is in the
+type of `Lean.LocalContext.auxDeclToFullName`. That reachability is inert. What is *not* inert
+is a `Lean4Lean.*` constant whose own definition names `Name.quickCmp`, `NameSet` or `NameMap`,
+because those are the ones that run a tree comparison on a decision path.
+
+This check enumerates exactly those. `Lean.FVarIdMap` is deliberately not among the forbidden
+names: a constant mentioning it has merely inherited `LocalContext`'s field type.
+
+The list is frozen. Shrinking it is progress; the single remaining entry, `Lean4Lean.addMutual`
+(`Lean4Lean/Environment.lean`), is the mutual-block duplicate-name guard, and the edit is the
+same one made in `Lean4Lean/Inductive/Add.lean`:
+
+    let mut found : NameSet := {}    ↦    let mut found : List Name := []
+    found.contains v.name            ↦    found.contains v.name   (unchanged: `List.contains`)
+    found := found.insert v.name     ↦    found := v.name :: found
+
+`Lean4Lean/Environment.lean` is not this stream's file, so that edit is stated, not made. The
+probe that would catch a regression in it already exists — "mutual block with a duplicate name"
+in the `run_meta` block above. -/
+
+/-- `Lean4Lean.*` constants in `addDecl`'s cone whose own definition names `Lean.Name.quickCmp`,
+`Lean.NameSet` or `Lean.NameMap`, i.e. that run a `quickCmp`-ordered tree lookup on a decision
+path. Frozen; shrinking it is progress. -/
+private def quickCmpExecutors : List String := ["Lean4Lean.addMutual"]
+
+run_meta do
+  let env ← getEnv
+  let forbidden : List Name := [`Lean.Name.quickCmp, `Lean.NameSet, `Lean.NameMap,
+    `Lean.NameSet.contains, `Lean.NameSet.insert, `Lean.NameSet.empty, `Lean.NameSet.ofList,
+    `Lean.NameMap.find?, `Lean.NameMap.insert, `Lean.mkNameMap]
+  let mut visited : NameSet := {}
+  let mut stack : List Name := [``Lean4Lean.addDecl]
+  while h : stack ≠ [] do
+    let n := stack.head h; stack := stack.tail
+    if visited.contains n then continue
+    visited := visited.insert n
+    if let some ci := env.find? n then
+      for u in ci.getUsedConstantsAsSet.toList do
+        unless visited.contains u do stack := u :: stack
+      if let some impl := Compiler.getImplementedBy? env n then
+        unless visited.contains impl do stack := impl :: stack
+      let uRec := Name.str n "_unsafe_rec"
+      if env.contains uRec then unless visited.contains uRec do stack := uRec :: stack
+  let mut found : List Name := []
+  for n in visited.toList do
+    unless (`Lean4Lean).isPrefixOf n do continue
+    let some ci := env.find? n | continue
+    if forbidden.any ci.getUsedConstantsAsSet.contains then
+      found := n :: found
+      unless quickCmpExecutors.contains n.toString do
+        throwError "quickCmp regression: {n} names a `quickCmp`-ordered structure and is \
+          reachable from `Lean4Lean.addDecl`, but is not in `quickCmpExecutors`. A `NameSet` / \
+          `NameMap` lookup runs `Lean.Name.quickCmp`, whose executed path is the body-less \
+          opaque `quickCmpImpl.unsafe_impl_2`; unlike a hash lookup, a tree lookup is not \
+          re-confirmed by an equality test. Use a `List` keyed by `Name.beq` instead."
+  for n in quickCmpExecutors do
+    unless found.any (·.toString == n) do
+      throwError "quickCmp allowlist is stale: {n} no longer names a quickCmp-ordered \
+        structure. Remove it from `quickCmpExecutors`."
+  logInfo m!"quickCmp-ordered lookups on a decision path: {found.length} \
+    ({found.map (·.toString)})"
 
 end Lean4Lean.Tests.KernelHardening

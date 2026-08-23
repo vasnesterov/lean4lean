@@ -1,5 +1,6 @@
 import Lean4Lean.Inductive.Add
 import Lean4Lean.Verify.TypeChecker
+import Lean4Lean.Verify.Typing.DefEqCtx
 
 /-!
 # A `WF` framework for the inductive adder
@@ -769,6 +770,77 @@ theorem M.WF.consumeAnnotations_id {c : Context} {e : Expr} (h : isAnnotation e 
     M.WF c (AddInductive.consumeAnnotations e) (· = e) :=
   M.WF.consumeAnnotations (fun _ => rfl) (fun h' => absurd (h ▸ h') nofun)
 
+/-- `isAnnotation` is exactly `stripAnnotation`'s guard: where it says `false`, the step is the
+identity.  `isAnnotation`'s two match arms are literally `stripAnnotation`'s two `if`
+conditions, so this is a case split and nothing else. -/
+theorem _root_.Lean4Lean.stripAnnotation_eq_self :
+    ∀ {e : Expr}, isAnnotation e = false → stripAnnotation e = e := by
+  intro e h
+  unfold stripAnnotation
+  split
+  · rw [if_neg (by simpa [isAnnotation] using h)]
+  · rw [if_neg (by simpa [isAnnotation] using h)]
+  · rfl
+
+/-- **The fuel is absorbed.**  `consumeAnnotations` iterates `stripAnnotation` `inductiveFuel`
+times, and definitional equality is transitive, so the whole run's obligation collapses to a
+*single* step's — the caller never has to reason about the iteration or the bound.
+
+**The level is fixed across the chain deliberately.**  Chaining two conversions stated at
+*different* sorts would need unique typing to reconcile the two sort ascriptions, and that is
+unproved in this tree today (`Theory/Typing/UniqueTyping.lean` carries it as a `sorry`; whether
+it is *closable* is another stream's live question, not a verdict this row is entitled to
+issue).  Threading one `u` through avoids the dependency entirely: `IsDefEq D D' (.sort u)`
+re-supplies `HasType D' (.sort u)` for the next step, which is exactly what `IsDefEq.hasType`
+gives. -/
+theorem VContext.tr_repeat_stripAnnotation {c : VContext} {u : VLevel}
+    (hstep : ∀ (d : Expr) (D : VExpr), c.TrExprS d D → c.HasType D (.sort u) →
+      ∃ D', c.TrExprS (stripAnnotation d) D' ∧
+        c.venv.IsDefEq c.lparams.length c.vlctx.toCtx D D' (.sort u)) :
+    ∀ (n : Nat) (e : Expr) (B : VExpr), c.TrExprS e B → c.HasType B (.sort u) →
+      ∃ B', c.TrExprS (Nat.repeat stripAnnotation n e) B' ∧
+        c.venv.IsDefEq c.lparams.length c.vlctx.toCtx B B' (.sort u)
+  | 0, _, B, he, hB => ⟨B, he, hB⟩
+  | n+1, e, B, he, hB => by
+    obtain ⟨B₁, h1, h2⟩ := VContext.tr_repeat_stripAnnotation hstep n e B he hB
+    obtain ⟨B', h3, h4⟩ := hstep _ B₁ h1 h2.hasType.2
+    exact ⟨B', by rwa [Nat.repeat], h2.trans h4⟩
+
+/-! ### The residual obligation is *true*, and here is why
+
+`hcta`'s predecessor asserted that stripping an annotation leaves the translation unchanged —
+false, and measured false.  What replaces it asserts only a *definitional* equality, and the
+lemma below is the evidence that this is a statement about the environment rather than a new
+article of faith: given the one fact that the environment carries `outParam`'s defining
+equation, `outParam A ≡ A` **at a sort**, which is exactly the shape `hcta` returns.
+
+`optParam`/`autoParam` are the two-argument version of the same chain (`extra`, `appDF`,
+`beta`, `trans`) and `semiOutParam` is literally this one.  The remaining `Expr`-level step is
+`TrExprS`'s inversion at `.app`/`.const`, which is mechanical; what could have been unavailable
+is the conversion, and it is not. -/
+
+/-- **`outParam A ≡ A` at a sort**, from the environment's defining equation alone.  `.extra`
+delta-unfolds the constant to `fun α => α`, `.appDF` applies it, `.beta` reduces, `.trans`
+composes; the sort survives because the definition's type is `Sort u → Sort u`, so `appDF`'s
+result type `B.inst A` is `.sort u` on the nose. -/
+theorem _root_.Lean4Lean.VEnv.isDefEq_annotationHead {env : VEnv} {U : Nat} {Γ : List VExpr}
+    {n : Name} {A : VExpr} {u : VLevel}
+    (hdf : env.defeqs ⟨1, .const n [.param 0], .lam (.sort (.param 0)) (.bvar 0),
+      .forallE (.sort (.param 0)) (.sort (.param 0))⟩)
+    (hu : VLevel.WF U u) (hA : env.HasType U Γ A (.sort u)) :
+    env.IsDefEq U Γ (.app (.const n [u]) A) A (.sort u) := by
+  have hex : env.IsDefEq U Γ (.const n [u]) (.lam (.sort u) (.bvar 0))
+      (.forallE (.sort u) (.sort u)) := by
+    have := VEnv.IsDefEq.extra (Γ := Γ) (ls := [u]) hdf
+      (by intro l hl; cases List.mem_singleton.1 hl; exact hu) rfl
+    simpa [VExpr.instL, VLevel.inst] using this
+  have happ := hex.appDF hA
+  have hbeta : env.IsDefEq U Γ (.app (.lam (.sort u) (.bvar 0)) A) A (.sort u) := by
+    have := VEnv.IsDefEq.beta (env := env) (uvars := U) (Γ := Γ) (A := .sort u) (e := .bvar 0)
+      (B := (VExpr.sort u).lift) (e' := A) (.bvar .zero) hA
+    simpa [VExpr.inst, VExpr.lift, VExpr.liftN] using this
+  simpa [VExpr.inst] using happ.trans hbeta
+
 /-! ## A3: the binder rule
 
 `withLocalDecl` (`Lean4Lean/LocalContext.lean`) is
@@ -1121,7 +1193,10 @@ and `Quot.sound` only, both already standard).  The previous note's recommendati
 it with a structural walk rather than assert an axiom" — is what happened, and this row is the
 confirmation that it was sufficient.
 
-### What R7 still needs, precisely
+### What R7 still needs, precisely — one of three, and it is item 2
+
+Items 1 and 3 are **done and assembled below** (`M.WF.positivity_none`); item 2 is not, and it
+is not worked around.
 
 1. **The syntactic→abstract transfer.**  `TrExprS.noConsts` (Part 0), sorry-free, modulo three
    named hypotheses that are *findings*, not bookkeeping: `hasIndOcc` is blind to constants a
@@ -1137,10 +1212,16 @@ confirmation that it was sufficient.
    checker's own proofs already use, so it adds no taint beyond Part II's inherited debt — but
    it is a step, not a rewrite, and it is not done here.
 
-3. **The context correspondence — which is R1/R2.**  `checkPositivity.loop` recurses under
-   `withLocalDecl`, so its evidence lands in an *fvar* context, while `pos` is stated at
-   `((C.fields.take i).map (·.type)).reverse ++ D.params.reverse`.  Relating the two is the
-   same telescope pinning R8's scan branch needs.  So R7 and R8 share a gate, and it is R1/R2.
+3. **The context correspondence — and it turned out *not* to be R1/R2.**  `checkPositivity.loop`
+   recurses under `withLocalDecl`, so its evidence lands in an *fvar* context, while `pos` is
+   stated at `((C.fields.take i).map (·.type)).reverse ++ D.params.reverse`.  An earlier reading
+   of this row priced that as the full R1/R2 telescope correspondence, i.e. the same gate R8's
+   scan branch needs.  **That was an overestimate**, and the measurement is
+   `M.WF.positivity_none` below: the only context fact `TrExprS.noConsts` consumes is that every
+   value `VLCtx.find?` returns is block-free, which `VLCtx.AllVLam` gives outright, because
+   `AddInductive` binds with `withLocalDecl` and never with `withLetDecl`.  No equation between
+   the two contexts is needed — which also means this row never made the annotation-stripping
+   claim that `M.WF.elim_loop`'s `hcta` used to make falsely.
 
 ## R8: the large-elimination flag
 
@@ -1171,6 +1252,105 @@ that and `of_scan` firing is the *loop invariant itself*: that a successful run 
 `TrExprS.forallE_inst_fvar` at each step and `VIndCtor.canonResult_ne_forallE` to pin where it
 stops; it is stated here as the remaining obligation rather than assumed.  The per-field step
 below never depended on it. -/
+
+/-! ### R7, assembled
+
+Items 1 and 3 of the list above are done and item 2 is not, so the row is assembled up to
+item 2 and stops there, with the missing step named as a hypothesis rather than bridged by an
+axiom.
+
+Item 3 is discharged in a way worth stating, because it is *weaker* than the R1/R2 telescope
+correspondence and that is what makes it available now: `TrExprS.noConsts`' context obligation
+is only that every value `VLCtx.find?` returns is block-free, and in an all-`vlam` context every
+such value is a `.bvar`.  `checkPositivity.loop` binds with `withLocalDecl` and never with
+`withLetDecl`, so `VLCtx.AllVLam` is all it needs — no equation between the checker's fvar
+context and the spec's `Γ`, and in particular **no repeat of the annotation-stripping claim**
+that `M.WF.elim_loop`'s `hcta` used to make falsely. -/
+
+/-- `whnf`, lifted into `AddInductive.M` (A5).  Its postcondition is a `TrExpr`, i.e. an
+**untyped** `IsDefEqU` — which is exactly where R7 stops; see `M.WF.positivity_none`. -/
+theorem M.WF.whnf {c : VContext} {e : Expr} {e' : VExpr} (he : c.TrExprS e e') :
+    M.WF c.toContext (liftM (TypeChecker.whnf e)) fun e₁ => c.TrExpr e₁ e' :=
+  M.WF.liftTC (TypeChecker.whnf.WF (c := c.toTC) (s := {}) he)
+
+/-- **R7's `none` branch, assembled — up to the sort, and no further.**
+
+`checkPositivity.loop` opens `let t ← whnf t; if !hasIndOcc stats.indConsts t then return`, and
+that early return is the *only* evidence for `VIndField.WF.pos`'s `none` branch.  Every step
+from there that exists is composed here:
+
+* `M.WF.whnf` (A5) turns the reduct into `c.TrExpr t A` — a translation of `t` plus an
+  `IsDefEqU` back to the field's own translation;
+* `hasIndOcc_eq` reads the guard as `anySub`, with **no axiom and no opaque** (Part 0 — this is
+  what removing `Lean.Expr.findImpl?` from the cone bought);
+* `hasIndOcc_hpS` connects the checker's `Array Expr` predicate to `NoConsts`' `List Name`;
+* `TrExprS.noConsts` transfers block-freeness to the `VExpr` side, its context obligation
+  discharged from `VLCtx.AllVLam` alone.
+
+The conclusion is `∃ A', D.NoBlock A' ∧ IsDefEqU F.type A'`.  `pos` wants `VEnv.IsDefEqType`,
+an `IsDefEq` **at a sort**; `VIndField.pos_none_of_isDefEqU` is that last step, and it is a
+hypothesis. -/
+theorem M.WF.positivity_none {c : VContext} {D : VInductDecl'} {stats : InductiveStats}
+    {dom : Expr} {A : VExpr}
+    (hS : ∀ n ∈ D.blockNames, ∃ I ∈ stats.indConsts, I.constName! = n)
+    (hlit : ∀ lit : Lean.Literal,
+      anySub (fun e => match e with
+        | .const e _ => stats.indConsts.any fun I => I.constName! == e
+        | _ => false) lit.toConstructor = false)
+    (hproj : ∀ Γ s i x y, TrProj c.venv c.lparams.length Γ s i x y →
+      VExpr.NoConsts D.blockNames x → VExpr.NoConsts D.blockNames y)
+    (hall : c.vlctx.AllVLam) (hdom : c.TrExprS dom A) :
+    M.WF c.toContext (liftM (TypeChecker.whnf dom)) fun t =>
+      AddInductive.hasIndOcc stats.indConsts t = false →
+      ∃ A', D.NoBlock A' ∧ c.venv.IsDefEqU c.lparams.length c.vlctx.toCtx A A' := by
+  refine (M.WF.whnf hdom).mono fun t ht hocc => ?_
+  obtain ⟨A', htr, hdefeq⟩ := ht
+  refine ⟨A', ?_, hdefeq.symm⟩
+  refine htr.noConsts (fun n us h => hasIndOcc_hpS hS n us h) hlit hproj
+    (VLCtx.noConsts_of_allVLam hall) ?_
+  rwa [hasIndOcc_eq] at hocc
+
+/-- **The step R7 stops at, named and isolated.**
+
+`VIndField.WF.pos`'s `none` branch asks for `VEnv.IsDefEqType`, a conversion **at a sort**;
+`M.WF.positivity_none` produces `VEnv.IsDefEqU`, an untyped one, because that is all `whnf.WF`
+delivers.  Bridging the two is type uniqueness (`Theory/Typing/UniqueTyping.lean`, a declared
+`sorry`).  **Whether that is blocked or merely unproved is not settled**, and this row should
+not claim otherwise: a refutation of one route to it was itself retracted, so what is true is
+that the step is unavailable here today, not that it is unreachable.
+
+There is a second route that does not go through unique typing at all, and it is worth naming
+because it is a *strengthening* rather than a bridge: `whnf.WF`'s conclusion could record the
+sort it already reduces at, turning `TrExpr` into a typed conversion. That lives in
+`Verify/TypeChecker/WHNF.lean`, not here.
+
+Either way it is an **explicit hypothesis, not an axiom**.  Stating it this way is the point: a
+`#print axioms` on a version that assumed it would look identical to one that proved it, and
+this way the reader is told which of the two happened.
+
+**Safety.** `checkPositivity` runs only under `if !isUnsafe` (`Inductive/Add.lean:338`) and
+`isUnsafe` is `(← read).safety != .safe` (`:582`), so R7's evidence exists *only* at
+`safety = .safe`.  That is worth recording because the reverse mismatch is real elsewhere —
+`addMutual` rejects a `.safe` mutual block outright, so it never runs at `.safe`, while the
+model-side `TrEnv'.wf_noUnsafe` wants `.safe` literally.  R7 is on the good side of that
+divide: a `VContext` field forcing `.safe` would cost this row no new hypothesis.  It does not,
+however, *help*: the sort upgrade is a fact about `VEnv.WF` environments, and `VContext.Ewf`
+already supplies `VEnv.WF`, so restricting the safety class removes nothing from the
+obligation.  (Source-level observation, not a proved lemma — there is no `checkConstructors`
+`M.WF` lemma yet to carry it.) -/
+theorem VIndField.pos_none_of_isDefEqU {env : VEnv} {D : VInductDecl'} {U : Nat}
+    {Γ : List VExpr} {F : VIndField}
+    (hsort : ∀ B, env.IsDefEqU U Γ F.type B → env.IsDefEqType U Γ F.type B)
+    (h : ∃ B, D.NoBlock B ∧ env.IsDefEqU U Γ F.type B) :
+    ∃ B, D.NoBlock B ∧ env.IsDefEqType U Γ F.type B :=
+  let ⟨B, hB, hd⟩ := h; ⟨B, hB, hsort B hd⟩
+
+/-- `hsort`'s conclusion is inhabited rather than vacuously unreachable: where the refinement
+already knows the sort — `whnf` returning its input, so the conversion is reflexivity — the
+upgrade is free.  This is *not* the general step, and the gap between "free at reflexivity" and
+"free in general" is exactly type uniqueness. -/
+theorem VEnv.IsDefEqType.of_hasType {env : VEnv} {U : Nat} {Γ : List VExpr} {A : VExpr}
+    {u : VLevel} (h : env.HasType U Γ A (.sort u)) : env.IsDefEqType U Γ A A := ⟨u, h⟩
 
 /-- **R8, the `isNotZero` branch.**  `stats.isNotZero` is `resultLevel.isNeverZero`, so a
 large eliminator justified by it lands on `LECond`'s first disjunct. -/
@@ -1486,95 +1666,73 @@ instead — so after `m` steps the context is exactly `VLCtx.mkFVars` of the fir
 `C.params ++ C.fields.map (·.type)`, and `VLCtx.toCtx_mkFVars` makes that *syntactically* the
 spec's `Γ`.
 
-### The one obligation this cannot discharge: `consumeTypeAnnotations`
+### The obligation this used to be unable to discharge: annotation stripping
 
-`withLocalDecl name bi dom.consumeTypeAnnotations` pushes the **annotation-stripped** domain,
-while `ensureType dom` and the target telescope use the raw one.  `Expr.consumeTypeAnnotations`
-removes `optParam`/`autoParam`/`outParam`/`semiOutParam` applications, and `optParam α d` is
-only *definitionally* `α` — `TrExprS` is syntactic, so the two translate to different `VExpr`s.
+`withLocalDecl name bi (← consumeAnnotations dom)` pushes the **annotation-stripped** domain,
+while `ensureType dom` and the target telescope use the raw one.  Stripping removes
+`optParam`/`autoParam`/`outParam`/`semiOutParam` applications, and `optParam α d` is only
+*definitionally* `α` — `TrExprS` is syntactic, so the two translate to different `VExpr`s.
 
-That matters here and not merely cosmetically: `TrExprS.inst_fvar` requires the pushed
-`VLocalDecl` to be the very `.vlam B` the target's `forallE` supplies, so the pushed type's
-translation **must** be `B`.  It is therefore taken as the hypothesis `hcta` rather than
-absorbed, and `hcta` is **not** universally true.
-
-**It is false in practice, not only in principle — measured, not argued.**  Over a full `Lean`
-environment, `Expr.consumeTypeAnnotations` is *not* the identity on **263 of 13408**
-constructor binder domains (4716 constructors), i.e. ~2%.  Real instances:
+**That is false in practice, not only in principle — measured, not argued.**  Over a full
+`Lean` environment, stripping is *not* the identity on **263 of 13408** constructor binder
+domains (4716 constructors), i.e. ~2%.  Real instances:
 
     Lean.Compiler.LCNF.LetValue.proj   autoParam (Purity = .pure) …   ↦  Purity = .pure
     Std.Roc.Sliceable.mk               outParam.{v+2} Type.{v}        ↦  Type.{v}
     Lean.Grind.ToInt.Div.mk            outParam IntInterval           ↦  IntInterval
 
-So on ~2% of real constructors the kernel's local context records a binder type that is not
-the constructor's stored domain, and `VLCtx.toCtx_mkFVars`'s claim that the fvar walk's context
-*is* the spec's `Γ` is wrong for those declarations.  This is **not** a divergence: the C++
-kernel calls `consume_type_annotations` at exactly the two `mk_local_decl` sites
+So on ~2% of real constructors the kernel's local context records a binder type that is not the
+constructor's stored domain.  This is **not** a divergence: the C++ kernel calls
+`consume_type_annotations` at exactly the two `mk_local_decl` sites
 (`~/lean4/src/kernel/inductive.cpp:222,227`), so both kernels do the same thing.
 
-### Why the `IsDefEqCtx` weakening cannot be built yet
+### The invariant no longer claims the two are equal
 
-The shape is right — `outParam α` and `autoParam α t` δ-reduce to `α`, so the true relation is
-definitional equality, and `VIndCtor.WF.params_eq` already absorbs exactly this slack for the
-parameter telescope.  But two facts have to hold before it can be written, and the first is
-fatal today:
+Earlier revisions of this section stated `ElimLoopInv.vlctx` as the *equation*
+`c.vlctx = VLCtx.mkFVars l.reverse c₀.vlctx` and carried the difference as a hypothesis `hcta`
+asserting that the stripped domain translates to the very same `VExpr` — **which is exactly the
+~2% falsehood above**, sitting under two rows (R6's context claim and R8's scan branch) as a
+stated hypothesis.  A hypothesis discharged at 98% of call sites is the kind that erodes into a
+technicality, so it was labelled rather than absorbed; but labelling is not fixing.
 
-1. **`Lean.Expr.consumeTypeAnnotations` is `partial`, hence an `opaque` with no Lean body.**
-   Verified structurally, not by reading: it is reachable from `Lean4Lean.addDecl`, and a
-   cone scan finds **48** body-less opaques there of which **28** are not mentioned by any
-   axiom of `Verify/Axioms.lean` — this one among them (there is no `consumeTypeAnnotations'`
-   model anywhere in the tree).  Nothing can be proved about its result, so no translation of
-   `dom.consumeTypeAnnotations` can be exhibited *at all* — weakened or not.  This is the
-   `Lean.Expr.findImpl?` blocker again, in a place nobody had looked, and `Guard.lean`'s
-   check 3 is blind to it for the same reason: it filters to constants defined in
-   `Lean4Lean.*` modules.  It reaches **eleven** distinct binder-introducing loops —
-   `checkInductiveTypes.loopInd.loop`, `checkConstructors.loop`, `checkPositivity.loop`,
-   `isRecArg.loop`, `isLargeEliminator.loop`, and all six of `mkRecInfos.*` — i.e. every
-   `withLocalDecl` site in the inductive adder.
+It is fixed here.  Two things had to exist first, and both now do:
 
-   **The fix is the `anySubterm` fix, and it was checked rather than proposed.**  Written by
-   pattern-matching on the application shape instead of through the partial `appFn!`/`appArg!`,
-   it is structurally recursive — each call descends to a strict subterm — so it needs no fuel
-   and has a body:
+1. **A body for the stripping step.**  `Lean.Expr.consumeTypeAnnotations` is `partial`, hence an
+   `opaque` with no Lean body, so *no* translation of `dom.consumeTypeAnnotations` could be
+   exhibited — weakened or not.  `Lean4Lean.consumeAnnotations` (`Lean4Lean/Inductive/Add.lean`)
+   replaced it with `Nat.repeat stripAnnotation`, ordinary total Lean, and
+   `M.WF.consumeAnnotations` unfolds it.
 
-       def consumeTypeAnnotations' : Expr → Expr
-         | e@(.app (.app (.const n _) α) _) =>
-             if n == ``optParam || n == ``autoParam then consumeTypeAnnotations' α else e
-         | e@(.app (.const n _) α) =>
-             if n == ``outParam || n == ``semiOutParam then consumeTypeAnnotations' α else e
-         | e => e
+2. **A target-preserving context-defeq transport for `TrExprS`.**  `defeqDFC` and `defeqDFC'`
+   (`Verify/Typing/Lemmas.lean:1423,1481`) both let the *target* move (`∃ e₂, …` and `TrExpr`),
+   and re-inverting a moved target at a `forallE` needs pi injectivity.
+   `TrExprS.defeqDFC_target` (`Verify/Typing/DefEqCtx.lean`) preserves it and is **not**
+   injectivity-blocked: a target-*preserving* statement may **reuse** the `us`/`ps`/`ιs` the
+   original derivation chose rather than re-deriving them, so it never needs `TrProj.uniq`.
 
-   Differentially checked against the opaque over every binder domain of every constructor and
-   inductive type in a full `Lean` environment: **15799 compared, 15799 agree, 0
-   disagreements**.  The arity conditions match `isOptParam`/`isOutParam`'s `isAppOfArity`,
-   including the over- and under-applied cases, which fall through to `e` on both sides.
-   Dropping the call is *not* an option: the C++ kernel makes it too, so removing it would be
-   a genuine divergence.  `Lean4Lean/Inductive/Add.lean` is a file this stream does not own, so
-   this is a recommendation with its measurement attached, not a change.
+So `ElimLoopInv.vlctx` now claims `VLCtx.DefEqVLam c.vlctx (VLCtx.mkFVars l.reverse c₀.vlctx)`:
+same shape, same fvars, same `vlet` values, `vlam` types definitionally equal.  Everything the
+old equation was used for survives — `VLCtx.fvars` is preserved on the nose (`DefEqVLam.fvars`),
+`VLCtx.find?` returns the *same value* (`DefEqVLam.find?_fst`, which is why `DefEqVLam` is
+stronger than `VLCtx.IsDefEq`), and `ElimLoopInv.terminal` transports its one `TrExprS` across
+with `defeqDFC_target`.
 
-2. **A target-preserving context-defeq transport for `TrExprS` is missing.**  `defeqDFC` and
-   `defeqDFC'` (`Verify/Typing/Lemmas.lean:1423,1481`) both let the *target* move
-   (`∃ e₂, …` and `TrExpr`), and re-inverting a moved target at a `forallE` needs pi
-   injectivity.  What is needed instead is
+### What remains, and it is now a true statement
 
-       TrExprS.defeqDFC_target :
-         VEnv.WF env → (Δ₁ and Δ₂ agree on every `ofv` and every `vlet` *value*, and their
-           `vlam` types are pairwise `IsDefEq`) → TrExprS env Us Δ₁ e e' → TrExprS env Us Δ₂ e e'
+`hcta` survives, but its content changed: it no longer says the stripped domain translates to
+the *same* `VExpr`, only that it translates to a **definitionally equal** one, at a fixed sort.
+`VContext.tr_repeat_stripAnnotation` narrows it further — the `Nat.repeat` disappears, leaving a
+single-step obligation about `stripAnnotation`.  Discharging *that* needs the environment to
+define `optParam`/`autoParam`/`outParam`/`semiOutParam`, which is an environment fact rather
+than a loop fact, so it stays a hypothesis; but it is a hypothesis that is **true**, where the
+old one was false on 2% of a real environment.
 
-   **This is provable and is *not* injectivity-blocked** — all eleven cases were checked.
-   `bvar`/`fvar` preserve the target because `find?`'s value is determined by position and by
-   the `vlet` values, both of which the relation fixes; `app`/`lam`/`forallE`/`letE` transport
-   their `HasType`/`IsType` premises by `defeqDFC` and reuse the IH's target; and the `proj`
-   case — the one that looks blocked — is fine because a target-*preserving* statement may
-   **reuse** the same `us`/`ps`/`ιs` rather than re-deriving them, so it never needs
-   `TrProj.uniq`.  `defeqDFC` reads as blocked only because it re-derives them existentially.
-   Anyone pricing this as part of the injectivity family should not.
+The level is threaded rather than re-derived, on purpose: chaining two conversions stated at
+different sorts would need unique typing, which is unproved here today — so the design avoids
+the dependency rather than betting on how it resolves.
 
-Until (1) is fixed, `hcta` stays a stated hypothesis, false as written, and labelled so at its
-own definition — a hypothesis discharged at every real call site is exactly the kind that
-erodes into a technicality, and the next person to reuse this lemma would inherit a false
-claim with no warning.  The live measurement in `Lean4Lean/Tests/KernelHardening.lean` exists
-so the "2%" cannot quietly become "never". -/
+The live measurement in `Lean4Lean/Tests/KernelHardening.lean` exists so the "2%" cannot
+quietly become "never". -/
 
 /-- The number of leading `forallE` binders — the *syntactic* pi-arity.  `TrExprS` does not
 determine it (`.mdata`/`.letE` translate through), so the loop invariant tracks it. -/
@@ -1620,8 +1778,14 @@ structure ElimLoopInv (c₀ : VContext) (D : VInductDecl') (C : VIndCtor) (j np 
   /-- The environment and level parameters do not move; only the local context grows. -/
   venv : c.venv = c₀.venv
   lparams : c.lparams = c₀.lparams
-  /-- **R1/R2's dictionary, as a loop invariant.** -/
-  vlctx : c.vlctx = VLCtx.mkFVars l.reverse c₀.vlctx
+  /-- **R1/R2's dictionary, as a loop invariant** — and deliberately *not* an equation.  The
+  context the checker actually holds records **annotation-stripped** binder types, while `l`
+  carries the ones the constructor's stored telescope supplies; on ~2% of a real environment's
+  constructor binders those differ, and only definitionally.  `DefEqVLam` is the exact slack:
+  same shape, same fvars, same `vlet` values, `vlam` types definitionally equal — strong enough
+  that `VLCtx.find?` still returns the *same* value on both sides, which is what every use of
+  this field below needs. -/
+  vlctx : VLCtx.DefEqVLam c₀.venv c₀.lparams.length c.vlctx (VLCtx.mkFVars l.reverse c₀.vlctx)
   nodup : (l.map (·.1)).Nodup
   /-- Walked plus remaining is the constructor's whole telescope. -/
   tele : l.map (·.2.2) ++ Bs = C.params ++ C.fields.map (·.type)
@@ -1677,7 +1841,7 @@ theorem ElimLoopInv.start {c₀ : VContext} {D : VInductDecl'} {C : VIndCtor} {j
       (C.params ++ C.fields.map (·.type)) ctorType #[] where
   venv := rfl
   lparams := rfl
-  vlctx := rfl
+  vlctx := .refl c₀.Ewf.ordered c₀.mlctx_wf.tr.wf
   nodup := by simp
   tele := by simp
   tr := htr
@@ -1727,8 +1891,16 @@ theorem ElimLoopInv.terminal {c₀ : VContext} {D : VInductDecl'} {C : VIndCtor}
     have hy' : y ∈ type.getAppArgsRevList := by simpa using hy
     rw [← Lean.Expr.eqv_fvar.1 (Lean.Expr.eqv_euc hyeq (Lean.Expr.eqv_refl _))]
     exact hy'
-  exact VIndCtor.mem_args_of_mem_getAppArgs inv.vlctx inv.nodup (np := stats.params.size) hx
-    hlen (by simpa using inv.tr) hall
+  -- The one place the invariant's `DefEqVLam` has to be spent: `mem_args_of_mem_getAppArgs`
+  -- reads the *spec* context, and the translation the loop holds lives in the checker's.
+  -- `defeqDFC_target` moves it without moving the target, so the result is still literally
+  -- `C.canonResult D j` and no injectivity question arises.
+  have htr0 : TrExprS c₀.venv c₀.lparams (VLCtx.mkFVars l.reverse c₀.vlctx) type
+      (C.canonResult D j) :=
+    TrExprS.defeqDFC_target (Us := c₀.lparams) c₀.Ewf inv.vlctx
+      (by rw [← inv.venv, ← inv.lparams]; simpa using inv.tr)
+  exact VIndCtor.mem_args_of_mem_getAppArgs rfl inv.nodup (np := stats.params.size) hx
+    hlen htr0 hall
 
 /-- **The loop invariant.**  A successful `isLargeEliminator.loop` walked exactly the
 constructor's telescope, and every field it did not record as small has its de Bruijn variable
@@ -1737,27 +1909,30 @@ in `C.args` — which is `VInductDecl'.LECond`'s per-field disjunction verbatim,
 
 Two hypotheses, both real and both stated rather than absorbed:
 
-* `hcta` is the annotation-stripping obligation of the section note, **now narrowed to the
-  annotated case**: `Lean4Lean.consumeAnnotations` replaced the body-less opaque, so
-  `M.WF.consumeAnnotations`'s identity branch discharges every binder with
-  `isAnnotation dom = false` — ~98% of a real environment's constructor binder domains.  What
-  is left is genuinely false and genuinely there: on an `optParam`/`autoParam`/`outParam`
-  binder the stripped type is only *definitionally* the stored one.  Do not read the remainder
-  as a technicality; closing it needs the `IsDefEqCtx` weakening and `defeqDFC_target`, both
-  named in the section note.
+* `hcta` is the annotation-stripping obligation of the section note.  It used to assert that
+  the stripped domain translates to the **same** `VExpr` as the stored one — false on ~2% of a
+  real environment's constructor binder domains.  It now asserts only that the two translations
+  are **definitionally equal at a fixed sort**, which is what stripping an `optParam`/`autoParam`
+  /`outParam` really gives, and `ElimLoopInv.vlctx` was weakened from an equation to
+  `VLCtx.DefEqVLam` to accept it.  `VContext.tr_repeat_stripAnnotation` narrows it further,
+  collapsing the `Nat.repeat` to a single `stripAnnotation` step; what remains after that is an
+  *environment* fact (what `optParam` and friends are defined as), not a loop fact.
 * `hSmall` is the level side, handed the *pre-push* translation and asked about the
   *post-push* run, because `ensureType dom` executes inside `withLocalDecl`.  The weakening
   between the two is the caller's, which is where the choice of `VIndField.lvl` lives anyway. -/
 theorem M.WF.elim_loop {c₀ : VContext} {D : VInductDecl'} {C : VIndCtor} {j : Nat}
     {stats : InductiveStats} {Small : Nat → Prop}
     (hnp : stats.params.size = C.params.length)
-    (hcta : ∀ (c : VContext) (dom : Expr) (B : VExpr), isAnnotation dom = true →
-      c.TrExprS dom B →
-      c.TrExprS (Nat.repeat stripAnnotation c.fuel.inductiveFuel dom) B)
+    (hcta : ∀ (c : VContext) (dom : Expr) (B : VExpr) (u : VLevel), isAnnotation dom = true →
+      c.TrExprS dom B → c.HasType B (.sort u) →
+      ∃ B', c.TrExprS (Nat.repeat stripAnnotation c.fuel.inductiveFuel dom) B' ∧
+        c.venv.IsDefEq c.lparams.length c.vlctx.toCtx B B' (.sort u))
     (hSmall : ∀ (c c' : VContext) (l : List (FVarId × List FVarId × VExpr))
         (x : FVarId × List FVarId × VExpr) (dom : Expr) (k : Nat) (F : VIndField),
-      c.vlctx = VLCtx.mkFVars l.reverse c₀.vlctx →
-      c'.vlctx = VLCtx.mkFVars (l ++ [x]).reverse c₀.vlctx →
+      VLCtx.DefEqVLam c₀.venv c₀.lparams.length c.vlctx
+        (VLCtx.mkFVars l.reverse c₀.vlctx) →
+      VLCtx.DefEqVLam c₀.venv c₀.lparams.length c'.vlctx
+        (VLCtx.mkFVars (l ++ [x]).reverse c₀.vlctx) →
       l.length = stats.params.size + k →
       C.fields[k]? = some F →
       c.TrExprS dom F.type →
@@ -1789,20 +1964,35 @@ theorem M.WF.elim_loop {c₀ : VContext} {D : VInductDecl'} {C : VIndCtor} {j : 
             TrExprS c.venv c.lparams ((none, .vlam A) :: c.vlctx) body
               (VExpr.mkPi Bs' (C.canonResult D j)) := by
         cases h : inv.tr with | forallE h1 _ h3 h4 => exact ⟨h1, trivial, h3, h4⟩
-      -- The annotation step, which now has a body: on an un-annotated domain it is the
-      -- identity, so `hcta` is only consulted on the ~2% that carry one.
-      refine (M.WF.consumeAnnotations (Q := fun d => c.TrExprS d A)
-        (fun _ => hdom) (fun h => hcta c dom A h hdom)).bind fun dom' hdom' => ?_
-      refine M.WF.withLocalDecl hdom' hty ?_
+      obtain ⟨u, hAu⟩ := hty
+      -- The annotation step, which now has a body.  Un-annotated (~98%): the identity, and the
+      -- conversion is `hAu` itself.  Annotated: `hcta`, which no longer claims the stripped
+      -- domain translates to the *same* `VExpr` — only to a definitionally equal one.
+      refine (M.WF.consumeAnnotations
+        (Q := fun d => ∃ A' : VExpr, c.TrExprS d A' ∧
+          c.venv.IsDefEq c.lparams.length c.vlctx.toCtx A A' (.sort u))
+        (fun _ => ⟨A, hdom, hAu⟩) (fun h => hcta c dom A u h hdom hAu)).bind
+        fun dom' hdom'' => ?_
+      obtain ⟨A', hdom', hAA'⟩ := hdom''
+      have hty' : c.IsType A' := ⟨u, hAA'.hasType.2⟩
+      refine M.WF.withLocalDecl hdom' hty' ?_
       let fv : FVarId := ⟨c.ngen.curr⟩
       let x : FVarId × List FVarId × VExpr := (fv, dom'.fvarsList, A)
-      let c' : VContext := c.push name dom' A bi hdom' hty
+      let c' : VContext := c.push name dom' A' bi hdom' hty'
       show M.WF c'.toContext _ _
+      have hwfc : VLCtx.WF c.venv c.lparams.length c.vlctx := c.mlctx_wf.tr.wf
+      -- Freshness and dependency-closure of the pushed entry.  Independent of *which* type is
+      -- recorded, so the context the checker builds supplies it for the spec's type too.
+      have hofv : ∀ (fv' : FVarId) (deps : List FVarId),
+          (some (fv, dom'.fvarsList) : Option (FVarId × List FVarId)) = some (fv', deps) →
+          fv' ∉ c.vlctx.fvars ∧ deps ⊆ c.vlctx.fvars :=
+        (c'.mlctx_wf.tr.wf : VLCtx.WF _ _ ((some (fv, dom'.fvarsList), .vlam A') :: c.vlctx)).2.1
       -- The four invariant fields that do not depend on which branch is taken.
-      have hvl : c'.vlctx = VLCtx.mkFVars (l ++ [x]).reverse c₀.vlctx := by
-        show ((some (fv, _), VLocalDecl.vlam A) :: c.vlctx) = _
-        rw [inv.vlctx, List.reverse_append]
-        rfl
+      have hvl : VLCtx.DefEqVLam c₀.venv c₀.lparams.length c'.vlctx
+          (VLCtx.mkFVars (l ++ [x]).reverse c₀.vlctx) := by
+        rw [List.reverse_append]
+        refine .vlam (A₁ := A') (A₂ := A) (u := u) inv.vlctx hofv ?_
+        rw [← inv.venv, ← inv.lparams]; exact hAA'.symm
       have hnodup : ((l ++ [x]).map (·.1)).Nodup := by
         rw [List.map_append, List.nodup_append]
         refine ⟨inv.nodup, by simp, ?_⟩
@@ -1810,14 +2000,19 @@ theorem M.WF.elim_loop {c₀ : VContext} {D : VInductDecl'} {C : VIndCtor} {j : 
         have hb' : b = fv := by simpa using hb
         subst hb'; subst hab
         refine c.curr_not_mem ?_
-        rw [inv.vlctx]
+        rw [inv.vlctx.fvars]
         simp only [VLCtx.fvars_mkFVars, List.mem_append, List.map_reverse, List.mem_reverse]
         exact .inl ha
       have htele : (l ++ [x]).map (·.2.2) ++ Bs' = C.params ++ C.fields.map (·.type) := by
         rw [List.map_append]; simpa using inv.tele
+      -- R1's binder step, then the *one* new move: the binder the checker pushed records `A'`,
+      -- the target telescope supplies `A`, and `defeqDFC_vlam` reconciles them **without
+      -- moving the target** — which is what keeps this out of the injectivity family.
       have htr : c'.TrExprS (body.instantiate1 (.fvar fv)) (VExpr.mkPi Bs' (C.canonResult D j)) := by
         rw [Lean.Expr.instantiate1_eq]
-        exact hbody.inst_fvar c.Ewf.ordered c'.mlctx_wf.tr.wf
+        have hwfA : VLCtx.WF c.venv c.lparams.length
+            ((some (fv, dom'.fvarsList), .vlam A) :: c.vlctx) := ⟨hwfc, hofv, ⟨u, hAu⟩⟩
+        exact (hbody.inst_fvar c.Ewf.ordered hwfA).defeqDFC_vlam c.Ewf hwfc hofv hAA'
       have hspine : Bs'.length ≤ (body.instantiate1 (.fvar fv)).piArity := by
         rw [Lean.Expr.instantiate1_eq, Lean.Expr.piArity_instantiate1'_fvar]
         have := inv.spine

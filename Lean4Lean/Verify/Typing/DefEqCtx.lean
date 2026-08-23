@@ -106,6 +106,17 @@ theorem find?_fst {Δ₁ Δ₂ : VLCtx} (h : DefEqVLam env U Δ₁ Δ₂) (v) :
       cases hf1 : Δ₁.find? v' <;> cases hf2 : Δ₂.find? v' <;>
         simp_all [VLocalDecl.depth]
 
+/-- **The one-binder step, packaged.**  A caller that pushes a binder whose recorded type is
+only *definitionally* the one its target supplies never has to build a `DefEqVLam` by hand: the
+tail is reflexivity and the head is the conversion it already holds.  This is the shape every
+`withLocalDecl` site needs, and the only one this file's clients use. -/
+theorem head (henv : VEnv.Ordered env) {Δ : VLCtx} {ofv A₁ A₂ u}
+    (hΔ : VLCtx.WF env U Δ)
+    (hofv : ∀ fv deps, ofv = some (fv, deps) → fv ∉ Δ.fvars ∧ deps ⊆ Δ.fvars)
+    (h : env.IsDefEq U Δ.toCtx A₁ A₂ (.sort u)) :
+    DefEqVLam env U ((ofv, .vlam A₁) :: Δ) ((ofv, .vlam A₂) :: Δ) :=
+  .vlam (refl henv hΔ) hofv h
+
 /-- `find?_fst` in the form the `bvar`/`fvar` cases of the transport use. -/
 theorem find?_same {Δ₁ Δ₂ : VLCtx} (h : DefEqVLam env U Δ₁ Δ₂) {v e A₁}
     (H : Δ₁.find? v = some (e, A₁)) : ∃ A₂, Δ₂.find? v = some (e, A₂) := by
@@ -170,5 +181,21 @@ theorem TrExprS.defeqDFC_target {env : VEnv} {Us : List Name} (henv : VEnv.WF en
   | lit h1 _ ih => exact .lit h1 (ih hΔ)
   | mdata _ ih => exact .mdata (ih hΔ)
   | proj _ h2 ih => exact .proj (ih hΔ) (h2.defeqDFC_target henv.ordered hΔ.defeqCtx)
+
+/-- **The transport at a single binder** — the form a `withLocalDecl` caller actually needs.
+The binder's *recorded* type `A₂` may differ from the type the target telescope supplies
+(`A₁`); everything below the binder is untouched, so the whole `DefEqVLam` is `head`.
+
+`Lean4Lean/Inductive/Add.lean`'s `consumeAnnotations` is the motivating instance: it records
+`optParam α d`'s stripped domain `α` while the constructor's stored telescope still carries the
+annotation, and the two are definitionally — not syntactically — equal. -/
+theorem TrExprS.defeqDFC_vlam {env : VEnv} {Us : List Name} {Δ : VLCtx} {ofv}
+    {A₁ A₂ : VExpr} {u : VLevel} {e : Expr} {e' : VExpr}
+    (henv : VEnv.WF env) (hΔ : VLCtx.WF env Us.length Δ)
+    (hofv : ∀ fv deps, ofv = some (fv, deps) → fv ∉ Δ.fvars ∧ deps ⊆ Δ.fvars)
+    (h : env.IsDefEq Us.length Δ.toCtx A₁ A₂ (.sort u))
+    (H : TrExprS env Us ((ofv, .vlam A₁) :: Δ) e e') :
+    TrExprS env Us ((ofv, .vlam A₂) :: Δ) e e' :=
+  H.defeqDFC_target henv (.head henv.ordered hΔ hofv h)
 
 end Lean4Lean
