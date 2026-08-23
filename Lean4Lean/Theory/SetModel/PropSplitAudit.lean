@@ -46,12 +46,50 @@ statement of the *judgement*, which is where it belongs.
 nested-universe model validates, and it fails.  That check reaches `PropUniq`
 too — a proposition then has sorts `0` and `1`.  It does **not** reach
 `PropTypeAgree`: cumulativity retypes at *sorts*, and never gives a proof a
-second type.  So of the two hypotheses here, one is a casualty of the same check
-and one is not — which is exactly the split `docs/model-interface.md` §5 uses to
-say that the minimum convention (a type is a proposition when *some* sort of it
-is zero, with `U_mono` absorbing the difference) would leave `PropTypeAgree` as
-the sole syntactic import.  **That weakening is measured, not built**; this file
-audits the `↔`-form that is in the tree.
+second type.
+
+## 4. The minimum convention does not work — and the obstruction is one goal
+
+The weakening this file was expected to enable — replace the `↔` by "*some*
+sort of `A` evaluates to `0`", and let `U_mono` absorb a `Prop` branch taken
+against a non-zero sort — **fails**, and the reason is worth stating precisely
+because the first two thirds of the argument are right.
+
+`U_mono` does absorb the **formation** obligation: the `Prop` branch produces
+`piProp ∈ U κ 0`, and `U κ 0 ⊆ U κ k` gives membership at whatever index the
+rule names.  That much of the analysis holds.
+
+What it cannot absorb is **parts 1 and 2**.  `propSound_of_mem_sort`
+(`SetModel/InterpSound.lean`) turns `⟦e⟧ρ ∈ ⟦.sort u⟧ρ` into `⟦e⟧ρ ⊆ {•}` and
+its hypothesis `u.eval M.ls = 0` is load-bearing — dropping it leaves exactly
+
+```
+h : ⟦e⟧ρ ∈ U M.κ (u.eval M.ls)
+⊢ ⟦e⟧ρ ⊆ {pt}
+```
+
+which is the **downward** inclusion.  `U_mono` moves memberships *up*; nothing
+moves them down.  And `Sound.proof` — part 2, consumed by `appDF`, `lamDF`,
+`beta` and `eta` — takes `Sound M L Γ A A' (.sort u)` together with
+`u.eval M.ls = 0`, where the `Sound` for the type is the induction hypothesis
+**at the sort the premise names**.  If the split says "proof" while that sort is
+non-zero, the witness sort's soundness is simply not in scope: the induction
+supplies one `Sound` per premise, not one per sort the type happens to have.
+
+So the `⇒` direction of `prop_sound`/`proof_sound` is not decoration, and
+`PropSplit`'s `↔`-form is the weakest form the present soundness induction can
+run on.  **The model's syntactic import is therefore both statements above, not
+`PropTypeAgree` alone.**  Both remain strictly weaker than `SortUniq`, which is
+what step 1 bought; `PropUniq` is reached by the cumulativity check and so, like
+`SortUniq`, needs a syntactic proof.
+
+*What would remove `PropUniq`*, for whoever prices it: strengthening `Sound` to
+quantify over **all** types of a term rather than the one its premise names —
+which is close to assuming the uniqueness it is trying to avoid — or deciding
+the `forallE` branch semantically (`⟦B⟧ρ ⊆ {•}` pointwise, a definable test).
+The second is a real option for `forallE` congruence but does **not** help parts
+1 and 2, which are about `lam`/`app` terms whose *type* is a proposition.  It is
+not a small change and it is not scoped here.
 -/
 
 namespace Lean4Lean

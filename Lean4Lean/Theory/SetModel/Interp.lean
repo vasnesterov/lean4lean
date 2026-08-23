@@ -231,7 +231,17 @@ structure ModelData (V : Type*) [SetStructure V] [Nonempty V] where
   ls : List ℕ
   cnst : Name → List VLevel → V
 
-/-- **What proof splitting needs.**
+/-- **What proof splitting needs — the *old* parameter.**
+
+**Kept deliberately, though the interpretation no longer uses it.**  Do not
+delete it as dead code: `SetModel/LevelAssignUnsat.lean` is stated about this
+structure, and that file is the standing machine-checked record that an
+*unguarded* version of this condition is unsatisfiable **for every
+environment**, for a junk-context reason having nothing to do with the
+mathematics.  Deleting `LevelAssign` deletes the evidence — and that evidence is
+exactly what says which guards `PropSplit` must carry, since it is the trap the
+new parameter has to avoid.  `LevelAssign.toPropSplit` below is the bridge, and
+is also the upper-bound half of `SetModel/PropSplitAudit.lean`.
 
 Carneiro's `lvl`/`sort` lemma (`soundness.tex` §Proof splitting), packaged.
 `lvl Γ A` is the universe level of a *type*; `srt Γ e` is the level of the type

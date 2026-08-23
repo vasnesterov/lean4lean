@@ -610,43 +610,60 @@ So proof-splitting is a syntactic decision, necessarily. The question is only
 ### The residual obligation, and it is not `SortUniq`
 
 `SortUniq.lean`'s cumulativity rule is stated for arbitrary `e`, so it refutes
-the ↔-form above directly: a proposition `P` gets `P : .sort 0` and
-`P : .sort 1`, forcing `IsProp Γ P` both ways. The repair is the **minimum
-convention** — `IsProp Γ A` means *some* sort of `A` evaluates to `0` — and it
-works because:
+the ↔-form directly: a proposition `P` gets `P : .sort 0` and `P : .sort 1`,
+forcing `IsProp Γ P` both ways. The obvious repair is the **minimum
+convention** — `IsProp Γ A` means *some* sort of `A` evaluates to `0`, with
+`U_mono` absorbing a `Prop` branch taken against a non-zero sort.
 
-* the `⇐` direction survives, and the non-`Prop` branch uses only its
-  contrapositive, so that branch is untouched;
-* where the `Prop` branch is taken against a rule's non-zero `v`, the obligation
-  is `⟦∀A,B⟧ρ ∈ U κ ((imax u v).eval)` with `⟦∀A,B⟧ = piProp ∈ U κ 0`, and
-  `U_mono` absorbs it. Part 1 for `B` is still available, since `IsProp` asserts
-  `B` genuinely has a zero sort.
+**It was attempted and it does not work.** Two thirds of the argument hold:
+the `⇐` direction survives, the non-`Prop` branch uses only its contrapositive,
+and `U_mono` does absorb the **formation** obligation (`piProp ∈ U κ 0 ⊆ U κ k`).
 
-**One site is not absorbable, and it is the whole residue.** If a *term* `e` had
-a `Prop` type `A` and a non-`Prop` type `A'`, then `⟦e⟧ = pt` would have to lie
-in `⟦A'⟧` — a different set, not a bigger universe. So the model's irreducible
-syntactic import is
+What it cannot absorb is **parts 1 and 2**. `propSound_of_mem_sort` turns
+`⟦e⟧ρ ∈ ⟦.sort u⟧ρ` into `⟦e⟧ρ ⊆ {•}`, and its hypothesis `u.eval ls = 0` is
+load-bearing (machine-checked); dropping it leaves exactly
 
-> **`PropTypeAgree`** — `Γ ⊢ e : A`, `Γ ⊢ e : A'`, `A` a proposition ⟹ `A'` a
-> proposition.
+```
+h : ⟦e⟧ρ ∈ U M.κ (u.eval M.ls)
+⊢ ⟦e⟧ρ ⊆ {pt}
+```
 
-**The cumulativity check does not reach it.** That rule retypes at *sorts*; it
-never gives a proof a second type, so a term's types keep agreeing on
-propositionhood. This is the same shape as `SortUniq.lean`'s own observation
-that `sort_not_proof` survives cumulativity — and the connection is exact:
+— the **downward** inclusion, and `U_mono` only moves memberships up. `Sound.proof`
+(part 2, consumed by `appDF`, `lamDF`, `beta`, `eta`) then takes the type's
+`Sound` **at the sort its premise names**, and if the split says "proof" while
+that sort is non-zero the witness sort's soundness is not in scope at all: the
+induction supplies one `Sound` per premise, not one per sort the type happens to
+have.
+
+**So the `↔`-form is the weakest form the present induction can run on, and the
+model's syntactic import is both statements, not one:**
+
+> **`PropUniq`** — the sorts of a *type* agree on being zero. Reached by the
+> cumulativity check, so, like `SortUniq`, it needs a syntactic proof.
+>
+> **`PropTypeAgree`** — the types of a *term* agree on being propositions. Not
+> reached by that check: cumulativity retypes at sorts and never gives a proof a
+> second type.
+
+Both are strictly weaker than `SortUniq` — that is what step 1 bought, and it
+stands. `PropTypeAgree` remains the more interesting of the two, and the
+connection found from the other end is exact:
 
 > **`sort_not_proof` *is* `PropTypeAgree` at `e = .sort u`**, its two types
 > being `.sort (u+1)` and the proposition `p`.
 
-Two streams arrived at the same statement from opposite ends — one asking what
-survives the cumulativity check, one asking what the interpretation actually
-branches on. That agreement is better evidence for the target than either
-finding alone.
+Two streams arrived at that statement independently — one asking what survives
+the cumulativity check, one asking what the interpretation branches on.
 
-**`PropTypeAgree` is not priced syntactically.** It follows from unique typing;
-whether it has a cheaper route is the injectivity stream's call, not this
-document's. What is settled here is that it, and not `sort_inv`, is what the
-model needs.
+**Neither is priced syntactically**; that is the injectivity stream's call. What
+is settled here is that these two, and not `sort_inv`, are what the model needs.
+
+*What would remove `PropUniq`*, for whoever prices that: strengthen `Sound` to
+quantify over **all** types of a term rather than the one its premise names —
+close to assuming the uniqueness it is trying to avoid — or decide the `forallE`
+branch semantically (`⟦B⟧ρ ⊆ {•}` pointwise is a definable test). The second is
+a real option for `forallE` congruence and does **not** help parts 1 and 2,
+which are about `lam`/`app` terms whose *type* is a proposition.
 
 ### Built, and what the audit found
 
@@ -684,22 +701,19 @@ The `↔`-form now in the tree needs **two** statements, not one:
 | `PropTypeAgree` | the types of a **term** agree on being propositions | **no** — cumulativity retypes at sorts, never gives a proof a second type |
 
 Both are `Prop`-valued defs in `PropSplitAudit.lean`, and both are load-bearing
-in `propSplitOf` (machine-checked). **The minimum convention's job is precisely
-to delete the first row**: `U_mono` absorbs a `Prop` branch taken against a
-non-zero sort, leaving `PropTypeAgree` as the sole syntactic import. That is
-step 2, and it is **measured, not built** — see below.
+in `propSplitOf` (machine-checked). The minimum convention was expected to delete the first row and **does not** —
+see "The residual obligation" below. Both rows stand.
 
 ### Confidence split, kept deliberately
 
 * The interface scan is **machine-checked** (counts above, reproducible by
   grep), and so is everything in `PropSplitAudit.lean`.
-* The minimum-convention analysis is **reasoning**, not a proof. What it costs
-  is now scoped: `prop_sound` splits into `prop_zero` (the surviving `⇐`) and
-  `prop_wit` (`IsProp` is witnessed by *some* zero sort); `isProp_iff` stops
-  being an `↔`, so its ~9 use-sites in `SoundInduction.lean` each need the
-  `Prop` branch justified by `piProp ∈ U κ 0 ⊆ U κ k` instead of by an equality
-  of branch conditions. `proof_sound` stays an `↔` — that is the half
-  `PropTypeAgree` pays for.
+* The minimum convention was **attempted and refuted**, at
+  `propSound_of_mem_sort`'s load-bearing `u.eval ls = 0` (machine-checked by
+  hypothesis-necessity) and at `Sound.proof`'s use of the premise's own sort.
+  The `↔`-form stands. This corrects the estimate two rounds running: the first
+  version said the residual was one statement, the second that the minimum
+  convention would make it so; neither survived attempting the use.
 * **`PropTypeAgree` is not priced syntactically.** It follows from unique
   typing; whether it has a cheaper route is the injectivity stream's call.
 
