@@ -196,6 +196,113 @@ theorem TrEnv'.defeqs_shape (H : TrEnv' safety C Q venv) (h : venv.defeqs df) :
         VEnv.addConst_defeqs ha₃ ▸ VEnv.addConst_defeqs ha₄ ▸ h)
   | induct _ hadd => cases hadd
 
+/-! ### R10: the induct-case lemmas the `TrEnv'` inductions will need
+
+`AddInductStages` (`Verify/Environment/Basic.lean`) is `AddInduct`'s intended definition,
+complete and witnessed but not yet substituted for the empty `AddInduct`, because the flip is
+not confined to files this stream owns.  The three lemmas below are the induct arms that the
+`TrEnv'` inductions downstream of the flip will need, proved here — the same relocation
+`no_inductInfo_false_at_safe` above already makes.  On the flip:
+
+* `Aligned.addInductStages` replaces `Aligned.addInduct`'s `nomatch H`
+  (`Verify/Environment/Lemmas.lean:67`), whose *statement* is also wrong today: its `env₁` and
+  `env₂` are auto-bound implicits unrelated to `venv₁`/`venv₂`, so the theorem says nothing.
+* `ConstantInfo.deltaValue?_ind`/`_ctor`/`_rec` discharge `TrEnv'.of_value`'s induct case
+  (`Verify/Environment/Lemmas.lean:279`).
+* `AddInductStages.find?_shape` and `.defeqs` (in `Basic.lean`) discharge `find?_shape`'s and
+  `defeqs_shape`'s induct cases here.
+
+**The two restatements the flip forces, in full.**  `TrEnv'.find?_shape` gains three disjuncts
+and becomes
+
+    (∃ v, ci = .axiomInfo v) ∨ (∃ v, ci = .defnInfo v) ∨ (∃ v, ci = .thmInfo v) ∨
+    (∃ v, ci = .opaqueInfo v) ∨ (∃ v, ci = .quotInfo v) ∨
+    (∃ v, ci = .inductInfo v) ∨ (∃ v, ci = .ctorInfo v) ∨ (∃ v, ci = .recInfo v)
+
+and `TrEnv'.defeqs_shape` gains one:
+
+    (∃ ci' : VDefVal, df = ci'.toDefEq) ∨ df = quotDefEq ∨ ∃ D, df ∈ D.iotaRules
+
+Neither restatement rescues `TrEnv.not_inductInfo`, `.not_ctorInfo` or `.not_recInfo`: the
+new disjuncts are exactly the shapes those three refute, and no hypothesis available to their
+callers excludes them.  `ctorInfo_recInfo_reachable` below is how far the refutation gets
+without the flip.  So "repair the consumers" is not available for those three — they, and
+everything proved through them, need the real arguments (ι-reduction, K-like reduction,
+structure eta) rather than a bigger `rcases` pattern.
+-/
+
+theorem Aligned.addDefEqList : ∀ (dfs : List VDefEq) {C : ConstMap} {venv},
+    Aligned safety C venv → Aligned safety C (dfs.foldl VEnv.addDefEq venv)
+  | [], _, _, h => h
+  | _ :: dfs, _, _, h => Aligned.addDefEqList dfs h.defeq
+
+theorem Aligned.addIndRules {C : ConstMap} {venv : VEnv} {D : VInductDecl'}
+    (h : Aligned safety C venv) : Aligned safety C (venv.addIndRules D) :=
+  Aligned.addDefEqList _ h
+
+theorem Aligned.addIndConsts {S cs m env m₂ env₂} (H : AddIndConsts S cs m env m₂ env₂) :
+    Aligned safety m env → Aligned safety m₂ env₂ := by
+  induction H with
+  | nil => exact id
+  | cons hname _ htr hfr hadd _ ih =>
+    exact fun h => ih (h.const hfr (htr.sf_mono DefinitionSafety.le_safe) hadd hname)
+
+/-- **The repair for `Aligned.addInduct`.**  Belongs in `Verify/Environment/Lemmas.lean`;
+it lives here because that file is another stream's. -/
+theorem Aligned.addInductStages {m₁ m₂ : ConstMap} {env₁ env₂ : VEnv} {D : VInductDecl'}
+    (H : AddInductStages m₁ env₁ D m₂ env₂) (h : Aligned safety m₁ env₁) :
+    Aligned safety m₂ env₂ := by
+  obtain ⟨mt, et, mc, ec, e₃, h1, h2, h3, rfl⟩ := H
+  exact Aligned.addIndRules
+    (Aligned.addIndConsts h3 (Aligned.addIndConsts h2 (Aligned.addIndConsts h1 h)))
+
+theorem ConstantInfo.deltaValue?_ind {v} : (ConstantInfo.inductInfo v).deltaValue? = none := rfl
+theorem ConstantInfo.deltaValue?_ctor {v} : (ConstantInfo.ctorInfo v).deltaValue? = none := rfl
+theorem ConstantInfo.deltaValue?_rec {v} : (ConstantInfo.recInfo v).deltaValue? = none := rfl
+
+/-- **`TrEnv.not_ctorInfo` and `TrEnv.not_recInfo` die on the flip, and this is how far the
+refutation gets without it.**
+
+`not_ctorInfo` needs: a constant map holding a `.ctorInfo` under a name the `VEnv` also holds,
+at a `safety` the guard admits.  Every one of those three facts is established below from
+`R10.Wit.addInductStages_wit` alone.  The single missing step is `TrEnv'.induct` accepting
+`AddInductStages`, i.e. the definitional change itself — after which
+`TrEnv'.empty ▸ TrEnv'.induct` turns this into a refutation in the shape of
+`no_inductInfo_false_at_safe`.
+
+So "`not_ctorInfo`/`not_recInfo`/`not_inductInfo` become false" is not a prediction here; it is
+this lemma plus one definition.  The same holds for `reduceProjCore_none` and
+`inductiveReduceRec_eq_none` (`Verify/TypeChecker/WHNF.lean`), which are proved *through* them,
+and hence for `whnf.WF`. -/
+theorem ctorInfo_recInfo_reachable {m : ConstMap} (hwf : m.WF) (hfr : ∀ n, m.find? n = none) :
+    ∃ m' env', AddInductStages m VEnv.empty R10.Wit.decl m' env' ∧
+      -- the three hypotheses of `TrEnv.not_ctorInfo`, bar the `TrEnv'` derivation
+      m'.find? `R10.Wit.U.unit = some (.ctorInfo R10.Wit.uCtor) ∧
+      (∃ ci, env'.constants `R10.Wit.U.unit = some ci) ∧
+      DefinitionSafety.safe ≤ (ConstantInfo.ctorInfo R10.Wit.uCtor).safety ∧
+      -- …and of `TrEnv.not_recInfo`
+      m'.find? `R10.Wit.U.rec = some (.recInfo R10.Wit.uRec) ∧
+      (∃ ci, env'.constants `R10.Wit.U.rec = some ci) ∧
+      DefinitionSafety.safe ≤ (ConstantInfo.recInfo R10.Wit.uRec).safety := by
+  obtain ⟨m', env', H, -, hc, hr, hce, hre⟩ := R10.Wit.addInductStages_wit hwf hfr
+  exact ⟨m', env', H, hc, hce, by decide, hr, hre, by decide⟩
+
+/-- **`TrEnv'.ignore` is unavailable at `safety = .unsafe`.**  Its premise is
+`¬ safety ≤ ci.safety`, and `.unsafe` is the bottom of `DefinitionSafety`, so
+`.unsafe ≤ ci.safety` holds for every `ci` whatever its tag.
+
+Recorded because two places state the opposite as the justification for gating the induct rule
+to safe blocks: `Theory/Inductive/Decl.lean`'s R10 handover and `Verify/Environment/Induct.lean`'s
+`TrIndDecl.safe` both say an unsafe block "is taken by `TrEnv'.ignore` instead".  That holds at
+`.safe` and `.partial`; at `.unsafe` nothing is hidden, so every declared constant needs a `VEnv`
+counterpart and `ignore` cannot supply one.  The gate therefore leaves `TrEnv' .unsafe` with no
+rule for an unsafe inductive.  It does not *create* that gap — today `TrEnv' .unsafe` has no rule
+for a safe inductive either (`TrEnv'.no_inductInfo`) — but the flip does not close it, and an
+unsafe block cannot be modelled soundly anyway: `checkConstructors` skips `checkPositivity`, so
+`VIndField.WF.pos` has no witness to give. -/
+theorem ignore_unavailable_at_unsafe (ci : ConstantInfo) :
+    DefinitionSafety.unsafe ≤ ci.safety := by cases ci.safety <;> decide
+
 /-- **The form a `.WF` proof meets.**  The name comes from a translated `.const`, so the
 `safety` guard is free: `inferProj`'s `let .inductInfo I_val ← env.get I_name | fail` fails,
 uniformly in `safety`, with no `.unsafe` instantiation and no appeal to `AddInduct`. -/
