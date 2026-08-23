@@ -95,7 +95,7 @@ because it is entirely an artifact of counting alternations.
 |---|---|---|
 | `unique.tex:266` | `thm:1dinv` clause (1), `proofIrrel` case | **needs strictly less than unique typing** — `VEnv.DefInv.sort_proofIrrel` (landed) shows it needs only clause (1) on a derived instance, and not even the `Prop`-ness premise. At the index that is the induction hypothesis; unstratified it is `sort_not_proof` |
 | `unique.tex:272` | `thm:1dinv` clause (2), `proofIrrel` case | needs "a Π-type is not a proof" |
-| `unique.tex:180` | `thm:gg_compat`, the `lift`/quotient case | needs unique typing proper; not analysed further |
+| `unique.tex:180` | `thm:gg_compat`, the `lift`/quotient case | **checked — and it does not reduce.** See below |
 
 Plus the blanket assumption at `:64`, which is what the three sites cash out to.
 
@@ -116,9 +116,22 @@ unused rather than wrong.
 
 **`Theory/` definition change?** None. This is proof work plus the two imports below.
 
-**This is the candidate I would rank first**, because it is the only one that removes the
-obstruction rather than working around it, and because its row-zero check came back with a
-number — three — rather than a hope.
+**`unique.tex:180`, checked — and it sinks this candidate.**  The site uses unique typing in
+its *full* form: from `Γ ⊢ q₁ : Quot R₁` and `Γ ⊢ q₁ : p` with `Γ ⊢ p : Prop`, conclude
+`Quot R₁ ≡ p`.  The subject `q₁` is an arbitrary term, so there is no shape to invert and no
+reduction to the "a sort/Π is not a proof" family that candidate 4 serves.  Discharging it
+unstratified means proving `uniq` unstratified, which is `thm:unique` itself — circular.
+
+*And it is worse than that: the site is not correct as written.*  See
+`reference-gap-thm-utype.md` §11 — the bullet concludes that the lift's **output** type is a
+`Prop`, which does not follow, and the reference's own `typesys.tex:50` configuration is a
+counterexample to the lemma the bullet is proving.  So the third site cannot be discharged
+*as written* because it does not go through; it needs re-derivation before its dependence on
+unique typing can even be assessed.
+
+**Verdict: do not build.**  Two of three sites reduce; the third does not, and is broken.
+The number that made this candidate attractive — three — is right, but one of the three is
+load-bearing in a way the other two are not.
 
 ---
 
@@ -158,20 +171,28 @@ by another stream — not this one's to write.
 
 ---
 
-## Ranking
+## Ranking (after the `unique.tex:180` check)
 
-1. **Candidate 3** (de-stratify), with **candidate 4** as its enabling input. Together they
-   remove the obstruction instead of routing around it, cost no definition change, and falsify
-   nothing already proved. The check came back with a number.
-2. **Candidate 1** (instantiation as a rule) — the only one that provably closes the
-   application case *as such*, cheap at depth 0, but its general-depth form needs context
-   commutation lemmas that do not exist, it forces `DefInv` to grow, and it relocates the same
-   failure into three inversion-based proofs one level down.
-3. **Candidate 2** (another stratification) — would not fund; the tension it must resolve is
-   generic to the family, and the one concrete measure available is checked dead.
+The check was run and it inverted the order.
 
-## What would change my ranking
+1. **Candidate 1** (instantiation as a rule).  It is now the only candidate that both closes
+   the application case and serves `unique.tex:180` — and it serves `:180` for free, because
+   in the stratified setting that site's "unique typing" is *unique typing at `⊢ₙ`*, i.e. the
+   induction hypothesis, which is exactly what repairing `thm:utype` restores.  Its cost is
+   the context machinery: the general-depth rule needs a `Ctx.InstN` premise plus
+   lift/instantiate commutation lemmas **for contexts**, which this tree does not have.  That
+   cost should be stated up front rather than discovered.
+2. **Candidate 4** (`sort_not_proof` from the model) — still worth doing, now as an
+   independent simplification rather than as candidate 3's enabler: it removes two of the
+   three unique-typing sites whichever route is taken, and the cumulativity check shows it is
+   the *only* one of the two statements a model can reach.  Recorded in `SortUniq.lean`'s
+   docstring, where the question gets asked.
+3. **Candidate 3** (de-stratify) — **withdrawn.**  Two of its three sites reduce; the third
+   needs full `uniq` on an arbitrary subject, and is additionally broken as written.
+4. **Candidate 2** (another stratification) — would not fund.
 
-If `unique.tex:180` turns out to need unique typing in a way that cannot be discharged
-without it, candidate 3 collapses back onto candidate 1 and the ranking inverts. That is the
-single next thing to check, and it is a reading task, not a proof task.
+## What this check cost, and what it bought
+
+It cost one reading pass and it changed the funding decision, which is what a row-zero check
+is for.  It also turned up a second apparent gap in the reference
+(`reference-gap-thm-utype.md` §11) — unformalized, unlike the first.

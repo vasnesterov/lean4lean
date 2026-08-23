@@ -30,6 +30,43 @@ result below as a reduction between open statements, not as progress on either.
 `SortUniq` is stated for types only (`e` at a sort), which is all the consumers need; the
 `srt`-flavoured version for arbitrary terms is strictly stronger and is not used here.
 
+## There is no model route to `SortUniq`
+
+**`SortUniq` is not a semantic consequence of Lean's rules**, so no argument from
+`Theory/SetModel/` — or from any model — can establish it.  The check is short:
+
+* Add a cumulativity rule `Γ ⊢ e : .sort u → u ≤ v → Γ ⊢ e : .sort v`.  Any model whose
+  universes are nested validates it — the standard construction, and the one
+  `~/lean-type-theory/soundness.tex` builds from n-inaccessibles.
+* In the resulting system `SortUniq` is **false**, guards and all: take `Γ = []`,
+  `e = .sort .zero`, `u = .succ .zero`, `v = .succ (.succ .zero)`.  `OnCtx [] _` holds
+  trivially, both levels are `WF` at any `U` (no parameters), the first typing is the `sort`
+  rule and the second is cumulativity — and `1 ≉ 2`.
+
+So `SortUniq` separates Lean from a system its own models also satisfy.  It holds *because
+Lean has no cumulativity*, which is a syntactic fact about the rule set, and only a syntactic
+argument can reach it.
+
+**What this costs the plans that name `SortUniq`.**  It has been described in this repo as
+the highest-value obligation, with four independent consumers.  Three of them — this file's
+inversion cone, a confluence development, and `IsDefEq.uniq` — are syntactic and are
+unaffected.  The fourth is not: `SetModel/Interp.lean`'s `LevelAssign.srt_sound` **is**
+`SortUniq` restated, so it cannot be discharged by a semantic argument *inside* the model
+development either.  It has to arrive from the syntactic side.  The model development should
+carry it as an import, and nobody should spend a session deriving it semantically — the
+request is unanswerable in principle, not merely hard.
+
+**The useful half of the same check.**  `sort_not_proof` below — currently *derived* from
+`SortUniq` — **does** survive cumulativity, which produces `.sort u : .sort v` and never
+`.sort u : p : Prop`.  So the model route is closed for `SortUniq` and open for
+`sort_not_proof`, and `sort_not_proof` is the statement worth asking the model stream for.
+It is also the statement two of `unique.tex`'s three uses of unique typing reduce to
+(`docs/options-circularity-breakers.md`).
+
+*This subsection is analysis, not a Lean proof — it is the one claim in this file that is
+not machine-checked.  Making it rigorous costs a scratch copy of `IsDefEq` with the
+cumulativity rule added and a re-run of the model's soundness proof.*
+
 ## Two guards, and why they are there
 
 `SortUniq` carries `OnCtx Γ (env.IsType U)` and `WF U` on both levels.  Neither is

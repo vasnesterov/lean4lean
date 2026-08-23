@@ -301,6 +301,60 @@ different circularity-breaker. Nothing cheaper was found.
 
 ---
 
+## 11. A second apparent gap, at `unique.tex:180` — **analysis, not machine-checked**
+
+Found while checking whether `thm:gg_compat`'s use of unique typing could be discharged
+independently. **Flagged at a lower confidence than everything above**: `≡ₚ` and `≫ᵏ` are not
+formalised in this tree, so this is a reading result with a worked configuration, not a Lean
+proof. It should be re-checked before it is relied on.
+
+**The bullet.** `unique.tex:180`, inside `thm:gg_compat` (`:169`, "if `Γ ⊢ e₁ ≡ₚ e₃ ≫ᵏ e₂`
+then there exists `e₄` with `Γ ⊢ e₁ ≫ᵏ e₄ ≡ₚ e₂`"):
+
+> If `lift R₁ β₁ f₁ h₁ q₁ ≡ₚ lift R₃ β₃ f₃ h₃ (mk_R a₃)` where `q₁ ≡ₚ mk_R a₃` by proof
+> irrelevance, then `β : P` so `e₁ : β` is a proof. (Note: we are using that `⊢ₙ` has unique
+> typing here.)
+
+**Where unique typing is used**, and it is the full form: `q₁` inhabits both `Quot R₁` and a
+`Prop` `p`, and `uniq` reconciles them, giving `Quot R₁ : Prop`. The subject `q₁` is an
+arbitrary term, so no inversion applies — this is not the "a sort is not a proof" family.
+
+**The step that does not follow.** From `Quot R₁ : Prop` one gets that the quotient's *source*
+`α` is a `Prop`. The bullet needs the *output* type `β₁` to be a `Prop`, and it does not
+follow: `Quot.lift {α : Sort u} {r} {β : Sort v}` leaves `u` and `v` independent — checked
+against `~/lean4/src/Init/Prelude.lean:443`, and against this repo's own spec, where
+`Theory/Quot.lean`'s `quotLiftConst` is `type_of% @Quot.lift` with no added constraint. A
+`Prop`-quotient may be eliminated into a `Type`.
+
+**A configuration where the lemma fails** — and it is the reference's own, from two chapters
+earlier. `typesys.tex:50` constructs exactly this to demonstrate non-transitivity: `p : P`,
+`R : p → p → P`, `α : U₁`, `f : p → α`, `H`, `q : p/R`, `h : p`. Take `q` and `f` to be
+variables. Then
+
+* `lift R α f H q ≡ₚ lift R α f H (mk_R h)` — by the `lift` compatibility rule, with the
+  last component by proof irrelevance, since `p/R : P` is a `Prop`;
+* `lift R α f H (mk_R h) ≫ᵏ f h` — by the `ι_q` rule;
+* but `lift R α f H q` reduces only componentwise, because `≫ᵏ`'s `ι_q` rule requires a
+  syntactic `mk_R`, and `q` is a variable; and no `≡ₚ` rule relates a `lift` spine to `f h` —
+  the heads differ, neither side is a `λ` so neither `η` rule applies, and proof irrelevance
+  would need `α : P`, which it is not.
+
+So no `e₄` exists, and `thm:gg_compat` — the compatibility lemma at the centre of the
+Church–Rosser proof — fails on it.
+
+**Scope, again.** This says the *bullet's argument* is wrong and that the *lemma as stated*
+appears false for `Prop`-quotients with large elimination. It does not say Church–Rosser is
+false; the lemma may be repairable by restricting `≡ₚ`'s `lift` compatibility rule, or by
+handling the case as the reference handles other proof-irrelevance collisions. Nothing here
+is machine-checked.
+
+**Why it matters for planning.** `:180` was the third of the three sites where §§3–4 needs
+unique typing, and the one that decided between two candidate repairs
+(`docs/options-circularity-breakers.md`). It cannot be discharged as written, because as
+written it does not go through.
+
+---
+
 ## 10. The machine-checked artifacts
 
 All in `Lean4Lean/Theory/Typing/`, all sorry-free, axioms `propext` and `Quot.sound` only.
