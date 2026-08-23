@@ -2558,6 +2558,149 @@ errors:
 there (`<;> [skip; skip; type_tac; type_tac]` → a form tolerant of solved level
 goals) would retire all of the first item.
 
+## Nested inductives: the `VEnv` expressiveness gap, with all exits costed
+
+The gap: `VEnv` is `{constants : Name → Option VConstant, defeqs : VDefEq → Prop}` and
+`VConstant` is `(uvars, type)`, so nothing in a `VEnv` records that a constant *is* an
+inductive or what its constructors are. The companion clause of
+`docs/design-inductive.md` §9.3 needs the **completeness** half — *these are exactly `J`'s
+constructors and there are no others* — and an under-complete constructor list is precisely
+an unsound recursor (eliminate `List (Tree α)` with only the `nil` minor).
+
+Prices below. Two of the three expectations that ranked these turned out **wrong on
+measurement**, both in the direction of making an exit cheaper, so the checks are recorded
+with the prices.
+
+### Correction first: exit 1 does **not** need sign-off
+
+An earlier report of mine said extending `VEnv` "changes the type `kernel_sound` is stated
+over", implying a frozen-file change. **That is wrong.** `VEnv` occurs **0 times** in
+`Verify/Soundness.lean`, `Verify/Axioms.lean` and `Verify/Guard.lean`; `kernel_sound` is
+stated over `Kernel.Environment`, `Declaration` and `Entailment.Inconsistent`. `VEnv` is
+internal proof machinery, which `CLAUDE.md` explicitly designates as free to design. This was
+the single largest input to the old ranking and it was mis-measured.
+
+### Exit 1 — extend `VEnv` with inductive bookkeeping
+
+| | |
+|---|---|
+| frozen-file change | **none**; no sign-off |
+| construction surface | **2 sites** — `addConst` and `addDefEq`, both in `Theory/VEnv.lean` (plus `VEnv.empty`) |
+| `VEnv.ext` risk | **nil** — `@[ext]` is declared but has **0 uses** |
+| mechanical repair | `VEnv.LE` must gain a clause or weakening silently loses the new data; ~47 anonymous `LE` constructions stop typechecking |
+| genuinely new proof | one truthfulness invariant: only `addInduct'` writes the field, and it writes exactly the block being added, threaded through `Ordered`/`WF'` |
+| size | **M** |
+
+**Does anything already-proved become restatable-but-false, or merely need re-proving?**
+Merely re-proving — and mostly not even that. Every existing statement about a `VEnv` is
+about `constants` or `defeqs` only, and both are preserved by every operation, so no existing
+lemma changes truth value. Adding a field makes existing lemmas *too weak for new consumers*
+and makes ~47 constructions *fail to elaborate*; neither is falsity. The one pattern that
+could have produced a false-after-restatement — a lemma proved by `VEnv.ext` or by exhaustive
+case analysis on the record — **does not occur**: `ext` has no uses in the tree.
+
+Unverified and worth checking before committing: whether the SetModel must *interpret* the
+new field. If it is bookkeeping consumed only by `VIndType.WF`, the interpretation is
+untouched (the model already gets its inductive data from `VEnv.WF'`'s `.induct` step).
+
+### Exit 2 — thread `VEnv.WF'`'s history into `VIndType.WF`
+
+**Falsified at row zero: hard import cycle.** `Theory/Typing/Env.lean` (which defines
+`VEnv.WF'` and `VDecl.WF`) imports `Theory/VDecl.lean`, which imports
+`Theory/Inductive/Decl.lean` (which defines `VIndType.WF`). `Decl.lean` is strictly
+*upstream*; it cannot mention `VEnv.WF'`.
+
+Doing it anyway means merging `Typing/Env.lean` (86 lines), `VDecl.lean` (41) and
+`Inductive/Decl.lean` (822) — **949 lines** — into one file, *and* converting the entire `WF`
+cluster (`VIndField.WF`, `VIndCtor.WF`, `VIndType.WF`, `VInductDecl'.WF`, `VDecl.WF`,
+`VEnv.WF'`) from structures into one mutual inductive block, losing structure-field syntax at
+every use site.
+
+Blast radius on inductions: `VEnv.WF'.ruleShape`, `VEnv.WF.ordered`, `TrEnv'.wf` and the
+SetModel's `coherentOn_*` chain all run `induction H with | empty | decl`. They stay
+well-founded — the recursion is on `ds`, and `VIndType.WF` would refer to a *strictly
+earlier* environment — but each becomes a mutual induction with a new motive, i.e. must be
+**restructured**, not re-proved.
+
+Size **XL**, and it is **dominated**: exit 1 achieves the same effect with none of this.
+
+### Exit 3 — `VInductDecl'` carries the earlier declaration as data
+
+**Expected falsifier, run, and it passed.** I expected mutual `structure`s to be rejected.
+They are not: a mutual block of `structure`s with `deriving Inhabited` elaborates, `default`
+is derived for every member, and `l.getD j default` — which the tree uses pervasively — still
+works. Checked directly rather than assumed; the expectation was wrong.
+
+Cost is the construction surface, not the read surface: `VIndType` occurs 141×, `.ctors`
+128×, `.indices` 332×, but those are reads and an added `Option` field leaves them alone.
+
+**Cheaper repair that avoids the mutual block entirely.** The companion does not need a whole
+`VInductDecl'`. Let it carry `J`'s **constructor list** — `List VIndCtor`, already a legal
+`VIndType` field type, introducing no new recursion — plus the parameter instantiation, and
+*compute* the certificate block with a `def : VIndType → VInductDecl'`. A function is not a
+data cycle. Size **L**.
+
+### Exit 4 — the completeness certificate is already in the tree
+
+This is the finding of the round, and it may make the gap disappear.
+
+`VEnv.defeqs` is a **predicate**, so it is the one *enumerable* field of a `VEnv` — and
+`Theory/Typing/PatternRules.lean` already exploits it. `VEnv.RuleShape`'s `iota` constructor
+carries, **as data**, the declaring block `D` together with `D.WF env₀`, the full staging
+chain `env₀ → env₁ → env₂ → env₃ ≤ env`, and
+
+```lean
+env.constants (Lean.mkRecName T.name) = some ⟨D.recUvars, D.recType j⟩
+env.constants C.name = some ⟨D.uvars, C.type D j⟩
+```
+
+and `VEnv.WF.ruleShape : env.WF → env.defeqs df → env.RuleShape df` is **fully proved**
+(`WF'.ruleShape`, an induction over the declaration list with def/unsafeDef/quot/induct
+cases — not a `sorry`).
+
+So from *any* ι-rule of `J.rec` you recover the block that declared `J`, and its constructor
+list is complete **by construction** — no enumeration, no `VEnv` change, no mutual recursion,
+no recursive `VInductDecl'`. Two consequences:
+
+* The completeness half may not need to be a **clause** at all. It looks derivable
+  *downstream*, where `WF.ruleShape` is in scope — and the model already consumes `VEnv.WF'`,
+  so it can use the same handle.
+* It supplies the precedent for exit 3's certificate: `RuleShape.iota` ties a block to an
+  environment by exactly "the recursor constant is present at the block's `recType`". And the
+  primitives to invert `recType` already exist — `VExpr.mkPi_inj`, `mkPi_inj_of_arity`,
+  `mkApp_inj_of_arity` in `Theory/Inductive/Telescope.lean`, where the arity versions
+  *derive* the length hypothesis rather than assuming it. (Note 1 of
+  `Theory/Inductive/Lemmas.lean` — "check `Telescope.lean` before estimating" — paying for
+  the fourth time.)
+
+**What is verified and what is not.** Verified: `RuleShape.iota`'s payload, that
+`WF.ruleShape` exists and is proved, the import direction, and that the injectivity
+primitives exist. **Not** verified: that the `D₀` recovered from a rule is *unique* for a
+given `J` — the existential could in principle attribute two ι-rules of `J.rec` to different
+blocks, and pinning it needs the uniqueness family (`DeltaUnique`/injectivity). Also, a `J`
+with **zero** constructors has no ι-rules and yields nothing; that is benign (the
+ctor-constant clause then forces the claimed list empty too) but it means the route is not
+uniform. Import constraint: `RuleShape` is downstream of `Decl.lean`, so exit 4 cannot be a
+clause *in* `VIndType.WF` — it must be a downstream theorem, which is the shape it wants
+anyway. Size **M** if uniqueness resolves.
+
+### The option set, ordered
+
+1. **Settle exit 4's uniqueness question first.** It is small and decisive, and if it works
+   exits 1 and 3 are unnecessary.
+2. **Exit 1** if it does not — much cheaper than previously reported, and needs no sign-off.
+3. **Exit 3** (in its `List VIndCtor` repair, not the mutual-structure form) as fallback.
+4. **Exit 2 never** — dominated by exit 1.
+
+### Carried item, whichever exit is taken
+
+The companion clause must also **preserve `BindersIndep` under substitution**. A companion's
+constructors are `J`'s with the instantiation substituted, and for `Tree`/`List` *both*
+fields of the companion constructor become recursive — the configuration where
+`VIndField.WF.binders_indep` is non-vacuous. `wDecl_WF`
+(`Theory/Inductive/DeclExamples.lean`) is the standing witness that the clause is satisfiable
+at exactly that shape, built ahead of the port for this reason.
+
 ## The remaining open items, ranked
 
 
