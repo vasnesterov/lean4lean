@@ -1393,9 +1393,68 @@ theorem Ind₃_mem_vsetV_of {k X : V} [IsOrdinal k]
   rw [mem_Vset_iff_rank_lt] at hX ⊢
   exact lt_of_le_of_lt (rank_mono hsub) hX
 
+/-- **`Ind₃` sits inside the ordinary family of any dominating signature.**
+
+Stated **schematically**: `S'` is an abstract `IndSignature` related to `S` by
+field equations, never the concrete `S.at W₀`.  That is the remedy
+`SetModel/Cnst.lean` documents for `mkLam_mem_mkForallType`, and it is needed
+for the same reason: `Ind S' D` unfolds to `lfp _ (indStep S' D)
+(indStep_definable S' D)`, and with `S'` concrete that definability *proof term*
+is large enough to hang `whnf`.  With `S'` a variable it is never unfolded.
+
+Dropping admissibility only enlarges the operator, and `W₀` dominating
+`S.Idx ×ˢ D` is what makes `Fld_mono` fire in the right direction — the wrong
+one is what broke `recGraph₃_total`'s first form. -/
+theorem Ind₃_subset_Ind_of {S' : IndSignature V} {W₀ : V}
+    (hIdx : S'.Idx = S.Idx) (hQ : S'.Q = S.Q)
+    (hFld : ∀ q : V, S.Fld W₀ q ⊆ S'.Fld q)
+    (hPos : ∀ q a : V, S'.Pos q a = S.Pos q a)
+    (hPI : ∀ q a b : V, S'.posIdx q a b = S.posIdx q a b)
+    (hRI : ∀ q a : V, S'.resIdx q a = S.resIdx q a)
+    (hW₀ : (S.Idx ×ˢ D : V) ⊆ W₀)
+    (hWF : S'.WF) (hD : IsIndCarrier S' D) :
+    Ind₃ S D ⊆ Ind S' D := by
+  have hamb : Ind S' D ⊆ (S.Idx ×ˢ D : V) := by
+    intro p hp
+    have h := Ind_subset S' D p hp
+    rwa [hIdx] at h
+  refine Ind₃_subset_of hamb (fun q hq a ha f hf hrec ↦ ?_)
+  have ha' : a ∈ S'.Fld q :=
+    hFld q _ (S.Fld_mono (subset_trans hamb hW₀) q _ ha)
+  have hf' : f ∈ (D ^ S'.Pos q a : V) := by rw [hPos]; exact hf
+  have hrec' : ∀ b ∈ S'.Pos q a, (⟨S'.posIdx q a b, f ‘ b⟩ₖ : V) ∈ Ind S' D := by
+    intro b hb
+    rw [hPI]
+    exact hrec b (by rwa [hPos] at hb)
+  have hq' : q ∈ S'.Q := by rw [hQ]; exact hq
+  have := ctor_mem_Ind hWF hD hq' ha' hf' hrec'
+  rwa [indCtor, hRI] at this
+
+/-- **The family lands in the stage.**  `IndCard`'s cardinality argument is
+inherited rather than ported. -/
+theorem Ind₃_mem_vsetV {k : V} (hk : IsInaccessible k)
+    (hS : IsStageSignature₂ k S.toIndSignature₂) (hWF : S.toIndSignature₂.WF)
+    (hD : IsIndCarrier (S.toIndSignature₂.at (S.Idx ×ˢ vsetV k)) (vsetV k)) :
+    Ind₃ S (vsetV k) ∈ vsetV k := by
+  haveI : IsOrdinal k := hk.isOrdinal
+  have hsub := Ind₃_subset_Ind_of (S := S) (D := vsetV k)
+    (S' := S.toIndSignature₂.at (S.Idx ×ˢ vsetV k)) (W₀ := S.Idx ×ˢ vsetV k)
+    rfl rfl (fun _ _ h ↦ h) (fun _ _ ↦ rfl) (fun _ _ _ ↦ rfl) (fun _ _ ↦ rfl)
+    (fun _ h ↦ h) (hWF.at _) hD
+  exact Ind₃_mem_vsetV_of (Ind_mem_vsetV hk (hS.at (fun _ h ↦ h)) (hWF.at _)) hsub
+
+/-- **…and in the universe sequence.** -/
+theorem Ind₃_mem_U_stage {n i : ℕ} {κ : ℕ → V} {S : IndSignature₃ V}
+    (hκ : IsInaccessibleChain n κ) (hi : i < n)
+    (hS : IsStageSignature₂ (κ i) S.toIndSignature₂) (hWF : S.toIndSignature₂.WF)
+    (hD : IsIndCarrier (S.toIndSignature₂.at (S.Idx ×ˢ U κ (i + 1))) (U κ (i + 1))) :
+    Ind₃ S (U κ (i + 1)) ∈ U κ (i + 1) :=
+  Ind₃_mem_vsetV (hκ.inaccessible i hi) hS hWF hD
+
 end Operator₃
 
 end Lean4Lean.SetModel
+
 
 
 

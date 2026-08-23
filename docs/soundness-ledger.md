@@ -2089,26 +2089,55 @@ porting**: `Ind₃` inherits its bound from any containing set already known to 
 in the stage. `Ind₃_subset_of` — `Ind₃_induction` with the `Args` component
 dropped — is the containment tool. Both sorry-free.
 
-### The one step left, and the hazard it hit
+### The last step hit a documented hazard, and the documented remedy closed it
 
-What remains is the *composition*: instantiate `Ind₃_subset_of` at
-`P := Ind (S.toIndSignature₂.at W₀) D` to get the containing set.
-Mathematically it is four lines — dropping admissibility only enlarges the
-operator, and the top approximation `S.Idx ×ˢ D` dominates every approximation
-the induction produces, so `Fld_mono` fires in the right direction.
+The composition — instantiating `Ind₃_subset_of` at
+`P := Ind (S.toIndSignature₂.at W₀) D` — **did not elaborate**. `whnf` timed
+out, and raising the limit 200k → 1M did not help, so by this file's own
+diagnostic it was looping rather than deep. The cause is the hazard
+`SetModel/Cnst.lean` already documents for `mkLam_mem_mkForallType`:
+`Ind S' D` unfolds to `lfp _ (indStep S' D) (indStep_definable S' D)`, and with
+`S'` a *concrete* anonymous constructor that definability **proof term** is large
+enough to hang unification.
 
-**It does not elaborate.** `whnf` times out, and raising the limit from 200k to
-1M does not help — so by this file's own diagnostic it is looping, not deep.
-The cause is the hazard `SetModel/Cnst.lean` already documents for
-`mkLam_mem_mkForallType`: `Ind S' D` unfolds to `lfp _ (indStep S' D)
-(indStep_definable S' D)`, and with `S'` a *concrete* anonymous constructor that
-definability proof term is large enough to hang unification.
+The remedy applied unchanged: **`Ind₃_subset_Ind_of` states it schematically**,
+with `S'` an abstract `IndSignature` plus the six field equations relating it to
+`S`. With `S'` a variable the proof term is never unfolded, and it elaborates
+without a heartbeat bump. `Ind₃_mem_vsetV` and `Ind₃_mem_U_stage` follow, the
+equations discharged by `rfl` at the concrete signature.
 
-The documented remedy applies unchanged: **state it schematically, with `S'` an
-abstract signature plus the field equations it needs**, so the proof terms stay
-variables. That is the next edit, and it is a restatement rather than a new
-argument. I stopped rather than keep raising limits — the limit is never the
-answer, and that rule is in this file's header.
+Worth recording as a third instance of the same pattern: a note written about
+one subsystem (`definability`'s divergence) diagnosed a failure in another
+(`whnf`'s unification), and a remedy written for one lemma
+(`mkLam_mem_mkForallType`) closed a different one two files away. Neither was
+aimed where it landed. **Such notes are worth writing not because you can
+predict where they will be needed, but precisely because you cannot** — and the
+moment they stop reading as idle remarks is the moment it is too late to write
+them.
+
+### `.induct`: what it now has, and what it still lacks
+
+**Has** — all sorry-free, `[propext, Classical.choice, Quot.sound]`:
+
+* the signature (`IndSignature₃`), its operator, monotonicity, and the family
+  (`Ind₃`) as a least fixed point;
+* the induction principle, constructor membership, carrier and minor premise;
+* the recursor in full: graph, single-valuedness, totality, functionality,
+  `indRec₃`, and **the ι-rule** `indRec₃_indCtor₃`;
+* stage membership `Ind₃_mem_vsetV` / `Ind₃_mem_U_stage`, inheriting
+  `IndCard`'s bound rather than porting it;
+* the definability toolkit and the assembly (`mkIndSignature`) from earlier
+  rounds.
+
+**Lacks** — one thing, and it is the same one as before the port:
+
+* **the translation `VIndCtor → CtorData`/`Args`.** The syntactic half. The port
+  removed its *obstruction* (nothing now forces `a` and `f` apart) but not the
+  work: reading the per-constructor data off `Decl.lean`'s record, with choice
+  on `WF.pos`'s chain-free existential and that file's context conventions.
+
+So `.induct` is **open**, and the model remains conditional on `LevelAssign` —
+unwitnessed, four consumers. A closed port does not change either label.
 
 ### Port total against estimate
 
