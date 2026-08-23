@@ -587,6 +587,46 @@ This section is that half — a pure function, with a round-trip theorem, and no
 field's type may itself be a `forallE` (`Iff.intro`'s `mp : a → b`), and a maximal peel would
 walk into the last one's codomain.  Splitting at `np + |fields|` cannot.
 
+**R3 is gated on injectivity, not on bookkeeping.**  Turning the checker's walk into
+`VIndType.WF.canon` means chaining `n` steps of "this type is defeq to `∀ A, ty'`" into one
+`mkPi` defeq.  Each step is a `forallEDF` congruence, which produces the sort
+`imax uA v`; the step itself arrives at whatever sort the type was checked at.  Composing the
+two needs those sorts to agree — i.e. sort uniqueness.  `VEnv.IsDefEqU.trans` and
+`IsDefEq.uniq` (`Theory/Typing/UniqueTyping.lean`) both do this, and both are
+**`sorryAx`-tainted** through `Injectivity.lean`'s open statements (machine-checked).  So R3 is
+not ~90 lines of telescope arithmetic; it is downstream of the injectivity family, *unless* the
+refinement layer's `whnf` specification delivers its defeq at a caller-chosen sort rather than
+as an `IsDefEqU`.  That is a `Verify/` question and it should be answered before R3 is priced
+again.
+
+## R10's handover: `AddInduct`'s constructors
+
+`AddInduct` (`Verify/Environment/Basic.lean`) has no constructors, so `TrEnv'.induct` cannot
+fire and every environment containing an inductive is outside `TrEnv`.  The design, for
+whoever holds that file:
+
+*Three folds mirroring `VEnv.addInduct'_stages`, not one opaque relation.*  An `AddIndConst`
+step — `TrConstant .safe`, freshness, `addConst` — folded over `D.typeConsts`, then
+`D.ctorConsts`, then `D.recConsts`, with the ι-rules added last.  That is `AddQuot`/`AddQuot1`'s
+shape, so `to_addInduct` composes exactly as `AddQuot.to_addQuot` does, and each stage's
+freshness obligation is the one `addConstList_fresh` already supplies.
+
+*`TrEnv'.induct` is gated to safe blocks*, as `unsafeDef` is gated to unsafe ones: positivity is
+skipped when `isUnsafe`, so `VIndField.WF.pos` has no witness, and `TrEnv'.ignore` takes those
+declarations instead.
+
+*What it breaks, deliberately.*  `TrEnv'.no_inductInfo` becomes false, and with it the
+vacuous postconditions of `checkEqType.WF` and `addQuot.WF`.  **And `TrEnv'.find?_shape`
+(`Verify/TypeChecker/Reduce.lean`) becomes false as stated** — its `induct` case is discharged
+only because `AddInduct` is empty, and it has four live consumers matching on its five
+disjuncts.  That file already records `no_inductInfo_false_at_safe`, a refutation of the
+neighbouring lemma for the same reason, so this is the second theorem there that is true only
+vacuously.
+
+*Triage target.*  `eqIndDecl` — its ι-rule is checked against Lean's own stored rule in
+`DeclExamples.lean`, and `fooDecl_WF` / `fooEnv_eq` are a worked `addInduct'` success from
+`VEnv.empty` to copy.
+
 **Where each field comes from.**  Read off `Lean4Lean/Inductive/Add.lean`, since the checker's
 phases are what witness the relation.  `checkInductiveTypes` walks each *type*'s pi-spine with
 `whnf` at every step (F1); `checkConstructors` walks each *constructor*'s **without** `whnf`
@@ -663,5 +703,22 @@ theorem VIndCtor.skeleton_type (C : VIndCtor) (D : VInductDecl') (j : Nat)
   · show (VIndCtor.canonResult C D j).spineArgs.drop D.np = C.args
     rw [VIndCtor.canonResult, VInductDecl'.tyApp, VExpr.spineArgs_mkApp, VExpr.spineArgs_const,
       List.nil_append, List.drop_left' (by simp)]
+
+/-- **R5: the skeleton gives `D.params` too — up to the tie that already holds.**
+
+`D.params` is *not* syntactically recoverable: it is the `whnf`-normalised parameter telescope,
+and F1 blocks reading it off `T.type`.  But `VIndCtor.params` **is** recoverable (F2), and
+`VIndCtor.WF.params_eq` already says the two are definitionally equal as contexts.  So the
+translation should not try to recover `D.params` at all — it should take the constructor's copy,
+which the skeleton hands back, and carry the tie.
+
+This is the transport discipline: *choose the point where the fact already holds* rather than
+recovering it where it does not. -/
+theorem ctor_params_skeleton {env : VEnv} {D : VInductDecl'} {j : Nat} {T : VIndType}
+    {C : VIndCtor} (henv : VEnv.Ordered env) (h : VIndCtor.WF env D j T C) :
+    VEnv.IsDefEqCtx env D.uvars []
+      (VIndCtor.skeleton D.np C.fields.length (C.type D j)).1.reverse D.params.reverse := by
+  rw [VIndCtor.skeleton_type C D j h.params_len]
+  exact h.params_eq
 
 end Lean4Lean
