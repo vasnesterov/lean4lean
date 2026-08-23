@@ -3,7 +3,6 @@ import Lean4Lean.Level
 import Lean4Lean.Verify.Name
 import Lean4Lean.Verify.LevelStd
 import Lean4Lean.Verify.Axioms
-import Std.Tactic.BVDecide
 import Std.Data.TreeMap.Lemmas
 
 namespace Lean
@@ -38,52 +37,76 @@ attribute [simp] mkLevelSucc mkLevelMax mkLevelIMax updateSucc! updateMax! updat
 set_option allowUnsafeReducibility true
 attribute [local reducible] Data
 
+/-! ### Bit facts about `Level.mkData`
+
+These three lemmas were previously discharged with `bv_decide`, which checks its
+LRAT certificate by *compiling and running* the checker (`Lean.Meta.nativeEqTrue`)
+and then minting a fresh `…_native.bv_decide.ax_N` axiom from the runtime result
+— the same trust model as `native_decide`, and the kernel never sees a proof. The
+proofs below get the same facts from `simp` + `omega` over `Nat`, so they add
+nothing to the trusted base. (`Lean4Lean/Tests/AxiomConsistency.lean` §0 restates
+these for its own use; the arguments are the same.) -/
+
+private theorem uint64_shiftRight (a b : UInt64) : a.shiftRight b = a >>> b := rfl
+private theorem uint64_land (a b : UInt64) : a.land b = a &&& b := rfl
+private theorem uint64_shiftLeft (a b : UInt64) : a.shiftLeft b = a <<< b := rfl
+
+/-- A `UInt64` whose `toNat` is `0` or `1` compares to `1` exactly as that bit. -/
+private theorem uint64_beq_one {x : UInt64} {b : Bool} (h : x.toNat = if b then 1 else 0) :
+    (x == 1) = b := by
+  have hx : x = (if b then 1 else 0 : UInt64) := by
+    refine UInt64.toNat_inj.mp ?_; cases b <;> simp [h]
+  rw [hx]; cases b <;> decide
+
+/-- The three field reads of a `UInt64` packed as `a + m·2³² + p·2³³ + d·2⁴⁰`,
+with the summands in disjoint bit ranges. Pure `Nat` arithmetic. -/
+private theorem mkData_fields_of_toNat {c : UInt64} {a m p d : Nat}
+    (ha : a < 2 ^ 32) (hm : m < 2) (hpp : p < 2) (hd : d < 2 ^ 24)
+    (hc : c.toNat = a + m * 2 ^ 32 + p * 2 ^ 33 + d * 2 ^ 40) :
+    (c.shiftRight 40).toUInt32.toNat = d
+    ∧ ((c.shiftRight 33).land 1).toNat = p
+    ∧ ((c.shiftRight 32).land 1).toNat = m := by
+  refine ⟨?_, ?_, ?_⟩ <;>
+    simp only [uint64_shiftRight, uint64_land, UInt64.toNat_toUInt32, UInt64.toNat_shiftRight,
+      UInt64.toNat_and, UInt64.toNat_ofNat, Nat.reduceMod, Nat.reducePow, Nat.and_one_is_mod,
+      Nat.shiftRight_eq_div_pow, hc] <;>
+    omega
+
+/-- `mkData'` in range is exactly that packing: no wraparound, no overlap. -/
+theorem mkData'_toNat {h : UInt64} {d : Nat} {hmv hp : Bool} (H : d < 2 ^ 24) :
+    (mkData' h d hmv hp : UInt64).toNat
+      = h.toNat % 2 ^ 32 + (if hmv then 1 else 0) * 2 ^ 32 + (if hp then 1 else 0) * 2 ^ 33
+        + d * 2 ^ 40 := by
+  rw [mkData', if_neg (Nat.not_lt.2 (Nat.le_sub_one_of_lt H))]
+  cases hmv <;> cases hp <;>
+    simp [UInt64.toNat_add, uint64_shiftLeft, UInt64.toNat_shiftLeft, Bool.toUInt64,
+      Nat.shiftLeft_eq, UInt64.toNat_ofNat] <;>
+    omega
+
+private theorem mkData'_fields {h : UInt64} {d : Nat} {hmv hp : Bool} (H : d < 2 ^ 24) :
+    ((mkData' h d hmv hp : UInt64).shiftRight 40).toUInt32.toNat = d
+    ∧ (((mkData' h d hmv hp : UInt64).shiftRight 33).land 1).toNat = (if hp then 1 else 0)
+    ∧ (((mkData' h d hmv hp : UInt64).shiftRight 32).land 1).toNat = (if hmv then 1 else 0) :=
+  mkData_fields_of_toNat (Nat.mod_lt _ (by omega)) (by cases hmv <;> simp) (by cases hp <;> simp) H
+    (mkData'_toNat H)
+
+theorem mkData'_depth {h d hmv hp} (H : d < 2 ^ 24) : (mkData' h d hmv hp).depth.toNat = d :=
+  (mkData'_fields H).1
+
+theorem mkData'_hasParam {h d hmv hp} (H : d < 2 ^ 24) : (mkData' h d hmv hp).hasParam = hp :=
+  uint64_beq_one (mkData'_fields H).2.1
+
+theorem mkData'_hasMVar {h d hmv hp} (H : d < 2 ^ 24) : (mkData' h d hmv hp).hasMVar = hmv :=
+  uint64_beq_one (mkData'_fields H).2.2
+
 theorem mkData_depth (H : d < 2 ^ 24) : (mkData h d hmv hp).depth.toNat = d := by
-  rw [mkData_eq H, mkData', if_neg (Nat.not_lt.2 (Nat.le_sub_one_of_lt H)), Data.depth]
-  have : d.toUInt64.toUInt32.toNat = d := by simp; omega
-  refine .trans ?_ this; congr 2
-  rw [← UInt64.toBitVec_inj]
-  have : d.toUInt64.toNat = d := by simp; omega
-  have : d.toUInt64.toBitVec ≤ 0xffffff#64 := (this ▸ Nat.le_sub_one_of_lt H :)
-  have : h.toUInt32.toUInt64.toBitVec ≤ 0xffffffff#64 := Nat.le_of_lt_succ h.toUInt32.1.1.2
-  have hb : ∀ (b : Bool), b.toUInt64.toBitVec ≤ 1#64 := by decide
-  have := hb hmv; have := hb hp
-  change (
-    h.toUInt32.toUInt64.toBitVec +
-    hmv.toUInt64.toBitVec <<< 32#64 +
-    hp.toUInt64.toBitVec <<< 33#64 +
-    d.toUInt64.toBitVec <<< 40#64) >>> 40#64 = d.toUInt64.toBitVec
-  bv_decide
+  rw [mkData_eq H]; exact mkData'_depth H
 
 theorem mkData_hasParam (H : d < 2 ^ 24) : (mkData h d hmv hp).hasParam = hp := by
-  rw [mkData_eq H, mkData', if_neg (Nat.not_lt.2 (Nat.le_sub_one_of_lt H))]
-  simp [Data.hasParam, (· == ·), ← UInt64.toBitVec_inj]
-  have : h.toUInt32.toUInt64.toBitVec ≤ 0xffffffff#64 := Nat.le_of_lt_succ h.toUInt32.1.1.2
-  have hb : ∀ (b : Bool), b.toUInt64.toBitVec ≤ 1#64 := by decide
-  have := hb hmv; have := hb hp
-  let L := ((
-    h.toUInt32.toUInt64.toBitVec +
-    hmv.toUInt64.toBitVec <<< 32#64 +
-    hp.toUInt64.toBitVec <<< 33#64 +
-    d.toUInt64.toBitVec <<< 40#64) >>> 33#64) &&& 1#64
-  change decide (L = 1#64) = hp
-  rw [show L = hp.toUInt64.toBitVec by bv_decide]
-  cases hp <;> decide
+  rw [mkData_eq H]; exact mkData'_hasParam H
 
 theorem mkData_hasMVar (H : d < 2 ^ 24) : (mkData h d hmv hp).hasMVar = hmv := by
-  rw [mkData_eq H, mkData', if_neg (Nat.not_lt.2 (Nat.le_sub_one_of_lt H))]
-  simp [Data.hasMVar, (· == ·), ← UInt64.toBitVec_inj]
-  have : h.toUInt32.toUInt64.toBitVec ≤ 0xffffffff#64 := Nat.le_of_lt_succ h.toUInt32.1.1.2
-  have hb : ∀ (b : Bool), b.toUInt64.toBitVec ≤ 1#64 := by decide
-  have := hb hmv; have := hb hp
-  let L := ((
-    h.toUInt32.toUInt64.toBitVec +
-    hmv.toUInt64.toBitVec <<< 32#64 +
-    hp.toUInt64.toBitVec <<< 33#64 +
-    d.toUInt64.toBitVec <<< 40#64) >>> 32#64) &&& 1#64
-  change decide (L = 1#64) = hmv
-  rw [show L = hmv.toUInt64.toBitVec by bv_decide]
-  cases hmv <;> decide
+  rw [mkData_eq H]; exact mkData'_hasMVar H
 
 theorem ofLevel_of_not_hasParam (Us) {l : Level}
     (hl : l.hasParam' = false) (hmv : l.hasMVar' = false) :
