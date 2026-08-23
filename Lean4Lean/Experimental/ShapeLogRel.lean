@@ -1,3 +1,957 @@
+/-
+================================================================================
+MIGRATION WIP -- HANDOFF NOTE.  READ ALL OF THIS BEFORE TOUCHING EITHER FILE.
+================================================================================
+
+!! NAME PREFIX: `namespace SExpr` opens at :856 and IS NEVER CLOSED.  Every declaration in
+!! this file is `Lean4Lean.SExpr.<name>`, NOT `Lean4Lean.<name>`.  `#print axioms
+!! Lean4Lean.LE_Interp.join'` answers "unknown constant" -- which reads as "declaration
+!! missing" and is not.  Use the short name (namespaces are open at EOF) or the real prefix.
+!! Do NOT probe near :6152 -- that bare `end` closes a `mutual`, not a namespace.
+
+!! LINE NUMBERS GO STALE THE MOMENT THIS BANNER IS EDITED.  An error-position -> declaration
+!! mapping computed against an older copy yields a PLAUSIBLE WRONG ANSWER, not an error --
+!! same class as the primed-name regex below.  Re-derive positions from the same build.
+
+!! 49 OF 653 DECLARATIONS IN THIS FILE ARE `sorryAx`-BACKED BY ERROR RECOVERY.  They read in
+!! source exactly like proofs.  DO NOT infer proof status from source text; run `#print
+!! axioms`.  Full list: banner section 14.
+
+## 0. The two-file rule (breaks the tree if ignored)
+
+These two files must be restored TOGETHER:
+    scratchpad/SExpr.indTy-wip29.lean       -> Lean4Lean/Experimental/SExpr.lean
+    scratchpad/ShapeLogRel.indTy-wip29.lean -> Lean4Lean/Experimental/ShapeLogRel.lean
+
+`Classification.indTy` carries a `rel : Bool` and `CtorBundle` carries `hrel` instead of
+`hu0` in SExpr.lean; the pristine ShapeLogRel.lean calls `.indTy` with one argument and reads
+`hu0`.  Restoring one alone does not compile.  After restoring SExpr.lean you MUST
+`lake build Lean4Lean.Experimental.SExpr` before measuring ShapeLogRel.lean, or you are
+measuring against a stale `.olean`.  (The "144 instances / 105 lines" recorded at an earlier
+handoff was exactly that mistake: the byte-identical file measures 181/132 on a fresh build.)
+
+State: **12 error instances at 12 distinct lines.**  NOT green.  Measure with
+    lake env lean -DmaxErrors=600 Lean4Lean/Experimental/ShapeLogRel.lean
+`set_option maxErrors` does NOT take in-file, so a raw `lake build` count is a FLOOR.
+Do not use the FRONT line number as a metric while the banner is being edited.
+
+## 0a. WHAT THE 12 ERRORS ARE
+
+  (A) THE JOIN FAMILY -- 8 instances: `WShape.HasType.join`'s `go_dom` and `go_pi`,
+      `WShape.HasDom.join`, `LE_Interp.compat_join`, `LE_Interp.sound_lam` (x2),
+      `LRS.PiDefEq.join` (x2).
+      **The approved `LE_Interp`-relative repair is REFUTED.  See section 4.**
+
+  (B) SECTION 7's RESIDUE -- 1 instance, in `LE_Interp.build_spine`'s `.ctor'` branch.
+      Section 7 has LANDED in part: `WShape.HasType.proofIrrel` is now TRUE and PROVED.
+      What is left is that a `Prop`-valued inductive's constructor application must carry
+      shape `.bot`, and `WShape.ctor'` cannot see `Prop`-ness yet.  See section 7.
+
+  (C) THE `extra_pat` PEEL -- 2 instances, in `LE_Interp.strongSoundS`'s `extra` case.
+      The price of removing a VACUITY, not a regression.  See section 9.
+
+  (D) PER-LEAF LEVEL LISTS -- 1 instance, in `LE_Interp.Const.compat_join`'s `pat`/`pat` case.
+      Removes the SECOND `ParamsExtra` vacuity; one obligation left.  See section 11.
+
+## 1. What this migration is for -- AND WHAT HAS LANDED
+
+`CtorBundle.hu0 : u <> .zero` was FALSE (`CtorBundle Eq.refl` uninhabited: `Eq.refl`'s sort is
+`imax (u+1) (imax u 0) = 0`).  **REPAIRED; `LE_Interp.build_spine`'s `hu0` use is green.**
+`hu0` is replaced by
+
+    hrel : rel = true <-> u <> .zero
+
+which is not an invented hypothesis: it is `ParamsExtra.ctor_ty`'s existing
+`(rel = true <-> D.lvl <> .zero)`, now readable off the head constant because
+`Classification.indTy` carries the boolean.  `build_spine`'s telescope helper was strengthened
+from "propagates `<> .zero` downwards" to the full equivalence (`SLevel.imax_eq_zero` was
+already an iff), and the head's type-shape is `.sort rel` with `decide (u_body <> .zero) = rel`
+discharged from `hrel`.
+
+The `.type`-as-universe -> `IsType` migration is COMPLETE across the file.  Helpers added:
+`WShape.HasType.toIsType` (replaces `toType`), `WShape.HasType.bot_bot` /
+`TShape.HasType.bot_bot`, `WShape.IsType.not_lam` / `.not_ctor`, `WShape.indTy_join_indTy`,
+`WShape.IsType.common_of_le`, `Shape.HasType.indTy_false_bot` /
+`WShape.HasType.indTy_false_bot`.
+
+## 2. SIX REFUTED STATEMENTS -- do not re-propose these
+
+Witnesses are in `section CounterexampleProbe` (and, for (f), just after
+`LE_Interp.compat`).  `cx_refutes`, `j_refutes`, `le_interp_common_fails` are full
+`not-forall` proofs; `lam_join_fails`, `hasDom_escape_fails` are `rfl`-checked computations.
+
+  (a) `WShape.IsType.common` : Compat a a' -> a.IsType -> a'.IsType ->
+                               exists r, a.HasType (.sort r) /\ a'.HasType (.sort r)
+      FALSE.  Witness `cxA`/`cxA'`.  Mechanism: `ShapeFun.Compat`'s obligation on VALUES is
+      guarded by the KEYS, so the pair that would force `false = true` has incompatible keys
+      and never fires.  Join-closure and monotonicity of `ShapeFun.WF` were BOTH checked and
+      are SATISFIED -- `WF` is not where a proof attempt dies.  The declaration is DELETED
+      (it had zero consumers); `WShape.IsType.common_of_le` is its true form (section 4).
+
+  (b) `WShape.HasType.join`     -- FALSE (`j_refutes`).  Already shares `a`, so "restrict to
+                                   equal domains" is NOT a repair.
+  (c) `WShape.HasDom.join`      -- FALSE (`hasDom_escape_fails`).
+  (d) `WShape.HasTypeLam.join`  -- FALSE (`lam_join_fails`), so `go_lam` dies too.
+  (e) `WShape.HasType.proofIrrel` under the *un-gated* `ctor` rule -- FALSE.  **This one is
+      now FIXED rather than merely recorded**; see section 7.  `proofIrrel_gated` is the
+      regression test.
+  (f) **NEW AND IMPORTANT.**  The `LE_Interp`-relative repair of the join family:
+
+          LE_Interp rho a.T A -> LE_Interp rho a'.T A -> a.IsType -> a'.IsType ->
+            exists r, a.HasType (.sort r) /\ a'.HasType (.sort r)
+
+      is FALSE (`le_interp_common_fails`).  See section 4.
+
+## 3. THE THREE DIAGNOSIS SENTENCES
+
+  * A Pi-shape's shared codomain sort constrains the family's VALUES, never its DOMAINS.
+  * The `<=` relaxation is on the KEY, never on the TYPE.
+  * `Shape.join` is not a join in the typed sense.  It joins SHAPES; `hasType` is not closed
+    under it.  Any lemma asserting that joining preserves typing is asking `Shape.join` to be
+    something it isn't.
+
+## 4. THE JOIN FAMILY: THE APPROVED REPAIR IS REFUTED, AND WHAT IS TRUE INSTEAD
+
+The approved plan was: all seven consumers sit under `LE_Interp.compat_join` at the SAME `M`,
+so "both shapes realize the same term" is an invariant already in scope, and adding it to the
+join lemmas records a fact the callers hold.  The premise of the supporting argument -- that
+`LE_Interp.Const.indTy`'s boolean is a function of the head constant -- is now
+machine-checked (`Const.compat_join`'s `indTy`/`indTy` case discharges by `injection` on
+`classify c`).
+
+**The conclusion still does not follow.**  `le_interp_common_fails` is a sorry-free
+`not-forall` proof.  The escape is
+
+    LE_Interp.bvar : m <= rho i -> LE_Interp rho m (.bvar i)
+
+which puts NO condition on `rho`.  `cxA.Compat cxA'` holds, so `WShape.Compat.iff` hands us an
+upper bound -- their join -- and setting `rho i` to it makes BOTH realize `.bvar i` under the
+SAME valuation.  The join is classified by no sort, so no common sort exists.  The
+`Const.indTy` argument is correct *for `.indTy` shapes reached through `Const`*; it does not
+reach `bvar`, where the shape comes from the valuation and nothing forces it through `Const`.
+
+    THE DEFECT IS THAT `compat_join` QUANTIFIES OVER AN ARBITRARY `rho` WITH NO
+    WELL-FORMEDNESS HYPOTHESIS.
+
+That is the same shape of defect as `SExpr.IsDefEq.strong`'s missing `Ctx.WF` and
+`VEnv.Params.pat_wf`'s missing `OnCtx`, now on VALUATIONS rather than contexts.  PLAN.md
+already records the rule: *a statement about an arbitrary context with no well-formedness
+hypothesis should be treated as suspect by default on this project.*  Valuations are the
+third instance.  `rho i := cxA.join cxA'` is a shape that has NO TYPE AT ALL; `Valuation.Fits`
+never produces one, but `compat_join` does not ask for `Fits`.
+
+**WHAT IS TRUE** (`WShape.IsType.common_of_le`, proved, three lines of `HasType.retype`):
+
+    a <= z -> a' <= z -> z.IsType -> a.IsType -> a'.IsType ->
+      exists r, a.HasType (.sort r) /\ a'.HasType (.sort r)
+
+`Compat a a'` says *some* upper bound exists; what is needed is a **classified** one.  So the
+question for whoever takes this next is not "is co-realizability enough" (it is not) but:
+
+    CAN EACH CALL SITE PRODUCE A CLASSIFIED UPPER BOUND, AND IF SO, FROM WHERE?
+
+The obvious candidate `a.join a'` is circular -- its classification is what is being proved.
+
+### COSTED: threading `Fits` DOES NOT REACH THE CALL SITES.  Scoped before writing any lines.
+
+Of the 8 join-family error sites, **5 have no valuation in scope at all** -- not "no `Fits`",
+no `rho`:
+
+  | site                                   | enclosing declaration      | rho? | Fits? |
+  |----------------------------------------|----------------------------|------|-------|
+  | `go_dom`, `go_pi`               (2)    | `WShape.HasType.join`      | NO   | no    |
+  | `WShape.HasDom.join`            (1)    | (derived from `go_dom`)    | NO   | no    |
+  | `h4.isType.join ac a4.isType`   (1)    | `LE_Interp.compat_join`    | yes  | NO    |
+  | `(hi3 x h).isType`, `hT1.isType.join'` (2) | `LE_Interp.sound_lam`  | yes  | NO*   |
+  | `htB1.join hC_b htB2`, unsolved (2)    | `LRS.PiDefEq.join`         | NO   | no    |
+
+  (*) `sound_lam`'s single caller, `strongSoundS:5770`, does have `W : Fits`, so `sound_lam`
+  and `sound_forallE` COULD take one.  Nothing else can.
+
+`WShape.HasType.join` and `WShape.HasDom.join` are shape-lattice lemmas: there is no `rho`
+anywhere in their statements.  `LRS.PiDefEq.join`'s consumer is `LogRel.join_ty`, a FIELD of
+the abstract `LogRel` structure --
+
+    join_ty : m1.Compat m2 -> m1.IsType -> m2.IsType ->
+              TyDefEq A B m1 -> TyDefEq A B m2 -> TyDefEq A B (m1.join m2)
+
+-- which is parameterised by `Gamma` and `n` only.  There is no valuation to thread, ever.
+
+Adding `Fits` to `compat_join` would also push into `LE_Interp.compat` / `.join'` and thence
+into `LE_Interp.subst` and `LE_Interp.inst`, which are iff-statements about substitution with
+no `Fits` and no caller that has one.
+
+### SO THE HYPOTHESIS HAS TO BE THE CLASSIFIED UPPER BOUND ITSELF, CARRIED AS AN ARGUMENT
+
+The one encouraging structural fact, checked against the definitions but NOT machine-checked:
+a classified upper bound PROPAGATES DOWNWARDS through the recursion.  If `z.IsType` and
+`m1 <= z`, `m2 <= z` with `m1 = .forallE a b`, `m2 = .forallE a' b'`, then `forallE_le` gives
+`z = .forallE za zf` with `a <= za` and `a' <= za`, and `z.IsType` unfolds to
+`HasTypePi zf za r`, whose `HasDom zf za` gives `za.IsType` by `HasDom.isType`.  So `za` is a
+classified upper bound for the DOMAINS -- exactly what `go_dom` needs -- and `zf`'s values
+serve one level further down.  A single `exists z, m1 <= z /\ m2 <= z /\ z.IsType` at the top
+may therefore be enough for the whole family.
+
+### COSTED AT `Adequacy:89`.  IT CLEARS -- BUT NOT BY AN UPPER BOUND.
+
+A common CLASSIFIED UPPER BOUND is NOT producible there.  `InterpTyped.hsort` /
+`InterpTyped.hsort'` yield a bound PER SHAPE, and joining the two to get a single one needs
+`LE_Interp.join'`, which is `compat_join.2` -- one of the eight broken sites.  Circular.
+
+**But a common SORT is producible, and by a better route.**  `InterpTyped.hsort'` gives, for
+each shape realizing `A`, an upper bound classified at `.sort (U <> .zero)` -- and that
+boolean is a function of `U`, THE UNIVERSE `A` LIVES AT, not of the shape.  So the two bounds
+carry the SAME sort, and `HasType.retype` pulls the classification back down each of them
+separately.  No join, no circularity.  That is `LE_Interp.common_sort`, PROVED (search for it
+next to `InterpTyped.hsort`):
+
+    (H : forall {b}, LE_Interp rho b A -> InterpTyped rho b A (.sort U)) ->
+    LE_Interp rho a.T A -> LE_Interp rho a'.T A -> a.IsType -> a'.IsType ->
+      exists r, a.HasType (.sort r) /\ a'.HasType (.sort r)
+
+`Adequacy:89` has every hypothesis: `HA : IsDefEqStrong Gamma A A' (.sort u)` fixes `u`,
+`(LE_Interp.soundS HA W.fits).2` IS the `H` (it is already used three times in the same
+proof), `hA1` and `ha'` realize the same `A`, and `hp.isType` / `ht.isType` are the two
+`IsType`s.  So if `LogRel.join_ty`'s two `IsType` hypotheses become
+`m1.HasType (.sort r) -> m2.HasType (.sort r)` at a SHARED `r`, `Adequacy:89` discharges it.
+That is "strengthen a hypothesis the caller already has", the sanctioned shape.
+
+    SO THE CHAIN IS NOT DEAD.  BUT THE `exists z` FRAMING IS THE WRONG ONE, AND SO IS MINE
+    FROM THE PREVIOUS HANDOFF: THE COMMON SORT COMES FROM THE TERM'S UNIVERSE, NOT FROM THE
+    SHAPES AND NOT FROM AN UPPER BOUND.
+
+### WHAT IS STILL OPEN, AND IT IS NOT AT `Adequacy`
+
+A shared sort AT THE TOP does not reach `go_dom`.  That is diagnosis sentence 1: a Pi-shape's
+shared codomain sort constrains the family's VALUES, never its DOMAINS.  `go_dom` needs the
+two DOMAINS to share a sort, and the domains correspond to the DOMAIN TERM `B1`, whose own
+universe is what fixes their boolean.  So the fact has to be re-supplied at every level from
+the accompanying term, not propagated from the level above.
+
+`join_ty`'s other consumer, `LRS.PiDefEq.join`, sits at the `LogRel` layer, where the
+shape/term link is `TyDefEq`, not `LE_Interp` -- so `common_sort` is not applicable there.
+`ValTyPi2` DOES carry the domain term and its universe (`Gamma |- B1 == B2 : .sort u`), so the
+information is present; what is missing is a `LogRel` field connecting a validated type's
+shape to that universe, something like
+
+    ty_sort : TyDefEq A B m -> m.IsType -> Gamma |- A == B : .sort u ->
+              m.HasType (.sort (u <> .zero))
+
+### COSTED.  NOT CIRCULAR WITH `sort_inv`, AND IT DOES NOT NEED THE UNIVERSE AT ALL.
+
+**Circularity check first, and it comes out negative.**  I called `ty_sort` "essentially the
+substance of `sort_inv`"; that was too pessimistic.  `sort_inv` needs the LEVEL (`u ~~ v`);
+the shape model needs only the BOOLEAN `decide (u <> .zero)`, and the boolean is recoverable
+from a `SoundEq` between sorts by `LE_Interp.le_sort`, whose entire proof is a two-case
+induction on `LE_Interp` (`bot`, `sort`) and touches nothing.  The technique is already used
+in `build_spine`'s `imax` argument (`... .le_sort'` then `WShape.sort_le.1` then `injection`).
+So there is no circularity here, unlike the three earlier cases.
+
+**And the universe is not needed either.**  Stating the field with `u` in it forces the caller
+to reconcile two universes; `LRS`'s `join_ty` `forallE` case has `hBB : ... : .sort u` from
+`h1` and `hBB' : ... : .sort u'` from `h2`, over the SAME `B1 B2` (after the two `determ`s).
+Applying a universe-carrying `ty_sort` twice would leave `decide (u <> 0)` against
+`decide (u' <> 0)`.  Dropping the universe removes the problem:
+
+    join_sort : m1.Compat m2 -> TyDefEq A B m1 -> TyDefEq A B m2 ->
+                m1.IsType -> m2.IsType ->
+                exists r, m1.HasType (.sort r) /\ m2.HasType (.sort r)
+
+-- i.e. `IsType.common` relativised to `TyDefEq` at a common `A B`, the same move `common_sort`
+makes one layer down.  `join_ty` ALREADY has `hC : m1.Compat m2`, so the caller supplies
+nothing new.
+
+**Why it should be provable, case by case.**  `Shape.IsType.common_of_not_forallE` (PROVED,
+just above `WShape.IsType.common_of_le`) says `Compat` alone pins the sort in THIRTY-FIVE of
+the thirty-six constructor pairs; `cx_refutes`'s counterexample is confined to
+`forallE`/`forallE`.  Concretely `Compat` kills every cross-constructor pair, `.bot` is
+classified at every sort, `.sort`/`.sort` are both classified only at `.sort true`,
+`.indTy`/`.indTy` have equal booleans by `Compat`, and `.lam`/`.ctor` are excluded by
+`IsType`.  At `forallE`/`forallE`, `ValTyPi2` supplies what `Compat` cannot: both
+`PiDefEq`s carry `IH.TyDefEq (F1.inst a) (F2.inst a) (f_i.app p)` over the SAME `F1 F2`, so
+the recursion at `n` applies to corresponding codomain values -- take the bot-keyed element
+that `ShapeFun.WF` guarantees (`WShapeFun.bot_mem`).  Two sub-cases: if some value is not
+`.bot` its sort is unique and pins `r_i`; if every value is `.bot` then `HasTypePi f_i b_i r`
+holds for EVERY `r` and either choice works.
+
+ESTIMATE: one recursion on `n`, thirty-six cases of which thirty-five are `Compat`-closed,
+plus the two-sub-case argument at `forallE`.  Call it 40-80 lines.  NOT machine-checked as a
+whole -- what IS machine-checked is `common_of_not_forallE`, which is the half where
+`cx_refutes` bites.
+
+## 5. `PUnit.{u}` -- `.indTy` cannot carry a CONSTANT-level boolean by `decide`
+
+`PUnit.{u} : Sort u` is `Prop`-valued at `u = 0` and `Type`-valued at `u > 0`, and
+`PUnit.unit` must be classified as a constructor.  So no single boolean is correct for a
+constant computed syntactically; `IsNeverZero` is wrong for `PUnit.{1}` and `not (. ~~ .zero)`
+is wrong for `PUnit.{0}`.  The boolean is therefore bound EXISTENTIALLY in
+`ParamsExtra.ctor_ty` and tied propositionally, NOT by `decide`.  `CtorBundle.hrel` is the
+same tie one layer down; `build_spine` converts it to `decide (u_body <> .zero) = rel` only
+AFTER `u_body` is a concrete term.
+
+## 6. THE THREE-WAY TENSION, AND HOW IT WAS RESOLVED
+
+    (i)   `Eq.refl` is classified as a constructor (its iota-rule needs a `.ctor` leaf),
+          so it gets a `.ctor` shape;
+    (ii)  `Eq` is `Prop`-valued;
+    (iii) `proofIrrel` says everything at a `Prop` has shape `.bot`.
+
+These three cannot all hold.  THREE resolutions were refuted, each machine-checked:
+  - `hu0` asserted (ii) never happens for classified constructors -- `Eq.refl` refutes it;
+  - the sort-polymorphic `.indTy` rule dropped the distinction -- `proofIrrel` refutes it;
+  - the parameterisation RECORDED the distinction without ACTING on it in `HasTypeU.ctor`
+    -- the witness now kept as `proofIrrel_gated`'s history refutes it.
+The fourth, denying (i), is section 7 and is the one that works.
+
+## 7. SECTION 7 HAS LANDED IN PART.  `proofIrrel` IS PROVED.
+
+What was done (three edits, and it is the whole of the shape layer's side):
+
+  * `Shape.hasType`'s clause `| _+1, .ctor _ _, .indTy _ => true` became
+    `| _+1, .ctor _ _, .indTy r => r`;
+  * `Shape.HasTypeU.ctor` and `WShape.HasTypeU.ctor` were gated to `.indTy true`;
+  * `Shape.HasType.indTy_false_bot` / `WShape.HasType.indTy_false_bot` are the new fact --
+    `.indTy false` classifies only `.bot` -- and `WShape.HasType.proofIrrel`'s new `indTy`
+    case is one line of it.
+
+`proofIrrel_gated` is the regression test.  Nothing else in the file broke.
+
+WHAT IS LEFT, AND ITS MEASURED COST.  `LE_Interp.build_spine` builds the shape of a
+constructor application as `WShape.ctor' c rargs.reverse`, pinned by `LE_Interp.Matches.app`.
+For a `Prop`-valued inductive that shape must be `.bot` -- the application is a proof.
+`WShape.ctor'`'s existing `.bot` fallback is guarded by `IsStruct c` (i.e. `classify c` is
+`.etaCtor`), not by `Prop`-ness, and `Classification.ctor` does not carry the boolean, so the
+guard cannot be written.  So the remaining change is:
+
+    Classification.ctor (arity) (rel) and .etaCtor (params args) (rel),
+    then `WShape.ctor'`'s `dif` gains the `Prop`-ness disjunct.
+
+### TWO CHEAPER ROUTES WERE CHECKED FIRST.  BOTH ARE CLOSED.
+
+**(i) Get `rel` from `CtorBundle.hclI` instead of from `Classification.ctor`.**  NO.  `rel`
+IS in scope at `build_spine`'s failing site -- the bundle is right there.  But the boolean is
+needed at a COMPUTATION, not at a proof obligation: the shape is
+`WShape.ctor' c_a rargs_a.reverse`, pinned by `Matches.app`'s index, and `ctor'` is a `def`
+whose `dif` guard must be decidable from `c` alone.  A `CtorBundle` exists only as a
+hypothesis inside `IsDefEqStrong.const` / `StrongSoundCore.const`; `Matches` and `ctor'` are
+elaborated with `[Params]` only.  No fact can make a computed term `.bot`.
+Nor can the site dodge by choosing a different type-shape `a` for `apps_realize`: `a` must
+satisfy BOTH `(.ctor' c l).HasType a` (which, after section 7's gating and
+`WShape.indTy_le`, forces `a = .indTy true`) and `LE_Interp rho a.T T` (which the
+`Const.indTy` chain gives only at `.indTy rel`).
+
+**(ii) Relax `Matches.app`'s index from `= .ctor' c' rargs'.reverse` to `<=`, so the
+`Prop`-valued case can pick `.bot` without any datatype change.**  NO -- this refutes
+`LE_Interp.Matches.unique`.  `unique` recovers `c'` and `rargs'` FROM the index shape (see its
+proof: `head_wf` gives `classify c'` is a `.ctor`, hence `IsStruct c' = false`, hence `ctor'`
+takes its `.ctor` branch, hence the shape is injective in `rargs'`).  Under `<=`, two
+derivations with different `rargs'` share the index `.bot :: rargs` and produce different
+path-maps.  Analysed, not machine-checked -- stating it needs the datatype change first.
+
+### AND THE SAME MECHANISM IS WHY THE `dif` DISJUNCT IS NOT "ONE MORE DISJUNCT"
+
+    The existing `.bot` fallback is INFORMATION-PRESERVING.  A `Prop`-ness fallback would be
+    INFORMATION-DESTROYING.
+
+`WShape.ctor'`'s `.bot` branch fires exactly when `IsStruct c /\ not (ListNonZero l)`, and
+`ListNonZero l` is `exists x in l, not (x <= .bot)` -- so the branch fires ONLY WHEN EVERY
+ARGUMENT IS ALREADY `<= .bot`.  Nothing is lost: `rargs'` is still recoverable (it is all
+`.bot`), which is why `matches_inter`, `Const.compat_join` and `unique` survive today.  A
+disjunct keyed on `Prop`-ness fires with ARBITRARY arguments, and those three lose the
+recovery.  They do not merely "stop working"; `unique` looks FALSE.
+
+So section 7's residue is a genuine fork:
+
+  (alpha) `ctor'` falls back to `.bot` for `Prop`-valued inductives
+          => `Matches.unique` (and probably `matches_inter`) must be restated or is false.
+          Cost: 107 instances PLUS that.
+
+  (beta)  `Pattern.WF` requires `rel = true` at constructor leaves, so a `Prop`-valued
+          inductive's iota-rule is simply not a `Pattern`.
+          **REFUTED -- see `eq_large_eliminates` in `section CounterexampleProbe`.**
+          The premise was PLAN.md's small-elimination fact: the major premise is a proof, so
+          the whole redex is a proof and has shape `.bot`.  `Eq` is a `Prop` that LARGE-
+          eliminates -- `@Eq.rec`'s motive is `Sort u_1` -- so `Eq.rec ... (Eq.refl a)` at a
+          `Type`-valued motive is a `Nat`, not a proof.  Small elimination covers `Acc.rec`
+          and `Quot.lift`-over-a-`Prop`; it does not cover the subsingleton eliminators, and
+          `Eq` is the one that started this.
+          Consequence: `Params.pat_wf` + `ParamsExtra.extra_pat` would make `ParamsExtra`
+          UNSATISFIABLE for any environment containing `Eq` -- every real one.  Nothing in the
+          tree would notice, because there is no `ParamsExtra` instance; every downstream
+          result would go silently vacuous.  `ParamsExtra`'s docstring records that this
+          project has already been burned by exactly that once.
+
+  (gamma) Decouple at `LE_Interp.const`'s `HasType` premise, so `Eq.refl` keeps its `.ctor`
+          shape without being classified by a `Prop`-valued inductive.
+          **REFUTED -- see `ctor_not_prop_typed` in `section CounterexampleProbe`.**
+          Probed by actually removing the premise: 36 errors, all mechanical arity fixes
+          EXCEPT one, at `strongSoundS`'s `const` case, which builds
+          `InterpTyped ρ m (.const c ls) A` with that premise LITERALLY as the `HasType`
+          field (`.mk b3 (.const b1 b2 .rfl b4 b5 b6 b7) b5 b4` -- `b4` twice).  There is
+          nothing else to put there.  And the reason is not about where the premise sits:
+          `ctor_not_prop_typed` says **no shape both classifies a `.ctor` and is itself
+          `Prop`-valued**, so `InterpTyped`'s slot cannot be filled for `Eq.refl` at its
+          natural shape wherever the premise lives.
+
+ALL THREE ROUTES ARE CLOSED.  Section 7's residue is a DESIGN PROBLEM, and the sharpest
+statement of it is this:
+
+    Section 7 makes `proofIrrel` true by ruling that a `.ctor` shape is never classified by a
+    `Prop`-valued inductive.  But `Eq.refl` must HAVE a `.ctor` shape (its iota-rule's pattern
+    needs a `.ctor` leaf, and `Eq` LARGE-eliminates so that rule cannot be dropped), and it
+    must BE TYPED (`InterpTyped` demands a classifying shape for every realized term).  Those
+    two are now inconsistent for one and the same term, and no relocation of a premise
+    reconciles them -- the obstruction is `ctor_not_prop_typed`, which mentions neither
+    `LE_Interp` nor `Params`.
+
+Anything that resolves it must give up one of: `proofIrrel` at `Prop`-valued inductives; the
+`.ctor` leaf in iota-patterns; or `InterpTyped`'s totality on realized terms.
+
+MEASURED, not estimated (probe run and reverted):
+  * SExpr.lean side: **2 edits and it compiles clean** -- the inductive plus
+    `Classification.arity`, and one restatement of `Pattern.WF`'s `.const` clause from
+    `cl c = some (if top then .symb n else .ctor n)` to
+    `if top then cl c = some (.symb n) else exists r, cl c = some (.ctor n r)`.
+  * ShapeLogRel.lean side: **107 error instances at 60 distinct lines**, BEFORE `ctor'`'s
+    guard is touched at all.  Most look mechanical (pattern arity, unpacking the
+    existential), and it is the same order as the `IsType` migration that went 181 -> 9.
+  * On top of that, `ctor'` has 59 occurrences and the `.bot`-branch discharges in
+    `Matches.matches_inter`, `Const.compat_join` and `unique` currently use `head_wf` +
+    `IsStruct` and will stop working.  That risk is unmeasured.
+
+The banner's earlier estimate ("one more disjunct in an existing `dif`") was WRONG twice
+over: the disjunct is one line, but the boolean it tests costs 107 instances to introduce,
+AND the disjunct is not analogous to the one already there -- see the
+information-preserving/destroying paragraph above.
+
+## 9. `ParamsExtra.extra_pat` WAS UNSATISFIABLE.  IT IS NOW λ-PEELED.
+
+`SExpr.ParamsExtra.extra_pat` asked for `p.MatchesS (.instL ls (.mk df.lhs))` on the
+**unpeeled** left-hand side.  `Pattern.MatchesS` bottoms out at `const` and never accepts a
+`lam` (`Pattern.MatchesS.not_lam`, proved in the same file), and both `SExpr.mk` and
+`SExpr.instL` are structural on `lam`, so a binder in `df.lhs` survives both.  Every rule
+shape in a real environment has binders -- `quotDefEq.lhs` is `fun α r β f c a => ...`, and an
+iota-rule's lhs is `mkLams (iotaCtx C) _` with `iotaCtx` never empty.
+
+    => NO `ParamsExtra` INSTANCE EXISTED FOR ANY REAL ENVIRONMENT, and `LE_Interp.strongSoundS`
+       carries `[ParamsExtra]`, SO IT AND EVERYTHING DOWNSTREAM OF IT WAS VACUOUS.
+
+This is `PLAN.md`'s original "`extra_pat` is unsatisfiable" finding.  The MAINLINE
+`VEnv.Params.extra_pat` was cured by λ-peeling (that is what `Pat.extra` /
+`Pat.extra_delta` / `Pat.extra_quot` / `Pat.extra_iota` in `Theory/Typing/PatternRules.lean`
+are for); this copy never was.  The field now mirrors the mainline:
+
+    exists Δ L R p r m1 m2 dfs,
+      instL ls (mk df.lhs) = SExpr.mkLams Δ L /\ instL ls (mk df.rhs) = SExpr.mkLams Δ R /\
+      Pat p r /\ p.MatchesS L m1 m2 /\ ... /\
+      (forall a b A, (A,a,b) in dfs -> Δ.reverse ++ Γ |- a == b : A) /\ R = r.1.applyS m1 m2
+
+Two REGRESSION TESTS land with it, in `SExpr.lean` just after the class, stated as
+conditionals on a hypothetical unpeeled field so that they cannot rot:
+`SExpr.unpeeled_extra_pat_unsatisfiable` (any `lam`-headed lhs gives `False`) and
+`SExpr.iota_lhs_lam` (every iota-rule's lhs IS `lam`-headed).  Anyone who un-peels the field
+can instantiate the first with it and read off `False`.  Both are
+`[propext, Quot.sound]`, no `sorryAx`.
+
+COST, MEASURED: `SExpr.lean` compiles clean (the peel plus a small `SExpr.mkLams`).
+`ShapeLogRel.lean` gains exactly **2 errors, both in `strongSoundS`'s `extra` case**, and they
+are honest: both sides are now `mkLams Δ _` and the matched redex is the BODY.  Running the
+existing argument under `Δ` needs
+  (a) a congruence "`LE_Interp` respects the body of a `.lam`" -- a short `cases` on the
+      `lam`/`bot` rules, and the binder `A` is shared by both sides; and
+  (b) the two IHs and `W` transported under the telescope, which needs `StrongSound`
+      inversion through `lam`.
+Neither is written.  `iota_lhs_lam` is proved from `Theory/Inductive/Decl.lean` alone, so
+this file still does NOT import `Theory/Typing/PatternRules.lean`.
+
+## 10. THE THREE SECTION-7 EXITS, COSTED.  THE CHOICE IS BINARY.
+
+Measured by probe (each applied, counted, reverted).  Baseline is 11.
+
+### Exit 1 -- give up `proofIrrel` at `Prop`-valued inductives.  **1 case.  FALSE, not vacuous.**
+
+Deleting `WShape.HasType.proofIrrel` / `TShape.HasType.proofIrrel` costs exactly **one new
+error**, in `strongSoundS`'s `proofIrrel` case, plus one use at `ShapeLogRelAdequacy:428`.
+Nothing else in either file touches it.
+
+But the case does not merely become unproved -- it becomes FALSE.  It has to show
+`forall rho m, LE_Interp rho m h <-> LE_Interp rho m h'` for two UNRELATED proofs of the same
+`Prop`.  The only way a bi-implication holds for every `m` is if every shape realizing either
+side is `<= .bot`, and `LE_Interp.bot` then gives both directions.  So collapsing proofs to
+`.bot` is not *a* route to that case -- it is its entire content.  Concretely: undo section
+7's gating and `Eq.refl` gets a `.ctor` shape via `Const.ctor`, so
+`LE_Interp rho (.ctor' ..).T (Eq.refl a)` holds while `LE_Interp rho (.ctor' ..).T h'` for an
+opaque `h'` needs `.ctor' .. <= rho i` and fails.
+(Not machine-checked: exhibiting it needs a `classify` that reports `.ctor`, i.e. a `Params`
+instance, so it is a `Params`-relative construction rather than a shape computation.)
+
+`strongSoundS` is the adequacy engine, so this kills the route to `sort_inv`.  It fails LOUD.
+
+### Exit 2 -- give up the `.ctor` leaf in iota-patterns.  **No variant survives.**
+
+Two forms, both closed:
+  * (beta) `Pattern.WF` demands `rel = true` at ctor leaves, so a `Prop`-valued inductive's
+    iota-rule is not a `Pattern` at all.  REFUTED (`eq_large_eliminates`): `Eq` is a `Prop`
+    that LARGE-eliminates, so its rule cannot be dropped; and dropping it makes
+    `ParamsExtra` unsatisfiable for every environment containing `Eq`.  Fails VACUOUS -- the
+    worst mode, and the one this file was already caught by once (section 9).
+  * keep the rule but give the leaf a different SHAPE.  That is exactly (alpha):
+    `Classification.ctor`/`.etaCtor` gain the boolean and `WShape.ctor'` gains a `Prop`-ness
+    disjunct.  Measured: **2 edits in SExpr.lean (clean) + 107 error instances at 60 lines in
+    ShapeLogRel.lean**, before `ctor'`'s guard is touched -- and then `Matches.unique` looks
+    FALSE under it, because `unique` recovers `c'`/`rargs'` FROM the leaf shape and a `.bot`
+    leaf destroys them.  The relaxation of `Matches.app`'s index to `<=` is the same thing and
+    fails the same way.
+
+### Exit 3 -- give up `InterpTyped`'s totality.  **It degenerates to Exit 1.**
+
+Blunt probe (drop the `m'.HasType a` conjunct outright): **32 errors, +21 over baseline**, in
+`InterpTyped.bot/mk/out/hsort'`, `sound_app`, `sound_lam`, `sound_forallE`, `apps_realize`
+and five places in `strongSoundS`.
+
+The failures name what the field is FOR, and it answers the question directly.  The errors are
+`True.bot_r'` and `True.ty_forallE_inv`: **`InterpTyped`'s classification is what lets the
+model DESTRUCTURE a shape** -- `sound_app` uses it (through `TShape.HasType.ty_forallE_inv`)
+to learn that a function's shape is a `.forallE` before applying it, and `sound_lam` /
+`sound_forallE` use it to build their `HasDom` obligations.  So the interpretation does need a
+classifying shape, but only for terms it destructures.
+
+Now the targeted form -- exempt only `Prop`-valued types, e.g. weaken the conjunct to
+`m'.HasType a \/ a.HasType .prop`.  Every non-`proofIrrel` consumer of the classification sits
+at a `.forallE` or `.sort` type-shape (application, lambda, Pi-formation), and a term whose
+type is a `Prop`-valued INDUCTIVE is never applied and never a binder's domain.  So the
+exemption never fires at those sites, and the ONLY thing it costs is `proofIrrel`'s input.
+
+    => TARGETED EXIT 3 IS EXIT 1.  There are not three exits; there are two.
+
+### The decision, as narrowly as it can be put
+
+    (I)  `proofIrrel` at `Prop`-valued inductives -- 1 case, and it goes FALSE and loud; or
+    (II) 107 instances plus restating `Matches.unique`, which looks FALSE under the change.
+
+## 11. PER-LEAF LEVEL LISTS.  THE SECOND `ParamsExtra` VACUITY, AND ITS FIX.
+
+Section 9 peeled `extra_pat`'s λ-telescope.  **That was not enough**: `ParamsExtra` was still
+unsatisfiable, so `strongSoundS` was still vacuous.
+
+`Pattern.MatchesS` recorded a SINGLE `List SLevel` for a whole match -- its `app` rule kept the
+function side's list and discarded the argument side's -- where the `VExpr`-side `Matches`
+records one per leaf.  Its docstring called that deliberate and priced it at one consequence
+(`applyS` ignoring an `RHS.fixed`'s `LPath`).  There was a second, and it was fatal:
+`Check.defeqsS` also dropped the two `LPath`s of a `Check.level x i y j` clause and read BOTH
+indices out of the one list.  On the `VExpr` side that clause relates the RECURSOR leaf's list
+to the CONSTRUCTOR leaf's -- which is what makes `iotaLevelPairs`' `(i+1, i)` true, since
+`selfLvls` is the block's parameters shifted by one when `isLE` prepends a fresh elimination
+universe, so both sides evaluate to `ls.getD (i+1)`.  Read out of one list it degenerated to
+`ls.getD (i+1) = ls.getD i`, and `extra_pat` demands that for ARBITRARY `ls`.  False for any
+large eliminator with a universe parameter: `List`, `Prod`, `Sum`, `Sigma`.
+
+FIXED.  `MatchesS`, `RHS.applyS` and `Check.defeqsS` now carry `p.LPath → List SLevel`;
+`LE_Interp.RHS` gained the `LPath` index; `LE_Interp.Const` dropped its shared `ls` (17 call
+sites, mechanical -- Lean drops an unused `variable`, so the arity changes whether you want it
+to or not); `Const.pat` binds the map; `build_spine` reads the head leaf with
+`Pattern.LPath.head`.
+
+MEASURED, not estimated: `SExpr.lean` **4 edits, compiles clean**.  `ShapeLogRel.lean`
+**+1 error over baseline** -- and the intermediate counts are worth knowing, because they are
+almost all cascade: 318 at first (one root failure, `LE_Interp` not elaborating), 26 after the
+`Const` call sites, 16 after the `pat` binder, 12 after `build_spine`.  Do not read an early
+count on this refactor as a cost.
+
+THE ONE OBLIGATION LEFT is in `LE_Interp.Const.compat_join`'s `pat`/`pat` case: `Const.pat`
+binds `lsm` existentially (its type depends on `p`, which that rule binds), so `Const` has
+nowhere to record the map, and the two `Const`s -- which describe the same term and so do
+agree -- cannot be shown to.  Closing it means `LE_Interp.Const` and `LE_Interp.Matches`
+indexed by `LPath`.  That, and only that, is the "shape-model-core work" the old docstring
+named.
+
+## 12. THE RE-INDEXING, SCOPED.  28 ROWS, AND THE EARLIER ~12-15 WAS AN UNDERCOUNT.
+
+### Row zero: is the statement sufficient?  YES, and it is checked.
+
+"The index carries the matched arguments independently of the leaf shape" is sufficient for
+`Matches.unique`.  `ToyMatchesR` + `toy_unique_of_record` (both proved, in `section
+ExitProbes`) put the matched datum in the INDEX and leave the shape as `leaf rec`, still free
+to collapse; uniqueness then holds **for any `leaf`, injective or not** --
+`toy_unique_of_record_bot` instantiates it at the collapsing leaf that `toy_unique_fails`
+refutes.  So `unique` stops needing leaf injectivity, which was the obstruction.
+
+### The record type it needs
+
+`MArg n`, level-indexed like `Shape`:  `.shape (x : WShape n) : MArg n`  (a `var` position)
+and `.ctor (c : Name) (l : List (MArg n)) : MArg (n+1)`  (an `app` position), with
+`MArg.toShape : MArg n -> WShape n` derived.  The record must carry SHAPES, not just
+term-level data: `Matches.var`'s index entry is the argument shape and `unique`'s induction
+needs it, so a names-only record does not close the induction.
+
+`Const`'s index must move to `List (MArg n)` as well.  Leaving it as shapes and having
+`Const.pat` bind the record existentially re-introduces the collapse one level up, at
+`Const.compat_join`'s `pat`/`pat` case -- the same gap as the per-leaf `lsm`, and for the same
+reason.  That is what makes this one change rather than two, and it is also why the earlier
+count was short: it counted `Matches`' consumers and missed that `Const` CONSUMES THE INDEX
+and so needs an order, a join and a lift on it.
+
+One refinement worth having before row 3: `Matches.matches_inter` relates matches of two
+DIFFERENT patterns `p` and `q`, so `MArg.Compat` must handle the mixed
+`.shape` / `.ctor` pair; `Matches.compat_join` relates two matches of the SAME `p`, so
+`MArg.join` is only ever applied to pattern-aligned pairs and needs no mixed case.  **Compat
+total, join partial.**
+
+### The rows
+
+Arithmetic: `M` mechanical (retype, proof unchanged), `P` positional (binder/index positions
+move, structure unchanged), `S` structural (needs a new argument or definition).
+
+    GROUP A -- the record type (new)
+     1  S  `MArg` datatype and `MArg.toShape`
+     2  M  `MArg.lift` + its `lift_lift`/`lift_self` lemmas
+     3  S  `MArg.LE` and its order lemmas (refl, trans, `le_shape`, `le_ctor`)
+     4  S  `MArg.Compat` -- TOTAL, incl. the mixed pair (needed by `matches_inter`)
+     5  S  `MArg.join` on pattern-aligned pairs + `Join.mk` (join is the lub)
+     6  S  `toShape` monotone, and commutes with `lift` and `join`
+        Group A is a small lattice, but it is a lattice: compare `Shape`'s own
+        LE/Compat/join API in this file, which runs ~200 lines.  `MArg`'s has no
+        `forallE`/`lam`/`sort` cases, so ~80-120.
+
+    GROUP B -- `Matches` re-indexed (11 rows)
+     7  S  `LE_Interp.Matches` (inductive) -- index becomes `List (MArg n)`
+     8  M  `Matches.varN_const_head`
+     9  P  `Matches.arity`               (`.length` survives)
+    10  P  `Matches.head_wf`
+    11  P  `Matches.head_wf_eq`
+    12  S  `Matches.mono_l`              (needs `MArg.LE`)
+    13  S  `Matches.matches_inter`       (needs total `MArg.Compat`)
+    14  S  `Matches.compat_join`         (needs `MArg.join`)
+    15  M  `Matches.unique`              -- gets SHORTER: the `ctor'`-injectivity step goes
+    16  M  `Matches.lift`                (needs `MArg.lift`)
+    17  P  `Matches.of_matchesS`
+
+    GROUP C -- `Const` re-indexed (7 rows)
+    18  S  `LE_Interp.Const` (inductive) -- `ctor`/`indTy` read `.length` and `toShape`;
+           `lam` injects a bare shape with `MArg.shape`
+    19  P  `Const.mono`
+    20  S  `Const.mono_l`                (needs `MArg.LE`)
+    21  M  `Const.lift`                  (needs `MArg.lift`)
+    22  P  `Const.closed`
+    23  P  `Const.compat_mismatch`       (`.length` only)
+    24  S  `Const.compat_join`           (needs `MArg.join`; this is where the per-leaf
+           obligation of section 11 closes, since `Const` now records what it needs)
+
+    GROUP D -- consumers (4 rows)
+    25  P  `LE_Interp.const` (the rule) and the `LE_Interp` lemmas that case on it
+    26  P  `LE_Interp.apps_realize` / `apps_realize_inv`
+    27  S  `LE_Interp.build_spine`       -- builds the record from the `MatchesS`
+    28  P  `strongSoundS`'s `pat` and `extra` cases
+
+    28 rows: 9 structural, 8 positional, 6 mechanical, 5 in group A that are a small lattice.
+
+### GROUP A IS BUILT.  Rows 1-6, green, ZERO new errors.
+
+`MArg` and its lattice are in the file, just above `LE_Interp.Matches`: **16 declarations,
+145 lines (~118 of code)** -- inside the 80-120 estimate.  Rows 1-5 (`MArg`, `shape`, `ctor`,
+`toShape`, `lift`, `ble`/`LE`, `Compat`, `join`) compiled with no repairs at all; row 6 is the
+four homomorphism lemmas `toShape_lift` / `toShape_mono` / `toShape_compat` / `toShape_join`,
+which are what the consumer rows actually consume and nothing more.
+
+Two things the build settled that the scope only guessed:
+
+  * `toShape_lift` needs `n <= m`.  `WShape.lift` truncates downwards, so the equation is
+    false without it.  Harmless -- `Matches.lift` and `Const.lift` are upward-only -- but it
+    means row 16 and row 21 inherit the hypothesis.
+  * `join`'s fallback should be `.shape (toShape x |>.join (toShape y))`, not `.shape .bot`.
+    With `.bot` the join equation needs an alignment side-condition; with the fallback it
+    holds under `Compat` alone, in every case.  That is why row 6 came out at four lemmas
+    rather than four plus an `Aligned` predicate.
+
+### What it buys, and what it does not
+
+Buys: section 7's `.ctor`-leaf obstruction (the leaf may collapse to `.bot` for a
+`Prop`-valued head without `unique` noticing) AND section 11's open obligation (row 24).
+Still needed on top, for section 7: `Classification.ctor`/`.etaCtor` gain the boolean --
+separately measured at 2 edits in `SExpr.lean` and **107 instances at 60 lines** here.
+
+Does not touch: the join family (groups A of section 0a), whose obstruction is about Pi-shape
+DOMAINS; or the lambda-peel (group C), which lives on `MatchesS`.  Both survive unchanged.
+
+## 13. THE `bvar` TEST.  POSITIVE, AND PARTIAL -- READ BOTH HALVES.
+
+### The positive half, proved: the refuting witness cannot be planted in a typed valuation
+
+`jM_no_typed_bound` (next to `IsType.common_of_le`).  Every shape-level relativisation died to
+the same trick: `Compat` guarantees an upper bound, so put it in `rho i` and let
+`LE_Interp.bvar` read the bad pair straight off the valuation.  That trick **requires an
+untyped valuation entry**:
+
+    z above both is `.forallE z1 z2` whose domain z1 is above BOTH `cxA` and `cxA'`
+    (`forallE_le`); `z.IsType` unfolds through `HasTypePi z2 z1 r` to `HasDom z2 z1`, which
+    gives `z1.IsType` by `HasDom.isType`; and `IsType.common_of_le` then hands `cxA`/`cxA'`
+    a common sort, which `cx_refutes` says they do not have.
+
+So `j_refutes`'s and `le_interp_common_fails`'s witnesses have NO typed common upper bound, and
+`Valuation.Fits` never produces one.  The earlier measurement -- "threading `Fits` does not
+reach 5 of 8 sites" -- indeed no longer binds: 4 of those 5 are the shape-layer lemmas this
+plan RETIRES rather than proves.
+
+### The partial half, and it changes the shape of the work
+
+The `bvar` case still does not close on that alone.  Proving
+`(m1.join m2).HasType (a1.join a2)` there needs `(a1.join a2).IsType` first, to `mono_r` both
+sides up to the joined type.  `common_sort` gives `a1` and `a2` a SHARED SORT -- but
+`j_refutes`'s pair shares a sort too (`.sort true`), so a shared sort is not what excludes it;
+the absence of a common CLASSIFIED UPPER BOUND is.  And `Valuation.Fits.cons`'s second field
+supplies a classified upper bound for each shape realizing `A` SEPARATELY, not one for both.
+
+The only route to a common one is `Fits`'s field applied to `a1.join a2` -- which needs
+`LE_Interp rho (a1.join a2) A`, i.e. `compat_join`'s own conclusion.  **Inside the induction
+that is available from the IH** (the `const` case already computes it as `ih1 hrho a5`);
+outside it, it is circular.
+
+    => `compat_join` must prove `Compat`, `LE_Interp (join)` and the typing fact in ONE
+       simultaneous induction, with `Fits` threaded -- not as a lemma applied afterwards.
+
+### ROW ZERO, RUN: `LE_Interp.subst` is CLEAN, and `Fits.join` is not needed
+
+All EIGHT `.compat`/`.join'` uses inside `subst` apply at the **ambient** valuation `rho`
+(`app` x2; `lam` cons x2; `forallE` nil x2, cons x2) -- never at the constructed
+`rho1.join rho2`.  The construction is the OUTPUT of each step; the two shapes being joined are
+already known to realize `sigma i` at `rho`.  So the coordinator's transport heuristic applies
+in its strongest form: there is no fact to prove about a constructed valuation.
+
+`Fits.join` DOES NOT NEED TO EXIST.
+
+### And the strengthening does not touch `compat_join` at all
+
+`subst` consumes only `LE_Interp.compat` and `LE_Interp.join'`, i.e. components .1 and .2 of the
+EXISTING `compat_join`, which stay exactly as they are.  The typing fact goes in a SEPARATE
+theorem carrying `Fits`.  So:
+
+  - `LE_Interp.subst`   -- untouched, 8 sites untouched
+  - `LE_Interp.inst`    -- untouched (only consumer of `subst`, at :5686 / :5689)
+  - `compat_join`       -- untouched
+  - `compat` / `join'`  -- untouched
+
+### CORRECTION to the previous entry: the simultaneity argument was too strong
+
+Last turn I wrote that the typing fact "is circular outside the induction", because getting
+`LE_Interp rho (a1.join a2) A` needs `compat_join`'s own conclusion, available only from the IH.
+**That is wrong, and the error is one step earlier than the one I caught.**
+`LE_Interp.join'` is a STANDING THEOREM taking two `LE_Interp`s and no `Fits`:
+
+    join' : LE_Interp rho m1 M -> LE_Interp rho m2 M -> LE_Interp rho (m1.join m2) M
+
+so the realization half is available by direct application, with no induction hypothesis and no
+circularity.  What remains for the typed lemma's `bvar` case is then:
+
+    Fits.cons field 2 applied to (a1.join a2)  =>  a classified z >= a1.join a2 realizing A
+    mono_r twice                               =>  m1 and m2 both typed at the SAME z
+
+-- and joining at a common type is the step `j_refutes` refutes in general and
+`jM_no_typed_bound` rules out HERE, since m1, m2 <= rho j and `Fits.cons` types `rho j`.
+
+The induction may still be convenient, but it is NOT FORCED, and the ruling "build it
+simultaneous, do not try to factor the typing fact out" rested on the refuted claim.  Flagging
+rather than following it: the reason is gone, so the ruling should be re-taken, not inherited.
+
+### THIRD COLLAPSE, AND THIS TIME THE CONCLUSION DIES TOO.  Machine-checked.
+
+`#print axioms` (via `lake env lean` on the real file, fully qualified -- note the whole file
+sits in `Lean4Lean.SExpr`, because `namespace SExpr` at :856 is NEVER CLOSED):
+
+    Lean4Lean.SExpr.LE_Interp.join'       depends on: propext, sorryAx, Classical.choice, Quot.sound
+    Lean4Lean.SExpr.LE_Interp.compat      depends on: propext, sorryAx, Classical.choice, Quot.sound
+    Lean4Lean.SExpr.LE_Interp.compat_join depends on: propext, sorryAx, Classical.choice, Quot.sound
+    Lean4Lean.SExpr.LE_Interp.subst       depends on: propext, sorryAx, Classical.choice, Quot.sound
+    Lean4Lean.SExpr.jM_no_typed_bound     depends on: propext, Classical.choice, Quot.sound     -- CLEAN
+
+**`join'` IS NOT STANDING.**  It is `compat_join .rfl H1 H2 |>.2`, and `compat_join` is ONE OF
+THE 12 ERRORS -- at :5527, its `const` case:
+
+    have aty := h4.isType.join ac a4.isType          -- `IsType.join`: DELETED, was false
+    exact .join hc1 (aty.mono_r b3 h4) (aty.mono_r b4 a4)   -- `HasType.join`: refuted by `j_refutes`
+
+So the two lemmas `compat_join` needs in its `const` case are exactly the two the join family
+exists to retire.  `join'` is sorry-backed BECAUSE of the hole this work is meant to fill.
+
+Consequences, in order:
+
+  - The "separate `Fits`-carrying theorem" structure DOES NOT WORK.  Its `bvar` case was to get
+    `LE_Interp rho (a1.join a2) A` from `join'` "with no induction hypothesis" -- but `join'` is
+    the very thing under repair.  Circular after all.
+  - **The circularity claim I withdrew last turn was CORRECT.  The withdrawal was the error.**
+  - `LE_Interp.subst`'s own proof is clean (no error in :5578-5948); its `sorryAx` arrives
+    ENTIRELY through `compat`/`join'`.  So the eight-sites-at-ambient-rho reading still holds as
+    a syntactic fact, but it does not make `subst` untouched: if `compat_join` gains `Fits`,
+    every one of the eight sites must supply it, and `subst`'s `lam`/`forallE` cases apply the IH
+    at `rho.push x'.T`, needing `Fits.cons` -- whose FIELD 2 (every shape realizing `A` has a
+    classified upper bound realizing `A`) is NOT available from `HasDom.iff`.
+
+NOT CHECKED, and NOT PRICED: whether repairing `compat_join`'s `const` case actually requires a
+typed hypothesis.  It is strongly suggested -- both lemmas it reaches for are refuted -- but that
+is inference, and inference on this route has now failed three times.  No price until it is run.
+
+### What that costs, over the 6-8 already reported
+
+SUPERSEDED by the axiom check above: row zero did NOT come back clean.  The 6-8 figure rested
+on `join'` being standing; it is sorry-backed and is itself part of the repair.  There is no
+current price for the join family.
+
+## 8. Working notes for editing this file
+
+  * `set_option maxErrors` does not take -- see section 0.
+  * A grouped `match` pattern produces ONE GOAL PER ALTERNATIVE.  `split` on `Shape.hasType`
+    fans out to twelve, not eight; `split` tags them `h_1 ... h_12`.
+  * Inside `first | ... | ...`, a `by` block nested in an `exact` is POSTPONED: every
+    alternative must fail SYNCHRONOUSLY -- write `(refine ... ?_; tac)`, never
+    `exact ... (by tac)`.
+  * Inside `first`, a compound branch `(tac1; tac2)` FAILS when `tac1` closes the goal.
+  * Lean reports errors BY LINE, not by declaration name.  Filter by line span.
+  * `exacts [...]`, `set`, and `by_contra` are NOT available (no Mathlib).  Use
+    `Decidable.byContradiction`, or `Bool.eq_iff_iff` + `of_decide_eq_true`/`decide_eq_true`
+    for `decide _ = b` goals -- that is how `build_spine`'s `hdec` is proved.
+  * `have <pattern> := e` elaborates through `match` and refuses a motive with metavariables;
+    `obtain` does not.  Destructure with `obtain` and EXPLICIT names.
+  * `WShape.casesOn'`'s `lam`/`ctor` cases used to be closed by `trivial`, because `trivial`
+    tries `contradiction` and `HasType (.lam ..) .type` reduced to `false = true`.  Under
+    `IsType` it does not reduce; use
+    `absurd (WShape.HasType.isType h) WShape.IsType.not_lam` (resp. `.not_ctor`).
+  * `LE_Interp.Const.indTy`'s `cases`-pattern binder order is `{rel} {m} {rargs}` -- the
+    `@indTy` pattern is `| @indTy _ _ rargs hct m_le`.  Get it from `#check @...`; auto-bound
+    implicit order is not source order.
+  * **NEVER write `def SExpr.foo` inside `namespace SExpr`.**  It declares
+    `Lean4Lean.SExpr.SExpr.foo` and thereby CREATES the namespace `Lean4Lean.SExpr.SExpr`;
+    every later `SExpr.Bar` written inside `namespace Lean4Lean.SExpr`, in this file or in any
+    consumer, then resolves there first and fails.  `SExpr.mkLams` did this and broke
+    `Experimental/LogRel.lean` with `Unknown constant Lean4Lean.SExpr.SExpr.Subst` -- a file
+    this stream does not touch.  It is the namespace trap doubled, and it surfaces at a
+    CONSUMER, far from the cause.
+  * **Build the whole `Lean4Lean.Experimental` cone, not just your own two files.**
+    `lake build Lean4Lean.Experimental.ShapeLogRelAdequacy` succeeds while `LogRel.lean` is
+    broken, because `LogRel` is not on that path.  Build every module under
+    `Lean4Lean/Experimental/` and read the FIRST failure, which may be in a file you never
+    edited.
+  * **A deferral must never be stated as "the cost is X".**  State it as "the cost includes
+    X; not audited for others."  `MatchesS`'s single level list was deferred with one
+    consequence named (`applyS` ignoring an `LPath`) and a second unnamed one that made
+    `ParamsExtra` unsatisfiable and `strongSoundS` vacuous.  A stale docstring can be caught
+    by checking it against the code; a complete-LOOKING partial deferral gives the reader no
+    signal that anything is missing, so it survives every check.  Sibling of the stale-doc
+    rule above, and worse.
+  * **A scripted block replacement silently ate `private def piX`/`piA` this session and the
+    file still elaborated**, because Lean auto-bound the now-undefined names as implicit
+    variables and the errors surfaced three components later as bogus type mismatches.  After
+    any scripted edit that replaces a *range*, grep that the definitions it spanned are still
+    there.
+
+Full background, all witnesses and all prose: docs/design-shape-lattice.md.
+Remove this banner when the migration lands.
+================================================================================
+
+## 14. AXIOM SWEEP, 2026-08-23.  `#print axioms` over all 653 declarations, one `lake env lean`
+pass.  THIS SUPERSEDES EVERY SOURCE-READ CLAIM ABOUT WHAT IS PROVED IN THIS FILE.
+
+653 resolved | 49 sorryAx-backed | 604 clean.
+
+sorryAx-backed (49) -- these READ AS PROOFS IN SOURCE and are not:
+
+  join family, shape layer (8):
+    WShape.HasType.join      WShape.HasType.join'     WShape.HasDom.join    WShape.HasDom.join'
+    TShape.HasType.join      TShape.HasType.join'     WShape.HasTypePi.join WShape.HasTypeLam.join
+  join family, LE_Interp/LRS (6):
+    LE_Interp.compat_join    LE_Interp.compat         LE_Interp.join        LE_Interp.join'
+    LE_Interp.Const.compat_join                       LRS.PiDefEq.join
+  downstream (19):
+    LE_Interp.subst          LE_Interp.inst           LE_Interp.apps_realize
+    LE_Interp.apps_realize_inv                        LE_Interp.RHS.of_applyS
+    LE_Interp.sound_forallE  LE_Interp.sound_lam      LE_Interp.sound_app
+    LE_Interp.build_spine    LE_Interp.strongSound    LE_Interp.strongSoundS
+    LE_Interp.soundS         LE_Interp.sound          LE_Interp.forallE_inv
+    LE_Interp.forallE_inv'   LE_Interp.lam_inv        LE_Interp.lam_inv'
+    SoundEq.forallE_inv      SoundEq.inst
+  LR/LRS infrastructure (12):
+    LR   LRS   LR.Subst1   LR.SubstWF   LR.SubstWF.fits   LR.SubstWF.left   LR.SubstWF.symm
+    LR.SubstWF.toSubstEq    LR.DefEq.lift   LR.TyDefEq.lift   LR.lift_succ_aux
+    LRS.LamDefEq.lift_aux   LRS.PiDefEq.lift_aux
+  other (3):
+    StrongSound.uniq         cxValTyPi2               join_sort_fails
+
+CLEAN, and therefore usable (the refutation witnesses and the survivors):
+    cx_refutes  j_refutes  jM_no_typed_bound  lam_join_fails  hasDom_escape_fails
+    proofIrrel_gated  proofIrrel_witness_wf  eq_large_eliminates  ctor_not_prop_typed
+    le_interp_common_fails  piDefEq_cannot_see  exit1_bvar_separates  exit1_witness
+    ctor'_inj_of_not_struct  toy_unique_of_inj  toy_unique_fails  toy_unique_of_record
+    toy_unique_of_record_bot  Shape.HasType.indTy_false_bot  WShape.IsType.common_of_le
+    Shape.IsType.common_of_not_forallE  LE_Interp.common_sort  LE_Interp.soundSS
+    WShape.Join.compat  WShape.Join.iff  WShapeFun.Join.compat  WShapeFun.Join.iff
+
+TWO WITNESSES ARE SORRY-BACKED AND MUST NOT BE CITED: `join_sort_fails`, `cxValTyPi2`.
+
+
+## 15. ROW-ZERO CHECK ON THE BASE OF THE TOWER, 2026-08-23.
+
+Q: can `WShape.HasType.join` be proved with a typedness hypothesis, at the shape layer
+alone, independent of `LE_Interp`?
+
+### The 12 errors sit in 8 declarations (measured, current file):
+
+  4257, 4265  WShape.HasType.join        <- THE BASE, and it breaks INSIDE `go_dom`
+  4323        WShape.HasDom.join
+  5474        LE_Interp.Const.compat_join
+  5614        LE_Interp.compat_join
+  6036, 6109  LE_Interp.sound_lam
+  6643        LE_Interp.build_spine
+  6882, 6902  LE_Interp.strongSoundS
+  7236, 7238  LRS.PiDefEq.join
+
+### The base breaks at ONE line, and it is the deleted false lemma:
+
+  go_dom:  have ajt := ih ha a2.isType b2.isType        -- line 4265
+
+`ih` wants `a.HasType ?r` and `a'.HasType ?r` -- a COMMON SORT for the two domains.  `.isType`
+gives only `∃ r, _.HasType (.sort r)` separately.  This line is where the deleted-as-false
+`WShape.IsType.common` used to sit.  Everything else in `go_dom` follows from `ajt`.
+
+### PROVED, and it supplies exactly that (axiom-clean: propext, Classical.choice, Quot.sound):
+
+  WShape.forallE_common_of_typed_bound
+    (h1 : (forallE a1 f1).HasType (sort r0)) (h2 : (forallE a2 f2).HasType (sort r0))
+    (hz1 : forallE a1 f1 <= z) (hz2 : forallE a2 f2 <= z) (hz : z.IsType) :
+    ∃ r, a1.HasType (sort r) ∧ a2.HasType (sort r)
+
+This is `jM_no_typed_bound` GENERALIZED off its witness -- so a typed common upper bound kills
+the whole `j_refutes` counterexample FAMILY, not just the one shape, at the shape layer, with
+no `LE_Interp` anywhere.  Compiles into the file with zero new errors.
+
+### THE ONE SPOT NOT RESOLVED -- and it is exactly the entangled-or-not question:
+
+`go_dom`'s INNER recursive call
+    ih hcx (.mono_r hJa.le.1 ajt a2) (.mono_r hJa.le.2 ajt b2)
+is at subjects `x₁, x₂` drawn from `HasDom.iff`'s **universally quantified, untyped `x`**
+(`x₁ ≤ x`, `x₂ ≤ x`).  A typed `ih` needs a TYPED common upper bound of `x₁, x₂`, and `x`
+carries no typedness.  Sources checked and REJECTED:
+  - "both typed at a common type" is NOT sufficient -- `j_refutes` is exactly that shape.
+  - `hasDom_escape_fails` does NOT refute this call: its witness (`x₁ = x₂ = .bot`,
+    `a = cxA`, `a' = cxA'`) dies one step EARLIER, at `ajt`, because `cxA.join cxA'` is not a
+    type.  With `ajt` in hand that witness is out of scope.  So it is neither a refutation
+    nor a proof -- the spot is genuinely OPEN.
+  - Restricting `HasDom`'s `∀ x` to typed `x` would be WEAKENING A DEFINITION TO MAKE A PROOF
+    GO THROUGH.  Not done, not proposed.
+
+### RESOLVED, NEGATIVELY, by `go_dom_inner_fails` (axiom-clean).  See its docstring.
+
+The inner call fails WITH `ajt` in hand, on `j_refutes`'s own witness.  The tower IS entangled
+at that spot: a top-level typed-bound hypothesis does not descend through `HasDom.iff`'s
+arbitrary `∀ x`.  The base does NOT stand alone.
+
+Repairing it requires `HasDom` to carry typedness -- a DEFINITION change, in the abstract spec,
+needing sign-off.  Not attempted.
+
+Note on how this was settled: the enumerator (`Lean4Lean/Experimental/ShapeEnum.lean`) was
+built for this question and then NOT NEEDED for it -- an existing hand-built witness already
+covered the case once the obligation was stated sharply enough.  Stating the obligation
+precisely was the expensive step, not searching for a witness.
+
+-/
+
 import Lean4Lean.Experimental.SExpr
 
 /-
@@ -8,6 +962,49 @@ those terms. Pin the legacy elaborator here until the proofs are migrated
 (digama0/lean4lean#31).
 -/
 set_option backward.do.legacy true
+
+/-
+**Working notes for editing this file.** Three things here cost hours before being noticed;
+each is invisible until it bites.
+
+1. `set_option maxErrors` **does not take** in this file -- the build caps error reporting at
+   100 and silently truncates, so a raw error count read off `lake build` is a *floor*, not a
+   measurement. To count properly:
+   `lake env lean -DmaxErrors=600 Lean4Lean/Experimental/ShapeLogRel.lean`
+   and check that no "maximum number of errors" line appears in the output.
+
+2. A grouped `match` pattern such as `| 0, .bot, _ | _+1, .bot, .bot | _+1, .bot, .sort _`
+   produces **one goal per alternative**, not one goal for the group. `split` on
+   `Shape.hasType` therefore fans out to twelve goals, not eight. Do not count them by hand:
+   `split` tags them `h_1 … h_12` and the tags appear in the error output, so address them by
+   `case h_k => ...` and read the mapping off the errors.
+
+3. Inside a `first | ... | ...` chain, a `by` block nested in an `exact` is **postponed**:
+   `first` sees the `exact` succeed, commits to that branch, and the inner tactic fails
+   afterwards with no backtracking. Every alternative must fail *synchronously* -- write
+   `(refine ... ?_; tac)`, never `exact ... (by tac)`.
+
+4. Also inside `first`, a compound branch `(tac1; tac2)` **fails when `tac1` closes the goal**
+   -- `tac2` then errors with "no goals" and `first` moves on, silently skipping the branch
+   that actually worked. A `simp_all` that closes the goal in some cases and not others needs
+   its own bare alternative, placed *before* any compound branch that starts with it.
+
+5. Lean reports errors **by line, not by declaration name**. Grepping the error stream for a
+   theorem's name therefore reports "clean" when it is not -- a false-positive generator.
+   Filter by the declaration's actual line span instead.
+
+Also: `exacts [...]` is not available here (no Mathlib); use `match` or `<;>` instead.
+-/
+
+/-
+**What the `ShapeS.indTy` parameterisation exposed.** It did not introduce a problem; it
+revealed one that `.type` was masking. `Compat` on `.forallE` shapes does not constrain the
+codomains' universe *at all* when the domains disagree -- `ShapeFun.Compat`'s value
+obligation is guarded by the keys, so two Pi-shapes can be compatible while one is
+`Prop`-valued and the other `Type`-valued. That was invisible while `.type` forced every
+classifying shape to `true`, because there was nothing left to disagree about. See
+`CounterexampleProbe` below for a machine-checked witness.
+-/
 
 namespace Lean4Lean
 open Lean4Lean
@@ -48,7 +1045,7 @@ inductive ShapeS (Shape : Type) : Type where
   | forallE : Shape → List (Shape × Shape) → ShapeS Shape
   | lam : List (Shape × Shape) → ShapeS Shape
   | ctor : Name → List Shape → ShapeS Shape
-  | indTy : ShapeS Shape
+  | indTy (rel : Bool) : ShapeS Shape
 
 @[implicit_reducible] def Shape : Nat → Type
   | 0 => Shape0
@@ -82,7 +1079,7 @@ def Shape.Compat : ∀ {n}, Shape n → Shape n → Bool
   | _+1, .forallE s f, .forallE s' f' => s.Compat s' && ShapeFun.Compat Compat f f'
   | _+1, .lam f, .lam f' => ShapeFun.Compat Compat f f'
   | _+1, .ctor c l, .ctor c' l' => c = c' && List.Forall₂ (Compat · ·) l l'
-  | _+1, .indTy, .indTy => true
+  | _+1, .indTy r, .indTy r' => r = r'
   | _, _, _ => false
 
 omit [Params] in
@@ -129,7 +1126,7 @@ def Shape.ble : ∀ {n}, Shape n → Shape n → Bool
   | _+1, .forallE s f, .forallE s' f' => s.ble s' && ShapeFun.ble ble f f'
   | _+1, .lam f, .lam f' => ShapeFun.ble ble f f'
   | _+1, .ctor c l, .ctor c' l' => c == c' && l.Forall₂ (Shape.ble · ·) l'
-  | _+1, .indTy, .indTy => true
+  | _+1, .indTy r, .indTy r' => r = r'
   | _, _, _ => false
 
 def ShapeFun.LE (s s' : ShapeFun n) : Prop := ShapeFun.ble Shape.ble s s'
@@ -160,7 +1157,7 @@ theorem Shape.LE.def {s s' : Shape (n + 1)} : s ≤ s' ↔
     | .forallE s f, .forallE s' f' => s ≤ s' ∧ ShapeFun.LE f f'
     | .lam f, .lam f' => ShapeFun.LE f f'
     | .ctor c f, .ctor c' f' => c = c' ∧ f.Forall₂ Shape.LE f'
-    | .indTy, .indTy => True
+    | .indTy r, .indTy r' => r = r'
     | _, _ => False := by
   dsimp only [(· ≤ ·), LE, ShapeFun.LE]
   rw [Shape.ble.eq_def]; cases s <;> cases s' <;> simp
@@ -200,12 +1197,14 @@ theorem Shape.sort_le {s : Shape n} : .sort r ≤ s ↔ .sort r = s := by
   cases n <;> simp [sort, (· ≤ ·), Shape.LE] <;> cases s <;> simp [ble, Shape]
 
 omit [Params] in
-theorem Shape.le_indTy {s : Shape (n+1)} : s ≤ .indTy ↔ s = .bot ∨ s = .indTy := by
-  simp [Shape.bot, (· ≤ ·), Shape.LE]; cases s <;> simp [Shape.ble]
+theorem Shape.le_indTy {s : Shape (n+1)} : s ≤ .indTy r ↔ s = .bot ∨ s = .indTy r := by
+  simp [Shape.bot, (· ≤ ·), Shape.LE]; cases s <;> simp [Shape.ble, eq_comm]
+  exact ⟨fun h => h ▸ rfl, fun h => by injection h⟩
 
 omit [Params] in
-theorem Shape.indTy_le {s : Shape (n+1)} : .indTy ≤ s ↔ s = .indTy := by
-  simp [Shape.LE.def]; cases s <;> simp
+theorem Shape.indTy_le {s : Shape (n+1)} : .indTy r ≤ s ↔ s = .indTy r := by
+  simp [Shape.LE.def]; cases s <;> simp [eq_comm]
+  exact ⟨fun h => h ▸ rfl, fun h => by injection h⟩
 
 omit [Params] in
 theorem Shape.forallE_le {s : Shape (n+1)} :
@@ -270,6 +1269,7 @@ theorem Shape.Compat.mono_r {n} {s t t' : Shape n}
   · exact ⟨ih le.1 H.1, go le.2 H.2⟩
   · exact go le H
   · exact ⟨H.1.trans le.1.symm, H.2.trans (fun _ _ _ h1 h2 => by exact ih h2 h1) le.2.flip⟩
+  · exact H.trans le.symm
 
 omit [Params] in
 theorem ShapeFun.Compat.mono_r {n} {s t t' : ShapeFun n} :
@@ -290,7 +1290,7 @@ def Shape.lift : ∀ {n} m, Shape n → Shape m
   | _+1, _+1, .forallE s f => .forallE (lift _ s) <| ShapeFun.lift (lift _) f
   | _+1, _+1, .lam f => .lam <| ShapeFun.lift (lift _) f
   | _+1, _+1, .ctor c l => .ctor c <| l.map (lift _)
-  | _+1, _+1, .indTy => .indTy
+  | _+1, _+1, .indTy r => .indTy r
 
 omit [Params] in
 @[simp] theorem Shape.lift_bot : (.bot : Shape n).lift m = .bot := by
@@ -435,7 +1435,7 @@ def Shape.plift : ∀ {n m}, Shape n → Shape m × Option (Shape m)
     let (f₀, f₁) := ShapeFun.plift plift f
     (.lam f₀, return .lam (← f₁))
   | _+1, _+1, .ctor c l => (.ctor c (l.map (·.plift.1)), return .ctor c (← l.mapM (·.plift.2)))
-  | _+1, _+1, .indTy => (.indTy, some .indTy)
+  | _+1, _+1, .indTy r => (.indTy r, some (.indTy r))
 
 omit [Params] in
 theorem Shape.plift_eq_lift (le : n ≤ m) {s : Shape n} :
@@ -645,7 +1645,7 @@ def Shape.olift : ∀ {n m}, Shape n → Option (Shape m)
   | _+1, _+1, .forallE s f => return .forallE (← s.olift) (← ShapeFun.olift olift f)
   | _+1, _+1, .lam f => return .lam (← ShapeFun.olift olift f)
   | _+1, _+1, .ctor c l => return .ctor c (← l.mapM (·.olift))
-  | _+1, _+1, .indTy => some .indTy
+  | _+1, _+1, .indTy r => some (.indTy r)
 
 omit [Params] in
 theorem Shape.olift_eq_lift (le : n ≤ m) {s : Shape n} :
@@ -684,6 +1684,7 @@ theorem Shape.olift_thm (le : n ≤ m) {s : Shape m} {t : Shape n} :
   · simp [List.mapM_eq_some, olift_thm le]
     conv => rhs; apply ShapeS.ctor.injEq
     rw [← List.forall₂_eq, List.forall₂_map_right_iff]; grind
+  · grind
 
 omit [Params] in
 theorem ShapeFun.olift_thm (le : n ≤ m) {s : ShapeFun m} {t : ShapeFun n} :
@@ -766,7 +1767,7 @@ def Shape.join : ∀ {n}, Shape n → Shape n → Shape n
   | _+1, .forallE s f, .forallE s' f' => .forallE (join s s') (ShapeFun.join join f f')
   | _+1, .lam f, .lam f' => .lam (ShapeFun.join join f f')
   | _+1, .ctor c l, .ctor c' l' => if c = c' then .ctor c (l.zipWith join l') else .bot
-  | _+1, .indTy, .indTy => .indTy
+  | _+1, .indTy r, .indTy r' => if r = r' then .indTy r else .bot
   | _+1, _, _ => .bot
 
 omit [Params] in
@@ -794,6 +1795,7 @@ theorem Shape.lift_join {x y : Shape n} (le : n ≤ m) :
   cases x with cases y <;> simp [join, lift, go, sort, ih]
   | sort => split <;> simp [lift, sort]
   | ctor => split <;> simp [lift, ih]
+  | indTy => split <;> simp [lift]
 
 omit [Params] in
 theorem Shape.bot_join {x : Shape n} : bot.join x = x := by cases n <;> cases x <;> rfl
@@ -824,7 +1826,7 @@ def Shape.trim : ∀ {n}, Shape n → Shape n
   | _+1, .forallE s f => .forallE s.trim (f.map fun x => (x.1.trim, x.2.trim))
   | _+1, .lam f => .lam' (f.map fun x => (x.1.trim, x.2.trim))
   | _+1, .ctor c l => .ctor' c (l.map trim)
-  | _+1, .indTy => .indTy
+  | _+1, .indTy r => .indTy r
 
 def ShapeFun.WF (WF : Shape n → Prop) (f : ShapeFun n) : Prop :=
   ((∃ y, (.bot, y) ∈ f) ∧ ∀ x ∈ f, ∀ y ∈ f,
@@ -854,7 +1856,7 @@ def Shape.WF : ∀ {n}, Shape n → Prop
   | _+1, .forallE s f => s.WF ∧ ShapeFun.WF WF f
   | _+1, .lam f => ShapeFun.WF WF f ∧ ShapeFun.NonZero f
   | _+1, .ctor n l => (∀ x ∈ l, WF x) ∧ (IsStruct n → ListNonZero l)
-  | _+1, .indTy => True
+  | _+1, .indTy _ => True
 
 omit [Params] in
 theorem ShapeFun.NonZero.lift_iff {n m} {x : ShapeFun n} (le : n ≤ m) :
@@ -954,7 +1956,7 @@ def WShape.bot : WShape n := ⟨.bot, .bot⟩
 def WShape.sort (r : Bool) : WShape n := ⟨.sort r, .sort⟩
 abbrev WShape.type : WShape n := .sort true
 abbrev WShape.prop : WShape n := .sort false
-def WShape.indTy : WShape (n+1) := ⟨.indTy, trivial⟩
+def WShape.indTy (r : Bool) : WShape (n+1) := ⟨.indTy r, trivial⟩
 def WShape.forallE (s : WShape n) (f : WShapeFun n) : WShape (n + 1) := ⟨.forallE s.1 f.1, s.2, f.2⟩
 def WShape.lam (f : WShapeFun n) (h : f.NonZero) :
     WShape (n + 1) := ⟨.lam f.1, f.2, h⟩
@@ -1007,7 +2009,7 @@ def WShape.casesOn' {motive : WShape (n+1) → Sort u}
     (forallE : ∀ s f, motive (.forallE s f))
     (lam : ∀ f h, motive (.lam f h))
     (ctor : ∀ c l h, motive (.ctor c l h))
-    (indTy : motive .indTy) : motive s := by
+    (indTy : ∀ r, motive (.indTy r)) : motive s := by
   obtain ⟨s, wf⟩ := s
   cases s with
   | bot => exact bot
@@ -1015,7 +2017,7 @@ def WShape.casesOn' {motive : WShape (n+1) → Sort u}
   | forallE s' f' => exact forallE ⟨s', wf.1⟩ ⟨f', wf.2⟩
   | lam f' => exact lam ⟨f', wf.1⟩ wf.2
   | ctor c l => exact (WShape.mk_ctor l wf).2 ▸ ctor ..
-  | indTy => exact indTy
+  | indTy r => exact indTy r
 
 /-- Case split on a `WShape n`. -/
 @[elab_as_elim]
@@ -1026,7 +2028,7 @@ def WShape.casesOn {motive : ∀ {n}, WShape n → Sort u}
     (forallE : ∀ {n'} s f, motive (n := n'+1) (.forallE s f))
     (lam : ∀ {n'} f h, motive (n := n'+1) (.lam f h))
     (ctor : ∀ {n'} c l h, motive (n := n'+1) (.ctor c l h))
-    (indTy : ∀ {n'}, motive (n := n'+1) .indTy) : motive s := by
+    (indTy : ∀ {n'} (r), motive (n := n'+1) (.indTy r)) : motive s := by
   cases n with
   | zero =>
     obtain ⟨s, wf⟩ := s
@@ -1095,7 +2097,8 @@ theorem WShape.forallE.inj {f : WShapeFun n} :
 
 @[simp] theorem WShape.lift_type : (WShape.type (n := n)).lift m = WShape.type := WShape.lift_sort
 
-@[simp] theorem WShape.lift_indTy {n m : Nat} : (.indTy : WShape (n+1)).lift (m+1) = .indTy :=
+@[simp] theorem WShape.lift_indTy {n m : Nat} {r} :
+    (.indTy r : WShape (n+1)).lift (m+1) = .indTy r :=
   Subtype.ext <| by simp [lift, indTy, Shape.olift]
 
 theorem WShape.lift_self {s : WShape n} : s.lift n = s := by
@@ -1271,10 +2274,10 @@ theorem WShape.le_sort {s : WShape n} : s ≤ .sort r ↔ s = .bot ∨ s = .sort
 theorem WShape.sort_le {s : WShape n} : .sort r ≤ s ↔ .sort r = s :=
   Shape.sort_le.trans <| by simp [WShape.ext_iff, WShape.sort]
 
-theorem WShape.le_indTy {s : WShape (n+1)} : s ≤ .indTy ↔ s = .bot ∨ s = .indTy :=
+theorem WShape.le_indTy {s : WShape (n+1)} {r} : s ≤ .indTy r ↔ s = .bot ∨ s = .indTy r :=
   Shape.le_indTy.trans <| by simp [WShape.ext_iff, WShape.bot, WShape.indTy]
 
-theorem WShape.indTy_le {s : WShape (n+1)} : .indTy ≤ s ↔ s = .indTy :=
+theorem WShape.indTy_le {s : WShape (n+1)} {r} : .indTy r ≤ s ↔ s = .indTy r :=
   Shape.indTy_le.trans ⟨(Subtype.ext ·), (congrArg (·.1) ·)⟩
 
 theorem WShape.forallE_le {s : WShape (n+1)} {a : WShape n} {f : WShapeFun n} :
@@ -1580,6 +2583,7 @@ theorem WShape.join_prop {x y : WShape n} :
     · refine ⟨h2.1.trans h3.1.symm, h2.2.and_mem.trans ?_ h3.2.and_mem.flip⟩
       rintro _ _ _ ⟨h1, h2, h3⟩ ⟨h4, h5, _⟩
       exact (@ih ⟨_, wf.1 _ h2⟩ ⟨_, wf'.1 _ h5⟩).1 ⟨_, wf₃.1 _ h3⟩ h1 h4
+    · exact h2.trans h3.symm
   · (cases x with | bot => intro; exact ⟨wf', fun _ _ => (and_iff_right Shape.bot_le).symm⟩ | _) <;>
     (cases y with | bot => intro; exact ⟨wf, fun _ _ => (and_iff_left Shape.bot_le).symm⟩ | _) <;>
     simp [Shape.WF] at wf wf' <;>
@@ -1769,6 +2773,12 @@ theorem WShapeFun.join_val {x y : WShapeFun n} (H : Compat x y) :
   have hc := Compat.forallE_forallE.2 ⟨hc1, hc2⟩
   ext1; rw [join_val hc]; simp [forallE, Shape.join, join_val hc1, WShapeFun.join_val hc2]
 
+@[simp] theorem WShape.indTy_join_indTy {r r' : Bool}
+    (hc : (WShape.indTy r : WShape (n+1)).Compat (.indTy r')) :
+    (WShape.indTy r : WShape (n+1)).join (.indTy r') = .indTy r := by
+  have hrr : r = r' := by simpa [Compat, indTy, Shape.Compat] using hc
+  subst hrr; ext1; rw [join_val hc]; simp [indTy, Shape.join]
+
 theorem WShapeFun.Join.mk (H : WShapeFun.Compat x y) : WShapeFun.Join x y (x.join y) := by
   simp [Join, WShapeFun.LE.def, join_val H]
   have ⟨_, h⟩ := (WShape.join_prop.ih_fun WShape.join_prop).2 H; exact h
@@ -1954,7 +2964,7 @@ theorem TShape.ctor_not_le_lam' {c : Name} {l : List (WShape n)} {h} {f : WShape
     simp_all [WShape.LE.def, WShape.ctor, WShape.lam, WShape.bot, Shape.LE.def]
 
 theorem TShape.indTy_not_le_lam' {f : WShapeFun n'} :
-    ¬(WShape.indTy : WShape (n+1)).T ≤ (WShape.lam' f).T := by
+    ¬(WShape.indTy r : WShape (n+1)).T ≤ (WShape.lam' f).T := by
   rw [TShape.LE.def (Nat.succ_le_succ (Nat.le_max_left ..))
     (Nat.succ_le_succ (Nat.le_max_right ..)), WShape.lift_indTy,
     WShape.lift_lam' (Nat.le_max_right ..), WShape.indTy_le]
@@ -2011,14 +3021,14 @@ theorem TShape.lam_not_le_ctor' {f : WShapeFun n} {hl}
     simp [(· ≤ ·), Shape.LE, Shape.ble, WShape.lam, WShape.ctor, WShape.bot]
 
 theorem TShape.indTy_not_le_forallE {a' : WShape n'} {f' : WShapeFun n'} :
-    ¬(WShape.indTy : WShape (n+1)).T ≤ (.forallE a' f' : WShape (n'+1)).T := by
+    ¬(WShape.indTy r : WShape (n+1)).T ≤ (.forallE a' f' : WShape (n'+1)).T := by
   rw [TShape.LE.def (Nat.succ_le_succ (Nat.le_max_left ..))
     (Nat.succ_le_succ (Nat.le_max_right ..)),
     WShape.lift_indTy, WShape.lift_forallE (Nat.le_max_right ..), WShape.indTy_le]
   rintro ⟨⟩
 
 theorem TShape.indTy_not_le_sort :
-    ¬(WShape.indTy : WShape (n+1)).T ≤ (.sort r : WShape n').T := by
+    ¬(WShape.indTy r : WShape (n+1)).T ≤ (.sort r : WShape n').T := by
   intro h
   have := h.trans TShape.sort_eqv.1
   rw [TShape.LE.def (Nat.le_refl _) (Nat.zero_le _), WShape.lift_self, WShape.indTy_le] at this
@@ -2483,18 +3493,51 @@ def hasType.core (hasType : Shape n → Shape n → Bool)
     (f : ShapeFun n) (a : Shape n) (G : Shape n → Shape n) : Bool :=
   f.all fun (x, y) => (f.any fun (x', y') => x' ≤ x && y ≤ y' && hasType x' a) && hasType y (G x)
 
+/--
+Shape-level typing.
+
+**Two clauses quantify over the codomain's sort by disjunction** (`.bot`/`.lam` against
+`.forallE`). They used to read `fun _ => .type`, i.e. `.sort true`, asserting that a Pi-type's
+codomains are `Sort`-valued and so denying that a proof can inhabit a `Prop`-valued Pi.
+`r : Bool` is finite, so the existential is writable directly; quantifying *outside* the
+`hasType.core` call gives one sort for the whole codomain family, which is the correct
+reading -- a Pi-type's codomains share a level.
+
+**Editing these clauses costs proof repair proportional to how many proofs rely on this
+function *reducing*.** That dependency is pervasive and easy to miss: `HasType.unfold_iff`
+closes cases with `cases n <;> rfl`, and five negations elsewhere are `nofun`
+(`WShape.HasType.lam_isType` and neighbours). All work only because `hasType` computes. -/
 def Shape.hasType : ∀ {n}, Shape n → Shape n → Bool
-  | _+1, .bot, .forallE a b => hasType.core hasType b a fun _ => .type
+  | _+1, .bot, .forallE a b =>
+    hasType.core hasType b a (fun _ => .sort false) ||
+    hasType.core hasType b a (fun _ => .sort true)
   | _+1, .forallE a b, .sort r => hasType.core hasType b a fun _ => .sort r
-  | 0, .bot, _ | _+1, .bot, .bot | _+1, .bot, .sort _ | _+1, .bot, .indTy => true
+  | 0, .bot, _ | _+1, .bot, .bot | _+1, .bot, .sort _ | _+1, .bot, .indTy _ => true
   | 0, .sort _, .sort j | _+1, .sort _, .sort j => j
   | _+1, .lam f, .forallE a b =>
-    hasType.core hasType b a (fun _ => .type) && hasType.core hasType f a (ShapeFun.app b)
-  | _+1, .ctor _ _, .indTy => true
-  | _+1, .indTy, .sort r => r
+    (hasType.core hasType b a (fun _ => .sort false) ||
+     hasType.core hasType b a (fun _ => .sort true)) &&
+    hasType.core hasType f a (ShapeFun.app b)
+  -- Section 7: a `.ctor` shape is classified only by a `Type`-valued inductive.  With
+  -- `.indTy false` (a `Prop`-valued inductive) this must be `false`, or `proofIrrel` is
+  -- refuted by `.ctor c [] : .indTy false` -- see `proofIrrel_fails`.
+  | _+1, .ctor _ _, .indTy r => r
+  | _+1, .indTy r, .sort r' => r = r'
   | _, _, _ => false
 
 def Shape.HasType : Shape n → Shape n → Prop := (hasType · ·)
+
+/-- `a` classifies terms: it is a type *or a proposition*. Replaces the former
+`HasType a .type`, which forced the sort boolean to `true` and so silently asserted that
+every classifying shape is `Sort`-valued -- false once `.indTy false` exists.
+
+**This framing is correct, not merely convenient, and the evidence is that nothing broke.**
+`.type` was load-bearing only in *signatures*, never in arguments: the `LogRel` fields that
+demanded it (`bot`, `mono_r_2`, `mono_r_2_ty`, `join_ty`) have instance proofs that bind
+those hypotheses and never use them -- see `mono_r_2_ty` in the `LR0` instance, whose
+binders are literally `le _ _`. So replacing `HasType a .type` by `IsType a` does not weaken
+any proof; it deletes an unused hypothesis that happened to assert something false. -/
+def Shape.IsType (a : Shape n) : Prop := ∃ r, HasType a (.sort r)
 
 def Shape.HasDom (f : ShapeFun n) (a : Shape n) :=
   ∀ x y, (x, y) ∈ f → ∃ x' y', (x', y') ∈ f ∧ x' ≤ x ∧ y ≤ y' ∧ x'.HasType a
@@ -2503,46 +3546,78 @@ def Shape.HasTypePi (b : ShapeFun n) (a : Shape n) (rel : Bool) :=
   Shape.HasDom b a ∧ ∀ x y, (x, y) ∈ b → y.HasType (.sort rel)
 
 def Shape.HasTypeLam (f : ShapeFun n) (a : Shape n) (b : ShapeFun n) :=
-  Shape.HasTypePi b a true ∧ Shape.HasDom f a ∧ ∀ x y, (x, y) ∈ f → y.HasType (b.app x)
+  (∃ r, Shape.HasTypePi b a r) ∧ Shape.HasDom f a ∧ ∀ x y, (x, y) ∈ f → y.HasType (b.app x)
 
 omit [Params] in
 theorem Shape.hasType.core.iff {a : Shape n} :
     hasType.core hasType f a G ↔ HasDom f a ∧ ∀ x y, (x, y) ∈ f → y.HasType (G x) := by
   simp [hasType.core, HasDom, forall_and, HasType, and_assoc]
 
+omit [Params] in
+/-- The disjunction that the `.bot`/`.lam`-against-`.forallE` clauses of `hasType` use to
+quantify over the codomain family's sort, packaged as the existential it means. Downstream
+proofs should go through this rather than unfolding the `||`. -/
+theorem Shape.hasType.core_sort_or {b : ShapeFun n} {a : Shape n} :
+    (hasType.core hasType b a (fun _ => .sort false) ||
+     hasType.core hasType b a (fun _ => .sort true)) = true ↔ ∃ r, HasTypePi b a r := by
+  simp only [Bool.or_eq_true, core.iff, HasTypePi]
+  exact ⟨fun h => h.elim (⟨false, ·⟩) (⟨true, ·⟩),
+    fun ⟨r, h⟩ => match r, h with | false, h => .inl h | true, h => .inr h⟩
+
 inductive Shape.HasTypeU : ∀ {n}, Shape n → Shape n → Prop
-  | bot : HasType x .type → HasTypeU .bot x
+  | bot : HasType x (.sort r) → HasTypeU .bot x
   | sort : HasTypeU (.sort r) .type
   | forallE : HasTypePi (n := n) b a r → HasTypeU (n := n+1) (.forallE a b) (.sort r)
   | lam : HasTypeLam (n := n) f a b → HasTypeU (n := n+1) (.lam f) (.forallE a b)
-  | ctor : HasTypeU (n := n+1) (.ctor c l) .indTy
-  | indTy : HasTypeU (n := n+1) .indTy .type
+  | ctor : HasTypeU (n := n+1) (.ctor c l) (.indTy true)
+  | indTy : HasTypeU (n := n+1) (.indTy r) (.sort r)
 
 omit [Params] in
 theorem Shape.HasType.unfold {m a : Shape n} : HasType m a → HasTypeU m a := by
   unfold HasType Shape.hasType
-  split <;> (try simp [hasType.core.iff]) <;> intros <;> subst_vars <;> try constructor
-  · simp [HasType, hasType.core.iff, hasType]; exact ⟨‹_›, ‹_›⟩
-  · simp [HasTypePi]; exact ⟨‹_›, ‹_›⟩
-  · rename_i x; cases x <;> rfl
-  · rfl
-  · rfl
-  · rfl
-  · simp only [HasTypeLam, HasTypePi]; exact ⟨⟨‹_›, ‹_›⟩, ⟨‹_›, ‹_›⟩⟩
+  split <;> intro h
+  case h_1 =>  -- `.bot` against `.forallE`: the disjunction picks `HasTypeU.bot`'s `r`
+    obtain ⟨r, hr⟩ := hasType.core_sort_or.1 h
+    exact .bot (r := r) (by simpa [HasType, hasType, hasType.core.iff, HasTypePi] using hr)
+  case h_2 => exact .forallE (by simpa [HasTypePi, hasType.core.iff] using h)
+  case h_3 => rename_i x; cases x <;> exact .bot (r := true) rfl
+  case h_4 => exact .bot (r := true) rfl
+  case h_5 => exact .bot rfl
+  case h_6 => rename_i r'; exact .bot (r := r') (by simp [HasType, hasType])
+  case h_7 => simp only [h]; exact .sort
+  case h_8 => simp only [h]; exact .sort
+  case h_9 =>  -- `.lam` against `.forallE`
+    rw [Bool.and_eq_true] at h
+    exact .lam ⟨hasType.core_sort_or.1 h.1,
+      (hasType.core.iff.1 h.2).1, (hasType.core.iff.1 h.2).2⟩
+  case h_10 => subst h; exact .ctor
+  case h_11 => simp only [decide_eq_true_eq] at h; subst h; exact .indTy
+  case h_12 => exact Bool.noConfusion h
 
 omit [Params] in
 theorem Shape.HasType.unfold_iff {m a : Shape n} : HasType m a ↔ HasTypeU m a := by
   refine ⟨(·.unfold), fun h => ?_⟩
   cases h with
-  | bot h =>
-    cases h.unfold with
-    | bot | sort => cases n <;> rfl
-    | indTy => rfl
-    | forallE => simpa [HasType, hasType] using h
+  | @bot _ x r h =>
+    -- `.bot` inhabits anything that is classified by *some* sort, so go by cases on `x`
+    -- rather than on `h.unfold`, whose `sort` case would need `r = true`.
+    cases n with
+    | zero => cases a <;> rfl
+    | succ n =>
+      cases a with
+      | bot | sort | indTy => rfl
+      | forallE a b =>
+        exact hasType.core_sort_or.2
+          ⟨r, by simpa [HasType, hasType, hasType.core.iff, HasTypePi] using h⟩
+      | lam f => exact absurd h (by simp [HasType, hasType])
+      | ctor c l => exact absurd h (by simp [HasType, hasType])
   | sort => cases n <;> rfl
   | forallE H => simpa [HasType, hasType, hasType.core.iff, HasTypePi] using H
-  | lam H => simp [HasType, hasType, hasType.core.iff]; exact H
-  | ctor | indTy => rfl
+  | lam H =>
+    rw [HasType, hasType, Bool.and_eq_true]
+    exact ⟨hasType.core_sort_or.2 H.1, hasType.core.iff.2 ⟨H.2.1, H.2.2⟩⟩
+  | ctor => rfl
+  | indTy => simp [HasType, hasType]
 
 omit [Params] in
 protected theorem Shape.HasType.lift (le : n ≤ n') :
@@ -2560,7 +3635,10 @@ protected theorem Shape.HasType.lift (le : n ≤ n') :
         hasType.core hasType (ShapeFun.lift (lift n') a) (lift n' a') G' =
         hasType.core hasType a a' G := by
       rw [Bool.eq_iff_iff]; simp [hasType.core, ShapeFun.lift, H, ih, lift_le_lift le]
-    cases m <;> cases a <;> simp only [lift, hasType, type] <;> try rw [core fun _ => lift_sort.symm]
+    -- `repeat`, not `try rw`: the `.bot`/`.lam`-against-`.forallE` clauses now hold *two*
+    -- `hasType.core` calls (the codomain-sort disjunction), and `rw` rewrites only the first.
+    cases m <;> cases a <;> simp only [lift, hasType, type] <;>
+      repeat rw [core fun _ => lift_sort.symm]
     · rw [core fun _ => (ShapeFun.lift_app le).symm]
 
 omit [Params] in
@@ -2590,7 +3668,8 @@ theorem Shape.HasTypeLam.lift (le : n ≤ n') :
     HasTypeLam (ShapeFun.lift (lift n') f) (a.lift n') (ShapeFun.lift (lift n') b) ↔
     HasTypeLam (n := n) f a b := by
   simp only [HasTypeLam]
-  refine and_congr (HasTypePi.lift le) <| and_congr (HasDom.lift le) ⟨?_, ?_⟩ <;> intro H x y h
+  refine and_congr (exists_congr fun _ => HasTypePi.lift le) <|
+    and_congr (HasDom.lift le) ⟨?_, ?_⟩ <;> intro H x y h
   · have h' : (x.lift n', y.lift n') ∈ ShapeFun.lift (Shape.lift n') f :=
       List.mem_map.2 ⟨_, h, rfl⟩
     have := H _ _ h'
@@ -2602,7 +3681,8 @@ theorem Shape.HasTypeLam.lift (le : n ≤ n') :
     exact (Shape.HasType.lift le).2 (H _ _ h₀)
 
 omit [Params] in
-protected theorem Shape.HasType.bot {a : Shape n} (H : HasType a .type) : HasType .bot a :=
+protected theorem Shape.HasType.bot {a : Shape n} {r} (H : HasType a (.sort r)) :
+    HasType .bot a :=
   unfold_iff.2 (.bot H)
 omit [Params] in
 protected theorem Shape.HasType.sort : HasType (n := n) (.sort rel) .type := unfold_iff.2 .sort
@@ -2613,31 +3693,25 @@ omit [Params] in
 protected theorem Shape.HasType.lam (H : HasTypeLam (n := n) f a b) :
     HasType (n := n+1) (.lam f) (.forallE a b) := unfold_iff.2 (.lam H)
 omit [Params] in
-protected theorem Shape.HasType.indTy : HasType (n := n+1) .indTy .type := unfold_iff.2 .indTy
+protected theorem Shape.HasType.indTy : HasType (n := n+1) (.indTy r) (.sort r) := unfold_iff.2 .indTy
 
 omit [Params] in
 theorem Shape.HasType.bot_r (H : HasType (n := n) x .bot) : x = .bot := by
   cases n <;> cases x <;> simp [HasType, hasType, bot] at H ⊢
 
 omit [Params] in
-theorem Shape.HasType.toType (H : HasType (n := n) m (.sort r)) : HasType m .type := by
-  unfold HasType hasType at H; revert H; generalize eq : sort r = s
-  split <;> cases eq <;> simp [HasType, hasType]
-  · simp only [hasType.core.iff]; refine fun ⟨h1, h2⟩ => ⟨h1, fun _ _ h3 => toType (h2 _ _ h3)⟩
-
-omit [Params] in
-theorem Shape.HasType.isType (H : HasType m a) : a.HasType .type := by
+theorem Shape.HasType.isType (H : HasType m a) : a.IsType := by
   cases H.unfold with
-  | bot H => exact H
-  | sort | forallE | indTy => exact .sort
-  | lam H' => exact .forallE H'.1
-  | ctor => exact .indTy
-
-omit [Params] in
-theorem Shape.HasTypePi.toType (H : HasTypePi b a r) : HasTypePi b a true :=
-  ⟨H.1, fun _ _ h => (H.2 _ _ h).toType⟩
+  | bot H => exact ⟨_, H⟩
+  | sort | forallE | indTy => exact ⟨_, .sort⟩
+  | lam H' => have ⟨r, hr⟩ := H'.1; exact ⟨r, .forallE hr⟩
+  | ctor => exact ⟨_, .indTy⟩
 
 def WShape.HasType (m a : WShape n) : Prop := Shape.HasType m.1 a.1
+/-- Stated with `WShape.HasType` rather than as `Shape.IsType a.1` (which is definitionally
+the same) so that destructuring an `IsType` yields a hypothesis whose head is
+`WShape.HasType`, keeping dot-notation (`.mono_l`, `.forallE_l`, ...) working. -/
+def WShape.IsType (a : WShape n) : Prop := ∃ r, WShape.HasType a (.sort r)
 def WShape.HasDom (f : WShapeFun n) (a : WShape n) := Shape.HasDom f.1 a.1
 def WShape.HasTypePi (b : WShapeFun n) (a : WShape n) := Shape.HasTypePi b.1 a.1
 def WShape.HasTypeLam (f : WShapeFun n) (a : WShape n) (b : WShapeFun n) :=
@@ -2653,7 +3727,8 @@ theorem WShape.HasTypePi.def {b : WShapeFun n} :
   and_congr_right' ⟨fun H _ _ h => H _ _ h, fun H _ _ h => H _ _ (b.mem_val h)⟩
 
 theorem WShape.HasTypeLam.def {f : WShapeFun n} {a b} :
-  HasTypeLam f a b ↔ HasTypePi b a true ∧ HasDom f a ∧ ∀ x y, (x, y) ∈ f → y.HasType (b.app x) :=
+  HasTypeLam f a b ↔
+    (∃ r, HasTypePi b a r) ∧ HasDom f a ∧ ∀ x y, (x, y) ∈ f → y.HasType (b.app x) :=
   and_congr_right' <| and_congr_right' ⟨fun H _ _ h => H _ _ h, fun H _ _ h => H _ _ (f.mem_val h)⟩
 
 theorem WShape.HasDom.lift (le : n ≤ m) :
@@ -2668,12 +3743,14 @@ theorem WShape.HasDom.lift (le : n ≤ m) :
     exact ⟨_, _, ⟨_, h1, rfl, rfl⟩, Shape.lift_mono h2,
       Shape.lift_mono h3, (Shape.HasType.lift le).2 h4⟩
 
-theorem WShape.HasType.toType : HasType (n := n) x (.sort r) → HasType x .type :=
-  Shape.HasType.toType
+theorem WShape.HasType.isType : HasType m a → a.IsType := Shape.HasType.isType
 
-theorem WShape.HasType.isType : HasType m a → a.HasType .type := Shape.HasType.isType
+/-- Package a classification at a *known* sort as the existential `IsType`.  Replaces the
+former `HasType.toType`, which coerced `HasType a (.sort r)` to `HasType a .type` and so
+silently claimed every classifying shape is `Sort`-valued. -/
+theorem WShape.HasType.toIsType {a : WShape n} {r} (h : HasType a (.sort r)) : a.IsType := ⟨r, h⟩
 
-theorem WShape.HasDom.isType (H : WShape.HasDom f a) : a.HasType .type := by
+theorem WShape.HasDom.isType (H : WShape.HasDom f a) : a.IsType := by
   have ⟨_, h⟩ := f.bot_mem
   have ⟨_, _, _, h2, _, h4⟩ := HasDom.def.1 H _ _ h
   cases le_bot.1 h2; exact h4.isType
@@ -2683,7 +3760,7 @@ theorem WShape.HasType.mono_r {m a a' : WShape n} (ha : a ≤ a')
   have ⟨m, mwf⟩ := m; have ⟨a, awf⟩ := a; have ⟨a', awf'⟩ := a'
   simp only [HasType, sort, WShape.LE.def] at *
   cases H.unfold with
-  | bot H => exact .bot Ha.toType
+  | bot H => exact .bot Ha
   | sort | forallE | indTy => cases Shape.sort_le.1 ha; exact H
   | ctor => cases Shape.indTy_le.1 ha; exact H
   | @lam n _ _ _ H' =>
@@ -2698,8 +3775,8 @@ theorem WShape.HasType.mono_r {m a a' : WShape n} (ha : a ≤ a')
     let rec ih_lam {f : WShapeFun n} {a a' b b'} (Ha : HasTypePi b' a' r)
         (ha : a ≤ a') (hb : b ≤ b') (H : HasTypeLam f a b) : HasTypeLam f a' b' := by
       rw [HasTypeLam.def] at H ⊢
-      have ht := (HasTypePi.def.1 Ha).1.isType
-      refine ⟨Ha.toType, ih_dom ha ht H.2.1, fun x y h => ?_⟩
+      have ⟨_, ht⟩ := (HasTypePi.def.1 Ha).1.isType
+      refine ⟨⟨_, Ha⟩, ih_dom ha ht H.2.1, fun x y h => ?_⟩
       have ⟨_, h1, h2⟩ := b'.app_eq x
       exact .mono_r (WShapeFun.app_mono_l hb _) ((HasTypePi.def.1 Ha).2 _ _ h2) (H.2.2 _ _ h)
     exact .lam (ih_lam (f := ⟨_, mwf.1⟩) (a := ⟨_, awf.1⟩)
@@ -2752,7 +3829,8 @@ theorem ih_pi {b b'} {a a' : WShape n}
     (hb1 : b ≤ b') (hb2 : b' ≤ b) (ha1 : a ≤ a') (ha2 : a' ≤ a)
     (H : HasTypePi b a r) : HasTypePi b' a' r := by
   rw [HasTypePi.def] at H ⊢
-  refine ⟨ih_dom ih hb1 hb2 H.1 |>.mono_r ha1 (ih ha1 ha2 H.1.isType), fun x y h => ?_⟩
+  have ⟨_, hIs⟩ := H.1.isType
+  refine ⟨ih_dom ih hb1 hb2 H.1 |>.mono_r ha1 (ih ha1 ha2 hIs), fun x y h => ?_⟩
   have ⟨x₁, y₁, a1, a2, a3⟩ := WShapeFun.LE.def'.1 hb2 _ _ h
   have ⟨x₂, y₂, b1, b2, b3⟩ := WShapeFun.LE.def'.1 hb1 _ _ a1
   have ⟨_, c1, c2⟩ := b.app_eq x
@@ -2764,7 +3842,8 @@ theorem ih_lam {f f' : WShapeFun n} (hf1 : f ≤ f') (hf2 : f' ≤ f)
   have ⟨x₁, y₁, a1, a2, a3⟩ := WShapeFun.LE.def'.1 hf2 _ _ h
   have ⟨x₂, y₂, b1, b2, b3⟩ := WShapeFun.LE.def'.1 hf1 _ _ a1
   have ⟨_, c1, c2⟩ := b.app_eq x
-  refine .mono_r (b.app_mono_r a2) ((HasTypePi.def.1 H.1).2 _ _ c2) ?_
+  have ⟨_, hr⟩ := H.1
+  refine .mono_r (b.app_mono_r a2) ((HasTypePi.def.1 hr).2 _ _ c2) ?_
   exact ih (b3.trans <| f'.mem_mono b1 h (b2.trans a2)) a3 (H.2.2 _ _ a1)
 
 end WShape.HasType.mono_l
@@ -2827,26 +3906,30 @@ theorem WShape.HasTypePi.iff' {b : WShapeFun n} :
   exact (H _ a2).mono_l (WShapeFun.app_mono_r a1) a3
 
 theorem WShape.HasTypeLam.iff {f : WShapeFun n} {a b} :
-    HasTypeLam f a b ↔ HasTypePi b a true ∧ HasDom f a ∧
+    HasTypeLam f a b ↔ (∃ r, HasTypePi b a r) ∧ HasDom f a ∧
       ∀ x, x.HasType a → (f.app x).HasType (b.app x) := by
   refine WShape.HasTypeLam.def.trans <| and_congr_right fun hp => and_congr_right fun hd =>
     ⟨fun H x h => ?_, fun H x y h => ?_⟩
   · have ⟨_, h1, h2⟩ := f.app_eq x
-    exact .mono_r (b.app_mono_r h1) ((WShape.HasTypePi.iff.1 hp).2 _ h) <| H _ _ h2
+    have ⟨_, hp'⟩ := hp
+    exact .mono_r (b.app_mono_r h1) ((WShape.HasTypePi.iff.1 hp').2 _ h) <| H _ _ h2
   · have ⟨h1, h2⟩ := f.app_of_mem h
     have ⟨x', a1, a2, a3⟩ := HasDom.iff.1 hd x
-    have ⟨x₂, b1, b2, b3⟩ := HasDom.iff.1 hp.1 x
+    have ⟨_, hp'⟩ := hp
+    have ⟨x₂, b1, b2, b3⟩ := HasDom.iff.1 hp'.1 x
     exact .mono_r (b.app_mono_r a1)
-      ((WShape.HasTypePi.iff.1 hp).2 _ b2 |>.mono_l (b.app_mono_r b1) b3)
+      ((WShape.HasTypePi.iff.1 hp').2 _ b2 |>.mono_l (b.app_mono_r b1) b3)
       ((H _ a2).mono_l (.trans (f.app_mono_r a1) h1) (h2.trans a3))
 
 theorem WShape.HasTypeLam.iff' {b : WShapeFun n} :
-    HasTypeLam f a b ↔ HasTypePi b a true ∧ HasDom f a ∧ ∀ x, (f.app x).HasType (b.app x) := by
+    HasTypeLam f a b ↔
+      (∃ r, HasTypePi b a r) ∧ HasDom f a ∧ ∀ x, (f.app x).HasType (b.app x) := by
   refine WShape.HasTypeLam.iff.trans <| and_congr_right fun h1 => and_congr_right fun h2 =>
     ⟨fun H x => ?_, fun H _ _ => H _⟩
   have ⟨x', a1, a2, a3⟩ := HasDom.iff.1 h2 x
   have := (H _ a2).mono_l (WShapeFun.app_mono_r a1) a3
-  exact ((HasTypePi.iff'.1 h1).2 _).mono_r (WShapeFun.app_mono_r a1) this
+  have ⟨_, h1'⟩ := h1
+  exact ((HasTypePi.iff'.1 h1').2 _).mono_r (WShapeFun.app_mono_r a1) this
 
 theorem WShape.HasTypePi.lift (le : n ≤ m) :
     HasTypePi (b.lift m) (a.lift m) rel ↔ HasTypePi (n := n) b a rel := by
@@ -2860,12 +3943,12 @@ theorem WShape.HasTypeLam.lift (le : n ≤ m) :
   exact Shape.HasTypeLam.lift le
 
 inductive WShape.HasTypeU : ∀ {n}, WShape n → WShape n → Prop
-  | bot : HasType x .type → HasTypeU .bot x
+  | bot : HasType x (.sort r) → HasTypeU .bot x
   | sort : HasTypeU (.sort r) .type
   | forallE : HasTypePi (n := n) b a r → HasTypeU (n := n+1) (.forallE a b) (.sort r)
   | lam : HasTypeLam (n := n) f a b → HasTypeU (n := n+1) (.lam' f) (.forallE a b)
-  | ctor : HasTypeU (n := n+1) (.ctor c l wf) .indTy
-  | indTy : HasTypeU (n := n+1) .indTy .type
+  | ctor : HasTypeU (n := n+1) (.ctor c l wf) (.indTy true)
+  | indTy : HasTypeU (n := n+1) (.indTy r) (.sort r)
 
 theorem WShape.HasType.unfold {m a : WShape n} (H : HasType m a) : HasTypeU m a := by
   let ⟨m, mwf⟩ := m; let ⟨a, awf⟩ := a
@@ -2886,29 +3969,51 @@ theorem WShape.HasType.unfold_iff {m a : WShape n} : HasType m a ↔ HasTypeU m 
   | bot h => exact .bot h
   | sort => exact .sort
   | forallE h => exact .forallE h
-  | @lam _ f a b h => unfold lam'; split <;> [exact .lam h; exact .bot (.forallE h.1)]
+  | @lam _ f a b h =>
+    unfold lam'; split
+    · exact .lam h
+    · have ⟨_, h1⟩ := h.1; exact .bot (.forallE h1)
   | ctor => exact Shape.HasType.unfold_iff.2 .ctor
   | indTy => exact .indTy
 
-theorem WShape.HasType.bot' : HasType (n := n) x .type → HasType .bot x :=
+theorem WShape.HasType.bot' {r} : HasType (n := n) x (.sort r) → HasType .bot x :=
   (unfold_iff.2 <| .bot ·)
 theorem WShape.HasType.sort : HasType (n := n) (.sort r) .type := unfold_iff.2 .sort
+/-- `.bot` is classified by `.bot`.  Spelled out because the old idiom
+`.bot' (.bot' .sort)` no longer determines its sort booleans now that `HasType.bot'`
+carries an `r`. -/
+theorem WShape.HasType.bot_bot : HasType (n := n) .bot .bot :=
+  bot' (r := true) (bot' (r := true) sort)
 theorem WShape.HasType.forallE : HasTypePi (n := n) b a r →
     HasType (n := n+1) (.forallE a b) (.sort r) := (unfold_iff.2 <| .forallE ·)
 theorem WShape.HasType.lam : HasTypeLam (n := n) f a b →
     HasType (n := n+1) (.lam' f) (.forallE a b) := (unfold_iff.2 <| .lam ·)
-theorem WShape.HasType.indTy {n : Nat} : HasType (n := n+1) .indTy .type := unfold_iff.2 .indTy
-theorem WShape.HasType.ctor : HasType (.ctor (n := n) c l wf) .indTy := unfold_iff.2 .ctor
-theorem WShape.HasType.ctor' : HasType (n := n+1) (.ctor' c l) .indTy := by
+theorem WShape.HasType.indTy {n : Nat} : HasType (n := n+1) (.indTy r) (.sort r) := unfold_iff.2 .indTy
+theorem WShape.HasType.ctor : HasType (.ctor (n := n) c l wf) (.indTy true) := unfold_iff.2 .ctor
+theorem WShape.HasType.ctor' : HasType (n := n+1) (.ctor' c l) (.indTy true) := by
   unfold WShape.ctor'; split <;> [apply ctor; exact bot' .indTy]
 
-theorem WShape.HasTypePi.toType (H : HasTypePi (n := n) b a r) : HasTypePi (n := n) b a true :=
-  ⟨H.1, fun _ _ h' => (H.2 _ _ h').toType⟩
+/-- **Section 7's payoff.** `.indTy false` -- a `Prop`-valued inductive -- classifies only
+`.bot`, because `HasTypeU.ctor` is gated to `.indTy true`.  This is the clause that makes
+`WShape.HasType.proofIrrel` true again; before the gating, `.ctor c []` inhabited
+`.indTy false` and refuted it (see `proofIrrel_gated`). -/
+theorem Shape.HasType.indTy_false_bot {x : Shape (n+1)} (h : HasType x (.indTy false)) :
+    x = .bot := by
+  cases x <;> simp_all [HasType, hasType, Shape.bot]
+
+theorem WShape.HasType.indTy_false_bot {x : WShape (n+1)} (h : HasType x (.indTy false)) :
+    x = .bot :=
+  Subtype.ext (Shape.HasType.indTy_false_bot h)
 
 theorem WShape.HasType.lam_isType {f : WShapeFun n} {hf} :
     ¬HasType (WShape.lam f hf) (.sort r) := nofun
 theorem WShape.HasType.ctor_isType {c : Name} {l : List (WShape n)} {h} :
     ¬HasType (n := n+1) (WShape.ctor c l h) (.sort r) := nofun
+theorem WShape.IsType.not_lam {f : WShapeFun n} {hf} : ¬(WShape.lam f hf).IsType :=
+  fun ⟨_, h⟩ => WShape.HasType.lam_isType h
+theorem WShape.IsType.not_ctor {c : Name} {l : List (WShape n)} {h} :
+    ¬(WShape.ctor c l h).IsType := fun ⟨_, hh⟩ => WShape.HasType.ctor_isType hh
+
 theorem WShape.HasType.sort_not_forallE {a : WShape n} {f : WShapeFun n} :
     ¬HasType (n := n+1) (.sort r) (.forallE a f) := nofun
 theorem WShape.HasType.forallE_not_forallE {a a' : WShape n} {f f' : WShapeFun n} :
@@ -2916,22 +4021,29 @@ theorem WShape.HasType.forallE_not_forallE {a a' : WShape n} {f f' : WShapeFun n
 theorem WShape.HasType.ctor_not_forallE {c l h a} {f : WShapeFun n} :
     ¬HasType (n := n+1) (WShape.ctor c l h) (.forallE a f) := nofun
 
-theorem WShape.HasType.bot : HasType (n := n) x (.sort r) → HasType .bot x := (.bot' ·.toType)
+theorem WShape.HasType.bot : HasType (n := n) x (.sort r) → HasType .bot x := .bot'
 
 theorem WShape.HasType.bot_r (H : HasType (n := n) x .bot) : x = .bot := by
   cases n <;> cases H.unfold <;> rfl
 
-theorem WShape.HasType.bot_iff : HasType (n := n) .bot x ↔ HasType x .type := ⟨.isType, .bot'⟩
+theorem WShape.HasType.bot_iff : HasType (n := n) .bot x ↔ x.IsType :=
+  ⟨isType, fun ⟨_, h⟩ => .bot' h⟩
 
-theorem WShape.HasDom.bot_iff {a : WShape n} : HasDom .bot a ↔ a.HasType .type := by
+theorem WShape.HasDom.bot_iff {a : WShape n} : HasDom .bot a ↔ a.IsType := by
   simp [HasDom.def, WShapeFun.mem_bot, HasType.bot_iff]
 
-theorem WShape.HasDom.bot : a.HasType .type → HasDom .bot a := bot_iff.2
+theorem WShape.HasDom.bot : a.IsType → HasDom .bot a := bot_iff.2
 
-theorem WShape.HasTypeLam.bot {b : WShapeFun n} : HasTypeLam .bot a b ↔ HasTypePi b a true := by
-  simp only [HasTypeLam.def, WShapeFun.mem_bot, and_imp, forall_eq_apply_imp_iff,
-    forall_eq, and_iff_left_iff_imp]
-  exact fun h => ⟨.bot (HasDom.isType h.1), .bot' ((HasTypePi.iff'.1 h).2 _)⟩
+/-- Restated for the `indTy` migration. The old form pinned the codomain sort to `true`,
+which is false once a `Prop`-valued Pi-shape exists: `.bot` inhabits it too. -/
+theorem WShape.HasTypeLam.bot {b : WShapeFun n} :
+    HasTypeLam .bot a b ↔ ∃ r, HasTypePi b a r := by
+  refine ⟨fun h => h.1, fun h => ?_⟩
+  have ⟨r, hr⟩ := h
+  refine HasTypeLam.def.2 ⟨h, HasDom.bot (HasDom.isType (HasTypePi.def.1 hr).1), ?_⟩
+  intro x y hm
+  obtain ⟨rfl, rfl⟩ := WShapeFun.mem_bot.1 hm
+  exact .bot' ((HasTypePi.iff'.1 hr).2 _)
 
 theorem WShape.HasType.lift (h : n ≤ n') :
     HasType (m.lift n') (a.lift n') ↔ HasType (n := n) m a := by
@@ -2951,11 +4063,250 @@ theorem WShape.HasType.forallE_inv {m : WShape (n+1)} {a : WShape n} {f : WShape
   | bot H' =>
     refine ⟨.bot, by simp, ?_⟩; subst eq
     obtain ⟨_, H, ⟨⟩⟩ := HasType.forallE_l.1 H'
-    simp [HasTypeLam.def, WShapeFun.mem_bot, HasDom.def]
-    have ⟨h1, h2⟩ := HasTypePi.iff.1 H
-    exact have := .bot h1.isType; ⟨H, this, .bot (h2 _ this)⟩
+    exact HasTypeLam.bot.2 ⟨_, H⟩
   | lam H' => obtain ⟨rfl, rfl⟩ := forallE.inj.1 eq; exact ⟨_, rfl, H'⟩
   | _ => cases congrArg (·.1) eq
+
+omit [Params] in
+/-- `.bot` is classified by every sort -- it is the shape of a term about which nothing is
+known, including whether it is a proof. -/
+theorem Shape.HasType.sort_bot {n : Nat} {r : Bool} : HasType (n := n) .bot (.sort r) := by
+  cases n <;> rfl
+
+/-
+`WShape.IsType.common` -- "two compatible classifying shapes share a sort" --
+
+    Compat a a' → a.IsType → a'.IsType → ∃ r, a.HasType (.sort r) ∧ a'.HasType (.sort r)
+
+**is FALSE**, refuted by `cx_refutes` immediately below.  It was approved twice (once at
+`Shape`, once at `WShape`) and neither placement helps: `ShapeFun.Compat`'s obligation on
+values is guarded by the keys, so the pair that would force `false = true` has incompatible
+keys and never fires.  Join-closure and monotonicity of `ShapeFun.WF` were both checked and
+are satisfied, so `WF` is not where a proof attempt dies.  Do not re-propose it; the
+replacement invariant is `LE_Interp`-relative (see the banner, §4).
+-/
+
+section CounterexampleProbe
+/-- Candidate refutation of `WShape.IsType.common` at `forallE`/`forallE`. -/
+private def cxB : Shape 1 := .sort true
+private def cxF : ShapeFun 1 := [(.bot, .bot), (.sort true, .indTy false)]
+private def cxF' : ShapeFun 1 := [(.bot, .bot), (.indTy true, .indTy true)]
+private def cxA : Shape 2 := .forallE cxB cxF
+private def cxA' : Shape 2 := .forallE cxB cxF'
+
+#eval (Shape.Compat cxA cxA', Shape.hasType cxA (.sort false), Shape.hasType cxA (.sort true),
+       Shape.hasType cxA' (.sort false), Shape.hasType cxA' (.sort true))
+
+private theorem cxA_wf : Shape.WF cxA := by
+  simp [cxA, cxB, cxF, Shape.WF, ShapeFun.WF, Shape.Compat, Shape.join, Shape.LE.def]
+
+private theorem cxA'_wf : Shape.WF cxA' := by
+  simp [cxA', cxB, cxF', Shape.WF, ShapeFun.WF, Shape.Compat, Shape.join, Shape.LE.def]
+
+/-- **`WShape.IsType.common` is false.** Both shapes are well-formed and compatible, each is
+classified by a sort, and no sort classifies both: `cxA`'s codomain family pins `Prop` (via
+`.indTy false`) while `cxA'`'s pins `Type` (via `.indTy true`). `ShapeFun.Compat` never
+compares those two values, because it only fires on pairs whose *keys* are compatible, and
+`.sort true` is incompatible with `.indTy true`. -/
+private theorem cx_refutes :
+    ¬ ∀ {n : Nat} {a a' : WShape n},
+        a.Compat a' → a.IsType → a'.IsType →
+        ∃ r, a.HasType (.sort r) ∧ a'.HasType (.sort r) := by
+  intro H
+  have ⟨r, h1, h2⟩ := H (a := ⟨cxA, cxA_wf⟩) (a' := ⟨cxA', cxA'_wf⟩)
+    (by simp [WShape.Compat, cxA, cxA', cxB, cxF, cxF']; rfl)
+    ⟨false, by simp [WShape.HasType, WShape.sort]; rfl⟩
+    ⟨true, by simp [WShape.HasType, WShape.sort]; rfl⟩
+  simp only [WShape.HasType, WShape.sort] at h1 h2
+  cases r
+  · exact Bool.noConfusion h2
+  · exact Bool.noConfusion h1
+/-- **Why relativising to `TyDefEq` / `PiDefEq` does NOT recover `cx_refutes`.**
+
+`LRS.PiDefEq`'s obligations on a codomain family are POINTWISE in the key: they constrain
+`f.app p`, one `p` at a time.  The table below is every key that is typed at `cxB`, and at
+each one **at most one of the two families has a non-`.bot` value**:
+
+    p              cxF.app p        cxF'.app p
+    ----------------------------------------------
+    bot            bot              bot
+    sort true      indTy false      bot
+    indTy true     bot              indTy true
+
+So no pointwise comparison can ever notice that one family pins `Prop` and the other pins
+`Type` -- the disagreeing values sit at keys the other family does not reach.  This is the
+first diagnosis sentence again, one layer up: the constraint is on VALUES, keyed by the
+DOMAIN, and the two domains' keys are incompatible. -/
+private theorem piDefEq_cannot_see :
+    ShapeFun.app cxF .bot = .bot ∧ ShapeFun.app cxF' .bot = .bot ∧
+    ShapeFun.app cxF (.sort true) = .indTy false ∧ ShapeFun.app cxF' (.sort true) = .bot ∧
+    ShapeFun.app cxF (.indTy true) = .bot ∧ ShapeFun.app cxF' (.indTy true) = .indTy true :=
+  ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩
+
+/-! ### Does the same witness refute `WShape.HasType.join`? -/
+private def jF : ShapeFun 2 := [(.bot, .bot)]
+private def jM : Shape 3 := .forallE cxA jF
+private def jM' : Shape 3 := .forallE cxA' jF
+
+#eval (-- both are Pi-shapes over the two incompatible-sorted domains, at a shared codomain sort
+       Shape.Compat jM jM',
+       Shape.hasType jM (.sort true), Shape.hasType jM' (.sort true),
+       -- ... and the join
+       Shape.hasType (Shape.join jM jM') (.sort true),
+       -- the underlying reason: is `.bot` still typeable at the joined domain?
+       Shape.hasType (.bot : Shape 2) (Shape.join cxA cxA'))
+
+private theorem jM_wf : Shape.WF jM :=
+  ⟨cxA_wf, by simp [jF, ShapeFun.WF, Shape.WF, Shape.Compat, Shape.join, Shape.LE.def]⟩
+
+private theorem jM'_wf : Shape.WF jM' :=
+  ⟨cxA'_wf, by simp [jF, ShapeFun.WF, Shape.WF, Shape.Compat, Shape.join, Shape.LE.def]⟩
+
+/-- **`WShape.HasType.join` is false too.** `jM` and `jM'` are well-formed and compatible and
+both are classified by `.sort true`, but their join is not. The mechanism is the same one that
+refutes `IsType.common`, lifted one level: the two Pi-shapes' *domains* are `cxA` and `cxA'`,
+which are compatible but share no sort, so the joined domain admits nothing -- in particular
+`.bot` is no longer typeable at it, and `HasDom` fails for the joined family.
+
+The shared codomain sort (`true` here) constrains the families' *values*, never their
+*domains*, which is exactly why the shared `a` of the statement does not reach the obstruction. -/
+private theorem j_refutes :
+    ¬ ∀ {n : Nat} {m₁ m₂ a : WShape n},
+        m₁.Compat m₂ → m₁.HasType a → m₂.HasType a → (m₁.join m₂).HasType a := by
+  intro H
+  have hC : WShape.Compat (⟨jM, jM_wf⟩ : WShape 3) ⟨jM', jM'_wf⟩ := by
+    show Shape.Compat jM jM' = true; rfl
+  have h1 : WShape.HasType (⟨jM, jM_wf⟩ : WShape 3) ⟨.sort true, trivial⟩ := by
+    show Shape.hasType jM (.sort true) = true; rfl
+  have h2 : WShape.HasType (⟨jM', jM'_wf⟩ : WShape 3) ⟨.sort true, trivial⟩ := by
+    show Shape.hasType jM' (.sort true) = true; rfl
+  have hbad := H hC h1 h2
+  simp only [WShape.HasType, WShape.join_val hC] at hbad
+  exact Bool.noConfusion hbad
+
+/-! ### Pass 1: does the same witness refute `HasTypeLam.join` (the `go_lam` route)? -/
+private def lB : ShapeFun 3 := [(.bot, .sort true)]
+private def lF : ShapeFun 3 := [(.bot, jM)]
+private def lF' : ShapeFun 3 := [(.bot, jM')]
+
+/-! ### Pass 2: does `HasDom`'s `exists`-with-`le` escape hatch save `HasDom.join`? -/
+
+#eval (-- pass 1: the lambda-family values are `jM` / `jM'`, joined at the shared codomain
+       ShapeFun.Compat Shape.Compat lF lF',
+       Shape.hasType jM (ShapeFun.app lB .bot),                 -- lF's value types
+       Shape.hasType jM' (ShapeFun.app lB .bot),                -- lF''s value types
+       Shape.hasType (Shape.join jM jM') (ShapeFun.app lB .bot),-- ... the join does not
+       -- pass 2: HasDom's witness must itself carry the *joined* domain
+       Shape.hasType (.bot : Shape 2) cxA,
+       Shape.hasType (.bot : Shape 2) cxA',
+       Shape.hasType (.bot : Shape 2) (Shape.join cxA cxA'))
+
+/-- **Pass 1 -- `HasTypeLam.join` fails.** `ShapeFun.join` merges the two bot-keyed entries by
+joining their *values*, so `HasTypeLam (lF.join lF') a lB` would have to give
+`(jM.join jM').HasType (lB.app bot)`. The three facts below say both components type there and
+the join does not, so `go_lam` does not survive either: **no `HasType` join is true.** -/
+private theorem lam_join_fails :
+    Shape.hasType jM (ShapeFun.app lB .bot) = true ∧
+    Shape.hasType jM' (ShapeFun.app lB .bot) = true ∧
+    Shape.hasType (Shape.join jM jM') (ShapeFun.app lB .bot) = false :=
+  ⟨rfl, rfl, rfl⟩
+
+/-- **Pass 2 -- `HasDom`'s escape hatch does not save `HasDom.join`.** `HasDom` may pick a
+witness `x' <= x`, but that witness must still satisfy `x'.HasType a` at the **joined** domain.
+Taking `f = f' = jF = [(bot, bot)]`, the only candidate is `bot` itself, and it does not type
+at `cxA.join cxA'`. The `<=` relaxation is on the *key*, never on the *type*, so it cannot
+absorb a failure that is about the type. -/
+private theorem hasDom_escape_fails :
+    Shape.hasType (.bot : Shape 2) cxA = true ∧
+    Shape.hasType (.bot : Shape 2) cxA' = true ∧
+    Shape.hasType (.bot : Shape 2) (Shape.join cxA cxA') = false :=
+  ⟨rfl, rfl, rfl⟩
+
+/-- **The refutation that forced section 7, and the regression test that it is closed.**
+
+Before `HasTypeU.ctor` was gated to `.indTy true`, `HasTypeU.ctor : HasTypeU (.ctor c l)
+(.indTy r)` fired at **every** `r`.  With `.indTy false` now denoting a `Prop`-valued
+inductive, that made
+
+    WShape.HasType.proofIrrel (ha : HasType a .prop) (hx : HasType x a) : x = .bot
+
+FALSE, with `a := .indTy false`, `x := .ctor `Foo` []` at `n = 1`: both are `Shape.WF`
+(`WF (.indTy _)` is `True`; `WF (.ctor c [])` is vacuous), `hasType x a` was `true`,
+`hasType a .prop` is `true`, and `x` is not `.bot`.  That was the third of the three-way
+tension's four faces to be refuted, and it left denying (i) -- section 7 -- as the only
+remaining resolution.
+
+The first clause below is the regression test: `.ctor` no longer types at `.indTy false`.
+The second says the gating did not simply delete the `ctor` rule -- it still types at
+`.indTy true`.  The third pins the `Prop`-ness of `.indTy false`, which is what makes the
+old witness a witness at all. -/
+private def piX : Shape 1 := .ctor `Foo []
+private def piA : Shape 1 := .indTy false
+private def piA' : Shape 1 := .indTy true
+
+private theorem proofIrrel_gated :
+    Shape.hasType piX piA = false ∧
+    Shape.hasType piX piA' = true ∧
+    Shape.hasType piA (Shape.prop (n := 1)) = true :=
+  ⟨rfl, rfl, rfl⟩
+
+/-- ... and the witness really was one: it is well-formed and is not `.bot`. -/
+private theorem proofIrrel_witness_wf :
+    piX ≠ (.bot : Shape 1) ∧
+    Shape.WF piA ∧ (∀ x ∈ ([] : List (Shape 0)), Shape.WF x) :=
+  ⟨nofun, trivial, nofun⟩
+
+/-- **Section 7's route (beta) is REFUTED, at `Eq`.**
+
+(beta) was: make `Pattern.WF` demand `rel = true` at constructor leaves, so a `Prop`-valued
+inductive's iota-rule is simply not a `Pattern`.  Its premise was "the major premise is a
+proof, `proofIrrel` gives it `.bot`, so the whole redex is `.bot` and the shape model does not
+need the rule" -- PLAN.md's *small elimination* fact.
+
+**`Eq` is a `Prop` that LARGE-eliminates**, so the premise does not hold for it.  `@Eq.rec`'s
+motive is `Sort u_1`, not `Prop`; the term below is a `Nat`, and its iota-rule computes to
+`7` by `rfl`.  The redex is not a proof, `proofIrrel` does not apply, and its shape is not
+`.bot`.  Small elimination covers `Acc.rec` and `Quot.lift`-over-a-`Prop`; it does NOT cover
+the subsingleton eliminators, and `Eq` is the one that started all of this.
+
+The consequence is the failure mode that is worst to detect.  Under (beta),
+`Params.pat_wf : Pat p r -> p.WF classify` plus `ParamsExtra.extra_pat` (every
+`env.defeqs df` must be covered by some `Pat p r`) makes **`ParamsExtra` unsatisfiable for any
+environment containing `Eq`** -- i.e. every real one, since `Eq` is in `stdPrelude`.  Nothing
+in the tree would notice: there is no `ParamsExtra` instance, so every downstream result would
+go silently vacuous.  `ParamsExtra`'s own docstring records that this project has already been
+burned by exactly that once. -/
+private theorem eq_large_eliminates :
+    Eq.rec (motive := fun (b : Nat) (_ : (0:Nat) = b) => Nat) 7 (rfl : (0:Nat) = 0) = 7 := rfl
+
+/-- **Section 7's route (gamma) is REFUTED too, and not by where a premise sits.**
+
+(gamma) was: move `LE_Interp.const`'s `m'.HasType a` premise out of the way, so `Eq.refl`
+could keep its `.ctor` shape without being classified by a `Prop`-valued inductive.
+
+Moving it does not help, because `InterpTyped` demands the same classification independently:
+
+    InterpTyped rho m M A := exists m' a, m <= m' /\ LE_Interp rho m' M /\
+                             LE_Interp rho a A /\ m'.HasType a
+
+and `strongSoundS`'s `const` case builds that packaging with the constructor's premise
+LITERALLY as the `HasType` field (`.mk b3 (.const b1 b2 .rfl b4 b5 b6 b7) b5 b4` -- `b4`
+appears twice).  Dropping the premise leaves nothing to put there; a probe that removed it
+produced 36 errors and the one at that line has no repair, because the fact is not derivable
+from anything else.
+
+The underlying reason is this lemma, which does not mention `LE_Interp` at all: **no shape
+both classifies a `.ctor` and is itself `Prop`-valued.**  So for `Eq.refl` there is no `a`
+that can sit in `InterpTyped`'s slot at its natural shape, wherever the premise lives.
+
+    => Section 7's residue is a design problem, not a repair.  (alpha) costs 107 instances
+       plus a lemma that looks false under it; (beta) is refuted at `Eq` by
+       `eq_large_eliminates`; (gamma) is refuted here. -/
+private theorem ctor_not_prop_typed (a : Shape 1) (h : Shape.hasType piX a = true) :
+    Shape.hasType a (Shape.prop (n := 1)) = false := by
+  cases a <;> simp_all [piX, Shape.hasType, Shape.prop, Shape.sort]
+
+end CounterexampleProbe
 
 theorem WShape.HasType.join {m₁ m₂ a : WShape n} (hJ : m₁.Compat m₂)
     (h1 : m₁.HasType a) (h2 : m₂.HasType a) : (m₁.join m₂).HasType a := by
@@ -3001,7 +4352,8 @@ theorem WShape.HasType.join {m₁ m₂ a : WShape n} (hJ : m₁.Compat m₂)
       WShape.HasTypeLam (f.join f') a b := by
     rw [WShape.HasTypeLam.iff'] at h1 h2 ⊢
     have := Join.iff.1 <| (join_self (x := a)).2 ⟨.rfl, .rfl⟩
-    refine ⟨h1.1, go_dom hf .rfl h1.2.1 h2.2.1 |>.mono_r this.2.1 h1.2.1.isType, fun x => ?_⟩
+    have ⟨_, hIs⟩ := h1.2.1.isType
+    refine ⟨h1.1, go_dom hf .rfl h1.2.1 h2.2.1 |>.mono_r this.2.1 hIs, fun x => ?_⟩
     have hJf := WShapeFun.Join.mk hf
     have ⟨a1, a2, a3⟩ := Join.iff.1 (hJf.app_l x)
     exact ih a1 (h1.2.2 _) (h2.2.2 _) |>.mono_l a2 a3
@@ -3029,7 +4381,10 @@ theorem WShape.HasType.join {m₁ m₂ a : WShape n} (hJ : m₁.Compat m₂)
       simp only [Shape.Compat, Bool.and_eq_true, decide_eq_true_eq] at hJ
     simp only [Shape.join, if_pos hJ.1]; exact Shape.HasType.unfold_iff.2 .ctor
   | indTy =>
-    (cases h2.unfold with | bot => exact h1 | indTy => rfl | _) <;>
+    (cases h2.unfold with
+      | bot => exact h1
+      | indTy => simp only [Shape.join, if_pos rfl]; exact h1
+      | _) <;>
       simp only [Shape.Compat, Bool.false_eq_true] at hJ
 
 theorem WShape.HasDom.join {a a' : WShape n} {f f' : WShapeFun n} :
@@ -3052,9 +4407,14 @@ theorem WShape.HasDom.join' (h1 : HasDom f₁ a₁) (h2 : HasDom f₂ a₂)
   have ⟨a1, a2, a3⟩ := WShapeFun.Join.iff.1 hJ
   have ⟨b1, b2, b3⟩ := WShape.Join.iff.1 hJa
   have := h1.join a1 b1 h2 |>.mono_l a2 a3
-  exact this.mono_r b2 <| this.isType.mono_l b2 b3
+  have ⟨w, hIs⟩ := WShape.HasDom.isType this
+  exact this.mono_r b2 <| WShape.HasType.mono_l b2 b3 hIs
 
 def TShape.HasType (x y : TShape) : Prop := (x.2.lift (max x.1 y.1)).HasType (y.2.lift _)
+
+/-- `TShape`-level counterpart of `WShape.IsType`: `a` classifies terms. Replaces the former
+`HasType a .type`, which forced the sort boolean to `true`. -/
+def TShape.IsType (a : TShape) : Prop := ∃ r, TShape.HasType a (.sort r)
 
 theorem TShape.HasType.def {x y : TShape} (h1 : x.1 ≤ m) (h2 : y.1 ≤ m) :
     x.HasType y ↔ (x.2.lift m).HasType (y.2.lift m) := by
@@ -3087,7 +4447,7 @@ theorem TShape.HasType.bot : HasType x (.sort r) → HasType .bot x := by
     TShape.HasType.def (Nat.zero_le _) (Nat.le_refl _)]
   simp [sort]; exact .bot
 
-theorem TShape.HasType.bot' : HasType x .type → HasType .bot x := .bot
+theorem TShape.HasType.bot' {r} : HasType x (.sort r) → HasType .bot x := .bot
 
 theorem TShape.HasType.sort : HasType (.sort r) .type := by
   simp [HasType, TShape.sort, TShape.type, WShape.lift_sort, WShape.HasType]
@@ -3105,9 +4465,10 @@ theorem TShape.HasType.join' (hJ : Join m₁ m₂ m)
 theorem TShape.HasType.bot_r' (ha : a ≤ .bot) (H : HasType x a) : x ≤ .bot :=
   (mono_r (r := true) ha (.bot' .sort) H).bot_r
 
-nonrec theorem TShape.HasType.isType (H : HasType m a) : a.HasType .type :=
+nonrec theorem TShape.HasType.isType (H : HasType m a) : a.IsType :=
   let k := max m.1 a.1; have hk := Nat.max_le.1 (Nat.le_refl k)
-  (TShape.HasType.def hk.2 (Nat.zero_le _)).2 H.isType
+  have ⟨r, hr⟩ := WShape.HasType.isType H
+  ⟨r, (TShape.HasType.def hk.2 (Nat.zero_le _)).2 hr⟩
 
 inductive LE_Forall {n} : TShape → WShape n → WShapeFun n → Prop where
   | bot : a ≤ .bot → LE_Forall a b f
@@ -3175,8 +4536,9 @@ theorem TShape.HasType.ty_forallE_inv
   · refine ⟨.bot, by simp, ?_⟩
     rw [HasTypeLam, WShapeFun.lift_bot, ← WShapeFun.lift_bot,
       WShape.HasTypeLam.lift (Nat.le_max_right ..), WShape.HasTypeLam.bot]
-    obtain ⟨_, h, _⟩ := WShape.HasType.forallE_l.1 <| WShape.HasType.bot_iff.1 H
-    exact (WShape.HasTypePi.lift (Nat.le_of_succ_le_succ le₂)).1 h |>.toType
+    have ⟨_, hH⟩ := WShape.HasType.bot_iff.1 H
+    obtain ⟨_, h, _⟩ := WShape.HasType.forallE_l.1 hH
+    exact ⟨_, (WShape.HasTypePi.lift (Nat.le_of_succ_le_succ le₂)).1 h⟩
   · exact ⟨_, rfl, (HasTypeLam.def (by omega) (by omega)).2 htl⟩
 
 theorem TShape.HasType.mono_l {m a : TShape}
@@ -3196,7 +4558,12 @@ theorem TShape.HasType.sort_r {x : WShape n} : x.T.HasType (.sort r) ↔ x.HasTy
 
 theorem TShape.HasType.bot_T (H : HasType x (.sort r)) : HasType (WShape.T (n := n) .bot) x :=
   H.bot.mono_l bot_eqv.2 bot_eqv.1
-theorem TShape.HasType.bot_T' (H : HasType x .type) : HasType (WShape.T (n := n) .bot) x := H.bot_T
+/-- `TShape` counterpart of `WShape.HasType.bot_bot`. -/
+theorem TShape.HasType.bot_bot : HasType (WShape.T (n := n) .bot) .bot :=
+  bot_T (r := true) (bot (r := true) sort)
+
+theorem TShape.HasType.bot_T' {r} (H : HasType x (.sort r)) :
+    HasType (WShape.T (n := n) .bot) x := H.bot_T
 
 theorem TShape.HasType.join {m₁ m₂ a : TShape} (hJ : m₁.Compat m₂)
     (h1 : m₁.HasType a) (h2 : m₂.HasType a) : (m₁.join m₂).HasType a := by
@@ -3211,7 +4578,12 @@ theorem TShape.HasType.join {m₁ m₂ a : TShape} (hJ : m₁.Compat m₂)
 theorem WShape.HasType.proofIrrel
     (ha : HasType (n := n) a .prop) (hx : HasType x a) : x = .bot := by
   cases n with | zero => cases ha.unfold; exact hx.bot_r | succ n
-  cases ha.unfold with | bot => exact hx.bot_r | @forallE _ b a _ ha
+  cases ha.unfold with
+  | bot => exact hx.bot_r
+  -- Section 7: `.prop = .sort false` now admits `a = .indTy false`, and only `.bot` is
+  -- classified by it.  Without the gating this case is a counterexample, not a proof.
+  | indTy => exact hx.indTy_false_bot
+  | @forallE _ b a _ ha
   generalize eq : WShape.forallE .. = t at hx
   cases hx.unfold with | bot => rfl | @lam _ f a' b' hx' => ?_ | _ => cases eq
   obtain ⟨rfl, rfl⟩ : a = a' ∧ b = b' := by
@@ -3244,7 +4616,7 @@ theorem WShape.HasType.retype (ha : HasType (n := n) a (.sort r))
   cases ha.unfold with
   | bot => exact .bot .sort
   | sort => exact sort_le.1 le ▸ ha'
-  | indTy => exact (show a' = .indTy from Subtype.ext (Shape.indTy_le.1 le)) ▸ ha'
+  | indTy => exact (show a' = .indTy r from Subtype.ext (Shape.indTy_le.1 le)) ▸ ha'
   | forallE Ha
   obtain ⟨_, _, le₁, le₂, rfl⟩ := WShape.forallE_le.1 le
   have ⟨H1, H2⟩ := HasTypePi.iff'.1 Ha
@@ -3259,8 +4631,141 @@ theorem TShape.HasType.retype (ha : HasType a (.sort r))
   have ha' := (TShape.HasType.def hk.2 (Nat.zero_le _)).1 ha'
   exact (TShape.HasType.def hk.1 (Nat.zero_le _)).2 <| ha.retype ha' le
 
+/-- **Costing `join_sort`: `Compat` alone already pins the sort EVERYWHERE EXCEPT
+`forallE`/`forallE`.**  `cx_refutes` shows the `Compat`-only form is false; this says the
+failure is confined to exactly ONE of the thirty-six constructor pairs.  A `LogRel`-relative
+version therefore needs new information at that one case only, and `ValTyPi2` supplies it --
+see the banner, section 4.  (At `n = 0` there is no `.forallE`, so the statement is
+unconditional there and is not repeated.) -/
+theorem Shape.IsType.common_of_not_forallE {n} {a a' : Shape (n+1)} {r r'}
+    (hC : Shape.Compat a a' = true) (hr : HasType a (.sort r)) (hr' : HasType a' (.sort r'))
+    (hne : ∀ (b : Shape n) f (b' : Shape n) f', ¬(a = .forallE b f ∧ a' = .forallE b' f')) :
+    ∃ r, HasType a (.sort r) ∧ HasType a' (.sort r) := by
+  cases a <;> cases a' <;>
+    first
+      | exact ⟨_, Shape.HasType.sort_bot, hr'⟩
+      | exact ⟨_, hr, Shape.HasType.sort_bot⟩
+      | exact absurd ⟨rfl, rfl⟩ (hne _ _ _ _)
+      | simp_all [Shape.Compat, HasType, hasType, Shape.sort, Shape.bot]
+
+/-- **The true form of `IsType.common`.** `Compat a a'` -- i.e. "*some* upper bound exists" --
+is not enough (`cx_refutes`); a **classified** upper bound is, and the proof is three lines of
+`HasType.retype`.  This is the fact the join family actually needs, and the whole question is
+whether a call site can produce the `z`. -/
+theorem WShape.IsType.common_of_le {a a' z : WShape n}
+    (le1 : a ≤ z) (le2 : a' ≤ z) (hz : z.IsType) (h : a.IsType) (h' : a'.IsType) :
+    ∃ r, a.HasType (.sort r) ∧ a'.HasType (.sort r) := by
+  obtain ⟨r, hr⟩ := hz
+  obtain ⟨_, h1⟩ := h
+  obtain ⟨_, h2⟩ := h'
+  exact ⟨r, WShape.HasType.retype h1 hr le1, WShape.HasType.retype h2 hr le2⟩
+
+/-! ### The `bvar` test: does `j_refutes`' witness survive a TYPED valuation? -/
+
+private def cxAW : WShape 2 := ⟨cxA, cxA_wf⟩
+private def cxA'W : WShape 2 := ⟨cxA', cxA'_wf⟩
+private def jFW : WShapeFun 2 := ⟨jF, jM_wf.2⟩
+
+/-- **No, it does not -- and this is what makes the strengthened induction viable.**
+
+`le_interp_common_fails` plants `cxA`/`cxA'` in a valuation by taking `rho i` to be an upper
+bound of the two, which `Compat` guarantees exists.  `j_refutes` does the same one level up
+for `jM`/`jM'`.  Both witnesses need `rho i` to be an upper bound of a pair that shares no
+sort -- and **no such upper bound is typed**:
+
+    z above both is a `.forallE z1 z2` whose domain `z1` is above BOTH `cxA` and `cxA'`
+    (`forallE_le`); `z.IsType` unfolds to `HasTypePi z2 z1 r`, whose `HasDom z2 z1` gives
+    `z1.IsType` by `HasDom.isType`; and then `IsType.common_of_le` hands `cxA` and `cxA'` a
+    common sort, which `cx_refutes` says they do not have.
+
+So a valuation whose entries are typed -- which is exactly what `Valuation.Fits.cons`
+produces, via `x.HasType a` -- cannot host either witness.  The `bvar` case of a strengthened
+`compat_join` is therefore not blocked the way the shape-level lemmas were; what it needs is a
+typed-valuation hypothesis, not a new idea. -/
+private theorem jM_no_typed_bound :
+    ¬ ∃ z : WShape 3, WShape.forallE cxAW jFW ≤ z ∧ WShape.forallE cxA'W jFW ≤ z ∧ z.IsType := by
+  rintro ⟨z, le1, le2, hz⟩
+  obtain ⟨a1, f1, hle1, -, rfl⟩ := WShape.forallE_le.1 le1
+  obtain ⟨a2, f2, hle2, -, heq⟩ := WShape.forallE_le.1 le2
+  have hle2' : cxA'W ≤ a1 := by
+    injection congrArg (·.1) heq with e1 _
+    exact (Subtype.ext e1.symm : a2 = a1) ▸ hle2
+  obtain ⟨r, hr⟩ := hz
+  obtain ⟨r', hpi, -⟩ := WShape.HasType.forallE_l.1 hr
+  have ha1 : a1.IsType := (WShape.HasTypePi.iff.1 hpi).1.isType
+  obtain ⟨rr, h1, h2⟩ := WShape.IsType.common_of_le hle1 hle2' ha1
+    ⟨false, by show Shape.hasType cxA (Shape.sort false) = true; rfl⟩
+    ⟨true, by show Shape.hasType cxA' (Shape.sort true) = true; rfl⟩
+  simp only [WShape.HasType, WShape.sort] at h1 h2
+  cases rr
+  · exact Bool.noConfusion h2
+  · exact Bool.noConfusion h1
+
+/-- **THE OPEN SPOT OF BANNER SECTION 15, CLOSED -- NEGATIVELY.**
+
+`go_dom`'s inner recursive call fails EVEN WITH `ajt` (the joined type being a type) in hand.
+The witness is `j_refutes`'s own: `x₁ := jM`, `x₂ := jM'`, `a = a' := .sort true`.  All of
+`go_dom`'s locally available data is satisfied -- the subjects are compatible, the two types
+are compatible, each subject has its type, and the join of the types IS a type -- and the
+conclusion is still false.
+
+Read together with `jM_no_typed_bound` (that same pair has NO typed common upper bound) this
+says exactly where the tower is entangled: the inner call needs a TYPED BOUND FOR `x₁, x₂`,
+and `HasDom.iff`'s `∀ x` is arbitrary and carries no typedness.  A top-level typed-bound
+hypothesis does NOT descend to it.
+
+So the base does not stand alone.  Repairing it means `HasDom` itself carrying typedness --
+a change to a DEFINITION, not to a proof.  Not done here: weakening a definition to make a
+proof go through is the move this project forbids, and this one belongs to the abstract spec. -/
+private theorem go_dom_inner_fails :
+    ¬ ∀ {n : Nat} {x₁ x₂ a a' : WShape n},
+        x₁.Compat x₂ → a.Compat a' → x₁.HasType a → x₂.HasType a' →
+        (a.join a').IsType → (x₁.join x₂).HasType (a.join a') := by
+  intro H
+  have hC : WShape.Compat (⟨jM, jM_wf⟩ : WShape 3) ⟨jM', jM'_wf⟩ := by
+    show Shape.Compat jM jM' = true; rfl
+  have hCa : WShape.Compat (⟨.sort true, trivial⟩ : WShape 3) ⟨.sort true, trivial⟩ := by
+    show Shape.Compat (Shape.sort true) (Shape.sort true) = true; rfl
+  have h1 : WShape.HasType (⟨jM, jM_wf⟩ : WShape 3) ⟨.sort true, trivial⟩ := by
+    show Shape.hasType jM (.sort true) = true; rfl
+  have h2 : WShape.HasType (⟨jM', jM'_wf⟩ : WShape 3) ⟨.sort true, trivial⟩ := by
+    show Shape.hasType jM' (.sort true) = true; rfl
+  have hIs : (WShape.join (⟨.sort true, trivial⟩ : WShape 3) ⟨.sort true, trivial⟩).IsType := by
+    refine ⟨true, ?_⟩
+    simp only [WShape.HasType, WShape.join_val hCa]
+    show Shape.hasType (Shape.join (Shape.sort true) (Shape.sort true)) (Shape.sort true) = true
+    rfl
+  have hbad := H hC hCa h1 h2 hIs
+  simp only [WShape.HasType, WShape.join_val hC, WShape.join_val hCa] at hbad
+  exact Bool.noConfusion hbad
+
+/-- **`jM_no_typed_bound` generalized off its witness.**  A typed common upper bound forces the
+two domains to share a sort -- so it kills the ENTIRE `j_refutes` counterexample family, not
+just the one shape, at the shape layer, with no `LE_Interp` anywhere.
+
+This is the fact `go_dom` is missing at its `ajt` line, where the deleted-as-false
+`WShape.IsType.common` used to sit.  Supplied by: `WShape.IsType.common_of_le`. -/
+theorem WShape.forallE_common_of_typed_bound {n} {a₁ a₂ : WShape n} {f₁ f₂ : WShapeFun n}
+    {z : WShape (n+1)} {r₀ : Bool}
+    (h1 : (WShape.forallE a₁ f₁).HasType (WShape.sort r₀))
+    (h2 : (WShape.forallE a₂ f₂).HasType (WShape.sort r₀))
+    (hz1 : WShape.forallE a₁ f₁ ≤ z) (hz2 : WShape.forallE a₂ f₂ ≤ z) (hz : z.IsType) :
+    ∃ r, a₁.HasType (WShape.sort r) ∧ a₂.HasType (WShape.sort r) := by
+  obtain ⟨b1, g1, hle1, -, rfl⟩ := WShape.forallE_le.1 hz1
+  obtain ⟨b2, g2, hle2, -, heq⟩ := WShape.forallE_le.1 hz2
+  have hle2' : a₂ ≤ b1 := by
+    injection congrArg (·.1) heq with e1 _
+    exact (Subtype.ext e1.symm : b2 = b1) ▸ hle2
+  obtain ⟨r, hr⟩ := hz
+  obtain ⟨r', hpi, -⟩ := WShape.HasType.forallE_l.1 hr
+  have hb1 : b1.IsType := (WShape.HasTypePi.iff.1 hpi).1.isType
+  obtain ⟨p1, hp1, -⟩ := WShape.HasType.forallE_l.1 h1
+  obtain ⟨p2, hp2, -⟩ := WShape.HasType.forallE_l.1 h2
+  exact WShape.IsType.common_of_le hle1 hle2' hb1
+    (WShape.HasTypePi.iff.1 hp1).1.isType (WShape.HasTypePi.iff.1 hp2).1.isType
+
 theorem WShape.HasDom.single :
-    HasDom (WShapeFun.single x y) a ↔ x.HasType a ∨ y ≤ .bot ∧ a.HasType .type := by
+    HasDom (WShapeFun.single x y) a ↔ x.HasType a ∨ y ≤ .bot ∧ a.IsType := by
   simp [HasDom.def, WShapeFun.mem_single]
   refine ⟨fun H => ?_, ?_⟩
   · obtain ⟨x, y, ⟨rfl, rfl⟩ | ⟨h, rfl, rfl⟩, h2, h3, h4⟩ := H _ _ (.inl ⟨rfl, rfl⟩)
@@ -3270,12 +4775,13 @@ theorem WShape.HasDom.single :
     · obtain h | ⟨h1, h2⟩ := H
       · exact ⟨_, _, .inl ⟨rfl, rfl⟩, .rfl, .rfl, h⟩
       · by_cases hx : x ≤ .bot
-        · exact ⟨_, _, .inl ⟨rfl, rfl⟩, .rfl, .rfl, le_bot.1 hx ▸ .bot' h2⟩
-        · exact ⟨_, _, .inr ⟨hx, rfl, rfl⟩, bot_le, h1, .bot' h2⟩
-    · refine ⟨_, _, .inr ⟨h, rfl, rfl⟩, .rfl, .rfl, .bot' ?_⟩
+        · exact ⟨_, _, .inl ⟨rfl, rfl⟩, .rfl, .rfl, le_bot.1 hx ▸ HasType.bot_iff.2 h2⟩
+        · exact ⟨_, _, .inr ⟨hx, rfl, rfl⟩, bot_le, h1, HasType.bot_iff.2 h2⟩
+    · refine ⟨_, _, .inr ⟨h, rfl, rfl⟩, .rfl, .rfl, HasType.bot_iff.2 ?_⟩
       obtain h | ⟨_, h⟩ := H <;> [exact h.isType; exact h]
 
-theorem WShape.HasDom.mono (le : a ≤ a') (h : a'.HasType .type) (H : HasDom f a) : HasDom f a' :=
+theorem WShape.HasDom.mono {r} (le : a ≤ a') (h : a'.HasType (.sort r)) (H : HasDom f a) :
+    HasDom f a' :=
   HasDom.def.2 fun x y hm => let ⟨x', y', h1, h2, h3, h4⟩ := HasDom.def.1 H x y hm
     ⟨x', y', h1, h2, h3, .mono_r le h h4⟩
 
@@ -3305,17 +4811,162 @@ theorem Valuation.Compat.le_join {ρ₁ ρ₂ : Valuation}
     (hc : ρ₁.Compat ρ₂) : ρ₁.LE (ρ₁.join ρ₂) ∧ ρ₂.LE (ρ₁.join ρ₂) :=
   ⟨fun i => (TShape.Join.mk (hc i)).le.1, fun i => (TShape.Join.mk (hc i)).le.2⟩
 
+/-! ## `MArg` -- the matched-argument record  (banner section 12, group A)
+
+`LE_Interp.Matches` indexes its arguments by their SHAPES, and `Matches.unique` recovers the
+matched constructor and its sub-arguments back out of the shape at an `app` position.  That is
+the double duty section 7 breaks: a `Prop`-valued head must get shape `.bot`, and then the
+recovery is gone (`toy_unique_fails`).  `MArg` separates the two -- it records the match, and
+the shape is read off it by `toShape`, free to collapse.  `toy_unique_of_record` is the check
+that this is sufficient.
+
+Written in `Shape`'s own style, as a `def` recursing on the level, so that the nested list in
+the `ctor` case needs no well-founded recursion.  There is no `ctor` at level `0`: `Matches.app`
+concludes at `n+1`. -/
+def MArg : Nat → Type
+  | 0 => WShape 0
+  | n+1 => WShape (n+1) ⊕ Name × List (MArg n)
+
+/-- A `var` position: a bare argument shape. -/
+@[match_pattern] def MArg.shape : ∀ {n}, WShape n → MArg n
+  | 0, x => x
+  | _+1, x => .inl x
+
+/-- An `app` position: the matched constructor and its own argument records. -/
+@[match_pattern] def MArg.ctor {n} (c : Name) (l : List (MArg n)) : MArg (n+1) := .inr (c, l)
+
+/-- The shape a record denotes.  This is the only place `WShape.ctor'` is applied to a matched
+argument list, so it is the single point at which a `Prop`-valued head could be made to
+collapse -- without `Matches` losing anything, because the record is the index. -/
+def MArg.toShape : ∀ {n}, MArg n → WShape n
+  | 0, x => x
+  | _+1, .inl x => x
+  | _+1, .inr (c, l) => WShape.ctor' c (l.map toShape).reverse
+
+def MArg.lift : ∀ {n}, (m : Nat) → MArg n → MArg m
+  | 0, m, x => .shape (WShape.lift m x)
+  | _+1, 0, x => (MArg.toShape x).lift 0
+  | _+1, _+1, .inl x => .inl (x.lift _)
+  | _+1, _+1, .inr (c, l) => .inr (c, l.map (lift _))
+
+/-- Order.  Aligned only: `Matches.mono_l` relates two matches of the SAME pattern, so a `var`
+position is never compared with an `app` one. -/
+def MArg.ble : ∀ {n}, MArg n → MArg n → Bool
+  | 0, x, y => Shape.ble x.1 y.1
+  | _+1, .inl x, .inl y => Shape.ble x.1 y.1
+  | _+1, .inr (c, l), .inr (c', l') => c == c' && l.Forall₂ (ble · ·) l'
+  | _+1, _, _ => false
+
+def MArg.LE (x y : MArg n) : Prop := x.ble y
+instance : LE (MArg n) := ⟨MArg.LE⟩
+
+/-- Compatibility.  **Total**, unlike `join`: `Matches.matches_inter` relates matches of two
+DIFFERENT patterns, so a `var` position genuinely can meet an `app` one.  The mixed case falls
+back to the denoted shapes. -/
+def MArg.Compat : ∀ {n}, MArg n → MArg n → Bool
+  | 0, x, y => Shape.Compat x.1 y.1
+  | _+1, .inl x, .inl y => Shape.Compat x.1 y.1
+  | _+1, .inr (c, l), .inr (c', l') => c == c' && l.Forall₂ (Compat · ·) l'
+  | _+1, x, y => Shape.Compat (MArg.toShape x).1 (MArg.toShape y).1
+
+/-- Join.  **Partial**: only ever applied to pattern-aligned pairs (`Matches.compat_join`
+relates two matches of the same pattern), so the mixed and mismatched cases go to `.bot`
+rather than being given a meaning they would not have. -/
+def MArg.join : ∀ {n}, MArg n → MArg n → MArg n
+  | 0, x, y => WShape.join x y
+  | _+1, .inl x, .inl y => .inl (WShape.join x y)
+  | _+1, .inr (c, l), .inr (c', l') =>
+    if c = c' then .inr (c, l.zipWith join l')
+    else .shape (WShape.join (MArg.toShape (.inr (c, l))) (MArg.toShape (.inr (c', l'))))
+  | _+1, x, y => .shape (WShape.join (MArg.toShape x) (MArg.toShape y))
+
+/-! ### Row 6: `toShape` is a homomorphism
+
+These four are exactly what the consumer rows need: `Matches.mono_l` wants monotonicity,
+`matches_inter` wants `Compat`, `compat_join` wants the join equation, and the two `lift`
+lemmas want the lift equation.  Nothing else about `MArg` is used downstream. -/
+
+@[simp] theorem MArg.toShape_shape {n} {x : WShape n} : (MArg.shape x).toShape = x := by
+  cases n <;> rfl
+
+theorem MArg.toShape_ctor {n} {c} {l : List (MArg n)} :
+    (MArg.ctor c l).toShape = WShape.ctor' c (l.map toShape).reverse := rfl
+
+theorem MArg.toShape_lift : ∀ {n m}, n ≤ m → ∀ x : MArg n,
+    (x.lift m).toShape = (x.toShape).lift m
+  | 0, _, _, _ => by simp [lift, toShape]
+  | _+1, _+1, _, .inl _ => rfl
+  | n+1, m+1, le, .inr (c, l) => by
+    show WShape.ctor' c (((l.map (lift m)).map toShape).reverse)
+        = WShape.lift (m+1) (WShape.ctor' c ((l.map toShape).reverse))
+    rw [WShape.lift_ctor' (Nat.le_of_succ_le_succ le)]
+    congr 1
+    simp only [List.map_map, List.map_reverse]
+    congr 1
+    exact List.map_congr_left fun a _ => toShape_lift (Nat.le_of_succ_le_succ le) a
+
+theorem MArg.toShape_mono : ∀ {n} {x y : MArg n}, x ≤ y → x.toShape ≤ y.toShape
+  | 0, _, _, h => h
+  | _+1, .inl _, .inl _, h => h
+  | _+1, .inr (c, l), .inr (c', l'), h => by
+    have h' : (c == c' && decide (l.Forall₂ (fun a b => ble a b = true) l')) = true := h
+    simp only [Bool.and_eq_true, beq_iff_eq, decide_eq_true_eq] at h'
+    obtain ⟨rfl, hl⟩ := h'
+    refine WShape.ctor'_le_ctor' (List.Forall₂.reverse.2 ?_)
+    refine List.forall₂_map_left_iff.2 (List.forall₂_map_right_iff.2 ?_)
+    exact hl.imp fun _ _ hxy => toShape_mono hxy
+
+theorem MArg.toShape_compat : ∀ {n} {x y : MArg n}, x.Compat y → x.toShape.Compat y.toShape
+  | 0, _, _, h => h
+  | _+1, .inl _, .inl _, h => h
+  | _+1, .inl _, .inr _, h => h
+  | _+1, .inr _, .inl _, h => h
+  | _+1, .inr (c, l), .inr (c', l'), h => by
+    have h' : (c == c' && decide (l.Forall₂ (fun a b => Compat a b = true) l')) = true := h
+    simp only [Bool.and_eq_true, beq_iff_eq, decide_eq_true_eq] at h'
+    obtain ⟨rfl, hl⟩ := h'
+    refine WShape.Compat.ctor'_ctor' (List.Forall₂.reverse.2 ?_)
+    refine List.forall₂_map_left_iff.2 (List.forall₂_map_right_iff.2 ?_)
+    exact hl.imp fun _ _ hxy => toShape_compat hxy
+
+theorem MArg.toShape_join : ∀ {n} {x y : MArg n}, x.Compat y →
+    (x.join y).toShape = x.toShape.join y.toShape
+  | 0, _, _, _ => rfl
+  | _+1, .inl _, .inl _, _ => rfl
+  | _+1, .inl _, .inr _, _ => rfl
+  | _+1, .inr _, .inl _, _ => rfl
+  | n+1, .inr (c, l), .inr (c', l'), h => by
+    have h' : (c == c' && decide (l.Forall₂ (fun a b => Compat a b = true) l')) = true := h
+    simp only [Bool.and_eq_true, beq_iff_eq, decide_eq_true_eq] at h'
+    obtain ⟨rfl, hl⟩ := h'
+    have key : ∀ {l l' : List (MArg n)}, List.Forall₂ (fun a b => Compat a b = true) l l' →
+        (l.zipWith join l').map toShape
+          = (l.map toShape).zipWith WShape.join (l'.map toShape) := by
+      intro l l' hh
+      induction hh with
+      | nil => rfl
+      | cons hx _ ih => simp only [List.zipWith_cons_cons, List.map_cons, toShape_join hx, ih]
+    have hcm : List.Forall₂ WShape.Compat (l.map toShape) (l'.map toShape) :=
+      List.forall₂_map_left_iff.2 (List.forall₂_map_right_iff.2 (hl.imp fun _ _ => toShape_compat))
+    show (MArg.join (MArg.ctor c l) (MArg.ctor c l')).toShape
+        = (MArg.ctor c l).toShape.join (MArg.ctor c l').toShape
+    have hj : MArg.join (MArg.ctor c l) (MArg.ctor c l')
+        = MArg.ctor c (l.zipWith join l') := if_pos rfl
+    rw [hj, toShape_ctor, toShape_ctor, toShape_ctor, key hl,
+      WShape.ctor'_join (List.Forall₂.reverse.2 hcm),
+      List.reverse_zipWith hcm.length_eq]
+
 inductive LE_Interp.Matches : (p : Pattern) → ∀ {n}, Name → List (WShape n) → (p.Path → TShape) → Prop
   | const : Matches (.const c) c [] nofun
   | var : Matches f c rargs mf → Matches (.var f) c (a :: rargs) (·.elim a.T mf)
   | app : Matches (n := n+1) f c rargs mf → Matches (n := n) a c' rargs' ma →
     Matches (n := n+1) (.app f a) c (.ctor' c' rargs'.reverse :: rargs) (Sum.elim mf ma)
 
-variable {p : Pattern} (ls : List SLevel) (m2 : p.Path → TShape)
+variable {p : Pattern} (ls : p.LPath → List SLevel) (m2 : p.Path → TShape)
   (R : TShape → SExpr → Prop) in
 inductive LE_Interp.RHS : TShape → p.RHS → Prop
   | bot : RHS (WShape.T .bot) r
-  | const : R m ((SExpr.mk e).instL ls) → RHS m (.fixed e lp cl)
+  | const : R m ((SExpr.mk e).instL (ls lp)) → RHS m (.fixed e lp cl)
   | var : m ≤ m2 path → RHS m (.var path)
   | app : RHS (WShape.T (n := n + 1) f) F → RHS a.T A → m ≤ (f.app a).T → RHS m (.app F A)
 
@@ -3326,9 +4977,18 @@ inductive LE_Interp.Const : List (WShape n) → TShape → Prop
     m ≤ WShape.T (n := n + 1) (.lam' f) → Const rargs m
   | ctor : Params.classify c = some (.ctor rargs.length) →
     m ≤ WShape.T (n := n + 1) (.ctor' c rargs.reverse) → Const rargs m
-  | indTy : Params.classify c = some (.indTy rargs.length) →
-    m ≤ (WShape.indTy : WShape (n+1)).T → Const rargs m
-  | pat : Params.Pat p r → Matches p c rargs m' → RHS ls m' R m r.1 → Const rargs m
+  /-- **The rule that makes the join family repairable.** The shape's sort boolean now comes
+  from `classify c`, so it is a function of the *head constant*. Two shapes realizing the same
+  term therefore cannot disagree about it -- which is exactly the invariant the join lemmas
+  need and `Compat` alone does not give. See `docs/design-shape-lattice.md`. -/
+  | indTy : Params.classify c = some (.indTy rargs.length rel) →
+    m ≤ (WShape.indTy rel : WShape (n+1)).T → Const rargs m
+  /-- `lsm` is the PER-LEAF level map, bound here rather than shared across the whole
+  `Const`: it depends on `p`, which this rule binds.  `ls` above is the head constant's own
+  list and is what `LE_Interp.const` supplies; the two meet in `build_spine`, which reads
+  `lsm` off the `MatchesS`. -/
+  | pat {p : Pattern} {r} {lsm : p.LPath → List SLevel} {m' m} :
+    Params.Pat p r → Matches p c rargs m' → RHS lsm m' R m r.1 → Const rargs m
 
 inductive LE_Interp : Valuation → TShape → SExpr → Prop
   | bot : LE_Interp ρ (WShape.T (n := n) .bot) M
@@ -3346,7 +5006,7 @@ inductive LE_Interp : Valuation → TShape → SExpr → Prop
     Params.env.constants c = some ci → ls.length = ci.uvars →
     m ≤ m' → m'.HasType a →
     LE_Interp ρ a ((SExpr.mk ci.type).instL ls) →
-    LE_Interp.Const c ls R [] m' → (∀ m e, R m e → LE_Interp ρ m e) →
+    LE_Interp.Const c R [] m' → (∀ m e, R m e → LE_Interp ρ m e) →
     LE_Interp ρ m (.const c ls)
 
 theorem LE_Interp.bvar' : LE_Interp ρ (ρ i) (.bvar i) := .bvar .rfl
@@ -3386,7 +5046,7 @@ theorem LE_Interp.RHS.mono (h : m ≤ m')
 
 theorem LE_Interp.Const.mono (h : m ≤ m')
     (hR : ∀ {a a' A}, a ≤ a' → R a' A → R' a A)
-    (H : Const c ls R rargs m') : Const c ls R' rargs m := by
+    (H : Const c R rargs m') : Const c R' rargs m := by
   induction H generalizing m with
   | bot => exact TShape.le_bot'.1 (h.trans TShape.bot_eqv.1) ▸ .bot
   | lam _ h2 ih => exact .lam (ih · · · .rfl) (h.trans h2)
@@ -3475,7 +5135,7 @@ theorem LE_Interp.Matches.mono_l {rargs rargs'} (wfp : p.WF Params.classify b k)
     exact ⟨Sum.elim m2f m2a, f1.app a1, (·.casesOn f2 a2)⟩
 
 theorem LE_Interp.Const.mono_l (h : rargs.Forall₂ (· ≤ ·) rargs')
-    (H : Const c ls R rargs m) : Const c ls R rargs' m := by
+    (H : Const c R rargs m) : Const c R rargs' m := by
   induction H generalizing rargs' with
   | bot => exact .bot
   | lam h1 h2 ih => exact .lam (fun x y h' => ih _ _ h' (.cons .rfl h)) h2
@@ -3643,7 +5303,7 @@ theorem LE_Interp.Matches.lift (le : n ≤ n') (H : Matches (n := n) p c rargs m
 
 theorem LE_Interp.Const.lift (hn : n₁ ≤ n₂)
     (hR : ∀ {a a' A}, a ≤ a' → R a' A → R a A)
-    (H : Const (n := n₁) c ls R rargs m) : Const c ls R (rargs.map (.lift n₂)) m := by
+    (H : Const (n := n₁) c R rargs m) : Const c R (rargs.map (.lift n₂)) m := by
   induction H generalizing n₂ with
   | bot => exact .bot
   | @lam f rargs m h1 h2 ih =>
@@ -3675,7 +5335,7 @@ theorem LE_Interp.RHS.closed
   | app hf ha h1 ih_f ih_a => exact .app ih_f ih_a h1
 
 theorem LE_Interp.Const.closed
-    (H : Const c ls R rargs m) : Const c ls (fun e A => A.ClosedN ∧ R e A) rargs m := by
+    (H : Const c R rargs m) : Const c (fun e A => A.ClosedN ∧ R e A) rargs m := by
   induction H with
   | bot => exact .bot
   | lam _ h2 ih => exact .lam ih h2
@@ -3749,9 +5409,9 @@ theorem LE_Interp.weak (H : LE_Interp ρ m M) : LE_Interp (ρ.push x) m M.lift :
   weak_iff.2 H
 
 theorem LE_Interp.Const.compat_mismatch {rargs1 rargs2 : List (WShape n)} {m : TShape}
-    (h_len : rargs2.length < rargs1.length) (H1 : Const c ls R rargs1 m)
+    (h_len : rargs2.length < rargs1.length) (H1 : Const c R rargs1 m)
     (H2 : Params.classify c = some (.ctor rargs2.length) ∨
-      Params.classify c = some (.indTy rargs2.length) ∨
+      (∃ rel, Params.classify c = some (.indTy rargs2.length rel)) ∨
       ∃ p r m, Params.Pat p r ∧ Matches p c rargs2 m) :
     m ≤ .bot := by
   induction H1 with
@@ -3764,19 +5424,19 @@ theorem LE_Interp.Const.compat_mismatch {rargs1 rargs2 : List (WShape n)} {m : T
     · have := WShape.lam'_le_lam'.2 <| NonZero.not_iff.1 hf
       exact m_le.trans <| (WShape.lam'_bot ▸ this).T.trans TShape.bot_eqv.1
   | ctor hct m_le_ctor =>
-    obtain hct' | hct' | ⟨p, r, m, hP, hM⟩ := H2
+    obtain hct' | ⟨_, hct'⟩ | ⟨p, r, m, hP, hM⟩ := H2
     · generalize rargs2.length = n at hct' h_len
       cases hct.symm.trans hct'; cases Nat.lt_irrefl _ h_len
     · cases hct.symm.trans hct'
     · cases hct.symm.trans <| pat_arity hP hM.arity
   | indTy hct _ =>
-    obtain hct' | hct' | ⟨_, _, _, hP', hM'⟩ := H2
+    obtain hct' | ⟨_, hct'⟩ | ⟨_, _, _, hP', hM'⟩ := H2
     · cases hct.symm.trans hct'
     · generalize rargs2.length = n at hct' h_len
       cases hct.symm.trans hct'; cases Nat.lt_irrefl _ h_len
     · cases hct.symm.trans <| pat_arity hP' hM'.arity
   | pat hP hM hR =>
-    obtain hct' | hct' | ⟨_, _, _, hP', hM'⟩ := H2
+    obtain hct' | ⟨_, hct'⟩ | ⟨_, _, _, hP', hM'⟩ := H2
     · cases hct'.symm.trans <| pat_arity hP hM.arity
     · cases hct'.symm.trans <| pat_arity hP hM.arity
     · have := pat_arity hP' hM'.arity
@@ -3785,17 +5445,17 @@ theorem LE_Interp.Const.compat_mismatch {rargs1 rargs2 : List (WShape n)} {m : T
 
 theorem LE_Interp.Const.compat_join
     {rargs1 rargs2} (hc : List.Forall₂ WShape.Compat rargs1 rargs2)
-    (H1 : Const (n := n) c ls R rargs1 m) (H2 : Const c ls R' rargs2 m')
+    (H1 : Const (n := n) c R rargs1 m) (H2 : Const c R' rargs2 m')
     (hR_bot : ∀ {n} {e}, R (WShape.T (n := n) .bot) e)
     (hR'_bot : ∀ {n} {e}, R' (WShape.T (n := n) .bot) e)
     (hR₃_mono : ∀ {a a' A}, a ≤ a' → R₃ a' A → R₃ a A)
     (hRR : ∀ {m₁ m₂ A}, R m₁ A → R' m₂ A → m₁.Compat m₂ ∧ R₃ (m₁.join m₂) A) :
-    m.Compat m' ∧ Const c ls R₃ (rargs1.zipWith WShape.join rargs2) (m.join m') := by
+    m.Compat m' ∧ Const c R₃ (rargs1.zipWith WShape.join rargs2) (m.join m') := by
   have hRR_c : ∀ {m₁ m₂ A}, R m₁ A → R' m₂ A → m₁.Compat m₂ := fun h1 h2 => (hRR h1 h2).1
-  have bot_r {n n' m rargs rargs2} (H : Const (n := n) c ls R rargs m)
+  have bot_r {n n' m rargs rargs2} (H : Const (n := n) c R rargs m)
       (hc : List.Forall₂ WShape.Compat rargs rargs2) :
       TShape.Compat m (WShape.bot (n := n')).T ∧
-      Const c ls R₃ (List.zipWith WShape.join rargs rargs2) (m.join (WShape.bot (n := n')).T) := by
+      Const c R₃ (List.zipWith WShape.join rargs rargs2) (m.join (WShape.bot (n := n')).T) := by
     refine have hbc := .bot_r'; ⟨hbc, .mono ?_ (fun h1 h2 => ?_) (H.mono_l ?_)⟩
     · exact (TShape.Join.mk hbc _).2 ⟨.rfl, TShape.bot_le'⟩
     · have ⟨a1, a2⟩ := hRR h2 (hR'_bot (n := 0))
@@ -3861,7 +5521,7 @@ theorem LE_Interp.Const.compat_join
         have h_const := he _ _ (f.mem_val hxy)
         have hL : rargs.length = rargs2.length := hc.length_eq
         refine hn (WShape.LE.T_iff.1 <| .trans ?_ TShape.bot_eqv.2) |>.elim
-        exact compat_mismatch (by simp; omega) h_const <| .inr <| .inl hct'
+        exact compat_mismatch (by simp; omega) h_const <| .inr <| .inl ⟨_, hct'⟩
       · refine have hmc := .mono (m_le.trans TShape.bot_eqv.1) .rfl .bot_l; ⟨hmc, ?_⟩
         have h_le : m.join m' ≤ m' := (TShape.Join.mk hmc _).2 ⟨m_le.trans TShape.bot_le', .rfl⟩
         exact .mono h_le hR₃_mono <| .mono_l (WShape.le_zipWith_join hc).2 (.indTy hct' m_le')
@@ -3890,7 +5550,7 @@ theorem LE_Interp.Const.compat_join
       · exact m_le'.trans (WShape.ctor'_le_ctor' (WShape.le_zipWith_join hc_rev).2).T
     | pat hP hM hR => cases hct.symm.trans <| pat_arity hP hM.arity
     | indTy hct' _ => cases hct.symm.trans hct'
-  | @indTy _ rargs hct m_le =>
+  | @indTy _ _ rargs hct m_le =>
     cases H2 with
     | bot => exact bot_r (.indTy hct m_le) hc
     | lam he' m_le' =>
@@ -3899,17 +5559,22 @@ theorem LE_Interp.Const.compat_join
         refine hn (WShape.LE.T_iff.1 <| .trans ?_ TShape.bot_eqv.2) |>.elim
         have h_const := he' _ _ (WShapeFun.mem_val hxy)
         have hL := hc.length_eq
-        exact compat_mismatch (rargs2 := rargs) (by simp; omega) h_const <| .inr <| .inl hct
+        exact compat_mismatch (rargs2 := rargs) (by simp; omega) h_const <| .inr <| .inl ⟨_, hct⟩
       · refine have hmc := .mono .rfl (m_le'.trans TShape.bot_eqv.1) .bot_r; ⟨hmc, ?_⟩
         refine .indTy ?_ ((TShape.Join.mk hmc _).2 ⟨m_le, m_le'.trans TShape.bot_le'⟩)
         rw [List.length_zipWith, ← hc.length_eq, Nat.min_self, hct]
     | ctor hct' m_le' => cases hct.symm.trans hct'
     | pat hP hM hR => cases hct.symm.trans <| pat_arity hP hM.arity
     | indTy hct' m_le' =>
+      -- Both sides classify the *same* head constant, so `Classification.indTy`'s sort
+      -- boolean agrees.  This is the payoff of parameterising `.indTy`: `Compat` alone
+      -- never gave it.
+      injection Option.some.inj (hct.symm.trans hct') with h_len h_rel
+      subst h_rel
       refine have hc' := TShape.Compat.def'.2 ⟨_, m_le, m_le'⟩; ⟨hc', ?_⟩
       refine .indTy ?_ ((TShape.Join.mk hc' _).2 ⟨m_le, m_le'⟩)
       rw [List.length_zipWith, ← hc.length_eq, Nat.min_self, hct]
-  | @pat _ _ rargs _ m hP hM hR =>
+  | @pat _ _ rargs _ _ m hP hM hR =>
     cases H2 with
     | bot => exact bot_r (.pat hP hM hR) hc
     | lam he' m_le' =>
@@ -3930,6 +5595,14 @@ theorem LE_Interp.Const.compat_join
       have ⟨_, hi⟩ := hM.matches_inter hc (Params.pat_wf hP) hM' (Params.pat_wf hP')
       obtain ⟨rfl, -, ⟨⟩⟩ := Params.pat_uniq hP' hP .refl hi
       have ⟨hc, hj⟩ := hM.compat_join hc hM' (Params.pat_wf hP)
+      -- **OPEN, and it is the whole residue of the per-leaf level-list change.**
+      -- `Const.pat` binds its level map `lsm : p.LPath → List SLevel` existentially, because
+      -- the map's TYPE depends on `p`, which that rule binds -- so `Const` has nowhere to
+      -- record it.  Here the two `Const`s describe the same term, so their maps agree; but
+      -- `Const` does not say so, and `RHS.compat_join` needs one shared `lsm`.
+      -- Closing it means recording the map in `Const` -- i.e. `LE_Interp.Const` (and
+      -- `LE_Interp.Matches`, which carries no levels at all) indexed by `LPath`.  Everything
+      -- else the change touches is already green: this is the ONE obligation it leaves.
       have ⟨a1, a2⟩ := hR.compat_join hc hR_bot hR'_bot hRR hR₃_mono hR'
       exact ⟨a1, .pat hP hj a2⟩
 
@@ -4075,6 +5748,43 @@ theorem LE_Interp.compat_join {m₁ m₂ : TShape}
 
 theorem LE_Interp.compat (H1 : LE_Interp ρ m₁ M) (H2 : LE_Interp ρ m₂ M) : m₁.Compat m₂ :=
   (compat_join .rfl H1 H2).1
+
+/-- **Co-realizing the same term does NOT give a common sort.**  This refutes the
+`LE_Interp`-relative repair of the join family in its naive form.
+
+The escape is `LE_Interp.bvar : m <= rho i -> LE_Interp rho m (.bvar i)`, which puts no
+condition on `rho` at all.  `cxA.Compat cxA'` holds, so `WShape.Compat.iff` hands us an upper
+bound -- their join -- and setting `rho i` to it makes *both* realize `.bvar i` under the
+*same* valuation.  The join is classified by no sort, so `IsType.common_of_le` does not apply
+and no common sort exists.
+
+The co-realizability argument recorded in the banner (both shapes must factor through
+`Const.indTy` at the same head constant, forcing one boolean to two values) is correct *for
+`.indTy` shapes reached through `Const`*.  It does not reach `bvar`, where the shape comes
+from the valuation and nothing forces it through `Const` at all.
+
+**The defect is that `compat_join` quantifies over an arbitrary `rho` with no
+well-formedness hypothesis** -- the same shape of defect as `SExpr.IsDefEq.strong`'s missing
+`Ctx.WF` and `VEnv.Params.pat_wf`'s missing `OnCtx`, now on valuations rather than contexts.
+`rho i := cxA.join cxA'` is a shape that has no type at all; `Valuation.Fits` never produces
+one, but `compat_join` does not ask for `Fits`. -/
+private theorem le_interp_common_fails :
+    ¬ ∀ {n : Nat} {ρ : Valuation} {A : SExpr} {a a' : WShape n},
+        LE_Interp ρ a.T A → LE_Interp ρ a'.T A → a.IsType → a'.IsType →
+        ∃ r, a.HasType (.sort r) ∧ a'.HasType (.sort r) := by
+  intro H
+  have hC : WShape.Compat (⟨cxA, cxA_wf⟩ : WShape 2) ⟨cxA', cxA'_wf⟩ := by
+    show Shape.Compat cxA cxA' = true; rfl
+  have hJ := WShape.Join.mk hC
+  have := H (ρ := fun _ => (WShape.join ⟨cxA, cxA_wf⟩ ⟨cxA', cxA'_wf⟩).T) (A := .bvar 0)
+    (.bvar (WShape.LE.T hJ.le.1)) (.bvar (WShape.LE.T hJ.le.2))
+    ⟨false, by show Shape.hasType cxA (.sort false) = true; rfl⟩
+    ⟨true, by show Shape.hasType cxA' (.sort true) = true; rfl⟩
+  obtain ⟨r, h1, h2⟩ := this
+  simp only [WShape.HasType, WShape.sort] at h1 h2
+  cases r
+  · exact Bool.noConfusion h2
+  · exact Bool.noConfusion h1
 
 theorem LE_Interp.join' (H1 : LE_Interp ρ m₁ M) (H2 : LE_Interp ρ m₂ M) :
     LE_Interp ρ (m₁.join m₂) M :=
@@ -4323,7 +6033,7 @@ theorem LE_Interp.lam_inv' {f : WShapeFun n} {hl : f.NonZero} {B F}
 inductive Valuation.Fits : (Γ Δ : List SExpr) → Valuation → Prop
   | nil : Valuation.Fits Γ Γ .nil
   | cons : Valuation.Fits Γ Δ ρ →
-    (∀ {a}, LE_Interp ρ a A → ∃ a', a ≤ a' ∧ LE_Interp ρ a' A ∧ a'.HasType .type) →
+    (∀ {a}, LE_Interp ρ a A → ∃ a', a ≤ a' ∧ LE_Interp ρ a' A ∧ a'.IsType) →
     LE_Interp ρ a A → x.HasType a →
     Valuation.Fits Γ (A::Δ) (ρ.push x)
 
@@ -4332,7 +6042,8 @@ def InterpTyped (ρ : Valuation) (m : TShape) (M A : SExpr) :=
 
 theorem InterpTyped.bot : InterpTyped ρ (WShape.T (n := n) .bot) M A := by
   refine ⟨WShape.T (n := n) .bot, WShape.T (n := n) .bot, TShape.bot_le', .bot, .bot, ?_⟩
-  exact WShape.HasType.T_iff.2 <| .bot' <| .bot' .sort
+  exact WShape.HasType.T_iff.2 <| WShape.HasType.bot_iff.2 ⟨true,
+    WShape.HasType.bot_iff.2 ⟨true, WShape.HasType.sort⟩⟩
 
 theorem InterpTyped.mk (le : m ≤ m') (h_m : LE_Interp ρ m' M) (h_a : LE_Interp ρ a A)
     (h_type : m'.HasType a) : InterpTyped ρ m M A := ⟨_, _, le, h_m, h_a, h_type⟩
@@ -4355,8 +6066,33 @@ theorem InterpTyped.hsort' {ρ A U}
 
 theorem InterpTyped.hsort {ρ A U}
     (H : ∀ {a}, LE_Interp ρ a A → InterpTyped ρ a A (.sort U))
-    {a} (h : LE_Interp ρ a A) : ∃ a', a ≤ a' ∧ LE_Interp ρ a' A ∧ a'.HasType .type :=
-  have ⟨a', h1, h2, h3⟩ := hsort' H h; ⟨a', h1, h2, h3.toType⟩
+    {a} (h : LE_Interp ρ a A) : ∃ a', a ≤ a' ∧ LE_Interp ρ a' A ∧ a'.IsType :=
+  have ⟨a', h1, h2, h3⟩ := hsort' H h; ⟨a', h1, h2, _, h3⟩
+
+/-- **The true form of `IsType.common`, and the one a call site can actually discharge.**
+
+`cx_refutes` kills the `Compat`-only form and `le_interp_common_fails` kills the
+"both realize the same term" form.  What works is neither: the common sort comes from the
+TERM'S UNIVERSE, not from the shapes and not from a common upper bound.
+
+`InterpTyped.hsort'` gives, for *each* shape realizing `A`, an upper bound classified at
+`.sort (U <> .zero)` -- and that boolean is a function of `U`, the universe `A` lives at, so
+it is the SAME for both shapes.  `HasType.retype` then pulls the classification back down each
+bound separately.  No join is taken, so there is no circularity: the earlier plan of joining
+the two shapes and asking `hsort'` for a bound above the join needs `LE_Interp.join'`, which
+is `compat_join.2` and therefore one of the broken sites. -/
+theorem LE_Interp.common_sort {ρ A U} {a a' : WShape n}
+    (H : ∀ {b}, LE_Interp ρ b A → InterpTyped ρ b A (.sort U))
+    (h : LE_Interp ρ a.T A) (h' : LE_Interp ρ a'.T A)
+    (ha : a.IsType) (ha' : a'.IsType) :
+    ∃ r, a.HasType (.sort r) ∧ a'.HasType (.sort r) := by
+  have ⟨_, le₁, _, hz₁⟩ := InterpTyped.hsort' H h
+  have ⟨_, le₂, _, hz₂⟩ := InterpTyped.hsort' H h'
+  have ⟨_, hr₁⟩ := ha
+  have ⟨_, hr₂⟩ := ha'
+  exact ⟨_,
+    TShape.HasType.sort_r.1 (TShape.HasType.retype (TShape.HasType.sort_r.2 hr₁) hz₁ le₁),
+    TShape.HasType.sort_r.1 (TShape.HasType.retype (TShape.HasType.sort_r.2 hr₂) hz₂ le₂)⟩
 
 theorem LE_Interp.sound_bot :
     (LE_Interp ρ (WShape.T (n := n) .bot) M ↔ LE_Interp ρ (WShape.T (n := n) .bot) N) ∧
@@ -4366,7 +6102,7 @@ theorem LE_Interp.sound_bot :
 theorem LE_Interp.sound_app
     (H1 : ∀ {m}, LE_Interp ρ m F → InterpTyped ρ m F (.forallE A B))
     (H2 : ∀ {b}, LE_Interp ρ b (B.inst X) →
-      ∃ b', b ≤ b' ∧ LE_Interp ρ b' (B.inst X) ∧ b'.HasType .type)
+      ∃ b', b ≤ b' ∧ LE_Interp ρ b' (B.inst X) ∧ b'.IsType)
     (h1 : LE_Interp ρ m (F.app X)) : InterpTyped ρ m (F.app X) (B.inst X) := by
   by_cases hm : m ≤ .bot; · exact TShape.le_bot'.1 hm ▸ .bot
   cases h1 with | bot => exact .bot | app h1 h2 h3
@@ -4395,12 +6131,13 @@ theorem LE_Interp.sound_app
     exact le_f.trans (TShape.lift_eqv (Nat.succ_le_succ hk.1.1)).2
   · have b6 := (TShapeFun.LE.def hk.1.2 hk.2.1).1 b6
     rw [WShape.lift_lam' hk.1.1, WShape.lam'_app]
-    refine g2.mono_r ((WShapeFun.app_mono_l b6 _).trans (WShapeFun.app_mono_r e1) |>.T.trans le') ?_
+    have ⟨_, g2'⟩ := g2
+    refine g2'.mono_r ((WShapeFun.app_mono_l b6 _).trans (WShapeFun.app_mono_r e1) |>.T.trans le') ?_
     exact (WShape.HasTypeLam.iff.1 c1).2.2 _ e2 |>.mono_l (WShapeFun.app_mono_r e1) e3 |>.T
 
 theorem LE_Interp.sound_lam
     (H1 : ∀ {m}, LE_Interp ρ m A →
-      ∃ a', m ≤ a' ∧ LE_Interp ρ a' A ∧ a'.HasType .type)
+      ∃ a', m ≤ a' ∧ LE_Interp ρ a' A ∧ a'.IsType)
     (H2 : ∀ {a x}, LE_Interp ρ a A → x.HasType a →
       ∀ {e}, LE_Interp (ρ.push x) e F → InterpTyped (ρ.push x) e F B)
     (h1 : LE_Interp ρ m (A.lam F)) : InterpTyped ρ m (A.lam F) (A.forallE B) := by
@@ -4433,12 +6170,13 @@ theorem LE_Interp.sound_lam
   induction fl with
   | nil =>
     refine ⟨_, Nat.le_refl _, fun k hk => ?_⟩
-    have ha : (a.lift k).HasType .type :=
-      WShape.lift_type.symm ▸ (WShape.HasType.lift hk).2 h2.isType
+    have ha : (a.lift k).IsType :=
+      have ⟨r, hr⟩ := WShape.HasDom.isType h2
+      ⟨r, WShape.lift_sort.symm ▸ (WShape.HasType.lift hk).2 hr⟩
     refine ⟨.bot, .bot, nofun, .bot ha, .bot ha, fun x h => ?_, fun x h => ?_, fun x h => ?_⟩
     · exact WShapeFun.bot_app ▸ .bot
     · exact WShapeFun.bot_app ▸ .bot
-    · simp [WShapeFun.bot_app]; exact .bot' (.bot' .sort)
+    · simp [WShapeFun.bot_app]; exact .bot_bot
   | cons p fl ih =>
     have ⟨⟨sub1, h3a⟩, H⟩ := List.forall_mem_cons.1 H
     have ⟨k₁, le1, H1⟩ := ih H
@@ -4498,7 +6236,7 @@ theorem LE_Interp.sound_lam
       have hT2 : (sf.app x).HasType (sb.app x) := by
         rw [WShapeFun.single_app, WShapeFun.single_app]; split
         · exact (TShape.HasType.def le_ek le_bk).1 heb'
-        · exact .bot' (.bot' .sort)
+        · exact .bot_bot
       have jb_x := jb.app_l x
       have := hT1.isType.join' jb_x hT2.isType
       exact (this.mono_r jb_x.le.1 hT1).join' (jf.app_l x) (this.mono_r jb_x.le.2 hT2)
@@ -4563,7 +6301,8 @@ theorem LE_Interp.sound_forallE
   | nil =>
     refine ⟨_, Nat.le_refl _, fun k hk => ?_⟩
     refine ⟨.bot, nofun, .bot ?_, fun x h => WShapeFun.bot_app ▸ .bot, fun x h => ?_⟩
-    · simpa [WShape.lift_sort] using (WShape.HasType.lift hk).2 h3.isType
+    · have ⟨r, hr⟩ := WShape.HasDom.isType h3
+      exact ⟨r, by simpa [WShape.lift_sort] using (WShape.HasType.lift hk).2 hr⟩
     · simp [WShapeFun.bot_app]; exact .bot' .sort
   | cons p fl ih =>
     have ⟨⟨sub1, h3a⟩, H⟩ := List.forall_mem_cons.1 H
@@ -4708,7 +6447,9 @@ theorem SoundEq.forallE_inv (H : SoundEq Γ (.forallE A B) (.forallE A' B'))
         LE_Interp ρ m A → LE_Interp ρ m A' from ⟨this H hA, this H.symm hA'⟩
     intro A A' B B' u H hA h
     have ⟨_, a1, a2, a3⟩ := InterpTyped.hsort (hA W) h
-    refine (H W).1 (.forallE' a2 a2 (.bot (TShape.HasType.sort_r.1 a3)) ?_) |>.forallE_inv.1.mono a1
+    have ⟨_, a3'⟩ := a3
+    refine (H W).1 (.forallE' a2 a2 (.bot ⟨_, TShape.HasType.sort_r.1 a3'⟩) ?_)
+      |>.forallE_inv.1.mono a1
     intro x _; simpa using .bot
   · suffices ∀ {A₁ A₂ B₁ B₂}, SoundEq Γ (.forallE A₁ B₁) (.forallE A₂ B₂) →
         SoundEq Γ A A₁ → LE_Interp ρ m B₁ → LE_Interp ρ m B₂ from ⟨this H .rfl, this H.symm hAA⟩
@@ -4719,7 +6460,7 @@ theorem SoundEq.forallE_inv (H : SoundEq Γ (.forallE A B) (.forallE A' B'))
       · have := this.forallE_inv'.2 .bot
         simp [WShapeFun.single_app] at this
         refine this.mono_l ?_; rintro ⟨⟩ <;> exact TShape.bot_eqv.1
-      · refine fun _ => ⟨_, WShape.bot_le, .bot' (.bot' .sort), ?_⟩
+      · refine fun _ => ⟨_, WShape.bot_le, .bot_bot, ?_⟩
         simpa [WShapeFun.single_app] using .rfl
       · intro x h'; cases h'.bot_r
         simpa [WShapeFun.single_app, show m.2.T = m from rfl] using
@@ -4736,7 +6477,7 @@ theorem SoundEq.forallE_inv (H : SoundEq Γ (.forallE A B) (.forallE A' B'))
         exact this.mono (TShape.lift_eqv hk.1.2).2 |>.mono_l <|
           Valuation.LE.push.2 ⟨.rfl, (TShape.lift_eqv hk.1.1).1⟩
       · intro x'; simp [WShapeFun.single_app]
-        split <;> [rename_i h; exact ⟨_, WShape.bot_le, .bot' b4'.isType, WShape.bot_le⟩]
+        split <;> [rename_i h; exact ⟨_, WShape.bot_le, .bot_iff.2 b4'.isType, WShape.bot_le⟩]
         refine ⟨_, h, b4', if_pos ?_ ▸ .rfl⟩; exact .rfl
       · intro x' h1; simp [WShapeFun.single_app]; split <;> [rename_i h2; exact .bot]
         refine h.mono (TShape.lift_eqv hk.1.2).1 |>.mono_l <| Valuation.LE.push.2 ⟨.rfl, ?_⟩
@@ -4784,7 +6525,7 @@ theorem LE_Interp.apps_realize_inv (W : Valuation.Fits Γ₀ Γ ρ)
     exact (h_T_eq W).1 h_app
   · rw [List.drop_eq_getElem_cons h_lt, List.foldr_cons]
     refine .forallE' .bot .bot ?_ ?_
-    · exact WShape.HasDom.single.2 (.inl (.bot' (.bot' .sort)))
+    · exact WShape.HasDom.single.2 (.inl .bot_bot)
     · intro x hx; cases hx.bot_r; simp [WShapeFun.single_app]
       exact H.mono_l <| Valuation.LE.push.2 ⟨.rfl, TShape.bot_eqv.2⟩
 
@@ -4792,7 +6533,7 @@ theorem LE_Interp.apps_realize (W : Valuation.Fits Γ₀ Γ ρ)
     (mty : m'.HasType a) (ha : LE_Interp ρ a T)
     (hTy_lhs : StrongSound Γ (rAs.foldr (fun A acc => acc.app A) (.const c ls)) T)
     (hargs : List.Forall₂ (LE_Interp ρ ·.T) (rargs : List (WShape n)) rAs)
-    (hC : Const c ls (LE_Interp ρ) rargs m') :
+    (hC : Const c (LE_Interp ρ) rargs m') :
     LE_Interp ρ m' (rAs.foldr (fun A acc => acc.app A) (.const c ls)) := by
   generalize h_len : rargs.length = k
   induction k generalizing m' a T rAs n with | succ k ih => ?_ | zero =>
@@ -4820,12 +6561,14 @@ theorem LE_Interp.apps_realize (W : Valuation.Fits Γ₀ Γ ρ)
   refine ih (a := a2.T) (rargs := rest_r.map (WShape.lift k)) ?_ ?_ hMf ?_ ?_ (by simp)
   · have h_m_typed := (TShape.HasType.def hk.1.2 hk.2.2).1 mty
     refine WShape.HasType.T <| .lam <| WShape.HasTypeLam.iff'.2 ⟨?_, ?_, fun x => ?_⟩
-    · refine WShape.HasTypePi.def.2 ⟨WShape.HasDom.single.2 (.inl h_argw_typed), fun x y h => ?_⟩
+    · have ⟨r, hr⟩ := WShape.HasType.isType h_m_typed
+      refine ⟨r, WShape.HasTypePi.def.2
+        ⟨WShape.HasDom.single.2 (.inl h_argw_typed), fun x y h => ?_⟩⟩
       obtain ⟨rfl, rfl⟩ | ⟨_, rfl, rfl⟩ := WShapeFun.mem_single.1 h
-      · exact h_m_typed.isType
+      · exact hr
       · exact .bot' .sort
     · exact WShape.HasDom.single.2 (.inl h_argw_typed)
-    · simp only [WShapeFun.single_app]; split <;> [exact h_m_typed; exact .bot' (.bot' .sort)]
+    · simp only [WShapeFun.single_app]; split <;> [exact h_m_typed; exact .bot_bot]
   · refine .forallE' (ha'.lift hk.2.1) (ha'.lift hk.2.1)
       (WShape.HasDom.single.2 (.inl h_argw_typed)) fun x _ => ?_
     rw [WShapeFun.single_app]; split <;> [rename_i h1; exact .bot]
@@ -4872,7 +6615,7 @@ theorem LE_Interp.Matches.of_matchesS (a2 : p.MatchesS M ls m2)
     ∃ n', ∀ k, n' ≤ k → ∃ c rargs m' m_arg,
       LE_Interp.Matches (n := k) p c rargs m' ∧
       (∀ path, LE_Interp ρ (m' path) (m2 path)) ∧
-      x ≤ m_arg ∧ Const c ls (LE_Interp ρ) rargs m_arg := by
+      x ≤ m_arg ∧ Const c (LE_Interp ρ) rargs m_arg := by
   induction a2 generalizing x top n_off with
   | const =>
     cases hLE with | @const n _ _ _ _ _ _ _ _ _ _ hle _ _ hConst hR => ?_ | bot =>
@@ -4977,14 +6720,15 @@ theorem LE_Interp.Matches.of_matchesS (a2 : p.MatchesS M ls m2)
     refine (hRec s t hxy).compat_mismatch (rargs2 := rargs_a) (by simp) <| .inl ?_
     simpa using hMatch_a.head_wf_eq hWF.2
 
-theorem LE_Interp.build_spine {m1 : p.Path → TShape} {m2} (a2 : p.MatchesS LHS ls m2)
+theorem LE_Interp.build_spine {m1 : p.Path → TShape} {m2}
+    {ls : p.LPath → List SLevel} (a2 : p.MatchesS LHS ls m2)
     (W : Valuation.Fits Γ₀ Γ ρ) (hTy : StrongSound Γ LHS A)
     (p_wf : p.WF Params.classify top extra)
     (hpath : ∀ path, LE_Interp ρ (m1 path) (m2 path)) :
     ∃ n', ∀ k, n' ≤ k → ∃ c rargs m' rAs,
       Matches (n := k) p c rargs m' ∧ (∀ path, m1 path ≤ m' path) ∧
       List.Forall₂ (LE_Interp ρ ·.T) rargs rAs ∧
-      rAs.foldr (fun A acc => .app acc A) (.const c ls) = LHS := by
+      rAs.foldr (fun A acc => .app acc A) (.const c (ls (.head p))) = LHS := by
   induction a2 generalizing A top extra with
   | const => exact ⟨0, fun k _ => ⟨_, [], nofun, [], .const, nofun, .nil, rfl⟩⟩
   | @var _ _ _ _ X _ ih =>
@@ -5006,11 +6750,15 @@ theorem LE_Interp.build_spine {m1 : p.Path → TShape} {m2} (a2 : p.MatchesS LHS
     obtain ⟨c_a, rargs_a, ma', As, hMatch_a, hpath_a, forall2_a, foldr_eq_a⟩ := iha' _ hk.2
     have hTy_at_foldr := foldr_eq_a ▸ hTy_a
     have h_ctor_head := by simpa using hMatch_a.head_wf_eq (k := 0) p_wf.2
-    obtain ⟨ci, h_env, h_uvars, I, Ts, args, _, hTs, hI, hu0, heq, hcit⟩ :
-        ∃ ci, Params.env.constants c_a = some ci ∧ f2.length = ci.uvars ∧ ∃ I Ts args u,
-          Ts.length = rargs_a.length ∧ Params.classify I = some (.indTy args.length) ∧ u ≠ .zero ∧
-          let e := List.foldr .forallE (List.foldr (fun A acc => acc.app A) (.const I f2) args) Ts
-          SoundEq Γ ((SExpr.mk ci.type).instL f2) e ∧ StrongSound Γ e (.sort u) := by
+    obtain ⟨ci, h_env, h_uvars, I, Ts, args, _, rel, hTs, hI, hrel, heq, hcit⟩ :
+        ∃ ci, Params.env.constants c_a = some ci ∧ (f2 (.head _)).length = ci.uvars ∧
+          ∃ I Ts args u rel,
+          Ts.length = rargs_a.length ∧
+          Params.classify I = some (.indTy args.length rel) ∧ (rel = true ↔ u ≠ .zero) ∧
+          let e := List.foldr .forallE
+            (List.foldr (fun A acc => acc.app A) (.const I (f2 (.head _))) args) Ts
+          SoundEq Γ ((SExpr.mk ci.type).instL (f2 (.head _))) e ∧
+            StrongSound Γ e (.sort u) := by
       clear forall2_a hTy_f hTy_a foldr_eq_a hB
       induction As generalizing B with have ⟨_, _, hTy, _⟩ := hTy_at_foldr
       | nil =>
@@ -5018,34 +6766,53 @@ theorem LE_Interp.build_spine {m1 : p.Path → TShape} {m2} (a2 : p.MatchesS LHS
         have cl : CtorBundle.IsCtor c_a := ⟨_, h_ctor_head, rfl⟩
         unfold CtorBundle.rhs at h3
         have cl1 := Option.some.inj <| cl.cl.2.1.symm.trans h_ctor_head
-        exact ⟨_, h1, h2, _, _, _, _, (cl1 ▸ (F cl).hlen :), (F cl).hclI, (F cl).hu0, h3 cl, h4 cl⟩
+        exact ⟨_, h1, h2, _, _, _, _, _, (cl1 ▸ (F cl).hlen :), (F cl).hclI, (F cl).hrel,
+          h3 cl, h4 cl⟩
       | cons A rest ih => have .app _ hMf _ := hTy; exact ih _ hMf
     have h_classify' := forall2_a.length_eq ▸ h_ctor_head
     refine ⟨_, _, _, _, hMatch_f.app hMatch_a, (·.casesOn hpath_f hpath_a),
       .cons ?_ forall2_f, congrArg (·.app M_a) foldr_eq_f⟩
-    refine foldr_eq_a ▸ .apps_realize W (WShape.HasType.T_iff.2 .ctor')
+    refine foldr_eq_a ▸ .apps_realize W (WShape.HasType.T_iff.2 (.ctor' (r := rel)))
       ?_ hTy_at_foldr forall2_a (.ctor h_ctor_head .rfl)
     refine LE_Interp.apps_realize_inv (k := 0) W h_env heq
       (hTs.trans forall2_a.length_eq).symm hTy_at_foldr ?_
     let e := args.foldr (fun A acc => acc.app A) (SExpr.const I f2)
-    have {Ts Γ ρ u} (W : Valuation.Fits Γ₀ Γ ρ) (hu0 : u ≠ .zero)
+    -- The telescope's sort is `.zero` exactly when the body's is (`imax x y = 0 ↔ y = 0`).
+    -- The old version propagated only the `≠ .zero` direction, which is all `hu0` supported;
+    -- the `rel` parameterisation needs the equivalence, and it is available on both sides.
+    have {Ts Γ ρ u} (W : Valuation.Fits Γ₀ Γ ρ)
         (h_intr : StrongSound Γ (List.foldr .forallE e Ts) (.sort u)) :
-        ∃ Γ u, u ≠ .zero ∧ (Ts.length.repeatTR (·.push .bot) ρ).Fits Γ₀ Γ ∧
-          StrongSound Γ e (.sort u) := by
-      induction Ts generalizing Γ ρ u with | nil => exact ⟨_, _, hu0, W, h_intr⟩ | cons T Ts ih
-      have ⟨_, _, h_intr, h_imax_defeq⟩ := h_intr; have .forallE (u := u) (v := v) h1 h2 := h_intr
-      refine ih ?_ (mt (fun h_zero => ?_) hu0) h2
-      · exact W.cons (InterpTyped.hsort (h1.sound W)) .bot (.bot' (.bot' .sort))
-      have h_LE_zero : LE_Interp ρ (.sort false) (.sort (u.imax v)) :=
-        .sort (by simp [TShape.LE.rfl, SLevel.imax_eq_zero, h_zero])
-      have := WShape.sort_le.1 <| .of_T ((h_imax_defeq W).1 h_LE_zero).le_sort
-      injection congrArg (·.1) this with eq; simpa using eq
-    obtain ⟨Γ', u_body, hu0, W, h_body_typed⟩ := this W hu0 hcit
+        ∃ Γ' u', (u' = .zero ↔ u = .zero) ∧ (Ts.length.repeatTR (·.push .bot) ρ).Fits Γ₀ Γ' ∧
+          StrongSound Γ' e (.sort u') := by
+      induction Ts generalizing Γ ρ u with | nil => exact ⟨_, _, .rfl, W, h_intr⟩ | cons T Ts ih
+      have ⟨_, _, h_intr, h_imax_defeq⟩ := h_intr
+      have .forallE (u := u₁) (v := v) h1 h2 := h_intr
+      have key : v = .zero ↔ u = .zero := by
+        constructor
+        · intro h_zero
+          have h_LE_zero : LE_Interp ρ (.sort false) (.sort (u₁.imax v)) :=
+            .sort (by simp [TShape.LE.rfl, SLevel.imax_eq_zero, h_zero])
+          have := WShape.sort_le.1 <| .of_T ((h_imax_defeq W).1 h_LE_zero).le_sort
+          injection congrArg (·.1) this with eq; simpa using eq
+        · intro h_zero
+          have h_LE_zero : LE_Interp ρ (.sort false) (.sort u) :=
+            .sort (by simp [TShape.LE.rfl, h_zero])
+          have := WShape.sort_le.1 <| .of_T ((h_imax_defeq W).2 h_LE_zero).le_sort
+          injection congrArg (·.1) this with eq
+          simpa [SLevel.imax_eq_zero] using eq
+      obtain ⟨Γ'', u'', hiff, W', h'⟩ :=
+        ih (W.cons (InterpTyped.hsort (h1.sound W)) .bot .bot_bot) h2
+      exact ⟨Γ'', u'', hiff.trans key, W', h'⟩
+    obtain ⟨Γ', u_body, hu_iff, W, h_body_typed⟩ := this W hcit
+    have hrel' : rel = true ↔ u_body ≠ .zero := hrel.trans (not_congr hu_iff).symm
+    have hdec : decide (u_body ≠ .zero) = rel :=
+      Bool.eq_iff_iff.2 ⟨fun h => hrel'.2 (of_decide_eq_true h),
+        fun h => decide_eq_true (hrel'.1 h)⟩
     rw [← Nat.repeat_eq_repeatTR] at W; simp [← forall2_a.length_eq, ← hTs]
     refine .apps_realize (rargs := .replicate args.length (.bot (n := k'+1)))
-      W (WShape.HasType.T_iff.2 .indTy) ?_ h_body_typed ?_ ?_
-    · exact .sort (decide_eq_true hu0 ▸ TShape.sort_eqv.1)
-    · clear hI h_body_typed hcit this heq
+      W (WShape.HasType.T_iff.2 (.indTy (r := rel))) ?_ h_body_typed ?_ ?_
+    · exact .sort (by rw [hdec]; exact TShape.sort_eqv.1)
+    · clear hI h_body_typed hcit this heq hrel hrel' hdec
       induction args with | nil => exact .nil | cons _ _ ih => exact .cons .bot ih
     · simpa only [List.map_replicate, WShape.lift_bot] using
         Const.indTy (rargs := .replicate args.length .bot) (List.length_replicate ▸ hI) .rfl
@@ -5057,9 +6824,9 @@ theorem LE_Interp.strongSoundS (H : IsDefEqStrong Γ M N A) : StrongSoundEq Γ M
   | @bvar _ i A _ h h2 ih =>
     refine .rfl ⟨.bvar h, fun _ _ W _ h => ?_, .bvar h, .rfl⟩; clear h2 ih
     generalize eq : SExpr.bvar i = M at h
-    induction h with cases eq | bot => exact .mk .rfl .bot .bot (.bot_T' <| .bot .sort) | bvar a1
+    induction h with cases eq | bot => exact .mk .rfl .bot .bot .bot_bot | bvar a1
     induction W generalizing i A with | cons _ h1 h2 h3 ih => ?_ | nil =>
-      exact TShape.le_bot'.1 a1 ▸ .mk .rfl .bot .bot (.bot_T' <| .bot .sort)
+      exact TShape.le_bot'.1 a1 ▸ .mk .rfl .bot .bot .bot_bot
     cases h with simp [Valuation.push] at a1
     | zero => exact ⟨_, _, a1, .bvar .rfl, h2.weak, h3⟩
     | succ h => have ⟨_, _, le, h1, h2, h3⟩ := ih h a1; exact ⟨_, _, le, h1.weak, h2.weak, h3⟩
@@ -5074,14 +6841,14 @@ theorem LE_Interp.strongSoundS (H : IsDefEqStrong Γ M N A) : StrongSoundEq Γ M
     refine .rfl ⟨.sort, fun _ _ W _ h => ?_, .sort, .rfl⟩
     generalize eq : SExpr.sort l = M at h
     induction h with cases eq
-    | bot => exact .mk .rfl .bot .bot (.bot_T' <| .bot .sort)
+    | bot => exact .mk .rfl .bot .bot .bot_bot
     | sort h1 => exact .mk h1 (.sort .rfl) (.sort .rfl) (by simpa using .sort)
   | @const c _ _ ls _ a1 a2 a3 F a4 ih1 ih2 =>
     refine .rfl ⟨.const a1 a2, fun _ _ W _ h => ?_,
       .const a1 a2 F (fun h => (ih2 h).sound) (fun h => (ih2 h).right), .rfl⟩
     generalize eq : SExpr.const c ls = M at h
     induction h with cases eq | const b1 b2 b3 b4 b5 b6 b7 => ?_ | bot =>
-      exact .mk .rfl .bot .bot (.bot_T' <| .bot .sort)
+      exact .mk .rfl .bot .bot .bot_bot
     cases a1.symm.trans b1; exact .mk b3 (.const b1 b2 .rfl b4 b5 b6 b7) b5 b4
   | appDF _ _ _ _ ihA ih1 ih2 ih3 =>
     refine .mk' (.appDF ih1.defeq ih2.defeq)
@@ -5229,7 +6996,20 @@ theorem LE_Interp.strongSoundS (H : IsDefEqStrong Γ M N A) : StrongSoundEq Γ M
   | extra h1 h2 hTy_lhs hTy_rhs ih1 ih2 =>
     refine ⟨.extra h1 h2, fun Γ₀ ρ W m => ?_, ih1.left, ih2.left⟩
     by_cases hm : m ≤ .bot; · exact TShape.le_bot'.1 hm ▸ (sound_bot (A := default)).1
-    let ⟨p, r, m1, m2, dfs, a1, a2, a3, a4, a5⟩ := ParamsExtra.extra_pat Γ₀ h1 h2
+    obtain ⟨Δ, L, R, p, r, m1, m2, dfs, hL, hR, a1, a2, a3, a4, a5⟩ :=
+      ParamsExtra.extra_pat Γ₀ h1 h2
+    rw [hL, hR]
+    -- **OPEN, and honest.**  `ParamsExtra.extra_pat` is now λ-peeled -- its unpeeled form is
+    -- UNSATISFIABLE, see `SExpr.unpeeled_extra_pat_unsatisfiable` and `SExpr.iota_lhs_lam` --
+    -- so both sides are `mkLams Δ _` and the matched redex is the BODY `L`.  The
+    -- argument below is the one for a bare redex.  Running it under `Δ` needs
+    --   (a) a congruence "`LE_Interp` respects the body of a `.lam`" (a short `cases` on the
+    --       `lam`/`bot` rules -- the binder `A` is shared by both sides), and
+    --   (b) the two IHs and `W` transported under the telescope, which needs `StrongSound`
+    --       inversion through `lam`.
+    -- BEFORE THE PEEL THIS CASE WAS PROVABLE ONLY BECAUSE `ParamsExtra` WAS UNSATISFIABLE,
+    -- and `strongSoundS` carries `[ParamsExtra]`, so it -- and everything downstream of it --
+    -- was vacuous.  The two errors here are the price of making it honest.
     refine a5 ▸ ⟨fun hLE => ?_, fun hLE => ?_⟩
     · obtain ⟨_, built⟩ := Matches.of_matchesS a2 (Params.pat_wf a1) hLE
       obtain ⟨_, rargs, m_path, m_head, hMatch, hpath, hle, hConst⟩ := built _ (Nat.le_refl _)
@@ -5293,7 +7073,7 @@ structure LogRelBase (Γ : List SExpr) (n : Nat) where
 structure LogRel (Γ : List SExpr) (n : Nat) extends LogRelBase Γ n where
   sort_iff : DefEq M N A (.sort r) (.sort r') ↔ ∃ u, Γ ⊢ M ⤳* .sort u ∧ Γ ⊢ N ⤳* .sort u
   sort_iff_ty : TyDefEq M N (.sort r) ↔ ∃ u, Γ ⊢ M ⤳* .sort u ∧ Γ ⊢ N ⤳* .sort u
-  bot : a.HasType .type → DefEq M N A .bot a
+  bot : a.IsType → DefEq M N A .bot a
   toType : DefEq M N A m (.sort r) → TyDefEq M N m
   left : DefEq M N A m a → DefEq M M A m a
   left_ty : TyDefEq M N m → TyDefEq M M m
@@ -5303,11 +7083,11 @@ structure LogRel (Γ : List SExpr) (n : Nat) extends LogRelBase Γ n where
   trans' : DefEq A₁ A₂ (.sort u) a s → DefEq A₂ A₃ (.sort v) a (.sort r) → DefEq A₁ A₃ (.sort u) a s
   trans_ty : TyDefEq M₁ M₂ m → TyDefEq M₂ M₃ m → TyDefEq M₁ M₃ m
   conv : TyDefEq A B a → DefEq M N A m a → DefEq M N B m a
-  mono_r_2 : a ≤ a' → m.HasType a → a'.HasType .type → DefEq M N A m a' → DefEq M N A m a
-  mono_r_2_ty : a ≤ a' → a.HasType .type → a'.HasType .type → TyDefEq A B a' → TyDefEq A B a
+  mono_r_2 : a ≤ a' → m.HasType a → a'.IsType → DefEq M N A m a' → DefEq M N A m a
+  mono_r_2_ty : a ≤ a' → a.IsType → a'.IsType → TyDefEq A B a' → TyDefEq A B a
   mono_r_1 : a ≤ a' → m.HasType a → m.HasType a' → TyDefEq A A a' → DefEq M N A m a → DefEq M N A m a'
   mono_l : m ≤ m' → m.HasType a → m'.HasType a → DefEq M N A m' a → DefEq M N A m a
-  join_ty : m₁.Compat m₂ → m₁.HasType .type → m₂.HasType .type →
+  join_ty : m₁.Compat m₂ → m₁.IsType → m₂.IsType →
     TyDefEq A B m₁ → TyDefEq A B m₂ → TyDefEq A B (m₁.join m₂)
   whr : Γ ⊢ M ⤳* M' → Γ ⊢ N ⤳* N' → (DefEq M N A m a ↔ DefEq M' N' A m a)
   whr_ty : Γ ⊢ A ⤳* A' → Γ ⊢ B ⤳* B' → (TyDefEq A B m ↔ TyDefEq A' B' m)
@@ -5432,13 +7212,15 @@ theorem LRS.LamDefEq.mono_r_1 {IH : LogRel Γ n}
   refine ⟨fun _ _ x hx ha a1 => ?_, fun _ x hx ha a1 => ?_⟩
   all_goals
     have ⟨x', le', hax, h1⟩ := hm_d x
-    have hax' := hx.isType.mono_r le₁ hax
+    have ⟨_, hx_is⟩ := WShape.HasType.isType hx
+    have hax' := hx_is.mono_r le₁ hax
     have a1_x := IH.mono_l le' hax' hx a1
     have a1_down := IH.mono_r_2 le₁ hax hx.isType a1_x
     have hg_x := hm_f x' hax
     have hg_p := hg_x.mono_l (WShapeFun.app_mono_r le') h1
     have le_cod := (WShapeFun.app_mono_r le').trans (WShapeFun.app_mono_l le₂ _)
-    have ht_cod := (WShape.HasTypePi.iff.1 hm'.1).2 x hx
+    have ⟨_, hm'_pi⟩ := hm'.1
+    have ht_cod := (WShape.HasTypePi.iff.1 hm'_pi).2 x hx
     have hm_target := ht_cod.mono_r le_cod hg_p
   · have ⟨p1, p2⟩ := pav hax ha a1_down
     have tyA₂ := (piEV.1 hx ha.hasType.1 (IH.left a1)).1
@@ -5451,7 +7233,7 @@ theorem LRS.LamDefEq.mono_r_1 {IH : LogRel Γ n}
 /-- Type validity at element-shape `m` (merged `TyDefEq` / `EqTyDefEq`).
 Non-trivial at `.forallE` (Pi injectivity) and `.sort` (sort injectivity). -/
 def LRS.TyDefEq (IH : LogRel Γ n) (M N : SExpr) : WShape (n+1) → Prop
-  | ⟨.bot, _⟩ | ⟨.lam _, _⟩ | ⟨.ctor _ _, _⟩ | ⟨.indTy, _⟩ => True
+  | ⟨.bot, _⟩ | ⟨.lam _, _⟩ | ⟨.ctor _ _, _⟩ | ⟨.indTy _, _⟩ => True
   | ⟨.sort _, _⟩ => ∃ u, Γ ⊢ M ⤳* .sort u ∧ Γ ⊢ N ⤳* .sort u
   | ⟨.forallE b f, wf⟩ => LRS.ValTyPi2 IH M N ⟨b, wf.1⟩ ⟨f, wf.2⟩
 
@@ -5526,9 +7308,10 @@ theorem LRS.PiDefEq.mono_r_2 {IH : LogRel Γ n}
     have htpi'_w := WShape.HasTypePi.iff.1 htpi'
     refine ⟨fun _ _ x hp ha a1 => ?_, fun _ x hp ha a1 => ?_⟩
     all_goals
-      have hp' := WShape.HasType.mono_r le₁ (WShape.HasDom.isType htpi'.1) hp
+      have ⟨_, hb'_is⟩ := WShape.HasDom.isType htpi'.1
+      have hp' := WShape.HasType.mono_r le₁ hb'_is hp
       have a2 := IH.mono_r_1 le₁ hp hp' hValA₁ a1
-      have hm_tgt := (htpi_w.2 _ hp).toType; have hm_src := (htpi'_w.2 _ hp').toType
+      have hm_tgt := (htpi_w.2 _ hp).toIsType; have hm_src := (htpi'_w.2 _ hp').toIsType
     · let ⟨t1, t2⟩ := h1 hp' ha a2
       exact ⟨IH.mono_r_2_ty (WShapeFun.app_mono_l le₂ x) hm_tgt hm_src t1,
              IH.mono_r_2_ty (WShapeFun.app_mono_l le₂ x) hm_tgt hm_src t2⟩
@@ -5543,10 +7326,11 @@ theorem LRS.LamDefEq.mono_r_2 {IH : LogRel Γ n}
   intro ⟨h1, h2⟩
   refine ⟨fun _ _ x hp ha a1 => ?_, fun _ x hp ha a1 => ?_⟩
   all_goals
-    have hp' := WShape.HasType.mono_r le₁ (WShape.HasDom.isType htpi'.1) hp
+    have ⟨_, ha₁'_is⟩ := WShape.HasDom.isType htpi'.1
+    have hp' := WShape.HasType.mono_r le₁ ha₁'_is hp
     have a1' := IH.mono_r_1 le₁ hp hp' hValA₁ a1
     have hm_tgt := hm_w.2.2 _ hp
-    have ht_src := (htpi'_w.2 _ hp').toType
+    have ht_src := (htpi'_w.2 _ hp').toIsType
   · have ⟨d1, d2⟩ := h1 hp' ha a1'
     exact ⟨IH.mono_r_2 (WShapeFun.app_mono_l le₂ x) hm_tgt ht_src d1,
            IH.mono_r_2 (WShapeFun.app_mono_l le₂ x) hm_tgt ht_src d2⟩
@@ -5575,7 +7359,7 @@ theorem LRS.LamDefEq.mono_l {IH : LogRel Γ n}
 produce edge validity at `(b₁.join b₂, f₁.join f₂)`.
 Follows the same representative-based strategy as old `LRS.join`. -/
 theorem LRS.PiDefEq.join {IH : LogRel Γ n}
-    (htB₁ : b₁.HasType .type) (htB₂ : b₂.HasType .type)
+    (htB₁ : b₁.IsType) (htB₂ : b₂.IsType)
     (hC_b : b₁.Compat b₂)
     (ht₁ : WShape.HasTypePi f₁ b₁ r₁) (ht₂ : WShape.HasTypePi f₂ b₂ r₂)
     (hC_f : WShapeFun.Compat f₁ f₂)
@@ -5597,18 +7381,18 @@ theorem LRS.PiDefEq.join {IH : LogRel Γ n}
     obtain ⟨e_x, e_le, e_ht, e_app⟩ := hd₂ p
     have c3 := IH.mono_r_2 hJ_b.le.2 e_ht htB_join
       (IH.mono_l e_le (WShape.HasType.mono_r hJ_b.le.2 htB_join e_ht) hp a1)
-    have ht_f1 : (f₁.app p).HasType .type :=
-      have ⟨_, _, hm⟩ := f₁.app_eq p; (ht₁.2 _ _ hm).toType
-    have ht_f2 : (f₂.app p).HasType .type :=
-      have ⟨_, _, hm⟩ := f₂.app_eq p; (ht₂.2 _ _ hm).toType
+    have ht_f1 : (f₁.app p).IsType :=
+      have ⟨_, _, hm⟩ := f₁.app_eq p; (ht₁.2 _ _ hm).toIsType
+    have ht_f2 : (f₂.app p).IsType :=
+      have ⟨_, _, hm⟩ := f₂.app_eq p; (ht₂.2 _ _ hm).toIsType
     have hJ_fp := hJ_f.app_l p
     have ⟨hC_fp, _, hC_fJ⟩ := WShape.Join.iff.1 hJ_fp
     have ht_fJ := ht_f1.join' hJ_fp ht_f2
     have ht_fJ' := ht_f1.join hC_fp ht_f2
     have cvt_d {A B} (h : IH.TyDefEq A B (f₁.app d_x)) : IH.TyDefEq A B (f₁.app p) :=
-      IH.mono_r_2_ty d_app ht_f1 (ht₁_w.2 d_x d_ht).toType h
+      IH.mono_r_2_ty d_app ht_f1 (ht₁_w.2 d_x d_ht).toIsType h
     have cvt_e {A B} (h : IH.TyDefEq A B (f₂.app e_x)) : IH.TyDefEq A B (f₂.app p) :=
-      IH.mono_r_2_ty e_app ht_f2 (ht₂_w.2 e_x e_ht).toType h
+      IH.mono_r_2_ty e_app ht_f2 (ht₂_w.2 e_x e_ht).toIsType h
   · constructor
     · exact IH.mono_r_2_ty hC_fJ ht_fJ ht_fJ' <| IH.join_ty hC_fp ht_f1 ht_f2
         (cvt_d (hE₁.1 d_ht ha c2).1) (cvt_e (hE₂.1 e_ht ha c3).1)
@@ -5645,7 +7429,7 @@ def LRS.DefEq (IH : LogRel Γ n) (M N A : SExpr) (m a : WShape (n+1)) : Prop :=
       LRS.PiDefEq IH A₁ A₂ A₂ ⟨a₁, wfa1⟩ ⟨a₂, wfa2⟩ ∧
       LRS.LamDefEq IH M N A₁ A₂ ⟨mg, (hm ▸ m.2).1⟩ ⟨a₁, wfa1⟩ ⟨a₂, wfa2⟩
     | _ => False
-  | .indTy => True
+  | .indTy _ => True
   | _ => False
 
 @[simp] theorem LRS.DefEq.bot_a : LRS.DefEq IH M N A m .bot = True := rfl
@@ -5666,22 +7450,22 @@ def LRS.DefEq (IH : LogRel Γ n) (M N A : SExpr) (m a : WShape (n+1)) : Prop :=
 @[simp] theorem LRS.DefEq.ctor_forallE :
     LRS.DefEq IH M N A (.ctor c l h) (.forallE a₁ a₂) ↔ False := .rfl
 @[simp] theorem LRS.DefEq.indTy_forallE :
-    LRS.DefEq IH M N A .indTy (.forallE a₁ a₂) ↔ False := .rfl
+    LRS.DefEq IH M N A (.indTy r) (.forallE a₁ a₂) ↔ False := .rfl
 @[simp] theorem LRS.DefEq.lam_a : LRS.DefEq IH M N A m (.lam f hf) ↔ False := .rfl
 @[simp] theorem LRS.DefEq.ctor_a {c l h} :
     LRS.DefEq (n := n) IH M N A m (.ctor c l h) ↔ False := .rfl
 @[simp] theorem LRS.TyDefEq.lam_m : LRS.TyDefEq IH M N (.lam f hf) ↔ True := .rfl
 @[simp] theorem LRS.TyDefEq.ctor_m {c l h} :
     LRS.TyDefEq (n := n) IH M N (.ctor c l h) ↔ True := .rfl
-@[simp] theorem LRS.TyDefEq.indTy_m : LRS.TyDefEq (n := n) IH M N .indTy ↔ True := .rfl
-@[simp] theorem LRS.DefEq.indTy_a : LRS.DefEq (n := n) IH M N A m .indTy ↔ True := .rfl
+@[simp] theorem LRS.TyDefEq.indTy_m : LRS.TyDefEq (n := n) IH M N (.indTy r) ↔ True := .rfl
+@[simp] theorem LRS.DefEq.indTy_a : LRS.DefEq (n := n) IH M N A m (.indTy r) ↔ True := .rfl
 
 def LRS (IH : LogRel Γ n) : LogRel Γ (n+1) where
   DefEq := LRS.DefEq IH
   TyDefEq := LRS.TyDefEq IH
   sort_iff := .rfl
   sort_iff_ty := .rfl
-  bot ha := by cases ha.unfold <;> trivial
+  bot ha := by have ⟨_, ha⟩ := ha; cases ha.unfold <;> trivial
   left_ty := .left
   left {M N A m a} := by
     dsimp [LRS.DefEq]; split <;> try trivial
@@ -5738,8 +7522,10 @@ def LRS (IH : LogRel Γ n) : LogRel Γ (n+1) where
       | bot => simp [LRS.DefEq.bot_m]
       | lam f hf =>
         simp only [LRS.DefEq.lam_forallE] at h ⊢
-        have ⟨_, hp, _⟩ := WShape.HasType.forallE_l.1 hm.isType
-        have ⟨_, hp', _⟩ := WShape.HasType.forallE_l.1 ht
+        have ⟨_, hm_is⟩ := WShape.HasType.isType hm
+        have ⟨_, hp, _⟩ := WShape.HasType.forallE_l.1 hm_is
+        have ⟨_, ht_is⟩ := ht
+        have ⟨_, hp', _⟩ := WShape.HasType.forallE_l.1 ht_is
         obtain ⟨g, hg, hm'⟩ := WShape.HasType.forallE_inv hm
         have hgf : g = f := by
           have := congrArg (·.1) hg; simp only [WShape.lam, WShape.lam'] at this
@@ -5756,8 +7542,8 @@ def LRS (IH : LogRel Γ n) : LogRel Γ (n+1) where
       | forallE => simp [LRS.DefEq.forallE_forallE] at h
       | ctor => simp [LRS.DefEq.ctor_forallE] at h
       | indTy => simp [LRS.DefEq.indTy_forallE] at h
-    | lam f hf => exact absurd hm.isType WShape.HasType.lam_isType
-    | ctor => exact absurd hm.isType WShape.HasType.ctor_isType
+    | lam f hf => exact absurd (WShape.HasType.isType hm) WShape.IsType.not_lam
+    | ctor => exact absurd (WShape.HasType.isType hm) WShape.IsType.not_ctor
     | indTy => simp [LRS.DefEq.indTy_a] at h ⊢
   mono_r_2_ty {a a' A B} le ha ha' h := by
     cases a using WShape.casesOn' with
@@ -5766,8 +7552,10 @@ def LRS (IH : LogRel Γ n) : LogRel Γ (n+1) where
     | forallE a₁ a₂ =>
       simp [LRS.TyDefEq] at h ⊢
       obtain ⟨a₁', a₂', le1, le2, rfl⟩ := WShape.forallE_le.1 le
-      have ⟨_, hp, _⟩ := WShape.HasType.forallE_l.1 ha
-      have ⟨_, hp', _⟩ := WShape.HasType.forallE_l.1 ha'
+      have ⟨_, ha_is⟩ := ha
+      have ⟨_, hp, _⟩ := WShape.HasType.forallE_l.1 ha_is
+      have ⟨_, ha'_is⟩ := ha'
+      have ⟨_, hp', _⟩ := WShape.HasType.forallE_l.1 ha'_is
       let ⟨B₁, F₁, B₂, F₂, u, v, rA, rB, hBB', hFF', hValB, hEdge⟩ := h
       have ht := (WShape.HasTypePi.iff.1 hp).1.isType
       have ht' := (WShape.HasTypePi.iff.1 hp').1.isType
@@ -5811,8 +7599,8 @@ def LRS (IH : LogRel Γ n) : LogRel Γ (n+1) where
         | forallE => exact (LRS.DefEq.forallE_forallE.1 h).elim
         | ctor => exact (LRS.DefEq.ctor_forallE.1 h).elim
         | indTy => exact (LRS.DefEq.indTy_forallE.1 h).elim
-    | lam f hf => exact absurd ha'.isType WShape.HasType.lam_isType
-    | ctor => exact absurd ha'.isType WShape.HasType.ctor_isType
+    | lam f hf => exact absurd (WShape.HasType.isType ha') WShape.IsType.not_lam
+    | ctor => exact absurd (WShape.HasType.isType ha') WShape.IsType.not_ctor
     | indTy => simp [LRS.DefEq.indTy_a]
   mono_l {m m' M N A a} le hm hm' h := by
     cases a using WShape.casesOn' with
@@ -5859,8 +7647,11 @@ def LRS (IH : LogRel Γ n) : LogRel Γ (n+1) where
         · cases hgf'
       | _ => cases hm
     | indTy => simp only [LRS.DefEq.indTy_a]
-    | _ => cases hm.isType
+    | _ =>
+      exact absurd (WShape.HasType.isType hm)
+        (by first | exact WShape.IsType.not_lam | exact WShape.IsType.not_ctor)
   join_ty {A B m₁ m₂} hC hm₁ hm₂ h1 h2 := by
+    have ⟨_, hm₁⟩ := hm₁; have ⟨_, hm₂⟩ := hm₂
     cases hm₁.unfold with
     | bot h₁ => rwa [WShape.bot_join]
     | sort =>
@@ -5883,7 +7674,10 @@ def LRS (IH : LogRel Γ n) : LogRel Γ (n+1) where
       have ht₂ := (WShape.HasTypePi.iff.1 hp₂).1.isType
       refine ⟨B₁, F₁, B₂, F₂, u, v, rA, rB, hBB, hFF, IH.join_ty hC.1 ht₁ ht₂ hValB₁ hValB₂, ?_⟩
       exact .join ht₁ ht₂ hC.1 hp₁ hp₂ hC.2 hEdge₁ hEdge₂
-    | indTy => cases m₂ using WShape.casesOn' <;> trivial
+    | indTy =>
+      cases m₂ using WShape.casesOn' with
+      | indTy => rw [WShape.indTy_join_indTy hC]; trivial
+      | _ => trivial
   whr {M M' N N' A m a} hM hN := by
     cases a using WShape.casesOn' with
     | sort =>
@@ -5924,8 +7718,8 @@ def LR (Γ : List SExpr) : LogRel Γ n :=
 @[simp] theorem LR_succ : LR (n := n+1) Γ = LRS (LR Γ) := rfl
 
 private theorem LRS.PiDefEq.lift_aux
-    {b : WShape n} {f : WShapeFun n} (le : n ≤ n') (htpi_a : WShape.HasTypePi f b true)
-    (IH1 : ∀ {M N : SExpr} {m : WShape n}, WShape.HasType m .type →
+    {b : WShape n} {f : WShapeFun n} (le : n ≤ n') (htpi_a : WShape.HasTypePi f b r)
+    (IH1 : ∀ {M N : SExpr} {m : WShape n}, WShape.IsType m →
       ((LR Γ).TyDefEq M N (m.lift n') ↔ (LR Γ).TyDefEq M N m))
     (IH2 : ∀ {M N A : SExpr} {m a : WShape n}, WShape.HasType m a →
       ((LR Γ).DefEq M N A (m.lift n') (a.lift _) ↔ (LR Γ).DefEq M N A m a)) :
@@ -5937,9 +7731,9 @@ private theorem LRS.PiDefEq.lift_aux
       have hp' := (WShape.HasType.lift le).2 hp
       have v' := (IH2 hp).2 v)
     · have ⟨r1, r2⟩ := hEdge.1 hp' ha v'
-      exact ⟨(IH1 (htpi_w.2 _ hp)).1 (WShapeFun.lift_app le ▸ r1),
-             (IH1 (htpi_w.2 _ hp)).1 (WShapeFun.lift_app le ▸ r2)⟩
-    · exact (IH1 (htpi_w.2 _ hp)).1 (WShapeFun.lift_app le ▸ hEdge.2 hp' ha v')
+      exact ⟨(IH1 (htpi_w.2 _ hp).toIsType).1 (WShapeFun.lift_app le ▸ r1),
+             (IH1 (htpi_w.2 _ hp).toIsType).1 (WShapeFun.lift_app le ▸ r2)⟩
+    · exact (IH1 (htpi_w.2 _ hp).toIsType).1 (WShapeFun.lift_app le ▸ hEdge.2 hp' ha v')
   · refine ⟨fun _ _ _ hp ha v => ?_, fun _ _ hp ha v => ?_⟩ <;> (
       obtain ⟨q, d1, d2⟩ := WShapeFun.app_eq (f.lift n') _
       obtain ⟨q₀, y₀, d2₀, rfl, d3⟩ := (WShapeFun.mem_lift le).1 d2
@@ -5947,24 +7741,26 @@ private theorem LRS.PiDefEq.lift_aux
       have v' := (IH2 hq).1 ((LR Γ).mono_l (((WShape.lift_le_lift le).2 qxle).trans d1)
         ((WShape.HasType.lift le).2 hq) hp v))
     · have ⟨r1, r2⟩ := hEdge.1 hq ha v'
-      have ht_q := (htpi_w.2 _ hq).toType
-      have ht_y₀ : (y₀ : WShape n).HasType WShape.type := (htpi_a.2 _ _ d2₀).toType
+      have ht_q0 := htpi_w.2 _ hq
+      have ht_q := ht_q0.toIsType
+      have ht_y₀0 : (y₀ : WShape n).HasType (WShape.sort r) := htpi_a.2 _ _ d2₀
       have y₀_le_fqx : y₀ ≤ f.app qx' := qyle.trans (f.app_of_mem d2₀').2
-      have ht_q_l : ((f.app qx').lift n').HasType WShape.type := by
-        have := (WShape.HasType.lift le).2 ht_q; rwa [WShape.lift_sort] at this
-      have ht_y₀_l : (y₀.lift n').HasType WShape.type := by
-        have := (WShape.HasType.lift le).2 ht_y₀; rwa [WShape.lift_sort] at this
+      have ht_q_l : ((f.app qx').lift n').IsType :=
+        ⟨_, by have := (WShape.HasType.lift le).2 ht_q0; rwa [WShape.lift_sort] at this⟩
+      have ht_y₀_l : (y₀.lift n').IsType :=
+        ⟨_, by have := (WShape.HasType.lift le).2 ht_y₀0; rwa [WShape.lift_sort] at this⟩
       exact d3 ▸ ⟨
         (LR Γ).mono_r_2_ty (WShape.lift_mono le y₀_le_fqx) ht_y₀_l ht_q_l ((IH1 ht_q).2 r1),
         (LR Γ).mono_r_2_ty (WShape.lift_mono le y₀_le_fqx) ht_y₀_l ht_q_l ((IH1 ht_q).2 r2)⟩
     · have hq_body := hEdge.2 hq ha v'
-      have ht_q := (htpi_w.2 _ hq).toType
-      have ht_y₀ : (y₀ : WShape n).HasType WShape.type := (htpi_a.2 _ _ d2₀).toType
+      have ht_q0 := htpi_w.2 _ hq
+      have ht_q := ht_q0.toIsType
+      have ht_y₀0 : (y₀ : WShape n).HasType (WShape.sort r) := htpi_a.2 _ _ d2₀
       have y₀_le_fqx : y₀ ≤ f.app qx' := qyle.trans (f.app_of_mem d2₀').2
-      have ht_q_l : ((f.app qx').lift n').HasType WShape.type := by
-        have := (WShape.HasType.lift le).2 ht_q; rwa [WShape.lift_sort] at this
-      have ht_y₀_l : (y₀.lift n').HasType WShape.type := by
-        have := (WShape.HasType.lift le).2 ht_y₀; rwa [WShape.lift_sort] at this
+      have ht_q_l : ((f.app qx').lift n').IsType :=
+        ⟨_, by have := (WShape.HasType.lift le).2 ht_q0; rwa [WShape.lift_sort] at this⟩
+      have ht_y₀_l : (y₀.lift n').IsType :=
+        ⟨_, by have := (WShape.HasType.lift le).2 ht_y₀0; rwa [WShape.lift_sort] at this⟩
       exact d3 ▸
         (LR Γ).mono_r_2_ty (WShape.lift_mono le y₀_le_fqx) ht_y₀_l ht_q_l ((IH1 ht_q).2 hq_body)
 
@@ -5995,16 +7791,18 @@ private theorem LRS.LamDefEq.lift_aux
       have ⟨yg₁, yg₂⟩ := WShapeFun.app_of_mem dg2₀
       have ⟨ya₁, ya₂⟩ := WShapeFun.app_of_mem da2₀
       have ⟨qg', qg'le, hqg, qg'app⟩ := WShape.HasDom.iff.1 htm.2.1 qg
-      have ⟨qa', qa'le, hqa, qa'app⟩ := WShape.HasDom.iff.1 htm.1.1 qa
+      have ⟨_, htm_pi⟩ := htm.1
+      have ⟨qa', qa'le, hqa, qa'app⟩ := WShape.HasDom.iff.1 htm_pi.1 qa
       rw [dg3, da3]
       have v_lo := (IH hqg).1 <| (LR Γ).mono_l
         (((WShape.lift_le_lift le).2 qg'le).trans dg1) ((WShape.HasType.lift le).2 hqg) hp v
       have v_lo_qa := (IH hqa).1 <| (LR Γ).mono_l
         (((WShape.lift_le_lift le).2 qa'le).trans da1) ((WShape.HasType.lift le).2 hqa) hp v
       have ht_lo := htm_w.2.2 _ hqg
-      have htm_p := WShape.HasTypePi.iff'.1 htm_w.1
+      have ⟨_, htm_w1⟩ := htm_w.1
+      have htm_p := WShape.HasTypePi.iff'.1 htm_w1
       have vt_qa := hEdge.2 hqa ha.hasType.1 ((LR Γ).left v_lo_qa)
-      have vt_qa' := (LR Γ).mono_r_2_ty qa'app (htm_p.2 qa) (htm_p.2 qa') vt_qa
+      have vt_qa' := (LR Γ).mono_r_2_ty qa'app (htm_p.2 qa).toIsType (htm_p.2 qa').toIsType vt_qa
       have ya_sort := (htm_p.2 qa).mono_l ya₁ ya₂
       have ht_yg_qg' : yg.HasType (a₂.app qg') :=
         ht_lo.mono_l (WShapeFun.app_mono_r qg'le |>.trans yg₁) (yg₂.trans qg'app)
@@ -6014,7 +7812,7 @@ private theorem LRS.LamDefEq.lift_aux
         exact (WShapeFun.app_mono_r dg1 (f := a₂.lift n')).trans <| da3 ▸ WShape.lift_mono le ya₂
       have ya_sort := (htm_p.2 qa).mono_l ya₁ ya₂
       have ht_yg := ya_sort.mono_r le_a2_ya ht_yg_qg'
-      have vt_ya := (LR Γ).mono_r_2_ty ya₂ ya_sort (htm_p.2 qa) vt_qa'
+      have vt_ya := (LR Γ).mono_r_2_ty ya₂ ya_sort.toIsType (htm_p.2 qa).toIsType vt_qa'
       have go {M N} (r : (LR Γ).DefEq M N (A₂.inst a') (g.app qg') (a₂.app qg')) :
           (LR Γ).DefEq M N (A₂.inst a') (yg.lift n') (ya.lift n') :=
         (IH ht_yg).2 <|
@@ -6024,7 +7822,7 @@ private theorem LRS.LamDefEq.lift_aux
     · exact go (hP.2 hqg ha v_lo)
 
 private theorem LR.lift_succ_aux :
-    (∀ {M N : SExpr} {m : WShape n}, WShape.HasType m .type →
+    (∀ {M N : SExpr} {m : WShape n}, WShape.IsType m →
       (LRS.TyDefEq (n := n) (LR Γ) M N (m.lift _) ↔ (LR Γ).TyDefEq M N m)) ∧
     (∀ {M N A : SExpr} {m a : WShape n}, WShape.HasType m a →
       (LRS.DefEq (n := n) (LR Γ) M N A (m.lift _) (a.lift _) ↔ (LR Γ).DefEq M N A m a)) := by
@@ -6037,9 +7835,13 @@ private theorem LR.lift_succ_aux :
     refine have h1 := ?_; ⟨h1, ?_⟩
     · intro M N m hmt
       cases m using WShape.casesOn' with
-      | forallE b f => ?_ | _ => constructor <;> intro <;> trivial
+      | lam f hf => exact absurd hmt WShape.IsType.not_lam
+      | ctor => exact absurd hmt WShape.IsType.not_ctor
+      | forallE b f => ?_
+      | _ => constructor <;> intro <;> trivial
       rw [WShape.lift_forallE (Nat.le_succ k)]
-      have ⟨_, htpi, rfl⟩ := WShape.HasType.forallE_l.1 hmt
+      have ⟨_, hmt_is⟩ := hmt
+      have ⟨_, htpi, _⟩ := WShape.HasType.forallE_l.1 hmt_is
       constructor <;> intro ⟨B₁, F₁, B₂, F₂, u, v, rM, rN, hB, hF, hValB, hE⟩ <;>
         refine ⟨B₁, F₁, B₂, F₂, u, v, rM, rN, hB, hF, ?_, ?_⟩
       · exact (ih.1 (WShape.HasTypePi.iff.1 htpi).1.isType).1 hValB
@@ -6049,16 +7851,20 @@ private theorem LR.lift_succ_aux :
     · intro M N A m a hma
       cases a using WShape.casesOn' with
       | bot | indTy => constructor <;> intro <;> trivial
-      | sort => exact h1 hma.toType
-      | forallE a₁ a₂ => ?_ | _ => cases hma.isType
-      have ⟨_, htpi_a, _⟩ := WShape.HasType.forallE_l.1 hma.isType
+      | sort => exact h1 hma.toIsType
+      | forallE a₁ a₂ => ?_
+      | _ =>
+        exact absurd (WShape.HasType.isType hma)
+          (by first | exact WShape.IsType.not_lam | exact WShape.IsType.not_ctor)
+      have ⟨_, hma_is⟩ := WShape.HasType.isType hma
+      have ⟨_, htpi_a, _⟩ := WShape.HasType.forallE_l.1 hma_is
       obtain ⟨g, rfl, htm⟩ := WShape.HasType.forallE_inv hma
       unfold WShape.lam'; split <;> [skip; (simp; trivial)]
       rw [WShape.lift_lam (Nat.le_succ k), WShape.lift_forallE (Nat.le_succ k)]
       simp only [LRS.DefEq.lam_forallE]
       constructor <;> intro ⟨A₁, A₂, u, v, rA, hA1, hValA, hA₂, hEdge, hP⟩ <;>
-        [ have hEdge' := (LRS.PiDefEq.lift_aux (Nat.le_succ k) htm.1 ih.1 ih.2).1 hEdge;
-          have hEdge' := (LRS.PiDefEq.lift_aux (Nat.le_succ k) htm.1 ih.1 ih.2).2 hEdge ] <;>
+        [ have hEdge' := (LRS.PiDefEq.lift_aux (Nat.le_succ k) htm.1.choose_spec ih.1 ih.2).1 hEdge;
+          have hEdge' := (LRS.PiDefEq.lift_aux (Nat.le_succ k) htm.1.choose_spec ih.1 ih.2).2 hEdge ] <;>
         refine ⟨A₁, A₂, u, v, rA, hA1, ?_, hA₂, hEdge', ?_⟩
       · exact (ih.1 (WShape.HasTypePi.iff.1 htpi_a).1.isType).1 hValA
       · exact (LRS.LamDefEq.lift_aux (Nat.le_succ k) htm ih.2 hEdge').1 hP
@@ -6071,25 +7877,26 @@ theorem LR.DefEq.lift {m a : WShape n} (le : n ≤ n') (hma : WShape.HasType m a
   rw [(WShape.lift_lift (.inl le)).symm, (WShape.lift_lift (s := a) (.inl le)).symm]
   exact (LR.lift_succ_aux.2 ((WShape.HasType.lift le).2 hma)).trans ih
 
-theorem LR.TyDefEq.lift {m : WShape n} (le : n ≤ n') (hmt : WShape.HasType m .type) :
+theorem LR.TyDefEq.lift {m : WShape n} (le : n ≤ n') (hmt : m.IsType) :
     (LR Γ).TyDefEq (n := n') M N (m.lift _) ↔ (LR Γ).TyDefEq M N m := by
   induction le with | refl => simp [WShape.lift_self] | step le ih
   rw [(WShape.lift_lift (.inl le)).symm]
-  have := (WShape.HasType.lift le).2 hmt
-  simp [WShape.type] at this
+  have ⟨r, hr⟩ := hmt
+  have : WShape.IsType (m.lift _) :=
+    ⟨r, by have := (WShape.HasType.lift le).2 hr; rwa [WShape.lift_sort] at this⟩
   exact (LR.lift_succ_aux.1 this).trans ih
 
 
 def LR.Subst1 (Γ₀ : List SExpr) (x x' A₀ A A' : SExpr) (ρ : Valuation) (i := 0) : Prop :=
   Γ₀ ⊢ x ≡ x' : A ∧ ∀ {{n}} (a : WShape n), LE_Interp ρ a.T A₀ →
-    (a.HasType .type → (∃ u, Γ₀ ⊢ A ≡ A' : .sort u) ∧ (LR Γ₀).TyDefEq A A' a) ∧
+    (a.IsType → (∃ u, Γ₀ ⊢ A ≡ A' : .sort u) ∧ (LR Γ₀).TyDefEq A A' a) ∧
     ∀ {{m : WShape n}}, LE_Interp ρ m.T (.bvar i) → m.HasType a → (LR Γ₀).DefEq x x' A m a
 
 inductive LR.SubstWF (Γ₀ : List SExpr) : Subst → Subst → List SExpr → Valuation → Prop where
   | id : LR.SubstWF Γ₀ .id .id Γ₀ .nil
   | cons : LR.SubstWF Γ₀ σ.tail σ'.tail Γ ρ →
     (∀ {a}, LE_Interp ρ a A →
-      ∃ a', a ≤ a' ∧ LE_Interp ρ a' A ∧ a'.HasType .type) →
+      ∃ a', a ≤ a' ∧ LE_Interp ρ a' A ∧ a'.IsType) →
     LE_Interp ρ a A → x.HasType a → Γ ⊢ A : .sort u →
     LR.Subst1 Γ₀ σ.head σ'.head A.lift (A.subst σ.tail) (A.subst σ'.tail) (ρ.push x) →
     LR.SubstWF Γ₀ σ σ' (A :: Γ) (ρ.push x)
@@ -6115,8 +7922,197 @@ theorem LR.SubstWF.symm (W : LR.SubstWF Γ₀ σ σ' Γ ρ) : LR.SubstWF Γ₀ �
   | id => exact .id
   | cons _ h1 h2 h3 hA h0 ih =>
     refine .cons ih h1 h2 h3 hA ⟨?_, fun _ a ha => ⟨fun ht => ?_, fun _ hM hmem => ?_⟩⟩
-    · have ⟨⟨_, h1⟩, _⟩ := (h0.2 (n := 0) _ .bot).1 (.bot .sort)
+    · have ⟨⟨_, h1⟩, _⟩ := (h0.2 (n := 0) _ .bot).1 ⟨true, .bot .sort⟩
       exact h1.defeqDF h0.1.symm
     · exact let ⟨⟨u, h1⟩, h2⟩ := (h0.2 a ha).1 ht; ⟨⟨u, h1.symm⟩, (LR _).symm_ty h2⟩
     · let ⟨_, h2⟩ := (h0.2 a ha).1 hmem.isType
       exact (LR _).conv h2 ((LR _).symm ((h0.2 a ha).2 hM hmem))
+
+section JoinSortProbe
+/-! ## Is `join_sort` -- `IsType.common` relativised to `TyDefEq` -- true?
+
+`cx_refutes` kills the `Compat`-only form; `le_interp_common_fails` kills the
+"realize the same term" form.  The costed proposal was to relativise to `TyDefEq` at a common
+`A B`, on the strength of `common_of_not_forallE` (`Compat` pins the sort in 35 of the 36
+constructor pairs) plus "`ValTyPi2` supplies at `forallE`/`forallE` what `Compat` cannot".
+
+**It does not.**  `piDefEq_cannot_see` already shows why: `PiDefEq`'s obligations are pointwise
+in the key, and at every key typed at `cxB` at most one of `cxF`, `cxF'` has a non-`.bot`
+value.  Below is the witness itself -- both counterexample shapes satisfy `TyDefEq` for one and
+the same `A B`, so the relativisation is vacuous exactly where it was needed. -/
+
+private def cxBW : WShape 1 := ⟨cxB, cxA_wf.1⟩
+private def cxFW : WShapeFun 1 := ⟨cxF, cxA_wf.2⟩
+private def cxFW' : WShapeFun 1 := ⟨cxF', cxA'_wf.2⟩
+
+private theorem cxFW_val (p : WShape 1) :
+    (cxFW.app p).1 = Shape.bot ∨ (cxFW.app p).1 = ShapeS.indTy false := by
+  have ⟨x', _, hmem⟩ := cxFW.app_eq p
+  rw [WShapeFun.mem_def] at hmem
+  simp only [cxFW, cxF, List.mem_cons, List.not_mem_nil, or_false, Prod.mk.injEq] at hmem ⊢
+  rcases hmem with ⟨_, h⟩ | ⟨_, h⟩ <;> simp [h]
+
+private theorem cxFW'_val (p : WShape 1) :
+    (cxFW'.app p).1 = Shape.bot ∨ (cxFW'.app p).1 = ShapeS.indTy true := by
+  have ⟨x', _, hmem⟩ := cxFW'.app_eq p
+  rw [WShapeFun.mem_def] at hmem
+  simp only [cxFW', cxF', List.mem_cons, List.not_mem_nil, or_false, Prod.mk.injEq] at hmem ⊢
+  rcases hmem with ⟨_, h⟩ | ⟨_, h⟩ <;> simp [h]
+
+/-- `LRS.TyDefEq` carries NO information at `.bot` or at `.indTy` -- both clauses are `True`.
+That is the hole the witness walks through. -/
+private theorem tyDefEq_of_val {Γ : List SExpr} {IH : LogRel Γ 0} {X Y : SExpr} {w : WShape 1}
+    (h : w.1 = Shape.bot ∨ ∃ r, w.1 = ShapeS.indTy r) : LRS.TyDefEq IH X Y w := by
+  obtain ⟨w, wf⟩ := w
+  rcases h with h | ⟨r, h⟩ <;> subst h <;> trivial
+
+private def cxM : SExpr := .forallE (.sort .zero) (.sort .zero)
+
+/-- `ValTyPi2` holds for the counterexample domain and **either** codomain family, with one
+and the same `A B`.  Every obligation is discharged without ever looking at a family value's
+sort: the term-level fields are reflexivity at `.sort .zero`, and `PiDefEq`'s two components
+land in `LRS.TyDefEq` at a `.bot`-or-`.indTy` shape, which is `True`. -/
+private theorem cxValTyPi2 (f : WShapeFun 1)
+    (hf : ∀ p : WShape 1, (f.app p).1 = Shape.bot ∨ ∃ r, (f.app p).1 = ShapeS.indTy r) :
+    LRS.ValTyPi2 (Γ := []) (LR (n := 1) []) cxM cxM cxBW f := by
+  refine ⟨.sort .zero, .sort .zero, .sort .zero, .sort .zero, .succ .zero, .succ .zero,
+    .rfl, .rfl, .sort, .sort, ?_, ?_, ?_⟩
+  · exact (LR (n := 1) []).sort_iff_ty.2 ⟨.zero, .rfl, .rfl⟩
+  · intro a b' p _ _ _; exact ⟨tyDefEq_of_val (hf p), tyDefEq_of_val (hf p)⟩
+  · intro a p _ _ _; exact tyDefEq_of_val (hf p)
+
+/-- **`join_sort` is FALSE.**  Relativising `IsType.common` to `TyDefEq` at a common `A B` does
+not recover it: `cx_refutes`'s two shapes both satisfy `TyDefEq` for the same `A B`, are
+`Compat`, are each classified by a sort, and share none.
+
+The mechanism is `piDefEq_cannot_see`: `PiDefEq` constrains a family pointwise in the key, and
+the two families' disagreeing values sit at keys the other family does not reach.  So the
+extra hypothesis is vacuous at exactly the one constructor pair where
+`common_of_not_forallE` says it was needed. -/
+private theorem join_sort_fails :
+    ¬ ∀ {Γ : List SExpr} {A B : SExpr} {m₁ m₂ : WShape 2},
+        m₁.Compat m₂ →
+        LRS.TyDefEq (LR (n := 1) Γ) A B m₁ → LRS.TyDefEq (LR (n := 1) Γ) A B m₂ →
+        m₁.IsType → m₂.IsType →
+        ∃ r, m₁.HasType (.sort r) ∧ m₂.HasType (.sort r) := by
+  intro H
+  have h1 : LRS.TyDefEq (LR (n := 1) []) cxM cxM (WShape.forallE cxBW cxFW) :=
+    cxValTyPi2 cxFW fun p => (cxFW_val p).imp id (⟨false, ·⟩)
+  have h2 : LRS.TyDefEq (LR (n := 1) []) cxM cxM (WShape.forallE cxBW cxFW') :=
+    cxValTyPi2 cxFW' fun p => (cxFW'_val p).imp id (⟨true, ·⟩)
+  have hC : WShape.Compat (WShape.forallE cxBW cxFW) (WShape.forallE cxBW cxFW') := by
+    show Shape.Compat cxA cxA' = true; rfl
+  obtain ⟨r, hh1, hh2⟩ := H hC h1 h2
+    ⟨false, by show Shape.hasType cxA (Shape.sort false) = true; rfl⟩
+    ⟨true, by show Shape.hasType cxA' (Shape.sort true) = true; rfl⟩
+  simp only [WShape.HasType, WShape.sort, WShape.forallE] at hh1 hh2
+  cases r
+  · exact Bool.noConfusion hh2
+  · exact Bool.noConfusion hh1
+
+end JoinSortProbe
+
+section ExitProbes
+/-! ## The two remaining section-7 exits, probed
+
+Both were costed in the banner (section 10) and both were flagged "looks false".  These are
+the probes.  Neither performs its exit; each isolates the one fact the exit destroys. -/
+
+/-! ### Exit 1 -- give up `proofIrrel` at `Prop`-valued inductives -/
+
+/-- **The obligation exit 1 drops is FALSE, and this is the mechanism.**
+
+`strongSoundS`'s `proofIrrel` case must prove `LE_Interp rho m h <-> LE_Interp rho m h'` for
+two proofs of the same `Prop`, with `rho` constrained only by `Valuation.Fits`.  Two proof
+VARIABLES are the sharpest instance: `h := .bvar 0`, `h' := .bvar 1`.  `LE_Interp.bvar` reads
+the shape straight off the valuation, so the two sides see `rho 0` and `rho 1` -- and
+`LE_Interp` separates them the moment those differ and `m` is not `<= .bot`.
+
+`Valuation.Fits.cons` pushes `x` with `x.HasType a` for an `a` realizing the variable's type.
+When that type is a `Prop`-valued inductive, `a <= (.indTy false).T`, and section 7's gating
+forces `x = .bot` (`WShape.HasType.indTy_false_bot`) -- so under the gating both entries are
+`.bot`, `m <= .bot`, and the separation below cannot be instantiated.  **Exit 1 removes
+exactly that**, `Fits` then admits a non-`.bot` proof shape, and this lemma applies. -/
+private theorem exit1_bvar_separates {m : TShape} (hm : ¬ m ≤ TShape.bot) :
+    LE_Interp ((Valuation.nil.push TShape.bot).push m) m (.bvar 0) ∧
+    ¬ LE_Interp ((Valuation.nil.push TShape.bot).push m) m (.bvar 1) := by
+  refine ⟨.bvar TShape.LE.rfl, fun h => ?_⟩
+  cases h with
+  | bot => exact hm TShape.bot_le'
+  | bvar hle => exact hm hle
+
+/-- ... and a non-`.bot` shape to instantiate it with. -/
+private theorem exit1_witness :
+    LE_Interp ((Valuation.nil.push TShape.bot).push (WShape.sort (n := 0) true).T)
+        (WShape.sort (n := 0) true).T (.bvar 0) ∧
+    ¬ LE_Interp ((Valuation.nil.push TShape.bot).push (WShape.sort (n := 0) true).T)
+        (WShape.sort (n := 0) true).T (.bvar 1) :=
+  exit1_bvar_separates fun h => by
+    have := TShape.le_bot.1 h
+    exact absurd (congrArg (·.1) this) (by simp [WShape.sort, WShape.bot, Shape.sort, Shape.bot])
+
+/-! ### Exit 2(alpha) -- give the iota-pattern's constructor leaf a `.bot` shape
+
+`Matches.unique`'s `app` case recovers the constructor and its argument list FROM the leaf
+shape.  Read its proof: `head_wf` gives `classify c' = some (.ctor ..)`, hence
+`IsStruct c' = false`, hence `WShape.ctor'` takes its `.ctor` branch, and then
+`WShape.ctor.inj` + `List.reverse_inj` deliver `c'` and `rargs'`.  So `unique` rests on the
+leaf being INJECTIVE, and exit 2(alpha) makes it constant on a `Prop`-valued head. -/
+
+/-- The injectivity `Matches.unique` consumes.  It holds because `Pattern.WF` classifies a
+constructor leaf as `.ctor`, never `.etaCtor`, so `IsStruct` is `false` there and the `.bot`
+branch of `ctor'` is unreachable at exactly those positions. -/
+private theorem ctor'_inj_of_not_struct {c : Name} (hc : IsStruct c = false)
+    {l l' : List (WShape n)} (h : WShape.ctor' c l = WShape.ctor' c l') : l = l' := by
+  have hg : ∀ l : List (WShape n), IsStruct c = true → WShape.ListNonZero l := by
+    intro _ hs; exact absurd hs (by simp [hc])
+  rw [WShape.ctor', dif_pos (hg l), WShape.ctor', dif_pos (hg l')] at h
+  exact (WShape.ctor.inj.1 h).2
+
+/-- A miniature of `Matches`' `app`/`var` interaction, parameterised by the LEAF-SHAPE
+function so that exit 2(alpha) can be modelled without performing it.  The real `Matches.app`
+builds `.ctor' c' rargs'.reverse` from an inner match whose argument list is otherwise free;
+here `leaf z` stands for that index and `fun _ => z.T` for the path-map it determines. -/
+private inductive ToyMatches (leaf : WShape 1 → WShape 2) : WShape 2 → (Unit → WShape 1) → Prop
+  | mk (z : WShape 1) (idx : WShape 2) (h : idx = leaf z) : ToyMatches leaf idx (fun _ => z)
+
+/-- With an injective leaf -- the situation today -- uniqueness holds. -/
+private theorem toy_unique_of_inj {leaf : WShape 1 → WShape 2}
+    (hinj : ∀ z z', leaf z = leaf z' → z = z') {idx m m'}
+    (H : ToyMatches leaf idx m) (H' : ToyMatches leaf idx m') : m = m' := by
+  cases H with | mk z _ hz => cases H' with | mk z' _ hz' =>
+  cases hinj z z' (hz ▸ hz'); rfl
+
+/-- **With a leaf that collapses, uniqueness is FALSE.**  Exit 2(alpha) gives a `Prop`-valued
+constructor's leaf the shape `.bot` with its arguments UNCONSTRAINED, so the leaf is constant
+there and the argument list is no longer recoverable. -/
+private theorem toy_unique_fails :
+    ¬ ∀ {idx m m'}, ToyMatches (fun _ => WShape.bot) idx m →
+        ToyMatches (fun _ => WShape.bot) idx m' → m = m' := by
+  intro H
+  have heq := H (.mk WShape.bot WShape.bot rfl) (.mk (WShape.sort true) WShape.bot rfl)
+  have := congrFun heq ()
+  exact absurd (congrArg (·.1) this) (by simp [WShape.sort, WShape.bot, Shape.sort, Shape.bot])
+
+/-! ### The re-indexing: is "the index carries the arguments" sufficient for `unique`? -/
+
+/-- The same miniature, but with the matched datum in the INDEX rather than recoverable only
+from the leaf shape.  The shape is still `leaf rec`, so it may collapse; what changed is that
+`rec` is now an index of the relation. -/
+private inductive ToyMatchesR (leaf : WShape 1 → WShape 2) :
+    WShape 1 → WShape 2 → (Unit → WShape 1) → Prop
+  | mk (z : WShape 1) : ToyMatchesR leaf z (leaf z) (fun _ => z)
+
+/-- **Sufficient.**  Uniqueness holds for ANY `leaf`, injective or not. -/
+private theorem toy_unique_of_record {leaf : WShape 1 → WShape 2} {rec idx m m'}
+    (H : ToyMatchesR leaf rec idx m) (H' : ToyMatchesR leaf rec idx m') : m = m' := by
+  cases H; cases H'; rfl
+
+/-- ... and in particular for the collapsing leaf that `toy_unique_fails` refutes.  So the
+re-indexing is the right shape of fix: `unique` stops needing the leaf to be injective. -/
+private theorem toy_unique_of_record_bot {rec idx m m'}
+    (H : ToyMatchesR (fun _ => WShape.bot) rec idx m)
+    (H' : ToyMatchesR (fun _ => WShape.bot) rec idx m') : m = m' :=
+  toy_unique_of_record H H'
+
+end ExitProbes
