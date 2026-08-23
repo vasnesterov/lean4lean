@@ -96,7 +96,7 @@ Verdicts:
 | 18 | `Lean.Expr.mkAppData_eq` | true | matches `lean_expr_mk_app_data`; the `assert!` is unreachable |
 | 19 | `Lean.Expr.looseBVarRange_eq` | **INCONSISTENT (alone)** | equates a 20-bit field read (always `< 2²⁰`) with an unbounded model |
 | 20 | `Lean.Expr.replace_eq` | true | `lean_replace_expr`'s cache is keyed on pointer and `f?` is pure |
-| 21 | `Lean.Expr.liftLooseBVars_eq` | true | matches `lift_loose_bvars` including the `d = 0` shortcut |
+| 21 | `Lean.Expr.liftLooseBVars_eq` | **false — now DELETED** | the `extern "C"` wrapper returns `e` unchanged when `s` or `d` fails `lean_is_scalar`; 0 dependents, so removed rather than weakened (§11.2) |
 | 22 | `Lean.Expr.lowerLooseBVars_eq` | true | matches, including the `s < d ⇒ id` wrapper branch |
 | 23 | `Lean.Expr.instantiate1_eq` | true | matches `instantiate(a, 1, &e)` exactly |
 | 24 | `Lean.Expr.instantiate_eq` | **false** *(runtime)* | `instantiate` is *simultaneous*; `instantiateList` is *sequential* |
@@ -117,10 +117,11 @@ Verdicts:
   the `H : d < 2^24` repair. §12.1 machine-checks a joint model. #13 and #14 are
   now *provable* under a `dep l < 2^24` side condition and can leave the
   whitelist.
-* **4 false of the implementation** — #3, #17, #24, #28 (#12 is false in the same
-  sense and is already counted above).
+* **5 false of the implementation** — #3, #17, #21, #24, #28 (#12 is false in the
+  same sense and is already counted above). **#21 has since been deleted** from
+  `Verify/Axioms.lean`; the whitelist is now 28.
 * **2 true only under a side condition they do not state** — #26, #27.
-* **21 true**, of which **2** (#1, #2) are now provable outright from upstream.
+* **20 true**, of which **2** (#1, #2) are now provable outright from upstream.
 
 ---
 
@@ -132,6 +133,25 @@ Three independent checks were applied to every axiom.
    toolchain source, and every `@[extern]` was followed into `~/lean4/src`
    (`kernel/expr.cpp`, `kernel/instantiate.cpp`, `kernel/abstract.cpp`,
    `kernel/expr_eq_fn.cpp`, `kernel/level.cpp`, `kernel/replace_fn.cpp`).
+
+   > **Correction (see §11.1). Read the wrapper before the worker.** As
+   > originally run, this check read the C *worker* functions
+   > (`lift_loose_bvars`, `has_loose_bvar`, `instantiate_core`, …) and described
+   > them faithfully, but skipped the `extern "C"` wrapper that Lean actually
+   > calls — which is where argument validation lives. **For every `@[extern]`
+   > axiom, read the wrapper first and enumerate every early return before
+   > reading the algorithm.** Any `Nat` argument crossing into C arrives boxed
+   > and is therefore *always* `lean_is_scalar`-guarded (the threshold is
+   > `LEAN_MAX_SMALL_NAT = SIZE_MAX >> 1`, i.e. `2^63`); the guard either panics
+   > or silently substitutes a fallback, and **the fallback is what the axiom
+   > has to match**. Seven of the fourteen `Expr`/container axioms sit on such a
+   > guard, resolving four different ways (§11.1), and one of them —
+   > `liftLooseBVars_eq` — was false because of it and has been deleted.
+   >
+   > The same discipline applies to `@[extern]`/`@[export]` *name pairings*: an
+   > identity that holds only because two C symbols link to each other (§11.8,
+   > `Substring.Raw.Internal.beq`) is weaker than a definitional one and can
+   > never be discharged by `rfl`. Record which kind you have.
 2. **Differential testing** of the compiled function against the pure model, on
    a generated corpus. Scratch files (outside the repo, in the session
    scratchpad):
@@ -1267,9 +1287,10 @@ friends" is **also wrong**. Both are now machine-checked, in
   theorem depth_eq_of_dep    (l : Level) (h : dep l < 2 ^ 24) : l.depth    = dep l
   ```
 
-  `#print axioms hasParam_eq_of_dep` → `[propext, Classical.choice, Quot.sound,
-  Lean.Level.mkData_eq, …bv_decide LRAT certs]`. **No `hasParam_eq`, no
-  `hasMVar_eq`.** So axioms 13 and 14 can be **retired from the whitelist**
+  `#print axioms hasParam_eq_of_dep` → `[propext, Quot.sound,
+  Lean.Level.mkData_eq]`, exactly — all three already whitelisted, nothing else.
+  **No `hasParam_eq`, no `hasMVar_eq`, and no non-kernel-checked tactic** (see
+  §12.5). So axioms 13 and 14 can be **retired from the whitelist**
   (29 → 27) at the cost of a `dep l < 2 ^ 24` side condition — the `Level`
   analogue of `Expr.BVarBounded`, and strictly cheaper than it: `dep` is
   strictly increasing on subterms, so the **single top-level bound suffices**,
@@ -1341,6 +1362,18 @@ Two facts follow.
   axioms, and **both** historical `False`-proofs (§3.1 `looseBVarRange_eq`,
   §5.3 `toList'_push`) were in it. Class (A), the other 23, is jointly
   consistent by the DAG argument.
+
+> **Operational conclusion.** *Stop auditing the set for consistency and attack
+> class (B).* The 23 class-(A) axioms cannot produce a contradiction: each pins
+> a free symbol to a total definable function, the pinning relation is acyclic,
+> so an interpretation validating all of them exists by topological order. They
+> can still be **false of the C++ kernel** — §11.2's `liftLooseBVars_eq` is
+> exactly that — but falsity there is a testing/reading problem, not a
+> soundness-of-the-proof problem. Every route by which this axiom set could make
+> `kernel_sound` vacuous runs through one of the six class-(B) axioms, and two
+> of those six (#13, #14) are now closed by §12.1. **Four remain:**
+> `Expr.looseBVarRange_eq`, `PersistentArray.WF.toList'_push`,
+> `PersistentHashMap.WF.toList'_insert`, `PersistentHashMap.WF.find?_eq`.
 
 ### 12.3 Attacks attempted and failed
 
@@ -1436,3 +1469,68 @@ reading, and weaker than a proof. None of these is a proof of consistency.
   can be jointly consistent and still not describe the C++ kernel; that gap is
   what guard 2's by-name whitelist exists to make visible, and §7's
   differential testing is the evidence for it.
+
+### 12.5 `bv_decide` is not kernel-checked — and three of its axioms are already in the repo
+
+The first version of §12.1's proofs reused `Verify/Level.lean`'s `bv_decide`
+bit-blasting and so carried entries like
+`mkData'_hasParam._native.bv_decide.ax_1_8`. **Those are not certificates in
+any kernel-checked sense.** `bv_decide` discharges its LRAT check through
+`Lean.Meta.nativeEqTrue` (`Lean/Meta/Native.lean:37-77`), which:
+
+1. builds an auxiliary `def` whose value is the `Bool` check,
+2. `addAndCompile`s it and calls `unsafe evalConst Bool` — i.e. **runs compiled
+   machine code**, and
+3. if that returns `true`, calls `addDecl` on a fresh **`axiomDecl`** asserting
+   `Std.Tactic.BVDecide.Reflect.verifyBVExpr <expr> <cert> = true`.
+
+The kernel never checks the claim. This is `native_decide`'s trust model —
+compiler, runtime and SAT-certificate checker all enter the TCB — and in one
+respect it is worse: instead of a single named, auditable axiom
+(`Lean.ofReduceBool`), each invocation mints a **fresh anonymous axiom** whose
+statement mentions two auto-generated definitions, so the trust surface grows
+silently with every use and is invisible to a by-name whitelist review.
+
+**Retiring #13/#14 in exchange for these would not have been 29 → 27**; it
+would have swapped two well-understood interface axioms for an unbounded family
+of compiled-evaluation axioms. Recorded because the count exists precisely to
+make that kind of trade visible.
+
+**Bit-blasting turned out to be unnecessary.** §0 of
+`Lean4Lean/Tests/AxiomConsistency.lean` now proves the same three facts by
+pushing `UInt64` to `Nat` (`UInt64.toNat_add`, `toNat_shiftLeft`,
+`toNat_shiftRight`, `toNat_and`, `toNat_toUInt32`, `Nat.and_one_is_mod`,
+`Nat.shiftRight_eq_div_pow`) and closing with `omega`, via one packing lemma
+
+```lean
+theorem mkData'_toNat (H : d < 2 ^ 24) :
+    (mkData' h d hmv hp).toNat
+      = h.toNat % 2^32 + (if hmv then 1 else 0) * 2^32
+        + (if hp then 1 else 0) * 2^33 + d * 2^40
+```
+
+and one field-extraction lemma over an arbitrary `UInt64`. Result:
+`mkData'_depth`, `mkData'_hasParam`, `mkData'_hasMVar` each depend on
+**`[propext, Quot.sound]`** and nothing else — `Classical.choice` drops out
+too. The file no longer imports `Std.Tactic.BVDecide`.
+
+**Latent guard-2 failure already in the repo.** The environment contains
+exactly three `_native` axioms, all from `Verify/Level.lean`:
+
+```
+Lean.Level.mkData_depth._native.bv_decide.ax_1_9
+Lean.Level.mkData_hasMVar._native.bv_decide.ax_1_8
+Lean.Level.mkData_hasParam._native.bv_decide.ax_1_8
+```
+
+None is in `axiomWhitelist`. They are **not** in `kernel_sound`'s cone *today*
+only because that cone is still 4 constants wide (the proof is mostly
+`sorryAx`); `Lean.Level.mkData_hasParam` already reports
+`[propext, Classical.choice, Quot.sound, Lean.Level.mkData_eq,
+Lean.Level.mkData_hasParam._native.bv_decide.ax_1_8]`. **Guard 2 will fail the
+build the moment those three lemmas enter the real proof.** The §0 proofs are a
+drop-in replacement (same statements modulo `mkData_eq`), so the fix is
+mechanical; `Verify/Level.lean` is owned by another stream and was not touched.
+
+A cheap standing check, worth adding wherever the guard lives: no axiom whose
+name contains `_native` may appear in any cone, whitelisted or not.

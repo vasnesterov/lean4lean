@@ -491,8 +491,34 @@ def liftLooseBVars' (e : @& Expr) (s d : @& Nat) : Expr :=
   | e@(.mvar _)
   | e@(.lit _) => e
 
-/-- This could be an `@[implemented_by]` -/
-@[simp] axiom liftLooseBVars_eq (e : Expr) (s d) : e.liftLooseBVars s d = e.liftLooseBVars' s d
+/-!
+`liftLooseBVars_eq : e.liftLooseBVars s d = e.liftLooseBVars' s d` used to sit here.
+It was **deleted**, not weakened, because it was **false** and had **no consumers**.
+
+*False.* `lean_expr_lift_loose_bvars` (`kernel/expr.cpp`) begins
+
+```c
+if (!lean_is_scalar(s) || !lean_is_scalar(d)) { lean_inc(e); return e; }
+```
+
+a bignum guard that fires at `2^63` (`LEAN_MAX_SMALL_NAT = SIZE_MAX >> 1`) and
+returns `e` *unchanged* — it does not panic. At `e := .bvar 0, s := 0, d := 2^63`
+the compiled function returns `.bvar 0` (checked by `#eval`) while the model
+gives `.bvar (2^63)` (checked by kernel reduction). The call completes and the
+input is an ordinary literal; only the model's *output* is not runtime
+constructible, which is why the two halves need different instruments.
+
+*No consumers.* An axiom-cone scan over every non-internal `Lean4Lean.*`
+declaration found **0** dependents — the checker never calls
+`Expr.liftLooseBVars` at all. A grep could not have established this: the axiom
+was `@[simp]`, so it had no explicit call sites either way.
+
+The model `liftLooseBVars'` above **stays**: a constant-dependency scan gives it
+29 direct users, including `instantiate1'`, the model behind `instantiate1_eq`.
+It is the axiom that was false, not the model.
+
+See `docs/axiom-audit.md` §11.2.
+-/
 
 def lowerLooseBVars' (e : @& Expr) (s d : @& Nat) : Expr :=
   if s < d then e else
