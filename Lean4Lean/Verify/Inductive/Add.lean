@@ -304,38 +304,95 @@ theorem anySub_proj {p : Expr → Bool} {s i b} (h : anySub p (.proj s i b) = fa
 evidence is about the **source** term.  The bridge below is the transfer, by induction on
 `TrExprS`.
 
-### Three side conditions, and why each is a finding rather than bookkeeping
+### Three side conditions — investigated, and all three are closed
 
-`TrExprS` is not constant-preserving: two of its rules put constants into the `VExpr` that
-are not in the `Expr` at all, and one reads a `VExpr` out of the context rather than out of
-the term.  So the transfer needs exactly three hypotheses, and each records a place where
-`hasIndOcc` is *blind* — a genuine incompleteness of the syntactic check relative to the
-abstract predicate, not an artifact of this proof.
+`TrExprS` is not constant-preserving: two of its rules put constants into the `VExpr` that are
+not in the `Expr` at all, and one reads a `VExpr` out of the context rather than out of the
+term.  So the transfer needs three hypotheses.  Each was a candidate blindness of `hasIndOcc`
+— an occurrence of the block that the syntactic check cannot see, which in a positivity check
+is the shape of a real defect.  **All three were investigated and none is reachable.**  What
+follows is the reason in each case, because until now none of them was anyone's stated
+invariant.
 
-* `hctx` — a `.bvar`/`.fvar` translates to whatever the `VLCtx` maps it to.  For a `vlam`
-  entry that is `.bvar _`, which is block-free outright; for a `vlet` entry it is the *value*,
-  an arbitrary term the source variable does not display.  Threaded through the induction,
-  so the binder cases have to re-establish it — which is why `NoConsts.liftN` is needed.
+* `hctx` — a `.bvar`/`.fvar` translates to whatever the `VLCtx` maps it to: `.bvar _` for a
+  `vlam` entry, but the *value* for a `vlet` entry, which the source variable does not
+  display.  **Closed outright** (`VLCtx.noConsts_of_allVLam`): `AddInductive` never calls
+  `withLetDecl` — its only binder is `withLocalDecl` — so the context the positivity check
+  runs in is all-`vlam`, and `VLCtx.mkFVars` (R1/R2's dictionary) builds exactly such a
+  context.  Any `letE` met *inside* the term re-establishes the invariant from the induction
+  hypothesis, because `anySub` scans a `letE`'s value (`anySub_letE`).
 
 * `hlit` — `TrExprS.lit` translates `.lit l` through `l.toConstructor`, so a numeral
   introduces `Nat.zero`/`Nat.succ` and a string literal `String.ofList`, `List.nil`,
-  `List.cons`, `Char.ofNat`.  `hasIndOcc` sees a `.lit` node and no `.const` node at all.
-  A block declaring an inductive *type* under one of those six names would therefore pass
-  the positivity check while its translation mentions the block — the freshness of the block
-  names in the pre-block environment does not rule this out, because the literal is
-  translated at the *staged* environment where the block's types are already declared.
+  `List.cons`, `Char.ofNat`.  `hasIndOcc` sees a `.lit` node and no `.const` node at all, and
+  block-name freshness in the *pre-block* environment does not obviously help, because the
+  literal is translated at the *staged* environment.  **Closed for numerals**
+  (`VInductDecl'.natPrimitives_not_block`) by an invariant that already exists and had not
+  been connected to this: `VEnv.HasPrimitives.nat` says `Nat ∈ env → Nat.zero, Nat.succ ∈ env`,
+  and `TrExprS.lit`'s own `ContainsLits` premise demands `Nat ∈ env`.  So both constructor
+  names are in the pre-block environment, and `VEnv.addConstList_fresh` then forbids the block
+  from declaring either.  `VContext.hasPrimitives` is exactly the field that carries this.
+  For string literals the same argument runs through `HasPrimitives.charOfNat` /
+  `.stringOfList`, which pin those constants' types, and closes except in an environment where
+  a primitive's type is *definitionally a sort* — see the note on `anySub_natLit`.
 
 * `hproj` — `TrProj` expands `.proj s i e` into `VInductDecl'.projTerm`, which splices in the
   structure's recursor name, its stored field types, **and the parameter/index arguments `ps`,
-  `ιs` read off the type of `e`**.  Those arguments are not syntactically present in
-  `.proj s i e`, so a block occurrence carried only by them is invisible to `hasIndOcc`.
-  This is the sharper of the two: the field types and recursor name come from a declaration
-  that predates the block, but `ps` is an arbitrary term of the local context.
+  `ιs` read off the type of `e`**.  Those are not syntactically present in `.proj s i e` at
+  all, so this was the sharpest candidate: the arguments are *derived* rather than merely
+  elided.  **Unreachable**, for the reason recorded under "the positivity scope invariant"
+  below, which was checked against both kernels rather than argued on paper.
 
-None of the three is discharged here, and none should be quietly assumed: they are the exact
-statement of what `hasIndOcc` does not see.  The C++ kernel's `has_ind_occ` is equally blind,
-so this is a question about the *specification* `VIndField.WF.pos` versus both kernels, not a
-divergence between them. -/
+The residual is proof-side, not kernel-side: `TrProj`'s `ps`/`ιs` are pinned only by
+`HasType e ((const S us).mkApp (ps ++ ιs))`, which is closed under conversion, so the
+*relation* admits a derivation whose `ps` mentions the block (`[(fun _ => Nat) I]` in place of
+`[Nat]`) even though `inferProj` never produces one.  Discharging `hproj` therefore needs
+either a canonical-spine strengthening of `TrProj` (a `Theory/` change, not this stream's) or
+the observation that `pos` only asks for *some* defeq block-free `A`, so one may re-derive at
+the whnf'd spine.
+
+## The positivity scope invariant
+
+Nowhere stated in either kernel, and it is what makes the projection route dead:
+
+> At the point `checkConstructors` checks field `i` of a constructor, **every free variable in
+> scope has a type that is either definitionally free of the block's constants, or of the form
+> `∀ ξ, I_j p args`.**
+
+`checkPositivity`'s two `throw`s are what maintain it — the `.forallE` branch rejects a block
+occurrence in a binder domain, and the final `isValidIndApp?` branch rejects a type whose
+head-normal form mentions the block but is not headed by a block constant.  The second
+alternative is a **pi**, and a pi is never the type of a projectable term, so a projection
+subject always has a definitionally block-free type.  Two supporting facts do the rest:
+
+* **Block-name freshness.**  `addConst` fails on a duplicate, so no constant already in the
+  environment mentions a block name.  Hence δ-unfolding during `whnf` can never *introduce* a
+  block constant: every block constant in `whnf t` came from `t`.
+* **`whnf` is head-only.**  So a block occurrence either survives into an argument of the
+  head-normal form — where `hasIndOcc` sees it — or is erased by the reduction, in which case
+  it is gone from the type altogether and cannot reach `ps`/`ιs` either.  That dichotomy is
+  what makes "visible or absent" exhaustive.
+
+**Checked, not argued.**  Hand-built declarations were fed to `Lean4Lean.addDecl` and to the
+C++ kernel (`Lean.Kernel.Environment.addDeclCore` — *not* `Lean.addDecl`, whose checking is
+asynchronous and silently defers rejections).  Every route agreed between the two kernels:
+
+| probe | shape | both kernels |
+|---|---|---|
+| `K0` | `(b : KBox Nat) → b.0 → K0` | **accept** — a projection out of a genuinely *indexed* one-constructor type is legal (`nindices = 0` is never required: `kernel/type_checker.cpp:263`), so the `ιs` route is live in principle |
+| `K1` | `(b : KBox (K1 → Nat)) → b.0 → K1` | reject — "non valid occurrence", at the *earlier field* `b` |
+| `K3` | β-redex hiding the occurrence *inside* the index | reject — `whnf` is head-only, the occurrence survives |
+| `K4` | β-redex over the *whole* field type | **accept** — the occurrence is erased, and the index is then `Nat` |
+| `K5` | subject is `f 0` for an earlier `f : Nat → KBox (K5 → Nat)` | reject |
+| `K6` | subject is `let`-bound | reject |
+| `K7` | occurrence only under a `ξ` binder of a recursive field | reject — "non positive occurrence" |
+| `P1`/`P3` | the same via a *parameter* of a structure | reject — the parameter route is taken by nested-inductive elimination first (`isNestedInductiveApp?` scans only `[0:numParams]`, which is why the index route had to be probed separately) |
+
+`K1` versus `K4` is the dichotomy: the occurrence is either seen or absent, never hidden.
+
+One cosmetic divergence, recorded and not a bug: on the `isValidIndApp?` branch lean4lean says
+"has a non valid occurrence" where the C++ kernel says "contains a non valid occurrence".
+Accept/reject agrees on every probe. -/
 
 theorem VExpr.NoConsts.liftN {S : List Name} {n : Nat} :
     ∀ {e : VExpr} {k : Nat}, e.NoConsts S → (e.liftN n k).NoConsts S
@@ -357,6 +414,24 @@ theorem VLCtx.noConsts_cons {S : List Name} {Δ : VLCtx} {ofv} {d : VLocalDecl}
     cases hf : Δ.find? v' with
     | none => rw [hf] at hv; exact absurd hv nofun
     | some q => rw [hf] at hv; cases hv; exact (h _ _ _ hf).liftN
+
+/-! ### `hctx`, discharged
+
+`AddInductive` binds with `withLocalDecl` and never with `withLetDecl`, so every context the
+positivity check runs in is all-`vlam`, and a `vlam` entry's value is `.bvar 0`. -/
+
+/-- Every declaration in the context is a `vlam` — no let-bindings. -/
+def VLCtx.AllVLam : VLCtx → Prop
+  | [] => True
+  | (_, .vlam _) :: Δ => VLCtx.AllVLam Δ
+  | (_, .vlet ..) :: _ => False
+
+/-- **`hctx`, discharged.**  In an all-`vlam` context every looked-up value is a `.bvar`, which
+is block-free for any `S` whatsoever. -/
+theorem VLCtx.noConsts_of_allVLam {S : List Name} :
+    ∀ {Δ : VLCtx}, Δ.AllVLam → ∀ v x A, Δ.find? v = some (x, A) → VExpr.NoConsts S x
+  | [], _ => by intro _ _ _ h; exact absurd h nofun
+  | (_, .vlam _) :: Δ, hΔ => VLCtx.noConsts_cons trivial (VLCtx.noConsts_of_allVLam hΔ)
 
 /-- The only case that consumes `hpS`: a source constant translates to the same constant, so
 the syntactic miss is the abstract miss. -/
@@ -403,6 +478,31 @@ theorem TrExprS.noConsts {env : VEnv} {Us : List Name} {S : List Name} {p : Expr
   | lit _ _ ih => exact fun hctx _ => ih hctx (hlit _)
   | mdata _ ih => exact fun hctx h => ih hctx (anySub_mdata h)
   | proj _ hp ih => exact fun hctx h => hproj _ _ _ _ _ hp (ih hctx (anySub_proj h))
+
+/-! ### `hlit`, discharged for numerals
+
+The route nobody had connected: `TrExprS.lit`'s own `ContainsLits` premise demands `Nat` be
+declared, `VEnv.HasPrimitives.nat` then forces `Nat.zero` and `Nat.succ` to be declared **in
+the same environment**, and `VEnv.addConstList_fresh` forbids the block from declaring a name
+that is already there.  So the two constants a numeral expands into can never be block names,
+and `anySub_natLit` applies.  `VContext.hasPrimitives` is the field that carries the premise. -/
+
+/-- A name already in the environment is not one the block declares — `addIndTypes` succeeding
+means every block name was fresh. -/
+theorem VInductDecl'.not_mem_blockNames {env env₁ : VEnv} {D : VInductDecl'} {n : Name}
+    (h : env.addIndTypes D = some env₁) (hn : env.contains n) : n ∉ D.blockNames := by
+  intro hmem
+  have hfresh := (VEnv.addConstList_fresh h).1 n (D.typeConsts_names ▸ hmem)
+  obtain ⟨_, hci⟩ := hn
+  rw [hci] at hfresh; exact absurd hfresh nofun
+
+/-- **`hlit`'s premise, discharged for numerals.**  Neither `Nat.zero` nor `Nat.succ` can be a
+block name in any environment where a numeral literal can be translated at all. -/
+theorem VInductDecl'.natPrimitives_not_block {env env₁ : VEnv} {D : VInductDecl'}
+    (hp : env.HasPrimitives) (h : env.addIndTypes D = some env₁) (hnat : env.contains ``Nat) :
+    ``Nat.zero ∉ D.blockNames ∧ ``Nat.succ ∉ D.blockNames :=
+  let ⟨h0, h1⟩ := hp.nat hnat
+  ⟨VInductDecl'.not_mem_blockNames h h0, VInductDecl'.not_mem_blockNames h h1⟩
 
 /-! ### The hypotheses bite, and are satisfiable
 
@@ -1095,6 +1195,28 @@ def VLCtx.mkFVars : List (FVarId × List FVarId × VExpr) → VLCtx → VLCtx
 
 @[simp] theorem VLCtx.mkFVars_cons {fv deps A l} {Δ : VLCtx} :
     VLCtx.mkFVars ((fv, deps, A) :: l) Δ = (some (fv, deps), .vlam A) :: VLCtx.mkFVars l Δ := rfl
+
+/-- The checker's binder walk only ever pushes `vlam`s, which is what discharges the `hctx`
+hypothesis of `TrExprS.noConsts` — see the note there. -/
+theorem VLCtx.allVLam_mkFVars {Δ : VLCtx} (h : Δ.AllVLam) :
+    ∀ (l : List (FVarId × List FVarId × VExpr)), (VLCtx.mkFVars l Δ).AllVLam
+  | [] => h
+  | _ :: l => VLCtx.allVLam_mkFVars h l
+
+/-- **The transfer, with `hctx` gone.**  In the context the positivity check actually runs in
+— all-`vlam`, because `AddInductive` has no `withLetDecl` — a source term free of the block's
+names translates to a block-free `VExpr`, modulo only the literal and projection hypotheses. -/
+theorem TrExprS.noConsts_mkFVars {env : VEnv} {Us : List Name} {S : List Name}
+    {p : Expr → Bool} {l : List (FVarId × List FVarId × VExpr)} {Δ₀ : VLCtx}
+    {e : Expr} {e' : VExpr}
+    (hpS : ∀ c us, c ∈ S → p (.const c us) = true)
+    (hlit : ∀ lit : Lean.Literal, anySub p lit.toConstructor = false)
+    (hproj : ∀ Γ s i x y, TrProj env Us.length Γ s i x y →
+      VExpr.NoConsts S x → VExpr.NoConsts S y)
+    (hΔ₀ : Δ₀.AllVLam)
+    (H : TrExprS env Us (VLCtx.mkFVars l Δ₀) e e') (h : anySub p e = false) :
+    VExpr.NoConsts S e' :=
+  H.noConsts hpS hlit hproj (VLCtx.noConsts_of_allVLam (VLCtx.allVLam_mkFVars hΔ₀ l)) h
 
 /-- **R2, innermost-first.**  The fvar `i` binders in from the innermost end is `.bvar i`.
 The `Nodup` hypothesis is what stops a shadowed fvar from resolving to the wrong binder; the
