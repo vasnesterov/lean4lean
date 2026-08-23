@@ -1318,5 +1318,62 @@ example : (VIndCtor.skeleton lvlDecl.np lvlMkMutant.fields.length
 example : VIndCtor.skeleton lvlDecl.np lvlMkMutant.fields.length (lvlMkMutant.type lvlDecl 0)
     = (lvlMkMutant.params, lvlMkMutant.fields.map (·.type), lvlMkMutant.args) := rfl
 
+/-! ### R11's probe: `iotaLam` against Lean's *stored* recursor rules
+
+Everything above validates the spec against Lean's recursor **types** and against hand-written
+`vexpr(…)` transcriptions of its rules.  Nothing yet compares the spec's ι-rule right-hand side
+against the reduction rule Lean actually stores — which is the thing `addDecl.WF`'s inductive
+branch has to reproduce, and the thing that decides whether that branch is transcription or a
+spec change.
+
+`vrecrule(r, i)` pulls `RecursorVal.rules[i].rhs` out of the environment and translates it, so
+this is ground truth of the same kind as `vconst(type_of% …)` — not a restatement of the spec.
+
+Reading `Lean4Lean/Inductive/Add.lean`'s `mkRecRules` first: it builds
+`λ params motives minors fields. minor_q fields v`, with each `v` being
+`λ ξ. I_{idx}.rec params motives minors π (field_i ξ)`.  `VInductDecl'.iotaLam` and
+`ihValues` are written the same way, argument order included — so the expectation is equality
+on the nose, and these checks are what turn that expectation into a fact.
+
+**Result: equality on the nose, with no universe renaming at all.**  Two things follow.
+
+*R11 is transcription, not a spec change.*  All six pass — including `Acc`, whose recursive
+field is higher-order, and both `Prop`-valued blocks of `stdPrelude`.  Whatever
+`addDecl.WF`'s inductive branch has to prove about the ι-rules' right-hand sides, it is not
+fighting a mismatch.
+
+*The `swap01` convention does not apply here, and the section header above should be read with
+that in mind.*  `swap01` compensates for `vconst(type_of% X)` numbering universes **by order of
+first appearance in `X`'s elaborated type**.  `vrecrule` reads `rv.levelParams`, the
+declaration's *own* level-parameter order, and that already puts the elimination universe
+first — exactly `VInductDecl'.selfLvls`' convention.  So against the stored declaration there
+is nothing to bridge.  This was found the useful way round: the three checks that need a
+renaming against `vconst` were written with `swap01` and **failed**, which is also what shows
+`vrecrule` returns real, distinguishing terms rather than something every `rfl` accepts. -/
+
+open Lean Elab Term in
+/-- The `rhs` of recursor `r`'s `i`-th reduction rule, as **Lean stores it**, as a `VExpr`. -/
+elab "vrecrule(" r:ident ", " i:num ")" : term => do
+  let n ← realizeGlobalConstNoOverload r
+  let .recInfo rv ← getConstInfo n | throwError "{n} is not a recursor"
+  let some rule := rv.rules[i.getNat]? | throwError "{n} has no rule #{i.getNat}"
+  let e ← Lean4Lean.Meta.expandExpr rule.rhs
+  return toExpr (← Lean4Lean.Meta.ofExpr rv.levelParams {} e)
+
+-- `Eq`: one universe parameter, so the elimination universe has to be swapped into place
+example : eqDecl.iotaLam 0 eqRefl = vrecrule(Eq.rec, 0) := rfl
+
+-- `Nat`: no universe parameters of its own, so no renaming; two constructors, two rules
+example : natDecl.iotaLam 0 natZero = vrecrule(Nat.rec, 0) := rfl
+example : natDecl.iotaLam 1 natSucc = vrecrule(Nat.rec, 1) := rfl
+
+-- `Acc`: parameters *and* an index, and a higher-order recursive field, so this is the one
+-- that exercises `ihValues`' `ξ`-telescope against Lean's own
+example : accDecl.iotaLam 0 accIntro = vrecrule(Acc.rec, 0) := rfl
+
+-- and the two `Prop`-valued blocks of `stdPrelude`
+example : iffDecl.iotaLam 0 iffIntro = vrecrule(Iff.rec, 0) := rfl
+example : nonemptyDecl.iotaLam 0 nonemptyIntro = vrecrule(Nonempty.rec, 0) := rfl
+
 end InductiveDeclExamples
 end Lean4Lean
