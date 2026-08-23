@@ -96,13 +96,50 @@ close; the two that remain are the whole residual content of `sort_inv`:
 
 * **`trans`** — `Γ ⊢ .sort u ≡ e ≡ .sort v` with `e` arbitrary.  Closing it means knowing
   that a term convertible with a sort *reduces* to a sort: a confluence or normalisation
-  statement.  Nothing upstream of this file supplies one, and
-  `Theory/Typing/ChurchRosser.lean` structurally cannot: it imports this file and consumes
-  `IsDefEqU.forallE_inv` at 20+ sites.  Carneiro (`~/lean-type-theory/unique.tex`
-  §Church–Rosser) breaks the loop by indexing conversion with the number of alternations
-  against typing and re-running the whole κ-reduction development at each index;
-  `HasTypeStratified` is **not** that index — its `defeq` premise carries a full,
-  unstratified `IsDefEq`.
+  statement.  Carneiro (`~/lean-type-theory/unique.tex` §Church–Rosser) breaks the loop by
+  indexing conversion with the number of alternations against typing and re-running the
+  whole κ-reduction development at each index; `HasTypeStratified` is **not** that index —
+  its `defeq` premise carries a full, unstratified `IsDefEq`.
+
+  **Is the circularity mathematical or merely architectural?**  `ChurchRosser.lean` imports
+  this file, but that alone would only mean the general case is entangled.  Traced on the
+  definitions — its proof bodies are not reliable, the file has live `sorry`s — the answer
+  is **mathematical: a sort-only confluence is not independent.**
+
+  - `ParRed` (`ChurchRosser.lean:566`) *is* layerable.  Its constructors carry no typing
+    hypotheses at all; the one side condition, `extra`'s `r.2.OK (IsDefEqU …)`, needs only
+    `Pattern`/`Pat` and `IsDefEqU`.  And the whole rule/reduction cone —
+    `Theory/Typing/{Pattern, PatternDecode, DeltaUnique, PatternRules}.lean` — imports
+    neither this file nor `UniqueTyping` (checked on the import graph, not by name search).
+    So the reduction relation could be relocated below this file at no mathematical cost.
+  - **`NormalEq` cannot.**  It is the relation that absorbs `proofIrrel` and `eta`, which a
+    conversion `Γ ⊢ .sort u ≡ e` may use at any depth, so no sort-only development escapes
+    it — and its constructors demand *shared* type data between the two sides:
+    `appDF` (`:141`) asks for one `.forallE A B` typing **both** functions and one `A`
+    typing both arguments; `lamDF` (`:147`) asks for one domain `A` and one level `u`.
+    Composing two `NormalEq` facts whose type data came from different derivations — which
+    is what `NormalEq.trans`, `ParRed.triangle` and `NormalEq.parRed` do, and they are the
+    heart of the confluence argument — therefore requires reconciling two independently
+    derived Π types.  That is `IsDefEqU.forallE_inv` together with `IsDefEq.uniq`, and one
+    level of it is `VEnv.SortUniq`.
+  - The same shows up if one tries to bypass `NormalEq` and strengthen this induction
+    directly.  The statement that closes `trans` is
+    `IsDefEqStrong Γ e₁ e₂ A → (e₁ ≫* .sort u → ∃ w, u ≈ w ∧ e₂ ≫* .sort w)` (plus its
+    mirror).  It is *not closed under its own induction*: in the `appDF` case, `f a ≫* .sort u`
+    propagates to `f' a'` only if `f'` reduces to a λ whenever `f` does, so the sort shape
+    drags in the λ/Π shape — which is Π-injectivity.  Its `eta` case needs `.sort` / `.forallE`
+    disjointness (`sort_forallE_inv`, below) and its `proofIrrel` case needs `SortUniq`.
+
+  So this is a **joint development, not a layering fix**: sort-confluence, Π-injectivity and
+  universe uniqueness are one induction.  Two numbers for whoever prices it.  Of
+  `ChurchRosser.lean`'s 85 declarations, 6 use `IsDefEqU.forallE_inv`/`sort_inv` directly
+  and 23 use the `UniqueTyping` family (`uniq`, `uniqU`, `trans_l/r`, `of_l/r`,
+  `defeqU_*`, `transU_*`) — and those 23 are the backbone: `NormalEq.{symm,trans,defeq,parRed}`,
+  `ParRed.{defeq,triangle}`, `CRDefEq.{defeq,trans}`, `IsDefEq.church_rosser`.  And beware
+  the name search: of 44 textual `forallE_inv` hits in that file only 12 are this one; the
+  other 30 are the unrelated one-argument family in `Theory/Typing/Lemmas.lean`
+  (`HasType.forallE_inv`, `IsType.forallE_inv`), which is available upstream.  Arity is the
+  only thing that distinguishes them, and a plain grep overcounts by about 3.5×.
 
 * **`proofIrrel`** — `Γ ⊢ p : .sort .zero`, `Γ ⊢ .sort u : p`, `Γ ⊢ .sort v : p`.
   Refuting the hypothesis means showing a sort is never a proof.  **This case is closed
