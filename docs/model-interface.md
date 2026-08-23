@@ -213,16 +213,11 @@ additive rather than a rewrite — `IndSignature.toTwo` embeds the old notion,
 `IndSignature₂.at` specialises back at a fixed approximation, and
 `IndSignature.at_toTwo` is `rfl`.
 
-> **⚠ Status: the formation half is built and the translation half is blocked.**
-> `IndSignature₂` and everything below it are proved, but **no translation from
-> a `VIndCtor` to an `IndSignature₂` is known that satisfies the constructor's
-> typing obligation** — `a` and `f` are quantified independently in `indStep`,
-> `IsIndCarrier` and `IsMinorPremise`, so putting the family elements in `a`
-> duplicates them (and forces `Pos = ∅`, which starves the minor premise), while
-> keeping `a` non-recursive leaves `f` unrelated to the filler that justified
-> it. See the ledger entry "`CtorData` from `VIndCtor` did not land". Closing it
-> needs either `NoBlock.indep` after all, or a further generalisation to a
-> dependent set of argument tuples — which is a real port of `Inductive.lean`.
+> **⚠ Status: superseded — the port landed and the translation is built.**
+> `IndSignature₃` adds `Args W q`, a signature-chosen set of admissible pairs
+> `⟨a, f⟩ₖ`, which is exactly what ties the two independent quantifications
+> together. The translation is `SetModel/CtorTrans.lean`; see
+> "The translation, built" below for the layout it takes and why.
 
 *And one price stated here was overstated — though not the one that matters.*
 The paragraph this replaces said the rank argument for the recursor would need
@@ -257,6 +252,86 @@ first one that comes to hand.**
 **Do not weaken `pos` to a syntactic `NoBlock`.** That would make step 2 trivial,
 but it rejects types the kernel accepts (`checkPositivity` applies `hasIndOcc` to
 the whnf), so the spec would no longer refine the kernel.
+
+### The translation, built — `SetModel/CtorTrans.lean`
+
+Sorry-free, `[propext, Classical.choice, Quot.sound]`, and it consumes **no
+independence clause at all**.
+
+**The layout.** `a` is the valuation of the *whole* field telescope, recursive
+slots included; `Args q` says those slots are the curried components of `f`.
+Concretely, per constructor:
+
+| component | built from |
+|---|---|
+| `Fld _ q` | `teleFun` of the per-field domains: `⟦A⟧` at a non-recursive field, for the block-free `A` that `WF.pos` supplies; `Dcar ^ ⟦ξ⟧` at a recursive one |
+| `Pos q a` | `tagUnionF` of `⟦ξⱼ⟧` evaluated at `a ↾ (np + i)` |
+| `posIdx q a b` | `⟨r.idx, argsVal ⟦π⟧⟩ₖ` at the position's payload |
+| `resIdx q a` | `⟨j, argsVal ⟦C.args⟧⟩ₖ` |
+| `Args _ q` | the pairs whose recursive slots agree with `f` pointwise |
+
+Four facts worth carrying forward.
+
+1. **The prefix is explicit.** `ξ` lives over field `i`'s context, `a` over the
+   whole telescope, and `interp` is length-sensitive — it appends at `|Γ|`, so a
+   longer valuation puts the `ξ`-binders at the wrong positions. Foundation's
+   `restrict` *is* that prefix on the `snoc` encoding and is already definable,
+   so no new primitive was needed; `teleFun_restrict` and `teleFun_slot` are the
+   two lemmas tying `Fld`'s slot domains to `Pos`'s summands.
+2. **`Fld` and `Args` are constant in `W` here.** A recursive slot need only be
+   *some* function into the carrier — `Args` pins it to `f`, and `indStep₃`'s
+   own conjunct constrains `f` — so the approximation-indexing `IndSignature₂`
+   introduced is not spent by this translation, and both monotonicity
+   obligations are `subset_refl`.
+3. **`A` comes from choice on a chain-free existential**, as §4 requires:
+   `exists_blockFreeTypes` turns `VIndField.WF.pos`'s `none` branch into a
+   function `ℕ → VExpr`, so `ctorDataOf` is a function of `VIndCtor.WF` and
+   nothing else.
+4. **It is not vacuous.** `exists_mem_args`: above *every* element of `Fld`
+   there is an admissible `f`. That is the statement a `Fld`/`Pos` mismatch
+   would falsify, and it is proved with no syntactic hypothesis.
+
+### The correction this required: blanking needs the clause at **three** sites
+
+The ledger records the other layout — `a` blanks the recursive slots — and the
+`Decl.lean` clause `VIndField.WF.binders_indep` was added for it. That layout
+does not close, and the reason is new:
+
+> `Pos q a` is not the only component evaluated at `a`. **`posIdx q a b` is
+> `⟦r.args⟧` and `resIdx q a` is `⟦C.args⟧`**, and both live over a context
+> containing the recursive fields. Blanking the slots therefore needs the
+> independence clause at `r.binders`, at `r.args` *and* at `C.args`; only the
+> first exists.
+
+Note the asymmetry, which makes this fixable in principle but not cheaply:
+`Pos q a` *types* `f`, so it structurally cannot receive it — that is what makes
+`binders_indep` unavoidable for the blanking layout — while `posIdx` and
+`resIdx` merely *use* `a` and could be given `f` by a further port. That port
+was not taken, because the layout above needs neither.
+
+### And the objection to the built layout is about a statement, not a theorem
+
+The ledger rules out fillers-in-`a` because `IsSubsingletonSignature.fld_det`
+("the non-recursive data is determined by the result index") becomes false, and
+names `Acc` — a large-eliminating subsingleton with a recursive field — as the
+family it kills. With `Args` forcing the copies to agree with `f`, the family
+holds exactly the elements it held before; what changes is that `a` is
+determined by the index **and `f`**, not by the index alone.
+
+`Ind₃_subsingleton` (`SetModel/CtorTrans.lean`) is `Ind_subsingleton`'s proof
+against the restated hypothesis, and it goes through with the pinning order
+preserved: domains first (`pos_det`), then `f` by the rank induction, then `a`
+(`fld_det`). So the independence facts are not eliminated — they reappear as
+`pos_det`/`posIdx_det`/`fld_det` — but they are now owed **only by a
+large-eliminating subsingleton** instead of by every declaration. That is the
+whole trade, and it is why the translation is not blocked.
+
+**Not checked, and it is the next thing to check**: that
+`IsSubsingletonSignature₃` is satisfiable at `Acc` under this layout. The
+theorem is proved against the hypothesis; the hypothesis has no instance yet.
+`docs/soundness-ledger.md`'s standing warning about constructions resting on
+uninhabited hypotheses applies to it and not to the translation, whose own
+hypothesis (`VIndCtor.WF`) is instantiated in `SetModel/CtorTransExamples.lean`.
 
 ### What the model gives back
 
@@ -496,17 +571,30 @@ lemma. What remains from the syntax side is:
    `coherentOn_addInduct` (`SetModel/IndInterp.lean`). It pushes the
    per-constant `OracleOK` and the per-ι-rule obligations out to the caller,
    where the translation supplies them.
-4. **The `VIndCtor → CtorData₃`/`Args` translation.** This is what `interpSig`
-   is fed by, and the only remaining `.induct` piece. The clause it was blocked
-   on has landed: `VIndField.WF.binders_indep` (`Theory/Inductive/Decl.lean`),
-   which makes a recursive field's `ξ` independent of the earlier *recursive*
-   fields, so `Pos q a` can be evaluated without `f`. It is checked against
-   `Acc` from this side, and bridged to `AvoidsAt`/`interp_avoids` by
-   `avoidsAt_of_forall`, `avoidsAt_of_skips` and `interp_indep_of_skips`
-   (`SetModel/IndInterp.lean`). Two caveats, both recorded in the ledger: the
-   clause's own discharge obligation (`VIndRecArg.exists_indep`) is `sorry`,
-   blocked on `IsDefEqU.forallE_inv`; and no `VInductDecl'.WF` witness in the
-   tree has a recursive field, so the clause is so far only tested in isolation.
+4. **The `VIndCtor → CtorData₃`/`Args` translation** — **done**,
+   `SetModel/CtorTrans.lean`, sorry-free and instantiated at `Acc`, `W'` and
+   `Forest'.cons` in `SetModel/CtorTransExamples.lean`. See "The translation,
+   built" in §2 for the layout and for the two corrections it forced.
+
+   **`VIndField.WF.binders_indep` is not consumed by it.** The clause was added
+   for the blanking layout, where `Pos q a` has to be evaluated without the
+   fillers; the layout taken carries them, so `⟦ξ⟧` is evaluated at a valuation
+   that has them. The clause is not wasted — it is exactly what
+   `IsSubsingletonSignature₃.pos_det` will need for a large-eliminating
+   subsingleton — but it is no longer on the critical path, and neither is its
+   open discharge obligation `VIndRecArg.exists_indep` (which remains `sorry`,
+   blocked on `IsDefEqU.forallE_inv`). Nothing in `CtorTrans.lean` depends on
+   `sorryAx`; the three standard axioms are the whole footprint.
+
+   What `.induct` still lacks after this is *not* the translation but the
+   obligations `coherentOn_addInduct` pushes to its caller: the per-constant
+   `OracleOK` (a constructor's and a recursor's value inhabiting its declared
+   type) and the per-ι-rule pair. Those are the `Quot.mk`-shaped work, one
+   nesting level deeper, and they are what will consume `interpSig₃_stage` /
+   `_wf` — which are also still to be discharged at this data, since
+   `mkIndSignature₃_wf`'s `resIdx a ∈ Idx` and `mkIndSignature₃_stage`'s
+   membership hypotheses both need soundness and the typing judgements, not just
+   the syntax.
 
 Nothing on the set-theoretic side is outstanding.
 
@@ -523,5 +611,7 @@ Nothing on the set-theoretic side is outstanding.
 | `SetModel/IndCard.lean` | `Ind_mem_vsetV` / `Ind_mem_U_stage` |
 | `SetModel/Interp.lean` | `LevelAssign`, `interp`, `interpCtx`, proof splitting |
 | `SetModel/IndInterp.lean` | `IndSignature₂`/`₃` and the port, `mkIndSignature₃`, `interpSig_wf`/`_stage`, `coherentOn_addInduct` |
+| `SetModel/CtorTrans.lean` | the `VIndCtor → CtorData₃`/`Args` translation, `interpSig₃`, `Ind₃_subsingleton` |
+| `SetModel/CtorTransExamples.lean` | the translation applied to `Acc`, `W'`, `Forest'.cons` |
 | `SetModel/Cnst.lean` | `cnstOf`, `oracleExtend`, `CoherentOn` and its `addConst`/`addDefEq`/`addConstList` steps |
 | `docs/foundation-gaps.md` | what Foundation is missing, and the `isDefEq` hazard |
