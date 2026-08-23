@@ -1348,6 +1348,13 @@ example : ¬ wRecBad.BindersIndep (wMk.fields.take 1) 1 := by
   have := h 0 0 wMk.fields[0]! rfl (by simp [wMk]) rfl 0 (.bvar 0) rfl
   rw [VExpr.skips_iff] at this; simp [VExpr.Skips'] at this
 
+/-- **Two blocks really can be added in sequence.**  This is the satisfiability check for
+`VEnv.addInduct'_types_disjoint` (`Theory/Inductive/Nested.lean`), whose hypotheses are exactly
+this shape: a lemma about two sequential blocks is worthless if no two blocks are sequential.
+
+`Eq` then `Iff` — the first two inductive literals of `stdPrelude`. -/
+example : ((VEnv.empty.addInduct' eqDecl).bind (·.addInduct' iffDecl)).isSome := rfl
+
 /-- …and `addInduct'` accepts it. -/
 theorem fooEnv_eq : ∃ e, VEnv.empty.addInduct' fooDecl = some e := ⟨_, rfl⟩
 

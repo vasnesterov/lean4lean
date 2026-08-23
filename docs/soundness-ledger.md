@@ -2684,6 +2684,58 @@ uniform. Import constraint: `RuleShape` is downstream of `Decl.lean`, so exit 4 
 clause *in* `VIndType.WF` — it must be a downstream theorem, which is the shape it wants
 anyway. Size **M** if uniqueness resolves.
 
+### Exit 4, settled: uniqueness is free; the zero-constructor case is not
+
+**Which uniqueness is needed — the weak one, and it costs nothing.** The companion does not
+need the recovered block to be unique; it needs any two recovered blocks to agree about `J`'s
+constructor list. That is strictly weaker, and it does **not** need the
+injectivity/`DeltaUnique` family the companion story was at risk of depending on. The chain:
+
+1. A rule headed by `J.rec` comes from a block containing a type named `J` — `iotaLhs`'s head
+   is `.const (mkRecName (D.types.getD j default).name) …`, and `mkRecName` is injective.
+2. **At most one block of a history contains a type named `J`** — now proved as
+   `VEnv.addInduct'_types_disjoint` (`Theory/Inductive/Nested.lean`), sorry-free, standard
+   axioms. Its proof is two steps: the earlier block's type constant is present and monotone,
+   and the later block's `addInduct'` demands that name be *absent*. It rests entirely on
+   `addInduct'_type_fresh`, i.e. on `addConst` failing on a duplicate.
+3. Hence the attribution is unique, and *a fortiori* the constructor lists agree.
+
+Its hypothesis set is inhabited — `example : ((VEnv.empty.addInduct' eqDecl).bind (·.addInduct'
+iffDecl)).isSome := rfl` in `DeclExamples.lean`, since a lemma about two sequential blocks is
+worthless if no two blocks are sequential.
+
+What is **not** done: step 2 is proved for two blocks, not wrapped in the induction over
+`VEnv.WF'` (straightforward, using `addInduct'_le` and monotonicity of the `VDecl.WF` steps),
+and step 1's "the lhs head determines `T.name`" is not formalised (`mkApp_inj_of_arity` plus
+`mkRecName` injectivity — cheap, and both primitives exist). The *risk* is retired; the
+plumbing is not written.
+
+**The zero-constructor case is real, reachable, and breaks uniformity.** Filing it as benign
+was wrong. `Empty` and `False` indeed cannot be nested through — they take no parameters, so
+`Empty T` is ill-typed — but a **parameterised** constructor-free inductive can be, and both
+kernels accept it:
+
+```
+inductive Void1 (α : Type) : Type          -- no constructors, one parameter
+inductive T1 : Type | mk : Void1 T1 → T1   -- accepted; numNested = 1
+```
+
+`Lean4Lean.ElimNestedInductive` reduces `T1` to `[T1, _nested.Void1_1]` with
+`_nested.Void1_1.ctors = []` (run directly, not inferred). So the companion for `Void1` is a
+**zero-constructor companion**, and `VInductDecl'.iotaRules_eq_nil`
+(`Theory/Inductive/Nested.lean`, proved) says such a block contributes no ι-rules — exit 4's
+entire handle yields nothing there.
+
+This is not cosmetic. A companion with no minor premises is an eliminator asserting that `J A`
+is empty; admitting it without a certificate is exactly the "holds except at the degenerate
+case" shape. The natural certificate is that `J.rec`'s stored type carries no minor premises,
+which needs the same `recType` telescope inversion (`mkPi_inj_of_arity`, present) that exit 3's
+certificate needs. **So at the empty case exits 3 and 4 converge on the same lemma**, and
+whichever is chosen that lemma has to be written.
+
+Net: exit 4 survives, remains the cheapest, and is no longer free — **M plus the `recType`
+inversion**, which is shared with exit 3 rather than additional to it.
+
 ### The option set, ordered
 
 1. **Settle exit 4's uniqueness question first.** It is small and decisive, and if it works

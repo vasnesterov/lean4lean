@@ -120,4 +120,77 @@ theorem VExpr.instAll_liftN_of_le {A : VExpr} {ιs : List VExpr} {k ni : Nat}
   have hk : k - ni + ni = k := Nat.sub_add_cancel h
   rw [← hk, ← VExpr.liftN_liftN, ← hlen, VExpr.instAll_liftN, Nat.add_sub_cancel]
 
+/-! ## Exit 4: which uniqueness the companion needs, and where it comes from
+
+`Theory/Typing/PatternRules.lean` recovers, from any ι-rule in `env.defeqs`, the block that
+declared it — `VEnv.RuleShape`'s `iota` constructor carries `D`, `D.WF env₀` and the full
+staging chain as *data*, and `VEnv.WF.ruleShape` (proved) supplies it from
+`env.defeqs df`.  So `J`'s constructor list is recoverable without extending `VEnv`.
+
+The risk was that two ι-rules of the same recursor get attributed to *different* blocks.
+**Full block uniqueness is not what the companion needs** — it needs the recovered blocks to
+agree about `J`'s constructor list, which is strictly weaker.  And the weaker fact does not
+need the injectivity/`DeltaUnique` family at all: it follows from `addConst` failing on a
+duplicate name.  That is what the theorem below records.
+
+Note the direction of the argument.  A rule headed by `J.rec` comes from a block containing a
+type named `J` (`iotaLhs`'s head is `mkRecName (D.types.getD j default).name`, and `mkRecName`
+is injective on names).  By the theorem below, at most one block of a well-formed history
+contains a type named `J`.  So the attribution is unique, and *a fortiori* the constructor
+lists agree.
+
+**This is deliberately stated here and not as a clause of `VIndType.WF`.**  `RuleShape` lives
+downstream of `Theory/Inductive/Decl.lean` (`PatternRules.lean` imports `Inductive/Lemmas.lean`),
+so a clause mentioning it would re-create exactly the import cycle that kills the
+"thread `VEnv.WF'` into `VIndType.WF`" exit.  The companion's completeness belongs downstream,
+where the handle already is. -/
+
+namespace VEnv
+variable {env env₁ env₂ env₃ : VEnv} {D D' : VInductDecl'}
+
+/-- **At most one block declares a given type name.**  If `D` is added, and `D'` is added later
+over any intervening growth, the two cannot share a type name.
+
+The proof is two steps — the earlier block's type constant is present and monotone, and the
+later block's `addInduct'` demands that name be *absent* — so the fact rests on
+`addInduct'_type_fresh` above, i.e. on `addConst` failing on a duplicate. **Not** on
+injectivity, which is the family the companion story was at risk of depending on. -/
+theorem addInduct'_types_disjoint
+    (h : env.addInduct' D = some env₁) (hle : env₁ ≤ env₂)
+    (h' : env₂.addInduct' D' = some env₃)
+    {T T' : VIndType} (hT : T ∈ D.types) (hT' : T' ∈ D'.types) : T.name ≠ T'.name := by
+  intro hname
+  have h1 : env₂.constants T.name = some ⟨D.uvars, T.type⟩ :=
+    hle.constants (addInduct'_types h hT)
+  rw [hname, addInduct'_type_fresh h' hT'] at h1
+  exact absurd h1 nofun
+
+end VEnv
+
+/-- **The zero-constructor case has no certificate, and it is reachable.**  A block all of
+whose types have no constructors contributes *no* ι-rules, so `VEnv.WF.ruleShape` — exit 4's
+whole handle — yields nothing about it.
+
+This is not a degenerate corner that cannot arise.  `Empty` and `False` cannot be nested
+through (they take no parameters, so `Empty T` is ill-typed), but a *parameterised*
+constructor-free inductive can be, and both kernels accept it:
+
+```
+inductive Void1 (α : Type) : Type          -- no constructors, one parameter
+inductive T1 : Type | mk : Void1 T1 → T1   -- accepted; numNested = 1
+```
+
+`Lean4Lean.ElimNestedInductive` reduces `T1` to the block `[T1, _nested.Void1_1]` with
+`_nested.Void1_1.ctors = []`, so the companion for `Void1` is a **zero-constructor companion**
+and exit 4 is non-uniform exactly there.  A companion with no minor premises is an eliminator
+asserting that `J A` is empty, so it needs a certificate rather than a shrug — that obligation
+is real and is recorded in `docs/soundness-ledger.md`. -/
+theorem VInductDecl'.iotaRules_eq_nil (D : VInductDecl') (h : ∀ T ∈ D.types, T.ctors = []) :
+    D.iotaRules = [] := by
+  have : D.ctorsAll = [] := by
+    simp only [VInductDecl'.ctorsAll, List.flatMap_eq_nil_iff, List.map_eq_nil_iff]
+    rintro ⟨T, j⟩ hmem
+    exact h T (List.mem_of_getElem? (List.mem_zipIdx_iff_getElem?.1 hmem))
+  simp [VInductDecl'.iotaRules, this]
+
 end Lean4Lean
