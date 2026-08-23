@@ -323,6 +323,54 @@ not spend effort on it before something asks.
 *Basics (3) and (4) are also this definition's anti-vacuity check.*  An index with a
 misplaced drop can easily be a relation nothing lands in; `IsDefEq.stratifyN` rules that out
 mechanically, for every ambient derivation.
+
+## A standing warning for the rest of the port
+
+**Wherever the reference relies on typing and conversion being separate judgments, this tree
+needs a combined statement.**  Twice now:
+
+* `IsDefEq`'s type index makes `IsDefEqU` composition a theorem rather than a rule, so the
+  reference's untyped `symm`/`trans`/λ/∀ congruences acquire a `uniq` obligation here
+  (`Theory/Typing/RawDefEq.lean` documents this one in full);
+* basics (3) and (4) cannot be two lemmas here, because in `IsDefEqStrong` a conversion
+  rule's typing premises are *diagonal instances of the conversion judgment itself* — so a
+  split induction has nothing to feed `appDF`, `beta`, `eta` or `proofIrrel`.
+
+Both have the same root: `HasType e A` is *defined* as `IsDefEq e e A`.  Expect this shape
+again in `unique.tex` §§3–4, and reach for a combined statement before proving two lemmas
+that cannot see each other's induction hypotheses.
+
+## Price of the inductive step, measured
+
+Row zero for `unique.tex` §§3–4 restated over this index.  Measured on
+`ChurchRosser.lean` with comments stripped, so these are code occurrences, not name hits:
+
+* **83 uses of the retyping family** (`trans_l/r`, `transU_l/r`, `of_l/r`, `defeqU_l/r`)
+  — every one of these *evaporates*.  Each is "move a conversion to a given type" or
+  "compose two conversions at different types", and at this index `trans` and `conv` are
+  rules and `IsDefEqN` has no type to move to.
+* **26 uses of `uniq`/`uniqU`** — these do **not** evaporate, and they do not need to.  At
+  this index unique typing at `n` is the *induction hypothesis* (`unique.tex:64` says so
+  outright: "we will assume that `⊢ₙ` has unique typing"), so they become a hypothesis
+  rather than an import from a downstream file.  That, and not their disappearance, is what
+  breaks the circularity.
+
+So the development is transcription-shaped, not new mathematics — but it is gated on two
+pieces that do not exist yet:
+
+1. **`thm:utype` at this index** — `UniqueTyping.lean`'s `IsDefEq.uniq` (≈111 lines)
+   re-indexed, taking definitional inversion at `n` as a hypothesis instead of importing it.
+2. **A `VEnv.Params` analogue.**  All of `ChurchRosser.lean` sits under `variable [Params]`,
+   and that class's `pat_wf` field is *semantic* — it asserts a rule's right-hand side is
+   definitionally equal to the matched term — which needs `forallE_inv`.  Nothing
+   instantiates it.  At this index that stops being circular for the same reason (2) does.
+
+**Do not confuse the two classes named `Params`.**  `Lean4Lean.VEnv.Params`
+(`ChurchRosser.lean:12`) and `Lean4Lean.Params` (`Experimental/SExpr.lean:787`) are
+different classes with different fields, distinguished only by namespace.
+`Experimental/ParamsInstance.lean`'s `paramsOfWF` instantiates the **second**; the mainline
+one has no instance.  A name search cannot tell them apart, and statements in this repo of
+the form "`Params` is/isn't instantiated" are ambiguous unless they carry the namespace.
 -/
 
 end VEnv
