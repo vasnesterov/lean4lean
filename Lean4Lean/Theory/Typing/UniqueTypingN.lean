@@ -9,12 +9,17 @@ import Lean4Lean.Theory.Typing.Stratified
   clause for clause;
 * `VEnv.SubstC env U n` — "`⊢ₙ` conversions are closed under instantiation by `⊢ₙ`-typed
   terms".  **This is not in the reference; it is a step the reference takes without
-  justification.**  See below;
-* `VEnv.DefInv.zero` and `VEnv.SubstC.zero` — both hypotheses hold at `n = 0` (`thm:0dinv`),
-  which is what keeps everything below from being vacuous;
-* `VEnv.Stratified.uniq` — `thm:utype` (`unique.tex:40`), sorry-free from those two;
+  justification, and `Theory/Typing/SubstCRefute.lean` shows it is FALSE at `n = 1`.**
+  See below;
+* `VEnv.DefInv.zero` and `VEnv.SubstC.zero` — both hypotheses hold at `n = 0` (`thm:0dinv`);
+* `VEnv.Stratified.uniq` — `thm:utype` (`unique.tex:40`), sorry-free from those two.  **Its
+  `SubstC` hypothesis is unsatisfiable for `n = 1`, so this theorem has content only at
+  `n = 0`** (`HasTypeN.uniq_zero`, which is unconditional).  It is kept because it is the
+  exact statement whose hypotheses the refutation now pins down;
 * `VEnv.IsDefEqU.sort_inv_of_defInv` — the reduction of `Theory/Typing/Injectivity.lean`'s
-  open `sort_inv` to `∀ n, DefInv env U n`, which is the point of the whole route.
+  open `sort_inv` to `∀ n, DefInv env U n`.  **This does not use `uniq` and does not use
+  `SubstC`**, so it is untouched by the refutation and is the part of this file that still
+  carries the route.
 
 `Theory/Typing/Stratified.lean` supplies the index and the four "n-provability basics"; this
 file is the first thing that uses them.
@@ -22,8 +27,15 @@ file is the first thing that uses them.
 ## The gap in `thm:utype`, and what `SubstC` is
 
 `thm:utype`'s application case (`unique.tex:51`) ends "…so `Γ ⊢ₙ β[e₂/x] ≡ β'[e₂/x]`": it
-substitutes into a conversion and keeps the index `n`.  Nothing justifies that step, and no
-proof of it exists here.
+substitutes into a conversion and keeps the index `n`.  **That step is false.**
+`Theory/Typing/SubstCRefute.lean` exhibits a counterexample at `n = 1` over the empty
+environment, machine-checked, and every rule it relies on is one the reference states with
+the same premises (`axioms.tex:38`'s β rule carries its two typing premises, which is what
+makes the counterexample stick).
+
+The rest of this section is the counting argument that located the failure before the
+counterexample was built.  It is kept because it says *why* the failure is structural rather
+than an accident of one example.
 
 `⊢ₙ` is defined by a condition on *derivations* (`unique.tex:14`), and the derivation
 transformation raises the index.  Substituting a derivation of `Γ ⊢ₘ e₂ : α` into one of
@@ -41,16 +53,17 @@ The wall is machine-witnessed and sits exactly where the counting says: an attem
 whose typing premises drop an index — `appDF`, `beta`, `eta`, `proofIrrel` — where the
 available `Γ ⊢ₙ₊₁ e₀ : A₀` cannot be lowered to the `Γ ⊢ₙ e₀ : A₀` the premise wants.
 
-To be exact about the claim: this shows the reference's *step* is unjustified, not that
-index-preserving substitution is *false*.  No counterexample is exhibited — that would need a
-concrete environment — so `SubstC` may well hold; it simply has no proof, and `thm:utype` may
-not appeal to it without one.  So it is carried as an explicit hypothesis, named, rather than
-absorbed into `DefInv` where it would be easy to miss.
+**What is known about `SubstC`, exactly.**  It holds at `n = 0` (`SubstC.zero`).  It holds at
+every `n` for terms whose typing derivation is conversion-free (`SubstC.of_hasTypeN_zero`, an
+instance of `Stratified.instN` at `m = 0`) — the only fragment `instN` reaches, since the
+`m + n` bound collapses to `n` exactly when `m = 0`.  And it **fails** at `n = 1` as soon as
+the substituted term's typing genuinely uses a conversion
+(`SubstCRefute.substC_false`).  So the conversion-free fragment is not a limitation of the
+proof: it is the whole of the true part.
 
-**What is known about `SubstC`.**  It holds at `n = 0` (`SubstC.zero`).  It holds at every
-`n` for terms whose typing derivation is conversion-free (`SubstC.of_hasTypeN_zero`, an
-instance of `Stratified.instN` at `m = 0`), which is the only fragment `instN` reaches: the
-`m + n` bound collapses to `n` exactly when `m = 0`.  The general case is open.
+What this does to the reference's induction: `DefInv 0` (proved) gives `uniq 0` (`SubstC 0`
+holds), which the reference's §§3–4 would turn into `DefInv 1`.  The next step needs
+`uniq 1`, and `SubstC 1` is false.  **The induction cannot pass `n = 1`.**
 
 ## The gap is not local to `thm:utype`
 
@@ -69,7 +82,9 @@ once.  Pricing that transcription without pricing this is optimistic.
 
 ## What would actually fix it, and why the obvious repair does not
 
-Adding instantiation as a **rule** looks like the fix and is not one.  It works locally: put
+With `SubstC` refuted, "prove it" is off the table and only a change to the *definitions*
+remains.  Adding instantiation as a **rule** looks like the fix and is not one.  It works
+locally: put
 it on the conversion half only (the typing half would break `thm:utype`'s primary induction,
 whose subject would become an arbitrary substituted term), and then `SubstC` is immediate,
 `IsDefEqN.zero_iff` survives (the rule maps a syntactic equality to a syntactic equality),
@@ -113,10 +128,12 @@ neither is in `unique.tex`.
 Nothing below depends on how this is resolved: `thm:utype` is proved from `DefInv` and
 `SubstC` as stated, and `sort_inv_of_defInv` needs only `DefInv`.
 
-**Why `SubstC` is kept as a hypothesis rather than discharged by the depth-0 rule.**  The two
-are the same difficulty, not a trade: adding the rule enlarges `⊢ₙ`, so it makes `DefInv n` —
-the one remaining open goal on this route — *harder* by exactly the case it removes here.
-Naming the obligation keeps it countable; folding it into the judgment would hide it inside a
+**Why `SubstC` is kept as a hypothesis rather than discharged by the depth-0 rule.**  Because
+it is false, and a false hypothesis is worth naming.  Adding the rule would not *prove* it —
+it would change the judgment `⊢ₙ` into a different relation, one that is no longer the
+reference's `unique.tex:14`, and it would make `DefInv n` — the one remaining open goal on
+this route — harder by exactly the case it removes here.  Naming the obligation keeps it
+countable and refutable; folding it into the judgment would have hidden a false step inside a
 definition that five landed lemmas already describe.
 -/
 
@@ -142,9 +159,10 @@ structure DefInv (env : VEnv) (U n : Nat) : Prop where
 
 /-- **`⊢ₙ` conversions are closed under instantiation by `⊢ₙ`-typed terms.**
 
-Not a definition of the reference's; it is the step `thm:utype`'s application case takes
-without justification.  See the module docstring for why it cannot be proved from
-`Stratified.instN` (which lands at `m + n`) and for the two ways to discharge it. -/
+Not a definition of the reference's; it is the step `thm:utype`'s application case
+(`unique.tex:51`) takes without justification.  **It is false**: see
+`Theory/Typing/SubstCRefute.lean`, which refutes it at `n = 1`.  True at `n = 0`
+(`SubstC.zero`) and on the conversion-free fragment (`SubstC.of_hasTypeN_zero`). -/
 def SubstC (env : VEnv) (U n : Nat) : Prop :=
   ∀ {Γ : List VExpr} {A B B' a : VExpr},
     env.HasTypeN U n Γ a A → env.IsDefEqN U n (A::Γ) B B' →
@@ -387,14 +405,16 @@ theorem HasTypeN.uniq (dinv : env.DefInv U n) (hs : env.SubstC U n) {Γ e A B}
     (H1 : env.HasTypeN U n Γ e A) (H2 : env.HasTypeN U n Γ e B) :
     env.IsDefEqN U n Γ A B := Stratified.uniq H1 dinv hs (Eq.refl true) _ H2
 
-/-! ## The theorem is not vacuous, and it is not weaker at `n = 0`
+/-! ## Where the theorem has content, and where it does not
 
-Two checks, because `DefInv` and `SubstC` are hypotheses everywhere above, and hypotheses
-nothing satisfies prove nothing.
+`DefInv` and `SubstC` are hypotheses everywhere above, and hypotheses nothing satisfies prove
+nothing.  Both hold at `n = 0`, and `SubstC` is false at `n = 1`
+(`SubstCRefute.substC_false`), so **`n = 0` is the whole of the theorem's content** until the
+definitions change.
 
-Both hold at `n = 0`.  At that instance `thm:utype` reads: *a term's conversion-free types are
-syntactically equal* — `uniq_zero` below — which is a real statement, not a tautology, and
-the class of derivations it speaks about is inhabited (`sort_zero_ex`). -/
+At `n = 0` it reads: *a term's conversion-free types are syntactically equal* — `uniq_zero`
+below, which depends on no hypothesis at all — a real statement, not a tautology, over an
+inhabited class of derivations (`sort_zero_ex`). -/
 
 /-- `thm:utype` at the base index, unfolded through `IsDefEqN.zero_iff`: at index `0` unique
 typing is *syntactic* uniqueness of the type.  Depends on no hypothesis at all — `DefInv.zero`
@@ -415,14 +435,17 @@ example (Γ : List VExpr) {l : VLevel} (h : l.WF U) :
 
 `Theory/Typing/Injectivity.lean`'s `IsDefEqU.sort_inv` and `IsDefEqU.sort_forallE_inv` —
 still `sorry` there — follow from definitional inversion *at every index* and nothing else,
-by `IsDefEqU.stratifyN`.  Note `SubstC` does **not** appear: these two need only `DefInv`.
-That is the direction the target needs; the converse (`IsDefEqN n → IsDefEqU`) is the
-reference's regularity upgrade, needs `uniq` itself, and is not required here.
+by `IsDefEqU.stratifyN`.  Neither `SubstC` nor `uniq` appears: these two need only `DefInv`,
+which is why the refutation above leaves them standing.  That is the direction the target
+needs; the converse (`IsDefEqN n → IsDefEqU`) is the reference's regularity upgrade, needs
+`uniq` itself, and is not required here.
 
-These are the cash value of `DefInv`: `∀ n, DefInv env U n` is now a *sufficient* hypothesis
-for the sort half of the injectivity cone.  `thm:utype` is what makes that hypothesis
-attackable — `unique.tex`'s induction proves `DefInv (n+1)` from `DefInv n` via `uniq n`, and
-`uniq n` is what this file supplies. -/
+So `∀ n, DefInv env U n` remains a *sufficient* hypothesis for the sort half of the
+injectivity cone, and it is the one surviving handle on the target.  What the refutation
+removes is the reference's way of *establishing* that hypothesis: `unique.tex` proves
+`DefInv (n+1)` from `DefInv n` via `uniq n`, and `uniq n` is unavailable for `n ≥ 1`.
+`DefInv` itself is not refuted — nothing here says it is false, only that this route to it is
+closed. -/
 
 /-- `IsDefEqU.sort_inv` (`Theory/Typing/Injectivity.lean`), reduced to definitional inversion
 at every index. -/
