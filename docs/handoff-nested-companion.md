@@ -1,5 +1,15 @@
 # The companion member: what refuses it, what it costs, and what must fire
 
+> **Superseded in part by `docs/handoff-nested-head.md`.**  The repair this document
+> recommends in §7 has been carried out (`Lean4Lean/Theory/Inductive/CompanionResolve.lean`):
+> G2 is now a theorem (`resolveC_complete`), G2a is discharged modulo a stated residue
+> (`resolveC_sound`), G3 is reduced to a property of the history (`resolveC_target_safe`),
+> the ordering rule of §3 is machine-checked (`fooComp_WFC`), and the unsoundness witness of
+> §3 is killed (`fooComp_killed`).  §3's *justification* for making G2 a definition is
+> corrected in the successor's §2 — the conclusion stands, the reasoning did not.  A fourth
+> guard, **G4** (the ι-rules are not renamed), was found and is recorded there.  Everything
+> below remains accurate as a description of the pre-repair state.
+
 Stream deliverable for the open item at the end of `Lean4Lean/Theory/Inductive/Nested.lean`:
 
 > **1. `addInduct'` still refuses a companion member, and that is a theorem of this file.**
