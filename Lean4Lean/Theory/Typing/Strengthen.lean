@@ -3,15 +3,20 @@ import Lean4Lean.Theory.Typing.UniqueTyping
 /-!
 # Strengthening (the inverse of weakening): what is provable, and where it is blocked
 
-`VEnv.IsDefEqU.weakN_iff` (`Theory/Typing/UniqueTyping.lean:172`) asserts that a conversion
+`VEnv.IsDefEqU.weakN_iff` (`Theory/Typing/UniqueTyping.lean:174`) asserts that a conversion
 between two *lifted* terms in the larger context descends to the smaller one.  Its forward
 direction is the only `sorry` in that file, and 119 declarations of this package are tainted
 through it.  Nothing here assumes it; the file records what *is* provable.
 
-The headline (§8): the target is equivalent to **three** statements — two shape-descent facts
-and one `trans` case:
+The headline, **as corrected in §9**: `TransStrengthening` is not a residual — it *is* the
+target (`Strengthening.iff_trans`, sorry-free), so §8's
 
     Strengthening ↔ SortDescend ∧ PiDescend ∧ TransStrengthening
+
+is a tautology read as a reduction.  What survives is a statement about the target's
+*reflexive instance*, and §9 collapses that from two statements to one:
+
+    TypingStrengthening ↔ PiDescend
 
 Contents:
 
@@ -19,22 +24,29 @@ Contents:
   is inhabited**, by substitution.  Sorry-free.  So the obstruction lives entirely in
   *uninhabited* context entries, which is also why no model argument can reach it.
 * §2 the statement `Strengthening`, its reflexive instance `TypingStrengthening`, and the
-  `trans` residual `TransStrengthening`.
+  `trans` case `TransStrengthening` (**§9: not a residual — it is the target**).
 * §3 `TypingStrengthening.typed` — the existential form implies the *typed* form, by applying
   itself to a type-ascription redex.
 * §4 inversion of `liftN` against a head constructor.
 * §5 `Strengthening.of_typing` — **eleven of the twelve conversion rules close from
-  `TypingStrengthening` alone**; `trans` is the only residual, and there both induction
-  hypotheses are vacuous.
+  `TypingStrengthening` alone**; `trans` is the only case left, and there both induction
+  hypotheses are vacuous.  **§9: this is a map of the induction, not a reduction** — the
+  theorem is provable from its `TransStrengthening` hypothesis alone.
 * §6 `Strengthening.iff_typed` — the typed statement (`IsDefEq.weakN_iff'`) and the untyped
   one are inter-derivable, so they are not two problems.
 * §7 `TypingStrengthening.iff_descend` — **`TypingStrengthening` is exactly `SortDescend` ∧
   `PiDescend`**, sorry-free.  Its own induction is on the syntax-directed `HasTypeStrong`, so
   it never inspects a conversion derivation and `trans` never arises.
-* §8 the capstone.
+* §8 the capstone — **superseded by §9**, which shows its `←` direction never uses its first
+  two hypotheses.
+* §9 the correction: `Strengthening ↔ TransStrengthening`, and `PiDescend → SortDescend`, so
+  `TypingStrengthening ↔ PiDescend`.
 
-**Axiom cones, machine-checked.**  §1, §4, §7 and `Strengthening.{typing,trans}` are
-sorry-free.  §3, §5, §6 and §8 are `sorryAx`-tainted through `IsDefEqU.forallE_inv` /
+**Axiom cones, machine-checked.**  §1, §4, §7, `Strengthening.{typing,trans}` and §9's
+`TransStrengthening.strengthening` / `Strengthening.iff_trans` are sorry-free.  §9's
+`PiDescend.sortDescend` is not: it buys the collapse of the two shape-descent statements to
+one at the price of Π-injectivity.  §3, §5, §6, §8 and the rest of §9 are `sorryAx`-tainted
+through `IsDefEqU.forallE_inv` /
 `IsDefEqU.sort_inv` (`Theory/Typing/Injectivity.lean`, pre-existing open obligations) and
 through **nothing else** — in particular there is *no* dependency on `IsDefEqU.weakN_iff`
 itself, so none of it is circular.  See `docs/handoff-weakn.md`.
@@ -443,6 +455,68 @@ theorem Strengthening.iff_descend :
   ⟨fun H => ⟨TypingStrengthening.sortDescend henv H.typing,
       TypingStrengthening.piDescend henv H.typing, H.trans⟩,
    fun ⟨h1, h2, h3⟩ => Strengthening.of_typing henv (TypingStrengthening.of henv h1 h2) h3⟩
+
+/-! ## 9. Correction to §8: `TransStrengthening` **is** the target, and the residual is one
+statement, not two
+
+Two one-line facts.  Both change what §5 and §8 say.
+
+**(a) `TransStrengthening` is not a residual — it is `Strengthening` itself.**  Instantiate
+its middle term `b` at `e2.liftN n k` and its second premise at reflexivity, which the first
+premise already supplies (`IsDefEq.hasType.2`).  So `Strengthening ↔ TransStrengthening`
+(`Strengthening.iff_trans`), the `←` direction of §8's capstone never uses `SortDescend` or
+`PiDescend` (`Strengthening.of_trans_only`), and §5's `Strengthening.of_typing` is provable
+from its *second* hypothesis alone.  What §5 really establishes is a **case analysis** — that
+eleven of the twelve rules need nothing but `TypingStrengthening` — not a reduction of the
+target to a smaller statement.  Read as a reduction, §8's capstone is a tautology.
+
+**(b) The reflexive instance is exactly `PiDescend`.**  `SortDescend` is a consequence of
+`PiDescend`: apply the latter to the closed identity function `fun (_ : Sort u) => _`, whose
+domain is a sort by construction, at the argument `e`.  Together with §7 this gives
+`TypingStrengthening ↔ PiDescend` — one statement, not two.
+-/
+
+/-- **`TransStrengthening` implies `Strengthening`.**  Take the middle term to be
+`e2.liftN n k` and the second premise to be the reflexivity the first one already provides. -/
+theorem TransStrengthening.strengthening (H : TransStrengthening env U) :
+    Strengthening env U := fun W hΓ hΓ' h =>
+  have ⟨_, h⟩ := h; H W hΓ hΓ' h h.hasType.2
+
+/-- **The `trans` residual of §5 is the target.**  So it is not a reduction. -/
+theorem Strengthening.iff_trans : Strengthening env U ↔ TransStrengthening env U :=
+  ⟨Strengthening.trans, TransStrengthening.strengthening⟩
+
+/-- §8's capstone, `←` direction, with its first two hypotheses deleted. -/
+theorem Strengthening.of_trans_only (h3 : TransStrengthening env U) : Strengthening env U :=
+  h3.strengthening
+
+/-- **`PiDescend` implies `SortDescend`.**
+
+The witness is the closed identity function `idU := fun (_ : Sort u) => _`, whose type
+`Sort u → Sort u` is fixed by construction and, being closed, is its own lift.  `PiDescend` at
+`idU` and the argument `e` returns *some* Π type `A₀ → B₀` for `idU` downstairs together with
+`Γ ⊢ e : A₀`; Π-injectivity identifies `A₀` with `Sort u`.
+
+This is the only place in the file where a *sort* is obtained from a *Π*, and it is why §7's
+two shape-descent statements are really one.  The cost is `IsDefEqU.forallE_inv`, which §3, §5
+and §6 already consume. -/
+theorem PiDescend.sortDescend (henv : VEnv.WF env) (HP : PiDescend env U) :
+    SortDescend env U := by
+  intro n k Γ Γ' e u W hΓ hΓ' h he
+  have ⟨_, hsu⟩ := h.isType henv hΓ'
+  have hu : u.WF U := hsu.sort_inv henv.ordered
+  have hidf : ∀ {Δ : List VExpr}, env.HasType U Δ (.lam (.sort u) (.bvar 0))
+      (.forallE (.sort u) ((VExpr.sort u).lift)) := .lamDF (.sortDF hu hu rfl) (.bvar .zero)
+  have hlift : (VExpr.lam (.sort u) (.bvar 0)).liftN n k = .lam (.sort u) (.bvar 0) := by
+    simp [VExpr.liftN, liftVar]
+  have ⟨A₀, B₀, hf, ha⟩ := HP W hΓ hΓ' (hlift ▸ hidf) h ⟨_, hidf⟩ he
+  have ⟨⟨_, hA₀⟩, _⟩ := (hidf.uniqU henv hΓ hf).forallE_inv henv hΓ
+  exact ⟨u, ha.defeqU_r henv hΓ ⟨_, hA₀.symm⟩⟩
+
+variable! (henv : VEnv.WF env) in
+/-- **The reflexive instance of the target is exactly one statement.** -/
+theorem TypingStrengthening.iff_piDescend : TypingStrengthening env U ↔ PiDescend env U :=
+  ⟨fun H => H.piDescend henv, fun H => TypingStrengthening.of henv (H.sortDescend henv) H⟩
 
 end VEnv
 end Lean4Lean

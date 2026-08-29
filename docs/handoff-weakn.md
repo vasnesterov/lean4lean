@@ -1,89 +1,89 @@
 # Handoff: strengthening — `IsDefEqU.weakN_iff`'s `sorry`
 
-**Target:** the forward (strengthening) direction of
-`Lean4Lean.VEnv.IsDefEqU.weakN_iff`, `Theory/Typing/UniqueTyping.lean:172`. **Still open, and
-the statement has not moved.** Nothing in this pass was refuted either; no countermodel was
-found and none is claimed.
+**Target:** the forward (strengthening) direction of `Lean4Lean.VEnv.IsDefEqU.weakN_iff`,
+`Theory/Typing/UniqueTyping.lean:174`. **Still open; the statement has not moved and nothing
+was refuted.**
 
-Everything below is marked **[measured]** (a machine run whose output is reproduced),
-**[machine-checked]** (a Lean proof in the tree, named), or **[read]** (read off source).
+Marks: **[machine-checked]** = a Lean declaration in this tree, named; **[measured]** = a
+machine run whose output is reproduced; **[read]** = read off source; **[analysis]** = neither.
 
----
-
-## 0. The four things to know before touching this
-
-0. **The target is now reduced to three named statements, machine-checked.**
-
-       Strengthening  ↔  SortDescend ∧ PiDescend ∧ TransStrengthening
-
-   (`Strengthening.iff_descend`). `SortDescend` and `PiDescend` are shape-descent facts about
-   *typing* — "a lifted term whose type upstairs is a sort (a Π) has a sort (a Π) type
-   downstairs" — and together they are equivalent to the reflexive instance of the target
-   (`TypingStrengthening.iff_descend`, **sorry-free**). `TransStrengthening` is the single
-   blocked conversion rule. Everything else — eleven of twelve conversion rules, and five of
-   the eight typing rules — is discharged in the tree.
-1. **The criterion of `docs/handoff-stratified.md` §5 says the *conversion-level* statement
-   fails, at `trans`, and it is right.** The induction *must* look at a conversion derivation
-   (see §1), and the conclusion is *asserted of* the endpoints, not propagated along.
-   **[machine-checked: `Strengthening.of_typing`, which closes every rule but `trans`.]**
-   The *typing-level* half (`TypingStrengthening`) **passes** the criterion, because it has a
-   syntax-directed judgment to induct on (§2.4).
-2. **The lead relayed with this task — "prove the typed statement `IsDefEq.weakN_iff'`
-   directly by induction and it closes both" — is wrong, and the reason is one line.**
-   `IsDefEq.trans` shares its type between the two premises, so the typed form does buy a
-   *lifted type* at `trans`; it buys nothing about the *middle term*, which is what blocks the
-   proof. Formally the two statements are inter-derivable: **[machine-checked:
-   `Strengthening.iff_typed`]**. They are one problem, not two.
-3. **The Church–Rosser route is circular in this tree.** `IsDefEq.church_rosser`
-   (`Theory/Typing/ChurchRosser.lean:2162`) is a *transitive user* of the very `sorry` it
-   would discharge. **[measured]** Do not start there without first re-proving
-   `NormalEq.weakN_inv_DFC` and `ParRed.weakN_inv` without it (§4).
+This pass **corrected the previous version of this document twice**, both correction
+[machine-checked] or [measured]. Read §0 before anything else.
 
 ---
 
-## 1. The criterion, applied and written down
+## 0. The three things to know before touching this
+
+0. **`TransStrengthening` is not a residual — it *is* the target.**  Instantiate its middle
+   term `b` at `e2.liftN n k` and its second premise at the reflexivity the first premise
+   already carries (`IsDefEq.hasType.2`), and you have `Strengthening`.
+   **[machine-checked, sorry-free: `TransStrengthening.strengthening`, `Strengthening.iff_trans`]**
+   Consequences, all mechanical:
+   * the previous headline —
+     `Strengthening ↔ SortDescend ∧ PiDescend ∧ TransStrengthening` (`Strengthening.iff_descend`)
+     — is **a tautology read as a reduction**: the `←` direction never uses its first two
+     hypotheses (**[machine-checked: `Strengthening.of_trans_only`]**);
+   * `Strengthening.of_typing (HT) (Htr)` is provable from `Htr` alone.  Its real content is
+     the *case analysis* — eleven of twelve conversion rules need nothing but
+     `TypingStrengthening` — not a reduction of the target.  That case analysis is still
+     worth having (§2.2); the theorem's statement oversold it.
+   * so the target has **one** genuinely open piece at the conversion level, and it is the
+     target.  §1's criterion said exactly this and it was right.
+1. **What survives is about the target's *reflexive instance*, and this pass halved it.**
+   `TypingStrengthening ↔ SortDescend ∧ PiDescend` (previous pass, sorry-free) becomes
+
+       TypingStrengthening  ↔  PiDescend
+
+   because `PiDescend` implies `SortDescend`: apply it to the *closed* identity function
+   `fun (_ : Sort u) => _`, whose domain is a sort by construction and which is its own lift,
+   at the argument `e`.  **[machine-checked: `PiDescend.sortDescend`,
+   `TypingStrengthening.iff_piDescend`]**  Cost: `IsDefEqU.forallE_inv` — the collapse is not
+   sorry-free, whereas `TypingStrengthening.iff_descend` was.  Pay it or don't; both
+   statements are in the tree.
+2. **The Church–Rosser route recommended as "step 2" is blocked twice over, and the second
+   blocker is fatal.**  See §4.  Do not spend the 110 lines.
+
+---
+
+## 1. The criterion, applied — unchanged, and confirmed
 
 > *Does the statement's induction ever have to look at a conversion derivation at all?  If it
 > does, it is tractable exactly when its conclusion is propagated along the conversion rather
 > than asserted of its endpoints.*
 
-**Does it have to look at a conversion derivation? For the statement as given, yes.** The
-hypothesis is `∃ A, IsDefEq U Γ' (e1.liftN n k) (e2.liftN n k) A`, and the only inductive
-object is that `IsDefEq` derivation. There is no escape inside the *core* judgment:
-**`HasType e A` is *defined* as `IsDefEq e e A`** (`Theory/Typing/Basic.lean:60`), so even the
-reflexive instance has nothing else to induct on there. **[read]** (There *is* an escape one
-level out — `Theory/Typing/Strong.lean`'s syntax-directed `HasTypeStrong`, reachable by
-`IsDefEq.strong` — but it is a *typing* judgment, so it serves the reflexive instance only.
-That is §2.4, and it is what makes the split in §0.0 the right one.)
+**Yes it must, and the conclusion is endpoint-asserted.**  `HasType e A` is *defined* as
+`IsDefEq e e A` (`Theory/Typing/Basic.lean:60`), so the core judgment offers nothing else to
+induct on. **[read]**  At `trans` the middle term is arbitrary and both induction hypotheses
+are vacuous. **[machine-checked: `Strengthening.of_typing`, whose `trans` case is the
+hypothesis `TransStrengthening`.]**  §0.0 now says what that means precisely: the `trans` case
+is the whole statement.
 
-**Is the conclusion propagated or endpoint-asserted? Endpoint-asserted, on both sides.** The
-hypothesis "both endpoints are lifted" *and* the conclusion "their strengthenings are defeq
-in `Γ`" are statements about the two endpoints. At
-`trans : Γ' ⊢ a ≡ b : A → Γ' ⊢ b ≡ c : A → Γ' ⊢ a ≡ c : A` with `a = e1↑`, `c = e2↑`, the
-middle `b` is arbitrary and in particular need not be lifted, so **both induction hypotheses
-are vacuous** — the companion test fails at the same place.
+The escape one level out is real and is where all the tractable content lives:
+`Theory/Typing/Strong.lean`'s syntax-directed `HasTypeStrong`, whose only non-syntax-directed
+rule keeps the same term.  It serves the *reflexive* instance only, which is why §0.1 is about
+`TypingStrengthening` and not about `Strengthening`.
 
-**Verdict: same row as `sort_inv` / `DefInv` clause (1) — "needs normalisation".** The
-criterion predicted this before the proof was written, and it also predicted the *other* half:
-the reflexive instance, which does not have to look at a conversion, is the half that closes.
-
-The row to add to §5's table of `docs/handoff-stratified.md`:
+Row for §5's table of `docs/handoff-stratified.md` (revised):
 
 | statement | induction sees a conversion? | conclusion | `trans` | outcome |
 |---|---|---|---|---|
-| `IsDefEqU.weakN_iff` (`Strengthening`) | yes, in the core judgment | endpoint-asserted | fails, IHs vacuous | needs a reduction relation |
-| `TypingStrengthening` (its reflexive instance) | **no** — induction on `HasTypeStrong` | — | never arises | tractable, 5 of 8 rules; residual = `SortDescend` ∧ `PiDescend`, **equivalent** |
+| `IsDefEqU.weakN_iff` (`Strengthening`) | yes, in the core judgment | endpoint-asserted | **is the statement** | needs a reduction relation |
+| `TypingStrengthening` (its reflexive instance) | **no** — induction on `HasTypeStrong` | — | never arises | tractable; residual = `PiDescend`, **equivalent** |
 
-The second row is the third statement in this development to be settled by inducting on a
-*typing* judgment rather than a conversion (`PropUniq` §16.1, `SortForallEDisjoint` §9, and
-now this) — and the first where doing so left a residual that is provably *equivalent* to what
-was assumed rather than weaker.
+*Why no propagated restatement exists* (**[analysis]**, unchanged, and now with the reason
+sharpened).  The natural propagated predicate is
+`Rel(a,b) := ∀ a₀, Γ' ⊢ a ≡ a₀↑ → ∃ b₀, Γ' ⊢ b ≡ b₀↑ ∧ Γ ⊢ a₀ ≡ b₀` (plus its mirror).  It
+does make `trans` free — compose the two witnesses.  But reading the target off `Rel(e1↑,e2↑)`
+needs *coherence* — "any two strengthenings of the same `Γ'`-term are `Γ`-convertible" — and
+coherence at `e2↑` **is** the target.  Coherence propagates along conversion but has no base
+case.  That is the precise sense in which this needs a deterministic reduction and not a
+relation.
 
 ---
 
-## 2. What was proved — `Theory/Typing/Strengthen.lean` (new, 437 lines, no `sorry`)
+## 2. What is in the tree — `Theory/Typing/Strengthen.lean` (520 lines, no `sorry`)
 
-Three definitions, so the residuals can be named rather than described:
+Three definitions, so residuals can be named:
 
 ```lean
 def Strengthening (env) (U) : Prop :=            -- the target
@@ -94,7 +94,7 @@ def TypingStrengthening (env) (U) : Prop :=      -- its reflexive instance
   ∀ {n k Γ Γ' e A}, Ctx.LiftN n k Γ Γ' → OnCtx Γ … → OnCtx Γ' … →
     env.HasType U Γ' (e.liftN n k) A → VExpr.WF env U Γ e
 
-def TransStrengthening (env) (U) : Prop :=       -- the one residual case
+def TransStrengthening (env) (U) : Prop :=       -- NOT a residual: equals `Strengthening`
   ∀ {n k Γ Γ' e1 e2 b A}, Ctx.LiftN n k Γ Γ' → OnCtx Γ … → OnCtx Γ' … →
     env.IsDefEq U Γ' (e1.liftN n k) b A → env.IsDefEq U Γ' b (e2.liftN n k) A →
     env.IsDefEqU U Γ e1 e2
@@ -102,127 +102,110 @@ def TransStrengthening (env) (U) : Prop :=       -- the one residual case
 
 | name | statement | status |
 |---|---|---|
-| `Ctx.LiftN.exists_instN` | a `LiftN 1 k` witness is an `InstN` witness for any substituted term | **[machine-checked]**, sorry-free |
-| `IsDefEqU.strengthen_of_instN` | **strengthening holds when the stripped entry is inhabited** | **[machine-checked]**, sorry-free |
-| `IsDefEq.strengthen_of_instN` | the same for the typed judgment | **[machine-checked]**, sorry-free |
-| `VExpr.liftN_eq_{bvar,sort,const,app,lam,forallE}`, `VExpr.liftVar_eq_zero`, `Lookup.weakN_inv` | inversion of `liftN` / `liftVar` against a head constructor | **[machine-checked]**, sorry-free |
-| `Strengthening.typing`, `Strengthening.trans` | the target implies its two residuals | **[machine-checked]**, sorry-free |
-| `TypingStrengthening.of` | **`SortDescend` ∧ `PiDescend` ⟹ `TypingStrengthening`** | **[machine-checked]**, *sorry-free* |
-| `TypingStrengthening.sortDescend`, `.piDescend` | the converses | **[machine-checked]**, *sorry-free* |
-| `TypingStrengthening.iff_descend` | **`TypingStrengthening` ↔ `SortDescend` ∧ `PiDescend`** | **[machine-checked]**, *sorry-free* |
-| `TypingStrengthening.typed` | `TypingStrengthening` ⟹ the *typed* form `Γ' ⊢ e↑ : A↑ → Γ ⊢ e : A` | **[machine-checked]** |
-| `Strengthening.of_typing` | **`TypingStrengthening` ∧ `TransStrengthening` ⟹ `Strengthening`** | **[machine-checked]** |
-| `Strengthening.iff_typed` | `Strengthening ↔ TypedStrengthening ∧ TypingStrengthening` | **[machine-checked]** |
-| `Strengthening.iff_descend` | **`Strengthening` ↔ `SortDescend` ∧ `PiDescend` ∧ `TransStrengthening`** | **[machine-checked]** |
+| `Ctx.LiftN.exists_instN` | a `LiftN 1 k` witness is an `InstN` witness for any substituted term | sorry-free |
+| `IsDefEqU.strengthen_of_instN`, `IsDefEq.strengthen_of_instN` | **strengthening holds when the stripped entry is inhabited** | sorry-free |
+| `VExpr.liftN_eq_*`, `VExpr.liftVar_eq_zero`, `Lookup.weakN_inv` | inversion of `liftN` against a head constructor | sorry-free |
+| `Strengthening.typing`, `Strengthening.trans` | the target implies its two "residuals" | sorry-free |
+| **`TransStrengthening.strengthening`** | **`TransStrengthening ⟹ Strengthening`** | **new**, sorry-free |
+| **`Strengthening.iff_trans`** | **`Strengthening ↔ TransStrengthening`** | **new**, sorry-free |
+| **`Strengthening.of_trans_only`** | §8's `←` with its first two hypotheses deleted | **new**, sorry-free |
+| `TypingStrengthening.of` / `.sortDescend` / `.piDescend` / `.iff_descend` | `TypingStrengthening ↔ SortDescend ∧ PiDescend` | sorry-free |
+| **`PiDescend.sortDescend`** | **`PiDescend ⟹ SortDescend`** | **new**, `sorryAx` via `forallE_inv` |
+| **`TypingStrengthening.iff_piDescend`** | **`TypingStrengthening ↔ PiDescend`** | **new**, `sorryAx` via `forallE_inv` |
+| `TypingStrengthening.typed` | the existential form implies the *typed* form | `sorryAx` via `forallE_inv` |
+| `Strengthening.of_typing` | the eleven-of-twelve case analysis | `sorryAx` via `forallE_inv` |
+| `Strengthening.iff_typed` | `Strengthening ↔ TypedStrengthening ∧ TypingStrengthening` | `sorryAx`; **still genuine**, see §6 |
+| `Strengthening.iff_descend` | the old capstone | `sorryAx`; **tautological**, see §0.0 |
 
-**Axiom cones, measured with `#print axioms`.** `strengthen_of_instN`, the `liftN`/`Lookup`
-inversions, `Strengthening.{typing,trans}` and **all of §7** (`TypingStrengthening.of`,
-`.sortDescend`, `.piDescend`, `.iff_descend`) are sorry-free.
-`TypingStrengthening.typed`, `Strengthening.of_typing`, `.typed'`, `.of_typed`, `.iff_typed`
-and `.iff_descend` are `sorryAx`-tainted **only** through `IsDefEqU.forallE_inv` →
-`forallE_inv_stratified` and `IsDefEqU.sort_inv` (`Theory/Typing/Injectivity.lean`,
-pre-existing open obligations).  A forward-reachability search reports **NO PATH** from any of
-them to `IsDefEqU.weakN_iff`. **[measured]** So none of this is circular, and the reductions
-are real.
+**Axiom cones and non-circularity, measured.**  For every new declaration a forward
+reachability search over the declaration graph (`getUsedConstantsAsSet`, `allowOpaque := true`)
+reports **NO PATH to `IsDefEqU.weakN_iff`**. **[measured]**  The `sorryAx` taint of
+`PiDescend.sortDescend` and `TypingStrengthening.iff_piDescend` is through exactly
+`IsDefEqU.sort_inv` and `IsDefEqU.forallE_inv_stratified` and nothing else. **[measured]**
+`TransStrengthening.strengthening` and `Strengthening.iff_trans` are `[propext]` only.
 
-### 2.1 The inhabited case, and why it matters
+### 2.1 The inhabited case, and why no model argument reaches this
 
-`(e.liftN 1 k).inst e₀ k = e` (`VExpr.inst_liftN`), so if the stripped hypothesis has *any*
-inhabitant in the smaller context, `IsDefEqU.instN` turns a `Γ'`-conversion between lifted
-terms into a `Γ`-conversion between the terms. **The whole difficulty of strengthening is
-therefore confined to context entries that are uninhabited downstairs** — the classical
-situation, and the reason no *model* argument can help: over an uninhabited `Γ'` the soundness
+`(e.liftN 1 k).inst e₀ k = e`, so if the stripped hypothesis has *any* inhabitant downstairs,
+`IsDefEqU.instN` turns the `Γ'`-conversion into a `Γ`-conversion.  **The difficulty is confined
+to context entries uninhabited downstairs** — and over an uninhabited `Γ'` every soundness
 statement is vacuous, so `Theory/SetModel/` cannot see the difference. **[read + machine-checked]**
 
-### 2.2 The row zero: `trans` is the only blocked rule
+### 2.2 The eleven-of-twelve case analysis (still useful, now correctly labelled)
 
-`Strengthening.of_typing` runs the induction and **closes eleven of the twelve `IsDefEq`
-rules**. What each needs:
-
-* `bvar` — free (the two endpoints coincide, so `TypingStrengthening` supplies the answer);
-* `sortDF`, `constDF`, `extra` — free (both endpoints are forced to be the lifted term itself;
-  for `extra` because environment defeqs are closed, `ClosedN.liftN_eq`);
-* `symm`, `defeqDF` — free (the endpoints are unchanged, so the IH applies directly);
-* `appDF`, `lamDF`, `forallEDF` — `TypingStrengthening` at the whole term, then the standard
-  inversion lemma (`app_inv` / `lam_inv` / `forallE_inv` of `Theory/Typing/Strong.lean`) to
-  recover the *typed* premises downstairs, then `IsDefEqU.of_l` on the two IHs;
-* `beta` — the same, plus `IsDefEq.uniqU` and `IsDefEqU.forallE_inv` to identify the λ's
-  annotation with the application's domain (this is the same `piUniq`-shaped step
-  `docs/handoff-uniqu-removal.md` §2.2 describes at `TrExpr.beta`);
-* `eta` — `TypingStrengthening` at the *λ side*, which yields a Π type downstairs; weakening
-  it back up and retyping the `eta` node along `uniqU` makes the function side's typing
-  judgment *lifted on both sides*, at which point `TypingStrengthening.typed` applies;
-* `proofIrrel` — `TypingStrengthening` at each proof gives types `C`, `C'`; `uniqU` identifies
-  both with `p` upstairs, `TypingStrengthening.typed` brings `Γ ⊢ C : Sort 0` and
-  `Γ ⊢ e₂ : C` down, and `.proofIrrel` fires;
-* **`trans` — blocked.** Hypothesis, not proof.
-
-The useful part of this is not that `trans` is hard (that was predicted) but that
-**everything else is genuinely discharged and needs exactly one unknown**,
-`TypingStrengthening`. Anyone attacking this can now ignore eleven rules.
+`Strengthening.of_typing` closes every rule but `trans` from `TypingStrengthening` alone:
+`bvar`, `sortDF`, `constDF`, `extra` (closed rules, `ClosedN.liftN_eq`), `symm`, `defeqDF`,
+`appDF`/`lamDF`/`forallEDF` (via `Strong.lean`'s inversions and `IsDefEqU.of_l`), `beta` (plus
+`uniqU` + `forallE_inv`), `eta`, `proofIrrel`.  This is a **map of the induction**, not a
+reduction: `trans` is the statement.  Its value is that anyone who lands a reduction relation
+has eleven rules already written.
 
 ### 2.3 The existential and typed forms are the same unknown
 
-`TypingStrengthening` gives only "the term has *some* type downstairs". That is already the
-typed form: apply it to the ascription redex `(fun _ : A => #0) e`, whose well-typedness
-downstairs forces `e`'s type to meet `A` (`TypingStrengthening.typed`). **[machine-checked]**
-So there is no point looking for a weaker "untyped" version of the unknown; the trick that
-upgrades it is three lines.
+`TypingStrengthening` implies the typed form by applying itself to the ascription redex
+`(fun _ : A => #0) e` (`TypingStrengthening.typed`). **[machine-checked]**  So there is no
+weaker "untyped" version of the unknown to look for.
 
-### 2.4 `TypingStrengthening` is exactly two shape-descent statements — sorry-free
+### 2.4 `TypingStrengthening` is exactly `PiDescend`
 
 ```lean
-def SortDescend (env) (U) : Prop :=          -- "a lifted term typed at a sort upstairs
-  ∀ …, Ctx.LiftN n k Γ Γ' → OnCtx Γ … → OnCtx Γ' … →      --  is typed at a sort downstairs"
-    env.HasType U Γ' (e.liftN n k) (.sort u) → VExpr.WF env U Γ e →
-    ∃ u₀, env.HasType U Γ e (.sort u₀)
+def SortDescend (env) (U) : Prop :=
+  ∀ …, Ctx.LiftN n k Γ Γ' → OnCtx Γ … → OnCtx Γ' … →
+    env.HasType U Γ' (e.liftN n k) (.sort u) → VExpr.WF env U Γ e → ∃ u₀, env.HasType U Γ e (.sort u₀)
 
-def PiDescend (env) (U) : Prop :=            -- "a lifted function applied to a lifted argument
-  ∀ …, Ctx.LiftN n k Γ Γ' → OnCtx Γ … → OnCtx Γ' … →      --  upstairs is one downstairs too"
+def PiDescend (env) (U) : Prop :=
+  ∀ …, Ctx.LiftN n k Γ Γ' → OnCtx Γ … → OnCtx Γ' … →
     env.HasType U Γ' (f.liftN n k) (.forallE A B) → env.HasType U Γ' (a.liftN n k) A →
     VExpr.WF env U Γ f → VExpr.WF env U Γ a →
     ∃ A₀ B₀, env.HasType U Γ f (.forallE A₀ B₀) ∧ env.HasType U Γ a A₀
 ```
 
-`TypingStrengthening.iff_descend : TypingStrengthening ↔ SortDescend ∧ PiDescend`, and it is
-**sorry-free**. **[machine-checked]**
+* `TypingStrengthening.iff_descend : TypingStrengthening ↔ SortDescend ∧ PiDescend`, sorry-free
+  (previous pass).
+* **`PiDescend.sortDescend : PiDescend → SortDescend`** (this pass).  Witness: the closed
+  identity `idU := .lam (.sort u) (.bvar 0)`, which satisfies `idU.liftN n k = idU`
+  syntactically and is typed `Sort u → Sort u` by construction.  `PiDescend` at `idU` and the
+  argument `e` returns `Γ ⊢ idU : A₀ → B₀` and `Γ ⊢ e : A₀`; `uniqU` + `forallE_inv` identify
+  `A₀` with `Sort u`.  **This is the only place a *sort* is recovered from a *Π*, and it is
+  what costs Π-injectivity.**
+* hence **`TypingStrengthening.iff_piDescend : TypingStrengthening ↔ PiDescend`**.
 
-*Why the induction works where `Strengthening`'s does not.* `TypingStrengthening` has a
-**syntax-directed** judgment available, `HasTypeStrong` (`Theory/Typing/Strong.lean:99`),
-reached by `IsDefEq.strong … |>.hasType'.1`. Its one non-syntax-directed rule, `defeq`,
-**keeps the same term**, so its case closes by the induction hypothesis and *no conversion
-derivation is ever inspected*. It therefore **passes** the criterion outright — the same way
-`PropUniq` and `SortForallEDisjoint` do (`handoff-stratified.md` §16.1, §9). Of its eight
-rules: `bvar`, `sort'`, `const`, `base`, `defeq` close for free; `lam` and `forallE` need only
-`SortDescend`; `app` needs only `PiDescend`.
+The converse direction `SortDescend → PiDescend` is **open and not attempted**; there is no
+reason to expect it (a sort target says nothing about Π shape).
 
-*This is a reformulation, not a weakening — and that is stated deliberately* (trap #11 of
-`handoff-stratified.md`: check whether a proposed strengthening is the same statement). The
-two descend statements are together **equivalent** to `TypingStrengthening`, machine-checked
-in both directions. What the reformulation buys is (i) that only `sort`- and `Π`-shaped types
-matter — every other typing rule is discharged — and (ii) that the residual is now stated in
-the idiom of `Theory/Typing/Injectivity.lean`, where `sort_inv`, `forallE_inv` and
-`SortForallEDisjoint` already live.
+*Why `TypingStrengthening`'s induction works where `Strengthening`'s does not.*  It has a
+syntax-directed judgment, `HasTypeStrong` (`Strong.lean:99`), reached by
+`IsDefEq.strong … |>.hasType'.1`; its one non-syntax-directed rule, `defeq`, keeps the same
+term.  So it never inspects a conversion and **passes** §5's criterion, like `PropUniq` and
+`SortForallEDisjoint`.  Of its eight rules `bvar`, `sort'`, `const`, `base`, `defeq` are free,
+`lam`/`forallE` need `SortDescend`, `app` needs `PiDescend`.
 
-*The converses are cheap and instructive.* `SortDescend` follows from `TypingStrengthening`
-by applying it to `∀ (_ : e), Prop` — a Π whose *domain* is `e` is well-formed downstairs only
-if `e` is a type there, and `HasType.forallE_inv` (sorry-free, `henv` only) reads that off.
-`PiDescend` follows by applying it to the application `f a` itself and using
-`VExpr.WF.app_inv`. Both sorry-free.
+### 2.5 Where a shape induction on `PiDescend` goes  **[analysis, not machine-checked]**
+
+Inducting on the shape of `f` downstairs (`Γ ⊢ f : T`, `Γ' ⊢ f↑ : Π A B`, so
+`Γ' ⊢ T↑ ≡ Π A B` by `uniq`):
+
+* `f = .lam C d` — `Γ ⊢ f : Π C D`, so `Γ' ⊢ A ≡ C↑` by `forallE_inv`, and with
+  `Γ' ⊢ S↑ ≡ A` (`S` = `a`'s type downstairs) this leaves `Γ' ⊢ S↑ ≡ C↑` ⟹ `Γ ⊢ S ≡ C`:
+  **strengthening at types**, both sides lifted;
+* `f = .sort _` or `.forallE _ _` — `T` is a sort, so `Γ' ⊢ .sort _ ≡ Π A B` contradicts
+  `IsDefEqU.sort_forallE_inv` (open, `Injectivity.lean:312`);
+* `f = .bvar _`, `.const _ _`, `.app _ _` — need "`T↑` is Π-shaped upstairs ⟹ `T` is Π-shaped
+  downstairs", with **no** term-shape information about `T`.
+
+So `PiDescend` sits in the same family as `Injectivity.lean`'s open statements, and the honest
+summary is that it wants *Π-shape descent for conversion*.  Nothing here reduces it to a
+smaller statement; recording the case split so the next pass does not redo it.
 
 ---
 
-## 3. Measured cone — what the `sorry` actually costs
+## 3. Cone
 
-Reproduce with `scripts/cone-measure.lean` (unchanged) and the variant used here (the variant
-adds `import Lean4Lean.Theory`, which the committed script does **not** transitively reach —
-see §3.1). **[measured]**
+**Unchanged — no `sorry` was removed, so there is no before/after to report.**  §3 of the
+previous version's figures were not re-measured this pass and are reproduced as inherited
+[measured] claims:
 
-Committed script, unchanged, scope A (import closure of `Verify/TypeChecker.lean` +
-`Verify/Typing/Lemmas.lean`, 11338 declarations) — this **confirms** the figures relayed with
-the task:
-
-| cut | `IsDefEqU.sort_inv` transitive users |
+| cut | `IsDefEqU.sort_inv` transitive users (scope A, 11338 decls) |
 |---|---|
 | none | 129 |
 | (E) | 66 |
@@ -230,72 +213,87 @@ the task:
 | (E) + `IsDefEq.weakN_iff'` | **31** |
 | (E) + `piUniq` + `weakN_iff'` | 2 |
 
-Scope B of the committed script (12756 declarations): 192 / 102 / 92 / 67 / 3.
+`IsDefEqU.weakN_iff`: 5 direct users, 58 transitive (scope A) / 93 (scope B) / **119** (scope C
+= scope B + `import Lean4Lean.Theory`).
 
-The number that measures **this** target rather than `sort_inv`'s:
-
-| declaration | direct users | transitive users |
-|---|---|---|
-| `IsDefEqU.weakN_iff` (scope A) | 5 | **58** |
-| `IsDefEqU.weakN_iff` (scope B) | 5 | **93** |
-| `IsDefEqU.weakN_iff` (**scope C**, +`Lean4Lean.Theory`, 13532 decls) | 9 | **119** |
-
-### 3.1 A correction to the instrument's coverage
-
-`scripts/cone-measure.lean`'s scope B is advertised as "all `Lean4Lean.*` modules", but it is
-all modules *reachable from its own import list*, and **nothing under `Verify/` imports
-`Theory/Typing/ChurchRosser.lean`** — it is reachable only through `Lean4Lean/Theory.lean`.
-**[measured + read]** So scope B silently omits the entire Church–Rosser development. Adding
-`import Lean4Lean.Theory` raises the declaration count 12756 → 13532 and `weakN_iff`'s cone
-93 → 119. Any future statement of the form "scope B = everything" should be checked against
-this. (The committed script was left unmodified; the variant lives only in the scratchpad.)
+**The instrument's coverage caveat stands and matters**: `scripts/cone-measure.lean`'s scope B
+is advertised as "all `Lean4Lean.*` modules" but is only what its own import list reaches, and
+**nothing under `Verify/` imports `ChurchRosser.lean`** — it is reachable only through
+`Lean4Lean/Theory.lean`.  Adding `import Lean4Lean.Theory` raises 12756 → 13532 declarations.
 
 ---
 
-## 4. The Church–Rosser route: priced, and closed as it stands
+## 4. The Church–Rosser route: **closed, for a reason that is not the circularity**
 
-`Theory/Typing/ChurchRosser.lean` really does prove what the route wants:
+`Theory/Typing/ChurchRosser.lean` really does prove what the route wants
+(`IsDefEq.church_rosser`, `ParRed.weakN_inv`, `NormalEq.weakN_iff` / `.weakN_inv_DFC`).
+It still cannot be used, and the previous version of this document mispriced why.
 
-* `IsDefEq.church_rosser : Γ ⊢ e₁ ≡ e₂ : A → Γ ⊢ e₁ ≫≪ e₂` (line 2163) — full completeness of
-  parallel reduction for the typed conversion, `extra` rules included. **[read]**
-* `ParRed.weakN_inv` (765) — a reduct of a lifted term is lifted. **[read]**
-* `NormalEq.weakN_iff` (432) / `NormalEq.weakN_inv_DFC` (327) — strengthening for the
-  normal-form equality. **[read]**
+### 4.1 The fatal blocker: `Params` has no instance, and it is an assumption about the environment
 
-Together those give strengthening in three lines. **They cannot be used.** A forward
-reachability search over the declaration graph finds:
+Every declaration in `ChurchRosser.lean` from line 83 on lives under `variable [Params]`, and
+`Params` carries `env` and `henv : env.WF` as **fields**.  So
 
 ```
-IsDefEq.church_rosser → CRDefEq.trans → NormalEq.parRedS → NormalEq.parRed
-                      → ParRed.weakN_inv → IsDefEqU.weakN_iff
-NormalEq.trans → NormalEq.weakN_iff → NormalEq.weakN_inv_DFC → IsDefEqU.weakN_iff
+@IsDefEq.church_rosser : ∀ {Γ} [inst : Params], OnCtx Γ (Params.env.IsType Params.univs) →
+  ∀ {e₁ e₂ A}, Params.env.IsDefEq Params.univs Γ e₁ e₂ A → CRDefEq Γ e₁ e₂
 ```
 
-**[measured]** — and `NormalEq.weakN_inv_DFC` and `ParRed.weakN_inv` appear in §3's list of
-`weakN_iff`'s nine direct users. Proving `weakN_iff` from `church_rosser` would be circular.
+**[measured, `#check`]** — it is a statement about `Params.env`, not about an arbitrary
+`VEnv.WF` environment.  `IsDefEqU.weakN_iff` quantifies over all of them.
 
-**What it would take to break the cycle, precisely.** The uses divide into two kinds:
+`synthInstance?` over the whole `Lean4Lean.Theory` import closure reports
+**NO instance of `Lean4Lean.VEnv.Params`** **[measured]**, and a grep over the package finds
+none. **[measured]**  The class's own `extra_pat` docstring says why: every `extra` rule of the
+environment must be a `Pat`-registered simple pattern under leading lambdas, with the
+uniqueness conditions `pat_uniq` / `pat_app_l_uniq` / `pat_app_uniq`.  `VEnv.WF`
+(`Theory/Typing/Env.lean:86`) supplies δ-rules, the quotient rules and ι-rules but **no such
+invariant**. **[read]**
 
-* `ParRed.weakN_inv` uses it in **one** place, the `extra` case: a reduction rule's
-  `Check` obligations are `IsDefEqU` constraints on the *matched arguments*, which are strict
-  subterms of the term being reduced. So this use is at a **strictly smaller term** and a
-  well-founded induction can absorb it. **[read]**
-* `NormalEq.weakN_inv_DFC` uses it at the **same** term, in `refl`, `appDF`, `etaL`/`etaR` and
-  `proofIrrel`, to reconstruct the typing side-conditions that `NormalEq`'s constructors
-  carry, and additionally at the *types* of subterms in `appDF`. Those are
-  `TypingStrengthening` (and `Strengthening` at types), not a smaller instance. **[read]**
+**So even a fully de-circularised `ChurchRosser.lean` proves nothing about
+`UniqueTyping.lean:174`.**  The prerequisite is *instantiating `Params` from `VEnv.WF`* — a
+separate project, of the same shape as ledger item M2 (`RuleFreeHead` from `VEnv.Sig`).
 
-So the honest statement of the reduction is: **`Strengthening` follows from Church–Rosser
-plus `TypingStrengthening`**, and Church–Rosser as written already consumes
-`TypingStrengthening`. The route is not refuted; it is *unbuilt*. Building it means
-re-proving `NormalEq.weakN_inv_DFC` (110 lines) from `TypingStrengthening` alone, and
-relocating it so `UniqueTyping.lean` can see it (`ChurchRosser.lean` imports `UniqueTyping.lean`,
-so the file order has to change: `IsDefEq.uniq` and friends would move to a new file imported
-by both). Neither step was attempted here.
+### 4.2 The circularity is real and **twice as large as previously priced**
+
+Forward reachability over the declaration graph **[measured]**:
+
+```
+IsDefEq.church_rosser → CRDefEq.trans → NormalEq.trans → NormalEq.weakN_iff
+                      → NormalEq.weakN_inv_DFC → HasType.weakN_iff → … → IsDefEqU.weakN_iff
+ParRed.weakN_inv      → IsDefEqU.weakN_iff
+NormalEq.parRed       → ParRedExt.parRed_beta → HasType.weakN_iff → … → IsDefEqU.weakN_iff
+```
+
+A sweep for declarations whose transitive dependencies contain any of `IsDefEqU.weakN_iff`,
+`IsDefEq.weakN_iff'`, `IsDefEq.weakN_iff`, `HasType.weakN_iff`, `VExpr.WF.weakN_iff`,
+`OnCtx.weakN_inv` finds **four** in `ChurchRosser.lean`, not two **[measured]**:
+
+| declaration | line | call sites | kind of use |
+|---|---|---|---|
+| `NormalEq.weakN_inv_DFC` | 327 | 335, 355, 358, 360, 370, 378, 379, 395, 397, 413, 415, 424, 427, 428, 429 (15) | same term — `TypingStrengthening` and `TypedStrengthening` |
+| `ParRed.weakN_inv` | 765 | 809 (1) | `extra` case, strictly smaller term — absorbable |
+| `hasType_app_bvar0` | 1151 | 1161 (1) | same term, on an η-expansion |
+| `ParRedExt.parRed_beta` | 1167 | 1221, 1281, 1283 (3) | same term |
+
+`NormalEq.weakN_inv_DFC` additionally uses `OnCtx.weakN_inv`, which is itself a consumer of
+`IsDefEq.weakN_iff'`; that one is covered by `TypingStrengthening.typed` (§2.3).
 
 Note also that `ChurchRosser.lean` is not sorry-free for independent reasons: five `sorry`s in
-`NormalEq.descend` and a dependency on `IsDefEqU.forallE_inv_stratified`. **[read]** So even a
-successful de-circularisation would deliver `weakN_iff` *modulo* those, not sorry-free.
+`NormalEq.descend` plus `IsDefEqU.forallE_inv_stratified`. **[read]**
+
+### 4.3 Verdict
+
+Three prerequisites, in this order, before the route delivers anything:
+1. instantiate `Params` from `VEnv.WF` (nobody has; §4.1);
+2. re-prove **four** declarations (~20 call sites) from `TypingStrengthening` / the typed form
+   rather than from `IsDefEqU.weakN_iff`, and relocate `IsDefEq.uniq` (which has **NO PATH** to
+   `weakN_iff` **[measured]**, so it *can* move) into a file below the `NormalEq` development;
+3. discharge `NormalEq.descend`'s five `sorry`s and `forallE_inv_stratified`.
+
+**Recommendation: do not start here.**  The 110-line estimate in the previous version of this
+document covered step 2 for one of the four declarations only, and steps 1 and 3 were not
+counted at all.
 
 ---
 
@@ -303,62 +301,75 @@ successful de-circularisation would deliver `weakN_iff` *modulo* those, not sorr
 
 | route | failed at |
 |---|---|
-| direct induction on `IsDefEqU`, statement as given | `trans`: middle term arbitrary, both IHs vacuous. **[machine-checked]** — `Strengthening.of_typing` is that induction, with `trans` extracted as `TransStrengthening`. |
-| the relayed lead: induct on the **typed** `IsDefEq.weakN_iff'` instead | same `trans`. `IsDefEq.trans` fixes the *type* across both premises, so lifting the type is inherited for free and buys nothing; the middle *term* is untouched. Formally, `Strengthening.iff_typed`. **[machine-checked]** |
-| find a *propagated* restatement (what the criterion asks for) | none exists that is not the statement itself: the property "descends to `Γ`" is only meaningful at terms that are lifted, so any relation extending it to arbitrary middle terms is either vacuous there (and `trans` fails) or is the erasure of a `Γ'`-term to a `Γ`-term, which does not exist when the stripped entry is uninhabited. **[read/argued, not machine-checked]** |
-| Church–Rosser (`ChurchRosser.lean`) | circular — §4. **[measured]** |
-| model side (`Theory/SetModel/`) | cannot work in principle: `Γ'` may be uninhabited, and every soundness statement over an uninhabited context is vacuous, so the model validates strengthening's *hypothesis* without validating its conclusion. §2.1. **[read/argued]** |
-| `VExpr.Skips` / `IsDefEq.skips` | contains no hard content. `IsDefEq.skips` (`UniqueTyping.lean:180`) is a four-line **consequence** of `weakN_iff`, obtained by `skips_iff_exists` and one application of the forward direction. It is downstream, not a lemma toward it. **[read]** |
-| substitution (the inhabited case) | **succeeds**, and is now in the tree sorry-free (`IsDefEqU.strengthen_of_instN`). It leaves exactly the uninhabited case. **[machine-checked]** |
-| induction on the **syntax-directed** `HasTypeStrong` for the *typing* half | **succeeds** — `TypingStrengthening.of`, sorry-free. Five of eight rules close outright, `lam`/`forallE` need `SortDescend`, `app` needs `PiDescend`, and those two are together equivalent to what was assumed. §2.4. **[machine-checked]** |
+| direct induction on `IsDefEqU`, statement as given | `trans`, and `trans` **is** the statement (§0.0). **[machine-checked]** |
+| the "prove the typed form instead" lead | same `trans`; the two forms are inter-derivable (`Strengthening.iff_typed`). **[machine-checked]** |
+| find a *propagated* restatement | the propagated relation makes `trans` free but needs a coherence clause whose base case is the target. §1. **[analysis]** |
+| Church–Rosser | `Params` has no instance, and the circularity covers four declarations. §4. **[measured]** |
+| model side (`Theory/SetModel/`) | vacuous over an uninhabited `Γ'`. §2.1. **[read/argued]** |
+| `VExpr.Skips` / `IsDefEq.skips` | downstream of `weakN_iff`, not toward it. **[read]** |
+| substitution (inhabited case) | **succeeds**, in the tree. **[machine-checked]** |
+| induction on `HasTypeStrong` for the reflexive instance | **succeeds**; residual is `PiDescend` alone. §2.4. **[machine-checked]** |
+| `PiDescend ⟹ SortDescend` | **succeeds**, at the cost of `forallE_inv`. §2.4. **[machine-checked]** |
+| `SortDescend ⟹ PiDescend` | **not attempted**; no reason to expect it. |
 
 ---
 
-## 6. Convergence worth recording, and what it does *not* say
+## 6. What is *not* tautological
 
-`Strengthening.of_typing`'s `beta`, `eta` and `proofIrrel` cases need `IsDefEq.uniqU` and
-`IsDefEqU.forallE_inv`, so the *conversion-level* row zero's axiom cone contains `sorryAx`
-through `Injectivity.lean` — **the same family `docs/handoff-stratified.md` is about**.
-**[measured]** §4's route arrives at the same place independently: `ChurchRosser.lean` also
-runs on `IsDefEqU.forallE_inv`.
+`Strengthening.iff_typed` (`Strengthening ↔ TypedStrengthening ∧ TypingStrengthening`) is
+**not** a victim of §0.0's collapse: `TypedStrengthening` requires the *type* to be lifted, and
+`IsDefEqU`'s existential type is not, so no trivial instantiation recovers `Strengthening` from
+it.  Likewise `TypingStrengthening.iff_descend` / `.iff_piDescend` are genuine — they are about
+the reflexive instance, where the `trans` collapse cannot happen because `HasType` is
+reflexivity by definition and the induction is on `HasTypeStrong`.
 
-**What this does not say.** The *typing-level* decomposition of §2.4 is sorry-free — it does
-**not** consume Π-injectivity. So the entanglement with `Injectivity.lean` is a property of
-the `trans`-side of the problem and of the retyping steps in `beta`/`eta`/`proofIrrel`, not of
-the shape-descent statements themselves. Anyone attacking `PiDescend` is not thereby
-committed to `forallE_inv`.
+The check that separates the two cases, and the one to run on any future "reduction": **can the
+residual's own quantifiers be instantiated so that its premises degenerate into the target's?**
+For `TransStrengthening` the answer was yes, in one line.
 
 ---
 
-## 7. What to pick up first
+## 7. Non-vacuity — `Theory/Typing/StrengthenWitness.lean` (new, sorry-free)
 
-The target is now **exactly three statements**, machine-checked
-(`Strengthening.iff_descend`):
+Every statement named above is replayed at an instance over `CycleConv.propLoopEnv` — a
+`VEnv.WF` environment (`propLoopEnv_wf`) with two constants and two δ-rules — with
+`Γ = []`, `Γ' = [A]` where `A` is an actual *proposition of the environment*
+(`propLoop_isProp`), so the instance does not exist over `VEnv.empty`, which has no constants:
 
-    Strengthening  ↔  SortDescend ∧ PiDescend ∧ TransStrengthening
+`propLoopEnv_sortDescend_fires`, `propLoopEnv_piDescend_fires`,
+`propLoopEnv_piDescend_sortDescend_fires` (§0.1's new theorem),
+`propLoopEnv_typingStrengthening_fires`, `propLoopEnv_trans_strengthening_fires` (§0.0's new
+theorem), `propLoopEnv_strengthening_fires`.
 
-1. **`PiDescend`** — *the* unknown. It is equivalent (with `SortDescend`, which is much the
-   smaller half) to `TypingStrengthening`, i.e. to the reflexive instance of the target; and
-   the eleven-of-twelve row zero of §2.2 says it is also all that the *general* statement
-   needs apart from `trans`. Two things about it that the general statement does not have:
-   its induction never sees a conversion derivation (§2.4), and it is a statement about
-   Π-shape, which is the subject matter of `Theory/Typing/Injectivity.lean`. **Whether it is
-   provable is open and this pass makes no prediction.**
-2. **`TransStrengthening`.** Still the one blocked conversion rule, still needing a reduction
-   relation, still circular through `ChurchRosser.lean` as the tree stands (§4). If someone
-   wants to attack it, the concrete unblocking task is: re-prove
-   `NormalEq.weakN_inv_DFC` (110 lines) from `TypingStrengthening` rather than from
-   `IsDefEqU.weakN_iff`, and relocate `IsDefEq.uniq` out of `UniqueTyping.lean` so the
-   `NormalEq` development can sit below it. `ParRed.weakN_inv`'s single use is already at a
-   strictly smaller term and needs no new idea.
-3. **Do not** re-attempt a direct conversion induction, a model argument, `skips`, or "prove
-   the typed form instead". §5 has the reason for each, and the first and last are now
-   machine-checked dead ends rather than opinions.
+The last two fire at the environment's δ-loop `A ≡ B` — **not** a reflexivity, and a conversion
+that exists only because of the rules.  The stripped entry is deliberately a *proposition*:
+`IsDefEqU.strengthen_of_instN` discharges strengthening outright when the stripped entry is
+inhabited downstairs, so a witness stripping an obviously-inhabited `Sort` would be testing the
+easy half.
 
-## 8. Files
+---
 
-* `Lean4Lean/Theory/Typing/Strengthen.lean` — **new**, 437 lines, everything in §2. No `sorry`
-  is declared anywhere in it.
-* `Lean4Lean/Theory/Typing/UniqueTyping.lean` — **unchanged**; the `sorry` at :172 is still
+## 8. What to pick up first
+
+1. **`PiDescend`** — the only open statement other than the target itself, and equivalent to the
+   target's reflexive instance (`TypingStrengthening.iff_piDescend`).  §2.5 has its case split.
+   Its induction never sees a conversion, and it is stated in the idiom of
+   `Theory/Typing/Injectivity.lean`, whose `sort_forallE_inv` closes two of its five cases.
+   **Whether it is provable is open and this pass makes no prediction.**
+2. **The target itself.**  It needs a deterministic reduction relation (§1).  The two candidate
+   sources in the tree — `ChurchRosser.lean` and `HeadReduction.lean` — are both gated on
+   `Params` (§4.1), so *the first tractable step toward a reduction relation is instantiating
+   `Params` from `VEnv.WF`*, not anything in this file.  `Theory/Typing/RawDefEq.lean`'s
+   three-place judgment is the other foundation stone and has no `Params` gate; nobody has run
+   a reduction over it.
+3. **Do not** re-attempt: a direct conversion induction; "prove the typed form instead"; a model
+   argument; `skips`; or re-deriving `Strengthening` from `TransStrengthening`-shaped residuals.
+   §5 has the reason for each, and §0.0 makes the last one a one-liner.
+
+## 9. Files
+
+* `Lean4Lean/Theory/Typing/Strengthen.lean` — 520 lines, no `sorry`; §9 is new this pass.
+* `Lean4Lean/Theory/Typing/StrengthenWitness.lean` — **new**, sorry-free, §7.
+* `Lean4Lean/Theory/Typing/UniqueTyping.lean` — **unchanged**; the `sorry` at :174 is still
   there and this pass did not earn the right to remove it.
-* `scripts/cone-measure.lean` — **unchanged**; see §3.1 for the coverage caveat.
+* `scripts/cone-measure.lean` — **unchanged**; see §3 for the coverage caveat.
