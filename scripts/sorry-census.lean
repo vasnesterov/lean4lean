@@ -39,5 +39,5 @@ run_cmd do
   let mut total := 0
   for (m, ns) in byMod.toList.toArray.qsort (fun a b => a.1.toString < b.1.toString) do
     total := total + ns.size
-    logInfo s!"{m}: {ns.size}  {ns.toList.take 4}"
+    logInfo s!"{m}: {ns.size}\n    {String.intercalate "\n    " (ns.toList.map toString)}"
   logInfo s!"TOTAL declarations directly containing sorryAx: {total}"
