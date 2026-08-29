@@ -17,10 +17,16 @@ This file isolates (2) and shows what it alone is worth.  The one theorem here,
 case whose refutation was previously described as needing `sort_inv` itself.  It also
 supplies exactly the level-alignment step that `IsDefEqU.forallE_inv_stratified`'s
 `forallEDF` and `symm` cases stall on (see that lemma's docstring).  So, granted (2), the
-whole Π/sort inversion family reduces to the single `trans` case.
+Π half of the inversion family reduces to the single `trans` case — and the *sort* half
+reduces to nothing at all, because (2) implies `sort_inv` outright (`SortUniqDown.lean`,
+and the "Read this first" section below).  **(1) and (2) are therefore not "two separate
+things": (2) subsumes the sort-flavoured half of (1).**
 
-**`SortUniq` is a hypothesis, not a theorem.**  Nothing in this repository exhibits one, for
-any environment.  It is the `VExpr`-side statement of
+**`SortUniq` is a hypothesis, not a theorem.**  *(Superseded — see correction 0 below.
+`Theory/Typing/UniqSort.lean` proves it for every `VEnv.WF` environment, relative to
+`IsDefEqU.forallE_inv_stratified` alone.  The rest of this paragraph is the pre-existing
+state and is kept because its cross-references are still accurate.)*  Nothing in this
+repository exhibits one, for any environment.  It is the `VExpr`-side statement of
 `Experimental/Reflect/Capstone.lean`'s `sort_uniq_of_hasType` — which is not available, its
 `Params`-style side condition being unsatisfiable — and it is what
 `SetModel/Interp.lean`'s `LevelAssign.srt_sound` field demands (that field asks a *single*
@@ -29,6 +35,58 @@ result below as a reduction between open statements, not as progress on either.
 
 `SortUniq` is stated for types only (`e` at a sort), which is all the consumers need; the
 `srt`-flavoured version for arbitrary terms is strictly stronger and is not used here.
+
+## Read this first: three corrections, all machine-checked
+
+**0. `SortUniq` is now a theorem, relative to Π-injectivity alone.**
+`Theory/Typing/UniqSort.lean`'s `VEnv.WF.sortUniq'` proves `env.SortUniq U` for every
+`VEnv.WF` environment, with `IsDefEqU.forallE_inv_stratified` as the *only* open input —
+`IsDefEqU.sort_inv` is not in its cone.  The route is to carry universe uniqueness **as an
+extra conjunct in `IsDefEq.uniq`'s own induction invariant** rather than to import it; all
+eight of `uniq`'s appeals to `sort_inv` are applied to its own induction hypothesis, so the
+conjunct replaces them.  So the two paragraphs below still describe the statement correctly,
+but "nothing in this repository exhibits one" is **superseded**: `propLoop_sortUniq`
+exhibits one at `CycleConv.propLoopEnv`.
+
+**1. `SortUniq` as stated below is FALSE.**  It carries no hypothesis on `env`, and one
+definitional-equality rule `.sort .zero ≡ .sort .zero : .sort 2` refutes it —
+`VEnv.sortUniq_badEnv` (`Theory/Typing/SortUniqDown.lean`).  All three guards discussed under
+"Two guards" hold at that witness; the missing guard is on the *environment*, not on the
+context or the levels.  It is a missing-guard defect and not a refutation of the intended
+fact: `VEnv.badEnv_not_wf` machine-checks that the witness environment is not `VEnv.WF`, by
+the already-proved `VEnv.WF.instL_lhs_ne_sort`.  The statement that can be targeted is
+`∀ env, env.WF → env.SortUniq U`, which is what `SortUniqFacts.WF.sortUniq` states, what
+`UniqSort.WF.sortUniq'` proves, and what every consumer can supply.  The definition is left
+unguarded because `Typing/CycleConv.lean` (another stream's file) takes it as a hypothesis.
+
+**2. `SortUniq` implies `IsDefEqU.sort_inv`.**
+
+**1. `SortUniq` as stated below is FALSE.**  It carries no hypothesis on `env`, and one
+definitional-equality rule `.sort .zero ≡ .sort .zero : .sort 2` refutes it —
+`VEnv.sortUniq_badEnv`.  All three guards discussed under "Two guards" hold at that witness;
+the missing guard is on the *environment*, not on the context or the levels.  It is a
+missing-guard defect and not a refutation of the intended fact: `VEnv.badEnv_not_wf`
+machine-checks that the witness environment is not `VEnv.WF`, by the already-proved
+`VEnv.WF.instL_lhs_ne_sort`.  The statement that can be targeted is
+`∀ env, env.WF → env.SortUniq U`, which is what `SortUniqFacts.WF.sortUniq` states and what
+every consumer can supply.  The definition is left unguarded because
+`Typing/CycleConv.lean` (another stream's file) takes it as a hypothesis.
+
+`VEnv.sort_inv_of_sortUniq` (`Theory/Typing/SortUniqDown.lean`) derives sort injectivity from `SortUniq` alone, `sorryAx`-free
+and with no normalisation argument: `IsDefEqU` is type-indexed, so a conversion
+`.sort u ≡ .sort v` hands over one type `A` inhabited by both endpoints, and `SortUniq`
+applied twice (once through `HasTypeStrong.sort_type` below) finishes.  `sort_inv`'s `trans`
+case is never reached.
+
+So the two obligations `Injectivity.lean` names — `sort_inv`'s `trans` and `SortUniq` — are
+not independent: the second subsumes the first.  With `SortUniqFacts.WF.sortUniq` this gives
+the sandwich (`UniqTy`, `SortInv` are the hypothesis-packaged forms in `SortUniqDown.lean`)
+
+    UniqTy ∧ SortInv  →  SortUniq  →  SortInv
+
+so `SortUniq` and `sort_inv` are the same statement *modulo unique typing* — and correction 0
+supplies the unique typing.  **Neither is the thing to target: the whole corner bottoms out
+at `IsDefEqU.forallE_inv_stratified`.**  `docs/handoff-sortuniq.md` has the measurements.
 
 ## There is no model route to `SortUniq`
 
