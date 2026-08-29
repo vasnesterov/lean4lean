@@ -125,3 +125,23 @@ This is a list of places where lean4lean deliberately has different behavior fro
   set and the running time both differ. Mirroring `check_nat_size` would remove the
   `reducePowMaxExp` hang as a side effect. Found by comparing `reduceNat` against
   `type_checker.cpp` while auditing the primitive recognizer; see `docs/handoff-primitive.md` §6.
+
+* [`Lean4Lean.TypeChecker.Inner.isDefEqUnitLike`](Lean4Lean/TypeChecker.lean): C++ writes
+  `env().get(ctor_name).to_constructor_val()` (`~/lean4/src/kernel/type_checker.cpp:1159`), which
+  **raises a kernel exception** if the inductive's sole listed constructor name does not resolve
+  to a constructor. lean4lean writes `let .ctorInfo { numFields := 0, .. } ← env.get c | return
+  false`, folding "not a constructor" together with "has fields" into a `false`. Reachable only
+  if a `.inductInfo` lists a constructor name that is not a `.ctorInfo`, which
+  `Environment.addInductive` cannot produce.
+
+* [`Lean4Lean.TypeChecker.Inner.tryEtaStructCore`](Lean4Lean/TypeChecker.lean): C++'s
+  `is_non_rec_structure` (`~/lean4/src/kernel/inductive.cpp:28`) calls `env.get(decl_name)`, which
+  throws on an unknown name; lean4lean's `Environment.isNonRecStructure` uses `find?` and returns
+  `false`. Reachable only if a `.ctorInfo`'s `induct` field names a constant absent from the
+  environment.
+
+  Both are in the same class as the `unreachable!` entry above: lean4lean rejects-or-declines
+  where C++ throws, on inputs neither kernel can be handed. Recorded because the gate sequences
+  were re-read against C++ line by line, and this is what that reading found. The reading also
+  established a fact this development relies on: **neither C++ function tests the structure's
+  universe**, so both fire on `Prop` structures.

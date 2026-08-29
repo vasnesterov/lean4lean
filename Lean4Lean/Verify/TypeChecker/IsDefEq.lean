@@ -514,6 +514,87 @@ theorem isDefEqUnitLike_never_true {c : VContext} {s : VState} (he₁ : c.TrExpr
     | exact absurd hci fun hh => c.trenv.not_inductInfo ⟨_, hc⟩ hh
     | exact .pure rfl
 
+/-- **The `Prop` half of `isDefEqUnitLike.WF`, discharged — and discharged without the dead
+`.inductInfo` gate.**
+
+`docs/research-structeta.md` §2 observed that neither `isDefEqUnitLike` nor `tryEtaStructCore`
+tests the structure's level, so both fire on `Prop` structures (`And`, `True`) as well as on
+`Type`-valued ones, and that the obligation therefore splits in two:
+
+| | `Prop` case | non-`Prop` case |
+|---|---|---|
+| `isDefEqUnitLike` | `IsDefEq.proofIrrel` — already a spec rule | `structEta` at zero fields, which the spec does not have |
+
+That observation was never machine-checked.  This theorem is the `Prop` column, checked.
+
+**Two properties make it worth having.**
+
+1. *It does not use the vacuity.*  `isDefEqUnitLike_never_true` below kills the branch by
+   `TrEnv.not_inductInfo`; this proof instead `split`s at each gate, discharges the four
+   `return false` arms by `nofun`, and **enters** the `.inductInfo`/`.ctorInfo` arm, deriving
+   its conclusion from the final `isDefEqCore tType (← inferType s)` alone.  Nothing here
+   mentions `AddInduct`, so — unlike `isDefEqUnitLike_never_true`, which is scheduled to go red
+   — this survives the flip verbatim and is a *component* of the eventual real proof, not a
+   placeholder for it.
+2. *Its residual holes are all borrowed, none of them structure-eta.*  Measured cone (a
+   transitive `getUsedConstantsAsSet` sweep against the 20 census holes):
+   `{IsDefEqU.forallE_inv_stratified, TrProj.uniq, TrProj.wf}` — **identical** to
+   `inferType.WF`'s own cone, and identical to `isDefEqUnitLike_never_true`'s.  Every one of
+   the three enters through `inferType.WF`'s single appeal to `TrExprS.uniq`/`IsDefEq.uniq`
+   (unique typing, whose `.proj` case is `TrProj.uniq`).  Nothing in this proof adds a hole,
+   and in particular the `Prop` half of the obligation costs **no** structure-eta content.
+
+   That is also the answer to "did the newly-proved unique-typing facts change anything here":
+   yes.  `IsDefEq.uniq`'s own cone is now the single hole `IsDefEqU.forallE_inv_stratified`
+   (measured), where it used to be the whole injectivity family — so the `Prop` half of this
+   obligation went from *blocked behind unique typing* to *one named hole away*.
+
+**What remains, exactly.**  The residue is the case where the unit-like structure lives in
+`Type`.  There `t` and `s` are two inhabitants of a type with one closed inhabitant, and no
+sequence of the 13 `VEnv.IsDefEq` constructors relates them: `beta`/`eta` need a λ, `extra`
+needs a `const`-headed pattern (ι fires only at a constructor application, and the terms here
+are arbitrary), and `proofIrrel` needs the `Prop` this branch does not have.  That is the
+missing `structEta` rule, and it is *all* that is missing for `isDefEqUnitLike` — no `TrProj`,
+no injectivity, no unique typing. -/
+theorem isDefEqUnitLike.WF_prop {c : VContext} {s : VState}
+    (he₁ : c.TrExprS e₁ e₁') (he₂ : c.TrExprS e₂ e₂')
+    (hprop : ∀ A, c.HasType e₁' A → c.HasType A (.sort .zero)) :
+    RecM.WF c s (isDefEqUnitLike e₁ e₂) fun b _ => b = .true → c.IsDefEqU e₁' e₂' := by
+  have hget : ∀ {name}, (c.env.get name).WF fun ci => c.env.find? name = some ci := by
+    intro name; simp [Kernel.Environment.get]; split <;> [refine .pure ‹_›; exact .throw]
+  unfold isDefEqUnitLike
+  refine (inferType.WF he₁).bind fun ty _ _ ⟨ty', _, _, hty, hT⟩ => ?_
+  refine (whnf.WF hty).bind fun tType _ _ ⟨_, _, htT, hdefeq⟩ => ?_
+  split <;> [skip; exact .pure nofun]
+  refine .getEnv <| (M.WF.liftExcept hget).lift.bind fun ci _ _ _ => ?_
+  split <;> [skip; exact .pure nofun]
+  refine (M.WF.liftExcept hget).lift.bind fun ci₂ _ _ _ => ?_
+  split <;> [skip; exact .pure nofun]
+  refine (inferType.WF he₂).bind fun _ _ _ ⟨_, _, _, _, hS⟩ => ?_
+  refine (isDefEqCore.WF htT ‹_›).mono fun _ _ _ h hb => ?_
+  exact ⟨_, .proofIrrel (hprop _ hT) hT
+    (hS.defeqU_r c.Ewf c.Δwf (hdefeq.symm.trans c.Ewf c.Δwf (h hb)).symm)⟩
+
+/-- `WF_prop` in the form one actually has it: **`e₁'` is a proof**, i.e. it inhabits *some*
+proposition, rather than *every* type it inhabits being a proposition.
+
+The two are equivalent only through **unique typing**, and that is the one place where this
+round's change to `Theory/Typing/{Injectivity,UniqSort}.lean` is felt here: `IsDefEq.uniqU` is
+what turns "some type of `e₁'` is a `Prop`" into "the inferred type of `e₁'` is a `Prop`".
+
+**Read the cone before using this.**  `IsDefEq.uniqU` runs through `IsDefEqU.sort_inv`, which
+is *proved* but whose axiom cone still contains `sorryAx` via
+`IsDefEqU.forallE_inv_stratified`.  This corollary's cone is the same three holes as
+`WF_prop`'s, so the extra hypothesis-weakening is free here; the two are kept separate anyway,
+because `WF_prop`'s statement is the one that does not presuppose unique typing and so is the
+one to use if the `inferType.WF` plumbing is ever re-based off `inferType.WF'`. -/
+theorem isDefEqUnitLike.WF_proof {c : VContext} {s : VState}
+    (he₁ : c.TrExprS e₁ e₁') (he₂ : c.TrExprS e₂ e₂')
+    (hA : c.HasType e₁' A) (hAp : c.HasType A (.sort .zero)) :
+    RecM.WF c s (isDefEqUnitLike e₁ e₂) fun b _ => b = .true → c.IsDefEqU e₁' e₂' :=
+  isDefEqUnitLike.WF_prop he₁ he₂ fun _ hB =>
+    hAp.defeqU_l c.Ewf c.Δwf (hA.uniqU c.Ewf c.Δwf hB)
+
 /-- Still `sorry`, deliberately.  `(isDefEqUnitLike_never_true he₁).mono
 fun _ _ _ h hb => absurd (h ▸ hb) nofun` closes it today; that close is vacuous and is
 discarded when `AddInduct` lands.  See `isDefEqUnitLike_never_true`. -/
