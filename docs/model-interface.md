@@ -10,11 +10,13 @@ cited here is proved, sorry-free, in `SetModel/`.
 
 > **Standing label, and it must travel with every result quoted from here.**
 > The interpretation is parameterised by `PropSplit` (§5), and **nothing in the
-> tree exhibits one.** Its two residual syntactic imports are `PropUniq` and
-> `PropTypeAgree`; every known syntactic route to either is currently closed by
-> machine-checked negatives. Everything below is proved *against* that
-> parameter and stays valid, but a completed `.induct` is **not** an
-> unconditional result, and should not be reported as one.
+> tree exhibits one.** Its residual syntactic import is now **one** statement,
+> `PropTypeAgree` (§7 — `PropUniq` is discharged from the consistency
+> hypothesis the goal itself supplies), and `PropTypeAgree` remains **open**.
+> Everything below is proved *against* that parameter and stays valid, but a
+> completed `.induct` is **not** an unconditional result, and should not be
+> reported as one. Narrowing two parameters to one narrows the conditional; it
+> does not remove it.
 
 Throughout:
 
@@ -686,7 +688,10 @@ induction supplies one `Sound` per premise, not one per sort the type happens to
 have.
 
 **So the `↔`-form is the weakest form the present induction can run on, and the
-model's syntactic import is both statements, not one:**
+model's syntactic import is both statements, not one** — *as statements about
+an arbitrary environment*.  §7 shows that at the **environment `kernel_sound`
+actually reaches**, where the goal has already handed the proof a proof of
+`False`, the first of the two is free:
 
 > **`PropUniq`** — the sorts of a *type* agree on being zero. Reached by the
 > cumulativity check, so, like `SortUniq`, it needs a syntactic proof.
@@ -714,6 +719,11 @@ close to assuming the uniqueness it is trying to avoid — or decide the `forall
 branch semantically (`⟦B⟧ρ ⊆ {•}` pointwise is a definable test). The second is
 a real option for `forallE` congruence and does **not** help parts 1 and 2,
 which are about `lam`/`app` terms whose *type* is a proposition.
+
+**A third route existed and is the one that worked — §7.** Neither of the two
+above changes anything about `prop_sound`; §7 leaves `prop_sound` in its
+`↔`-form exactly as this section concludes it must be, and changes only how
+`propSplitOf`'s *first input* is discharged.
 
 ### Built, and what the audit found
 
@@ -752,7 +762,10 @@ The `↔`-form now in the tree needs **two** statements, not one:
 
 Both are `Prop`-valued defs in `PropSplitAudit.lean`, and both are load-bearing
 in `propSplitOf` (machine-checked). The minimum convention was expected to delete the first row and **does not** —
-see "The residual obligation" below. Both rows stand.
+see "The residual obligation" below. Both rows stand *as inputs to
+`propSplitOf`*; **§7 discharges the first row from the goal's own `hfalse`**,
+which is a different move — it leaves `propSplitOf` and `prop_sound` untouched
+and supplies one of the two inputs rather than removing it.
 
 ### Confidence split, kept deliberately
 
@@ -860,13 +873,135 @@ by induction on derivations rather than on syntax, i.e. reducibility candidates
 — a normalization proof, which is the Church–Rosser-scale metatheory already
 priced, and is the syntactic route in semantic clothing.
 
+---
+
+## 7. `PropUniq` is free at the environment the goal reaches — built
+
+**`SetModel/PropUniqFromFalse.lean`, `SetModel/PropReduce.lean`,
+`SetModel/FalseProp.lean`.** All three sorry-free, `[propext, Classical.choice,
+Quot.sound]`. This section supersedes §5's "the model's syntactic import is
+both statements, not one" *at the environment `kernel_sound` reaches*; §5's
+analysis of an arbitrary environment is unchanged and still correct.
+
+### The observation, and it only appears reading backwards from `kernel_sound`
+
+`leanTTConsistent` is `∀ env, env.LeanWF → ¬ ∃ e, env.HasType 0 [] e falseProp`.
+`¬ P` **is** `P → False`, so its proof may `intro` the inhabitant of `falseProp`
+**before** any model is built. From that point every proposition of `env` is
+inhabited, and `PropUniq` is `PropTypeAgree`'s **diagonal** (`A' := A`) guarded
+by the existence of an inhabitant — a guard that bites only at propositions,
+which is exactly where the `False` proof supplies one.
+
+```lean
+theorem PropUniq.of_propTypeAgree (henv : env.Ordered)
+    (hf : ∃ e, env.HasType 0 [] e falseProp) (hT : env.PropTypeAgree 0) :
+    env.PropUniq 0
+
+noncomputable def propSplitOfAgree (env : VEnv) (nv : ℕ) (henv : env.Ordered)
+    (hf : ∃ e, env.HasType 0 [] e falseProp) (hT : env.PropTypeAgree 0) :
+    PropSplit env nv
+```
+
+**Not the refuted minimum convention.** That weakening changed `prop_sound` and
+died at `propSound_of_mem_sort` and `Sound.proof` (§5). This keeps `prop_sound`
+in the `↔`-form and touches neither site; what changes is how one of
+`propSplitOf`'s two inputs is discharged. The two failure sites are consumers of
+`prop_sound`, and `prop_sound` still holds in full.
+
+**Not circular.** `hf` is a *hypothesis of the theorem*, not something the model
+produces. `Verify/Bridge.hasType_falseProp` delivers it, proved and sorry-free,
+before `leanTTConsistent` is invoked; the model is built after it and its job is
+to contradict it.
+
+**It costs a hypothesis, which is the check that it is not a triviality.** All
+eight explicit binders of `propUniq_aux` are load-bearing (machine-checked by
+hypothesis-necessity). Without `hf` nothing is claimed: the diagonal has no `e`
+to instantiate at an uninhabited proposition.
+
+**And the hypothesis pair is satisfiable, not merely stated.**
+`ordered_and_inconsistent_satisfiable` exhibits `loopEnv2`
+(`Theory/Typing/CycleConv.lean`): `VEnv.WF` by two `.axiom` steps, with a
+constant of type `falseProp`. It is not `LeanWF`, so it is no counterexample to
+consistency — it is the witness that `Ordered ∧ inconsistent` is a non-empty
+class.
+
+### The two `nv` questions, both answered
+
+**`PropUniq env 0 → PropUniq env nv`, and the same for `PropTypeAgree`**
+(`SetModel/PropReduce.lean`, `PropUniq.of_zero` / `PropTypeAgree.of_zero`), for
+every `nv`, with **no hypothesis on `env` at all**. Both conclusions are about
+`u.eval ls` at a *single* valuation, and any valuation of `ℕ`s is realised by
+closed levels `succ^k zero`; `IsDefEq.instL` transports the derivations and
+`VLevel.eval_inst` transports the value. So the §7 derivation — which runs at
+zero universe parameters — is available at every `nv`, and the separate question
+of whether the model's *outer* induction can be run at `nv = 0` never has to be
+asked.
+
+The one place care was needed: `instL` substitutes at every parameter index
+while `u.WF nv` bounds only the ones `u` mentions. `VLevel.eval_eq_of_wf` is the
+lemma that says `eval` cannot see the difference.
+
+**Weakening into an arbitrary `Γ` needs no context hypothesis.**
+`PropUniq`/`PropTypeAgree` carry no `OnCtx`/`CtxClosed`, and the derivation
+weakens a typing at `[]` into the `Γ` they quantify over. `HasType.weak0`
+(`Theory/Typing/Lemmas.lean`) does that with only `Ordered env` — its
+`CtxClosed` argument is discharged at the *source* context `[]`. So **`PropSplit`
+does not need to grow a context field**, and `inhabited_of_hasType_falseProp` is
+stated at a universally quantified `Γ` with no side condition.
+
+### `⟦falseProp⟧ ∅ = ∅` — the one place the goal touches the model
+
+`SetModel/FalseProp.lean`. Nothing in the tree composed this before; until it
+existed nobody knew what `sound_nil` had to be instantiated at.
+
+```lean
+theorem interp_falseProp : (interp M L [] falseProp).toFun ∅ = (∅ : V)
+theorem falseProp_above_false … (H : env₀.HasType nv [] e falseProp) : Above M False
+```
+
+Three properties, all machine-checked:
+
+* **Branch-independent.** Both clauses of `interp`'s `forallE` case give `∅`:
+  the impredicative `∀` has an empty fibre over `∅ ∈ UProp`, and a dependent
+  product must have a *value* over `∅ ∈ UProp`, which would land in that fibre.
+  So the consistency conclusion does not depend on the split being right at the
+  one place it is finally applied. (`falseProp_isProp_branch` records that the
+  branch is in fact forced — `prop_forces_true` at `M.ls` — so this is
+  robustness, not necessity.)
+* **Unconditional, not `Above`-wrapped.** The only universe it mentions is
+  `U M.κ 0 = UProp = ℘{•}`, whose definition names no inaccessible. The
+  threshold in `falseProp_above_false` is entirely `sound_nil`'s.
+* **Not vacuous.** `interp_forallE_falseProp_sort_nonempty` exhibits a `∀` whose
+  denotation is *inhabited* (`∀ x : (∀ p : Prop, p), Prop`, which the empty
+  function inhabits), so the clause `interp_falseProp` lands in is not uniformly
+  empty; and `interp_falseProp_dom` gives `⟦Prop⟧ = UProp`, which *contains* `∅`,
+  so `interp` is not the constant `∅` either.
+
+`falseProp_above_false` concludes `Above M False`. Turning that into `False`
+needs a `ModelData` whose `κ` carries a chain of the threshold's length — the
+outer construction (`exists_inaccessibleChain` plus the constant assignment),
+which is *not* built here.
+
+### What this does not do
+
+* **It does not move `PropTypeAgree` one inch.** That statement is open, with
+  three characterised obstructions (`docs/handoff-stratified.md` §5). What is
+  claimed is that it is now the *only* thing the model needs.
+* **It does not claim `PropTypeAgree ⟹ PropUniq` without `hf`.**
+* **It does not shorten the inductive keystone or `PreludeBridge`.**
+* **It does not remove the parameter.** `PropSplit` is still a hypothesis
+  nothing in the tree constructs; §7 narrows what would construct it from two
+  open statements to one.
+
 ## What the model still needs from the syntax side
 
 The interpretation `⟦Γ ⊢ e⟧` is now **defined** — see `SetModel/Interp.lean` —
 relative to a `LevelAssign`, which packages exactly Carneiro's `lvl`/`sort`
 lemma. What remains from the syntax side is:
 
-1. **`PropTypeAgree`** — not `IsDefEqU.sort_inv`. See §5: the interpretation
+1. **`PropTypeAgree`** — and, since §7, **that alone**: `PropUniq` is
+   discharged from the goal's own `hfalse`, and both statements reduce to zero
+   universe parameters. Not `IsDefEqU.sort_inv`. See §5: the interpretation
    branches on propositionhood, never on a level, so what it imports is that a
    term's types agree on being propositions. `sort_inv`/`SortUniq` is
    *sufficient* (it gives a `LevelAssign`, which gives a `PropSplit`) and is
@@ -977,6 +1112,9 @@ Nothing else on the set-theoretic side is outstanding.
 | `SetModel/IndInterp.lean` | `IndSignature₂`/`₃` and the port, `mkIndSignature₃`, `interpSig_wf`/`_stage`, `coherentOn_addInduct` |
 | `SetModel/CtorTrans.lean` | the `VIndCtor → CtorData₃`/`Args` translation, `interpSig₃`, `Ind₃_subsingleton`, the tag-combinator congruences, `interpSig₃_wf`/`_stage`, `interpSig₃_stage_of_domains`, stage closure for `snoc`/`teleFun`/`tagUnionF` |
 | `SetModel/PropSplitAudit.lean` | `PropUniq`, `PropTypeAgree`, and the three-part satisfiability audit for `PropSplit` |
+| `SetModel/PropReduce.lean` | `VLevel.ofNat`/`numerals`/`eval_eq_of_wf`; `PropUniq.of_zero`, `PropTypeAgree.of_zero` — both statements reduce to `nv = 0` |
+| `SetModel/PropUniqFromFalse.lean` | `PropUniq.of_propTypeAgree` (§7), `propSplitOfAgree`, and the satisfiability witness for its hypothesis pair |
+| `SetModel/FalseProp.lean` | `interp_falseProp` (`⟦∀ p : Prop, p⟧ ∅ = ∅`, branch-independent), `falseProp_above_false`, the non-vacuity instances |
 | `SetModel/CtorTransExamples.lean` | the translation applied to `Acc`, `W'`, `Forest'.cons`; the `IsSubsingletonSignature₃` instance and `accSig_wf` |
 | `SetModel/Cnst.lean` | `cnstOf`, `oracleExtend`, `CoherentOn` and its `addConst`/`addDefEq`/`addConstList` steps |
 | `docs/foundation-gaps.md` | what Foundation is missing, and the `isDefEq` hazard |
