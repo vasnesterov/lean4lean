@@ -713,7 +713,23 @@ application under defeq.
 direction: `TrProj.weak'` inverts nothing, it pushes a *term* construction through a lift,
 whereas this must invert a *type* — and those are different problems.  Reasoning "this is
 the inverse of `weak'`, and `weak'` is now easy" is what mis-scheduled it; tracing
-hypothesis to conclusion to find the bridging lemma is what caught it. -/
+hypothesis to conclusion to find the bridging lemma is what caught it.
+
+**Update: (C) is now stated, and the residual is three things, not one.**
+`Verify/Typing/Rigidity.lean` states (C) as `VEnv.ConstRigid`, faithfully — with weak-head
+reduction, under `[VEnv.Params]`, where the reduction relation is in scope — and discharges
+its `RuleFreeHead` premise at a real structure environment (`barEnv_ruleFreeHead`).  Tracing
+this lemma's route one step past where the trace above stops:
+
+1. **(C)** at `Γ'`, then `VEnv.WHRed.weakU_inv` (`Theory/Typing/HeadReduction.lean:89`) to move
+   the reduction into `Γ`.  That lemma is *already proved* and is stated over `Ctx.Lift'`,
+   exactly this lemma's shape — so step 1 costs nothing beyond (C) itself.
+2. **(B)'s level half.**  `TrProj`'s F17 clause is stated at the use site's `us`, so a
+   recovered head `(.const S us').mkApp as'` is useless unless `us' ≈ us`.  (C) is head-only
+   by design; this is a *separate* ask, and the trace above did not record it.
+3. **Strengthening**, `IsDefEqU.weak'_iff` — "sub-gap 2" above.  Note this is the **same**
+   residual `TrProj.wf`'s live route needs, so the two lemmas share one blocker rather than
+   having two.  It is stated and sorry-backed, not missing. -/
 theorem TrProj.weak'_inv (henv : VEnv.WF env) (hΓ' : OnCtx Γ' (env.IsType U))
     (W : Ctx.Lift' l Γ Γ') (H : TrProj env U Γ' s i (e.lift' l) e') :
     ∃ e'', TrProj env U Γ s i e e'' := sorry
@@ -1251,6 +1267,26 @@ end
 unrelated, which claimed the translation is context-independent; the sole consumer (the
 `proj` case of `TrExprS.wf`) instantiates them to the same context.
 
+**Read this first — two corrections to what follows.**
+
+* *The subgoal the proof below reduces to is FALSE*, machine-checked:
+  `Verify/Typing/ProjLevelWitness.lean`'s `barRefutes`.  Everything in this docstring about
+  "the difference" between the blanket and guarded F17 forms is still accurate as a
+  *description of the gap*; what is not accurate is any suggestion that the gap can be closed
+  where the `sorry` sits.  It cannot: that goal is a level equivalence and it is refuted.
+* *The route out is live, and it needs no new statement.*  `VInductDecl'.projTerm` provably
+  does not read the projections it discards (`Verify/Typing/ProjSkip.lean`,
+  `projCore_congr_earlier`, with the `barDecl` instance by `rfl`), so the motive can be typed
+  from the compressed spine.  The single judgement that step needs — single-binder
+  strengthening for a type — **already exists in this tree** as `VEnv.IsType.weakN_iff`
+  (`Theory/Typing/UniqueTyping.lean:221`) at `Ctx.LiftN.one`.  It is backed by
+  `IsDefEqU.weakN_iff`'s `sorry`, i.e. by an existing hole owned by another stream.  The
+  "**Sequencing**" paragraph below, which says to re-evaluate when `VEnv.Params` lands, is
+  therefore too pessimistic: nothing here waits on a `Params` instance, only on that one
+  `sorry` — and the work is a guarded re-proof of `projArgs_hasArgs`,
+  `projMotiveBody_hasType`, `projMinor_hasType` and `projTerm_hasType`, which is bulk, not
+  mathematics.
+
 **What is proved, and what is left.**  `projTerm_hasType` (just above) proves this whenever
 the elimination level the encoding uses is legal at *every* field index `≤ i`:
 
@@ -1366,12 +1402,17 @@ theorem TrProj.wf (henv : VEnv.WF env) (hΓ : OnCtx Γ (env.IsType U))
       · by_cases hu : C.FieldUsed D 0 k
         · -- an earlier field the telescope *uses*: F17 covers it too
           simpa [VLevel.inst] using h k hk (.inr hu)
-        · -- **The gap**, and the only one.  Field `k < i` is unused, so F17 says nothing
-          -- about `lvl_k`, and `lvl_k ≉ 0` is possible (`Bar` in the docstring above).
-          -- `projTerm … k x` is then genuinely ill-typed, even though `projTerm … i e`
-          -- is fine, because `instAll` discards it.  Closing this is one `Ctx.LiftN.one`
-          -- strengthening step per unused field; see the docstring, and re-evaluate when
-          -- `VEnv.Params` lands.
+        · -- **This subgoal is FALSE**, and the comment that used to stand here was wrong
+          -- about its shape.  It said "one `Ctx.LiftN.one` strengthening step per unused
+          -- field"; the goal is a *level equivalence*, which strengthening cannot produce.
+          -- `Verify/Typing/ProjLevelWitness.lean`'s `barRefutes` satisfies every hypothesis
+          -- of this goal state at once and negates the conclusion, at
+          -- `structure Bar : Prop where (n : Prop) (h : ∀ p : Prop, p)`.
+          --
+          -- So the route through `projTerm_hasType`'s `hlv` premise cannot be completed at
+          -- all.  The live route does not pass through this goal: it types the motive from
+          -- the *compressed* spine, because `projTerm` provably does not read the discarded
+          -- projections — `Verify/Typing/ProjSkip.lean`.  See the docstring above.
           sorry
 
 theorem TrExpr.wf (H : TrExpr env Us Δ e e') : VExpr.WF env Us.length Δ.toCtx e' :=
@@ -1415,10 +1456,44 @@ theorem TrExpr.app (henv : VEnv.WF env) (hΔ : OnCtx Δ.toCtx (env.IsType Us.len
   ⟨_, .app h3.hasType.1 h4.hasType.1 s3 s4, _, h3.appDF h4⟩
 
 variable! (henv : VEnv.WF env) (hΓ : IsDefEqCtx env U [] Γ₁ Γ₂) in
-/-- **Blocked** for the same reason as `TrProj.defeqDFC`; see the note there.  In addition
-this one needs `S` to determine the inductive block (design ledger G4, `HasInduct`
-uniqueness, which needs `VEnv.Sig` = I1) — `VEnv.IsStructure` deliberately does not
-claim it. -/
+/-- **Blocked.**  Four obligations, and the first of them is a fact the tree deliberately does
+not state.
+
+**`s₁` and `s₂` are independent, and that is NOT an auto-bound-implicit accident.**  It was
+tried as one — narrowed to a shared `s`, on the reading that the only consumer is
+`TrExprS.uniq`'s `proj` case, which translates *one* `Lean.Expr.proj s i e` twice.  That
+reading is wrong: there is a **second consumer**, `IsDefEqE.trExpr`'s `proj` case in
+`Verify/EquivManager.lean:117`, and it instantiates the two names *differently*, because
+`RelevantEq.proj : RelevantEq e₁ e₂ → RelevantEq (.proj _ i e₁) (.proj _ i e₂)` **drops the
+structure name** — faithfully, since `EquivManager.isEquiv` does too
+(`Lean4Lean/EquivManager.lean`: `| .proj _ i1 e1, .proj _ i2 e2 => pure (i1 == i2) <&&> …`).
+The narrowing broke that file and was reverted.  Do not re-attempt it without changing
+`RelevantEq` and `isEquiv` together, which is a checker change, not a proof change.
+
+So this statement really does have to derive `s₁ = s₂` from `env.IsDefEqU U Γ₁ e₁ e₂`, and
+that is **(D) no-confusion between distinct rule-free constants** — the "fourth fact" of
+`Theory/Typing/Injectivity.lean`'s taxonomy, which that file declines to state "because no
+consumer has asked for it".  One has now.  Stated as `VEnv.ConstNoConf` in
+`Verify/Typing/Rigidity.lean`.
+
+**The other three.**
+1. **`IsStructure` uniqueness** (ledger G4).  Now stated, in
+   `Verify/Typing/StructureUniq.lean`, as `VEnv.StructureUniq`, and **split**: its syntactic
+   half reduces to `RecTypeInj` with *no hypothesis on `env` at all*
+   (`structureAgree_of_recTypeInj`, proved), while its level half is a `SortUniq`-family
+   consumer.  The equality form `D₁ = D₂ ∧ T₁ = T₂ ∧ C₁ = C₂` is **refuted** there
+   (`structureUniq_eq_false`) and no hypothesis on `env` can rescue it; `≈` on the recorded
+   levels is the right relation, and it is what `projCore`'s `lvls` needs.
+2. **(B) `IsDefEqU.const_app_inv`** plus `RuleFreeHead`, to get `us₁ ≈ us₂`, `ps₁ ≡ ps₂`,
+   `ιs₁ ≡ ιs₂` out of the two recorded typings of `e₁ ≡ e₂` at
+   `(.const sₖ usₖ).mkApp (psₖ ++ ιsₖ)`.
+3. A **congruence lemma for `VInductDecl'.projTerm`** — level equivalence on `us`, `IsDefEqU`
+   on `ps`, `ιs` and the subject — which does not exist yet.  It is mechanical (every use of
+   the arguments is through `mkApp`/`instAll`/`mkLams`) and needs no new mathematics, but it is
+   real work and nobody has costed it.
+
+Unlike `TrProj.defeqDFC`, whose conclusion is an existential and which is therefore *proved*,
+here both targets are given, so nothing may be chosen. -/
 theorem TrProj.uniq (H1 : TrProj env U Γ₁ s₁ i e₁ e₁') (H2 : TrProj env U Γ₂ s₂ i e₂ e₂')
     (H : env.IsDefEqU U Γ₁ e₁ e₂) :
     env.IsDefEqU U Γ₁ e₁' e₂' := sorry
