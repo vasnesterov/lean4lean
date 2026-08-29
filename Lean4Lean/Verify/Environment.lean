@@ -1,4 +1,5 @@
 import Lean4Lean.Verify.Environment.Extension
+import Lean4Lean.Verify.QuotConsts
 
 namespace Lean4Lean
 open Lean4Lean
@@ -115,56 +116,31 @@ theorem addOpaque.WF {env : Environment} {ves : VEnvs} (wf : ves.WF env) (v : Op
     exact .opaque (ci' := ci') ⟨⟨htr, hname⟩, hvalue.mono hto⟩
       (by rwa [← old.map_wf.find?'_eq_find?]) (hci.mono hto) hadd old
 
-/-- **Vacuous, and the honest replacement is now available.**
+/-- **The honest postcondition.**  On success `checkEqType` establishes `VEnv.QuotReady` at
+every safety level.  Proved by `checkEqType.WF_quotReady_closed` (`Verify/InductFlip.lean`),
+which needs no `AddInduct` lemma at all -- the missing step was the type identity, from
+`TrExprS.unique` plus computing `mkForall` via `LocalContext.mkBinding_eq`.
 
-The conclusion is `False`, proved from `TrEnv'.no_inductInfo` at `.unsafe`: no `VEnvs` models
-a kernel environment holding an `.inductInfo` at all (`VEnvs.WF.no_inductInfo`,
-`Verify/InductFlip.lean`).
-
-`docs/handoff-eq-safety.md` §3 recorded the honest replacement as blocked on the `AddInduct`
-obligation `htr`.  **That was wrong**: `checkEqType.WF_quotReady_closed`
-(`Verify/InductFlip.lean`) proves
-
-    (checkEqType env).WF fun _ => ∀ safety, (ves.venv safety).QuotReady
-
-outright, sorry-free, with no `AddInduct`, no `TrEnv'.induct` and no `VInductDecl'` anywhere
-in its cone.  `TrEnv.find?` already returns the model's constant together with its
-`TrConstant`; what was missing was only the *identity* of the translated type, which
-`TrExprS.unique` supplies once `checkEqType`'s `mkForall` comparison is computed
-(`Lean.LocalContext.mkForall_single`).
-
-What still blocks substituting it here is **not** `htr` but `addQuot.WF`'s other half: with a
-non-`False` postcondition, `addQuot.WF` must actually build `TrEnv'.quot`, i.e. exhibit
-`AddQuot env.constants env'.constants (ves.venv safety) (venv' safety)` from the executable
-`Environment.addQuot`.  That is four `AddQuot1` steps, each needing a `TrExprS` for a
-quotient constant's stored type — the same technique as `trExprS_eqStoredType`, four times
-over and with `Quot.lift`'s six binders.  See `docs/handoff-addinduct.md` §6. -/
+This replaces a conclusion of `False`, proved from `TrEnv'.no_inductInfo` at
+`safety = .unsafe`.  That was a vacuity crutch, and `Verify/TypeChecker/Reduce.lean`'s
+`no_inductInfo_false_at_safe` already refuted its route at `.safe`. -/
 theorem checkEqType.WF {env : Environment} {ves : VEnvs} (wf : ves.WF env) :
-    (checkEqType env).WF fun _ => False := by
-  intro _ h
-  unfold checkEqType at h
-  simp only [Environment.get] at h
-  split at h <;> try contradiction
-  rename_i ci hfind
-  cases ci with
-  | inductInfo info =>
-    have hfind' : env.constants.find? ``Eq = some (.inductInfo info) := by
-      rw [← (wf.tr (safety := .unsafe)).map_wf.find?'_eq_find?]
-      exact hfind
-    exact False.elim <| (wf.tr (safety := .unsafe)).no_inductInfo hfind'
-  | _ => simp_all [( · >>= · ), Except.bind, pure, Pure.pure, Except.pure]
+    (checkEqType env).WF fun _ => ∀ safety, (ves.venv safety).QuotReady :=
+  checkEqType.WF_quotReady_closed wf
 
-/-- **Vacuous in the non-initialized case**, through `checkEqType.WF`'s `False`.  The
-remaining obligation is the `AddQuot` construction, not the `Eq` premise: see
-`checkEqType.WF`'s docstring above and `checkEqType.WF_quotReady_closed`
-(`Verify/InductFlip.lean`), which discharges the `Eq` half unconditionally. -/
+/-- **Non-vacuous**: proved by `addQuot.WF'` (`Verify/QuotConsts.lean`), which builds the four
+`AddQuot1` steps from `TrExprS` derivations for the stored quotient types, with no `False.elim`.
+
+The honest limit, recorded rather than hidden: on the non-initialized branch the hypotheses are
+jointly unsatisfiable *today*, because `wf` together with `checkEqType env = .ok ()` forces an
+`.inductInfo` into an environment carrying a `VEnvs` model, which `VEnvs.WF.no_inductInfo`
+refutes while `AddInduct` is empty.  So the quotient side is now blocked on `AddInduct`'s
+emptiness alone -- on nothing quotient-specific -- and needs no further work when the flip
+lands. -/
 theorem addQuot.WF {env : Environment} {ves : VEnvs} (wf : ves.WF env) :
     (Environment.addQuot env).WF fun env' =>
-      ∃ ves' : VEnvs, ves'.WF env' ∧ ∀ safety, ves.venv safety ≤ ves'.venv safety := by
-  unfold Environment.addQuot
-  split
-  · exact .pure ⟨ves, wf, fun _ => VEnv.LE.rfl⟩
-  · exact (checkEqType.WF wf).bind fun _ h => False.elim h
+      ∃ ves' : VEnvs, ves'.WF env' ∧ ∀ safety, ves.venv safety ≤ ves'.venv safety :=
+  addQuot.WF' wf
 
 private theorem Except.WF.throw' {e : ε} {Q : α → Prop} : (throw e : Except ε α).WF Q :=
   fun _ h => nomatch h

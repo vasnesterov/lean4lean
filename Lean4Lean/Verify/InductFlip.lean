@@ -228,8 +228,8 @@ holding exactly the `withLocalDecl`-bound `α`.  `docs/handoff-eq-safety.md` §4
 turning that into a closed `Expr`; `Lean.LocalContext.mkBinding_eq`
 (`Verify/LocalContext.lean`) is the missing step, and this is its one-binder instance. -/
 
-open Lean.LocalContext in
-theorem _root_.Lean.LocalContext.mkForall_single {lctx : LocalContext} {fv : FVarId}
+open Lean4Lean.LocalContext in
+theorem _root_.Lean4Lean.LocalContext.mkForall_single {lctx : LocalContext} {fv : FVarId}
     {idx n ty bi kind b}
     (hfind : lctx.find? fv = some (.cdecl idx fv n ty bi kind))
     (hb : b.looseBVarRange' = 0) (hty : ty.looseBVarRange' = 0) :
@@ -243,22 +243,18 @@ theorem _root_.Lean.LocalContext.mkForall_single {lctx : LocalContext} {fv : FVa
     rw [hfind] at hd; cases hd
     exact ⟨hty, by simp [Lean.LocalDecl.value?]⟩
 
-theorem _root_.Lean.LocalContext.wf_empty : ({} : LocalContext).WF := .nil
+theorem _root_.Lean4Lean.LocalContext.wf_empty : ({} : LocalContext).WF := .nil
 
-theorem _root_.Lean.LocalContext.toList_empty : ({} : LocalContext).toList = [] := by
-  show List.filterMap id (PersistentArray.toList' _).reverse = []
-  rw [show (({} : LocalContext).decls) = .empty from rfl, PersistentArray.toList'_empty]
-  rfl
+theorem _root_.Lean4Lean.LocalContext.toList_empty : ({} : LocalContext).toList = [] := rfl
 
-theorem _root_.Lean.LocalContext.find?_empty {fv} : ({} : LocalContext).find? fv = none := by
+theorem _root_.Lean4Lean.LocalContext.find?_empty {fv} : ({} : LocalContext).find? fv = none := by
   rw [LocalContext.wf_empty.find?_eq_find?_toList, LocalContext.toList_empty]; rfl
 
-theorem _root_.Lean.LocalContext.find?_mkLocalDecl_empty {fv n ty bi kind} :
+theorem _root_.Lean4Lean.LocalContext.find?_mkLocalDecl_empty {fv n ty bi kind} :
     (({} : LocalContext).mkLocalDecl fv n ty bi kind).find? fv =
       some (.cdecl 0 fv n ty bi kind) := by
   rw [(LocalContext.wf_empty.mkLocalDecl LocalContext.find?_empty).find?_eq_find?_toList,
-    LocalContext.mkLocalDecl_toList LocalContext.wf_empty.decls_wf,
-    LocalContext.toList_empty]
+    LocalContext.mkLocalDecl_toList, LocalContext.toList_empty]
   simp [Lean.LocalDecl.fvarId]
 
 /-! ### 3.2 The type equation `checkEqType` establishes -/
@@ -271,7 +267,7 @@ def eqStoredType (u : Name) : Expr :=
 theorem mkForall_eqStoredType {fv : FVarId} {u : Name} :
     (({} : LocalContext).mkLocalDecl fv `α (.sort (.param u)) .implicit).mkForall
       #[.fvar fv] ((Expr.fvar fv).arrow ((Expr.fvar fv).arrow Expr.prop)) = eqStoredType u := by
-  rw [LocalContext.mkForall_single LocalContext.find?_mkLocalDecl_empty rfl rfl]
+  rw [Lean4Lean.LocalContext.mkForall_single LocalContext.find?_mkLocalDecl_empty rfl rfl]
   simp [eqStoredType, Expr.arrow, Expr.abstract1, Expr.prop]
 
 theorem checkEqType.WF_type {env : Environment} :

@@ -34,7 +34,24 @@ syntax; `VInductDecl'.WF` says the `VInductDecl'` is a legitimate declaration.**
 
 *Safe blocks only.*  `checkConstructors` calls `checkPositivity` under `if !isUnsafe then`, so
 for an unsafe block there is no positivity check at all and `VIndField.WF.pos` has no witness.
-Unsafe blocks are taken by `TrEnv'.ignore` instead.  The `safe` field below is what pins that.
+The `safe` field below is what pins that.
+
+**CORRECTION.**  This paragraph used to end "Unsafe blocks are taken by `TrEnv'.ignore`
+instead."  **That is false**, and it is the same false claim that
+`Theory/Inductive/Decl.lean`'s R10 handover carries.  `TrEnv'.ignore`'s premise is
+`¬ safety ≤ ci.safety`, and `.unsafe` is the bottom of `DefinitionSafety`, so
+`.unsafe ≤ ci.safety` holds for *every* `ci` whatever its tag
+(`ignore_unavailable_at_unsafe`, `Verify/TypeChecker/Reduce.lean`).  So `ignore` is available
+at `.safe` and `.partial` but **not** at `.unsafe`, and `TrEnv' .unsafe` therefore has no rule
+at all for an unsafe inductive block.
+
+The honest position: an unsafe inductive is currently **unhandled**, not handled-by-ignoring.
+The `safe` field does not route unsafe blocks anywhere -- it excludes them, leaving a genuine
+gap at `safety = .unsafe` that the `AddInduct` flip does not close.  (The gap is not *created*
+by the gate: today `TrEnv' .unsafe` has no rule for a *safe* inductive either, by
+`TrEnv'.no_inductInfo`.  But it is not closed by it either, and it will still be open after
+the flip.)  Closing it needs a `TrEnv'` rule that admits an unsafe block at `.unsafe` without
+a positivity witness, which is a design question, not a proof obligation on this file.
 
 *Non-nested only.*  `addInductive` discards the auxiliary environment and rebuilds, so a nested
 block's result is not `VEnv.addInduct'` of *any* declaration.  This is a **limitation, not a
@@ -73,7 +90,10 @@ def TrIndType (env : VEnv) (Us : List Name) (t : InductiveType) (T : VIndType) :
 nothing else; see the module docstring. -/
 structure TrIndDecl (env : VEnv) (Us : List Name) (nparams : Nat)
     (types : List InductiveType) (isUnsafe : Bool) (D : VInductDecl') : Prop where
-  /-- Safe blocks only: positivity is skipped when `isUnsafe`. -/
+  /-- Safe blocks only: positivity is skipped when `isUnsafe`, so `VIndField.WF.pos` has no
+  witness for an unsafe block.  This field **excludes** unsafe blocks; it does not route them
+  to `TrEnv'.ignore`, which is unavailable at `.unsafe` -- see the module docstring's
+  correction and `ignore_unavailable_at_unsafe` (`Verify/TypeChecker/Reduce.lean`). -/
   safe : isUnsafe = false
   uvars : Us.length = D.uvars
   np : nparams = D.np

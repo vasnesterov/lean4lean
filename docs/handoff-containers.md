@@ -1,12 +1,15 @@
 # Handoff: killing the four container axioms
 
-**Stream:** containers.  **Status:** the replacement is *implemented, built and measured* in a
-detached worktree; nothing outside my ownership has been changed in the main tree.  The
-`Verify/Axioms.lean` and `Verify/Guard.lean` edits are **stated below, not made** — they are
-frozen files and need human sign-off.
+**Stream:** containers.  **Status:** **landed** by the orchestrator as commit `961871b`
+("pure containers replace the persistent HAMT and trie"), after independent re-verification —
+so §4's landing instructions and §9's worktree/patch notes are historical.  The
+`Verify/Axioms.lean` and `Verify/Guard.lean` edits are **stated below, still not made** — they
+are frozen files and need human sign-off; until then the four axioms remain *declared* and
+guard 1 still reads 29.  `divergences.md` §8 was appended as part of the same commit.
 
-The patch is at `docs/handoff-containers.patch` (and live in the worktree
-`/home/vasilii/lean4lean-wt-containers`, detached HEAD at `08e2592`).
+Everything below describes the state as validated before landing; the worktree
+`/home/vasilii/lean4lean-wt-containers` and `docs/handoff-containers.patch` referenced in
+places no longer exist, having been consumed by the merge.
 
 ---
 

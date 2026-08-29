@@ -21,18 +21,41 @@ This file is the proof-side counterpart:
 * §3 `checkEqType.WF_visible` -- the same fact in the shape `TrEnv.eq_visible_of_quotInit`
   consumes it: `Eq` is visible at *every* safety level.
 * §4 `checkEqType.WF_quotReady` -- the full replacement for `checkEqType.WF`, i.e. what
-  `addQuot.WF` actually needs (`VEnv.QuotReady` at every safety level), reduced to the one
-  premise that is *not* available from the checker: that a safe inductive `Eq` of the checked
-  shape translates to `eqConst`.  That premise is the `AddInduct`/`TrEnv'.induct` obligation
-  (`Theory/Inductive/Decl.lean`); `AddInduct` has no constructors today, so it cannot be
-  discharged here.  Everything else `addQuot.WF` needs is proved.
+  `addQuot.WF` actually needs (`VEnv.QuotReady` at every safety level), reduced to one
+  premise `htr`: that a safe inductive `Eq` of the checked shape translates to `eqConst`.
+
+**CORRECTION (superseding what §4 said when this file was written).**  §4 used to assert that
+`htr` "is the `AddInduct`/`TrEnv'.induct` obligation and nothing else", and that it "cannot be
+discharged here" because `AddInduct` has no constructors.  **That was false, and it was false
+at the time it was written.**  `htr` is now *proved*, with no `AddInduct` anywhere in its cone:
+`checkEqType.WF_quotReady_closed` (`Verify/InductFlip.lean`) establishes
+
+    (checkEqType env).WF fun _ => ∀ safety, (ves.venv safety).QuotReady
+
+outright and `sorry`-free.  `TrEnv.find?` already hands back the model's constant together
+with its `TrConstant` for *any* `TrEnv'` step, without asking which step introduced it; the
+only missing piece was the *identity* of the translated type, which `TrExprS.unique` supplies
+once `checkEqType`'s `mkForall` comparison is computed (`LocalContext.mkForall_single`).
+That computation is the very item §4 of `docs/handoff-eq-safety.md` had deferred as "buys
+nothing until `AddInduct` exists" -- it was in fact the whole remaining step.
+
+The theorems in §1-§4 below are all still true as stated; only the *diagnosis* in the §4
+docstring was wrong.  `checkEqType.WF_quotReady` is kept because it is the shape the premise
+was isolated in, but callers should use `checkEqType.WF_quotReady_closed`, which needs no
+premise at all.
+
+The obligation that actually remained between here and a non-vacuous `addQuot.WF` was the
+`AddQuot` construction -- four `AddQuot1` steps for the quotient constants.  That is now done
+too: `addQuot.WF'` (`Verify/QuotConsts.lean`) proves `addQuot.WF`'s statement outright.  What
+is left is `AddInduct`'s emptiness, which is not specific to quotients; see
+`docs/handoff-eq-safety.md` §5.
 
 **What changed.** Before the checker change, §1 and §2 were *contradictory* for an
 `unsafe inductive Eq`: §1 says the `.safe` model demands `isUnsafe = false`, and `checkEqType`
 returned `.ok` anyway, so `∃ venv, TrEnv .safe env venv` after the `.quotDecl` step was
 **false**, not merely unproved.  With the check in place the two agree, and §4 is a genuine
-reduction of `addQuot.WF` to the inductive-translation obligation rather than a vacuity
-argument.
+reduction rather than a vacuity argument -- though, per the correction above, it reduces to
+strictly less than it claimed.
 -/
 
 namespace Lean4Lean
@@ -107,14 +130,18 @@ This theorem delivers exactly that, from one hypothesis:
 
 `htr` -- *a safe inductive `Eq` present in the kernel environment translates to `eqConst`*.
 
-`htr` is the `AddInduct` / `TrEnv'.induct` obligation and nothing else: it is the statement
-that the abstract environment's model of the `Eq` inductive block is the `eqConst` of
-`Theory/Quot.lean`.  It is not provable today because `AddInduct` has no constructors, so
-`TrEnv'` cannot place *any* inductive in a model (`TrEnv'.no_inductInfo`); it is precisely the
-piece `Theory/Inductive/Decl.lean` is designed to supply.
+**CORRECTION.**  This docstring used to read: "`htr` is the `AddInduct` / `TrEnv'.induct`
+obligation and nothing else... It is not provable today because `AddInduct` has no
+constructors".  **Both halves were wrong.**  `htr` is not an `AddInduct` obligation -- it needs
+only `TrEnv.find?` (which is indifferent to which `TrEnv'` step introduced a constant) plus
+`TrExprS.unique` -- and it *is* provable today: see `checkEqType.WF_quotReady_closed`
+(`Verify/InductFlip.lean`), which proves the conclusion of this theorem with no premise.
 
-Everything else `addQuot.WF` needs at this step is discharged here: presence of `Eq`, its
-safety, and hence its visibility at every level. -/
+This theorem is retained only as the record of how the premise was isolated; new callers
+should use `checkEqType.WF_quotReady_closed`.
+
+Everything `addQuot.WF` needs *about `Eq`* is therefore settled.  What remains is the
+`AddQuot` construction itself. -/
 theorem checkEqType.WF_quotReady {env : Environment} {ves : VEnvs}
     (htr : ∀ (safety : DefinitionSafety) (info : InductiveVal),
       env.find? ``Eq = some (.inductInfo info) → info.isUnsafe = false →
