@@ -317,9 +317,11 @@ unsafe def replayFromFresh (module : Name)
     (fuel : Lean4Lean.FuelConfig := {}) : IO Nat := do
   Lean.withImportModules #[module] {} (trustLevel := 0) fun env => do
     let ctx := { newConstants := env.constants.map₁, verbose, compare, checkQuot := false, fuel }
-    -- `stage₁ := false` is very important here: while a declaration is being added
-    -- the environment is also held by the replay state, so the map is shared and `stage₁ := true`
-    -- would lead to quadratic performance.
-    Prod.fst <$> replay ctx (.empty module (stage₁ := false)) decl
+    -- The constant map is now always at `SMap` stage 1 (see `Kernel.Environment.empty`), so
+    -- the map is a `Std.HashMap`.  While a declaration is being added the environment is also
+    -- held by the replay state, so the map is shared and each insert copies its bucket array:
+    -- this is the quadratic behaviour the old `stage₁ := false` avoided.  It is the price of
+    -- dropping the four `PersistentHashMap`/`PersistentArray` axioms; see `divergences.md`.
+    Prod.fst <$> replay ctx (.empty module) decl
 
 end Lean4Lean.Replay

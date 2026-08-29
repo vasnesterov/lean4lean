@@ -87,9 +87,9 @@ theorem hasPrimitives_empty : VEnv.HasPrimitives .empty := by
 run `init_quot` is modelled by the everywhere-empty `VEnvs`.
 
 Note that the map is *not* required to be the literal `({} : ConstMap)`:
-`Kernel.Environment.empty` creates its map at SMap stage 2 (`stage₁ := false`), whereas
-`({} : ConstMap)` has `stage₁ = true`, so the two are not equal (`constants_empty_ne`).
-`TrEnv'.empty`/`Aligned.empty` are correspondingly stated for any well-formed empty map. -/
+`Kernel.Environment.empty` creates its map at SMap stage 1, i.e. as `({} : ConstMap)`.
+`TrEnv'.empty`/`Aligned.empty` are stated for any well-formed empty map, so they do not
+depend on that. -/
 theorem VEnvs.trivial_WF {env : Kernel.Environment}
     (hwf : env.constants.WF) (hc : ∀ n, env.constants.find? n = none)
     (hq : env.quotInit = false) :
@@ -103,25 +103,18 @@ theorem VEnvs.trivial_WF {env : Kernel.Environment}
 
 /-! ### The empty kernel environment
 
-`Kernel.Environment.empty` builds its constant map at SMap stage 2, i.e. as
-`{ stage₁ := false }`, which is *not* the literal `({} : ConstMap)` (`constants_empty_ne`).
-It is still empty and well-formed, which is all `VEnvs.trivial_WF` asks for. -/
+`Kernel.Environment.empty` builds its constant map at SMap stage 1, i.e. as the literal
+`({} : ConstMap)`; it is empty and well-formed, which is all `VEnvs.trivial_WF` asks for. -/
 
-theorem constants_empty_ne : (Kernel.Environment.empty `main).constants ≠ ({} : ConstMap) :=
-  fun h => absurd (congrArg SMap.stage₁ h) (by decide)
-
-theorem constants_empty : (Kernel.Environment.empty `main).constants = { stage₁ := false } := rfl
+theorem constants_empty : (Kernel.Environment.empty `main).constants = {} := rfl
 
 theorem constants_empty_wf : (Kernel.Environment.empty `main).constants.WF where
-  map₂ := .empty
-  stage := nofun
-  disjoint _ := by simp [constants_empty]
+  stage := rfl
+  map₂ := rfl
 
 theorem constants_empty_find? (n : Name) :
     (Kernel.Environment.empty `main).constants.find? n = none := by
-  have h : ({} : PHashMap Name ConstantInfo).find? n = none :=
-    (PersistentHashMap.WF.empty.find?_eq n).trans (by simp)
-  simp [constants_empty, SMap.find?, h]
+  simp [constants_empty, SMap.find?]
 
 /-- The base case of the fold: the empty kernel environment has an abstract model. -/
 def HasEmptyModel : Prop := ∃ ves : VEnvs, ves.WF (Kernel.Environment.empty `main)

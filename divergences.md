@@ -68,3 +68,32 @@ This is a list of places where lean4lean deliberately has different behavior fro
   **Why the divergence is required.** `addQuot` installs `Quot`, `Quot.mk`, `Quot.lift` and `Quot.ind` with `Environment.add` (C++: `add_core`), bypassing the type checker, and a `quotInfo` constant is unconditionally safe. `Quot.lift`'s type mentions `Eq`. So without this check both kernels mint a *safe* constant whose type names an *unsafe* one — exactly what `TypeChecker.inferConstant` (C++ `type_checker::infer_constant`) rejects in every other syntactic position. On the proof side the consequence is sharper: `TrEnv'.quot` is the only constructor that sets `quotInit`, and its first premise is `VEnv.QuotReady env`, so `TrEnv safety env venv` with `env.quotInit = true` forces `Eq` into the model and hence visible at `safety` — at `.safe`, forces `Eq` to be a safe declaration (`TrEnv.eq_visible_of_quotInit`, `Verify/SafeFragment.lean`). An unsafe `Eq` is additionally in *no* model at *any* level, since `TrEnv'.induct` is gated to safe blocks (positivity is skipped when `isUnsafe`). So without this check `∃ venv, TrEnv .safe env venv` after the `.quotDecl` step is **false**, and `addQuot.WF` is unprovable rather than merely unproved. See `bugs-found.md` entry 15 and `Lean4Lean/Verify/EqSafety.lean`.
 
   **What is deliberately *not* checked.** Only `Eq`'s own safety tag. `checkEqType` also looks up `Eq`'s single constructor and checks its type; its safety tag is left alone, because `VEnv.QuotReady` and the `quotInfo` types mention `Eq` and not `Eq.refl`, so the constructor's tag is not part of the obligation. (An inductive declared through either kernel gives its constructors the block's tag anyway, so the two can differ only in a hand-built environment.)
+
+* [`Lean4Lean.LocalContext`](Lean4Lean/Std/LocalContext.lean): the kernel's local context is a
+  `Std.HashMap FVarId LocalDecl` plus an `Array (Option LocalDecl)`, where the C++ kernel (and
+  `Lean.LocalContext`) uses a persistent hash-array-mapped trie and a persistent array. Every
+  operation the kernel performs returns the same value; the `auxDeclToFullName` field, which the
+  kernel never writes, is dropped. **Complexity differs**: `Array.push`/`Std.HashMap.insert` are
+  O(1) amortised when unshared but copy when shared, and the context is shared across
+  `withReader` frames, so building an n-binder telescope is O(n²) rather than O(n log n). Local
+  contexts are telescope-sized, so this is not observable at any size the arena reaches. The
+  `Lean.Kernel.Exception` payloads still carry a `Lean.LocalContext`, rebuilt at the throw site,
+  so error messages are unchanged.
+
+* [`Lean.Kernel.Environment.empty`](Lean4Lean/Environment/Basic.lean), `finalizeImport`: the
+  constant map is built at `SMap` **stage 1**, so added constants go into the `Std.HashMap` half
+  rather than the `PersistentHashMap` half. Lookups agree exactly. **Complexity differs**, and
+  upstream's own comment in `Lean4Lean/Replay.lean` named it: the replay state holds the
+  environment while a declaration is being added, so the map is shared and each insert copies its
+  bucket array — O(n) per declaration, O(n²) for a whole module, against O(log n) per declaration
+  for the persistent map. Measured: `--fresh Init.Core` (n ≈ 4000) is unchanged (6.71 s vs
+  6.91 s); the Kernel Arena's `init` test is ×1.19 and its larger `std` test ×1.40, so **the ratio
+  grows with module size**, and it has **not** been measured at Mathlib scale. Total arena wall
+  time +28%, concentrated in those two tests; everything else ≈×1.0. If it ever bites, the fix is
+  to remove the *sharing* in `Replay.lean`, not to revert the stage.
+
+  Both changes exist to remove the four `PersistentArray`/`PersistentHashMap` axioms. Their
+  subjects are `partial` upstream, and a `partial def` elaborates to an **`opaque` constant**:
+  all eight helpers carry 0 equation lemmas and no unfolding theorem, so *nothing whatever* can be
+  proved about them — not even `PersistentHashMap.empty.find? k = none`. See
+  `docs/handoff-containers.md`.

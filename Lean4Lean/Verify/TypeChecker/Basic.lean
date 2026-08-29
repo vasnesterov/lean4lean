@@ -743,13 +743,12 @@ theorem MLCtx.WF.fvarRevList_nodup {c : MLCtx} (wf : c.WF env Us)
 
 theorem MLCtx.WF.decls_size {c : MLCtx} (wf : c.WF env Us) :
     c.lctx.decls.size = c.length := by
-  rw [← wf.tr.1.decls_wf.toList'_length]
   induction c with
   | nil => rfl
   | vlam _ _ _ _ _ _ ih =>
-    simp [lctx, LocalContext.mkLocalDecl, ih wf.1, wf.1.tr.1.decls_wf.toList'_push]
+    simp [lctx, LocalContext.mkLocalDecl, ih wf.1]
   | vlet _ _ _ _ _ _ _ ih =>
-    simp [lctx, LocalContext.mkLetDecl, ih wf.1, wf.1.tr.1.decls_wf.toList'_push]
+    simp [lctx, LocalContext.mkLetDecl, ih wf.1]
 
 theorem MLCtx.WF.toList_eq {c : MLCtx} (wf : c.WF env Us) :
     c.lctx.toList = c.decls := by
@@ -757,11 +756,9 @@ theorem MLCtx.WF.toList_eq {c : MLCtx} (wf : c.WF env Us) :
   induction c with
   | nil => rfl
   | vlam _ _ _ _ _ _ ih =>
-    simp [lctx, LocalContext.mkLocalDecl, decls, ih wf.1, wf.1.decls_size,
-      wf.1.tr.1.decls_wf.toList'_push]
+    simp [lctx, LocalContext.mkLocalDecl, decls, ih wf.1, wf.1.decls_size]
   | vlet _ _ _ _ _ _ _ ih =>
-    simp [lctx, LocalContext.mkLetDecl, decls, ih wf.1, wf.1.decls_size,
-      wf.1.tr.1.decls_wf.toList'_push]
+    simp [lctx, LocalContext.mkLetDecl, decls, ih wf.1, wf.1.decls_size]
 
 theorem MLCtx.WF.find?_eq {c : MLCtx} (wf : c.WF env Us) :
     c.lctx.find? x = c.decls.find? (x == ·.fvarId) := by

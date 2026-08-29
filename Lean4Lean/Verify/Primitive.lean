@@ -1424,7 +1424,7 @@ theorem VContext.primConst (hsf : c.safety = .safe) {n : Name}
   have hfind : ∃ ci, c.env.find? n = some ci := by
     rw [Kernel.Environment.find?, hwf.find?'_eq_find?]
     have hc : c.env.constants.contains n = true := h
-    rw [SMap.find?_isSome] at hc
+    rw [hwf.find?_isSome] at hc
     exact Option.isSome_iff_exists.1 hc
   obtain ⟨ci, hci⟩ := hfind
   obtain ⟨hs, hlp⟩ := c.safePrimitives hci hp

@@ -19,7 +19,7 @@ theorem checkName.WF (mapWF : env.constants.WF) (name : Name) (allowPrimitive : 
     · rfl
     · simp [Environment.checkName, hfind, (· >>= ·), Except.bind] at h
   change env.constants.contains name = false at hn
-  rw [SMap.find?_isSome] at hn
+  rw [mapWF.find?_isSome] at hn
   constructor
   · rw [Kernel.Environment.find?, mapWF.find?'_eq_find?]
     cases hfind : env.constants.find? name <;> simp_all
@@ -28,7 +28,7 @@ theorem checkName.WF (mapWF : env.constants.WF) (name : Name) (allowPrimitive : 
     · rfl
     · have hc : env.contains name = false := by
         change env.constants.contains name = false
-        rw [SMap.find?_isSome]
+        rw [mapWF.find?_isSome]
         exact hn
       simp only [Environment.checkName, hc, ha, hp, ↓reduceIte] at h
       rw [show (pure PUnit.unit : Except Exception PUnit) = .ok PUnit.unit from rfl] at h

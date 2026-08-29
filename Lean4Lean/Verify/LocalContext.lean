@@ -1,16 +1,16 @@
-import Lean4Lean.Std.PersistentHashMap
+import Lean4Lean.Std.LocalContext
 import Lean4Lean.Verify.Expr
 import Lean4Lean.Verify.Typing.Expr
 import Lean4Lean.Verify.Typing.Lemmas
 
-open Lean4Lean
+open Lean
 
-namespace Lean.LocalContext
+namespace Lean4Lean.LocalContext
 
-noncomputable def toList (lctx : LocalContext) : List LocalDecl :=
-  lctx.decls.toList'.reverse.filterMap id
+def toList (lctx : LocalContext) : List LocalDecl :=
+  lctx.decls.toList.reverse.filterMap id
 
-noncomputable def fvars (lctx : LocalContext) : List FVarId :=
+def fvars (lctx : LocalContext) : List FVarId :=
   lctx.toList.map (·.fvarId)
 
 def mkBindingList1 (isLambda : Bool) (lctx : LocalContext)
@@ -159,47 +159,70 @@ theorem mkBindingList_congr
   simp [mkBindingList1_congr H.1]
 
 inductive WF : LocalContext → Prop
-  | nil : WF ⟨.empty, .empty, .empty⟩
+  | nil : WF ⟨∅, #[]⟩
   | cons :
-    d.fvarId = fv → map.find? fv = none → d.index = arr.size →
-    WF ⟨map, arr, fvmap⟩ →
-    WF ⟨map.insert fv d, arr.push d, fvmap⟩
+    d.fvarId = fv → map[fv]? = none → d.index = arr.size →
+    WF ⟨map, arr⟩ →
+    WF ⟨map.insert fv d, arr.push d⟩
 
-theorem WF.map_wf {lctx : LocalContext} : lctx.WF → lctx.fvarIdToDecl.WF
-  | .nil => .empty
-  | .cons _ _ _ h2 => .insert h2.map_wf
+@[simp] theorem find?_mk {map : Std.HashMap FVarId LocalDecl} {arr} :
+    LocalContext.find? ⟨map, arr⟩ fv = map[fv]? := rfl
 
-theorem WF.decls_wf {lctx : LocalContext} : lctx.WF → lctx.decls.WF
-  | .nil => .empty
-  | .cons _ _ _ h2 => .push h2.decls_wf
+@[simp] theorem toList_mk {map : Std.HashMap FVarId LocalDecl} {arr} :
+    LocalContext.toList ⟨map, arr⟩ = arr.toList.reverse.filterMap id := rfl
+
+@[simp] theorem toList_push {map : Std.HashMap FVarId LocalDecl}
+    {arr : Array (Option LocalDecl)} {d : LocalDecl} :
+    LocalContext.toList ⟨map, arr.push (some d)⟩ = d :: arr.toList.reverse.filterMap id := by
+  simp
+
+/-- Unconditional, unlike the `PersistentArray` version this replaces: `Array.push` really does
+append.  See `docs/handoff-containers.md`. -/
+@[simp] theorem mkLocalDecl_toList {lctx : LocalContext} :
+    (lctx.mkLocalDecl fv name ty bi kind).toList =
+    .cdecl lctx.decls.size fv name ty bi kind :: lctx.toList := by
+  cases lctx; simp [mkLocalDecl]
+
+@[simp] theorem mkLetDecl_toList {lctx : LocalContext} :
+    (lctx.mkLetDecl fv name ty val bi kind).toList =
+    .ldecl lctx.decls.size fv name ty val bi kind :: lctx.toList := by
+  cases lctx; simp [mkLetDecl]
 
 attribute [-simp] List.filterMap_reverse in
-open scoped _root_.List in
-theorem WF.map_toList : WF lctx →
-    lctx.fvarIdToDecl.toList' ~ lctx.toList.map fun d => (d.fvarId, d)
-  | .nil => by simp [LocalContext.toList]
-  | .cons h1 h2 _ h4 => by
-    subst h1; simp [LocalContext.toList]
-    rw [h4.decls_wf.toList'_push]; simp
-    refine h4.map_wf.toList'_insert _ _ |>.trans (.cons _ ?_)
-    rw [List.filter_eq_self.2]; · exact h4.map_toList
-    simp; rintro _ b h rfl
-    have := (h4.map_wf.find?_eq _).symm.trans h2
-    simp [List.lookup_eq_none_iff] at this
-    exact this _ _ h rfl
+theorem WF.find?_eq_find?_toList : WF lctx →
+    lctx.find? fv = lctx.toList.find? (fv == ·.fvarId)
+  | .nil => by simp
+  | .cons (d := d) (map := map) (arr := arr) h1 h2 _ h4 => by
+    subst h1
+    have ih := h4.find?_eq_find?_toList (fv := fv)
+    simp only [find?_mk, toList_mk] at ih
+    simp only [find?_mk, toList_push, List.find?_cons, Std.HashMap.getElem?_insert]
+    by_cases h : fv = d.fvarId
+    · subst h; simp
+    · rw [show (fv == d.fvarId) = false from beq_eq_false_iff_ne.2 h]
+      simp [Ne.symm h, ih]
 
-theorem WF.find?_eq_find?_toList (H : WF lctx) :
-    lctx.find? fv = lctx.toList.find? (fv == ·.fvarId) := by
-  rw [LocalContext.find?, H.map_wf.find?_eq,
-    H.map_toList.lookup_eq H.map_wf.nodupKeys, List.map_fst_lookup]
+attribute [-simp] List.filterMap_reverse in
+theorem WF.toList_length : WF lctx → lctx.toList.length = lctx.decls.size
+  | .nil => by simp
+  | .cons (d := d) (map := map) (arr := arr) _ _ _ h4 => by
+    have ih := h4.toList_length
+    simp only [toList_mk] at ih
+    simp [ih]
 
+attribute [-simp] List.filterMap_reverse in
 theorem WF.nodup : WF lctx → (lctx.toList.map (·.fvarId)).Nodup
-  | .nil => .nil
-  | .cons h1 h2 h3 h4 => by
-    have := h4.nodup
-    have := h4.find?_eq_find?_toList.symm.trans h2
-    simp_all [toList, h4.decls_wf.toList'_push]
-    simpa [eq_comm] using this
+  | .nil => by simp
+  | .cons (d := d) (map := map) (arr := arr) h1 h2 _ h4 => by
+    subst h1
+    have ih := h4.find?_eq_find?_toList (fv := d.fvarId)
+    simp only [find?_mk, toList_mk, h2] at ih
+    have ih2 := h4.nodup
+    simp only [toList_mk] at ih2
+    simp only [toList_push, List.map_cons, List.nodup_cons]
+    refine ⟨fun hm => ?_, ih2⟩
+    obtain ⟨d', hd', he⟩ := List.mem_map.1 hm
+    exact absurd (List.find?_eq_none.1 ih.symm _ hd') (by simp [he])
 
 protected theorem WF.mkLocalDecl
     (h1 : WF lctx) (h2 : lctx.find? fv = none) : WF (lctx.mkLocalDecl fv name ty bi kind) :=
@@ -209,21 +232,7 @@ protected theorem WF.mkLetDecl
     (h1 : WF lctx) (h2 : lctx.find? fv = none) : WF (lctx.mkLetDecl fv name ty val bi kind) :=
   .cons rfl h2 rfl h1
 
-/-- The `lctx.decls.WF` hypothesis is required: `PersistentArray.push` only appends
-to `toList'` on well-formed arrays. See `docs/axiom-audit.md` §5.3. -/
-theorem mkLocalDecl_toList {lctx : LocalContext} (h : lctx.decls.WF) :
-    (lctx.mkLocalDecl fv name ty bi kind).toList =
-    .cdecl lctx.decls.size fv name ty bi kind :: lctx.toList := by
-  simp [mkLocalDecl, toList, h.toList'_push]
-
-/-- The `lctx.decls.WF` hypothesis is required: `PersistentArray.push` only appends
-to `toList'` on well-formed arrays. See `docs/axiom-audit.md` §5.3. -/
-theorem mkLetDecl_toList {lctx : LocalContext} (h : lctx.decls.WF) :
-    (lctx.mkLetDecl fv name ty val bi kind).toList =
-    .ldecl lctx.decls.size fv name ty val bi kind :: lctx.toList := by
-  simp [mkLetDecl, toList, h.toList'_push]
-
-end Lean.LocalContext
+end Lean4Lean.LocalContext
 
 namespace Lean4Lean
 
@@ -305,7 +314,8 @@ theorem TrLCtx.find?_eq_none (H : TrLCtx env Us lctx Δ) :
     lctx.find? fv = none ↔ ¬fv ∈ Δ.fvars := by simp [← H.find?_eq_some]
 
 theorem TrLCtx.contains (H : TrLCtx env Us lctx Δ) : lctx.contains fv ↔ fv ∈ Δ.fvars := by
-  rw [LocalContext.contains, PersistentHashMap.find?_isSome, Option.isSome_iff_exists]
+  rw [LocalContext.contains, Std.HashMap.contains_eq_isSome_getElem?,
+    show lctx.fvarIdToDecl[fv]? = lctx.find? fv from rfl, Option.isSome_iff_exists]
   exact H.find?_eq_some
 
 theorem TrLCtx'.wf : TrLCtx' env Us ds Δ → (ds.map (·.fvarId)).Nodup → Δ.WF env Us.length
@@ -390,7 +400,7 @@ theorem TrLCtx.mkLocalDecl
     TrLCtx env Us (lctx.mkLocalDecl fv name ty bi kind)
       ((some (fv, ty.fvarsList), .vlam ty') :: Δ) :=
   ⟨h1.1.mkLocalDecl h2, by
-    simpa [LocalContext.mkLocalDecl_toList h1.1.decls_wf] using .cons h1.2 (.vlam h3 h4)⟩
+    simpa [LocalContext.mkLocalDecl_toList] using .cons h1.2 (.vlam h3 h4)⟩
 
 theorem TrLCtx.mkLetDecl
     (h1 : TrLCtx env Us lctx Δ) (h2 : lctx.find? fv = none)
@@ -399,4 +409,4 @@ theorem TrLCtx.mkLetDecl
     TrLCtx env Us (lctx.mkLetDecl fv name ty val bi kind)
       ((some (fv, ty.fvarsList ++ val.fvarsList), .vlet ty' val') :: Δ) :=
   ⟨h1.1.mkLetDecl h2, by
-    simpa [LocalContext.mkLetDecl_toList h1.1.decls_wf] using .cons h1.2 (.vlet h3 h4 h5)⟩
+    simpa [LocalContext.mkLetDecl_toList] using .cons h1.2 (.vlet h3 h4 h5)⟩

@@ -62,9 +62,18 @@ def checkName (env : Environment) (n : Name)
 open private subsumesInfo Kernel.Environment.mk EnvironmentHeader.mk moduleNames
   moduleNameMap parts toEffectiveImport getData? from Lean.Environment
 
-def empty (mainModule : Name) (stage₁ := false) (trustLevel : UInt32 := 0) : Environment :=
+/-- The empty kernel environment.
+
+**Divergence from upstream:** the constant map is built at `SMap` **stage 1**, not stage 2.
+Stage 2 would put every added constant in the `PersistentHashMap` half, whose
+`insertAux`/`findAux`/`containsAux` are `partial` upstream and therefore `opaque` — nothing
+can be proved about them, and this repo had to *assume* their specifications. At stage 1 every
+operation goes to the verified `Std.HashMap` half. There is no longer a `stage₁` parameter:
+`Lean.SMap.WF` is stated as "stage 1 with an empty `map₂`", so a stage-2 environment would
+have no well-formedness proof at all. See `divergences.md` and `docs/handoff-containers.md`. -/
+def empty (mainModule : Name) (trustLevel : UInt32 := 0) : Environment :=
   Kernel.Environment.mk
-    (constants := { stage₁ })
+    (constants := {})
     (quotInit := false)
     (diagnostics := {})
     (const2ModIdx := {})
@@ -120,7 +129,7 @@ def finalizeImport (s : ImportState) (imports : Array Import) (mainModule : Name
     moduleName2Idx := moduleName2Idx.insert mod.module idx
 
   return Kernel.Environment.mk
-    (constants := SMap.fromHashMap constantMap false)
+    (constants := SMap.fromHashMap constantMap)
     (quotInit := !imports.isEmpty) -- We assume `Init.Prelude` initializes quotient module
     (diagnostics := {})
     (const2ModIdx := const2ModIdx)

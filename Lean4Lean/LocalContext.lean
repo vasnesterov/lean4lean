@@ -1,4 +1,4 @@
-import Lean.LocalContext
+import Lean4Lean.Std.LocalContext
 
 namespace Lean4Lean
 open Lean

@@ -42,7 +42,7 @@ def M.run (env : Environment) (safety : DefinitionSafety := .safe)
 
 def M.runTermElab (m : M α) (safety := DefinitionSafety.safe) : Elab.Term.TermElabM α := do
   ofExceptKernelException <| m.run (env := (← getEnv).toKernelEnv)
-    (lctx := ← getLCtx) (safety := safety) (lparams := (← get).levelNames)
+    (lctx := .ofLean (← Lean.getLCtx)) (safety := safety) (lparams := (← get).levelNames)
 
 instance : MonadLift M Elab.Term.TermElabM := ⟨M.runTermElab⟩
 
@@ -93,7 +93,7 @@ def ensureSortCore (e s : Expr) : RecM Expr := do
   if e.isSort then return e
   let e ← whnf e
   if e.isSort then return e
-  throw <| .typeExpected (← getEnv) (← getLCtx) s
+  throw <| .typeExpected (← getEnv) (← getLCtx).toLean s
 
 /-- Ensures that `e` is defeq to some `e' := .forallE ..`, returning `e'`. If not, throws an error
 with `s := f a` (the application requiring `f` to be of function type). -/
@@ -101,7 +101,7 @@ def ensureForallCore (e s : Expr) : RecM Expr := do
   if e.isForall then return e
   let e ← whnf e
   if e.isForall then return e
-  throw <| .funExpected (← getEnv) (← getLCtx) s
+  throw <| .funExpected (← getEnv) (← getLCtx).toLean s
 
 /-- Checks that `l` does not contain any level parameters not found in the context `tc`. -/
 def checkLevel (tc : Context) (l : Level) : Except Exception Unit := do
@@ -211,7 +211,7 @@ def inferLet (e : Expr) (inferOnly : Bool) : RecM Expr := loop #[] e where
       _ ← ensureSortCore (← inferType type inferOnly) type
       let valType ← inferType val inferOnly
       if !(← isDefEq valType type) then
-        throw <| .letTypeMismatch (← getEnv) (← getLCtx) name valType type
+        throw <| .letTypeMismatch (← getEnv) (← getLCtx).toLean name valType type
     withLetDecl name type val fun fv =>
       loop (fvars.push fv) body
   | e => do
@@ -235,7 +235,7 @@ def inferProj (typeName : Name) (idx : Nat) (struct structType : Expr) : RecM Ex
   let type ← whnf structType
   type.withApp fun I args => do
   let env ← getEnv
-  let fail {_} := do throw <| .invalidProj env (← getLCtx) e
+  let fail {_} := do throw <| .invalidProj env (← getLCtx).toLean e
   let .const I_name I_levels := I | fail
   if typeName != I_name then fail
   let .inductInfo I_val ← env.get I_name | fail
@@ -309,7 +309,7 @@ def inferType' (e : Expr) (inferOnly : Bool) : RecM Expr := do
             isDefEq dType aType
         else
           isDefEq dType aType
-        if !ok then throw <| .appTypeMismatch (← getEnv) (← getLCtx) e fType aType
+        if !ok then throw <| .appTypeMismatch (← getEnv) (← getLCtx).toLean e fType aType
         pure <| fType.bindingBody!.instantiate1 a
     | .letE .. => inferLet e inferOnly
   modify fun s => cond inferOnly
