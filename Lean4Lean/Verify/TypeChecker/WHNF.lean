@@ -33,8 +33,19 @@ everything else downstream of `AddInduct` — because `TrEnv'.quot` fires on `Ad
 never inspects `Eq`: the `QuotReady` premise is on the `VEnv` side and an `axiomDecl` named
 `Eq` satisfies it.  So a `VContext` with `quotInit = true` and `Quot.lift` in its map exists.
 
-It is blocked on **const-application injectivity** (ledger I13), not on anything about
-inductives:
+It is blocked on **const-application injectivity**, not on anything about inductives.
+
+**Fact correction.**  The statement needed is `VEnv.IsDefEqU.const_app_inv`
+(`Theory/Typing/Injectivity.lean`, fact **(B)**, `sorry`), not ledger I13 — I13 is
+`const_forallE_inv`, fact **(A)**, *disjointness*, which is a different statement and does not
+imply (B).  That file's module docstring already lists this branch as one of (B)'s consumers.
+Alongside it the branch needs (B)'s two side conditions: `IsType` on the application, which is
+free here because the fact is used at the *type* of a term, and `RuleFreeHead env ``Quot``,
+which is true (`Quot` heads no rule — `quotDefEq`'s head is `Quot.lift`) but whose derivation
+from `VEnv.WF` is ledger **M2** and needs `VEnv.Sig`.  So the residual is two open statements,
+not one.
+
+The original analysis, unchanged:
 
 * `quotDefEq` binds *one* `α` and *one* `r` and uses each in **both** the `Quot.lift` head and
   the `Quot.mk` argument (`bvar 5`/`bvar 4` in both positions), so every instance of the rule

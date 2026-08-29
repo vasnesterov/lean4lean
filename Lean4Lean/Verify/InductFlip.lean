@@ -364,9 +364,11 @@ declared (`VInductDecl'.key_iotaRule_ne_renamed`).
 `AddInduct` is built on `VEnv.addInduct'`, which has no renaming, so the defect cannot arise
 here.  That is not an argument, it is the theorem below.
 
-The statement is in the shape `VDefEq.key` consumes without naming it: `VDefEq.key` lives in
-`Theory/Typing/DeltaUnique.lean`, which **cannot be imported into `Verify/`** (it and
-`Verify/Environment/Lemmas.lean` both declare `VEnv.addDefEqs_le`).  Composing the two by
+The statement is in the shape `VDefEq.key` consumes without naming it.  `VDefEq.key` lives in
+`Theory/Typing/DeltaUnique.lean`, which used to be unimportable into `Verify/` (it and
+`Verify/Environment/Lemmas.lean` both declared `VEnv.addDefEqs_le`); that clash is gone —
+both now use the single copy in `Theory/Typing/EnvLemmas.lean` — so the import is available
+if a caller wants it, and this file simply has no need of it.  Composing the two by
 hand: `VInductDecl'.key_iotaRule` (`DeltaUnique.lean`) gives
 `(D.iotaRule j q C).key = [Lean.mkRecName (D.types.getD j default).name, C.name]`, and
 `hgetD` below identifies `D.types.getD j default` with `T`; so the two constants named here

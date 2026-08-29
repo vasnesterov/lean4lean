@@ -500,7 +500,7 @@ theorem VEnv.ruleShape_unsafeDef {env env' : VEnv} {cis : List VDefVal} (henv : 
   rcases VEnv.addDefEqs_defeqs hdf with ⟨ci, hci, rfl⟩ | hdf
   · exact .delta _ (VDefVal.value_closed henv₁ (hval ci hci))
   · rw [VEnv.addConsts_defeqs h] at hdf
-    exact (ih df hdf).mono ((VEnv.addConsts_le h).trans (VEnv.addDefEqs_le cis _))
+    exact (ih df hdf).mono ((VEnv.addConsts_le h).trans VEnv.addDefEqs_le)
 
 theorem VEnv.ruleShape_quot {env env' : VEnv} (h : env.addQuot = some env')
     (ih : ∀ df, env.defeqs df → env.RuleShape df) :

@@ -227,7 +227,7 @@ theorem VDecl.WF.le {env env' : VEnv} {d : VDecl} (h : VDecl.WF env d env') : en
   | «axiom» _ h | «opaque» _ h => exact VEnv.addConst_le h
   | «def» _ h => exact (VEnv.addConst_le h).trans VEnv.addDefEq_le
   | «example» _ => exact .rfl
-  | unsafeDef _ h _ => exact (VEnv.addConsts_le h).trans (VEnv.addDefEqs_le _ _)
+  | unsafeDef _ h _ => exact (VEnv.addConsts_le h).trans VEnv.addDefEqs_le
   | quot _ h =>
     obtain ⟨e1, e2, e3, e4, h1, h2, h3, h4, rfl⟩ := VEnv.addQuot_stages h
     exact (((VEnv.addConst_le h1).trans (VEnv.addConst_le h2)).trans
