@@ -882,11 +882,20 @@ theorem inferType.WF {c : VContext} {s : VState} (he : c.TrExprS e e') :
   have := h2.uniq c.Ewf (.refl c.Ewf c.Δwf) he
   exact h4.defeqU_l c.Ewf c.Δwf this
 
-theorem inferType.WF_uniq {c : VContext} {s : VState}
-    (he : c.TrExprS e e') (hty : c.HasType e' ty') :
-    RecM.WF c s (inferType e true) fun ty _ => c.TrExpr ty ty' :=
-  (inferType.WF he).le fun _ _ _ ⟨_, _, _, h1, h2⟩ =>
-  ⟨_, h1, h2.uniqU c.Ewf c.Δwf hty⟩
+/- `inferType.WF_uniq` used to live here:
+
+    theorem inferType.WF_uniq {c : VContext} {s : VState}
+        (he : c.TrExprS e e') (hty : c.HasType e' ty') :
+        RecM.WF c s (inferType e true) fun ty _ => c.TrExpr ty ty' :=
+      (inferType.WF he).le fun _ _ _ ⟨_, _, _, h1, h2⟩ =>
+      ⟨_, h1, h2.uniqU c.Ewf c.Δwf hty⟩
+
+It was one of the four direct consumers of `IsDefEq.uniqU` and it had **no users at all**
+(measured: transitive user count 0 over every module of this package).  Its content is
+exactly "`inferType` may be specified against a *given* type rather than the type it
+computes", i.e. `uniqU` itself, so it is not a lemma anyone can cheaply supply; deleted
+rather than kept, so that the residual `uniqU` consumer set is the live one.  See
+`docs/handoff-uniqu-removal.md`. -/
 
 theorem checkType.WF {c : VContext} {s : VState} (h1 : e.FVarsIn (· ∈ c.vlctx.fvars)) :
     RecM.WF c s (inferType e false) fun ty _ => ∃ e' ty', c.TrTyping e ty e' ty' :=

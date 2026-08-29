@@ -10,6 +10,23 @@ namespace Lean4Lean
 open Lean4Lean VEnv Lean
 open scoped _root_.List
 
+/-- **The residual unique-typing obligation of `Verify/`: two Π-shaped types of one model
+term have convertible domains and codomains.**
+
+Every appeal to `IsDefEq.uniqU` that survives in the `Verify/TypeChecker.lean` closure is an
+appeal to *this* -- see `docs/handoff-uniqu-removal.md`.  It is stated (and used) separately
+so that the residual is one named lemma rather than three scattered `uniqU` calls: the
+`Verify/` side needs unique typing only at Π types, never at an arbitrary pair.
+
+It is *not* weaker in the sense of being provable: the proof below is `uniqU` plus
+`IsDefEqU.forallE_inv`, both open.  What is measured is that nothing in `Verify/` needs
+more. -/
+theorem VEnv.HasType.piUniq {env : VEnv} {U : Nat} {Γ : List VExpr} {e A B A' B' : VExpr}
+    (henv : VEnv.WF env) (hΓ : OnCtx Γ (env.IsType U))
+    (h1 : env.HasType U Γ e (.forallE A B)) (h2 : env.HasType U Γ e (.forallE A' B')) :
+    (∃ u, env.IsDefEq U Γ A A' (.sort u)) ∧ ∃ u, env.IsDefEq U (A::Γ) B B' (.sort u) :=
+  (h1.uniqU henv hΓ h2).forallE_inv henv hΓ
+
 theorem fvarsIn_iff : FVarsIn P e ↔ (∀ fv ∈ e.fvarsList, P fv) ∧ FVarsIn (fun _ => True) e := by
   induction e <;> simp [FVarsIn, Expr.fvarsList, *] <;> grind
 
@@ -2582,8 +2599,7 @@ theorem TrExpr.beta (H : TrExpr env Us Δ e e')
     let ⟨_, .app hf ha tf ta, _, df⟩ := H
     let .lam hA tA tb := tf
     have ⟨⟨_, hA⟩, _, hb⟩ := hf.lam_inv henv hΓ
-    have ht := hf.uniqU henv hΓ (hA.lam hb)
-    have ⟨⟨_, Ae⟩, _, be⟩ := ht.forallE_inv henv hΓ
+    have ⟨⟨_, Ae⟩, _, be⟩ := hf.piUniq henv hΓ (hA.lam hb)
     have hΓΓ := VLCtx.IsDefEq.cons (.refl henv hΓ) (ofv := none) nofun (.vlam Ae.symm)
     have ⟨_, tb'⟩ := tb.defeqDFC henv hΓΓ
     have beta := hb.beta (Ae.defeq ha)

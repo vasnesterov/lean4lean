@@ -268,12 +268,11 @@ theorem inferApp.loop.WF {c : VContext} {s : VState}
   cases lr with simp
   | cons a lr =>
     let .app hf' ha' hf ha stk := stk
-    have uf := hf'.uniqU henv hΔ hety
     have ha0 := c.mlctx.noBV ▸ ha.closed
     split
     · rw [Expr.instantiateList_forallE] at hfty
       let ⟨_, .forallE _ _ hty hbody, h3⟩ := hfty
-      have ⟨⟨_, uA⟩, _, uB⟩ := h3.trans henv hΔ uf.symm |>.forallE_inv henv hΔ
+      have ⟨⟨_, uA⟩, _, uB⟩ := (hety.defeqU_r henv hΔ h3.symm).piUniq henv hΔ hf'
       refine inferApp.loop.WF (lm := a::lm) stk ?_ ?_ (.app hf' ha') (by simp) rfl rfl
         (by simp; exact ⟨ha0.looseBVarRange_zero, hlm⟩)
       · exact fun _ hP he => (hbelow _ hP he).2
@@ -283,7 +282,7 @@ theorem inferApp.loop.WF {c : VContext} {s : VState}
       refine (ensureForallCore.WF' hfty).bind fun _ _ _ ⟨hb, ⟨_, h2, h3⟩, eq⟩ => ?_
       obtain ⟨name, ty, body, bi, rfl⟩ := eq; simp [Expr.bindingBody!]
       let .forallE _ _ hty hbody := h2
-      have ⟨⟨_, uA⟩, _, uB⟩ := h3.trans henv hΔ uf.symm |>.forallE_inv henv hΔ
+      have ⟨⟨_, uA⟩, _, uB⟩ := (hety.defeqU_r henv hΔ h3.symm).piUniq henv hΔ hf'
       refine inferApp.loop.WF (ll := ll ++ lm.reverse) (lm := [a]) stk ?_ ?_
         (.app hf' ha') (by simp) (by simp) (by simp)
         (by simpa using ha0.looseBVarRange_zero)
