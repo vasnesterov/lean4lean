@@ -47,38 +47,11 @@ noncomputable def toList' (arr : PersistentArray α) : List α :=
 
 @[simp] theorem toList'_empty : (.empty : PersistentArray α).toList' = [] := rfl
 
-/--
-We cannot prove this because `insertNewLeaf` is partial.
-
-The previous statement of this axiom (without the `WF` hypothesis) was **false**:
-`insertNewLeaf`'s last clause is `| n, _, _, _ => n  -- unreachable`, which is
-reached whenever the root is a `leaf`, and `mkNewTail` then also resets
-`tail := #[]`, silently discarding the whole 32-element tail.
-
-Counterexample:
-```
-def bad : PersistentArray Nat :=
-  { root := .leaf #[], tail := Array.replicate 31 (7:Nat),
-    size := 31, shift := 5, tailOff := 0 }
--- (bad.push 99).toList' = []
--- bad.toList' ++ [99]   = [7,7,…,7,99]   (32 elements)
-```
-`bad` is of course not `WF`, and `WF` is exactly the hypothesis that rules this
-out.  See `docs/axiom-audit.md` §5.3.
--/
-@[simp] axiom WF.toList'_push {α} {arr : PersistentArray α} (h : WF arr) (x : α) :
-    (arr.push x).toList' = arr.toList' ++ [x]
-
 @[simp] theorem size_empty : (.empty : PersistentArray α).size = 0 := rfl
 
 @[simp] theorem size_push {α} (arr : PersistentArray α) (x : α) :
     (arr.push x).size = arr.size + 1 := by
   simp [push]; split <;> [rfl; (simp [mkNewTail]; split <;> rfl)]
-
-@[simp] theorem WF.toList'_length (h : WF arr) : arr.toList'.length = arr.size := by
-  induction h with
-  | empty => simp
-  | push h ih => simp [h.toList'_push, ih]
 
 end PersistentArray
 
@@ -99,21 +72,6 @@ noncomputable def toList' [BEq α] [Hashable α] (m : PersistentHashMap α β) :
 inductive WF [BEq α] [Hashable α] : PersistentHashMap α β → Prop where
   | empty : WF .empty
   | insert : WF m → WF (m.insert a b)
-
-/-- We can't prove this because `Lean.PersistentHashMap.insertAux` is opaque -/
-axiom WF.toList'_insert {α β} [BEq α] [Hashable α]
-    [PartialEquivBEq α] [LawfulHashable α]
-    {m : PersistentHashMap α β} (_ : WF m) (a : α) (b : β) :
-    (m.insert a b).toList' ~ (a, b) :: m.toList'.filter (¬a == ·.1)
-
-/-- We can't prove this because `Lean.PersistentHashMap.findAux` is opaque -/
-axiom WF.find?_eq {α β} [BEq α] [Hashable α]
-    [PartialEquivBEq α] [LawfulHashable α]
-    {m : PersistentHashMap α β} (_ : WF m) (a : α) : m.find? a = m.toList'.lookup a
-
-/-- We can't prove this because `Lean.PersistentHashMap.{findAux, containsAux}` are opaque -/
-axiom findAux_isSome {α β} [BEq α] {node : Node α β} (i : USize) (a : α) :
-    containsAux node i a = (findAux node i a).isSome
 
 end PersistentHashMap
 
