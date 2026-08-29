@@ -164,7 +164,7 @@ def SortUniq (env : VEnv) (U : Nat) : Prop :=
     OnCtx Γ (env.IsType U) → u.WF U → v.WF U →
     env.HasType U Γ e (.sort u) → env.HasType U Γ e (.sort v) → u ≈ v
 
-variable {env : VEnv} {U : Nat} {Γ : List VExpr} {u : VLevel} {p : VExpr} {b : Bool}
+variable {env : VEnv} {U : Nat} {Γ : List VExpr} {u v : VLevel} {p : VExpr} {b : Bool}
 
 /-- **The type of a sort is a sort, one level up** — granted universe uniqueness.
 
@@ -203,6 +203,33 @@ theorem sort_not_proof (huniq : env.SortUniq U) (henv : Ordered env)
     huniq hΓ hw (by exact hu') h2.hasType.1 (HasType.sort (by exact hu'))
   have := hw0.symm.trans hw2
   exact absurd (congrFun this []) (by simp [VLevel.eval])
+
+/-! ## The lower bound: `SortUniq → sort_inv` -/
+
+/-- **`SortUniq` implies sort injectivity**, with no normalisation argument.
+
+This is `IsDefEqU.sort_inv`'s exact statement (`Theory/Typing/Injectivity.lean`), whose two
+open cases are `trans` — "a term convertible with a sort reduces to a sort" — and
+`proofIrrel`.  Neither is touched here: the argument never inspects the conversion
+derivation at all.  It uses only that `IsDefEq` is **type-indexed**, so the conversion hands
+over one type `A` inhabited by both sorts, and then `SortUniq` twice.
+
+`#print axioms Lean4Lean.VEnv.sort_inv_of_sortUniq` reports no `sorryAx`. -/
+theorem sort_inv_of_sortUniq (huniq : env.SortUniq U) (henv : Ordered env)
+    (hΓ : OnCtx Γ (env.IsType U))
+    (H : env.IsDefEqU U Γ (.sort u) (.sort v)) : u ≈ v := by
+  obtain ⟨A, H⟩ := H
+  have hu : env.HasType U Γ (.sort u) A := H.trans H.symm
+  have hv : env.HasType U Γ (.sort v) A := H.symm.trans H
+  have hvwf : v.WF U := H.sort_inv_r henv
+  -- `A`, the type shared by both endpoints, is convertible to a sort — this is the step
+  -- that needs `huniq` (`HasTypeStrong.sort_type`, `SortUniq.lean`).
+  obtain ⟨u', w, huu', hw, h2⟩ := ((hu.strong henv hΓ).hasType'.1).sort_type huniq hΓ
+  have hsu' : (VLevel.succ u').WF U := h2.sort_inv_l henv
+  -- Now `.sort v` inhabits both `.sort (.succ u')` and `.sort (.succ v)`; `huniq` again.
+  have key : VLevel.succ u' ≈ VLevel.succ v :=
+    huniq hΓ hsu' (by exact hvwf) (IsDefEq.defeqDF h2.symm hv) (HasType.sort hvwf)
+  exact huu'.trans (VLevel.succ_congr_iff.1 key)
 
 end VEnv
 end Lean4Lean

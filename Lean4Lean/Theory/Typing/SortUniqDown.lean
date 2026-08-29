@@ -50,32 +50,11 @@ namespace VEnv
 
 variable {env : VEnv} {U : Nat} {Γ : List VExpr} {u v : VLevel}
 
-/-! ## The lower bound: `SortUniq → sort_inv` -/
+/-! ## The lower bound: `SortUniq → sort_inv`
 
-/-- **`SortUniq` implies sort injectivity**, with no normalisation argument.
-
-This is `IsDefEqU.sort_inv`'s exact statement (`Theory/Typing/Injectivity.lean`), whose two
-open cases are `trans` — "a term convertible with a sort reduces to a sort" — and
-`proofIrrel`.  Neither is touched here: the argument never inspects the conversion
-derivation at all.  It uses only that `IsDefEq` is **type-indexed**, so the conversion hands
-over one type `A` inhabited by both sorts, and then `SortUniq` twice.
-
-`#print axioms Lean4Lean.VEnv.sort_inv_of_sortUniq` reports no `sorryAx`. -/
-theorem sort_inv_of_sortUniq (huniq : env.SortUniq U) (henv : Ordered env)
-    (hΓ : OnCtx Γ (env.IsType U))
-    (H : env.IsDefEqU U Γ (.sort u) (.sort v)) : u ≈ v := by
-  obtain ⟨A, H⟩ := H
-  have hu : env.HasType U Γ (.sort u) A := H.trans H.symm
-  have hv : env.HasType U Γ (.sort v) A := H.symm.trans H
-  have hvwf : v.WF U := H.sort_inv_r henv
-  -- `A`, the type shared by both endpoints, is convertible to a sort — this is the step
-  -- that needs `huniq` (`HasTypeStrong.sort_type`, `SortUniq.lean`).
-  obtain ⟨u', w, huu', hw, h2⟩ := ((hu.strong henv hΓ).hasType'.1).sort_type huniq hΓ
-  have hsu' : (VLevel.succ u').WF U := h2.sort_inv_l henv
-  -- Now `.sort v` inhabits both `.sort (.succ u')` and `.sort (.succ v)`; `huniq` again.
-  have key : VLevel.succ u' ≈ VLevel.succ v :=
-    huniq hΓ hsu' (by exact hvwf) (IsDefEq.defeqDF h2.symm hv) (HasType.sort hvwf)
-  exact huu'.trans (VLevel.succ_congr_iff.1 key)
+`sort_inv_of_sortUniq` moved to `Theory/Typing/SortUniq.lean` so that
+`Theory/Typing/Injectivity.lean` — which cannot import this file (`CycleConv` imports
+`Injectivity`) — can use it to prove `IsDefEqU.sort_inv`.  Statement unchanged. -/
 
 /-- The `Ordered`-free packaging: `SortUniq` for a `VEnv.WF` environment gives `sort_inv`. -/
 theorem sort_inv_of_sortUniq' (huniq : env.SortUniq U) (henv : env.WF)

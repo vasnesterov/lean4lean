@@ -1,6 +1,7 @@
 import Lean4Lean.Theory.Typing.EnvLemmas
 import Lean4Lean.Theory.Typing.Strong
 import Lean4Lean.Theory.Typing.DeclRules
+import Lean4Lean.Theory.Typing.NotProof
 
 /-!
 # Structural inversion principles we cannot prove yet
@@ -116,129 +117,33 @@ by a recursor, and `quotDefEq` headed by `Quot.lift` (`Theory/Typing/PatternRule
 def RuleFreeHead (env : VEnv) (c : Lean.Name) : Prop :=
   ∀ df, env.defeqs df → VExpr.headConst? df.lhs ≠ some c
 
-/-- **NOT PROVED.**  `sort_inv` is still `sorry`-backed; what has changed is that the
-`sorry` is now *two labelled holes inside the induction* rather than one opaque hole, so
-`#print axioms Lean4Lean.VEnv.IsDefEqU.sort_inv` still reports `sorryAx`.
+/-! ## `IsDefEqU.sort_inv` is now proved
 
-The proof below is the induction on `IsDefEqStrong` written out.  Nine of its eleven cases
-close; the two that remain are the whole residual content of `sort_inv`:
+`VEnv.IsDefEqU.sort_inv` used to be the first theorem of this file, `sorry`-backed in its
+`trans` and `proofIrrel` cases.  It is now **proved**, further down (section `UniqAux`),
+with the same name, namespace and statement, so every consumer sees it unchanged.
 
-* **`trans`** — `Γ ⊢ .sort u ≡ e ≡ .sort v` with `e` arbitrary.  Closing it means knowing
-  that a term convertible with a sort *reduces* to a sort: a confluence or normalisation
-  statement.  Carneiro (`~/lean-type-theory/unique.tex` §Church–Rosser) breaks the loop by
-  indexing conversion with the number of alternations against typing and re-running the
-  whole κ-reduction development at each index; `HasTypeStratified` is **not** that index —
-  its `defeq` premise carries a full, unstratified `IsDefEq`.
+The proof does not close the `trans` case — it *avoids* it.  `IsDefEqU U Γ (.sort u)
+(.sort v)` unfolds to one type inhabited by both sorts, because conversion here is
+type-indexed, so `VEnv.SortUniq` applies to the endpoints directly (`sort_inv_of_sortUniq`,
+`Theory/Typing/SortUniq.lean`) and the conversion derivation is never opened.  `SortUniq` in
+turn rides as a passenger conjunct inside `IsDefEq.uniq`'s own stratified induction.  Net:
+`sort_inv` is a consequence of `IsDefEqU.forallE_inv_stratified` and of nothing else that is
+open.
 
-  **Is the circularity mathematical or merely architectural?**  `ChurchRosser.lean` imports
-  this file, but that alone would only mean the general case is entangled.  Traced on the
-  definitions — its proof bodies are not reliable, the file has live `sorry`s — the answer
-  is **mathematical: a sort-only confluence is not independent.**
+**The `trans` analysis that used to live here is still correct about the induction on
+`IsDefEqStrong`** — that induction really does need a sort-only confluence, and the argument
+that no such confluence is independent of `NormalEq` is unchanged.  What it missed is that
+the statement has a *non-inductive* proof.  It is preserved in `docs/handoff-injectivity.md`.
 
-  - `ParRed` (`ChurchRosser.lean:566`) *is* layerable.  Its constructors carry no typing
-    hypotheses at all; the one side condition, `extra`'s `r.2.OK (IsDefEqU …)`, needs only
-    `Pattern`/`Pat` and `IsDefEqU`.  And the whole rule/reduction cone —
-    `Theory/Typing/{Pattern, PatternDecode, DeltaUnique, PatternRules}.lean` — imports
-    neither this file nor `UniqueTyping` (checked on the import graph, not by name search).
-    So the reduction relation could be relocated below this file at no mathematical cost.
-  - **`NormalEq` cannot.**  It is the relation that absorbs `proofIrrel` and `eta`, which a
-    conversion `Γ ⊢ .sort u ≡ e` may use at any depth, so no sort-only development escapes
-    it — and its constructors demand *shared* type data between the two sides:
-    `appDF` (`:141`) asks for one `.forallE A B` typing **both** functions and one `A`
-    typing both arguments; `lamDF` (`:147`) asks for one domain `A` and one level `u`.
-    Composing two `NormalEq` facts whose type data came from different derivations — which
-    is what `NormalEq.trans`, `ParRed.triangle` and `NormalEq.parRed` do, and they are the
-    heart of the confluence argument — therefore requires reconciling two independently
-    derived Π types.  That is `IsDefEqU.forallE_inv` together with `IsDefEq.uniq`, and one
-    level of it is `VEnv.SortUniq`.
-  - The same shows up if one tries to bypass `NormalEq` and strengthen this induction
-    directly.  The statement that closes `trans` is
-    `IsDefEqStrong Γ e₁ e₂ A → (e₁ ≫* .sort u → ∃ w, u ≈ w ∧ e₂ ≫* .sort w)` (plus its
-    mirror).  It is *not closed under its own induction*: in the `appDF` case, `f a ≫* .sort u`
-    propagates to `f' a'` only if `f'` reduces to a λ whenever `f` does, so the sort shape
-    drags in the λ/Π shape — which is Π-injectivity.  Its `eta` case needs `.sort` / `.forallE`
-    disjointness (`sort_forallE_inv`, below) and its `proofIrrel` case needs `SortUniq`.
-
-  So this is a **joint development, not a layering fix**: sort-confluence, Π-injectivity and
-  universe uniqueness are one induction — *in this tree*.  **They are not in the reference,
-  and the difference is one definition.**  Carneiro's conversion judgment
-  (`~/lean-type-theory/axioms.tex:30–41`) is **three-place**, `Γ ⊢ e ≡ e'`; of its eleven
-  rules exactly one — application — mentions a type, and there `Γ ⊢ e ≡ e' : α` is stated
-  at `:41` to *abbreviate* a conjunction.  `symm`, `trans`, and the λ and ∀ congruences
-  carry no type.  `IsDefEq` here makes the type an *index*, so `trans` demands one `A` for
-  both halves and `lamDF` one level and one codomain.  That is what makes composing
-  `IsDefEqU` facts a theorem (`uniqU`) rather than a rule, which is what puts the
-  `UniqueTyping` family in 23 backbone declarations, and what forces `NormalEq`'s
-  constructors to carry shared type data where the reference's `≡ₚ` congruences
-  (`unique.tex:113–118`) carry none.  **So the Π-injectivity dependency above is an
-  artifact of this tree's port, not of the mathematics.**  The reference's proof never
-  incurs it; `Theory/Typing/RawDefEq.lean` transcribes its judgment and erases into it
-  (`IsDefEq.raw`, no injectivity, no unique typing — `defeqDF` erases to nothing).
-
-  What is *not* missing: Carneiro's separated typing judgment is already here.
-  `HasTypeStrong` and `HasTypeStratified` (`Strong.lean`) have **exactly one** constructor
-  mentioning conversion — `defeq` — and `HasTypeStratified` already carries the index.  The
-  single missing ingredient for `⊢_n` is that `defeq`'s conversion premise be drawn from a
-  *stratified* conversion relation rather than from the full unstratified `IsDefEq`.  Two numbers for whoever prices it.  Of
-  `ChurchRosser.lean`'s 85 declarations, 6 use `IsDefEqU.forallE_inv`/`sort_inv` directly
-  and 23 use the `UniqueTyping` family (`uniq`, `uniqU`, `trans_l/r`, `of_l/r`,
-  `defeqU_*`, `transU_*`) — and those 23 are the backbone: `NormalEq.{symm,trans,defeq,parRed}`,
-  `ParRed.{defeq,triangle}`, `CRDefEq.{defeq,trans}`, `IsDefEq.church_rosser`.  And beware
-  the name search: of 44 textual `forallE_inv` hits in that file only 12 are this one; the
-  other 30 are the unrelated one-argument family in `Theory/Typing/Lemmas.lean`
-  (`HasType.forallE_inv`, `IsType.forallE_inv`), which is available upstream.  Arity is the
-  only thing that distinguishes them, and a plain grep overcounts by about 3.5×.
-
-* **`proofIrrel`** — `Γ ⊢ p : .sort .zero`, `Γ ⊢ .sort u : p`, `Γ ⊢ .sort v : p`.
-  Refuting the hypothesis means showing a sort is never a proof.  **This case is closed
-  outright by `VEnv.sort_not_proof` (`Theory/Typing/SortUniq.lean`), given `VEnv.SortUniq` —
-  universe uniqueness, `Γ ⊢ e : .sort u → Γ ⊢ e : .sort v → u ≈ v`.**  It is *not* closable
-  without it: even the step that reads `p ≡ .sort u.succ` off the second premise fails,
-  because its induction's `defeq` case holds the equation `A ≡ B` at the level the
-  derivation chose and the inductive hypothesis at the level `A` was separately found to
-  inhabit, and retyping either to the other is exactly universe uniqueness.  (An earlier
-  version of this docstring called that step routine.  It is not; the residual goal is
-  machine-witnessed in `HasTypeStrong.sort_type`, whose `huniq` argument is used precisely
-  there.)  Carneiro gets universe uniqueness from unique typing *at the previous
-  stratification index* (`unique.tex:266`); here nothing supplies it.
-
-The other nine cases really are closed, and in particular:
-
-* **`extra` is not the obstacle.**  It is discharged outright by
-  `VEnv.WF.instL_lhs_ne_sort` (`Theory/Typing/DeclRules.lean`): in a `VEnv.WF` environment
-  every definitional-equality rule is a δ-rule, the quotient rule, or an ι-rule, and none
-  of those has a `.sort` left-hand side.  Recording that mechanically is half the point of
-  writing this induction out.
-* `beta`, `eta` and every congruence case are vacuous — their left endpoint is an `.app`,
-  a `.lam`, a `.bvar`, a `.const` or a `.forallE`, never a `.sort`.
-
-**Net reduction.**  Granted `VEnv.SortUniq`, every open statement in this file's Π/sort
-family collapses to the single `trans` case above — i.e. to normalisation.  `SortUniq` is
-itself open (nothing in the tree exhibits one), and `Theory/Typing/SortUniqFacts.lean`
-checks that it is no stronger than this family, so the two are plausibly a single
-obligation rather than two.  Note the stakes: these two cases also block
-`Theory/SetModel/`, whose every result is parameterised by a `LevelAssign` that nobody has
-constructed. -/
-theorem IsDefEqU.sort_inv (henv : VEnv.WF env) (hΓ : OnCtx Γ (env.IsType U))
-    (h1 : env.IsDefEqU U Γ (.sort u) (.sort v)) : u ≈ v := by
-  have aux : ∀ {Γ : List VExpr} {e1 e2 A : VExpr}, env.IsDefEqStrong U Γ e1 e2 A →
-      ∀ u v : VLevel, e1 = .sort u → e2 = .sort v → u ≈ v := by
-    intro Γ e1 e2 A H
-    induction H with
-    | sortDF _ _ h3 => rintro _ _ ⟨⟩ ⟨⟩; exact h3
-    | symm _ ih => rintro u v rfl rfl; exact (ih _ _ rfl rfl).symm
-    | defeqDF _ _ _ _ ih => exact ih
-    | extra h1 => exact fun u _ h _ => absurd h (henv.instL_lhs_ne_sort h1 _ u)
-    | trans _ _ ih1 ih2 =>
-      -- OPEN: `Γ ⊢ .sort u ≡ e₂ ≡ .sort v`; needs `e₂` to reduce to a sort.
-      rintro u v rfl rfl; sorry
-    | proofIrrel h1 h2 h3 ih1 ih2 ih3 =>
-      -- OPEN: `Γ ⊢ .sort u, .sort v : p` with `Γ ⊢ p : .sort .zero`; needs
-      -- "a sort is not a proof".
-      rintro u v rfl rfl; sorry
-    | _ => rintro u v ⟨⟩ ⟨⟩
-  obtain ⟨_, h1⟩ := h1
-  exact aux (h1.strong henv.ordered hΓ) _ _ rfl rfl
+**Consequence for the rest of the file.**  Since `SortUniq` is proved rather than assumed,
+the `proofIrrel` case of `forallE_inv`, `sort_forallE_inv`, `const_forallE_inv` and
+`const_sort_inv` closes *without* adding a hypothesis to any of their statements.  That trade
+was previously thought to need a human call (`docs/handoff-injectivity.md` §9.1); it does
+not, because nothing is weakened.  The residual of every one of them is now the **`trans`**
+case alone: *a term convertible with a Π (resp. with a rule-free constant application)
+reduces to one*.  The sort-flavoured residual is gone from this file entirely.
+-/
 
 /-- **NOT PROVED**, and — unlike `sort_inv` — *not* reducible to the conversion-derivation
 content alone.  Attempting the same induction on `IsDefEqStrong` that `sort_inv` uses shows
@@ -298,6 +203,311 @@ theorem IsDefEqU.forallE_inv_stratified (henv : VEnv.WF env) (hΓ : OnCtx Γ (en
       env.HasTypeStratified U (A::Γ) B (.sort u) true n ∧
       env.HasTypeStratified U (A'::Γ) B' (.sort u) true n' := sorry
 
+section UniqAux
+/-!
+## `SortUniq` and `IsDefEqU.sort_inv`, from `forallE_inv_stratified` alone
+
+This section sits between `forallE_inv_stratified` and the rest of the family on purpose.
+It proves `VEnv.SortUniq` — universe uniqueness — from `forallE_inv_stratified` and nothing
+else that is open, and everything after it may therefore *use* universe uniqueness without
+adding a hypothesis to any public statement.  That is what closes the `proofIrrel` case of
+`forallE_inv`, `sort_forallE_inv`, `const_forallE_inv` and `const_sort_inv` below.
+
+    forallE_inv_stratified  ⟹  uniqAux  ⟹  SortUniq  ⟹  sort_inv
+                                       ⟹  uniq  (Theory/Typing/UniqueTyping.lean)
+
+### What the trick is
+
+`IsDefEq.uniq`'s induction (`Theory/Typing/UniqueTyping.lean:13`) calls `IsDefEqU.sort_inv`
+nine times, and **every one of those calls is applied to an output of its own induction
+hypothesis, at a point where both types are syntactic sorts.**  So the level equivalence they
+extract can be *carried by the invariant* instead of imported: `UniqAux` below is `uniq`'s
+invariant plus the conjunct
+
+    ∀ s₁ s₂, A = .sort s₁ → B = .sort s₂ → s₁ ≈ s₂
+
+which is exactly `VEnv.SortUniq`, read off at `A = .sort u`, `B = .sort v`.
+
+### Why the extra conjunct costs nothing
+
+It is not proved case by case — it is derived *once*, uniformly, from components the
+invariant already carries (`sortType_level`).  Given `HTS Γ A (.sort u) true (n-1)`,
+`HTS Γ B (.sort v) true (n-1)` and `u ≈ v`, with `A = .sort s₁` and `B = .sort s₂`: apply the
+invariant **at index `n-1`** to `.sort s₁` at its two types `.sort u` and `.sort (.succ s₁)`
+(the second by `sort'`, at index `0`) to get `u ≈ .succ s₁`, symmetrically `v ≈ .succ s₂`,
+and compose.  The recursion is the well-founded one on `n` that the original proof already
+runs, and it strictly decreases.  At `n = 0` the only derivation available is `sort'`, so the
+type is pinned outright (`HasTypeStratified.sort_zero_inv`) — that is the base case.
+
+**Where the type index pays.**  `HasTypeStratified`'s `defeq` premise carries the type as
+`.sort u` *syntactically*, so "both types are sorts" is a pattern on the invariant rather
+than a fact about a conversion derivation.
+
+**Why the same move does not reach `forallE_inv_stratified` itself.**  A sort's type is
+determined by the term, so the sort conjunct is recoverable from the invariant's typing
+components.  A Π's *codomain conversion* is not determined by any typing: `piInvStrat_of`
+below shows the missing ingredient is exactly `SortUniq` applied to `B` at two levels, one of
+which comes from an unstratified `IsDefEq` and therefore carries **no index bound**.  Inside
+`uniqQ` only bounded instances of `SortUniq` are available, so the circle does not close.
+See `docs/handoff-injectivity.md`.
+
+### Provenance
+
+`uniqQ` is `IsDefEq.uniq`'s proof transcribed, with exactly two kinds of change: the nine
+`IsDefEqU.sort_inv` calls become `hc _ _ rfl rfl` from the strengthened induction hypothesis,
+and the binder order is adjusted so the same `induction … generalizing` shape elaborates
+standalone.  `UniqueTyping.lean`'s `IsDefEq.uniq` is unedited; it now calls the **proved**
+`IsDefEqU.sort_inv` below.
+-/
+
+variable {env : VEnv} {U : Nat}
+local notation:65 Γ " ⊢ " e " : " A:36 => HasType env U Γ e A
+local notation:65 Γ " ⊢ " e1 " ≡ " e2 " : " A:36 => IsDefEq env U Γ e1 e2 A
+
+/-- The statement of `IsDefEqU.forallE_inv_stratified` (`Theory/Typing/Injectivity.lean`),
+packaged as a `Prop` so that the results below can be stated *relative* to it instead of
+importing its `sorry`. -/
+def PiInvStrat (env : VEnv) (U : Nat) : Prop :=
+  ∀ {Γ : List VExpr} {A B A' B' V V' : VExpr} {n n' : Nat},
+    OnCtx Γ (env.IsType U) →
+    env.IsDefEqU U Γ (.forallE A B) (.forallE A' B') →
+    env.HasTypeStratified U Γ (.forallE A B) V true n →
+    env.HasTypeStratified U Γ (.forallE A' B') V' true n' →
+    (∃ u, env.IsDefEq U Γ A A' (.sort u) ∧ env.HasTypeStratified U Γ A (.sort u) true n) ∧
+    ∃ u, env.IsDefEq U (A::Γ) B B' (.sort u) ∧
+      env.HasTypeStratified U (A::Γ) B (.sort u) true n ∧
+      env.HasTypeStratified U (A'::Γ) B' (.sort u) true n'
+
+/-- The statement of `IsDefEqU.forallE_inv` (`Theory/Typing/Injectivity.lean`), packaged the
+same way.  This is the **unstratified** Π-injectivity: no index, no level alignment. -/
+def PiInv (env : VEnv) (U : Nat) : Prop :=
+  ∀ {Γ : List VExpr} {A B A' B' : VExpr},
+    OnCtx Γ (env.IsType U) →
+    env.IsDefEqU U Γ (.forallE A B) (.forallE A' B') →
+    (∃ u, env.IsDefEq U Γ A A' (.sort u)) ∧ ∃ u, env.IsDefEq U (A::Γ) B B' (.sort u)
+
+/-- The strengthened invariant of `IsDefEq.uniq`: the original conclusion, plus the level
+equivalence in the case where both types are syntactic sorts. -/
+def UniqAux (env : VEnv) (U n : Nat) : Prop :=
+  ∀ {Γ : List VExpr} {e A B : VExpr} {b : Bool} {n₁ n₂ : Nat},
+    OnCtx Γ (env.IsType U) → n₁ ≤ n → n₂ ≤ n →
+    env.HasTypeStratified U Γ e A b n₁ → env.HasTypeStratified U Γ e B b n₂ →
+    ∃ u, env.IsDefEq U Γ A B (.sort u) ∧ ∃ v, u ≈ v ∧
+      env.HasTypeStratified U Γ A (.sort u) true (n-1) ∧
+      env.HasTypeStratified U Γ B (.sort v) true (n-1) ∧
+      ∀ s₁ s₂, A = .sort s₁ → B = .sort s₂ → s₁ ≈ s₂
+
+/-- At index `0` the only derivation of a sort's type is `sort'`, so the type is pinned. -/
+theorem HasTypeStratified.sort_zero_inv {Γ : List VExpr} {s u : VLevel}
+    (h : env.HasTypeStratified U Γ (.sort s) (.sort u) true 0) : u ≈ .succ s := by
+  cases h with | base h => cases h with | sort' _ _ h3 => exact (VLevel.succ_congr h3).symm
+
+/-- The level of a sort's type, read off the strengthened invariant one index down. -/
+theorem sortType_level (henv : VEnv.WF env) {Γ : List VExpr} {s u : VLevel} {n : Nat}
+    (IH : ∀ m, m < n → UniqAux env U m) (hΓ : OnCtx Γ (env.IsType U))
+    (h : env.HasTypeStratified U Γ (.sort s) (.sort u) true (n-1)) : u ≈ .succ s := by
+  match n with
+  | 0 => exact h.sort_zero_inv
+  | m+1 =>
+    have hs : s.WF U := h.hasType.sort_inv henv.ordered
+    have ⟨_, _, _, _, _, _, hc⟩ := IH m (Nat.lt_succ_self _) hΓ (Nat.le_refl m) (Nat.zero_le m)
+      h (.base (.sort' hs hs rfl))
+    exact hc _ _ rfl rfl
+
+/-- The body of `IsDefEq.uniq`'s induction, with each of its nine appeals to
+`IsDefEqU.sort_inv` replaced by the strengthened invariant at a smaller index. -/
+theorem uniqQ (henv : VEnv.WF env) (hstrat : PiInvStrat env U) :
+    ∀ {n : Nat}, (∀ m, m < n → UniqAux env U m) →
+    ∀ {n₁ n₂ : Nat} {Γ : List VExpr} {e A B : VExpr} {b : Bool},
+    OnCtx Γ (env.IsType U) → n₁ ≤ n → n₂ ≤ n →
+    env.HasTypeStratified U Γ e A b n₁ → env.HasTypeStratified U Γ e B b n₂ →
+    ∃ u, Γ ⊢ A ≡ B : .sort u ∧ ∃ v, u ≈ v ∧
+      env.HasTypeStratified U Γ A (.sort u) true (n-1) ∧
+      env.HasTypeStratified U Γ B (.sort v) true (n-1) := by
+  intro n IH n₁ n₂ Γ e A B b hΓ le₁ le₂ H1
+  induction H1 generalizing B n₂ n with
+  | bvar a1 a2 =>
+    intro (.bvar b1 b2); cases a1.uniq b1
+    exact ⟨_, b2.hasType, _, rfl, b2.mono (by omega), b2.mono (by omega)⟩
+  | sort' a1 a2 a3 =>
+    intro (.sort' b1 b2 b3)
+    have := VLevel.succ_congr (b3.symm.trans a3)
+    exact ⟨_, .symm <| .sortDF b2 a2 this, _, VLevel.succ_congr this,
+      .base <| .sort' a2 b2 this.symm, .base <| .sort' b2 a2 this⟩
+  | const a1 a2 a3 a4 =>
+    intro (.const b1 b2 b3 b4); cases a1.symm.trans b1
+    replace le₁ := Nat.sub_le_sub_right le₁ 1
+    exact ⟨_, a4.hasType, _, rfl, a4.mono le₁, a4.mono le₁⟩
+  | app _ a2 a3 a4 _ a6 a7 _ _ ih3 =>
+    intro (.app _ _ b3 b4 b5 _ b7)
+    have ⟨_, c1, _, _, c3, c4⟩ := ih3 (n := n) IH hΓ (Nat.le_of_succ_le le₁) (Nat.le_of_succ_le le₂) b5
+    have ⟨_, _, d3, d4, d5⟩ := hstrat hΓ ⟨_, c1⟩ c3 c4
+    let n+1 := n
+    replace le₁ := Nat.le_of_succ_le_succ le₁
+    replace le₂ := Nat.le_of_succ_le_succ le₂
+    refine have hΓ₁ := ⟨hΓ, _, a3.hasType⟩
+      have ⟨_, _, _, _, _, _, hc1⟩ :=
+        IH _ (Nat.lt_succ_self _) hΓ₁ le₁ (Nat.le_refl _) a4 d4; ?_
+    have e3 := hc1 _ _ rfl rfl
+    have e4 := have ⟨_, h⟩ := d4.hasType.isType henv hΓ₁; h.sort_inv henv
+    refine have hΓ₂ := ⟨hΓ, _, b3.hasType⟩
+      have ⟨_, _, _, _, _, _, hc2⟩ :=
+        IH _ (Nat.lt_succ_self _) hΓ₂ le₂ (Nat.le_refl _) b4 d5; ?_
+    have e5 := hc2 _ _ rfl rfl
+    exact ⟨_, .defeqDF (.sortDF e4 a2 e3.symm) (d3.instN henv a6.hasType .zero), _,
+      e3.trans e5.symm, a7.mono le₁, b7.mono le₂⟩
+  | lam a1 a2 _ a4 _ _ ih3 =>
+    intro (.lam b1 b2 b3 b4)
+    have ⟨_, c1, _, c2, c3, c4⟩ := ih3 (n := n) IH ⟨hΓ, _, a1.hasType⟩
+      (Nat.le_of_succ_le le₁) (Nat.le_of_succ_le le₂) b3
+    let n+1 := n
+    replace le₁ := Nat.le_of_succ_le_succ le₁
+    replace le₂ := Nat.le_of_succ_le_succ le₂
+    have ⟨_, _, _, _, _, _, hc1⟩ := IH _ (Nat.lt_succ_self _) hΓ le₁ le₂ a1 b1
+    have e1 := hc1 _ _ rfl rfl
+    refine have hΓ' := ⟨hΓ, _, a1.hasType⟩
+      have ⟨_, h, _, _, _, _, hc2⟩ :=
+        IH _ (Nat.lt_succ_self _) hΓ' le₁ (Nat.le_refl _) a2 c3; ?_
+    have f1 := h.sort_inv_l henv; have f2 := h.sort_inv_r henv
+    have e2 := hc2 _ _ rfl rfl
+    have ⟨_, _, _, _, _, _, hc3⟩ := IH _ (Nat.lt_succ_self _) hΓ' le₂ (Nat.le_refl _) b2 c4
+    have e3 := hc3 _ _ rfl rfl
+    exact ⟨_, .forallEDF a1.hasType (.defeqDF (.symm <| .sortDF f1 f2 e2) c1),
+      _, VLevel.imax_congr e1 (e2.trans <| c2.trans e3.symm), a4.mono le₁, b4.mono le₂⟩
+  | forallE a1 a2 a3 a4 =>
+    intro (.forallE b1 b2 b3 b4)
+    let n+1 := n
+    replace le₁ := Nat.le_of_succ_le_succ le₁
+    replace le₂ := Nat.le_of_succ_le_succ le₂
+    have ⟨_, _, _, _, _, _, hc1⟩ := IH _ (Nat.lt_succ_self _) hΓ le₁ le₂ a3 b3
+    have e1 := hc1 _ _ rfl rfl
+    refine have hΓ' := ⟨hΓ, _, a3.hasType⟩
+      have ⟨_, _, _, _, _, _, hc2⟩ := IH _ (Nat.lt_succ_self _) hΓ' le₁ le₂ a4 b4; ?_
+    have e2 := hc2 _ _ rfl rfl
+    have := VLevel.imax_congr e1 e2
+    exact ⟨_, .sortDF ⟨a1, a2⟩ ⟨b1, b2⟩ this, _, rfl,
+      .base <| .sort' ⟨a1, a2⟩ ⟨a1, a2⟩ rfl, .base <| .sort' ⟨b1, b2⟩ ⟨a1, a2⟩ this.symm⟩
+  | @base Γ e A n₁ a1 ih =>
+    intro H2
+    replace ih {n'} (le : n' ≤ n) {n₂' : Nat} {B' : VExpr} :=
+      ih (n := n') (fun y h1 => IH y (Nat.lt_of_lt_of_le h1 le)) (n₂ := n₂') (B := B') hΓ
+    generalize eq : true = b at H2
+    induction H2 with cases eq
+    | @base _ _  _ n' b1 => exact ih (Nat.le_refl _) le₁ le₂ b1
+    | @defeq Γ B' B u n' _ b1 b2 b3 b4 b5 _ _ ih' =>
+      have ⟨u₁, c1, u₂, c2, c3, c4⟩ := ih' a1 hΓ (Nat.le_of_succ_le le₂) ih rfl
+      let n+1 := n
+      replace le₂ := Nat.le_of_succ_le_succ le₂
+      have ⟨_, _, _, _, _, _, hc⟩ :=
+        IH _ (Nat.lt_succ_self _) hΓ le₂ (Nat.le_refl _) b3 c4
+      have e1 := hc _ _ rfl rfl
+      have e2 := have ⟨_, h⟩ := c3.hasType.isType henv hΓ; h.sort_inv henv
+      have eq : u₁ ≈ u := c2.trans e1.symm
+      exact ⟨_, c1.trans (.defeqDF (.symm <| .sortDF e2 b1 eq) b2), _, eq, c3, b4.mono le₂⟩
+  | @defeq Γ A' A u n' _ a1 a2 a3 a4 a5 ih1 ih2 ih' =>
+    intro H2
+    have ⟨_, c1, u₂, c2, c3, c4⟩ := ih' IH hΓ (Nat.le_of_succ_le le₁) le₂ H2
+    let n+1 := n
+    replace le₁ := Nat.le_of_succ_le_succ le₁
+    have ⟨_, _, _, _, _, _, hc⟩ := IH _ (Nat.lt_succ_self _) hΓ le₁ (Nat.le_refl _) a3 c3
+    have e1 := hc _ _ rfl rfl
+    have e2 := have ⟨_, h⟩ := c3.hasType.isType henv hΓ; h.sort_inv henv
+    have eq : u ≈ u₂ := e1.trans c2
+    exact ⟨_, a2.symm.trans (.defeqDF (.symm <| .sortDF a1 e2 e1) c1), _, eq, a4.mono le₁, c4⟩
+
+/-- The strengthened invariant, at every index. -/
+theorem uniqAux (henv : VEnv.WF env) (hstrat : PiInvStrat env U) :
+    ∀ n, UniqAux env U n := by
+  intro n
+  induction n using WellFounded.induction Nat.lt_wfRel.2 with | _ n IH
+  intro Γ e A B b n₁ n₂ hΓ le₁ le₂ H1 H2
+  obtain ⟨u, h, v, hv, c3, c4⟩ := uniqQ henv hstrat IH hΓ le₁ le₂ H1 H2
+  refine ⟨u, h, v, hv, c3, c4, ?_⟩
+  rintro s₁ s₂ rfl rfl
+  have h1 := sortType_level henv IH hΓ c3
+  have h2 := sortType_level henv IH hΓ c4
+  exact VLevel.succ_congr_iff.1 (h1.symm.trans (hv.trans h2))
+
+/-! ## Consequences -/
+
+/-! ## `IsDefEqU.sort_inv`, proved
+
+Formerly `Theory/Typing/Injectivity.lean`'s first theorem, where it was `sorry`-backed in its
+`trans` and `proofIrrel` cases.  Statement byte-identical; the hypothesis list is unchanged.
+-/
+
+/-- **Universe uniqueness, from Π-injectivity alone.**  The only `sorry`-backed input is
+`IsDefEqU.forallE_inv_stratified`. -/
+theorem sortUniq_of_piInvStrat (henv : VEnv.WF env) (hstrat : PiInvStrat env U) :
+    env.SortUniq U := by
+  intro Γ e u v hΓ _ _ h1 h2
+  obtain ⟨n₁, H1⟩ := (h1.strong henv.ordered hΓ).hasType'.1.stratify
+  obtain ⟨n₂, H2⟩ := (h2.strong henv.ordered hΓ).hasType'.1.stratify
+  obtain ⟨_, _, _, _, _, _, hc⟩ :=
+    uniqAux henv hstrat _ hΓ (Nat.le_max_left n₁ n₂) (Nat.le_max_right n₁ n₂) H1 H2
+  exact hc _ _ rfl rfl
+
+/-- `IsDefEqU.forallE_inv_stratified` itself, as an inhabitant of `PiInvStrat`. -/
+theorem piInvStrat_axiom (henv : VEnv.WF env) : PiInvStrat env U :=
+  fun hΓ h1 h2 h3 => IsDefEqU.forallE_inv_stratified henv hΓ h1 h2 h3
+
+theorem WF.sortUniq' (henv : VEnv.WF env) : env.SortUniq U :=
+  sortUniq_of_piInvStrat henv (piInvStrat_axiom henv)
+
+/-- **Sort injectivity.**  `.sort u ≡ .sort v` forces `u ≈ v`.
+
+Proved, not assumed: `WF.sortUniq'` supplies universe uniqueness and
+`sort_inv_of_sortUniq` (`Theory/Typing/SortUniqDown.lean`) turns it into this, without ever
+opening the conversion derivation — no `trans` case, no normalisation.  The only
+`sorry`-backed input in the whole cone is `IsDefEqU.forallE_inv_stratified`. -/
+theorem IsDefEqU.sort_inv {Γ : List VExpr} {u v : VLevel} (henv : VEnv.WF env)
+    (hΓ : OnCtx Γ (env.IsType U)) (h1 : env.IsDefEqU U Γ (.sort u) (.sort v)) : u ≈ v :=
+  sort_inv_of_sortUniq (WF.sortUniq' henv) henv.ordered hΓ h1
+
+/-! ## The other direction: `PiInvStrat` from `PiInv` **plus** `SortUniq`
+
+`forallE_inv_stratified`'s docstring says its obstruction is *level alignment*: the level the
+conversion is stated at versus the level `HasTypeStratified.forallE_inv'` hands back.  The
+theorem below machine-checks that reading — the alignment is `SortUniq`, and given `SortUniq`
+the stratified statement is a two-step consequence of the unstratified one.
+
+Read together with `sortUniq_of_piInvStrat`, this says: **relative to `PiInv`,
+`PiInvStrat` and `SortUniq` are equivalent.**  The corner is a *circle*, not a chain — see
+`docs/handoff-injectivity.md` for why the circle cannot be cut by moving `PiInv` into
+`uniqAux`'s `app` case. -/
+theorem piInvStrat_of (henv : VEnv.WF env) (hsu : env.SortUniq U) (hpi : PiInv env U) :
+    PiInvStrat env U := by
+  intro Γ A B A' B' V V' n n' hΓ h1 h2 h3
+  obtain ⟨hn, uA, vB, hA, hB⟩ := h2.forallE_inv'
+  obtain ⟨hn', uA', vB', hA', hB'⟩ := h3.forallE_inv'
+  obtain ⟨⟨w1, hAA'⟩, w2, hBB'⟩ := hpi hΓ h1
+  have hΓA : OnCtx (A::Γ) (env.IsType U) := ⟨hΓ, _, hA.hasType⟩
+  have hΓA' : OnCtx (A'::Γ) (env.IsType U) := ⟨hΓ, _, hA'.hasType⟩
+  have huA : uA.WF U := have ⟨_, h⟩ := hA.hasType.isType henv hΓ; h.sort_inv henv
+  have hw1 : w1.WF U := have ⟨_, h⟩ := hAA'.hasType.1.isType henv hΓ; h.sort_inv henv
+  have hvB : vB.WF U := have ⟨_, h⟩ := hB.hasType.isType henv hΓA; h.sort_inv henv
+  have hvB' : vB'.WF U := have ⟨_, h⟩ := hB'.hasType.isType henv hΓA'; h.sort_inv henv
+  have hw2 : w2.WF U := have ⟨_, h⟩ := hBB'.hasType.1.isType henv hΓA; h.sort_inv henv
+  -- (1) the domain: same context, so `SortUniq` applies directly.
+  have e1 : uA ≈ w1 := hsu hΓ huA hw1 hA.hasType hAA'.hasType.1
+  refine ⟨⟨uA, .defeqDF (.sortDF hw1 huA e1.symm) hAA', hA.mono (by omega)⟩, w2, hBB', ?_, ?_⟩
+  -- (2a) the codomain on the left: `SortUniq` in `A::Γ`.
+  · have e2 : vB ≈ w2 := hsu hΓA hvB hw2 hB.hasType hBB'.hasType.1
+    have : n - 1 + 1 = n := by omega
+    exact this ▸ HasTypeStratified.defeq (u := .succ vB) hvB (.sortDF hvB hw2 e2)
+      (.base (.sort' hvB hvB rfl)) (.base (.sort' hw2 hvB e2.symm)) hB
+  -- (2b) the codomain on the right: the conversion lives in `A::Γ`, so it must first be
+  -- moved to `A'::Γ` along the domain conversion (`HasType.defeq_l`) before `SortUniq`
+  -- can be applied there.
+  · have e3 : vB' ≈ w2 :=
+      hsu hΓA' hvB' hw2 hB'.hasType (hBB'.hasType.2.defeq_l henv.ordered hAA')
+    have : n' - 1 + 1 = n' := by omega
+    exact this ▸ HasTypeStratified.defeq (u := .succ vB') hvB' (.sortDF hvB' hw2 e3)
+      (.base (.sort' hvB' hvB' rfl)) (.base (.sort' hw2 hvB' e3.symm)) hB'
+
+
+end UniqAux
+
 /-- **Π-injectivity, proved directly rather than through the stratified form.**  Still
 `sorry`-backed, but the residual is now **exactly `sort_inv`'s two holes** — `trans` and
 `proofIrrel` — and *nothing else*.  Nine of the eleven `IsDefEqStrong` cases close.
@@ -327,31 +537,35 @@ theorem IsDefEqU.forallE_inv (henv : VEnv.WF env) (hΓ : OnCtx Γ (env.IsType U)
     (h1 : env.IsDefEqU U Γ (.forallE A B) (.forallE A' B')) :
     (∃ u, env.IsDefEq U Γ A A' (.sort u)) ∧ ∃ u, env.IsDefEq U (A::Γ) B B' (.sort u) := by
   have aux : ∀ {Γ : List VExpr} {e1 e2 T : VExpr}, env.IsDefEqStrong U Γ e1 e2 T →
+      OnCtx Γ (env.IsType U) →
       ∀ A B A' B', e1 = .forallE A B → e2 = .forallE A' B' →
         (∃ u, env.IsDefEq U Γ A A' (.sort u)) ∧
         ∃ u, env.IsDefEq U (A::Γ) B B' (.sort u) ∧ env.IsDefEq U (A'::Γ) B B' (.sort u) := by
     intro Γ e1 e2 T H
     induction H with
     | forallEDF _ _ h3 h4 h5 =>
-      rintro _ _ _ _ ⟨⟩ ⟨⟩
+      rintro _ _ _ _ _ ⟨⟩ ⟨⟩
       exact ⟨⟨_, h3.defeq⟩, _, h4.defeq, h5.defeq⟩
     | symm _ ih =>
-      rintro A B A' B' rfl rfl
-      obtain ⟨⟨u, ha⟩, v, hb1, hb2⟩ := ih A' B' A B rfl rfl
+      rintro hΓ' A B A' B' rfl rfl
+      obtain ⟨⟨u, ha⟩, v, hb1, hb2⟩ := ih hΓ' A' B' A B rfl rfl
       exact ⟨⟨u, ha.symm⟩, v, hb2.symm, hb1.symm⟩
     | defeqDF _ _ _ _ ih => exact ih
-    | extra h1 => exact fun A B _ _ h _ => absurd h (henv.instL_lhs_ne_forallE h1 _ A B)
+    | extra h1 => exact fun _ A B _ _ h _ => absurd h (henv.instL_lhs_ne_forallE h1 _ A B)
     | trans _ _ ih1 ih2 =>
-      -- OPEN: `Γ ⊢ .forallE A B ≡ e₂ ≡ .forallE A' B'` with `e₂` arbitrary; needs `e₂` to
-      -- reduce to a Π.  Identical in content to `sort_inv`'s `trans`.
-      rintro A B A' B' rfl rfl; sorry
-    | proofIrrel h1 h2 h3 ih1 ih2 ih3 =>
-      -- OPEN: `Γ ⊢ .forallE A B, .forallE A' B' : p` with `Γ ⊢ p : .sort .zero`; needs
-      -- "a Π is not a proof".  `sort_inv` needs the sort half of the same fact.
-      rintro A B A' B' rfl rfl; sorry
-    | _ => rintro A B A' B' ⟨⟩ ⟨⟩
+      -- OPEN, and the only residual of this theorem: `Γ ⊢ .forallE A B ≡ e₂ ≡ .forallE A' B'`
+      -- with `e₂` arbitrary; needs `e₂` to reduce to a Π.  This is the normalisation
+      -- statement the whole corner now rests on.
+      rintro hΓ' A B A' B' rfl rfl; sorry
+    | proofIrrel h1 h2 _ _ _ _ =>
+      -- CLOSED: "a Π is not a proof", from `VEnv.SortUniq` — proved above (`WF.sortUniq'`),
+      -- so this costs the statement no hypothesis.
+      rintro hΓ' A B A' B' rfl rfl
+      exact absurd (forallE_not_proof (WF.sortUniq' henv) henv.ordered hΓ'
+        h1.defeq.hasType.1 h2.defeq.hasType.1) not_false
+    | _ => rintro _ A B A' B' ⟨⟩ ⟨⟩
   obtain ⟨_, h1⟩ := h1
-  obtain ⟨ha, u, hb, -⟩ := aux (h1.strong henv.ordered hΓ) _ _ _ _ rfl rfl
+  obtain ⟨ha, u, hb, -⟩ := aux (h1.strong henv.ordered hΓ) hΓ _ _ _ _ rfl rfl
   exact ⟨ha, u, hb⟩
 
 /-- **(A) Disjointness, sort/Π half** — a sort is not a Π.
@@ -373,28 +587,33 @@ family as `sort_inv` was prose.
 theorem IsDefEqU.sort_forallE_inv (henv : VEnv.WF env) (hΓ : OnCtx Γ (env.IsType U)) :
     ¬env.IsDefEqU U Γ (.sort u) (.forallE A B) := by
   have aux : ∀ {Γ : List VExpr} {e₁ e₂ T : VExpr}, env.IsDefEqStrong U Γ e₁ e₂ T →
-      ∀ (u : VLevel) (A B : VExpr),
+      OnCtx Γ (env.IsType U) → ∀ (u : VLevel) (A B : VExpr),
         (e₁ = .sort u ∧ e₂ = .forallE A B) ∨ (e₂ = .sort u ∧ e₁ = .forallE A B) → False := by
     intro Γ e₁ e₂ T H
     induction H with
-    | symm _ ih => exact fun u A B h => ih u A B h.symm
+    | symm _ ih => exact fun hΓ' u A B h => ih hΓ' u A B h.symm
     | defeqDF _ _ _ _ ih => exact ih
     | trans _ _ ih1 ih2 =>
-      -- OPEN: the middle term is arbitrary.  Same hole as `sort_inv`'s `trans`.
-      intro u A B h; sorry
-    | proofIrrel _ _ _ ih1 ih2 ih3 =>
-      -- OPEN: needs "a sort is not a proof" (or "a Π is not a proof"); either closes it.
-      intro u A B h; sorry
+      -- OPEN, and the only residual: the middle term is arbitrary.
+      intro hΓ' u A B h; sorry
+    | proofIrrel h1 h2 h3 _ _ _ =>
+      -- CLOSED: "a Π is not a proof" (the sort half would do equally well), from
+      -- `VEnv.SortUniq` — proved above, so this costs the statement no hypothesis.
+      rintro hΓ' u A B (⟨rfl, rfl⟩ | ⟨rfl, rfl⟩)
+      · exact forallE_not_proof (WF.sortUniq' henv) henv.ordered hΓ'
+          h1.defeq.hasType.1 h3.defeq.hasType.1
+      · exact forallE_not_proof (WF.sortUniq' henv) henv.ordered hΓ'
+          h1.defeq.hasType.1 h2.defeq.hasType.1
     | extra h1 =>
-      rintro u A B (⟨he, -⟩ | ⟨-, he⟩)
+      rintro _ u A B (⟨he, -⟩ | ⟨-, he⟩)
       · exact henv.instL_lhs_ne_sort h1 _ _ he
       · exact henv.instL_lhs_ne_forallE h1 _ _ _ he
-    | sortDF _ _ _ => rintro u A B (⟨-, hf⟩ | ⟨-, hf⟩) <;> exact absurd hf nofun
-    | forallEDF _ _ _ _ _ => rintro u A B (⟨hf, -⟩ | ⟨hf, -⟩) <;> exact absurd hf nofun
+    | sortDF _ _ _ => rintro _ u A B (⟨-, hf⟩ | ⟨-, hf⟩) <;> exact absurd hf nofun
+    | forallEDF _ _ _ _ _ => rintro _ u A B (⟨hf, -⟩ | ⟨hf, -⟩) <;> exact absurd hf nofun
     | bvar _ _ _ | constDF _ _ _ _ _ _ _ _ | appDF _ _ _ _ _ _ _
     | lamDF _ _ _ _ _ _ _ | beta _ _ _ _ _ _ _ _ | eta _ _ _ _ _ _ _ _ =>
-      rintro u A B (⟨hf, -⟩ | ⟨-, hf⟩) <;> exact absurd hf nofun
-  exact fun ⟨_, h⟩ => aux (h.strong henv.ordered hΓ) u A B (.inl ⟨rfl, rfl⟩)
+      rintro _ u A B (⟨hf, -⟩ | ⟨-, hf⟩) <;> exact absurd hf nofun
+  exact fun ⟨_, h⟩ => aux (h.strong henv.ordered hΓ) hΓ u A B (.inl ⟨rfl, rfl⟩)
 
 /-- **(B) Injectivity of a constant application.**  See the module docstring for why both
 side conditions are needed, and `Theory/Typing/ConstInvWitness.lean` for the machine-checked
@@ -414,41 +633,46 @@ theorem IsDefEqU.const_forallE_inv (henv : VEnv.WF env) (hΓ : OnCtx Γ (env.IsT
     (hrigid : RuleFreeHead env c) :
     ¬ env.IsDefEqU U Γ ((VExpr.const c ls).mkApp as) (.forallE A B) := by
   have aux : ∀ {Γ : List VExpr} {e₁ e₂ T : VExpr}, env.IsDefEqStrong U Γ e₁ e₂ T →
-      ∀ (ls : List VLevel) (as A B : _),
+      OnCtx Γ (env.IsType U) → ∀ (ls : List VLevel) (as A B : _),
         (e₁ = (VExpr.const c ls).mkApp as ∧ e₂ = .forallE A B) ∨
         (e₂ = (VExpr.const c ls).mkApp as ∧ e₁ = .forallE A B) → False := by
     intro Γ e₁ e₂ T H
     induction H with
-    | symm _ ih => exact fun ls as A B h => ih ls as A B h.symm
+    | symm _ ih => exact fun hΓ' ls as A B h => ih hΓ' ls as A B h.symm
     | defeqDF _ _ _ _ ih => exact ih
     | trans _ _ ih1 ih2 =>
-      -- OPEN: the middle term is arbitrary.  Same hole as `sort_inv`'s `trans`.
-      intro ls as A B h; sorry
-    | proofIrrel _ _ _ ih1 ih2 ih3 =>
-      -- OPEN: needs "a Π is not a proof" — `VEnv.SortUniq`, exactly as `sort_inv` does.
-      intro ls as A B h; sorry
+      -- OPEN, and the only residual: the middle term is arbitrary.
+      intro hΓ' ls as A B h; sorry
+    | proofIrrel h1 h2 h3 _ _ _ =>
+      -- CLOSED: "a Π is not a proof", from `VEnv.SortUniq` — proved above, so this costs the
+      -- statement no hypothesis.
+      rintro hΓ' ls as A B (⟨rfl, rfl⟩ | ⟨rfl, rfl⟩)
+      · exact forallE_not_proof (WF.sortUniq' henv) henv.ordered hΓ'
+          h1.defeq.hasType.1 h3.defeq.hasType.1
+      · exact forallE_not_proof (WF.sortUniq' henv) henv.ordered hΓ'
+          h1.defeq.hasType.1 h2.defeq.hasType.1
     | extra h1 h2 h3 =>
-      rintro ls as A B (⟨he, -⟩ | ⟨-, hf⟩)
+      rintro _ ls as A B (⟨he, -⟩ | ⟨-, hf⟩)
       · exact hrigid _ h1 (by rw [← VExpr.headConst?_instL, he, VExpr.headConst?_mkApp]; rfl)
       · exact henv.instL_lhs_ne_forallE h1 _ _ _ hf
     | beta _ _ _ _ _ _ _ _ =>
-      rintro ls as A B (⟨he, -⟩ | ⟨-, hf⟩)
+      rintro _ ls as A B (⟨he, -⟩ | ⟨-, hf⟩)
       · have hs := congrArg VExpr.spineHead he
         rw [VExpr.spineHead_mkApp] at hs; exact absurd hs nofun
       · exact absurd hf nofun
     | eta _ _ _ _ _ _ _ _ =>
-      rintro ls as A B (⟨he, -⟩ | ⟨-, hf⟩)
+      rintro _ ls as A B (⟨he, -⟩ | ⟨-, hf⟩)
       · have hs := congrArg VExpr.spineHead he
         rw [VExpr.spineHead_mkApp] at hs; exact absurd hs nofun
       · exact absurd hf nofun
     | forallEDF _ _ _ _ _ =>
-      rintro ls as A B (⟨he, -⟩ | ⟨he, -⟩) <;>
+      rintro _ ls as A B (⟨he, -⟩ | ⟨he, -⟩) <;>
         (have hs := congrArg VExpr.spineHead he
          rw [VExpr.spineHead_mkApp] at hs; exact absurd hs nofun)
     | bvar _ _ _ | sortDF _ _ _ | constDF _ _ _ _ _ _ _ _ | appDF _ _ _ _ _ _ _
     | lamDF _ _ _ _ _ _ _ =>
-      rintro ls as A B (⟨_, hf⟩ | ⟨_, hf⟩) <;> exact absurd hf nofun
-  exact fun ⟨_, h⟩ => aux (h.strong henv.ordered hΓ) ls as A B (.inl ⟨rfl, rfl⟩)
+      rintro _ ls as A B (⟨_, hf⟩ | ⟨_, hf⟩) <;> exact absurd hf nofun
+  exact fun ⟨_, h⟩ => aux (h.strong henv.ordered hΓ) hΓ ls as A B (.inl ⟨rfl, rfl⟩)
 
 /-- **(A) Disjointness, sort half** — a rule-free constant application is not a sort.
 
@@ -466,32 +690,65 @@ theorem IsDefEqU.const_sort_inv (henv : VEnv.WF env) (hΓ : OnCtx Γ (env.IsType
     (hrigid : RuleFreeHead env c) :
     ¬ env.IsDefEqU U Γ ((VExpr.const c ls).mkApp as) (.sort u) := by
   have aux : ∀ {Γ : List VExpr} {e₁ e₂ T : VExpr}, env.IsDefEqStrong U Γ e₁ e₂ T →
-      ∀ (ls : List VLevel) (as : List VExpr) (u : VLevel),
+      OnCtx Γ (env.IsType U) → ∀ (ls : List VLevel) (as : List VExpr) (u : VLevel),
         (e₁ = (VExpr.const c ls).mkApp as ∧ e₂ = .sort u) ∨
         (e₂ = (VExpr.const c ls).mkApp as ∧ e₁ = .sort u) → False := by
     intro Γ e₁ e₂ T H
     induction H with
-    | symm _ ih => exact fun ls as u h => ih ls as u h.symm
+    | symm _ ih => exact fun hΓ' ls as u h => ih hΓ' ls as u h.symm
     | defeqDF _ _ _ _ ih => exact ih
     | trans _ _ ih1 ih2 =>
-      -- OPEN: the middle term is arbitrary.  Same hole as `sort_inv`'s `trans`.
-      intro ls as u h; sorry
-    | proofIrrel _ _ _ ih1 ih2 ih3 =>
-      -- OPEN: needs "a sort is not a proof" — `VEnv.SortUniq`, exactly as `sort_inv` does.
-      intro ls as u h; sorry
+      -- OPEN, and the only residual: the middle term is arbitrary.
+      intro hΓ' ls as u h; sorry
+    | proofIrrel h1 h2 h3 _ _ _ =>
+      -- CLOSED: "a sort is not a proof", from `VEnv.SortUniq` — proved above, so this costs
+      -- the statement no hypothesis.
+      rintro hΓ' ls as u (⟨rfl, rfl⟩ | ⟨rfl, rfl⟩)
+      · exact sort_not_proof (WF.sortUniq' henv) henv.ordered hΓ'
+          h1.defeq.hasType.1 h3.defeq.hasType.1
+      · exact sort_not_proof (WF.sortUniq' henv) henv.ordered hΓ'
+          h1.defeq.hasType.1 h2.defeq.hasType.1
     | extra h1 =>
-      rintro ls as u (⟨he, -⟩ | ⟨-, he⟩)
+      rintro _ ls as u (⟨he, -⟩ | ⟨-, he⟩)
       · exact hrigid _ h1 (by rw [← VExpr.headConst?_instL, he, VExpr.headConst?_mkApp]; rfl)
       · exact henv.instL_lhs_ne_sort h1 _ _ he
     | constDF _ _ _ _ _ _ _ _ | appDF _ _ _ _ _ _ _ | lamDF _ _ _ _ _ _ _ =>
-      rintro ls as u (⟨-, hf⟩ | ⟨-, hf⟩) <;> exact absurd hf nofun
+      rintro _ ls as u (⟨-, hf⟩ | ⟨-, hf⟩) <;> exact absurd hf nofun
     | sortDF _ _ _ | bvar _ _ _ =>
-      rintro ls as u (⟨he, -⟩ | ⟨he, -⟩) <;>
+      rintro _ ls as u (⟨he, -⟩ | ⟨he, -⟩) <;>
         (have hs := congrArg VExpr.spineHead he
          rw [VExpr.spineHead_mkApp] at hs; exact absurd hs nofun)
     | forallEDF _ _ _ _ _ | beta _ _ _ _ _ _ _ _ | eta _ _ _ _ _ _ _ _ =>
-      rintro ls as u (⟨he, -⟩ | ⟨-, hf⟩)
+      rintro _ ls as u (⟨he, -⟩ | ⟨-, hf⟩)
       · have hs := congrArg VExpr.spineHead he
         rw [VExpr.spineHead_mkApp] at hs; exact absurd hs nofun
       · exact absurd hf nofun
-  exact fun ⟨_, h⟩ => aux (h.strong henv.ordered hΓ) ls as u (.inl ⟨rfl, rfl⟩)
+  exact fun ⟨_, h⟩ => aux (h.strong henv.ordered hΓ) hΓ ls as u (.inl ⟨rfl, rfl⟩)
+
+/-! ## The circle, stated
+
+Two `sorry`-free implications, between statements packaged as `Prop`s in the `UniqAux`
+section above:
+
+* `sortUniq_of_piInvStrat : PiInvStrat → SortUniq`
+* `piInvStrat_of : SortUniq → PiInv → PiInvStrat`
+
+So **relative to `PiInv` (the plain `forallE_inv`), `PiInvStrat` and `SortUniq` are
+equivalent.**  `forallE_inv_stratified` is therefore not a passenger that `uniqAux` could
+drop: replacing it in `uniqQ`'s `app` case by `PiInv` needs `SortUniq` applied to a
+derivation that comes from an *unstratified* `IsDefEq` and so carries no index bound, while
+`uniqQ` has `SortUniq` available only at indices `< n`.  That is where the route in
+`docs/handoff-sortuniq.md` §9 fails, and it fails on the index bookkeeping, exactly where
+that document predicted the question would be settled. -/
+
+/-- `IsDefEqU.forallE_inv` as an inhabitant of `PiInv` — the anti-strawman check that `PiInv`
+is that theorem's type verbatim, not a paraphrase. -/
+theorem piInv_axiom (henv : VEnv.WF env) : env.PiInv U :=
+  fun hΓ h1 => IsDefEqU.forallE_inv henv hΓ h1
+
+/-- `forallE_inv_stratified`'s statement, from `SortUniq` and the *plain* Π-injectivity.
+Its cone contains `IsDefEqU.forallE_inv` and **not** `IsDefEqU.forallE_inv_stratified`; what
+it does contain is `SortUniq`, which in this tree has no source but
+`forallE_inv_stratified`. -/
+theorem piInvStrat_of_sortUniq (henv : VEnv.WF env) (hsu : env.SortUniq U) :
+    env.PiInvStrat U := piInvStrat_of henv hsu (piInv_axiom henv)
