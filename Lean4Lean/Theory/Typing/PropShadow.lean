@@ -36,9 +36,9 @@ the gap needs two further statements, named below and neither of them `SubstC`:
 And the *other* cases of `thm:utype`, which in the full statement close by `trans` on a common
 shape-determined type, do not close for free in the shadow either: a shape-inversion lemma
 delivers `T ≡ₙ A`, and carrying a universe across that conversion is `LvlConvInv` below.
-`lvlConvInv_of_defInv_sort` shows the *sort* instance of `LvlConvInv` is free from `DefInv`
-clause (1) — the shape cases therefore reduce to `LvlConvInv` at an arbitrary type, not to
-clause (1).
+`lvlConvInv_of_sortInvN` shows the *sort* instance of `LvlConvInv` is free from `DefInv`
+clause (1) alone (`VEnv.SortInvN`) — the shape cases therefore reduce to `LvlConvInv` at an
+arbitrary type, not to clause (1).
 
 ## Check 2 (§8 item 1) — stratified regularity in the two-typing form is FALSE
 
@@ -217,12 +217,16 @@ def LvlConvInv (env : VEnv) (U n : Nat) : Prop :=
     env.IsDefEqN U n Γ A A' → env.HasTypeN U n Γ A (.sort u) →
     env.HasTypeN U n Γ A' (.sort u') → (u ≈ (.zero : VLevel) ↔ u' ≈ (.zero : VLevel))
 
-/-- `LvlConvInv`'s *sort* instance is free from `DefInv` clause (1), and in the strong form
-(`u ≈ u'`, not merely the shadow) — which is exactly why the shape cases do **not** reduce to
-clause (1): they need `LvlConvInv` at an *arbitrary* type, and clause (1) speaks only about two
-sorts. -/
-theorem lvlConvInv_of_defInv_sort
-    (dinv1 : ∀ {Γ : List VExpr} {u v : VLevel}, env.IsDefEqN U n Γ (.sort u) (.sort v) → u ≈ v)
+/-- `LvlConvInv`'s *sort* instance is free from `DefInv` clause (1) — `VEnv.SortInvN`, the
+named clause — and in the strong form (`u ≈ u'`, not merely the shadow), which is exactly why
+the shape cases do **not** reduce to clause (1): they need `LvlConvInv` at an *arbitrary*
+type, and clause (1) speaks only about two sorts.
+
+This was already stated against the clause rather than against `DefInv`, so
+`DefInvRefute.defInv_one_false` costs it nothing; the hypothesis is now spelled with the
+`SortInvN` name that `Theory/Typing/UniqueTypingN.lean` supplies, and is definitionally the
+statement that was written out here before. -/
+theorem lvlConvInv_of_sortInvN (dinv1 : env.SortInvN U n)
     {Γ : List VExpr} {l l' u u' : VLevel}
     (h : env.IsDefEqN U n Γ (.sort l) (.sort l'))
     (hu : env.HasTypeN U n Γ (.sort l) (.sort u))

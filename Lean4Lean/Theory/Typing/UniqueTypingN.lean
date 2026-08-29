@@ -16,10 +16,16 @@ import Lean4Lean.Theory.Typing.Stratified
   `SubstC` hypothesis is unsatisfiable for `n = 1`, so this theorem has content only at
   `n = 0`** (`HasTypeN.uniq_zero`, which is unconditional).  It is kept because it is the
   exact statement whose hypotheses the refutation now pins down;
-* `VEnv.IsDefEqU.sort_inv_of_defInv` — the reduction of `Theory/Typing/Injectivity.lean`'s
-  open `sort_inv` to `∀ n, DefInv env U n`.  **This does not use `uniq` and does not use
-  `SubstC`**, so it is untouched by the refutation and is the part of this file that still
-  carries the route.
+* `VEnv.IsDefEqU.sort_inv_of_sortInvN` and
+  `VEnv.IsDefEqU.sort_forallE_inv_of_sortForallEDisjN` — the reductions of
+  `Theory/Typing/Injectivity.lean`'s open `sort_inv`/`sort_forallE_inv` to `∀ n, SortInvN`
+  and `∀ n, SortForallEDisjN`, i.e. to **clauses (1) and (3) of `DefInv` alone**.  They use
+  neither `uniq` nor `SubstC` nor clause (2), so they are untouched by both refutations, and
+  they are the part of this file that still carries the route.
+
+  They were formerly stated against `∀ n, DefInv env U n`, which
+  `Theory/Typing/DefInvRefute.lean`'s `defInv_all_false` refutes over `∅`; see
+  `docs/handoff-definv-weakening.md` for the vacuity audit that produced the narrowing.
 
 `Theory/Typing/Stratified.lean` supplies the index and the four "n-provability basics"; this
 file is the first thing that uses them.
@@ -157,20 +163,52 @@ namespace VEnv
 
 variable {env : VEnv} {U n : Nat}
 
-/-! ## The two hypotheses -/
+/-! ## The two hypotheses
 
-/-- **`⊢ₙ` has definitional inversion** (`unique.tex:29–35`), transcribed clause for clause. -/
-structure DefInv (env : VEnv) (U n : Nat) : Prop where
-  /-- `unique.tex:32`. -/
-  sort : ∀ {Γ : List VExpr} {u v : VLevel},
-    env.IsDefEqN U n Γ (.sort u) (.sort v) → u ≈ v
-  /-- `unique.tex:33`. -/
-  forallE : ∀ {Γ : List VExpr} {A B A' B' : VExpr},
+`DefInv` is a **conjunction of three independent clauses**, and since
+`Theory/Typing/DefInvRefute.lean` only clause (2) is known false.  The three are therefore
+named separately *first*, and `DefInv` is assembled from them, so that a consumer can ask for
+exactly the clause it uses and no consumer silently inherits the refuted one.  `DefInv`'s
+field names are unchanged (`sort`, `forallE`, `sort_forallE`), so `dinv.sort h` and
+`dinv.sort_forallE h` still elaborate exactly as before. -/
+
+/-- **Clause (1) of definitional inversion, alone** (`unique.tex:32`): a `⊢ₙ` conversion
+between two sorts equates their levels.
+
+Not refuted by anything known.  `DefInvRefute.defInv_one_false` refutes clause (2) only, so
+this clause survives the refutation and is one of the two the live reductions consume. -/
+def SortInvN (env : VEnv) (U n : Nat) : Prop :=
+  ∀ {Γ : List VExpr} {u v : VLevel}, env.IsDefEqN U n Γ (.sort u) (.sort v) → u ≈ v
+
+/-- **Clause (3) of definitional inversion, alone** (`unique.tex:34`): no `⊢ₙ` conversion
+relates a sort to a Π-type.  Also not refuted. -/
+def SortForallEDisjN (env : VEnv) (U n : Nat) : Prop :=
+  ∀ {Γ : List VExpr} {u : VLevel} {A B : VExpr},
+    ¬ env.IsDefEqN U n Γ (.sort u) (.forallE A B)
+
+/-- **Clause (2) of definitional inversion, alone** (`unique.tex:33`).
+
+**FALSE.**  `Theory/Typing/DefInvRefute.lean`'s `defInv_one_false` refutes it at `n = 1` over
+the empty environment, by context transport: a derivation of the premise may compose two
+∀-congruences whose codomain premises live in `Γ,x:A` and `Γ,x:A'`, and `⊢₁` is not invariant
+under that change of context because all of its typing premises sit at `⊢₀`, where typing is
+syntactically unique.  Anything that consumes this clause is void at that instance. -/
+def ForallEInvN (env : VEnv) (U n : Nat) : Prop :=
+  ∀ {Γ : List VExpr} {A B A' B' : VExpr},
     env.IsDefEqN U n Γ (.forallE A B) (.forallE A' B') →
     env.IsDefEqN U n Γ A A' ∧ env.IsDefEqN U n (A::Γ) B B'
+
+/-- **`⊢ₙ` has definitional inversion** (`unique.tex:29–35`), transcribed clause for clause.
+
+**Known false at `env = ∅`, `U = 1`, `n = 1`** (`DefInvRefute.defInv_one_false`), through
+clause (2) alone.  Prefer `SortInvN` / `SortForallEDisjN` wherever only those are used. -/
+structure DefInv (env : VEnv) (U n : Nat) : Prop where
+  /-- `unique.tex:32`. -/
+  sort : SortInvN env U n
+  /-- `unique.tex:33`.  **This is the refuted clause.** -/
+  forallE : ForallEInvN env U n
   /-- `unique.tex:34`. -/
-  sort_forallE : ∀ {Γ : List VExpr} {u : VLevel} {A B : VExpr},
-    ¬ env.IsDefEqN U n Γ (.sort u) (.forallE A B)
+  sort_forallE : SortForallEDisjN env U n
 
 /-- **`⊢ₙ` conversions are closed under instantiation by `⊢ₙ`-typed terms.**
 
@@ -194,6 +232,16 @@ theorem DefInv.zero : env.DefInv U 0 where
     have := IsDefEqN.zero_iff.1 h; injection this with h1 h2
     exact ⟨IsDefEqN.zero_iff.2 h1, IsDefEqN.zero_iff.2 h2⟩
   sort_forallE h := by cases IsDefEqN.zero_iff.1 h
+
+/-- Clause (1) at the base index. -/
+theorem SortInvN.zero : env.SortInvN U 0 := DefInv.zero.sort
+
+/-- Clause (3) at the base index. -/
+theorem SortForallEDisjN.zero : env.SortForallEDisjN U 0 := DefInv.zero.sort_forallE
+
+/-- Clause (2) at the base index — the *only* index at which it is known to hold, and
+`DefInvRefute.defInv_step_zero_false` shows it does not survive one step. -/
+theorem ForallEInvN.zero : env.ForallEInvN U 0 := DefInv.zero.forallE
 
 /-- `SubstC` at the base index: substituting into a syntactic equality. -/
 theorem SubstC.zero : env.SubstC U 0 := fun _ h =>
@@ -240,7 +288,7 @@ theorem IsDefEqN.forallE_congr_r {Γ A B B'} (H : env.IsDefEqN U n (A::Γ) B B')
 /-- The sort congruence `thm:utype`'s `forallE` case needs (`unique.tex:50`).  The two
 premises live in *different contexts* — the codomain's level is compared in `A::Γ` — and the
 conclusion in a third; nothing about the contexts is used, which is why they are all free. -/
-theorem IsDefEqN.sort_imax_congr (dinv : env.DefInv U n) {Γ Γ₁ Γ₂ : List VExpr}
+theorem IsDefEqN.sort_imax_congr (dinv : env.SortInvN U n) {Γ Γ₁ Γ₂ : List VExpr}
     {u u' v v' : VLevel} (hu : u.WF U) (hu' : u'.WF U) (hv : v.WF U) (hv' : v'.WF U)
     (h1 : env.IsDefEqN U n Γ₁ (.sort u) (.sort u'))
     (h2 : env.IsDefEqN U n Γ₂ (.sort v) (.sort v')) :
@@ -252,7 +300,7 @@ theorem IsDefEqN.sort_imax_congr (dinv : env.DefInv U n) {Γ Γ₁ Γ₂ : List 
     subst e1; subst e2; exact .rfl
   | succ =>
     exact .sortDF (by exact ⟨hu, hv⟩) (by exact ⟨hu', hv'⟩)
-      (VLevel.imax_congr (dinv.sort h1) (dinv.sort h2))
+      (VLevel.imax_congr (dinv h1) (dinv h2))
 
 /-! ## Inversion by subject shape
 
@@ -407,7 +455,7 @@ theorem Stratified.uniq {Γ e A b} (H : Stratified env U n Γ e A b) :
   | forallE hu hv _ _ ihA ihB =>
     intro dinv hs _ _ H2
     have ⟨_, _, hu', hv', hA', hB', hc⟩ := H2.forallE_inv
-    exact IsDefEqN.trans' (IsDefEqN.sort_imax_congr dinv hu hu' hv hv'
+    exact IsDefEqN.trans' (IsDefEqN.sort_imax_congr dinv.sort hu hu' hv hv'
       (ihA dinv hs (Eq.refl true) _ hA') (ihB dinv hs (Eq.refl true) _ hB')) hc
   | conv h _ _ ih2 =>
     intro dinv hs _ _ H2
@@ -462,21 +510,32 @@ removes is the reference's way of *establishing* that hypothesis: `unique.tex` p
 `DefInv` itself is not refuted — nothing here says it is false, only that this route to it is
 closed. -/
 
-/-- `IsDefEqU.sort_inv` (`Theory/Typing/Injectivity.lean`), reduced to definitional inversion
-at every index. -/
-theorem IsDefEqU.sort_inv_of_defInv (henv : Ordered env) {Γ : List VExpr} {u v : VLevel}
-    (hΓ : OnCtx Γ (env.IsType U)) (dinv : ∀ n, env.DefInv U n)
+/-- `IsDefEqU.sort_inv` (`Theory/Typing/Injectivity.lean`), reduced to **clause (1) alone** at
+every index.
+
+Formerly stated against `∀ n, DefInv env U n`, which `DefInvRefute.defInv_all_false` refutes
+over `∅`; the proof never touched any clause but this one, so the hypothesis is narrowed
+rather than the theorem lost.  `∀ n, SortInvN env U n` is not refuted by anything known. -/
+theorem IsDefEqU.sort_inv_of_sortInvN (henv : Ordered env) {Γ : List VExpr} {u v : VLevel}
+    (hΓ : OnCtx Γ (env.IsType U)) (dinv : ∀ n, env.SortInvN U n)
     (h : env.IsDefEqU U Γ (.sort u) (.sort v)) : u ≈ v :=
   let ⟨n, hc⟩ := h.stratifyN henv hΓ
-  (dinv n).sort hc
+  dinv n hc
 
-/-- `IsDefEqU.sort_forallE_inv` (`Theory/Typing/Injectivity.lean`), likewise. -/
-theorem IsDefEqU.sort_forallE_inv_of_defInv (henv : Ordered env) {Γ : List VExpr}
+/-- `IsDefEqU.sort_forallE_inv` (`Theory/Typing/Injectivity.lean`), reduced to **clause (3)
+alone** at every index.  Same narrowing, same reason.
+
+**`Ordered env` is not enough to discharge `dinv`.**  `Theory/Typing/SortClauses.lean`'s
+`sortPiEnv` is an `Ordered` environment carrying the rule `Prop ≡ ∀ (_ : Prop), Prop`, and at
+it `SortForallEDisjN` is *false* at index 1.  The `Ordered` premise here is only what
+`stratifyN` needs; a proof of the hypothesis has to use `VEnv.WF`, which is what
+`Theory/Typing/Injectivity.lean`'s targets already assume. -/
+theorem IsDefEqU.sort_forallE_inv_of_sortForallEDisjN (henv : Ordered env) {Γ : List VExpr}
     {u : VLevel} {A B : VExpr}
-    (hΓ : OnCtx Γ (env.IsType U)) (dinv : ∀ n, env.DefInv U n) :
+    (hΓ : OnCtx Γ (env.IsType U)) (dinv : ∀ n, env.SortForallEDisjN U n) :
     ¬ env.IsDefEqU U Γ (.sort u) (.forallE A B) := fun h =>
   let ⟨n, hc⟩ := h.stratifyN henv hΓ
-  (dinv n).sort_forallE hc
+  dinv n hc
 
 /-! ## Can `DefInv` be proved directly, without `uniq`?
 
@@ -515,8 +574,7 @@ Contrast `Theory/Typing/SortUniq.lean`'s `sort_not_proof`, which discharges the 
 the unstratified judgment but needs `VEnv.SortUniq`.  Here the two `sort` typings are inverted
 by `HasTypeN.sort_inv` and composed, and clause (1) finishes.  The `Γ ⊢ₙ p : .sort .zero`
 premise is not needed at all. -/
-theorem DefInv.sort_proofIrrel
-    (dinv1 : ∀ {Γ : List VExpr} {u v : VLevel}, env.IsDefEqN U n Γ (.sort u) (.sort v) → u ≈ v)
+theorem SortInvN.sort_proofIrrel (dinv1 : env.SortInvN U n)
     {Γ : List VExpr} {p : VExpr} {u v : VLevel}
     (h2 : env.HasTypeN U n Γ (.sort u) p) (h3 : env.HasTypeN U n Γ (.sort v) p) :
     u ≈ v :=
@@ -569,23 +627,23 @@ def PropTypeAgree (env : VEnv) (U n : Nat) : Prop :=
 This is `Theory/Typing/SortUniq.lean`'s `sort_not_proof` at the index, and it is derived here
 from `PropTypeAgree` and `DefInv` *at the same index* — so in the induction that proves
 `DefInv (n+1)`, both are available as the induction hypothesis and nothing is circular. -/
-theorem sortNotProof_of (dinv : env.DefInv U n) (pta : env.PropTypeAgree U n)
+theorem sortNotProof_of (dinv : env.SortInvN U n) (pta : env.PropTypeAgree U n)
     {Γ : List VExpr} {p : VExpr} {u : VLevel}
     (h1 : env.HasTypeN U n Γ p (.sort .zero)) (h2 : env.HasTypeN U n Γ (.sort u) p) :
     False := by
   have h4 : IsPropN env U n Γ (.sort (.succ u)) := pta h2 (.sort (HasTypeN.sort_inv h2).1) h1
-  exact absurd (congrFun (dinv.sort (HasTypeN.sort_inv h4).2) []) (by simp [VLevel.eval])
+  exact absurd (congrFun (dinv (HasTypeN.sort_inv h4).2) []) (by simp [VLevel.eval])
 
 /-- **The payoff, second half: a Π-type is not a proof.**  Note this is *not* "a Π-type is not
 a proposition", which is false — `∀ x : α, β` is a proposition whenever `β` is.  It says a
 *term whose type is a Π* does not also inhabit a proposition. -/
-theorem forallENotProof_of (dinv : env.DefInv U n) (pta : env.PropTypeAgree U n)
+theorem forallENotProof_of (dinv : env.SortInvN U n) (pta : env.PropTypeAgree U n)
     {Γ : List VExpr} {p A B : VExpr}
     (h1 : env.HasTypeN U n Γ p (.sort .zero)) (h2 : env.HasTypeN U n Γ (.forallE A B) p) :
     False := by
   obtain ⟨u, v, hu, hv, hA, hB, _⟩ := HasTypeN.forallE_inv h2
   have h4 : IsPropN env U n Γ (.sort (.imax u v)) := pta h2 (.forallE hu hv hA hB) h1
-  exact absurd (congrFun (dinv.sort (HasTypeN.sort_inv h4).2) []) (by simp [VLevel.eval])
+  exact absurd (congrFun (dinv (HasTypeN.sort_inv h4).2) []) (by simp [VLevel.eval])
 
 /-! ## Is `PropTypeAgree` closable at the index? — **No: one new primitive is needed**
 
@@ -638,12 +696,13 @@ def PropNotProof (env : VEnv) (U n : Nat) : Prop :=
     env.HasTypeN U n Γ e p → False
 
 /-- `eta`'s case closes from `SortForallEDisjoint` and `DefInv`, and needs nothing else. -/
-theorem PropTypeAgree.eta_case (dinv : env.DefInv U n) (hd : env.SortForallEDisjoint U n)
+theorem PropTypeAgree.eta_case (dinv : env.SortForallEDisjN U n)
+    (hd : env.SortForallEDisjoint U n)
     {Γ : List VExpr} {A B e : VExpr} (he : env.HasTypeN U n Γ e (.forallE A B)) :
     (IsPropN env U n Γ (.lam A (.app e.lift (.bvar 0))) ↔ IsPropN env U n Γ e) := by
   refine ⟨fun hp => ?_, fun hp => absurd (hd hp he) not_false⟩
   obtain ⟨_, _, _, _, hcc⟩ := HasTypeN.lam_inv hp
-  exact absurd (IsDefEqN.symm' hcc) dinv.sort_forallE
+  exact absurd (IsDefEqN.symm' hcc) dinv
 
 /-- `proofIrrel`'s case closes from `PropNotProof`, and needs nothing else. -/
 theorem PropTypeAgree.proofIrrel_case (hnp : env.PropNotProof U n)
@@ -673,30 +732,30 @@ subject.  In particular a *constant* subject cannot be one, so the model's failu
 `False` from `∀ x : False, B` — real, and structural in ZF — **cannot be lifted to a syntactic
 derivation at that instance**, because the `const` case below proves the syntactic statement
 there. -/
-theorem sortForallEDisjoint_of {Γ e T b} (H : Stratified env U n Γ e T b) :
-    SortForallEDisjoint.AppCase env U n → env.DefInv U n → b = true →
+theorem sortForallEDisjoint_ofN {Γ e T b} (H : Stratified env U n Γ e T b) :
+    SortForallEDisjoint.AppCase env U n → env.SortForallEDisjN U n → b = true →
     ∀ u A B, env.IsDefEqN U n Γ T (.sort u) →
     env.HasTypeN U n Γ e (.forallE A B) → False := by
   induction H with
   | bvar h =>
     intro _ dinv _ u A B hT H2
     obtain ⟨_, hl, hc⟩ := H2.bvar_inv
-    exact dinv.sort_forallE (IsDefEqN.trans' (IsDefEqN.symm' hT) (Lookup.uniq h hl ▸ hc))
+    exact dinv (IsDefEqN.trans' (IsDefEqN.symm' hT) (Lookup.uniq h hl ▸ hc))
   | sort _ =>
     intro _ dinv _ u A B hT H2
-    exact dinv.sort_forallE (HasTypeN.sort_inv H2).2
+    exact dinv (HasTypeN.sort_inv H2).2
   | const h1 _ _ =>
     intro _ dinv _ u A B hT H2
     obtain ⟨_, h1', _, _, hc⟩ := HasTypeN.const_inv H2
     cases Option.some.inj (h1'.symm.trans h1)
-    exact dinv.sort_forallE (IsDefEqN.trans' (IsDefEqN.symm' hT) hc)
+    exact dinv (IsDefEqN.trans' (IsDefEqN.symm' hT) hc)
   | lam _ _ =>
     intro _ dinv _ u A B hT _
-    exact dinv.sort_forallE (IsDefEqN.symm' hT)
+    exact dinv (IsDefEqN.symm' hT)
   | forallE _ _ _ _ =>
     intro _ dinv _ u A B hT H2
     obtain ⟨_, _, _, _, _, _, hc⟩ := HasTypeN.forallE_inv H2
-    exact dinv.sort_forallE hc
+    exact dinv hc
   | conv h _ _ ih2 =>
     intro happ dinv _ u A₁ B₁ hT H2
     exact ih2 happ dinv (Eq.refl true) u A₁ B₁ (IsDefEqN.trans' h hT) H2
@@ -706,14 +765,28 @@ theorem sortForallEDisjoint_of {Γ e T b} (H : Stratified env U n Γ e T b) :
   | rfl | symm | trans | sortDF | constDF | appDF | lamDF | forallEDF | beta | eta
   | proofIrrel | extra => intro _ _ hb; exact nomatch hb
 
+/-- The same with the whole of `DefInv` in place of clause (3).
+
+**This form is strictly weaker and is retained only for the one call site that has not been
+updated** — `propForallEDisjoint_of` (`Theory/Typing/PropConv.lean:331`), a file this stream
+does not own.  The fix there is one token: pass `dinv.sort_forallE` instead of `dinv` and call
+`sortForallEDisjoint_ofN`.  Once that is done this declaration should be deleted; nothing else
+in the tree uses it.  `DefInv` is refuted at `∅, 1, 1` (`DefInvRefute.defInv_one_false`), so
+at that instance this form proves nothing and `sortForallEDisjoint_ofN` still does. -/
+theorem sortForallEDisjoint_of {Γ e T b} (H : Stratified env U n Γ e T b) :
+    SortForallEDisjoint.AppCase env U n → env.DefInv U n → b = true →
+    ∀ u A B, env.IsDefEqN U n Γ T (.sort u) →
+    env.HasTypeN U n Γ e (.forallE A B) → False :=
+  fun happ dinv => sortForallEDisjoint_ofN H happ dinv.sort_forallE
+
 /-- **The split, machine-checked:** `PropNotProof` *is* `PropTypeAgree` at another subject, so
 `proofIrrel` is self-reference.  There is no corresponding derivation for
 `SortForallEDisjoint`, which is why that one is a genuinely missing primitive. -/
-theorem propNotProof_of (dinv : env.DefInv U n) (pta : env.PropTypeAgree U n) :
+theorem propNotProof_of (dinv : env.SortInvN U n) (pta : env.PropTypeAgree U n) :
     env.PropNotProof U n := by
   intro Γ e p hep hp hepp
   have := pta hepp hep hp
-  exact absurd (congrFun (dinv.sort (HasTypeN.sort_inv this).2) []) (by simp [VLevel.eval])
+  exact absurd (congrFun (dinv (HasTypeN.sort_inv this).2) []) (by simp [VLevel.eval])
 
 end VEnv
 end Lean4Lean
