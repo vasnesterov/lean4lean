@@ -115,11 +115,32 @@ theorem addOpaque.WF {env : Environment} {ves : VEnvs} (wf : ves.WF env) (v : Op
     exact .opaque (ci' := ci') ⟨⟨htr, hname⟩, hvalue.mono hto⟩
       (by rwa [← old.map_wf.find?'_eq_find?]) (hci.mono hto) hadd old
 
+/-- **Vacuous, and the honest replacement is now available.**
+
+The conclusion is `False`, proved from `TrEnv'.no_inductInfo` at `.unsafe`: no `VEnvs` models
+a kernel environment holding an `.inductInfo` at all (`VEnvs.WF.no_inductInfo`,
+`Verify/InductFlip.lean`).
+
+`docs/handoff-eq-safety.md` §3 recorded the honest replacement as blocked on the `AddInduct`
+obligation `htr`.  **That was wrong**: `checkEqType.WF_quotReady_closed`
+(`Verify/InductFlip.lean`) proves
+
+    (checkEqType env).WF fun _ => ∀ safety, (ves.venv safety).QuotReady
+
+outright, sorry-free, with no `AddInduct`, no `TrEnv'.induct` and no `VInductDecl'` anywhere
+in its cone.  `TrEnv.find?` already returns the model's constant together with its
+`TrConstant`; what was missing was only the *identity* of the translated type, which
+`TrExprS.unique` supplies once `checkEqType`'s `mkForall` comparison is computed
+(`Lean.LocalContext.mkForall_single`).
+
+What still blocks substituting it here is **not** `htr` but `addQuot.WF`'s other half: with a
+non-`False` postcondition, `addQuot.WF` must actually build `TrEnv'.quot`, i.e. exhibit
+`AddQuot env.constants env'.constants (ves.venv safety) (venv' safety)` from the executable
+`Environment.addQuot`.  That is four `AddQuot1` steps, each needing a `TrExprS` for a
+quotient constant's stored type — the same technique as `trExprS_eqStoredType`, four times
+over and with `Quot.lift`'s six binders.  See `docs/handoff-addinduct.md` §6. -/
 theorem checkEqType.WF {env : Environment} {ves : VEnvs} (wf : ves.WF env) :
     (checkEqType env).WF fun _ => False := by
-  -- `AddInduct` currently has no constructors, so the unsafe translation cannot contain
-  -- the inductive `Eq` declaration required by quotient initialization. This case becomes
-  -- constructive when the inductive-declaration verification boundary is implemented.
   intro _ h
   unfold checkEqType at h
   simp only [Environment.get] at h
@@ -133,8 +154,10 @@ theorem checkEqType.WF {env : Environment} {ves : VEnvs} (wf : ves.WF env) :
     exact False.elim <| (wf.tr (safety := .unsafe)).no_inductInfo hfind'
   | _ => simp_all [( · >>= · ), Except.bind, pure, Pure.pure, Except.pure]
 
-/-- This is currently vacuous in the non-initialized case: `TrEnv` cannot contain the
-inductive `Eq` declaration until `AddInduct` is implemented. -/
+/-- **Vacuous in the non-initialized case**, through `checkEqType.WF`'s `False`.  The
+remaining obligation is the `AddQuot` construction, not the `Eq` premise: see
+`checkEqType.WF`'s docstring above and `checkEqType.WF_quotReady_closed`
+(`Verify/InductFlip.lean`), which discharges the `Eq` half unconditionally. -/
 theorem addQuot.WF {env : Environment} {ves : VEnvs} (wf : ves.WF env) :
     (Environment.addQuot env).WF fun env' =>
       ∃ ves' : VEnvs, ves'.WF env' ∧ ∀ safety, ves.venv safety ≤ ves'.venv safety := by

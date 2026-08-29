@@ -105,7 +105,19 @@ but it currently has no constructors, so the `TrEnv'.induct` case below can neve
 and environments containing inductives are outside the verified `TrEnv` relation.
 
 **Its intended definition is `AddInductStages` below**, which is complete and proved; see
-the section header there for why the two are still separate declarations. -/
+the section header there for why the two are still separate declarations.  The flip is
+
+    def AddInduct (m₁ : ConstMap) (env₁ : VEnv) (decl : VInductDecl')
+        (m₂ : ConstMap) (env₂ : VEnv) : Prop := AddInductStages m₁ env₁ decl m₂ env₂
+
+with `AddInduct.to_addInduct := AddInductStages.to_addInduct`.  Because `AddInduct` is only
+ever used through `TrEnv'.induct`, no other statement in the tree changes shape; what changes
+is which statements remain *true* (see the section header below).
+
+Note what the emptiness costs, stated at the top: `VEnvs.WF env` is **unsatisfiable** for any
+`env` whose constant map holds an `.inductInfo` (`VEnvs.WF.no_inductInfo`,
+`Verify/InductFlip.lean`).  So `addDecl.WF`'s `inductDecl` branch is a *false* statement
+today, not merely an open one. -/
 inductive AddInduct (m₁ : ConstMap) (env₁ : VEnv) (decl : VInductDecl')
     (m₂ : ConstMap) (env₂ : VEnv) : Prop
   -- TODO
@@ -138,17 +150,33 @@ claim, and it is why the shape lemma below is phrased as "either already in `m�
 the three inductive shapes" rather than as a statement about the whole map.
 
 **Why this is not (yet) `AddInduct` itself.**  Substituting it for the empty `AddInduct`
-above makes `TrEnv'.induct` fire, and that is *not* confined to this file and
-`Verify/TypeChecker/Reduce.lean`.  It immediately breaks, in files owned elsewhere:
-`Aligned.addInduct` and `TrEnv'.of_value` (`Verify/Environment/Lemmas.lean`, both
-`nomatch`/`cases` on the empty relation — and `TrEnv'.map_wf` goes through `Aligned`, so
-*everything* in `Verify/` goes red), `TrEnv'.no_inductInfo` (`Verify/Environment/Extension.lean`,
-which becomes false), `checkEqType.WF` and `addQuot.WF` (`Verify/Environment.lean`, vacuous
-today through `no_inductInfo`), and `inductiveReduceRec_eq_none` (`Verify/TypeChecker/WHNF.lean`,
-false once a recursor is reachable — and `whnf.WF` depends on it).  The flip has to be one
-coordinated commit across those files; the lemmas below are everything this side of it needs,
-and `Verify/TypeChecker/Reduce.lean` carries the induct-case lemmas for the `Aligned`,
-`of_value`, `find?_shape` and `defeqs_shape` inductions. -/
+above makes `TrEnv'.induct` fire, and the flip is a single coordinated commit across seven
+files, four of which this stream does not own.  `docs/handoff-addinduct.md` carries the exact
+patch and the measurement below; `Verify/InductFlip.lean` carries everything the flip needs
+that was not already in the tree.
+
+**The blast radius, measured** (`scripts/blast-addinduct.lean`, a transitive
+`getUsedConstantsAsSet` cone over all 12778 `Lean4Lean` declarations, with the `.thmInfo`
+scan trap handled as `scripts/cone-measure.lean` does):
+
+* *Tier 1* — the seven lemmas whose **proofs** case on the empty relation
+  (`AddInduct.to_addInduct`, `Aligned.addInduct`, `AddInduct.le`, `TrEnv'.of_value`,
+  `TrEnv'.find?_shape`, `TrEnv'.defeqs_shape`, `TrEnv'.no_inductInfo`) have **182**
+  transitive users across 18 modules.  All but `no_inductInfo` stay *true*; their induct
+  arms are proved (`AddInductStages.le`/`.map_wf`/`.find?_shape`/`.defeqs` here,
+  `Aligned.addInductStages` in `Verify/TypeChecker/Reduce.lean`,
+  `AddInductStages.of_value_arm` in `Verify/InductFlip.lean`).
+* *Tier 2* — the statements that become **false**: 68 transitive users, of which **56 are
+  already `sorryAx`-tainted**.  Only **12** are currently sorry-free, and of those, two
+  (`checkEqType.WF`, `addQuot.WF`) are repairable and ten are not.
+
+So the earlier note here — "*everything* in `Verify/` goes red" — was too pessimistic: the
+irreparable set is **nine declarations**, all in `Verify/TypeChecker/`
+(`TrEnv.not_inductInfo`, `.not_ctorInfo`, `.not_recInfo`,
+`TypeChecker.VContext.not_inductInfo`, `reduceProjCore_none`, `reduceProjCore.WF`,
+`inferProj_always_throws`, `tryEtaStructCore_never_true`, and through the first of those,
+`inductiveReduceRec_eq_none`).  They need ι-reduction, projection reduction and structure
+eta — real content, not a bigger `rcases`. -/
 
 /-- One stage of an inductive block on the constant-map side: for each `(n, ci')` of the
 stage's constant list, some `ConstantInfo` named `n` of the stage's shape `S` is inserted
