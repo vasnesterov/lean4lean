@@ -1,3 +1,11 @@
+> **2026-08-29 — superseded in part; read `docs/handoff-descend.md` first.**
+> Two claims below are now known wrong. (i) §4.1's "`Params` has no instance … the fatal
+> blocker" was corrected by `docs/handoff-params.md`: `VEnv.paramsOfWF` / `paramsOfDelta`
+> build one, and `Theory/Typing/DescendRefute.lean` uses `paramsOfDelta`.  (ii) §4.3's step 3
+> ("discharge `NormalEq.descend`'s five `sorry`s") is not a matter of effort: **three of the
+> five goals are FALSE**, machine-checked, so the Church–Rosser route needs a restatement
+> rather than a completion.  Everything else below stands and was **not** re-measured.
+
 # Handoff: strengthening — `IsDefEqU.weakN_iff`'s `sorry`
 
 **Target:** the forward (strengthening) direction of `Lean4Lean.VEnv.IsDefEqU.weakN_iff`,
