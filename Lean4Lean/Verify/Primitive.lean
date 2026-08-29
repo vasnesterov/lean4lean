@@ -1225,6 +1225,30 @@ protected theorem M.WF.withLocalDecl0 {s : VState} {f : Expr → M α} {Q name t
     (by rwa [VContext.withMLC_self]) (by rwa [VContext.withMLC_self]) H
   rwa [VContext.withMLC_self] at h
 
+/-- What `Environment.withCheckedLocalDecl` establishes, and the form the four fuel /
+well-founded branches need it in.
+
+`M.WF.withLocalDecl0` demands a `TrExprS` and an `IsType` for the binder's domain, and the
+domains those branches introduce (`1 ≤ y`, `Nat.succ x ≤ Nat.succ fuel`, `r.type p Bool.true`,
+the type recovered from a `whnf`) are built out of constants that `VEnv.HasPrimitives` only
+requires to be *present*, so neither fact can be reconstructed -- it can only be read off a
+successful check.  `withCheckedLocalDecl` performs that check, and this lemma hands the
+continuation the two witnesses along with the free variable.
+
+Note the `FVarsIn` side condition is on `ty` only: the continuation is entered in the extended
+context, where the new variable is available. -/
+protected theorem M.WF.withCheckedLocalDecl {s : VState} {f : Expr → M α} {Q : α → VState → Prop}
+    {name ty bi} (hty : ty.FVarsIn (· ∈ c.vlctx.fvars))
+    (H : ∀ ty' id (cwf' : c.MLCWF (.vlam id name ty ty' bi c.mlctx)) s', s ≤ s' →
+      c.TrExprS ty ty' → c.IsType ty' →
+      M.WF (c.withMLC (.vlam id name ty ty' bi c.mlctx) (wf := cwf')) s' (f (.fvar id)) Q) :
+    M.WF c s (Lean4Lean.Environment.withCheckedLocalDecl name bi ty f) Q := by
+  unfold Lean4Lean.Environment.withCheckedLocalDecl
+  refine (checkIsType.WF hty).bind fun _ s₁ hs₁ h => ?_
+  obtain ⟨ty', hty', histy⟩ := h
+  exact M.WF.withLocalDecl0 hty' histy fun id cwf' s' hle _ =>
+    H ty' id cwf' s' (hs₁.trans hle) hty' histy
+
 theorem TrExprS.weakLam0 {id name ty ty' bi}
     (cwf : c.MLCWF (.vlam id name ty ty' bi c.mlctx)) {e : Expr} {e' : VExpr}
     (h : c.TrExprS e e') (hc : e'.ClosedN 0) :

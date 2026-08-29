@@ -53,28 +53,57 @@ recursion (`Nat.mod`, `Nat.div`) or `WellFounded.Nat.fix` (`Nat.gcd`, `Nat.bitwi
 fifteen branches are discharged below, using the reflection theorems and the `VEnv.PrimField` /
 `VEnv.HasPrimitives.addDef` plumbing in `Lean4Lean/Verify/Primitive.lean`.
 
-Those four are not merely unproved. Bug 4 of `bugs-found.md` -- handing untyped terms to
-`isDefEq`, which records its verdict in the `EquivManager` and so breaks `VState.WF` -- was
-fixed for the other fifteen branches by `checkPrimValue`/`checkIsType`/`checkedIsDefEq`/
-`checkedTypeIs`, but *not* for these four. They still compare terms neither side of which has
-been type-checked, both directly and through the helpers they share:
+Bug 4 of `bugs-found.md` -- handing untyped terms to `isDefEq`, which records its verdict in
+the `EquivManager` and so breaks `VState.WF` -- had been fixed for the other fifteen branches
+but not for these four. **It now is.** Every comparison these four make, directly or through
+the helpers they share, type-checks both of its sides:
 
-* `Condition.check` (`Primitive.lean:125,133,134`) runs `inferType`, not `checkType`, on
-  `cond.prop`, `asBool` and `proof` -- and `inferType` assumes its argument is already
-  well-typed, which is the precondition the recognizer cannot have;
-* `Reflection.check` (`:50`), `Reflection.checkITE` (`:94,98,100`) and
-  `Reflection.checkNatDITE` (`:103-118`) compare against unchecked literal right-hand sides;
-* `unfoldWellFounded` (`:169-173`) and `unfoldNatWellFounded` (`:205,211,213,221,237,245`)
-  likewise;
-* and the branches themselves: `Nat.mod` (`:374,376,386,393`), `Nat.div` (`:401,403,410,417`),
-  `Nat.gcd` (`:427,428`), `Nat.bitwise` (`:470`).
+* `Condition.check` uses `checkedTypeIs cond.prop`, not `inferType cond.prop`. (Of the three
+  `inferType` calls the previous note listed, only this one was genuinely uncovered: `asBool`
+  and `proof` both occur in the term the following `checkType e` checks. The right-hand sides
+  it compared against -- `Nat → Nat → Prop`, `Nat → Nat → Bool`, `Bool → Prop` -- were
+  unchecked too, and now are not.)
+* `Reflection.check`, `Reflection.checkITE` and `Reflection.checkNatDITE` use
+  `checkedTypeIs`/`checkedIsDefEq` throughout.
+* `unfoldNatWellFounded` uses `checkType` where it used `inferType`, and `checkedIsDefEq` for
+  its three comparisons. `unfoldWellFounded`, listed in the previous version of this note, was
+  dead code -- nothing in the tree ever called it -- and has been deleted.
+* Every free variable these branches introduce is bound by `withCheckedLocalDecl`, which
+  `checkIsType`s the domain first. This is a separate gap from the comparison one and was not
+  previously recorded: `M.WF.withLocalDecl0` demands a `TrExprS` *and* an `IsType` for the
+  binder's domain, and the domains here (`1 ≤ y`, `Nat.succ x ≤ Nat.succ fuel`,
+  `r.type p Bool.true`, and the type `unfoldNatWellFounded` recovers from a `whnf`) are built
+  from constants that `VEnv.HasPrimitives` requires only to be *present*. The corresponding
+  spec is `TypeChecker.M.WF.withCheckedLocalDecl` in `Lean4Lean/Verify/Primitive.lean`.
 
-So this statement cannot be proved the way the other fifteen are, and the first step is to
-extend the same remedy to these sites. Whether a declaration exists that *exploits* the gap --
-passing the recognizer while leaving an untranslatable term in the `EquivManager` -- has not
-been established either way; the fifteen fixed branches were each closed without needing such a
-witness. Beyond that the four need genuinely new reflection arguments (fuel recursion for
-`mod`/`div`, `WellFounded.Nat.fix` for `gcd`/`bitwise`), which the fifteen did not. -/
+The recognizer still accepts all eighteen primitives of the current prelude with those checks
+in place (the `run_meta` self-test at the foot of `Lean4Lean/Primitive.lean`, and
+`Verify/Soundness.lean`'s `stdPrelude accepted by addDecl`), and the Kernel Arena is unchanged
+at 185 correct / 6 either / 0 incorrect.
+
+What is left is therefore metatheory, not plumbing, and it is genuinely new: the fifteen
+branches all check a *structural* recursion, for which `VEnv.reflects_rec2`,
+`reflects_rec2_tail` and `reflects_rec2_diag` suffice. These four do not.
+
+* `Nat.mod` and `Nat.div` need a fuel induction. Their equations mention `Nat.modCore.go` /
+  `Nat.div.go`, whose fuel argument the recognizer constrains only at `Nat.succ fuel`; the
+  reflection has to run the induction under the `Nat.succ x ≤ fuel` invariant, which is what
+  keeps the unconstrained `fuel = 0` case unreachable.
+* Both also need a reflection lemma for `Condition`: the equations are stated with
+  `Condition.ite`/`Condition.dite`, i.e. `@ite`/`@dite` at the instance `cond.dec`, and what
+  `Condition.check` establishes about that instance (`cond.dec ≡ fun x y => r.toDec (prop x y)
+  (asBool x y) (proof x y)`, together with `r.ite` selecting on `Bool.true`/`Bool.false`) has
+  to be turned into "`Condition.natLE.ite α #[a, b] t e` is `t` when `a ≤ b` and `e`
+  otherwise", via `VEnv.HasPrimitives.natBLE`. There is no such lemma yet.
+* `Nat.gcd` and `Nat.bitwise` need, on top of that, a spec for `unfoldNatWellFounded`: the
+  fixpoint equation it establishes is *not* assembled from `isDefEq` calls but from structural
+  checks on the result of `whnfCore`/`unfoldDefinition` against `WellFounded.Nat.fix`'s
+  `Nat.rec` skeleton, so the proof has to reconstruct that equation from those checks. This is
+  the deepest of the four and should be attacked last.
+* `Nat.bitwise`'s field, `VEnv.ReflectsNatBitwise`, is second order and relativized to every
+  extension `env'` of the environment; the reflections it consumes (`Nat.add`, `Nat.div`,
+  `Nat.mod`, `Nat.beq`) transfer there by `VEnv.ReflectsNatNatNat.mono`, but the induction is
+  on `n + m` rather than on either argument. -/
 theorem checkPrimitiveDef.WF.rest {env : Environment} {ves : VEnvs} (wf : ves.WF env)
     (v : DefinitionVal) (fuel : FuelConfig)
     (hrest : v.name = ``Nat.mod ∨ v.name = ``Nat.div ∨ v.name = ``Nat.gcd ∨
