@@ -1,3 +1,19 @@
+> **CORRECTION (later round, machine-checked elsewhere).** §4's conclusion *"there is no right
+> guard"* is **wrong**, and the error matters: it reads as *"`church_rosser` is false for real
+> environments"* when the true statement is *"this repo's `Theory/` is missing a rule."*
+>
+> `Theory/` registers only **constructor-matching** ι/quot rules (`Pattern.lean:293`), so it has
+> **no K-like reduction**. Carneiro's κ has one (`unique.tex:103`, `K⁺`, firing at an *arbitrary*
+> major premise); the C++ kernel has one (`inductive.cpp:595`); **this repo's own implementation
+> has one** (`Inductive/Reduce.lean`, `toCtorWhenK`). And `unique.tex:66` states outright that
+> without such a device Church–Rosser *"is not true … because of proof irrelevance"*. So the
+> ι-flavoured failure is a **missing rule — fixable**, not an inherent falsity.
+>
+> **What stands unaffected:** `descend`'s three machine-checked refutations. Those are a *scope*
+> defect (quantification over an unregistered `q`) and are independent of this correction.
+>
+> See `docs/handoff-headreduction.md` and `Theory/Typing/HeadRedStuck.lean`.
+
 # Handoff: `NormalEq.descend` is FALSE, and what that does to the two targets
 
 **Session targets:** `Lean4Lean.VEnv.NormalEq.descend` (`Theory/Typing/ChurchRosser.lean:1706`)
