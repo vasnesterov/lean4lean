@@ -108,7 +108,15 @@ counterexample is the gap between those two facts. -/
 def dom' : VExpr := .sort p
 
 /-- The codomain that is stuck in `[dom]` and reducible in `[dom']`: a β-redex whose λ is
-annotated at `dom'` and whose argument is the ∀-bound variable. -/
+annotated at `dom'` and whose argument is the ∀-bound variable.
+
+Informally this is `(λ y : U_p. y) x` — **the identity at `U_p`, applied to `x`**.  Note the
+inner `.bvar 0` is the λ's *own* binder, not the ∀-bound variable: `VExpr.lam` binds `bvar 0`
+in its body and `Stratified.lam` types that body in `A :: Γ`.  Earlier prose in this repo
+rendered it `(λ _ : U_p. x) x`, a *constant* function — that reading is wrong, and would be
+`.app (.lam dom' (.bvar 1)) (.bvar 0)` instead.  The mechanism is unaffected: what fails is
+that the **argument** `x` must be typed at the λ's annotation `dom'`, and in the context
+`x : dom` it cannot be. -/
 def cod : VExpr := .app (.lam dom' (.bvar 0)) (.bvar 0)
 
 theorem max_equiv : (VLevel.max p p) ≈ p := by

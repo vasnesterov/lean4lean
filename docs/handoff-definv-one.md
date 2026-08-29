@@ -23,10 +23,10 @@ compose two ∀-congruences whose codomain premises live in `Γ,x:α` and `Γ,x:
 The two contexts declare `x` at syntactically different types, and `⊢₀` — where all the typing
 premises of a `⊢₁` conversion sit — has no conversion rule to bridge them.
 
-    []             ⊢₁  ∀x:U_{max(p,p)}. x  ≡  ∀x:U_p. (λ_:U_p. x) x      derivable
-    x:U_{max(p,p)} ⊢₁  x  ≡  (λ_:U_p. x) x                               NOT derivable
-    x:U_p          ⊢₁  x  ≡  (λ_:U_p. x) x                               derivable (one β)
-    x:U_{max(p,p)} ⊢₂  x  ≡  (λ_:U_p. x) x                               derivable
+    []             ⊢₁  ∀x:U_{max(p,p)}. x  ≡  ∀x:U_p. (λ y:U_p. y) x      derivable
+    x:U_{max(p,p)} ⊢₁  x  ≡  (λ y:U_p. y) x                               NOT derivable
+    x:U_p          ⊢₁  x  ≡  (λ y:U_p. y) x                               derivable (one β)
+    x:U_{max(p,p)} ⊢₂  x  ≡  (λ y:U_p. y) x                               derivable
 
 Consequences, in decreasing scope:
 
@@ -54,9 +54,9 @@ Consequences, in decreasing scope:
 `U = 1`.
 
     dom  := .sort (max p p)          dom' := .sort p          max p p ≈ p,  max p p ≠ p
-    cod  := .app (.lam dom' (.bvar 0)) (.bvar 0)             -- (λ_:U_p. x) x
+    cod  := .app (.lam dom' (.bvar 0)) (.bvar 0)             -- (λ y:U_p. y) x
     piL  := .forallE dom (.bvar 0)                           -- ∀x:U_{max(p,p)}. x
-    piR  := .forallE dom' cod                                -- ∀x:U_p. (λ_:U_p. x) x
+    piR  := .forallE dom' cod                                -- ∀x:U_p. (λ y:U_p. y) x
 
 `hpi : [] ⊢₁ piL ≡ piR` is `trans (forallEDF hdom rfl) (forallEDF rfl bvar_conv_cod_right)`:
 

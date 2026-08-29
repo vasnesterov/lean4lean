@@ -128,9 +128,9 @@ Both amendments are marked, and both *narrow* what may be claimed as well as wid
   and wrong as a general claim.
 
   The second witness, in one line: in the empty context,
-  `⊢₁ ∀x:U_{max(p,p)}. x ≡ ∀x:U_p. (λ_:U_p. x) x` by two ∀-congruences (domains by the level
+  `⊢₁ ∀x:U_{max(p,p)}. x ≡ ∀x:U_p. (λ y:U_p. y) x` by two ∀-congruences (domains by the level
   equality `max(p,p) ≡ p`; codomains by `rfl` on one side and one `β` step *in the context
-  `x:U_p`* on the other), while clause (2)'s conclusion `x:U_{max(p,p)} ⊢₁ x ≡ (λ_:U_p. x) x`
+  `x:U_p`* on the other), while clause (2)'s conclusion `x:U_{max(p,p)} ⊢₁ x ≡ (λ y:U_p. y) x`
   is underivable, because in *that* context the variable's unique `⊢₀` type is `U_{max(p,p)}`
   and the redex is `⊢₀`-untypeable, hence stuck. Clause (2) transports a conversion from the
   context `Γ,x:α'` to the context `Γ,x:α`, and `⊢₁` is not invariant under that transport.
