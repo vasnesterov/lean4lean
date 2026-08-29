@@ -64,8 +64,21 @@ nonrec theorem Aligned.addQuot (H : AddQuot C₁ C₂ venv₁ venv₂)
   refine (addQuot1 <| addQuot1 <| addQuot1 <| addQuot1 ?_) _ _ wf H
   rintro _ _ h ⟨rfl, rfl⟩; exact h.defeq
 
-theorem Aligned.addInduct (H : AddInduct C₁ venv₁ decl C₂ venv₂) :
-    Aligned safety C₁ env₁ → Aligned safety C₂ env₂ :=
+/-- **The statement, corrected.**  This used to read
+
+    theorem Aligned.addInduct (H : AddInduct C₁ venv₁ decl C₂ venv₂) :
+        Aligned safety C₁ env₁ → Aligned safety C₂ env₂
+
+with `env₁`/`env₂` **auto-bound implicits unrelated to `venv₁`/`venv₂`** -- so it claimed that
+an inductive step carries alignment between two *arbitrary* abstract environments, which is
+not a weak statement but a false one, provable only because `AddInduct` is empty.
+`docs/handoff-addinduct.md` filed it under "statements that stay true after the flip"; it does
+not.  Naming the environments makes the statement the one the flip can actually supply
+(`Aligned.addInductStages`, `Verify/TypeChecker/Reduce.lean`), and `TrEnv'.aligned`'s `induct`
+arm is unchanged either way. -/
+theorem Aligned.addInduct {C₁ C₂ : ConstMap} {venv₁ venv₂ : VEnv} {decl : VInductDecl'}
+    (H : AddInduct C₁ venv₁ decl C₂ venv₂) :
+    Aligned safety C₁ venv₁ → Aligned safety C₂ venv₂ :=
   nomatch H
 
 theorem Aligned.addDefEqs {C : ConstMap} : ∀ {cis' : List VDefVal} {venv},
