@@ -1,5 +1,13 @@
 # The companion, repaired: G1–G3 discharged, G4 found, and what nested still needs
 
+> **Superseded in part by `docs/handoff-nested-restore.md`.**  That document's §3 refutes,
+> machine-checked at a real nested block, three things stated here: that `resolveC` models
+> `restoreNested` (§1), that `CompanionShape`'s parameter conjunct is what the head
+> generalisation removes (§4 G2a, §6.3), and that G1's re-staging is an improvement (§4 G1,
+> §8).  The G4 finding (§4) stands and is repaired there.  Read this file for the companion
+> model and the `fooCompDecl` witness, which remain correct; read the successor for what a
+> nested declaration actually is.
+
 Successor to `docs/handoff-nested-companion.md`.  That document ends with an ordering rule
 ("G1 must never land without G2") and a recommendation ("make G2 structural, not a check").
 This round did the repair, re-ran the unsoundness witness against it, and found a fourth

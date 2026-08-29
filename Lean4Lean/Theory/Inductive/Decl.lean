@@ -701,8 +701,19 @@ shape, so `to_addInduct` composes exactly as `AddQuot.to_addQuot` does, and each
 freshness obligation is the one `addConstList_fresh` already supplies.
 
 *`TrEnv'.induct` is gated to safe blocks*, as `unsafeDef` is gated to unsafe ones: positivity is
-skipped when `isUnsafe`, so `VIndField.WF.pos` has no witness, and `TrEnv'.ignore` takes those
-declarations instead.
+skipped when `isUnsafe`, so `VIndField.WF.pos` has no witness.
+
+**An earlier version of this note added "and `TrEnv'.ignore` takes those declarations
+instead".  That is false and is now machine-checked false**
+(`TrEnv'.ignore_unavailable_at_unsafe`, `Verify/TypeChecker/Reduce.lean`): `ignore`'s premise
+is `¬ safety ≤ ci.safety`, and `.unsafe` is the bottom of `DefinitionSafety`, so
+`.unsafe ≤ ci.safety` holds for every `ci`.  At `safety = .unsafe` nothing is hidden, so every
+declared constant needs a `VEnv` counterpart and `ignore` cannot supply one.  The honest
+position is that **an unsafe inductive block is currently unhandled**, not handled by
+ignoring: gating `induct` to safe blocks leaves `TrEnv' .unsafe` with no rule for an unsafe
+inductive.  The gate does not *create* the gap — today `TrEnv' .unsafe` has no rule for a safe
+inductive either — but it does not close it, and nothing below should be read as claiming it
+does.
 
 *What it breaks, deliberately.*  `TrEnv'.no_inductInfo` becomes false, and with it the
 vacuous postconditions of `checkEqType.WF` and `addQuot.WF`.  **And `TrEnv'.find?_shape`
