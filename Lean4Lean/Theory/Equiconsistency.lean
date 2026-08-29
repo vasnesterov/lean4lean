@@ -46,4 +46,31 @@ theorem leanTT_equiconsistent_zfc_omega_inaccessibles :
     Entailment.Consistent 𝗭𝗙𝗖+𝗜𝗻𝗮𝗰𝗰 ↔ leanTTConsistent := by
   sorry
 
+/-! ## Which half `kernel_sound` needs
+
+`kernel_sound`'s conclusion is `Entailment.Inconsistent 𝗭𝗙𝗖+𝗜𝗻𝗮𝗰𝗰`, reached from
+a checker run that certifies `False`.  Composed through the refinement chain that
+gives `¬ leanTTConsistent`, the only part of the equiconsistency it consumes is
+the **upper bound** — the `←` direction, "a model of `ZFC + n inaccessibles`
+interprets Lean TT".  The lower bound (`→`, building models of
+`ZFC + n inaccessibles` inside Lean TT) is not on the path to `kernel_sound` at
+all; it is what makes the statement above an `↔` rather than an implication.
+
+Recording that as a lemma so the endgame does not re-derive it: the whole
+`SetModel/` tower is aimed at the hypothesis of this theorem, not at the `↔`. -/
+
+/-- **The half `kernel_sound` needs**, isolated: the upper bound alone suffices.
+`Entailment.Inconsistent` is the negation of `Entailment.Consistent`, so
+contraposing the upper bound gives exactly `kernel_sound`'s conclusion. -/
+theorem inconsistent_of_upper_bound
+    (h : Entailment.Consistent 𝗭𝗙𝗖+𝗜𝗻𝗮𝗰𝗰 → leanTTConsistent)
+    (hbad : ¬ leanTTConsistent) : Entailment.Inconsistent 𝗭𝗙𝗖+𝗜𝗻𝗮𝗰𝗰 :=
+  Entailment.not_consistent_iff_inconsistent.mp fun hc ↦ hbad (h hc)
+
+/-- The upper bound is the `←` direction of the theorem above, so nothing is
+lost by aiming the model at it. -/
+theorem upper_bound_of_equiconsistent
+    (h : Entailment.Consistent 𝗭𝗙𝗖+𝗜𝗻𝗮𝗰𝗰 ↔ leanTTConsistent) :
+    Entailment.Consistent 𝗭𝗙𝗖+𝗜𝗻𝗮𝗰𝗰 → leanTTConsistent := h.mp
+
 end Lean4Lean
