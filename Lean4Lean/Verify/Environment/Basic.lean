@@ -104,15 +104,35 @@ effect on the constant map to `VEnv.addInduct'` (`Lean4Lean.Theory.Inductive.Dec
 but it currently has no constructors, so the `TrEnv'.induct` case below can never fire
 and environments containing inductives are outside the verified `TrEnv` relation.
 
-**Its intended definition is `AddInductStages` below**, which is complete and proved; see
-the section header there for why the two are still separate declarations.  The flip is
+**CORRECTION.**  This docstring used to say the intended definition is `AddInductStages`
+below.  **It is not**, and cannot be: `AddInductStages` is *refuted* for a nested block
+(`TrIndDecl.not_addInductStages`, `Verify/Environment/Induct.lean`; `tBlock_not_addInductStages`,
+`Verify/Environment/InductR.lean`), because the checker's nested path declares one renamed
+auxiliary recursor per nested type — `I.rec_1`, `I.rec_2`, … — and `AddInductStages` is exact
+on the map.  The intended definition is now **`AddInductStagesR`**
+(`Verify/Environment/InductR.lean`), the same three folds run over
+`VInductDecl'.typeConstsC K`, `ctorConstsCR R K` and `recConstsR R`
+(`Theory/Inductive/Companion.lean`, `Theory/Inductive/NestedHead.lean`), i.e. over
+`VEnv.addInductR`'s constant lists instead of `VEnv.addInduct'`'s.  The flip is
 
     def AddInduct (m₁ : ConstMap) (env₁ : VEnv) (decl : VInductDecl')
-        (m₂ : ConstMap) (env₂ : VEnv) : Prop := AddInductStages m₁ env₁ decl m₂ env₂
+        (m₂ : ConstMap) (env₂ : VEnv) : Prop :=
+      ∃ K R, AddInductStagesR m₁ env₁ decl K R m₂ env₂
 
-with `AddInduct.to_addInduct := AddInductStages.to_addInduct`.  Because `AddInduct` is only
-ever used through `TrEnv'.induct`, no other statement in the tree changes shape; what changes
-is which statements remain *true* (see the section header below).
+`AddInductStagesR.of_addInductStages`/`AddInductStages.toR` show this is a *generalisation*:
+at `K = []`, `R = decl.idRestore` and `decl.Canonical` the two coincide.
+
+**What the flip additionally needs, and this stream does not own.**
+`AddInduct.to_addInduct` then yields `∃ K R, env₁.addInductR decl K R = some env₂`, not
+`env₁.addInduct' decl = some env₂`, and `TrEnv'.wf`'s `induct` arm feeds it to
+`VDecl.WF.induct` (`Theory/Typing/Env.lean`), whose second hypothesis is the latter.  No
+`VInductDecl'` has `addInduct'` equal to a nested `addInductR`, so that rule must be
+generalised — to `VEnv.AddNestedB` (`Theory/Inductive/NestedBuild.lean`), which is the sound
+form: bare `addInductR` with free `K`/`R` would let a step drop or rename constants at will.
+`AddNestedB` needs the declaration history `ds`, which `VDecl.WF` does not currently carry
+(`VEnv.WF'` does), so this is a design change in `Theory/Typing/Env.lean` — another stream's
+file.  It is the *only* remaining blocker on the abstract side; see
+`docs/handoff-inductive-add.md` §5.
 
 Note what the emptiness costs, stated at the top: `VEnvs.WF env` is **unsatisfiable** for any
 `env` whose constant map holds an `.inductInfo` (`VEnvs.WF.no_inductInfo`,
@@ -305,6 +325,58 @@ theorem AddInductStages.defeqs (H : AddInductStages m₁ env₁ D m₂ env₂) (
   have hstage : e₃.defeqs = env₁.defeqs := by rw [h3.defeqs, h2.defeqs, h1.defeqs]
   refine (VEnv.addIndRules_defeqs_inv h).imp (fun h => ?_) id
   rwa [hstage] at h
+
+/-! ### The anti-lie lemmas
+
+Moved here from `Verify/InductFlip.lean` (unchanged) so that they sit beside the definitions
+they are about and are available to `Verify/Environment/Induct.lean` and
+`Verify/Environment/InductR.lean`, neither of which may depend on the type-checker layer. -/
+
+/-- Every constant a stage adds is present in the environment it produces. -/
+theorem AddIndConsts.constants_of_mem {S cs m env m₂ env₂} {n ci'}
+    (H : AddIndConsts S cs m env m₂ env₂) (h : (n, ci') ∈ cs) :
+    env₂.constants n = some ci' := by
+  induction H with
+  | nil => cases h
+  | cons _ _ _ _ hadd hrest ih =>
+    cases h with
+    | head => exact hrest.le.constants (VEnv.addConst_self hadd)
+    | tail _ h => exact ih h
+
+
+/-- **No extra entries.**  A stage changes the map only at the names of its own list.
+
+This is the anti-lie half of the relation, and it is what makes `AddInduct` a *definition* of
+the map rather than a *check* on it (the shape `Theory/Inductive/CompanionResolve.lean`'s
+`resolveC` argues for): `m₂` is `m₁` with exactly the block's constants inserted, so a
+`VInductDecl'` that under-reports its constructors cannot be paired with a constant map that
+contains them. -/
+theorem AddIndConsts.find?_of_not_mem {S cs m env m₂ env₂} {n : Name}
+    (H : AddIndConsts S cs m env m₂ env₂) (hwf : m.WF) (h : n ∉ cs.map (·.1)) :
+    m₂.find? n = m.find? n := by
+  induction H with
+  | nil => rfl
+  | @cons ci n₀ ci' cs m _ _ _ _ hname _ _ hfr _ _ ih =>
+    simp only [List.map_cons, List.mem_cons, not_or] at h
+    rw [ih (hwf.insert _ _ hfr) h.2, hwf.find?_insert]
+    simp [Ne.symm h.1]
+
+theorem AddInductStages.find?_of_not_mem {m₁ m₂ : ConstMap} {env₁ env₂ : VEnv}
+    {D : VInductDecl'} {n : Name}
+    (H : AddInductStages m₁ env₁ D m₂ env₂) (hwf : m₁.WF) (h : n ∉ D.allNames) :
+    m₂.find? n = m₁.find? n := by
+  simp only [VInductDecl'.allNames, VInductDecl'.allConsts, List.map_append,
+    List.mem_append, not_or] at h
+  obtain ⟨mt, et, mc, ec, e₃, h1, h2, h3, -⟩ := H
+  rw [h3.find?_of_not_mem (h2.map_wf (h1.map_wf hwf)) h.2,
+    h2.find?_of_not_mem (h1.map_wf hwf) h.1.2, h1.find?_of_not_mem hwf h.1.1]
+
+
+/-- The stages produce the very `addIndTypes` success `VInductDecl'.WF.ctors` is staged over. -/
+theorem AddInductStages.addIndTypes {m₁ m₂ : ConstMap} {env₁ env₂ : VEnv} {D : VInductDecl'}
+    (H : AddInductStages m₁ env₁ D m₂ env₂) : ∃ et, env₁.addIndTypes D = some et := by
+  obtain ⟨mt, et, mc, ec, e₃, h1, -, -, -⟩ := H
+  exact ⟨et, h1.to_addConstList⟩
 
 /-- Insert a whole block of definitions into the constant map. -/
 def insertDefs (C : ConstMap) (cis : List DefinitionVal) : ConstMap :=

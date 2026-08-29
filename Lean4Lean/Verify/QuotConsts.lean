@@ -1,4 +1,5 @@
 import Lean4Lean.Verify.InductFlip
+import Lean4Lean.Verify.TypeChecker.Reduce
 import Lean4Lean.Theory.Typing.Meta
 
 namespace Lean4Lean
@@ -788,6 +789,70 @@ theorem quotVEnv_venvEq_contents :
     (quotVEnv venvEq).constants ``Eq = some eqConst ∧
     (quotVEnv venvEq).defeqs quotDefEq :=
   ⟨rfl, rfl, rfl, rfl, rfl, .inl rfl⟩
+
+/-- **Non-vacuity for M2-at-`Quot`.**  `TrEnv.ruleFreeHead_quot`
+(`Verify/TypeChecker/Reduce.lean`) is fired at the §7 witness: a `quotInit = true`
+environment whose model really does carry a rule (`quotDefEq`), so the universally
+quantified statement is not quantifying over an empty `defeqs`.
+
+The `RuleFreeHead` side condition of `IsDefEqU.const_app_inv` is therefore *discharged*, not
+assumed, at exactly the environments `quotReduceRec` runs in. -/
+theorem quotInit_wit :
+    (markQuotInit ((((envEq.add quotCI).add quotMkCI).add quotLiftCI).add quotIndCI)).quotInit
+      = true := rfl
+
+theorem ruleFreeHead_quot_wit {safety : DefinitionSafety} :
+    (quotVEnv venvEq).RuleFreeHead ``Quot :=
+  TrEnv.ruleFreeHead_quot (safety := safety) trEnv_addQuot_wit quotInit_wit
+
+/-- …and the statement it discharges is not empty: the environment it is discharged at has a
+rule, and that rule is headed by `Quot.lift`, not `Quot`. -/
+theorem ruleFreeHead_quot_wit_nonvacuous :
+    (quotVEnv venvEq).defeqs quotDefEq ∧
+    VExpr.headConst? quotDefEq.lhs = some ``Quot.lift :=
+  ⟨.inl rfl, rfl⟩
+
+/-! ### The `quotInit = false` side: why `quotReduceRec.WF` needs its guard
+
+`quotReduceRec` (`Lean4Lean/Quot.lean`) dispatches on the head constant's *name* alone -- it
+never consults `quotInit`, and neither does `TrEnv'.axiom` consult names.  So a name the
+kernel treats as quotient machinery can be an ordinary axiom in a `quotInit = false`
+environment, while the model provably has no quotient rule (`TrEnv.not_quotDefEq`).  Both
+halves are machine-checked below.
+
+The axiom's *type* here is `eqStoredType`, reused verbatim from the `Eq` witness above:
+`TrConstant` never looks at the name, so the same `TrExprS` derivation serves. -/
+
+/-- An axiom named `Quot.lift` -- with a type that has nothing to do with quotients. -/
+def liftAx : AxiomVal :=
+  { name := ``Quot.lift, levelParams := [`u], type := eqStoredType `u, isUnsafe := false }
+
+def envLift : Environment := env0.add (.axiomInfo liftAx)
+
+def venvLift : VEnv := VEnv.empty.insertConst ``Quot.lift eqConst
+
+/-- **`TrEnv` admits it.**  Same three lines as `trEnv_envEq`; only the name changed. -/
+theorem trEnv_envLift {safety : DefinitionSafety} : TrEnv safety envLift venvLift := by
+  refine TrEnv'.axiom (ci := liftAx) (ci' := eqConst)
+    ⟨DefinitionSafety.le_safe, rfl, trExprS_eqStoredType⟩
+    (constants_env0_find? _) ⟨_, by type_tac⟩
+    (VEnv.addConst_eq_insertConst (by rfl))
+    (TrEnv'.empty constants_env0_wf constants_env0_find?)
+
+theorem envLift_quotInit : envLift.quotInit = false := rfl
+
+/-- **…and its model has no quotient rule**, so the postcondition of `quotReduceRec.WF` has
+nothing to appeal to on this environment.  `quotReduceRec` would nonetheless dispatch on the
+name `Quot.lift`.  That is why `quotReduceRec.WF` carries `hq : c.env.quotInit = true`. -/
+theorem venvLift_no_quotDefEq : ¬ venvLift.defeqs quotDefEq :=
+  TrEnv.not_quotDefEq (safety := .safe) trEnv_envLift envLift_quotInit
+
+/-- The kernel-side half, by computation: the constant really is in the map under the
+quotient name, as an axiom. -/
+theorem envLift_find? : envLift.find? ``Quot.lift = some (.axiomInfo liftAx) := by
+  have hw := constants_env0_wf.insert ``Quot.lift (.axiomInfo liftAx) (constants_env0_find? _)
+  show SMap.find?' (SMap.insert env0.constants ``Quot.lift (.axiomInfo liftAx)) _ = _
+  rw [hw.find?'_eq_find?, constants_env0_wf.find?_insert, if_pos (by simp)]
 
 end QuotWit
 

@@ -292,4 +292,82 @@ theorem trIndDecl_eq : TrIndDecl VEnv.empty [`u_1] 2 [eqIndTypeE] false eqIndDec
       match q, hc, hC with
       | 0, hc, hC => cases hc; cases hC; exact ⟨rfl, tr_eqRefl h⟩
 
+/-! ## The names a block may introduce
+
+Moved here from `Verify/Inductive/AddDeclWF.lean` §2, unchanged.  `Verify/Environment/InductR.lean`
+needs them for the nested repair and must not depend on the type-checker layer. -/
+
+/-- Every name a `Lean.Declaration.inductDecl` block can legitimately introduce: the type
+names, the constructor names, and `mkRecName` of each type name. -/
+def indDeclNames (types : List InductiveType) : List Name :=
+  types.map (·.name) ++ types.flatMap (·.ctors.map (·.name)) ++
+    types.map fun t => Lean.mkRecName t.name
+
+theorem exists_getElem?_of_lt {α} {l : List α} {j} (h : j < l.length) : ∃ a, l[j]? = some a :=
+  ⟨l[j], List.getElem?_eq_getElem h⟩
+
+/-- **`TrIndDecl` pins the block's names.**  Every name the abstract declaration introduces is
+one of the declaration's own — a type name, a constructor name, or `mkRecName` of a type
+name.  There is no room for an auxiliary constant. -/
+theorem TrIndDecl.mem_indDeclNames {env env₁ : VEnv} {Us : List Name} {np : Nat}
+    {types : List InductiveType} {iu : Bool} {D : VInductDecl'}
+    (h : TrIndDecl env Us np types iu D) (hst : env.addIndTypes D = some env₁)
+    {n : Name} (hn : n ∈ D.allNames) : n ∈ indDeclNames types := by
+  -- the type-name half, reused for the recursors
+  have htypes : ∀ (T : VIndType), T ∈ D.types → ∃ t ∈ types, t.name = T.name := by
+    intro T hT
+    obtain ⟨j, hj⟩ := List.mem_iff_getElem?.1 hT
+    have hlt : j < types.length := by
+      rw [h.length]; exact List.getElem?_eq_some_iff.1 hj |>.1
+    obtain ⟨t, ht⟩ := exists_getElem?_of_lt hlt
+    exact ⟨t, List.mem_iff_getElem?.2 ⟨j, ht⟩, (h.trType j t T ht hj).1⟩
+  simp only [VInductDecl'.allNames, VInductDecl'.allConsts, List.map_append,
+    List.mem_append] at hn
+  simp only [indDeclNames, List.mem_append]
+  rcases hn with (hn | hn) | hn
+  · -- a type name
+    simp only [VInductDecl'.typeConsts, List.map_map, List.mem_map, Function.comp] at hn
+    obtain ⟨T, hT, rfl⟩ := hn
+    obtain ⟨t, ht, hname⟩ := htypes T hT
+    exact .inl (.inl (List.mem_map.2 ⟨t, ht, hname⟩))
+  · -- a constructor name
+    simp only [VInductDecl'.ctorConsts, List.map_map, List.mem_map, Function.comp] at hn
+    obtain ⟨⟨j, C⟩, hjC, rfl⟩ := hn
+    obtain ⟨T, hT, hC⟩ := VInductDecl'.mem_ctorsAll hjC
+    have hlt : j < types.length := by
+      rw [h.length]; exact List.getElem?_eq_some_iff.1 hT |>.1
+    obtain ⟨t, ht⟩ := exists_getElem?_of_lt hlt
+    obtain ⟨q, hq⟩ := List.mem_iff_getElem?.1 hC
+    have hqlt : q < t.ctors.length := by
+      rw [h.trCtorsLen j t T ht hT]; exact List.getElem?_eq_some_iff.1 hq |>.1
+    obtain ⟨c, hc⟩ := exists_getElem?_of_lt hqlt
+    have hname : c.name = C.name := (h.trCtors env₁ hst j t T ht hT q c C hc hq).1
+    refine .inl (.inr (List.mem_flatMap.2 ⟨t, List.mem_iff_getElem?.2 ⟨j, ht⟩, ?_⟩))
+    exact List.mem_map.2 ⟨c, List.mem_iff_getElem?.2 ⟨q, hc⟩, hname⟩
+  · -- a recursor name
+    simp only [VInductDecl'.recConsts, List.map_map, List.mem_map, Function.comp] at hn
+    obtain ⟨⟨T, j⟩, hTj, rfl⟩ := hn
+    have hT : T ∈ D.types := by
+      have := List.mem_map_of_mem (f := Prod.fst) hTj
+      simpa using this
+    obtain ⟨t, ht, hname⟩ := htypes T hT
+    exact .inr (List.mem_map.2 ⟨t, ht, by rw [hname]⟩)
+
+/-- **The nested wall.**  If the checker's output map holds a name the declaration does not
+mention, then *no* `VInductDecl'` translating that declaration stands in `AddInductStages`
+between the two maps.
+
+Instantiated at `types := [T]` with `T.ctors = [T.mk]` and `n := `T.rec_1` this refutes the
+flipped `AddInduct` for the nested block of §4's second check. -/
+theorem TrIndDecl.not_addInductStages {env env₂ : VEnv} {Us : List Name} {np : Nat}
+    {types : List InductiveType} {iu : Bool} {D : VInductDecl'} {m₁ m₂ : ConstMap}
+    (h : TrIndDecl env Us np types iu D) (hwf : m₁.WF)
+    {n : Name} (h₁ : m₁.find? n = none) (h₂ : m₂.find? n ≠ none)
+    (hn : n ∉ indDeclNames types) :
+    ¬ AddInductStages m₁ env D m₂ env₂ := by
+  intro H
+  obtain ⟨et, hst⟩ := H.addIndTypes
+  exact h₂ <| by
+    rw [H.find?_of_not_mem hwf fun hm => hn (h.mem_indDeclNames hst hm), h₁]
+
 end Lean4Lean

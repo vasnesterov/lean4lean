@@ -24,44 +24,6 @@ open Kernel
 
 /-! ## 1. The stage lemmas the flip still lacks -/
 
-/-- Every constant a stage adds is present in the environment it produces. -/
-theorem AddIndConsts.constants_of_mem {S cs m env m₂ env₂} {n ci'}
-    (H : AddIndConsts S cs m env m₂ env₂) (h : (n, ci') ∈ cs) :
-    env₂.constants n = some ci' := by
-  induction H with
-  | nil => cases h
-  | cons _ _ _ _ hadd hrest ih =>
-    cases h with
-    | head => exact hrest.le.constants (VEnv.addConst_self hadd)
-    | tail _ h => exact ih h
-
-/-- **No extra entries.**  A stage changes the map only at the names of its own list.
-
-This is the anti-lie half of the relation, and it is what makes `AddInduct` a *definition* of
-the map rather than a *check* on it (the shape `Theory/Inductive/CompanionResolve.lean`'s
-`resolveC` argues for): `m₂` is `m₁` with exactly the block's constants inserted, so a
-`VInductDecl'` that under-reports its constructors cannot be paired with a constant map that
-contains them. -/
-theorem AddIndConsts.find?_of_not_mem {S cs m env m₂ env₂} {n : Name}
-    (H : AddIndConsts S cs m env m₂ env₂) (hwf : m.WF) (h : n ∉ cs.map (·.1)) :
-    m₂.find? n = m.find? n := by
-  induction H with
-  | nil => rfl
-  | @cons ci n₀ ci' cs m _ _ _ _ hname _ _ hfr _ _ ih =>
-    simp only [List.map_cons, List.mem_cons, not_or] at h
-    rw [ih (hwf.insert _ _ hfr) h.2, hwf.find?_insert]
-    simp [Ne.symm h.1]
-
-theorem AddInductStages.find?_of_not_mem {m₁ m₂ : ConstMap} {env₁ env₂ : VEnv}
-    {D : VInductDecl'} {n : Name}
-    (H : AddInductStages m₁ env₁ D m₂ env₂) (hwf : m₁.WF) (h : n ∉ D.allNames) :
-    m₂.find? n = m₁.find? n := by
-  simp only [VInductDecl'.allNames, VInductDecl'.allConsts, List.map_append,
-    List.mem_append, not_or] at h
-  obtain ⟨mt, et, mc, ec, e₃, h1, h2, h3, -⟩ := H
-  rw [h3.find?_of_not_mem (h2.map_wf (h1.map_wf hwf)) h.2,
-    h2.find?_of_not_mem (h1.map_wf hwf) h.1.2, h1.find?_of_not_mem hwf h.1.1]
-
 /-- The block's type constants, read off the composed stages. -/
 theorem AddInductStages.constants_of_type {m₁ m₂ : ConstMap} {env₁ env₂ : VEnv}
     {D : VInductDecl'} {T : VIndType} (H : AddInductStages m₁ env₁ D m₂ env₂)
@@ -94,12 +56,6 @@ so the whole constructor half of `WF` is discharged by `absurd`.
 This section machine-checks that `AddInduct`'s constructor closes that door: the relation
 *itself* provides the `addIndTypes = some _` that `WF.ctors` is waiting for, so the two
 premises of `TrEnv'.induct` are jointly non-vacuous rather than mutually excusing. -/
-
-/-- The stages produce the very `addIndTypes` success `VInductDecl'.WF.ctors` is staged over. -/
-theorem AddInductStages.addIndTypes {m₁ m₂ : ConstMap} {env₁ env₂ : VEnv} {D : VInductDecl'}
-    (H : AddInductStages m₁ env₁ D m₂ env₂) : ∃ et, env₁.addIndTypes D = some et := by
-  obtain ⟨mt, et, mc, ec, e₃, h1, -, -, -⟩ := H
-  exact ⟨et, h1.to_addConstList⟩
 
 /-- **`VInductDecl'.WF`'s constructor half is not vacuous under `AddInduct`.**
 

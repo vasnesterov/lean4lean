@@ -1,5 +1,5 @@
 import Lean4Lean.Verify.Bridge
-import Lean4Lean.Verify.Environment.Induct
+import Lean4Lean.Verify.Environment.InductR
 
 /-!
 # `addDecl.WF`'s `inductDecl` branch: why it is false, and what the true statement is
@@ -142,80 +142,19 @@ This is a different fact from "the declaration is not recoverable".  `Theory/Ind
 NestedBuild.lean` supplies the restored `VInductDecl'` as a construction; that closes the
 *declaration* side and leaves this one untouched, because the obstruction is on the
 constant-map side.  Either `AddInduct` grows a fourth stage for the auxiliary recursors, or
-`VInductDecl'` grows them; nothing else will do. -/
+`VInductDecl'` grows them; nothing else will do.
 
-/-- Every name a `Lean.Declaration.inductDecl` block can legitimately introduce: the type
-names, the constructor names, and `mkRecName` of each type name. -/
-def indDeclNames (types : List InductiveType) : List Name :=
-  types.map (·.name) ++ types.flatMap (·.ctors.map (·.name)) ++
-    types.map fun t => Lean.mkRecName t.name
+**RESOLVED.**  The repair is `AddInductStagesR` (`Verify/Environment/InductR.lean`): the
+first of the two shapes, taken from `Theory/Inductive/NestedHead.lean`'s `recConstsR`
+rather than invented here.  §2's refutation is unchanged and still true *of
+`AddInductStages`*; what changed is that `AddInductStages` is no longer the intended
+definition of `AddInduct`.  See `InductR.lean` for the invariant, the re-run and the witness.
 
-theorem exists_getElem?_of_lt {α} {l : List α} {j} (h : j < l.length) : ∃ a, l[j]? = some a :=
-  ⟨l[j], List.getElem?_eq_getElem h⟩
-
-/-- **`TrIndDecl` pins the block's names.**  Every name the abstract declaration introduces is
-one of the declaration's own — a type name, a constructor name, or `mkRecName` of a type
-name.  There is no room for an auxiliary constant. -/
-theorem TrIndDecl.mem_indDeclNames {env env₁ : VEnv} {Us : List Name} {np : Nat}
-    {types : List InductiveType} {iu : Bool} {D : VInductDecl'}
-    (h : TrIndDecl env Us np types iu D) (hst : env.addIndTypes D = some env₁)
-    {n : Name} (hn : n ∈ D.allNames) : n ∈ indDeclNames types := by
-  -- the type-name half, reused for the recursors
-  have htypes : ∀ (T : VIndType), T ∈ D.types → ∃ t ∈ types, t.name = T.name := by
-    intro T hT
-    obtain ⟨j, hj⟩ := List.mem_iff_getElem?.1 hT
-    have hlt : j < types.length := by
-      rw [h.length]; exact List.getElem?_eq_some_iff.1 hj |>.1
-    obtain ⟨t, ht⟩ := exists_getElem?_of_lt hlt
-    exact ⟨t, List.mem_iff_getElem?.2 ⟨j, ht⟩, (h.trType j t T ht hj).1⟩
-  simp only [VInductDecl'.allNames, VInductDecl'.allConsts, List.map_append,
-    List.mem_append] at hn
-  simp only [indDeclNames, List.mem_append]
-  rcases hn with (hn | hn) | hn
-  · -- a type name
-    simp only [VInductDecl'.typeConsts, List.map_map, List.mem_map, Function.comp] at hn
-    obtain ⟨T, hT, rfl⟩ := hn
-    obtain ⟨t, ht, hname⟩ := htypes T hT
-    exact .inl (.inl (List.mem_map.2 ⟨t, ht, hname⟩))
-  · -- a constructor name
-    simp only [VInductDecl'.ctorConsts, List.map_map, List.mem_map, Function.comp] at hn
-    obtain ⟨⟨j, C⟩, hjC, rfl⟩ := hn
-    obtain ⟨T, hT, hC⟩ := VInductDecl'.mem_ctorsAll hjC
-    have hlt : j < types.length := by
-      rw [h.length]; exact List.getElem?_eq_some_iff.1 hT |>.1
-    obtain ⟨t, ht⟩ := exists_getElem?_of_lt hlt
-    obtain ⟨q, hq⟩ := List.mem_iff_getElem?.1 hC
-    have hqlt : q < t.ctors.length := by
-      rw [h.trCtorsLen j t T ht hT]; exact List.getElem?_eq_some_iff.1 hq |>.1
-    obtain ⟨c, hc⟩ := exists_getElem?_of_lt hqlt
-    have hname : c.name = C.name := (h.trCtors env₁ hst j t T ht hT q c C hc hq).1
-    refine .inl (.inr (List.mem_flatMap.2 ⟨t, List.mem_iff_getElem?.2 ⟨j, ht⟩, ?_⟩))
-    exact List.mem_map.2 ⟨c, List.mem_iff_getElem?.2 ⟨q, hc⟩, hname⟩
-  · -- a recursor name
-    simp only [VInductDecl'.recConsts, List.map_map, List.mem_map, Function.comp] at hn
-    obtain ⟨⟨T, j⟩, hTj, rfl⟩ := hn
-    have hT : T ∈ D.types := by
-      have := List.mem_map_of_mem (f := Prod.fst) hTj
-      simpa using this
-    obtain ⟨t, ht, hname⟩ := htypes T hT
-    exact .inr (List.mem_map.2 ⟨t, ht, by rw [hname]⟩)
-
-/-- **The nested wall.**  If the checker's output map holds a name the declaration does not
-mention, then *no* `VInductDecl'` translating that declaration stands in `AddInductStages`
-between the two maps.
-
-Instantiated at `types := [T]` with `T.ctors = [T.mk]` and `n := `T.rec_1` this refutes the
-flipped `AddInduct` for the nested block of §4's second check. -/
-theorem TrIndDecl.not_addInductStages {env env₂ : VEnv} {Us : List Name} {np : Nat}
-    {types : List InductiveType} {iu : Bool} {D : VInductDecl'} {m₁ m₂ : ConstMap}
-    (h : TrIndDecl env Us np types iu D) (hwf : m₁.WF)
-    {n : Name} (h₁ : m₁.find? n = none) (h₂ : m₂.find? n ≠ none)
-    (hn : n ∉ indDeclNames types) :
-    ¬ AddInductStages m₁ env D m₂ env₂ := by
-  intro H
-  obtain ⟨et, hst⟩ := H.addIndTypes
-  exact h₂ <| by
-    rw [H.find?_of_not_mem hwf fun hm => hn (h.mem_indDeclNames hst hm), h₁]
+**The four declarations that stood here now live in `Verify/Environment/Induct.lean`**
+(`indDeclNames`, `exists_getElem?_of_lt`, `TrIndDecl.mem_indDeclNames`,
+`TrIndDecl.not_addInductStages`), unchanged, so that the *nested* repair
+(`Verify/Environment/InductR.lean`) can use them without importing the type-checker layer.
+This file re-exports them by importing that module. -/
 
 /-! ## 3. The obligation that replaces the `sorry`
 
@@ -230,7 +169,14 @@ safe non-nested block, and the work it needs is the obligation below.
 (`AddInductStages.find?_of_not_mem`), so a `VInductDecl'` that under-reports its constructors
 cannot be paired with the map the checker produced.  That is the shape
 `Theory/Inductive/Companion.lean`'s `fooComp_inconsistent` demands and the shape
-`fooComp_WFC` showed a re-staged *check* does not achieve. -/
+`fooComp_WFC` showed a re-staged *check* does not achieve.
+
+**SUPERSEDED for nested blocks.**  `InductStepSafe` is the non-nested obligation and stays
+as it is; its nested-aware generalisation is `InductStepNested`
+(`Verify/Environment/InductR.lean`), which replaces `AddInductStages` by `AddInductStagesR`,
+`TrIndDecl` by `TrIndDeclN`, and adds `∃ et, venv.addIndTypes D = some et` as an explicit
+vacuity guard on `VInductDecl'.WF.ctors`.  `TrIndDecl.toN` embeds this obligation's syntactic
+half into that one at `numNested = 0`. -/
 
 /-- **The `inductDecl` branch's real obligation, at one safety level, for a safe block.**
 
@@ -243,7 +189,7 @@ def InductStepSafe (m m' : ConstMap) (venv venv' : VEnv)
   ∃ D : VInductDecl',
     TrIndDecl venv lp np types false D ∧ D.WF venv ∧ AddInductStages m venv D m' venv'
 
-/-- The premises `TrEnv'.induct` consumes, once `AddInduct := AddInductStages`. -/
+/-- The premises `TrEnv'.induct` consumes, for a non-nested block. -/
 theorem InductStepSafe.induct_premises (h : InductStepSafe m m' venv venv' lp np types) :
     ∃ D : VInductDecl', D.WF venv ∧ AddInductStages m venv D m' venv' :=
   let ⟨D, _, hwf, hadd⟩ := h; ⟨D, hwf, hadd⟩
@@ -378,47 +324,6 @@ theorem addDecl_inductDecl_WF_false
 /-- `inductive U : Type where | unit : U`, as a kernel declaration. -/
 def uDecl : Declaration := .inductDecl [] 0 [R10.Wit.uIndType] false
 
-/-- `∀ (A : Type), A → Box A` -/
-def boxMkTypeE : Expr :=
-  .forallE `A (.sort 1) (.forallE `a (.bvar 0) (.app (.const `Box []) (.bvar 1)) .default)
-    .default
-
-/-- `inductive Box (A : Type) : Type where | mk : A → Box A` -/
-def boxIndType : InductiveType :=
-  { name := `Box, type := .forallE `A (.sort 1) (.sort 1) .default,
-    ctors := [{ name := `Box.mk, type := boxMkTypeE }] }
-
-/-- `Box T → T` -/
-def tMkTypeE : Expr :=
-  .forallE `b (.app (.const `Box []) (.const `T [])) (.const `T []) .default
-
-/-- `inductive T : Type where | mk : Box T → T` — a **nested** block: `Box T` is a nested
-occurrence, so elaboration introduces an auxiliary type `_nested.Box_1` and, with it, an
-auxiliary recursor that the final environment carries under the name `T.rec_1`. -/
-def tIndType : InductiveType :=
-  { name := `T, type := .sort 1, ctors := [{ name := `T.mk, type := tMkTypeE }] }
-
-def boxDecl : Declaration := .inductDecl [] 1 [boxIndType] false
-def tDecl : Declaration := .inductDecl [] 0 [tIndType] false
-
-/-- `T.rec_1` is not a name the `T` block declares. -/
-theorem trec1_not_declared : (`T.rec_1 : Name) ∉ indDeclNames [tIndType] := by
-  simp [indDeclNames, tIndType, Lean.mkRecName]
-
-/-- **The nested block refutes the flipped `AddInduct`.**  No `VInductDecl'` translating the
-`T` block stands in `AddInductStages` between a map without `T.rec_1` and one with it — and
-check B below verifies by evaluation that those are exactly the maps the checker produces.
-
-So the flip of `docs/handoff-addinduct.md` §6, even carried out in full, does **not** make
-`addDecl.WF`'s `inductDecl` branch true for a nested declaration.  The repair is on the
-constant-map side: a fourth `AddIndConsts` stage for the auxiliary recursors, or auxiliary
-recursors in `VInductDecl'`. -/
-theorem tBlock_not_addInductStages {env env₂ : VEnv} {D : VInductDecl'} {m₁ m₂ : ConstMap}
-    (h : TrIndDecl env [] 0 [tIndType] false D) (hwf : m₁.WF)
-    (h₁ : m₁.find? `T.rec_1 = none) (h₂ : m₂.find? `T.rec_1 ≠ none) :
-    ¬ AddInductStages m₁ env D m₂ env₂ :=
-  h.not_addInductStages hwf h₁ h₂ trec1_not_declared
-
 /- **Check A** (test, not a proof).  The checker accepts `uDecl` from the empty environment
 and the result holds a safe `.inductInfo` at `R10.Wit.U`.  With `VEnvs.trivial_WF` this is the
 missing premise of `addDecl_inductDecl_WF_false`. -/
@@ -429,21 +334,5 @@ missing premise of `addDecl_inductDecl_WF_false`. -/
     let some (.inductInfo v) := env'.constants.find? `R10.Wit.U
       | throwError "check A: R10.Wit.U is not an inductInfo in the output map"
     unless v.isUnsafe = false do throwError "check A: U came out unsafe"
-
-/- **Check B** (test, not a proof).  The nested block `T` adds `T.rec_1` — a recursor whose
-name is `mkRecName` of no type the block declares — so `tBlock_not_addInductStages`'s premises
-are met by the checker's own output. -/
-#eval show Lean.CoreM Unit from do
-  let e0 := Kernel.Environment.empty `main
-  let .ok e1 := Lean4Lean.addDecl e0 boxDecl (check := true)
-    | throwError "check B: the checker rejected the Box block"
-  let .ok e2 := Lean4Lean.addDecl e1 tDecl (check := true)
-    | throwError "check B: the checker rejected the nested T block"
-  unless (e1.constants.find? `T.rec_1).isNone do
-    throwError "check B: T.rec_1 was already present before the T block"
-  unless (e2.constants.find? `T.rec_1).isSome do
-    throwError "check B: the nested block did NOT add T.rec_1 -- the finding has regressed"
-  let some (.inductInfo v) := e2.constants.find? `T | throwError "check B: T missing"
-  unless v.numNested = 1 do throwError "check B: T is not nested"
 
 end Lean4Lean

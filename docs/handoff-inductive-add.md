@@ -1,333 +1,350 @@
-# Handoff: the inductive side — the sorry inventory, the false branch, and the nested wall
+# Handoff: the inductive side — the nested constant-map repair, and the one blocker left
 
-Scope: the five `sorry`s the brief assigned to this stream, the `AddInduct` flip's true file
-set, `addDecl.WF`'s `inductDecl` branch, and the safety gate.
-
-New file, owned: **`Lean4Lean/Verify/Inductive/AddDeclWF.lean`** (42 declarations, 0
-`sorryAx`, axioms `propext`/`Classical.choice`/`Quot.sound` only).
-Edited, owned: `Lean4Lean/Verify/Environment/Lemmas.lean` (one statement corrected, §5.2).
-
-Build state at the end of this stream: `lake build Lean4Lean Lean4Lean.Verify
-Lean4Lean.Theory` green, 1292 jobs, no new `sorry`, no new axiom, no frozen file touched.
+Successor to the previous revision of this file (the `sorry` inventory, the false
+`inductDecl` branch, and the nested wall).  §§0–4 are this round; §§5–8 carry forward the
+parts of the previous revision that are still true, corrected where they are not.
 
 Everything below is either **[MC]** machine-checked (a Lean proof in this tree, named), **[EV]**
 checked by evaluation (a `#eval` that fails the build on regression — a test, not a proof), or
 **[SRC]** read off source without a proof.
 
+**Build state.** `lake build Lean4Lean Lean4Lean.Verify Lean4Lean.Theory` green, 1299 jobs.
+`lake build Lean4Lean.Verify.Guard`: guard 1 ✓, guard 2 ✓ (proof INCOMPLETE, unchanged),
+guard 3 ✓ (54/54, unchanged).  `lake env lean scripts/sorry-census.lean` → **21**, unchanged.
+No `sorry` added, no frozen file touched.
+
+**Files.**
+New, owned: **`Lean4Lean/Verify/Environment/InductR.lean`** (939 lines, **76 declarations, 0
+`sorryAx`-tainted**, axioms `propext`/`Classical.choice`/`Quot.sound` only).
+Edited, owned: `Verify/Environment/Basic.lean`, `Verify/Environment/Induct.lean`,
+`Verify/InductFlip.lean`, `Verify/Inductive/AddDeclWF.lean` — the last three only by moving
+declarations (unchanged text) plus docstring corrections; §7 has the ledger.
+
 ---
 
 ## 0. The headline
 
-**(a) The five `sorry`s do not exist.**  There is no `sorry` in any file this stream owns —
-not in `Verify/Inductive/Add.lean`, not in `Verify/InductFlip.lean`, not in
-`Verify/Environment/{Basic,Lemmas,Induct}.lean`.  §1 has the measurement.
+**The nested wall is down on the constant-map side, and the remaining blocker is one rule in
+one file this stream does not own.**
 
-**(b) The flip does not fix the nested case, and the obstruction is not the one the tree
-records.**  `Verify/Environment/Induct.lean` says nested blocks are outside `TrIndDecl`
-because the declaration is not recoverable.  That is true and beside the point: the checker's
-nested path adds a recursor constant (`T.rec_1`) that **no** `VInductDecl'` translating the
-block can name, so `AddInductStages` — the flip's intended `AddInduct` — is *refuted*, not
-merely unproved, for a nested block.  `Theory/Inductive/NestedBuild.lean` closes the
-declaration side and leaves this one untouched, because the obstruction is on the
-constant-map side.
+* `AddInductStages` — the previously intended definition of `AddInduct` — is still refuted for
+  a nested block.  That theorem (`TrIndDecl.not_addInductStages`, `tBlock_not_addInductStages`)
+  is unchanged and still true **[MC]**.  What changed is that `AddInductStages` is no longer
+  what `AddInduct` should be.
+* The repair is **`AddInductStagesR`**: the same three folds, run over
+  `VInductDecl'.typeConstsC K`, `ctorConstsCR R K` and `recConstsR R` — the constant lists of
+  `VEnv.addInductR`, which `Theory/Inductive/NestedHead.lean` already carries with the recursor
+  renaming `R.recName` threaded through.  No second mechanism was invented.
+* The invariant is proved: **every constant the step adds to the map is one the translated
+  declaration accounts for** (`TrIndDeclN.mem_indDeclNamesN` ∘
+  `AddInductStagesR.find?_of_not_mem`, composed as `InductStepNested.find?_of_not_mem`) **[MC]**.
+* The refutation re-run: `T.rec_1 ∈ indDeclNamesN [tIndType] 1` **[MC]**, so
+  `TrIndDeclN.not_addInductStagesR` is inapplicable to the block that produced the finding;
+  three negative controls show it still bites everywhere else **[MC]**; and the checker's own
+  added-name set for that block is *exactly* `indDeclNamesN [tIndType] 1` **[EV]**.
+* Non-vacuity: `InductStepNested` has a model at a real nested block with every environment
+  side condition discharged — `inductStepNested_wit_closed` **[MC]** — with `NFn.rec_1`
+  landing in the output map and
+  `NFn.rec`/`NFn.rec_1`'s *stored kernel types* translating to the abstract ones.
 
-* `tBlock_not_addInductStages` **[MC]** — for the concrete nested block `inductive T | mk :
-  Box T → T`, no `D` with `TrIndDecl … [tIndType] false D` stands in `AddInductStages`
-  between a map without `T.rec_1` and one with it.
-* check B in `AddDeclWF.lean` §4 **[EV]** — the checker's own output *is* such a pair of maps
-  (`T.rec_1` absent before, present after, `T.numNested = 1`).
-
-**(c) `Aligned.addInduct`'s statement was false, not weak** — and it is in an owned file, so
-it is fixed.  See §5.2.  `docs/handoff-addinduct.md` §1.1 filed it under "statements that stay
-true after the flip"; it does not.
-
----
-
-## 1. The sorry inventory
-
-Measured, not grepped: transitive `sorryAx` reachability over the whole environment's
-`getUsedConstantsAsSet` graph (the `deps` function of `scripts/cone-measure.lean`, with the
-`.thmInfo` / `allowOpaque := true` trap handled), reverse-BFS from `sorryAx`.
-
-| module | declarations | `sorryAx`-tainted | written `sorry`s |
-|---|---|---|---|
-| `Verify/Inductive/Add.lean` | 214 | **5** | 0 |
-| `Verify/InductFlip.lean` | 51 | 0 | 0 |
-| `Verify/Inductive/AddDeclWF.lean` (new) | 42 | 0 | 0 |
-| `Verify/Environment/Basic.lean` | 109 | 0 | 0 |
-| `Verify/Environment/Lemmas.lean` | 60 | 0 | 0 |
-| `Verify/Environment/Induct.lean` | 31 | 0 | 0 |
-
-The five tainted declarations in `Verify/Inductive/Add.lean` **[MC]**:
-
-`AddInductive.M.WF.ensureType`, `.whnf`, `.field_step`, `.elim_field_step`, `.positivity_none`.
-
-All five are tainted *by inheritance*, through
-`TypeChecker.{ensureType,checkType,isDefEq,whnf}.WF`, i.e. through the five declared `sorry`s
-in `Verify/TypeChecker/{InferType,IsDefEq,WHNF}.lean` — another stream's files.  Nothing in
-this stream's files adds taint, and there is nothing here to close: closing them is the
-type-checker stream's work.
-
-The brief's "4 `sorry`s in `Add.lean`, 1 in `InductFlip.lean`" is a stale relay.  The most
-likely origin is this table's middle column read as the left one.
+**The one blocker left, exactly** (§5): `TrEnv'.wf` feeds `AddInduct.to_addInduct` to
+`VDecl.WF.induct` (`Theory/Typing/Env.lean`), whose second hypothesis is
+`env.addInduct' decl = some env'`.  A nested step gives `env.addInductR D K R = some env'`
+instead.  That rule must become `VEnv.AddNestedB`, which needs the declaration history `ds`
+that `VDecl.WF` does not carry.  `Theory/Typing/Env.lean` is another stream's file; the edit is
+stated in §5 and **not made**.
 
 ---
 
-## 2. `addDecl.WF`'s `inductDecl` branch
+## 1. `AddInductStagesR` and its invariant
 
-### 2.1 It is false, and here is the proof obligation split
-
-`Verify/Environment.lean:248` carries `| inductDecl _ _ _ _ => sorry` against the uniform
-postcondition
+### 1.1 The definition
 
 ```lean
-fun env' => ∃ ves' : VEnvs, ves'.WF env' ∧ ∀ safety, ves.venv safety ≤ ves'.venv safety
+def AddInductStagesR (m₁ : ConstMap) (env₁ : VEnv) (D : VInductDecl')
+    (K : List Name) (R : VIndRestore) (m₂ : ConstMap) (env₂ : VEnv) : Prop :=
+  ∃ mt et mc ec e₃,
+    AddIndConsts (fun ci => ∃ v, ci = .inductInfo v) (D.typeConstsC K)      m₁ env₁ mt et ∧
+    AddIndConsts (fun ci => ∃ v, ci = .ctorInfo v)   (D.ctorConstsCR R K)   mt et mc ec ∧
+    AddIndConsts (fun ci => ∃ v, ci = .recInfo v)    (D.recConstsR R)       mc ec m₂ e₃ ∧
+    env₂ = e₃.addIndRulesR D R
 ```
 
-* `addDecl_inductDecl_post_false` **[MC]** — that postcondition is `False` at any `env'` whose
-  map holds an `.inductInfo` (one line from `VEnvs.WF.no_inductInfo`).
-* `addDecl_inductDecl_WF_false` **[MC]** — therefore the branch is refuted outright, *given*
-  that the checker accepts one inductive declaration from one modelled environment.
-* check A **[EV]** — it does: `addDecl (Kernel.Environment.empty `main) uDecl` with `uDecl =
-  inductive U : Type | unit : U` returns `.ok`, and the output map holds a safe `.inductInfo`
-  at `R10.Wit.U`.  `Bridge.hasEmptyModel` supplies the `ves.WF env` side.
+`K` names the auxiliary members: their type constants and constructors are **not** declared
+(`typeConstsC`/`ctorConstsCR` filter them out), but their recursors **are**, under
+`R.recName (mkRecName ·)` — which is exactly `mkAuxRecNameMap`'s renaming.  That third stage
+is the whole repair.
 
-Why check A is a test and not a proof: `addDecl` does not reduce in the kernel.  `by rfl` on
-`isOkB (addDecl (Environment.empty `main) uDecl)` fails in two seconds, at an irreducible
-head, so short of `native_decide` — which `Verify/Guard.lean` forbids — there is no way to
-make it one.  This is recorded so the next stream does not spend the attempt again.
+Proved about it, all **[MC]**: `to_addInductR` (discharges into `VEnv.addInductR` as
+`AddInductStages.to_addInduct` discharges into `addInduct'`), `.le`, `.map_wf`, `.find?_shape`,
+`.defeqs`, `.find?_of_not_mem`, `.addIndTypesC`.
 
-### 2.2 There is no branch-local restatement
+**Conservativity** **[MC]**: `AddInductStages.toR` and `AddInductStagesR.of_addInductStages` —
+at `K = []`, `R = D.idRestore`, `D.Canonical`, the new relation *is* the old one.  So nothing
+proved about the non-nested case is given up; this is a generalisation, not a rival.
 
-`addDecl.WF`'s conclusion is uniform across the constructors of `Declaration`.  One cannot
-weaken the `inductDecl` arm and leave the others alone: what must change is a definition the
-postcondition quantifies over, and the minimal such change is `AddInduct`'s.  With
-`AddInduct := AddInductStages`, the branch's statement is **true as written** for a safe,
-non-nested block, and the work it needs is the obligation of §2.3.  For the other two shapes
-the statement stays false however `AddInduct` is defined, for reasons §3 and §0(b) give.
-
-### 2.3 The obligation that replaces the `sorry`
-
-In `AddDeclWF.lean` §3, and it elaborates, so the shape is checked rather than described:
+### 1.2 The names, and why they are a function of the declaration
 
 ```lean
-def InductStepSafe (m m' : ConstMap) (venv venv' : VEnv)
-    (lp : List Name) (np : Nat) (types : List InductiveType) : Prop :=
-  ∃ D : VInductDecl',
-    TrIndDecl venv lp np types false D ∧ D.WF venv ∧ AddInductStages m venv D m' venv'
+def auxRecName (types : List InductiveType) (k : Nat) : Name :=
+  Lean4Lean.appendIndexAfter' (Lean.mkRecName (types.headD default).name) (k + 1)
 
-def AddInductiveObligation : Prop :=
-  ∀ {env : Environment} {ves : VEnvs}, ves.WF env →
-    ∀ (lp : List Name) (np : Nat) (types : List InductiveType) (ap : Bool) (fuel : FuelConfig),
-      (Environment.addInductive env lp np types false ap fuel).WF fun env' =>
-        env'.quotInit = env.quotInit ∧
-        ∃ ves' : VEnvs, ∀ safety,
-          InductStepSafe env.constants env'.constants (ves.venv safety) (ves'.venv safety)
-            lp np types
+def indDeclNamesN (types : List InductiveType) (numNested : Nat) : List Name :=
+  indDeclNames types ++ (List.range numNested).map (auxRecName types)
 ```
 
-Three conjuncts, none redundant: `TrIndDecl` says the abstract declaration describes the
-syntax the user wrote, `VInductDecl'.WF` says it is a legitimate declaration,
-`AddInductStages` says the checker's output map and the abstract environment are the ones
-that declaration builds.
+That is `mkAuxRecNameMap` (`Lean4Lean/Inductive/Add.lean:898`) read back **[SRC]**: it renames
+`mkRecName indName` to `appendIndexAfter' (mkRecName types[0].name) k` for
+`k = 1 … numNested`, over `mainInfo.all.drop types.length`.  `indDeclNamesN_zero` **[MC]** says
+the list collapses to `indDeclNames` at `numNested = 0`.
 
-It is a **definition of the output map, not a check on it** — the shape
-`Theory/Inductive/Companion.lean`'s `fooComp_inconsistent` demands and `fooComp_WFC` showed a
-re-staged check does not achieve.  `InductStepSafe.find?_of_not_mem` **[MC]** is that
-property at the level the branch consumes it: outside `indDeclNames types` the map is
-unchanged, so a `VInductDecl'` that under-reports its constructors cannot be paired with the
-map the checker produced.
+The point of the shape: the extra names depend only on `types` and `numNested`, so the
+invariant does not go slack.  §3's negative controls check that.
 
-Supporting lemmas, all **[MC]**: `InductStepSafe.induct_premises` (exactly what `TrEnv'.induct`
-consumes post-flip), `.le`, `.map_wf`, `.find?_of_not_mem`.
+### 1.3 `TrIndDeclN`: the translation, with the name discipline
 
-### 2.4 Non-vacuity: the obligation has a model
+`TrIndDecl` (`Verify/Environment/Induct.lean`) with three additions, all of them *name*
+discipline — the semantic content stays in `VInductDecl'.WF`:
 
-`R10.Wit` supplied `decl.WF VEnv.empty` and `AddInductStages` but never the *syntactic* half,
-so the two had never been joined.  They are joined now:
+| clause | content |
+|---|---|
+| `length` | `D.types.length = types.length + numNested` — the auxiliary members are appended after the user's.  `ElimNestedInductive` **pushes** them onto `newTypes`, which starts as `types.toArray` (`Add.lean:855`, `:933`) **[SRC]**, and check C corroborates **[EV]**. |
+| `companions` | `∀ j T, D.types[j]? = some T → (T.name ∈ K ↔ types.length ≤ j)` — **`K` is exactly the auxiliary tail**.  Left-to-right stops a user member being dropped from the map; right-to-left makes the auxiliary members undeclared. |
+| `recName_own` | a member the user wrote keeps its recursor name |
+| `recName_aux` | `R.recName (mkRecName T.name) = auxRecName types (j - types.length)` — `mkAuxRecNameMap`, as a clause |
 
-* `R10.Wit.trIndDecl_wit : TrIndDecl VEnv.empty [] 0 [uIndType] false decl` **[MC]**
-* `R10.Wit.inductStepSafe_wit` **[MC]** — for any well-formed empty constant map,
-  `∃ m' venv', InductStepSafe m m' VEnv.empty venv' [] 0 [uIndType]`.
+plus `TrIndCtorR`, which compares against `R.ctorName C.name` and against the **restored**
+stored type `C.typeR D R j` — the type `Environment.addInductive` actually publishes, after
+`restoreNested` rewrote the auxiliary heads back.  `trCtors` is staged over
+`env.addIndTypesC D K`, which is exactly the environment `AddInductStagesR`'s first stage
+produces.
 
-So `AddInductiveObligation` is not vacuously satisfiable-looking; its per-safety body has a
-closed instance at a real one-constructor block, with the constructor obligation discharged by
-a `VIndCtor.WF` rather than dodged by `absurd`.
+`TrIndDecl.toN` **[MC]**: at `numNested = 0`, `K = []`, `R = D.idRestore` (and `D.Canonical`),
+`TrIndDecl` gives `TrIndDeclN`.  Conservativity on the syntactic side.
 
----
+### 1.4 The invariant, stated
 
-## 3. The safety gate: wired on the abstract side, blocked on the flip
+> **Every constant the step adds to the map is one the translated declaration accounts for.**
 
-`AddIndConsts.cons` carries `TrConstant .safe`, and `AddIndConsts.find?` already turns that
-into `ci.safety = .safe`.  `docs/handoff-addinduct.md` §3 calls that "the whole gate, and it
-is already written".  It *was* written, but only in `ConstantInfo.safety`'s vocabulary, never
-in the checker's, which is `InductiveVal.isUnsafe`.  Reading it back is §1 of the new file:
+Two halves, both **[MC]**:
 
-* `ConstantInfo.safety_ctorInfo`, `.safety_recInfo` **[MC]** (the `.inductInfo` case already
-  existed in `Verify/EqSafety.lean`)
-* `AddInductStages.inductInfo_not_unsafe`, `.ctorInfo_not_unsafe`, `.recInfo_not_unsafe`
-  **[MC]** — any constant of the three shapes that `AddInductStages` *introduces* (as opposed
-  to one already in the map) has `isUnsafe = false`.
+* `AddInductStagesR.find?_of_not_mem` — outside `D.allNamesCR R K`, `m₂.find? n = m₁.find? n`.
+  Inherited from `AddIndConsts.find?_of_not_mem`, which is list-generic.  This is what makes
+  the relation a **definition of the output map**, not a check on it.
+* `TrIndDeclN.mem_indDeclNamesN` — `D.allNamesCR R K ⊆ indDeclNamesN types numNested`.
 
-**What blocks the wiring**: nothing but the flip.  `TrEnv'.induct` is the only consumer, and
-it takes `AddInduct`, which is empty.  The gate is therefore complete and inert; the flip
-turns it on, and §4 says exactly which files the flip needs.
-
-### 3.1 The hole the gate does not close, and the flip does not either
-
-`unsafe_induct_unreachable` **[MC]** states both halves in one theorem:
-
-1. `AddInductStages` never introduces an unsafe `.inductInfo`, so a flipped `TrEnv'.induct`
-   cannot take an unsafe block at *any* safety level;
-2. `∀ ci, .unsafe ≤ ci.safety`, so `TrEnv'.ignore`'s premise `¬ safety ≤ ci.safety` fails for
-   every constant at `safety = .unsafe` and `ignore` cannot take it either.
-
-So `TrEnv' .unsafe` has no rule at all for an unsafe inductive, before or after the flip, and
-`addDecl.WF`'s `inductDecl` branch is false at `isUnsafe = true` for that reason alone.  Two
-files still carry the false claim that "unsafe blocks are taken by `TrEnv'.ignore` instead"
-(`Theory/Inductive/Decl.lean`'s R10 handover; `Verify/Environment/Induct.lean`'s `TrIndDecl.safe`
-docstring already carries the correction).
-
-Closing it is a **design decision, not a proof obligation**, and it is independent of
-`AddInduct`.  Two shapes:
-
-* a `TrEnv'` rule that is the inductive analogue of `unsafeDef` — admit the block's constants
-  without a positivity witness, gated on a member being unsafe.  This needs a matching
-  `VDecl`, i.e. Theory-side work; note the recursor types of a non-nested block are *not*
-  `checkType`d by `Environment.addInductive` **[SRC]** (only the nested path re-checks them),
-  so `VDecl.axiom`'s `ci.WF env` premise is not free.
-* or a `VEnvs.WF` that does not demand a model at `.unsafe`.  Nothing downstream of
-  `addDecl.WF` consumes the `.unsafe` model — `Bridge.foldAddDecl_tr` takes `.safe` **[SRC]** —
-  but `addMutual.WF` uses `wf.toVEnvAt v₀.safety` while checking an unsafe block **[SRC]**, so
-  this is a real trade, not free.
+Composed: `InductStepNested.find?_of_not_mem`.  `InductStepNested.find?_shape` carries the
+safety gate (`AddDeclWF.lean` §1) through unchanged: every constant the step declares is one of
+the three inductive shapes and is `safe`-tagged.
 
 ---
 
-## 4. The flip: assessment with current ownership
+## 2. `InductStepNested`: the obligation, and two corrections it embodies
 
-**Verdict: still not landable within this stream's files.  Do not half-land it.**
+```lean
+def InductStepNested (m m' : ConstMap) (venv venv' : VEnv)
+    (lp : List Name) (np : Nat) (types : List InductiveType) (numNested : Nat) : Prop :=
+  ∃ (D : VInductDecl') (K : List Name) (R : VIndRestore),
+    TrIndDeclN venv lp np types false numNested D K R ∧
+    (∃ et, venv.addIndTypes D = some et) ∧
+    D.WF venv ∧
+    AddInductStagesR m venv D K R m' venv'
+```
 
-The 2-of-7 ownership split of `docs/handoff-addinduct.md` §6 has changed but not enough.  The
-current, re-measured file set:
+**Correction 1 — it is `WF`, not `WFC`.**  The first draft of this obligation used
+`VInductDecl'.WFC venv K` (`Theory/Inductive/CompanionResolve.lean`'s G1 re-staging).  That is
+**wrong here** and does not typecheck at the witness.  `D` is the *auxiliary* block, and
+`AddInductive.run` checks it in a scratch environment where **all** its type constants,
+auxiliary ones included, are declared — which is `WF.ctors`' staging (`env.addIndTypes D`), not
+`WFC.ctors`' (`addIndTypesC D K`, where a companion member's own constructor type is not even
+well-formed).  `WFC` exists for the *other* companion shape: a block re-declaring a type
+already in the environment (`fooCompDecl`).  The nested path never does that — `mkUniqueName`
+gives the auxiliary members fresh `_nested.*` names.  This matches `VEnv.AddNestedB`, which
+also takes `D.WF env`.
+
+**Correction 2 — the vacuity guard has to be a conjunct.**  `WF.ctors`' premise is
+`env.addIndTypes D = some env₁`, which is `none` on a name collision; that is precisely the
+mechanism by which `fooComp_WF` holds vacuously and `fooComp_inconsistent` bites.
+`AddInductStagesR` does **not** supply it (it only declares the non-companion types — that is
+the whole point of `typeConstsC`).  So the success is an explicit conjunct, and
+`InductStepNested.ctors_nonvacuous` **[MC]** reads it back as an inhabited obligation.  The
+non-nested `InductStepSafe` got this for free from `AddInductStages.addIndTypes`; the nested
+one does not, and silently keeping the old shape would have re-opened the `fooComp` hole.
+
+Also **[MC]**: `.le`, `.map_wf`, `.find?_of_not_mem`, `.find?_shape`, `.induct_premises`.
+
+---
+
+## 3. The refutation, re-run
+
+`tBlock_not_addInductStages` (now in `InductR.lean`, text unchanged) says: for
+`inductive Box (A : Type) | mk : A → Box A` then `inductive T | mk : Box T → T`, no `D` with
+`TrIndDecl … [tIndType] false D` stands in `AddInductStages` between a map without `T.rec_1`
+and one with it.  **Still true, still proved.**
+
+Its nested-aware counterpart is `TrIndDeclN.not_addInductStagesR`, with side condition
+`n ∉ indDeclNamesN types numNested`.  At the block:
+
+| name | statement | verdict |
+|---|---|---|
+| `trec1_mem_indDeclNamesN` **[MC]** | `T.rec_1 ∈ indDeclNamesN [tIndType] 1` | **the wall is gone** — the side condition is `False`, so the refutation is inapplicable |
+| `tBlock_not_refuted_at_trec1` **[MC]** | the same, packaged with every other hypothesis of the refutation available | there is no derivation of `¬ AddInductStagesR` by this route |
+| `trec1_not_mem_indDeclNamesN_zero` **[MC]** | `T.rec_1 ∉ indDeclNamesN [tIndType] 0` | **negative control**: at `numNested = 0` the wall is intact.  The repair is gated on `numNested`, not a blanket permission. |
+| `trec2_not_mem_indDeclNamesN` **[MC]** | `T.rec_2 ∉ indDeclNamesN [tIndType] 1` | **negative control**: a *second* auxiliary recursor is still refuted at `numNested = 1` |
+| `foo_not_mem_indDeclNamesN` **[MC]** | `Foo ∉ indDeclNamesN [tIndType] n`, for every `n` | **negative control**: the auxiliary family does not leak; the map is still pinned outside the block.  Via `auxRecName_tIndType`, which computes the family to `T.rec_1, T.rec_2, …`. |
+
+And against the checker itself:
+
+* **check C** **[EV]** — the set of constants `addDecl` adds for the `T` block is **exactly**
+  `indDeclNamesN [tIndType] 1`.  Measured: `added = [T.mk, T.rec_1, T, T.rec]`,
+  `expected = [T, T.mk, T.rec, T.rec_1]`.  Both inclusions are checked, so the name list is a
+  *definition* of the added set, not a permissive over-approximation.
+* **check C′** **[EV]** — and `indDeclNamesN [tIndType] 0` does **not** cover it, so check C is
+  not vacuous and the original finding has not regressed.
+* **check D** **[EV]** — the shapes: `T ↦ .inductInfo`, `T.mk ↦ .ctorInfo`,
+  `T.rec, T.rec_1 ↦ .recInfo`, all `isUnsafe = false`, all with `all = [T]`.  That is
+  `find?_shape` plus the safety gate, at a block with an auxiliary recursor.
+
+---
+
+## 4. Non-vacuity: a closed model at a real nested block
+
+The witness is `Theory/Inductive/NestedBuild.lean` §6's block, which already had the
+declaration side and Lean-kernel cross-checks and lacked only the constant map:
+
+```
+inductive PFn (α : Type) | mk : α → (Prop → α) → PFn α
+inductive NFn            | node : PFn NFn → NFn
+```
+
+with `nfnAux`/`nfnK`/`nfnRestore` the auxiliary block, restoration and companion list, and
+`nfnAux_WF` already proved (in *any* environment, with `binders_indep` discharged by the
+substitution theorem rather than by emptiness).
+
+The three constant lists, by `rfl` **[MC]** — read them:
+
+```lean
+nfnAux.typeConstsC nfnK          = [(NFn,      ⟨0, Sort 1⟩)]
+nfnAux.ctorConstsCR nfnRestore nfnK = [(NFn.node, ⟨0, nfnNode.typeR nfnAux nfnRestore 0⟩)]
+nfnAux.recConstsR nfnRestore     = [(NFn.rec,   ⟨1, recTypeR … 0⟩),
+                                    (NFn.rec_1, ⟨1, recTypeR … 1⟩)]
+```
+
+One type constant, one constructor constant — the companion `_nested.PFn_1` and its
+constructor `_nested.PFn_1.mk` are declared nowhere — and **two** recursors, the second
+renamed.  That is the finding, accommodated.
+
+| name | content |
+|---|---|
+| `tr_nodeType`, `tr_recType0`, `tr_recType1` **[MC]** | Lean's **stored** types for `NFn.node`, `NFn.rec` and `NFn.rec_1` translate (`TrExprS`) to `typeR`/`recTypeR … 0`/`recTypeR … 1`.  The `Expr` side is spliced from the kernel by `exprOf%` — the `Expr`-side counterpart of `Theory/Meta.lean`'s `vconst(type_of% …)` — so it cannot drift from a hand transcription. |
+| `trIndDeclN_wit` **[MC]** | the syntactic half, including `recName_aux`: `nfnRestore.recName (mkRecName _nested.PFn_1) = auxRecName [nfnIndType] 0 = NFn.rec_1` |
+| `addInductStagesR_wit` **[MC]** | all four stages fire; the output map holds `.recInfo` at `NFn.rec` **and at `NFn.rec_1`**, and holds **nothing** at `_nested.PFn_1` |
+| `inductStepNested_wit` **[MC]** | the join: `TrIndDeclN` ∧ `addIndTypes` success ∧ `nfnAux_WF` ∧ `AddInductStagesR`, at one block |
+| `inductStepNested_wit_closed` **[MC]** | the same with **no hypotheses on the environment** beyond the declaration history (`VEnv.empty.addInduct' pfnDecl = some env₂`) and any well-formed empty constant map — the freshness side conditions are discharged, not assumed |
+
+So all three conjuncts of `InductStepNested` meet at one nested block, with `NFn.rec_1` in the
+output map, and the `WF` conjunct is a real obligation rather than an `absurd`.
+
+---
+
+## 5. The blocker, stated exactly (and not acted on)
+
+`TrEnv'.induct` is consumed by `TrEnv'.wf` / `TrEnv'.wf_noUnsafe`
+(`Verify/Environment/Basic.lean`, owned) as
+
+```lean
+| induct h1 h2 _ ih => have ⟨_, H⟩ := ih; exact ⟨_, H.decl <| .induct h1 h2.to_addInduct⟩
+```
+
+and `VDecl.WF.induct` (`Theory/Typing/Env.lean:46`, **not owned**) is
+
+```lean
+  | induct :
+    decl.WF env →
+    env.addInduct' decl = some env' →
+    VDecl.WF env (.induct decl) env'
+```
+
+With `AddInduct := fun m₁ env₁ D m₂ env₂ => ∃ K R, AddInductStagesR m₁ env₁ D K R m₂ env₂`,
+`to_addInduct` yields `∃ K R, env₁.addInductR decl K R = some env₂`.  For a nested block that
+is **not** `addInduct'` of any `VInductDecl'` — the constant lists differ by construction — so
+the rule has to be generalised.
+
+**What it must be generalised to, and why not the obvious thing.**  Replacing the hypothesis by
+`∃ K R, env.addInductR decl K R = some env'` is *unsound*: with `K` and `R` free, a step could
+drop constants or rename them arbitrarily.  The sound form is `VEnv.AddNestedB`
+(`Theory/Inductive/NestedBuild.lean`), which pins them via `D.Built R K ds env occ` — and that
+quantifies over the declaration **history** `ds`, which `VDecl.WF env d env'` does not carry
+(`VEnv.WF'` does).  So the change is at the `VDecl.WF`/`VEnv.WF'` boundary, which is a design
+decision in another stream's file.  `docs/handoff-nested-build.md` §10 item 4 is the same item
+seen from the Theory side, and it says the same thing: *`AddNestedB` should be the clause, with
+`AddNestedB.toAddNested` bridging.*
+
+**Nothing was edited in `Theory/Typing/Env.lean` or `Theory/VDecl.lean`.**
+
+---
+
+## 6. The flip: current file set
+
+**Verdict: still not landable within this stream's files, and the set grew by one.**  Do not
+half-land it.
 
 | # | file | owned? | what the flip does to it |
 |---|---|---|---|
-| 1 | `Verify/Environment/Basic.lean` | **yes** | `inductive AddInduct` → `def AddInduct := AddInductStages`; `to_addInduct := AddInductStages.to_addInduct` |
-| 2 | `Verify/Environment/Lemmas.lean` | **yes** | `Aligned.addInduct`'s `nomatch H` → `Aligned.addInductStages`; `TrEnv'.of_value`'s induct arm → `AddInductStages.of_value_arm` |
-| 3 | `Verify/SafeFragment.lean` | no | `AddInduct.le`'s `nomatch H` → `AddInductStages.le` (one line) |
-| 4 | `Verify/Environment/Extension.lean` | no | delete `TrEnv'.no_inductInfo` (becomes false) |
-| 5 | `Verify/TypeChecker/Reduce.lean` | no | `find?_shape` ×2 and `defeqs_shape` gain disjuncts; delete `TrEnv.not_inductInfo`/`.not_ctorInfo`/`.not_recInfo`/`VContext.not_inductInfo`; delete-or-`sorry` `reduceProjCore_none`/`reduceProjCore.WF`; **move** `Aligned.addInductStages` up to (2) |
-| 6 | `Verify/TypeChecker/WHNF.lean` | no | `inductiveReduceRec_eq_none` dies |
-| 7 | `Verify/TypeChecker/InferType.lean` | no | `inferProj_always_throws` dies |
-| 8 | `Verify/TypeChecker/IsDefEq.lean` | no | `tryEtaStructCore_never_true` dies (`isDefEqUnitLike_never_true` with it) |
+| 1 | `Verify/Environment/Basic.lean` | **yes** | `inductive AddInduct` → `def AddInduct := ∃ K R, AddInductStagesR …`; `to_addInduct`; the `induct` arms of `TrEnv'.wf` and `TrEnv'.wf_noUnsafe` |
+| 2 | `Verify/Environment/Lemmas.lean` | **yes** | `Aligned.addInduct`'s `nomatch H`; `TrEnv'.of_value`'s induct arm → `AddInductStagesR`'s analogue of `AddInductStages.of_value_arm` |
+| 3 | **`Theory/Typing/Env.lean`** | **no** | **new this round** — `VDecl.WF.induct` must accept the nested step (§5) |
+| 4 | `Verify/SafeFragment.lean` | no | `AddInduct.le`'s `nomatch H` → `AddInductStagesR.le` (one line) |
+| 5 | `Verify/Environment/Extension.lean` | no | delete `TrEnv'.no_inductInfo` (becomes false) |
+| 6 | `Verify/TypeChecker/Reduce.lean` | no | `TrEnv'.find?_shape`, `TrEnv'.defeqs_shape` gain disjuncts; `Aligned.addInductStages` → the `R` version and **move** it to (2); delete `TrEnv.not_inductInfo`/`.not_ctorInfo`/`.not_recInfo`/`VContext.not_inductInfo`; delete-or-`sorry` `reduceProjCore_none`/`reduceProjCore.WF` |
+| 7 | `Verify/TypeChecker/WHNF.lean` | no | `inductiveReduceRec_eq_none` dies |
+| 8 | `Verify/TypeChecker/InferType.lean` | no | `inferProj_always_throws` dies |
+| 9 | `Verify/TypeChecker/IsDefEq.lean` | no | `tryEtaStructCore_never_true` and `isDefEqUnitLike_never_true` die |
 
-**Correction to `docs/handoff-addinduct.md` §6.**  Its item (3), `Verify/Environment.lean`, is
-**no longer part of the patch**: `checkEqType.WF` is already
-`checkEqType.WF_quotReady_closed`'s statement and `addQuot.WF` is already `addQuot.WF'`
-(commit `3e8e6ea`), and neither proof cases on `AddInduct` **[SRC]**, confirmed by a
-tree-wide grep: the only *proof-level* uses of `AddInduct` outside owned files are rows 3–8.
-So the count went 7 files (4 unowned) → 8 files (6 unowned), because the three
-`Verify/TypeChecker/` leaves are counted separately here and `Verify/Environment.lean` dropped
-out.
+**9 files, 7 unowned.**  Previous measurement: 8 files, 6 unowned.  Everything the flip needs
+on rows 1–2 and 4 is now in hand (`AddInductStagesR.{le,map_wf,find?_shape,defeqs,to_addInductR}`);
+row 3 is the design change of §5; rows 5–9 are the human's standing ruling, unchanged.
 
-**Why `Aligned.addInductStages` cannot be smuggled into an owned file**: duplicating it in
-`Lemmas.lean` under the same name breaks `Reduce.lean` with `environment already contains`;
-duplicating it under a different name buys nothing, since `Reduce.lean` needs editing anyway
-for row 5.
+The order that makes sense is unchanged from the previous handoff except that step 1 is now
+done: **(1) fix `AddInduct` for nested blocks — done**; (2) settle row 3 with the
+`Theory/Typing` stream; (3) flip once, as one coordinated commit; (4) take the nine
+`Verify/TypeChecker/` statements.
 
-The human's standing ruling (do not take the nine `Verify/TypeChecker/` `sorry`s yet) is
-**reinforced**, not weakened, by §0(b): the flip now buys strictly less than the previous
-measurement suggested, because it does not make `addDecl.WF`'s `inductDecl` branch true for a
-nested declaration either.  The order that makes sense is: fix `AddInduct` for nested blocks
-first (§6.1), *then* flip once, *then* take the nine.
+**Standing ruling untouched.**  Nothing here changes the ι-reduction / projection-reduction /
+structure-eta calculus, so the nine `Verify/TypeChecker/` statements stay as they are.
 
 ---
 
-## 5. Corrections to standing claims
+## 7. Ledger of edits to owned files
 
-Each is machine-checked here unless marked.
+| file | change |
+|---|---|
+| `Verify/Environment/InductR.lean` | **new**, 939 lines, 76 declarations, 0 `sorryAx` |
+| `Verify/Environment/Basic.lean` | received `AddIndConsts.constants_of_mem`, `.find?_of_not_mem`, `AddInductStages.find?_of_not_mem`, `.addIndTypes` **moved unchanged** from `Verify/InductFlip.lean`, so that `Induct.lean`/`InductR.lean` can use them without depending on the type-checker layer; `AddInduct`'s docstring corrected (it named `AddInductStages` as the intended definition) |
+| `Verify/InductFlip.lean` | those four declarations removed (they are re-exported through `Basic.lean`, which it imports); nothing else |
+| `Verify/Environment/Induct.lean` | received `indDeclNames`, `exists_getElem?_of_lt`, `TrIndDecl.mem_indDeclNames`, `TrIndDecl.not_addInductStages` **moved unchanged** from `Verify/Inductive/AddDeclWF.lean`, for the same reason |
+| `Verify/Inductive/AddDeclWF.lean` | those four declarations removed; the `T`/`Box` block literals, `trec1_not_declared`, `tBlock_not_addInductStages` and check B **moved unchanged** to `InductR.lean`; imports `InductR` instead of `Induct`; §2's docstring gains a **RESOLVED** note and §3's a **SUPERSEDED for nested blocks** note.  `InductStepSafe` and `AddInductiveObligation` are untouched — they remain the *non-nested* obligation |
 
-| where | claim | correction |
-|---|---|---|
-| the brief | 4 `sorry`s in `Verify/Inductive/Add.lean`, 1 in `Verify/InductFlip.lean` | Zero, in both.  Five declarations in `Add.lean` are `sorryAx`-*tainted*, through the type checker (§1). |
-| `docs/handoff-addinduct.md` §1.1 | `Aligned.addInduct` is tier 1 — "statement stays true after the flip" | False; it was tier 2.  See §5.2. |
-| `docs/handoff-addinduct.md` §6 (3) | `Verify/Environment.lean` is part of the flip patch | Not any more (§4). |
-| `docs/handoff-addinduct.md` §7.2 / `Verify/Environment/Basic.lean` §R10 | the flip's only remaining cost is the nine `Verify/TypeChecker/` declarations | Understates it: `AddInductStages` is *refuted* for a nested block (§0b), so the flip leaves `addDecl.WF`'s `inductDecl` branch false for every nested declaration. |
-| `Verify/Environment/Induct.lean` module docstring | nested blocks are outside `TrIndDecl` because "`addInductive` discards the auxiliary environment and rebuilds" | Correct but not the binding obstruction; the binding one is on the constant-map side (§6.1). Not edited — the paragraph is not wrong, only incomplete. |
-
-### 5.2 `Aligned.addInduct` — fixed in place
-
-It read
-
-```lean
-theorem Aligned.addInduct (H : AddInduct C₁ venv₁ decl C₂ venv₂) :
-    Aligned safety C₁ env₁ → Aligned safety C₂ env₂ := nomatch H
-```
-
-with `env₁`/`env₂` **auto-bound implicits unrelated to `venv₁`/`venv₂`**.  As written it says
-an inductive step carries alignment between two *arbitrary* abstract environments — a false
-statement, provable only because `AddInduct` is empty.  Now:
-
-```lean
-theorem Aligned.addInduct {C₁ C₂ : ConstMap} {venv₁ venv₂ : VEnv} {decl : VInductDecl'}
-    (H : AddInduct C₁ venv₁ decl C₂ venv₂) :
-    Aligned safety C₁ venv₁ → Aligned safety C₂ venv₂ := nomatch H
-```
-
-`TrEnv'.aligned`'s `induct` arm (`ih.addInduct h`) is unchanged and the tree is green.  This
-matters beyond hygiene: `Aligned.find?` — hence `TrEnv.find?`, hence
-`checkEqType.WF_quotReady_closed` and `Bridge.hasType_falseProp` — reaches the inductive case
-only through `Aligned.addInduct`, so the flip's arm for it has to be the *named-environment*
-statement or the whole `find?` chain silently proves nothing.
+No unowned file was edited.  `Verify/TypeChecker/Reduce.lean` was red for part of this session
+(another stream's uncommitted work); it was not touched, and it is green now.
 
 ---
 
-## 6. What to pick up next
+## 8. Carried forward from the previous revision, still true
 
-1. **`AddInduct` for nested blocks.**  Now the first item, ahead of the flip.  The checker's
-   nested path (`Lean4Lean/Inductive/Add.lean`, everything after `if numNested = 0 then return
-   env'`) rebuilds from the *pre-block* environment and adds, per auxiliary nested type, one
-   renamed recursor (`mkAuxRecNameMap`: `_nested.J.rec` ↦ `I.rec_1`, `I.rec_2`, …) **[SRC]**,
-   observed as `T.rec_1` **[EV]**.  Two shapes, and the choice is a design decision:
-   * a fourth `AddIndConsts` stage over an explicit auxiliary-recursor list, with the list a
-     *function* of the block (so it stays a definition of the map, not a check on it);
-   * or auxiliary recursors as a field of `VInductDecl'`, which pushes the choice into
-     `Theory/`.
-   `Theory/Inductive/NestedBuild.lean`'s `replaceIfNested`-as-a-construction is the
-   declaration side of this and is already done; only the constant-map side is open.
-2. **`AddInductiveObligation` (§2.3).**  The refinement of `Environment.addInductive`.  This
-   is where `Verify/Inductive/Add.lean`'s R1–R10 framework is aimed; note that **nothing in
-   `Verify/` refines the top-level `Environment.addInductive` today** — the framework covers
-   `AddInductive.M` and its phases, not the wrapper.  In particular no lemma yet says the
-   successful wrapper inserts the block's `.inductInfo`s, which is why §2.1's second half is
-   `[EV]` rather than `[MC]`.
-3. **The `.unsafe` rule (§3.1).**  Independent of everything above; needs a decision from the
-   human between the two shapes.
-4. **The flip (§4)**, once 1 is done, as one coordinated commit across eight files, six of
-   them unowned by this stream.
-
----
-
-## 7. Inventory of what this stream proved
-
-All in `Lean4Lean/Verify/Inductive/AddDeclWF.lean` unless marked, all `sorryAx`-free (42
-declarations, transitive check), axioms `propext`/`Classical.choice`/`Quot.sound` only.
-
-*§1 the safety gate.*  `ConstantInfo.safety_ctorInfo`, `.safety_recInfo`;
-`AddInductStages.inductInfo_not_unsafe`, `.ctorInfo_not_unsafe`, `.recInfo_not_unsafe`;
-`unsafe_induct_unreachable`.
-
-*§2 the nested wall.*  `indDeclNames`, `exists_getElem?_of_lt`, `TrIndDecl.mem_indDeclNames`,
-`TrIndDecl.not_addInductStages`, `trec1_not_declared`, `tBlock_not_addInductStages`.
-
-*§3 the restated obligation.*  `InductStepSafe`, `.induct_premises`, `.le`, `.map_wf`,
-`.find?_of_not_mem`; `AddInductiveObligation`; `R10.Wit.uIndType`, `.tr_uType`, `.tr_uUnit`,
-`.trIndDecl_wit`, `.inductStepSafe_wit`.
-
-*§4 the falsity.*  `addDecl_inductDecl_post_false`, `addDecl_inductDecl_WF_false`; the block
-literals `uDecl`, `boxIndType`, `tIndType`, `boxDecl`, `tDecl`; build-time checks A and B.
-
-*Owned file edited.*  `Verify/Environment/Lemmas.lean`: `Aligned.addInduct`'s statement (§5.2).
-
-**Not proved, and not attempted:** the flip; `AddInductiveObligation`; nested `AddInduct`; the
-`.unsafe` rule; the nine `Verify/TypeChecker/` declarations.
+* **The `sorry` inventory.** 21 tree-wide, unchanged.  The five tainted declarations in
+  `Verify/Inductive/Add.lean` (`AddInductive.M.WF.{ensureType,whnf,field_step,elim_field_step,positivity_none}`)
+  are tainted *by inheritance* through `Verify/TypeChecker/{InferType,IsDefEq,WHNF}.lean`.
+  Nothing in this stream's files adds taint.
+* **`addDecl.WF`'s `inductDecl` branch is false, not open.**  `addDecl_inductDecl_post_false`,
+  `addDecl_inductDecl_WF_false` **[MC]**, check A **[EV]**.  Unchanged.
+* **The `.unsafe` hole.**  `unsafe_induct_unreachable` **[MC]**: `TrEnv' .unsafe` has no rule
+  at all for an unsafe inductive, and the flip does not close it.  Independent of everything
+  above; still needs a design decision between a `TrEnv'` rule that is the inductive analogue
+  of `unsafeDef`, and a `VEnvs.WF` that does not demand a model at `.unsafe`.
+* **`Aligned.addInduct`'s statement**, corrected in a previous round (named environments, not
+  auto-bound implicits), is unchanged and is what the flip's arm must be proved against.
+* **Not proved, and not attempted this round:** the flip; `AddInductiveObligation` /
+  its nested counterpart as a refinement of `Environment.addInductive` (nothing in `Verify/`
+  refines the top-level wrapper yet, which is why §3's checker-side facts are `[EV]`); the
+  `.unsafe` rule; the nine `Verify/TypeChecker/` declarations; `Theory/Typing/Env.lean` (§5).
