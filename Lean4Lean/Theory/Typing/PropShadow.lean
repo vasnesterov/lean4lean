@@ -169,11 +169,17 @@ theorem InstLvl.of_hasTypeN_zero (henv : Ordered env) {Γ : List VExpr} {A a B :
   rwa [Nat.zero_add] at this
 
 /-- **The second residual of check 1**: a type's universe is well defined up to
-propositionhood.  `docs/handoff-stratified.md` §5 names this `PropUniq` and places it in the
-`sort_inv` family (its conversion residual is asserted of endpoints, so `trans` fails).
+propositionhood.  `docs/handoff-stratified.md` §5 names this `PropUniq` and ~~places it in the
+`sort_inv` family (its conversion residual is asserted of endpoints, so `trans` fails)~~.
 
-It appears in the `app` case at subject `B₀.inst a`, which is **not** a subterm of `.app f a`,
-so it cannot be supplied by the induction that is running. -/
+**That placement is withdrawn — see `Theory/Typing/PropConv.lean` and handoff §16.1.**  The
+`trans` failure is a property of the route that composes the two typings into a sort–sort
+conversion; inducting on the *typing* judgment instead, `trans` never arises and `propUniq_of`
+closes six of seven cases from `DefInv` alone, leaving `app`.  `PropUniq` belongs with
+`SortForallEDisjoint`, not with `sort_inv`.
+
+It still appears in the `app` case at subject `B₀.inst a`, which is **not** a subterm of
+`.app f a`, so it cannot be supplied by the induction that is running — that part stands. -/
 def PropUniq (env : VEnv) (U n : Nat) : Prop :=
   ∀ {Γ : List VExpr} {A : VExpr} {u v : VLevel},
     env.HasTypeN U n Γ A (.sort u) → env.HasTypeN U n Γ A (.sort v) →

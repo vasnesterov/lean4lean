@@ -11,14 +11,16 @@ cached copy, stop and re-read this one.
 
 | statement | status |
 |---|---|
-| `PropTypeAgree` | **open.** Five of twelve conversion cases close. Three characterised obstructions: `forallEDF` (context conversion, index drop), `proofIrrel` (self-reference), `eta` (needs `SortForallEDisjoint`). `constDF`, `appDF`, `beta`, `extra` uncharacterised. |
+| `PropTypeAgree` | **open, and now fully case-analysed — §16, machine-checked** (`Typing/PropConv.lean`). Its own induction is on *typing* and closes 6 of 7 cases; the conversion residual `PropConvInv` closes 5 of 12 and the other 7 are named residuals. `proofIrrel` and `eta` are **not** one obstruction (§16.2). Its `app` case is priced at `RegPi` + `InstLvl` + `PropUniq` + `PropConvInv`, and is the statement's own fixpoint. |
 | `SortForallEDisjoint` | **one open case, and likely true.** Six of seven typing cases close from `DefInv` alone; only `AppCase` remains, and a refutation is *provably impossible* at the model's own witness (§9). **Satisfiable** (`SortForallEDisjoint.zero`). **The hereditary shape agreement proposed for `AppCase` is now closed both ways** — as disjointness it is *equivalent* to the statement itself, as agreement it is *false* (§9, machine-checked). `AppCase` is the statement's own fixpoint. **The `common_sort` lead is now closed too (§11)** — the route has no untried idea left in this neighbourhood. |
-| `PropUniq`, `SortUniq` | **in the normalisation family, and no model route.** Both fail the criterion's `trans` test; `SortUniq` is refuted as a semantic consequence by the cumulativity check, and the model is parameterised on it. |
+| `PropUniq` | **NOT in the normalisation family — §16.1 corrects this file, machine-checked.** `propUniq_of` closes **six of seven typing cases from `DefInv` alone**, `app` open. The old verdict was about the *route* (shape-inversion then induct on the sort–sort conversion), not the statement; inducting on typing, `trans` never arises. Belongs on the `SortForallEDisjoint` row. |
+| `SortUniq` | **in the normalisation family, and no model route.** Fails the criterion's `trans` test; refuted as a semantic consequence by the cumulativity check, and the model is parameterised on it. |
 | `unique.tex` §§3–4 at the index (the reduction relation §8 asks for) | **closed (§12).** Its two substitution lemmas — and a third site nobody had counted — all need `SubstT`, substitution into a *typing* at a preserved index. That is a different statement from the already-refuted `SubstC`, and it is **also false**, machine-checked (`SubstTRefute.lean`). |
 | the model route (`docs/thesis-architecture.md` §8) | **closed at its row zero (§15).** Item 2 (the Prop-shadow of the `app` case) removes `SubstC` and buys `InstLvl` + `PropUniq` instead; item 1 (stratified regularity, two-typing form) is **machine-checked false**, by a witness that avoids this tree's `rfl` deviation. The stage-`n+1` obligations have no admissible order. |
 | the reference | **three documented defects**: two in §2 (one machine-checked, one a reading result with a repair) and `thm:ckappa`'s base case, machine-checked (§12). |
 
-The obstruction was diffuse and is now two named statements. What the route produced beyond
+The obstruction was diffuse and is now **five statements that all stop at the same `app`
+case**, plus two conversion residuals — §16.4 for the table.  What the route produced beyond
 that is in §7 — read it, because it is more than what it closed.
 
 ---
@@ -50,7 +52,12 @@ Two things a fresh reader will otherwise re-derive:
    there. And the re-cut §13(b) asks for would not help: `sort_inv`'s `proofIrrel` case is
    live **over the empty environment**, from the context alone. Do not re-run either check
    without reading §14.
-5. **The model route of `docs/thesis-architecture.md` §8 is closed at its own row zero —
+5. **This file's verdict on `PropUniq` was wrong, and §16 corrects it — machine-checked.**
+   §5's table says `PropUniq` "needs normalisation" because `trans` fails.  That is true of
+   the route §5 ran and false of the statement: inducting on the *typing* judgment, as
+   `sortForallEDisjoint_of` does, `trans` never arises, and six of seven cases close from
+   `DefInv` alone (`Typing/PropConv.lean`, `propUniq_of`).  Do not quote the old row.
+6. **The model route of `docs/thesis-architecture.md` §8 is closed at its own row zero —
    §15, machine-checked.** Its item 2 (the Prop-shadow of `thm:utype`'s `app` case) does
    remove `SubstC`, and does not close: it buys two new statements instead. Its item 1
    (stratified regularity in the two-typing form), which that document calls "the whole
@@ -97,6 +104,13 @@ whitelist. No `sorryAx`, no `native_decide`, no `bv_decide`, no axiom added.
 | `appCase_ih_vacuous` | `Typing/UnivDiscrim.lean` | the `app` case's induction hypothesis at `f` is *vacuously true*, provable from `DefInv` with the sub-derivation unused |
 | `app_shadow_arith`, `app_shadow_of`, `InstLvl`, `PropUniq`, `LvlConvInv`, `lvlConvInv_of_defInv_sort` | `Typing/PropShadow.lean` | the Prop-shadow of `thm:utype`'s `app` case: **the arithmetic closes without `SubstC`**, and the case's remaining price, named — §15.1 |
 | `regularity_two_typing_false`, `tyRhs_not_hasType0`, `trans_derivation_with_untyped_middle` | `Typing/PropShadow.lean` | **the model route's row zero is false**: a `⊢₁` conversion between two Π-*types* whose right endpoint has no `⊢₀` universe — §15.2 |
+| `PropConvInv`, `propConvInv_of`, and its seven named residuals | `Typing/PropConv.lean` | **`PropTypeAgree`'s conversion residual, all twelve cases**, each closing from its residual and nothing else — §16 |
+| `propUniq_of`, `propUniq_of'`, `PropUniq.AppCase` | `Typing/PropConv.lean` | **`PropUniq` closes 6 of 7 typing cases from `DefInv` alone** — this file's "needs normalisation" verdict on it is withdrawn (§16.1) |
+| `propTypeAgree_of`, `propTypeAgree_of'`, `propTypeAgree_appCase_of`, `RegPi` | `Typing/PropConv.lean` | `PropTypeAgree` itself, 6 of 7 typing cases; its `app` case priced at `RegPi` + `InstLvl` + `PropUniq` + `PropConvInv` (§16.3) |
+| `propNotProof_of'`, `propNotProof_of''`, `SortNotProp` | `Typing/PropConv.lean` | **`proofIrrel`'s residual without `PropTypeAgree`**: 6 of 7 typing cases from `DefInv` + `SortNotProp`, `app` open (§16.2) |
+| `PropForallEDisjoint`, `propForallEDisjointCases`, `propForallEDisjoint_of'`, `SortForallEDisjoint.propForallE` | `Typing/PropConv.lean` | **`eta` needs only the `u = .zero` instance** of `SortForallEDisjoint`, app case included (§16.2) |
+| `{PropUniq,PropNotProof,PropTypeAgree,PropForallEDisjoint}.appCase`, `propNotProof_appCase_ih_vacuous` | `Typing/PropConv.lean` | each `app` case is **its own statement's fixpoint**, and its IH at the function is vacuous — the companion test again |
+| `{PropConvInv,PropUniq,PropTypeAgree,PropNotProof,SortNotProp,…}.zero` and the four `*_zero_from_residuals` | `Typing/PropConv.lean` | **every statement and every reduction in that file is replayed at the base index**, so none of it is vacuous — `RegPi` excepted and flagged |
 | `loop_conv_iff`, `loopEnv_conv_iff`, `sort_inv_transfer` | `Typing/CycleConv.lean` | **the δ-cycle of `LogRelRowZero.lean` adds no conversions** — `loopEnv`'s conversion relation *is* that of `loopEnv2`, which has no rule at all; so the six targets there are the targets at a cycle-free environment (§14) |
 | `loopEnv2_wf_noUnsafe`, `loopEnv2_no_defeqs` | `Typing/CycleConv.lean` | …and `loopEnv2` is `VEnv.WF` by two `.axiom` steps, `noUnsafe`, rule-free |
 | `empty_ctx_inconsistent` | `Typing/CycleConv.lean` | **the `proofIrrel` obstruction is not an environment fact**: `sort_inv`'s own hypotheses inhabit every proposition over `VEnv.empty`, from the context |
@@ -207,7 +221,8 @@ the first:
 |---|---|---|---|---|
 | `sort_inv` / `DefInv` clause (1) | yes | endpoint-asserted | fails | needs normalisation |
 | `PropTypeAgree` (residual `PropConvInv`) | yes | propagated | closes | tractable |
-| `PropUniq` | yes | endpoint-asserted | fails | needs normalisation |
+| `PropUniq` — *as routed in §5* | yes | endpoint-asserted | fails | ~~needs normalisation~~ |
+| `PropUniq` — *the statement* (§16.1) | **no** — induction on *typing* | — | never arises | tractable, 6 of 7 cases |
 | `SortForallEDisjoint` | **no** — induction on *typing* | — | never arises | tractable, 6 of 7 cases |
 | shape-disjointness under substitution | yes | propagated | closes | does **not** inherit `SubstC`'s refutation |
 | shape-***agreement*** under substitution | yes | propagated | closes | **FALSE** — `substShapeAgree_false` |
@@ -250,7 +265,9 @@ exactly what `sort_inv`'s equality form is not, and it is why the arbitrary midd
 blocks `sort_inv` is harmless here. `symm` likewise, given the `↔` form (the directed form
 fails on `symm`, so state it as an iff).
 
-Six of twelve conversion cases close, machine-checked in a scratch file:
+~~Six~~ **Five** of twelve conversion cases close (the count below is five: `rfl`, `symm`,
+`trans`, `sortDF`, `lamDF`, and `5 + 7 = 12`; the typing constructors are a separate seven).
+Now machine-checked in the tree rather than in a scratch file — `Typing/PropConv.lean`, §16:
 
 * `rfl`, `symm`, `trans` — by composition;
 * `sortDF` — retype the sort along the level equivalence;
@@ -274,10 +291,18 @@ The model needs a second statement: **`PropUniq`** — `Γ ⊢ A : .sort u`, `Γ
 "`IsProof` is well-defined on terms"). Both are strictly weaker than `SortUniq`; that gain is
 real. But they do not behave alike.
 
-**Row-zero, run: `PropUniq` has `sort_inv`'s `trans` problem.** After shape inversion sends
-both typings to the shape-determined type, its residual is
+**Row-zero, run: `PropUniq` has `sort_inv`'s `trans` problem — *along this route*.** After
+shape inversion sends both typings to the shape-determined type, its residual is
 `.sort u ≡ₙ .sort v ⟹ (u ≈ 0 ↔ v ≈ 0)`. Machine-checked: `rfl`, `symm` and `sortDF` close, and
 `trans` does **not** — `.sort u ≡ₙ X ≡ₙ .sort v` needs `X` to be a sort and nothing says it is.
+
+> **Superseded — read §16.1 before using the paragraph above or the row below.** The route is
+> blocked; the statement is not. Inducting on the *typing* judgment instead — keeping the
+> second typing as a hypothesis and inverting it, exactly as `sortForallEDisjoint_of` does —
+> `trans` is a conversion rule and never arises, and `propUniq_of`
+> (`Typing/PropConv.lean`, machine-checked) closes **six of seven cases from `DefInv` alone**,
+> leaving `app`. The residual above is what you get by *composing the two typings first*; the
+> composition is the mistake, not the statement. Trap #18.
 
 The contrast with §5 is exact, and it is the same distinction:
 
@@ -286,9 +311,12 @@ The contrast with §5 is exact, and it is the same distinction:
 | `PropConvInv` (`PropTypeAgree`'s residual) | *propagated along* the conversion | closes: `(ih1 d h).trans (ih2 d h)` |
 | `PropUniq`'s residual | *asserted of the endpoints* | fails: middle term need not be a sort |
 
-So `PropUniq` needs normalisation, which puts it in the `SortUniq` family — and the
-cumulativity check gives it no model route either. **Finishing `PropTypeAgree` does not
-discharge the model.**
+~~So `PropUniq` needs normalisation, which puts it in the `SortUniq` family.~~ **Withdrawn —
+§16.1.** What the table above shows is that *`PropUniq`'s residual under this route* is
+endpoint-asserted; the statement has another route, on which `trans` never arises.  The
+cumulativity check still gives it no model route, and **finishing `PropTypeAgree` still does
+not discharge the model** — that part stands, and there is now a second reason to want
+`PropUniq`: `PropTypeAgree`'s own `app` case consumes it (§16.3).
 
 What `PropTypeAgree` *does* buy is on the syntactic side, and **both halves are now checked
 rather than assumed**:
@@ -319,6 +347,13 @@ machine-checked.*
 `PropTypeAgree` at `h`. So it is not an obstruction to the *statement*, only a self-reference
 in the *induction* — and the measure gives `≤`, not `<`, as at `DefInv.sort_proofIrrel`.
 Attack it separately, not inside the induction. *Analysis.*
+
+> **Sharpened in §16.2, machine-checked.** The self-reference is an artifact of *that*
+> derivation. `propNotProof_of'` (`Typing/PropConv.lean`) derives the same residual by
+> induction on **typing** and reaches six of seven cases from `DefInv` plus one strictly
+> weaker new statement, `SortNotProp` ("nothing convertible with a sort is a proposition"),
+> with only `app` open. So `proofIrrel` is `SortNotProp` + an `app` case, not `PropTypeAgree`
+> at another subject.
 
 ### Is `PropTypeAgree` closable at the index? — **No. One new primitive is needed.**
 
@@ -354,6 +389,13 @@ not three:
   residual is exactly `SortForallEDisjoint`, and there is **no** such derivation: it is a
   separate weakening of unique typing, about a term's types being a sort versus a Π rather
   than about propositionhood.
+
+  **§16.2 refines both halves and keeps the verdict.**  `eta` needs only
+  `SortForallEDisjoint` **at `u = .zero`** (`PropForallEDisjoint`) — `eta_case` uses it
+  nowhere else.  `proofIrrel` is *not* irreducibly self-referential: by the typing induction
+  it is `SortNotProp` + an `app` case.  The two are still two obstructions, and the reason is
+  now a one-line fact: **`DefInv` is a shape-inversion principle**, so it decides "the second
+  type is a Π" for free and decides nothing about "the second type is a proposition".
 
 **The primitive, named:**
 
@@ -1108,7 +1150,7 @@ them `SubstC` and neither of them `DefInv` clause (1):
 | statement | what it is | status |
 |---|---|---|
 | `InstLvl` — `Γ ⊢ₙ a : A`, `A::Γ ⊢ₙ B : .sort v` ⟹ `Γ ⊢ₙ B.inst a : .sort v` | `SubstT` at **depth 0** with a **closed** target type | **not refuted, not proved.** `SubstTRefute`'s witness is at depth 1; `SubstCRefute`'s witness *satisfies* it (`substCRefute_witness_satisfies_instLvl`). Only `m = 0` is reachable (`InstLvl.of_hasTypeN_zero`) |
-| `PropUniq` at subject `B₀.inst a` | §5's second model import | in the `sort_inv` family, **and the subject is not a subterm** of `.app f a`, so the running induction cannot supply it |
+| `PropUniq` at subject `B₀.inst a` | §5's second model import | ~~in the `sort_inv` family~~ — **withdrawn, §16.1**: 6 of 7 typing cases close from `DefInv`, `app` open. Still **not a subterm** of `.app f a`, so the running induction cannot supply it |
 
 **And the *other* cases do not close either**, which §8 item 2 did not price.  In the full
 statement every non-`app` case closes by `trans` on the shape-determined type; in the shadow
@@ -1213,3 +1255,172 @@ where it can be built — but nothing builds it above `n = 0`.
     reference's `symm`/`trans`) build conversions whose *conclusions* mention terms no premise
     ever typed.  Before relying on "the judgment carries its typings", check the rules that
     carry none.
+
+18. **A criterion verdict is about the route you ran, unless the route is forced.**  §5's
+    table filed `PropUniq` as "needs normalisation" on the strength of one reduction —
+    invert both typings to the shape-determined type, *compose them into a sort–sort
+    conversion*, and induct on that.  The composition is what creates the `trans` problem;
+    it is not part of the statement.  Inducting on the typing judgment instead — the
+    manoeuvre `sortForallEDisjoint_of` had *already* used in this same tree — makes `trans`
+    a rule that never arises, and six of seven cases close from `DefInv` alone.  **Before
+    recording a criterion verdict, name the route it was run against, and check whether a
+    route already used elsewhere in the file applies.**  It cost this route a statement it
+    had classified as unreachable for months.
+
+---
+
+## 16. `PropTypeAgree`, `PropUniq` and the two residuals — `Typing/PropConv.lean`
+
+New file, sorry-free, `[propext, Quot.sound, Classical.choice]` (the last through
+`VLevel.imax_eq_zero`, as in `PropShadow.lean`).  It lands §5's scratch analysis, corrects one
+of this file's verdicts, and answers the `proofIrrel`-versus-`eta` question.
+
+**Everything in it is replayed at the base index.**  `PropConvInv.zero` and all seven
+residuals' `.zero`, plus `PropUniq.zero`, `PropTypeAgree.zero`, `PropNotProof.zero`,
+`SortNotProp.zero`, `CtxConvProp.zero`, `RegConv.zero`, all four `AppCase.zero`s, and five
+`*_zero_from_residuals` corollaries that rerun each reduction there.  The one exception is
+`RegPi` (16.3), which is **not** shown satisfiable.
+
+*One detail that decided a definition:* the five conversion-rule residuals each carry **the
+rule's own conclusion as a premise**.  Without it `PropConstDF` is **false at `n = 0`** —
+take `ci.type = .sort (.param 0)`, `ls = [.zero]`, `ls' = [.max .zero .zero]`: the level lists
+are `≈`-equal, `≡₀` is syntactic equality, and one side is `.sort .zero` while the other is
+not.  So the placement is what makes the family satisfiable rather than a decoration.
+*(Analysis; the positive half — that with the premise every residual holds at `0` — is
+machine-checked.)*
+
+### 16.1 `PropUniq` is not in the normalisation family — §5's verdict withdrawn
+
+`propUniq_of`, machine-checked: **six of seven typing cases close from `DefInv` alone, `app`
+open.**  `bvar`, `sort` and `const` compose the two inverted conversions into a sort–sort
+conversion and read `u ≈ v` off clause (1) — the *strong* form, not merely the shadow.  `lam`
+is vacuous by clause (3).  `forallE` is the one case with inductive content and it goes
+through on `VLevel.imax_eq_zero`: a Π-type is a proposition exactly when its codomain is, so
+the induction hypothesis at the codomain — a subterm, under a binder — is exactly the datum.
+`conv` composes.  `trans` is a *conversion* rule and never arises.
+
+What was wrong before was the route, not the check.  §5 composed the two typings into
+`.sort u ≡ₙ X ≡ₙ .sort v` and then induct**ed on that**; the composition is what manufactures
+the arbitrary middle term.  `sortForallEDisjoint_of` had already shown, in this same file,
+that one does not have to compose: keep the second typing as a hypothesis and invert it.
+Trap #18.
+
+*What this does not show* (trap #8): that `PropUniq` is true, or that its `app` case is
+easier than the other four.  `PropUniq.appCase` proves the `app` case follows from `PropUniq`
+in one line, so it is the statement's own fixpoint, exactly as at `SortForallEDisjoint`.
+
+*Who cares.*  `Theory/SetModel/PropUniqFromFalse.lean` (model stream) currently gets
+`PropUniq` only from an inhabitant of `falseProp`, which is available inside the consistency
+proof and nowhere else.  This is a second, unconditional route to the same statement, modulo
+one `app` case — and `PropTypeAgree`'s own `app` case consumes `PropUniq` (16.3), so the
+syntactic side needs it too.
+
+### 16.2 `proofIrrel` and `eta`: one obstruction at `app`, two elsewhere
+
+The question was whether the two are the same self-reference.  **They are not**, and the
+separation is sharper than §5's.
+
+* **`eta` needs only `SortForallEDisjoint` at `u = .zero`.**  `PropTypeAgree.eta_case` applies
+  its hypothesis at `u = .zero` and nowhere else; `PropForallEDisjoint` is that instance.  The
+  sharpening holds all the way down: `propForallEDisjointCases` re-runs the six closing cases
+  at `u = .zero` and needs only the `u = .zero` app case (`PropForallEDisjoint.AppCase`), so
+  `propForallEDisjoint_of'` gives the residual from `DefInv` + that, and
+  `PropForallEDisjoint.appCase_iff` is a genuine `↔`.  Beyond `DefInv` the case pays
+  **nothing**.
+* **`proofIrrel` is not irreducibly self-referential.**  `propNotProof_of` derives its
+  residual from `PropTypeAgree` itself — measure `≤`, not `<`.  `propNotProof_of'` derives it
+  instead by the typing induction and reaches **six of seven cases from `DefInv` plus one new
+  statement**, with only `app` open:
+
+      SortNotProp env U n :  Γ ⊢ₙ A ≡ .sort u  →  Γ ⊢ₙ A : .sort .zero  →  False
+
+  — *nothing convertible with a sort is a proposition*.  It is strictly weaker than the
+  statement whose case needs it (`SortNotProp.of_propConvInv`, machine-checked), and it is
+  consumed in exactly three cases: `bvar`, `const`, `forallE`.
+
+**The reason they differ, stated once, because it generalises:**
+
+> **`DefInv` is a *shape*-inversion principle.**  A residual of the form "a term with a sort
+> type does not also have a type of kind `X`" is free at every shape-pinned subject when `X`
+> is a *syntactic shape* — clause (3) decides `sort` versus `forallE` — and is not free when
+> `X` is a *typing* ("… and that type is a proposition"), because `DefInv` transports no
+> typing along a conversion.
+
+`eta` is the first kind; `proofIrrel` is the second.  Where they *are* one obstruction is at
+`app`, and `propNotProof_appCase_ih_vacuous` shows the companion test gives the same answer
+there as `appCase_ih_vacuous` does for `SortForallEDisjoint`: the induction hypothesis at the
+function is vacuously true, so there is nothing at that position to use.
+
+*Is `SortNotProp` tractable?*  **No, and it is where `proofIrrel`'s normalisation dependency
+now sits.**  *Analysis, not machine-checked*: by induction on the conversion it is
+endpoint-asserted and `trans` fails; by induction on the typing its `bvar` case has to refute
+`Γ ⊢ₙ .bvar i ≡ .sort u`, which is a conversion-shape fact of exactly `sort_inv`'s kind.  Its
+propagated restatement *is* `PropConvInv` (trap #11 again).  So the honest reading of
+`proofIrrel` is: it trades self-reference for a narrower statement in the `sort_inv` family.
+
+### 16.3 `PropTypeAgree` itself, and what its `app` case costs
+
+`propTypeAgree_of`: **six of seven typing cases from `DefInv` + `PropConvInv`.**  `sort` and
+`forallE` are vacuous; `bvar`, `const` and `conv` are `PropConvInv` at the inversion's
+conversion; `lam` is the inductive case and works because a Π is a proposition exactly when
+its codomain is.  `app` open, and `PropTypeAgree.appCase` shows it is the fixpoint again.
+
+`propTypeAgree_appCase_of` prices the `app` case at
+
+    RegPi + InstLvl + PropUniq + PropConvInv
+
+which is `app_shadow_of`'s price (§15.1) **plus `RegPi`** — regularity at a Π-type, which the
+shadow's universe-carrying formulation hid.  `PropUniq` enters at exactly one step: `B₀.inst a`
+carries two universes (`v₀` from `InstLvl`, `.zero` from the hypothesis) and nothing else
+compares them.  The *other* side needs no `PropUniq` — `InstLvl` at `v = .zero` suffices.
+
+**`RegPi` is not shown satisfiable, and that is a finding.**  Even at the base index it fails
+without a context condition: `Lookup` can hand back a Π-type whose components were never
+typed.  Contrast `HasTypeStrong.regular`, which is free — trap #12 cuts the other way here,
+and `Injectivity.lean`'s targets carry no `OnCtx`.
+
+### 16.4 The convergence, and what it does *not* license
+
+| statement | cases from `DefInv` | extra | open | `app` case is a fixpoint? |
+|---|---|---|---|---|
+| `SortForallEDisjoint` | 6 of 7 | — | `app` | yes (`ShapeSpine.lean`) |
+| `PropForallEDisjoint` (= it at `u = 0`) | 6 of 7 | — | `app` | yes |
+| `PropNotProof` | 6 of 7 | `SortNotProp` | `app` | yes |
+| `PropUniq` | 6 of 7 | — | `app` | yes |
+| `PropTypeAgree` | 6 of 7 | `PropConvInv` | `app` | yes |
+
+And each `app` case is **equivalent** to its own statement, both directions machine-checked
+(`PropUniq.appCase_iff`, `PropNotProof.appCase_iff`, `PropTypeAgree.appCase_iff`).  That is
+trap #11 read the useful way — the `app` position is not a weaker sub-goal a cheaper argument
+might reach — and it also settles the non-vacuity question these reductions raise:
+`propUniq_of` cannot be secretly proving `PropUniq` from `DefInv` alone, since the `↔` would
+then say `PropUniq` is so provable.
+
+**Not claimed: that the five `app` cases are one statement.**  The natural unifier — "the two
+types of an application agree on shape" — is **false** (`typeShapeAgree_false`, §9).  *Reading
+result, not machine-checked*: that witness refutes none of the five, because it supplies a
+term with one sort-shaped type and one *stuck* type, while each case above needs two
+sort-shaped types (or a sort and a proposition), and `lhs` is `⊢₁`-related to nothing but
+itself.
+
+### 16.5 What is left of `PropConvInv`
+
+Five of twelve conversion cases close (`rfl`, `symm`, `trans` by composition; `sortDF`,
+`lamDF` vacuous from `DefInv`); the seven typing constructors die on `b = false`.  The seven
+residuals, with what is known:
+
+| case | residual | status |
+|---|---|---|
+| `constDF` | `PropConstDF` | level-substitution congruence at `ci.type`; the general `instL` congruence goes through for `.bvar`/`.sort`/`.const`/`.lam`/`.forallE` and **resists at `.app`**, because `appDF` carries four typing premises |
+| `forallEDF` | `PropForallEDF` | = `CtxConvProp` + `RegConv`, machine-checked (`propForallEDF_of`).  `RegConv` — regularity *along* a conversion at a **preserved** index — is **not** what §15.2 refutes: that witness's right endpoint is `⊢₁`-typeable |
+| `appDF` | `PropAppDF` | unpriced |
+| `beta` | `PropBetaConv` | substitution family |
+| `eta` | `PropForallEDisjoint` | 6 of 7, `app` open — 16.2 |
+| `proofIrrel` | `PropNotProof` | 6 of 7 from `DefInv` + `SortNotProp`, `app` open — 16.2 |
+| `extra` | `PropExtraConv` | **does *not* close from rule shape.**  `DefInv`'s clauses (1)/(3) use `WF.instL_lhs_ne_sort` / `instL_lhs_ne_forallE` because their *conclusion* is that an endpoint is a `.sort` or a `.forallE`.  Here the conclusion is a **typing**, and a rule's left-hand side can be a proposition (`def MyProp : Prop := True` is a δ-rule between two propositions, `.const`-headed, one of the three admissible shapes).  Correct the standing expectation that `extra` closes mechanically: it does so only for shape conclusions |
+
+*A second obstruction inside `extra`, worth recording because it is generic.*  Even for a
+δ-rule, closing the case needs `Γ ⊢ₙ ci.value.instL ls : ci.type.instL ls` **at the index the
+rule concludes at**, and an environment fact enters `Stratified` only at *some* index
+(basics (3)/(4)), with `mono` raising it and nothing lowering it.  Any residual whose
+discharge needs a typing from the environment meets this.  *Analysis, not machine-checked.*
