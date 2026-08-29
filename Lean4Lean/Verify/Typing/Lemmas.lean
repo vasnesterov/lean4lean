@@ -678,9 +678,16 @@ theorem HasType.skips (W : Ctx.LiftN n k Γ Γ')
     (h1 : env.HasType U Γ' e A) (h2 : e.Skips n k) : ∃ B, env.HasType U Γ' e B ∧ B.Skips n k :=
   IsDefEq.skips henv hΓ' W h1 h2 h2
 
-/-- **Blocked on const-application injectivity**, the same gate as `TrProj.uniq` and
-`TrProj.defeqDFC` — see the note on `defeqDFC` for the ledger references (group I, gated on
-I1 `VEnv.Sig` and I13 `IsDefEqU.const_forallE_inv`).
+/-- **Blocked**, but not on the fact this docstring used to name.  It said "the same gate as
+`TrProj.uniq` and `TrProj.defeqDFC` … I13 `IsDefEqU.const_forallE_inv`".  Two corrections:
+`TrProj.defeqDFC` is **no longer blocked at all** (it is proved below — its conclusion is an
+existential, so nothing has to be recovered), and the fact this one needs is neither I13 nor
+`const_app_inv` but **rigidity**, fact (C) of `Theory/Typing/Injectivity.lean`'s taxonomy: *a
+term definitionally equal to a rule-free constant application reduces to one with the same
+head*.  That file names `TrProj.weak'_inv` as (C)'s only consumer and deliberately leaves (C)
+**unstated**, because its faithful formulation mentions weak-head reduction, which lives
+downstream in `Theory/Typing/HeadReduction.lean` and is gated on `Params`.  So the residual
+here is a statement that does not exist in the tree, not a `sorry` that does.
 
 **The route, traced to where it stops.**  This is the right path; it is not "hard", it
 terminates.  From `H` one has `env.HasType U Γ' (e.lift' l) ((.const S us).mkApp (ps ++ ιs))`
@@ -711,20 +718,44 @@ theorem TrProj.weak'_inv (henv : VEnv.WF env) (hΓ' : OnCtx Γ' (env.IsType U))
     (W : Ctx.Lift' l Γ Γ') (H : TrProj env U Γ' s i (e.lift' l) e') :
     ∃ e'', TrProj env U Γ s i e e'' := sorry
 
-/-- **Blocked**, and not on effort.  Together with `TrProj.uniq` this needs `TrProj` to be
-*functional*: from `env.IsDefEqU U Γ₁ e₁ e₂` and the two typings
-`Γ ⊢ eₖ : (.const S ls).mkApp (ps ++ ιs)` one has to recover `ls ≈ ls'` and `ps ≡ ps'`,
-i.e. **injectivity of a constant application**.  That is a Church–Rosser consequence, and
-`ChurchRosser.lean` is proved under the `VEnv.Params` interface which nothing instantiates
-— design ledger group I, gated on I1 (`VEnv.Sig`, "hard, unanticipated") and I13
-(`IsDefEqU.const_forallE_inv`, "research", owned by the injectivity stream).
+/-- **NOT blocked — proved.**  The docstring this replaces said this lemma "needs `TrProj` to
+be *functional*: from `env.IsDefEqU U Γ₁ e₁ e₂` and the two typings
+`Γ ⊢ eₖ : (.const S ls).mkApp (ps ++ ιs)` one has to recover `ls ≈ ls'` and `ps ≡ ps'`, i.e.
+**injectivity of a constant application**".  **That is wrong**, and the error is the same one
+`Verify/Typing/DefEqCtx.lean` diagnoses for `TrProj.defeqDFC_target`: the conclusion is an
+*existential*, so nothing has to be recovered.  The witness `e''` may simply reuse the `D`,
+`T`, `C`, `us`, `ps`, `ιs` the input derivation already chose.
 
-Route checked and rejected: `IsDefEq.uniq` (`Theory/Typing/UniqueTyping.lean:13`) needs
-only `VEnv.WF env`, not `Params` — but it gives uniqueness of the *type*, not injectivity
-of the application, so it does not close the gap.  Do not retry it. -/
+What actually has to move is (i) the judgements, across `hΓ` — `HasType.defeqDFC`,
+`VEnv.HasArgs.defeqDFC`; and (ii) the *subject*, from `e₁` to `e₂`, which is `IsDefEqU.of_l`
+plus `IsDefEq.hasType`, needing only `VEnv.WF env` and `OnCtx Γ₂`.  Neither is injectivity.
+
+`TrProj.uniq` is a different statement and remains blocked: there the two targets are *given*,
+so their `us`/`ps`/`ιs` cannot be chosen, and recovering them is exactly what needs
+`IsDefEqU.const_app_inv` (`Theory/Typing/Injectivity.lean`) plus `IsStructure` uniqueness
+(ledger G4, which has no statement in the tree).
+
+**What the proof does cost, stated plainly.**  Step (ii) is `IsDefEqU.of_l`, whose cone
+contains `IsDefEq.uniqU` — *unique typing*, at a constant application rather than at a Π.  So
+this lemma is a `uniqU` consumer, and `docs/handoff-uniqu-removal.md`'s "`Verify/` needs unique
+typing only at Π" holds for the `kernel_sound` cone only because **`TrProj.defeqDFC` has no
+consumers**.  Anything that starts consuming it must either route through `VEnv.HasType.piUniq`
+instead (it cannot: the type here is a const application) or accept a sixth `uniqU` site.
+Unique typing is nevertheless a strictly weaker and already-tracked obligation than the
+injectivity the old docstring named. -/
 theorem TrProj.defeqDFC (henv : VEnv.WF env) (hΓ : env.IsDefEqCtx U [] Γ₁ Γ₂)
     (he : env.IsDefEqU U Γ₁ e₁ e₂) (H : TrProj env U Γ₁ s i e₁ e') :
-    ∃ e'', TrProj env U Γ₂ s i e₂ e'' := sorry
+    ∃ e'', TrProj env U Γ₂ s i e₂ e'' := by
+  have hΓ₂ : OnCtx Γ₂ (env.IsType U) := (hΓ.symm henv.ordered).isType
+  have hA : ∀ {As as : List VExpr}, env.HasArgs U Γ₁ As as → env.HasArgs U Γ₂ As as := by
+    intro As as h
+    induction h with
+    | nil => exact .nil
+    | cons ha _ ih => exact .cons (ha.defeqDFC henv.ordered hΓ) ih
+  cases H with
+  | mk hS hty hus hps hιs hi hlv hargs hιargs hF17 =>
+    refine ⟨_, .mk hS ?_ hus hps hιs hi hlv (hA hargs) (hA hιargs) hF17⟩
+    exact ((he.defeqDFC henv.ordered hΓ).of_l henv hΓ₂ (hty.defeqDFC henv.ordered hΓ)).hasType.2
 
 variable! {env env' : VEnv} (henv : env ≤ env') in
 theorem TrProj.mono (H : TrProj env U Γ s i e e') : TrProj env' U Γ s i e e' :=
