@@ -21,6 +21,14 @@ def checkEqType (env : Environment) : Except Exception Unit := do
   let fail {α} (s : String) : Except Exception α :=
     throw <| .other s!"failed to initialize quot module, {s}"
   let .inductInfo info ← env.get ``Eq | fail "environment does not have 'Eq' type"
+  -- **Divergence from the C++ kernel** (`check_eq_type`, `src/kernel/quot.cpp`), which omits
+  -- this check.  `addQuot` installs `Quot.lift` with `add`, bypassing the type checker, and
+  -- `Quot.lift`'s type mentions `Eq`; a `quotInfo` constant is always `safe`.  So without this
+  -- check an `unsafe inductive Eq` yields a *safe* constant whose type mentions an *unsafe*
+  -- one -- exactly what `TypeChecker.inferConstant` rejects everywhere else -- and the `.safe`
+  -- model that `kernel_sound` reads has no such `Eq` to point `VEnv.QuotReady` at.
+  -- See `divergences.md` and `Lean4Lean/Verify/EqSafety.lean`.
+  if info.isUnsafe then fail "'Eq' is not a safe declaration"
   let [u] := info.levelParams | fail "unexpected number of universe params at 'Eq' type"
   let [eqRefl] := info.ctors | fail "unexpected number of constructors for 'Eq' type"
   ExprBuildT.run do

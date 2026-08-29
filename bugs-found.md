@@ -59,6 +59,94 @@ reader will otherwise assume the opposite:
   abstract environment without losing anything the kernel accepts. Entry 9 below
   is the fix that relies on this.
 
+15. **`init_quot` accepts an `unsafe inductive Eq`, and then installs a *safe*
+    `Quot.lift` whose type mentions it.** Present in **both** kernels:
+    `check_eq_type` (`~/lean4/src/kernel/quot.cpp:19-44`) and its lean4lean
+    mirror `Lean4Lean.checkEqType` (`Lean4Lean/Quot.lean`) check that `Eq` is an
+    inductive with one universe parameter, one constructor, and the exact
+    expected types for the type and the constructor — and check nothing about
+    its safety tag. `Eq` is not in `Lean.Kernel.Environment.primitives`, so
+    `checkName` does not object; `checkPrimitiveInductive` recognises only `Bool`
+    and `Nat`, and in any case returns `false` immediately when `isUnsafe`, so
+    `allowPrimitive` plays no part. Positivity is *skipped* for an unsafe block
+    (`Add.lean:381`, `!isUnsafe` guard), so the declaration is admitted without
+    the check that the safe path applies.
+
+    **Witness, machine-checked, C++ kernel.** A `prelude` file with no imports:
+
+    ```lean
+    prelude
+    universe u
+    unsafe inductive Eq : {α : Sort u} → α → α → Prop where
+      | refl : ∀ {α : Sort u} (a : α), Eq a a
+    init_quot
+    ```
+
+    This elaborates with no error. `#print Eq` reports
+    `unsafe inductive Eq.{u} : {α : Sort u} → α → α → Prop`, and `#print Quot.lift`
+    reports
+    `Quotient primitive Quot.lift.{u, v} : … → (∀ (a b : α), r a b → Eq (f a) (f b)) → Quot r → β`.
+    The same declaration built by hand and passed to `Lean4Lean.addDecl` followed
+    by `Lean4Lean.Environment.addQuot` on `Kernel.Environment.empty` was accepted
+    by lean4lean too (before the fix).
+
+    **What actually goes wrong in the C++ kernel.** Not a proof of `False`: the
+    shape of `Eq` is pinned exactly by `check_eq_type`, so the unsafe tag buys no
+    extra strength for `Eq` itself — the constructor type it forces is positive
+    anyway. What breaks is the **safe/unsafe stratification invariant**, which
+    both kernels otherwise enforce in every syntactic position (see the
+    "verified non-bug" entry above): `type_checker::infer_constant`
+    (`type_checker.cpp:109-117`) rejects any *safe* declaration that names an
+    *unsafe* constant. `add_quot` installs `Quot`, `Quot.mk`, `Quot.lift` and
+    `Quot.ind` with `add_core`, which **bypasses the type checker entirely**, and
+    a `quot_val` is always safe (`ConstantInfo.isUnsafe` returns `false` for
+    `.quotInfo` unconditionally). So `init_quot` mints a safe constant whose
+    stored type names an unsafe one — a state the kernel refuses to let any
+    ordinary declaration reach. In the same file, appending
+
+    ```lean
+    axiom bad : ∀ {α : Sort u} (a : α), Eq a a
+    axiom useLift : ∀ {α : Sort u} {r : α → α → Prop} {β : Sort v} (f : α → β),
+      (∀ (a b : α), r a b → Eq (f a) (f b)) → Quot r → β
+    ```
+
+    gives, twice,
+    `error: (kernel) invalid declaration, it uses unsafe declaration 'Eq'` — the
+    second of those is literally `Quot.lift`'s own type, spelled out. So the
+    honest statement of the C++ consequence is: **`init_quot` produces an
+    environment whose `Quot.lift` cannot be re-declared, and in which the
+    invariant "no safe constant mentions an unsafe one" is false.** It is a
+    reachable inconsistency in the kernel's own bookkeeping, not (as far as this
+    stream could establish) a route to `False`.
+
+    **What goes wrong here.** For lean4lean it is worse than bookkeeping, because
+    `kernel_sound` reads a model. `TrEnv'` is indexed by `quotInit`, and the only
+    constructor setting it is `TrEnv'.quot`, whose first premise is
+    `VEnv.QuotReady env`, i.e. `env.constants ``Eq = some eqConst`. So
+    `TrEnv safety env venv` with `env.quotInit = true` forces `Eq` into the model
+    and hence forces `Eq` visible at `safety`
+    (`TrEnv.eq_visible_of_quotInit`, `Verify/SafeFragment.lean`); at
+    `safety = .safe` that is `ci.safety = .safe`. An unsafe `Eq` will moreover be
+    in **no** model at **any** level, because `TrEnv'.induct` is to be gated to
+    safe blocks (positivity is skipped when `isUnsafe`, so `VIndField.WF.pos` has
+    no witness and `TrEnv'.ignore` takes the declaration). So after a
+    `.quotDecl` step on such an environment, `∃ venv, TrEnv .safe env venv` is
+    **false**, and `addQuot.WF` — hence `addDecl.WF`, hence `kernel_sound` — is
+    unprovable, not merely unproved. It is masked today only because
+    `checkEqType.WF`'s postcondition is `False`, discharged from
+    `TrEnv'.no_inductInfo` at `.unsafe`, which holds only because `AddInduct` has
+    no constructors yet.
+
+    **Fixed in lean4lean** (`Lean4Lean/Quot.lean`): `checkEqType` now rejects an
+    `Eq` whose `InductiveVal.isUnsafe` is `true`. This is a deliberate divergence
+    from the C++ kernel — see `divergences.md`. Proof side:
+    `Lean4Lean/Verify/EqSafety.lean` proves the necessity direction
+    (`TrEnv.eq_isUnsafe_false_of_quotInit`: the `.safe` model demands exactly this
+    check) and the sufficiency direction (`checkEqType.WF_safe`: the checker now
+    establishes it), and reduces the full non-vacuous `checkEqType.WF` to the
+    single `AddInduct` premise that a safe inductive `Eq` translates to
+    `eqConst`. Kernel Arena: 185 correct / 6 either / 0 incorrect, unchanged.
+
 ## In the lean4lean kernel implementation
 
 Found while trying to prove `checkPrimitiveDef.WF`, the statement that the
