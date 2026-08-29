@@ -172,7 +172,7 @@ theorem addMutual.WF {env : Environment} {ves : VEnvs} (wf : ves.WF env)
       TrMutualHeader v₀.safety (ves.venv v₀.safety) env v ci ∧
       v.safety = v₀.safety ∧ v.levelParams = v₀.levelParams) cis) ∧
     (((v₀ :: rest).map (·.name)).Nodup ∧
-      ∀ v ∈ (v₀ :: rest), (∅ : NameSet).contains v.name = false)) wf ?_).bind fun _ h1 => ?_
+      ∀ v ∈ (v₀ :: rest), ([] : List Name).contains v.name = false)) wf ?_).bind fun _ h1 => ?_
   · refine (TypeChecker.M.WF.forInFresh fun v found s => ?_).bind fun _ _ _ h => .pure h
     split <;> [exact .bindThrow .throw; rename_i hsafety]
     split <;> [exact .bindThrow .throw; rename_i hlp]
@@ -182,7 +182,7 @@ theorem addMutual.WF {env : Environment} {ves : VEnvs} (wf : ves.WF env)
     refine (checkConstantVal.WF wf (.defnInfo v) false ?_ s fuel).bind ?_
     · rw [ConstantInfo.defnInfo_safety, hsafety]; exact DefinitionSafety.le_rfl
     refine fun _ _ _ ⟨ci', htr, hciw, hn, hnp⟩ => .pure ?_
-    exact ⟨hfound, ⟨⟨ci', .bvar 0⟩, ⟨htr, hciw, hn, hnp rfl⟩, hsafety, rfl⟩, rfl⟩
+    exact ⟨by simpa using hfound, ⟨⟨ci', .bvar 0⟩, ⟨htr, hciw, hn, hnp rfl⟩, hsafety, rfl⟩, rfl⟩
   obtain ⟨⟨cis0, hQ0⟩, hnd, -⟩ := h1
   have hhdr := hQ0.imp fun _ _ h => h.1
   have hpull {P : DefinitionVal → VDefVal → Prop} (h : List.Forall₂ P (v₀ :: rest) cis0)

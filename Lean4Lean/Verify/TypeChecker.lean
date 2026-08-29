@@ -127,13 +127,18 @@ theorem M.WF.bindThrow {c : VContext} {s : VState} {x : M α} {f : α → M β} 
     (h : x.WF c s fun _ _ => False) : (x >>= f).WF c s Q :=
   h.bind fun _ _ _ hf => hf.elim
 
-/-- Loop rule for `addMutual`'s header loop, whose accumulator is the set of names seen so
-far: each iteration rejects a name already in the set, so the whole block is duplicate-free. -/
+/-- Loop rule for `addMutual`'s header loop, whose accumulator is the list of names seen so
+far: each iteration rejects a name already in the list, so the whole block is duplicate-free.
+
+The accumulator is a `List Name` compared by `Name.beq`, not a `NameSet`: see the comment at
+`Lean4Lean.addMutual` -- `NameSet` is an `RBTree` ordered by `Lean.Name.quickCmp`, whose
+executed path is `@[implemented_by]` over a body-less opaque, and a tree lookup's answer is
+not re-confirmed by an equality test. -/
 theorem M.WF.forInFresh {c : VContext} {Q : Lean.DefinitionVal → β → Prop}
-    {f : Lean.DefinitionVal → NameSet → M (ForInStep NameSet)}
+    {f : Lean.DefinitionVal → List Name → M (ForInStep (List Name))}
     (H : ∀ v found s, (f v found).WF c s fun r _ =>
-      found.contains v.name = false ∧ (∃ b, Q v b) ∧ r = .yield (found.insert v.name)) :
-    ∀ {vs : List Lean.DefinitionVal} {found : NameSet} {s : VState},
+      found.contains v.name = false ∧ (∃ b, Q v b) ∧ r = .yield (v.name :: found)) :
+    ∀ {vs : List Lean.DefinitionVal} {found : List Name} {s : VState},
       (ForIn.forIn vs found f).WF c s fun _ _ =>
         (∃ bs, List.Forall₂ Q vs bs) ∧ (vs.map (·.name)).Nodup ∧
           ∀ v ∈ vs, found.contains v.name = false
@@ -142,7 +147,7 @@ theorem M.WF.forInFresh {c : VContext} {Q : Lean.DefinitionVal → β → Prop}
     rw [List.forIn_cons]
     refine (H v found s).bind fun r s' _ h => ?_
     obtain ⟨hfresh, ⟨b, hb⟩, rfl⟩ := h
-    refine (M.WF.forInFresh H (vs := vs) (found := found.insert v.name)).mono
+    refine (M.WF.forInFresh H (vs := vs) (found := v.name :: found)).mono
       fun _ _ _ h => ?_
     obtain ⟨⟨bs, hbs⟩, hnd, hmem⟩ := h
     refine ⟨⟨b :: bs, .cons hb hbs⟩, ?_, ?_⟩
@@ -150,15 +155,15 @@ theorem M.WF.forInFresh {c : VContext} {Q : Lean.DefinitionVal → β → Prop}
       refine ⟨fun hm => ?_, hnd⟩
       obtain ⟨w, hw, hwn⟩ := List.mem_map.1 hm
       have := hmem w hw
-      rw [NameSet.contains_insert, hwn] at this
+      rw [← hwn] at this
       simp at this
     · intro w hw
       cases hw with
       | head => exact hfresh
       | tail _ hw =>
         have := hmem w hw
-        rw [NameSet.contains_insert] at this
-        exact (by simpa using this : _ ∧ _).2
+        simp at this
+        exact by simpa using this.2
 
 /-- Loop rule for a loop whose elements are already related to a list `cis`, so each iteration
 may use the datum paired with the element it processes; each refines its `ci` to a `ci'`
