@@ -511,6 +511,118 @@ run_meta do
       {disagree} of {all.size} binder domains.\n{msg}"
   logInfo m!"consumeAnnotations agrees with the opaque on all {all.size} binder domains"
 
+/-! ## Name suffixing: the in-tree replacements match the opaque, and the opaque is off every
+decision path
+
+`Lean.Name.appendAfter` and `Lean.Name.appendIndexAfter` build the new string component with
+`String.Internal.append`, an `@[extern "lean_string_append"]` **body-less `opaque`** — a
+constant with no Lean semantics at all, and upstream, so `Verify/Guard.lean`'s check 3 cannot
+see it.  `Lean4Lean.appendAfter'` / `appendIndexAfter'` (`Lean4Lean/Inductive/Add.lean`) are the
+upstream bodies verbatim with that call replaced by `++`, i.e. `String.append`, the *same* C
+function behind a Lean body that specifies it (`toByteArray := s.toByteArray ++ t.toByteArray`).
+
+Two checks, guarding different things.
+
+1. **The replacements agree with the originals.**  Every constant name in this environment,
+   crossed with a range of indices and suffixes, plus hand-built names exercising the branches a
+   real environment does not populate: `.anonymous`, a `.num`-headed base, and a *macro-scoped*
+   name, which is the only input on which `Name.modifyBase` takes its other branch.
+
+2. **Nothing in the checker calls the originals any more.**  The structural half, in the same
+   shape as `quickCmpExecutors` below: no `Lean4Lean.*` constant reachable from `addDecl` may
+   name `Name.appendAfter`, `Name.appendIndexAfter`, `Name.appendBefore`, or
+   `String.Internal.append` itself.
+
+Both were verified to fire by breaking them: reverting one call site restores the structural
+failure, and perturbing the replacement's body ("_" ↦ "-") makes the differential report a
+witness. -/
+
+/-- Names that a real environment does not contain but `modifyBase` distinguishes. -/
+private def extraNames : List Name :=
+  let macroScoped : Name :=
+    ({ name := `foo.bar, imported := `SomeImportedModule, ctx := `Main,
+       scopes := [1, 7, 42] } : Lean.MacroScopesView).review
+  [.anonymous, .num .anonymous 3, .num (.str .anonymous "a") 0,
+   .str (.num .anonymous 5) "b", .str .anonymous "", macroScoped,
+   .str macroScoped "z", .num macroScoped 2]
+
+run_meta do
+  let env ← getEnv
+  let names := extraNames ++ (env.constants.toList.map (·.1))
+  let idxs : List Nat := [0, 1, 2, 7, 10, 99, 123, 4096]
+  let sufs : List String := ["_ih", "", "_1", "✝", "_@", "_hyg"]
+  let mut pairs : Nat := 0
+  let mut disagree : Nat := 0
+  let mut witness : Option MessageData := none
+  for n in names do
+    for i in idxs do
+      pairs := pairs + 1
+      let a := Lean4Lean.appendIndexAfter' n i
+      let b := n.appendIndexAfter i
+      unless a == b do
+        disagree := disagree + 1
+        if witness.isNone then
+          witness := some m!"appendIndexAfter' {n} {i} = {a}, opaque gives {b}"
+    for t in sufs do
+      pairs := pairs + 1
+      let a := Lean4Lean.appendAfter' n t
+      let b := n.appendAfter t
+      unless a == b do
+        disagree := disagree + 1
+        if witness.isNone then
+          witness := some m!"appendAfter' {n} {t} = {a}, opaque gives {b}"
+  if disagree != 0 then
+    throwError "the in-tree name-suffixing replacements disagree with \
+      `Lean.Name.appendAfter`/`appendIndexAfter` on {disagree} of {pairs} pairs.\n\
+      {witness.getD m!""}"
+  if pairs < 100000 then
+    throwError "the name-suffixing differential ran on only {pairs} pairs; it is supposed to \
+      sweep a whole environment, so the environment or the name list is not what it should be."
+  logInfo m!"appendAfter'/appendIndexAfter' agree with the opaque-backed originals on all \
+    {pairs} name/suffix pairs"
+
+/-- `Lean4Lean.*` constants in `addDecl`'s cone whose own definition names one of the upstream
+name-suffixing functions, i.e. that build a name through the body-less opaque
+`String.Internal.append`. Empty, and it must stay empty. -/
+private def opaqueNameAppenders : List String := []
+
+run_meta do
+  let env ← getEnv
+  let forbidden : List Name :=
+    [`Lean.Name.appendAfter, `Lean.Name.appendIndexAfter, `Lean.Name.appendBefore,
+     `String.Internal.append]
+  let mut visited : NameSet := {}
+  let mut stack : List Name := [``Lean4Lean.addDecl]
+  while h : stack ≠ [] do
+    let n := stack.head h; stack := stack.tail
+    if visited.contains n then continue
+    visited := visited.insert n
+    if let some ci := env.find? n then
+      for u in ci.getUsedConstantsAsSet.toList do
+        unless visited.contains u do stack := u :: stack
+      if let some impl := Compiler.getImplementedBy? env n then
+        unless visited.contains impl do stack := impl :: stack
+      let uRec := Name.str n "_unsafe_rec"
+      if env.contains uRec then unless visited.contains uRec do stack := uRec :: stack
+  let mut found : List Name := []
+  for n in visited.toList do
+    unless (`Lean4Lean).isPrefixOf n do continue
+    let some ci := env.find? n | continue
+    if forbidden.any ci.getUsedConstantsAsSet.contains then
+      found := n :: found
+      unless opaqueNameAppenders.contains n.toString do
+        throwError "name-suffixing regression: {n} is reachable from `Lean4Lean.addDecl` and \
+          names `Lean.Name.appendAfter`/`appendIndexAfter`/`appendBefore` or \
+          `String.Internal.append` directly. Those build the new string component with \
+          `String.Internal.append`, an `@[extern]` `opaque` with no Lean body. Use \
+          `Lean4Lean.appendAfter'` / `Lean4Lean.appendIndexAfter'` instead."
+  for n in opaqueNameAppenders do
+    unless found.any (·.toString == n) do
+      throwError "name-suffixing allowlist is stale: {n} no longer names an opaque-backed \
+        appender. Remove it from `opaqueNameAppenders`."
+  logInfo m!"opaque-backed name appends on a decision path: {found.length} \
+    ({found.map (·.toString)})"
+
 /-! ## The unmodelled-opaque inventory
 
 `Verify/Guard.lean`'s check 3 catches `partial`/`@[extern]`/`@[implemented_by]` constants in
@@ -541,16 +653,31 @@ The classification, as of this writing (27 entries):
   variants are reduction barriers Lean's well-founded compilation inserts. Nothing consumes a
   value.
 
-* **Decision-irrelevant (6).** `Expr.dbgToString` and `Name.needsNoEscapeAsciiRest` reach only
+* **Decision-irrelevant (7).** `Expr.dbgToString` and `Name.needsNoEscapeAsciiRest` reach only
   error messages; `System.Platform.getNumBits` only word size; `mixHash`, `String.hash` and
   `String.Internal.contains` feed hash buckets, and every hashtable lookup in the cone confirms
   its hit with an equality test, so a wrong hash can cause a miss but not a wrong answer.
 
-* **Consumed only through a decidable observation (2).** `ptrAddrUnsafe` — the shape
+  `String.Internal.append` moved into this bucket. It used to be reached by
+  `Lean.Name.appendAfter`/`appendIndexAfter` from **five** sites in the inductive adder, not the
+  two the earlier note named: the eliminator's fresh universe parameter (checked against
+  `lparams`), `ElimNestedInductive.mkUniqueName` (checked against the environment),
+  `mkAuxRecNameMap`'s auxiliary recursor names (checked, but by `processRec`'s
+  `checkName newRecName` rather than at the call site), and the `motive_i` and `_ih` binder
+  names, which are `userName`s of local declarations and decide nothing at all. The old
+  "collision-checked, so a wrong append retries or rejects" argument survives inspection at
+  every one of them — but it is now unnecessary: all five call
+  `Lean4Lean.appendAfter'`/`appendIndexAfter'`, and the opaque's one remaining path is
+  `mkPanicMessageWithDecl`, a panic's message string, which never reaches a returned value.
+  Both halves are checked above (differential + structural).
+
+* **Consumed only through a decidable observation (1).** `ptrAddrUnsafe` — the shape
   `ptrEq a b = true → a = b` is why the two `ptrEq` axioms are structurally immune to the
-  value-on-the-wrong-branch defect. And `String.Internal.append`, reached by
-  `Name.appendIndexAfter` from `getElimLevel` and `ElimNestedInductive.mkUniqueName`: both call
-  sites *check* the produced name for collision, so a wrong append retries or rejects.
+  value-on-the-wrong-branch defect. It arrives three ways: `Lean4Lean.ptrEqExpr` /
+  `ptrEqConstantInfo` in `isDefEqCore'` (both axiomatised), the pointer-keyed memo cache of
+  `Lean.Expr.replaceM` under `ElimNestedInductive.replaceAllNested` (`Lean.mkPtrMap`, whose
+  `BEq` *is* pointer equality, so a hit means object identity), and the inert type-level route
+  through `Lean.FVarIdMap` → `Name.quickCmp` described below.
 
 * **Reachable only through a type (1).** `Lean.Name.quickCmpImpl.unsafe_impl_2`.
   `Lean.Name.quickCmp` has a verified Lean body but carries `@[implemented_by quickCmpImpl]`,
@@ -563,9 +690,9 @@ The classification, as of this writing (27 entries):
   Four constants used to reach it through code that runs: `AddInductive.checkConstructors` and
   `addMutual` for **duplicate-name detection**, and
   `ElimNestedInductive.Result.getNestedIfAuxCtor`/`restoreNested` for the nested-restoration
-  map. Three of the four are now `List`-based and run `Name.beq` instead; the fourth,
-  `Lean4Lean.addMutual`, is in `Lean4Lean/Environment.lean` and is tracked by
-  `quickCmpExecutors` below.
+  map. All four are now `List`-based and run `Name.beq` instead, whose Lean body is its own
+  spec; `quickCmpExecutors` below is the structural check that keeps it that way, and it is
+  now empty.
 
   It cannot leave the cone, and the reason is structural rather than fixable here:
   `Lean.LocalContext`'s field `auxDeclToFullName : FVarIdMap Name` mentions `Name.quickCmp` in
@@ -653,22 +780,22 @@ because those are the ones that run a tree comparison on a decision path.
 This check enumerates exactly those. `Lean.FVarIdMap` is deliberately not among the forbidden
 names: a constant mentioning it has merely inherited `LocalContext`'s field type.
 
-The list is frozen. Shrinking it is progress; the single remaining entry, `Lean4Lean.addMutual`
-(`Lean4Lean/Environment.lean`), is the mutual-block duplicate-name guard, and the edit is the
-same one made in `Lean4Lean/Inductive/Add.lean`:
+The list is now **empty**: no `Lean4Lean.*` constant reachable from `addDecl` runs a
+`quickCmp`-ordered lookup. The last entry was `Lean4Lean.addMutual`
+(`Lean4Lean/Environment.lean`), the mutual-block duplicate-name guard; the edit was the same
+one made earlier in `Lean4Lean/Inductive/Add.lean`:
 
     let mut found : NameSet := {}    ↦    let mut found : List Name := []
     found.contains v.name            ↦    found.contains v.name   (unchanged: `List.contains`)
     found := found.insert v.name     ↦    found := v.name :: found
 
-`Lean4Lean/Environment.lean` is not this stream's file, so that edit is stated, not made. The
-probe that would catch a regression in it already exists — "mutual block with a duplicate name"
-in the `run_meta` block above. -/
+The probe that catches a regression in it is "mutual block with a duplicate name" in the
+`run_meta` block above.  Adding a name here is a regression, not a bookkeeping step. -/
 
 /-- `Lean4Lean.*` constants in `addDecl`'s cone whose own definition names `Lean.Name.quickCmp`,
 `Lean.NameSet` or `Lean.NameMap`, i.e. that run a `quickCmp`-ordered tree lookup on a decision
-path. Frozen; shrinking it is progress. -/
-private def quickCmpExecutors : List String := ["Lean4Lean.addMutual"]
+path. Empty, and it must stay empty. -/
+private def quickCmpExecutors : List String := []
 
 run_meta do
   let env ← getEnv

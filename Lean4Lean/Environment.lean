@@ -79,7 +79,11 @@ def addMutual (env : Environment) (vs : List DefinitionVal)
     throw <| .other "invalid mutual definition, declaration is not tagged as unsafe/partial"
   if check then
     M.run env (safety := v₀.safety) (lctx := {}) (lparams := v₀.levelParams) (fuel := fuel) do
-      let mut found : NameSet := {}
+      -- A `List` keyed by `Name.beq`, not a `NameSet`: `NameSet` is an `RBTree` ordered by
+      -- `Lean.Name.quickCmp`, whose *executed* path is `@[implemented_by quickCmpImpl]` and
+      -- bottoms out in a body-less opaque, and unlike a hash lookup a tree lookup's answer is
+      -- not re-confirmed by an equality test.  `Name.beq`'s Lean body is its own spec.
+      let mut found : List Name := []
       for v in vs do
         if v.safety != v₀.safety then
           throw <| .other
@@ -91,7 +95,7 @@ def addMutual (env : Environment) (vs : List DefinitionVal)
             "invalid mutual definition, declarations must have the same universe level parameters"
         if found.contains v.name then
           throw <| .other s!"invalid mutual definition, duplicate declaration name '{v.name}'"
-        found := found.insert v.name
+        found := v.name :: found
         checkConstantVal env v.toConstantVal
   let env' := vs.foldl (init := env) fun env' v =>
     env'.add (.axiomInfo { v with isUnsafe := v₀.safety == .unsafe })

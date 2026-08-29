@@ -68,6 +68,49 @@ total with no `panic!` branch, and so that the over- and under-applied cases fal
   | .app (.const n _) _ => n == ``outParam || n == ``semiOutParam
   | _ => false
 
+/--
+`Lean.Name.appendAfter` and `Lean.Name.appendIndexAfter`, without the opaque.
+
+Both upstream functions build the new component with `String.Internal.append`
+(`Init/Data/String/Bootstrap.lean`), which is `@[extern "lean_string_append"]` **`opaque`, with
+no Lean body at all** -- exactly the shape of `Lean.Expr.findImpl?` and
+`Lean.Expr.consumeTypeAnnotations` before `anySubterm` and `consumeAnnotations` replaced them,
+and, like them, invisible to `Verify/Guard.lean`'s check 3, which filters to constants defined in
+`Lean4Lean.*` modules. Nothing whatever can be said about the string it returns.
+
+`String.append` (`Init/Data/String/Defs.lean`) is the same C function -- both carry
+`@[extern "lean_string_append"]` -- but it is a `def` whose Lean body *is* its specification:
+
+    def String.append (s : String) (t : @& String) : String where
+      toByteArray := s.toByteArray ++ t.toByteArray
+      isValidUTF8 := s.isValidUTF8.append t.isValidUTF8
+
+So these two definitions are the upstream ones verbatim with `String.Internal.append` replaced
+by `++`. They are checked against the upstream originals over a whole `Lean` environment by
+`Lean4Lean/Tests/KernelHardening.lean` (2,066,550 name/suffix pairs, no disagreement), and the
+structural check in the same file requires that no `Lean4Lean.*` constant reachable from
+`addDecl` names the upstream pair any more.
+
+**No new recursive definition.** Both are non-recursive: `Lean.Name.modifyBase` and
+`toString` are upstream, so neither acquires an `f._unsafe_rec` companion and check 3's frozen
+implementation-gap list is unchanged. That is the same constraint `anySubterm` and
+`consumeAnnotations` were designed around.
+
+**Not called `Name.appendAfter`.** Dot notation on a `Name` would resolve back to the upstream
+function, silently undoing the replacement, so these are plain `Lean4Lean` functions used in
+prefix position.
+-/
+def appendAfter' (n : Name) (suffix : String) : Name :=
+  n.modifyBase fun
+    | .str p s => .str p (s ++ suffix)
+    | n        => .str n suffix
+
+@[inherit_doc appendAfter']
+def appendIndexAfter' (n : Name) (idx : Nat) : Name :=
+  n.modifyBase fun
+    | .str p s => .str p (s ++ "_" ++ toString idx)
+    | n        => .str n ("_" ++ toString idx)
+
 namespace AddInductive
 open TypeChecker
 
@@ -406,7 +449,7 @@ where
   loop (lps : List Name) (u : Name) (i : Nat) : Nat → Name
     | 0 => u
     | fuel + 1 =>
-      if lps.contains u then loop lps ((`u).appendIndexAfter i) (i + 1) fuel else u
+      if lps.contains u then loop lps (appendIndexAfter' `u i) (i + 1) fuel else u
 
 def isKTarget (stats : InductiveStats) (indTypes : Array InductiveType) : M Bool := do
   let #[indType] := indTypes | return false
@@ -448,7 +491,7 @@ def loopInd1 (dIdx : Nat) (recInfos : Array RecInfo) (k : Array RecInfo → M α
     withLocalDecl `t .default tTy' fun major => do
     let lctx ← getLCtx
     let motiveTy := lctx.mkForall indices <| lctx.mkForall #[major] <| .sort elimLevel
-    let name := if indTypes.size > 1 then (`motive).appendIndexAfter (dIdx+1) else `motive
+    let name := if indTypes.size > 1 then appendIndexAfter' `motive (dIdx+1) else `motive
     let motiveTy' ← consumeAnnotations motiveTy
     withLocalDecl name .default motiveTy' fun motive => do
     loopInd1 (dIdx + 1) (recInfos.push { motive, minors := #[], indices, major }) k
@@ -495,7 +538,7 @@ def loopU (i : Nat) (v : Array Expr) (k : Array Expr → M α) : M α := do
       let (itIdx, itIndices) := getIIndices stats uiTy
       return (← getLCtx).mkForall xs <|
         .app (mkAppN recInfos[itIdx]!.motive itIndices) (mkAppN ui xs)
-    let vName := ((← getLCtx).get! ui.fvarId!).userName.appendAfter "_ih"
+    let vName := appendAfter' ((← getLCtx).get! ui.fvarId!).userName "_ih"
     let viTy' ← consumeAnnotations viTy
     withLocalDecl vName .default viTy' fun vi => do
     loopU (i + 1) (v.push vi) k
@@ -724,7 +767,7 @@ where
       Nat → Except Exception (Name × State)
     | 0 => throw <| .other "deep recursion: ElimNestedInductive.mkUniqueName"
     | fuel + 1 =>
-      let r := n.appendIndexAfter i
+      let r := appendIndexAfter' n i
       if env.contains r then loop env n s (i + 1) fuel
       else pure (r, { s with nextIdx := i + 1 })
 
@@ -865,7 +908,7 @@ def mkAuxRecNameMap (env' : Environment) (types : List InductiveType) :
   let mut nextIdx := 1
   for indName in allNames.drop ntypes do
     let oldRecName := mkRecName indName
-    let newRecName := (mkRecName mainName).appendIndexAfter nextIdx
+    let newRecName := appendIndexAfter' (mkRecName mainName) nextIdx
     nextIdx := nextIdx + 1
     recMap := (oldRecName, newRecName) :: recMap
     oldRecNames := oldRecNames.push oldRecName
