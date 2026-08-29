@@ -70,9 +70,19 @@ class Params where
   Compare `SExpr.IsDefEq.strong`, which was *false* for exactly this reason, and `pat_wf`,
   which was under-hypothesised for it.  Three for three: on this development a rule stated
   about an arbitrary `Γ` with no well-formedness hypothesis is suspect by default.
+
+  **Level hypothesis at `univs`, not at a stray `uvars`.**  This field previously read
+  `∀ l ∈ ls, l.WF uvars`, where `uvars` was an *auto-bound implicit* of the field -- a fresh
+  universally quantified `Nat`, unrelated to `Params.univs`.  (`uvars` is the section
+  variable of `Theory/Typing/Basic.lean`, where `IsDefEq.extra` states the same hypothesis
+  correctly; inside this class it auto-bound instead of resolving.)  That made the field ask
+  for the conclusion at level lists that are *not* well-formed for the judgment, which
+  `Theory/Typing/PatternRules.lean`'s `Pat.extra` cannot supply -- its ι case needs
+  `IsDefEqU.instL`, which needs `l.WF univs`.  The sole consumer
+  (`NormalEq.parRed`'s `extra` case) holds `l.WF univs`, so narrowing costs it nothing.
   -/
   extra_pat : OnCtx Γ (IsType env univs) →
-    env.defeqs df → (∀ l ∈ ls, l.WF uvars) → ls.length = df.uvars →
+    env.defeqs df → (∀ l ∈ ls, l.WF univs) → ls.length = df.uvars →
     ∃ Δ L R p r m1 m2,
       df.lhs.instL ls = VExpr.mkLams Δ L ∧ df.rhs.instL ls = VExpr.mkLams Δ R ∧
       Pat p r ∧ p.Matches L m1 m2 ∧
