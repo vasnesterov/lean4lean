@@ -12,6 +12,53 @@ theorem VEnv.addConsts_le {env env' : VEnv} : ∀ {cis}, env.addConsts cis = som
     obtain ⟨_, h1, h2⟩ := h
     exact (addConst_le h1).trans (addConsts_le h2)
 
+/-! ## Shared `defeqs`/`≤` plumbing for the environment-building operations
+
+These four were duplicated verbatim in `Theory/Typing/DeltaUnique.lean` and in
+`Verify/Environment/Lemmas.lean` / `Verify/TypeChecker/Reduce.lean`, which made the two
+import cones impossible to combine (Lean rejects an import that re-declares a name).  They
+live here — the lowest module both cones already import — and both sides use them from here.
+All binders are implicit, matching the `Verify/` call style. -/
+
+theorem VEnv.addConst_defeqs {env env' : VEnv} {n ci} (h : env.addConst n ci = some env') :
+    env'.defeqs = env.defeqs := by
+  unfold VEnv.addConst at h; split at h <;> cases h; rfl
+
+theorem VEnv.addConsts_defeqs : ∀ {cis : List VDefVal} {env env' : VEnv},
+    env.addConsts cis = some env' → env'.defeqs = env.defeqs
+  | [], _, _, h => by cases h; rfl
+  | ci :: cis, env, env', h => by
+    rw [VEnv.addConsts, List.foldlM_cons] at h
+    cases hh : env.addConst ci.name ci.toVConstant with
+    | none => rw [hh] at h; exact absurd h (by simp)
+    | some e => rw [hh] at h; rw [VEnv.addConsts_defeqs h, VEnv.addConst_defeqs hh]
+
+theorem VEnv.addConstList_defeqs : ∀ {cs : List (Name × VConstant)} {env env' : VEnv},
+    env.addConstList cs = some env' → env'.defeqs = env.defeqs
+  | [], _, _, h => by cases h; rfl
+  | c :: cs, env, env', h => by
+    rw [VEnv.addConstList, List.foldlM_cons] at h
+    cases hh : env.addConst c.1 c.2 with
+    | none => rw [hh] at h; exact absurd h (by simp)
+    | some e => rw [hh] at h; rw [VEnv.addConstList_defeqs h, VEnv.addConst_defeqs hh]
+
+theorem VEnv.addDefEqs_le : ∀ {cis : List VDefVal} {env : VEnv}, env ≤ env.addDefEqs cis
+  | [], _ => VEnv.LE.rfl
+  | ci :: cis, env => by
+    show env ≤ VEnv.addDefEqs (env.addDefEq ci.toDefEq) cis
+    exact VEnv.addDefEq_le.trans VEnv.addDefEqs_le
+
+theorem VEnv.addDefEqs_defeqs : ∀ {cis : List VDefVal} {env : VEnv} {df},
+    (env.addDefEqs cis).defeqs df → (∃ ci ∈ cis, df = ci.toDefEq) ∨ env.defeqs df
+  | [], _, _, h => .inr h
+  | ci :: cis, env, df, h => by
+    rcases VEnv.addDefEqs_defeqs (cis := cis) (env := env.addDefEq ci.toDefEq) h with
+      ⟨ci', hci', rfl⟩ | h
+    · exact .inl ⟨ci', .tail _ hci', rfl⟩
+    · rcases (h : df = ci.toDefEq ∨ env.defeqs df) with rfl | h
+      · exact .inl ⟨ci, .head _, rfl⟩
+      · exact .inr h
+
 theorem VEnv.addConst_eq_none {env : VEnv} {name ci}
     (h : env.constants name = none) : ∃ env', env.addConst name ci = some env' := by
   unfold VEnv.addConst; rw [h]; exact ⟨_, rfl⟩

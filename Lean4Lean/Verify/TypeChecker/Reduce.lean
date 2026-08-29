@@ -138,34 +138,6 @@ through `not_ctorInfo` above).  Kept because it is inventory, not a premise: it 
 instance, `RuleShape`'s `TrEnv'`-side counterpart, an ι-rule-absence argument once
 `AddInduct` lands — wants exactly this. -/
 
-theorem VEnv.addConst_defeqs {env env' : VEnv} (h : env.addConst n ci = some env') :
-    env'.defeqs = env.defeqs := by
-  unfold VEnv.addConst at h; split at h <;> cases h; rfl
-
-theorem VEnv.addConsts_defeqs : ∀ {cis : List VDefVal} {env env' : VEnv},
-    env.addConsts cis = some env' → env'.defeqs = env.defeqs
-  | [], _, _, h => by rw [VEnv.addConsts, List.foldlM_nil] at h; cases h; rfl
-  | ci :: cis, env, env', h => by
-    rw [VEnv.addConsts, List.foldlM_cons] at h
-    cases h1 : env.addConst ci.name ci.toVConstant with
-    | none => rw [h1] at h; exact absurd h (by simp)
-    | some env₁ =>
-      rw [h1] at h
-      have h2 : env₁.addConsts cis = some env' := h
-      rw [VEnv.addConsts_defeqs (cis := cis) h2, VEnv.addConst_defeqs h1]
-
-theorem VEnv.addDefEqs_defeqs : ∀ {cis : List VDefVal} {env : VEnv} {df},
-    (env.addDefEqs cis).defeqs df → (∃ ci ∈ cis, df = ci.toDefEq) ∨ env.defeqs df
-  | [], _, _, h => .inr h
-  | ci :: cis, env, df, h => by
-    rw [VEnv.addDefEqs, List.foldl_cons] at h
-    rcases VEnv.addDefEqs_defeqs (cis := cis) (env := env.addDefEq ci.toDefEq) h with
-      ⟨ci', hci', rfl⟩ | h
-    · exact .inl ⟨_, .tail _ hci', rfl⟩
-    · rcases h with rfl | h
-      · exact .inl ⟨_, .head _, rfl⟩
-      · exact .inr h
-
 /-- **The dual of R6.**  A `TrEnv'`-built `VEnv` carries only δ-rules and the quotient rule —
 in particular no ι-rule, since `TrEnv'.induct` is vacuous.  Uniform in `safety`; unlike R6 no
 guard is needed, because `ignore` changes no rules. -/

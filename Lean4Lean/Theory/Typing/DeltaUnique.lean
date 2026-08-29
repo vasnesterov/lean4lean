@@ -72,10 +72,6 @@ def DefEqHeadsUnique (env : VEnv) : Prop :=
 
 /-! ## How the two primitive operations move the invariants -/
 
-theorem addConst_defeqs {env env' : VEnv} {n ci} (h : env.addConst n ci = some env') :
-    env'.defeqs = env.defeqs := by
-  unfold VEnv.addConst at h; split at h <;> cases h; rfl
-
 theorem addConst_contains {env env' : VEnv} {n ci} (h : env.addConst n ci = some env')
     {c} (hc : env.contains c) : env'.contains c := by
   obtain ⟨ci', hci'⟩ := hc
@@ -573,24 +569,6 @@ def KeyMajorUnique (env : VEnv) : Prop :=
 All three mention only `defeqs` and `contains`, so a step that leaves the rules alone lifts
 all three at once — one `keys_mono` in place of six lemmas. -/
 
-theorem addConsts_defeqs : ∀ {cis : List VDefVal} {env env' : VEnv},
-    env.addConsts cis = some env' → env'.defeqs = env.defeqs
-  | [], _, _, h => by cases h; rfl
-  | ci :: cis, env, env', h => by
-    rw [VEnv.addConsts, List.foldlM_cons] at h
-    cases hh : env.addConst ci.name ci.toVConstant with
-    | none => rw [hh] at h; exact absurd h (by simp)
-    | some e => rw [hh] at h; rw [addConsts_defeqs h, addConst_defeqs hh]
-
-theorem addConstList_defeqs : ∀ {cs : List (Name × VConstant)} {env env' : VEnv},
-    env.addConstList cs = some env' → env'.defeqs = env.defeqs
-  | [], _, _, h => by cases h; rfl
-  | c :: cs, env, env', h => by
-    rw [VEnv.addConstList, List.foldlM_cons] at h
-    cases hh : env.addConst c.1 c.2 with
-    | none => rw [hh] at h; exact absurd h (by simp)
-    | some e => rw [hh] at h; rw [addConstList_defeqs h, addConst_defeqs hh]
-
 theorem keys_mono {env env' : VEnv} (hd : env'.defeqs = env.defeqs) (hle : env ≤ env')
     (H : env.KeysDeclared ∧ env.KeyHeadDelta ∧ env.KeyMajorUnique) :
     env'.KeysDeclared ∧ env'.KeyHeadDelta ∧ env'.KeyMajorUnique := by
@@ -769,20 +747,6 @@ namespace VEnv
 one of the three shapes a declaration can contribute.  These three lemmas invert the two
 rule-folds and the single `addDefEq`; `RuleShape` (`Theory/Typing/PatternRules.lean`) is what
 they feed. -/
-
-theorem addDefEqs_le : ∀ (cis : List VDefVal) (env : VEnv), env ≤ env.addDefEqs cis
-  | [], _ => VEnv.LE.rfl
-  | ci :: cis, env => addDefEq_le.trans (addDefEqs_le cis (env.addDefEq ci.toDefEq))
-
-theorem addDefEqs_defeqs : ∀ {cis : List VDefVal} {env : VEnv} {df},
-    (env.addDefEqs cis).defeqs df → (∃ ci ∈ cis, df = ci.toDefEq) ∨ env.defeqs df
-  | [], _, _, h => .inr h
-  | ci :: cis, env, df, h => by
-    rcases addDefEqs_defeqs (cis := cis) h with ⟨ci', hci', rfl⟩ | h
-    · exact .inl ⟨ci', .tail _ hci', rfl⟩
-    · rcases (h : df = ci.toDefEq ∨ env.defeqs df) with rfl | h
-      · exact .inl ⟨ci, .head _, rfl⟩
-      · exact .inr h
 
 theorem addDefEqList_mem : ∀ (dfs : List VDefEq) {env : VEnv} {df},
     (dfs.foldl VEnv.addDefEq env).defeqs df → df ∈ dfs ∨ env.defeqs df

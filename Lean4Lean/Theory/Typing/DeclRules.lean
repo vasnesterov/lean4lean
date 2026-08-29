@@ -40,10 +40,11 @@ consolidated, `VEnv.RuleShape` is the one to keep and `VDefEq.IsDeclRule` is the
 delete — the corollaries at the bottom of this file are the only part with no counterpart
 there.
 
-For the same reason the three plumbing lemmas `addConst_defeqs_eq`,
-`addConstList_defeqs_eq` and `addConsts_defeqs_eq` carry an `_eq` suffix: `DeltaUnique.lean`
-and `Verify/TypeChecker/Reduce.lean` each already declare `VEnv.addConst_defeqs` and
-friends, and a downstream file that saw both would fail to compile.
+The three plumbing lemmas `addConst_defeqs`, `addConstList_defeqs` and
+`addConsts_defeqs` used to be duplicated here under an `_eq` suffix, because
+`DeltaUnique.lean` and `Verify/TypeChecker/Reduce.lean` each declared their own copy and a
+downstream file that saw both would fail to compile.  All copies now live in
+`Theory/Typing/EnvLemmas.lean`, which every side already imports.
 -/
 
 namespace Lean4Lean
@@ -96,26 +97,6 @@ variable {env env' : VEnv} {df : VDefEq}
 
 /-! ## Reading off `defeqs` through each environment extension -/
 
-theorem addConst_defeqs_eq {name ci} (h : env.addConst name ci = some env') :
-    env'.defeqs = env.defeqs := by
-  unfold VEnv.addConst at h; split at h <;> cases h; rfl
-
-theorem addConstList_defeqs_eq : ∀ {cs} {env env' : VEnv},
-    env.addConstList cs = some env' → env'.defeqs = env.defeqs
-  | [], _, _, h => by cases h; rfl
-  | _ :: _, _, _, h => by
-    rw [addConstList_cons, Option.bind_eq_some_iff] at h
-    obtain ⟨_, h1, h2⟩ := h
-    exact (addConstList_defeqs_eq h2).trans (addConst_defeqs_eq h1)
-
-theorem addConsts_defeqs_eq : ∀ {cis} {env env' : VEnv},
-    env.addConsts cis = some env' → env'.defeqs = env.defeqs
-  | [], _, _, h => by cases h; rfl
-  | _ :: _, _, _, h => by
-    simp [VEnv.addConsts, Option.bind_eq_some_iff] at h
-    obtain ⟨_, h1, h2⟩ := h
-    exact (addConsts_defeqs_eq h2).trans (addConst_defeqs_eq h1)
-
 theorem addDefEq_defeqs_iff {d} : (env.addDefEq d).defeqs df ↔ df = d ∨ env.defeqs df := .rfl
 
 /-- The converse of `addDefEqList_defeqs`: the fold adds exactly `dfs`. -/
@@ -163,7 +144,7 @@ theorem addInduct'_defeqs_iff {D : VInductDecl'} (h : env.addInduct' D = some en
     env'.defeqs df ↔ df ∈ D.iotaRules ∨ env.defeqs df := by
   rw [addInduct'_eq, Option.map_eq_some_iff] at h
   obtain ⟨env₁, h1, rfl⟩ := h
-  rw [addIndRules_defeqs_iff, addConstList_defeqs_eq h1]
+  rw [addIndRules_defeqs_iff, addConstList_defeqs h1]
 
 theorem addQuot_defeqs_iff (h : env.addQuot = some env') :
     env'.defeqs df ↔ df = quotDefEq ∨ env.defeqs df := by
@@ -173,8 +154,8 @@ theorem addQuot_defeqs_iff (h : env.addQuot = some env') :
   obtain ⟨e3, h3, h⟩ := Option.bind_eq_some_iff.1 h
   obtain ⟨e4, h4, h⟩ := Option.bind_eq_some_iff.1 h
   cases h
-  rw [addDefEq_defeqs_iff, addConst_defeqs_eq h4, addConst_defeqs_eq h3,
-    addConst_defeqs_eq h2, addConst_defeqs_eq h1]
+  rw [addDefEq_defeqs_iff, addConst_defeqs h4, addConst_defeqs h3,
+    addConst_defeqs h2, addConst_defeqs h1]
 
 /-! ## The classification -/
 
@@ -187,16 +168,16 @@ theorem WF'.defeq_isDeclRule {ds : List VDecl} {env : VEnv} (H : VEnv.WF' ds env
   | decl hd _ IH =>
     intro df h
     cases hd with
-    | «axiom» _ h2 | «opaque» _ h2 => exact IH (addConst_defeqs_eq h2 ▸ h)
+    | «axiom» _ h2 | «opaque» _ h2 => exact IH (addConst_defeqs h2 ▸ h)
     | «example» _ => exact IH h
     | «def» _ h2 =>
       rcases addDefEq_defeqs_iff.1 h with rfl | h
       · exact .delta _
-      · exact IH (addConst_defeqs_eq h2 ▸ h)
+      · exact IH (addConst_defeqs h2 ▸ h)
     | unsafeDef _ h2 =>
       rcases (addDefEqs_defeqs_iff _ _).1 h with ⟨_, _, rfl⟩ | h
       · exact .delta _
-      · exact IH (addConsts_defeqs_eq h2 ▸ h)
+      · exact IH (addConsts_defeqs h2 ▸ h)
     | quot _ h2 =>
       rcases (addQuot_defeqs_iff h2).1 h with rfl | h
       · exact .quot
