@@ -1,3 +1,7 @@
+> **Superseded in part by `docs/handoff-nested-build.md`.**  §7.1 (the abstract
+> `replaceIfNested`), §5's `BindersIndep` item, §5's positivity item and §5's universe-count
+> item are addressed there; §1–§4 and §3's three refutations stand unchanged.
+
 # The nested head, spent: `restoreNested` as a parameter — and three corrections
 
 Successor to `docs/handoff-nested-head.md`.  Everything new is in
