@@ -5,7 +5,10 @@ Lean declaration in this repository, depending on no axioms beyond `propext` and
 Names and locations are in §10.
 
 **Read §4 before quoting §1.** The distinction between "the proof is invalid" and "the theorem
-is false" is load-bearing here, and only the first is established.
+is false" is load-bearing here. §4 has been amended twice and now distinguishes three registers
+that must not be conflated: the repo's indexed proxy (false), the reference's theorems
+(`thm:1dinv` false, `thm:utype` not refuted, `thm:unique` untouched), and Lean's type theory
+(nothing).
 
 ---
 
@@ -23,8 +26,11 @@ counterexample is machine-checked. Consequently the published proof of `thm:utyp
 and with it the induction `DefInv n → uniq n → DefInv (n+1)` on which `thm:unique` rests: the
 induction reaches `DefInv 1` and stops.
 
-What is **not** claimed: that `thm:utype` is false, or that `thm:unique` is false, or that
-definitional inversion fails. See §4.
+What is **not** claimed *by §§1–3*: that `thm:utype` is false, or that `thm:unique` is false,
+or that definitional inversion fails. **§4 has since been amended twice**: definitional
+inversion *does* fail — `DefInv ∅ 1 1` is refuted by a second, independent witness
+(`DefInvRefute.defInv_one_false`), and with it `thm:1dinv`. `thm:utype`'s own statement and
+`thm:unique` remain not refuted. **Read §4 before quoting this paragraph.**
 
 ---
 
@@ -95,29 +101,77 @@ variable. Its two typing premises are variable rules, both at index 0.
 
 ## 4. Scope — what is and is not refuted
 
-This section is the point of the document.
+This section is the point of the document. **It has been amended twice since §§1–3 were
+written**, as two later witnesses supplied hypotheses the original counterexample did not.
+Both amendments are marked, and both *narrow* what may be claimed as well as widening it.
 
 **Refuted, machine-checked:**
 
 * the inference at `unique.tex:51`, at `n = 1` (`SubstCRefute.substC_false`). Hence *the
   published proof of `thm:utype` is invalid.*
 * the instantiated strengthening of `DefInv`'s clause (2) — see §7.
+* **[amendment 1 — `AppCase.lean`, witness `ShapeSpine.ShapeAgreeRefute`]** the
+  **unconditional** form of `thm:utype`'s conclusion at `n = 1` over `∅`
+  (`AppCaseRefute.uniqN_false`): a single term with two `⊢₁` types that are not
+  `⊢₁`-convertible. The paragraph this replaces said `thm:utype`'s statement was not refuted
+  because the `SubstC` instance supplies "no single term carrying *both* Π types, and an
+  argument typed at *both* domains". `ShapeAgreeRefute` supplies exactly that, so **that
+  ground no longer stands** — but see the first "not refuted" bullet below, which is the
+  reason the verdict on the reference's own statement is nevertheless unchanged.
+* **[amendment 2 — `DefInvRefute.lean`]** `DefInv` **in the reference's literal form**
+  (`unique.tex:33`), at `n = 1` over `∅`: `DefInvRefute.defInv_one_false`. It is **clause (2)**
+  that fails, and it fails on the *context* the clause names. Hence also
+  `¬ ∀ n, DefInv ∅ 1 n` (`defInv_all_false`), `thm:1dinv` (`unique.tex:262`) at `n + 1 = 1`,
+  and the first step `DefInv 0 → DefInv 1` of `unique.tex`'s final induction
+  (`defInv_step_zero_false`). This **reverses** the bullet that stood here before, which read
+  "Definitional inversion is untouched"; that bullet was correct about the `SubstC` witness
+  and wrong as a general claim.
+
+  The second witness, in one line: in the empty context,
+  `⊢₁ ∀x:U_{max(p,p)}. x ≡ ∀x:U_p. (λ_:U_p. x) x` by two ∀-congruences (domains by the level
+  equality `max(p,p) ≡ p`; codomains by `rfl` on one side and one `β` step *in the context
+  `x:U_p`* on the other), while clause (2)'s conclusion `x:U_{max(p,p)} ⊢₁ x ≡ (λ_:U_p. x) x`
+  is underivable, because in *that* context the variable's unique `⊢₀` type is `U_{max(p,p)}`
+  and the redex is `⊢₀`-untypeable, hence stuck. Clause (2) transports a conversion from the
+  context `Γ,x:α'` to the context `Γ,x:α`, and `⊢₁` is not invariant under that transport.
+  §9a's table already listed "the IH lands `B ≡ B'` in context `A'::Γ`, the goal is `A::Γ`" as
+  clause (2)'s open case; this is that case, realised as a counterexample.
 
 **Not refuted, and not claimed:**
 
-* **`thm:utype`'s statement.** Its application case carries hypotheses this instance does not
-  supply: a single term `e₁` carrying *both* Π types, and an argument typed at *both* domains.
-  The theorem may well be true by a different argument. What is gone is the proof.
-* **`thm:unique`.** It is the theorem `thm:utype` feeds; nothing here bears on its truth.
-* **`DefInv` in the reference's literal form** (`unique.tex:33`: "then `Γ ⊢ₙ α ≡ α'` and
-  `Γ,x:α ⊢ₙ β ≡ β'`", with no instantiation). This instance *satisfies* it — the body
-  conversion `[A] ⊢₁ B ≡ B'` is exactly what a `forallEDF` premise looks like. Definitional
-  inversion is untouched.
-* **The case `n = 0`.** There the inference is a theorem (substituting into a syntactic
-  equality), so `thm:utype` at index 0 is unconditional.
+* **`thm:utype`'s statement, as the reference states it.** `unique.tex:40` is *conditional*:
+  "If `⊢ₙ` has definitional inversion, and `Γ ⊢ₙ e:α` and `Γ ⊢ₙ e:β`, then `Γ ⊢ₙ α≡β`." At
+  `n = 1` over `∅` that hypothesis is now known **false**, so the theorem holds *vacuously* at
+  the instance where its conclusion fails (`DefInvRefute.thm_utype_one_vacuous`). Amendment 1
+  therefore refutes the **unconditional** reading and nothing more, and the dichotomy
+  `AppCaseRefute.thm_utype_one_false_of_defInv` resolves to its second horn. **The published
+  theorem's statement is not refuted; its proof is invalid and its hypothesis is unreachable.**
+* **`thm:unique`** — the unstratified unique typing theorem. Nothing here bears on its truth,
+  and there is positive evidence the other way: both witnesses convert one index up
+  (`AppCaseRefute.lhs_conv_a_succ`, `DefInvRefute.cod_conv_bvar_succ`). What fails is a
+  property *at a fixed alternation index*, which is what the reference's induction consumes.
+* **Clauses (1) and (3) of `DefInv`** — `⊢ₙ U_ℓ ≡ U_{ℓ'} ⟹ ℓ ≡ ℓ'`, and `⊢ₙ U_ℓ ≢ ∀x:α.β`.
+  Neither is proved nor refuted at any index above 0. Amendment 2's witness never relates a
+  sort to a non-sort, so it does not reach them. They are named in `DefInvRefute.lean` as
+  `SortInvN` and `SortForallEDisjN`.
+* **Lean's actual type theory.** Nothing above is a statement about it. Every failure is a
+  failure of a *stratified* property at a *fixed* index, and in both witnesses the very
+  judgment that fails at `n` holds at `n + 1`.
+* **The case `n = 0`.** There the `unique.tex:51` inference is a theorem (substituting into a
+  syntactic equality), so `thm:utype` at index 0 is unconditional, and `DefInv 0` is
+  `thm:0dinv`.
 
 A reader who takes "the proof is invalid" for "the theorem is false" will draw the wrong
-conclusion, and will also mis-scope the repair: the repair is owed to the *proof*.
+conclusion, and will also mis-scope the repair. Stated in the three registers that must not be
+conflated:
+
+1. **The indexed proxy used as proof machinery in this repo is false.** `DefInv ∅ 1 1` is
+   false; unique typing at the index is false at `n = 1`.
+2. **The reference's theorems.** `thm:1dinv` is false as stated (amendment 2 is a
+   counterexample to it at `n+1 = 1`, over the empty signature). `thm:utype` is *not* refuted —
+   it is vacuous where its conclusion fails. `thm:unique` is untouched.
+3. **Lean's type theory.** Nothing. Both counterexamples are index artifacts and both pairs are
+   convertible one index up.
 
 ---
 
@@ -209,8 +263,11 @@ counterexample's body conversion lifts to a Π-conversion for free, and the stre
 then hands back precisely the judgment shown underivable.
 
 Note where this cuts. The reference's literal clause (2) is the *premise* of that `forallEDF`
-step, so it is satisfied here (§4). The refutation separates the reference's clause from its
-instantiated strengthening, and only the strengthening dies.
+step, so it is satisfied *by this instance* (§4). The refutation in this section separates the
+reference's clause from its instantiated strengthening, and only the strengthening dies **at
+this witness**. **[amended]** The literal clause (2) is nevertheless false — by a *different*
+witness, §4 amendment 2 — so the separation established here is a fact about the two
+statements, not a survival certificate for the weaker one.
 
 ---
 
@@ -247,8 +304,16 @@ as it is. The failing case is not a congruence failure.
   `IsDefEqU.sort_inv` and `IsDefEqU.sort_forallE_inv`, follow from `∀ n, DefInv env U n` alone
   — by `IsDefEqU.stratifyN` and clause (1) or (3). Neither reduction uses `uniq` and neither
   uses the refuted inference.
+* **[amended]** `∀ n, DefInv ∅ 1 n` is now *false* (§4, amendment 2), so that hypothesis is
+  unsatisfiable and the two reductions as stated in `UniqueTypingN.lean` are vacuous over `∅`.
+  But **neither reduction consumes clause (2)** — read their proofs: each uses `dinv n` at
+  exactly one projection, `.sort` and `.sort_forallE`. Restated against the clause each
+  actually uses they go through verbatim, and those hypotheses are not refuted:
+  `DefInvRefute.sort_inv_of_sortInvN` and `DefInvRefute.sort_forallE_inv_of_sortForallEDisjN`.
+  So the open target is not `∀ n, DefInv` but `∀ n, SortInvN` and `∀ n, SortForallEDisjN`, and
+  the correction to make in `UniqueTypingN.lean` is to weaken those two hypotheses.
 * So the open question is not "can `thm:utype` be repaired" but "**is there another route to
-  `∀ n, DefInv`**". §9a answers it: no cheap one.
+  `∀ n, SortInvN` and `∀ n, SortForallEDisjN`**". §9a answers it: no cheap one.
 
 ---
 
@@ -262,7 +327,7 @@ with no appeal to `uniq`. Attempted, all three clauses. Every case closes except
 |---|---|---|
 | (1), (2), (3) | `trans` | `.sort u ≡ₙ e ≡ₙ .sort v` with `e` arbitrary — normalisation |
 | (1), (2), (3) | `proofIrrel` | see below |
-| (2) only | `symm` | the IH lands `B ≡ B'` in context `A'::Γ`, the goal is `A::Γ` — context conversion at a preserved index |
+| (2) only | `symm`, `trans` | the IH lands `B ≡ B'` in context `A'::Γ`, the goal is `A::Γ` — context conversion at a preserved index. **[amended]** This case is not merely open: it is *false*, and `DefInvRefute.defInv_one_false` is the counterexample (via `trans`; `symm` fails too, `defInv_forallE_right_false`). Clause (2) is therefore no longer a target. |
 
 The `extra` case — the one that has repeatedly looked like the obstacle — closes mechanically
 from `DeclRules.lean`'s `instL_lhs_ne_sort` / `instL_lhs_ne_forallE`, as it does unstratified.
@@ -432,5 +497,15 @@ All in `Lean4Lean/Theory/Typing/`, all sorry-free, axioms `propext` and `Quot.so
 | `SubstCRefute.defInv_forallE_inst_false` | `SubstCRefute.lean` | the strengthened clause (2) is false |
 | `VEnv.Stratified.uniq` | `UniqueTypingN.lean` | `thm:utype` from `DefInv` + `SubstC`; content only at `n = 0` |
 | `VEnv.HasTypeN.uniq_zero` | `UniqueTypingN.lean` | `thm:utype` at index 0, unconditional |
-| `VEnv.IsDefEqU.sort_inv_of_defInv` | `UniqueTypingN.lean` | the target, reduced to `∀ n, DefInv` |
+| `VEnv.IsDefEqU.sort_inv_of_defInv` | `UniqueTypingN.lean` | the target, reduced to `∀ n, DefInv` — hypothesis now known false, see `DefInvRefute.sort_inv_of_sortInvN` for the narrowed form |
+| `DefInvRefute.stuck` | `DefInvRefute.lean` | `⊢₁` relates the second witness's redex to nothing but itself, in any context where the variable is not `⊢₀`-typed at the annotation |
+| `DefInvRefute.hpi` | `DefInvRefute.lean` | the two Π-types **are** `⊢₁`-convertible |
+| `DefInvRefute.bvar_not_conv_cod` | `DefInvRefute.lean` | their codomains are **not**, in the left domain's context |
+| `DefInvRefute.defInv_one_false` | `DefInvRefute.lean` | **`¬ DefInv ∅ 1 1`** — clause (2) |
+| `DefInvRefute.defInv_all_false` | `DefInvRefute.lean` | **`¬ ∀ n, DefInv ∅ 1 n`** — the route's own target |
+| `DefInvRefute.defInv_step_zero_false` | `DefInvRefute.lean` | `¬ (DefInv 0 → DefInv 1)`: `thm:1dinv` fails at its first instance |
+| `DefInvRefute.cod_conv_bvar_succ` | `DefInvRefute.lean` | the same pair **is** convertible at `n = 2` — the failure is the index |
+| `DefInvRefute.thm_utype_one_vacuous` | `DefInvRefute.lean` | `thm:utype` at `n = 1` over `∅`, as the reference states it: vacuously true |
+| `DefInvRefute.sort_inv_of_sortInvN` | `DefInvRefute.lean` | the surviving reduction: clause (1) alone suffices |
+| `DefInvRefute.sort_forallE_inv_of_sortForallEDisjN` | `DefInvRefute.lean` | the surviving reduction: clause (3) alone suffices |
 | `VEnv.DefInv.sort_proofIrrel` | `UniqueTypingN.lean` | §9a: at the index, `proofIrrel` needs only clause (1), not `SortUniq` |
