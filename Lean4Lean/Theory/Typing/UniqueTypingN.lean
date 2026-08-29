@@ -765,20 +765,6 @@ theorem sortForallEDisjoint_ofN {Γ e T b} (H : Stratified env U n Γ e T b) :
   | rfl | symm | trans | sortDF | constDF | appDF | lamDF | forallEDF | beta | eta
   | proofIrrel | extra => intro _ _ hb; exact nomatch hb
 
-/-- The same with the whole of `DefInv` in place of clause (3).
-
-**This form is strictly weaker and is retained only for the one call site that has not been
-updated** — `propForallEDisjoint_of` (`Theory/Typing/PropConv.lean:331`), a file this stream
-does not own.  The fix there is one token: pass `dinv.sort_forallE` instead of `dinv` and call
-`sortForallEDisjoint_ofN`.  Once that is done this declaration should be deleted; nothing else
-in the tree uses it.  `DefInv` is refuted at `∅, 1, 1` (`DefInvRefute.defInv_one_false`), so
-at that instance this form proves nothing and `sortForallEDisjoint_ofN` still does. -/
-theorem sortForallEDisjoint_of {Γ e T b} (H : Stratified env U n Γ e T b) :
-    SortForallEDisjoint.AppCase env U n → env.DefInv U n → b = true →
-    ∀ u A B, env.IsDefEqN U n Γ T (.sort u) →
-    env.HasTypeN U n Γ e (.forallE A B) → False :=
-  fun happ dinv => sortForallEDisjoint_ofN H happ dinv.sort_forallE
-
 /-- **The split, machine-checked:** `PropNotProof` *is* `PropTypeAgree` at another subject, so
 `proofIrrel` is self-reference.  There is no corresponding derivation for
 `SortForallEDisjoint`, which is why that one is a genuinely missing primitive. -/

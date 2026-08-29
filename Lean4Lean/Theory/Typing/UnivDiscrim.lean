@@ -227,14 +227,16 @@ prove it from the ambient hypotheses without the sub-derivation — and it separ
 different reason.  Passing the criterion is necessary, not sufficient. -/
 
 /-- **The `app` case's induction hypothesis at the function carries no information.**  It is
-proved here from `DefInv` alone; note the statement mentions `f` only in a premise that is
+proved here from `DefInv` **clause (3)** alone; note the statement mentions `f` only in a
+premise that is
 never used, and no derivation about `f` is an argument.  So the `app` case of
 `sortForallEDisjoint_of` is not a hard use of an induction hypothesis — there is nothing there
 to use. -/
-theorem appCase_ih_vacuous (dinv : env.DefInv U n) {Γ : List VExpr} {f A₀ B₀ : VExpr} :
+theorem appCase_ih_vacuous (dinv : env.SortForallEDisjN U n) {Γ : List VExpr}
+    {f A₀ B₀ : VExpr} :
     ∀ {u : VLevel} {A B : VExpr}, env.IsDefEqN U n Γ (.forallE A₀ B₀) (.sort u) →
       env.HasTypeN U n Γ f (.forallE A B) → False :=
-  fun h _ => dinv.sort_forallE (IsDefEqN.symm' h)
+  fun h _ => dinv (IsDefEqN.symm' h)
 
 /-! ## The same, in the judgment where the universe premise is free
 

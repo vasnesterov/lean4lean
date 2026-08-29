@@ -29,7 +29,9 @@ which is analysis, not machine-checked).
 3. What survives is the *type-level* disjointness `SubstDisj` — not equivalent to
    `SortForallEDisjoint`, since it is about two types with no common term — together with
    `SubstDisj.zero` (it is satisfiable) and `applyDisj` (with `DefInv` it gives spine
-   determinism at a type, which is what a `bvar` case needs).  It is **not** shown sufficient:
+   determinism at a type, which is what a `bvar` case needs — but **`DefInv` is refuted, and
+   `applyDisj` consumes the refuted clause, so at `∅` and `n = 1` this half is now void**; see
+   the note on `applyDisj` itself).  It is **not** shown sufficient:
    a spine induction on typing closes `app` and `bvar` but not `lam`, where bridging the two
    codomains of the body's two types needs an existence step that only the refuted `∀∃` form
    supplies.  That last sentence is analysis, not machine-checked.
@@ -321,7 +323,30 @@ consumes.
 
 This is the leverage `SubstDisj` buys, and it is what the `bvar` case of a spine induction
 needs: a variable's declared type may be decomposed as a Π in two ways, and the two
-decompositions cannot send the same argument list to a sort and to a Π. -/
+decompositions cannot send the same argument list to a sort and to a Π.
+
+**VOID at `env = ∅, U = 1, n = 1`, and narrowing cannot save it.**  `VEnv.DefInv` is **false**
+there (`DefInvRefute.defInv_one_false`), and the refutation goes through **clause (2)**
+(`ForallEInvN`) alone.  The `cons` case below uses `dinv.forallE` — clause (2) — and that use
+is not incidental: it is the whole reason there is no induction on the spine, since clause (2)
+is what turns `B.inst a ≡ B'.inst a` into the `SubstDisj`-shaped premise.  So of the thirty-two
+consumers narrowed in `docs/handoff-definv-rescue.md`, this is the one that could not be, and
+it is the only void result there that no other theorem already supersedes.
+
+**Consequence for this file.**  §3 of the module docstring above claims `applyDisj` gives
+"spine determinism at a type"; at `∅` and `n = 1` that claim currently has **no content**.
+`applyDisj_zero` (immediately below) is the unconditional base-index form and is unaffected —
+it takes no hypothesis at all — and `SubstDisj.zero` is proved from it.  What remains true
+without qualification is therefore the `n = 0` story, not the `n = 1` one.
+
+**What would restore it.**  Either (a) a proof of `ForallEInvN env U n` at a *restricted*
+class of environments that excludes the `∅, 1, 1` witness — the witness is a `⊢₀`-typed
+`appDF`/`eta` configuration over `VEnv.empty`, so no environment condition rules it out, which
+makes this route look closed; or (b) replacing the `cons` case's use of clause (2) by a
+different bridge between the two codomains — which is precisely the "existence step" §3 of the
+module docstring already records as missing, so (b) is not a smaller problem than the one this
+file leaves open. `applyDisj` is kept, unmodified, as the record of what clause (2) would have
+bought had it been true. -/
 theorem applyDisj (dinv : env.DefInv U n) (hs : env.SubstDisj U n)
     {Γ : List VExpr} {T R₁ R₂ C D : VExpr} {args : List VExpr} {u : VLevel}
     (h1 : Apply env U n Γ T args R₁) (h2 : Apply env U n Γ T args R₂)

@@ -103,20 +103,52 @@ namespace VEnv
 
 variable {env : VEnv} {U n : Nat}
 
+/-! ## `DefInv` without the refuted clause
+
+`VEnv.DefInv` is **false** at `env = ∅, U = 1, n = 1` (`DefInvRefute.defInv_one_false`), and
+the refutation goes through **clause (2)** (`ForallEInvN`) alone.  Anything in this file that
+still took `DefInv` as a hypothesis was therefore *vacuous* at that instance.  Nothing here
+uses clause (2), so every consumer below is stated against the clause — or the pair of
+clauses — it actually consumes:
+
+* `env.SortInvN U n` — clause (1), `unique.tex:32`;
+* `env.SortForallEDisjN U n` — clause (3), `unique.tex:34`;
+* `env.SortDisjInvN U n` — the two of them together, for the consumers that need both.
+
+See `docs/handoff-definv-rescue.md` for the audit and the non-vacuity replays. -/
+
+/-- **Clauses (1) and (3) of `DefInv`, with the refuted clause (2) dropped.**
+
+Field names match `DefInv`'s (`sort`, `sort_forallE`) so a consumer's proof body is
+unchanged by the narrowing.  `DefInv.toSortDisjInvN` is the one-way implication; there is no
+converse, which is the point — `DefInv ∅ 1 1` is refuted and this is not. -/
+structure SortDisjInvN (env : VEnv) (U n : Nat) : Prop where
+  /-- Clause (1): a term with two sort types has equivalent levels. -/
+  sort : env.SortInvN U n
+  /-- Clause (3): a sort and a Π-type are never convertible. -/
+  sort_forallE : env.SortForallEDisjN U n
+
+theorem DefInv.toSortDisjInvN (d : env.DefInv U n) : env.SortDisjInvN U n :=
+  ⟨d.sort, d.sort_forallE⟩
+
+/-- The bundle is satisfied at the base index — so every consumer below has a real instance
+to fire at, over any environment.  See §"Replays" at the end of this file. -/
+theorem SortDisjInvN.zero : env.SortDisjInvN U 0 := ⟨SortInvN.zero, SortForallEDisjN.zero⟩
+
 /-! ## Two facts from `DefInv` that the easy cases are made of -/
 
 /-- **A sort is not a proposition.**  `Γ ⊢ₙ .sort l : .sort .zero` would need
-`.succ l ≈ .zero`. -/
-theorem not_isPropN_sort (dinv : env.DefInv U n) {Γ : List VExpr} {l : VLevel} :
+`.succ l ≈ .zero`.  Clause (1) only. -/
+theorem not_isPropN_sort (dinv : env.SortInvN U n) {Γ : List VExpr} {l : VLevel} :
     ¬ IsPropN env U n Γ (.sort l) := fun h =>
-  absurd (congrFun (dinv.sort (HasTypeN.sort_inv h).2) []) (by simp [VLevel.eval])
+  absurd (congrFun (dinv (HasTypeN.sort_inv h).2) []) (by simp [VLevel.eval])
 
 /-- **A λ is not a proposition.**  Its type is a Π, and `DefInv` clause (3) keeps a Π and a
-sort apart. -/
-theorem not_isPropN_lam (dinv : env.DefInv U n) {Γ : List VExpr} {A b : VExpr} :
+sort apart.  Clause (3) only. -/
+theorem not_isPropN_lam (dinv : env.SortForallEDisjN U n) {Γ : List VExpr} {A b : VExpr} :
     ¬ IsPropN env U n Γ (.lam A b) := fun h => by
   obtain ⟨_, _, _, _, hc⟩ := HasTypeN.lam_inv h
-  exact dinv.sort_forallE (IsDefEqN.symm' hc)
+  exact dinv (IsDefEqN.symm' hc)
 
 /-- Retyping a type at `.sort .zero` once its universe is known to be `≈ .zero`.  Needs
 `n = k+1`, because at `n = 0` the conversion judgment is syntactic equality and `≈` is not. -/
@@ -211,7 +243,7 @@ theorem SortForallEDisjoint.propForallE (hd : env.SortForallEDisjoint U n) :
 `lamDF` are vacuous from `DefInv`.  The seven typing constructors die on `b = false`.  The
 remaining five are each reduced to their residual and to nothing else. -/
 theorem propConvInv_of {Γ A A' b} (H : Stratified env U n Γ A A' b) :
-    b = false → env.DefInv U n →
+    b = false → env.SortDisjInvN U n →
     env.PropConstDF U n → env.PropForallEDF U n → env.PropAppDF U n →
     env.PropBetaConv U n → env.PropForallEDisjoint U n → env.PropNotProof U n →
     env.PropExtraConv U n →
@@ -229,10 +261,11 @@ theorem propConvInv_of {Γ A A' b} (H : Stratified env U n Γ A A' b) :
       (ih2 (Eq.refl false) d r1 r2 r3 r4 r5 r6 r7)
   | sortDF _ _ _ =>
     intro _ d _ _ _ _ _ _ _
-    exact ⟨fun h => absurd h (not_isPropN_sort d), fun h => absurd h (not_isPropN_sort d)⟩
+    exact ⟨fun h => absurd h (not_isPropN_sort d.sort), fun h => absurd h (not_isPropN_sort d.sort)⟩
   | lamDF _ _ _ _ =>
     intro _ d _ _ _ _ _ _ _
-    exact ⟨fun h => absurd h (not_isPropN_lam d), fun h => absurd h (not_isPropN_lam d)⟩
+    exact ⟨fun h => absurd h (not_isPropN_lam d.sort_forallE),
+      fun h => absurd h (not_isPropN_lam d.sort_forallE)⟩
   | constDF h1 h2 h3 h4 h5 =>
     intro _ _ r1 _ _ _ _ _ _
     have hlen' := (List.Forall₂.length_eq h5).symm.trans h4
@@ -257,7 +290,7 @@ theorem propConvInv_of {Γ A A' b} (H : Stratified env U n Γ A A' b) :
     exact r4 (.beta he he') (he.mono (Nat.le_succ _)) (he'.mono (Nat.le_succ _))
   | eta he _ =>
     intro _ d _ _ _ _ r5 _ _
-    exact ⟨fun h => absurd h (not_isPropN_lam d),
+    exact ⟨fun h => absurd h (not_isPropN_lam d.sort_forallE),
       fun h => absurd (r5 h (he.mono (Nat.le_succ _))) not_false⟩
   | proofIrrel hp h2 h3 _ _ _ =>
     intro _ _ _ _ _ _ _ r6 _
@@ -268,7 +301,7 @@ theorem propConvInv_of {Γ A A' b} (H : Stratified env U n Γ A A' b) :
     exact r7 (.extra h1 h2 h3) h1 h2 h3
 
 /-- The statement form of `propConvInv_of`. -/
-theorem propConvInv_of' (dinv : env.DefInv U n)
+theorem propConvInv_of' (dinv : env.SortDisjInvN U n)
     (r1 : env.PropConstDF U n) (r2 : env.PropForallEDF U n) (r3 : env.PropAppDF U n)
     (r4 : env.PropBetaConv U n) (r5 : env.PropForallEDisjoint U n)
     (r6 : env.PropNotProof U n) (r7 : env.PropExtraConv U n) :
@@ -297,7 +330,7 @@ def RegConv (env : VEnv) (U n : Nat) : Prop :=
 /-- **`forallEDF` closes from context conversion and regularity-along-conversion**, and
 nothing else.  Stated at `n+1` because retyping a `.sort v` with `v ≈ .zero` at `.sort .zero`
 uses `sortDF`, which does not exist at index `0`. -/
-theorem propForallEDF_of (dinv : env.DefInv U n)
+theorem propForallEDF_of (dinv : env.SortInvN U n)
     (hctx : env.CtxConvProp U n) (hreg : env.RegConv U n) :
     env.PropForallEDF U n := by
   cases n with
@@ -311,7 +344,7 @@ theorem propForallEDF_of (dinv : env.DefInv U n)
       IsPropN env U (k+1) Γ (.forallE A B) → IsPropN env U (k+1) Γ (.forallE A' B') := by
     intro Γ A A' B B' hA ih hp
     obtain ⟨u, v, hu, hv, hA0, hB0, hc⟩ := HasTypeN.forallE_inv hp
-    have hv0 : v ≈ .zero := VLevel.imax_eq_zero.1 (dinv.sort hc)
+    have hv0 : v ≈ .zero := VLevel.imax_eq_zero.1 (dinv hc)
     have hB' : IsPropN env U (k+1) (A::Γ) B' := ih (isPropN_of_equiv_zero hv hv0 hB0)
     obtain ⟨u', hu', hA'⟩ := hreg hA hu hA0
     have : env.HasTypeN U (k+1) Γ (.forallE A' B') (.sort (.imax u' .zero)) :=
@@ -327,8 +360,8 @@ theorem propForallEDF_of (dinv : env.DefInv U n)
 inherited verbatim from `sortForallEDisjoint_of`, since the `u = .zero` instance is an
 instance.  Only the `app` case remains, and only at `u = .zero`. -/
 theorem propForallEDisjoint_of (happ : SortForallEDisjoint.AppCase env U n)
-    (dinv : env.DefInv U n) : env.PropForallEDisjoint U n := fun h1 h2 =>
-  sortForallEDisjoint_of h1 happ dinv (Eq.refl true) _ _ _ .rfl h2
+    (dinv : env.SortForallEDisjN U n) : env.PropForallEDisjoint U n := fun h1 h2 =>
+  sortForallEDisjoint_ofN h1 happ dinv (Eq.refl true) _ _ _ .rfl h2
 
 /-- The `app` case of `eta`'s residual, at `u = .zero` only — strictly less than
 `SortForallEDisjoint.AppCase`. -/
@@ -345,27 +378,27 @@ theorem SortForallEDisjoint.AppCase.propAppCase (h : SortForallEDisjoint.AppCase
 seven cases at an arbitrary `u`; re-run at `u = .zero` it needs only the `u = .zero` app case,
 so `eta`'s residual is strictly less than `SortForallEDisjoint` all the way down. -/
 theorem propForallEDisjointCases {Γ e T b} (H : Stratified env U n Γ e T b) :
-    PropForallEDisjoint.AppCase env U n → env.DefInv U n → b = true →
+    PropForallEDisjoint.AppCase env U n → env.SortForallEDisjN U n → b = true →
     env.IsDefEqN U n Γ T (.sort .zero) →
     ∀ A B, env.HasTypeN U n Γ e (.forallE A B) → False := by
   induction H with
   | bvar h =>
     intro _ dinv _ hT A B H2
     obtain ⟨_, hl, hc⟩ := H2.bvar_inv
-    exact dinv.sort_forallE (IsDefEqN.trans' (IsDefEqN.symm' hT) (Lookup.uniq h hl ▸ hc))
+    exact dinv (IsDefEqN.trans' (IsDefEqN.symm' hT) (Lookup.uniq h hl ▸ hc))
   | sort _ =>
     intro _ dinv _ _ A B H2
-    exact dinv.sort_forallE (HasTypeN.sort_inv H2).2
+    exact dinv (HasTypeN.sort_inv H2).2
   | const h1 _ _ =>
     intro _ dinv _ hT A B H2
     obtain ⟨_, h1', _, _, hc⟩ := HasTypeN.const_inv H2
     cases Option.some.inj (h1'.symm.trans h1)
-    exact dinv.sort_forallE (IsDefEqN.trans' (IsDefEqN.symm' hT) hc)
-  | lam _ _ => intro _ dinv _ hT _ _ _; exact dinv.sort_forallE (IsDefEqN.symm' hT)
+    exact dinv (IsDefEqN.trans' (IsDefEqN.symm' hT) hc)
+  | lam _ _ => intro _ dinv _ hT _ _ _; exact dinv (IsDefEqN.symm' hT)
   | forallE _ _ _ _ =>
     intro _ dinv _ _ A B H2
     obtain ⟨_, _, _, _, _, _, hc⟩ := HasTypeN.forallE_inv H2
-    exact dinv.sort_forallE hc
+    exact dinv hc
   | conv h _ _ ih2 =>
     intro happ dinv _ hT A B H2
     exact ih2 happ dinv (Eq.refl true) (IsDefEqN.trans' h hT) A B H2
@@ -376,7 +409,7 @@ theorem propForallEDisjointCases {Γ e T b} (H : Stratified env U n Γ e T b) :
 /-- The statement form: **`eta`'s residual costs `DefInv` plus the `u = .zero` app case, and
 nothing else.** -/
 theorem propForallEDisjoint_of' (happ : PropForallEDisjoint.AppCase env U n)
-    (dinv : env.DefInv U n) : env.PropForallEDisjoint U n := fun h1 h2 =>
+    (dinv : env.SortForallEDisjN U n) : env.PropForallEDisjoint U n := fun h1 h2 =>
   propForallEDisjointCases h1 happ dinv (Eq.refl true) .rfl _ _ h2
 
 /-! ## `proofIrrel`'s residual, reduced without `PropTypeAgree`
@@ -399,7 +432,7 @@ def SortNotProp (env : VEnv) (U n : Nat) : Prop :=
   ∀ {Γ : List VExpr} {A : VExpr} {u : VLevel},
     env.IsDefEqN U n Γ A (.sort u) → env.HasTypeN U n Γ A (.sort .zero) → False
 
-theorem SortNotProp.of_propConvInv (dinv : env.DefInv U n) (h : env.PropConvInv U n) :
+theorem SortNotProp.of_propConvInv (dinv : env.SortInvN U n) (h : env.PropConvInv U n) :
     env.SortNotProp U n := fun hc hp => not_isPropN_sort dinv (h hc |>.1 hp)
 
 /-- The one case of `PropNotProof` that the typing induction does not reach — the same
@@ -418,7 +451,7 @@ The three cases that consume `SortNotProp` are `bvar`, `const` and `forallE`: in
 second typing's inversion hands back a conversion whose *other* endpoint is a sort, and what
 has to be refuted is that its subject is a proposition. -/
 theorem propNotProof_of' {Γ e T b} (H : Stratified env U n Γ e T b) :
-    b = true → env.DefInv U n → env.SortNotProp U n → PropNotProof.AppCase env U n →
+    b = true → env.SortDisjInvN U n → env.SortNotProp U n → PropNotProof.AppCase env U n →
     env.IsDefEqN U n Γ T (.sort .zero) →
     ∀ p, env.HasTypeN U n Γ p (.sort .zero) → env.HasTypeN U n Γ e p → False := by
   induction H with
@@ -451,7 +484,7 @@ theorem propNotProof_of' {Γ e T b} (H : Stratified env U n Γ e T b) :
   | proofIrrel | extra => intro hb; exact nomatch hb
 
 /-- The statement form. -/
-theorem propNotProof_of'' (dinv : env.DefInv U n) (hsnp : env.SortNotProp U n)
+theorem propNotProof_of'' (dinv : env.SortDisjInvN U n) (hsnp : env.SortNotProp U n)
     (happ : PropNotProof.AppCase env U n) : env.PropNotProof U n := fun he hp hep =>
   propNotProof_of' he (Eq.refl true) dinv hsnp happ .rfl _ hp hep
 
@@ -506,7 +539,7 @@ and it is where `VLevel.imax_eq_zero` does its work: a Π-type is a proposition 
 its codomain is, so the induction hypothesis at the codomain — a subterm, under a binder — is
 exactly what the case needs.  `conv` composes.  `trans` never arises. -/
 theorem propUniq_of {Γ e T b} (H : Stratified env U n Γ e T b) :
-    b = true → env.DefInv U n → PropUniq.AppCase env U n →
+    b = true → env.SortDisjInvN U n → PropUniq.AppCase env U n →
     ∀ u v, env.IsDefEqN U n Γ T (.sort u) → env.HasTypeN U n Γ e (.sort v) →
     (u ≈ (.zero : VLevel) ↔ v ≈ (.zero : VLevel)) := by
   induction H with
@@ -544,7 +577,7 @@ theorem propUniq_of {Γ e T b} (H : Stratified env U n Γ e T b) :
   | proofIrrel | extra => intro hb; exact nomatch hb
 
 /-- The statement form. -/
-theorem propUniq_of' (dinv : env.DefInv U n) (happ : PropUniq.AppCase env U n) :
+theorem propUniq_of' (dinv : env.SortDisjInvN U n) (happ : PropUniq.AppCase env U n) :
     env.PropUniq U n := fun h1 h2 => propUniq_of h1 (Eq.refl true) dinv happ _ _ .rfl h2
 
 theorem PropUniq.zero : env.PropUniq U 0 := by
@@ -559,7 +592,7 @@ theorem PropUniq.AppCase.zero : PropUniq.AppCase env U 0 := by
 
 /-- Non-vacuity: `propUniq_of'` reproves `PropUniq.zero` from residuals that hold. -/
 theorem propUniq_zero_from_residuals : env.PropUniq U 0 :=
-  propUniq_of' DefInv.zero PropUniq.AppCase.zero
+  propUniq_of' SortDisjInvN.zero PropUniq.AppCase.zero
 
 
 /-! ## `PropTypeAgree` itself, by the same typing induction
@@ -573,7 +606,7 @@ is needed. -/
 /-- A Π-type is a proposition iff its codomain is — the inversion half.  At `n = 0` the
 hypothesis is unsatisfiable (`≡₀` is syntactic equality and `.imax u v` is never `.zero`), so
 the case is discharged there rather than proved. -/
-theorem isPropN_forallE_inv (dinv : env.DefInv U n) {Γ : List VExpr} {A B : VExpr}
+theorem isPropN_forallE_inv (dinv : env.SortInvN U n) {Γ : List VExpr} {A B : VExpr}
     (h : IsPropN env U n Γ (.forallE A B)) :
     ∃ u, u.WF U ∧ env.HasTypeN U n Γ A (.sort u) ∧ IsPropN env U n (A::Γ) B := by
   cases n with
@@ -582,7 +615,7 @@ theorem isPropN_forallE_inv (dinv : env.DefInv U n) {Γ : List VExpr} {A B : VEx
     exact absurd (IsDefEqN.zero_iff.1 hc) (by simp)
   | succ k =>
     obtain ⟨u, v, hu, hv, hA, hB, hc⟩ := HasTypeN.forallE_inv h
-    exact ⟨u, hu, hA, isPropN_of_equiv_zero hv (VLevel.imax_eq_zero.1 (dinv.sort hc)) hB⟩
+    exact ⟨u, hu, hA, isPropN_of_equiv_zero hv (VLevel.imax_eq_zero.1 (dinv hc)) hB⟩
 
 /-- …and the introduction half. -/
 theorem isPropN_forallE {k : Nat} {Γ : List VExpr} {A B : VExpr} {u : VLevel}
@@ -593,7 +626,7 @@ theorem isPropN_forallE {k : Nat} {Γ : List VExpr} {A B : VExpr} {u : VLevel}
   exact isPropN_of_equiv_zero (by exact ⟨hu, trivial⟩) (VLevel.imax_eq_zero.2 (by rfl)) h1
 
 /-- Propositionhood of a Π-type moves with its codomain. -/
-theorem isPropN_forallE_congr (dinv : env.DefInv U n) {Γ : List VExpr} {A B B' : VExpr}
+theorem isPropN_forallE_congr (dinv : env.SortInvN U n) {Γ : List VExpr} {A B B' : VExpr}
     (ih : IsPropN env U n (A::Γ) B → IsPropN env U n (A::Γ) B')
     (h : IsPropN env U n Γ (.forallE A B)) : IsPropN env U n Γ (.forallE A B') := by
   cases n with
@@ -619,7 +652,7 @@ conversion residual `PropConvInv`.  `sort` and `forallE` are vacuous (their type
 and a sort is not a proposition); `bvar`, `const` and `conv` are `PropConvInv` at the
 inversion's conversion; `lam` is the inductive case. -/
 theorem propTypeAgree_of {Γ e T b} (H : Stratified env U n Γ e T b) :
-    b = true → env.DefInv U n → env.PropConvInv U n → PropTypeAgree.AppCase env U n →
+    b = true → env.SortInvN U n → env.PropConvInv U n → PropTypeAgree.AppCase env U n →
     ∀ A', env.HasTypeN U n Γ e A' → IsPropN env U n Γ T → IsPropN env U n Γ A' := by
   induction H with
   | bvar h =>
@@ -648,7 +681,7 @@ theorem propTypeAgree_of {Γ e T b} (H : Stratified env U n Γ e T b) :
   | proofIrrel | extra => intro hb; exact nomatch hb
 
 /-- The statement form. -/
-theorem propTypeAgree_of' (dinv : env.DefInv U n) (pci : env.PropConvInv U n)
+theorem propTypeAgree_of' (dinv : env.SortInvN U n) (pci : env.PropConvInv U n)
     (happ : PropTypeAgree.AppCase env U n) : env.PropTypeAgree U n :=
   fun h1 h2 hp => propTypeAgree_of h1 (Eq.refl true) dinv pci happ _ h2 hp
 
@@ -678,7 +711,7 @@ def RegPi (env : VEnv) (U n : Nat) : Prop :=
 that actually needs `PropUniq` is that one, because `B₀.inst a` carries two universes (`v₀`
 from `InstLvl` and `.zero` from the hypothesis) and nothing else compares them.  The other
 side needs no `PropUniq`: `InstLvl` at `v = .zero` is enough. -/
-theorem propTypeAgree_appCase_of {k : Nat} (dinv : env.DefInv U (k+1))
+theorem propTypeAgree_appCase_of {k : Nat} (dinv : env.SortInvN U (k+1))
     (hreg : env.RegPi U (k+1))
     (hinst : env.InstLvl U (k+1)) (huniq : env.PropUniq U (k+1))
     (pci : env.PropConvInv U (k+1)) : PropTypeAgree.AppCase env U (k+1) := by
@@ -721,19 +754,19 @@ non-vacuity question these reductions raise — `propUniq_of` cannot be secretly
 `PropUniq` from `DefInv` alone, because that is exactly what the `↔` forbids unless
 `PropUniq` itself is so provable. -/
 
-theorem PropUniq.appCase_iff (dinv : env.DefInv U n) :
+theorem PropUniq.appCase_iff (dinv : env.SortDisjInvN U n) :
     PropUniq.AppCase env U n ↔ env.PropUniq U n :=
   ⟨fun h => propUniq_of' dinv h, PropUniq.appCase⟩
 
-theorem PropNotProof.appCase_iff (dinv : env.DefInv U n) (hsnp : env.SortNotProp U n) :
+theorem PropNotProof.appCase_iff (dinv : env.SortDisjInvN U n) (hsnp : env.SortNotProp U n) :
     PropNotProof.AppCase env U n ↔ env.PropNotProof U n :=
   ⟨fun h => propNotProof_of'' dinv hsnp h, PropNotProof.appCase⟩
 
-theorem PropTypeAgree.appCase_iff (dinv : env.DefInv U n) (pci : env.PropConvInv U n) :
+theorem PropTypeAgree.appCase_iff (dinv : env.SortInvN U n) (pci : env.PropConvInv U n) :
     PropTypeAgree.AppCase env U n ↔ env.PropTypeAgree U n :=
   ⟨fun h => propTypeAgree_of' dinv pci h, PropTypeAgree.appCase⟩
 
-theorem PropForallEDisjoint.appCase_iff (dinv : env.DefInv U n) :
+theorem PropForallEDisjoint.appCase_iff (dinv : env.SortForallEDisjN U n) :
     PropForallEDisjoint.AppCase env U n ↔ env.PropForallEDisjoint U n :=
   ⟨fun h => propForallEDisjoint_of' h dinv, PropForallEDisjoint.appCase⟩
 
@@ -778,10 +811,10 @@ theorem PropNotProof.zero : env.PropNotProof U 0 := by
   intro _ _ _ he hp hep
   have e := HasTypeN.uniq_zero he hep
   subst e
-  exact not_isPropN_sort DefInv.zero hp
+  exact not_isPropN_sort SortInvN.zero hp
 
 theorem SortNotProp.zero : env.SortNotProp U 0 :=
-  SortNotProp.of_propConvInv DefInv.zero PropConvInv.zero
+  SortNotProp.of_propConvInv SortInvN.zero PropConvInv.zero
 
 theorem PropNotProof.AppCase.zero : PropNotProof.AppCase env U 0 := by
   intro _ _ _ _ _ _ hf ha hB hp H2
@@ -789,7 +822,7 @@ theorem PropNotProof.AppCase.zero : PropNotProof.AppCase env U 0 := by
   rw [IsDefEqN.zero_iff.1 hB] at this
   have e := HasTypeN.uniq_zero this H2
   subst e
-  exact not_isPropN_sort DefInv.zero hp
+  exact not_isPropN_sort SortInvN.zero hp
 
 theorem CtxConvProp.zero : env.CtxConvProp U 0 := by
   intro _ _ _ _ h hB; rw [← IsDefEqN.zero_iff.1 h]; exact hB
@@ -800,12 +833,12 @@ theorem RegConv.zero : env.RegConv U 0 := by
 /-- **The case analysis is not vacuous**: at the base index all seven residuals hold, and
 `propConvInv_of'` reproves `PropConvInv.zero` from them. -/
 theorem propConvInv_zero_from_residuals : env.PropConvInv U 0 :=
-  propConvInv_of' DefInv.zero PropConstDF.zero PropForallEDF.zero PropAppDF.zero
+  propConvInv_of' SortDisjInvN.zero PropConstDF.zero PropForallEDF.zero PropAppDF.zero
     PropBetaConv.zero PropForallEDisjoint.zero PropNotProof.zero PropExtraConv.zero
 
 /-- …and so is `propNotProof_of''`. -/
 theorem propNotProof_zero_from_residuals : env.PropNotProof U 0 :=
-  propNotProof_of'' DefInv.zero SortNotProp.zero PropNotProof.AppCase.zero
+  propNotProof_of'' SortDisjInvN.zero SortNotProp.zero PropNotProof.AppCase.zero
 
 theorem PropTypeAgree.zero : env.PropTypeAgree U 0 := by
   intro _ _ _ _ h1 h2 hp; exact HasTypeN.uniq_zero h1 h2 ▸ hp
@@ -817,11 +850,11 @@ theorem PropTypeAgree.AppCase.zero : PropTypeAgree.AppCase env U 0 := by
 
 /-- …and so is `propTypeAgree_of'`. -/
 theorem propTypeAgree_zero_from_residuals : env.PropTypeAgree U 0 :=
-  propTypeAgree_of' DefInv.zero PropConvInv.zero PropTypeAgree.AppCase.zero
+  propTypeAgree_of' SortInvN.zero PropConvInv.zero PropTypeAgree.AppCase.zero
 
 /-- …and so is `propForallEDF_of`. -/
 theorem propForallEDF_zero_from_residuals : env.PropForallEDF U 0 :=
-  propForallEDF_of DefInv.zero CtxConvProp.zero RegConv.zero
+  propForallEDF_of SortInvN.zero CtxConvProp.zero RegConv.zero
 
 /-! ## The companion test at the two `app` cases
 
@@ -835,11 +868,11 @@ a Π, and both induction hypotheses are guarded by "the type is convertible with
 /-- **`PropNotProof`'s `app` case has no inductive content either.**  The induction hypothesis
 at `f` is proved here from `DefInv` alone; `f` appears only in a premise that is never used,
 and no derivation about `f` is an argument. -/
-theorem propNotProof_appCase_ih_vacuous (dinv : env.DefInv U n)
+theorem propNotProof_appCase_ih_vacuous (dinv : env.SortForallEDisjN U n)
     {Γ : List VExpr} {f A₀ B₀ : VExpr} :
     ∀ {p A B : VExpr}, env.IsDefEqN U n Γ (.forallE A₀ B₀) (.sort .zero) →
       env.HasTypeN U n Γ p (.sort .zero) → env.HasTypeN U n Γ f (.forallE A B) → False :=
-  fun h _ _ => dinv.sort_forallE (IsDefEqN.symm' h)
+  fun h _ _ => dinv (IsDefEqN.symm' h)
 
 end VEnv
 end Lean4Lean

@@ -298,7 +298,7 @@ def PropTypeAgree.AppCaseOn (env : VEnv) (U n : Nat) : Prop :=
 
 /-- **`propTypeAgree_appCase_of`, re-priced at a satisfiable hypothesis.**  Identical to the
 original except that `RegPi` is `RegPiOn` and the context is well formed. -/
-theorem propTypeAgree_appCase_on_of {k : Nat} (dinv : env.DefInv U (k+1))
+theorem propTypeAgree_appCase_on_of {k : Nat} (dinv : env.SortInvN U (k+1))
     (hreg : env.RegPiOn U (k+1)) (hinst : env.InstLvl U (k+1))
     (huniq : env.PropUniq U (k+1)) (pci : env.PropConvInv U (k+1)) :
     PropTypeAgree.AppCaseOn env U (k+1) := by
@@ -321,7 +321,7 @@ def PropTypeAgreeOn (env : VEnv) (U n : Nat) : Prop :=
 where the binder is a type by the rule's own premise — its universe being well formed is the
 one extra datum, and it is `Regular.lvlWF`. -/
 theorem propTypeAgree_on_of' {Γ e T b} (H : Stratified env U n Γ e T b) :
-    b = true → env.DefInv U n → env.Regular U n → env.PropConvInv U n →
+    b = true → env.SortInvN U n → env.Regular U n → env.PropConvInv U n →
     PropTypeAgree.AppCaseOn env U n → env.OnCtxN U n Γ →
     ∀ A', env.HasTypeN U n Γ e A' → IsPropN env U n Γ T → IsPropN env U n Γ A' := by
   induction H with
@@ -350,14 +350,14 @@ theorem propTypeAgree_on_of' {Γ e T b} (H : Stratified env U n Γ e T b) :
   | rfl | symm | trans | sortDF | constDF | appDF | lamDF | forallEDF | beta | eta
   | proofIrrel | extra => intro hb; exact nomatch hb
 
-theorem propTypeAgree_on_of (dinv : env.DefInv U n) (hrg : env.Regular U n)
+theorem propTypeAgree_on_of (dinv : env.SortInvN U n) (hrg : env.Regular U n)
     (pci : env.PropConvInv U n) (happ : PropTypeAgree.AppCaseOn env U n) :
     env.PropTypeAgreeOn U n :=
   fun hΓ h1 h2 hp => propTypeAgree_on_of' h1 (Eq.refl true) dinv hrg pci happ hΓ _ h2 hp
 
 /-- **The whole chain, with every hypothesis satisfiable.**  `RegPi` is gone; what replaces it
 is `Regular`, which holds at the base index over `propLoopEnv`. -/
-theorem propTypeAgreeOn_of_residuals {k : Nat} (dinv : env.DefInv U (k+1))
+theorem propTypeAgreeOn_of_residuals {k : Nat} (dinv : env.SortInvN U (k+1))
     (hrg : env.Regular U (k+1)) (hinst : env.InstLvl U (k+1))
     (huniq : env.PropUniq U (k+1)) (pci : env.PropConvInv U (k+1)) :
     env.PropTypeAgreeOn U (k+1) :=
@@ -377,7 +377,7 @@ theorem PropTypeAgreeOn.zero : env.PropTypeAgreeOn U 0 :=
 /-- `propTypeAgree_on_of` reproves `PropTypeAgreeOn` at the base index from residuals that
 hold — over an environment with constants and δ-rules, not the empty one. -/
 theorem propTypeAgreeOn_zero_from_residuals : propLoopEnv.PropTypeAgreeOn U 0 :=
-  propTypeAgree_on_of DefInv.zero propLoopEnv_regular PropConvInv.zero
+  propTypeAgree_on_of SortInvN.zero propLoopEnv_regular PropConvInv.zero
     PropTypeAgree.AppCaseOn.zero
 
 /-! ## 5. The context hypothesis is reachable from the tree's own
@@ -528,13 +528,202 @@ a loop at a fixed index: `PropConvInv` gives `SortNotProp` gives `PropNotProof`,
 machine-checked; the point is not that it is false but that `PropConvInv` occurs among the
 hypotheses of a derivation of `PropConvInv`, with no descent in the index. -/
 
-theorem propConvInv_from_sortNotProp_cycle (dinv : env.DefInv U n)
+theorem propConvInv_from_sortNotProp_cycle (dinv : env.SortDisjInvN U n)
     (r1 : env.PropConstDF U n) (r2 : env.PropForallEDF U n) (r3 : env.PropAppDF U n)
     (r4 : env.PropBetaConv U n) (r5 : env.PropForallEDisjoint U n)
     (happ : PropNotProof.AppCase env U n) (r7 : env.PropExtraConv U n)
     (pci : env.PropConvInv U n) : env.PropConvInv U n :=
   propConvInv_of' dinv r1 r2 r3 r4 r5
-    (propNotProof_of'' dinv (SortNotProp.of_propConvInv dinv pci) happ) r7
+    (propNotProof_of'' dinv (SortNotProp.of_propConvInv dinv.sort pci) happ) r7
+
+/-! ## 8. Non-vacuity of the narrowed hypotheses
+
+`VEnv.DefInv` is **false** at `env = ∅, U = 1, n = 1` (`DefInvRefute.defInv_one_false`), and
+the refutation goes through **clause (2)** — `ForallEInvN` — alone.  Every consumer in
+`PropConv.lean`, `AppCase.lean`, `UnivDiscrim.lean` and this file that used to carry `DefInv`
+now carries the clause, or the pair of clauses, it actually consumes: `SortInvN` (1),
+`SortForallEDisjN` (3), or `SortDisjInvN` (1 and 3, clause (2) dropped).
+
+Narrowing on its own proves nothing.  This section **fires** each narrowed consumer, over
+`CycleConv.propLoopEnv` — two constants `A B : Prop` and two δ-rules, `propLoopEnv_wf` — at
+index `0`, where all three narrowed hypotheses hold.  (`AppCase.lean`'s three are fired in
+`AppCase.lean` itself, §"Non-vacuity", since that file is a sibling of this one.)  `propLoopEnv` rather than `∅` because
+the `const` case of these inductions and the `defeqs` field of `PropExtraConv` are **empty**
+over `VEnv.empty`, so a replay there would be degenerate in exactly the way this section
+exists to rule out.
+
+Three consumers cannot be replayed here and are listed as such at the end of the section:
+they are stated only at `n = k+1`, and `SortInvN propLoopEnv U 1` is open.  What the
+narrowing buys *them* is that their hypothesis is no longer a refuted one — see
+`docs/handoff-definv-rescue.md`.
+-/
+
+section NonVacuity
+
+/-- Clause (1) at the base index over the witness environment. -/
+theorem propLoopEnv_sortInvN0 : SortInvN propLoopEnv U 0 := SortInvN.zero
+
+/-- Clause (3), same. -/
+theorem propLoopEnv_sortForallEDisjN0 : SortForallEDisjN propLoopEnv U 0 :=
+  SortForallEDisjN.zero
+
+/-- The pair, same — this is the hypothesis that replaced `DefInv` wherever both clauses were
+consumed, and it is inhabited. -/
+theorem propLoopEnv_sortDisjInvN0 : SortDisjInvN propLoopEnv U 0 := SortDisjInvN.zero
+
+/-! ### Clause (3) consumers, fired at terms that exist only over `propLoopEnv` -/
+
+/-- **`not_isPropN_lam` fires** at the identity function on the environment's proposition `A`
+— a λ that does not exist over `∅`, since `∅` has no constants. -/
+theorem propLoopEnv_id_not_isProp {Γ : List VExpr} :
+    ¬ IsPropN propLoopEnv U 0 Γ (.lam (.const `A []) (.bvar 0)) :=
+  not_isPropN_lam propLoopEnv_sortForallEDisjN0
+
+/-- **`propForallEDisjointCases` / `propForallEDisjoint_of` / `propForallEDisjoint_of'` fire**:
+`PropForallEDisjoint` holds at index `0` over `propLoopEnv`.  Both routes are exercised —
+`propForallEDisjoint_of` goes through `UniqueTypingN.sortForallEDisjoint_ofN`, which is the
+call site this stream moved off the old `DefInv`-taking wrapper. -/
+theorem propLoopEnv_propForallEDisjoint0 : propLoopEnv.PropForallEDisjoint U 0 :=
+  propForallEDisjoint_of SortForallEDisjoint.AppCase.zero propLoopEnv_sortForallEDisjN0
+
+theorem propLoopEnv_propForallEDisjoint0' : propLoopEnv.PropForallEDisjoint U 0 :=
+  propForallEDisjoint_of' PropForallEDisjoint.AppCase.zero propLoopEnv_sortForallEDisjN0
+
+/-- …and the conclusion has a **real instance**: `A` is a `⊢₀`-typed proposition of
+`propLoopEnv`, so "it is not also Π-typed" is a statement about an inhabited premise. -/
+theorem propLoopEnv_constA_not_pi {Γ : List VExpr} {X Y : VExpr} :
+    ¬ propLoopEnv.HasTypeN U 0 Γ (.const `A []) (.forallE X Y) :=
+  fun h => propLoopEnv_propForallEDisjoint0 propLoopEnv_constA h
+
+/-- **`PropForallEDisjoint.appCase_iff` fires**, in the direction that carries the clause. -/
+theorem propLoopEnv_propForallEDisjoint_iff0 :
+    PropForallEDisjoint.AppCase propLoopEnv U 0 ↔ propLoopEnv.PropForallEDisjoint U 0 :=
+  PropForallEDisjoint.appCase_iff propLoopEnv_sortForallEDisjN0
+
+/-- **`propNotProof_appCase_ih_vacuous` fires** (`PropConv.lean`) and **`appCase_ih_vacuous`
+fires** (`UnivDiscrim.lean`), at the environment's own Π-type `propArrow`.  Both say the
+`app` case's induction hypothesis at the function carries no information; at index `0` the
+premise `.forallE _ _ ≡₀ .sort _` is additionally syntactically impossible, which is what
+makes these one-liners rather than theorems. -/
+theorem propLoopEnv_propNotProof_ih_vacuous {Γ : List VExpr} {f : VExpr} :
+    ∀ {p A B : VExpr},
+      propLoopEnv.IsDefEqN U 0 Γ (.forallE (.const `A []) (.const `A [])) (.sort .zero) →
+      propLoopEnv.HasTypeN U 0 Γ p (.sort .zero) →
+      propLoopEnv.HasTypeN U 0 Γ f (.forallE A B) → False :=
+  propNotProof_appCase_ih_vacuous propLoopEnv_sortForallEDisjN0
+
+theorem propLoopEnv_appCase_ih_vacuous {Γ : List VExpr} {f : VExpr} :
+    ∀ {u : VLevel} {A B : VExpr},
+      propLoopEnv.IsDefEqN U 0 Γ (.forallE (.const `A []) (.const `A [])) (.sort u) →
+      propLoopEnv.HasTypeN U 0 Γ f (.forallE A B) → False :=
+  appCase_ih_vacuous propLoopEnv_sortForallEDisjN0
+
+/-! ### Clause (1) consumers -/
+
+/-- **`not_isPropN_sort` fires.** -/
+theorem propLoopEnv_not_isPropN_sort {Γ : List VExpr} {l : VLevel} :
+    ¬ IsPropN propLoopEnv U 0 Γ (.sort l) := not_isPropN_sort propLoopEnv_sortInvN0
+
+/-- **`isPropN_forallE_inv` and `isPropN_forallE_congr` fire**, at the environment's Π-type
+`propArrow`.  Both are *honestly* premise-empty at index `0` — `IsPropN _ 0 _ (.forallE A B)`
+would need `.imax u v ≡₀ .zero`, and `≡₀` is syntactic equality — which their own docstrings
+record; what fires is the statement, at a real environment and a real Π-type. -/
+theorem propLoopEnv_isPropN_forallE_inv {Γ : List VExpr}
+    (h : IsPropN propLoopEnv U 0 Γ propArrow) :
+    ∃ u, u.WF U ∧ propLoopEnv.HasTypeN U 0 Γ (.const `A []) (.sort u) ∧
+      IsPropN propLoopEnv U 0 (.const `A [] :: Γ) (.const `A []) :=
+  isPropN_forallE_inv propLoopEnv_sortInvN0 h
+
+theorem propLoopEnv_isPropN_forallE_congr {Γ : List VExpr} {B' : VExpr}
+    (ih : IsPropN propLoopEnv U 0 (.const `A [] :: Γ) (.const `A []) →
+      IsPropN propLoopEnv U 0 (.const `A [] :: Γ) B')
+    (h : IsPropN propLoopEnv U 0 Γ propArrow) :
+    IsPropN propLoopEnv U 0 Γ (.forallE (.const `A []) B') :=
+  isPropN_forallE_congr propLoopEnv_sortInvN0 ih h
+
+/-- **`propForallEDF_of` fires.** -/
+theorem propLoopEnv_propForallEDF0 : propLoopEnv.PropForallEDF U 0 :=
+  propForallEDF_of propLoopEnv_sortInvN0 CtxConvProp.zero RegConv.zero
+
+/-- **`SortNotProp.of_propConvInv` fires**, and its conclusion has a real instance below. -/
+theorem propLoopEnv_sortNotProp0 : propLoopEnv.SortNotProp U 0 :=
+  SortNotProp.of_propConvInv propLoopEnv_sortInvN0 PropConvInv.zero
+
+/-- **`propTypeAgree_of` / `propTypeAgree_of'` fire**, and so does
+**`PropTypeAgree.appCase_iff`**. -/
+theorem propLoopEnv_propTypeAgree0 : propLoopEnv.PropTypeAgree U 0 :=
+  propTypeAgree_of' propLoopEnv_sortInvN0 PropConvInv.zero PropTypeAgree.AppCase.zero
+
+theorem propLoopEnv_propTypeAgree_iff0 :
+    PropTypeAgree.AppCase propLoopEnv U 0 ↔ propLoopEnv.PropTypeAgree U 0 :=
+  PropTypeAgree.appCase_iff propLoopEnv_sortInvN0 PropConvInv.zero
+
+/-- **`propTypeAgree_on_of'` / `propTypeAgree_on_of` fire** — this is
+`propTypeAgreeOn_zero_from_residuals` above, restated here for the audit, and its `Regular`
+hypothesis is the one that genuinely needs a non-empty environment
+(`propLoopEnv_regular` goes through `propLoopEnv_constPropType`). -/
+theorem propLoopEnv_propTypeAgreeOn0 : propLoopEnv.PropTypeAgreeOn U 0 :=
+  propTypeAgreeOn_zero_from_residuals
+
+/-! ### Consumers of both clauses -/
+
+/-- **`propConvInv_of` / `propConvInv_of'` fire**, from seven residuals that all hold over
+`propLoopEnv` at index `0`.  The seventh, `PropExtraConv`, is where the choice of environment
+does work: over `∅` it is vacuous because `VEnv.empty` has no `defeqs`, while
+`propLoopEnv_propExtraConv_zero` discharges it at an environment with **two** δ-rules. -/
+theorem propLoopEnv_propConvInv0 : propLoopEnv.PropConvInv U 0 :=
+  propConvInv_of' propLoopEnv_sortDisjInvN0 PropConstDF.zero PropForallEDF.zero
+    PropAppDF.zero PropBetaConv.zero PropForallEDisjoint.zero PropNotProof.zero
+    propLoopEnv_propExtraConv_zero
+
+/-- **`propNotProof_of'` / `propNotProof_of''` fire**, and the conclusion has a real
+instance: `B` is not a proof of `A`, two genuine `⊢₀` propositions of this environment. -/
+theorem propLoopEnv_propNotProof0 : propLoopEnv.PropNotProof U 0 :=
+  propNotProof_of'' propLoopEnv_sortDisjInvN0 propLoopEnv_sortNotProp0
+    PropNotProof.AppCase.zero
+
+theorem propLoopEnv_B_not_proof_A0 {Γ : List VExpr} :
+    ¬ propLoopEnv.HasTypeN U 0 Γ (.const `B []) (.const `A []) :=
+  fun h => propLoopEnv_propNotProof0 propLoopEnv_constB propLoopEnv_constA h
+
+/-- **`propUniq_of` / `propUniq_of'` fire.** -/
+theorem propLoopEnv_propUniq0 : propLoopEnv.PropUniq U 0 :=
+  propUniq_of' propLoopEnv_sortDisjInvN0 PropUniq.AppCase.zero
+
+/-- **`PropUniq.appCase_iff` and `PropNotProof.appCase_iff` fire.** -/
+theorem propLoopEnv_propUniq_iff0 :
+    PropUniq.AppCase propLoopEnv U 0 ↔ propLoopEnv.PropUniq U 0 :=
+  PropUniq.appCase_iff propLoopEnv_sortDisjInvN0
+
+theorem propLoopEnv_propNotProof_iff0 :
+    PropNotProof.AppCase propLoopEnv U 0 ↔ propLoopEnv.PropNotProof U 0 :=
+  PropNotProof.appCase_iff propLoopEnv_sortDisjInvN0 propLoopEnv_sortNotProp0
+
+/-- **`propConvInv_from_sortNotProp_cycle` fires**, with every one of its nine hypotheses
+discharged over `propLoopEnv` — including the `PropConvInv` that makes it a cycle. -/
+theorem propLoopEnv_propConvInv_cycle0 : propLoopEnv.PropConvInv U 0 :=
+  propConvInv_from_sortNotProp_cycle propLoopEnv_sortDisjInvN0 PropConstDF.zero
+    PropForallEDF.zero PropAppDF.zero PropBetaConv.zero PropForallEDisjoint.zero
+    PropNotProof.AppCase.zero propLoopEnv_propExtraConv_zero propLoopEnv_propConvInv0
+
+/-! ### The three that cannot be fired at index `0`
+
+`propTypeAgree_appCase_of` (`PropConv.lean`), `propTypeAgree_appCase_on_of` and
+`propTypeAgreeOn_of_residuals` (this file) are stated only at `n = k+1`, and their narrowed
+hypothesis at the smallest such index is `SortInvN env U 1`, which is **open** — over
+`propLoopEnv` and over `∅` alike.  So no replay of the kind above exists for them.
+
+What the narrowing does buy them is not nothing, and it is worth stating precisely.  Before
+it, their hypothesis at `env = ∅, U = 1, k = 0` was `DefInv ∅ 1 1`, which
+`DefInvRefute.defInv_one_false` **refutes** — so at that instance the three theorems were
+literally vacuous.  After it, the hypothesis is `SortInvN ∅ 1 1`, which is not refuted, and
+`SortClauses.empty_sortInvN_one_of_appDF` reduces it to the single residual
+`SortRedAppDF ∅ 1 0`.  Their instance at `k = 0` is therefore open rather than empty.
+
+`SortClauses.lean` is downstream of this file, so the reduction cannot be cited here as a
+term; it is cited as a name. -/
+
+end NonVacuity
 
 end VEnv
 end Lean4Lean

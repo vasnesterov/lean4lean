@@ -1,4 +1,5 @@
 import Lean4Lean.Theory.Typing.PropConv
+import Lean4Lean.Theory.Typing.CycleConv
 
 /-!
 # The shared `app` case
@@ -257,27 +258,44 @@ theorem UniqN.zero : env.UniqN U 0 := fun h1 h2 =>
 theorem AppTypeUniq.zero : env.AppTypeUniq U 0 := UniqN.zero.appTypeUniq
 
 /-- `UniqN` is exactly `HasTypeN.uniq`'s conclusion, so `Stratified.uniq` is a proof of it from
-`DefInv` + `SubstC`. -/
+`DefInv` + `SubstC`.
+
+**VOID — both hypotheses are refuted, and this one cannot be narrowed.**  It is one of the
+five declarations `docs/handoff-definv-rescue.md` §"what stayed void" lists.
+
+* `SubstC ∅ 1 1` is **false** (`SubstCRefute.substC_false`);
+* `DefInv ∅ 1 1` is **false** (`DefInvRefute.defInv_one_false`), and the refutation goes
+  through **clause (2)** — `ForallEInvN` — which is exactly the clause `HasTypeN.uniq`
+  consumes, in its `app` case, as `dinv.forallE`.
+
+So at `env = ∅, U = 1, n = 1` this theorem is vacuous twice over.  It is **not false**, and
+its conclusion is not refuted by this — `UniqN ∅ 1 1` is separately refuted by `uniqN_false`
+below, which needs no hypothesis at all and supersedes this route.
+
+**What would restore it:** nothing short of new definitions.  Narrowing cannot help — the
+clause it needs is the refuted one — and `SubstC` is false independently.  Kept because it is
+the exact statement whose hypotheses the two refutations pin down; a recorded refutation is a
+result. -/
 theorem UniqN.of_defInv_substC (dinv : env.DefInv U n) (hs : env.SubstC U n) :
     env.UniqN U n := fun h1 h2 => HasTypeN.uniq dinv hs h1 h2
 
 /-! ### It discharges all five, each with the residual that statement already names -/
 
-theorem AppTypeUniq.appDisj (dinv : env.DefInv U n) (h : env.AppTypeUniq U n) :
+theorem AppTypeUniq.appDisj (dinv : env.SortForallEDisjN U n) (h : env.AppTypeUniq U n) :
     env.AppDisj U n := by
   intro _ _ _ _ _ _ _ _ _ _ d c₀ c₁
-  exact dinv.sort_forallE
+  exact dinv
     (IsDefEqN.trans' (IsDefEqN.symm' c₀) (IsDefEqN.trans' (h d) c₁))
 
-theorem AppTypeUniq.appPropDisj (dinv : env.DefInv U n) (h : env.AppTypeUniq U n) :
+theorem AppTypeUniq.appPropDisj (dinv : env.SortForallEDisjN U n) (h : env.AppTypeUniq U n) :
     env.AppPropDisj U n := by
   intro _ _ _ _ _ _ _ _ _ d c₀ c₁; exact h.appDisj dinv d c₀ c₁
 
-theorem AppTypeUniq.appUniqLvl (dinv : env.DefInv U n) (h : env.AppTypeUniq U n) :
+theorem AppTypeUniq.appUniqLvl (dinv : env.SortInvN U n) (h : env.AppTypeUniq U n) :
     env.AppUniqLvl U n := by
   intro _ _ _ _ _ _ _ _ _ d c₀ c₁
   exact VLevel.equiv_congr_left
-    (dinv.sort (IsDefEqN.trans' (IsDefEqN.symm' c₀) (IsDefEqN.trans' (h d) c₁)))
+    (dinv (IsDefEqN.trans' (IsDefEqN.symm' c₀) (IsDefEqN.trans' (h d) c₁)))
 
 theorem AppTypeUniq.appNotProof (hsnp : env.SortNotProp U n) (h : env.AppTypeUniq U n) :
     env.AppNotProof U n := by
@@ -338,7 +356,15 @@ theorem uniqN_witness :
 `⊢ₙ` has definitional inversion, and `DefInv ∅ 1 1` is not known.  Either it holds — and then
 `thm:utype` is false at `n = 1`, not merely unproved — or it fails, and the route's own target
 `∀ n, DefInv` fails at its first non-trivial index.  Either way the reference's induction
-`DefInv n → uniq n → DefInv (n+1)` cannot be repaired at `n = 1`. -/
+`DefInv n → uniq n → DefInv (n+1)` cannot be repaired at `n = 1`.
+
+**VACUOUSLY TRUE, and superseded.**  Its hypothesis is literally `DefInv ∅ 1 1`, which
+`DefInvRefute.defInv_one_false` **refutes**, so the dichotomy above has collapsed to its
+second horn: `DefInv ∅ 1 1` does *not* hold, and `∀ n, DefInv ∅ 1 n` fails at its first
+non-trivial index (`DefInvRefute.defInv_all_false`).  `DefInvRefute.thm_utype_one_vacuous`
+records the same fact unconditionally and supersedes this statement.  It consumes no clause,
+so there is nothing to narrow; it is kept as the record of the dichotomy that was open when
+it was written. -/
 theorem thm_utype_one_false_of_defInv (hdinv : (∅ : VEnv).DefInv 1 1) :
     ¬ ((∅ : VEnv).DefInv 1 1 → (∅ : VEnv).UniqN 1 1) := fun h => uniqN_false (h hdinv)
 
@@ -346,7 +372,13 @@ theorem thm_utype_one_false_of_defInv (hdinv : (∅ : VEnv).DefInv 1 1) :
 directly; this rederives it (weakened by a `DefInv` hypothesis) from `uniqN_false` through
 `Stratified.uniq`.  The two counterexamples are the same construction seen from the two sides
 of `unique.tex:51` — one at the *conversion* it produces, one at the *typing* it was produced
-for — and they agree. -/
+for — and they agree.
+
+**VOID, and superseded.**  Its hypothesis `DefInv ∅ 1 1` is **false**
+(`DefInvRefute.defInv_one_false`), so this negative result says nothing at the instance it is
+stated at.  `SubstCRefute.substC_false` proves the same conclusion **unconditionally**, so
+nothing is lost.  It cannot be narrowed: it goes through `UniqN.of_defInv_substC`, hence
+through clause (2).  Kept as the cross-check it was written to be. -/
 theorem substC_false_of_defInv (hdinv : (∅ : VEnv).DefInv 1 1) : ¬ (∅ : VEnv).SubstC 1 1 :=
   fun hs => uniqN_false (UniqN.of_defInv_substC hdinv hs)
 
@@ -685,6 +717,30 @@ recorded because they are independent of the collision:
    says nothing about the other four — §16.4's "not claimed: that the five are one statement"
    cuts here too.
 -/
+
+/-! ## Non-vacuity of the narrowed hypotheses
+
+`AppTypeUniq.appDisj`, `.appPropDisj` and `.appUniqLvl` used to carry `env.DefInv U n`, which
+is **false** at `∅, 1, 1` through clause (2) alone.  They consume clause (3), clause (3) and
+clause (1) respectively, and now say so.  Below they are fired over `CycleConv.propLoopEnv` —
+two constants `A B : Prop`, two δ-rules — at index `0`, where both clauses hold and where the
+`const` case that is empty over `∅` is inhabited.  `AppTypeUniq.zero` is `HasTypeN.uniq_zero`,
+which is unconditional, so no hypothesis here is assumed. -/
+
+section NonVacuity
+
+/-- Clause (3) fires `appDisj` and `appPropDisj`. -/
+theorem propLoopEnv_appDisj0 : propLoopEnv.AppDisj U 0 :=
+  AppTypeUniq.appDisj SortForallEDisjN.zero AppTypeUniq.zero
+
+theorem propLoopEnv_appPropDisj0 : propLoopEnv.AppPropDisj U 0 :=
+  AppTypeUniq.appPropDisj SortForallEDisjN.zero AppTypeUniq.zero
+
+/-- Clause (1) fires `appUniqLvl`. -/
+theorem propLoopEnv_appUniqLvl0 : propLoopEnv.AppUniqLvl U 0 :=
+  AppTypeUniq.appUniqLvl SortInvN.zero AppTypeUniq.zero
+
+end NonVacuity
 
 end VEnv
 end Lean4Lean
