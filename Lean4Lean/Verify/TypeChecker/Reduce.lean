@@ -168,6 +168,233 @@ theorem TrEnv'.defeqs_shape (H : TrEnv' safety C Q venv) (h : venv.defeqs df) :
         VEnv.addConst_defeqs ha₃ ▸ VEnv.addConst_defeqs ha₄ ▸ h)
   | induct _ hadd => cases hadd
 
+/-! ### `RuleFreeHead` at `Quot`, without `VEnv.Sig`
+
+`VEnv.RuleFreeHead env c` (`Theory/Typing/Injectivity.lean`) says `c` heads no
+definitional-equality rule of `env`.  It is the side condition of fact (B),
+`IsDefEqU.const_app_inv`, which `quotReduceRec.WF` (`Verify/TypeChecker/WHNF.lean`) needs at
+`c = ``Quot``.  `Theory/Typing/DeclRules.lean` proves only the first half of "derive
+`RuleFreeHead` from `VEnv.WF`" (the *shape* of a rule), leaving the name-to-declaring-step
+half to a `VEnv.Sig` invariant that does not exist.
+
+**On the label.**  The docstrings around here say "ledger item M2".  That lemma
+(`docs/design-inductive.md:1040`, ledger row I12 of that file -- *not* of
+`docs/soundness-ledger.md`, which has no `M2`) is about *inductive* heads and is charged to
+`VEnv.Sig`.  The `Quot` case is a **separate, unnumbered sibling**, flagged in the same
+section as "not inductive-specific and should not be paid for by this design".  It is that
+sibling which is discharged below, and it needs no `VEnv.Sig`.
+
+**That invariant is not needed here.**  A `TrEnv'`-built environment carries the name
+information already, and the three lemmas below extract it:
+
+* `TrEnv'.defeq_contains` — a δ-rule's constant is in the environment;
+* `TrEnv'.quotInit_contains` — `Q = true` forces the `quot` step, hence `Quot ∈ constants`;
+* `TrEnv'.ruleFreeHead_quot` — the two together, plus `defeqs_shape`.
+
+The argument is temporal, not typal: `VEnv.addConst` refuses a name already present, and a
+`TrEnv'` chain only ever grows `constants`.  So a δ-rule named `Quot` and the `quot` step
+cannot both occur — the def would have to be added while `Quot` is absent and `AddQuot`
+demands `Quot` absent later.  Note that *neither* half works alone: a `def Quot` before
+`quotInit` is a perfectly legal `TrEnv'` chain (the `quot` step then simply cannot fire), so
+`RuleFreeHead venv ``Quot`` is **false** for a general `TrEnv'` environment and the
+`quotInit = true` hypothesis is load-bearing.  It is available at the only consumer:
+`reduceRecursor` guards the `quotReduceRec` call with `if env.quotInit`.
+-/
+
+theorem VEnv.addConsts_constants_none {env env' : VEnv} : ∀ {cis : List VDefVal},
+    env.addConsts cis = some env' → ∀ ci ∈ cis, env.constants ci.name = none
+  | [], _, _, hc => nomatch hc
+  | _ :: _, e, c, hc => by
+    simp [VEnv.addConsts, Option.bind_eq_some_iff] at e
+    obtain ⟨_, h1, h2⟩ := e
+    cases hc with
+    | head => exact VEnv.addConst_constants_none h1
+    | tail _ hc =>
+      have hn := VEnv.addConsts_constants_none h2 c hc
+      cases hh : env.constants c.name with
+      | none => rfl
+      | some ci => exact absurd ((VEnv.addConst_le h1).constants hh) (by simp [hn])
+
+/-- A δ-rule's left-hand side is the bare constant, so `headConst?` reads its name off. -/
+theorem VDefVal.headConst?_toDefEq {v : VDefVal} :
+    v.toDefEq.lhs.headConst? = some v.name := rfl
+
+/-- `toDefEq` remembers the name. -/
+theorem VDefVal.toDefEq_name {v w : VDefVal} (h : v.toDefEq = w.toDefEq) : v.name = w.name :=
+  (by simpa [VDefVal.toDefEq] using congrArg VDefEq.lhs h : _ ∧ _).1
+
+/-- A δ-rule is never the quotient rule: `quotDefEq.lhs` is a six-fold `.lam`. -/
+theorem VDefVal.toDefEq_ne_quotDefEq {v : VDefVal} : v.toDefEq ≠ quotDefEq := by
+  intro h; have h2 := congrArg VDefEq.lhs h; simp [VDefVal.toDefEq, quotDefEq] at h2
+
+/-- **Every δ-rule of a `TrEnv'`-built environment has its constant declared.**  Uniform in
+`safety` and in `Q`; the `induct` case is vacuous today and stays discharged after the
+`AddInduct` flip, because a block adds only ι-rules (`AddInductStages.defeqs`) and an ι-rule
+is not a `VDefVal.toDefEq` -- its `lhs` is a `mkLams`, not a `.const`. -/
+theorem TrEnv'.defeq_contains (H : TrEnv' safety C Q venv) {v : VDefVal}
+    (h : venv.defeqs v.toDefEq) : venv.contains v.name := by
+  induction H with
+  | empty => cases h
+  | ignore _ _ _ ih => exact ih h
+  | «axiom» _ _ _ hadd _ ih =>
+    have ⟨_, hc⟩ := ih (VEnv.addConst_defeqs hadd ▸ h)
+    exact ⟨_, (VEnv.addConst_le hadd).1 hc⟩
+  | defn htr _ _ hadd _ ih =>
+    rcases h with he | h
+    · have hname := VDefVal.toDefEq_name he
+      have hn2 := htr.1.2
+      dsimp [ConstantInfo.name, ConstantInfo.toConstantVal] at hn2
+      rw [← hn2] at hname
+      exact ⟨_, VEnv.addDefEq_le.1 (hname ▸ VEnv.addConst_self hadd)⟩
+    · have ⟨_, hc⟩ := ih (VEnv.addConst_defeqs hadd ▸ h)
+      exact ⟨_, VEnv.addDefEq_le.1 ((VEnv.addConst_le hadd).1 hc)⟩
+  | thm _ _ _ _ hadd _ ih =>
+    have ⟨_, hc⟩ := ih (VEnv.addConst_defeqs hadd ▸ h)
+    exact ⟨_, (VEnv.addConst_le hadd).1 hc⟩
+  | «opaque» _ _ _ hadd _ ih =>
+    have ⟨_, hc⟩ := ih (VEnv.addConst_defeqs hadd ▸ h)
+    exact ⟨_, (VEnv.addConst_le hadd).1 hc⟩
+  | unsafeDef _ _ _ _ _ hadd _ _ ih =>
+    rcases VEnv.addDefEqs_defeqs h with ⟨ci', hmem, he⟩ | h
+    · have hname : v.name = ci'.name := VDefVal.toDefEq_name he
+      exact ⟨_, VEnv.addDefEqs_le.1 (hname ▸ VEnv.addConsts_constants hadd _ hmem)⟩
+    · have ⟨_, hc⟩ := ih (VEnv.addConsts_defeqs hadd ▸ h)
+      exact ⟨_, VEnv.addDefEqs_le.1 ((VEnv.addConsts_le hadd).1 hc)⟩
+  | quot _ hadd _ ih =>
+    obtain ⟨lp₁, ty₁, env₁, _, hn₁, ha₁,
+      lp₂, ty₂, env₂, _, hn₂, ha₂,
+      lp₃, ty₃, env₃, _, hn₃, ha₃,
+      lp₄, ty₄, env₄, _, hn₄, ha₄, _, rfl⟩ := hadd
+    have hle : env₁ ≤ VEnv.addDefEq env₄ quotDefEq :=
+      ((VEnv.addConst_le ha₂).trans ((VEnv.addConst_le ha₃).trans
+        (VEnv.addConst_le ha₄))).trans VEnv.addDefEq_le
+    rcases h with he | h
+    · exact absurd he VDefVal.toDefEq_ne_quotDefEq
+    · have ⟨_, hc⟩ := ih (VEnv.addConst_defeqs ha₁ ▸ VEnv.addConst_defeqs ha₂ ▸
+        VEnv.addConst_defeqs ha₃ ▸ VEnv.addConst_defeqs ha₄ ▸ h)
+      exact ⟨_, hle.1 ((VEnv.addConst_le ha₁).1 hc)⟩
+  | induct _ hadd => cases hadd
+
+/-- **`quotInit = true` forces the `quot` step**, so `Quot` is declared.  `TrEnv'.empty` is
+the only constructor producing `Q = false` out of nothing and `quot` the only one changing
+`Q`; every other constructor passes it through. -/
+theorem TrEnv'.quotInit_contains (H : TrEnv' safety C true venv) : venv.contains ``Quot := by
+  generalize hQ : true = Q at H
+  induction H with
+  | empty => cases hQ
+  | ignore _ _ _ ih => exact ih hQ
+  | «axiom» _ _ _ hadd _ ih =>
+    have ⟨_, hc⟩ := ih hQ; exact ⟨_, (VEnv.addConst_le hadd).1 hc⟩
+  | defn _ _ _ hadd _ ih =>
+    have ⟨_, hc⟩ := ih hQ; exact ⟨_, VEnv.addDefEq_le.1 ((VEnv.addConst_le hadd).1 hc)⟩
+  | thm _ _ _ _ hadd _ ih =>
+    have ⟨_, hc⟩ := ih hQ; exact ⟨_, (VEnv.addConst_le hadd).1 hc⟩
+  | «opaque» _ _ _ hadd _ ih =>
+    have ⟨_, hc⟩ := ih hQ; exact ⟨_, (VEnv.addConst_le hadd).1 hc⟩
+  | unsafeDef _ _ _ _ _ hadd _ _ ih =>
+    have ⟨_, hc⟩ := ih hQ
+    exact ⟨_, VEnv.addDefEqs_le.1 ((VEnv.addConsts_le hadd).1 hc)⟩
+  | quot _ hadd _ _ =>
+    obtain ⟨lp₁, ty₁, env₁, _, hn₁, ha₁,
+      lp₂, ty₂, env₂, _, hn₂, ha₂,
+      lp₃, ty₃, env₃, _, hn₃, ha₃,
+      lp₄, ty₄, env₄, _, hn₄, ha₄, _, rfl⟩ := hadd
+    have hle : env₁ ≤ VEnv.addDefEq env₄ quotDefEq :=
+      ((VEnv.addConst_le ha₂).trans ((VEnv.addConst_le ha₃).trans
+        (VEnv.addConst_le ha₄))).trans VEnv.addDefEq_le
+    exact ⟨_, hle.1 (VEnv.addConst_self ha₁)⟩
+  | induct _ hadd => cases hadd
+
+/-- **`RuleFreeHead` at `Quot`, from `TrEnv'` alone.**  No `VEnv.Sig`, no `VEnv.WF` induction: the
+`quotInit` bit plus `addConst`'s freshness check does it.  This is the second of the two open
+statements `quotReduceRec.WF` was blocked on; the remaining one is
+`VEnv.IsDefEqU.const_app_inv` itself (`Theory/Typing/Injectivity.lean`, fact (B)). -/
+theorem TrEnv'.ruleFreeHead_quot (H : TrEnv' safety C true venv) :
+    venv.RuleFreeHead ``Quot := by
+  generalize hQ : true = Q at H
+  induction H with
+  | empty => cases hQ
+  | ignore _ _ _ ih => exact ih hQ
+  | «axiom» _ _ _ hadd _ ih => exact fun df h => ih hQ df (VEnv.addConst_defeqs hadd ▸ h)
+  | defn htr _ _ hadd hprev ih =>
+    subst hQ
+    refine fun df h hhd => ?_
+    rcases h with rfl | h
+    · rw [VDefVal.headConst?_toDefEq] at hhd
+      have hn2 := htr.1.2
+      dsimp [ConstantInfo.name, ConstantInfo.toConstantVal] at hn2
+      have ⟨_, hc⟩ := hprev.quotInit_contains
+      rw [← Option.some.inj hhd, ← hn2] at hc
+      exact absurd hc (by simp [VEnv.addConst_constants_none hadd])
+    · exact ih rfl df (VEnv.addConst_defeqs hadd ▸ h) hhd
+  | thm _ _ _ _ hadd _ ih => exact fun df h => ih hQ df (VEnv.addConst_defeqs hadd ▸ h)
+  | «opaque» _ _ _ hadd _ ih => exact fun df h => ih hQ df (VEnv.addConst_defeqs hadd ▸ h)
+  | unsafeDef _ _ _ _ _ hadd _ hprev ih =>
+    subst hQ
+    refine fun df h hhd => ?_
+    rcases VEnv.addDefEqs_defeqs h with ⟨ci', hmem, rfl⟩ | h
+    · rw [VDefVal.headConst?_toDefEq] at hhd
+      have ⟨_, hc⟩ := hprev.quotInit_contains
+      rw [← Option.some.inj hhd] at hc
+      exact absurd hc (by simp [VEnv.addConsts_constants_none hadd _ hmem])
+    · exact ih rfl df (VEnv.addConsts_defeqs hadd ▸ h) hhd
+  | quot _ hadd hprev _ =>
+    obtain ⟨lp₁, ty₁, env₁, _, hn₁, ha₁,
+      lp₂, ty₂, env₂, _, hn₂, ha₂,
+      lp₃, ty₃, env₃, _, hn₃, ha₃,
+      lp₄, ty₄, env₄, _, hn₄, ha₄, _, rfl⟩ := hadd
+    have hfresh := VEnv.addConst_constants_none ha₁
+    refine fun df h hhd => ?_
+    rcases h with rfl | h
+    · exact absurd hhd (by decide)
+    have hold : _ := VEnv.addConst_defeqs ha₁ ▸ VEnv.addConst_defeqs ha₂ ▸
+      VEnv.addConst_defeqs ha₃ ▸ VEnv.addConst_defeqs ha₄ ▸ h
+    rcases hprev.defeqs_shape hold with ⟨v, rfl⟩ | rfl
+    · rw [VDefVal.headConst?_toDefEq] at hhd
+      have ⟨_, hc⟩ := hprev.defeq_contains hold
+      rw [Option.some.inj hhd] at hc
+      exact absurd hc (by simp [hfresh])
+    · exact absurd hhd (by decide)
+  | induct _ hadd => cases hadd
+
+/-- **The converse half: with `quotInit = false` the model has no quotient rule at all.**
+
+`quot` is the only `TrEnv'` step that adds `quotDefEq`, and it is also the only one that sets
+`Q`.  So `Q = false` -- which is exactly `Kernel.Environment.quotInit = false` -- rules the
+rule out.  This is what makes `quotReduceRec.WF`'s `quotInit` hypothesis load-bearing rather
+than bookkeeping: `quotReduceRec` itself never consults `quotInit`, only the head constant's
+*name*, and `TrEnv'.axiom` will happily admit an axiom named `Quot.lift`. -/
+theorem TrEnv'.not_quotDefEq (H : TrEnv' safety C false venv) : ¬ venv.defeqs quotDefEq := by
+  generalize hQ : false = Q at H
+  induction H with
+  | empty => exact fun h => h
+  | ignore _ _ _ ih => exact ih hQ
+  | «axiom» _ _ _ hadd _ ih => exact fun h => ih hQ (VEnv.addConst_defeqs hadd ▸ h)
+  | defn _ _ _ hadd _ ih =>
+    refine fun h => ?_
+    rcases h with he | h
+    · exact VDefVal.toDefEq_ne_quotDefEq he.symm
+    · exact ih hQ (VEnv.addConst_defeqs hadd ▸ h)
+  | thm _ _ _ _ hadd _ ih => exact fun h => ih hQ (VEnv.addConst_defeqs hadd ▸ h)
+  | «opaque» _ _ _ hadd _ ih => exact fun h => ih hQ (VEnv.addConst_defeqs hadd ▸ h)
+  | unsafeDef _ _ _ _ _ hadd _ _ ih =>
+    refine fun h => ?_
+    rcases VEnv.addDefEqs_defeqs h with ⟨ci', _, he⟩ | h
+    · exact VDefVal.toDefEq_ne_quotDefEq he.symm
+    · exact ih hQ (VEnv.addConsts_defeqs hadd ▸ h)
+  | quot => cases hQ
+  | induct _ hadd => cases hadd
+
+theorem TrEnv.not_quotDefEq (H : TrEnv safety env venv) (hq : env.quotInit = false) :
+    ¬ venv.defeqs quotDefEq :=
+  TrEnv'.not_quotDefEq (safety := safety) (C := env.constants) (hq ▸ H)
+
+/-- The same, phrased on a `Kernel.Environment` -- the form `quotReduceRec.WF` will consume,
+since `reduceRecursor` only calls `quotReduceRec` under `if env.quotInit`. -/
+theorem TrEnv.ruleFreeHead_quot (H : TrEnv safety env venv) (hq : env.quotInit = true) :
+    venv.RuleFreeHead ``Quot :=
+  TrEnv'.ruleFreeHead_quot (safety := safety) (C := env.constants) (hq ▸ H)
+
 /-! ### R10: the induct-case lemmas the `TrEnv'` inductions will need
 
 `AddInductStages` (`Verify/Environment/Basic.lean`) is `AddInduct`'s intended definition,

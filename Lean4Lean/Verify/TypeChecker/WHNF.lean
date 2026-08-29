@@ -39,11 +39,33 @@ It is blocked on **const-application injectivity**, not on anything about induct
 (`Theory/Typing/Injectivity.lean`, fact **(B)**, `sorry`), not ledger I13 — I13 is
 `const_forallE_inv`, fact **(A)**, *disjointness*, which is a different statement and does not
 imply (B).  That file's module docstring already lists this branch as one of (B)'s consumers.
-Alongside it the branch needs (B)'s two side conditions: `IsType` on the application, which is
-free here because the fact is used at the *type* of a term, and `RuleFreeHead env ``Quot``,
-which is true (`Quot` heads no rule — `quotDefEq`'s head is `Quot.lift`) but whose derivation
-from `VEnv.WF` is ledger **M2** and needs `VEnv.Sig`.  So the residual is two open statements,
-not one.
+
+**The residual is now one open statement, not two.**  (B) carries two side conditions.
+`IsType` on the application is free here, because the fact is used at the *type* of a term.
+The other, `RuleFreeHead env ``Quot``, was previously charged to "ledger M2" and to a
+`VEnv.Sig` invariant that does not exist.  Both halves of that were wrong: M2
+(`docs/design-inductive.md:1040`, row I12 there) is about *inductive* heads, the `Quot` case
+is a separate sibling the same section says should not be paid for by the inductive design,
+and it needs no `VEnv.Sig`.  It is now **proved**, as
+`TrEnv.ruleFreeHead_quot` (`Verify/TypeChecker/Reduce.lean`), with no `VEnv.Sig` and no
+`VEnv.WF` induction.  The argument is temporal rather than typal: `VEnv.addConst` refuses a
+name already present, `TrEnv'` only grows `constants`, and `Q = true` forces the `quot` step
+— so a δ-rule named `Quot` and the quotient step cannot both occur.  It is discharged at a
+concrete witness in `Verify/QuotConsts.lean` (`QuotWit.ruleFreeHead_quot_wit`), at an
+environment whose model really does carry a rule.
+
+**Why `hq` is a hypothesis of this theorem.**  It is `reduceRecursor`'s own guard: the
+implementation calls `quotReduceRec` only under `if env.quotInit`, and `reduceRecursor.WF`
+supplies `hq` from the `split`, so nothing is lost.  It is not bookkeeping.  `quotReduceRec`
+itself checks only that the head constant is `Quot.lift`/`Quot.ind` and that argument 5
+whnf's to a three-argument `Quot.mk`; it never consults `quotInit`.  With `quotInit = false`
+a `TrEnv'` chain may still hold `Quot.lift` and `Quot.mk` as ordinary *axioms* of arbitrary
+type — `TrEnv'.axiom` inspects no names — while the model contains **no `quotDefEq` at all**
+(`TrEnv'.defeqs_shape`).  The branch then fires and the postcondition has no rule to appeal
+to.  So the theorem is, to the best reading of the source, **false without `hq`**; that
+reading is *not* machine-checked, because turning it into a witness needs `.app`-at-a-
+non-function ill-typedness, i.e. sort/Π disjointness — fact (A), itself `sorry`.  Adding the
+hypothesis is therefore a correction, not a weakening for convenience.
 
 The original analysis, unchanged:
 
@@ -70,7 +92,8 @@ applies — but it is a different argument from `extra`, and needs the same spin
 The peel itself is *not* a cost: `VEnv.IsDefEq.extra_applied`
 (`Theory/Inductive/StructureClosed.lean`) states it once for any `VDefEq` whose `lhs`/`rhs`/
 `type` share a `mkLams`/`mkPi` telescope. -/
-theorem quotReduceRec.WF {c : VContext} {s : VState} (he : c.TrExprS e e') :
+theorem quotReduceRec.WF {c : VContext} {s : VState} (hq : c.env.quotInit = true)
+    (he : c.TrExprS e e') :
     RecM.WF c s (quotReduceRec e whnf) fun oe _ =>
       ∀ e₁, oe = some e₁ → c.FVarsBelow e e₁ ∧ c.TrExpr e₁ e' := sorry
 
@@ -89,7 +112,8 @@ theorem reduceRecursor.WF {c : VContext} {s : VState} (he : c.TrExprS e e') :
     exact .pureBind (.pure nofun)
   dsimp only
   split
-  · refine (quotReduceRec.WF he).bind fun r _ _ hr => ?_
+  · rename_i hq
+    refine (quotReduceRec.WF hq he).bind fun r _ _ hr => ?_
     cases r with
     | none => exact hjp ⟨⟩
     | some r => exact .pure fun _ eq => hr _ (by cases eq; rfl)
