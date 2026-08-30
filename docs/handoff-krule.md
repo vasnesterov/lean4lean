@@ -2702,3 +2702,330 @@ three refutations is contradicted, and no statement of any of them changed.
    conditional repair of an entangled one, but it is still conditional on `KStepTailS`.
 5. **Site 3 (the η-layer diamond) is untouched and independent**; `etaKDiamond_of_at` still
    reduces it to the equal-height case.
+
+
+---
+
+# Round 9 (this session): site 7's `etaR` case is closed — the relation §X5 asked for exists
+
+**Task.** Site 7, using the move that closed site 1 ("keep the reason, not the conclusion"),
+starting from §X5's suggestion of *"a relation `equal up to definitionally equal λ-domains,
+plus `ProofEq` at the leaves`, for which the commutation with `ParRedK` should be provable
+outright"*.
+
+Same marks: **[machine-checked]** = a named `sorry`-free Lean declaration in this tree;
+**[measured]** = a machine run whose output is reproduced; **[read]**; **[analysis]**.
+
+All new declarations are in **`Lean4Lean/Theory/Typing/KSite7.lean`** (new file, 1151 lines,
+`sorry`-free).  No existing file was edited.
+
+## Y0. Verdict
+
+1. **§X5's candidate relation exists, and it is `NormalEq` with `etaL`/`etaR` deleted.**
+   `VEnv.DomEq` (`KSite7.lean:154`) has `NormalEq`'s other seven constructors verbatim.  The
+   level congruences (`sortDF`, `constDF`) have to be there too — §X5 named only the λ-domains
+   and `ProofEq` — because `NormalEq.apply_instL` is where `KTable.kstep_liftN_inv_stepP`'s
+   `NormalEq` comes from, and it is a *level* congruence.  §Y1.
+
+2. **The commutation holds outright.**  `VEnv.DomEq.parRedK` **[machine-checked]**:
+
+   ```lean
+   theorem DomEq.parRedK : ∀ {Γ e₂ e₂'}, ParRedK Γ e₂ e₂' →
+     ∀ {e₁}, OnCtx Γ (IsType env univs) → DomEq Γ e₁ e₂ →
+       ∃ e₁', ParRedKS Γ e₁ e₁' ∧ DomEq Γ e₁' e₂'
+   ```
+
+   **No hypothesis at all** — no `KTable`, no `PiTypeDescend`, no `KStepTail`, and no
+   `NormalEq.descend`.  Its forward hole cone is `[forallE_inv_stratified, forallE_inv]`, both
+   pre-existing; `NormalEq.parRed`'s reaches `NormalEq.descend` as well.  §Y2.
+
+3. **Site 7's `etaR` case is closed** — `VEnv.etaR_case` **[machine-checked]** — from one
+   named hypothesis, `WeakNInvDS` (site 1 at the `DomEq` conclusion), and from the case's own
+   induction hypothesis.  **It does not call site 7 anywhere.**  §X5's "the circle is broken in
+   one direction only" is therefore **wrong**: it is broken in both.  §Y4.
+
+4. **§V3 row 7 — "the refutation's own witness configuration" — is one line**
+   (`VEnv.etaR_inner_keta` **[machine-checked]**): the invariant's second disjunct says the
+   redex *is* the η-expansion of the lift of a downstairs term, which is exactly `EtaK.under`'s
+   premise, so the whole `keta` step relocates downstairs.  Nothing is inverted.  §Y3.
+
+5. **What actually blocked `etaR` was the *other* half, and it is now machine-checked false.**
+   `VEnv.not_etaRLiftInv_of_etaK` **[machine-checked, `sorryAx`-free, hole cone `[]`]** refutes
+   `ParRed.weakN_inv` cut down to the single instance the `etaR` inner induction consumes
+   (`n = 1`, `k = 0`, subject of the binder's own Π-type).  §W1's witness specialises to
+   `C := A₀`.  So §X5's diagnosis was right about *which* fact fails and wrong about the
+   consequence.  §Y3.
+
+6. **Four more of site 7's nine cases close outright** (`VEnv.parRedKStatement_of_domEq`
+   **[machine-checked]**): `refl`, `sortDF`, `constDF`, `proofIrrel` are all `DomEq`s, so
+   `DomEq.parRedK` discharges them — including §V3 row 5 (`constDF × extra`) and §X5's
+   `constDF × keta`, which §X5 listed as **live**.  §Y5.
+
+7. **The remaining live obstruction of site 7 is `appDF × keta`, not `etaR`.**  §V3 row 6.
+   `EtaK.domEq_inv` does not apply there because `appDF`'s sub-relations are `NormalEq`, not
+   `DomEq`.  §Y5 has the full case table.
+
+8. **A correction to §X6's own numbers.**  §X0.1 and §X6 report `axioms []` for
+   `weakNInvStatementP_of_tail`, `not_crStatement_of_kstep_dead` and
+   `not_parRedStatement_of_hK_dead`.  Measured: all three are `[propext, Quot.sound]`.  The
+   *hole* cones are `[]` — that is the load-bearing half and it is correct — but "no `propext`"
+   is not.  §Y6.
+
+9. No `sorry` added or removed (census still **19**), `dup-names` clean (including a private
+   run with `KSite7` added to the closure), `ChurchRosser.lean`, `KEta.lean`, `KMeasure.lean`,
+   `KCanonical.lean`, `KDescend.lean`, `KRule.lean`, `DescendRefute.lean` and
+   `Verify/Typing/ConstSpine*.lean` **untouched**, no `Params` field spent.
+
+## Y1. `DomEq`: why this is the right cut **[machine-checked + analysis]**
+
+```lean
+inductive DomEq : List VExpr → VExpr → VExpr → Prop where
+  | refl | sortDF | constDF | appDF | lamDF | forallEDF | proofIrrel   -- NormalEq's, verbatim
+```
+
+`DomEq.toNormalEq` **[machine-checked, hole cone `[]`]** is the embedding, constructor for
+constructor.  The API is `NormalEq`'s, minus the eta cases, obtained by the same inductions:
+`symm`, `trans`, `defeq`, `hasType`, `weakN`, `instN`, `instN_r`, `defeqDFC`, `defeq_l`,
+`wf_l`, `wf_r`, `instL_congr`, `apply_instL`, `apply_pat`.
+
+**Why the cut is at eta and nowhere else, in three measured places:**
+
+* **`etaR` is the constructor `not_parRedStatement_of_hK` exploits.**  `KCanonical.lean:485`'s
+  `h1` is `NormalEq.etaR he (.refl hb0)`.  **[read]**
+* **`etaL` is the reason `NormalEq.descend` exists.**  `ChurchRosser.lean:1477`'s own note:
+  *"That statement is refuted by `NormalEq.etaL`, which relates a `.lam` to anything of Π type
+  — and no `.lam` matches any pattern; the same goes for `NormalEq.proofIrrel`."*  Deleting
+  `etaL`/`etaR` removes the first counterexample; the second survives as the `ProofEq` escape,
+  which is carried by `ProofEq.app` (new) and `ProofEq.forallE` (§X3's).  **[read + machine-checked]**
+* **The λ-domain slack is a `DomEq`.**  `kdom_normalEq_lam` (§W2) closes §W1's witness with
+  `NormalEq.lamDF`, a `DomEq` constructor.  **[read]**
+
+**Shape preservation, with the escape**, is the property that does the work:
+`DomEq.app_inv_r`, `lam_inv_r`, `const_inv_r`, `sort_inv_r`, `forallE_inv_r`
+**[machine-checked]** each conclude "same head shape, sub-terms `DomEq`" **or** `ProofEq` of
+the whole.
+
+## Y2. The commutation, and the three places it beats `NormalEq` **[machine-checked]**
+
+| declaration | says |
+|---|---|
+| `Pattern.Matches.domEq_inv` | at an `.app`-free pattern, `DomEq` transports a match: same pattern, `≈`-related level lists, `DomEq`-related arguments — or both sides are proofs.  `Params.pat_app_noApp` makes `.app`-free all the recursion sees. |
+| `ProofEq.app` | the escape survives an application (impredicativity; adapted from `NormalEq.appDF_proofIrrel`, with `Params.sortUniq` discharging its `hsu`) |
+| `KStep.domEq_inv` | **a `K`-redex stays a `K`-redex under `DomEq`**.  The canonical major premise `c` is reused verbatim — `KStep`'s side condition is an `IsDefEq`, and `DomEq` supplies the extra conversion — so only the function spine is re-matched. |
+| `EtaK.domEq_inv` | **an `EtaK` redex stays an `EtaK` redex under `DomEq`**.  The `under` layer is free: `DomEq` is a congruence for the η-expansion, and the domain is carried unchanged.  The escape climbs by `ProofEq.forallE`. |
+| `DomEq.extra_fire` | the rule fires on the other side.  `.const` pattern: `Matches.domEq_inv` + a `Check.OK` transport.  `.app` pattern: `KStep.domEq_inv` + `ParRedK.hK`.  `.var`: impossible (`Params.pat_not_var`). |
+| `DomEq.rhs_develop` | develops the holes of a right-hand side under a `DomEq`, by induction on the `RHS` — this is what replaces the descent in the `extra` case |
+| `DomEq.parRedK` / `.parRedKS` | the commutation, single- and multi-step |
+
+**The `.app`-pattern branch of `extra_fire` is where `KStep` pays for itself**, and this was
+not anticipated: when the *major premise* is a proof that no longer matches, the ι-rule cannot
+fire on the other side but `KStep` can, with the original argument as its canonical premise.
+That is exactly the configuration `KRule.lean` introduced `KStep` for, arriving from a
+different direction.  **[machine-checked; the branch is `DomEq.extra_fire`'s `| app` case]**
+
+## Y3. What was actually blocking `etaR`, and what was not **[machine-checked]**
+
+**Not blocking: §V3 row 7.**
+
+```lean
+theorem etaR_inner_keta (hΓ) (hA : Γ ⊢ A : .sort u) (l1 : Γ ⊢ e : .forallE A B)
+    (h : ParRedKS Γ e e') (hek : EtaK (A::Γ) (.app e'.lift (.bvar 0)) w)
+    (hd : ParRedK (A::Γ) w t') :
+    (∃ A', ParRedKS Γ e (A'.lam t') ∧ Γ ⊢ A' ≡ A) ∨ (∃ e'', ParRedKS Γ e e'' ∧ …) :=
+  .inl ⟨A, h.tail (.keta (.under (ParRedKS.hasType hΓ h l1) hek) (.lam ParRedK.rfl hd)), _, hA⟩
+```
+
+`hek` is passed to `EtaK.under` **unchanged**.  This is working rule 5 in its cheapest form,
+and it needs the invariant's second disjunct **on the nose**.
+
+**Blocking: that on-the-nose disjunct, and it is false.**
+
+```lean
+def EtaRLiftInv : Prop :=            -- ParRed.weakN_inv at n = 1, k = 0, subject of Π-type A
+  ∀ {Γ A B e f₀}, OnCtx Γ … → Γ ⊢ e : .forallE A B → ParRedK (A::Γ) e.lift f₀ →
+    ∃ g, ParRedK Γ e g ∧ f₀ = g.lift
+
+theorem not_etaRLiftInv_of_etaK (hΓ) (he : Γ ⊢ e : .forallE A₀ B₀)
+    (hin : EtaK (A₀.lift :: A₀ :: Γ) (.app e.lift.lift (.bvar 0)) t) : ¬ EtaRLiftInv
+```
+
+**[machine-checked, hole cone `[]`, axioms `[propext, Classical.choice, Quot.sound]`]** —
+§W1's witness at `C := A₀`, the binder being the term's own Π-domain, which is what the `etaR`
+case supplies.  Non-vacuity split honestly: `refParams_etaRLiftInv` **[machine-checked]** —
+where `EtaK` is empty the statement *holds*, so `hin` is load-bearing; and no `Params` instance
+in this tree registers an `.app` pattern, so **that is not evidence of truth**.
+
+**The repair.**  Split the equation in two: the *argument* stays `.bvar 0` on the nose (which
+is what kills the `extra` sub-case — `p₂.Matches (.bvar 0)` is impossible — and what
+`EtaK.under` reads), and only the *function* moves, by `DomEq`.
+
+## Y4. `etaR_case` **[machine-checked]**
+
+```lean
+def WeakNInvDS : Prop :=            -- site 1 at the DomEq conclusion, tail form
+  ∀ {n k Γ Γ' u e1 e2' A}, OnCtx Γ' … → Ctx.LiftN n k Γ Γ' → Γ' ⊢ e1.liftN n k : A →
+    DomEq Γ' u (e1.liftN n k) → ParRedKS Γ' u e2' →
+      ∃ e2, ParRedKS Γ e1 e2 ∧ DomEq Γ' e2' (e2.liftN n k)
+
+theorem etaR_inner (HD : WeakNInvDS) (hΓ) (hA) (hB) (l1 : Γ ⊢ e : .forallE A B) :
+  ∀ {t}, ParRedKS (A::Γ) (.app e.lift (.bvar 0)) t →
+    (∃ A' c, ParRedKS Γ e (A'.lam c) ∧ Γ ⊢ A' ≡ A ∧ DomEq (A::Γ) t c) ∨
+    (∃ e' f₀, ParRedKS Γ e e' ∧ t = .app f₀ (.bvar 0) ∧ DomEq (A::Γ) f₀ e'.lift) ∨
+    ProofEq Γ e e
+
+theorem etaR_case (HD : WeakNInvDS) (hΓ) (l1) (l2) (ih1) (r1) (r2) :
+    ∃ e₁', ParRedKS Γ e e₁' ∧ NormalEq Γ e₁' (.lam A' b')
+```
+
+`etaR_case`'s hypotheses are exactly what `NormalEq.parRed`'s `etaR × lam` case has in hand:
+`l1`, `l2`, the induction hypothesis at `l2`, and `ParRedK.lam`'s two premises.  **Its cone
+does not contain `NormalEq.descend`.**  Hole cone `[weakN_iff, forallE_inv_stratified,
+forallE_inv]` — all pre-existing, **no new hole**.
+
+The four sub-cases of the inner `cases`, and what closes each:
+
+| sub-case | closed by |
+|---|---|
+| `app` | `WeakNInvDS` at the single step, directly |
+| `beta` | `WeakNInvDS`, then `DomEq.lam_inv_r` (the reduct's function side is a λ, so the downstairs term is one), then `DomEq.instN` at `.bvar 0` |
+| `extra` | **dead**: `p₂.Matches (.bvar 0)` is impossible, because the argument is on the nose |
+| `keta` | `EtaK.domEq_inv`, then `EtaK.under`, then `DomEq.parRedK` on the contractum |
+
+The third disjunct (`ProofEq Γ e e`) is the escape from `beta` and `keta`, and it needs one new
+fact: `ProofEq.strengthen_lift` **[machine-checked]** — *a Π-typed term whose lift is a proof
+is a proof* (impredicativity again).
+
+**Working rule 2, run.**  `etaR_case_at_kstep` **[machine-checked]** instantiates `etaR_case`
+at exactly the configuration `KCanonical.not_parRedStatement_of_hK` uses to refute site 7 for
+`ParRed` (`H1 := .etaR he (.refl hb0)`, `H2 := .lam .rfl (hK hstep)`) and **produces a
+conclusion**.  The witness is visibly killed, not merely unreachable.
+
+**Consistency check.**  `refParams_weakNInvDS` **[machine-checked]**: where `EtaK` is empty,
+`WeakNInvDS` is `ChurchRosser.lean`'s own `ParRed.weakN_inv` composed with `DomEq.parRedKS`.
+**Note what this route does not use: `NormalEq.parRed`.**  Contrast §X2's
+`refParams_weakNInvTailS`, whose only route was site 7 then site 1 — the circle.  That
+difference is the machine-checkable form of "the circle is broken".
+
+**Collapse test, run and reported (working rule 6).**  `weakNInvDS_collapse`
+**[machine-checked, hole cone `[]`]**: instantiating `u := e1.liftN n k` and the `DomEq` at
+`refl` gives `ParRedK`-site-1 at the `DomEq` conclusion outright.  So `WeakNInvDS` is **not
+weaker than site 1** — it is site 1 plus a tail, exactly as `WeakNInvTail` was (§X1).  What it
+is *not* is `NormalEq.parRed`-shaped: it never mentions `NormalEq`, and the commutation it
+would otherwise need is `DomEq.parRedK`, proved with no hypotheses.
+
+## Y5. Site 7's remaining cases, exactly **[machine-checked where marked; otherwise read]**
+
+`H1 : NormalEq Γ e₁ e₂`, `H2 : ParRedK Γ e₂ e₂'`, goal `∃ e₁', ParRedKS Γ e₁ e₁' ∧ NormalEq Γ e₁' e₂'`.
+
+| `H1` | status |
+|---|---|
+| `refl`, `sortDF`, `constDF`, `proofIrrel` | **closed** — each is a `DomEq`, so `parRedKStatement_of_domEq` applies **[machine-checked]**.  This includes §V3 row 5 and §X5's `constDF × keta`, both listed as live. |
+| `etaR` | **closed** from `WeakNInvDS` **[machine-checked]** (§Y4) |
+| `lamDF`, `forallEDF` | routine port: `H2`'s `extra` is dead (a pattern matches no λ/Π) and its `keta` is dead (`EtaK.not_lam` / `.not_forallE`); the `lam`/`forallE` sub-cases are `ChurchRosser.lean`'s own.  **[read; not ported]** |
+| `etaL` | routine port: no `cases H2`; the existing proof recurses through `ParRedK.weakN`.  **[read; not ported]** |
+| `appDF` | **the remaining live obstruction.**  `app` is the IH; `beta` needs `ParRedExt.parRed_beta` at `ParRedK`; `extra` is `NormalEq.appDF_extra_of_descendV` (`KDescend.lean:204`, already at `ParRedK`); **`keta` is open** — §V3 row 6. |
+
+**Why `appDF × keta` is not closed by this round's machinery.**  `EtaK.domEq_inv` needs a
+`DomEq`, and `appDF`'s two sub-relations are `NormalEq`s, which may be `etaL`/`etaR`.  So the
+function side of the redex may be a λ, and `EtaK.not_lam` applies.  That is the same shape
+`NormalEq.appDF_extra_of_descendV` solves for `extra` by descending the η-tower
+(`DescentLam.fire`), and the plausible route is the same descent with an `EtaK` step at the
+node instead of a rule.  **Not attempted, not audited.**  **[analysis]**
+
+## Y6. Checks re-run **[measured]**
+
+```
+lake build  KSite7 KMeasure KCanonical KEta ChurchRosser DescendRefute HeadRedStuck
+            KDescend KRule HeadReduction Verify.Typing.ConstSpine
+            Verify.Typing.ConstSpineWF Experimental.ConeJoin
+                                                   -> Build completed successfully (1324 jobs)
+lake env lean scripts/sorry-census.lean            -> TOTAL 19   (unchanged, start and end)
+lake env lean scripts/dup-names.lean               -> no duplicate Lean4Lean declarations
+```
+
+**Closure caveat, stated because the count depends on it.**  Both scripts import
+`Verify/Guard.lean` + `Experimental/ConeJoin.lean`, and `ConeJoin` does **not** import
+`KSite7` (it imports `KMeasure`, `KDescend`, `KCanonical`).  So the new file is *outside* the
+census/`dup-names` closure.  The census total is unaffected (no `sorry` was added), but a name
+collision in `KSite7` would not have been caught.  It was checked separately: a private copy of
+`scripts/dup-names.lean` with `import Lean4Lean.Theory.Typing.KSite7` added reports **no
+duplicate Lean4Lean declarations**.  `KSite7` *is* covered by `lake build`'s default targets
+(the `Lean4Lean.Theory.*` glob).
+
+Forward hole cones (declaration values, `.thmInfo` read with `allowOpaque := true`) and axiom
+cones:
+
+```
+DomEq.parRedK / .parRedKS      holes [forallE_inv_stratified, forallE_inv]
+etaR_inner                     holes [forallE_inv_stratified, forallE_inv]
+etaR_case                      holes [weakN_iff, forallE_inv_stratified, forallE_inv]
+KStep.domEq_inv                holes [forallE_inv_stratified]
+EtaK.domEq_inv                 holes [forallE_inv_stratified]
+DomEq.extra_fire               holes [forallE_inv_stratified]
+Pattern.Matches.domEq_inv      holes [forallE_inv_stratified]
+ProofEq.app / .strengthen_lift holes [forallE_inv_stratified]
+DomEq.toNormalEq               holes []   axioms [propext, Quot.sound]
+weakNInvDS_collapse            holes []   axioms [propext, Quot.sound]
+not_etaRLiftInv_of_etaK        holes []   axioms [propext, Classical.choice, Quot.sound]
+refParams_weakNInvDS           holes [weakN_iff, forallE_inv_stratified, forallE_inv]
+```
+
+**No new hole is introduced by this round**, and no cone reaches `NormalEq.descend`.
+
+The two standing kills and `DescendRefute`'s three refutations, re-measured:
+
+```
+not_crStatement_of_kstep_dead     holes []  axioms [propext, Quot.sound]
+not_parRedStatement_of_hK_dead    holes []  axioms [propext, Quot.sound]
+not_weakNInvStatement_of_etaK     holes []  axioms [propext, Classical.choice, Quot.sound]
+not_descendStatement              holes []  axioms [propext, Classical.choice, Quot.sound]
+not_descendStatement_etaArg       holes []  axioms [propext, Classical.choice, Quot.sound]
+not_descendStatement_etaFun       holes []  axioms [propext, Classical.choice, Quot.sound]
+```
+
+All five stand, `sorryAx`-free, hole cones `[]`.
+
+## Y7. Corrections this round makes
+
+| document | claim | correction |
+|---|---|---|
+| §X5(b), §X9 item 1 | "Giving site 1 to site 7 does not close site 7; the circle is broken in one direction only" | **False.**  `etaR_case` **[machine-checked]** closes site 7's `etaR` case from site 1 (at the `DomEq` conclusion) and the case's own IH, with no call to site 7.  What §X5 missed is that the invariant does not have to be weakened uniformly: the *argument* stays on the nose, only the *function* moves. §Y3, §Y4. |
+| §X5(a), table | `constDF × keta` is **live** | Closed: `constDF` is a `DomEq`, so `parRedKStatement_of_domEq` applies.  So is §V3 row 5's `constDF × extra`. §Y5. |
+| §X5, last paragraph | the candidate is "equal up to definitionally equal λ-domains, plus `ProofEq` at the leaves" | Correct in outline but under-specified: the *level* congruences (`sortDF`, `constDF`) must be in it too, because `KTable.kstep_liftN_inv_stepP`'s `NormalEq` comes from `NormalEq.apply_instL`.  The relation is exactly `NormalEq` minus `etaL`/`etaR`. §Y1. |
+| §X0.1 ("axiom cone `[]` — no `propext`, no `Classical.choice`, no `sorryAx`"), §X6 (`not_crStatement_of_kstep_dead holes [] axioms []`, `not_parRedStatement_of_hK_dead` likewise) | axiom cones are empty | Measured `[propext, Quot.sound]` for all three (`#print axioms`).  The **hole** cones are `[]`, which is the load-bearing half; the axiom claim is wrong. §Y6. |
+| §W5 | "the disjunct has to weaken too, and its consumer … has to absorb a `NormalEq` before `NormalEq.etaR`.  That is inside site 7 and was not attempted" | Correct, and it is cheap: `etaR_case`'s `.inr` branch is three lines (`DomEq.toNormalEq`, `appDF`, `NormalEq.trans`).  The expensive part was elsewhere — keeping the *argument* on the nose. |
+
+Nothing in §§1–2, §4, §T1–T4, §V1 (Shape C), §X1–X4, `KRule.lean`, `KDescend.lean`,
+`KCanonical.lean`, `KEta.lean`, `KMeasure.lean` or `DescendRefute.lean` is contradicted, and
+no statement of any of them changed.
+
+## Y8. Files, round 9
+
+* `Lean4Lean/Theory/Typing/KSite7.lean` — **new**, `sorry`-free, 1151 lines.  Nothing else in
+  the tree imports it yet.
+* `docs/handoff-krule.md` — this section.
+* Everything else: **not touched**.
+
+## Y9. What to pick up first
+
+1. **`appDF × keta` (§V3 row 6) is now the only *live* case of site 7.**  §Y5 says why this
+   round's machinery does not reach it and names the plausible route
+   (`NormalEq.appDF_extra_of_descendV`'s descent, with an `EtaK` step at the node).
+2. **Site 1 at the `DomEq` conclusion (`WeakNInvDS`) is the one hypothesis `etaR_case` costs.**
+   §X3's chain (`KTable + PiTypeDescend + KStepTailS → WeakNInvStatementPS`) re-runs at `DomEq`
+   **without new work in the eight non-`keta` cases**: `parRedK_weakN_invPS`
+   (`KMeasure.lean:988`) uses only `NormalEq.refl/appDF/lamDF/forallEDF/instN/instN_r/trans/
+   apply_pat`, every one of which now has a `DomEq` form in `KSite7.lean`.  **[read against the
+   source; not ported]**  What has to be restated at `DomEq` is `KStepLiftInvP`, `KStepTailS`
+   and `KTable.kstep_liftN_inv_stepP`; the last is `NormalEq.apply_instL` + `NormalEq.apply_pat`
+   (§W3), both of which have `DomEq` forms.  The *tail* form `WeakNInvDS` additionally needs
+   the `DomEq` subject, which is what `DomEq.parRedK` supplies.
+3. **Port the routine cases** (`lamDF`, `forallEDF`, `etaL`, `appDF × app`) so that site 7's
+   residual is a single named goal rather than a table.  Cheap, and it makes the next round's
+   measurement honest.
+4. **`DomEq` may be worth more than site 7.**  Its commutation reaches neither
+   `NormalEq.descend` nor `IsDefEqU.weakN_iff`.  If `NormalEq`'s eta cases can be *factored*
+   — `NormalEq = DomEq` composed with η-expansions — then `NormalEq.descend`
+   (`ChurchRosser.lean`'s only hole, 42 transitive users) may be replaceable rather than
+   proved.  **Speculative; not attempted.**
+5. **Do not spend `Params` fields.**  Unchanged from §X9 item 4.
