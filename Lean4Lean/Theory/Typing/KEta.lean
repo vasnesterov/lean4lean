@@ -35,7 +35,7 @@ out in `EtaK.here`, an actual `KStep` -- so there are no infinite η-towers and 
 is empty wherever `KStep` is (`refParams_no_etaK`).
 
 ```
-| here  : KStep Γ e t → ParRed Γ t t' → EtaK Γ e t'
+| here  : KStep Γ e t → EtaK Γ e t
 | under : Γ ⊢ e : ∀A.B → EtaK (A::Γ) (e.lift (.bvar 0)) t → EtaK Γ e (.lam A t)
 ```
 
@@ -43,6 +43,22 @@ is empty wherever `KStep` is (`refParams_no_etaK`).
 design would otherwise need.  More than one binder is genuinely reachable: `Acc.rec C F`,
 short of both its index and its major premise, has
 `Acc.intro x (fun y hy => Acc.inv h hy)` well-typed with `x` a *bound* variable.
+
+**Shape C (Round 6).**  `here` used to carry a `ParRed` tail, which made `EtaK` and `ParRed`
+mutually inductive once the constructor was landed -- and **Lean's `induction` tactic refuses
+mutual inductives**, breaking six green proofs before any mathematics.  Dropping the tail
+outright removes the mutuality but breaks `ParRed.instN`, whose statement substitutes `a1` on
+the left and `a2` on the right: a bare `EtaK` step has no argument reductions to absorb the
+gap.  The tail therefore moves to the *`ParRed` constructor*:
+
+```
+| keta : EtaK Γ e w → Γ ⊢ w ≫ w' → Γ ⊢ e ≫ w'
+```
+
+`EtaK` no longer mentions `ParRed`, so nothing is mutual; and `instN`'s induction hypothesis
+on the second premise is exactly what carries `a1` to `a2`.  Both halves are measured, not
+argued: `ParRedK.instN` and `ParRedK.defeqDFC` below are `ParRed`'s own proofs with the one
+extra case, and they compile.  `docs/handoff-krule.md` §V.
 
 ## What is checked here
 
@@ -63,10 +79,11 @@ short of both its index and its major premise, has
 
 ## What is *not* done
 
-`ParRed` gains no constructor here.  Landing it edits `ChurchRosser.lean` (this stream's
-file) *and* `Verify/Typing/ConstSpine.lean` (which is not), so the constructor is stated and
-its consumer obligations are proved, and the edit is handed over.  See
-`docs/handoff-krule.md` §T5.
+`ParRed` gains no constructor here.  The landing was run for real in `ChurchRosser.lean`
+(Round 6) and reverted: it leaves **seven** open sites, one of which is *false* without M3 and
+four of which are open research.  What *is* checked here is the whole routine half --
+`ParRedK.weakN`, `.instN`, `.defeq`, `.defeqDFC` -- on a relation that is now byte-for-byte the
+landed one.  See `docs/handoff-krule.md` §V.
 -/
 
 namespace Lean4Lean
@@ -111,22 +128,34 @@ local notation:65 Γ " ⊢ " e1 " ≫* " e2:36 => ParRedS Γ e1 e2
 /-- **The η-guarded K step.**  `e` is η-expanded under `k ≥ 0` binders until the expansion is
 a registered K-redex; the redex then fires, and its contractum reduces in parallel.
 
-`here` with `t' = t` is the plain K-rule (`HasEtaK.hK`); `under` is what the old relation was
-missing, and is exactly the configuration `not_crStatement_of_kstep` exploits. -/
+`here` is the plain K-rule (`HasEtaK.hK`); `under` is what the old relation was missing, and
+is exactly the configuration `not_crStatement_of_kstep` exploits.
+
+`EtaK` does **not** mention `ParRed`: the contractum's own development is a premise of
+`ParRed`'s `keta` constructor instead (Shape C).  That is what keeps the landed `ParRed` a
+plain, non-mutual inductive. -/
 inductive EtaK : List VExpr → VExpr → VExpr → Prop where
-  | here {Γ : List VExpr} {e t t' : VExpr} :
-      KStep Γ e t → ParRed Γ t t' → EtaK Γ e t'
+  | here {Γ : List VExpr} {e t : VExpr} :
+      KStep Γ e t → EtaK Γ e t
   | under {Γ : List VExpr} {e A B t : VExpr} :
       HasType env univs Γ e (.forallE A B) →
       EtaK (A::Γ) (.app e.lift (.bvar 0)) t → EtaK Γ e (.lam A t)
 
-/-- **The closure condition on `ParRed`.**  This is the single hypothesis that replaces
-`KDescend.lean`'s `hK`; landing it is adding one constructor to `ParRed`. -/
-def HasEtaK : Prop := ∀ {Γ : List VExpr} {e e' : VExpr}, EtaK Γ e e' → ParRed Γ e e'
+/-- **The closure condition on `ParRed`** (Shape C, `docs/handoff-krule.md` §V1).  The
+contractum's own development is a *second premise*, not a tail inside `EtaK`: that is what
+makes `EtaK` independent of `ParRed` (so nothing becomes mutually inductive) while still
+absorbing `ParRed.instN`'s `a1`/`a2` gap through the induction hypothesis. -/
+def HasEtaK : Prop :=
+  ∀ {Γ : List VExpr} {e w w' : VExpr}, EtaK Γ e w → ParRed Γ w w' → ParRed Γ e w'
+
+/-- The one-premise form: an `EtaK` step is itself a reduction.  (Shape B's constructor,
+recovered from Shape C's by `ParRed.rfl`.) -/
+theorem HasEtaK.step (h : HasEtaK) {Γ : List VExpr} {e e' : VExpr} (H : EtaK Γ e e') :
+    ParRed Γ e e' := h H .rfl
 
 /-- `HasEtaK` implies `hK`, `NormalEq.appDF_extra_of_descendV`'s only hypothesis. -/
 theorem HasEtaK.hK (h : HasEtaK) {Γ : List VExpr} {a b : VExpr} (hst : KStep Γ a b) :
-    ParRed Γ a b := h (.here hst .rfl)
+    ParRed Γ a b := h (.here hst) .rfl
 
 /-! ## Shape: what an `EtaK` step can fire on -/
 
@@ -139,7 +168,7 @@ theorem EtaK.matches_head {Γ : List VExpr} {e e' : VExpr} (H : EtaK Γ e e') :
       Params.Pat (Pattern.app p₁ p₂) r ∧ p₁.Matches f m1 m2 ∧
         e.headConst? = f.headConst? := by
   induction H with
-  | @here _ e t t' hst _ =>
+  | @here _ e t hst =>
     cases hst with
     | mk hpat hm _ _ _ =>
       cases hm with
@@ -154,7 +183,7 @@ theorem EtaK.matches_head {Γ : List VExpr} {e e' : VExpr} (H : EtaK Γ e e') :
 theorem EtaK.spineHead_const {Γ : List VExpr} {e e' : VExpr} (H : EtaK Γ e e') :
     ∃ c ls, e.spineHead = .const c ls := by
   induction H with
-  | @here _ e t t' hst _ =>
+  | @here _ e t hst =>
     cases hst with
     | mk _ hm _ _ _ =>
       cases hm with
@@ -193,10 +222,9 @@ the whole repair: the equation the refutation exhibits is admitted as a reductio
 theorem EtaK.defeqU {Γ : List VExpr} {e e' : VExpr} (H : EtaK Γ e e') :
     OnCtx Γ (IsType env univs) → IsDefEqU env univs Γ e e' := by
   induction H with
-  | @here Γ e t t' hst hpr =>
+  | @here Γ e t hst =>
     intro hΓ
-    obtain ⟨A, hd⟩ := KStep.defeq hΓ hst
-    exact IsDefEqU.trans henv hΓ ⟨A, hd⟩ ⟨A, ParRed.defeq hΓ hpr hd.hasType.2⟩
+    exact KStep.defeq hΓ hst
   | @under Γ e A B t hty _ ih =>
     intro hΓ
     have ⟨⟨_, hA⟩, _, _⟩ := have ⟨_, h⟩ := hty.isType henv hΓ; h.forallE_inv henv
@@ -228,7 +256,7 @@ theorem not_crStatement_of_kstep_inapplicable (hE : HasEtaK)
     (hstep : KStep (A::Γ) (.app e.lift (.bvar 0)) t)
     (hlam : ∀ A' e', e ≠ .lam A' e')
     (hrig : ∀ o, ParRed Γ e o → o = e) : False :=
-  hlam A t (hrig _ (hE (.under he (.here hstep .rfl)))).symm
+  hlam A t (hrig _ (hE.step (.under he (.here hstep)))).symm
 
 /-- **`not_parRedStatement_of_hK` is inapplicable**, and note it is `hrig`, not `hK`, that
 dies: `HasEtaK` *supplies* `hK` (`HasEtaK.hK`).  §R3's diagnosis -- that the break was at
@@ -240,7 +268,7 @@ theorem not_parRedStatement_of_hK_inapplicable (hE : HasEtaK)
     (hstep : KStep (A::Γ) (.app e.lift (.bvar 0)) t)
     (hlam : ∀ A' e', e ≠ .lam A' e')
     (hrig : ∀ o, ParRedS Γ e o → o = e) : False :=
-  hlam A t (hrig _ (ReflTransGen.tail .rfl (hE (.under he (.here hstep .rfl))))).symm
+  hlam A t (hrig _ (ReflTransGen.tail .rfl (hE.step (.under he (.here hstep))))).symm
 
 /-- And the `etaR` case of `NormalEq.parRed` that §S3 refutes is **vacuous** for the new step:
 a λ is never an `EtaK` redex, so the configuration the refutation needs -- `e₂` a λ that
@@ -261,7 +289,7 @@ theorem EtaK.eta_stuck_fires {Γ : List VExpr} {f A₀ B₀ t : VExpr}
     (hstep : KStep (A₀::Γ) (.app f.lift (.bvar 0)) t)
     (hw : WHNF (A₀::Γ) f.lift) (hlam : ∀ A e, f.lift ≠ .lam A e) :
     WHNF (A₀::Γ) (.app f.lift (.bvar 0)) ∧ EtaK Γ f (.lam A₀ t) :=
-  ⟨whnf_app_bvar hw hlam, .under hty (.here hstep .rfl)⟩
+  ⟨whnf_app_bvar hw hlam, .under hty (.here hstep)⟩
 
 /-- `EtaK` is empty at the witness instance, because `KStep` is (`refParams_no_kstep`) and
 every `EtaK` derivation bottoms out in a `KStep`.  Hence `HasEtaK` is a **consistent**
@@ -273,7 +301,7 @@ hypothesis, and -- the point that matters for §S1 -- `ParRed` at `refParams` is
 theorem refParams_no_etaK {Γ e e'} : ¬ @EtaK refParams Γ e e' := by
   intro h
   induction h with
-  | here hst _ => exact refParams_no_kstep hst
+  | here hst => exact refParams_no_kstep hst
   | under _ _ ih => exact ih
 
 theorem refParams_hasEtaK : @HasEtaK refParams := fun h => absurd h refParams_no_etaK
@@ -283,29 +311,24 @@ theorem refParams_hasEtaK : @HasEtaK refParams := fun h => absurd h refParams_no
 `HasEtaK` is a hypothesis about the *existing* `ParRed`, and `refParams_hasEtaK` only shows it
 holds where `KStep` is empty.  That is the "premise the intended case makes unsatisfiable"
 trap, which has bitten this development four times, so the closure is also **constructed**:
-`ParRedK` is `ParRed` with the constructor added, as a mutual inductive with `EtaKK`.  It
-exists at every `Params` instance, `ParRed ⊆ ParRedK` (`ParRed.toK`), and it satisfies the
-closure by definition (`ParRedK.keta`) -- so the two kills below carry **no hypothesis at
-all**, not even `HasEtaK`.
+`ParRedK` is `ParRed` with the Shape-C constructor added.  It exists at every `Params`
+instance, `ParRed ⊆ ParRedK` (`ParRed.toK`), and it satisfies the closure by definition
+(`ParRedK.keta`) -- so the two kills below carry **no hypothesis at all**, not even
+`HasEtaK`.
 
-This is the relation `ChurchRosser.lean` would have after the edit; it is duplicated here
-rather than landed there because landing it reds `Verify/Typing/ConstSpine.lean`, which this
-stream does not own (`docs/handoff-krule.md` §T2, §T5). -/
+**This is now the relation `ChurchRosser.lean` gets after the edit, on the nose.**  Round 5's
+fidelity caveat -- that `ParRedK` under-approximated the landed relation, because `EtaK.here`
+carried a `ParRed` tail and the landed relation was the mutual fixpoint -- is **gone**: under
+Shape C `EtaK` does not mention `ParRed` at all, so `ParRedK` is a plain inductive and it *is*
+the fixpoint.  Negative-position transfer from `ParRedK` to the landed relation is therefore
+valid again.  It is duplicated here rather than landed in `ChurchRosser.lean` because seven
+sites there are still open (`docs/handoff-krule.md` §V3). -/
 
 /-- **`ParRed` with the η-guarded K step added.**  Constructors 1-8 are `ParRed`'s, verbatim;
-`keta` is the new one, and it is the *general* `EtaK` step, so this relation extends `ParRed`
-and contains every `EtaK` step.  It is a plain inductive: `EtaK` is already defined, over
-`ParRed`, so nothing here is mutual.
-
-**Fidelity caveat (Round 5), and it is not cosmetic.**  This is *not* the relation
-`ChurchRosser.lean` has after the edit.  `EtaK.here`'s tail is a step of the **old** `ParRed`,
-so `ParRedK`'s `keta` cannot fire on a contractum that itself needs a `keta` step; the landed
-relation is the mutual fixpoint, which is strictly larger.  `ParRedK` therefore
-*under-approximates* the landed relation.  That costs the two kills nothing -- they only need
-the constructor to exist, and a larger relation makes `hrig` even harder to satisfy -- but any
-claim of the form "`ParRedK` has property `P`, therefore the landed relation does" is invalid
-for `P` in a negative position.  `refParams_parRedK_eq` is unaffected (`EtaK` is empty there).
-See `docs/handoff-krule.md` §U2. -/
+`keta` is the new one, in Shape C: the `EtaK` step and the contractum's own development are
+two premises.  It is a plain inductive -- `EtaK` is defined without reference to `ParRed`, so
+nothing here is mutual, and `ParRedK` is the fixpoint rather than an approximation of one.
+`ParRedK.keta_step` recovers the one-premise form. -/
 inductive ParRedK : List VExpr → VExpr → VExpr → Prop where
   | bvar {Γ i} : ParRedK Γ (.bvar i) (.bvar i)
   | sort {Γ u} : ParRedK Γ (.sort u) (.sort u)
@@ -322,7 +345,7 @@ inductive ParRedK : List VExpr → VExpr → VExpr → Prop where
       Params.Pat p r → Pattern.Matches p e m1 m2 →
       Pattern.Check.OK (IsDefEqU env univs Γ) m1 m2 r.2 →
       (∀ a, ParRedK Γ (m2 a) (m2' a)) → ParRedK Γ e (Pattern.RHS.apply m1 m2' r.1)
-  | keta {Γ e e'} : EtaK Γ e e' → ParRedK Γ e e'
+  | keta {Γ e w w'} : EtaK Γ e w → ParRedK Γ w w' → ParRedK Γ e w'
 
 /-- The enlarged relation contains the old one. -/
 theorem ParRed.toK {Γ : List VExpr} {e e' : VExpr} (H : Γ ⊢ e ≫ e') : ParRedK Γ e e' := by
@@ -336,10 +359,22 @@ theorem ParRed.toK {Γ : List VExpr} {e e' : VExpr} (H : Γ ⊢ e ≫ e') : ParR
   | beta _ _ ih1 ih2 => exact .beta ih1 ih2
   | extra h1 h2 h3 _ ih => exact .extra h1 h2 h3 ih
 
+protected theorem ParRedK.rfl : ∀ {Γ : List VExpr} {e : VExpr}, ParRedK Γ e e
+  | _, .bvar .. => .bvar
+  | _, .sort .. => .sort
+  | _, .const .. => .const
+  | _, .app .. => .app ParRedK.rfl ParRedK.rfl
+  | _, .lam .. => .lam ParRedK.rfl ParRedK.rfl
+  | _, .forallE .. => .forallE ParRedK.rfl ParRedK.rfl
+
+/-- The one-premise form of `keta`, recovered by reflexivity. -/
+theorem ParRedK.keta_step {Γ : List VExpr} {e e' : VExpr} (h : EtaK Γ e e') : ParRedK Γ e e' :=
+  .keta h .rfl
+
 /-- `hK`, in the model: `KStep` is a step of `ParRedK`.  This is
 `NormalEq.appDF_extra_of_descendV`'s only hypothesis, discharged. -/
 theorem ParRedK.hK {Γ : List VExpr} {a b : VExpr} (h : KStep Γ a b) : ParRedK Γ a b :=
-  .keta (.here h .rfl)
+  .keta (.here h) .rfl
 
 /-- The reflexive-transitive closure of the enlarged relation. -/
 def ParRedKS (Γ : List VExpr) : VExpr → VExpr → Prop := ReflTransGen (ParRedK Γ)
@@ -362,7 +397,7 @@ theorem not_crStatement_of_kstep_dead
     (hstep : KStep (A::Γ) (.app e.lift (.bvar 0)) t)
     (hlam : ∀ A' e', e ≠ .lam A' e')
     (hrig : ∀ o, ParRedK Γ e o → o = e) : False :=
-  hlam A t (hrig _ (.keta (.under he (.here hstep .rfl)))).symm
+  hlam A t (hrig _ (.keta (.under he (.here hstep)) .rfl)).symm
 
 /-- **`VEnv.not_parRedStatement_of_hK` is inapplicable**, and note *which* hypothesis dies:
 not `hK` -- the model supplies that (`ParRedK.hK`) -- but `hrig`. -/
@@ -372,7 +407,7 @@ theorem not_parRedStatement_of_hK_dead
     (hstep : KStep (A::Γ) (.app e.lift (.bvar 0)) t)
     (hlam : ∀ A' e', e ≠ .lam A' e')
     (hrig : ∀ o, ParRedKS Γ e o → o = e) : False :=
-  hlam A t (hrig _ (ReflTransGen.tail .rfl (.keta (.under he (.here hstep .rfl))))).symm
+  hlam A t (hrig _ (ReflTransGen.tail .rfl (.keta (.under he (.here hstep)) .rfl))).symm
 
 /-- At the witness instance the enlarged relation is the old one, because `KStep` is empty
 there.  So `DescendRefute.lean`'s three refutations -- which are all at `refParams` -- are
@@ -389,7 +424,7 @@ theorem ParRedK.toParRed (hno : ∀ {Δ a b}, ¬ EtaK Δ a b) {Γ : List VExpr} 
   | forallE _ _ ih1 ih2 => exact .forallE ih1 ih2
   | beta _ _ ih1 ih2 => exact .beta ih1 ih2
   | extra h1 h2 h3 _ ih => exact .extra h1 h2 h3 ih
-  | keta h => exact absurd h hno
+  | keta h _ _ => exact absurd h hno
 
 theorem refParams_parRedK_eq {Γ e e'} : @ParRedK refParams Γ e e' ↔ @ParRed refParams Γ e e' :=
   ⟨@ParRedK.toParRed refParams (fun h => refParams_no_etaK h) _ _ _,
@@ -411,7 +446,7 @@ theorem ParRedK.forallE_inv {Γ : List VExpr} {A B e' : VExpr} (H : ParRedK Γ (
   cases H with
   | forallE => exact ⟨_, _, rfl⟩
   | extra _ h2 => obtain ⟨_, _, hc⟩ := h2.spineHead_const; exact nomatch hc
-  | keta h => exact absurd h EtaK.not_forallE
+  | keta h _ => exact absurd h EtaK.not_forallE
 
 /-- `ParRed.sort_inv`'s statement, for the enlarged relation. -/
 theorem ParRedK.sort_inv {Γ : List VExpr} {u : VLevel} {e' : VExpr}
@@ -419,7 +454,7 @@ theorem ParRedK.sort_inv {Γ : List VExpr} {u : VLevel} {e' : VExpr}
   cases H with
   | sort => rfl
   | extra _ h2 => obtain ⟨_, _, hc⟩ := h2.spineHead_const; exact nomatch hc
-  | keta h => exact absurd h EtaK.not_sort
+  | keta h _ => exact absurd h EtaK.not_sort
 
 /-! ## What is still open
 
@@ -467,7 +502,7 @@ theorem EtaK.weakN {Γ Γ' : List VExpr} {e e' : VExpr} {n k : Nat}
     (W : Ctx.LiftN n k Γ Γ') (H : EtaK Γ e e') :
     EtaK Γ' (e.liftN n k) (e'.liftN n k) := by
   induction H generalizing k Γ' with
-  | here hst hpr => exact .here (KStep.weakN W hst) (ParRed.weakN W hpr)
+  | here hst => exact .here (KStep.weakN W hst)
   | @under Γ e A B t hty _ ih =>
     refine .under (A := A.liftN n k) (B := B.liftN n (k+1))
       (by simpa [VExpr.liftN] using hty.weakN henv W) ?_
@@ -481,7 +516,7 @@ theorem EtaK.instN {Γ₀ Γ₁ Γ : List VExpr} {a₀ A₀' e e' : VExpr} {k : 
     (H₀ : HasType env univs Γ₀ a₀ A₀') (W : Ctx.InstN Γ₀ a₀ A₀' k Γ₁ Γ)
     (H : EtaK Γ₁ e e') : EtaK Γ (e.inst a₀ k) (e'.inst a₀ k) := by
   induction H generalizing k Γ with
-  | here hst hpr => exact .here (KStep.instN H₀ W hst) (ParRed.instN .rfl H₀ W hpr)
+  | here hst => exact .here (KStep.instN H₀ W hst)
   | @under Γ₁ e A B t hty _ ih =>
     refine .under (A := A.inst a₀ k) (B := B.inst a₀ (k+1))
       (by simpa [VExpr.inst] using hty.instN henv W H₀) ?_
@@ -514,7 +549,161 @@ theorem parRedKS_lam_inv {Γ : List VExpr} {A t y : VExpr}
     cases hstep with
     | lam h1 h2 => cases hA _ h1; exact ⟨_, rfl, ReflTransGen.tail ht h2⟩
     | extra _ h2 => obtain ⟨_, _, hc⟩ := h2.spineHead_const; exact nomatch hc
-    | keta h => exact absurd h EtaK.not_lam
+    | keta h _ => exact absurd h EtaK.not_lam
+
+/-! ## The Shape-C metatheory, machine-checked on the faithful model
+
+`docs/handoff-krule.md` §U3 lists eight open sites for the landing.  Two of them are the
+*routine* metatheory -- `ParRed.instN`'s `keta` case (site 1) and `ParRed.defeqDFC`'s (site
+2).  Site 1 is what killed Shape B, and Shape C's whole reason for existing is that it closes
+it; site 2 was called "routine **[analysis]**".  Since `ParRedK` is now byte-for-byte the
+relation `ChurchRosser.lean` gets after the edit (`EtaK` no longer mentions `ParRed`, so the
+inductive is not mutual and there is no under-approximation), the four lemmas below are a
+*measurement* of the landing and not an analogy: each is `ParRed`'s proof verbatim with one
+extra case.
+
+**`instN` is the load-bearing one.**  Its statement substitutes `a1` on the left and `a2` on
+the right; a bare `EtaK` step has no argument reductions to absorb the gap, which is exactly
+the type error Shape B reports.  Shape C's `keta` carries the contractum's development as its
+*second premise*, so the induction hypothesis supplies `w.inst a1 k ≫ w'.inst a2 k` and the
+`EtaK` half only has to hold at the single substituend `a1` -- which `EtaK.instN` gives. -/
+
+/-- `KStep` is stable under a definitionally-equal context.  Nothing has to be inverted:
+`KStep` carries its own typing premises, so each is transported by its own `defeqDFC`. -/
+theorem KStep.defeqDFC {Γ₀ Γ₁ Γ₂ : List VExpr} {e e' : VExpr}
+    (W : IsDefEqCtx env univs Γ₀ Γ₁ Γ₂) (H : KStep Γ₁ e e') : KStep Γ₂ e e' := by
+  cases H with
+  | mk hpat hm hck hf hdq =>
+    exact .mk hpat hm (hck.map fun _ _ h => h.defeqDFC henv W)
+      (hf.defeqDFC henv W) (hdq.defeqDFC henv W)
+
+variable! (hΓ₀ : OnCtx Γ₀ (IsType env univs)) in
+/-- **Site 2, discharged.**  `EtaK` is stable under a definitionally-equal context.  The
+`under` case needs the domain's sort typing to extend `W`, and reads it off the carried
+Π-typing; that is the only content. -/
+theorem EtaK.defeqDFC {Γ₁ Γ₂ : List VExpr} {e e' : VExpr}
+    (W : IsDefEqCtx env univs Γ₀ Γ₁ Γ₂) (H : EtaK Γ₁ e e') : EtaK Γ₂ e e' := by
+  induction H generalizing Γ₂ with
+  | here hst => exact .here (KStep.defeqDFC W hst)
+  | @under Γ₁ e A B t hty _ ih =>
+    have ⟨⟨_, hA⟩, _⟩ := (hty.isType henv (W.isType' hΓ₀)).forallE_inv henv
+    exact .under (hty.defeqDFC henv W) (ih (W.succ hA))
+
+theorem ParRedK.weakN {Γ Γ' : List VExpr} {e1 e2 : VExpr} {n k : Nat}
+    (W : Ctx.LiftN n k Γ Γ') (H : ParRedK Γ e1 e2) :
+    ParRedK Γ' (e1.liftN n k) (e2.liftN n k) := by
+  induction H generalizing k Γ' with
+  | bvar | sort | const => exact .rfl
+  | app _ _ ih1 ih2 => exact .app (ih1 W) (ih2 W)
+  | lam _ _ ih1 ih2 => exact .lam (ih1 W) (ih2 W.succ)
+  | forallE _ _ ih1 ih2 => exact .forallE (ih1 W) (ih2 W.succ)
+  | beta _ _ ih1 ih2 =>
+    simp [VExpr.liftN, liftN_inst_hi]
+    exact .beta (ih1 W.succ) (ih2 W)
+  | extra h1 h2 h3 _ ih =>
+    rw [Pattern.RHS.liftN_apply]
+    exact .extra h1 (Pattern.matches_liftN.2 ⟨_, h2, funext_iff.1 rfl⟩)
+      (h3.weakN W) (fun a => ih _ W)
+  | keta hek _ ih => exact .keta (hek.weakN W) (ih W)
+
+variable! (H₀ : ParRedK Γ₀ a1 a2) (H₀' : Γ₀ ⊢ a1 : A₀) in
+/-- **Site 1, discharged -- the reason Shape C exists.**
+
+Shape B's `keta` (`EtaK Γ e e' → ParRed Γ e e'`) fails here with
+`EtaK Γ (e.inst a1 k) (e'.inst a1 k)` against a goal of `e'.inst a2 k`.  Shape C's second
+premise is where the `a1`/`a2` gap goes: `EtaK.instN` runs at the single substituend `a1`,
+and the induction hypothesis on the tail moves `a1` to `a2`. -/
+theorem ParRedK.instN {Γ₁ Γ : List VExpr} {e1 e2 : VExpr} {k : Nat}
+    (W : Ctx.InstN Γ₀ a1 A₀ k Γ₁ Γ)
+    (H : ParRedK Γ₁ e1 e2) : ParRedK Γ (e1.inst a1 k) (e2.inst a2 k) := by
+  induction H generalizing Γ k with
+  | @bvar _ i =>
+    dsimp [VExpr.inst]
+    induction W generalizing i with
+    | zero =>
+      cases i with simp
+      | zero => exact H₀
+      | succ h => exact .rfl
+    | succ _ ih =>
+      cases i with simp
+      | zero => exact .rfl
+      | succ h => exact ih.weakN .one
+  | sort | const => exact .rfl
+  | app _ _ ih1 ih2 => exact .app (ih1 W) (ih2 W)
+  | lam _ _ ih1 ih2 => exact .lam (ih1 W) (ih2 W.succ)
+  | forallE _ _ ih1 ih2 => exact .forallE (ih1 W) (ih2 W.succ)
+  | beta _ _ ih1 ih2 =>
+    simp [VExpr.inst, inst0_inst_hi]
+    exact .beta (ih1 W.succ) (ih2 W)
+  | extra h1 h2 h3 _ ih =>
+    rw [Pattern.RHS.instN_apply]
+    exact .extra h1 (Pattern.matches_instN h2) (h3.instN W H₀') (fun a => ih _ W)
+  | keta hek _ ih => exact .keta (hek.instN H₀' W) (ih W)
+
+variable! (hΓ : OnCtx Γ (IsType env univs)) in
+/-- Admissibility of the whole enlarged relation: every `ParRedK` step is an `IsDefEq`, so
+`kernel_sound`'s statement is untouched by the landing.  The `keta` case is `EtaK.defeqU`
+followed by the induction hypothesis on the contractum's development. -/
+theorem ParRedK.defeq {e e' A : VExpr} (H : ParRedK Γ e e') (he : Γ ⊢ e : A) :
+    Γ ⊢ e ≡ e' : A := by
+  induction H generalizing A with
+  | bvar | sort | const => exact he
+  | app _ _ ih1 ih2 =>
+    have ⟨_, _, h1, h2⟩ := he.app_inv henv hΓ
+    exact .trans_l henv hΓ he <| .appDF (ih1 hΓ h1) (ih2 hΓ h2)
+  | lam _ _ ih1 ih2 =>
+    have ⟨⟨_, h1⟩, _, h2⟩ := he.lam_inv henv hΓ
+    exact .trans_l henv hΓ he <| .lamDF (ih1 hΓ h1) (ih2 ⟨hΓ, _, h1⟩ h2)
+  | forallE _ _ ih1 ih2 =>
+    have ⟨⟨_, h1⟩, _, h2⟩ := he.forallE_inv henv
+    exact .trans_l henv hΓ he <| .forallEDF (ih1 hΓ h1) (ih2 ⟨hΓ, _, h1⟩ h2)
+  | beta _ _ ih1 ih2 =>
+    have ⟨_, _, hf, ha⟩ := he.app_inv henv hΓ
+    have ⟨⟨_, hA⟩, _, hb⟩ := hf.lam_inv henv hΓ
+    have hf' := hA.lam hb
+    have ⟨⟨_, u1⟩, _⟩ := IsDefEqU.forallE_inv henv hΓ (hf.uniqU henv hΓ hf')
+    replace ha := ha.defeqU_r henv hΓ ⟨_, u1⟩
+    exact .trans_l henv hΓ he <| .trans
+      (.symm <| .appDF (.symm <| .lamDF hA (ih1 ⟨hΓ, _, hA⟩ hb)) (.symm <| ih2 hΓ ha))
+      (.beta (ih1 ⟨hΓ, _, hA⟩ hb).hasType.2 (ih2 hΓ ha).hasType.2)
+  | @extra p r e m1 m2 _ m2' h1 h2 h3 _ ih =>
+    exact .trans_l henv hΓ he <| .transU_r henv hΓ (Params.pat_wf h1 h2 hΓ he h3) <|
+     .apply_pat hΓ (fun _ _ h => ⟨_, ih _ hΓ h⟩) (.defeqU_l henv hΓ (Params.pat_wf h1 h2 hΓ he h3) he)
+  | keta hek _ ih =>
+    have hd := (hek.defeqU hΓ).of_l henv hΓ he
+    exact hd.trans (ih hΓ hd.hasType.2)
+
+variable! (hΓ : OnCtx Γ (IsType env univs)) in
+theorem ParRedK.hasType {e e' A : VExpr} (H : ParRedK Γ e e') (he : Γ ⊢ e : A) : Γ ⊢ e' : A :=
+  (H.defeq hΓ he).hasType.2
+
+variable! (hΓ₀ : OnCtx Γ₀ (IsType env univs)) in
+theorem ParRedK.defeqDFC {Γ₁ Γ₂ : List VExpr} {e1 e2 A : VExpr}
+    (W : IsDefEqCtx env univs Γ₀ Γ₁ Γ₂)
+    (h : Γ₁ ⊢ e1 : A) (H : ParRedK Γ₁ e1 e2) : ParRedK Γ₂ e1 e2 := by
+  induction H generalizing Γ₂ A with
+  | bvar => exact .bvar
+  | sort => exact .sort
+  | const => exact .const
+  | app _ _ ih1 ih2 =>
+    have ⟨_, _, hf, ha⟩ := h.app_inv henv (W.isType' hΓ₀)
+    exact .app (ih1 W hf) (ih2 W ha)
+  | lam _ _ ih1 ih2 =>
+    have ⟨⟨_, hA⟩, _, he⟩ := h.lam_inv henv (W.isType' hΓ₀)
+    exact .lam (ih1 W hA) (ih2 (W.succ hA) he)
+  | forallE _ _ ih1 ih2 =>
+    have ⟨⟨_, hA⟩, _, hB⟩ := h.forallE_inv henv
+    exact .forallE (ih1 W hA) (ih2 (W.succ hA) hB)
+  | beta _ _ ih1 ih2 =>
+    have ⟨_, _, hf, ha⟩ := h.app_inv henv (W.isType' hΓ₀)
+    have ⟨⟨_, hA⟩, _, hb⟩ := hf.lam_inv henv (W.isType' hΓ₀)
+    exact .beta (ih1 (W.succ hA) hb) (ih2 W ha)
+  | @extra p r e m1 m2 _ m2' h1 h2 h3 _ ih =>
+    exact .extra h1 h2 (h3.map fun a b h => h.defeqDFC henv W) fun a =>
+      let ⟨_, hh⟩ := h2.hasType (W.isType' hΓ₀) h a; ih a W hh
+  | keta hek _ ih =>
+    exact .keta (hek.defeqDFC hΓ₀ W)
+      (ih W (hek.defeqU (W.isType' hΓ₀) |>.of_l henv (W.isType' hΓ₀) h |>.hasType.2))
 
 end VEnv
 

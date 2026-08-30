@@ -207,8 +207,8 @@ local notation:65 Γ " ⊢ " e " : " A:36 => HasType env univs Γ e A
 /-- `EtaK` with the number of `under` layers exposed.  Same rules, same graph
 (`EtaK.count`, `EtaKn.toEtaK`); the index is what the measure is stated about. -/
 inductive EtaKn : Nat → List VExpr → VExpr → VExpr → Prop where
-  | here {Γ : List VExpr} {e t t' : VExpr} :
-      KStep Γ e t → ParRed Γ t t' → EtaKn 0 Γ e t'
+  | here {Γ : List VExpr} {e t : VExpr} :
+      KStep Γ e t → EtaKn 0 Γ e t
   | under {Γ : List VExpr} {e A B t : VExpr} {k : Nat} :
       Γ ⊢ e : .forallE A B →
       EtaKn k (A::Γ) (.app e.lift (.bvar 0)) t → EtaKn (k+1) Γ e (.lam A t)
@@ -216,13 +216,13 @@ inductive EtaKn : Nat → List VExpr → VExpr → VExpr → Prop where
 theorem EtaKn.toEtaK {k : Nat} {Γ : List VExpr} {e e' : VExpr} (H : EtaKn k Γ e e') :
     EtaK Γ e e' := by
   induction H with
-  | here h1 h2 => exact .here h1 h2
+  | here h1 => exact .here h1
   | under h _ ih => exact .under h ih
 
 theorem EtaK.count {Γ : List VExpr} {e e' : VExpr} (H : EtaK Γ e e') :
     ∃ k, EtaKn k Γ e e' := by
   induction H with
-  | here h1 h2 => exact ⟨0, .here h1 h2⟩
+  | here h1 => exact ⟨0, .here h1⟩
   | under h _ ih => obtain ⟨k, ih⟩ := ih; exact ⟨k+1, .under h ih⟩
 
 /-- **The height equation.**  Every `EtaK` derivation at `e` fires at a registered pattern
@@ -238,7 +238,7 @@ theorem EtaKn.height_eq {k : Nat} {Γ : List VExpr} {e e' : VExpr} (H : EtaKn k 
       Params.Pat (Pattern.app p₁ p₂) r ∧ e.headConst? = some p₁.headName ∧
       e.appDepth + k = p₁.depth + 1 := by
   induction H with
-  | @here _ e t t' hst _ =>
+  | @here _ e t hst =>
     cases hst with
     | mk hpat hm _ _ _ =>
       cases hm with

@@ -1809,3 +1809,255 @@ Nothing in §§1-2, §4, §T1-T4's theorems, `KRule.lean`, `KDescend.lean`, `KCa
    testable against the witness, and §U3.2 says exactly which goal it leaves.
 4. **Do not spend the `Params` fields** until 1-3 are done.  §S7's eight construction sites are
    still eight, `KDiamond` is still priced, and `EtaKDiamond` is now smaller but still open.
+
+---
+
+# Round 6 (this session): the shape is decided by measurement — Shape C, and the residual is seven
+
+**Task.** Settle the `keta` shape (§U8 item 1) — the round-5 experiment priced Shape A
+(mutual, six `induction` rewrites) and Shape B (non-mutual, `ParRed.instN` does not
+typecheck) and left a third option unresolved. Justify the choice by measurement, land it or
+report exactly what it costs.
+
+Same marks: **[machine-checked]** = a named `sorry`-free Lean declaration in this tree;
+**[measured]** = a machine run whose output is reproduced; **[read]**; **[analysis]**.
+
+## V0. Verdict
+
+1. **Shape C is the shape, and the argument is not a preference.**  `EtaK.here` loses its
+   `ParRed` tail; the tail moves to `ParRed`'s constructor:
+
+   ```lean
+   | here : KStep Γ e t → EtaK Γ e t                     -- EtaK no longer mentions ParRed
+   | keta : EtaK Γ e w → Γ ⊢ w ≫ w' → Γ ⊢ e ≫ w'         -- the new ParRed constructor
+   ```
+
+   `EtaK` is now `ParRed`-free *structurally*, so nothing is mutual and all six `induction`s
+   Shape A breaks are untouched; and `instN`'s induction hypothesis on the **second premise**
+   is exactly what carries `a1` to `a2`, which is what Shape B cannot do.  Both halves are
+   machine-checked, not argued — §V1.
+
+2. **Two of §U3's eight sites are closed permanently.**  `Theory/Typing/KEta.lean` now proves
+   `ParRedK.weakN`, `ParRedK.instN`, `ParRedK.defeq`, `ParRedK.defeqDFC` — `ParRed`'s own
+   proofs with the one extra case — plus the two lemmas the `defeqDFC` case needs
+   (`KStep.defeqDFC`, `EtaK.defeqDFC`).  `ParRedK.weakN`, `ParRedK.instN`, `KStep.defeqDFC`
+   and `EtaK.defeqDFC` are **hole-free** (empty forward cone).  **[machine-checked]**
+
+3. **Round 5's fidelity caveat (§U2.3) is dissolved, not worked around.**  Under Shape C
+   `EtaK` does not mention `ParRed`, so `ParRedK` is a plain inductive and *is* the fixpoint
+   `ChurchRosser.lean` gets after the edit — not an under-approximation of it.
+   Negative-position transfer from `ParRedK` to the landed relation is valid again, and the
+   four lemmas in (2) are therefore measurements of the landing rather than analogies.
+
+4. **The landing was run for real again, under Shape C, and reverted.  The residual is
+   seven sites, with the exact goal at each** — §V3.  **[measured]**  Composition:
+   §U3's sites 1 and 2 are gone; sites 3–8 remain; and one **new** site appears that §U3
+   explicitly said would not error.
+
+5. **§U2.2's pricing of the third shape does not distinguish it from Shape A.**  It says
+   Shape C "composes two steps, so `CParRed`'s matching constructor would have to develop
+   `w`, which is not a subterm of `e`".  That is true, and it is *also* true of Shape A: a
+   complete development of an `EtaK.here` whose tail is a `ParRed` must develop the same
+   contractum `r.1.apply m1 m2`; the λ-tower is the only difference and `CParRed.lam`
+   congruence absorbs it.  The obligation belongs to the *rule*, not to the shape.  Measured
+   under Shape C it lands exactly where §U3 put it for Shape B — `CParRed.exists`'s third
+   disjunct, site 4.  **[measured for Shape C; analysis for Shape A]**
+
+6. No `sorry` added or removed (census still 19), `dup-names` clean, `ChurchRosser.lean` and
+   `Verify/Typing/ConstSpine.lean` byte-identical to their state at the start of the round,
+   no `Params` field spent, no file outside this stream edited.
+
+## V1. The shape decision, measured
+
+### V1.1 What was changed in `KEta.lean`
+
+| before (Shape A as written) | after (Shape C) |
+|---|---|
+| `EtaK.here : KStep Γ e t → ParRed Γ t t' → EtaK Γ e t'` | `EtaK.here : KStep Γ e t → EtaK Γ e t` |
+| `HasEtaK : EtaK Γ e e' → ParRed Γ e e'` | `HasEtaK : EtaK Γ e w → ParRed Γ w w' → ParRed Γ e w'` |
+| — | `HasEtaK.step : EtaK Γ e e' → ParRed Γ e e'` (the old form, by `ParRed.rfl`) |
+| `ParRedK.keta : EtaK Γ e e' → ParRedK Γ e e'` | `ParRedK.keta : EtaK Γ e w → ParRedK Γ w w' → ParRedK Γ e w'` |
+| — | `ParRedK.rfl`, `ParRedK.keta_step` |
+
+`EtaK.instN`'s `here` case used to call `ParRed.instN`; it is now `KStep.instN` alone.  After
+this change **no declaration of `EtaK` mentions `ParRed` at all** — the non-mutuality is
+structural, not incidental.
+
+### V1.2 The measurement that decides it **[machine-checked]**
+
+`ParRedK` is now the landed relation on the nose (V0.3), so the four routine metatheory
+lemmas can be proved *here* rather than probed in `ChurchRosser.lean`:
+
+| declaration | `keta` case | forward hole cone |
+|---|---|---|
+| `ParRedK.weakN` | `.keta (hek.weakN W) (ih W)` | `[]` |
+| `ParRedK.instN` | `.keta (hek.instN H₀' W) (ih W)` | `[]` |
+| `ParRedK.defeq` | `EtaK.defeqU` then the IH on the tail | `[forallE_inv_stratified, forallE_inv]` |
+| `ParRedK.defeqDFC` | `.keta (hek.defeqDFC hΓ₀ W) (ih W …)` | `[forallE_inv_stratified]` |
+| `KStep.defeqDFC` | — | `[]` |
+| `EtaK.defeqDFC` | — | `[]` |
+
+`ParRedK.instN` is the decisive one.  Shape B fails there with
+
+```
+error: Application type mismatch: EtaK.instN H₀' W h
+       has type      EtaK Γ (e.inst a1 k) (e'.inst a1 k)
+       but is expected to have type
+                     EtaK Γ (e.inst a1 k) (e'.inst a2 k)
+```
+
+Shape C's second premise is where the `a1`/`a2` gap goes: `EtaK.instN` runs at the single
+substituend `a1`, and the induction hypothesis on the tail moves `a1` to `a2`.  The lemma
+compiles with an **empty hole cone**, so site 1 is not merely relocated, it is discharged.
+
+`ParRedK.defeq` and `ParRedK.defeqDFC` inherit `IsDefEqU.forallE_inv_stratified` through
+`KStep.defeq` (`EtaK.defeqU`'s only route to a typing for the contractum).  That taint is
+**pre-existing** — §1.2 records it on `KStep.defeq` itself — and the two new lemmas that carry
+no such route, `KStep.defeqDFC` and `EtaK.defeqDFC`, are clean.
+
+### V1.3 The kills, re-run against the restatement (working rule 2)
+
+Both `HasEtaK`-form kills and both `ParRedK`-form kills still compile and still fire at the
+same witness, now against the two-premise closure:
+
+```lean
+not_crStatement_of_kstep_inapplicable   := hlam A t (hrig _ (hE.step (.under he (.here hstep)))).symm
+not_crStatement_of_kstep_dead           := hlam A t (hrig _ (.keta (.under he (.here hstep)) .rfl)).symm
+```
+
+All four: axioms `[propext, Quot.sound]`, forward hole cone `[]`.  **[measured]**  The
+standing caveat is unchanged: no `Params` instance in this tree registers an `.app` pattern,
+so the `Params`-gated half of every claim in this corner has no witness, and that is *not*
+evidence of truth.
+
+## V2. What landed
+
+* `Lean4Lean/Theory/Typing/KEta.lean` — `EtaK` restated (Shape C), `HasEtaK` restated,
+  `ParRedK.keta` restated, six new declarations (`KStep.defeqDFC`, `EtaK.defeqDFC`,
+  `ParRedK.rfl`, `ParRedK.keta_step`, `ParRedK.weakN`, `ParRedK.instN`, `ParRedK.defeq`,
+  `ParRedK.hasType`, `ParRedK.defeqDFC`), docstrings corrected (the §U2.3 fidelity caveat is
+  deleted because it no longer holds).
+* `Lean4Lean/Theory/Typing/KMeasure.lean` — `EtaKn.here` tracks `EtaK.here`; three proofs
+  lose an argument.  **No statement about the measure changed**: `EtaKn.height_eq`,
+  `height_uniq`, `fuel_eq`, `EtaK.same_height`, `etaKDiamond_of_at` are all as they were, and
+  all still hole-free.
+* Nothing else.
+
+## V3. The residual under Shape C, exactly **[measured]**
+
+The landing was performed in `ChurchRosser.lean` — `KStep`/`EtaK` and their kit transplanted
+(under `X`-suffixed names, to keep the downstream files importable during the experiment),
+`ParRed` and `CParRed` given the `keta` constructor, `NonNeutral` given `NonNeutralK`'s third
+disjunct — every vacuous slot dispatched by shape, and every routine slot closed.  **No
+mutual-inductive error appeared**: all six `induction`s Shape A breaks compile unchanged.
+
+Raw slots: **26** (24 `Alternative \`keta\` has not been provided`, 2 `unsolved goals`),
+plus 2 collateral edits where `NonNeutral`'s new third disjunct changes an existing
+`cases hn (.inr ⟨…⟩)` into `cases hn (.inr (.inl ⟨…⟩))`.  After dispatch: **7**.
+
+| # | site (`ChurchRosser.lean`) | goal left | §U3 |
+|---|---|---|---|
+| 1 | `ParRed.weakN_inv`, `keta` | `∃ e2, ParRed Γ e1 e2 ∧ w' = e2.liftN n k` | site 3 — **false** without M3 (§R3.1, §S5) |
+| 2 | `CParRed.exists`, `neut`'s third disjunct | `∃ e', CParRed Γ e e'` from `∃ e', EtaK Γ e e'` | site 4 — measure (§U1) + M3 |
+| 3 | `ParRed.triangle`, `induction H2`, `CParRed.keta` | `∃ o', ParRed Γ e' o' ∧ NormalEq Γ o' w'` | **new** — §U3 said this "would not error"; it does, once `CParRed` actually gains the constructor.  This is `EtaKDiamond`'s home |
+| 4 | `ParRed.triangle`, `extra`'s inner induction, `keta` × {`const`,`var`,`app`} | the `.inl`/`.inr` disjunction of the inner lemma, three goals | site 5 |
+| 5 | `NormalEq.parRed`, `constDF` × `keta` | `∃ e₁', Γ ⊢ const c ls ≫* e₁' ∧ NormalEq Γ e₁' e₂'` | site 6 |
+| 6 | `NormalEq.parRed`, `appDF` × `keta` | `∃ e₁', Γ ⊢ f.app a ≫* e₁' ∧ NormalEq Γ e₁' e₂'` | site 7 |
+| 7 | `NormalEq.parRed`, `etaR`'s inner `cases a1`, `keta` | `(∃ A', Γ ⊢ e ≫* A'.lam c ∧ Γ ⊢ A' ≡ A) ∨ ∃ e', Γ ⊢ e ≫* e' ∧ c = e'.lift.app (bvar 0)` | site 8 — the refutation's own witness configuration |
+
+Sites 1 and 2 of §U3 (`ParRed.instN`, `ParRed.defeqDFC`) **did not appear**: they are closed
+by §V1.2's lemmas, transplanted verbatim.
+
+Slots that *were* dispatched, and how — this is the part that is cheap to re-derive wrongly:
+
+* `EtaK.not_bvar` / `.not_sort` / `.not_lam` / `.not_forallE` / `.not_beta`
+  (`.app (.lam A b) a` has a λ `spineHead`) close, in `ParRed.triangle`: `bvar`, `sort`,
+  `lam`, `forallE`, `beta`'s outer and inner `cases`; in `NormalEq.parRed`: `sortDF`,
+  `lamDF`, `forallEDF`, `etaR`'s **outer** `cases H2`, and both `cases b2` on `.bvar 0`
+  inside `etaR`'s inner induction.
+* `NonNeutralK`'s third disjunct closes `triangle`'s `const` and `app` by
+  `absurd (.inr (.inr ⟨_, h⟩)) hn`, and it forces the two existing `cases hn (.inr ⟨…⟩)`
+  to become `cases hn (.inr (.inl ⟨…⟩))`.
+* `CParRed.toParRed`'s `keta` case is `.keta hek ih`.
+
+## V4. Checks re-run **[measured]**
+
+```
+lake build Lean4Lean.Theory.Typing.KMeasure KCanonical ChurchRosser
+     Verify.Typing.ConstSpineWF DescendRefute HeadRedStuck KDescend KRule
+                                                   -> Build completed successfully (85 jobs)
+lake env lean scripts/sorry-census.lean            -> TOTAL 19        (unchanged)
+lake env lean scripts/dup-names.lean               -> no duplicate Lean4Lean declarations
+Guard + KMeasure + ConstSpineWF in one environment -> no collision
+```
+
+Forward hole-cone scan (declaration values, `.thmInfo` via `value? (allowOpaque := true)`):
+
+```
+KStep.defeqDFC / EtaK.defeqDFC / ParRedK.weakN / ParRedK.instN   -> []
+ParRedK.defeq                          -> [forallE_inv_stratified, forallE_inv]
+ParRedK.defeqDFC                       -> [forallE_inv_stratified]
+EtaK.defeqU / KStep.defeq              -> [forallE_inv_stratified]      (pre-existing, §1.2)
+not_crStatement_of_kstep_dead          -> []
+not_parRedStatement_of_hK_dead         -> []
+not_crStatement_of_kstep_inapplicable  -> []
+not_parRedStatement_of_hK_inapplicable -> []
+refParams_parRedK_eq                   -> []
+EtaKn.height_uniq / etaKDiamond_of_at  -> []
+NormalEq.descendV                      -> [weakN_iff, forallE_inv_stratified, forallE_inv]
+NormalEq.appDF_extra_of_descendV       -> [weakN_iff, forallE_inv_stratified, forallE_inv]
+```
+
+`descendV` and `appDF_extra_of_descendV` reach the same three holes as in §R2 and §U5:
+nothing this round moved them, and §T4's "in-place edit" claim is **still** not verified by
+re-running the proof — the build stops at site 1 before reaching either.
+
+**Note on the two measurement scripts.**  Both aborted mid-round with
+`object file … Lean4Lean/Verify/Primitive.olean … does not exist` — another stream's
+in-flight file, not this one's.  Building `Lean4Lean.Verify.Primitive` (which succeeded)
+restored both; the numbers above are from after that.
+
+## V5. Corrections this round makes
+
+| document | claim | correction |
+|---|---|---|
+| §U2.2 | Shape C "composes two steps, so `CParRed`'s matching constructor would have to develop `w` … the termination problem comes back one level up.  **Unresolved, and it is the first thing to settle**" | The obligation is real but **does not distinguish the shapes**: Shape A's complete development must develop the same contractum.  Measured under Shape C, it is `CParRed.exists`'s third disjunct — §U3's own site 4, at the same strength.  So this was never a reason to prefer Shape A. |
+| §U3, table | eight open sites | **Seven**, and a different seven: sites 1 and 2 closed **[machine-checked]**, and `ParRed.triangle`'s `induction H2` gains a real site (§V3 row 3). |
+| §U3, "Not counted, because they are separate inductives and so do not error" | `CParRed`'s `keta` constructor, `CParRed.toParRed` and `triangle`'s `induction H2` cost nothing | `CParRed.toParRed` is one line, but `ParRed.triangle`'s `induction H2` leaves a live goal — `∃ o', ParRed Γ e' o' ∧ NormalEq Γ o' w'` — which is the η-layer diamond.  It is a site, not a formality. |
+| §U2.3 / `ParRedK`'s docstring | `ParRedK` under-approximates the landed relation; negative-position transfer invalid | **Dissolved by Shape C.**  `EtaK` no longer mentions `ParRed`, so `ParRedK` is the fixpoint.  The caveat is deleted from the docstring rather than weakened. |
+| §U3, site 2 (`ParRed.defeqDFC`) | "does not exist yet, looks routine **[analysis]**" | Routine confirmed: `KStep.defeqDFC` needs nothing inverted (`KStep` carries its own typing premises) and `EtaK.defeqDFC` reads the domain's sort typing off the carried Π-typing.  Both **hole-free**. |
+| the brief | "Shape C … its complete development must recurse into `w`, which the measure does not cover" | True, and unchanged — but it is not a cost *of Shape C*.  See row 1. |
+
+Nothing in §§1–2, §4, §T1–T4's theorems, §U1's measure, `KRule.lean`, `KDescend.lean`,
+`KCanonical.lean` or `DescendRefute.lean`'s three refutations is contradicted.  `KMeasure`'s
+statements are unchanged; only `EtaKn.here`'s arity tracks `EtaK.here`.
+
+## V6. Files, round 6
+
+* `Lean4Lean/Theory/Typing/KEta.lean` — restated + nine new declarations, no `sorry`.
+* `Lean4Lean/Theory/Typing/KMeasure.lean` — `EtaKn.here` arity, three proofs; no statement
+  changed.
+* `docs/handoff-krule.md` — this section.
+* `Lean4Lean/Theory/Typing/ChurchRosser.lean` — edited for the experiment and **reverted**;
+  byte-identical to the round's start.  `Verify/Typing/ConstSpine.lean` never touched.
+
+## V7. What to pick up first
+
+1. **Site 1 (`ParRed.weakN_inv`) is still the only one known false**, and it gates the shape
+   of everything downstream of `ParRedExt.parRed_beta`.  §S5 says what M3 buys; §"What M3
+   does for `ParRed.weakN_inv`" in `KCanonical.lean` says the equality form is **not**
+   recoverable and the conclusion must weaken to `≡ₚ`.  Settle that weakening *before*
+   attacking sites 3–7: three of them consume `weakN_inv`'s conclusion.
+2. **Site 3 is now the diamond's real home**, not site 4 of §U3.  It is where `EtaKDiamond`
+   is consumed, and `KMeasure.etaKDiamond_of_at` already reduces it to the equal-height
+   case.  A `KDiamond`-shaped base plus a λ-congruence step is the whole of it (§U4), and the
+   step needs `IsDefEqU.forallE_inv` and a `defeqDFC` move because the two `under` layers may
+   carry different domains.
+3. **Site 7 remains the best refutation-testable target** (§U3.2): it is the witness
+   configuration itself, so any repair is directly checkable against it.
+4. **Do not spend the `Params` fields** until 1–3 are done.  §S7's eight construction sites
+   are still eight; `Params.pat_app_arity_uniq` and `pat_app_depth_uniq` were obtained from
+   the *existing* `pat_app_l_uniq`, and that is the pattern to keep looking for.
+5. **Shape C is settled.**  Do not re-price Shape A or Shape B: A breaks six `induction`s at
+   the tactic level, B does not typecheck at `ParRed.instN`, and C's four routine lemmas are
+   machine-checked in `KEta.lean` on a relation that is now literally the landed one.
