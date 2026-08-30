@@ -2061,3 +2061,311 @@ statements are unchanged; only `EtaKn.here`'s arity tracks `EtaK.here`.
 5. **Shape C is settled.**  Do not re-price Shape A or Shape B: A breaks six `induction`s at
    the tactic level, B does not typecheck at `ParRed.instN`, and C's four routine lemmas are
    machine-checked in `KEta.lean` on a relation that is now literally the landed one.
+
+
+---
+
+# Round 7 (this session): M3 does not repair site 1 — the obstruction is the λ-domain
+
+**Task.** Build M3 (`pat_major_canonical`), repair `ParRed.weakN_inv` with it, then land the
+`keta` constructor in `ChurchRosser.lean`.
+
+Same marks: **[machine-checked]** = a named `sorry`-free Lean declaration in this tree;
+**[measured]** = a machine run whose output is reproduced; **[read]**; **[analysis]**.
+
+## W0. Verdict
+
+1. **The brief's central premise is false: M3 does not repair `ParRed.weakN_inv`, and the
+   reason is not the rule table.**  `VEnv.not_weakNInvStatement_of_etaK` **[machine-checked,
+   `sorryAx`-free, forward hole cone `[]`]** refutes the *equality* conclusion from a **single**
+   K-step hypothesis — the same configuration both standing kills use.  What breaks it is
+   `EtaK.under`'s **λ-domain**, which is constrained only by `Γ ⊢ e : .forallE A B`, i.e. only
+   *up to conversion*: at a lifted redex the step may legitimately conclude `.lam A' t` with
+   `A'` mentioning `.bvar k`, so the contractum is the lift of nothing.  `KTable.kmajor` is a
+   function of `(p₂, f, h)` and says nothing about `A'`; **no field of the rule table can**,
+   because the domain is not read off the rule at all.  §W1.
+
+   This is `ORCHESTRATOR.md`'s third shape — *a parameter supplied by the caller and
+   existentially quantified by the rule* — and it generalises past this development: **any**
+   η-expanding reduction relation must pick a domain, and domains are determined only up to
+   defeq, so `weakN_inv`'s equality conclusion is incompatible with η-expansion as such.
+   **[analysis for the generalisation; machine-checked for `EtaK`]**
+
+2. **The `≡ₚ` weakening survives the refutation, and visibly kills its own witness**
+   (working rule 2).  `NormalEq.lamDF` asks only that the two λ-domains be *definitionally*
+   equal to a common one, which is exactly the slack the free domain needs.
+   `VEnv.kdom_normalEq_lam` **[machine-checked]** discharges the `≡ₚ` obligation at the very
+   configuration that refutes the equality form.
+
+3. **The η-tower of the repair costs nothing.**  `VEnv.etaKn_liftN_inv` /
+   `VEnv.etaK_liftN_inv` **[machine-checked]** discharge every `under` layer of the lifting
+   inversion from two named facts, leaving the `here` layer as the whole residual.  The
+   induction is on the **height** (`EtaKn`, `KMeasure.lean`), not on the derivation: the
+   `under` step has to relocate its sub-derivation onto a definitionally equal domain before
+   the induction hypothesis applies, and a derivation induction is pinned to the original
+   context.  That is a second use of the measure, unplanned.  §W2.
+
+4. **M3 *does* pay for the `here` layer, and the payment is now machine-checked.**
+   `VEnv.KTable.kstep_liftN_inv_step` **[machine-checked]** strengthens §S5's
+   `kstep_liftN_inv` from "the contractum is `≡ₚ` a lift" to "there is a **downstairs K-step**
+   whose lift the contractum is `≡ₚ` to", which is what `weakN_inv`'s conclusion actually
+   asks.  With it, `VEnv.kStepLiftInv_of : KTable → PiTypeDescend → KStepLiftInv`
+   **[machine-checked]**.  §W3.
+
+5. **Site 1's `keta` case reduces to exactly three named facts**
+   (`VEnv.keta_weakN_inv` **[machine-checked]**): `KStepLiftInv` (M3's share),
+   `PiTypeDescend` (a typing descent) and `WeakNInvTail` (the tail).  **`WeakNInvTail` is
+   `NormalEq.parRed`-shaped**, so **§V3's sites 1 and 7 are entangled** and no strengthening
+   of the rule table separates them.  §W4.
+
+6. **`ParRed.weakN_inv` is not a hub.**  §V7 item 1 says "three of them consume `weakN_inv`'s
+   conclusion".  Measured: **`ParRed.weakN_inv` has exactly two call sites, both inside
+   `NormalEq.parRed`'s `etaR` case — §V3 row 7 — and both use the equation by `rfl`.**
+   So weakening it creates work at exactly one site, and that site is open anyway.
+   **[measured]**  §W5.
+
+7. **The landing was not re-run, and the reason is a measurement rather than an estimate.**
+   All three edited files are **append-only** (`git diff --numstat`: `144/0`, `83/0`, `74/0`;
+   every hunk begins after the last relation definition), so `EtaK`, `HasEtaK`, `ParRedK`,
+   `NonNeutralK`, `EtaKDiamond`, `EtaKn`, `EtaKDiamondAt`, `KTable` and `KSmall` are
+   byte-identical to round 6's.  §V3's transplant would therefore reproduce its own output.
+   What changed is site 1's *content*, not the list.  §W6.
+
+8. No `sorry` added or removed (census still 19), `dup-names` clean, `ChurchRosser.lean` and
+   `Verify/Typing/ConstSpine.lean` untouched, no `Params` field spent, no file outside this
+   stream edited.
+
+## W1. The refutation **[machine-checked]**
+
+```lean
+def WeakNInvStatement : Prop :=          -- ParRed.weakN_inv's statement, verbatim, for ParRedK
+  ∀ {n k Γ Γ' e1 e2' A}, OnCtx Γ' (IsType env univs) → Ctx.LiftN n k Γ Γ' →
+    Γ' ⊢ e1.liftN n k : A → ParRedK Γ' (e1.liftN n k) e2' →
+    ∃ e2, ParRedK Γ e1 e2 ∧ e2' = e2.liftN n k
+
+theorem not_weakNInvStatement_of_etaK
+    (hΓ : OnCtx Γ (IsType env univs)) (hC : Γ ⊢ C : .sort uC)
+    (he : Γ ⊢ e : .forallE A₀ B₀)
+    (hin : EtaK (A₀.lift :: C :: Γ) (.app e.lift.lift (.bvar 0)) t) :
+    ¬ WeakNInvStatement
+```
+
+Three supporting declarations, all hole-free:
+
+| declaration | says |
+|---|---|
+| `EtaK.under_dom` | one `under` derivation gives one for **every** definitionally equal domain, with the same body — `forallEDF` transports the Π-typing, `EtaK.defeqDFC` relocates the sub-derivation |
+| `kdom C A₀ := .app (.lam C.lift A₀.lift.lift) (.bvar 0)`, `kdom_defeq` | a domain definitionally equal to `A₀.lift` in `C::Γ` that **mentions `.bvar 0`** — the type-ascription redex `(fun _ : C => A₀) x` at the freshly bound `x` |
+| `kdom_ne_liftN` | `kdom C A₀ ≠ X.liftN 1 0` — a `liftN 1 0` never has `.bvar 0` at depth 0 |
+
+The witness: `EtaK (C::Γ) e.lift (.lam (kdom C A₀) t)`, hence `ParRedK (C::Γ) e.lift
+(.lam (kdom C A₀) t)` by `.keta … .rfl`, and `.lam (kdom C A₀) t` is the lift of nothing.
+
+**The hypothesis list is not contradictory** — it is a strict *subset* of the shape
+`not_crStatement_of_kstep_dead` uses, minus the rigidity hypothesis those kills contradict.
+`hin` is discharged by `.here hstep` at `KStep.stuck_fires`'s configuration.
+
+**Non-vacuity, split honestly.**  `refParams_weakNInvStatement` **[machine-checked]**:
+where `EtaK` is empty the statement *holds* — it is `ChurchRosser.lean`'s own theorem — so it
+is not refutable outright and `hin` is load-bearing.  And the standing caveat is unchanged:
+no `Params` instance in this tree registers an `.app` pattern, so `hin` has no witness here,
+and **that is not evidence of truth**.
+
+## W2. The η-tower, discharged **[machine-checked]**
+
+```lean
+def EtaKLiftInvC (Γ Γ' n k e1 w) : Prop :=
+  ∃ w₀, (EtaK Γ e1 w₀ ∨ w₀ = e1) ∧ NormalEq Γ' w (w₀.liftN n k)
+
+def KStepLiftInv : Prop := ∀ …, KStep Γ' (e1.liftN n k) w → EtaKLiftInvC Γ Γ' n k e1 w
+def PiTypeDescend : Prop := ∀ …, Γ' ⊢ e.liftN n k : .forallE A B → ∃ A₀ B₀, Γ ⊢ e : .forallE A₀ B₀
+
+theorem etaKn_liftN_inv (HK : KStepLiftInv) (HP : PiTypeDescend) :
+  ∀ {m k Γ Γ' e1 w A}, EtaKn m Γ' (e1.liftN n k) w → Ctx.LiftN n k Γ Γ' →
+    OnCtx Γ … → OnCtx Γ' … → Γ' ⊢ e1.liftN n k : A → EtaKLiftInvC Γ Γ' n k e1 w
+```
+
+**The disjunction in `EtaKLiftInvC` is not slack.**  `KTable.canon`'s proof escape produces
+`w₀ = e1` (the redex is a proof; there is no downstairs step and none is needed), and the
+`under` layer turns that alternative into `NormalEq.etaL` — the goal there is exactly
+`.lam A t ≡ₚ e1.liftN n k`, which `etaL` closes at the *outer* domain `A`, again using only a
+Π-typing rather than a syntactic match.  The genuine alternative is closed by
+`NormalEq.lamDF` with the middle domain `A₀.liftN n k`.  Both halves of the domain slack are
+therefore consumed, one per branch.
+
+**Why the height induction.**  `EtaK.under`'s sub-derivation lives in `A::Γ'`, and the
+induction hypothesis needs it in `A₀.liftN n k :: Γ'`.  `EtaK.defeqDFC` moves it, but an
+induction on the `EtaK` derivation has its context fixed by the constructor, so the moved
+derivation is no longer an immediate sub-derivation.  Strong induction on `EtaKn`'s index
+decouples the two.  `EtaKn.defeqDFC` **[machine-checked, hole-free]** is the one new lemma
+this needs.
+
+## W3. M3's share **[machine-checked]**
+
+`KTable.kstep_liftN_inv_step` is `kstep_liftN_inv` (§S5) plus the **downstairs step**:
+
+```lean
+theorem KTable.kstep_liftN_inv_step (KT : KTable)
+    (hΓ) (hΓ') (W : Ctx.LiftN n k Γ Γ') (hf₀ : Γ ⊢ f : .forallE A₁ B₁)
+    (H : KStep Γ' (.app (f.liftN n k) (h.liftN n k)) e') :
+    (∃ w₀, KStep Γ (.app f h) w₀ ∧ Γ' ⊢ e' ≡ₚ w₀.liftN n k) ∨
+      Γ' ⊢ e' ≡ₚ (VExpr.app f h).liftN n k
+```
+
+The extra content over `kstep_liftN_inv` is three descents, all along `IsDefEqU.weakN_iff`
+(`UniqueTyping.lean:172`, an existing hole):
+
+* the rule's `Check` obligations — transported from the firing match to the canonical one by
+  `NormalEq.apply_instL` + `NormalEq.apply_pat` through `Pattern.Check.OK.map_levels` (the
+  level clause needs `VLevel.forall₂_getD` twice, once symm), then strengthened through
+  `Pattern.Check.OK.map` + `Pattern.RHS.liftN_apply`;
+* the major premise's conversion `h ≡ kmajor p₂ f h`, by `weakN_iff` + `of_l`;
+* the spine function's Π-typing, which is **not** derivable here and is the hypothesis `hf₀`.
+
+`kStepLiftInv_of : KTable → PiTypeDescend → KStepLiftInv` wires it up.  The non-`.app`
+cases of `e1` are `nomatch`: a `KStep` redex is an application.
+
+**`PiTypeDescend` is a new named statement, and I did not derive it.**  It is adjacent to
+`Theory/Typing/Strengthen.lean`'s family but is not one of them: `PiDescend` needs an
+*argument term* (`Γ' ⊢ a.liftN n k : A`), which the η-tower does not have downstairs, and
+`SortDescend`'s wrapping trick (`e ↦ .forallE e (.sort 0)`) has no Π analogue I found — the
+only elimination for a Π-typed term is application, and there is no argument to apply it to.
+Both follow from full normalisation; neither is claimed here.  **[analysis]**
+
+## W4. What is left of site 1, exactly **[machine-checked reduction]**
+
+```lean
+def WeakNInvTail : Prop :=
+  ∀ {n k Γ Γ' u u' v}, OnCtx Γ' … → Ctx.LiftN n k Γ Γ' →
+    ParRedK Γ' u u' → NormalEq Γ' u (v.liftN n k) →
+    ∃ v', ParRedK Γ v v' ∧ NormalEq Γ' u' (v'.liftN n k)
+
+theorem keta_weakN_inv (HK : KStepLiftInv) (HP : PiTypeDescend) (HT : WeakNInvTail) … :
+    ∃ e2, ParRedK Γ e1 e2 ∧ NormalEq Γ' w' (e2.liftN n k)
+```
+
+**Why the tail is not routine.**  Shape C's `keta` composes an `EtaK` step with a development
+of its *contractum*.  The lifting inversion returns a contractum that is only `NormalEq` to a
+lift — never equal to one, by §W1 — so the tail's own inversion has to run modulo `NormalEq`.
+Instantiating `NormalEq` at equality turns `WeakNInvTail` back into `weakN_inv`; what it adds
+is precisely `NormalEq.parRed`'s commutation.  **Sites 1 and 7 are one problem.**
+
+`WeakNInvTail` is **not** a K-hypothesis: it is non-vacuous already where `KStep` is empty, so
+the `refParams` consistency check every other statement in this corner carries is unavailable
+for it, and none is claimed.  Its truth was **not** audited this round.
+
+## W5. `weakN_inv`'s consumers, measured **[measured]**
+
+```
+grep -rn 'ParRed\.weakN_inv\|\.weakN_inv' --include=*.lean Lean4Lean/   (filtered to ParRed's)
+  Lean4Lean/Theory/Typing/ChurchRosser.lean:2092   b1.weakN_inv hΓ' .one …
+  Lean4Lean/Theory/Typing/ChurchRosser.lean:2098   b1.weakN_inv …
+```
+
+Both are inside `NormalEq.parRed`'s `etaR` case, in the `app` and `beta` branches of its inner
+`cases a1`, and both bind the conclusion's equation as `rfl` to build the inner lemma's
+`.inr` / `.inl` disjunct.  Every other `weakN_inv` in the tree belongs to a different
+relation (`OnCtx`, `Lookup`, `ConditionallyTyped`, `Experimental/*`).
+
+**Consequence for the weakening.**  The inner lemma's second disjunct is
+`∃ e', Γ ⊢ e ≫* e' ∧ t = .app e'.lift (.bvar 0)`; under the `≡ₚ` conclusion `t` is only
+`NormalEq` to that, so the disjunct has to weaken too, and its consumer (the `suffices` at
+`ChurchRosser.lean:2073`) has to absorb a `NormalEq` before `NormalEq.etaR`.  That is inside
+site 7 and was not attempted.  **[read]**
+
+## W6. Checks re-run **[measured]**
+
+```
+lake build KMeasure KCanonical ChurchRosser Verify.Typing.ConstSpineWF DescendRefute
+           HeadRedStuck KDescend KRule HeadReduction Verify.Typing.ConstSpine
+           Experimental.ConeJoin            -> Build completed successfully (1286 jobs)
+lake env lean scripts/sorry-census.lean     -> TOTAL 19        (unchanged)
+lake env lean scripts/dup-names.lean        -> no duplicate Lean4Lean declarations
+git diff --numstat  KEta 144/0   KMeasure 83/0   KCanonical 74/0   (append-only)
+git diff -U0 hunks  @@ +330  (KCanonical, after every def)   @@ +708 (KEta)   @@ +355 (KMeasure)
+```
+
+Forward hole-cone scan (declaration values, `.thmInfo` via `value? (allowOpaque := true)`):
+
+```
+EtaK.under_dom / kdom_defeq / kdom_ne_liftN / kdom_normalEq_lam   -> []
+not_weakNInvStatement_of_etaK                                     -> []
+EtaKn.defeqDFC / refParams_kStepLiftInv / refParams_parRedK_eq    -> []
+etaKn_liftN_inv / etaK_liftN_inv / keta_weakN_inv  -> [forallE_inv_stratified, forallE_inv]
+KTable.kstep_liftN_inv_step / kStepLiftInv_of      -> [weakN_iff, forallE_inv_stratified,
+                                                       forallE_inv]
+weakNInvStatement_of_no_etaK / refParams_weakNInvStatement -> [weakN_iff]
+KTable.kstep_liftN_inv / NormalEq.descendV / appDF_extra_of_descendV
+                                                   -> [weakN_iff, forallE_inv_stratified,
+                                                       forallE_inv]     (unchanged, §V4)
+not_crStatement_of_kstep_dead / not_parRedStatement_of_hK_dead     -> []
+not_crStatement_of_kstep_inapplicable / …_of_hK_inapplicable       -> []
+EtaKn.height_uniq / etaKDiamond_of_at                              -> []
+```
+
+`#print axioms`:
+
+```
+not_weakNInvStatement_of_etaK  -> [propext, Classical.choice, Quot.sound]     (no sorryAx)
+EtaK.under_dom, kdom_normalEq_lam, EtaKn.defeqDFC, refParams_kStepLiftInv
+                               -> [propext, Classical.choice, Quot.sound]
+kdom_ne_liftN                  -> [propext, Quot.sound]
+not_descendStatement, …_etaArg, …_etaFun  -> [propext, Classical.choice, Quot.sound]
+```
+
+So: **the new refutation adds no hole to the tree**, the two standing kills are unmoved, and
+`DescendRefute.lean`'s three refutations still stand `sorryAx`-free.
+
+**Note.** `lake env lean` on the two measurement scripts aborted twice mid-round with
+`object file … StrengthenVerdict.olean … does not exist` and `… Verify/Primitive.olean …` —
+other streams' in-flight files, as in §V4.  Building those modules restored both; the numbers
+above are from after that.  **The session scratchpad is shared between streams**: a file
+written there was overwritten by another agent mid-round.  Use a per-stream subdirectory.
+
+## W7. Corrections this round makes
+
+| document | claim | correction |
+|---|---|---|
+| the brief; `KCanonical.lean`'s `kmajor_liftN` docstring ("this is the field that repairs `ParRed.weakN_inv`") | M3 repairs `weakN_inv`'s `keta` case | It repairs the *`here`* layer only.  The equality conclusion is false for a reason M3 does not touch — `EtaK.under`'s λ-domain — and `not_weakNInvStatement_of_etaK` refutes it from **one** K-step, axiom-clean.  §W1. |
+| §S5 / `KCanonical.lean` §"What M3 does for `ParRed.weakN_inv`" | the equality form dies because `KStep`'s `c` may mention `.bvar k` | True but **not the binding obstruction**.  Making `KStep` canonical would not save the equality form: the domain floats regardless.  §W1. |
+| §V7 item 1 | "three of [sites 3–7] consume `weakN_inv`'s conclusion" | **One** site consumes it (§V3 row 7), at **two** call sites.  `weakN_inv` is a leaf, not a hub.  §W5. |
+| §V3 row 1 / §R3.1 / §S5 | site 1 is "false without M3" | False *with* M3 too, at the equality conclusion; and at the `≡ₚ` conclusion it needs M3 **plus** `PiTypeDescend` **plus** `WeakNInvTail`, the last of which is `NormalEq.parRed`-shaped.  §W4. |
+| §V7 item 1 ("settle that weakening *before* attacking sites 3–7") | the weakening is a prerequisite for the others | The ordering is the other way round for site 7: the weakening's only consumer *is* site 7, and its tail residual is site 7's own statement.  They have to be done together. |
+| §U1 / §V0.4 | the measure's job is the η-diamond | It has a second consumer: `etaKn_liftN_inv`'s induction needs the height because the `under` step relocates its sub-derivation.  §W2. |
+
+Nothing in §§1–2, §4, §T1–T4, `KRule.lean`, `KDescend.lean`, `KCanonical.lean`'s
+`kDiamond_of`/`KSmall`, or `DescendRefute.lean`'s three refutations is contradicted, and no
+statement of any of them changed.
+
+## W8. Files, round 7
+
+* `Lean4Lean/Theory/Typing/KEta.lean` — **append-only**, 144 lines: `EtaK.under_dom`,
+  `WeakNInvStatement`, `kdom`/`kdom_defeq`/`kdom_ne_liftN`,
+  `not_weakNInvStatement_of_etaK`, `kdom_normalEq_lam`, `EtaKLiftInvC`, `KStepLiftInv`,
+  `PiTypeDescend`, `kStepLiftInv_of`, `weakNInvStatement_of_no_etaK`,
+  `refParams_weakNInvStatement`, `kStepLiftInv_of_no_kstep`, `refParams_kStepLiftInv`.
+* `Lean4Lean/Theory/Typing/KMeasure.lean` — **append-only**, 83 lines: `EtaKn.defeqDFC`,
+  `etaKn_liftN_inv`, `etaK_liftN_inv`, `WeakNInvTail`, `keta_weakN_inv`.
+* `Lean4Lean/Theory/Typing/KCanonical.lean` — **append-only**, 74 lines:
+  `KTable.kstep_liftN_inv_step`.
+* `docs/handoff-krule.md` — this section.
+* `ChurchRosser.lean` and `Verify/Typing/ConstSpine.lean`: **not touched**.
+
+## W9. What to pick up first
+
+1. **Treat sites 1 and 7 as one problem.**  §W4 is the proof that they are: site 1's tail
+   residual `WeakNInvTail` is `NormalEq.parRed`'s commutation at a lifted pair, and site 7's
+   two uses of `weakN_inv` are the only consumers of site 1.  A joint induction on
+   `NormalEq.parRed` × `weakN_inv`, both at the `≡ₚ` conclusion, is the shape to try — and
+   **audit `WeakNInvTail` for truth before building on it**; it was not audited, and this
+   corner has produced fourteen statements that were false rather than open.
+2. **`PiTypeDescend` needs a home.**  It is a typing statement, not a K statement, and it
+   belongs beside `Theory/Typing/Strengthen.lean`'s `SortDescend`/`PiDescend` — where the
+   right question is whether it follows from `TypingStrengthening` by some wrapping trick, as
+   `SortDescend` does.  If it does, site 1's price drops to `KTable` + `WeakNInvTail`.
+3. **Do not spend the `Params` fields yet.**  §S7's eight construction sites are still eight,
+   and `KTable` now buys a *conditional* repair of one entangled site.
+4. **Site 3 (the η-layer diamond) is untouched and independent** of everything above;
+   `KMeasure.etaKDiamond_of_at` still reduces it to the equal-height case.
+5. **Shape C is still settled**, and the relations are byte-identical to round 6's, so §V3's
+   seven-site list is current — only site 1's *content* changed.

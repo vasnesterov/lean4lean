@@ -705,6 +705,173 @@ theorem ParRedK.defeqDFC {Γ₁ Γ₂ : List VExpr} {e1 e2 A : VExpr}
     exact .keta (hek.defeqDFC hΓ₀ W)
       (ih W (hek.defeqU (W.isType' hΓ₀) |>.of_l henv (W.isType' hΓ₀) h |>.hasType.2))
 
+/-! ## The domain obstruction: `ParRed.weakN_inv` is false at `=`, and M3 does not touch it
+
+`docs/handoff-krule.md` §V3 site 1, and the brief that produced this round, say the `keta`
+case of `ParRed.weakN_inv` is false because `KStep`'s major premise `c` is existentially
+quantified and may mention `.bvar k`, and that **M3** (`KCanonical.KTable`) repairs it by
+making the canonical premise a syntactic function of the redex.
+
+**That diagnosis is incomplete, and the repair does not work**, for a reason one level up
+from the rule table: `EtaK.under` carries the η-expansion's **domain** `A`, constrained only
+by `Γ ⊢ e : .forallE A B` -- i.e. only *up to definitional equality*.  So even a fully
+canonical K-step produces a contractum `.lam A t` whose `A` may mention `.bvar k`, and that
+is not a lift.  `kmajor` says nothing about `A`; no field of the rule table can, because `A`
+is not read off the rule at all.
+-/
+
+/-- **The λ-domain of an `EtaK` step is only determined up to conversion.**  Given one
+derivation ending in `under`, every definitionally equal domain gives another one, with the
+*same* body.  `EtaK.defeqDFC` moves the sub-derivation; the Π-typing is transported by
+`forallEDF`. -/
+theorem EtaK.under_dom {Γ : List VExpr} {e A A' B t : VExpr} {u v : VLevel}
+    (hΓ : OnCtx Γ (IsType env univs))
+    (hty : Γ ⊢ e : .forallE A B) (hB : A::Γ ⊢ B : .sort v)
+    (hAA' : Γ ⊢ A ≡ A' : .sort u)
+    (H : EtaK (A::Γ) (.app e.lift (.bvar 0)) t) : EtaK Γ e (.lam A' t) :=
+  .under (.defeqDF (.forallEDF hAA' hB) hty) (H.defeqDFC hΓ (.succ .zero hAA'))
+
+/-- `ParRed.weakN_inv`'s statement (`ChurchRosser.lean:775`), verbatim, for the enlarged
+relation.  Its `keta` case is `docs/handoff-krule.md` §V3's site 1. -/
+def WeakNInvStatement : Prop :=
+  ∀ {n k : Nat} {Γ Γ' : List VExpr} {e1 e2' A : VExpr},
+    OnCtx Γ' (IsType env univs) → Ctx.LiftN n k Γ Γ' →
+    Γ' ⊢ e1.liftN n k : A → ParRedK Γ' (e1.liftN n k) e2' →
+    ∃ e2, ParRedK Γ e1 e2 ∧ e2' = e2.liftN n k
+
+/-- A domain that is definitionally equal to `A₀.lift` in `C::Γ` and **mentions `.bvar 0`**:
+the type ascription redex `(fun _ : C => A₀) x` at the freshly bound `x`.  It is a lift of
+nothing, and `EtaK.under_dom` puts it in the conclusion of an `EtaK` step at a lifted
+redex. -/
+def kdom (C A₀ : VExpr) : VExpr := .app (.lam C.lift (A₀.lift.lift)) (.bvar 0)
+
+theorem kdom_defeq {Γ : List VExpr} {C A₀ : VExpr} {uC u : VLevel}
+    (hC : Γ ⊢ C : .sort uC) (hA₀ : Γ ⊢ A₀ : .sort u) :
+    (C::Γ) ⊢ kdom C A₀ ≡ A₀.lift : .sort u :=
+  by simpa [kdom, VExpr.inst_lift, VExpr.liftN, VExpr.inst] using
+    IsDefEq.beta (A := C.lift) ((hA₀.weak henv).weak henv) (.bvar .zero)
+
+theorem kdom_ne_liftN {C A₀ X : VExpr} : kdom C A₀ ≠ X.liftN 1 0 := by
+  intro h
+  cases X <;> simp [kdom, VExpr.liftN] at h
+  rename_i X1 X2
+  obtain ⟨-, h⟩ := h
+  cases X2 <;> simp [VExpr.liftN, Lean4Lean.liftVar] at h
+  omega
+
+/-- **Site 1 is false at `=`, and M3 cannot repair it.**  The single hypothesis `hin` is the
+same configuration both standing kills use -- a K-redex at the η-expansion of a term one
+argument short of its ι-pattern -- and nothing about the rule table enters the argument.
+
+What breaks `weakN_inv` here is `EtaK.under`'s **domain**, not `KStep`'s major premise: the
+step at the lifted redex `e.lift` may legitimately conclude `.lam (kdom C A₀) t`, whose
+domain mentions `.bvar 0` and is therefore the lift of nothing.  `KTable.kmajor` is a
+function of `(p₂, f, h)` and says nothing about the domain; no field of the rule table can,
+because the domain is not read off the rule.  So the conclusion `e2' = e2.liftN n k` must
+weaken however canonical the K-step is made. -/
+theorem not_weakNInvStatement_of_etaK
+    {Γ : List VExpr} {C e A₀ B₀ t : VExpr} {uC : VLevel}
+    (hΓ : OnCtx Γ (IsType env univs))
+    (hC : Γ ⊢ C : .sort uC)
+    (he : Γ ⊢ e : .forallE A₀ B₀)
+    (hin : EtaK (A₀.lift :: C :: Γ) (.app (VExpr.lift (VExpr.lift e)) (.bvar 0)) t) :
+    ¬ WeakNInvStatement := by
+  intro WI
+  have hΓC : OnCtx (C::Γ) (IsType env univs) := ⟨hΓ, _, hC⟩
+  have ⟨⟨u, hA₀⟩, v, hB₀⟩ := (have ⟨_, h⟩ := he.isType henv hΓ; h.forallE_inv henv)
+  have hty : (C::Γ) ⊢ e.lift : .forallE A₀.lift (B₀.liftN 1 1) := he.weak henv
+  have hB : (A₀.lift :: C :: Γ) ⊢ B₀.liftN 1 1 : .sort v := hB₀.weakN henv (.succ .one)
+  have hek : EtaK (C::Γ) e.lift (.lam (kdom C A₀) t) :=
+    EtaK.under_dom hΓC hty hB (kdom_defeq hC hA₀).symm hin
+  obtain ⟨e2, -, heq⟩ := WI (n := 1) (k := 0) hΓC .one hty (.keta hek .rfl)
+  cases e2 <;> simp [VExpr.liftN] at heq
+  exact kdom_ne_liftN heq.1
+
+/-! ### The repair: `≡ₚ`, and why the domain obstruction does not survive it
+
+`NormalEq.lamDF` asks only that the two λ-domains be **definitionally equal** to a common
+one -- `Γ ⊢ A ≡ A₁ : .sort u → Γ ⊢ A ≡ A₂ : .sort u → A::Γ ⊢ b₁ ≡ₚ b₂`.  That is exactly the
+slack `EtaK.under`'s free domain needs, so the `≡ₚ`-weakened conclusion is **immune** to the
+refutation above: the witness is visibly killed rather than merely no longer derivable
+(`ORCHESTRATOR.md` working rule 2). -/
+
+/-- **The fix, re-run against its own witness.**  At the configuration that refutes the
+equality form, the `≡ₚ` form's obligation is discharged by `NormalEq.lamDF` alone. -/
+theorem kdom_normalEq_lam {Γ : List VExpr} {C A₀ t t' : VExpr} {uC u : VLevel}
+    (hC : Γ ⊢ C : .sort uC) (hA₀ : Γ ⊢ A₀ : .sort u)
+    (ht : (A₀.lift :: C :: Γ) ⊢ t ≡ₚ t') :
+    (C::Γ) ⊢ .lam (kdom C A₀) t ≡ₚ .lam A₀.lift t' :=
+  .lamDF (kdom_defeq hC hA₀).symm (hA₀.weak henv) ht
+
+/-- The `≡ₚ`-weakened conclusion of the lifting inversion, together with the information the
+η-tower's own induction needs: the descended step is either a genuine `EtaK` step or the
+identity.  The identity alternative is not slack -- `KTable.canon`'s proof escape produces it
+(the redex is a proof, so `NormalEq.proofIrrel` closes without any downstairs step), and the
+`under` layer turns it into `NormalEq.etaL`. -/
+def EtaKLiftInvC (Γ Γ' : List VExpr) (n k : Nat) (e1 w : VExpr) : Prop :=
+  ∃ w₀, (EtaK Γ e1 w₀ ∨ w₀ = e1) ∧ NormalEq Γ' w (w₀.liftN n k)
+
+/-- **The residual of the lifting inversion: the `here` layer.**  This is where M3 lives --
+`KCanonical.KTable.kstep_liftN_inv` is its `NormalEq` half, and what it does not yet supply
+is the *downstairs step*, which needs `Pat`/`Matches`/`Check.OK` and the two typing premises
+descended (`IsDefEqU.weakN_iff`, already a hole of the tree). -/
+def KStepLiftInv : Prop :=
+  ∀ {n k : Nat} {Γ Γ' : List VExpr} {e1 w A : VExpr},
+    OnCtx Γ' (IsType env univs) → Ctx.LiftN n k Γ Γ' → Γ' ⊢ e1.liftN n k : A →
+    KStep Γ' (e1.liftN n k) w → EtaKLiftInvC Γ Γ' n k e1 w
+
+/-- **The typing descent the η-tower needs.**  `Theory/Typing/Strengthen.lean`'s `PiDescend`
+is the same statement with the two `VExpr.WF` premises supplied; both follow from
+`IsDefEqU.weakN_iff`, which is `UniqueTyping.lean:172`'s existing hole. -/
+def PiTypeDescend : Prop :=
+  ∀ {n k : Nat} {Γ Γ' : List VExpr} {e A B : VExpr},
+    OnCtx Γ (IsType env univs) → OnCtx Γ' (IsType env univs) → Ctx.LiftN n k Γ Γ' →
+    Γ' ⊢ e.liftN n k : .forallE A B → ∃ A₀ B₀, Γ ⊢ e : .forallE A₀ B₀
+
+/-- **`KStepLiftInv` from M3 and the Π-typing descent.**  Together with `etaKn_liftN_inv`
+(`KMeasure.lean`) this settles `ParRed.weakN_inv`'s `keta` case *in its `≡ₚ` form*: the
+`here` layer is `KTable.kstep_liftN_inv_step` and the η-tower is free.
+
+The equality form is **not** recovered, and cannot be -- `not_weakNInvStatement_of_etaK`
+above refutes it from a single K-step, axiom-clean, and the obstruction is the λ-domain,
+which no field of the rule table mentions. -/
+theorem kStepLiftInv_of (KT : KTable) (HP : PiTypeDescend) : KStepLiftInv := by
+  intro n k Γ Γ' e1 w A hΓ' W hty H
+  have hΓ : OnCtx Γ (IsType env univs) := hΓ'.weakN_inv henv W
+  cases e1 with
+  | bvar => exact nomatch H
+  | sort => exact nomatch H
+  | const => exact nomatch H
+  | lam => exact nomatch H
+  | forallE => exact nomatch H
+  | app f h =>
+    obtain ⟨_, _, hfty, -⟩ := hty.app_inv henv hΓ'
+    obtain ⟨A₁, B₁, hf₀⟩ := HP hΓ hΓ' W hfty
+    rcases KT.kstep_liftN_inv_step hΓ hΓ' W hf₀ H with ⟨w₀, hks, hne⟩ | hne
+    · exact ⟨w₀, .inl (.here hks), hne⟩
+    · exact ⟨_, .inr rfl, hne⟩
+
+/-- **The refutation's hypotheses are load-bearing.**  Where `EtaK` is empty, `ParRedK` is
+`ParRed` and `WeakNInvStatement` *holds* -- `ChurchRosser.lean`'s `ParRed.weakN_inv` is
+exactly it.  So the statement is not refutable outright: what refutes it is a live K-step,
+and the standing caveat applies (no `Params` instance in this tree registers an `.app`
+pattern, and "no witness" is not evidence). -/
+theorem weakNInvStatement_of_no_etaK (hno : ∀ {Δ a b}, ¬ EtaK Δ a b) : WeakNInvStatement := by
+  intro n k Γ Γ' e1 e2' A hΓ' W hty H
+  obtain ⟨e2, h1, h2⟩ := ParRed.weakN_inv hΓ' W hty (ParRedK.toParRed hno H)
+  exact ⟨e2, h1.toK, h2⟩
+
+theorem refParams_weakNInvStatement : @WeakNInvStatement refParams :=
+  @weakNInvStatement_of_no_etaK refParams (fun h => refParams_no_etaK h)
+
+/-- Vacuously satisfied where `KStep` is empty; recorded as a consistency check only. -/
+theorem kStepLiftInv_of_no_kstep (hno : ∀ {Δ a b}, ¬ KStep Δ a b) : KStepLiftInv := by
+  intro n k Γ Γ' e1 w A hΓ' W hty H
+  exact (hno H).elim
+
+theorem refParams_kStepLiftInv : @KStepLiftInv refParams :=
+  @kStepLiftInv_of_no_kstep refParams (fun h => refParams_no_kstep h)
+
 end VEnv
 
 end Lean4Lean
