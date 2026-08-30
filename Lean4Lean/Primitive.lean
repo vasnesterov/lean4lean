@@ -259,11 +259,9 @@ def Condition.check (cond : Condition) (fail : ∀ {α}, M α)
     unless ← checkedTypeIs cond.prop q(Nat → Nat → Prop) do fail
     reflect.check fail
     for α in iteTypes do reflect.checkITE α fail
-    if dite then reflect.checkNatDITE fail
     let y := .bvar 0; let x := .bvar 1
     let e := .lam0 q(Nat) <| .lam0 q(Nat) <| mkApp3 reflect.toDec
       (mkApp2 cond.prop x y) (mkApp2 asBool x y) (mkApp2 proof x y)
-    _ ← checkType e
     unless ← checkedTypeIs asBool q(Nat → Nat → Bool) do fail
     unless ← isProp (← checkType proof) do fail
     -- **The reflection proof's own type.**  Without this the verification cannot type
@@ -276,7 +274,16 @@ def Condition.check (cond : Condition) (fail : ∀ {α}, M α)
     unless ← checkedTypeIs proof
       (.forallE `n q(Nat) (.forallE `m q(Nat) (mkApp2 reflect.type
         (mkApp2 cond.prop x y) (mkApp2 asBool x y)) .default) .default) do fail
+    -- `checkType e` is here rather than above the `proof` checks, and the `dite` check is the
+    -- arm's last statement, purely so that the verification meets them in a usable order: every
+    -- statement in this arm must succeed for the recognizer to accept, so their order is
+    -- accept-set neutral, but `checkType e`'s output can only be *read* once `proof`'s own
+    -- translation is in hand (`trExprS_decisionTerm_inv'` identifies the `proof x y` subterm
+    -- with it), and a trailing `if` needs no `do`-block join point, so the tail of the arm is
+    -- traversed once instead of twice.  See `docs/handoff-primitive.md`.
+    _ ← checkType e
     unless ← isDefEq e cond.dec do fail
+    if dite then reflect.checkNatDITE fail
   | .bool =>
     unless ← checkedTypeIs cond.prop q(Bool → Prop) do fail
     for α in iteTypes do
