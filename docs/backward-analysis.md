@@ -294,6 +294,47 @@ middle term — the model takes for free, because `interp` is total on raw synta
 With (E), `sort_inv` and `forallE_inv_stratified` leave `kernel_sound`'s cone entirely: 174
 declarations' worth of dependence becomes four constructors.
 
+> ### ⚠ RZ-5 RUN — this paragraph is **refuted**. See `docs/handoff-isdefequ.md`.
+>
+> Measured in `kernel_sound`'s own closure (import closure of `Verify/Bridge.lean`, 13 339
+> declarations): (E) takes `sort_inv` from **235 users to 173**, and the residue still reaches
+> `Bridge.not_leanTTConsistent_of_kernel_proves_false`. `forallE_inv_stratified` goes 252 → 190.
+> Nothing leaves the cone.
+>
+> Four `uniq` consumers survive (E), and none of them is composition-at-different-types, so no
+> rule that makes composition free can reach them: `HasType.piUniq` (Π-unique-typing),
+> `IsDefEq.weakN_iff'` (unique typing across a weakening), `isDefEqUnitLike.WF_proof`
+> (**`PropUniq`** — see §6, which would close it), `prim_domain_nat` (unique typing at
+> `.natLit`).
+>
+> Three corrections in the favourable direction, also measured:
+>
+> * **(E) is a necessary half of a cut that does work.** The minimal set that disconnects
+>   `sort_inv` from the goal is (E) **+ `piUniq` + `weakN_iff'`**; dropping any of the three
+>   reconnects it, and cutting the four sites *without* (E) leaves 200 users.
+> * `weakN_iff'` alone carries 102 of (E)'s 173 survivors, and is the single largest item on
+>   the whole route.
+> * `prim_domain_nat` has **zero** transitive users, and `isDefEqUnitLike.WF_proof`'s cone does
+>   not reach the Bridge export, so the *live* residue is two sites, not four.
+>
+> And one correction against (E) itself: the enlargement as stated here — conversion taking the
+> untyped closure — **loses regularity**. `IsDefEq.isType'`'s `defeqDF` case reads `IsType Γ B`
+> off the `.sort u` index; without it the case needs `IsType.defeqU_l`, a member of the very
+> family (E) exists to make free. The repair is to carry the typing premise on the rule
+> (`retype : Γ ⊢ e₁ ≡ e₂ : A → Γ ⊢ e₁ : B → Γ ⊢ e₁ ≡ e₂ : B`), which is what
+> `Theory/Typing/Enlarged.lean` prototypes; with it, ten of the twelve family lemmas are proved
+> free with no `VEnv.WF`, no `OnCtx` and no `uniq`, and the other two need only regularity.
+>
+> The model half of RZ-5 **is** confirmed, and is now machine-checked rather than analysis:
+> `Theory/Typing/EnlargedModel.lean`'s `retype_sound` is `⟨h₁.eq, h₂.type⟩` — a re-pairing of
+> the two induction hypotheses, no side condition, no new threshold.
+>
+> The cost is elsewhere, and it is decisive: adding the rule to `Basic.lean` in place forces
+> constructors in `IsDefEqStrong`, `HasTypeStrong` and `HasTypeStratified`, hence a new case in
+> `IsDefEq.uniq`'s own induction, whose obligation (`Enlarged.UniqAcross`) **implies `uniqU`
+> back** (`Enlarged.uniqU_of_uniqAcross`, `[propext]`). The collapse test fails: an in-place
+> (E) would move `uniq` from proved to open while leaving it in the cone.
+
 *What it does not buy, stated because it is the reason (E) is not the answer:* it does **not**
 remove `IsDefEqU.forallE_inv`, whose two consumers (`TrExpr.beta`, `inferApp.loop.WF`) need
 Π-injectivity for the conversion relation, and (E) makes that relation larger, so injectivity for
@@ -493,10 +534,13 @@ Each can kill the candidate before the expensive part. Run them in this order.
    this, and it is the only place the goal touches the model. Both branches give `∅` (§4), so it
    does not wait on anything. **It should be written first regardless of the rest of this
    document**, because until it exists nobody knows what `sound_nil` has to be instantiated at.
-5. **RZ-5 — (E), the `IsDefEqU'` enlargement (§5), model-neutrality.** Check that
-   `EqSound`-composition plus the `Above` algebra really discharges part 4 for the closure. This
-   is independent of §6 and is owned jointly by the `Theory/` and `Verify/` streams; its payoff is
-   removing `sort_inv` from the cone, not removing `forallE_inv`.
+5. **RZ-5 — (E), the `IsDefEqU'` enlargement (§5), model-neutrality. — RUN; see the boxed
+   note in §5 and `docs/handoff-isdefequ.md`.** The model half is confirmed and machine-checked
+   (`EnlargedModel.retype_sound`). The *payoff* claimed here — "removing `sort_inv` from the
+   cone" — is **refuted**: (E) takes it from 235 users to 173 and it still reaches the goal.
+   What (E) is, measured, is one necessary third of a cut whose other two thirds are
+   `HasType.piUniq` and `IsDefEq.weakN_iff'`. And the in-place form is a regression: it adds a
+   case to `uniq`'s induction whose obligation implies `uniq`.
 
 ---
 
