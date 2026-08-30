@@ -99,9 +99,18 @@ Put this check in every brief. It has now found more than the proofs have.
 
 1. **Definition, not check.** Make content a definition the caller cannot misstate, rather than a field the caller supplies and the spec validates. Worked five times; the alternative produced an actual inconsistency.
 2. **Re-run the refutation against the fix.** A repair that does not *visibly kill its own witness* has not been shown to work. Required four times, caught a bad fix each time.
-3. **Non-vacuity is an acceptance criterion.** Fire every obligation at a non-degenerate witness. When no witness can exist, say **why**, and say plainly that *"no witness" is not evidence of truth*.
-4. **A claimed reduction is not a reduction until the collapse test passes**: can the residual's quantifiers be instantiated so its premises degenerate into the target's? Two "reductions" were tautologies.
-5. **Passenger test** (for whether an open lemma is really a primitive): if every call site inside proved theorems is on an IH output, it may be a passenger — but this is **necessary, not sufficient**. The conjunct must also be derivable from the invariant's components.
+3. **Check the polarity before widening a predicate.** A predicate in a **negative**
+   position is an *assumption*, not an obligation: dropping one of its fields
+   **strengthens** what you are assuming, it does not weaken what you must prove. This
+   nearly landed — an instruction to drop a field from `IsStructure` would have
+   strengthened the structure-eta assumption to cover cases Lean's own eta gate
+   excludes. And crucially: **a non-vacuity check cannot detect an over-strong
+   assumption** — the witnesses still fire, because the predicate got easier to satisfy
+   in the direction the witness tests. When a widening is wanted, define a *separate*
+   widened predicate rather than editing the original in place.
+4. **Non-vacuity is an acceptance criterion.** Fire every obligation at a non-degenerate witness. When no witness can exist, say **why**, and say plainly that *"no witness" is not evidence of truth*.
+5. **A claimed reduction is not a reduction until the collapse test passes**: can the residual's quantifiers be instantiated so its premises degenerate into the target's? Two "reductions" were tautologies.
+6. **Passenger test** (for whether an open lemma is really a primitive): if every call site inside proved theorems is on an IH output, it may be a passenger — but this is **necessary, not sufficient**. The conjunct must also be derivable from the invariant's components.
 
 ## Measuring
 
