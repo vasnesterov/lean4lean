@@ -279,13 +279,24 @@ use `.const c ls` at *every* level list `ls` of length `U`, each inhabiting a *d
 type `ci.type.instL ls`.  One context entry supplies one such instance, so
 `AxiomConservativity` is an axiom **scheme** and is a priori *stronger* than the target.
 
-It is probably not strictly stronger — a derivation is a finite object and mentions finitely
-many level lists, so a `const`-to-variable translation would land in a context extended by
-finitely many entries, which `StrengtheningTarget` iterates over.  But that translation is
-not in this tree (`Theory/Typing/ConstSubst.lean` transports a judgement only along a
-substitution whose values *inhabit* the constants' types, which is precisely what is missing
-here), and neither is the extraction of the level lists.  Until one of them is built, the
-honest label for route 1 is **reduction, direction proved one way only**.
+**SUPERSEDED — see `Theory/Typing/ConstVar.lean`.**  The two paragraphs above were written
+before the converse was built, and their verdict is now wrong.  `ConstVar.lean` builds the
+`const`-to-variable transport and proves
+
+    AxiomConservativityWF env U ↔ StrengtheningTarget env U
+
+where `AxiomConservativityWF` is `AxiomConservativity` **plus `OnCtx Γ`** — a hypothesis every
+use of the residual already has, including `strengthening1Uninhab` below.  So the residual is
+*not* strictly stronger than the target: it **is** the target.
+
+The universe-scheme argument above is sound but is not an obstruction: the transport puts one
+context entry per `≈`-**class** of level list, and `VEnv.IsDefEq.instL_r`
+(`Theory/Typing/Strong.lean`) makes that entry serve the whole class.  The "extraction of the
+level lists" named above is **not expressible** — a derivation is a `Prop` — and is **not
+needed**: the transport's induction produces the list and states its conclusion for every list
+covering it.  The only link that remains one-directional is `AxiomConservativity` with an
+*arbitrary* context, which the target cannot reach because `Γ ++ Ts` is not a well-formed
+context unless `Γ` is.
 
 **Non-vacuity** (working rule 4).  `AxiomConservativity` is fired below at a witness where
 the derivation over `env'` genuinely goes through the new constant while both endpoints are

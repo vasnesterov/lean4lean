@@ -36,10 +36,19 @@ auxiliary constant (`∀ ξ, _nested.PFn_1 …`) in a staging environment that h
 
 `val` is the one to read carefully.  It is *not* "σ c is well typed"; it is a **defeq**
 between the value at two `≈`-equivalent level lists, because `constDF` relates
-`.const c ls` to `.const c ls'` whenever `ls ≈ ls'`.  A version of `val` asking only for
-`env₁.HasType U [] t ci.type` is strictly weaker and **does not suffice**: closing the gap
-needs `t.instL ls ≡ t.instL ls'`, i.e. congruence of typing under `≈` of universe levels,
-which is not available (see `CSubst.WF.val_of_uvars_zero` for the case where it is free).
+`.const c ls` to `.const c ls'` whenever `ls ≈ ls'`.
+
+**Correction (this paragraph used to say the opposite).**  An earlier revision of this header
+said that a version of `val` asking only for `env₁.HasType U [] t ci.type` "does not
+suffice", because closing the gap needs `t.instL ls ≡ t.instL ls'` — congruence of typing
+under `≈` of universe levels — "which is not available".  That congruence **is** available:
+it is `VEnv.IsDefEq.instL_r` (`Theory/Typing/Strong.lean`), `sorry`-free and not circular
+through the `weakN` family.  This file's own `CSubst.val_of_hasType` derives `val` from plain
+well-typedness with it, given `Ordered env₁`, and `CSubst.WF_of_hasType` is the resulting
+builder; the strong `val` field is kept only because the existing witnesses are written
+against it.  See the section note above `val_of_hasType`, and
+`Theory/Typing/ConstVar.lean`, where the same lemma is what makes one context entry serve a
+whole `≈`-class of level lists.
 
 The context quantifier in `val` is unrestricted on purpose.  `VEnv.IsDefEq` never demands a
 well-formed context (`sortDF` and `constDF` have no premise about `Γ`), so no invariant on

@@ -8,262 +8,274 @@ Marks, kept strictly separate throughout:
 **[measured]** = a machine run whose output is reproduced here;
 **[read]** = read off source; **[analysis]** = neither.
 
-This pass **took route 1** of the previous revision's §2.3 (axiom conservativity) and built it:
-`Theory/Typing/StrengthenAxiom.lean`, **56 declarations, 0 `sorryAx`-tainted** [measured].
-It also **corrected route 1's price in three places** and found one **new structural fact**
-about the residual that the sketch did not contain.  Read §0 first.
+This pass built the **`const`-to-variable transport** that the previous revision named as the
+thing to pick up first, in `Theory/Typing/ConstVar.lean` (**79 declarations, 0 with `sorryAx`
+in their transitive cone, 0 mentioning `weakN_iff`** [measured]).  The headline result is a
+**verdict on the open question**, and it corrects the previous revision in three places.
+Read §0 first.
 
 ---
 
-## 0. The six things to know before touching this
+## 0. The five things to know before touching this
 
-0. **Route 1 is built and the reduction is machine-checked.**  The chain is
+0. **The open question is settled: the residual is EQUIVALENT to the target, not strictly
+   stronger** — once its context is required to be well formed.
 
-       AxiomConservativityUninhab → Strengthening1Uninhab → Strengthening1 → StrengtheningTarget
+       AxiomConservativityWF env U  ↔  StrengtheningTarget env U     [machine-checked]
+       AxiomConservativityUninhabWF env U  ↔  StrengtheningTarget env U   [machine-checked]
+       AxiomConservativityWF env U  ↔  AxiomConservativityUninhabWF env U [machine-checked]
 
-   `AxiomConservativityUninhab.target` **[machine-checked, sorry-free]**, axioms
-   `[propext, Classical.choice, Quot.sound]`.  `StrengtheningTarget` is the hole's own
-   statement (`Strengthen.lean` §10).
-1. **The residual is now: adding an axiom whose type has *no inhabitant* is conservative.**
-   Not merely "adding an axiom".  §12 of `Strengthen.lean` confines the target to uninhabited
-   context entries; `hasType_appCtx` transports that to the Π-closure, so the declared
-   constant may be assumed empty.  Equivalently, and this is the sharpest framing this corner
-   has reached: **a `VEnv.WF` environment with no model is conservative over its base for
-   conversion.**  (`env'` really is `VEnv.WF` when `env` is — `VDecl.WF.axiom`.  If the
-   axiom's type is empty in every model, `env'` has none. **[analysis]**)
-2. **New, and not in the previous revision's sketch: the residual is an axiom *scheme*.**
-   `VConstant.WF env ci` is `env.IsType ci.uvars [] ci.type`, so a constant whose type
-   mentions the ambient universe parameters *must* be declared with `ci.uvars = U`; and
-   `constDF` then admits `.const c ls` at **every** level list `ls` of length `U`, each
-   inhabiting a different type `ci.type.instL ls`.  One context entry supplies one such
-   instance.  So `AxiomConservativity` is **a priori stronger** than the target, and the
-   reduction is proved **one direction only**. **[read + analysis]**
-3. **Route 1's price was mis-stated.**  The previous revision priced it as "a Π-closure
-   construction over a context plus its typing lemma; nothing like it is in
-   `Theory/Typing/`".  Measured against the build: the Π-closure typing
-   (`isType_mkForallCtx`) is **four lines**.  The real costs were three things the sketch did
-   not name — the application spine (`appCtx`, `hasType_appCtx`, turning on
-   `VExpr.instN_bvar0`), **fresh names** (§4 below), and the `c`-freeness side conditions.
-4. **Prior art was missed, and it was one rename away from the un-importable-modules trap.**
-   `VExpr.ConstsIn`, `CtxConstsIn`, `IsDefEq.constsIn` and `Ordered.constsIn` **already exist**
-   in `Theory/SetModel/Consts.lean` — whose own header says they "would be at home in
-   `Theory/Typing/Lemmas.lean`".  They were written independently here first and caught by a
-   name scan, not by reading.  That file imports only `Theory/Typing/Lemmas.lean`, so it is
-   imported instead; only `ctxConstsIn_of_onCtx` was genuinely missing. **[measured]**
-5. **Everything in §§0–7 of the previous revision that is not corrected here still stands** —
-   in particular `HeadReduction.lean` cannot deliver (§4), `church_rosser`'s refutation is
-   *conditional* (§5.1), and no model argument reaches the residual (§3).
+   (`VEnv.axiomConservativityWF_iff_target`, `…UninhabWF_iff_target`,
+   `axiomConservativityWF_iff_uninhabWF`, all in `ConstVar.lean` §6–7, axioms
+   `[propext, Classical.choice, Quot.sound]`.)  The previous revision's §2.1 —
+   "reduction, direction proved one way only", "a priori stronger" — is **superseded**.
+1. **The universe-scheme obstruction it named is gone, and it was never the obstruction.**
+   §0.2 of the previous revision said `constDF` admits `.const c ls` at *every* level list
+   while one context entry supplies one instance, so the residual is an axiom **scheme**.
+   True — and handled: the transport puts **one entry per `≈`-class of level list the
+   derivation uses**, and `VEnv.IsDefEq.instL_r` makes that entry serve the whole class.
+   `lvlIdx_distinguishes` **[machine-checked]** confirms `Sort 0` and `Sort 1` get *different*
+   entries, which is the check that would have falsified the construction.
+2. **`ConstSubst.lean`'s header was wrong, and its own body already refuted it.**  It said
+   `t.instL ls ≡ t.instL ls'` for `ls ≈ ls'` — "congruence of typing under `≈` of universe
+   levels" — "is not available".  It **is**: `VEnv.IsDefEq.instL_r` (`Theory/Typing/Strong.lean:823`),
+   sorry-free, cone 2325, `weakN_iff` **not** in its cone [measured].  That file's own
+   `CSubst.val_of_hasType` (predates this pass, commit `6d89bb5`) already derives `val` from
+   plain well-typedness with it.  The header is corrected in this pass; the body is untouched.
+   **Anything a brief tells you is "not available" about level congruence is stale.**
+3. **What is still open is the same crux, and only the crux.**  `AxiomConservativityWF` —
+   *adding an axiom whose type has no inhabitant is conservative*, equivalently *a `VEnv.WF`
+   environment with no model is conservative over its base for conversion* — is now known to
+   be **exactly** the hole, in both directions.  No model argument reaches it (vacuous over an
+   uninhabited entry, a theorem); `proofIrrel` provably cannot be the mechanism of a
+   counterexample; inconsistent environments make the problem easier.
+4. **One gap remains between `AxiomConservativity` (as `StrengthenAxiom.lean` states it) and
+   the target, and it is not the universe scheme.**  `AxiomConservativity` quantifies over an
+   **arbitrary** context `Γ`; `StrengtheningTarget`'s only hypothesis is `OnCtx Γ'`, and
+   `Γ ++ Ts` cannot be well formed unless `Γ` is.  So the un-`OnCtx` version stays a priori
+   stronger, by exactly that hypothesis.  This costs nothing: every use of the residual has
+   `OnCtx Γ` in scope (`Strengthening1Uninhab` carries it), which is why
+   `AxiomConservativityUninhabWF.strengthening1Uninhab` goes through unchanged. **[read + machine-checked]**
 
 ---
 
-## 1. What landed this pass — `Theory/Typing/StrengthenAxiom.lean`
+## 1. What landed this pass — `Theory/Typing/ConstVar.lean`
 
-All sorry-free; the module was scanned exhaustively (**56 declarations, 0 containing
-`sorryAx` in their transitive closure**) rather than spot-checked. **[measured]**
+666 lines, 79 declarations, **0** with `sorryAx` in their transitive closure, **0** whose cone
+contains `weakN_iff` (module-restricted cone scan, theorem values read explicitly, not a
+name grep) [measured].
 
 | name | statement |
 |---|---|
-| `ctxConstsIn_of_onCtx` | a well-formed context mentions only declared constants |
-| `mkForallCtx` | Π-closure of a term over its context (`def`) |
-| `isType_mkForallCtx` | **the Π-closure of a well-formed entry is a closed type** |
-| `VExpr.appCtx` | a closed term applied to a context's own variables (`def`) |
-| `hasType_appCtx` | **an inhabitant of the closure gives an inhabitant of the entry** |
-| `Ordered.consts_finite` | an `Ordered` environment declares finitely many constants |
-| `exists_name_not_mem` | `Name` is infinite |
-| `Ordered.exists_addConst` | **an `Ordered` environment always admits one more axiom** |
-| `Ctx.LiftN.exists_instN_typed` | `exists_instN` carrying `OnCtx Γ₀` and `IsType Γ₀ A₀` |
-| `AxiomConservativity` | the residual (`def`) |
-| `AxiomConservativityUninhab` | **the sharpened residual: the axiom's type is empty** (`def`) |
-| `AxiomConservativity.uninhab` | the sharpened residual is the weaker obligation |
-| `AxiomConservativityUninhab.strengthening1Uninhab` | **the reduction, core step** |
-| `AxiomConservativityUninhab.target` | **the reduction to the hole's own statement** |
-| `AxiomConservativity.target` | the same from the unsharpened residual |
-| `strengtheningTarget_of_allClosedInhabited` | **the vacuity dual** (see §2.2) |
-| `VEnv.addConst_ne` | `addConst` always changes the environment (collapse test, §2.3) |
-| `axiomConservativity_fires` | non-vacuity: the constant occurs in the derivation |
-| `appCtx_fires` | the construction fires at a real Π and a real application |
+| `LEqv`, `LWF`, `LCov`, `lvlIdx` | level lists up to `≈`, and the index of a class |
+| `lvlIdx_split`, `lvlIdx_congr`, `lvlIdx_lt` | the index points at an `≈`-equivalent entry |
+| `VExpr.cvar` | **the translation**: `.const c ls ↦ .bvar (d + Γ.length + lvlIdx L ls)` (`def`) |
+| `VExpr.cvar_eq_self` | `cvar` is the **identity on `c`-free terms** |
+| `VExpr.cvar_liftN`, `cvar_inst` | `cvar` commutes with lifting and instantiation |
+| `cvarCtx`, `cvarTs`, `cvarCtx_split` | the translated context and the new entries |
+| `lookup_mid`, `Lookup.appendR`, `lookup_cvarCtx` | the four `Lookup`s the induction needs |
+| `VEnv.addConst_spec` | what `addConst` does to `constants` and `defeqs` |
+| **`cvarMain`** | **the transport**: a derivation over `env'` becomes one over `env` |
+| `VEnv.onCtx_append` | `OnCtx Γ` + closed well-formed `Ts` ⟹ `OnCtx (Γ ++ Ts)` |
+| `AxiomConservativityWF`, `AxiomConservativityUninhabWF` | the residual with `OnCtx Γ` (`def`) |
+| `AxiomConservativityUninhabWF.strengthening1Uninhab` | route 1, run from the sharpened residual |
+| **`StrengtheningTarget.axiomConservativityWF`** | **the converse**, the new direction |
+| `axiomConservativityWF_iff_target` | **the equivalence** |
+| `axiomConservativityUninhabWF_iff_target` | the same for the uninhabited sharpening |
+| `axiomConservativityWF_iff_uninhabWF` | **restricting to uninhabited axioms loses nothing** |
+| `cvarMain_needs_entries` | non-vacuity, backed by a lemma (§3) |
+| `lvlIdx_distinguishes` | the scheme really gets distinct entries (§3) |
+| `cvarTs_liftN_fires` | the target is applied at `n = 1`, not `n = 0` |
 
-**Non-circularity.**  Nothing in the file mentions `IsDefEqU.weakN_iff`; it imports
-`Strengthen.lean` (which does not either) and `SetModel/Consts.lean`. **[measured]**
+### 1.1 The three decisions that made this small
 
-### 1.1 The construction, in one paragraph
+The previous revision priced this route as "an induction over `IsDefEq`'s twelve rules with a
+de Bruijn shift under binders, **plus extraction of the finitely many level lists in a
+derivation**".  The extraction is **not expressible** — a derivation is a `Prop`, so there is
+nothing to recurse over to collect its level lists.  Three choices removed it and two other
+costs with it:
 
-Given `Ctx.LiftN 1 k Γ Γ'` and `OnCtx Γ'`, `exists_instN_typed` splits `Γ'` into the entry
-`A₀` and the context `Γ₀` below it, *with* their well-formedness, and quantifies the
-substituted term **inside** the existential — which is what lets the inhabitant be built from
-`Γ₀` afterwards (the previous `exists_instN` took `e₀` as a parameter, so `Γ₀` was not
-available before `e₀` had to be chosen).  `mkForallCtx Γ₀ A₀` is then a closed type;
-`Ordered.exists_addConst` declares it at a fresh name `c` with `uvars = U`;
-`hasType_appCtx` turns `c` applied to `Γ₀`'s own variables into an inhabitant of `A₀` over
-`Γ₀`; and `IsDefEqU.strengthen_of_instN` (`Strengthen.lean` §1) closes the strengthening over
-`env'` outright.  All that is left is to come back down to `env`.
+* **Quantify over covers, don't extract.**  `cvarMain`'s conclusion is
+  `∃ L₂, LWF U L₂ ∧ ∀ L', LWF U L' → LCov L' L₂ → <derivation at L'>`.  The induction
+  *produces* `L₂` (the lists its own `constDF`-at-`c` nodes use) and the conclusion is stated
+  for every `L'` covering it.  Because every term in the conclusion is computed **at `L'`**,
+  the `trans` case instantiates both hypotheses at the *same* `L'` and the middle terms are
+  syntactically equal on the nose.  **No coverage predicate on terms, no index-stability
+  lemma, and no context weakening are needed anywhere.**  An earlier design that threaded an
+  input `L` and grew it needed all three.
+* **Put the new entries at the BOTTOM of the context** (`Γ ++ Ts`, indices `d + Γ.length + i`),
+  not the top.  Then `cvar` leaves every `bvar` alone, so `cvar` is the **identity on `c`-free
+  terms** — which the target judgement's endpoints are — and `Ctx.LiftN.right` +
+  `ClosedN.liftN_eq` make the final `StrengtheningTarget` application a rewrite rather than a
+  computation.  Top placement would have shifted every variable by `|L|` and made the
+  translation depend on `|L|`.
+* **`IsDefEq.instL_r` for the `≈`-class.**  `constDF` relates `.const c ls` to `.const c ls'`
+  whenever `ls ≈ ls'`, so both must map to the *same* variable, whose type is `ci.type.instL`
+  at some representative.  `instL_r` supplies `ci.type.instL ls₁ ≡ ci.type.instL ls` and
+  `defeqDF` closes it.  This is the lemma §0.2 says the tree was believed not to have.
 
----
+Costs that *were* real: `cvar_inst` (the `bvar`/`instVar` case split), `lookup_cvarCtx`, and
+`onCtx_append` — none of them hard, all of them mechanical.
 
-## 2. The residual, priced honestly
+### 1.2 The assembly, in one paragraph
 
-### 2.1 What is *not* proved: the converse
-
-`StrengtheningTarget → AxiomConservativity` is not proved, and it is not free.  The natural
-translation replaces `.const c ls` by a context variable, but by §0.2 a derivation may use
-`.const c ls` at many `ls`.  A derivation is a finite object, so it mentions finitely many
-level lists and the translation would land in a context extended by finitely many entries,
-which `StrengtheningTarget` iterates over — so the two are *probably* equivalent.  **[analysis]**
-What blocks writing it down:
-
-* `Theory/Typing/ConstSubst.lean` transports a judgement along a constant substitution, but
-  its `CSubst.WF.val` field demands the value **inhabit** the constant's type — precisely
-  what is missing here — and its `closed` field demands the values be closed, which a
-  context variable is not. **[read]**
-* Nothing in the tree extracts the level lists occurring in a derivation. **[read]**
-
-So the honest label is **reduction, direction proved one way only**, and the residual is
-a priori stronger than the target.
-
-### 2.2 Non-vacuity, and the vacuity dual
-
-* `axiomConservativity_fires` **[machine-checked]**: over `VEnv.empty` extended by
-  `c : Prop`, the `c`-free endpoints `Sort 0`, `Sort 0` are joined by a `trans` whose middle
-  term is *not* `c`-free.  That is the only shape in which the residual has content, and the
-  witness carries the `¬ ConstsIn` conjunct explicitly so it cannot degenerate.
-* For `AxiomConservativityUninhab` **no witness can be exhibited here**, for the same reason
-  `Strengthening1Uninhab`'s cannot: showing a closed type has no inhabitant over a `VEnv.WF`
-  environment is itself open in this tree (`VEnv.Consistent` is a `def`; `leanTTConsistent`
-  is proved nowhere). **[read]**  *"No witness" is not evidence of truth.*
-* What is available is the dual, `strengtheningTarget_of_allClosedInhabited`
-  **[machine-checked]**: **if every closed well-formed type over `env` were inhabited, the
-  target would already be proved.**  So the sharpened residual is vacuous **iff** the target
-  holds.  This is `Strengthen.lean` §12's `strengtheningTarget_of_allInhabited` moved from
-  context entries to closed types, which is where route 1 puts the difficulty.
-
-### 2.3 Collapse test (working rule 5)
-
-The residual relates two judgements *in the same context over two different environments*;
-the target relates two judgements *in the same environment over two different contexts*; and
-the two environments are always distinct (`VEnv.addConst_ne`, **[machine-checked]** — an
-`addConst` succeeds only at an undeclared name and then declares it).  There is no
-instantiation of `c`, `ci`, `env'` that degenerates the residual's premise into the target's.
-So this is not the shape §8 of `Strengthen.lean` turned out to be.
-
-### 2.4 Why route 1 and not route 2
-
-Route 2 (reduce to `k = 0` by λ-abstracting the prefix) was **not** attempted.  Its stated
-payoff is "a future reduction relation would only have to deal with `Γ' = T :: Γ`", and this
-document's §4 and §6 (previous revision, unretracted) establish that **no reduction relation
-is coming**: `ChurchRosser.lean` is circular through the `weakN` family and
-`HeadReduction.lean`'s only conversion⟹reduction bridges are `church_rosser` calls.  A
-reduction whose consumer does not exist is not worth its de Bruijn bill.  Route 1 by contrast
-moves the difficulty to *environments*, which is where the tree's transport machinery
-(`IsDefEq.mono`, `instL`, `ConstSubst`, `Enlarged`) and its pathological witnesses
-(`CycleConv.propLoopEnv`, `MutualDefUnsound`) already live. **[analysis]**
+`cvarMain henv hadd huv hci hΓc hd [] rfl` translates the whole derivation at depth 0; the
+endpoints are `c`-free so `cvar_eq_self` returns them unchanged; `cvarTs ci L₂` is a list of
+closed well-formed types (`IsType.instL` at `Γ = []`); `onCtx_append` makes `Γ ++ Ts` a
+well-formed context; `Ctx.LiftN.right (CtxWF.closed …) Ts` is the stripping witness; and
+`ClosedN.liftN_eq` shows the lift is the identity on the endpoints, so `StrengtheningTarget`
+applies directly.
 
 ---
 
-## 3. Where the target stands, after this pass
+## 2. Where the target stands
 
-The hole is **equivalent** to each of (all sorry-free, inherited unless marked):
+The hole is **equivalent** to each of (all sorry-free, inherited unless marked **new**):
 
 * `TransStrengthening` — its own `trans` case (`StrengtheningTarget.iff_trans`);
 * `Strengthening1` — the same at a single stripped entry;
 * `Strengthening1Uninhab` — the same at a single **uninhabited** entry;
+* **`AxiomConservativityWF`** — conservativity of adding one axiom, over a well-formed
+  context (**new**, both directions);
+* **`AxiomConservativityUninhabWF`** — the same for an axiom with **no inhabitant**
+  (**new**, both directions).
 
-and is **implied by** (new this pass, one direction only, §2.1):
+It is **implied by** (one direction only, and this is now the *only* one-directional link
+left in the chain):
 
-* `AxiomConservativity` — conservativity of adding one axiom;
-* `AxiomConservativityUninhab` — conservativity of adding one **empty** axiom.
+* `AxiomConservativity` / `AxiomConservativityUninhab` (`StrengthenAxiom.lean`) — these
+  quantify over an arbitrary context; §0.4 gives the exact reason the converse does not go
+  through, and it is a single missing hypothesis, not a structural gap.
 
 Its *reflexive instance* is equivalent to `PiDescend` alone (inherited,
 `TypingStrengthening.iff_piDescend`, `sorryAx` via `forallE_inv`).
 
-### 3.1 The crux, unchanged  **[analysis]**
+### 2.1 The crux, unchanged **[analysis]**
 
-Every route bottoms out in: *can an extra hypothesis — a context entry, or now an empty
-axiom — make two terms convertible when they are not convertible without it?*  The previous
-revision's §2.1 reduction of `proofIrrel` and of `PiDescend`'s open cases to that question
-stands verbatim, and so does §2.2's table of five refutation attempts, all of which collapse
-to the same crux.  Route 1 does not dissolve it; it restates it without de Bruijn indices and
-over a *closed, rigid* symbol.
+Every route bottoms out in: *can an extra hypothesis — a context entry, or an empty axiom —
+make two terms convertible when they are not convertible without it?*  This pass did not
+dissolve it; it **closed the loop around it**, so that anyone attacking the axiom form knows
+they are attacking the hole itself and not something stronger.
 
 ---
 
-## 4. Fresh names: the cost route 1's sketch omitted
+## 3. Non-vacuity and the collapse test
 
-To declare an axiom you must have a name nobody used.  `VEnv.constants` is a total function
-`Name → Option VConstant`, so this is not free; it needs
-
-* `Ordered.consts_finite` — an `Ordered` environment declares finitely many constants.  This
-  is a **three-case induction** (`empty`, `const`, `defeq`), and it is cheap *only because
-  `Ordered` is generated by single `addConst`s*.  The same statement over `VEnv.WF` would
-  have to handle `addQuot`, `addInduct'`, `addConsts` and `addDefEqs`, and would have been a
-  significant detour.  Taking the theorem at `Ordered` and paying `VEnv.WF.ordered` at the
-  boundary is what kept this to fifteen lines. **[read + machine-checked]**
-* `exists_name_not_mem` — `Name` is infinite, by the max-of-the-numeric-tails trick.
+* **Collapse test (working rule 5), forward direction.**  Unchanged: `VEnv.addConst_ne`
+  **[machine-checked]** shows `addConst` always changes the environment, so the residual's
+  premise cannot degenerate into the target's.  Adding `OnCtx Γ` only weakens the residual, so
+  the test carries over.
+* **Collapse test, the new direction.**  The one way `StrengtheningTarget →
+  AxiomConservativityWF` could be a tautology is if the list `L₂` were always empty, making
+  the `Ctx.LiftN` handed to the target the identity.  `cvarMain_needs_entries`
+  **[machine-checked]** rules that out *with a lemma, not an example*: at `L' = []` the
+  translation of a `c`-headed term is `.bvar Γ.length`, and `IsDefEq.closedN` shows nothing is
+  typed at it in `Γ`.  `cvarTs_liftN_fires` exhibits the `n = 1` instance.
+* **The scheme is not collapsed.**  `lvlIdx_distinguishes` **[machine-checked]**:
+  `¬ LEqv [zero] [succ zero]`, and the two get indices `0` and `1`.  Had `lvlIdx` identified
+  `≈`-inequivalent lists, one entry would have been made to serve two different types and the
+  construction would be wrong; this is the check that would have caught it.
+* **The residual's premises are satisfiable.**  `AxiomConservativityWF` adds `OnCtx Γ` to
+  `AxiomConservativity`, and `StrengthenAxiom.axiomConservativity_fires` **[machine-checked]**
+  fires the latter at `Γ = []`, where `OnCtx` is trivial — two `c`-free endpoints joined by a
+  `trans` through a middle term that is *not* `c`-free.
+* **For `…UninhabWF` no witness can be exhibited here**, for the reason `Strengthening1Uninhab`'s
+  cannot: exhibiting a closed uninhabited type over a `VEnv.WF` environment is itself open in
+  this tree (`VEnv.Consistent` is a `def`; `leanTTConsistent` is proved nowhere) **[read]**.
+  The dual is `strengtheningTarget_of_allClosedInhabited` **[machine-checked]**: if every
+  closed well-formed type were inhabited the target would already be proved.  So the sharpened
+  residual is vacuous **iff** the target holds.  *"No witness" is not evidence of truth* — and
+  now `axiomConservativityWF_iff_uninhabWF` says the sharpening loses nothing either way.
 
 ---
 
-## 5. Routes attempted across all passes, and the exact step each failed at
+## 4. Routes attempted, and the exact step each failed at
 
 | route | failed at |
 |---|---|
 | direct induction on `IsDefEqU` | `trans`, and `trans` **is** the statement. **[machine-checked]** |
 | "prove the typed form instead" | same `trans`; inter-derivable (`Strengthening.iff_typed`). **[machine-checked]** |
 | a *propagated* restatement | makes `trans` free, needs a coherence clause whose base case is the target. **[analysis]** |
-| Church–Rosser (`ChurchRosser.lean`) | four declarations circular through the `weakN` family; `NormalEq.descend` has three refuted branches; `CRStatement` conditionally refuted. **[measured]** |
-| `HeadReduction.lean` | its only conversion⟹reduction bridges are `church_rosser` calls; nothing clean in the file connects the two. **[measured]** |
+| Church–Rosser (`ChurchRosser.lean`) | four declarations circular through the `weakN` family; `NormalEq.descend` has three refuted branches. **[measured]** |
+| `HeadReduction.lean` | its only conversion⟹reduction bridges are `church_rosser` calls. **[measured]** |
 | model side (`Theory/SetModel/`) | vacuous over an uninhabited entry — a theorem about the residual. **[machine-checked]** |
 | `VExpr.Skips` / `IsDefEq.skips` | downstream of the hole, not toward it. **[read]** |
 | refutation by counterexample | five mechanisms traced, all collapse to the crux. **[analysis]** |
-| substitution (inhabited entry) | **succeeds**, and covers the target's general `n`. **[machine-checked]** |
+| substitution (inhabited entry) | **succeeds**, covers the target's general `n`. **[machine-checked]** |
 | induction on `HasTypeStrong` (reflexive instance) | **succeeds**; residual `PiDescend`. **[machine-checked]** |
-| `OnCtx Γ` from `OnCtx Γ'` inside the development | **succeeds**, non-circularly. **[machine-checked]** |
-| **route 1: axiom conservativity** | **succeeds as a reduction** (`AxiomConservativityUninhab.target`); the residual is open, and its converse is unbuilt (§2.1). **[machine-checked, new]** |
-| route 2: reduce to `k = 0` | **not attempted**, and deliberately — §2.4. |
+| route 1: axiom conservativity | **succeeds as a reduction**. **[machine-checked]** |
+| **route 1's converse: `const`-to-variable transport** | **succeeds** (`ConstVar.lean`) — the residual is the hole. **[machine-checked, new]** |
+| route 2: reduce to `k = 0` | **not attempted**, and deliberately — no reduction relation is coming. |
+| extraction of a derivation's level lists | **abandoned as not expressible**, and **not needed** — §1.1. **[analysis, new]** |
 
 **Do not re-attempt**: a direct conversion induction; the typed form; a model argument;
 `skips`; re-deriving `Strengthening` from `TransStrengthening`-shaped residuals; a standalone
 `PiDescendNeutral → PiDescend` (a tautology); the `_fires`-style tautological witnesses
-`StrengthenWitness.lean` §2 records; and **re-deriving `ConstsIn`** (§0.4).
+`StrengthenWitness.lean` §2 records; re-deriving `ConstsIn` (it is in
+`Theory/SetModel/Consts.lean`); **and re-deriving level congruence — `IsDefEq.instL_r` is it.**
 
 ---
 
-## 6. Measurements this pass
+## 5. Measurements this pass
 
-* `scripts/sorry-census.lean`: **TOTAL 19**, unchanged; `IsDefEqU.weakN_iff` **57 transitive
-  users**, unchanged.  A reduction discharges nothing, so *before = after* on both numbers,
-  and any claim to the contrary would be wrong. **[measured]**
-* `Theory/Typing/StrengthenAxiom.lean`: 56 declarations, **0** with `sorryAx` in their
-  transitive closure (module-wide scan, theorem values read explicitly). **[measured]**
-* Name-collision scan over every identifier introduced: after importing
-  `SetModel/Consts.lean`, **zero** collisions with the rest of `Lean4Lean/`. **[measured]**
-* `Theory/Typing/ChurchRosser.lean` was red for part of this pass (unrelated: an inductive
-  gained a `keta` constructor elsewhere) and was green again by the end.  It was not touched.
-
----
-
-## 7. What to pick up first
-
-1. **Settle whether route 1's residual is equivalent or strictly stronger** by building the
-   **`const`-to-variable translation** (§2.1).  It is the third environment transport
-   `ConstSubst.lean`'s header says the tree lacks — `mono` only adds constants, `instL` does
-   not touch them, `CSubst` needs them inhabited — and it is reusable well beyond this
-   corner.  Price: an induction over `IsDefEq`'s twelve rules with a de Bruijn shift under
-   binders, plus extraction of the finitely many level lists in a derivation.
-2. **Or attack `AxiomConservativityUninhab` directly**, in its §0.1 framing: a `VEnv.WF`
-   environment with no model is conservative over its base for conversion.  The tree already
-   has WF-but-pathological environments (`CycleConv.propLoopEnv`, `MutualDefUnsound`) — but
-   note they are pathological by adding **defeqs**, and an axiom adds none, so they are
-   evidence about a different mechanism and cannot be reused directly as counterexamples.
-3. **`PiDescend`** (equivalently the reflexive instance) is unchanged and still open; two of
-   its five cases close from `sort_forallE_inv`, the `.forallE` case needs the target.
-4. **Do not** spend time on `HeadReduction.lean` or `ChurchRosser.lean` (§5).
+* `scripts/dup-names.lean` (default run): **no duplicates** [measured].  That run does *not*
+  import `ConstVar.lean`; a dedicated run importing `Verify/Guard` + `Experimental/ConeJoin` +
+  `ConstVar` in one file was made and also reports **no duplicates**, which additionally proves
+  `ConstVar.lean` is importable alongside the whole joined cone [measured].
+* `scripts/sorry-census.lean`: **TOTAL 19**, unchanged.  A reduction or an equivalence
+  discharges nothing, so *before = after*, and any claim to the contrary would be wrong.
+* **User counts, stated carefully.**  The brief for this pass said `weakN_iff` had **57**
+  transitive users; the census at the start of this session said **59** [measured] and at the
+  end **61** [measured].  Every hole's count moved (`TrProj.uniq` 72→74,
+  `forallE_inv_stratified` 241→246), and **`ConstVar.lean` contributes 0** — a module-restricted
+  cone scan reports 0 of its 79 declarations with `weakN_iff` in their cone and 0 with
+  `sorryAx` [measured].  Attribution of the +2 to the other streams' commits that landed
+  mid-session (`cc03153`, `3b3b946`, …) is **inferred, not measured**.
+* Axiom check on the new results: `cvarMain`, `StrengtheningTarget.axiomConservativityWF`,
+  `axiomConservativityWF_iff_target`, `axiomConservativityUninhabWF_iff_target`,
+  `axiomConservativityWF_iff_uninhabWF`, `AxiomConservativityUninhabWF.target` — all
+  `[propext, Classical.choice, Quot.sound]`; `AxiomConservativityUninhabWF.strengthening1Uninhab`
+  and `cvarTs_liftN_fires` need only `[propext, Quot.sound]` [measured].
+  (`lvlIdx` is `noncomputable` — it decides `≈`, which is function equality — hence
+  `Classical.choice` throughout.  Nothing else uses choice.)
+* `IsDefEq.instL_r` cone: 2325 declarations, **no `sorryAx`**, **no `weakN_iff`** [measured].
 
 ---
 
-## 8. Files
+## 6. What to pick up first
 
-* `Lean4Lean/Theory/Typing/StrengthenAxiom.lean` — **new**, 56 declarations, all sorry-free.
-* `Lean4Lean/Theory/Typing/Strengthen.lean` — **unchanged** (755 lines); §§1–12 as before.
-* `Lean4Lean/Theory/Typing/StrengthenWitness.lean` — **unchanged**.  Its §2 `_fires` theorems
-  are tautologies (its own header says so); quote §3's `_premises` theorems.
+1. **`AxiomConservativityUninhabWF` is now the whole problem.**  In its sharpest framing: *a
+   `VEnv.WF` environment with no model is conservative over its base for conversion.*  It is
+   not "a route" any more — it is the hole, in both directions.  Attack it or refute it.
+2. **If you attack it, the tree's pathological environments are the wrong shape.**
+   `CycleConv.propLoopEnv` and `MutualDefUnsound` are pathological by adding **defeqs**; an
+   axiom adds none.  They are evidence about a different mechanism.
+3. **`ConstVar.lean` is reusable well beyond this corner.**  It is the fourth environment
+   transport (`mono` adds, `instL` re-levels, `CSubst` replaces a constant by an *inhabitant*,
+   `cvar` replaces it by a *variable*).  Anything that needs to remove a constant with no
+   inhabitant — e.g. an auxiliary constant in a staging environment that is never populated —
+   can use `cvarMain` directly; its only hypotheses are `Ordered env`, `addConst`, `ci.WF env`,
+   `ci.uvars = U` and `CtxConstsIn (· ≠ c) Γ`.
+4. **Optional, cheap, and tidying**: fold `AxiomConservativityWF` back into
+   `StrengthenAxiom.lean` by adding the `OnCtx Γ` hypothesis to `AxiomConservativity` and
+   `AxiomConservativityUninhab` in place (a *weakening*, safe direction), which would make
+   `ConstVar.lean` §6's two definitions and the copied `strengthening1Uninhab` proof
+   redundant.  Deliberately **not** done here: working rule 3 says define a separate predicate
+   rather than edit a machine-checked one in place, and the copy is 25 lines.
+5. **Do not** spend time on `HeadReduction.lean` or `ChurchRosser.lean`.
+6. **`PiDescend`** (equivalently the reflexive instance) is unchanged and still open.
+
+---
+
+## 7. Files
+
+* `Lean4Lean/Theory/Typing/ConstVar.lean` — **new**, 666 lines, 79 declarations, all sorry-free.
+* `Lean4Lean/Theory/Typing/ConstSubst.lean` — **header corrected only** (§0.2); no code change.
+* `Lean4Lean/Theory/Typing/StrengthenAxiom.lean` — **§6 prose corrected only** (the paragraph
+  claiming the converse is unbuilt and the residual a priori stronger now points at
+  `ConstVar.lean`); no code change, no definition change.
+* `Lean4Lean/Theory/Typing/Strengthen.lean` — **unchanged** (755 lines).
+* `Lean4Lean/Theory/Typing/StrengthenWitness.lean` — **unchanged**.
 * `Lean4Lean/Theory/Typing/UniqueTyping.lean` — **unchanged**; the `sorry` at `:172` stands.
-* `Lean4Lean/Theory/SetModel/Consts.lean` — **read-only**, now imported by the new file.
+* `Lean4Lean/Theory/Typing/Strong.lean` — **read-only**; `IsDefEq.instL_r` at `:823` is the
+  lemma this pass turned out to depend on.
