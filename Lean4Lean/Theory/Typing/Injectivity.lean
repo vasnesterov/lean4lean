@@ -334,6 +334,36 @@ def PiInv (env : VEnv) (U : Nat) : Prop :=
     env.IsDefEqU U Γ (.forallE A B) (.forallE A' B') →
     (∃ u, env.IsDefEq U Γ A A' (.sort u)) ∧ ∃ u, env.IsDefEq U (A::Γ) B B' (.sort u)
 
+/-- **The only instance of `PiInvStrat` that anything in this tree consumes.**
+
+`uniqQ` calls `hstrat` exactly once, in its `app` case, and that call
+* discards the whole first (domain) conjunct, and
+* passes the *same* index `n` for both stratified hypotheses.
+
+So the obligation the entire `Verify/` cone rests on is this strictly weaker statement: no
+domain conjunct, one index instead of two.  `PiInvStrat.app` is the (one-line) implication;
+the converse is **not** claimed and is not needed anywhere.
+
+Measured on this commit: in the import closure of `Verify/Bridge.lean`,
+`IsDefEqU.forallE_inv_stratified` has exactly two direct consumers, `IsDefEq.uniq` and
+`piInvStrat_axiom`; the second is only the packaging, and `uniq`'s single appeal is the call
+below. -/
+def PiInvStratApp (env : VEnv) (U : Nat) : Prop :=
+  ∀ {Γ : List VExpr} {A B A' B' V V' : VExpr} {n : Nat},
+    OnCtx Γ (env.IsType U) →
+    env.IsDefEqU U Γ (.forallE A B) (.forallE A' B') →
+    env.HasTypeStratified U Γ (.forallE A B) V true n →
+    env.HasTypeStratified U Γ (.forallE A' B') V' true n →
+    ∃ u, env.IsDefEq U (A::Γ) B B' (.sort u) ∧
+      env.HasTypeStratified U (A::Γ) B (.sort u) true n ∧
+      env.HasTypeStratified U (A'::Γ) B' (.sort u) true n
+
+/-- The narrowing, as a one-line implication.  Everything below consumes only the right-hand
+side. -/
+theorem PiInvStrat.app (h : PiInvStrat env U) : PiInvStratApp env U := by
+  intro Γ A B A' B' V V' n hΓ h1 h2 h3
+  exact (h hΓ h1 h2 h3).2
+
 /-- The strengthened invariant of `IsDefEq.uniq`: the original conclusion, plus the level
 equivalence in the case where both types are syntactic sorts. -/
 def UniqAux (env : VEnv) (U n : Nat) : Prop :=
@@ -364,7 +394,7 @@ theorem sortType_level (henv : VEnv.WF env) {Γ : List VExpr} {s u : VLevel} {n 
 
 /-- The body of `IsDefEq.uniq`'s induction, with each of its nine appeals to
 `IsDefEqU.sort_inv` replaced by the strengthened invariant at a smaller index. -/
-theorem uniqQ (henv : VEnv.WF env) (hstrat : PiInvStrat env U) :
+theorem uniqQ (henv : VEnv.WF env) (hstrat : PiInvStratApp env U) :
     ∀ {n : Nat}, (∀ m, m < n → UniqAux env U m) →
     ∀ {n₁ n₂ : Nat} {Γ : List VExpr} {e A B : VExpr} {b : Bool},
     OnCtx Γ (env.IsType U) → n₁ ≤ n → n₂ ≤ n →
@@ -389,7 +419,7 @@ theorem uniqQ (henv : VEnv.WF env) (hstrat : PiInvStrat env U) :
   | app _ a2 a3 a4 _ a6 a7 _ _ ih3 =>
     intro (.app _ _ b3 b4 b5 _ b7)
     have ⟨_, c1, _, _, c3, c4⟩ := ih3 (n := n) IH hΓ (Nat.le_of_succ_le le₁) (Nat.le_of_succ_le le₂) b5
-    have ⟨_, _, d3, d4, d5⟩ := hstrat hΓ ⟨_, c1⟩ c3 c4
+    have ⟨_, d3, d4, d5⟩ := hstrat hΓ ⟨_, c1⟩ c3 c4
     let n+1 := n
     replace le₁ := Nat.le_of_succ_le_succ le₁
     replace le₂ := Nat.le_of_succ_le_succ le₂
@@ -464,7 +494,7 @@ theorem uniqQ (henv : VEnv.WF env) (hstrat : PiInvStrat env U) :
     exact ⟨_, a2.symm.trans (.defeqDF (.symm <| .sortDF a1 e2 e1) c1), _, eq, a4.mono le₁, c4⟩
 
 /-- The strengthened invariant, at every index. -/
-theorem uniqAux (henv : VEnv.WF env) (hstrat : PiInvStrat env U) :
+theorem uniqAux (henv : VEnv.WF env) (hstrat : PiInvStratApp env U) :
     ∀ n, UniqAux env U n := by
   intro n
   induction n using WellFounded.induction Nat.lt_wfRel.2 with | _ n IH
@@ -486,7 +516,7 @@ Formerly `Theory/Typing/Injectivity.lean`'s first theorem, where it was `sorry`-
 
 /-- **Universe uniqueness, from Π-injectivity alone.**  The only `sorry`-backed input is
 `IsDefEqU.forallE_inv_stratified`. -/
-theorem sortUniq_of_piInvStrat (henv : VEnv.WF env) (hstrat : PiInvStrat env U) :
+theorem sortUniq_of_piInvStratApp (henv : VEnv.WF env) (hstrat : PiInvStratApp env U) :
     env.SortUniq U := by
   intro Γ e u v hΓ _ _ h1 h2
   obtain ⟨n₁, H1⟩ := (h1.strong henv.ordered hΓ).hasType'.1.stratify
@@ -499,8 +529,16 @@ theorem sortUniq_of_piInvStrat (henv : VEnv.WF env) (hstrat : PiInvStrat env U) 
 theorem piInvStrat_axiom (henv : VEnv.WF env) : PiInvStrat env U :=
   fun hΓ h1 h2 h3 => IsDefEqU.forallE_inv_stratified henv hΓ h1 h2 h3
 
+/-- …and of the narrowed form, which is the one every consumer below actually uses. -/
+theorem piInvStratApp_axiom (henv : VEnv.WF env) : PiInvStratApp env U :=
+  PiInvStrat.app (piInvStrat_axiom henv)
+
+/-- Kept for readers who want the wide statement; it is *not* on any consumer's path. -/
+theorem sortUniq_of_piInvStrat (henv : VEnv.WF env) (hstrat : PiInvStrat env U) :
+    env.SortUniq U := sortUniq_of_piInvStratApp henv (PiInvStrat.app hstrat)
+
 theorem WF.sortUniq' (henv : VEnv.WF env) : env.SortUniq U :=
-  sortUniq_of_piInvStrat henv (piInvStrat_axiom henv)
+  sortUniq_of_piInvStratApp henv (piInvStratApp_axiom henv)
 
 /-- **Sort injectivity.**  `.sort u ≡ .sort v` forces `u ≈ v`.
 
@@ -553,6 +591,51 @@ theorem piInvStrat_of (henv : VEnv.WF env) (hsu : env.SortUniq U) (hpi : PiInv e
     exact this ▸ HasTypeStratified.defeq (u := .succ vB') hvB' (.sortDF hvB' hw2 e3)
       (.base (.sort' hvB' hvB' rfl)) (.base (.sort' hw2 hvB' e3.symm)) hB'
 
+/-- **The narrowed circle, both directions.**  Narrowing `PiInvStrat` to the single instance
+`uniqQ` consumes does *not* cut the circle: `PiInvStratApp` is still equivalent to `SortUniq`
+relative to `PiInv`.  What it does is make the residual smaller — the domain conjunct and the
+second index are dead weight, and the statement that has to be proved is this one. -/
+theorem piInvStratApp_of (henv : VEnv.WF env) (hsu : env.SortUniq U) (hpi : PiInv env U) :
+    PiInvStratApp env U := PiInvStrat.app (piInvStrat_of henv hsu hpi)
+
+/-- The circle, packaged.  `←` is `uniqAux`; `→` is `piInvStrat_of` composed with the
+narrowing.  Both sides `sorry`-free; the `sorry` lives only in the *inhabitant*
+`piInvStratApp_axiom`. -/
+theorem sortUniq_iff_piInvStratApp (henv : VEnv.WF env) (hpi : PiInv env U) :
+    env.SortUniq U ↔ PiInvStratApp env U :=
+  ⟨fun hsu => piInvStratApp_of henv hsu hpi, sortUniq_of_piInvStratApp henv⟩
+
+/-- **Non-vacuity of the narrowing.**  Forcing both stratified hypotheses to the *same* index
+could have emptied the statement; it does not.  The witness is non-degenerate in the two ways
+that matter: the two domains are **syntactically different** (so the conclusion is not an
+instance of reflexivity), and the two codomains therefore live in **different contexts**, which
+is the transport the second component of the conclusion has to perform.  Levels only:
+`imax 0 0 ≈ 0` without the two being equal.  Holds over **every** environment, with no
+`VEnv.WF` and no constant; `sorryAx`-free. -/
+theorem piInvStratApp_fires :
+    OnCtx ([] : List VExpr) (env.IsType 0) ∧
+    (VExpr.sort (.imax .zero .zero) : VExpr) ≠ .sort .zero ∧
+    env.IsDefEqU 0 [] (.forallE (.sort (.imax .zero .zero)) (.sort .zero))
+      (.forallE (.sort .zero) (.sort .zero)) ∧
+    env.HasTypeStratified 0 [] (.forallE (.sort (.imax .zero .zero)) (.sort .zero))
+      (.sort (.imax (.succ (.imax .zero .zero)) (.succ .zero))) true 1 ∧
+    env.HasTypeStratified 0 [] (.forallE (.sort .zero) (.sort .zero))
+      (.sort (.imax (.succ .zero) (.succ .zero))) true 1 := by
+  have hz : (VLevel.zero).WF 0 := trivial
+  have hi : (VLevel.imax .zero .zero).WF 0 := ⟨trivial, trivial⟩
+  have heq : (VLevel.imax .zero .zero) ≈ VLevel.zero := VLevel.imax_zero
+  have hp1 : env.HasTypeStratified 0 [] (.forallE (.sort (.imax .zero .zero)) (.sort .zero))
+      (.sort (.imax (.succ (.imax .zero .zero)) (.succ .zero))) true 1 :=
+    .base (.forallE hi hz (.base (.sort' hi hi rfl)) (.base (.sort' hz hz rfl)))
+  have hp2 : env.HasTypeStratified 0 [] (.forallE (.sort .zero) (.sort .zero))
+      (.sort (.imax (.succ .zero) (.succ .zero))) true 1 :=
+    .base (.forallE hz hz (.base (.sort' hz hz rfl)) (.base (.sort' hz hz rfl)))
+  have hconv : env.IsDefEq 0 [] (.forallE (.sort (.imax .zero .zero)) (.sort .zero))
+      (.forallE (.sort .zero) (.sort .zero))
+      (.sort (.imax (.succ (.imax .zero .zero)) (.succ .zero))) :=
+    IsDefEq.forallEDF (.sortDF hi hz heq) (.sortDF hz hz rfl)
+  exact ⟨trivial, by simp, ⟨_, hconv⟩, hp1, hp2⟩
+
 
 /-! ## `IsProof`, and the side condition that actually propagates
 
@@ -583,7 +666,7 @@ theorem WF.uniq' {Γ : List VExpr} {e₁ e₂ e₃ A B : VExpr} (henv : VEnv.WF 
     ∃ u, env.IsDefEq U Γ A B (.sort u) := by
   obtain ⟨n₁, H1⟩ := (h1.strong henv.ordered hΓ).hasType'.2.stratify
   obtain ⟨n₂, H2⟩ := (h2.strong henv.ordered hΓ).hasType'.1.stratify
-  obtain ⟨u, h, -⟩ := uniqAux henv (piInvStrat_axiom henv) _ hΓ
+  obtain ⟨u, h, -⟩ := uniqAux henv (piInvStratApp_axiom henv) _ hΓ
     (Nat.le_max_left n₁ n₂) (Nat.le_max_right n₁ n₂) H1 H2
   exact ⟨u, h⟩
 
@@ -995,12 +1078,23 @@ theorem IsDefEqU.const_sort_inv (henv : VEnv.WF env) (hΓ : OnCtx Γ (env.IsType
 Two `sorry`-free implications, between statements packaged as `Prop`s in the `UniqAux`
 section above:
 
-* `sortUniq_of_piInvStrat : PiInvStrat → SortUniq`
-* `piInvStrat_of : SortUniq → PiInv → PiInvStrat`
+* `sortUniq_of_piInvStratApp : PiInvStratApp → SortUniq`
+* `piInvStratApp_of : SortUniq → PiInv → PiInvStratApp`
+* `sortUniq_iff_piInvStratApp` — the two, packaged as an `↔`
 
-So **relative to `PiInv` (the plain `forallE_inv`), `PiInvStrat` and `SortUniq` are
-equivalent.**  `forallE_inv_stratified` is therefore not a passenger that `uniqAux` could
-drop: replacing it in `uniqQ`'s `app` case by `PiInv` needs `SortUniq` applied to a
+and, for the wide form, `sortUniq_of_piInvStrat` / `piInvStrat_of`, which are the same two
+composed with `PiInvStrat.app`.
+
+**The circle survives narrowing.**  `PiInvStratApp` is the *only* instance of `PiInvStrat`
+that anything consumes (`uniqQ`'s `app` case, once): no domain conjunct, one index instead of
+two.  Narrowing to it shrinks the residual and changes nothing else — the equivalence with
+`SortUniq` still holds in both directions, and `piInvStratApp_fires` checks that forcing both
+indices equal did not empty the statement (the witness has syntactically different domains, so
+the conclusion is not an instance of reflexivity).
+
+So **relative to `PiInv` (the plain `forallE_inv`), `PiInvStrat`, `PiInvStratApp` and
+`SortUniq` are all equivalent.**  `forallE_inv_stratified` is therefore not a passenger that
+`uniqAux` could drop: replacing it in `uniqQ`'s `app` case by `PiInv` needs `SortUniq` applied to a
 derivation that comes from an *unstratified* `IsDefEq` and so carries no index bound, while
 `uniqQ` has `SortUniq` available only at indices `< n`.  That is where the route in
 `docs/handoff-sortuniq.md` §9 fails, and it fails on the index bookkeeping, exactly where

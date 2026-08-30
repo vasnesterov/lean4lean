@@ -42,7 +42,8 @@ theorem IsDefEq.uniq' {Γ : List VExpr} {e₁ e₂ e₃ A B : VExpr} (henv : VEn
   obtain ⟨n₁, H1⟩ := (h1.strong henv.ordered hΓ).hasType'.2.stratify
   obtain ⟨n₂, H2⟩ := (h2.strong henv.ordered hΓ).hasType'.1.stratify
   obtain ⟨u, h, _⟩ :=
-    uniqAux henv (piInvStrat_axiom henv) _ hΓ (Nat.le_max_left n₁ n₂) (Nat.le_max_right n₁ n₂) H1 H2
+    uniqAux henv (piInvStratApp_axiom henv) _ hΓ
+      (Nat.le_max_left n₁ n₂) (Nat.le_max_right n₁ n₂) H1 H2
   exact ⟨u, h⟩
 
 /-! ## Non-vacuity: fired at `CycleConv.propLoopEnv`
