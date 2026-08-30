@@ -1,4 +1,5 @@
 import Lean4Lean.Theory.Inductive.StructureClosed
+import Lean4Lean.Theory.Typing.UniqueTyping
 
 /-!
 # Structure eta, in the spec
@@ -220,6 +221,109 @@ theorem congrSpine (H : env.StructEta) (hS : env.IsStructure S D T C)
   have h2 := VEnv.IsDefEq.mkAppDF hargs hctor
   rw [hB] at h2
   exact h1.trans h2
+
+/-- **The step `tryEtaStructCore` actually performs, assembled.**
+
+The checker does not hand `congrSpine` a `HasArgsDF`; it compares the projections against the
+constructor's arguments *one field at a time* and reports success only if every comparison
+succeeds.  This lemma is that shape: `hdef` is the loop's output — one `IsDefEqU` per field —
+and the `HasArgsDF` is built here, by `VEnv.HasArgsDF.ofMap` over the field telescope, and fed
+to `congrSpine`.
+
+`hprojty` is `ProjHasType` at each field, i.e. exactly what `Verify/Typing/Lemmas.lean`'s
+`projTerm_hasType` delivers from `IsStructure` plus the F17 clause.  It is a hypothesis here
+rather than a premise derived on the spot only because `projTerm_hasType` lives in `Verify/`;
+`tryEtaStructCore.WF_of_structEta` discharges it there and does **not** assume it.
+
+`hctor`/`hB` are the constructor's declared telescope and result, split at the parameter/field
+boundary — the two facts about the block's declaration that this assembly needs and that
+`IsStructure` alone does not spell out.
+
+Note which spine the telescope is instantiated at: `ofMap` instantiates by the **left** spine,
+which is the projection list, so no comparison of parameter lists occurs anywhere — the same
+point `congrSpine`'s docstring makes, now carried through the field-by-field form. -/
+theorem congrProj (H : env.StructEta) (hS : env.IsStructure S D T C)
+    (hidx : T.indices = [])
+    (hus : us.length = D.uvars) (husWF : ∀ l ∈ us, l.WF U)
+    (hps : ps.length = D.np)
+    (hpsA : env.HasArgs U Γ (D.params.map (VExpr.instL us)) ps)
+    (he : env.HasType U Γ e ((VExpr.const S us).mkApp ps))
+    (hF17 : D.isLE = true ∨ ∀ k, k < C.fields.length →
+      (C.fields.getD k default).lvl.inst us ≈ .zero)
+    {args : List VExpr} (hargl : args.length = C.fields.length)
+    (hprojty : ∀ k, k < C.fields.length →
+      env.HasType U Γ (D.projTerm T C us ps [] k e)
+        (VExpr.instAll ((C.fields.getD k default).type.instL us)
+          (ps ++ (List.range k).map fun m => D.projTerm T C us ps [] m e)))
+    (hdef : ∀ k, k < C.fields.length →
+      env.IsDefEqU U Γ (D.projTerm T C us ps [] k e) (args.getD k default))
+    {B : VExpr}
+    (hctor : env.HasType U Γ (VExpr.const C.name us)
+      (VExpr.mkPi (D.params.map (VExpr.instL us) ++
+        C.fields.map (fun F => F.type.instL us)) B))
+    (hB : VExpr.instAll B (ps ++ D.projAll T C us ps e) = (VExpr.const S us).mkApp ps)
+    (henv : env.WF) (hΓ : OnCtx Γ (env.IsType U)) :
+    env.IsDefEq U Γ e ((VExpr.const C.name us).mkApp (ps ++ args))
+      ((VExpr.const S us).mkApp ps) := by
+  have hgetD : ∀ k, k < C.fields.length →
+      (C.fields.map fun F => VExpr.instL us F.type).getD k default
+        = VExpr.instL us (C.fields.getD k default).type := by
+    intro k hk
+    rw [List.getD_eq_getElem?_getD, List.getElem?_map, List.getElem?_eq_getElem hk,
+      List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hk]
+    rfl
+  have hargsEq : (List.range C.fields.length).map (fun k => args.getD k default) = args := by
+    refine List.ext_getElem (by simp [hargl]) fun n h1 h2 => ?_
+    simp only [List.getElem_map, List.getElem_range, List.getD_eq_getElem?_getD,
+      List.getElem?_eq_getElem h2, Option.getD_some]
+  have hfields := VEnv.HasArgsDF.ofMap (env := env) (U := U) (Γ := Γ)
+    (As := C.fields.map fun F => VExpr.instL us F.type) (as := ps)
+    (f := fun k => D.projTerm T C us ps [] k e) (g := fun k => args.getD k default)
+    (i := C.fields.length) (by simp) (fun k hk => by
+      rw [hgetD k hk]; exact (hdef k hk).of_l henv hΓ (hprojty k hk))
+  rw [List.take_of_length_le (by simp), hargsEq] at hfields
+  exact H.congrSpine hS hidx hus husWF hps hpsA he hF17 hctor
+    (VEnv.HasArgsDF.append hpsA.toDF hfields) hB
+
+/-- **Round-trip check on `congrProj`'s assembly.**
+
+At the identity spine — comparing every projection against *itself* — `congrProj` must
+reproduce exactly the rule it is assembled from, `e ≡ D.etaExpansion T C us ps e`.  It does.
+
+This is a consistency check on the bookkeeping, not a new result: the `HasArgsDF` is built by
+`ofMap` over the field telescope instantiated at the projection spine, and a misalignment
+there (wrong telescope, wrong instantiation spine, off-by-one in the `range`) would make this
+statement fail while leaving `congrProj` itself type-correct.  It is the cheapest available
+test that the assembly is not vacuous *as an assembly*. -/
+theorem congrProj_at_projAll (H : env.StructEta) (hS : env.IsStructure S D T C)
+    (hidx : T.indices = [])
+    (hus : us.length = D.uvars) (husWF : ∀ l ∈ us, l.WF U)
+    (hps : ps.length = D.np)
+    (hpsA : env.HasArgs U Γ (D.params.map (VExpr.instL us)) ps)
+    (he : env.HasType U Γ e ((VExpr.const S us).mkApp ps))
+    (hF17 : D.isLE = true ∨ ∀ k, k < C.fields.length →
+      (C.fields.getD k default).lvl.inst us ≈ .zero)
+    (hprojty : ∀ k, k < C.fields.length →
+      env.HasType U Γ (D.projTerm T C us ps [] k e)
+        (VExpr.instAll ((C.fields.getD k default).type.instL us)
+          (ps ++ (List.range k).map fun m => D.projTerm T C us ps [] m e)))
+    {B : VExpr}
+    (hctor : env.HasType U Γ (VExpr.const C.name us)
+      (VExpr.mkPi (D.params.map (VExpr.instL us) ++
+        C.fields.map (fun F => F.type.instL us)) B))
+    (hB : VExpr.instAll B (ps ++ D.projAll T C us ps e) = (VExpr.const S us).mkApp ps)
+    (henv : env.WF) (hΓ : OnCtx Γ (env.IsType U)) :
+    env.IsDefEq U Γ e (D.etaExpansion T C us ps e) ((VExpr.const S us).mkApp ps) := by
+  have hgetD : ∀ k, k < C.fields.length →
+      (D.projAll T C us ps e).getD k default = D.projTerm T C us ps [] k e := by
+    intro k hk
+    have hk' : k < (List.range C.fields.length).length := by simpa using hk
+    simp only [VInductDecl'.projAll, List.getD_eq_getElem?_getD, List.getElem?_map,
+      List.getElem?_eq_getElem hk', Option.map_some, Option.getD_some, List.getElem_range]
+  refine H.congrProj hS hidx hus husWF hps hpsA he hF17 (D.length_projAll T C us)
+    hprojty (fun k hk => ?_) hctor hB henv hΓ
+  rw [hgetD k hk]
+  exact ⟨_, hprojty k hk⟩
 
 end StructEta
 

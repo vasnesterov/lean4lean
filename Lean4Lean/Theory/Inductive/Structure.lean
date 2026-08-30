@@ -477,14 +477,42 @@ smuggling it in here is the point; the two lemmas that need it are marked blocke
 `Verify/Typing/Lemmas.lean`. -/
 structure VEnv.IsStructure (env : VEnv) (S : Lean.Name)
     (D : VInductDecl') (T : VIndType) (C : VIndCtor) : Prop where
-  /-- One type in the block… -/
+  /-- **One type in the block — and this is load-bearing, not bookkeeping.**
+
+  `projCore` hands the recursor exactly one motive and exactly one minor premise, while
+  `VInductDecl'.recType` binds `D.nm` motives and `D.nmin` minors.  So `projTerm` is a
+  *correctly applied* recursor only when `D.nm = 1 ∧ D.nmin = 1`, which is what this field
+  and `ctors` together give.  Weakening it to `T ∈ D.types` — proposed in an earlier round
+  as a one-line substitution — leaves `projTerm` under-applied by `D.nm + D.nmin - 2`
+  arguments, which would make `TrProj.wf` (`Verify/Typing/ProjSkip.lean`, proved) false.
+  Machine-checked at a two-type block: `MutNonRec.projCore_arity_wrong`
+  (`Verify/StructureBridge.lean`).
+
+  **It is nevertheless narrower than what the kernel accepts**, and that is a recorded gap,
+  not an oversight: `infer_proj` (`~/lean4/src/kernel/type_checker.cpp:247`) checks only
+  that the type has *one constructor*, never that its block is a singleton.  See
+  `MutNonRec.kernelProjChecks` for the machine-checked witness — Lean's kernel both accepts
+  `.proj` on a member of a two-type block and *performs structure eta* on it.  Closing that
+  gap is a generalisation of `projCore` (padded motives and minors), not a weakening of this
+  field; `docs/handoff-eta.md` §2 has the design. -/
   types : D.types = [T]
   /-- …named `S`… -/
   name : T.name = S
-  /-- …with exactly one constructor. -/
+  /-- …with exactly one constructor.
+
+  This one *is* forced by the kernel: `infer_proj` fails unless `I_val.ctors` is a
+  singleton, and `is_structure_like` (the eta gate) does the same. -/
   ctors : T.ctors = [C]
   /-- No recursive fields.  Required by `projCore`'s minor premise (see there), and by
-  structure eta (F16) independently. -/
+  structure eta (F16) independently.
+
+  **Also narrower than the kernel**, in the same way `types` is and for the same reason:
+  `infer_proj` never reads `InductiveVal.isRec`, so `.proj T 0 t` at
+  `inductive T | mk : Nat → T → T` is accepted — machine-checked, `MutNonRec.kernelProjChecks`
+  (`Verify/StructureBridge.lean`).  `projCore`'s minor premise binds only the fields, so it
+  is wrong for such a block, which is why the narrowing is here rather than absent.  The eta
+  gate, unlike `inferProj`, *does* test `isRec`, so structure eta is unaffected by this
+  one. -/
   noRec : C.recFields = []
   /-- The block was declared, well-formedly, at some point in `env`'s past. -/
   decl : ∃ env₀ env₁, D.WF env₀ ∧ env₀.addInduct' D = some env₁ ∧ env₁ ≤ env
@@ -504,6 +532,39 @@ theorem nmin_eq (H : env.IsStructure S D T C) : D.nmin = 1 := by
   simp [VInductDecl'.nmin, VInductDecl'.ctorsAll, H.types, H.ctors]
 
 end VEnv.IsStructure
+
+/-! ## Why `nm_eq`/`nmin_eq` cannot simply be dropped
+
+The two lemmas above are what let `projCore`'s two-element `[mot, minor]` block line up with
+the recursor's telescope.  The counts on both sides are recorded here so that the mismatch a
+weakening would create is a *provable statement* rather than a reading of the definitions. -/
+
+theorem VInductDecl'.length_motives (D : VInductDecl') : D.motives.length = D.nm := by
+  simp [VInductDecl'.motives]
+
+theorem VInductDecl'.length_minors (D : VInductDecl') : D.minors.length = D.nmin := by
+  simp [VInductDecl'.minors]
+
+/-- The argument spine `projCore` hands the recursor, by length: the parameters, **two**
+entries for the motive/minor blocks, the indices, and the major premise.
+
+`VInductDecl'.recType` binds `D.np + D.nm + D.nmin + T.indices.length` arguments before the
+major premise, so this spine saturates the recursor exactly when `D.nm + D.nmin = 2`. -/
+theorem VInductDecl'.length_projCore_spine (D : VInductDecl') (T : VIndType) (C : VIndCtor)
+    (us : List VLevel) {ps is earlier : List VExpr} {i : Nat} {e : VExpr}
+    (hps : ps.length = D.np) :
+    (ps ++ [T.projMotive C us ps is i earlier, C.projMinor us ps i] ++ is ++ [e]).length
+      = D.np + 2 + is.length + 1 := by
+  simp [hps]; omega
+
+/-- The number of arguments `recType j` must receive before its result type is no longer a
+`∀`: the four telescopes plus the major premise. -/
+def VInductDecl'.recArity (D : VInductDecl') (T : VIndType) : Nat :=
+  D.np + D.nm + D.nmin + T.indices.length + 1
+
+theorem VInductDecl'.recArity_eq_projCore_iff (D : VInductDecl') (T : VIndType) :
+    D.recArity T = D.np + 2 + T.indices.length + 1 ↔ D.nm + D.nmin = 2 := by
+  simp [VInductDecl'.recArity]; omega
 
 /-- `projTerm_instN` iterated over a whole spine. -/
 theorem VInductDecl'.projTerm_instAll (D : VInductDecl') (T : VIndType) (C : VIndCtor)

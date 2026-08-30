@@ -464,9 +464,9 @@ the predicate: `Lean4Lean/Inductive/Add.lean` computes `isRec` with `indTypes.an
 block none of whose members is recursive really does get `isRec = false` on every member, and
 `isNonRecStructure` really does answer `true` for `A`.
 
-Consequence for the flip: `VEnv.IsStructure` must weaken `types : D.types = [T]` to
-`T ∈ D.types` before `StructureBridge` can be proved.  That edit is in
-`Theory/Inductive/Structure.lean` and is **not** made here. -/
+Consequence for the flip: `StructureBridge` as stated — concluding `VEnv.IsStructure` — is not
+attainable, and the obstruction is *not* removed by weakening `types` to `T ∈ D.types`.  See the
+section below, which refutes that repair. -/
 theorem indShapeOf_not_singleton :
     IndShapeOf decl2 id (.inductInfo aInd) ∧
     aInd.isRec = false ∧ aInd.numIndices = 0 ∧ aInd.ctors = [`MutNonRec.A.mk] ∧
@@ -490,6 +490,98 @@ theorem indShapeOf_not_singleton :
   · intro T h
     have h2 : (2 : Nat) = 1 := congrArg List.length h
     exact absurd h2 (by decide)
+
+/-! ### The repair the previous round proposed is **not** a substitution
+
+`docs/handoff-eta.md` §7 recorded the next step as "weaken `types : D.types = [T]` to
+`T ∈ D.types`, dropping `nm_eq`/`nmin_eq`".  That is refuted below.  `VInductDecl'.projCore`
+hands the recursor exactly **two** entries between the parameters and the indices — one motive
+and one minor premise — while `VInductDecl'.recType` binds `D.nm` motives and `D.nmin` minors.
+At `decl2` those are 2 and 2, so the weakened predicate would admit blocks at which `projTerm`
+is a recursor **under-applied by two arguments**.  `TrProj.mk`'s conclusion is
+`TrProj Γ S i e (D.projTerm T C us ps ιs i e)` and `TrProj.wf`
+(`Verify/Typing/ProjSkip.lean`, proved) types that term at the projected field's type; an
+under-applied recursor has a `∀`-type, so the weakening would not merely block a proof, it
+would make a proved theorem false.
+
+The fix is therefore a generalisation of `projCore` — pad the motive block with dummy motives
+and the minor block with dummy minors at the other members of the block — not a weakening of
+`IsStructure.types`.  `docs/handoff-eta.md` §2 records the design, including the one non-obvious
+ingredient (a dummy motive must land in `Sort ℓ` at the *field's* level `ℓ` and be inhabited by
+a closed term; `Aᵢ → Aᵢ` with `fun z => z` is such a pair, since `imax ℓ ℓ ≈ ℓ`). -/
+theorem projCore_arity_wrong (T : VIndType) (C : VIndCtor) (us : List VLevel)
+    (i : Nat) (earlier : List VExpr) (e : VExpr) :
+    -- `projCore` supplies one motive and one minor…
+    (decl2.projCore T C us [] [] i earlier e
+      = (VExpr.const (Lean.mkRecName T.name) (decl2.projLvls C us i)).mkApp
+          ([] ++ [T.projMotive C us [] [] i earlier, C.projMinor us [] i] ++ [] ++ [e])) ∧
+    (([] ++ [T.projMotive C us [] [] i earlier, C.projMinor us [] i] ++ [] ++ [e] :
+        List VExpr).length = 3) ∧
+    -- …while this block's recursor binds two motives and two minors, so it needs five.
+    decl2.motives.length = 2 ∧ decl2.minors.length = 2 ∧
+    decl2.recArity (decl2.types.getD 0 default) = 5 ∧
+    ¬ decl2.nm + decl2.nmin = 2 :=
+  ⟨decl2.projCore_eq T C us [] [] i earlier e, rfl, rfl, rfl, rfl, by decide⟩
+
+/-! **[EV] Both narrowings are reachable in Lean's own kernel.**
+
+`P`/`Q` is `MutNonRec.A`/`B` with a field added to `P`, so that eta on it is not degenerate;
+`R` is a *recursive* single-constructor inductive.  The `#eval` runs the **kernel** —
+`Lean.addDecl`, not the elaborator — on three hand-built declarations, and fails the build if
+any verdict changes.  What it establishes:
+
+* the kernel accepts `Expr.proj P 0` — a projection out of a member of a two-type block, which
+  `VEnv.IsStructure.types` cannot describe;
+* the kernel **performs structure eta** on that member (`a ≡ P.mk a.0` closes by `rfl`), so the
+  gap is reachable through `tryEtaStructCore`, not merely through `inferProj`;
+* the kernel accepts `Expr.proj R 0` — a projection out of a *recursive* one-constructor
+  inductive, which `VEnv.IsStructure.noRec` cannot describe.  (`isNonRecStructure R` is
+  `false`, so this one is an `inferProj`/`TrProj` gap only; eta does test `isRec`.) -/
+mutual
+/-- A member of a two-type block, with a field, so that eta on it is not degenerate. -/
+inductive P where | mk : Nat → P
+/-- The other half. -/
+inductive Q where | mk : Q
+end
+
+/-- A recursive one-constructor inductive: `isNonRecStructure` says `false`, `inferProj` does
+not care. -/
+inductive R where | mk : Nat → R → R
+
+/-- The three kernel runs described above, as a named check so that other files can cite it.
+Executed by the `#eval` directly below; a changed verdict fails the build. -/
+def kernelProjChecks : Lean.CoreM Unit := Lean.withoutModifyingEnv do
+  let env ← Lean.getEnv
+  let some (.inductInfo v) := env.find? ``P | throwError "MutNonRec.P is not an inductive"
+  unless v.isRec = false && v.numIndices = 0 && v.ctors = [``P.mk] && v.all = [``P, ``Q] do
+    throwError "MutNonRec.P's InductiveVal moved"
+  unless Lean.isNonRecStructure env ``P do
+    throwError "isNonRecStructure no longer accepts a member of a mutual non-recursive block"
+  -- 1. `.proj` out of a member of a two-type block
+  Lean.addDecl <| .defnDecl
+    { name := `Lean4Lean.MutNonRec.projTest, levelParams := [], hints := .abbrev,
+      safety := .safe,
+      type := .forallE `a (.const ``P []) (.const ``Nat []) .default,
+      value := .lam `a (.const ``P []) (.proj ``P 0 (.bvar 0)) .default }
+  -- 2. structure eta on that member: `a ≡ P.mk a.0`
+  Lean.addDecl <| .thmDecl
+    { name := `Lean4Lean.MutNonRec.etaTest, levelParams := [],
+      type := .forallE `a (.const ``P [])
+        (mkApp3 (.const ``Eq [.succ .zero]) (.const ``P []) (.bvar 0)
+          (.app (.const ``P.mk []) (.proj ``P 0 (.bvar 0)))) .default,
+      value := .lam `a (.const ``P [])
+        (mkApp2 (.const ``rfl [.succ .zero]) (.const ``P []) (.bvar 0)) .default }
+  -- 3. `.proj` out of a *recursive* one-constructor inductive
+  let some (.inductInfo vr) := env.find? ``R | throwError "MutNonRec.R is not an inductive"
+  unless vr.isRec = true && vr.ctors = [``R.mk] && vr.numIndices = 0 do
+    throwError "MutNonRec.R's InductiveVal moved"
+  Lean.addDecl <| .defnDecl
+    { name := `Lean4Lean.MutNonRec.recProjTest, levelParams := [], hints := .abbrev,
+      safety := .safe,
+      type := .forallE `a (.const ``R []) (.const ``Nat []) .default,
+      value := .lam `a (.const ``R []) (.proj ``R 0 (.bvar 0)) .default }
+
+#eval kernelProjChecks
 
 end MutNonRec
 

@@ -243,6 +243,41 @@ theorem RecM.WF.forIn'Break {c : VContext} {Inv : β → VState → Prop} :
     | .done b' => exact .pure hr
     | .yield b' => exact RecM.WF.forIn'Break (fun v hv b s hb => H v (.tail _ hv) b s hb) hr
 
+/-- **`forIn'Break` with the invariant indexed by the prefix already processed.**
+
+`forIn'Break` deliberately does not index its invariant, which is exactly what makes it unable
+to accumulate anything across iterations: a `break` skips the rest of the list, so a
+non-indexed invariant cannot say "and every element so far satisfied `P`".  This version can.
+It splits the body's obligation in two — a `yield` must extend the invariant by the element
+just processed, a `done` must land in a separate break predicate `Br` — and concludes with the
+disjunction: either the whole list was traversed and `Inv` holds at it, or the loop broke and
+`Br` holds.
+
+This is the lemma `docs/handoff-eta.md` §4 named as missing for the non-`Prop` half of
+`tryEtaStructCore.WF`.  Like `forIn'Break` it is reusable: `isDefEqApp`'s and `isDefEqArgs`'
+loops have the same shape. -/
+theorem RecM.WF.forIn'Prefix {c : VContext} {Inv : List α → β → VState → Prop}
+    {Br : β → VState → Prop} :
+    ∀ {xs : List α} {f : (a : α) → a ∈ xs → β → RecM (ForInStep β)} {pre : List α},
+    (∀ (ys : List α) (v : α) (h : v ∈ xs) (b : β) (s : VState), Inv ys b s →
+      RecM.WF c s (f v h b) fun r s' =>
+        match r with
+        | .yield b' => Inv (ys ++ [v]) b' s'
+        | .done b' => Br b' s') →
+    ∀ {b : β} {s : VState}, Inv pre b s →
+      RecM.WF c s (forIn' xs b f) fun b' s' => Inv (pre ++ xs) b' s' ∨ Br b' s'
+  | [], _, pre, _, _, _, h => .pure (.inl (by simpa using h))
+  | v :: vs, f, pre, H, b, s, h => by
+    rw [List.forIn'_cons]
+    refine (H pre v (.head _) b s h).bind fun r s' _ hr => ?_
+    match r with
+    | .done b' => exact .pure (.inr hr)
+    | .yield b' =>
+      refine (RecM.WF.forIn'Prefix (pre := pre ++ [v])
+        (fun ys w hw bb ss hbb => H ys w (.tail _ hw) bb ss hbb) hr).mono ?_
+      intro _ _ _ hh
+      simpa using hh
+
 /-- **The `IsStructure` bridge, at `tryEtaStructCore`'s gate**, in the form its loop consumes.
 
 `docs/handoff-eta.md` §5 recorded the residual as "supply `c.venv.IsStructure I D T C` from
@@ -285,12 +320,11 @@ conclusion outright, exactly as it does for `isDefEqUnitLike`.  Like `WF_prop` t
 proof enters the real `.ctorInfo` arm and never mentions `AddInduct` or `TrEnv.not_ctorInfo`, so
 it survives the flip verbatim.
 
-**What remains for the full statement** is the non-`Prop` case: carry the per-iteration
-`c.IsDefEqU (proj_i e₁') args_i'` through the loop invariant instead of discarding it, assemble
-them into a `VEnv.HasArgsDF` over the constructor's field telescope, and close with
-`VEnv.StructEta.congrSpine` (`Theory/Inductive/StructureEta.lean`).  That needs the loop
-invariant to be indexed by the fields processed so far and needs `e₂'` decomposed as
-`(.const C.name us).mkApp (ps ++ args')`; neither is attempted here.
+**The non-`Prop` case is no longer open**: `WF_of_structEta` below does it, with a
+prefix-indexed loop rule (`RecM.WF.forIn'Prefix`), the decomposition of `e₂'` supplied by the
+strengthened bridge `EtaStructSpine`, and `VEnv.StructEta.congrProj` for the assembly.  This
+lemma is kept because its hypothesis list is strictly weaker on the block side — it needs no
+`IsStructure` at all — so it is the one to use wherever `hprop` is available.
 
 **Honest note on today's satisfiability.**  `EtaStructBridge c e₁ e₂` is *currently* provable
 for every `c`, because its premise asks for a `.ctorInfo` under the head of a translated term
@@ -332,11 +366,185 @@ theorem tryEtaStructCore.WF_prop {c : VContext} {s : VState}
     split <;> exact .pure trivial
   · split <;> exact .pure fun _ => key
 
-/-- Still `sorry`.  It **is** closeable today — `(tryEtaStructCore_never_true he₂).mono
+/-- **The bridge at `tryEtaStructCore`'s gate, in the form the *non*-`Prop` proof consumes.**
+
+`EtaStructBridge` above is what the `Prop` half needs: two translations per iteration and
+nothing else, because `proofIrrel` settles the conclusion before the loop runs.  Outside `Prop`
+the loop's output is the whole content, so the bridge has to say *which* abstract terms the two
+translations land on, and hand over the block data the assembly needs:
+
+* the block itself — `IsStructure` plus the eta rule's side conditions (`T.indices = []`, the
+  level and parameter data, `t' : S ps`, and F17);
+* the **decomposition of the second term**, `s' = C.mk us (ps ++ args)`, which is what
+  `docs/handoff-eta.md` §4 listed as the second missing ingredient;
+* the constructor's declared telescope, split at the parameter/field boundary (`hctor`), and
+  its result (`hB`);
+* and, per iteration, the two translations *pinned*: the first argument translates to
+  `D.projTerm … (i - np) t'` — the term `TrProj` produces — and the second to `args[i - np]`.
+
+**What is deliberately *not* here: the projections' typing.**  An earlier draft carried
+`∀ k < n, HasType (projTerm … k t') …` as a further conjunct.  It is not needed:
+`projTerm_hasType` (`Verify/Typing/Lemmas.lean`) derives it from `IsStructure`, the universe
+data and the F17 clause — all of which are already listed — and `WF_of_structEta` below does
+exactly that.  The F17 clause is what pays for it, in both of `TrProj.wf`'s branches.
+
+Every binder is pinned by a gate: `f` and `w` by the head equation and the lookup, and the
+per-iteration clause fires only under the arity and `isNonRecStructure` checks.
+
+**Satisfiability today: empty, and that is unchanged.**  Like `EtaStructBridge`, this predicate
+is currently provable for every `c` — its premise asks for a `.ctorInfo` under the head of a
+translated term and `TrEnv.not_ctorInfo` forbids that.  What the theorem below buys is that its
+conclusion comes from `StructEta.congrProj` and the loop rule, not from that vacuity. -/
+def EtaStructSpine (c : VContext) (t s : Expr) (t' s' : VExpr) : Prop :=
+  ∀ {f : Name} {w : ConstructorVal},
+    (∃ us, s.getAppFn = .const f us) →
+    c.env.find? f = some (.ctorInfo w) →
+    (s.getAppNumArgs == w.numParams + w.numFields) = true →
+    c.env.isNonRecStructure w.induct = true →
+    ∃ (D : VInductDecl') (T : VIndType) (C : VIndCtor) (us : List VLevel)
+      (ps args : List VExpr) (B : VExpr),
+      c.venv.IsStructure w.induct D T C ∧ C.name = f ∧ T.indices = [] ∧
+      us.length = D.uvars ∧ (∀ l ∈ us, l.WF c.lparams.length) ∧ ps.length = D.np ∧
+      w.numParams = D.np ∧ C.fields.length = w.numFields ∧
+      args.length = C.fields.length ∧
+      c.venv.HasArgs c.lparams.length c.vlctx.toCtx (D.params.map (VExpr.instL us)) ps ∧
+      c.venv.HasType c.lparams.length c.vlctx.toCtx t'
+        ((VExpr.const w.induct us).mkApp ps) ∧
+      (D.isLE = true ∨ ∀ k, k < C.fields.length →
+        (C.fields.getD k default).lvl.inst us ≈ .zero) ∧
+      s' = (VExpr.const C.name us).mkApp (ps ++ args) ∧
+      c.venv.HasType c.lparams.length c.vlctx.toCtx (VExpr.const C.name us)
+        (VExpr.mkPi (D.params.map (VExpr.instL us) ++
+          C.fields.map (fun F => VExpr.instL us F.type)) B) ∧
+      VExpr.instAll B (ps ++ D.projAll T C us ps t') = (VExpr.const w.induct us).mkApp ps ∧
+      (∀ i (h : i < s.getAppArgs.size), w.numParams ≤ i →
+        c.TrExprS (.proj w.induct (i - w.numParams) t)
+          (D.projTerm T C us ps [] (i - w.numParams) t') ∧
+        c.TrExprS s.getAppArgs[i] (args.getD (i - w.numParams) default))
+
+/-- **`tryEtaStructCore.WF`, modulo structure eta and the bridge — the whole statement, `Prop`
+case included.**
+
+`WF_prop` above is the `Prop` column.  This is both columns, and it is the theorem
+`docs/handoff-eta.md` §4 left open with its failing step named.  All three named ingredients
+are now here:
+
+1. **the prefix-indexed loop rule** (`RecM.WF.forIn'Prefix`), which did not exist — the loop's
+   per-iteration `IsDefEqU (proj_k t') args_k` is carried in the invariant instead of being
+   discarded, and a `break` is absorbed by the separate break predicate;
+2. **the decomposition of `e₂'`** as `(.const C.name us).mkApp (ps ++ args)`, which the bridge
+   supplies rather than the proof recovering it by `AppStack` inversion;
+3. **`VEnv.StructEta.congrProj`** (`Theory/Inductive/StructureEta.lean`), which assembles the
+   per-field comparisons into a `HasArgsDF` over the constructor's field telescope and closes
+   with `congrSpine`.
+
+**The projections' typing is derived here, not assumed.**  `projTerm_hasType`
+(`Verify/Typing/Lemmas.lean`) turns the bridge's `IsStructure` + universe data + F17 clause into
+`ProjHasType` at every field, with the same two-branch level argument `TrProj.wf` uses.  So the
+one heavy typing fact in `congrProj`'s premise list costs nothing extra at this call site.
+
+Like `WF_prop`, the proof **enters the live `.ctorInfo` arm** — it never touches
+`TrEnv.not_ctorInfo` — so it survives the `AddInduct` flip verbatim.  And like `WF_prop`, its
+hypothesis is empty *today*, for the reason `EtaStructSpine`'s docstring records; the
+instantiation is what is missing, not the derivation. -/
+theorem tryEtaStructCore.WF_of_structEta {c : VContext} {s : VState}
+    (he₁ : c.TrExprS e₁ e₁') (he₂ : c.TrExprS e₂ e₂')
+    (hSE : c.venv.StructEta) (hbr : EtaStructSpine c e₁ e₂ e₁' e₂') :
+    RecM.WF c s (tryEtaStructCore e₁ e₂) fun b _ => b → c.IsDefEqU e₁' e₂' := by
+  have hget : ∀ {name}, (c.env.get name).WF fun ci => c.env.find? name = some ci := by
+    intro name; simp [Kernel.Environment.get]; split <;> [refine .pure ‹_›; exact .throw]
+  unfold tryEtaStructCore
+  split <;> [skip; exact .pure nofun]
+  rename_i f us heq
+  refine .getEnv <| (M.WF.liftExcept hget).lift.bind fun ci _ _ hci => ?_
+  split <;> [skip; exact .pure nofun]
+  rename_i fInfo hfi
+  split <;> [skip; exact .pure nofun]
+  rename_i hnum
+  split <;> [skip; exact .pure nofun]
+  rename_i hnrs
+  obtain ⟨D, T, C, us', ps, args, B, hIS, hCname, hidx, hus, huswf, hps, hnp, hnf, hargl,
+    hpsA, hty1, hF17, he₂eq, hctor, hB, hiter⟩ := hbr ⟨us, heq⟩ hci hnum hnrs
+  -- the projections' typing, derived from the block data and F17 (`TrProj.wf`'s argument)
+  have hprojty : ∀ k, k < C.fields.length →
+      c.venv.HasType c.lparams.length c.vlctx.toCtx (D.projTerm T C us' ps [] k e₁')
+        (VExpr.instAll ((C.fields.getD k default).type.instL us')
+          (ps ++ (List.range k).map fun m => D.projTerm T C us' ps [] m e₁')) := by
+    intro k hk
+    refine projTerm_hasType c.Ewf hIS hus huswf k hk ?_ c.Δwf ?_ hps ?_ hpsA ?_
+    · intro m _ _
+      by_cases hLE : D.isLE = true
+      · simp only [VInductDecl'.elimLvl, VInductDecl'.projLvls, hLE, if_true, VLevel.inst,
+          List.getD_cons_zero]
+        rfl
+      · simp only [Bool.not_eq_true] at hLE
+        rw [VInductDecl'.elimLvl, VInductDecl'.projLvls, if_neg (by simp [hLE]),
+          if_neg (by simp [hLE])]
+        rcases hF17 with h | h
+        · exact absurd h (by simp [hLE])
+        · exact h m (by omega)
+    · simpa using hty1
+    · simp [hidx]
+    · simp [hidx]; exact .nil
+  refine (inferType.WF he₁).bind fun _ _ _ ⟨_, _, _, ht1, _⟩ => ?_
+  refine (inferType.WF he₂).bind fun _ _ _ ⟨_, _, _, ht2, _⟩ => ?_
+  refine (isDefEq.WF ht1 ht2).bind fun b _ _ _ => ?_
+  split <;> [skip; exact .pure nofun]
+  simp only [Std.Legacy.Range.forIn'_eq_forIn'_range']
+  refine (RecM.WF.forIn'Prefix
+    (Inv := fun ys st _ => st.1 = none ∧ ∀ a ∈ ys,
+      c.IsDefEqU (D.projTerm T C us' ps [] (a - hfi.numParams) e₁')
+        (args.getD (a - hfi.numParams) default))
+    (Br := fun st _ => st.1 = some false)
+    (pre := []) ?_ ⟨rfl, nofun⟩).bind fun r _ _ hr => ?_
+  · intro ys a ha bb ss ⟨_, hb2⟩
+    have hlt : a < e₂.getAppArgs.size := by simp [List.mem_range'] at ha; omega
+    have hge : hfi.numParams ≤ a := by simp [List.mem_range'] at ha; omega
+    obtain ⟨hp, hq⟩ := hiter a hlt hge
+    refine (isDefEq.WF hp hq).bind fun _ _ _ hres => ?_
+    split
+    · rename_i hrt
+      refine .pure ⟨rfl, ?_⟩
+      intro x hx
+      simp at hx
+      rcases hx with hx | rfl
+      · exact hb2 x hx
+      · exact hres hrt
+    · exact .pure rfl
+  · rcases hr with ⟨h1, h2⟩ | h1
+    · rw [h1]
+      refine .pure fun _ => ?_
+      have hkey : ∀ k, k < C.fields.length →
+          c.IsDefEqU (D.projTerm T C us' ps [] k e₁') (args.getD k default) := by
+        intro k hk
+        have hmem : hfi.numParams + k ∈
+            [] ++ List.range' hfi.numParams [hfi.numParams:e₂.getAppArgs.size].size := by
+          simp [List.mem_range']
+          have hsz : e₂.getAppArgs.size = hfi.numParams + hfi.numFields := by
+            have h0 : e₂.getAppArgs.toList.length = e₂.getAppNumArgs := by
+              rw [Expr.getAppArgs_toList_rev, List.length_reverse, ← Expr.getAppNumArgs_eq]
+            simp only [Array.length_toList] at h0
+            rw [h0]; simpa using hnum
+          omega
+        simpa using h2 _ hmem
+      exact ⟨_, he₂eq ▸ hSE.congrProj hIS hidx hus huswf hps hpsA hty1 hF17 hargl
+        hprojty hkey hctor hB c.Ewf c.Δwf⟩
+    · rw [h1]; exact .pure nofun
+
+/-- Still `sorry`, deliberately.  `(tryEtaStructCore_never_true he₂).mono
 fun _ _ _ h hb => absurd (h ▸ hb) nofun` discharges it in one line — but that close is
 vacuous, is discarded the moment `AddInduct` gains constructors, and would make the
 refinement layer read as complete on structure-eta when it has no content on it at all.
-See `tryEtaStructCore_never_true` for the full argument. -/
+
+`WF_of_structEta` above is the non-vacuous version: **this statement is exactly that one with
+its two hypotheses removed**, and neither is provable in this tree.  `c.venv.StructEta` is an
+addition to the abstract theory (`Theory/Inductive/StructureEta.lean` says why it is a
+predicate rather than an `IsDefEq` constructor); `EtaStructSpine` needs the `IsStructure`
+bridge, which `Verify/StructureBridge.lean` shows is not attainable as `IsStructure` currently
+stands — and, since Lean's kernel performs structure eta on members of *mutual* non-recursive
+blocks (`MutNonRec.kernelProjChecks`), not attainable by weakening `IsStructure.types` either.
+
+See `tryEtaStructCore_never_true` for the vacuity argument. -/
 theorem tryEtaStructCore.WF {c : VContext} {s : VState}
     (he₁ : c.TrExprS e₁ e₁') (he₂ : c.TrExprS e₂ e₂') :
     RecM.WF c s (tryEtaStructCore e₁ e₂) fun b _ => b → c.IsDefEqU e₁' e₂' := sorry
@@ -716,12 +924,21 @@ from `c.env.isNonRecStructure I = true`".  This is that step, stated at the exac
 they come from the same place (the block's declaration) and there is no cheaper source for
 them today.
 
-**It is a hypothesis, and it has to be**: `Verify/StructureBridge.lean` shows — machine-checked
-— that this implication does not follow from `AddInduct`'s *intended* definition either.
-`AddIndConsts`' shape predicates and `TrConstant` constrain a constant's name, level count and
-type and nothing else, so `InductiveVal.isRec`/`.ctors`/`.numIndices` and
-`ConstructorVal.numFields` — the six fields the eta checks read — are free.  See
-`R10.Wit.isNonRecStructure_not_determined`.
+**It is a hypothesis, and it has to be** — but *not* for the reason an earlier round gave.
+That reason ("`AddIndConsts`' shape predicates and `TrConstant` constrain a constant's name,
+level count and type and nothing else, so the six fields the eta checks read are free") is
+**obsolete**: `IndShape`/`CtorShape` landed in `AddInductStages`, `numIndices`, `ctors`,
+`numFields`, `numParams` and `induct` are now pinned, and `R10.Wit.isNonRecStructure_one_sided`
+shows the one surviving free field (`isRec`) can only make the checker *refuse* eta.
+
+The real obstruction is one level down, in `VEnv.IsStructure` itself: its `types` field says
+`D.types = [T]`, and `Lean.isNonRecStructure` accepts members of *mutual* non-recursive blocks,
+for which that is false.  Lean's own kernel both accepts `.proj` on such a member and performs
+structure eta on it (`MutNonRec.kernelProjChecks`'s `#eval`, `Verify/StructureBridge.lean`).
+The field is nevertheless not weakenable as it stands — `projCore` supplies one motive and one
+minor premise where such a block's recursor binds two of each (`MutNonRec.projCore_arity_wrong`)
+— so the repair is a generalisation of `projCore`, and this bridge stays a hypothesis until it
+lands.
 
 Every binder is pinned: `tType`/`tType'` by the translation, `I`/`ls` by the head equation,
 `cn` by `v.ctors = [cn]`, `v`/`w` by the two lookups.  The conclusion's `D T C us ps` are
