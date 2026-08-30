@@ -302,6 +302,21 @@ would also remove the `reducePowMaxExp` hang) is a decision for whoever owns tha
 
 ## 7. Pick up first
 
+> **UPDATE (this session).**  §5's **(a)** and **(b)** are now **proved**, in
+> `Lean4Lean/Verify/Primitive.lean`: `VEnv.reflects_condApp` /
+> `reflects_condApp_natLE` / `ReflectsCondApp.natLE_le` (the `Condition` reflection lemma,
+> with a `condApp` shape that serves `ite` and `dite` alike) and `VEnv.reflects_fuel_go` /
+> `reflects_fuel_mod` / `reflects_fuel_div` (the fuel induction, one induction parametrised
+> for both).  See `docs/handoff-adddecl.md` §5.
+>
+> What is left of them is **plumbing, not mathematics**: instantiating the two
+> `withCheckedLocalDecl` binders and β-reducing through `Reflection.ite`'s four-fold λ, to
+> turn the recognizer's checked equations into `reflects_condApp`'s `hsel` and
+> `reflects_fuel_go`'s `hgo`.  The tools for exactly that (`IsDefEqU.inst0`,
+> `IsDefEqU.beta'`, `IsDefEqU.app_congr_fn'`, `IsDefEqU.app2_congr_fn`) are in the same file.
+> **That is the next task.**  The list below is otherwise unchanged; item 1 is done.
+
+
 1. **(a) of §5** — the `Condition` reflection lemma.  It is the only piece all of `mod`, `div`
    and `bitwise` need, it is self-contained at the `VExpr` level, and it belongs in
    `Verify/Primitive.lean` next to `reflects_natBitwiseApp`.

@@ -229,8 +229,27 @@ theorem addMutual.WF {env : Environment} {ves : VEnvs} (wf : ves.WF env)
   · obtain ⟨v, -, h⟩ := hbody.forall_exists_r ci hc; exact h.2
 
 /-- Successful checked addition preserves well-formedness and extends every safety-indexed
-abstract environment. The only declaration form still outstanding is inductives, which need a
-constructive `AddInduct` model. -/
+abstract environment.
+
+**This statement is FALSE as written**, and the `sorry` below is not an open goal.  Its
+postcondition asserts `ves'.WF env'`, which `VEnvs.WF.no_inductInfo` (`Verify/InductFlip.lean`)
+refutes for every environment whose map holds an `.inductInfo` — and the checker produces such
+environments (`Verify/Inductive/AddDeclWF.lean` §4, check A).  Both halves are machine-checked
+there, as `addDecl_inductDecl_post_false` and `addDecl_inductDecl_WF_false`.
+
+**The honest replacement is `addDecl.WF_honest`** (`Verify/Inductive/AddDeclWF.lean` §5),
+proved with no `sorry` of its own from a single named obligation `AddInductiveStepWF`.  It
+differs only at `inductDecl`, where the postcondition becomes `AddInductPost` — the
+`InductStepNested` obligation, which is satisfiable at a constant map that *does* hold an
+`.inductInfo` (`addDeclPost_separation`).  That is the whole difference between a refuted
+branch and an open one.
+
+Landing the replacement here is blocked outside this file, not inside it:
+`Verify/Bridge.lean`'s `AddDeclWF` repeats this statement verbatim and `Bridge.addDeclWF`
+discharges it by `fun wf decl => addDecl.WF wf decl fuel`, so weakening the conclusion
+requires the three changes listed in `Verify/Inductive/AddDeclWF.lean` §5.4.  Those are
+already blocked on the same `AddInduct` emptiness — `Bridge`'s fold is false from
+`stdPrelude`'s first declaration onwards — so nothing is gained by making them piecemeal. -/
 theorem addDecl.WF {env : Environment} {ves : VEnvs} (wf : ves.WF env) (decl : Declaration)
     (fuel : FuelConfig := {}) :
     (addDecl env decl (check := true) (fuel := fuel)).WF fun env' =>
