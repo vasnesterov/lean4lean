@@ -486,6 +486,11 @@ def checkPrimitiveDef (v : DefinitionVal) : M Bool := do
     -- land : Nat → Nat → Nat
     checkPrimValue v q(Nat → Nat → Nat) fail
     let .app (.const ``Nat.bitwise []) and := v.value | fail
+    -- The combinator's own type. `VEnv.ReflectsBoolBoolBool` carries this alongside the truth
+    -- table because `VEnv.ReflectsNatBitwise`'s conclusion is an `IsDefEqU` at
+    -- `Nat.bitwise and a b`, which asserts it; the truth table alone does not imply it.
+    -- See `docs/handoff-primitive.md` §3.
+    unless ← checkedTypeIs and q(Bool → Bool → Bool) do fail
     let and := mkApp2 and
     -- `and : Bool → Bool → Bool`, so the free variable here is a `Bool`
     unless ← defeqT1 q(Bool) (fun x => and fal x) (fun _ => fal) do fail
@@ -496,6 +501,11 @@ def checkPrimitiveDef (v : DefinitionVal) : M Bool := do
     -- lor : Nat → Nat → Nat
     checkPrimValue v q(Nat → Nat → Nat) fail
     let .app (.const ``Nat.bitwise []) or := v.value | fail
+    -- The combinator's own type. `VEnv.ReflectsBoolBoolBool` carries this alongside the truth
+    -- table because `VEnv.ReflectsNatBitwise`'s conclusion is an `IsDefEqU` at
+    -- `Nat.bitwise or a b`, which asserts it; the truth table alone does not imply it.
+    -- See `docs/handoff-primitive.md` §3.
+    unless ← checkedTypeIs or q(Bool → Bool → Bool) do fail
     let or := mkApp2 or
     -- `or : Bool → Bool → Bool`, so the free variable here is a `Bool`
     unless ← defeqT1 q(Bool) (fun x => or fal x) (fun x => x) do fail
@@ -506,6 +516,11 @@ def checkPrimitiveDef (v : DefinitionVal) : M Bool := do
     -- xor : Nat → Nat → Nat
     checkPrimValue v q(Nat → Nat → Nat) fail
     let .app (.const ``Nat.bitwise []) xor := v.value | fail
+    -- The combinator's own type. `VEnv.ReflectsBoolBoolBool` carries this alongside the truth
+    -- table because `VEnv.ReflectsNatBitwise`'s conclusion is an `IsDefEqU` at
+    -- `Nat.bitwise xor a b`, which asserts it; the truth table alone does not imply it.
+    -- See `docs/handoff-primitive.md` §3.
+    unless ← checkedTypeIs xor q(Bool → Bool → Bool) do fail
     let xor := mkApp2 xor
     unless ← checkedIsDefEq (xor fal fal) fal do fail
     unless ← checkedIsDefEq (xor tru fal) tru do fail

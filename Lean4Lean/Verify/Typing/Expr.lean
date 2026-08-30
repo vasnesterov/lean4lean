@@ -1,4 +1,5 @@
 import Lean4Lean.Theory.Typing.Basic
+import Lean4Lean.Theory.Typing.Env
 import Lean4Lean.Theory.Inductive.Structure
 import Lean4Lean.Verify.NameGenerator
 import Lean4Lean.Verify.VLCtx
@@ -226,10 +227,20 @@ def VEnv.ReflectsNatNatBool (env : VEnv) (fc : Name) (f : Nat → Nat → Bool) 
   env.contains fc →
   ∀ a b, env.IsDefEqU 0 [] (.app (.app (.const fc []) (.natLit a)) (.natLit b)) (.boolLit (f a b))
 
-/-- The term `f` computes the boolean operation `g` on boolean literals. This is what the
-`Nat.land`/`Nat.lor`/`Nat.xor` branches of the primitive recognizer check about the boolean
-operation they pass to `Nat.bitwise`. -/
+/-- The term `f` is a boolean binary operation computing `g` on boolean literals. This is what
+the `Nat.land`/`Nat.lor`/`Nat.xor` branches of the primitive recognizer check about the boolean
+operation they pass to `Nat.bitwise`.
+
+The typing conjunct is **load-bearing, not decoration**. `VEnv.ReflectsNatBitwise`'s conclusion
+is an `IsDefEqU` at `Nat.bitwise f (natLit a) (natLit b)`, and `IsDefEqU` entails
+well-typedness, so the conclusion *asserts* that `f` inhabits `Nat.bitwise`'s domain. The
+truth-table conjunct alone does not give that: an `f : (x : Bool) → Q x` in an environment
+carrying `Q Bool.true ≡ Bool → Bool` and `Q Bool.false ≡ Bool → Bool`, and nothing about `Q` at
+a variable, satisfies the truth table while `Nat.bitwise f` is ill-typed. Without the conjunct
+`ReflectsNatBitwise` is therefore *false*, not merely open. See
+`docs/handoff-primitive.md` §3. -/
 def VEnv.ReflectsBoolBoolBool (env : VEnv) (f : VExpr) (g : Bool → Bool → Bool) :=
+  env.HasType 0 [] f (.forallE .bool (.forallE .bool .bool)) ∧
   ∀ a b, env.IsDefEqU 0 [] (.app (.app f (.boolLit a)) (.boolLit b)) (.boolLit (g a b))
 
 /-- `Nat.bitwise` is the one primitive whose semantics are second order: it is applied to a
@@ -237,11 +248,17 @@ boolean operation supplied by the *later* declaration of `Nat.land`/`Nat.lor`/`N
 the operation is in general a term that does not exist yet when `Nat.bitwise` is recognized.
 The statement is therefore relativized to an arbitrary extension `env'` of `env`; without
 that relativization the field would not be monotone (`ReflectsBoolBoolBool` occurs
-negatively, and a later declaration may introduce a new `f`). -/
+negatively, and a later declaration may introduce a new `f`).
+
+`env'.WF` is required because the proof of this field chains `IsDefEqU` steps and
+`VEnv.IsDefEqU.trans` needs a well-formed environment; `env ≤ env'` alone transfers nothing to
+`f`, which is new in `env'`. (Its position *after* `f` and `g` is deliberate and not
+significant semantically: it keeps `VEnv.HasPrimitives.addConst` in
+`Verify/Environment/Extension.lean` compiling unchanged.) -/
 def VEnv.ReflectsNatBitwise (env : VEnv) :=
   env.contains ``Nat.bitwise →
   ∀ (env' : VEnv), env ≤ env' → ∀ (f : VExpr) (g : Bool → Bool → Bool),
-    env'.ReflectsBoolBoolBool f g → ∀ a b, env'.IsDefEqU 0 []
+    env'.WF → env'.ReflectsBoolBoolBool f g → ∀ a b, env'.IsDefEqU 0 []
       (.app (.app (.app (.const ``Nat.bitwise []) f) (.natLit a)) (.natLit b))
       (.natLit (Nat.bitwise g a b))
 

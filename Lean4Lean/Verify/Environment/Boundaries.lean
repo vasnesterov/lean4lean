@@ -717,6 +717,16 @@ theorem checkPrimitiveDef.WF {env : Environment} {ves : VEnvs} (wf : ves.WF env)
     rw [heqv] at hFv
     obtain ⟨G, hFeq, hG⟩ := trExprS_bitwiseApp_inv hFv
     subst hFeq
+    -- `unless ← checkedTypeIs _ q(Bool → Bool → Bool)`: the combinator's own type, which
+    -- `VEnv.ReflectsBoolBoolBool` carries and `VEnv.ReflectsNatBitwise` needs.
+    refine M.WF.bind (checkedTypeIs.WF' hG ?hfvB1) fun _ _ _ hbt => ?_
+    case hfvB1 => simp [FVarsIn]
+    split
+    case isFalse => exact M.WF.bindThrow .throw
+    rename_i hbty
+    obtain ⟨tyB, htyB, hGtyF⟩ := hbt
+    cases trExprS_boolArrow2_inv htyB
+    have hGty := hGtyF (by simpa using hbty)
     have hGc : G.ClosedN 0 := hFc.2
     have hgi : ∀ (e : VExpr) (k : Nat), G.inst e k = G := fun _ _ => hGc.instN_eq (Nat.zero_le _)
     refine M.WF.bind (M.WF.withLocalDecl0 (name := `x) (bi := .default) (ty' := VExpr.bool)
@@ -767,8 +777,8 @@ theorem checkPrimitiveDef.WF {env : Environment} {ves : VEnvs} (wf : ves.WF env)
     have hblit : (ves.venv .safe).BoolLits := hprim.boolLits hbool
     refine VEnv.primField_Nat_land.2 (reflectsNNN_of_open hle₂ henv₂ hprim3
       (VEnv.contains.mono hle' hnat) hdefF (hFty.mono hle3) fun hlit a b => ?_)
-    refine hprim3.natBitwise (VEnv.contains.mono hle' hbwC) env₂ hle₂ G and ?_ a b
-    refine VEnv.reflectsBoolBoolBool_and ?_ ?_
+    refine hprim3.natBitwise (VEnv.contains.mono hle' hbwC) env₂ hle₂ G and henv₂ ?_ a b
+    refine VEnv.reflectsBoolBoolBool_and (hGty.mono hle3) ?_ ?_
     · intro bb
       have := VEnv.IsDefEqU.instBool henv₂ (hblit.mono hle3) (hL0.mono hle3) bb
       simpa [VExpr.inst, VExpr.instVar, hgi] using this
@@ -806,6 +816,16 @@ theorem checkPrimitiveDef.WF {env : Environment} {ves : VEnvs} (wf : ves.WF env)
     rw [heqv] at hFv
     obtain ⟨G, hFeq, hG⟩ := trExprS_bitwiseApp_inv hFv
     subst hFeq
+    -- `unless ← checkedTypeIs _ q(Bool → Bool → Bool)`: the combinator's own type, which
+    -- `VEnv.ReflectsBoolBoolBool` carries and `VEnv.ReflectsNatBitwise` needs.
+    refine M.WF.bind (checkedTypeIs.WF' hG ?hfvB2) fun _ _ _ hbt => ?_
+    case hfvB2 => simp [FVarsIn]
+    split
+    case isFalse => exact M.WF.bindThrow .throw
+    rename_i hbty
+    obtain ⟨tyB, htyB, hGtyF⟩ := hbt
+    cases trExprS_boolArrow2_inv htyB
+    have hGty := hGtyF (by simpa using hbty)
     have hGc : G.ClosedN 0 := hFc.2
     have hgi : ∀ (e : VExpr) (k : Nat), G.inst e k = G := fun _ _ => hGc.instN_eq (Nat.zero_le _)
     refine M.WF.bind (M.WF.withLocalDecl0 (name := `x) (bi := .default) (ty' := VExpr.bool)
@@ -856,8 +876,8 @@ theorem checkPrimitiveDef.WF {env : Environment} {ves : VEnvs} (wf : ves.WF env)
     have hblit : (ves.venv .safe).BoolLits := hprim.boolLits hbool
     refine VEnv.primField_Nat_lor.2 (reflectsNNN_of_open hle₂ henv₂ hprim3
       (VEnv.contains.mono hle' hnat) hdefF (hFty.mono hle3) fun hlit a b => ?_)
-    refine hprim3.natBitwise (VEnv.contains.mono hle' hbwC) env₂ hle₂ G or ?_ a b
-    refine VEnv.reflectsBoolBoolBool_or ?_ ?_
+    refine hprim3.natBitwise (VEnv.contains.mono hle' hbwC) env₂ hle₂ G or henv₂ ?_ a b
+    refine VEnv.reflectsBoolBoolBool_or (hGty.mono hle3) ?_ ?_
     · intro bb
       have := VEnv.IsDefEqU.instBool henv₂ (hblit.mono hle3) (hL0.mono hle3) bb
       simpa [VExpr.inst, VExpr.instVar, hgi] using this
@@ -895,6 +915,16 @@ theorem checkPrimitiveDef.WF {env : Environment} {ves : VEnvs} (wf : ves.WF env)
     rw [heqv] at hFv
     obtain ⟨G, hFeq, hG⟩ := trExprS_bitwiseApp_inv hFv
     subst hFeq
+    -- `unless ← checkedTypeIs _ q(Bool → Bool → Bool)`: the combinator's own type, which
+    -- `VEnv.ReflectsBoolBoolBool` carries and `VEnv.ReflectsNatBitwise` needs.
+    refine M.WF.bind (checkedTypeIs.WF' hG ?hfvB3) fun _ _ _ hbt => ?_
+    case hfvB3 => simp [FVarsIn]
+    split
+    case isFalse => exact M.WF.bindThrow .throw
+    rename_i hbty
+    obtain ⟨tyB, htyB, hGtyF⟩ := hbt
+    cases trExprS_boolArrow2_inv htyB
+    have hGty := hGtyF (by simpa using hbty)
     refine M.WF.bind (M.WF.mono (R := fun rr _ => rr = true →
         (ves.venv .safe).IsDefEqU 0 []
           (.app (.app G VExpr.boolFalse) VExpr.boolFalse) VExpr.boolFalse)
@@ -967,8 +997,8 @@ theorem checkPrimitiveDef.WF {env : Environment} {ves : VEnvs} (wf : ves.WF env)
     have hle3 := hle'.trans hle₂
     refine VEnv.primField_Nat_xor.2 (reflectsNNN_of_open hle₂ henv₂ hprim3
       (VEnv.contains.mono hle' hnat) hdefF (hFty.mono hle3) fun hlit a b => ?_)
-    refine hprim3.natBitwise (VEnv.contains.mono hle' hbwC) env₂ hle₂ G bne ?_ a b
-    exact VEnv.reflectsBoolBoolBool_bne (hq1.mono hle3) (hq2.mono hle3)
+    refine hprim3.natBitwise (VEnv.contains.mono hle' hbwC) env₂ hle₂ G bne henv₂ ?_ a b
+    exact VEnv.reflectsBoolBoolBool_bne (hGty.mono hle3) (hq1.mono hle3) (hq2.mono hle3)
       (hq3.mono hle3) (hq4.mono hle3)
   · -- ``Nat.shiftLeft
     rename_i hname

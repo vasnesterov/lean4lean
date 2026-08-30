@@ -515,58 +515,68 @@ variable {env : VEnv}
 
 /-- `Nat.bitwise` applied to a combinator whose truth table is known.  This is
 `VEnv.HasPrimitives.natBitwise` instantiated at the environment itself. -/
-theorem reflects_natBitwiseApp (hbw : env.ReflectsNatBitwise) (hc : env.contains ``Nat.bitwise)
+theorem reflects_natBitwiseApp (henv : env.WF) (hbw : env.ReflectsNatBitwise)
+    (hc : env.contains ``Nat.bitwise)
     {f : VExpr} {g : Bool → Bool → Bool} (hf : env.ReflectsBoolBoolBool f g) (a b : Nat) :
     env.IsDefEqU 0 [] (.app (.app (.app (.const ``Nat.bitwise []) f) (.natLit a)) (.natLit b))
       (.natLit (Nat.bitwise g a b)) :=
-  hbw hc env VEnv.LE.rfl f g hf a b
+  hbw hc env VEnv.LE.rfl f g henv hf a b
 
 /-- `Nat.land`'s combinator: the recognizer checks `and false x ≡ false` and `and true x ≡ x`
 under a `Bool`-typed free variable. -/
 theorem reflectsBoolBoolBool_and {f : VExpr}
+    (hty : env.HasType 0 [] f (.forallE .bool (.forallE .bool .bool)))
     (h0 : ∀ b : Bool, env.IsDefEqU 0 [] (.app (.app f .boolFalse) (.boolLit b)) .boolFalse)
     (h1 : ∀ b : Bool, env.IsDefEqU 0 [] (.app (.app f .boolTrue) (.boolLit b)) (.boolLit b)) :
-    env.ReflectsBoolBoolBool f and
-  | false, b => h0 b
-  | true, b => h1 b
+    env.ReflectsBoolBoolBool f and :=
+  ⟨hty, fun
+    | false, b => h0 b
+    | true, b => h1 b⟩
 
 /-- `Nat.lor`'s combinator: `or false x ≡ x` and `or true x ≡ true`. -/
 theorem reflectsBoolBoolBool_or {f : VExpr}
+    (hty : env.HasType 0 [] f (.forallE .bool (.forallE .bool .bool)))
     (h0 : ∀ b : Bool, env.IsDefEqU 0 [] (.app (.app f .boolFalse) (.boolLit b)) (.boolLit b))
     (h1 : ∀ b : Bool, env.IsDefEqU 0 [] (.app (.app f .boolTrue) (.boolLit b)) .boolTrue) :
-    env.ReflectsBoolBoolBool f or
-  | false, b => h0 b
-  | true, b => h1 b
+    env.ReflectsBoolBoolBool f or :=
+  ⟨hty, fun
+    | false, b => h0 b
+    | true, b => h1 b⟩
 
 /-- `Nat.xor`'s combinator is `bne`, and the recognizer checks all four closed cases. -/
 theorem reflectsBoolBoolBool_bne {f : VExpr}
+    (hty : env.HasType 0 [] f (.forallE .bool (.forallE .bool .bool)))
     (hff : env.IsDefEqU 0 [] (.app (.app f .boolFalse) .boolFalse) .boolFalse)
     (htf : env.IsDefEqU 0 [] (.app (.app f .boolTrue) .boolFalse) .boolTrue)
     (hft : env.IsDefEqU 0 [] (.app (.app f .boolFalse) .boolTrue) .boolTrue)
     (htt : env.IsDefEqU 0 [] (.app (.app f .boolTrue) .boolTrue) .boolFalse) :
-    env.ReflectsBoolBoolBool f bne
-  | false, false => hff
-  | true, false => htf
-  | false, true => hft
-  | true, true => htt
+    env.ReflectsBoolBoolBool f bne :=
+  ⟨hty, fun
+    | false, false => hff
+    | true, false => htf
+    | false, true => hft
+    | true, true => htt⟩
 
 /-- `Nat.land`, whose value the recognizer destructures as `Nat.bitwise and`. -/
-theorem reflects_natLAnd (hbw : env.ReflectsNatBitwise) (hc : env.contains ``Nat.bitwise)
+theorem reflects_natLAnd (henv : env.WF) (hbw : env.ReflectsNatBitwise)
+    (hc : env.contains ``Nat.bitwise)
     {f : VExpr} (hf : env.ReflectsBoolBoolBool f and) (a b : Nat) :
     env.IsDefEqU 0 [] (.app (.app (.app (.const ``Nat.bitwise []) f) (.natLit a)) (.natLit b))
-      (.natLit (Nat.land a b)) := reflects_natBitwiseApp hbw hc hf a b
+      (.natLit (Nat.land a b)) := reflects_natBitwiseApp henv hbw hc hf a b
 
 /-- `Nat.lor`, whose value the recognizer destructures as `Nat.bitwise or`. -/
-theorem reflects_natLOr (hbw : env.ReflectsNatBitwise) (hc : env.contains ``Nat.bitwise)
+theorem reflects_natLOr (henv : env.WF) (hbw : env.ReflectsNatBitwise)
+    (hc : env.contains ``Nat.bitwise)
     {f : VExpr} (hf : env.ReflectsBoolBoolBool f or) (a b : Nat) :
     env.IsDefEqU 0 [] (.app (.app (.app (.const ``Nat.bitwise []) f) (.natLit a)) (.natLit b))
-      (.natLit (Nat.lor a b)) := reflects_natBitwiseApp hbw hc hf a b
+      (.natLit (Nat.lor a b)) := reflects_natBitwiseApp henv hbw hc hf a b
 
 /-- `Nat.xor`, whose value the recognizer destructures as `Nat.bitwise bne`. -/
-theorem reflects_natXor (hbw : env.ReflectsNatBitwise) (hc : env.contains ``Nat.bitwise)
+theorem reflects_natXor (henv : env.WF) (hbw : env.ReflectsNatBitwise)
+    (hc : env.contains ``Nat.bitwise)
     {f : VExpr} (hf : env.ReflectsBoolBoolBool f bne) (a b : Nat) :
     env.IsDefEqU 0 [] (.app (.app (.app (.const ``Nat.bitwise []) f) (.natLit a)) (.natLit b))
-      (.natLit (Nat.xor a b)) := reflects_natBitwiseApp hbw hc hf a b
+      (.natLit (Nat.xor a b)) := reflects_natBitwiseApp henv hbw hc hf a b
 
 end VEnv
 
@@ -921,61 +931,31 @@ and the recursion it describes steps on `n / 2` and `m / 2` rather than on a con
 induction below is the whole content of that field, stated over the equation the recognizer
 checks and nothing else.
 
-**A defect in `VEnv.ReflectsBoolBoolBool`, and the repair.**  `ReflectsNatBitwise` is
-*unprovable as stated in `Verify/Typing/Expr.lean`*, for an information-flow reason.  Its
-conclusion is
+**Why `VEnv.ReflectsBoolBoolBool` carries a typing conjunct, and `ReflectsNatBitwise` an
+`env'.WF`.**  As originally stated (no typing conjunct, no `env'.WF`) `ReflectsNatBitwise` was
+*not provable*, for an information-flow reason, and `checkPrimitiveDef.WF.rest` was therefore
+**false** at its `Nat.bitwise` branch rather than merely open.  Its conclusion is
 
 ```
 env'.IsDefEqU 0 [] (Nat.bitwise · f · a · b) (natLit (Nat.bitwise g a b))
 ```
 
 and `IsDefEqU` entails well-typedness, so the conclusion *asserts* that `f` may be applied at
-`Nat.bitwise`'s domain — i.e. that `env'.HasType 0 [] f (Bool → Bool → Bool)`.  Its only
-hypothesis about `f` is `env'.ReflectsBoolBoolBool f g`, which says that `f` applied to two
-boolean *literals* reduces to a literal; that does not give the typing.  A term
-`f : (x : Bool) → Q x` in an environment carrying `Q Bool.true ≡ Bool → Bool` and
-`Q Bool.false ≡ Bool → Bool` — and nothing about `Q` at a variable — satisfies
-`ReflectsBoolBoolBool` while `Nat.bitwise · f` is ill-typed; `env'` ranges over *arbitrary*
-extensions, well-formed or not, so nothing rules that environment out.
+`Nat.bitwise`'s domain — i.e. that `env'.HasType 0 [] f (Bool → Bool → Bool)`.  The only
+hypothesis about `f` was the truth table, which says that `f` applied to two boolean *literals*
+reduces to a literal; that does not give the typing.  A term `f : (x : Bool) → Q x` in an
+environment carrying `Q Bool.true ≡ Bool → Bool` and `Q Bool.false ≡ Bool → Bool` — and nothing
+about `Q` at a variable — satisfies the truth table while `Nat.bitwise · f` is ill-typed; `env'`
+ranges over *arbitrary* extensions, so nothing rules that environment out.  Separately, the
+proof below chains `IsDefEqU` steps and `IsDefEqU.trans` needs a well-formed environment, which
+`env ≤ env'` alone does not supply for the new `f`.
 
-The repair is to carry the typing in `ReflectsBoolBoolBool`, and it loses no content: whenever
-`Nat.bitwise`'s own type is `(Bool → Bool → Bool) → Nat → Nat → Nat`, which the recognizer's
-`checkPrimValue` pins, the conclusion at an `f` *without* that typing is false anyway, so the
-strengthened statement covers every `f` at which the old one was not already false.  The
-strengthened forms are `ReflectsBoolBoolBoolT` / `ReflectsNatBitwiseT` below.  Making them
-*the* definitions is a one-line edit in `Verify/Typing/Expr.lean`, which this stream does not
-own; `docs/handoff-primitive.md` §5(d) carries the exact text, together with the matching
-`Nat.land` / `Nat.lor` / `Nat.xor` recognizer check that supplies the new conjunct. -/
-
-namespace VEnv
-variable {env : VEnv}
-
-/-- `VEnv.ReflectsBoolBoolBool` together with the typing its consumers need.  See the section
-note: without the first conjunct `ReflectsNatBitwise` is not provable. -/
-def ReflectsBoolBoolBoolT (env : VEnv) (f : VExpr) (g : Bool → Bool → Bool) : Prop :=
-  env.HasType 0 [] f (.forallE .bool (.forallE .bool .bool)) ∧ env.ReflectsBoolBoolBool f g
-
-/-- `VEnv.ReflectsNatBitwise` with `ReflectsBoolBoolBoolT` in place of
-`ReflectsBoolBoolBool`. -/
-def ReflectsNatBitwiseT (env : VEnv) : Prop :=
-  env.contains ``Nat.bitwise →
-  ∀ (env' : VEnv), env ≤ env' → env'.WF → ∀ (f : VExpr) (g : Bool → Bool → Bool),
-    env'.ReflectsBoolBoolBoolT f g → ∀ a b, env'.IsDefEqU 0 []
-      (.app (.app (.app (.const ``Nat.bitwise []) f) (.natLit a)) (.natLit b))
-      (.natLit (Nat.bitwise g a b))
-
-/-- The strengthened field gives the one in `Verify/Typing/Expr.lean` at every `f` that carries
-the typing -- the direction that survives without the edit. -/
-theorem ReflectsNatBitwiseT.toWeak (h : env.ReflectsNatBitwiseT)
-    (hc : env.contains ``Nat.bitwise) {env' : VEnv} (hle : env ≤ env') (henv' : env'.WF)
-    {f : VExpr} {g : Bool → Bool → Bool}
-    (hty : env'.HasType 0 [] f (.forallE .bool (.forallE .bool .bool)))
-    (hf : env'.ReflectsBoolBoolBool f g) (a b : Nat) :
-    env'.IsDefEqU 0 []
-      (.app (.app (.app (.const ``Nat.bitwise []) f) (.natLit a)) (.natLit b))
-      (.natLit (Nat.bitwise g a b)) := h hc env' hle henv' f g ⟨hty, hf⟩ a b
-
-end VEnv
+Both hypotheses are now part of the definitions in `Verify/Typing/Expr.lean`, and the
+`Nat.land` / `Nat.lor` / `Nat.xor` recognizer branches supply the typing with a
+`checkedTypeIs _ q(Bool → Bool → Bool)`.  The repair loses no content: whenever `Nat.bitwise`'s
+own type is `(Bool → Bool → Bool) → Nat → Nat → Nat`, which the recognizer's `checkPrimValue`
+pins, the conclusion at an `f` *without* that typing was false anyway.  See
+`docs/handoff-primitive.md` §3. -/
 
 /-! ### Conditionals with one boolean scrutinee, and conditionals at non-literal arguments -/
 
@@ -1161,7 +1141,7 @@ theorem reflects_natBitwise_go (henv : env.WF) (hlit : env.NatLits)
   · subst ha
     simp only [decide_true, cond_true] at o1
     refine IsDefEqU.trans henv trivial o1 ?_
-    have hs := ReflectsCondApp1.ofDefeq henv hcB (g false true) (hf false true) _ _ o1.wf_r
+    have hs := ReflectsCondApp1.ofDefeq henv hcB (g false true) (hf.2 false true) _ _ o1.wf_r
     refine IsDefEqU.trans henv trivial hs ?_
     rw [Nat.bitwise]
     cases hgb : g false true
@@ -1179,7 +1159,7 @@ theorem reflects_natBitwise_go (henv : env.WF) (hlit : env.NatLits)
     · subst hb
       simp only [decide_true, cond_true] at o2
       refine IsDefEqU.trans henv trivial o2 ?_
-      have hs := ReflectsCondApp1.ofDefeq henv hcB (g true false) (hf true false) _ _ o2.wf_r
+      have hs := ReflectsCondApp1.ofDefeq henv hcB (g true false) (hf.2 true false) _ _ o2.wf_r
       refine IsDefEqU.trans henv trivial hs ?_
       rw [Nat.bitwise]
       cases hgb : g true false
@@ -1203,7 +1183,7 @@ theorem reflects_natBitwise_go (henv : env.WF) (hlit : env.NatLits)
           (VExpr.app2' f (VExpr.bitParity Ib Pe De a) (VExpr.bitParity Ib Pe De b))
           (.boolLit (g (decide (a % 2 = 1)) (decide (b % 2 = 1)))) :=
         IsDefEqU.trans henv trivial (IsDefEqU.app2_congr_args henv hfab hp1 hp2)
-          (hf _ _)
+          (hf.2 _ _)
       -- the recursive call reflects
       have hrw : VExpr.WF env 0 [] (VExpr.natOp ``Nat.add
           (VExpr.natOp ``Nat.add (VExpr.bitwiseRec BW a b) (VExpr.bitwiseRec BW a b))
@@ -1299,7 +1279,8 @@ way (the premise occurs negatively, so a non-relativized version would not be mo
 theorem ReflectsNatBitwise.mono (hle : env ≤ env')
     (hc : env'.constants ``Nat.bitwise = env.constants ``Nat.bitwise)
     (H : env.ReflectsNatBitwise) : env'.ReflectsNatBitwise :=
-  fun h env₂ hle₂ f g hg a b => H (contains_of_constants_eq hc h) env₂ (hle.trans hle₂) f g hg a b
+  fun h env₂ hle₂ f g henv₂ hg a b =>
+    H (contains_of_constants_eq hc h) env₂ (hle.trans hle₂) f g henv₂ hg a b
 
 /-- The names `Environment.checkPrimitiveInductive`, not `checkPrimitiveDef`, is responsible
 for.  A `.defnDecl` can never carry one of them, so the corresponding `HasPrimitives` fields
@@ -1737,6 +1718,44 @@ theorem trExprS_app1 {F a' A : VExpr} {value a : Expr}
     (ha : c.TrExprS a a') (haty : c.HasType a' .nat) :
     c.TrExprS (mkApp value a) (.app F a') ∧ c.HasType (.app F a') (A.inst a') :=
   ⟨.app hFty haty hF ha, hFty.app haty⟩
+
+/-- One step of an application spine at an **arbitrary** domain.  `trExprS_app1` is its
+`A = Nat` specialisation; the dependent telescopes of `Nat.modCore.go` / `Nat.div.go`
+(`∀ b, 1 ≤ b → ∀ fuel x, x + 1 ≤ fuel → Nat`) need the general form, since neither the domains
+nor the codomains after instantiation are constants. -/
+theorem trExprS_appD {F a' A B : VExpr} {value a : Expr}
+    (hF : c.TrExprS value F) (hFty : c.HasType F (.forallE A B))
+    (ha : c.TrExprS a a') (haty : c.HasType a' A) :
+    c.TrExprS (.app value a) (.app F a') ∧ c.HasType (.app F a') (B.inst a') :=
+  ⟨.app hFty haty hF ha, hFty.app haty⟩
+
+/-- **The length-5 application spine**, at a fully general dependent telescope.  This is the
+tool `docs/handoff-primitive.md` §6.1 names as the one thing missing from the `Nat.mod` /
+`Nat.div` branches: their `go` is `Nat.modCore.go` / `Nat.div.go` applied to five arguments,
+of which the second and fifth are *proofs* whose types mention the earlier arguments, so no
+`Nat`-domain lemma applies.
+
+Each `eᵢ` is the caller's obligation to compute one instantiation of the telescope; at the
+shapes the branches use these are `rfl` or a `simp` away, because the abstract counterparts of
+`1 ≤ b` and `x + 1 ≤ fuel` are applications of a closed `P` to closed numerals and to the
+bound variables already substituted.  The final `R` is the result type (`Nat` for both
+branches). -/
+theorem trExprS_app5 {F a₁' a₂' a₃' a₄' a₅' A₁ A₂ A₃ A₄ A₅ B₁ B₂ B₃ B₄ B₅ R : VExpr}
+    {value a₁ a₂ a₃ a₄ a₅ : Expr}
+    (hF : c.TrExprS value F) (hFty : c.HasType F (.forallE A₁ B₁))
+    (h₁ : c.TrExprS a₁ a₁') (t₁ : c.HasType a₁' A₁) (e₁ : B₁.inst a₁' = .forallE A₂ B₂)
+    (h₂ : c.TrExprS a₂ a₂') (t₂ : c.HasType a₂' A₂) (e₂ : B₂.inst a₂' = .forallE A₃ B₃)
+    (h₃ : c.TrExprS a₃ a₃') (t₃ : c.HasType a₃' A₃) (e₃ : B₃.inst a₃' = .forallE A₄ B₄)
+    (h₄ : c.TrExprS a₄ a₄') (t₄ : c.HasType a₄' A₄) (e₄ : B₄.inst a₄' = .forallE A₅ B₅)
+    (h₅ : c.TrExprS a₅ a₅') (t₅ : c.HasType a₅' A₅) (e₅ : B₅.inst a₅' = R) :
+    c.TrExprS (mkApp5 value a₁ a₂ a₃ a₄ a₅) (VExpr.app5 F a₁' a₂' a₃' a₄' a₅') ∧
+      c.HasType (VExpr.app5 F a₁' a₂' a₃' a₄' a₅') R := by
+  obtain ⟨s₁, y₁⟩ := trExprS_appD hF hFty h₁ t₁; rw [e₁] at y₁
+  obtain ⟨s₂, y₂⟩ := trExprS_appD s₁ y₁ h₂ t₂; rw [e₂] at y₂
+  obtain ⟨s₃, y₃⟩ := trExprS_appD s₂ y₂ h₃ t₃; rw [e₃] at y₃
+  obtain ⟨s₄, y₄⟩ := trExprS_appD s₃ y₃ h₄ t₄; rw [e₄] at y₄
+  obtain ⟨s₅, y₅⟩ := trExprS_appD s₄ y₄ h₅ t₅; rw [e₅] at y₅
+  exact ⟨s₅, y₅⟩
 
 /-- A value known to have type `Nat → Nat`, applied to one `Nat`. -/
 theorem trExprS_app1_nat {F a' : VExpr} {value a : Expr}
@@ -2195,6 +2214,32 @@ theorem preserves_glue_const {checked : VEnv} {nm : Name} {vv : Lean.DefinitionV
 namespace TypeChecker
 
 variable {c : VContext}
+
+/-- `Bool → Bool → Bool`: the type the `Nat.land` / `Nat.lor` / `Nat.xor` branches pin on the
+combinator they hand to `Nat.bitwise`.  `VEnv.ReflectsBoolBoolBool` needs it -- see the
+`Nat.bitwise` section note above. -/
+theorem trExprS_boolArrow2_inv {nm₁ nm₂ bi₁ bi₂ e'}
+    (h : c.TrExprS (.forallE nm₁ (.const ``Bool [])
+      (.forallE nm₂ (.const ``Bool []) (.const ``Bool []) bi₂) bi₁) e') :
+    e' = .forallE .bool (.forallE .bool .bool) := by
+  obtain ⟨_, _, rfl, h1, _, h3⟩ := trExprS_arrow_inv h
+  cases trExprS_const_nil_inv h1
+  obtain ⟨_, _, rfl, h4, _, h5⟩ := trExprS_arrow_inv h3
+  cases trExprS_const_nil_inv h4; cases trExprS_const_nil_inv h5; rfl
+
+/-- `checkedTypeIs` when the caller already holds both translations: on success it delivers the
+typing *at those translations*, rather than at the ones `checkType` happened to build.  The two
+are identified by `trExprS_uniq`, and the resulting conversions are absorbed by
+`HasType.defeqU_l` / `.defeqU_r`. -/
+theorem checkedTypeIs.WF' {s : VState} {e ty : Expr} {e' : VExpr}
+    (he : c.TrExprS e e') (hty : ty.FVarsIn (· ∈ c.vlctx.fvars)) :
+    M.WF c s (Lean4Lean.Environment.checkedTypeIs e ty) fun r _ =>
+      ∃ ty', c.TrExprS ty ty' ∧ (r = true → c.HasType e' ty') := by
+  refine (checkedTypeIs.WF he.fvarsIn hty).mono fun _ _ _ h => ?_
+  obtain ⟨e₁, A', ty₁, he₁, hA₁, hty₁, hdd⟩ := h
+  refine ⟨ty₁, hty₁, fun hr => ?_⟩
+  exact (hA₁.defeqU_r c.Ewf c.Δwf.toCtx (hdd hr)).defeqU_l c.Ewf c.Δwf.toCtx
+    (trExprS_uniq he₁ he)
 
 end TypeChecker
 
