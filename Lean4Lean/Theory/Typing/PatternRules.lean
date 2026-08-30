@@ -284,6 +284,17 @@ inductive Pat (env : VEnv) : (p : Pattern) → p.RHS × p.Check → Prop
       -- the *stored* type, which binds `C.params`.  Every construction site holds it
       -- (`VEnv.RuleShape.iota` carries it, from `VIndCtor.WF.params_len`).
       C.params.length = D.np →
+      -- F5's arity, recorded for exactly the same reason as F3 above, and found by the same
+      -- route: `pat_wf`'s ι case has to match the *pattern's* index block, whose width
+      -- `iotaPat` reads off `T.indices`, against the *rule's*, whose width `iotaLhs` reads
+      -- off `C.args`.  Without this field the two widths are unrelated, the two spines have
+      -- different lengths, and no congruence can relate a matched redex to the fired rule --
+      -- `pat_wf`'s ι case is then not merely hard but unprovable.  Deriving it instead would
+      -- need Π-vs-application discrimination (an under- or over-applied recursor's type is a
+      -- `mkPi` while `iotaType` is an application), i.e. the open injectivity corner.  Every
+      -- construction site holds it: `VEnv.RuleShape.iota` carries it, from
+      -- `VIndCtor.WF.args_len`, exactly as it carries `params_len`.
+      C.args.length = T.indices.length →
       Pat env (D.iotaPat T C) (D.iotaRHSOf j q T C h, D.iotaCheckOf T C hargs)
   /-- The quotient rule.  `env.constants ``Quot.lift` is not decoration: it is what
   `Pat.quotLift_ne_ctor` needs, exactly as `Pat.iota`'s two constant fields feed
@@ -1616,7 +1627,7 @@ theorem Pat.extra_iota {env : VEnv} {U : Nat} {Γ : List VExpr}
       VExpr.bvars_add (lo := 0) (m := D.np + D.nm + D.nmin) (n := C.fields.length),
       Nat.zero_add]
   refine ⟨_, _, _, _, _, m1, m2, hL, hR,
-    .iota hcl hargs hT hC hdf hrec hctor hplen, hM, ?_, hRHS⟩
+    .iota hcl hargs hT hC hdf hrec hctor hplen hal, hM, ?_, hRHS⟩
   show (D.iotaCheckOf T C hargs).OK
     (env.IsDefEqU U (((D.iotaCtx C).map (VExpr.instL ls)).reverse ++ Γ)) m1 m2
   rw [VInductDecl'.iotaCheckOf]
