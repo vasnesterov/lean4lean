@@ -1,21 +1,35 @@
 # Handoff: `Theory/Typing/Injectivity.lean` and its family
 
-Rewritten this session. Claims are marked **[machine]** (a `sorry`-free Lean declaration in
-this tree, or a `lake build` / `#print axioms` / cone-script run on this commit) or
-**[analysis]** (read off source or argued, not machine-checked). The distinction is
-load-bearing: this corner has produced wrong verdicts in five sessions, every one of them from
-analysis, and every correction from a machine run.
+Claims are marked **[machine]** (a `sorry`-free Lean declaration in this tree, or a
+`lake build` / `#print axioms` / cone-script run on this commit) or **[analysis]** (read off
+source or argued, not machine-checked). The distinction is load-bearing: this corner has
+produced wrong verdicts in six sessions, every one of them from analysis, and every correction
+from a machine run.
 
-Build state when this was written: `lake build` fails on exactly one file,
-`Lean4Lean/Theory/Typing/KCanonical.lean` — **untracked**, another stream's in-progress work,
-and it references nothing this stream touched (`grep` for
-`PiInvStrat`/`piInvStrat`/`sortUniq_of` in it returns nothing). Everything this stream owns
-builds; the files it changed are `Theory/Typing/Injectivity.lean`, `Theory/Typing/UniqSort.lean`
-and this document. **[machine]**
+Sections 1–3 and 5–7 are from the session that narrowed `PiInvStrat` to `PiInvStratApp`; their
+numbers were measured then, with internal names *included* (see §1.2's header).  **§0's opening
+paragraph, §4A and §8 are from the 2026-08-30 session** and use the census convention (internal
+names skipped), so their counts are smaller for the same statements — the two are not in
+conflict, they are different scopes, and each section says which it used.
+
+Files added or changed on 2026-08-30: **`Lean4Lean/Theory/Typing/RetypeCase.lean`** (new) and
+this document.  Nothing else was touched.  `lake build Lean4Lean.Theory.Typing.RetypeCase` is
+green; a whole-tree `lake build` fails in `Theory/Typing/ChurchRosser.lean`, another stream's
+in-flight edit (`Alternative 'keta' has not been provided`, line 2240), which is why the
+end-of-session census and `dup-names` runs are blocked — see §8. **[machine]**
 
 ---
 
 ## 0. Headline
+
+**Session of 2026-08-30 adds one result, and it is a correction to `Theory/Typing/Enlarged.lean`
+rather than a new proof.**  Enlarged.lean says the in-place `retype` enlargement *forces* a
+`retype` constructor into `HasTypeStrong` and thence into `HasTypeStratified`, so that `uniq`'s
+own induction gains a case whose obligation (`UniqAcross`) collapses back to `uniq`.  **"Forces"
+is wrong.**  The case is a theorem — `HasTypeStrong.retype` in the new
+`Theory/Typing/RetypeCase.lean`, `sorry`-free, from `PiInvStratApp` alone.  What kills the
+enlargement is not an unprovable obligation but a **measured cone regression**, and both routes
+out of the case are now priced.  §4A. **[machine]**
 
 1. **The `NormalEq`-has-no-`trans` route does not reach this target — it is CIRCULAR, and the
    circularity is measured, not argued.** `IsDefEq.church_rosser` reaches exactly four
@@ -285,6 +299,134 @@ It does **not** remove `forallE_inv`, which is the normalisation half and gets n
 
 ---
 
+## 4A. The `retype` enlargement, resolved on both routes  *(new this session)*
+
+New file, owned by this stream: **`Lean4Lean/Theory/Typing/RetypeCase.lean`** — six
+declarations, all `sorry`-free, `#print axioms` block at the end of the file.  It is imported by
+nothing; it is a pricing file, and it adds nothing to any cone.
+
+### 4A.1 What Enlarged.lean claims, and what is wrong with it **[machine]**
+
+`Theory/Typing/Enlarged.lean`'s "obligation the enlargement creates" section argues:
+
+> Adding `retype` to `IsDefEq` forces a matching constructor in `IsDefEqStrong` … **That forces
+> one in `HasTypeStrong` too**, because `IsDefEqStrong.hasType'` must produce
+> `HasTypeStrong Γ e₂ B` from `HasTypeStrong Γ e₂ A` and `HasTypeStrong Γ e₁ B` … And that
+> forces one in `HasTypeStratified`, whose induction is what proves `IsDefEq.uniq`.
+
+The first "forces" is false.  `HasTypeStrong.retype` states exactly that step over the judgments
+the tree has **today** — no enlargement is needed to state it — and proves it:
+
+```lean
+theorem HasTypeStrong.retype (henv : VEnv.WF env) (hΓ : OnCtx Γ (env.IsType U))
+    (hpi : PiInvStratApp env U)
+    (h1A : env.HasTypeStrong U Γ e₁ A true) (h1B : env.HasTypeStrong U Γ e₁ B true)
+    (h2A : env.HasTypeStrong U Γ e₂ A true) : env.HasTypeStrong U Γ e₂ B true
+```
+
+It does **not** take the conversion `IsDefEqStrong Γ e₁ e₂ A`: what the case needs is unique
+typing at `e₁` and nothing else.  Two supporting lemmas were missing from `Strong.lean` and are
+here: `HasTypeStrong.isType` (every `HasTypeStrong` derivation carries a typing of its own type
+— eight one-line cases) and `HasTypeStrong.sortConv` (level realignment of such a typing).
+
+Consequence: `HasTypeStrong` and `HasTypeStratified` stay exactly as they are, `uniqQ`'s
+induction gains **no** case, and the in-place enlargement introduces **no new open statement**.
+`Enlarged.uniqU_of_uniqAcross` is still true; it is simply not the obligation.
+
+### 4A.2 Route A's real price, measured **[machine]**
+
+Reverse cones over declaration *values* (`allowOpaque := true`), internal names skipped — the
+`scripts/sorry-census.lean` convention — over the import closure of `Verify/Bridge.lean`:
+
+| declaration | transitive users |
+|---|---|
+| `IsDefEqU.forallE_inv_stratified` | 201 |
+| `IsDefEqStrong.hasType'` | **232** |
+| union | 234 |
+| in `users(hasType')` but not `users(forallE_inv_stratified)` | **33** |
+
+(The census's 238 for `forallE_inv_stratified` is the same measurement in a wider scope — it
+imports `Experimental.ConeJoin`.  The 33-declaration *difference* is stable across both scopes.)
+
+Route A gives `hasType'` the hypothesis `PiInvStratApp`, i.e. adds the edge
+`hasType' → forallE_inv_stratified`.  The corner's cone therefore goes **201 → 234**.
+
+And it destroys the disconnecting set.  Cutting the (E) family of twelve retyping lemmas plus
+`HasType.piUniq` plus `IsDefEq.weakN_iff'`:
+
+| cuts | `forallE_inv_stratified` users |
+|---|---|
+| none | 201 |
+| (E) | 72 |
+| (E) + `piUniq` | 64 |
+| (E) + `piUniq` + `weakN_iff'` | **21** |
+| the same three, **with Route A's one new edge** | **104** |
+
+So the enlargement re-imports the corner through a larger door than the one it closes.  This is
+a *measured* verdict where the previous one ("it could not be established that no restructuring
+closes the case") was an absence of evidence.
+
+**Correction to the enlargement study relayed in this stream's brief.**  Its minimal
+disconnecting set — `retype`-enlargement + `HasType.piUniq` + `IsDefEq.weakN_iff'` — was priced
+by *cutting edges*, which models the (E) family becoming free.  That model omits the edge the
+enlargement itself creates at `hasType'`.  Priced with that edge, the set does not disconnect.
+The brief's "all three take it to 4" is also not reproducible here: the same three cuts leave 21
+in this scope, of which four are the census-dead `const_*_inv`/`sort_forallE_inv` and five are
+packaging (`piInvStrat_axiom`, `piInvStratApp_axiom`, `piInv_axiom`, `piInvStrat_of_sortUniq`,
+`IsProof.app'_fires`).  Different instrument, not a contradiction — but the number to quote is
+21, with the list.
+
+### 4A.3 Route B, and why no restructuring of `uniqQ` closes it **[machine]**
+
+If one avoids Route A's price by adding the constructor after all, the cost lands in `uniqQ`.
+`RetypeCaseCore` is that case's obligation **in its weakest useful form**: only the conversion
+conjunct of `UniqAux`'s conclusion is demanded, the node's three premises are taken at a *single*
+index, and the index bounds `uniqQ` actually offers are kept (`m < n` for the premises, `n₂ ≤ n`
+for the competing derivation).  Then:
+
+* `uniqStrat_of_retypeCase` — the obligation at every index gives unique typing for two
+  `HasTypeStratified` derivations of one term at unrelated indices;
+* `uniqU_of_retypeCase` — hence `IsDefEq.uniq` itself.
+
+**This is `Enlarged.uniqU_of_uniqAcross` with the index bounds kept, and that is what it buys.**
+§4's repairs 2 and 3 — "bound the conversion by height", "make the invariant asymmetric" — were
+walked to a failing step by analysis.  The collapse above closes them by machine: even the
+index-bounded, single-conjunct form of the obligation implies the theorem whose induction it is
+a case of.  No re-indexing of `uniqQ` can absorb it.
+
+`retypeCase_of_piInvStratApp` is the other half: the obligation is satisfiable from exactly the
+input the tree already pays, so it is the corner restated, not an absurd demand.
+
+**The structural reason, in one line.** `uniqQ` decrements the second derivation's index only by
+inverting it *against the first derivation's subject shape* (`intro (.app …)`, `(.bvar …)`, …).
+`retype` carries no subject shape — its premise is a derivation of a *different* term — so `n₂`
+cannot be decremented and the case's obligation is the invariant at the undecremented index.
+Every other constructor of `HasTypeStratified` is subject-directed; `retype` is the only one
+that is not. **[analysis]**
+
+### 4A.4 The one question that would change the verdict **[open]**
+
+**Is `HasTypeStrong.retype` provable without `PiInvStratApp`?**  If it is, Route A is free, the
+201 → 234 regression evaporates, and the in-place enlargement goes through with no new hole and
+no cone cost.
+
+What is known:
+
+* It does **not** collapse.  Instantiating `e₂ := e₁` makes the statement trivial, so — unlike
+  `RetypeCaseCore` — it does not imply `uniq` back.  Several attempts to derive `SortUniq` from
+  it failed for a concrete reason: to get information out you need a term `e₂ ≠ e₁` that shares a
+  type with `e₁` and whose membership in `B` is decidable by inversion, and in a bare
+  environment there is no such term. **[analysis]**
+* Semantically it is *weaker* than unique typing: it says the type-sets of any two terms are
+  disjoint-or-equal, where `uniq` says each type-set is a single conversion class. **[analysis]**
+* It is not refutable from the `unsafeDef` direction, for the reason in §5. **[analysis]**
+
+That gap — a statement strictly weaker than `uniq`, whose only known proof goes through `uniq` —
+is the most promising thing in this corner right now, and it did not exist as a named target
+before this session.
+
+---
+
 ## 5. The refutation attempt, and why it does not reach **[analysis]**
 
 The brief asks for a machine-checked negative if one exists. The one crack in the hypothesis
@@ -398,28 +540,41 @@ from the strengthening side.
 | `docs/backward-analysis.md` §3 | `forallE_inv_stratified`'s direct consumers are `IsDefEq.uniq` and `IsDefEqU.forallE_inv`; `forallE_inv`'s are `TrExpr.beta` and `inferApp.loop.WF` | On this commit: `forallE_inv_stratified`'s are `IsDefEq.uniq` and `piInvStrat_axiom`; `forallE_inv`'s are `HasType.piUniq` and `piInv_axiom`, and it reaches the stratified form only through `WF.sortUniq'`. The *shape* of §3's conclusion is unchanged; the names are not. §1.2. **[machine]** |
 | `docs/backward-analysis.md` §3 | `sort_inv` is one of the load-bearing open statements | `sort_inv` is **proved**. Its 233 users are real but its cone is `[forallE_inv_stratified]`. **[machine]** |
 | previous `handoff-injectivity.md` §6 | "`grep KStep` returns hits only inside `KRule.lean`" | Now three files (`KRule`, `KDescend`, `KCanonical`). The conclusion is unchanged and sharper: `ParRed` still has eight constructors and no `K`, and `KDescend`'s descent is proved *relative to* an unsupplied `hK`. §2. **[machine]** |
+| `Theory/Typing/Enlarged.lean` | adding `retype` to `IsDefEq` "forces a matching constructor in `HasTypeStrong`", because `IsDefEqStrong.hasType'` cannot close its `retype` case | **Not forced.**  `HasTypeStrong.retype` (`Theory/Typing/RetypeCase.lean`) proves that case, `sorry`-free, from `PiInvStratApp` alone, without the conversion premise.  `UniqAcross` is a real collapse but not the obligation. §4A.1. **[machine]** |
+| this stream's brief | the enlargement study's minimal disconnecting set (`retype` + `piUniq` + `weakN_iff'`) "takes it to 4" | Not reproducible in the `Verify/Bridge.lean` scope: the same three cuts leave **21**, and the disconnecting set is priced by cutting edges only — it omits the edge Route A creates at `hasType'`, which takes the same three cuts to **104**. §4A.2. **[machine]** |
+| this stream's brief | "an *in-place* enlargement is a strict regression — `uniqU_of_uniqAcross` machine-checks that the new case's obligation implies `uniqU` back" | Right conclusion, wrong reason.  The in-place enlargement is a regression because of a **cone** cost (201 → 234, and 21 → 104 under the disconnecting cuts), not because it opens a new hole — on Route A it opens none. §4A. **[machine]** |
 | `Theory/Typing/SortUniq.lean` docstring | "`SortUniq` is not a semantic consequence of Lean's rules, so no argument from any model can establish it" | The argument rules out models that also validate cumulativity, not all models. The conclusion survives because the level-tagged alternative *is* `LevelAssign`, refuted unguarded. §5.1. **[analysis]** |
 
 ---
 
 ## 8. What to pick up first
 
-1. **Do not re-attack the circle from inside `Injectivity.lean`.** Five sessions and this one
-   have now walked it to the same step from seven directions (§4 here, §5.1 of the previous
-   version, `handoff-stratified.md` §3). The statement is narrowed as far as its consumer
-   allows and is still `SortUniq`.
-2. **The two things that would actually move it are both outside this file.**
-   (a) `docs/backward-analysis.md` §5's `IsDefEqU'` enlargement, which removes `uniq` — and
-   therefore this target — from `kernel_sound`'s cone. Owner: whoever owns
-   `Theory/Typing/Basic.lean`. Its row zero is that the enlargement is model-neutral (RZ-5
-   there), and it is a *reading*, not a proof.
-   (b) A confluence argument over a relation that is **not** built on `IsDefEq.trans_r`.
-   `HeadReduction.lean` is still the only untried one.
-3. **`weakN_iff` is the better-value target in this stream's own files.** It reaches the Bridge
-   with 169 users, its cone is empty, and unlike the injectivity family nothing has ever been
-   subtracted from it. §6.1 gives two of six head cases for free from `sort_forallE_inv` — but
-   read the collapse-test note there first: they must be written *inside*
-   `TypingStrengthening.of`'s induction, and a standalone `PiDescendNeutral` statement would be
-   a tautology.
-4. **Do not** re-attempt §4's four repairs, the lexicographic measure, the unique-typing
-   shortcut for `const_app_inv`'s level half, or any route through `ChurchRosser`.
+1. **`HasTypeStrong.retype` without `PiInvStratApp`** (§4A.4).  New this session, the only
+   target in this corner that is not known to be equivalent to the corner itself, and the whole
+   `retype` enlargement turns on it.
+2. **Do not re-attack the circle from inside `Injectivity.lean`.** Six sessions have walked it to
+   the same step from eight directions (§4 and §4A.3 here, §5.1 of the previous version,
+   `handoff-stratified.md` §3).  The statement is narrowed as far as its consumer allows and is
+   still `SortUniq`.
+3. **Do not propose the in-place `retype` enlargement as a disconnecting move** without pricing
+   the `hasType'` edge first (§4A.2).  Route A costs 201 → 234; Route B reopens `uniq` and its
+   obligation collapses with the index bounds kept (§4A.3).
+4. **`weakN_iff` is still the better-value target in this stream's own files.**  It reaches the
+   Bridge with 169 users (census), its cone is empty, and unlike the injectivity family nothing
+   has ever been subtracted from it.  §6.1 gives two of six head cases for free from
+   `sort_forallE_inv` — but read the collapse-test note there first: they must be written
+   *inside* `TypingStrengthening.of`'s induction, and a standalone `PiDescendNeutral` statement
+   would be a tautology.
+5. **Do not** re-attempt §4's four repairs, the lexicographic measure, the unique-typing shortcut
+   for `const_app_inv`'s level half, or any route through `ChurchRosser`.
+
+### Build and census state when this section was written **[machine]**
+
+`~/.elan/bin/lake build Lean4Lean.Theory.Typing.RetypeCase` is green.
+`scripts/sorry-census.lean` at session start: **TOTAL 19**, `forallE_inv_stratified` 238
+transitive users.  Re-running it at session end is **blocked**: `Theory/Typing/ChurchRosser.lean`
+is another stream's in-flight edit and is red (`Alternative 'keta' has not been provided`, line
+2240), and the census imports it through `Experimental.ConeJoin`.  Nothing in this session adds
+a `sorry`: every declaration in `RetypeCase.lean` is checked by the file's own `#print axioms`
+block and none mentions `sorryAx`.  `scripts/dup-names.lean` is blocked by the same red file; the
+six new names were checked against the tree by hand and none collides.

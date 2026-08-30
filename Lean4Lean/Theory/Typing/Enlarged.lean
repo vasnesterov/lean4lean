@@ -250,6 +250,21 @@ unique typing.  That forces one in `HasTypeStrong` too, because `IsDefEqStrong.h
 one in `HasTypeStratified`, whose induction is what proves `IsDefEq.uniq`
 (`Theory/Typing/UniqueTyping.lean:13`).
 
+**CORRECTION (2026-08-30), machine-checked in `Theory/Typing/RetypeCase.lean`.**  The chain
+above says "forces" three times; the *first* one is wrong.  `IsDefEqStrong.hasType'`'s `retype`
+case does **not** force a constructor in `HasTypeStrong`: it is a theorem,
+`VEnv.HasTypeStrong.retype`, proved `sorry`-free from `PiInvStratApp` alone (and without the
+conversion premise).  So `HasTypeStrong` and `HasTypeStratified` need no new constructor, `uniq`
+gains no case, and the in-place enlargement opens **no new hole**.  What it costs instead is
+measured: `hasType'` acquires `PiInvStratApp`, i.e. the edge
+`hasType' → forallE_inv_stratified`, and `hasType'` has 232 transitive users against
+`forallE_inv_stratified`'s 201, so the corner's cone grows 201 → 234 and the (E) + `piUniq` +
+`weakN_iff'` disconnecting cuts go from 21 survivors to 104.  The paragraph below remains
+correct about the *other* route — if one adds the constructor anyway, the obligation is real —
+and `RetypeCase.lean`'s `uniqU_of_retypeCase` sharpens `uniqU_of_uniqAcross` by keeping
+`uniqQ`'s index bounds, which closes the "height-bounded" and "asymmetric invariant" escapes by
+machine rather than by analysis.
+
 **So `uniq`'s own induction gains a case, and the case's two derivations are about two
 different terms** — the node types `e₂`, its premise types `e₁`.  What that case needs is the
 statement below.
