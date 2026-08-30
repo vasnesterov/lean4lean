@@ -53,6 +53,7 @@ If the answer to a question needs the transcript, it belongs in the handoff.
 
 ## Ownership
 
+- **The session scratchpad directory is shared between streams.** A file one stream wrote there was overwritten mid-round by another agent. Tell every stream to use a **per-stream subdirectory** (`<scratchpad>/<short-task-name>/`) for anything it needs to survive its own round. This is not hypothetical — it has happened twice.
 - One file, one stream. When two streams need the same file, **add a boundary** — a new file that imports the contested one read-only — rather than arbitrating.
 - "Do not edit X" never means "do not read X". State this explicitly in briefs; it has cost real work.
 - A file a stream does not own going red is not that stream's signal: wait, re-check, report, never fix.
