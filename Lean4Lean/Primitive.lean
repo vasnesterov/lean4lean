@@ -154,6 +154,27 @@ def Condition.bool : Condition where
   dec := q(fun x => Bool.decEq x true)
   impl := .bool
 
+/-- **One half of `Reflection.checkITE`**: the selection equation at a single boolean literal
+`b`, with `sel` picking the branch that literal selects.
+
+This is a separate definition, not two blocks inside `checkITE`, because as two blocks it was
+**not** two blocks: `fun t => do` opens its `do` at the same column as the following
+`withCheckedLocalDecl`, so the `false` half was nested *inside* the `true` half's `p`, `H` and
+`t` binders and ran at binder depth 3 rather than at the base context.  Behaviourally that is
+inert -- the three extra local declarations are checked, unused, and mentioned by neither side
+of the comparison -- but the verification cannot state the `false` half's conclusion in the
+same four-entry context as the `true` half's, and identifying the two across three stale
+binders would need `VEnv.IsDefEqU.weakN_iff`, which is open.  Factoring the half out makes the
+two calls siblings by construction. -/
+def Reflection.checkITEHalf (r : Reflection) (α b : Expr) (sel : Expr → Expr → Expr)
+    (fail : ∀ {β}, M β) : M Unit :=
+  withCheckedLocalDecl `p .default q(Prop) fun p =>
+  withCheckedLocalDecl `H .default (mkApp2 r.type p b) fun H =>
+  withCheckedLocalDecl `t .default α fun t =>
+  withCheckedLocalDecl `e .default α fun e => do
+    unless ← checkedIsDefEq
+      (mkApp5 q(@_root_.ite.{1}) α p (mkApp3 r.toDec p b H) t e) (sel t e) do fail
+
 /-- The `@ite` selection rule at result type `α`, checked in exactly the shape the
 verification consumes.
 
@@ -168,24 +189,35 @@ spine, instead of inverting the translation of a four-fold λ and β-reducing th
 `docs/handoff-primitive.md` §5(a). -/
 def Reflection.checkITE (r : Reflection) (α : Expr) (fail : ∀ {β}, M β) : M Unit := do
   _ ← checkIsType α
-  -- **The conditional head's own type.**  Without it the verification cannot type the four
-  -- arguments of the conditional application: `VExpr.WF.app_inv` invents an existential domain
-  -- per argument, and `VEnv.condApp_typed` -- the step that hands `VEnv.reflects_condApp`'s
-  -- `hsel` its typing hypotheses -- needs the *declared* ones.  See `divergences.md`.
-  unless ← checkedTypeIs q(@_root_.ite.{1})
-    q(∀ (α : Type) (c : Prop), Decidable c → α → α → α) do fail
-  withCheckedLocalDecl `p .default q(Prop) fun p => do
-  withCheckedLocalDecl `H .default (mkApp2 r.type p q(true)) fun H => do
-  withCheckedLocalDecl `t .default α fun t => do
-  withCheckedLocalDecl `e .default α fun e => do
-    unless ← checkedIsDefEq
-      (mkApp5 q(@_root_.ite.{1}) α p (mkApp3 r.toDec p q(true) H) t e) t do fail
-  withCheckedLocalDecl `p .default q(Prop) fun p => do
-  withCheckedLocalDecl `H .default (mkApp2 r.type p q(false)) fun H => do
-  withCheckedLocalDecl `t .default α fun t => do
-  withCheckedLocalDecl `e .default α fun e => do
-    unless ← checkedIsDefEq
-      (mkApp5 q(@_root_.ite.{1}) α p (mkApp3 r.toDec p q(false) H) t e) e do fail
+  -- **The conditional head's own type, at this result type.**  Without it the verification
+  -- cannot type the four arguments of the conditional application: `VExpr.WF.app_inv` invents
+  -- an existential domain per argument, and `VEnv.condApp_typed` -- the step that hands
+  -- `VEnv.reflects_condApp`'s `hsel` its typing hypotheses -- needs the *declared* ones.
+  --
+  -- The check is on `@ite.{1} α`, not on `@ite.{1}`, and that is load-bearing rather than
+  -- cosmetic: `VEnv.condApp_typed` wants `HasType F (∀ (c : Prop), Dc c → α → α → α)` with `F`
+  -- the head *already applied to the result type*, and recovering that from
+  -- `HasType ite (∀ (α : Type) …)` needs `HasType α (.sort 1)` at the base context, which
+  -- `checkIsType α` does not give (it gives `α : Sort u` for an existential `u`).  Checking the
+  -- applied form hands the verification exactly the Pi-type it consumes.  Same shape as
+  -- `Reflection.checkNatDITE`'s `@dite Nat` check.  See `divergences.md`.
+  unless ← checkedTypeIs (mkApp q(@_root_.ite.{1}) α)
+    (.forallE `c q(Prop) (.arrow (mkApp q(Decidable) (.bvar 0))
+      (.arrow α (.arrow α α))) .default) do fail
+  r.checkITEHalf α q(true) (fun t _ => t) fail
+  r.checkITEHalf α q(false) (fun _ e => e) fail
+
+/-- **One half of `Reflection.checkNatDITE`**, factored out for the same reason as
+`Reflection.checkITEHalf`: as two blocks inside one `do`, the `false` half was nested inside the
+`true` half's `p`, `H` and `a` binders. -/
+def Reflection.checkNatDITEHalf (r : Reflection) (bl : Expr)
+    (sel : Expr → Expr → Expr → Expr → Expr) (fail : ∀ {β}, M β) : M Unit :=
+  withCheckedLocalDecl `p .default q(Prop) fun p =>
+  withCheckedLocalDecl `H .default (mkApp2 r.type p bl) fun H =>
+  withCheckedLocalDecl `a .default (.arrow p q(Nat)) fun a =>
+  withCheckedLocalDecl `b .default (.arrow (mkApp q(Not) p) q(Nat)) fun b => do
+    unless ← checkedIsDefEq (mkApp4 q(@dite Nat) p (mkApp3 r.toDec p bl H) a b)
+      (sel p H a b) do fail
 
 /-- The `@dite` selection rule at result type `Nat`, in the same applied shape as
 `Reflection.checkITE` and for the same reason.  The binders are ordered `p`, `H`, `a`, `b` so
@@ -201,18 +233,18 @@ def Reflection.checkNatDITE (r : Reflection) (fail : ∀ {β}, M β) : M Unit :=
     .arrow (mkApp2 r.type (.bvar 0) q(true)) (.bvar 1)) do fail
   unless ← checkedTypeIs r.ofFalse (.arrow q(Prop) <|
     .arrow (mkApp2 r.type (.bvar 0) q(false)) (mkApp q(Not) (.bvar 1))) do fail
-  withCheckedLocalDecl `p .default q(Prop) fun p => do
-  withCheckedLocalDecl `H .default (mkApp2 r.type p q(true)) fun H => do
-  withCheckedLocalDecl `a .default (.arrow p q(Nat)) fun a => do
-  withCheckedLocalDecl `b .default (.arrow (mkApp q(Not) p) q(Nat)) fun b => do
-    unless ← checkedIsDefEq (mkApp4 q(@dite Nat) p (mkApp3 r.toDec p q(true) H) a b)
-      (mkApp a (mkApp2 r.ofTrue p H)) do fail
-  withCheckedLocalDecl `p .default q(Prop) fun p => do
-  withCheckedLocalDecl `H .default (mkApp2 r.type p q(false)) fun H => do
-  withCheckedLocalDecl `a .default (.arrow p q(Nat)) fun a => do
-  withCheckedLocalDecl `b .default (.arrow (mkApp q(Not) p) q(Nat)) fun b => do
-    unless ← checkedIsDefEq (mkApp4 q(@dite Nat) p (mkApp3 r.toDec p q(false) H) a b)
-      (mkApp b (mkApp2 r.ofFalse p H)) do fail
+  r.checkNatDITEHalf q(true) (fun p H a _ => mkApp a (mkApp2 r.ofTrue p H)) fail
+  r.checkNatDITEHalf q(false) (fun p H _ b => mkApp b (mkApp2 r.ofFalse p H)) fail
+
+/-- **One half of `Condition.check`'s `.bool` selection rule**, factored out for the same reason
+as `Reflection.checkITEHalf`: as two blocks inside one `do`, the `false` half was nested inside
+the `true` half's `t` binder. -/
+def Condition.checkBoolITEHalf (cond : Condition) (α b : Expr) (sel : Expr → Expr → Expr)
+    (fail : ∀ {β}, M β) : M Unit :=
+  withCheckedLocalDecl `t .default α fun t =>
+  withCheckedLocalDecl `e .default α fun e => do
+    unless ← checkedIsDefEq (mkApp5 q(@_root_.ite.{1}) α
+      (mkApp cond.prop b) (mkApp cond.dec b) t e) (sel t e) do fail
 
 /-- `iteTypes` lists the result types at which the conditional's selection rule is needed:
 `Nat` for a `Condition.ite Nat`, `Bool` for a `Condition.decide`.  It replaces the old boolean
@@ -249,16 +281,12 @@ def Condition.check (cond : Condition) (fail : ∀ {α}, M α)
     unless ← checkedTypeIs cond.prop q(Bool → Prop) do fail
     for α in iteTypes do
       _ ← checkIsType α
-      unless ← checkedTypeIs q(@_root_.ite.{1})
-        q(∀ (α : Type) (c : Prop), Decidable c → α → α → α) do fail
-      withCheckedLocalDecl `t .default α fun t => do
-      withCheckedLocalDecl `e .default α fun e => do
-        unless ← checkedIsDefEq (mkApp5 q(@_root_.ite.{1}) α
-          (mkApp cond.prop q(true)) (mkApp cond.dec q(true)) t e) t do fail
-      withCheckedLocalDecl `t .default α fun t => do
-      withCheckedLocalDecl `e .default α fun e => do
-        unless ← checkedIsDefEq (mkApp5 q(@_root_.ite.{1}) α
-          (mkApp cond.prop q(false)) (mkApp cond.dec q(false)) t e) e do fail
+      -- Same applied form, and for the same reason, as `Reflection.checkITE`'s check.
+      unless ← checkedTypeIs (mkApp q(@_root_.ite.{1}) α)
+        (.forallE `c q(Prop) (.arrow (mkApp q(Decidable) (.bvar 0))
+          (.arrow α (.arrow α α))) .default) do fail
+      cond.checkBoolITEHalf α q(true) (fun t _ => t) fail
+      cond.checkBoolITEHalf α q(false) (fun _ e => e) fail
     if dite then throw <| .other "unsupported"
 
 protected def Condition.ite (cond : Condition) (α : Expr) (args : Array Expr) (t e : Expr) : Expr :=

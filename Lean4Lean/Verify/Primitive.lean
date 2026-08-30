@@ -2771,3 +2771,270 @@ theorem Reflection.check.WF {s : VState} {r : Lean4Lean.Environment.Reflection}
     TD, TDA, hTD, hTDA⟩
 
 end TypeChecker
+
+/-! ## `Reflection.checkITE`
+
+The recognizer checks, per result type `α`:
+
+* `@ite.{1} α : ∀ (c : Prop), Decidable c → α → α → α` -- the conditional head's declared
+  Pi-type, **already applied to the result type**, which is the form `VEnv.condApp_typed`
+  consumes;
+* under `p : Prop`, `H : r.type p b`, `t e : α`, the two selection equations
+  `@ite.{1} α p (r.toDec p b H) t e ≡ t` (for `b = true`) and `≡ e` (for `b = false`).
+
+`Reflection.checkITE.WF` below reads both back, and its second output is *exactly*
+`VEnv.hsel_of_checkITE`'s hypothesis -- the acceptance test of §1.2 of
+`docs/handoff-primitive.md`, now with a supplier. -/
+
+/-- **The conditional head's declared type, at one result type.**
+
+`α` is an arbitrary `Expr` (an element of `Condition.check`'s `iteTypes`), so its two occurrences
+under the `c` and `Decidable c` binders are identified with the base-context translation by
+`trExprS_weakBV0` (it is closed) plus `TrExprS.unique` (it is `IsUnique`) -- the same device as
+`trExprS_reflProofType_inv'`. -/
+theorem trExprS_iteHeadType_inv' {env : VEnv} {Us} {Δ : VLCtx} {α : Expr} {Aα : VExpr}
+    {n₁ n₂ n₃ n₄ bi₁ bi₂ bi₃ bi₄} {e' : VExpr} (henv : env.Ordered)
+    (hA : TrExprS env Us Δ α Aα) (hAu : TrExprS.IsUnique α)
+    (hAb : α.looseBVarRange' = 0) (hAc : Aα.ClosedN 0)
+    (h : TrExprS env Us Δ (.forallE n₁ (.sort .zero)
+      (.forallE n₂ (.app (.const ``Decidable []) (.bvar 0))
+        (.forallE n₃ α (.forallE n₄ α α bi₄) bi₃) bi₂) bi₁) e') :
+    e' = .forallE (.sort .zero) (.forallE (.app (.const ``Decidable []) (.bvar 0))
+      (.forallE Aα (.forallE Aα Aα))) := by
+  have wk1 : ∀ {A : VExpr}, TrExprS env Us ((none, .vlam A) :: Δ) α Aα := fun {_} =>
+    trExprS_weakBV0 henv hA hAb hAc
+  have wk2 : ∀ {A B : VExpr},
+      TrExprS env Us ((none, .vlam A) :: (none, .vlam B) :: Δ) α Aα := fun {_ _} =>
+    trExprS_weakBV0 henv wk1 hAb hAc
+  have wk3 : ∀ {A B C : VExpr},
+      TrExprS env Us ((none, .vlam A) :: (none, .vlam B) :: (none, .vlam C) :: Δ) α Aα :=
+    fun {_ _ _} => trExprS_weakBV0 henv wk2 hAb hAc
+  have wk4 : ∀ {A B C D : VExpr}, TrExprS env Us
+      ((none, .vlam A) :: (none, .vlam B) :: (none, .vlam C) :: (none, .vlam D) :: Δ) α Aα :=
+    fun {_ _ _ _} => trExprS_weakBV0 henv wk3 hAb hAc
+  obtain ⟨_, _, rfl, h1, h2⟩ := trExprS_arrow_inv' h
+  cases trExprS_prop_inv' h1
+  obtain ⟨_, _, rfl, g1, g2⟩ := trExprS_arrow_inv' h2
+  let .app _ _ d1 d2 := g1
+  cases trExprS_const_nil_inv' d1
+  cases trExprS_bvar0_inv' d2
+  obtain ⟨_, _, rfl, k1, k2⟩ := trExprS_arrow_inv' g2
+  cases TrExprS.unique hAu k1 wk2
+  obtain ⟨_, _, rfl, m1, m2⟩ := trExprS_arrow_inv' k2
+  cases TrExprS.unique hAu m1 wk3
+  cases TrExprS.unique hAu m2 wk4
+  rfl
+
+/-- Inversion for an application, in the `_inv'` family's raw form. -/
+theorem trExprS_app_inv' {env : VEnv} {Us Δ} {f a : Lean.Expr} {e' : VExpr}
+    (h : TrExprS env Us Δ (.app f a) e') :
+    ∃ f' a', e' = .app f' a' ∧ TrExprS env Us Δ f f' ∧ TrExprS env Us Δ a a' :=
+  let .app _ _ h3 h4 := h; ⟨_, _, rfl, h3, h4⟩
+
+
+namespace TypeChecker
+
+variable {c : VContext}
+
+set_option maxHeartbeats 1000000 in
+theorem Reflection.checkITEHalf.WF {s : VState}
+    {r : Lean4Lean.Environment.Reflection} {α : Lean.Expr} {v : Bool} {bn : Name}
+    {sel : Lean.Expr → Lean.Expr → Lean.Expr} {fail : ∀ {β}, TypeChecker.M β}
+    {RT TD F Aα : VExpr}
+    (hfail : ∀ {c' : VContext} {β : Type} {s' : VState} {Q : β → VState → Prop},
+      M.WF c' s' fail Q)
+    (hnil : c.vlctx = []) (hlp : c.lparams = [])
+    (hbn : ∀ {Δ : VLCtx} {X : VExpr},
+      TrExprS c.venv c.lparams Δ (.const bn []) X → X = VExpr.boolLit v)
+    (hsel : ∀ t e : Lean.Expr, sel t e = bif v then t else e)
+    (hα : c.TrExprS α Aα) (hαu : TrExprS.IsUnique α) (hAc : Aα.ClosedN 0)
+    (hRT : c.TrExprS r.type RT) (hRTu : TrExprS.IsUnique r.type) (hRTc : RT.ClosedN 0)
+    (hTD : c.TrExprS r.toDec TD) (hTDu : TrExprS.IsUnique r.toDec) (hTDc : TD.ClosedN 0)
+    (hF : c.TrExprS (mkApp (.const ``ite [.succ .zero]) α) F) (hFc : F.ClosedN 0) :
+    M.WF c s (r.checkITEHalf α (.const bn []) sel fail) fun _ _ =>
+      c.venv.IsDefEqU 0 [Aα, Aα, .app (.app RT (.bvar 0)) (VExpr.boolLit v), .sort .zero]
+        (VExpr.condApp F (.bvar 3)
+          (.app (.app (.app TD (.bvar 3)) (VExpr.boolLit v)) (.bvar 2)) (.bvar 1) (.bvar 0))
+        (bif v then .bvar 1 else .bvar 0) := by
+  unfold Lean4Lean.Environment.Reflection.checkITEHalf
+  refine M.WF.withCheckedLocalDecl (by exact rfl) fun PT idp cwfp s1 _ hPT _ => ?_
+  cases trExprS_prop_inv' hPT
+  have hα1 := TrExprS.weakLam0 cwfp hα hAc
+  have hRT1 := TrExprS.weakLam0 cwfp hRT hRTc
+  have hTD1 := TrExprS.weakLam0 cwfp hTD hTDc
+  have hF1 := TrExprS.weakLam0 cwfp hF hFc
+  have hp1 := trExprS_lastFVar0 cwfp
+  refine M.WF.withCheckedLocalDecl
+    (by exact ⟨⟨hRT1.fvarsIn, hp1.fvarsIn⟩, by simp [FVarsIn]⟩)
+    fun HT idH cwfH s2 _ hHT _ => ?_
+  -- pin the `H` binder's domain: `r.type p b` translates to `RT (bvar 0) (boolLit v)`
+  obtain ⟨_, _, rfl, z3, z4⟩ := trExprS_app_inv' hHT
+  cases hbn z4
+  obtain ⟨_, _, rfl, y3, y4⟩ := trExprS_app_inv' z3
+  cases TrExprS.unique hRTu y3 hRT1
+  cases TrExprS.unique (e := Lean.Expr.fvar idp) trivial y4 hp1
+  have hα2 := TrExprS.weakLam0 cwfH hα1 hAc
+  have hRT2 := TrExprS.weakLam0 cwfH hRT1 hRTc
+  have hTD2 := TrExprS.weakLam0 cwfH hTD1 hTDc
+  have hF2 := TrExprS.weakLam0 cwfH hF1 hFc
+  refine M.WF.withCheckedLocalDecl (by exact hα2.fvarsIn) fun AT₁ idt cwft s3 _ hAT₁ _ => ?_
+  cases TrExprS.unique hαu hAT₁ hα2
+  have hα3 := TrExprS.weakLam0 cwft hα2 hAc
+  have hRT3 := TrExprS.weakLam0 cwft hRT2 hRTc
+  have hTD3 := TrExprS.weakLam0 cwft hTD2 hTDc
+  have hF3 := TrExprS.weakLam0 cwft hF2 hFc
+  refine M.WF.withCheckedLocalDecl (by exact hα3.fvarsIn) fun AT₂ ide cwfe s4 _ hAT₂ _ => ?_
+  cases TrExprS.unique hαu hAT₂ hα3
+  have hTD4 := TrExprS.weakLam0 cwfe hTD3 hTDc
+  have hF4 := TrExprS.weakLam0 cwfe hF3 hFc
+  have hp4 := TrExprS.weakLift0 cwfe (TrExprS.weakLift0 cwft
+    (TrExprS.weakLift0 cwfH hp1))
+  have hH4 := TrExprS.weakLift0 cwfe (TrExprS.weakLift0 cwft (trExprS_lastFVar0 cwfH))
+  have ht4 := TrExprS.weakLift0 cwfe (trExprS_lastFVar0 cwft)
+  have he4 := trExprS_lastFVar0 cwfe
+  simp only [VExpr.lift, VExpr.liftN, Lean4Lean.liftVar, show ¬ (0:Nat) < 0 by omega,
+    if_false, Nat.reduceAdd, show ¬ (1:Nat) < 0 by omega, show ¬ (2:Nat) < 0 by omega] at hp4 hH4 ht4
+  refine M.WF.bind (checkedIsDefEq.WFl (b' := bif v then .bvar 1 else .bvar 0)
+    ⟨⟨⟨⟨hF4.fvarsIn, hp4.fvarsIn⟩,
+        ⟨⟨⟨hTD4.fvarsIn, hp4.fvarsIn⟩, by simp [FVarsIn]⟩, hH4.fvarsIn⟩⟩,
+      ht4.fvarsIn⟩, he4.fvarsIn⟩
+    (by rw [hsel]; cases v; exacts [he4, ht4])) fun b _ _ hb => ?_
+  obtain ⟨LHS, hLHS, hdd⟩ := hb
+  split
+  case isFalse => exact hfail
+  rename_i hbt
+  have hdefeq := hdd (by simpa using hbt)
+  obtain ⟨_, _, rfl, n3, n4⟩ := trExprS_app_inv' hLHS
+  cases TrExprS.unique (e := Lean.Expr.fvar ide) trivial n4 he4
+  obtain ⟨_, _, rfl, m3, m4⟩ := trExprS_app_inv' n3
+  cases TrExprS.unique (e := Lean.Expr.fvar idt) trivial m4 ht4
+  obtain ⟨_, _, rfl, k3, k4⟩ := trExprS_app_inv' m3
+  obtain ⟨_, _, rfl, j3, j4⟩ := trExprS_app_inv' k3
+  cases TrExprS.unique (e := Lean.Expr.fvar idp) trivial j4 hp4
+  cases TrExprS.unique (e := Lean.mkApp (.const ``ite [.succ .zero]) α) ⟨trivial, hαu⟩ j3 hF4
+  obtain ⟨_, _, rfl, g3, g4⟩ := trExprS_app_inv' k4
+  cases TrExprS.unique (e := Lean.Expr.fvar idH) trivial g4 hH4
+  obtain ⟨_, _, rfl, f3, f4⟩ := trExprS_app_inv' g3
+  cases hbn f4
+  obtain ⟨_, _, rfl, e3, e4⟩ := trExprS_app_inv' f3
+  cases TrExprS.unique hTDu e3 hTD4
+  cases TrExprS.unique (e := Lean.Expr.fvar idp) trivial e4 hp4
+  refine .pure ?_
+  simpa [VContext.IsDefEqU, VContext.withMLC, VLCtx.toCtx, hlp, hnil, VExpr.condApp]
+    using hdefeq
+
+set_option maxHeartbeats 1000000 in
+theorem Reflection.checkITE.WF {s : VState}
+    {r : Lean4Lean.Environment.Reflection} {α : Lean.Expr} {fail : ∀ {β}, TypeChecker.M β}
+    {RT TD RTA TDA : VExpr}
+    (hfail : ∀ {c' : VContext} {β : Type} {s' : VState} {Q : β → VState → Prop},
+      M.WF c' s' fail Q)
+    (hnil : c.vlctx = []) (hlp : c.lparams = [])
+    (hαfv : α.FVarsIn (· ∈ c.vlctx.fvars)) (hαu : TrExprS.IsUnique α)
+    (hαb : α.looseBVarRange' = 0)
+    (hRT : c.TrExprS r.type RT) (hRTu : TrExprS.IsUnique r.type) (hRTty : c.HasType RT RTA)
+    (hTD : c.TrExprS r.toDec TD) (hTDu : TrExprS.IsUnique r.toDec) (hTDty : c.HasType TD TDA) :
+    M.WF c s (r.checkITE α fail) fun _ _ =>
+      ∃ Aα F, c.TrExprS α Aα ∧ Aα.ClosedN 0 ∧ F.ClosedN 0 ∧
+        c.TrExprS (Lean.mkApp (.const ``ite [.succ .zero]) α) F ∧
+        c.HasType F (.forallE (.sort .zero)
+          (.forallE (.app (.const ``Decidable []) (.bvar 0)) (.forallE Aα (.forallE Aα Aα)))) ∧
+        ∀ v : Bool, c.venv.IsDefEqU 0
+          [Aα, Aα, .app (.app RT (.bvar 0)) (VExpr.boolLit v), .sort .zero]
+          (VExpr.condApp F (.bvar 3)
+            (.app (.app (.app TD (.bvar 3)) (VExpr.boolLit v)) (.bvar 2)) (.bvar 1) (.bvar 0))
+          (bif v then .bvar 1 else .bvar 0) := by
+  unfold Lean4Lean.Environment.Reflection.checkITE
+  refine (checkIsType.WF hαfv).bind fun _ _ _ h => ?_
+  obtain ⟨Aα, hAα, u, hAu'⟩ := h
+  have hAc := (closedN_of_nil hnil hAu').1
+  have hRTc := (closedN_of_nil hnil hRTty).1
+  have hTDc := (closedN_of_nil hnil hTDty).1
+  refine M.WF.bind (checkedTypeIs.WF ⟨by simp [FVarsIn]; rfl, hαfv⟩
+    ⟨by exact rfl, ⟨⟨by simp [FVarsIn], trivial⟩, ⟨hαfv, ⟨hαfv, hαfv⟩⟩⟩⟩) fun _ _ _ h => ?_
+  obtain ⟨F, FA, FT, hF, hFA, hFT, hFd⟩ := h
+  split
+  case isFalse => exact M.WF.bind (Q := fun _ _ => False) hfail nofun
+  rename_i hb
+  cases trExprS_iteHeadType_inv' c.Ewf.ordered hAα hαu hαb hAc hFT
+  have hFty := hFA.defeqU_r c.Ewf c.Δwf.toCtx (hFd (by simpa using hb))
+  have hFc := (closedN_of_nil hnil hFty).1
+  refine M.WF.bind (Reflection.checkITEHalf.WF (v := true) (bn := ``Bool.true) hfail hnil hlp
+      (fun h => trExprS_const_nil_inv' h) (fun _ _ => rfl)
+      hAα hαu hAc hRT hRTu hRTc hTD hTDu hTDc hF hFc) fun _ _ _ htrue => ?_
+  refine (Reflection.checkITEHalf.WF (v := false) (bn := ``Bool.false) hfail hnil hlp
+      (fun h => trExprS_const_nil_inv' h) (fun _ _ => rfl)
+      hAα hαu hAc hRT hRTu hRTc hTD hTDu hTDc hF hFc).mono fun _ _ _ hfalse => ?_
+  exact ⟨Aα, F, hAα, hAc, hFc, hF, hFty, fun v => by cases v; exacts [hfalse, htrue]⟩
+
+end TypeChecker
+
+namespace VEnv
+variable {env : VEnv}
+
+/-- **The acceptance test for `Reflection.checkITE.WF`**, machine-checking that its two outputs
+are the two inputs `VEnv.reflects_condApp` cannot otherwise be given.
+
+`hF` is `Reflection.checkITE.WF`'s typing output verbatim (its `Dc` is
+`Decidable (bvar 0)`, which is what `Reflection.checkITE`'s type check pins), and `hite` is its
+selection output verbatim.  What is left is exactly `hdec`, `hB` and `hPR` -- the three facts
+`Condition.check` establishes, none of which `Reflection.checkITE` sees.
+
+This is the same discipline as `hsel_of_checkITE`: a hypothesis you can *construct* from the
+shape the recognizer leaves is one you cannot have gotten wrong. -/
+theorem reflects_condApp_of_checkITE (henv : env.WF) {F P D TD B PR RT Aα : VExpr}
+    {g : Nat → Nat → Bool}
+    (hFc : F.ClosedN 0) (hTDc : TD.ClosedN 0) (hRTc : RT.ClosedN 0) (hA0 : Aα.ClosedN 0)
+    (hF : env.HasType 0 [] F (.forallE (.sort .zero)
+      (.forallE (.app (.const ``Decidable []) (.bvar 0)) (.forallE Aα (.forallE Aα Aα)))))
+    (hdec : ∀ a b : Nat, env.IsDefEqU 0 [] (.app (.app D (.natLit a)) (.natLit b))
+      (.app (.app (.app TD (.app (.app P (.natLit a)) (.natLit b)))
+        (.app (.app B (.natLit a)) (.natLit b))) (.app (.app PR (.natLit a)) (.natLit b))))
+    (hB : ∀ a b : Nat, env.IsDefEqU 0 [] (.app (.app B (.natLit a)) (.natLit b))
+      (.boolLit (g a b)))
+    (hPR : ∀ a b : Nat, env.HasType 0 [] (.app (.app PR (.natLit a)) (.natLit b))
+      (.app (.app RT (.app (.app P (.natLit a)) (.natLit b))) (.boolLit (g a b))))
+    (hite : ∀ v : Bool, env.IsDefEqU 0
+      [Aα, Aα, .app (.app RT (.bvar 0)) (.boolLit v), .sort .zero]
+      (VExpr.condApp F (.bvar 3)
+        (.app (.app (.app TD (.bvar 3)) (.boolLit v)) (.bvar 2)) (.bvar 1) (.bvar 0))
+      (bif v then .bvar 1 else .bvar 0)) :
+    env.ReflectsCondApp F P D g :=
+  reflects_condApp henv hA0 hF hdec hB hPR (hsel_of_checkITE henv hFc hTDc hRTc hA0 hite)
+
+end VEnv
+
+/-! ### Non-vacuity: the hypotheses `Reflection.checkITE.WF` leaves to its caller
+
+`Reflection.checkITE.WF` asks the caller for `TrExprS.IsUnique` and `looseBVarRange' = 0` on
+`r.type`, `r.toDec` and the result type `α`.  `IsUnique` is `False` at a `.proj`, so this is a
+real vacuity risk rather than bookkeeping: if either shipped `Reflection` mentioned a
+projection, the lemma could never be applied.  Both do not, and both are closed. -/
+
+theorem Reflection.defn₁_type_isUnique :
+    TrExprS.IsUnique (Lean4Lean.Environment.Reflection.defn₁.type) := by
+  simp [Lean4Lean.Environment.Reflection.defn₁, TrExprS.IsUnique]
+
+theorem Reflection.defn₁_toDec_isUnique :
+    TrExprS.IsUnique (Lean4Lean.Environment.Reflection.defn₁.toDec) := by
+  simp [Lean4Lean.Environment.Reflection.defn₁, TrExprS.IsUnique]
+
+theorem Reflection.defn₂_type_isUnique :
+    TrExprS.IsUnique (Lean4Lean.Environment.Reflection.defn₂.type) := by
+  simp [Lean4Lean.Environment.Reflection.defn₂, TrExprS.IsUnique]
+
+theorem Reflection.defn₂_toDec_isUnique :
+    TrExprS.IsUnique (Lean4Lean.Environment.Reflection.defn₂.toDec) := by
+  simp [Lean4Lean.Environment.Reflection.defn₂, TrExprS.IsUnique]
+
+theorem Reflection.defn₁_type_closed :
+    (Lean4Lean.Environment.Reflection.defn₁.type).looseBVarRange' = 0 := rfl
+
+theorem Reflection.defn₁_toDec_closed :
+    (Lean4Lean.Environment.Reflection.defn₁.toDec).looseBVarRange' = 0 := rfl
+
+theorem Reflection.defn₂_type_closed :
+    (Lean4Lean.Environment.Reflection.defn₂.type).looseBVarRange' = 0 := rfl
+
+theorem Reflection.defn₂_toDec_closed :
+    (Lean4Lean.Environment.Reflection.defn₂.toDec).looseBVarRange' = 0 := rfl
