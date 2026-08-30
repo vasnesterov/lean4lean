@@ -1,238 +1,259 @@
-# `checkPrimitiveDef.WF.rest` — `Nat.mod` and `Nat.div` are closed
+# `checkPrimitiveDef.WF.rest` — the `Nat.gcd` / `Nat.bitwise` branches were **false**, and are not any more
 
 Stream scope: `Lean4Lean/Verify/Typing/Expr.lean`, `Lean4Lean/Primitive.lean`,
 `Lean4Lean/Verify/Primitive.lean`, `Lean4Lean/Verify/Environment/Boundaries.lean`
 (`checkPrimitiveDef.WF.rest` only), and new files under `Lean4Lean/Verify/`.
 
-Everything below is marked **[machine-checked]** (a `lake build`, the sorry census, the guards,
-`scripts/dup-names.lean`, `#print axioms`, or a Kernel Arena run produced it) or **[source]**
-(read off the code, or argued).
+Everything below is marked **[machine-checked]** (a `lake build`, the sorry census, a Kernel
+Arena run, or `scripts/primitive-wf-refutation.lean` produced it) or **[argued]** (read off the
+code, or reasoned). The two are kept strictly apart; the central claim of this round is
+machine-checked, and one supporting claim is explicitly not.
 
 | gate | before | after |
 | --- | --- | --- |
 | sorry census (`lake env lean scripts/sorry-census.lean`) | **19** | **19** **[machine-checked, both runs]** |
-| `checkPrimitiveDef.WF.rest`'s open branches | 4 (`mod`, `div`, `gcd`, `bitwise`) | **2** (`gcd`, `bitwise`) **[machine-checked]** |
-| `lake build` (whole tree) | green | green **[machine-checked]** |
-| `Verify/Guard.lean` guards 1–3 | ✓ | ✓ **[machine-checked: 25 frozen axioms ✓; `kernel_sound` within whitelist ✓ (proof INCOMPLETE); cone gaps 54/54 ✓; `stdPrelude accepted by addDecl ✓`]** |
-| `scripts/dup-names.lean` | — | no duplicates **[machine-checked]** |
-| Kernel Arena (`lean4lean-local`) | **185 / 6 / 0** *(carried; `Primitive.lean` unchanged, so before = after by construction)* | **185 / 6 / 0** **[machine-checked, two full runs]** |
+| `checkPrimitiveDef.WF.rest`'s open branches | 2 (`gcd`, `bitwise`) | **2** (`gcd`, `bitwise`) |
+| ...of which **false as stated** | **2** **[machine-checked]** | **0** **[machine-checked, the witnesses are re-run against the fix]** |
+| `lake build Lean4Lean.Verify.Environment.Boundaries` | green | green **[machine-checked]** |
+| Kernel Arena (`lean4lean-local`) | 185 / 6 / 0 | **185 / 6 / 0** **[machine-checked, two runs]** |
 
-**`Lean4Lean/Primitive.lean` is byte-for-byte unchanged this round.** No executable change, so
-no new entry in `divergences.md`.
+**`Lean4Lean/Primitive.lean` is changed this round.** `divergences.md` carries the entry
+(clause *Eleventh* of the `checkPrimitiveDef` bullet); `bugs-found.md` carries item 16.
 
 ---
 
 ## 0. Bottom line
 
-1. **The `Nat.mod` branch of `checkPrimitiveDef.WF.rest` is proved.** §1.
-2. **The `Nat.div` branch is proved.** §2.
-3. **A hypothesis of an already-proved lemma was *not suppliable* and had to be repaired**:
-   `VEnv.reflects_fuel_go`'s `hK`. §3. This is the same failure family as the `Ok`-indexing
-   defect the previous handoff recorded, found the same way (write the supplier's side).
-4. `Nat.gcd` and `Nat.bitwise` are untouched and still blocked at `unfoldNatWellFounded`. §6.
-   Kernel Arena is **185 correct / 6 either / 0 incorrect**, twice. Since `Lean4Lean/Primitive.lean`
-   is byte-for-byte unchanged this round, the executable is unchanged and the accepted set could
-   not have moved; the runs are a check on that reasoning, not a measurement of a change.
-5. The census does **not** move: `checkPrimitiveDef.WF.rest` is one declaration, and two of its
-   four branches still carry `sorry`. It will read 18 only when all four close.
+1. **The `Nat.gcd` and `Nat.bitwise` branches of `checkPrimitiveDef.WF.rest` were not open —
+   they were false.** The recognizer accepted definitions that the Lean kernel does not reduce
+   at numerals at all, while `VEnv.HasPrimitives` demands exactly that reduction. §1.
+2. Six rounds of proof effort on those branches could not have succeeded. **The brief's
+   standing plan — "a fuel induction on the `Nat.rec` skeleton at numerals, whose one named
+   prerequisite is a `whnfCore.WF`/`unfoldDefinition.WF` returning a defeq witness" — was
+   wrong twice over**: that prerequisite is not needed at all (§3(c)), and the plan would have
+   run into the false statement above regardless. §5.
+3. **Both branches are fixed on the implementation side**, and the witnesses are re-run against
+   the fix and die. §3, §4.
+4. A **second** gap, in the same two branches, was closed at the same time: the fixpoint
+   equation was pinned at exactly one `ih`. No witness exists for that one and none is claimed;
+   it made the obligation *underivable*, not false. §2.
+5. The census does not move. `checkPrimitiveDef.WF.rest` is one declaration and two of its four
+   branches still carry `sorry`; it reads 18 only when all four close. What moved is that the
+   remaining two are now *provable*.
 
 ---
 
-## 1. The `Nat.mod` branch **[machine-checked]**
+## 1. The refutation **[machine-checked]**
 
-The whole chain, in `Lean4Lean/Verify/Primitive.lean` unless noted.
+`scripts/primitive-wf-refutation.lean`. Run it with `lake env lean`.
 
-### 1.1 Reading the two equations back
+`VEnv.HasPrimitives.natGcd` is `env.ReflectsNatNatNat ``Nat.gcd Nat.gcd`, i.e.
 
-The recognizer compares
 ```
-mod (succ x) y   ≡  c.ite Nat #[y, succ x] (c.dite #[1, y] (go y _ (succ (succ x)) (succ x) _) (succ x)) (succ x)
-go y hy (succ fuel) x h  ≡  c.dite #[y, x] (go y hy fuel (sub x y) (div_rec_fuel_lemma …)) x
+env.contains ``Nat.gcd → ∀ a b, env.IsDefEqU 0 [] (Nat.gcd (natLit a) (natLit b)) (natLit (Nat.gcd a b))
 ```
-under `withCheckedLocalDecl` binders.  Both right-hand sides mention constants whose types
-`VEnv.HasPrimitives` does not pin — `Not`, `Nat.lt_succ_self`, `Nat.div_rec_fuel_lemma` — so
-neither translation can be *built*; it is read off `checkedIsDefEq.WFr` and inverted.
 
-| name | content |
+— *definitional* equality, at numerals. `checkPrimitiveDef.WF.rest`'s `preserves` field has to
+produce it for the environment the declaration is being added to.
+
+Both branches route through `unfoldNatWellFounded`, which recovers
+`WellFounded.Nat.fix α motive h F a₀` from the definition's value. **It checked nothing at all
+about the measure `h`.** And (Lean core, `Init/WF.lean`):
+
+```
+def Nat.eager (n : Nat) : Nat := if Nat.beq n n = true then n else n   -- "prevents reduction …"
+def Nat.fix : (x : α) → motive x := fun x => go (Nat.eager (h x + 1)) x _
+```
+
+so the fuel `Nat.rec` fires only once `h x` evaluates to a ground value. A definition whose
+measure the kernel cannot evaluate is stuck at every numeral.
+
+**The witness.** `badGcd` has the real `Nat.gcd` body and `termination_by m + 0 * Stuck`, where
+`Stuck := Classical.choice ⟨0⟩` — an axiom, so no delta rule reduces it. The measure is
+propositionally `m` (`Nat.zero_mul`), so the definition elaborates, type-checks and terminates;
+its `eq_def` is the real one. `badBitwise` is the same trick on `Nat.bitwise`.
+
+Measured, before the fix:
+
+```
+kernel  Nat.gcd 4 6 = 2          : true        kernel  bitwise and 12 10 = 8    : true
+kernel  badGcd  4 6 = 2          : false       kernel  badBitwise and 12 10 = 8 : false
+recognizer, real Nat.gcd         : accepted    recognizer, real Nat.bitwise     : accepted
+recognizer, badGcd as Nat.gcd    : accepted    recognizer, badBitwise as ~      : accepted
+```
+
+The `kernel` rows use `Lean.Kernel.Environment.addDecl` on `@rfl Nat (f 4 6) : f 4 6 = 2`, so
+they are the *kernel's* verdict, not the elaborator's. The `recognizer` rows run
+`Environment.checkPrimitiveDef` on a `DefinitionVal` named `Nat.gcd` / `Nat.bitwise` carrying
+the bad value.
+
+**Scope of the claim.** Machine-checked: the recognizer accepted it, and *Lean's kernel* cannot
+reduce it. The remaining step — from "Lean's kernel cannot reduce it" to "`VEnv.IsDefEqU` does
+not hold" — is Church–Rosser for the abstract theory, which is not fully proved in this tree
+(`VEnv.NormalEq.descend` still carries a `sorry`). So precisely: **either
+`checkPrimitiveDef.WF.rest` was false, or `VEnv.IsDefEqU` is strictly coarser than kernel
+conversion at these terms** — and the second disjunct would be a considerably worse finding
+about `Theory/`. Either way the branch was not provable as it stood.
+
+## 2. The second gap: `F` was pinned at one `ih` **[argued; no witness, and none is claimed]**
+
+`unfoldNatWellFounded` checked `rhs ≡ F a₀ ih'` at exactly one `ih'`, namely
+`fun y _ => Nat.fix h F y`. A fuel induction at numerals must evaluate `F a₀` at
+`fun y _ => Nat.fix.go h F fuel y _`, a *different* argument, and an `IsDefEqU` at one argument
+implies nothing about another. The two λ-terms are pointwise equal only propositionally (that
+is `Nat.fix.go_congr`, whose proof is an induction), and function extensionality is not a
+definitional rule.
+
+Two dead ends worth not re-deriving:
+
+* **Fuel invariance cannot be recovered.** Proving `go k y ≡ go k' y` from the recurrence would
+  need `F y ih₁ ≡ F y ih₂` from `ih₁ z ≡ ih₂ z` for all `z` — funext, not defeq.
+* **`ih'` cannot be abstracted after the fact.** `IsDefEqU (F a₀ ih') rhs` is a fact about the
+  application, not about `F`.
+
+No counterexample is offered for this half, and that is a real gap in the evidence: `F x ih`
+β/ι-reduces uniformly in `ih`, so a *semantic* witness probably does not exist. **"No witness"
+is not evidence of truth** — the point here is derivability, and the branch was underivable.
+
+## 3. What changed in `Lean4Lean/Primitive.lean`
+
+`unfoldNatWellFounded` now returns a `NatWFUnfold` (`rhs`, `go`, `pack`, `measure`) instead of a
+bare `Expr`, and takes an optional `measureIs`.
+
+* **(a) The measure check.** `checkedIsDefEq (h (pack fvs)) μ`, with `μ` supplied by the branch:
+  `m` for `Nat.gcd`, `n` for `Nat.bitwise`. `pack` is `fun fvs => a₀`, built with
+  `(← getLCtx).mkLambda fvs a₀` from the `a₀` the reduction recovered. **This is what kills §1's
+  witnesses.** Strictly stricter.
+* **(b) The fuel recurrence.** Each branch now checks, under fresh `fuel : Nat` and a fuel bound
+  `hb` whose domain is *read off `go`'s own type* rather than rebuilt:
+
+  ```
+  go (Nat.succ fuel) (pack fvs) hb  ≡  <the branch's body, with the recursive call at go fuel (pack …) prf>
+  ```
+
+  For `Nat.gcd` the body is `Condition.natEq.dite #[m, 0] n (go fuel (pack (n % m) m) prf)` with
+  `prf := Nat.lt_of_lt_of_le (Nat.mod_lt n (Nat.pos_of_ne_zero (.bvar 0))) (Nat.le_of_lt_succ hb)`
+  — `.bvar 0` is the `¬(m = 0)` that `Condition.dite`'s else-branch `lam0` binds. For
+  `Nat.bitwise` the outer `n = 0` test becomes a `dite` for the same reason (its `ite` form binds
+  nothing, so the recursive call's fuel bound would have no proof of `n ≠ 0` in scope), and
+  `prf := Nat.lt_of_lt_of_le (Nat.div_lt_self (Nat.pos_of_ne_zero (.bvar 0)) (Nat.le.refl)) (Nat.le_of_lt_succ hb)`.
+  This is the shape the **proved** `Nat.mod` / `Nat.div` branches use.
+* **(c) Two conversions re-established by checked conversions.** `mkAppN e fvs ≡ fix h F (pack fvs)`
+  and `fix h F a ≡ go (Nat.eager (h a + 1)) a _` were previously only *found* by
+  `whnfCore`/`unfoldDefinition`. Both are now `checkedIsDefEq`s. They hold definitionally
+  wherever the reduction found them, so this is accept-set neutral — and it means **the
+  verification needs no specification of `whnfCore` or `unfoldDefinition` at all.** The brief's
+  "one named prerequisite" is gone.
+* `Nat.bitwise`'s `Condition.natEq` check now runs with `dite := true`.
+
+Two implementation traps, both of which cost a build:
+
+1. **`natRec`/`go` must be captured before the `lambdaTelescope`.** That telescope rebinds `F`
+   to a *local* free variable; building `go` after it returns a term mentioning an escaped fvar,
+   and the failure surfaces as `(kernel) unknown free variable` at the `run_meta` self-test, far
+   from the cause.
+2. `Condition.dite` wraps both branches in `Expr.lam0`, so anything placed in them shifts by one
+   binder; `Condition.ite` does not. The fuel bound's proof term relies on that binder existing.
+
+## 4. Re-running the refutation against the fix **[machine-checked]**
+
+```
+recognizer, real Nat.gcd         : accepted = true      recognizer, real Nat.bitwise : accepted = true
+recognizer, badGcd as Nat.gcd    : REJECTED             recognizer, badBitwise as ~  : REJECTED
+```
+
+and the `run_meta` self-test at the foot of `Lean4Lean/Primitive.lean` still accepts all
+eighteen primitives of the real prelude. Both witnesses die; neither real primitive moves.
+
+## 5. Corrections to the brief and to the previous handoff
+
+* *"`unfoldNatWellFounded` is the single blocker, and the route is a fuel induction at numerals
+  whose one prerequisite is a `whnfCore.WF`/`unfoldDefinition.WF` returning a defeq witness."*
+  **Wrong on both halves.** That prerequisite is not needed (§3(c) removes it with two
+  accept-set-neutral checks). And the route could not have worked anyway: the statement it was
+  aiming at was false (§1), and the induction step it needed was underivable (§2). Neither of
+  those is visible from the `whnfCore` framing.
+* *"`unfoldNatWellFounded` not by a checked conversion: the fixpoint equation is propositional,
+  not definitional, so a `checkedIsDefEq` there returns `false`."* **Correct, and it survives**
+  — but it was over-generalised into "no checked conversion can help here", which is false. The
+  *fixpoint* equation is propositional; the *fuel recurrence* and the two reductions of §3(c)
+  are definitional, and checked conversions get all three of them.
+* The previous handoff's §6 ordering ("`Nat.bitwise` … deepest, attack last") is fine for the
+  proof, but the two *implementation* gaps are identical in both branches and were cheaper to
+  fix together than apart.
+
+## 6. Kernel Arena and the other gates **[machine-checked]**
+
+`Lean4Lean/Primitive.lean` changed, so the accepted set *did* move (strictly smaller) and these
+runs are a measurement, not a consistency check on unchanged code.
+
+| | |
 | --- | --- |
-| `VExpr.iteNat`, `VExpr.diteNat` | `@ite.{1} Nat`, `@dite.{1} Nat` |
-| `trExprS_iteNat_inv'`, `trExprS_diteNat_inv'` | both heads pinned **syntactically**, by `trExprS_const_inv'`.  No `TrExprS.unique` and therefore **no `IsUnique` side condition** for them — one fewer vacuity surface than `Reflection.checkITE`'s `α` |
-| `trExprS_fvar_uniq` | `IsUnique (.fvar _)` is `True`, so `TrExprS.unique` pins a free variable's translation outright.  This is what makes the whole inversion possible without `IsDefEqU.weakN_iff` |
-| `trExprS_liftBV0` | the **lifting** counterpart of `trExprS_weakBV0`: weakening past one anonymous `.vlam` while *lifting* the abstract term.  `trExprS_weakBV0` needs `e'.ClosedN 0`, which a bound variable does not have; this is what carries `x`, `y`, `hy`, `fuel` under the λ that `Condition.dite` wraps its branches in |
-| `trExprS_succFvar_inv'` | `Nat.succ` applied to a free variable |
-| `trExprS_modEq1_inv'` | the first equation's RHS, leaving exactly `EA1` (the `Not`-typed binder domain) and `LT1` (the `Nat.lt_succ_self` witness) abstract |
-| `trExprS_modEq2_inv'` | the `go` equation's RHS, parametrised by the recursion's constant name so `Nat.div` reuses it; leaves `EA2`, `K2` abstract |
+| Kernel Arena, `lean4lean-local`, before | 185 correct / 6 either / 0 incorrect |
+| Kernel Arena, `lean4lean-local`, after | 185 correct / 6 either / 0 incorrect, twice |
+| sorry census | 19 → 19 |
+| `scripts/dup-names.lean` | no duplicates |
+| `Verify/Guard.lean` guards 1–3 | 25 frozen axioms ✓; `kernel_sound` within whitelist ✓ (proof INCOMPLETE); cone gaps 54/54 ✓ |
+| `Verify/Soundness.lean` | `stdPrelude matches the toolchain's core declarations ✓`, `stdPrelude accepted by addDecl ✓` |
+| `run_meta` self-test at the foot of `Primitive.lean` | all eighteen primitives accepted |
 
-### 1.2 Building the equation's left-hand side
+The `init` arena test replays the whole prelude export in declaration order, so it is what
+checks that the newly required constants (`Nat.mod_lt`, `Nat.pos_of_ne_zero`,
+`Nat.lt_of_lt_of_le`, `Nat.le_of_lt_succ`, `Nat.div_lt_self`, `Nat.le.refl`) really do precede
+`Nat.gcd`/`Nat.bitwise`. They do.
 
-`TypeChecker.trExprS_goApp` builds `TrExprS (mkApp5 go y hy fuel x h)` from the declared
-telescope `checkedTypeIs q(Nat.modCore.go)` pins.  Its five `B.inst` side conditions are `simp`
-identities; the only interesting one is the fifth, which needs `VExpr.inst_lift` because
-`go`'s last domain mentions the *fuel* argument.  `VExpr.closedN_goType` is the closedness
-`HasType.weakLam0` needs to carry `HasType go .goType` under the five binders.
+## 7. Pick up first
 
-### 1.3 Instantiating at numerals
+1. **The `Nat.gcd` fuel induction.** Everything it needs is now checked. The available facts,
+   all at `c.venv`, all as `IsDefEqU` under the recognizer's binders:
+   * `E m n ≡ fix h F (pack m n)`  (§3(c), first check)
+   * `fix h F a ≡ go (eager (succ (h a))) a p`  (§3(c), second check, under a fresh `a`)
+   * `eager x ≡ Condition.bool.ite Nat #[Nat.beq x x] x x` (unchanged)
+   * `h (pack m n) ≡ m`  (§3(a)) — instantiate at numerals to make `eager` peel via
+     `Condition.check.WF_bool` and `HasPrimitives.natBEq`
+   * `go (succ fuel) (pack m n) hb ≡ Condition.natEq.dite #[m, 0] n (go fuel (pack (n % m) m) prf)`
+     (§3(b)) — this is `reflects_fuel_go`'s recurrence, with `Ok` indexed by the fuel bound
+   * the two `rhs` equations (unchanged; now redundant, kept because they are what force `F`'s
+     body to match `Nat.gcd.eq_def`'s shape, and dropping them would widen the accepted set)
+   The induction is `Nat.gcd`'s usual one: fuel `k`, invariant `m ≤ k`, step `n % m < m ≤ k`.
+   `VEnv.reflects_fuel_go` is parametrised by the wrapper, base and recurrence already.
+   Two pieces are missing and are cheap: a **pinned** variant of `Condition.check.WF_natEq`
+   (`P = .natEq`, `D = .const ``Nat.decEq []`), by analogy with `Condition.check.WF_natLE_pinned`,
+   and the `Nat.beq` counterpart of `ReflectsCondAppD.natLE_le` (`Nat.beq a b = (a == b)`, so the
+   selection is decided by `HasPrimitives.natBEq` rather than `natBLE`).
+2. **`Nat.bitwise`** afterwards. Same facts; the induction is on `n` (its measure), the
+   conditional machinery is `Condition.natEq` at `Nat` and `Bool` plus `Condition.bool` at `Nat`
+   (all three `Condition.check.WF*` are proved), and `ReflectsNatBitwise` is second order and
+   relativized to every extension, so the transport at the end is not a single `IsDefEqU.mono`.
+3. `VEnv.ReflectsCondAppD`'s `VExpr.WF` premise is **negative**, so it is not monotone: all
+   reduction happens at `c.venv` with one `IsDefEqU.mono` at the very end. Unchanged, still
+   forced.
 
-* `VEnv.goCtx` — the five-binder context `[h, fuel, hy, y, x]` the `go` equation is checked in.
-* `VEnv.IsDefEqU.instGo5` — substitutes `x := natLit x`, `y := natLit b`, `hy`, `fuel := natLit f`,
-  `h`, in that order (outermost first, exactly as `IsDefEqU.inst4` does).  The two *proof*
-  binders are substituted by terms the caller supplies with their typings; **nothing about their
-  types is needed beyond that**, which is what keeps the induction independent of the branch's
-  plumbing.
-* `VEnv.mod_step1` (via `IsDefEqU.instNat2`) and `VEnv.mod_step2` (via `instGo5`) deliver the two
-  equations at numerals in exactly the shape the fuel induction consumes.
+## 8. Carried over, still correct **[machine-checked unless noted]**
 
-### 1.4 Getting past the two λs
-
-`VEnv.diteNat_reduce` is the new step: `ReflectsCondAppD` delivers the selected λ **applied** to
-the decision proof, and this reduces it.  It needs no typing from the caller —
-`VEnv.IsDefEqU.beta_wf` recovers the argument's declared domain from the redex's own
-well-typedness via `VExpr.WF.app_arg_typed`.
-
-### 1.5 The `Nat.sub` congruence
-
-The recognizer's recursive call carries `Nat.sub x y`, while `reflects_fuel_mod`'s induction
-hypothesis is at the numeral `x - y`.  `VEnv.IsDefEqU.app2_congr_arg1'` makes the swap in a
-position whose *successor* argument's type depends on it (the fuel proof `h : x+1 ≤ f`), which
-is why the plain `app_congr_arg` family does not suffice.  The typings it needs come from
-`VEnv.goApp3_typed` / `VEnv.goApp5_typed`; `hprim.natSub` supplies the defeq, and the branch's
-`env.contains ``Nat.sub` guard reaches `c.venv.contains` through `contains_primConst` and the
-new `TypeChecker.primitives_natSub`.
-
-### 1.6 Assembly
-
-`VEnv.reflects_mod_of_equations` takes exactly what the branch produces — `h0`, the two
-equations, `ReflectsCondApp` / `ReflectsCondAppD` at `.iteNat` / `.diteNat`, and `HasType go
-.goType` — and returns `∀ a b, F a b ≡ natLit (a % b)`.  Everything happens at `c.venv`; the
-transport to the extension `env₂` is one `IsDefEqU.mono` at the end.  **That ordering is
-forced**: `ReflectsCondApp` has a `VExpr.WF` premise in a *negative* position, so it is not
-monotone, and any attempt to carry it into `env₂` first is dead.
-
-The `Ok` predicate the induction runs under is
-```
-Ok b hy f x h  :=  HasType hy (1 ≤ b)  ∧  HasType h (x+1 ≤ f)
-```
-— the fuel/numerator indexing the previous handoff established, with the two typings that
-`goApp_typed` extracts from the applications' own well-typedness.
-
-## 2. The `Nat.div` branch **[machine-checked]**
-
-Same chain, three structural differences, all forced by the recognizer:
-
-* `iteTypes := []`, so only the `ReflectsCondAppD` half of `Condition.check.WF_natLE_pinned` is
-  used and `hitefv` is discharged by `absurd hα (by simp)`;
-* `Condition.natLE.check` runs **before** the two `checkedTypeIs`, so the proof meets them in
-  the opposite order to `Nat.mod`'s;
-* there is **no outer `ite` and no `div 0 x` base case**: `Nat.div.go` at fuel `x+1` already
-  returns `0` when the divisor exceeds the numerator, so the single equation
-  `div x y ≡ dite (1 ≤ y) (go y _ (succ x) x _) 0` covers every numerator.  `Nat.succ` is the
-  fuel recursion's wrapper and `0` its exhausted branch.
-
-New: `trExprS_divEq1_inv'`, `trExprS_divEq2_inv'`, `VEnv.div_step1`, `VEnv.div_step2`,
-`VEnv.reflects_div_of_equations`.
-
-## 3. Correction: `reflects_fuel_go`'s `hK` was not suppliable **[machine-checked, by construction]**
-
-The lemma was proved last round with
-
-```
-(hK : ∀ b f x hy h, Ok b hy (f+1) x h → Ok b hy f (x - b) (K b f x hy h))
-```
-
-**This cannot be supplied.**  `Ok b hy f (x-b) K`'s second conjunct is
-`HasType K (natLEApp (natLit (x-b+1)) (natLit f))`.  The only source of that typing is the
-well-typedness of the recursive application `go b hy f (x-b) K`, and that application occurs in
-the recognizer's term **only inside the `b ≤ x` branch of the `dite`**.  When `¬ b ≤ x` the
-recognizer's right-hand side is the fuel-exhausted branch (`x` for `mod`, `0` for `div`); there
-is no `go` application at all, and the type `x-b+1 ≤ f` is in general uninhabited.  So the
-un-guarded `hK` is empty at every real call site, and any proof depending on it would be
-consuming a vacuous obligation.
-
-The repair is free: `reflects_fuel_go`'s own proof uses `hK` **only** inside its `by_cases
-hbx : b ≤ x` positive branch.  `hK` now reads
-
-```
-(hK : ∀ b f x hy h, Ok b hy (f+1) x h → b ≤ x → Ok b hy f (x - b) (K b f x hy h))
-```
-
-in `reflects_fuel_go`, `reflects_fuel_mod` and `reflects_fuel_div`.  Adding a hypothesis to a
-hypothesis makes the lemma **stronger**, so nothing downstream is weakened; all three still
-build.  **The refutation dies at its own witness**: with `b ≤ x` in hand, `hsel`'s output in the
-positive branch gives `VExpr.WF (go b hy f (x-b) K)` and `goApp5_typed` reads the typing off it.
-
-This is the third statement in this development found unsuppliable by *writing the supplier's
-side* rather than by reasoning about the statement.  Put that instrument in every brief.
-
-## 4. Method notes that cost time
-
-1. **`rw [if_pos h]` rewrites only the first matching `if`.**  Both sides of an `IsDefEqU` carry
-   one after `ReflectsCondAppD.natLE_le`; use `simp only [if_pos h]`.
-2. **`ClosedN.liftN_eq (Nat.zero_le 0)` pins the depth to `0`.**  Where the instantiation depth
-   varies (under a λ it is `k+1`), it must be `(Nat.zero_le _)`.  Two `simpa`s failed on exactly
-   this and the error looks like a shape mismatch, not like a depth mismatch.
-3. **`mkAppB` is not reached by unfolding `mkApp2`.**  `FVarsIn` goals over
-   `Condition.natLE.dite …` need `Lean.mkAppB` in the simp set as well as `Lean.mkApp2`,
-   `Lean.mkApp4`, `Lean.mkApp5`, `Lean.mkApp6`, `Lean.mkAppN` and `Lean.Expr.lam0`.
-4. **The `FVarsIn` side conditions are best discharged structurally**, not by feeding
-   `h.fvarsIn` to `simp` (it is stated as `Expr.FVarsIn`, and `simp` unfolds that first, so the
-   fact never fires).  `repeat' apply And.intro` then
-   `all_goals first | exact hxv5.fvarsIn | … | trivial | simp [FVarsIn, Lean.Level.hasMVar']`.
-5. **The last `unless … do fail` inside the binder block has no continuation**, so its `isFalse`
-   case is `.throw`, not `M.WF.bindThrow .throw`.  Every earlier one is `bindThrow`.
-6. **`return true` sits outside all five `withCheckedLocalDecl`s.**  The reflection fact has to
-   leave the binders through the *outermost* `withCheckedLocalDecl`'s postcondition
-   (`Q := fun _ _ => ∀ a b, …`), which is context-free and so passes through unchanged.
-7. **`hasType_lastFVar`, not `hasType_lastFVar0`**, when the binder's domain is not closed
-   (`1 ≤ y`, `x+1 ≤ fuel+1`).  The `0` variant demands `ty'.ClosedN 0`.
-8. **`set_option … in` goes before the doc comment**, not between the doc comment and the
-   theorem.  `checkPrimitiveDef.WF.rest` now needs `maxHeartbeats 4000000` (45 s to elaborate).
-
-## 5. Non-vacuity
-
-* The `Nat.mod` and `Nat.div` branches now *produce* `PrimitiveResult`'s `preserves` field, i.e.
-  `VEnv.PrimField ``Nat.mod` / ``Nat.div``, at the accepting path.  `Verify/Soundness.lean`'s
-  `stdPrelude accepted by addDecl ✓` witnesses that this path is reached at the real
-  declarations. **[machine-checked]**
-* Every hypothesis of `reflects_mod_of_equations` / `reflects_div_of_equations` is discharged in
-  `Boundaries.lean` from the recognizer's own checks; none is assumed. **[machine-checked]**
-* `IsUnique` never appears for the two conditional heads (§1.1), so the `IsUnique`-at-a-`.proj`
-  vacuity risk the previous handoff flagged is *narrower* than before, not wider.
-
-## 6. Pick up first
-
-1. **`Nat.gcd`**, blocked at `unfoldNatWellFounded`, unchanged.
-2. **`Nat.bitwise`**, blocked at `unfoldNatWellFounded`, and additionally consuming
-   `Condition.check.WF_natEq` (at `Nat` and `Bool`) and `WF_boolCond` (at `Nat`), both of which
-   are already proved.
-3. `unfoldNatWellFounded` **not** by a checked conversion: the `WellFounded.Nat.fix` fixpoint
-   equation is propositional, not definitional, so a `checkedIsDefEq` there returns `false` and
-   the recognizer would *reject* `Nat.gcd` and `Nat.bitwise`.  This has now survived six
-   handoffs unchanged. **[source]**
-4. The two `Nat.mod` / `Nat.div` chains are close to a template.  If a third fuel recursion
-   ever appears, `trExprS_modEq2_inv'` is already parametrised by the `go` constant's name and
-   `reflects_fuel_go` by the wrapper, base and recurrence.
-
-## 7. Carried over, still correct **[machine-checked unless noted]**
-
+* The `Nat.mod` and `Nat.div` branches are **proved** and untouched: `VEnv.reflects_mod_of_equations`,
+  `reflects_div_of_equations`, `reflects_fuel_go/mod/div`, `IsDefEqU.instGo5`, `beta_wf`,
+  `diteNat_reduce`, `mod_step1/2`, `div_step1/2`, `trExprS_goApp`, `trExprS_modEq1/2_inv'`,
+  `trExprS_divEq1/2_inv'`, `goApp3/5_typed`, `app2_congr_arg1'`.
 * `TypeChecker.Condition.check.WF` (both arms), `Reflection.check.WF`, `checkITE.WF`,
-  `checkNatDITE.WF`, `Condition.check.WF_bool`, and the acceptance instances
-  `WF_natLE` / `WF_natEq` / `WF_boolCond` / `WF_natLE_pinned` are unchanged and still used.
-* Π-injectivity here is **inherited taint, not a new hole**: `VEnv.IsDefEqU.forallE_inv` and
-  `VEnv.HasType.piUniq` are inside `checkPrimitiveDef.WF`'s forward cone.  Every new lemma's
-  axiom set is a subset of `{propext, sorryAx, Classical.choice, Quot.sound}`; the four
-  inversion lemmas and the four `…_step` lemmas carry **no `sorryAx` at all**. **[machine-checked]**
-* `ReflectsCondApp` is the `ite` rule only; the `go` equations are `dite`s and use
-  `ReflectsCondAppD`.  `ReflectsCondApp`'s live consumers are now `reflects_natBitwise_go` and
-  the `Nat.mod` branch.
-* **No cross-half comparison is ever needed.**  `TrExprS.unique'` and `IsUniqueCtx` appear
-  nowhere in this development.
+  `checkNatDITE.WF`, `Condition.check.WF_bool`, and `WF_natLE` / `WF_natEq` / `WF_boolCond` /
+  `WF_natLE_pinned`.
+* `trExprS_iteNat_inv'` / `diteNat_inv'` carry **no `IsUnique` side condition** — the heads are
+  constant-only. `IsUnique` is `False` at a `.proj`, so that vacuity surface stays narrow.
+* Π-injectivity here is inherited taint, not a new hole.
 * The C++ kernel has **no primitive-definition recognizer at all** (measured), so every
   discrepancy here is a divergence by construction and the Arena's accepted set is the only
-  external constraint.
+  external constraint. Note the flip side, now that §1 exists: the C++ kernel accelerates
+  `Nat.gcd` at literals *by name*, with nothing checked about the declaration — so the
+  environment §1 builds is one where the C++ kernel's accelerator and the declaration's own
+  reduction behaviour disagree. That is upstream's problem, not recorded as ours.
 * **The verification can never recover a subterm's type from the fact that an application
-  containing it type-checks.**  `TrExprS.app` and `VExpr.WF.app_inv` hand back the domain the
-  application *invented*.  If the abstract statement needs a declared type, the recognizer has
-  to check it, in the *shape* the abstract statement consumes.  `trExprS_goApp` is this round's
-  instance: it exists only because `checkedTypeIs q(Nat.modCore.go)` pins the telescope.
-* `Verify/Environment/Extension.lean:118` consumes `ReflectsNatBitwise` **positionally**.  Not
-  touched this round; `Extension.lean` and `Bridge.lean` both still build. **[machine-checked]**
+  containing it type-checks.** `TrExprS.app` and `VExpr.WF.app_inv` hand back the domain the
+  application *invented*. §3(b) reads the fuel bound's domain off `go`'s own type for exactly
+  this reason.
+* Method: `rw [if_pos h]` rewrites only the first matching `if` (use `simp only`);
+  `ClosedN.liftN_eq (Nat.zero_le 0)` pins the depth to `0` (use `(Nat.zero_le _)`); `mkAppB` is
+  not reached by unfolding `mkApp2`; `FVarsIn` side conditions are discharged structurally, not
+  by feeding `h.fvarsIn` to `simp`; the last `unless … do fail` inside a binder block is
+  `.throw`, not `M.WF.bindThrow`; `hasType_lastFVar`, not `…0`, when the domain is not closed;
+  `set_option … in` goes *before* the doc comment. `.rest` needs `maxHeartbeats 4000000`.

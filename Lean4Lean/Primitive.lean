@@ -325,7 +325,38 @@ def forallTelescope (e : Expr) (k : Array Expr → Expr → M α) : M α := loop
       loop fvars body
   | e => k fvars (e.instantiateRev fvars)
 
-def unfoldNatWellFounded (e : Expr) (fvs : Array Expr) (eq_def : Expr) (fail : ∀ {α}, M α) : M Expr := do
+/-- What `unfoldNatWellFounded` hands its caller.
+
+`rhs` used to be the whole of it, and that is **not enough**: two facts the verification needs
+are not consequences of anything the recognizer checked.  The first is machine checked
+(`scripts/primitive-wf-refutation.lean`), the second is argued; see
+`docs/handoff-primitive.md`.
+
+* Nothing constrained the *measure* `h`.  `WellFounded.Nat.fix h F x` reduces to
+  `fix.go h F (Nat.eager (h x + 1)) x _`, and `Nat.eager` is a gadget whose whole purpose is to
+  block reduction until its argument is a numeral -- so unless `h x` is *known* to reduce to a
+  numeral, the fuel `Nat.rec` never fires and the definition does not reduce at literals at all.
+  A `Nat.gcd` whose measure is `fun x => x.1 + 0 * c` for a kernel-opaque `c` passed every check
+  the recognizer made, while the Lean kernel refutes `gcd 4 6 = 2` by `rfl` on it.  `measureIs`
+  is the check that kills that witness.
+* `rhs ≡ F a₀ ih` was checked at exactly one `ih`, namely `fun y _ => fix h F y`.  A fuel
+  induction needs `F a₀` at `fun y _ => go h F fuel y _`, and an `IsDefEqU` at one argument
+  says nothing about another.  `go` is exported so the caller can check its own fuel equation,
+  in the same shape as the (proved) `Nat.mod` and `Nat.div` branches. -/
+structure NatWFUnfold where
+  /-- `fun fvs => rhs`: the fixpoint equation's right-hand side, with the recursion's own
+  constant replaced by the definition's value. -/
+  rhs : Expr
+  /-- `WellFounded.Nat.fix.go α motive h F`: the fuel recursion, applied to everything except
+  the fuel, the argument, and the fuel bound. -/
+  go : Expr
+  /-- `fun fvs => a₀`: how the unary-ized definition packs its arguments. -/
+  pack : Expr
+  /-- the measure `h`. -/
+  measure : Expr
+
+def unfoldNatWellFounded (e : Expr) (fvs : Array Expr) (eq_def : Expr) (fail : ∀ {α}, M α)
+    (measureIs : Option Expr := none) : M NatWFUnfold := do
   let succ := mkApp q(Nat.succ)
   let .app (.app _ lhs) rhs := eq_def.getForallBody.instantiateRev fvs | fail
   let orig := lhs.getAppFn
@@ -336,15 +367,25 @@ def unfoldNatWellFounded (e : Expr) (fvs : Array Expr) (eq_def : Expr) (fail : �
   let .const ``WellFounded.Nat.fix [_, _] := fix | fail
   let #[α,motive,f,F,a₀] := args | fail
   let fixFn := mkAppN fix #[α,motive,f,F]
+  let pack := (← getLCtx).mkLambda fvs a₀
+  -- `whnfCore`/`unfoldDefinition` have no specification, so the conversion they *found* is
+  -- re-established by a checked one.  Both hold definitionally, so this is accept-set neutral.
+  unless ← checkedIsDefEq (mkAppN e fvs) (.app fixFn (mkAppN pack fvs)) do fail
+  -- **The measure.**  Not accept-set neutral: see `NatWFUnfold`.
+  if let some μ := measureIs then
+    unless ← checkedIsDefEq (.app f (mkAppN pack fvs)) μ do fail
   withCheckedLocalDecl `a .default (← checkType a₀) fun a => do
   -- prove |- fix α motive f F a ≡ go α motive f F (eager (f a)) a [proof]
   let e1 ← unfoldDefinition (.app fixFn a) -- get fix.go
   let e1 ← whnfCore e1
-  e1.withApp fun fixGo args => do
-    let #[α',motive',f',F',fuel,a',_] := args | fail
+  let (go, eagerC, prfA) ← e1.withApp fun fixGo args => do
+    let #[α',motive',f',F',fuel,a',prfA] := args | fail
     unless (α, motive, f, F, a) == (α', motive', f', F', a') do fail
     let .app eager n := fuel | fail
     unless ← checkedIsDefEq n (succ (.app f a)) do fail
+    -- Captured here because the `lambdaTelescope` below rebinds `F` to a *local* free
+    -- variable; building `go` after it would return a term mentioning an escaped fvar.
+    let goOuter := mkAppN fixGo #[α,motive,f,F]
     -- prove |- eager n = if beq n n = true then n else n
     -- `Nat` and `Bool` are needed for the local `x : Nat` and for `Condition.bool`'s
     -- `Bool.false`/`Bool.true`; `Nat.beq` is what makes `eager n` reduce to `n` at literals.
@@ -370,6 +411,11 @@ def unfoldNatWellFounded (e : Expr) (fvs : Array Expr) (eq_def : Expr) (fail : �
     let #[y,_] := fvs | fail
     let .app ih _ := ih | fail
     unless ih == .app (.app natRec t) y do fail
+    return (goOuter, eager, prfA)
+  -- Again re-establishing by a checked conversion what `unfoldDefinition`/`whnfCore` found:
+  -- `fix h F a ≡ go h F (eager (h a + 1)) a _`.  Accept-set neutral.
+  unless ← checkedIsDefEq (.app fixFn a)
+    (mkApp3 go (mkApp eagerC (succ (.app f a))) a prfA) do fail
   -- prove |- rhs ≡ F x fun y _ => fix α motive f F y
   let .forallE _ dom _ _ ← checkType (.app F a₀) | fail
   let ih' ← forallTelescope dom fun fvs _ => do
@@ -377,7 +423,7 @@ def unfoldNatWellFounded (e : Expr) (fvs : Array Expr) (eq_def : Expr) (fail : �
     return (← getLCtx).mkLambda fvs (.app fixFn y)
   have rhs' := mkApp2 F a₀ ih'
   unless ← checkedIsDefEq rhs rhs' do fail
-  return (← getLCtx).mkLambda fvs rhs
+  return { rhs := (← getLCtx).mkLambda fvs rhs, go, pack, measure := f }
 
 def checkPrimitiveDef (v : DefinitionVal) : M Bool := do
   unless v.safety == .safe do return false
@@ -496,13 +542,36 @@ def checkPrimitiveDef (v : DefinitionVal) : M Bool := do
     unless env.contains ``Nat && env.contains ``Nat.mod && v.levelParams.isEmpty do fail
     -- gcd : Nat → Nat → Nat
     checkPrimValue v q(Nat → Nat → Nat) fail
+    -- `Condition.natEq` is closed, so running its check *above* the two binders is accept-set
+    -- neutral and puts the facts it establishes at the base context, where
+    -- `VEnv.ReflectsCondAppD` wants them.  Same reason as the `Nat.bitwise` branch.
+    let c := Condition.natEq; c.check fail (dite := true)
     withCheckedLocalDecl `m .default q(Nat) fun m => do
     withCheckedLocalDecl `n .default q(Nat) fun n => do
-    let gcd' ← unfoldNatWellFounded v.value #[m, n] q(type_of% Nat.gcd.eq_def) fail
-    let gcd' := mkApp2 gcd'
+    let u ← unfoldNatWellFounded v.value #[m, n] q(type_of% Nat.gcd.eq_def) fail
+      (measureIs := m)
+    let gcd' := mkApp2 u.rhs
     let gcd := mkApp2 v.value
     unless ← checkedIsDefEq (gcd' zero m) m do fail
     unless ← checkedIsDefEq (gcd' (succ n) m) (gcd (mod m (succ n)) (succ n)) do fail
+    -- **The fuel equation**, in the shape the (proved) `Nat.mod` and `Nat.div` branches use.
+    -- The two equations above are checked at one particular `ih`, and an `IsDefEqU` at one
+    -- argument implies nothing at another; the fuel induction the verification runs needs
+    -- `go`'s own recurrence.  See `NatWFUnfold`.
+    let pk := mkApp2 u.pack
+    withCheckedLocalDecl `fuel .default q(Nat) fun fuel => do
+    let goSucc := mkApp u.go (succ fuel)
+    -- The fuel bound's domain is read off `go`'s own type rather than rebuilt, so that the
+    -- binder is at exactly the type `go` demands.
+    let .forallE _ _ body _ ← whnf (← checkType goSucc) | fail
+    let .forallE _ hdom _ _ := body.instantiate1 (pk m n) | fail
+    withCheckedLocalDecl `h .default hdom fun h => do
+    -- `.bvar 0` is the `¬(m = 0)` the `dite`'s else-branch binds.
+    let hpos := mkApp2 q(@Nat.pos_of_ne_zero) m (.bvar 0)
+    let prf := mkApp5 q(@Nat.lt_of_lt_of_le) (mod n m) m fuel
+      (mkApp3 q(@Nat.mod_lt) n m hpos) (mkApp3 q(@Nat.le_of_lt_succ) m fuel h)
+    unless ← checkedIsDefEq (mkApp2 goSucc (pk m n) h)
+      (c.dite #[m, zero] n (mkApp3 u.go fuel (pk (mod n m) m) prf)) do fail
   | ``Nat.beq =>
     unless env.contains ``Nat && env.contains ``Bool && v.levelParams.isEmpty do fail
     -- beq : Nat → Nat → Bool
@@ -532,12 +601,14 @@ def checkPrimitiveDef (v : DefinitionVal) : M Bool := do
     -- is accept-set neutral and puts the facts they establish at the base context, where
     -- `VEnv.ReflectsCondApp` wants them; leaving them inside would have needed
     -- `IsDefEqU.weakN_iff` (open) or an instantiation at closed inhabitants.
-    let c := Condition.natEq; c.check fail (iteTypes := [q(Nat), q(Bool)])
+    let c := Condition.natEq; c.check fail (iteTypes := [q(Nat), q(Bool)]) (dite := true)
     let bc := Condition.bool; bc.check fail (iteTypes := [q(Nat)])
     withCheckedLocalDecl `f .default q(Bool → Bool → Bool) fun f => do
     withCheckedLocalDecl `n .default q(Nat) fun n => do
     withCheckedLocalDecl `m .default q(Nat) fun m => do
-    let bitwise' ← unfoldNatWellFounded v.value #[f, n, m] q(type_of% Nat.bitwise.eq_def) fail
+    let u ← unfoldNatWellFounded v.value #[f, n, m] q(type_of% Nat.bitwise.eq_def) fail
+      (measureIs := n)
+    let bitwise' := u.rhs
     let bitwise := mkApp3 v.value
     let e :=
       c.ite q(Nat) #[n, zero] (bc.ite q(Nat) #[mkApp2 f q(false) q(true)] m zero) <|
@@ -549,6 +620,32 @@ def checkPrimitiveDef (v : DefinitionVal) : M Bool := do
       let r := bitwise f n' m'
       bc.ite q(Nat) #[mkApp2 f b₁ b₂] (add (add r r) one) (add r r)
     unless ← checkedIsDefEq (mkApp3 bitwise' f n m) e do fail
+    -- **The fuel equation.**  Same reason as the `Nat.gcd` branch: the equation above is
+    -- checked at one particular `ih`, and the fuel induction the verification runs needs
+    -- `go`'s own recurrence.  See `NatWFUnfold`.  The `n = 0` test is a `dite` here (it is an
+    -- `ite` above) purely so that the recursive call's fuel bound, which needs `n ≠ 0`, has a
+    -- proof of it in scope.
+    let pk := mkApp3 u.pack
+    withCheckedLocalDecl `fuel .default q(Nat) fun fuel => do
+    let goSucc := mkApp u.go (succ fuel)
+    let .forallE _ _ body _ ← whnf (← checkType goSucc) | fail
+    let .forallE _ hdom _ _ := body.instantiate1 (pk f n m) | fail
+    withCheckedLocalDecl `h .default hdom fun h => do
+    let n' := div n two
+    let m' := div m two
+    let b₁ := c.decide #[mod n two, one]
+    let b₂ := c.decide #[mod m two, one]
+    -- `.bvar 0` is the `¬(n = 0)` the `dite`'s else-branch binds.
+    let prf := mkApp5 q(@Nat.lt_of_lt_of_le) n' n fuel
+      (mkApp4 q(@Nat.div_lt_self) n two (mkApp2 q(@Nat.pos_of_ne_zero) n (.bvar 0))
+        (mkApp q(@Nat.le.refl) two))
+      (mkApp3 q(@Nat.le_of_lt_succ) n fuel h)
+    let r := mkApp3 u.go fuel (pk f n' m') prf
+    let e := c.dite #[n, zero]
+      (bc.ite q(Nat) #[mkApp2 f q(false) q(true)] m zero) <|
+      c.ite q(Nat) #[m, zero] (bc.ite q(Nat) #[mkApp2 f q(true) q(false)] n zero) <|
+      bc.ite q(Nat) #[mkApp2 f b₁ b₂] (add (add r r) one) (add r r)
+    unless ← checkedIsDefEq (mkApp2 goSucc (pk f n m) h) e do fail
   | ``Nat.land =>
     unless env.contains ``Nat && env.contains ``Bool
       && env.contains ``Nat.bitwise && v.levelParams.isEmpty do fail

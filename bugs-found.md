@@ -257,6 +257,44 @@ and the verification was not sound.
     nested inductive handling"). This is defence in depth that lean4lean was
     missing, not a demonstrated soundness hole.
 
+16. **The `Nat.gcd` and `Nat.bitwise` branches constrained nothing about the
+    well-founded recursion's measure, so they accepted definitions that do not
+    reduce at numerals at all.** `VEnv.HasPrimitives` asks for
+    `ReflectsNatNatNat ``Nat.gcd Nat.gcd`, an `IsDefEqU` between
+    `Nat.gcd (natLit a) (natLit b)` and `natLit (Nat.gcd a b)` — *definitional*
+    equality at numerals. Both branches went through `unfoldNatWellFounded`,
+    which recovers `WellFounded.Nat.fix α motive h F a₀` from the value and then
+    checks the fixpoint equation's right-hand side. It never checked anything
+    about `h`. But `WellFounded.Nat.fix h F x` unfolds to
+    `fix.go h F (Nat.eager (h x + 1)) x _`, and `Nat.eager` is documented in Lean
+    core as a gadget that *prevents* reduction until its argument is ground — so
+    unless `h x` is known to evaluate, the fuel `Nat.rec` never fires and the
+    definition is stuck.
+
+    **Witness** (`scripts/primitive-wf-refutation.lean`, machine-checked):
+    `badGcd` is the real `Nat.gcd` body with `termination_by m + 0 * Stuck`,
+    where `Stuck := Classical.choice ⟨0⟩`. It is well-typed and terminating (the
+    measure is propositionally `m`, by `Nat.zero_mul`), its fixpoint equation is
+    the real one, and every check the recognizer made passed — while the Lean
+    kernel *refutes* `badGcd 4 6 = 2` by `rfl`. `badBitwise` is the same trick on
+    `Nat.bitwise`. So `checkPrimitiveDef.WF.rest` was **false**, not merely
+    unproved, at both branches; six rounds of proof attempts on it could not have
+    succeeded.
+
+    **Fixed**: `unfoldNatWellFounded` takes a `measureIs` and checks
+    `h (pack fvs) ≡ μ` (`m` for `gcd`, `n` for `bitwise`). Both witnesses are now
+    rejected and both real primitives still accepted, measured before and after.
+
+    A second, independent gap in the same two branches was closed at the same
+    time. It is not a soundness bug — no witness exists for it, and that is
+    argued rather than demonstrated — but it left the obligation underivable:
+    the fixpoint equation was pinned at exactly one `ih`, namely
+    `fun y _ => fix h F y`, while the fuel induction the verification runs needs
+    `F a₀` at `fun y _ => fix.go h F fuel y _`, and an `IsDefEqU` at one argument
+    implies nothing at another. Both branches now additionally check `fix.go`'s
+    own fuel recurrence, in the shape the *proved* `Nat.mod` / `Nat.div` branches
+    use. See `docs/handoff-primitive.md`.
+
 ## In the lean4lean proof infrastructure
 
 Not kernel bugs — defects in the specification and its metatheory, which matter

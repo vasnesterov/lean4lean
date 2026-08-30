@@ -100,11 +100,20 @@ branches all check a *structural* recursion, for which `VEnv.reflects_rec2`,
   to be turned into "`Condition.natLE.ite α #[a, b] t e` is `t` when `a ≤ b` and `e`
   otherwise", via `VEnv.HasPrimitives.natBLE`. That is `TypeChecker.Condition.check.WF` and its
   pinned instance `Condition.check.WF_natLE_pinned`.
-* `Nat.gcd` and `Nat.bitwise` need, on top of that, a spec for `unfoldNatWellFounded`: the
-  fixpoint equation it establishes is *not* assembled from `isDefEq` calls but from structural
-  checks on the result of `whnfCore`/`unfoldDefinition` against `WellFounded.Nat.fix`'s
-  `Nat.rec` skeleton, so the proof has to reconstruct that equation from those checks. This is
-  the deepest of the four and should be attacked last.
+* `Nat.gcd` and `Nat.bitwise` go through `unfoldNatWellFounded`. Two of its gaps were closed
+  on the implementation side on 2026-08-30, and the first of the two made this theorem **false**
+  rather than open. (i) Nothing constrained the *measure* `h` of `WellFounded.Nat.fix h F`, and
+  that fixpoint reduces only once `h x` evaluates to a ground value -- the `Nat.eager` gadget in
+  its definition exists to enforce exactly that -- so a `Nat.gcd` whose measure the kernel
+  cannot evaluate was accepted while not reducing at numerals at all;
+  `scripts/primitive-wf-refutation.lean` is the witness and `NatWFUnfold`'s `measureIs` the
+  repair. (ii) The fixpoint equation was pinned at one particular `ih` (`fun y _ => fix h F y`),
+  and an `IsDefEqU` at one argument implies nothing at another, so the fuel induction could not
+  evaluate `F` at `fun y _ => go h F fuel y _`; both branches now check `go`'s own fuel
+  recurrence, in the shape the proved `Nat.mod` / `Nat.div` branches use. The remaining work is
+  the fuel induction, which no longer needs any specification of `whnfCore` or
+  `unfoldDefinition`: every conversion those two *find* is now re-established by a
+  `checkedIsDefEq`.
 * `Nat.bitwise`'s field, `VEnv.ReflectsNatBitwise`, is second order and relativized to every
   extension `env'` of the environment; the reflections it consumes (`Nat.add`, `Nat.div`,
   `Nat.mod`, `Nat.beq`) transfer there by `VEnv.ReflectsNatNatNat.mono`, but the induction is
@@ -482,10 +491,17 @@ theorem checkPrimitiveDef.WF.rest {env : Environment} {ves : VEnvs} (wf : ves.WF
     have hnat := hnf.contains
     have hprim := (VContext.mk' wf .safe ([] : List Name) fuel).hasPrimitives
     obtain ⟨hFc, -⟩ := closedN_of_nil rfl hFty
-    -- Blocked at `unfoldNatWellFounded`, which has no spec: the fixpoint equation it recovers
-    -- is assembled from structural checks against `WellFounded.Nat.fix`'s `Nat.rec` skeleton,
-    -- not from `isDefEq` calls.  `docs/handoff-primitive.md` §5.1: the fixpoint equation is
-    -- *propositional, not definitional*, so a checked conversion cannot produce it.
+    -- Open, but no longer *false*.  Until 2026-08-30 this branch's `preserves` obligation was
+    -- unsatisfiable: nothing the recognizer checked constrained the measure `h` that
+    -- `WellFounded.Nat.fix h F` recurses on, and `WellFounded.Nat.fix` reduces only once `h x`
+    -- evaluates to a ground value (that is what the `Nat.eager` gadget in its definition
+    -- enforces).  A `Nat.gcd` with measure `fun x => x.1 + 0 * Classical.choice ⟨0⟩` passed
+    -- every check while the Lean kernel refutes `gcd 4 6 = 2` by `rfl` on it, so
+    -- `VEnv.ReflectsNatNatNat ``Nat.gcd Nat.gcd` failed at an accepted declaration.
+    -- `scripts/primitive-wf-refutation.lean` is that witness; `Lean4Lean.Environment`'s
+    -- `NatWFUnfold` records the repair (`measureIs`, plus the fuel equation `go` now supports).
+    -- What is left is the fuel induction itself, in the same shape as `Nat.mod` / `Nat.div`.
+    -- See `docs/handoff-primitive.md`.
     sorry
   · rename_i hname; subst hname; simp at hrest -- ``Nat.beq
   · rename_i hname; subst hname; simp at hrest -- ``Nat.ble
@@ -500,8 +516,10 @@ theorem checkPrimitiveDef.WF.rest {env : Environment} {ves : VEnvs} (wf : ves.WF
       fun _ _ _ h => ?_
     obtain ⟨ty', F, hty', hF, hFty⟩ := h
     have hprim := (VContext.mk' wf .safe ([] : List Name) fuel).hasPrimitives
-    -- Blocked at `unfoldNatWellFounded`, as `Nat.gcd` is, and additionally needs
-    -- `Condition.check.WF` for `Condition.natEq` and `Condition.bool`.
+    -- Open, and was false for exactly the same reason as `Nat.gcd` above, with the same
+    -- repair (`scripts/primitive-wf-refutation.lean` carries the `badBitwise` witness too).
+    -- On top of the fuel induction this one needs `Condition.check.WF` for `Condition.natEq`
+    -- and `Condition.bool`, both of which are proved.
     sorry
   · rename_i hname; subst hname; simp at hrest -- ``Nat.land
   · rename_i hname; subst hname; simp at hrest -- ``Nat.lor
