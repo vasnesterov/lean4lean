@@ -3,6 +3,41 @@ import Lean4Lean.Theory.Typing.ParamsBuild
 import Lean4Lean.Verify.TypeChecker
 import Lean4Lean.Verify.Environment
 import Lean4Lean.Verify.Soundness
+-- Leaf modules that nothing else imports. They are here so that
+-- `scripts/dup-names.lean` and `scripts/sorry-census.lean`, which measure this
+-- file's closure, actually see them: a leaf outside the closure is invisible to
+-- both, so a duplicate name in one would be reported as "no duplicates" and a
+-- hole in one would be missing from the census. A stream caught exactly that on
+-- 2026-08-30 -- the dup-names clean line was not evidence about its own new
+-- files. Add every new leaf here.
+import Lean4Lean.Verify.Typing.ProjClosedGWitness
+import Lean4Lean.Verify.Typing.ProjGenLiftWitness
+import Lean4Lean.Verify.Typing.ProjGenWitness
+import Lean4Lean.Verify.Typing.ProjWfWitness
+import Lean4Lean.Verify.Typing.ProjLevelWitness
+import Lean4Lean.Verify.Typing.ConstSpineWF
+import Lean4Lean.Verify.StructureBridge
+import Lean4Lean.Verify.InductFlip
+import Lean4Lean.Verify.QuotConsts
+import Lean4Lean.Verify.EqSafety
+import Lean4Lean.Verify.SafeFragment
+import Lean4Lean.Verify.Inductive.AddDeclWF
+import Lean4Lean.Theory.Typing.KMeasure
+import Lean4Lean.Theory.Typing.KDescend
+import Lean4Lean.Theory.Typing.KCanonical
+import Lean4Lean.Theory.Typing.RetypeCase
+import Lean4Lean.Theory.Typing.StrengthenAxiom
+import Lean4Lean.Theory.Typing.StrengthenWitness
+import Lean4Lean.Theory.Typing.SortClauses
+import Lean4Lean.Theory.Typing.AppCase
+import Lean4Lean.Theory.Typing.SortRedApp
+import Lean4Lean.Theory.Typing.DefInvRefute
+import Lean4Lean.Theory.Typing.RegPiSat
+import Lean4Lean.Theory.Typing.PatWFIota
+import Lean4Lean.Theory.Typing.ConstSubstNested
+import Lean4Lean.Theory.Inductive.NestedKeys
+import Lean4Lean.Theory.Inductive.NestedPositivity
+import Lean4Lean.Theory.Inductive.StructureExamples
 
 /-!
 # Acceptance test: the `PatternRules` cone and the `Verify/` cone join
