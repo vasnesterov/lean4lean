@@ -690,3 +690,356 @@ ever be quoted. This session added no `sorry` and removed none. (It was briefly 
 mid-session -- `Lean4Lean/Verify/Primitive.lean` was red from another stream's in-flight edits
 at `:1158`, `:1201`, `:1202`, and the census imports the whole tree. It went green on its own
 and the number above is from after that.)
+
+
+---
+
+# Round 3 (this session): `hK` is not merely expensive — the target statement is false
+
+**Task.** Build M3 (`pat_major_canonical`) and repair `ParRed.weakN_inv` with it; settle
+`KDiamond`; then wire `KStep` into `ParRed`/`CParRed` and discharge `hK`.
+
+Same marks: **[machine-checked]** = a named `sorry`-free Lean declaration in this tree;
+**[measured]** = a machine run whose output is reproduced; **[read]**; **[analysis]**.
+
+## S0. Verdict
+
+1. **`IsDefEq.church_rosser`'s statement is FALSE at any `Params` instance that registers the
+   ι-rule of a large-eliminating subsingleton — `Eq` — and the K-rule has nothing to do with
+   it.**  `VEnv.not_crStatement_of_kstep` **[machine-checked]**: from a registered K-redex
+   under an `eta`, `CRStatement` is refuted.  It uses only `KStep.defeq`, i.e. that the rule
+   is *admissible*; `ParRed` never gets a K constructor in that proof.  §S4.
+
+   This subsumes the round's brief.  No `Params` field, no repair of `NormalEq.descend`, and
+   no K constructor can make the current `CRDefEq` conclusion true: `NormalEq` itself (or
+   `ParRedS`, by an eta-expansion) has to grow.
+
+2. **`hK` is not landable as posed, and the blocking site is not the one §R3 identified.**
+   `VEnv.not_parRedStatement_of_hK` **[machine-checked, and axiom-clean — no `sorryAx` at
+   all]**: `hK` refutes `NormalEq.parRed`.  The break is `NormalEq.parRed`'s `etaR` case,
+   which §R3's table listed as "downstream of `ParRed.weakN_inv`".  It is downstream of
+   nothing: with K in `ParRed`, `.lam A (.app e.lift (.bvar 0))` reduces to `.lam A t` while
+   `e` does not reduce at all, and `NormalEq`'s only route to `.lam A t` is `etaR`, which asks
+   for the K-redex to be `NormalEq` to its own contractum.  §S3.
+
+3. **`KDiamond` is neither proved nor refuted; it is *priced*, machine-checked, at exactly two
+   rule-table facts** — `KTable` (M3 / `pat_major_canonical`) and `KSmall` (`pat_small`).
+   `VEnv.kDiamond_of : KTable → KSmall → KDiamond` **[machine-checked]**, each hypothesis used
+   once, in disjoint branches of a dichotomy `KSmall` supplies.  §S2.  Given (1) and (2) this
+   is now a *conditional* result: it says what the diamond would cost if the interface were
+   repaired first.
+
+4. **The brief's nominated refutation does not refute anything.**  At `Or.rec C ml mr h` the
+   two K-steps give `ml x` and `mr y`, which *are* `NormalEq` — by `proofIrrel`, because `Or`
+   is small-eliminating so the redex is a proof.  That is the *cheap* branch, and `KSmall` is
+   its name.  The expensive branch is the opposite one: **one** constructor, **large**
+   elimination (`Eq`, `Acc`, `Quot` over a `Prop` carrier).  §S2.
+
+5. **M3 repairs `ParRed.weakN_inv` only in a `≡ₚ`-weakened form; the equality form is
+   irreparable.**  `KTable.kstep_liftN_inv` **[machine-checked]**.  This corrects §R3.1,
+   which said M3 lets `weakN_inv` survive.  §S5.
+
+6. **Two of §R3's "five routine" sites are now lemmas with empty cones**
+   (`KStep.weakN`, `KStep.instN`) **[machine-checked]**, so they cost nothing.
+
+7. **The cone re-measurement confirms the brief**: `IsDefEq.church_rosser` reaches **four**
+   `sorry`-carrying declarations today and **three** by the new route, the dropped one being
+   `NormalEq.descend`; and the new file adds no hole to the cone.  §S6.  Given (1), that
+   measurement should now be read as a statement about a route that does not terminate in a
+   true theorem.
+
+## S1. What landed: `Lean4Lean/Theory/Typing/KCanonical.lean` (new, `sorry`-free)
+
+| declaration | says | cone |
+|---|---|---|
+| `Pattern.NoApp.matches_det` | two `.app`-free patterns matching one term are equal | empty, **axiom-free** |
+| `VEnv.KTable` | **M3**: the canonical major premise, as a *function* of the redex | def |
+| `VEnv.KSmall` | **`pat_small`**: distinct rules at one spine ⇒ the redex is a proof | def |
+| `VEnv.kDiamond_of` | `KTable → KSmall → KDiamond` | `{fE_inv_strat, fE_inv, weakN_iff}` |
+| `VEnv.KStep.weakN` | `ParRed.weakN`'s new case | **empty** |
+| `VEnv.KStep.instN` | `ParRed.instN`'s new case | **empty** |
+| `VEnv.KTable.kstep_liftN_inv` | `ParRed.weakN_inv`'s new case, in `≡ₚ` form | `{fE_inv_strat, fE_inv, weakN_iff}` |
+| `VEnv.ParRedStatement`, `not_parRedStatement_of_hK` | **`hK` refutes `NormalEq.parRed`** | **empty**, no `sorryAx` |
+| `VEnv.CRStatement`, `not_crStatement_of_kstep` | **a registered K-redex refutes Church–Rosser** | `{fE_inv_strat}` |
+| `VEnv.parRedS_rigid`, `parRedS_lam_inv` | reduct-shape lemmas the two refutations need | empty |
+| `VEnv.parRedStatement_holds`, `crStatement_holds` | the two `Prop`s are the tree's statements **verbatim** (`:= NormalEq.parRed`, `:= IsDefEq.church_rosser`) | inherited |
+| `VEnv.refParams_kSmall`, `refParams_kTable` | both hypotheses are consistent (vacuously) | empty |
+
+## S2. `KDiamond`, priced
+
+### The two facts
+
+```lean
+structure KTable where
+  kmajor : Pattern → VExpr → VExpr → VExpr
+  kmajor_liftN : ∀ p f h n k,
+    kmajor p (f.liftN n k) (h.liftN n k) = (kmajor p f h).liftN n k
+  canon : … OnCtx Γ … → Pat (.app p₁ p₂) r →
+    (.app p₁ p₂).Matches (.app f c) m1 m2 → Check.OK … m1 m2 r.2 →
+    Γ ⊢ h ≡ c : A₀ → Γ ⊢ .app f c : A →
+    (Γ ⊢ A : .sort .zero) ∨
+    ∃ m1' m2', (.app p₁ p₂).Matches (.app f (kmajor p₂ f h)) m1' m2' ∧
+      Γ ⊢ h ≡ kmajor p₂ f h : A₀ ∧
+      (∀ lp, List.Forall₂ (· ≈ ·) (m1 lp) (m1' lp)) ∧ (∀ x, Γ ⊢ m2 x ≡ₚ m2' x)
+
+def KSmall : Prop := ∀ …,
+  Pat (.app p₁ p₂) r → Pat (.app p₁ p₂') r' →
+  (.app p₁ p₂).Matches (.app f c) m1 m2 → (.app p₁ p₂').Matches (.app f c') m1' m2' →
+  Γ ⊢ c ≡ c' : A₀ → Γ ⊢ .app f c : A →
+  p₂ = p₂' ∨ Γ ⊢ A : .sort .zero
+```
+
+### Four drafts, three of them false or unsatisfiable — the audit is the deliverable
+
+Each is one of `ORCHESTRATOR.md`'s listed shapes, and none was caught by reading the
+statement; all four were caught by asking *what must satisfy this* and *what must consume it*.
+
+* `kmajor : VExpr → VExpr → VExpr`, **unindexed by the pattern** — *unsatisfiable* at a
+  multi-constructor `Prop`.  At `Or.rec C ml mr h` both ι-rules fire, and one canonical
+  premise cannot match `(.const Or.inl).varN n` and `(.const Or.inr).varN n` at once.  This
+  version also *appeared to make `KSmall` unnecessary* (`matches_det` derives `p₂ = p₂'` from
+  the two canonical matches) — the "conclusion follows because the premise is unsatisfiable"
+  trap, arrived at from the producer side.  `unique.tex:107`'s own notation is `inv[p,h]`,
+  indexed by the pattern; copying it would have avoided this.
+* `canon` **without the `Γ ⊢ A : .sort .zero` escape** — still unsatisfiable, even per pattern.
+  A canonical `Or.inl x₀` definable from `(f, h)` need not exist: `x₀ : A` cannot be built when
+  only `B` holds.  In exactly that situation the redex is a proof and the rule is not needed,
+  so the field concludes a disjunction.
+* `canon` **at `=` rather than `≡ₚ`** — *false*.  Two canonical forms of one proof may differ
+  syntactically: `Eq.refl α a` and `Eq.refl α' a'` with `α`, `α'` δ-equal are both valid.
+  This is the draft that decides §S5.
+* `KSmall` **without the `Γ ⊢ c ≡ c' : A₀` premise** — *false*.  `Nat.rec`'s two ι-rules share
+  a function side and `Nat.rec C z s Nat.zero` is not a proof.  What makes the field true is
+  that two *definitionally equal* major premises cannot match different constructor patterns
+  unless the type is a subsingleton.  The "quantifier ranging wider than intended" shape,
+  caught by auditing against the consumer (the diamond always has `c ≡ c'` in hand).
+
+In the cases where the rule *is* needed, `kmajor` is definable, which is §7.6's lemma M3:
+`Eq.refl α a` reads `α`, `a` off the recursor's own spine `f`; `Acc.intro x (fun y hy =>
+Acc.inv h hy)` likewise, using `h`; `Quot.mk r (invQ q)` likewise (§4 above). **[analysis]**
+
+### Why `Params` supplies neither
+
+`pat_uniq` fires only when `p₂.inter p₃ = some p₄`.  At two rules of one recursor the argument
+sides are `(.const ctor).varN n` chains over *different* constants, so the intersection is
+`none` and the field never applies.  `KRule.lean`'s `Params.no_kpattern` is the same
+observation from the other side.  The one instantiation at which `pat_uniq` *does* fire is
+`p₃ := p₁` with `inter_self`, and `kDiamond_of` uses exactly that to get `r ≍ r'`.
+**[machine-checked]**
+
+### Why there is no refutation of `KDiamond`, and why that is not evidence of truth
+
+A counterexample would be a `Params` instance with two registered `.app` rules sharing a
+function side whose contracta are not `NormalEq`.  Both contracta are definitionally equal
+(`KStep.uniq_defeq`) and both are `ParRed`-normal, so such an instance is a counterexample to
+Church–Rosser, not merely to `KDiamond` — which §S4 then obtains by a shorter route that needs
+only *one* rule.  Building one needs a `VEnv.WF` environment with an `.app`-headed defeq rule,
+and `VEnv.WF` admits those only through `VDecl.induct` and `VDecl.quot`; the tree's two
+instances (`refParams`, `propLoopParams`) register `.const` patterns only, at which `KStep` is
+empty and everything in the file holds vacuously (`refParams_kSmall`, `refParams_kTable`).
+**That is a fact about the tree's witnesses, not evidence of truth.**
+
+## S3. `hK` refutes `NormalEq.parRed` **[machine-checked]**
+
+```lean
+def ParRedStatement : Prop :=          -- NormalEq.parRed's statement, verbatim
+  ∀ {Γ e₁ e₂ e₂'}, OnCtx Γ (IsType env univs) →
+    NormalEq Γ e₁ e₂ → ParRed Γ e₂ e₂' → ∃ e₁', ParRedS Γ e₁ e₁' ∧ NormalEq Γ e₁' e₂'
+
+theorem not_parRedStatement_of_hK
+    (hK : ∀ {Δ a b}, KStep Δ a b → ParRed Δ a b)
+    (hΓ) (hΓA) (he : Γ ⊢ e : .forallE A B)
+    (hstep : KStep (A::Γ) (.app e.lift (.bvar 0)) t)
+    (hlam : ∀ A' e', e ≠ .lam A' e')
+    (hnp  : ∀ P, Γ ⊢ P : .sort .zero → ¬ (Γ ⊢ e : P))
+    (hrig : ∀ o, ParRedS Γ e o → o = e)
+    (hne  : ¬ NormalEq (A::Γ) (.app e.lift (.bvar 0)) t) :
+    ¬ ParRedStatement
+```
+
+The witness is `KStep.stuck_fires` meeting `NormalEq.etaR`.  `.app e.lift (.bvar 0)` is
+*exactly* the term `whnf_app_bvar` proves weak-head normal and `KStep` reduces.  Take
+`e := Eq.rec α a C m a` — five arguments, one short of the ι-pattern, so `e` is
+`ParRed`-normal — with `C` landing in `Type` and `m` a variable, and `A := Eq α a a`.  Then
+
+* `Γ ⊢ e ≡ₚ .lam A (.app e.lift (.bvar 0))` by `etaR` + `refl`;
+* `Γ ⊢ .lam A (.app e.lift (.bvar 0)) ≫ .lam A m.lift` by `ParRed.lam` and the K-step;
+* so the conclusion demands `o` with `Γ ⊢ e ≫* o` and `Γ ⊢ o ≡ₚ .lam A m.lift`.
+
+`e` is normal, so `o = e`, and `Γ ⊢ e ≡ₚ .lam A m.lift` can only be `etaR`, which asks for
+`A::Γ ⊢ .app e.lift (.bvar 0) ≡ₚ m.lift` — a K-redex `NormalEq` to its own contractum.
+`NormalEq` has no reduction rule, and `C` lands in `Type`, so `proofIrrel` is unavailable.
+There is no such `o`.  **[machine-checked for the six hypotheses; the `Eq.rec` reading of them
+is [analysis], and §2.2's first probe is the [measured] evidence that Lean itself reduces this
+term.]**
+
+## S4. The same obstruction without `hK`: Church–Rosser itself **[machine-checked]**
+
+A K-step is *admissible* (`KStep.defeq`), so wherever one fires, `IsDefEq` already relates the
+redex to the contractum — and under an `eta`, `IsDefEq` relates the *function* to a λ whose
+body is the contractum.  `ParRed` cannot follow, K-rule or no K-rule, because `e` itself is not
+a redex; and `NormalEq` cannot bridge, for the reason in §S3.
+
+```lean
+def CRStatement : Prop :=              -- IsDefEq.church_rosser's statement, verbatim
+  ∀ {Γ e₁ e₂ A}, OnCtx Γ (IsType env univs) → IsDefEq env univs Γ e₁ e₂ A → CRDefEq Γ e₁ e₂
+
+theorem not_crStatement_of_kstep
+    (hΓ) (hΓA) (hA : Γ ⊢ A : .sort u) (he : Γ ⊢ e : .forallE A B)
+    (hstep : KStep (A::Γ) (.app e.lift (.bvar 0)) t)
+    (hlam) (hnp) (hrig : ∀ o, ParRed Γ e o → o = e)
+    (hrigA : ∀ A', ParRed Γ A A' → A' = A) (hrigT : ∀ t', ParRed (A::Γ) t t' → t' = t)
+    (hne : ¬ NormalEq (A::Γ) (.app e.lift (.bvar 0)) t) :
+    ¬ CRStatement
+```
+
+`Γ ⊢ e ≡ .lam A t : .forallE A B` is built as `(IsDefEq.eta he).symm.trans (.lamDF hA hbody)`,
+where `hbody` is `KStep.defeq`.  The `Eq.rec` witness discharges all nine hypotheses:
+`A = Eq α a a` is a `Prop` and rule-free, hence `ParRed`-normal; `t = m.lift` is normal for a
+variable `m`; `e` is normal, is not a λ, and is not a proof when `C` lands in `Type`.
+
+**Consequence.**  `descend` being false is no longer the whole story.  Replacing it by
+`descendV` + `hK` was supposed to leave `church_rosser` resting on the three injectivity holes
+alone; but `CRStatement` is false at an `Eq`-registering instance, so if those three are true
+— and they are theorems of Lean's type theory (`unique.tex`) — then the falsity has to live in
+`NormalEq.parRed`, with or without K.  §S3 shows *where* it lives once K is added; §S4 shows
+the statement was already unreachable.
+
+**The two repair directions**, neither of which is a `Params` field:
+
+* give `NormalEq` a closure at the K-redex position (`design-inductive.md` §7.6's second
+  warning proposed exactly this: "allowing `NormalEq` a proof-irrelevance closure at the
+  major-premise position"), or
+* give `ParRedS` an eta-expansion step, so that `e ≫* .lam A (.app e.lift (.bvar 0))` and the
+  K-step can then fire under the binder.
+
+Both change `IsDefEq.church_rosser`'s conclusion, i.e. the confluence *interface*, and both
+have to be checked against every consumer that **cases** on `NormalEq` — `Injectivity.lean`,
+`NotProof.lean`, `HeadReduction.lean`.  That audit is the next round's job and it was not done
+here.
+
+## S5. `ParRed.weakN_inv`: what M3 buys, and what it does not
+
+`KTable.kstep_liftN_inv` **[machine-checked]** gives
+`KStep Γ' (.app (f.liftN n k) (h.liftN n k)) e' → ∃ e₀, Γ' ⊢ e' ≡ₚ e₀.liftN n k`.
+
+The **equality** form is false once a liberal `kstep` is in `ParRed`, and that is not a
+limitation of the proof:
+
+> In `Acc r x :: Γ` the redex may fire with
+> `c := Acc.intro x (fun y hy => Acc.inv (.bvar 0) hy)`, definitionally equal to the major
+> premise by proof irrelevance and **mentioning `.bvar 0`**.  The ι-rule's right-hand side
+> reads `g` off `c`, so the contractum mentions `.bvar 0` and is the lift of nothing.
+> **[analysis]**
+
+**The alternative was considered and rejected, and the reason is worth keeping.**  Restricting
+`ParRed`'s K constructor to the canonical premise keeps `weakN_inv` at `=` and makes
+`KDiamond` trivial — but it breaks `NormalEq.appDF_extra_of_descendV`, which fires the rule at
+the premise its `NormalEq` hypothesis hands it (`c := b'`) and cannot show that one is
+`kmajor` **on the nose**; showing it up to `≡ₚ` is what `canon` gives, and `≡ₚ` cannot satisfy
+a syntactic side condition.  **The two obstructions pull in opposite directions: the descent
+needs a liberal K-step, the lifting inversion wants a canonical one.**
+
+## S6. Measurements **[measured]**
+
+```
+lake build Lean4Lean.Theory.Typing.KCanonical  -> Build completed successfully (71 jobs)
+
+#print axioms Pattern.NoApp.matches_det     -> does not depend on any axioms
+#print axioms VEnv.not_parRedStatement_of_hK-> [propext, Classical.choice, Quot.sound]
+#print axioms VEnv.KStep.weakN              -> [propext, Classical.choice, Quot.sound]
+#print axioms VEnv.KStep.instN              -> [propext, Classical.choice, Quot.sound]
+#print axioms VEnv.parRedS_rigid            -> [propext, Quot.sound]
+#print axioms VEnv.parRedS_lam_inv          -> [propext, Quot.sound]
+#print axioms VEnv.kDiamond_of              -> [propext, sorryAx, Classical.choice, Quot.sound]
+#print axioms VEnv.KTable.kstep_liftN_inv   -> [propext, sorryAx, Classical.choice, Quot.sound]
+#print axioms VEnv.not_crStatement_of_kstep -> [propext, sorryAx, Classical.choice, Quot.sound]
+#print axioms VEnv.parRedStatement_holds    -> [propext, sorryAx, Classical.choice, Quot.sound]
+#print axioms VEnv.crStatement_holds        -> [propext, sorryAx, Classical.choice, Quot.sound]
+
+forward cone scan (declaration values, `.thmInfo` via `value? (allowOpaque := true)`),
+sorry-carrying declarations reached:
+  Pattern.NoApp.matches_det        -> []
+  not_parRedStatement_of_hK        -> []
+  KStep.weakN                      -> []
+  KStep.instN                      -> []
+  not_crStatement_of_kstep         -> [forallE_inv_stratified]
+  kDiamond_of                      -> [weakN_iff, forallE_inv_stratified, forallE_inv]
+  KTable.kstep_liftN_inv           -> [weakN_iff, forallE_inv_stratified, forallE_inv]
+  NormalEq.appDF_extra_of_descendV -> [weakN_iff, forallE_inv_stratified, forallE_inv]
+  NormalEq.descendV                -> [weakN_iff, forallE_inv_stratified, forallE_inv]
+  NormalEq.descend                 -> [weakN_iff, forallE_inv_stratified, forallE_inv]
+  IsDefEq.church_rosser            -> [weakN_iff, forallE_inv_stratified,
+                                       NormalEq.descend, forallE_inv]     (four)
+
+lake env lean scripts/sorry-census.lean -> TOTAL declarations directly containing
+                                           sorryAx: 19        (unchanged)
+```
+
+So the brief's "four today, three by the new route" is confirmed, and the new route's three are
+the same three the old route already had — the new file adds nothing to the cone.
+`not_parRedStatement_of_hK` reaches **no** hole at all: the refutation is unconditional on the
+injectivity corner.
+
+## S7. If the interface is repaired, `hK`'s remaining price
+
+| §R3 site | verdict now |
+|---|---|
+| `ParRed.weakN` | **`KStep.weakN`** [machine-checked], empty cone |
+| `ParRed.instN` | **`KStep.instN`** [machine-checked], empty cone |
+| `ParRed.defeq` | `KStep.defeq` + `apply_pat` (unchanged) |
+| `ParRed.defeqDFC` | routine (unchanged) |
+| `ParRed.weakN_inv` | statement weakens to `≡ₚ`; content is **`KTable.kstep_liftN_inv`** [machine-checked] |
+| `ParRed.triangle` ×3 | needs `CParRed.kstep`, then **`kDiamond_of`** [machine-checked], i.e. `KTable` + `KSmall` as `Params` fields |
+| `NormalEq.parRed` `appDF` | routine (unchanged) |
+| `NormalEq.parRed` `etaR` (`:2096`) | **FALSE**, §S3 — not "downstream of `weakN_inv`" |
+
+`KTable` and `KSmall` have to become fields of `Params`; they cannot be hypotheses of
+`ParRed.triangle`, because that propagates to `IsDefEq.church_rosser` and out into
+`Injectivity.lean`, `NotProof.lean` and `Verify/`.  Adding two fields breaks every
+construction site **[measured]**:
+
+```
+Lean4Lean/Theory/Typing/ParamsBuild.lean:52     paramsOfWF        (`where`)
+Lean4Lean/Theory/Typing/ParamsBuild.lean:105    paramsOfDelta     (derived)
+Lean4Lean/Theory/Typing/ParamsWitness.lean:132  propLoopParams    (`where`)
+Lean4Lean/Theory/Typing/ParamsWitness.lean:217  propLoopParamsOfWF(derived)
+Lean4Lean/Theory/Typing/PatternRules.lean:1784  paramsOfWF        (derived)
+Lean4Lean/Theory/Typing/PatWF.lean:401          paramsOfIotaFree  (derived)
+Lean4Lean/Theory/Typing/PatWFIota.lean:637      paramsOfPiInv     (derived)
+Lean4Lean/Experimental/ParamsInstance.lean:164  paramsOfWF        (derived)
+```
+
+None of these is this stream's file.  At a δ-fragment instance both fields are one-line vacuous
+(`refParams_kSmall`/`refParams_kTable` are the pattern); the generic `paramsOfWF` needs two new
+arguments in the same shape as its existing `PatWF` residual.  **Do not spend this until §S4 is
+resolved** — the fields buy a diamond for a statement that is false.
+
+## S8. Corrections this round makes
+
+| document | claim | correction |
+|---|---|---|
+| `docs/handoff-krule.md` §R3 table | `:2096` is "downstream of `ParRed.weakN_inv`" | It is independent, and it is **false**, not merely broken. §S3. |
+| `docs/handoff-krule.md` §R3.1 | "Under `pat_major_canonical` … `weakN_inv` survives" | Only in `≡ₚ` form; the equality form is false for a liberal K-step regardless of M3. §S5. |
+| `docs/handoff-krule.md` §R3.2 / the brief | the two-constructor `Prop` shape is the candidate refutation of `KDiamond` | Not a refutation: those contracta *are* `NormalEq`, by `proofIrrel`.  It is the cheap branch, and `KSmall` names it. §S2. |
+| the brief | "if it refutes … our `Pat`-indexed generalisation cannot stand" | The premise does not arise.  What refutes is one level up and needs only *one* registered rule: `CRStatement`. §S4. |
+| `docs/handoff-krule.md` §0.2, §R0.4 | adding `KStep` to `ParRed` "does not enlarge `IsDefEq`, so `kernel_sound`'s statement is untouched" | Still true of `IsDefEq`.  But it *does* break `NormalEq.parRed`, which the earlier rounds treated as a matter of proof effort. §S3. |
+| `docs/design-inductive.md` §7.6 row I16 | M3 alone, "hard, ~400 lines" | Both `pat_small` and `pat_major_canonical` are needed; their consumers are `ParRed.triangle` (via `KDiamond`) and `ParRed.weakN_inv` — **not** the descent, which `KDescend.lean` closed without either.  Reinstate with `KCanonical.lean`'s `KSmall` and `KTable`, the versions that survived a satisfiability audit. |
+| `docs/design-inductive.md` §7.6 warning 2 | "it *may* be the statement rather than the axiom that needs adjusting" | Confirmed, and no longer a conjecture. §S3, §S4. |
+| `divergences.md:31` | `Params` has neither field | Still true of `Params`; both now exist as named statements in `KCanonical.lean`. |
+
+Nothing in §§1–2, §4, `KRule.lean`, `KDescend.lean` or `DescendRefute.lean`'s three
+refutations is contradicted, and none of those files was edited.
+
+## S9. What to pick up first
+
+1. **Decide how `NormalEq` (or `ParRedS`) grows**, §S4's two directions.  Everything else in
+   this corner is downstream of that decision, including whether `KTable`/`KSmall` are worth
+   adding to `Params` at all.  The audit that has to accompany it: every consumer that *cases*
+   on `NormalEq` — `Injectivity.lean`, `NotProof.lean`, `HeadReduction.lean`,
+   `ChurchRosser.lean` itself.
+2. **Do not weaken `ParRed.weakN_inv` yet.**  It is only worth doing after (1), and the
+   consumer at `:2096` is the case §S3 refutes.
+3. **`NormalEq.descend` is still refuted and still in `church_rosser`'s cone**, and by §S4 it
+   is no longer the only false thing there.  Deleting it is still right, but it no longer
+   makes the route sound.
