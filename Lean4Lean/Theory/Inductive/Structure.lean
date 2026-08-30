@@ -488,6 +488,14 @@ structure VEnv.IsStructure (env : VEnv) (S : Lean.Name)
   Machine-checked at a two-type block: `MutNonRec.projCore_arity_wrong`
   (`Verify/StructureBridge.lean`).
 
+  **The generalisation this field is waiting on is built**, additively, in
+  `Verify/Typing/ProjGen.lean`: `VInductDecl'.projCoreG` pads both blocks to full length
+  (`recArity_eq_projCoreG`, unconditional — so `projCore_arity_wrong` is inert against it,
+  `MutNonRec.projCoreG_arity_right'`), agrees with `projCore` at every block this field
+  admits (`projCoreG_eq_projCore`, `projTermG_eq_projTerm`), and `VEnv.IsStructureG` is the
+  correspondingly widened predicate.  What is not yet done is the swap; `docs/handoff-
+  projections.md` §0.5 lists the exact remainder.
+
   **It is nevertheless narrower than what the kernel accepts**, and that is a recorded gap,
   not an oversight: `infer_proj` (`~/lean4/src/kernel/type_checker.cpp:247`) checks only
   that the type has *one constructor*, never that its block is a singleton.  See
@@ -512,7 +520,14 @@ structure VEnv.IsStructure (env : VEnv) (S : Lean.Name)
   (`Verify/StructureBridge.lean`).  `projCore`'s minor premise binds only the fields, so it
   is wrong for such a block, which is why the narrowing is here rather than absent.  The eta
   gate, unlike `inferProj`, *does* test `isRec`, so structure eta is unaffected by this
-  one. -/
+  one.
+
+  **Do not drop this field in place.**  `IsStructure` occurs in a *negative* position in
+  `VEnv.StructEta` (`Theory/Inductive/StructureEta.lean`), so weakening it there does not
+  weaken an obligation — it *strengthens the eta assumption*, to recursive one-constructor
+  inductives, which is exactly what Lean's eta gate excludes.  The widened predicate for the
+  projection path is `VEnv.IsStructureG` (`Verify/Typing/ProjGen.lean`), which is separate
+  for this reason.  `docs/handoff-projections.md` §0.3, correction 4. -/
   noRec : C.recFields = []
   /-- The block was declared, well-formedly, at some point in `env`'s past. -/
   decl : ∃ env₀ env₁, D.WF env₀ ∧ env₀.addInduct' D = some env₁ ∧ env₁ ≤ env

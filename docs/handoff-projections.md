@@ -1,19 +1,218 @@
 # Handoff: the projection cluster
 
-**Census: 19 → 19.**  No hole closed and none added.  What moved is *what the three open holes
-in this cluster are blocked on*: facts (A), (B) and (D) of `Theory/Typing/Injectivity.lean`'s
-constant-application taxonomy are now **proved** modulo one hypothesis, and (C) is **proved
-from weak-head normalisation and nothing else**.  Full `lake build` green; all three of
-`Verify/Guard.lean`'s checks pass (guard 2 still reports `proof INCOMPLETE: sorryAx present`,
-as it must while 19 holes remain).
+**Census: 19 → 19** (`lake env lean scripts/sorry-census.lean`, re-run at the end of this
+round).  No hole closed, none added.  All three `Verify/Guard.lean` checks pass (guard 2 still
+"proof INCOMPLETE: sorryAx present", as it must).  Full `lake build` is green **except**
+`Theory/Typing/PatWFIota.lean`, an *uncommitted, in-flight file belonging to another stream*
+(three errors; see §0.3) — nothing this round touches it and nothing this round depends on it.
 
-Everything below is separated into **machine-checked** (a named, `sorry`-free-or-explicitly-
-tainted declaration in the tree, with its cone measured) and **read off source** (an argument
-from reading definitions, not checked).
+Everything below is separated into **machine-checked** (a named declaration in the tree, with
+its cone measured) and **read off source** (an argument from reading definitions).
 
 ---
 
-## 0. Pick this up first
+## 0. This round: `projCore` generalised, and four corrections
+
+### 0.1 What landed — `Lean4Lean/Verify/Typing/ProjGen.lean` (new, owned)
+
+The repair `docs/handoff-eta.md` §3 specified — pad the motive and minor blocks so the
+projection's spine saturates the recursor at *every* block, not only singleton ones — is now
+**built and machine-checked at the definitional and motive-typing layers**, additively:
+`projCore`, `IsStructure`, `TrProj` and `TrProj.wf` are untouched, so nothing went red.
+
+Every declaration listed below has an **empty hole cone** (measured: transitive
+`getUsedConstantsAsSet` with the `.thmInfo`/`allowOpaque` trap handled; `sorryAx` absent from
+all twelve).  **[checked]**
+
+| name | content |
+|---|---|
+| `VInductDecl'.padMotive`, `padMotives` | the motive block: the real motive at index `j`, `fun ι_k x_k => X → X` elsewhere |
+| `VInductDecl'.minorBinders`, `minorBody`, `minorType_eq_mkPi` | `minorType` split into its binder telescope and its body, by `rfl` |
+| `VInductDecl'.padMinor`, `realMinor`, `padMinorsAux`, `padMinors` | the minor block; `realMinor` binds the **induction hypotheses** as well as the fields, which is what lifts the `noRec` narrowing |
+| `VInductDecl'.projCoreG`, `projArgsG`, `projTermG` | the generalised projection term.  `projArgsG` is still **structural in `i`** — both recursive calls at `i` — so it reduces by `rfl`, the property `projArgs`' docstring warns must be preserved |
+| `length_padMotives`, `length_padMinors`, `length_projCoreG_spine`, **`recArity_eq_projCoreG`** | the arity identity — §0.2 |
+| `minorTele_narrow`, `padMotives_narrow`, `padMinors_narrow`, **`projCoreG_eq_projCore`**, `projArgsG_eq_projArgs`, **`projTermG_eq_projTerm`** | at a block with one type, one constructor and no recursive fields — exactly `IsStructure`'s hypotheses — the generalised term **is** the old one.  So this is a generalisation, not a substitution, and every `rfl` validation of `projTerm` against Lean's own elaborator carries over |
+| `motiveType_instL_instAll_gen`, `motiveG_declType_isType`, `padMotiveCtx_wf`, **`padMotive_hasType`** | the padding motive is well-typed at the recursor's motive binder — §0.4 |
+| `padMotive_body_instAll` | the padding motive's β-normal form: applied to any spine of the right length it collapses to `X → X` |
+| **`padMinor_hasType`** | the padding minor inhabits its declared type, **modulo one named premise** — §0.5 |
+| `VEnv.IsStructureG`, `.mono`, `.lt_nm`, `VEnv.IsStructure.toG` | the widened shape predicate (`types : D.types[j]? = some T`, no `noRec`) and the narrow one embedded in it at `j = 0` |
+| `VIndCtor.fieldUsed_index_irrel` (+ `VExpr.skips'_mkApp`, `skips'_mkPi_congr`) | §0.3, correction 3 |
+
+`Lean4Lean/Verify/Typing/ProjGenWitness.lean` (new, owned) holds §0.2.
+
+### 0.2 The refutation, re-run and killed at its own witness  **[checked]**
+
+`MutNonRec.projCore_arity_wrong` (`Verify/StructureBridge.lean`) refutes weakening
+`IsStructure.types` by measuring, at `MutNonRec.decl2` (a two-type non-recursive block —
+the abstract image of a block Lean's **kernel** accepts `.proj` on and performs structure eta
+at, `MutNonRec.kernelProjChecks`):
+
+* `projCore`'s spine: **3** entries; `decl2.recArity = 5`; `¬ decl2.nm + decl2.nmin = 2`.
+
+`MutNonRec.projCoreG_arity_right` and `projCoreG_arity_right'` fire the same measurement on
+`projCoreG` **at `decl2` itself**:
+
+* motive block **2**, minor block **2**, spine **5**, `recArity` **5** — and
+  `recArity_eq_projCoreG` is *unconditional*, so the `nm + nmin = 2` side condition that
+  `recArity_eq_projCore_iff` makes everything turn on is not merely satisfied, it is gone.
+  `projCoreG_arity_right'` states the identity and `¬ decl2.nm + decl2.nmin = 2` **together**,
+  so the witness that refutes the weakening is visibly inert against the generalisation.
+
+`TrProj.wf` is untouched and still **proved** — the generalisation is additive, so nothing
+could have made it false; `projTermG_eq_projTerm` is what will let the swap be made without
+re-proving it from scratch.
+
+### 0.3 Four corrections to the brief and to `handoff-eta.md` §3
+
+1. **The prescribed `Sort ℓ` witness is not the cheapest, and the cheaper one deletes an
+   ingredient.**  §3 (and this round's brief) specify the padding motive's body as
+   `Xᵢ → Xᵢ` with `Xᵢ := instAll (A_i.instL us) (ps ++ [proj 0 e, …, proj (i-1) e])` — the
+   projected field's type at projections of the **ambient** `e`, which is a *second*
+   projection list beside the one `projArgs` builds at the motive's own binder.  Not needed:
+   **`X := mot.mkApp (ιs ++ [e])`**, the real motive applied to the index spine and the major
+   premise, is the same type up to β, is built from data `projCore` already has, and is
+   *already typed by the existing chain* — it is exactly the term `projCore_hasType`'s
+   `hconv` premise is about.  `projCoreG` uses it.  **[checked]** — and see correction 2 for
+   what that buys.
+2. **The padding motive needs no F17 clause.**  `padMotive_hasType` takes `X` at the
+   **elimination** level (`D.elimLvl.inst (D.projLvls C us i)`) and closes with
+   `VLevel.imax_self`.  The two-branch `isLE` / F17 argument is paid *once*, where `X` itself
+   is typed (`projMotiveBody_hasType`, already proved), and not again per padding entry.  The
+   brief's "a dummy motive must land in `Sort ℓ` at the **field's** level" is right about the
+   level and misleading about where the cost sits.  **[checked]**
+3. **`TrProj`'s F17 clause hard-codes the type index `0` (`C.FieldUsed D 0 k`), and that is
+   safe.**  This looked like the classic "statement about the wrong thing" once `T` may sit
+   at index `j ≠ 0`.  It is not: `VIndCtor.fieldUsed_index_irrel` proves
+   `C.FieldUsed D j k ↔ C.FieldUsed D j' k` — `FieldUsed` reads only the de Bruijn structure
+   of `C.canonResult D j`, and `j` changes only the head constant's *name*, which
+   `VExpr.Skips'` ignores.  So that clause transports verbatim.  **[checked]**
+4. **Widening `IsStructure` *in place* would silently strengthen `VEnv.StructEta`, and that
+   is why `IsStructureG` is a separate predicate.**  `IsStructure` occurs in a **negative**
+   position in `VEnv.StructEta`'s definition (`Theory/Inductive/StructureEta.lean:139`,
+   `env.IsStructure S D T C →`).  Dropping `noRec` there does not weaken an obligation — it
+   *extends the eta rule* to recursive one-constructor inductives, which is precisely the case
+   Lean's own eta gate excludes (`is_structure_like` tests `isRec`; recorded at
+   `IsStructure.noRec`'s docstring, machine-checked by `MutNonRec.kernelProjChecks`).  Note
+   that **the existing non-vacuity witnesses would not have caught this**: `empty_structEta`
+   and `bazEnv_structEta_premises` still pass under a strengthened `StructEta`; a vacuity
+   check does not detect an over-strong assumption.  So: `noRec` may be dropped for the
+   **projection** path (`TrProj`) and must be kept for the **eta** path.  The brief's "widen
+   `IsStructure` … `types` *and* `noRec`" is one predicate too few.  **[read off source]** —
+   the negative position is a reading of the definition, not a check.
+
+   Related, and smaller: an in-place widening also breaks exactly one *unowned* declaration,
+   `fooEnv_IsStructure` (`Theory/Inductive/DeclExamples.lean:1363`), which builds an
+   `IsStructure` with a `where` block including `noRec := rfl`.  Every other construction site
+   (`ProjLevelWitness`, `StructureUniq`, `StructureEta`) is owned by this stream, and every
+   *consumer* of `H.noRec` (`StructureUniq.lean:182,611–613`; `Lemmas.lean:1013,1087,1124`) is
+   too.  `Verify/TypeChecker/IsDefEq.lean` and `Verify/StructureBridge.lean` mention
+   `IsStructure` only in hypothesis position and never read `noRec`.  **[read off source]**,
+   name-based scan for `.noRec` plus every anonymous/`where` construction.
+
+   Also corrected, in this stream's favour: `Theory/Inductive/StructureEta.lean` uses
+   `hS.types` (line 353) only to get `T ∈ D.types`, which the widened form still supplies.
+   An earlier version of this note claimed the eta chain reads `noRec`; it does not.
+
+### 0.4 The cost estimate in `handoff-eta.md` §3 was too pessimistic at the typing layer
+
+§3 priced the repair as "`StructureClosed.lean` (1657 lines) re-derives every
+`lift'`/`instN`/`instL` commutation over the new shape" plus the `ProjSkip`/`Lemmas` typing
+chain gaining `nm - 1` motive and `nmin - 1` minor obligations.  Measured this round:
+
+* **The recursor-application plumbing is already fully general.**
+  `VInductDecl'.recApp_hasType''` (`Theory/Inductive/RecApp.lean`) takes `ms`/`mins` blocks of
+  arbitrary length at an arbitrary type index; `VInductDecl'.motiveType_isType` and
+  `minorType_isType` (`Theory/Inductive/Lemmas.lean`) are general in the motive/minor index
+  *and* in the context prefix.  What is specialised to index `0` is only the thin layer in
+  `StructureClosed.lean` (`motiveType_instL_instAll`, `motive_declType_isType`,
+  `minorType_instL_instAll`, `minor_declType_isType`, `motiveCtx_wf`, `motives_eq`,
+  `minors_eq`, `idxTele_collapse`).  Two of those are now generalised in `ProjGen.lean`
+  (`motiveType_instL_instAll_gen`, `motiveG_declType_isType`) at ~60 lines each.  **[checked]**
+* **`minorType_instL_instAll` need not be generalised at all for the minor telescope.**
+  `padMinor` *defines* its telescope as the instantiation of `minorType`'s own binder block,
+  so `instAll_mkPi` splits the declared type into exactly that telescope and a body, and
+  `IsType.mkPi_inv` supplies the context — no computation of the `ihTypes` block is required.
+  This is the step §3 priced highest and it is not on the critical path.  **[checked]**
+* **The syntactic commutation lemmas *do* still have to be re-derived** over the padded shape
+  (`projCoreG_lift'`, `projCoreG_instN`, `projCoreG_instL`, and the `projArgsG`/`projTermG`
+  versions).  Not started.  These are what `TrProj.mono`/`TrProj.instL`/`TrProj.weak'` run on.
+
+### 0.5 What is left of the generalisation, exactly
+
+**One mathematical residual, and two mechanical blocks.**
+
+* **Residual (the only one).**  `padMinor_hasType`'s `hbeta` premise: the declared body of
+  minor `q` — `minorBody q t C'`, the motive of the constructor's *own* type applied to the
+  result indices and to the constructor — is definitionally `X → X` once that motive is a
+  padding motive.  `padMotive_body_instAll` (proved) is the collapse itself; what is missing
+  is the step identifying the head `.bvar` of `minorBody` with the `t`-th entry of the motive
+  block after `instAll`, and then `VEnv.IsDefEq.betaMkLams` (proved, in `StructureClosed`).
+  The index arithmetic is settled and recorded here so it need not be redone: in the spine
+  `ps ++ mots ++ mins<q` of length `np + nm + q`, under the `nr + nf` binders of the minor,
+  `minorBody`'s head `.bvar (nr+nf+q+(nm-1-t))` resolves to spine element
+  `np + nm + q - 1 - (q + nm - 1 - t) = np + t`, i.e. `mots[t]`; and `ihTypes`' heads resolve
+  the same way to `mots[r.idx]`.  **Consequence, and it is what makes the accumulator in
+  `padMinorsAux` avoidable in the proofs: neither `minorType`'s telescope nor its body ever
+  refers to the `mins<q` block.**  **[read off source]** — an index computation over
+  `minorType`/`ihType`, not checked.
+* **Mechanical block A.**  The `lift'`/`instN`/`instL` commutation lemmas for `projCoreG`
+  (§0.4, third bullet).
+* **Mechanical block B.**  The swap itself: `TrProj` re-stated over `IsStructureG` and
+  `projTermG`, `TrProj.wf` re-proved via `projCoreG_hasType` (the generalisation of
+  `projCore_hasType`, whose `[mot]`/`[minor]` `HasArgs` steps become `HasArgs` over the two
+  blocks — `recApp_hasType''` already accepts them), and the *narrow* `TrProj` kept or derived
+  from the wide one so that `Verify/TypeChecker/IsDefEq.lean` and
+  `Theory/Inductive/DeclExamples.lean` do not go red.  `projTermG_eq_projTerm` is the bridge.
+
+### 0.6 Task 2 (`TrProj.uniq`, `TrProj.weak'_inv`) is *structurally* blocked, not effort-blocked
+
+This is a correction to the brief's sequencing, not a report of difficulty.  Both lemmas need
+facts that are **not census holes** and therefore cannot be consumed without adding a `sorry`
+(forbidden) or an axiom (forbidden):
+
+* `VEnv.PatWF` (`Theory/Typing/ParamsBuild.lean`) — a `def … : Prop`, **open**.  Proved only on
+  the δ fragment.  Needed for fact (B) (`const_app_inv_of_patWF`) and fact (D)
+  (`constNoConf_of_patWF`), i.e. for two of `TrProj.uniq`'s four obligations and for
+  `weak'_inv`'s level half.
+* `VEnv.WeakNorm` (`Verify/Typing/ConstSpine.lean`) — stated, **no route in the tree**.  Needed
+  for (C) rigidity, `weak'_inv`'s other half.
+* ledger **G4** / `RecTypeResidual` — has no statement in the tree; `TrProj.uniq`'s obligation (1).
+* a `projTerm` congruence — `TrProj.uniq`'s obligation (4); mechanical, still uncosted.
+
+Consuming an *existing* census hole (say `IsDefEqU.forallE_inv`) is permissible and would leave
+the census at 19 while making a new declaration `sorry`-free; consuming `PatWF` or `WeakNorm` is
+not, because they are hypotheses rather than holes.  So neither lemma could close this session
+regardless of effort, and the brief's "then close what it unblocks" does not follow — **the
+`projCore` generalisation unblocks neither**, and it was never claimed to (`handoff-eta.md` §3,
+"What it is not").
+
+**`InferTypeS.weakU_inv`, assessed as instructed.**  `Theory/Typing/HeadReduction.lean:691`,
+`(W : Ctx.Lift' ρ Γ Δ) (H : Δ ⊢ e.lift' ρ ▷* A') : ∃ A, A' = A.lift' ρ ∧ Γ ⊢ e ▷* A`.  It does
+replace steps 1 and 3 of the traced route (`HasType.skips` at `Ctx.LiftN`, which would first
+need a `Ctx.Lift'` version, plus `IsDefEqU.weakN_iff`) with one already-proved lemma, and so
+**removes `weakN_iff` — a census hole — from `weak'_inv`'s cone**, at the price of the `Params`
+gate.  But what it hands back is an *inferred, weak-head-normal* type `A` living in `Γ` with
+`A.lift' ρ` convertible to `(.const S us).mkApp (ps ++ ιs)`; concluding that `A` **is** a spine
+with head `S` is still exactly (C) rigidity, and reconciling the recovered `us'` with `us` is
+still (B).  **So it touches neither blocker.**  Worth taking when (C) lands; not a way in now.
+**[read off source]**, not machine-checked.
+
+### 0.7 Relay to the orchestrator
+
+`Theory/Typing/PatWFIota.lean` and `Theory/Typing/KCanonical.lean` are **uncommitted, untracked,
+and belong to another stream**, and `Theory/Typing/PatternRules.lean` is modified by it.
+`PatWFIota.lean` was **red** during this round's full build (unknown constant
+`Lean4Lean.VLevel.IsEquiv.symm`; "No goals to be solved"; a failed `rewrite` — lines 501, 502,
+605).  Reported, not touched.  That stream is attacking `PatWF`'s ι case, which is **the single
+highest-leverage unblock for `TrProj.uniq`** (§0.6): it would make (B) and (D) unconditional.
+
+---
+
+## 1. Pick this up first (previous edition, still current)
+
+*Note on numbering.*  Sections 2–8 are the previous edition, renumbered by one; `§n`
+cross-references **inside** them are to that edition's numbering (`§2` there is `§3` here,
+and so on).  `§0.x` always means this round.
 
 1. **`VEnv.PatWF`** (`Theory/Typing/ParamsBuild.lean`).  It is now the single hypothesis
    standing between this tree and (A), (B) and (D) *unconditionally*.  It is one field of
@@ -28,7 +227,7 @@ from reading definitions, not checked).
 
 ---
 
-## 1. Status of the four
+## 2. Status of the four
 
 | | status | blocked on |
 |---|---|---|
@@ -39,7 +238,7 @@ from reading definitions, not checked).
 
 ---
 
-## 2. What landed this round: `Verify/Typing/ConstSpine.lean` (new, 707 lines)
+## 3. What landed the *previous* round: `Verify/Typing/ConstSpine.lean` (707 lines)
 
 ### 2.1 The correction that unlocked it
 
@@ -159,7 +358,7 @@ vacuous, and `PatWF` is not an unsatisfiable ask — it is discharged here.
 
 ---
 
-## 3. (C) rigidity: why Church–Rosser does not settle it, and what does
+## 4. (C) rigidity: why Church–Rosser does not settle it, and what does
 
 ### 3.1 The obstruction, exactly
 
@@ -201,7 +400,7 @@ Any route to `WeakNorm` has to rule such instances out.
 
 ---
 
-## 4. `TrProj.weak'_inv`: the swap does **not** transfer, and there is a cheaper entry point
+## 5. `TrProj.weak'_inv`: the swap does **not** transfer, and there is a cheaper entry point
 
 **Asked and answered.**  `ProjSkip.lean`'s swap (the move that unblocked `TrProj.wf`) replaces
 an unused entry of the *projection's own field telescope*, so that `projMotiveTerm` stays
@@ -232,7 +431,7 @@ and has not been costed.
 
 ---
 
-## 5. `TrProj.uniq`: two of four obligations discharged
+## 6. `TrProj.uniq`: two of four obligations discharged
 
 Unchanged in statement.  Its four obligations were: (1) ledger G4, (2) fact (B), (3) fact (D)
 via the independence of `s₁`, `s₂`, (4) a `projTerm` congruence lemma.
@@ -257,7 +456,7 @@ Two hypotheses are carried rather than discharged there, and neither is about `b
 
 ---
 
-## 6. Corrections to earlier editions of this file and to docstrings
+## 7. Corrections to earlier editions of this file and to docstrings
 
 1. **"(B) is reduced to `trans` as its only residual"** — true of the `IsDefEqStrong`
    induction, and *not* a fact about the statement.  Church–Rosser proves (B) outright modulo
@@ -275,7 +474,36 @@ Two hypotheses are carried rather than discharged there, and neither is about `b
 
 ---
 
-## 7. Files
+## 8. Files
+
+### This round
+
+New (both owned; nothing imports them, so nothing can have gone red because of them):
+
+* `Lean4Lean/Verify/Typing/ProjGen.lean` — §0.1, §0.3–§0.5.  Imports
+  `Theory/Inductive/StructureClosed` only.
+* `Lean4Lean/Verify/Typing/ProjGenWitness.lean` — §0.2.  Imports `Verify/StructureBridge`
+  (read-only) and `ProjGen`.  Carries `set_option maxHeartbeats 2000000`: the first witness
+  takes ~90 s, because `decl2`'s block data is unfolded through `padMotives`/`padMinors`.
+
+Edited: none.  `Structure.lean`, `StructureClosed.lean`, `StructureEta.lean`,
+`StructureExamples.lean`, `ProjSkip.lean`, `Lemmas.lean`, `StructureUniq.lean`,
+`Expr.lean` are all **unchanged** this round — the generalisation is additive by design
+(§0.3, correction 4).
+
+Re-run and still passing after the round **[checked]**: the five `rfl` checks of
+`etaExpansion` against Lean's own elaborator at `Prod`/`Sigma`/`And`/`Subtype` plus the F17
+clause at `And` (`Theory/Inductive/StructureExamples.lean`); `empty_structEta`,
+`bazEnv_structEta_premises`, `bazEnv_structEta`, `bazEnv_etaExpansion_eq`,
+`bazEnv_projMinors_distinct`, `barField0_lvl_ne_zero` (`StructureEta.lean`);
+`MutNonRec.kernelProjChecks`, `projCore_arity_wrong` (`Verify/StructureBridge.lean`);
+`tryEtaStructCore.WF_of_structEta`, `isDefEqUnitLike.WF_of_structEta`
+(`Verify/TypeChecker/IsDefEq.lean`).  The honest caveat of `handoff-eta.md` §6 is **preserved
+unchanged**: both eta bridges are still provable for every `c` for the `TrEnv.not_ctorInfo`
+reason, so today's instantiation is still empty, and nothing this round converts that into an
+apparent result — no file on that path was touched.
+
+### Previous round
 
 New:
 
