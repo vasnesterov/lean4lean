@@ -65,6 +65,116 @@ theorem length_minorBinders (D : VInductDecl') (q : Nat) (C : VIndCtor) :
     (D.minorBinders q C).length = C.fields.length + (D.ihTypes q C).length := by
   simp [minorBinders, VExpr.length_liftTele, atRecTele]
 
+/-- The number of binders `minorType q t C` puts between the motive block and its body.
+Kept as a name because it is the `instAll` cut of every computation below. -/
+theorem length_minorBinders_map (D : VInductDecl') (q : Nat) (C : VIndCtor)
+    (lvls : List VLevel) :
+    ((D.minorBinders q C).map (VExpr.instL lvls)).length
+      = (D.ihTypes q C).length + C.fields.length := by
+  rw [List.length_map, length_minorBinders]; omega
+
+/-- The spine `minorBody` hands to the motive, after the block substitution: the
+constructor's result indices and the constructor applied to its own fields. -/
+def minorBodyArgs (D : VInductDecl') (lvls : List VLevel) (q : Nat) (C : VIndCtor)
+    (spine : List VExpr) : List VExpr :=
+  (C.args.map (fun a => shift (D.nm + q) (D.ihTypes q C).length C.fields.length (D.atRec a)) ++
+    [D.ctorApp' C ((D.ihTypes q C).length + C.fields.length + (D.nm + q))
+      (bvars (D.ihTypes q C).length C.fields.length)]).map
+    (fun a => VExpr.instAll (a.instL lvls) spine
+      ((D.minorBinders q C).map (VExpr.instL lvls)).length)
+
+theorem length_minorBodyArgs (D : VInductDecl') (lvls : List VLevel) (q : Nat) (C : VIndCtor)
+    (spine : List VExpr) :
+    (D.minorBodyArgs lvls q C spine).length = C.args.length + 1 := by
+  simp [minorBodyArgs]
+
+/-- **The head of `minorBody`, after the block substitution, is motive `t`.**
+
+This is the index computation the generalisation turns on, and the only place the motive
+block's *position* in the recursor's spine is used.  In the spine `ps ++ mots ++ mins<q` of
+length `np + nm + q`, under the `nr + nf` binders of the minor, `minorBody`'s head
+`.bvar (nr+nf+q+(nm-1-t))` resolves to spine element `np + t`, i.e. `mots[t]` — weakened
+past the minor's own binders.
+
+**Consequence** (and it is what makes `padMinorsAux`' accumulator harmless in the proofs):
+neither `minorType`'s telescope nor its body refers to the `mins<q` block at all; `acc`
+enters only through its *length*. -/
+theorem minorBody_instAll_spine (D : VInductDecl') {lvls : List VLevel} {q t : Nat}
+    {C : VIndCtor}
+    {ps mots acc : List VExpr} {P : VExpr}
+    (hget : mots[t]? = some P) (hps : ps.length = D.np) (hmots : mots.length = D.nm)
+    (hacc : acc.length = q) (htlt : t < D.nm) :
+    VExpr.instAll ((D.minorBody q t C).instL lvls) (ps ++ mots ++ acc)
+        ((D.minorBinders q C).map (VExpr.instL lvls)).length
+      = (P.liftN ((D.minorBinders q C).map (VExpr.instL lvls)).length).mkApp
+          (D.minorBodyArgs lvls q C (ps ++ mots ++ acc)) := by
+  have hk := D.length_minorBinders_map q C lvls
+  have hspine : (ps ++ mots ++ acc)[D.np + t]? = some P := by
+    rw [List.append_assoc, List.getElem?_append_right (by omega), hps, Nat.add_sub_cancel_left,
+      List.getElem?_append_left (by omega)]
+    exact hget
+  rw [minorBody, VExpr.instL_mkApp, VExpr.instL, VExpr.instAll_mkApp, minorBodyArgs,
+    List.map_map]
+  congr 1
+  exact VExpr.instAll_bvar_get hspine (by simp [hk, hps, hmots, hacc]; omega)
+
+/-- **At a non-recursive constructor the motive's spine is what the existing chain already
+types.**  Both entries collapse to the terms `ctorArgs_hasArgs` and `ctorApp_hasType`
+(`Theory/Inductive/StructureClosed.lean`) prove typed at index `0`: the motive block and the
+earlier minors are discarded by the `liftN (D.nm + q)` that `minorType` puts on the
+constructor's stored data, and the parameter block is read off the top of the substitution
+window.
+
+So for a non-recursive block, `padMinor_hasType'`'s remaining `hbs` premise is exactly those
+two lemmas **at an arbitrary block index**, and nothing else. -/
+theorem minorBodyArgs_norec (D : VInductDecl') {lvls us : List VLevel} {q : Nat}
+    {C : VIndCtor} {ps mots acc : List VExpr}
+    (hrec : C.recFields = []) (hps : ps.length = D.np)
+    (hmots : mots.length = D.nm) (hacc : acc.length = q)
+    (hself : D.selfLvls.map (VLevel.inst lvls) = us) :
+    D.minorBodyArgs lvls q C (ps ++ mots ++ acc)
+      = (C.args.map fun a => VExpr.instAll (a.instL us) ps C.fields.length)
+        ++ [(VExpr.const C.name us).mkApp
+              (ps.map (·.liftN C.fields.length) ++ bvars 0 C.fields.length)] := by
+  have hih : D.ihTypes q C = [] := by simp [ihTypes, hrec]
+  have hk : ((D.minorBinders q C).map (VExpr.instL lvls)).length = C.fields.length := by
+    rw [D.length_minorBinders_map q C lvls, hih]; simp
+  have hassoc : ps ++ mots ++ acc = ps ++ (mots ++ acc) := by
+    rw [List.append_assoc]
+  have hlen : (mots ++ acc).length = D.nm + q := by simp [hmots, hacc]
+  rw [hassoc, minorBodyArgs, hk, hih, List.map_append, List.map_map, List.map_cons,
+    List.map_nil]
+  congr 1
+  · refine List.map_congr_left fun a _ => ?_
+    show VExpr.instAll ((VExpr.shift (D.nm + q) 0 C.fields.length (D.atRec a)).instL lvls)
+      (ps ++ (mots ++ acc)) C.fields.length = _
+    rw [VExpr.shift, VExpr.liftN_zero, Nat.add_zero, VInductDecl'.atRec, VExpr.instL_liftN,
+      VExpr.instL_instL, hself, ← hlen, VExpr.instAll_liftN_append rfl]
+  · show [VExpr.instAll ((D.ctorApp' C (0 + C.fields.length + (D.nm + q))
+      (bvars 0 C.fields.length)).instL lvls) (ps ++ (mots ++ acc)) C.fields.length] = _
+    rw [VInductDecl'.ctorApp', VExpr.instL_mkApp, VExpr.instL, hself, List.map_append,
+      VExpr.map_instL_bvars, VExpr.map_instL_bvars, VExpr.instAll_mkApp, VExpr.instAll_const,
+      List.map_append,
+      VExpr.map_instAll_bvars_top (by omega) (by simp [hps, hlen]; omega),
+      VExpr.map_instAll_bvars_lt (Nat.le_of_eq (Nat.zero_add _)),
+      List.take_left' hps]
+
+/-- **The padding minor's binder telescope, at a non-recursive constructor.**  The
+generalisation of `minorTele_narrow` below from `nm = 1, q = 0` to an arbitrary position in
+the block: the motive block and the earlier minors are discarded by `minorType`'s own
+`liftTele (nm + q)`, so what is left is the field telescope at the use site. -/
+theorem minorTele_norec (D : VInductDecl') {lvls us : List VLevel} {q : Nat} {C : VIndCtor}
+    {ps mots acc : List VExpr}
+    (hrec : C.recFields = []) (hmots : mots.length = D.nm) (hacc : acc.length = q)
+    (hself : D.selfLvls.map (VLevel.inst lvls) = us) :
+    VExpr.instAllTele ((D.minorBinders q C).map (VExpr.instL lvls)) (ps ++ mots ++ acc)
+      = VExpr.instAllTele (C.fields.map fun F => F.type.instL us) ps := by
+  have hih : D.ihTypes q C = [] := by simp [ihTypes, hrec]
+  have hlen : (mots ++ acc).length = D.nm + q := by simp [hmots, hacc]
+  rw [List.append_assoc, minorBinders, hih, List.append_nil, atRecTele]
+  simp only [List.map_map, Function.comp_def, VExpr.instL_liftTele, VExpr.instL_instL, hself]
+  rw [← hlen, VExpr.instAllTele_liftTele_append rfl]
+
 /-- The padding motive for a block member other than the projected type: `fun ι x => X → X`,
 where `X` is the projected field's type (see the module docstring). -/
 def padMotive (D : VInductDecl') (T' : VIndType) (us : List VLevel) (ps : List VExpr) (X : VExpr) : VExpr :=
@@ -83,6 +193,57 @@ def padMotives (D : VInductDecl') (T : VIndType) (C : VIndCtor) (us : List VLeve
 
 theorem length_padMotives (D : VInductDecl') (T C us ps is i j earlier e) :
     (D.padMotives T C us ps is i j earlier e).length = D.nm := by simp [padMotives]
+
+/-- The motive block at the projected index **is** the real motive. -/
+theorem padMotives_getElem_eq (D : VInductDecl') (T C us ps is i j earlier e)
+    (hj : j < D.nm) :
+    (D.padMotives T C us ps is i j earlier e)[j]? = some (T.projMotive C us ps is i earlier) := by
+  rw [padMotives]
+  simp [List.getElem?_map, List.getElem?_range, hj]
+
+/-- …and at every other index it is a *padding* motive.  This is what makes `padMinor_beta`'s
+`hget` premise satisfiable, i.e. what stops that lemma from being vacuous. -/
+theorem padMotives_getElem_ne (D : VInductDecl') (T C us ps is i j earlier e)
+    {k : Nat} (hk : k < D.nm) (hne : k ≠ j) :
+    (D.padMotives T C us ps is i j earlier e)[k]?
+      = some (D.padMotive (D.types.getD k default) us ps
+          ((T.projMotive C us ps is i earlier).mkApp (is ++ [e]))) := by
+  rw [padMotives]
+  simp [List.getElem?_map, List.getElem?_range, hk, hne]
+
+/-- **The padding motive commutes with a weakening of its data.**  `padMotive`'s only free
+variables come from `ps` and `X`; the `ClosedTele` premise is what stops an index entry from
+reaching past them (see the refutation recorded at `VInductDecl'.ProjClosed`). -/
+theorem padMotive_liftN (D : VInductDecl') (T' : VIndType) (us : List VLevel)
+    {ps : List VExpr} {X : VExpr} {n : Nat}
+    (hcl : VExpr.ClosedTele (T'.indices.map (VExpr.instL us)) ps.length) :
+    (D.padMotive T' us ps X).liftN n
+      = D.padMotive T' us (ps.map (·.liftN n)) (X.liftN n) := by
+  have hpmap : ∀ m : Nat,
+      (ps.map (·.liftN (T'.indices.length + m))).map (·.liftN n (T'.indices.length + m))
+        = (ps.map (·.liftN n)).map (·.liftN (T'.indices.length + m)) := by
+    intro m
+    rw [List.map_map, List.map_map]
+    refine List.map_congr_left fun p _ => ?_
+    simp only [Function.comp_def]
+    rw [VExpr.liftN'_liftN' (Nat.zero_le _) (Nat.le_add_right _ _), VExpr.liftN_liftN,
+      Nat.add_comm]
+  simp only [padMotive]
+  rw [VExpr.liftN_mkLams, VExpr.liftTele_instAllTele₀ hcl, VExpr.length_instAllTele,
+    List.length_map, Nat.zero_add]
+  refine congrArg _ ?_
+  simp only [VExpr.liftN]
+  congr 1
+  · rw [VExpr.liftN_mkApp, VExpr.liftN, List.map_append, VExpr.map_liftN_bvars_hi (by omega)]
+    congr 2
+    simpa using hpmap 0
+  · congr 1
+    · rw [VExpr.liftN'_liftN' (Nat.zero_le _) (Nat.le_of_eq (Nat.add_zero _)),
+        VExpr.liftN_liftN, Nat.add_comm]
+    · rw [show T'.indices.length + 1 + 1 = T'.indices.length + 2 from by omega,
+        VExpr.liftN'_liftN' (Nat.zero_le _) (Nat.le_of_eq (Nat.add_zero _)),
+        VExpr.liftN_liftN, Nat.add_comm]
+
 
 /-- The padding minor for a constructor of a block member other than the projected type:
 `fun fields ihs z => z`. -/
@@ -350,27 +511,27 @@ theorem padMotiveCtx_wf (henv : env.Ordered) (hI : D.IotaCtx env)
   obtain ⟨hOn, hfa⟩ := VEnv.IsType.mkPi_inv henv hΓ hIT
   exact ⟨hOn, (hfa.forallE_inv henv).1⟩
 
-/-- **The padding motive inhabits the recursor's motive binder.**
+/-- The padding motive's **body**, typed under its own two binder blocks.
 
-The only ingredient beyond the ambient bookkeeping is `X`, an inhabitant-free type at the
-*elimination* level: `X → X` is then in `Sort (imax ℓ ℓ)`, and `VLevel.imax_self` closes the
-gap to `Sort ℓ`.  Note what is **not** needed here: F17.  `X` is required at the elimination
-level directly, and the two-branch F17 argument is what types `X` itself at the call site —
-it is already paid for by `projMotiveBody_hasType`. -/
-theorem padMotive_hasType (henv : env.Ordered) (hI : D.IotaCtx env)
-    (h7 : ∀ l ∈ us, l.WF U) (hus : us.length = D.uvars) {t : Nat} (ht : t ≤ D.nm)
-    (hT : D.types[t]? = some T') {i : Nat} {Γ ps ms : List VExpr} {X : VExpr}
-    (hΓ : OnCtx Γ (env.IsType U)) (hps : ps.length = D.np) (hms : ms.length = t)
-    (hspine : env.HasArgs U Γ
-      ((D.atRecTele D.params).map (VExpr.instL (D.projLvls C us i))
-        ++ ((List.range t).map D.motiveType).map (VExpr.instL (D.projLvls C us i)))
-      (ps ++ ms))
+Split out of `padMotive_hasType` because `padMotive_app_beta` needs exactly this and nothing
+else about the motive: `VEnv.IsDefEq.betaMkLams` asks for the *body*'s typing, not the
+abstraction's.  Note how few hypotheses it takes — the block index `t`, the parameter spine
+and the motive prefix play no role at all.
+
+The only ingredient beyond the ambient bookkeeping is `X`, a type at the *elimination*
+level: `X → X` is then in `Sort (imax ℓ ℓ)`, and `VLevel.imax_self` closes the gap to
+`Sort ℓ`.  Note what is **not** needed here: F17.  `X` is required at the elimination level
+directly, and the two-branch F17 argument is what types `X` itself at the call site — it is
+already paid for by `projMotiveBody_hasType`. -/
+theorem padMotive_body_hasType (henv : env.Ordered)
+    (h7 : ∀ l ∈ us, l.WF U) {i : Nat} {Γ ps : List VExpr} {X : VExpr}
     (hX : env.HasType U Γ X (.sort (D.elimLvl.inst (D.projLvls C us i)))) :
-    env.HasType U Γ (D.padMotive T' us ps X)
-      (VExpr.instAll ((D.motiveType t).instL (D.projLvls C us i)) (ps ++ ms)) := by
-  obtain ⟨hOn, uc, hAty⟩ := padMotiveCtx_wf henv hI h7 hus ht hT hΓ hps hms hspine
-  have hlenΔ : (VExpr.instAllTele (T'.indices.map (VExpr.instL us)) ps).length
-      = T'.indices.length := by simp
+    env.HasType U
+      ((VExpr.const T'.name us).mkApp
+          (ps.map (·.liftN T'.indices.length) ++ bvars 0 T'.indices.length)
+        :: ((VExpr.instAllTele (T'.indices.map (VExpr.instL us)) ps).reverse ++ Γ))
+      (.forallE (X.liftN (T'.indices.length+1)) (X.liftN (T'.indices.length+2)))
+      (.sort (D.elimLvl.inst (D.projLvls C us i))) := by
   have hW1 : Ctx.LiftN (T'.indices.length + 1) 0 Γ
       ((VExpr.const T'.name us).mkApp
           (ps.map (·.liftN T'.indices.length) ++ bvars 0 T'.indices.length)
@@ -397,12 +558,27 @@ theorem padMotive_hasType (henv : env.Ordered) (hI : D.IotaCtx env)
   simp only [VExpr.liftN] at hX2
   have hℓwf : (D.elimLvl.inst (D.projLvls C us i)).WF U :=
     VLevel.WF.inst (VInductDecl'.projLvls_wf (C := C) h7 i)
-  have hbody := VEnv.IsDefEq.defeqDF
+  exact VEnv.IsDefEq.defeqDF
       (VEnv.IsDefEq.sortDF (l := .imax (D.elimLvl.inst (D.projLvls C us i))
           (D.elimLvl.inst (D.projLvls C us i)))
         (l' := D.elimLvl.inst (D.projLvls C us i))
         ⟨hℓwf, hℓwf⟩ hℓwf VLevel.imax_self)
       (VEnv.HasType.forallE hX1 hX2)
+
+/-- **The padding motive inhabits the recursor's motive binder.** -/
+theorem padMotive_hasType (henv : env.Ordered) (hI : D.IotaCtx env)
+    (h7 : ∀ l ∈ us, l.WF U) (hus : us.length = D.uvars) {t : Nat} (ht : t ≤ D.nm)
+    (hT : D.types[t]? = some T') {i : Nat} {Γ ps ms : List VExpr} {X : VExpr}
+    (hΓ : OnCtx Γ (env.IsType U)) (hps : ps.length = D.np) (hms : ms.length = t)
+    (hspine : env.HasArgs U Γ
+      ((D.atRecTele D.params).map (VExpr.instL (D.projLvls C us i))
+        ++ ((List.range t).map D.motiveType).map (VExpr.instL (D.projLvls C us i)))
+      (ps ++ ms))
+    (hX : env.HasType U Γ X (.sort (D.elimLvl.inst (D.projLvls C us i)))) :
+    env.HasType U Γ (D.padMotive T' us ps X)
+      (VExpr.instAll ((D.motiveType t).instL (D.projLvls C us i)) (ps ++ ms)) := by
+  obtain ⟨hOn, uc, hAty⟩ := padMotiveCtx_wf henv hI h7 hus ht hT hΓ hps hms hspine
+  have hbody := padMotive_body_hasType (T' := T') (C := C) (ps := ps) henv h7 hX
   rw [motiveType_instL_instAll_gen D T' C
     (by rw [List.getD_eq_getElem?_getD, hT]; rfl) hus hps hms]
   show env.HasType U Γ (VExpr.mkLams _ (.lam _ (.forallE _ _))) _
@@ -423,6 +599,97 @@ theorem padMotive_body_instAll {X : VExpr} {as : List VExpr} {ni : Nat}
       ← VExpr.liftN'_liftN' (e := X) (n1 := 1) (n2 := ni+1) (k1 := 0) (k2 := 1)
         (Nat.zero_le _) (Nat.le_refl _), ← h]
     exact VExpr.instAll_liftN as (X.liftN 1) 1
+
+/-- **The padding motive applied to a saturating spine β-reduces to `X → X`.**
+
+This is the semantic half of the collapse: `padMotive_body_instAll` is the syntax, this is
+the `IsDefEq`.  The spine is the constructor's result indices together with the constructor
+application — exactly the arguments `minorBody` supplies — and the only thing used about
+them is that they inhabit the motive's own binder telescope.
+
+The `hbs` premise is the honest residual handed to the consumer: it is the generalisation to
+an arbitrary block member of `ctorArgs_hasArgs` and `ctorApp_hasType`
+(`Theory/Inductive/StructureClosed.lean`), which prove exactly this at index `0`. -/
+theorem padMotive_app_beta (henv : env.Ordered) (hI : D.IotaCtx env)
+    (h7 : ∀ l ∈ us, l.WF U) (hus : us.length = D.uvars) {t : Nat} (ht : t ≤ D.nm)
+    (hT : D.types[t]? = some T') {i : Nat} {Γ ps ms bs : List VExpr} {X : VExpr}
+    (hΓ : OnCtx Γ (env.IsType U)) (hps : ps.length = D.np) (hms : ms.length = t)
+    (hspine : env.HasArgs U Γ
+      ((D.atRecTele D.params).map (VExpr.instL (D.projLvls C us i))
+        ++ ((List.range t).map D.motiveType).map (VExpr.instL (D.projLvls C us i)))
+      (ps ++ ms))
+    (hX : env.HasType U Γ X (.sort (D.elimLvl.inst (D.projLvls C us i))))
+    (hbs : env.HasArgs U Γ
+      (VExpr.instAllTele (T'.indices.map (VExpr.instL us)) ps
+        ++ [(VExpr.const T'.name us).mkApp
+              (ps.map (·.liftN T'.indices.length) ++ bvars 0 T'.indices.length)]) bs) :
+    env.IsDefEq U Γ ((D.padMotive T' us ps X).mkApp bs)
+      (.forallE X (X.liftN 1)) (.sort (D.elimLvl.inst (D.projLvls C us i))) := by
+  obtain ⟨hOn, uc, hAty⟩ := padMotiveCtx_wf henv hI h7 hus ht hT hΓ hps hms hspine
+  have hbody := padMotive_body_hasType (T' := T') (C := C) (ps := ps) henv h7 hX
+  have hlen : bs.length = T'.indices.length + 1 := by
+    have := hbs.length_eq; simp at this; omega
+  have hrev : (VExpr.instAllTele (T'.indices.map (VExpr.instL us)) ps
+        ++ [(VExpr.const T'.name us).mkApp
+              (ps.map (·.liftN T'.indices.length) ++ bvars 0 T'.indices.length)]).reverse ++ Γ
+      = (VExpr.const T'.name us).mkApp
+          (ps.map (·.liftN T'.indices.length) ++ bvars 0 T'.indices.length)
+        :: ((VExpr.instAllTele (T'.indices.map (VExpr.instL us)) ps).reverse ++ Γ) := by simp
+  have hOnAs : OnCtx ((VExpr.instAllTele (T'.indices.map (VExpr.instL us)) ps
+        ++ [(VExpr.const T'.name us).mkApp
+              (ps.map (·.liftN T'.indices.length) ++ bvars 0 T'.indices.length)]).reverse ++ Γ)
+      (env.IsType U) := by rw [hrev]; exact ⟨hOn, uc, hAty⟩
+  have key := VEnv.IsDefEq.betaMkLams henv hOnAs hbs (by rw [hrev]; exact hbody)
+  rw [VExpr.mkLams_append, VExpr.instAll_sort, padMotive_body_instAll hlen] at key
+  exact key
+
+/-- **The `hbeta` premise of `padMinor_hasType`, discharged.**
+
+Three pieces composed: `minorBody_instAll_spine` identifies the declared body's head with
+the motive block's `t`-th entry, `padMotive_liftN` moves that entry under the minor's own
+binders, and `padMotive_app_beta` β-reduces it.  The context `Δ` is arbitrary — the
+computation does not care that the caller instantiates it at the minor's own telescope.
+
+What the caller still owes is `hbs`: the constructor's result indices and the constructor
+applied to its fields, typed against the padding motive's binder telescope.  That is the
+block-index generalisation of `ctorArgs_hasArgs`/`ctorApp_hasType`
+(`Theory/Inductive/StructureClosed.lean`), which prove exactly it at index `0`, and it is
+the only residual left of this step. -/
+theorem padMinor_beta (henv : env.Ordered) (hI : D.IotaCtx env)
+    (h7 : ∀ l ∈ us, l.WF U) (hus : us.length = D.uvars) {t : Nat} (ht : t ≤ D.nm)
+    (hT : D.types[t]? = some T') (htlt : t < D.nm)
+    {i q : Nat} {C' : VIndCtor} {lvls : List VLevel}
+    {Δ ps mots acc ms : List VExpr} {X : VExpr}
+    (hcl : VExpr.ClosedTele (T'.indices.map (VExpr.instL us)) ps.length)
+    (hget : mots[t]? = some (D.padMotive T' us ps X))
+    (hps : ps.length = D.np) (hmots : mots.length = D.nm) (hacc : acc.length = q)
+    (hΔ : OnCtx Δ (env.IsType U))
+    (hms : ms.length = t)
+    (hspine : env.HasArgs U Δ
+      ((D.atRecTele D.params).map (VExpr.instL (D.projLvls C us i))
+        ++ ((List.range t).map D.motiveType).map (VExpr.instL (D.projLvls C us i)))
+      ((ps.map (·.liftN ((D.minorBinders q C').map (VExpr.instL lvls)).length)) ++ ms))
+    (hX : env.HasType U Δ
+      (X.liftN ((D.minorBinders q C').map (VExpr.instL lvls)).length)
+      (.sort (D.elimLvl.inst (D.projLvls C us i))))
+    (hbs : env.HasArgs U Δ
+      (VExpr.instAllTele (T'.indices.map (VExpr.instL us))
+          (ps.map (·.liftN ((D.minorBinders q C').map (VExpr.instL lvls)).length))
+        ++ [(VExpr.const T'.name us).mkApp
+              ((ps.map (·.liftN ((D.minorBinders q C').map (VExpr.instL lvls)).length)).map
+                  (·.liftN T'.indices.length)
+                ++ bvars 0 T'.indices.length)])
+      (D.minorBodyArgs lvls q C' (ps ++ mots ++ acc))) :
+    env.IsDefEq U Δ
+      (VExpr.instAll ((D.minorBody q t C').instL lvls) (ps ++ mots ++ acc)
+        ((D.minorBinders q C').map (VExpr.instL lvls)).length)
+      (.forallE (X.liftN ((D.minorBinders q C').map (VExpr.instL lvls)).length)
+        ((X.liftN ((D.minorBinders q C').map (VExpr.instL lvls)).length).liftN 1))
+      (.sort (D.elimLvl.inst (D.projLvls C us i))) := by
+  rw [D.minorBody_instAll_spine hget hps hmots hacc htlt,
+    D.padMotive_liftN T' us hcl]
+  exact padMotive_app_beta (C := C) henv hI h7 hus ht hT hΔ (by simpa using hps) hms
+    hspine hX hbs
 
 /-! ### The padding minor
 
@@ -479,6 +746,233 @@ theorem padMinor_hasType (henv : env.Ordered)
         (.bvar 0))) _
   rw [hlenΘ]
   exact VEnv.HasType.mkLams hOn hbody
+
+/-- **`padMinor_hasType` with its `hbeta` premise discharged.**
+
+This is the residual of `docs/handoff-projections.md` §0.5 closed.  What is left is `hbs`
+alone — the constructor's result indices and the constructor applied to its fields, typed
+against the padding motive's binder telescope, under the minor's own binders.  Everything
+about the *padding* is now proved; `hbs` is about the **constructor**, and is the
+block-index generalisation of `ctorArgs_hasArgs`/`ctorApp_hasType`.
+
+Note `hΓ'` and the weakened `X` are not premises: the first comes out of `hdecl` by
+`IsType.mkPi_inv`, the second by weakening `hX`. -/
+theorem padMinor_hasType' (henv : env.Ordered) (hI : D.IotaCtx env)
+    (h7 : ∀ l ∈ us, l.WF U) (hus : us.length = D.uvars) {t : Nat} (ht : t ≤ D.nm)
+    (hT : D.types[t]? = some T') (htlt : t < D.nm)
+    {i q : Nat} {C' : VIndCtor} {lvls : List VLevel}
+    {Γ ps mots acc ms : List VExpr} {X : VExpr}
+    (hcl : VExpr.ClosedTele (T'.indices.map (VExpr.instL us)) ps.length)
+    (hget : mots[t]? = some (D.padMotive T' us ps X))
+    (hps : ps.length = D.np) (hmots : mots.length = D.nm) (hacc : acc.length = q)
+    (hms : ms.length = t)
+    (hΓ : OnCtx Γ (env.IsType U))
+    (hdecl : env.IsType U Γ
+      (VExpr.instAll ((D.minorType q t C').instL lvls) (ps ++ mots ++ acc)))
+    (hX : env.HasType U Γ X (.sort (D.elimLvl.inst (D.projLvls C us i))))
+    (hspine : env.HasArgs U
+      ((VExpr.instAllTele ((D.minorBinders q C').map (VExpr.instL lvls))
+        (ps ++ mots ++ acc)).reverse ++ Γ)
+      ((D.atRecTele D.params).map (VExpr.instL (D.projLvls C us i))
+        ++ ((List.range t).map D.motiveType).map (VExpr.instL (D.projLvls C us i)))
+      ((ps.map (·.liftN ((D.minorBinders q C').map (VExpr.instL lvls)).length)) ++ ms))
+    (hbs : env.HasArgs U
+      ((VExpr.instAllTele ((D.minorBinders q C').map (VExpr.instL lvls))
+        (ps ++ mots ++ acc)).reverse ++ Γ)
+      (VExpr.instAllTele (T'.indices.map (VExpr.instL us))
+          (ps.map (·.liftN ((D.minorBinders q C').map (VExpr.instL lvls)).length))
+        ++ [(VExpr.const T'.name us).mkApp
+              ((ps.map (·.liftN ((D.minorBinders q C').map (VExpr.instL lvls)).length)).map
+                  (·.liftN T'.indices.length)
+                ++ bvars 0 T'.indices.length)])
+      (D.minorBodyArgs lvls q C' (ps ++ mots ++ acc))) :
+    env.HasType U Γ (D.padMinor lvls (ps ++ mots ++ acc) X q C')
+      (VExpr.instAll ((D.minorType q t C').instL lvls) (ps ++ mots ++ acc)) := by
+  have hW : Ctx.LiftN ((D.minorBinders q C').map (VExpr.instL lvls)).length 0 Γ
+      ((VExpr.instAllTele ((D.minorBinders q C').map (VExpr.instL lvls))
+        (ps ++ mots ++ acc)).reverse ++ Γ) :=
+    Ctx.LiftN.zero (Γ := Γ)
+      (VExpr.instAllTele ((D.minorBinders q C').map (VExpr.instL lvls))
+        (ps ++ mots ++ acc)).reverse (by simp)
+  obtain ⟨hOn, -⟩ := VEnv.IsType.mkPi_inv henv hΓ
+    (by rwa [D.minorType_eq_mkPi q t C', VExpr.instL_mkPi, VExpr.instAll_mkPi,
+      Nat.zero_add] at hdecl)
+  have hbeta := padMinor_beta (C := C) henv hI h7 hus ht hT htlt hcl hget hps hmots hacc hOn
+    hms hspine (VEnv.HasType.weakN henv hW hX) hbs
+  exact padMinor_hasType (D := D) henv hΓ hdecl hX ⟨_, hbeta⟩
+
+/-! ### The constructor's spine, at an arbitrary block member
+
+`ctorArgs_hasArgs` and `ctorApp_hasType` (`Theory/Inductive/StructureClosed.lean`) prove
+exactly this at `VEnv.IsStructure`'s index `0`.  Their proofs use `H : IsStructure` **only**
+through `H.types0`, `H.memCtor`, `H.memCtorsAll` and `H.typesD`; `VInductDecl'.RecCtx.ctors`
+and `VInductDecl'.ctorApp'_hasType` are already general in the block index.  So the
+generalisation is the substitution of those four, and nothing else. -/
+
+/-- `ctorArgs_hasArgs` at an arbitrary block member. -/
+theorem ctorArgs_hasArgs_gen (henv : env.Ordered) (hI : D.IotaCtx env)
+    (h7 : ∀ l ∈ us, l.WF U) {t : Nat} {T' : VIndType} {C' : VIndCtor}
+    (hT : D.types[t]? = some T') (hC : C' ∈ T'.ctors)
+    {Γ ps : List VExpr}
+    (hpsA : env.HasArgs U Γ (D.params.map (VExpr.instL us)) ps) :
+    env.HasArgs U
+      ((VExpr.instAllTele (C'.fields.map fun F => F.type.instL us) ps).reverse ++ Γ)
+      (VExpr.liftTele C'.fields.length
+        (VExpr.instAllTele (T'.indices.map (VExpr.instL us)) ps))
+      (C'.args.map fun a => VExpr.instAll (a.instL us) ps C'.fields.length) := by
+  have hR := hI.toRecCtx
+  have hCwf : VIndCtor.WF env D t T' C' := hR.ctors t T' hT C' hC
+  have hOn0 : OnCtx (((C'.fields.map (·.type)).reverse ++ D.params.reverse).map (VExpr.instL us))
+      (env.IsType U) := OnCtx.instL h7 (hCwf.onCtxAllFields henv)
+  have h1 := VEnv.HasArgs.instL (U' := U) (ls := us) h7 hCwf.args_ty
+  simp only [List.map_append, List.map_reverse, VExpr.instL_liftTele, List.map_map,
+    Function.comp_def] at h1 hOn0
+  rw [← List.reverse_append] at h1 hOn0
+  have h2 := VEnv.HasArgs.weakR (Γ := Γ) henv (OnCtx.ctxClosed henv hOn0) h1
+  have h3 := VEnv.HasArgs.instAllUnder henv hpsA h2
+  rw [List.length_map, VExpr.instAllTele_liftTele₀ (n := C'.fields.length)
+      (As := T'.indices.map (VExpr.instL us)) (as := ps)] at h3
+  simpa [List.map_map, Function.comp_def] using h3
+
+/-- `ctorApp_hasType` at an arbitrary block member. -/
+theorem ctorApp_hasType_gen (henv : env.Ordered) (hI : D.IotaCtx env)
+    (h3 : us.length = D.uvars) (h7 : ∀ l ∈ us, l.WF U)
+    {t : Nat} {T' : VIndType} {C' : VIndCtor}
+    (hT : D.types[t]? = some T') (hC : C' ∈ T'.ctors) (hCall : (t, C') ∈ D.ctorsAll)
+    {Γ ps : List VExpr} (hps : ps.length = D.np)
+    (hpsA : env.HasArgs U Γ (D.params.map (VExpr.instL us)) ps) :
+    env.HasType U
+      ((VExpr.instAllTele (C'.fields.map fun F => F.type.instL us) ps).reverse ++ Γ)
+      ((VExpr.const C'.name us).mkApp
+        (ps.map (·.liftN C'.fields.length) ++ bvars 0 C'.fields.length))
+      ((VExpr.const T'.name us).mkApp (ps.map (·.liftN C'.fields.length)
+        ++ C'.args.map fun a => VExpr.instAll (a.instL us) ps C'.fields.length)) := by
+  have hTD : D.types.getD t default = T' := by rw [List.getD_eq_getElem?_getD, hT]; rfl
+  have hR := hI.toRecCtx
+  have hCwf : VIndCtor.WF env D t T' C' := hR.ctors t T' hT C' hC
+  have h0 := VInductDecl'.ctorApp'_hasType hR hT hC hCall
+    (m := 0) (Δ := []) rfl (by simpa using hR.onCtxParams)
+  simp only [VExpr.liftTele_zero, List.nil_append, VExpr.liftN_zero, Nat.add_zero] at h0
+  have hOn0 : OnCtx (((C'.fields.map (·.type)).reverse ++ D.params.reverse).map (VExpr.instL us))
+      (env.IsType U) := OnCtx.instL h7 (hCwf.onCtxAllFields henv)
+  simp only [List.map_append, List.map_reverse, List.map_map, Function.comp_def] at hOn0
+  rw [← List.reverse_append] at hOn0
+  have h1 := VEnv.HasType.instL (U' := U) (ls := D.projLvls C' us 0)
+    (VInductDecl'.projLvls_wf h7 0) h0
+  rw [List.map_append, List.map_reverse, List.map_reverse,
+    VInductDecl'.atRecTele_instL (C := C') h3 0, VInductDecl'.atRecTele_instL (C := C') h3 0,
+    ← List.reverse_append, VInductDecl'.atRec_instL (C := C') h3 0] at h1
+  simp only [VInductDecl'.ctorApp', VExpr.instL_mkApp, VExpr.instL, VExpr.map_instL_bvars,
+    List.map_append, VInductDecl'.selfLvls_projLvls (C := C') h3 0,
+    VIndCtor.canonResult, VInductDecl'.tyApp, hTD, VInductDecl'.ownLvls,
+    VLevel.params_inst h3, List.map_map, Function.comp_def] at h1
+  have h2 := VEnv.IsDefEq.weakR henv (OnCtx.ctxClosed henv hOn0) h1 Γ
+  have h3' := VEnv.HasType.instAllUnder henv hpsA h2
+  rw [List.length_map] at h3'
+  rw [VExpr.instAll_mkApp, VExpr.instAll_const, VExpr.instAll_mkApp, VExpr.instAll_const,
+    List.map_append, List.map_append,
+    VExpr.map_instAll_bvars_top (Nat.le_refl _) (by simp [hps]),
+    VExpr.map_instAll_bvars_lt (Nat.le_of_eq (Nat.zero_add _)),
+    List.take_of_length_le (by simp [hps])] at h3'
+  simpa [List.map_map, Function.comp_def] using h3'
+
+/-- The padding motive's **last** binder — the major premise `T' ps ιs` — with the index
+spine substituted.  This is what `VEnv.HasArgs.concat` asks for, and it is exactly
+`ctorApp_hasType_gen`'s type. -/
+theorem tyBinder_instAll {T' : VIndType} {us : List VLevel} {ps args : List VExpr} {n : Nat}
+    (hlen : args.length = T'.indices.length) :
+    VExpr.instAll ((VExpr.const T'.name us).mkApp
+        ((ps.map (·.liftN n)).map (·.liftN T'.indices.length) ++ bvars 0 T'.indices.length))
+      args 0
+      = (VExpr.const T'.name us).mkApp (ps.map (·.liftN n) ++ args) := by
+  rw [VExpr.instAll_mkApp, VExpr.instAll_const, List.map_append,
+    VExpr.map_instAll_bvars_top (Nat.le_refl _) (by omega),
+    List.take_of_length_le (by omega)]
+  simp only [List.map_map, Function.comp_def, VExpr.liftN_zero]
+  congr 1
+  congr 1
+  · refine List.map_congr_left fun p _ => ?_
+    rw [← hlen]
+    exact VExpr.instAll_liftN args (p.liftN n) 0
+  · simp
+
+/-- **`padMinor_hasType'`'s last premise, discharged at a non-recursive constructor.**
+
+Three named pieces and nothing else: `minorTele_norec` identifies the context,
+`minorBodyArgs_norec` the values, and `ctorArgs_hasArgs_gen`/`ctorApp_hasType_gen` type them.
+So for a non-recursive block the padding minor is fully proved; what a **recursive** one
+still needs is the same three with the induction-hypothesis binders in the way. -/
+theorem padMinor_hbs_norec (henv : env.Ordered) (hI : D.IotaCtx env)
+    (h3 : us.length = D.uvars) (h7 : ∀ l ∈ us, l.WF U)
+    {t q : Nat} {T' : VIndType} {C' : VIndCtor} {lvls : List VLevel}
+    (hT : D.types[t]? = some T') (hC : C' ∈ T'.ctors) (hCall : (t, C') ∈ D.ctorsAll)
+    {Γ ps mots acc : List VExpr}
+    (hrec : C'.recFields = []) (hps : ps.length = D.np)
+    (hmots : mots.length = D.nm) (hacc : acc.length = q)
+    (hself : D.selfLvls.map (VLevel.inst lvls) = us)
+    (hcl : VExpr.ClosedTele (T'.indices.map (VExpr.instL us)) ps.length)
+    (hpsA : env.HasArgs U Γ (D.params.map (VExpr.instL us)) ps) :
+    env.HasArgs U
+      ((VExpr.instAllTele ((D.minorBinders q C').map (VExpr.instL lvls))
+        (ps ++ mots ++ acc)).reverse ++ Γ)
+      (VExpr.instAllTele (T'.indices.map (VExpr.instL us))
+          (ps.map (·.liftN ((D.minorBinders q C').map (VExpr.instL lvls)).length))
+        ++ [(VExpr.const T'.name us).mkApp
+              ((ps.map (·.liftN ((D.minorBinders q C').map (VExpr.instL lvls)).length)).map
+                  (·.liftN T'.indices.length)
+                ++ bvars 0 T'.indices.length)])
+      (D.minorBodyArgs lvls q C' (ps ++ mots ++ acc)) := by
+  have hih : D.ihTypes q C' = [] := by simp [VInductDecl'.ihTypes, hrec]
+  have hk : ((D.minorBinders q C').map (VExpr.instL lvls)).length = C'.fields.length := by
+    rw [D.length_minorBinders_map q C' lvls, hih]; simp
+  have hal : C'.args.length = T'.indices.length :=
+    (hI.toRecCtx.ctors t T' hT C' hC).args_len
+  rw [D.minorTele_norec hrec hmots hacc hself,
+    D.minorBodyArgs_norec hrec hps hmots hacc hself, hk,
+    ← VExpr.liftTele_instAllTele₀ hcl]
+  refine VEnv.HasArgs.concat
+    (ctorArgs_hasArgs_gen henv hI h7 hT hC hpsA) ?_
+  rw [tyBinder_instAll (T' := T') (by simpa using hal)]
+  exact ctorApp_hasType_gen henv hI h3 h7 hT hC hCall hps hpsA
+
+/-- **The padding minor is well-typed, at a non-recursive constructor of any block member.**
+
+This is `docs/handoff-projections.md` §0.5's residual closed, and the whole of `padMinor`'s
+typing obligation for a non-recursive block.  The premises that remain are ambient
+bookkeeping the consumer already holds: the parameter spine, the declared type, `X`'s typing,
+and the motive-prefix spine moved under the minor's own binders.
+
+The only thing a **recursive** constructor changes is that `C'.recFields ≠ []` puts the
+induction-hypothesis binders between the fields and the body; `minorTele_norec`,
+`minorBodyArgs_norec` and `padMinor_hbs_norec` are the three lemmas that then have to carry a
+`liftN nr` through. -/
+theorem padMinor_hasType_norec (henv : env.Ordered) (hI : D.IotaCtx env)
+    (h7 : ∀ l ∈ us, l.WF U) (hus : us.length = D.uvars) {t : Nat} (ht : t ≤ D.nm)
+    (hT : D.types[t]? = some T') (htlt : t < D.nm)
+    {i q : Nat} {C' : VIndCtor} {lvls : List VLevel}
+    (hC : C' ∈ T'.ctors) (hCall : (t, C') ∈ D.ctorsAll) (hrec : C'.recFields = [])
+    {Γ ps mots acc ms : List VExpr} {X : VExpr}
+    (hself : D.selfLvls.map (VLevel.inst lvls) = us)
+    (hcl : VExpr.ClosedTele (T'.indices.map (VExpr.instL us)) ps.length)
+    (hget : mots[t]? = some (D.padMotive T' us ps X))
+    (hps : ps.length = D.np) (hmots : mots.length = D.nm) (hacc : acc.length = q)
+    (hms : ms.length = t)
+    (hΓ : OnCtx Γ (env.IsType U))
+    (hdecl : env.IsType U Γ
+      (VExpr.instAll ((D.minorType q t C').instL lvls) (ps ++ mots ++ acc)))
+    (hX : env.HasType U Γ X (.sort (D.elimLvl.inst (D.projLvls C us i))))
+    (hpsA : env.HasArgs U Γ (D.params.map (VExpr.instL us)) ps)
+    (hspine : env.HasArgs U
+      ((VExpr.instAllTele ((D.minorBinders q C').map (VExpr.instL lvls))
+        (ps ++ mots ++ acc)).reverse ++ Γ)
+      ((D.atRecTele D.params).map (VExpr.instL (D.projLvls C us i))
+        ++ ((List.range t).map D.motiveType).map (VExpr.instL (D.projLvls C us i)))
+      ((ps.map (·.liftN ((D.minorBinders q C').map (VExpr.instL lvls)).length)) ++ ms)) :
+    env.HasType U Γ (D.padMinor lvls (ps ++ mots ++ acc) X q C')
+      (VExpr.instAll ((D.minorType q t C').instL lvls) (ps ++ mots ++ acc)) :=
+  padMinor_hasType' (C := C) henv hI h7 hus ht hT htlt hcl hget hps hmots hacc hms hΓ hdecl
+    hX hspine
+    (padMinor_hbs_norec henv hI hus h7 hT hC hCall hrec hps hmots hacc hself hcl hpsA)
 
 end
 

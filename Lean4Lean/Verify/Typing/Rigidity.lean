@@ -172,27 +172,32 @@ independent handles:
   `Verify/Environment` side, which this stream does not own, and it waits on `AddInduct`
   acquiring constructors.  Recorded so that nobody charges this to `VEnv.Sig`. -/
 
-theorem VEnv.addDefEqList_defeqs_inv :
+/-- Local re-derivation of `VEnv.addDefEqList_defeqs_inv` (`Verify/Environment/Basic.lean`),
+with the disjuncts in the other order.  **Primed deliberately**: the unprimed name is taken by
+that file, and two modules declaring one name can never be imported together — which is not a
+build error (nothing imported both) but silently blocks any future file, or measurement
+script, that needs both.  Found by a cone-measurement import. -/
+theorem VEnv.addDefEqList_defeqs_inv' :
     ∀ (l : List VDefEq) (env : VEnv) (df : VDefEq),
       (l.foldl VEnv.addDefEq env).defeqs df → df ∈ l ∨ env.defeqs df
   | [], _, _, h => .inr h
   | d :: l, env, df, h => by
-    rcases addDefEqList_defeqs_inv l (env.addDefEq d) df h with h | h
+    rcases addDefEqList_defeqs_inv' l (env.addDefEq d) df h with h | h
     · exact .inl (.tail _ h)
     · rcases h with rfl | h
       · exact .inl (.head _)
       · exact .inr h
 
-theorem VEnv.addIndRules_defeqs_inv {env : VEnv} {D : VInductDecl'} {df : VDefEq}
+theorem VEnv.addIndRules_defeqs_inv' {env : VEnv} {D : VInductDecl'} {df : VDefEq}
     (h : (env.addIndRules D).defeqs df) : df ∈ D.iotaRules ∨ env.defeqs df :=
-  addDefEqList_defeqs_inv _ _ _ h
+  addDefEqList_defeqs_inv' _ _ _ h
 
 theorem VEnv.addInduct'_defeqs_inv {env env' : VEnv} {D : VInductDecl'} {df : VDefEq}
     (h : env.addInduct' D = some env') (hdf : env'.defeqs df) :
     df ∈ D.iotaRules ∨ env.defeqs df := by
   rw [VEnv.addInduct'_eq, Option.map_eq_some_iff] at h
   obtain ⟨env₁, h1, rfl⟩ := h
-  rcases addIndRules_defeqs_inv hdf with h | h
+  rcases addIndRules_defeqs_inv' hdf with h | h
   · exact .inl h
   · exact .inr (by rwa [VEnv.addConstList_defeqs h1] at h)
 

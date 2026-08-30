@@ -66,5 +66,44 @@ theorem projCoreG_arity_right' (C : VIndCtor) (us : List VLevel)
   ⟨VInductDecl'.recArity_eq_projCoreG decl2 (decl2.types.getD 0 default) C us rfl rfl,
     by decide⟩
 
+/-! ## The head identification, fired
+
+`minorBody_instAll_spine` is the index computation the whole generalisation turns on: minor
+`q`'s declared body reads motive `t` out of the spine `ps ++ mots ++ mins<q`.  An off-by-one
+there would be invisible to every arity check above — the spine has the right *length* either
+way — so it is fired here at two different `(q, t)` pairs of `decl2`, with **distinct**
+motives in the block, so that reading the wrong one would not typecheck.
+
+`decl2`'s two types have no fields and no indices, so `nf = nr = np = 0` and what is exercised
+is precisely the `q + (nm - 1 - t)` half of the index. -/
+
+theorem minorBody_head_at_decl2 (lvls : List VLevel) (m0 m1 a0 : VExpr) (C : VIndCtor) :
+    -- minor 0, a constructor of the block's type 0, reads motive `m0`…
+    VExpr.instAll ((decl2.minorBody 0 0 C).instL lvls) ([] ++ [m0, m1] ++ [])
+        ((decl2.minorBinders 0 C).map (VExpr.instL lvls)).length
+      = (m0.liftN ((decl2.minorBinders 0 C).map (VExpr.instL lvls)).length).mkApp
+          (decl2.minorBodyArgs lvls 0 C ([] ++ [m0, m1] ++ [])) ∧
+    -- …and minor 1, a constructor of type 1, reads `m1` — one further along the spine, and
+    -- with one more entry of the accumulator below it.
+    VExpr.instAll ((decl2.minorBody 1 1 C).instL lvls) ([] ++ [m0, m1] ++ [a0])
+        ((decl2.minorBinders 1 C).map (VExpr.instL lvls)).length
+      = (m1.liftN ((decl2.minorBinders 1 C).map (VExpr.instL lvls)).length).mkApp
+          (decl2.minorBodyArgs lvls 1 C ([] ++ [m0, m1] ++ [a0])) :=
+  ⟨decl2.minorBody_instAll_spine rfl rfl rfl rfl (by decide),
+   decl2.minorBody_instAll_spine rfl rfl rfl rfl (by decide)⟩
+
+/-- **`padMinor_beta`'s `hget` premise is satisfiable, and at the padding entry.**  At the
+projected index the block holds the *real* motive; at the other index it holds a `padMotive`,
+which is what `padMinor_beta` reads.  Both directions, at `decl2` with `j = 0`. -/
+theorem padMotives_at_decl2 (T : VIndType) (C : VIndCtor) (us : List VLevel)
+    (i : Nat) (earlier : List VExpr) (e : VExpr) :
+    (decl2.padMotives T C us [] [] i 0 earlier e)[0]?
+        = some (T.projMotive C us [] [] i earlier) ∧
+    (decl2.padMotives T C us [] [] i 0 earlier e)[1]?
+        = some (decl2.padMotive (decl2.types.getD 1 default) us []
+            ((T.projMotive C us [] [] i earlier).mkApp ([] ++ [e]))) :=
+  ⟨decl2.padMotives_getElem_eq T C us [] [] i 0 earlier e (by decide),
+   decl2.padMotives_getElem_ne T C us [] [] i 0 earlier e (by decide) (by decide)⟩
+
 end MutNonRec
 end Lean4Lean
