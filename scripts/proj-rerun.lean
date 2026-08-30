@@ -3,6 +3,7 @@ import Lean4Lean.Theory.Inductive.StructureEta
 import Lean4Lean.Verify.StructureBridge
 import Lean4Lean.Verify.Typing.ProjGenWitness
 import Lean4Lean.Verify.Typing.ProjGenLiftWitness
+import Lean4Lean.Verify.Typing.ProjGenInstWitness
 import Lean4Lean.Verify.Typing.Lemmas
 import Lean4Lean.Verify.TypeChecker.IsDefEq
 
@@ -102,3 +103,57 @@ open Lean4Lean
 #print axioms Lean4Lean.Rich.projCoreG_lift'_fires
 #print axioms Lean4Lean.Rich.projTermG_lift'_fires
 #print axioms Lean4Lean.Rich.padMinor_lift_moves
+
+-- this round: block A's `inst` and `instL` families
+#print axioms Lean4Lean.VExpr.inst_liftN_add
+#print axioms Lean4Lean.VInductDecl'.padMinor_instN
+#print axioms Lean4Lean.VInductDecl'.realMinor_instN
+#print axioms Lean4Lean.VInductDecl'.padMotive_instN
+#print axioms Lean4Lean.VIndType.projMotive_instN
+#print axioms Lean4Lean.VInductDecl'.padMotives_instN
+#print axioms Lean4Lean.VInductDecl'.padMinorsAux_instN
+#print axioms Lean4Lean.VInductDecl'.padMinors_instN
+#print axioms Lean4Lean.VInductDecl'.projCoreG_instN
+#print axioms Lean4Lean.VInductDecl'.projArgsG_instN
+#print axioms Lean4Lean.VInductDecl'.projTermG_instN
+#print axioms Lean4Lean.VInductDecl'.projLvls_inst
+#print axioms Lean4Lean.VInductDecl'.padMinor_instL
+#print axioms Lean4Lean.VInductDecl'.realMinor_instL
+#print axioms Lean4Lean.VInductDecl'.padMotive_instL
+#print axioms Lean4Lean.VIndType.projMotive_instL
+#print axioms Lean4Lean.VInductDecl'.padMotives_instL
+#print axioms Lean4Lean.VInductDecl'.padMinorsAux_instL
+#print axioms Lean4Lean.VInductDecl'.padMinors_instL
+#print axioms Lean4Lean.VInductDecl'.projCoreG_instL
+#print axioms Lean4Lean.VInductDecl'.projArgsG_instL
+#print axioms Lean4Lean.VInductDecl'.projTermG_instL
+-- …the refutation re-run at the *conclusion*, and the passenger check
+#print axioms Lean4Lean.ProjClosedGap.padMinor_instN_false_at_badCtor
+#print axioms Lean4Lean.ProjClosedGap.padMinor_instN_false_at_argsCtor
+-- …fired at the exactly-saturated bound, and not an identity there
+#print axioms Lean4Lean.Rich.padMinor_instN_fires
+#print axioms Lean4Lean.Rich.projCoreG_instN_fires
+#print axioms Lean4Lean.Rich.projTermG_instN_fires
+#print axioms Lean4Lean.Rich.padMinor_inst_moves
+-- …the `instL` family at a block whose levels actually move
+#print axioms Lean4Lean.Poly.projLvls_inst_fires
+#print axioms Lean4Lean.Poly.projLvls_moves
+#print axioms Lean4Lean.Poly.projMotive_instL_moves
+#print axioms Lean4Lean.Poly.projTermG_instL_fires
+-- …two negative controls, neither an arity error
+#print axioms Lean4Lean.InstControls.realMinor_instN_false_without_hi
+#print axioms Lean4Lean.InstControls.projArgsG_instN_false_at_zero
+#print axioms Lean4Lean.InstControls.projArgsG_one_at_rich
+
+-- this round: ingredient (b) of `realMinor_hasType_gen`
+#print axioms Lean4Lean.VInductDecl'.ProjClosedG.ftype_closedN
+#print axioms Lean4Lean.VInductDecl'.projTermG_instAll
+#print axioms Lean4Lean.VInductDecl'.projArgsG_eq_map
+#print axioms Lean4Lean.VInductDecl'.projMotiveBodyG_instAll
+#print axioms Lean4Lean.Rich.projArgsG_eq_map_fires
+#print axioms Lean4Lean.Rich.projTermG_instAll_fires
+#print axioms Lean4Lean.Rich.projMotiveBodyG_instAll_fires
+#print axioms Lean4Lean.DepPair.depBlock_projClosedG
+#print axioms Lean4Lean.DepPair.projMotiveBodyG_instAll_fires
+#print axioms Lean4Lean.DepPair.rhs_moves
+#print axioms Lean4Lean.InstControls.projMotiveBodyG_instAll_false_without_hps

@@ -12,6 +12,7 @@ import Lean4Lean.Verify.Soundness
 -- files. Add every new leaf here.
 import Lean4Lean.Verify.Typing.ProjClosedGWitness
 import Lean4Lean.Verify.Typing.ProjGenLiftWitness
+import Lean4Lean.Verify.Typing.ProjGenInstWitness
 import Lean4Lean.Verify.Typing.ProjGenWitness
 import Lean4Lean.Verify.Typing.ProjWfWitness
 import Lean4Lean.Verify.Typing.ProjLevelWitness

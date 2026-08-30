@@ -1,6 +1,7 @@
 import Lean4Lean.Verify.Typing.ProjGen
 import Lean4Lean.Verify.Typing.ProjGenWitness
 import Lean4Lean.Verify.Typing.ProjGenLiftWitness
+import Lean4Lean.Verify.Typing.ProjGenInstWitness
 import Lean4Lean.Verify.Typing.Lemmas
 import Lean4Lean.Verify.Typing.Rigidity
 import Lean4Lean.Verify.Typing.ConstSpineWF
@@ -103,13 +104,59 @@ def seeds : List Name :=
    ``Lean4Lean.VInductDecl'.projTermG_lift',
    ``Lean4Lean.Rich.projCoreG_lift'_fires,
    ``Lean4Lean.Rich.projTermG_lift'_fires,
-   ``Lean4Lean.Rich.padMinor_lift_moves]
+   ``Lean4Lean.Rich.padMinor_lift_moves,
+   -- block A, the `inst` and `instL` families
+   ``Lean4Lean.VExpr.inst_liftN_add,
+   ``Lean4Lean.VInductDecl'.padMinor_instN,
+   ``Lean4Lean.VInductDecl'.realMinor_instN,
+   ``Lean4Lean.VInductDecl'.padMotive_instN,
+   ``Lean4Lean.VIndType.projMotive_instN,
+   ``Lean4Lean.VInductDecl'.padMotives_instN,
+   ``Lean4Lean.VInductDecl'.padMinorsAux_instN,
+   ``Lean4Lean.VInductDecl'.padMinors_instN,
+   ``Lean4Lean.VInductDecl'.projCoreG_instN,
+   ``Lean4Lean.VInductDecl'.projArgsG_instN,
+   ``Lean4Lean.VInductDecl'.projTermG_instN,
+   ``Lean4Lean.VInductDecl'.projLvls_inst,
+   ``Lean4Lean.VInductDecl'.padMinor_instL,
+   ``Lean4Lean.VInductDecl'.realMinor_instL,
+   ``Lean4Lean.VInductDecl'.padMotive_instL,
+   ``Lean4Lean.VIndType.projMotive_instL,
+   ``Lean4Lean.VInductDecl'.padMotives_instL,
+   ``Lean4Lean.VInductDecl'.padMinorsAux_instL,
+   ``Lean4Lean.VInductDecl'.padMinors_instL,
+   ``Lean4Lean.VInductDecl'.projCoreG_instL,
+   ``Lean4Lean.VInductDecl'.projArgsG_instL,
+   ``Lean4Lean.VInductDecl'.projTermG_instL,
+   ``Lean4Lean.ProjClosedGap.padMinor_instN_false_at_badCtor,
+   ``Lean4Lean.ProjClosedGap.padMinor_instN_false_at_argsCtor,
+   ``Lean4Lean.Rich.padMinor_instN_fires,
+   ``Lean4Lean.Rich.projCoreG_instN_fires,
+   ``Lean4Lean.Rich.projTermG_instN_fires,
+   ``Lean4Lean.Rich.padMinor_inst_moves,
+   ``Lean4Lean.Poly.projLvls_inst_fires,
+   ``Lean4Lean.Poly.projLvls_moves,
+   ``Lean4Lean.Poly.projMotive_instL_moves,
+   ``Lean4Lean.Poly.projTermG_instL_fires,
+   ``Lean4Lean.InstControls.realMinor_instN_false_without_hi,
+   ``Lean4Lean.InstControls.projArgsG_instN_false_at_zero,
+   -- ingredient (b) of `realMinor_hasType_gen`
+   ``Lean4Lean.VInductDecl'.ProjClosedG.ftype_closedN,
+   ``Lean4Lean.VInductDecl'.projTermG_instAll,
+   ``Lean4Lean.VInductDecl'.projArgsG_eq_map,
+   ``Lean4Lean.VInductDecl'.projMotiveBodyG_instAll,
+   ``Lean4Lean.Rich.projMotiveBodyG_instAll_fires,
+   ``Lean4Lean.DepPair.depBlock_projClosedG,
+   ``Lean4Lean.DepPair.projMotiveBodyG_instAll_fires,
+   ``Lean4Lean.DepPair.rhs_moves,
+   ``Lean4Lean.InstControls.projMotiveBodyG_instAll_false_without_hps]
 
 def main : IO Unit := do
   initSearchPath (← findSysroot)
   let env ← importModules #[{module := `Lean4Lean.Verify.Typing.ProjGen},
                             {module := `Lean4Lean.Verify.Typing.ProjGenWitness},
                             {module := `Lean4Lean.Verify.Typing.ProjGenLiftWitness},
+                            {module := `Lean4Lean.Verify.Typing.ProjGenInstWitness},
                             {module := `Lean4Lean.Verify.Typing.Lemmas},
                             {module := `Lean4Lean.Verify.Typing.Rigidity},
                             {module := `Lean4Lean.Verify.Typing.ConstSpineWF},
