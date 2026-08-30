@@ -4,31 +4,39 @@ Session result, written for whoever picks this up next. Claims are marked
 **[machine]** (a `sorry`-free Lean declaration in this tree, or a `lake build` /
 `#print axioms` / cone-script run on this commit) or **[analysis]** (read off source or
 argued, not machine-checked). The distinction is load-bearing: this corner has produced
-three wrong verdicts in three sessions, every one of them from analysis, and every
-correction from a machine run.
+wrong verdicts in four sessions, every one of them from analysis, and every correction from
+a machine run.
 
-Everything below was verified against a green `lake build` — 1352 jobs, **all three
-`Verify/Guard.lean` checks pass** (guard 2 still says "proof INCOMPLETE: sorryAx
-present"). **[machine]**
+Everything below was verified against a `lake build` of the whole package. One file fails,
+`Lean4Lean/Verify/StructureBridge.lean` — it is **untracked, another stream's in-progress
+work**, and nothing in this stream touches it or is touched by it. `git status` shows this
+stream's only modification is `Theory/Typing/Injectivity.lean`. **[machine]**
 
 ---
 
 ## 0. Headline
 
-1. **The census went 21 → 20**, and no other module's count moved. `IsDefEqU.sort_inv` is
-   **proved**. Its statement, name and namespace are unchanged; every consumer sees it
-   exactly as before. **[machine]**
-2. **The four `proofIrrel` holes are closed** — in `forallE_inv`, `sort_forallE_inv`,
-   `const_forallE_inv`, `const_sort_inv` — and, unlike what `§9.1` of the previous version
-   of this document said, **this costs no statement a hypothesis and needed no human call**,
-   because `VEnv.SortUniq` is now a theorem rather than an assumption. `Injectivity.lean`'s
-   raw `sorry` count went **12 → 6**. **[machine]**
-3. **`forallE_inv_stratified` is NOT a passenger, and the route in
-   `docs/handoff-sortuniq.md` §9 fails.** It fails on the index, exactly where that document
-   said the question would be settled. Two `sorry`-free implications now pin the shape:
-   `PiInvStrat → SortUniq` and `SortUniq → PiInv → PiInvStrat`. So **relative to plain
-   Π-injectivity, `forallE_inv_stratified` and `SortUniq` are equivalent** — the corner is a
-   *circle*, not a chain. **[machine]**
+1. **`const_app_inv` is no longer opaque.** It was `:= sorry` with an *empty* dependency
+   cone. It is now the same 13-case induction on `IsDefEqStrong` as its four siblings, and
+   **`trans` is its only residual** — byte for byte the residual of `forallE_inv`,
+   `sort_forallE_inv`, `const_forallE_inv` and `const_sort_inv`. The statement is unchanged:
+   `git diff` on the file removes exactly two lines, a docstring closer and `:= sorry`.
+   **[machine]**
+2. **The blocker a previous stream recorded was real, and it is dissolved by weakening the
+   invariant.** That stream wrote: *"its `proofIrrel` case is not refutable without the
+   `IsType` side condition, and `IsType` does not propagate into the induction (at `appDF`
+   the sub-spine has a Π type). Settle the invariant before writing anything."* Both halves
+   are correct. The invariant is **`¬ IsProof`**: implied by `IsType` (so no statement is
+   weakened), sufficient for `proofIrrel` (so the case still closes), and — unlike `IsType`
+   — **closed downward along a spine**. **[machine]**
+3. **The census did not move: 19 → 19.** No hole closed. What closed is one statement's
+   *independence*: `const_app_inv` was a second mathematical obligation and is now the same
+   one as the rest. **[machine]**
+4. **The K-rule has not landed in the form this corner needs.** `Theory/Typing/KRule.lean`
+   exists (another stream) and proves `KStep.defeq` and non-vacuity, but a grep for `KStep`
+   over the whole package returns **zero occurrences outside that file**: `ParRed`,
+   `CParRed` and `NormalEq.parRed` are unextended. So the re-test the brief asked for is not
+   yet possible. Measured, not assumed. **[machine]**
 
 Nothing was refuted this session.
 
@@ -36,284 +44,257 @@ Nothing was refuted this session.
 
 ## 1. Census, before and after **[machine]**
 
-`lake env lean scripts/sorry-census.lean`, run at the start and at the end.
+`lake env lean scripts/sorry-census.lean`, run at the start and at the end. **Identical**:
 
-| module | before | after |
-|---|---|---|
-| `Theory.Inductive.Decl` | 1 | 1 |
-| `Theory.Typing.ChurchRosser` | 1 | 1 |
-| **`Theory.Typing.Injectivity`** | **7** | **6** |
-| `Theory.Typing.UniqueTyping` | 1 | 1 |
-| `Verify.Environment` | 1 | 1 |
-| `Verify.Environment.Boundaries` | 1 | 1 |
-| `Verify.Soundness` | 2 | 2 |
-| `Verify.TypeChecker.InferType` | 1 | 1 |
-| `Verify.TypeChecker.IsDefEq` | 2 | 2 |
-| `Verify.TypeChecker.WHNF` | 1 | 1 |
-| `Verify.Typing.Lemmas` | 3 | 3 |
-| **TOTAL** | **21** | **20** |
-
-The one that left is `Lean4Lean.VEnv.IsDefEqU.sort_inv`.
-
-`Injectivity.lean`'s six remaining `sorry`s, by content:
-
-| declaration | residual |
+| module | count |
 |---|---|
-| `IsDefEqU.forallE_inv_stratified` | opaque `:= sorry` — see §3 |
-| `IsDefEqU.forallE_inv` | **`trans` only** |
-| `IsDefEqU.sort_forallE_inv` | **`trans` only** |
-| `IsDefEqU.const_forallE_inv` | **`trans` only** |
-| `IsDefEqU.const_sort_inv` | **`trans` only** |
-| `IsDefEqU.const_app_inv` | opaque `:= sorry` — see §6 |
+| `Theory.Inductive.Decl` | 1 |
+| `Theory.Typing.ChurchRosser` | 1 |
+| **`Theory.Typing.Injectivity`** | **6** |
+| `Theory.Typing.UniqueTyping` | 1 |
+| `Verify.Environment` | 1 |
+| `Verify.Environment.Boundaries` | 1 |
+| `Verify.Soundness` | 2 |
+| `Verify.TypeChecker.InferType` | 1 |
+| `Verify.TypeChecker.IsDefEq` | 2 |
+| `Verify.TypeChecker.WHNF` | 1 |
+| `Verify.Typing.Lemmas` | 2 |
+| **TOTAL** | **19** |
+
+`Injectivity.lean`'s six, by content — **the change is in the last row**:
+
+| declaration | residual before | residual after |
+|---|---|---|
+| `IsDefEqU.forallE_inv_stratified` | opaque `:= sorry` | opaque `:= sorry` — §5 |
+| `IsDefEqU.forallE_inv` | `trans` only | `trans` only |
+| `IsDefEqU.sort_forallE_inv` | `trans` only | `trans` only |
+| `IsDefEqU.const_forallE_inv` | `trans` only | `trans` only |
+| `IsDefEqU.const_sort_inv` | `trans` only | `trans` only |
+| **`IsDefEqU.const_app_inv`** | **opaque `:= sorry`** | **`trans` only** |
 
 Every `trans` says the same thing: *a term convertible with a Π (resp. with a rule-free
-constant application, resp. with a sort) reduces to one*. That is a normalisation statement,
-and after this session it is **the only non-opaque residual left in the file**. The
-sort-flavoured version of it is gone entirely.
+constant application, resp. with a sort) reduces to one*. That is a normalisation statement.
+After this session it is the **only** non-opaque residual in the file, and
+`forallE_inv_stratified` is the only opaque one.
 
 ---
 
-## 2. `sort_inv` is proved. What actually happened
+## 2. `const_app_inv`: what was actually wrong, and what fixed it
 
-Two prior sessions established, and this session used:
+### 2.1 The diagnosis that was already in the tree, and is correct **[analysis, confirmed]**
 
-* `VEnv.SortUniq` (universe uniqueness) implies `IsDefEqU.sort_inv` with **no normalisation
-  argument** — `sort_inv_of_sortUniq`, `[propext, Quot.sound]`, `sorry`-free. The conversion
-  derivation is never opened: `IsDefEqU U Γ (.sort u) (.sort v)` unfolds to *one* type
-  inhabited by *both* endpoints, because `IsDefEq` here is type-indexed. **[machine]**
-* `SortUniq` rides as a **passenger conjunct** inside `IsDefEq.uniq`'s own stratified
-  induction — `uniqAux`. `IsDefEq.uniq` calls `sort_inv` nine times and every call is on its
-  own IH output, so the fact can be carried instead of imported. **[machine]**
+`ConstInvWitness.lean`'s `w2` machine-checks that `const_app_inv` **without** its second side
+condition is inconsistent: `mkP : Type 0 → P` is an axiom heading no rule, so `RuleFreeHead`
+holds of it, and yet `IsDefEq.proofIrrel` identifies `mkP A` with `mkP B` for any `A`, `B`.
+The condition has to say that the application is a *type*, not a *proof*.
 
-What was missing was the plumbing, and the plumbing was the whole difficulty: the
-development lived *above* `UniqueTyping.lean`, and `sort_inv`'s consumers live above that.
+The previous stream then found that the condition cannot be threaded: an induction on
+`IsDefEqStrong` reaches `appDF`, where the invariant must be re-established at the function
+side `f` of `.app f a` — and `f`'s type is `.forallE A B`, not a sort. `IsType` is simply
+false of the sub-spine. That is why the theorem was left opaque rather than half-written.
 
-**What was done.** The `uniqAux` development was moved *into* `Injectivity.lean`, as
-`section UniqAux`, sitting between `forallE_inv_stratified` (which it needs) and the rest of
-the family (which now needs it). `sort_inv_of_sortUniq` was moved from `SortUniqDown.lean`
-to `SortUniq.lean` so `Injectivity.lean` can reach it — `SortUniqDown` imports `CycleConv`,
-which imports `Injectivity`, so that file could never have been imported here.
-`UniqueTyping.lean` is **byte-identical to HEAD**: its `IsDefEq.uniq` now calls the proved
-`sort_inv` without any edit to its proof. **[machine]**
+### 2.2 The fix: weaken the invariant until it propagates **[machine]**
 
-**Import order was the whole risk, and it is discharged by the build.** The section had to
-land inside `Injectivity.lean` rather than in a file below it, because `CycleConv.lean` and
-`ConstInvWitness.lean` import `Injectivity` and consume its theorems, and neither is this
-stream's to edit.
+`IsType` was the wrong carrier because it is *stronger than the `proofIrrel` case needs* and
+*not closed downward*. The weakest thing `proofIrrel` needs is the negation of
 
-### Files, and what moved
+```
+VEnv.IsProof env U Γ e  :=  ∃ p, env.HasType U Γ p (.sort .zero) ∧ env.HasType U Γ e p
+```
 
-| file | change |
+and three facts about it, all proved in `Injectivity.lean`'s `section UniqAux`:
+
+* `IsType.not_isProof` — **a type is not a proof.** Same argument and same input as
+  `VEnv.sort_not_proof` (`SortUniq.lean`) and `VEnv.forallE_not_proof` (`NotProof.lean`):
+  universe uniqueness, which `WF.sortUniq'` supplies in-file, so the public statement gains
+  no hypothesis. Those two lemmas are about a *particular shape* being a type; this is about
+  being a type at all.
+* `IsProof.app'` — **proof-ness propagates up an application spine.** If `f` is a proof and
+  `Γ ⊢ f : .forallE A B`, then `.forallE A B` is a `Prop`, i.e. `imax u v ≈ 0`; `imax` is
+  zero exactly when its *second* argument is (`VLevel.imax_eq_zero`); so the codomain is a
+  `Prop` and `.app f a` inhabits it. Contrapositively, `¬IsProof (.app f a) ⟹ ¬IsProof f`,
+  which is the direction the `appDF` case travels.
+* `IsProof.defeqU` — proof-ness transports along a conversion, for the `symm` case.
+
+So the invariant is `¬ env.IsProof U Γ e₁`, discharged at the root by
+`IsType.not_isProof henv hΓ hty` from the theorem's own unchanged hypothesis.
+
+### 2.3 The thirteen cases **[machine]**
+
+| case | how it closes |
 |---|---|
-| `Theory/Typing/Injectivity.lean` | `sort_inv` reproved; `section UniqAux` added; four `proofIrrel` holes closed; `PiInv`/`PiInvStrat`/`piInvStrat_of` added. Imports gain `NotProof`. |
-| `Theory/Typing/SortUniq.lean` | `sort_inv_of_sortUniq` moved in (statement unchanged); `variable` line declares `v` instead of auto-binding it. |
-| `Theory/Typing/SortUniqDown.lean` | `sort_inv_of_sortUniq` moved out; `sort_inv_of_sortUniq'` (the `env.WF` packaging) stays, since `VEnv.WF` is not in `SortUniq.lean`'s import cone. |
-| `Theory/Typing/UniqSort.lean` | reduced to the consequences that must come after `UniqueTyping` (`IsDefEq.uniq'`, `IsDefEqU.sort_inv'`) plus the `propLoopEnv` non-vacuity. |
-| `Theory/Typing/UniqueTyping.lean` | **unchanged.** |
+| `constDF` | the level list is the constructor's own premise; both spines are empty |
+| `appDF` | peel one argument off each spine (`VExpr.mkApp_app_inv`), recurse on the function, append the argument conversion |
+| `extra` | `RuleFreeHead`, via `headConst?_instL` / `headConst?_mkApp` — same as `const_forallE_inv` |
+| `proofIrrel` | `¬IsProof` |
+| `symm`, `defeqDF` | bookkeeping |
+| `bvar`, `sortDF`, `lamDF`, `forallEDF`, `beta`, `eta` | vacuous on `VExpr.spineHead` of the left endpoint |
+| **`trans`** | **OPEN** — the middle term is arbitrary |
 
----
+New supporting lemmas, all in `Injectivity.lean`: `VExpr.mkApp_app_inv` (a spine that is an
+application has that application's argument as its last entry), `VExpr.mkApp_eq_of_not_app`,
+`List.Forall₂.symm'`, `List.Forall₂.append'`.
 
-## 3. The main event: `forallE_inv_stratified` is not a passenger
+### 2.4 Unique typing at this height **[machine]**
 
-`docs/handoff-sortuniq.md` §9 proposed replacing `forallE_inv_stratified` inside `uniqAux`'s
-`app` case by the *unstratified* `forallE_inv` plus a re-stratification through
-`HasTypeStratified.forallE_inv'`, and said "the index bookkeeping in the `app` case is where
-it will succeed or fail."
+`IsProof.app'` and `IsType.not_isProof` need unique typing, and `IsDefEq.uniq` lives in
+`UniqueTyping.lean`, which **imports** `Injectivity.lean`. They do not import it: `uniqAux`
+(already in this file, from the previous session) *is* `IsDefEq.uniq`'s own invariant and
+`piInvStrat_axiom` discharges its hypothesis, so `WF.uniq'` re-derives the same conclusion
+here. `HasType.defeqU_l'` is the one retyping lemma the argument uses, primed so that
+`UniqueTyping.lean`'s unprimed original still elaborates. **Nothing new is assumed**:
+`WF.uniq'` has exactly `IsDefEq.uniq`'s cone.
 
-**It fails, and it fails on the index.** Here is the machine-checked half, then the exact
-failing step.
+### 2.5 Non-vacuity **[machine]**
 
-### 3.1 What is machine-checked **[machine]**
+`¬IsProof` is a hypothesis of the induction, so if nothing satisfied `IsProof` the
+`proofIrrel` case would be closed for the uninteresting reason. Two witnesses, both living
+entirely in the context and therefore holding in **every** environment at **every** universe
+count, with no constant and no `VEnv.WF`:
 
-`Injectivity.lean` packages two statements as `Prop`s, with anti-strawman witnesses proving
-that each is the corresponding theorem's type *verbatim*, not a paraphrase:
+* `IsProof_fires` — in `[h : P, P : Prop]`, `h` is a proof. Axioms `[propext]`; **no
+  `sorryAx`**.
+* `IsProof.forallE_fires` — **a proof can be a function.** `.bvar 0` inhabits
+  `Π (x : Prop), P`, which is itself a `Prop`. Axioms `[propext, Quot.sound]`; **no
+  `sorryAx`**. This is the counterexample that makes §2.1's blocker true: the function side
+  of an application really can be a proof, so `IsType` really cannot be carried.
+* `IsProof.app'_fires` — the lemma applied at that witness, so what is checked is that its
+  five hypotheses are jointly satisfiable. Tainted, but only through `WF.uniq'`.
 
-* `VEnv.PiInvStrat env U` — the statement of `IsDefEqU.forallE_inv_stratified`;
-  `piInvStrat_axiom : env.WF → PiInvStrat env U` is that theorem, eta-expanded.
-* `VEnv.PiInv env U` — the statement of `IsDefEqU.forallE_inv`;
-  `piInv_axiom : env.WF → PiInv env U` likewise.
+### 2.6 An honest regression **[machine]**
 
-and proves, both `[propext, Classical.choice, Quot.sound]`, **no `sorryAx`**:
+`const_app_inv` now depends on `IsDefEqU.forallE_inv_stratified`, through `WF.uniq'` and
+`WF.sortUniq'`. Before, its cone was empty — because it was an opaque `sorry`. This is the
+same trade the previous session recorded at its §4.1, and it is worth the same: an empty
+cone on an opaque statement is not independence, it is absence.
 
-```
-sortUniq_of_piInvStrat : env.WF → env.PiInvStrat U → env.SortUniq U
-piInvStrat_of         : env.WF → env.SortUniq U → env.PiInv U → env.PiInvStrat U
-```
-
-So **relative to `PiInv`, `PiInvStrat` and `SortUniq` are equivalent.** `uniqAux` itself is
-now `sorry`-free too (it takes `PiInvStrat` as a hypothesis; `piInvStrat_axiom` discharges
-it). **[machine]**
-
-`piInvStrat_of` is the machine-checked form of what `forallE_inv_stratified`'s docstring
-asserted in prose — that its obstruction is *level alignment*, and that the alignment is
-universe uniqueness. Its proof is three applications of `SortUniq`: one for the domain in
-`Γ`, one for the codomain in `A::Γ`, and one for the codomain in `A'::Γ` — the last needing
-`HasType.defeq_l` first, to move the conversion `forallE_inv` hands back from `A::Γ` to
-`A'::Γ` along the domain conversion.
-
-### 3.2 Where the circle refuses to open — the exact failing step **[analysis]**
-
-Inside `uniqQ`'s `app` case at index `n`, with `IH : ∀ m < n, UniqAux env U m`:
-
-* `forallE_inv'` re-stratifies the two Π-types and yields
-  `HTS (A::Γ) B (.sort p) true (n-2)` — **index-bounded**, so `IH` applies to it.
-* `forallE_inv` yields `IsDefEq (A::Γ) B B' (.sort w)` — an **unstratified** `IsDefEq`. Its
-  `w` is chosen by that theorem's own induction and is tied to no index at all;
-  `HasTypeStrong.stratify` turns `HasType (A::Γ) B (.sort w)` into `HTS … true N` for an `N`
-  that is a function of derivation height, unrelated to `n`.
-* The `app` case needs `p ≈ w` — to retype `d3.instN` from `.sort w` to the level `a7` uses.
-  That is `SortUniq` on `B` at one bounded and one **unbounded** derivation. `IH` covers only
-  `m < n`. **The instance needed is outside the induction hypothesis.**
-
-Three escapes were checked and all close back on themselves:
-
-1. *Bump the bounded derivation to level `w` with `HasTypeStratified.defeq`* — that
-   constructor's conversion premise is `IsDefEq (.sort p) (.sort w) (.sort s)`, i.e. `p ≈ w`.
-2. *Return `w` as the invariant's level instead of `v`* — then `a7` must be retyped instead,
-   same equivalence.
-3. *Ask `forallE_inv` for `IsDefEqU` only and retype with `isDefEq_iff`* — `isDefEq_iff` is
-   `IsDefEq.uniq`, at unbounded index.
-
-**Why the sort conjunct was free and the Π conjunct is not.** `sortType_level` derives
-"`.sort s`'s type is `.sort (succ s)`" from the invariant's *typing components*, because a
-sort's type is determined by the term. A Π's **codomain conversion** `B ≡ B'` is determined
-by no typing whatsoever — recovering it *is* Π-injectivity. Rebuilding
-`HTS Γ (.forallE A B) (.sort (imax p q)) true (n-1)` from `forallE_inv'`'s components does
-work and gives `u ≈ imax p q`, but `imax` is not injective and the conversion is not
-recovered, so the conjunct cannot be discharged uniformly the way the sort one was.
-
-### 3.3 Correction to the method the brief handed me **[analysis, and it bit]**
-
-> *"Grep an open lemma's call sites inside proved theorems. If every call is on an IH output,
-> it is a passenger, not a primitive."*
-
-`forallE_inv_stratified` **passes this test** — its only user is `IsDefEq.uniq`, and the call
-is on `ih3`'s output. It is still not a passenger. The test is **necessary, not sufficient**.
-The missing clause:
-
-> A conjunct can ride along only if it is **derivable from the invariant's own components**.
-> Being reachable from an IH output says the *inputs* are in scope; it says nothing about
-> whether the *conclusion* follows from what the invariant already carries. Check the
-> derivation, not the call site.
-
-That is the third method-level correction this corner has produced, after
-`handoff-stratified.md` §5's criterion being wrong about verdicts twice.
-
-### 3.4 Statement audit of `forallE_inv_stratified` **[machine]**
-
-Asked for specifically, after four statements this session's predecessors found FALSE by
-auto-bound implicits and by missing scope.
+Forward cone over declaration *values* (theorem bodies included), reporting which of the
+seven open statements each declaration reaches. Measured on this commit. **[machine]**
 
 ```
-@IsDefEqU.forallE_inv_stratified : ∀ {env} {Γ} {U} {A B A' B' V} {n} {V'} {n'},
-  env.WF → OnCtx Γ (env.IsType U) →
-  env.IsDefEqU U Γ (A.forallE B) (A'.forallE B') →
-  env.HasTypeStratified U Γ (A.forallE B) V true n →
-  env.HasTypeStratified U Γ (A'.forallE B') V' true n' → …
-```
-
-* **Auto-bound implicits: clean.** Eleven variables, all used, none captured from anything
-  unrelated. (`pp.all` output inspected; no stray section variable, no wrong-typed binder.)
-* **Scope: clean.** This is the `descend` defect — a quantifier with no hypothesis on it.
-  `V`, `V'`, `n`, `n'` are each constrained by `h2`/`h3`, and `n`, `n'` also appear in the
-  conclusion. There is no under-constrained variable that the conclusion asserts something
-  about.
-* **The statement is TRUE**, not merely open: `piInvStrat_of` derives it from `SortUniq` and
-  `PiInv`, both of which are theorems of Lean's type theory. So this is not a fourth
-  refutation. **[machine, modulo the standard-ness of the two inputs]**
-
----
-
-## 4. The `proofIrrel` closure, and why it no longer needs a human call
-
-The previous version of this document put, at §9 item 1, "Decide whether to hypothesise
-`SortUniq` in `Injectivity.lean` … it weakens what four consumers can assume. **Do not do
-this unilaterally.**"
-
-**That decision has evaporated.** `SortUniq` is a theorem here now — `WF.sortUniq'`, proved
-in the same file, above the four consumers — so the four `proofIrrel` holes close by calling
-`forallE_not_proof` / `sort_not_proof` (`Theory/Typing/NotProof.lean`, `SortUniq.lean`) at
-`WF.sortUniq' henv`. **No statement gained a hypothesis. No consumer can assume less than
-before.** **[machine]**
-
-The one mechanical cost: each of the four `aux` inductions had to be generalised over
-`OnCtx Γ (env.IsType U)`, because `SortUniq` is stated with a well-formed-context guard and
-the inductions quantify over `Γ`. All four use their IH only at the same `Γ`, so the change
-is a threaded argument, nothing more.
-
-### 4.1 An honest regression **[machine]**
-
-`forallE_inv` now **depends on `forallE_inv_stratified`**, via `WF.sortUniq'`. The previous
-document's headline #1 — "`forallE_inv`'s in-family dependencies: 1 → 0" — is reversed.
-
-Measured dependency matrix on this commit (forward closure over declaration *values*, scope =
-all `Lean4Lean` modules, 13792 declarations):
-
-```
+  forallE_inv_stratified  -> []
+  weakN_iff               -> []
+  uniqAux                 -> []                          (sorry-free)
   forallE_inv             -> [forallE_inv_stratified]
-  sort_inv                -> [forallE_inv_stratified]
   sort_forallE_inv        -> [forallE_inv_stratified]
   const_forallE_inv       -> [forallE_inv_stratified]
   const_sort_inv          -> [forallE_inv_stratified]
+  const_app_inv           -> [forallE_inv_stratified]     <- new edge, §2.6
+  sort_inv                -> [forallE_inv_stratified]
+  WF.sortUniq'            -> [forallE_inv_stratified]
+  WF.uniq'                -> [forallE_inv_stratified]
+  IsType.not_isProof      -> [forallE_inv_stratified]
+  IsProof.app'            -> [forallE_inv_stratified]
   IsDefEq.uniq            -> [forallE_inv_stratified]
-  uniqAux                 -> []                              (sorry-free)
-  piInvStrat_of           -> []                              (sorry-free)
-  sortUniq_of_piInvStrat  -> []                              (sorry-free)
-  NormalEq.descend        -> [forallE_inv_stratified, forallE_inv, weakN_iff]
-  IsDefEq.church_rosser   -> [… + descend]
-
-  direct users of forallE_inv_stratified: {IsDefEq.uniq, piInvStrat_axiom}
 ```
 
-**Is the regression real?** No, and §3.1 is why. Even before, closing `forallE_inv`'s `trans`
-alone would not have yielded `SortUniq`: `piInvStrat_of` shows `PiInv` reaches `PiInvStrat`
-only *with* `SortUniq`, and nothing in the tree produces `SortUniq` except
-`forallE_inv_stratified`. The dependency edge that was added merely makes visible a knot that
-was already there. **[analysis]** But if a future session wants `forallE_inv` independent
-again — say to prove it from a reduction relation and harvest it standalone — the two-line
-undo is to revert its `proofIrrel` case to `sorry`; nothing else in the file needs it.
+**Read the shape**: every statement of this family now bottoms out in exactly one open
+thing, and it is `forallE_inv_stratified`. There is no second obligation left in the file.
 
 ---
 
-## 5. What is *not* claimed, and what is inherited
+## 3. Method note this session earns
 
-* **Nothing here proves `SortUniq` unconditionally.** `WF.sortUniq'` is `sorryAx`-tainted
-  through `forallE_inv_stratified` and always will be until that statement, or a
-  normalisation result, lands. `#print axioms Lean4Lean.VEnv.WF.sortUniq'` says so.
-* **Non-vacuity.** `VEnv.propLoop_sortUniq : propLoopEnv.SortUniq 0` still fires, at a
-  proved-`VEnv.WF` environment whose head reduction provably has a two-cycle
-  (`propLoop_headStep_not_wf`) — so the `SortUniq` route is not a normalisation argument in
-  disguise. `propLoop_no_direct_collapse'` and `propLoop_zero_not_defeq_one'` are the
-  discharged consumers. **[machine]**
-* **`piInvStrat_of` gets no `_fires` witness, deliberately.** Its hypotheses are exactly the
-  two open statements of this corner; any concrete environment small enough to check makes
-  the conclusion provable directly, so a `_fires` theorem would be the tautology that
-  `StrengthenWitness.lean` was corrected for twice. The anti-strawman check that *does* have
-  content is `piInvStrat_axiom` / `piInv_axiom`: both typecheck, which machine-checks that
-  the packaged `Prop`s are the two theorems' types verbatim.
-* **`docs/handoff-descend.md` is inherited, not re-derived.** `NormalEq.descend` is
-  machine-checked false at three of its five holes, and its refutation argument suggests
-  `IsDefEq.church_rosser` is false for environments with a large-eliminating `Prop`
-  inductive. This stream owns `ChurchRosser.lean` and **did not edit it**; nothing here
-  builds on any of its results. Treat them as suspect.
-* **The cone script's "users of X" lists are scope-limited** to the modules imported by the
-  measuring file. `sort_forallE_inv` shows zero users above because `HeadReduction.lean` and
-  `ConstInvWitness.lean` were outside that scope; they do use it.
+The brief's defect-class list — auto-bound implicits; under-constrained scope; the general
+"a statement carrying less information than its conclusion needs" — is about statements that
+are **too weak**. This session's blocker was the mirror image: an invariant that was **too
+strong to propagate**.
+
+> When an induction cannot re-establish its invariant at a sub-derivation, the move is not
+> always to strengthen the invariant. Ask what the *hard case* actually needs — here,
+> `proofIrrel` needs only "not a proof", not "is a type" — and then ask whether that weaker
+> consequence is closed under the induction's structural step. Weaken until it propagates;
+> the public statement keeps the strong hypothesis and discharges the weak one at the root.
+
+The audit that finds this is the same information-flow audit, run on the *invariant* rather
+than the statement: `IsType` is not derivable from the `appDF` case's components, `¬IsProof`
+is (from `¬IsProof` of the conclusion plus the case's own typing premises).
 
 ---
 
-## 6. What is still open in this file, unchanged
+## 4. Prior sessions' results, still standing **[machine]**
 
-* **`const_app_inv`** — still `:= sorry`, still untouched, and the §7 analysis of the
-  previous version stands: its `proofIrrel` case is *not* refutable without the `IsType` side
-  condition, and `IsType` does not propagate into the induction (at `appDF` the sub-spine has
-  a Π type). **Settle the invariant before writing anything.** `ConstInvWitness.lean`
-  machine-checks that both side conditions are load-bearing.
-* **`IsDefEqU.weakN_iff`** (`UniqueTyping.lean`) — genuinely independent of this family; see
-  `docs/handoff-weakn.md` and `docs/handoff-descend.md` §5. Not touched.
-* **`HasArgsDF.of_isDefEqU`** — the congruence-side twin of `SpineInv.lean`'s
-  `HasArgs.of_mkApp`, still the last named gap before `pat_wf`'s ι case can be attempted end
-  to end. Not written.
+Unchanged and not re-derived here; kept because the cross-references are load-bearing.
+
+* **`sort_inv` is proved.** `IsDefEqU U Γ (.sort u) (.sort v)` unfolds to one type inhabited
+  by both endpoints, so `SortUniq` applies to the endpoints directly
+  (`sort_inv_of_sortUniq`) and the conversion derivation is never opened. No `trans`.
+* **`SortUniq` is a theorem** (`WF.sortUniq'`), relative to `forallE_inv_stratified` alone,
+  by carrying universe uniqueness as a conjunct in `IsDefEq.uniq`'s own invariant
+  (`uniqAux`). This is what closes the four `proofIrrel` holes with **no statement gaining a
+  hypothesis** — and now the fifth, `const_app_inv`'s, through `IsType.not_isProof`.
+* **The corner is a CIRCLE.** `sortUniq_of_piInvStrat : PiInvStrat → SortUniq` and
+  `piInvStrat_of : SortUniq → PiInv → PiInvStrat`, both `sorry`-free. So relative to plain
+  Π-injectivity, `forallE_inv_stratified` and `SortUniq` are **equivalent**.
+  `piInv_axiom` / `piInvStrat_axiom` are the anti-strawman checks that the packaged `Prop`s
+  are those theorems' types verbatim.
+* **Non-vacuity of the `SortUniq` route**: `propLoop_sortUniq` fires at a proved-`VEnv.WF`
+  environment whose head reduction provably has a two-cycle, so the route is not a
+  normalisation argument in disguise.
+* **`NormalEq.descend` is machine-checked false** (`docs/handoff-descend.md`). Do not route
+  through `ChurchRosser.lean`. Not touched this session.
+
+---
+
+## 5. What is still open, and the exact failing step
+
+### 5.1 `forallE_inv_stratified` — the circle **[analysis, from the previous session]**
+
+Inside `uniqQ`'s `app` case at index `n`, with `IH : ∀ m < n, UniqAux env U m`:
+`forallE_inv'` re-stratifies fine and yields an index-bounded derivation, but plain
+`forallE_inv` returns an **unstratified** `IsDefEq` whose level is tied to no index;
+aligning the two is `SortUniq` at an index `IH` cannot reach. Three escapes are written out
+in the previous version of this document and each returns to its own conclusion; do not
+re-attempt them.
+
+**Correction to that document's §8 item 3.** It proposed a lexicographic measure on
+`(index, term size)` to make the unbounded side reachable, and flagged that the `app` case's
+`IH` calls are on `B`, a subterm of the *type*. That flag is a distraction; the idea is dead
+for a more basic reason. **The unbounded derivation is not a recursive call at all.** It is
+an *input*, manufactured by `HasTypeStrong.stratify` from a derivation `forallE_inv` built
+itself; its index is a function of that fresh derivation's height. No measure on an
+induction can bound an index the induction never generates. **[analysis]**
+
+### 5.2 The five `trans` cases
+
+One normalisation statement, five instances. Nothing in the tree currently supplies it:
+`ChurchRosser.lean`'s relation is refuted at `descend`; `HeadReduction.lean`'s has never had
+a confluence argument run over it; `RawDefEq.lean`'s three-place judgment is unexplored.
+`docs/handoff-descend.md` §5 and this document both say: **price `HeadReduction.lean`
+before anyone spends a session on a `trans` case.**
+
+**A dead end worth not re-walking.** For `const_app_inv` specifically, one might hope the
+*level* half `Forall₂ (· ≈ ·) ls ls'` falls out of unique typing the way `sort_inv` did:
+both spines have the same type, so `instAll (ci.type.instL ls) as ≡ instAll (ci.type.instL
+ls') as'`. It sometimes does — for `Quot.{u} α r : Sort u` the type mentions the level, so
+`sort_inv` gives `u ≈ u'` outright. It does not in general (`c : Nat → Nat` gives `c 0` and
+`c 1` the same type), and the *argument* half never does. **[analysis]**
+
+### 5.3 `IsDefEqU.weakN_iff` — not attempted, and re-confirmed blocked **[analysis]**
+
+`Strengthen.lean` (this stream's file, unchanged) already establishes, `sorry`-free,
+`weakN_iff ↔ TypingStrengthening ↔ PiDescend`. Reading `PiDescend`'s statement: given
+`f.liftN n k : .forallE A B` in `Γ'` and `f` well-formed in `Γ`, produce a Π type for `f` in
+`Γ`. `f` has *some* type `T` in `Γ`, so unique typing in `Γ'` gives `T.liftN n k ≡ .forallE
+A B`, and what is then needed is that `T.liftN n k` **reduces** to a Π and that lifting
+commutes with reduction. That is the same reduction relation as §5.2, reached from a
+different direction. The brief's instruction — re-test only if the K-rule lands — stands,
+and per §0.4 it has not.
+
+---
+
+## 6. The K-rule, measured **[machine]**
+
+`Theory/Typing/KRule.lean` is new this session (another stream, untracked). It proves
+`KStep.defeq` (admissibility: a `K⁺` step is already an `IsDefEqU`), `KStep.stuck_fires`
+(non-vacuity against `HeadRedStuck.lean`'s measured hole) and `Params.no_kpattern`.
+
+**What it does not yet do, and this is what this corner is waiting for:** `grep -rn KStep
+Lean4Lean/` returns hits only inside `KRule.lean`. `ParRed`, `CParRed` and
+`NormalEq.parRed` are unextended, and its own docstring says the `Params` instance supplying
+the canonical-form side condition (ledger M3) is not built. So there is still **no candidate
+reduction relation with a confluence argument**, and re-testing the circle or `weakN_iff`
+against it would be testing against nothing. Re-run this grep before assuming otherwise.
 
 ---
 
@@ -321,35 +302,23 @@ undo is to revert its `proofIrrel` case to `sorry`; nothing else in the file nee
 
 | document | claim | correction |
 |---|---|---|
-| `docs/handoff-sortuniq.md` §9 bullet 3 | the passenger move "may replace `forallE_inv_stratified` in `uniqAux` by the unstratified `forallE_inv` plus a re-stratification" | **It cannot.** §3.2. The re-stratification is fine; the level alignment it then needs is `SortUniq` at an index the induction hypothesis does not reach. |
-| `docs/handoff-sortuniq.md` §9 bullet 2 | the census win is "a reordering, not a proof" | Correct, and it is done: 21 → 20. But it is not a *file* reordering — `CycleConv` and `ConstInvWitness` import `Injectivity`, so the development had to move *into* `Injectivity.lean`, not below it. |
-| `docs/handoff-injectivity.md` (prev.) §9.1 | hypothesising `SortUniq` in `Injectivity.lean` "weakens what four consumers can assume … do not do it unilaterally" | Moot. `SortUniq` is proved in-file; the four holes closed with **no** statement change. §4. |
-| `docs/handoff-injectivity.md` (prev.) §0.1, §4 | "`forallE_inv`'s dependency on `forallE_inv_stratified` is **gone**" / "in-family dependencies 1 → 0" | Reversed, deliberately, by §4. The independence was not worth what it cost: it bought nothing, because `PiInv` alone never reaches `SortUniq`. |
-| `docs/handoff-injectivity.md` (prev.) §1 | "8 `sorry`s in `Injectivity.lean` + 1 in `UniqueTyping.lean`" | Superseded. The file's raw count went 12 → **6**; the census count 7 → **6**. |
-| the brief's method note | "if every call is on an IH output, it is a passenger, not a primitive" | Necessary, not sufficient. §3.3. |
+| `docs/handoff-injectivity.md` (prev.) §6 | `const_app_inv`'s "`proofIrrel` case is not refutable without the `IsType` side condition, and `IsType` does not propagate into the induction… **Settle the invariant before writing anything.**" | The diagnosis is right and the instruction is now carried out. The invariant is `¬IsProof`, which `IsType` implies and which *is* closed downward. §2. |
+| `docs/handoff-injectivity.md` (prev.) §1 table | `const_app_inv` | opaque `sorry` → **`trans` only**. §1. |
+| `docs/handoff-injectivity.md` (prev.) §8 item 3 | a lexicographic measure "might make the unbounded side reachable… the first thing to check is that the `app` case's `IH` calls are on `B`" | Dead, for a more basic reason: the unbounded derivation is an *input*, not a recursive call. §5.1. |
+| `docs/handoff-typechecker.md` §286, `docs/handoff-projections.md` §36 | `quotReduceRec.WF` / `TrProj.uniq` are "blocked on `const_app_inv`" | Still true — `const_app_inv` is reduced, not proved. What changed is that it is no longer a *separate* obligation: it is the family's shared `trans`. |
+| `docs/design-inductive.md` ledger I13a | `const_app_inv` … status **research** | Its side-condition question is settled (`¬IsProof`, machine-checked). Its remaining status is the family's `trans`. Ledger row is another stream's to edit. |
 
 ---
 
 ## 8. What to pick up first
 
-1. **The corner now has exactly one mathematical residual, and it is normalisation.**
-   Every open statement in `Injectivity.lean` except `const_app_inv` is one `trans` case
-   away from done, and `forallE_inv_stratified` is one `SortUniq` away, and `SortUniq` is
-   one `IsDefEq.uniq` away, and `IsDefEq.uniq` is one `forallE_inv_stratified` away. **The
-   knot only opens at a reduction relation.** Nothing incremental remains here.
-2. **The tree has no candidate reduction relation.** `ChurchRosser.lean`'s is refuted at
-   `descend`; `HeadReduction.lean`'s has never had a confluence argument run over it;
-   `RawDefEq.lean`'s three-place judgment is unexplored. Before anyone spends a session on
-   Π-injectivity's `trans`, **price `HeadReduction.lean`** — it is the only untried one, and
-   `docs/handoff-descend.md` §5 says so too.
-3. **If you want to break the circle without normalisation**, the one place to look is the
-   *measure*. `uniqAux` is a well-founded induction on the stratification index `n`, and the
-   whole obstruction in §3.2 is that one derivation's index is not bounded by `n`. A
-   different measure — lexicographic on (index, term size), say, since `uniqQ`'s recursive
-   calls at `app`/`lam` are on strict subterms — might make the unbounded side reachable.
-   **Not attempted, not priced.** It is a redesign of `IsDefEq.uniq`'s induction, and the
-   `app` case's `IH` calls are on `B`, which is a subterm of the *type*, not of `e`. That is
-   the first thing to check, and it may kill the idea outright.
-4. **Do not** re-attempt §3.2's three escapes; each is written out above with the step where
-   it returns to its own conclusion.
-5. **Do not** route through `ChurchRosser`. `descend` is false; see `docs/handoff-descend.md`.
+1. **`HeadReduction.lean`.** It is the only untried reduction relation, every open statement
+   in this corner except `forallE_inv_stratified` is one `trans` away, and `weakN_iff` is
+   one `PiDescend` away which is the same question. Nothing incremental remains in
+   `Injectivity.lean`.
+2. **Re-grep `KStep` before planning around the K-rule.** §6. If `ParRed` has gained a `K⁺`
+   constructor and a confluence argument, the circle and `weakN_iff` both become re-testable
+   in the same session.
+3. **Do not** re-attempt §5.1's three escapes, §5.1's lexicographic measure, or §5.2's
+   unique-typing shortcut for `const_app_inv`'s level half.
+4. **Do not** route through `ChurchRosser`. `descend` is false.

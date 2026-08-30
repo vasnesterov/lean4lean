@@ -106,6 +106,54 @@ theorem VExpr.headConst?_mkApp : ∀ (as : List VExpr) (f : VExpr),
   | [], _ => rfl
   | a :: as, f => VExpr.headConst?_mkApp as (.app f a)
 
+/-- **Peeling the last argument off a spine.**  If `f.mkApp as` is an application then
+either the spine is empty and `f` is that application, or the application's argument is the
+spine's *last* entry and its function is the shorter spine.
+
+`const_app_inv`'s `appDF` case is what needs this: the derivation hands back `.app f a`, and
+the invariant has to read that back as `(.const c ls).mkApp (bs ++ [a])`. -/
+theorem VExpr.mkApp_app_inv {g b : VExpr} :
+    ∀ (as : List VExpr) (f : VExpr), f.mkApp as = .app g b →
+      (as = [] ∧ f = .app g b) ∨ ∃ as', as = as' ++ [b] ∧ f.mkApp as' = g := by
+  intro as
+  induction as with
+  | nil => intro f h; exact .inl ⟨rfl, h⟩
+  | cons a as ih =>
+    intro f h
+    rw [VExpr.mkApp_cons] at h
+    rcases ih (f.app a) h with ⟨hnil, heq⟩ | ⟨as', has, heq⟩
+    · subst hnil
+      injection heq with h1 h2
+      exact .inr ⟨[], by simp [h2], h1⟩
+    · exact .inr ⟨a :: as', by rw [has]; rfl, by rw [VExpr.mkApp_cons]; exact heq⟩
+
+/-- A spine whose value is not an application is the empty spine. -/
+theorem VExpr.mkApp_eq_of_not_app :
+    ∀ (as : List VExpr) (f e : VExpr), f.mkApp as = e → (∀ g b, e ≠ .app g b) →
+      as = [] ∧ f = e := by
+  intro as
+  cases as with
+  | nil => intro f e h _; exact ⟨rfl, h⟩
+  | cons a as =>
+    intro f e h he
+    rw [VExpr.mkApp_cons] at h
+    rcases VExpr.mkApp_self_or_app as (f.app a) with h' | ⟨g, b, h'⟩
+    · exact absurd (h.symm.trans h') (he _ _)
+    · exact absurd (h.symm.trans h') (he _ _)
+
+/-- `List.Forall₂` at a symmetric relation is symmetric. -/
+theorem _root_.List.Forall₂.symm' {α} {R : α → α → Prop} (hR : ∀ {a b}, R a b → R b a) :
+    ∀ {l₁ l₂ : List α}, List.Forall₂ R l₁ l₂ → List.Forall₂ R l₂ l₁
+  | _, _, .nil => .nil
+  | _, _, .cons h t => .cons (hR h) (List.Forall₂.symm' hR t)
+
+/-- `List.Forall₂` is closed under append. -/
+theorem _root_.List.Forall₂.append' {α β} {R : α → β → Prop} :
+    ∀ {l₁ r₁ l₂ r₂ : _}, List.Forall₂ R l₁ r₁ → List.Forall₂ R l₂ r₂ →
+      List.Forall₂ R (l₁ ++ l₂) (r₁ ++ r₂)
+  | _, _, _, _, .nil, h => h
+  | _, _, _, _, .cons h t, h2 => .cons h (List.Forall₂.append' t h2)
+
 namespace VEnv
 
 /-- `c` heads no definitional-equality rule of `env`.
@@ -506,6 +554,156 @@ theorem piInvStrat_of (henv : VEnv.WF env) (hsu : env.SortUniq U) (hpi : PiInv e
       (.base (.sort' hvB' hvB' rfl)) (.base (.sort' hw2 hvB' e3.symm)) hB'
 
 
+/-! ## `IsProof`, and the side condition that actually propagates
+
+`const_app_inv` (below) needs to exclude `IsDefEqStrong.proofIrrel`, which identifies *any*
+two inhabitants of a proposition and so refutes injectivity outright
+(`Theory/Typing/ConstInvWitness.lean`'s `w2`).  Its statement does that with an `IsType`
+side condition on the application — and **`IsType` does not propagate into the induction**:
+at `appDF` the sub-spine has a Π type, not a sort, so the invariant cannot carry it.  That
+is why the theorem was left an opaque `sorry` by a previous stream.
+
+The fix is to carry the *negation of proof-ness* instead.  `¬ IsProof` is exactly what the
+`proofIrrel` case needs, it is implied by `IsType` (`IsType.not_isProof`), and — unlike
+`IsType` — it **does** propagate: if the head of an application is a proof then so is the
+application (`IsProof.app'`), because a Π-type that is a `Prop` has a `Prop` codomain.  So
+the contrapositive threads down the spine and the induction runs.
+
+The three lemmas below need unique typing, which lives *downstream* of this file
+(`IsDefEq.uniq`, `Theory/Typing/UniqueTyping.lean`).  They do not import it: `uniqAux` above
+is that proof's own invariant and `piInvStrat_axiom` discharges its hypothesis, so the same
+conclusion is available here under the primed name `WF.uniq'`.  Nothing new is assumed —
+`WF.uniq'` has exactly `IsDefEq.uniq`'s cone, namely `forallE_inv_stratified`. -/
+
+/-- `IsDefEq.uniq` (`Theory/Typing/UniqueTyping.lean`), re-derived at this height so that
+this file can use unique typing without importing its own consumer. -/
+theorem WF.uniq' {Γ : List VExpr} {e₁ e₂ e₃ A B : VExpr} (henv : VEnv.WF env)
+    (hΓ : OnCtx Γ (env.IsType U))
+    (h1 : env.IsDefEq U Γ e₁ e₂ A) (h2 : env.IsDefEq U Γ e₂ e₃ B) :
+    ∃ u, env.IsDefEq U Γ A B (.sort u) := by
+  obtain ⟨n₁, H1⟩ := (h1.strong henv.ordered hΓ).hasType'.2.stratify
+  obtain ⟨n₂, H2⟩ := (h2.strong henv.ordered hΓ).hasType'.1.stratify
+  obtain ⟨u, h, -⟩ := uniqAux henv (piInvStrat_axiom henv) _ hΓ
+    (Nat.le_max_left n₁ n₂) (Nat.le_max_right n₁ n₂) H1 H2
+  exact ⟨u, h⟩
+
+/-- Retyping along a conversion between *terms*: `HasType.defeqU_l` at this height. -/
+theorem HasType.defeqU_l' {Γ : List VExpr} {e₁ e₂ A : VExpr} (henv : VEnv.WF env)
+    (hΓ : OnCtx Γ (env.IsType U))
+    (h1 : env.IsDefEqU U Γ e₁ e₂) (h2 : env.HasType U Γ e₁ A) : env.HasType U Γ e₂ A := by
+  obtain ⟨V, h1⟩ := h1
+  obtain ⟨u, hu⟩ := WF.uniq' henv hΓ h2 h1
+  exact (IsDefEq.defeqDF hu.symm h1).hasType.2
+
+/-- **`e` is a proof**: it inhabits a proposition.  This is the honest form of
+`const_app_inv`'s second side condition — see the section docstring. -/
+def IsProof (env : VEnv) (U : Nat) (Γ : List VExpr) (e : VExpr) : Prop :=
+  ∃ p, env.HasType U Γ p (.sort .zero) ∧ env.HasType U Γ e p
+
+/-- Proof-ness transports along a conversion. -/
+theorem IsProof.defeqU {Γ : List VExpr} {e₁ e₂ : VExpr} (henv : VEnv.WF env)
+    (hΓ : OnCtx Γ (env.IsType U)) (h : env.IsDefEqU U Γ e₁ e₂)
+    (hp : env.IsProof U Γ e₁) : env.IsProof U Γ e₂ :=
+  let ⟨p, hp0, hep⟩ := hp; ⟨p, hp0, HasType.defeqU_l' henv hΓ h hep⟩
+
+/-- **A type is not a proof.**  The companion of `VEnv.sort_not_proof` and
+`VEnv.forallE_not_proof` (`Theory/Typing/SortUniq.lean`, `Theory/Typing/NotProof.lean`) at
+one more level of generality: those two are about a *particular shape* being a type, this is
+about being a type at all.  Same argument, same input — universe uniqueness, which
+`WF.sortUniq'` supplies, so this costs no statement a hypothesis. -/
+theorem IsType.not_isProof {Γ : List VExpr} {e : VExpr} (henv : VEnv.WF env)
+    (hΓ : OnCtx Γ (env.IsType U)) (h : env.IsType U Γ e) : ¬ env.IsProof U Γ e := by
+  rintro ⟨p, hp, hep⟩
+  obtain ⟨u, hu⟩ := h
+  obtain ⟨w, hw⟩ := WF.uniq' henv hΓ hep hu
+  have h1 : env.HasType U Γ (.sort u) (.sort .zero) := HasType.defeqU_l' henv hΓ ⟨_, hw⟩ hp
+  have hu' : u.WF U := h1.sort_inv henv.ordered
+  have h2 : VLevel.zero ≈ VLevel.succ u :=
+    WF.sortUniq' henv hΓ trivial hu' h1 (HasType.sort hu')
+  exact absurd (congrFun h2 []) (by simp [VLevel.eval])
+
+/-- **Proof-ness propagates up an application spine.**  If the function of a well-typed
+application is a proof, so is the application.
+
+*Why.*  A function that is a proof has a Π type that is a `Prop`, i.e. `imax u v ≈ 0`, and
+`imax` is zero exactly when its **second** argument is (`VLevel.imax_eq_zero`).  So the
+codomain is a `Prop` and the application inhabits it.
+
+This is the whole reason the `const_app_inv` induction can run: contrapositively, `¬IsProof`
+of an application gives `¬IsProof` of its function, which is precisely the direction the
+`appDF` case travels.  `IsType` has no such closure property — the sub-spine of a spine that
+is a type is a Π, not a type. -/
+theorem IsProof.app' {Γ : List VExpr} {A B f a : VExpr} {u v : VLevel} (henv : VEnv.WF env)
+    (hΓ : OnCtx Γ (env.IsType U))
+    (hA : env.HasType U Γ A (.sort u)) (hB : env.HasType U (A::Γ) B (.sort v))
+    (hf : env.HasType U Γ f (.forallE A B)) (ha : env.HasType U Γ a A)
+    (h : env.IsProof U Γ f) : env.IsProof U Γ (.app f a) := by
+  obtain ⟨p, hp, hfp⟩ := h
+  obtain ⟨w, hw⟩ := WF.uniq' henv hΓ hfp hf
+  have h1 : env.HasType U Γ (.forallE A B) (.sort .zero) :=
+    HasType.defeqU_l' henv hΓ ⟨_, hw⟩ hp
+  have hu : u.WF U := have ⟨_, h⟩ := hA.isType henv.ordered hΓ; h.sort_inv henv.ordered
+  have hΓA : OnCtx (A::Γ) (env.IsType U) := ⟨hΓ, _, hA⟩
+  have hv : v.WF U := have ⟨_, h⟩ := hB.isType henv.ordered hΓA; h.sort_inv henv.ordered
+  have h2 : env.HasType U Γ (.forallE A B) (.sort (.imax u v)) := hA.forallE hB
+  have e1 : VLevel.imax u v ≈ VLevel.zero :=
+    WF.sortUniq' henv hΓ ⟨hu, hv⟩ trivial h2 h1
+  have hB0 : env.HasType U (A::Γ) B (.sort .zero) :=
+    IsDefEq.defeqDF (.sortDF hv trivial (VLevel.imax_eq_zero.1 e1)) hB
+  exact ⟨B.inst a, hB0.instN henv.ordered .zero ha, hf.app ha⟩
+
+/-! ### Non-vacuity of the `IsProof` machinery
+
+`¬ IsProof` is a *hypothesis* of the `const_app_inv` induction, so if nothing could ever
+satisfy `IsProof` the `proofIrrel` case would be closed for the uninteresting reason and the
+`IsType` side condition would be pointless.  The witnesses below deny that.  Both live
+entirely in the context, so they hold in **every** environment and at every universe count —
+no constant, no rule, no `VEnv.WF`.
+
+The second one is the load-bearing one: it exhibits a term that is **a proof and has a Π
+type**.  That is precisely why `IsType` cannot be the invariant — the sub-spine of an
+application need not be a type even when the application is — and why the invariant has to be
+the thing that *is* closed downwards. -/
+
+/-- **`IsProof` fires.**  In the context `[h : P, P : Prop]`, `h` is a proof. -/
+theorem IsProof_fires {env : VEnv} {U : Nat} :
+    env.IsProof U [.bvar 0, .sort .zero] (.bvar 0) ∧
+    OnCtx [.bvar 0, .sort .zero] (env.IsType U) :=
+  ⟨⟨.bvar 1, .bvar (.succ .zero), .bvar .zero⟩,
+   ⟨⟨trivial, _, .sort trivial⟩, _, .bvar .zero⟩⟩
+
+/-- **A proof can be a function.**  `.bvar 0` below inhabits `Π (x : Prop), P`, which is
+itself a `Prop`, so it is a proof *and* has a Π type.
+
+This is the counterexample to propagating `IsType` down a spine, and the reason
+`const_app_inv`'s invariant is `¬ IsProof` instead. -/
+theorem IsProof.forallE_fires {env : VEnv} {U : Nat} :
+    env.HasType U [.forallE (.sort .zero) (.bvar 1), .sort .zero] (.bvar 0)
+      (.forallE (.sort .zero) (.bvar 2)) ∧
+    env.IsProof U [.forallE (.sort .zero) (.bvar 1), .sort .zero] (.bvar 0) := by
+  have hP : env.HasType U [VExpr.sort .zero, VExpr.forallE (.sort .zero) (.bvar 1),
+      VExpr.sort .zero] (.bvar 2) (.sort .zero) := .bvar (.succ (.succ .zero))
+  have hpi : env.HasType U [VExpr.forallE (.sort .zero) (.bvar 1), VExpr.sort .zero]
+      (.forallE (.sort .zero) (.bvar 2)) (.sort .zero) :=
+    .defeqDF (.sortDF (l := VLevel.imax (.succ .zero) .zero) ⟨trivial, trivial⟩ trivial
+      VLevel.imax_zero) (HasType.forallE (.sort trivial) hP)
+  exact ⟨.bvar .zero, _, hpi, .bvar .zero⟩
+
+/-- **`IsProof.app'` fires**, at that witness: the application of a proof-valued function is
+a proof.  Stated as a use of the lemma rather than a restatement of it, so what is checked is
+that its five hypotheses are jointly satisfiable. -/
+theorem IsProof.app'_fires {env : VEnv} (henv : env.WF) {U : Nat} :
+    env.IsProof U [.forallE (.sort .zero) (.bvar 1), .sort .zero]
+      (.app (.bvar 0) (.bvar 1)) := by
+  have hΓ : OnCtx [VExpr.forallE (.sort .zero) (.bvar 1), VExpr.sort .zero] (env.IsType U) :=
+    ⟨⟨trivial, _, .sort trivial⟩, _,
+      .defeqDF (.sortDF (l := VLevel.imax (.succ .zero) .zero) (l' := VLevel.zero)
+          ⟨trivial, trivial⟩ trivial VLevel.imax_zero)
+        (HasType.forallE (.sort trivial) (.bvar (.succ .zero)))⟩
+  exact IsProof.app' henv hΓ (u := .succ .zero) (v := .zero) (.sort trivial)
+    (.bvar (.succ (.succ .zero))) IsProof.forallE_fires.1 (.bvar (.succ .zero))
+    IsProof.forallE_fires.2
+
 end UniqAux
 
 /-- **Π-injectivity, proved directly rather than through the stratified form.**  Still
@@ -617,13 +815,80 @@ theorem IsDefEqU.sort_forallE_inv (henv : VEnv.WF env) (hΓ : OnCtx Γ (env.IsTy
 
 /-- **(B) Injectivity of a constant application.**  See the module docstring for why both
 side conditions are needed, and `Theory/Typing/ConstInvWitness.lean` for the machine-checked
-witness against each. -/
+witness against each.
+
+**Statement unchanged; the proof is now the same induction as the other four.**  This was an
+opaque `sorry` because the `IsType` side condition does not propagate into the induction —
+at `appDF` the sub-spine has a Π type, not a sort, so the invariant could not carry it.  The
+fix is to carry `¬ IsProof` instead (`section UniqAux`'s `IsProof`, `IsType.not_isProof`,
+`IsProof.app'`): it is what the `proofIrrel` case actually needs, it is *implied* by `IsType`
+so the statement is unweakened, and it **does** propagate down a spine.  With that, twelve of
+the thirteen `IsDefEqStrong` cases close and the residual is the **`trans`** case alone —
+byte for byte the residual of `forallE_inv`, `sort_forallE_inv`, `const_forallE_inv` and
+`const_sort_inv`.  So this is no longer an independent obligation: the whole family now rests
+on one normalisation statement.
+
+Case by case: `constDF` gives the level list outright; `appDF` peels one argument off each
+spine (`VExpr.mkApp_app_inv`) and appends the argument conversion; `extra` is blocked by
+`RuleFreeHead`; `proofIrrel` by `¬IsProof`; `symm` and `defeqDF` are bookkeeping; the
+remaining seven are vacuous on the spine head of the left endpoint. -/
 theorem IsDefEqU.const_app_inv (henv : VEnv.WF env) (hΓ : OnCtx Γ (env.IsType U))
     {c : Lean.Name} {ls ls' : List VLevel} {as as' : List VExpr}
     (hrigid : RuleFreeHead env c)
     (hty : env.IsType U Γ ((VExpr.const c ls).mkApp as))
     (h : env.IsDefEqU U Γ ((VExpr.const c ls).mkApp as) ((VExpr.const c ls').mkApp as')) :
-    List.Forall₂ (· ≈ ·) ls ls' ∧ List.Forall₂ (env.IsDefEqU U Γ) as as' := sorry
+    List.Forall₂ (· ≈ ·) ls ls' ∧ List.Forall₂ (env.IsDefEqU U Γ) as as' := by
+  have aux : ∀ {Γ : List VExpr} {e₁ e₂ T : VExpr}, env.IsDefEqStrong U Γ e₁ e₂ T →
+      OnCtx Γ (env.IsType U) → ¬ env.IsProof U Γ e₁ →
+      ∀ (ls ls' : List VLevel) (as as' : List VExpr),
+        e₁ = (VExpr.const c ls).mkApp as → e₂ = (VExpr.const c ls').mkApp as' →
+        List.Forall₂ (· ≈ ·) ls ls' ∧ List.Forall₂ (env.IsDefEqU U Γ) as as' := by
+    intro Γ e₁ e₂ T H
+    induction H with
+    | symm hd ih =>
+      intro hΓ' hnp ls₁ ls₁' as₁ as₁' he₁ he₂
+      obtain ⟨h1, h2⟩ := ih hΓ' (fun hp => hnp (hp.defeqU henv hΓ' ⟨_, hd.defeq⟩))
+        ls₁' ls₁ as₁' as₁ he₂ he₁
+      exact ⟨h1.symm' (fun h => Eq.symm h), h2.symm' IsDefEqU.symm⟩
+    | defeqDF _ _ _ _ ih => exact ih
+    | trans _ _ ih1 ih2 =>
+      -- OPEN, and the only residual: the middle term is arbitrary.  Needs a term
+      -- convertible with a rule-free constant application to reduce to one — the same
+      -- normalisation statement the rest of this family waits on.
+      intro hΓ' hnp ls₁ ls₁' as₁ as₁' he₁ he₂; sorry
+    | proofIrrel h1 h2 _ =>
+      -- CLOSED by the `¬IsProof` invariant, which the statement's `IsType` side condition
+      -- supplies at the root (`IsType.not_isProof`) and `IsProof.app'` threads down.
+      intro _ hnp _ _ _ _ _ _
+      exact absurd ⟨_, h1.defeq.hasType.1, h2.defeq.hasType.1⟩ hnp
+    | extra h1 =>
+      intro _ _ ls₁ _ as₁ _ he₁ _
+      exact absurd (by rw [← VExpr.headConst?_instL, he₁, VExpr.headConst?_mkApp]; rfl)
+        (hrigid _ h1)
+    | constDF h1 _ _ _ h5 =>
+      intro _ _ ls₁ ls₁' as₁ as₁' he₁ he₂
+      obtain ⟨rfl, he₁⟩ := VExpr.mkApp_eq_of_not_app as₁ _ _ he₁.symm nofun
+      obtain ⟨rfl, he₂⟩ := VExpr.mkApp_eq_of_not_app as₁' _ _ he₂.symm nofun
+      injection he₁ with _ he₁; injection he₂ with _ he₂
+      exact ⟨he₁ ▸ he₂ ▸ h5, .nil⟩
+    | appDF _ _ hA hB hf ha _ _ _ ihf =>
+      intro hΓ' hnp ls₁ ls₁' as₁ as₁' he₁ he₂
+      rcases VExpr.mkApp_app_inv as₁ _ he₁.symm with ⟨-, hbad⟩ | ⟨bs, rfl, hb⟩
+      · exact absurd hbad nofun
+      rcases VExpr.mkApp_app_inv as₁' _ he₂.symm with ⟨-, hbad⟩ | ⟨bs', rfl, hb'⟩
+      · exact absurd hbad nofun
+      have hnpf : ¬ env.IsProof U _ _ := fun hp =>
+        hnp (hp.app' henv hΓ' hA.defeq hB.defeq hf.defeq.hasType.1 ha.defeq.hasType.1)
+      obtain ⟨hl, hbs⟩ := ihf hΓ' hnpf ls₁ ls₁' bs bs' hb.symm hb'.symm
+      exact ⟨hl, hbs.append' (.cons ⟨_, ha.defeq⟩ .nil)⟩
+    | bvar _ _ _ | sortDF _ _ _ | lamDF _ _ _ _ _ _ _ | forallEDF _ _ _ _ _
+    | beta _ _ _ _ _ _ _ _ | eta _ _ _ _ _ _ _ _ =>
+      intro _ _ ls₁ _ as₁ _ he₁ _
+      have hs := congrArg VExpr.spineHead he₁
+      rw [VExpr.spineHead_mkApp] at hs
+      exact absurd hs nofun
+  obtain ⟨_, h⟩ := h
+  exact aux (h.strong henv.ordered hΓ) hΓ (IsType.not_isProof henv hΓ hty) ls ls' as as' rfl rfl
 
 /-- **(A) Disjointness** — ledger item I13, and the only one of the three the ledger records.
 Consumed by `pat_major_not_pi` (I14).  Needs no `IsType` side condition: `proofIrrel` cannot
