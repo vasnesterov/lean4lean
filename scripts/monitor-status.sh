@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Periodic status report to ntfy.
 #
-# Every INTERVAL seconds: build a status report and POST it to the ntfy
+# Every INTERVAL seconds (default 80 minutes): build a status report and POST it to the ntfy
 # topic, then emit one stdout line so the orchestrator sees it fired.
 #
 # Reusable: this is the whole setup. To arm it, run it under the Monitor
@@ -9,7 +9,7 @@
 # run this script under Monitor again — no other state to restore.
 #
 #   Monitor({ command: "bash scripts/monitor-status.sh",
-#             description: "2-hourly lean4lean status to ntfy",
+#             description: "80-minute lean4lean status to ntfy",
 #             persistent: true, timeout_ms: 3600000 })
 #
 # Env overrides: NTFY_TOPIC, INTERVAL (seconds), FIRST_DELAY (seconds).
@@ -18,8 +18,8 @@ set -uo pipefail
 cd /home/vasilii/lean4lean || exit 1
 
 NTFY_TOPIC="${NTFY_TOPIC:-https://ntfy.sh/claude-1p7eb443qbfeijf1y1ov}"
-INTERVAL="${INTERVAL:-7200}"        # 2 hours
-FIRST_DELAY="${FIRST_DELAY:-7200}"  # don't fire immediately on arm
+INTERVAL="${INTERVAL:-4800}"        # 80 minutes
+FIRST_DELAY="${FIRST_DELAY:-4800}"  # don't fire immediately on arm
 
 sleep "$FIRST_DELAY"
 
