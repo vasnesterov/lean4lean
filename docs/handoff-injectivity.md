@@ -13,7 +13,10 @@ names skipped), so their counts are smaller for the same statements — the two 
 conflict, they are different scopes, and each section says which it used.
 
 Files added or changed on 2026-08-30: **`Lean4Lean/Theory/Typing/RetypeCase.lean`** (new),
-**`Lean4Lean/Theory/Typing/RetypeAdmissible.lean`** (new, later the same day) and this
+**`Lean4Lean/Theory/Typing/RetypeAdmissible.lean`** (new, later the same day),
+**`Lean4Lean/Theory/Typing/ProofRetypeHeads.lean`** (new, third session of the day —
+see **§4C**, which corrects §4B.6 and answers §4B.5's open question),
+one import line in `Lean4Lean/Experimental/ConeJoin.lean`, and this
 document.  Nothing else was touched.  §4B is the later session and supersedes §4A.4.  `lake build Lean4Lean.Theory.Typing.RetypeCase` is
 green; a whole-tree `lake build` fails in `Theory/Typing/ChurchRosser.lean`, another stream's
 in-flight edit (`Alternative 'keta' has not been provided`, line 2240), which is why the
@@ -22,6 +25,18 @@ end-of-session census and `dup-names` runs are blocked — see §8. **[machine]*
 ---
 
 ## 0. Headline
+
+**Third session, 2026-08-30 — `ProofRetype` is not a residual of its own, and two of §4B's
+readings are wrong.**  All four residuals of `IsDefEqStrong.retypes` follow from **one**
+statement, `BaseUniq` (any two *base* typings of a term are at convertible types), by a
+three-line argument that mentions no rule; `retypes_of_baseUniq` reproves `retypes` with **no
+induction over `IsDefEqStrong` at all**.  `BaseUniq` in turn is free at three of six head
+shapes (`bvar`, `const`, `sort`), and its residual `.app` case is exactly Π-injectivity — so
+`ProofRetype`'s content is *not* special to proofs and is *not* free of normalisation content.
+And §4B.5's open question is answered: `UniqStrong → BaseUniq` and `BaseUniq + SortUniq →
+UniqStrong`, so the residual is **equivalent to unique typing modulo `SortUniq`**, not strictly
+weaker.  All in `Theory/Typing/ProofRetypeHeads.lean`, 19 declarations, `sorryAx`-free.  §4C.
+**[machine]**
 
 **Later session, 2026-08-30: §4A.4's open question is answered, and the answer is that the
 question was about the wrong statement.**  `HasTypeStrong.retype` — the `hasType'` `retype`
@@ -590,6 +605,150 @@ and it is the first time this corner has produced one that is *not* a restatemen
 
 ---
 
+## 4C. `ProofRetype` decided down to three head shapes  *(third session of 2026-08-30)*
+
+New file, owned by this stream: **`Lean4Lean/Theory/Typing/ProofRetypeHeads.lean`** — nineteen
+declarations, all `sorry`-free, with a `#print axioms` block at the end (no `sorryAx`
+anywhere).  It imports `RetypeAdmissible.lean` and `SortUniq.lean` and is imported only by
+`Experimental/ConeJoin.lean`, so it adds nothing to any cone that reaches `kernel_sound`.
+**The one import line added to `ConeJoin.lean` is the only edit outside this stream's own
+files**, and it is there because both instruments measure that file's closure: a leaf module
+outside it is invisible to `scripts/dup-names.lean` and `scripts/sorry-census.lean`.
+
+### 4C.1 Verdict **[machine + analysis]**
+
+`ProofRetype` is **not decided** — neither proved nor refuted.  What *is* decided is that it
+was the wrong thing to single out, and the two reasons §4B gave for singling it out are both
+wrong.
+
+### 4C.2 The four residuals are one statement, and the induction is unnecessary **[machine]**
+
+```lean
+def BaseUniq (env : VEnv) (U : Nat) : Prop :=
+  ∀ {Γ e A B}, CtxStrong env U Γ →
+    env.HasTypeStrong U Γ e A false → env.HasTypeStrong U Γ e B false →
+    ∃ u, env.IsDefEqStrong U Γ A B (.sort u)
+```
+
+`retypeAt_of_baseUniq` re-indexes *any* `IsDefEqStrong Γ e₁ e₂ A` at *any* base type of either
+endpoint, from `BaseUniq` and `Ordered env`.  Its proof mentions no rule: a rule's premises are
+used only to build that rule's own conclusion, which is then handed to this lemma.  So
+
+* `proofRetype_of_baseUniq`, `betaRetype_of_baseUniq`, `etaRetype_of_baseUniq`,
+  `extraRetype_of_baseUniq` are the same one-line corollary four times, and
+* `retypes_of_baseUniq` reproves `IsDefEqStrong.retypes` from `BaseUniq` **without inducting
+  over `IsDefEqStrong`**.  The thirteen-case induction of `RetypeAdmissible.lean` is not needed
+  for it; that file's real content is the nine free *congruence* cases, which is a different
+  (and still correct) claim.
+
+**Correction to §4B.6.**  `ProofRetype` is not "the odd one out"; it is one instantiation of
+`BaseUniq`, and so are the other three.
+
+### 4C.3 The `defeq` chain is walked, not composed **[machine]**
+
+§4B.6 and `RetypeAdmissible.lean`'s docstring say plain Π-injectivity cannot discharge
+`BetaRetype` because *"the two Π-types are related through a chain of `HasTypeStrong.defeq`
+wrappers, and composing those into the single `IsDefEqU` that `PiInv` consumes is
+composition-at-different-types, i.e. `uniq`."*  **The chain does not have to be composed.**
+
+`HasTypeStrong.peelDown` walks it one `defeqDF` at a time, transporting the conversion the rule
+already has down to a *base* type of the endpoint, and it takes **no hypothesis at all** — no
+`Ordered`, no `CtxStrong`, no `SortUniq`.  Composition is needed only if the chain is wanted as
+an *equation*: that is `HasTypeStrong.peelEq`, and it is the single place in this file where a
+level is compared with a level, which is why it — and only it — takes `SortUniq`.
+
+So the four-place obstruction of §2 does **not** apply to the residuals.  It applies to the
+converse direction of §4C.5.
+
+### 4C.4 Three of six head shapes are free; the residual is three **[machine]**
+
+`baseUniq_of` discharges, with **no hypothesis**:
+
+| head | why it is free |
+|---|---|
+| `.bvar` | `Lookup.uniq` — the two base types are syntactically equal |
+| `.const` | `env.constants` is a function — the two base types are syntactically equal |
+| `.sort` | base typings of `.sort l` are `.sort (.succ l')` and `.sort (.succ l'')` with `l ≈ l'`, `l ≈ l''`; `sortDF` closes it |
+
+and reduces `BaseUniq` to three named hypotheses, `BaseUniqApp`, `BaseUniqLam`,
+`BaseUniqForallE`.  Their prices, each machine-checked:
+
+| head | discharged by | Π-injectivity? |
+|---|---|---|
+| `.forallE` | `SortUniq` **alone** — `baseUniqForallE_of_sortUniq` | no |
+| `.lam` | unique typing at the **body**, a proper subterm — `baseUniqLam_of_uniqStrong` | no |
+| `.app` | unique typing at the **function** *plus* `PiInv` — `baseUniqApp_of` | **yes** |
+
+**Correction to §4B.6 and to the brief that set this session.**  *"`ProofRetype` is unique
+typing at an arbitrary proof, which is not normalisation content at all"* is wrong: the term
+whose base type is taken is unrestricted, so it ranges over applications, and at an application
+the obligation is Π-injectivity.  `ProofRetype` is not the cheap residual; it contains the
+`.app` case, and hence the same content `BetaRetype` does, plus the `.forallE` case, which is
+`SortUniq`.
+
+### 4C.5 §4B.5's open question, answered **[machine]**
+
+* `baseUniq_of_uniqStrong` : `UniqStrong env U → BaseUniq env U`  *(one line)*
+* `uniqStrong_of_baseUniq` : `Ordered env → SortUniq env U → BaseUniq env U → UniqStrong env U`
+
+So `BaseUniq` is **equivalent to unique typing over `HasTypeStrong`, modulo `SortUniq`**.  Since
+the four residuals follow from `BaseUniq` (§4C.2) and `BaseUniq` follows from `UniqStrong`,
+which follows from `PiInvStratApp` (`uniqStrong_of_piInvStratApp`, §4B.3), the whole residual
+sits inside the corner and cannot be strictly weaker except by exactly the amount `SortUniq`
+accounts for.  §4B.5 left *"whether they are strictly weaker is open"*; the answer is **no, not
+modulo `SortUniq`** — and `sortUniq_iff_piInvStratApp` (§3, given `PiInv`) closes the circle.
+
+### 4C.6 Non-vacuity, negative control, collapse test **[machine, except where marked]**
+
+* **`proofRetype_fires`** — over **every** `Ordered` environment, `ProofRetype` fires at
+  `Γ = [prhB, prhA]`, `h = .bvar 1`, `h' = .bvar 0`, `p = prhB`, `X = prhA`, where
+  `prhA = ∀ (X : Sort (imax 0 0)), (∀ Y : Prop, Y)` and `prhB = ∀ (X : Prop), (∀ Y : Prop, Y)`.
+  The two endpoints are syntactically different **and** `p ≠ X` syntactically, so the
+  conclusion is neither reflexivity nor the `proofIrrel` rule's own conclusion.  It goes
+  through the free `bvar` case.
+* **`baseUniqApp_nonvacuous`** — over every `Ordered` environment, an application with **two
+  syntactically different base types**: with
+  `Γ = [(X : Type) → Sort (imax 0 0)]`, the term `.app (.bvar 0) (.sort .zero)` is base-typed
+  at both `.sort (.imax .zero .zero)` and `.sort .zero`.
+* **`base_types_not_syntactically_unique`** — the *rejection-style negative control* §4B.3 said
+  was unavailable, for this statement: the neighbouring strengthening *"two base typings of the
+  same term have syntactically equal types"* — which would make `BaseUniq` trivial and which
+  **is** how all three free cases are discharged — is **false**, at a witness that differs from
+  the free cases in no arity and no shape.  This is a control for the free/residual split, not
+  for `ProofRetype` itself; §4B.3's statement about `ProofRetype` still stands.
+* **Collapse test** (`ORCHESTRATOR.md` rule 5): `BaseUniqApp`, `BaseUniqLam` and
+  `BaseUniqForallE` each fire only at their own head, and `proofRetype_fires`' witness is at a
+  `.bvar`, which none of the three admits.  So `baseUniq_of` is a reduction and not a
+  restatement.  **[machine witness, analysis reading]**
+
+### 4C.7 What is *not* claimed **[analysis]**
+
+Every implication in §4C.4 is an **upper** bound.  Nothing here shows a residual *requires*
+Π-injectivity — only that Π-injectivity discharges the `.app` case and that nothing weaker is
+known to.  No refutation is offered either: a refutation of `BaseUniq` needs an `Ordered`
+environment in which some term has two base types that are **not** convertible, and `Ordered`
+type-checks every `defeqs` entry, so such an environment exists only where Π-injectivity itself
+fails in it.  Establishing *that* is an underivability proof, and this tree still has no
+instrument for one (§5, §4B.3).  Per `ORCHESTRATOR.md` rule 4: *"no witness" is not evidence of
+truth.*
+
+Two routes were considered and dropped, with the step each fails at:
+
+1. **Refute `BaseUniq` at a junk `Ordered` environment.**  Add a type-correct `defeqs` entry
+   `∀x:A, B ≡ ∀x:A, B' : .sort .zero` (allowed: `VDefEq.WF` asks only that both sides are typed
+   at `df.type`), give `f` the first Π-type, and `.app f a` acquires the two base types
+   `B.inst a` and `B'.inst a`.  **Fails at:** showing those two are not convertible.  A
+   proof-irrelevant model collapses all propositions with the same truth value, so it cannot
+   separate them; and any model that validates the junk entry must make the two Π-types equal,
+   which for an inhabited domain forces the codomains equal too.
+2. **Extract a lower bound from `ProofRetype`.**  `IsDefEqStrong.hasType` turns its conclusion
+   into *"every proof of `p` is typeable at `X`"*, which is real content.  **Fails at:** turning
+   that back into a type *equation* — there is no inversion principle for
+   `IsDefEqStrong Γ h h' X` that pins `X`, which is the same wall as everywhere else in this
+   corner.
+
+---
+
 ## 5. The refutation attempt, and why it does not reach **[analysis]**
 
 The brief asks for a machine-checked negative if one exists. The one crack in the hypothesis
@@ -729,14 +888,20 @@ later session, and both now run clean (§8's note that they were blocked by a re
 *(rewritten by the later 2026-08-30 session; the earlier list is kept below it where it still
 holds)*
 
-1. **The four residuals of `Theory/Typing/RetypeAdmissible.lean`.**  `ProofRetype` is the
-   interesting one: *`p : Prop`, `h : p`, `h' : p`, `h : X` ⊢ `h ≡ h' : X`* — unique typing
-   restricted to **proofs**.  It is the only one of the four that is not obviously
-   normalisation content, and it is the only place in this corner where the target is a
-   statement about `proofIrrel` rather than about Π-types.  `BetaRetype`, `EtaRetype` and
-   `ExtraRetype` are the normalisation half in a localised form: each needs the type of one
-   redex (`.app (.lam A e) e'`, an η-expansion, a `df.lhs` instance) pinned against the type
-   its own rule is indexed at.
+*(item 1 rewritten by the third 2026-08-30 session; see §4C)*
+
+1. **`BaseUniqApp` — `Theory/Typing/ProofRetypeHeads.lean`.**  Do **not** attack `ProofRetype`,
+   `BetaRetype`, `EtaRetype` or `ExtraRetype` separately: all four are corollaries of
+   `BaseUniq`, and `BaseUniq` is free at `.bvar`, `.const` and `.sort`, is `SortUniq` at
+   `.forallE`, and is a plain structural recursion at `.lam`.  **Everything that is not already
+   `SortUniq` lives in `BaseUniqApp`**, and there it is Π-injectivity.  The one thing in this
+   corner that has never been tried and is now *stateable*: prove `BaseUniq` by induction on
+   the **term** (not on a derivation), using `SortUniq` for `.forallE`, `uniqStrong_of_baseUniq`
+   at the subterm for `.lam`, and `PiInv` for `.app` — that would give
+   `SortUniq + PiInv → retypes` with **no `VEnv.WF`, no stratification and no
+   `PiInvStratApp`**.  The recursion is well-founded on the term; what has to be checked is that
+   `uniqStrong_of_baseUniq` can be applied at a proper subterm without re-entering the whole
+   statement.
 2. **Do not re-attack the circle from inside `Injectivity.lean`** (unchanged, see below).
 3. **Do not restate the `hasType'` case without its conversion premise.**  That is what
    §4A.4's open question was, and it is what made the case look unattackable.
@@ -744,6 +909,25 @@ holds)*
    users with an empty cone — but read §6.1's collapse-test note before writing anything.
 5. **Do not** re-attempt §4's four repairs, the lexicographic measure, the unique-typing
    shortcut for `const_app_inv`'s level half, or any route through `ChurchRosser`.
+
+### Build and census state at the end of the **third** session **[machine]**
+
+Working tree at commit `b31d9c3` plus `Theory/Typing/ProofRetypeHeads.lean` and one
+`ConeJoin.lean` import line.  `~/.elan/bin/lake build Lean4Lean.Theory.Typing.ProofRetypeHeads`
+and `... Lean4Lean.Experimental.ConeJoin` are both green.  Measured **on the ConeJoin import
+closure** (the only closure either instrument uses, and the closure now contains the new file):
+
+* `scripts/sorry-census.lean`: **TOTAL 19**, unchanged.  The new file contributes **0**.
+* `scripts/dup-names.lean`: **clean** — and, unlike a run before the import was added, this run
+  actually saw the new file.
+* Per-hole transitive users on that closure, same run: `forallE_inv_stratified` 358,
+  `weakN_iff` 111, `forallE_inv` 110, `TrProj.uniq` 83, `NormalEq.descend` 40,
+  `TrProj.weak'_inv` 28, `sort_forallE_inv` 8, `checkPrimitiveDef.WF.rest` 6,
+  `const_sort_inv` / `const_forallE_inv` / `const_app_inv` 1 each.  **These are not comparable
+  with §1.2's or §4B.5's numbers** — those were measured on a narrower closure earlier in the
+  day; quote the closure with the count.
+* Every declaration in `ProofRetypeHeads.lean` is checked by the file's own `#print axioms`
+  block; none mentions `sorryAx`.  No whole-tree `lake build` was run.
 
 ### Build and census state at the end of the later session **[machine]**
 

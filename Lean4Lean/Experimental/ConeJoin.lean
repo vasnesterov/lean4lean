@@ -27,6 +27,7 @@ import Lean4Lean.Theory.Typing.KMeasure
 import Lean4Lean.Theory.Typing.KDescend
 import Lean4Lean.Theory.Typing.KCanonical
 import Lean4Lean.Theory.Typing.RetypeCase
+import Lean4Lean.Theory.Typing.ProofRetypeHeads
 import Lean4Lean.Theory.Typing.StrengthenAxiom
 import Lean4Lean.Theory.Typing.StrengthenWitness
 import Lean4Lean.Theory.Typing.SortClauses
