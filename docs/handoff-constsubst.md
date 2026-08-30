@@ -1,17 +1,14 @@
-# Substituting a constant by a term — and the nested step, closed at a witness
+# The restoration as a constant substitution — σ built, and the level-congruence wall was never there
 
-New files, both `sorry`-free and green:
+Successor to the previous revision (which named σ-construction, a β-bridge, `listDecl.WF` and
+"level congruence of typing under `≈`" as the four open items).  Everything below is either
+**[MC]** machine-checked in this tree (named), or **[RS]** read off source and *not* proved.
 
-* **`Lean4Lean/Theory/Typing/ConstSubst.lean`** (513 lines) — the general theory.
-* **`Lean4Lean/Theory/Typing/ConstSubstNested.lean`** (899 lines) — the reduction of the
-  nested step's three obligations to it, and the witnesses.
-
-One owned file edited: `Lean4Lean/Theory/Typing/Lemmas.lean` gains one lemma,
-`VEnv.IsType.forallE_congr`. No frozen file was touched. `lake build` (1364 jobs, guards
-included) is green; `scripts/sorry-census.lean` still reports **19**, unchanged.
-
-Axioms: every new declaration is on `[propext, Quot.sound]`, plus `Classical.choice` where
-the proof goes through `Exists.choose`, `omega` or `simp`.
+Files edited, all owned: `Lean4Lean/Theory/Typing/ConstSubst.lean`,
+`Lean4Lean/Theory/Typing/ConstSubstNested.lean`.  No frozen file touched, no unowned file
+touched.  `lake build` green (1365 jobs, guards included).  `scripts/sorry-census.lean`:
+**19 before, 19 after**.  Every new declaration is on `[propext, Quot.sound]`, plus
+`Classical.choice` where the proof goes through `simp`/`omega`/`Exists.choose`.
 
 ---
 
@@ -19,312 +16,300 @@ the proof goes through `Exists.choose`, `omega` or `simp`.
 
 | question | answer |
 |---|---|
-| Does `Theory/` have a constant-substitution typing theorem? | It does now: `VEnv.IsDefEq.substC`. There was none — `mono` only adds constants, `instL` does not touch the constant map. |
-| Is the naive statement true? | **Yes**, with four hypotheses, one of which (`val`) is subtler than "the term has the constant's type" — §2. |
-| Is it non-vacuous? | Yes, and more than asked: it is fired at both nested witnesses, and at `nfnAux` it discharges **all three** remaining obligations. |
-| Does the nested wall's remaining theorem follow? | **At the witness, completely**: `nfnAux_addInductR_ordered` — the nested step preserves `VEnv.Ordered`, unconditionally, at `inductive NFn \| node : PFn NFn → NFn`. In general it reduces to "produce σ and the bridge" (§4). |
-| Is the relay's "three obligations to one" right? | **No** — §7. `addInductR_ordered'` still lists three; what is true, and better, is that **all three are the same substitution**. |
-| Does it generalise? | It is stated for an arbitrary partial map `CSubst := Name → Option VExpr`, which is what obligations (B)/(C) need (they substitute the auxiliary block's *constructor* and *recursor* names too). |
-| What is still open? | Congruence of typing under `≈` of universe levels, and a general β-bridge for parameterised blocks. Both are discharged at the witnesses by hand; neither exists as a theorem — §6. |
+| Is σ still hand-written per witness? | **No.** `VIndRestore.csubst` builds it from the five fields, and it *is* all three hand-written witness substitutions **[MC]**. |
+| Is level congruence of typing under `≈` missing from the tree? | **No — the previous revision was wrong.**  It is `VEnv.IsDefEq.instL_r` (`Theory/Typing/Strong.lean`), sorry-free, on `[propext, Quot.sound]`.  §2. |
+| So what does `CSubst.WF.val` actually need? | The **naive** hypothesis after all: the value has the constant's substituted type, in an `Ordered` target environment.  `CSubst.WF_of_hasType` **[MC]**.  Both hand-built `≈`-congruences are deleted. |
+| Is the *syntactic* bridge true in general? | **No, and it is now refuted, not merely unproved**: `ntreeNode_substC_ne_typeR`, by `decide`, at a real parameterised block **[MC]**. |
+| What replaces it? | A **telescope defeq** bridge: `VEnv.TeleDefEq`, `IsType.mkPi_congr'`, and `VEnv.ctorConstsCR_wf_of_substC'` — fired at `ntreeAux`, where the whole block-specific input is one `IsDefEq.beta` **[MC]**. |
+| Is `listDecl.WF VEnv.empty` proved? | **Yes** **[MC]**, so the `NTree` development is unconditional: `ntreeAux_obligationA`. |
+| Is the general nested `Ordered` theorem proved? | **No.**  Obligation (A) is general modulo a per-block telescope defeq; (B) and (C) are still witness-only, and only at `NFn`.  §5 names the exact remaining step. |
 
 ---
 
-## 1. The definition
+## 1. σ from `VIndRestore`'s five fields
+
+`VIndRestore` carries `tyName`, `tyLvls`, `tyArgs`, `ctorName`, `recName`.  Member `j` is
+*presented* as `R.tyName j |>.{R.tyLvls j} (R.tyArgs j)` with `R.tyArgs j` a telescope over
+the block's own parameters, so the term the constant stands for is that application
+abstracted over `D.params`:
 
 ```lean
-abbrev CSubst := Lean.Name → Option VExpr
+def VIndRestore.tyVal   (R) (D) (j)   : VExpr := mkLams D.params ((.const (R.tyName j) (R.tyLvls j)).mkApp (R.tyArgs j))
+def VIndRestore.ctorVal (R) (D) (j) C : VExpr := mkLams D.params ((.const (R.ctorName C.name) (R.tyLvls j)).mkApp (R.tyArgs j))
+def VIndRestore.recVal  (R) (D) (n)   : VExpr := .const (R.recName n) (VLevel.params D.recUvars)
 
-def VExpr.substC : VExpr → CSubst → VExpr
-  | .const c ls, σ => match σ c with | some t => t.instL ls | none => .const c ls
-  | …structural…
+def VIndRestore.csubst   (R) (D) (K) : CSubst      -- type + ctor + recursor entries
+def VIndRestore.csubstTy (R) (D) (K) : CSubst      -- the type entries alone
 ```
 
-A partial map from constant names to **closed** terms; an occurrence `.const c ls` is
-replaced by the value instantiated at *that occurrence's* levels. This is what makes
-`substC` commute with `instL` (`VExpr.substC_instL`, no hypothesis) — the composite level
-list is `VExpr.instL_instL`.
+Two design points, both load-bearing:
 
-`VDefEq.substC` is the entrywise version.
+* **One σ covers both universe numberings.**  A block head occurs at `D.ownLvls` inside
+  `tyApp`/`ctorApp` and at `D.selfLvls` inside `tyApp'`/`ctorApp'`/the recursor.  `substC`
+  instantiates the value at *the occurrence's* levels (`substC_const_some`), and `instL`
+  distributes over `mkLams`/`mkApp`, so `csubst` produces `tyAppR` in the first case and
+  `tyAppR'` in the second with no second substitution.  This is why `substC_instL` was the
+  right primitive.
+* **The domain is guarded by `K`, not by "is a block name".**  Off `K`, `VIndRestore.OwnId`
+  says the restoration renames nothing, so an entry there would be an **η-expansion**
+  (`mkLams params (I.{ownLvls} (bvars 0 np))`), not the identity.  Machine-checked negative
+  controls: `nfn_csubst_own_none`, `nfn_csubst_ownRec_none`, `ntree_csubstTy_own_none` — all
+  `rfl`.
 
----
+### It builds the witnesses, not something that resembles them
 
-## 2. The theorem, and why each hypothesis is there
-
-```lean
-structure CSubst.WF (σ : CSubst) (env₀ env₁ : VEnv) (U : Nat) : Prop where
-  closed : σ.Closed
-  const  : ∀ {c ci}, σ c = none → env₀.constants c = some ci →
-             env₁.constants c = some ⟨ci.uvars, ci.type.substC σ⟩
-  defeq  : ∀ {df}, env₀.defeqs df → env₁.defeqs (df.substC σ)
-  val    : ∀ {c t ci Γ ls ls'}, σ c = some t → env₀.constants c = some ci →
-             (∀ l ∈ ls, l.WF U) → (∀ l ∈ ls', l.WF U) → List.Forall₂ (· ≈ ·) ls ls' →
-             ls.length = ci.uvars →
-             env₁.IsDefEq U Γ (t.instL ls) (t.instL ls') ((ci.type.substC σ).instL ls)
-
-theorem VEnv.IsDefEq.substC (hσ : σ.WF env₀ env₁ U) (H : env₀.IsDefEq U Γ e1 e2 A) :
-    env₁.IsDefEq U (Γ.map (VExpr.substC · σ)) (e1.substC σ) (e2.substC σ) (A.substC σ)
-```
-
-with `HasType.substC`, `IsType.substC`, `IsDefEqU.substC`, `VConstant.WF.substC`,
-`VDefEq.WF.substC` as corollaries.
-
-Each field is forced by exactly one rule of `VEnv.IsDefEq`, and each one carries
-information:
-
-* **`closed`** — forced by every binder. Without it `substC` captures, and the two
-  commutation lemmas `substC_liftN` / `substC_inst` are false at the first binder.
-* **`const`** — forced by `constDF`. This is the clause that constrains `env₁`: at **every**
-  constant `env₀` declares outside σ's domain, `env₁` must hold it *with its own type
-  substituted*. Nothing here is a caller-chosen parameter: `ci` is pinned by
-  `env₀.constants c = some ci`. Dropping the `.substC σ` on the right would be the failure
-  mode the relay warned about — a clause that reads like a constraint and admits environments
-  with constants at unrelated types.
-* **`defeq`** — forced by `extra`.
-* **`val`** — forced by `constDF` in the other branch, and it is the interesting one.
-
-### Why `val` is not "the term has the constant's type"
-
-`constDF` relates `.const c ls` to `.const c ls'` whenever `ls ≈ ls'` **pointwise**, not
-`ls = ls'`. So the substitution has to make `t.instL ls` and `t.instL ls'` *definitionally
-equal*, at the constant's declared type. A hypothesis of the shape
-
-```lean
-    ht : env₁.HasType ci.uvars [] t ci.type          -- NOT enough
-```
-
-is strictly weaker, and closing the gap needs congruence of typing under `≈` of universe
-levels, i.e. `HasType Γ e A → ls ≈ ls' → IsDefEq _ (e.instL ls) (e.instL ls') (A.instL ls)`.
-**That theorem is not in the tree, and it is not free**: the `symm` case of the obvious
-induction needs `A.instL ls ≡ A.instL ls'`, which needs `A` to be typed, which
-`IsDefEq Γ e1 e2 A` does not give without `Ordered env` *and* `OnCtx Γ` — the invariant is
-too strong to propagate through the induction. This is exactly the mirror trap the relay
-described, met head-on; the resolution was to leave `val` as the hypothesis that says what is
-actually needed rather than to strengthen the theorem's premises until it broke.
-
-Two sufficient conditions are supplied instead:
-
-* `CSubst.val_zero` / `val_zero'` — when the replaced constant has **no** universe parameters
-  both lists are empty and `val` follows from plain well-typedness plus `IsDefEq.weak0`;
-* by hand, when the value's *shape* makes `≈`-congruence available: `sortDF` and `constDF`
-  are already congruences for `≈`, so a value built from sorts, constants and applications
-  needs no general theorem (`ntreeVal_val`, `nfnSubstAll_WF₃`'s recursor case).
-
-### Why the context quantifier in `val` is unrestricted
-
-`VEnv.IsDefEq` never demands a well-formed context — `sortDF` and `constDF` have no premise
-about `Γ` — so no invariant on `Γ` survives the induction, and `Γ.map (substC · σ)` is
-arbitrary at the `constDF` node. For a closed value the quantifier is discharged once by
-`IsDefEq.weak0`. Restricting it would have been a statement carrying less information than
-its own conclusion needs.
-
-### Dischargeability
-
-`const` and `defeq` ask for the *substituted* type of every other constant. In the intended
-use σ's domain is fresh in the environment those constants came from, so their types are
-untouched. That is a theorem, not a hypothesis:
-
-```lean
-def CSubst.FreshIn (σ : CSubst) (env : VEnv) : Prop :=
-  ∀ c ci, env.constants c = some ci → σ c = none
-
-theorem VEnv.Ordered.noCSubst (H : env.Ordered) (hfresh : σ.FreshIn env) :
-    env.OnTypes fun _ e A => e.NoCSubst σ ∧ A.NoCSubst σ
-```
-
-— *nothing derivable in a well-formed environment mentions a constant it does not declare*.
-The analogue of `IsDefEq.closedN'` for constants; it did not exist either.
-
-Packaged builders: `CSubst.one_WF'` (one constant, `val` a hypothesis) and `CSubst.one_WF`
-(one constant, no universe parameters — `val` free).
-
----
-
-## 3. What this is for: the nested step
-
-`VEnv.addInductR_ordered'` (`Theory/Inductive/NestedOrdered.lean`) leaves three obligations:
-
-* **(A)** the declared constructors, at their **restored** types, in `e₁ = env + typeConstsC K`;
-* **(B)** the **renamed** recursors, at their restored types, in `e₂ = e₁ + ctorConstsCR R K`;
-* **(C)** the **restored** ι-rules, in `e₃ = e₂ + recConstsR R`.
-
-The finding: **all three are the same constant substitution.** Extend the restoration to the
-auxiliary block's constructor and recursor names, and every restored construction is the
-stored one substituted. At `nfnAux` all three bridges are `rfl`:
-
-```lean
-theorem nfnNode_substCAll  : (nfnNode.type nfnAux 0).substC nfnSubstAll
-                               = nfnNode.typeR nfnAux nfnRestore 0            := rfl
-theorem nfn_recType_substC_0 : (nfnAux.recType 0).substC nfnSubstAll
-                               = nfnAux.recTypeR nfnRestore 0                 := rfl
-theorem nfn_recType_substC_1 : (nfnAux.recType 1).substC nfnSubstAll
-                               = nfnAux.recTypeR nfnRestore 1                 := rfl
-theorem nfn_iotaRules_substC : nfnAux.iotaRules.map (·.substC nfnSubstAll)
-                               = nfnAux.iotaRulesR nfnRestore                 := rfl
-```
-
-with
-
-```lean
-def nfnSubstAll : CSubst := fun n =>
-  if n = `_nested.PFn_1     then some (.app (.const ``PFn []) (.const ``NFn []))
-  else if n = `_nested.PFn_1.mk  then some (.app (.const ``PFn.mk []) (.const ``NFn []))
-  else if n = `_nested.PFn_1.rec then some (.const ``NFn.rec_1 [.param 0])
-  else none
-```
-
-Note the third entry: `mkAuxRecNameMap`'s *renaming* is a constant substitution too, because
-`substC` replaces a constant by a **term**, and a constant is a term. That is why the general
-map form (rather than one name) was worth having.
-
-### The three general reductions
-
-```lean
-theorem VEnv.ctorConstsCR_wf_of_substC   -- (A)
-theorem VEnv.recConstsR_wf_of_substC     -- (B)
-theorem VEnv.iotaRulesR_wf_of_substC     -- (C)
-```
-
-Each takes: the corresponding fact for the **ordinary** block (which
-`addInduct'_ordered_final` already proves — `VIndCtor.WF.constant_wf`,
-`VInductDecl'.recType_isType`, `VInductDecl'.iotaRules_WF`), a `CSubst.WF` between the two
-staging environments, and a *syntactic* bridge equation. Nothing about inductives is used
-beyond those. **That is what is left of the nested wall in general: produce σ and the
-bridge.**
-
----
-
-## 4. The witnesses
-
-Both are the elaborator-checked blocks of `Theory/Inductive/NestedBuild.lean`, so they cannot
-drift from what Lean's own kernel stores.
-
-### `NFn`/`PFn` — the block with a non-empty `ξ`, and no parameters
-
-`inductive PFn (α : Type) | mk : α → (Prop → α) → PFn α`,
-`inductive NFn | node : PFn NFn → NFn`.
-
-`NFn` has no parameters, so `_nested.PFn_1` is replaced by a **closed application** — no
-lambda, no β — and `VIndCtor.typeR` **is** `VExpr.substC` on the nose.
-
-| name | content |
+| **[MC]** | statement |
 |---|---|
-| `pfnDecl_WF` | **`pfnDecl.WF VEnv.empty`** — `PFn`'s block is well formed over the empty environment. Previously absent: `NestedBuild.lean` states `nfnAux_WF` over an abstract `env₂` and never proves `env₂.Ordered`. |
-| `pfnEnv_ordered` | …hence the history environment really is `Ordered`, so nothing below is hypothetical. |
-| `nfnNode_substC` | the bridge, `rfl` |
-| `nfnNode_type_mentions_aux` | …and it substitutes something: the checked type mentions `_nested.PFn_1`, so the theorem is not being applied where nothing moves |
-| `nfnSubst_WF`, `nfnSubstAll_WF₂`, `nfnSubstAll_WF₃` | the substitution at each of the three staging pairs |
-| `nfnAux_obligationA` | **(A), with no hypotheses left** — the three environment hypotheses are discharged by computation |
-| `nfn_recConsts_wf` | the non-nested recursor obligation at `nfnAux` (this is `addInduct'_ordered'`'s inner argument, which upstream does not expose as a lemma) |
-| `nfnAux_recConstsR_wf` | **(B)** |
-| `nfnAux_iotaRulesR_wf` | **(C)** |
-| **`nfnAux_addInductR_ordered`** | **`∃ env₂ env', VEnv.empty.addInduct' pfnDecl = some env₂ ∧ env₂.addInductR nfnAux nfnK nfnRestore = some env' ∧ env'.Ordered`** |
+| `nfn_csubstTy` | `nfnRestore.csubstTy nfnAux nfnK = nfnSubst` |
+| `nfn_csubst` | `nfnRestore.csubst nfnAux nfnK = nfnSubstAll` — *including* the recursor rename, which is `mkAuxRecNameMap`'s entry read off `R.recName` |
+| `ntree_csubstTy` | `ntreeRestore.csubstTy ntreeAux ntreeK = ntreeSubst` — here `tyVal`'s `mkLams` really is a lambda, because `NTree` has a parameter |
+| `ntree_csubst_ty_val` | `… `_nested.List_1 = some ntreeVal`, by `rfl` |
+| `csubst_closed`, `csubstTy_closed` | closedness from two hypotheses: the parameter telescope is closed, and each presented spine mentions no variable beyond the parameters |
+| `nfn_csubst_closed`, `ntree_csubstTy_closed` | …discharged at both witnesses |
 
-The last one is the nested-soundness wall, at a real nested block, unconditionally.
+Every existing result stated against `nfnSubst` / `nfnSubstAll` / `ntreeSubst` therefore holds
+verbatim of the general σ, by rewriting along these equations.
 
-What the substitution does there that no environment weakening could: the companion's ι-rule
-is **keyed to `PFn.mk`**, a constant the history already holds (`iotaRulesR_major_not_fresh`,
-`NestedOrdered.lean`), and its right-hand side calls **`NFn.rec_1`**, a constant the step
-declares under a name the auxiliary block never had.
+---
 
-### `NTree`/`List` — the block **with** parameters
+## 2. The correction: level congruence is in the tree
 
-`_nested.List_1` has arity 1, so the value is a **lambda** and every occurrence — always
-saturated, because `VIndCtor.Canonical` stores recursive fields as `∀ ξ, I_idx params π` — is
-a β-redex. The substituted type and the restored type are therefore β-related, not equal, and
-this is measured rather than asserted:
+The previous revision's §6 item 1 said:
+
+> **Level congruence of typing.** `HasType env U Γ e A → List.Forall₂ (· ≈ ·) ls ls' → IsDefEq …`
+> … **That theorem is not in the tree, and it is not free**: the `symm` case of the obvious
+> induction needs `A.instL ls ≡ A.instL ls'`, which needs `A` to be typed, which
+> `IsDefEq Γ e1 e2 A` does not give without `Ordered env` *and* `OnCtx Γ`.
+
+The diagnosis was right and the conclusion was wrong.  The theorem is
+**`VEnv.IsDefEq.instL_r`**, `Theory/Typing/Strong.lean`:
 
 ```lean
-theorem ntreeNode_substC_redex :        -- rfl
-    (ntreeNode.type ntreeAux 0).substC ntreeSubst
-      = .forallE P₀ (.forallE P₁ (.forallE (.app ntreeVal (.bvar 1)) Q))
-theorem ntreeNode_typeR_reduct :        -- rfl
-    ntreeNode.typeR ntreeAux ntreeRestore 0
-      = .forallE P₀ (.forallE P₁ (.forallE (ntreeBody.inst (.bvar 1)) Q))
+theorem IsDefEq.instL_r (henv : Ordered env) (hΓ : OnCtx Γ (env.IsType U'))
+    (hls : ∀ l ∈ ls, l.WF U) (hls' : ∀ l ∈ ls', l.WF U) (heq : List.Forall₂ (· ≈ ·) ls ls')
+    (H : env.IsDefEq U' Γ e1 e2 A) :
+    env.IsDefEq U (Γ.map (VExpr.instL ls)) (e1.instL ls) (e2.instL ls') (A.instL ls)
 ```
 
-— one β-step, in a binder domain, and nowhere else. It is absorbed by the one lemma added to
-`Theory/Typing/Lemmas.lean`:
+`#print axioms` — `[propext, Quot.sound]` **[MC]**.
+
+It exists for exactly the reason the previous revision said it could not: the repair that
+"has worked twice" *is* what `Strong.lean` does.  `VEnv.IsDefEqStrong` is `IsDefEq` with the
+missing typing premises added at `bvar`, `constDF`, `appDF`, … ; the induction runs there;
+`VEnv.Ordered.strong : Ordered env → OnTypes env (EnvStrong env)` is the bridge, and
+`EnvStrong`'s **third clause is literally this statement for closed terms**.  `Ordered env` and
+`OnCtx Γ` sit in the public statement, which is where the previous revision said they had to
+sit — they were already there.
+
+### What that buys
 
 ```lean
-theorem VEnv.IsType.forallE_congr (henv : Ordered env) (hA : env.IsDefEq U Γ A A' (.sort u))
-    (H : env.IsType U Γ (.forallE A B)) : env.IsType U Γ (.forallE A' B)
+theorem CSubst.val_of_hasType (henv₁ : env₁.Ordered)
+    (ht : env₁.HasType ci.uvars [] t (ci.type.substC σ)) : … val …
+
+theorem CSubst.WF_of_hasType (henv₁ : env₁.Ordered) (hcl : σ.Closed)
+    (hval : ∀ {c t ci}, σ c = some t → env₀.constants c = some ci →
+              env₁.HasType ci.uvars [] t (ci.type.substC σ))
+    (hconst …) (hdefeq …) : σ.WF env₀ env₁ U
+
+theorem CSubst.one_WF_of_hasType …    -- the one-constant case, no universe hypothesis
 ```
 
-(the content is moving the body between the two contexts, which is `IsDefEq.defeqDFC`; it is
-not `forallEDF`). With it:
+So `CSubst.WF`'s `val` clause is discharged by **plain well-typedness of the value**, given
+`Ordered env₁` — precisely the hypothesis the previous revision called "strictly weaker and
+**not enough**".  It is enough.  `CSubst.val_zero`, `val_zero'` and `CSubst.one_WF` are now
+special cases and are kept only because existing proofs cite them.
 
-* `ntreeVal_val` — `CSubst.WF.val` at `uvars = 1`, by hand, from `sortDF`/`constDF`;
-* `ntreeSubst_WF` — the substitution;
-* `ntreeNode_beta_bridge` — the β-step;
-* **`ntreeAux_ctorConstsCR_wf`** — obligation **(A)** at the parameterised witness.
+Two hand-built `≈`-congruences were **deleted as unnecessary**:
 
-(Conditional on `env₁.Ordered` for `List`'s own block: `listDecl.WF VEnv.empty` is not proved
-— see §6.)
-
----
-
-## 5. Inventory
-
-**Machine-checked, in `ConstSubst.lean`.** `VExpr.substC` and its `simp` set;
-`substC_instL`, `substC_liftN`, `substC_lift`, `substC_inst`, `substC_id`; `VDefEq.substC`;
-`Lookup.substC`; `CSubst.WF`; `IsDefEq.substC_constDF`, `substC_extra`, **`IsDefEq.substC`**;
-`HasType.substC`, `IsType.substC`, `IsDefEqU.substC`, `VConstant.WF.substC`,
-`VDefEq.WF.substC`; `VExpr.NoCSubst` and its closure lemmas, `VDefEq.NoCSubst`,
-`Lookup.noCSubst`, `IsDefEq.noCSubst'`, **`Ordered.noCSubst`**, `noCSubstC`, `noCSubstD`;
-`CSubst.val_zero'`, `val_zero`, `CSubst.one_WF'`, `CSubst.one_WF`.
-
-**Machine-checked, in `ConstSubstNested.lean`.** `VEnv.ctorConstsCR_wf_of_substC`,
-`recConstsR_wf_of_substC`, `iotaRulesR_wf_of_substC`; the `NFn` development listed in §4;
-the `NTree` development listed in §4.
-
-**Machine-checked, in `Typing/Lemmas.lean`.** `VEnv.IsType.forallE_congr`.
-
-**Read off source, not machine-checked.** That a recursive field's occurrence of an auxiliary
-constant is always *saturated* — it is `VIndCtor.Canonical`'s stored form, and that is why the
-gap for a parameterised block is exactly β and nothing worse. It holds by `rfl` at both
-witnesses; the general statement is not proved.
-
-**Refuted this round.** Nothing. §7 corrects one claim of the relay.
+* `ntreeSubst_WF` now calls `one_WF_of_hasType` with `by type_tac` where it previously called
+  `ntreeVal_val` (≈30 lines of `sortDF`/`constDF` congruence by hand).  `ntreeVal_val` is kept
+  above it as the measurement it was.
+* `nfnSubstAll_WF₃`'s recursor case — the one value in either witness with a universe
+  parameter — is now `CSubst.val_of_hasType hFo (…constDF…)`; the `match ls, hlen with | [l]`
+  destructuring is gone.
 
 ---
 
-## 6. Open, named precisely
+## 3. The syntactic bridge is false, and what replaces it
 
-1. **Level congruence of typing.** `HasType env U Γ e A → List.Forall₂ (· ≈ ·) ls ls' →
-   IsDefEq env U' _ (e.instL ls) (e.instL ls') (A.instL ls)`. Wanted to discharge
-   `CSubst.WF.val` for an arbitrary value; discharged at the witnesses by `val_zero`
-   (`uvars = 0`) or by hand. The obvious induction fails at `symm` (§2); the repair needs
-   `Ordered env` and `OnCtx Γ`, which are not available inside the induction.
-2. **A general β-bridge.** "`substC` by `mkLams params body`, at saturated occurrences, is
-   definitionally the restoration." Carried out at `ntreeAux`'s single occurrence by hand;
-   there is no theorem. `IsType.forallE_congr` is the tool; what is missing is the induction
-   over the constructor's telescope.
-3. **`listDecl.WF VEnv.empty`**, which would make the `NTree` results unconditional the way
-   `pfnDecl_WF` makes the `NFn` ones unconditional. Purely mechanical (`pfnDecl_WF` is 50
-   lines; `listDecl` has two constructors and one recursive field).
-4. **(B) and (C) at `ntreeAux`.** Both need items 2 and 3.
-5. **The general step**, i.e. `VEnv.addInductR_ordered'` for an arbitrary `D`, `K`, `R`.
-   §3's three reductions say exactly what is left: a `CSubst.WF` and a bridge, for a general
-   restoration. The natural next target is to *build* σ from `VIndRestore` — `tyName`,
-   `tyLvls`, `tyArgs`, `ctorName`, `recName` are precisely the data of a constant
-   substitution — and to derive the bridges from `VNestedOcc` (`NestedBuild.lean`), where the
-   companion member is already computed rather than asserted.
+`VEnv.ctorConstsCR_wf_of_substC` (previous round) needs
+`(C.type D j).substC σ = C.typeR D R j` **on the nose**.  At `D.np = 0` that holds; at
+`D.np > 0` the restoration replaces a companion constant by a `mkLams`, every occurrence is
+saturated, and the two sides differ by one β-step per parameter per occurrence.
+
+**[MC]** `ntreeNode_substC_ne_typeR : (ntreeNode.type ntreeAux 0).substC ntreeSubst ≠ ntreeNode.typeR ntreeAux ntreeRestore 0`
+— by `decide`.  Not "unproved": refuted, at `inductive NTree (α) | node : α → List (NTree α) → NTree α`.
+
+The replacement is a **telescope defeq**:
+
+```lean
+inductive VEnv.TeleDefEq (env) (U) : List VExpr → List VExpr → List VExpr → Prop
+  | nil  : env.TeleDefEq U Γ [] []
+  | rfl  : env.TeleDefEq U (A::Γ) As As' → env.TeleDefEq U Γ (A::As) (A::As')
+  | cons : env.IsDefEq U Γ A A' (.sort u) →
+           env.TeleDefEq U (A::Γ) As As' → env.TeleDefEq U Γ (A::As) (A'::As')
+
+theorem VEnv.IsType.mkPi_congr  (henv : Ordered env) : TeleDefEq … → IsType Γ (mkPi As B) → IsType Γ (mkPi As' B)
+theorem VEnv.IsType.mkPi_congr' (henv : Ordered env) : TeleDefEq … → IsDefEq (As.reverse ++ Γ) B B' (.sort v) →
+                                                        IsType Γ (mkPi As B) → IsType Γ (mkPi As' B')
+theorem VExpr.substC_mkPi : (mkPi As B).substC σ = mkPi (As.map (·.substC σ)) (B.substC σ)
+
+theorem VEnv.ctorConstsCR_wf_of_substC'   -- obligation (A), defeq bridge
+```
+
+`TeleDefEq.rfl` is the design point: without it the caller would have to supply a reflexivity
+derivation for every entry it is **not** touching, i.e. re-type the whole telescope.  With it,
+obligation (A) at `ntreeAux` reads
+
+```lean
+    refine ⟨.succ (.param 0), .rfl (.rfl (.cons (u := .succ (.param 0)) ?_ .nil)), by type_tac⟩
+    refine VEnv.IsDefEq.beta … <;> type_tac
+```
+
+— the entire block-specific content is **one `IsDefEq.beta`**.  `ntreeAux_ctorConstsCR_wf` is
+now proved this way rather than through the bespoke `ntreeNode_beta_bridge` (which is kept, as
+the hand computation it supersedes).
 
 ---
 
-## 7. Corrections to the relay
+## 4. `listDecl.WF VEnv.empty`, and the parameterised witness unconditional
 
-* **"The nested-inductive soundness wall reduced last round from three obligations to one."**
-  Measured false as stated: `VEnv.addInductR_ordered'` takes `hctors`, `hrecs` and `hrules` —
-  three. What `addInductR_ordered'` discharged is the *first of four* (`typeConstsC`). The
-  useful statement is the one this round establishes: the three are **one substitution
-  applied at three staging environments**, and at `nfnAux` all three now hold.
-* **"There is nothing of the kind in `Theory/`" (no `ConstSubst`, `substConst`,
-  `replaceConst`).** Confirmed by search before writing; `HasType.mono` / `IsType.mono` indeed
-  cannot remove a constant.
-* **"A naive 'substituting a constant preserves typing' is probably too strong."** Half right.
-  The statement is *true*; what is too strong is the naive **hypothesis** `env₁ ⊢ t : ci.type`
-  — §2. No weakening of the conclusion was needed.
-* **Non-vacuity.** The relay asked for the theorem to be fired at `ntreeAux_*` / `nfnAux_*`.
-  Done at both, and at `nfnAux` it goes past non-vacuity to the conclusion the obligations
-  exist for.
+**[MC]** `listDecl_WF : listDecl.WF VEnv.empty`.  Unlike `pfnDecl`, `listDecl` has a
+**recursive** field, so `VIndField.WF.pos` is reached in its `some r` branch and all nine of
+its clauses are discharged (`binders_indep` is reached with an earlier recursive field and
+`ξ = []`, the `mutDecl_WF` rung).
+
+Downstream, all **[MC]**: `listEnv_ordered`, `ntree_fresh'`, `ntreeAux_staged_exists`,
+`ntreeAux_declared_exists`, and
+
+```lean
+theorem ntreeAux_obligationA :
+    ∃ env₁ env₂ env₃, VEnv.empty.addInduct' listDecl = some env₁ ∧
+      env₁.addIndTypes ntreeAux = some env₂ ∧
+      env₁.addConstList (ntreeAux.typeConstsC ntreeK) = some env₃ ∧
+      ∀ c ∈ ntreeAux.ctorConstsCR ntreeRestore ntreeK, VConstant.WF env₃ c.2
+```
+
+with no hypotheses — the parameterised counterpart of `nfnAux_obligationA`.
+
+Unchanged and still true: **`nfnAux_addInductR_ordered`**, the nested step preserving
+`VEnv.Ordered` unconditionally at `inductive NFn | node : PFn NFn → NFn` **[MC]**.
+
+---
+
+## 5. Open, named precisely
+
+1. **(B) and (C) at `ntreeAux`.**  The gap is *not* level congruence any more, and *not* the
+   congruence half of the β-bridge (§3).  It is:
+   * (B): the same `mkPi_congr'` instantiation for `recTypeR`.  `recType j` is
+     `mkPi (atRecTele params ++ motives ++ minors ++ liftTele … indices) (…)`; four entries of
+     that telescope mention `_nested.List_1` (motive 1, and the two `_nested.List_1`
+     minors' field telescopes and `ctorApp'`s), so it is four `IsDefEq.beta`s in
+     progressively deeper contexts rather than one.  Nothing new is needed; it is volume.
+     The reduction lemma `recConstsR_wf_of_substC'` is **not written** — deliberately: it would
+     be an unfired general statement, and this stream's failure mode is exactly that.
+   * (C): `VDefEq.WF` transports `lhs`, `rhs` **and** `type`.  `type` is a `mkPi` and is
+     covered.  `lhs`/`rhs` are `mkLams`, and **there is no `mkLams` congruence** —
+     `IsType.mkPi_congr'`'s proof uses `IsType.forallE_inv`, whose λ-analogue is
+     `HasType.lam_inv` (`Theory/Typing/Strong.lean`, available, needs `OnCtx Γ`).  That is the
+     one missing lemma for (C).
+   * Both also need `(ntreeRestore.csubst ntreeAux ntreeK).WF` at the constructor and recursor
+     staging pairs, which by §2 is now just "each of the four values is well typed at its
+     substituted stored type".
+2. **The general n-ary β step.**  `mkApp (mkLams D.params V) (bvars k D.np) ≡ V` lifted —
+   i.e. `tyApp` substituted is `tyAppR` up to `D.np` β-steps.  At `np = 1` this is one
+   `IsDefEq.beta`, done.  The general form needs an induction over the parameter telescope in
+   which each intermediate application is typed; `IsDefEq.beta`'s premises are
+   `A::Γ ⊢ e : B` and `Γ ⊢ e' : A`, so the induction has to carry the split of the value's
+   own pi-type — that is the exact missing step, and it is where `HasType.app_inv` /
+   `HasType.lam_inv` (both available in `Strong.lean`) come in.
+3. **The general σ's `WF`.**  With §2 this is: for each companion member `j`,
+   `env₁ ⊢ R.tyVal D j : (T.type).substC σ`, and likewise for `ctorVal`/`recVal`.
+   `VIndRestore.Faithful.ty_agree` says `R.instAt D (npJ j) j ci.type = T.type` where `ci` is
+   the *declared* constant — i.e. the fact is available; turning it into a `HasType` of the
+   `mkLams` form is "apply a constant to its parameter spine and re-abstract", which is the
+   same telescope machinery as item 2.  **[RS]** — this is read off `Faithful`, not proved.
+4. **`VIndRestore.KeysDistinct` derivable rather than assumed** — unchanged, blocks nothing.
+5. **The general step** `VEnv.addInductR_ordered'` for arbitrary `D`, `K`, `R`: items 1–3.
+
+**Removed from this list since the previous revision:** level congruence (§2, it exists);
+`listDecl.WF VEnv.empty` (§4, proved); "produce σ" (§1, it is a definition now); and (A) at
+the parameterised witness (§3–4, unconditional).
+
+---
+
+## 6. The gate list
+
+`docs/handoff-inductive-add.md` §N is the list this feeds.  Update to row (i) only; **no flip
+was attempted**, per the standing ruling.
+
+| gate | status |
+|---|---|
+| (i) the nested-soundness theorem | **still open**, and now decomposed: (A) general modulo a per-block telescope defeq **and unconditional at both witnesses**; (B), (C) witness-only and only at `NFn`.  The sub-blockers are §5 items 1–3 — all telescope volume, no missing metatheory |
+| (ii) the `DeltaUnique` repair | CLOSED (unchanged) |
+| (ii′) `VIndRestore.KeysDistinct` | open, blocks nothing (unchanged) |
+| (iii) the `inductNested` rule and case arms | gated on (i) (unchanged) |
+| (iv) the nine `Verify/TypeChecker/` placeholders | **the human's standing ruling: they stay.**  Reported, not acted on |
+| (v) the shape strengthenings | CLOSED (unchanged) |
+| (vi) `IsStructure.types` | open, other stream (unchanged) |
+
+Row (i) did **not** close, so the `AddInduct` flip is not landable and was not attempted.
+What changed is its character: after this round every remaining sub-obligation is a
+*telescope* computation in an environment already known to be `Ordered`, with every piece of
+metatheory it needs (`instL_r`, `mkPi_congr'`, `forallE_inv`, `lam_inv`, `app_inv`, `beta`)
+present and sorry-free.
+
+---
+
+## 7. Inventory
+
+**Machine-checked, new in `Theory/Typing/ConstSubst.lean`.**  `CSubst.val_of_hasType`,
+`CSubst.WF_of_hasType`, `CSubst.one_WF_of_hasType`.  (Import added:
+`Lean4Lean.Theory.Typing.Strong`.)
+
+**Machine-checked, new in `Theory/Typing/ConstSubstNested.lean`.**
+`VEnv.TeleDefEq`; `VEnv.IsType.mkPi_congr`, `mkPi_congr'`; `VExpr.substC_mkPi`;
+`VEnv.ctorConstsCR_wf_of_substC'`;
+`VIndRestore.tyVal`/`ctorVal`/`recVal`/`csubstTyList`/`csubstList`/`csubstTy`/`csubst`,
+`List.lookup_mem`, `mem_csubstList_closed`, `csubst_closed`, `csubstTy_closed`;
+`list_const_staged`, `listDecl_WF`, `listEnv_ordered`;
+`ntreeNode_substC_ne_typeR`; `ntree_fresh'`, `ntreeAux_staged_exists`,
+`ntreeAux_declared_exists`, `ntreeAux_obligationA`;
+`nfn_csubstTy`, `nfn_csubst`, `nfn_csubst_own_none`, `nfn_csubst_ownRec_none`,
+`ntree_csubstTy`, `ntree_csubst_ty_val`, `ntree_csubstTy_own_none`,
+`nfn_csubst_closed`, `ntree_csubstTy_closed`.
+
+**Machine-checked, re-proved.**  `ntreeSubst_WF` (through `one_WF_of_hasType`),
+`ntreeAux_ctorConstsCR_wf` (through `ctorConstsCR_wf_of_substC'`), `nfnSubstAll_WF₃`'s
+recursor `val` case (through `val_of_hasType`).
+
+**Refuted this round.**  The syntactic bridge for a parameterised block
+(`ntreeNode_substC_ne_typeR`).  And the previous revision's claim that level congruence is
+absent from the tree — §2.
+
+**Read off source, not machine-checked.**  §5 item 3 (that `Faithful.ty_agree` supplies the
+typing the general σ's `WF` needs).  Also, still: that a recursive field's occurrence of an
+auxiliary constant is always *saturated* — it is `VIndCtor.Canonical`'s stored form; it holds
+by `rfl` at both witnesses, and the general statement is still not proved.
+
+---
+
+## 8. Corrections to the relay
+
+* **"Level congruence of typing under `≈` — the hard one.  The naive induction fails at
+  `symm`."**  The diagnosis is right; the premise that it is *open* is **false**.
+  `VEnv.IsDefEq.instL_r` has been in `Theory/Typing/Strong.lean`, sorry-free, and the fix the
+  relay described ("weaken until it survives the structural step and keep the strong
+  hypothesis in the public statement") is precisely what `IsDefEqStrong` + `Ordered.strong`
+  already implement.  Cost of the miss: two hand-built congruence proofs in the previous
+  round, both now deleted.  **The lesson is the relay's own, one level up: audit what the tree
+  already proves before deciding a statement is open.**
+* **"Parameterised blocks cost exactly one β-step, measured."**  True *for
+  `ntreeNode`* — one occurrence, one parameter.  It is one β-step **per occurrence per
+  parameter**; `ntreeAux.recType` has four occurrences (§5 item 1).  The measurement was of
+  obligation (A), not of the block.
+* **"With the general theorem, the `AddInduct` flip's obligation (i) closes."**  The general
+  theorem was not obtained, so (i) did not close.  §6 says what did.
+* **"`listDecl.WF VEnv.empty` — mechanical."**  Correct; it went through essentially first
+  try, modelled on `pfnDecl_WF` plus `mutDecl_WF`'s recursive-field rung.

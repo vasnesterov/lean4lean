@@ -103,6 +103,231 @@ theorem VEnv.iotaRulesR_wf_of_substC {E₃ e₃ : VEnv} {D : VInductDecl'} {R : 
   obtain ⟨df₀, hdf₀, rfl⟩ := hdf
   exact VDefEq.WF.substC (hσ df₀ hdf₀) (hsrc df₀ hdf₀)
 
+/-! ## The congruence half of the β-bridge, in general
+
+`ntreeNode_beta_bridge` (below) does one β-step inside a three-entry pi-telescope by hand.
+The reusable content is a **telescope congruence**: replacing entries of a pi-telescope by
+definitionally equal ones — each in the context it lives in — keeps the telescope a type.
+`VEnv.IsType.forallE_congr` is the single-binder case; `VEnv.TeleDefEq` iterates it.
+
+`TeleDefEq.rfl` is there so an *unchanged* entry costs nothing: without it the caller would
+have to supply a reflexivity derivation, i.e. re-type every entry it is not touching. -/
+
+/-- Two telescopes, related entrywise in the context each entry lives in.  `rfl` skips an
+entry that does not move. -/
+inductive VEnv.TeleDefEq (env : VEnv) (U : Nat) : List VExpr → List VExpr → List VExpr → Prop
+  | nil : env.TeleDefEq U Γ [] []
+  | rfl : env.TeleDefEq U (A::Γ) As As' → env.TeleDefEq U Γ (A::As) (A::As')
+  | cons {u : VLevel} : env.IsDefEq U Γ A A' (.sort u) →
+      env.TeleDefEq U (A::Γ) As As' → env.TeleDefEq U Γ (A::As) (A'::As')
+
+/-- **The telescope congruence, body fixed.** -/
+theorem VEnv.IsType.mkPi_congr {env : VEnv} {U : Nat} (henv : env.Ordered) :
+    ∀ {Γ As As' : List VExpr} {B : VExpr}, env.TeleDefEq U Γ As As' →
+      env.IsType U Γ (VExpr.mkPi As B) → env.IsType U Γ (VExpr.mkPi As' B) := by
+  intro Γ As As' B h
+  induction h with
+  | nil => exact id
+  | rfl _ ih =>
+    intro H
+    obtain ⟨hA0, H1⟩ := (VExpr.mkPi_cons ▸ H).forallE_inv henv
+    exact VExpr.mkPi_cons ▸ VEnv.IsType.forallE hA0 (ih H1)
+  | cons hA _ ih =>
+    intro H
+    obtain ⟨hA0, H1⟩ := (VExpr.mkPi_cons ▸ H).forallE_inv henv
+    exact VExpr.mkPi_cons ▸
+      VEnv.IsType.forallE_congr henv hA (VEnv.IsType.forallE hA0 (ih H1))
+
+/-- **…and with the body moving too.**  The body's defeq is stated in the *old* telescope's
+context, which is where the substituted term is typed. -/
+theorem VEnv.IsType.mkPi_congr' {env : VEnv} {U : Nat} {v : VLevel} (henv : env.Ordered) :
+    ∀ {Γ As As' : List VExpr} {B B' : VExpr}, env.TeleDefEq U Γ As As' →
+      env.IsDefEq U (As.reverse ++ Γ) B B' (.sort v) →
+      env.IsType U Γ (VExpr.mkPi As B) → env.IsType U Γ (VExpr.mkPi As' B') := by
+  intro Γ As As' B B' h
+  induction h with
+  | nil => intro hB _; exact ⟨_, hB.hasType.2⟩
+  | rfl _ ih =>
+    intro hB H
+    rw [List.reverse_cons, List.append_assoc] at hB
+    obtain ⟨hA0, H1⟩ := (VExpr.mkPi_cons ▸ H).forallE_inv henv
+    exact VExpr.mkPi_cons ▸ VEnv.IsType.forallE hA0 (ih hB H1)
+  | cons hA _ ih =>
+    intro hB H
+    rw [List.reverse_cons, List.append_assoc] at hB
+    obtain ⟨hA0, H1⟩ := (VExpr.mkPi_cons ▸ H).forallE_inv henv
+    exact VExpr.mkPi_cons ▸
+      VEnv.IsType.forallE_congr henv hA (VEnv.IsType.forallE hA0 (ih hB H1))
+
+/-- `substC` commutes with `mkPi` — it is structural, so this is an induction on the
+telescope and nothing else. -/
+theorem VExpr.substC_mkPi {σ : CSubst} :
+    ∀ {As : List VExpr} {B : VExpr},
+      (VExpr.mkPi As B).substC σ = VExpr.mkPi (As.map (VExpr.substC · σ)) (B.substC σ)
+  | [], _ => rfl
+  | _ :: As, B => by
+    rw [VExpr.mkPi_cons, List.map_cons, VExpr.mkPi_cons, VExpr.substC_forallE,
+      substC_mkPi (As := As)]
+
+/-- **Obligation (A), with a *definitional* bridge instead of a syntactic one.**
+
+`VEnv.ctorConstsCR_wf_of_substC` needs `(C.type D j).substC σ = C.typeR D R j` on the nose.
+That equation holds when the block has no parameters, and **fails** when it has: the
+restoration replaces a companion constant by a `mkLams` and every occurrence is saturated, so
+the two sides differ by one β-step per parameter per occurrence.  This is the same reduction
+with the equality weakened to a telescope defeq, which is what a parameterised block can
+actually supply. -/
+theorem VEnv.ctorConstsCR_wf_of_substC' {env env₃ e₁ : VEnv} {D : VInductDecl'}
+    {K : List Name} {R : VIndRestore} {σ : CSubst}
+    (hD : D.WF env) (h₃ : env.addIndTypes D = some env₃) (henv₃ : env₃.Ordered)
+    (he₁ : e₁.Ordered) (hσ : σ.WF env₃ e₁ D.uvars)
+    (hbridge : ∀ (j : Nat) (T : VIndType) (C : VIndCtor), D.types[j]? = some T →
+      T.name ∉ K → C ∈ T.ctors →
+      ∃ v : VLevel,
+        e₁.TeleDefEq D.uvars []
+          (((C.params ++ C.fields.map (·.type)).map (VExpr.substC · σ)))
+          (C.params ++ C.fieldTypesR D R) ∧
+        e₁.IsDefEq D.uvars
+          (((C.params ++ C.fields.map (·.type)).map (VExpr.substC · σ)).reverse)
+          ((C.canonResult D j).substC σ) (D.tyAppR R j C.fields.length C.args) (.sort v)) :
+    ∀ c ∈ D.ctorConstsCR R K, VConstant.WF e₁ c.2 := by
+  intro c hc
+  rw [VInductDecl'.ctorConstsCR, List.mem_filterMap] at hc
+  obtain ⟨⟨j, C⟩, hjC, hce⟩ := hc
+  simp only [] at hce
+  by_cases hK : (D.types.getD j default).name ∈ K
+  · rw [if_pos hK] at hce; exact absurd hce (by simp)
+  · rw [if_neg hK] at hce
+    cases hce
+    obtain ⟨T, hT, hCT⟩ := VInductDecl'.mem_ctorsAll hjC
+    have hTe : D.types.getD j default = T := by
+      rw [List.getD_eq_getElem?_getD, hT]; rfl
+    rw [hTe] at hK
+    have hwf : VConstant.WF env₃ ⟨D.uvars, C.type D j⟩ :=
+      (hD.ctors env₃ h₃ j T hT C hCT).constant_wf henv₃
+    have hsub := hwf.substC hσ
+    obtain ⟨v, htele, hbody⟩ := hbridge j T C hT hK hCT
+    refine VEnv.IsType.mkPi_congr' (v := v) he₁ htele (by simpa using hbody) ?_
+    have : ((C.type D j).substC σ) = VExpr.mkPi
+        ((C.params ++ C.fields.map (·.type)).map (VExpr.substC · σ))
+        ((C.canonResult D j).substC σ) := VExpr.substC_mkPi
+    exact this ▸ hsub
+
+/-! ## The restoration, as a constant substitution
+
+`VIndRestore` has five fields — `tyName`, `tyLvls`, `tyArgs`, `ctorName`, `recName` — and
+that is exactly the data of a `CSubst`: member `j` of the block is *presented* as
+`R.tyName j |>.{R.tyLvls j} (R.tyArgs j)`, and `R.tyArgs j` is a telescope over the block's
+own parameters, so the term the constant stands for is that application abstracted over
+`D.params`.  A constructor is presented at the *same* spine, and a recursor is a bare
+rename.
+
+Two things make this work without any further data:
+
+* `substC` instantiates the value at **the occurrence's** levels (`substC_const_some`), and
+  the block's constructions mention a block head at two different level numberings —
+  `D.ownLvls` in `tyApp`/`ctorApp`, `D.selfLvls` in `tyApp'`/`ctorApp'`/the recursor.  One
+  σ covers both, because `instL` distributes over the value
+  (`VIndRestore.tyVal_instL` below); no second substitution is needed.
+* the domain is exactly the **companion** members (`T.name ∈ K`).  Off `K`,
+  `VIndRestore.OwnId` says the restoration renames nothing, so a σ entry there would be an
+  η-expansion rather than the identity — which is why the domain is guarded by `K` and not
+  by "is a block name". -/
+
+namespace VIndRestore
+
+open VExpr (mkLams mkApp)
+
+/-- The term the restoration presents member `j`'s type constant as, abstracted over the
+block's parameters.  `mkLams` is the only place a β-redex can enter: at `D.np = 0` it is
+absent and the presentation is a closed application. -/
+def tyVal (R : VIndRestore) (D : VInductDecl') (j : Nat) : VExpr :=
+  mkLams D.params ((VExpr.const (R.tyName j) (R.tyLvls j)).mkApp (R.tyArgs j))
+
+/-- …and constructor `C` of member `j`, at the *same* spine — which is what
+`VInductDecl'.ctorAppR` uses. -/
+def ctorVal (R : VIndRestore) (D : VInductDecl') (j : Nat) (C : VIndCtor) : VExpr :=
+  mkLams D.params ((VExpr.const (R.ctorName C.name) (R.tyLvls j)).mkApp (R.tyArgs j))
+
+/-- …and the recursor, which `mkAuxRecNameMap` only renames.  A rename is a constant
+substitution because `substC` replaces a constant by a *term*. -/
+def recVal (R : VIndRestore) (D : VInductDecl') (n : Lean.Name) : VExpr :=
+  .const (R.recName n) (VLevel.params D.recUvars)
+
+/-- The type entries alone — the domain obligation **(A)** uses. -/
+def csubstTyList (R : VIndRestore) (D : VInductDecl') (K : List Lean.Name) :
+    List (Lean.Name × VExpr) :=
+  (D.types.zipIdx.filter fun p => decide (p.1.name ∈ K)).map fun (T, j) => (T.name, R.tyVal D j)
+
+/-- **The restoration, as a constant substitution.**  One entry for each companion member's
+type constant, one for its recursor, one for each of its constructors. -/
+def csubstList (R : VIndRestore) (D : VInductDecl') (K : List Lean.Name) :
+    List (Lean.Name × VExpr) :=
+  (D.types.zipIdx.filter fun p => decide (p.1.name ∈ K)).flatMap fun (T, j) =>
+    (T.name, R.tyVal D j) ::
+    (Lean.mkRecName T.name, R.recVal D (Lean.mkRecName T.name)) ::
+    T.ctors.map fun C => (C.name, R.ctorVal D j C)
+
+def csubstTy (R : VIndRestore) (D : VInductDecl') (K : List Lean.Name) : CSubst :=
+  fun n => (R.csubstTyList D K).lookup n
+
+def csubst (R : VIndRestore) (D : VInductDecl') (K : List Lean.Name) : CSubst :=
+  fun n => (R.csubstList D K).lookup n
+
+/-- `List.lookup` returns an entry of the list.  (Core has the `isSome` form but not this
+one at the pin.) -/
+theorem _root_.Lean4Lean.List.lookup_mem {β : Type _} {n : Lean.Name} {v : β} :
+    ∀ {l : List (Lean.Name × β)}, l.lookup n = some v → (n, v) ∈ l
+  | [], h => by simp [List.lookup] at h
+  | (a, b) :: l, h => by
+    rw [List.lookup_cons] at h
+    split at h
+    · next hb => cases h; cases (beq_iff_eq.1 hb); exact List.Mem.head _
+    · exact List.Mem.tail _ (lookup_mem h)
+
+theorem mem_csubstList_closed {R : VIndRestore} {D : VInductDecl'} {K : List Lean.Name}
+    (hp : VExpr.ClosedTele D.params 0)
+    (ha : ∀ j, ∀ a ∈ R.tyArgs j, a.ClosedN D.np)
+    {p : Lean.Name × VExpr} (h : p ∈ R.csubstList D K) : p.2.ClosedN 0 := by
+  rw [csubstList, List.mem_flatMap] at h
+  obtain ⟨⟨T, j⟩, -, hp'⟩ := h
+  have hval : ∀ (n : Lean.Name) (ls : List VLevel),
+      (mkLams D.params ((VExpr.const n ls).mkApp (R.tyArgs j))).ClosedN 0 := by
+    intro n ls
+    rw [VExpr.closedN_mkLams]
+    refine ⟨hp, ?_⟩
+    rw [Nat.zero_add, VExpr.closedN_mkApp]
+    exact ⟨trivial, ha j⟩
+  simp only [List.mem_cons, List.mem_map] at hp'
+  obtain rfl | rfl | ⟨C, -, rfl⟩ := hp'
+  · exact hval _ _
+  · exact trivial
+  · exact hval _ _
+
+/-- **Closedness of the general substitution.**  The two hypotheses are the natural ones:
+the block's parameter telescope is closed, and each companion's presented spine mentions no
+variable beyond the parameters.  Both are `decide`/`rfl`-checkable at a concrete block. -/
+theorem csubst_closed (R : VIndRestore) (D : VInductDecl') (K : List Lean.Name)
+    (hp : VExpr.ClosedTele D.params 0)
+    (ha : ∀ j, ∀ a ∈ R.tyArgs j, a.ClosedN D.np) : (R.csubst D K).Closed :=
+  fun {_ _} hc => mem_csubstList_closed hp ha (List.lookup_mem hc)
+
+theorem csubstTy_closed (R : VIndRestore) (D : VInductDecl') (K : List Lean.Name)
+    (hp : VExpr.ClosedTele D.params 0)
+    (ha : ∀ j, ∀ a ∈ R.tyArgs j, a.ClosedN D.np) : (R.csubstTy D K).Closed := by
+  intro c t hc
+  have h := List.lookup_mem hc
+  rw [csubstTyList, List.mem_map] at h
+  obtain ⟨⟨T, j⟩, -, hp'⟩ := h
+  cases hp'
+  show (mkLams D.params _).ClosedN 0
+  rw [VExpr.closedN_mkLams]
+  refine ⟨hp, ?_⟩
+  rw [Nat.zero_add, VExpr.closedN_mkApp]
+  exact ⟨trivial, ha j⟩
+
+end VIndRestore
+
 namespace InductiveDeclExamples
 
 /-! ## The substitution -/
@@ -350,6 +575,15 @@ theorem ntreeNode_substC_redex :
             (.forallE (.app ntreeVal (.bvar 1))
               (.app (.const ``NTree [.param 0]) (.bvar 2)))) := rfl
 
+/-- **Negative control: the *syntactic* bridge is false at a parameterised block.**
+
+`VEnv.ctorConstsCR_wf_of_substC` asks for `(C.type D j).substC σ = C.typeR D R j`.  That
+equation is not merely unproved for a block with parameters — it is **false**, here, at a real
+one.  This is why `ctorConstsCR_wf_of_substC'` (the defeq bridge) exists. -/
+theorem ntreeNode_substC_ne_typeR :
+    (ntreeNode.type ntreeAux 0).substC ntreeSubst ≠ ntreeNode.typeR ntreeAux ntreeRestore 0 := by
+  decide
+
 /-- **…and the restoration is its contractum**, at the same position and nowhere else. -/
 theorem ntreeNode_typeR_reduct :
     ntreeNode.typeR ntreeAux ntreeRestore 0
@@ -357,6 +591,72 @@ theorem ntreeNode_typeR_reduct :
           (.forallE (.bvar 0)
             (.forallE (ntreeBody.inst (.bvar 1))
               (.app (.const ``NTree [.param 0]) (.bvar 2)))) := rfl
+
+/-! ### `List`'s own block is well formed
+
+`NestedHead.lean` states every `NTree` result over an *abstract* `env₁` given by
+`VEnv.empty.addInduct' listDecl = some env₁`, and never proves `env₁.Ordered`.  This is the
+missing fact — the analogue of `pfnDecl_WF` for the parameterised witness.  Unlike `pfnDecl`,
+`listDecl` has a **recursive** field, so `VIndField.WF.pos` is reached in its `some r` branch
+and every one of its nine clauses is discharged. -/
+
+theorem list_const_staged {env₁ : VEnv} (h : VEnv.empty.addIndTypes listDecl = some env₁) :
+    env₁.constants ``List = some ⟨1, listType.type⟩ :=
+  VEnv.addConstList_constants h (``List, ⟨1, listType.type⟩) (by exact List.Mem.head _)
+
+theorem listDecl_WF : listDecl.WF VEnv.empty where
+  types_ne := by simp [listDecl]
+  params := ⟨trivial, _, by type_tac⟩
+  types := by
+    intro T hT
+    simp only [listDecl, List.mem_cons, List.not_mem_nil, or_false] at hT
+    subst hT
+    exact { indices := ⟨trivial, _, by type_tac⟩, isType := ⟨_, by type_tac⟩,
+            canon := ⟨_, by type_tac⟩ }
+  ctors := by
+    intro env₁ hs j T hT C hC
+    have hList := list_const_staged hs
+    match j, hT with
+    | 0, hT =>
+      simp only [listDecl] at hT
+      cases hT
+      simp only [listType, List.mem_cons, List.not_mem_nil, or_false] at hC
+      obtain rfl | rfl := hC
+      · exact { params_len := rfl, params_eq := .succ .zero (by type_tac), fields := nofun,
+                args_len := rfl, args_fresh := nofun, args_ty := .nil, result := by type_tac }
+      · refine { params_len := rfl, params_eq := .succ .zero (by type_tac), fields := ?_,
+                 args_len := rfl, args_fresh := nofun, args_ty := .nil, result := by type_tac }
+        intro i F hF
+        match i, hF with
+        | 0, hF =>
+          simp only [listCons, List.getElem?_cons_zero, Option.some.injEq] at hF
+          subst hF
+          exact { hasType := by type_tac
+                  level := fun ls => by simp [VLevel.eval, listDecl, Lean.Nat.imax]
+                  binders_indep := nofun
+                  pos := ⟨.bvar 0, by simp [VInductDecl'.NoBlock, VExpr.NoConsts],
+                          _, by type_tac⟩ }
+        | 1, hF =>
+          simp only [listCons, List.getElem?_cons_succ, List.getElem?_cons_zero,
+            Option.some.injEq] at hF
+          subst hF
+          refine { hasType := by type_tac
+                   level := fun ls => by simp [VLevel.eval, listDecl, Lean.Nat.imax]
+                   binders_indep := ?_
+                   pos := ⟨by decide, rfl, nofun, nofun,
+                           ⟨⟨trivial, _, by type_tac⟩, _, by type_tac⟩, by type_tac,
+                           fun T' hT' => by cases hT'; exact .nil, _, by type_tac⟩ }
+          rintro r hr
+          cases hr
+          rintro i' t F' - - - k B hB
+          exact absurd hB nofun
+        | (_ + 2), hF => simp [listCons] at hF
+  isLE := fun _ => .inl (by simp [VLevel.IsNeverZero, VLevel.eval, listDecl])
+
+/-- …hence the history environment of the `NTree` step really is `Ordered`. -/
+theorem listEnv_ordered {env₁ : VEnv} (h : VEnv.empty.addInduct' listDecl = some env₁) :
+    env₁.Ordered :=
+  VInductDecl'.addInduct'_ordered_final .empty listDecl_WF h
 
 section
 variable {env₁ env₂ env₃ : VEnv}
@@ -419,11 +719,20 @@ theorem ntreeVal_val {Γ : List VExpr} {ls ls' : List VLevel}
     exact .constDF hN (by simpa using hlw) (by simpa using hlw') rfl (.cons hl .nil)
 
 include h henv₁ h₂ h₃ in
+/-- **The substitution, through the general builder.**  `CSubst.one_WF_of_hasType`
+(`Theory/Typing/ConstSubst.lean`) asks only that the value *has the constant's type*: the
+`≈`-congruence that `ntreeVal_val` establishes by hand is `VEnv.IsDefEq.instL_r`, and is no
+longer a per-witness obligation.  `ntreeVal_val` is kept above as the hand computation it
+supersedes. -/
 theorem ntreeSubst_WF : ntreeSubst.WF env₂ env₃ 1 := by
   have hfresh := ntreeSubst_fresh h
-  refine CSubst.one_WF' (U := 1) (ci := ⟨1, _⟩)
+  have henv₃ : env₃.Ordered :=
+    VEnv.addConstList_ordered henv₁ (VEnv.addInductR_typeConstsC_wf (ntreeAux_WF h)) h₃
+  have hL := list_const₃ h h₃
+  have hN := ntree_const₃ h₃
+  refine CSubst.one_WF_of_hasType (U := 1) (ci := ⟨1, _⟩) henv₃
     ⟨trivial, trivial, trivial, Nat.zero_lt_one⟩
-    (nlist_const_staged h h₂) ⟨trivial, trivial⟩ (fun {_ _ _} => ntreeVal_val h h₃) ?_ ?_
+    (nlist_const_staged h h₂) ⟨trivial, trivial⟩ (by type_tac) ?_ ?_
   · intro c' ci' hne hc'
     by_cases hN : c' = ``NTree
     · subst hN
@@ -463,25 +772,72 @@ theorem ntreeNode_beta_bridge
   exact VEnv.IsType.forallE hP0 (VEnv.IsType.forallE hP1 (H2.forallE_congr henv₃ hbeta))
 
 include h henv₁ h₂ h₃ in
-/-- **Obligation (A) at the parameterised nested witness.**  Substitution, then one β-step. -/
+/-- **Obligation (A) at the parameterised nested witness, through the general reduction.**
+
+`VEnv.ctorConstsCR_wf_of_substC'` is what is used, not the bespoke bridge: the block-specific
+input is exactly one `IsDefEq.beta`, and the two unchanged telescope entries cost nothing
+because of `TeleDefEq.rfl`.  `ntreeNode_beta_bridge` above is the same step done by hand, kept
+as the measurement it was. -/
 theorem ntreeAux_ctorConstsCR_wf :
     ∀ c ∈ ntreeAux.ctorConstsCR ntreeRestore ntreeK, VConstant.WF env₃ c.2 := by
   have henv₂ : env₂.Ordered :=
     VInductDecl'.addIndTypes_ordered henv₁ (ntreeAux_WF h) h₂
-  have hct : VIndCtor.WF env₂ ntreeAux 0 (ntreeAux.types.getD 0 default) ntreeNode :=
-    (ntreeAux_WF h).ctors env₂ h₂ 0 _ rfl ntreeNode (by simp)
-  have hwf : VConstant.WF env₂ ⟨1, ntreeNode.type ntreeAux 0⟩ := hct.constant_wf henv₂
-  have hsub := hwf.substC (ntreeSubst_WF h henv₁ h₂ h₃)
-  have hres := ntreeNode_beta_bridge h henv₁ h₃ hsub
-  intro c hc
-  have hlist : ntreeAux.ctorConstsCR ntreeRestore ntreeK
-      = [(``NTree.node, ⟨1, ntreeNode.typeR ntreeAux ntreeRestore 0⟩)] := rfl
-  rw [hlist] at hc
-  simp only [List.mem_singleton] at hc
-  subst hc
-  exact hres
+  have henv₃ : env₃.Ordered :=
+    VEnv.addConstList_ordered henv₁ (VEnv.addInductR_typeConstsC_wf (ntreeAux_WF h)) h₃
+  have hL := list_const₃ h h₃
+  have hN := ntree_const₃ h₃
+  refine VEnv.ctorConstsCR_wf_of_substC' (ntreeAux_WF h) h₂ henv₂ henv₃
+    (ntreeSubst_WF h henv₁ h₂ h₃) ?_
+  rintro j T C hT hK hC
+  match j, hT with
+  | 0, hT =>
+    cases hT
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at hC
+    subst hC
+    refine ⟨.succ (.param 0), .rfl (.rfl (.cons (u := .succ (.param 0)) ?_ .nil)),
+      by type_tac⟩
+    refine VEnv.IsDefEq.beta (A := .sort (.succ (.param 0))) (B := .sort (.succ (.param 0)))
+      ?_ ?_ <;> type_tac
+  | 1, hT =>
+    cases hT
+    exact absurd (by decide) hK
+  | (_ + 2), hT => simp [ntreeAux] at hT
 
 end
+
+/-! ## …with no hypotheses left, at the parameterised witness too
+
+`listDecl_WF` makes the `NTree` development unconditional exactly the way `pfnDecl_WF` makes
+the `NFn` one unconditional. -/
+
+theorem ntree_fresh' {env₁ : VEnv} (h : VEnv.empty.addInduct' listDecl = some env₁)
+    (n : Name) (hn : n ∈ [``NTree, `_nested.List_1]) : env₁.constants n = none := by
+  rw [VEnv.addInduct'_constants_of_not_mem h (by revert hn; revert n; decide)]
+  rfl
+
+theorem ntreeAux_staged_exists {env₁ : VEnv} (h : VEnv.empty.addInduct' listDecl = some env₁) :
+    ∃ env₂, env₁.addIndTypes ntreeAux = some env₂ :=
+  VEnv.addConstList_eq_some_iff.2 ⟨fun n hn => ntree_fresh' h n hn, by decide⟩
+
+theorem ntreeAux_declared_exists {env₁ : VEnv}
+    (h : VEnv.empty.addInduct' listDecl = some env₁) :
+    ∃ env₃, env₁.addConstList (ntreeAux.typeConstsC ntreeK) = some env₃ :=
+  VEnv.addConstList_eq_some_iff.2
+    ⟨fun n hn => ntree_fresh' h n (by revert hn; revert n; decide), by decide⟩
+
+/-- **Obligation (A) at the `NTree`/`List` nested witness, unconditionally.**  This is the
+parameterised counterpart of `nfnAux_obligationA`: one constant substitution and one β-step,
+over a history environment now known to be `Ordered`. -/
+theorem ntreeAux_obligationA :
+    ∃ env₁ env₂ env₃ : VEnv, VEnv.empty.addInduct' listDecl = some env₁ ∧
+      env₁.addIndTypes ntreeAux = some env₂ ∧
+      env₁.addConstList (ntreeAux.typeConstsC ntreeK) = some env₃ ∧
+      ∀ c ∈ ntreeAux.ctorConstsCR ntreeRestore ntreeK, VConstant.WF env₃ c.2 := by
+  obtain ⟨env₁, h⟩ : ∃ e, VEnv.empty.addInduct' listDecl = some e := ⟨_, rfl⟩
+  obtain ⟨env₂, h₂⟩ := ntreeAux_staged_exists h
+  obtain ⟨env₃, h₃⟩ := ntreeAux_declared_exists h
+  exact ⟨env₁, env₂, env₃, h, h₂, h₃,
+    ntreeAux_ctorConstsCR_wf h (listEnv_ordered h) h₂ h₃⟩
 
 /-! ## The whole restoration is one constant substitution
 
@@ -813,17 +1169,11 @@ theorem nfnSubstAll_WF₃ : nfnSubstAll.WF E₃ F₃ 1 := by
         (`_nested.PFn_1.rec, ⟨1, nfnAux.recType 1⟩)
         (by exact List.Mem.tail _ (List.Mem.head _))] at hc'
       cases hc'
-      intro hls hls' hfa hlen
-      match ls, hlen with
-      | [l], _ =>
-      cases hfa with | cons hl hfa' =>
-      cases hfa' with | nil =>
-      rename_i l'
-      have hlw : l.WF 1 := hls _ List.mem_cons_self
-      have hlw' : l'.WF 1 := hls' _ List.mem_cons_self
-      show F₃.IsDefEq 1 Γ (.const ``NFn.rec_1 [l]) (.const ``NFn.rec_1 [l'])
-        (VExpr.instL [l] (nfnAux.recTypeR nfnRestore 1))
-      exact .constDF hRec1 (by simpa using hlw) (by simpa using hlw') rfl (.cons hl .nil)
+      -- the one place a value has universe parameters; `val_of_hasType` handles it
+      refine CSubst.val_of_hasType hFo ?_
+      show F₃.HasType 1 [] nfnValRec ((nfnAux.recType 1).substC nfnSubstAll)
+      rw [nfn_recType_substC_1]
+      exact .constDF hRec1 (by simp [VLevel.WF]) (by simp [VLevel.WF]) rfl (.cons rfl .nil)
     · exact fun hσ => absurd hσ nofun
 
 include h hE₁ hE₂ hE₃ hF₁ hF₂ hF₃ in
@@ -894,6 +1244,92 @@ theorem nfnAux_addInductR_ordered :
   · exact nfnAux_ctorConstsCR_wf h (pfnEnv_ordered h) hE₁ hF₁
   · exact nfnAux_recConstsR_wf h hE₁ hE₂ hF₁ hF₂
   · exact nfnAux_iotaRulesR_wf h hE₁ hE₂ hE₃ hF₁ hF₂ hF₃
+
+/-! ## The general σ, at both witnesses
+
+The three substitutions above were written out by hand.  `VIndRestore.csubst` builds them
+from the restoration's five fields, and these are the checks that it builds *those* — not
+something that merely resembles them.  Every equation below is by `funext` plus computation:
+no hypothesis about the block enters. -/
+
+/-- **The general type-entry substitution is `nfnSubst`.** -/
+theorem nfn_csubstTy : nfnRestore.csubstTy nfnAux nfnK = nfnSubst := by
+  funext n
+  show List.lookup n [(`_nested.PFn_1, nfnVal)] = _
+  rw [List.lookup_cons]
+  by_cases h : n = `_nested.PFn_1
+  · subst h; rfl
+  · rw [show (n == `_nested.PFn_1) = false from beq_eq_false_iff_ne.2 h]
+    exact (CSubst.one_of_ne h).symm
+
+/-- **The general substitution is `nfnSubstAll`** — including the recursor rename, which is
+`mkAuxRecNameMap`'s entry read off `R.recName`. -/
+theorem nfn_csubst : nfnRestore.csubst nfnAux nfnK = nfnSubstAll := by
+  funext n
+  show List.lookup n [(`_nested.PFn_1, nfnVal), (`_nested.PFn_1.rec, nfnValRec),
+    (`_nested.PFn_1.mk, nfnValMk)] = _
+  by_cases h1 : n = `_nested.PFn_1
+  · subst h1; rfl
+  by_cases h2 : n = `_nested.PFn_1.mk
+  · subst h2; rfl
+  by_cases h3 : n = `_nested.PFn_1.rec
+  · subst h3; rfl
+  rw [List.lookup_cons, show (n == `_nested.PFn_1) = false from beq_eq_false_iff_ne.2 h1,
+    List.lookup_cons, show (n == `_nested.PFn_1.rec) = false from beq_eq_false_iff_ne.2 h3,
+    List.lookup_cons, show (n == `_nested.PFn_1.mk) = false from beq_eq_false_iff_ne.2 h2]
+  show none = _
+  rw [nfnSubstAll, if_neg h1, if_neg h2, if_neg h3]
+
+/-- **The general type-entry substitution is `ntreeSubst`** — and here the value really is a
+lambda, because `NTree` has a parameter.  `VIndRestore.tyVal`'s `mkLams` is that lambda. -/
+theorem ntree_csubstTy : ntreeRestore.csubstTy ntreeAux ntreeK = ntreeSubst := by
+  funext n
+  show List.lookup n [(`_nested.List_1, ntreeVal)] = _
+  rw [List.lookup_cons]
+  by_cases h : n = `_nested.List_1
+  · subst h; rfl
+  · rw [show (n == `_nested.List_1) = false from beq_eq_false_iff_ne.2 h]
+    exact (CSubst.one_of_ne h).symm
+
+/-- **The domain is the companion members and nothing else.**  The block's *own* member is not
+in σ's domain: under `VIndRestore.OwnId` an entry there would be an η-expansion, not the
+identity, so `csubst` is guarded by `K` rather than by "is a block name". -/
+theorem nfn_csubst_own_none : nfnRestore.csubst nfnAux nfnK ``NFn = none := rfl
+
+theorem nfn_csubst_ownRec_none : nfnRestore.csubst nfnAux nfnK (Lean.mkRecName ``NFn) = none := rfl
+
+theorem ntree_csubstTy_own_none : ntreeRestore.csubstTy ntreeAux ntreeK ``NTree = none := rfl
+
+/-- …and the value at the companion member is the presented application, on the nose. -/
+theorem ntree_csubst_ty_val :
+    ntreeRestore.csubstTy ntreeAux ntreeK `_nested.List_1 = some ntreeVal := rfl
+
+/-- The two closedness side conditions hold at both witnesses. -/
+theorem nfn_csubst_closed : (nfnRestore.csubst nfnAux nfnK).Closed := by
+  refine VIndRestore.csubst_closed nfnRestore nfnAux nfnK trivial ?_
+  intro j a ha
+  show a.ClosedN 0
+  revert ha
+  rw [show nfnRestore.tyArgs j = if j = 1 then [VExpr.const ``NFn []] else [] from rfl]
+  split
+  · intro h; simp only [List.mem_cons, List.not_mem_nil, or_false] at h; subst h; trivial
+  · intro h; simp at h
+
+theorem ntree_csubstTy_closed : (ntreeRestore.csubstTy ntreeAux ntreeK).Closed := by
+  refine VIndRestore.csubstTy_closed ntreeRestore ntreeAux ntreeK ⟨trivial, trivial⟩ ?_
+  intro j a ha
+  show a.ClosedN 1
+  revert ha
+  rw [show ntreeRestore.tyArgs j
+      = if j = 1 then [VExpr.app (.const ``NTree [.param 0]) (.bvar 0)] else [VExpr.bvar 0]
+    from rfl]
+  split <;>
+  · intro h
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at h
+    subst h
+    first
+      | exact ⟨trivial, Nat.zero_lt_one⟩
+      | exact Nat.zero_lt_one
 
 end InductiveDeclExamples
 end Lean4Lean

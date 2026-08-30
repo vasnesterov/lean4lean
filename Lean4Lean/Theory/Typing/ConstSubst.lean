@@ -1,4 +1,5 @@
 import Lean4Lean.Theory.Typing.Lemmas
+import Lean4Lean.Theory.Typing.Strong
 
 /-!
 # Substituting a constant by a term
@@ -451,6 +452,90 @@ theorem CSubst.val_zero {env₁ : VEnv} {σ : CSubst} {t : VExpr} {ci : VConstan
   rw [ht1, ht2] at h
   rw [ht1, ht2]
   exact h
+
+/-! ## …and the general case is not open either
+
+The paragraph above, and `docs/handoff-constsubst.md` §6 item 1, recorded congruence of
+typing under `≈` of universe levels as **missing from the tree**.  That is **false**: it is
+`VEnv.IsDefEq.instL_r` (`Theory/Typing/Strong.lean`),
+
+```
+theorem IsDefEq.instL_r (henv : Ordered env) (hΓ : OnCtx Γ (env.IsType U'))
+    (hls : ∀ l ∈ ls, l.WF U) (hls' : ∀ l ∈ ls', l.WF U) (heq : List.Forall₂ (· ≈ ·) ls ls')
+    (H : env.IsDefEq U' Γ e1 e2 A) :
+    env.IsDefEq U (Γ.map (VExpr.instL ls)) (e1.instL ls) (e2.instL ls') (A.instL ls)
+```
+
+on `[propext, Quot.sound]`.  The diagnosis of *why* the naive induction fails was right —
+the `symm` case needs the type to be typed — and so was the diagnosis of the repair: keep
+the strong invariant in the public statement (`Ordered env`, `OnCtx Γ`) and weaken the
+system the induction runs on.  `VEnv.IsDefEqStrong` is that weakened system, `Ordered.strong`
+is the bridge, and both predate this file.
+
+So `CSubst.WF.val` does **not** need a hand proof per value.  It follows from the naive
+hypothesis after all — "the value has the constant's substituted type" — provided `env₁` is
+`Ordered`, which every consumer has. -/
+
+/-- **`val` from plain well-typedness.**  The two level lists are `≈`-equivalent, so
+`IsDefEq.instL_r` relates the value at both; `weak0` then discharges `val`'s unrestricted
+context quantifier, since the value is closed and the judgement is derived at `Γ = []`. -/
+theorem CSubst.val_of_hasType {env₁ : VEnv} {σ : CSubst} {t : VExpr} {ci : VConstant} {U : Nat}
+    (henv₁ : env₁.Ordered) (ht : env₁.HasType ci.uvars [] t (ci.type.substC σ)) :
+    ∀ {Γ : List VExpr} {ls ls' : List VLevel}, (∀ l ∈ ls, l.WF U) → (∀ l ∈ ls', l.WF U) →
+      List.Forall₂ (· ≈ ·) ls ls' → ls.length = ci.uvars →
+      env₁.IsDefEq U Γ (t.instL ls) (t.instL ls') ((ci.type.substC σ).instL ls) := by
+  intro Γ ls ls' h1 h2 h3 _
+  have h := VEnv.IsDefEq.instL_r (U := U) (Γ := []) henv₁ ⟨⟩ h1 h2 h3 ht
+  exact (show env₁.IsDefEq U [] _ _ _ from h).weak0 henv₁
+
+/-- **The general builder.**  A constant substitution is well formed as soon as its values
+are closed and *well typed at the substituted declared type*, its complement is carried by
+`env₁`, and its rules are.  No clause about universe levels survives: `val_of_hasType`
+absorbed it.
+
+This is the statement `CSubst.one_WF'` should have had; it is kept because it is what the
+witnesses are already written against. -/
+theorem CSubst.WF_of_hasType {env₀ env₁ : VEnv} {σ : CSubst} {U : Nat}
+    (henv₁ : env₁.Ordered) (hcl : σ.Closed)
+    (hval : ∀ {c : Name} {t : VExpr} {ci : VConstant}, σ c = some t →
+      env₀.constants c = some ci → env₁.HasType ci.uvars [] t (ci.type.substC σ))
+    (hconst : ∀ {c : Name} {ci : VConstant}, σ c = none → env₀.constants c = some ci →
+      env₁.constants c = some ⟨ci.uvars, ci.type.substC σ⟩)
+    (hdefeq : ∀ {df : VDefEq}, env₀.defeqs df → env₁.defeqs (df.substC σ)) :
+    σ.WF env₀ env₁ U where
+  closed := hcl
+  const := hconst
+  defeq := hdefeq
+  val hσ hc h1 h2 h3 h4 := CSubst.val_of_hasType henv₁ (hval hσ hc) h1 h2 h3 h4
+
+/-- The one-constant case of `WF_of_hasType`, in the shape `CSubst.one_WF` is written in —
+but with **no** hypothesis about universe parameters.  `CSubst.one_WF` is its `ci.uvars = 0`
+special case, and is now redundant. -/
+theorem CSubst.one_WF_of_hasType {env₀ env₁ : VEnv} {c : Name} {t : VExpr} {ci : VConstant}
+    {U : Nat} (henv₁ : env₁.Ordered)
+    (hcl : t.ClosedN) (h₀ : env₀.constants c = some ci)
+    (hcty : ci.type.NoCSubst (CSubst.one c t))
+    (hty : env₁.HasType ci.uvars [] t ci.type)
+    (hconst : ∀ c' ci', c' ≠ c → env₀.constants c' = some ci' →
+      env₁.constants c' = some ci' ∧ ci'.type.NoCSubst (CSubst.one c t))
+    (hdefeq : ∀ df, env₀.defeqs df → env₁.defeqs df ∧ df.NoCSubst (CSubst.one c t)) :
+    (CSubst.one c t).WF env₀ env₁ U := by
+  refine CSubst.WF_of_hasType henv₁ (fun {c' t'} h => ?_) (fun {c' t' ci'} hn h => ?_)
+    (fun {c' ci'} hn h => ?_) (fun {df} h => ?_)
+  · unfold CSubst.one at h; split at h
+    · cases h; exact hcl
+    · exact absurd h nofun
+  · unfold CSubst.one at hn; split at hn
+    case isFalse => exact absurd hn nofun
+    case isTrue he =>
+    subst he; cases hn
+    rw [h₀] at h; cases h
+    rw [hcty.substC_eq]; exact hty
+  · have hne : c' ≠ c := by rintro rfl; simp [CSubst.one] at hn
+    obtain ⟨h1, h2⟩ := hconst _ _ hne h
+    rw [h2.substC_eq, h1]
+  · obtain ⟨h1, h2⟩ := hdefeq _ h
+    rw [h2.substC_eq]; exact h1
 
 /-- **The one-constant case, packaged.**  This is the shape the nested step is in: one
 auxiliary constant, replaced by a closed term, in an environment that has every other
