@@ -2304,3 +2304,161 @@ theorem trExprS_listCharString_inv' {env : VEnv} {Us Δ} {nm bi e'}
   cases trExprS_const_nil_inv' h3
   cases trExprS_listChar_inv' h1
   rfl
+
+/-! ### The `Nat.mod` / `Nat.div` fuel telescope
+
+`Nat.modCore.go` and `Nat.div.go` are checked against
+`∀ n, Nat.succ Nat.zero ≤ n → ∀ fuel x : Nat, Nat.succ x ≤ fuel → Nat`.  The two `≤`
+occurrences sit at binder depths 1 and 4, but `@LE.le Nat instLENat` is a closed term built from
+constants, so its translation is `VExpr.natLE` at *every* context.  The inversion is therefore a
+plain iterated `trExprS_arrow_inv'`, with no weakening of the base-context `checkedTypeIs`
+output and no appeal to `TrExprS.unique`. -/
+
+/-- The bound variable a `vlam` has just introduced. -/
+theorem trExprS_bvar0_inv' {env : VEnv} {Us Δ} {A : VExpr} {e' : VExpr}
+    (h : TrExprS env Us ((none, .vlam A) :: Δ) (.bvar 0) e') : e' = .bvar 0 := by
+  let .bvar h1 := h
+  simp [VLCtx.find?, VLCtx.next, VLocalDecl.value] at h1
+  exact h1.1.symm
+
+/-- The bound variable one `vlam` further out. -/
+theorem trExprS_bvar1_inv' {env : VEnv} {Us Δ} {A B : VExpr} {e' : VExpr}
+    (h : TrExprS env Us ((none, .vlam A) :: (none, .vlam B) :: Δ) (.bvar 1) e') :
+    e' = .bvar 1 := by
+  let .bvar h1 := h
+  simp [VLCtx.find?, VLCtx.next, VLocalDecl.value, VLocalDecl.depth, VExpr.liftN] at h1
+  exact h1.1.symm
+
+/-- `@LE.le Nat instLENat` translates to `VExpr.natLE`, at any context. -/
+theorem trExprS_natLE_inv' {env : VEnv} {Us Δ} {e' : VExpr}
+    (h : TrExprS env Us Δ (.app (.app (.const ``LE.le [.zero]) (.const ``Nat []))
+      (.const ``instLENat [])) e') : e' = .natLE := by
+  let .app _ _ g3 g4 := h
+  cases trExprS_const_nil_inv' g4
+  let .app _ _ f3 f4 := g3
+  cases trExprS_const_nil_inv' f4
+  cases trExprS_const_zero_inv' f3
+  rfl
+
+/-- `a ≤ b` at `Nat`. -/
+theorem trExprS_natLEApp_inv' {env : VEnv} {Us Δ} {a b : Expr} {e' : VExpr}
+    (h : TrExprS env Us Δ (.app (.app (.app (.app (.const ``LE.le [.zero]) (.const ``Nat []))
+      (.const ``instLENat [])) a) b) e') :
+    ∃ a' b', e' = .natLEApp a' b' ∧
+      TrExprS env Us Δ a a' ∧ TrExprS env Us Δ b b' := by
+  let .app _ _ g3 g4 := h
+  let .app _ _ f3 f4 := g3
+  cases trExprS_natLE_inv' f3
+  exact ⟨_, _, rfl, f4, g4⟩
+
+/-- `Nat.succ Nat.zero` translates to `VExpr.natLit 1`. -/
+theorem trExprS_one_inv' {env : VEnv} {Us Δ} {e' : VExpr}
+    (h : TrExprS env Us Δ (.app (.const ``Nat.succ []) (.const ``Nat.zero [])) e') :
+    e' = .natLit 1 := by
+  let .app _ _ g3 g4 := h
+  cases trExprS_const_nil_inv' g3
+  cases trExprS_const_nil_inv' g4
+  rfl
+
+/-- `Nat → Nat → Prop`, the type the recognizer checks `@LE.le Nat _` against. -/
+theorem trExprS_natArrowProp_inv' {env : VEnv} {Us Δ} {nm₁ nm₂ bi₁ bi₂} {e' : VExpr}
+    (h : TrExprS env Us Δ (.forallE nm₁ (.const ``Nat [])
+      (.forallE nm₂ (.const ``Nat []) (.sort .zero) bi₂) bi₁) e') :
+    e' = .forallE .nat (.forallE .nat (.sort .zero)) := by
+  obtain ⟨_, _, rfl, h1, h3⟩ := trExprS_arrow_inv' h
+  cases trExprS_const_nil_inv' h1
+  obtain ⟨_, _, rfl, g1, g3⟩ := trExprS_arrow_inv' h3
+  cases trExprS_const_nil_inv' g1
+  let .sort hs := g3
+  simp [VLevel.ofLevel] at hs
+  rw [← hs]; rfl
+
+/-- The telescope inversion the `Nat.mod` and `Nat.div` branches need: the type
+`Nat.modCore.go` / `Nat.div.go` is checked against determines its translation on the nose. -/
+theorem trExprS_goType_inv' {env : VEnv} {Us Δ} {n₁ n₂ n₃ n₄ n₅ bi₁ bi₂ bi₃ bi₄ bi₅}
+    {e' : VExpr}
+    (h : TrExprS env Us Δ
+      (.forallE n₁ (.const ``Nat [])
+        (.forallE n₂ (.app (.app (.app (.app (.const ``LE.le [.zero]) (.const ``Nat []))
+            (.const ``instLENat [])) (.app (.const ``Nat.succ []) (.const ``Nat.zero [])))
+          (.bvar 0))
+          (.forallE n₃ (.const ``Nat [])
+            (.forallE n₄ (.const ``Nat [])
+              (.forallE n₅ (.app (.app (.app (.app (.const ``LE.le [.zero]) (.const ``Nat []))
+                  (.const ``instLENat [])) (.app (.const ``Nat.succ []) (.bvar 0))) (.bvar 1))
+                (.const ``Nat []) bi₅) bi₄) bi₃) bi₂) bi₁) e') :
+    e' = .goType := by
+  obtain ⟨_, _, rfl, h1, h2⟩ := trExprS_arrow_inv' h
+  cases trExprS_const_nil_inv' h1
+  obtain ⟨_, _, rfl, g1, g2⟩ := trExprS_arrow_inv' h2
+  obtain ⟨_, _, rfl, ga, gb⟩ := trExprS_natLEApp_inv' g1
+  cases trExprS_one_inv' ga
+  cases trExprS_bvar0_inv' gb
+  obtain ⟨_, _, rfl, k1, k2⟩ := trExprS_arrow_inv' g2
+  cases trExprS_const_nil_inv' k1
+  obtain ⟨_, _, rfl, m1, m2⟩ := trExprS_arrow_inv' k2
+  cases trExprS_const_nil_inv' m1
+  obtain ⟨_, _, rfl, p1, p2⟩ := trExprS_arrow_inv' m2
+  obtain ⟨_, _, rfl, pa, pb⟩ := trExprS_natLEApp_inv' p1
+  let .app _ _ pa1 pa2 := pa
+  cases trExprS_const_nil_inv' pa1
+  cases trExprS_bvar0_inv' pa2
+  cases trExprS_bvar1_inv' pb
+  cases trExprS_const_nil_inv' p2
+  rfl
+
+/-- Every explicit universe level a recognizer term carries is a closed `Level`, so a `.const`
+inversion needs no more than the level translation the caller can compute.  This subsumes
+`trExprS_const_nil_inv'` and `trExprS_const_zero_inv'`. -/
+theorem trExprS_const_inv' {env : VEnv} {Us Δ} {n : Name} {us : List Level} {us' : List VLevel}
+    {e' : VExpr} (h : TrExprS env Us Δ (.const n us) e')
+    (hus : us.mapM (VLevel.ofLevel Us) = some us') : e' = .const n us' := by
+  let .const _ h2 _ := h
+  rw [hus] at h2; cases h2; rfl
+
+/-- `Prop`. -/
+theorem trExprS_prop_inv' {env : VEnv} {Us Δ} {e' : VExpr}
+    (h : TrExprS env Us Δ (.sort .zero) e') : e' = .sort .zero := by
+  let .sort hs := h
+  simp [VLevel.ofLevel] at hs
+  rw [← hs]
+
+/-- `Prop → Bool → Prop`, the type a `Reflection`'s `type` field is checked against. -/
+theorem trExprS_propBoolProp_inv' {env : VEnv} {Us Δ} {nm₁ nm₂ bi₁ bi₂} {e' : VExpr}
+    (h : TrExprS env Us Δ (.forallE nm₁ (.sort .zero)
+      (.forallE nm₂ (.const ``Bool []) (.sort .zero) bi₂) bi₁) e') :
+    e' = .forallE (.sort .zero) (.forallE .bool (.sort .zero)) := by
+  obtain ⟨_, _, rfl, h1, h3⟩ := trExprS_arrow_inv' h
+  cases trExprS_prop_inv' h1
+  obtain ⟨_, _, rfl, g1, g3⟩ := trExprS_arrow_inv' h3
+  cases trExprS_const_nil_inv' g1
+  cases trExprS_prop_inv' g3
+  rfl
+
+namespace TypeChecker
+
+variable {c : VContext}
+
+/-- What `Reflection.check` establishes: the reflection predicate has a translation, and that
+translation is a `Prop → Bool → Prop`.
+
+This is the first of the facts `Condition.check` produces and the only one of them that is a
+single check; the rest (`Reflection.checkITE`, `Reflection.checkNatDITE`, and the four
+comparisons `Condition.check` makes itself) are still open.  See `docs/handoff-primitive.md`. -/
+theorem Reflection.check.WF {s : VState} {r : Lean4Lean.Environment.Reflection}
+    {fail : ∀ {α}, TypeChecker.M α}
+    (hfail : ∀ {α : Type} {s' : VState} {Q : α → VState → Prop}, M.WF c s' fail Q)
+    (hty : r.type.FVarsIn (· ∈ c.vlctx.fvars)) :
+    M.WF c s (r.check fail) fun _ _ =>
+      ∃ RT, c.TrExprS r.type RT ∧
+        c.HasType RT (.forallE (.sort .zero) (.forallE .bool (.sort .zero))) := by
+  unfold Lean4Lean.Environment.Reflection.check
+  refine M.WF.bind (checkedTypeIs.WF hty (by simp [FVarsIn] <;> rfl)) fun _ _ _ h => ?_
+  obtain ⟨RT, A', ty', hRT, hA', hty', hd⟩ := h
+  split
+  case isFalse => exact hfail
+  rename_i hb
+  cases trExprS_propBoolProp_inv' hty'
+  exact .pure ⟨RT, hRT, hA'.defeqU_r c.Ewf c.Δwf.toCtx (hd (by simpa using hb))⟩
+
+end TypeChecker

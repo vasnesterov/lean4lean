@@ -200,6 +200,28 @@ def VExpr.natLit : Nat → VExpr
   | 0 => .natZero
   | n+1 => .app .natSucc (.natLit n)
 
+/-- `@LE.le Nat instLENat` — the `≤` the `Nat.mod` / `Nat.div` fuel telescopes are stated with.
+
+It is built out of constants alone, so a `TrExprS` for it is pinned *syntactically* by
+`trExprS_natLE_inv'`, at **every** `VLCtx`.  That is what makes the `go` telescope inversion a
+plain iterated `trExprS_arrow_inv'`: the two `≤` occurrences sit at binder depths 1 and 4, but
+they translate to this same closed `VExpr` there as at the base context, so no weakening of the
+`checkedTypeIs` output and no appeal to `TrExprS.unique` is needed to identify them. -/
+def VExpr.natLE : VExpr := .app (.app (.const ``LE.le [.zero]) .nat) (.const ``instLENat [])
+
+/-- `a ≤ b` at `Nat`, in the abstract syntax. -/
+def VExpr.natLEApp (a b : VExpr) : VExpr := .app (.app .natLE a) b
+
+/-- The type `Nat.modCore.go` and `Nat.div.go` are checked against by the `Nat.mod` / `Nat.div`
+branches of the recognizer: `∀ n, Nat.succ Nat.zero ≤ n → ∀ fuel x : Nat, Nat.succ x ≤ fuel →
+Nat`.  The de Bruijn indices track the source term's: the proof binder is a `vlam` like every
+other, so `n` is `.bvar 0` under one binder and `x`, `fuel` are `.bvar 0`, `.bvar 1` under
+four. -/
+def VExpr.goType : VExpr :=
+  .forallE .nat (.forallE (.natLEApp (.natLit 1) (.bvar 0))
+    (.forallE .nat (.forallE .nat
+      (.forallE (.natLEApp (.app .natSucc (.bvar 0)) (.bvar 1)) .nat))))
+
 def VExpr.char : VExpr := .const ``Char []
 def VExpr.string : VExpr := .const ``String []
 def VExpr.stringOfList : VExpr := .const ``String.ofList []

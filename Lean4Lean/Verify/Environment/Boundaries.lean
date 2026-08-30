@@ -109,7 +109,148 @@ theorem checkPrimitiveDef.WF.rest {env : Environment} {ves : VEnvs} (wf : ves.WF
     (hrest : v.name = ``Nat.mod ∨ v.name = ``Nat.div ∨ v.name = ``Nat.gcd ∨
       v.name = ``Nat.bitwise) :
     (Environment.checkPrimitiveDef v).WF (.mk' wf .safe v.levelParams fuel) {} fun allow _ =>
-      PrimitiveResult (ves.venv .safe) v allow := sorry
+      PrimitiveResult (ves.venv .safe) v allow := by
+  obtain ⟨⟨name, lparams, type⟩, value, hints, safety, all⟩ := v
+  have hfail {α : Type} {s' : VState} {Q : α → VState → Prop} {msg} :
+      M.WF (.mk' wf .safe lparams fuel) s' (throw (Exception.other msg) : M α) Q := .throw
+  unfold Environment.checkPrimitiveDef
+  split
+  case isFalse => exact .pure { safe := nofun, no_level_params := nofun, preserves := nofun }
+  rename_i hsafe
+  refine M.WF.bind getEnv.WF fun _ _ _ h => ?_
+  obtain ⟨rfl, rfl⟩ := h
+  split
+  · rename_i hname; subst hname; simp at hrest -- ``Nat.add
+  · rename_i hname; subst hname; simp at hrest -- ``Nat.pred
+  · rename_i hname; subst hname; simp at hrest -- ``Nat.sub
+  · rename_i hname; subst hname; simp at hrest -- ``Nat.mul
+  · rename_i hname; subst hname; simp at hrest -- ``Nat.pow
+  · -- ``Nat.mod
+    rename_i hname
+    split
+    case isFalse => exact M.WF.bindThrow .throw
+    rename_i hguard
+    simp only [Bool.and_eq_true, List.isEmpty_iff] at hguard
+    obtain ⟨⟨⟨⟨hnatE, hboolE⟩, hsubE⟩, hbleE⟩, rfl⟩ := hguard
+    refine (checkPrimValue.WF (fun {_} {_} {_} => hfail) (by simp [FVarsIn])).bind
+      fun _ _ _ h => ?_
+    obtain ⟨ty', F, hty', hF, hFty⟩ := h
+    cases trExprS_natArrow2_inv hty'
+    have hnf := NatFacts.of_arrow hty'
+    have hnat := hnf.contains
+    have hprim := (VContext.mk' wf .safe ([] : List Name) fuel).hasPrimitives
+    obtain ⟨hFc, -⟩ := closedN_of_nil rfl hFty
+    -- `mod 0 x ≡ 0`
+    refine M.WF.bind (M.WF.withLocalDecl0 (name := `x) (bi := .default) hnf.tr hnf.isType
+      (Q := fun b _ => b = true → (ves.venv .safe).IsDefEqU 0 [VExpr.nat]
+        (.app (.app F .natZero) (.bvar 0)) .natZero) ?_) fun b _ _ hb => ?_
+    · intro idx cwfx s'' _ _
+      have hF' := TrExprS.weakLam0 cwfx hF hFc
+      have hFty' := HasType.weakLam0 cwfx hFty hFc ⟨trivial, trivial, trivial⟩
+      have hx := trExprS_lastFVar0 cwfx
+      have hxty := hasType_lastFVar0 cwfx trivial
+      exact checkedIsDefEq.WF' (trExprS_app2_nat hF' hFty'
+        (TrExprS.natZero hprim hnat).1 (TrExprS.natZero hprim hnat).2 hx hxty).1
+        (TrExprS.natZero hprim hnat).1
+    split
+    case isFalse => exact M.WF.bindThrow .throw
+    rename_i hb1
+    have h0 := hb (by simpa using hb1)
+    -- `unless ← checkedTypeIs q(@LE.le Nat _) q(Nat → Nat → Prop)`: the relation the fuel
+    -- telescope is stated with.  Its translation is `VExpr.natLE` on the nose.
+    refine M.WF.bind (checkedTypeIs.WF (by simp [FVarsIn] <;> rfl) (by simp [FVarsIn] <;> rfl))
+      fun _ _ _ hpt => ?_
+    split
+    case isFalse => exact M.WF.bindThrow .throw
+    rename_i hpb
+    obtain ⟨P, PA, PT, hP, hPA, hPT, hPd⟩ := hpt
+    cases trExprS_natLE_inv' hP
+    cases trExprS_natArrowProp_inv' hPT
+    have hPty : (ves.venv .safe).HasType 0 [] .natLE
+        (.forallE .nat (.forallE .nat (.sort .zero))) :=
+      hPA.defeqU_r (VContext.mk' wf .safe ([] : List Name) fuel).Ewf
+        (VContext.mk' wf .safe ([] : List Name) fuel).Δwf.toCtx (hPd (by simpa using hpb))
+    -- `unless ← checkedTypeIs q(Nat.modCore.go) q(∀ n, 1 ≤ n → ∀ fuel x, x + 1 ≤ fuel → Nat)`.
+    -- `trExprS_goType_inv'` pins the telescope; `GO` is the abstract `Nat.modCore.go`.
+    refine M.WF.bind (checkedTypeIs.WF (by simp [FVarsIn] <;> rfl) (by simp [FVarsIn] <;> rfl))
+      fun _ _ _ hgt => ?_
+    split
+    case isFalse => exact M.WF.bindThrow .throw
+    rename_i hgb
+    obtain ⟨GO, GA, GT, hGO, hGA, hGT, hGd⟩ := hgt
+    cases trExprS_const_nil_inv' hGO
+    cases trExprS_goType_inv' hGT
+    have hGOty : (ves.venv .safe).HasType 0 [] (.const ``Nat.modCore.go []) .goType :=
+      hGA.defeqU_r (VContext.mk' wf .safe ([] : List Name) fuel).Ewf
+        (VContext.mk' wf .safe ([] : List Name) fuel).Δwf.toCtx (hGd (by simpa using hgb))
+    -- Remaining: `Condition.check.WF` for `Condition.natLE`, the two `checkedIsDefEq`s under
+    -- the `x`/`y` and `hy`/`fuel`/`h` telescopes, and the assembly through
+    -- `VEnv.reflects_fuel_mod`.  See `docs/handoff-primitive.md`.
+    sorry
+  · -- ``Nat.div
+    rename_i hname
+    split
+    case isFalse => exact M.WF.bindThrow .throw
+    rename_i hguard
+    simp only [Bool.and_eq_true, List.isEmpty_iff] at hguard
+    obtain ⟨⟨⟨⟨hnatE, hboolE⟩, hsubE⟩, hbleE⟩, rfl⟩ := hguard
+    refine (checkPrimValue.WF (fun {_} {_} {_} => hfail) (by simp [FVarsIn])).bind
+      fun _ _ _ h => ?_
+    obtain ⟨ty', F, hty', hF, hFty⟩ := h
+    cases trExprS_natArrow2_inv hty'
+    have hnf := NatFacts.of_arrow hty'
+    have hnat := hnf.contains
+    have hprim := (VContext.mk' wf .safe ([] : List Name) fuel).hasPrimitives
+    obtain ⟨hFc, -⟩ := closedN_of_nil rfl hFty
+    -- Blocked here, one step earlier than `Nat.mod`: `Nat.div` runs `Condition.natLE.check`
+    -- *before* its two `checkedTypeIs`, and there is no `Condition.check.WF` yet.  Once there
+    -- is, the next two steps are the `Nat.mod` branch's verbatim -- `trExprS_natLE_inv'` and
+    -- `trExprS_goType_inv'` pin `@LE.le Nat _` and the `Nat.div.go` telescope.
+    sorry
+  · -- ``Nat.gcd
+    rename_i hname
+    split
+    case isFalse => exact M.WF.bindThrow .throw
+    rename_i hguard
+    simp only [Bool.and_eq_true, List.isEmpty_iff] at hguard
+    obtain ⟨⟨hnatE, hmodE⟩, rfl⟩ := hguard
+    refine (checkPrimValue.WF (fun {_} {_} {_} => hfail) (by simp [FVarsIn])).bind
+      fun _ _ _ h => ?_
+    obtain ⟨ty', F, hty', hF, hFty⟩ := h
+    cases trExprS_natArrow2_inv hty'
+    have hnf := NatFacts.of_arrow hty'
+    have hnat := hnf.contains
+    have hprim := (VContext.mk' wf .safe ([] : List Name) fuel).hasPrimitives
+    obtain ⟨hFc, -⟩ := closedN_of_nil rfl hFty
+    -- Blocked at `unfoldNatWellFounded`, which has no spec: the fixpoint equation it recovers
+    -- is assembled from structural checks against `WellFounded.Nat.fix`'s `Nat.rec` skeleton,
+    -- not from `isDefEq` calls.  `docs/handoff-primitive.md` §5.1: the fixpoint equation is
+    -- *propositional, not definitional*, so a checked conversion cannot produce it.
+    sorry
+  · rename_i hname; subst hname; simp at hrest -- ``Nat.beq
+  · rename_i hname; subst hname; simp at hrest -- ``Nat.ble
+  · -- ``Nat.bitwise
+    rename_i hname
+    split
+    case isFalse => exact M.WF.bindThrow .throw
+    rename_i hguard
+    simp only [Bool.and_eq_true, List.isEmpty_iff] at hguard
+    obtain ⟨⟨⟨⟨⟨⟨hnatE, hboolE⟩, haddE⟩, hdivE⟩, hmodE⟩, hbeqE⟩, rfl⟩ := hguard
+    refine (checkPrimValue.WF (fun {_} {_} {_} => hfail) (by simp [FVarsIn])).bind
+      fun _ _ _ h => ?_
+    obtain ⟨ty', F, hty', hF, hFty⟩ := h
+    have hprim := (VContext.mk' wf .safe ([] : List Name) fuel).hasPrimitives
+    -- Blocked at `unfoldNatWellFounded`, as `Nat.gcd` is, and additionally needs
+    -- `Condition.check.WF` for `Condition.natEq` and `Condition.bool`.
+    sorry
+  · rename_i hname; subst hname; simp at hrest -- ``Nat.land
+  · rename_i hname; subst hname; simp at hrest -- ``Nat.lor
+  · rename_i hname; subst hname; simp at hrest -- ``Nat.xor
+  · rename_i hname; subst hname; simp at hrest -- ``Nat.shiftLeft
+  · rename_i hname; subst hname; simp at hrest -- ``Nat.shiftRight
+  · rename_i hname; subst hname; simp at hrest -- ``Char.ofNat
+  · rename_i hname; subst hname; simp at hrest -- ``String.ofList
+  · exact .pure ⟨nofun, nofun, nofun⟩
 
 set_option maxHeartbeats 2000000 in
 theorem checkPrimitiveDef.WF {env : Environment} {ves : VEnvs} (wf : ves.WF env)

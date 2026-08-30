@@ -1,302 +1,316 @@
-# `checkPrimitiveDef.WF.rest` — the statement is now true; what closed, what is open
+# `checkPrimitiveDef.WF.rest` — split into four branches; the telescope inversion is closed
 
 Stream scope: `Lean4Lean/Verify/Typing/Expr.lean`, `Lean4Lean/Primitive.lean`,
-`Lean4Lean/Verify/Primitive.lean`, `Lean4Lean/Verify/Environment/Boundaries.lean`, and new
-files under `Lean4Lean/Verify/`.
+`Lean4Lean/Verify/Primitive.lean`, `Lean4Lean/Verify/Environment/Boundaries.lean`
+(`checkPrimitiveDef.WF.rest` only), and new files under `Lean4Lean/Verify/`.
 
-Everything below is separated into **[machine-checked]** (a `lake build`, an `#print axioms`, a
-`lean_minimal_hypotheses` run, or a Kernel Arena run produced it) and **[source]** (read off the
-code or argued, not proved).
+Everything below is separated into **[machine-checked]** (a `lake build`, a `#print axioms`, the
+sorry census, the guards, or a Kernel Arena run produced it) and **[source]** (read off the code
+or argued, not proved).
 
 | gate | before | after |
 | --- | --- | --- |
 | sorry census (`lake env lean scripts/sorry-census.lean`) | **19** | **19** **[machine-checked, both runs]** |
-| Kernel Arena (`lean4lean-local`) | **185 correct / 6 either / 0 incorrect** | **185 / 6 / 0** **[machine-checked, both runs]** |
-| `Verify/Guard.lean` guards 1–3 | ✓ | ✓ **[machine-checked]** |
+| `lake build Lean4Lean.Verify.Environment.Boundaries` | green | green **[machine-checked]** |
+| `Verify/Guard.lean` guards 1–3 | ✓ | ✓ **[machine-checked: 25 frozen axioms ✓; kernel_sound within whitelist ✓ (proof INCOMPLETE); cone gaps 54/54 ✓]** |
+| Kernel Arena (`lean4lean-local`) | **185 correct / 6 either / 0 incorrect** | **185 / 6 / 0** **[machine-checked, after run]** |
+
+No executable file changed this session (`Lean4Lean/Primitive.lean` untouched), so there is
+nothing new for `divergences.md`.
 
 ---
 
 ## 0. Bottom line
 
-**The four-part fix landed.**  `VEnv.ReflectsNatBitwise` was *false* as stated (§3 of the
-previous handoff, unchanged and still correct); it is now true, the recognizer supplies the
-missing information, and the three closed `Nat.land` / `Nat.lor` / `Nat.xor` branches consume
-it.  `checkPrimitiveDef.WF.rest` is therefore **open rather than false** for the first time.
+1. **`.rest` is split.**  It is no longer a bare `sorry`: it is a 19-way `split` on the
+   recognizer's `match v.name`, with the fifteen non-target branches discharged from `hrest` and
+   the four target branches named.  Each of the four is peeled down to its own first genuinely
+   missing lemma.  Census stays at **19** because all four `sorry`s live inside the one
+   declaration.
 
-Two corrections to the brief this stream was given:
+2. **The `Nat.mod` / `Nat.div` `go` telescope inversion is done** — and the route the previous
+   handoff prescribed for it was **unnecessary**.  See §2; this is the session's main
+   correction.
 
-1. **It was a five-touch-point fix, not four.**  `Lean4Lean/Verify/Environment/Extension.lean`
-   — a file this stream does not own — also consumes `ReflectsNatBitwise` *positionally*, and
-   the obvious placement of the new `env'.WF` hypothesis breaks it.  §1.3 records the placement
-   that keeps it green and why that placement is load-bearing.
-2. **§6.1's "identify by `trExprS_uniq`" understates the available tool.**  `TrExprS.unique`
-   (`Verify/Typing/Lemmas.lean:2338`) gives *syntactic* equality of translations, not merely
-   `IsDefEqU`, for any `e` satisfying `TrExprS.IsUnique` — which is every projection-free
-   expression, so every type and right-hand side the recognizer builds.  That matters because
-   the `Nat.mod` / `Nat.div` telescope inversion needs `T = VExpr.goType P` on the nose. §5.2.
-
-New machinery, all sorry-free and building:
-
-| declaration | file | content |
-| --- | --- | --- |
-| `TypeChecker.trExprS_appD` | `Verify/Primitive.lean` | one application step at an **arbitrary** domain (`trExprS_app1` generalised off `Nat`) |
-| **`TypeChecker.trExprS_app5`** | `Verify/Primitive.lean` | **the length-5 spine at a fully dependent telescope** — the tool §6.1 named as missing |
-| `TypeChecker.checkedTypeIs.WF'` | `Verify/Primitive.lean` | `checkedTypeIs` when the caller already holds the subject's translation: hands back the typing *at that* translation |
-| `TypeChecker.trExprS_boolArrow2_inv` | `Verify/Primitive.lean` | `Bool → Bool → Bool` translates to `.forallE .bool (.forallE .bool .bool)` |
-
-Deleted as now redundant: `VEnv.ReflectsBoolBoolBoolT`, `VEnv.ReflectsNatBitwiseT`,
-`ReflectsNatBitwiseT.toWeak` (their content is the definition now).
+3. **The real remaining blocker for `Nat.mod` and `Nat.div` is `Condition.check.WF`**, not the
+   telescope.  `Nat.div` hits it *before* the telescope, `Nat.mod` immediately *after*.  §4
+   prices it and records two obstacles in its interface that no previous handoff named.
 
 ---
 
-## 1. The four-part fix, as landed
+## 1. What `.rest` now looks like
 
-### 1.1 `Lean4Lean/Verify/Typing/Expr.lean` — the two statement edits
+`Lean4Lean/Verify/Environment/Boundaries.lean:107`.  Structure:
 
-```lean
-def VEnv.ReflectsBoolBoolBool (env : VEnv) (f : VExpr) (g : Bool → Bool → Bool) :=
-  env.HasType 0 [] f (.forallE .bool (.forallE .bool .bool)) ∧
-  ∀ a b, env.IsDefEqU 0 [] (.app (.app f (.boolLit a)) (.boolLit b)) (.boolLit (g a b))
-
-def VEnv.ReflectsNatBitwise (env : VEnv) :=
-  env.contains ``Nat.bitwise →
-  ∀ (env' : VEnv), env ≤ env' → ∀ (f : VExpr) (g : Bool → Bool → Bool),
-    env'.WF → env'.ReflectsBoolBoolBool f g → ∀ a b, env'.IsDefEqU 0 [] …
+```
+obtain ⟨⟨name, lparams, type, …⟩⟩ := v; unfold Environment.checkPrimitiveDef; split …
+split                                   -- the 19-way match on the name
+· rename_i hname; subst hname; simp at hrest      -- ×15, the non-target branches
+· -- ``Nat.mod   … peeled to line 189
+· -- ``Nat.div   … peeled to line 209
+· -- ``Nat.gcd   … peeled to line 229
+· -- ``Nat.bitwise … peeled to line 245
+· exact .pure ⟨nofun, nofun, nofun⟩     -- the match's catch-all: returns false
 ```
 
-`import Lean4Lean.Theory.Typing.Env` was added: `VEnv.WF` lives there and the file previously
-reached only `Theory.Typing.Basic` / `Lemmas`.  No import cycle — `Theory/` imports nothing from
-`Verify/` **[machine-checked: builds]**.
-
-The reasoning for both conjuncts is now a docstring on the definitions themselves, so the next
-reader does not have to find this file.  It is the previous handoff's §3 verbatim in substance:
-`IsDefEqU` entails well-typedness, so the conclusion *asserts* `f`'s typing, and the truth table
-does not imply it (`f : (x : Bool) → Q x` with `Q Bool.true ≡ Q Bool.false ≡ Bool → Bool`);
-`env'.WF` is needed because the proof chains `IsDefEqU` and `IsDefEqU.trans` requires it, while
-`env ≤ env'` transfers nothing to an `f` that is new in `env'`.
-
-### 1.2 `Lean4Lean/Primitive.lean` — the recognizer check
-
-In each of the `Nat.land` / `Nat.lor` / `Nat.xor` branches, immediately after
-`let .app (.const ``Nat.bitwise []) and := v.value | fail`:
-
-```lean
-unless ← checkedTypeIs and q(Bool → Bool → Bool) do fail
-```
-
-**[machine-checked: `lake build Lean4Lean.Primitive` green, which runs the `run_meta` self-test
-at the foot of the file — all eighteen primitives of the real prelude still check.]**  Recorded
-in `divergences.md` as the *sixth* way the recognizer is stricter than "declared at a
-definitionally equal type".
-
-### 1.3 `Verify/Primitive.lean` and `Verify/Environment/Boundaries.lean` — the follow-through
-
-* `reflectsBoolBoolBool_and` / `_or` / `_bne` take the typing as a new first explicit argument
-  and return `⟨hty, fun …⟩`.
-* `reflects_natBitwiseApp`, `reflects_natLAnd`, `reflects_natLOr`, `reflects_natXor` take
-  `henv : env.WF`.
-* `reflects_natBitwise_go`'s uses of `hf` become `hf.2` (three sites); its statement is
-  unchanged.
-* `ReflectsNatBitwise.mono` threads the extra binder.
-* Each of the three `Boundaries.lean` branches gains, right after
-  `obtain ⟨G, hFeq, hG⟩ := trExprS_bitwiseApp_inv hFv; subst hFeq`:
-
-  ```lean
-  refine M.WF.bind (checkedTypeIs.WF' hG ?hfvB) fun _ _ _ hbt => ?_
-  case hfvB => simp [FVarsIn]
-  split
-  case isFalse => exact M.WF.bindThrow .throw
-  rename_i hbty
-  obtain ⟨tyB, htyB, hGtyF⟩ := hbt
-  cases trExprS_boolArrow2_inv htyB
-  have hGty := hGtyF (by simpa using hbty)
-  ```
-
-  and passes `henv₂` to `hprim3.natBitwise` and `hGty.mono hle3` to `reflectsBoolBoolBool_*`.
-
-**[machine-checked: `lake build Lean4Lean.Verify.Environment.Boundaries` green.]**
-
-### 1.4 The fifth touch point, and why `env'.WF` sits where it sits
-
-`Verify/Environment/Extension.lean:118–120` (`VEnv.HasPrimitives.addConst`) reads
-
-```lean
-· intro h env'' le' f g hfg
-  exact H.natBitwise (oldContains (hprims (by simp)) h) env'' (le.trans le') f g hfg
-```
-
-The binders are positional.  Inserting `env'.WF →` immediately after `env ≤ env' →` — the
-natural place, and the one the brief specified — shifts every name by one: `f` would be bound to
-the `WF` proof and the `exact` would be a type error.  This stream does not own that file and
-may not fix it, so the hypothesis was placed **after `f` and `g` instead**, where the same
-`intro` line binds `hfg` to the `WF` proof and the partial application
-`H.natBitwise … env'' (le.trans le') f g hfg` has exactly the residual type
-`ReflectsBoolBoolBool f g → ∀ a b, …` that the goal then is.  `Extension.lean:144`
-(`HasPrimitives.addDefEq`) is a partial application and is insensitive to the placement either
-way.
-
-* Chosen placement keeps `Extension.lean` and `Bridge.lean` compiling: **[machine-checked]**.
-* The natural placement breaking `Extension.lean:118`: **[source, argued from the quoted
-  binder list — not run, because running it would have left a file this stream does not own
-  red for other streams to trip over]**.
-
-The ordering is therefore load-bearing for a file outside this stream's scope, and is flagged in
-the definition's own docstring.  **If a later stream wants the natural order, it must edit
-`Extension.lean:118` in the same commit.**
-
----
-
-## 2. What is now proved about `Nat.bitwise`
-
-Unchanged from the previous session and still sorry-free: `VEnv.reflects_natBitwise_go` (the
-recursion, by `Nat.strongRecOn` on the first argument), `ReflectsCondApp1` and its `ofDefeq`,
-`VExpr.bitParity` / `.bitwiseRec` / `.bitwiseRhs`, `reflects_natOp`, `bif_boolLit`,
-`natBeq_eq_decide`, `reflects_bitParity`.  `lean_minimal_hypotheses` previously reported all
-thirteen explicit hypotheses of `reflects_natBitwise_go` load-bearing; the statement did not
-change this session (only `hf`'s *uses* did, `hf` → `hf.2`), so that audit still applies.
-`#print axioms Lean4Lean.VEnv.reflects_natBitwise_go` is identical to `reflects_natAdd`'s
+`exact absurd hrest (by decide)` does **not** work for the fifteen dismissals: after the
+`obtain` the name sits under a `DefinitionVal` projection with free variables in it and `decide`
+refuses (`Expected type must not contain free variables`).  `simp at hrest` does
 **[machine-checked]**.
 
-What still blocks the `Nat.bitwise` *branch* is §5 — `unfoldNatWellFounded` — not §3 any more.
+### 1.1 How far each branch is peeled, and what stops it
+
+| branch | peeled through | stops at |
+| --- | --- | --- |
+| `Nat.mod` | guard, `checkPrimValue`, `mod 0 x ≡ 0`, `checkedTypeIs q(@LE.le Nat _) q(Nat → Nat → Prop)`, `checkedTypeIs q(Nat.modCore.go) q(∀ n, 1 ≤ n → ∀ fuel x, x+1 ≤ fuel → Nat)` | `Condition.natLE.check` |
+| `Nat.div` | guard, `checkPrimValue` | `Condition.natLE.check` — `Nat.div` runs it **before** its two `checkedTypeIs` |
+| `Nat.gcd` | guard, `checkPrimValue` | `unfoldNatWellFounded` (no spec) |
+| `Nat.bitwise` | guard, `checkPrimValue` | `unfoldNatWellFounded`, then `Condition.natEq.check` / `Condition.bool.check` |
+
+At the `Nat.mod` stopping point the following are in hand **[machine-checked: the branch
+compiles]**:
+
+* `hFty : HasType F (.forallE .nat (.forallE .nat .nat))`, `hFc : F.ClosedN 0`;
+* `h0 : IsDefEqU 0 [VExpr.nat] (.app (.app F .natZero) (.bvar 0)) .natZero` — the `mod 0 x ≡ 0`
+  equation, ready for `IsDefEqU.instNat`;
+* `hPty : HasType 0 [] VExpr.natLE (.forallE .nat (.forallE .nat (.sort .zero)))` — note the
+  translation `P` of `@LE.le Nat instLENat` is **identically `VExpr.natLE`**, not an
+  existential;
+* `hGOty : HasType 0 [] (.const ``Nat.modCore.go []) VExpr.goType`.
 
 ---
 
-## 3. The new tool: length-5 application spines
+## 2. **Correction: the iterated weakening the brief called "the concrete next piece" is not needed at all**
 
-`Verify/Primitive.lean`, `namespace TypeChecker` **[machine-checked: builds]**.
+The previous handoff (§5.2) said the `go` telescope inversion is *not* a fifth
+`trExprS_arrow_inv` because the two `≤` occurrences sit at binder depths 1 and 4 while
+`checkedTypeIs` hands its type back at the base context, so `P` must be weakened under one and
+under four binders (`TrExprS.weakLam0`) before `TrExprS.unique` can identify the occurrences.
+
+**That is wrong, and the work it prescribes is dead work.**
+
+`@LE.le Nat instLENat` is a *closed term built from constants only*
+(`.app (.app (.const ``LE.le [.zero]) (.const ``Nat [])) (.const ``instLENat [])`).  `TrExprS`'s
+`.const` and `.app` rules are context-independent on such a term, so its translation is the same
+`VExpr` at **every** `VLCtx` — with no weakening step and no appeal to `TrExprS.unique`.  The
+inversion is therefore exactly a plain iterated `trExprS_arrow_inv'`, and it is done:
 
 ```lean
-theorem trExprS_appD (hF : c.TrExprS value F) (hFty : c.HasType F (.forallE A B))
-    (ha : c.TrExprS a a') (haty : c.HasType a' A) :
-    c.TrExprS (.app value a) (.app F a') ∧ c.HasType (.app F a') (B.inst a')
-
-theorem trExprS_app5 (hF …) (hFty : c.HasType F (.forallE A₁ B₁))
-    (h₁ …) (t₁ : c.HasType a₁' A₁) (e₁ : B₁.inst a₁' = .forallE A₂ B₂)
-    … (h₅ …) (t₅ : c.HasType a₅' A₅) (e₅ : B₅.inst a₅' = R) :
-    c.TrExprS (mkApp5 value a₁ a₂ a₃ a₄ a₅) (VExpr.app5 F a₁' a₂' a₃' a₄' a₅') ∧
-      c.HasType (VExpr.app5 F a₁' a₂' a₃' a₄' a₅') R
+theorem trExprS_goType_inv' {env : VEnv} {Us Δ} … (h : TrExprS env Us Δ <the checked type> e') :
+    e' = .goType
 ```
 
-Why the general `A`: `Nat.modCore.go` and `Nat.div.go` have type
-`∀ b, 1 ≤ b → ∀ fuel x, x + 1 ≤ fuel → Nat`.  Arguments 2 and 5 are *proofs* whose types mention
-earlier arguments, so no `Nat`-domain lemma (`trExprS_app1`, `trExprS_app2`) applies, and the
-codomain after each instantiation is not a constant.  Each `eᵢ` is the caller's obligation to
-compute one instantiation; they are `simp` lemmas away once the abstract `≤` symbol is known to
-be closed.
+`Lean4Lean/Verify/Primitive.lean:2378`.  `#print axioms` = `[propext, Classical.choice,
+Quot.sound]`, no `sorryAx` **[machine-checked]**.  Non-vacuity is not merely by construction: it
+is **used in situ**, in the `Nat.mod` branch, against the type the recognizer actually builds,
+and that branch compiles **[machine-checked]** — which is also the only real check that the
+`Expr` shape in the statement matches `q(∀ n, Nat.succ Nat.zero ≤ n → ∀ fuel x : Nat,
+Nat.succ x ≤ fuel → Nat)`.
 
-**Audit.**  `lean_minimal_hypotheses` reports **all seventeen explicit hypotheses load-bearing,
-none droppable** **[machine-checked]**.  `#print axioms trExprS_app5` = `[propext,
-Classical.choice, Quot.sound]` — no `sorryAx` **[machine-checked]**.  Non-vacuity is by
-construction: `trExprS_appD` is `TrExprS.app` plus `HasType.app`, and `trExprS_app5` is five
-compositions of it, so any five-argument application at a well-typed head instantiates it
-**[source]**.
+The same argument kills the `TrExprS.unique` note (previous handoff §5.2's "stronger than an
+earlier note claimed"): `TrExprS.unique` is indeed stronger than `trExprS_uniq`, and it will
+still be wanted in §4, but *not here*.
 
----
+### 2.1 New definitions and inversions
 
-## 4. `Nat.mod` / `Nat.div` — the revised remaining steps
+`Lean4Lean/Verify/Typing/Expr.lean`:
 
-All the *mathematics* is already in `Verify/Primitive.lean` (`reflects_condApp`,
-`reflects_condApp_natLE`, `ReflectsCondApp.natLE_le`, `reflects_fuel_go`, `reflects_fuel_mod`,
-`reflects_fuel_div`, `IsDefEqU.inst4`, `.inst2`).  What is left, per branch:
+| name | line | content |
+| --- | --- | --- |
+| `VExpr.natLE` | 210 | `@LE.le Nat instLENat` in the abstract syntax |
+| `VExpr.natLEApp` | 213 | `a ≤ b` at `Nat` |
+| `VExpr.goType` | 220 | `∀ n, 1 ≤ n → ∀ fuel x, x+1 ≤ fuel → Nat` |
 
-1. **`checkedTypeIs.WF` on `q(@LE.le Nat _)`** → `P` with
-   `HasType P (.forallE .nat (.forallE .nat (.sort .zero)))`.  Use the new
-   `checkedTypeIs.WF'` — it delivers the typing at *the caller's* translation, which is what
-   every downstream step needs.
-2. **`checkedTypeIs.WF'` on `q(Nat.modCore.go)` / `q(Nat.div.go)` against
-   `q(∀ n, Nat.succ Nat.zero ≤ n → ∀ fuel x : Nat, Nat.succ x ≤ fuel → Nat)`** → `GO` with its
-   telescope.  **This is the one piece that does not yet exist**, and §5.2 below is what it
-   costs; it is *not* just a fifth `trExprS_arrow_inv`.
-3. `Condition.check.WF` for `Condition.natLE`, as in the previous handoff: `checkType cond.dec`
-   → `D`; `checkedTypeIs cond.prop` → `P` again (identify with step 1 by `TrExprS.unique`, not
-   `trExprS_uniq` — see §5.2); `Reflection.check` → `TY`; `checkedTypeIs asBool` → the
-   translation of `Nat.ble` is `.const ``Nat.ble`` []` by `trExprS_const_nil_inv`; the final
-   `isDefEq e cond.dec` β-reduced at two numerals is `reflects_condApp_natLE`'s `hdec`.
-4. `Reflection.checkITE` / `checkNatDITE` → `hsel`: one app-spine inversion plus
-   `IsDefEqU.inst4`, since the executable reshaping of the previous session.
-5. The two big `checkedIsDefEq`s of the branch, instantiated at numerals
-   (`IsDefEqU.instNat` / `instNat2` for the `Nat` binders, `inst0` for `hy`, `fuel`, `h`), give
-   `reflects_fuel_mod`'s `hgo` with `Ok b hy f x h := HasType hy (P·1·b) ∧ HasType h (P·(x+1)·f)`;
-   `hK` is the well-typedness of the checked right-hand side, using `hprim.natSub` to turn
-   `Nat.sub x y` into `natLit (x-b)` — which is why the branch requires `Nat.sub` present.
-   **The left-hand sides here are the length-5 spines: this is where `trExprS_app5` is used.**
-6. `preserves_glue` + `VEnv.primField_Nat_mod` / `_div`, exactly as the fifteen closed branches.
+`Lean4Lean/Verify/Primitive.lean` (all sorry-free, all `[propext, Classical.choice, Quot.sound]`
+**[machine-checked]**):
 
-`Nat.div` is the same proof with `Nat.succ` as the wrapper.
-
-Note that `.rest` is currently a bare `sorry` with **no branch skeleton at all** — the four
-names are not yet dispatched.  Splitting it (previous handoff §6.3) is now worth doing *first*,
-since the statement is true: the split keeps the census at 19 while turning `.rest` into a proof
-with a single `sorry` under `Nat.gcd` / `Nat.bitwise`.
+| name | line | content |
+| --- | --- | --- |
+| `trExprS_bvar0_inv'` | 2318 | `.bvar 0` under one `vlam` translates to `.bvar 0` |
+| `trExprS_bvar1_inv'` | 2325 | `.bvar 1` under two `vlam`s translates to `.bvar 1` |
+| `trExprS_natLE_inv'` | 2333 | `@LE.le Nat instLENat` ↦ `VExpr.natLE`, at any context |
+| `trExprS_natLEApp_inv'` | 2344 | `a ≤ b` spine inversion |
+| `trExprS_one_inv'` | 2355 | `Nat.succ Nat.zero` ↦ `VExpr.natLit 1` |
+| `trExprS_natArrowProp_inv'` | 2364 | `Nat → Nat → Prop` |
+| **`trExprS_goType_inv'`** | **2378** | **the telescope** |
+| `trExprS_const_inv'` | 2413 | `.const n us` at an arbitrary explicit level list — subsumes `trExprS_const_nil_inv'` and `trExprS_const_zero_inv'` |
+| `trExprS_prop_inv'` | 2420 | `Prop` |
+| `trExprS_propBoolProp_inv'` | 2427 | `Prop → Bool → Prop` |
+| `TypeChecker.Reflection.check.WF` | 2448 | what `Reflection.check` establishes (§4.1) |
 
 ---
 
-## 5. Two things the previous handoff got slightly wrong about the plumbing
+## 3. Unchanged and still correct from the previous session
 
-### 5.1 (c) `unfoldNatWellFounded` — unchanged, and still the hard one
+* `VEnv.ReflectsNatBitwise` / `ReflectsBoolBoolBool` carry the typing and the `env'.WF` they
+  need; the binder order (`∀ f g, env'.WF → …`) is load-bearing for
+  `Verify/Environment/Extension.lean:118`, which consumes it positionally.  Not touched.
+* `trExprS_app5`, `trExprS_appD`, `checkedTypeIs.WF'`, `trExprS_boolArrow2_inv`,
+  `reflects_condApp`, `reflects_fuel_go` / `_mod` / `_div`, `reflects_natBitwise_go`,
+  `IsDefEqU.inst4` / `.inst2` / `.inst0` — all still there and sorry-free.  `trExprS_app5` was
+  **not** needed yet: it is used in step 5 of the assembly, past `Condition.check.WF`.
+* §5.1's verdict on `unfoldNatWellFounded` stands verbatim: the `WellFounded.Nat.fix` fixpoint
+  equation is *propositional, not definitional*, a `checkedIsDefEq` there returns `false`, and
+  the "checked conversion" recommendation would make the recognizer **reject** `Nat.gcd` and
+  `Nat.bitwise`.  Do not attempt it before `Nat.mod` / `Nat.div` land.
+* The C++ kernel has **no primitive-definition recognizer at all**, so every discrepancy here is
+  a divergence by construction and the Arena's accepted set is the only external constraint.
 
-The previous session's §5 stands in full and is not repeated: the fixpoint equation of
-`WellFounded.Nat.fix` is *propositional, not definitional* (`Nat.eager` exists precisely to make
-it so), a `checkedIsDefEq` at it returns `false`, and the "produce it by a checked conversion"
-recommendation would make the recognizer reject `Nat.gcd` and `Nat.bitwise`.  Machine-checked
-there by a failing `rfl`.  The re-priced route is a fuel induction on the `Nat.rec` skeleton *at
-numerals*, whose prerequisite is a `whnfCore.WF` / `unfoldDefinition.WF` returning a defeq
-witness for the whole application alongside the syntactic result.  Nothing this session changed
-that.  **Do not attempt it before `Nat.mod` / `Nat.div` land.**
+---
 
-### 5.2 Identifying translations: `TrExprS.unique`, not `trExprS_uniq`
+## 4. The real blocker: `Condition.check.WF`
 
-`trExprS_uniq` (`Verify/Primitive.lean`) gives `c.IsDefEqU e₁ e₂`.  That is too weak for step 2
-above, which has to conclude that `GO`'s type *is* a specific `VExpr` telescope so that
-`trExprS_app5`'s `eᵢ` obligations can be discharged by `simp`.
+`Lean4Lean/Primitive.lean:205`.  `Condition.check` is an `M Unit` that, in its
+`.reflectNatNat` case, performs: `checkType cond.dec`; `checkedTypeIs cond.prop (Nat→Nat→Prop)`;
+`Reflection.check`; `Reflection.checkITE α` for each `α` in `iteTypes`;
+`Reflection.checkNatDITE` if `dite`; `checkType e` for the λ-abstracted decision term;
+`checkedTypeIs asBool (Nat→Nat→Bool)`; `isProp (← checkType proof)`; and finally
+`isDefEq e cond.dec`.
 
-The stronger tool exists: `TrExprS.unique` (`Verify/Typing/Lemmas.lean:2338`)
+Its output must be `env.ReflectsCondApp F P D Nat.ble` (`Verify/Primitive.lean:708`), which is
+what `reflects_fuel_mod` / `_div` consume.
+
+### 4.1 What exists now
+
+`TypeChecker.Reflection.check.WF` (`Verify/Primitive.lean:2448`) — the first and smallest of
+the pieces:
 
 ```lean
-theorem TrExprS.unique (H : IsUnique e) (H1 : TrExprS env Us Δ e e₁)
-    (H2 : TrExprS env Us Δ e e₂) : e₁ = e₂
+theorem Reflection.check.WF … :
+    M.WF c s (r.check fail) fun _ _ =>
+      ∃ RT, c.TrExprS r.type RT ∧
+        c.HasType RT (.forallE (.sort .zero) (.forallE .bool (.sort .zero)))
 ```
 
-`TrExprS.IsUnique` fails only at `.proj` (see the `unique'` proof: every other constructor
-recurses, and `.lit` goes through `toConstructor`).  Every type and right-hand side the
-recognizer builds is projection-free, so it always applies.  **[source, read off
-`Verify/Typing/Lemmas.lean:2323–2340`]**
+**[machine-checked: builds; `#print axioms` shows `sorryAx` only as inherited taint from
+`checkedTypeIs.WF`'s cone, which every branch in this file already depends on — the census still
+reports 19, i.e. this declaration does not itself contain `sorryAx`.]**
 
-**The obstacle step 2 actually faces**, which no previous handoff named: the two `≤`
-applications in the `go` telescope sit at *different binder depths* (`Nat.succ Nat.zero ≤ n`
-under one binder, `Nat.succ x ≤ fuel` under four), while `checkedTypeIs` hands back the
-translation `P` of `q(@LE.le Nat _)` at the *base* context.  So the inversion must first weaken
-`P` under one and under four binders before `TrExprS.unique` can identify the occurrences.  For
-`q(@LE.le Nat _)`, which is built from constants only, the weakening is the identity on the
-abstract side, and `TrExprS.weakLam0` (used four times already in the `Nat.land` / `Nat.lor`
-branches of `Boundaries.lean`) is the tool.  **That iterated weakening is the next concrete
-piece of work**, and it is what makes step 2 more than a fifth `trExprS_arrow_inv`.
-**[source]**
+### 4.2 Obstacle A — `reflects_condApp`'s `hsel` may not be suppliable as stated **[source]**
+
+`reflects_condApp` (`Verify/Primitive.lean:731`) takes
+
+```lean
+(hsel : ∀ (p H t e : VExpr) (v : Bool),
+  VExpr.WF env 0 [] (VExpr.condApp F p (.app (.app (.app TD p) (.boolLit v)) H) t e) →
+  env.IsDefEqU 0 [] (…) (bif v then t else e))
+```
+
+quantified over **arbitrary** `p H t e`, with only well-typedness of the whole application as a
+hypothesis.  The supplier gets its equation from `Reflection.checkITE`, under four binders
+(`p : Prop`, `H : r.type p true`, `t e : α`), and turns it into a base-context statement with
+`IsDefEqU.inst4`.  `inst4` demands `HasType p (.sort .zero)`, `HasType H (RT.inst p 0)`,
+`HasType t Aα`, `HasType e Aα` — **none of which follows from `VExpr.WF … (condApp F p i t e)`
+alone**: `VExpr.WF.app_inv` hands back an *existential* domain, and pinning it to `.sort .zero`
+needs `HasType F (.forallE (.sort .zero) …)`, which nothing in scope provides for the abstract
+`F`.
+
+`reflects_condApp` is a *proved* theorem, so this does not make anything false; it makes `hsel`
+possibly **unusable**, which is the failure mode ORCHESTRATOR.md's "audit against consumers"
+rule is about.  `reflects_condApp` has **no consumer anywhere in the tree** today
+**[machine-checked: `grep` over `Lean4Lean/`, the only occurrences are its own definition site
+and doc comments]**, so its hypotheses have never been discharged.
+
+Two ways out, both untried:
+
+* **Route 1 (no interface change).**  Recover the domains after all: `checkedIsDefEq`
+  type-checks the left-hand side, so in the four-binder context `HasType F (.forallE (.sort
+  .zero) X)` holds; `F` is closed, so strengthen it to the base context, then combine with the
+  existential domain from `VExpr.WF.app_inv` via `HasType.uniqU` and `IsDefEqU.forallE_inv`.
+  **`IsDefEqU.forallE_inv` is one of the 19 open sorries** (`Theory/Typing/Injectivity`).  Using
+  it adds inherited taint, not a new hole — the checker cone already depends on it — but it does
+  mean this route is not self-contained.
+* **Route 2 (interface change).**  Add the four typings to `hsel` as hypotheses and have
+  `reflects_condApp` discharge them at its own call site (`p := P·a·b` from `hPty`,
+  `H := PR·a·b` from `Condition.check`'s `checkType e`).  The `t`/`e` typings then have to be
+  pushed one level further out, into `ReflectsCondApp` itself, whose consumers are
+  `reflects_fuel_go`, `ReflectsCondApp.ofDefeq` and `reflects_natBitwise_go` — **all three are
+  proved today, so any such strengthening must be re-checked against them before it is made.**
+
+### 4.3 Obstacle B — `Nat.bitwise` runs `Condition.check` under three binders **[source]**
+
+`Nat.mod` and `Nat.div` call `Condition.check` at the **base** context
+(`c.vlctx = []`), so their `Condition.check` facts are already where `ReflectsCondApp`'s
+`0 []` wants them.  `Nat.bitwise` does not: it binds `f`, `n`, `m` with
+`withCheckedLocalDecl` *first* and only then runs `Condition.natEq.check` and
+`Condition.bool.check` (`Lean4Lean/Primitive.lean:466–473`).  Its facts therefore arrive in a
+context whose `toCtx` is `[Nat, Nat, Bool → Bool → Bool]`.
+
+* Moving them to `0 []` by **strengthening** goes through `IsDefEqU.weakN_iff`
+  (`Theory/Typing/UniqueTyping.lean:172`) — **another of the 19 open sorries**.
+* It can be avoided by **instantiating** instead: all three domains are inhabited by closed
+  terms `HasPrimitives` supplies (`.natZero` twice, `.lam .bool (.lam .bool .boolTrue)` for the
+  combinator), and the `Condition.check` facts do not mention `f`, `n`, `m`, so instantiating
+  them at any closed inhabitants returns the same statement at base.  This is the route to take.
+
+Neither observation appears in any previous handoff.
+
+### 4.4 Interface sketch for `Reflection.checkITE.WF` **[source]**
+
+What the next stream should aim at, and the traps found while sizing it:
+
+```lean
+theorem Reflection.checkITE.WF {s} {r} {α} {fail} {RT Aα : VExpr}
+    (hfail …) (hnil : c.vlctx = [])
+    (hRT : c.TrExprS r.type RT) (hRTc : RT.ClosedN 0) (huRT : TrExprS.IsUnique r.type)
+    (hAα : c.TrExprS α Aα) (hAαc : Aα.ClosedN 0) (huα : TrExprS.IsUnique α) :
+    M.WF c s (r.checkITE α fail) fun _ _ =>
+      ∃ ITE TD, ∀ v : Bool,
+        (c.venv).IsDefEqU 0 [Aα, Aα, (RT.app (.bvar 0)).app (.boolLit v), .sort .zero]
+          (VExpr.condApp (ITE.app Aα) (.bvar 3)
+            (((TD.app (.bvar 3)).app (.boolLit v)).app (.bvar 2)) (.bvar 1) (.bvar 0))
+          (bif v then .bvar 1 else .bvar 0)
+```
+
+* `RT` and `Aα` must be **hypotheses at the base context, with closedness**, not existentials
+  produced inside: `withCheckedLocalDecl` hands back its domain's translation existentially in
+  the *extended* context, and identifying that with the base-context one is what
+  `TrExprS.weakLam0` (needs `ClosedN 0`) plus `TrExprS.unique` (needs `IsUnique`) is for.  The
+  caller has both: `Reflection.check.WF` gives `RT`, `closedN_of_nil` gives `RT.ClosedN 0`, and
+  `IsUnique` of a concrete `q(…)` literal is a structural `Prop` (`Lemmas.lean:2275`) that
+  `simp` should discharge.
+* `ITE` and `TD` are fine as existentials — the LHS translation is recovered by five `TrExprS`
+  **app-spine inversions**, which need no `IsUnique` at all.  `.fvar` positions are pinned
+  outright, because `TrExprS.fvar` reads a deterministic `VLCtx.find?`.
+* The `true` half and the `false` half are **separate `withCheckedLocalDecl` blocks**, so their
+  `TD`s are a priori different terms in a priori different contexts (the `H` domain differs).
+  `TrExprS.unique'` with `IsUniqueCtx` (`Lemmas.lean:2303–2340`) is the tool that compares
+  across contexts differing only in declaration *types*; `TrExprS.unique` is not.
+* Binder order `p, H, t, e` is already what `IsDefEqU.inst4` wants — do not reorder it.
 
 ---
 
-## 6. Unchanged
+## 5. Method notes
 
-* The C++ comparison: **the C++ kernel has no primitive-definition recognizer at all**
-  (measured), so every discrepancy here is a divergence by construction and there is no C++
-  behaviour to match — only the accepted set, which the Arena measures.  §1.2's new check is
-  therefore recorded in `divergences.md` and gated on the Arena, and nothing else.
-* The executable reshaping of `Reflection.checkITE` / `checkNatDITE` / `Condition.check`
-  (previous session §4), and its own divergence entry, are untouched.
-* `reflects_fuel_go`'s `Ok : Nat → VExpr → Nat → Nat → VExpr → Prop` arity repair (previous
-  session §1) is untouched.
-* The `Nat.pow` / `Nat.shiftLeft` numeral-size divergence (`Lean4Lean/TypeChecker.lean`, not
-  this stream's file) is recorded in `divergences.md` and unchanged.
+* **Auditing a statement's binders does not audit the statements it depends on** — and it does
+  not audit whether its *hypotheses can be supplied*.  §4.2 is an instance of the second: every
+  binder of `reflects_condApp` is clean, the theorem is proved, and its `hsel` may still be
+  undischargeable.  The instrument that found it was asking "what does the supplier actually
+  hold at the moment it must produce this?", not reading the statement.
+* The cheapest disproof of a prescribed method is to **do the thing the prescription says is
+  impossible**.  §2's inversion took under an hour once the observation ("the source term is
+  closed and constant-only") was made; the prescribed weakening machinery was never written.
 
-## 7. Pick up first
+---
 
-1. Split `.rest` into its four named branches so `Nat.mod` / `Nat.div` can be proved
-   independently and only `Nat.gcd` / `Nat.bitwise` reach a `sorry` (census stays 19).
-2. §5.2's iterated weakening, then step 2 of §4 — the `go` telescope inversion.  Everything
-   after it is assembly with `trExprS_app5` and the fuel lemmas that already exist.
-3. (c) as re-priced in §5.1 — **do not** attempt the `checkedIsDefEq` route.
+## 6. Pick up first
 
-### Note for whoever touches `Verify/Typing/Expr.lean` next
+1. `Reflection.checkITE.WF` and `Reflection.checkNatDITE.WF` to the sketch in §4.4, then
+   `Condition.check.WF` for `Condition.natLE` on top.  This unblocks `Nat.mod` *and* `Nat.div`
+   simultaneously — `Nat.div`'s branch is otherwise a copy of `Nat.mod`'s, since
+   `trExprS_natLE_inv'` and `trExprS_goType_inv'` serve `Nat.div.go` unchanged (the checked
+   type is the same up to binder names, which the inversion ignores).
+2. Before writing `Condition.check.WF`'s postcondition, settle §4.2: Route 1 (accept the
+   `forallE_inv` dependency) or Route 2 (strengthen `ReflectsCondApp`, re-checking
+   `reflects_fuel_go`, `ReflectsCondApp.ofDefeq` and `reflects_natBitwise_go` first).
+3. Only then the assembly of §4 of the previous handoff (steps 4–6): `trExprS_app5`,
+   `IsDefEqU.inst4`, `reflects_fuel_mod` / `_div`, `preserves_glue`,
+   `VEnv.primField_Nat_mod` / `_div`.
+4. `unfoldNatWellFounded` last, as re-priced — **not** by a checked conversion.
 
-`ReflectsNatBitwise`'s binder order (`∀ f g, env'.WF → …`, not `env ≤ env' → env'.WF → ∀ f g`)
-is load-bearing for `Verify/Environment/Extension.lean:118`.  §1.3.
+## 7. Kernel Arena
+
+`uv run lka.py run --checker lean4lean-local` in `~/lean-kernel-arena`:
+**185 correct / 6 either / 0 incorrect** **[machine-checked]** — identical to the recorded
+before-figure.  No executable file changed this session, so this is a regression check, not a
+gate on new behaviour.
