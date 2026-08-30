@@ -794,6 +794,18 @@ theorem HasType.forallE_inv (henv : Ordered env) (H : env.HasType U Γ (A.forall
 theorem IsType.forallE_inv (henv : Ordered env) (H : env.IsType U Γ (A.forallE B)) :
     env.IsType U Γ A ∧ env.IsType U (A::Γ) B := let ⟨_, h⟩ := H; h.forallE_inv henv
 
+/-- **Converting a pi's domain.**  Replacing the domain of a `forallE` by a definitionally
+equal one keeps it a type.  The body has to be *moved* between the two contexts, which is
+`IsDefEq.defeqDFC`; that is the whole content, and it is why this is not just `forallEDF`.
+
+Wanted by `Theory/Typing/ConstSubstNested.lean`: at a block with parameters the substituted
+constructor type and the restored one differ by one β-step in a binder domain, and this is
+the step that absorbs it. -/
+theorem IsType.forallE_congr (henv : Ordered env) (hA : env.IsDefEq U Γ A A' (.sort u))
+    (H : env.IsType U Γ (.forallE A B)) : env.IsType U Γ (.forallE A' B) :=
+  let ⟨_, hB⟩ := H.forallE_inv henv
+  IsType.forallE ⟨_, hA.hasType.2⟩ (hB.defeqDFC henv (Γ₀ := Γ) (.succ .zero hA))
+
 variable! (henv : Ordered env) in
 theorem IsDefEq.sort_inv'
     (H : env.IsDefEq U Γ e1 e2 V) (eq : e1 = .sort u ∨ e2 = .sort u) : u.WF U := by
