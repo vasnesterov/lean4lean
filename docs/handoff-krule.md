@@ -239,6 +239,11 @@ where the caller only ever wants a common reduct.
 
 ### 3.3 The restatement that works — and it is cheaper than the design assumed **[analysis]**
 
+> **Superseded in part by Round 2 (§R0.5, §R3).**  The restatement is now machine-checked
+> (`Lean4Lean/Theory/Typing/KDescend.lean`) and this section's M3 claim is confirmed *for the
+> descent* and **refuted for the reduction relation**: landing the rule in `ParRed` needs M3
+> twice.  Read §§R0–R3 before acting on the cost estimate below.
+
 The right conclusion is already written in the same file, as `DescentLam.fire`'s:
 
 ```
@@ -413,3 +418,275 @@ own.
 3. **Fix `divergences.md`** (§6, first two rows). An entry describing unlanded work as landed
    is worse than no entry: the next reader will look for `pat_major_canonical` and not find it.
 4. **Do not** expect any of this to move the alignment step. §5.
+
+---
+
+# Round 2 (this session): the wiring, and what it cost
+
+**Task.** Wire `KStep` into the development; make §3.3's "one uniform move" machine-checked
+instead of argued; confirm or refute that lemma M3 / `pat_major_canonical` is thereby not
+needed; re-price `forallE_inv_stratified` and `weakN_iff`.
+
+Same marks as above: **[machine-checked]** = a named `sorry`-free Lean declaration in this
+tree; **[measured]** = a machine run whose output is reproduced; **[read]**; **[analysis]**.
+
+## R0. Verdict
+
+1. **§3.3's move is machine-checked**, in `Lean4Lean/Theory/Typing/KDescend.lean` (new,
+   `sorry`-free source). All three refuted E5 branches collapse into one firing of `KStep`,
+   with the canonical major premise handed over by the `NormalEq` hypothesis. The proof
+   mentions no canonicity lemma. **[machine-checked]**
+
+2. **The reason it works is smaller and sharper than §3.3 guessed, and it was already in
+   `Params`.** `Params.pat_simple` forces every registered pattern to be
+   `.app ((.const rec).varN m) ((.const ctor).varN n)` or `.const c`, so **an `.app` node
+   occurs only at the very top of a pattern and both children are `.var`-chains**
+   (`Params.pat_app_noApp`). `descend`'s three refuted branches are all in its `.app`-node
+   case, and at a registered pattern that case happens **once**, at the top -- where there is
+   a rule to fire. The descent proper (`NormalEq.descendV`) therefore never meets them:
+   they are *unreachable*, not merely unproved. **[machine-checked]**
+
+3. **E3 now costs nothing at all.** `descendV`'s `hsu` (universe uniqueness) is *discharged*,
+   not carried: `Injectivity.lean`'s `VEnv.WF.sortUniq'` proves it relative to
+   `IsDefEqU.forallE_inv_stratified` alone, which is already in the confluence cone through
+   `IsDefEq.uniq`. `Params.sortUniq` does it in four lines. So the descent's two escapes cost,
+   in total, **one** hypothesis. **[machine-checked]**
+
+4. **That one hypothesis is `hK : KStep Γ e e' → ParRed Γ e e'`** -- the K-rule being a step of
+   the reduction relation. It is *not* discharged, and §R3 says why: landing it breaks two
+   things in `ChurchRosser.lean` that are not routine.
+
+5. **§3.3's M3 claim is half right, and this session corrects the other half.**
+   `pat_major_canonical` / lemma M3 is **not** needed for the descent -- confirmed, machine-
+   checked. It **is** needed to land `hK`, twice: `ParRed.weakN_inv` becomes *false* without
+   it, and `ParRed.triangle`'s new diagonal needs `KDiamond` (`KDescend.lean`). So M3 is not
+   deleted from `docs/design-inductive.md` §7.6; it is **moved**, from the descent to the
+   reduction relation's own metatheory. §R3. **[measured + analysis]**
+
+6. **Re-pricing: nothing moved, and the measurement is direct.** With `descendV` in place the
+   confluence chain still bottoms out in exactly `{forallE_inv_stratified, forallE_inv,
+   weakN_iff}`, through the same three call sites as before. What *did* change is the count:
+   `IsDefEq.church_rosser`'s cone reaches **four** `sorry`-carrying declarations today and the
+   new route reaches **three** -- the one dropped is `NormalEq.descend`, i.e. the one that is
+   **false**. §R4. **[measured]**
+
+## R1. What landed
+
+`Lean4Lean/Theory/Typing/KDescend.lean` (new; imports `KRule.lean` and `DescendRefute.lean`).
+
+| declaration | says | own source |
+|---|---|---|
+| `Pattern.NoApp` | a pattern with no `.app` node | def |
+| `Params.pat_app_noApp` | a registered `.app` pattern has `.app`-free children | `sorry`-free, cone empty |
+| `Params.sortUniq` | universe uniqueness, discharged from `WF.sortUniq'` | `sorry`-free |
+| `NormalEq.descendV` | `descend` restricted to `.app`-free patterns | `sorry`-free |
+| `NormalEq.appDF_extra_of_descendV` | `appDF_extra_of_descend`'s conclusion, from `hK` | `sorry`-free |
+| `KDiamond` | the residual `ParRed.triangle` needs from K | def |
+| `KStep.uniq_defeq` | the free half of `KDiamond` (`≡`, not `≡ₚ`) | `sorry`-free |
+| `refQ_not_noApp`, `refQ2_not_noApp` | the three refutations' patterns are excluded by `NoApp` | `sorry`-free |
+| `refParams_no_kstep`, `refParams_hK` | `hK` is a consistent hypothesis | `sorry`-free |
+
+`NormalEq.appDF_extra_of_descendV`'s statement is `NormalEq.appDF_extra_of_descend`'s,
+verbatim, plus `hK`. So `NormalEq.parRed`'s `appDF` x `extra` case can be re-routed through it
+the day `hK` lands, and nothing else in `NormalEq.parRed` changes.
+
+**The move itself, for the record.** The old lemma descends the *whole* node against the whole
+pattern `q₁.app q₂`, which forces the argument side to reduce to something matching `q₂` --
+and `DescendRefute.lean` exhibits three terms for which it does not. The new one descends the
+node against `.var q₁` instead: the function side's pattern with the argument position left
+**free**, which `Pattern.Matches.var` accepts unconditionally. Then `KStep` fires at the
+bottom of the eta tower with `c := b'`, the right-hand argument, and `Γ ⊢ ta' ≡ b'` is
+`NormalEq.defeq` of the hypothesis the node already carries. Nothing asks anything of the
+argument, so none of the three counterexamples applies -- and no canonical form is computed.
+
+**Why the counterexamples cannot come back**, checked two ways: their patterns
+(`refQ`, `refQ2`) have an `.app` node, so `descendV` never sees them (`refQ_not_noApp`); and
+the top-node lemma carries `Pat p r`, which `refParams` cannot supply (`refParams_no_kstep`).
+The three refutations stand, unedited, and remain the evidence that the restatement was
+necessary. **[machine-checked]**
+
+## R2. Measurements **[measured]**
+
+```
+lake build Lean4Lean.Theory.Typing.KDescend   -> Build completed successfully (70 jobs)
+
+#print axioms Params.pat_app_noApp              -> [propext, Quot.sound]
+#print axioms refQ_not_noApp                    -> [propext, Quot.sound]
+#print axioms refParams_hK                      -> [propext, Classical.choice, Quot.sound]
+#print axioms Params.sortUniq                   -> [propext, sorryAx, Classical.choice, Quot.sound]
+#print axioms NormalEq.descendV                 -> [propext, sorryAx, Classical.choice, Quot.sound]
+#print axioms NormalEq.appDF_extra_of_descendV  -> [propext, sorryAx, Classical.choice, Quot.sound]
+
+cone scan (declaration values, `.thmInfo` via `value? (allowOpaque := true)`):
+  Params.pat_app_noApp             -> []
+  Params.sortUniq                  -> [forallE_inv_stratified]
+  KStep.uniq_defeq                 -> [forallE_inv_stratified]
+  NormalEq.descendV                -> [forallE_inv_stratified, forallE_inv, weakN_iff]
+  NormalEq.appDF_extra_of_descendV -> [forallE_inv_stratified, forallE_inv, weakN_iff]
+
+for comparison, the route being replaced:
+  NormalEq.descend                 -> [NormalEq.descend, forallE_inv_stratified, forallE_inv, weakN_iff]
+  NormalEq.appDF_extra_of_descend  -> [NormalEq.descend, forallE_inv_stratified, forallE_inv, weakN_iff]
+  NormalEq.parRed                  -> [NormalEq.descend, forallE_inv_stratified, forallE_inv, weakN_iff]
+  IsDefEq.church_rosser            -> [NormalEq.descend, forallE_inv_stratified, forallE_inv, weakN_iff]
+```
+
+Neither new theorem reaches `NormalEq.descend`: this is a replacement, not a wrapper.
+
+## R3. Landing `hK`: the measured cost, and the two things that are not routine
+
+The experiment was run and then reverted: a `kstep` constructor was added to
+`VEnv.ParRed` in `ChurchRosser.lean`, in the shape that keeps the contractum's
+constructor-side arguments *unreduced* (they are subterms of the canonical major premise `c`,
+not of the redex, so `CParRed.exists`'s structural recursion cannot reach them):
+
+```lean
+| kstep : Pat (.app p₁ p₂) r → (.app p₁ p₂).Matches (.app f c) m1 m2 →
+    r.2.OK (IsDefEqU env univs Γ) m1 m2 →
+    Γ ⊢ f : .forallE A₀ B₀ → Γ ⊢ h ≡ c : A₀ →
+    (∀ a, Γ ⊢ m2 (.inl a) ≫ m2'' a) →
+    Γ ⊢ .app f h ≫ r.1.apply m1 (Sum.elim m2'' (fun x => m2 (.inr x)))
+```
+
+`lake build Lean4Lean.Theory.Typing.ChurchRosser` then reports **ten** sites **[measured]**:
+
+| site | declaration | verdict |
+|---|---|---|
+| `:647` | `ParRed.weakN` | routine (`matches_liftN`, `RHS.liftN_apply`) |
+| `:663` | `ParRed.instN` | routine (`matches_instN`, `RHS.instN_apply`) |
+| `:688` | `ParRed.defeq` | routine -- it *is* `KStep.defeq` plus `apply_pat` |
+| `:719` | `ParRed.defeqDFC` | routine |
+| `:786` | `ParRed.weakN_inv` | **not routine: the goal is false.** See below |
+| `:923` | `ParRed.triangle`, `app` case | needs `CParRed.kstep` first |
+| `:958` | `ParRed.triangle`, `beta` case | needs `CParRed.kstep` first |
+| `:1019` | `ParRed.triangle`, `extra` case's inner induction | the real work |
+| `:2024` | `NormalEq.parRed`, `appDF` case | routine |
+| `:2096` | `NormalEq.parRed`, `etaR` case | downstream of `ParRed.weakN_inv` |
+
+Not counted, because they are separate inductives and so do not error: `NonNeutral` needs a
+third disjunct, `CParRed` needs a `kstep` constructor, and `CParRed.exists` needs to decide
+classically whether to fire it.
+
+### R3.1 `ParRed.weakN_inv` becomes false **[analysis]**
+
+`ParRed.weakN_inv` says a reduction of a *lifted* term is the lift of a reduction: no step
+invents a variable. A K-step does. In `A::Γ`, the redex `(e.lift).app (h.lift)` may fire with
+a canonical major premise `c` that mentions `.bvar 0` -- legitimately, because `h.lift ≡ c`
+holds by proof irrelevance whenever the major premise's type is a `Prop`, which is the only
+situation in which K fires at all. The contractum reads the constructor's arguments off `c`
+and an ι-rule's right-hand side uses them, so the contractum mentions `.bvar 0` and is not the
+lift of anything.
+
+This is not a decoration: `ChurchRosser.lean:2096` (`NormalEq.parRed`'s `etaR` case, via
+`ParRedExt.parRed_beta`) is a live consumer.
+
+**And this is the first place M3 comes back.** Under `pat_major_canonical` the canonical form
+is *definable* from the major premise -- Carneiro's `intro inv[p,h]` (`unique.tex:107`) -- so
+`c` is a function of `h`, hence `c` at `h.lift` is `(c at h).lift`, and `weakN_inv` survives.
+Without it the lemma has to be weakened to a `≡`- or `≡ₚ`-version and every consumer re-checked.
+
+### R3.2 `ParRed.triangle` needs `KDiamond` **[machine-checked statement, analysis for the need]**
+
+`CParRed` must fire K wherever `ParRed` can, so the complete development picks *some*
+canonical major premise `c₀` while the arbitrary step picks `c₁`. The two contracta agree on
+the function-side positions and differ exactly at the positions read off `c`. `triangle`'s
+conclusion is `≡ₚ`, so the difference has to be `≡ₚ`.
+
+`KDescend.lean` states this as `KDiamond` and proves its free half:
+
+* `KStep.uniq_defeq` **[machine-checked]** -- two K-steps at the same redex are definitionally
+  equal, immediately, from `KStep.defeq` composed with itself.
+* the remaining content is the upgrade from `≡` to `≡ₚ`, which is what confluence exists to
+  deliver. Assuming it *inside* the confluence proof is circular.
+
+`Params.pat_uniq` does not supply it and cannot be applied: two K-steps at the same `f`-spine
+may use patterns whose *argument* sides do not intersect -- two different constructors of the
+same `Prop`-valued inductive, each definitionally equal to the major premise by proof
+irrelevance. `Params.pat_uniq`'s `p₂.inter p₃ = some p₄` premise is then unsatisfiable.
+**That configuration is exactly what Carneiro's `K⁺` excludes by restricting to
+subsingleton-eliminating inductives** (`unique.tex:103`), and excluding it is what
+`docs/design-inductive.md` §7.6's `pat_small` + `pat_major_canonical` are for.
+
+So the honest price of `hK` is: five routine cases, one lemma to restate
+(`ParRed.weakN_inv`), and M3. §3.3's estimate -- "M3 not needed, `CParRed.exists` can be
+classical instead" -- was measuring the descent only.
+
+## R4. Re-pricing `forallE_inv_stratified` and `weakN_iff` **[measured]**
+
+Direct users of each hole inside `NormalEq.appDF_extra_of_descendV`'s cone:
+
+```
+IsDefEq.uniq              uses  IsDefEqU.forallE_inv_stratified
+piInvStrat_axiom          uses  IsDefEqU.forallE_inv_stratified
+ParRed.defeq              uses  IsDefEqU.forallE_inv
+NormalEq.descendV         uses  IsDefEqU.forallE_inv
+NormalEq.weakN_inv_DFC    uses  IsDefEqU.forallE_inv
+NormalEq.weakN_inv_DFC    uses  IsDefEqU.weakN_iff
+IsDefEq.weakN_iff'        uses  IsDefEqU.weakN_iff
+VExpr.WF.weakN_iff        uses  IsDefEqU.weakN_iff
+```
+
+Verdict, against the brief's two questions:
+
+* **`forallE_inv_stratified`: unchanged.** Its two entry points are `IsDefEq.uniq` and
+  `piInvStrat_axiom`, neither of which the K-rule touches. `ParRed.defeq`'s `beta` case still
+  reaches `forallE_inv` for the reason §5 gave. §5 stands.
+* **`weakN_iff`: unchanged, and now visibly for a reason unrelated to the K-rule.** Its three
+  entry points are `NormalEq.weakN_inv_DFC`, `IsDefEq.weakN_iff'` and `VExpr.WF.weakN_iff` --
+  the *context*-weakening family, not the reduction relation. Nothing in this session's route
+  goes near it. The brief's "same reduction relation reached from the other side" framing is
+  not what the cone shows: `weakN_iff` enters through `NormalEq`'s and `IsDefEq`'s own
+  weakening lemmas, one level below reduction.
+* **One thing the K-rule *would* move, if landed:** `descendV` itself is a direct user of
+  `forallE_inv`, in exactly one place -- the eta-layer branch, `(hty.uniqU henv hΓ l2)
+  .forallE_inv henv hΓ`, retyping the argument at the λ's annotated domain. That is the same
+  "invert the typing premise instead of carrying it" pattern §5's last paragraph flags. A
+  `DescentLam` that carried the domain would remove it. Untried. **[measured + analysis]**
+
+## R5. Corrections this round makes
+
+| document | claim | correction |
+|---|---|---|
+| `docs/handoff-krule.md` §3.3 (above) | "`Params.pat_major_canonical` is not needed, and neither is lemma M3" | Right for the descent -- now machine-checked. **Wrong for the reduction relation**: landing the rule needs M3 twice, at `ParRed.weakN_inv` and at `ParRed.triangle`. §R3. |
+| `docs/handoff-krule.md` §3.3 | "M3 would still be needed to make `CParRed` complete ... but that can be had classically instead" | Classical choice gives *a* canonical form, not a *unique* one, and `ParRed.triangle` needs uniqueness up to `≡ₚ`. §R3.2. |
+| `docs/handoff-krule.md` §3.3 | "restate `descend`, thread `hsu` and the registration hypothesis, and replace the three `sorry`s" | The registration hypothesis is not threaded and `hsu` is not carried. What is threaded is `Pattern.NoApp`, which `Params.pat_simple` already implies, and `hsu` is discharged outright. §R0.2-3. |
+| `docs/handoff-descend.md` §8 item 1 | restate `descend` with `Pat`/`Subpattern` + `hsu` | Neither is what the repair needed. `NoApp` is weaker than `Subpattern` of a registered pattern and is all the descent uses. |
+| the brief's §"re-price" | "`IsDefEqU.weakN_iff` ... the same reduction relation, reached from the other side" | The cone says otherwise: `weakN_iff`'s three entry points are context-weakening lemmas, not reduction. §R4. |
+
+Nothing in §§1-2, §4 or the three refutations in `DescendRefute.lean` is contradicted.
+
+## R6. What to pick up first, revised
+
+1. **Land `hK`.** Five routine cases (§R3's table), then the two that are not. Do
+   `ParRed.weakN_inv` first: it is the one whose *statement* has to change, and the change
+   propagates to `ParRedExt.parRed_beta` and `NormalEq.parRed`'s `etaR` case.
+2. **M3 is back on the critical path.** Not for the descent -- for `ParRed.weakN_inv` and
+   `KDiamond`. `docs/design-inductive.md` §7.6's row I16 should be reinstated, with the
+   consumers corrected.
+3. **`ChurchRosser.lean`'s `NormalEq.descend` should be deleted, not proved.** It is refuted,
+   and `KDescend.lean` now carries a replacement for its only consumer. Deleting it changes
+   `NormalEq.parRed`'s signature (it gains `hK`), which propagates to `IsDefEq.church_rosser`;
+   that is a decision for whoever owns the confluence interface, so this session did **not**
+   edit `ChurchRosser.lean`.
+4. **Cheap and adjacent:** make `DescentLam` carry the λ's domain, and `descendV` stops being
+   a direct user of `IsDefEqU.forallE_inv`. §R4.
+
+## R7. Files, round 2
+
+* `Lean4Lean/Theory/Typing/KDescend.lean` -- **new**, no `sorry`.
+* `docs/handoff-krule.md` -- this section.
+* `Lean4Lean/Theory/Typing/ChurchRosser.lean` -- **unchanged** (the `kstep` experiment of §R3
+  was reverted byte-for-byte). `KRule.lean`, `DescendRefute.lean`, `HeadReduction.lean`,
+  `HeadRedStuck.lean`, `Pattern.lean`, `PatternRules.lean`, `PatternDecode.lean` --
+  **unchanged**. No `sorry` was added or removed anywhere.
+
+```
+lake env lean scripts/sorry-census.lean  ->  TOTAL declarations directly containing
+                                             sorryAx: 19        (unchanged)
+```
+
+The census reads declaration *values* and prints every name; it is the only count that should
+ever be quoted. This session added no `sorry` and removed none. (It was briefly unrunnable
+mid-session -- `Lean4Lean/Verify/Primitive.lean` was red from another stream's in-flight edits
+at `:1158`, `:1201`, `:1202`, and the census imports the whole tree. It went green on its own
+and the number above is from after that.)
