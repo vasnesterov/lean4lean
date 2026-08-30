@@ -13,12 +13,19 @@
 #             description: "new comments on vasnesterov/lean4lean PRs and issues",
 #             persistent: true, timeout_ms: 3600000 })
 #
-# Env overrides: REPO, POLL (seconds).
+# The orchestrator posts under the SAME GitHub account as the human, so author
+# filtering cannot separate them. Instead the orchestrator appends the marker
+# below to every comment it writes, and this script drops those. A comment from
+# the human never carries it. Without this the monitor echoes the orchestrator's
+# own issue comments back at it, and a real reply would be buried among them.
+#
+# Env overrides: REPO, POLL (seconds), MARKER.
 
 set -uo pipefail
 
 REPO="${REPO:-vasnesterov/lean4lean}"
 POLL="${POLL:-30}"
+MARKER="${MARKER:-<!-- l4l-orchestrator -->}"
 
 last=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
@@ -29,11 +36,13 @@ while true; do
   # review comments cover inline code comments, which the other misses.
   # `|| true` on each — one failed request must not kill the monitor.
   gh api "repos/$REPO/issues/comments?since=$last&per_page=100" \
-    --jq '.[] | "PR-COMMENT \(.issue_url | split("/") | last) @\(.user.login): \(.body | gsub("\n"; " ") | .[0:400])"' \
+    --jq --arg m "$MARKER" '.[] | select((.body // "") | contains($m) | not)
+        | "PR-COMMENT \(.issue_url | split("/") | last) @\(.user.login): \(.body | gsub("\n"; " ") | .[0:400])"' \
     2>/dev/null || true
 
   gh api "repos/$REPO/pulls/comments?since=$last&per_page=100" \
-    --jq '.[] | "PR-REVIEW \(.pull_request_url | split("/") | last) @\(.user.login) on \(.path): \(.body | gsub("\n"; " ") | .[0:400])"' \
+    --jq --arg m "$MARKER" '.[] | select((.body // "") | contains($m) | not)
+        | "PR-REVIEW \(.pull_request_url | split("/") | last) @\(.user.login) on \(.path): \(.body | gsub("\n"; " ") | .[0:400])"' \
     2>/dev/null || true
 
   last=$now

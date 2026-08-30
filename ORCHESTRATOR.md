@@ -106,3 +106,15 @@ Put this check in every brief. It has now found more than the proofs have.
 Every brief's background is a relay. Say so in the brief — *"this is a relay of another stream's report, not ground truth"* — and ask to be corrected. Streams corrected the orchestrator on roughly half the rounds, including: a count inflated ~3.5×, a hole count inflated 4×, a "single step" that was neither single nor the step, a cited ledger row in the wrong document, a lemma named as a blocker that was never a blocker, and prior art missed twice.
 
 When a brief's premise is wrong, that is usually the round's most valuable output. Commit it as such.
+
+## Issue comments
+
+The orchestrator posts to GitHub under the **same account as the human**, so the
+PR/issue-comment monitor cannot tell them apart by author. **End every issue or PR
+comment you write with the marker line**
+
+    <!-- l4l-orchestrator -->
+
+`scripts/monitor-pr-comments.sh` drops comments carrying it. Without the marker the
+monitor echoes your own comments back at you, and a real reply from the human is
+buried among them — which is the one thing that monitor exists to prevent.
