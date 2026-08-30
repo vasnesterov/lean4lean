@@ -1,5 +1,6 @@
 import Lean4Lean.Verify.Typing.ProjGen
 import Lean4Lean.Verify.Typing.ProjGenWitness
+import Lean4Lean.Verify.Typing.ProjGenLiftWitness
 import Lean4Lean.Verify.Typing.Lemmas
 import Lean4Lean.Verify.Typing.Rigidity
 import Lean4Lean.Verify.Typing.ConstSpineWF
@@ -78,12 +79,37 @@ def seeds : List Name :=
    ``Lean4Lean.VEnv.const_sort_inv_of_wf,
    ``Lean4Lean.VEnv.constNoConf_of_wf,
    ``Lean4Lean.VEnv.propLoopEnv2_A_ne_B',
-   ``Lean4Lean.VEnv.propLoopEnv2_A_ne_sort']
+   ``Lean4Lean.VEnv.propLoopEnv2_A_ne_sort',
+   -- ProjClosedG: the predicate, its derivation, its consumer, its witnesses
+   ``Lean4Lean.VInductDecl'.projClosedG_of_wf,
+   ``Lean4Lean.VEnv.IsStructureG.projClosedG,
+   ``Lean4Lean.VInductDecl'.closedN_ihType,
+   ``Lean4Lean.VInductDecl'.closedTele_minorBinders,
+   ``Lean4Lean.ProjClosedGap.badCtor_not_projClosedG,
+   ``Lean4Lean.ProjClosedGap.argsCtor_not_projClosedG,
+   ``Lean4Lean.Rich.richBlock_projClosedG,
+   ``Lean4Lean.Rich.minorBinders_closed,
+   -- block A, the `lift'` family
+   ``Lean4Lean.VInductDecl'.padMinor_lift',
+   ``Lean4Lean.VInductDecl'.realMinor_lift',
+   ``Lean4Lean.VInductDecl'.padMotive_lift',
+   ``Lean4Lean.VIndType.projMotive_lift',
+   ``Lean4Lean.VIndType.projMotive_liftN,
+   ``Lean4Lean.VInductDecl'.padMotives_lift',
+   ``Lean4Lean.VInductDecl'.padMinorsAux_lift',
+   ``Lean4Lean.VInductDecl'.padMinors_lift',
+   ``Lean4Lean.VInductDecl'.projCoreG_lift',
+   ``Lean4Lean.VInductDecl'.projArgsG_lift',
+   ``Lean4Lean.VInductDecl'.projTermG_lift',
+   ``Lean4Lean.Rich.projCoreG_lift'_fires,
+   ``Lean4Lean.Rich.projTermG_lift'_fires,
+   ``Lean4Lean.Rich.padMinor_lift_moves]
 
 def main : IO Unit := do
   initSearchPath (← findSysroot)
   let env ← importModules #[{module := `Lean4Lean.Verify.Typing.ProjGen},
                             {module := `Lean4Lean.Verify.Typing.ProjGenWitness},
+                            {module := `Lean4Lean.Verify.Typing.ProjGenLiftWitness},
                             {module := `Lean4Lean.Verify.Typing.Lemmas},
                             {module := `Lean4Lean.Verify.Typing.Rigidity},
                             {module := `Lean4Lean.Verify.Typing.ConstSpineWF},

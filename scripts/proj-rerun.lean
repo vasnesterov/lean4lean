@@ -2,6 +2,7 @@ import Lean4Lean.Theory.Inductive.StructureExamples
 import Lean4Lean.Theory.Inductive.StructureEta
 import Lean4Lean.Verify.StructureBridge
 import Lean4Lean.Verify.Typing.ProjGenWitness
+import Lean4Lean.Verify.Typing.ProjGenLiftWitness
 import Lean4Lean.Verify.Typing.Lemmas
 import Lean4Lean.Verify.TypeChecker.IsDefEq
 
@@ -65,3 +66,39 @@ open Lean4Lean
 #print axioms Lean4Lean.ProjClosedGap.minorBinders_bad
 #print axioms Lean4Lean.ProjClosedGap.projClosedG_needs_recArgs
 #print axioms Lean4Lean.ProjClosedGap.projClosed_ok_without_recArgs
+
+-- this round: `ProjClosedG`, derived, and its one real consumer
+#print axioms Lean4Lean.VInductDecl'.projClosedG_of_wf
+#print axioms Lean4Lean.VEnv.IsStructureG.projClosedG
+#print axioms Lean4Lean.VEnv.IsStructure.projClosedG
+#print axioms Lean4Lean.VInductDecl'.ProjClosedG.toProjClosed
+#print axioms Lean4Lean.VInductDecl'.closedN_ihType
+#print axioms Lean4Lean.VInductDecl'.closedTele_minorBinders
+-- …the refutation re-run against it, and the second conjunct's own witness
+#print axioms Lean4Lean.ProjClosedGap.badCtor_not_projClosedG
+#print axioms Lean4Lean.ProjClosedGap.minorBinders_args
+#print axioms Lean4Lean.ProjClosedGap.projClosedG_needs_recArgs_args
+#print axioms Lean4Lean.ProjClosedGap.argsCtor_not_projClosedG
+-- …and the block where it carries real data
+#print axioms Lean4Lean.Rich.richBlock_projClosedG
+#print axioms Lean4Lean.Rich.minorBinders_rich
+#print axioms Lean4Lean.Rich.ihType_closed
+#print axioms Lean4Lean.Rich.minorBinders_closed
+#print axioms Lean4Lean.Rich.minorBinders_not_closed_at_1
+#print axioms Lean4Lean.Rich.ihEntry_not_closed_at_3
+
+-- this round: block A's `lift'` family
+#print axioms Lean4Lean.VInductDecl'.padMinor_lift'
+#print axioms Lean4Lean.VInductDecl'.realMinor_lift'
+#print axioms Lean4Lean.VInductDecl'.padMotive_lift'
+#print axioms Lean4Lean.VIndType.projMotive_lift'
+#print axioms Lean4Lean.VIndType.projMotive_liftN
+#print axioms Lean4Lean.VInductDecl'.padMotives_lift'
+#print axioms Lean4Lean.VInductDecl'.padMinorsAux_lift'
+#print axioms Lean4Lean.VInductDecl'.padMinors_lift'
+#print axioms Lean4Lean.VInductDecl'.projCoreG_lift'
+#print axioms Lean4Lean.VInductDecl'.projArgsG_lift'
+#print axioms Lean4Lean.VInductDecl'.projTermG_lift'
+#print axioms Lean4Lean.Rich.projCoreG_lift'_fires
+#print axioms Lean4Lean.Rich.projTermG_lift'_fires
+#print axioms Lean4Lean.Rich.padMinor_lift_moves

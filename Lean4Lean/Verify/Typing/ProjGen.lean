@@ -35,8 +35,16 @@ term `projCore_hasType`'s `hconv` premise is about.
 
 The padding is then `fun ι_k x_k => X → X`, in `Sort (imax ℓ ℓ)`, and `VLevel.imax_self`
 gives `imax ℓ ℓ ≈ ℓ`.  A minor for a constructor of `T_k` binds its fields *and* its
-induction hypotheses and returns `fun z => z`; binding the induction hypotheses is what also
-lifts the `noRec` narrowing, so one change covers both fields.
+induction hypotheses and returns `fun z => z`.
+
+**Correction (do not read the previous sentence as more than it says).**  An earlier edition
+of this docstring said that binding the induction hypotheses "is what also lifts the `noRec`
+narrowing, so one change covers both fields".  That overstates it.  `padMinor_hasType_gen`
+lifts `noRec` for the **padding** minors only — the constructors of block members other than
+the projected one.  The projected constructor's own minor is `realMinor`, and it still has
+**no typing lemma**; until it does, `VEnv.IsStructure.noRec` cannot be dropped.  See
+`docs/handoff-projections.md` §0.6 item 1 for the three ingredients it needs and which of them
+exist.
 -/
 
 namespace Lean4Lean
