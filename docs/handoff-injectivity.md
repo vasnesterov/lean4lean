@@ -15,6 +15,9 @@ conflict, they are different scopes, and each section says which it used.
 **§4D is from the 2026-08-30 fourth session** (`BaseUniqTerm.lean`); it answers §8 item 1 and
 corrects the way that item's "prize" was phrased.
 
+**§4E is from the 2026-08-30 fifth session** (`BaseUniqChain.lean`); it **corrects §4D.5** — the
+`peelEq` `defeq` case is breakable, and the break is machine-checked.
+
 Files added or changed on 2026-08-30: **`Lean4Lean/Theory/Typing/RetypeCase.lean`** (new),
 **`Lean4Lean/Theory/Typing/RetypeAdmissible.lean`** (new, later the same day),
 **`Lean4Lean/Theory/Typing/ProofRetypeHeads.lean`** (new, third session of the day —
@@ -901,6 +904,129 @@ the corner's circle is **not** cut — `sortUniq_iff_piInvStratApp` still says `
 
 ---
 
+## 4E. The `peelEq` `defeq` case is **broken** — the chain, not the equation  *(fifth session of 2026-08-30)*
+
+New file, owned by this stream: **`Lean4Lean/Theory/Typing/BaseUniqChain.lean`** — 40
+declarations (1 inductive, 5 defs, 34 theorems), all `sorry`-free, `#print axioms` block at the end.  It imports
+`ProofRetypeHeads.lean` and is imported by `BaseUniqTerm.lean` (one line, so that
+`Experimental/ConeJoin.lean` — not this stream's file — reaches it without an edit outside this
+stream's own files).  Nothing else was touched except the superseded paragraph in
+`BaseUniqTerm.lean`'s own docstring and this document.
+
+### 4E.1 The verdict: **broken**, and §4D.5 is wrong as stated **[machine]**
+
+§4D.5 said `SortUniq` is consumed inside `peelEq`'s `defeq` case *"at a place the term recursion
+does not reach"*, and item 1 of §8 told the next reader not to re-attempt the localisation.
+**That is false as stated**, and the brief's own guess was right: working rule 5 applies to
+`peelEq` exactly.  `peelEq` is an inversion; what it discards is that the `defeq` wrappers form
+a *walk*.  Consumers only ever need the walk.  Composition into a single **equation** is the
+only thing that puts two conversions at different sorts side by side, and that is the entire
+job `SortUniq` was doing there.
+
+State the conclusion as a chain
+
+```lean
+inductive ConvC (env) (U) (Γ) : VExpr → VExpr → Prop
+  | refl : ConvC env U Γ A A
+  | step : env.IsDefEqStrong U Γ A B (.sort u) → ConvC env U Γ B C → ConvC env U Γ A C
+```
+
+(the links are **not** required to be at the same sort) and the two blocked steps become free:
+
+| | `ProofRetypeHeads` / `BaseUniqTerm` | `BaseUniqChain` |
+|---|---|---|
+| peel the `defeq` chain | `peelEq`: `Ordered`, `SortUniq`, `CtxStrong` | `peelChain`: **no hypothesis** |
+| base ⇒ full unique typing | `uniqStrongAt_of_baseUniqAt`: `Ordered`, `SortUniq` | `uniqStrongCAt_of_baseUniqCAt`: **no hypothesis** |
+
+Both are checked to depend on `[propext]` alone — not even `Quot.sound`.  **Nowhere in the file
+are two conversions indexed at different sorts composed**, so §2's four-place obstruction never
+arises in this development.
+
+### 4E.2 Where the demand moved, head by head **[machine]**
+
+`baseUniqCAt_of` still elaborates to `VExpr.brecOn`; `#print`ing its step function
+`baseUniqCAt_of._f` gives (recursive calls named as the elaborator emits them):
+
+```
+| .bvar _        => baseUniqCAt_bvar                       -- no recursive call
+| .sort _        => baseUniqCAt_sort                       -- no recursive call
+| .const _ _     => baseUniqCAt_const                      -- no recursive call
+| .forallE D b   => baseUniqCAt_forallE hsi (…x.1.1) (…x.2.1)   -- TWO recursive calls
+| .lam _ b       => baseUniqCAt_lam henv (…x.2.1)
+| .app f _       => baseUniqCAt_app henv hpi (…x.1.1)
+```
+
+The row that changed is `.forallE`.  In `BaseUniqTerm` it makes **no** recursive call and pays
+`SortUniq`; here it makes **two** — at the Π's own domain and its own body, both proper
+subterms — and pays `ConvSortInv`.  So `SortUniq` is not consumed at an unreachable place; the
+two subterm calls plus one chain-inversion replace it.
+
+### 4E.3 The residual, and the honest price **[machine]**
+
+```lean
+retypes_of_convInv : Ordered env → ConvSortInv env U → ConvPiInv env U →
+  IsDefEqStrong U Γ e₁ e₂ A → CtxStrong env U Γ → Retypes env U Γ e₁ e₂
+```
+
+with **no `SortUniq`, no `VEnv.WF`, no stratification, no `PiInvStratApp`**, on
+`[propext, Quot.sound]`.  `ConvSortInv` is *a chain between two syntactic sorts forces the
+levels equivalent*; `ConvPiInv` is Π-injectivity along a chain.
+
+**The circle is not cut, and both directions are machine-checked** — quote this row with the
+headline:
+
+* `convSortInv_of_sortUniq`, `convPiInv_of_sortUniq_piInv` — the old hypotheses imply the new
+  ones, so the new theorem **subsumes** the old: `retypes_of_sortUniq_piInv_via_chain`
+  re-derives `BaseUniqTerm.retypes_of_sortUniq_piInv` at a statement checked to be the same one
+  (both were elaborated against a written-out common type).
+* `sortUniq_of_convInv` — the new hypotheses give `SortUniq` straight back (run the recursion at
+  the term in question, invert the resulting chain).  `sortUniq_iff_convSortInv` states the
+  equivalence, given `ConvPiInv`.
+
+* `peelEq_of_peelChain` — `peelEq` **is** `peelChain` followed by `ConvC.collapse`, and
+  `collapse` is the only consumer of `SortUniq` in the composite.  This is the split, stated as
+  a theorem rather than as prose: everything `SortUniq` did in `peelEq` other than align the
+  sorts of adjacent links was bookkeeping the chain absorbs.
+
+So the contribution is **not** a weaker hypothesis set.  It is: the four-place obstruction is
+gone from this route; `SortUniq`'s residual role is exactly *reading a level off a conversion*
+(sort injectivity), which is normalisation content; and the two remaining hypotheses are the
+chain forms of the corner's two already-named halves rather than a statement about arbitrary
+terms in arbitrary derivations.
+
+### 4E.4 Non-vacuity and the negative controls **[machine]**
+
+The two new recursive calls are fired separately, over **every** environment, at Π-terms whose
+two base types are *syntactically different*, and the two witnesses differ in which subterm
+carries the difference:
+
+* `forallE_body_fires` — `(X : Type) → Sort (imax 0 0)`, base types
+  `.sort (imax 2 (succ (imax 0 0)))` and `.sort (imax 2 (succ 0))`: the difference is entirely
+  in the **codomain** level.
+* `forallE_domain_fires` — `(X : Prop) → Prop`, base types `.sort (imax (succ 0) (succ 0))` and
+  `.sort (imax (succ (imax 0 0)) (succ 0))`: entirely in the **domain** level.
+
+**The rejections.**  Each one-call reading is refuted outright, at the level algebra:
+`forallE_body_call_not_droppable` refutes *"the domain equivalence determines the Π's level"*
+(`imax 0 0 = 0` but `imax 0 1 = 1`), and `forallE_domain_call_not_droppable` refutes
+*"the codomain equivalence does"* (`imax 0 1 = 1` but `imax 2 1 = 2`).  So neither call is a
+passenger.  `baseUniqCAt_app_fires` re-fires the `.app` branch through the chain-valued
+conclusion at `ProofRetypeHeads.baseUniqApp_nonvacuous`'s witness.
+
+`ConvSortInv` and `ConvPiInv` are *carried* by these witnesses, not discharged: firing a branch
+is not evidence they are jointly satisfiable (`ORCHESTRATOR.md` rule 4).
+
+### 4E.5 What is *not* claimed **[analysis]**
+
+Every implication is an upper bound; nothing shows `ConvSortInv` is necessary and no refutation
+of it is offered.  No cone moved — `BaseUniqChain.lean` is reached only through
+`BaseUniqTerm.lean` and `ConeJoin.lean`, neither of which is in `kernel_sound`'s cone.  The
+census is unchanged (19, byte-identical listing before and after).  In particular this does
+**not** touch `forallE_inv_stratified`: it removes `SortUniq` from one route to `retypes`, and
+`retypes` was never the open root.
+
+---
+
 ## 5. The refutation attempt, and why it does not reach **[analysis]**
 
 The brief asks for a machine-checked negative if one exists. The one crack in the hypothesis
@@ -1051,19 +1177,26 @@ holds)*
 *(item 1 rewritten by the fourth 2026-08-30 session; see §4D.  The third session's version is
 kept below it as item 1a, because its head table is still the right map.)*
 
-1. **Do not re-attack `BaseUniq` by induction on the term — it is done** (`BaseUniqTerm.lean`,
-   §4D), and the check the third session flagged as "the whole risk" came out **clean**.  Two
-   things follow for whoever picks this up.
+1. **`BaseUniq` by term recursion is done, and so is the `SortUniq` localisation §4D.5 said
+   was impossible.**  `BaseUniqTerm.lean` (§4D) and `BaseUniqChain.lean` (§4E).  Three things
+   follow.
 
-   * **The remaining hypothesis is `SortUniq`, and §4D.5 says exactly where it is consumed** —
-     `peelEq`'s `defeq` case, at an intermediate *type*, which the term recursion does not
-     reach.  Removing it needs a way to compose two conversions indexed at different sorts,
-     i.e. the four-place obstruction of §2.  Do not re-attempt the subject-localisation of
-     `SortUniq`; it is walked to its failing step in §4D.5.
-   * **The flag is load-bearing** (§4D.4).  If a future restatement lets the subterm premise
-     be taken at flag `false`, `SortUniq` disappears from the result — and that restatement is
-     machine-refuted (`base_flag_not_droppable`).  Treat any proof that drops `SortUniq` here
-     as wrong until it says how it got past that witness.
+   * **§4D.5 and the previous version of this item are wrong**, and the correction is machine-
+     checked: with the conclusion stated as a chain (`ConvC`), `peelChain` and
+     `uniqStrongCAt_of_baseUniqCAt` take **no hypothesis at all** (`[propext]`), and `SortUniq`
+     leaves the route entirely.  Do not re-derive that; read §4E.
+   * **The residual is `ConvSortInv`** — sort injectivity along a conversion chain — and
+     `sortUniq_iff_convSortInv` says it is the *same* hypothesis as `SortUniq` given
+     `ConvPiInv`.  So the corner is still a circle; what is new is that the demand is now a
+     statement about `sort ~ … ~ sort` chains rather than about arbitrary terms, and no step of
+     the proof composes conversions at different sorts.
+   * **The flag is still load-bearing** (§4D.4).  `base_flag_not_droppable` applies verbatim to
+     the chain version: the `.forallE`, `.lam` and `.app` premises the recursion consumes are at
+     flag `true`.
+   * The next thing to try, if this corner is picked up again: `ConvSortInv` is the *only*
+     hypothesis of `retypes_of_convInv` that is not `Ordered` or `ConvPiInv`, and every chain it
+     is applied to has both endpoints syntactic sorts and arises from `UniqStrongCAt` at a
+     proper subterm.  Whether that shape can be exploited was **not** examined this session.
 
 1a. **`BaseUniqApp` — `Theory/Typing/ProofRetypeHeads.lean`.**  Do **not** attack `ProofRetype`,
    `BetaRetype`, `EtaRetype` or `ExtraRetype` separately: all four are corollaries of
@@ -1084,6 +1217,35 @@ kept below it as item 1a, because its head table is still the right map.)*
    users with an empty cone — but read §6.1's collapse-test note before writing anything.
 5. **Do not** re-attempt §4's four repairs, the lexicographic measure, the unique-typing
    shortcut for `const_app_inv`'s level half, or any route through `ChurchRosser`.
+
+### Build and census state at the end of the **fifth** session **[machine]**
+
+Working tree at commit `aa3585e` plus **`Theory/Typing/BaseUniqChain.lean`** (new), two edits in
+`Theory/Typing/BaseUniqTerm.lean` (an import line, and the superseded paragraph marked as such),
+and this document.  Nothing else was touched.
+
+* `lake build Lean4Lean.Theory.Typing.BaseUniqChain` — green, 40 declarations, no `sorry`.
+  `#print axioms` on all of them: `[propext, Quot.sound]`, with `peelChain`,
+  `uniqStrongCAt_of_baseUniqCAt` and `sortWF_of_hasTypeStrong` on `[propext]` alone.  No
+  `Classical.choice` anywhere in the file.
+* `lake build Lean4Lean.Theory.Typing.BaseUniqTerm` — green.
+* `lake env lean scripts/sorry-census.lean` at the start and at the end of the session —
+  **byte-identical**, TOTAL 19.  The full listing on this commit:
+  `Theory.Inductive.Decl` 1 (`VIndRecArg.exists_indep`, 0 users);
+  `Theory.Typing.ChurchRosser` 1 (`NormalEq.descend`, 42);
+  `Theory.Typing.Injectivity` 6 (`sort_forallE_inv` 8, `forallE_inv` 145, `const_sort_inv` 1,
+  **`forallE_inv_stratified` 389**, `const_forallE_inv` 1, `const_app_inv` 1);
+  `Theory.Typing.UniqueTyping` 1 (`weakN_iff`, 124);
+  `Verify.Environment` 1 (`addDecl.WF`, 1); `Verify.Environment.Boundaries` 1
+  (`checkPrimitiveDef.WF.rest`, 6); `Verify.Soundness` 2 (`kernel_sound` 0,
+  `kernel_complete` 0); `Verify.TypeChecker.InferType` 1 (`inferProj.WF`, 0);
+  `Verify.TypeChecker.IsDefEq` 2 (`isDefEqUnitLike.WF` 1, `tryEtaStructCore.WF` 2);
+  `Verify.TypeChecker.WHNF` 1 (`quotReduceRec.WF`, 1); `Verify.Typing.Lemmas` 2
+  (`TrProj.weak'_inv` 28, `TrProj.uniq` 83).
+  **Correction to the brief:** it quoted 365 transitive users for `forallE_inv_stratified`; the
+  census on this commit reports **389**.
+* `lake env lean scripts/dup-names.lean` — *"no duplicate Lean4Lean declarations across the
+  joined cone"*, which also confirms `BaseUniqChain.lean` is inside `ConeJoin.lean`'s closure.
 
 ### Build and census state at the end of the **fourth** session **[machine]**
 

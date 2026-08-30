@@ -1,4 +1,7 @@
 import Lean4Lean.Theory.Typing.ProofRetypeHeads
+-- Imported only so that `Experimental/ConeJoin.lean` (not this stream's file) reaches
+-- `BaseUniqChain.lean` without an edit outside this stream's own files.  Nothing below uses it.
+import Lean4Lean.Theory.Typing.BaseUniqChain
 
 /-!
 # `BaseUniq` by induction on the **term**
@@ -54,7 +57,16 @@ written out so the comparison is a hypothesis list rather than a claim.  What is
 | machinery | `HasTypeStratified`, `uniqAux`, height induction | none |
 | shape of the induction | over `IsDefEqStrong`, height-indexed | **structural recursion on `VExpr`** |
 
-## The localisation goes through at the subject and **not** at the type **[analysis]**
+## The localisation goes through at the subject and **not** at the type **[SUPERSEDED]**
+
+**Corrected on 2026-08-30 by `Theory/Typing/BaseUniqChain.lean`.**  The paragraph below is
+kept because it states the failing step correctly *for the conclusion it assumed* — a single
+equation.  With the conclusion stated as a **chain** (`ConvC`), `peelChain` takes no hypothesis
+at all, `uniqStrongCAt_of_baseUniqCAt` takes no hypothesis at all, and `SortUniq` disappears
+from this route entirely; what survives is `ConvSortInv`, sort injectivity along a chain, and
+that is consumed at the Π's **own domain and body**, both proper subterms.  The corner's circle
+is not cut — `sortUniq_iff_convSortInv` says the two are the same hypothesis — but the claim
+*"`SortUniq` is used at a place the term recursion does not reach"* is false as stated.
 
 `SortUniq` survives as a hypothesis, and the exact reason is worth recording, because the
 obvious next move is to localise it the same way.  `baseUniqAt_forallE` uses `SortUniq` only at
