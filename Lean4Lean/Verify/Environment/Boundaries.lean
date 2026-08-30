@@ -1,5 +1,6 @@
 import Lean4Lean.Verify.TypeChecker
 import Lean4Lean.Verify.Primitive
+import Lean4Lean.Verify.PrimitiveWF
 import Lean4Lean.Environment
 
 /-!
@@ -49,11 +50,12 @@ Three refutations of this statement have been closed on the implementation side
   well-formedness invariant demands both sides be translatable, so an untyped comparison broke
   `TypeChecker.VState.WF` and with it this theorem's `M.WF` obligation. See `bugs-found.md`.
 
-What remains is the two operations whose equations the recognizer verifies through
-`WellFounded.Nat.fix` (`Nat.gcd`, `Nat.bitwise`). The two fuel-recursive ones (`Nat.mod`,
-`Nat.div`) are discharged below, through `VEnv.reflects_mod_of_equations` /
-`VEnv.reflects_div_of_equations`; the other fifteen branches use the reflection theorems and
-the `VEnv.PrimField` / `VEnv.HasPrimitives.addDef` plumbing in `Lean4Lean/Verify/Primitive.lean`.
+All nineteen branches are discharged. The two fuel-recursive ones (`Nat.mod`, `Nat.div`) go
+through `VEnv.reflects_mod_of_equations` / `VEnv.reflects_div_of_equations`; the two
+well-founded ones (`Nat.gcd`, `Nat.bitwise`) through
+`VEnv.reflects_gcd_of_equations` / `VEnv.reflects_bitwise_of_equations` in
+`Lean4Lean/Verify/PrimitiveWF.lean`; the other fifteen use the reflection theorems and the
+`VEnv.PrimField` / `VEnv.HasPrimitives.addDef` plumbing in `Lean4Lean/Verify/Primitive.lean`.
 
 Bug 4 of `bugs-found.md` -- handing untyped terms to `isDefEq`, which records its verdict in
 the `EquivManager` and so breaks `VState.WF` -- had been fixed for the other fifteen branches
@@ -100,24 +102,21 @@ branches all check a *structural* recursion, for which `VEnv.reflects_rec2`,
   to be turned into "`Condition.natLE.ite α #[a, b] t e` is `t` when `a ≤ b` and `e`
   otherwise", via `VEnv.HasPrimitives.natBLE`. That is `TypeChecker.Condition.check.WF` and its
   pinned instance `Condition.check.WF_natLE_pinned`.
-* `Nat.gcd` and `Nat.bitwise` go through `unfoldNatWellFounded`. Two of its gaps were closed
-  on the implementation side on 2026-08-30, and the first of the two made this theorem **false**
-  rather than open. (i) Nothing constrained the *measure* `h` of `WellFounded.Nat.fix h F`, and
-  that fixpoint reduces only once `h x` evaluates to a ground value -- the `Nat.eager` gadget in
-  its definition exists to enforce exactly that -- so a `Nat.gcd` whose measure the kernel
-  cannot evaluate was accepted while not reducing at numerals at all;
-  `scripts/primitive-wf-refutation.lean` is the witness and `NatWFUnfold`'s `measureIs` the
-  repair. (ii) The fixpoint equation was pinned at one particular `ih` (`fun y _ => fix h F y`),
-  and an `IsDefEqU` at one argument implies nothing at another, so the fuel induction could not
-  evaluate `F` at `fun y _ => go h F fuel y _`; both branches now check `go`'s own fuel
-  recurrence, in the shape the proved `Nat.mod` / `Nat.div` branches use. The remaining work is
-  the fuel induction, which no longer needs any specification of `whnfCore` or
-  `unfoldDefinition`: every conversion those two *find* is now re-established by a
-  `checkedIsDefEq`.
-* `Nat.bitwise`'s field, `VEnv.ReflectsNatBitwise`, is second order and relativized to every
-  extension `env'` of the environment; the reflections it consumes (`Nat.add`, `Nat.div`,
-  `Nat.mod`, `Nat.beq`) transfer there by `VEnv.ReflectsNatNatNat.mono`, but the induction is
-  on `n + m` rather than on either argument. -/
+* `Nat.gcd` and `Nat.bitwise` go through `unfoldNatWellFounded`, and they were **false**, not
+  open, until 2026-08-30: nothing constrained the *measure* `h` of `WellFounded.Nat.fix h F`,
+  and that fixpoint reduces only once `h x` evaluates to a ground value -- the `Nat.eager`
+  gadget in its definition exists to enforce exactly that -- so a `Nat.gcd` whose measure the
+  kernel cannot evaluate was accepted while not reducing at numerals at all.
+  `scripts/primitive-wf-refutation.lean` is the witness. Four further facts turned out to be
+  unavailable and are now checked or derived: `go`'s own *type* (without it the recursive
+  call's fuel bound has no type, `VExpr.WF.app_inv` inventing an existential domain);
+  independence of `go`/`pack`/the measure from the recursion variables (the induction steps
+  them to *different* arguments, so they must be the same closed terms at every level);
+  `Condition.bool`'s check moved to the base context, where `Condition.check.WF_bool`'s
+  `c.vlctx = []` can be met; and `VEnv.ReflectsCondAppAll`, because `ReflectsCondApp`'s
+  `VExpr.WF` premise is negative and so the predicate is **not** monotone, while
+  `VEnv.ReflectsNatBitwise` is relativized to an arbitrary later environment carrying the
+  combinator. `docs/handoff-primitive.md` has the ledger and the traps. -/
 theorem checkPrimitiveDef.WF.rest {env : Environment} {ves : VEnvs} (wf : ves.WF env)
     (v : DefinitionVal) (fuel : FuelConfig)
     (hrest : v.name = ``Nat.mod ∨ v.name = ``Nat.div ∨ v.name = ``Nat.gcd ∨
@@ -308,7 +307,7 @@ theorem checkPrimitiveDef.WF.rest {env : Environment} {ves : VEnvs} (wf : ves.WF
       refine .pure (VEnv.reflects_mod_of_equations henv0 hlit hprim hnat
         (contains_primConst (c := VContext.mk' wf .safe ([] : List Name) fuel) rfl hsubE
           primitives_natSub)
-        hFc ?_ ?_ hGOty hRC hRD h0 heq1 heq2)
+        hFc ?_ ?_ hGOty (hRC.self henv0) (hRD.self henv0) h0 heq1 heq2)
       · trivial
       · trivial
     · refine .pure ⟨fun _ => (by simpa using hsafe), fun _ => rfl, ?_⟩
@@ -464,7 +463,7 @@ theorem checkPrimitiveDef.WF.rest {env : Environment} {ves : VEnvs} (wf : ves.WF
       refine .pure (VEnv.reflects_div_of_equations henv0 hlit hprim hnat
         (contains_primConst (c := VContext.mk' wf .safe ([] : List Name) fuel) rfl hsubE
           primitives_natSub)
-        hFc ?_ ?_ hGOty hRD heq1 heq2)
+        hFc ?_ ?_ hGOty (hRD.self henv0) heq1 heq2)
       · trivial
       · trivial
     · refine .pure ⟨fun _ => (by simpa using hsafe), fun _ => rfl, ?_⟩
@@ -482,7 +481,7 @@ theorem checkPrimitiveDef.WF.rest {env : Environment} {ves : VEnvs} (wf : ves.WF
     case isFalse => exact M.WF.bindThrow .throw
     rename_i hguard
     simp only [Bool.and_eq_true, List.isEmpty_iff] at hguard
-    obtain ⟨⟨hnatE, hmodE⟩, rfl⟩ := hguard
+    obtain ⟨⟨⟨⟨hnatE, hboolE⟩, hmodE⟩, hbeqE⟩, rfl⟩ := hguard
     refine (checkPrimValue.WF (fun {_} {_} {_} => hfail) (by simp [FVarsIn])).bind
       fun _ _ _ h => ?_
     obtain ⟨ty', F, hty', hF, hFty⟩ := h
@@ -491,18 +490,256 @@ theorem checkPrimitiveDef.WF.rest {env : Environment} {ves : VEnvs} (wf : ves.WF
     have hnat := hnf.contains
     have hprim := (VContext.mk' wf .safe ([] : List Name) fuel).hasPrimitives
     obtain ⟨hFc, -⟩ := closedN_of_nil rfl hFty
-    -- Open, but no longer *false*.  Until 2026-08-30 this branch's `preserves` obligation was
-    -- unsatisfiable: nothing the recognizer checked constrained the measure `h` that
-    -- `WellFounded.Nat.fix h F` recurses on, and `WellFounded.Nat.fix` reduces only once `h x`
-    -- evaluates to a ground value (that is what the `Nat.eager` gadget in its definition
-    -- enforces).  A `Nat.gcd` with measure `fun x => x.1 + 0 * Classical.choice ⟨0⟩` passed
-    -- every check while the Lean kernel refutes `gcd 4 6 = 2` by `rfl` on it, so
-    -- `VEnv.ReflectsNatNatNat ``Nat.gcd Nat.gcd` failed at an accepted declaration.
-    -- `scripts/primitive-wf-refutation.lean` is that witness; `Lean4Lean.Environment`'s
-    -- `NatWFUnfold` records the repair (`measureIs`, plus the fuel equation `go` now supports).
-    -- What is left is the fuel induction itself, in the same shape as `Nat.mod` / `Nat.div`.
-    -- See `docs/handoff-primitive.md`.
-    sorry
+    have hlit : (ves.venv .safe).NatLits := VEnv.HasPrimitives.natLit_hasType hprim hnat
+    have henv0 := (VContext.mk' wf .safe ([] : List Name) fuel).Ewf
+    have hbeq : (ves.venv .safe).contains ``Nat.beq :=
+      contains_primConst (c := VContext.mk' wf .safe ([] : List Name) fuel) rfl hbeqE
+        primitives_natBEq
+    have hmodP : (ves.venv .safe).contains ``Nat.mod :=
+      contains_primConst (c := VContext.mk' wf .safe ([] : List Name) fuel) rfl hmodE
+        primitives_natMod
+    refine M.WF.bind (Condition.check.WF_natEq_pinned (c := .mk' wf .safe [] fuel)
+      (fun {_ _ _ _} => .throw) rfl rfl rfl hnat (NatFacts.isType0 hnf rfl rfl) hbeqE
+      (fun α hα => absurd hα (by simp))) fun _ _ _ hcond => ?_
+    obtain ⟨-, hditeF⟩ := hcond
+    obtain ⟨FD, OT, OF, PR, hFD, hOT, hOF, hRD⟩ := hditeF rfl
+    cases trExprS_diteNat_inv' hFD
+    refine M.WF.bind (Condition.check.WF_boolCond (c := .mk' wf .safe [] fuel)
+      (fun {_ _ _ _} => .throw) rfl rfl
+      (fun α hα => by
+        cases List.mem_singleton.1 hα; exact ⟨by simp [FVarsIn], trivial, rfl⟩))
+      fun _ _ _ hcondB => ?_
+    obtain ⟨PB, DB, hPB, hDB, hPBc, hDBc, hiteB⟩ := hcondB
+    obtain ⟨Anat, IN, hAnat, hAnatc, hIN, hINc, hB1⟩ :=
+      hiteB (.const ``Nat []) (List.mem_singleton.2 rfl)
+    cases trExprS_iteNat_inv' hIN
+    refine M.WF.bind (M.WF.withCheckedLocalDecl
+      (Q := fun u _ => Environment.NatWFUnfold.Good u) (by simp [FVarsIn]) ?_)
+      fun u _ _ hu => ?_
+    · intro tym idm cwfm s1 _ htym _
+      cases trExprS_const_nil_inv' htym
+      refine M.WF.withCheckedLocalDecl (by simp [FVarsIn]) ?_
+      intro tyn idn cwfn s2 _ htyn _
+      cases trExprS_const_nil_inv' htyn
+      have hF2 := TrExprS.weakLam0 cwfn (TrExprS.weakLam0 cwfm hF hFc) hFc
+      have hFty2 := HasType.weakLam0 cwfn
+        (HasType.weakLam0 cwfm hFty hFc ⟨trivial, trivial, trivial⟩) hFc
+        ⟨trivial, trivial, trivial⟩
+      have hmv := TrExprS.weakLift0 cwfn (trExprS_lastFVar0 cwfm)
+      have hmty := hasType_fvar1 cwfm cwfn trivial
+      have hnv := trExprS_lastFVar0 cwfn
+      have hnty := hasType_lastFVar0 cwfn trivial
+      exact unfoldNatWellFounded.WF (fun {_ _ _} => .throw)
+        ⟨_, (trExprS_app2_nat hF2 hFty2 hmv hmty hnv hnty).1⟩
+    have hgoFV : u.go.FVarsIn (· ∈ (VContext.mk' wf .safe ([] : List Name) fuel).vlctx.fvars) :=
+      hu.goFV.mono nofun
+    have halFV : u.alpha.FVarsIn
+        (· ∈ (VContext.mk' wf .safe ([] : List Name) fuel).vlctx.fvars) := hu.alphaFV.mono nofun
+    have hmsFV : u.measure.FVarsIn
+        (· ∈ (VContext.mk' wf .safe ([] : List Name) fuel).vlctx.fvars) := hu.measFV.mono nofun
+    have hmoFV : u.motive.FVarsIn
+        (· ∈ (VContext.mk' wf .safe ([] : List Name) fuel).vlctx.fvars) := hu.motiveFV.mono nofun
+    have hpkFV : u.pack.FVarsIn
+        (· ∈ (VContext.mk' wf .safe ([] : List Name) fuel).vlctx.fvars) := hu.packFV.mono nofun
+    refine M.WF.bind (checkedTypeIs.WF hgoFV
+      (by
+        simp only [Lean4Lean.Environment.NatWFUnfold.goType, FVarsIn, Lean.mkApp2, Lean.mkApp]
+        repeat' apply And.intro
+        all_goals first
+          | exact halFV | exact hmsFV | exact hmoFV
+          | simp [Lean.Level.hasMVar'] | trivial)) fun _ _ _ hgt => ?_
+    split
+    case isFalse => exact M.WF.bindThrow .throw
+    rename_i hgb
+    obtain ⟨GO, GOA, GOTY, hGO, hGOA, hGOTY, hGOd⟩ := hgt
+    refine M.WF.bind (checkedTypeIs.WF hmsFV
+      (by
+        simp only [FVarsIn]
+        repeat' apply And.intro
+        all_goals first | exact halFV | simp [Lean.Level.hasMVar'] | trivial))
+      fun _ _ _ hmt => ?_
+    split
+    case isFalse => exact M.WF.bindThrow .throw
+    rename_i hmb
+    obtain ⟨MEAS, MEASA, MTY, hMEAS, hMEASA, hMTY, hMEASd⟩ := hmt
+    obtain ⟨A, natA, rfl, hAlpha, hNatA⟩ := trExprS_arrow_inv' hMTY
+    cases trExprS_const_nil_inv' hNatA
+    have hMEASty : (ves.venv .safe).HasType 0 [] MEAS (.forallE A .nat) :=
+      hMEASA.defeqU_r henv0 (VContext.mk' wf .safe ([] : List Name) fuel).Δwf.toCtx
+        (hMEASd (by simpa using hmb))
+    obtain ⟨hMEASc, hMTYc⟩ := closedN_of_nil (c := VContext.mk' wf .safe ([] : List Name) fuel)
+      rfl hMEASty
+    have hAc : A.ClosedN 0 := hMTYc.1
+    have halB : u.alpha.looseBVarRange' = 0 := trExprS_looseBVarRange_nil hAlpha
+    have hmsB : u.measure.looseBVarRange' = 0 := trExprS_looseBVarRange_nil hMEAS
+    have hgoB : u.go.looseBVarRange' = 0 := trExprS_looseBVarRange_nil hGO
+    refine M.WF.bind (checkedTypeIs.WF hpkFV
+      (by
+        simp only [FVarsIn]
+        repeat' apply And.intro
+        all_goals first | exact halFV | simp [Lean.Level.hasMVar'] | trivial))
+      fun _ _ _ hpt => ?_
+    split
+    case isFalse => exact M.WF.bindThrow .throw
+    rename_i hpb
+    obtain ⟨PACK, PACKA, PTY, hPACK, hPACKA, hPTY, hPACKd⟩ := hpt
+    obtain ⟨n1, B1, rfl, hn1, hB1'⟩ := trExprS_arrow_inv' hPTY
+    cases trExprS_const_nil_inv' hn1
+    obtain ⟨n2, B2, rfl, hn2, hA2⟩ := trExprS_arrow_inv' hB1'
+    cases trExprS_const_nil_inv' hn2
+    cases TrExprS.unique hu.alphaU hA2
+      (trExprS_weakBV0 henv0.ordered
+        (trExprS_weakBV0 henv0.ordered hAlpha halB hAc) halB hAc)
+    have hPACKty : (ves.venv .safe).HasType 0 [] PACK (.forallE .nat (.forallE .nat A)) :=
+      hPACKA.defeqU_r henv0 (VContext.mk' wf .safe ([] : List Name) fuel).Δwf.toCtx
+        (hPACKd (by simpa using hpb))
+    obtain ⟨hPACKc, -⟩ := closedN_of_nil (c := VContext.mk' wf .safe ([] : List Name) fuel)
+      rfl hPACKty
+    have hpkB : u.pack.looseBVarRange' = 0 := trExprS_looseBVarRange_nil hPACK
+    obtain ⟨D, rfl⟩ := trExprS_goTypeWF_inv' henv0.ordered hAlpha hu.alphaU halB hAc
+      hMEAS hu.measU hmsB hMEASc hGOTY
+    have hGOty : (ves.venv .safe).HasType 0 [] GO (.goTypeWF A MEAS D) :=
+      hGOA.defeqU_r henv0 (VContext.mk' wf .safe ([] : List Name) fuel).Δwf.toCtx
+        (hGOd (by simpa using hgb))
+    obtain ⟨hGOc, hGOTYc⟩ := closedN_of_nil
+      (c := VContext.mk' wf .safe ([] : List Name) fuel) rfl hGOty
+    have hAc2 : (VExpr.forallE .nat (.forallE .nat A)).ClosedN 0 :=
+      ⟨trivial, trivial, hAc.mono (by omega)⟩
+    have hAc1 : (VExpr.forallE A VExpr.nat).ClosedN 0 := ⟨hAc, trivial⟩
+    refine M.WF.bind (M.WF.withCheckedLocalDecl (Q := fun _ _ =>
+        ∀ a b : Nat, (ves.venv .safe).IsDefEqU 0 []
+          (.app (.app F (.natLit a)) (.natLit b)) (.natLit (Nat.gcd a b)))
+      (by simp [FVarsIn]) ?_) fun _ _ _ hgcd => ?_
+    · intro tym idm cwfm s1 _ htym _
+      cases trExprS_const_nil_inv' htym
+      refine M.WF.withCheckedLocalDecl (by simp [FVarsIn]) ?_
+      intro tyn idn cwfn s2 _ htyn _
+      cases trExprS_const_nil_inv' htyn
+      have hGO2 := TrExprS.weakLam0 cwfn (TrExprS.weakLam0 cwfm hGO hGOc) hGOc
+      have hPACK2 := TrExprS.weakLam0 cwfn (TrExprS.weakLam0 cwfm hPACK hPACKc) hPACKc
+      have hMEAS2 := TrExprS.weakLam0 cwfn (TrExprS.weakLam0 cwfm hMEAS hMEASc) hMEASc
+      have hPB2 := TrExprS.weakLam0 cwfn (TrExprS.weakLam0 cwfm hPB hPBc) hPBc
+      have hDB2 := TrExprS.weakLam0 cwfn (TrExprS.weakLam0 cwfm hDB hDBc) hDBc
+      have hPACKty2 := HasType.weakLam0 cwfn
+        (HasType.weakLam0 cwfm hPACKty hPACKc hAc2) hPACKc hAc2
+      have hMEASty2 := HasType.weakLam0 cwfn
+        (HasType.weakLam0 cwfm hMEASty hMEASc hAc1) hMEASc hAc1
+      have hF2 := TrExprS.weakLam0 cwfn (TrExprS.weakLam0 cwfm hF hFc) hFc
+      have hFty2 := HasType.weakLam0 cwfn
+        (HasType.weakLam0 cwfm hFty hFc ⟨trivial, trivial, trivial⟩) hFc
+        ⟨trivial, trivial, trivial⟩
+      have hmv := TrExprS.weakLift0 cwfn (trExprS_lastFVar0 cwfm)
+      have hmty := hasType_fvar1 cwfm cwfn trivial
+      have hnv := trExprS_lastFVar0 cwfn
+      have hnty := hasType_lastFVar0 cwfn trivial
+      obtain ⟨hpk, hpkty⟩ := trExprS_packApp hPACK2 hPACKty2 hAc hmv hmty hnv hnty
+      obtain ⟨hmeasApp, hmeasAppTy⟩ := trExprS_measApp hMEAS2 hMEASty2 hpk hpkty
+      refine M.WF.bind (checkedIsDefEq.WF' hmeasApp hmv) fun r1 _ _ hd1 => ?_
+      split
+      case isFalse => exact M.WF.bindThrow .throw
+      rename_i hr1
+      have hmeas := hd1 (by simpa using hr1)
+      obtain ⟨hlhs, hlhsty⟩ := trExprS_app2_nat hF2 hFty2 hmv hmty hnv hnty
+      refine M.WF.bind (checkedIsDefEq.WFr hlhs
+        (by
+          simp only [Lean4Lean.Environment.Condition.ite, Lean4Lean.Environment.Condition.bool,
+            Lean.mkApp5, Lean.mkApp3, Lean.mkApp2, Lean.mkApp, Lean.mkAppN, FVarsIn]
+          repeat' apply And.intro
+          all_goals first
+            | exact hu.goFV.mono nofun | exact hu.packFV.mono nofun
+            | exact hu.measFV.mono nofun | exact hu.prfAFV.mono nofun
+            | exact hmv.fvarsIn | exact hnv.fvarsIn
+            | simp [FVarsIn, Lean.Level.hasMVar'] | trivial))
+        fun r2 _ _ hh2 => ?_
+      obtain ⟨R2, hR2, hd2⟩ := hh2
+      split
+      case isFalse => exact M.WF.bindThrow .throw
+      rename_i hr2
+      have hent0 := hd2 (by simpa using hr2)
+      obtain ⟨PRFA, rfl⟩ := trExprS_gcdEntry_inv' hGO2 hu.goU hPACK2 hu.packU hMEAS2 hu.measU
+        hPB2 hDB2 hmv hnv hR2
+      have hGOty2 := HasType.weakLam0 cwfn
+        (HasType.weakLam0 cwfm hGOty hGOc hGOTYc) hGOc hGOTYc
+      refine M.WF.withCheckedLocalDecl (by simp [FVarsIn]) ?_
+      intro tyf idf cwff s3 _ htyf _
+      cases trExprS_const_nil_inv' htyf
+      have hmv3 := TrExprS.weakLift0 cwff hmv
+      have hnv3 := TrExprS.weakLift0 cwff hnv
+      have hfv3 := trExprS_lastFVar0 cwff
+      have hMEAS3 := TrExprS.weakLam0 cwff hMEAS2 hMEASc
+      have hPACK3 := TrExprS.weakLam0 cwff hPACK2 hPACKc
+      have hGO3 := TrExprS.weakLam0 cwff hGO2 hGOc
+      refine M.WF.withCheckedLocalDecl (by
+        simp only [Lean.mkApp2, Lean.mkApp, FVarsIn]
+        repeat' apply And.intro
+        all_goals first
+          | exact hMEAS3.fvarsIn | exact hPACK3.fvarsIn
+          | exact hmv3.fvarsIn | exact hnv3.fvarsIn | exact hfv3.fvarsIn
+          | simp [FVarsIn, Lean.Level.hasMVar'] | trivial) ?_
+      intro tyh idh cwfh s4 _ htyh _
+      obtain ⟨XA, FUA, rfl, mh1, mh2⟩ := trExprS_natLEApp_inv' htyh
+      obtain ⟨_, _, rfl, k1, k2⟩ := trExprS_app_inv' mh1
+      cases trExprS_const_nil_inv' k1
+      obtain ⟨_, _, rfl, k3, k4⟩ := trExprS_app_inv' k2
+      cases TrExprS.unique hu.measU k3 hMEAS3
+      obtain ⟨_, _, rfl, k5, k6⟩ := trExprS_app_inv' k4
+      obtain ⟨_, _, rfl, k7, k8⟩ := trExprS_app_inv' k5
+      cases TrExprS.unique hu.packU k7 hPACK3
+      cases trExprS_fvar_uniq k8 hmv3
+      cases trExprS_fvar_uniq k6 hnv3
+      cases trExprS_succFvar_inv' hfv3 mh2
+      have hGO4 := TrExprS.weakLam0 cwfh hGO3 hGOc
+      have hPACK4 := TrExprS.weakLam0 cwfh hPACK3 hPACKc
+      have hMEAS4 := TrExprS.weakLam0 cwfh hMEAS3 hMEASc
+      have hmv4 := TrExprS.weakLift0 cwfh hmv3
+      have hnv4 := TrExprS.weakLift0 cwfh hnv3
+      have hfv4 := TrExprS.weakLift0 cwfh hfv3
+      have hhv4 := trExprS_lastFVar0 cwfh
+      have hmty4 := HasType.weakLift0 cwfh (HasType.weakLift0 cwff hmty)
+      have hnty4 := HasType.weakLift0 cwfh (HasType.weakLift0 cwff hnty)
+      have hfty4 := HasType.weakLift0 cwfh (hasType_lastFVar0 cwff trivial)
+      have hPACKty4 := HasType.weakLam0 cwfh
+        (HasType.weakLam0 cwff hPACKty2 hPACKc hAc2) hPACKc hAc2
+      have hGOty4 := HasType.weakLam0 cwfh
+        (HasType.weakLam0 cwff hGOty2 hGOc hGOTYc) hGOc hGOTYc
+      obtain ⟨hpk4, hpkty4⟩ := trExprS_packApp hPACK4 hPACKty4 hAc hmv4 hmty4 hnv4 hnty4
+      have hsf := trExprS_succ hfv4 hfty4 hprim hnat
+      have hhty4 := hasType_lastFVar (cwf := cwfh)
+      simp only [VExpr.natLEApp, VExpr.natLE, VExpr.lift, VExpr.liftN, Lean4Lean.liftVar,
+        hMEASc.liftN_eq (Nat.zero_le _), hPACKc.liftN_eq (Nat.zero_le _)] at hhty4
+      have hlhsGo := trExprS_goAppWF hGO4 hGOty4 hAc hMEASc hsf.1 hsf.2 hpk4 hpkty4 hhv4 hhty4
+      refine M.WF.bind (checkedIsDefEq.WFr hlhsGo
+        (by
+          simp only [Lean4Lean.Environment.Condition.dite,
+            Lean4Lean.Environment.Condition.natEq, Lean.Expr.lam0, Lean.mkApp5, Lean.mkApp4,
+            Lean.mkApp3, Lean.mkApp2, Lean.mkApp, Lean.mkAppN, FVarsIn]
+          repeat' apply And.intro
+          all_goals first
+            | exact hu.goFV.mono nofun | exact hu.packFV.mono nofun
+            | exact hmv4.fvarsIn | exact hnv4.fvarsIn | exact hfv4.fvarsIn
+            | exact hhv4.fvarsIn
+            | simp [FVarsIn, Lean.Level.hasMVar'] | trivial))
+        fun r3 _ _ hh3 => ?_
+      obtain ⟨R3, hR3, hd3⟩ := hh3
+      split
+      case isFalse => exact .throw
+      rename_i hr3
+      have hgoeq0 := hd3 (by simpa using hr3)
+      obtain ⟨EA, KA, rfl⟩ := trExprS_gcdGo_inv' henv0.ordered hGO4 hu.goU hgoB hGOc
+        hPACK4 hu.packU hpkB hPACKc hmv4 hnv4 hfv4 hR3
+      exact .pure (VEnv.reflects_gcd_of_equations henv0 hlit hprim hnat hbeq hmodP
+        hFc hGOc hPACKc hMEASc hAc hINc hPBc hDBc
+        (show VExpr.ClosedN (.const ``Nat.decEq []) 0 from trivial)
+        hGOty (hRD.self henv0) (hB1.self henv0) hmeas hent0 hgoeq0)
+    · refine .pure ⟨fun _ => (by simpa using hsafe), fun _ => rfl, ?_⟩
+      intro _ sf venv env'' ci' hle hwf' hprim2 htr hci hadd
+      refine preserves_glue (nm := ``Nat.gcd) (F := F) hname rfl rfl (by decide) hF ?_
+        hle hwf' hprim2 htr hci hadd
+      intro venv' env₂ hle' hle₂ henv₂ hprim3 hdefF
+      have hle3 := hle'.trans hle₂
+      exact VEnv.primField_Nat_gcd.2 (reflectsNNN_of_open hle₂ henv₂ hprim3
+        (VEnv.contains.mono hle' hnat) hdefF (hFty.mono hle3)
+        fun _ a b => (hgcd a b).mono hle3)
   · rename_i hname; subst hname; simp at hrest -- ``Nat.beq
   · rename_i hname; subst hname; simp at hrest -- ``Nat.ble
   · -- ``Nat.bitwise
@@ -515,12 +752,353 @@ theorem checkPrimitiveDef.WF.rest {env : Environment} {ves : VEnvs} (wf : ves.WF
     refine (checkPrimValue.WF (fun {_} {_} {_} => hfail) (by simp [FVarsIn])).bind
       fun _ _ _ h => ?_
     obtain ⟨ty', F, hty', hF, hFty⟩ := h
+    cases trExprS_bitwiseType_inv' hty'
     have hprim := (VContext.mk' wf .safe ([] : List Name) fuel).hasPrimitives
-    -- Open, and was false for exactly the same reason as `Nat.gcd` above, with the same
-    -- repair (`scripts/primitive-wf-refutation.lean` carries the `badBitwise` witness too).
-    -- On top of the fuel induction this one needs `Condition.check.WF` for `Condition.natEq`
-    -- and `Condition.bool`, both of which are proved.
-    sorry
+    have hnat : (ves.venv .safe).contains ``Nat :=
+      contains_primConst (c := VContext.mk' wf .safe ([] : List Name) fuel) rfl hnatE
+        primitives_Nat
+    have hnf : NatFacts (VContext.mk' wf .safe ([] : List Name) fuel) :=
+      ⟨trExprS_primConst rfl hnatE primitives_Nat, isType_nat hprim hnat rfl⟩
+    obtain ⟨hFc, -⟩ := closedN_of_nil rfl hFty
+    have hlit : (ves.venv .safe).NatLits := VEnv.HasPrimitives.natLit_hasType hprim hnat
+    have henv0 := (VContext.mk' wf .safe ([] : List Name) fuel).Ewf
+    have hbeq : (ves.venv .safe).contains ``Nat.beq :=
+      contains_primConst (c := VContext.mk' wf .safe ([] : List Name) fuel) rfl hbeqE
+        primitives_natBEq
+    have hmodP : (ves.venv .safe).contains ``Nat.mod :=
+      contains_primConst (c := VContext.mk' wf .safe ([] : List Name) fuel) rfl hmodE
+        primitives_natMod
+    have haddP : (ves.venv .safe).contains ``Nat.add :=
+      contains_primConst (c := VContext.mk' wf .safe ([] : List Name) fuel) rfl haddE
+        primitives_natAdd
+    have hdivP : (ves.venv .safe).contains ``Nat.div :=
+      contains_primConst (c := VContext.mk' wf .safe ([] : List Name) fuel) rfl hdivE
+        primitives_natDiv
+    refine M.WF.bind (Condition.check.WF_natEq_pinned (c := .mk' wf .safe [] fuel)
+      (fun {_ _ _ _} => .throw) rfl rfl rfl hnat (isType_nat hprim hnat rfl) hbeqE
+      (fun α hα => by
+        simp only [List.mem_cons, List.not_mem_nil, or_false] at hα
+        rcases hα with rfl | rfl <;> exact ⟨by simp [FVarsIn], trivial, rfl⟩))
+      fun _ _ _ hcond => ?_
+    obtain ⟨hiteE, hditeF⟩ := hcond
+    obtain ⟨AN, INx, hAN, hANc, hIN, hINc, hRCN⟩ :=
+      hiteE (.const ``Nat []) (by simp)
+    obtain ⟨AB, IBx, hAB, hABc, hIB, hIBc, hRCB⟩ :=
+      hiteE (.const ``Bool []) (by simp)
+    cases trExprS_iteNat_inv' hIN
+    cases trExprS_iteBool_inv' hIB
+    obtain ⟨FD, OT, OF, PR, hFD, hOT, hOF, hRD⟩ := hditeF rfl
+    cases trExprS_diteNat_inv' hFD
+    refine M.WF.bind (Condition.check.WF_boolCond (c := .mk' wf .safe [] fuel)
+      (fun {_ _ _ _} => .throw) rfl rfl
+      (fun α hα => by
+        cases List.mem_singleton.1 hα; exact ⟨by simp [FVarsIn], trivial, rfl⟩))
+      fun _ _ _ hcondB => ?_
+    obtain ⟨PB, DB, hPB, hDB, hPBc, hDBc, hiteB⟩ := hcondB
+    obtain ⟨Anat2, IN2, hAnat2, hAnatc2, hIN2, hINc2, hB1⟩ :=
+      hiteB (.const ``Nat []) (List.mem_singleton.2 rfl)
+    cases trExprS_iteNat_inv' hIN2
+    refine M.WF.bind (M.WF.withCheckedLocalDecl
+      (Q := fun u _ => Environment.NatWFUnfold.Good u) (by simp [FVarsIn]) ?_)
+      fun u _ _ hu => ?_
+    · intro tyf idf cwff s1 _ htyf _
+      cases trExprS_boolArrow2_inv htyf
+      refine M.WF.withCheckedLocalDecl (by simp [FVarsIn]) ?_
+      intro tyn idn cwfn s2 _ htyn _
+      cases trExprS_const_nil_inv' htyn
+      refine M.WF.withCheckedLocalDecl (by simp [FVarsIn]) ?_
+      intro tym idm cwfm s3 _ htym _
+      cases trExprS_const_nil_inv' htym
+      have hF3 := TrExprS.weakLam0 cwfm (TrExprS.weakLam0 cwfn
+        (TrExprS.weakLam0 cwff hF hFc) hFc) hFc
+      have hFty3 := HasType.weakLam0 cwfm (HasType.weakLam0 cwfn
+        (HasType.weakLam0 cwff hFty hFc (by repeat' first | exact trivial | refine ⟨?_, ?_⟩)) hFc
+        (by repeat' first | exact trivial | refine ⟨?_, ?_⟩)) hFc
+        (by repeat' first | exact trivial | refine ⟨?_, ?_⟩)
+      have hfv := TrExprS.weakLift0 cwfm (TrExprS.weakLift0 cwfn (trExprS_lastFVar0 cwff))
+      have hnv := TrExprS.weakLift0 cwfm (trExprS_lastFVar0 cwfn)
+      have hmv := trExprS_lastFVar0 cwfm
+      have hbbbc : (VExpr.forallE VExpr.bool (VExpr.forallE VExpr.bool VExpr.bool)).ClosedN 0 := by
+        repeat' first | exact trivial | refine ⟨?_, ?_⟩
+      have hfty := HasType.weakLift0 cwfm (hasType_fvar1 cwff cwfn hbbbc)
+      have hnty := hasType_fvar1 cwfn cwfm trivial
+      have hmty := hasType_lastFVar0 cwfm trivial
+      have hcl2 : (VExpr.forallE .nat (.forallE .nat .nat)).ClosedN 0 := by
+        repeat' first | exact trivial | refine ⟨?_, ?_⟩
+      have hcl1 : (VExpr.forallE .nat .nat).ClosedN 0 := by
+        repeat' first | exact trivial | refine ⟨?_, ?_⟩
+      have hv1 := trExprS_appD hF3 hFty3 hfv hfty
+      rw [hcl2.instN_eq (Nat.zero_le _)] at hv1
+      have hv2 := trExprS_appD hv1.1 hv1.2 hnv hnty
+      rw [hcl1.instN_eq (Nat.zero_le _)] at hv2
+      have hv3 := trExprS_appD hv2.1 hv2.2 hmv hmty
+      exact unfoldNatWellFounded.WF (fun {_ _ _} => .throw) ⟨_, hv3.1⟩
+    have hgoFV : u.go.FVarsIn (· ∈ (VContext.mk' wf .safe ([] : List Name) fuel).vlctx.fvars) :=
+      hu.goFV.mono nofun
+    have halFV : u.alpha.FVarsIn
+        (· ∈ (VContext.mk' wf .safe ([] : List Name) fuel).vlctx.fvars) := hu.alphaFV.mono nofun
+    have hmsFV : u.measure.FVarsIn
+        (· ∈ (VContext.mk' wf .safe ([] : List Name) fuel).vlctx.fvars) := hu.measFV.mono nofun
+    have hmoFV : u.motive.FVarsIn
+        (· ∈ (VContext.mk' wf .safe ([] : List Name) fuel).vlctx.fvars) := hu.motiveFV.mono nofun
+    have hpkFV : u.pack.FVarsIn
+        (· ∈ (VContext.mk' wf .safe ([] : List Name) fuel).vlctx.fvars) := hu.packFV.mono nofun
+    refine M.WF.bind (checkedTypeIs.WF hgoFV
+      (by
+        simp only [Lean4Lean.Environment.NatWFUnfold.goType, FVarsIn, Lean.mkApp2, Lean.mkApp]
+        repeat' apply And.intro
+        all_goals first
+          | exact halFV | exact hmsFV | exact hmoFV
+          | simp [Lean.Level.hasMVar'] | trivial)) fun _ _ _ hgt => ?_
+    split
+    case isFalse => exact M.WF.bindThrow .throw
+    rename_i hgb
+    obtain ⟨GOABS, GOA, GOTY, hGO, hGOA, hGOTY, hGOd⟩ := hgt
+    refine M.WF.bind (checkedTypeIs.WF hmsFV
+      (by
+        simp only [FVarsIn]
+        repeat' apply And.intro
+        all_goals first | exact halFV | simp [Lean.Level.hasMVar'] | trivial))
+      fun _ _ _ hmt => ?_
+    split
+    case isFalse => exact M.WF.bindThrow .throw
+    rename_i hmb
+    obtain ⟨MEAS, MEASA, MTY, hMEAS, hMEASA, hMTY, hMEASd⟩ := hmt
+    obtain ⟨A, natA, rfl, hAlpha, hNatA⟩ := trExprS_arrow_inv' hMTY
+    cases trExprS_const_nil_inv' hNatA
+    have hMEASty : (ves.venv .safe).HasType 0 [] MEAS (.forallE A .nat) :=
+      hMEASA.defeqU_r henv0 (VContext.mk' wf .safe ([] : List Name) fuel).Δwf.toCtx
+        (hMEASd (by simpa using hmb))
+    obtain ⟨hMEASc, hMTYc⟩ := closedN_of_nil (c := VContext.mk' wf .safe ([] : List Name) fuel)
+      rfl hMEASty
+    have hAc : A.ClosedN 0 := hMTYc.1
+    have halB : u.alpha.looseBVarRange' = 0 := trExprS_looseBVarRange_nil hAlpha
+    have hmsB : u.measure.looseBVarRange' = 0 := trExprS_looseBVarRange_nil hMEAS
+    have hgoB : u.go.looseBVarRange' = 0 := trExprS_looseBVarRange_nil hGO
+    refine M.WF.bind (checkedTypeIs.WF hpkFV
+      (by
+        simp only [FVarsIn]
+        repeat' apply And.intro
+        all_goals first | exact halFV | simp [Lean.Level.hasMVar'] | trivial))
+      fun _ _ _ hpt => ?_
+    split
+    case isFalse => exact M.WF.bindThrow .throw
+    rename_i hpb
+    obtain ⟨PACK, PACKA, PTY, hPACK, hPACKA, hPTY, hPACKd⟩ := hpt
+    obtain ⟨B0, B1, rfl, hb0, hB1'⟩ := trExprS_arrow_inv' hPTY
+    cases trExprS_boolArrow2_inv' hb0
+    obtain ⟨n2, B2, rfl, hn2, hB2'⟩ := trExprS_arrow_inv' hB1'
+    cases trExprS_const_nil_inv' hn2
+    obtain ⟨n3, B3, rfl, hn3, hA3⟩ := trExprS_arrow_inv' hB2'
+    cases trExprS_const_nil_inv' hn3
+    cases TrExprS.unique hu.alphaU hA3
+      (trExprS_weakBV0 henv0.ordered (trExprS_weakBV0 henv0.ordered
+        (trExprS_weakBV0 henv0.ordered hAlpha halB hAc) halB hAc) halB hAc)
+    have hPACKty : (ves.venv .safe).HasType 0 [] PACK
+        (.forallE .boolBoolBool (.forallE .nat (.forallE .nat A))) :=
+      hPACKA.defeqU_r henv0 (VContext.mk' wf .safe ([] : List Name) fuel).Δwf.toCtx
+        (hPACKd (by simpa using hpb))
+    obtain ⟨hPACKc, hPTYc⟩ := closedN_of_nil
+      (c := VContext.mk' wf .safe ([] : List Name) fuel) rfl hPACKty
+    have hpkB : u.pack.looseBVarRange' = 0 := trExprS_looseBVarRange_nil hPACK
+    obtain ⟨BBB, GOTY2, rfl, hbbb, hGOTY2⟩ := trExprS_arrow_inv' hGOTY
+    cases trExprS_boolArrow2_inv' hbbb
+    obtain ⟨D, rfl⟩ := trExprS_goTypeWF_inv' henv0.ordered
+      (trExprS_weakBV0 henv0.ordered hAlpha halB hAc) hu.alphaU halB hAc
+      (trExprS_weakBV0 henv0.ordered hMEAS hmsB hMEASc) hu.measU hmsB hMEASc hGOTY2
+    have hGOty : (ves.venv .safe).HasType 0 [] GOABS
+        (.forallE .boolBoolBool (.goTypeWF A MEAS D)) :=
+      hGOA.defeqU_r henv0 (VContext.mk' wf .safe ([] : List Name) fuel).Δwf.toCtx
+        (hGOd (by simpa using hgb))
+    obtain ⟨hGOc, hGOTYc⟩ := closedN_of_nil
+      (c := VContext.mk' wf .safe ([] : List Name) fuel) rfl hGOty
+    have hbbbc : (VExpr.forallE VExpr.bool (VExpr.forallE VExpr.bool VExpr.bool)).ClosedN 0 := by
+      repeat' first | exact trivial | refine ⟨?_, ?_⟩
+    refine M.WF.bind (M.WF.withCheckedLocalDecl (Q := fun _ _ =>
+        ∀ env', (ves.venv .safe) ≤ env' → env'.WF →
+          ∀ (F₀ : VExpr) (g : Bool → Bool → Bool), env'.ReflectsBoolBoolBool F₀ g →
+          ∀ a b : Nat, env'.IsDefEqU 0 [] (VExpr.app3 F F₀ (.natLit a) (.natLit b))
+            (.natLit (Nat.bitwise g a b)))
+      (by simp [FVarsIn]) ?_) fun _ _ _ hbw => ?_
+    · intro tyf idf cwff s1 _ htyf _
+      cases trExprS_boolArrow2_inv htyf
+      refine M.WF.withCheckedLocalDecl (by simp [FVarsIn]) ?_
+      intro tyn idn cwfn s2 _ htyn _
+      cases trExprS_const_nil_inv' htyn
+      refine M.WF.withCheckedLocalDecl (by simp [FVarsIn]) ?_
+      intro tym idm cwfm s3 _ htym _
+      cases trExprS_const_nil_inv' htym
+      have hGO3 := TrExprS.weakLam0 cwfm (TrExprS.weakLam0 cwfn
+        (TrExprS.weakLam0 cwff hGO hGOc) hGOc) hGOc
+      have hPACK3 := TrExprS.weakLam0 cwfm (TrExprS.weakLam0 cwfn
+        (TrExprS.weakLam0 cwff hPACK hPACKc) hPACKc) hPACKc
+      have hMEAS3 := TrExprS.weakLam0 cwfm (TrExprS.weakLam0 cwfn
+        (TrExprS.weakLam0 cwff hMEAS hMEASc) hMEASc) hMEASc
+      have hPB3 := TrExprS.weakLam0 cwfm (TrExprS.weakLam0 cwfn
+        (TrExprS.weakLam0 cwff hPB hPBc) hPBc) hPBc
+      have hDB3 := TrExprS.weakLam0 cwfm (TrExprS.weakLam0 cwfn
+        (TrExprS.weakLam0 cwff hDB hDBc) hDBc) hDBc
+      have hPACKty3 := HasType.weakLam0 cwfm (HasType.weakLam0 cwfn
+        (HasType.weakLam0 cwff hPACKty hPACKc hPTYc) hPACKc hPTYc) hPACKc hPTYc
+      have hMEASty3 := HasType.weakLam0 cwfm (HasType.weakLam0 cwfn
+        (HasType.weakLam0 cwff hMEASty hMEASc hMTYc) hMEASc hMTYc) hMEASc hMTYc
+      have hGOty3 := HasType.weakLam0 cwfm (HasType.weakLam0 cwfn
+        (HasType.weakLam0 cwff hGOty hGOc hGOTYc) hGOc hGOTYc) hGOc hGOTYc
+      have hF3 := TrExprS.weakLam0 cwfm (TrExprS.weakLam0 cwfn
+        (TrExprS.weakLam0 cwff hF hFc) hFc) hFc
+      have hFty3 := HasType.weakLam0 cwfm (HasType.weakLam0 cwfn
+        (HasType.weakLam0 cwff hFty hFc
+          (by repeat' first | exact trivial | refine ⟨?_, ?_⟩)) hFc
+          (by repeat' first | exact trivial | refine ⟨?_, ?_⟩)) hFc
+          (by repeat' first | exact trivial | refine ⟨?_, ?_⟩)
+      have hfv := TrExprS.weakLift0 cwfm (TrExprS.weakLift0 cwfn (trExprS_lastFVar0 cwff))
+      have hnv := TrExprS.weakLift0 cwfm (trExprS_lastFVar0 cwfn)
+      have hmv := trExprS_lastFVar0 cwfm
+      have hfty := HasType.weakLift0 cwfm (hasType_fvar1 cwff cwfn hbbbc)
+      have hnty := hasType_fvar1 cwfn cwfm trivial
+      have hmty := hasType_lastFVar0 cwfm trivial
+      obtain ⟨hpk, hpkty⟩ := trExprS_packApp3 hPACK3 hPACKty3 hAc hfv hfty hnv hnty hmv hmty
+      obtain ⟨hmeasApp, hmeasAppTy⟩ := trExprS_measApp hMEAS3 hMEASty3 hpk hpkty
+      refine M.WF.bind (checkedIsDefEq.WF' hmeasApp hnv) fun r1 _ _ hd1 => ?_
+      split
+      case isFalse => exact M.WF.bindThrow .throw
+      rename_i hr1
+      have hmeas := hd1 (by simpa using hr1)
+      have hcl2 : (VExpr.forallE .nat (.forallE .nat .nat)).ClosedN 0 := by
+        repeat' first | exact trivial | refine ⟨?_, ?_⟩
+      have hcl1 : (VExpr.forallE .nat .nat).ClosedN 0 := by
+        repeat' first | exact trivial | refine ⟨?_, ?_⟩
+      have hw1 := trExprS_appD hF3 hFty3 hfv hfty
+      rw [hcl2.instN_eq (Nat.zero_le _)] at hw1
+      have hw2 := trExprS_appD hw1.1 hw1.2 hnv hnty
+      rw [hcl1.instN_eq (Nat.zero_le _)] at hw2
+      have hw3 := trExprS_appD hw2.1 hw2.2 hmv hmty
+      refine M.WF.bind (checkedIsDefEq.WFr hw3.1
+        (by
+          simp only [Lean4Lean.Environment.Condition.ite, Lean4Lean.Environment.Condition.bool,
+            Lean.mkApp5, Lean.mkApp3, Lean.mkApp2, Lean.mkApp, Lean.mkAppN, FVarsIn]
+          repeat' apply And.intro
+          all_goals first
+            | exact hu.goFV.mono nofun | exact hu.packFV.mono nofun
+            | exact hu.measFV.mono nofun | exact hu.prfAFV.mono nofun
+            | exact hfv.fvarsIn | exact hnv.fvarsIn | exact hmv.fvarsIn
+            | simp [FVarsIn, Lean.Level.hasMVar'] | trivial))
+        fun r2 _ _ hh2 => ?_
+      obtain ⟨R2, hR2, hd2⟩ := hh2
+      split
+      case isFalse => exact M.WF.bindThrow .throw
+      rename_i hr2
+      have hent0 := hd2 (by simpa using hr2)
+      obtain ⟨PRFA, rfl⟩ := trExprS_bitwiseEntry_inv' hGO3 hu.goU hPACK3 hu.packU
+        hMEAS3 hu.measU hPB3 hDB3 hfv hnv hmv hR2
+      refine M.WF.withCheckedLocalDecl (by simp [FVarsIn]) ?_
+      intro tyfu idfu cwffu s4 _ htyfu _
+      cases trExprS_const_nil_inv' htyfu
+      have hfv4 := TrExprS.weakLift0 cwffu hfv
+      have hnv4 := TrExprS.weakLift0 cwffu hnv
+      have hmv4 := TrExprS.weakLift0 cwffu hmv
+      have hfuv4 := trExprS_lastFVar0 cwffu
+      have hMEAS4 := TrExprS.weakLam0 cwffu hMEAS3 hMEASc
+      have hPACK4 := TrExprS.weakLam0 cwffu hPACK3 hPACKc
+      have hGO4 := TrExprS.weakLam0 cwffu hGO3 hGOc
+      refine M.WF.withCheckedLocalDecl (by
+        simp only [Lean.mkApp2, Lean.mkApp, FVarsIn]
+        repeat' apply And.intro
+        all_goals first
+          | exact hMEAS4.fvarsIn | exact hPACK4.fvarsIn
+          | exact hfv4.fvarsIn | exact hnv4.fvarsIn | exact hmv4.fvarsIn | exact hfuv4.fvarsIn
+          | simp [FVarsIn, Lean.Level.hasMVar'] | trivial) ?_
+      intro tyh idh cwfh s5 _ htyh _
+      obtain ⟨XA, FUA, rfl, mh1, mh2⟩ := trExprS_natLEApp_inv' htyh
+      obtain ⟨_, _, rfl, k1, k2⟩ := trExprS_app_inv' mh1
+      cases trExprS_const_nil_inv' k1
+      obtain ⟨_, _, rfl, k3, k4⟩ := trExprS_app_inv' k2
+      cases TrExprS.unique hu.measU k3 hMEAS4
+      obtain ⟨_, _, rfl, k5, k6⟩ := trExprS_app_inv' k4
+      obtain ⟨_, _, rfl, k7, k8⟩ := trExprS_app_inv' k5
+      obtain ⟨_, _, rfl, k9, k10⟩ := trExprS_app_inv' k7
+      cases TrExprS.unique hu.packU k9 hPACK4
+      cases trExprS_fvar_uniq k10 hfv4
+      cases trExprS_fvar_uniq k8 hnv4
+      cases trExprS_fvar_uniq k6 hmv4
+      cases trExprS_succFvar_inv' hfuv4 mh2
+      have hfv5 := TrExprS.weakLift0 cwfh hfv4
+      have hnv5 := TrExprS.weakLift0 cwfh hnv4
+      have hmv5 := TrExprS.weakLift0 cwfh hmv4
+      have hfuv5 := TrExprS.weakLift0 cwfh hfuv4
+      have hhv5 := trExprS_lastFVar0 cwfh
+      have hMEAS5 := TrExprS.weakLam0 cwfh hMEAS4 hMEASc
+      have hPACK5 := TrExprS.weakLam0 cwfh hPACK4 hPACKc
+      have hGO5 := TrExprS.weakLam0 cwfh hGO4 hGOc
+      have hPB5 := TrExprS.weakLam0 cwfh (TrExprS.weakLam0 cwffu hPB3 hPBc) hPBc
+      have hDB5 := TrExprS.weakLam0 cwfh (TrExprS.weakLam0 cwffu hDB3 hDBc) hDBc
+      have hfty5 := HasType.weakLift0 cwfh (HasType.weakLift0 cwffu hfty)
+      have hnty5 := HasType.weakLift0 cwfh (HasType.weakLift0 cwffu hnty)
+      have hmty5 := HasType.weakLift0 cwfh (HasType.weakLift0 cwffu hmty)
+      have hfuty5 := HasType.weakLift0 cwfh (hasType_lastFVar0 cwffu trivial)
+      have hPACKty5 := HasType.weakLam0 cwfh (HasType.weakLam0 cwffu
+        (HasType.weakLam0 cwfm (HasType.weakLam0 cwfn
+          (HasType.weakLam0 cwff hPACKty hPACKc hPTYc) hPACKc hPTYc) hPACKc hPTYc)
+        hPACKc hPTYc) hPACKc hPTYc
+      have hGOty5 := HasType.weakLam0 cwfh (HasType.weakLam0 cwffu
+        (HasType.weakLam0 cwfm (HasType.weakLam0 cwfn
+          (HasType.weakLam0 cwff hGOty hGOc hGOTYc) hGOc hGOTYc) hGOc hGOTYc)
+        hGOc hGOTYc) hGOc hGOTYc
+      obtain ⟨hpk5, hpkty5⟩ := trExprS_packApp3 hPACK5 hPACKty5 hAc hfv5 hfty5
+        hnv5 hnty5 hmv5 hmty5
+      have hsf5 := trExprS_succ hfuv5 hfuty5 hprim hnat
+      have hgoapp := trExprS_appD hGO5 hGOty5 hfv5 hfty5
+      have hhty5 := hasType_lastFVar (cwf := cwfh)
+      simp only [VExpr.natLEApp, VExpr.natLE, VExpr.lift, VExpr.liftN, Lean4Lean.liftVar,
+        hMEASc.liftN_eq (Nat.zero_le _), hPACKc.liftN_eq (Nat.zero_le _)] at hhty5
+      have hlhsGo := trExprS_goAppWF hgoapp.1
+        (hasType_goApply hAc hMEASc hGOty5 hfty5) hAc hMEASc
+        hsf5.1 hsf5.2 hpk5 hpkty5 hhv5 hhty5
+      refine M.WF.bind (checkedIsDefEq.WFr hlhsGo
+        (by
+          simp only [Lean4Lean.Environment.Condition.dite, Lean4Lean.Environment.Condition.ite,
+            Lean4Lean.Environment.Condition.decide, Lean4Lean.Environment.Condition.natEq,
+            Lean4Lean.Environment.Condition.bool, Lean.Expr.lam0, Lean.mkApp5, Lean.mkApp4,
+            Lean.mkApp3, Lean.mkApp2, Lean.mkApp, Lean.mkAppN, FVarsIn]
+          repeat' apply And.intro
+          all_goals first
+            | exact hu.goFV.mono nofun | exact hu.packFV.mono nofun
+            | exact hfv5.fvarsIn | exact hnv5.fvarsIn | exact hmv5.fvarsIn
+            | exact hfuv5.fvarsIn | exact hhv5.fvarsIn
+            | simp [FVarsIn, Lean.Level.hasMVar'] | trivial))
+        fun r3 _ _ hh3 => ?_
+      obtain ⟨R3, hR3, hd3⟩ := hh3
+      split
+      case isFalse => exact .throw
+      rename_i hr3
+      have hgoeq0 := hd3 (by simpa using hr3)
+      obtain ⟨EA, KA, rfl⟩ := trExprS_bitwiseGo_inv' henv0.ordered hGO5 hu.goU hgoB hGOc
+        hPACK5 hu.packU hpkB hPACKc hPB5 hPBc hDB5 hDBc
+        (by repeat' first | exact trivial | refine ⟨?_, ?_⟩)
+        hfv5 hnv5 hmv5 hfuv5 hR3
+      refine .pure fun env' hle henv' F₀ g hf a b => ?_
+      exact VEnv.reflects_bitwise_of_equations henv' (hlit.mono hle)
+        ((hprim.natSucc_hasType hnat).mono hle)
+        (fun a b => ((hprim.natBEq hbeq) a b).mono hle)
+        (fun a b => ((hprim.natAdd haddP) a b).mono hle)
+        (fun a b => ((hprim.natDiv hdivP) a b).mono hle)
+        (fun a b => ((hprim.natMod hmodP) a b).mono hle)
+        hFc hGOc hPACKc hMEASc hAc
+        (by repeat' first | exact trivial | refine ⟨?_, ?_⟩)
+        (by repeat' first | exact trivial | refine ⟨?_, ?_⟩)
+        (by repeat' first | exact trivial | refine ⟨?_, ?_⟩)
+        (by repeat' first | exact trivial | refine ⟨?_, ?_⟩)
+        hPBc hDBc (hGOty.mono hle) hf
+        (hRCN env' hle henv') (hRCB env' hle henv') (hB1 env' hle henv') (hRD env' hle henv')
+        (hmeas.mono hle) (hent0.mono hle) (hgoeq0.mono hle) a b
+    · refine .pure ⟨fun _ => (by simpa using hsafe), fun _ => rfl, ?_⟩
+      intro _ sf venv env'' ci' hle hwf' hprim2 htr hci hadd
+      refine preserves_glue (nm := ``Nat.bitwise) (F := F) hname rfl rfl (by decide) hF ?_
+        hle hwf' hprim2 htr hci hadd
+      intro venv' env₂ hle' hle₂ henv₂ hprim3 hdefF
+      exact VEnv.primField_Nat_bitwise.2 (reflectsNatBitwise_of_open henv₂ hdefF
+        (fun env' hle3 henv' F₀ g hf a b =>
+          hbw env' ((hle'.trans hle₂).trans hle3) henv' F₀ g hf a b))
   · rename_i hname; subst hname; simp at hrest -- ``Nat.land
   · rename_i hname; subst hname; simp at hrest -- ``Nat.lor
   · rename_i hname; subst hname; simp at hrest -- ``Nat.xor

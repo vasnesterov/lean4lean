@@ -128,14 +128,9 @@ theorem find?_same {Δ₁ Δ₂ : VLCtx} (h : DefEqVLam env U Δ₁ Δ₂) {v e 
 
 end VLCtx.DefEqVLam
 
-/-- `VEnv.HasArgs` transports across a definitionally equal context, argument by argument.
-Absent upstream because `TrExprS.defeqDFC` never needed it — it re-derives the `proj` case's
-spine instead of transporting the one it was given. -/
-theorem VEnv.HasArgs.defeqDFC {env : VEnv} {U : Nat} {Γ₀ Γ₁ Γ₂ : List VExpr}
-    (henv : VEnv.Ordered env) (h1 : VEnv.IsDefEqCtx env U Γ₀ Γ₁ Γ₂) :
-    ∀ {As as : List VExpr}, env.HasArgs U Γ₁ As as → env.HasArgs U Γ₂ As as
-  | _, _, .nil => .nil
-  | _, _, .cons ha h => .cons (ha.defeqDFC henv h1) (h.defeqDFC henv h1)
+-- (`VEnv.HasArgs.defeqDFC` was declared here too; it now lives beside `HasArgs` in
+-- `Theory/Inductive/Decl.lean`. Two copies made this module and `Theory/Typing/PatternRules.lean`
+-- un-importable together, which broke both measurement scripts.)
 
 /-- **`TrProj`, with the target preserved.**  This is the case that makes the whole file
 possible: `projTerm`'s value is a function of `D`, `T`, `C`, `us`, `ps`, `ιs`, `i` and `e`, and

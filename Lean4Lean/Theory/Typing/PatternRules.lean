@@ -1258,16 +1258,12 @@ theorem VEnv.HasArgs.hasType_of_mem {env : VEnv} {U : Nat} {Γ : List VExpr} :
     · exact ⟨_, h1⟩
     · exact h2.hasType_of_mem a ha
 
-/-- `HasArgs` across a definitionally equal context.  Pure bookkeeping — it is `HasType`
-entrywise — but without it the F3 transport (`C.params` against `D.params`) cannot be done on
-a spine, only on a single application as `ctorApp'_hasType` does it. -/
-theorem VEnv.HasArgs.defeqDFC {env : VEnv} {U : Nat} {Γ₀ Γ₁ Γ₂ : List VExpr}
-    (henv : env.Ordered) (W : VEnv.IsDefEqCtx env U Γ₀ Γ₁ Γ₂) :
-    ∀ {As as : List VExpr}, env.HasArgs U Γ₁ As as → env.HasArgs U Γ₂ As as
-  | _, _, .nil => .nil
-  | _, _, .cons h1 h2 => .cons (h1.defeqDFC henv W) (h2.defeqDFC henv W)
+/-! ### The ι-rule's shape after level instantiation
 
-/-! ### The ι-rule's shape after level instantiation -/
+(`VEnv.HasArgs.defeqDFC` — `HasArgs` across a definitionally equal context, pure bookkeeping
+but needed so the F3 transport can be done on a *spine* — now lives beside `HasArgs` itself in
+`Theory/Inductive/Decl.lean`; it was declared here and in `Verify/Typing/DefEqCtx.lean` at
+once, which made those two modules un-importable together.) -/
 
 /-- The ι-rule's left-hand side after level instantiation: a recursor spine whose last
 argument is a constructor spine — exactly `matches_iota_paths`' shape. -/

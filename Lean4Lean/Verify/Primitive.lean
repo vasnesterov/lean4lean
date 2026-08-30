@@ -787,6 +787,24 @@ def ReflectsCondApp (env : VEnv) (F P D : VExpr) (g : Nat → Nat → Bool) : Pr
         (.app (.app D (.natLit a)) (.natLit b)) t e)
       (bif g a b then t else e)
 
+/-- **`ReflectsCondApp` at every well-formed extension.**
+
+`ReflectsCondApp`'s premise `VExpr.WF env 0 [] (condApp …)` is in **negative** position, so the
+predicate is *not* monotone: an extension's conditional application need not be well-typed in
+the smaller environment.  `Nat.bitwise` is the one branch that needs it at a later environment
+-- its `VEnv.ReflectsNatBitwise` field is relativized to an arbitrary extension, and the
+combinator `f` its conditionals scrutinise lives only there.
+
+The repair is not to weaken the predicate but to keep the *ingredients* -- which are all
+`IsDefEqU`s and `HasType`s, and so all monotone -- and re-assemble at the extension.  That is
+what `VEnv.reflects_condApp_all_of_checkITE` does; this is the resulting statement. -/
+def ReflectsCondAppAll (env : VEnv) (F P D : VExpr) (g : Nat → Nat → Bool) : Prop :=
+  ∀ env', env ≤ env' → env'.WF → env'.ReflectsCondApp F P D g
+
+theorem ReflectsCondAppAll.self {F P D : VExpr} {g : Nat → Nat → Bool}
+    (h : env.ReflectsCondAppAll F P D g) (henv : env.WF) : env.ReflectsCondApp F P D g :=
+  h env VEnv.LE.rfl henv
+
 /-- **The `Condition` reflection lemma.**
 
 Every hypothesis is the abstract reading of one comparison `Condition.check` /
@@ -922,6 +940,15 @@ def ReflectsCondAppD (env : VEnv) (F P D OT OF PR : VExpr) (g : Nat → Nat → 
             (.app (.app PR (.natLit a)) (.natLit b)))
         else .app e (.app (.app OF (.app (.app P (.natLit a)) (.natLit b)))
             (.app (.app PR (.natLit a)) (.natLit b))))
+
+/-- **The `dite` rule at every well-formed extension.** -/
+def ReflectsCondAppDAll (env : VEnv) (F P D OT OF PR : VExpr) (g : Nat → Nat → Bool) : Prop :=
+  ∀ env', env ≤ env' → env'.WF → env'.ReflectsCondAppD F P D OT OF PR g
+
+theorem ReflectsCondAppDAll.self {F P D OT OF PR : VExpr} {g : Nat → Nat → Bool}
+    (h : env.ReflectsCondAppDAll F P D OT OF PR g) (henv : env.WF) :
+    env.ReflectsCondAppD F P D OT OF PR g :=
+  h env VEnv.LE.rfl henv
 
 /-- **`reflects_condApp` for `dite`.**  Same two congruence steps -- replace the instance by the
 `toDec` application `Condition.check`'s `isDefEq e cond.dec` proves it equal to, then replace
@@ -1258,6 +1285,14 @@ def ReflectsCondApp1 (env : VEnv) (F P D : VExpr) : Prop :=
     VExpr.WF env 0 [] (VExpr.condApp F (P.app (.boolLit v)) (D.app (.boolLit v)) t e) →
     env.IsDefEqU 0 [] (VExpr.condApp F (P.app (.boolLit v)) (D.app (.boolLit v)) t e)
       (bif v then t else e)
+
+/-- **The `Condition.check`'s `.bool` arm at every well-formed extension.** -/
+def ReflectsCondApp1All (env : VEnv) (F P D : VExpr) : Prop :=
+  ∀ env', env ≤ env' → env'.WF → env'.ReflectsCondApp1 F P D
+
+theorem ReflectsCondApp1All.self {F P D : VExpr}
+    (h : env.ReflectsCondApp1All F P D) (henv : env.WF) : env.ReflectsCondApp1 F P D :=
+  h env VEnv.LE.rfl henv
 
 /-- `ReflectsCondApp1` at a scrutinee that merely reflects a boolean literal. -/
 theorem ReflectsCondApp1.ofDefeq (henv : env.WF) {F P D : VExpr}
@@ -3002,6 +3037,31 @@ theorem reflects_condApp_of_checkITE (henv : env.WF) {F P D TD B PR RT Aα : VEx
     env.ReflectsCondApp F P D g :=
   reflects_condApp henv hA0 hF hdec hB hPR (hsel_of_checkITE henv hFc hTDc hRTc hA0 hite)
 
+/-- **The same, at every well-formed extension.**  Every input is an `IsDefEqU`, a `HasType` or
+a closedness fact, and all three are monotone; only the assembled `ReflectsCondApp` is not.  See
+`VEnv.ReflectsCondAppAll`. -/
+theorem reflects_condApp_all_of_checkITE {F P D TD B PR RT Aα : VExpr}
+    {g : Nat → Nat → Bool}
+    (hFc : F.ClosedN 0) (hTDc : TD.ClosedN 0) (hRTc : RT.ClosedN 0) (hA0 : Aα.ClosedN 0)
+    (hF : env.HasType 0 [] F (.forallE (.sort .zero)
+      (.forallE (.app (.const ``Decidable []) (.bvar 0)) (.forallE Aα (.forallE Aα Aα)))))
+    (hdec : ∀ a b : Nat, env.IsDefEqU 0 [] (.app (.app D (.natLit a)) (.natLit b))
+      (.app (.app (.app TD (.app (.app P (.natLit a)) (.natLit b)))
+        (.app (.app B (.natLit a)) (.natLit b))) (.app (.app PR (.natLit a)) (.natLit b))))
+    (hB : ∀ a b : Nat, env.IsDefEqU 0 [] (.app (.app B (.natLit a)) (.natLit b))
+      (.boolLit (g a b)))
+    (hPR : ∀ a b : Nat, env.HasType 0 [] (.app (.app PR (.natLit a)) (.natLit b))
+      (.app (.app RT (.app (.app P (.natLit a)) (.natLit b))) (.boolLit (g a b))))
+    (hite : ∀ v : Bool, env.IsDefEqU 0
+      [Aα, Aα, .app (.app RT (.bvar 0)) (.boolLit v), .sort .zero]
+      (VExpr.condApp F (.bvar 3)
+        (.app (.app (.app TD (.bvar 3)) (.boolLit v)) (.bvar 2)) (.bvar 1) (.bvar 0))
+      (bif v then .bvar 1 else .bvar 0)) :
+    env.ReflectsCondAppAll F P D g := fun _ hle henv' =>
+  reflects_condApp_of_checkITE henv' hFc hTDc hRTc hA0 (hF.mono hle)
+    (fun a b => (hdec a b).mono hle) (fun a b => (hB a b).mono hle)
+    (fun a b => (hPR a b).mono hle) (fun v => (hite v).mono hle)
+
 end VEnv
 
 /-! ### Non-vacuity: the hypotheses `Reflection.checkITE.WF` leaves to its caller
@@ -3406,6 +3466,34 @@ theorem reflects_condAppD_of_checkNatDITE (henv : env.WF) {FD P D TD B PR RT OT 
   reflects_condAppD henv hdec hB hPR
     (hsel_of_checkNatDITE henv hFc hTDc hRTc hOTc hOFc hFD hdite)
 
+/-- **The same, at every well-formed extension.**  See `VEnv.ReflectsCondAppAll`. -/
+theorem reflects_condAppD_all_of_checkNatDITE {FD P D TD B PR RT OT OF : VExpr}
+    {g : Nat → Nat → Bool}
+    (hFc : FD.ClosedN 0) (hTDc : TD.ClosedN 0) (hRTc : RT.ClosedN 0)
+    (hOTc : OT.ClosedN 0) (hOFc : OF.ClosedN 0)
+    (hFD : env.HasType 0 [] FD (.forallE (.sort .zero)
+      (.forallE (.app (.const ``Decidable []) (.bvar 0))
+        (.forallE (.forallE (.bvar 1) .nat)
+          (.forallE (.forallE (.app (.const ``Not []) (.bvar 2)) .nat) .nat)))))
+    (hdec : ∀ a b : Nat, env.IsDefEqU 0 [] (.app (.app D (.natLit a)) (.natLit b))
+      (.app (.app (.app TD (.app (.app P (.natLit a)) (.natLit b)))
+        (.app (.app B (.natLit a)) (.natLit b))) (.app (.app PR (.natLit a)) (.natLit b))))
+    (hB : ∀ a b : Nat, env.IsDefEqU 0 [] (.app (.app B (.natLit a)) (.natLit b))
+      (.boolLit (g a b)))
+    (hPR : ∀ a b : Nat, env.HasType 0 [] (.app (.app PR (.natLit a)) (.natLit b))
+      (.app (.app RT (.app (.app P (.natLit a)) (.natLit b))) (.boolLit (g a b))))
+    (hdite : ∀ v : Bool, env.IsDefEqU 0
+      [.forallE (.app (.const ``Not []) (.bvar 2)) .nat, .forallE (.bvar 1) .nat,
+        .app (.app RT (.bvar 0)) (.boolLit v), .sort .zero]
+      (VExpr.condApp FD (.bvar 3)
+        (.app (.app (.app TD (.bvar 3)) (.boolLit v)) (.bvar 2)) (.bvar 1) (.bvar 0))
+      (bif v then .app (.bvar 1) (.app (.app OT (.bvar 3)) (.bvar 2))
+        else .app (.bvar 0) (.app (.app OF (.bvar 3)) (.bvar 2)))) :
+    env.ReflectsCondAppDAll FD P D OT OF PR g := fun _ hle henv' =>
+  reflects_condAppD_of_checkNatDITE henv' hFc hTDc hRTc hOTc hOFc (hFD.mono hle)
+    (fun a b => (hdec a b).mono hle) (fun a b => (hB a b).mono hle)
+    (fun a b => (hPR a b).mono hle) (fun v => (hdite v).mono hle)
+
 end VEnv
 
 /-! ### `Condition.check`'s decision term
@@ -3570,11 +3658,11 @@ theorem Condition.check.WF {s : VState} {cond : Lean4Lean.Environment.Condition}
       ∃ P D, c.TrExprS cond.prop P ∧ c.TrExprS cond.dec D ∧ P.ClosedN 0 ∧ D.ClosedN 0 ∧
         (∀ α ∈ iteTypes, ∃ Aα F, c.TrExprS α Aα ∧ Aα.ClosedN 0 ∧
           c.TrExprS (Lean.mkApp (.const ``ite [.succ .zero]) α) F ∧ F.ClosedN 0 ∧
-          c.venv.ReflectsCondApp F P D g) ∧
+          c.venv.ReflectsCondAppAll F P D g) ∧
         (dite = true → ∃ FD OT OF PR,
           c.TrExprS (Lean.mkApp (.const ``dite [.succ .zero]) (.const ``Nat [])) FD ∧
           c.TrExprS r.ofTrue OT ∧ c.TrExprS r.ofFalse OF ∧ c.TrExprS proof PR ∧
-          c.venv.ReflectsCondAppD FD P D OT OF PR g) := by
+          c.venv.ReflectsCondAppDAll FD P D OT OF PR g) := by
   unfold Lean4Lean.Environment.Condition.check
   simp only []
   refine M.WF.bind (checkType.WF hdecfv) fun _ _ _ hD => ?_
@@ -3691,17 +3779,17 @@ theorem Condition.check.WF {s : VState} {cond : Lean4Lean.Environment.Condition}
   subst hpre
   have hites : ∀ α ∈ iteTypes, ∃ Aα F, c.TrExprS α Aα ∧ Aα.ClosedN 0 ∧
       c.TrExprS (Lean.mkApp (.const ``ite [.succ .zero]) α) F ∧ F.ClosedN 0 ∧
-      c.venv.ReflectsCondApp F P D g := by
+      c.venv.ReflectsCondAppAll F P D g := by
     intro α hα
     obtain ⟨Aα, F, hAα, hAc, hFc, hF, hFty, hsel⟩ := hloop' α hα
     exact ⟨Aα, F, hAα, hAc, hF, hFc,
-      VEnv.reflects_condApp_of_checkITE c.Ewf hFc hTDc hRTc hAc (raw hFty) hdec hBg hPRfact hsel⟩
+      VEnv.reflects_condApp_all_of_checkITE hFc hTDc hRTc hAc (raw hFty) hdec hBg hPRfact hsel⟩
   split
   · refine (Reflection.checkNatDITE.WF hfail hnil hlp hRT hrtyu hRTty
       hTD htdu hTDty hoTfv hoTu hoFfv hoFu).mono fun _ _ _ hnd => ?_
     obtain ⟨FD, OT, OF, hFDc, hOTc, hOFc, hFD, hOT, hOF, hFDty, hditeeq⟩ := hnd
     exact ⟨P, D, hP, hD, hPc, hDc, hites, fun _ => ⟨FD, OT, OF, PR, hFD, hOT, hOF, hPR,
-      VEnv.reflects_condAppD_of_checkNatDITE c.Ewf hFDc hTDc hRTc hOTc hOFc (raw hFDty)
+      VEnv.reflects_condAppD_all_of_checkNatDITE hFDc hTDc hRTc hOTc hOFc (raw hFDty)
         hdec hBg hPRfact hditeeq⟩⟩
   · rename_i hd
     exact .pure ⟨P, D, hP, hD, hPc, hDc, hites, fun h => absurd h hd⟩
@@ -3724,12 +3812,12 @@ theorem Condition.check.WF_natLE {s : VState} {fail : ∀ {α}, TypeChecker.M α
         P.ClosedN 0 ∧ D.ClosedN 0 ∧
         (∀ α ∈ iteTypes, ∃ Aα F, c.TrExprS α Aα ∧ Aα.ClosedN 0 ∧
           c.TrExprS (Lean.mkApp (.const ``ite [.succ .zero]) α) F ∧ F.ClosedN 0 ∧
-          c.venv.ReflectsCondApp F P D Nat.ble) ∧
+          c.venv.ReflectsCondAppAll F P D Nat.ble) ∧
         (dite = true → ∃ FD OT OF PR,
           c.TrExprS (Lean.mkApp (.const ``dite [.succ .zero]) (.const ``Nat [])) FD ∧
           c.TrExprS Reflection.defn₁.ofTrue OT ∧
           c.TrExprS Reflection.defn₁.ofFalse OF ∧
-          c.venv.ReflectsCondAppD FD P D OT OF PR Nat.ble) := by
+          c.venv.ReflectsCondAppDAll FD P D OT OF PR Nat.ble) := by
   refine (Condition.check.WF (c := c) (s := s) (cond := Condition.natLE)
     (iteTypes := iteTypes) (dite := dite) (g := Nat.ble) (himpl := rfl)
     (hfail := hfail) (hnil := hnil) (hlp := hlp) (hnat := hnat) (hnatty := hnatty)
@@ -3777,12 +3865,12 @@ theorem Condition.check.WF_natEq {s : VState} {fail : ∀ {α}, TypeChecker.M α
         P.ClosedN 0 ∧ D.ClosedN 0 ∧
         (∀ α ∈ iteTypes, ∃ Aα F, c.TrExprS α Aα ∧ Aα.ClosedN 0 ∧
           c.TrExprS (Lean.mkApp (.const ``ite [.succ .zero]) α) F ∧ F.ClosedN 0 ∧
-          c.venv.ReflectsCondApp F P D Nat.beq) ∧
+          c.venv.ReflectsCondAppAll F P D Nat.beq) ∧
         (dite = true → ∃ FD OT OF PR,
           c.TrExprS (Lean.mkApp (.const ``dite [.succ .zero]) (.const ``Nat [])) FD ∧
           c.TrExprS Reflection.defn₂.ofTrue OT ∧
           c.TrExprS Reflection.defn₂.ofFalse OF ∧
-          c.venv.ReflectsCondAppD FD P D OT OF PR Nat.beq) := by
+          c.venv.ReflectsCondAppDAll FD P D OT OF PR Nat.beq) := by
   refine (Condition.check.WF (c := c) (s := s) (cond := Condition.natEq)
     (iteTypes := iteTypes) (dite := dite) (g := Nat.beq) (himpl := rfl)
     (hfail := hfail) (hnil := hnil) (hlp := hlp) (hnat := hnat) (hnatty := hnatty)
@@ -3838,11 +3926,11 @@ theorem Condition.check.WF_natLE_pinned {s : VState} {fail : ∀ {α}, TypeCheck
     M.WF c s (Condition.natLE.check fail iteTypes dite) fun _ _ =>
       (∀ α ∈ iteTypes, ∃ Aα F, c.TrExprS α Aα ∧ Aα.ClosedN 0 ∧
         c.TrExprS (Lean.mkApp (.const ``ite [.succ .zero]) α) F ∧ F.ClosedN 0 ∧
-        c.venv.ReflectsCondApp F .natLE (.const ``Nat.decLe []) Nat.ble) ∧
+        c.venv.ReflectsCondAppAll F .natLE (.const ``Nat.decLe []) Nat.ble) ∧
       (dite = true → ∃ FD OT OF PR,
         c.TrExprS (Lean.mkApp (.const ``dite [.succ .zero]) (.const ``Nat [])) FD ∧
         c.TrExprS Reflection.defn₁.ofTrue OT ∧ c.TrExprS Reflection.defn₁.ofFalse OF ∧
-        c.venv.ReflectsCondAppD FD .natLE (.const ``Nat.decLe []) OT OF PR Nat.ble) := by
+        c.venv.ReflectsCondAppDAll FD .natLE (.const ``Nat.decLe []) OT OF PR Nat.ble) := by
   refine (Condition.check.WF_natLE hfail hnil hlp hnat hnatty
     (contains_primConst hsafe hbleE primitives_natBLE) hitefv).mono fun _ _ _ h => ?_
   obtain ⟨P, D, hP, hD, -, -, hite, hdite⟩ := h
@@ -3891,6 +3979,18 @@ theorem reflectsCondApp1_of_checkBoolITE (henv : env.WF) {F P D Aα : VExpr}
   cases v <;>
     simpa [VExpr.condApp, VExpr.inst, VExpr.lift, VExpr.liftN, Lean4Lean.liftVar,
       eF, eP, eD, et, ee, lt, le'] using key
+
+/-- **The same, at every well-formed extension.**  See `VEnv.ReflectsCondAppAll`. -/
+theorem reflectsCondApp1_all_of_checkBoolITE {F P D Aα : VExpr}
+    (hFc : F.ClosedN 0) (hPc : P.ClosedN 0) (hDc : D.ClosedN 0) (hA0 : Aα.ClosedN 0)
+    {Dc : VExpr}
+    (hF : env.HasType 0 [] F (.forallE (.sort .zero) (.forallE Dc (.forallE Aα (.forallE Aα Aα)))))
+    (h : ∀ v : Bool, env.IsDefEqU 0 [Aα, Aα]
+      (VExpr.condApp F (.app P (.boolLit v)) (.app D (.boolLit v)) (.bvar 1) (.bvar 0))
+      (bif v then .bvar 1 else .bvar 0)) :
+    env.ReflectsCondApp1All F P D := fun _ hle henv' =>
+  reflectsCondApp1_of_checkBoolITE henv' hFc hPc hDc hA0 (hF.mono hle)
+    (fun v => (h v).mono hle)
 
 end VEnv
 
@@ -3980,7 +4080,7 @@ theorem Condition.check.WF_bool {s : VState} {cond : Lean4Lean.Environment.Condi
       ∃ P D, c.TrExprS cond.prop P ∧ c.TrExprS cond.dec D ∧ P.ClosedN 0 ∧ D.ClosedN 0 ∧
         ∀ α ∈ iteTypes, ∃ Aα F, c.TrExprS α Aα ∧ Aα.ClosedN 0 ∧
           c.TrExprS (Lean.mkApp (.const ``ite [.succ .zero]) α) F ∧ F.ClosedN 0 ∧
-          c.venv.ReflectsCondApp1 F P D := by
+          c.venv.ReflectsCondApp1All F P D := by
   have hctx : c.vlctx.toCtx = [] := by rw [hnil]; rfl
   have hUs : c.lparams.length = 0 := by rw [hlp]; rfl
   have raw : ∀ {e A : VExpr}, c.HasType e A → c.venv.HasType 0 [] e A := by
@@ -4001,7 +4101,7 @@ theorem Condition.check.WF_bool {s : VState} {cond : Lean4Lean.Environment.Condi
     (Inv := fun (vs : List Lean.Expr) (_ : PUnit) (_ : VState) => ∃ pre, iteTypes = pre ++ vs ∧
       ∀ α ∈ pre, ∃ Aα F, c.TrExprS α Aα ∧ Aα.ClosedN 0 ∧
         c.TrExprS (Lean.mkApp (.const ``ite [.succ .zero]) α) F ∧ F.ClosedN 0 ∧
-        c.venv.ReflectsCondApp1 F P D)
+        c.venv.ReflectsCondApp1All F P D)
     (fun α vs _ _ hinv => ?_) ⟨[], rfl, by simp⟩) fun _ _ _ hloop => ?_
   · obtain ⟨pre, hpre, hall⟩ := hinv
     obtain ⟨hαfv, hαu, hαb⟩ := hitefv α (by rw [hpre]; simp)
@@ -4031,7 +4131,7 @@ theorem Condition.check.WF_bool {s : VState} {cond : Lean4Lean.Environment.Condi
       have hFty' : c.venv.HasType 0 [] F (.forallE (.sort .zero)
           (.forallE (.app (.const ``Decidable []) (.bvar 0))
             (.forallE Aα (.forallE Aα Aα)))) := raw hFty
-      exact ⟨Aα, F, hAα, hAc, hF, hFc, VEnv.reflectsCondApp1_of_checkBoolITE c.Ewf hFc hPc hDc
+      exact ⟨Aα, F, hAα, hAc, hF, hFc, VEnv.reflectsCondApp1_all_of_checkBoolITE hFc hPc hDc
         hAc hFty' fun v => by cases v; exacts [hfalse, htrue]⟩
   obtain ⟨pre, hpre, hloop'⟩ := hloop
   rw [List.append_nil] at hpre
@@ -4057,7 +4157,7 @@ theorem Condition.check.WF_boolCond {s : VState} {fail : ∀ {α}, TypeChecker.M
         P.ClosedN 0 ∧ D.ClosedN 0 ∧
         ∀ α ∈ iteTypes, ∃ Aα F, c.TrExprS α Aα ∧ Aα.ClosedN 0 ∧
           c.TrExprS (Lean.mkApp (.const ``ite [.succ .zero]) α) F ∧ F.ClosedN 0 ∧
-          c.venv.ReflectsCondApp1 F P D :=
+          c.venv.ReflectsCondApp1All F P D :=
   Condition.check.WF_bool (cond := Condition.bool) hfail hnil hlp rfl
     (by simp [Condition.bool, FVarsIn]) (by simp [Condition.bool, TrExprS.IsUnique])
     (by simp [Condition.bool, FVarsIn, Lean.Level.hasMVar'])

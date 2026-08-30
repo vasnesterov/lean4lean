@@ -252,6 +252,21 @@ inductive VEnv.HasArgs (env : VEnv) (U : Nat) (Γ : List VExpr) : List VExpr →
     env.HasType U Γ a A → HasArgs env U Γ (VExpr.instTele a As) as →
     HasArgs env U Γ (A :: As) (a :: as)
 
+/-- Move a `HasArgs` derivation along a definitional context conversion.
+
+**Single home.** This was declared independently in `Theory/Typing/PatternRules.lean` and in
+`Verify/Typing/DefEqCtx.lean` with byte-identical statements, which made those two modules
+**un-importable together** — invisible to `lake build`, because nothing imported both, and it
+broke `scripts/sorry-census.lean` and `scripts/dup-names.lean` outright when `Experimental/
+ConeJoin.lean` finally pulled in both. Fourth occurrence of that class in one session. It lives
+here, beside `HasArgs` itself, which every consumer already imports. -/
+theorem VEnv.HasArgs.defeqDFC {env : VEnv} {U : Nat} {Γ₀ Γ₁ Γ₂ : List VExpr}
+    (henv : env.Ordered) (W : VEnv.IsDefEqCtx env U Γ₀ Γ₁ Γ₂) :
+    ∀ {As as : List VExpr}, env.HasArgs U Γ₁ As as → env.HasArgs U Γ₂ As as
+  | _, _, .nil => .nil
+  | _, _, .cons h1 h2 => .cons (h1.defeqDFC henv W) (h2.defeqDFC henv W)
+
+
 /-- `IsDefEqU` refined to say the two sides are equal **as types**.
 
 Stronger than `IsDefEqU`, and it is what the refinement naturally produces: the kernel
