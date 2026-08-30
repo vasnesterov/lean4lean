@@ -717,10 +717,18 @@ The two easy consequences:
 
 ### 6.3 Structure eta — the one genuinely missing rule
 
+**Status: written.**  `Theory/Inductive/StructureEta.lean` carries the rule as
+`VEnv.StructEta`, together with `VInductDecl'.etaExpansion` (its right-hand side) and the
+two consequences the checker needs, `StructEta.unitLike` and `StructEta.congrSpine`.
+`StructureExamples.lean` checks `etaExpansion` against Lean's own elaborator at `Prod`,
+`Sigma`, `And` and `Subtype` — all two-field, two of them with a dependent second field.
+Read that file, not this section, for the current statement; what follows is the design
+rationale and the **two corrections** the original text needed.
+
 `toCtorWhenStruct`/`tryEtaStructCore`/`isDefEqUnitLike` all rest on
 
   `e ≡ mk p (proj 0 e) … (proj (n-1) e)`   for `e : S p`, `S` a non-recursive
-  single-constructor type with `isNeverZero` sort.
+  single-constructor type with no indices.
 
 This is surjective pairing. It is **not** derivable from ι, and it **cannot** be a
 `VDefEq`: the equation's left-hand side is a variable, so no `Pattern` (which only
@@ -729,38 +737,97 @@ fail. Nor can it be phrased with `mk` as the head: `Pattern.RHS` can only rebuil
 from `fixed` closed constants and matched argument paths, and `e` is not among the
 matched arguments.
 
-**Minimal change.** Add a constructor to `VEnv.IsDefEq` (in
-`Theory/Typing/Basic.lean`), parallel to the existing `eta`:
+#### Correction 1: **there is no `IsNeverZero` side condition**
+
+This section used to propose
 
 ```lean
-  | structEta {D T C} :
-    env.IsStructure S D T C →                            -- as in §6.2
-    C.recFields = [] →                                   -- non-recursive (F16)
-    T.indices = [] →                                     -- expandEtaStruct reads no indices
     (D.lvl.inst ls).IsNeverZero →                        -- F16 (L4L is stricter than C++ here)
-    Γ ⊢ e : (VExpr.const S ls).mkApp ps →
-    Γ ⊢ e ≡ (VExpr.const C.name ls).mkApp
-              (ps ++ (List.range C.fields.length).map (fun i => proj i e))
-          : (VExpr.const S ls).mkApp ps
 ```
 
-where `proj i e` is `D.projTerm C _ ps mot i e` with the motive built as in §6.2.
-Downstream this needs:
+taken from `toCtorWhenStruct`'s F16 guard.  **That condition is wrong for two of the rule's
+three call sites.**  Checked gate-for-gate against both kernels
+(`~/lean4/src/kernel/type_checker.cpp` `try_eta_struct_core` `:889`, `is_def_eq_unit_like`
+`:1159`; `Lean4Lean/TypeChecker.lean:656` and `:849`): **neither `tryEtaStructCore` nor
+`isDefEqUnitLike` tests the structure's universe at all.**  `tryEtaStructCore` tests
+`isNonRecStructure`, which is `isRec = false ∧ ctors = [_] ∧ numIndices = 0`;
+`isDefEqUnitLike` tests those plus `numFields = 0`.  Both therefore fire on `Prop`
+structures — `And`, `True` — which an `IsNeverZero` rule would not cover.
 
-* two new `NormalEq` constructors `structEtaL`/`structEtaR`, exactly mirroring
-  `etaL`/`etaR` in `ChurchRosser.lean:104–111`;
-* the `structEta` case in every induction over `IsDefEq`
-  (`Lemmas.lean` weakening/instantiation/`defeqDFC`/`levelWF`, `Strong.lean`,
-  `UniqueTyping.lean`, `ChurchRosser.lean`, and the `Verify/` consumers). Because
-  `structEta`'s conclusion has both sides typed at the *same* type, most cases are
-  one-liners (`exact he`-style), as `eta`'s are.
+Keeping the condition would not have been *unsound*; it would have made the rule useless at
+two of its three sites.  The `Prop` case is independently free
+(`VEnv.structEta_of_prop`: `IsDefEq.proofIrrel`, given that the η-expansion is well typed),
+and at the checker level it is free without even the η-expansion —
+`isDefEqUnitLike.WF_prop` (`Verify/TypeChecker/IsDefEq.lean`) relates the two inhabitants by
+`proofIrrel` directly and is **proved**.  So the split is:
 
-I flag this as the single largest *unplanned* item this design uncovers. It is
-independent of everything else here and can be done in parallel. An alternative worth
-one hour of thought before committing: give `VExpr` a `proj` constructor and make
-projection + eta primitive; that is closer to `Lean.Expr` and would make `TrProj` trivial,
-but it costs a new case in every `VExpr` recursion in `Theory/` (≈4500 lines) — almost
-certainly worse.
+| | `Prop` case | non-`Prop` case |
+|---|---|---|
+| `isDefEqUnitLike` | `proofIrrel` — proved, `isDefEqUnitLike.WF_prop` | `StructEta.unitLike` |
+| `tryEtaStructCore` | `proofIrrel`, once the loop's `TrProj`s are built | `StructEta.congrSpine` |
+
+#### Correction 2: **a side condition is needed, but it is F17, not F16**
+
+`IsDefEq` implies both sides are well typed, so a rule whose right-hand side is not well
+typed is false, not merely useless.  For a small-eliminating block (`isLE = false`) the
+projections in the η-expansion are recursor applications at elimination level
+`(C.fields.getD k _).lvl`, legal only when that level is `≈ .zero`.  `VEnv.StructEta`
+therefore carries
+
+```lean
+    D.isLE = true ∨ ∀ k, k < C.fields.length →
+      (C.fields.getD k default).lvl.inst us ≈ .zero
+```
+
+which is `TrProj`'s recorded F17 clause **minus its "unused fields are exempt" guard**: eta
+projects every field, so every field is in scope.  `Verify/Typing/ProjLevelWitness.lean`'s
+`barDecl` — a two-field `Prop` structure whose field 0 has level `.succ .zero` and is unused —
+is admissible for `TrProj` at `i = 1` and **not** admissible for structure eta, and that is
+the difference this clause encodes.
+
+#### The rule
+
+```lean
+def VEnv.StructEta (env : VEnv) : Prop :=
+  ∀ {U Γ S D T C us ps e},
+    env.IsStructure S D T C →                            -- includes C.recFields = []
+    T.indices = [] →
+    us.length = D.uvars → (∀ l ∈ us, l.WF U) → ps.length = D.np →
+    env.HasArgs U Γ (D.params.map (VExpr.instL us)) ps →
+    env.HasType U Γ e ((VExpr.const S us).mkApp ps) →
+    (D.isLE = true ∨ ∀ k, k < C.fields.length →
+      (C.fields.getD k default).lvl.inst us ≈ .zero) →
+    env.IsDefEq U Γ e (D.etaExpansion T C us ps e) ((VExpr.const S us).mkApp ps)
+```
+
+It is stated as a **property of an environment** rather than as a new `VEnv.IsDefEq`
+constructor.  The content is identical — this is exactly the constructor's statement — and
+the predicate form is what a consumer can use today, whereas adding the constructor is a
+coordinated edit across `Theory/Typing/{Basic,Lemmas,Strong,UniqueTyping,ChurchRosser}.lean`
+and `Verify/`.  When the constructor lands, `StructEta` becomes a one-line theorem rather
+than being discarded.
+
+Adding the constructor still needs, as before:
+
+* two new `NormalEq` constructors `structEtaL`/`structEtaR`, mirroring `etaL`/`etaR`
+  (`ChurchRosser.lean:104–111`);
+* a `structEta` case in every induction over `IsDefEq`.  Because the conclusion has both
+  sides at the *same* type, most cases are one-liners, as `eta`'s are.
+
+The alternative — give `VExpr` a `proj` constructor and make projection + eta primitive — is
+closer to `Lean.Expr` and would make `TrProj` trivial, but costs a new case in every `VExpr`
+recursion in `Theory/` (≈4500 lines); still judged worse.
+
+#### What the rule does *not* unblock
+
+`tryEtaStructCore.WF` needs, besides `StructEta`, an `IsStructure` for the name the *kernel*
+environment calls a structure.  `Verify/StructureBridge.lean` names that step
+(`StructureBridge`) and shows — machine-checked — that it does **not** follow from
+`AddInduct`'s intended definition either: `AddIndConsts`' shape predicates and `TrConstant`
+constrain only a constant's name, level count and type, never
+`InductiveVal.isRec`/`.ctors`/`.numIndices` or `ConstructorVal.numFields`/`.induct`, which are
+precisely the fields the eta checks read.  `IndShape`/`CtorShape` in that file are the
+strengthenings `AddInduct` needs.
 
 ---
 

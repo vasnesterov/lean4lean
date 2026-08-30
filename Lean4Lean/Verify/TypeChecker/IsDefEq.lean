@@ -1,5 +1,6 @@
 import Lean4Lean.Verify.TypeChecker.Reduce
 import Lean4Lean.Verify.EquivManager
+import Lean4Lean.Theory.Inductive.StructureEta
 
 open Lean4Lean
 
@@ -218,6 +219,118 @@ theorem tryEtaStructCore_never_true {c : VContext} {s : VState} (he₂ : c.TrExp
   cases ci <;> first
     | exact absurd hci fun hh => c.trenv.not_ctorInfo ⟨_, hc⟩ hh
     | exact .pure rfl
+
+/-- **Loop rule with `break`.**  `M.WF.forIn` (`Verify/TypeChecker.lean`) requires the body to
+`yield` on every iteration, which none of `tryEtaStructCore`'s, `isDefEqApp`'s or
+`isDefEqArgs`' loops do — they `return false` on the first failure.  This is the
+early-exit version, for `forIn'` (the body takes the membership proof, which the
+`args[i]` access needs) and in `RecM` rather than `M`.
+
+The invariant is *not* indexed by the remaining list, because a `break` skips the rest: what
+it records is the state discipline, which is what `RecM.WF` demands beyond the postcondition
+and which is what the loop obligation actually is.  Instantiate `Inv` at `fun _ _ => True`
+when the postcondition is already in hand. -/
+theorem RecM.WF.forIn'Break {c : VContext} {Inv : β → VState → Prop} :
+    ∀ {xs : List α} {f : (a : α) → a ∈ xs → β → RecM (ForInStep β)},
+    (∀ v (h : v ∈ xs) b s, Inv b s → RecM.WF c s (f v h b) fun r s' => Inv r.value s') →
+    ∀ {b : β} {s : VState}, Inv b s →
+      RecM.WF c s (forIn' xs b f) fun b' s' => Inv b' s'
+  | [], _, _, _, _, h => .pure h
+  | v :: vs, f, H, b, s, h => by
+    rw [List.forIn'_cons]
+    refine (H v (.head _) b s h).bind fun r s' _ hr => ?_
+    match r with
+    | .done b' => exact .pure hr
+    | .yield b' => exact RecM.WF.forIn'Break (fun v hv b s hb => H v (.tail _ hv) b s hb) hr
+
+/-- **The `IsStructure` bridge, at `tryEtaStructCore`'s gate**, in the form its loop consumes.
+
+`docs/handoff-eta.md` §5 recorded the residual as "supply `c.venv.IsStructure I D T C` from
+`c.env.isNonRecStructure I = true`", on the grounds that `TrProj.mk` opens with `IsStructure`.
+That is right about *why* the loop stops but **understates what it needs**: the loop's first
+argument is `.proj I (i - np) t`, whose translation is a `TrProj` (hence `IsStructure` plus the
+whole `TrProj.mk` premise list), and its *second* argument is `s.getAppArgs[i]`, whose
+translation has to be read off `he₂`'s spine.  Both are needed before `isDefEq.WF` fires, so
+the residual is two translations per iteration, not one `IsStructure`.
+
+Stating it as "the two translations exist" rather than as `IsStructure` keeps the hypothesis at
+exactly what is consumed and leaves the `TrProj` construction — `Verify/Typing/ProjWfWitness.lean`
+has a worked sorry-free example — on the supplying side.
+
+Every binder is pinned by a gate: `f` and `w` by the head equation and the lookup, and the
+`i` clause fires only under the arity and `isNonRecStructure` checks the function performs. -/
+def EtaStructBridge (c : VContext) (t s : Expr) : Prop :=
+  ∀ {f : Name} {w : ConstructorVal},
+    (∃ us, s.getAppFn = .const f us) →
+    c.env.find? f = some (.ctorInfo w) →
+    (s.getAppNumArgs == w.numParams + w.numFields) = true →
+    c.env.isNonRecStructure w.induct = true →
+    ∀ i (h : i < s.getAppArgs.size),
+      (∃ p', c.TrExprS (.proj w.induct (i - w.numParams) t) p') ∧
+      (∃ q', c.TrExprS s.getAppArgs[i] q')
+
+/-- **The `Prop` half of `tryEtaStructCore.WF`, discharged** — the counterpart of
+`isDefEqUnitLike.WF_prop`, and the theorem `docs/handoff-eta.md` §5 reported as stopping at the
+loop.
+
+It no longer stops.  The four gates split cleanly, both `inferType.WF`s and `isDefEq.WF` fire,
+`proofIrrel` yields `key : c.IsDefEqU e₁' e₂'` before the loop, and the loop itself — whose
+obligation is *state* well-formedness, not the postcondition — goes through by
+`Std.Legacy.Range.forIn'_eq_forIn'_range'` followed by `RecM.WF.forIn'Break`, with the body
+discharged from `EtaStructBridge`.
+
+**What is assumed and what is not.**  `EtaStructBridge` is the only hypothesis beyond `hprop`;
+in particular **no** structure-eta rule is used — in the `Prop` case `proofIrrel` settles the
+conclusion outright, exactly as it does for `isDefEqUnitLike`.  Like `WF_prop` there, this
+proof enters the real `.ctorInfo` arm and never mentions `AddInduct` or `TrEnv.not_ctorInfo`, so
+it survives the flip verbatim.
+
+**What remains for the full statement** is the non-`Prop` case: carry the per-iteration
+`c.IsDefEqU (proj_i e₁') args_i'` through the loop invariant instead of discarding it, assemble
+them into a `VEnv.HasArgsDF` over the constructor's field telescope, and close with
+`VEnv.StructEta.congrSpine` (`Theory/Inductive/StructureEta.lean`).  That needs the loop
+invariant to be indexed by the fields processed so far and needs `e₂'` decomposed as
+`(.const C.name us).mkApp (ps ++ args')`; neither is attempted here.
+
+**Honest note on today's satisfiability.**  `EtaStructBridge c e₁ e₂` is *currently* provable
+for every `c`, because its premise asks for a `.ctorInfo` under the head of a translated term
+and `TrEnv.not_ctorInfo` forbids that — the same wall as everything else in this corner.  So
+this theorem is instantiable today, but the instantiation is empty; what it buys is that the
+proof of the conclusion is built from `proofIrrel` and the loop rule rather than from the
+vacuity, so it keeps working when the bridge stops being free. -/
+theorem tryEtaStructCore.WF_prop {c : VContext} {s : VState}
+    (he₁ : c.TrExprS e₁ e₁') (he₂ : c.TrExprS e₂ e₂')
+    (hprop : ∀ A, c.HasType e₁' A → c.HasType A (.sort .zero))
+    (hbr : EtaStructBridge c e₁ e₂) :
+    RecM.WF c s (tryEtaStructCore e₁ e₂) fun b _ => b → c.IsDefEqU e₁' e₂' := by
+  have hget : ∀ {name}, (c.env.get name).WF fun ci => c.env.find? name = some ci := by
+    intro name; simp [Kernel.Environment.get]; split <;> [refine .pure ‹_›; exact .throw]
+  unfold tryEtaStructCore
+  split <;> [skip; exact .pure nofun]
+  rename_i f us heq
+  refine .getEnv <| (M.WF.liftExcept hget).lift.bind fun ci _ _ hci => ?_
+  split <;> [skip; exact .pure nofun]
+  rename_i fInfo hfi
+  split <;> [skip; exact .pure nofun]
+  rename_i hnum
+  split <;> [skip; exact .pure nofun]
+  rename_i hnrs
+  refine (inferType.WF he₁).bind fun _ _ _ ⟨_, _, _, ht1, hT1⟩ => ?_
+  refine (inferType.WF he₂).bind fun _ _ _ ⟨_, _, _, ht2, hT2⟩ => ?_
+  refine (isDefEq.WF ht1 ht2).bind fun b _ _ hb => ?_
+  split <;> [skip; exact .pure nofun]
+  have key : c.IsDefEqU e₁' e₂' :=
+    ⟨_, .proofIrrel (hprop _ hT1) hT1 (hT2.defeqU_r c.Ewf c.Δwf (hb ‹_›).symm)⟩
+  simp only [Std.Legacy.Range.forIn'_eq_forIn'_range']
+  refine (RecM.WF.forIn'Break (Inv := fun _ _ => True) ?_ trivial).bind fun r _ _ _ => ?_
+  · intro i hi bb ss _
+    have hlt : i < e₂.getAppArgs.size := by
+      simp [List.mem_range'] at hi
+      omega
+    obtain ⟨⟨p', hp⟩, ⟨q', hq⟩⟩ := hbr ⟨us, heq⟩ hci hnum hnrs i hlt
+    refine (isDefEq.WF hp hq).bind fun r _ _ _ => ?_
+    split <;> exact .pure trivial
+  · split <;> exact .pure fun _ => key
 
 /-- Still `sorry`.  It **is** closeable today — `(tryEtaStructCore_never_true he₂).mono
 fun _ _ _ h hb => absurd (h ▸ hb) nofun` discharges it in one line — but that close is
@@ -595,9 +708,81 @@ theorem isDefEqUnitLike.WF_proof {c : VContext} {s : VState}
   isDefEqUnitLike.WF_prop he₁ he₂ fun _ hB =>
     hAp.defeqU_l c.Ewf c.Δwf (hA.uniqU c.Ewf c.Δwf hB)
 
+/-- **The `IsStructure` bridge, at `isDefEqUnitLike`'s gate.**
+
+`docs/handoff-eta.md` §5 named the single missing step as "supply `c.venv.IsStructure I D T C`
+from `c.env.isNonRecStructure I = true`".  This is that step, stated at the exact gate
+`isDefEqUnitLike` tests, with the typing side conditions `VEnv.StructEta` needs bundled in —
+they come from the same place (the block's declaration) and there is no cheaper source for
+them today.
+
+**It is a hypothesis, and it has to be**: `Verify/StructureBridge.lean` shows — machine-checked
+— that this implication does not follow from `AddInduct`'s *intended* definition either.
+`AddIndConsts`' shape predicates and `TrConstant` constrain a constant's name, level count and
+type and nothing else, so `InductiveVal.isRec`/`.ctors`/`.numIndices` and
+`ConstructorVal.numFields` — the six fields the eta checks read — are free.  See
+`R10.Wit.isNonRecStructure_not_determined`.
+
+Every binder is pinned: `tType`/`tType'` by the translation, `I`/`ls` by the head equation,
+`cn` by `v.ctors = [cn]`, `v`/`w` by the two lookups.  The conclusion's `D T C us ps` are
+existential. -/
+def UnitLikeBridge (c : VContext) : Prop :=
+  ∀ {tType : Expr} {tType' : VExpr} {I cn : Name} {ls : List Level}
+    {v : InductiveVal} {w : ConstructorVal},
+    c.TrExprS tType tType' → tType.getAppFn = .const I ls →
+    c.env.find? I = some (.inductInfo v) →
+    v.isRec = false → v.ctors = [cn] → v.numIndices = 0 →
+    c.env.find? cn = some (.ctorInfo w) → w.numFields = 0 →
+    ∃ D T C us ps, tType' = (VExpr.const I us).mkApp ps ∧
+      c.venv.IsStructure I D T C ∧ T.indices = [] ∧ C.fields = [] ∧
+      us.length = D.uvars ∧ (∀ l ∈ us, l.WF c.lparams.length) ∧ ps.length = D.np ∧
+      c.venv.HasArgs c.lparams.length c.vlctx.toCtx (D.params.map (VExpr.instL us)) ps
+
+/-- **`isDefEqUnitLike.WF`, modulo the two things the spec and the refinement layer are
+missing** — and nothing else.
+
+`WF_prop` above handles the `Prop` case with no new rule.  This is the *whole* statement,
+`Prop` case included, from
+* `c.venv.StructEta` — structure eta (`Theory/Inductive/StructureEta.lean`), the rule the
+  thirteen `IsDefEq` constructors do not give; and
+* `UnitLikeBridge c` — the `AddInduct` bridge.
+
+Nothing else is assumed, and the proof enters the real `.inductInfo`/`.ctorInfo` arm rather
+than using `TrEnv.not_inductInfo`, so it survives the `AddInduct` flip verbatim.  When both
+hypotheses become theorems, `isDefEqUnitLike.WF` is this lemma applied to them.
+
+The route is `StructEta.unitLike`: at zero fields the η-expansion is the closed term
+`C.mk ps` for *both* inhabitants, so the two `HasType`s the checker establishes at a common
+type give `e₁' ≡ e₂'` by `trans`.  No `TrProj`, no projection machinery, no injectivity. -/
+theorem isDefEqUnitLike.WF_of_structEta {c : VContext} {s : VState}
+    (he₁ : c.TrExprS e₁ e₁') (he₂ : c.TrExprS e₂ e₂')
+    (hSE : c.venv.StructEta) (hbr : UnitLikeBridge c) :
+    RecM.WF c s (isDefEqUnitLike e₁ e₂) fun b _ => b = .true → c.IsDefEqU e₁' e₂' := by
+  have hget : ∀ {name}, (c.env.get name).WF fun ci => c.env.find? name = some ci := by
+    intro name; simp [Kernel.Environment.get]; split <;> [refine .pure ‹_›; exact .throw]
+  unfold isDefEqUnitLike
+  refine (inferType.WF he₁).bind fun ty _ _ ⟨ty', _, _, hty, hT⟩ => ?_
+  refine (whnf.WF hty).bind fun tType _ _ ⟨_, _, htT, hdefeq⟩ => ?_
+  split <;> [skip; exact .pure nofun]
+  rename_i I ls heq
+  refine .getEnv <| (M.WF.liftExcept hget).lift.bind fun ci _ _ hci => ?_
+  split <;> [skip; exact .pure nofun]
+  refine (M.WF.liftExcept hget).lift.bind fun ci₂ _ _ hcc => ?_
+  split <;> [skip; exact .pure nofun]
+  refine (inferType.WF he₂).bind fun _ _ _ ⟨_, _, _, _, hS⟩ => ?_
+  refine (isDefEqCore.WF htT ‹_›).mono fun _ _ _ h hb => ?_
+  obtain ⟨D, T, C, us, ps, hEq, hIS, hidx, hnf, hus, huswf, hps, hpsA⟩ :=
+    hbr htT heq hci rfl rfl rfl hcc rfl
+  subst hEq
+  exact ⟨_, hSE.unitLike hIS hidx hnf hus huswf hps hpsA
+    (hT.defeqU_r c.Ewf c.Δwf hdefeq.symm) (hS.defeqU_r c.Ewf c.Δwf (h hb).symm)⟩
+
 /-- Still `sorry`, deliberately.  `(isDefEqUnitLike_never_true he₁).mono
 fun _ _ _ h hb => absurd (h ▸ hb) nofun` closes it today; that close is vacuous and is
-discarded when `AddInduct` lands.  See `isDefEqUnitLike_never_true`. -/
+discarded when `AddInduct` lands.  `WF_of_structEta` above is the non-vacuous version: this
+statement is exactly that one with its two hypotheses removed, and neither is provable in this
+tree (`Theory/Inductive/StructureEta.lean`, `Verify/StructureBridge.lean` say why).
+See `isDefEqUnitLike_never_true`. -/
 theorem isDefEqUnitLike.WF {c : VContext} {s : VState}
     (he₁ : c.TrExprS e₁ e₁') (he₂ : c.TrExprS e₂ e₂') :
     RecM.WF c s (isDefEqUnitLike e₁ e₂) fun b _ => b = .true → c.IsDefEqU e₁' e₂' := sorry

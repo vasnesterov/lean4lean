@@ -1,325 +1,318 @@
-# Structure eta: `tryEtaStructCore.WF` and `isDefEqUnitLike.WF`
+# Structure eta: `structEta` in the spec, and what it unblocks
 
-Stream owning `Lean4Lean/Verify/TypeChecker/{IsDefEq,Basic,Reduce,WHNF}.lean`,
-`Verify/{EqSafety,QuotConsts}.lean`.  Tree at `b32b29b` + this stream's edit to
-`Verify/TypeChecker/IsDefEq.lean` (no other file touched).
+Stream owning `Verify/TypeChecker/{IsDefEq,Basic,Reduce,WHNF}.lean`,
+`Theory/Inductive/Structure{,Closed,Examples}.lean`, `docs/design-inductive.md`.
 
-Every claim below is tagged **[checked]** (machine-checked this session, command given) or
-**[source]** (read off the source, not machine-checked).  Nothing is tagged from memory.
+Every claim is tagged **[checked]** (machine-checked this session; the file and declaration
+name are given, and `lake env lean <file>` reproduces it) or **[source]** (read off C++ or Lean
+source, not machine-checked).  Nothing is tagged from memory.
+
+Census **19 → 19**.  No `sorry` added, none removed; this stream's file still holds exactly
+its two, by name (`isDefEqUnitLike.WF`, `tryEtaStructCore.WF`).  **[checked]**,
+`lake env lean scripts/sorry-census.lean`.
 
 ---
 
 ## Bottom line
 
-1. **One new proved theorem, non-vacuous**: `isDefEqUnitLike.WF_prop` — the `Prop` half of
-   `isDefEqUnitLike.WF`, proved *without* the dead `.inductInfo` gate, so it is a component of
-   the eventual real proof rather than a placeholder.  Plus its natural-hypothesis corollary
-   `isDefEqUnitLike.WF_proof`.  **[checked]**
-2. **Neither hole is false, and neither has an under-constrained quantifier.**  Both are
-   *vacuously true today* (the two `*_never_true` witnesses), and both would become false the
-   moment `AddInduct` gains constructors *unless* the spec gains `structEta`.  No witness of
-   falsity can be exhibited today, and the reason is structural, not effort. §4.
-3. **The unique-typing re-test paid off, but not where the relay expected.**  Neither hole was
-   blocked *on* unique typing for its structure-eta content.  But the *plumbing* of both is
-   gated on it through `inferType.WF`, and that gate went from the whole injectivity family to
-   the single hole `IsDefEqU.forallE_inv_stratified`.  That is what made §2's theorem
-   worth writing now instead of later. §3.
-4. **`tryEtaStructCore`'s Prop half does *not* go through, and the failing step is exact**: the
-   `for` loop's `isDefEq (.proj I (i - np) t) args[i]` needs `c.TrExprS (.proj …) _`, hence a
-   `TrProj`, hence `env.IsStructure I …`, obtainable only from the gate `TrEnv'` refutes.  The
-   residual goal is transcribed verbatim in §5. **[checked]**
-5. **Sharpened dependency separation** (correcting `docs/research-structeta.md` §5): at zero
-   fields the parameter lists never have to be compared, because `s` can be transported to
-   `t`'s type; at `n > 0` fields they do not have to be compared *either*, provided the
-   `TrProj` is built at `s`'s parameters.  So **neither hole needs const-application
-   injectivity** — `tryEtaStructCore` needs `TrProj.wf`-style *construction*, which is a
-   different thing from `TrProj.uniq`. §6. **[source]**
+1. **`structEta` is in the spec.**  `Theory/Inductive/StructureEta.lean` (new) carries
+   `VEnv.StructEta`, `VInductDecl'.etaExpansion`, and the two consequences the checker needs
+   (`StructEta.unitLike`, `StructEta.congrSpine`).  The η-expansion term is checked against
+   Lean's own elaborator at four structures, two of them with a dependent second field.
+   **[checked]**
+2. **The relay's residual — "supply `IsStructure` from `isNonRecStructure = true`, that is the
+   single step" — is wrong twice over, and both corrections are machine-checked.**
+   * It is **not derivable from `AddInduct`'s intended definition either**, so it is not merely
+     blocked on `AddInduct` being empty.  `AddIndConsts`' shape predicates and `TrConstant`
+     never mention `InductiveVal.isRec`/`.ctors`/`.numIndices` or `ConstructorVal.numFields` —
+     the six fields the eta checks read.  `Verify/StructureBridge.lean` proves this at the
+     tree's existing `AddInductStages` witness. §3. **[checked]**
+   * It is **not the only** step for `tryEtaStructCore`: the loop's *second* argument,
+     `s.getAppArgs[i]`, also needs a translation before `isDefEq.WF` fires, and the loop needed
+     a `break`-allowing `forIn'` rule that did not exist. §4. **[checked]**
+3. **Both of this stream's holes now have real, non-vacuous conditional theorems**, each
+   proved through the live gate arm rather than the dead one, so both survive the `AddInduct`
+   flip verbatim:
+   * `isDefEqUnitLike.WF_of_structEta` — the **whole** statement, from `c.venv.StructEta` plus
+     one named bridge.  **[checked]**
+   * `tryEtaStructCore.WF_prop` — the `Prop` half, **including the loop**, which the previous
+     round reported as the exact failing step.  It no longer fails.  **[checked]**
+4. **`design-inductive.md` §6.3 rewritten.**  The `IsNeverZero` side condition is gone (wrong
+   for two of three call sites), and it is replaced by the condition the rule actually needs,
+   which is F17, not F16 — without it the rule's right-hand side can be ill-typed, which would
+   make it *false*, not merely useless. §2.
+5. **Non-vacuity, both directions, machine-checked.**  `VEnv.empty_structEta` shows the
+   assumption is satisfiable (not a disguised `False`); `bazEnv_structEta_premises` satisfies
+   *every* premise at once at a **two-field** structure.  The tree's other two-field structure,
+   `barDecl`, **fails** the F17 clause — so the clause is not decorative and the witness is not
+   free. §5. **[checked]**
 
-Census unchanged at **20**; this stream's file still holds exactly its two, by name. **[checked]**
+**Kernel Arena not run, and not required**: no executable code was touched.  The four edited
+files are `Theory/Inductive/StructureEta.lean` (new, spec only),
+`Theory/Inductive/StructureExamples.lean` (`example … := rfl` only),
+`Verify/StructureBridge.lean` (new, proofs only) and `Verify/TypeChecker/IsDefEq.lean`
+(theorems only, no `@[implemented_by]`, no `partial`, nothing in `Lean4Lean.addDecl`'s cone),
+plus `docs/design-inductive.md`.  Baseline to hold remains 185 correct / 6 either / 0 incorrect.
 
 ---
 
-## 1. Inventory
+## 1. `VEnv.StructEta` — what the rule says
 
-| | `tryEtaStructCore.WF` | `isDefEqUnitLike.WF` |
-|---|---|---|
-| file | `Verify/TypeChecker/IsDefEq.lean` | same |
-| status | `sorry` | `sorry` |
-| vacuity witness | `tryEtaStructCore_never_true` | `isDefEqUnitLike_never_true` |
-| witness sorry-free? | **yes** | **no** (borrows `inferType.WF`'s cone) |
-| Prop half | **blocked**, §5 | **proved**, §2 |
-| still needs | `structEta`; `TrProj` construction; AddInduct bridge | `structEta` at zero fields; AddInduct bridge |
-
-Statements, verbatim:
+`Theory/Inductive/StructureEta.lean`:
 
 ```lean
-theorem tryEtaStructCore.WF {c : VContext} {s : VState}
-    (he₁ : c.TrExprS e₁ e₁') (he₂ : c.TrExprS e₂ e₂') :
-    RecM.WF c s (tryEtaStructCore e₁ e₂) fun b _ => b → c.IsDefEqU e₁' e₂' := sorry
-
-theorem isDefEqUnitLike.WF {c : VContext} {s : VState}
-    (he₁ : c.TrExprS e₁ e₁') (he₂ : c.TrExprS e₂ e₂') :
-    RecM.WF c s (isDefEqUnitLike e₁ e₂) fun b _ => b = .true → c.IsDefEqU e₁' e₂' := sorry
+def VEnv.StructEta (env : VEnv) : Prop :=
+  ∀ {U Γ S D T C us ps e},
+    env.IsStructure S D T C →                            -- includes C.recFields = []
+    T.indices = [] →
+    us.length = D.uvars → (∀ l ∈ us, l.WF U) → ps.length = D.np →
+    env.HasArgs U Γ (D.params.map (VExpr.instL us)) ps →
+    env.HasType U Γ e ((VExpr.const S us).mkApp ps) →
+    (D.isLE = true ∨ ∀ k, k < C.fields.length →
+      (C.fields.getD k default).lvl.inst us ≈ .zero) →
+    env.IsDefEq U Γ e (D.etaExpansion T C us ps e) ((VExpr.const S us).mkApp ps)
 ```
 
----
-
-## 2. What closed: the `Prop` half of `isDefEqUnitLike`  **[checked]**
-
-`docs/research-structeta.md` §2 observed that neither check tests the structure's level, so both
-fire on `Prop` structures where `IsDefEq.proofIrrel` — an existing spec rule — already settles
-the case, and tabulated the split.  That table was never machine-checked.  It is now, for the
-zero-field column:
+with
 
 ```lean
-theorem isDefEqUnitLike.WF_prop {c : VContext} {s : VState}
-    (he₁ : c.TrExprS e₁ e₁') (he₂ : c.TrExprS e₂ e₂')
-    (hprop : ∀ A, c.HasType e₁' A → c.HasType A (.sort .zero)) :
-    RecM.WF c s (isDefEqUnitLike e₁ e₂) fun b _ => b = .true → c.IsDefEqU e₁' e₂'
-
-theorem isDefEqUnitLike.WF_proof {c : VContext} {s : VState}
-    (he₁ : c.TrExprS e₁ e₁') (he₂ : c.TrExprS e₂ e₂')
-    (hA : c.HasType e₁' A) (hAp : c.HasType A (.sort .zero)) :
-    RecM.WF c s (isDefEqUnitLike e₁ e₂) fun b _ => b = .true → c.IsDefEqU e₁' e₂'
+def VInductDecl'.projAll (ps e) : List VExpr :=
+  (List.range C.fields.length).map fun i => D.projTerm T C us ps [] i e
+def VInductDecl'.etaExpansion (ps e) : VExpr :=
+  (VExpr.const C.name us).mkApp (ps ++ D.projAll T C us ps e)
 ```
 
-**Why this is not the vacuous close in disguise.**  `isDefEqUnitLike_never_true` kills the
-branch with `TrEnv.not_inductInfo`.  `WF_prop` does the opposite: it `split`s at each of the
-four gates, discharges the `return false` arms with `nofun`, and **enters** the
-`.inductInfo`/`.ctorInfo` arm, taking its conclusion from the trailing
-`isDefEqCore tType (← inferType s)` and `proofIrrel` alone.  Nothing in the proof mentions
-`AddInduct`, `not_inductInfo`, or any `TrEnv'` shape lemma, so it survives the AddInduct flip
-verbatim.  That is the acceptance test that matters here: it is a *component* of the eventual
-proof, and the only thing left in its column is the non-`Prop` case.
+**Why a predicate and not an `IsDefEq` constructor.**  The content is identical — this is
+exactly the constructor's statement — but adding the constructor edits
+`Theory/Typing/Basic.lean` and forces a new case into every induction over `IsDefEq` across
+`Theory/Typing/{Lemmas,Strong,UniqueTyping,ChurchRosser}.lean` and `Verify/`, files this
+stream does not own.  The predicate is what a consumer can use *today* (§4 uses it), and when
+the constructor lands `StructEta` becomes a one-line theorem rather than being discarded.
 
-**Non-vacuity.**  The hypothesis is used at a real instance: `hprop` is applied to the type
-`inferType.WF` actually hands back, with the `HasType` derivation in hand, inside the branch
-where the function returns `isDefEqCore …`.  `WF_proof` further shows the hypothesis is implied
-by the manifestly satisfiable "`e₁'` inhabits some proposition", so it is not a disguised
-`False`.  What is *not* available is a firing at a concrete `VContext` whose environment holds a
-unit-like structure — no such `VContext` exists, because `AddInduct` has no constructors; that
-is the same wall as everything else in §4, not a gap in this theorem.
+**Gate-for-gate correspondence with the two checks** (`~/lean4/src/kernel/type_checker.cpp`
+`try_eta_struct_core` `:889`, `is_def_eq_unit_like` `:1159`; `Lean4Lean/TypeChecker.lean:656`
+and `:849`): **[source]**
 
----
-
-## 3. The unique-typing re-test  **[checked]**
-
-Measured with a transitive `getUsedConstantsAsSet` sweep against the 20 census holes
-(script: `scratchpad/deps.lean`, reproduced below), plus `#print axioms`:
-
-| declaration | census holes in its cone |
+| checker gate | clause |
 |---|---|
-| `VEnv.IsDefEq.uniq` | `{forallE_inv_stratified}` |
-| `VEnv.IsDefEqU.sort_inv` | `{forallE_inv_stratified}` |
-| `TrProj.defeqDFC` | `{forallE_inv_stratified}` |
-| `TypeChecker.Inner.inferType.WF` | `{forallE_inv_stratified, TrProj.uniq, TrProj.wf}` |
-| `isDefEqUnitLike_never_true` | `{forallE_inv_stratified, TrProj.uniq, TrProj.wf}` |
-| `isDefEqUnitLike.WF_prop` | `{forallE_inv_stratified, TrProj.uniq, TrProj.wf}` |
-| `isDefEqUnitLike.WF_proof` | `{forallE_inv_stratified, TrProj.uniq, TrProj.wf}` |
-| `tryEtaStructCore_never_true` | `{}` — sorry-free |
+| `isNonRecStructure`: `isRec = false`, `ctors = [_]` | `env.IsStructure S D T C` |
+| `numIndices = 0` | `T.indices = []` |
+| the projections must typecheck (`inferProj`, F17) | the `isLE = true ∨ …` disjunction |
+| `inferType t ≡ inferType s`, giving `t : S ps` | `env.HasType U Γ e ((const S us).mkApp ps)` |
 
-Three things follow, and the first two correct the relay.
+**Information-flow audit** (the check the method note demands): the conclusion mentions
+`S D T C us ps e Γ U`; `S D T C` are pinned by `IsStructure`, `us` and `ps` by the length and
+`HasArgs` clauses, `e` by the `HasType` clause.  No binder is left free by the premises.
 
-* **`sort_inv` is proved but not sorry-free.**  `#print axioms Lean4Lean.VEnv.IsDefEqU.sort_inv`
-  reports `sorryAx`.  "Proved" here means *reduced to `forallE_inv_stratified`*, which is still
-  a `sorry` in `Theory/Typing/Injectivity.lean`.  Anything built on `sort_inv`, `SortUniq`,
-  `IsDefEq.uniq`, `piUniq` inherits that.  Worth saying plainly because a reader of the relay
-  could reasonably conclude the unique-typing corner is clean; it is one hole, not zero.
-* **Neither of this stream's holes was ever waiting on unique typing for its *content*.**  The
-  missing ingredient is `structEta`, a `VEnv.IsDefEq` constructor.  Unique typing does not
-  supply it and never could.
-* **But the *plumbing* of both is gated on unique typing**, through `inferType.WF`'s single
-  appeal to `TrExprS.uniq`/`IsDefEq.uniq` (whose `.proj` case is `TrProj.uniq`).  That gate
-  shrank from the whole injectivity family to one named hole.  `WF_prop` inherits exactly
-  `inferType.WF`'s three and adds none of its own — which is the useful measurement: **the
-  `Prop` half of `isDefEqUnitLike` costs no structure-eta content at all.**
+**Derived, machine-checked:** **[checked]**
 
-Reproduce:
+* `VEnv.structEta_of_prop` — for a `Prop`-valued structure the rule is `IsDefEq.proofIrrel`,
+  given that the η-expansion is well typed.  So the `Prop` case needs no new rule.
+* `VEnv.StructEta.unitLike` — the zero-field consequence: two inhabitants of `S ps` are
+  definitionally equal.  This is exactly what `isDefEqUnitLike` claims, and it needs no
+  `TrProj`, no projections, no injectivity.
+* `VEnv.StructEta.congrSpine` — eta then spine congruence: `e ≡ C.mk ps args` from the field
+  comparisons.  **Nothing in it compares parameter lists** — the `HasArgsDF` is built at the
+  single spine `ps`, shared by both sides — confirming the previous round's correction to
+  `research-structeta.md` §5 in the form of a proved lemma.
+
+---
+
+## 2. The `IsNeverZero` correction, and the condition that replaces it
+
+`docs/design-inductive.md` §6.3 proposed `(D.lvl.inst ls).IsNeverZero` as a side condition,
+imported from `toCtorWhenStruct`'s F16 guard.  Two things are now recorded there.
+
+**It is wrong for these call sites.**  Neither `tryEtaStructCore` nor `isDefEqUnitLike` tests
+the structure's universe at all; both therefore fire on `Prop` structures (`And`, `True`),
+which an `IsNeverZero` rule would not cover.  **[source]**, re-read gate for gate this round.
+It would not have been *unsound* — the `Prop` case is independently free — only useless at two
+of three sites.
+
+**But a side condition is needed, and it is F17.**  `IsDefEq` implies both sides are well
+typed, so a rule whose right-hand side is ill-typed is **false**, not merely useless.  For a
+small-eliminating block the η-expansion's projections are recursor applications at elimination
+level `(C.fields.getD k _).lvl`, legal only when that level is `≈ .zero`.  `StructEta`
+therefore carries `TrProj`'s F17 clause **minus its "unused fields are exempt" guard**: eta
+projects every field, so every field is in scope.
+
+That difference is not hypothetical.  `Verify/Typing/ProjLevelWitness.lean`'s `barDecl` — a
+two-field `Prop` structure whose field 0 has level `.succ .zero` and is *unused* — is
+admissible for `TrProj` at `i = 1` (`barEnv_TrProj`) and **inadmissible** for structure eta.
+The F17 clause is what separates them. **[checked]**, `barField0_lvl_ne_zero`.
+
+---
+
+## 3. The bridge is not derivable from the intended `AddInduct` either  **[checked]**
+
+`Verify/StructureBridge.lean` (new).
+
+`StructureBridge` names the step the relay identified.  The finding is about `AddInduct`'s
+intended definition, `AddInductStages` (`Verify/Environment/Basic.lean`) and its nested-aware
+replacement `AddInductStagesR` (`Verify/Environment/InductR.lean`).  Both relate the constant
+map to the abstract block through `AddIndConsts` at the shape predicates
 
 ```
-lake build Lean4Lean.Verify.TypeChecker.IsDefEq
-lake env lean scripts/sorry-census.lean          # 20
-```
-and for the cone table, a `run_cmd` walking `ConstantInfo.value?` (with the `.thmInfo` trap
-handled as `scripts/sorry-census.lean` does) and intersecting with the 20 hole names.
-
----
-
-## 4. Scope audit: **neither statement is false, and neither is under-constrained**
-
-The defect being hunted is the one that made `NormalEq.descend` false — a quantifier ranging
-over more than intended, with no registration hypothesis tying it down.  Checklist run against
-both statements:
-
-| check | `tryEtaStructCore.WF` | `isDefEqUnitLike.WF` |
-|---|---|---|
-| every auto-bound implicit (`e₁ e₂ e₁' e₂'`) constrained by a hypothesis | ✓ | ✓ |
-| argument order matches the implementation (`t := e₁`, `s := e₂`) | ✓ | ✓ |
-| conclusion polarity (`b → …` / `b = .true → …`) matches the `Bool` returned | ✓ | ✓ |
-| no missing `MLCWF`/`withMLC` (neither function extends the local context) | ✓ | ✓ |
-| `VState` universally quantified, as in every sibling | ✓ | ✓ |
-
-The implicit-binder check is **[checked]**, not eyeballed: an experimental partial proof
-(§5) put the elaborated context on screen, and it contains exactly
-`e₁ e₁' e₂ e₂' c s he₁ he₂` — no stray auto-bound variable.
-
-**Truth today.**  Both are *vacuously true*, machine-witnessed by `tryEtaStructCore_never_true`
-and `isDefEqUnitLike_never_true`: `AddInduct` (`Verify/Environment/Basic.lean`) still has no
-constructors, `TrEnv'.induct` cannot fire, and both checks are gated behind a constant-map
-lookup that `TrEnv.not_ctorInfo` / `TrEnv.not_inductInfo` forbid. **[checked]**
-
-**Truth after the flip.**  Both would be **false** as stated, unless `VEnv.IsDefEq` gains a
-`structEta` constructor.  This is stated as a claim, not a result: **[source]**
-
-* Surjective pairing `t ≡ mk ps (proj₀ t) … (projₙ₋₁ t)` for a *variable* `t` is not among the
-  13 constructors (`bvar symm trans sortDF constDF appDF lamDF forallEDF defeqDF beta eta
-  proofIrrel extra`); `beta`/`eta` need a λ, and `extra`'s ι-rules fire only at a constructor
-  application.  At zero fields the same holds for `t ≡ u ps`.
-* **Why this cannot be machine-refuted today, and it is not for lack of trying.**  A refutation
-  needs a countermodel.  The set model (`Theory/SetModel/`) *validates* struct-eta — a unit-like
-  inductive is interpreted as a singleton — so it cannot separate `bvar 0` from `u`.  The only
-  other route is syntactic: Church–Rosser / normalisation, i.e. "two distinct rigid normal forms
-  are not convertible".  That machinery is `Theory/Typing/ChurchRosser.lean`, whose
-  `NormalEq.descend` is itself a `sorry` *and was reported false this session*
-  (`Theory/Typing/DescendRefute.lean`; reported by the orchestrator, not re-verified here).  So the refutation
-  is blocked on a hole that is worse off than these two.  `docs/research-structeta.md` §3
-  reached the same conclusion independently; this is a confirmation, not a new result.
-
-The practical consequence: **do not read "no witness of falsity" as evidence of truth here.**
-The two statements are open-or-false, and which one is settled entirely by whether `structEta`
-lands in the spec before `AddInduct` lands in `Verify/`.
-
----
-
-## 5. `tryEtaStructCore`: the exact failing step  **[checked]**
-
-An experimental `tryEtaStructCore.WF_prop` (the `Prop`-hypothesis analogue of §2's theorem) was
-written and elaborated.  Everything up to and including
-`unless ← isDefEq (← inferType t) (← inferType s)` goes through: the four gates `split` cleanly,
-`inferType.WF` fires on both sides, `isDefEq.WF` fires, and `proofIrrel` yields
-`key : c.IsDefEqU e₁' e₂'` — the conclusion, in hand, with the loop not yet run.
-
-It then stops, at exactly one goal (transcribed from the elaborator, `mkInfo` renamed for
-readability):
-
-```
-key : c.IsDefEqU e₁' e₂'
-⊢ RecM.WF c s'
-    (let args := e₂.getAppArgs;
-     do let __s ← forIn' [mkInfo.numParams:args.size] (none, ()) fun i h __s => do
-          let __do_lift ← isDefEq (Expr.proj mkInfo.induct (i - mkInfo.numParams) e₁) args[i]
-          if __do_lift = true then pure (ForInStep.yield (none, ()))
-                               else pure (ForInStep.done (some false, ()))
-        match (__s : Option Bool × Unit).fst with
-        | some r => pure r
-        | none   => pure true)
-    fun b _ => b = true → c.IsDefEqU e₁' e₂'
+fun ci => ∃ v, ci = .inductInfo v      fun ci => ∃ v, ci = .ctorInfo v      … .recInfo …
 ```
 
-**Why having `key` already does not finish it.**  `M.WF` is not just a postcondition: unfolding
-(`Verify/TypeChecker/Basic.lean:278`) it also demands that the *resulting* `VState` satisfy
-`vs'.WF c` and `vs ≤ vs'`.  So even with the postcondition trivially true, the loop must be shown
-to preserve the state invariant, and the only lemma that does that for an `isDefEq` call is
-`Methods.WF.isDefEqCore`, whose hypotheses are `c.TrExprS e₁ e₁'` and `c.TrExprS e₂ e₂'`.
-For the first argument that is `c.TrExprS (.proj I (i - np) e₁) _`, i.e. a
-`TrProj c.venv _ c.vlctx.toCtx I k e₁' _`, and `TrProj.mk` (`Verify/Typing/Expr.lean:81`) opens
-with `env.IsStructure S D T C`.  The only source of `IsStructure` for a name the *kernel*
-environment calls a structure is the AddInduct bridge, which does not exist.
+and through `TrConstant`, which is `safety ≤ ci.safety ∧ ci.levelParams.length = ci'.uvars ∧
+TrExprS env … ci.type ci'.type`.  **Neither mentions `InductiveVal.isRec`, `.ctors`,
+`.numIndices` or `.numParams`, or `ConstructorVal.numFields`, `.numParams` or `.induct`** — and
+those six fields are exactly what `Environment.isNonRecStructure` and the two eta checks read.
 
-**So the exact failing step is:** *supply `c.venv.IsStructure I D T C` from
-`c.env.isNonRecStructure I = true`.*  Nothing before it fails, and nothing after it has been
-attempted.  This is a one-line summary of a machine-checked goal, not an estimate.
+Proved, at the tree's own `AddInductStages` witness `R10.Wit.decl`:
 
-The experiment was **removed** from the file — it needed a `sorry` — and is recorded here
-instead.  Re-creating it is ~18 lines and takes minutes; the recipe is §2's proof with the
-gate splits reordered and `he₂`'s head used instead of `he₁`'s type.
+* `R10.Wit.addInductStages_with` — `AddInductStages m VEnv.empty decl m' env'` holds with the
+  map's `InductiveVal` carrying *any* `numIndices`, `ctors` and `isRec`.  The proof is
+  `addInductStages_wit`'s with `uInd` replaced by a parameterised `uIndWith`; that the
+  replacement goes through untouched **is** the finding.
+* `R10.Wit.addInductStages_bookkeeping_free` — two runs, same block, same map and environment
+  in, **same `VEnv` out**, different bookkeeping.
+* `R10.Wit.isNonRecStructure_not_determined` — the consequence: one run makes
+  `isNonRecStructure` say `true`, the other `false`, with the abstract side identical.
 
----
+So no lemma of the form `isNonRecStructure I = true → (anything about venv)` can be proved from
+`AddInductStages`/`AddInductStagesR` as they stand.  `IndShape` and `CtorShape` in that file are
+the strengthened shape predicates `AddIndConsts` must be instantiated at; they are written out
+so the eventual edit is a substitution rather than a redesign.
 
-## 6. Correction to `research-structeta.md` §5: neither hole needs injectivity  **[source]**
+**Note what is *not* claimed.**  A refutation of the bridge itself (`∃ D T C, IsStructure …`) is
+*not* given, and would be expensive: `IsStructure` quantifies over all blocks, so ruling it out
+needs the G4 uniqueness that `Verify/Typing/StructureUniq.lean` splits and does not close.  What
+is proved is the information-flow statement, which is what settles derivability.
 
-`research-structeta.md` §5 schedules `tryEtaStructCore.WF` behind `TrProj.uniq`, and
-`TrProj.uniq`'s own docstring is blocked on const-application injectivity
-(`IsDefEqU.const_app_inv`).  The transitive reading — "structure eta needs injectivity" — is
-**wrong**, for a reason worth writing down because it changes the schedule:
-
-* The check establishes `inferType t ≡ inferType s`, i.e. `S ps' ≡ S ps` where `ps'` are `t`'s
-  parameters and `ps` are `s`'s.  Naively, concluding `t ≡ s` from
-  `t ≡ mk ps' (proj^{ps'} t)` and `s = mk ps args` needs `ps' ≡ ps`, which *is* `const_app_inv`.
-* But `TrProj.mk` reads its parameter list off a `HasType` premise, **not** off a syntactic
-  type: `env.HasType U Γ e ((VExpr.const S us).mkApp (ps ++ ιs))`.  Since
-  `S ps' ≡ S ps` is in hand, `HasType t (S ps)` follows by `defeqU_r`, and the `TrProj` for
-  `.proj I i t` may simply be **built at `ps`**, `s`'s parameters.  Then `structEta` at type
-  `S ps` gives `t ≡ mk ps (proj^{ps} t)`, congruence with `s = mk ps args` needs only the
-  field comparisons the check already performed, and the parameter lists are never compared.
-* At zero fields (`isDefEqUnitLike`) the same move is even shorter: transport `s` to `t`'s type
-  and apply zero-field `structEta` to both.
-
-So what `tryEtaStructCore.WF` needs from the `TrProj` family is **construction**
-(`TrProj.wf`-shaped: build a `TrProj` from a `HasType` plus `IsStructure`), not **uniqueness**.
-`TrProj.uniq` still appears in its cone, but only borrowed through `inferType.WF`, exactly as it
-does for `isDefEqUnitLike` — which `research-structeta.md` §5 lists as *not* blocked on `TrProj`
-at all.  Both are blocked on it to the same (borrowed) degree, and neither is blocked on it for
-structure-eta reasons.
-
-I got this wrong once mid-session before checking `TrProj.mk`'s premise; recording the wrong
-version and the fix so the next reader does not have to re-derive it.
+The vacuous route is also unavailable: `TrEnv.not_inductInfo` needs the name to be one the
+`VEnv` already holds, which `isNonRecStructure I = true` alone does not give.
 
 ---
 
-## 7. C++ conformance, and two proposed `divergences.md` entries  **[source]**
+## 4. What closed in `Verify/TypeChecker/IsDefEq.lean`  **[checked]**
 
-Both checks were re-read gate-for-gate against `~/lean4/src/kernel/type_checker.cpp`
-(`try_eta_struct_core` `:889`, `is_def_eq_unit_like` `:1159`) and
-`~/lean4/src/kernel/inductive.cpp` (`is_non_rec_structure` `:28`).  The gate *sequences* agree,
-including the fact — load-bearing for §4 — that **neither C++ function tests the structure's
-universe**, so both fire on `Prop` structures.
+Three new declarations, all sorry-free in their own right, all with the *same borrowed* hole
+cone as `isDefEqUnitLike.WF_prop`: `{IsDefEqU.forallE_inv_stratified, IsDefEqU.weakN_iff,
+TrProj.uniq}` — every one entering through `inferType.WF`'s appeal to unique typing.  **No
+structure-eta content is borrowed.**  (Measured by a transitive `getUsedConstantsAsSet` sweep
+intersected with the 19 census names, with the `.thmInfo` trap handled; note `TrProj.wf` has
+dropped out of the cone since it was proved, and `weakN_iff` has entered.)
 
-Two differences, both unreachable in a kernel-accepted environment, neither currently in
-`divergences.md`.  I have **not** edited `divergences.md` (not this stream's file); proposed
-text:
+### `isDefEqUnitLike.WF_of_structEta` — the whole statement
 
-* `isDefEqUnitLike`: C++ writes `env().get(ctor_name).to_constructor_val()`, which raises a
-  kernel exception if the inductive's sole listed constructor name does not resolve to a
-  constructor.  lean4lean writes `let .ctorInfo { numFields := 0, .. } ← env.get c | return
-  false`, folding "not a constructor" together with "has fields" into a `false`.  Reachable only
-  if a `.inductInfo` lists a constructor name that is not a `.ctorInfo`, which
-  `Environment.addInductive` cannot produce.
-* `tryEtaStructCore`: C++'s `is_non_rec_structure` calls `env.get(decl_name)` (throws on an
-  unknown name); lean4lean's `Environment.isNonRecStructure` uses `find?` and returns `false`.
-  Reachable only if a `.ctorInfo`'s `induct` field names a constant not in the environment.
+```lean
+theorem isDefEqUnitLike.WF_of_structEta
+    (he₁ : c.TrExprS e₁ e₁') (he₂ : c.TrExprS e₂ e₂')
+    (hSE : c.venv.StructEta) (hbr : UnitLikeBridge c) :
+    RecM.WF c s (isDefEqUnitLike e₁ e₂) fun b _ => b = .true → c.IsDefEqU e₁' e₂'
+```
 
-Both are in the same class as the existing `unreachable!` entry: lean4lean rejects-or-declines
-where C++ throws, on inputs neither can be handed.
+`Prop` case included — this subsumes `WF_prop`.  The route is `StructEta.unitLike`: at zero
+fields the η-expansion is the same closed term `C.mk ps` for both inhabitants, so the two
+`HasType`s the checker establishes at a common type give `e₁' ≡ e₂'` by `trans`.  When
+`StructEta` and the bridge become theorems, `isDefEqUnitLike.WF` is this lemma applied to them.
 
-**Kernel Arena was not run**: this stream changed no executable code — the only edited file is
-`Verify/TypeChecker/IsDefEq.lean`, which contains theorems only, and the two additions are
-theorems with no `@[implemented_by]`, no `partial`, and no effect on `Lean4Lean.addDecl`'s cone.
-The baseline to hold remains 185 correct / 6 either / 0 incorrect.
+`UnitLikeBridge` is stated at the exact gate the function tests (`.inductInfo` with
+`isRec = false`, `ctors = [cn]`, `numIndices = 0`; `.ctorInfo` with `numFields = 0`) and
+bundles the typing side conditions `StructEta` needs, which come from the same place — the
+block's declaration — and have no cheaper source today.
+
+### `tryEtaStructCore.WF_prop` — the `Prop` half, loop included
+
+The previous round's report ended at the loop, with the residual named as `IsStructure`.  The
+loop is now done:
+
+* `RecM.WF.forIn'Break` (new, in the same file) — a loop rule allowing `break`.
+  `M.WF.forIn` (`Verify/TypeChecker.lean`) requires the body to `yield` every iteration, which
+  **none** of `tryEtaStructCore`'s, `isDefEqApp`'s or `isDefEqArgs`' loops do.  The invariant is
+  not indexed by the remaining list (a `break` skips it); what it carries is the state
+  discipline, which is what `RecM.WF` demands beyond the postcondition and which *is* the loop
+  obligation.  Reusable.
+* `Std.Legacy.Range.forIn'_eq_forIn'_range'` converts `forIn' [np:args.size]` into a
+  `List.forIn'` over `List.range'`, which is what makes the rule applicable.  This step was not
+  in the previous round's account.
+* `EtaStructBridge c t s` — the bridge, in the form the loop consumes: for each field index,
+  *two* translations, `c.TrExprS (.proj I (i - np) t) _` **and** `c.TrExprS s.getAppArgs[i] _`.
+
+That second translation is the correction to the relay.  `TrProj.mk`'s `IsStructure` is why the
+first is blocked, but `isDefEq.WF` needs both arguments translated before it fires, so the
+residual per iteration is two facts, not one.
+
+**Honest note on today's satisfiability.**  `EtaStructBridge c e₁ e₂` is currently provable for
+every `c`: its premise asks for a `.ctorInfo` under the head of a translated term, and
+`TrEnv.not_ctorInfo` forbids that.  So the theorem is instantiable today but the instantiation
+is empty.  What it buys is that the conclusion is derived from `proofIrrel` and the loop rule
+rather than from the vacuity, so it keeps working when the bridge stops being free — the same
+standard `WF_prop` was held to.
+
+### What remains for the full `tryEtaStructCore.WF`
+
+The non-`Prop` case, and it is now a precisely shaped job: carry the per-iteration
+`c.IsDefEqU (proj_i e₁') args_i'` through `forIn'Break`'s invariant instead of discarding it,
+assemble them into a `VEnv.HasArgsDF` over the constructor's field telescope, and close with
+`VEnv.StructEta.congrSpine`, which is proved and waiting.  Two ingredients are missing: the
+invariant has to be indexed by the fields processed so far (`forIn'Break`'s deliberately is
+not — a `break` version indexed by a prefix is a second lemma), and `e₂'` has to be decomposed
+as `(.const C.name us).mkApp (ps ++ args')`, which is `AppStack.build` plus `TrExprS.const`
+inversion.  Neither was attempted.
 
 ---
 
-## 8. What to pick up first
+## 5. Non-vacuity  **[checked]**
 
-Ordered by ratio of unblocked content to cost.
+*The assumption is consistent.*  `VEnv.empty_structEta` — the empty environment declares no
+structure, so `StructEta` holds there.  A theorem taking `StructEta` as a hypothesis is
+therefore not vacuous for want of a model of the hypothesis.
 
-1. **`structEta` in `Theory/Typing/Basic.lean`** — still the single largest unplanned item, and
-   still the only thing that makes either hole *have* content.  `docs/design-inductive.md:724–765`
-   carries the design; §4 above and `research-structeta.md` §2 carry the correction it needs
-   (the proposed `IsNeverZero` side condition is wrong for these two call sites, which fire on
-   `Prop` structures; either drop it or pair the rule with a `proofIrrel` branch — §2's theorem
-   is that branch, for the zero-field case, already written).
-2. **The AddInduct bridge**, in the specific shape §5 names:
-   `c.env.isNonRecStructure I = true → ∃ D T C, c.venv.IsStructure I D T C` (plus the level and
-   parameter side conditions `TrProj.mk` wants).  This single lemma is what unblocks
-   `tryEtaStructCore`'s loop, and it is also what `inferProj.WF` and `reduceProjCore.WF` need.
-   It cannot be written before `AddInduct` gains constructors.
-3. **`IsDefEqU.forallE_inv_stratified`** — one hole standing between `inferType.WF` (and hence
-   §2's theorem, and hence most of `Verify/TypeChecker/`) and a clean unique-typing cone.  Not
-   this stream's, but it is the highest-leverage single name in the census for this corner.
-4. **Do not** close either hole vacuously, and **do not** weaken or build on
-   `tryEtaStructCore_never_true` / `isDefEqUnitLike_never_true`.  They are two of the nine
-   placeholder statements the standing ruling keeps live precisely so that the ι-reduction,
-   projection-reduction and structure-eta obligations stay visible as theorems.  Note the
-   asymmetry recorded in §1: the `tryEtaStructCore` witness is sorry-free and the
-   `isDefEqUnitLike` one is not, so they will not go red together.
+*The premises are jointly satisfiable at a two-field structure.*
+`Theory/Inductive/StructureEta.lean` builds
+`structure Baz : Prop where (a : ∀ p : Prop, p) (b : ∀ p : Prop, p)` as `bazDecl`, proves
+`bazDecl.WF VEnv.empty` outright, derives `bazEnv_IsStructure`, and
+`bazEnv_structEta_premises` discharges **every** clause of `StructEta` at once, with
+`bazCtor.fields.length = 2` as the last conjunct.  `bazEnv_structEta` fires the rule at that
+witness; `bazEnv_etaExpansion_eq` spells out the resulting term as `Baz.mk` applied to the two
+projections and `bazEnv_projMinors_distinct` shows they really are two.
+
+The acceptance criterion the method note asks for is met in the strong form: this is not a
+one-field structure, and the F17 clause is discharged in its **small-elimination** branch
+(`bazDecl.isLE = false`, so the `.inl` disjunct is unavailable), which is the branch `barDecl`
+refutes.
+
+*The η-expansion term is the right term.*  `Theory/Inductive/StructureExamples.lean` adds five
+`rfl` checks against Lean's own elaborator: `Prod`, `Sigma` (dependent second field), `And`
+(a `Prop` structure — the case `IsNeverZero` would have excluded), `Subtype` (dependent `Prop`
+field), plus the F17 clause in its non-trivial disjunct at `And`.  All four are two-field.
+
+---
+
+## 6. Corrections to the incoming relay
+
+* "**The residual is: supply `IsStructure` from `isNonRecStructure = true`.  That is the single
+  step blocking `tryEtaStructCore.WF`.**"  Two errors.  It is not a single step (§4: the loop
+  also needs the argument translations, and needed a `break` loop rule that did not exist), and
+  it is not merely waiting on `AddInduct` gaining constructors (§3: it does not follow from
+  `AddInduct`'s intended definition either).
+* "**`design-inductive.md`'s `IsNeverZero` side condition is wrong for these two call sites.**"
+  Correct, and now fixed — but incomplete: dropping it is not enough, because a *different*
+  side condition (F17) is needed to keep the rule's right-hand side well typed. §2.
+* "**`TrProj.wf` is now proved.**"  Confirmed independently: it has dropped out of the measured
+  hole cone of everything in this corner. `IsDefEqU.weakN_iff` has entered it.
+* Everything else in the relay that this round touched checked out: the `Prop` half of
+  `isDefEqUnitLike` does enter the live gate arm; `TrProj.mk` reads its parameter list off a
+  `HasType` premise so no injectivity is needed (now a proved lemma, `StructEta.congrSpine`);
+  neither C++ function tests the structure's universe.
+
+---
+
+## 7. What to pick up first
+
+1. **`AddInduct`'s shape predicates.**  §3's `IndShape`/`CtorShape`.  This is a small edit to a
+   definition, it is a prerequisite for *both* eta checks, and it is also what `inferProj.WF`
+   and `reduceProjCore.WF` need.  It cannot be done before `AddInduct` gains constructors, but
+   it changes what that flip has to contain, so it should land in the flip's design now rather
+   than be discovered afterwards.
+2. **The non-`Prop` half of `tryEtaStructCore.WF`** — §4's closing paragraph names the two
+   missing ingredients and the lemma (`StructEta.congrSpine`) that is already proved and waiting.
+3. **`structEta` as an `IsDefEq` constructor.**  `VEnv.StructEta` is the statement; promoting it
+   is the coordinated multi-file change §1 describes.  Doing it turns `StructEta` from a
+   hypothesis into a fact and both §4 theorems into halves of the real ones.
+4. **Do not** close either hole vacuously, and do not weaken or build on
+   `tryEtaStructCore_never_true` / `isDefEqUnitLike_never_true`.  Unchanged from last round.

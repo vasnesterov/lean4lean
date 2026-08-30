@@ -1,4 +1,4 @@
-import Lean4Lean.Theory.Inductive.Structure
+import Lean4Lean.Theory.Inductive.StructureEta
 import Lean4Lean.Theory.Meta
 
 /-!
@@ -291,6 +291,66 @@ example : mkLams tpCtx00
     (tpDecl.projTerm tpType tpMk [.zero, .zero] [.const ``Nat []] [] 0 (.bvar 0)) =
     vexpr(fun (p : TP Nat) =>
       @TP.rec Nat (fun _ => Nat) (fun (a : Nat) (b : Type) => a) p) := rfl
+
+/-! ## The η-expansions
+
+`VInductDecl'.etaExpansion` (`Theory/Inductive/StructureEta.lean`) is the right-hand side of
+the structure-eta rule: `S.mk ps (proj 0 e) … (proj (n-1) e)`.  The rule itself is an
+assumption on the environment — it is not derivable from the thirteen `IsDefEq` constructors —
+but the *term* it produces is checkable, and these are the checks.
+
+Every one is at a **two-field** structure, so none of them is the degenerate zero- or
+one-field case.  `Lean.Expr`'s `p.1` elaborates to the auxiliary definition `Prod.fst`, not to
+a recursor application, so the expected side is spelled out with `@S.rec` exactly as the
+`projTerm` checks above are. -/
+
+example : mkLams prodCtx
+    (prodDecl.etaExpansion prodType prodMk [.param 0, .param 1] [.bvar 2, .bvar 1] (.bvar 0)) =
+    vexpr(fun (α : Type u) (β : Type v) (p : α × β) =>
+      @Prod.mk α β
+        (@Prod.rec α β (fun _ => α) (fun a b => a) p)
+        (@Prod.rec α β (fun _ => β) (fun a b => b) p)) := rfl
+
+/-- The dependent case: the second component's *type* mentions the first projection, so the
+η-expansion contains a projection nested inside a motive. -/
+example : mkLams sigmaCtx
+    (sigmaDecl.etaExpansion sigmaType sigmaMk [.param 0, .param 1] [.bvar 2, .bvar 1]
+      (.bvar 0)) =
+    vexpr(fun (α : Type u) (β : α → Type v) (p : Sigma β) =>
+      @Sigma.mk α β
+        (@Sigma.rec α β (fun _ => α) (fun a b => a) p)
+        (@Sigma.rec α β (fun x => β (@Sigma.rec α β (fun _ => α) (fun a b => a) x))
+          (fun a b => b) p)) := rfl
+
+/-- **A `Prop` structure.**  `tryEtaStructCore` and `isDefEqUnitLike` do not test the
+structure's universe, so this is a real call site, not a curiosity — and it is the case
+`docs/design-inductive.md`'s proposed `IsNeverZero` side condition would have excluded. -/
+example : mkLams andCtx
+    (andDecl.etaExpansion andType andIntro [] [.bvar 2, .bvar 1] (.bvar 0)) =
+    vexpr(fun (a b : Prop) (h : a ∧ b) =>
+      @And.intro a b
+        (@And.rec a b (fun _ => a) (fun l r => l) h)
+        (@And.rec a b (fun _ => b) (fun l r => r) h)) := rfl
+
+example : mkLams subtypeCtx
+    (subtypeDecl.etaExpansion subtypeType subtypeMk [.param 0] [.bvar 2, .bvar 1] (.bvar 0)) =
+    vexpr(fun (α : Sort u) (p : α → Prop) (s : Subtype p) =>
+      @Subtype.mk α p
+        (@Subtype.rec α p (fun _ => α) (fun v h => v) s)
+        (@Subtype.rec α p (fun x => p (@Subtype.rec α p (fun _ => α) (fun v h => v) x))
+          (fun v h => h) s)) := rfl
+
+/-- `VEnv.StructEta`'s F17 clause, in its **non-trivial** disjunct, at `And`.  All four blocks
+above set `isLE := true`, which discharges the clause by `.inl`; this checks that the
+small-elimination branch is satisfiable too, and at a two-field structure.  (It is the branch
+that `Verify/Typing/ProjLevelWitness.lean`'s `barDecl` fails — field 0 there has level
+`.succ .zero` — which is why the clause has to be there at all.) -/
+example : andDecl.isLE = true ∨ ∀ k, k < andIntro.fields.length →
+    (andIntro.fields.getD k default).lvl.inst [] ≈ .zero :=
+  .inr fun k hk => by
+    match k, hk with
+    | 0, _ => exact .refl _
+    | 1, _ => exact .refl _
 
 end StructureExamples
 end Lean4Lean
