@@ -646,6 +646,38 @@ theorem IsDefEqU.inst0 (henv : env.WF) {A a e₁ e₂ : VExpr} {Γ : List VExpr}
     env.IsDefEqU 0 Γ (e₁.inst a) (e₂.inst a) :=
   IsDefEqU.instN henv.ordered .zero H ha
 
+/-- **Instantiate a defeq proved under four nested binders** whose only dependency is on the
+outermost one -- exactly the shape `Reflection.checkITE` (`p`, `H`, `t`, `e`) and
+`Reflection.checkNatDITE` (`p`, `H`, `a`, `b`) leave behind.  The outermost binder is
+substituted first, by `IsDefEqU.instN` at depth 3, which instantiates the three inner domains
+as it goes; the remaining three domains are then closed, so three `inst0`s finish the job.
+
+This is why the recognizer binds `p` outermost: with any other order the inner domains still
+mention `p` when their turn comes and no `HasType` in the empty context can be supplied for
+them. -/
+theorem IsDefEqU.inst4 (henv : env.WF) {A B C D p a b c e₁ e₂ : VExpr}
+    (H : env.IsDefEqU 0 [C, B, A, D] e₁ e₂)
+    (hp : env.HasType 0 [] p D)
+    (ha : env.HasType 0 [] a (A.inst p 0))
+    (hb : env.HasType 0 [] b (B.inst p 1))
+    (hc : env.HasType 0 [] c (C.inst p 2)) :
+    env.IsDefEqU 0 [] ((((e₁.inst p 3).inst c).inst b).inst a)
+      ((((e₂.inst p 3).inst c).inst b).inst a) :=
+  let h3 := IsDefEqU.instN henv.ordered (.succ (.succ (.succ .zero))) H hp
+  let h2 := IsDefEqU.instN henv.ordered .zero h3 (hc.weak0 henv.ordered)
+  let h1 := IsDefEqU.instN henv.ordered .zero h2 (hb.weak0 henv.ordered)
+  IsDefEqU.instN henv.ordered .zero h1 (ha.weak0 henv.ordered)
+
+/-- **Instantiate a defeq proved under two independent binders** of arbitrary closed domains --
+the shape `Condition.check`'s `.bool` branch leaves behind (`t`, `e` at a fixed result type).
+`IsDefEqU.instNat2` is this at `A = B = .nat`. -/
+theorem IsDefEqU.inst2 (henv : env.WF) {A B a b e₁ e₂ : VExpr}
+    (H : env.IsDefEqU 0 [B, A] e₁ e₂)
+    (ha : env.HasType 0 [] a A) (hb : env.HasType 0 [] b B) :
+    env.IsDefEqU 0 [] ((e₁.inst b).inst a) ((e₂.inst b).inst a) :=
+  let h1 := IsDefEqU.instN henv.ordered .zero H (hb.weak0 henv.ordered)
+  IsDefEqU.instN henv.ordered .zero h1 (ha.weak0 henv.ordered)
+
 /-- β, packaged at `IsDefEqU`.  `Reflection.ite` is a four-fold λ, so getting from the
 equation the recognizer checks to `reflects_condApp`'s `hsel` is four of these. -/
 theorem IsDefEqU.beta' {A b a B : VExpr}
@@ -760,7 +792,19 @@ The two proof arguments `go` carries (`1 ≤ y` and `Nat.succ x ≤ fuel`) are o
 here.  They are handled by a predicate `Ok` the caller chooses and a proof-builder `K` for the
 recursive call — the shape `Nat.div_rec_fuel_lemma` has in the recognizer — with the single
 requirement `hK` that `K` preserves `Ok`.  Nothing about their *types* is needed, which is
-what makes the induction independent of the branch's plumbing. -/
+what makes the induction independent of the branch's plumbing.
+
+**`Ok` is indexed by the fuel and the numerator, and must be.**  An earlier version of this
+section wrote `Ok : Nat → VExpr → VExpr → Prop`, i.e. `Ok b hy h` with no dependence on `f`
+and `x`.  That version is true but *unusable*: `hgo b f x hy h` asserts a defeq whose left
+side is `GO b hy (f+1) x h`, and `IsDefEqU` entails well-typedness, so `h` must have type
+`x+1 ≤ f+1` for these particular `f` and `x`.  A three-argument `Ok` cannot say that — it is
+carried unchanged across the recursive call, where the fuel is `f` and the numerator `x - b`,
+and a proof of `x+1 ≤ f+1` is not a proof of `x-b+1 ≤ f`.  Any `Ok` strong enough to make
+`hgo` provable is therefore empty, and the conclusion is then vacuous at every call site.
+Indexing `Ok` by `f` and `x` costs the induction nothing (`hK` steps the indices down exactly
+as the recursive call does) and is what the `Nat.mod` / `Nat.div` branches can actually
+supply. -/
 
 /-- A five-fold application: the shape `Nat.modCore.go y hy fuel x h` and `Nat.div.go` have. -/
 def VExpr.app5 (F a b c d e : VExpr) : VExpr := ((((F.app a).app b).app c).app d).app e
@@ -771,22 +815,22 @@ variable {env : VEnv}
 /-- **Fuel induction, for both `Nat.mod` and `Nat.div`.** -/
 theorem reflects_fuel_go (henv : env.WF)
     {GO Fd Pd Dd : VExpr} {K : Nat → Nat → Nat → VExpr → VExpr → VExpr}
-    {Ok : Nat → VExpr → VExpr → Prop} {wrap : VExpr → VExpr} {base : Nat → VExpr}
+    {Ok : Nat → VExpr → Nat → Nat → VExpr → Prop} {wrap : VExpr → VExpr} {base : Nat → VExpr}
     {sem : Nat → Nat → Nat} {w : Nat → Nat}
     (hdite : env.ReflectsCondApp Fd Pd Dd Nat.ble)
-    (hgo : ∀ (b f x : Nat) (hy h : VExpr), Ok b hy h →
+    (hgo : ∀ (b f x : Nat) (hy h : VExpr), Ok b hy (f+1) x h →
       env.IsDefEqU 0 []
         (VExpr.app5 GO (.natLit b) hy (.natLit (f + 1)) (.natLit x) h)
         (VExpr.condApp Fd (.app (.app Pd (.natLit b)) (.natLit x))
           (.app (.app Dd (.natLit b)) (.natLit x))
           (wrap (VExpr.app5 GO (.natLit b) hy (.natLit f) (.natLit (x - b)) (K b f x hy h)))
           (base x)))
-    (hK : ∀ b f x hy h, Ok b hy h → Ok b hy (K b f x hy h))
+    (hK : ∀ b f x hy h, Ok b hy (f+1) x h → Ok b hy f (x - b) (K b f x hy h))
     (hwrap : ∀ (n : Nat) (u : VExpr), env.IsDefEqU 0 [] u (.natLit n) →
       env.IsDefEqU 0 [] (wrap u) (.natLit (w n)))
     (hrec : ∀ x b : Nat, 1 ≤ b → b ≤ x → sem x b = w (sem (x - b) b))
     (hbase : ∀ x b : Nat, 1 ≤ b → ¬ b ≤ x → base x = .natLit (sem x b)) :
-    ∀ (f x b : Nat), 1 ≤ b → x < f → ∀ hy h, Ok b hy h →
+    ∀ (f x b : Nat), 1 ≤ b → x < f → ∀ hy h, Ok b hy f x h →
       env.IsDefEqU 0 [] (VExpr.app5 GO (.natLit b) hy (.natLit f) (.natLit x) h)
         (.natLit (sem x b)) := by
   intro f
@@ -823,17 +867,17 @@ theorem reflects_succ (henv : env.WF) (hprim : env.HasPrimitives) (hnat : env.co
 returns the numerator, which is `x % b` exactly when `x < b`. -/
 theorem reflects_fuel_mod (henv : env.WF)
     {GO Fd Pd Dd : VExpr} {K : Nat → Nat → Nat → VExpr → VExpr → VExpr}
-    {Ok : Nat → VExpr → VExpr → Prop}
+    {Ok : Nat → VExpr → Nat → Nat → VExpr → Prop}
     (hdite : env.ReflectsCondApp Fd Pd Dd Nat.ble)
-    (hgo : ∀ (b f x : Nat) (hy h : VExpr), Ok b hy h →
+    (hgo : ∀ (b f x : Nat) (hy h : VExpr), Ok b hy (f+1) x h →
       env.IsDefEqU 0 []
         (VExpr.app5 GO (.natLit b) hy (.natLit (f + 1)) (.natLit x) h)
         (VExpr.condApp Fd (.app (.app Pd (.natLit b)) (.natLit x))
           (.app (.app Dd (.natLit b)) (.natLit x))
           (VExpr.app5 GO (.natLit b) hy (.natLit f) (.natLit (x - b)) (K b f x hy h))
           (.natLit x)))
-    (hK : ∀ b f x hy h, Ok b hy h → Ok b hy (K b f x hy h)) :
-    ∀ (f x b : Nat), 1 ≤ b → x < f → ∀ hy h, Ok b hy h →
+    (hK : ∀ b f x hy h, Ok b hy (f+1) x h → Ok b hy f (x - b) (K b f x hy h)) :
+    ∀ (f x b : Nat), 1 ≤ b → x < f → ∀ hy h, Ok b hy f x h →
       env.IsDefEqU 0 [] (VExpr.app5 GO (.natLit b) hy (.natLit f) (.natLit x) h)
         (.natLit (x % b)) :=
   reflects_fuel_go (wrap := id) (w := id) (base := fun x => .natLit x) (sem := (· % ·))
@@ -846,9 +890,9 @@ the fuel-exhausted branch. -/
 theorem reflects_fuel_div (henv : env.WF) (hprim : env.HasPrimitives)
     (hnat : env.contains ``Nat)
     {GO Fd Pd Dd : VExpr} {K : Nat → Nat → Nat → VExpr → VExpr → VExpr}
-    {Ok : Nat → VExpr → VExpr → Prop}
+    {Ok : Nat → VExpr → Nat → Nat → VExpr → Prop}
     (hdite : env.ReflectsCondApp Fd Pd Dd Nat.ble)
-    (hgo : ∀ (b f x : Nat) (hy h : VExpr), Ok b hy h →
+    (hgo : ∀ (b f x : Nat) (hy h : VExpr), Ok b hy (f+1) x h →
       env.IsDefEqU 0 []
         (VExpr.app5 GO (.natLit b) hy (.natLit (f + 1)) (.natLit x) h)
         (VExpr.condApp Fd (.app (.app Pd (.natLit b)) (.natLit x))
@@ -856,8 +900,8 @@ theorem reflects_fuel_div (henv : env.WF) (hprim : env.HasPrimitives)
           (.app .natSucc
             (VExpr.app5 GO (.natLit b) hy (.natLit f) (.natLit (x - b)) (K b f x hy h)))
           (.natLit 0)))
-    (hK : ∀ b f x hy h, Ok b hy h → Ok b hy (K b f x hy h)) :
-    ∀ (f x b : Nat), 1 ≤ b → x < f → ∀ hy h, Ok b hy h →
+    (hK : ∀ b f x hy h, Ok b hy (f+1) x h → Ok b hy f (x - b) (K b f x hy h)) :
+    ∀ (f x b : Nat), 1 ≤ b → x < f → ∀ hy h, Ok b hy f x h →
       env.IsDefEqU 0 [] (VExpr.app5 GO (.natLit b) hy (.natLit f) (.natLit x) h)
         (.natLit (x / b)) :=
   reflects_fuel_go (wrap := (.app .natSucc ·)) (w := (· + 1))
@@ -865,6 +909,339 @@ theorem reflects_fuel_div (henv : env.WF) (hprim : env.HasPrimitives)
     henv hdite hgo hK (fun n u h => reflects_succ henv hprim hnat n h)
     (fun _ _ hb hbx => Nat.div_eq_sub_div (by omega) hbx)
     (fun x b _ hbx => congrArg VExpr.natLit (Nat.div_eq_of_lt (by omega)).symm)
+
+end VEnv
+
+
+/-! ## `Nat.bitwise`: the second-order field
+
+`docs/handoff-primitive.md` §5(d).  `VEnv.ReflectsNatBitwise` is the one `HasPrimitives` field
+whose statement quantifies over an arbitrary later extension and an arbitrary combinator `f`,
+and the recursion it describes steps on `n / 2` and `m / 2` rather than on a constructor.  The
+induction below is the whole content of that field, stated over the equation the recognizer
+checks and nothing else.
+
+**A defect in `VEnv.ReflectsBoolBoolBool`, and the repair.**  `ReflectsNatBitwise` is
+*unprovable as stated in `Verify/Typing/Expr.lean`*, for an information-flow reason.  Its
+conclusion is
+
+```
+env'.IsDefEqU 0 [] (Nat.bitwise · f · a · b) (natLit (Nat.bitwise g a b))
+```
+
+and `IsDefEqU` entails well-typedness, so the conclusion *asserts* that `f` may be applied at
+`Nat.bitwise`'s domain — i.e. that `env'.HasType 0 [] f (Bool → Bool → Bool)`.  Its only
+hypothesis about `f` is `env'.ReflectsBoolBoolBool f g`, which says that `f` applied to two
+boolean *literals* reduces to a literal; that does not give the typing.  A term
+`f : (x : Bool) → Q x` in an environment carrying `Q Bool.true ≡ Bool → Bool` and
+`Q Bool.false ≡ Bool → Bool` — and nothing about `Q` at a variable — satisfies
+`ReflectsBoolBoolBool` while `Nat.bitwise · f` is ill-typed; `env'` ranges over *arbitrary*
+extensions, well-formed or not, so nothing rules that environment out.
+
+The repair is to carry the typing in `ReflectsBoolBoolBool`, and it loses no content: whenever
+`Nat.bitwise`'s own type is `(Bool → Bool → Bool) → Nat → Nat → Nat`, which the recognizer's
+`checkPrimValue` pins, the conclusion at an `f` *without* that typing is false anyway, so the
+strengthened statement covers every `f` at which the old one was not already false.  The
+strengthened forms are `ReflectsBoolBoolBoolT` / `ReflectsNatBitwiseT` below.  Making them
+*the* definitions is a one-line edit in `Verify/Typing/Expr.lean`, which this stream does not
+own; `docs/handoff-primitive.md` §5(d) carries the exact text, together with the matching
+`Nat.land` / `Nat.lor` / `Nat.xor` recognizer check that supplies the new conjunct. -/
+
+namespace VEnv
+variable {env : VEnv}
+
+/-- `VEnv.ReflectsBoolBoolBool` together with the typing its consumers need.  See the section
+note: without the first conjunct `ReflectsNatBitwise` is not provable. -/
+def ReflectsBoolBoolBoolT (env : VEnv) (f : VExpr) (g : Bool → Bool → Bool) : Prop :=
+  env.HasType 0 [] f (.forallE .bool (.forallE .bool .bool)) ∧ env.ReflectsBoolBoolBool f g
+
+/-- `VEnv.ReflectsNatBitwise` with `ReflectsBoolBoolBoolT` in place of
+`ReflectsBoolBoolBool`. -/
+def ReflectsNatBitwiseT (env : VEnv) : Prop :=
+  env.contains ``Nat.bitwise →
+  ∀ (env' : VEnv), env ≤ env' → env'.WF → ∀ (f : VExpr) (g : Bool → Bool → Bool),
+    env'.ReflectsBoolBoolBoolT f g → ∀ a b, env'.IsDefEqU 0 []
+      (.app (.app (.app (.const ``Nat.bitwise []) f) (.natLit a)) (.natLit b))
+      (.natLit (Nat.bitwise g a b))
+
+/-- The strengthened field gives the one in `Verify/Typing/Expr.lean` at every `f` that carries
+the typing -- the direction that survives without the edit. -/
+theorem ReflectsNatBitwiseT.toWeak (h : env.ReflectsNatBitwiseT)
+    (hc : env.contains ``Nat.bitwise) {env' : VEnv} (hle : env ≤ env') (henv' : env'.WF)
+    {f : VExpr} {g : Bool → Bool → Bool}
+    (hty : env'.HasType 0 [] f (.forallE .bool (.forallE .bool .bool)))
+    (hf : env'.ReflectsBoolBoolBool f g) (a b : Nat) :
+    env'.IsDefEqU 0 []
+      (.app (.app (.app (.const ``Nat.bitwise []) f) (.natLit a)) (.natLit b))
+      (.natLit (Nat.bitwise g a b)) := h hc env' hle henv' f g ⟨hty, hf⟩ a b
+
+end VEnv
+
+/-! ### Conditionals with one boolean scrutinee, and conditionals at non-literal arguments -/
+
+/-- Two-fold application, the shape every argument position of the `Nat.bitwise` equation
+has. -/
+def VExpr.app2' (F a b : VExpr) : VExpr := (F.app a).app b
+
+/-- A primitive binary `Nat` operation applied to two terms. -/
+def VExpr.natOp (n : Name) (a b : VExpr) : VExpr := VExpr.app2' (.const n []) a b
+
+namespace VEnv
+variable {env : VEnv}
+
+theorem _root_.Lean4Lean.VExpr.WF.app2_fn (henv : env.WF) {F u v : VExpr}
+    (h : VExpr.WF env 0 [] (VExpr.app2' F u v)) : VExpr.WF env 0 [] F :=
+  (h.app_fn' henv).app_fn' henv
+
+theorem _root_.Lean4Lean.VExpr.WF.app2_arg1 (henv : env.WF) {F u v : VExpr}
+    (h : VExpr.WF env 0 [] (VExpr.app2' F u v)) : VExpr.WF env 0 [] u :=
+  (h.app_fn' henv).app_arg' henv
+
+theorem _root_.Lean4Lean.VExpr.WF.app2_arg2 (henv : env.WF) {F u v : VExpr}
+    (h : VExpr.WF env 0 [] (VExpr.app2' F u v)) : VExpr.WF env 0 [] v := h.app_arg' henv
+
+theorem _root_.Lean4Lean.VExpr.WF.condApp_cond (henv : env.WF) {F c i t e : VExpr}
+    (h : VExpr.WF env 0 [] (VExpr.condApp F c i t e)) : VExpr.WF env 0 [] c :=
+  (((h.app_fn' henv).app_fn' henv).app_fn' henv).app_arg' henv
+
+theorem _root_.Lean4Lean.VExpr.WF.condApp_inst (henv : env.WF) {F c i t e : VExpr}
+    (h : VExpr.WF env 0 [] (VExpr.condApp F c i t e)) : VExpr.WF env 0 [] i :=
+  ((h.app_fn' henv).app_fn' henv).app_arg' henv
+
+theorem _root_.Lean4Lean.VExpr.WF.condApp_t (henv : env.WF) {F c i t e : VExpr}
+    (h : VExpr.WF env 0 [] (VExpr.condApp F c i t e)) : VExpr.WF env 0 [] t :=
+  (h.app_fn' henv).app_arg' henv
+
+theorem _root_.Lean4Lean.VExpr.WF.condApp_e (henv : env.WF) {F c i t e : VExpr}
+    (h : VExpr.WF env 0 [] (VExpr.condApp F c i t e)) : VExpr.WF env 0 [] e := h.app_arg' henv
+
+theorem IsDefEqU.app2_congr_args (henv : env.WF) {F u u' v v' : VExpr}
+    (hwt : VExpr.WF env 0 [] (VExpr.app2' F u v))
+    (hu : env.IsDefEqU 0 [] u u') (hv : env.IsDefEqU 0 [] v v') :
+    env.IsDefEqU 0 [] (VExpr.app2' F u v) (VExpr.app2' F u' v') := by
+  have h1 : env.IsDefEqU 0 [] (VExpr.app2' F u v) (VExpr.app2' F u' v) :=
+    IsDefEqU.app_congr_fn' henv hwt (IsDefEqU.app_congr_arg' henv (hwt.app_fn' henv) hu)
+  exact IsDefEqU.trans henv trivial h1 (IsDefEqU.app_congr_arg' henv h1.wf_r hv)
+
+/-- Replace a conditional's *condition* (not its instance). -/
+theorem IsDefEqU.condApp_congr_cond (henv : env.WF) {F c c' i t e : VExpr}
+    (hwt : VExpr.WF env 0 [] (VExpr.condApp F c i t e)) (h : env.IsDefEqU 0 [] c c') :
+    env.IsDefEqU 0 [] (VExpr.condApp F c i t e) (VExpr.condApp F c' i t e) :=
+  IsDefEqU.app_congr_fn' henv hwt <|
+    IsDefEqU.app_congr_fn' henv (hwt.app_fn' henv) <|
+      IsDefEqU.app_congr_fn' henv ((hwt.app_fn' henv).app_fn' henv) <|
+        IsDefEqU.app_congr_arg' henv (((hwt.app_fn' henv).app_fn' henv).app_fn' henv) h
+
+/-- A `ReflectsCondApp` read at arguments that merely *reflect* numerals -- the shape
+`Nat.bitwise`'s equation has, where the scrutinee of the parity conditionals is
+`Nat.mod n 2` rather than a literal. -/
+theorem ReflectsCondApp.ofDefeq (henv : env.WF) {F P D : VExpr} {g : Nat → Nat → Bool}
+    (h : env.ReflectsCondApp F P D g) {u v : VExpr} (a b : Nat)
+    (hu : env.IsDefEqU 0 [] u (.natLit a)) (hv : env.IsDefEqU 0 [] v (.natLit b))
+    (t e : VExpr)
+    (hwt : VExpr.WF env 0 [] (VExpr.condApp F (VExpr.app2' P u v) (VExpr.app2' D u v) t e)) :
+    env.IsDefEqU 0 [] (VExpr.condApp F (VExpr.app2' P u v) (VExpr.app2' D u v) t e)
+      (bif g a b then t else e) := by
+  have hc := IsDefEqU.condApp_congr_cond henv hwt
+    (IsDefEqU.app2_congr_args henv (hwt.condApp_cond henv) hu hv)
+  have hi := IsDefEqU.condApp_congr_inst henv hc.wf_r
+    (IsDefEqU.app2_congr_args henv (hc.wf_r.condApp_inst henv) hu hv)
+  exact IsDefEqU.trans henv trivial hc
+    (IsDefEqU.trans henv trivial hi (h a b t e hi.wf_r))
+
+/-- **A conditional with a single boolean scrutinee**: `Condition.bool`, which `Nat.bitwise`'s
+equation uses three times.  There is no `Reflection` layer here -- the recognizer's `.bool`
+branch checks the two selections directly. -/
+def ReflectsCondApp1 (env : VEnv) (F P D : VExpr) : Prop :=
+  ∀ (v : Bool) (t e : VExpr),
+    VExpr.WF env 0 [] (VExpr.condApp F (P.app (.boolLit v)) (D.app (.boolLit v)) t e) →
+    env.IsDefEqU 0 [] (VExpr.condApp F (P.app (.boolLit v)) (D.app (.boolLit v)) t e)
+      (bif v then t else e)
+
+/-- `ReflectsCondApp1` at a scrutinee that merely reflects a boolean literal. -/
+theorem ReflectsCondApp1.ofDefeq (henv : env.WF) {F P D : VExpr}
+    (h : env.ReflectsCondApp1 F P D) {u : VExpr} (v : Bool)
+    (hu : env.IsDefEqU 0 [] u (.boolLit v)) (t e : VExpr)
+    (hwt : VExpr.WF env 0 [] (VExpr.condApp F (P.app u) (D.app u) t e)) :
+    env.IsDefEqU 0 [] (VExpr.condApp F (P.app u) (D.app u) t e) (bif v then t else e) := by
+  have hc := IsDefEqU.condApp_congr_cond henv hwt
+    (IsDefEqU.app_congr_arg' henv (hwt.condApp_cond henv) hu)
+  have hi := IsDefEqU.condApp_congr_inst henv hc.wf_r
+    (IsDefEqU.app_congr_arg' henv (hc.wf_r.condApp_inst henv) hu)
+  exact IsDefEqU.trans henv trivial hc
+    (IsDefEqU.trans henv trivial hi (h v t e hi.wf_r))
+
+end VEnv
+
+/-! ### The `Nat.bitwise` recursion -/
+
+/-- The `Bool` the recognizer's `Condition.natEq.decide #[Nat.mod n 2, 1]` builds. -/
+def VExpr.bitParity (Ib Pe De : VExpr) (a : Nat) : VExpr :=
+  VExpr.condApp Ib
+    (VExpr.app2' Pe (VExpr.natOp ``Nat.mod (.natLit a) (.natLit 2)) (.natLit 1))
+    (VExpr.app2' De (VExpr.natOp ``Nat.mod (.natLit a) (.natLit 2)) (.natLit 1))
+    .boolTrue .boolFalse
+
+/-- The recursive call the equation makes: `BW (Nat.div a 2) (Nat.div b 2)`. -/
+def VExpr.bitwiseRec (BW : VExpr) (a b : Nat) : VExpr :=
+  VExpr.app2' BW (VExpr.natOp ``Nat.div (.natLit a) (.natLit 2))
+    (VExpr.natOp ``Nat.div (.natLit b) (.natLit 2))
+
+/-- **The right-hand side the `Nat.bitwise` branch checks**, at a pair of numerals.  `In` and
+`Ib` are `@ite.{1}` applied to `Nat` and to `Bool`; `Pe`/`De` are `Condition.natEq`'s
+proposition and instance, `Pb`/`Db` are `Condition.bool`'s. -/
+def VExpr.bitwiseRhs (In Ib Pe De Pb Db BW f : VExpr) (a b : Nat) : VExpr :=
+  let r := VExpr.bitwiseRec BW a b
+  let sel (c t e : VExpr) := VExpr.condApp In (Pb.app c) (Db.app c) t e
+  VExpr.condApp In (VExpr.app2' Pe (.natLit a) (.natLit 0))
+      (VExpr.app2' De (.natLit a) (.natLit 0))
+    (sel (VExpr.app2' f .boolFalse .boolTrue) (.natLit b) (.natLit 0))
+    (VExpr.condApp In (VExpr.app2' Pe (.natLit b) (.natLit 0))
+        (VExpr.app2' De (.natLit b) (.natLit 0))
+      (sel (VExpr.app2' f .boolTrue .boolFalse) (.natLit a) (.natLit 0))
+      (sel (VExpr.app2' f (VExpr.bitParity Ib Pe De a) (VExpr.bitParity Ib Pe De b))
+        (VExpr.natOp ``Nat.add (VExpr.natOp ``Nat.add r r) (.natLit 1))
+        (VExpr.natOp ``Nat.add r r)))
+
+namespace VEnv
+variable {env : VEnv}
+
+theorem reflects_natOp (henv : env.WF) {n : Name} {op : Nat → Nat → Nat}
+    (h : env.ReflectsNatNatNat n op) (hc : env.contains n) {u v : VExpr} {a b : Nat}
+    (hwt : VExpr.WF env 0 [] (VExpr.natOp n u v))
+    (hu : env.IsDefEqU 0 [] u (.natLit a)) (hv : env.IsDefEqU 0 [] v (.natLit b)) :
+    env.IsDefEqU 0 [] (VExpr.natOp n u v) (.natLit (op a b)) :=
+  IsDefEqU.trans henv trivial (IsDefEqU.app2_congr_args henv hwt hu hv) (h hc a b)
+
+theorem bif_boolLit (v : Bool) :
+    (bif v then VExpr.boolTrue else VExpr.boolFalse) = .boolLit v := by cases v <;> rfl
+
+theorem natBeq_eq_decide (a b : Nat) : Nat.beq a b = decide (a = b) := by
+  induction a generalizing b with
+  | zero => cases b <;> simp [Nat.beq]
+  | succ n ih => cases b <;> simp [Nat.beq, ih]
+
+/-- The parity bit the equation computes: `Condition.natEq.decide #[Nat.mod a 2, 1]` reflects
+`decide (a % 2 = 1)`. -/
+theorem reflects_bitParity (henv : env.WF) (hlit : env.NatLits)
+    (hmod : env.ReflectsNatNatNat ``Nat.mod Nat.mod) (hmodC : env.contains ``Nat.mod)
+    {Ib Pe De : VExpr}
+    (hcEb : env.ReflectsCondApp Ib Pe De Nat.beq) (x : Nat)
+    (hwt : VExpr.WF env 0 [] (VExpr.bitParity Ib Pe De x)) :
+    env.IsDefEqU 0 [] (VExpr.bitParity Ib Pe De x) (.boolLit (decide (x % 2 = 1))) := by
+  have h := ReflectsCondApp.ofDefeq henv hcEb (x % 2) 1
+    (hmod hmodC x 2) (IsDefEqU.refl ⟨_, hlit 1⟩) _ _ hwt
+  rwa [natBeq_eq_decide, bif_boolLit] at h
+
+/-- **`Nat.bitwise`'s recursion.**  `BW` is the checker's `Nat.bitwise` applied to the
+combinator `f`; `heq` is the single equation the branch checks, instantiated at numerals. -/
+theorem reflects_natBitwise_go (henv : env.WF) (hlit : env.NatLits)
+    (hadd : env.ReflectsNatNatNat ``Nat.add Nat.add) (haddC : env.contains ``Nat.add)
+    (hdiv : env.ReflectsNatNatNat ``Nat.div Nat.div) (hdivC : env.contains ``Nat.div)
+    (hmod : env.ReflectsNatNatNat ``Nat.mod Nat.mod) (hmodC : env.contains ``Nat.mod)
+    {In Ib Pe De Pb Db BW f : VExpr} {g : Bool → Bool → Bool}
+    (hf : env.ReflectsBoolBoolBool f g)
+    (hcE : env.ReflectsCondApp In Pe De Nat.beq)
+    (hcEb : env.ReflectsCondApp Ib Pe De Nat.beq)
+    (hcB : env.ReflectsCondApp1 In Pb Db)
+    (heq : ∀ a b : Nat, env.IsDefEqU 0 [] (VExpr.app2' BW (.natLit a) (.natLit b))
+      (VExpr.bitwiseRhs In Ib Pe De Pb Db BW f a b)) :
+    ∀ a b : Nat, env.IsDefEqU 0 [] (VExpr.app2' BW (.natLit a) (.natLit b))
+      (.natLit (Nat.bitwise g a b)) := by
+  intro a
+  induction a using Nat.strongRecOn with
+  | _ a ih =>
+  intro b
+  refine IsDefEqU.trans henv trivial (heq a b) ?_
+  have hw := (heq a b).wf_r
+  -- the outer conditional, on `a = 0`
+  have o1 := hcE a 0 _ _ hw
+  rw [natBeq_eq_decide] at o1
+  by_cases ha : a = 0
+  · subst ha
+    simp only [decide_true, cond_true] at o1
+    refine IsDefEqU.trans henv trivial o1 ?_
+    have hs := ReflectsCondApp1.ofDefeq henv hcB (g false true) (hf false true) _ _ o1.wf_r
+    refine IsDefEqU.trans henv trivial hs ?_
+    rw [Nat.bitwise]
+    cases hgb : g false true
+    · rw [hgb] at hs
+      simp only [cond_false, Bool.false_eq_true, if_false, reduceIte]
+      exact IsDefEqU.refl hs.wf_r
+    · rw [hgb] at hs
+      simp only [cond_true, reduceIte]
+      exact IsDefEqU.refl hs.wf_r
+  · simp only [decide_eq_false ha, cond_false] at o1
+    refine IsDefEqU.trans henv trivial o1 ?_
+    have o2 := hcE b 0 _ _ o1.wf_r
+    rw [natBeq_eq_decide] at o2
+    by_cases hb : b = 0
+    · subst hb
+      simp only [decide_true, cond_true] at o2
+      refine IsDefEqU.trans henv trivial o2 ?_
+      have hs := ReflectsCondApp1.ofDefeq henv hcB (g true false) (hf true false) _ _ o2.wf_r
+      refine IsDefEqU.trans henv trivial hs ?_
+      rw [Nat.bitwise]
+      cases hgb : g true false
+      · rw [hgb] at hs
+        simp only [cond_false, if_neg ha, reduceIte]
+        exact IsDefEqU.refl hs.wf_r
+      · rw [hgb] at hs
+        simp only [cond_true, if_neg ha, reduceIte]
+        exact IsDefEqU.refl hs.wf_r
+    · simp only [decide_eq_false hb, cond_false] at o2
+      refine IsDefEqU.trans henv trivial o2 ?_
+      have hsel := o2.wf_r
+      -- the parity bits reflect
+      have hcond := hsel.condApp_cond henv
+      have hfab : VExpr.WF env 0 []
+          (VExpr.app2' f (VExpr.bitParity Ib Pe De a) (VExpr.bitParity Ib Pe De b)) :=
+        hcond.app_arg' henv
+      have hp1 := reflects_bitParity henv hlit hmod hmodC hcEb a (hfab.app2_arg1 henv)
+      have hp2 := reflects_bitParity henv hlit hmod hmodC hcEb b (hfab.app2_arg2 henv)
+      have hfb : env.IsDefEqU 0 []
+          (VExpr.app2' f (VExpr.bitParity Ib Pe De a) (VExpr.bitParity Ib Pe De b))
+          (.boolLit (g (decide (a % 2 = 1)) (decide (b % 2 = 1)))) :=
+        IsDefEqU.trans henv trivial (IsDefEqU.app2_congr_args henv hfab hp1 hp2)
+          (hf _ _)
+      -- the recursive call reflects
+      have hrw : VExpr.WF env 0 [] (VExpr.natOp ``Nat.add
+          (VExpr.natOp ``Nat.add (VExpr.bitwiseRec BW a b) (VExpr.bitwiseRec BW a b))
+          (.natLit 1)) := hsel.condApp_t henv
+      have hrr := hrw.app2_arg1 henv
+      have hr := hrr.app2_arg1 henv
+      have hlt : a / 2 < a := Nat.div_lt_self (Nat.pos_of_ne_zero ha) (by omega)
+      have hrec : env.IsDefEqU 0 [] (VExpr.bitwiseRec BW a b)
+          (.natLit (Nat.bitwise g (a / 2) (b / 2))) :=
+        IsDefEqU.trans henv trivial
+          (IsDefEqU.app2_congr_args henv hr (hdiv hdivC a 2) (hdiv hdivC b 2))
+          (ih (a / 2) hlt (b / 2))
+      have hsum : env.IsDefEqU 0 []
+          (VExpr.natOp ``Nat.add (VExpr.bitwiseRec BW a b) (VExpr.bitwiseRec BW a b))
+          (.natLit (Nat.bitwise g (a / 2) (b / 2) + Nat.bitwise g (a / 2) (b / 2))) :=
+        reflects_natOp henv hadd haddC hrr hrec hrec
+      have hsum1 : env.IsDefEqU 0 []
+          (VExpr.natOp ``Nat.add
+            (VExpr.natOp ``Nat.add (VExpr.bitwiseRec BW a b) (VExpr.bitwiseRec BW a b))
+            (.natLit 1))
+          (.natLit (Nat.bitwise g (a / 2) (b / 2) + Nat.bitwise g (a / 2) (b / 2) + 1)) :=
+        reflects_natOp henv hadd haddC hrw hsum (IsDefEqU.refl ⟨_, hlit 1⟩)
+      have hs := ReflectsCondApp1.ofDefeq henv hcB _ hfb _ _ hsel
+      refine IsDefEqU.trans henv trivial hs ?_
+      have hbw : Nat.bitwise g a b =
+          (if g (decide (a % 2 = 1)) (decide (b % 2 = 1)) then
+            Nat.bitwise g (a / 2) (b / 2) + Nat.bitwise g (a / 2) (b / 2) + 1
+          else Nat.bitwise g (a / 2) (b / 2) + Nat.bitwise g (a / 2) (b / 2)) := by
+        conv =>
+          lhs
+          rw [Nat.bitwise]
+        simp only [if_neg ha, if_neg hb]
+      rw [hbw]
+      cases hgb : g (decide (a % 2 = 1)) (decide (b % 2 = 1))
+      · simp only [hgb, cond_false, Bool.false_eq_true, if_false, reduceIte]
+        exact hsum
+      · simp only [hgb, cond_true, if_true, reduceIte]
+        exact hsum1
 
 end VEnv
 

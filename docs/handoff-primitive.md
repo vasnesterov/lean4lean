@@ -1,330 +1,347 @@
-# `checkPrimitiveDef.WF.rest` — inventory, statement audit, and what moved
+# `checkPrimitiveDef.WF.rest` — state, two statement defects, and the (c) correction
 
 Stream scope: `Lean4Lean/Primitive.lean`, `Lean4Lean/Verify/Primitive.lean`,
-`Lean4Lean/Verify/Environment/Boundaries.lean`.  Everything below is separated into
-**[machine-checked]** (a `lake build` succeeded on it, or a run of the Kernel Arena produced
-it) and **[source]** (read off the code, not proved).
+`Lean4Lean/Verify/Environment/Boundaries.lean`, new files under `Lean4Lean/Verify/`.
+Everything below is separated into **[machine-checked]** (a `lake build`, an `#print axioms`,
+a `lean_minimal_hypotheses` run, or a Kernel Arena run produced it) and **[source]** (read off
+the code or argued, not proved).
 
-Bottom line, up front:
-
-* the statement is **not** false, and **not** defective — no auto-bound implicit, no
-  under-constrained quantifier, and it is not vacuous **[machine-checked]**;
-* the *first* step the previous analysis identified — the `bugs-found.md` item 4 remedy,
-  which had been applied to fifteen branches but not to these four — **is now done**, in
-  `Lean4Lean/Primitive.lean`, with the Kernel Arena unchanged at **185 / 6 / 0**
-  **[machine-checked]**;
-* one new spec, `TypeChecker.M.WF.withCheckedLocalDecl`, is proved in
-  `Lean4Lean/Verify/Primitive.lean` **[machine-checked]**;
-* the `sorry` itself is **not** closed and is **not** closeable in one stream: what is left is
-  four pieces of genuinely new reflection metatheory, priced in §5;
-* a separate, previously undocumented **divergence from the C++ kernel** turned up on the way
-  (§6): `Nat.pow` and `Nat.shiftLeft` numeral-size guards.
+Census: **19 before, 19 after** **[machine-checked, both runs]**.  Kernel Arena: **185 correct
+/ 6 either / 0 incorrect before and after** **[machine-checked, both runs]**.
 
 ---
 
-## 1. Inventory: what the recognizer does and what its `WF` must say
+## 0. Bottom line
 
-`Lean4Lean.Environment.checkPrimitiveDef : DefinitionVal → M Bool`
-(`Lean4Lean/Primitive.lean`) is called from `Lean4Lean/Environment.lean:43`:
+Three things this session found that the previous handoffs got wrong, and one thing that
+closed:
+
+1. **`VEnv.reflects_fuel_go`'s `Ok` had the wrong arity** and the lemma was therefore *true but
+   unusable*: any `Ok` making its `hgo` provable is empty.  Fixed in place; §1.
+2. **`VEnv.ReflectsNatBitwise` (`Verify/Typing/Expr.lean`) is not provable as stated**, so
+   `checkPrimitiveDef.WF.rest` is **false at its `Nat.bitwise` branch**, not merely open.  Two
+   hypotheses are missing, both of them things the conclusion itself needs.  §3.
+3. **The standing recommendation for (c) cannot work.**  "Change `unfoldNatWellFounded` to
+   produce its equation by a checked conversion" is impossible: the fixpoint equation of
+   `WellFounded.Nat.fix` is *propositional, not definitional*, deliberately so.  §5.
+   Machine-checked by a failing `rfl`.
+4. **(d) is closed as metatheory**: `VEnv.reflects_natBitwise_go`, the `Nat.bitwise` recursion,
+   is proved, together with the conditional machinery it needs.  §2.
+
+Plus one executable change that removes the largest single piece of the remaining plumbing,
+Arena-gated at 185/6/0: §4.
+
+---
+
+## 1. `reflects_fuel_go`'s `Ok` — a statement that carried less than its conclusion needed
+
+`Verify/Primitive.lean` **[machine-checked: builds]**.  The previous session stated
 
 ```
-checkConstantVal env v.toConstantVal (← checkPrimitiveDef v)
+{Ok : Nat → VExpr → VExpr → Prop}
+(hgo : ∀ (b f x : Nat) (hy h : VExpr), Ok b hy h → IsDefEqU (app5 GO b hy (f+1) x h) …)
+(hK  : ∀ b f x hy h, Ok b hy h → Ok b hy (K b f x hy h))
 ```
 
-so it runs **before** `checkConstantVal`, on a `DefinitionVal` nothing has type-checked, and
-its `Bool` result is the `allowPrimitive` flag that lets `checkConstantVal` accept a name in
-`Environment.primitives`.  It returns `false` for any name it does not recognize (and for any
-`v.safety ≠ .safe`), and otherwise either returns `true` or throws.
+`hgo`'s left-hand side is `Nat.modCore.go b hy (f+1) x h`, and `IsDefEqU` entails
+well-typedness, so `h` must have type `x+1 ≤ f+1` **for these particular `f` and `x`**.  A
+three-argument `Ok` cannot say that: it is carried unchanged across the recursive call, where
+the fuel is `f` and the numerator `x - b`, and a proof of `x+1 ≤ f+1` is not a proof of
+`x-b+1 ≤ f`.  So every `Ok` strong enough to make `hgo` provable is empty, and the conclusion
+is vacuous at every call site.  **[source, argued; the fix is machine-checked]**
 
-It recognizes **eighteen** names, in three groups **[source]**:
+Repaired to `Ok : Nat → VExpr → Nat → Nat → VExpr → Prop` (`Ok b hy f x h`), with
+`hgo … (Ok b hy (f+1) x h)` and `hK … → Ok b hy f (x - b) (K b f x hy h)`.  The induction is
+unchanged — `hK` steps the indices down exactly as the recursive call does — and the shape the
+`Nat.mod` / `Nat.div` branches can actually supply is
+`Ok b hy f x h := HasType hy (1 ≤ b) ∧ HasType h (x+1 ≤ f)`.  `reflects_fuel_mod` and
+`reflects_fuel_div` inherit the change.  The reasoning is recorded in the section docstring.
 
-| group | names | what is checked |
-| --- | --- | --- |
-| structural recursion (9) | `Nat.add`, `Nat.pred`, `Nat.sub`, `Nat.mul`, `Nat.pow`, `Nat.beq`, `Nat.ble`, `Nat.shiftLeft`, `Nat.shiftRight` | value type-checks at `Nat → Nat → Nat` (resp. `Nat → Nat`, `… → Bool`); two defining equations under `withLocalDecl`-bound `Nat`s |
-| destructuring (3) | `Nat.land`, `Nat.lor`, `Nat.xor` | value is *syntactically* `Nat.bitwise f`; `f`'s truth table |
-| literal type (2) | `Char.ofNat`, `String.ofList` | `v.type` compared with `==` (`Expr.eqv`), plus the ambient `Char`/`List Char` facts |
-| **fuel / well-founded (4)** | **`Nat.mod`, `Nat.div`, `Nat.gcd`, `Nat.bitwise`** | **the four in `checkPrimitiveDef.WF.rest`** |
+---
 
-The obligation, `PrimitiveResult (ves.venv .safe) v allow`
-(`Verify/Environment/Boundaries.lean:21`), has three fields; when `allow = true`:
+## 2. (d) `Nat.bitwise` — closed as metatheory
 
-1. `safe` : `v.safety = .safe`;
-2. `no_level_params` : `v.levelParams = []`;
-3. `preserves` : for **every** `venv ≥ ves.venv .safe` with `venv.WF` and
-   `venv.HasPrimitives`, every `safety`, and every `ci'` with
-   `TrDefVal safety venv (.defnInfo v) ci'` and `ci'.WF venv`, if
-   `venv.addConst v.name ci'.toVConstant = some env'` then
-   `(env'.addDefEq ci'.toDefEq).HasPrimitives`.
+New in `Verify/Primitive.lean`, all sorry-free modulo the standing `IsDefEqU.trans` /
+`weakN_iff` taint that every existing `reflects_*` lemma in the file already carries
+(`#print axioms` identical to `reflects_natAdd`'s) **[machine-checked]**:
 
-Fields 1 and 2 are one-liners from the guards at the head of each branch.  Field 3 is the
-whole content, and by `VEnv.PrimField` / `VEnv.HasPrimitives.addDef`
-(`Verify/Primitive.lean:637,809`) it reduces, for a name `n`, to the **single**
-`HasPrimitives` field that `n` is responsible for — the other twenty-one transfer across the
-step by `HasPrimitives.extend`.  For the four here **[source]**:
-
-| branch | field to produce |
+| declaration | content |
 | --- | --- |
-| `Nat.mod` | `env'.ReflectsNatNatNat ``Nat.mod`` Nat.mod` |
-| `Nat.div` | `env'.ReflectsNatNatNat ``Nat.div`` Nat.div` |
-| `Nat.gcd` | `env'.ReflectsNatNatNat ``Nat.gcd`` Nat.gcd` |
-| `Nat.bitwise` | `env'.ReflectsNatBitwise` — second order, relativized to every extension |
+| `VExpr.app2'`, `VExpr.natOp` | the two application shapes the equation is built from |
+| `VExpr.WF.app2_fn/arg1/arg2`, `.condApp_cond/_inst/_t/_e` | well-typedness peeling |
+| `IsDefEqU.app2_congr_args`, `.condApp_congr_cond` | the congruences |
+| `ReflectsCondApp.ofDefeq` | a `ReflectsCondApp` read at arguments that merely *reflect* numerals (`Nat.mod n 2`, not a literal) |
+| `VEnv.ReflectsCondApp1`, `.ofDefeq` | **conditionals with one boolean scrutinee** — `Condition.bool`, used three times in the equation; no `Reflection` layer |
+| `VExpr.bitParity`, `.bitwiseRec`, `.bitwiseRhs` | the checked right-hand side, at a pair of numerals |
+| `VEnv.reflects_natOp`, `bif_boolLit`, `natBeq_eq_decide`, `reflects_bitParity` | supporting |
+| **`VEnv.reflects_natBitwise_go`** | **the recursion** |
 
-Where the proof stops: `checkPrimitiveDef.WF` (`Boundaries.lean:86`) splits on the name, sends
-the four to `checkPrimitiveDef.WF.rest` **before unfolding anything**, and discharges the other
-fourteen names in ~1100 lines below.  `.rest` is `sorry`.  It is 1 of the 20 in
-`scripts/sorry-census.lean` **[machine-checked]** — the census still reports exactly 20 after
-this stream's work.
+The induction is `Nat.strongRecOn` on the first argument (`n ≠ 0` in the recursive branch, so
+`n / 2 < n`), not on `n + m` as the earlier note guessed; `m` stays universally quantified.
+Every hypothesis is monotone under `env ≤ env'` (`NatLits`, three `ReflectsNatNatNat`s and
+their `contains`) rather than a whole `HasPrimitives`, which is what the second-order field
+needs, since the field gives no `HasPrimitives` for the extension.
 
----
-
-## 2. Statement audit
-
-Both defect classes were checked against the *elaborated* signature, printed with
-`set_option pp.explicit true` **[machine-checked]**:
-
-```
-@checkPrimitiveDef.WF.rest : ∀ {env : Lean.Kernel.Environment} {ves : VEnvs}
-  (wf : VEnvs.WF env ves) (v : Lean.DefinitionVal) (fuel : FuelConfig),
-  Or (v.name = `Nat.mod) (Or (v.name = `Nat.div) (Or (v.name = `Nat.gcd)
-    (v.name = `Nat.bitwise))) →
-  @TypeChecker.M.WF Bool (@TypeChecker.VContext.mk' env ves wf
-      Lean.DefinitionSafety.safe v.levelParams fuel) { }
-    (Environment.checkPrimitiveDef v)
-    fun allow x => PrimitiveResult (ves.venv Lean.DefinitionSafety.safe) v allow
-```
-
-* **Auto-bound implicits: none.**  The signature has exactly the five binders written in the
-  source.  `env` and `ves` are both *used* — `env` in `VEnvs.WF env ves` and in
-  `VContext.mk'`, `ves` in `VEnvs.WF`, `VContext.mk'` *and* the conclusion
-  (`ves.venv .safe`), so neither is a silently captured stand-in for something else.  No
-  universe variable is auto-bound.  `PrimitiveResult` likewise has exactly its three declared
-  parameters.
-* **Under-constrained scope: no.**  The only quantifiers not fixed by the theorem's binders
-  are the four inside `PrimitiveResult.preserves` (`safety`, `venv`, `env'`, `ci'`), and every
-  one carries a hypothesis pinning it: `checked ≤ venv`, `venv.WF`, `venv.HasPrimitives`,
-  `TrDefVal safety venv (.defnInfo v) ci'`, `ci'.WF venv`, and
-  `venv.addConst v.name ci'.toVConstant = some env'`.  The generality (an *arbitrary* later
-  extension, at an *arbitrary* safety) is what the consumer in
-  `Verify/Environment/Checker.lean:211` actually applies it at, not slack.
-* **Non-vacuity.**  `M.WF c s x Q` is vacuous when `x` can never return `.ok`.  It can: the
-  `run_meta` self-test at the foot of `Lean4Lean/Primitive.lean` runs `checkPrimitiveDef` on
-  every one of the eighteen primitives of the current prelude — `Nat.mod`, `Nat.div`,
-  `Nat.gcd` and `Nat.bitwise` included — and fails the build unless each returns `.true`;
-  and `Verify/Soundness.lean` prints `stdPrelude accepted by addDecl ✓`, which drives the same
-  four branches through `addDecl` **[machine-checked, both at build time]**.  The `hrest`
-  hypothesis is inhabited by construction.
-
-**So `checkPrimitiveDef.WF.rest` is open, not false.**  The refutation route the previous note
-suggested (a declaration that passes the recognizer while leaving an untranslatable term in
-the `EquivManager`, breaking `VState.WF`) was examined and **not** pursued to a witness: it
-requires an `Environment` with a `ves.WF env` model in which one of the recognizer's baked-in
-constants (`Nat.modCore.go`, `Nat.div_rec_fuel_lemma`, `@LE.le Nat _`, `Nat.beq`, …) is
-present but degenerate.  Building that *and* proving `ves.WF` of it is strictly more work than
-the fix, and the fix removes the route entirely (§3).  **[source]**
+**Non-vacuity / information-flow audit.**  `lean_minimal_hypotheses` reports **all thirteen
+explicit hypotheses load-bearing**, none droppable **[machine-checked]**.  The conclusion is
+therefore not derivable from any proper subset, and in particular not without `heq` — the one
+equation the recognizer actually checks.
 
 ---
 
-## 3. What closed on the implementation side
+## 3. `ReflectsNatBitwise` is not provable as stated — so `.rest` is **false**, not open
 
-`Lean4Lean/Primitive.lean`, this stream.  Every comparison the four branches make — directly
-or through a helper they share — now type-checks *both* of its sides, and every free variable
-they introduce now has its domain checked.  Concretely:
+**[source, argued; the repaired statements are machine-checked]**
 
-* **`Condition.check`**: `inferType cond.prop` → `checkedTypeIs cond.prop`.  Confirming and
-  sharpening the previous stream's reading **[source]**: of the three `inferType` calls, only
-  `cond.prop` was genuinely uncovered — `asBool` and `proof` both occur inside the term that
-  the following `checkType e` checks.  But the *right-hand sides* it compared against
-  (`Nat → Nat → Prop`, `Nat → Nat → Bool`, `Bool → Prop`, `Bool → Nat → Nat → Nat`,
-  `fun a _ : Nat => a`, …) were unchecked as well, and the previous note did not list them;
-  they are now checked too.  `isProp (← inferType proof)` → `isProp (← checkType proof)`.
-* **`Reflection.check` / `checkITE` / `checkNatDITE`**: `checkedTypeIs` and `checkedIsDefEq`
-  throughout (7 comparison sites).
-* **`unfoldNatWellFounded`**: `inferType` → `checkType` at both sites; `checkedIsDefEq` at its
-  three comparisons.
-* **`lambdaTelescope` / `forallTelescope`**: their binder domains are now checked.
-* **`unfoldWellFounded` deleted.**  It was listed in `Boundaries.lean`'s note as a site
-  needing the fix; it is **dead code** — no call site anywhere in the tree **[machine-checked:
-  `grep -rn unfoldWellFounded --include=*.lean` finds only the definition and that note]**.
-  Deleting it is behaviour-preserving and shrinks the surface the proof has to cover.
-* **`withCheckedLocalDecl`** (new): `checkIsType` on the domain, then `withLocalDecl`.  This
-  is a gap the previous analysis did **not** record and it is independent of the comparison
-  one: `M.WF.withLocalDecl0` demands a `TrExprS` *and* an `IsType` for the binder's domain,
-  and the domains these branches bind — `1 ≤ y`, `Nat.succ x ≤ Nat.succ fuel`,
-  `r.type p Bool.true`, `.arrow (Not p) Nat`, and the type `unfoldNatWellFounded` recovers
-  from a `whnf` — are built from constants `VEnv.HasPrimitives` requires only to be
-  *present*.  All 17 binders in the four branches and their helpers now use it.
+`Verify/Typing/Expr.lean:241`:
 
-Deliberately **not** changed: `defeqT1` / `defeq2`, whose binders are `q(Nat)` / `q(Bool)` and
-whose `IsType` facts the fifteen closed branches already derive from `NatFacts`.  Touching
-them would perturb ~1100 lines of working proof for no gain.
-
-Verification **[machine-checked]**:
-
-* `lake build Lean4Lean.Primitive` — succeeds, so the `run_meta` self-test still accepts all
-  eighteen primitives with every new check in place;
-* `lake build Lean4Lean.Verify.Environment.Boundaries` — succeeds, the fifteen closed branches
-  are undisturbed, the only `sorry` is `.rest` (line 107 after the note was rewritten);
-* full `lake build` — succeeds; guards 1, 2 and 3 all pass (`54/54` implementation gaps,
-  unchanged); `stdPrelude accepted by addDecl ✓`.
-
-### Kernel Arena
-
-| | correct | either | incorrect |
-| --- | --- | --- | --- |
-| before (`b32b29b`, clean tree) | 185 | 6 | 0 |
-| after | 185 | 6 | 0 |
-
-**[machine-checked, `cd ~/lean-kernel-arena && uv run lka.py run --checker lean4lean-local`]**
-
-### `divergences.md`
-
-The accepted set does not change on any well-formed environment: every term newly checked is
-either a closed literal built from constants the branch already requires to be present, or a
-subterm of a term the branch already checked.  The existing `checkPrimitiveDef` entry's fourth
-point already describes this remedy in general terms; it has been extended to say that it now
-covers all eighteen branches and the binders as well as the comparisons.
-
----
-
-## 4. What is proved, and fired at a witness
-
-`TypeChecker.M.WF.withCheckedLocalDecl` (`Lean4Lean/Verify/Primitive.lean`, no `sorry`)
-**[machine-checked]**:
-
-```
-protected theorem M.WF.withCheckedLocalDecl {s : VState} {f : Expr → M α} {Q} {name ty bi}
-    (hty : ty.FVarsIn (· ∈ c.vlctx.fvars))
-    (H : ∀ ty' id (cwf' : c.MLCWF (.vlam id name ty ty' bi c.mlctx)) s', s ≤ s' →
-      c.TrExprS ty ty' → c.IsType ty' →
-      M.WF (c.withMLC (.vlam id name ty ty' bi c.mlctx) (wf := cwf')) s' (f (.fvar id)) Q) :
-    M.WF c s (Lean4Lean.Environment.withCheckedLocalDecl name bi ty f) Q
+```lean
+def VEnv.ReflectsNatBitwise (env : VEnv) :=
+  env.contains ``Nat.bitwise →
+  ∀ (env' : VEnv), env ≤ env' → ∀ (f : VExpr) (g : Bool → Bool → Bool),
+    env'.ReflectsBoolBoolBool f g → ∀ a b, env'.IsDefEqU 0 []
+      (.app (.app (.app (.const ``Nat.bitwise []) f) (.natLit a)) (.natLit b))
+      (.natLit (Nat.bitwise g a b))
 ```
 
-It is the exact difference between `M.WF.withLocalDecl0` (which needs the domain's `TrExprS`
-and `IsType` handed to it) and what the four branches can supply (nothing, before the check).
-Non-vacuity: the conclusion is about a computation that demonstrably returns `.ok` — all 17
-binders of the four branches go through `withCheckedLocalDecl` on real domains in the
-build-time self-test — and the hypothesis `H` receives two facts (`c.TrExprS ty ty'`,
-`c.IsType ty'`) that are not derivable without it, which is why it is not a restatement of
-`withLocalDecl0`.
+Two hypotheses are missing.
+
+### 3.1 The combinator's type — and this one makes the conclusion **false**
+
+`IsDefEqU` entails well-typedness, so the conclusion *asserts* that `f` may be applied at
+`Nat.bitwise`'s domain, i.e. `env'.HasType 0 [] f (Bool → Bool → Bool)`.  (Formally:
+`HasType (Nat.bitwise · f) T` forces `HasType (.const ``Nat.bitwise`` []) (.forallE A B)` with
+`HasType f A`, and the constant rule plus `IsDefEqU.forallE_inv` give
+`A ≡ Bool → Bool → Bool` once `Nat.bitwise`'s own type is pinned, which the branch's
+`checkPrimValue` does.)
+
+The only hypothesis about `f` is `ReflectsBoolBoolBool f g`, which says `f` applied to two
+boolean *literals* reduces to a literal.  That does not give the typing.  Take `f : (x : Bool)
+→ Q x` in an environment carrying `Q Bool.true ≡ Bool → Bool` and `Q Bool.false ≡ Bool → Bool`
+and nothing about `Q` at a variable: `ReflectsBoolBoolBool f g` holds and `Nat.bitwise · f` is
+ill-typed.  `env'` ranges over **arbitrary** extensions — no `VEnv.WF`, no restriction — so
+nothing rules that environment out.
+
+The repair loses no content: at any `f` without the typing the conclusion is already false, so
+the strengthened statement covers every `f` at which the old one was not already false.
+
+### 3.2 The extension's well-formedness
+
+The proof of the field chains `IsDefEqU` steps, and `IsDefEqU.trans` requires `env.WF`.
+`ReflectsNatBitwise` supplies `env ≤ env'` and nothing else, so no transitivity is available in
+`env'` at all, and `f` is new in `env'` so nothing transfers from `env`.  This one is
+*unprovable* rather than demonstrably false — the repo has no tool for chaining defeqs in a
+non-well-formed environment — but it is equally blocking.
+
+### 3.3 The exact edits, and what they cost elsewhere
+
+Proved in this stream's file as `VEnv.ReflectsBoolBoolBoolT` and `VEnv.ReflectsNatBitwiseT`,
+with `ReflectsNatBitwiseT.toWeak` showing the strengthened field still delivers the old one at
+every `f` that carries the typing **[machine-checked]**.
+
+**Edit 1 — `Lean4Lean/Verify/Typing/Expr.lean:232` (not this stream's file):**
+
+```lean
+def VEnv.ReflectsBoolBoolBool (env : VEnv) (f : VExpr) (g : Bool → Bool → Bool) :=
+  env.HasType 0 [] f (.forallE .bool (.forallE .bool .bool)) ∧
+  ∀ a b, env.IsDefEqU 0 [] (.app (.app f (.boolLit a)) (.boolLit b)) (.boolLit (g a b))
+```
+
+**Edit 2 — `Lean4Lean/Verify/Typing/Expr.lean:241`:** insert `env'.WF →` after `env ≤ env' →`
+in `ReflectsNatBitwise`.
+
+**Follow-through 1 — `Lean4Lean/Primitive.lean` (this stream's file, *not* made):** the
+`Nat.land` / `Nat.lor` / `Nat.xor` branches must supply the new conjunct, and cannot: they know
+only `HasType (Nat.bitwise · G) (Nat → Nat → Nat)`, and `HasPrimitives` does not pin
+`Nat.bitwise`'s type.  Add to each of the three branches
+
+```lean
+unless ← checkedTypeIs and q(Bool → Bool → Bool) do fail
+```
+
+(`and` / `or` / `xor` being the destructured combinator).  It passes on the real prelude —
+`Nat.land = Nat.bitwise and` with `and = Bool.and : Bool → Bool → Bool`.
+
+**Follow-through 2 — `Verify/Primitive.lean` and `Verify/Environment/Boundaries.lean`:**
+`reflectsBoolBoolBool_and` / `_or` / `_bne` gain the typing argument;
+`reflects_natBitwiseApp` passes `henv` and the typing to `hbw`; the three closed branches in
+`Boundaries.lean` thread the new check and pass `hGty.mono hle3` and `henv₂`, both of which are
+already in scope there **[source, read against `Boundaries.lean:689–777`]**.
+
+**These four must land in one commit.**  Making the recognizer change alone adds a check whose
+information nothing consumes; making the `Expr.lean` change alone breaks the three closed
+branches.  That is why this stream made none of them: the first is in a file it owns but is
+useless without the second, which is in a file it does not.
 
 ---
 
-## 5. What is open, with the exact failing step
+## 4. Executable change: the conditional checks are now in the shape the proof consumes
 
-The `sorry` is metatheory now, not plumbing.  The fifteen closed branches all check a
-*structural* recursion, for which `VEnv.reflects_rec2` / `reflects_rec2_tail` /
-`reflects_rec2_diag` (`Verify/Primitive.lean:258,274,293`) suffice.  None of the four does.
-In dependency order **[source]**:
+`Lean4Lean/Primitive.lean` **[machine-checked: `lake build` green, the `run_meta` self-test
+still accepts all eighteen primitives, Kernel Arena 185/6/0 before and after]**.
 
-**(a) A `Condition` reflection lemma — needed by three of the four, missing entirely.**
-The `mod`/`div`/`bitwise` equations are stated with `Condition.ite` / `Condition.dite`, i.e.
-`@ite`/`@dite` at the *instance* `cond.dec`.  What `Condition.check` establishes is
-`cond.dec ≡ fun x y => r.toDec (cond.prop x y) (asBool x y) (proof x y)` together with
-`r.ite p Bool.true H ≡ fun α a _ => a` and `r.ite p Bool.false H ≡ fun α _ a => a` (and the
-`dite` analogues through `r.ofTrue`/`r.ofFalse`).  Turning that into
+`Reflection.ite` and `Reflection.natDITE` are **deleted**.  `Reflection.checkITE` now takes the
+result type `α` as a parameter and checks, under binders `p : Prop`, `H : r.type p b`,
+`t e : α`,
 
-> `Condition.natLE.ite α #[a, b] t e ≡ t` when `a ≤ b`, `≡ e` otherwise
+```
+@ite.{1} α p (r.toDec p b H) t e  ≡  t   (b = true)      and   ≡  e   (b = false)
+```
 
-goes through `VEnv.HasPrimitives.natBLE` (the branch checks `env.contains ``Nat.ble``, and
-`Condition.natLE`'s `asBool` **is** `Nat.ble`).  There is no such lemma anywhere.  Estimated
-the largest single reusable piece; write it first, at the `VExpr` level in
-`Verify/Primitive.lean`, in the style of `reflects_natBitwiseApp`.
+`Reflection.checkNatDITE` likewise checks `@dite Nat p (r.toDec p b H) a b'` directly, under
+`p`, `H`, `a`, `b'`.  `Condition.check`'s `ite : Bool` flag becomes `iteTypes : List Expr`
+(`Nat.mod` passes `[Nat]`, `Nat.bitwise` passes `[Nat, Bool]` for `Condition.natEq` because it
+needs both `Condition.ite Nat` and `Condition.decide`, `[Nat]` for `Condition.bool`), and the
+`.bool` arm checks the same applied shape at each result type.
 
-**(b) `Nat.mod` and `Nat.div`: fuel induction.**  Their equations mention `Nat.modCore.go` /
-`Nat.div.go`, which the recognizer constrains **only** at `Nat.succ fuel`; the `fuel = 0` case
-is unreachable, and staying inside that must be carried as the `Nat.succ x ≤ fuel` invariant
-of the induction.  With (a) in hand this is an ordinary strong induction on `fuel`.
+**Why.**  `VEnv.ReflectsCondApp` is stated over the applied form.  With the old check the
+verification first had to invert the translation of `Reflection.ite` — a four-fold λ with an
+`@ite` spine in its body — to learn that the translated `ITE'` really *is* that λ, then β-reduce
+four times, then re-apply.  With the new one the checked term is an application spine and the
+hypothesis is read off by app-inversion, which the file already does everywhere.  That was the
+single largest item in the remaining plumbing.
 
-**(c) `Nat.gcd`, `Nat.bitwise`: a spec for `unfoldNatWellFounded`.**  This is the deep one and
-should be attacked **last**.  The fixpoint equation it establishes is *not* assembled from
-`isDefEq` calls — it is read off structural pattern matches against `WellFounded.Nat.fix`'s
-`Nat.rec` skeleton, on the results of `whnfCore` and `unfoldDefinition`
-(`Primitive.lean`, `unfoldNatWellFounded`: `let .const ``WellFounded.Nat.fix [_,_] := fix`,
-`unless (α, motive, f, F, a) == (α', motive', f', F', a')`, `unless ih == .app (.app natRec t) y`).
-Any proof has to *reconstruct* `fix α motive f F a ≡ F a (fun y _ => fix α motive f F y)` from
-those syntactic checks, which needs `whnfCore.WF` / `unfoldDefinition.WF` in a form that hands
-back a defeq witness for the *whole* application, and then an argument that the `Nat.rec`
-skeleton it matched really computes the fixpoint.
+**Zero proof churn**: `Condition` / `Reflection` are reachable only from `Nat.mod`, `Nat.div`,
+`Nat.gcd` and `Nat.bitwise` — all four inside `.rest` **[machine-checked: `lake build` of
+`Verify/Environment/Boundaries.lean` is unchanged, census 19]**.
 
-**(d) `Nat.bitwise`'s field is second order.**  `VEnv.ReflectsNatBitwise`
-(`Verify/Typing/Expr.lean:241`) quantifies over every extension `env'` and every `f`, `g` with
-`env'.ReflectsBoolBoolBool f g`.  The reflections its equation consumes (`Nat.add`, `Nat.div`,
-`Nat.mod`, `Nat.beq` — all four required present by the branch) transfer to `env'` by
-`VEnv.ReflectsNatNatNat.mono`, so this is not a blocker, but the induction is on `n + m`, not
-on either argument, and the recursive occurrence is at `n / 2`, `m / 2`.
+**Behavioural difference**, recorded in `divergences.md`: the old form additionally forced
+`r.toDec p b H : Decidable p` at a *variable* `b`; the new one forces it at `b = Bool.true` and
+`b = Bool.false` only, which is all the abstract statement uses.  The recognizer is therefore
+marginally more permissive on `Reflection` records ill-typed at a variable boolean and
+well-typed at both literals; neither shipped record is such a thing, and the accepted set on
+the Arena is unchanged.
 
-**Ranking:** (a) ≪ (b) < (d) ≪ (c).  A stream that lands (a) and (b) closes half the branch
-set and produces the reusable piece; (c) is where the remaining cost lives, and it is the one
-place where the honest answer may be to change `unfoldNatWellFounded` to *produce* its
-equation by `checkedIsDefEq` rather than by structural matching, so the spec can read it off
-instead of reconstructing it.  That is an implementation change with an Arena gate.
+Also added, ready for the instantiation step: `IsDefEqU.inst4` (four nested binders whose only
+dependency is on the outermost — one `IsDefEqU.instN` at depth 3 then three `inst0`s; this is
+why the recognizer binds `p` outermost) and `IsDefEqU.inst2` (two independent binders of
+arbitrary closed domain) **[machine-checked]**.
 
 ---
 
-## 6. C++ kernel comparison — one finding, outside this stream's files
+## 5. (c) — the standing recommendation is impossible, and here is what (c) actually is
 
-**The C++ kernel has no primitive-definition recognizer at all.**  `grep -rn
-'checkPrimitive\|check_primitive' ~/lean4/src` finds nothing **[machine-checked]**; the only
-primitive-shape check anywhere in `~/lean4/src/kernel` is `check_eq_type` in `quot.cpp`, run
-by `add_quot`.  The `reduceNat` fast paths in `type_checker.cpp:717-730` trust `Nat.add`,
-`Nat.mod`, … *by name*.  So a brief that speaks of "the C++ kernel's `checkPrimitiveInductive`
-recognising only `Bool` and `Nat`" is describing **our** `checkPrimitiveInductive`
-(`Primitive.lean`), which does recognise exactly `Bool` and `Nat`; C++ has no counterpart.
-This whole recognizer is already recorded in `divergences.md` as a deliberate strengthening.
+**The recommendation was: make `unfoldNatWellFounded` produce its fixpoint equation by
+`checkedIsDefEq` instead of by structural matching.  It cannot work.**
 
-**New, undocumented divergence — numeral-size guards on `Nat.pow` and `Nat.shiftLeft`.**
-`~/lean4/src/kernel/type_checker.cpp` bounds the numerals its GMP fast paths produce, at
-`g_nat_max_size` = 128 MB by default (`LEAN_NAT_MAX_SIZE`), and throws a clean
-`kernel_exception` when a result would exceed it — `check_nat_size` at `:298`, applied in
-`infer_lit` (`:319`), `reduce_bin_nat_op` for `add`/`sub`/`mul` (`:656`), `reduce_pow`
-(`:670`) and `reduce_shiftLeft` (`:687`); `get_count_arg` (`:308`) additionally throws when
-`Nat.pow`'s exponent or `Nat.shiftLeft`'s shift does not fit in `unsigned int`.
-`Lean4Lean/TypeChecker.lean` has **no** size guard: `reduceBinNatOp` (`:473`) computes
-unconditionally, and `reducePow` (`:480`) bounds only the *exponent*, at
-`reducePowMaxExp = 1 <<< 24`, and on exceeding it **declines to reduce** (`return none`)
-rather than erroring.  Differing inputs **[source]**:
+`WellFounded.Nat.fix` (`~/lean4/src/Init/WF.lean:494`) is
 
-* `Nat.pow 2 (2^25)` — C++ computes a 4 MB literal (`1 > 128MB / 2^25 = 4` is false);
-  lean4lean returns `none` from `reducePow`, falls through to unfolding `Nat.pow`'s
-  definition, and grinds through 2^25 unary steps on multi-megabyte numerals.  *C++ succeeds
-  in milliseconds; lean4lean effectively hangs.*
-* `Nat.pow 2 (2^31)` — C++ throws "refused to evaluate `Nat.pow`"; lean4lean hangs as above.
-* `Nat.shiftLeft 1 (2^40)` — C++ throws; lean4lean asks GMP for a 128 GB integer.
-* `Nat.mul` of two 100 MB literals, or a source literal above 128 MB — C++ throws; lean4lean
-  computes / accepts.
+```lean
+def Nat.fix : (x : α) → motive x :=
+  let rec go : ∀ (fuel : Nat) (x : α), (h x < fuel) → motive x :=
+    Nat.rec (fun _ hfuel => …) (fun _ ih x hfuel => F x (fun y hy => ih y …))
+  fun x => go (Nat.eager (h x + 1)) x (Nat.eager_eq _ ▸ Nat.lt_add_one _)
+```
 
-`Lean4Lean/TypeChecker.lean` is not this stream's file, so nothing was changed there.  The
-entry has been added to `divergences.md`; whether to *fix* it (mirror `check_nat_size`, which
-would also remove the `reducePowMaxExp` hang) is a decision for whoever owns that file.
+with
+
+```lean
+/-- Helper gadget that prevents reduction of `Nat.eager n` unless `n` evaluates to a ground term. -/
+def Nat.eager (n : Nat) : Nat := if Nat.beq n n = true then n else n
+theorem Nat.eager_eq (n : Nat) : Nat.eager n = n := ite_self n
+```
+
+`Nat.fix_eq` — `Nat.fix h F x = F x (fun y _ => Nat.fix h F y)` — is proved from
+`Nat.eager_eq` (`ite_self`, propositional) and `Nat.fix.go_congr` (an induction on the fuel,
+propositional).  It is **not** a definitional equality, and `Nat.eager` exists precisely to
+make sure it is not: at a free variable `x`, `Nat.beq (h x + 1) (h x + 1)` is stuck, so the
+`ite` is stuck, so `Nat.rec` is stuck.
+
+Machine-checked **[machine-checked]**:
+
+```lean
+example (h : Nat → Nat) (F : ∀ x : Nat, (∀ y, InvImage (·<·) h y x → Nat) → Nat) (x : Nat) :
+    WellFounded.Nat.fix h F x = F x (fun y _ => WellFounded.Nat.fix h F y) := rfl
+-- error: type mismatch, rfl has type ?m = ?m
+```
+
+A `checkedIsDefEq` at that equation would simply return `false` and the recognizer would reject
+`Nat.gcd` and `Nat.bitwise` outright — the Arena would catch it on the first run.  The
+structural matching is not a shortcut somebody took; it is the only way to establish, inside a
+kernel, a fact the kernel's conversion deliberately does not decide.
+
+### 5.1 What (c) actually costs
+
+Price it as a *fuel induction on the `Nat.rec` skeleton*, not as a reconstruction of
+`Nat.fix_eq`:
+
+* the abstract `IsDefEqU` is the same conversion, so `fix α motive f F a ≡ F a (fun y _ => fix …
+  y)` is **not** an `IsDefEqU` at an open `a` either.  Any spec that states it in that form is
+  false;
+* but at a **numeral** it is, because everything computes: `h a` is a numeral, `Nat.eager`
+  reduces, `Nat.rec` reduces.  And numerals are all `HasPrimitives` ever asks about;
+* so the spec to prove is: from the structural facts the recognizer checks — that `go` is
+  `Nat.rec base step` with `step = fun _ ih x hfuel => F x (fun y hy => ih y _)`, which is where
+  `lambdaTelescope` + the four `==` comparisons land — derive
+  `IsDefEqU (go (natLit (t+1)) x h) (F x (fun y hy => go (natLit t) y _))` by ι (**a real
+  definitional step**, because the fuel is a numeral), and then run exactly the induction
+  `VEnv.reflects_fuel_go` already runs, with `F` in place of the `Condition` layer.
+
+The prerequisite that does not exist is a `whnfCore.WF` / `unfoldDefinition.WF` returning a
+defeq witness for the **whole** application together with the *syntactic* result, so that the
+`==` comparisons can be turned into equalities of translations.  That is the real cost of (c),
+and it is unchanged by anything in this session except that its shape is now known.
+
+Ranking after this session: **(a)+(b) plumbing < (c)**, with (d) closed and the `Nat.bitwise`
+branch additionally blocked on §3.
 
 ---
 
-## 7. Pick up first
+## 6. What is open, with the exact failing step
 
-> **UPDATE (this session).**  §5's **(a)** and **(b)** are now **proved**, in
-> `Lean4Lean/Verify/Primitive.lean`: `VEnv.reflects_condApp` /
-> `reflects_condApp_natLE` / `ReflectsCondApp.natLE_le` (the `Condition` reflection lemma,
-> with a `condApp` shape that serves `ite` and `dite` alike) and `VEnv.reflects_fuel_go` /
-> `reflects_fuel_mod` / `reflects_fuel_div` (the fuel induction, one induction parametrised
-> for both).  See `docs/handoff-adddecl.md` §5.
->
-> What is left of them is **plumbing, not mathematics**: instantiating the two
-> `withCheckedLocalDecl` binders and β-reducing through `Reflection.ite`'s four-fold λ, to
-> turn the recognizer's checked equations into `reflects_condApp`'s `hsel` and
-> `reflects_fuel_go`'s `hgo`.  The tools for exactly that (`IsDefEqU.inst0`,
-> `IsDefEqU.beta'`, `IsDefEqU.app_congr_fn'`, `IsDefEqU.app2_congr_fn`) are in the same file.
-> **That is the next task.**  The list below is otherwise unchanged; item 1 is done.
+### 6.1 `Nat.mod` / `Nat.div` — plumbing, no new mathematics
 
+All the mathematics is in `Verify/Primitive.lean` (`reflects_condApp`,
+`reflects_condApp_natLE`, `ReflectsCondApp.natLE_le`, `reflects_fuel_go`, `reflects_fuel_mod`,
+`reflects_fuel_div`, `IsDefEqU.inst4`, `.inst2`).  What is left is, per branch:
 
-1. **(a) of §5** — the `Condition` reflection lemma.  It is the only piece all of `mod`, `div`
-   and `bitwise` need, it is self-contained at the `VExpr` level, and it belongs in
-   `Verify/Primitive.lean` next to `reflects_natBitwiseApp`.
-2. Then **(b)**, `mod` and `div`, which are the same proof twice.
-3. Do **not** re-audit the statement (§2) and do **not** re-derive the bug-4 diagnosis (§3);
-   both are settled.  In particular the `Boundaries.lean` note that used to say these four
-   "still compare terms neither side of which has been type-checked" is **out of date** and
-   has been rewritten.
-4. Before touching `unfoldNatWellFounded`'s spec, decide (c)'s implementation question: read
-   the equation off structural matches, or make the recognizer produce it with
-   `checkedIsDefEq`.  The second is cheaper to verify and costs an Arena run.
+1. `checkedTypeIs.WF` on `q(@LE.le Nat _)` and on `q(Nat.modCore.go)` / `q(Nat.div.go)` →
+   the translations `P` and `GO` with their types;
+2. `Condition.check.WF` for `Condition.natLE`: `checkType cond.dec` → `D`;
+   `checkedTypeIs cond.prop` → `P` again (identify by `trExprS_uniq`); `Reflection.check` →
+   `TY`; `checkedTypeIs asBool` → the translation of `Nat.ble` is `.const ``Nat.ble`` []` by
+   `trExprS_const_nil_inv`; the final `isDefEq e cond.dec` β-reduced at two numerals is
+   `reflects_condApp_natLE`'s `hdec`;
+3. `Reflection.checkITE`/`checkNatDITE` → `hsel`: **now one app-spine inversion plus
+   `IsDefEqU.inst4`**, since §4;
+4. the two big `checkedIsDefEq`s of the branch, instantiated at numerals
+   (`IsDefEqU.instNat`/`instNat2` for the `Nat` binders, `inst0` for `hy`, `fuel`, `h`), give
+   `reflects_fuel_mod`'s `hgo` with
+   `Ok b hy f x h := HasType hy (P·1·b) ∧ HasType h (P·(x+1)·f)`; `hK` is the well-typedness of
+   the checked right-hand side, using `hprim.natSub` to turn `Nat.sub x y` into `natLit (x-b)`
+   — which is why the branch requires `Nat.sub` present;
+5. `preserves_glue` + `VEnv.primField_Nat_mod` / `_div`, exactly as the fifteen closed branches.
+
+The single missing tool is a `TrExprS` inversion for application spines of length 5 at a
+`VContext` (the file has `trExprS_app2`/`app2_uniq` for length 2).  **[source]**
+
+### 6.2 `Nat.gcd` — §5.  `Nat.bitwise` — §5 **and** §3.
+
+### 6.3 Restructuring `.rest`
+
+Once `Nat.mod` and `Nat.div` close, `.rest` should be split so the proved names dispatch to
+proofs and only `Nat.gcd`/`Nat.bitwise` reach a `sorry`.  That keeps the census at 19 (one
+`sorry` before, one after) while `.rest` itself becomes a proof.  Note that until §3's edits
+land, `.rest` is **false**, so no split can make it disappear.
+
+---
+
+## 7. Unchanged from the previous handoff
+
+* The statement audit of `.rest`'s own signature (no auto-bound implicits, no under-constrained
+  quantifier, non-vacuous — the `run_meta` self-test and `stdPrelude accepted by addDecl ✓`
+  drive all four branches to `.ok`) stands and was not repeated.  Note that "not vacuous" and
+  "true" are different claims: §3 refutes the second for the `Nat.bitwise` branch.
+* The C++ comparison: **the C++ kernel has no primitive-definition recognizer at all**, so
+  every discrepancy here is a divergence by construction and there is no C++ behaviour to
+  match — only the accepted set, which the Arena measures.
+* The `Nat.pow` / `Nat.shiftLeft` numeral-size divergence (`Lean4Lean/TypeChecker.lean`, not
+  this stream's file) is recorded in `divergences.md` and unchanged.
+
+## 8. Pick up first
+
+1. §3's four edits, in one commit, with the Arena as the gate.  Without them the
+   `Nat.bitwise` branch cannot be closed and `.rest` cannot be true.
+2. The `Nat.mod` plumbing of §6.1, starting with the length-5 `TrExprS` app-spine inversion.
+   `Nat.div` is the same proof with `Nat.succ` as the wrapper.
+3. (c) as re-priced in §5.1 — **do not** attempt the `checkedIsDefEq` route.

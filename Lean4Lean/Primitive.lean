@@ -147,54 +147,69 @@ def Condition.bool : Condition where
   dec := q(fun x => Bool.decEq x true)
   impl := .bool
 
-def Reflection.ite (r : Reflection) : Expr :=
-  .lam0 q(Prop) <| .lam0 q(Bool) <| .lam0 (mkApp2 r.type (.bvar 1) (.bvar 0)) <|
-    .lam0 q(Type) <| mkApp3 q(@_root_.ite.{1}) (.bvar 0) (.bvar 3)
-      (mkApp3 r.toDec (.bvar 3) (.bvar 2) (.bvar 1))
+/-- The `@ite` selection rule at result type `α`, checked in exactly the shape the
+verification consumes.
 
-def Reflection.natDITE (r : Reflection) : Expr :=
-  .lam0 q(Prop) <| .lam0 q(Bool) <| .lam0 (mkApp2 r.type (.bvar 1) (.bvar 0)) <|
-    mkApp2 q(@dite Nat) (.bvar 2) (mkApp3 r.toDec (.bvar 2) (.bvar 1) (.bvar 0))
-
-def Reflection.checkITE (r : Reflection) (fail : ∀ {α}, M α) : M Unit := do
-  unless ← checkedTypeIs r.ite (.arrow q(Prop) <| .arrow q(Bool) <|
-    .arrow (mkApp2 r.type (.bvar 1) (.bvar 0)) q(∀ α : Type, α → α → α)) do fail
+The comparison is made on the conditional *application itself* -- `@ite α p (r.toDec p b H) t e`
+against the branch it must select -- rather than on the partially applied
+`fun p b H α => @ite α p (r.toDec p b H)` compared with `fun α a _ => a`.  The two accept the
+same declarations: `isDefEq` descends under λ and is η-complete, so the equation between the
+two λ-abstractions holds exactly when all its instances under the binders do, and the instances
+are what is checked here.  What changes is the verification: `VEnv.ReflectsCondApp` is stated
+over the applied form, so its hypothesis is now read off the check by inverting an application
+spine, instead of inverting the translation of a four-fold λ and β-reducing through it.  See
+`docs/handoff-primitive.md` §5(a). -/
+def Reflection.checkITE (r : Reflection) (α : Expr) (fail : ∀ {β}, M β) : M Unit := do
+  _ ← checkIsType α
   withCheckedLocalDecl `p .default q(Prop) fun p => do
   withCheckedLocalDecl `H .default (mkApp2 r.type p q(true)) fun H => do
-    unless ← checkedIsDefEq (mkApp3 r.ite p q(true) H)
-      q(fun α : Type => fun a _ : α => a) do fail
+  withCheckedLocalDecl `t .default α fun t => do
+  withCheckedLocalDecl `e .default α fun e => do
+    unless ← checkedIsDefEq
+      (mkApp5 q(@_root_.ite.{1}) α p (mkApp3 r.toDec p q(true) H) t e) t do fail
+  withCheckedLocalDecl `p .default q(Prop) fun p => do
   withCheckedLocalDecl `H .default (mkApp2 r.type p q(false)) fun H => do
-    unless ← checkedIsDefEq (mkApp3 r.ite p q(false) H)
-      q(fun α : Type => fun _ a : α => a) do fail
+  withCheckedLocalDecl `t .default α fun t => do
+  withCheckedLocalDecl `e .default α fun e => do
+    unless ← checkedIsDefEq
+      (mkApp5 q(@_root_.ite.{1}) α p (mkApp3 r.toDec p q(false) H) t e) e do fail
 
-def Reflection.checkNatDITE (r : Reflection) (fail : ∀ {α}, M α) : M Unit := do
+/-- The `@dite` selection rule at result type `Nat`, in the same applied shape as
+`Reflection.checkITE` and for the same reason.  The binders are ordered `p`, `H`, `a`, `b` so
+that the only one the others depend on is outermost, which is what lets the verification
+instantiate them by one `IsDefEqU.instN` followed by three `IsDefEqU.inst0`s. -/
+def Reflection.checkNatDITE (r : Reflection) (fail : ∀ {β}, M β) : M Unit := do
   unless ← checkedTypeIs q(Not) q(Prop → Prop) do fail
-  unless ← checkedTypeIs r.natDITE (.arrow q(Prop) <| .arrow q(Bool) <|
-    .arrow (mkApp2 r.type (.bvar 1) (.bvar 0)) <|
-    .arrow (.arrow (.bvar 2) q(Nat)) <| .arrow (.arrow (mkApp q(Not) (.bvar 3)) q(Nat)) <|
-    q(Nat)) do fail
   unless ← checkedTypeIs r.ofTrue (.arrow q(Prop) <|
     .arrow (mkApp2 r.type (.bvar 0) q(true)) (.bvar 1)) do fail
   unless ← checkedTypeIs r.ofFalse (.arrow q(Prop) <|
     .arrow (mkApp2 r.type (.bvar 0) q(false)) (mkApp q(Not) (.bvar 1))) do fail
   withCheckedLocalDecl `p .default q(Prop) fun p => do
+  withCheckedLocalDecl `H .default (mkApp2 r.type p q(true)) fun H => do
   withCheckedLocalDecl `a .default (.arrow p q(Nat)) fun a => do
   withCheckedLocalDecl `b .default (.arrow (mkApp q(Not) p) q(Nat)) fun b => do
-  withCheckedLocalDecl `H .default (mkApp2 r.type p q(true)) fun H => do
-    unless ← checkedIsDefEq (mkApp5 r.natDITE p q(true) H a b)
+    unless ← checkedIsDefEq (mkApp4 q(@dite Nat) p (mkApp3 r.toDec p q(true) H) a b)
       (mkApp a (mkApp2 r.ofTrue p H)) do fail
+  withCheckedLocalDecl `p .default q(Prop) fun p => do
   withCheckedLocalDecl `H .default (mkApp2 r.type p q(false)) fun H => do
-    unless ← checkedIsDefEq (mkApp5 r.natDITE p q(false) H a b)
+  withCheckedLocalDecl `a .default (.arrow p q(Nat)) fun a => do
+  withCheckedLocalDecl `b .default (.arrow (mkApp q(Not) p) q(Nat)) fun b => do
+    unless ← checkedIsDefEq (mkApp4 q(@dite Nat) p (mkApp3 r.toDec p q(false) H) a b)
       (mkApp b (mkApp2 r.ofFalse p H)) do fail
 
+/-- `iteTypes` lists the result types at which the conditional's selection rule is needed:
+`Nat` for a `Condition.ite Nat`, `Bool` for a `Condition.decide`.  It replaces the old boolean
+`ite` flag, which hard-wired the rule to a single universally quantified `α : Type`; the
+verification consumes one `VEnv.ReflectsCondApp` per result type, so the check is now made per
+result type as well. -/
 def Condition.check (cond : Condition) (fail : ∀ {α}, M α)
-    (ite := false) (dite := false) : M Unit := do
+    (iteTypes : List Expr := []) (dite := false) : M Unit := do
   _ ← checkType cond.dec
   match cond.impl with
   | .reflectNatNat asBool reflect proof =>
     unless ← checkedTypeIs cond.prop q(Nat → Nat → Prop) do fail
     reflect.check fail
-    if ite then reflect.checkITE fail
+    for α in iteTypes do reflect.checkITE α fail
     if dite then reflect.checkNatDITE fail
     let y := .bvar 0; let x := .bvar 1
     let e := .lam0 q(Nat) <| .lam0 q(Nat) <| mkApp3 reflect.toDec
@@ -205,13 +220,16 @@ def Condition.check (cond : Condition) (fail : ∀ {α}, M α)
     unless ← isDefEq e cond.dec do fail
   | .bool =>
     unless ← checkedTypeIs cond.prop q(Bool → Prop) do fail
-    let b := .bvar 0
-    if ite then
-      let natITE := .lam0 q(Bool) <|
-        mkApp2 q(@_root_.ite Nat) (mkApp cond.prop b) (mkApp cond.dec b)
-      unless ← checkedTypeIs natITE q(Bool → Nat → Nat → Nat) do fail
-      unless ← checkedIsDefEq (mkApp natITE q(true)) q(fun a _ : Nat => a) do fail
-      unless ← checkedIsDefEq (mkApp natITE q(false)) q(fun _ a : Nat => a) do fail
+    for α in iteTypes do
+      _ ← checkIsType α
+      withCheckedLocalDecl `t .default α fun t => do
+      withCheckedLocalDecl `e .default α fun e => do
+        unless ← checkedIsDefEq (mkApp5 q(@_root_.ite.{1}) α
+          (mkApp cond.prop q(true)) (mkApp cond.dec q(true)) t e) t do fail
+      withCheckedLocalDecl `t .default α fun t => do
+      withCheckedLocalDecl `e .default α fun e => do
+        unless ← checkedIsDefEq (mkApp5 q(@_root_.ite.{1}) α
+          (mkApp cond.prop q(false)) (mkApp cond.dec q(false)) t e) e do fail
     if dite then throw <| .other "unsupported"
 
 protected def Condition.ite (cond : Condition) (α : Expr) (args : Array Expr) (t e : Expr) : Expr :=
@@ -268,7 +286,7 @@ def unfoldNatWellFounded (e : Expr) (fvs : Array Expr) (eq_def : Expr) (fail : �
     -- `Bool.false`/`Bool.true`; `Nat.beq` is what makes `eager n` reduce to `n` at literals.
     unless (← getEnv).contains ``Nat && (← getEnv).contains ``Bool
       && (← getEnv).contains ``Nat.beq do fail
-    let c := Condition.bool; c.check (fail) (ite := true)
+    let c := Condition.bool; c.check (fail) (iteTypes := [q(Nat)])
     unless ← (withCheckedLocalDecl `x .default q(Nat) fun x =>
       checkedIsDefEq (mkApp eager x)
         (c.ite q(Nat) #[mkApp2 (.const ``Nat.beq []) x x] x x)) do fail
@@ -375,7 +393,7 @@ def checkPrimitiveDef (v : DefinitionVal) : M Bool := do
     unless ← checkedTypeIs q(Nat.modCore.go)
       q(∀ n, Nat.succ Nat.zero ≤ n → ∀ fuel x : Nat, Nat.succ x ≤ fuel → Nat) do fail
     let go := mkApp5 q(Nat.modCore.go)
-    let c := Condition.natLE; c.check fail (ite := true) (dite := true)
+    let c := Condition.natLE; c.check fail (iteTypes := [q(Nat)]) (dite := true)
     withCheckedLocalDecl `x .default q(Nat) fun x => do
     withCheckedLocalDecl `y .default q(Nat) fun y => do
     let sx := succ x
@@ -450,8 +468,8 @@ def checkPrimitiveDef (v : DefinitionVal) : M Bool := do
     withCheckedLocalDecl `m .default q(Nat) fun m => do
     let bitwise' ← unfoldNatWellFounded v.value #[f, n, m] q(type_of% Nat.bitwise.eq_def) fail
     let bitwise := mkApp3 v.value
-    let c := Condition.natEq; c.check fail (ite := true)
-    let bc := Condition.bool; bc.check fail (ite := true)
+    let c := Condition.natEq; c.check fail (iteTypes := [q(Nat), q(Bool)])
+    let bc := Condition.bool; bc.check fail (iteTypes := [q(Nat)])
     let e :=
       c.ite q(Nat) #[n, zero] (bc.ite q(Nat) #[mkApp2 f q(false) q(true)] m zero) <|
       c.ite q(Nat) #[m, zero] (bc.ite q(Nat) #[mkApp2 f q(true) q(false)] n zero) <|
