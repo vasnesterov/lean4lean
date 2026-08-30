@@ -8,12 +8,252 @@ Marks, kept strictly separate throughout:
 **[measured]** = a machine run whose output is reproduced here;
 **[read]** = read off source; **[analysis]** = neither.
 
-Two rounds are recorded.  §0–§3 are **this** round (the "decide it" round: verdict, the
-reference finding, the first positive instance, one killed attack).  §4–§8 are the previous
-round's `ConstVar.lean` results, which stand unchanged and are still the reason the axiom
-form is the hole rather than a route to it.
+Three rounds are recorded.  §A is **this** round (the "refute it" round).  §0–§3 are the
+previous round (verdict, reference finding, first positive instance, one killed attack).
+§4–§9 are the round before that, and stand unchanged.
 
 ---
+
+# §A. The refutation round
+
+## A.0 Verdict
+
+**Not refuted, and the brief's route to a refutation is blocked — by a fact already in the
+tree.**  No counterexample was found and none was expected to be findable by the assigned
+route.  *"No witness is not evidence of truth."*  What this round adds is one machine-checked
+**narrowing** of the statement and two **corrections**.
+
+## A.1 Correction 1 — the set model cannot refute this, *as the tree stands*. It is circular.
+
+The brief said: *"a set model is exactly the instrument for that … Right tool from the
+refutation side."*  That is wrong in this tree, and the proof that it is wrong was committed
+the night before, in a file this stream owns.
+
+`Theory/SetModel/StableAudit.lean` **[machine-checked, `sorry`-free]**:
+
+* `soundAbove` / `sound` (`SetModel/SoundInduction.lean`) — the only route from a derivation
+  to a set-theoretic fact — take a `PropSplit` **together with `PropSplit.Stable`** [read].
+* `propSplitOf` is the tree's only `PropSplit` construction, and
+  `propSplitOf_stable_iff` proves `Stable ↔ PropDescend` for it — an *equivalence*, so this
+  is not a proof artefact **[machine-checked]**.
+* `sort_lift_of_strengthening` and `proof_lift_of_strengthening`
+  (`StableAudit.lean:260,276`) derive `PropDescend`'s two `lift` fields **from**
+  `TypingStrengthening` + `SortDescend` (+ `PropUniq`/`PropTypeAgree`) — i.e. **from the
+  hole** **[machine-checked]**.
+
+So the model's soundness theorem is conditional on (a form of) the statement to be refuted.
+A `Γ ⊬ e₁ ≡ e₂` obtained from it would be conditional on the hole, and a conditional
+`⊬` cannot refute its own condition.  **The model route is circular here.**
+
+It is not circular *in principle*: `StableAudit.lean`'s own table names the other route,
+`LevelAssign.toPropSplit`, whose `Stable` is a syntactic commutation (`Commutes`,
+`toPropSplit_stable`, three lines) — but that route pays in `sort_inv` + `SortUniq`, i.e.
+unique typing, which is `sorryAx` and has no instance.  **Both routes into the model are
+blocked by open statements.**  Anyone told "use the model" should be told this first.
+
+## A.2 Correction 2 — the tree has no context-sensitive `⊬` instrument, and cannot have one cheaply
+
+A refutation needs `Γ ⊬ e₁ ≡ e₂` at the **smaller** context while `Γ' ⊢ e₁ᵏ ≡ e₂ᵏ` at the
+larger.  A structural scan of both cones for statements whose conclusion is `False` or
+`¬ …` over `IsDefEq`/`IsDefEqU`/`HasType`/`IsType`/`VExpr.WF` finds **31**
+**[measured; script kept at `<scratchpad>/weakn-refute/negscan.lean`]**.  Reading them:
+
+* three carry `sorryAx` (`IsDefEqU.sort_forallE_inv`, `const_sort_inv`, `const_forallE_inv`);
+* the substantive unconditional ones — `propLoopEnv2_A_ne_B`, `propLoopEnv2_A_ne_sort`,
+  `propLoopEnv2_A_ne_forallE`, `barEnv_bar_ne_ctorApp`, `isType_lam_false`,
+  `constApp_sort_false`, `constApp_forallE_false`, `const_sort_inv_of_patWF`,
+  `const_forallE_inv_of_patWF` — are all **head-shape disjointness** facts (a const
+  application is not a sort / not a Π; a λ is not a type; two distinct constants are not
+  convertible);
+* the rest (`KEta`, `KCanonical`, `HeadRedStuck`, `DescendRefute`) are non-applicability of a
+  *statement* at a witness, not non-derivability of a conversion.
+
+**Head-shape predicates are lift-stable**: `(.sort u).liftN n k = .sort u`,
+`(.const c ls).liftN n k = .const c ls`, and `liftN` preserves the `app`/`lam`/`forallE`
+head.  So every one of these instruments, applied at `Γ`, applies verbatim at `Γ'` to the
+lifted terms — it kills **both** sides of the `iff` and separates nothing.  **[analysis, on
+lift-stability which is immediate from `VExpr.liftN`'s definition; measured, on the census]**
+
+That is the sharp reason the search fails: an instrument that could refute strengthening
+would have to distinguish two contexts, and *being able to distinguish two contexts is the
+negation of the theorem*.  Every mechanism is a fixed point of itself (§1, previous round,
+now with a second confirmation).
+
+## A.3 What was actually delivered: the context class collapses to one closed entry per level
+
+`Theory/Typing/StrengthenCanon.lean` — **new, 26 source declarations, all `sorry`-free**
+**[machine-checked]**.
+
+`Strengthen.lean` §11 reduces the hole to stripping **one** entry (`Strengthening1`); §12
+narrows to entries that are **uninhabited**.  This file narrows the *entry itself*:
+
+```lean
+def bigFalse (u : VLevel) : VExpr := .forallE (.sort u) (.bvar 0)   -- ∀ (α : Sort u), α
+```
+
+| name | statement |
+|---|---|
+| `Ctx.Ins X k Γ Γ' Γ₀` | a `Ctx.LiftN 1 k` that remembers **which** entry was inserted and **where it is typed** |
+| `Ctx.Ins.liftN`, `.instN`, `Ctx.LiftN.exists_ins` | it is a `LiftN`, it is invertible by substitution, and every `LiftN 1 k` is one |
+| `Ctx.Ins.entry_typed`, `.onCtx` | the entry is a type in its own prefix; inserting a type preserves `OnCtx` |
+| `Ctx.Ins.canon` | **the commuting square**: an insertion of `X` at depth `k` factors as "insert `Y` at `k`, then insert `X.lift` at `k`" |
+| `bigFalse_liftN`, `bigFalse_closed` | the canonical entry is **closed** — it no longer depends on the prefix |
+| `bigFalse_zero`, `bigFalse_param_zero` | `bigFalse .zero = falseProp`, `bigFalse (.param 0) = univType` (both `rfl`) |
+| `bigFalse_isType` | it is a type, in every environment and context |
+| `hasType_bigFalse_app` | **why it is the strongest entry at level `u`**: `x : bigFalse u` at the head of the context gives `Γ ⊢ .app (.bvar 0) A.lift : A.lift` for every `A : Sort u` below it |
+| `canon_swap` | **the swap**, extracted: an arbitrary one-entry stripping becomes a `bigFalse u` stripping over the *same* `Γ`, `e1`, `e2`, `k` |
+| `StrengtheningCanon` | the target restricted to entries `bigFalse u` |
+| `StrengtheningCanon.strengthening1` | **the reduction** |
+| `StrengtheningCanon.iff_strengthening1`, `.iff_target` | it loses nothing: `StrengtheningCanon ↔ Strengthening1 ↔ StrengtheningTarget` |
+| `StrengtheningCanonUninhab` | the target restricted to entries `bigFalse u` that are **also uninhabited** — §12's restriction and this one **compose** |
+| `StrengtheningCanonUninhab.strengthening1`, `.iff_strengthening1` | and the composite still loses nothing |
+| `strengtheningCanon_premises`, `ins_sort_not_bigFalse` | non-vacuity, and the **negative control** |
+
+**The argument, in three moves, none of which assumes the hole.**  Given an arbitrary
+one-entry stripping with entry `A : Sort u`:
+
+1. **weaken** — insert `bigFalse u` immediately *below* the `A` entry (`Ctx.Ins.canon`
+   builds the square; `IsDefEqU.weakN` does the work);
+2. **substitute** — `A` is now inhabited by `.app (.bvar 0) A`, so
+   `IsDefEqU.strengthen_of_instN` (`Strengthen.lean` §1, the **proved** half) strips it;
+3. what remains is the same conversion over the context with `bigFalse u` in place of `A`.
+
+Axioms **[measured]**: `StrengtheningCanon.strengthening1`, `.iff_strengthening1`,
+`canon_swap`, `hasType_bigFalse_app`, `Ctx.Ins.canon` are `[propext, Quot.sound]`;
+`.iff_target` and the two `StrengtheningCanonUninhab` results are
+`[propext, Classical.choice, Quot.sound]` (the choice is the classical case split on
+inhabitedness, plus what `Strengthen.lean`'s closure already carries);
+`Strengthening1.canon`, `Strengthening1.canonUninhab`, `bigFalse_isType`, `Ctx.Ins.instN`,
+`Ctx.LiftN.exists_ins`, `strengtheningCanon_premises` are `[propext]`;
+`ins_sort_not_bigFalse` depends on **no** axioms.
+
+**The crispest form the hole now has** (`StrengtheningCanonUninhab.iff_strengthening1`
+chained with `Strengthening1.iff_target`): *adding the hypothesis `∀ (α : Sort u), α` to a
+well-formed context, at a level and position where it has no inhabitant, is conservative for
+conversion.*  One closed hypothesis per level, and nothing else.
+
+**Why it does not collapse to a single level.**  `x : bigFalse u` inhabits `bigFalse v` only
+when `u ≈ .imax (.succ v) v`, so level `w+2`'s entry implies level `w+1`'s and nothing
+implies level `0`'s but itself.  A single entry covering all levels would have to quantify
+over `VLevel`, which is not a term of `VExpr` — the same obstruction the previous round hit
+(`§2` below: "a universe parameter is required"). **[analysis]**
+
+**What it buys, stated exactly.**  Before: the stripped entry was an arbitrary type in an
+arbitrary prefix.  After: it is **one closed term per level**, `∀ (α : Sort u), α`, whose
+`u = .zero` member is `falseProp`.  Both sides gain:
+
+* a proof attempt handles one context shape per level, and the entry is closed, so the
+  induction no longer has to track how the entry depends on the context below it;
+* a refutation attempt has one concrete target — `∀ (α : Sort u), α :: Γ` — instead of an
+  arbitrary well-formed context with an arbitrary uninhabited entry.
+
+**The negative control** (working rule 5): `Strengthening1 → StrengtheningCanon` is the
+trivial direction, so the reduction has content only if the canonical entries are a *proper*
+subclass.  `ins_sort_not_bigFalse` **[machine-checked]** exhibits a well-formed one-entry
+stripping whose entry (`.sort .zero`) is `bigFalse u` for no `u`.  And the reduction cannot
+be vacuous, because `iff_target` makes it *equivalent* to the hole: if it were provable the
+hole would be closed.
+
+## A.4 A trap this round hit, and a live collision it found
+
+* **Auto-bound implicit, again.**  `theorem bigFalse_zero : bigFalse .zero = falseProp := rfl`
+  compiled its `falseProp` as a fresh implicit variable — `Theory.Consistency` was not in the
+  import closure — and failed with a *unification* error, not an "unknown identifier".  The
+  fix is the import plus the qualified name.  This is shape 5 of `ORCHESTRATOR.md`'s list,
+  met in the wild in a one-line `rfl` **[measured]**.
+
+* **`Lean4Lean.VEnv.PropTypeAgree` is declared twice, with two different statements, and the
+  pair is live — and one consequence is that `Theory/SetModel/` is outside the reach of both
+  standing measuring scripts** **[measured]**:
+  `Theory/Typing/UniqueTypingN.lean:620` (`env U n`, indexed, about `HasTypeN`) and
+  `Theory/SetModel/PropSplitAudit.lean:119` (`env nv`, about level evaluations).
+  Importing `UniqueTypingN` and `StableAudit` in one file fails with
+  *"environment already contains 'Lean4Lean.VEnv.PropTypeAgree'"*.
+  **The default `scripts/dup-names.lean` run does not catch it**: `Experimental.ConeJoin`'s
+  closure contains `UniqueTypingN`'s version, so **no `Theory/SetModel/` module can be
+  imported into the joined cone at all** — neither `scripts/dup-names.lean` nor
+  `scripts/sorry-census.lean` sees `SetModel/`.  (A separate scan over the `SetModel/` cone
+  finds **8** declarations containing `sorryAx`, all of them *inherited* from
+  `Theory/Typing/Injectivity.lean`, `UniqueTyping.lean` and `Inductive/Decl.lean`; `SetModel/`
+  declares **none** of its own, so the census's TOTAL 19 is not understated **[measured]**.)
+  Consequence:
+  every claim that "the model's residual syntactic import is `PropTypeAgree`" and every claim
+  about `PropTypeAgree` on the `Theory/Typing/` side are claims about **different
+  statements**, and no proof can span them.  Not fixed here: the `Theory/Typing/` occurrences
+  live in `PropConv.lean`, `AppCase.lean`, `RegPiSat.lean`, `ShapeSpine.lean`, which this
+  stream does not own.  The natural rename is `UniqueTypingN`'s to `PropTypeAgreeN`, matching
+  that file's own `IsPropN`/`HasTypeN`/`SortInvN` convention (18 + 16 + 7 + 5 + 1 references).
+
+## A.5 Refutation shapes tried this round and why each died
+
+| shape | died at |
+|---|---|
+| `proofIrrel` at a closed proposition | its three premises are about the endpoints themselves; if the endpoints and the proposition are `Γ`-free and typeable downstairs, the rule fires **downstairs too**. Separation zero. **[analysis]** |
+| `proofIrrel` at a proposition mentioning the stripped variable | needs `Γ`-free `h, h'` typed at that `p` upstairs; their types downstairs must then convert to `p` upstairs — a *type-level* conversion available upstairs only, which **is** the hole. **[analysis]** |
+| `beta`/`eta` with a `Γ`-free redex | the endpoints are determined by the rule; the premises are typings of `Γ`-free terms, i.e. `TypingStrengthening`. Fixed point. **[analysis]** |
+| junk `Δ` at general `k` (entries below the insertion point) | `Ctx.LiftN` forces `Δ' = Δ` lifted, so "Δ is a type upstairs, junk downstairs" is `SortDescend` — part of the hole. **[analysis; confirms the previous round]** |
+| model-theoretic `⊬` at the smaller context | **circular** — §A.1. **[machine-checked, on the circularity]** |
+| any existing `⊬` instrument | all lift-stable — §A.2. **[measured]** |
+| `n = 0`, `U = 0`, `A = .sort .zero` degeneracies | `n = 0` makes `Γ' = Γ`; `.sort .zero` is *inhabited* (by any proposition), so §1's substitution closes it. **[analysis]** |
+
+**The one-line summary of why refutation is hard here, and it is not a soft claim.**
+`extra` is context-free (previous round, `[read]`); `bvar` is the only context-sensitive
+rule; and every route from `bvar` to a conversion between `Γ`-free terms passes through a
+*type-level* conversion between `Γ`-free types that holds upstairs and not downstairs —
+which is the statement itself, at the type level.  A counterexample is therefore
+**self-supporting**: it cannot be built bottom-up out of smaller counterexamples, because
+every mechanism that would produce it consumes a smaller instance of itself.
+
+## A.6 What the next attempt should do
+
+1. **Do not use the set model** until `PropSplit.Stable` is obtained by a route that is not
+   `PropDescend` — §A.1 names the only candidate and its price.
+2. **Attack `StrengtheningCanonUninhab`, not `Strengthening1`.**  It is equivalent
+   (`StrengtheningCanonUninhab.iff_strengthening1`, then `Strengthening1.iff_target`) and the
+   context is now one closed entry per level, assumed uninhabited.  Concretely: is
+   `∀ (α : Sort u), α :: Γ ⊢ e₁.lift ≡ e₂.lift → Γ ⊢ e₁ ≡ e₂`, when the entry has no
+   inhabitant in `Γ`?
+3. **The `noUnsafe` question is open and cheap to price, and nobody has priced it for *this*
+   statement.**  `LogRelRowZero.headStep_not_wf` blocks the logical-relation route only at
+   full `VEnv.WF` generality, and its witness is one `.unsafeDef` step
+   (`CycleConv.loopEnv2_wf_noUnsafe` shows the *conversion* relation survives without it).
+   `Verify/SafeFragment.lean` §2 has already done this analysis **for `Injectivity.lean`** —
+   `VContext.EwfNoUnsafe` delivers `noUnsafe` at `c.safety = .safe`, with the proviso that
+   the consumers must be reached only at `.safe`, which is a restructuring nobody has
+   attempted.  The same question for `weakN_iff`'s 111 transitive users has **not** been
+   asked.  **[read, on SafeFragment; not measured for `weakN_iff`]**
+4. `PiDescend` is still the cheaper sub-target, and is now known to need *conversion*
+   strengthening too, not just typing strengthening: its second conjunct asks for
+   `Γ ⊢ a : A₀` with `A₀` **f's** domain, and reconciling `a`'s own downstairs type with
+   `A₀` is `TransStrengthening`. **[analysis]**
+
+## A.6b Files
+
+* `Lean4Lean/Theory/Typing/StrengthenCanon.lean` — **new this round**, 26 source
+  declarations, all `sorry`-free.  Imports `StrengthenVerdict` (for `onCtx_levelWF` and
+  `univType`) and `Theory/Consistency` (for `falseProp`).  Nothing imports it yet; it is
+  built by `lake build` through the `Lean4Lean.Theory.*` glob.
+* `Lean4Lean/Theory/SetModel/StableAudit.lean` — **read, not modified**.  §A.1's circularity
+  is entirely that file's own already-committed content.
+* Everything else in this stream's file set is unchanged.
+
+## A.7 Measurements this round
+
+* `scripts/sorry-census.lean`: **TOTAL 19** at the start **[measured]**; `weakN_iff` has
+  **111** transitive users **[measured]**.  Nothing was closed, so the end count must also be
+  19 — any other number is a regression to investigate.
+* `scripts/sorry-census.lean` at the **end**: **TOTAL 19** **[measured]** — unchanged, as it
+  must be, since nothing was closed.
+* `scripts/dup-names.lean`, default run at the start **and** at the end: **no duplicates**
+  **[measured]**.  A dedicated run adding `StrengthenCanon` + `StrengthenVerdict` + `ConstVar`
+  to that closure: **no duplicates** **[measured]** — the new file introduces none.  Adding
+  `StableAudit` to the same run *fails to import*, which is how the pre-existing
+  `PropTypeAgree` collision of §A.4 was found.
+* The 31 non-derivability statements of §A.2 **[measured]**.
+
+---
+
+# §B. Previous round (the "decide it" round)
 
 ## 0. The verdict
 
@@ -156,6 +396,8 @@ and it is the *first* environment for which "inconsistent makes it easier" is mo
 assertion.
 
 ---
+
+# §C. Earlier rounds
 
 ## 4. The chain of equivalences (previous round, re-verified here)
 
