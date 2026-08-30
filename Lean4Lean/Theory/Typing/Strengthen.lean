@@ -41,6 +41,12 @@ Contents:
   two hypotheses.
 * §9 the correction: `Strengthening ↔ TransStrengthening`, and `PiDescend → SortDescend`, so
   `TypingStrengthening ↔ PiDescend`.
+* §10 the bridge: `Strengthening` assumes `OnCtx Γ` and the hole does not, so §1-§9 did not
+  formally reach the hole.  `Strengthening.iff_target` closes that gap, sorry-free.
+* §11 `Strengthening1.iff_target` — **stripping one entry at a time is enough**, which is what
+  makes §1's `n = 1` tools (`exists_instN`, `strengthen_of_instN`) apply to the target.
+* §12 `Strengthening1Uninhab.iff_target` — **the obstruction is exactly the uninhabited
+  entries**, §1's informal remark turned into a theorem, with its vacuity dual.
 
 **Axiom cones, machine-checked.**  §1, §4, §7, `Strengthening.{typing,trans}` and §9's
 `TransStrengthening.strengthening` / `Strengthening.iff_trans` are sorry-free.  §9's
@@ -517,6 +523,233 @@ variable! (henv : VEnv.WF env) in
 /-- **The reflexive instance of the target is exactly one statement.** -/
 theorem TypingStrengthening.iff_piDescend : TypingStrengthening env U ↔ PiDescend env U :=
   ⟨fun H => H.piDescend henv, fun H => TypingStrengthening.of henv (H.sortDescend henv) H⟩
+
+/-! ## 10. The bridge to `IsDefEqU.weakN_iff` — the development's statement is the hole's
+
+`Strengthening` carries **two** context hypotheses, `OnCtx Γ` and `OnCtx Γ'`.  The `sorry` at
+`Theory/Typing/UniqueTyping.lean:174` carries only `OnCtx Γ'`.  An extra hypothesis makes
+`Strengthening` a *weaker* statement, so §1–§9 do not by themselves discharge the hole: the
+missing step is `OnCtx Γ' → OnCtx Γ`, which is `OnCtx.weakN_inv` — and that theorem is
+downstream of the very `sorry` we are trying to close.
+
+It is recoverable, and the recovery is not circular.  `OnCtx.weakN_inv`'s induction applies
+strengthening only at **strictly smaller** `Ctx.LiftN` witnesses, so an induction on the
+witness may assume `OnCtx Γ` for the tail while proving it for the head.  The head step needs
+a *sort* downstairs, not merely well-formedness, and that is `SortDescend` — which
+`Strengthening` supplies through `TypingStrengthening.sortDescend`, sorry-free.
+
+The upshot, `Strengthening.iff_target`: the 500 lines above are about exactly the hole, with
+no hypothesis to spare. -/
+
+/-- `OnCtx` of a suffix.  (`OnCtx.append_right` is the same statement, but it lives in
+`Theory/Inductive/Lemmas.lean`, which is not in this file's import closure.) -/
+private theorem onCtx_of_append {P} :
+    ∀ {As Γ : List VExpr}, OnCtx (As ++ Γ) P → OnCtx Γ P
+  | [], _, h => h
+  | _::_, _, h => onCtx_of_append h.1
+
+/-- **The target, exactly as stated at `Theory/Typing/UniqueTyping.lean:174`**: the forward
+direction of `IsDefEqU.weakN_iff`, whose only context hypothesis is `OnCtx Γ'`. -/
+def StrengtheningTarget (env : VEnv) (U : Nat) : Prop :=
+  ∀ {n k : Nat} {Γ Γ' : List VExpr} {e1 e2 : VExpr}, Ctx.LiftN n k Γ Γ' →
+    OnCtx Γ' (env.IsType U) →
+    env.IsDefEqU U Γ' (e1.liftN n k) (e2.liftN n k) → env.IsDefEqU U Γ e1 e2
+
+/-- The easy direction: dropping a hypothesis. -/
+theorem StrengtheningTarget.strengthening (H : StrengtheningTarget env U) :
+    Strengthening env U := fun W _ hΓ' h => H W hΓ' h
+
+variable! (henv : VEnv.WF env) in
+/-- **`OnCtx.weakN_inv` from `Strengthening`.**  The one step `Strengthening` is missing
+relative to the hole.  Induction on the lifting witness: the `succ` step already has
+`OnCtx Γ` for the tail from the induction hypothesis, so both of `Strengthening`'s context
+hypotheses are available where it is used. -/
+theorem Strengthening.onCtx_inv (H : Strengthening env U) :
+    ∀ {n k : Nat} {Γ Γ' : List VExpr}, Ctx.LiftN n k Γ Γ' →
+      OnCtx Γ' (env.IsType U) → OnCtx Γ (env.IsType U) := by
+  intro n k Γ Γ' W
+  induction W with
+  | @zero Γ As _ => exact onCtx_of_append
+  | @succ k Γ Γ' A W ih =>
+    intro h
+    have hΓ := ih h.1
+    have ⟨u, hA⟩ := h.2
+    exact ⟨hΓ, TypingStrengthening.sortDescend henv H.typing W hΓ h.1 hA (H W hΓ h.1 ⟨_, hA⟩)⟩
+
+variable! (henv : VEnv.WF env) in
+/-- **`Strengthening` closes the hole.** -/
+theorem Strengthening.target (H : Strengthening env U) : StrengtheningTarget env U :=
+  fun W hΓ' h => H W (H.onCtx_inv henv W hΓ') hΓ' h
+
+variable! (henv : VEnv.WF env) in
+/-- **The development's statement and the hole's are the same statement.** -/
+theorem Strengthening.iff_target : Strengthening env U ↔ StrengtheningTarget env U :=
+  ⟨fun H => H.target henv, StrengtheningTarget.strengthening⟩
+
+variable! (henv : VEnv.WF env) in
+/-- Chaining §9: the hole is `TransStrengthening`, with no context hypothesis to spare. -/
+theorem StrengtheningTarget.iff_trans : StrengtheningTarget env U ↔ TransStrengthening env U :=
+  (Strengthening.iff_target henv).symm.trans Strengthening.iff_trans
+
+/-! ## 11. One entry at a time
+
+`Strengthening` strips `n` entries at once, but every tool in §1 is stated for `n = 1`:
+`Ctx.LiftN.exists_instN` and `IsDefEqU.strengthen_of_instN` both take a `Ctx.LiftN 1 k`.  The
+gap is closed here: a `Ctx.LiftN (n+1) k` factors as a `Ctx.LiftN n k` followed by a
+`Ctx.LiftN 1 k` (`Ctx.LiftN.split_one`), and the factorisation is compatible with `liftN`
+(`VExpr.liftN'_liftN_hi`), so **the one-entry statement implies the target**.
+
+The one point of care is `OnCtx` of the *intermediate* context: it is not available from
+either end for free, which is why the reduction is stated against `StrengtheningTarget`
+(§10) rather than `Strengthening` — the target form manufactures its own `OnCtx` through
+`Strengthening1.onCtx_inv`. -/
+
+/-- A zero-entry lifting is the identity on contexts. -/
+theorem _root_.Lean4Lean.Ctx.LiftN.eq_of_zero :
+    ∀ {k : Nat} {Γ Γ' : List VExpr}, Ctx.LiftN 0 k Γ Γ' → Γ = Γ' := by
+  intro k Γ Γ' W
+  induction W with
+  | @zero Γ As h => cases List.eq_nil_of_length_eq_zero h; rfl
+  | succ _ ih => simp [← ih]
+
+/-- **A lifting by `n+1` factors through a lifting by `n`.**  The extra entry is stripped
+last, at the same position `k`. -/
+theorem _root_.Lean4Lean.Ctx.LiftN.split_one :
+    ∀ {n k : Nat} {Γ Γ' : List VExpr}, Ctx.LiftN (n+1) k Γ Γ' →
+      ∃ Γ₁, Ctx.LiftN n k Γ Γ₁ ∧ Ctx.LiftN 1 k Γ₁ Γ' := by
+  intro n k Γ Γ' W
+  induction W with
+  | @zero Γ As h =>
+    match As, h with
+    | A :: As, h =>
+      refine ⟨As ++ Γ, .zero As (by simpa using h), .zero [A] rfl⟩
+  | @succ k Γ Γ' A W ih =>
+    obtain ⟨Γ₁, W1, W2⟩ := ih
+    refine ⟨A.liftN n k :: Γ₁, W1.succ, ?_⟩
+    have := W2.succ (A := A.liftN n k)
+    rwa [VExpr.liftN'_liftN_hi] at this
+
+/-- **The target, restricted to stripping a single entry.** -/
+def Strengthening1 (env : VEnv) (U : Nat) : Prop :=
+  ∀ {k : Nat} {Γ Γ' : List VExpr} {e1 e2 : VExpr}, Ctx.LiftN 1 k Γ Γ' →
+    OnCtx Γ (env.IsType U) → OnCtx Γ' (env.IsType U) →
+    env.IsDefEqU U Γ' (e1.liftN 1 k) (e2.liftN 1 k) → env.IsDefEqU U Γ e1 e2
+
+theorem Strengthening.one (H : Strengthening env U) : Strengthening1 env U :=
+  fun W hΓ hΓ' h => H W hΓ hΓ' h
+
+variable! (henv : VEnv.WF env) in
+/-- §10's `onCtx_inv`, at `n = 1`.  Every use of the hypothesis in that proof — the
+strengthening itself and the sort descent it feeds — is at the *same* lifting witness, so the
+one-entry statement is enough. -/
+theorem Strengthening1.onCtx_inv (H : Strengthening1 env U) :
+    ∀ {k : Nat} {Γ Γ' : List VExpr}, Ctx.LiftN 1 k Γ Γ' →
+      OnCtx Γ' (env.IsType U) → OnCtx Γ (env.IsType U) := by
+  intro k Γ Γ' W
+  induction W with
+  | @zero Γ As _ => exact onCtx_of_append
+  | @succ k Γ Γ' A W ih =>
+    intro h
+    have hΓ := ih h.1
+    have ⟨u, hA⟩ := h.2
+    have ⟨_, wf⟩ : VExpr.WF env U Γ (.forallE A (.sort .zero)) := H W hΓ h.1
+      (show env.IsDefEqU U Γ' ((VExpr.forallE A (.sort .zero)).liftN 1 k)
+          ((VExpr.forallE A (.sort .zero)).liftN 1 k) from
+        ⟨_, .forallEDF hA (.sortDF trivial trivial rfl)⟩)
+    exact ⟨hΓ, (HasType.forallE_inv henv wf).1⟩
+
+variable! (henv : VEnv.WF env) in
+/-- **Stripping one entry at a time is enough.** -/
+theorem Strengthening1.target (H : Strengthening1 env U) : StrengtheningTarget env U := by
+  intro n
+  induction n with
+  | zero =>
+    intro k Γ Γ' e1 e2 W _ h
+    cases W.eq_of_zero; simpa using h
+  | succ n ih =>
+    intro k Γ Γ' e1 e2 W hΓ' h
+    obtain ⟨Γ₁, W1, W2⟩ := W.split_one
+    refine ih W1 (H.onCtx_inv henv W2 hΓ') (H W2 (H.onCtx_inv henv W2 hΓ') hΓ' ?_)
+    rwa [VExpr.liftN'_liftN_hi, VExpr.liftN'_liftN_hi]
+
+variable! (henv : VEnv.WF env) in
+/-- **The one-entry statement is the target.** -/
+theorem Strengthening1.iff_target : Strengthening1 env U ↔ StrengtheningTarget env U :=
+  ⟨fun H => H.target henv, fun H => Strengthening.one (StrengtheningTarget.strengthening H)⟩
+
+/-! ## 12. The obstruction is exactly the uninhabited entries
+
+§1 proves strengthening outright whenever the stripped entry has an inhabitant.  §11 makes
+that applicable to the target.  Together they give a genuine *reduction* — one that adds a
+hypothesis rather than reshuffling the existing ones:
+
+    Strengthening1Uninhab  ⟹  StrengtheningTarget
+
+`Strengthening1Uninhab` is the target restricted to strippings whose entry is **uninhabited
+in its own prefix context**.  The case split is classical and one line; what it buys is that
+any future argument may assume the entry has no inhabitant.
+
+**Vacuity, stated exactly.**  The premises of `Strengthening1Uninhab` are satisfiable at
+precisely the well-formed contexts with an uninhabited entry
+(`onCtx_uninhab_premises`), and the dual is machine-checked here:
+`strengtheningTarget_of_allInhabited` says that if *every* stripped entry were inhabited then
+§1 alone would close the target.  So `Strengthening1Uninhab` is vacuous **iff** the target is
+already proved — which is the strongest honest non-vacuity statement available, because
+exhibiting an uninhabited type over a `VEnv.WF` environment is itself an open problem in this
+tree: `VEnv.Consistent` (`Theory/Consistency.lean`) is a *definition*, and `leanTTConsistent`
+is not proved anywhere here.  "No witness exhibited" is therefore not evidence either way. -/
+
+/-- **The target, restricted to an uninhabited stripped entry.** -/
+def Strengthening1Uninhab (env : VEnv) (U : Nat) : Prop :=
+  ∀ {k : Nat} {Γ Γ' : List VExpr} {e1 e2 : VExpr}, Ctx.LiftN 1 k Γ Γ' →
+    OnCtx Γ (env.IsType U) → OnCtx Γ' (env.IsType U) →
+    (∀ Γ₀ A₀ e₀, Ctx.InstN Γ₀ e₀ A₀ k Γ' Γ → ¬ env.HasType U Γ₀ e₀ A₀) →
+    env.IsDefEqU U Γ' (e1.liftN 1 k) (e2.liftN 1 k) → env.IsDefEqU U Γ e1 e2
+
+theorem Strengthening1.uninhab (H : Strengthening1 env U) : Strengthening1Uninhab env U :=
+  fun W hΓ hΓ' _ h => H W hΓ hΓ' h
+
+/-- **The uninhabited case is the whole of the one-entry statement.**  Classical case split:
+if the entry has an inhabitant, `IsDefEqU.strengthen_of_instN` closes it outright. -/
+theorem Strengthening1Uninhab.strengthening1 (henv : Ordered env)
+    (H : Strengthening1Uninhab env U) : Strengthening1 env U := by
+  intro k Γ Γ' e1 e2 W hΓ hΓ' h
+  by_cases hin : ∃ Γ₀ A₀ e₀, Ctx.InstN Γ₀ e₀ A₀ k Γ' Γ ∧ env.HasType U Γ₀ e₀ A₀
+  · obtain ⟨Γ₀, A₀, e₀, hI, h₀⟩ := hin
+    exact IsDefEqU.strengthen_of_instN henv hI h₀ h
+  · exact H W hΓ hΓ' (fun Γ₀ A₀ e₀ hI h₀ => hin ⟨Γ₀, A₀, e₀, hI, h₀⟩) h
+
+variable! (henv : VEnv.WF env) in
+/-- **The uninhabited case is the whole target.** -/
+theorem Strengthening1Uninhab.target (H : Strengthening1Uninhab env U) :
+    StrengtheningTarget env U :=
+  Strengthening1.target henv (H.strengthening1 henv.ordered)
+
+variable! (henv : VEnv.WF env) in
+theorem Strengthening1Uninhab.iff_target :
+    Strengthening1Uninhab env U ↔ StrengtheningTarget env U :=
+  ⟨fun H => H.target henv, fun H => (Strengthening1.uninhab
+    (Strengthening.one (StrengtheningTarget.strengthening H)))⟩
+
+variable! (henv : VEnv.WF env) in
+/-- **The vacuity dual.**  If every stripped entry were inhabited, §1 alone would close the
+target.  So §12's residual carries content exactly to the extent that uninhabited entries
+exist. -/
+theorem strengtheningTarget_of_allInhabited
+    (hinh : ∀ {k : Nat} {Γ Γ' : List VExpr}, Ctx.LiftN 1 k Γ Γ' → OnCtx Γ' (env.IsType U) →
+      ∃ Γ₀ A₀ e₀, Ctx.InstN Γ₀ e₀ A₀ k Γ' Γ ∧ env.HasType U Γ₀ e₀ A₀) :
+    StrengtheningTarget env U := by
+  refine Strengthening1.target henv fun {k Γ Γ' e1 e2} W _ hΓ' h => ?_
+  obtain ⟨Γ₀, A₀, e₀, hI, h₀⟩ := hinh W hΓ'
+  exact IsDefEqU.strengthen_of_instN henv.ordered hI h₀ h
+
+/-- **Premise satisfiability for §12's residual**, at the innermost position, where the
+uninhabitedness hypothesis is literally "`A` has no inhabitant in `Γ`". -/
+theorem onCtx_uninhab_premises {A : VExpr} (hΓ : OnCtx Γ (env.IsType U))
+    (hA : env.IsType U Γ A) (hemp : ∀ e₀, ¬ env.HasType U Γ e₀ A) :
+    Ctx.LiftN 1 0 Γ (A :: Γ) ∧ OnCtx Γ (env.IsType U) ∧ OnCtx (A :: Γ) (env.IsType U) ∧
+      ∀ Γ₀ A₀ e₀, Ctx.InstN Γ₀ e₀ A₀ 0 (A :: Γ) Γ → ¬ env.HasType U Γ₀ e₀ A₀ :=
+  ⟨.one, hΓ, ⟨hΓ, hA⟩, fun _ _ e₀ hI => by cases hI; exact hemp e₀⟩
 
 end VEnv
 end Lean4Lean
