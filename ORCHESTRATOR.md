@@ -80,6 +80,15 @@ The shapes seen so far:
 - a binder silently captured (auto-bound implicit), so the statement is about the wrong variable
 - a quantifier ranging wider than intended
 
+**Audit against consumers, not only producers.** A statement is constrained from two
+sides: what it must *describe* (the thing it abstracts) and what it must *support* (the
+theorems that consume it). Checking only the first is how a "fix" gets prescribed that
+breaks a proved theorem — this happened: `IsStructure.types` was found too narrow for
+what the checker accepts, the obvious weakening was prescribed, and it was **refuted**,
+because the weakened form admits blocks at which a consumer's term is a recursor
+under-applied by two arguments, turning a *proved* lemma false. Before proposing a
+weakening, enumerate the statement's consumers and check each.
+
 **The check that generalises:** *does the statement carry enough information to determine its own conclusion?* Audit **information flow**, not binders. The narrow binder check catches only the fifth shape.
 
 **Its mirror, which also bit:** an invariant **too strong to propagate**. The move is to ask what the hard case actually needs, confirm *that* weaker consequence is closed under the structural step, weaken until it propagates, and keep the strong hypothesis in the public statement to discharge at the root.
