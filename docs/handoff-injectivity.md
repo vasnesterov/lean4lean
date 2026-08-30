@@ -12,6 +12,9 @@ paragraph, §4A and §8 are from the 2026-08-30 session** and use the census con
 names skipped), so their counts are smaller for the same statements — the two are not in
 conflict, they are different scopes, and each section says which it used.
 
+**§4D is from the 2026-08-30 fourth session** (`BaseUniqTerm.lean`); it answers §8 item 1 and
+corrects the way that item's "prize" was phrased.
+
 Files added or changed on 2026-08-30: **`Lean4Lean/Theory/Typing/RetypeCase.lean`** (new),
 **`Lean4Lean/Theory/Typing/RetypeAdmissible.lean`** (new, later the same day),
 **`Lean4Lean/Theory/Typing/ProofRetypeHeads.lean`** (new, third session of the day —
@@ -25,6 +28,18 @@ end-of-session census and `dup-names` runs are blocked — see §8. **[machine]*
 ---
 
 ## 0. Headline
+
+**Fourth session, 2026-08-30 — `BaseUniq` is proved by induction on the term, and the open
+check §8 item 1 named is settled in the affirmative.**  `uniqStrong_of_baseUniq` *can* be
+applied at a proper subterm without re-entering the whole statement, because
+`HasTypeStrong.peelEq` rewrites the **type** and never the **subject**.  Indexing both
+predicates by the subject (`BaseUniqAt`, `UniqStrongAt`) makes the recursion structural:
+`baseUniqAt_of_sortUniq_piInv` elaborates to `VExpr.brecOn`, and the elaborated step function
+takes its two recursive calls at `x.1.1` (the function of an `.app`) and `x.2.1` (the body of
+a `.lam`) and nowhere else.  Hence `retypes_of_sortUniq_piInv`: `Ordered env + SortUniq +
+PiInv → retypes`, `sorryAx`-free.  **But the *implication* is not new** — see §4D.2 — and the
+brief's phrasing of the prize needs correcting.  `Theory/Typing/BaseUniqTerm.lean`, 23
+declarations (2 defs, 21 theorems).  §4D. **[machine]**
 
 **Third session, 2026-08-30 — `ProofRetype` is not a residual of its own, and two of §4B's
 readings are wrong.**  All four residuals of `IsDefEqStrong.retypes` follow from **one**
@@ -749,6 +764,143 @@ Two routes were considered and dropped, with the step each fails at:
 
 ---
 
+## 4D. `BaseUniq` by induction on the term  *(fourth session of 2026-08-30)*
+
+New file, owned by this stream: **`Lean4Lean/Theory/Typing/BaseUniqTerm.lean`** — 23
+declarations (2 defs, 21 theorems), all `sorry`-free, `#print axioms` block at the end.  It imports
+`ProofRetypeHeads.lean` and is imported only by `Experimental/ConeJoin.lean` (one import line,
+the only edit outside this stream's own files), so it adds nothing to any cone that reaches
+`kernel_sound`.
+
+### 4D.1 The open check of §8 item 1, settled **[machine]**
+
+> *"What has to be checked is that `uniqStrong_of_baseUniq` can be applied at a proper subterm
+> without re-entering the whole statement."*
+
+**It can.**  The reason is one line about `HasTypeStrong.peelEq`: peeling `defeq` wrappers
+changes the *type* and never the *subject*, so `uniqStrong_of_baseUniq`'s proof, run at a fixed
+subject `e`, consumes `BaseUniq` **only at `e`**.  Making that visible to the elaborator is the
+whole trick:
+
+```lean
+def BaseUniqAt   (env : VEnv) (U : Nat) (e : VExpr) : Prop := …   -- both typings at flag `false`
+def UniqStrongAt (env : VEnv) (U : Nat) (e : VExpr) : Prop := …   -- both typings at flag `true`
+
+theorem uniqStrongAt_of_baseUniqAt (henv : Ordered env) (hsu : env.SortUniq U)
+    {e : VExpr} (hbu : BaseUniqAt env U e) : UniqStrongAt env U e
+```
+
+and then `baseUniqAt_of_sortUniq_piInv : Ordered env → SortUniq → PiInv → ∀ e, BaseUniqAt env U e`
+by pattern match on `e`.
+
+**Read the elaborated program, not the source layout** (`ORCHESTRATOR.md`).  `#print` on the
+declaration gives `VExpr.brecOn`, and `#print` on its step function `…._f` gives the six
+branches with their recursive calls named:
+
+```
+| .bvar _      => baseUniqAt_bvar                       -- no recursive call
+| .sort _      => baseUniqAt_sort                       -- no recursive call
+| .const _ _   => baseUniqAt_const                      -- no recursive call
+| .forallE _ _ => baseUniqAt_forallE hsu                -- no recursive call
+| .lam _ b     => baseUniqAt_lam henv (uniqStrongAt_of_baseUniqAt henv hsu x.2.1)
+| .app f _     => baseUniqAt_app henv hpi (uniqStrongAt_of_baseUniqAt henv hsu x.1.1)
+```
+
+`x.1.1` is the `below`-field for the function, `x.2.1` the one for the body.  No branch reaches
+the statement at any term other than a direct subterm.  This is the machine answer; it is not
+read off the source.
+
+### 4D.2 **Correction to the brief: the prize as phrased was already available** **[machine]**
+
+The brief called the target *"`SortUniq + PiInv → retypes`, with no `VEnv.WF`, no
+stratification, no `PiInvStratApp`"* and treated the implication as the prize.  **The
+implication was already reachable** by composing two things already in the tree:
+
+```lean
+Injectivity.piInvStratApp_of          : VEnv.WF env → SortUniq → PiInv → PiInvStratApp
+RetypeAdmissible.retypes_of_piInvStratApp : VEnv.WF env → PiInvStratApp → … → Retypes
+```
+
+`retypes_of_sortUniq_piInv_via_strat` in the new file is that composite, written out so the
+comparison is a hypothesis list and not an assertion.  The measured delta is:
+
+| | via `PiInvStratApp` (already available) | `retypes_of_sortUniq_piInv` (new) |
+|---|---|---|
+| environment hypothesis | `VEnv.WF env` | **`Ordered env`** |
+| `#print axioms` | `propext, Classical.choice, Quot.sound` | **`propext, Quot.sound`** |
+| machinery used | `HasTypeStratified`, `uniqAux`, height induction | none |
+| induction | over `IsDefEqStrong`, height-indexed | **structural recursion on `VExpr`** |
+
+So the contribution is a **weaker hypothesis and a structurally different proof**, not a new
+implication between named statements.  Anyone quoting "no `PiInvStratApp`" should quote the row
+that carries it: `VEnv.WF` → `Ordered`, and `Classical.choice` dropped.
+
+### 4D.3 What is proved **[machine]**
+
+| name | statement |
+|---|---|
+| `uniqStrongAt_of_baseUniqAt` | `Ordered → SortUniq → BaseUniqAt e → UniqStrongAt e` |
+| `baseUniqAt_bvar` / `_sort` / `_const` | free, no hypothesis |
+| `baseUniqAt_forallE` | from `SortUniq`, no recursive call |
+| `baseUniqAt_lam` | from `Ordered` + `UniqStrongAt` at the **body** |
+| `baseUniqAt_app` | from `Ordered` + `PiInv` + `UniqStrongAt` at the **function** |
+| `baseUniqAt_of_sortUniq_piInv` | the recursion |
+| `baseUniq_of_sortUniq_piInv` | `Ordered → SortUniq → PiInv → BaseUniq` |
+| `uniqStrong_of_sortUniq_piInv` | `… → UniqStrong` (compare `uniqStrong_of_piInvStratApp`, which takes `VEnv.WF`) |
+| `retypes_of_sortUniq_piInv` | `… → Retypes` |
+| `retype_of_conv_of_sortUniq_piInv` | the `hasType'` `retype` case |
+| `{beta,eta,proof,extra}Retype_of_sortUniq_piInv` | the four computation-rule residuals |
+
+All `[propext, Quot.sound]`; none mentions `sorryAx`.
+
+### 4D.4 Non-vacuity and the negative control **[machine]**
+
+* **`baseUniqAt_app_fires`** — over every `Ordered` environment, the `.app` branch fires at
+  `ProofRetypeHeads.baseUniqApp_nonvacuous`'s witness, where the two base types are
+  **syntactically different**, so the conclusion is neither `refl` nor the input re-indexed at
+  its own type; and its recursive call is at the function `.bvar 0`, so the descent visibly
+  happens.  `SortUniq` and `PiInv` are *carried*, not discharged — this fires the branch and is
+  **not** evidence the two hypotheses are jointly satisfiable (`ORCHESTRATOR.md` rule 4).
+* **The negative control, and it is the one that matters here.**  The recursive calls take
+  `UniqStrongAt` (flag `true`) at the subterm, not `BaseUniqAt` (flag `false`).  That single
+  `Bool` is the *only* thing that puts `SortUniq` in the result:
+  `uniqStrongAt_of_baseUniqAt` is the file's sole consumer of `SortUniq`, so the neighbouring
+  reading — *"the recursion needs only `BaseUniqAt` at the subterm"* — would deliver
+  `PiInv → retypes` with **no `SortUniq` at all**, which is a strictly stronger and much more
+  valuable result.  It is **false**: `app_fn_premise_is_not_base` shows that in that same
+  witness the second `.app` node's function premise
+  `HasTypeStrong [prhPi1] (.bvar 0) prhPi2 true` has **no** `false` derivation, because
+  `Lookup` pins the only base type of `.bvar 0` to `prhPi1`.  `base_flag_not_droppable` states
+  the rejection.  The two readings differ in one `Bool`: same arity, same shape, same head —
+  no arity or shape check separates them.
+
+### 4D.5 The localisation goes through at the subject and **not** at the type **[analysis]**
+
+The obvious next move is to localise `SortUniq` the same way and get rid of it.  It does not
+work, and the failing step is exact:
+
+* `baseUniqAt_forallE` *would* localise — it uses `SortUniq` only at the Π's own domain `D` and
+  body `b`, both proper subterms.
+* `uniqStrongAt_of_baseUniqAt` does **not**.  It goes through `HasTypeStrong.peelEq`, whose
+  `defeq` case (`ProofRetypeHeads.lean`, the `| defeq h1 h2 h3 h4 h5 _ _ ih5` branch) applies
+  `SortUniq` at the derivation's intermediate **type** `A` — an arbitrary term, with no
+  structural relation to the subject.
+* Proving `UniqStrongAt` by induction on the *derivation* instead hits the same wall in the same
+  case: the two conversions `A' ≡ A : .sort u` and `A' ≡ B : .sort w` are indexed at different
+  sorts, and composing them is the four-place obstruction of §2.
+
+So `SortUniq` is **not** a passenger here (`ORCHESTRATOR.md` rule 6): it is consumed at a place
+the term recursion does not reach.
+
+### 4D.6 What is *not* claimed **[analysis]**
+
+Every implication is an upper bound; nothing shows `BaseUniq` *requires* `PiInv`.  No cone
+moved: `BaseUniqTerm.lean` is imported only by `ConeJoin.lean`.  The census is unchanged, and
+the corner's circle is **not** cut — `sortUniq_iff_piInvStratApp` still says `SortUniq` and
+`PiInvStratApp` are interderivable given `PiInv`.
+
+---
+
 ## 5. The refutation attempt, and why it does not reach **[analysis]**
 
 The brief asks for a machine-checked negative if one exists. The one crack in the hypothesis
@@ -867,6 +1019,14 @@ from the strengthening side.
 | this stream's brief | "an *in-place* enlargement is a strict regression — `uniqU_of_uniqAcross` machine-checks that the new case's obligation implies `uniqU` back" | Right conclusion, wrong reason.  The in-place enlargement is a regression because of a **cone** cost (201 → 234, and 21 → 104 under the disconnecting cuts), not because it opens a new hole — on Route A it opens none. §4A. **[machine]** |
 | `Theory/Typing/SortUniq.lean` docstring | "`SortUniq` is not a semantic consequence of Lean's rules, so no argument from any model can establish it" | The argument rules out models that also validate cumulativity, not all models. The conclusion survives because the level-tagged alternative *is* `LevelAssign`, refuted unguarded. §5.1. **[analysis]** |
 
+### 7.2 Corrections from the fourth 2026-08-30 session **[machine]**
+
+| source | claim | correction |
+|---|---|---|
+| this stream's brief, and §8 item 1 | the prize is *"`SortUniq + PiInv → retypes`, with no `VEnv.WF`, no stratification, no `PiInvStratApp`"* | The **implication** was already available: `piInvStratApp_of` (`VEnv.WF + SortUniq + PiInv → PiInvStratApp`) composed with `retypes_of_piInvStratApp`.  Written out as `retypes_of_sortUniq_piInv_via_strat`.  What is actually new is `VEnv.WF env` → `Ordered env`, `Classical.choice` dropped, and a structural recursion on `VExpr` in place of a height-indexed induction. §4D.2. |
+| this stream's brief | *"the open check, and it is the whole risk: can `uniqStrong_of_baseUniq` be applied at a proper subterm without re-entering the whole statement?"* | It can, and the reason is short: `peelEq` rewrites the type, never the subject.  Confirmed by `#print` on the elaborated recursion, not by reading the source. §4D.1. |
+| §4C.4 (this document) | the head table's `.lam` and `.app` rows say "unique typing at the body / at the function" | Correct, and now sharper: what those rows need is unique typing **at flag `true`** (`UniqStrongAt`), not at flag `false` (`BaseUniqAt`).  The distinction is machine-refuted, not stylistic: `base_flag_not_droppable`.  It is the single reason `SortUniq` remains in the result. §4D.4. |
+
 ### 7.1 Corrections from the later 2026-08-30 session **[machine]**
 
 | source | claim | correction |
@@ -888,9 +1048,24 @@ later session, and both now run clean (§8's note that they were blocked by a re
 *(rewritten by the later 2026-08-30 session; the earlier list is kept below it where it still
 holds)*
 
-*(item 1 rewritten by the third 2026-08-30 session; see §4C)*
+*(item 1 rewritten by the fourth 2026-08-30 session; see §4D.  The third session's version is
+kept below it as item 1a, because its head table is still the right map.)*
 
-1. **`BaseUniqApp` — `Theory/Typing/ProofRetypeHeads.lean`.**  Do **not** attack `ProofRetype`,
+1. **Do not re-attack `BaseUniq` by induction on the term — it is done** (`BaseUniqTerm.lean`,
+   §4D), and the check the third session flagged as "the whole risk" came out **clean**.  Two
+   things follow for whoever picks this up.
+
+   * **The remaining hypothesis is `SortUniq`, and §4D.5 says exactly where it is consumed** —
+     `peelEq`'s `defeq` case, at an intermediate *type*, which the term recursion does not
+     reach.  Removing it needs a way to compose two conversions indexed at different sorts,
+     i.e. the four-place obstruction of §2.  Do not re-attempt the subject-localisation of
+     `SortUniq`; it is walked to its failing step in §4D.5.
+   * **The flag is load-bearing** (§4D.4).  If a future restatement lets the subterm premise
+     be taken at flag `false`, `SortUniq` disappears from the result — and that restatement is
+     machine-refuted (`base_flag_not_droppable`).  Treat any proof that drops `SortUniq` here
+     as wrong until it says how it got past that witness.
+
+1a. **`BaseUniqApp` — `Theory/Typing/ProofRetypeHeads.lean`.**  Do **not** attack `ProofRetype`,
    `BetaRetype`, `EtaRetype` or `ExtraRetype` separately: all four are corollaries of
    `BaseUniq`, and `BaseUniq` is free at `.bvar`, `.const` and `.sort`, is `SortUniq` at
    `.forallE`, and is a plain structural recursion at `.lam`.  **Everything that is not already
@@ -909,6 +1084,30 @@ holds)*
    users with an empty cone — but read §6.1's collapse-test note before writing anything.
 5. **Do not** re-attempt §4's four repairs, the lexicographic measure, the unique-typing
    shortcut for `const_app_inv`'s level half, or any route through `ChurchRosser`.
+
+### Build and census state at the end of the **fourth** session **[machine]**
+
+Working tree at commit `dadea04` plus `Theory/Typing/BaseUniqTerm.lean` (new) and one
+`ConeJoin.lean` import line.  Two other streams have `KCanonical.lean` and `KMeasure.lean`
+modified in the tree; no whole-tree `lake build` was run.
+
+* `~/.elan/bin/lake build Lean4Lean.Theory.Typing.BaseUniqTerm` — green.
+* `~/.elan/bin/lake build Lean4Lean.Experimental.ConeJoin` — green.
+* `scripts/sorry-census.lean` on the **ConeJoin import closure**, run at the start and again at
+  the end: **byte-identical**, TOTAL **19**.  The new file contributes **0**.
+* `scripts/dup-names.lean` on the same closure: **clean**, and it saw the new file (the import
+  line was added before the run).
+* Per-hole transitive users on that closure, this run: `forallE_inv_stratified` **365**,
+  `forallE_inv` **123**, `weakN_iff` **111**, `TrProj.uniq` 83, `NormalEq.descend` 40,
+  `TrProj.weak'_inv` 28, `sort_forallE_inv` 8, `checkPrimitiveDef.WF.rest` 6,
+  `const_sort_inv` / `const_forallE_inv` / `const_app_inv` 1 each, `addDecl.WF` 1,
+  `isDefEqUnitLike.WF` 1, `quotReduceRec.WF` 1, `tryEtaStructCore.WF` 2,
+  `exists_indep` / `kernel_sound` / `kernel_complete` / `inferProj.WF` 0.  **Quote the closure
+  with the count** — these are not comparable with §1.2's or §4B.5's narrower-closure numbers.
+* Every declaration in `BaseUniqTerm.lean` is checked by the file's own `#print axioms` block;
+  none mentions `sorryAx`, and every one of them is `[propext, Quot.sound]` except
+  `retypes_of_sortUniq_piInv_via_strat`, which is the *old* route written out for comparison and
+  carries `Classical.choice`.
 
 ### Build and census state at the end of the **third** session **[machine]**
 
