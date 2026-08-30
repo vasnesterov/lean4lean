@@ -1043,3 +1043,407 @@ refutations is contradicted, and none of those files was edited.
 3. **`NormalEq.descend` is still refuted and still in `church_rosser`'s cone**, and by §S4 it
    is no longer the only false thing there.  Deleting it is still right, but it no longer
    makes the route sound.
+
+
+---
+
+# Round 4 (this session): the restatement, and both refutations killed
+
+**Task.** Design the corrected `NormalEq`/`ParRedS`; audit every consumer that *cases* on
+`NormalEq` before changing the relation; re-run `not_crStatement_of_kstep` and
+`not_parRedStatement_of_hK` against the restatement and show them **inapplicable**, with the
+three `descend` refutations still standing; do **not** spend the `Params`-field change.
+
+Same marks: **[machine-checked]** = a named `sorry`-free Lean declaration in this tree;
+**[measured]** = a machine run whose output is reproduced; **[read]**; **[analysis]**.
+
+## T0. Verdict
+
+1. **The repair is in the reduction relation, not in `NormalEq`** — and that is the opposite
+   of what §S4 and the brief nominated first.  `Lean4Lean/Theory/Typing/KEta.lean` (new,
+   `sorry`-free) adds one guarded step, `EtaK`: *η-expand under `k ≥ 0` binders until the
+   expansion is a registered K-redex, then fire it.*  `NormalEq` is **untouched**, and so are
+   `CRStatement` and `ParRedStatement` — they are the same `Prop`s.  What changed is the
+   relation they quantify over.  **[machine-checked]**
+
+2. **Both refutations are dead, unconditionally, axiom-clean.**
+   `VEnv.not_crStatement_of_kstep_dead` and `VEnv.not_parRedStatement_of_hK_dead`
+   **[machine-checked, `#print axioms` = `[propext, Quot.sound]`, empty cones]**: over the
+   enlarged relation `ParRedK`, *four of each refutation's hypotheses are jointly
+   contradictory* — `he`, `hstep`, `hlam`, `hrig`.  No closure hypothesis, no `Params` field,
+   no `hK`.  The hypothesis that dies is **`hrig`**, the rigidity of the witness: `Eq.rec α a
+   C m a` is `ParRed`-normal and is *not* `ParRedK`-normal.  §T3.
+
+3. **The consumer audit corrects the brief, and the correction is large.**
+   `Injectivity.lean` and `NotProof.lean` **eliminate `NormalEq` zero times** — they mention
+   it only in prose.  Across *both* import cones the only declarations outside this stream's
+   files that eliminate `NormalEq` or `ParRed` live in **`Verify/Typing/ConstSpine.lean`**:
+   four for `NormalEq` (untouched by this restatement) and **three for `ParRed`**, which need
+   one new case each.  §T2.  **[measured, by a `.rec`/`.casesOn`/`.below` reverse scan over
+   declaration values, not by grep]**
+
+4. **Two of those three repairs are machine-checked here**, over `ParRedK`, verbatim
+   statements: `ParRedK.forallE_inv`, `ParRedK.sort_inv`.  The third,
+   `ParRed.constApp_inv`, consumes `EtaK.matches_head` **[machine-checked]**; its edit is
+   given in §T5 and is **[analysis]**, because `VEnv.PatFreeHead` is defined downstream of
+   `Theory/`.
+
+5. **`hK` is discharged.**  `ParRedK.hK : KStep Γ a b → ParRedK Γ a b` **[machine-checked]**
+   — `NormalEq.appDF_extra_of_descendV`'s only hypothesis.  `descendV` and
+   `appDF_extra_of_descendV` need **no change**: both case only on `NormalEq` (unchanged) and
+   *build* `ParRedS`, a positive occurrence.  §T4.
+
+6. **The `Params`-field change was not spent**, as instructed.  §S7's eight construction
+   sites are still eight, and `KTable`/`KSmall` are still only priced.  What the restatement
+   adds to the diamond's price is one new residual, `EtaKDiamond`, stated and not proved.
+   §T6.
+
+7. **A reference-level finding, new and not in §4.**  `unique.tex`'s `thm:gg_compat`
+   (Compatibility of `≫κ` with `≡ₚ`, `:167`) is **false at the same witness**, and its proof
+   is missing the case: the bullet list has no η case for the *second* eta rule of `≡ₚ`.  The
+   `thm:ckappa` proof papers over it with "The β and η rules are in `↝κ`" (`:251`) — η is
+   **not** among `↝κ`'s rules (`:96–101`: β, δ, ζ, ι, ι_q, K⁺); it is in `≡ₚ` (`:118–119`).
+   So this is not an artefact of the tree's `NormalEq`: the reference has the identical gap,
+   and the repair this file lands is the reference's own missing rule.  §T7.  **[read +
+   analysis]**  *Not sent to anyone, and must not be.*
+
+## T1. What `EtaK` is, and why it is guarded
+
+```lean
+inductive EtaK : List VExpr → VExpr → VExpr → Prop where
+  | here  {Γ e t t'} : KStep Γ e t → ParRed Γ t t' → EtaK Γ e t'
+  | under {Γ e A B t} : Γ ⊢ e : .forallE A B →
+      EtaK (A::Γ) (.app e.lift (.bvar 0)) t → EtaK Γ e (.lam A t)
+```
+
+Three things are deliberate, each forced.
+
+* **It is not general η-expansion.**  A plain `e ≫ .lam A (.app e.lift (.bvar 0))` rule makes
+  `ParRed` reflexively η-expand every Π-typed term, so `CParRed` has no complete development
+  and `ParRed.constApp_inv` is false.  `EtaK`'s recursion must **bottom out in a real
+  `KStep`** (`here`), so `EtaK` is empty wherever `KStep` is
+  (`refParams_no_etaK` **[machine-checked]**) and fires only on constant-headed spines whose
+  head is a registered pattern's head (`EtaK.matches_head`, `EtaK.spineHead_const`
+  **[machine-checked]**).
+
+* **`under` recurses, i.e. more than one binder.**  Not decoration: `Acc.rec C F`, short of
+  *both* its index and its major premise, has `Acc.intro x (fun y hy => Acc.inv h hy)`
+  well-typed with `x` a **bound** variable, so the K-step is two binders deep.  (`Eq.rec` is
+  the one-binder case, and the two-binder version of *it* does not fire, because
+  `Eq.refl α a : Eq α a b` forces `b ≡ a` and a bound `b` is not.)  **[analysis]**
+
+* **`here` carries the contractum's parallel reduction**, so `EtaK` is the parallel-reduction
+  form rather than the single-step form, and `here` with `t' = t` is exactly `hK`.  One
+  hypothesis where the design otherwise needed two.
+
+**Admissibility.**  `EtaK.defeqU` **[machine-checked]**: every `EtaK` step is already an
+`IsDefEqU`, so `IsDefEq` — and therefore `Lean4Lean.kernel_sound`'s statement — is untouched.
+Its `under` branch is, line for line, the derivation `not_crStatement_of_kstep` builds in order
+to *refute* the old relation:
+
+```lean
+((IsDefEq.eta hty).symm).trans (.lamDF hA hbody)      -- hbody := KStep.defeq, under the binder
+```
+
+**That is the whole repair: the equation the refutation exhibits is admitted as a reduction.**
+Its cone is `{forallE_inv_stratified, forallE_inv}` — the same two `KStep.defeq` and
+`ParRed.defeq` already reach, and **no new hole** **[measured, §T8]**.
+
+### Why not the other direction (grow `NormalEq`) — the check that decided it
+
+§S4 offered two repairs and `docs/design-inductive.md` §7.6's second warning named the first
+("a proof-irrelevance closure at the major-premise position").  It was tried on paper and
+**it breaks the descent** — `NormalEq.descendV`, the one thing `KDescend.lean` closed.
+**[analysis]**
+
+> A K-closure on `NormalEq` has to be two-sided, because `NormalEq.symm` is a theorem.  Take
+> `kstepR : KStep Γ e₂ e → Γ ⊢ e₁ ≡ₚ e → Γ ⊢ e₁ ≡ₚ e₂`.  `descendV`'s hypotheses are
+> `Γ ⊢ g ≡ₚ g'` **and** `q.Matches g'`; in the `kstepR` case the sub-derivation relates `g` to
+> the K-*contractum* `e`, and there is no `q`-match for `e` — the pattern matched `g'`.  There
+> is nothing to recurse on.  The mirror constructor `kstepL` is worse in a different way: it
+> recurses on `e`, which is not smaller than `g`, and `descendV`'s induction is
+> `Nat.strongRecOn` on `sizeOf g`.
+>
+> Putting the closure inside the two eta constructors instead — `etaL`/`etaR` premised on
+> `.app e'.lift (.bvar 0) ≫K w` and `w ≡ₚ e` — fails at the same point and more directly:
+> `descendV`'s `etaL` case descends against `(.var q).Matches (.app e'.lift (.bvar 0))`, and
+> `w` does not match.
+
+The reduction side has the opposite polarity and therefore costs nothing there: `descendV`
+and `appDF_extra_of_descendV` **case only on `NormalEq`** and **build** `ParRedS`.  §T4.
+
+## T2. The consumer audit **[measured]**
+
+The instrument is a reverse scan over declaration *values* (`ConstantInfo.value?` with
+`allowOpaque := true`) for uses of `VEnv.NormalEq.rec / .casesOn / .recOn / .brecOn / .below`
+and the same for `VEnv.ParRed` and `VEnv.CParRed`, run over **two** environments, because the
+`Verify/Typing/Rigidity.lean` cone and the `Verify/Guard.lean` + `Experimental/ConeJoin.lean`
+cone cannot be imported into one file (`Lean4Lean.VEnv.addDefEqList_defeqs_inv` is declared
+twice).  Auto-generated `NormalEq.below.*`, `casesOn`, `recOn`, `brecOn`, `_unary` and
+`match_*` are dropped from the tables below.
+
+**Eliminates `NormalEq` — the complete list, both cones:**
+
+| module | declarations | owner |
+|---|---|---|
+| `Theory/Typing/ChurchRosser.lean` | `NormalEq.defeq`, `.defeqDFC`, `.instN`, `.symm`, `.trans`, `.weakN`, `.weakN_inv_DFC`, `.descend`, `.parRed`, `ParRedExt.parRed_beta` | this stream |
+| `Theory/Typing/HeadReduction.lean` | `IsDefEq.reduce_forallE`, `IsDefEq.reduce_sort` | this stream |
+| `Theory/Typing/KDescend.lean` | `NormalEq.descendV` | this stream |
+| `Theory/Typing/KCanonical.lean` | `not_crStatement_of_kstep`, `not_parRedStatement_of_hK` | this stream |
+| **`Verify/Typing/ConstSpine.lean`** | `NormalEq.constApp_inv`, `.constApp_forallE`, `.constApp_sort`, `.constApp_whnf` | **not this stream** |
+
+**`Injectivity.lean`: zero.  `NotProof.lean`: zero.**  Both mention `NormalEq` only in module
+comments.  **This corrects the brief and §S9 item 1.**
+
+**Eliminates `ParRed` — the complete list, both cones** (this is the list that *matters* for
+the restatement):
+
+| module | declarations | owner |
+|---|---|---|
+| `Theory/Typing/ChurchRosser.lean` | `ParRed.defeq`, `.defeqDFC`, `.instN`, `.weakN`, `.weakN_inv`, `.triangle`, `NormalEq.parRed` | this stream |
+| `Theory/Typing/HeadReduction.lean` | `StRed.triangle` | this stream |
+| `Theory/Typing/KCanonical.lean` | `parRedS_lam_inv` | this stream |
+| `Theory/Typing/DescendRefute.lean` | `refParRed_bvar`, `_const`, `_constBvar`, `_id`, `_F3`, `_G2`, `_G3` | this stream |
+| **`Verify/Typing/ConstSpine.lean`** | `ParRed.constApp_inv`, `ParRed.forallE_inv`, `ParRed.sort_inv` | **not this stream** |
+
+`CParRed` is eliminated only by `CParRed.toParRed` and `ParRed.triangle`, both in
+`ChurchRosser.lean`.
+
+**So the entire audit surface outside this stream is three declarations in one file.**  That
+is the measurement that decided the design: growing `NormalEq` costs four foreign
+declarations *and* the descent; growing `ParRed` costs three foreign declarations and nothing
+else.
+
+## T3. The kill **[machine-checked]**
+
+`ParRedK` is `ParRed` with one constructor added, `keta : EtaK Γ e e' → ParRedK Γ e e'`.  It
+is a plain inductive (not mutual: `EtaK` is already defined, over `ParRed`), it contains
+`ParRed` (`ParRed.toK`), and at the witness instance it *is* `ParRed`
+(`refParams_parRedK_eq`).  It exists at every `Params` instance, which is what makes the two
+theorems below unconditional — no `HasEtaK` hypothesis, no consistency caveat.
+
+```lean
+theorem not_crStatement_of_kstep_dead
+    (he : Γ ⊢ e : .forallE A B)
+    (hstep : KStep (A::Γ) (.app e.lift (.bvar 0)) t)
+    (hlam : ∀ A' e', e ≠ .lam A' e')
+    (hrig : ∀ o, ParRedK Γ e o → o = e) : False :=
+  hlam A t (hrig _ (.keta (.under he (.here hstep .rfl)))).symm
+```
+
+and the same four lines for `not_parRedStatement_of_hK_dead`, with `hrig` over `ParRedKS`.
+
+**Read this carefully, because it is the whole result.**  These four hypotheses are a
+*sub-list* of the refutation's eleven (resp. nine); the only one whose truth value changes is
+`hrig`.  In the old relation the witness `e := Eq.rec α a C m a` is normal — that is the
+entire content of both refutations — and in the enlarged one it reduces, by exactly one step,
+to `.lam A t`, the very term the refutations say nothing reaches.  Seven of
+`not_crStatement_of_kstep`'s eleven hypotheses are **not needed at all**, including `hne` (the
+`NormalEq` gap §S3 and §S4 diagnose).  *That* is the precise sense in which the repair belongs
+to the reduction relation and not to `NormalEq`.
+
+**Non-vacuity, stated honestly.**  The kill is conditional on `hstep` — the same `KStep`
+hypothesis the refutation is conditional on.  So the kill and the refutation stand or fall on
+identical footing: **wherever the refutation fires, the kill fires first.**  That is the
+strongest form the "visibly kill its own witness" check can take here, and it is stronger than
+a consistency check.  What is *not* shown is that any `Params` instance in this tree supplies
+`hstep`; none does, because `paramsOfWF`'s `PatWF` is open in its ι and quotient cases
+(`docs/handoff-params.md` §1.1).  `EtaK.eta_stuck_fires` **[machine-checked]** is the
+non-vacuity pairing against the measured hole, in `KStep.stuck_fires`'s shape: the term
+`whnf_app_bvar` proves weak-head normal is an `EtaK` redex *at the under-applied function*.
+
+**The three `descend` refutations stand, unedited.**  `refParams_parRedK_eq`
+**[machine-checked]** proves `@ParRedK refParams = @ParRed refParams`, because `KStep` and
+hence `EtaK` are empty there (`refParams_no_kstep`, `refParams_no_etaK`).  All seven
+`refParRed_*` lemmas and all three `not_descendStatement*` refutations are about that
+instance, so they transfer verbatim and lose nothing.  `DescendRefute.lean` was not edited.
+
+**The refutations' machinery survives too**, which is worth recording because it isolates the
+failure: `parRedKS_rigid` and `parRedKS_lam_inv` **[machine-checked]** are
+`KCanonical.lean`'s `parRedS_rigid` and `parRedS_lam_inv` re-proved for `ParRedK`.
+`parRedS_lam_inv` gains exactly one case, closed by `EtaK.not_lam`.  Nothing in the
+refutations is broken by the restatement *except* the rigidity of their witness.
+
+## T4. `appDF_extra_of_descendV`, and why it needs no change **[machine-checked + analysis]**
+
+`ParRedK.hK : KStep Γ a b → ParRedK Γ a b` **[machine-checked]** discharges the lemma's only
+hypothesis.  Beyond that:
+
+* `NormalEq.descendV` **cases on `NormalEq` and on `Pattern.Matches`, and on nothing else**
+  (measured: it is in the `NormalEq`-eliminating table and *not* in the `ParRed`-eliminating
+  one).  Every `ParRedS` in its proof is **constructed**.  Enlarging `ParRed` is a positive
+  change there.
+* `NormalEq.appDF_extra_of_descendV` likewise.  Its `ih1`/`ih2` take `ParRed` in negative
+  position, but they are supplied by `NormalEq.parRed`'s induction and applied to steps the
+  proof itself builds (`parRed_of_matches`), so a larger `ParRed` only makes them stronger.
+
+**[analysis, and the honest limit of this claim]** the *statements* of both are written over
+`ParRedS`; re-reading them over `ParRedKS` is the in-place edit of `ChurchRosser.lean`, not a
+re-proof.  This round did not perform that edit (§T5), so "goes through" is verified as
+*"casts on nothing that changes"*, by the structural measurement above, not by re-running the
+proof.
+
+## T5. The edit, stated exactly, and why it was not made
+
+Landing the restatement is: add to `VEnv.ParRed` (`ChurchRosser.lean:576`)
+
+```lean
+  | keta : EtaK Γ e e' → Γ ⊢ e ≫ e'
+```
+
+making `ParRed` mutual with `EtaK` (moved into the same `mutual` block).  `ChurchRosser.lean`
+is this stream's file.  **`Verify/Typing/ConstSpine.lean` is not**, and the edit reds it, so
+the edit was not made.  The three cases it needs, with the lemma each consumes:
+
+| site | new case | discharged by |
+|---|---|---|
+| `ConstSpine.lean:324` `ParRed.forallE_inv` | `\| keta h => obtain ⟨_,_,hc⟩ := h.spineHead_const; exact nomatch hc` | `EtaK.spineHead_const` — **verified as `ParRedK.forallE_inv`** |
+| `ConstSpine.lean:330` `ParRed.sort_inv` | same | **verified as `ParRedK.sort_inv`** |
+| `ConstSpine.lean:163` `ParRed.constApp_inv` | `\| keta h => obtain ⟨p₁,_,_,f,_,_,hpat,hm,hh⟩ := h.matches_head; …` then `hm.headConst`, `VExpr.headConst?_mkApp`, `hc _ _ hpat` — the same three lines as the existing `extra` case | `EtaK.matches_head` **[machine-checked]**; the assembly is **[analysis]** because `Pattern.headConst` and `VEnv.PatFreeHead` are defined in `ConstSpine.lean`, downstream of `Theory/` |
+
+`ParRed.weakN`'s and `ParRed.instN`'s new cases are `EtaK.weakN` and `EtaK.instN`
+**[machine-checked, empty cones]**.  `ParRed.defeq`'s is `EtaK.defeqU`.  `ParRed.defeqDFC`'s
+is routine.  Everything else in §S7's table is unchanged.
+
+## T6. What the restatement costs the diamond **[analysis]**
+
+Unchanged: `KDiamond` still needs `KTable` + `KSmall` (`kDiamond_of`, §S2), and
+**`Params` still gains no field this round.**  Added:
+
+* `NonNeutralK` — `CParRed`'s neutrality test gains a third disjunct, `∃ e', EtaK Γ e e'`, and
+  `CParRed.exists` must decide it classically.  Stated in `KEta.lean`.
+* `EtaKDiamond` — two `EtaK` steps at one term must have `NormalEq`-close reducts.  **Not
+  implied by `KDiamond`**: the two contracta live at different arities (different numbers of
+  η-layers), which `KDiamond` does not see.  Stated, not proved; vacuous at `refParams`
+  (`refParams_etaKDiamond`), and that is a consistency check, not evidence.
+* **A termination obligation that is new and is *not* obviously discharged.**
+  `CParRed.exists`'s structural recursion cannot handle `keta`: it recurses from `e` into
+  `.app e.lift (.bvar 0)`, which is *larger*.  A measure does exist — the registered
+  pattern's arity minus the term's application depth, which `EtaK.matches_head` bounds — but
+  it has to be built, and it is the one genuinely new piece of work this design creates.
+  Anyone landing `keta` should do this **first**; it is the step at which the design could
+  still turn out to be wrong.
+* `ParRed.weakN_inv` gets a *second* reason to weaken to `≡ₚ` form, on top of §S5's: a `keta`
+  step at a lifted term produces a λ whose domain and body may mention the new binder.
+  §S5's conclusion is unchanged, its cause is now over-determined.
+
+## T7. The same gap in the reference **[read + analysis]**
+
+`unique.tex`'s `≡ₚ` (`:113–119`) is `NormalEq` — reflexivity, compatibility, two eta rules,
+proof irrelevance — and its `↝κ` (`:96–101`) is β, δ, ζ, ι, ι_q, K⁺.  **Neither has an
+η-under-K route**, so the witness transfers:
+
+> `e := \rec_{Eq}\,α\,a\,C\,m\,a`, `≡`-equal to `λ h. m` by η then K⁺ under the binder.  `e`
+> and `λ h. m` are both `↝κ`-normal, so `e ≡κ λ h. m` reduces to `e ≡ₚ λ h. m`, which needs
+> the second eta rule, i.e. `x : a=a ⊢ e\,x ≡ₚ m` — a K⁺-redex against a variable.  `≡ₚ` has
+> no reduction and `C` may land in `Type`, so proof irrelevance is unavailable.
+
+* **The false step is in `thm:gg_compat` (`:167`)**, and it is a *missing case*: the bullet
+  list handles the eta rule only in the shape `e₁\,e₁' ≡ₚ (λx.e₃)\,e₃'`, never the second eta
+  rule with the λ on the right and a compatibility `≫κ` under it.  At `e₁ = e`,
+  `e₃ = λx.\,e\,x`, `e₂ = λx.\,m` there is no `e₄` with `e ≫κ e₄ ≡ₚ λx.\,m`, because `e` is
+  `≫κ`-normal.
+* **`thm:ckappa`'s proof (`:251`) papers over it**: "The β and η rules are in `↝κ`."  β is;
+  **η is not** — it is in `≡ₚ` (`:118–119`), as `:120` says in as many words.  The composite
+  `e ≡ λx.\,e\,x ≡ λx.\,m` is then discharged by transitivity of `≡κ`, which is Church–Rosser,
+  which is `thm:gg_compat`.
+* **The repair is the one landed here**: `K⁺` under η-expansion, as a rule of `↝κ`/`≫κ`.  This
+  is a *second*, independent defect from §4's `Quot`-over-`Prop` one, at a different bullet of
+  the same lemma, and unlike that one it does not need quotients — plain `Eq` suffices.
+* **Scope registers.**  Our proxy: `not_crStatement_of_kstep` **[machine-checked]**.  The
+  paper: **[read + analysis]**, above.  Lean itself: not a bug — `typesys.tex:19–52` already
+  records non-transitivity of *algorithmic* equality, and §2.2's first probe measures that
+  Lean reduces the redex.
+
+**Not sent to anyone, and must not be** (`CLAUDE.md`).  If it is ever written up it belongs
+beside `docs/upstream-report-ckappa-quot.md`, as a second section, not a second file.
+
+## T8. Measurements **[measured]**
+
+```
+lake build Lean4Lean.Theory.Typing.KEta                  -> Build completed successfully (72 jobs)
+lake build Lean4Lean.Verify.Typing.ConstSpine
+     Lean4Lean.Theory.Typing.KCanonical
+     Lean4Lean.Theory.Typing.HeadReduction               -> Build completed successfully (72 jobs)
+
+#print axioms VExpr.headConst?_liftN                     -> [propext]
+#print axioms VExpr.spineHead_liftN                      -> [propext]
+#print axioms Pattern.Matches.spineHead_const            -> [propext]
+#print axioms VEnv.EtaK.matches_head                     -> [propext, Quot.sound]
+#print axioms VEnv.EtaK.spineHead_const                  -> [propext, Quot.sound]
+#print axioms VEnv.EtaK.not_lam                          -> [propext, Quot.sound]
+#print axioms VEnv.HasEtaK.hK                            -> [propext, Quot.sound]
+#print axioms VEnv.ParRed.toK                            -> [propext, Quot.sound]
+#print axioms VEnv.ParRedK.hK                            -> [propext, Quot.sound]
+#print axioms VEnv.ParRedK.forallE_inv                   -> [propext, Quot.sound]
+#print axioms VEnv.ParRedK.sort_inv                      -> [propext, Quot.sound]
+#print axioms VEnv.not_crStatement_of_kstep_dead         -> [propext, Quot.sound]
+#print axioms VEnv.not_parRedStatement_of_hK_dead        -> [propext, Quot.sound]
+#print axioms VEnv.not_crStatement_of_kstep_inapplicable -> [propext, Quot.sound]
+#print axioms VEnv.not_parRedStatement_of_hK_inapplicable-> [propext, Quot.sound]
+#print axioms VEnv.EtaK.eta_stuck_fires                  -> [propext, Quot.sound]
+#print axioms VEnv.EtaK.weakN                            -> [propext, Classical.choice, Quot.sound]
+#print axioms VEnv.EtaK.instN                            -> [propext, Classical.choice, Quot.sound]
+#print axioms VEnv.refParams_no_etaK                     -> [propext, Classical.choice, Quot.sound]
+#print axioms VEnv.refParams_parRedK_eq                  -> [propext, Classical.choice, Quot.sound]
+#print axioms VEnv.EtaK.defeqU                           -> [propext, sorryAx, Classical.choice, Quot.sound]
+
+forward cone scan (declaration values, `.thmInfo` via `value? (allowOpaque := true)`),
+sorry-carrying declarations reached:
+  not_crStatement_of_kstep_dead          -> []
+  not_parRedStatement_of_hK_dead         -> []
+  not_crStatement_of_kstep_inapplicable  -> []
+  not_parRedStatement_of_hK_inapplicable -> []
+  EtaK.matches_head, EtaK.spineHead_const-> []
+  ParRedK.forallE_inv, ParRedK.sort_inv  -> []
+  ParRed.toK, EtaK.weakN, EtaK.instN     -> []
+  refParams_parRedK_eq                   -> []
+  EtaK.defeqU                            -> [forallE_inv_stratified, forallE_inv]
+
+lake env lean scripts/sorry-census.lean  -> TOTAL declarations directly containing
+                                            sorryAx: 19        (unchanged)
+```
+
+`EtaK.defeqU` adds **no** hole: its two are `ParRed.defeq`'s and `IsDefEqU.trans`'s, already in
+the confluence cone.  **Both kills are axiom-clean** — not even `Classical.choice`.
+
+## T9. Corrections this round makes
+
+| document | claim | correction |
+|---|---|---|
+| the brief; `docs/handoff-krule.md` §S4, §S9 item 1 | the consumers to audit are `Injectivity.lean`, `NotProof.lean`, `HeadReduction.lean`, `ChurchRosser.lean` | `Injectivity.lean` and `NotProof.lean` eliminate `NormalEq` **zero times**.  The only foreign consumer, for either relation, is `Verify/Typing/ConstSpine.lean`.  §T2. **[measured]** |
+| §S4 | two repair directions, `NormalEq` first | The `NormalEq` direction **breaks `descendV`**, in both of its two-sided forms.  The `ParRedS` direction costs three foreign one-line cases and nothing else.  §T1. |
+| §S4, §S9 item 1 | "Both change `IsDefEq.church_rosser`'s conclusion, i.e. the confluence *interface*" | Not for the reduction-side repair: `CRStatement` and `ParRedStatement` are **unchanged `Prop`s**.  The interface is untouched; the relation grows underneath it. |
+| §R3 table row `:2096`; §S3 | `NormalEq.parRed`'s `etaR` case is FALSE | It is false *for the relation in which the witness is normal*.  With `keta` the witness is not normal, and `EtaK.not_lam` **[machine-checked]** makes the `etaR × keta` configuration vacuous.  §T3. |
+| §S0.2 | "`hK` is not landable as posed" | Correct, and the reason is now pinned: `hK` alone does not reduce the *under-applied* recursor.  `EtaK` does, and it subsumes `hK` (`ParRedK.hK`). |
+| §S5 | `ParRed.weakN_inv` weakens to `≡ₚ` because a liberal K-step may invent a variable | Still true; `keta` gives a second, independent reason.  §T6. |
+| §4 | the `Quot`-over-`Prop` gap is the defect in `thm:gg_compat` | It is **one** of two.  The other is the missing η bullet, needs only `Eq`, and is what this round's witness exhibits.  §T7. |
+| `docs/design-inductive.md` §7.6 warning 2 | "allowing `NormalEq` a proof-irrelevance closure at the major-premise position" | The diagnosis was right and the prescription was not: the closure has to go in the reduction relation.  §T1. |
+
+Nothing in §§1–2, §4's `Quot` analysis, `KRule.lean`, `KDescend.lean`, `KCanonical.lean` or
+`DescendRefute.lean`'s three refutations is contradicted, and none of those files was edited.
+
+## T10. Files, round 4
+
+* `Lean4Lean/Theory/Typing/KEta.lean` — **new**, no `sorry`.  `EtaK`, `HasEtaK`, `ParRedK`,
+  `ParRedKS`, the two kills in both conditional and unconditional form, the shape kit, the
+  two `ConstSpine` repairs, `EtaK.weakN`/`.instN`, `NonNeutralK`, `EtaKDiamond`.
+* `docs/handoff-krule.md` — this section.
+* Everything else — **unchanged**.  In particular `ChurchRosser.lean`, `HeadReduction.lean`,
+  `KCanonical.lean`, `KDescend.lean`, `KRule.lean`, `DescendRefute.lean` were **not edited**,
+  and no file outside this stream was touched or reddened.
+
+## T11. What to pick up first
+
+1. **Build the `keta` termination measure** (§T6, third bullet) before landing anything.  It
+   is the only new obligation the design creates, and it is where the design would fail if it
+   is going to.  Pattern arity minus application depth, bounded by `EtaK.matches_head`.
+2. **Then land `keta`**: the `ChurchRosser.lean` edit of §T5, together with the three
+   `ConstSpine.lean` cases — which need the owner of `Verify/Typing/` to make them, or an
+   explicit hand-over.  Two of the three are already verified here.
+3. **Re-derive `NormalEq.parRed` for the enlarged relation.**  Its new `keta` case splits by
+   the `NormalEq` constructor: `refl`, `proofIrrel`, `constDF` and `etaL` are one move each;
+   `etaR` is **vacuous** (`EtaK.not_lam`); `appDF` is the real work and is the `appDF × extra`
+   argument again, one η-layer up.
+4. **Do not spend the `Params` fields** until 1–3 are done.  §S7's eight sites are still eight
+   and the diamond is still priced, not proved.
