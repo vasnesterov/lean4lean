@@ -1,25 +1,313 @@
 # Handoff: the projection cluster
 
-**Census: 19 → 19** (`lake env lean scripts/sorry-census.lean`, re-run at the end of this
-round; same 19 names).  No hole closed, none added — this round is additive, as the previous
-one was.  All three `Verify/Guard.lean` checks pass, unchanged: guard 1 ✓ (25 frozen axioms),
+**Census: 19 → 19** (`lake env lean scripts/sorry-census.lean`, run at the start *and* at the
+end of this round; the same 19 names, with the same transitive user counts —
+`TrProj.uniq` 70, `TrProj.weak'_inv` 15).  No hole closed, none added — this round is
+additive, as the two before it were.  `scripts/dup-names.lean` reports no duplicates.  All three `Verify/Guard.lean`
+checks pass, unchanged: guard 1 ✓ (25 frozen axioms),
 guard 2 ✓ *"proof INCOMPLETE: sorryAx present"* (as it must), guard 3 ✓ (54/54).
 
 Everything below is separated into **[checked]** (a named declaration in this tree, with its
 axiom set or its measured cone reproduced) and **[read off source]** (an argument from reading
 definitions, not run).
 
-*Numbering.*  `§0.x` is **this** round.  `§0′.x` is the previous round, kept verbatim because
-later sections cross-reference it.  Sections 1–8 are older editions, and `§n` references
-*inside* them are to that edition's numbering.
+*Numbering.*  `§0.x` is **this** round, `§0′.x` the previous one, `§0″.x` the one before that;
+all three are kept because later sections cross-reference them.  Sections 1–8 are older
+editions, and `§n` references *inside* them are to that edition's own numbering.
 
 ---
 
-## 0. This round: the residual is closed, and the padding minor is proved for non-recursive blocks
+## 0. This round: the padding minor at a **recursive** constructor, and one correction to §0′.4
 
 ### 0.1 Headline
 
-`docs/handoff-projections.md` §0′.5's **one mathematical residual** — `padMinor_hasType`'s
+**§0′.10's named pick-up — item 1 of §0′.4, the padding minor at a recursive constructor —
+is closed.**  `padMinor_hasType_gen` is `padMinor_hasType_norec` with
+`hrec : C'.recFields = []` **removed**: the padding minor's whole typing obligation now holds
+at *any* constructor of *any* block member.  Six new declarations in
+`Lean4Lean/Verify/Typing/ProjGen.lean`, three witness theorems plus a two-theorem refutation
+in `ProjGenWitness.lean` (both owned), every one with a **measured empty hole cone**
+(`scripts/hole-cone.lean`, re-run; transitive over type *and* value, `allowOpaque := true`).
+**[checked]**
+
+| name | content |
+|---|---|
+| `VExpr.instAll_liftN_below` | the missing commutation: a weakening whose cut is **below** the substitution window. `TelescopeLift.lean`'s `liftN_instAll` is the case `j = k`; the induction hypotheses sit at cut `0` while the window starts at `nr + nf`, so it does not apply |
+| **`VInductDecl'.minorTele_gen`** | the minor's telescope splits as *field block* `++` *ih block*, at any constructor.  `minorTele_norec` is now its `recFields = []` corollary |
+| **`VInductDecl'.minorBodyArgs_gen`** | the motive's spine is the non-recursive one **weakened by `nr`**.  `minorBodyArgs_norec` is now its `recFields = []` corollary |
+| **`padMinor_hbs_gen`** | `padMinor_hasType'`'s last premise, discharged with no `hrec`.  `padMinor_hbs_norec` is now a one-line corollary |
+| **`padMinor_hasType_gen`** | **the capstone**: the padding minor is well-typed at any constructor of any block member.  `padMinor_hasType_norec` is now a one-line corollary |
+| `MutRec.R`, `rmk`, `decl1r`, `ihTypes_at_rmk`, `minorTele_at_rmk`, `minorBodyArgs_at_rmk` | non-vacuity at a genuinely recursive block — §0.3 |
+| `ProjClosedGap.projClosedG_needs_recArgs`, `projClosed_ok_without_recArgs` | the correction to §0′.4 item 3 — §0.4 |
+
+Nothing was deleted: all four `_norec` names still exist, with their statements unchanged, as
+corollaries.
+
+### 0.2 How it went through, and the one lemma that was missing
+
+§0′.4 item 1 named the three steps, and two of the three were right:
+
+* **values** — `shift (nm+q) nr nf (atRec a)` is `((atRec a).liftN (nm+q) nf).liftN nr 0`,
+  and the outer `liftN nr` has to cross the `instAll` at cut `nr + nf`.  §0′.4 named
+  `VExpr.liftN_instAll` (`TelescopeLift.lean:324`) for this.  **It does not apply**:
+  `liftN_instAll` is `instAll (liftN n X k) as (k + n) = liftN n (instAll X as k) k`, i.e. the
+  lift's cut and the window's lower edge coincide.  Here the lift's cut is `0` and the
+  window's is `nf`.  The lemma that was actually needed is new —
+  `VExpr.instAll_liftN_below`, `instAll (X.liftN n j) as (n + k) = (instAll X as k).liftN n j`
+  for `j ≤ k` — three lines, by the same `liftN_instN_lo` induction.  **[checked]**
+* **context** — §0′.4 named `HasArgs.weak'`/`weakR`.  `weakR` is the **wrong direction**: it
+  extends the context on the *outside* and shifts no index, whereas the ihs are new binders
+  on the *inside*.  What is used is `HasArgs.weakN` at `Ctx.LiftN nr 0`.  `weak'` is not used
+  either.  **[checked]**
+* **`ihTypes` needs no typing** — this was right, and it is why the whole thing is cheap: the
+  padding minor binds the ihs and ignores them, so all that is ever used about the ih block is
+  its **length**.  `padMinor_hbs_gen`'s proof mentions `D.ihTypes` only inside `Ctx.LiftN.zero
+  … (by simp)`.  **[checked]**
+
+The structural choice worth carrying: `padMinor_hbs_gen` proves the `nf`-level statement
+first (`base`, literally `ctorArgs_hasArgs_gen` and `ctorApp_hasType_gen` concatenated), then
+weakens it once.  The alternative — re-deriving the two constructor lemmas over lifted data —
+is what §0′.2 already recorded as the mistake to avoid at the motive, and it would have been
+the same mistake here.
+
+### 0.3 Non-vacuity, at a block `decl2` cannot express — and two negative controls
+
+`decl2`, the witness every earlier round used, has **no recursive constructor**: every
+constructor of `decl2` is nullary, so `nr = 0` there and the `liftN nr` this round introduces
+is the identity.  A firing at `decl2` would therefore have tested nothing.  So a second
+witness was built:
+
+`MutRec.R` — `inductive R where | mk : R → R`, **declared for real**, with an `#eval` guard
+that fails the build if `isRec` stops being `true`, if the arity moves, or if
+`Lean.isNonRecStructure` starts accepting it.  Its abstract image is `decl1r` / `rmk`, with
+one field carrying `recArg := some ⟨[], 0, []⟩`, so `nr = nf = nm = 1`.  **[checked]**
+
+* `MutRec.ihTypes_at_rmk` — `decl1r.ihTypes 0 rmk = [.app (.bvar 1) (.bvar 0)]`, i.e. the ih
+  is *motive applied to field*, and `nr = 1`.  **[checked]**
+* `MutRec.minorTele_at_rmk` — `minorTele_gen` fired: the telescope is
+  `[R, .app (m.liftN 1) (.bvar 0)]`, **two** binders, the second being the induction
+  hypothesis with the motive weakened past the field.  **[checked]**
+* `MutRec.minorBodyArgs_at_rmk` — `minorBodyArgs_gen` fired: the constructor applied to its
+  own field is `R.mk (.bvar 1)`, **not** `R.mk (.bvar 0)`.  **[checked]**
+
+**The two negative controls, run outside the tree, output reproduced in the docstrings.**
+Both are the `nr = 0` reading — which is exactly what the `_norec` lemmas assert — and both
+are rejected:
+
+    -- minorTele: the `norec` collapse
+    error: Application type mismatch: The argument `rfl` has type `?m = ?m`
+    but is expected to have type
+      instAllTele (List.map (fun F => instL [] F.type) rmk.fields) [] ++
+          instAllTele (List.map (instL []) (decl1r.ihTypes 0 rmk)) ([] ++ [m] ++ [])
+            rmk.fields.length
+        = [const `MutRec.R []]
+
+    -- minorBodyArgs: the field read at `.bvar 0` instead of `.bvar 1`
+    error: Application type mismatch: The argument `rfl` has type `?m = ?m`
+    but is expected to have type
+      List.map (fun x => liftN (decl1r.ihTypes 0 rmk).length x) (…)
+        = [(const `MutRec.R.mk []).mkApp [bvar 0]]
+
+Neither is an arity error: the telescope has the same length either way in the first, and the
+spine has one entry either way in the second.  This is the `minorBody_head_at_decl2` standard
+of §0′.3, met at the datum this round actually changed.  **[checked]**
+
+**What is *not* fired end to end:** `padMinor_hbs_gen` and `padMinor_hasType_gen` themselves.
+Their premises include `env.Ordered`, `D.IotaCtx env` and a `HasArgs` for the parameter spine,
+so firing them needs a *well-formed environment* witness, which no witness in this cluster has
+(`decl2` and `decl1r` both make no `WF` claim, by design — see `StructureBridge.lean`'s note).
+Same status as `padMinor_hasType'` in §0′.3.  **"No witness" is not evidence of truth**; what
+is evidence is that both syntactic ingredients are fired at a recursive block above, and that
+the third ingredient (`ctorArgs_hasArgs_gen`/`ctorApp_hasType_gen`) is unchanged from the
+non-recursive case, which *was* reachable.
+
+### 0.4 **Correction: §0′.4 item 3 understates block A's prerequisite** — **[checked]**
+
+§0′.4 item 3 says the first prerequisite of the `lift'`/`instN`/`instL` commutation lemmas is
+"a `ProjClosed` generalised to every block member (`ClosedTele` for *each* `T'.indices` and
+each `C'.fields`, not just the projected pair)".
+
+**That is not sufficient, and this round is why.**  `projCoreG`'s minor block is built over
+`minorBinders`, which contains `ihTypes`, which splices in a recursive field's stored `ξ`
+(`VIndRecArg.binders`) and `π` (`.args`).  `VExpr.lift'_instAllTele` — the step every one of
+those commutations runs on — asks for
+`ClosedTele ((D.minorBinders q C').map (·.instL lvls)) (D.np + D.nm + q)`, and the three
+fields of `ProjClosed` do not determine it.
+
+`ProjClosedGap.projClosedG_needs_recArgs` is the machine-checked witness: a one-type block
+with no parameters and no indices whose single field records
+`recArg := some ⟨[.bvar 0], 0, []⟩`.  All three `ProjClosed` fields hold (`params`, `indices`
+and `fields` are each `ClosedTele … 0`), and `minorBinders` computes to
+`[Q, ∀ (.bvar 2), .bvar 2 (.bvar 1 (.bvar 0))]`, whose second entry is **not** `ClosedN … 2`.
+`ProjClosedGap.projClosed_ok_without_recArgs` is the **positive control**: the same block with
+`binders := []` *is* closed, so what fails is precisely the recursive-field data and not the
+shape of `ihTypes`.  **[checked]**
+
+**Register, stated carefully.**  This is a counterexample to an *implication between
+predicates*, which is what a hypothesis-sufficiency claim is: `ProjClosed` is a **hypothesis**
+the commutation lemmas take (`VEnv.IsStructure.projClosed` derives it, but the lemmas
+themselves do not), so the question is whether its fields determine the closedness the proof
+needs.  They do not.  `blockOf badCtor` is **not** a well-formed declaration —
+`VIndField.WF.pos`'s `some r` branch demands `OnCtx (r.binders.reverse ++ Γ)`, which forces
+`r.binders` closed at `np + i` — so **nothing here says a real block breaks.**  It says the
+generalised predicate must record the recursive-field data, or the lemmas must take
+`D.WF env` / `D.IotaCtx env` and derive it.
+
+**[read off source]** the shape that would be needed, if it is recorded as a predicate:
+
+```
+structure ProjClosedG (D : VInductDecl') : Prop where
+  params  : ClosedTele D.params 0
+  indices : ∀ t T', D.types[t]? = some T' → ClosedTele T'.indices D.np
+  fields  : ∀ t T', D.types[t]? = some T' → ∀ C' ∈ T'.ctors,
+              ClosedTele (C'.fields.map (·.type)) D.np
+  recArgs : ∀ t T', D.types[t]? = some T' → ∀ C' ∈ T'.ctors → ∀ i r, (i, r) ∈ C'.recFields →
+              ClosedTele r.binders (D.np + i) ∧
+              ∀ a ∈ r.args, a.ClosedN (D.np + i + r.binders.length)
+```
+
+and **[read off source]** the derivation route: the first three copy
+`VEnv.IsStructure.projClosed` (`StructureClosed.lean:75`) with `H.types`/`H.ctors`/`hTj`
+substituted, exactly as `ctorArgs_hasArgs_gen` did; the fourth comes from `VIndField.WF.pos`'s
+`OnCtx (r.binders.reverse ++ Γ)` via `ClosedTele.of_onCtx₀`, and from its `HasArgs … r.args`
+clause.  **Not attempted, not costed** — and the environment-staging step (`pos` is a
+judgement in `env₁`, the block-types-added environment, while `projClosed`'s `hc₀` is
+`OnTypes env₀`) is the part that should be looked at first, because it is where the existing
+`projClosed` proof had to route around `env₁` for the field case.
+
+### 0.5 The standing checks, re-run — **[checked]**
+
+`scripts/proj-rerun.lean` (updated with this round's names) prints `#print axioms` for every
+standing check.  All fire, none acquired `sorryAx`:
+
+    VEnv.empty_structEta                     [propext, Quot.sound]
+    bazEnv_structEta                         [propext, Classical.choice, Quot.sound]
+    bazEnv_etaExpansion_eq                   [propext]
+    bazEnv_projMinors_distinct               [propext]
+    bazEnv_structEta_premises                [propext, Classical.choice, Quot.sound]
+    MutNonRec.kernelProjChecks               [propext, Classical.choice, Quot.sound]
+    MutNonRec.projCore_arity_wrong           [propext]
+    MutNonRec.projCoreG_arity_right          [propext, Quot.sound]
+    MutNonRec.projCoreG_arity_right'         [propext, Quot.sound]
+    VInductDecl'.projTermG_eq_projTerm       [propext, Quot.sound]
+    VInductDecl'.recArity_eq_projCoreG       [propext, Quot.sound]
+    VInductDecl'.projCoreG_eq_projCore       [propext, Quot.sound]
+    TrProj.wf                                [propext, sorryAx, Classical.choice, Quot.sound]
+    tryEtaStructCore.WF_of_structEta         [propext, sorryAx, …]
+    isDefEqUnitLike.WF_of_structEta          [propext, sorryAx, …]
+    VInductDecl'.minorBody_instAll_spine     [propext, Quot.sound]
+    padMotive_app_beta / padMinor_beta / padMinor_hasType'          (clean)
+    padMinor_hbs_norec / padMinor_hasType_norec                     (clean)
+    VInductDecl'.minorTele_gen               [propext, Quot.sound]
+    VInductDecl'.minorBodyArgs_gen           [propext, Quot.sound]
+    padMinor_hbs_gen                         [propext, Classical.choice, Quot.sound]
+    padMinor_hasType_gen                     [propext, Classical.choice, Quot.sound]
+    MutRec.ihTypes_at_rmk                    [propext]
+    MutRec.minorTele_at_rmk                  [propext, Quot.sound]
+    MutRec.minorBodyArgs_at_rmk              [propext, Quot.sound]
+    ProjClosedGap.minorBinders_bad           [propext]
+    ProjClosedGap.projClosedG_needs_recArgs  [propext]
+    ProjClosedGap.projClosed_ok_without_recArgs [propext]
+
+`TrProj.wf`'s measured hole cone is **`{weakN_iff, forallE_inv_stratified}` — unchanged**, so
+the round is additive at the cone level as well as the file level.  Every new declaration's
+hole cone is **empty**.  `scripts/dup-names.lean`: *"no duplicate Lean4Lean declarations
+across the joined cone"*.  **[checked]**
+
+The five `rfl` validations of `etaExpansion` against Lean's elaborator remain **anonymous
+`example`s** in `Theory/Inductive/StructureExamples.lean` — no names, so not `#print
+axioms`-able; their only instrument is that the module elaborates, which it does.  (§0′.5's
+correction, repeated because handoffs keep citing them as if they were named theorems.)
+
+### 0.6 What is left of the generalisation, exactly
+
+1. ~~The padding minor at a recursive constructor.~~  **Closed this round.**
+2. **The real minor at index `j`.**  `realMinor` (bind fields *and* ihs, return field `i`)
+   still has **no typing lemma at all**.  `projMinor_app` (`StructureClosed.lean:826`) is the
+   `nr = 0` ancestor.  Not started, not costed.  **This — not item 1 — is what
+   `VEnv.IsStructure.noRec` is now waiting on**: `padMinor_hasType_gen` lifts `noRec` for the
+   *padding* minors (constructors of block members other than the projected one), and the
+   projected constructor's own minor is item 2.  `padMinor_hasType_gen`'s docstring says so;
+   do not read "the recursive case is closed" as "`noRec` can be dropped".
+3. **Mechanical block A**, the `lift'`/`instN`/`instL` commutation for `projCoreG` —
+   `projCoreG_lift'`, `projCoreG_instN`, `projCoreG_instL` and the `projArgsG`/`projTermG`
+   versions, mirroring `Theory/Inductive/Structure.lean:296–450`.  `padMotive_liftN` is still
+   the only entry proved.  Its prerequisite is **§0.4's four-field `ProjClosedG`**, not the
+   three-field one §0′.4 named.  Block B (the swap) cannot start before block A.
+
+### 0.7 Files this round
+
+Edited (all owned):
+
+* `Lean4Lean/Verify/Typing/ProjGen.lean` — §0.1, additively.  The four `_norec` lemmas'
+  *proofs* changed (they are now corollaries); their **statements are untouched**.
+* `Lean4Lean/Verify/Typing/ProjGenWitness.lean` — §0.3, §0.4.  Adds namespaces `MutRec` and
+  `ProjClosedGap`; the `MutNonRec` half is untouched.
+* `scripts/proj-rerun.lean`, `scripts/hole-cone.lean` — this round's names added to both
+  instruments.
+
+Unchanged: `Structure.lean`, `StructureClosed.lean`, `StructureEta.lean`,
+`StructureExamples.lean`, `ProjSkip.lean`, `Lemmas.lean`, `StructureUniq.lean`,
+`Rigidity.lean`, `ConstSpineWF.lean`, `DefEqCtx.lean`.  `TrProj`, `TrProj.wf`, `projCore`,
+`IsStructure` are untouched for a **third** round; the generalisation is still additive by
+design, and §0″.3 correction 4's polarity argument still stands — `IsStructureG` must stay
+separate from `IsStructure`, because `IsStructure` sits in a **negative** position in
+`VEnv.StructEta` and no non-vacuity check can detect an over-strong assumption.
+
+Nothing here touches an implementation file, so the Kernel Arena is unaffected and was not
+re-run.
+
+### 0.8 Relay to the orchestrator
+
+Mid-round `Lean4Lean/Theory/Typing/ChurchRosser.lean` (another stream's, modified and
+uncommitted) did not compile, which blocked `scripts/sorry-census.lean`,
+`scripts/dup-names.lean` and the full `scripts/hole-cone.lean` — all three import it
+transitively.  **Re-checked at the end of the round: green**, and all three then ran; their
+numbers above are from the re-run.  Not touched.  (Recorded because the rule is *wait,
+re-check, report, never fix*, and a "stream X is red" relay sent without the re-check would
+have been wrong by the time it was read — the same thing happened last round with
+`Verify/Primitive.lean`.)
+
+Still modified/untracked by other streams at the end of the round: `Lean4Lean/Primitive.lean`,
+`Lean4Lean/Verify/Primitive.lean`, `Lean4Lean/Theory/Typing/Enlarged.lean`,
+`docs/handoff-injectivity.md`, and untracked `Theory/Typing/KMeasure.lean`,
+`RetypeCase.lean`, `StrengthenAxiom.lean`.  Not touched.
+
+Full owned closure green with all three guards printing ✓:
+
+    lake build Lean4Lean.Verify.Typing.ProjGenWitness Lean4Lean.Verify.Typing.ConstSpineWF \
+      Lean4Lean.Verify.Typing.Lemmas Lean4Lean.Verify.TypeChecker \
+      Lean4Lean.Theory.Inductive.StructureExamples Lean4Lean.Verify.StructureBridge \
+      Lean4Lean.Verify.Soundness Lean4Lean.Verify.Guard
+
+**[checked]**
+
+### 0.9 What I would pick up first
+
+1. **Item 3's prerequisite, built rather than stated** — the four-field `ProjClosedG` of
+   §0.4, *derived* from `IsStructureG` + `Ordered env` (the way `IsStructure.projClosed`
+   derives the three-field one) rather than assumed, and immediately audited against its one
+   real consumer: prove
+   `ClosedTele ((D.minorBinders q C').map (·.instL lvls)) (D.np + D.nm + q)` from it.  If that
+   proof does not go through, the predicate is still wrong, and finding that out costs one
+   lemma rather than all of block A.  The environment-staging step (`VIndField.WF.pos` lives
+   in `env₁`) is the part to look at first.
+2. Then the rest of block A, then item 2 (`realMinor`), then the swap.
+
+Do **not** pick up `TrProj.uniq` expecting `PatWF` to be the blocker (§0′.6 discharged it),
+and do not treat the const-application family as unconditional: its route passes through
+`church_rosser`, which is under the live conditional refutation of §0′.6 — measured again this
+round, `not_crStatement_of_kstep`'s cone is `{forallE_inv_stratified}` and still does **not**
+contain `NormalEq.descend`, so the refutation is not circular with the hole confluence waits
+on.
+
+---
+
+## 0′. The **previous** round: the residual is closed, and the padding minor is proved for non-recursive blocks
+
+### 0′.1 Headline
+
+`docs/handoff-projections.md` §0″.5's **one mathematical residual** — `padMinor_hasType`'s
 `hbeta` premise, "identify `minorBody`'s head `.bvar` with `mots[t]` after `instAll`" — is
 **closed**.  So is more than was asked: the padding minor's *whole* typing obligation is
 proved outright for a **non-recursive** constructor at **any** member of the block.
@@ -44,11 +332,11 @@ handled.  The instrument is committed as `scripts/hole-cone.lean`.  **[checked]*
 | `tyBinder_instAll` | the major-premise binder with the index spine substituted, which is what `HasArgs.concat` asks for |
 | **`padMinor_hbs_norec`** | `hbs`, discharged for a non-recursive constructor |
 | **`padMinor_hasType_norec`** | **the capstone**: the padding minor is well-typed, at a non-recursive constructor of any block member |
-| `MutNonRec.minorBody_head_at_decl2`, `padMotives_at_decl2` | non-vacuity — §0.3 |
+| `MutNonRec.minorBody_head_at_decl2`, `padMotives_at_decl2` | non-vacuity — §0′.3 |
 
-### 0.2 How the residual was actually closed, and the one structural choice
+### 0′.2 How the residual was actually closed, and the one structural choice
 
-The index arithmetic §0′.5 recorded was right and is now machine-checked:
+The index arithmetic §0″.5 recorded was right and is now machine-checked:
 `VExpr.instAll_bvar_get` fires with `t' := np + t`, because
 `(nr+nf) + (np+nm+q) = (nr+nf+q+(nm-1-t)) + 1 + (np+t)` whenever `t < D.nm`.
 
@@ -59,12 +347,12 @@ syntactically, by `padMotive_liftN`, and the semantic lemma never mentions the m
 The first attempt threaded the lift through the typing and needed the whole of
 `padMotive_hasType` re-derived over lifted data; this version needs none of it.
 
-`VEnv.IsDefEq.betaMkLams` (`StructureClosed.lean`) is the tool, as §0′.5 predicted, and it
+`VEnv.IsDefEq.betaMkLams` (`StructureClosed.lean`) is the tool, as §0″.5 predicted, and it
 asks for the **body**'s typing — which is why `padMotive_body_hasType` had to be split out.
 Note how few hypotheses that split-out lemma turned out to need: not the block index, not the
 parameter spine, not the motive prefix.  **[checked]**
 
-### 0.3 Non-vacuity, and a **negative** control
+### 0′.3 Non-vacuity, and a **negative** control
 
 `padMinor_hasType'` cannot yet be fired end to end (its `hspine` premise is the consumer's,
 and `projCoreG_hasType` does not exist).  What *is* fired, at `MutNonRec.decl2` — the same
@@ -90,7 +378,7 @@ two-type non-recursive block the refutation uses:
 `q + (nm - 1 - t)` half of the index — the half that is new.  The `nf`/`nr` half is exercised
 instead by `padMinor_hasType_norec`'s own statement being about arbitrary `C'`.
 
-### 0.4 What is left of the generalisation, exactly
+### 0′.4 What is left of the generalisation, exactly
 
 Three items, none of them the residual any more.
 
@@ -121,11 +409,11 @@ Three items, none of them the residual any more.
    prerequisite; `padMotive_liftN` already takes that `ClosedTele` as an explicit premise, so
    the shape is known.
 
-**Block B (the swap) is unchanged from §0′.5 and was not attempted.**  It needs
+**Block B (the swap) is unchanged from §0″.5 and was not attempted.**  It needs
 `projCoreG_hasType`, which needs items 1–3 above plus the generalised `recApp_hasType''`
 plumbing.  Nothing this round makes it closer than one full item at a time.
 
-### 0.5 `TrProj.wf` and the refutation, re-run — **[checked]**
+### 0′.5 `TrProj.wf` and the refutation, re-run — **[checked]**
 
 Reproduced from `scripts/proj-rerun.lean` (committed; `#print axioms` on every standing check
 of the cluster, so a check that stopped existing or acquired `sorryAx` shows up there rather
@@ -163,7 +451,7 @@ is that the module elaborates:
 which it does.  `scripts/proj-rerun.lean` says so in a comment rather than pretending
 otherwise.  **[checked]**
 
-### 0.6 The `PatWF` re-measurement — and the caveat the brief did not have
+### 0′.6 The `PatWF` re-measurement — and the caveat the brief did not have
 
 **Asked:** `VEnv.patWF` now holds at an arbitrary `VEnv.WF` environment from `VEnv.PiInv`;
 land the resulting unconditional (A)/(B)/(D) in `Verify/Typing/`, and report the cone.
@@ -183,7 +471,7 @@ argument anywhere.  `VEnv.piInv_axiom` supplies `PiInv` from the **existing** ce
 
 **Discharging `PatWF` adds nothing to the cone.**  What it buys is that `PatWF` stops being a
 *carried hypothesis*: `TrProj.uniq`'s obligations (2) and (3) were blocked on producing one
-(§0′.6 said consuming it "requires a new `sorry` or axiom, both forbidden"), and that is no
+(§0″.6 said consuming it "requires a new `sorry` or axiom, both forbidden"), and that is no
 longer true.  **[checked]**
 
 **The caveat, and it is the most important thing in this document.**  Commit `967e4ba` landed
@@ -210,10 +498,10 @@ route the cone runs through is now under a live conditional refutation.  This is
 `ConstSpineWF.lean`'s module docstring so nobody reads the file as an unqualified win.
 
 **Assessed as instructed and unchanged:** `InferTypeS.weakU_inv` still touches neither of
-`TrProj.weak'_inv`'s two blockers — §0′.6's assessment stands, and the identification is still
+`TrProj.weak'_inv`'s two blockers — §0″.6's assessment stands, and the identification is still
 (C) and the level reconciliation still (B).  Not taken.
 
-### 0.7 A defect found and fixed, in a file this stream owns
+### 0′.7 A defect found and fixed, in a file this stream owns
 
 **`Verify/Typing/Rigidity.lean` and `Verify/Environment/Basic.lean` each declared
 `VEnv.addDefEqList_defeqs_inv` and `VEnv.addIndRules_defeqs_inv`, so the two modules could
@@ -232,7 +520,7 @@ Worth generalising: *a duplicate top-level name between two modules is invisible
 `lake build`.*  If the orchestrator wants a cheap structural check, it is one pass over the
 `.olean`s comparing declared names.
 
-### 0.8 Relay to the orchestrator: other streams' in-flight files
+### 0′.8 Relay to the orchestrator: other streams' in-flight files
 
 Mid-round, `Lean4Lean/Verify/Primitive.lean` (modified, uncommitted, another stream's) did not
 parse:
@@ -258,50 +546,50 @@ The whole of this stream's dependency closure is green, with all three guards pr
 **[checked]**  Nothing this round touches any implementation file, so the Kernel Arena is
 unaffected and was not re-run.
 
-### 0.9 Files this round
+### 0′.9 Files this round
 
 New (both owned):
 
-* `Lean4Lean/Verify/Typing/ConstSpineWF.lean` — §0.6.  Imports `Theory/Typing/PatWFIota` and
+* `Lean4Lean/Verify/Typing/ConstSpineWF.lean` — §0′.6.  Imports `Theory/Typing/PatWFIota` and
   `Verify/Typing/Rigidity`.  Nothing imports it.
 * `scripts/hole-cone.lean`, `scripts/proj-rerun.lean` — the two instruments this round's
   numbers come from.  Deliberately outside any `lean_lib` glob, like `scripts/cone-measure.lean`.
 
 Edited (all owned):
 
-* `Lean4Lean/Verify/Typing/ProjGen.lean` — §0.1, additively; `padMotive_hasType` is the one
+* `Lean4Lean/Verify/Typing/ProjGen.lean` — §0′.1, additively; `padMotive_hasType` is the one
   pre-existing declaration whose *proof* changed (it now calls `padMotive_body_hasType`), and
   its statement is untouched.
-* `Lean4Lean/Verify/Typing/ProjGenWitness.lean` — §0.3.
-* `Lean4Lean/Verify/Typing/Rigidity.lean` — §0.7, two renames and a docstring.  No proof
+* `Lean4Lean/Verify/Typing/ProjGenWitness.lean` — §0′.3.
+* `Lean4Lean/Verify/Typing/Rigidity.lean` — §0′.7, two renames and a docstring.  No proof
   changed.
 
 Unchanged: `Structure.lean`, `StructureClosed.lean`, `StructureEta.lean`,
 `StructureExamples.lean`, `ProjSkip.lean`, `Lemmas.lean`, `StructureUniq.lean`, `Expr.lean`,
 `ConstSpine.lean`.  `TrProj`, `TrProj.wf`, `projCore`, `IsStructure` are all untouched for a
-second round; the generalisation is still additive by design (§0′.3 correction 4 — and the
+second round; the generalisation is still additive by design (§0″.3 correction 4 — and the
 polarity argument there still stands: `IsStructureG` must stay separate from `IsStructure`,
 because `IsStructure` sits in a **negative** position in `VEnv.StructEta` and no non-vacuity
 check can detect an over-strong assumption).
 
-### 0.10 What I would pick up first
+### 0′.10 What I would pick up first
 
-1. **Item 1 of §0.4** — the padding minor at a recursive constructor.  Every step is named
+1. **Item 1 of §0′.4** — the padding minor at a recursive constructor.  Every step is named
    above with the lemma that does it, and it is the half that lifts `noRec`.
 2. **Item 3** — block A, starting with `ProjClosed` generalised to every block member, since
    block B cannot start without it.
 3. Only then item 2 and the swap.
 
 Do **not** pick up `TrProj.uniq` expecting `PatWF` to still be the blocker: it is discharged
-(§0.6).  What is left there is ledger G4 / `RecTypeResidual` (still with no statement in the
+(§0′.6).  What is left there is ledger G4 / `RecTypeResidual` (still with no statement in the
 tree) and a `projTerm` congruence — plus the standing question of whether the whole
 constant-application family survives the Church–Rosser refutation.
 
 ---
 
-## 0′. The **previous** round: `projCore` generalised, and four corrections
+## 0″. Two rounds back: `projCore` generalised, and four corrections
 
-### 0′.1 What landed — `Lean4Lean/Verify/Typing/ProjGen.lean` (new, owned)
+### 0″.1 What landed — `Lean4Lean/Verify/Typing/ProjGen.lean` (new, owned)
 
 The repair `docs/handoff-eta.md` §3 specified — pad the motive and minor blocks so the
 projection's spine saturates the recursor at *every* block, not only singleton ones — is now
@@ -318,17 +606,17 @@ all twelve).  **[checked]**
 | `VInductDecl'.minorBinders`, `minorBody`, `minorType_eq_mkPi` | `minorType` split into its binder telescope and its body, by `rfl` |
 | `VInductDecl'.padMinor`, `realMinor`, `padMinorsAux`, `padMinors` | the minor block; `realMinor` binds the **induction hypotheses** as well as the fields, which is what lifts the `noRec` narrowing |
 | `VInductDecl'.projCoreG`, `projArgsG`, `projTermG` | the generalised projection term.  `projArgsG` is still **structural in `i`** — both recursive calls at `i` — so it reduces by `rfl`, the property `projArgs`' docstring warns must be preserved |
-| `length_padMotives`, `length_padMinors`, `length_projCoreG_spine`, **`recArity_eq_projCoreG`** | the arity identity — §0.2 |
+| `length_padMotives`, `length_padMinors`, `length_projCoreG_spine`, **`recArity_eq_projCoreG`** | the arity identity — §0″.2 |
 | `minorTele_narrow`, `padMotives_narrow`, `padMinors_narrow`, **`projCoreG_eq_projCore`**, `projArgsG_eq_projArgs`, **`projTermG_eq_projTerm`** | at a block with one type, one constructor and no recursive fields — exactly `IsStructure`'s hypotheses — the generalised term **is** the old one.  So this is a generalisation, not a substitution, and every `rfl` validation of `projTerm` against Lean's own elaborator carries over |
-| `motiveType_instL_instAll_gen`, `motiveG_declType_isType`, `padMotiveCtx_wf`, **`padMotive_hasType`** | the padding motive is well-typed at the recursor's motive binder — §0.4 |
+| `motiveType_instL_instAll_gen`, `motiveG_declType_isType`, `padMotiveCtx_wf`, **`padMotive_hasType`** | the padding motive is well-typed at the recursor's motive binder — §0″.4 |
 | `padMotive_body_instAll` | the padding motive's β-normal form: applied to any spine of the right length it collapses to `X → X` |
-| **`padMinor_hasType`** | the padding minor inhabits its declared type, **modulo one named premise** — §0.5 |
+| **`padMinor_hasType`** | the padding minor inhabits its declared type, **modulo one named premise** — §0″.5 |
 | `VEnv.IsStructureG`, `.mono`, `.lt_nm`, `VEnv.IsStructure.toG` | the widened shape predicate (`types : D.types[j]? = some T`, no `noRec`) and the narrow one embedded in it at `j = 0` |
-| `VIndCtor.fieldUsed_index_irrel` (+ `VExpr.skips'_mkApp`, `skips'_mkPi_congr`) | §0.3, correction 3 |
+| `VIndCtor.fieldUsed_index_irrel` (+ `VExpr.skips'_mkApp`, `skips'_mkPi_congr`) | §0″.3, correction 3 |
 
-`Lean4Lean/Verify/Typing/ProjGenWitness.lean` (new, owned) holds §0.2.
+`Lean4Lean/Verify/Typing/ProjGenWitness.lean` (new, owned) holds §0″.2.
 
-### 0′.2 The refutation, re-run and killed at its own witness  **[checked]**
+### 0″.2 The refutation, re-run and killed at its own witness  **[checked]**
 
 `MutNonRec.projCore_arity_wrong` (`Verify/StructureBridge.lean`) refutes weakening
 `IsStructure.types` by measuring, at `MutNonRec.decl2` (a two-type non-recursive block —
@@ -350,7 +638,7 @@ at, `MutNonRec.kernelProjChecks`):
 could have made it false; `projTermG_eq_projTerm` is what will let the swap be made without
 re-proving it from scratch.
 
-### 0′.3 Four corrections to the brief and to `handoff-eta.md` §3
+### 0″.3 Four corrections to the brief and to `handoff-eta.md` §3
 
 1. **The prescribed `Sort ℓ` witness is not the cheapest, and the cheaper one deletes an
    ingredient.**  §3 (and this round's brief) specify the padding motive's body as
@@ -401,7 +689,7 @@ re-proving it from scratch.
    `hS.types` (line 353) only to get `T ∈ D.types`, which the widened form still supplies.
    An earlier version of this note claimed the eta chain reads `noRec`; it does not.
 
-### 0′.4 The cost estimate in `handoff-eta.md` §3 was too pessimistic at the typing layer
+### 0″.4 The cost estimate in `handoff-eta.md` §3 was too pessimistic at the typing layer
 
 §3 priced the repair as "`StructureClosed.lean` (1657 lines) re-derives every
 `lift'`/`instN`/`instL` commutation over the new shape" plus the `ProjSkip`/`Lemmas` typing
@@ -425,7 +713,7 @@ chain gaining `nm - 1` motive and `nmin - 1` minor obligations.  Measured this r
   (`projCoreG_lift'`, `projCoreG_instN`, `projCoreG_instL`, and the `projArgsG`/`projTermG`
   versions).  Not started.  These are what `TrProj.mono`/`TrProj.instL`/`TrProj.weak'` run on.
 
-### 0′.5 What is left of the generalisation, exactly
+### 0″.5 What is left of the generalisation, exactly
 
 **One mathematical residual, and two mechanical blocks.**
 
@@ -444,7 +732,7 @@ chain gaining `nm - 1` motive and `nmin - 1` minor obligations.  Measured this r
   refers to the `mins<q` block.**  **[read off source]** — an index computation over
   `minorType`/`ihType`, not checked.
 * **Mechanical block A.**  The `lift'`/`instN`/`instL` commutation lemmas for `projCoreG`
-  (§0.4, third bullet).
+  (§0″.4, third bullet).
 * **Mechanical block B.**  The swap itself: `TrProj` re-stated over `IsStructureG` and
   `projTermG`, `TrProj.wf` re-proved via `projCoreG_hasType` (the generalisation of
   `projCore_hasType`, whose `[mot]`/`[minor]` `HasArgs` steps become `HasArgs` over the two
@@ -452,7 +740,7 @@ chain gaining `nm - 1` motive and `nmin - 1` minor obligations.  Measured this r
   from the wide one so that `Verify/TypeChecker/IsDefEq.lean` and
   `Theory/Inductive/DeclExamples.lean` do not go red.  `projTermG_eq_projTerm` is the bridge.
 
-### 0′.6 Task 2 (`TrProj.uniq`, `TrProj.weak'_inv`) is *structurally* blocked, not effort-blocked
+### 0″.6 Task 2 (`TrProj.uniq`, `TrProj.weak'_inv`) is *structurally* blocked, not effort-blocked
 
 This is a correction to the brief's sequencing, not a report of difficulty.  Both lemmas need
 facts that are **not census holes** and therefore cannot be consumed without adding a `sorry`
@@ -485,14 +773,14 @@ with head `S` is still exactly (C) rigidity, and reconciling the recovered `us'`
 still (B).  **So it touches neither blocker.**  Worth taking when (C) lands; not a way in now.
 **[read off source]**, not machine-checked.
 
-### 0′.7 Relay to the orchestrator
+### 0″.7 Relay to the orchestrator
 
 `Theory/Typing/PatWFIota.lean` and `Theory/Typing/KCanonical.lean` are **uncommitted, untracked,
 and belong to another stream**, and `Theory/Typing/PatternRules.lean` is modified by it.
 `PatWFIota.lean` was **red** during this round's full build (unknown constant
 `Lean4Lean.VLevel.IsEquiv.symm`; "No goals to be solved"; a failed `rewrite` — lines 501, 502,
 605).  Reported, not touched.  That stream is attacking `PatWF`'s ι case, which is **the single
-highest-leverage unblock for `TrProj.uniq`** (§0.6): it would make (B) and (D) unconditional.
+highest-leverage unblock for `TrProj.uniq`** (§0″.6): it would make (B) and (D) unconditional.
 
 ---
 

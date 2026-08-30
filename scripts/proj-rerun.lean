@@ -53,3 +53,15 @@ open Lean4Lean
 #print axioms Lean4Lean.padMinor_hbs_norec
 #print axioms Lean4Lean.MutNonRec.minorBody_head_at_decl2
 #print axioms Lean4Lean.MutNonRec.padMotives_at_decl2
+
+-- this round: the recursive constructor
+#print axioms Lean4Lean.VInductDecl'.minorTele_gen
+#print axioms Lean4Lean.VInductDecl'.minorBodyArgs_gen
+#print axioms Lean4Lean.padMinor_hbs_gen
+#print axioms Lean4Lean.padMinor_hasType_gen
+#print axioms Lean4Lean.MutRec.ihTypes_at_rmk
+#print axioms Lean4Lean.MutRec.minorTele_at_rmk
+#print axioms Lean4Lean.MutRec.minorBodyArgs_at_rmk
+#print axioms Lean4Lean.ProjClosedGap.minorBinders_bad
+#print axioms Lean4Lean.ProjClosedGap.projClosedG_needs_recArgs
+#print axioms Lean4Lean.ProjClosedGap.projClosed_ok_without_recArgs
