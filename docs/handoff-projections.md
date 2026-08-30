@@ -1,32 +1,271 @@
 # Handoff: the projection cluster
 
 **Census: 19 → 19** (`lake env lean scripts/sorry-census.lean`, run at the start *and* at the
-end of this round; the same 19 names).  No hole closed, none added — this round is additive,
-as the four before it were.  `TrProj.uniq` and `TrProj.weak'_inv` sat at **83** and **28**
-transitive users at both ends of the round, unmoved.  **Three counts did move and it was not
-this stream**: `IsDefEqU.forallE_inv` 105 → 107, `forallE_inv_stratified` 353 → 355 and
-`weakN_iff` 107 → 109, because another stream edited `Theory/Typing/KEta.lean` and
-`KMeasure.lean` and added an untracked `Theory/Typing/ProofRetypeHeads.lean` during the round.
-Every declaration this stream added has a **measured empty hole cone**, so none of them can be
-a user of anything.  `scripts/dup-names.lean` reports no duplicates over the joined cone, and
-this round's three new modules are now **in** that cone — `Experimental/ConeJoin.lean` gained
-`import Lean4Lean.Verify.Typing.ProjGenInstWitness`, which pulls `ProjGenInst` and
-`ProjGenBeta` with it.  All three `Verify/Guard.lean` checks pass, unchanged: guard 1 ✓
-(25 frozen axioms), guard 2 ✓ *"proof INCOMPLETE: sorryAx present"* (as it must), guard 3 ✓
-(54/54).
+end of the round; the same 19 names).  No hole closed, none added.  `scripts/dup-names.lean`:
+no duplicates across the joined cone, at both ends.  All three `Verify/Guard.lean` checks
+pass, unchanged: guard 1 ✓ (25 frozen axioms), guard 2 ✓ *"proof INCOMPLETE: sorryAx
+present"* (as it must), guard 3 ✓ (54/54).
+
+**Four transitive-user counts moved, and only two of the moves are this stream's, by
+exactly one each.**  `NormalEq.descend` 40 → 42, `IsDefEqU.forallE_inv` 123 → 132,
+`forallE_inv_stratified` 365 → 376, `weakN_iff` 111 → 116.  Measured, not inferred: this
+stream added **97** declarations across its three modules, and **exactly one** of them has a
+non-empty hole cone — `realMinor_hasType_narrow`, whose cone is
+`{weakN_iff, forallE_inv_stratified}`, by design (§0*.5).  So +1 to each of those two; the
+rest of every move is another stream's uncommitted `Theory/Typing/KCanonical.lean`,
+`KEta.lean`, `KMeasure.lean`, `Primitive.lean` and the untracked `StrengthenCanon.lean`.
+`TrProj.uniq` and `TrProj.weak'_inv` sat at **83** and **28** at both ends, unmoved.
 
 Everything below is separated into **[checked]** (a named declaration in this tree, with its
 axiom set or its measured cone reproduced) and **[read off source]** (an argument from reading
 definitions, not run).
 
-*Numbering.*  `§0.x` is **this** round, `§0′.x` the previous one, `§0″.x` the one before that,
-then `§0‴.x` and `§0⁗.x`; all five are kept because later sections cross-reference them.
+*Numbering.*  `§0*.x` is **this** round.  `§0.x` … `§0⁗.x` are the five previous rounds and
+are **deliberately not renumbered**: several Lean docstrings cite them by number
+(`ProjGen.lean`, `ProjGenBeta.lean`, `ProjGenLift.lean`, `ProjClosedG.lean`,
+`Structure.lean`), and shifting the prime chain would silently break every one of those.
 Sections 1–8 are older editions, and `§n` references *inside* them are to that edition's own
 numbering.
 
 ---
 
-## 0. This round: block A **finished** (`instN`, `instL`), and ingredient (b) of the real minor's typing lemma
+## 0*. This round: **ingredient (c) is done**, and it was not the strong induction
+
+### 0*.1 Headline
+
+**`realMinor_hasType_gen` is proved**, modulo a single premise that contains **no `nr`, no
+`q` and no `ihTypes`** — so the induction-hypothesis block, which is what ingredient (c) was
+named for, is fully discharged.
+
+**Correction to §0.7 item 1(c), and to the brief that relayed it.**  §0.7 said (c) is "the
+field-variable lookup through the ih block", that "its looked-up type is `Θ[i]` weakened by
+`Θ.length - i`, i.e. by `nr` more than in the narrow case, and that lift has to be reconciled
+with the declared body", and that "`projMinor_hasType`'s `ProjHasType` strong induction is the
+bulk".  The first clause is right; the second and third are **wrong**:
+
+* There is **nothing to reconcile.**  `minorTele_gen` splits the minor's telescope as
+  `ΘF ++ ΘI` with `ΘF` *exactly* the field telescope `projMinor` binds, and
+  `minorBodyArgs_gen` says the declared body's spine is the narrow spine mapped by
+  `(·.liftN nr)`.  So **both sides** of the judgement are `liftN nr 0` of the narrow ones —
+  the term (`.bvar (nf-1-i)` ↦ `.bvar (nf+nr-1-i)`), the type, and the context.  One
+  `VEnv.HasType.weakN` carries the narrow statement across.  Both ingredients were already in
+  the tree (§0″.2 and §0″.3 built them for the *padding* minor); nobody had noticed they do
+  the real minor's ih block too.
+* The strong induction is **not** part of (c).  It is needed for the residual premise
+  `hiota`, whose statement mentions neither `nr` nor `q` nor `ihTypes`: it is the *block
+  index* generalisation of `projMinor_hasType`'s ι-law/swap/β chain.  That is a **different
+  axis** from the one (c) was about, and calling it "(c)'s bulk" merged two independent
+  ingredients into one and made (c) look like a full round.  (c) came to ~130 lines of proof.
+
+So the ledger changes shape: **(a) done, (b) done, (c) done; a new (d) — `hiota` — is the
+whole remainder**, and it is `nr`-free.
+
+### 0*.2 What landed  **[checked]**
+
+Three new files, all owned.
+
+| file | content | hole cone |
+|---|---|---|
+| `Lean4Lean/Verify/Typing/ProjGenMinor.lean` | `realMinor_field_hasType`, **`realMinor_hasType_gen`**, `realMinor_hasType_gen'`, `realMinor_norec`, `realMinor_hasType_atPadMotives` | **empty** |
+| `Lean4Lean/Verify/Typing/ProjGenMinorWitness.lean` | the `RecDep` block, an `#eval` elaborator guard, and 16 named firings/controls | **empty** |
+| `Lean4Lean/Verify/Typing/ProjGenMinorNarrow.lean` | `realMinor_hasType_narrow` — the collapse test | `{weakN_iff, forallE_inv_stratified}`, **by design** |
+
+Edited outside those three: `scripts/hole-cone.lean`, `scripts/proj-rerun.lean` and
+`Lean4Lean/Experimental/ConeJoin.lean` (import lines and this round's names, the brief's
+standing instruction).  **Unedited**: `ProjGen.lean`, `ProjGenWitness.lean`, `ProjGenLift*`,
+`ProjGenInst*`, `ProjGenBeta.lean`, `ProjClosedG*`, `ProjSkip.lean`, `Lemmas.lean`,
+`StructureUniq.lean`, `Rigidity.lean`, `DefEqCtx.lean`, `Structure.lean`,
+`StructureClosed.lean`, `StructureEta.lean`, `StructureExamples.lean`.  `TrProj`,
+`TrProj.wf`, `projCore` and `IsStructure` are untouched for a **sixth** round, and
+`IsStructureG` stays separate from `IsStructure` for §0⁗.3 correction 4's polarity reason.
+
+`scripts/hole-cone.lean` re-run, with all 21 named theorems of `ProjGenMinor.lean` and
+`ProjGenMinorWitness.lean` as seeds: every one has a **measured empty hole cone** (transitive
+over type *and* value, `allowOpaque := true`).  A stronger sweep — over **every** declaration
+the three modules add, auto-generated recursors included, 97 of them — finds exactly one with
+a non-empty cone, `realMinor_hasType_narrow`.  `scripts/proj-rerun.lean` re-run: no new name
+carries `sorryAx`; the only three that do are the three that did before — `TrProj.wf`,
+`tryEtaStructCore.WF_of_structEta`, `isDefEqUnitLike.WF_of_structEta` — plus, by design,
+`realMinor_hasType_narrow`.
+
+No implementation file was touched, so the Kernel Arena is unaffected and was not re-run.
+
+### 0*.3 The statements
+
+`realMinor_hasType_gen` (`ProjGenMinor.lean`).  At `env.Ordered`, arbitrary `q`, arbitrary
+block index `j`, arbitrary recursive fields:
+
+    hget   : mots[j]? = some P
+    hself  : D.selfLvls.map (VLevel.inst lvls) = us
+    hps/hmots/hacc/hjlt/hi
+    hΓ     : OnCtx Γ (env.IsType U)
+    hdecl  : env.IsType U Γ (instAll ((D.minorType q j C).instL lvls) (ps ++ mots ++ acc))
+    hcore  : env.HasType U ((instAllTele (C.fields.map fun F => F.type.instL us) ps).reverse ++ Γ)
+               (.bvar (C.fields.length - 1 - i))
+               ((P.liftN C.fields.length).mkApp
+                  ((C.args.map fun a => instAll (a.instL us) ps C.fields.length)
+                    ++ [(const C.name us).mkApp (ps.map (·.liftN nf) ++ bvars 0 nf)]))
+    ⊢ env.HasType U Γ (D.realMinor lvls (ps ++ mots ++ acc) i q C)
+        (instAll ((D.minorType q j C).instL lvls) (ps ++ mots ++ acc))
+
+`hcore` is *literally* the goal `projMinor_hasType` reaches after `HasType.mkLams` — checked
+by reading `Verify/Typing/Lemmas.lean:1016` (`refine VEnv.HasType.mkLams hOnΔF ?_`) against
+`minorBody_instAll_spine` + `minorBodyArgs_norec`.  **[read off source]**
+
+`realMinor_field_hasType` proves the field-variable half of `hcore` outright, from
+`ProjClosedG` alone — no `IsStructure`, no `Ordered`, no induction.  It is the narrow proof's
+`hrgt` with `ftype_closedN` replaced by `ProjClosedG.ftype_closedN`.  **[checked]**
+
+`realMinor_hasType_gen'` is `realMinor_hasType_gen` with `hcore` reduced to the residual
+**(d)**:
+
+    hiota : env.IsDefEq U ((instAllTele (C.fields.map fun F => F.type.instL us) ps).reverse ++ Γ)
+              (instAll ((C.fields.getD i default).type.instL us)
+                 (ps.map (·.liftN nf) ++ (List.range i).map fun m => .bvar (nf - 1 - m)))
+              ((P.liftN nf).mkApp (…the constructor's indices and the constructor…))
+              (.sort ℓ)
+
+This is `projMinor_hasType`'s `(hbetaQ.trans (defeqDF (sortDF …) hcong)).symm`
+(`Lemmas.lean:1301–1305`), at an arbitrary block member instead of index `0`.  **[read off
+source]** for the correspondence; the statement itself is **[checked]** as a premise that
+`realMinor_hasType_gen'` consumes.
+
+### 0*.4 The consumer, written before the statement was trusted  **[checked]**
+
+The brief's standing caution — *a hypothesis given by analogy with a sibling was fatal one
+lemma later, and only writing the consumer caught it* — was honoured.
+`realMinor_hasType_atPadMotives` instantiates the lemma at exactly the cut `projCoreG`'s
+minor block uses: `lvls := D.projLvls C us i`, `mots := D.padMotives T C us ps is i j earlier
+e`, `P := T.projMotive C us ps is i earlier`.  There `hget` is `padMotives_getElem_eq`,
+`hmots` is `length_padMotives`, and `hself` is `selfLvls_inst` — all three discharged, so
+none of them can be a premise the block builder cannot meet.
+
+Two premises of the sibling `padMinor_hasType'` were **deliberately not copied**: `hcl`
+(`ClosedTele` of the *padding* type's indices) and `hms`/`hspine` (the motive-block prefix
+typed as a `HasArgs`).  Both are about the padding motive, which the real minor does not
+build; carrying them across by analogy would have produced a lemma whose consumer cannot
+supply them.
+
+### 0*.5 The collapse test  **[checked]**
+
+`realMinor_hasType_narrow` (`ProjGenMinorNarrow.lean`): at a block satisfying
+`VEnv.IsStructure` — `nm = 1`, `q = 0`, `j = 0`, `nr = 0` — the *generalised* conclusion is
+discharged **by `projMinor_hasType` itself**, after two rewrites: `realMinor_norec` (whose
+hypothesis is supplied by `H.noRec`) and `List.append_nil`.  Nothing else had to be
+reconciled, which is the content: a generalisation that had drifted to a different telescope
+or a different body index would not have met the narrow theorem at all.
+
+This module is kept **separate** precisely because it inherits `projMinor_hasType`'s
+`sorryAx` route (`UniqueTyping`'s `IsDefEqU.trans`/`.of_l`, gated on `weakN_iff`); its
+measured cone is `{weakN_iff, forallE_inv_stratified}` and the other two modules' are empty.
+
+### 0*.6 Non-vacuity  **[checked]**
+
+Every block already in this cluster has `nr = 0` — `Rich`, `DepPair`, `Poly`,
+`MutNonRec.decl2` — where `liftN nr` is the identity and the two body indices coincide, so a
+firing there would test nothing.  `MutRec.decl1r` has `nr = 1` but a single field, so the
+lookup is trivial.  `RecDep` is built so four things are non-degenerate at once: `nr = 1`,
+`nf = 3` with field 1's type **depending on field 0**, `nm = 2` with the projected type at
+index **`j = 1`**, and a non-empty minor accumulator (`q = 1`, used by
+`minorBody_head_at_rpmk`).  Its shape data is checked against Lean's own elaborator by an
+`#eval` that fails the build if `RP` stops being recursive, stops being the second member of
+its block, or changes arity.
+
+* **Fired at the conclusion.**  `realMinor_at_rpmk` computes the real minor at `RecDep` to
+  `mkLams [Q, Bd (.bvar 0), RP, (m₁.liftN 3) (.bvar 0)] (.bvar 2)` — four binders, body index
+  `nf + nr - 1 - i = 2`.
+* **The `nr = 0` reading is refuted at that same conclusion, and it is not an arity error.**
+  `realMinor_norec_reading_false` is a machine-checked `≠` against the *same* four-binder
+  telescope with body `.bvar 1`.  `realMinor_ne_projMinor` separately rules out `projMinor`.
+* **Move test, genuinely different from the neighbouring family's.**  `nrmk` is `rpmk` with
+  `recArg` dropped and **nothing else changed**; `realMinor_norec_fires` shows the collapse to
+  `projMinor` holds there, and `realMinor_ne_projMinor` shows it fails at `rpmk`.  The
+  neighbouring `lift'`/`instN` tests moved *variables*; this one moves a **binder count**.
+* **Exactly saturated, one higher fails.**  `bvar_index_saturated`: the arithmetic
+  `nf + nr - 1 - i = (nf - 1 - i) + nr` that `realMinor_hasType_gen`'s `hbvar` step needs
+  holds at `i = 2` (the largest legal index) and is **false** at `i = 3 = nf`.
+* **The field lookup is fired end to end**, at three indices, in an arbitrary environment and
+  context: `field_hasType_fires` (`i = 1`, the dependent field: the stored type `Bd (.bvar 0)`
+  becomes `Bd (.bvar 2)`, so the substitution **moves** a variable — `field_hasType_moves`),
+  `field_hasType_fires_at_0` and `field_hasType_fires_at_2` (the recursive field).
+  `ProjClosedG` is discharged by hand for the block (`projClosedG`); no premise is left open.
+* **Six negative controls, none an arity error**, each re-run outside the tree and its error
+  text recorded in the docstring: the `j = 0` motive reading in the telescope (a `rfl`
+  failure at the same list length); the `j = 0` reading in the declared body
+  (`[m0, m1][1]? = some m0`); `realMinor_norec` at the recursive constructor
+  (`rpmk.recFields = []`); the field lookup stated with the *unsubstituted* stored type (same
+  context, same term, same arity); the field lookup at `i = 3 = nf` (`3 < rpmk.fields.length`
+  *proved false* by `decide`); and the field lookup at the wrong block index
+  (`declRP.types[0]? = some treal`).
+
+**Stated plainly: `realMinor_hasType_gen` is not fired end to end.**  Its `hdecl` and
+`hcore`/`hiota` premises are typing judgements about a concrete environment, and no such
+environment is built anywhere in this cluster.  What *is* fired end to end is
+`realMinor_field_hasType`; what is machine-checked about the rest is that the conclusion, the
+telescope, the body index and the declared-body spine all compute correctly at a block with
+`nr = 1`, `nf = 3`, `nm = 2`, `j = 1`, and that the narrow instance collapses onto
+`projMinor_hasType` (§0*.5).  *"No end-to-end firing" is not evidence the statement is
+wrong, and it is not evidence it is right.*
+
+### 0*.7 What is left, exactly
+
+1. **(d) `hiota`** — the ι-law/swap/β chain of `projMinor_hasType` at an arbitrary block
+   member.  This is the whole remainder of `realMinor_hasType_gen`, and it is the *block
+   index* generalisation, not the `nr` one.  The named lemmas its proof calls, read off
+   `Verify/Typing/Lemmas.lean:984–1306` — every one of them stated at `IsStructure`, so every
+   one of them needs an `IsStructureG` form: `projMotiveTerm_hasType_swapped`,
+   `projMotiveBody_hasType_guarded`, `motiveCtx_wf`, `iota_law`, `projMinor_app`,
+   `VIndCtor.swapData`, `VIndCtor.instAll_take_swap_eq`, `minor_declType_isType`,
+   `minorType_instL_instAll`, `projMotiveTerm_liftN`, `projMotiveBody_instAll`.  Two of the
+   chain's callees **already have their `_gen` forms** — `ctorArgs_hasArgs_gen` and
+   `ctorApp_hasType_gen` (`ProjGen.lean`) — and `projMotiveBodyG_instAll` (§0.6) is the last
+   one's generalisation, i.e. the β half.  The `ProjHasType` strong induction lives here, in
+   `projMotiveTerm_hasType_swapped`/`projArgs_hasArgs`.  **[read off source]**, not
+   attempted, not costed.
+2. **Block B (the swap)** is unchanged and was not attempted; it needs `projCoreG_hasType`,
+   which needs item 1.
+3. `TrProj.uniq` (83 users) and `TrProj.weak'_inv` (28) remain **structurally** blocked
+   (§0‴.6, §0⁗.6): `VEnv.PatWF`/`VEnv.WeakNorm` are open hypotheses, not census holes, plus
+   ledger G4, which has no statement in the tree.  Consuming them needs a new `sorry` or
+   axiom.  Unchanged this round and not next round's business.
+
+### 0*.8 What I would pick up first
+
+1. **A `ProjHasTypeG` predicate and the eleven lemmas of item 1**, in that order — the
+   predicate first, because §0.5 correction 2's lesson (an over-hypothesised statement is
+   caught by writing the consumer, not by inspection) applies hardest to a predicate eleven
+   lemmas quantify over.  Budget a full round for the predicate plus the four
+   `projMotiveTerm`/`projMotiveBody` lemmas; the ι-law and `swapData` are probably a second.
+2. **Do not re-derive the `nr` weakening.**  It is `realMinor_hasType_gen`, done, and its two
+   ingredients (`minorTele_gen`, `minorBodyArgs_gen`) were already in `ProjGen.lean`.
+3. Do **not** treat the const-application family as unconditional: `ConstSpineWF.lean`'s
+   route passes through `church_rosser`, under §0‴.6's live conditional refutation.  Not
+   re-measured this round.
+
+### 0*.9 Relay to the orchestrator
+
+* **`Lean4Lean/Experimental/ConeJoin.lean` was edited by this stream** — two import lines
+  (`ProjGenMinorWitness`, `ProjGenMinorNarrow`), on the brief's standing instruction that a
+  new leaf module must be added there or both instruments are blind to it.  This stream does
+  not own that file; nothing else in it was touched.
+* **`Lean4Lean/Theory/Typing/KMeasure.lean` was red mid-round and it was not this stream's**
+  — `KMeasure.lean:591:33: unexpected token '≡'` plus two knock-on errors, from another
+  stream's uncommitted edit.  While it was red it walled off `Experimental/ConeJoin.lean`,
+  and with it `scripts/sorry-census.lean` and `scripts/dup-names.lean`, which import the
+  joined cone.  Not touched; it went green on its own before the end of the round and both
+  instruments then ran clean.  Worth knowing that **the two census instruments are hostage to
+  every file in the joined cone**, whereas `scripts/hole-cone.lean` is not — it imports only
+  the projection cluster, and it was the only measurement available for the ~20 minutes
+  `ConeJoin` was down.
+* **The brief's framing of ingredient (c) was wrong** (§0*.1) — the ih block factors out by
+  weakening, and the strong induction belongs to a different ingredient.  Worth relaying to
+  whoever picks up item 1, so they do not budget the induction twice.
+
+---
+
+## 0. The previous round: block A **finished** (`instN`, `instL`), and ingredient (b) of the real minor's typing lemma
+
+**Census for that round** (kept as written then): **Census: 19 → 19** (`lake env lean scripts/sorry-census.lean`, run at the start *and* at the end of this round; the same 19 names).  No hole closed, none added — this round is additive, as the four before it were.  `TrProj.uniq` and `TrProj.weak'_inv` sat at **83** and **28** transitive users at both ends of the round, unmoved.  **Three counts did move and it was not this stream**: `IsDefEqU.forallE_inv` 105 → 107, `forallE_inv_stratified` 353 → 355 and `weakN_iff` 107 → 109, because another stream edited `Theory/Typing/KEta.lean` and `KMeasure.lean` and added an untracked `Theory/Typing/ProofRetypeHeads.lean` during the round. Every declaration this stream added has a **measured empty hole cone**, so none of them can be a user of anything.  `scripts/dup-names.lean` reports no duplicates over the joined cone, and this round's three new modules are now **in** that cone — `Experimental/ConeJoin.lean` gained `import Lean4Lean.Verify.Typing.ProjGenInstWitness`, which pulls `ProjGenInst` and `ProjGenBeta` with it.  All three `Verify/Guard.lean` checks pass, unchanged: guard 1 ✓ (25 frozen axioms), guard 2 ✓ *"proof INCOMPLETE: sorryAx present"* (as it must), guard 3 ✓ (54/54).
 
 ### 0.1 Headline
 

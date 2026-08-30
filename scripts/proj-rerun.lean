@@ -4,6 +4,8 @@ import Lean4Lean.Verify.StructureBridge
 import Lean4Lean.Verify.Typing.ProjGenWitness
 import Lean4Lean.Verify.Typing.ProjGenLiftWitness
 import Lean4Lean.Verify.Typing.ProjGenInstWitness
+import Lean4Lean.Verify.Typing.ProjGenMinorWitness
+import Lean4Lean.Verify.Typing.ProjGenMinorNarrow
 import Lean4Lean.Verify.Typing.Lemmas
 import Lean4Lean.Verify.TypeChecker.IsDefEq
 
@@ -157,3 +159,28 @@ open Lean4Lean
 #print axioms Lean4Lean.DepPair.projMotiveBodyG_instAll_fires
 #print axioms Lean4Lean.DepPair.rhs_moves
 #print axioms Lean4Lean.InstControls.projMotiveBodyG_instAll_false_without_hps
+
+-- this round: ingredient (c), the real minor through the ih block
+#print axioms Lean4Lean.VInductDecl'.realMinor_field_hasType
+#print axioms Lean4Lean.VInductDecl'.realMinor_hasType_gen
+#print axioms Lean4Lean.VInductDecl'.realMinor_hasType_gen'
+#print axioms Lean4Lean.VInductDecl'.realMinor_norec
+#print axioms Lean4Lean.VInductDecl'.realMinor_hasType_atPadMotives
+#print axioms Lean4Lean.RecDep.shape
+#print axioms Lean4Lean.RecDep.ihTypes_at_rpmk
+#print axioms Lean4Lean.RecDep.minorTele_at_rpmk
+#print axioms Lean4Lean.RecDep.realMinor_at_rpmk
+#print axioms Lean4Lean.RecDep.realMinor_norec_reading_false
+#print axioms Lean4Lean.RecDep.realMinor_ne_projMinor
+#print axioms Lean4Lean.RecDep.realMinor_norec_fires
+#print axioms Lean4Lean.RecDep.bvar_index_saturated
+#print axioms Lean4Lean.RecDep.minorBody_head_at_rpmk
+#print axioms Lean4Lean.RecDep.closedTele_ramk
+#print axioms Lean4Lean.RecDep.closedTele_rpmk
+#print axioms Lean4Lean.RecDep.projClosedG
+#print axioms Lean4Lean.RecDep.field_hasType_fires
+#print axioms Lean4Lean.RecDep.field_hasType_moves
+#print axioms Lean4Lean.RecDep.field_hasType_fires_at_0
+#print axioms Lean4Lean.RecDep.field_hasType_fires_at_2
+-- …and the collapse test, which inherits the narrow theorem's `sorryAx` by design
+#print axioms Lean4Lean.realMinor_hasType_narrow

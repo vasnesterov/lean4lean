@@ -2,6 +2,8 @@ import Lean4Lean.Verify.Typing.ProjGen
 import Lean4Lean.Verify.Typing.ProjGenWitness
 import Lean4Lean.Verify.Typing.ProjGenLiftWitness
 import Lean4Lean.Verify.Typing.ProjGenInstWitness
+import Lean4Lean.Verify.Typing.ProjGenMinorWitness
+import Lean4Lean.Verify.Typing.ProjGenMinorNarrow
 import Lean4Lean.Verify.Typing.Lemmas
 import Lean4Lean.Verify.Typing.Rigidity
 import Lean4Lean.Verify.Typing.ConstSpineWF
@@ -149,7 +151,31 @@ def seeds : List Name :=
    ``Lean4Lean.DepPair.depBlock_projClosedG,
    ``Lean4Lean.DepPair.projMotiveBodyG_instAll_fires,
    ``Lean4Lean.DepPair.rhs_moves,
-   ``Lean4Lean.InstControls.projMotiveBodyG_instAll_false_without_hps]
+   ``Lean4Lean.InstControls.projMotiveBodyG_instAll_false_without_hps,
+   -- ingredient (c): the real minor's typing through the ih block
+   ``Lean4Lean.VInductDecl'.realMinor_field_hasType,
+   ``Lean4Lean.VInductDecl'.realMinor_hasType_gen,
+   ``Lean4Lean.VInductDecl'.realMinor_hasType_gen',
+   ``Lean4Lean.VInductDecl'.realMinor_norec,
+   ``Lean4Lean.VInductDecl'.realMinor_hasType_atPadMotives,
+   ``Lean4Lean.RecDep.shape,
+   ``Lean4Lean.RecDep.ihTypes_at_rpmk,
+   ``Lean4Lean.RecDep.minorTele_at_rpmk,
+   ``Lean4Lean.RecDep.realMinor_at_rpmk,
+   ``Lean4Lean.RecDep.realMinor_norec_reading_false,
+   ``Lean4Lean.RecDep.realMinor_ne_projMinor,
+   ``Lean4Lean.RecDep.realMinor_norec_fires,
+   ``Lean4Lean.RecDep.bvar_index_saturated,
+   ``Lean4Lean.RecDep.minorBody_head_at_rpmk,
+   ``Lean4Lean.RecDep.closedTele_ramk,
+   ``Lean4Lean.RecDep.closedTele_rpmk,
+   ``Lean4Lean.RecDep.projClosedG,
+   ``Lean4Lean.RecDep.field_hasType_fires,
+   ``Lean4Lean.RecDep.field_hasType_moves,
+   ``Lean4Lean.RecDep.field_hasType_fires_at_0,
+   ``Lean4Lean.RecDep.field_hasType_fires_at_2,
+   -- the collapse test; this one is expected to carry the narrow theorem's holes
+   ``Lean4Lean.realMinor_hasType_narrow]
 
 def main : IO Unit := do
   initSearchPath (← findSysroot)
@@ -157,6 +183,8 @@ def main : IO Unit := do
                             {module := `Lean4Lean.Verify.Typing.ProjGenWitness},
                             {module := `Lean4Lean.Verify.Typing.ProjGenLiftWitness},
                             {module := `Lean4Lean.Verify.Typing.ProjGenInstWitness},
+                            {module := `Lean4Lean.Verify.Typing.ProjGenMinorWitness},
+                            {module := `Lean4Lean.Verify.Typing.ProjGenMinorNarrow},
                             {module := `Lean4Lean.Verify.Typing.Lemmas},
                             {module := `Lean4Lean.Verify.Typing.Rigidity},
                             {module := `Lean4Lean.Verify.Typing.ConstSpineWF},
