@@ -14,6 +14,223 @@ previous round (verdict, reference finding, first positive instance, one killed 
 
 ---
 
+# §S. The set-model round — the circularity claim is refuted
+
+*(This section is newer than §A.  §A's `A.1` is corrected here; everything else in
+§A stands.)*
+
+## S.0 Verdict
+
+**`weakN_iff` is still not decided.**  No counterexample, no proof.
+*"No witness is not evidence of truth."*
+
+What this round settles is the **instrument** question the brief asked:
+
+> is there a `PropSplit` — or a soundness route that does not go through
+> `PropSplit.Stable` — whose construction does not consume the hole?
+
+**Yes.**  `Lean4Lean/Theory/SetModel/PropSplitUp.lean` — new, **46** source
+declarations, all `sorry`-free **[machine-checked]** — builds one.  §A.1's
+claim, *"the model route is circular; a `⊬` obtained from it would be
+conditional on the hole"*, is **false as stated**: the dependence belongs to
+`propSplitOf`'s choice of predicate, not to `PropSplit`, `PropSplit.Stable`, or
+`soundAbove`.
+
+The corrected statement: the model's soundness route consumes
+`PropUniq`, `PropTypeAgree`, and **substitution descent**
+(`InstDescendUp`) — and **not** `TypingStrengthening` / `SortDescend` /
+`weakN_iff`.
+
+It does **not** follow that the model can now refute the hole.  A `⊬` from
+`sound` is conditional on `InstDescendUp`, which is open.  What changed is that
+the condition is no longer *the statement being refuted*, which is the only
+thing that made the earlier route viciously circular.
+
+## S.1 The construction, in one line
+
+Replace `propSplitOf`'s predicate
+
+```
+IsPropAt ls Γ A := ∃ u, u.WF nv ∧ Γ ⊢ A : .sort u ∧ u.eval ls = 0
+```
+
+by its **closure under lifts**
+
+```
+IsPropUp ls Γ A := ∃ (l : Lift) Γ' u, Ctx.Lift' l Γ Γ' ∧ u.WF nv ∧
+                     Γ' ⊢ A.lift' l : .sort u ∧ u.eval ls = 0
+```
+
+("`A` is a proposition *somewhere above* `Γ`"), and likewise for proofs.
+
+Why it works, and it is worth stating because it generalises:
+
+* `prop_sound`/`proof_sound` carry a **typing premise**; `Stable` is quantified
+  over **raw syntax**.  Typing transports *forward* along a lift
+  (`HasType.weak'`), so the sound-ness fields survive the closure unchanged —
+  `PropUniq` / `PropTypeAgree` at the far context is all it takes.
+* `Stable`'s **descent** directions become *prepending a lift step*
+  (`Ctx.Lift'.comp`, already in the tree) — free.
+* `Stable`'s **ascent** directions become a **pushout of two lifts out of a
+  common context** — pure syntax, no typing, built here (§1 of the file).
+
+## S.2 What is machine-checked
+
+`Lean4Lean/Theory/SetModel/PropSplitUp.lean`, imports `SetModel/StableAudit`
+only.  Nothing imports it yet; it is built through the `Lean4Lean.Theory.*` glob.
+
+| name | statement |
+|---|---|
+| `Lift.pushOutL`, `.pushOutR`, `Lift.pushOut_comp` | the pushout of two `Lift`s, and that the square commutes |
+| `Ctx.Lift'.pushOut` | …and that it is realised by contexts: two lifts out of one context have a join |
+| `VEnv.IsPropUp`, `.IsProofUp` | the lift-closed predicates |
+| `VEnv.isPropUp_iff`, `.isProofUp_iff` | **`prop_sound`/`proof_sound`, from `PropUniq` / `PropTypeAgree` alone** |
+| `VEnv.isPropUp_lift'`, `.isProofUp_lift'`, `.isPropUp_liftN`, `.isProofUp_liftN` | **the two `lift` fields of `Stable`, both directions, no strengthening** |
+| `VExpr.lift_r_liftN_one`, `VExpr.lift'_inst_consN` | the `consN` generalisation of `lift'_inst_hi`, via the tree's `Subst` calculus |
+| `Ctx.InstN.pushLift'` | **the substitution/lift square**, with the term identity under `j` binders |
+| `VEnv.isPropUp_instN_up`, `.isProofUp_instN_up` | **the ascent halves of the two `inst` fields, free** |
+| `VEnv.InstDescendUp` | **the residual**: the two *descent* halves, and nothing else |
+| `SetModel.propSplitUp` | the `PropSplit`, from `Ordered` + `PropUniq` + `PropTypeAgree` |
+| `SetModel.propSplitUp_stable` | **the headline**: `Stable`, from `Ordered` + `InstDescendUp` |
+| `SetModel.exists_stable_propSplitUp`, `…_of_agree` | the existence forms, the second matching `StableAudit.exists_stable_propSplit` hypothesis-for-hypothesis |
+| `SetModel.isPropAt_le_isPropUp` | `propSplitOf`'s predicate refines the new one (the empty lift) |
+| `SetModel.isPropUp_iff_isPropAt`, `.isProofUp_iff_isProofAt` | **…and the two agree on every well-typed input** |
+| `VEnv.propUpCollapse_iff`, `.proofUpCollapse_iff` | **the exact price**: "`IsPropUp` is the canonical predicate" **↔** `PropDescend.sort_lift` (resp. `proof_lift`) |
+| `SetModel.sort_lift_of_isPropUp_collapse` | the same as a one-way negative control, with no auxiliaries |
+| `VEnv.instDescendUp_of_propDescend` | **no regression**: `PropDescend` still discharges the residual |
+| `SetModel.allProp_hasType`, `.isPropUp_falseProp`, `.not_isPropUp_sort` | non-vacuity, both branches (`∀ p : Prop, p` is a proposition; `Prop` is not) |
+
+Axioms **[measured]**: no `sorryAx` anywhere.  `propUpCollapse_iff`,
+`proofUpCollapse_iff`, `instDescendUp_of_propDescend`,
+`sort_lift_of_isPropUp_collapse` are `[propext]`; `lift'_inst_consN`,
+`Ctx.InstN.pushLift'`, `isPropUp_iff`, `isProofUp_iff`, `isPropUp_instN_up`,
+`isProofUp_instN_up`, `isPropUp_falseProp`, `not_isPropUp_sort` are
+`[propext, Quot.sound]`; the rest — including `propSplitUp_stable` — are
+`[propext, Classical.choice, Quot.sound]` (the choice is `Classical.propDecidable`
+for `decProp`/`decProof`, exactly as in `propSplitOf`).
+
+## S.3 The negative control, and why §3 is not the trivial direction backwards
+
+`IsPropUp` is **implied by** the canonical predicate, so the reduction would be
+empty if the converse were free.  It is not:
+`propUpCollapse_iff` **[machine-checked]** proves
+
+> `∀ ls Γ A, IsPropUp ls Γ A → ∃ u, Γ ⊢ A : .sort u ∧ u.eval ls = 0`
+> **↔** `PropDescend.sort_lift`
+
+— i.e. collapsing the new predicate back to the old one is *exactly* the field
+`StableAudit.sort_lift_of_strengthening` derives from the hole.  So the trade is
+exact and in the right direction: the strengthening statement has been moved out
+of a hypothesis of soundness and into a claim nobody needs.
+
+`isPropUp_iff_isPropAt` **[machine-checked]** localises the difference: the two
+predicates agree at every `A` that has a sort at `Γ`.  They can differ only on
+syntax with no sort at `Γ` — which is precisely the region `Stable` quantifies
+over (raw syntax) and `prop_sound` does not (typing premise).  **That asymmetry
+is the whole source of the freedom, and it is a general observation about the
+`PropSplit` interface, not about this predicate.**
+
+## S.4 What is left, and why it is a different statement
+
+`InstDescendUp` — two fields:
+
+```
+Ctx.InstN Γ₀ e₀ A₀ k Γ₁ Γ → Γ₀ ⊢ e₀ : A₀ →
+  IsPropUp  ls Γ (B.inst e₀ k) → IsPropUp  ls Γ₁ B
+Ctx.InstN Γ₀ e₀ A₀ k Γ₁ Γ → Γ₀ ⊢ e₀ : A₀ →
+  IsProofUp ls Γ (e.inst e₀ k) → IsProofUp ls Γ₁ e
+```
+
+These are `PropDescend.sort_inst` / `proof_inst` transported to the lift-closed
+predicate — *substitution* descent, not context descent.  `StableAudit.lean`'s
+own note records that its candidate refutation of `sort_inst` is blocked on
+`IsDefEqU.sort_forallE_inv` (`Theory/Typing/Injectivity.lean`), **not** on
+strengthening [read].  A structural scan confirms the separation is real: across
+the whole `SetModel/` cone, **exactly 3** declaration/target pairs mention any
+strengthening statement, and all 3 are the two `StableAudit` lemmas this file
+makes unnecessary **[measured; script at
+`<scratchpad>/setmodel-circ/scan.lean`]**:
+
+```
+StableAudit :: proof_lift_of_strengthening -> VEnv.TypingStrengthening
+StableAudit :: sort_lift_of_strengthening  -> VEnv.TypingStrengthening
+StableAudit :: sort_lift_of_strengthening  -> VEnv.SortDescend
+```
+
+(direct references in a declaration's type or value; targets scanned:
+`TypingStrengthening`, `SortDescend`, `IsDefEqU.weakN_iff`,
+`StrengtheningTarget`, `Strengthening`, `PiDescend`, `sorryAx`.)
+
+## S.5 Why no further closure removes the residual **[analysis]**
+
+The natural next move — also close the predicate under *substitution* moves, so
+that the `inst` descent becomes "prepend a step" too — **does not work**, and the
+reason is sharp enough to record so nobody re-derives it.
+
+Write the closure as reachability along typing-preserving moves.  Then, for every
+move: **descent** (P at the target ⟹ P at the source) is free, and **ascent**
+needs the move to commute past the moves already in the closure.
+
+* lift/lift and lift/inst commute — that is §1 and §4 of the file, both
+  machine-checked.
+* **inst/inst does not.**  Two substitutions of the *same* variable by *different*
+  terms have no common continuation: from `(Γ₁, B)` with `Γ₁ = [Prop]`,
+  `B = .bvar 0`, substituting `p₁` and `p₂` lands on `([], p₁)` and `([], p₂)`,
+  and both terms are closed, so every further move fixes them.
+
+So closing under `inst` buys the `inst` descent and loses the `inst` ascent; there
+is no closure making all four free while `prop_sound` survives (`prop_sound`
+forces every move to be typing-preserving *forward*, which is what makes descent
+the free direction).  The lift-only closure is the optimum of this family.
+
+The concrete candidate counterexample to the `inst` ascent is
+`StableAudit.lean`'s own witness shape (`B = (bvar 0) falseProp falseProp`,
+`e₀ = fun p => p` versus `e₀ = fun p => falseProp`), and **it is blocked on the
+same `sort_forallE_inv`** — so even the failure of `inst`-closure cannot be
+machine-checked here.  Everything on the substitution side of this file's story
+runs into that one statement.
+
+## S.6 Measurements and corrections
+
+* `scripts/sorry-census.lean`: **TOTAL 19** at the end of the round
+  **[measured]** — unchanged, as it must be.
+* **Correction to §A.7 and to the briefs**: `IsDefEqU.weakN_iff` now reports
+  **124** transitive users, not 111 **[measured, this round]**.
+* `scripts/dup-names.lean`, default run: **no duplicates** **[measured]**.  A
+  dedicated run adding `Theory.SetModel.PropSplitUp` to that closure: **no
+  duplicates** **[measured]** — the new file introduces none, and unlike
+  `StableAudit` it *does* import into the joined cone.
+* `lake build Lean4Lean.Theory.SetModel.PropSplitUp`: green **[measured]**.
+* **`docs/model-interface.md`'s standing label is now stale in a second way.**
+  `StableAudit.lean` corrected it from "`PropTypeAgree` alone" to
+  "`PropTypeAgree ∧ PropDescend`".  With `propSplitUp` the honest label is
+  **`PropTypeAgree ∧ PropUniq ∧ InstDescendUp`**, and no part of it is a
+  strengthening statement.  Not edited here (not this stream's file).
+
+## S.7 What the next attempt should do
+
+1. **`InstDescendUp` is the whole model-side residual now.**  Price it the way
+   `PropDescend` was priced.  Its two fields are substitution descent; the
+   `StableAudit` note says refuting `sort_inst` needs `sort_forallE_inv`.  So the
+   first question is whether `sort_forallE_inv` is reachable — it is one of the
+   three `sorryAx`-carrying non-derivability statements §A.2 counted.
+2. **Do not re-derive the pushout or the substitution square.**  Both are in
+   `PropSplitUp.lean`, `sorry`-free, and are pure syntax; they will be reusable
+   for anything else that needs to move a lift past a lift or a substitution in
+   this tree.
+3. **The `Stable`-vs-`prop_sound` asymmetry generalises.**  Any interface field
+   quantified over raw syntax next to a field guarded by typing can be traded the
+   same way: weaken the predicate on junk until the raw-syntax field becomes a
+   syntactic commutation.  This is the second time in this tree that a "junk
+   input" gap was the *resource* rather than the defect (the first was
+   `LevelAssignUnsat`, where it was the defect).
+4. On the hole itself, §A.6 still stands: attack `StrengtheningCanonUninhab`, and
+   note that a model-side `⊬` is now conditional on `InstDescendUp` rather than
+   on the hole — which makes it a *usable* instrument for the first time, if
+   `InstDescendUp` can be discharged.
+
+---
+
 # §A. The refutation round
 
 ## A.0 Verdict
