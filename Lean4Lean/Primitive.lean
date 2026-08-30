@@ -114,6 +114,13 @@ def Reflection.defn₂ : Reflection where
 
 def Reflection.check (r : Reflection) (fail : ∀ {α}, M α) : M Unit := do
   unless ← checkedTypeIs r.type q(Prop → Bool → Prop) do fail
+  -- Accept-set neutral: `toDec` is a subterm of every term `Reflection.checkITE` and
+  -- `Condition.check` hand to `checkType`, so a `toDec` that fails to type-check already made
+  -- this recognizer branch fail.  Running the check *here* is what gives the verification a
+  -- translation of `toDec` at the **base** context; the ones it can read off `checkITE` and
+  -- off `Condition.check`'s decision term live under binders of different depths, and
+  -- identifying those with one another needs `IsDefEqU.weakN_iff`, which is open.
+  _ ← checkType r.toDec
 
 inductive ConditionImpl where
   | bool
@@ -161,6 +168,12 @@ spine, instead of inverting the translation of a four-fold λ and β-reducing th
 `docs/handoff-primitive.md` §5(a). -/
 def Reflection.checkITE (r : Reflection) (α : Expr) (fail : ∀ {β}, M β) : M Unit := do
   _ ← checkIsType α
+  -- **The conditional head's own type.**  Without it the verification cannot type the four
+  -- arguments of the conditional application: `VExpr.WF.app_inv` invents an existential domain
+  -- per argument, and `VEnv.condApp_typed` -- the step that hands `VEnv.reflects_condApp`'s
+  -- `hsel` its typing hypotheses -- needs the *declared* ones.  See `divergences.md`.
+  unless ← checkedTypeIs q(@_root_.ite.{1})
+    q(∀ (α : Type) (c : Prop), Decidable c → α → α → α) do fail
   withCheckedLocalDecl `p .default q(Prop) fun p => do
   withCheckedLocalDecl `H .default (mkApp2 r.type p q(true)) fun H => do
   withCheckedLocalDecl `t .default α fun t => do
@@ -180,6 +193,10 @@ that the only one the others depend on is outermost, which is what lets the veri
 instantiate them by one `IsDefEqU.instN` followed by three `IsDefEqU.inst0`s. -/
 def Reflection.checkNatDITE (r : Reflection) (fail : ∀ {β}, M β) : M Unit := do
   unless ← checkedTypeIs q(Not) q(Prop → Prop) do fail
+  -- Same reason as `Reflection.checkITE`'s `@ite` check; note the two branch domains here are
+  -- `c → Nat` and `¬c → Nat`, so `dite` needs its own typing lemma, not `VEnv.condApp_typed`.
+  unless ← checkedTypeIs q(@dite Nat)
+    q(∀ (c : Prop), Decidable c → (c → Nat) → (¬c → Nat) → Nat) do fail
   unless ← checkedTypeIs r.ofTrue (.arrow q(Prop) <|
     .arrow (mkApp2 r.type (.bvar 0) q(true)) (.bvar 1)) do fail
   unless ← checkedTypeIs r.ofFalse (.arrow q(Prop) <|
@@ -217,11 +234,23 @@ def Condition.check (cond : Condition) (fail : ∀ {α}, M α)
     _ ← checkType e
     unless ← checkedTypeIs asBool q(Nat → Nat → Bool) do fail
     unless ← isProp (← checkType proof) do fail
+    -- **The reflection proof's own type.**  Without this the verification cannot type
+    -- `proof x y` at all: `TrExprS.app` hands back the *existential* domain the application
+    -- invented, and pinning it to `reflect.type (prop x y) (asBool x y)` would need
+    -- `toDec`'s declared Pi-telescope, which nothing checks.  `Condition.check`'s consumer
+    -- (`VEnv.reflects_condApp`) needs exactly this typing to instantiate the selection
+    -- equation `Reflection.checkITE` proves under its `p`/`H` binders.  See
+    -- `docs/handoff-primitive.md` and `divergences.md`.
+    unless ← checkedTypeIs proof
+      (.forallE `n q(Nat) (.forallE `m q(Nat) (mkApp2 reflect.type
+        (mkApp2 cond.prop x y) (mkApp2 asBool x y)) .default) .default) do fail
     unless ← isDefEq e cond.dec do fail
   | .bool =>
     unless ← checkedTypeIs cond.prop q(Bool → Prop) do fail
     for α in iteTypes do
       _ ← checkIsType α
+      unless ← checkedTypeIs q(@_root_.ite.{1})
+        q(∀ (α : Type) (c : Prop), Decidable c → α → α → α) do fail
       withCheckedLocalDecl `t .default α fun t => do
       withCheckedLocalDecl `e .default α fun e => do
         unless ← checkedIsDefEq (mkApp5 q(@_root_.ite.{1}) α
@@ -463,13 +492,18 @@ def checkPrimitiveDef (v : DefinitionVal) : M Bool := do
       && env.contains ``Nat.beq && v.levelParams.isEmpty do fail
     -- bitwise : Nat → Nat → Nat
     checkPrimValue v q((Bool → Bool → Bool) → Nat → Nat → Nat) fail
+    -- `Condition.natEq` and `Condition.bool` are closed, and so are the `iteTypes`, so these
+    -- two checks neither read nor bind `f`, `n`, `m`.  Running them *above* the three binders
+    -- is accept-set neutral and puts the facts they establish at the base context, where
+    -- `VEnv.ReflectsCondApp` wants them; leaving them inside would have needed
+    -- `IsDefEqU.weakN_iff` (open) or an instantiation at closed inhabitants.
+    let c := Condition.natEq; c.check fail (iteTypes := [q(Nat), q(Bool)])
+    let bc := Condition.bool; bc.check fail (iteTypes := [q(Nat)])
     withCheckedLocalDecl `f .default q(Bool → Bool → Bool) fun f => do
     withCheckedLocalDecl `n .default q(Nat) fun n => do
     withCheckedLocalDecl `m .default q(Nat) fun m => do
     let bitwise' ← unfoldNatWellFounded v.value #[f, n, m] q(type_of% Nat.bitwise.eq_def) fail
     let bitwise := mkApp3 v.value
-    let c := Condition.natEq; c.check fail (iteTypes := [q(Nat), q(Bool)])
-    let bc := Condition.bool; bc.check fail (iteTypes := [q(Nat)])
     let e :=
       c.ite q(Nat) #[n, zero] (bc.ite q(Nat) #[mkApp2 f q(false) q(true)] m zero) <|
       c.ite q(Nat) #[m, zero] (bc.ite q(Nat) #[mkApp2 f q(true) q(false)] n zero) <|
