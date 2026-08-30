@@ -29,8 +29,8 @@ the gap needs two further statements, named below and neither of them `SubstC`:
   `InstLvl` is **not** refuted by that witness, nor by `SubstCRefute`'s (checked below,
   `substCRefute_witness_satisfies_instLvl`), and it is not proved: `Stratified.instN` lands it
   at `m + n`, so only `m = 0` (`InstLvl.of_hasTypeN_zero`) is available.
-* `PropUniq` — a type's two sort-universes agree on propositionhood — at subject `B₀.inst a`,
-  which is not a subterm of `.app f a`.  `docs/handoff-stratified.md` §5 places `PropUniq` in
+* `PropUniqN` — a type's two sort-universes agree on propositionhood — at subject `B₀.inst a`,
+  which is not a subterm of `.app f a`.  `docs/handoff-stratified.md` §5 places `PropUniqN` in
   the `sort_inv` family.
 
 And the *other* cases of `thm:utype`, which in the full statement close by `trans` on a common
@@ -169,18 +169,18 @@ theorem InstLvl.of_hasTypeN_zero (henv : Ordered env) {Γ : List VExpr} {A a B :
   rwa [Nat.zero_add] at this
 
 /-- **The second residual of check 1**: a type's universe is well defined up to
-propositionhood.  `docs/handoff-stratified.md` §5 names this `PropUniq` and ~~places it in the
+propositionhood.  `docs/handoff-stratified.md` §5 names this `PropUniqN` and ~~places it in the
 `sort_inv` family (its conversion residual is asserted of endpoints, so `trans` fails)~~.
 
 **That placement is withdrawn — see `Theory/Typing/PropConv.lean` and handoff §16.1.**  The
 `trans` failure is a property of the route that composes the two typings into a sort–sort
 conversion; inducting on the *typing* judgment instead, `trans` never arises and `propUniq_of`
-closes six of seven cases from `DefInv` alone, leaving `app`.  `PropUniq` belongs with
+closes six of seven cases from `DefInv` alone, leaving `app`.  `PropUniqN` belongs with
 `SortForallEDisjoint`, not with `sort_inv`.
 
 It still appears in the `app` case at subject `B₀.inst a`, which is **not** a subterm of
 `.app f a`, so it cannot be supplied by the induction that is running — that part stands. -/
-def PropUniq (env : VEnv) (U n : Nat) : Prop :=
+def PropUniqN (env : VEnv) (U n : Nat) : Prop :=
   ∀ {Γ : List VExpr} {A : VExpr} {u v : VLevel},
     env.HasTypeN U n Γ A (.sort u) → env.HasTypeN U n Γ A (.sort v) →
     (u ≈ (.zero : VLevel) ↔ v ≈ (.zero : VLevel))
@@ -188,9 +188,9 @@ def PropUniq (env : VEnv) (U n : Nat) : Prop :=
 /-- **The `app` case in full, in the shadow** — and this is the exact price.
 
 Everything `thm:utype`'s `app` case needed from `SubstC` and from `DefInv` clause (2) is gone;
-what replaces it is `InstLvl` and `PropUniq`.  The statement is the one the case has to
+what replaces it is `InstLvl` and `PropUniqN`.  The statement is the one the case has to
 produce: the two types of `.app f a` agree on propositionhood. -/
-theorem app_shadow_of (hinst : env.InstLvl U n) (huniq : env.PropUniq U n)
+theorem app_shadow_of (hinst : env.InstLvl U n) (huniq : env.PropUniqN U n)
     {Γ : List VExpr} {a A₀ B₀ A₁ B₁ : VExpr} {u₀ v₀ u₁ v₁ u v : VLevel}
     (hu₀ : u₀.WF U) (hv₀ : v₀.WF U) (hu₁ : u₁.WF U) (hv₁ : v₁.WF U)
     (hA₀ : env.HasTypeN U n Γ A₀ (.sort u₀)) (hB₀ : env.HasTypeN U n (A₀::Γ) B₀ (.sort v₀))

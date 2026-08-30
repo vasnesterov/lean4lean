@@ -87,19 +87,19 @@ theorem propLoopEnv_sortForallEDisjN_zero : SortForallEDisjN propLoopEnv U 0 :=
 so the conclusion "no sort inhabits it" is a statement about a real type, not an empty one. -/
 theorem propLoopEnv_sort_not_proof {Γ : List VExpr} {u : VLevel} :
     ¬ propLoopEnv.HasTypeN U 0 Γ (.sort u) (.const `A []) :=
-  fun h => sortNotProof_of propLoopEnv_sortInvN_zero PropTypeAgree.zero propLoopEnv_constA h
+  fun h => sortNotProof_of propLoopEnv_sortInvN_zero PropTypeAgreeN.zero propLoopEnv_constA h
 
 /-- **`forallENotProof_of` fires**, at the same proposition. -/
 theorem propLoopEnv_forallE_not_proof {Γ : List VExpr} {X Y : VExpr} :
     ¬ propLoopEnv.HasTypeN U 0 Γ (.forallE X Y) (.const `A []) :=
-  fun h => forallENotProof_of propLoopEnv_sortInvN_zero PropTypeAgree.zero propLoopEnv_constA h
+  fun h => forallENotProof_of propLoopEnv_sortInvN_zero PropTypeAgreeN.zero propLoopEnv_constA h
 
 /-- **`propNotProof_of` fires**, at the environment's two propositions: `B` is not a proof of
 `A`.  Both `A` and `B` are `⊢₀`-typed propositions here and the two are δ-equal, so this is
 the sharpest instance the witness environment offers. -/
 theorem propLoopEnv_B_not_proof_of_A {Γ : List VExpr} :
     ¬ propLoopEnv.HasTypeN U 0 Γ (.const `B []) (.const `A []) :=
-  fun h => propNotProof_of propLoopEnv_sortInvN_zero PropTypeAgree.zero
+  fun h => propNotProof_of propLoopEnv_sortInvN_zero PropTypeAgreeN.zero
     propLoopEnv_constB propLoopEnv_constA h
 
 /-- **`sortForallEDisjoint_ofN` fires at the `const` case**, which is *empty over `∅`* —
@@ -111,13 +111,13 @@ theorem propLoopEnv_constA_not_forallE_typed {Γ : List VExpr} {X Y : VExpr} :
     SortForallEDisjoint.AppCase.zero propLoopEnv_sortForallEDisjN_zero (Eq.refl true)
     .zero X Y .rfl h
 
-/-- **`PropTypeAgree.eta_case` fires**, at a Π-typed variable in a well-formed context over
+/-- **`PropTypeAgreeN.eta_case` fires**, at a Π-typed variable in a well-formed context over
 the witness environment — the same instance `RegPiSat.propLoopEnv_regPiOn_fires` uses. -/
 theorem propLoopEnv_eta_case_fires :
     (IsPropN propLoopEnv U 0 [propArrow]
         (.lam (.const `A []) (.app (VExpr.bvar 0).lift (.bvar 0))) ↔
       IsPropN propLoopEnv U 0 [propArrow] (.bvar 0)) :=
-  PropTypeAgree.eta_case propLoopEnv_sortForallEDisjN_zero SortForallEDisjoint.zero
+  PropTypeAgreeN.eta_case propLoopEnv_sortForallEDisjN_zero SortForallEDisjoint.zero
     (Stratified.bvar (Lookup.zero' rfl))
 
 end NonVacuity

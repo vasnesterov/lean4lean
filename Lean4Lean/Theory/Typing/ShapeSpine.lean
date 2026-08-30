@@ -276,7 +276,7 @@ so the single term `.app (.bvar 0) a` has the two types
     a   = .sort (max p p)      —  a sort
 
 One is sort-shaped and the other is not.  Note what this does **not** refute: neither type is
-a Π, so `SortForallEDisjoint` is untouched, and so is `PropTypeAgree` (`lhs` is typed at
+a Π, so `SortForallEDisjoint` is untouched, and so is `PropTypeAgreeN` (`lhs` is typed at
 `.sort (succ p)`, not at `Prop`).  What dies is exactly the *agreement* reading of "the types
 of a term agree on shape". -/
 theorem typeShapeAgree_false : ¬ (∅ : VEnv).TypeShapeAgree 1 1 := by

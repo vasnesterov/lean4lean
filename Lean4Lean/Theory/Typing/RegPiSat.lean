@@ -24,7 +24,7 @@ then have to type `.bvar 1` in a context of length one, which `HasTypeN.bvar_inv
 components were never typed").  What was not said is the consequence: `RegPi` is not merely
 *unproved*, it is **false**, so `propTypeAgree_appCase_of` — its only consumer in the tree,
 by the transitive `getUsedConstantsAsSet` cone — proves nothing.  Its conclusion,
-`PropTypeAgree.AppCase`, is *not* thereby refuted; the theorem is simply void.
+`PropTypeAgreeN.AppCase`, is *not* thereby refuted; the theorem is simply void.
 
 ## 2. The repair, and it is satisfiable
 
@@ -52,15 +52,15 @@ induction inhabited and the `defeqs` field non-empty.  `propLoopEnv_regPiOn_fire
 
 `propTypeAgree_appCase_on_of` is `propTypeAgree_appCase_of` with `RegPi` replaced by
 `RegPiOn`; the proof is the original one with a context hypothesis threaded.  It is not
-enough on its own: the *statement* `PropTypeAgree` has to be relativised too, since its `lam`
+enough on its own: the *statement* `PropTypeAgreeN` has to be relativised too, since its `lam`
 case grows the context.  `propTypeAgree_on_of` runs that induction — the six closing cases
 survive verbatim, and the one new datum is that the binder's universe is well formed, which
 is `Regular.lvlWF`.  `propTypeAgreeOn_of_residuals` assembles the chain, and
 `propTypeAgreeOn_zero_from_residuals` replays it at the base index over `propLoopEnv`.
 
-So the corrected price of `PropTypeAgree`'s `app` case is
+So the corrected price of `PropTypeAgreeN`'s `app` case is
 
-    Regular + InstLvl + PropUniq + PropConvInv     (all relativised to `OnCtxN`)
+    Regular + InstLvl + PropUniqN + PropConvInv     (all relativised to `OnCtxN`)
 
 with `Regular` in place of the false `RegPi`, and `Regular` itself resting on `EnvReg`.
 
@@ -95,7 +95,7 @@ from `propConvInv_of`, so the open `extra` case does not make it unsound.  But
 `SortNotProp` has exactly two producers in the tree — `of_propConvInv` and `.zero` — so
 `propNotProof_of''` cannot be used to discharge `propConvInv_of'`'s `PropNotProof` residual
 while proving `PropConvInv`.  The same is true of the other route (`propNotProof_of` consumes
-`PropTypeAgree`, which consumes `PropConvInv`).
+`PropTypeAgreeN`, which consumes `PropConvInv`).
 
 Everything below is sorry-free; axioms are `propext`, `Quot.sound` and `Classical.choice`,
 all on `Guard.lean`'s whitelist.
@@ -287,8 +287,8 @@ theorem propLoopEnv_regPiOn_fires :
 `getUsedConstantsAsSet` cone, `docs/handoff-regpi.md` §2).  Below is the same reduction with
 `RegPi` replaced by `RegPiOn`, which costs a context hypothesis and nothing else. -/
 
-/-- `PropTypeAgree.AppCase`, relativised to a well-formed context. -/
-def PropTypeAgree.AppCaseOn (env : VEnv) (U n : Nat) : Prop :=
+/-- `PropTypeAgreeN.AppCase`, relativised to a well-formed context. -/
+def PropTypeAgreeN.AppCaseOn (env : VEnv) (U n : Nat) : Prop :=
   ∀ {Γ : List VExpr} {f a A₀ B₀ A' : VExpr}, env.OnCtxN U n Γ →
     env.HasTypeN U n Γ f (.forallE A₀ B₀) → env.HasTypeN U n Γ a A₀ →
     (∀ {X : VExpr}, env.HasTypeN U n Γ f X →
@@ -300,8 +300,8 @@ def PropTypeAgree.AppCaseOn (env : VEnv) (U n : Nat) : Prop :=
 original except that `RegPi` is `RegPiOn` and the context is well formed. -/
 theorem propTypeAgree_appCase_on_of {k : Nat} (dinv : env.SortInvN U (k+1))
     (hreg : env.RegPiOn U (k+1)) (hinst : env.InstLvl U (k+1))
-    (huniq : env.PropUniq U (k+1)) (pci : env.PropConvInv U (k+1)) :
-    PropTypeAgree.AppCaseOn env U (k+1) := by
+    (huniq : env.PropUniqN U (k+1)) (pci : env.PropConvInv U (k+1)) :
+    PropTypeAgreeN.AppCaseOn env U (k+1) := by
   intro Γ f a A₀ B₀ A' hΓ hf ha ihf H2 hp
   obtain ⟨_, _, hf₁, ha₁, hc⟩ := HasTypeN.app_inv H2
   obtain ⟨u₀, v₀, hu₀, hv₀, hA₀, hB₀⟩ := hreg hΓ hf
@@ -311,8 +311,8 @@ theorem propTypeAgree_appCase_on_of {k : Nat} (dinv : env.SortInvN U (k+1))
   obtain ⟨_, _, _, hB₁⟩ := isPropN_forallE_inv dinv (ihf hf₁ hpi₀)
   exact (pci hc).1 (hinst ha₁ hB₁)
 
-/-- `PropTypeAgree`, relativised to a well-formed context. -/
-def PropTypeAgreeOn (env : VEnv) (U n : Nat) : Prop :=
+/-- `PropTypeAgreeN`, relativised to a well-formed context. -/
+def PropTypeAgreeOnN (env : VEnv) (U n : Nat) : Prop :=
   ∀ {Γ : List VExpr} {e A A' : VExpr}, env.OnCtxN U n Γ →
     env.HasTypeN U n Γ e A → env.HasTypeN U n Γ e A' →
     IsPropN env U n Γ A → IsPropN env U n Γ A'
@@ -322,7 +322,7 @@ where the binder is a type by the rule's own premise — its universe being well
 one extra datum, and it is `Regular.lvlWF`. -/
 theorem propTypeAgree_on_of' {Γ e T b} (H : Stratified env U n Γ e T b) :
     b = true → env.SortInvN U n → env.Regular U n → env.PropConvInv U n →
-    PropTypeAgree.AppCaseOn env U n → env.OnCtxN U n Γ →
+    PropTypeAgreeN.AppCaseOn env U n → env.OnCtxN U n Γ →
     ∀ A', env.HasTypeN U n Γ e A' → IsPropN env U n Γ T → IsPropN env U n Γ A' := by
   induction H with
   | bvar h =>
@@ -351,34 +351,34 @@ theorem propTypeAgree_on_of' {Γ e T b} (H : Stratified env U n Γ e T b) :
   | proofIrrel | extra => intro hb; exact nomatch hb
 
 theorem propTypeAgree_on_of (dinv : env.SortInvN U n) (hrg : env.Regular U n)
-    (pci : env.PropConvInv U n) (happ : PropTypeAgree.AppCaseOn env U n) :
-    env.PropTypeAgreeOn U n :=
+    (pci : env.PropConvInv U n) (happ : PropTypeAgreeN.AppCaseOn env U n) :
+    env.PropTypeAgreeOnN U n :=
   fun hΓ h1 h2 hp => propTypeAgree_on_of' h1 (Eq.refl true) dinv hrg pci happ hΓ _ h2 hp
 
 /-- **The whole chain, with every hypothesis satisfiable.**  `RegPi` is gone; what replaces it
 is `Regular`, which holds at the base index over `propLoopEnv`. -/
 theorem propTypeAgreeOn_of_residuals {k : Nat} (dinv : env.SortInvN U (k+1))
     (hrg : env.Regular U (k+1)) (hinst : env.InstLvl U (k+1))
-    (huniq : env.PropUniq U (k+1)) (pci : env.PropConvInv U (k+1)) :
-    env.PropTypeAgreeOn U (k+1) :=
+    (huniq : env.PropUniqN U (k+1)) (pci : env.PropConvInv U (k+1)) :
+    env.PropTypeAgreeOnN U (k+1) :=
   propTypeAgree_on_of dinv hrg pci
     (propTypeAgree_appCase_on_of dinv (Regular.regPiOn hrg) hinst huniq pci)
 
 /-! ### Non-vacuity: the relativised reduction replayed at the base index -/
 
-theorem PropTypeAgree.AppCaseOn.zero : PropTypeAgree.AppCaseOn env U 0 := by
+theorem PropTypeAgreeN.AppCaseOn.zero : PropTypeAgreeN.AppCaseOn env U 0 := by
   intro _ _ _ _ _ _ _ hf ha _ H2 hp
   have h : env.HasTypeN U 0 _ (.app _ _) _ := .app hf ha
   exact HasTypeN.uniq_zero h H2 ▸ hp
 
-theorem PropTypeAgreeOn.zero : env.PropTypeAgreeOn U 0 :=
+theorem PropTypeAgreeOnN.zero : env.PropTypeAgreeOnN U 0 :=
   fun _ h1 h2 hp => HasTypeN.uniq_zero h1 h2 ▸ hp
 
-/-- `propTypeAgree_on_of` reproves `PropTypeAgreeOn` at the base index from residuals that
+/-- `propTypeAgree_on_of` reproves `PropTypeAgreeOnN` at the base index from residuals that
 hold — over an environment with constants and δ-rules, not the empty one. -/
-theorem propTypeAgreeOn_zero_from_residuals : propLoopEnv.PropTypeAgreeOn U 0 :=
+theorem propTypeAgreeOn_zero_from_residuals : propLoopEnv.PropTypeAgreeOnN U 0 :=
   propTypeAgree_on_of SortInvN.zero propLoopEnv_regular PropConvInv.zero
-    PropTypeAgree.AppCaseOn.zero
+    PropTypeAgreeN.AppCaseOn.zero
 
 /-! ## 5. The context hypothesis is reachable from the tree's own
 
@@ -650,19 +650,19 @@ theorem propLoopEnv_sortNotProp0 : propLoopEnv.SortNotProp U 0 :=
   SortNotProp.of_propConvInv propLoopEnv_sortInvN0 PropConvInv.zero
 
 /-- **`propTypeAgree_of` / `propTypeAgree_of'` fire**, and so does
-**`PropTypeAgree.appCase_iff`**. -/
-theorem propLoopEnv_propTypeAgree0 : propLoopEnv.PropTypeAgree U 0 :=
-  propTypeAgree_of' propLoopEnv_sortInvN0 PropConvInv.zero PropTypeAgree.AppCase.zero
+**`PropTypeAgreeN.appCase_iff`**. -/
+theorem propLoopEnv_propTypeAgree0 : propLoopEnv.PropTypeAgreeN U 0 :=
+  propTypeAgree_of' propLoopEnv_sortInvN0 PropConvInv.zero PropTypeAgreeN.AppCase.zero
 
 theorem propLoopEnv_propTypeAgree_iff0 :
-    PropTypeAgree.AppCase propLoopEnv U 0 ↔ propLoopEnv.PropTypeAgree U 0 :=
-  PropTypeAgree.appCase_iff propLoopEnv_sortInvN0 PropConvInv.zero
+    PropTypeAgreeN.AppCase propLoopEnv U 0 ↔ propLoopEnv.PropTypeAgreeN U 0 :=
+  PropTypeAgreeN.appCase_iff propLoopEnv_sortInvN0 PropConvInv.zero
 
 /-- **`propTypeAgree_on_of'` / `propTypeAgree_on_of` fire** — this is
 `propTypeAgreeOn_zero_from_residuals` above, restated here for the audit, and its `Regular`
 hypothesis is the one that genuinely needs a non-empty environment
 (`propLoopEnv_regular` goes through `propLoopEnv_constPropType`). -/
-theorem propLoopEnv_propTypeAgreeOn0 : propLoopEnv.PropTypeAgreeOn U 0 :=
+theorem propLoopEnv_propTypeAgreeOn0 : propLoopEnv.PropTypeAgreeOnN U 0 :=
   propTypeAgreeOn_zero_from_residuals
 
 /-! ### Consumers of both clauses -/
@@ -687,13 +687,13 @@ theorem propLoopEnv_B_not_proof_A0 {Γ : List VExpr} :
   fun h => propLoopEnv_propNotProof0 propLoopEnv_constB propLoopEnv_constA h
 
 /-- **`propUniq_of` / `propUniq_of'` fire.** -/
-theorem propLoopEnv_propUniq0 : propLoopEnv.PropUniq U 0 :=
-  propUniq_of' propLoopEnv_sortDisjInvN0 PropUniq.AppCase.zero
+theorem propLoopEnv_propUniq0 : propLoopEnv.PropUniqN U 0 :=
+  propUniq_of' propLoopEnv_sortDisjInvN0 PropUniqN.AppCase.zero
 
-/-- **`PropUniq.appCase_iff` and `PropNotProof.appCase_iff` fire.** -/
+/-- **`PropUniqN.appCase_iff` and `PropNotProof.appCase_iff` fire.** -/
 theorem propLoopEnv_propUniq_iff0 :
-    PropUniq.AppCase propLoopEnv U 0 ↔ propLoopEnv.PropUniq U 0 :=
-  PropUniq.appCase_iff propLoopEnv_sortDisjInvN0
+    PropUniqN.AppCase propLoopEnv U 0 ↔ propLoopEnv.PropUniqN U 0 :=
+  PropUniqN.appCase_iff propLoopEnv_sortDisjInvN0
 
 theorem propLoopEnv_propNotProof_iff0 :
     PropNotProof.AppCase propLoopEnv U 0 ↔ propLoopEnv.PropNotProof U 0 :=

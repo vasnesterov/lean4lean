@@ -581,7 +581,7 @@ theorem SortInvN.sort_proofIrrel (dinv1 : env.SortInvN U n)
   VLevel.succ_congr_iff.1
     (dinv1 (IsDefEqN.trans' (HasTypeN.sort_inv h2).2 (IsDefEqN.symm' (HasTypeN.sort_inv h3).2)))
 
-/-! ## `PropTypeAgree`, and what it buys
+/-! ## `PropTypeAgreeN`, and what it buys
 
 The set model's sole syntactic import (after its re-parameterisation) is
 
@@ -594,9 +594,9 @@ proof a second type).
 **The criterion that decides these statements**, and it has now predicted twice before
 explaining: *a conclusion **propagated along** a conversion tolerates an arbitrary middle
 term; one **asserted of** its endpoints does not.*  `sort_inv`'s `trans` case fails because
-`.sort u ≡ e₂ ≡ .sort v` says nothing about `e₂`.  `PropTypeAgree`'s residual —
+`.sort u ≡ e₂ ≡ .sort v` says nothing about `e₂`.  `PropTypeAgreeN`'s residual —
 `A ≡ₙ A' ⟹ (IsProp A ↔ IsProp A')` — is of the first kind, and its `trans` case closes by
-composition.  `PropUniq`, the model's *other* import, is of the second kind and inherits
+composition.  `PropUniqN`, the model's *other* import, is of the second kind and inherits
 `sort_inv`'s wall.
 
 **Status of the residual**, machine-checked at the index: `rfl`, `symm`, `trans` (composition),
@@ -617,7 +617,7 @@ abbrev IsPropN (env : VEnv) (U n : Nat) (Γ : List VExpr) (A : VExpr) : Prop :=
   env.HasTypeN U n Γ A (.sort .zero)
 
 /-- **The set model's syntactic import**, at the index. -/
-def PropTypeAgree (env : VEnv) (U n : Nat) : Prop :=
+def PropTypeAgreeN (env : VEnv) (U n : Nat) : Prop :=
   ∀ {Γ : List VExpr} {e A A' : VExpr},
     env.HasTypeN U n Γ e A → env.HasTypeN U n Γ e A' →
     IsPropN env U n Γ A → IsPropN env U n Γ A'
@@ -625,9 +625,9 @@ def PropTypeAgree (env : VEnv) (U n : Nat) : Prop :=
 /-- **The payoff, checked rather than assumed: a sort is not a proof.**
 
 This is `Theory/Typing/SortUniq.lean`'s `sort_not_proof` at the index, and it is derived here
-from `PropTypeAgree` and `DefInv` *at the same index* — so in the induction that proves
+from `PropTypeAgreeN` and `DefInv` *at the same index* — so in the induction that proves
 `DefInv (n+1)`, both are available as the induction hypothesis and nothing is circular. -/
-theorem sortNotProof_of (dinv : env.SortInvN U n) (pta : env.PropTypeAgree U n)
+theorem sortNotProof_of (dinv : env.SortInvN U n) (pta : env.PropTypeAgreeN U n)
     {Γ : List VExpr} {p : VExpr} {u : VLevel}
     (h1 : env.HasTypeN U n Γ p (.sort .zero)) (h2 : env.HasTypeN U n Γ (.sort u) p) :
     False := by
@@ -637,7 +637,7 @@ theorem sortNotProof_of (dinv : env.SortInvN U n) (pta : env.PropTypeAgree U n)
 /-- **The payoff, second half: a Π-type is not a proof.**  Note this is *not* "a Π-type is not
 a proposition", which is false — `∀ x : α, β` is a proposition whenever `β` is.  It says a
 *term whose type is a Π* does not also inhabit a proposition. -/
-theorem forallENotProof_of (dinv : env.SortInvN U n) (pta : env.PropTypeAgree U n)
+theorem forallENotProof_of (dinv : env.SortInvN U n) (pta : env.PropTypeAgreeN U n)
     {Γ : List VExpr} {p A B : VExpr}
     (h1 : env.HasTypeN U n Γ p (.sort .zero)) (h2 : env.HasTypeN U n Γ (.forallE A B) p) :
     False := by
@@ -645,7 +645,7 @@ theorem forallENotProof_of (dinv : env.SortInvN U n) (pta : env.PropTypeAgree U 
   have h4 : IsPropN env U n Γ (.sort (.imax u v)) := pta h2 (.forallE hu hv hA hB) h1
   exact absurd (congrFun (dinv (HasTypeN.sort_inv h4).2) []) (by simp [VLevel.eval])
 
-/-! ## Is `PropTypeAgree` closable at the index? — **No: one new primitive is needed**
+/-! ## Is `PropTypeAgreeN` closable at the index? — **No: one new primitive is needed**
 
 Three of its open cases were characterised as blocked.  They are **two** obstructions, not one
 and not three, and the split is machine-checked below.
@@ -658,13 +658,13 @@ and not three, and the split is machine-checked below.
 
 * **`proofIrrel` is a self-reference; `eta` is a new statement.**  These look alike and are
   not.  `proofIrrel`'s residual is exactly `PropNotProof`, and `propNotProof_of` shows that is
-  an *instance of `PropTypeAgree` itself* — so it is the same statement at a different
+  an *instance of `PropTypeAgreeN` itself* — so it is the same statement at a different
   subject, with the measure giving `≤` not `<`.  `eta`'s residual is exactly
-  `SortForallEDisjoint`, which is **not** an instance of `PropTypeAgree`: it is a separate
+  `SortForallEDisjoint`, which is **not** an instance of `PropTypeAgreeN`: it is a separate
   weakening of unique typing, about a term's types being a sort versus a Π rather than about
   propositionhood.
 
-So `PropTypeAgree` is **not self-sufficient**.  The primitive to route or fund is
+So `PropTypeAgreeN` is **not self-sufficient**.  The primitive to route or fund is
 `SortForallEDisjoint`.
 
 *On its semantic status, stated precisely.*  It passes the cumulativity check — cumulativity
@@ -672,7 +672,7 @@ retypes at sorts and never gives a Π-typed term a sort type.  **That licenses "
 not "open".**  A negative check rules a route out; passing one does not rule a route in.  In
 fact the model route is closed for a different reason: `Theory/SetModel/` is parameterised on
 `LevelAssign` (see `Typing/SortUniq.lean`), and a cut-down model bottoms out at
-`sort_not_proof` — which is `PropTypeAgree` at a sort, i.e. the same self-reference this
+`sort_not_proof` — which is `PropTypeAgreeN` at a sort, i.e. the same self-reference this
 docstring describes, reached from the semantic side.
 
 *And a refutation is provably impossible at the model's own witness.*
@@ -681,14 +681,14 @@ the witness at which the model fails to separate — `False` versus `∀ x : Fal
 **constant**, and the `const` case is proved.  So the model's non-separation is real and
 cannot be lifted to syntax there.  The two facts are consistent, not in tension. -/
 
-/-- **The primitive `PropTypeAgree` needs and does not contain**: no term has both a sort type
-and a Π type.  `eta`'s case of `PropTypeAgree` is exactly this and nothing else. -/
+/-- **The primitive `PropTypeAgreeN` needs and does not contain**: no term has both a sort type
+and a Π type.  `eta`'s case of `PropTypeAgreeN` is exactly this and nothing else. -/
 def SortForallEDisjoint (env : VEnv) (U n : Nat) : Prop :=
   ∀ {Γ : List VExpr} {e A B : VExpr} {u : VLevel},
     env.HasTypeN U n Γ e (.sort u) → env.HasTypeN U n Γ e (.forallE A B) → False
 
-/-- No term is both a proposition and a proof.  `proofIrrel`'s case of `PropTypeAgree` is
-exactly this — and `propNotProof_of` below shows it is `PropTypeAgree` itself at another
+/-- No term is both a proposition and a proof.  `proofIrrel`'s case of `PropTypeAgreeN` is
+exactly this — and `propNotProof_of` below shows it is `PropTypeAgreeN` itself at another
 subject, so that case is self-reference rather than a missing statement. -/
 def PropNotProof (env : VEnv) (U n : Nat) : Prop :=
   ∀ {Γ : List VExpr} {e p : VExpr},
@@ -696,7 +696,7 @@ def PropNotProof (env : VEnv) (U n : Nat) : Prop :=
     env.HasTypeN U n Γ e p → False
 
 /-- `eta`'s case closes from `SortForallEDisjoint` and `DefInv`, and needs nothing else. -/
-theorem PropTypeAgree.eta_case (dinv : env.SortForallEDisjN U n)
+theorem PropTypeAgreeN.eta_case (dinv : env.SortForallEDisjN U n)
     (hd : env.SortForallEDisjoint U n)
     {Γ : List VExpr} {A B e : VExpr} (he : env.HasTypeN U n Γ e (.forallE A B)) :
     (IsPropN env U n Γ (.lam A (.app e.lift (.bvar 0))) ↔ IsPropN env U n Γ e) := by
@@ -705,7 +705,7 @@ theorem PropTypeAgree.eta_case (dinv : env.SortForallEDisjN U n)
   exact absurd (IsDefEqN.symm' hcc) dinv
 
 /-- `proofIrrel`'s case closes from `PropNotProof`, and needs nothing else. -/
-theorem PropTypeAgree.proofIrrel_case (hnp : env.PropNotProof U n)
+theorem PropTypeAgreeN.proofIrrel_case (hnp : env.PropNotProof U n)
     {Γ : List VExpr} {p h h' : VExpr}
     (h1 : env.HasTypeN U n Γ p (.sort .zero))
     (h2 : env.HasTypeN U n Γ h p) (h3 : env.HasTypeN U n Γ h' p) :
@@ -724,7 +724,7 @@ def SortForallEDisjoint.AppCase (env : VEnv) (U n : Nat) : Prop :=
 
 /-- **`SortForallEDisjoint` closes in six of its seven typing cases**, from `DefInv` alone.
 `trans` never arises — it is a *conversion* rule, and this is an induction on typing — so the
-statement is on the tractable side of the criterion, and more decisively than `PropTypeAgree`,
+statement is on the tractable side of the criterion, and more decisively than `PropTypeAgreeN`,
 which does have a conversion induction underneath it.
 
 **What this says about refuting it:** any counterexample must have an **application** as its
@@ -765,10 +765,10 @@ theorem sortForallEDisjoint_ofN {Γ e T b} (H : Stratified env U n Γ e T b) :
   | rfl | symm | trans | sortDF | constDF | appDF | lamDF | forallEDF | beta | eta
   | proofIrrel | extra => intro _ _ hb; exact nomatch hb
 
-/-- **The split, machine-checked:** `PropNotProof` *is* `PropTypeAgree` at another subject, so
+/-- **The split, machine-checked:** `PropNotProof` *is* `PropTypeAgreeN` at another subject, so
 `proofIrrel` is self-reference.  There is no corresponding derivation for
 `SortForallEDisjoint`, which is why that one is a genuinely missing primitive. -/
-theorem propNotProof_of (dinv : env.SortInvN U n) (pta : env.PropTypeAgree U n) :
+theorem propNotProof_of (dinv : env.SortInvN U n) (pta : env.PropTypeAgreeN U n) :
     env.PropNotProof U n := by
   intro Γ e p hep hp hepp
   have := pta hepp hep hp

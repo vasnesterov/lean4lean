@@ -2,9 +2,9 @@ import Lean4Lean.Theory.Typing.UnivDiscrim
 import Lean4Lean.Theory.Typing.PropShadow
 
 /-!
-# `PropTypeAgree` and `PropUniq` at the index, by induction on **typing**
+# `PropTypeAgreeN` and `PropUniqN` at the index, by induction on **typing**
 
-`docs/handoff-stratified.md` §5 records that `PropTypeAgree`'s cases reduce, via the
+`docs/handoff-stratified.md` §5 records that `PropTypeAgreeN`'s cases reduce, via the
 `HasTypeN.*_inv` lemmas, to
 
     PropConvInv :  Γ ⊢ₙ A ≡ A'  ⟹  (IsPropN A ↔ IsPropN A')
@@ -19,29 +19,29 @@ table says five.  Corrected in §16.5 of the handoff.)*
 
 ## The four new results
 
-1. **`PropUniq` is not in the `sort_inv`/normalisation family.**  §5's table files it as
+1. **`PropUniqN` is not in the `sort_inv`/normalisation family.**  §5's table files it as
    "endpoint-asserted, `trans` fails, needs normalisation".  That verdict is about the *route*
    §5 ran (invert both typings, compose into a sort–sort conversion, induct on **that**), not
    about the statement.  Run the criterion's own first clause — *does the statement's
    induction ever have to look at a conversion derivation at all?* — and the answer is **no**,
    by exactly the manoeuvre `sortForallEDisjoint_of` uses.  `propUniq_of`: **six of seven
-   typing cases close from `DefInv` alone, `app` open.**  `PropUniq` belongs on the
+   typing cases close from `DefInv` alone, `app` open.**  `PropUniqN` belongs on the
    `SortForallEDisjoint` row, not the `sort_inv` row.
 
-2. **`PropTypeAgree` itself closes in six of seven typing cases** from `DefInv` plus its own
+2. **`PropTypeAgreeN` itself closes in six of seven typing cases** from `DefInv` plus its own
    conversion residual (`propTypeAgree_of`), and its `app` case is priced exactly at
-   `RegPi` + `InstLvl` + `PropUniq` + `PropConvInv` (`propTypeAgree_appCase_of`) — the same
+   `RegPi` + `InstLvl` + `PropUniqN` + `PropConvInv` (`propTypeAgree_appCase_of`) — the same
    price `Theory/Typing/PropShadow.lean`'s `app_shadow_of` pays for the shadow, plus
    `RegPi`, which the shadow's universe-carrying formulation hid.
 
-3. **`eta`'s residual is sharper than `SortForallEDisjoint`.**  `PropTypeAgree.eta_case`
+3. **`eta`'s residual is sharper than `SortForallEDisjoint`.**  `PropTypeAgreeN.eta_case`
    applies its hypothesis at `u = .zero` and nowhere else, so the case needs only
    `PropForallEDisjoint` — the `u = .zero` instance — whose 6-of-7 case analysis is inherited
    from `sortForallEDisjoint_of`.
 
 4. **`proofIrrel`'s residual has a second reduction that does not go through
-   `PropTypeAgree`.**  `propNotProof_of` (`UniqueTypingN.lean`) derives `PropNotProof` from
-   `PropTypeAgree` itself — self-reference, measure `≤` not `<`.  `propNotProof_of'` below
+   `PropTypeAgreeN`.**  `propNotProof_of` (`UniqueTypingN.lean`) derives `PropNotProof` from
+   `PropTypeAgreeN` itself — self-reference, measure `≤` not `<`.  `propNotProof_of'` below
    derives it by the *typing* induction instead and gets six of seven cases from `DefInv` plus
    one new, strictly weaker statement, `SortNotProp`, with only `app` open.
 
@@ -70,11 +70,11 @@ Four statements, four `app` cases, one subject shape:
 | `SortForallEDisjoint` (`UniqueTypingN.lean`) | 6 of 7 | — | `app` |
 | `PropForallEDisjoint` (= it at `u = 0`) | 6 of 7 | — | `app` |
 | `PropNotProof` | 6 of 7 | `SortNotProp` | `app` |
-| `PropUniq` | 6 of 7 | — | `app` |
-| `PropTypeAgree` | 6 of 7 | `PropConvInv` | `app` |
+| `PropUniqN` | 6 of 7 | — | `app` |
+| `PropTypeAgreeN` | 6 of 7 | `PropConvInv` | `app` |
 
-And each of those `app` cases is **its own statement's fixpoint** — `PropUniq.appCase`,
-`PropNotProof.appCase`, `PropTypeAgree.appCase`, `PropForallEDisjoint.appCase`, one line each,
+And each of those `app` cases is **its own statement's fixpoint** — `PropUniqN.appCase`,
+`PropNotProof.appCase`, `PropTypeAgreeN.appCase`, `PropForallEDisjoint.appCase`, one line each,
 by the same `Stratified.app` + `conv` step that gives `SortForallEDisjoint.appCase`.  So in
 every case the `app` position is not a smaller sub-problem; it is the whole remaining content.
 
@@ -159,7 +159,7 @@ theorem isPropN_of_equiv_zero {k : Nat} {Γ : List VExpr} {B : VExpr} {v : VLeve
 
 /-! ## The statement and its seven residuals -/
 
-/-- **`PropTypeAgree`'s conversion residual.**  Stated as an `iff` because the directed form
+/-- **`PropTypeAgreeN`'s conversion residual.**  Stated as an `iff` because the directed form
 fails at `symm`; propagated *along* the conversion rather than asserted of its endpoints,
 which is what makes `trans` close by composition (`docs/handoff-stratified.md` §5). -/
 def PropConvInv (env : VEnv) (U n : Nat) : Prop :=
@@ -412,13 +412,13 @@ theorem propForallEDisjoint_of' (happ : PropForallEDisjoint.AppCase env U n)
     (dinv : env.SortForallEDisjN U n) : env.PropForallEDisjoint U n := fun h1 h2 =>
   propForallEDisjointCases h1 happ dinv (Eq.refl true) .rfl _ _ h2
 
-/-! ## `proofIrrel`'s residual, reduced without `PropTypeAgree`
+/-! ## `proofIrrel`'s residual, reduced without `PropTypeAgreeN`
 
 `propNotProof_of` (`Theory/Typing/UniqueTypingN.lean`) derives `PropNotProof` from
-`PropTypeAgree` itself, which is why `docs/handoff-stratified.md` §5 files `proofIrrel` as
+`PropTypeAgreeN` itself, which is why `docs/handoff-stratified.md` §5 files `proofIrrel` as
 self-reference.  The reduction below is different: it is the *same induction on the typing
 judgment* that `sortForallEDisjoint_of` runs, and it reaches six of seven cases with a new,
-strictly narrower statement in place of `PropTypeAgree`. -/
+strictly narrower statement in place of `PropTypeAgreeN`. -/
 
 /-- **Nothing convertible with a sort is a proposition.**
 
@@ -500,37 +500,37 @@ shape argument that closes `DefInv`'s `extra` case says nothing here, and `PropE
 stays as a residual. -/
 
 
-/-! ## `PropUniq` is not in the `trans` family — the route was, the statement is not
+/-! ## `PropUniqN` is not in the `trans` family — the route was, the statement is not
 
-`docs/handoff-stratified.md` §5 files `PropUniq` (`Theory/Typing/PropShadow.lean`) as
+`docs/handoff-stratified.md` §5 files `PropUniqN` (`Theory/Typing/PropShadow.lean`) as
 "endpoint-asserted, `trans` fails, needs normalisation", on the strength of this route: invert
 both typings to the shape-determined type, compose, and the residual becomes
 `.sort u ≡ₙ X ≡ₙ .sort v ⟹ (u ≈ 0 ↔ v ≈ 0)`, whose middle term need not be a sort.
 
 **That is a fact about the route, not about the statement.**  The criterion's own first
 clause — *does the statement's induction ever have to look at a conversion derivation at
-all?* — answers **no** for `PropUniq`, by exactly the manoeuvre `sortForallEDisjoint_of`
+all?* — answers **no** for `PropUniqN`, by exactly the manoeuvre `sortForallEDisjoint_of`
 uses: induct on the *typing* judgment, keep the second typing as a hypothesis, and invert it
 with the `HasTypeN.*_inv` lemmas.  `trans` is then a conversion rule and never arises.
 
 Six of seven cases close **from `DefInv` alone**, with only `app` open — the same position,
 with the same subject shape, as `SortForallEDisjoint`, `PropForallEDisjoint` and
-`PropNotProof`.  So the correct entry for `PropUniq` in §5's table is the
+`PropNotProof`.  So the correct entry for `PropUniqN` in §5's table is the
 `SortForallEDisjoint` row, not the `sort_inv` row.
 
-*What this does not show* (trap #8): that `PropUniq` is true, or that its `app` case is any
-easier than the three others.  What it removes is the claim that `PropUniq` needs a
+*What this does not show* (trap #8): that `PropUniqN` is true, or that its `app` case is any
+easier than the three others.  What it removes is the claim that `PropUniqN` needs a
 normalisation argument. -/
 
-/-- The one case of `PropUniq` the typing induction does not reach. -/
-def PropUniq.AppCase (env : VEnv) (U n : Nat) : Prop :=
+/-- The one case of `PropUniqN` the typing induction does not reach. -/
+def PropUniqN.AppCase (env : VEnv) (U n : Nat) : Prop :=
   ∀ {Γ : List VExpr} {f a A₀ B₀ : VExpr} {u v : VLevel},
     env.HasTypeN U n Γ f (.forallE A₀ B₀) → env.HasTypeN U n Γ a A₀ →
     env.IsDefEqN U n Γ (B₀.inst a) (.sort u) →
     env.HasTypeN U n Γ (.app f a) (.sort v) →
     (u ≈ (.zero : VLevel) ↔ v ≈ (.zero : VLevel))
 
-/-- **`PropUniq` closes in six of its seven typing cases, from `DefInv` alone.**
+/-- **`PropUniqN` closes in six of its seven typing cases, from `DefInv` alone.**
 
 `bvar`, `sort` and `const` compose the two inverted conversions into a sort–sort conversion
 and read `u ≈ v` off `DefInv` clause (1) — note this gives the *strong* form, not merely the
@@ -539,7 +539,7 @@ and it is where `VLevel.imax_eq_zero` does its work: a Π-type is a proposition 
 its codomain is, so the induction hypothesis at the codomain — a subterm, under a binder — is
 exactly what the case needs.  `conv` composes.  `trans` never arises. -/
 theorem propUniq_of {Γ e T b} (H : Stratified env U n Γ e T b) :
-    b = true → env.SortDisjInvN U n → PropUniq.AppCase env U n →
+    b = true → env.SortDisjInvN U n → PropUniqN.AppCase env U n →
     ∀ u v, env.IsDefEqN U n Γ T (.sort u) → env.HasTypeN U n Γ e (.sort v) →
     (u ≈ (.zero : VLevel) ↔ v ≈ (.zero : VLevel)) := by
   induction H with
@@ -577,27 +577,27 @@ theorem propUniq_of {Γ e T b} (H : Stratified env U n Γ e T b) :
   | proofIrrel | extra => intro hb; exact nomatch hb
 
 /-- The statement form. -/
-theorem propUniq_of' (dinv : env.SortDisjInvN U n) (happ : PropUniq.AppCase env U n) :
-    env.PropUniq U n := fun h1 h2 => propUniq_of h1 (Eq.refl true) dinv happ _ _ .rfl h2
+theorem propUniq_of' (dinv : env.SortDisjInvN U n) (happ : PropUniqN.AppCase env U n) :
+    env.PropUniqN U n := fun h1 h2 => propUniq_of h1 (Eq.refl true) dinv happ _ _ .rfl h2
 
-theorem PropUniq.zero : env.PropUniq U 0 := by
+theorem PropUniqN.zero : env.PropUniqN U 0 := by
   intro _ _ _ _ h1 h2
   injection HasTypeN.uniq_zero h1 h2 with e; subst e; exact Iff.rfl
 
-theorem PropUniq.AppCase.zero : PropUniq.AppCase env U 0 := by
+theorem PropUniqN.AppCase.zero : PropUniqN.AppCase env U 0 := by
   intro _ _ _ _ _ _ _ hf ha hB H2
   have h : env.HasTypeN U 0 _ (.app _ _) _ := .app hf ha
   rw [IsDefEqN.zero_iff.1 hB] at h
   injection HasTypeN.uniq_zero h H2 with e; subst e; exact Iff.rfl
 
-/-- Non-vacuity: `propUniq_of'` reproves `PropUniq.zero` from residuals that hold. -/
-theorem propUniq_zero_from_residuals : env.PropUniq U 0 :=
-  propUniq_of' SortDisjInvN.zero PropUniq.AppCase.zero
+/-- Non-vacuity: `propUniq_of'` reproves `PropUniqN.zero` from residuals that hold. -/
+theorem propUniq_zero_from_residuals : env.PropUniqN U 0 :=
+  propUniq_of' SortDisjInvN.zero PropUniqN.AppCase.zero
 
 
-/-! ## `PropTypeAgree` itself, by the same typing induction
+/-! ## `PropTypeAgreeN` itself, by the same typing induction
 
-With `PropConvInv` as the conversion residual, `PropTypeAgree`'s own induction is on the
+With `PropConvInv` as the conversion residual, `PropTypeAgreeN`'s own induction is on the
 typing judgment, and it closes in six of seven cases — `app` again.  `lam` is the one case
 with inductive content, and it goes through because a Π-type is a proposition exactly when its
 codomain is (`VLevel.imax_eq_zero`), so the induction hypothesis at the *body* is exactly what
@@ -637,9 +637,9 @@ theorem isPropN_forallE_congr (dinv : env.SortInvN U n) {Γ : List VExpr} {A B B
     obtain ⟨u, hu, hA, hB⟩ := isPropN_forallE_inv dinv h
     exact isPropN_forallE hu hA (ih hB)
 
-/-- The one case of `PropTypeAgree` the typing induction does not reach.  It carries the
+/-- The one case of `PropTypeAgreeN` the typing induction does not reach.  It carries the
 induction hypothesis at the function, because the case has it. -/
-def PropTypeAgree.AppCase (env : VEnv) (U n : Nat) : Prop :=
+def PropTypeAgreeN.AppCase (env : VEnv) (U n : Nat) : Prop :=
   ∀ {Γ : List VExpr} {f a A₀ B₀ A' : VExpr},
     env.HasTypeN U n Γ f (.forallE A₀ B₀) → env.HasTypeN U n Γ a A₀ →
     (∀ {X : VExpr}, env.HasTypeN U n Γ f X →
@@ -647,12 +647,12 @@ def PropTypeAgree.AppCase (env : VEnv) (U n : Nat) : Prop :=
     env.HasTypeN U n Γ (.app f a) A' →
     IsPropN env U n Γ (B₀.inst a) → IsPropN env U n Γ A'
 
-/-- **`PropTypeAgree` closes in six of its seven typing cases**, from `DefInv` and its own
+/-- **`PropTypeAgreeN` closes in six of its seven typing cases**, from `DefInv` and its own
 conversion residual `PropConvInv`.  `sort` and `forallE` are vacuous (their type is a sort,
 and a sort is not a proposition); `bvar`, `const` and `conv` are `PropConvInv` at the
 inversion's conversion; `lam` is the inductive case. -/
 theorem propTypeAgree_of {Γ e T b} (H : Stratified env U n Γ e T b) :
-    b = true → env.SortInvN U n → env.PropConvInv U n → PropTypeAgree.AppCase env U n →
+    b = true → env.SortInvN U n → env.PropConvInv U n → PropTypeAgreeN.AppCase env U n →
     ∀ A', env.HasTypeN U n Γ e A' → IsPropN env U n Γ T → IsPropN env U n Γ A' := by
   induction H with
   | bvar h =>
@@ -682,13 +682,13 @@ theorem propTypeAgree_of {Γ e T b} (H : Stratified env U n Γ e T b) :
 
 /-- The statement form. -/
 theorem propTypeAgree_of' (dinv : env.SortInvN U n) (pci : env.PropConvInv U n)
-    (happ : PropTypeAgree.AppCase env U n) : env.PropTypeAgree U n :=
+    (happ : PropTypeAgreeN.AppCase env U n) : env.PropTypeAgreeN U n :=
   fun h1 h2 hp => propTypeAgree_of h1 (Eq.refl true) dinv pci happ _ h2 hp
 
-/-! ## Pricing `PropTypeAgree`'s `app` case
+/-! ## Pricing `PropTypeAgreeN`'s `app` case
 
 `Theory/Typing/PropShadow.lean`'s `app_shadow_of` prices the *shadow* of `thm:utype`'s `app`
-case at `InstLvl` + `PropUniq`.  The same price buys this case, with one more item that the
+case at `InstLvl` + `PropUniqN`.  The same price buys this case, with one more item that the
 shadow's universe-carrying formulation hid: **regularity at a Π-type**, which is not free at
 the index (`Stratified.lam` does not ship `A::Γ ⊢ B : .sort v`). -/
 
@@ -708,13 +708,13 @@ def RegPi (env : VEnv) (U n : Nat) : Prop :=
 
 /-- **The `app` case, priced exactly.**  `RegPi` and `InstLvl` turn the hypothesis
 "`B₀.inst a` is a proposition" into "`B₀` is a proposition under the binder" — and the step
-that actually needs `PropUniq` is that one, because `B₀.inst a` carries two universes (`v₀`
+that actually needs `PropUniqN` is that one, because `B₀.inst a` carries two universes (`v₀`
 from `InstLvl` and `.zero` from the hypothesis) and nothing else compares them.  The other
-side needs no `PropUniq`: `InstLvl` at `v = .zero` is enough. -/
+side needs no `PropUniqN`: `InstLvl` at `v = .zero` is enough. -/
 theorem propTypeAgree_appCase_of {k : Nat} (dinv : env.SortInvN U (k+1))
     (hreg : env.RegPi U (k+1))
-    (hinst : env.InstLvl U (k+1)) (huniq : env.PropUniq U (k+1))
-    (pci : env.PropConvInv U (k+1)) : PropTypeAgree.AppCase env U (k+1) := by
+    (hinst : env.InstLvl U (k+1)) (huniq : env.PropUniqN U (k+1))
+    (pci : env.PropConvInv U (k+1)) : PropTypeAgreeN.AppCase env U (k+1) := by
   intro Γ f a A₀ B₀ A' hf ha ihf H2 hp
   obtain ⟨A₁, B₁, hf₁, ha₁, hc⟩ := HasTypeN.app_inv H2
   obtain ⟨u₀, v₀, hu₀, hv₀, hA₀, hB₀⟩ := hreg hf
@@ -733,13 +733,13 @@ case follows from the statement in one step and cannot be closed by anything mer
 to it.  The same one-liner works for all four statements here, which is the honest framing:
 the `app` case is not a smaller sub-problem, it is the whole remaining content. -/
 
-theorem PropUniq.appCase (h : env.PropUniq U n) : PropUniq.AppCase env U n :=
+theorem PropUniqN.appCase (h : env.PropUniqN U n) : PropUniqN.AppCase env U n :=
   fun hf ha hT H2 => h (.conv hT (.app hf ha)) H2
 
 theorem PropNotProof.appCase (h : env.PropNotProof U n) : PropNotProof.AppCase env U n :=
   fun hf ha hT hp H2 => h (.conv hT (.app hf ha)) hp H2
 
-theorem PropTypeAgree.appCase (h : env.PropTypeAgree U n) : PropTypeAgree.AppCase env U n :=
+theorem PropTypeAgreeN.appCase (h : env.PropTypeAgreeN U n) : PropTypeAgreeN.AppCase env U n :=
   fun hf ha _ H2 hp => h (.app hf ha) H2 hp
 
 theorem PropForallEDisjoint.appCase (h : env.PropForallEDisjoint U n) :
@@ -751,20 +751,20 @@ theorem PropForallEDisjoint.appCase (h : env.PropForallEDisjoint U n) :
 Both directions are machine-checked, so this is trap #11 read the useful way: the `app` case
 is **not** a weaker sub-goal that a cheaper argument might reach.  It also settles the
 non-vacuity question these reductions raise — `propUniq_of` cannot be secretly proving
-`PropUniq` from `DefInv` alone, because that is exactly what the `↔` forbids unless
-`PropUniq` itself is so provable. -/
+`PropUniqN` from `DefInv` alone, because that is exactly what the `↔` forbids unless
+`PropUniqN` itself is so provable. -/
 
-theorem PropUniq.appCase_iff (dinv : env.SortDisjInvN U n) :
-    PropUniq.AppCase env U n ↔ env.PropUniq U n :=
-  ⟨fun h => propUniq_of' dinv h, PropUniq.appCase⟩
+theorem PropUniqN.appCase_iff (dinv : env.SortDisjInvN U n) :
+    PropUniqN.AppCase env U n ↔ env.PropUniqN U n :=
+  ⟨fun h => propUniq_of' dinv h, PropUniqN.appCase⟩
 
 theorem PropNotProof.appCase_iff (dinv : env.SortDisjInvN U n) (hsnp : env.SortNotProp U n) :
     PropNotProof.AppCase env U n ↔ env.PropNotProof U n :=
   ⟨fun h => propNotProof_of'' dinv hsnp h, PropNotProof.appCase⟩
 
-theorem PropTypeAgree.appCase_iff (dinv : env.SortInvN U n) (pci : env.PropConvInv U n) :
-    PropTypeAgree.AppCase env U n ↔ env.PropTypeAgree U n :=
-  ⟨fun h => propTypeAgree_of' dinv pci h, PropTypeAgree.appCase⟩
+theorem PropTypeAgreeN.appCase_iff (dinv : env.SortInvN U n) (pci : env.PropConvInv U n) :
+    PropTypeAgreeN.AppCase env U n ↔ env.PropTypeAgreeN U n :=
+  ⟨fun h => propTypeAgree_of' dinv pci h, PropTypeAgreeN.appCase⟩
 
 theorem PropForallEDisjoint.appCase_iff (dinv : env.SortForallEDisjN U n) :
     PropForallEDisjoint.AppCase env U n ↔ env.PropForallEDisjoint U n :=
@@ -840,17 +840,17 @@ theorem propConvInv_zero_from_residuals : env.PropConvInv U 0 :=
 theorem propNotProof_zero_from_residuals : env.PropNotProof U 0 :=
   propNotProof_of'' SortDisjInvN.zero SortNotProp.zero PropNotProof.AppCase.zero
 
-theorem PropTypeAgree.zero : env.PropTypeAgree U 0 := by
+theorem PropTypeAgreeN.zero : env.PropTypeAgreeN U 0 := by
   intro _ _ _ _ h1 h2 hp; exact HasTypeN.uniq_zero h1 h2 ▸ hp
 
-theorem PropTypeAgree.AppCase.zero : PropTypeAgree.AppCase env U 0 := by
+theorem PropTypeAgreeN.AppCase.zero : PropTypeAgreeN.AppCase env U 0 := by
   intro _ _ _ _ _ _ hf ha _ H2 hp
   have h : env.HasTypeN U 0 _ (.app _ _) _ := .app hf ha
   exact HasTypeN.uniq_zero h H2 ▸ hp
 
 /-- …and so is `propTypeAgree_of'`. -/
-theorem propTypeAgree_zero_from_residuals : env.PropTypeAgree U 0 :=
-  propTypeAgree_of' SortInvN.zero PropConvInv.zero PropTypeAgree.AppCase.zero
+theorem propTypeAgree_zero_from_residuals : env.PropTypeAgreeN U 0 :=
+  propTypeAgree_of' SortInvN.zero PropConvInv.zero PropTypeAgreeN.AppCase.zero
 
 /-- …and so is `propForallEDF_of`. -/
 theorem propForallEDF_zero_from_residuals : env.PropForallEDF U 0 :=

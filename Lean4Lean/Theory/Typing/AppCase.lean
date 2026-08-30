@@ -6,7 +6,7 @@ import Lean4Lean.Theory.Typing.CycleConv
 
 `docs/handoff-stratified.md` §16.4 records five statements about `⊢ₙ` that each close six of
 their seven typing cases and each stop at an `app` case with the same subject shape:
-`SortForallEDisjoint`, `PropForallEDisjoint`, `PropNotProof`, `PropUniq`, `PropTypeAgree`.
+`SortForallEDisjoint`, `PropForallEDisjoint`, `PropNotProof`, `PropUniqN`, `PropTypeAgreeN`.
 This file characterises that case exactly, prices what would discharge it, and closes three
 candidate routes with machine-checked witnesses.
 
@@ -64,7 +64,7 @@ What that does and does not settle:
   none of them is refuted here — `witness_shapes` machine-checks that the witness's two types
   are not a (sort, Π) pair nor a (sort, sort) pair, which is §16.4's reading result for three
   of the five.  Nor is the route through them affected: `HasTypeN.uniq` is used nowhere in this
-  tree at `n ≥ 1`; `DefInv (n+1)` is reached from `PropTypeAgree n` + `DefInv n`, not from
+  tree at `n ≥ 1`; `DefInv (n+1)` is reached from `PropTypeAgreeN n` + `DefInv n`, not from
   `uniq n`.
 * **Not a statement about Lean.**  `lhs_conv_a_succ` shows the same pair *is* convertible at
   `n = 2`.  The counterexample is about the alternation index, not about the terms: what fails
@@ -134,7 +134,7 @@ def AppPropDisj (env : VEnv) (U n : Nat) : Prop :=
     env.IsDefEqN U n Γ (B₀.inst a) (.sort .zero) →
     env.IsDefEqN U n Γ (B₁.inst a) (.forallE A B) → False
 
-/-- `PropUniq.AppCase`, likewise. -/
+/-- `PropUniqN.AppCase`, likewise. -/
 def AppUniqLvl (env : VEnv) (U n : Nat) : Prop :=
   ∀ {Γ : List VExpr} {f a A₀ B₀ A₁ B₁ : VExpr} {u v : VLevel},
     AppData env U n Γ f a A₀ B₀ A₁ B₁ →
@@ -150,7 +150,7 @@ def AppNotProof (env : VEnv) (U n : Nat) : Prop :=
     env.HasTypeN U n Γ p (.sort .zero) →
     env.IsDefEqN U n Γ (B₁.inst a) p → False
 
-/-- `PropTypeAgree.AppCase`, likewise.  The third premise is the case's induction hypothesis
+/-- `PropTypeAgreeN.AppCase`, likewise.  The third premise is the case's induction hypothesis
 at the function, kept verbatim. -/
 def AppPropAgree (env : VEnv) (U n : Nat) : Prop :=
   ∀ {Γ : List VExpr} {f a A₀ B₀ A₁ B₁ A' : VExpr},
@@ -192,16 +192,16 @@ theorem AppPropDisj.appCase (h : env.AppPropDisj U n) :
 theorem AppPropDisj.iff : env.AppPropDisj U n ↔ PropForallEDisjoint.AppCase env U n :=
   ⟨AppPropDisj.appCase, AppPropDisj.of_appCase⟩
 
-theorem AppUniqLvl.of_appCase (h : PropUniq.AppCase env U n) : env.AppUniqLvl U n := by
+theorem AppUniqLvl.of_appCase (h : PropUniqN.AppCase env U n) : env.AppUniqLvl U n := by
   intro _ _ _ _ _ _ _ _ _ d c₀ c₁
   exact h d.fn₀ d.arg₀ c₀ (.conv c₁ d.hasType₁)
 
-theorem AppUniqLvl.appCase (h : env.AppUniqLvl U n) : PropUniq.AppCase env U n := by
+theorem AppUniqLvl.appCase (h : env.AppUniqLvl U n) : PropUniqN.AppCase env U n := by
   intro _ _ _ _ _ _ _ hf ha hT H2
   obtain ⟨_, _, hf₁, ha₁, hc⟩ := H2.app_inv
   exact h ⟨hf, ha, hf₁, ha₁⟩ hT hc
 
-theorem AppUniqLvl.iff : env.AppUniqLvl U n ↔ PropUniq.AppCase env U n :=
+theorem AppUniqLvl.iff : env.AppUniqLvl U n ↔ PropUniqN.AppCase env U n :=
   ⟨AppUniqLvl.appCase, AppUniqLvl.of_appCase⟩
 
 theorem AppNotProof.of_appCase (h : PropNotProof.AppCase env U n) : env.AppNotProof U n := by
@@ -216,17 +216,17 @@ theorem AppNotProof.appCase (h : env.AppNotProof U n) : PropNotProof.AppCase env
 theorem AppNotProof.iff : env.AppNotProof U n ↔ PropNotProof.AppCase env U n :=
   ⟨AppNotProof.appCase, AppNotProof.of_appCase⟩
 
-theorem AppPropAgree.of_appCase (h : PropTypeAgree.AppCase env U n) :
+theorem AppPropAgree.of_appCase (h : PropTypeAgreeN.AppCase env U n) :
     env.AppPropAgree U n := by
   intro _ _ _ _ _ _ _ _ d ihf c₁ hp
   exact h d.fn₀ d.arg₀ ihf (.conv c₁ d.hasType₁) hp
 
-theorem AppPropAgree.appCase (h : env.AppPropAgree U n) : PropTypeAgree.AppCase env U n := by
+theorem AppPropAgree.appCase (h : env.AppPropAgree U n) : PropTypeAgreeN.AppCase env U n := by
   intro _ _ _ _ _ _ hf ha ihf H2 hp
   obtain ⟨_, _, hf₁, ha₁, hc⟩ := H2.app_inv
   exact h ⟨hf, ha, hf₁, ha₁⟩ ihf hc hp
 
-theorem AppPropAgree.iff : env.AppPropAgree U n ↔ PropTypeAgree.AppCase env U n :=
+theorem AppPropAgree.iff : env.AppPropAgree U n ↔ PropTypeAgreeN.AppCase env U n :=
   ⟨AppPropAgree.appCase, AppPropAgree.of_appCase⟩
 
 
@@ -400,7 +400,7 @@ theorem lhs_not_piLike {Γ : List VExpr} {A' B' : VExpr} :
 
 /-- **The witness refutes no shape statement.**  Of the two types it supplies, `a` is a sort
 and `lhs` is neither sort-shaped nor Π-shaped — so the pair is neither a (sort, Π) pair
-(`SortForallEDisjoint`, `PropForallEDisjoint`) nor a (sort, sort) pair (`PropUniq`). -/
+(`SortForallEDisjoint`, `PropForallEDisjoint`) nor a (sort, sort) pair (`PropUniqN`). -/
 theorem witness_shapes :
     (∅ : VEnv).SortLike 1 1 [P] a ∧
     ¬ (∅ : VEnv).SortLike 1 1 [P] lhs ∧
@@ -411,12 +411,12 @@ theorem witness_shapes :
 theorem lhs_hasType {Γ : List VExpr} : (∅ : VEnv).HasTypeN 1 1 Γ lhs A :=
   Stratified.app (A := A) (B := A) (Stratified.lam A_type (.bvar .zero)) a_hasType1
 
-/-- **The propositional half, conditionally.**  For `PropNotProof` and `PropTypeAgree` the
+/-- **The propositional half, conditionally.**  For `PropNotProof` and `PropTypeAgreeN` the
 witness would have to make one of its two types a *proposition*; `a` is a sort, so `DefInv`
-excludes it there, and `lhs` is excluded by `PropUniq` at the same index — which this witness
-does not refute.  So the witness refutes those two only if it refutes `PropUniq`, and it does
+excludes it there, and `lhs` is excluded by `PropUniqN` at the same index — which this witness
+does not refute.  So the witness refutes those two only if it refutes `PropUniqN`, and it does
 not. -/
-theorem lhs_not_isPropN (huniq : (∅ : VEnv).PropUniq 1 1) {Γ : List VExpr} :
+theorem lhs_not_isPropN (huniq : (∅ : VEnv).PropUniqN 1 1) {Γ : List VExpr} :
     ¬ IsPropN (∅ : VEnv) 1 1 Γ lhs := fun hp =>
   absurd (congrFun ((huniq lhs_hasType hp).2 (by rfl)) []) (by simp [A, VLevel.eval])
 
@@ -597,7 +597,7 @@ end AppCaseRefute
 
 Four of the five statements are **antitone** in `n` (`Stratified.mono` moves their hypotheses
 up), so `S (n+1) → S n` is free and `S n → S (n+1)` is the entire content.  There is no
-strengthening to be had from the index either.  `PropTypeAgree` is the exception and is
+strengthening to be had from the index either.  `PropTypeAgreeN` is the exception and is
 neither monotone nor antitone: its conclusion `IsPropN` is itself a typing at the index. -/
 
 theorem SortForallEDisjoint.antitone {m : Nat} (le : m ≤ n)
@@ -612,8 +612,8 @@ theorem PropNotProof.antitone {m : Nat} (le : m ≤ n)
     (h : env.PropNotProof U n) : env.PropNotProof U m :=
   fun h1 h2 h3 => h (h1.mono le) (h2.mono le) (h3.mono le)
 
-theorem PropUniq.antitone {m : Nat} (le : m ≤ n)
-    (h : env.PropUniq U n) : env.PropUniq U m :=
+theorem PropUniqN.antitone {m : Nat} (le : m ≤ n)
+    (h : env.PropUniqN U n) : env.PropUniqN U m :=
   fun h1 h2 => h (h1.mono le) (h2.mono le)
 
 
@@ -678,28 +678,28 @@ end AppCaseRefute
 
 *Source reading, plus one machine check; it cannot be a cone, and here is why.*
 
-`Theory/SetModel/PropUniqFromFalse.lean` derives `PropUniq` from `PropTypeAgree`
-(`PropUniq.of_propTypeAgree`), which looks like it would discharge one of the five.  **It is
-not the same `PropUniq`.**  The name `Lean4Lean.VEnv.PropUniq` is declared twice in this
+`Theory/SetModel/PropUniqFromFalse.lean` derives `PropUniqN` from `PropTypeAgreeN`
+(`PropUniqN.of_propTypeAgree`), which looks like it would discharge one of the five.  **It is
+not the same `PropUniqN`.**  The name `Lean4Lean.VEnv.PropUniqN` is declared twice in this
 repository, with different arities and over different judgments:
 
-* `Theory/Typing/PropShadow.lean:183` — `PropUniq (env : VEnv) (U n : Nat)`, over
+* `Theory/Typing/PropShadow.lean:183` — `PropUniqN (env : VEnv) (U n : Nat)`, over
   `HasTypeN` (the alternation index), conclusion `u ≈ .zero ↔ v ≈ .zero`.  This is the one in
   the five-statement table and the one `AppUniqLvl` is about.
-* `Theory/SetModel/PropSplitAudit.lean:105` — `PropUniq (env : VEnv) (nv : ℕ)`, over the
+* `Theory/SetModel/PropSplitAudit.lean:105` — `PropUniqN (env : VEnv) (nv : ℕ)`, over the
   **unstratified** `HasType`, with `u.WF nv`/`v.WF nv` premises and a conclusion at one fixed
   valuation, `u.eval ls = 0 ↔ v.eval ls = 0`.
 
-`Lean4Lean.VEnv.PropTypeAgree` is likewise declared twice
+`Lean4Lean.VEnv.PropTypeAgreeN` is likewise declared twice
 (`Theory/Typing/UniqueTypingN.lean:562` and `Theory/SetModel/PropSplitAudit.lean:119`), and the
 two differ by more than the judgment: the `SetModel` one takes the sorts of *both* types as
 premises and concludes pointwise at `ls`.
 
 **Machine-checked**: the two module trees cannot be imported together at all — `import`ing
 `Theory.SetModel.PropUniqFromFalse` after `Theory.Typing.UniqueTypingN` is rejected outright
-("environment already contains `Lean4Lean.VEnv.PropTypeAgree`").  So no declaration in this
+("environment already contains `Lean4Lean.VEnv.PropTypeAgreeN`").  So no declaration in this
 repository can state, let alone prove, a relation between the two.  Any claim of the form
-"the model stream's `PropUniq` discharges the syntactic stream's" is unmeasurable as the tree
+"the model stream's `PropUniqN` discharges the syntactic stream's" is unmeasurable as the tree
 stands; **the two names must be disambiguated before either stream quotes the other.**
 
 Three further reasons the route does not reach the `app` case even after the names are fixed,
@@ -707,13 +707,13 @@ recorded because they are independent of the collision:
 
 1. **No stratification.**  `HasTypeN` and `Stratified` do not occur anywhere in
    `Theory/SetModel/` (checked by search).  All five `app` cases are statements at an index.
-2. **Its hypothesis is inconsistency.**  `PropUniq.of_propTypeAgree` takes
+2. **Its hypothesis is inconsistency.**  `PropUniqN.of_propTypeAgree` takes
    `∃ e, env.HasType 0 [] e falseProp` — an inhabitant of `∀ p : Prop, p` — which
    `PropUniqFromFalse.lean`'s own note says is "available inside the consistency proof and
    nowhere else".  It is not available over `∅`, which is where every witness in this file and
    in `SubstCRefute`/`ShapeAgreeRefute` lives.
 3. **One of five is not five.**  Even granting the statement, `AppUniqLvl.iff` says
-   `PropUniq.AppCase ↔ PropUniq`, so a proof of `PropUniq` closes *its own* `app` case and
+   `PropUniqN.AppCase ↔ PropUniqN`, so a proof of `PropUniqN` closes *its own* `app` case and
    says nothing about the other four — §16.4's "not claimed: that the five are one statement"
    cuts here too.
 -/

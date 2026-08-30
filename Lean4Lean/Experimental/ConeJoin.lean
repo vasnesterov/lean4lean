@@ -43,6 +43,20 @@ import Lean4Lean.Theory.Typing.ConstSubstNested
 import Lean4Lean.Theory.Inductive.NestedKeys
 import Lean4Lean.Theory.Inductive.NestedPositivity
 import Lean4Lean.Theory.Inductive.StructureExamples
+-- `SetModel/` was invisible to both instruments until 2026-08-30: `VEnv.PropTypeAgree`
+-- was declared with two DIFFERENT statements, in `Theory/Typing/UniqueTypingN.lean`
+-- and `Theory/SetModel/PropSplitAudit.lean`, so no `SetModel/` module could enter this
+-- cone at all. The `Theory/Typing/` one is now `PropTypeAgreeN`, matching that file's
+-- own `IsPropN`/`HasTypeN`/`SortInvN` convention.
+import Lean4Lean.Theory.SetModel.StableAudit
+import Lean4Lean.Theory.SetModel.PropSplitAudit
+import Lean4Lean.Theory.SetModel.PropUniqFromFalse
+import Lean4Lean.Theory.SetModel.PropReduce
+import Lean4Lean.Theory.SetModel.SoundInduction
+import Lean4Lean.Theory.SetModel.CoherentWitness
+import Lean4Lean.Theory.SetModel.CtorTransExamples
+import Lean4Lean.Theory.SetModel.LevelAssignUnsat
+import Lean4Lean.Theory.SetModel.FalseProp
 
 /-!
 # Acceptance test: the `PatternRules` cone and the `Verify/` cone join
