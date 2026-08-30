@@ -295,7 +295,17 @@ stream does not own (`docs/handoff-krule.md` §T2, §T5). -/
 /-- **`ParRed` with the η-guarded K step added.**  Constructors 1-8 are `ParRed`'s, verbatim;
 `keta` is the new one, and it is the *general* `EtaK` step, so this relation extends `ParRed`
 and contains every `EtaK` step.  It is a plain inductive: `EtaK` is already defined, over
-`ParRed`, so nothing here is mutual. -/
+`ParRed`, so nothing here is mutual.
+
+**Fidelity caveat (Round 5), and it is not cosmetic.**  This is *not* the relation
+`ChurchRosser.lean` has after the edit.  `EtaK.here`'s tail is a step of the **old** `ParRed`,
+so `ParRedK`'s `keta` cannot fire on a contractum that itself needs a `keta` step; the landed
+relation is the mutual fixpoint, which is strictly larger.  `ParRedK` therefore
+*under-approximates* the landed relation.  That costs the two kills nothing -- they only need
+the constructor to exist, and a larger relation makes `hrig` even harder to satisfy -- but any
+claim of the form "`ParRedK` has property `P`, therefore the landed relation does" is invalid
+for `P` in a negative position.  `refParams_parRedK_eq` is unaffected (`EtaK` is empty there).
+See `docs/handoff-krule.md` §U2. -/
 inductive ParRedK : List VExpr → VExpr → VExpr → Prop where
   | bvar {Γ i} : ParRedK Γ (.bvar i) (.bvar i)
   | sort {Γ u} : ParRedK Γ (.sort u) (.sort u)
@@ -426,8 +436,15 @@ def NonNeutralK (Γ : List VExpr) (e : VExpr) : Prop :=
 
 /-- **The new residual for `ParRed.triangle`.**  `KDiamond` (`KDescend.lean`) prices two
 K-steps at the *same* redex; this prices the η-layer: a term that both reduces at the top and
-η-K-reduces must have `NormalEq`-close reducts.  It is stated, not proved, and it is *not*
-implied by `KDiamond`: the two contracta live at different arities.
+η-K-reduces must have `NormalEq`-close reducts.  It is stated, not proved.
+
+**Correction (Round 5).**  This docstring used to add "and it is *not* implied by `KDiamond`:
+the two contracta live at different arities".  **They do not.**
+`Theory/Typing/KMeasure.lean`'s `EtaKn.height_uniq` proves that every `EtaK` derivation at a
+given `Γ, e` has the *same* η-tower height -- `p₁.depth + 1 - e.appDepth`, with `p₁.depth`
+pinned from `e`'s head constant by `Params.pat_app_depth_uniq`.  So the residual is the
+*equal-height* diamond `KMeasure.EtaKDiamondAt`, and `KMeasure.etaKDiamond_of_at` discharges
+the rest.  What remains is a λ-congruence induction whose base is `KDiamond`-shaped.
 
 Do not spend `Params` fields on this or on `KDiamond` until confluence is re-derived for
 `ParRedK`; §S7's eight construction sites are still eight. -/
