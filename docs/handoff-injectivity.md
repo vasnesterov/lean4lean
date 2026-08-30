@@ -12,8 +12,9 @@ paragraph, §4A and §8 are from the 2026-08-30 session** and use the census con
 names skipped), so their counts are smaller for the same statements — the two are not in
 conflict, they are different scopes, and each section says which it used.
 
-Files added or changed on 2026-08-30: **`Lean4Lean/Theory/Typing/RetypeCase.lean`** (new) and
-this document.  Nothing else was touched.  `lake build Lean4Lean.Theory.Typing.RetypeCase` is
+Files added or changed on 2026-08-30: **`Lean4Lean/Theory/Typing/RetypeCase.lean`** (new),
+**`Lean4Lean/Theory/Typing/RetypeAdmissible.lean`** (new, later the same day) and this
+document.  Nothing else was touched.  §4B is the later session and supersedes §4A.4.  `lake build Lean4Lean.Theory.Typing.RetypeCase` is
 green; a whole-tree `lake build` fails in `Theory/Typing/ChurchRosser.lean`, another stream's
 in-flight edit (`Alternative 'keta' has not been provided`, line 2240), which is why the
 end-of-session census and `dup-names` runs are blocked — see §8. **[machine]**
@@ -21,6 +22,16 @@ end-of-session census and `dup-names` runs are blocked — see §8. **[machine]*
 ---
 
 ## 0. Headline
+
+**Later session, 2026-08-30: §4A.4's open question is answered, and the answer is that the
+question was about the wrong statement.**  `HasTypeStrong.retype` — the `hasType'` `retype`
+case *with the conversion premise dropped* — is at least as strong as the case, and has
+nothing to induct on, because the case carries that premise and it was thrown away.  With it kept, the case is proved: `IsDefEqStrong.retypes`
+(`Theory/Typing/RetypeAdmissible.lean`), `sorry`-free, with **no `PiInvStratApp`, no
+`VEnv.WF`, no `SortUniq`, and no member of the injectivity family**.  Nine of
+`IsDefEqStrong`'s thirteen rules cost nothing; the residual is exactly the four *computation*
+rules — `beta`, `eta`, `proofIrrel`, `extra`.  §4B. **[machine]**
+
 
 **Session of 2026-08-30 adds one result, and it is a correction to `Theory/Typing/Enlarged.lean`
 rather than a new proof.**  Enlarged.lean says the in-place `retype` enlargement *forces* a
@@ -427,6 +438,158 @@ before this session.
 
 ---
 
+## 4B. `retypes`: the obligation Route A actually has, proved  *(session of 2026-08-30, later)*
+
+New file, owned by this stream: **`Lean4Lean/Theory/Typing/RetypeAdmissible.lean`** —
+seventeen declarations, all `sorry`-free, `#print axioms` block at the end.  Imported by nothing; like
+`RetypeCase.lean` it adds nothing to any cone.
+
+### 4B.1 The premise §4A.4 threw away **[machine]**
+
+`RetypeCase.lean`'s `HasTypeStrong.retype` states the `hasType'` `retype` case as
+
+> `e₁ : A → e₁ : B → e₂ : A → e₂ : B`
+
+and its docstring says, as if it were a virtue, that *"the conversion premise
+`IsDefEqStrong Γ e₁ e₂ A` is not needed and is not taken"*.  It is not needed **by that
+proof** (which goes through `uniqAux`, i.e. unique typing, and so needs nothing else).  But
+the case **carries** it: `hasType'`'s `retype` node is built from `IsDefEqStrong Γ e₁ e₂ A`
+*together with* `HasTypeStrong Γ e₁ B`, and inside an induction one has the premise, not only
+its induction hypothesis.  Dropping it produced a statement with no attack surface: there is
+nothing to induct on, since its three premises are typings of two unrelated terms.  The
+conversion-free form **implies** the conversion-carrying one (via `hasType'`); the converse is
+not known, so it is at least as strong and plausibly strictly so.
+
+With the premise kept, the statement is
+
+```lean
+theorem IsDefEqStrong.retypes (henv : Ordered env)
+    (hbeta : BetaRetype env U) (heta : EtaRetype env U)
+    (hproof : ProofRetype env U) (hextra : ExtraRetype env U) :
+    ∀ {Γ e₁ e₂ A}, env.IsDefEqStrong U Γ e₁ e₂ A → CtxStrong env U Γ →
+      ∀ {B}, (env.HasTypeStrong U Γ e₁ B true ∨ env.HasTypeStrong U Γ e₂ B true) →
+        env.IsDefEqStrong U Γ e₁ e₂ B
+```
+
+and it is proved by induction on the conversion.  `HasTypeStrong.retype_of_conv` is the
+`hasType'` case read off it; `HasTypeStrong.retype_of_conv'` is the same in the hypothesis
+shape the consumers carry (`Ordered env` + `OnCtx`, which `IsDefEq.strong` already has, so
+placing the obligation there costs **no** new hypothesis).
+
+### 4B.2 Nine rules free, four residual — and the pattern is the point **[machine]**
+
+| rule | cost |
+|---|---|
+| `bvar`, `symm`, `trans`, `defeqDF` | free (structural) |
+| `sortDF`, `constDF`, `appDF`, `lamDF`, `forallEDF` | free (congruence) |
+| `beta`, `eta`, `proofIrrel`, `extra` | **residual** |
+
+The congruence rules are free for a reason that is worth stating, because it is exactly the
+reason `SortUniq` does *not* appear.  In a congruence rule the two sides have the same head,
+so a base typing of the left side is rebuilt for the right side **at the very same type**,
+from the induction hypotheses of the sub-conversions.  No two levels are ever compared.  In
+`appDF`, the induction hypothesis at the function turns `f : .forallE A₀ B₀` — whatever
+Π-type the *typing* derivation chose, which need not be the one the *conversion* is indexed
+at — into `f ≡ f' : .forallE A₀ B₀`; `IsDefEqStrong.instDF` supplies the codomain congruence
+and `appDF` re-fires at `B₀.inst a`.  `lamDF`/`forallEDF` are the same move with
+`IsDefEqStrong.defeqDF_l` doing the context conversion.  The inner induction that strips
+`HasTypeStrong.defeq` wrappers is `HasTypeStrong.peelTo`, also new here.
+
+The four residuals are the rules whose two sides have **unrelated head shapes**, so a base
+typing of one side says nothing about the other.  Each is stated with the entire premise list
+of its own rule available plus the *peeled* (`false`, i.e. non-`defeq`) base typing of one
+side — the weakest form the induction ever needs, which is the right polarity for a hypothesis
+(`ORCHESTRATOR.md` rule 3).
+
+### 4B.3 Pricing, non-vacuity, collapse test **[machine]**
+
+* **Upper bound.**  `retypes_of_piInvStratApp`: all four residuals follow from
+  `PiInvStratApp` through `uniqAux` (`uniqStrong_of_piInvStratApp`,
+  `{beta,eta,proof,extra}Retype_of_uniqStrong`).  So nothing here is a *new* obligation; the
+  question is only whether they are strictly weaker.
+* **Non-vacuity.**  `retypes_fires` runs the theorem over **every** environment at an instance
+  with `e₁ ≠ e₂` **and** `A ≠ B` syntactically (`.sort (.imax .zero .zero) ≡ .sort .zero`,
+  typed at `.sort (.succ (.imax .zero .zero))` and re-indexed at `.sort (.succ .zero)`), and
+  that instance goes through the `sortDF` case, which uses **none** of the four residuals.  So
+  the conclusion is neither reflexivity nor the input re-indexed at its own type.
+* **Collapse test** (`ORCHESTRATOR.md` rule 5) — passes, by inspection of the residuals'
+  premises: `BetaRetype` fires only when the left endpoint is a β-redex, `EtaRetype` only at
+  an η-expansion, `ExtraRetype` only at an `env.defeqs` instance, `ProofRetype` only when the
+  shared type is a proposition inhabited by both endpoints.  None of those can be met by a
+  general `IsDefEqStrong Γ e₁ e₂ A`, so the reduction is proper and not a restatement.
+  **[analysis]**
+* **No negative control of the rejection kind is available, and the reason is the finding.**
+  Every neighbouring weakening (e.g. replacing "`B` is a type of `e₁`" by "`B` is a type in
+  `Γ`") is refuted only by showing some `IsDefEqStrong Γ e₁ e₂ B` *underivable*, and this tree
+  has no inversion principle that pins a term's types without exactly the content of
+  `SortUniq`.  Recorded per rule 4: *"no witness" is not evidence of truth.* **[analysis]**
+
+### 4B.4 The one thing that does not transfer to the enlarged judgment for free **[analysis]**
+
+`retypes` is about the judgment the tree has today.  Under the in-place enlargement
+(`IsDefEqStrong` gains `retype`), `weakN`, `instN`, `instL`, `mono`, `defeq`, `hasType`,
+`isType'` and `forallE_inv'` each gain a `retype` case discharged by a premise's induction
+hypothesis, and `HasTypeStrong` gains no constructor at all, so `refl` and `peelTo` are
+untouched.  **But `retypes` and `hasType'` would then have to be proved by one simultaneous
+induction**, and exactly one line forces it: `retypes`' `trans` case reaches `e₂ : B` through
+`d1.hasType'.2` where `d1` is *constructed* from an induction hypothesis, not a
+sub-derivation.  Merging costs nothing — conclude
+`IsDefEqStrong Γ e₁ e₂ B ∧ e₁ : B ∧ e₂ : B` and read `e₂ : B` off the induction hypothesis
+— and the merged induction's new `retype` case is then discharged by the *first* premise's
+induction hypothesis alone.  The merge is **not** carried out here (the enlarged judgment is
+not defined in this tree); what *is* checked is that the appeal to `hasType'` occurs in
+exactly one case.
+
+### 4B.6 How much *not* to read into this **[analysis]**
+
+The four residuals are localised, not known to be weak.  Each one asks for the same thing in a
+different place: relate the type its own rule is indexed at to an *arbitrary base type of one
+of the two endpoints* — which is unique typing at that endpoint, restricted to one term shape.
+
+* `BetaRetype` needs it at `.lam A e`, i.e. Π-injectivity.  Plain `PiInv`
+  (`IsDefEqU.forallE_inv`) is **not** enough on its own: the two Π-types are related through a
+  chain of `HasTypeStrong.defeq` wrappers, and composing those into the single `IsDefEqU` that
+  `PiInv` consumes is composition-at-different-types, i.e. `uniq`.  This is the four-place
+  obstruction of §2, reappearing where one would like the normalisation half alone to pay.
+* `EtaRetype` and `ExtraRetype` are the same shape at an η-expansion and at a `df.lhs`
+  instance.
+* `ProofRetype` is **not** normalisation content: it is unique typing at an arbitrary proof.
+  It is the residual worth attacking first, precisely because it is the one this corner has
+  never named.
+
+So this section does not claim the residuals are free.  It claims three things, all measured:
+nine of thirteen rules are free **unconditionally**, the obligation is localised to four named
+rule instances instead of "unique typing", and the statement §4A.4 asked about was not the
+obligation.
+
+### 4B.5 What this does and does not do to Route A's price **[machine]**
+
+Re-measured on this commit, same instrument and scope as §4A.2 (reverse cones over
+declaration values, `allowOpaque := true`, internal names skipped, import closure of
+`Verify/Bridge.lean`):
+
+| declaration | transitive users |
+|---|---|
+| `IsDefEqU.forallE_inv_stratified` | 209 |
+| `IsDefEqStrong.hasType'` | 240 |
+| `IsDefEq.strong` | 243 |
+| union with `hasType'` | 242 |
+| union with `strong` | 245 |
+| in `users(hasType')` but not `users(forallE_inv_stratified)` | **33** |
+| in `users(strong)` but not `users(forallE_inv_stratified)` | 36 |
+
+(§4A.2 measured 201 / 232 / 234 / 33 earlier the same day; the tree grew, and **the
+33-declaration difference is unchanged**, as §4A.2 predicted.)
+
+So: if the four residuals are discharged from `PiInvStratApp`, Route A still costs
+209 → 242 and §4A.2's verdict stands unchanged.  **What has changed is what the open question
+is.**  It was "prove `HasTypeStrong.retype`", a statement with no induction to do and no known
+route but unique typing.  It is now "prove four residuals about β, η, δ and proof
+irrelevance", each with its own rule's premises in hand.  That is a different kind of target,
+and it is the first time this corner has produced one that is *not* a restatement of itself.
+
+---
+
 ## 5. The refutation attempt, and why it does not reach **[analysis]**
 
 The brief asks for a machine-checked negative if one exists. The one crack in the hypothesis
@@ -545,9 +708,55 @@ from the strengthening side.
 | this stream's brief | "an *in-place* enlargement is a strict regression — `uniqU_of_uniqAcross` machine-checks that the new case's obligation implies `uniqU` back" | Right conclusion, wrong reason.  The in-place enlargement is a regression because of a **cone** cost (201 → 234, and 21 → 104 under the disconnecting cuts), not because it opens a new hole — on Route A it opens none. §4A. **[machine]** |
 | `Theory/Typing/SortUniq.lean` docstring | "`SortUniq` is not a semantic consequence of Lean's rules, so no argument from any model can establish it" | The argument rules out models that also validate cumulativity, not all models. The conclusion survives because the level-tagged alternative *is* `LevelAssign`, refuted unguarded. §5.1. **[analysis]** |
 
+### 7.1 Corrections from the later 2026-08-30 session **[machine]**
+
+| source | claim | correction |
+|---|---|---|
+| `Theory/Typing/RetypeCase.lean` and §4A.4 of this document | the `hasType'` `retype` case is `HasTypeStrong.retype`, and "the conversion premise is not needed and is not taken" | The case **carries** `IsDefEqStrong Γ e₁ e₂ A`.  Not taking it leaves a statement with nothing to induct on, at least as strong as the case (the converse implication is not known).  With it, the case is proved with no `PiInvStratApp` and no `VEnv.WF`: `IsDefEqStrong.retypes`.  §4B. |
+| this stream's brief, and §1.2 | "**Four of `Injectivity.lean`'s six holes have zero users.**  Do not spend time on them" | **Stale.**  `scripts/sorry-census.lean` on this commit: `sort_forallE_inv` **8**, `const_sort_inv` **1**, `const_forallE_inv` **1**, `const_app_inv` **1**.  Still small, still the lowest-value targets in the file, but no longer dead. |
+| this stream's brief | `forallE_inv_stratified` has 238 transitive users; `weakN_iff` 169 | Census on this commit: `forallE_inv_stratified` **345**, `weakN_iff` **100**, `forallE_inv` **98**, `NormalEq.descend` **40**.  The tree moved under both numbers; quote the census, not the brief. |
+| §1.2 | `forallE_inv` has 65 users in the `Verify/Bridge.lean` closure | **13** on this commit with internal names skipped.  §1.2's table was measured with internal names *included*; the two conventions differ by a large factor and the table's header says so — but the two numbers have been quoted side by side in briefs, and they are not comparable. |
+
+TOTAL declarations directly containing `sorryAx`: **19**, unchanged.  `scripts/dup-names.lean`:
+*no duplicate `Lean4Lean` declarations across the joined cone* — both re-run at the end of the
+later session, and both now run clean (§8's note that they were blocked by a red
+`ChurchRosser.lean` no longer applies).
+
 ---
 
 ## 8. What to pick up first
+
+*(rewritten by the later 2026-08-30 session; the earlier list is kept below it where it still
+holds)*
+
+1. **The four residuals of `Theory/Typing/RetypeAdmissible.lean`.**  `ProofRetype` is the
+   interesting one: *`p : Prop`, `h : p`, `h' : p`, `h : X` ⊢ `h ≡ h' : X`* — unique typing
+   restricted to **proofs**.  It is the only one of the four that is not obviously
+   normalisation content, and it is the only place in this corner where the target is a
+   statement about `proofIrrel` rather than about Π-types.  `BetaRetype`, `EtaRetype` and
+   `ExtraRetype` are the normalisation half in a localised form: each needs the type of one
+   redex (`.app (.lam A e) e'`, an η-expansion, a `df.lhs` instance) pinned against the type
+   its own rule is indexed at.
+2. **Do not re-attack the circle from inside `Injectivity.lean`** (unchanged, see below).
+3. **Do not restate the `hasType'` case without its conversion premise.**  That is what
+   §4A.4's open question was, and it is what made the case look unattackable.
+4. **`weakN_iff` is still the better-value target in this stream's own files**, at 100 census
+   users with an empty cone — but read §6.1's collapse-test note before writing anything.
+5. **Do not** re-attempt §4's four repairs, the lexicographic measure, the unique-typing
+   shortcut for `const_app_inv`'s level half, or any route through `ChurchRosser`.
+
+### Build and census state at the end of the later session **[machine]**
+
+`~/.elan/bin/lake build Lean4Lean.Theory.Typing.RetypeCase Lean4Lean.Theory.Typing.RetypeAdmissible`
+is green.  `scripts/sorry-census.lean`: **TOTAL 19**, unchanged from the start of the day.
+`scripts/dup-names.lean`: clean.  Every declaration in `RetypeAdmissible.lean` is checked by
+the file's own `#print axioms` block; none mentions `sorryAx`.  A whole-tree `lake build` was
+**not** run — other streams have files in flight — so "green" here is the two narrow targets
+plus the census and `dup-names` runs, which do import the wider tree.
+
+---
+
+### The earlier list from the same day, still standing where it does not conflict
 
 1. **`HasTypeStrong.retype` without `PiInvStratApp`** (§4A.4).  New this session, the only
    target in this corner that is not known to be equivalent to the corner itself, and the whole
@@ -568,13 +777,5 @@ from the strengthening side.
 5. **Do not** re-attempt §4's four repairs, the lexicographic measure, the unique-typing shortcut
    for `const_app_inv`'s level half, or any route through `ChurchRosser`.
 
-### Build and census state when this section was written **[machine]**
 
-`~/.elan/bin/lake build Lean4Lean.Theory.Typing.RetypeCase` is green.
-`scripts/sorry-census.lean` at session start: **TOTAL 19**, `forallE_inv_stratified` 238
-transitive users.  Re-running it at session end is **blocked**: `Theory/Typing/ChurchRosser.lean`
-is another stream's in-flight edit and is red (`Alternative 'keta' has not been provided`, line
-2240), and the census imports it through `Experimental.ConeJoin`.  Nothing in this session adds
-a `sorry`: every declaration in `RetypeCase.lean` is checked by the file's own `#print axioms`
-block and none mentions `sorryAx`.  `scripts/dup-names.lean` is blocked by the same red file; the
-six new names were checked against the tree by hand and none collides.
+(Item 1 of that list is answered by §4B; item 3's pricing warning still applies.)

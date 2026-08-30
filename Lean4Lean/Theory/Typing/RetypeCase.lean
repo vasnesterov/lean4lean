@@ -36,6 +36,9 @@ declaration *values* (theorem bodies included, `allowOpaque := true`), internal 
 | `IsDefEqStrong.hasType'` | **232** |
 | union of the two | 234 |
 
+(Re-measured on the 2026-08-30 commit, same instrument and scope: 209 / 240 / 242, and
+`IsDefEq.strong` 243.  The tree grew; the **33-declaration difference is unchanged**.)
+
 (The census reports 238 for `forallE_inv_stratified` rather than 201 because it imports
 `Experimental.ConeJoin`, a wider scope; the *difference* between the two rows is what matters
 and it is stable across both scopes.)  **33 declarations reach `hasType'` without reaching
@@ -80,14 +83,24 @@ shape — its premise is a derivation of a *different* term — so `n₂` cannot
 the case's obligation is the invariant at the undecremented index.  Every other constructor of
 `HasTypeStratified` is subject-directed; `retype` is the only one that is not.
 
-## What would change the verdict  **[open]**
+## What would change the verdict  **[SUPERSEDED — see `Theory/Typing/RetypeAdmissible.lean`]**
 
-Is `HasTypeStrong.retype` provable **without** `PiInvStratApp`?  If it is, Route A is free and
-the 254 → 287 regression above evaporates, and with it the last obstacle to the in-place
-enlargement.  No such proof was found here.  The statement does **not** collapse — instantiating
-`e₂ := e₁` makes it trivial, so it does not imply `uniq` back the way `RetypeCaseCore` does —
-so it is not refuted either.  That is the one open question in this file, and it is the thing
-to attack first.
+The question this section left open was: *is `HasTypeStrong.retype` provable without
+`PiInvStratApp`?*  **That question is not the one Route A asks.**  `HasTypeStrong.retype`
+below deliberately drops the conversion premise `IsDefEqStrong Γ e₁ e₂ A`, on the ground that
+its proof (through `uniqAux`) does not need it — but the `hasType'` case **carries** that
+premise, and dropping it leaves a statement with nothing to induct on, at least as strong as
+the case (the converse implication is not known).  With the
+premise kept, the case is proved in `Theory/Typing/RetypeAdmissible.lean`
+(`IsDefEqStrong.retypes`, `HasTypeStrong.retype_of_conv`) with **no `PiInvStratApp`, no
+`VEnv.WF`, and no member of the injectivity family** — by induction on the conversion, free
+for nine of `IsDefEqStrong`'s thirteen rules, residual on the four *computation* rules
+(`beta`, `eta`, `proofIrrel`, `extra`).  See that file for the residuals, their pricing, and
+the caveat about the simultaneous induction the enlarged judgment would need.
+
+The two facts recorded here about `HasTypeStrong.retype` still stand and are still worth
+having: it does not collapse (instantiating `e₂ := e₁` is trivial), and it is semantically
+weaker than unique typing.  They now describe a statement that is *stronger than necessary*.
 
 ## Axioms
 
