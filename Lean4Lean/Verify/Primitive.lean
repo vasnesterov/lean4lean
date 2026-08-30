@@ -1059,7 +1059,7 @@ theorem reflects_fuel_go (henv : env.WF)
         (if b ≤ x then
             wrap (VExpr.app5 GO (.natLit b) hy (.natLit f) (.natLit (x - b)) (K b f x hy h))
           else base x))
-    (hK : ∀ b f x hy h, Ok b hy (f+1) x h → Ok b hy f (x - b) (K b f x hy h))
+    (hK : ∀ b f x hy h, Ok b hy (f+1) x h → b ≤ x → Ok b hy f (x - b) (K b f x hy h))
     (hwrap : ∀ (n : Nat) (u : VExpr), env.IsDefEqU 0 [] u (.natLit n) →
       env.IsDefEqU 0 [] (wrap u) (.natLit (w n)))
     (hrec : ∀ x b : Nat, 1 ≤ b → b ≤ x → sem x b = w (sem (x - b) b))
@@ -1077,7 +1077,7 @@ theorem reflects_fuel_go (henv : env.WF)
     refine IsDefEqU.trans henv trivial e1 (IsDefEqU.trans henv trivial e2 ?_)
     by_cases hbx : b ≤ x
     · rw [if_pos hbx, hrec x b hb hbx]
-      exact hwrap _ _ (ih (x - b) b hb (by omega) hy _ (hK b f x hy h hok))
+      exact hwrap _ _ (ih (x - b) b hb (by omega) hy _ (hK b f x hy h hok hbx))
     · have hw : VExpr.WF env 0 [] (base x) := by rw [if_neg hbx] at e2; exact e2.wf_r
       rw [if_neg hbx]
       rw [hbase x b hb hbx] at hw ⊢
@@ -1105,7 +1105,7 @@ theorem reflects_fuel_mod (henv : env.WF)
         (if b ≤ x then
             VExpr.app5 GO (.natLit b) hy (.natLit f) (.natLit (x - b)) (K b f x hy h)
           else .natLit x))
-    (hK : ∀ b f x hy h, Ok b hy (f+1) x h → Ok b hy f (x - b) (K b f x hy h)) :
+    (hK : ∀ b f x hy h, Ok b hy (f+1) x h → b ≤ x → Ok b hy f (x - b) (K b f x hy h)) :
     ∀ (f x b : Nat), 1 ≤ b → x < f → ∀ hy h, Ok b hy f x h →
       env.IsDefEqU 0 [] (VExpr.app5 GO (.natLit b) hy (.natLit f) (.natLit x) h)
         (.natLit (x % b)) :=
@@ -1131,7 +1131,7 @@ theorem reflects_fuel_div (henv : env.WF) (hprim : env.HasPrimitives)
             .app .natSucc
               (VExpr.app5 GO (.natLit b) hy (.natLit f) (.natLit (x - b)) (K b f x hy h))
           else .natLit 0))
-    (hK : ∀ b f x hy h, Ok b hy (f+1) x h → Ok b hy f (x - b) (K b f x hy h)) :
+    (hK : ∀ b f x hy h, Ok b hy (f+1) x h → b ≤ x → Ok b hy f (x - b) (K b f x hy h)) :
     ∀ (f x b : Nat), 1 ≤ b → x < f → ∀ hy h, Ok b hy f x h →
       env.IsDefEqU 0 [] (VExpr.app5 GO (.natLit b) hy (.natLit f) (.natLit x) h)
         (.natLit (x / b)) :=
@@ -4079,3 +4079,1044 @@ theorem NatFacts.isType0 (h : NatFacts c) (hnil : c.vlctx = []) (hlp : c.lparams
     show c.lparams.length = 0 by rw [hlp]; rfl] at this
 
 end TypeChecker
+
+/-! ## The `Nat.mod` branch: from the two checked equations to `VEnv.ReflectsNatNatNat`
+
+`docs/handoff-primitive.md` §7.1.  The recognizer checks two equations under
+`withCheckedLocalDecl` binders, and both right-hand sides mention constants whose types
+`VEnv.HasPrimitives` does not pin (`Not`, `Nat.lt_succ_self`, `Nat.div_rec_fuel_lemma`), so
+neither translation can be *built* -- only read off the successful check and inverted.  The two
+inversions below pin everything that the abstract statements consume and leave exactly the
+unpinnable proof terms abstract (`EA1`/`LT1`, `EA2`/`K2`).
+
+The conditional heads are pinned **syntactically** rather than by uniqueness: `@ite.{1} Nat`
+and `@dite.{1} Nat` are built from constants alone, so `trExprS_const_inv'` determines their
+translation at every `VLCtx`, and no `TrExprS.unique` side condition (hence no `IsUnique`
+vacuity risk) is incurred for them. -/
+
+/-- `@ite.{1} Nat`, the head `Condition.ite` builds at result type `Nat`. -/
+def VExpr.iteNat : VExpr := .app (.const ``ite [.succ .zero]) .nat
+
+/-- `@dite.{1} Nat`, the head `Condition.dite` always builds. -/
+def VExpr.diteNat : VExpr := .app (.const ``dite [.succ .zero]) .nat
+
+theorem trExprS_iteNat_inv' {env : VEnv} {Us Δ} {e' : VExpr}
+    (h : TrExprS env Us Δ (Lean.mkApp (.const ``ite [.succ .zero]) (.const ``Nat [])) e') :
+    e' = .iteNat := by
+  obtain ⟨_, _, rfl, h1, h2⟩ := trExprS_app_inv' h
+  cases trExprS_const_inv' h1 (us' := [.succ .zero]) rfl
+  cases trExprS_const_nil_inv' h2
+  rfl
+
+theorem trExprS_diteNat_inv' {env : VEnv} {Us Δ} {e' : VExpr}
+    (h : TrExprS env Us Δ (Lean.mkApp (.const ``dite [.succ .zero]) (.const ``Nat [])) e') :
+    e' = .diteNat := by
+  obtain ⟨_, _, rfl, h1, h2⟩ := trExprS_app_inv' h
+  cases trExprS_const_inv' h1 (us' := [.succ .zero]) rfl
+  cases trExprS_const_nil_inv' h2
+  rfl
+
+/-- Weakening past one anonymous `.vlam` entry, **lifting** the abstract term.  The closed
+variant is `trExprS_weakBV0`; this is the one that carries a *bound variable's* translation
+under the λ that `Condition.dite` wraps each of its branches in. -/
+theorem trExprS_liftBV0 {env : VEnv} {Us} {Δ : VLCtx} {A : VExpr} {e : Expr} {e' : VExpr}
+    (henv : env.Ordered) (h : TrExprS env Us Δ e e') (hb : e.looseBVarRange' = 0) :
+    TrExprS env Us ((none, .vlam A) :: Δ) e e'.lift := by
+  have := h.weakBV henv (Δ' := (none, .vlam A) :: Δ) (.skip (.vlam A) .refl)
+  rwa [Expr.liftLooseBVars_eq_self (by simp [hb])] at this
+
+/-- `TrExprS.bvar` and `TrExprS.fvar` both read a deterministic `VLCtx.find?`, so a free
+variable's translation is pinned outright. -/
+theorem trExprS_fvar_uniq {env : VEnv} {Us Δ} {fv : FVarId} {e₁ e₂ : VExpr}
+    (h1 : TrExprS env Us Δ (.fvar fv) e₁) (h2 : TrExprS env Us Δ (.fvar fv) e₂) : e₁ = e₂ :=
+  TrExprS.unique (e := .fvar fv) trivial h1 h2
+
+theorem trExprS_succFvar_inv' {env : VEnv} {Us} {Δ : VLCtx} {fv : FVarId} {X u : VExpr}
+    (hX : TrExprS env Us Δ (.fvar fv) X)
+    (hu : TrExprS env Us Δ (.app (.const ``Nat.succ []) (.fvar fv)) u) :
+    u = .app .natSucc X := by
+  obtain ⟨_, _, rfl, s1, s2⟩ := trExprS_app_inv' hu
+  cases trExprS_const_nil_inv' s1
+  cases trExprS_fvar_uniq s2 hX
+  rfl
+
+open Lean4Lean.Environment in
+/-- **The `Nat.mod` branch's first equation, right-hand side.**  Everything the reflection
+consumes is pinned; the two proof terms the recognizer never constrains -- the `Not`-typed
+binder of the `else` branch and the `Nat.lt_succ_self` witness -- stay abstract. -/
+theorem trExprS_modEq1_inv' {env : VEnv} {Us} {Δ : VLCtx} {idx idy : FVarId}
+    {X Y e' : VExpr} (henv : env.Ordered)
+    (hx : TrExprS env Us Δ (.fvar idx) X) (hy : TrExprS env Us Δ (.fvar idy) Y)
+    (h : TrExprS env Us Δ (Condition.natLE.ite (.const ``Nat [])
+        #[.fvar idy, .app (.const ``Nat.succ []) (.fvar idx)]
+        (Condition.natLE.dite
+          #[.app (.const ``Nat.succ []) (.const ``Nat.zero []), .fvar idy]
+          (Lean.mkApp5 (.const ``Nat.modCore.go []) (.fvar idy) (.bvar 0)
+            (.app (.const ``Nat.succ []) (.app (.const ``Nat.succ []) (.fvar idx)))
+            (.app (.const ``Nat.succ []) (.fvar idx))
+            (.app (.const ``Nat.lt_succ_self []) (.app (.const ``Nat.succ []) (.fvar idx))))
+          (.app (.const ``Nat.succ []) (.fvar idx)))
+        (.app (.const ``Nat.succ []) (.fvar idx))) e') :
+    ∃ EA LT, e' = VExpr.condApp .iteNat (.natLEApp Y (.app .natSucc X))
+      (.app (.app (.const ``Nat.decLe []) Y) (.app .natSucc X))
+      (VExpr.condApp .diteNat (.natLEApp (.natLit 1) Y)
+        (.app (.app (.const ``Nat.decLe []) (.natLit 1)) Y)
+        (.lam (.natLEApp (.natLit 1) Y)
+          (VExpr.app5 (.const ``Nat.modCore.go []) Y.lift (.bvar 0)
+            (.app .natSucc (.app .natSucc X.lift)) (.app .natSucc X.lift) LT))
+        (.lam EA (.app .natSucc X.lift)))
+      (.app .natSucc X) := by
+  simp only [Condition.ite, Condition.dite, Condition.natLE, Lean.Expr.lam0,
+    Lean.mkApp5, Lean.mkApp4, Lean.mkAppN] at h
+  obtain ⟨_, _, rfl, a1, aE⟩ := trExprS_app_inv' h
+  obtain ⟨_, _, rfl, a2, aT⟩ := trExprS_app_inv' a1
+  obtain ⟨_, _, rfl, a3, aD⟩ := trExprS_app_inv' a2
+  obtain ⟨_, _, rfl, a4, aP⟩ := trExprS_app_inv' a3
+  cases trExprS_iteNat_inv' a4
+  cases trExprS_succFvar_inv' hx aE
+  obtain ⟨_, _, rfl, p1, p2⟩ := trExprS_app_inv' aP
+  obtain ⟨_, _, rfl, p3, p4⟩ := trExprS_app_inv' p1
+  cases trExprS_natLE_inv' p3
+  cases trExprS_fvar_uniq p4 hy
+  cases trExprS_succFvar_inv' hx p2
+  obtain ⟨_, _, rfl, d1, d2⟩ := trExprS_app_inv' aD
+  obtain ⟨_, _, rfl, d3, d4⟩ := trExprS_app_inv' d1
+  cases trExprS_const_nil_inv' d3
+  cases trExprS_fvar_uniq d4 hy
+  cases trExprS_succFvar_inv' hx d2
+  obtain ⟨_, _, rfl, b1, bE⟩ := trExprS_app_inv' aT
+  obtain ⟨_, _, rfl, b2, bT⟩ := trExprS_app_inv' b1
+  obtain ⟨_, _, rfl, b3, bD⟩ := trExprS_app_inv' b2
+  obtain ⟨_, _, rfl, b4, bP⟩ := trExprS_app_inv' b3
+  cases trExprS_diteNat_inv' b4
+  obtain ⟨_, _, rfl, q1, q2⟩ := trExprS_app_inv' bP
+  obtain ⟨_, _, rfl, q3, q4⟩ := trExprS_app_inv' q1
+  cases trExprS_natLE_inv' q3
+  cases trExprS_one_inv' q4
+  cases trExprS_fvar_uniq q2 hy
+  obtain ⟨_, _, rfl, e1, e2⟩ := trExprS_app_inv' bD
+  obtain ⟨_, _, rfl, e3, e4⟩ := trExprS_app_inv' e1
+  cases trExprS_const_nil_inv' e3
+  cases trExprS_one_inv' e4
+  cases trExprS_fvar_uniq e2 hy
+  obtain ⟨_, _, rfl, t1, t2⟩ := trExprS_lam_inv' bT
+  obtain ⟨_, _, rfl, u1, u2⟩ := trExprS_app_inv' t1
+  obtain ⟨_, _, rfl, u3, u4⟩ := trExprS_app_inv' u1
+  cases trExprS_natLE_inv' u3
+  cases trExprS_one_inv' u4
+  cases trExprS_fvar_uniq u2 hy
+  obtain ⟨_, _, rfl, w1, w5⟩ := trExprS_app_inv' t2
+  obtain ⟨_, _, rfl, w2, w4⟩ := trExprS_app_inv' w1
+  obtain ⟨_, _, rfl, w3, w3'⟩ := trExprS_app_inv' w2
+  obtain ⟨_, _, rfl, w6, w7⟩ := trExprS_app_inv' w3
+  obtain ⟨_, _, rfl, w8, w9⟩ := trExprS_app_inv' w6
+  cases trExprS_const_nil_inv' w8
+  cases trExprS_fvar_uniq w9 (trExprS_liftBV0 henv hy rfl)
+  cases trExprS_bvar0_inv' w7
+  cases trExprS_succFvar_inv' (trExprS_liftBV0 henv hx rfl) w4
+  obtain ⟨_, _, rfl, y1, y2⟩ := trExprS_app_inv' w3'
+  cases trExprS_const_nil_inv' y1
+  cases trExprS_succFvar_inv' (trExprS_liftBV0 henv hx rfl) y2
+  obtain ⟨_, _, rfl, z1, z2⟩ := trExprS_lam_inv' bE
+  cases trExprS_succFvar_inv' (trExprS_liftBV0 henv hx rfl) z2
+  exact ⟨_, _, rfl⟩
+
+open Lean4Lean.Environment in
+/-- **The `go` equation's right-hand side.**  Parametrised by the recursion's constant name, so
+that `Nat.div`'s branch reuses it. -/
+theorem trExprS_modEq2_inv' {env : VEnv} {Us} {Δ : VLCtx} {gonm : Name}
+    {idx idy idhy idf : FVarId} {kexpr : Expr}
+    {X Y HY FU e' : VExpr} (henv : env.Ordered)
+    (hx : TrExprS env Us Δ (.fvar idx) X) (hy : TrExprS env Us Δ (.fvar idy) Y)
+    (hhy : TrExprS env Us Δ (.fvar idhy) HY) (hf : TrExprS env Us Δ (.fvar idf) FU)
+    (h : TrExprS env Us Δ (Condition.natLE.dite #[.fvar idy, .fvar idx]
+      (Lean.mkApp5 (.const gonm []) (.fvar idy) (.fvar idhy) (.fvar idf)
+        (Lean.mkApp2 (.const ``Nat.sub []) (.fvar idx) (.fvar idy)) kexpr)
+      (.fvar idx)) e') :
+    ∃ EA K, e' = VExpr.condApp .diteNat (.natLEApp Y X)
+      (.app (.app (.const ``Nat.decLe []) Y) X)
+      (.lam (.natLEApp Y X)
+        (VExpr.app5 (.const gonm []) Y.lift HY.lift FU.lift
+          (.app (.app (.const ``Nat.sub []) X.lift) Y.lift) K))
+      (.lam EA X.lift) := by
+  simp only [Condition.dite, Condition.natLE, Lean.Expr.lam0,
+    Lean.mkApp5, Lean.mkApp4, Lean.mkApp2, Lean.mkAppN] at h
+  obtain ⟨_, _, rfl, b1, bE⟩ := trExprS_app_inv' h
+  obtain ⟨_, _, rfl, b2, bT⟩ := trExprS_app_inv' b1
+  obtain ⟨_, _, rfl, b3, bD⟩ := trExprS_app_inv' b2
+  obtain ⟨_, _, rfl, b4, bP⟩ := trExprS_app_inv' b3
+  cases trExprS_diteNat_inv' b4
+  obtain ⟨_, _, rfl, q1, q2⟩ := trExprS_app_inv' bP
+  obtain ⟨_, _, rfl, q3, q4⟩ := trExprS_app_inv' q1
+  cases trExprS_natLE_inv' q3
+  cases trExprS_fvar_uniq q4 hy
+  cases trExprS_fvar_uniq q2 hx
+  obtain ⟨_, _, rfl, e1, e2⟩ := trExprS_app_inv' bD
+  obtain ⟨_, _, rfl, e3, e4⟩ := trExprS_app_inv' e1
+  cases trExprS_const_nil_inv' e3
+  cases trExprS_fvar_uniq e4 hy
+  cases trExprS_fvar_uniq e2 hx
+  obtain ⟨_, _, rfl, t1, t2⟩ := trExprS_lam_inv' bT
+  obtain ⟨_, _, rfl, u1, u2⟩ := trExprS_app_inv' t1
+  obtain ⟨_, _, rfl, u3, u4⟩ := trExprS_app_inv' u1
+  cases trExprS_natLE_inv' u3
+  cases trExprS_fvar_uniq u4 hy
+  cases trExprS_fvar_uniq u2 hx
+  obtain ⟨_, _, rfl, w1, w5⟩ := trExprS_app_inv' t2
+  obtain ⟨_, _, rfl, w2, w4⟩ := trExprS_app_inv' w1
+  obtain ⟨_, _, rfl, w3, w3'⟩ := trExprS_app_inv' w2
+  obtain ⟨_, _, rfl, w6, w7⟩ := trExprS_app_inv' w3
+  obtain ⟨_, _, rfl, w8, w9⟩ := trExprS_app_inv' w6
+  cases trExprS_const_nil_inv' w8
+  cases trExprS_fvar_uniq w9 (trExprS_liftBV0 henv hy rfl)
+  cases trExprS_fvar_uniq w7 (trExprS_liftBV0 henv hhy rfl)
+  cases trExprS_fvar_uniq w3' (trExprS_liftBV0 henv hf rfl)
+  obtain ⟨_, _, rfl, y1, y2⟩ := trExprS_app_inv' w4
+  obtain ⟨_, _, rfl, y3, y4⟩ := trExprS_app_inv' y1
+  cases trExprS_const_nil_inv' y3
+  cases trExprS_fvar_uniq y4 (trExprS_liftBV0 henv hx rfl)
+  cases trExprS_fvar_uniq y2 (trExprS_liftBV0 henv hy rfl)
+  obtain ⟨_, _, rfl, z1, z2⟩ := trExprS_lam_inv' bE
+  cases trExprS_fvar_uniq z2 (trExprS_liftBV0 henv hx rfl)
+  exact ⟨_, _, rfl⟩
+
+namespace TypeChecker
+variable {c : VContext}
+
+theorem primitives_natSub : Environment.primitives.contains ``Nat.sub = true := by
+  simpa using primitives_contains_iff.2 (by simp)
+
+/-- A `Nat.modCore.go` / `Nat.div.go` application in the recognizer's telescope shape, built
+from the declared type `checkedTypeIs` pins. -/
+theorem trExprS_goApp {ge : Expr} {GO Y HY FU X H : VExpr} {ye hye fe xe he : Expr}
+    (hGO : c.TrExprS ge GO) (hGOty : c.HasType GO .goType)
+    (hy : c.TrExprS ye Y) (hyty : c.HasType Y .nat)
+    (hhy : c.TrExprS hye HY) (hhyty : c.HasType HY (.natLEApp (.natLit 1) Y))
+    (hf : c.TrExprS fe FU) (hfty : c.HasType FU .nat)
+    (hx : c.TrExprS xe X) (hxty : c.HasType X .nat)
+    (hh : c.TrExprS he H) (hhty : c.HasType H (.natLEApp (.app .natSucc X) FU)) :
+    c.TrExprS (mkApp5 ge ye hye fe xe he) (VExpr.app5 GO Y HY FU X H) ∧
+      c.HasType (VExpr.app5 GO Y HY FU X H) .nat := by
+  refine trExprS_app5 hGO (A₁ := .nat) (by exact hGOty) hy hyty (B₂ :=
+      .forallE .nat (.forallE .nat
+        (.forallE (.natLEApp (.app .natSucc (.bvar 0)) (.bvar 1)) .nat)))
+    ?_ hhy hhyty (B₃ :=
+      .forallE .nat (.forallE (.natLEApp (.app .natSucc (.bvar 0)) (.bvar 1)) .nat)) ?_
+    hf hfty (B₄ := .forallE (.natLEApp (.app .natSucc (.bvar 0)) FU.lift) .nat) ?_
+    hx hxty (A₅ := .natLEApp (.app .natSucc X) FU) (B₅ := .nat) ?_ hh hhty ?_
+  · simp [VExpr.inst, VExpr.instVar, VExpr.natLEApp, VExpr.natLE]
+  · simp [VExpr.inst, VExpr.instVar, VExpr.natLEApp, VExpr.natLE]
+  · simp [VExpr.inst, VExpr.instVar, VExpr.natLEApp, VExpr.natLE]
+  · simp [VExpr.inst, VExpr.instVar, VExpr.natLEApp, VExpr.natLE, VExpr.inst_lift]
+  · rfl
+
+end TypeChecker
+
+namespace VEnv
+variable {env : VEnv}
+
+/-- β at a well-typed redex, with no typing supplied by the caller: the redex's own
+well-typedness gives the argument's declared domain through `VExpr.WF.app_arg_typed`. -/
+theorem IsDefEqU.beta_wf (henv : env.WF) {A body arg : VExpr}
+    (h : VExpr.WF env 0 [] (.app (.lam A body) arg)) :
+    env.IsDefEqU 0 [] (.app (.lam A body) arg) (body.inst arg) := by
+  obtain ⟨_, hlam⟩ := h.app_fn' henv
+  obtain ⟨⟨_, hA⟩, T, hbody⟩ := VEnv.HasType.lam_inv henv.ordered trivial hlam
+  have hlamty : env.HasType 0 [] (.lam A body) (.forallE A T) := .lam hA hbody
+  exact IsDefEqU.beta' hbody (VExpr.WF.app_arg_typed henv hlamty h)
+
+/-- Replace the *first* of two arguments, with the head's Pi-type known.  This is what turns
+`Nat.sub x y` into the numeral `x - y` in the recursive call, where the *second* argument's
+type depends on the first. -/
+theorem IsDefEqU.app2_congr_arg1' (henv : env.WF) {f a a' b A B C : VExpr}
+    (hf : env.HasType 0 [] f (.forallE A (.forallE B C)))
+    (ha : env.HasType 0 [] a A) (haa : env.IsDefEqU 0 [] a a')
+    (hb : env.HasType 0 [] b (B.inst a)) :
+    env.IsDefEqU 0 [] (.app (.app f a) b) (.app (.app f a') b) :=
+  ⟨_, .appDF (.appDF hf (haa.of_l henv trivial ha)) hb⟩
+
+/-- The `go` telescope applied to its first three arguments. -/
+theorem goApp3_typed (hlit : env.NatLits) {GO hy : VExpr} {b f : Nat}
+    (hGO : env.HasType 0 [] GO .goType)
+    (hhy : env.HasType 0 [] hy (.natLEApp (.natLit 1) (.natLit b))) :
+    env.HasType 0 [] (((GO.app (.natLit b)).app hy).app (.natLit f))
+      (.forallE .nat (.forallE (.natLEApp (.app .natSucc (.bvar 0)) (.natLit f)) .nat)) := by
+  have g1 : env.HasType 0 [] (GO.app (.natLit b))
+      (.forallE (.natLEApp (.natLit 1) (.natLit b))
+        (.forallE .nat (.forallE .nat (.forallE (.natLEApp (.app .natSucc (.bvar 0)) (.bvar 1))
+          .nat)))) := by
+    have := hGO.app (hlit b)
+    simpa [VExpr.goType, VExpr.inst, VExpr.instVar, VExpr.natLEApp, VExpr.natLE,
+      VExpr.liftN, Lean4Lean.liftVar] using this
+  have g2 : env.HasType 0 [] ((GO.app (.natLit b)).app hy)
+      (.forallE .nat (.forallE .nat (.forallE (.natLEApp (.app .natSucc (.bvar 0)) (.bvar 1))
+        .nat))) := by
+    have := g1.app hhy
+    simpa [VExpr.inst, VExpr.instVar, VExpr.natLEApp, VExpr.natLE, VExpr.liftN,
+      Lean4Lean.liftVar] using this
+  have := g2.app (hlit f)
+  simpa [VExpr.inst, VExpr.instVar, VExpr.natLEApp, VExpr.natLE, VExpr.liftN,
+    Lean4Lean.liftVar, (VExpr.closedN_natLit f).liftN_eq (Nat.zero_le 0)] using this
+
+/-- The fuel proof of a `go` application, typed, with the numerator slot left abstract -- the
+form the `Nat.sub` congruence needs it in. -/
+theorem goApp5_typed (henv : env.WF) (hlit : env.NatLits) {GO hy u h : VExpr} {b f : Nat}
+    (hGO : env.HasType 0 [] GO .goType)
+    (hhy : env.HasType 0 [] hy (.natLEApp (.natLit 1) (.natLit b)))
+    (hu : env.HasType 0 [] u .nat)
+    (hwf : VExpr.WF env 0 [] (VExpr.app5 GO (.natLit b) hy (.natLit f) u h)) :
+    env.HasType 0 [] h (.natLEApp (.app .natSucc u) (.natLit f)) ∧
+      env.HasType 0 [] (VExpr.app5 GO (.natLit b) hy (.natLit f) u h) .nat := by
+  have g3 := goApp3_typed hlit hGO hhy (f := f)
+  have g4 : env.HasType 0 [] ((((GO.app (.natLit b)).app hy).app (.natLit f)).app u)
+      (.forallE (.natLEApp (.app .natSucc u) (.natLit f)) .nat) := by
+    have := g3.app hu
+    simpa [VExpr.inst, VExpr.instVar, VExpr.natLEApp, VExpr.natLE, VExpr.liftN,
+      Lean4Lean.liftVar, (VExpr.closedN_natLit f).liftN_eq (Nat.zero_le 0)] using this
+  have th := VExpr.WF.app_arg_typed henv g4 hwf
+  refine ⟨th, ?_⟩
+  have := g4.app th
+  simpa [VExpr.inst, VExpr.app5] using this
+
+/-- **The five arguments of a `go` application at numerals, typed at the telescope's declared
+domains.**  The `1 ≤ b` slot is recovered here rather than assumed: at the `Nat.mod` branch's
+first equation the term in that slot is `r.ofTrue` applied to the decision proof, whose type
+nothing in the abstract statement pins. -/
+theorem goApp_typed (henv : env.WF) (hlit : env.NatLits) {GO hy h : VExpr} {b f x : Nat}
+    (hGO : env.HasType 0 [] GO .goType)
+    (hwf : VExpr.WF env 0 [] (VExpr.app5 GO (.natLit b) hy (.natLit f) (.natLit x) h)) :
+    env.HasType 0 [] hy (.natLEApp (.natLit 1) (.natLit b)) ∧
+      env.HasType 0 [] h (.natLEApp (.natLit (x+1)) (.natLit f)) ∧
+      env.HasType 0 [] (VExpr.app5 GO (.natLit b) hy (.natLit f) (.natLit x) h) .nat := by
+  have w2 : VExpr.WF env 0 [] ((GO.app (.natLit b)).app hy) :=
+    ((hwf.app_fn' henv).app_fn' henv).app_fn' henv
+  have g1 : env.HasType 0 [] (GO.app (.natLit b))
+      (.forallE (.natLEApp (.natLit 1) (.natLit b))
+        (.forallE .nat (.forallE .nat (.forallE (.natLEApp (.app .natSucc (.bvar 0)) (.bvar 1))
+          .nat)))) := by
+    have := hGO.app (hlit b)
+    simpa [VExpr.goType, VExpr.inst, VExpr.instVar, VExpr.natLEApp, VExpr.natLE,
+      VExpr.liftN, Lean4Lean.liftVar] using this
+  have thy := VExpr.WF.app_arg_typed henv g1 w2
+  obtain ⟨th, hty⟩ := goApp5_typed henv hlit hGO thy (hlit x) hwf
+  exact ⟨thy, th, hty⟩
+
+/-- The five-binder context the `go` equation is checked in: `x`, `y`, `hy : 1 ≤ y`, `fuel`,
+`h : x+1 ≤ fuel+1`. -/
+def goCtx : List VExpr :=
+  [.natLEApp (.app .natSucc (.bvar 3)) (.app .natSucc (.bvar 0)), .nat,
+   .natLEApp (.natLit 1) (.bvar 0), .nat, .nat]
+
+/-- Instantiate an equation proved in `goCtx`.  The two proof binders are substituted by terms
+the caller supplies together with their typings; nothing else about them is needed. -/
+theorem IsDefEqU.instGo5 (henv : env.WF) (hlit : env.NatLits) {e₁ e₂ : VExpr}
+    (H : env.IsDefEqU 0 goCtx e₁ e₂) (x b f : Nat) {hy h : VExpr}
+    (hhy : env.HasType 0 [] hy (.natLEApp (.natLit 1) (.natLit b)))
+    (hh : env.HasType 0 [] h (.natLEApp (.natLit (x+1)) (.natLit (f+1)))) :
+    env.IsDefEqU 0 []
+      (((((e₁.inst (.natLit x) 4).inst (.natLit b) 3).inst hy 2).inst (.natLit f) 1).inst h)
+      (((((e₂.inst (.natLit x) 4).inst (.natLit b) 3).inst hy 2).inst (.natLit f) 1).inst h) := by
+  have s1 : env.IsDefEqU 0
+      [.natLEApp (.app .natSucc (.natLit x)) (.app .natSucc (.bvar 0)), .nat,
+       .natLEApp (.natLit 1) (.bvar 0), .nat]
+      (e₁.inst (.natLit x) 4) (e₂.inst (.natLit x) 4) := by
+    have := IsDefEqU.instN (Γ₀ := []) (A₀ := .nat) (e₀ := .natLit x) henv.ordered
+      (.succ (.succ (.succ (.succ .zero)))) H (hlit x)
+    simpa [goCtx, VExpr.inst, VExpr.instVar, VExpr.natLEApp, VExpr.natLE,
+      (VExpr.closedN_natLit x).liftN_eq (Nat.zero_le 0)] using this
+  have s2 : env.IsDefEqU 0
+      [.natLEApp (.app .natSucc (.natLit x)) (.app .natSucc (.bvar 0)), .nat,
+       .natLEApp (.natLit 1) (.natLit b)]
+      ((e₁.inst (.natLit x) 4).inst (.natLit b) 3)
+      ((e₂.inst (.natLit x) 4).inst (.natLit b) 3) := by
+    have := IsDefEqU.instN (Γ₀ := []) (A₀ := .nat) (e₀ := .natLit b) henv.ordered
+      (.succ (.succ (.succ .zero))) s1 (hlit b)
+    simpa [VExpr.inst, VExpr.instVar, VExpr.natLEApp, VExpr.natLE,
+      (VExpr.closedN_natLit x).liftN_eq (Nat.zero_le 0),
+      (VExpr.closedN_natLit b).liftN_eq (Nat.zero_le 0)] using this
+  have s3 : env.IsDefEqU 0
+      [.natLEApp (.app .natSucc (.natLit x)) (.app .natSucc (.bvar 0)), .nat]
+      (((e₁.inst (.natLit x) 4).inst (.natLit b) 3).inst hy 2)
+      (((e₂.inst (.natLit x) 4).inst (.natLit b) 3).inst hy 2) := by
+    have := IsDefEqU.instN (Γ₀ := []) (A₀ := .natLEApp (.natLit 1) (.natLit b)) (e₀ := hy)
+      henv.ordered (.succ (.succ .zero)) s2 hhy
+    simpa [VExpr.inst, VExpr.instVar, VExpr.natLEApp, VExpr.natLE,
+      (VExpr.closedN_natLit x).liftN_eq (Nat.zero_le 0)] using this
+  have s4 : env.IsDefEqU 0
+      [.natLEApp (.app .natSucc (.natLit x)) (.app .natSucc (.natLit f))]
+      ((((e₁.inst (.natLit x) 4).inst (.natLit b) 3).inst hy 2).inst (.natLit f) 1)
+      ((((e₂.inst (.natLit x) 4).inst (.natLit b) 3).inst hy 2).inst (.natLit f) 1) := by
+    have := IsDefEqU.instN (Γ₀ := []) (A₀ := .nat) (e₀ := .natLit f)
+      henv.ordered (.succ .zero) s3 (hlit f)
+    simpa [VExpr.inst, VExpr.instVar, VExpr.natLEApp, VExpr.natLE,
+      (VExpr.closedN_natLit x).liftN_eq (Nat.zero_le 0),
+      (VExpr.closedN_natLit f).liftN_eq (Nat.zero_le 0)] using this
+  exact IsDefEqU.instN (Γ₀ := []) (A₀ := .natLEApp (.natLit (x+1)) (.natLit (f+1))) (e₀ := h)
+    henv.ordered .zero s4 hh
+
+/-- **The `dite` at a pair of numerals, with the selected λ β-reduced.**  `ReflectsCondAppD`
+delivers the λ *applied* to the decision proof; this is the step that gets past it, and it needs
+no typing from the caller. -/
+theorem diteNat_reduce (henv : env.WF) {FD DEC OT OF PR TA TB EA EB : VExpr} {b x : Nat}
+    (hcondD : env.ReflectsCondAppD FD .natLE DEC OT OF PR Nat.ble)
+    (hwf : VExpr.WF env 0 [] (VExpr.condApp FD (.natLEApp (.natLit b) (.natLit x))
+      (.app (.app DEC (.natLit b)) (.natLit x)) (.lam TA TB) (.lam EA EB))) :
+    env.IsDefEqU 0 []
+      (VExpr.condApp FD (.natLEApp (.natLit b) (.natLit x))
+        (.app (.app DEC (.natLit b)) (.natLit x)) (.lam TA TB) (.lam EA EB))
+      (if b ≤ x
+        then TB.inst (.app (.app OT (.natLEApp (.natLit b) (.natLit x)))
+          (.app (.app PR (.natLit b)) (.natLit x)))
+        else EB.inst (.app (.app OF (.natLEApp (.natLit b) (.natLit x)))
+          (.app (.app PR (.natLit b)) (.natLit x)))) := by
+  have key := ReflectsCondAppD.natLE_le hcondD b x _ _ hwf
+  refine IsDefEqU.trans henv trivial key ?_
+  by_cases hbx : b ≤ x
+  · simp only [if_pos hbx] at key ⊢; exact IsDefEqU.beta_wf henv key.wf_r
+  · simp only [if_neg hbx] at key ⊢; exact IsDefEqU.beta_wf henv key.wf_r
+
+/-- The first `Nat.mod` equation at a pair of numerals. -/
+theorem mod_step1 (henv : env.WF) (hlit : env.NatLits) {F GO DEC EA1 LT1 : VExpr}
+    (heq1 : env.IsDefEqU 0 [.nat, .nat]
+      (.app (.app F (.app .natSucc (.bvar 1))) (.bvar 0))
+      (VExpr.condApp .iteNat (.natLEApp (.bvar 0) (.app .natSucc (.bvar 1)))
+        (.app (.app DEC (.bvar 0)) (.app .natSucc (.bvar 1)))
+        (VExpr.condApp .diteNat (.natLEApp (.natLit 1) (.bvar 0))
+          (.app (.app DEC (.natLit 1)) (.bvar 0))
+          (.lam (.natLEApp (.natLit 1) (.bvar 0))
+            (VExpr.app5 GO (.bvar 1) (.bvar 0)
+              (.app .natSucc (.app .natSucc (.bvar 2))) (.app .natSucc (.bvar 2)) LT1))
+          (.lam EA1 (.app .natSucc (.bvar 2))))
+        (.app .natSucc (.bvar 1))))
+    (hFc : F.ClosedN 0) (hGOc : GO.ClosedN 0) (hDECc : DEC.ClosedN 0) (a b : Nat) :
+    env.IsDefEqU 0 [] (.app (.app F (.natLit (a+1))) (.natLit b))
+      (VExpr.condApp .iteNat (.natLEApp (.natLit b) (.natLit (a+1)))
+        (.app (.app DEC (.natLit b)) (.natLit (a+1)))
+        (VExpr.condApp .diteNat (.natLEApp (.natLit 1) (.natLit b))
+          (.app (.app DEC (.natLit 1)) (.natLit b))
+          (.lam (.natLEApp (.natLit 1) (.natLit b))
+            (VExpr.app5 GO (.natLit b) (.bvar 0)
+              (.natLit (a+2)) (.natLit (a+1)) ((LT1.inst (.natLit b) 1).inst (.natLit a) 1)))
+          (.lam ((EA1.inst (.natLit b)).inst (.natLit a)) (.natLit (a+1))))
+        (.natLit (a+1))) := by
+  have key := IsDefEqU.instNat2 henv hlit heq1 a b
+  simpa [VExpr.condApp, VExpr.app5, VExpr.inst, VExpr.instVar, VExpr.natLEApp, VExpr.natLE,
+    VExpr.iteNat, VExpr.diteNat, VExpr.lift, VExpr.liftN, Lean4Lean.liftVar, VExpr.natLit_succ,
+    hFc.liftN_eq (Nat.zero_le _), hFc.instN_eq (Nat.zero_le _),
+    hGOc.liftN_eq (Nat.zero_le _), hGOc.instN_eq (Nat.zero_le _),
+    hDECc.liftN_eq (Nat.zero_le _), hDECc.instN_eq (Nat.zero_le _),
+    (VExpr.closedN_natLit a).liftN_eq (Nat.zero_le _),
+    (VExpr.closedN_natLit a).instN_eq (Nat.zero_le _),
+    (VExpr.closedN_natLit b).liftN_eq (Nat.zero_le _),
+    (VExpr.closedN_natLit b).instN_eq (Nat.zero_le _)] using key
+
+/-- The `go` equation at numerals, with the two proof binders instantiated. -/
+theorem mod_step2 (henv : env.WF) (hlit : env.NatLits) {GO DEC EA2 K2 : VExpr}
+    (heq2 : env.IsDefEqU 0 goCtx
+      (VExpr.app5 GO (.bvar 3) (.bvar 2) (.app .natSucc (.bvar 1)) (.bvar 4) (.bvar 0))
+      (VExpr.condApp .diteNat (.natLEApp (.bvar 3) (.bvar 4))
+        (.app (.app DEC (.bvar 3)) (.bvar 4))
+        (.lam (.natLEApp (.bvar 3) (.bvar 4))
+          (VExpr.app5 GO (.bvar 4) (.bvar 3) (.bvar 2)
+            (.app (.app (.const ``Nat.sub []) (.bvar 5)) (.bvar 4)) K2))
+        (.lam EA2 (.bvar 5))))
+    (hGOc : GO.ClosedN 0) (hDECc : DEC.ClosedN 0)
+    (b f x : Nat) {hy h : VExpr}
+    (hhy : env.HasType 0 [] hy (.natLEApp (.natLit 1) (.natLit b)))
+    (hh : env.HasType 0 [] h (.natLEApp (.natLit (x+1)) (.natLit (f+1)))) :
+    env.IsDefEqU 0 [] (VExpr.app5 GO (.natLit b) hy (.natLit (f+1)) (.natLit x) h)
+      (VExpr.condApp .diteNat (.natLEApp (.natLit b) (.natLit x))
+        (.app (.app DEC (.natLit b)) (.natLit x))
+        (.lam (.natLEApp (.natLit b) (.natLit x))
+          (VExpr.app5 GO (.natLit b) hy (.natLit f)
+            (.app (.app (.const ``Nat.sub []) (.natLit x)) (.natLit b))
+            (((((K2.inst (.natLit x) 5).inst (.natLit b) 4).inst hy 3).inst
+              (.natLit f) 2).inst h 1)))
+        (.lam (((((EA2.inst (.natLit x) 4).inst (.natLit b) 3).inst hy 2).inst
+              (.natLit f) 1).inst h) (.natLit x))) := by
+  have hyc : hy.ClosedN 0 := VExpr.WF.closedN henv.ordered ⟨_, hhy⟩ trivial
+  have hhc : h.ClosedN 0 := VExpr.WF.closedN henv.ordered ⟨_, hh⟩ trivial
+  have key := IsDefEqU.instGo5 henv hlit heq2 x b f hhy hh
+  simpa [VExpr.condApp, VExpr.app5, VExpr.inst, VExpr.instVar, VExpr.natLEApp, VExpr.natLE,
+    VExpr.diteNat, VExpr.lift, VExpr.liftN, Lean4Lean.liftVar, VExpr.natLit_succ,
+    hyc.liftN_eq (Nat.zero_le _), hhc.liftN_eq (Nat.zero_le _),
+    hyc.instN_eq (Nat.zero_le _), hhc.instN_eq (Nat.zero_le _),
+    hGOc.liftN_eq (Nat.zero_le _), hGOc.instN_eq (Nat.zero_le _),
+    hDECc.liftN_eq (Nat.zero_le _), hDECc.instN_eq (Nat.zero_le _),
+    (VExpr.closedN_natLit x).liftN_eq (Nat.zero_le _),
+    (VExpr.closedN_natLit x).instN_eq (Nat.zero_le _),
+    (VExpr.closedN_natLit b).liftN_eq (Nat.zero_le _),
+    (VExpr.closedN_natLit b).instN_eq (Nat.zero_le _),
+    (VExpr.closedN_natLit f).liftN_eq (Nat.zero_le _),
+    (VExpr.closedN_natLit f).instN_eq (Nat.zero_le _)] using key
+
+end VEnv
+
+namespace VEnv
+variable {env : VEnv}
+
+set_option maxHeartbeats 1000000 in
+/-- **The `Nat.mod` reflection, from the two equations the recognizer checks.** -/
+theorem reflects_mod_of_equations (henv : env.WF) (hlit : env.NatLits)
+    (hprim : env.HasPrimitives) (hnat : env.contains ``Nat) (hsub : env.contains ``Nat.sub)
+    {F GO DEC OT OF PR EA1 LT1 EA2 K2 : VExpr}
+    (hFc : F.ClosedN 0) (hGOc : GO.ClosedN 0) (hDECc : DEC.ClosedN 0)
+    (hGOty : env.HasType 0 [] GO .goType)
+    (hRC : env.ReflectsCondApp .iteNat .natLE DEC Nat.ble)
+    (hRD : env.ReflectsCondAppD .diteNat .natLE DEC OT OF PR Nat.ble)
+    (h0 : env.IsDefEqU 0 [.nat] (.app (.app F .natZero) (.bvar 0)) .natZero)
+    (heq1 : env.IsDefEqU 0 [.nat, .nat]
+      (.app (.app F (.app .natSucc (.bvar 1))) (.bvar 0))
+      (VExpr.condApp .iteNat (.natLEApp (.bvar 0) (.app .natSucc (.bvar 1)))
+        (.app (.app DEC (.bvar 0)) (.app .natSucc (.bvar 1)))
+        (VExpr.condApp .diteNat (.natLEApp (.natLit 1) (.bvar 0))
+          (.app (.app DEC (.natLit 1)) (.bvar 0))
+          (.lam (.natLEApp (.natLit 1) (.bvar 0))
+            (VExpr.app5 GO (.bvar 1) (.bvar 0)
+              (.app .natSucc (.app .natSucc (.bvar 2))) (.app .natSucc (.bvar 2)) LT1))
+          (.lam EA1 (.app .natSucc (.bvar 2))))
+        (.app .natSucc (.bvar 1))))
+    (heq2 : env.IsDefEqU 0 goCtx
+      (VExpr.app5 GO (.bvar 3) (.bvar 2) (.app .natSucc (.bvar 1)) (.bvar 4) (.bvar 0))
+      (VExpr.condApp .diteNat (.natLEApp (.bvar 3) (.bvar 4))
+        (.app (.app DEC (.bvar 3)) (.bvar 4))
+        (.lam (.natLEApp (.bvar 3) (.bvar 4))
+          (VExpr.app5 GO (.bvar 4) (.bvar 3) (.bvar 2)
+            (.app (.app (.const ``Nat.sub []) (.bvar 5)) (.bvar 4)) K2))
+        (.lam EA2 (.bvar 5)))) :
+    ∀ a b : Nat, env.IsDefEqU 0 [] (.app (.app F (.natLit a)) (.natLit b))
+      (.natLit (a % b)) := by
+  have hsubR : ∀ x b : Nat, env.IsDefEqU 0 []
+      (.app (.app (.const ``Nat.sub []) (.natLit x)) (.natLit b)) (.natLit (x - b)) :=
+    hprim.natSub hsub
+  have hgo := fun (b f x : Nat) (hy h : VExpr)
+      (hok : env.HasType 0 [] hy (.natLEApp (.natLit 1) (.natLit b)) ∧
+        env.HasType 0 [] h (.natLEApp (.natLit (x+1)) (.natLit (f+1)))) =>
+    mod_step2 henv hlit heq2 hGOc hDECc b f x hok.1 hok.2
+  have hsel : ∀ (b f x : Nat) (hy h : VExpr),
+      (env.HasType 0 [] hy (.natLEApp (.natLit 1) (.natLit b)) ∧
+        env.HasType 0 [] h (.natLEApp (.natLit (x+1)) (.natLit (f+1)))) →
+      VExpr.WF env 0 [] (VExpr.condApp .diteNat (.natLEApp (.natLit b) (.natLit x))
+        (.app (.app DEC (.natLit b)) (.natLit x))
+        (.lam (.natLEApp (.natLit b) (.natLit x))
+          (VExpr.app5 GO (.natLit b) hy (.natLit f)
+            (.app (.app (.const ``Nat.sub []) (.natLit x)) (.natLit b))
+            (((((K2.inst (.natLit x) 5).inst (.natLit b) 4).inst hy 3).inst
+              (.natLit f) 2).inst h 1)))
+        (.lam (((((EA2.inst (.natLit x) 4).inst (.natLit b) 3).inst hy 2).inst
+              (.natLit f) 1).inst h) (.natLit x))) →
+      env.IsDefEqU 0 []
+        (VExpr.condApp .diteNat (.natLEApp (.natLit b) (.natLit x))
+          (.app (.app DEC (.natLit b)) (.natLit x))
+          (.lam (.natLEApp (.natLit b) (.natLit x))
+            (VExpr.app5 GO (.natLit b) hy (.natLit f)
+              (.app (.app (.const ``Nat.sub []) (.natLit x)) (.natLit b))
+              (((((K2.inst (.natLit x) 5).inst (.natLit b) 4).inst hy 3).inst
+                (.natLit f) 2).inst h 1)))
+          (.lam (((((EA2.inst (.natLit x) 4).inst (.natLit b) 3).inst hy 2).inst
+                (.natLit f) 1).inst h) (.natLit x)))
+        (if b ≤ x then
+            VExpr.app5 GO (.natLit b) hy (.natLit f) (.natLit (x - b))
+              (((((((K2.inst (.natLit x) 5).inst (.natLit b) 4).inst hy 3).inst
+                (.natLit f) 2).inst h 1).inst
+                (.app (.app OT (.natLEApp (.natLit b) (.natLit x)))
+                  (.app (.app PR (.natLit b)) (.natLit x)))))
+          else .natLit x) := by
+    intro b f x hy h hok hwf
+    obtain ⟨hhy, hh⟩ := hok
+    have hyc : hy.ClosedN 0 := VExpr.WF.closedN henv.ordered ⟨_, hhy⟩ trivial
+    have d := diteNat_reduce (OT := OT) (OF := OF) (PR := PR) henv hRD hwf
+    by_cases hbx : b ≤ x
+    · rw [if_pos hbx] at d ⊢
+      have hrw : (VExpr.app5 GO (.natLit b) hy (.natLit f)
+            (.app (.app (.const ``Nat.sub []) (.natLit x)) (.natLit b))
+            (((((K2.inst (.natLit x) 5).inst (.natLit b) 4).inst hy 3).inst
+              (.natLit f) 2).inst h 1)).inst
+            (.app (.app OT (.natLEApp (.natLit b) (.natLit x)))
+              (.app (.app PR (.natLit b)) (.natLit x)))
+          = VExpr.app5 GO (.natLit b) hy (.natLit f)
+            (.app (.app (.const ``Nat.sub []) (.natLit x)) (.natLit b))
+            (((((((K2.inst (.natLit x) 5).inst (.natLit b) 4).inst hy 3).inst
+              (.natLit f) 2).inst h 1).inst
+              (.app (.app OT (.natLEApp (.natLit b) (.natLit x)))
+                (.app (.app PR (.natLit b)) (.natLit x))))) := by
+        simp only [VExpr.app5, VExpr.inst,
+          (VExpr.closedN_natLit x).instN_eq (Nat.zero_le 0),
+          (VExpr.closedN_natLit b).instN_eq (Nat.zero_le 0),
+          (VExpr.closedN_natLit f).instN_eq (Nat.zero_le 0),
+          hyc.instN_eq (Nat.zero_le 0), hGOc.instN_eq (Nat.zero_le 0)]
+      rw [hrw] at d
+      refine IsDefEqU.trans henv trivial d ?_
+      have hsubty : env.HasType 0 []
+          (.app (.app (.const ``Nat.sub []) (.natLit x)) (.natLit b)) .nat :=
+        ((hsubR x b).of_r henv trivial (hlit (x - b))).hasType.1
+      have hKty := (goApp5_typed henv hlit hGOty hhy hsubty d.wf_r).1
+      exact IsDefEqU.app2_congr_arg1' henv (goApp3_typed hlit hGOty hhy)
+        hsubty (hsubR x b)
+        (by simpa [VExpr.inst, VExpr.natLEApp, VExpr.natLE,
+          (VExpr.closedN_natLit f).instN_eq (Nat.zero_le 0)] using hKty)
+    · rw [if_neg hbx] at d ⊢
+      refine IsDefEqU.trans henv trivial d ?_
+      simp only [(VExpr.closedN_natLit x).instN_eq (Nat.zero_le 0)]
+      exact IsDefEqU.refl ⟨_, hlit x⟩
+  have hK : ∀ (b f x : Nat) (hy h : VExpr),
+      (env.HasType 0 [] hy (.natLEApp (.natLit 1) (.natLit b)) ∧
+        env.HasType 0 [] h (.natLEApp (.natLit (x+1)) (.natLit (f+1)))) → b ≤ x →
+      (env.HasType 0 [] hy (.natLEApp (.natLit 1) (.natLit b)) ∧
+        env.HasType 0 []
+          (((((((K2.inst (.natLit x) 5).inst (.natLit b) 4).inst hy 3).inst
+            (.natLit f) 2).inst h 1).inst
+            (.app (.app OT (.natLEApp (.natLit b) (.natLit x)))
+              (.app (.app PR (.natLit b)) (.natLit x)))))
+          (.natLEApp (.natLit (x - b + 1)) (.natLit f))) := by
+    intro b f x hy h hok hbx
+    have d := hgo b f x hy h hok
+    have s := hsel b f x hy h hok d.wf_r
+    rw [if_pos hbx] at s
+    exact ⟨hok.1, (goApp5_typed henv hlit hGOty hok.1 (hlit (x - b)) s.wf_r).1⟩
+  have hfuel := reflects_fuel_mod (GO := GO)
+    (Ok := fun b hy f x h =>
+      env.HasType 0 [] hy (.natLEApp (.natLit 1) (.natLit b)) ∧
+      env.HasType 0 [] h (.natLEApp (.natLit (x+1)) (.natLit f)))
+    (RHS := fun b f x hy h =>
+      VExpr.condApp .diteNat (.natLEApp (.natLit b) (.natLit x))
+        (.app (.app DEC (.natLit b)) (.natLit x))
+        (.lam (.natLEApp (.natLit b) (.natLit x))
+          (VExpr.app5 GO (.natLit b) hy (.natLit f)
+            (.app (.app (.const ``Nat.sub []) (.natLit x)) (.natLit b))
+            (((((K2.inst (.natLit x) 5).inst (.natLit b) 4).inst hy 3).inst
+              (.natLit f) 2).inst h 1)))
+        (.lam (((((EA2.inst (.natLit x) 4).inst (.natLit b) 3).inst hy 2).inst
+              (.natLit f) 1).inst h) (.natLit x)))
+    (K := fun b f x hy h =>
+      ((((((K2.inst (.natLit x) 5).inst (.natLit b) 4).inst hy 3).inst
+        (.natLit f) 2).inst h 1).inst
+        (.app (.app OT (.natLEApp (.natLit b) (.natLit x)))
+          (.app (.app PR (.natLit b)) (.natLit x)))))
+    henv hgo hsel hK
+  intro a b
+  match a with
+  | 0 =>
+    have h0' := IsDefEqU.instNat henv hlit h0 b
+    simpa [VExpr.inst, VExpr.instVar, VExpr.natLit, VExpr.natZero,
+      hFc.instN_eq (Nat.zero_le 0)] using h0'
+  | (a+1) =>
+    have e1 := mod_step1 henv hlit heq1 hFc hGOc hDECc a b
+    refine IsDefEqU.trans henv trivial e1 ?_
+    have s1 := ReflectsCondApp.natLE_le hRC b (a+1) _ _ e1.wf_r
+    by_cases hbx : b ≤ a + 1
+    · rw [if_pos hbx] at s1
+      refine IsDefEqU.trans henv trivial s1 ?_
+      have s2 := diteNat_reduce (OT := OT) (OF := OF) (PR := PR) (b := 1) (x := b)
+        henv hRD s1.wf_r
+      by_cases hb1 : 1 ≤ b
+      · rw [if_pos hb1] at s2
+        have hrw : (VExpr.app5 GO (.natLit b) (.bvar 0) (.natLit (a+2)) (.natLit (a+1))
+              ((LT1.inst (.natLit b) 1).inst (.natLit a) 1)).inst
+              (.app (.app OT (.natLEApp (.natLit 1) (.natLit b)))
+                (.app (.app PR (.natLit 1)) (.natLit b)))
+            = VExpr.app5 GO (.natLit b)
+              (.app (.app OT (.natLEApp (.natLit 1) (.natLit b)))
+                (.app (.app PR (.natLit 1)) (.natLit b)))
+              (.natLit (a+2)) (.natLit (a+1))
+              (((LT1.inst (.natLit b) 1).inst (.natLit a) 1).inst
+                (.app (.app OT (.natLEApp (.natLit 1) (.natLit b)))
+                  (.app (.app PR (.natLit 1)) (.natLit b)))) := by
+          simp [VExpr.app5, VExpr.inst, VExpr.instVar,
+            hGOc.instN_eq (Nat.zero_le 0),
+            (VExpr.closedN_natLit b).instN_eq (Nat.zero_le 0),
+            (VExpr.closedN_natLit (a+2)).instN_eq (Nat.zero_le 0),
+            (VExpr.closedN_natLit (a+1)).instN_eq (Nat.zero_le 0)]
+        rw [hrw] at s2
+        refine IsDefEqU.trans henv trivial s2 ?_
+        obtain ⟨t1, t2, -⟩ := goApp_typed henv hlit hGOty s2.wf_r
+        exact hfuel (a+2) (a+1) b hb1 (by omega) _ _ ⟨t1, t2⟩
+      · rw [if_neg hb1] at s2
+        refine IsDefEqU.trans henv trivial s2 ?_
+        have hb0 : b = 0 := by omega
+        subst hb0
+        simp only [Nat.mod_zero, (VExpr.closedN_natLit (a+1)).instN_eq (Nat.zero_le 0)]
+        exact IsDefEqU.refl ⟨_, hlit (a+1)⟩
+    · rw [if_neg hbx] at s1
+      refine IsDefEqU.trans henv trivial s1 ?_
+      rw [Nat.mod_eq_of_lt (by omega)]
+      exact IsDefEqU.refl ⟨_, hlit (a+1)⟩
+
+end VEnv
+
+namespace VExpr
+
+/-- `VExpr.goType` is closed: every de Bruijn index in it is bound by one of its own binders. -/
+theorem closedN_goType : VExpr.goType.ClosedN 0 := by
+  simp [VExpr.goType, VExpr.ClosedN, VExpr.natLEApp, VExpr.natLE, VExpr.natLit,
+    VExpr.natSucc, VExpr.natZero, VExpr.nat]
+
+end VExpr
+
+/-! ## The `Nat.div` branch
+
+Same shape as `Nat.mod`'s, one layer shorter: `iteTypes` is empty, so only the
+`VEnv.ReflectsCondAppD` half of `Condition.check.WF_natLE_pinned` is used, `Nat.succ` is the
+fuel recursion's wrapper, and there is no `mod 0 x` base case -- `Nat.div.go` at fuel `x+1`
+already returns `0` when the divisor exceeds the numerator. -/
+
+open Lean4Lean.Environment in
+/-- **The `Nat.div` branch's first equation, right-hand side.**  Unlike `Nat.mod`'s it has no
+outer `ite`: `Nat.div.go` at fuel `x+1` already returns `0` when the divisor exceeds `x`. -/
+theorem trExprS_divEq1_inv' {env : VEnv} {Us} {Δ : VLCtx} {idx idy : FVarId}
+    {X Y e' : VExpr} (henv : env.Ordered)
+    (hx : TrExprS env Us Δ (.fvar idx) X) (hy : TrExprS env Us Δ (.fvar idy) Y)
+    (h : TrExprS env Us Δ (Condition.natLE.dite
+        #[.app (.const ``Nat.succ []) (.const ``Nat.zero []), .fvar idy]
+        (Lean.mkApp5 (.const ``Nat.div.go []) (.fvar idy) (.bvar 0)
+          (.app (.const ``Nat.succ []) (.fvar idx)) (.fvar idx)
+          (.app (.const ``Nat.lt_succ_self []) (.fvar idx)))
+        (.const ``Nat.zero [])) e') :
+    ∃ EA LT, e' = VExpr.condApp .diteNat (.natLEApp (.natLit 1) Y)
+      (.app (.app (.const ``Nat.decLe []) (.natLit 1)) Y)
+      (.lam (.natLEApp (.natLit 1) Y)
+        (VExpr.app5 (.const ``Nat.div.go []) Y.lift (.bvar 0)
+          (.app .natSucc X.lift) X.lift LT))
+      (.lam EA .natZero) := by
+  simp only [Condition.dite, Condition.natLE, Lean.Expr.lam0,
+    Lean.mkApp5, Lean.mkApp4, Lean.mkAppN] at h
+  obtain ⟨_, _, rfl, b1, bE⟩ := trExprS_app_inv' h
+  obtain ⟨_, _, rfl, b2, bT⟩ := trExprS_app_inv' b1
+  obtain ⟨_, _, rfl, b3, bD⟩ := trExprS_app_inv' b2
+  obtain ⟨_, _, rfl, b4, bP⟩ := trExprS_app_inv' b3
+  cases trExprS_diteNat_inv' b4
+  obtain ⟨_, _, rfl, q1, q2⟩ := trExprS_app_inv' bP
+  obtain ⟨_, _, rfl, q3, q4⟩ := trExprS_app_inv' q1
+  cases trExprS_natLE_inv' q3
+  cases trExprS_one_inv' q4
+  cases trExprS_fvar_uniq q2 hy
+  obtain ⟨_, _, rfl, e1, e2⟩ := trExprS_app_inv' bD
+  obtain ⟨_, _, rfl, e3, e4⟩ := trExprS_app_inv' e1
+  cases trExprS_const_nil_inv' e3
+  cases trExprS_one_inv' e4
+  cases trExprS_fvar_uniq e2 hy
+  obtain ⟨_, _, rfl, t1, t2⟩ := trExprS_lam_inv' bT
+  obtain ⟨_, _, rfl, u1, u2⟩ := trExprS_app_inv' t1
+  obtain ⟨_, _, rfl, u3, u4⟩ := trExprS_app_inv' u1
+  cases trExprS_natLE_inv' u3
+  cases trExprS_one_inv' u4
+  cases trExprS_fvar_uniq u2 hy
+  obtain ⟨_, _, rfl, w1, w5⟩ := trExprS_app_inv' t2
+  obtain ⟨_, _, rfl, w2, w4⟩ := trExprS_app_inv' w1
+  obtain ⟨_, _, rfl, w3, w3'⟩ := trExprS_app_inv' w2
+  obtain ⟨_, _, rfl, w6, w7⟩ := trExprS_app_inv' w3
+  obtain ⟨_, _, rfl, w8, w9⟩ := trExprS_app_inv' w6
+  cases trExprS_const_nil_inv' w8
+  cases trExprS_fvar_uniq w9 (trExprS_liftBV0 henv hy rfl)
+  cases trExprS_bvar0_inv' w7
+  cases trExprS_fvar_uniq w4 (trExprS_liftBV0 henv hx rfl)
+  cases trExprS_succFvar_inv' (trExprS_liftBV0 henv hx rfl) w3'
+  obtain ⟨_, _, rfl, z1, z2⟩ := trExprS_lam_inv' bE
+  cases trExprS_const_nil_inv' z2
+  exact ⟨_, _, rfl⟩
+
+open Lean4Lean.Environment in
+/-- **The `Nat.div` `go` equation's right-hand side.** -/
+theorem trExprS_divEq2_inv' {env : VEnv} {Us} {Δ : VLCtx} {gonm : Name}
+    {idx idy idhy idf : FVarId} {kexpr : Expr}
+    {X Y HY FU e' : VExpr} (henv : env.Ordered)
+    (hx : TrExprS env Us Δ (.fvar idx) X) (hy : TrExprS env Us Δ (.fvar idy) Y)
+    (hhy : TrExprS env Us Δ (.fvar idhy) HY) (hf : TrExprS env Us Δ (.fvar idf) FU)
+    (h : TrExprS env Us Δ (Condition.natLE.dite #[.fvar idy, .fvar idx]
+      (.app (.const ``Nat.succ [])
+        (Lean.mkApp5 (.const gonm []) (.fvar idy) (.fvar idhy) (.fvar idf)
+          (Lean.mkApp2 (.const ``Nat.sub []) (.fvar idx) (.fvar idy)) kexpr))
+      (.const ``Nat.zero [])) e') :
+    ∃ EA K, e' = VExpr.condApp .diteNat (.natLEApp Y X)
+      (.app (.app (.const ``Nat.decLe []) Y) X)
+      (.lam (.natLEApp Y X)
+        (.app .natSucc (VExpr.app5 (.const gonm []) Y.lift HY.lift FU.lift
+          (.app (.app (.const ``Nat.sub []) X.lift) Y.lift) K)))
+      (.lam EA .natZero) := by
+  simp only [Condition.dite, Condition.natLE, Lean.Expr.lam0,
+    Lean.mkApp5, Lean.mkApp4, Lean.mkApp2, Lean.mkAppN] at h
+  obtain ⟨_, _, rfl, b1, bE⟩ := trExprS_app_inv' h
+  obtain ⟨_, _, rfl, b2, bT⟩ := trExprS_app_inv' b1
+  obtain ⟨_, _, rfl, b3, bD⟩ := trExprS_app_inv' b2
+  obtain ⟨_, _, rfl, b4, bP⟩ := trExprS_app_inv' b3
+  cases trExprS_diteNat_inv' b4
+  obtain ⟨_, _, rfl, q1, q2⟩ := trExprS_app_inv' bP
+  obtain ⟨_, _, rfl, q3, q4⟩ := trExprS_app_inv' q1
+  cases trExprS_natLE_inv' q3
+  cases trExprS_fvar_uniq q4 hy
+  cases trExprS_fvar_uniq q2 hx
+  obtain ⟨_, _, rfl, e1, e2⟩ := trExprS_app_inv' bD
+  obtain ⟨_, _, rfl, e3, e4⟩ := trExprS_app_inv' e1
+  cases trExprS_const_nil_inv' e3
+  cases trExprS_fvar_uniq e4 hy
+  cases trExprS_fvar_uniq e2 hx
+  obtain ⟨_, _, rfl, t1, t2⟩ := trExprS_lam_inv' bT
+  obtain ⟨_, _, rfl, u1, u2⟩ := trExprS_app_inv' t1
+  obtain ⟨_, _, rfl, u3, u4⟩ := trExprS_app_inv' u1
+  cases trExprS_natLE_inv' u3
+  cases trExprS_fvar_uniq u4 hy
+  cases trExprS_fvar_uniq u2 hx
+  obtain ⟨_, _, rfl, s1, s2⟩ := trExprS_app_inv' t2
+  cases trExprS_const_nil_inv' s1
+  obtain ⟨_, _, rfl, w1, w5⟩ := trExprS_app_inv' s2
+  obtain ⟨_, _, rfl, w2, w4⟩ := trExprS_app_inv' w1
+  obtain ⟨_, _, rfl, w3, w3'⟩ := trExprS_app_inv' w2
+  obtain ⟨_, _, rfl, w6, w7⟩ := trExprS_app_inv' w3
+  obtain ⟨_, _, rfl, w8, w9⟩ := trExprS_app_inv' w6
+  cases trExprS_const_nil_inv' w8
+  cases trExprS_fvar_uniq w9 (trExprS_liftBV0 henv hy rfl)
+  cases trExprS_fvar_uniq w7 (trExprS_liftBV0 henv hhy rfl)
+  cases trExprS_fvar_uniq w3' (trExprS_liftBV0 henv hf rfl)
+  obtain ⟨_, _, rfl, y1, y2⟩ := trExprS_app_inv' w4
+  obtain ⟨_, _, rfl, y3, y4⟩ := trExprS_app_inv' y1
+  cases trExprS_const_nil_inv' y3
+  cases trExprS_fvar_uniq y4 (trExprS_liftBV0 henv hx rfl)
+  cases trExprS_fvar_uniq y2 (trExprS_liftBV0 henv hy rfl)
+  obtain ⟨_, _, rfl, z1, z2⟩ := trExprS_lam_inv' bE
+  cases trExprS_const_nil_inv' z2
+  exact ⟨_, _, rfl⟩
+
+namespace VEnv
+variable {env : VEnv}
+
+/-- The first `Nat.div` equation at a pair of numerals. -/
+theorem div_step1 (henv : env.WF) (hlit : env.NatLits) {F GO DEC EA1 LT1 : VExpr}
+    (heq1 : env.IsDefEqU 0 [.nat, .nat]
+      (.app (.app F (.bvar 1)) (.bvar 0))
+      (VExpr.condApp .diteNat (.natLEApp (.natLit 1) (.bvar 0))
+        (.app (.app DEC (.natLit 1)) (.bvar 0))
+        (.lam (.natLEApp (.natLit 1) (.bvar 0))
+          (VExpr.app5 GO (.bvar 1) (.bvar 0) (.app .natSucc (.bvar 2)) (.bvar 2) LT1))
+        (.lam EA1 .natZero)))
+    (hFc : F.ClosedN 0) (hGOc : GO.ClosedN 0) (hDECc : DEC.ClosedN 0) (a b : Nat) :
+    env.IsDefEqU 0 [] (.app (.app F (.natLit a)) (.natLit b))
+      (VExpr.condApp .diteNat (.natLEApp (.natLit 1) (.natLit b))
+        (.app (.app DEC (.natLit 1)) (.natLit b))
+        (.lam (.natLEApp (.natLit 1) (.natLit b))
+          (VExpr.app5 GO (.natLit b) (.bvar 0) (.natLit (a+1)) (.natLit a)
+            ((LT1.inst (.natLit b) 1).inst (.natLit a) 1)))
+        (.lam ((EA1.inst (.natLit b)).inst (.natLit a)) .natZero)) := by
+  have key := IsDefEqU.instNat2 henv hlit heq1 a b
+  simpa [VExpr.condApp, VExpr.app5, VExpr.inst, VExpr.instVar, VExpr.natLEApp, VExpr.natLE,
+    VExpr.diteNat, VExpr.natZero, VExpr.lift, VExpr.liftN, Lean4Lean.liftVar, VExpr.natLit_succ,
+    hFc.liftN_eq (Nat.zero_le _), hFc.instN_eq (Nat.zero_le _),
+    hGOc.liftN_eq (Nat.zero_le _), hGOc.instN_eq (Nat.zero_le _),
+    hDECc.liftN_eq (Nat.zero_le _), hDECc.instN_eq (Nat.zero_le _),
+    (VExpr.closedN_natLit a).liftN_eq (Nat.zero_le _),
+    (VExpr.closedN_natLit a).instN_eq (Nat.zero_le _),
+    (VExpr.closedN_natLit b).liftN_eq (Nat.zero_le _),
+    (VExpr.closedN_natLit b).instN_eq (Nat.zero_le _)] using key
+
+/-- The `Nat.div` `go` equation at numerals, with the two proof binders instantiated. -/
+theorem div_step2 (henv : env.WF) (hlit : env.NatLits) {GO DEC EA2 K2 : VExpr}
+    (heq2 : env.IsDefEqU 0 goCtx
+      (VExpr.app5 GO (.bvar 3) (.bvar 2) (.app .natSucc (.bvar 1)) (.bvar 4) (.bvar 0))
+      (VExpr.condApp .diteNat (.natLEApp (.bvar 3) (.bvar 4))
+        (.app (.app DEC (.bvar 3)) (.bvar 4))
+        (.lam (.natLEApp (.bvar 3) (.bvar 4))
+          (.app .natSucc (VExpr.app5 GO (.bvar 4) (.bvar 3) (.bvar 2)
+            (.app (.app (.const ``Nat.sub []) (.bvar 5)) (.bvar 4)) K2)))
+        (.lam EA2 .natZero)))
+    (hGOc : GO.ClosedN 0) (hDECc : DEC.ClosedN 0)
+    (b f x : Nat) {hy h : VExpr}
+    (hhy : env.HasType 0 [] hy (.natLEApp (.natLit 1) (.natLit b)))
+    (hh : env.HasType 0 [] h (.natLEApp (.natLit (x+1)) (.natLit (f+1)))) :
+    env.IsDefEqU 0 [] (VExpr.app5 GO (.natLit b) hy (.natLit (f+1)) (.natLit x) h)
+      (VExpr.condApp .diteNat (.natLEApp (.natLit b) (.natLit x))
+        (.app (.app DEC (.natLit b)) (.natLit x))
+        (.lam (.natLEApp (.natLit b) (.natLit x))
+          (.app .natSucc (VExpr.app5 GO (.natLit b) hy (.natLit f)
+            (.app (.app (.const ``Nat.sub []) (.natLit x)) (.natLit b))
+            (((((K2.inst (.natLit x) 5).inst (.natLit b) 4).inst hy 3).inst
+              (.natLit f) 2).inst h 1))))
+        (.lam (((((EA2.inst (.natLit x) 4).inst (.natLit b) 3).inst hy 2).inst
+              (.natLit f) 1).inst h) .natZero)) := by
+  have hyc : hy.ClosedN 0 := VExpr.WF.closedN henv.ordered ⟨_, hhy⟩ trivial
+  have hhc : h.ClosedN 0 := VExpr.WF.closedN henv.ordered ⟨_, hh⟩ trivial
+  have key := IsDefEqU.instGo5 henv hlit heq2 x b f hhy hh
+  simpa [VExpr.condApp, VExpr.app5, VExpr.inst, VExpr.instVar, VExpr.natLEApp, VExpr.natLE,
+    VExpr.diteNat, VExpr.natZero, VExpr.lift, VExpr.liftN, Lean4Lean.liftVar, VExpr.natLit_succ,
+    hyc.liftN_eq (Nat.zero_le _), hhc.liftN_eq (Nat.zero_le _),
+    hyc.instN_eq (Nat.zero_le _), hhc.instN_eq (Nat.zero_le _),
+    hGOc.liftN_eq (Nat.zero_le _), hGOc.instN_eq (Nat.zero_le _),
+    hDECc.liftN_eq (Nat.zero_le _), hDECc.instN_eq (Nat.zero_le _),
+    (VExpr.closedN_natLit x).liftN_eq (Nat.zero_le _),
+    (VExpr.closedN_natLit x).instN_eq (Nat.zero_le _),
+    (VExpr.closedN_natLit b).liftN_eq (Nat.zero_le _),
+    (VExpr.closedN_natLit b).instN_eq (Nat.zero_le _),
+    (VExpr.closedN_natLit f).liftN_eq (Nat.zero_le _),
+    (VExpr.closedN_natLit f).instN_eq (Nat.zero_le _)] using key
+
+set_option maxHeartbeats 1000000 in
+/-- **The `Nat.div` reflection, from the two equations the recognizer checks.**  There is no
+`ite` layer and no `mod 0 x` base case: `Nat.div.go` at fuel `x+1` already returns `0` when the
+divisor exceeds the numerator, so the single equation covers every numerator. -/
+theorem reflects_div_of_equations (henv : env.WF) (hlit : env.NatLits)
+    (hprim : env.HasPrimitives) (hnat : env.contains ``Nat) (hsub : env.contains ``Nat.sub)
+    {F GO DEC OT OF PR EA1 LT1 EA2 K2 : VExpr}
+    (hFc : F.ClosedN 0) (hGOc : GO.ClosedN 0) (hDECc : DEC.ClosedN 0)
+    (hGOty : env.HasType 0 [] GO .goType)
+    (hRD : env.ReflectsCondAppD .diteNat .natLE DEC OT OF PR Nat.ble)
+    (heq1 : env.IsDefEqU 0 [.nat, .nat]
+      (.app (.app F (.bvar 1)) (.bvar 0))
+      (VExpr.condApp .diteNat (.natLEApp (.natLit 1) (.bvar 0))
+        (.app (.app DEC (.natLit 1)) (.bvar 0))
+        (.lam (.natLEApp (.natLit 1) (.bvar 0))
+          (VExpr.app5 GO (.bvar 1) (.bvar 0) (.app .natSucc (.bvar 2)) (.bvar 2) LT1))
+        (.lam EA1 .natZero)))
+    (heq2 : env.IsDefEqU 0 goCtx
+      (VExpr.app5 GO (.bvar 3) (.bvar 2) (.app .natSucc (.bvar 1)) (.bvar 4) (.bvar 0))
+      (VExpr.condApp .diteNat (.natLEApp (.bvar 3) (.bvar 4))
+        (.app (.app DEC (.bvar 3)) (.bvar 4))
+        (.lam (.natLEApp (.bvar 3) (.bvar 4))
+          (.app .natSucc (VExpr.app5 GO (.bvar 4) (.bvar 3) (.bvar 2)
+            (.app (.app (.const ``Nat.sub []) (.bvar 5)) (.bvar 4)) K2)))
+        (.lam EA2 .natZero))) :
+    ∀ a b : Nat, env.IsDefEqU 0 [] (.app (.app F (.natLit a)) (.natLit b))
+      (.natLit (a / b)) := by
+  have hsubR : ∀ x b : Nat, env.IsDefEqU 0 []
+      (.app (.app (.const ``Nat.sub []) (.natLit x)) (.natLit b)) (.natLit (x - b)) :=
+    hprim.natSub hsub
+  have hgo := fun (b f x : Nat) (hy h : VExpr)
+      (hok : env.HasType 0 [] hy (.natLEApp (.natLit 1) (.natLit b)) ∧
+        env.HasType 0 [] h (.natLEApp (.natLit (x+1)) (.natLit (f+1)))) =>
+    div_step2 henv hlit heq2 hGOc hDECc b f x hok.1 hok.2
+  have hsel : ∀ (b f x : Nat) (hy h : VExpr),
+      (env.HasType 0 [] hy (.natLEApp (.natLit 1) (.natLit b)) ∧
+        env.HasType 0 [] h (.natLEApp (.natLit (x+1)) (.natLit (f+1)))) →
+      VExpr.WF env 0 [] (VExpr.condApp .diteNat (.natLEApp (.natLit b) (.natLit x))
+        (.app (.app DEC (.natLit b)) (.natLit x))
+        (.lam (.natLEApp (.natLit b) (.natLit x))
+          (.app .natSucc (VExpr.app5 GO (.natLit b) hy (.natLit f)
+            (.app (.app (.const ``Nat.sub []) (.natLit x)) (.natLit b))
+            (((((K2.inst (.natLit x) 5).inst (.natLit b) 4).inst hy 3).inst
+              (.natLit f) 2).inst h 1))))
+        (.lam (((((EA2.inst (.natLit x) 4).inst (.natLit b) 3).inst hy 2).inst
+              (.natLit f) 1).inst h) .natZero)) →
+      env.IsDefEqU 0 []
+        (VExpr.condApp .diteNat (.natLEApp (.natLit b) (.natLit x))
+          (.app (.app DEC (.natLit b)) (.natLit x))
+          (.lam (.natLEApp (.natLit b) (.natLit x))
+            (.app .natSucc (VExpr.app5 GO (.natLit b) hy (.natLit f)
+              (.app (.app (.const ``Nat.sub []) (.natLit x)) (.natLit b))
+              (((((K2.inst (.natLit x) 5).inst (.natLit b) 4).inst hy 3).inst
+                (.natLit f) 2).inst h 1))))
+          (.lam (((((EA2.inst (.natLit x) 4).inst (.natLit b) 3).inst hy 2).inst
+                (.natLit f) 1).inst h) .natZero))
+        (if b ≤ x then
+            .app .natSucc (VExpr.app5 GO (.natLit b) hy (.natLit f) (.natLit (x - b))
+              (((((((K2.inst (.natLit x) 5).inst (.natLit b) 4).inst hy 3).inst
+                (.natLit f) 2).inst h 1).inst
+                (.app (.app OT (.natLEApp (.natLit b) (.natLit x)))
+                  (.app (.app PR (.natLit b)) (.natLit x))))))
+          else .natLit 0) := by
+    intro b f x hy h hok hwf
+    obtain ⟨hhy, hh⟩ := hok
+    have hyc : hy.ClosedN 0 := VExpr.WF.closedN henv.ordered ⟨_, hhy⟩ trivial
+    have d := diteNat_reduce (OT := OT) (OF := OF) (PR := PR) henv hRD hwf
+    by_cases hbx : b ≤ x
+    · rw [if_pos hbx] at d ⊢
+      have hrw : (VExpr.natSucc.app (VExpr.app5 GO (.natLit b) hy (.natLit f)
+            (.app (.app (.const ``Nat.sub []) (.natLit x)) (.natLit b))
+            (((((K2.inst (.natLit x) 5).inst (.natLit b) 4).inst hy 3).inst
+              (.natLit f) 2).inst h 1))).inst
+            (.app (.app OT (.natLEApp (.natLit b) (.natLit x)))
+              (.app (.app PR (.natLit b)) (.natLit x)))
+          = .app .natSucc (VExpr.app5 GO (.natLit b) hy (.natLit f)
+            (.app (.app (.const ``Nat.sub []) (.natLit x)) (.natLit b))
+            (((((((K2.inst (.natLit x) 5).inst (.natLit b) 4).inst hy 3).inst
+              (.natLit f) 2).inst h 1).inst
+              (.app (.app OT (.natLEApp (.natLit b) (.natLit x)))
+                (.app (.app PR (.natLit b)) (.natLit x)))))) := by
+        simp only [VExpr.app5, VExpr.inst, VExpr.natSucc,
+          (VExpr.closedN_natLit x).instN_eq (Nat.zero_le 0),
+          (VExpr.closedN_natLit b).instN_eq (Nat.zero_le 0),
+          (VExpr.closedN_natLit f).instN_eq (Nat.zero_le 0),
+          hyc.instN_eq (Nat.zero_le 0), hGOc.instN_eq (Nat.zero_le 0)]
+      rw [hrw] at d
+      refine IsDefEqU.trans henv trivial d ?_
+      have hwf5 := d.wf_r.app_arg' henv
+      have hsubty : env.HasType 0 []
+          (.app (.app (.const ``Nat.sub []) (.natLit x)) (.natLit b)) .nat :=
+        ((hsubR x b).of_r henv trivial (hlit (x - b))).hasType.1
+      have hKty := (goApp5_typed henv hlit hGOty hhy hsubty hwf5).1
+      exact IsDefEqU.app_congr_arg' henv d.wf_r
+        (IsDefEqU.app2_congr_arg1' henv (goApp3_typed hlit hGOty hhy)
+          hsubty (hsubR x b)
+          (by simpa [VExpr.inst, VExpr.natLEApp, VExpr.natLE,
+            (VExpr.closedN_natLit f).instN_eq (Nat.zero_le 0)] using hKty))
+    · rw [if_neg hbx] at d ⊢
+      refine IsDefEqU.trans henv trivial d ?_
+      simp only [VExpr.inst, VExpr.natZero]
+      exact IsDefEqU.refl ⟨_, hlit 0⟩
+  have hK : ∀ (b f x : Nat) (hy h : VExpr),
+      (env.HasType 0 [] hy (.natLEApp (.natLit 1) (.natLit b)) ∧
+        env.HasType 0 [] h (.natLEApp (.natLit (x+1)) (.natLit (f+1)))) → b ≤ x →
+      (env.HasType 0 [] hy (.natLEApp (.natLit 1) (.natLit b)) ∧
+        env.HasType 0 []
+          (((((((K2.inst (.natLit x) 5).inst (.natLit b) 4).inst hy 3).inst
+            (.natLit f) 2).inst h 1).inst
+            (.app (.app OT (.natLEApp (.natLit b) (.natLit x)))
+              (.app (.app PR (.natLit b)) (.natLit x)))))
+          (.natLEApp (.natLit (x - b + 1)) (.natLit f))) := by
+    intro b f x hy h hok hbx
+    have d := hgo b f x hy h hok
+    have s := hsel b f x hy h hok d.wf_r
+    rw [if_pos hbx] at s
+    exact ⟨hok.1, (goApp5_typed henv hlit hGOty hok.1 (hlit (x - b))
+      (s.wf_r.app_arg' henv)).1⟩
+  have hfuel := reflects_fuel_div (GO := GO) henv hprim hnat
+    (Ok := fun b hy f x h =>
+      env.HasType 0 [] hy (.natLEApp (.natLit 1) (.natLit b)) ∧
+      env.HasType 0 [] h (.natLEApp (.natLit (x+1)) (.natLit f)))
+    (RHS := fun b f x hy h =>
+      VExpr.condApp .diteNat (.natLEApp (.natLit b) (.natLit x))
+        (.app (.app DEC (.natLit b)) (.natLit x))
+        (.lam (.natLEApp (.natLit b) (.natLit x))
+          (.app .natSucc (VExpr.app5 GO (.natLit b) hy (.natLit f)
+            (.app (.app (.const ``Nat.sub []) (.natLit x)) (.natLit b))
+            (((((K2.inst (.natLit x) 5).inst (.natLit b) 4).inst hy 3).inst
+              (.natLit f) 2).inst h 1))))
+        (.lam (((((EA2.inst (.natLit x) 4).inst (.natLit b) 3).inst hy 2).inst
+              (.natLit f) 1).inst h) .natZero))
+    (K := fun b f x hy h =>
+      ((((((K2.inst (.natLit x) 5).inst (.natLit b) 4).inst hy 3).inst
+        (.natLit f) 2).inst h 1).inst
+        (.app (.app OT (.natLEApp (.natLit b) (.natLit x)))
+          (.app (.app PR (.natLit b)) (.natLit x)))))
+    hgo hsel hK
+  intro a b
+  have e1 := div_step1 henv hlit heq1 hFc hGOc hDECc a b
+  refine IsDefEqU.trans henv trivial e1 ?_
+  have s2 := diteNat_reduce (OT := OT) (OF := OF) (PR := PR) (b := 1) (x := b)
+    henv hRD e1.wf_r
+  by_cases hb1 : 1 ≤ b
+  · rw [if_pos hb1] at s2
+    have hrw : (VExpr.app5 GO (.natLit b) (.bvar 0) (.natLit (a+1)) (.natLit a)
+          ((LT1.inst (.natLit b) 1).inst (.natLit a) 1)).inst
+          (.app (.app OT (.natLEApp (.natLit 1) (.natLit b)))
+            (.app (.app PR (.natLit 1)) (.natLit b)))
+        = VExpr.app5 GO (.natLit b)
+          (.app (.app OT (.natLEApp (.natLit 1) (.natLit b)))
+            (.app (.app PR (.natLit 1)) (.natLit b)))
+          (.natLit (a+1)) (.natLit a)
+          (((LT1.inst (.natLit b) 1).inst (.natLit a) 1).inst
+            (.app (.app OT (.natLEApp (.natLit 1) (.natLit b)))
+              (.app (.app PR (.natLit 1)) (.natLit b)))) := by
+      simp [VExpr.app5, VExpr.inst, VExpr.instVar,
+        hGOc.instN_eq (Nat.zero_le 0),
+        (VExpr.closedN_natLit b).instN_eq (Nat.zero_le 0),
+        (VExpr.closedN_natLit (a+1)).instN_eq (Nat.zero_le 0),
+        (VExpr.closedN_natLit a).instN_eq (Nat.zero_le 0)]
+    rw [hrw] at s2
+    refine IsDefEqU.trans henv trivial s2 ?_
+    obtain ⟨t1, t2, -⟩ := goApp_typed henv hlit hGOty s2.wf_r
+    exact hfuel (a+1) a b hb1 (by omega) _ _ ⟨t1, t2⟩
+  · rw [if_neg hb1] at s2
+    refine IsDefEqU.trans henv trivial s2 ?_
+    have hb0 : b = 0 := by omega
+    subst hb0
+    simp only [Nat.div_zero, VExpr.inst, VExpr.natZero]
+    exact IsDefEqU.refl ⟨_, hlit 0⟩
+
+end VEnv

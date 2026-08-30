@@ -28,6 +28,7 @@ structure PrimitiveResult (checked : VEnv) (v : DefinitionVal) (allow : Bool) : 
     venv.addConst v.name ci'.toVConstant = some env' →
     (env'.addDefEq ci'.toDefEq).HasPrimitives
 
+set_option maxHeartbeats 4000000 in
 /-- Verification boundary for Lean4Lean's syntactic primitive-definition recognizer.
 
 Three refutations of this statement have been closed on the implementation side
@@ -48,10 +49,11 @@ Three refutations of this statement have been closed on the implementation side
   well-formedness invariant demands both sides be translatable, so an untyped comparison broke
   `TypeChecker.VState.WF` and with it this theorem's `M.WF` obligation. See `bugs-found.md`.
 
-What remains is the four operations whose equations the recognizer verifies through fuel
-recursion (`Nat.mod`, `Nat.div`) or `WellFounded.Nat.fix` (`Nat.gcd`, `Nat.bitwise`). The other
-fifteen branches are discharged below, using the reflection theorems and the `VEnv.PrimField` /
-`VEnv.HasPrimitives.addDef` plumbing in `Lean4Lean/Verify/Primitive.lean`.
+What remains is the two operations whose equations the recognizer verifies through
+`WellFounded.Nat.fix` (`Nat.gcd`, `Nat.bitwise`). The two fuel-recursive ones (`Nat.mod`,
+`Nat.div`) are discharged below, through `VEnv.reflects_mod_of_equations` /
+`VEnv.reflects_div_of_equations`; the other fifteen branches use the reflection theorems and
+the `VEnv.PrimField` / `VEnv.HasPrimitives.addDef` plumbing in `Lean4Lean/Verify/Primitive.lean`.
 
 Bug 4 of `bugs-found.md` -- handing untyped terms to `isDefEq`, which records its verdict in
 the `EquivManager` and so breaks `VState.WF` -- had been fixed for the other fifteen branches
@@ -85,16 +87,19 @@ What is left is therefore metatheory, not plumbing, and it is genuinely new: the
 branches all check a *structural* recursion, for which `VEnv.reflects_rec2`,
 `reflects_rec2_tail` and `reflects_rec2_diag` suffice. These four do not.
 
-* `Nat.mod` and `Nat.div` need a fuel induction. Their equations mention `Nat.modCore.go` /
+* `Nat.mod` and `Nat.div` needed a fuel induction. Their equations mention `Nat.modCore.go` /
   `Nat.div.go`, whose fuel argument the recognizer constrains only at `Nat.succ fuel`; the
-  reflection has to run the induction under the `Nat.succ x ≤ fuel` invariant, which is what
-  keeps the unconstrained `fuel = 0` case unreachable.
-* Both also need a reflection lemma for `Condition`: the equations are stated with
+  reflection runs the induction under the `Nat.succ x ≤ fuel` invariant, which is what keeps
+  the unconstrained `fuel = 0` case unreachable. Both are now proved: `VEnv.reflects_fuel_mod`
+  / `_div` do the induction, `VEnv.reflects_mod_of_equations` / `_div_of_equations` assemble it
+  from the two equations the recognizer checks, and `docs/handoff-primitive.md` has the ledger.
+* Both also needed a reflection lemma for `Condition`: the equations are stated with
   `Condition.ite`/`Condition.dite`, i.e. `@ite`/`@dite` at the instance `cond.dec`, and what
   `Condition.check` establishes about that instance (`cond.dec ≡ fun x y => r.toDec (prop x y)
   (asBool x y) (proof x y)`, together with `r.ite` selecting on `Bool.true`/`Bool.false`) has
   to be turned into "`Condition.natLE.ite α #[a, b] t e` is `t` when `a ≤ b` and `e`
-  otherwise", via `VEnv.HasPrimitives.natBLE`. There is no such lemma yet.
+  otherwise", via `VEnv.HasPrimitives.natBLE`. That is `TypeChecker.Condition.check.WF` and its
+  pinned instance `Condition.check.WF_natLE_pinned`.
 * `Nat.gcd` and `Nat.bitwise` need, on top of that, a spec for `unfoldNatWellFounded`: the
   fixpoint equation it establishes is *not* assembled from `isDefEq` calls but from structural
   checks on the result of `whnfCore`/`unfoldDefinition` against `WellFounded.Nat.fix`'s
@@ -183,10 +188,129 @@ theorem checkPrimitiveDef.WF.rest {env : Environment} {ves : VEnvs} (wf : ves.WF
     have hGOty : (ves.venv .safe).HasType 0 [] (.const ``Nat.modCore.go []) .goType :=
       hGA.defeqU_r (VContext.mk' wf .safe ([] : List Name) fuel).Ewf
         (VContext.mk' wf .safe ([] : List Name) fuel).Δwf.toCtx (hGd (by simpa using hgb))
-    -- Remaining: `Condition.check.WF` for `Condition.natLE`, the two `checkedIsDefEq`s under
-    -- the `x`/`y` and `hy`/`fuel`/`h` telescopes, and the assembly through
-    -- `VEnv.reflects_fuel_mod`.  See `docs/handoff-primitive.md`.
-    sorry
+    refine M.WF.bind (Condition.check.WF_natLE_pinned (c := .mk' wf .safe [] fuel)
+      (fun {_ _ _ _} => .throw) rfl rfl rfl hnat (NatFacts.isType0 hnf rfl rfl) hbleE
+      (fun α hα => by
+        cases List.mem_singleton.1 hα; exact ⟨by simp [FVarsIn], trivial, rfl⟩))
+      fun _ _ _ hcond => ?_
+    obtain ⟨hite, hditeF⟩ := hcond
+    obtain ⟨Anat, FI, hAnat, hAc, hFI, hFIc, hRC⟩ :=
+      hite (.const ``Nat []) (List.mem_singleton.2 rfl)
+    obtain ⟨FD, OT, OF, PR, hFD, hOT, hOF, hRD⟩ := hditeF rfl
+    cases trExprS_iteNat_inv' hFI
+    cases trExprS_diteNat_inv' hFD
+    have hlit : (ves.venv .safe).NatLits := VEnv.HasPrimitives.natLit_hasType hprim hnat
+    have henv0 := (VContext.mk' wf .safe ([] : List Name) fuel).Ewf
+    refine M.WF.bind (M.WF.withCheckedLocalDecl (Q := fun _ _ =>
+        ∀ a b : Nat, (ves.venv .safe).IsDefEqU 0 []
+          (.app (.app F (.natLit a)) (.natLit b)) (.natLit (a % b)))
+      (by simp [FVarsIn]) ?_) fun _ _ _ hmod => ?_
+    · intro tyx idx cwfx s1 _ htyx _
+      cases trExprS_const_nil_inv' htyx
+      refine M.WF.withCheckedLocalDecl (by simp [FVarsIn]) ?_
+      intro tyy idy cwfy s2 _ htyy _
+      cases trExprS_const_nil_inv' htyy
+      have hnf1 := NatFacts.weakLam0 cwfx hnf
+      have hnf2 := NatFacts.weakLam0 cwfy hnf1
+      have hF2 := TrExprS.weakLam0 cwfy (TrExprS.weakLam0 cwfx hF hFc) hFc
+      have hFty2 := HasType.weakLam0 cwfy
+        (HasType.weakLam0 cwfx hFty hFc ⟨trivial, trivial, trivial⟩) hFc
+        ⟨trivial, trivial, trivial⟩
+      have hxv := TrExprS.weakLift0 cwfy (trExprS_lastFVar0 cwfx)
+      have hxty := hasType_fvar1 cwfx cwfy trivial
+      have hyv := trExprS_lastFVar0 cwfy
+      have hyty := hasType_lastFVar0 cwfy trivial
+      have hsx := trExprS_succ hxv hxty hprim hnat
+      refine M.WF.bind (checkedIsDefEq.WFr
+        (trExprS_app2_nat hF2 hFty2 hsx.1 hsx.2 hyv hyty).1
+        (by
+          simp [Environment.Condition.ite, Environment.Condition.dite,
+            Environment.Condition.natLE, Lean.Expr.lam0, Lean.mkApp5, Lean.mkApp4,
+            Lean.mkAppN, FVarsIn, Lean.Level.hasMVar']
+          exact ⟨hyv.fvarsIn, hxv.fvarsIn⟩)) fun r1 _ _ hh1 => ?_
+      obtain ⟨R1, hR1, hd1⟩ := hh1
+      split
+      case isFalse => exact M.WF.bindThrow .throw
+      rename_i hr1
+      have heq1 := hd1 (by simpa using hr1)
+      obtain ⟨EA1, LT1, rfl⟩ := trExprS_modEq1_inv' henv0.ordered hxv hyv hR1
+      -- `hy : 1 ≤ y`
+      refine M.WF.withCheckedLocalDecl (by
+        simp [Lean.mkApp2, Lean.mkAppB, FVarsIn, Lean.Level.hasMVar']
+        exact hyv.fvarsIn) ?_
+      intro tyhy idhy cwfhy s3 _ htyhy _
+      obtain ⟨_, _, rfl, k1, k2⟩ := trExprS_natLEApp_inv' htyhy
+      cases trExprS_one_inv' k1
+      cases trExprS_fvar_uniq k2 hyv
+      -- `fuel : Nat`
+      refine M.WF.withCheckedLocalDecl (by simp [FVarsIn]) ?_
+      intro tyf idf cwff s4 _ htyf _
+      cases trExprS_const_nil_inv' htyf
+      have hxv4 := TrExprS.weakLift0 cwff (TrExprS.weakLift0 cwfhy hxv)
+      have hfv4 := trExprS_lastFVar0 cwff
+      -- `h : succ x ≤ succ fuel`
+      refine M.WF.withCheckedLocalDecl (by
+        simp [Lean.mkApp2, Lean.mkAppB, FVarsIn, Lean.Level.hasMVar']
+        exact ⟨hxv4.fvarsIn, hfv4.fvarsIn⟩) ?_
+      intro tyh idh cwfh s5 _ htyh _
+      obtain ⟨_, _, rfl, m1, m2⟩ := trExprS_natLEApp_inv' htyh
+      cases trExprS_succFvar_inv' hxv4 m1
+      cases trExprS_succFvar_inv' hfv4 m2
+      have hxv5 := TrExprS.weakLift0 cwfh hxv4
+      have hyv5 := TrExprS.weakLift0 cwfh (TrExprS.weakLift0 cwff (TrExprS.weakLift0 cwfhy hyv))
+      have hhyv5 := TrExprS.weakLift0 cwfh (TrExprS.weakLift0 cwff (trExprS_lastFVar0 cwfhy))
+      have hfv5 := TrExprS.weakLift0 cwfh hfv4
+      have hhv5 := trExprS_lastFVar0 cwfh
+      have hxty5 := HasType.weakLift0 cwfh (HasType.weakLift0 cwff (HasType.weakLift0 cwfhy
+        (hasType_fvar1 cwfx cwfy trivial)))
+      have hyty5 := HasType.weakLift0 cwfh (HasType.weakLift0 cwff (HasType.weakLift0 cwfhy
+        (hasType_lastFVar0 cwfy trivial)))
+      have hhyty5 := HasType.weakLift0 cwfh (HasType.weakLift0 cwff
+        (hasType_lastFVar (cwf := cwfhy)))
+      have hfty5 := HasType.weakLift0 cwfh (hasType_lastFVar0 cwff trivial)
+      have hhty5 := hasType_lastFVar (cwf := cwfh)
+      have hsf5 := trExprS_succ hfv5 hfty5 hprim hnat
+      have hGO5 := TrExprS.weakLam0 cwfh (TrExprS.weakLam0 cwff (TrExprS.weakLam0 cwfhy
+        (TrExprS.weakLam0 cwfy (TrExprS.weakLam0 cwfx hGO trivial) trivial) trivial) trivial)
+        trivial
+      have hGOty5 := HasType.weakLam0 cwfh (HasType.weakLam0 cwff (HasType.weakLam0 cwfhy
+        (HasType.weakLam0 cwfy (HasType.weakLam0 cwfx hGOty trivial VExpr.closedN_goType)
+          trivial VExpr.closedN_goType) trivial VExpr.closedN_goType) trivial
+        VExpr.closedN_goType) trivial VExpr.closedN_goType
+      refine M.WF.bind (checkedIsDefEq.WFr
+        (trExprS_goApp hGO5 hGOty5 hyv5 hyty5 hhyv5 hhyty5 hsf5.1 hsf5.2 hxv5 hxty5
+          hhv5 hhty5).1
+        (by
+          simp [Environment.Condition.dite, Environment.Condition.natLE, Lean.Expr.lam0,
+            Lean.mkApp5, Lean.mkApp4, Lean.mkApp2, Lean.mkApp6, Lean.mkAppB, Lean.mkAppN,
+            FVarsIn, Lean.Level.hasMVar']
+          repeat' apply And.intro
+          all_goals first
+            | exact hxv5.fvarsIn | exact hyv5.fvarsIn | exact hhyv5.fvarsIn
+            | exact hfv5.fvarsIn | exact hhv5.fvarsIn | trivial
+            | simp [FVarsIn, Lean.Level.hasMVar']))
+        fun r2 _ _ hh2 => ?_
+      obtain ⟨R2, hR2, hd2⟩ := hh2
+      split
+      case isFalse => exact .throw
+      rename_i hr2
+      have heq2 := hd2 (by simpa using hr2)
+      obtain ⟨EA2, K2, rfl⟩ := trExprS_modEq2_inv' henv0.ordered hxv5 hyv5 hhyv5 hfv5 hR2
+      refine .pure (VEnv.reflects_mod_of_equations henv0 hlit hprim hnat
+        (contains_primConst (c := VContext.mk' wf .safe ([] : List Name) fuel) rfl hsubE
+          primitives_natSub)
+        hFc ?_ ?_ hGOty hRC hRD h0 heq1 heq2)
+      · trivial
+      · trivial
+    · refine .pure ⟨fun _ => (by simpa using hsafe), fun _ => rfl, ?_⟩
+      intro _ sf venv env'' ci' hle hwf' hprim2 htr hci hadd
+      refine preserves_glue (nm := ``Nat.mod) (F := F) hname rfl rfl (by decide) hF ?_
+        hle hwf' hprim2 htr hci hadd
+      intro venv' env₂ hle' hle₂ henv₂ hprim3 hdefF
+      have hle3 := hle'.trans hle₂
+      exact VEnv.primField_Nat_mod.2 (reflectsNNN_of_open hle₂ henv₂ hprim3
+        (VEnv.contains.mono hle' hnat) hdefF (hFty.mono hle3)
+        fun _ a b => (hmod a b).mono hle3)
   · -- ``Nat.div
     rename_i hname
     split
@@ -202,11 +326,147 @@ theorem checkPrimitiveDef.WF.rest {env : Environment} {ves : VEnvs} (wf : ves.WF
     have hnat := hnf.contains
     have hprim := (VContext.mk' wf .safe ([] : List Name) fuel).hasPrimitives
     obtain ⟨hFc, -⟩ := closedN_of_nil rfl hFty
-    -- Blocked here, one step earlier than `Nat.mod`: `Nat.div` runs `Condition.natLE.check`
-    -- *before* its two `checkedTypeIs`, and there is no `Condition.check.WF` yet.  Once there
-    -- is, the next two steps are the `Nat.mod` branch's verbatim -- `trExprS_natLE_inv'` and
-    -- `trExprS_goType_inv'` pin `@LE.le Nat _` and the `Nat.div.go` telescope.
-    sorry
+    have hlit : (ves.venv .safe).NatLits := VEnv.HasPrimitives.natLit_hasType hprim hnat
+    have henv0 := (VContext.mk' wf .safe ([] : List Name) fuel).Ewf
+    -- `Condition.natLE.check` runs *before* the two `checkedTypeIs` in this branch.
+    refine M.WF.bind (Condition.check.WF_natLE_pinned (c := .mk' wf .safe [] fuel)
+      (fun {_ _ _ _} => .throw) rfl rfl rfl hnat (NatFacts.isType0 hnf rfl rfl) hbleE
+      (fun α hα => absurd hα (by simp))) fun _ _ _ hcond => ?_
+    obtain ⟨-, hditeF⟩ := hcond
+    obtain ⟨FD, OT, OF, PR, hFD, hOT, hOF, hRD⟩ := hditeF rfl
+    cases trExprS_diteNat_inv' hFD
+    -- `unless ← checkedTypeIs q(@LE.le Nat _) q(Nat → Nat → Prop)`
+    refine M.WF.bind (checkedTypeIs.WF (by simp [FVarsIn] <;> rfl) (by simp [FVarsIn] <;> rfl))
+      fun _ _ _ hpt => ?_
+    split
+    case isFalse => exact M.WF.bindThrow .throw
+    rename_i hpb
+    obtain ⟨P, PA, PT, hP, hPA, hPT, hPd⟩ := hpt
+    cases trExprS_natLE_inv' hP
+    cases trExprS_natArrowProp_inv' hPT
+    -- `unless ← checkedTypeIs q(Nat.div.go) q(∀ y, 1 ≤ y → ∀ fuel x, x + 1 ≤ fuel → Nat)`
+    refine M.WF.bind (checkedTypeIs.WF (by simp [FVarsIn] <;> rfl) (by simp [FVarsIn] <;> rfl))
+      fun _ _ _ hgt => ?_
+    split
+    case isFalse => exact M.WF.bindThrow .throw
+    rename_i hgb
+    obtain ⟨GO, GA, GT, hGO, hGA, hGT, hGd⟩ := hgt
+    cases trExprS_const_nil_inv' hGO
+    cases trExprS_goType_inv' hGT
+    have hGOty : (ves.venv .safe).HasType 0 [] (.const ``Nat.div.go []) .goType :=
+      hGA.defeqU_r (VContext.mk' wf .safe ([] : List Name) fuel).Ewf
+        (VContext.mk' wf .safe ([] : List Name) fuel).Δwf.toCtx (hGd (by simpa using hgb))
+    refine M.WF.bind (M.WF.withCheckedLocalDecl (Q := fun _ _ =>
+        ∀ a b : Nat, (ves.venv .safe).IsDefEqU 0 []
+          (.app (.app F (.natLit a)) (.natLit b)) (.natLit (a / b)))
+      (by simp [FVarsIn]) ?_) fun _ _ _ hdiv => ?_
+    · intro tyx idx cwfx s1 _ htyx _
+      cases trExprS_const_nil_inv' htyx
+      refine M.WF.withCheckedLocalDecl (by simp [FVarsIn]) ?_
+      intro tyy idy cwfy s2 _ htyy _
+      cases trExprS_const_nil_inv' htyy
+      have hnf1 := NatFacts.weakLam0 cwfx hnf
+      have hnf2 := NatFacts.weakLam0 cwfy hnf1
+      have hF2 := TrExprS.weakLam0 cwfy (TrExprS.weakLam0 cwfx hF hFc) hFc
+      have hFty2 := HasType.weakLam0 cwfy
+        (HasType.weakLam0 cwfx hFty hFc ⟨trivial, trivial, trivial⟩) hFc
+        ⟨trivial, trivial, trivial⟩
+      have hxv := TrExprS.weakLift0 cwfy (trExprS_lastFVar0 cwfx)
+      have hxty := hasType_fvar1 cwfx cwfy trivial
+      have hyv := trExprS_lastFVar0 cwfy
+      have hyty := hasType_lastFVar0 cwfy trivial
+      refine M.WF.bind (checkedIsDefEq.WFr
+        (trExprS_app2_nat hF2 hFty2 hxv hxty hyv hyty).1
+        (by
+          simp [Environment.Condition.dite, Environment.Condition.natLE, Lean.Expr.lam0,
+            Lean.mkApp5, Lean.mkApp4, Lean.mkAppN, Lean.Level.hasMVar']
+          repeat' apply And.intro
+          all_goals first
+            | exact hxv.fvarsIn | exact hyv.fvarsIn | trivial
+            | simp [FVarsIn, Lean.Level.hasMVar'])) fun r1 _ _ hh1 => ?_
+      obtain ⟨R1, hR1, hd1⟩ := hh1
+      split
+      case isFalse => exact M.WF.bindThrow .throw
+      rename_i hr1
+      have heq1 := hd1 (by simpa using hr1)
+      obtain ⟨EA1, LT1, rfl⟩ := trExprS_divEq1_inv' henv0.ordered hxv hyv hR1
+      -- `hy : 1 ≤ y`
+      refine M.WF.withCheckedLocalDecl (by
+        simp [Lean.mkApp2, Lean.mkAppB, FVarsIn, Lean.Level.hasMVar']
+        exact hyv.fvarsIn) ?_
+      intro tyhy idhy cwfhy s3 _ htyhy _
+      obtain ⟨_, _, rfl, k1, k2⟩ := trExprS_natLEApp_inv' htyhy
+      cases trExprS_one_inv' k1
+      cases trExprS_fvar_uniq k2 hyv
+      -- `fuel : Nat`
+      refine M.WF.withCheckedLocalDecl (by simp [FVarsIn]) ?_
+      intro tyf idf cwff s4 _ htyf _
+      cases trExprS_const_nil_inv' htyf
+      have hxv4 := TrExprS.weakLift0 cwff (TrExprS.weakLift0 cwfhy hxv)
+      have hfv4 := trExprS_lastFVar0 cwff
+      -- `h : succ x ≤ succ fuel`
+      refine M.WF.withCheckedLocalDecl (by
+        simp [Lean.mkApp2, Lean.mkAppB, FVarsIn, Lean.Level.hasMVar']
+        exact ⟨hxv4.fvarsIn, hfv4.fvarsIn⟩) ?_
+      intro tyh idh cwfh s5 _ htyh _
+      obtain ⟨_, _, rfl, m1, m2⟩ := trExprS_natLEApp_inv' htyh
+      cases trExprS_succFvar_inv' hxv4 m1
+      cases trExprS_succFvar_inv' hfv4 m2
+      have hxv5 := TrExprS.weakLift0 cwfh hxv4
+      have hyv5 := TrExprS.weakLift0 cwfh (TrExprS.weakLift0 cwff (TrExprS.weakLift0 cwfhy hyv))
+      have hhyv5 := TrExprS.weakLift0 cwfh (TrExprS.weakLift0 cwff (trExprS_lastFVar0 cwfhy))
+      have hfv5 := TrExprS.weakLift0 cwfh hfv4
+      have hhv5 := trExprS_lastFVar0 cwfh
+      have hxty5 := HasType.weakLift0 cwfh (HasType.weakLift0 cwff (HasType.weakLift0 cwfhy
+        (hasType_fvar1 cwfx cwfy trivial)))
+      have hyty5 := HasType.weakLift0 cwfh (HasType.weakLift0 cwff (HasType.weakLift0 cwfhy
+        (hasType_lastFVar0 cwfy trivial)))
+      have hhyty5 := HasType.weakLift0 cwfh (HasType.weakLift0 cwff
+        (hasType_lastFVar (cwf := cwfhy)))
+      have hfty5 := HasType.weakLift0 cwfh (hasType_lastFVar0 cwff trivial)
+      have hhty5 := hasType_lastFVar (cwf := cwfh)
+      have hsf5 := trExprS_succ hfv5 hfty5 hprim hnat
+      have hGO5 := TrExprS.weakLam0 cwfh (TrExprS.weakLam0 cwff (TrExprS.weakLam0 cwfhy
+        (TrExprS.weakLam0 cwfy (TrExprS.weakLam0 cwfx hGO trivial) trivial) trivial) trivial)
+        trivial
+      have hGOty5 := HasType.weakLam0 cwfh (HasType.weakLam0 cwff (HasType.weakLam0 cwfhy
+        (HasType.weakLam0 cwfy (HasType.weakLam0 cwfx hGOty trivial VExpr.closedN_goType)
+          trivial VExpr.closedN_goType) trivial VExpr.closedN_goType) trivial
+        VExpr.closedN_goType) trivial VExpr.closedN_goType
+      refine M.WF.bind (checkedIsDefEq.WFr
+        (trExprS_goApp hGO5 hGOty5 hyv5 hyty5 hhyv5 hhyty5 hsf5.1 hsf5.2 hxv5 hxty5
+          hhv5 hhty5).1
+        (by
+          simp [Environment.Condition.dite, Environment.Condition.natLE, Lean.Expr.lam0,
+            Lean.mkApp5, Lean.mkApp4, Lean.mkApp2, Lean.mkApp6, Lean.mkAppB, Lean.mkAppN,
+            FVarsIn, Lean.Level.hasMVar']
+          repeat' apply And.intro
+          all_goals first
+            | exact hxv5.fvarsIn | exact hyv5.fvarsIn | exact hhyv5.fvarsIn
+            | exact hfv5.fvarsIn | exact hhv5.fvarsIn | trivial
+            | simp [FVarsIn, Lean.Level.hasMVar']))
+        fun r2 _ _ hh2 => ?_
+      obtain ⟨R2, hR2, hd2⟩ := hh2
+      split
+      case isFalse => exact .throw
+      rename_i hr2
+      have heq2 := hd2 (by simpa using hr2)
+      obtain ⟨EA2, K2, rfl⟩ := trExprS_divEq2_inv' henv0.ordered hxv5 hyv5 hhyv5 hfv5 hR2
+      refine .pure (VEnv.reflects_div_of_equations henv0 hlit hprim hnat
+        (contains_primConst (c := VContext.mk' wf .safe ([] : List Name) fuel) rfl hsubE
+          primitives_natSub)
+        hFc ?_ ?_ hGOty hRD heq1 heq2)
+      · trivial
+      · trivial
+    · refine .pure ⟨fun _ => (by simpa using hsafe), fun _ => rfl, ?_⟩
+      intro _ sf venv env'' ci' hle hwf' hprim2 htr hci hadd
+      refine preserves_glue (nm := ``Nat.div) (F := F) hname rfl rfl (by decide) hF ?_
+        hle hwf' hprim2 htr hci hadd
+      intro venv' env₂ hle' hle₂ henv₂ hprim3 hdefF
+      have hle3 := hle'.trans hle₂
+      exact VEnv.primField_Nat_div.2 (reflectsNNN_of_open hle₂ henv₂ hprim3
+        (VEnv.contains.mono hle' hnat) hdefF (hFty.mono hle3)
+        fun _ a b => (hdiv a b).mono hle3)
   · -- ``Nat.gcd
     rename_i hname
     split
