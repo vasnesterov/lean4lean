@@ -480,6 +480,11 @@ structure VInductDecl'.Built (D : VInductDecl') (R : VIndRestore) (K : List Lean
   an equation between *names* only — no expression, no type, no constructor list. -/
   ctorName_inv : ∀ j T, D.types[j]? = some T → T.name ∈ K →
     ∀ C ∈ (occ j).src.ctors, R.ctorName ((occ j).ctorName C.name) = C.name
+  /-- **The restoration is the identity off `K`.**  `Built`'s other six clauses, like
+  `Faithful`'s three, are all guarded by `T.name ∈ K`, so without this one the restoration is
+  unconstrained on the members the step actually declares — see `VIndRestore.OwnId`
+  (`Theory/Inductive/Restore.lean`) for what goes wrong. -/
+  own : R.OwnId D K
 
 /-- **`Faithful` is a consequence of the construction.**  This is `docs/handoff-nested-restore.md`
 §7.1: `ctors_complete` and `ctor_agree` stop being hypotheses. -/
@@ -547,7 +552,7 @@ theorem VEnv.AddNestedB.toAddNested {env env' : VEnv} {D : VInductDecl'}
     {K : List Lean.Name} {R : VIndRestore} {occ : Nat → VNestedOcc}
     (h : VEnv.AddNestedB env D K R occ env') :
     VEnv.AddNested env D K R (fun j => (occ j).decl.np) env' :=
-  ⟨h.1, h.2.2.1.canonical h.2.1, h.2.2.1.toFaithful, h.2.2.2⟩
+  ⟨h.1, h.2.2.1.canonical h.2.1, h.2.2.1.own, h.2.2.1.toFaithful, h.2.2.2⟩
 
 /-- **The constructive form implies the rule's premise.**  `VDecl.WF.inductNested`
 (`Theory/Typing/Env.lean`) takes `VEnv.AddNestedStep`, i.e. `AddNested` with `npJ`
@@ -782,6 +787,7 @@ theorem ntreeAux_built :
         List.not_mem_nil, or_false] at hC
       obtain rfl | rfl := hC <;> rfl
     · simp [ntreeAux] at hT
+  own := ntreeRestore_ownId
 
 /-! ### `Built` is strictly stronger than `Faithful`
 
@@ -905,6 +911,61 @@ example : pfnType.type = (vconst(type_of% @PFn)).type := rfl
 example : pfnMk.type pfnDecl 0 = (vconst(type_of% @PFn.mk)).type := rfl
 example : pfnDecl.recType 0 = (vconst(type_of% @PFn.rec)).type := rfl
 
+/-! ### Why `VIndRestore.OwnId` is a conjunct of `VEnv.AddNested`
+
+The configuration `VIndRestore.Faithful` alone admits, at a real block.  `pfnJunkRestore`
+presents **`PFn` itself** — the member the step declares, not a companion — as `Nat`, at no
+levels and no arguments.  `Faithful` holds of it, because at `K = []` all three of its clauses
+are vacuous; `D.WF env` and `D.Canonical`, the other two hypotheses of
+`VEnv.addInductR_ordered'`, do not mention `R` at all; and `VEnv.addInductR` succeeds, because
+its success is a freshness-and-`Nodup` condition on names, which the junk restoration does not
+disturb.  What it declares is `PFn.mk` at a type whose **result** is `Nat`.
+
+So obligation (A) of `VEnv.addInductR_ordered'` is not open at this restoration, it is false,
+and no proof from `Faithful` + `D.WF env` could ever have existed.  `VIndRestore.OwnId` is the
+missing conjunct and `pfnJunk_not_ownId` is where it bites. -/
+
+def pfnJunkRestore : VIndRestore where
+  tyName _ := ``Nat
+  tyLvls _ := []
+  tyArgs _ := []
+  ctorName := id
+  recName := id
+
+/-- The declared constructor's result type is `Nat` — not `PFn α`. -/
+theorem pfnJunk_ctorConstsCR :
+    pfnDecl.ctorConstsCR pfnJunkRestore []
+      = [(``PFn.mk, ⟨0, mkPi (pfnMk.params ++ pfnMk.fieldTypesR pfnDecl pfnJunkRestore)
+            (.const ``Nat [])⟩)] := rfl
+
+/-- …and for contrast, the real one's is `PFn` applied to the parameter. -/
+theorem pfn_idRestore_ctorConstsCR :
+    pfnDecl.ctorConstsCR pfnDecl.idRestore []
+      = [(``PFn.mk, ⟨0, pfnMk.type pfnDecl 0⟩)] := by
+  rw [VInductDecl'.ctorConstsCR]
+  show [(id ``PFn.mk, (⟨0, pfnMk.typeR pfnDecl pfnDecl.idRestore 0⟩ : VConstant))] = _
+  rw [VIndCtor.typeR_id (by rintro (_ | _ | i) F r hF hr <;> simp [pfnMk] at hF ⊢ <;>
+    (try subst hF) <;> simp_all)]
+  rfl
+
+/-- The step is admitted at the junk restoration: `addInductR` cannot see the difference. -/
+theorem pfnJunk_admitted :
+    ∃ env, VEnv.empty.addInductR pfnDecl [] pfnJunkRestore = some env := ⟨_, rfl⟩
+
+theorem pfnJunk_not_ownId : ¬ pfnJunkRestore.OwnId pfnDecl [] := by
+  intro h
+  have := h.tyName 0 pfnType rfl (by decide)
+  exact absurd this (by decide)
+
+/-- **The junk restoration passes every `R`-dependent hypothesis `Faithful` offers.**  The
+three conjuncts are, in order: `Faithful`; the step succeeds; and `OwnId` — the only one that
+excludes it. -/
+theorem pfnJunk_would_have_passed (npJ : Nat → Nat) :
+    pfnJunkRestore.Faithful pfnDecl VEnv.empty [] npJ ∧
+      (∃ env, VEnv.empty.addInductR pfnDecl [] pfnJunkRestore = some env) ∧
+      ¬ pfnJunkRestore.OwnId pfnDecl [] :=
+  ⟨VIndRestore.faithful_of_nil .., pfnJunk_admitted, pfnJunk_not_ownId⟩
+
 /-! ### The nested occurrence and the auxiliary block -/
 
 def pfnOcc : VNestedOcc where
@@ -953,6 +1014,39 @@ def nfnAux : VInductDecl' where
        ctors := [pfnAuxMk] }]
 
 def nfnK : List Lean.Name := [`_nested.PFn_1]
+
+/-- **`VIndRestore.OwnId` at the second witness.**  `NFn` — the member the step declares — is
+renamed to nothing, re-levelled to nothing and re-instantiated at nothing; only
+`_nested.PFn_1` moves. -/
+theorem nfnRestore_ownId : nfnRestore.OwnId nfnAux nfnK where
+  tyName := by
+    rintro (_ | _ | j) T hT hK
+    · cases hT; rfl
+    · cases hT; exact absurd (by decide) hK
+    · simp [nfnAux] at hT
+  tyLvls := by
+    rintro (_ | _ | j) T hT hK
+    · cases hT; rfl
+    · cases hT; exact absurd (by decide) hK
+    · simp [nfnAux] at hT
+  tyArgs := by
+    rintro (_ | _ | j) T hT hK
+    · cases hT; rfl
+    · cases hT; exact absurd (by decide) hK
+    · simp [nfnAux] at hT
+  recName := by
+    rintro (_ | _ | j) T hT hK
+    · cases hT; rfl
+    · cases hT; exact absurd (by decide) hK
+    · simp [nfnAux] at hT
+  ctorName := by
+    rintro (_ | _ | j) T hT hK C hC
+    · cases hT
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at hC
+      subst hC; rfl
+    · cases hT; exact absurd (by decide) hK
+    · simp [nfnAux] at hT
+
 
 /-- The auxiliary member is the constructed one — including the `ξ = [Prop]` binder telescope,
 which the recogniser reads off the substituted type. -/
@@ -1167,6 +1261,7 @@ theorem nfnAux_built :
         List.not_mem_nil, or_false] at hC
       subst hC; rfl
     · simp [nfnAux] at hT
+  own := nfnRestore_ownId
 
 omit h in
 theorem nfnAux_canonicalOwn : nfnAux.CanonicalOwn nfnK := by

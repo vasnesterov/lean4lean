@@ -1,3 +1,322 @@
+# Handoff: the inductive side — Wall 2 is closed, and Wall 1 was mis-stated
+
+Successor to the previous revision (which named `VEnv.addInductR_ordered` and "the
+`DeltaUnique` freshness argument" as the two remaining walls).  §§0, 1–4 of the previous
+revision carry forward **unchanged and still true** and are not repeated in full; §§A–E below
+are this round.  Where a previous §-number is cited it is the previous revision's.
+
+Everything below is either **[MC]** machine-checked (a Lean proof in this tree, named), **[EV]**
+checked by evaluation (a `#eval` that fails the build on regression — a test, not a proof), or
+**[SRC]** read off source without a proof.  **[MC]** and **[SRC]** are never mixed in a row.
+
+**Census.**  `lake env lean scripts/sorry-census.lean` → **19** before this round, **19**
+after.  No `sorry` added, none removed, none made vacuous.  (The previous revision said 20;
+another stream closed one between rounds.  Never grep for `sorry`.)
+
+**Build state.**  Green on the same commit: `Lean4Lean.Theory` (the full aggregate),
+`Verify.{Soundness, SafeFragment, Bridge, InductFlip}`, `Verify.Environment.InductR`,
+`Theory.Inductive.{NestedKeys, NestedOrdered, NestedPositivity}`.
+`Verify/Inductive/AddDeclWF.lean` went red and green again during the session under *another*
+stream's edits; it was not touched here and builds green at the end.
+
+**Files.**  New, owned: **`Lean4Lean/Theory/Inductive/NestedKeys.lean`**.  Edited, owned:
+`Theory/Typing/DeltaUnique.lean`, `Theory/Inductive/{Restore,NestedHead,NestedBuild,NestedOrdered}.lean`.
+No unowned file was edited; no frozen file was touched.
+
+---
+
+## A. The headline
+
+**Both walls were mis-stated, in the same way, and the correction is machine-checked in both
+cases.**  The defect class is the one the brief names: *a statement carrying less information
+than its conclusion needs.*
+
+* **Wall 2 was not a proof gap — the invariant is false.**  `Theory/Typing/DeltaUnique.lean`'s
+  `VEnv.KeyMajorUnique` ("a rule is determined by the head of its major premise") is **false**
+  in an environment holding a nested block, so no repair of `keys_induct`'s freshness argument
+  could have worked.  `InductiveDeclExamples.nfn_keyMajorUnique_false` **[MC]** exhibits the
+  pair: `PFn`'s own ι-rule, keyed `[PFn.rec, PFn.mk]`, and `NFn`'s companion ι-rule, keyed
+  `[NFn.rec_1, PFn.mk]`.  Two rules, one major-premise head.
+  **Wall 2 is now closed**: the true statement is `VEnv.KeyUnique` (uniqueness by the *whole*
+  key), it is proved for the current tree **[MC]**, its one consumer is re-proved from it
+  **[MC]**, and it is proved **preserved by a nested step** **[MC]** — see §B.
+* **Wall 1's three obligations were said to be dischargeable "from `Faithful` plus
+  `D.WF env`".  They are not, and at the wrong restoration they are false.**
+  `VIndRestore.Faithful`'s three clauses are *all* guarded by `T.name ∈ K`: they say nothing
+  about the members the step **declares**.  `VIndRestore.faithful_of_nil` **[MC]** — at
+  `K = []` every clause is vacuous, so *every* restoration is `Faithful` — and
+  `InductiveDeclExamples.pfnJunk_would_have_passed` **[MC]** is the configuration that admits
+  at a real block: `PFn` presented as `Nat`, `Faithful` satisfied, `addInductR` succeeding, and
+  `PFn.mk` declared at a type whose result is `Nat`.  Obligation (A) is *false* there.
+  The other two hypotheses, `D.WF env` and `D.Canonical`, **do not mention `R` at all**, so no
+  strengthening of them could have excluded it.
+  **The repair has landed**: `VIndRestore.OwnId` **[MC]**, now a conjunct of `VEnv.AddNested`
+  and a field of `VInductDecl'.Built`, with both nested witnesses supplying it and
+  `AddNested_nil`'s conservativity intact.  Wall 1's three obligations remain **open**, but
+  they are now *stateable as true*; §C gives the exact remaining step.
+
+---
+
+## B. Wall 2, closed
+
+### B.1 The refutation
+
+| name | file | statement | tag |
+|---|---|---|---|
+| `InductiveDeclExamples.pfn_iotaRule_key` | `NestedKeys.lean` | `(pfnDecl.iotaRule 0 0 pfnMk).key = [PFn.rec, PFn.mk]` | **[MC]** |
+| `InductiveDeclExamples.nfn_companion_iotaRule_key` | `NestedKeys.lean` | `(nfnAux.iotaRuleR nfnRestore 1 1 pfnAuxMk).key = [NFn.rec_1, PFn.mk]` | **[MC]** |
+| `InductiveDeclExamples.nfn_keyMajorUnique_false` | `NestedKeys.lean` | after the nested step, `¬ env₃.KeyMajorUnique` | **[MC]** |
+| `InductiveDeclExamples.nfn_keys_ne` | `NestedKeys.lean` | the same pair has **different** keys — so it does *not* refute `KeyUnique` | **[MC]** |
+| `InductiveDeclExamples.nfn_keys_summary` | `NestedKeys.lean` | **hypothesis-free**: `∃ env₂ env₃`, `PFn` declared, a real `VEnv.AddNestedStep` to `env₃`, `¬ KeyMajorUnique env₃`, **and** `KeysDeclared ∧ KeyHeadDelta ∧ KeyUnique` preserved | **[MC]** |
+
+`nfn_keys_summary` is the non-vacuity check: the step is `nfnAux_AddNestedStep`, not an
+assumption, and `env₂` exists by `rfl`.
+
+### B.2 The replacement, and that it is preserved
+
+```lean
+def VEnv.KeysNonempty (env : VEnv) : Prop := ∀ df, env.defeqs df → df.key ≠ []
+def VEnv.KeyUnique (env : VEnv) : Prop :=
+  ∀ df df', env.defeqs df → env.defeqs df' → df.key = df'.key → df = df'
+```
+
+* `VEnv.WF'.keysNonempty`, `VEnv.WF.keysNonempty` **[MC]** — its own seven-arm `WF'` induction,
+  in the style Part III of `DeltaUnique.lean` already uses; every rule a declaration produces
+  is headed by a constant.
+* `VEnv.keyUnique_of_major` **[MC]** — `KeyMajorUnique ∧ KeysNonempty → KeyUnique`.  So
+  `VEnv.WF.keyUnique` **[MC]** holds *today*, cheaply, and **nothing in Part II is disturbed
+  and no existing proof is re-run**.  The converse fails, which is the whole point.
+* `VEnv.keysU_mono`, `keysU_addDefEq_notDelta`, `keysU_addDefEqList_notDelta` **[MC]** — the
+  step and fold lemmas for the `KeysDeclared ∧ KeyHeadDelta ∧ KeyUnique` triple.  They sit
+  beside the `KeyMajorUnique` versions; the difference is one hypothesis, `hkey` (the new
+  rule's *whole key* is new) in place of `hmaj` (its *last name* is new).
+* **`VEnv.keysR_induct`** **[MC]** — **the nested arm**:
+
+  ```lean
+  theorem keysR_induct (hR : env.addInductR D K R = some env')
+      (hf : R.Faithful D env K npJ) (hd : R.KeysDistinct D)
+      (ih : env.KeysDeclared ∧ env.KeyHeadDelta ∧ env.KeyUnique) :
+      env'.KeysDeclared ∧ env'.KeyHeadDelta ∧ env'.KeyUnique
+  ```
+  and `VEnv.keys_addNestedStep` **[MC]**, the same from `VEnv.AddNestedStep`.
+
+### B.3 Why each obligation goes through, and where the old argument died
+
+| obligation | declared member | **companion** member |
+|---|---|---|
+| `hdecl` (key names declared) | own `ctorConstsCR` / `recConstsR` | **`Faithful.ctor_agree` verbatim** — the environment already holds it |
+| `hδ` (no δ-rule head in the new key) | freshness | `ctors_complete` names the block `D₀` the environment holds; `VInductDecl'.Declared` puts `D₀`'s ι-rules in `env`; `KeyHeadDelta` at `env` identifies the δ-rule with one of them; `not_isDeltaRule_iotaRule` forbids it |
+| `hkey` (the new key is new) | head is fresh | **head is fresh** — every name in a registered key is declared (`KeysDeclared`), the head is not |
+| ~~`hmaj`~~ (the last name is new) | — | **impossible: `iotaRulesR_major_not_fresh` says the last name *is* declared.**  This is the row that killed the old invariant |
+
+The `hδ` companion row is the load-bearing one: **the old invariant discharges the new step's
+obligation**; no new invariant is introduced anywhere.
+
+### B.4 The one consumer, and the exact edit `PatternRules.lean` needs
+
+`KeyMajorUnique` has exactly **one** use in the tree: `Pat.iota_rule_uniq`
+(`Theory/Typing/PatternRules.lean:839`).  `Pat.deltaHead_ne_recName`, `.deltaHead_ne_ctorName`
+and `Pat.deltaHead_ne_quot` use `KeyHeadDelta`, which survives unchanged.
+
+`Pat.iota_rule_uniq_keyUnique` (`NestedKeys.lean`) **[MC]** proves the same conclusion from
+`KeyUnique`.  `VInductDecl'.iotaPat_inj` already returns the recursor-name equation — it is
+discarded at line 845 — so the whole key is available; the only cost is two extra hypotheses
+`D.types[j]? = some T`, `D'.types[j']? = some T'`, needed because the key's head is
+`mkRecName (D.types.getD j default).name` while the pattern carries `mkRecName T.name`.
+
+**Those two hypotheses are already in scope at the sole call site** (`Pat.iota_data_uniq`,
+`PatternRules.lean:1005`, which passes exactly `hTj` and `hTj'` to `VInductDecl'.iotaRule_inj`
+on the very next line) **[SRC]**.  So the edit, when the nested rule lands, is:
+
+* `PatternRules.lean` — `Pat.iota_rule_uniq` gains `(hTj) (hTj')`, and its body's
+  `henv.keyMajorUnique` becomes `henv.keyUnique` with the head equation supplied; the call at
+  line 1005 passes `hTj hTj'`.  `Pat.iota_rule_uniq_keyUnique'` **[MC]** is the regression:
+  today's statement is an instance of the new one, so nothing is lost.
+* `DeltaUnique.lean` — `WF'.keys` drops `KeyMajorUnique` and carries `KeyUnique`;
+  `keys_induct` becomes `keysU_*` (the four arms are already written), and the `induct`
+  arm gains `keysR_induct`.  `KeyMajorUnique` itself can stay as a definition — it is still
+  *true* today, and `nfn_keyMajorUnique_false` is what says it stops being.
+
+**This file owns `DeltaUnique.lean`; it does not own `PatternRules.lean`, and did not edit it.**
+
+### B.5 The one side condition, and its non-vacuity
+
+`VIndRestore.KeysDistinct R D` — *no two entries of `D.ctorsAll` get the same (renamed
+recursor, restored constructor) pair*.  A purely syntactic property of `R` and `D`, with no
+environment in it, and `decide`-able at a concrete block:
+
+* `InductiveDeclExamples.ntreeRestore_keysDistinct`, `nfnRestore_keysDistinct` **[MC]**, both
+  by `decide`.  Both witnesses have a companion member whose restored constructor name is one
+  the environment already holds (`List.cons`, `PFn.mk`), i.e. exactly the configuration
+  `KeyMajorUnique` fails at.
+* `InductiveDeclExamples.nfnAux_keys` **[MC]** — `nfnAux` really has *two* rules, keyed
+  `[NFn.rec, NFn.node]` and `[NFn.rec_1, PFn.mk]`; the property separates two rules, not one.
+
+**Open, and the only thing left on Wall 2:** `KeysDistinct` is *derivable* rather than
+assumed, from the two `addConstList` successes plus `Faithful.ctors_complete` — the renamed
+recursor names are `Nodup` because `addConstList (D.recConstsR R)` succeeded, which separates
+different members; within a member, a declared member's restored constructor names are `Nodup`
+for the same reason, and a companion member's are the constructor names of the block
+`ctors_complete` names, `Nodup` because that block was declared.  The derivation is list
+combinatorics over a `filterMap` and is **not carried out**.  It is a side condition of
+`keysR_induct`, discharged at both witnesses, so nothing downstream is blocked on it — but it
+is the honest remaining item.
+
+---
+
+## C. Wall 1, re-stated — and the hole it was hiding
+
+### C.1 What was wrong
+
+The previous revision's §5.2 said the three obligations of `VEnv.addInductR_ordered'` "are to
+be discharged **from `Faithful` plus `D.WF env`**".  Machine-checked refutation:
+
+| name | file | statement | tag |
+|---|---|---|---|
+| `VIndRestore.faithful_of_nil` | `Restore.lean` | `∀ R D env npJ, R.Faithful D env [] npJ` — `Faithful` is **vacuous** at `K = []` | **[MC]** |
+| `InductiveDeclExamples.pfnJunkRestore` | `NestedBuild.lean` | a restoration presenting `PFn` — a **declared** member — as `Nat` | (def) |
+| `InductiveDeclExamples.pfnJunk_ctorConstsCR` | `NestedBuild.lean` | it declares `PFn.mk` at a type whose **result is `Nat`** | **[MC]** |
+| `InductiveDeclExamples.pfn_idRestore_ctorConstsCR` | `NestedBuild.lean` | the contrast: at `idRestore` the same list is `[(PFn.mk, pfnMk.type pfnDecl 0)]` | **[MC]** |
+| `InductiveDeclExamples.pfnJunk_admitted` | `NestedBuild.lean` | `VEnv.empty.addInductR pfnDecl [] pfnJunkRestore` **succeeds** | **[MC]** |
+| `InductiveDeclExamples.pfnJunk_would_have_passed` | `NestedBuild.lean` | `Faithful` ∧ the step succeeds ∧ `¬ OwnId` | **[MC]** |
+
+`addInductR`'s success is a freshness-and-`Nodup` condition on *names*, which a junk
+restoration does not disturb; `D.WF env` and `D.Canonical` do not mention `R`.  So obligation
+**(A)** — a declared constructor's restored stored type is a type — is not open at
+`pfnJunkRestore`, it is **false**, and had the `inductNested` rule landed with only `Faithful`
+in its premise, `VDecl.WF` would have admitted an environment whose constants carry types
+nothing relates to the block.
+
+### C.2 The repair, landed
+
+```lean
+structure VIndRestore.OwnId (R : VIndRestore) (D : VInductDecl') (K : List Lean.Name) : Prop where
+  tyName   : ∀ j T, D.types[j]? = some T → T.name ∉ K → R.tyName j = T.name
+  tyLvls   : ∀ j T, D.types[j]? = some T → T.name ∉ K → R.tyLvls j = D.ownLvls
+  tyArgs   : ∀ j T, D.types[j]? = some T → T.name ∉ K → R.tyArgs j = bvars 0 D.np
+  recName  : ∀ j T, D.types[j]? = some T → T.name ∉ K →
+    R.recName (mkRecName T.name) = mkRecName T.name
+  ctorName : ∀ j T, D.types[j]? = some T → T.name ∉ K → ∀ C ∈ T.ctors, R.ctorName C.name = C.name
+```
+
+*Off `K`, the restoration renames nothing and re-instantiates nothing.*  All **[MC]**:
+
+| item | status |
+|---|---|
+| `VIndRestore.OwnId.tyAppR_eq` | the payoff: at a declared member `D.tyAppR R j k args = D.tyApp j k args`, via `tyAppH_bvars` |
+| `VInductDecl'.idRestore_ownId` | the identity restoration satisfies it for **every** `K` |
+| `VEnv.AddNested` | now `D.WF env ∧ D.Canonical ∧ R.OwnId D K ∧ R.Faithful D env K npJ ∧ addInductR … = some env'` — hence `AddNestedStep`, hence the rule's premise |
+| `VInductDecl'.Built` | gained an `own : R.OwnId D K` field; `Built.toFaithful` and `AddNestedB.toAddNested` pass it through |
+| `ntreeRestore_ownId`, `nfnRestore_ownId` | **both nested witnesses supply it** |
+| `VEnv.AddNested_nil` | **conservativity intact**: still `↔ D.WF env ∧ env.addInduct' D = some env'` at `idRestore` |
+| `ntreeAux_AddNested`, `ntreeAux_AddNestedStep`, `nfnAux_AddNestedB`, `nfnAux_AddNestedStep` | all re-proved through the new conjunct — **the rule's premise is still inhabited** |
+| `VEnv.addInductR_ordered'` | now threads `hown : R.OwnId D K`, recording the intended discharge |
+
+### C.3 What is still open, and the exact failing step
+
+`VEnv.addInductR_ordered` and `addInductR_ordered'` are unchanged in structure: `Ordered env'`
+follows from four staged obligations, the first (`addInductR_typeConstsC_wf`) is free, and
+three remain.  They are now to be discharged from **`OwnId` + `Faithful` + `D.WF env`**.
+
+**(A)** a declared constructor's restored stored type is a type at `env + typeConstsC K`.
+**(B)** each renamed recursor's restored type is a type at `env + typeConstsC K + ctorConstsCR R K`.
+**(C)** each restored ι-rule is a well-formed `VDefEq` there.
+
+**The exact failing step, for all three.**  With `OwnId` the result-position heads are
+unchanged (`tyAppR_eq`), so the entire remaining content is the *field* positions: a recursive
+field of a declared constructor whose `r.idx` is a **companion** member is stored as
+`∀ ξ, _nested.PFn_1 params π` and restored to `∀ ξ, PFn A π`, and the staging environment
+holds `PFn` but **not** `_nested.PFn_1`.  What `D.WF env` gives is a typing derivation over
+`env.addIndTypes D`, which holds `_nested.PFn_1` and not the restored form.  Transporting it
+needs:
+
+> **the missing lemma** — if `env.constants J = some ⟨u, τ⟩` and `R.instAt D (npJ j) j τ` is the
+> companion member's stored type (which is `Faithful.ty_agree`, exactly), then replacing every
+> `.const J_aux` head by `tyAppH (R.tyName j) (R.tyLvls j) (R.tyArgs j)` preserves
+> `IsType`/`HasType`.
+
+That is a **substitution-of-a-constant-by-a-term** typing theorem, and **there is nothing of
+the kind in `Theory/`** — searched: no `ConstSubst`, no `substConst`, no `replaceConst`; the
+only environment-directed transport lemmas are `HasType.mono`/`IsType.mono` (weakening along
+`≤`), which does not apply because `_nested.PFn_1` is *removed*, not added **[SRC]**.  So Wall 1
+is one named theorem, not three, and that theorem is new machinery rather than a
+re-arrangement of existing lemmas.  `VEnv.addInductR_ordered_nil` **[MC]** is unchanged and
+still shows the three collapse to what `addInduct'` already proves at `K = []`, `R = idRestore`
+— so they remain about the *restoration*, not about inductives.
+
+A second, smaller item noticed while doing C.2: the `_id` chain in `NestedHead.lean`
+(`canonResultR_id … recTypeR_id`, ~20 lemmas) is stated at `D.idRestore`.  Under `OwnId D []`
+every one of them should generalise, which would upgrade `addInductR_eq_addInduct'` from "at
+`idRestore`" to "at any restoration that is the identity off `K`".  Not attempted; mechanical,
+and it would make `addInductR_ordered_nil` unconditional in `R`.
+
+---
+
+## D. `VIndRecArg.exists_indep` — inventoried, not in reach
+
+One of the 19, in `Theory/Inductive/Decl.lean` (owned).  Its own docstring names the blocker
+and the census confirms it is still there **[MC, by census]**: the proof needs
+`VEnv.IsDefEqU.forallE_inv` (`Theory/Typing/Injectivity.lean`) to rule out an ill-formed field
+of type `(∀ ξ₀, I p π₀) → Sort u`, and `forallE_inv` is itself one of the 19 and is being
+worked by another stream (`Injectivity.lean` gained 269 lines this session, and all six of its
+`sorry`s are still present).  **Not attempted.**  It is a strict dependency, not a difficulty
+estimate: nothing else in the argument is missing.
+
+---
+
+## E. The flip: the gate list, updated
+
+**Verdict: still not landable, and the gate list is now shorter by one and longer by one.**
+
+| gate | status after this round |
+|---|---|
+| (i) `VEnv.addInductR_ordered` — the three obligations | **open**, and now correctly stated; one missing theorem, §C.3 |
+| (ii) the `DeltaUnique` repair | **CLOSED** — §B.  `KeyUnique` replaces `KeyMajorUnique`, is preserved by `keysR_induct`, and the consumer is re-proved |
+| (ii′) `VIndRestore.KeysDistinct` derivable rather than assumed | **open**, list combinatorics, blocks nothing (§B.5) |
+| (iii) the `inductNested` rule plus the nine case arms of the previous §5.4 | gated on (i); the four *unowned* sites are unchanged, and `DeltaUnique.lean` is **owned** by this stream, so that row of the previous §5.4's table was wrong |
+| (iv) rows 6–9 of the previous §6 — the nine `Verify/TypeChecker/` statements | **the human's decision, unchanged.**  Reported, not acted on |
+
+The previous §5.4's table listed `Theory/Typing/DeltaUnique.lean` and
+`Theory/Typing/PatternRules.lean` as "not owned".  `DeltaUnique.lean` **is** owned by this
+stream (the brief lists it); `PatternRules.lean` is not, and §B.4 states its exact edit rather
+than making it.
+
+**The order is now: (i) the constant-substitution typing theorem of §C.3; then (iii); then
+(iv) to the human.**  (ii) is done.
+
+---
+
+## F. Ledger of edits to owned files
+
+| file | change |
+|---|---|
+| `Theory/Inductive/NestedKeys.lean` | **new**.  §1 the consumer from `KeyUnique`; §2 the refutation at the `NFn`/`PFn` witness; §3 `not_isDeltaRule_iotaRuleR`, `recName_mem_recConstsR`, `ctorName_mem_ctorConstsCR`, `VIndRestore.KeysDistinct`, `iotaRulesR_pairwise_key`, `keysR_induct`, `keys_addNestedStep`; §3.3 the witnesses and `nfn_keys_summary` |
+| `Theory/Typing/DeltaUnique.lean` | **Part IV** appended: `KeysNonempty`, `KeyUnique`, `keyUnique_of_major`, the `keysNonempty_*` step lemmas and `WF'.keysNonempty`/`WF.keysNonempty`/`WF.keyUnique`, and `keysU_mono`/`keysU_addDefEq_notDelta`/`keysU_addDefEqList_notDelta`.  **Parts I–III are untouched**; no existing proof was re-run |
+| `Theory/Inductive/Restore.lean` | `VIndRestore.faithful_of_nil`; `VIndRestore.OwnId` + `idRestore_ownId` + `OwnId.tyAppR_eq`; `VEnv.AddNested` gained the `OwnId` conjunct |
+| `Theory/Inductive/NestedHead.lean` | `ntreeRestore_ownId`; `AddNested_nil` and `AddNested_keys_declared` and `ntreeAux_AddNested` adjusted to the new conjunct |
+| `Theory/Inductive/NestedBuild.lean` | `pfnJunkRestore` and its five theorems (§C.1); `nfnRestore_ownId`; `Built` gained `own`; `ntreeAux_built`/`nfnAux_built`/`AddNestedB.toAddNested` supply it |
+| `Theory/Inductive/NestedOrdered.lean` | the §C.1 audit as a section docstring; `addInductR_ordered'` threads `hown` |
+
+---
+
+## G. Carried forward from the previous revision, still true
+
+* §§1–4 of the previous revision — `AddInductStagesR` and its invariant, `InductStepNested`
+  and its two corrections, the re-run refutation with its four negative controls and checks
+  C/C′/D **[EV]**, and the closed model at `NFn`/`PFn` — are **unchanged and untouched**.
+* `addDecl.WF`'s `inductDecl` branch is **false, not open** (`addDecl_inductDecl_WF_false`
+  **[MC]**).  Unchanged.
+* The `.unsafe` hole (`unsafe_induct_unreachable` **[MC]**) is unchanged and independent of
+  everything above.
+* Not proved and not attempted this round: the flip; `AddInductiveObligation`; the `.unsafe`
+  rule; the nine `Verify/TypeChecker/` declarations; any edit to `Theory/Typing/Env.lean`'s
+  inductive.
+
+---
+
+<details>
+<summary>Previous revision, retained verbatim for §§1–4 and the previous §-numbering</summary>
+
 # Handoff: the inductive side — the nested step is stateable now, and the blocker moved
 
 Successor to the previous revision (which named the declaration history `ds` as the one
@@ -432,3 +751,5 @@ No unowned file was edited.  The `VDecl.WF` probe of §5.4 was reverted in full.
   its nested counterpart as a refinement of `Environment.addInductive` (nothing in `Verify/`
   refines the top-level wrapper yet, which is why §3's checker-side facts are `[EV]`); the
   `.unsafe` rule; the nine `Verify/TypeChecker/` declarations; `Theory/Typing/Env.lean` (§5).
+
+</details>

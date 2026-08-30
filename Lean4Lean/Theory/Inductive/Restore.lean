@@ -326,6 +326,67 @@ structure VIndRestore.Faithful (R : VIndRestore) (D : VInductDecl')
         npJ j = D₀.np ∧
         T.ctors.map (fun C => R.ctorName C.name) = T₀.ctors.map (·.name)
 
+/-- **`Faithful` is vacuous at `K = []`, for every restoration.**  Every one of its three
+clauses is guarded by `T.name ∈ K`, so `Faithful` says nothing at all about the members a step
+*declares*.  That is what `VIndRestore.OwnId` below exists to supply; see
+`VEnv.addInductR_ordered'` (`Theory/Inductive/NestedOrdered.lean`) for the audit and
+`InductiveDeclExamples.pfnJunk_would_have_passed` for the configuration it admits. -/
+theorem VIndRestore.faithful_of_nil (R : VIndRestore) (D : VInductDecl')
+    (env : VEnv) (npJ : Nat → Nat) : R.Faithful D env [] npJ :=
+  ⟨by rintro _ _ _ ⟨⟩, by rintro _ _ _ ⟨⟩, by rintro _ _ _ ⟨⟩⟩
+
+/-- **The restoration is the identity on the members the step declares.**
+
+`Faithful`'s three clauses are all guarded by `T.name ∈ K`: they say nothing whatever about a
+member the step *declares*.  That is a hole of exactly the shape the `npJ` one had, and a
+larger one, because it is not repairable from inside `Faithful` — at `K = []` every clause is
+vacuous, so `Faithful` holds of **every** restoration
+(`VIndRestore.faithful_of_nil`, `Theory/Inductive/NestedOrdered.lean`).  With `R.tyName 0`
+free, `VInductDecl'.ctorConstsCR` declares the block's own constructors at result types
+headed by an arbitrary constant, and `recConstsR` declares its recursors under arbitrary
+names; `VEnv.addInductR` still succeeds, and the environment gains constants at types nothing
+relates to the block.  `VEnv.addInductR_ordered'`'s three obligations are then not merely
+open but **false**, since `Ordered` fails at the very first declared constructor.
+
+So the identity has to be asserted, and this is the assertion: on a member off `K`, the
+restoration renames nothing and re-instantiates nothing.  `VInductDecl'.tyAppH_bvars` is the
+payoff — under `OwnId`, `tyAppR` at such a member *is* `tyApp`, so restoration is invisible in
+exactly the positions the step declares under their own names, which is what makes
+`addInductR` agree with `addInduct'` on the user's block.  `VIndRestore.idRestore` satisfies
+it for every `K` (`idRestore_ownId`). -/
+structure VIndRestore.OwnId (R : VIndRestore) (D : VInductDecl') (K : List Lean.Name) : Prop where
+  tyName : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∉ K →
+    R.tyName j = T.name
+  tyLvls : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∉ K →
+    R.tyLvls j = D.ownLvls
+  tyArgs : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∉ K →
+    R.tyArgs j = VExpr.bvars 0 D.np
+  recName : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∉ K →
+    R.recName (Lean.mkRecName T.name) = Lean.mkRecName T.name
+  ctorName : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∉ K →
+    ∀ C ∈ T.ctors, R.ctorName C.name = C.name
+
+/-- The identity restoration is the identity on every member, `K` or not. -/
+theorem VInductDecl'.idRestore_ownId (D : VInductDecl') (K : List Lean.Name) :
+    D.idRestore.OwnId D K where
+  tyName j T hT _ := by
+    show (D.types.getD j default).name = T.name
+    rw [List.getD_eq_getElem?_getD, hT]; rfl
+  tyLvls _ _ _ _ := rfl
+  tyArgs _ _ _ _ := rfl
+  recName _ _ _ _ := rfl
+  ctorName _ _ _ _ _ _ := rfl
+
+/-- **The payoff.**  On a member the step declares, the restored type head *is* the block's
+own type head — so `VIndCtor.typeR`'s result position, and `recTypeR`'s motive positions at
+such a member, are `tyApp` unchanged. -/
+theorem VIndRestore.OwnId.tyAppR_eq {R : VIndRestore} {D : VInductDecl'} {K : List Lean.Name}
+    (h : R.OwnId D K) {j : Nat} {T : VIndType} (hT : D.types[j]? = some T) (hK : T.name ∉ K)
+    (k : Nat) (args : List VExpr) : D.tyAppR R j k args = D.tyApp j k args := by
+  have hg : D.types.getD j default = T := by rw [List.getD_eq_getElem?_getD, hT]; rfl
+  rw [VInductDecl'.tyAppR, h.tyName j T hT hK, h.tyLvls j T hT hK, h.tyArgs j T hT hK,
+    ← hg, VInductDecl'.tyAppH_bvars]
+
 /-! ## Part 6: the repaired step, assembled
 
 `VEnv.AddCompanion` (`CompanionResolve.lean`) is *resolve, check, extend*.  Part 7 shows
@@ -337,7 +398,8 @@ auxiliary block is an ordinary mutual inductive. -/
 `npJ j` the parameter count of the type member `j` is presented as. -/
 def VEnv.AddNested (env : VEnv) (D : VInductDecl') (K : List Lean.Name)
     (R : VIndRestore) (npJ : Nat → Nat) (env' : VEnv) : Prop :=
-  D.WF env ∧ D.Canonical ∧ R.Faithful D env K npJ ∧ env.addInductR D K R = some env'
+  D.WF env ∧ D.Canonical ∧ R.OwnId D K ∧ R.Faithful D env K npJ ∧
+    env.addInductR D K R = some env'
 
 /-- **The nested step, with the parameter count discharged rather than supplied.**
 

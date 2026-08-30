@@ -96,6 +96,34 @@ theorem addInductR_typeConstsC_wf (h : D.WF env) : ∀ c ∈ D.typeConstsC K, c.
     obtain ⟨T, hT, rfl⟩ := hc₀
     exact (h.types T hT).constant_wf
 
+/-! ### An audit of the hypotheses, and a correction to the framing
+
+The previous revision of `docs/handoff-inductive-add.md` said the three obligations below
+"are to be discharged **from `Faithful` plus `D.WF env`**".  That is **false**, and not
+narrowly: `VIndRestore.Faithful`'s three clauses are *all* guarded by `T.name ∈ K`, so they
+say nothing whatever about the members the step declares.  At `K = []` every clause is
+vacuous — `VIndRestore.faithful_of_nil` (`Theory/Inductive/Restore.lean`) — and a restoration that renames the block's own
+member to an arbitrary constant is `Faithful`.  `VEnv.addInductR` still succeeds at it (its
+success depends only on freshness and `Nodup` of the names), so the constructor constants it
+declares carry result types headed by that constant, and obligation **(A)** fails at the very
+first one.  `InductiveDeclExamples.pfnJunk_would_have_passed`
+(`Theory/Inductive/NestedBuild.lean`) is that configuration at a real block.
+
+The two hypotheses that could have excluded it, `D.WF env` and `D.Canonical`, **do not
+mention `R` at all**, so no strengthening of them could.
+
+The repair is `VIndRestore.OwnId` (`Theory/Inductive/Restore.lean`): *off `K`, the
+restoration renames nothing and re-instantiates nothing*.  It is now a conjunct of
+`VEnv.AddNested`, hence of `VEnv.AddNestedStep`, hence of the `inductNested` rule's premise;
+`VInductDecl'.Built` carries it too, so both end-to-end witnesses supply it
+(`ntreeRestore_ownId`, `nfnRestore_ownId`) and `VEnv.AddNested_nil` still holds at
+`idRestore` (`VInductDecl'.idRestore_ownId`).  `VIndRestore.OwnId.tyAppR_eq` is what it buys:
+at a declared member the restored head **is** `VInductDecl'.tyApp`, so restoration is
+invisible in exactly the positions the step declares under their own names.
+
+So the three obligations below are to be discharged from **`OwnId` + `Faithful` + `D.WF env`**,
+and `hown` is threaded through `addInductR_ordered'` to record that. -/
+
 /-- **What is actually left, stated once.**
 
 Reading the hypotheses: **(A)** a *declared* constructor's **restored** stored type is a type
@@ -109,12 +137,13 @@ block constant, whereas `typeR`/`recTypeR`/`iotaRulesR` have rewritten every com
 back to the block the environment really holds.  `VIndRestore.Faithful`
 (`Theory/Inductive/Restore.lean`) is the hypothesis that licenses that rewrite —
 `ty_agree`/`ctor_agree` say the companion member *is* the declared block instantiated — so the
-three obligations are to be discharged **from `Faithful` plus `D.WF env`**, which is exactly
-the theorem `docs/handoff-inductive-add.md` records as open.
+three obligations are to be discharged from `OwnId` + `Faithful` + `D.WF env` — see the audit
+above for why `Faithful` alone is not enough, and why that was a defect in the statement
+rather than a gap in a proof.
 
 Given them, `Ordered` follows; that is all this theorem says, and it says it so that the
 remaining work is three named statements rather than a rule with no proof. -/
-theorem addInductR_ordered' (henv : env.Ordered) (h : D.WF env)
+theorem addInductR_ordered' (henv : env.Ordered) (h : D.WF env) (hown : R.OwnId D K)
     (hctors : ∀ {e₁ : VEnv}, env.addConstList (D.typeConstsC K) = some e₁ →
       ∀ c ∈ D.ctorConstsCR R K, c.2.WF e₁)
     (hrecs : ∀ {e₁ e₂ : VEnv}, env.addConstList (D.typeConstsC K) = some e₁ →

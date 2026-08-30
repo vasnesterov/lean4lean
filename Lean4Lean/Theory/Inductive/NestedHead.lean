@@ -419,9 +419,10 @@ theorem VEnv.AddNested_nil {env env' : VEnv} {D : VInductDecl'}
     VEnv.AddNested env D [] D.idRestore npJ env' ↔ D.WF env ∧ env.addInduct' D = some env' := by
   rw [VEnv.AddNested, VEnv.addInductR_eq_addInduct' env hc]
   constructor
-  · rintro ⟨h1, -, -, h4⟩; exact ⟨h1, h4⟩
+  · rintro ⟨h1, -, -, -, h4⟩; exact ⟨h1, h4⟩
   · rintro ⟨h1, h4⟩
-    exact ⟨h1, hc, ⟨by rintro _ _ _ ⟨⟩, by rintro _ _ _ ⟨⟩, by rintro _ _ _ ⟨⟩⟩, h4⟩
+    exact ⟨h1, hc, D.idRestore_ownId [],
+      ⟨by rintro _ _ _ ⟨⟩, by rintro _ _ _ ⟨⟩, by rintro _ _ _ ⟨⟩⟩, h4⟩
 
 /-- **G4 travels with the step.**  Every ι-rule the step emits is keyed to a constant the step
 declares, and that constant is present in the resulting environment. -/
@@ -433,7 +434,7 @@ theorem VEnv.AddNested_keys_declared {env env' : VEnv} {D : VInductDecl'}
   refine ⟨n, hn, hmem, ?_⟩
   rw [VInductDecl'.allNamesCR, List.mem_map] at hmem
   obtain ⟨c, hc, rfl⟩ := hmem
-  exact ⟨c.2, VEnv.addInductR_constants h.2.2.2 c hc⟩
+  exact ⟨c.2, VEnv.addInductR_constants h.2.2.2.2 c hc⟩
 
 
 /-! ## Part 7: a real nested block, end to end
@@ -533,6 +534,39 @@ def ntreeRestore : VIndRestore where
   ctorName n := if n = `_nested.List_1.nil then ``List.nil
                 else if n = `_nested.List_1.cons then ``List.cons else n
   recName n := if n = `_nested.List_1.rec then ``NTree.rec_1 else n
+
+/-- **The restoration is the identity on `NTree`**, the member the step declares: it is only
+`_nested.List_1` that is renamed, re-levelled and re-instantiated.  This is
+`VIndRestore.OwnId`, the clause `Faithful` cannot state because all three of its clauses are
+guarded by `T.name ∈ K`. -/
+theorem ntreeRestore_ownId : ntreeRestore.OwnId ntreeAux ntreeK where
+  tyName := by
+    rintro (_ | _ | j) T hT hK
+    · cases hT; rfl
+    · cases hT; exact absurd (by decide) hK
+    · simp [ntreeAux] at hT
+  tyLvls := by
+    rintro (_ | _ | j) T hT hK
+    · cases hT; rfl
+    · cases hT; exact absurd (by decide) hK
+    · simp [ntreeAux] at hT
+  tyArgs := by
+    rintro (_ | _ | j) T hT hK
+    · cases hT; rfl
+    · cases hT; exact absurd (by decide) hK
+    · simp [ntreeAux] at hT
+  recName := by
+    rintro (_ | _ | j) T hT hK
+    · cases hT; rfl
+    · cases hT; exact absurd (by decide) hK
+    · simp [ntreeAux] at hT
+  ctorName := by
+    rintro (_ | _ | j) T hT hK C hC
+    · cases hT
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at hC
+      subst hC; rfl
+    · cases hT; exact absurd (by decide) hK
+    · simp [ntreeAux] at hT
 
 /-! ### The payoff: the restored declarations, against Lean's own
 
@@ -821,7 +855,7 @@ claim is consistency of the result; that is `leanTTConsistent`, open. -/
 theorem ntreeAux_AddNested :
     ∃ env₂, VEnv.AddNested env₁ ntreeAux ntreeK ntreeRestore
       (fun _ => 1) env₂ :=
-  ⟨(ntreeAux_admitted h).choose, ntreeAux_WF h, ntreeAux_Canonical,
+  ⟨(ntreeAux_admitted h).choose, ntreeAux_WF h, ntreeAux_Canonical, ntreeRestore_ownId,
     ntreeRestore_faithful h, (ntreeAux_admitted h).choose_spec⟩
 
 omit h in
