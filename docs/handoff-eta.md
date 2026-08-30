@@ -161,7 +161,18 @@ TrExprS env … ci.type ci'.type`.  **Neither mentions `InductiveVal.isRec`, `.c
 `.numIndices` or `.numParams`, or `ConstructorVal.numFields`, `.numParams` or `.induct`** — and
 those six fields are exactly what `Environment.isNonRecStructure` and the two eta checks read.
 
-Proved, at the tree's own `AddInductStages` witness `R10.Wit.decl`:
+> **SUPERSEDED — this section describes the state before the shape predicates were
+> strengthened.  See `docs/handoff-inductive-add.md` §§I–L for the current state.**  `IndShape`
+> and `CtorShape` **landed**: they are now the shape predicates of `AddInductStages` and
+> `AddInductStagesR`, `addInductStages_with` was replaced by the `↔`
+> `R10.Wit.addInductStages_pinned`, `addInductStages_bookkeeping_free` is gone, and
+> `isNonRecStructure_not_determined` survives only in its `isRec` component — a residue that
+> `R10.Wit.isNonRecStructure_one_sided` shows can only make the checker *refuse* eta.  The
+> bridge is still not provable, but the blocker moved: it is now `VEnv.IsStructure.types`
+> (`D.types = [T]`), which is **false** for a member of a mutual non-recursive block on which
+> `isNonRecStructure` answers `true` (`MutNonRec.indShapeOf_not_singleton`).
+
+Proved, at the tree's own `AddInductStages` witness `R10.Wit.decl` (state before the repair):
 
 * `R10.Wit.addInductStages_with` — `AddInductStages m VEnv.empty decl m' env'` holds with the
   map's `InductiveVal` carrying *any* `numIndices`, `ctors` and `isRec`.  The proof is
@@ -172,10 +183,10 @@ Proved, at the tree's own `AddInductStages` witness `R10.Wit.decl`:
 * `R10.Wit.isNonRecStructure_not_determined` — the consequence: one run makes
   `isNonRecStructure` say `true`, the other `false`, with the abstract side identical.
 
-So no lemma of the form `isNonRecStructure I = true → (anything about venv)` can be proved from
-`AddInductStages`/`AddInductStagesR` as they stand.  `IndShape` and `CtorShape` in that file are
-the strengthened shape predicates `AddIndConsts` must be instantiated at; they are written out
-so the eventual edit is a substitution rather than a redesign.
+So no lemma of the form `isNonRecStructure I = true → (anything about venv)` could be proved
+from `AddInductStages`/`AddInductStagesR` **as they then stood**.  `IndShape` and `CtorShape`
+were written out in that file as the strengthened shape predicates `AddIndConsts` must be
+instantiated at, so the eventual edit would be a substitution rather than a redesign; it was.
 
 **Note what is *not* claimed.**  A refutation of the bridge itself (`∃ D T C, IsStructure …`) is
 *not* given, and would be expensive: `IsStructure` quantifies over all blocks, so ruling it out
@@ -304,11 +315,11 @@ field), plus the F17 clause in its non-trivial disjunct at `And`.  All four are 
 
 ## 7. What to pick up first
 
-1. **`AddInduct`'s shape predicates.**  §3's `IndShape`/`CtorShape`.  This is a small edit to a
-   definition, it is a prerequisite for *both* eta checks, and it is also what `inferProj.WF`
-   and `reduceProjCore.WF` need.  It cannot be done before `AddInduct` gains constructors, but
-   it changes what that flip has to contain, so it should land in the flip's design now rather
-   than be discovered afterwards.
+1. ~~**`AddInduct`'s shape predicates.**  §3's `IndShape`/`CtorShape`.~~  **DONE** — landed in
+   `AddInductStages` and `AddInductStagesR`; see `docs/handoff-inductive-add.md` §§I–K.  What
+   replaces it as the first item is **`VEnv.IsStructure.types`**: `D.types = [T]` is not
+   attainable and is not true of what `isNonRecStructure` accepts, so it must weaken to
+   `T ∈ D.types` (`docs/handoff-inductive-add.md` §L has the exact edit and its dependents).
 2. **The non-`Prop` half of `tryEtaStructCore.WF`** — §4's closing paragraph names the two
    missing ingredients and the lemma (`StructEta.congrSpine`) that is already proved and waiting.
 3. **`structEta` as an `IsDefEq` constructor.**  `VEnv.StructEta` is the statement; promoting it

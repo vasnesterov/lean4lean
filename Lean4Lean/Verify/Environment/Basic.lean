@@ -270,13 +270,159 @@ theorem AddIndConsts.defeqs {S cs m env m₂ env₂}
   | cons _ _ _ _ hadd _ ih =>
     rw [ih]; unfold VEnv.addConst at hadd; split at hadd <;> cases hadd; rfl
 
+/-! ### The bookkeeping fields, pinned: `IndShape` and `CtorShape`
+
+The stage predicates used to be bare `fun ci => ∃ v, ci = .inductInfo v`, and `TrConstant`
+pins only the safety tag, the universe count and the type.  **Nothing there mentioned
+`InductiveVal.isRec`, `.ctors`, `.numIndices` or `.numParams`, nor `ConstructorVal.numFields`,
+`.numParams` or `.induct`** — and those are exactly the fields `Environment.isNonRecStructure`
+and the two structure-eta checks read.  `Verify/StructureBridge.lean` machine-checked the
+consequence: the *same* abstract `VEnv` was compatible with constant maps giving opposite
+answers to `isNonRecStructure`.
+
+`IndShape`/`CtorShape` are the repair.  Each clause is a field the checker itself **computes**
+(`Lean4Lean/Inductive/Add.lean`), never one it takes on trust from the elaborator, so none of
+them over-constrains the executable path:
+
+| clause | computed at |
+| --- | --- |
+| `v.numParams = D.np` | `declareInductiveTypes`: `numParams` is the checked parameter count |
+| `v.numIndices = T.indices.length` | `declareInductiveTypes`: `stats.nindices` |
+| `v.ctors = T.ctors.map (rn ·.name)` | `declareInductiveTypes`: `indType.ctors.map (·.name)` |
+| `v.isRec = false → …` | `isRec indTypes stats.indConsts` — see below |
+| `v.name`/`v.induct` | `declareConstructors`: `induct := indType.name` |
+| `v.numFields = C.fields.length` | `declareConstructors`: `arity - stats.params.size` |
+
+**The `isRec` clause is deliberately one-directional.**  `Add.lean`'s `isRec` is
+`indTypes.any fun indType => indType.ctors.any fun ctor => loop ctor.type`, i.e. it is
+*block-wide*, and it is `false` only when no constructor anywhere in the block has a binder
+whose domain syntactically mentions a block constant (`hasIndOcc`, an `anySubterm` scan).  Two
+things make that a faithful test.  `checkConstructors` matches `.forallE` **syntactically**, with
+no `whnf`, and rejects anything else that is not a valid inductive application — so a stored
+constructor type the kernel accepts really is a syntactic pi-telescope, and `isRec`'s `loop`
+sees every binder there is.  And a block constant cannot be produced by δ-unfolding: the block's
+names are not yet declared, so no existing constant's value can mention them, and `whnf`
+therefore cannot expose one that `anySubterm` did not already see.  Hence `isRec = false` really
+does mean no field of any constructor of any member is recursive, which is the conclusion
+recorded here.  The converse (`isRec = true →`
+some field is recursive) is **not** claimed: it would be an equally plausible reading of the
+implementation, but soundness never needs it, and asserting it would risk refuting a block the
+checker accepts.  What this buys, and all it buys, is the safe direction: *if the kernel is
+willing to run structure eta, the abstract block supports it.*  `isRec = true` on a block that
+is not really recursive only ever makes the checker refuse eta.
+
+**Deliberately absent: `InductiveVal.all`.**  `all` is patched during the nested-restoration
+pass (`Add.lean`: `modify (·.add <| .inductInfo { ind with all := allIndNames })`), so it is
+*not* `D.types.map (·.name)` for a nested block, and a clause claiming so would be an
+over-constraint that refutes real nested declarations.  It is also not among the fields any eta
+or projection check reads.  The price is recorded at `StructureBridge`: `IsStructure.types`
+(`D.types = [T]`) cannot be obtained from the shape predicates, and it is in fact *false* for a
+member of a mutual non-recursive block, on which `isNonRecStructure` answers `true`.
+
+`rn`/`tn` are the renaming and the owning-type name the declaration step applies: `id` and
+`fun j => (D.types.getD j default).name` for a plain block, `R.ctorName` and `R.tyName` for a
+restored nested one (`AddInductStagesR`, `Verify/Environment/InductR.lean`).  Carrying them as
+parameters is what lets the nested and non-nested relations share one predicate. -/
+
+/-- The bookkeeping of a block's **type** constant, pinned to the abstract member `T`. -/
+def IndShape (D : VInductDecl') (rn : Name → Name) (T : VIndType) (ci : ConstantInfo) :
+    Prop :=
+  ∃ v : InductiveVal, ci = .inductInfo v ∧
+    v.name = T.name ∧
+    v.numParams = D.np ∧
+    v.numIndices = T.indices.length ∧
+    v.ctors = (T.ctors.map fun C => rn C.name) ∧
+    (v.isRec = false → ∀ T' ∈ D.types, ∀ C ∈ T'.ctors, C.recFields = [])
+
+/-- The **type stage's** shape predicate.
+
+Two halves, and the pairing is the point.  The `∃` half is **non-vacuity**: the constant is
+some member of `D`.  The `∀` half is **pinning**: *every* member whose name the constant
+carries has that bookkeeping — so a consumer who holds a `T ∈ D.types` with the right name gets
+the clauses for **that** `T`, with no `Nodup` side condition to thread and no possibility of the
+predicate having selected a different member.
+
+A bare `∃ T ∈ D.types, IndShape D rn T ci` would *not* do this: it hands back some member, and
+tying it to the one the consumer holds needs distinctness of the block's type names.  A bare
+`∀` would be the membership-guarded predicate that constrains nothing when no member matches.
+Neither failure mode survives the conjunction. -/
+def IndShapeOf (D : VInductDecl') (rn : Name → Name) (ci : ConstantInfo) : Prop :=
+  ∃ v : InductiveVal, ci = .inductInfo v ∧
+    (∃ T ∈ D.types, T.name = v.name) ∧
+    ∀ T ∈ D.types, T.name = v.name → IndShape D rn T ci
+
+/-- The bookkeeping of a block's **constructor** constant.  `tn` is the (possibly restored)
+name of the type the constructor belongs to. -/
+def CtorShape (D : VInductDecl') (rn : Name → Name) (tn : Name) (C : VIndCtor)
+    (ci : ConstantInfo) : Prop :=
+  ∃ v : ConstructorVal, ci = .ctorInfo v ∧
+    v.name = rn C.name ∧
+    v.induct = tn ∧
+    v.numParams = D.np ∧
+    v.numFields = C.fields.length
+
+/-- The **constructor stage's** shape predicate, in the same two halves as `IndShapeOf`. -/
+def CtorShapeOf (D : VInductDecl') (rn : Name → Name) (tn : Nat → Name)
+    (ci : ConstantInfo) : Prop :=
+  ∃ v : ConstructorVal, ci = .ctorInfo v ∧
+    (∃ jC ∈ D.ctorsAll, v.name = rn jC.2.name) ∧
+    ∀ jC ∈ D.ctorsAll, v.name = rn jC.2.name → CtorShape D rn (tn jC.1) jC.2 ci
+
+theorem IndShape.inductInfo {D rn T ci} (h : IndShape D rn T ci) :
+    ∃ v, ci = .inductInfo v := let ⟨v, h, _⟩ := h; ⟨v, h⟩
+
+theorem IndShapeOf.inductInfo {D rn ci} (h : IndShapeOf D rn ci) :
+    ∃ v, ci = .inductInfo v := let ⟨v, h, _⟩ := h; ⟨v, h⟩
+
+theorem CtorShape.ctorInfo {D rn tn C ci} (h : CtorShape D rn tn C ci) :
+    ∃ v, ci = .ctorInfo v := let ⟨v, h, _⟩ := h; ⟨v, h⟩
+
+theorem CtorShapeOf.ctorInfo {D rn tn ci} (h : CtorShapeOf D rn tn ci) :
+    ∃ v, ci = .ctorInfo v := let ⟨v, h, _⟩ := h; ⟨v, h⟩
+
+/-- **Pinning, as a lemma.**  The member the consumer holds is the member the predicate
+constrains. -/
+theorem IndShapeOf.at {D rn T} {v : InductiveVal} (h : IndShapeOf D rn (.inductInfo v))
+    (hT : T ∈ D.types) (hn : T.name = v.name) : IndShape D rn T (.inductInfo v) := by
+  obtain ⟨v', hv, -, hall⟩ := h
+  injection hv with hv
+  subst hv
+  exact hall _ hT hn
+
+/-- **Non-vacuity, as a lemma.** -/
+theorem IndShapeOf.exists {D rn} {v : InductiveVal} (h : IndShapeOf D rn (.inductInfo v)) :
+    ∃ T ∈ D.types, T.name = v.name ∧ IndShape D rn T (.inductInfo v) := by
+  obtain ⟨v', hv, ⟨T, hT, hn⟩, hall⟩ := h
+  injection hv with hv
+  subst hv
+  exact ⟨T, hT, hn, hall _ hT hn⟩
+
+theorem CtorShapeOf.at {D rn tn j C} {v : ConstructorVal}
+    (h : CtorShapeOf D rn tn (.ctorInfo v)) (hC : (j, C) ∈ D.ctorsAll) (hn : v.name = rn C.name) :
+    CtorShape D rn (tn j) C (.ctorInfo v) := by
+  obtain ⟨v', hv, -, hall⟩ := h
+  injection hv with hv
+  subst hv
+  exact hall (j, C) hC hn
+
+theorem CtorShapeOf.exists {D rn tn} {v : ConstructorVal} (h : CtorShapeOf D rn tn (.ctorInfo v)) :
+    ∃ jC ∈ D.ctorsAll, v.name = rn jC.2.name ∧ CtorShape D rn (tn jC.1) jC.2 (.ctorInfo v) := by
+  obtain ⟨v', hv, ⟨jC, hjC, hn⟩, hall⟩ := h
+  injection hv with hv
+  subst hv
+  exact ⟨jC, hjC, hn, hall _ hjC hn⟩
+
 /-- **`AddInduct`'s intended definition.**  Three folds — types, constructors, recursors —
-and then the ι-rules, mirroring `VEnv.addInduct'_stages`. -/
+and then the ι-rules, mirroring `VEnv.addInduct'_stages`.
+
+The first two folds carry `IndShapeOf`/`CtorShapeOf` rather than the bare `∃ v, ci = …`
+shapes; see the section above for what each clause buys. -/
 def AddInductStages (m₁ : ConstMap) (env₁ : VEnv) (D : VInductDecl')
     (m₂ : ConstMap) (env₂ : VEnv) : Prop :=
   ∃ mt et mc ec e₃,
-    AddIndConsts (fun ci => ∃ v, ci = .inductInfo v) D.typeConsts m₁ env₁ mt et ∧
-    AddIndConsts (fun ci => ∃ v, ci = .ctorInfo v) D.ctorConsts mt et mc ec ∧
+    AddIndConsts (IndShapeOf D id) D.typeConsts m₁ env₁ mt et ∧
+    AddIndConsts (CtorShapeOf D id fun j => (D.types.getD j default).name)
+      D.ctorConsts mt et mc ec ∧
     AddIndConsts (fun ci => ∃ v, ci = .recInfo v) D.recConsts mc ec m₂ e₃ ∧
     env₂ = e₃.addIndRules D
 
@@ -294,12 +440,14 @@ theorem AddInductStages.map_wf (H : AddInductStages m₁ env₁ D m₂ env₂) (
   obtain ⟨mt, et, mc, ec, e₃, h1, h2, h3, rfl⟩ := H
   exact h3.map_wf (h2.map_wf (h1.map_wf hwf))
 
-/-- **The new disjunct of `TrEnv'.find?_shape`.**  A name the block introduces carries one of
-the three inductive `ConstantInfo` shapes; every other name is unchanged. -/
-theorem AddInductStages.find?_shape (H : AddInductStages m₁ env₁ D m₂ env₂) (hwf : m₁.WF)
+/-- **The strong form of `find?_shape`.**  A name the block introduces carries not merely one
+of the three inductive `ConstantInfo` shapes but the *bookkeeping* of the member it belongs
+to.  This is the lemma `StructureBridge` consumes; `find?_shape` below is its erasure. -/
+theorem AddInductStages.find?_shape' (H : AddInductStages m₁ env₁ D m₂ env₂) (hwf : m₁.WF)
     (h : m₂.find? name = some ci) :
     m₁.find? name = some ci ∨
-    (((∃ v, ci = .inductInfo v) ∨ (∃ v, ci = .ctorInfo v) ∨ (∃ v, ci = .recInfo v)) ∧
+    ((IndShapeOf D id ci ∨ CtorShapeOf D id (fun j => (D.types.getD j default).name) ci ∨
+        (∃ v, ci = .recInfo v)) ∧
       ci.name = name ∧ ci.safety = .safe) := by
   obtain ⟨mt, et, mc, ec, e₃, h1, h2, h3, rfl⟩ := H
   rcases h3.find? (h2.map_wf (h1.map_wf hwf)) h with h | ⟨hS, h⟩
@@ -308,6 +456,16 @@ theorem AddInductStages.find?_shape (H : AddInductStages m₁ env₁ D m₂ env�
       exacts [.inl h, .inr ⟨.inl hS, h⟩]
     · exact .inr ⟨.inr (.inl hS), h⟩
   · exact .inr ⟨.inr (.inr hS), h⟩
+
+/-- **The new disjunct of `TrEnv'.find?_shape`.**  A name the block introduces carries one of
+the three inductive `ConstantInfo` shapes; every other name is unchanged. -/
+theorem AddInductStages.find?_shape (H : AddInductStages m₁ env₁ D m₂ env₂) (hwf : m₁.WF)
+    (h : m₂.find? name = some ci) :
+    m₁.find? name = some ci ∨
+    (((∃ v, ci = .inductInfo v) ∨ (∃ v, ci = .ctorInfo v) ∨ (∃ v, ci = .recInfo v)) ∧
+      ci.name = name ∧ ci.safety = .safe) :=
+  (H.find?_shape' hwf h).imp id fun ⟨hS, h⟩ =>
+    ⟨hS.imp IndShapeOf.inductInfo (·.imp CtorShapeOf.ctorInfo id), h⟩
 
 /-- The converse of `VEnv.addDefEqList_defeqs` (`Theory/Inductive/Lemmas.lean`): a fold of
 `addDefEq` adds *only* the rules of its list. -/
@@ -658,6 +816,31 @@ def uRec : RecursorVal where
   all := [`R10.Wit.U]; numParams := 0; numIndices := 0; numMotives := 1; numMinors := 1
   rules := []; k := false; isUnsafe := false
 
+/-- **The strengthened type-stage shape holds of `uInd`.**  Every clause of `IndShape` is
+`rfl` here except the `isRec` one, which fires: the block's one constructor has no fields at
+all, so it has no recursive fields.  This is what "the strengthening does not over-constrain"
+means at the witness. -/
+theorem indShapeOf_uInd : IndShapeOf decl id (.inductInfo uInd) := by
+  refine ⟨uInd, rfl, ⟨_, List.mem_singleton_self _, rfl⟩, fun T hT hn => ?_⟩
+  simp only [decl, List.mem_singleton] at hT
+  subst hT
+  refine ⟨uInd, rfl, rfl, rfl, rfl, rfl, fun _ T hT C hC => ?_⟩
+  simp only [decl, List.mem_singleton] at hT
+  subst hT
+  simp only [List.mem_singleton] at hC
+  subst hC
+  simp [VIndCtor.recFields]
+
+/-- …and the strengthened constructor-stage shape holds of `uCtor`. -/
+theorem ctorShapeOf_uCtor :
+    CtorShapeOf decl id (fun j => (decl.types.getD j default).name) (.ctorInfo uCtor) := by
+  refine ⟨uCtor, rfl, ⟨(0, _), List.mem_singleton_self _, rfl⟩, fun jC hjC hn => ?_⟩
+  have hcs : decl.ctorsAll
+      = [(0, { name := `R10.Wit.U.unit, params := [], fields := [], args := [] })] := rfl
+  rw [hcs, List.mem_singleton] at hjC
+  subst hjC
+  exact ⟨uCtor, rfl, rfl, rfl, rfl, rfl⟩
+
 /-- **`AddInductStages` is satisfiable.**  All three stages fire, and the constructor stage
 is the one that could not have fired at `VEnv.empty`: its stored type is the block's own type
 constant, so `TrExprS.const` needs `U` declared, which it is only after stage 1. -/
@@ -684,13 +867,16 @@ theorem addInductStages_wit {m : ConstMap} (hwf : m.WF) (hfr : ∀ n, m.find? n 
   have f2 : (m.insert `R10.Wit.U (.inductInfo uInd)).find? `R10.Wit.U.unit = none := by
     rw [hwf.find?_insert]; simp [hfr]
   have w2 := w1.insert `R10.Wit.U.unit (.ctorInfo uCtor) f2
-  have s1 : AddIndConsts (fun ci => ∃ v, ci = .inductInfo v) decl.typeConsts
+  have s1 : AddIndConsts (IndShapeOf decl id) decl.typeConsts
       m VEnv.empty (m.insert `R10.Wit.U (.inductInfo uInd)) e1 :=
-    .cons (ci := .inductInfo uInd) rfl ⟨_, rfl⟩ ⟨by decide, rfl, .sort rfl⟩ (hfr _) he1 .nil
-  have s2 : AddIndConsts (fun ci => ∃ v, ci = .ctorInfo v) decl.ctorConsts
+    .cons (ci := .inductInfo uInd) rfl indShapeOf_uInd ⟨by decide, rfl, .sort rfl⟩
+      (hfr _) he1 .nil
+  have s2 : AddIndConsts (CtorShapeOf decl id fun j => (decl.types.getD j default).name)
+      decl.ctorConsts
       (m.insert `R10.Wit.U (.inductInfo uInd)) e1
       ((m.insert `R10.Wit.U (.inductInfo uInd)).insert `R10.Wit.U.unit (.ctorInfo uCtor)) e2 :=
-    .cons (ci := .ctorInfo uCtor) rfl ⟨_, rfl⟩ ⟨by decide, rfl, .const hU1 rfl rfl⟩ f2 he2 .nil
+    .cons (ci := .ctorInfo uCtor) rfl ctorShapeOf_uCtor ⟨by decide, rfl, .const hU1 rfl rfl⟩
+      f2 he2 .nil
   have s3 : AddIndConsts (fun ci => ∃ v, ci = .recInfo v) decl.recConsts
       ((m.insert `R10.Wit.U (.inductInfo uInd)).insert `R10.Wit.U.unit (.ctorInfo uCtor)) e2
       (((m.insert `R10.Wit.U (.inductInfo uInd)).insert `R10.Wit.U.unit

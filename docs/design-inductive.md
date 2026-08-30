@@ -822,12 +822,18 @@ recursion in `Theory/` (≈4500 lines); still judged worse.
 
 `tryEtaStructCore.WF` needs, besides `StructEta`, an `IsStructure` for the name the *kernel*
 environment calls a structure.  `Verify/StructureBridge.lean` names that step
-(`StructureBridge`) and shows — machine-checked — that it does **not** follow from
-`AddInduct`'s intended definition either: `AddIndConsts`' shape predicates and `TrConstant`
-constrain only a constant's name, level count and type, never
-`InductiveVal.isRec`/`.ctors`/`.numIndices` or `ConstructorVal.numFields`/`.induct`, which are
-precisely the fields the eta checks read.  `IndShape`/`CtorShape` in that file are the
-strengthenings `AddInduct` needs.
+(`StructureBridge`).  It used to show — machine-checked — that the step does not follow from
+`AddInduct`'s intended definition either, because `AddIndConsts`' shape predicates and
+`TrConstant` constrained only a constant's name, level count and type.  **That is repaired**:
+`IndShape`/`CtorShape` (`Verify/Environment/Basic.lean`) are now the shape predicates of both
+`AddInductStages` and `AddInductStagesR`, and `AddInductStages.structure_fields` transports
+every field of `IsStructure` except `types` and `decl`.
+
+What blocks the bridge now is `VEnv.IsStructure.types` (`D.types = [T]`), which no shape
+predicate can supply because it is **false** of what `isNonRecStructure` accepts: `isRec` is
+computed block-wide, so each member of a mutual non-recursive block passes
+`isNonRecStructure` while the block has more than one type
+(`MutNonRec.indShapeOf_not_singleton`).  See `docs/handoff-inductive-add.md` §L.
 
 ---
 

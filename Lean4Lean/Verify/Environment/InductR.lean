@@ -102,8 +102,8 @@ proved about the non-nested case is given up. -/
 def AddInductStagesR (m₁ : ConstMap) (env₁ : VEnv) (D : VInductDecl')
     (K : List Name) (R : VIndRestore) (m₂ : ConstMap) (env₂ : VEnv) : Prop :=
   ∃ mt et mc ec e₃,
-    AddIndConsts (fun ci => ∃ v, ci = .inductInfo v) (D.typeConstsC K) m₁ env₁ mt et ∧
-    AddIndConsts (fun ci => ∃ v, ci = .ctorInfo v) (D.ctorConstsCR R K) mt et mc ec ∧
+    AddIndConsts (IndShapeOf D R.ctorName) (D.typeConstsC K) m₁ env₁ mt et ∧
+    AddIndConsts (CtorShapeOf D R.ctorName R.tyName) (D.ctorConstsCR R K) mt et mc ec ∧
     AddIndConsts (fun ci => ∃ v, ci = .recInfo v) (D.recConstsR R) mc ec m₂ e₃ ∧
     env₂ = e₃.addIndRulesR D R
 
@@ -126,6 +126,25 @@ theorem AddInductStagesR.map_wf {m₁ m₂ : ConstMap} {env₁ env₂ : VEnv} {D
   obtain ⟨mt, et, mc, ec, e₃, h1, h2, h3, rfl⟩ := H
   exact h3.map_wf (h2.map_wf (h1.map_wf hwf))
 
+/-- **The strong form of `find?_shape`, nested-aware.**  As in the non-nested case, a name the
+block introduces carries the *bookkeeping* of the member it belongs to, not merely one of the
+three `ConstantInfo` shapes.  The renaming is threaded: constructor names are read modulo
+`R.ctorName` and a constructor's `induct` field modulo `R.tyName`. -/
+theorem AddInductStagesR.find?_shape' {m₁ m₂ : ConstMap} {env₁ env₂ : VEnv} {D : VInductDecl'}
+    {K : List Name} {R : VIndRestore} {name ci}
+    (H : AddInductStagesR m₁ env₁ D K R m₂ env₂) (hwf : m₁.WF) (h : m₂.find? name = some ci) :
+    m₁.find? name = some ci ∨
+    ((IndShapeOf D R.ctorName ci ∨ CtorShapeOf D R.ctorName R.tyName ci ∨
+        (∃ v, ci = .recInfo v)) ∧
+      ci.name = name ∧ ci.safety = .safe) := by
+  obtain ⟨mt, et, mc, ec, e₃, h1, h2, h3, rfl⟩ := H
+  rcases h3.find? (h2.map_wf (h1.map_wf hwf)) h with h | ⟨hS, h⟩
+  · rcases h2.find? (h1.map_wf hwf) h with h | ⟨hS, h⟩
+    · rcases h1.find? hwf h with h | ⟨hS, h⟩
+      exacts [.inl h, .inr ⟨.inl hS, h⟩]
+    · exact .inr ⟨.inr (.inl hS), h⟩
+  · exact .inr ⟨.inr (.inr hS), h⟩
+
 /-- **The new disjunct of `TrEnv'.find?_shape`, nested-aware.**  Unchanged in shape from
 `AddInductStages.find?_shape`: a name the block introduces carries one of the three inductive
 `ConstantInfo` shapes and is `safe`-tagged; every other name is unchanged.  The safety gate of
@@ -135,14 +154,9 @@ theorem AddInductStagesR.find?_shape {m₁ m₂ : ConstMap} {env₁ env₂ : VEn
     (H : AddInductStagesR m₁ env₁ D K R m₂ env₂) (hwf : m₁.WF) (h : m₂.find? name = some ci) :
     m₁.find? name = some ci ∨
     (((∃ v, ci = .inductInfo v) ∨ (∃ v, ci = .ctorInfo v) ∨ (∃ v, ci = .recInfo v)) ∧
-      ci.name = name ∧ ci.safety = .safe) := by
-  obtain ⟨mt, et, mc, ec, e₃, h1, h2, h3, rfl⟩ := H
-  rcases h3.find? (h2.map_wf (h1.map_wf hwf)) h with h | ⟨hS, h⟩
-  · rcases h2.find? (h1.map_wf hwf) h with h | ⟨hS, h⟩
-    · rcases h1.find? hwf h with h | ⟨hS, h⟩
-      exacts [.inl h, .inr ⟨.inl hS, h⟩]
-    · exact .inr ⟨.inr (.inl hS), h⟩
-  · exact .inr ⟨.inr (.inr hS), h⟩
+      ci.name = name ∧ ci.safety = .safe) :=
+  (H.find?_shape' hwf h).imp id fun ⟨hS, h⟩ =>
+    ⟨hS.imp IndShapeOf.inductInfo (·.imp CtorShapeOf.ctorInfo id), h⟩
 
 /-- **The only rules a nested block adds are its restored ι-rules.**  The three constant
 stages add none. -/
@@ -763,6 +777,38 @@ def nfnNodeCI : ConstructorVal where
   name := ``NFn.node; levelParams := []; type := exprOf% NFn.node
   induct := ``NFn; cidx := 0; numParams := 0; numFields := 1; isUnsafe := false
 
+/-- **The strengthened type-stage shape at the nested witness.**  `NFn` is the block's member
+`0`; its one declared constructor is `NFn.node`, and the renaming `nfnRestore.ctorName` is the
+identity on it (it moves only `_nested.PFn_1.mk`).  The `isRec` clause is discharged the other
+way round from `R10.Wit`: `nfnInd.isRec = true`, and the implication is one-directional
+precisely so that a genuinely recursive block carries no obligation here. -/
+theorem indShapeOf_nfnInd : IndShapeOf nfnAux nfnRestore.ctorName (.inductInfo nfnInd) := by
+  refine ⟨nfnInd, rfl, ⟨_, List.mem_cons_self, rfl⟩, fun T hT hn => ?_⟩
+  -- the block has two members; `_nested.PFn_1` is not named `NFn`, so the ∀ bites only at `NFn`
+  have hts : nfnAux.types
+      = [{ name := ``NFn, type := .sort (.succ .zero), indices := [], ctors := [nfnNode] },
+         { name := `_nested.PFn_1, type := .sort (.succ .zero), indices := [],
+           ctors := [pfnAuxMk] }] := rfl
+  rw [hts] at hT
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hT
+  rcases hT with rfl | rfl
+  · exact ⟨nfnInd, rfl, rfl, rfl, rfl, by decide, fun h => absurd h (by decide)⟩
+  · exact absurd hn (by decide)
+
+/-- …and the strengthened constructor-stage shape.  `nfnRestore.tyName 0 = ``NFn`, so the
+`induct` field of the declared constructor is pinned to the member it belongs to even though
+the block is nested and the restoration is not the identity. -/
+theorem ctorShapeOf_nfnNodeCI :
+    CtorShapeOf nfnAux nfnRestore.ctorName nfnRestore.tyName (.ctorInfo nfnNodeCI) := by
+  have hcs : nfnAux.ctorsAll = [(0, nfnNode), (1, pfnAuxMk)] := rfl
+  refine ⟨nfnNodeCI, rfl, ⟨(0, nfnNode), by rw [hcs]; exact List.mem_cons_self, by decide⟩,
+    fun jC hjC hn => ?_⟩
+  rw [hcs] at hjC
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hjC
+  rcases hjC with rfl | rfl
+  · exact ⟨nfnNodeCI, rfl, by decide, by decide, rfl, rfl⟩
+  · exact absurd hn (by decide)
+
 def nfnRecCI : RecursorVal where
   name := ``NFn.rec; levelParams := [`u]; type := exprOf% NFn.rec
   all := [``NFn]; numParams := 0; numIndices := 0; numMotives := 2; numMinors := 2
@@ -883,13 +929,15 @@ theorem addInductStagesR_wit {m : ConstMap} (hwf : m.WF) (hfr : ∀ n, m.find? n
       (.ctorInfo nfnNodeCI)).insert ``NFn.rec (.recInfo nfnRecCI)).find? ``NFn.rec_1 = none := by
     rw [w2.find?_insert, w1.find?_insert, hwf.find?_insert]; simp [hfr]
   have w4 := w3.insert ``NFn.rec_1 (.recInfo nfnRec1CI) f4
-  have s1 : AddIndConsts (fun ci => ∃ v, ci = .inductInfo v) (nfnAux.typeConstsC nfnK)
+  have s1 : AddIndConsts (IndShapeOf nfnAux nfnRestore.ctorName) (nfnAux.typeConstsC nfnK)
       m env (m.insert ``NFn (.inductInfo nfnInd)) e1 :=
-    .cons (ci := .inductInfo nfnInd) rfl ⟨_, rfl⟩ ⟨by decide, rfl, .sort rfl⟩ (hfr _) he1 .nil
-  have s2 : AddIndConsts (fun ci => ∃ v, ci = .ctorInfo v) (nfnAux.ctorConstsCR nfnRestore nfnK)
+    .cons (ci := .inductInfo nfnInd) rfl indShapeOf_nfnInd ⟨by decide, rfl, .sort rfl⟩
+      (hfr _) he1 .nil
+  have s2 : AddIndConsts (CtorShapeOf nfnAux nfnRestore.ctorName nfnRestore.tyName)
+      (nfnAux.ctorConstsCR nfnRestore nfnK)
       (m.insert ``NFn (.inductInfo nfnInd)) e1
       ((m.insert ``NFn (.inductInfo nfnInd)).insert ``NFn.node (.ctorInfo nfnNodeCI)) e2 :=
-    .cons (ci := .ctorInfo nfnNodeCI) rfl ⟨_, rfl⟩
+    .cons (ci := .ctorInfo nfnNodeCI) rfl ctorShapeOf_nfnNodeCI
       ⟨by decide, rfl, tr_nodeType hPFn1 hNFn1⟩ f2 he2 .nil
   have s3 : AddIndConsts (fun ci => ∃ v, ci = .recInfo v) (nfnAux.recConstsR nfnRestore)
       ((m.insert ``NFn (.inductInfo nfnInd)).insert ``NFn.node (.ctorInfo nfnNodeCI)) e2

@@ -1,3 +1,259 @@
+# Handoff: the inductive side — the shape predicates now carry the eta bookkeeping
+
+Successor to the previous revision (which closed Wall 2 and re-stated Wall 1).  §§A–G of that
+revision carry forward **unchanged and still true** and are retained below; §§I–O are this
+round.  Where a previous §-letter is cited it is the previous revision's.
+
+Everything below is either **[MC]** machine-checked (a Lean proof in this tree, named), **[EV]**
+checked by evaluation (a `#eval` in the tree that fails the build on regression — a test, not a
+proof), or **[SRC]** read off source without a proof.  **[MC]** and **[SRC]** are never mixed in
+a row.
+
+**Census.**  `lake env lean scripts/sorry-census.lean` → **19** before this round, **19** after.
+No `sorry` added, none removed, none made vacuous.  Never grep for `sorry`.
+
+**Build state.**  Every file this round touched is green, as is the rest of the tree with one
+exception: `Theory/Typing/ConstSubstNested.lean`, an **untracked in-flight file of another
+stream**, which went red, green and red again during the session under that stream's edits.  Its
+errors name nothing this round touched; it was left alone, as the brief directs.  At the one
+point in the session when it and its siblings happened to be green, the full `lake build`
+completed (1364 jobs) with all three `Verify/Guard.lean` guards passing.
+
+**Files.**  Edited, owned: `Verify/Environment/Basic.lean`, `Verify/Environment/InductR.lean`,
+`Verify/Inductive/AddDeclWF.lean`, `Verify/StructureBridge.lean`.  No unowned file was edited;
+no frozen file was touched.  No new file.
+
+---
+
+## I. The headline
+
+**The gap `Verify/StructureBridge.lean` found by accident is closed, and closing it turned up a
+second, sharper one that is not a shape-predicate problem at all.**
+
+* **Landed.**  `AddIndConsts`' shape predicates for the type and constructor stages are no
+  longer `fun ci => ∃ v, ci = .inductInfo v`.  They are `IndShapeOf`/`CtorShapeOf`
+  (`Verify/Environment/Basic.lean`), which pin `InductiveVal.{numParams, numIndices, ctors}`,
+  the `isRec = false` direction, and `ConstructorVal.{name, induct, numParams, numFields}` to
+  the abstract block.  Both `AddInductStages` and the nested-aware `AddInductStagesR` use them,
+  and `AddInductStages.toR`/`AddInductStagesR.of_addInductStages` still hold **[MC]**.
+* **Both demonstrations re-run and both are dead in the direction that matters.**
+  `addInductStages_with`'s three free parameters are down to one, as an `↔` rather than a
+  constraint (`R10.Wit.addInductStages_pinned` **[MC]**), with three explicit negative controls
+  **[MC]**.  `isNonRecStructure_not_determined` survives *only* in its `isRec` component, and
+  `isNonRecStructure_one_sided` **[MC]** shows that residue can only make the checker **refuse**
+  eta.
+* **New finding.**  `VEnv.IsStructure.types` (`D.types = [T]`) is **not obtainable by any
+  strengthening of the shape predicates**, because it is not true of the situation
+  `isNonRecStructure` accepts.  §L.
+
+---
+
+## J. What the strengthening says, clause by clause, and why it does not over-constrain
+
+`IndShape D rn T ci` and `CtorShape D rn tn C ci` are in `Verify/Environment/Basic.lean`.  `rn`
+is the constructor renaming and `tn` the owning-type name that the declaration step applies:
+`id` / `fun j => (D.types.getD j default).name` for a plain block, `R.ctorName` / `R.tyName` for
+a restored nested one.  Carrying them as parameters is what lets the nested and non-nested
+relations share one predicate.
+
+| clause | what it buys | computed by the checker at **[SRC]** |
+|---|---|---|
+| `v.numParams = D.np` | `IsStructure`-adjacent: the eta rule's `ps.length = D.np` | `Add.lean` `declareInductiveTypes`, `numParams` |
+| `v.numIndices = T.indices.length` | `numIndices = 0` ⟹ `T.indices = []`, the eta rule's extra conjunct | `declareInductiveTypes`, `stats.nindices` |
+| `v.ctors = T.ctors.map (rn ·.name)` | `ctors = [c]` ⟹ `T.ctors = [C]`, i.e. `IsStructure.ctors` | `declareInductiveTypes`, `indType.ctors.map (·.name)` |
+| `v.isRec = false → ∀ T' ∈ D.types, ∀ C ∈ T'.ctors, C.recFields = []` | `IsStructure.noRec` | `isRec indTypes stats.indConsts` |
+| `v.name = T.name`, `v.induct = tn j` | `IsStructure.name`; pins which member a constant belongs to | `declareConstructors`, `induct := indType.name` |
+| `v.numFields = C.fields.length` | the loop bound `tryEtaStructCore` reads | `declareConstructors`, `arity - stats.params.size` |
+
+Three design decisions, each of which is where an over-constraint would have hidden.
+
+**1. The `isRec` clause is one-directional. [SRC]**  `Add.lean`'s `isRec` is
+`indTypes.any fun indType => indType.ctors.any fun ctor => loop ctor.type`, block-wide, and
+`loop` uses the purely syntactic `hasIndOcc` on each binder's domain.  It is `false` only when
+no constructor anywhere in the block has a binder mentioning a block constant — and a block
+constant cannot be produced by δ-unfolding either, since the block's names are not yet declared
+and no existing constant can mention them.  So `isRec = false` really does mean *no field of any
+constructor of any member is recursive*, which is what the clause records.  The converse
+(`isRec = true →` something is recursive) is **not** claimed: soundness never needs it, and
+asserting it would risk refuting a block the checker accepts.  The consequence is exactly §K's
+residue, and it is one-sided.
+
+**2. `InductiveVal.all` is deliberately absent. [SRC]**  `Add.lean` patches `all` during the
+nested-restoration pass (`modify (·.add <| .inductInfo { ind with all := allIndNames })`), so a
+clause `v.all = D.types.map (·.name)` would be **false for every nested block** — a clause that
+refutes real declarations, which is the failure mode the brief warns about.  `all` is not read
+by `isNonRecStructure` or by either eta check.  Its absence is what §L is the price of.
+
+**3. The stage wrapper is an `∃` *and* a `∀`, not one or the other. [MC]**
+```
+IndShapeOf D rn ci ↔ ∃ v, ci = .inductInfo v ∧ (∃ T ∈ D.types, T.name = v.name)
+                                             ∧ (∀ T ∈ D.types, T.name = v.name → IndShape D rn T ci)
+```
+A bare `∃ T ∈ D.types, IndShape D rn T ci` hands the consumer *some* member and needs
+distinctness of the block's type names to tie it to the one the consumer holds; a bare `∀`
+is the membership-guarded predicate that constrains nothing when nothing matches.  The
+conjunction has neither failure mode, and `IndShapeOf.at`/`IndShapeOf.exists` (and the
+`CtorShapeOf` pair) are the two halves as lemmas **[MC]**.  This is why **no `Nodup` side
+condition is threaded anywhere** in the transport.
+
+**Satisfiability, at both witnesses [MC].**  The strengthened predicates are discharged at
+`R10.Wit.decl` (`indShapeOf_uInd`, `ctorShapeOf_uCtor`) and — the load-bearing check — at the
+**nested** block `nfnAux` (`NestedWit.indShapeOf_nfnInd`, `ctorShapeOf_nfnNodeCI`), which has
+*two* types, a *companion* member filtered out of both declared lists, and a *non-identity*
+renaming `nfnRestore`.  `addInductStages_wit`, `addInductStagesR_wit` and
+`inductStepNested_wit` all still fire, unchanged in statement.
+
+---
+
+## K. The two demonstrations, re-run
+
+Both live in `Verify/StructureBridge.lean`.
+
+**Demonstration 1 — the free parameter is pinned.**  `R10.Wit.addInductStages_pinned` **[MC]**:
+
+```
+(∃ m' env', AddInductStages m VEnv.empty decl m' env' ∧
+   m'.find? `R10.Wit.U = some (.inductInfo (uIndWith ni cs ir)))
+  ↔ (ni = 0 ∧ cs = [`R10.Wit.U.unit])
+```
+
+An `↔`, so it is a pinning rather than a constraint.  Under the old predicates the left-hand
+side held for **every** `ni`, `cs`, `ir` — that was `addInductStages_with`.  Three explicit
+negative controls **[MC]**: `addInductStages_refutes_numIndices` (a wrong index count),
+`addInductStages_refutes_ctors` (an under-reported constructor list — the `fooComp` shape, on
+the map side), and `addInductStages_refutes_numFields` (a lying field count, via the `CtorShape`
+half; this is the clause structure eta depends on most directly).
+
+**Demonstration 2 — the verdict, and the residue.**  `isNonRecStructure_not_determined` is kept
+under its old name (`Verify/TypeChecker/IsDefEq.lean` cites it) and **restated** **[MC]**: the
+two runs of the same block, from the same map, onto the same `VEnv` still exist, but they now
+differ *only* in `isRec` and are proved to **agree** on `numIndices`, `ctors` and `numParams`.
+`isNonRecStructure_one_sided` **[MC]** disposes of the residue: any two runs of `decl` agree on
+the fields a `true` verdict transports, and an `isRec = true` entry makes
+`Environment.isNonRecStructure` answer `false` (`isNonRecStructure_eq_false_of_isRec` **[MC]**).
+So the surviving freedom can only make the checker *refuse* eta at a type the abstract
+environment does support; it can never make it *accept* eta at one that does not.
+
+**What the transport now delivers.**  `AddInductStages.structure_fields` **[MC]**: from a fresh
+name the block introduces whose `InductiveVal` passes `isNonRecStructure`'s three tests,
+
+```
+∃ T ∈ D.types, T.name = I ∧ v.numParams = D.np ∧ T.indices = [] ∧
+  ∃ C, T.ctors = [C] ∧ C.name = c ∧ C.recFields = []
+```
+
+— that is `VEnv.IsStructure.{name, ctors, noRec}` plus the eta rule's `T.indices = []`, i.e.
+**every field of `IsStructure` except `types` and `decl`**.  `AddInductStages.ctor_fields`
+**[MC]** is the constructor half (`induct`, `numParams`, `numFields`).  Fired at the witness by
+`structure_fields_wit` **[MC]**; `isNonRecStructure_eq_true` **[MC]** is the inversion that
+feeds it.
+
+---
+
+## L. The new finding: `IsStructure.types` is not attainable, and that is `IsStructure`'s fault
+
+`VEnv.IsStructure` (`Theory/Inductive/Structure.lean`) demands `types : D.types = [T]`.  **No
+strengthening of the shape predicates can supply it**, and the obstruction is a fact about Lean,
+not a gap in the predicate.
+
+**[SRC]**  `Add.lean` computes `isRec` block-wide.  So
+
+```
+mutual inductive A | mk : A
+       inductive B | mk : B end
+```
+
+— neither member recursive, since `loop` only inspects `forallE` binders and there are none —
+gets `isRec = false`, `ctors = [A.mk]`, `numIndices = 0` on **both** members.
+`Environment.isNonRecStructure A` therefore answers `true`, and the block that declared `A` has
+two types.  `all` would distinguish this case, and §J.2 records why `all` cannot be in the
+predicate.
+
+**[EV]**  That is not an inference from `Add.lean`: `MutNonRec.A`/`MutNonRec.B`
+(`Verify/StructureBridge.lean`) are declared for real, and the `#eval` beside them fails the
+build unless Lean's own elaborator gives `A` `isRec = false`, `numIndices = 0`,
+`ctors = [A.mk]`, `all = [A, B]`, and makes `Lean.isNonRecStructure` answer `true` on it.
+It does.
+
+**[MC]**  `MutNonRec.indShapeOf_not_singleton` (`Verify/StructureBridge.lean`) machine-checks the
+shape-level half: a two-member `VInductDecl'`, an `InductiveVal` for its first member, the full
+`IndShapeOf` including the block-wide `isRec` clause, all three of `isNonRecStructure`'s
+conditions, and `∀ T, D.types ≠ [T]`.
+
+**Structure eta on `A` is sound** — nothing about eta needs the block to be a singleton — so this
+is not a bug in the checker.  It is `IsStructure` describing a narrower situation than the one
+`isNonRecStructure` accepts.
+
+**The exact repair, stated and not made.**  In `Theory/Inductive/Structure.lean` (owned):
+weaken `IsStructure.types : D.types = [T]` to `T ∈ D.types`, and drop or re-state `nm_eq`
+(`D.nm = 1`) and `nmin_eq` (`D.nmin = 1`), which follow from it and are false in the mutual
+case.  The dependents are `Theory/Inductive/StructureClosed.lean` and
+`Theory/Inductive/StructureEta.lean`; `Verify/TypeChecker/IsDefEq.lean`'s `UnitLikeBridge` and
+`Verify/Typing/Lemmas.lean`'s `TrProj` consume `IsStructure` and would have to be checked.  It
+is a redesign of three owned files plus an audit of two unowned ones, not a substitution, and it
+was **not** attempted this round.
+
+---
+
+## M. `VIndRecArg.exists_indep` — re-checked, still not in reach
+
+One of the 19, in `Theory/Inductive/Decl.lean` (owned).  Re-checked this round as the brief
+asks.  Its docstring names the blocker: the proof needs `VEnv.IsDefEqU.forallE_inv`
+(`Theory/Typing/Injectivity.lean`) to rule out an ill-formed field of type
+`(∀ ξ₀, I p π₀) → Sort u`.  The census **[MC, by census]** still lists `forallE_inv` among the
+19, together with the other five `Injectivity.lean` holes.  **Strict dependency, unchanged, not
+attempted.**
+
+---
+
+## N. The flip: the gate list, updated
+
+**Verdict: still not landable.  The list gains one closed row and one new open row.**
+
+| gate | status after this round |
+|---|---|
+| (i) the nested-soundness theorem — one obligation, the constant-substitution typing theorem | **open**, another stream; its two in-flight files are the only red ones in the tree |
+| (ii) the `DeltaUnique` repair | **CLOSED** (previous revision §B) |
+| (ii′) `VIndRestore.KeysDistinct` derivable rather than assumed | **open**, list combinatorics, blocks nothing |
+| (iii) the `inductNested` rule plus the case arms | gated on (i) |
+| (iv) the nine `Verify/TypeChecker/` placeholder statements | **the human's standing ruling: they stay.**  Reported, not acted on |
+| (v) **the shape strengthenings** — new last round, **CLOSED this round** | `IndShape`/`CtorShape` landed in both relations, both witnesses re-fire, both demonstrations re-run **[MC]** |
+| (vi) **`IsStructure.types`** — new this round | **open**, and it is a *statement* defect, not a proof gap: §L.  Owned; the exact edit is written out there |
+
+Gate (v) was not on anybody's list before last round and is now off it.  Gate (vi) replaces it
+as the structure-eta blocker, and it is smaller: it is an edit to a definition this stream owns,
+gated only on auditing two unowned consumers.
+
+**Not proved and not attempted this round:** the `AddInduct` flip itself (gated on (i), and the
+brief forbids attempting it); `StructureBridge` (gated on (vi)); the `IsStructure` weakening;
+`exists_indep`.
+
+---
+
+## O. Ledger of edits to owned files
+
+| file | change |
+|---|---|
+| `Verify/Environment/Basic.lean` | new section "The bookkeeping fields, pinned": `IndShape`, `IndShapeOf`, `CtorShape`, `CtorShapeOf` and the six projection/pinning lemmas; `AddInductStages`'s first two stages now use them; new `AddInductStages.find?_shape'` with the old `find?_shape` derived from it verbatim; `R10.Wit.indShapeOf_uInd` and `ctorShapeOf_uCtor`, consumed by `addInductStages_wit` (statement unchanged) |
+| `Verify/Environment/InductR.lean` | `AddInductStagesR`'s first two stages use `IndShapeOf D R.ctorName` / `CtorShapeOf D R.ctorName R.tyName`; new `AddInductStagesR.find?_shape'` with the old `find?_shape` derived; `NestedWit.indShapeOf_nfnInd` and `ctorShapeOf_nfnNodeCI`, consumed by `addInductStagesR_wit` (statement unchanged).  `AddInductStages.toR` and `.of_addInductStages` needed no change — the predicates are definitionally equal at `K = []`, `R = D.idRestore` |
+| `Verify/Inductive/AddDeclWF.lean` | `AddInductStages.find?_type_head` and its `R` analogue strengthened to return the `IndShapeOf` alongside the `.inductInfo`; the one caller adjusted |
+| `Verify/StructureBridge.lean` | rewritten.  §1 `isNonRecStructure` inversion in both directions; §2 the four transport lemmas; §3 the two re-run demonstrations, the residue lemma, three negative controls and the witness firing; §4 `MutNonRec.indShapeOf_not_singleton` |
+
+**One stale cross-reference, in a file this stream may not edit.**
+`Verify/TypeChecker/IsDefEq.lean`, in `UnitLikeBridge`'s docstring (~line 719), says
+"`AddIndConsts`' shape predicates and `TrConstant` constrain a constant's name, level count and
+type and nothing else, so `InductiveVal.isRec`/`.ctors`/`.numIndices` and
+`ConstructorVal.numFields` — the six fields the eta checks read — are free."  **That is no longer
+true**, and the theorem it cites (`R10.Wit.isNonRecStructure_not_determined`) now states
+something weaker.  `UnitLikeBridge` itself is still correctly a hypothesis — it is now gated on
+§L, not on §J — but the prose should be corrected by whoever owns that file.  Nothing breaks:
+the reference is inside a docstring and the name still resolves.
+
+---
+
+<details>
+<summary>Previous revision (Wall 2 closed, Wall 1 re-stated) — §§A–G, retained verbatim</summary>
+
 # Handoff: the inductive side — Wall 2 is closed, and Wall 1 was mis-stated
 
 Successor to the previous revision (which named `VEnv.addInductR_ordered` and "the
@@ -751,5 +1007,8 @@ No unowned file was edited.  The `VDecl.WF` probe of §5.4 was reverted in full.
   its nested counterpart as a refinement of `Environment.addInductive` (nothing in `Verify/`
   refines the top-level wrapper yet, which is why §3's checker-side facts are `[EV]`); the
   `.unsafe` rule; the nine `Verify/TypeChecker/` declarations; `Theory/Typing/Env.lean` (§5).
+
+</details>
+
 
 </details>

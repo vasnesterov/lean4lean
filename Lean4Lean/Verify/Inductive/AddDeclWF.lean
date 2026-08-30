@@ -515,26 +515,32 @@ theorem AddIndConsts.find?_head {S : ConstantInfo → Prop} {n ci' cs m env m₂
     refine ⟨_, hS, hname, Hrest.find?_mono (hwf.insert _ _ hfr) ?_⟩
     rw [hwf.find?_insert]; simp
 
-/-- The first type constant of a block reaches the output map as an `.inductInfo`. -/
+/-- The first type constant of a block reaches the output map as an `.inductInfo` — and, since
+the type stage now carries `IndShapeOf`, with the block bookkeeping that `.inductInfo` must
+have.  The extra conjunct is what `StructureBridge` reads. -/
 theorem AddInductStages.find?_type_head {m₁ m₂ : ConstMap} {env₁ env₂ : VEnv}
     {D : VInductDecl'} {n ci' cs} (H : AddInductStages m₁ env₁ D m₂ env₂) (hwf : m₁.WF)
     (hts : D.typeConsts = (n, ci') :: cs) :
-    ∃ v : InductiveVal, m₂.find? n = some (.inductInfo v) := by
+    ∃ v : InductiveVal, m₂.find? n = some (.inductInfo v) ∧
+      IndShapeOf D id (.inductInfo v) := by
   obtain ⟨mt, et, mc, ec, e₃, h1, h2, h3, -⟩ := H
   rw [hts] at h1
-  obtain ⟨ci, ⟨v, rfl⟩, -, hfind⟩ := h1.find?_head hwf
-  exact ⟨v, h3.find?_mono (h2.map_wf (h1.map_wf hwf)) (h2.find?_mono (h1.map_wf hwf) hfind)⟩
+  obtain ⟨ci, hS, -, hfind⟩ := h1.find?_head hwf
+  obtain ⟨v, rfl⟩ := hS.inductInfo
+  exact ⟨v, h3.find?_mono (h2.map_wf (h1.map_wf hwf)) (h2.find?_mono (h1.map_wf hwf) hfind), hS⟩
 
 /-- The nested analogue, over `typeConstsC`. -/
 theorem AddInductStagesR.find?_type_head {m₁ m₂ : ConstMap} {env₁ env₂ : VEnv}
     {D : VInductDecl'} {K : List Name} {R : VIndRestore} {n ci' cs}
     (H : AddInductStagesR m₁ env₁ D K R m₂ env₂) (hwf : m₁.WF)
     (hts : D.typeConstsC K = (n, ci') :: cs) :
-    ∃ v : InductiveVal, m₂.find? n = some (.inductInfo v) := by
+    ∃ v : InductiveVal, m₂.find? n = some (.inductInfo v) ∧
+      IndShapeOf D R.ctorName (.inductInfo v) := by
   obtain ⟨mt, et, mc, ec, e₃, h1, h2, h3, -⟩ := H
   rw [hts] at h1
-  obtain ⟨ci, ⟨v, rfl⟩, -, hfind⟩ := h1.find?_head hwf
-  exact ⟨v, h3.find?_mono (h2.map_wf (h1.map_wf hwf)) (h2.find?_mono (h1.map_wf hwf) hfind)⟩
+  obtain ⟨ci, hS, -, hfind⟩ := h1.find?_head hwf
+  obtain ⟨v, rfl⟩ := hS.inductInfo
+  exact ⟨v, h3.find?_mono (h2.map_wf (h1.map_wf hwf)) (h2.find?_mono (h1.map_wf hwf) hfind), hS⟩
 
 namespace R10.Wit
 
@@ -545,7 +551,8 @@ theorem inductStepSafe_wit_inductInfo {m : ConstMap} (hwf : m.WF) (hfr : ∀ n, 
     ∃ m' venv', InductStepSafe m m' VEnv.empty venv' [] 0 [uIndType] ∧
       ∃ v : InductiveVal, m'.find? `R10.Wit.U = some (.inductInfo v) := by
   obtain ⟨m', venv', H, -, -, -, -, -⟩ := addInductStages_wit hwf hfr
-  exact ⟨m', venv', ⟨decl, trIndDecl_wit, decl_WF, H⟩, H.find?_type_head hwf rfl⟩
+  obtain ⟨v, hv, -⟩ := H.find?_type_head hwf rfl
+  exact ⟨m', venv', ⟨decl, trIndDecl_wit, decl_WF, H⟩, v, hv⟩
 
 end R10.Wit
 
