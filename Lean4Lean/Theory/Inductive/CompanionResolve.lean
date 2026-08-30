@@ -626,28 +626,10 @@ context, whose binders sit `k` deep at the use site, so each entry is weakened b
 
 namespace VInductDecl'
 
-/-- **The generalised inductive-type head.**  `J.{ls} A(params) args`, with the parameter
-block a *stored* telescope `A` over the block's parameters rather than the parameter run. -/
-def tyAppH (n : Name) (ls : List VLevel) (A : List VExpr) (k : Nat) (args : List VExpr) :
-    VExpr :=
-  (VExpr.const n ls).mkApp (A.map (·.liftN k) ++ args)
-
-/-- **Conservativity of the head generalisation.**  At the stored instantiation
-`A = bvars 0 D.np` — "the parameters, in order", which is what every *non*-companion member
-has — `tyAppH` is `VInductDecl'.tyApp` on the nose.
-
-So the generalisation is one, and the existing offset lemmas about `tyApp` are its instances
-rather than its neighbours. -/
-theorem tyAppH_bvars (D : VInductDecl') (j k : Nat) (args : List VExpr) :
-    tyAppH (D.types.getD j default).name D.ownLvls (VExpr.bvars 0 D.np) k args
-      = D.tyApp j k args := by
-  rw [tyAppH, VInductDecl'.tyApp, VExpr.map_liftN_bvars_lo (Nat.le_refl 0), Nat.add_zero]
-
-/-- …and the same at the recursor's universe numbering. -/
-theorem tyAppH_bvars' (D : VInductDecl') (j k : Nat) (args : List VExpr) :
-    tyAppH (D.types.getD j default).name D.selfLvls (VExpr.bvars 0 D.np) k args
-      = D.tyApp' j k args := by
-  rw [tyAppH, VInductDecl'.tyApp', VExpr.map_liftN_bvars_lo (Nat.le_refl 0), Nat.add_zero]
+-- `tyAppH`, `tyAppH_bvars` and `tyAppH_bvars'` moved **verbatim** to
+-- `Theory/Inductive/Restore.lean`: they are definitional prerequisites of `VEnv.addInductR`,
+-- which has to sit upstream of `Theory/Typing/Env.lean` so that `VDecl.WF` can name the
+-- nested step.  Everything else in this Part stays here.
 
 /-! ### The two offset moves, at the stored parameter block
 

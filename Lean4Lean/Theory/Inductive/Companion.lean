@@ -107,9 +107,8 @@ rather than fixed. -/
 namespace VInductDecl'
 variable (D : VInductDecl') (K : List Name) (rn : Name → Name)
 
-/-- The type constants actually declared: the non-companion members only. -/
-def typeConstsC : List (Name × VConstant) :=
-  D.typeConsts.filterMap fun c => if c.1 ∈ K then none else some c
+-- `typeConstsC` moved to `Theory/Inductive/Restore.lean` (it is a definitional prerequisite
+-- of `VEnv.addInductR`, which has to be upstream of `Theory/Typing/Env.lean`).
 
 /-- The constructor constants actually declared: those of non-companion members only. -/
 def ctorConstsC : List (Name × VConstant) :=

@@ -558,6 +558,30 @@ theorem addInduct'_ctors (h : env.addInduct' D = some env')
     simp only [VInductDecl'.allConsts, List.mem_append]
     exact .inl (.inr (List.mem_map_of_mem hC))
 
+/-! ### What `VInductDecl'.Declared` gives back
+
+`Declared` (`Theory/Inductive/Decl.lean`) is the history-free form of "this block was declared
+earlier".  These are the two facts every use of the old `hist : VDecl.induct N.decl ∈ ds`
+clause actually consumed, recovered from the `≤` instead. -/
+
+/-- The type names of a declared block are in the environment, at the stored types. -/
+theorem _root_.Lean4Lean.VInductDecl'.Declared.constants_type {D : VInductDecl'} {env : VEnv}
+    (h : D.Declared env) {T : VIndType} (hT : T ∈ D.types) :
+    env.constants T.name = some ⟨D.uvars, T.type⟩ :=
+  let ⟨_, _, hadd, hle⟩ := h; hle.constants (addInduct'_types hadd hT)
+
+/-- The constructors of a declared block are in the environment, at their derived types. -/
+theorem _root_.Lean4Lean.VInductDecl'.Declared.constants_ctor {D : VInductDecl'} {env : VEnv}
+    (h : D.Declared env) {j : Nat} {C : VIndCtor} (hC : (j, C) ∈ D.ctorsAll) :
+    env.constants C.name = some ⟨D.uvars, C.type D j⟩ :=
+  let ⟨_, _, hadd, hle⟩ := h; hle.constants (addInduct'_ctors hadd hC)
+
+/-- A declared block's names are pairwise distinct: `addInduct'` succeeded, and
+`addConstList` rejects a repeat. -/
+theorem _root_.Lean4Lean.VInductDecl'.Declared.allNames_nodup {D : VInductDecl'} {env : VEnv}
+    (h : D.Declared env) : D.allNames.Nodup :=
+  let ⟨_, _, hadd, _⟩ := h; (VEnv.addInduct'_eq_some_iff.1 ⟨_, hadd⟩).2
+
 /-- The block's recursors are present, at `recType`. -/
 theorem addInduct'_recs (h : env.addInduct' D = some env')
     (hT : (T, j) ∈ D.types.zipIdx) :

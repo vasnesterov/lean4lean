@@ -658,6 +658,32 @@ def VEnv.addInduct' (env : VEnv) (D : VInductDecl') : Option VEnv := do
   let env ← env.addIndRecs D
   return env.addIndRules D
 
+/-- **A block that really was declared below `env`.**
+
+The declaration *history* is not part of `VEnv`, and threading it into every statement that
+needs "this block was checked and added earlier" is what forced `ds : List VDecl` through
+`VIndRestore.Faithful`, `VNestedOcc.Occurs`, `VInductDecl'.Built` and `VEnv.AddNested{,B}` —
+and, through them, into a would-be `VDecl.WF.induct` premise, which is where it could not go
+(`VDecl.WF env d env'` carries no history; only `VEnv.WF'` does).
+
+This is the same fact stated over environments alone: the block was well formed at *some*
+`env₀`, `addInduct'` succeeded there, and the result sits below `env`.  It is exactly the
+conclusion of `VEnv.WF'.exists_addInduct'` (`Theory/Inductive/Nested.lean`), so a history
+discharges it (`VEnv.WF'.declared`) — but it never has to be carried.
+
+It is not weaker than membership in the history where it is used.  `env₁ ≤ env` pins the
+block's *recursor* type as `env` stores it, and a recursor type has one minor premise per
+constructor (`VInductDecl'.minors`), so a `D` with a truncated constructor list cannot satisfy
+it against an `env` holding the real block — which is the `fooComp_inconsistent` failure mode
+(`Theory/Inductive/Companion.lean`) that `ctors_complete` exists to exclude. -/
+def VInductDecl'.Declared (D : VInductDecl') (env : VEnv) : Prop :=
+  ∃ env₀ env₁ : VEnv, env₀.addInduct' D = some env₁ ∧ env₁ ≤ env
+
+theorem VInductDecl'.Declared.mono {D : VInductDecl'} {env env' : VEnv}
+    (h : D.Declared env) (hle : env ≤ env') : D.Declared env' :=
+  let ⟨e₀, e₁, hadd, hb⟩ := h; ⟨e₀, e₁, hadd, hb.trans hle⟩
+
+
 /-! ## K1's skeleton: what a constructor's *stored* type gives back
 
 `addDecl.WF`'s `inductDecl` branch has to turn a `Lean.Declaration.inductDecl` into a

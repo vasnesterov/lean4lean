@@ -253,6 +253,23 @@ theorem WF'.exists_addInduct' {ds : List VDecl} {env : VEnv} (H : VEnv.WF' ds en
     · obtain ⟨env₀, env₁, h, hle⟩ := ih D hD
       exact ⟨env₀, env₁, h, hle.trans hd.le⟩
 
+/-- **The history discharges `VInductDecl'.Declared`.**  This is `exists_addInduct'` with the
+step's own `D.WF` carried along, packaged as the history-free predicate
+(`Theory/Inductive/Decl.lean`).  It is the *only* place a declaration history is needed on the
+nested path: `VIndRestore.Faithful`, `VNestedOcc.Occurs`, `VInductDecl'.Built` and
+`VEnv.AddNested{,B}` all speak of `Declared` instead, so none of them mentions `ds`, and a
+`VDecl.WF` rule for a nested step therefore needs no history parameter. -/
+theorem WF'.declared {ds : List VDecl} {env : VEnv} (H : VEnv.WF' ds env) :
+    ∀ D : VInductDecl', VDecl.induct D ∈ ds → D.Declared env := by
+  induction H with
+  | empty => intro _ h; cases h
+  | decl hd hds ih =>
+    intro D hD
+    rcases List.mem_cons.1 hD with rfl | hD
+    · cases hd with
+      | induct _ h => exact ⟨_, _, h, .rfl⟩
+    · exact (ih D hD).mono hd.le
+
 /-- The type names of every block of the history are declared, at the types the block
 stored for them. -/
 theorem WF'.constants_induct_type {ds : List VDecl} {env : VEnv} (H : VEnv.WF' ds env)

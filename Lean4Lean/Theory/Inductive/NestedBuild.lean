@@ -430,9 +430,15 @@ environment already holds — which is what the step that declared `J` produced
 (`VEnv.addInduct'_types`, `VEnv.addInduct'_ctors`). -/
 
 /-- The occurrence is of a block the history declared, at the arity it was declared with. -/
-structure Occurs (N : VNestedOcc) (ds : List VDecl) (env : VEnv) : Prop where
-  /-- `J` is a block of the declaration history. -/
-  hist : VDecl.induct N.decl ∈ ds
+structure Occurs (N : VNestedOcc) (env : VEnv) : Prop where
+  /-- `J` is a block the environment already carries: `addInduct'` ran on it below `env`.
+
+  This used to be `VDecl.induct N.decl ∈ ds`, and `ds` was threaded from here all the way out
+  to `VEnv.AddNestedB` — which is what made the step unstateable as a `VDecl.WF` rule, since
+  `VDecl.WF env d env'` carries no history.  `VInductDecl'.Declared` is the same fact stated
+  over `env` alone (`Theory/Inductive/Decl.lean`), and a history discharges it
+  (`VEnv.WF'.declared`, `Theory/Inductive/Nested.lean`). -/
+  hist : N.decl.Declared env
   /-- `idx` names a member of it. -/
   idx_lt : N.idx < N.decl.types.length
   /-- **Universe-count agreement** (`docs/handoff-nested-restore.md` §5's fourth item): the
@@ -448,7 +454,7 @@ structure Occurs (N : VNestedOcc) (ds : List VDecl) (env : VEnv) : Prop where
   ctor_const : ∀ C ∈ N.src.ctors,
     env.constants C.name = some ⟨N.decl.uvars, C.type N.decl N.idx⟩
 
-theorem Occurs.src_mem {N : VNestedOcc} {ds : List VDecl} {env : VEnv} (h : N.Occurs ds env) :
+theorem Occurs.src_mem {N : VNestedOcc} {env : VEnv} (h : N.Occurs env) :
     N.decl.types[N.idx]? = some N.src := by
   rw [src, List.getD_eq_getElem?_getD, List.getElem?_eq_getElem h.idx_lt]; rfl
 
@@ -463,10 +469,10 @@ one: **the companion member is the value the construction computes.** -/
 /-- Every member of `D` named in `K` is the auxiliary member built from the occurrence
 `occ j`, and the restoration presents it as that occurrence. -/
 structure VInductDecl'.Built (D : VInductDecl') (R : VIndRestore) (K : List Lean.Name)
-    (ds : List VDecl) (env : VEnv) (occ : Nat → VNestedOcc) : Prop where
+    (env : VEnv) (occ : Nat → VNestedOcc) : Prop where
   /-- **The one clause that replaces `ty_agree`, `ctor_agree` and `ctors_complete`.** -/
   member : ∀ j T, D.types[j]? = some T → T.name ∈ K → T = (occ j).member D.header R
-  occurs : ∀ j T, D.types[j]? = some T → T.name ∈ K → (occ j).Occurs ds env
+  occurs : ∀ j T, D.types[j]? = some T → T.name ∈ K → (occ j).Occurs env
   tyName : ∀ j T, D.types[j]? = some T → T.name ∈ K → R.tyName j = (occ j).tyName
   tyLvls : ∀ j T, D.types[j]? = some T → T.name ∈ K → R.tyLvls j = (occ j).lvls
   tyArgs : ∀ j T, D.types[j]? = some T → T.name ∈ K → R.tyArgs j = (occ j).args
@@ -478,9 +484,9 @@ structure VInductDecl'.Built (D : VInductDecl') (R : VIndRestore) (K : List Lean
 /-- **`Faithful` is a consequence of the construction.**  This is `docs/handoff-nested-restore.md`
 §7.1: `ctors_complete` and `ctor_agree` stop being hypotheses. -/
 theorem VInductDecl'.Built.toFaithful {D : VInductDecl'} {R : VIndRestore}
-    {K : List Lean.Name} {ds : List VDecl} {env : VEnv} {occ : Nat → VNestedOcc}
-    (h : D.Built R K ds env occ) :
-    R.Faithful D ds env K (fun j => (occ j).decl.np) where
+    {K : List Lean.Name} {env : VEnv} {occ : Nat → VNestedOcc}
+    (h : D.Built R K env occ) :
+    R.Faithful D env K (fun j => (occ j).decl.np) where
   ty_agree := by
     intro j T hT hK
     have ho := h.occurs j T hT hK
@@ -507,7 +513,7 @@ theorem VInductDecl'.Built.toFaithful {D : VInductDecl'} {R : VIndRestore}
   ctors_complete := by
     intro j T hT hK
     have ho := h.occurs j T hT hK
-    refine ⟨(occ j).decl, (occ j).idx, (occ j).src, ho.hist, ho.src_mem, ?_, ?_⟩
+    refine ⟨(occ j).decl, (occ j).idx, (occ j).src, ho.hist, ho.src_mem, ?_, rfl, ?_⟩
     · rw [h.tyName j T hT hK]; rfl
     · rw [h.member j T hT hK]
       exact (occ j).member_ctors_complete D.header R (h.ctorName_inv j T hT hK)
@@ -518,8 +524,8 @@ def VInductDecl'.CanonicalOwn (D : VInductDecl') (K : List Lean.Name) : Prop :=
   ∀ j C, (j, C) ∈ D.ctorsAll → (D.types.getD j default).name ∉ K → C.Canonical D
 
 theorem VInductDecl'.Built.canonical {D : VInductDecl'} {R : VIndRestore}
-    {K : List Lean.Name} {ds : List VDecl} {env : VEnv} {occ : Nat → VNestedOcc}
-    (h : D.Built R K ds env occ) (hown : D.CanonicalOwn K) : D.Canonical := by
+    {K : List Lean.Name} {env : VEnv} {occ : Nat → VNestedOcc}
+    (h : D.Built R K env occ) (hown : D.CanonicalOwn K) : D.Canonical := by
   intro j C hjC
   obtain ⟨T, hT, hC⟩ := D.mem_ctorsAll hjC
   have hname : (D.types.getD j default).name = T.name := by
@@ -533,15 +539,25 @@ theorem VInductDecl'.Built.canonical {D : VInductDecl'} {R : VIndRestore}
 
 Compare `VEnv.AddNested`: `VIndRestore.Faithful` is gone, and `VInductDecl'.Canonical` is
 weakened to the members the user wrote. -/
-def VEnv.AddNestedB (ds : List VDecl) (env : VEnv) (D : VInductDecl') (K : List Lean.Name)
+def VEnv.AddNestedB (env : VEnv) (D : VInductDecl') (K : List Lean.Name)
     (R : VIndRestore) (occ : Nat → VNestedOcc) (env' : VEnv) : Prop :=
-  D.WF env ∧ D.CanonicalOwn K ∧ D.Built R K ds env occ ∧ env.addInductR D K R = some env'
+  D.WF env ∧ D.CanonicalOwn K ∧ D.Built R K env occ ∧ env.addInductR D K R = some env'
 
-theorem VEnv.AddNestedB.toAddNested {ds : List VDecl} {env env' : VEnv} {D : VInductDecl'}
+theorem VEnv.AddNestedB.toAddNested {env env' : VEnv} {D : VInductDecl'}
     {K : List Lean.Name} {R : VIndRestore} {occ : Nat → VNestedOcc}
-    (h : VEnv.AddNestedB ds env D K R occ env') :
-    VEnv.AddNested ds env D K R (fun j => (occ j).decl.np) env' :=
+    (h : VEnv.AddNestedB env D K R occ env') :
+    VEnv.AddNested env D K R (fun j => (occ j).decl.np) env' :=
   ⟨h.1, h.2.2.1.canonical h.2.1, h.2.2.1.toFaithful, h.2.2.2⟩
+
+/-- **The constructive form implies the rule's premise.**  `VDecl.WF.inductNested`
+(`Theory/Typing/Env.lean`) takes `VEnv.AddNestedStep`, i.e. `AddNested` with `npJ`
+existentially quantified; a built block supplies it as `(occ j).decl.np`, and `Built.occurs`
+pins that to the parameter count of the block the environment holds. -/
+theorem VEnv.AddNestedB.toAddNestedStep {env env' : VEnv} {D : VInductDecl'}
+    {K : List Lean.Name} {R : VIndRestore} {occ : Nat → VNestedOcc}
+    (h : VEnv.AddNestedB env D K R occ env') :
+    VEnv.AddNestedStep env D K R env' :=
+  ⟨_, h.toAddNested⟩
 
 /-! ## Part 7: `BindersIndep` under the substitution
 
@@ -715,8 +731,8 @@ section
 variable {env₁ : VEnv} (h : VEnv.empty.addInduct' listDecl = some env₁)
 include h
 
-theorem listOcc_occurs : listOcc.Occurs [VDecl.induct listDecl] env₁ where
-  hist := List.Mem.head _
+theorem listOcc_occurs : listOcc.Occurs env₁ where
+  hist := ⟨_, _, h, .rfl⟩
   idx_lt := by decide
   lvls_len := rfl
   args_len := rfl
@@ -737,7 +753,7 @@ theorem listOcc_occurs : listOcc.Occurs [VDecl.induct listDecl] env₁ where
 /-- **The companion member is built, not supplied.**  This is what replaces
 `ntreeRestore_faithful`'s three clauses. -/
 theorem ntreeAux_built :
-    ntreeAux.Built ntreeRestore ntreeK [VDecl.induct listDecl] env₁ (fun _ => listOcc) where
+    ntreeAux.Built ntreeRestore ntreeK env₁ (fun _ => listOcc) where
   member := by
     rintro (_ | _ | j) T hT hK
     · cases hT; exact absurd hK (by decide)
@@ -781,7 +797,7 @@ real, and it is exactly the kind of slack a *checked* field leaves and a *comput
 not.) -/
 
 theorem ntreeAuxI_faithful :
-    ntreeRestore.Faithful ntreeAuxI [VDecl.induct listDecl] env₁ ntreeK (fun _ => 1) where
+    ntreeRestore.Faithful ntreeAuxI env₁ ntreeK (fun _ => 1) where
   ty_agree := by
     rintro (_ | _ | j) T hT hK
     · cases hT; exact absurd hK (by decide)
@@ -799,12 +815,12 @@ theorem ntreeAuxI_faithful :
   ctors_complete := by
     rintro (_ | _ | j) T hT hK
     · cases hT; exact absurd hK (by decide)
-    · cases hT; exact ⟨listDecl, 0, listType, List.Mem.head _, rfl, rfl, rfl⟩
+    · cases hT; exact ⟨listDecl, 0, listType, ⟨_, _, h, .rfl⟩, rfl, rfl, rfl, rfl⟩
     · simp [ntreeAuxI] at hT
 
 omit h in
 theorem ntreeAuxI_not_built :
-    ¬ ntreeAuxI.Built ntreeRestore ntreeK [VDecl.induct listDecl] env₁ (fun _ => listOcc) := by
+    ¬ ntreeAuxI.Built ntreeRestore ntreeK env₁ (fun _ => listOcc) := by
   intro hb
   exact absurd (congrArg VIndType.indices (hb.member 1 _ rfl (by decide))) (by decide)
 
@@ -815,21 +831,30 @@ theorem ntreeAux_canonicalOwn : ntreeAux.CanonicalOwn ntreeK :=
 /-- **The step, with the auxiliary member built.**  Same environment extension as
 `ntreeAux_AddNested`, but nothing about `_nested.List_1` is asserted: it is computed. -/
 theorem ntreeAux_AddNestedB :
-    ∃ env₂, VEnv.AddNestedB [VDecl.induct listDecl] env₁ ntreeAux ntreeK ntreeRestore
+    ∃ env₂, VEnv.AddNestedB env₁ ntreeAux ntreeK ntreeRestore
       (fun _ => listOcc) env₂ :=
   ⟨(ntreeAux_admitted h).choose, ntreeAux_WF h, ntreeAux_canonicalOwn, ntreeAux_built h,
     (ntreeAux_admitted h).choose_spec⟩
 
+/-- **The rule's premise is inhabited at a real nested block.**  `VEnv.AddNestedStep`
+(`Theory/Inductive/Restore.lean`) is exactly what `VDecl.WF.inductNested` would take
+(`Theory/Typing/Env.lean`); this is a model of it at `NTree`/`List`, with the auxiliary
+member computed rather than asserted. -/
+theorem ntreeAux_AddNestedStep :
+    ∃ env₂, VEnv.AddNestedStep env₁ ntreeAux ntreeK ntreeRestore env₂ :=
+  let ⟨env₂, hb⟩ := ntreeAux_AddNestedB h
+  ⟨env₂, hb.toAddNestedStep⟩
+
 /-- …and it delivers `NestedHead.lean`'s step, `Faithful` included. -/
 theorem ntreeAux_AddNested_of_built :
-    ∃ env₂, VEnv.AddNested [VDecl.induct listDecl] env₁ ntreeAux ntreeK ntreeRestore
+    ∃ env₂, VEnv.AddNested env₁ ntreeAux ntreeK ntreeRestore
       (fun _ => 1) env₂ :=
   let ⟨env₂, hb⟩ := ntreeAux_AddNestedB h
   ⟨env₂, hb.toAddNested⟩
 
 /-- The three clauses `docs/handoff-nested-restore.md` §7.1 named are now consequences. -/
 theorem ntreeRestore_faithful_of_built :
-    ntreeRestore.Faithful ntreeAux [VDecl.induct listDecl] env₁ ntreeK (fun _ => 1) :=
+    ntreeRestore.Faithful ntreeAux env₁ ntreeK (fun _ => 1) :=
   (ntreeAux_built h).toFaithful
 
 end
@@ -1095,8 +1120,8 @@ theorem nfnAux_WF : nfnAux.WF env₂ where
 
 /-! ### …and the step goes through -/
 
-theorem pfnOcc_occurs : pfnOcc.Occurs [VDecl.induct pfnDecl] env₂ where
-  hist := List.Mem.head _
+theorem pfnOcc_occurs : pfnOcc.Occurs env₂ where
+  hist := ⟨_, _, h, .rfl⟩
   idx_lt := by decide
   lvls_len := rfl
   args_len := rfl
@@ -1113,7 +1138,7 @@ theorem pfnOcc_occurs : pfnOcc.Occurs [VDecl.induct pfnDecl] env₂ where
     subst hC; exact pfnMk_const h
 
 theorem nfnAux_built :
-    nfnAux.Built nfnRestore nfnK [VDecl.induct pfnDecl] env₂ (fun _ => pfnOcc) where
+    nfnAux.Built nfnRestore nfnK env₂ (fun _ => pfnOcc) where
   member := by
     rintro (_ | _ | j) T hT hK
     · cases hT; exact absurd hK (by decide)
@@ -1175,13 +1200,36 @@ theorem nfnAux_admitted :
 /-- **The second end-to-end nested witness**, at the configuration `ntreeAux` could not
 reach: a recursive field with a non-empty binder telescope. -/
 theorem nfnAux_AddNestedB :
-    ∃ env₃, VEnv.AddNestedB [VDecl.induct pfnDecl] env₂ nfnAux nfnK nfnRestore
+    ∃ env₃, VEnv.AddNestedB env₂ nfnAux nfnK nfnRestore
       (fun _ => pfnOcc) env₃ :=
   ⟨(nfnAux_admitted h).choose, nfnAux_WF, nfnAux_canonicalOwn, nfnAux_built h,
     (nfnAux_admitted h).choose_spec⟩
 
+/-- The same at `NFn`/`PFn`, the block `Verify/Environment/InductR.lean`'s constant-map
+witness uses — so the abstract step and the constant-map step have a model at *one* block. -/
+theorem nfnAux_AddNestedStep :
+    ∃ env₃, VEnv.AddNestedStep env₂ nfnAux nfnK nfnRestore env₃ :=
+  let ⟨env₃, hb⟩ := nfnAux_AddNestedB h
+  ⟨env₃, hb.toAddNestedStep⟩
+
+/-- **`DeltaUnique`'s freshness argument fails here, concretely.**
+`Theory/Typing/DeltaUnique.lean`'s `keys_induct` proves the `induct` arm of `VEnv.WF'.keys`
+from "every name in a new rule's key is absent from `env`".  The companion's ι-rule is keyed
+`[NFn.rec_1, PFn.mk]`, and `PFn.mk` is a constant `env₂` **already holds** — it is `PFn`'s own
+constructor, which the previous declaration step declared.  So the nested arm has to argue
+from the freshness of the key's *head* alone.  See
+`VEnv.iotaRulesR_major_not_fresh` (`Theory/Inductive/NestedOrdered.lean`) for the general
+statement; this is the model of it. -/
+theorem nfn_companion_key_not_fresh :
+    ∃ df ∈ nfnAux.iotaRulesR nfnRestore, ∃ n ∈ df.key, env₂.contains n := by
+  refine ⟨nfnAux.iotaRuleR nfnRestore 1 1 pfnAuxMk, ?_, ``PFn.mk, ?_, _, pfnMk_const h⟩
+  · rw [VInductDecl'.iotaRulesR]
+    exact List.mem_map.2 ⟨((1, pfnAuxMk), 1), show _ ∈ [((0, nfnNode), 0), ((1, pfnAuxMk), 1)] from List.mem_cons_of_mem _ List.mem_cons_self, rfl⟩
+  · rw [nfnAux.key_iotaRuleR nfnRestore 1 1 pfnAuxMk]
+    exact List.mem_cons_of_mem _ List.mem_cons_self
+
 theorem nfnAux_AddNested :
-    ∃ env₃, VEnv.AddNested [VDecl.induct pfnDecl] env₂ nfnAux nfnK nfnRestore
+    ∃ env₃, VEnv.AddNested env₂ nfnAux nfnK nfnRestore
       (fun _ => 1) env₃ :=
   let ⟨env₃, hb⟩ := nfnAux_AddNestedB h
   ⟨env₃, hb.toAddNested⟩
