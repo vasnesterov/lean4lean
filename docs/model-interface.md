@@ -1,3 +1,28 @@
+> **CORRECTION (2026-08-30, machine-checked — this document is stale in two ways).**
+>
+> **1. The syntactic import is not two statements, it is three.** Measured:
+> `PropTypeAgree ∧ PropUniq ∧ InstDescendUp`. `Stable` was never audited when this
+> document was written; `Theory/SetModel/StableAudit.lean` later showed
+> `propSplitOf_stable_iff : Stable ↔ PropDescend`, i.e. **`Stable` is also a statement
+> about the judgement**, so listing it as "standing" measured the wrong object.
+>
+> **2. The dependence on strengthening was never in the interface.** It sat in
+> `propSplitOf`'s *choice of predicate*. `Theory/SetModel/PropSplitUp.lean` closes that
+> predicate under lifts and proves **both `lift` fields of `Stable`, both directions**,
+> plus both **ascent** halves of the `inst` fields — with no strengthening statement
+> anywhere. `prop_sound`/`proof_sound` survive from the same two inputs, because typing
+> transports forward along a lift. What remains is `InstDescendUp` (substitution
+> *descent*), which is blocked on `IsDefEqU.sort_forallE_inv` — **not** on strengthening.
+>
+> The trade is exact, not merely favourable: collapsing the new predicate back to the
+> canonical one is proved **equivalent** to the two fields the old route derived from
+> the hole. And the two predicates agree on **every well-typed input** — they differ
+> only on syntax with no sort at `Γ`, the region `Stable` quantifies over and
+> `prop_sound` does not.
+>
+> Everything below predates all of that. Read it for the construction, not for the
+> ledger.
+
 # The syntax ↔ set-theory boundary
 
 Specification of the interface between `Lean4Lean/Theory/` (the abstract syntax
