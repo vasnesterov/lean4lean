@@ -110,8 +110,15 @@ Put this check in every brief. It has now found more than the proofs have.
    in the direction the witness tests. When a widening is wanted, define a *separate*
    widened predicate rather than editing the original in place.
 4. **Non-vacuity is an acceptance criterion.** Fire every obligation at a non-degenerate witness. When no witness can exist, say **why**, and say plainly that *"no witness" is not evidence of truth*.
-5. **A claimed reduction is not a reduction until the collapse test passes**: can the residual's quantifiers be instantiated so its premises degenerate into the target's? Two "reductions" were tautologies.
-6. **Passenger test** (for whether an open lemma is really a primitive): if every call site inside proved theorems is on an IH output, it may be a passenger — but this is **necessary, not sufficient**. The conjunct must also be derivable from the invariant's components.
+5. **Keep the reason, not the conclusion.** When a development inverts a structure to
+   get at something inside it, the inversion usually throws away *why* the outer layers
+   were there — and the proof then has to rebuild it. Carrying the development *down*
+   through the structure instead is often free, because each layer's own shape lemma
+   discharges it. This closed a site that had been "reduced to three named facts" for
+   two rounds: two of the three did no work, and the escape the inversion discarded was
+   the one that was stable under the operation being performed.
+6. **A claimed reduction is not a reduction until the collapse test passes**: can the residual's quantifiers be instantiated so its premises degenerate into the target's? Two "reductions" were tautologies.
+7. **Passenger test** (for whether an open lemma is really a primitive): if every call site inside proved theorems is on an IH output, it may be a passenger — but this is **necessary, not sufficient**. The conjunct must also be derivable from the invariant's components.
 
 ## Measuring
 
