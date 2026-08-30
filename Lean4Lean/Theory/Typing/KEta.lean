@@ -872,6 +872,128 @@ theorem kStepLiftInv_of_no_kstep (hno : ∀ {Δ a b}, ¬ KStep Δ a b) : KStepLi
 theorem refParams_kStepLiftInv : @KStepLiftInv refParams :=
   @kStepLiftInv_of_no_kstep refParams (fun h => refParams_no_kstep h)
 
+
+/-! ## The escape branch, kept open -- and why site 1's residual is K-only after all
+
+`docs/handoff-krule.md` §W4 leaves site 1 resting on `KMeasure.WeakNInvTail`, calls that
+statement `NormalEq.parRed`-shaped, and concludes that §V3's sites 1 and 7 are one problem.
+Two corrections, both machine-checked (here and in `KMeasure.lean`):
+
+* **`WeakNInvTail` does not reduce site 1 -- it implies it outright**, at `NormalEq.refl`
+  (`KMeasure.weakNInvStatementP_of_tail`).  Neither `KStepLiftInv` nor `PiTypeDescend` is
+  load-bearing in §W4's "reduction to three named facts": one of the three *is* the target.
+  That is `ORCHESTRATOR.md`'s collapse test (working rule 5) failing.
+* **The entanglement is an artefact of applying the tail after the η-tower.**  Carrying the
+  `ParRedK` development *down* the tower instead leaves a residual guarded by **two** K-steps
+  (`KStepTail` below), which is vacuous wherever `KStep` is empty and therefore carries the
+  `refParams` consistency check that `WeakNInvTail` could not.  Two facts make the descent
+  work: `EtaK.not_lam` forces the development at every `under` layer to be a λ-congruence
+  (`ParRedK.lam_inv`), and `KTable.canon`'s escape is a *proof* escape, so it survives the
+  development by subject reduction plus `NormalEq.proofIrrel` (`ProofEq`). -/
+
+/-- **`KTable.canon`'s escape, in the form that survives a development.**  `NormalEq` is not
+stable under reduction of either side; "both sides inhabit one `Prop`" is.  This is the
+strengthening of `EtaKLiftInvC`'s `w₀ = e1` alternative that makes the η-tower's tail free. -/
+def ProofEq (Γ : List VExpr) (a b : VExpr) : Prop :=
+  ∃ P, Γ ⊢ P : .sort .zero ∧ Γ ⊢ a : P ∧ Γ ⊢ b : P
+
+theorem ProofEq.normalEq {Γ : List VExpr} {a b : VExpr} (h : ProofEq Γ a b) :
+    NormalEq Γ a b := let ⟨_, hP, h1, h2⟩ := h; .proofIrrel hP h1 h2
+
+variable! (hΓ : OnCtx Γ (IsType env univs)) in
+/-- Stability under a development of the left side: subject reduction, then `proofIrrel`
+again.  This is the whole reason the escape branch costs nothing. -/
+theorem ProofEq.parRedK_l {a a' b : VExpr} (h : ProofEq Γ a b) (H : ParRedK Γ a a') :
+    ProofEq Γ a' b := let ⟨_, hP, h1, h2⟩ := h; ⟨_, hP, H.hasType hΓ h1, h2⟩
+
+/-- **The Π-wrap.**  A `ProofEq` one binder in lifts to a `ProofEq` outside it, because a
+`Prop`-valued Π is a `Prop` (impredicativity: `VLevel.imax u .zero ≈ .zero`).  This is what
+carries the escape branch up through an `EtaK.under` layer. -/
+theorem ProofEq.forallE {Γ : List VExpr} {A A' a b B : VExpr} {u : VLevel}
+    (hΓ : OnCtx Γ (IsType env univs))
+    (hA : Γ ⊢ A : .sort u) (hAA' : Γ ⊢ A ≡ A' : .sort u)
+    (hb : Γ ⊢ b : .forallE A B)
+    (h : ProofEq (A::Γ) a (.app b.lift (.bvar 0))) :
+    ProofEq Γ (.lam A' a) b := by
+  obtain ⟨P, hP, h1, h2⟩ := h
+  have hΓA : OnCtx (A::Γ) (IsType env univs) := ⟨hΓ, _, hA⟩
+  have ⟨_, hBty⟩ := (have ⟨_, hf⟩ := hb.isType henv hΓ; hf.forallE_inv henv).2
+  have hb0 : (A::Γ) ⊢ .app b.lift (.bvar 0) : B := by
+    simpa [instN_bvar0] using HasType.app (hb.weak (B := A) henv) (.bvar .zero)
+  have hBP : IsDefEqU env univs (A::Γ) B P := hb0.uniqU henv hΓA h2
+  have hw : (VLevel.imax u .zero).WF univs :=
+    ⟨(have ⟨_, hs⟩ := hA.isType henv hΓ; hs.sort_inv henv), ⟨⟩⟩
+  refine ⟨.forallE A P, ?_, ?_, ?_⟩
+  · exact IsDefEqU.defeqDF henv hΓ ⟨_, .sortDF hw ⟨⟩ rfl⟩ (HasType.forallE hA hP)
+  · exact (IsDefEq.lamDF hAA' h1).hasType.2
+  · exact hb.defeqU_r henv hΓ ⟨_, .forallEDF hA (hBP.of_l henv hΓA hBty)⟩
+
+/-- `ParRedK`'s λ-inversion, single step.  The `keta` case is impossible by `EtaK.not_lam`
+and the `extra` case by the head-constant shape, so a development of a λ *is* a λ
+congruence -- which is what lets the tail be pushed down the η-tower. -/
+theorem ParRedK.lam_inv {Γ : List VExpr} {A t y : VExpr} (H : ParRedK Γ (.lam A t) y) :
+    ∃ A' t', y = .lam A' t' ∧ ParRedK Γ A A' ∧ ParRedK (A::Γ) t t' := by
+  cases H with
+  | lam h1 h2 => exact ⟨_, _, rfl, h1, h2⟩
+  | extra _ h2 => obtain ⟨_, _, hc⟩ := h2.spineHead_const; exact nomatch hc
+  | keta h _ => exact absurd h EtaK.not_lam
+
+/-- The `here` layer's output with the escape kept open: either a genuine downstairs K-step,
+or both sides inhabit one `Prop`.  Compare `EtaKLiftInvC`, whose second alternative
+(`w₀ = e1` plus a bare `NormalEq`) has already forgotten why it holds. -/
+def EtaKLiftInvP (Γ Γ' : List VExpr) (n k : Nat) (e1 w : VExpr) : Prop :=
+  (∃ w₀, KStep Γ e1 w₀ ∧ NormalEq Γ' w (w₀.liftN n k)) ∨ ProofEq Γ' w (e1.liftN n k)
+
+/-- `KStepLiftInv` with the escape kept open. -/
+def KStepLiftInvP : Prop :=
+  ∀ {n k : Nat} {Γ Γ' : List VExpr} {e1 w A : VExpr},
+    OnCtx Γ (IsType env univs) → OnCtx Γ' (IsType env univs) →
+    Ctx.LiftN n k Γ Γ' → Γ' ⊢ e1.liftN n k : A →
+    KStep Γ' (e1.liftN n k) w → EtaKLiftInvP Γ Γ' n k e1 w
+
+theorem kStepLiftInvP_of (KT : KTable) (HP : PiTypeDescend) : KStepLiftInvP := by
+  intro n k Γ Γ' e1 w A hΓ hΓ' W hty H
+  cases e1 with
+  | bvar => exact nomatch H
+  | sort => exact nomatch H
+  | const => exact nomatch H
+  | lam => exact nomatch H
+  | forallE => exact nomatch H
+  | app f h =>
+    obtain ⟨_, _, hfty, -⟩ := hty.app_inv henv hΓ'
+    obtain ⟨A₁, B₁, hf₀⟩ := HP hΓ hΓ' W hfty
+    rcases KT.kstep_liftN_inv_stepP hΓ hΓ' W hf₀ H with ⟨w₀, hks, hne⟩ | hpe
+    · exact .inl ⟨w₀, hks, hne⟩
+    · exact .inr hpe
+
+/-- **The residual of site 1, after the η-tower and the proof escape are discharged.**
+
+It is `NormalEq.parRed`'s commutation at a K-step contractum, and it is guarded by **two**
+K-steps -- the upstairs one that produced `u` and the downstairs one it descends to.  So it
+is vacuous wherever `KStep` is empty (`kStepTail_of_no_kstep`), which is exactly the
+`refParams` consistency check `KMeasure.WeakNInvTail` could not carry, and it is a rule-table
+obligation rather than a Church-Rosser one. -/
+def KStepTail : Prop :=
+  ∀ {n k : Nat} {Γ Γ' : List VExpr} {e1 u u' v : VExpr},
+    OnCtx Γ (IsType env univs) → OnCtx Γ' (IsType env univs) → Ctx.LiftN n k Γ Γ' →
+    KStep Γ' (e1.liftN n k) u → KStep Γ e1 v →
+    NormalEq Γ' u (v.liftN n k) → ParRedK Γ' u u' →
+    ∃ v', ParRedK Γ v v' ∧ NormalEq Γ' u' (v'.liftN n k)
+
+theorem kStepTail_of_no_kstep (hno : ∀ {Δ a b}, ¬ KStep Δ a b) : KStepTail :=
+  fun _ _ _ h => absurd h hno
+
+theorem refParams_kStepTail : @KStepTail refParams :=
+  @kStepTail_of_no_kstep refParams (fun h => refParams_no_kstep h)
+
+theorem kStepLiftInvP_of_no_kstep (hno : ∀ {Δ a b}, ¬ KStep Δ a b) : KStepLiftInvP := by
+  intro n k Γ Γ' e1 w A _ _ _ _ H
+  exact (hno H).elim
+
+theorem refParams_kStepLiftInvP : @KStepLiftInvP refParams :=
+  @kStepLiftInvP_of_no_kstep refParams (fun h => refParams_no_kstep h)
+
+
 end VEnv
 
 end Lean4Lean

@@ -352,6 +352,789 @@ theorem etaKDiamond_of_at (h : EtaKDiamondAt) : EtaKDiamond := by
   obtain ⟨k, h1, h2⟩ := EtaK.same_height H1 H2
   exact h hΓ h1 h2
 
+/-! ## The lifting inversion: the η-tower is free, the `here` layer is the whole price
+
+`KEta.lean`'s `not_weakNInvStatement_of_etaK` shows `ParRed.weakN_inv`'s **equality**
+conclusion is false in the `keta` case, and that the obstruction is `EtaK.under`'s λ-domain
+-- which is constrained only up to conversion -- rather than `KStep`'s major premise.  M3
+therefore does not repair it, and the conclusion has to weaken to `NormalEq`
+(`KEta.EtaKLiftInvC`), where `NormalEq.lamDF`'s defeq-domain slack absorbs it
+(`kdom_normalEq_lam`).
+
+What is proved here is that the weakened statement costs **nothing** beyond the base layer:
+the whole η-tower is discharged from `KStepLiftInv` and `PiTypeDescend`.  The induction is
+on the *height* rather than on the derivation, because the `under` step has to relocate its
+sub-derivation onto a definitionally equal domain before the induction hypothesis applies,
+and an induction on the derivation itself is pinned to the original context. -/
+
+/-- `EtaK.defeqDFC` with the height preserved. -/
+theorem EtaKn.defeqDFC {Γ₀ : List VExpr} (hΓ₀ : OnCtx Γ₀ (IsType env univs))
+    {m : Nat} {Γ₁ Γ₂ : List VExpr} {e e' : VExpr}
+    (W : IsDefEqCtx env univs Γ₀ Γ₁ Γ₂) (H : EtaKn m Γ₁ e e') : EtaKn m Γ₂ e e' := by
+  induction H generalizing Γ₂ with
+  | here hst => exact .here (KStep.defeqDFC W hst)
+  | @under Γ₁ e A B t _ hty _ ih =>
+    have ⟨⟨_, hA⟩, _⟩ := (hty.isType henv (W.isType' hΓ₀)).forallE_inv henv
+    exact .under (hty.defeqDFC henv W) (ih (W.succ hA))
+
+/-- **The η-tower of the lifting inversion, discharged.**  Every `under` layer is paid for by
+`PiTypeDescend` (the downstairs Π-typing), `IsDefEqU.forallE_inv` on unique typing (the
+upstairs domain is definitionally equal to the lift of the downstairs one), `EtaKn.defeqDFC`
+(relocating the sub-derivation onto that lift) and then, on the way back,
+`NormalEq.lamDF` for a genuine step and `NormalEq.etaL` for `KTable.canon`'s proof escape.
+
+So `KStepLiftInv` is the *entire* open content of `ParRed.weakN_inv`'s `keta` case, and the
+domain obstruction is not part of it. -/
+theorem etaKn_liftN_inv (HK : KStepLiftInv) (HP : PiTypeDescend) {n : Nat} :
+    ∀ {m k : Nat} {Γ Γ' : List VExpr} {e1 w A : VExpr},
+      EtaKn m Γ' (e1.liftN n k) w → Ctx.LiftN n k Γ Γ' →
+      OnCtx Γ (IsType env univs) → OnCtx Γ' (IsType env univs) →
+      Γ' ⊢ e1.liftN n k : A → EtaKLiftInvC Γ Γ' n k e1 w := by
+  intro m
+  induction m with
+  | zero =>
+    intro k Γ Γ' e1 w A H W hΓ hΓ' hX
+    cases H with | here hst => exact HK hΓ' W hX hst
+  | succ m ih =>
+    intro k Γ Γ' e1 w A H W hΓ hΓ' hX
+    cases H with
+    | @under _ _ A₁ B₁ t _ hty hin =>
+    obtain ⟨A₀, B₀, hf₀⟩ := HP hΓ hΓ' W hty
+    have ⟨⟨u₀, hA₀⟩, v₀, hB₀⟩ := (have ⟨_, h⟩ := hf₀.isType henv hΓ; h.forallE_inv henv)
+    have hf₀' : Γ' ⊢ e1.liftN n k : .forallE (A₀.liftN n k) (B₀.liftN n (k+1)) :=
+      hf₀.weakN henv W
+    obtain ⟨⟨u, hAA⟩, -⟩ := IsDefEqU.forallE_inv henv hΓ' (hty.uniqU henv hΓ' hf₀')
+    have hΓA : OnCtx (A₀::Γ) (IsType env univs) := ⟨hΓ, _, hA₀⟩
+    have hΓA' : OnCtx (A₀.liftN n k :: Γ') (IsType env univs) :=
+      ⟨hΓ', _, hAA.hasType.2⟩
+    have heq : (VExpr.app e1.lift (.bvar 0)).liftN n (k+1)
+        = VExpr.app ((e1.liftN n k).lift) (.bvar 0) := by
+      simp [VExpr.liftN, Lean4Lean.liftVar, ← VExpr.lift_liftN']
+    have hin' : EtaKn m (A₀.liftN n k :: Γ')
+        ((VExpr.app e1.lift (.bvar 0)).liftN n (k+1)) t := by
+      rw [heq]; exact hin.defeqDFC hΓ' (.succ .zero hAA)
+    have hbty : (A₀.liftN n k :: Γ') ⊢ (VExpr.app e1.lift (.bvar 0)).liftN n (k+1)
+        : B₀.liftN n (k+1) := by
+      rw [heq]
+      have := HasType.app (hf₀'.weak (B := A₀.liftN n k) henv) (.bvar .zero)
+      simpa [VExpr.liftN, instN_bvar0] using this
+    obtain ⟨t₀, hd, hne⟩ := ih hin' W.succ hΓA hΓA' hbty
+    cases hd with
+    | inl hek =>
+      refine ⟨.lam A₀ t₀, .inl (.under hf₀ hek), ?_⟩
+      exact .lamDF hAA.symm hAA.hasType.2 hne
+    | inr eq =>
+      subst eq
+      exact ⟨e1, .inr rfl, .etaL hty (heq ▸ NormalEq.defeq_l hΓ' hAA.symm hne)⟩
+
+/-- The `EtaK` form, by `EtaK.count`. -/
+theorem etaK_liftN_inv (HK : KStepLiftInv) (HP : PiTypeDescend)
+    {n k : Nat} {Γ Γ' : List VExpr} {e1 w A : VExpr}
+    (H : EtaK Γ' (e1.liftN n k) w) (W : Ctx.LiftN n k Γ Γ')
+    (hΓ : OnCtx Γ (IsType env univs)) (hΓ' : OnCtx Γ' (IsType env univs))
+    (hX : Γ' ⊢ e1.liftN n k : A) : EtaKLiftInvC Γ Γ' n k e1 w :=
+  let ⟨_, H⟩ := H.count; etaKn_liftN_inv HK HP H W hΓ hΓ' hX
+
+
+/-! ### What is left of site 1, exactly
+
+The `keta` case composes an `EtaK` step with a *development of its contractum*
+(`ParRedK.keta`).  The lifting inversion handles the step; the tail is the residual, and it
+is not routine: the contractum upstairs is only `NormalEq` to a lift, never equal to one, so
+the tail's own inversion has to work modulo `NormalEq`.  That statement is
+`NormalEq.parRed`-shaped -- **sites 1 and 7 of `docs/handoff-krule.md` §V3 are entangled**,
+and no strengthening of the rule table separates them. -/
+
+/-- The residual left by the `keta` case's tail: a development of a term that is `NormalEq`
+to a lift is `NormalEq` to the lift of a development.  Instantiating `NormalEq` at `Eq` makes
+this `ParRed.weakN_inv`'s own conclusion, so it is a genuine weakening and not a restatement;
+what it adds over `weakN_inv` is exactly `NormalEq.parRed`'s commutation.
+
+**It is not a K-hypothesis**: it is non-vacuous already where `KStep` is empty, so the
+`refParams` consistency check that every other statement in this corner carries is *not*
+available for it, and none is claimed.
+
+**Correction (round 8, audit).**  Two things above are wrong.
+
+1. It is not a *residual*: `weakNInvStatementP_of_tail` derives the whole of site 1 from it
+   at `NormalEq.refl`, so `docs/handoff-krule.md` §W4's "site 1 reduces to three named facts"
+   fails `ORCHESTRATOR.md`'s collapse test.  Use `KEta.KStepTail` (or `KStepTailS`) and
+   `parRedK_weakN_invP` / `parRedK_weakN_invPS` instead.
+2. The check *is* available and it was simply not run: `refParams_weakNInvTailS` proves the
+   `≫*` form wherever `EtaK` is empty.  The single-step form written here is **not** what
+   that route delivers, and no proof of it is known -- see the section on `WeakNInvTailS`. -/
+def WeakNInvTail : Prop :=
+  ∀ {n k : Nat} {Γ Γ' : List VExpr} {u u' v : VExpr},
+    OnCtx Γ' (IsType env univs) → Ctx.LiftN n k Γ Γ' →
+    ParRedK Γ' u u' → NormalEq Γ' u (v.liftN n k) →
+    ∃ v', ParRedK Γ v v' ∧ NormalEq Γ' u' (v'.liftN n k)
+
+/-- **Site 1's `keta` case, in the `≡ₚ` form, from three named facts and nothing else.**
+`KStepLiftInv` is M3's share (`KTable.kstep_liftN_inv_step`), `PiTypeDescend` is the typing
+descent, and `WeakNInvTail` is the tail.  The λ-domain obstruction that refutes the equality
+form (`not_weakNInvStatement_of_etaK`) has disappeared: it is absorbed by `NormalEq.lamDF`
+inside `etaKn_liftN_inv`.
+
+**Superseded (round 8).**  `HT` alone implies the conclusion (`weakNInvStatementP_of_tail`),
+so this is not a reduction.  `keta_weakN_invK` / `keta_weakN_invKS` prove the same thing from
+`KStepTail` / `KStepTailS`, which are guarded by two `KStep`s. -/
+theorem keta_weakN_inv (HK : KStepLiftInv) (HP : PiTypeDescend) (HT : WeakNInvTail)
+    {n k : Nat} {Γ Γ' : List VExpr} {e1 w w' A : VExpr}
+    (hΓ : OnCtx Γ (IsType env univs)) (hΓ' : OnCtx Γ' (IsType env univs))
+    (W : Ctx.LiftN n k Γ Γ') (hty : Γ' ⊢ e1.liftN n k : A)
+    (hek : EtaK Γ' (e1.liftN n k) w) (htail : ParRedK Γ' w w') :
+    ∃ e2, ParRedK Γ e1 e2 ∧ NormalEq Γ' w' (e2.liftN n k) := by
+  obtain ⟨w₀, hd, hne⟩ := etaK_liftN_inv HK HP hek W hΓ hΓ' hty
+  obtain ⟨v', hpr, hne'⟩ := HT hΓ' W htail hne
+  refine ⟨v', ?_, hne'⟩
+  cases hd with
+  | inl hek₀ => exact .keta hek₀ hpr
+  | inr eq => exact eq ▸ hpr
+
+
+/-! ## Audit of `WeakNInvTail`, and the descent that replaces it
+
+`docs/handoff-krule.md` §W4 presents `keta_weakN_inv` as reducing site 1's `keta` case to
+three named facts -- `KStepLiftInv`, `PiTypeDescend`, `WeakNInvTail` -- and concludes from the
+third that §V3's sites 1 and 7 are one problem.  The audit the brief asked for finds two
+things, both machine-checked here.
+
+**1. The reduction fails the collapse test** (`ORCHESTRATOR.md` working rule 5).
+`WeakNInvTail` instantiated at `NormalEq.refl` *is* site 1's whole statement, so
+`weakNInvStatementP_of_tail` below derives the target from the residual alone, with neither
+`KStepLiftInv` nor `PiTypeDescend` in the cone.  A reduction whose residual implies the target
+carries no information about the target's price.
+
+**2. The entanglement is an artefact of the order of the two moves.**  §W4 inverts the whole
+η-tower first (`etaK_liftN_inv`) and applies the development afterwards, at which point the
+development meets a bare `NormalEq` and needs `NormalEq.parRed`'s commutation in full.
+Carrying the development *down* the tower instead leaves a residual guarded by **two**
+K-steps.  Two facts make the descent go through, neither of them about `NormalEq`:
+
+* `EtaK.not_lam` forces the development at every `under` layer to be a λ-congruence
+  (`ParRedK.lam_inv`), so there is nothing to commute there;
+* `KTable.canon`'s escape is a **proof** escape, and "both sides inhabit one `Prop`"
+  (`ProofEq`) is stable under a development of either side -- which a bare `NormalEq` is not.
+  Keeping the escape open (`KTable.kstep_liftN_inv_stepP`) is the whole of the difference.
+
+The residual is `KEta.KStepTail`, and it is vacuous wherever `KStep` is empty
+(`refParams_kStepTail`), so it carries the `refParams` consistency check `WeakNInvTail` could
+not, and it is a rule-table obligation rather than a Church-Rosser one.  **This corrects §W0.5
+and §W4: no joint induction with site 7 is needed for site 1.** -/
+
+/-- `ParRed.weakN_inv`'s statement for `ParRedK`, at the `≡ₚ` conclusion the λ-domain
+obstruction forces (`KEta.not_weakNInvStatement_of_etaK`).  This is `docs/handoff-krule.md`
+§V3's site 1. -/
+def WeakNInvStatementP : Prop :=
+  ∀ {n k : Nat} {Γ Γ' : List VExpr} {e1 e2' A : VExpr},
+    OnCtx Γ' (IsType env univs) → Ctx.LiftN n k Γ Γ' →
+    Γ' ⊢ e1.liftN n k : A → ParRedK Γ' (e1.liftN n k) e2' →
+    ∃ e2, ParRedK Γ e1 e2 ∧ NormalEq Γ' e2' (e2.liftN n k)
+
+/-- **The collapse test on §W4's reduction, failed.**  `WeakNInvTail` alone implies site 1 --
+take `u := e1.liftN n k`, `v := e1` and the `NormalEq` at `refl`.  So §W4's "site 1 reduces to
+three named facts" is not a reduction: `KStepLiftInv` and `PiTypeDescend` do no work in it,
+and "`WeakNInvTail` is `NormalEq.parRed`-shaped, so sites 1 and 7 are one problem" is an
+observation about a statement that was never weaker than the goal. -/
+theorem weakNInvStatementP_of_tail (HT : WeakNInvTail) : WeakNInvStatementP :=
+  fun hΓ' W hty H => HT hΓ' W H (.refl hty)
+
+/-- The invariant the descent carries down the η-tower: either a genuine `EtaK` step
+downstairs *together with* a development of its contractum -- the two premises `ParRedK.keta`
+wants -- or the proof escape.  The split is what makes the `under` layer reconstructible:
+`ParRedK Γ e1 e2` alone cannot be re-wrapped in a λ, because `EtaK.under` needs an `EtaK`
+sub-derivation and not a `ParRedK` one. -/
+def KetaLiftInvS (Γ Γ' : List VExpr) (n k : Nat) (e1 w' : VExpr) : Prop :=
+  (∃ w₀ e2, EtaK Γ e1 w₀ ∧ ParRedK Γ w₀ e2 ∧ NormalEq Γ' w' (e2.liftN n k)) ∨
+  ProofEq Γ' w' (e1.liftN n k)
+
+/-- **Site 1's `keta` case, with the development carried down the η-tower.**
+
+Compare `etaKn_liftN_inv`, which inverts the tower and hands the development a bare
+`NormalEq`.  Here the development descends with the inversion, and the two `under`-layer
+obligations are discharged outright: `ParRedK.lam_inv` (the development of a λ is a λ
+congruence, since `EtaK.not_lam` kills the `keta` case) and `ProofEq.forallE` (the escape's
+`Prop` survives a binder, by impredicativity).  What is left is the `here` layer, and there
+the residual is `KStepTail` -- guarded by the upstairs K-step *and* the downstairs one. -/
+theorem etaKn_keta_liftN_inv (HK : KStepLiftInvP) (HP : PiTypeDescend) (HT : KStepTail)
+    {n : Nat} :
+    ∀ {m k : Nat} {Γ Γ' : List VExpr} {e1 w w' A : VExpr},
+      EtaKn m Γ' (e1.liftN n k) w → ParRedK Γ' w w' → Ctx.LiftN n k Γ Γ' →
+      OnCtx Γ (IsType env univs) → OnCtx Γ' (IsType env univs) →
+      Γ' ⊢ e1.liftN n k : A → KetaLiftInvS Γ Γ' n k e1 w' := by
+  intro m
+  induction m with
+  | zero =>
+    intro k Γ Γ' e1 w w' A H hpr W hΓ hΓ' hX
+    cases H with | here hst => ?_
+    rcases HK hΓ hΓ' W hX hst with ⟨w₀, hks, hne⟩ | hpe
+    · obtain ⟨v', hv, hne'⟩ := HT hΓ hΓ' W hst hks hne hpr
+      exact .inl ⟨w₀, v', .here hks, hv, hne'⟩
+    · exact .inr (hpe.parRedK_l hΓ' hpr)
+  | succ m ih =>
+    intro k Γ Γ' e1 w w' A H hpr W hΓ hΓ' hX
+    cases H with
+    | @under _ _ A₁ B₁ t _ hty hin => ?_
+    obtain ⟨A₁', t', rfl, hAr, htr⟩ := hpr.lam_inv
+    obtain ⟨A₀, B₀, hf₀⟩ := HP hΓ hΓ' W hty
+    have ⟨⟨u₀, hA₀⟩, v₀, hB₀⟩ := (have ⟨_, h⟩ := hf₀.isType henv hΓ; h.forallE_inv henv)
+    have hf₀' : Γ' ⊢ e1.liftN n k : .forallE (A₀.liftN n k) (B₀.liftN n (k+1)) :=
+      hf₀.weakN henv W
+    obtain ⟨⟨u, hAA⟩, -⟩ := IsDefEqU.forallE_inv henv hΓ' (hty.uniqU henv hΓ' hf₀')
+    have ⟨⟨_, hA₁⟩, _, hB₁⟩ := (have ⟨_, h⟩ := hty.isType henv hΓ'; h.forallE_inv henv)
+    have hΓA : OnCtx (A₀::Γ) (IsType env univs) := ⟨hΓ, _, hA₀⟩
+    have hΓA₁ : OnCtx (A₁::Γ') (IsType env univs) := ⟨hΓ', _, hA₁⟩
+    have hΓA' : OnCtx (A₀.liftN n k :: Γ') (IsType env univs) := ⟨hΓ', _, hAA.hasType.2⟩
+    have heq : (VExpr.app e1.lift (.bvar 0)).liftN n (k+1)
+        = VExpr.app ((e1.liftN n k).lift) (.bvar 0) := by
+      simp [VExpr.liftN, Lean4Lean.liftVar, ← VExpr.lift_liftN']
+    have hb1 : (A₁::Γ') ⊢ VExpr.app ((e1.liftN n k).lift) (.bvar 0) : B₁ := by
+      simpa [instN_bvar0] using HasType.app (hty.weak (B := A₁) henv) (.bvar .zero)
+    have htty : (A₁::Γ') ⊢ t : B₁ :=
+      ((hin.toEtaK.defeqU hΓA₁).of_l henv hΓA₁ hb1).hasType.2
+    have hbty : (A₀.liftN n k :: Γ') ⊢ (VExpr.app e1.lift (.bvar 0)).liftN n (k+1)
+        : B₀.liftN n (k+1) := by
+      rw [heq]
+      have := HasType.app (hf₀'.weak (B := A₀.liftN n k) henv) (.bvar .zero)
+      simpa [VExpr.liftN, instN_bvar0] using this
+    have hin' : EtaKn m (A₀.liftN n k :: Γ')
+        ((VExpr.app e1.lift (.bvar 0)).liftN n (k+1)) t := by
+      rw [heq]; exact hin.defeqDFC hΓ' (.succ .zero hAA)
+    have htr' : ParRedK (A₀.liftN n k :: Γ') t t' :=
+      htr.defeqDFC hΓ' (.succ .zero hAA) htty
+    have hAA1 := hAA.symm.trans (hAr.defeq hΓ' hAA.hasType.1)
+    rcases ih hin' htr' W.succ hΓA hΓA' hbty with ⟨z₀, z, hek₀, hz, hne⟩ | hpe
+    · refine .inl ⟨.lam A₀ z₀, .lam A₀ z, .under hf₀ hek₀, .lam ParRedK.rfl hz, ?_⟩
+      simpa [VExpr.liftN] using
+        NormalEq.lamDF (A := A₀.liftN n k) hAA1 hAA.hasType.2 hne
+    · rw [heq] at hpe
+      exact .inr (ProofEq.forallE hΓ' hAA.hasType.2 hAA1 hf₀' hpe)
+
+/-- The `EtaK` form. -/
+theorem etaK_keta_liftN_inv (HK : KStepLiftInvP) (HP : PiTypeDescend) (HT : KStepTail)
+    {n k : Nat} {Γ Γ' : List VExpr} {e1 w w' A : VExpr}
+    (H : EtaK Γ' (e1.liftN n k) w) (hpr : ParRedK Γ' w w') (W : Ctx.LiftN n k Γ Γ')
+    (hΓ : OnCtx Γ (IsType env univs)) (hΓ' : OnCtx Γ' (IsType env univs))
+    (hX : Γ' ⊢ e1.liftN n k : A) : KetaLiftInvS Γ Γ' n k e1 w' :=
+  let ⟨_, H⟩ := H.count; etaKn_keta_liftN_inv HK HP HT H hpr W hΓ hΓ' hX
+
+/-- **Site 1's `keta` case, from `KStepLiftInvP`, `PiTypeDescend` and `KStepTail`.**
+
+The improvement over `keta_weakN_inv` is not the count -- three hypotheses either way -- but
+that all three are now *smaller than the target*: `KStepTail` is guarded by two `KStep`s,
+where `WeakNInvTail` implied the target outright (`weakNInvStatementP_of_tail`). -/
+theorem keta_weakN_invK (HK : KStepLiftInvP) (HP : PiTypeDescend) (HT : KStepTail)
+    {n k : Nat} {Γ Γ' : List VExpr} {e1 w w' A : VExpr}
+    (hΓ : OnCtx Γ (IsType env univs)) (hΓ' : OnCtx Γ' (IsType env univs))
+    (W : Ctx.LiftN n k Γ Γ') (hty : Γ' ⊢ e1.liftN n k : A)
+    (hek : EtaK Γ' (e1.liftN n k) w) (htail : ParRedK Γ' w w') :
+    ∃ e2, ParRedK Γ e1 e2 ∧ NormalEq Γ' w' (e2.liftN n k) := by
+  rcases etaK_keta_liftN_inv HK HP HT hek htail W hΓ hΓ' hty with ⟨w₀, e2, h1, h2, h3⟩ | hpe
+  · exact ⟨e2, .keta h1 h2, h3⟩
+  · exact ⟨e1, .rfl, hpe.normalEq⟩
+
+
+
+/-! ### The other half of the audit: the single-step conclusion, and the missing check
+
+§W4 records that `WeakNInvTail` "is non-vacuous already where `KStep` is empty, so the
+`refParams` consistency check every other statement in this corner carries is unavailable for
+it, and none is claimed".  The check *is* available -- it is just not vacuous -- and it
+passes, **for the multi-step conclusion only**:
+
+* `refParams_weakNInvTailS` **[machine-checked]** proves the `≫*` form wherever `EtaK` is
+  empty, out of `NormalEq.parRed` (site 7, already proved for `ParRed`), `ParRedS.weakN_inv`
+  and `NormalEq.symm`.
+* The **single-step** form as written in `WeakNInvTail` does not follow by that route and no
+  other was found: `NormalEq.parRed`'s own conclusion is `≫*`, and `ParRed.weakN_inv` turns a
+  reduction *sequence* into a reduction sequence.  So the one place where `WeakNInvTail` could
+  be tested against a real instance tests a statement one step weaker than it.
+
+Both consumers of the conclusion tolerate `≫*` (`ChurchRosser.lean:2098`, `:2107`, both
+`ReflTransGen.tail`, which becomes `.trans`), so nothing is lost by weakening -- but the
+weakening was not stated, and the check was reported as unavailable rather than as untried. -/
+
+theorem ParRedS.toK {Γ : List VExpr} {e e' : VExpr} (H : ParRedS Γ e e') : ParRedKS Γ e e' := by
+  induction H with
+  | rfl => exact .rfl
+  | tail _ h ih => exact ih.tail h.toK
+
+/-- `ParRed.weakN_inv` iterated along a reduction sequence.  Not in `ChurchRosser.lean`; the
+multi-step form is what `NormalEq.parRed`'s conclusion actually hands you. -/
+theorem ParRedS.weakN_inv {n k : Nat} {Γ Γ' : List VExpr} {e1 e2' A : VExpr}
+    (hΓ' : OnCtx Γ' (IsType env univs))
+    (W : Ctx.LiftN n k Γ Γ') (h : Γ' ⊢ e1.liftN n k : A)
+    (H : ParRedS Γ' (e1.liftN n k) e2') : ∃ e2, ParRedS Γ e1 e2 ∧ e2' = e2.liftN n k := by
+  induction H with
+  | rfl => exact ⟨e1, .rfl, rfl⟩
+  | @tail b c _ hstep ih =>
+    obtain ⟨e2, h1, rfl⟩ := ih
+    obtain ⟨e3, h2, rfl⟩ :=
+      ParRed.weakN_inv hΓ' W (ParRedS.hasType hΓ' (h1.weakN W) h) hstep
+    exact ⟨e3, h1.tail h2, rfl⟩
+
+/-- `WeakNInvTail` with the conclusion at `≫*`.  This is the form the only available route
+produces, and the form both consumers of `ParRed.weakN_inv` tolerate. -/
+def WeakNInvTailS : Prop :=
+  ∀ {n k : Nat} {Γ Γ' : List VExpr} {u u' v : VExpr},
+    OnCtx Γ' (IsType env univs) → Ctx.LiftN n k Γ Γ' →
+    ParRedK Γ' u u' → NormalEq Γ' u (v.liftN n k) →
+    ∃ v', ParRedKS Γ v v' ∧ NormalEq Γ' u' (v'.liftN n k)
+
+/-- **The consistency check §W4 reported as unavailable, run.**  Where `EtaK` is empty the
+multi-step tail is a theorem: `NormalEq.parRed` moves the development across the `≡ₚ`, and
+`ParRedS.weakN_inv` descends the resulting sequence.  Note the shape of the proof -- it is
+exactly the circle §W4 describes (site 7 then site 1), which is why it says nothing about the
+K case; what it *does* say is that the statement is not false, and that the single-step form
+it was written with is not what this route delivers. -/
+theorem weakNInvTailS_of_no_etaK (hno : ∀ {Δ a b}, ¬ EtaK Δ a b) : WeakNInvTailS := by
+  intro n k Γ Γ' u u' v hΓ' W hpr hne
+  have ⟨_, hd⟩ := hne.defeq hΓ'
+  obtain ⟨x, hx, hxu⟩ := (hne.symm hΓ').parRed hΓ' (ParRedK.toParRed hno hpr)
+  obtain ⟨v', hv', rfl⟩ := ParRedS.weakN_inv hΓ' W hd.hasType.2 hx
+  exact ⟨v', hv'.toK, hxu.symm hΓ'⟩
+
+theorem refParams_weakNInvTailS : @WeakNInvTailS refParams :=
+  @weakNInvTailS_of_no_etaK refParams (fun h => refParams_no_etaK h)
+
+/-- The multi-step tail collapses in exactly the same way as the single-step one: at
+`NormalEq.refl` it is site 1 with a `≫*` conclusion.  Recorded so the collapse is not
+mistaken for an artefact of the single-step conclusion. -/
+theorem weakNInvStatementS_of_tailS (HT : WeakNInvTailS)
+    {n k : Nat} {Γ Γ' : List VExpr} {e1 e2' A : VExpr}
+    (hΓ' : OnCtx Γ' (IsType env univs)) (W : Ctx.LiftN n k Γ Γ')
+    (hty : Γ' ⊢ e1.liftN n k : A) (H : ParRedK Γ' (e1.liftN n k) e2') :
+    ∃ e2, ParRedKS Γ e1 e2 ∧ NormalEq Γ' e2' (e2.liftN n k) :=
+  HT hΓ' W H (.refl hty)
+
+
+
+/-! ### Site 1, assembled
+
+With the `keta` case discharged by `keta_weakN_invK`, the other eight cases of `ParRedK` are
+`ParRed.weakN_inv`'s own, re-proved at the `≡ₚ` conclusion.  Only three of them cost anything
+beyond bookkeeping, and none of them is `NormalEq.parRed`-shaped:
+
+* `lam`/`forallE`: the two domains are no longer equal, only `≡ₚ`, so the reconstruction goes
+  through `NormalEq.lamDF`/`forallEDF` at the *middle* domain `A.liftN n k` -- exactly the
+  slack `kdom_normalEq_lam` identified.
+* `beta`: the substitution has to be congruent on both arguments, which is
+  `NormalEq.instN` composed with `NormalEq.instN_r`.
+* `extra`: the match still descends on the nose (`Pattern.matches_liftN`), so the rule's
+  `Check` obligations descend by `IsDefEqU.weakN_iff` as before; only the *contractum* is
+  `≡ₚ` rather than equal, and `NormalEq.apply_pat` closes it. -/
+
+/-- **Site 1, closed, from `KStepLiftInvP`, `PiTypeDescend` and `KStepTail`.**
+
+This is `ParRed.weakN_inv` for the enlarged relation, at the `≡ₚ` conclusion that
+`not_weakNInvStatement_of_etaK` forces.  Of the three hypotheses, `KStepTail` is guarded by two
+`KStep`s and `KStepLiftInvP` by one, so both are vacuous wherever `KStep` is empty
+(`refParams_kStepTail`, `refParams_kStepLiftInvP`); `PiTypeDescend` is a typing descent, not a
+K statement, and is `Strengthen.lean`'s neighbourhood.
+
+**No hypothesis of this theorem is `NormalEq.parRed`-shaped**, which corrects
+`docs/handoff-krule.md` §W0.5: sites 1 and 7 are *not* one problem. -/
+theorem parRedK_weakN_invP (HK : KStepLiftInvP) (HP : PiTypeDescend) (HT : KStepTail)
+    {n : Nat} :
+    ∀ {Γ' : List VExpr} {e1' e2' : VExpr}, ParRedK Γ' e1' e2' →
+      ∀ {k : Nat} {Γ : List VExpr} {e1 A : VExpr},
+        OnCtx Γ' (IsType env univs) → Ctx.LiftN n k Γ Γ' →
+        Γ' ⊢ e1.liftN n k : A → e1.liftN n k = e1' →
+        ∃ e2, ParRedK Γ e1 e2 ∧ NormalEq Γ' e2' (e2.liftN n k) := by
+  intro Γ'₀ e1' e2' H
+  induction H with
+  | bvar => intro k Γ e1 A hΓ' W h eq; cases e1 <;> cases eq; exact ⟨_, .bvar, .refl h⟩
+  | sort => intro k Γ e1 A hΓ' W h eq; cases e1 <;> cases eq; exact ⟨_, .sort, .refl h⟩
+  | const => intro k Γ e1 A hΓ' W h eq; cases e1 <;> cases eq; exact ⟨_, .const, .refl h⟩
+  | @app Γ' f f' a a' hp1 hp2 ih1 ih2 =>
+    intro k Γ e1 A hΓ' W h eq
+    cases e1 <;> cases eq
+    have ⟨_, _, hf, ha⟩ := h.app_inv henv hΓ'
+    obtain ⟨g', hg, hgn⟩ := ih1 hΓ' W hf rfl
+    obtain ⟨b', hb, hbn⟩ := ih2 hΓ' W ha rfl
+    refine ⟨.app g' b', .app hg hb, ?_⟩
+    simpa [VExpr.liftN] using NormalEq.appDF (hp1.hasType hΓ' hf)
+      ((hg.weakN W).hasType hΓ' hf) (hp2.hasType hΓ' ha)
+      ((hb.weakN W).hasType hΓ' ha) hgn hbn
+  | @lam Γ' A₁ A₁' body body' hp1 hp2 ih1 ih2 =>
+    intro k Γ e1 A hΓ' W h eq
+    cases e1 <;> cases eq
+    have ⟨⟨_, hD⟩, _, hb⟩ := h.lam_inv henv hΓ'
+    obtain ⟨D', hD1, hDn⟩ := ih1 hΓ' W hD rfl
+    obtain ⟨t', ht1, htn⟩ := ih2 ⟨hΓ', _, hD⟩ W.succ hb rfl
+    refine ⟨.lam D' t', .lam hD1 ht1, ?_⟩
+    simpa [VExpr.liftN] using
+      NormalEq.lamDF (hp1.defeq hΓ' hD) ((hD1.weakN W).defeq hΓ' hD) htn
+  | @forallE Γ' A₁ A₁' B₁ B₁' hp1 hp2 ih1 ih2 =>
+    intro k Γ e1 A hΓ' W h eq
+    cases e1 <;> cases eq
+    have ⟨⟨_, hD⟩, _, hB⟩ := h.forallE_inv henv
+    obtain ⟨D', hD1, hDn⟩ := ih1 hΓ' W hD rfl
+    obtain ⟨t', ht1, htn⟩ := ih2 ⟨hΓ', _, hD⟩ W.succ hB rfl
+    refine ⟨.forallE D' t', .forallE hD1 ht1, ?_⟩
+    simpa [VExpr.liftN] using
+      NormalEq.forallEDF (hp1.defeq hΓ' hD) hDn
+        (hp2.hasType (by exact ⟨hΓ', _, hD⟩) hB) htn
+  | @beta Γ' A₁ e₁ e₁' e₂ e₂' hp1 hp2 ih1 ih2 =>
+    intro k Γ e1 A hΓ' W h eq
+    cases e1 <;> injection eq
+    rename_i f a eq eq2; cases eq2
+    cases f <;> cases eq
+    have ⟨_, _, hf, ha⟩ := h.app_inv henv hΓ'
+    have ⟨⟨_, hD⟩, _, hb⟩ := hf.lam_inv henv hΓ'
+    have ⟨⟨_, u1⟩, _⟩ := IsDefEqU.forallE_inv henv hΓ' (hf.uniqU henv hΓ' (hD.lam hb))
+    replace ha := ha.defeqU_r henv hΓ' ⟨_, u1⟩
+    obtain ⟨t', ht1, htn⟩ := ih1 (by exact ⟨hΓ', _, hD⟩) W.succ hb rfl
+    obtain ⟨b', hb1, hbn⟩ := ih2 hΓ' W ha rfl
+    refine ⟨t'.inst b', .beta ht1 hb1, ?_⟩
+    rw [liftN_inst_hi]
+    refine (NormalEq.instN (hp2.hasType hΓ' ha) .zero htn).trans hΓ' ?_
+    exact NormalEq.instN_r (by exact ⟨hΓ', _, hD⟩) (hp2.hasType hΓ' ha) hbn .zero
+      ((ht1.weakN W.succ).hasType (by exact ⟨hΓ', _, hD⟩) hb)
+  | @extra Γ' p r e0 m1 m2 m2' hpat hm hck hstep ih =>
+    intro k Γ e1 A hΓ' W h eq
+    subst eq
+    obtain ⟨m3, hm3, hn⟩ := Pattern.matches_liftN.1 hm
+    have hmeq : m2 = fun x => (m3 x).liftN n k := funext hn
+    have key : ∀ a, ∃ z, ParRedK Γ (m3 a) z ∧ NormalEq Γ' (m2' a) (z.liftN n k) := by
+      intro a
+      have ⟨_, hT⟩ := hm.hasType hΓ' h a
+      exact ih a hΓ' W (by rw [← hn a]; exact hT) (hn a).symm
+    have hck₀ : Pattern.Check.OK (IsDefEqU env univs Γ) m1 m3 r.2 := by
+      refine hck.map fun _ _ hab => ?_
+      rw [hmeq, ← Pattern.RHS.liftN_apply, ← Pattern.RHS.liftN_apply] at hab
+      exact (IsDefEqU.weakN_iff henv hΓ' W).1 hab
+    have hne : ∀ a, NormalEq Γ' (m2' a) (((key a).choose).liftN n k) :=
+      fun a => (key a).choose_spec.2
+    refine ⟨_, .extra hpat hm3 hck₀ (fun a => (key a).choose_spec.1), ?_⟩
+    rw [Pattern.RHS.liftN_apply]
+    exact NormalEq.apply_pat hΓ' (fun x _ _ => hne x)
+      ((ParRedK.extra hpat hm hck hstep).hasType hΓ' h)
+  | @keta Γ' e w w' hek htail _ =>
+    intro k Γ e1 A hΓ' W h eq
+    subst eq
+    exact keta_weakN_invK HK HP HT (hΓ'.weakN_inv henv W) hΓ' W h hek htail
+
+
+
+/-! ### The same, with the honest conclusion: `≫*`
+
+The audit above found `WeakNInvTail`'s **single-step** conclusion unsupported: the only route
+to it (`NormalEq.parRed` then `ParRed.weakN_inv`) delivers `≫*`, and `ParRedExt.parRed_beta`
+shows the extra steps are real (`ChurchRosser.lean:1197`, `.tail (ParRedS.app ..) (.beta ..)`).
+That criticism applies verbatim to `KStepTail`: its `u` is only `≡ₚ` to a lift, so a
+development of `u` may need two downstairs steps to catch up.
+
+`ParRedK.weakN_inv` itself has no such problem -- its hypothesis is a lift *on the nose* -- so
+the single-step assembly above is a genuine theorem and is the sharper one.  What is repeated
+here is the assembly at the weaker hypothesis `KStepTailS`, which is the obligation a future
+round should actually try to discharge.  Both consumers of `weakN_inv` tolerate `≫*`
+(`ChurchRosser.lean:2098`, `:2107`: `ReflTransGen.tail` becomes `.trans`). -/
+
+variable! (hΓ : OnCtx Γ (IsType env univs)) in
+theorem ParRedKS.hasType {e e' A : VExpr} (H : ParRedKS Γ e e') : Γ ⊢ e : A → Γ ⊢ e' : A := by
+  induction H with
+  | rfl => exact id
+  | tail _ h2 ih => exact h2.hasType hΓ ∘ ih
+
+variable! (hΓ : OnCtx Γ (IsType env univs)) in
+theorem ParRedKS.defeq {e e' A : VExpr} (H : ParRedKS Γ e e') (h : Γ ⊢ e : A) :
+    IsDefEq env univs Γ e e' A := by
+  induction H with
+  | rfl => exact h
+  | tail h1 h2 ih => exact ih.trans (h2.defeq hΓ (ParRedKS.hasType hΓ h1 h))
+
+theorem ParRedKS.weakN {Γ Γ' : List VExpr} {e e' : VExpr} {n k : Nat}
+    (W : Ctx.LiftN n k Γ Γ') (H : ParRedKS Γ e e') :
+    ParRedKS Γ' (e.liftN n k) (e'.liftN n k) := by
+  induction H with
+  | rfl => exact .rfl
+  | tail _ h ih => exact ih.tail (h.weakN W)
+
+theorem ParRedKS.app {Γ : List VExpr} {f f' a a' : VExpr}
+    (hf : ParRedKS Γ f f') (ha : ParRedKS Γ a a') : ParRedKS Γ (.app f a) (.app f' a') := by
+  refine ReflTransGen.trans (?_ : ParRedKS Γ (.app f a) (.app f a')) ?_
+  · induction ha with
+    | rfl => exact .rfl
+    | tail _ a2 iha => exact iha.tail (.app ParRedK.rfl a2)
+  · induction hf with
+    | rfl => exact .rfl
+    | tail _ f2 ihf => exact ihf.tail (.app f2 ParRedK.rfl)
+
+theorem ParRedKS.lam {Γ : List VExpr} {A A' body body' : VExpr}
+    (hf : ParRedKS Γ A A') (ha : ParRedKS (A::Γ) body body') :
+    ParRedKS Γ (.lam A body) (.lam A' body') := by
+  refine ReflTransGen.trans (?_ : ParRedKS Γ (.lam A body) (.lam A body')) ?_
+  · induction ha with
+    | rfl => exact .rfl
+    | tail _ a2 iha => exact iha.tail (.lam ParRedK.rfl a2)
+  · induction hf with
+    | rfl => exact .rfl
+    | tail _ f2 ihf => exact ihf.tail (.lam f2 ParRedK.rfl)
+
+theorem ParRedKS.forallE {Γ : List VExpr} {A A' B B' : VExpr}
+    (hf : ParRedKS Γ A A') (ha : ParRedKS (A::Γ) B B') :
+    ParRedKS Γ (.forallE A B) (.forallE A' B') := by
+  refine ReflTransGen.trans (?_ : ParRedKS Γ (.forallE A B) (.forallE A B')) ?_
+  · induction ha with
+    | rfl => exact .rfl
+    | tail _ a2 iha => exact iha.tail (.forallE ParRedK.rfl a2)
+  · induction hf with
+    | rfl => exact .rfl
+    | tail _ f2 ihf => exact ihf.tail (.forallE f2 ParRedK.rfl)
+
+/-- A rule's right-hand side is a congruence for `≫*`: the spine is `fixed`/`app`/`var`, and
+only the `var` leaves move. -/
+theorem Pattern.RHS.apply_parRedKS {Γ : List VExpr} {p : Pattern}
+    {m1 : p.LPath → List VLevel} {m2 m2' : p.Path → VExpr}
+    (h : ∀ a, ParRedKS Γ (m2 a) (m2' a)) : ∀ r : p.RHS,
+      ParRedKS Γ (Pattern.RHS.apply m1 m2 r) (Pattern.RHS.apply m1 m2' r)
+  | .fixed _ _ _ => .rfl
+  | .app f a => ParRedKS.app (apply_parRedKS h f) (apply_parRedKS h a)
+  | .var path => h path
+
+/-- `KStepTail` with the conclusion at `≫*`. -/
+def KStepTailS : Prop :=
+  ∀ {n k : Nat} {Γ Γ' : List VExpr} {e1 u u' v : VExpr},
+    OnCtx Γ (IsType env univs) → OnCtx Γ' (IsType env univs) → Ctx.LiftN n k Γ Γ' →
+    KStep Γ' (e1.liftN n k) u → KStep Γ e1 v →
+    NormalEq Γ' u (v.liftN n k) → ParRedK Γ' u u' →
+    ∃ v', ParRedKS Γ v v' ∧ NormalEq Γ' u' (v'.liftN n k)
+
+theorem KStepTail.toS (H : KStepTail) : KStepTailS :=
+  fun hΓ hΓ' W h1 h2 h3 h4 => let ⟨v', hv, hn⟩ := H hΓ hΓ' W h1 h2 h3 h4
+    ⟨v', .tail .rfl hv, hn⟩
+
+theorem kStepTailS_of_no_kstep (hno : ∀ {Δ a b}, ¬ KStep Δ a b) : KStepTailS :=
+  fun _ _ _ h => absurd h hno
+
+theorem refParams_kStepTailS : @KStepTailS refParams :=
+  @kStepTailS_of_no_kstep refParams (fun h => refParams_no_kstep h)
+
+/-- `KetaLiftInvS` with the development at `≫*`. -/
+def KetaLiftInvSS (Γ Γ' : List VExpr) (n k : Nat) (e1 w' : VExpr) : Prop :=
+  (∃ w₀ e2, EtaK Γ e1 w₀ ∧ ParRedKS Γ w₀ e2 ∧ NormalEq Γ' w' (e2.liftN n k)) ∨
+  ProofEq Γ' w' (e1.liftN n k)
+
+theorem etaKn_keta_liftN_invS (HK : KStepLiftInvP) (HP : PiTypeDescend) (HT : KStepTailS)
+    {n : Nat} :
+    ∀ {m k : Nat} {Γ Γ' : List VExpr} {e1 w w' A : VExpr},
+      EtaKn m Γ' (e1.liftN n k) w → ParRedK Γ' w w' → Ctx.LiftN n k Γ Γ' →
+      OnCtx Γ (IsType env univs) → OnCtx Γ' (IsType env univs) →
+      Γ' ⊢ e1.liftN n k : A → KetaLiftInvSS Γ Γ' n k e1 w' := by
+  intro m
+  induction m with
+  | zero =>
+    intro k Γ Γ' e1 w w' A H hpr W hΓ hΓ' hX
+    cases H with | here hst => ?_
+    rcases HK hΓ hΓ' W hX hst with ⟨w₀, hks, hne⟩ | hpe
+    · obtain ⟨v', hv, hne'⟩ := HT hΓ hΓ' W hst hks hne hpr
+      exact .inl ⟨w₀, v', .here hks, hv, hne'⟩
+    · exact .inr (hpe.parRedK_l hΓ' hpr)
+  | succ m ih =>
+    intro k Γ Γ' e1 w w' A H hpr W hΓ hΓ' hX
+    cases H with
+    | @under _ _ A₁ B₁ t _ hty hin => ?_
+    obtain ⟨A₁', t', rfl, hAr, htr⟩ := hpr.lam_inv
+    obtain ⟨A₀, B₀, hf₀⟩ := HP hΓ hΓ' W hty
+    have ⟨⟨u₀, hA₀⟩, v₀, hB₀⟩ := (have ⟨_, h⟩ := hf₀.isType henv hΓ; h.forallE_inv henv)
+    have hf₀' : Γ' ⊢ e1.liftN n k : .forallE (A₀.liftN n k) (B₀.liftN n (k+1)) :=
+      hf₀.weakN henv W
+    obtain ⟨⟨u, hAA⟩, -⟩ := IsDefEqU.forallE_inv henv hΓ' (hty.uniqU henv hΓ' hf₀')
+    have ⟨⟨_, hA₁⟩, _, hB₁⟩ := (have ⟨_, h⟩ := hty.isType henv hΓ'; h.forallE_inv henv)
+    have hΓA : OnCtx (A₀::Γ) (IsType env univs) := ⟨hΓ, _, hA₀⟩
+    have hΓA₁ : OnCtx (A₁::Γ') (IsType env univs) := ⟨hΓ', _, hA₁⟩
+    have hΓA' : OnCtx (A₀.liftN n k :: Γ') (IsType env univs) := ⟨hΓ', _, hAA.hasType.2⟩
+    have heq : (VExpr.app e1.lift (.bvar 0)).liftN n (k+1)
+        = VExpr.app ((e1.liftN n k).lift) (.bvar 0) := by
+      simp [VExpr.liftN, Lean4Lean.liftVar, ← VExpr.lift_liftN']
+    have hb1 : (A₁::Γ') ⊢ VExpr.app ((e1.liftN n k).lift) (.bvar 0) : B₁ := by
+      simpa [instN_bvar0] using HasType.app (hty.weak (B := A₁) henv) (.bvar .zero)
+    have htty : (A₁::Γ') ⊢ t : B₁ :=
+      ((hin.toEtaK.defeqU hΓA₁).of_l henv hΓA₁ hb1).hasType.2
+    have hbty : (A₀.liftN n k :: Γ') ⊢ (VExpr.app e1.lift (.bvar 0)).liftN n (k+1)
+        : B₀.liftN n (k+1) := by
+      rw [heq]
+      have := HasType.app (hf₀'.weak (B := A₀.liftN n k) henv) (.bvar .zero)
+      simpa [VExpr.liftN, instN_bvar0] using this
+    have hin' : EtaKn m (A₀.liftN n k :: Γ')
+        ((VExpr.app e1.lift (.bvar 0)).liftN n (k+1)) t := by
+      rw [heq]; exact hin.defeqDFC hΓ' (.succ .zero hAA)
+    have htr' : ParRedK (A₀.liftN n k :: Γ') t t' :=
+      htr.defeqDFC hΓ' (.succ .zero hAA) htty
+    have hAA1 := hAA.symm.trans (hAr.defeq hΓ' hAA.hasType.1)
+    rcases ih hin' htr' W.succ hΓA hΓA' hbty with ⟨z₀, z, hek₀, hz, hne⟩ | hpe
+    · refine .inl ⟨.lam A₀ z₀, .lam A₀ z, .under hf₀ hek₀, ParRedKS.lam .rfl hz, ?_⟩
+      simpa [VExpr.liftN] using
+        NormalEq.lamDF (A := A₀.liftN n k) hAA1 hAA.hasType.2 hne
+    · rw [heq] at hpe
+      exact .inr (ProofEq.forallE hΓ' hAA.hasType.2 hAA1 hf₀' hpe)
+
+theorem keta_weakN_invKS (HK : KStepLiftInvP) (HP : PiTypeDescend) (HT : KStepTailS)
+    {n k : Nat} {Γ Γ' : List VExpr} {e1 w w' A : VExpr}
+    (hΓ : OnCtx Γ (IsType env univs)) (hΓ' : OnCtx Γ' (IsType env univs))
+    (W : Ctx.LiftN n k Γ Γ') (hty : Γ' ⊢ e1.liftN n k : A)
+    (hek : EtaK Γ' (e1.liftN n k) w) (htail : ParRedK Γ' w w') :
+    ∃ e2, ParRedKS Γ e1 e2 ∧ NormalEq Γ' w' (e2.liftN n k) := by
+  have ⟨_, H⟩ := hek.count
+  rcases etaKn_keta_liftN_invS HK HP HT H htail W hΓ hΓ' hty with
+    ⟨w₀, e2, h1, h2, h3⟩ | hpe
+  · exact ⟨e2, ReflTransGen.trans (.tail .rfl (.keta h1 ParRedK.rfl)) h2, h3⟩
+  · exact ⟨e1, .rfl, hpe.normalEq⟩
+
+/-- **Site 1, closed at the `≫*` conclusion**, from `KStepLiftInvP`, `PiTypeDescend` and
+`KStepTailS`.  This is the version whose residual is not stronger than what any known route
+supplies; see the section header. -/
+theorem parRedK_weakN_invPS (HK : KStepLiftInvP) (HP : PiTypeDescend) (HT : KStepTailS)
+    {n : Nat} :
+    ∀ {Γ' : List VExpr} {e1' e2' : VExpr}, ParRedK Γ' e1' e2' →
+      ∀ {k : Nat} {Γ : List VExpr} {e1 A : VExpr},
+        OnCtx Γ' (IsType env univs) → Ctx.LiftN n k Γ Γ' →
+        Γ' ⊢ e1.liftN n k : A → e1.liftN n k = e1' →
+        ∃ e2, ParRedKS Γ e1 e2 ∧ NormalEq Γ' e2' (e2.liftN n k) := by
+  intro Γ'₀ e1' e2' H
+  induction H with
+  | bvar => intro k Γ e1 A hΓ' W h eq; cases e1 <;> cases eq; exact ⟨_, .rfl, .refl h⟩
+  | sort => intro k Γ e1 A hΓ' W h eq; cases e1 <;> cases eq; exact ⟨_, .rfl, .refl h⟩
+  | const => intro k Γ e1 A hΓ' W h eq; cases e1 <;> cases eq; exact ⟨_, .rfl, .refl h⟩
+  | @app Γ' f f' a a' hp1 hp2 ih1 ih2 =>
+    intro k Γ e1 A hΓ' W h eq
+    cases e1 <;> cases eq
+    have ⟨_, _, hf, ha⟩ := h.app_inv henv hΓ'
+    obtain ⟨g', hg, hgn⟩ := ih1 hΓ' W hf rfl
+    obtain ⟨b', hb, hbn⟩ := ih2 hΓ' W ha rfl
+    refine ⟨.app g' b', .app hg hb, ?_⟩
+    simpa [VExpr.liftN] using NormalEq.appDF (hp1.hasType hΓ' hf)
+      ((hg.weakN W).hasType hΓ' hf) (hp2.hasType hΓ' ha)
+      ((hb.weakN W).hasType hΓ' ha) hgn hbn
+  | @lam Γ' A₁ A₁' body body' hp1 hp2 ih1 ih2 =>
+    intro k Γ e1 A hΓ' W h eq
+    cases e1 <;> cases eq
+    have ⟨⟨_, hD⟩, _, hb⟩ := h.lam_inv henv hΓ'
+    obtain ⟨D', hD1, hDn⟩ := ih1 hΓ' W hD rfl
+    obtain ⟨t', ht1, htn⟩ := ih2 ⟨hΓ', _, hD⟩ W.succ hb rfl
+    refine ⟨.lam D' t', .lam hD1 ht1, ?_⟩
+    simpa [VExpr.liftN] using
+      NormalEq.lamDF (hp1.defeq hΓ' hD) ((hD1.weakN W).defeq hΓ' hD) htn
+  | @forallE Γ' A₁ A₁' B₁ B₁' hp1 hp2 ih1 ih2 =>
+    intro k Γ e1 A hΓ' W h eq
+    cases e1 <;> cases eq
+    have ⟨⟨_, hD⟩, _, hB⟩ := h.forallE_inv henv
+    obtain ⟨D', hD1, hDn⟩ := ih1 hΓ' W hD rfl
+    obtain ⟨t', ht1, htn⟩ := ih2 ⟨hΓ', _, hD⟩ W.succ hB rfl
+    refine ⟨.forallE D' t', .forallE hD1 ht1, ?_⟩
+    simpa [VExpr.liftN] using
+      NormalEq.forallEDF (hp1.defeq hΓ' hD) hDn
+        (hp2.hasType (by exact ⟨hΓ', _, hD⟩) hB) htn
+  | @beta Γ' A₁ e₁ e₁' e₂ e₂' hp1 hp2 ih1 ih2 =>
+    intro k Γ e1 A hΓ' W h eq
+    cases e1 <;> injection eq
+    rename_i f a eq eq2; cases eq2
+    cases f <;> cases eq
+    have ⟨_, _, hf, ha⟩ := h.app_inv henv hΓ'
+    have ⟨⟨_, hD⟩, _, hb⟩ := hf.lam_inv henv hΓ'
+    have ⟨⟨_, u1⟩, _⟩ := IsDefEqU.forallE_inv henv hΓ' (hf.uniqU henv hΓ' (hD.lam hb))
+    replace ha := ha.defeqU_r henv hΓ' ⟨_, u1⟩
+    obtain ⟨t', ht1, htn⟩ := ih1 (by exact ⟨hΓ', _, hD⟩) W.succ hb rfl
+    obtain ⟨b', hb1, hbn⟩ := ih2 hΓ' W ha rfl
+    refine ⟨t'.inst b', .tail (ParRedKS.app (ParRedKS.lam .rfl ht1) hb1)
+      (.beta ParRedK.rfl ParRedK.rfl), ?_⟩
+    rw [liftN_inst_hi]
+    refine (NormalEq.instN (hp2.hasType hΓ' ha) .zero htn).trans hΓ' ?_
+    exact NormalEq.instN_r (by exact ⟨hΓ', _, hD⟩) (hp2.hasType hΓ' ha) hbn .zero
+      ((ht1.weakN W.succ).hasType (by exact ⟨hΓ', _, hD⟩) hb)
+  | @extra Γ' p r e0 m1 m2 m2' hpat hm hck hstep ih =>
+    intro k Γ e1 A hΓ' W h eq
+    subst eq
+    obtain ⟨m3, hm3, hn⟩ := Pattern.matches_liftN.1 hm
+    have hmeq : m2 = fun x => (m3 x).liftN n k := funext hn
+    have key : ∀ a, ∃ z, ParRedKS Γ (m3 a) z ∧ NormalEq Γ' (m2' a) (z.liftN n k) := by
+      intro a
+      have ⟨_, hT⟩ := hm.hasType hΓ' h a
+      exact ih a hΓ' W (by rw [← hn a]; exact hT) (hn a).symm
+    have hck₀ : Pattern.Check.OK (IsDefEqU env univs Γ) m1 m3 r.2 := by
+      refine hck.map fun _ _ hab => ?_
+      rw [hmeq, ← Pattern.RHS.liftN_apply, ← Pattern.RHS.liftN_apply] at hab
+      exact (IsDefEqU.weakN_iff henv hΓ' W).1 hab
+    have hne : ∀ a, NormalEq Γ' (m2' a) (((key a).choose).liftN n k) :=
+      fun a => (key a).choose_spec.2
+    refine ⟨_, ReflTransGen.trans (.tail .rfl (.extra hpat hm3 hck₀ fun _ => ParRedK.rfl))
+      (Pattern.RHS.apply_parRedKS (fun a => (key a).choose_spec.1) r.1), ?_⟩
+    rw [Pattern.RHS.liftN_apply]
+    exact NormalEq.apply_pat hΓ' (fun x _ _ => hne x)
+      ((ParRedK.extra hpat hm hck hstep).hasType hΓ' h)
+  | @keta Γ' e w w' hek htail _ =>
+    intro k Γ e1 A hΓ' W h eq
+    subst eq
+    exact keta_weakN_invKS HK HP HT (hΓ'.weakN_inv henv W) hΓ' W h hek htail
+
+/-- Site 1's statement, `≫*` form, packaged. -/
+theorem weakNInvStatementPS_of (HK : KStepLiftInvP) (HP : PiTypeDescend) (HT : KStepTailS)
+    {n k : Nat} {Γ Γ' : List VExpr} {e1 e2' A : VExpr}
+    (hΓ' : OnCtx Γ' (IsType env univs)) (W : Ctx.LiftN n k Γ Γ')
+    (hty : Γ' ⊢ e1.liftN n k : A) (H : ParRedK Γ' (e1.liftN n k) e2') :
+    ∃ e2, ParRedKS Γ e1 e2 ∧ NormalEq Γ' e2' (e2.liftN n k) :=
+  parRedK_weakN_invPS HK HP HT H hΓ' W hty rfl
+
+/-- **Site 1 from the rule table, `≫*` form** -- the headline of round 8.  `KTable` is M3,
+`PiTypeDescend` is the typing descent, `KStepTailS` is the new K-only residual. -/
+theorem weakNInvStatementPS_of_kTable (KT : KTable) (HP : PiTypeDescend) (HT : KStepTailS)
+    {n k : Nat} {Γ Γ' : List VExpr} {e1 e2' A : VExpr}
+    (hΓ' : OnCtx Γ' (IsType env univs)) (W : Ctx.LiftN n k Γ Γ')
+    (hty : Γ' ⊢ e1.liftN n k : A) (H : ParRedK Γ' (e1.liftN n k) e2') :
+    ∃ e2, ParRedKS Γ e1 e2 ∧ NormalEq Γ' e2' (e2.liftN n k) :=
+  weakNInvStatementPS_of (kStepLiftInvP_of KT HP) HP HT hΓ' W hty H
+
+/-- Site 1's statement, single-step form, packaged. -/
+theorem weakNInvStatementP_of (HK : KStepLiftInvP) (HP : PiTypeDescend) (HT : KStepTail) :
+    WeakNInvStatementP :=
+  fun hΓ' W hty H => parRedK_weakN_invP HK HP HT H hΓ' W hty rfl
+
+/-- Site 1 from the rule table directly: `KTable` supplies `KStepLiftInvP`. -/
+theorem weakNInvStatementP_of_kTable (KT : KTable) (HP : PiTypeDescend) (HT : KStepTail) :
+    WeakNInvStatementP := weakNInvStatementP_of (kStepLiftInvP_of KT HP) HP HT
+
+/-- The `≡ₚ` form of site 1 holds where `EtaK` is empty -- the refutation
+(`not_weakNInvStatement_of_etaK`) kills the *equality* form only, and this is the check that
+the weakening is consistent rather than merely unrefuted. -/
+theorem weakNInvStatementP_of_no_etaK (hno : ∀ {Δ a b}, ¬ EtaK Δ a b) : WeakNInvStatementP := by
+  intro n k Γ Γ' e1 e2' A hΓ' W hty H
+  obtain ⟨e2, h1, rfl⟩ := weakNInvStatement_of_no_etaK hno hΓ' W hty H
+  exact ⟨e2, h1, .refl (H.hasType hΓ' hty)⟩
+
+theorem refParams_weakNInvStatementP : @WeakNInvStatementP refParams :=
+  @weakNInvStatementP_of_no_etaK refParams (fun h => refParams_no_etaK h)
+
+
+
+/-! ### Working rule 2: the repair, re-run at the refutation's own witness
+
+`KEta.not_weakNInvStatement_of_etaK` refutes site 1's **equality** conclusion from a single
+K-step, at the configuration `EtaK (C::Γ) e.lift (.lam (kdom C A₀) t)` -- a step whose λ-domain
+`kdom C A₀` mentions `.bvar 0` and is therefore the lift of nothing.  The theorem below runs
+the repaired statement at *that* configuration and produces a conclusion, so the witness is
+visibly killed rather than merely no longer derivable.
+
+Note where the descent lands on it: the `under` layer absorbs `kdom C A₀` by
+`NormalEq.lamDF` at the middle domain `A₀.lift` (which is `kdom_normalEq_lam`), and the
+recursion then asks `KStepLiftInvP` about `(VExpr.app e.lift (.bvar 0)).liftN 1 1`, which *is*
+a lift -- the K-step is inspected one binder in, where the free domain no longer appears. -/
+theorem weakNInvStatementP_at_kdom (HK : KStepLiftInvP) (HP : PiTypeDescend) (HT : KStepTail)
+    {Γ : List VExpr} {C e A₀ B₀ t : VExpr} {uC : VLevel}
+    (hΓ : OnCtx Γ (IsType env univs))
+    (hC : Γ ⊢ C : .sort uC) (he : Γ ⊢ e : .forallE A₀ B₀)
+    (hin : EtaK (A₀.lift :: C :: Γ) (.app (VExpr.lift (VExpr.lift e)) (.bvar 0)) t) :
+    ∃ e2, ParRedK Γ e e2 ∧
+      NormalEq (C::Γ) (.lam (kdom C A₀) t) (e2.liftN 1 0) := by
+  have hΓC : OnCtx (C::Γ) (IsType env univs) := ⟨hΓ, _, hC⟩
+  have ⟨⟨u, hA₀⟩, v, hB₀⟩ := (have ⟨_, h⟩ := he.isType henv hΓ; h.forallE_inv henv)
+  have hty : (C::Γ) ⊢ e.lift : .forallE A₀.lift (B₀.liftN 1 1) := he.weak henv
+  have hB : (A₀.lift :: C :: Γ) ⊢ B₀.liftN 1 1 : .sort v := hB₀.weakN henv (.succ .one)
+  have hek : EtaK (C::Γ) e.lift (.lam (kdom C A₀) t) :=
+    EtaK.under_dom hΓC hty hB (kdom_defeq hC hA₀).symm hin
+  exact keta_weakN_invK HK HP HT hΓ hΓC .one hty hek ParRedK.rfl
+
+
 end VEnv
 
 end Lean4Lean

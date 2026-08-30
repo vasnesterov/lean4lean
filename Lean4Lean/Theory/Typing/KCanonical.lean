@@ -327,6 +327,100 @@ theorem KTable.kstep_liftN_inv (KT : KTable) {Γ' : List VExpr} {f h e' : VExpr}
   exact s1.trans hΓ' (NormalEq.apply_pat hΓ' (fun x _ _ => hne x)
     (HasType.defeqU_l henv hΓ' (s1.defeq hΓ') hx))
 
+/-- **The lifting inversion, with `canon`'s proof escape kept open.**
+
+`kstep_liftN_inv_step` below collapses the escape branch to `NormalEq.proofIrrel` at once.
+That discards the one fact the η-tower's *tail* needs: "both sides inhabit one `Prop`" is
+stable under reduction of either side (subject reduction, then `proofIrrel` again), whereas a
+bare `≡ₚ` is not.  Keeping the escape open is what lets `KMeasure.etaKn_keta_liftN_inv` carry
+a `ParRedK` development down the tower without a `NormalEq.parRed`-shaped hypothesis, and it
+is why site 1's residual is a K-only statement rather than site 7 itself
+(`docs/handoff-krule.md` §X). -/
+theorem KTable.kstep_liftN_inv_stepP (KT : KTable) {Γ Γ' : List VExpr}
+    {f h e' A₁ B₁ : VExpr} {n k : Nat}
+    (hΓ : OnCtx Γ (IsType env univs)) (hΓ' : OnCtx Γ' (IsType env univs))
+    (W : Ctx.LiftN n k Γ Γ') (hf₀ : Γ ⊢ f : .forallE A₁ B₁)
+    (H : KStep Γ' (.app (f.liftN n k) (h.liftN n k)) e') :
+    (∃ w₀, KStep Γ (.app f h) w₀ ∧ Γ' ⊢ e' ≡ₚ w₀.liftN n k) ∨
+      (∃ P, Γ' ⊢ P : .sort .zero ∧ Γ' ⊢ e' : P ∧
+        Γ' ⊢ (VExpr.app f h).liftN n k : P) := by
+  cases H with
+  | @mk p₁ p₂ r _ _ c A₀ B₀ m1 m2 hpat hm hck hf hdq => ?_
+  have hfc : Γ' ⊢ .app (f.liftN n k) c : B₀.inst c := hf.app hdq.hasType.2
+  have hx : Γ' ⊢ Pattern.RHS.apply (p := Pattern.app p₁ p₂) m1 m2 r.1 : B₀.inst c :=
+    ((Params.pat_wf hpat hm hΓ' hfc hck).of_l henv hΓ' hfc).hasType.2
+  rcases KT.canon hΓ' hpat hm hck hdq hfc with hprop | ⟨n1, n2, hmk, hdqk, hlv, hne⟩
+  · exact .inr ⟨_, hprop, hx, by
+      simpa [VExpr.liftN] using
+        HasType.defeqU_l henv hΓ' ⟨_, (IsDefEq.appDF hf hdq).symm⟩ hfc⟩
+  refine .inl ?_
+  rw [KT.kmajor_liftN] at hmk hdqk
+  have hfk : Γ' ⊢ VExpr.app (f.liftN n k) ((KT.kmajor p₂ f h).liftN n k)
+      : B₀.inst ((KT.kmajor p₂ f h).liftN n k) := hf.app hdqk.hasType.2
+  have hmk' : (Pattern.app p₁ p₂).Matches
+      ((VExpr.app f (KT.kmajor p₂ f h)).liftN n k) n1 n2 := by
+    simpa [VExpr.liftN] using hmk
+  obtain ⟨n2₀, hm₀, hn2⟩ := Pattern.matches_liftN.1 hmk'
+  have hn2eq : (fun x => (n2₀ x).liftN n k) = n2 := funext fun x => (hn2 x).symm
+  -- the major premise, downstairs
+  have hf₀' : Γ' ⊢ f.liftN n k : .forallE (A₁.liftN n k) (B₁.liftN n (k+1)) :=
+    hf₀.weakN henv W
+  obtain ⟨⟨_, hAA⟩, -⟩ := IsDefEqU.forallE_inv henv hΓ' (hf.uniqU henv hΓ' hf₀')
+  have hh₀ : Γ ⊢ h : A₁ := (HasType.weakN_iff henv hΓ' W).1
+    (hdq.hasType.1.defeqU_r henv hΓ' ⟨_, hAA⟩)
+  have hdqD : Γ ⊢ h ≡ KT.kmajor p₂ f h : A₁ :=
+    ((IsDefEqU.weakN_iff henv hΓ' W).1 ⟨_, hdqk⟩).of_l henv hΓ hh₀
+  -- the rule's check obligations, transported and then strengthened
+  have hstep : ∀ a : (Pattern.app p₁ p₂).RHS, ∀ {T},
+      Γ' ⊢ Pattern.RHS.apply m1 m2 a : T →
+      Γ' ⊢ Pattern.RHS.apply m1 m2 a ≡ₚ Pattern.RHS.apply n1 n2 a := by
+    intro a T ha
+    have s1 := NormalEq.apply_instL hΓ' (hm.levelWF hΓ' hfc) (hmk.levelWF hΓ' hfk) hlv ha
+    exact s1.trans hΓ' (NormalEq.apply_pat hΓ' (fun x _ _ => hne x)
+      (HasType.defeqU_l henv hΓ' (s1.defeq hΓ') ha))
+  have hckN : r.2.OK (IsDefEqU env univs Γ') n1 n2 := by
+    refine hck.map_levels (fun x i y j hij => ?_) (fun a b hab => ?_)
+    · exact ((VLevel.forall₂_getD (hlv x) i).symm.trans hij).trans (VLevel.forall₂_getD (hlv y) j)
+    · obtain ⟨T, hT⟩ := hab
+      have ha := hstep a hT.hasType.1
+      have hb := hstep b hT.hasType.2
+      exact ((ha.defeq hΓ').symm.trans henv hΓ' ⟨_, hT⟩).trans henv hΓ' (hb.defeq hΓ')
+  have hck₀ : r.2.OK (IsDefEqU env univs Γ) n1 n2₀ := by
+    refine hckN.map (fun a b hab => (IsDefEqU.weakN_iff henv hΓ' W).1 ?_)
+    rw [Pattern.RHS.liftN_apply, Pattern.RHS.liftN_apply, hn2eq]
+    exact hab
+  refine ⟨_, .mk hpat hm₀ hck₀ hf₀ hdqD, ?_⟩
+  rw [Pattern.RHS.liftN_apply, hn2eq]
+  exact hstep r.1 hx
+
+/-- **The lifting inversion, with the downstairs step.**  `kstep_liftN_inv` above produces the
+`NormalEq` half only; this produces the *reduction* too, which is what
+`ParRed.weakN_inv`'s conclusion actually asks for.
+
+The extra content over `kstep_liftN_inv` is three descents, all of them along
+`IsDefEqU.weakN_iff` (`UniqueTyping.lean:172`, an existing hole of the tree):
+
+* the rule's `Check` obligations, transported from the firing match to the canonical one by
+  `NormalEq.apply_instL` + `NormalEq.apply_pat` (`Pattern.Check.OK.map_levels`) and then
+  strengthened (`Pattern.Check.OK.map`);
+* the major premise's conversion `h ≡ kmajor p₂ f h`;
+* the spine function's Π-typing, which is **not** derivable here and is therefore a
+  hypothesis (`hf₀`) -- `KEta.PiTypeDescend` is what supplies it, and
+  `Theory/Typing/Strengthen.lean`'s `PiDescend` is its nearest relative.
+
+The second disjunct is `canon`'s proof escape: there the redex is a proof, no downstairs step
+exists or is needed, and the contractum is `NormalEq` to the redex itself. -/
+theorem KTable.kstep_liftN_inv_step (KT : KTable) {Γ Γ' : List VExpr}
+    {f h e' A₁ B₁ : VExpr} {n k : Nat}
+    (hΓ : OnCtx Γ (IsType env univs)) (hΓ' : OnCtx Γ' (IsType env univs))
+    (W : Ctx.LiftN n k Γ Γ') (hf₀ : Γ ⊢ f : .forallE A₁ B₁)
+    (H : KStep Γ' (.app (f.liftN n k) (h.liftN n k)) e') :
+    (∃ w₀, KStep Γ (.app f h) w₀ ∧ Γ' ⊢ e' ≡ₚ w₀.liftN n k) ∨
+      Γ' ⊢ e' ≡ₚ (VExpr.app f h).liftN n k := by
+  rcases KT.kstep_liftN_inv_stepP hΓ hΓ' W hf₀ H with hl | ⟨_, hP, h1, h2⟩
+  · exact .inl hl
+  · exact .inr (.proofIrrel hP h1 h2)
+
 /-! ## A third obstruction, and it is a refutation
 
 `docs/handoff-krule.md` §R3's table lists `ChurchRosser.lean:2096` -- `NormalEq.parRed`'s
