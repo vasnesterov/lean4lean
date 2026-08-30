@@ -122,17 +122,25 @@ on the map.  The intended definition is now **`AddInductStagesR`**
 `AddInductStagesR.of_addInductStages`/`AddInductStages.toR` show this is a *generalisation*:
 at `K = []`, `R = decl.idRestore` and `decl.Canonical` the two coincide.
 
-**What the flip additionally needs, and this stream does not own.**
+**What the flip additionally needs.**
 `AddInduct.to_addInduct` then yields `∃ K R, env₁.addInductR decl K R = some env₂`, not
 `env₁.addInduct' decl = some env₂`, and `TrEnv'.wf`'s `induct` arm feeds it to
 `VDecl.WF.induct` (`Theory/Typing/Env.lean`), whose second hypothesis is the latter.  No
 `VInductDecl'` has `addInduct'` equal to a nested `addInductR`, so that rule must be
-generalised — to `VEnv.AddNestedB` (`Theory/Inductive/NestedBuild.lean`), which is the sound
+generalised — to `VEnv.AddNestedStep` (`Theory/Inductive/Restore.lean`), which is the sound
 form: bare `addInductR` with free `K`/`R` would let a step drop or rename constants at will.
-`AddNestedB` needs the declaration history `ds`, which `VDecl.WF` does not currently carry
-(`VEnv.WF'` does), so this is a design change in `Theory/Typing/Env.lean` — another stream's
-file.  It is the *only* remaining blocker on the abstract side; see
-`docs/handoff-inductive-add.md` §5.
+
+**CORRECTION (this round).**  This paragraph used to add that the generalisation "needs the
+declaration history `ds`, which `VDecl.WF` does not carry", and called that the *only*
+remaining blocker on the abstract side.  Both halves were wrong.  The history is gone — it was
+only ever "this block was declared earlier", now `VInductDecl'.Declared` over the environment
+alone — and `addInductR`/`Faithful` have moved upstream of `Theory/Typing/Env.lean`, so the
+rule is nameable there and its exact text sits in that file's docstring.  What remains is two
+*theorems*: `VEnv.addInductR_ordered` (the **restored** constructor/recursor types are well
+typed and the restored ι-rules well formed — `Theory/Inductive/NestedOrdered.lean` factors it
+into three obligations) and a repair of `Theory/Typing/DeltaUnique.lean`'s freshness argument,
+which is false for a nested block (`VEnv.iotaRulesR_major_not_fresh`).  Plus four one-line
+case additions in two files this stream does not own; see `docs/handoff-inductive-add.md` §5.
 
 Note what the emptiness costs, stated at the top: `VEnvs.WF env` is **unsatisfiable** for any
 `env` whose constant map holds an `.inductInfo` (`VEnvs.WF.no_inductInfo`,

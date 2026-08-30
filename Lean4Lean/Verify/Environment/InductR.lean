@@ -61,11 +61,25 @@ nested `addInductR` — the constant lists differ.  So flipping `AddInduct` to
 `AddInductStagesR` additionally requires that rule to be generalised, in a file this stream
 does **not** own.
 
-The generalisation must be `VEnv.AddNestedB` (`Theory/Inductive/NestedBuild.lean`), not bare
+The generalisation must be `VEnv.AddNestedStep` (`Theory/Inductive/Restore.lean`), not bare
 `addInductR`: with `K` and `R` free, a step could drop constants or rename them arbitrarily.
-`AddNestedB` pins them by requiring `D.Built R K ds env occ`, which quantifies over the
-declaration **history** `ds` — and `VDecl.WF` does not carry `ds` today (`VEnv.WF'` does).
-That is a design change in `Theory/Typing/Env.lean`; it is stated, not made, here.
+
+**CORRECTION (this round).**  This paragraph used to say the obstruction is that
+`VEnv.AddNestedB` "quantifies over the declaration history `ds`, and `VDecl.WF` does not carry
+`ds`".  That was the *stateability* obstruction and it is **gone**: `ds` was only ever used for
+"this block was declared earlier", which is now `VInductDecl'.Declared` over the environment
+alone (`Theory/Inductive/Decl.lean`), discharged from a history by `VEnv.WF'.declared`; and
+`VEnv.addInductR`/`VIndRestore.Faithful` moved upstream of `Theory/Typing/Env.lean` into
+`Theory/Inductive/Restore.lean`, so the rule is nameable there (machine-checked by the
+`example` in that file).
+
+What actually stands between here and the rule is two *theorems*, neither of which is about
+the constant map: `VEnv.addInductR_ordered` — `Ordered` for a nested step, i.e. the **restored**
+constructor and recursor types are well typed and the restored ι-rules well formed, factored
+into its three remaining obligations at `Theory/Inductive/NestedOrdered.lean` — and the
+`DeltaUnique` freshness transcription, which is *false* as it stands for a nested block
+(`VEnv.iotaRulesR_major_not_fresh`, `nfn_companion_key_not_fresh`).  See
+`docs/handoff-inductive-add.md` §5.
 
 Everything on *this* side of that line is proved below and fires at a nested witness.
 -/
