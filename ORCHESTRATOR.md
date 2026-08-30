@@ -118,3 +118,26 @@ comment you write with the marker line**
 `scripts/monitor-pr-comments.sh` drops comments carrying it. Without the marker the
 monitor echoes your own comments back at you, and a real reply from the human is
 buried among them — which is the one thing that monitor exists to prevent.
+
+## What gets an issue
+
+Issues in the user's fork are for findings that matter **outside this repo's own
+construction**. Exactly three kinds:
+
+1. **Soundness bugs** — a kernel accepts `False`, or accepts a declaration that lets
+   `False` be derived.
+2. **Inconsistent axioms** — an axiom in `Verify/Axioms.lean` that is false, or a set
+   of them that is jointly unsatisfiable.
+3. **Mistakes in papers** — a published result that is false as stated, with a
+   machine-checked counterexample and the scope stated in registers (our proxy / the
+   paper / Lean itself).
+
+**Not an issue: our own spec gaps.** A statement in `Theory/` or `Verify/` that turns
+out false, vacuous, under-hypothesised, or missing — however severe, however
+instructive, and *even when it yields an inconsistency in the abstract spec* — is
+ordinary work in progress. It belongs in the commit message and the handoff doc,
+which are already the durable record. Filing those inflates the issue tracker with
+this repo's construction history and buries the findings someone outside it needs.
+
+Ten such statements were filed as issues once, and removed. The commit messages and
+`docs/handoff-*.md` already carried every one of them.
