@@ -4,6 +4,8 @@ import Lean4Lean.Verify.Typing.ProjGenLiftWitness
 import Lean4Lean.Verify.Typing.ProjGenInstWitness
 import Lean4Lean.Verify.Typing.ProjGenMinorWitness
 import Lean4Lean.Verify.Typing.ProjGenMinorNarrow
+import Lean4Lean.Verify.Typing.ProjGenMotiveWitness
+import Lean4Lean.Verify.Typing.ProjGenSwapNarrow
 import Lean4Lean.Verify.Typing.Lemmas
 import Lean4Lean.Verify.Typing.Rigidity
 import Lean4Lean.Verify.Typing.ConstSpineWF
@@ -174,6 +176,40 @@ def seeds : List Name :=
    ``Lean4Lean.RecDep.field_hasType_moves,
    ``Lean4Lean.RecDep.field_hasType_fires_at_0,
    ``Lean4Lean.RecDep.field_hasType_fires_at_2,
+   -- ingredient (d): the motive half of the ι-law chain, swap-free
+   ``Lean4Lean.projMotiveTermG,
+   ``Lean4Lean.VIndType.projMotiveG_eq',
+   ``Lean4Lean.projMotiveTermG_eq_projMotiveTerm,
+   ``Lean4Lean.projMotiveG_liftN,
+   ``Lean4Lean.ProjHasTypeG,
+   ``Lean4Lean.projHasTypeG_eq,
+   ``Lean4Lean.ftype_hasTypeG,
+   ``Lean4Lean.motiveCtxG_wf,
+   ``Lean4Lean.RecDep.padMotive_at_recdep_0,
+   ``Lean4Lean.RecDep.projMotive_at_recdep,
+   ``Lean4Lean.RecDep.padMotives_at_recdep,
+   ``Lean4Lean.RecDep.ctorsAll_at_recdep,
+   ``Lean4Lean.RecDep.padMotives_j_moves,
+   ``Lean4Lean.RecDep.projCoreG_j_moves,
+   ``Lean4Lean.RecDep.projMotiveTermG_at_recdep,
+   ``Lean4Lean.RecDep.projMotiveTermG_j_moves,
+   ``Lean4Lean.RecDep.projMotiveTermG_j_invisible_at_0,
+   ``Lean4Lean.RecDep.motiveTypeG_at_recdep,
+   ``Lean4Lean.RecDep.motiveTypeG_j_moves,
+   ``Lean4Lean.Rich.projMotiveG_liftN_fires,
+   ``Lean4Lean.Rich.projMotiveG_liftN_moves,
+   -- ingredient (d): the swap half.  These are *expected* to carry the narrow chain's holes,
+   -- because `VEnv.HasType.swapCtx` runs on `weakN_iff`.
+   ``Lean4Lean.onCtxFields_instLG,
+   ``Lean4Lean.ftype_hasType_swappedG,
+   ``Lean4Lean.VIndCtor.swapDataG,
+   ``Lean4Lean.projArgsG_hasArgs_swapped,
+   ``Lean4Lean.projMotiveBodyG_hasType_swapped,
+   ``Lean4Lean.projMotiveBodyG_hasType_guarded,
+   ``Lean4Lean.projMotiveTermG_hasType_swapped,
+   ``Lean4Lean.VEnv.IsStructureG.projMotiveTermG_hasType_swapped,
+   ``Lean4Lean.projMotiveTermG_hasType_swapped_narrow,
+   ``Lean4Lean.projMotiveBodyG_hasType_guarded_narrow,
    -- the collapse test; this one is expected to carry the narrow theorem's holes
    ``Lean4Lean.realMinor_hasType_narrow]
 
@@ -185,6 +221,8 @@ def main : IO Unit := do
                             {module := `Lean4Lean.Verify.Typing.ProjGenInstWitness},
                             {module := `Lean4Lean.Verify.Typing.ProjGenMinorWitness},
                             {module := `Lean4Lean.Verify.Typing.ProjGenMinorNarrow},
+                            {module := `Lean4Lean.Verify.Typing.ProjGenMotiveWitness},
+                            {module := `Lean4Lean.Verify.Typing.ProjGenSwapNarrow},
                             {module := `Lean4Lean.Verify.Typing.Lemmas},
                             {module := `Lean4Lean.Verify.Typing.Rigidity},
                             {module := `Lean4Lean.Verify.Typing.ConstSpineWF},

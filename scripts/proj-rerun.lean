@@ -6,6 +6,8 @@ import Lean4Lean.Verify.Typing.ProjGenLiftWitness
 import Lean4Lean.Verify.Typing.ProjGenInstWitness
 import Lean4Lean.Verify.Typing.ProjGenMinorWitness
 import Lean4Lean.Verify.Typing.ProjGenMinorNarrow
+import Lean4Lean.Verify.Typing.ProjGenMotiveWitness
+import Lean4Lean.Verify.Typing.ProjGenSwapNarrow
 import Lean4Lean.Verify.Typing.Lemmas
 import Lean4Lean.Verify.TypeChecker.IsDefEq
 
@@ -184,3 +186,41 @@ open Lean4Lean
 #print axioms Lean4Lean.RecDep.field_hasType_fires_at_2
 -- …and the collapse test, which inherits the narrow theorem's `sorryAx` by design
 #print axioms Lean4Lean.realMinor_hasType_narrow
+
+-- this round: ingredient (d), the motive half of the ι-law chain.  Swap-free part first —
+-- every one of these must stay `sorryAx`-free.
+#print axioms Lean4Lean.projMotiveTermG
+#print axioms Lean4Lean.VIndType.projMotiveG_eq'
+#print axioms Lean4Lean.projMotiveTermG_eq_projMotiveTerm
+#print axioms Lean4Lean.projMotiveG_liftN
+#print axioms Lean4Lean.ProjHasTypeG
+#print axioms Lean4Lean.projHasTypeG_eq
+#print axioms Lean4Lean.ftype_hasTypeG
+#print axioms Lean4Lean.motiveCtxG_wf
+#print axioms Lean4Lean.RecDep.padMotive_at_recdep_0
+#print axioms Lean4Lean.RecDep.projMotive_at_recdep
+#print axioms Lean4Lean.RecDep.padMotives_at_recdep
+#print axioms Lean4Lean.RecDep.ctorsAll_at_recdep
+#print axioms Lean4Lean.RecDep.padMotives_j_moves
+#print axioms Lean4Lean.RecDep.projCoreG_j_moves
+#print axioms Lean4Lean.RecDep.projMotiveTermG_at_recdep
+#print axioms Lean4Lean.RecDep.projMotiveTermG_j_moves
+#print axioms Lean4Lean.RecDep.projMotiveTermG_j_invisible_at_0
+#print axioms Lean4Lean.RecDep.motiveTypeG_at_recdep
+#print axioms Lean4Lean.RecDep.motiveTypeG_j_moves
+#print axioms Lean4Lean.Rich.projMotiveG_liftN_fires
+#print axioms Lean4Lean.Rich.projMotiveG_liftN_moves
+
+-- …and the swap half, which routes through `VEnv.HasType.swapCtx` and therefore inherits
+-- `weakN_iff` — the narrow chain's own hole, not a new one.  `projArgsG_hasArgs_swapped` and
+-- `projMotiveBodyG_hasType_swapped` take the swap data as premises and are clean.
+#print axioms Lean4Lean.onCtxFields_instLG
+#print axioms Lean4Lean.ftype_hasType_swappedG
+#print axioms Lean4Lean.VIndCtor.swapDataG
+#print axioms Lean4Lean.projArgsG_hasArgs_swapped
+#print axioms Lean4Lean.projMotiveBodyG_hasType_swapped
+#print axioms Lean4Lean.projMotiveBodyG_hasType_guarded
+#print axioms Lean4Lean.projMotiveTermG_hasType_swapped
+#print axioms Lean4Lean.VEnv.IsStructureG.projMotiveTermG_hasType_swapped
+#print axioms Lean4Lean.projMotiveTermG_hasType_swapped_narrow
+#print axioms Lean4Lean.projMotiveBodyG_hasType_guarded_narrow

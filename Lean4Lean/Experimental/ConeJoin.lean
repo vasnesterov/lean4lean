@@ -15,6 +15,8 @@ import Lean4Lean.Verify.Typing.ProjGenLiftWitness
 import Lean4Lean.Verify.Typing.ProjGenInstWitness
 import Lean4Lean.Verify.Typing.ProjGenMinorWitness
 import Lean4Lean.Verify.Typing.ProjGenMinorNarrow
+import Lean4Lean.Verify.Typing.ProjGenMotiveWitness
+import Lean4Lean.Verify.Typing.ProjGenSwapNarrow
 import Lean4Lean.Verify.Typing.ProjGenWitness
 import Lean4Lean.Verify.Typing.ProjWfWitness
 import Lean4Lean.Verify.Typing.ProjLevelWitness

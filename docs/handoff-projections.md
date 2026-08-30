@@ -20,16 +20,302 @@ Everything below is separated into **[checked]** (a named declaration in this tr
 axiom set or its measured cone reproduced) and **[read off source]** (an argument from reading
 definitions, not run).
 
-*Numbering.*  `§0*.x` is **this** round.  `§0.x` … `§0⁗.x` are the five previous rounds and
-are **deliberately not renumbered**: several Lean docstrings cite them by number
-(`ProjGen.lean`, `ProjGenBeta.lean`, `ProjGenLift.lean`, `ProjClosedG.lean`,
-`Structure.lean`), and shifting the prime chain would silently break every one of those.
-Sections 1–8 are older editions, and `§n` references *inside* them are to that edition's own
-numbering.
+*Numbering.*  `§0**.x` is **this** round; `§0*.x` was the previous one, and `§0.x` … `§0⁗.x`
+the six before that.  Nothing is **ever renumbered**: several Lean docstrings cite these by
+number (`ProjGen.lean`, `ProjGenBeta.lean`, `ProjGenLift.lean`, `ProjClosedG.lean`,
+`ProjGenMotive.lean`, `ProjGenSwap.lean`, `Structure.lean`), and shifting the prime chain
+would silently break every one of those.  A new round adds one star to the front of the
+chain and leaves everything below untouched.  Sections 1–8 are older editions, and `§n`
+references *inside* them are to that edition's own numbering.
+
+**The banner and preamble immediately above belong to `§0*` (the previous round).  This
+round's measurements are in `§0**.2`.**
 
 ---
 
-## 0*. This round: **ingredient (c) is done**, and it was not the strong induction
+## 0**. This round: **item 1's motive half is landed**, and four of its eleven entries were mis-counted
+
+### 0**.1 Headline
+
+`§0*.7` item 1 listed **eleven** lemmas of `projMinor_hasType`'s ι-law/swap/β chain, all
+stated at `VEnv.IsStructure`, that ingredient **(d)** — the residual premise `hiota` of
+`realMinor_hasType_gen'` — needs in an `IsStructureG` form.  **Seven of the eleven are now
+closed**, and the ledger for item 1 reads:
+
+| lemma (§0*.7 item 1's list) | status |
+|---|---|
+| `projMotiveBody_instAll` | **done** — `projMotiveBodyG_instAll`, `ProjGenBeta.lean`, §0.6 |
+| `VIndCtor.instAll_take_swap_eq` | **needed no generalisation** (§0**.3, correction 1) |
+| `projMotiveTerm_liftN` | **done** — `projMotiveG_liftN`, `ProjGenMotive.lean` |
+| `motiveCtx_wf` | **done** — `motiveCtxG_wf`, and it was **already in the tree** (§0**.3, correction 2) |
+| `VIndCtor.swapData` | **done** — `VIndCtor.swapDataG`, `ProjGenSwap.lean` |
+| `projMotiveBody_hasType_guarded` | **done** — `projMotiveBodyG_hasType_guarded`, `ProjGenSwap.lean` |
+| `projMotiveTerm_hasType_swapped` | **done** — `projMotiveTermG_hasType_swapped`, `ProjGenSwap.lean` |
+| `minorType_instL_instAll` | **needed no new work** (§0**.3, correction 3) |
+| `minor_declType_isType` | **not a lemma of this chain** — it is `hdecl`, a premise both `padMinor_hasType_gen` and `realMinor_hasType_gen` already carry (§0**.3, correction 4) |
+| `iota_law` | **open** — the substantive remainder |
+| `projMinor_app` | **open**, and it is `realMinor_app`, not a re-statement |
+
+Plus the predicate the strong induction runs on: **`ProjHasTypeG`** is defined, and
+`projHasTypeG_eq` proves it is `ProjHasType` **on the nose** at a narrow block.
+
+So `hiota` is down to **two open lemmas and the assembly**: the ι rule at an arbitrary
+constructor of an arbitrary block, the *real* minor applied to its fields-and-ih spine, and
+then `projMinor_hasType`'s lines 1124–1306 re-run at `IsStructureG`.  Nothing in the chain
+still needs `nm = 1`, `nmin = 1` or `noRec` **except** those two.
+
+### 0**.2 Measurements  **[checked]**
+
+**Census: 19 → 19** (`lake env lean scripts/sorry-census.lean`, start and end of round).  The
+two outputs are **byte-identical** — `diff` reports no difference at all, so not one
+transitive-user count moved either: `NormalEq.descend` 42, `IsDefEqU.forallE_inv` 145,
+`forallE_inv_stratified` 389, `weakN_iff` 124, `TrProj.uniq` 83, `TrProj.weak'_inv` 28, at
+both ends.  (These are **not** comparable with `§0*`'s numbers; the closure widened between
+rounds.  What is comparable is start-vs-end *within* this round, and it is exact.)
+`scripts/dup-names.lean`: no duplicates across the joined cone, at both ends.  All three
+`Verify/Guard.lean` checks pass, unchanged: guard 1 ✓ (25 frozen axioms), guard 2 ✓ *"proof
+INCOMPLETE: sorryAx present"* (as it must), guard 3 ✓ (54/54).
+
+Four new files, all owned.
+
+| file | content | measured hole cone |
+|---|---|---|
+| `Lean4Lean/Verify/Typing/ProjGenMotive.lean` | `projMotiveTermG`, `VIndType.projMotiveG_eq'`, `projMotiveTermG_eq_projMotiveTerm`, `projMotiveG_liftN`, **`ProjHasTypeG`**, `projHasTypeG_eq`, `ftype_hasTypeG`, `motiveCtxG_wf` | **empty** |
+| `Lean4Lean/Verify/Typing/ProjGenSwap.lean` | `onCtxFields_instLG`, `ftype_hasType_swappedG`, `VIndCtor.swapDataG`, `projArgsG_hasArgs_swapped`, `projMotiveBodyG_hasType_swapped`, **`projMotiveBodyG_hasType_guarded`**, **`projMotiveTermG_hasType_swapped`**, `VEnv.IsStructureG.projMotiveTermG_hasType_swapped` | `{weakN_iff, forallE_inv_stratified}` on five of the eight, **by design** |
+| `Lean4Lean/Verify/Typing/ProjGenSwapNarrow.lean` | the two collapse tests | same, by design |
+| `Lean4Lean/Verify/Typing/ProjGenMotiveWitness.lean` | 13 firings and controls | **empty** |
+
+`scripts/hole-cone.lean` re-run with every new name as a seed, and a **stronger sweep** over
+*every* declaration the four modules add (auto-generated included): **52 declarations, exactly
+7 with a non-empty cone** — `ftype_hasType_swappedG`, `VIndCtor.swapDataG`,
+`projMotiveBodyG_hasType_guarded`, `projMotiveTermG_hasType_swapped`, its `IsStructureG`
+packaging, and the two collapse tests, each exactly `{weakN_iff, forallE_inv_stratified}`.
+`ProjGenMotive.lean` and `ProjGenMotiveWitness.lean` are **100 % clean**.
+
+**Three premises were dropped, not carried.**  `projArgsG_hasArgs_swapped` was first written
+with the narrow lemma's `hI : D.IotaCtx env`, `hC : C ∈ T.ctors` and `h7`, and
+`projMotiveBodyG_hasType_swapped` with `hps`; once the motive's binder context is a premise
+(`hΔ`) none of the four is used, and the compiler's unused-binder linter is what said so.
+They are removed: an unused hypothesis is an over-hypothesised statement, and these two are
+the lemmas the assembly will call at several contexts.  `hTj` survives, because
+`ProjClosedG.indices` needs it.
+
+**Where the taint enters is measured, not assumed**: `projArgsG_hasArgs_swapped` and
+`projMotiveBodyG_hasType_swapped` have **empty** cones, because they take the swap data as
+premises.  The whole dependency is `VEnv.HasType.swapCtx` → `weakN_iff`, reached only through
+`ftype_hasType_swappedG`.  That is the *narrow* chain's own hole (`ProjSkip.lean`,
+`Verify/Typing/Lemmas.lean`), not a new one, and it is why `ProjGenSwap.lean` is a separate
+module from `ProjGenMotive.lean`.
+
+`scripts/proj-rerun.lean` re-run: the only names carrying `sorryAx` are the three that
+carried it before — `TrProj.wf`, `tryEtaStructCore.WF_of_structEta`,
+`isDefEqUnitLike.WF_of_structEta` — plus `realMinor_hasType_narrow` and this round's six, all
+by design.
+
+Edited outside the four new files: `scripts/hole-cone.lean`, `scripts/proj-rerun.lean` and
+`Lean4Lean/Experimental/ConeJoin.lean` (imports and this round's names — the brief's standing
+instruction, since otherwise both census instruments are blind to the new leaves).
+**Unedited**: `ProjGen.lean`, `ProjGenWitness.lean`, `ProjGenLift*`, `ProjGenInst*`,
+`ProjGenBeta.lean`, `ProjGenMinor*`, `ProjClosedG*`, `ProjSkip.lean`, `Lemmas.lean`,
+`StructureUniq.lean`, `Rigidity.lean`, `DefEqCtx.lean`, `Structure.lean`,
+`StructureClosed.lean`, `StructureEta.lean`, `StructureExamples.lean`.  `TrProj`,
+`TrProj.wf`, `projCore` and `IsStructure` are untouched for a **seventh** round, and
+`IsStructureG` stays separate from `IsStructure` for §0⁗.3 correction 4's polarity reason.
+
+No implementation file was touched, so the Kernel Arena is unaffected and was not re-run.
+
+### 0**.3 Four corrections to `§0*.7` item 1
+
+**Correction 1 — `VIndCtor.instAll_swap_eq` / `instAll_take_swap_eq` are already the general
+statements.**  They are written with `C.FieldUsed D 0`, which reads like a narrow-block
+specialisation, but `VIndCtor.fieldUsed_index_irrel` (`ProjGen.lean`, from an earlier round)
+proves `C.FieldUsed D j k ↔ C.FieldUsed D j' k`: **the block index is invisible to
+`FieldUsed`**, because `canonResult`'s `tyApp` head is the only place it occurs and
+`Skips'` cannot see it.  So they are used unchanged, and so is `VExpr.swapSpine_exists`.
+Listing them as needing `_gen` forms was wrong.  **[checked]** — `fieldUsed_index_irrel` is a
+proved theorem; `swapDataG` uses `not_fieldUsed_skips` at `j := 0` and nothing repairs it.
+
+**Correction 2 — `motiveCtx_wf`'s generalisation was already in the tree, and it is *not*
+free.**  `padMotiveCtx_wf` (`ProjGen.lean`, built in block A for the **padding** motive) is
+`motiveCtx_wf` at an arbitrary block member, and nobody had noticed it does this job — the
+same shape as `§0*.1`'s finding about `minorTele_gen`/`minorBodyArgs_gen`.  But it carries a
+premise the narrow lemma does not: at `j > 0` the **earlier motives** are part of the spine
+that instantiates `D.motiveType j`, so the context fact needs `hspine` over
+`params ++ (range j).map motiveType`.  `motiveCtxG_wf` packages that, and the five downstream
+lemmas take its **conclusion** (`hΔ`) as a premise rather than `hspine`, so that they are
+independent of how the motive block is built.  `projCoreG`'s block supplies it: its `take j`
+prefix is all *padding* motives (`padMotives_getElem_ne`), which `padMotive_hasType` types.
+**[read off source]** for the consumer; the premise itself is **[checked]**.
+
+**Correction 3 — `minorType_instL_instAll` needs no new work.**  Its generalisation is
+`minorType_eq_mkPi` + `minorTele_gen` + `minorBody_instAll_spine` + `minorBodyArgs_gen`, all
+four already in `ProjGen.lean` and all four already **used together**, in
+`realMinor_hasType_gen`'s `hsplit`/`rw` block (`ProjGenMinor.lean:99–113`).  **[checked]** —
+that theorem is proved and its cone is empty.
+
+**Correction 4 — `minor_declType_isType` is not a lemma of this chain.**  What the narrow
+proof uses it for is to produce `hminIT`, the declared minor type as an `IsType`; in the
+generalised world that is **`hdecl`**, an explicit premise of *both* `padMinor_hasType_gen`
+and `realMinor_hasType_gen`.  Discharging it is a block-B obligation shared by the whole
+minor block, not part of `hiota`.  Counting it inside item 1 made the remainder look one
+lemma bigger than it is.  **[read off source]**
+
+### 0**.4 The statements
+
+`projMotiveTermG D T C us ps i j` (`ProjGenMotive.lean`) is `projMotiveTerm` with `projArgs`
+replaced by `projArgsG … j` in the body's spine — the only place the block index can enter a
+motive.  `VIndType.projMotiveG_eq'` identifies it with `projCoreG`'s own motive, and
+`projMotiveTermG_eq_projMotiveTerm` says it **is** `projMotiveTerm` at a narrow block, by
+`rfl` modulo `projArgsG_eq_projArgs`.
+
+`ProjHasTypeG env U S D T C us j k` is `ProjHasType` with `projTerm` ↦ `projTermG … j`.  The
+block index is a **parameter, not existentially supplied** — `projTermG` reads it to pick the
+motive slot, and a version that quantified it would be satisfiable at the wrong slot.
+`projHasTypeG_eq` proves `ProjHasTypeG … 0 k = ProjHasType … k` (a propositional *equality*,
+not an implication) at a narrow block.
+
+`projMotiveTermG_hasType_swapped`'s conclusion is
+
+    env.HasType U Γ (projMotiveTermG D T C us ps i j)
+      (VExpr.instAll ((D.motiveType j).instL (D.projLvls C us i)) (ps ++ ms))
+
+with `hms : ms.length = j`.  That is the shape `projCoreG`'s motive block needs: motive `j`'s
+declared type, instantiated at the parameters **and the `j` earlier motives**.
+
+`VEnv.IsStructureG.projMotiveTermG_hasType_swapped` is the same statement with the shape
+hypotheses replaced by one `H : env.IsStructureG S D j T C` — written to check that the
+widened predicate really supplies everything the chain asks for.  It does: `types`, `ctors`
+and `name` are its own fields and `D.ProjClosedG` comes from `decl` via
+`IsStructureG.projClosedG`.  **No `nm = 1`, no `nmin = 1`, no `noRec` is used anywhere in
+this round's seven lemmas.**  `hΔ` and `hms` stay, because they are about the motive *block*
+the consumer builds, not about the declaration's shape.  **[checked]**
+
+### 0**.5 The collapse tests  **[checked]**
+
+`ProjGenSwapNarrow.lean` re-derives the two narrow theorems **verbatim** — same hypotheses,
+same conclusions — from the generalised ones at `j = 0`, `ms = []`:
+
+* `projMotiveTermG_hasType_swapped_narrow` ⟶ `projMotiveTerm_hasType_swapped`
+  (`ProjSkip.lean:1084`);
+* `projMotiveBodyG_hasType_guarded_narrow` ⟶ `projMotiveBody_hasType_guarded`
+  (`ProjSkip.lean:1209`).
+
+Both went through **on the first attempt**, with no reconciliation step: the only moves are
+`projMotiveTermG_eq_projMotiveTerm`, `projArgsG_eq_projArgs`, `projHasTypeG_eq`,
+`List.append_nil` and `motiveCtx_wf` for `hΔ`.  A generalisation that had drifted to a
+different motive slot, a different `earlier` spine, or a telescope one binder off would not
+have met the narrow theorem at all.
+
+### 0**.6 Non-vacuity  **[checked]**
+
+**The collapse test cannot see a `j`-passenger.**  A "generalisation" whose statements do not
+actually depend on `j` would pass §0**.5 and every arity check, and would then be a theorem
+about the *wrong motive slot*.  `ProjGenMotiveWitness.lean` is that check, at `RecDep`
+(`nm = 2`, projected type at index `j = 1`, three fields with the middle one dependent, a
+recursive last field, and the two members named `RA` and `RP` so a wrong slot is a visibly
+different term).
+
+* **The motive block moves**: `padMotives_j_moves` — slot 0 is the `RA` padding motive at
+  `j = 1` and the real `RP` motive at `j = 0`.
+* **…so the recursor application moves**: `projCoreG_j_moves`.
+* **…so the generalised motive moves**: `projMotiveTermG_j_moves`,
+  `projMotiveTermG declRP treal rpmk [] [] 1 1 ≠ … 1 0`, routed through the computed form
+  `projMotiveTermG_at_recdep` (a `rfl`).
+* **The conclusion's *type* moves too**, which is the half §0**.5 cannot see:
+  `motiveTypeG_at_recdep` computes `instAll ((declRP.motiveType 1).instL lvls) ([] ++ [m₀])`
+  to `∀ (RP …), Sort ℓ` and `instAll ((declRP.motiveType 0).instL lvls) ([] ++ [])` to
+  `∀ (RA …), Sort ℓ`, **through `motiveType_instL_instAll_gen`** — the lemma the typing proof
+  itself uses — and `motiveTypeG_j_moves` is the `≠`.
+* **The `liftN` commutation is fired where the lift reaches something**: `RecDep` has
+  `np = 0`, so `projMotiveG_liftN` is vacuous there.  `Rich` (one parameter, one index, a
+  *proved* `ProjClosedG`) is used instead: `projMotiveG_liftN_fires`, with
+  `projMotiveG_liftN_moves` recording that the spine genuinely changes.
+
+**Four negative controls, each re-run outside the tree with its error text recorded in the
+module docstring, none an arity error.**
+
+1. The `j = 0` reading of the block's type at motive slot 1 —
+   `declRP.types.getD 1 default = declRP.types.getD 0 default` is rejected (`rfl` type
+   mismatch; both sides are `VIndType`s of the same block).
+2. **Exactly saturated**: `motiveTypeG_at_recdep`'s first conjunct with `ms := []` instead of
+   `[m₀]` is rejected at `hms` — *"expected to have type `[].length = 1`"*.  So the `j`
+   earlier motives are load-bearing in the conclusion's type.
+3. The narrow collapse is unavailable at this block — `projMotiveTermG_eq_projMotiveTerm` at
+   `declRP` is rejected at `hrec` (*"expected to have type `rpmk.recFields = []`"*; `htypes`
+   is false too, the elaborator just reaches `hrec` first).
+4. **The field index is exactly saturated**: `3 < rpmk.fields.length` is *proved false* by
+   `decide`, and `projMotiveTermG_j_invisible_at_0` records the other end — at `i = 0` the
+   block index is **invisible** (`projArgsG … 0 = []`), so a firing at field 0 would have
+   tested nothing.
+
+**Stated plainly.**  `projMotiveTermG_hasType_swapped` is **not fired end to end**: its
+premises are typing judgements about a concrete environment, and no such environment is built
+anywhere in this cluster (unchanged from §0*.6).  What is machine-checked is that it meets the
+narrow theorem exactly, that its term, its conclusion's type and its `liftN` law all move with
+`j`, and that four readings of it are rejected.  *"No end-to-end firing" is not evidence the
+statement is right, and it is not evidence it is wrong.*
+
+### 0**.7 What is left, exactly
+
+1. **`iota_law` at an arbitrary constructor of an arbitrary block.**  The narrow one
+   (`StructureClosed.lean:730`) takes `hnm : D.nm = 1`, `hnmin : D.nmin = 1`,
+   `hrec : C.recFields = []` and `hTd : D.types.getD 0 default = T`, and lands at
+   `D.iotaType 0 C` with `D.ctorsAll[0]? = some (0, C)`.  The general form is the ι rule at
+   `D.ctorsAll[q]? = some (t, C)`.  This is the substantive remainder of `hiota`, and it is
+   where `nm = 1`/`nmin = 1` are genuinely used rather than carried.  **[read off source]**,
+   not attempted, not costed.
+2. **`realMinor_app`** — the *real* minor applied to its fields-and-ih spine β-reduces to
+   field `i`.  `projMinor_app` (`StructureClosed.lean:826`) needs no `IsStructure` at all, but
+   it is about `C.projMinor`, whose telescope is the fields only; the real minor binds the ih
+   block too, so this is a new lemma rather than a re-statement.  `realMinor_hasType_gen`'s
+   `hbvar`/`weakN` step is the model: the ih block factors out by weakening.
+3. **The assembly** — `projMinor_hasType`'s lines 1124–1306 (`hiota`, `hrgt`, the `swapData`
+   block, `hcong`, `hbetaQ`) re-run at `IsStructureG`.  Every callee it uses is now available
+   in a `_G` form except the two above; `realMinor_field_hasType` (§0*) is its `hrgt`.
+4. **Block B (the swap)** is unchanged and was not attempted; it needs `projCoreG_hasType`,
+   which needs `hiota`, plus `hdecl` (correction 4).
+5. `TrProj.uniq` (83 users) and `TrProj.weak'_inv` (28) remain **structurally** blocked
+   (§0‴.6, §0⁗.6): `VEnv.PatWF`/`VEnv.WeakNorm` are open hypotheses, not census holes, plus
+   ledger G4, which has no statement in the tree.  Unchanged this round.
+
+### 0**.8 What I would pick up first
+
+1. **`iota_law` generalised**, alone, in its own module.  It is the only remaining piece with
+   real content; §0**.7 items 2 and 3 are both plumbing that the existing `_gen` family
+   already models.  Budget a full round.
+2. **Do not re-derive anything in §0**.3.**  Three of the eleven lemmas were already done or
+   already unnecessary, and one was not a lemma of this chain.  Check `ProjGen.lean` for a
+   `_gen`/`pad*` form **before** writing one: `padMotiveCtx_wf` had been sitting there for
+   two rounds doing `motiveCtx_wf`'s job at an arbitrary index.
+3. **Keep `ProjGenMotive.lean` clean.**  Its empty hole cone is a fact worth defending: it
+   means every *syntactic* half of the generalisation is unconditional, and only the swap —
+   which is `weakN_iff`'s, not ours — is gated.  New swap-free lemmas go there; anything
+   touching `VEnv.HasType.swapCtx` goes in `ProjGenSwap.lean`.
+4. Do **not** treat the const-application family as unconditional: `ConstSpineWF.lean`'s route
+   passes through `church_rosser`, under §0‴.6's live conditional refutation.  Not re-measured
+   this round.
+
+### 0**.9 Relay to the orchestrator
+
+* **`Lean4Lean/Experimental/ConeJoin.lean` was edited by this stream** — two import lines
+  (`ProjGenMotiveWitness`, `ProjGenSwapNarrow`), on the brief's standing instruction.  This
+  stream does not own that file; nothing else in it was touched.  `scripts/hole-cone.lean` and
+  `scripts/proj-rerun.lean` likewise gained imports and this round's names.
+* **The brief's ledger for item 1 was over-counted by four.**  Two of the eleven lemmas needed
+  no generalisation, one was already built and unnoticed, one is not part of the chain.  The
+  round's most useful output is probably §0**.3 rather than the code.
+* **No file outside this stream's ownership went red at any point**, and the census output is
+  byte-identical start to end.
+* **Guard 3 moved during the round and it was not this stream**: it printed *54/54 remaining*
+  at the start and *52/54 remaining* at the end (still ✓ — the count is of *remaining* gaps,
+  so this is progress, not regression).  The cause is another stream's uncommitted
+  `Lean4Lean/Primitive.lean` edit and the untracked `Lean4Lean/Verify/PrimitiveWF.lean`, both
+  of which appeared mid-round.  This stream touched no implementation file, so the guard-3
+  numbers in `§0*.2` and `§0**.2` are not comparable for that reason.
+
+---
+
+## 0*. The previous round: **ingredient (c) is done**, and it was not the strong induction
 
 ### 0*.1 Headline
 
