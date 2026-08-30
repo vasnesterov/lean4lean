@@ -730,7 +730,33 @@ this lemma's route one step past where the trace above stops:
    by design; this is a *separate* ask, and the trace above did not record it.
 3. **Strengthening**, `IsDefEqU.weak'_iff` — "sub-gap 2" above.  Note this is the **same**
    residual `TrProj.wf`'s live route needs, so the two lemmas share one blocker rather than
-   having two.  It is stated and sorry-backed, not missing. -/
+   having two.  It is stated and sorry-backed, not missing.
+
+**Update 2: two of those three moved, and the third is now a named residual.**
+
+* Step 2, **(B)'s level half, is available**: `VEnv.const_app_inv_of_patWF`
+  (`Verify/Typing/ConstSpine.lean`) proves `IsDefEqU.const_app_inv`'s statement outright,
+  modulo `VEnv.PatWF`.
+* Step 1's **(C) is proved from weak-head normalisation and nothing else**
+  (`VEnv.constRigid_of_weakNorm`).  It does *not* follow from Church--Rosser alone, and the
+  obstruction is exact: `NormalEq.etaL` relates a λ to a constant application, a λ is a
+  weak-head normal form, and (C)'s `IsType` condition excludes that only at the *top* of the
+  spine.  See `ConstSpine.lean`'s module docstring.
+* `VEnv.ConstRigid`'s side condition was also found to be the **wrong one** — `RuleFreeHead`
+  cannot block `WHRed.extra` under an abstract `Params`; `VEnv.PatFreeHead` can, and the two
+  agree at the canonical pattern table.  Use `VEnv.ConstRigidPat`.
+
+**The swap move from `TrProj.wf` does not transfer to this lemma.**  `ProjSkip.lean`'s
+swap replaces an *unused entry of the projection's own field telescope*, so that
+`projMotiveTerm` stays saturated while being typed; every clause `TrProj.mk` asks for here
+(`IsStructure`, one `HasType`, three lengths, `hus`, two `HasArgs`, F17) is a statement in the
+ambient context `Γ`, and none of them mentions that telescope.  The two lemmas share
+`IsDefEqU.weakN_iff` and `forallE_inv_stratified` (measured), and nothing else.
+
+**A cheaper entry point than `HasType.skips`, not yet tried:** `VEnv.InferTypeS.weakU_inv`
+(`Theory/Typing/HeadReduction.lean:691`) inverts a lift on a *whole inferred typing* and hands
+back a type living in `Γ`, which is steps 1 and 3 in one lemma — at the cost of being gated on
+`Params`, like (C) already is. -/
 theorem TrProj.weak'_inv (henv : VEnv.WF env) (hΓ' : OnCtx Γ' (env.IsType U))
     (W : Ctx.Lift' l Γ Γ') (H : TrProj env U Γ' s i (e.lift' l) e') :
     ∃ e'', TrProj env U Γ s i e e'' := sorry
@@ -1489,7 +1515,16 @@ consumer has asked for it".  One has now.  Stated as `VEnv.ConstNoConf` in
    real work and nobody has costed it.
 
 Unlike `TrProj.defeqDFC`, whose conclusion is an existential and which is therefore *proved*,
-here both targets are given, so nothing may be chosen. -/
+here both targets are given, so nothing may be chosen.
+
+**Update: two of the four obligations are discharged.**  (D) is proved
+(`VEnv.constNoConf_of_patWF`, `Verify/Typing/Rigidity.lean`) and so is (B)
+(`VEnv.const_app_inv_of_patWF`, `Verify/Typing/ConstSpine.lean`), both modulo `VEnv.PatWF` —
+the one field of `VEnv.Params` that `VEnv.paramsOfWF` does not derive from `VEnv.WF`.  What is
+left is obligations 1 and 3: `VEnv.RecTypeResidual` (ledger G4's remainder, stated in
+`Verify/Typing/StructureUniq.lean`) and the `projTerm` congruence lemma.  Note that closing
+this `sorry` outright still needs `PatWF` discharged, since the statement takes no such
+hypothesis and cannot acquire one without changing every consumer up to `kernel_sound`. -/
 theorem TrProj.uniq (H1 : TrProj env U Γ₁ s₁ i e₁ e₁') (H2 : TrProj env U Γ₂ s₂ i e₂ e₂')
     (H : env.IsDefEqU U Γ₁ e₁ e₂) :
     env.IsDefEqU U Γ₁ e₁' e₂' := sorry

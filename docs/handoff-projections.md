@@ -1,29 +1,30 @@
 # Handoff: the projection cluster
 
-**Census: 20 → 19.**  `TrProj.wf` is **proved**.  `TrProj.weak'_inv`, `TrProj.uniq`
-(`Verify/Typing/Lemmas.lean`) and `inferProj.WF` (`Verify/TypeChecker/InferType.lean`) are
-still open.  Full `lake build` green; all three of `Verify/Guard.lean`'s checks pass
-(guard 2 still reports `proof INCOMPLETE: sorryAx present`, as it must while 19 holes remain).
+**Census: 19 → 19.**  No hole closed and none added.  What moved is *what the three open holes
+in this cluster are blocked on*: facts (A), (B) and (D) of `Theory/Typing/Injectivity.lean`'s
+constant-application taxonomy are now **proved** modulo one hypothesis, and (C) is **proved
+from weak-head normalisation and nothing else**.  Full `lake build` green; all three of
+`Verify/Guard.lean`'s checks pass (guard 2 still reports `proof INCOMPLETE: sorryAx present`,
+as it must while 19 holes remain).
 
-> The previous edition of this file said the census was 21.  It is now 20 → 19 because another
-> stream proved `IsDefEqU.sort_inv` in the meantime (`Injectivity.lean` 7 → 6).  Use
-> `lake env lean scripts/sorry-census.lean`; never grep.
-
-Everything below is separated into **machine-checked** (a named, `sorry`-free declaration in
-the tree) and **read off source** (an argument from reading definitions, not checked).
+Everything below is separated into **machine-checked** (a named, `sorry`-free-or-explicitly-
+tainted declaration in the tree, with its cone measured) and **read off source** (an argument
+from reading definitions, not checked).
 
 ---
 
 ## 0. Pick this up first
 
-1. **`inferProj.WF`** — a decision, not a proof problem.  §6.  Unchanged, and still the
-   orchestrator's call.
-2. **`RecTypeResidual`** (§3.4).  Three syntactic equations, and they are all things
-   `D.recType 0` genuinely determines.  Discharging it completes ledger G4 outright, because
-   both halves of `VEnv.StructureUniq` are now proved *given* it.
-3. **`TrProj.uniq` / `.weak'_inv`** wait on facts other streams own — `IsDefEqU.const_app_inv`
-   (census hole) and the two `Verify/Typing/Rigidity.lean` statements.  Nothing in this cluster
-   unblocks them.
+1. **`VEnv.PatWF`** (`Theory/Typing/ParamsBuild.lean`).  It is now the single hypothesis
+   standing between this tree and (A), (B) and (D) *unconditionally*.  It is one field of
+   `VEnv.Params`; `VEnv.paramsOfWF` derives the other nine from `VEnv.WF`.  It is proved
+   outright on the δ fragment (`patWF_of_deltaFragment`); the ι and quotient cases need
+   `IsDefEqU.forallE_inv`, which is an **existing census hole**, not a new one.  Discharging
+   `PatWF` closes `quotReduceRec.WF`'s mathematical content and two of `TrProj.uniq`'s four
+   obligations at once.  This is the highest-leverage single item in the cluster.
+2. **`RecTypeResidual`** (§3.4 of the previous edition, unchanged) — ledger G4's remainder.
+3. **Weak-head normalisation** (`VEnv.WeakNorm`, `Verify/Typing/ConstSpine.lean`) — (C)'s
+   only residual, and `TrProj.weak'_inv`'s last mathematical one.
 
 ---
 
@@ -31,252 +32,246 @@ the tree) and **read off source** (an argument from reading definitions, not che
 
 | | status | blocked on |
 |---|---|---|
-| `TrProj.wf` | **PROVED** | — (cone contains `IsDefEqU.weakN_iff`'s `sorry`, another stream's) |
-| `TrProj.weak'_inv` | open | **(C)** `ConstRigid` + (B)'s level half + `IsDefEqU.weak'_iff` |
-| `TrProj.uniq` | open | **(D)** `ConstNoConf` + `IsDefEqU.const_app_inv` + G4 + a `projTerm` congruence |
-| `inferProj.WF` | open **by deliberate choice** | see §6 |
+| `TrProj.wf` | **PROVED** (previous edition) | — (cone: `IsDefEqU.weakN_iff`, `forallE_inv_stratified`) |
+| `TrProj.weak'_inv` | open | (C) ⇐ `WeakNorm`; (B) ⇐ `PatWF`; `IsDefEqU.weak'_iff` |
+| `TrProj.uniq` | open | `PatWF`; `RecTypeResidual`; a `projTerm` congruence |
+| `inferProj.WF` | open **by deliberate choice** | see the previous edition §6; unchanged |
 
 ---
 
-## 2. `TrProj.wf` — proved, by the route the old docstring set aside
+## 2. What landed this round: `Verify/Typing/ConstSpine.lean` (new, 707 lines)
 
-### 2.1 What was dead, and stays dead
+### 2.1 The correction that unlocked it
 
-Machine-checked (`Verify/Typing/ProjLevelWitness.lean`, `barRefutes`, unchanged): the subgoal
-the old proof reduced to — `lvl_k.inst us ≈ .zero` at an *unused* field `k < i` — is **false**,
-at `structure Bar : Prop where (n : Prop) (h : ∀ p : Prop, p)`.  That refutation is untouched
-and still correct; what changed is that nothing needs that subgoal any more.
+`Theory/Typing/Injectivity.lean` attaches the same residual to all six of its statements: the
+**`trans`** case of an induction on `IsDefEqStrong` — "a term convertible with a rule-free
+constant application reduces to one".  Last round's note that `const_app_inv` had been
+"reduced to `trans` as its only residual" was correct about that induction.
 
-### 2.2 The route that worked: **swap**, not compress
+**But the `trans` case is an artefact of the induction, not of the statements.**
+`VEnv.NormalEq` (`Theory/Typing/ChurchRosser.lean`) has **no `trans` constructor** —
+transitivity there is `NormalEq.trans`, a *theorem*, and `VEnv.IsDefEq.church_rosser` has
+already paid for it.  An argument routed through Church–Rosser never meets that case.
 
-The previous edition listed, under "two routes that do **not** work, checked so nobody re-tries
-them":
+Machine-checked, all in `Verify/Typing/ConstSpine.lean`:
 
-> Replacing the unused telescope entry by an inhabited type (`.sort (.succ .zero)`, inhabited
-> by `.sort .zero`) and using the modified context.  The field type's typing then lives in the
-> *swapped* context, and "swap a context entry the subject and type both skip" is not free — a
-> subderivation may still mention it.
-
-**The premise is right and the conclusion is wrong**, and this is the correction that unlocked
-the lemma.  The swap is not free; it costs *exactly one* `VEnv.HasType.weakN_iff` per swapped
-binder — strengthen the binder away, weaken the new one in — and "a subderivation may still
-mention it" is precisely what strengthening rules out.  `HasType.weakN_iff` is already in the
-tree (`Theory/Typing/UniqueTyping.lean`), backed by `IsDefEqU.weakN_iff`'s existing `sorry`.
-
-The swap **beats** the compressed route the previous edition preferred, for a reason that
-edition did not identify: it keeps the projection's spine **saturated**.  The compressed route
-must shorten the spine; the naive alternative (junk at the unused position) needs an inhabitant
-of the unused field's *own* type, and in general there is none — `structure Bar : Prop where
-(n : Nat) (h : True)` would need an inhabitant of `Nat` in an arbitrary context of an arbitrary
-environment.  `VExpr.swapUnit := .sort (.succ .zero)` is a type in every context of every
-environment **and** is inhabited there by `.sort .zero`, so neither problem arises.
-
-### 2.3 The machinery, all machine-checked (`Verify/Typing/ProjSkip.lean`)
-
-| name | what it does |
+| name | content |
 |---|---|
-| `VExpr.inst_congr_skips`, `instAll_congr_skips` | one skipped spine position is irrelevant |
-| `VExpr.InstAllSkip`, `instAll_congr_of_skip`, `InstAllSkip.build` | the multi-position form; the builder needs only the *original* term's skip data, because `Skips.inst_of_lt` says substituting above an index cannot create an occurrence at it |
-| `VInductDecl'.projCore_congr_earlier` | its `projCore` instance |
-| `VEnv.HasType.swapSkipped` / `.swapTele` / `.swapCtx`, `OnCtx.swapCtx` | the swap, one binder / one middle-of-telescope binder / a whole telescope.  `.swapTele` is one line on top of `Ctx.LiftN.tele` (B6) |
-| `VExpr.SwapCtx`, `.build`, `.buildPair`, `.appendKeep`, `VExpr.swapSpine_exists` | the swap description and its builders |
-| `VExpr.liftTele_of_skips` | a telescope whose entries each skip their own offset *is* a `liftTele` — `.swap`'s first premise |
-| `VExpr.Skips.instL'`, `.inst_of_lt`, `.instAll_of_lt` | carrying skips through `instL` and through the parameter spine |
-| `VIndCtor.swapCtx_fields`, `.swapData` | the projection instance: the derivation exists **unconditionally**, because used positions need nothing and unused ones are covered by `VIndCtor.not_fieldUsed_skips` |
-| `ftype_hasType_swapped`, `instAll_field_isType_swapped` | field `i` typed over the swapped prefix; the crux |
-| `VEnv.HasArgs.ofGetD`, `VEnv.HasArgsDF.ofGetD` | `ofMap` for a spine that is not `(range i).map f` |
-| `projArgs_hasArgs_swapped`, `projMotiveBody_hasType_swapped`, `projMotiveBody_hasType_guarded`, `projMotiveTerm_hasType_swapped` | the chain, needing `ProjHasType` at the **used** indices only |
+| `VEnv.ParRed.constApp_inv`, `.ParRedS.constApp_inv` | a parallel reduct of `(const c ls).mkApp as` is `(const c ls).mkApp as'` with `as ≫ as'` pointwise.  `beta` is impossible (the spine head is not a λ), `extra` is impossible under `PatFreeHead` |
+| `VEnv.NormalEq.constApp_inv` | `NormalEq` between two constant spines is head-, level- and argument-wise.  Only `refl`, `constDF`, `appDF` are reachable; `proofIrrel` is blocked by `¬IsProof` threaded down the spine by `IsProof.app'`; `etaL`/`etaR` by shape |
+| `VEnv.IsDefEq.constApp_inv` | the two joined by `church_rosser`.  **(B) and (D) in one statement** |
+| `VEnv.NormalEq.constApp_forallE`, `.constApp_sort`, `IsDefEqU.constApp_forallE_false`, `.constApp_sort_false` | **(A)**, by the same route and more cheaply — with the right-hand side a Π or a sort, `proofIrrel` is `NormalEq`'s only live constructor, and the right-hand side's being a type refutes it |
 
-`VIndCtor.not_fieldUsed_skips` was described in `Theory/Inductive/Structure.lean` as "stated
-and unused".  It is now load-bearing twice over.
+### 2.2 The `VEnv`-level results, and the anti-strawman checks
 
-### 2.4 What changed in `Verify/Typing/Lemmas.lean`
+`VEnv.paramsOfWF` turns each of these into a statement about an arbitrary well-formed
+environment, conditional on `VEnv.PatWF`:
 
-`projMinor_hasType` and `projTerm_hasType` now take the **guarded** F17 premise
+* `VEnv.const_forallE_inv_of_patWF`, `VEnv.const_sort_inv_of_patWF` — **(A)**
+* `VEnv.const_app_inv_of_patWF` — **(B)**
+* `VEnv.constApp_inv_of_patWF` — (B) and (D) together
+* `VEnv.constNoConf_of_patWF` (`Verify/Typing/Rigidity.lean`) — **(D)**, as the stated
+  `VEnv.ConstNoConf`, so it is its own anti-strawman check
 
-    ∀ k ≤ i, (k = i ∨ C.FieldUsed D 0 k) → lvl_k.inst us ≈ D.elimLvl.inst (D.projLvls C us k)
+For (A) and (B) the anti-strawman check is explicit and in the house style of
+`Theory/Typing/HeadRedStuck.lean`: `ConstAppInvStmt`, `ConstForallEInvStmt`,
+`ConstSortInvStmt` are the three `Injectivity.lean` theorems' types with every binder made
+explicit and nothing else changed; `…_holds` proves each **by** that theorem (deliberately
+`sorryAx`-tainted) and `…_of_patWF` proves the same `Prop` from `PatWF`.  The two sit side by
+side, so no statement can have been narrowed unnoticed.
 
-and the guarded induction hypothesis `∀ k < i, C.FieldUsed D 0 k → ProjHasType … k`.  Both are
-*weaker* hypotheses than before, so both theorems are strictly stronger; no statement was
-narrowed.  `TrProj.wf` is then a transcription of `TrProj`'s own recorded F17 clause — the
-`sorry` and the whole case split it sat in are gone.
+### 2.3 The measured cone — this is the point
 
-The strong induction in `projTerm_hasType` now runs over the **used** earlier indices only,
-which is exactly the set at which `ProjHasType` is true.  At an unused index it is *false*, and
-that is what `barRefutes` measures.
-
-### 2.5 Non-vacuity — checked, at the configuration that refutes the old route
-
-`Verify/Typing/ProjWfWitness.lean` (new).  Machine-checked, and `#print axioms`-clean apart
-from `propext`/`Quot.sound`/`Classical.choice`:
-
-* `barEnv_TrProj` — an **actual `TrProj` derivation** at `barDecl`, `i = 1`, over the unused
-  field 0.  Every clause of the constructor is discharged, F17 included, and F17 is discharged
-  in its *guarded* form: `barField0_lvl_ne_zero` machine-checks that field 0 is **not**
-  `≈ .zero`, so a blanket F17 clause would have had no witness here at all.
-* `barEnv_TrProj_target` (`rfl`) — the term produced is
-  `Bar.rec (fun _ : Bar => ∀ p : Prop, p) (fun (n : Prop) (h : ∀ p : Prop, p) => h) e`, with no
-  projection of field 0 anywhere in it.
-* `barEnv_TrProj_wf` — `TrProj.wf` applied to that derivation.
-* `bar_swapTele`, `bar_swapCtx`, `bar_liftTele_of_skips` (`ProjSkip.lean`) — the swap machinery
-  fired at the two-field witness, including with the swapped binder **not** innermost.
-
-**One hypothesis could not be discharged and is carried instead:** `VEnv.WF barEnv`.  That is
-*not* a fact about `barDecl` — it is that `VInductDecl'` is not yet wired into `VDecl.induct`
-(`Theory/Inductive/Decl.lean`: "the primed name is temporary"), so `VEnv.WF'`, an induction
-over `VDecl`s, has no step that produces `barEnv`.  Whoever does that wiring gets
-`barEnv_TrProj_wf` unconditional for free, and it is worth doing for exactly that reason: it is
-the only thing standing between this tree and an end-to-end checked projection.
-
----
-
-## 3. Ledger G4 (`VEnv.StructureUniq`) — the level half proved, the syntactic residual **refuted and replaced**
-
-`Verify/Typing/StructureUniq.lean`.
-
-### 3.1 The equality form is FALSE — unchanged
-
-`structureUniq_eq_false`.  `barDeclEq` is `barDecl` with one `VIndField.lvl` replaced by an
-`≈`-equal one; `addInduct'` cannot see the difference (`barDeclEq_addInduct`, `rfl`), both
-declarations are well-formed, and both are `IsStructure barEnv `Bar`` *through the same
-`addInduct'` step*.  No hypothesis on `env` rescues it.
-
-### 3.2 The level half: **PROVED** — `structureLvlAgree_of_structureAgree`
-
-The previous edition recorded this as blocked on the `SortUniq` family, and at the time
-`SortUniq` was a hypothesis nothing in the tree exhibited.  It is now a **theorem**:
-`VEnv.WF.sortUniq'` (`Theory/Typing/Injectivity.lean`) proves `env.SortUniq U` for every
-`VEnv.WF` environment, with `IsDefEqU.forallE_inv_stratified` as its only open input.
-
-Given the syntactic half, both derivations type the *same* subject in the *same* context —
-`VIndCtor.WF.result` for `D.lvl`, `VIndField.WF.hasType` for each `F.lvl` — and universe
-uniqueness does the rest.  The environment fact used is `VIndCtor.WF env D 0 T C` **at `env`
-itself**, which `VEnv.IsStructure.iotaCtx` delivers (`VEnv.IsStructure.ctorWF`, new); no manual
-transport along the `addInduct'` stages is needed.
-
-### 3.3 `RecTypeInj` is **FALSE** — `recTypeInj_false`
-
-The previous edition said "pick this up second: `RecTypeInj` … discharges the whole syntactic
-half of ledger G4".  **It cannot.**
-
-`StructureAgree.ctorParams` claims `C₁.params = C₂.params`, and `C.params` occurs **nowhere** in
-`D.recType` — not in `motiveType`, `minorType`, `ihType`, `ctorApp'` or `tyApp'`.  The recursor
-is built over `D.params`; the constructor's own copy (F3) is spliced only into `VIndCtor.type`,
-the *constructor constant's* type.  A hypothesis set mentioning only `recType` therefore cannot
-pin it.
-
-Machine-checked witness: `barDeclPar` is `barDecl` with `C.params` changed;
-`barDeclPar_recType_eq` and `barDeclPar_recs_eq` are `rfl`, so every `RecTypeInj` hypothesis
-holds and `ctorParams` fails.  Consequence: `structureAgree_of_recTypeInj` is a reduction to a
-statement that can never be supplied — true, and useless.
-
-> This is the fifth statement in this development to turn out **false rather than open**, and
-> the third whose defect is a *missing hypothesis* rather than a wrong conclusion.  The tell
-> was the same each time: a statement carrying strictly less information than its conclusion
-> needs.  Auditing the *information flow* — which record fields the hypotheses can even see —
-> catches all three; auditing for auto-bound implicits catches none of them.
-
-### 3.4 The replacement — `structureAgree_ctor`, `structureUniq_of`, `RecTypeResidual`
-
-Machine-checked:
-
-* `VIndCtor.piDepth_type` — `C.type D j` is `mkPi` of exactly `np + nf` binders over a `mkApp`,
-  which is never a `.forallE`, so the binder count is read off the term.
-* `structureAgree_ctor` — given `C₁.name = C₂.name` and `D₁.np = D₂.np`, the **constructor
-  constant** hands over `ctorParams`, the field `type`s and `ctorArgs`, through
-  `VIndCtor.skeleton_type`, which inverts `VIndCtor.type` on the nose.  No recursor reasoning.
-* `VIndCtor.recArg_eq_none`, `VIndField.Agree.forall₂_of` — for a structure `noRec` makes the
-  `recArg` half of `VIndField.Agree` free.
-* **`VEnv.structureUniq_of`** — `env.WF → env.RecTypeResidual → env.StructureUniq`.  *Both*
-  halves discharged.
-
-So ledger G4 is now exactly:
+Machine-measured (forward reachability from the declaration, `sorryAx`-containing
+declarations only):
 
 ```
-def VEnv.RecTypeResidual (env : VEnv) : Prop :=
-  ∀ S D₁ D₂ T₁ T₂ C₁ C₂, env.IsStructure S D₁ T₁ C₁ → env.IsStructure S D₂ T₂ C₂ →
-    D₁.params = D₂.params ∧ T₁.indices = T₂.indices ∧ C₁.name = C₂.name
+Lean4Lean.VEnv.constApp_inv_of_patWF        -- (B)+(D)
+Lean4Lean.VEnv.const_forallE_inv_of_patWF   -- (A), Π half
+Lean4Lean.VEnv.const_sort_inv_of_patWF      -- (A), sort half
+    IsDefEqU.weakN_iff
+    IsDefEqU.forallE_inv_stratified
+    NormalEq.descend
+    IsDefEqU.forallE_inv
 ```
 
-Read off source (not machine-checked), the shape of the remaining argument: `recType 0` is
-`mkPi (atRecTele params ++ motives ++ minors ++ indices') (…)` with `nm = nmin = 1` by
-`IsStructure`, so once the split point `np` is known the three components are prefixes of one
-`mkPi` telescope, and `C.name` is read out of the minor premise's `ctorApp'`.  `np` itself is
-pinned by an **environment** fact, not a syntactic one: the block's own constants cannot occur
-in `D.params` (they are typed before the block exists), while the motive type mentions
-`const S selfLvls`, so the first telescope entry mentioning `S` is the motive.  *That* is why
-`RecTypeInj`'s "no hypothesis on `env` at all" was the wrong shape, quite apart from
-`C.params`; `RecTypeResidual` is stated at the two `IsStructure` derivations for exactly this
-reason.  Also read off source: `atRecTele` is `instL selfLvls`, which is the identity on
-level-well-formed terms when `isLE = false` (`VLevel.inst_id`) and an injective shift when it
-is `true`; the `true` case wants an `instL`-injectivity lemma that does not exist yet.
+Four existing census holes, **none of them a constant-application fact**.  In particular
+`const_app_inv`, `const_forallE_inv`, `const_sort_inv` and `sort_forallE_inv` are *not* in the
+cone, so this is not circular.
 
-**Correction to `Theory/Inductive/Structure.lean`.**  `IsStructure`'s docstring says G4 "needs
-`VEnv.Sig` (I1)".  `VEnv.Sig` is used nowhere in any of the above.  The level half needs
-`VEnv.WF` (through `SortUniq`); the syntactic half needs the constructor constant plus
-`RecTypeResidual`.
+**Consequence for the ledger.**  The constant-application family is not an independent
+obligation.  It is downstream of the sort/Π family, of `NormalEq.descend`, and of `PatWF`.
 
-### 3.5 Non-vacuity
+### 2.4 A second correction: (B)'s side condition is not the one that blocks the step
 
-`barDeclEq_StructureAgree` and `barDeclEq_StructureLvlAgree` hold at exactly the pair that
-refutes the equality form, at the tree's only *two-field* structure witness, one of whose
-fields is not `≈ .zero`.  Not fired: `structureAgree_ctor` at `barEnv`, because `barEnv.Ordered`
-is not in the tree for the same reason `barEnv.WF` is not (§2.5); its conclusion is separately
-machine-checked at that pair by `barDeclEq_StructureAgree`.
+`RuleFreeHead` is a fact about `env.defeqs`.  The reduction step it has to block is
+`WHRed.extra` / `ParRed.extra`, which fires on a `Params.Pat`-registered pattern.  The
+`Params` class relates `Pat` and `defeqs` in **one direction only** (`extra_pat`: every rule
+is a registered pattern under leading λs); nothing forbids an instance whose `Pat` registers a
+pattern headed by a `RuleFreeHead` constant.
 
----
+So `VEnv.PatFreeHead` is the honest condition, and:
 
-## 4. Facts (C) and (D) — unchanged
+* `Lean4Lean.Pat.headConst_defeqs` (machine-checked) — every pattern the **canonical** table
+  `Lean4Lean.Pat env` registers has the head constant of a rule's left-hand side, in all three
+  constructors (δ, ι, quot);
+* `VEnv.RuleFreeHead.patFreeHead` (machine-checked) — hence `RuleFreeHead → PatFreeHead` at
+  `paramsOfWF`'s instance, which is the only one any consumer meets.
 
-`Verify/Typing/Rigidity.lean`, sorry-free, both still **stated and unproved**.  `ConstRigid`
-(head-only weak-head rigidity for a rule-free constant, under `[VEnv.Params]`) and
-`ConstNoConf` (no confusion between *distinct* rule-free constants) are what `TrProj.weak'_inv`
-and `TrProj.uniq` respectively need, and they belong in `Theory/Typing/Injectivity.lean` — they
-are here only because that file is another stream's.  Nothing in `Rigidity.lean` depends on
-`Verify/`, so it moves verbatim.
+This matters for `VEnv.ConstRigid` as it was stated in `Verify/Typing/Rigidity.lean`: it is
+`[Params]`-gated and carries `RuleFreeHead`, so **as stated it is under-hypothesised** — the
+hypothesis cannot reach the step it is meant to block.  The statement is kept verbatim (so the
+correction is legible) and `VEnv.ConstRigidPat` is the repaired form.  This is the same defect
+class as `RecTypeInj` (§3.3 of the previous edition): a hypothesis set carrying strictly less
+information than its conclusion needs, invisible to an auto-bound-implicit audit.  (The
+running count of such statements in this development is kept elsewhere and is not asserted
+here; what is asserted is the defect and its repair.)  Note the difference from the earlier
+finds: `ConstRigid` is not shown **false** — it is shown *unreachable from its own
+hypotheses*.  No instance refuting it is exhibited, and none is claimed.
 
-`barEnv_ruleFreeHead` (machine-checked) shows the premise both are gated on is reachable.
+Machine-checked necessity, at the tree's one concrete `Params` instance
+(`Theory/Typing/ParamsWitness.lean`'s `propLoopParams`, where a `ParRed.extra` step really
+fires) — all three `sorry`-free:
 
----
+* `propLoop_not_patFreeHead_A` — `PatFreeHead` fails at `A` there;
+* `propLoop_patFreeHead_other` — and holds at every other name;
+* `parRed_constApp_inv_needs_patFreeHead` — **dropping `PatFreeHead` from
+  `ParRed.constApp_inv` makes that lemma false**, because `A ≫ B` and `B` is not an
+  application of `A`.
 
-## 5. `TrProj.uniq` and `TrProj.weak'_inv`
+### 2.5 Non-vacuity: (A), (B) and (D) fired end to end, with `PatWF` **discharged**
 
-Neither moved, and neither can move here.
+`Theory/Typing/CycleConv.lean`'s `propLoopEnv2` is `propLoopEnv` *before* its two δ-rules are
+added: two constants `A B : Prop` and no definitional-equality rules at all.  It is in the δ
+fragment vacuously, so `VEnv.patWF_of_deltaFragment` discharges `PatWF` outright.  Added to
+`Verify/Typing/Rigidity.lean`, all machine-checked:
 
-* `TrProj.uniq` needs (D) `ConstNoConf` — because its two structure names are genuinely
-  independent.  That is **not** an auto-bound-implicit accident: narrowing to a shared `s` was
-  tried and reverted, because `IsDefEqE.trExpr`'s `proj` case (`Verify/EquivManager.lean:117`)
-  instantiates them differently, `RelevantEq.proj` dropping the structure name faithfully to
-  `EquivManager.isEquiv`.  It also needs `IsDefEqU.const_app_inv` (census hole), G4 (§3 — now
-  reduced to `RecTypeResidual`), and a `projTerm` congruence lemma that does not exist and is
-  mechanical.
-* `TrProj.weak'_inv` needs (C) `ConstRigid`, (B)'s level half, and `IsDefEqU.weak'_iff` (the
-  last is proved modulo `IsDefEqU.weakN_iff`, so it is not a separate hole).
+* `propLoopEnv2_wf`, `propLoopEnv2_patWF` — **`sorry`-free**.  Two `VDecl.axiom` steps from the
+  empty environment, then `PatWF` from the δ fragment.
+* `propLoopEnv2_A_ne_B` — **(D) with content**: two distinct propositions of a rule-free
+  environment are not definitionally equal.
+* `propLoopEnv2_A_ne_sort`, `propLoopEnv2_A_ne_forallE` — **(A) with content**.
 
-**Correction:** the previous `TrProj.wf` docstring said these two "unblock on the same event"
-as `TrProj.wf`.  They do not, and `TrProj.wf` landing without them proves it.
-
-**Loose end, still not investigated:** whether `EquivManager.isEquiv` ignoring a projection's
-structure name matches the C++ kernel.  `~/lean4/src/kernel/equiv_manager.cpp` does not exist
-at that path in this checkout.  If it diverges it is a `divergences.md` entry; if `isEquiv` can
-return `true` for `.proj Foo 0 e` vs `.proj Bar 0 e` on reachable inputs it may be a
-`bugs-found.md` entry.  Neither is established.
+These are the first end-to-end firings of the constant-application family in this tree:
+`VEnv.WF` → `paramsOfWF` → `IsDefEq.church_rosser` → the spine analysis, with **no hypothesis
+carried**.  Their only taint is the four inherited holes of §2.3.  So the results are not
+vacuous, and `PatWF` is not an unsatisfiable ask — it is discharged here.
 
 ---
 
-## 6. `inferProj.WF` — a decision, not a proof problem
+## 3. (C) rigidity: why Church–Rosser does not settle it, and what does
 
-Unchanged from the previous edition, and left open on the standing ruling.
-`inferProj_always_throws` proves `(inferProj st i e ety).WF c s Q` for **any** postcondition,
-because `inferProj`'s `.inductInfo` gate cannot fire while `AddInduct` has no constructors.  So
-`inferProj.WF := inferProj_always_throws hty` closes it in one line and takes the census to 18.
+### 3.1 The obstruction, exactly
 
-Not done, deliberately: closing it vacuously hides that `inferProj.WF` is **false once the
-branch is live**, because `inferProj` never checks recursiveness while `VEnv.IsStructure.noRec`
-demands `C.recFields = []` (`bugs-found.md` item 10 — the kernel accepts `.proj` on
-`inductive R | mk : R → Nat → R`).  Closing it would not hide the tripwire —
-`inferProj_always_throws` goes red at the same moment — but it would move the number without
-moving the obligation.  Both options are one line; the orchestrator picks.
+The spine recursion that proves (B) and (D) works because *both* endpoints are constant
+spines, so `NormalEq.etaL` is excluded by shape at every level.  For (C) only the right
+endpoint is known, and `etaL` relates a **λ** to a constant application.
+
+* At the **top** of the spine that is excluded by (C)'s `IsType` side condition: an
+  η-expansion has a Π type, and a Π is not a sort.  Machine-checked as
+  `VEnv.isType_lam_false`.
+* At a **proper sub-spine** it is not excluded, because a sub-spine legitimately has a Π type.
+  And the induction hypothesis one would need there is **false**: `.lam A b` is a weak-head
+  normal form (`WHNF.lam`) that η-relates to a constant application and is not one.
+  Machine-checked as `VEnv.whnf_lam_not_constApp` (`sorry`-free).
+
+This is why (C) is genuinely a different statement from (B), and it is a *sharper* reason than
+the one `Injectivity.lean` gives ("its formulation mentions weak-head reduction").
+
+### 3.2 The repair, machine-checked
+
+A `WHNF` application has a `WHNF`, non-λ function (`VEnv.WHNF.app_fn`,
+`VEnv.WHNF.app_not_lam`), so along a `WHNF` spine `etaL` is excluded at every level after all.
+
+| name | content |
+|---|---|
+| `VEnv.StRed.constApp_whnf` | a weak-head normal form that standard-reduces to a constant spine *is* one |
+| `VEnv.NormalEq.constApp_whnf` | the spine analysis under a `WHNF`, non-λ subject |
+| `VEnv.WeakNorm` | `∀ Γ e A, OnCtx Γ → Γ ⊢ e : A → ∃ e', Γ ⊢ e ⤳* e' ∧ WHNF Γ e'` |
+| **`VEnv.constRigid_of_weakNorm`** | **(C), from `WeakNorm` and nothing else** |
+| `VEnv.constRigidPat_of_weakNorm` | the same, packaged as the stated `VEnv.ConstRigidPat` |
+
+Cone of `constRigid_of_weakNorm`: `weakN_iff`, `forallE_inv_stratified`, `NormalEq.descend`,
+`forallE_inv`, `sort_forallE_inv` — one more than (A)/(B)/(D), all existing census holes.
+
+Read off source (not checked): `WeakNorm` is not in the tree in any form, and
+`Theory/Typing/HeadRedStuck.lean` is the relevant warning — it shows that a `Params` instance
+hosting a *stuck* K-redex that is definitionally a sort would refute `IsDefEq.reduce_sort`.
+Any route to `WeakNorm` has to rule such instances out.
+
+---
+
+## 4. `TrProj.weak'_inv`: the swap does **not** transfer, and there is a cheaper entry point
+
+**Asked and answered.**  `ProjSkip.lean`'s swap (the move that unblocked `TrProj.wf`) replaces
+an unused entry of the *projection's own field telescope*, so that `projMotiveTerm` stays
+saturated while being typed.  Every clause `TrProj.mk` asks for in `weak'_inv`'s conclusion —
+`IsStructure`, one `HasType`, three length equations, `hus`, two `HasArgs`, F17 — is a
+statement in the ambient context `Γ`, and **none of them mentions that telescope**.  So the
+swap has nothing to act on here.  (Read off source: the clause list is `TrProj`'s definition,
+`Verify/Typing/Expr.lean:81–145`.)
+
+Machine-measured: the two lemmas' *shared* residual is `IsDefEqU.weakN_iff` and
+`forallE_inv_stratified` — `TrProj.wf`'s whole cone — and nothing else.  The previous
+edition's claim that they "share a blocker" is right about `weakN_iff` and was never about the
+swap.
+
+**Cheaper entry point, not yet tried** (read off source): `VEnv.InferTypeS.weakU_inv`
+(`Theory/Typing/HeadReduction.lean:691`) inverts a lift on a whole *inferred typing* and hands
+back a type living in `Γ`.  That is steps 1 and 3 of the traced route (`HasType.skips` at
+`Ctx.Lift'`, then `IsDefEqU.weak'_iff`) in one already-proved lemma, at the cost of being
+`Params`-gated — which (C) already is.  `VEnv.InferType.exists` supplies its input from
+`VEnv.WF` alone.
+
+What `weak'_inv` still needs after that, read off source: (C) at `Γ'`; `WHRedS.weakU_inv` to
+move the reduction into `Γ` (already proved, already in `Ctx.Lift'` form); (B)'s level half to
+reconcile the recovered `us'` with the use site's `us` (**now available**,
+`const_app_inv_of_patWF`); a `HasArgs` congruence along argument-wise `IsDefEqU`; and a
+`HasArgs` strengthening across the lift.  The last two are plumbing that does not exist yet
+and has not been costed.
+
+---
+
+## 5. `TrProj.uniq`: two of four obligations discharged
+
+Unchanged in statement.  Its four obligations were: (1) ledger G4, (2) fact (B), (3) fact (D)
+via the independence of `s₁`, `s₂`, (4) a `projTerm` congruence lemma.
+
+* (2) and (3) are **proved**, modulo `PatWF` — `const_app_inv_of_patWF`,
+  `constNoConf_of_patWF`.
+* (1) is `RecTypeResidual`, unchanged from the previous edition §3.4.
+* (4) is unchanged: mechanical, real work, still uncosted.
+
+Note (D) is now proved *without* ledger G4: no-confusion between distinct rule-free constants
+does not go through structure uniqueness at all.  G4 is still needed for (1).
+
+Non-vacuity of (D) at a rule-free environment is §2.5, with `PatWF` discharged.  At the
+two-field *structure* witness it is machine-checked
+(`Verify/Typing/Rigidity.lean`) as: `barEnv_ruleFreeHead'` generalises the previous
+`barEnv_ruleFreeHead` to every name but `Bar.rec`, and `barEnv_bar_ne_ctorApp` derives from
+(D) that `Bar` is **not** definitionally equal to any application of `Bar.mk` — a negative
+statement with content, at the environment where `RuleFreeHead` is proved rather than assumed.
+Two hypotheses are carried rather than discharged there, and neither is about `barDecl`:
+`barEnv.WF` (because `VInductDecl'` is not yet wired into `VDecl.induct` — the same gap
+`ProjWfWitness.lean` §2.5 records) and `PatWF` (the open `Params` field itself).
+
+---
+
+## 6. Corrections to earlier editions of this file and to docstrings
+
+1. **"(B) is reduced to `trans` as its only residual"** — true of the `IsDefEqStrong`
+   induction, and *not* a fact about the statement.  Church–Rosser proves (B) outright modulo
+   `PatWF`; the `trans` case never arises because `NormalEq` has no `trans` constructor.
+2. **"(C) needs (B) plus rigidity"** and **"`TrProj.weak'_inv` needs (C), (B)'s level half and
+   `weak'_iff`"** — the list is right, and (C)'s own residual is now named: `WeakNorm`.
+3. **`VEnv.ConstRigid`'s `RuleFreeHead` side condition** is the wrong condition under an
+   abstract `Params`.  Use `VEnv.ConstRigidPat`.  §2.4.
+4. **"`TrProj.wf`'s swap may help `weak'_inv`"** — it cannot.  §4.
+5. `Theory/Typing/Injectivity.lean`'s module docstring says a fourth fact (no-confusion) "is
+   not stated because no consumer has asked for it".  It is now stated *and proved*
+   (`VEnv.ConstNoConf`, `VEnv.constNoConf_of_patWF`).  Both it and the (A)/(B) proofs belong
+   in that file rather than under `Verify/`; they are here only because that file is another
+   stream's.  Nothing in `ConstSpine.lean` depends on `Verify/`, so it moves verbatim.
 
 ---
 
@@ -284,21 +279,25 @@ moving the obligation.  Both options are one line; the orchestrator picks.
 
 New:
 
-* `Lean4Lean/Verify/Typing/ProjWfWitness.lean` — §2.5.
+* `Lean4Lean/Verify/Typing/ConstSpine.lean` — §2, §3.  Imports `Theory/Typing/HeadReduction`,
+  `Theory/Typing/Injectivity`, `Theory/Typing/ParamsBuild`.  Depends on nothing in `Verify/`.
 
 Edited (all owned by this stream):
 
-* `Lean4Lean/Verify/Typing/ProjSkip.lean` — the swap machinery, §2.3.  Now imports
-  `Theory/Typing/UniqueTyping` and `Theory/Inductive/StructureClosed`.
-* `Lean4Lean/Verify/Typing/StructureUniq.lean` — §3.  Now imports `StructureClosed` and
-  `Theory/Typing/Injectivity`.
-* `Lean4Lean/Verify/Typing/Lemmas.lean` — `projMinor_hasType` and `projTerm_hasType` guarded,
-  `TrProj.wf` proved, docstrings corrected.  Now imports `Verify/Typing/ProjSkip` (no cycle:
-  `ProjSkip` depends on nothing in `Verify/Typing/Lemmas`).
+* `Lean4Lean/Verify/Typing/Rigidity.lean` — (D) proved; (C) repaired and reduced;
+  `PatFreeHead` necessity witnesses; the `propLoopEnv2` end-to-end firings (§2.5); `barEnv`
+  non-vacuity; header rewritten.  Now imports `Theory/Typing/ParamsWitness` and
+  `Verify/Typing/ConstSpine`.
+* `Lean4Lean/Verify/Typing/Lemmas.lean` — docstrings of `TrProj.weak'_inv` and `TrProj.uniq`
+  updated (§4, §5).  No proof changed; census unchanged.
+* `Lean4Lean/Verify/TypeChecker/WHNF.lean` — `quotReduceRec.WF`'s docstring updated: its
+  residual is now *forward* (discharge `PatWF`), not *sideways* (state a new inversion
+  principle).
 
-Unchanged: `Theory/Inductive/StructureClosed.lean`, `Verify/Typing/Rigidity.lean`,
-`Verify/Typing/ProjLevelWitness.lean`, `Verify/TypeChecker/InferType.lean`.
+Unchanged: `Theory/Inductive/StructureClosed.lean`, `Verify/Typing/ProjLevelWitness.lean`,
+`Verify/Typing/ProjSkip.lean`, `Verify/Typing/ProjWfWitness.lean`,
+`Verify/Typing/StructureUniq.lean`, `Verify/TypeChecker/InferType.lean`.
 
-**Auto-bound-implicit audit.**  Every new statement is a `def … : Prop`, a `structure`, an
-`inductive` with all binders explicit, or a theorem whose binders were `#check`ed.  No capture.
-The defect that actually bit this session was a different one — see §3.3.
+**Auto-bound-implicit audit.**  Every new statement is a `def … : Prop` with explicit binders,
+or a theorem whose binders were read back from the elaborated type.  The defect that bit this
+round was again a different one — §2.4.

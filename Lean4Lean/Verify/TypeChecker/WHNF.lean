@@ -91,7 +91,21 @@ applies — but it is a different argument from `extra`, and needs the same spin
 
 The peel itself is *not* a cost: `VEnv.IsDefEq.extra_applied`
 (`Theory/Inductive/StructureClosed.lean`) states it once for any `VDefEq` whose `lhs`/`rhs`/
-`type` share a `mkLams`/`mkPi` telescope. -/
+`type` share a `mkLams`/`mkPi` telescope.
+
+**Update: (B) is proved, modulo one hypothesis.**  `VEnv.const_app_inv_of_patWF`
+(`Verify/Typing/ConstSpine.lean`) proves `IsDefEqU.const_app_inv`'s statement verbatim —
+anti-strawman check `VEnv.constAppInvStmt_of_patWF` — from `VEnv.WF` plus `VEnv.PatWF`, by the
+Church--Rosser route rather than by the `IsDefEqStrong` induction whose `trans` case made it
+look open.  Its measured cone is `IsDefEqU.weakN_iff`, `forallE_inv_stratified`,
+`NormalEq.descend` and `forallE_inv`, and **no constant-application fact**.
+
+That does not close this `sorry`: this theorem's statement carries no `PatWF` hypothesis and
+cannot acquire one, since it is consumed all the way up to `kernel_sound`.  `VEnv.PatWF` for a
+quotient-carrying environment is the concrete next step — `Theory/Typing/ParamsBuild.lean`
+proves it on the δ fragment and records that the quotient case needs `IsDefEqU.forallE_inv`,
+an existing census hole.  So this branch's residual is now *forward* (discharge `PatWF`), not
+*sideways* (state and prove a new inversion principle). -/
 theorem quotReduceRec.WF {c : VContext} {s : VState} (hq : c.env.quotInit = true)
     (he : c.TrExprS e e') :
     RecM.WF c s (quotReduceRec e whnf) fun oe _ =>
