@@ -70,6 +70,15 @@ semantic construction is therefore strictly dominated: it cannot prove anything 
 `sort_not_proof` that its own hypothesis does not already prove more cheaply.**  That is the
 precise sense in which the model route is closed, and it is a theorem, not an impression.
 
+**Prior art in this repo, and the credit belongs there.**  This conclusion was already stated
+as prose in `Theory/Typing/UniqueTypingN.lean` §"Is `PropTypeAgreeN` closable at the index?":
+"the model route is closed for a different reason: `Theory/SetModel/` is parameterised on
+`LevelAssign` … and a cut-down model bottoms out at `sort_not_proof` — which is
+`PropTypeAgreeN` at a sort".  What is new here is only that the statement is now
+machine-checked, at the re-parameterised `PropSplit` rather than at `LevelAssign`, and as an
+*equivalence* rather than an implication.  Two independent derivations agreeing is the point;
+the discovery is not.
+
 ## 3. The published reference agrees, and says so explicitly
 
 `~/lean-type-theory/soundness.tex:34` opens the interpretation with
@@ -176,12 +185,29 @@ names the guarded statement so the model stream can import it, and
 `propTypeAgree_of_onCtx_of_strengthen` states the exact bridge as a hypothesis-shaped
 lemma.
 
-**Recommended repair for the model stream** (not done here; it touches `Interp.lean`, whose
-consumers are another stream's): add `OnCtx Γ (env.IsType nv)` to `PropSplit.prop_sound` and
+**Recommended repair**: add `OnCtx Γ (env.IsType nv)` to `PropSplit.prop_sound` and
 `PropSplit.proof_sound`, and carry `OnCtx` instead of (or beside) `CtxClosed` in
 `soundAbove`'s induction — the induction already builds `⟨hΓ, _, h.hasType⟩` at every binder,
 which is exactly `OnCtx`'s cons.  With that, `PropSplit`'s residual syntactic import becomes
 `WF.propUniqOn` + `WF.propTypeAgreeOn` below, i.e. *nothing new*.
+
+**Measured cost of that repair, because an earlier version of this paragraph implied it was
+local, and it is not.**  No file here is owned by another stream — `Interp.lean`,
+`PropConv.lean` and `RegPiSat.lean` are all freely editable — but the edit is a cascade, not a
+local change:
+
+* `soundAbove` itself is cheap: four `have hΓA : CtxClosed (A :: Γ) := ⟨hΓ, hclA⟩` lines
+  become `OnCtx` conses, and `ctxClosed_of_isType` (already in `SoundInduction.lean`, just
+  below `soundAbove`) recovers the `CtxClosed` the other cases still use.  The entry point
+  `SoundInduction.sound` already *has* the `OnCtx` and currently throws it away.
+* The cost is at the **consumers of the two fields**, which reach them through `isProp_iff` /
+  `isProof_iff`: **64 call sites**, about forty of them in `SetModel/QuotInterp.lean` at
+  hand-built contexts such as `[.bvar 1, quotRelTy, .sort u]`.  Each one would have to
+  discharge a fresh `OnCtx Γ (env.IsType nv)` obligation for its own context, and those
+  obligations are not currently proved anywhere.
+* So the repair is real and worth doing, but it is a `QuotInterp`-sized job with a
+  `PropSplit`-signature flag day in the middle, not the few lines the paragraph above
+  suggests.  Priced here so that it is funded deliberately.
 
 ## Axiom check
 
@@ -508,14 +534,18 @@ iff fails.
 
 So a completed `PropTypeAgreeN` does **not** by itself discharge `PropSplit`'s import, and
 the gap is not about typing: it is that the model asks the question separately at each level
-valuation while the syntactic statement asks it once, universally.  Two ways to close it,
-both cheap compared with the mathematics:
+valuation while the syntactic statement asks it once, universally.  Two ways to close it —
+both *mathematically* cheap, and the first one measured below is a large mechanical edit:
 
 * Weaken `PropSplit`'s fields to the single valuation the interpretation uses.  Nothing in
   `Interp.lean` evaluates a level at any `ls` other than `M.ls`, so the `∀ ls` in
   `prop_sound`/`proof_sound` is unused generality; specialising it leaves the import a
   one-valuation statement.  (Still not the `≈ .zero` shape — see the next item — but it is
-  the honest strength of what the model consumes.)
+  the honest strength of what the model consumes.)  **Cost**, since the same correction as in
+  §5 applies: the valuation is a *field-level* `∀ ls`, so pinning it means giving `PropSplit`
+  an `ls₀` parameter and matching it against `M.ls` at every use — **82 occurrences of
+  `PropSplit env(F) nv` across 20 files**, and 42 of `IsPropAt`/`IsProofAt`.  Mechanical, but
+  a flag day.
 * Or note that the derivations the syntactic side inverts carry *closed* levels wherever the
   environment's declarations do, in which case `eval` is constant in `ls` and the two shapes
   coincide.  That is a statement about the declarations, not about the judgement, and it is

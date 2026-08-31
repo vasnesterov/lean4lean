@@ -236,3 +236,29 @@ concrete declaration despite 36 consumers. Route to that file's owner.
 
    **Rule: cone measurements go through `scripts/hole-cone.lean`'s `deps`.** Do not write a
    competing walker; if you must, copy `deps` verbatim.
+
+5. **Polarity: a monotone predicate can never imply an anti-monotone one.** Recorded here
+   because it was violated twice, both times as a *plan* ("strengthen `IsStructure.decl`
+   until it yields `RuleFreeHead`"), and both times cost a round. `VEnv.IsStructure` is
+   monotone in `env` (`IsStructure.mono`): adding declarations preserves it. `RuleFreeHead`,
+   `PatFreeHead` and `WeakNorm` are **anti**-monotone: adding a rule can only break them. So
+   no strengthening of a monotone hypothesis, however aggressive, can prove one of them —
+   what reconciles them is `VEnv.WF env`, which is a statement about the whole chain and is
+   neither. (This is how `VEnv.IsStructure.ruleFreeHead`,
+   `Theory/Typing/StructureRuleFree.lean`, actually goes through: `VEnv.WF` +
+   `IsStructure`, with `IsStructure.decl` untouched. Nothing at `Machine-checked witnesses`
+   above — including the `W_Struct3.lean` row, which only records that the witness exercises
+   `IsStructure.decl` — asserted otherwise.)
+
+   The check to run before proposing such a strengthening: *is the target monotone in
+   `env`?* If it is not, and the hypothesis is, stop.
+
+6. **A `Params`-gated `Prop` can be refuted, and one was.** `VEnv.WeakNorm`
+   (`Verify/Typing/ConstSpine.lean`) is the sole residual of facts (C)/`TrProj.weak'_inv`.
+   `Verify/Typing/WeakNormRefute.lean` proves `¬ WeakNorm` at two independent `VEnv.Params`
+   instances over `Theory/Typing/CycleConv.lean`'s `propLoopEnv`, one of them built from
+   `VEnv.WF` alone (`paramsOfDelta`, canonical `Lean4Lean.Pat` table). The moral for this
+   audit: an instance-free class is not the only vacuity risk — an *inhabited* class whose
+   inhabitants falsify a hypothesis stated over it is the dual failure, and it is only
+   visible once someone builds an instance. `Theory/Typing/ParamsWitness.lean` built the
+   first `Params`; the refutation is a direct dividend of that.

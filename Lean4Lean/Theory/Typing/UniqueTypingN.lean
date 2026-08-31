@@ -651,10 +651,25 @@ Three of its open cases were characterised as blocked.  They are **two** obstruc
 and not three, and the split is machine-checked below.
 
 * **`forallEDF`** wants **context conversion at a preserved index** — `A::Γ ⊢ₙ B' : .sort .zero`
-  transported to `A'::Γ` along `A ≡ₙ A'`.  Its induction drops an index exactly as
-  `SubstC` does (the conversion is available at `n+1`, the typing premises want it at `n`), so
-  it is in the family refuted in `Theory/Typing/SubstCRefute.lean`, and by the arithmetic in
-  `docs/options-circularity-breakers.md` a rule cannot repair it.
+  transported to `A'::Γ` along `A ≡ₙ A'`, i.e. `PropConv.lean`'s `CtxConvProp` (with `RegConv`;
+  `propForallEDF_of` closes the case from exactly those two).  Its *induction* drops an index
+  exactly as `SubstC` does — the conversion is available at `n+1`, the typing premises of
+  `appDF`/`beta`/`eta`/`proofIrrel` want it at `n` — and the dropped statement is **false**
+  (`CtxConvIndex.ctxTransportT_drop_false`).
+
+  **Correction, and this paragraph used to overstate it.**  An earlier version of this bullet
+  concluded from that mechanism that `CtxConvProp` "is in the family refuted in
+  `Theory/Typing/SubstCRefute.lean`", hence that this case is unreachable.  That does **not**
+  follow, and `Theory/Typing/CtxConvIndex.lean` machine-checks the gap.  What the family refutes
+  is (i) transport of a **conversion** at the preserved index (`ctxTransportD_one_false`, which
+  is `DefInvRefute`'s witness read one index up) and (ii) transport of a **typing across the
+  drop** (`ctxTransportT_drop_false`, the `bvar` case).  `CtxConvProp` is transport of a
+  **typing at the preserved index**, and at that same witness it *holds*: `cod` is `⊢₁`-typed in
+  both `[dom]` and `[dom']` (`CtxConvIndex.witness_transports_typing`), because typing at index
+  `n` may use `conv` at index `n` and the `bvar` mismatch is absorbed there.  Nor can the drop
+  be dodged by assuming the domain conversion at every index `≤ n`: that hypothesis is
+  syntactic equality (`uniform_index_hypothesis_vacuous`).  So the status of this case is
+  **blocked induction, statement open** — not refuted.
 
 * **`proofIrrel` is a self-reference; `eta` is a new statement.**  These look alike and are
   not.  `proofIrrel`'s residual is exactly `PropNotProof`, and `propNotProof_of` shows that is
@@ -721,6 +736,31 @@ def SortForallEDisjoint.AppCase (env : VEnv) (U n : Nat) : Prop :=
     env.HasTypeN U n Γ f (.forallE A₀ B₀) → env.HasTypeN U n Γ a A₀ →
     env.IsDefEqN U n Γ (B₀.inst a) (.sort u) →
     env.HasTypeN U n Γ (.app f a) (.forallE A B) → False
+
+/-- **What a counterexample to `AppCase` must supply — and what this tree's witnesses cannot.**
+
+`AppCase` asks for two instantiated codomains of one function, one convertible to a **sort**
+and the other to a **Π**: *both shaped*.  Every witness in this tree that separates two types
+of a single term (`Theory/Typing/SubstCRefute.lean`, `DefInvRefute.lean`,
+`AppCase.lean`'s `AppCaseRefute`) separates them as a β-redex from its reduct, and the redex
+side is **stuck** — `⊢ₙ`-related to nothing but itself, because every non-structural rule of
+`⊢ₙ₊₁` carries a `⊢ₙ` typing premise the instantiated redex cannot satisfy.  A stuck term that
+is not syntactically a sort is not convertible to one, and likewise for Π; so the stuck side
+can be *neither* side of the obligation.  That is why `AppCase.lean`'s `witness_shapes` finds
+the existing witness shapeless on one side, and why re-running the construction with a
+Π-shaped argument does not help: the stuckness moves with the redex, not with the argument.
+
+A refutation of `AppCase` therefore needs a new mechanism for separating two types of one
+term, not a re-run of the stuck construction.  The routes *through* a positive statement are
+priced in `AppCase.lean` and every one that has been named is refuted (`appTypeUniq_false`,
+`piCodConv_false`, `relDisj_instClosed_false`), so `AppCase` is currently walled on both
+sides. -/
+theorem SortForallEDisjoint.AppCase.stuck_side_excluded {Γ : List VExpr} {C : VExpr}
+    (hstuck : ∀ X, env.IsDefEqN U n Γ C X → X = C)
+    (hs : ∀ v : VLevel, C ≠ .sort v) (hp : ∀ A B : VExpr, C ≠ .forallE A B) :
+    (∀ v : VLevel, ¬ env.IsDefEqN U n Γ C (.sort v)) ∧
+      (∀ A B : VExpr, ¬ env.IsDefEqN U n Γ C (.forallE A B)) :=
+  ⟨fun v h => hs v (hstuck _ h).symm, fun A B h => hp A B (hstuck _ h).symm⟩
 
 /-- **`SortForallEDisjoint` closes in six of its seven typing cases**, from `DefInv` alone.
 `trans` never arises — it is a *conversion* rule, and this is an induction on typing — so the
