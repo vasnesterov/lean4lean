@@ -429,3 +429,47 @@ size to that family.
 `TrProj.weak'_inv` is now blocked on **`VEnv.WeakNorm` alone** (`Verify/Typing/ConstSpine.lean:526`
 — defined, consumed twice, proved nowhere) plus the shared `weakN_iff`. Its docstring's
 "provably cannot supply `RuleFreeHead`" claim is retracted in place.
+
+## Round record — the confluence/strengthening cycle, measured (2026-08-31)
+
+`StrengthenNarrow.lean`'s round-5 verdict says the normalisation route to `weakN_iff` is
+"cyclic here for import reasons". I checked whether the cycle is *logical* or merely
+*incidental*, using `scripts/hole-cone.lean`'s `deps` plus a BFS for the shortest dependency
+path. The `weakN_iff` dependence enters the confluence chain at exactly **two independent
+places**:
+
+```
+NormalEq.descendV -> DescentLam.beta -> DescentLam.instN -> NormalEq.trans
+                  -> NormalEq.weakN_iff -> NormalEq.weakN_inv_DFC -> IsDefEqU.weakN_iff
+NormalEq.parRed   -> ParRed.weakN_inv  -> IsDefEqU.weakN_iff
+```
+
+Measured cones: `church_rosser` = `parRed` = `descend` = `{weakN_iff,
+forallE_inv_stratified, rigidShapeUniqNS, descend}`; `descendV` = the same minus `descend`;
+`ParRedK.defeq` = `{forallE_inv_stratified, rigidShapeUniqNS}` — **already clean of
+`weakN_iff`**; `ParRed.toK` = `{}`.
+
+The reason to think the cycle is incidental: `NormalEq` has **ten constructors and no `trans`
+constructor** (`NormalEq.trans` is a theorem). `Strengthen.lean` §5 establishes that eleven of
+the twelve conversion rules close from `TypingStrengthening` alone and only `trans` resists —
+so induction on `NormalEq` is missing precisely the case that defeats the direct route. And
+reading `weakN_inv_DFC`'s nine cases, every invocation of full conversion-strengthening looks
+either **reflexive** (`refl`, `etaL`/`etaR`'s first use, `proofIrrel` — i.e. typing
+strengthening, which §5 of `StrengthenNarrow.lean` already discharges) or **restricted to a
+type shape**: `A := .sort ..` in `lamDF`/`forallEDF`, `A := .forallE ..` in `etaL`/`etaR`,
+and `appDF`'s conversion is between the *types* of the two heads.
+
+If that holds, `NormalEq`-strengthening is independent of the hole, and the hole closes by
+transport once confluence is repaired: `e1↑ ≡ e2↑` upstairs → `church_rosser` → `NormalEq`
+upstairs → `NormalEq`-strengthening → `NormalEq` downstairs → `NormalEq.defeq`. 131 users.
+
+This also makes the concurrent `ParRedK` work load-bearing rather than hygienic: repairing
+`parRed` stops being "delete a false lemma, census 14→13" and becomes the enabling half of
+the largest hole in the tree.
+
+**Booked as a lead, not a finding.** Per the rule from earlier this round, my reading of the
+nine cases is exactly the kind of claim that has to be checked before it is spent: the brief's
+task 0 is to falsify it, and the honest failure mode is that the `.sort`/`.forallE`
+restrictions are just as hard as the general case, in which case the round ends with a sharp
+negative. Second risk, named: entry (2) `ParRed.weakN_inv` is a separate obligation, and the
+transport argument needs `church_rosser`, which routes through it.
