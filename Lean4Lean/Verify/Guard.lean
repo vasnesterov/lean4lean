@@ -261,7 +261,13 @@ in this repo are reachable from the checker entry point. -/
     let mut kinds : List String := []
     if (Compiler.getImplementedBy? env n).isSome then kinds := "implemented_by" :: kinds
     if (getExternAttrData? env n).isSome then kinds := "extern" :: kinds
-    if env.contains (.str n "_unsafe_rec") then kinds := "partial" :: kinds
+    -- A `_unsafe_rec` companion alone does NOT mean `partial`: the equation compiler emits
+    -- one for *every* computable recursive definition, structural and well-founded included.
+    -- What distinguishes a genuine `partial def` is that it elaborates to an `opaque`.
+    if env.contains (.str n "_unsafe_rec") then
+      match env.find? n with
+      | some (.opaqueInfo _) => kinds := "partial" :: kinds
+      | _ => pure ()   -- ordinary recursive def: `_unsafe_rec` is codegen, not `partial`
     unless kinds.isEmpty do
       count := count + 1
       let ks := ", ".intercalate kinds
