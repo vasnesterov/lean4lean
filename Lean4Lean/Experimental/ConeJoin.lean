@@ -96,6 +96,7 @@ import Lean4Lean.Theory.Typing.UniqSort
 import Lean4Lean.Verify.Typing.RecTypePeel
 import Lean4Lean.Verify.Typing.StructureUniq
 import Lean4Lean.Theory.Typing.NormalEqStrengthen
+import Lean4Lean.Theory.Typing.StrengthenPiProp  -- added 2026-08-31: round 7 Prop/Pi slices of the weakN_iff trans residual
 import Lean4Lean.Verify.Typing.ProjSpineInv
 import Lean4Lean.Verify.Typing.WeakNormRefute
 
