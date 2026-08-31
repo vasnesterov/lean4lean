@@ -2807,3 +2807,111 @@ at exactly that shape, built ahead of the port for this reason.
 
    Item 4 is independent of item 1 and of the injectivity stream; it is *not*
    independent of items 2 and 3. Soundness — its other prerequisite — is done.
+
+---
+
+## Correction, 2026-08-31: two ledger entries above are **vacuous as stated**
+
+`Theory/SetModel/CnstRecursion.lean`.
+
+The table in item 4 lists the `.induct` line as "step **proved**
+(`coherentOn_addInduct`)", and the section "The `OracleOK` connection, closed"
+says `coherentOn_addConstList` "already handles a whole list at a single final
+assignment — applies directly". **Both entries are wrong, and the error is not a
+gap in the proofs: the proofs are fine and their hypotheses are jointly
+unsatisfiable.**
+
+`coherentOn_addConstList` (`Cnst.lean`) takes, alongside
+`env.addConstList cs = some env'`, an occurrence hypothesis
+
+    hocc : ∀ p ∈ cs, p.2.type.ConstsIn env.contains
+
+stated at the **pre-block** environment `env`. But `addConstList` fails on a
+duplicate, so `addConstList cs = some env'` forces every name of `cs` to be
+*absent* from `env` (`addConstList_fresh`, already in the file). Hence any block
+one of whose declared types mentions another of the block's own names satisfies
+the `addConstList` hypothesis and refutes `hocc`. Machine-checked, sorry-free:
+
+* `addConstList_hocc_unsat` — the general statement, for any `p q ∈ cs` with
+  `q.1` occurring in `p.2.type`;
+* `hocc_unsat_eqIndDecl` / `hocc_unsat_eqIndDecl'` — instantiated at
+  `eqIndDecl`, the **head of `leanPrelude`**, where `Eq.refl`'s type mentions
+  `Eq`. So the lemma is vacuous at the very first inductive the model must
+  interpret, and by extension at every inductive with a constructor, since a
+  constructor's type names its own family. `coherentOn_addInduct`, which routes
+  through `coherentOn_addConstList` on `D.allConsts`, inherits the vacuity.
+
+The staging collapse the section celebrates — `addIndTypes ⨟ addIndCtors ⨟
+addIndRecs` into one `addConstList D.allConsts` — is still correct and still
+worth having (`addInduct'_iff`). What was wrong was inferring from it that the
+*occurrence* condition also collapses. It does not: `VInductDecl'.WF` itself
+stages its `ctors` field at `addIndTypes` rather than at `env`, which was the
+available signal that the block's own names have to be in scope partway through.
+
+### The repair
+
+    def StagedOcc : VEnv → List (Name × VConstant) → Prop
+      | _, [] => True
+      | env, p :: cs => p.2.type.ConstsIn env.contains ∧
+          ∀ env₁, env.addConst p.1 p.2 = some env₁ → StagedOcc env₁ cs
+
+`coherentOn_addConstList'` is `coherentOn_addConstList` with `hocc : StagedOcc env cs`
+in place of the unstaged form. **The proof body is unchanged**: the head step
+consumes `hocc.1`, and the recursive call consumes `hocc.2` at the intermediate
+environment — exactly the information the unstaged form threw away. Sorry-free.
+
+`stagedOcc_separates` is the non-vacuity control: a two-constant block on which
+`StagedOcc` holds and the old hypothesis fails. So this is a real repair and the
+new lemma is not vacuous in turn.
+
+### What the repair buys, and what it does not
+
+`coherentOn_cnstOf` (same file) is the outer recursion of item 4, over
+`VEnv.WF' ds env`, sorry-free:
+
+| `VDecl` | disposition in `coherentOn_cnstOf` |
+|---|---|
+| `.def`, `.opaque` | **discharged** from `coherentOn_defEq` / `coherentOn_defConst` |
+| `.example` | **discharged** (no environment change) |
+| `.unsafeDef` | **refuted** from `VDecl.noUnsafe`, which `VEnv.LeanWF` supplies (`noUnsafe_of_leanWF`); item 3's `mutualDef` therefore does not block H2 |
+| `.quot` | occurrence side **discharged** (`stagedOcc_quotConsts`, from `VEnv.QuotReady` alone — precisely what `VDecl.WF.quot` carries); value side is `QuotOracleOK`, i.e. the four `const_type` obligations plus `quotDefEq`, all already proved in `QuotInterp.lean` |
+| `.induct` | reduced to `InductOracleOK` — **the residual** |
+
+`InductOracleOK L κ ls o c D` has three fields: `staged` (`StagedOcc env D.allConsts`
+whenever `addInduct' D` succeeds — this is what the repaired lemma now *asks* for and
+what `VInductDecl'.WF` should supply), `consts` (per-constant `OracleOK`), `rules`
+(per-ι-rule `DefEqOK`). Fields 2 and 3 are the ones the ledger already says wait on
+the `VIndCtor → CtorData₃`/`Args` translation; field 1 is new, and is the part the
+vacuity was hiding.
+
+Boundary control on the residual, both sorry-free, both in the same file:
+
+* `not_oracleOK_falseProp` / `not_inductOracleOK_falseProp` — `InductOracleOK` is
+  **refutable** at a block declaring a constant of type `∀ p : Prop, p`, since
+  `OracleOK`'s `type` field asks for an element of `⟦falseProp⟧ = ∅`. So no uniform
+  proof of the residual exists, and the reduction is not circular: `VDecl.WF` asks
+  that a declared type *be* a type, never that it be inhabited.
+* `inductOracleOK_empty` — `InductOracleOK` **holds** for a block with no type
+  formers, so the residual is not plainly false either.
+
+### H2 after this: a reduction, not a closure
+
+`upper_bound_of (hA : InaccModelInput) (hB : ModelFitsInput) :`
+`Entailment.Consistent 𝗭𝗙𝗖+𝗜𝗻𝗮𝗰𝗰 → leanTTConsistent`, sorry-free. Its two inputs
+are open, and they are **not** the same thing as the residual:
+
+* `InaccModelInput` — model existence. Foundation supplies the two halves
+  separately (`small_satisfiable_of_consistent` + `QuotNormalize`/`standardStructure`,
+  and `exists_inaccessibleChain`), and **neither is applied here**. The second is a
+  real gap, not bookkeeping: `exists_inaccessibleChain` gives one `κ` *per* `n`,
+  while `consistent_of` needs a single `κ` with `∀ m, IsInaccessibleChain m κ`,
+  because the threshold `sound_nil` produces is not known in advance.
+* `ModelFitsInput` — per-environment model data: a `PropSplit env 0` with `Stable`
+  and a `CtxInvariant`, plus `OracleFits`. The `PropSplit` part carries
+  `docs/model-interface.md`'s standing label (nothing in the tree exhibits one);
+  the `OracleFits` part is the `.axiom`/`.quot`/`.induct` oracle, of which only the
+  `.induct` clause is the residual.
+
+**No joint witness for the whole hypothesis set has been exhibited.** The claim
+here is exactly: every `VDecl` case of the recursion is discharged or refuted
+outright, and what remains is the three named inputs above.

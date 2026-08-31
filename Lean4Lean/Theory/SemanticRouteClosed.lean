@@ -31,13 +31,20 @@ so the cone reading alone would be worthless here -- the model layer is *paramet
 the interesting question is what the parameter contains.  That is measured too, by reading the
 structures rather than the cone:
 
-* the **old** parameter `LevelAssign` did contain `SortUniq`: `LevelAssign.srt_sound` demands
-  one canonical level agree with every type of a term, and `LevelAssign.srt_uniq` derives
-  universe uniqueness for terms from it.  Against `LevelAssign` the model route **was**
-  circular through its parameter.
-* the **current** parameter is `PropSplit`, and it is not.  `PropSplit.prop_sound` /
-  `proof_sound` test only `u.eval ls = 0`; they constrain levels only up to "is zero", so they
-  do not imply `SortUniq`, and nothing in `PropSplit` mentions `PiInv`.
+* the **old** parameter `LevelAssign` did contain `SortUniq` -- **machine-checked** here, as
+  `levelAssign_gives_sortUniq : LevelAssign env nv → env.SortUniq nv` (axioms `propext`,
+  `Quot.sound`; no `sorryAx`).  Against `LevelAssign` the model route **was** circular through
+  its own parameter, and no cone measurement could ever have shown that.
+* the **current** parameter is `PropSplit`, and it is not.  **This half is a structural reading
+  of the two structures, not a theorem in this file**, and is flagged as such deliberately (the
+  same way `Theory/Typing/SortUniq.lean` flags its own unchecked paragraph).  The reading:
+  `PropSplit.prop_sound` / `proof_sound` test only `u.eval ls = 0`, so they constrain a level
+  only up to "is zero" and cannot force two levels equal; and nothing in `PropSplit` mentions
+  `PiInv`.  Turning it into a theorem would mean exhibiting a `PropSplit` for an environment
+  where `SortUniq` fails, i.e. an independence result, which is strictly more work than the
+  route needs -- the load-bearing direction for *this* file is that the parameter no longer
+  *hands* you `SortUniq`, and every result below is proved from `PropSplit` alone, which is the
+  operative check.
 
 So: **the model route is not circular.**  The re-parameterisation from `LevelAssign` to
 `PropSplit` is what made that true, and it is recent (`docs/model-interface.md`'s own
