@@ -357,6 +357,129 @@ variable! (hΓ : OnCtx Γ (IsType env univs)) in
 theorem NormalEq.defeq_l (W : Γ ⊢ A ≡ A' : sort u) (H : A::Γ ⊢ e1 ≡ₚ e2) :
     A'::Γ ⊢ e1 ≡ₚ e2 := defeqDFC hΓ (.succ .zero W) H
 
+/-! ### Parallel substitution, and why the descent does not need strengthening
+
+`instN` substitutes the *same* term on both sides; `instN_r` substitutes two `NormalEq`-related
+terms into the *same* term.  Composing them with `NormalEq.trans` is how the descent used to
+repair the argument mismatch in `DescentLam.instN`, and that composition is the **only** reason
+`IsDefEqU.weakN_iff` was ever in the descent's cone: `trans`'s `etaR`-after-`etaL` case is the
+one place in this file that strengthens a `NormalEq` (`:640`).
+
+`instN₂` does both substitutions in one induction, so no `trans` is needed.  The cases that
+looked as if they needed transitivity do not: `appDF`, `etaL`, `etaR` and `proofIrrel` all
+retype the right-hand side through `instN_r`'s *conversion* (`NormalEq.defeq`, then
+`defeqU_l`/`defeqU_r`), which is a `IsDefEqU` step and never a `NormalEq` one, and `refl` is
+`instN_r` itself.  `etaR` is the only asymmetric case: its binder is `A.inst e₀' k` on the
+right while the induction hypothesis lives over `A.inst e₀ k`, so it ends with one
+`NormalEq.defeq_l` across the two.
+
+Measured consequence (`scripts/hole-cone.lean`'s `deps`): `NormalEq.instN₂`'s hole cone is
+`{IsDefEqU.forallE_inv_stratified}` alone, where `NormalEq.trans`'s is that plus
+`WF.rigidShapeUniqNS` and `IsDefEqU.weakN_iff`.  Rewiring `DescentLam.instN` onto it takes
+`IsDefEqU.weakN_iff` out of the cone of the whole descent layer -- `DescentLam.instN`,
+`DescentLam.beta`, `NormalEq.descend`, and `KDescend.lean`'s `NormalEq.descendV`.
+
+This settles, in the affirmative and for the descent only, the question
+`docs/handoff-weakn.md` §6 and `NormalEqStrengthen.lean` ask about the confluence/strengthening
+cycle: *the descent's* use of the hole was incidental.  It says nothing about `NormalEq.parRed`
+or `IsDefEq.church_rosser`, which use `trans` at fifteen further sites with arbitrary
+derivations on both sides, nor about `ParRed.weakN_inv`, which is the cycle's second entry. -/
+
+variable! (h₀ : Γ₀ ⊢ e₀ : A₀) (H' : Γ₀ ⊢ e₀ ≡ₚ e₀') in
+theorem NormalEq.instN₂ :
+    ∀ {Γ₁ : List VExpr} {e1 e2 : VExpr}, Γ₁ ⊢ e1 ≡ₚ e2 →
+    ∀ {k : Nat} {Γ : List VExpr}, OnCtx Γ₁ (IsType env univs) →
+      Ctx.InstN Γ₀ e₀ A₀ k Γ₁ Γ → Γ ⊢ e1.inst e₀ k ≡ₚ e2.inst e₀' k := by
+  intro Γ₁ e1 e2 H
+  induction H with
+  | refl h => intro k Γ hΓ₁ W; exact NormalEq.instN_r hΓ₁ h₀ H' W h
+  | sortDF h1 h2 h3 => intro k Γ hΓ₁ W; exact .sortDF h1 h2 h3
+  | constDF h1 h2 h3 h4 h5 => intro k Γ hΓ₁ W; exact .constDF h1 h2 h3 h4 h5
+  | appDF h1 h2 h3 h4 _ _ ih1 ih2 =>
+    intro k Γ hΓ₁ W
+    have ⟨_, hΓ⟩ := W.wf henv h₀ hΓ₁
+    have hf := h1.instN henv W h₀
+    have ha := h3.instN henv W h₀
+    have if1 := ih1 hΓ₁ W
+    have if2 := ih2 hΓ₁ W
+    exact .appDF hf (.defeqU_l henv hΓ (if1.defeq hΓ) hf)
+      ha (.defeqU_l henv hΓ (if2.defeq hΓ) ha) if1 if2
+  | lamDF h1 h2 h3 ih1 =>
+    intro k Γ hΓ₁ W
+    have ⟨_, hΓ⟩ := W.wf henv h₀ hΓ₁
+    have hA := h1.instN henv h₀ W
+    have hA2 := h2.instN henv h₀ W
+    have hr := NormalEq.instN_r hΓ₁ h₀ H' W h2.hasType.2
+    exact .lamDF hA (hA2.trans_l henv hΓ ((hr.defeq hΓ).of_l henv hΓ hA2.hasType.2))
+      (ih1 ⟨hΓ₁, _, h1.hasType.1⟩ W.succ)
+  | forallEDF h1 h2 h3 h4 ih1 ih2 =>
+    intro k Γ hΓ₁ W
+    exact .forallEDF (h1.instN henv h₀ W) (ih1 hΓ₁ W) (h3.instN henv W.succ h₀)
+      (ih2 ⟨hΓ₁, _, h1.hasType.1⟩ W.succ)
+  | @etaL _ e' A B e h1 _ ih =>
+    intro k Γ hΓ₁ W
+    have ⟨_, hΓ⟩ := W.wf henv h₀ hΓ₁
+    have ⟨⟨_, hA⟩, _, hB⟩ := have ⟨_, h⟩ := h1.isType henv hΓ₁; h.forallE_inv henv
+    have he' := h1.instN henv W h₀
+    have hr := NormalEq.instN_r hΓ₁ h₀ H' W h1
+    refine .etaL (.defeqU_l henv hΓ (hr.defeq hΓ) he') ?_
+    simpa [inst, lift_instN_lo] using ih (Γ := _) ⟨hΓ₁, _, hA⟩ W.succ
+  | @etaR _ e' A B e h1 _ ih =>
+    intro k Γ hΓ₁ W
+    have ⟨_, hΓ⟩ := W.wf henv h₀ hΓ₁
+    have ⟨⟨_, hA⟩, _, hB⟩ := have ⟨_, h⟩ := h1.isType henv hΓ₁; h.forallE_inv henv
+    have he' := h1.instN henv W h₀
+    have hBc := hB.instN henv W.succ h₀
+    have hAc : Γ ⊢ A.inst e₀ k ≡ A.inst e₀' k : .sort _ :=
+      ((NormalEq.instN_r hΓ₁ h₀ H' W hA).defeq hΓ).of_l henv hΓ (hA.instN henv W h₀)
+    refine .etaR (.defeqU_r henv hΓ ⟨_, .forallEDF hAc hBc⟩ he') ?_
+    refine NormalEq.defeq_l hΓ hAc ?_
+    simpa [inst, lift_instN_lo] using ih (Γ := _) ⟨hΓ₁, _, hA⟩ W.succ
+  | proofIrrel h1 h2 h3 =>
+    intro k Γ hΓ₁ W
+    have ⟨_, hΓ⟩ := W.wf henv h₀ hΓ₁
+    have hp := h1.instN henv W h₀
+    have hh := h2.instN henv W h₀
+    have hh' := h3.instN henv W h₀
+    exact .proofIrrel hp hh
+      (.defeqU_l henv hΓ ((NormalEq.instN_r hΓ₁ h₀ H' W h3).defeq hΓ) hh')
+
+/-! ### Controls, and where the strengthening appeal is irreducible
+
+`instN₂` is not a restatement of one of the two halves it replaces: both are instances of it,
+at a reflexive substituend and at a reflexive derivation respectively.  And the appeal it
+removes is not removable everywhere -- `weakN_inv_one_of_inhabited` shows the *whole* of
+`NormalEq`-strengthening at one binder is free by substitution **when the binder type is
+inhabited downstairs**, which localises `NormalEq.trans`'s residual appeal (`:640`) to binders
+with no downstairs inhabitant.  `trans` is invoked at arbitrary Π-domains -- most sharply by
+`IsDefEq.church_rosser`'s own `trans` case (`:2475`), where the two `NormalEq`s are arbitrary --
+so the localisation does not close it.  That is the honest bound: the descent's use of the hole
+was incidental, `church_rosser`'s is not. -/
+
+/-- Control: `NormalEq.instN` is `instN₂` at a reflexive substituend. -/
+theorem NormalEq.instN_of_instN₂ {k : Nat} {Γ₀ Γ₁ Γ : List VExpr} {e₀ A₀ e1 e2 : VExpr}
+    (hΓ₁ : OnCtx Γ₁ (IsType env univs)) (h₀ : Γ₀ ⊢ e₀ : A₀)
+    (W : Ctx.InstN Γ₀ e₀ A₀ k Γ₁ Γ) (H : Γ₁ ⊢ e1 ≡ₚ e2) :
+    Γ ⊢ e1.inst e₀ k ≡ₚ e2.inst e₀ k := NormalEq.instN₂ h₀ (.refl h₀) H hΓ₁ W
+
+/-- Control: `NormalEq.instN_r` is `instN₂` at a reflexive derivation. -/
+theorem NormalEq.instN_r_of_instN₂ {k : Nat} {Γ₀ Γ₁ Γ : List VExpr} {e₀ e₀' A₀ e A : VExpr}
+    (hΓ₁ : OnCtx Γ₁ (IsType env univs)) (h₀ : Γ₀ ⊢ e₀ : A₀) (H' : Γ₀ ⊢ e₀ ≡ₚ e₀')
+    (W : Ctx.InstN Γ₀ e₀ A₀ k Γ₁ Γ) (h : Γ₁ ⊢ e : A) :
+    Γ ⊢ e.inst e₀ k ≡ₚ e.inst e₀' k := NormalEq.instN₂ h₀ H' (.refl h) hΓ₁ W
+
+/-- **`NormalEq`-strengthening at one binder, from substitution alone.**  If the dropped type
+has a downstairs inhabitant then dropping the binder is *substituting* it, and `NormalEq.instN`
+already does that: no `IsDefEqU.weakN_iff`, no `TypingStrengthening`.
+
+This bounds what `NormalEq.trans`'s one appeal to strengthening (`:640`) can possibly need: it
+is confined to binders `A` with no term of type `A` over the base context.  It does not remove
+the appeal -- `trans` is applied at arbitrary `A` -- and `NormalEqStrengthen.lean` is where the
+general case is reduced (to `TypingStrengthening`, equivalently `PiDescend`). -/
+theorem NormalEq.weakN_inv_one_of_inhabited {Γ : List VExpr} {A a e1 e2 : VExpr}
+    (h₀ : Γ ⊢ a : A) (H : A::Γ ⊢ e1.lift ≡ₚ e2.lift) : Γ ⊢ e1 ≡ₚ e2 := by
+  simpa [VExpr.inst_lift] using NormalEq.instN h₀ .zero H
+
 variable! (hΓ₀ : OnCtx Γ₀ (IsType env univs)) in
 theorem NormalEq.weakN_inv_DFC (W : Ctx.LiftN n k Γ Γ₂) (W₂ : IsDefEqCtx env univs Γ₀ Γ₁ Γ₂)
     (H : Γ₁ ⊢ e1.liftN n k ≡ₚ e2.liftN n k) : Γ ⊢ e1 ≡ₚ e2 := by
@@ -592,6 +715,35 @@ theorem NormalEq.apply_instL {p : Pattern} {r : p.RHS}
     exact .appDF h1 (.defeqU_l henv hΓ ((ih1 h1).defeq hΓ) h1)
       h2 (.defeqU_l henv hΓ ((ih2 h2).defeq hΓ) h2) (ih1 h1) (ih2 h2)
   | var path => exact .refl he
+
+/-! ### **`apply_instL` and `apply_pat` in one induction.**  The two lemmas above walk the same
+`Pattern.RHS`, one moving the level lists and one moving the arguments, and every consumer wants
+both at once.  Composing them costs a `NormalEq.trans`, whose `etaR`-after-`etaL` case carries this file's
+only appeal to conversion strengthening (`:640`); doing both in a single induction on `r` costs nothing,
+because at each node the two congruences land in different slots -- `fixed` sees only the
+levels, `var` only the arguments, `app` recurses on both.
+
+Measured: `NormalEq.appDF_extra_of_descend`'s hole cone loses `IsDefEqU.weakN_iff` when this
+replaces the `apply_instL ... |>.trans ... apply_pat` composition below, and so do
+`KDescend.lean`'s `appDF_extra_of_descendV` and `KSite7App.lean`'s
+`appDF_extra_of_descendVK`. -/
+
+open Pattern.RHS in
+variable! (hΓ : OnCtx Γ (IsType env univs)) in
+theorem NormalEq.apply_congr {p : Pattern} {r : p.RHS}
+    {m1 m1' : p.LPath → List VLevel} {m2 m2' : p.Path → VExpr}
+    (hls : ∀ lp, ∀ l ∈ m1 lp, l.WF univs) (hls' : ∀ lp, ∀ l ∈ m1' lp, l.WF univs)
+    (hll : ∀ lp, List.Forall₂ (· ≈ ·) (m1 lp) (m1' lp))
+    (iha : ∀ a A, Γ ⊢ m2 a : A → Γ ⊢ m2 a ≡ₚ m2' a)
+    (he : Γ ⊢ apply m1 m2 r : A) :
+    Γ ⊢ apply m1 m2 r ≡ₚ apply m1' m2' r := by
+  induction r generalizing A with simp [apply] at he ⊢
+  | fixed c lp => exact .instL_congr hΓ (hls lp) (hls' lp) (hll lp) he
+  | app hf ha ih1 ih2 =>
+    let ⟨_, _, h1, h2⟩ := he.app_inv henv hΓ
+    exact .appDF h1 (.defeqU_l henv hΓ ((ih1 h1).defeq hΓ) h1)
+      h2 (.defeqU_l henv hΓ ((ih2 h2).defeq hΓ) h2) (ih1 h1) (ih2 h2)
+  | var path => exact iha path _ he
 
 set_option hygiene false
 local notation:65 Γ " ⊢ " e1 " ≫ " e2:36 => ParRed Γ e1 e2
@@ -1660,8 +1812,10 @@ eta-expanded function argument).
    statement verbatim); note that route (1) already absorbs the proof-replacement half, since a
    K-step fires whichever proof sits in the major-premise slot.
 
-**Consequence for this file's own results.**  `descend` has 44 transitive users
-(`scripts/sorry-census.lean`), `IsDefEq.church_rosser` among them.  Their *statements* are not
+**Consequence for this file's own results.**  `descend` has **145** transitive users
+(`scripts/hole-rank.lean`, 2026-08-31; the "44" this paragraph used to quote predates
+`TrProj.uniq` closing and routing its consumers through `projData_uniq`),
+`IsDefEq.church_rosser` among them.  Their *statements* are not
 refuted, but their current *proofs* route through a false lemma, so they are not merely
 "waiting on a hole": the wiring has to be redone against `KDescend.lean`'s `descendV` and
 `appDF_extra_of_descendV` **and** against a `ParRed` that has the proof-replacement step --
@@ -1787,12 +1941,13 @@ theorem DescentLam.instN : ∀ {k : Nat} {Γ₀ Γ₁ Γ : List VExpr} {a₁ a�
   intro k
   induction k with
   | zero =>
-    rintro Γ₀ Γ₁ Γ a₁ a₂ A₀ j q g g' n1 n2 hΓ₁ h₀ H' hn2 W ⟨t, u1, u2, hred, hmt, hlv, hwa, hwb, hn⟩
-    have ⟨_, hΓ⟩ := W.wf henv h₀ hΓ₁
-    refine ⟨t.inst a₁ j, u1, fun x => (u2 x).inst a₁ j,
-      ParRedS.instN h₀ W hred, Pattern.matches_instN hmt, hlv, hwa, hwb, fun x => ?_⟩
-    have ⟨_, hT⟩ := hn2 x
-    exact (NormalEq.instN h₀ W (hn x)).trans hΓ (NormalEq.instN_r hΓ₁ h₀ H' W hT)
+    rintro Γ₀ Γ₁ Γ a₁ a₂ A₀ j q g g' n1 n2 hΓ₁ h₀ H' _hn2 W ⟨t, u1, u2, hred, hmt, hlv, hwa, hwb, hn⟩
+    -- One `instN₂` where the original composed `instN` and `instN_r` with `NormalEq.trans`.
+    -- That composition was the descent's only route to `IsDefEqU.weakN_iff`; see the note at
+    -- `NormalEq.instN₂`.
+    exact ⟨t.inst a₁ j, u1, fun x => (u2 x).inst a₁ j,
+      ParRedS.instN h₀ W hred, Pattern.matches_instN hmt, hlv, hwa, hwb,
+      fun x => NormalEq.instN₂ h₀ H' (hn x) hΓ₁ W⟩
   | succ k ih =>
     rintro Γ₀ Γ₁ Γ a₁ a₂ A₀ j q g g' n1 n2 hΓ₁ h₀ H' hn2 W ⟨A, e, B, hred, hty, D⟩
     have ⟨_, hΓ⟩ := W.wf henv h₀ hΓ₁
@@ -2108,11 +2263,11 @@ theorem NormalEq.appDF_extra_of_descend {Γ : List VExpr} {f A B a b f₂ : VExp
       have ⟨_, htT⟩ := ht'
       refine ⟨_, .tail .rfl hfire, ?_⟩
       rw [Pattern.RHS.liftN_apply (p := q₁.app q₂) (m1 := Sum.elim f1 f2) (m2 := m2') r.fst]
-      have hstep1 := NormalEq.apply_instL (p := q₁.app q₂) (r := r.fst) hΓ' hwA hwB hlv
-        (hfire.hasType hΓ' htT)
-      refine hstep1.trans hΓ' ?_
-      have ⟨_, hh⟩ := hstep1.defeq hΓ'
-      exact NormalEq.apply_pat hΓ' (fun (x : (q₁.app q₂).Path) _ _ => hne x) hh.hasType.2
+      -- One `apply_congr` where the original composed `apply_instL` with `apply_pat` through
+      -- `NormalEq.trans`; that composition was this lemma's only route to
+      -- `IsDefEqU.weakN_iff`.
+      exact NormalEq.apply_congr (p := q₁.app q₂) (r := r.fst) hΓ' hwA hwB hlv
+        (fun (x : (q₁.app q₂).Path) _ _ => hne x) (hfire.hasType hΓ' htT)
     match NormalEq.descend _ (Nat.le_refl _) hΓ hnode hmnode with
     | .inl ⟨k, D⟩ =>
       -- Uniform in the number of pending eta layers: `DescentLam.fire` climbs the tower.

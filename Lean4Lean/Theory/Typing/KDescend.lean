@@ -317,11 +317,8 @@ theorem NormalEq.appDF_extra_of_descendV
           hK (.mk r1 hmK hckK htf' hdq)
         refine ⟨_, .tail .rfl hfire, ?_⟩
         rw [Pattern.RHS.liftN_apply (p := q₁.app q₂) (m1 := Sum.elim f1 f2) (m2 := m2') r.fst]
-        have hstep1 := NormalEq.apply_instL (p := q₁.app q₂) (r := r.fst) hΓ' hwAS hwB hlvS
-          (hfire.hasType hΓ' htT)
-        refine hstep1.trans hΓ' ?_
-        have ⟨_, hh⟩ := hstep1.defeq hΓ'
-        exact NormalEq.apply_pat hΓ' (fun x _ _ => hneS x) hh.hasType.2
+        exact NormalEq.apply_congr (p := q₁.app q₂) (r := r.fst) hΓ' hwAS hwB hlvS
+          (fun x _ _ => hneS x) (hfire.hasType hΓ' htT)
     match NormalEq.descendV _ (Nat.le_refl _)
         (show (Pattern.var q₁).NoApp from hq1) hΓ hnode hmvar with
     | .inl ⟨k, D⟩ =>
