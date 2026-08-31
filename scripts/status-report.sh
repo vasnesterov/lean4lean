@@ -36,6 +36,14 @@ if [ -z "$guards" ]; then
   guards="  (guards not sampled — build busy or failing; see git log)"
 fi
 
+# --- empty inductives (vacuity sources; see docs/vacuity-ledger.md) ---
+# Time-boxed like the guards: needs a built package, and a stream may hold the lock.
+empties=$(timeout 180 "$LAKE" env lean scripts/empty-inductives.lean 2>/dev/null \
+  | grep -E "^  Lean4Lean" | sed 's/^/  /')
+if [ -z "$empties" ]; then
+  empties="  (not sampled -- build busy; run scripts/empty-inductives.lean directly)"
+fi
+
 # --- axiom count, read from the guard output rather than grepped ---
 axioms=$(printf '%s\n' "$guards" | grep -oE "exactly the [0-9]+ frozen axioms" | grep -oE "[0-9]+")
 [ -z "$axioms" ] && axioms="?"
@@ -48,6 +56,8 @@ guards:
 $guards
 
 axioms: $axioms
+empty inductives (vacuity sources -- docs/vacuity-ledger.md):
+$empties
 sorries — typing $s_typing | model $s_model | inductive $s_induct | verify $s_verify
 
 goal 1 (arena): run 'uv run lka.py run --checker lean4lean-local' in ~/lean-kernel-arena
