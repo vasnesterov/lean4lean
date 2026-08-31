@@ -1,8 +1,8 @@
 # The vacuity ledger
 
 *Written 2026-08-31, after four instances of the same failure mode turned up in one round, and
-a survey then found four more already refuted elsewhere in the tree. Eighteen statements are
-now measured; five are vacuous or false, three are refuted outright, two routes are dead, and
+a survey then found four more already refuted elsewhere in the tree. Nineteen statements are
+now measured; six are vacuous or false, three are refuted outright, two routes are dead, and
 eight are bounded or acquitted.*
 
 ## 0. Why this file exists
@@ -119,6 +119,7 @@ Every row is backed by a **proved** lemma in the tree, not an argument in a docs
 | 16 | `CtxInvariant L R` **in isolation** | **trivially satisfiable, hence untestable alone** — take `R := Eq` | argued at `Theory/SetModel/CoherentWitness.lean:109`; the *pair* with `hRd` is machine-checked consistent by `ctxInvariant_prop_agrees` | n/a |
 | 17 | `PropSplit` (the live parameter) | **satisfiable and non-trivial** | `exists_propSplit`, `propSplit_not_constant`, `prop_forces_false`/`prop_forces_true` (`PropSplitAudit.lean`) | n/a |
 | 18 | `PropSplit.Stable` (the live parameter) | **satisfiable, and exact** | `exists_stable_propSplit`, `propSplitOf_stable_iff` (`StableAudit.lean`) | n/a |
+| 19 | `Bridge.AddDeclWF` (`Verify/Bridge.lean:132`) | **false**, and `Bridge.addDeclWF` (:138) is a *proved theorem* of it — a second instance of §4a, on a shorter path than row 2's | `addDeclWF_false` (`Verify/PreludeVacuity.lean`) | **yes** |
 
 Rows 1–5 are one bug. Rows 6, 7, 14 and 15 are independent of it, and that is the ledger's main
 finding: **the failure mode is not confined to `AddInduct`.** It recurred in the abstract theory
@@ -144,6 +145,10 @@ Assuming row 2 proves **any proposition**, `kernel_sound` included, and `#print 
 report nothing amiss because no axiom was added — the falsity entered as a hypothesis. The
 `hex` side condition is discharged by an `#eval` in the same file, which confirms `stdPrelude`
 leaves `Eq` an `.inductInfo` with `isUnsafe = false`.
+
+The same trap exists one link earlier and shorter: `anything_of_addDeclWF_hypothesis`, from
+row 19. `Bridge.AddDeclWF` is a single `def` away from `addDecl.WF` itself, so it is the more
+tempting of the two to assume.
 
 **Standing rule.** A statement in the **false** column of §3 is never to be assumed as a
 hypothesis, a parameter, an `axiom`, or a `variable`. It must be *replaced* by a statement that
@@ -265,9 +270,7 @@ unfair and would have misdirected effort. `Theory/SetModel/` is audited to the s
 What is unaudited is `Verify/` and `Theory/Typing/` — and note that rows 1–5, all in `Verify/`,
 were found the moment anyone looked.
 
-- `Bridge.AddDeclWF` (`Verify/Bridge.lean:132`) — repeats row 1's refuted statement verbatim,
-  and `Bridge.addDeclWF` (:138) derives it from `addDecl.WF`. Presumed **false** by row 1 but
-  not separately measured.
+- ~~`Bridge.AddDeclWF`~~ — **now measured**, see row 19.
 - The `TrProj` family — `TrProj.weak'_inv` (29 users), `TrProj.uniq` (93). These have open
   `sorry`s, so they are counted; what is unmeasured is whether their *hypotheses* are
   satisfiable at a structure the checker actually reaches, given row 13.

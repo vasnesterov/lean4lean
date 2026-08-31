@@ -142,4 +142,48 @@ theorem anything_of_foldAddDecl_tr_hypothesis (hex : PreludeHoldsSafeInduct)
     (Q : Prop) : Q :=
   absurd hbad (foldAddDecl_tr_false hex)
 
+/-! ## 4. `Bridge.AddDeclWF` is false too, and `Bridge.addDeclWF` proves it
+
+`docs/vacuity-ledger.md` §6 listed `Bridge.AddDeclWF` (`Verify/Bridge.lean:132`) as *presumed*
+false by row 1 but not separately measured.  It is one line, so here it is measured.
+
+The point of stating it separately is §4a of that ledger: `Bridge.addDeclWF`
+(`Verify/Bridge.lean:138`) is a **proved theorem** — `fun wf decl => addDecl.WF wf decl fuel` —
+so it too is a proof of a false statement, and the `sorry` it rests on cannot be filled.  It is
+the same unfillable `sorry` as row 1's (`addDecl.WF`'s `inductDecl` arm), reached by a shorter
+path than `foldAddDecl_tr`'s.
+
+The existence premise is discharged by **check A** of `Verify/Inductive/AddDeclWF.lean`
+(`uDecl`, `R10.Wit.U`), which is where `addDecl_inductDecl_WF_false`'s premise comes from as
+well.  Stated with the witness explicit rather than as a packaged `∃`, so that any caller who
+has a witness can use it directly. -/
+
+/-- **`Bridge.AddDeclWF` is false at any fuel the checker accepts an inductive at.**
+Given one modelled environment from which the checker accepts one inductive declaration whose
+output map carries an `.inductInfo`, `AddDeclWF` fails at that fuel. -/
+theorem addDeclWF_false {env env' : Kernel.Environment} {ves : VEnvs}
+    {n : Name} {v : InductiveVal} {lp : List Name} {np : Nat}
+    {types : List InductiveType} {iu : Bool} {fuel : FuelConfig}
+    (wf : ves.WF env)
+    (hok : Lean4Lean.addDecl env (.inductDecl lp np types iu) (check := true) (fuel := fuel)
+      = .ok env')
+    (hfind : env'.constants.find? n = some (.inductInfo v)) :
+    ¬ Bridge.AddDeclWF fuel := by
+  intro H
+  obtain ⟨ves', hwf', -⟩ := H wf (.inductDecl lp np types iu) _ hok
+  exact hwf'.no_inductInfo hfind
+
+/-- **Assuming `Bridge.AddDeclWF` proves anything**, on the same witness.  The shorter of the
+two traps: `AddDeclWF` is one `def` away from `addDecl.WF` itself. -/
+theorem anything_of_addDeclWF_hypothesis {env env' : Kernel.Environment} {ves : VEnvs}
+    {n : Name} {v : InductiveVal} {lp : List Name} {np : Nat}
+    {types : List InductiveType} {iu : Bool} {fuel : FuelConfig}
+    (wf : ves.WF env)
+    (hok : Lean4Lean.addDecl env (.inductDecl lp np types iu) (check := true) (fuel := fuel)
+      = .ok env')
+    (hfind : env'.constants.find? n = some (.inductInfo v))
+    (hbad : Bridge.AddDeclWF fuel) (Q : Prop) : Q :=
+  absurd (show Bridge.AddDeclWF fuel from hbad) (addDeclWF_false wf hok hfind)
+
 end Lean4Lean
+

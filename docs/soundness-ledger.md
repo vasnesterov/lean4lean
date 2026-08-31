@@ -216,17 +216,17 @@ impredicativity and it is what makes the bound tight rather than merely finite.
 |---|---|---|
 | `interp_liftN` (weakening) | `bvar`, `eta` | **proved** |
 | `interp_inst` (substitution) | `appDF` part 3, `beta` | **proved** |
-| `AgreeInst` entanglement | `beta` | **hypothesis by design** |
-| `LevelAssign.lvl_congr` / `srt_congr` | every congruence case | **proved** |
-| `LevelAssign.Stable` | `bvar`, `beta`, `eta`, `appDF` | hypothesis |
-| `CtxInvariant` (context conversion) | `lamDF`, `forallEDF` | hypothesis — **new** |
+| `AgreeInst` entanglement | `beta` | **hypothesis by design** — satisfiability **unmeasured**; `docs/vacuity-ledger.md` §6 |
+| ~~`LevelAssign.lvl_congr` / `srt_congr`~~ | every congruence case | **the parameter is gone** — `LevelAssign` as stated is `IsEmpty` (`no_levelAssign`). Live: `PropSplit`, measured satisfiable and non-trivial (`exists_propSplit`, `propSplit_not_constant`) |
+| `PropSplit.Stable` (was `LevelAssign.Stable`) | `bvar`, `beta`, `eta`, `appDF` | hypothesis, **measured**: the unguarded form was unsatisfiable (`no_stable`); the guarded one is satisfiable and *exactly* characterised (`exists_stable_propSplit`, `propSplitOf_stable_iff`) |
+| `CtxInvariant` (context conversion) | `lamDF`, `forallEDF` | hypothesis, **measured**: trivially satisfiable ALONE (take `R := Eq`), so only the pair with `hRd` means anything — and that pair is machine-checked consistent (`ctxInvariant_prop_agrees`) |
 | validity (`IsDefEq.isType`) | part 2 from part 1 + part 3 | available, sorry-free |
 | `U_mem_succ` + explicit bound | `sortDF`, `forallEDF` | **proved** |
 | `piProp_mem_UProp` | part 1, `forallE` case | **proved** |
 | validity (`Γ ⊢ e : A → IsType Γ A`) | `appDF`, to level the `∀` | available, `Theory/Typing/` |
 | `function_eq_graph` (a function is its graph) | `eta` | **proved** |
 | `ModelData.Coherent` | `constDF`, `extra` | specification **stated**; construction **open** |
-| `IsDefEqU.sort_inv` | packaged as `LevelAssign` | **open**, one `sorry` |
+| `IsDefEqU.sort_inv` | ~~packaged as `LevelAssign`~~ — that packaging is refuted; see the correction below | **open**, one `sorry` |
 | `IsDefEqU.forallE_inv` | — | **not needed** |
 | `IsDefEqU.sort_forallE_inv` | — | **not needed** |
 
@@ -321,17 +321,45 @@ injectivity fact.
 
 | Obligation | Where declared | What it says |
 |---|---|---|
-| `LevelAssign.lvl_sound`, `srt_sound` | `Interp.lean` | the assignment agrees with the typing rules — this *is* `sort_inv`, in functional form |
-| `LevelAssign.Stable` (4 fields) | `InterpSubst.lean` | the assignment commutes with weakening and substitution |
-| `CtxInvariant L R` + `R (A'::Γ) (A::Γ)` for `A ≡ A'` | `InterpSound.lean`, `SoundInduction.lean` | the assignment cannot distinguish definitionally equal contexts |
+| ~~`LevelAssign.lvl_sound`, `srt_sound`~~ | `Interp.lean` | **refuted**: no `LevelAssign` exists, at any environment and any parameter count (`no_levelAssign`). Replaced by `PropSplit.prop_sound` |
+| `PropSplit.Stable` (4 fields) | `InterpSubst.lean` | the split commutes with weakening and substitution. The `env.HasType` guard on the `instN` fields is **load-bearing** — without it the field is unsatisfiable (`no_stable`), and its docstring says so |
+| `CtxInvariant L R` + `R (A'::Γ) (A::Γ)` for `A ≡ A'` | `InterpSound.lean`, `SoundInduction.lean` | the split cannot distinguish definitionally equal contexts. Only the **pair** is meaningful: `CtxInvariant` alone holds of `R := Eq` |
 | `ModelData.Coherent` (3 fields) | `InterpSound.lean` | constants inhabit their types; `env.defeqs` holds in the model |
 | `AxiomsValidated` | `InterpSound.lean` | each axiom in the declaration list has an inhabited type in the model |
 | `CoherentOn.const_congr` | `InterpSound.lean` | **new** — equivalent level arguments give the same value |
 
-The first three are automatic for an assignment built the natural way — a
-syntactic recursion mirroring `inferType` — and for well-typed input follow from
-`sort_inv` together with `IsDefEq.weakN` / `instN` / `defeqDFC`. The last two are
-genuine constructions, described below.
+The last two are genuine constructions, described below.
+
+### CORRECTION (2026-08-31): "the first three are automatic" was false
+
+This paragraph used to continue: *"The first three are automatic for an assignment built the
+natural way — a syntactic recursion mirroring `inferType` — and for well-typed input follow
+from `sort_inv` together with `IsDefEq.weakN` / `instN` / `defeqDFC`."*
+
+They were not automatic; two of the three were **unsatisfiable as stated**, and the natural
+recursion is exactly what cannot exist:
+
+* `no_levelAssign` (`Theory/SetModel/LevelAssignUnsat.lean:106`) proves
+  `IsEmpty (LevelAssignUnguarded env nv)` — `lvl_wf` and `lvl_sound` contradict each other at a
+  context holding an out-of-range universe parameter. So "an assignment built the natural way"
+  had no instances at all.
+* `no_stable` (same file, :172) refutes `Stable.lvl_instN` as originally stated: `Ctx.InstN`
+  declares `e₀` as a parameter its `zero` constructor never mentions, so the field could be
+  pointed at an arbitrary substituted term. Repaired by an `env.HasType` guard.
+* `CtxInvariant` survived, but "automatic" was still the wrong word: it is *trivially*
+  satisfiable in isolation (`R := Eq`), and its content lives entirely in the companion
+  hypothesis `hRd`. That pair is consistent, machine-checked, and for a reason worth reading
+  (`Theory/SetModel/CoherentWitness.lean`).
+
+The generalisation, from that file, is the diagnostic to apply to the rest of this ledger:
+
+> The defect signature is a structure quantifying over a relation **parameter** that the
+> relation's own constructors never constrain.
+
+Also corrected earlier this round: this file's `coherentOn_addConstList` /
+`coherentOn_addInduct` entries stated `hocc` at the pre-block environment, where it is
+unsatisfiable (`addConstList_hocc_unsat`, `hocc_unsat_eqIndDecl`). Full registry, with what is
+and is not measured, in **`docs/vacuity-ledger.md`**.
 
 ## `Coherent` needed a fifth obligation, and the reason is not a technicality
 
