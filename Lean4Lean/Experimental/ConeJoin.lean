@@ -81,6 +81,8 @@ import Lean4Lean.Theory.SetModel.NotProofNoModel
 import Lean4Lean.Theory.SetModel.PropSplitUp
 import Lean4Lean.Theory.SetModel.QuotInterp
 import Lean4Lean.Theory.SetModel.CnstRecursion
+import Lean4Lean.Theory.SetModel.InductOracleAudit
+import Lean4Lean.Theory.SetModel.AxiomsValidatedAudit
 import Lean4Lean.Theory.Typing.ConstInvWitness
 import Lean4Lean.Theory.Typing.ConstVar
 import Lean4Lean.Theory.Typing.CtxConvIndex

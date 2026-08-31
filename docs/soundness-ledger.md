@@ -325,7 +325,7 @@ injectivity fact.
 | `PropSplit.Stable` (4 fields) | `InterpSubst.lean` | the split commutes with weakening and substitution. The `env.HasType` guard on the `instN` fields is **load-bearing** — without it the field is unsatisfiable (`no_stable`), and its docstring says so |
 | `CtxInvariant L R` + `R (A'::Γ) (A::Γ)` for `A ≡ A'` | `InterpSound.lean`, `SoundInduction.lean` | the split cannot distinguish definitionally equal contexts. Only the **pair** is meaningful: `CtxInvariant` alone holds of `R := Eq` |
 | `ModelData.Coherent` (3 fields) | `InterpSound.lean` | constants inhabit their types; `env.defeqs` holds in the model |
-| `AxiomsValidated` | `InterpSound.lean` | each axiom in the declaration list has an inhabited type in the model |
+| ~~`AxiomsValidated`~~ | `InterpSound.lean` | **demoted — it is a consequence, not an input.** `axiomsValidated_of_coherentOn` derives it from `CoherentOn` plus the history (`VEnv.WF'.constants_axiom`), and `OracleFits`'s `.axiom` clause already carries the content where the recursion consumes it. The real open content is `hκ`, since `AxiomsValidated.axioms` is the only obligation in that file stated *without* `Above M` |
 | `CoherentOn.const_congr` | `InterpSound.lean` | **new** — equivalent level arguments give the same value |
 
 The last two are genuine constructions, described below.
