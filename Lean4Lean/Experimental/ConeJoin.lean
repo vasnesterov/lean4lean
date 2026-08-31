@@ -100,6 +100,7 @@ import Lean4Lean.Theory.Typing.NormalEqStrengthen
 import Lean4Lean.Theory.Typing.StrengthenPiProp  -- added 2026-08-31: round 7 Prop/Pi slices of the weakN_iff trans residual
 import Lean4Lean.Verify.Typing.ProjSpineInv
 import Lean4Lean.Verify.Typing.WeakNormRefute
+import Lean4Lean.Theory.Typing.InjSortPiModel  -- added 2026-08-31: sort/Pi separation, and the vacuity of the packaged part-4 supply
 
 /-!
 # Acceptance test: the `PatternRules` cone and the `Verify/` cone join

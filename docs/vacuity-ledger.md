@@ -16,6 +16,16 @@ blind to the same failure mode**.
 | guard 3 (`Verify/Guard.lean`) | `partial` / `@[extern]` / `@[implemented_by]` reachable from `addDecl` | anything in the *specification* |
 | `scripts/hole-cone.lean` | which `sorry`s a given theorem depends on | **a hypothesis** — a cone walks `deps`, and a hypothesis is not a dependency |
 
+And a **fifth**, found by measurement on 2026-08-31 and the subtlest so far: **a model-side
+statement can be vacuous because the model has no valuation for the context the judgement lives
+in.** `interpCtx M L [∀ p : Prop, p]` is empty — the denotation of `∀ p : Prop, p` is `∅` in every
+model and on both branches of the proof split — while the context itself is legitimate over every
+environment. So any hypothesis of the shape "for all `ρ ∈ interpCtx M L Γ` …", quantified over all
+`Γ`, is false. Rows 23–24 are the first measurement of that debt; nothing in this repo looks for
+it, and it is invisible to all four instruments above because it is neither a `sorry`, nor a
+marker, nor a dependency, nor a named hypothesis — it is an emptiness inside a hypothesis that
+looks perfectly ordinary.
+
 And a fourth blindness, the mirror image of the third and just as costly: **an obligation
 carried as a hypothesis of a *proved* theorem counts as zero.** `VEnv.addInductR_ordered'`
 (`Theory/Inductive/NestedOrdered.lean:146`) is proved, sorry-free, and in nobody's hole cone —

@@ -100,11 +100,26 @@ machine-checked".  Both are now out of date, in opposite directions:
   — is *false* in any model with chains, i.e. in the intended one.  `SortUniq` is measured
   **dead** semantically, not merely unproven.
 * But the model is **not** useless here, and saying "no model route" was too strong.  What
-  the model delivers is `SortInv`, exactly: `sortEqRaw_iff` (`SemanticRouteClosed.lean:217`)
-  is an `iff`, so the semantic side of this corner is *finished*, not approximated.  Combined
-  with the implication chain above (`UniqTy ∧ SortInv → SortUniq → SortInv`), the gap the
-  model leaves is precisely **unique typing** — which is syntactic, and is where the effort
-  belongs.
+  survives is `U_injOn` and `semantic_sortInv` — the model settles `SortInv` *where it can see
+  the conversion*.  Combined with the implication chain above
+  (`UniqTy ∧ SortInv → SortUniq → SortInv`), the gap the model leaves includes **unique
+  typing**, which is syntactic.
+
+  **CORRECTION (later the same day, and this one is mine).**  The line above used to read: "What
+  the model delivers is `SortInv`, exactly: `sortEqRaw_iff` is an `iff`, so the semantic side of
+  this corner is *finished*, not approximated."  That over-read the `iff`.  `sortEqRaw_iff` is
+  about `SortEqRaw`, which mentions **no context and no valuation `ρ`**, so it never certified
+  `SortEqSupply` — the statement `semantic_sortInv` and `semantic_sortInv_packaged` actually
+  consume.  And the packaged form of that supply is **vacuous**: `sortInvSupply_vacuous`
+  (`Theory/Typing/InjSortPiModel.lean`) proves its hypothesis false for *every* `env` and every
+  `nv`, because `interpCtx` has no valuation for the perfectly legitimate context
+  `[∀ p : Prop, p]` — its denotation is `∅` in every model, on both branches of the proof split —
+  while reflexivity of `.sort .zero` supplies a conversion there anyway.
+
+  So the semantic side of this corner is **not** finished.  Every semantic route into it owes a
+  **valuation obligation** for the context the judgement lives in.  That debt is not
+  level-flavoured, no instrument in this tree sees it, and `docs/vacuity-ledger.md` rows 23–24 are
+  its first measurement.
 
 The cumulativity argument below remains correct and is kept as the intuition.
 

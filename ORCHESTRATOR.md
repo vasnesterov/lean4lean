@@ -805,3 +805,27 @@ reads available and declined them, having over-read the standing "no git operati
 covering reads. It does not: that rule bars **mutations** (commit, branch, push, PR, stash,
 checkout), never `status`/`diff`/`log`. Say so explicitly in future briefs, because a stream that
 cannot read the log will guess instead.
+
+### The same break, twice in one hour — and the rule that actually catches it
+
+This morning I committed a `ConeJoin.lean` import of an untracked
+`Theory/SemanticRouteClosed.lean`, breaking a fresh clone, and wrote the rule "never `git add -A`,
+always name paths". Within the hour I did it again: `24d3c5b` was meant to carry one 3-token patch
+to `Verify/Typing/Lemmas.lean` and actually carried 55 insertions — a concurrent stream's in-flight
+work in the same file, including `import Lean4Lean.Verify.Typing.ProjSpineCongr` while that file
+was untracked. Master imported a nonexistent module until `28a3afd`.
+
+**So the rule I wrote was not the rule that would have caught it.** Both breaks came from naming a
+path and then not reading its diff. The one that catches both:
+
+> Before committing, run `git diff --cached --stat` and account for every insertion. A 3-token
+> patch that reports 55 insertions is telling you something.
+
+Two further consequences worth keeping:
+
+1. **A queued cross-stream patch must be applied to a file whose diff you have just read**, not to
+   a file you believe is untouched. I had explicitly told one stream not to edit that file and
+   another stream owned it — I knew it was live and still did not look.
+2. **Attribution damage is not repairable by rewriting** once master is shared with an open PR's
+   branch. `24d3c5b`'s message is wrong about who closed `TrProj.uniq`; the correction lives in
+   `28a3afd` instead. Cheaper to read the diff.

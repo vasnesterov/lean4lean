@@ -1027,6 +1027,159 @@ census is unchanged (19, byte-identical listing before and after).  In particula
 
 ---
 
+## 4F. The **negative** conjuncts, and a vacuous supply upstream  *(sixth session of 2026-08-30/31)*
+
+New file, owned by this stream: **`Lean4Lean/Theory/Typing/InjSortPiModel.lean`** — 31
+declarations (5 defs, 26 theorems), all `sorry`-free, `#print axioms` block at the end.  It
+imports `Theory/SemanticRouteClosed.lean` and `Theory/Typing/RigidNodeCircle.lean` and is
+imported by **nothing** — `Experimental/ConeJoin.lean` was NOT edited (five streams collided on
+it earlier the same day).  **The import line the next orchestrator should add is:**
+
+```lean
+import Lean4Lean.Theory.Typing.InjSortPiModel
+```
+
+Nothing else in the tree was touched except `docs/vacuity-ledger.md` (rows 23–25 and a
+correction to row 12) and this document.
+
+### 4F.1 The brief's framing, corrected **[machine]**
+
+The brief said: *"`Theory/SemanticRouteClosed.lean` measured the semantic route to this corner …
+no argument from `Theory/SetModel/` can close your target."*  True of the target as a whole, and
+**false of one of its named conjuncts** — and the reason is a polarity distinction that neither
+that file nor this document had made.
+
+`RigidNodeCircle.rigidShapeUniqNS_iff_family` decomposes the second hole into five conjuncts.
+Two are **positive** (`PiInv`, `RigidConstAppInv`): they ask for a *derivation*, so the model
+would have to run backwards, which is faithfulness, which no soundness model has.  **Three are
+negative** — `RigidSortPiDisj`, `RigidConstPiDisj`, `RigidConstSortDisj` — and a negative
+statement is exactly what soundness alone can settle: assume the conversion, push it through
+part 4, contradict a set fact.  The derivation is a hypothesis, never a conclusion, so
+faithfulness never appears.  `SemanticRouteClosed.lean` measured only `SortUniq` (part 3) and
+`PiInv`'s domain conjunct (part 4) — both positive — and concluded the model "helps precisely as
+far as `SortInv` and no further".  Three fifths of the second hole were never measured.
+
+### 4F.2 What is proved **[machine]**
+
+| name | statement |
+|---|---|
+| `singleton_pt_ne_pt`, `true_not_mem_piProp`, `true_not_mem_function` | `{•} ≠ •`; `{•}` is in no impredicative `∀`; `{•}` is not a function (`•` is not a Kuratowski pair) |
+| `true_not_mem_mkForallProp` / `_mkForallType` | both branches of the proof split |
+| `true_mem_U` | `{•} ∈ U κ i` for every `i ≤ n` |
+| **`interp_sort_ne_interp_forallE`** | **a universe stage is never the denotation of a `∀`** — no hypothesis on `env`, no injectivity input, nothing beyond the chain the model already assumes |
+| `SortPiEqSupply` / `SortPiEqSupplyAt` / `sortPiEqSupplyAt_of_supply` | the part-4 supply in `SortEqSupply`'s shape, and the strictly smaller thing consumed (one valuation, no `ρ ∈ interpCtx` guard, no `M.ls` tie) |
+| `semantic_sortPiDisj`, `semantic_rigidSortPiDisj`, `rigidShapeUniqNS_of_four` | the route, and the bridge with four conjuncts instead of five |
+| **`sortPiSupplyAll_iff`** | **the collapse test, FAILING**: the supply is *equivalent* to `RigidSortPiDisj` |
+| `ConstNotUniv`, `interp_const_eq_U_iff`, `not_constNotUniv`, `const_denot_arbitrary` | the residual for the other two negative conjuncts, and its refutation unguarded |
+| `vFalse`, `onCtx_vFalse`, `interp_vFalse`, `interpCtx_vFalse` | `[∀ p : Prop, p]` is a legitimate context whose interpretation is **empty**, in every model and on both branches |
+| `not_sortPiEqSupply`, `not_sortEqSupply`, **`sortInvSupply_vacuous`** | the supplies are refuted at that context — and the upstream packaged route to `SortInv` is **vacuous for every `env` and `nv`** |
+| `pt_mem_U`, `pt_mem_piProp_empty`, `U_piProp_not_disjoint`, `empty_ctx_has_valuation` | the four controls |
+
+All `[propext, Classical.choice, Quot.sound]` except `onCtx_vFalse` (`[propext]`); none mentions
+`sorryAx`.  Forward cones of all thirteen headline results, measured with
+`scripts/hole-cone.lean`'s walker verbatim (`allowOpaque := true`, type *and* value): **`holes
+reached: []` in every case** — in particular neither `forallE_inv_stratified` nor
+`rigidShapeUniqNS` nor `weakN_iff`.  The route is not circular through the corner it measures.
+
+### 4F.3 The honest verdict: no census movement, and why **[machine]**
+
+`sortPiSupplyAll_iff` is the receipt.  The supply is per-conversion because `SetModel.sound` is
+`Above`-wrapped — the threshold is produced *by the derivation*, so a chain long enough to use it
+can only be chosen after the derivation is in hand — and once `SortPiEqSupplyAt` is refuted, "the
+supply exists for every such conversion" says only "there is no such conversion".  So
+`rigidShapeUniqNS_of_four` is `rigidShapeUniqNS_of_family` with a conjunct renamed, **not** a
+narrowing.  Census unchanged; the file is imported by nothing and moves no cone.
+
+What is *not* a restatement is `interp_sort_ne_interp_forallE`, which takes no supply and is not
+equivalent to anything in the corner.  It is the **first proved semantic residual** for a
+conjunct other than `SortInv`; rows 8, 9 and 25 of `docs/vacuity-ledger.md` are the three whose
+residuals are *refuted*.  The dividend is contingent: when `SetModel.sound`'s deferred inputs
+(`hle`, `henv`, `hS`, `hC : CoherentOn`, `hR`, `hRd`) are discharged, `RigidSortPiDisj` follows
+from them plus this theorem with no further residual on the sort/Π side.
+
+### 4F.4 The sharp negative, and it applies to the whole semantic programme **[machine]**
+
+`Sound.eq` quantifies over `ρ ∈ interpCtx M L Γ`.  For `Γ = [∀ p : Prop, p]` there is no such
+`ρ`: `interp_vFalse` computes the denotation to `∅` in **every** model and on **both** branches
+of the proof split (impredicatively because `False ∈ Prop` and nothing is in `False`;
+predicatively because a function on `Prop` would have to take a value in `False`), and
+`onCtx_vFalse` shows the context is legitimate over every environment.  Hence:
+
+* `not_sortEqSupply` — `SemanticRoute.SortEqSupply V env nv [vFalse] u v` is false **for every
+  pair of levels**, equivalent ones included;
+* `sortInvSupply_vacuous` — therefore the hypothesis of
+  `SemanticRoute.semantic_sortInv_packaged` is false for every `env` and every `nv`, because
+  reflexivity of `.sort .zero` supplies a conversion at that context.
+
+**Correction to `Theory/SemanticRouteClosed.lean`.**  Its table records the part-4 route to
+`SortInv` as "**CLOSED, and exact**", with `sortEqRaw_iff` as the exactness control.  That control
+is about `SortEqRaw`, which mentions no context and no `ρ`; it does not certify `SortEqSupply`,
+which is what `semantic_sortInv` and `semantic_sortInv_packaged` consume.  The *content* of the
+upstream route is untouched — `U_injOn` and `semantic_sortInv` are correct and non-vacuous where
+the model can see the conversion — but the ∀-over-all-contexts packaging is not, and no semantic
+route into this corner can be finished without discharging a **valuation obligation** for the
+context the judgement lives in.  That obligation is new, it is not level-flavoured, and it is
+invisible to every instrument this corner has used so far.
+
+### 4F.5 What is *not* claimed **[analysis where marked]**
+
+* No hole is closed; `WF.rigidShapeUniqNS` and `forallE_inv_stratified` both still carry their
+  `sorry`.
+* Nothing here touches the **first** hole.  `forallE_inv_stratified` is `SortUniq` given `PiInv`,
+  both positive, both measured semantically dead upstream.
+* No claim that `RigidSortPiDisj` is unprovable syntactically, and no claim the valuation
+  obligation is unsatisfiable — only that *this* interpretation, the only one the tree has, does
+  not satisfy it at `[∀ p : Prop, p]`.
+* `not_constNotUniv` is a refutation of the *unguarded* residual only.  Under `Coherent` the two
+  constant-spine conjuncts may well be semantically reachable; `Theory/SetModel/` does not
+  construct a `Coherent` `ModelData.cnst`, so it cannot be tried yet.  **That is the next thing
+  to try in this corner if the semantic route is picked up again**, and it is worth more than
+  another pass at the circle: two of the five conjuncts turn on it. **[analysis]**
+
+### 4F.6 Build and census state at the end of the sixth session **[machine]**
+
+* `~/.elan/bin/lake build Lean4Lean.Theory.Typing.InjSortPiModel` — **green**, 31 declarations,
+  no `sorry`, `#print axioms` on all 26 theorems shows no `sorryAx`.
+* `~/.elan/bin/lake build Lean4Lean.Theory.Typing.Injectivity` — green; two `sorry`s, at
+  lines 261 (`forallE_inv_stratified`) and 1046 (`WF.rigidShapeUniqNS`), unchanged.
+* `~/.elan/bin/lake build Lean4Lean.Verify.Guard Lean4Lean.Experimental.ConeJoin` — green.
+  guard 1 ✓ (25 frozen axioms), guard 2 ✓ (`proof INCOMPLETE: sorryAx present`), guard 3 ✓
+  (51/54 implementation gaps remaining).
+* `scripts/sorry-census.lean` — **TOTAL 14**.  `Theory.Equiconsistency` 1 (0 users);
+  `Theory.Inductive.Decl` 1 (0); `Theory.Typing.ChurchRosser` 1 (`NormalEq.descend`, 49);
+  **`Theory.Typing.Injectivity` 2 (`WF.rigidShapeUniqNS` 236, `IsDefEqU.forallE_inv_stratified`
+  528)**; `Theory.Typing.UniqueTyping` 1 (`weakN_iff`, 137); `Verify.Environment` 1 (1);
+  `Verify.Soundness` 2 (0, 0); `Verify.TypeChecker.InferType` 1 (0);
+  `Verify.TypeChecker.IsDefEq` 2 (1, 2); `Verify.Typing.Lemmas` 2 (30, 94).  This stream
+  contributes **0**.
+* `scripts/dup-names.lean` — *"no duplicate Lean4Lean declarations across the joined cone"*.
+  Since `ConeJoin.lean` was deliberately **not** edited, that run does not see the new file; it
+  was checked separately by elaborating a scratch module importing `Experimental.ConeJoin` **and**
+  `Theory.Typing.InjSortPiModel` together — **no collision**, 33 constants visible in the
+  `Lean4Lean.InjSortPi` namespace.
+* Forward cones of the thirteen headline results, `scripts/hole-cone.lean`'s walker verbatim
+  (`allowOpaque := true`, type *and* value), over the Theory closure of the new file (3 629
+  non-internal `Lean4Lean` declarations): **`holes reached: []` in every case**.  Those closure
+  sizes are not comparable with the census's; quote the closure with the count.
+
+**A blockage that existed for most of this session, and its cause, recorded because it will
+recur.**  Until roughly the last hour, `scripts/sorry-census.lean` and `scripts/dup-names.lean`
+could not be run at all: both import `Experimental/ConeJoin.lean`, whose closure contains
+`Verify/Expr.lean`, and `Verify/Expr.lean` failed to elaborate —
+`Lean4Lean/Verify/Expr.lean:1360:4: Type mismatch … has type replaceNoCache … but is expected to
+have type replace …`, twelve times.  The cause was the *uncommitted* deletion of
+`@[simp] axiom Lean.Expr.replace_eq` from the frozen `Lean4Lean/Verify/Axioms.lean` (with the
+matching 25 → 24 edit in the frozen `Verify/Guard.lean`) — the proposal that commit `365ccbd`
+itself records as **REFUTED** (*"deleting Expr.replace_eq breaks the build"*), left sitting in the
+working tree.  `instantiateLevelParamsCore_eq`'s opening `simp [instantiateLevelParamsCore]`
+relied on that `@[simp]` axiom to turn `replace` into `replaceNoCache`.  Another stream reverted
+the two frozen files mid-session (commit `8173ebc`, *"record the frozen-file near-miss — uncommitted
+edits survived a branch delete"*), after which every measurement above ran.  **Lesson for the
+orchestrator: an uncommitted edit to a frozen file blocks every stream's instruments at once, and
+no stream may clear it.**
+
+---
+
 ## 5. The refutation attempt, and why it does not reach **[analysis]**
 
 The brief asks for a machine-checked negative if one exists. The one crack in the hypothesis
@@ -1176,6 +1329,19 @@ holds)*
 
 *(item 1 rewritten by the fourth 2026-08-30 session; see §4D.  The third session's version is
 kept below it as item 1a, because its head table is still the right map.)*
+
+0. **If the instruments will not run, check the frozen files for uncommitted edits first.**
+   §4F.6 records a session in which `sorry-census.lean` and `dup-names.lean` were dead for hours
+   because an uncommitted, *self-declared-refuted* deletion in `Verify/Axioms.lean` broke
+   `Verify/Expr.lean:1360`.  No stream may clear that; it was reverted at commit `8173ebc`.
+
+0a. **The semantic route is NOT exhausted, and the polarity split is why** (§4F).  Three of the
+   second hole's five conjuncts are *negative*, so soundness alone can settle them without
+   faithfulness.  One of the three now has a **proved** residual
+   (`InjSortPiModel.interp_sort_ne_interp_forallE`); the other two turn on `Coherent`, which
+   `Theory/SetModel/` does not yet construct — **that is the highest-value unexplored item in
+   this corner.**  And §4F.4's valuation obligation is a new, un-instrumented debt on *every*
+   semantic route, including the upstream one this document treated as closed.
 
 1. **`BaseUniq` by term recursion is done, and so is the `SortUniq` localisation §4D.5 said
    was impossible.**  `BaseUniqTerm.lean` (§4D) and `BaseUniqChain.lean` (§4E).  Three things
