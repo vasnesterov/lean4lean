@@ -648,10 +648,26 @@ The classification, as of this writing (27 entries):
   and the two `ptrEq*.unsafe_impl_2` under `ptrEqExpr_eq` / `ptrEqConstantInfo_eq`. Flagged only
   because the spec names the wrapper, not the implementation. Not gaps.
 
-  `Lean.Expr.replaceImpl` stays on the list for now but is **no longer reached by code that
-  runs**: both nested-inductive substitution sites call `Expr.replaceNoCache` /
-  `Expr.replaceNoCacheT` directly as of `divergences.md`'s "nested-inductive replacement is
-  uncached" entry, so the frozen axiom `Expr.replace_eq` that modelled it has no consumers left.
+  `Lean.Expr.replaceImpl` stays on the list, and the last clause of what this paragraph used to
+  say was **wrong**. It claimed that because both nested-inductive substitution sites now call
+  `Expr.replaceNoCache` / `Expr.replaceNoCacheT` directly (`divergences.md`'s "nested-inductive
+  replacement is uncached" entry), "the frozen axiom `Expr.replace_eq` that modelled it has no
+  consumers left". Measured 2026-08-31 by deleting the axiom and rebuilding: **the build fails**,
+  at `Verify/Expr.lean:1360`, twelve times — once per `Expr` constructor.
+
+  The consumer is `instantiateLevelParamsCore_eq`. Upstream `Lean.instantiateLevelParamsCore` is
+  implemented with `Expr.replace`, so unfolding it leaves a goal about `replace` while the proof's
+  own helper is stated about `replaceNoCache`; `replace_eq` is `@[simp]`, so it was bridging the
+  two *silently*, inside the `simp [instantiateLevelParamsCore]` on the first line. No by-name
+  search finds that, which is why the claim survived.
+
+  Two consequences worth stating. The axiom **cannot become a theorem**: upstream `Expr.replace`
+  is `replaceImpl`, which is `opaque` with `@[extern "lean_replace_expr"]`, so there is no Lean
+  body to prove it from. And no change under `Lean4Lean/` can orphan it while the checker calls
+  `Lean.instantiateLevelParamsCore`, because that call site is upstream. The route to dropping it
+  is therefore the one `CLAUDE.md` already encourages — have the checker call a pure Lean
+  reimplementation instead. The model for it already exists here as
+  `Lean4Lean.instantiateLevelParamsCore'`.
 
   **`findAux` and `containsAux` were added to the list on 2026-08-31, and the check was RED
   before that.** Their entries had been carried by the *axiom*
