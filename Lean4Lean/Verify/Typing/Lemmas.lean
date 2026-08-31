@@ -756,7 +756,30 @@ ambient context `Γ`, and none of them mentions that telescope.  The two lemmas 
 **A cheaper entry point than `HasType.skips`, not yet tried:** `VEnv.InferTypeS.weakU_inv`
 (`Theory/Typing/HeadReduction.lean:691`) inverts a lift on a *whole inferred typing* and hands
 back a type living in `Γ`, which is steps 1 and 3 in one lemma — at the cost of being gated on
-`Params`, like (C) already is. -/
+`Params`, like (C) already is.
+**Update 3: type-strengthening is free, and no extra hypothesis buys anything.**  Steps 1 and
+3 together — "recover *some* type for `e` in `Γ`, defeq to the given one after lifting" — cost
+nothing beyond the existing `weakN_iff` hole, and need no new premise:
+
+    `VExpr.WF.weak'_iff` (`Theory/Typing/UniqueTyping.lean:267`) turns `H`'s recorded typing
+    into `∃ B₀, Γ ⊢ e : B₀`; weakening that back with `HasType.weak'_iff` and `IsDefEq.uniqU`
+    gives `Γ' ⊢ B₀.lift' l ≡ (.const s us).mkApp (ps ++ ιs)`.
+
+So the idea of adding a `VExpr.WF env U Γ e` premise — which the sole in-file consumer,
+`TrExprS.weakFV'_inv`'s `proj` case, *could* legitimately supply from the `ih` it already has
+in scope — was checked and is **pointless**: it is exactly what `weak'_iff` already yields.
+The hole is not short of hypotheses.
+
+The whole difficulty is the last step, and it is unchanged: from `B₀.lift' l ≡ (.const s
+us).mkApp (ps ++ ιs)` conclude `B₀ ≡ (.const s us).mkApp (ps' ++ ιs')` *in `Γ`*.  Both `ps`
+and `ιs` live in `Γ'` and need not be lifts, so `IsDefEqU.weak'_iff` cannot be applied to that
+equation at all — the rigidity route is not one route among several, it is the only one on
+offer.  And its two gates are both still shut: `VEnv.ConstRigidPat` comes only from
+`VEnv.constRigidPat_of_weakNorm`, and `VEnv.WeakNorm` (`Verify/Typing/ConstSpine.lean:526`) is
+*defined and consumed twice but proved nowhere*; and `PatFreeHead` at `s` reduces via
+`RuleFreeHead.patFreeHead` to the same `RuleFreeHead`-at-a-structure-name obligation analysed
+under `TrProj.uniq` below (Update 3 there), which `IsStructure.decl` provably cannot supply as
+stated. -/
 theorem TrProj.weak'_inv (henv : VEnv.WF env) (hΓ' : OnCtx Γ' (env.IsType U))
     (W : Ctx.Lift' l Γ Γ') (H : TrProj env U Γ' s i (e.lift' l) e') :
     ∃ e'', TrProj env U Γ s i e e'' := sorry
@@ -1524,7 +1547,45 @@ the one field of `VEnv.Params` that `VEnv.paramsOfWF` does not derive from `VEnv
 left is obligations 1 and 3: `VEnv.RecTypeResidual` (ledger G4's remainder, stated in
 `Verify/Typing/StructureUniq.lean`) and the `projTerm` congruence lemma.  Note that closing
 this `sorry` outright still needs `PatWF` discharged, since the statement takes no such
-hypothesis and cannot acquire one without changing every consumer up to `kernel_sound`. -/
+hypothesis and cannot acquire one without changing every consumer up to `kernel_sound`.
+**Update 3: obligation 1 is closed, and the live blocker is now `RuleFreeHead` at a
+structure name.**  `VEnv.recTypeResidual_of_wf` (`Verify/Typing/RecTypePeel.lean`) proves
+`VEnv.RecTypeResidual` from `VEnv.WF` alone, sorry-free — so ledger G4's syntactic remainder
+is gone, and `VEnv.WF.structureUniq` is derived there (it still reports `sorryAx` only
+through `structureUniq_of`'s *level* half, a `SortUniq`-family consumer, which is not this
+lemma's business).  `PatWF` has also stopped being the gate: `IsDefEqU.const_app_inv` is now
+a real theorem of `Theory/Typing/Injectivity.lean` resting on `VEnv.WF.rigidShapeUniq`, with
+no `Params` and no `PatWF`.
+
+What both (B) and (D) still ask for is `VEnv.RuleFreeHead env s` at the *structure* name.
+That is **not derivable from `VEnv.WF env` together with `IsStructure s D T C` as
+`IsStructure` currently stands**, and the reason is exact rather than a lack of effort:
+
+* `Theory/Typing/DeclRules.lean` gets as far as `WF.defeq_isDeclRule`, so a rule headed at
+  `s` must be a δ-rule `v.toDefEq` with `v.name = s` (the `quot` and `iota` shapes are headed
+  elsewhere).  Ruling that out needs "`s`'s declaring step in *this* environment's chain was
+  the `.induct` step", since `VEnv.addConst` refuses a name already present and one chain
+  cannot run both steps at `s`.
+* `IsStructure.decl` does not say that.  It says `∃ env₀ env₁, D.WF env₀ ∧
+  env₀.addInduct' D = some env₁ ∧ env₁ ≤ env` — the block is well-formed *somewhere* and
+  embeds.  `env₁ ≤ env` fixes `env.constants s` and puts D's ι-rules in `env.defeqs`, but it
+  places no step of `env`'s own `WF` chain, so for all this hypothesis says `env` declared
+  `s` by a `.def` and carries its δ-rule.
+
+So the missing piece is the "signature invariant relating names to their declaring step"
+that `DeclRules.lean` names and declines, and the cheapest form of it is a strengthening of
+`IsStructure.decl` to place the `.induct` step in `env`'s chain (or a standalone `VEnv.WF`
+lemma: each declared constant has exactly one declaring step).  **Polarity**: `IsStructure`
+is a hypothesis of `TrProj.mk`, so strengthening it *helps* every consumer of a `TrProj`
+(`wf`, `uniq`, `weak'_inv`, `defeqDFC`) and charges the cost to whoever *builds* one —
+`inferProj.WF` and `TrExprS`'s `proj` construction sites.  That is a checker-side obligation,
+not a proof-side one, and is not attempted here.
+
+The `TrEnv'`-side precedent is worth knowing and does **not** transfer: `TrEnv.ruleFreeHead_quot`
+(`Verify/TypeChecker/Reduce.lean`) discharges exactly this shape of fact at `Quot` by a
+*temporal* argument over the `TrEnv'` chain, where the name information is present.  This
+lemma's statement mentions no `TrEnv'` — it quantifies over a bare `VEnv` — so the argument
+has nothing to induct on. -/
 theorem TrProj.uniq (H1 : TrProj env U Γ₁ s₁ i e₁ e₁') (H2 : TrProj env U Γ₂ s₂ i e₂ e₂')
     (H : env.IsDefEqU U Γ₁ e₁ e₂) :
     env.IsDefEqU U Γ₁ e₁' e₂' := sorry
