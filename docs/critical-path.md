@@ -22,13 +22,29 @@ What actually blocks condition 2, in the shape it really has:
    Note the counts *rose* while the census fell 14 → 13: closing `TrProj.uniq` routed its 94
    consumers through `projData_uniq` into these four instead of stopping at its own `sorry`. The
    blocking is more concentrated, not reduced — which is the honest reading of that census drop.
-2. **The nested-inductive route.** Obligation (A) is now **closed for parameterless nested
-   blocks** (`ctorConstsCR_wf_of_np_zero'`, unconditional), by substituting at the *declaration
-   sites* rather than inside `typeR`. Above `np = 0` a β-gap remains, on the telescope-defeq route.
-   The live blocker moved to **`hrules`**: `addIndRulesR` folds `iotaRulesR` unsubstituted. The fix
-   is one `·.substC (R.csubst D K)`, and its cost is in `keysR_induct` /
-   `iotaRulesR_key_declared`, which are stated about the *unsubstituted* keys.
-   *Superseded reading:* whose first obligation is **false**, not open.
+2. **The nested-inductive route — no longer blocked by a *false* statement, but still open.**
+   As of end-of-day 2026-08-31, none of `addInductR_ordered'`'s three obligations is refuted: (A)
+   was repaired by substituting at the *declaration sites* (not inside `typeR` — see ledger row 36
+   for why the obvious move was unsound), and (C) by making `addIndRulesR` fold the *substituted*
+   rules. The witness `nfnAuxDirty`, which refuted (A) and then (C), now refutes nothing.
+
+   **What remains, and it is more than one item — an earlier version of this file said closing the
+   rules fold would make the nested `AddInduct` reachable, which was wrong:**
+   `addInductR_ordered` and `_ordered'` were always theorems; they are the *factoring*, not the
+   content. Open in general:
+   * **(A)** above `np = 0` — a β-gap, on the telescope-defeq route (`ctorConstsCR_wf_of_substC'`).
+     Closed unconditionally for `np = 0` (`ctorConstsCR_wf_of_np_zero'`).
+   * **(C)** in general — the head-by-head equation over
+     `iotaCtx`/`iotaLhs`/`iotaLam`/`ihValues`/`iotaType`. Strictly harder than (A)'s: `csubst`'s
+     domain holds the companion's *constructor* and *recursor* names, outside `D.blockNames`, so no
+     `NoBlock` clause of `VIndCtor.WF` covers them, and the `csubstList` lookup lemmas do not exist.
+   * **(B)** — a strict *sub-problem* of (C), since `iotaCtxR` splices `motivesR ++ minorsR`. The
+     one ingredient both need is a `ctorApp' → ctorAppR` head equation mirroring
+     `substC_tyApp_eq_tyAppR_map`.
+   * **`VIndRestore.KeysFree`** must stop being a hypothesis — either it joins `AddNestedStep`'s
+     premises (cheap for the checker, since `mkAuxRecNameMap` renames out of the `_nested`
+     namespace) or it becomes a `Faithful` clause. It is **not** derivable from
+     `Faithful` + `OwnId` + freshness: a companion member's own name is declared by no step.
    `addInductR_ordered'`'s `hctors` fails under the premises `VDecl.WF.inductNested` actually has
    (`nfnAuxDirty_refutation`, hypothesis-free), because `VIndCtor.typeR` under-restores: it copies
    `C.params` and non-recursive field types verbatim, and those are only *definitionally*
