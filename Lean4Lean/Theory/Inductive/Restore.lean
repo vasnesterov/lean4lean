@@ -34,6 +34,37 @@ namespace Lean4Lean
 open Lean (Name)
 open VExpr (mkPi mkLams mkApp bvars liftTele shift shiftTele)
 
+/-! ## Part 0a: `substC` against the telescope formers
+
+`VExpr.substC` is a structural homomorphism, so it commutes with every `mk*` former.  These
+three live here rather than in `Theory/Inductive/RestoreBridge.lean` (where `substC_mkApp` used
+to sit) because `VEnv.addIndRulesR` now substitutes and
+`Theory/Inductive/NestedKeys.lean` — which does *not* import `ConstSubstNested.lean` — needs
+them to recompute a substituted rule's key. -/
+
+namespace VExpr
+variable {σ : CSubst}
+
+theorem substC_mkApp : ∀ {as : List VExpr} {f : VExpr},
+    (f.mkApp as).substC σ = (f.substC σ).mkApp (as.map (VExpr.substC · σ))
+  | [], _ => rfl
+  | a :: as, f => by
+    rw [mkApp, List.map_cons, mkApp, substC_mkApp (as := as), substC_app]
+
+theorem substC_mkLams : ∀ {As : List VExpr} {b : VExpr},
+    (VExpr.mkLams As b).substC σ = VExpr.mkLams (As.map (VExpr.substC · σ)) (b.substC σ)
+  | [], _ => rfl
+  | _ :: As, b => by
+    rw [VExpr.mkLams_cons, List.map_cons, VExpr.mkLams_cons, VExpr.substC_lam,
+      substC_mkLams (As := As)]
+
+@[simp] theorem map_substC_bvars : ∀ {lo n : Nat},
+    (bvars lo n).map (VExpr.substC · σ) = bvars lo n
+  | _, 0 => rfl
+  | lo, n+1 => by rw [bvars, List.map_cons, map_substC_bvars (lo := lo) (n := n)]; rfl
+
+end VExpr
+
 /-! ## Part 0: two pieces from further downstream
 
 `tyAppH` is `CompanionResolve.lean` Part 9's generalised inductive-type head; `typeConstsC` is
@@ -370,6 +401,27 @@ def iotaRuleR (j q : Nat) (C : VIndCtor) : VDefEq :=
 def iotaRulesR : List VDefEq :=
   D.ctorsAll.zipIdx.map fun ((j, C), q) => D.iotaRuleR R j q C
 
+/-- **The ι-rules the step actually registers**: the restored ones with the restoration
+substituted through them, exactly as `ctorConstsCR` and `recConstsR` do for the constants.
+
+The `substC` is the same repair, for the same defect and at the same place in the
+construction.  `VInductDecl'.iotaCtxR` splices `C.fieldTypesR`, whose **non**-recursive
+entries `VIndField.typeR` copies verbatim; `VIndField.WF.pos`'s `none` branch makes those only
+*definitionally* block-free, so a companion constant could sit under a redex in one and the
+step emitted a rule whose `type` named a constant the environment does not hold.  That is
+`InductiveDeclExamples.nfnNodeDirty_fieldTypesR_dirty` /
+`nfnAuxDirty_iotaCtxR_eq` (`Theory/Inductive/RestoreBridge.lean`), the block on which
+obligation **(C)** of `VEnv.addInductR_ordered'` was false — the same witness that used to
+refute **(A)** before `ctorConstsCR` gained its `substC`.
+
+It is `csubst`, not `csubstTy`: an ι-rule mentions the companion's *constructors* (the major
+premise) and its *recursor* (the induction hypotheses' calls) as well as its type, and all
+three have to go.  The cost is that the rule's **key** is no longer `rfl`-visible:
+`VInductDecl'.key_iotaRulesRS` (`Theory/Inductive/NestedKeys.lean`) is what re-establishes it,
+from the fact that the *restored* recursor and constructor heads lie outside σ's domain. -/
+def iotaRulesRS (K : List Lean.Name) : List VDefEq :=
+  (D.iotaRulesR R).map (·.substC (R.csubst D K))
+
 /-- The recursor constants, renamed and with restored types.  This *is*
 `VInductDecl'.recConstsC` with the type restored as well as the name renamed — and, since
 2026-08-31, with the restoration also **substituted through the positions `recTypeR` copies
@@ -419,20 +471,20 @@ def allNamesCR (K : List Lean.Name) : List Lean.Name := (D.allConstsCR R K).map 
 
 end VInductDecl'
 
-/-- The block's ι-rules, restored and renamed.
+/-- The block's ι-rules, restored, renamed **and substituted** — `VInductDecl'.iotaRulesRS`.
 
-**Not** substituted, unlike `ctorConstsCR` and `recConstsR` — see the note at
-`VEnv.addInductR_ordered'` (`Theory/Inductive/NestedOrdered.lean`) for why obligation **(C)**
-still carries the defect those two just lost, and what closing it costs. -/
-def VEnv.addIndRulesR (env : VEnv) (D : VInductDecl') (R : VIndRestore) : VEnv :=
-  (D.iotaRulesR R).foldl VEnv.addDefEq env
+This used to fold `D.iotaRulesR R` unsubstituted, which is what made obligation **(C)** of
+`VEnv.addInductR_ordered'` false at `nfnAuxDirty`.  `K` is a parameter for exactly that
+reason: the substitution `R.csubst D K` needs the companion list. -/
+def VEnv.addIndRulesR (env : VEnv) (D : VInductDecl') (K : List Lean.Name) (R : VIndRestore) :
+    VEnv := (D.iotaRulesRS R K).foldl VEnv.addDefEq env
 
 /-- **The repaired companion-aware extension.**  `VEnv.addInductC` with the restoration
 threaded all the way through: the constants it declares and the rules it emits are built from
 the *same* `R`, which is what G4 was the absence of. -/
 def VEnv.addInductR (env : VEnv) (D : VInductDecl') (K : List Lean.Name) (R : VIndRestore) :
     Option VEnv :=
-  (env.addConstList (D.allConstsCR R K)).map (·.addIndRulesR D R)
+  (env.addConstList (D.allConstsCR R K)).map (·.addIndRulesR D K R)
 
 /-- `J`'s stored type/constructor type, instantiated at the restoration's stored spine and
 re-abstracted over the block's parameters. -/
@@ -504,6 +556,39 @@ structure VIndRestore.OwnId (R : VIndRestore) (D : VInductDecl') (K : List Lean.
     R.recName (Lean.mkRecName T.name) = Lean.mkRecName T.name
   ctorName : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∉ K →
     ∀ C ∈ T.ctors, R.ctorName C.name = C.name
+
+/-- **The restoration's own heads escape its own substitution.**
+
+`VEnv.addIndRulesR` substitutes `R.csubst D K` through every ι-rule it registers, and a
+substitution can move a rule's **key** (`VDefEq.key`): the key is the constant heading the
+λ-peeled left-hand side plus the constant heading that spine's last argument, and those two
+are `R.recName (mkRecName I_j)` and `R.ctorName C.name`.  If either were in σ's domain the
+rewrite would replace it by a term, and `VInductDecl'.key_iotaRuleR` — which every
+`KeysDeclared`/`KeyUnique` argument reads the key off — would no longer describe the rule the
+environment holds.
+
+This says it does not happen: the *restored* recursor and constructor heads are outside the
+domain, which holds of every restoration that presents a companion member as a block the
+environment already has (σ's domain is the **auxiliary** names `_nested.X`, the restored heads
+are the real ones).
+
+Like `VIndRestore.KeysDistinct` (`Theory/Inductive/NestedKeys.lean`) it is a purely syntactic
+property of `R`, `D` and `K`, `decide`-able at a concrete block, and it is *not* derivable from
+`Faithful` + `OwnId` + the two `addConstList` successes: nothing among those forbids
+`R.recName (mkRecName I_j)` from being literally the auxiliary name `T.name` of a companion
+member, since a companion member's own name is declared by *no* step (`typeConstsC` removes it)
+and so freshness cannot separate the two.  That gap is why this is a hypothesis and not a
+lemma; §3.3 of `NestedKeys.lean` discharges it at both nested witnesses. -/
+def VIndRestore.KeysFree (R : VIndRestore) (D : VInductDecl') (K : List Lean.Name) : Prop :=
+  ∀ p ∈ D.ctorsAll,
+    R.csubst D K (R.recName (Lean.mkRecName (D.types.getD p.1 default).name)) = none ∧
+    R.csubst D K (R.ctorName p.2.name) = none
+
+/-- At `K = []` the substitution is empty, so `KeysFree` is free. -/
+theorem VIndRestore.keysFree_nil (R : VIndRestore) (D : VInductDecl') : R.KeysFree D [] := by
+  intro _ _
+  rw [R.csubst_nil D]
+  exact ⟨rfl, rfl⟩
 
 /-- The identity restoration is the identity on every member, `K` or not. -/
 theorem VInductDecl'.idRestore_ownId (D : VInductDecl') (K : List Lean.Name) :

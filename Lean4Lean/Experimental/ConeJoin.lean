@@ -103,7 +103,7 @@ import Lean4Lean.Theory.Typing.StrengthenPiProp  -- added 2026-08-31: round 7 Pr
 import Lean4Lean.Verify.Typing.ProjSpineInv
 import Lean4Lean.Verify.Typing.WeakNormRefute
 import Lean4Lean.Theory.Typing.InjSortPiModel  -- added 2026-08-31: sort/Pi separation, and the vacuity of the packaged part-4 supply
-import Lean4Lean.Theory.Inductive.RestoreBridge  -- 2026-08-31: obligation (A) of addInductR_ordered' is CLOSED for np = 0; the dirty witness now refutes (C) only
+import Lean4Lean.Theory.Inductive.RestoreBridge  -- 2026-08-31: addIndRulesR substitutes; the dirty witness refutes NOTHING; (A) closed for np = 0
 import Lean4Lean.Theory.SetModel.CoherentConstShape  -- added 2026-08-31: CoherentOn cannot separate a constant from a universe or a Pi
 import Lean4Lean.Theory.Typing.InjChainStep  -- added 2026-08-31: SortUniq splits over PiInv into a bridge entry plus ConvStep2
 import Lean4Lean.Theory.Typing.StrengthenAudit  -- added 2026-08-31: the neutral residual bounded three ways, and no syntactic slice of b can help

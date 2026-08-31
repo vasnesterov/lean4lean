@@ -38,7 +38,7 @@ twice, since `allConstsCR` is an append of three. -/
 theorem addInductR_stages (h : env.addInductR D K R = some env') :
     ∃ e₁ e₂ e₃, env.addConstList (D.typeConstsC K) = some e₁ ∧
       e₁.addConstList (D.ctorConstsCR R K) = some e₂ ∧
-      e₂.addConstList (D.recConstsR R K) = some e₃ ∧ env' = e₃.addIndRulesR D R := by
+      e₂.addConstList (D.recConstsR R K) = some e₃ ∧ env' = e₃.addIndRulesR D K R := by
   rw [VEnv.addInductR, Option.map_eq_some_iff] at h
   obtain ⟨e₃, h1, rfl⟩ := h
   rw [VInductDecl'.allConstsCR, VEnv.addConstList_append, Option.bind_eq_some_iff] at h1
@@ -53,7 +53,7 @@ theorem addInductR_of_stages {e₁ e₂ e₃ : VEnv}
     (h1 : env.addConstList (D.typeConstsC K) = some e₁)
     (h2 : e₁.addConstList (D.ctorConstsCR R K) = some e₂)
     (h3 : e₂.addConstList (D.recConstsR R K) = some e₃) :
-    env.addInductR D K R = some (e₃.addIndRulesR D R) := by
+    env.addInductR D K R = some (e₃.addIndRulesR D K R) := by
   rw [VEnv.addInductR, VInductDecl'.allConstsCR, VEnv.addConstList_append,
     VEnv.addConstList_append, h1]
   simp only [Option.bind_some, h2, h3, Option.map_some]
@@ -72,7 +72,7 @@ theorem addInductR_ordered (henv : env.Ordered)
       e₁.addConstList (D.ctorConstsCR R K) = some e₂ → ∀ c ∈ D.recConstsR R K, c.2.WF e₂)
     (hrules : ∀ {e₁ e₂ e₃ : VEnv}, env.addConstList (D.typeConstsC K) = some e₁ →
       e₁.addConstList (D.ctorConstsCR R K) = some e₂ →
-      e₂.addConstList (D.recConstsR R K) = some e₃ → ∀ df ∈ D.iotaRulesR R, df.WF e₃)
+      e₂.addConstList (D.recConstsR R K) = some e₃ → ∀ df ∈ D.iotaRulesRS R K, df.WF e₃)
     (he : env.addInductR D K R = some env') : env'.Ordered := by
   obtain ⟨e₁, e₂, e₃, h1, h2, h3, rfl⟩ := addInductR_stages he
   have o1 := VEnv.addConstList_ordered henv htys h1
@@ -150,7 +150,7 @@ theorem addInductR_ordered' (henv : env.Ordered) (h : D.WF env) (hown : R.OwnId 
       e₁.addConstList (D.ctorConstsCR R K) = some e₂ → ∀ c ∈ D.recConstsR R K, c.2.WF e₂)
     (hrules : ∀ {e₁ e₂ e₃ : VEnv}, env.addConstList (D.typeConstsC K) = some e₁ →
       e₁.addConstList (D.ctorConstsCR R K) = some e₂ →
-      e₂.addConstList (D.recConstsR R K) = some e₃ → ∀ df ∈ D.iotaRulesR R, df.WF e₃)
+      e₂.addConstList (D.recConstsR R K) = some e₃ → ∀ df ∈ D.iotaRulesRS R K, df.WF e₃)
     (he : env.addInductR D K R = some env') : env'.Ordered :=
   addInductR_ordered henv (addInductR_typeConstsC_wf h) hctors hrecs hrules he
 
@@ -241,14 +241,42 @@ Two things had to happen for that.
 is right, and what is missing is (B)'s head-by-head equation for `recTypeR` — the same argument
 as (A)'s but over motives, minors, `ihTypes` and the major premise.
 
-`hrules` is **still false** at `nfnAuxDirty`, and now that is the *only* thing that block
-refutes: `VEnv.addIndRulesR` folds `D.iotaRulesR R` unsubstituted, and `iotaCtxR` splices the
-dirty field telescope.  Substituting there is one `·.substC (R.csubst D K)`, and the cost is
-**not** the `substC`: `VEnv.keysR_induct` (`Theory/Inductive/NestedKeys.lean`) and
-`VInductDecl'.iotaRulesR_key_declared` are stated about the keys of `D.iotaRulesR R`, and after
-substitution the environment holds `(D.iotaRuleR R j q C).substC σ`, whose key is the same only
-because the *restored* recursor and constructor heads lie outside σ's domain — true, but needing
-`Faithful` plus freshness of the auxiliary names rather than `rfl`. -/
+**STATUS (2026-08-31, third entry): `hrules` is no longer false, and `nfnAuxDirty` refutes
+nothing.**
+
+`VEnv.addIndRulesR` now folds `VInductDecl'.iotaRulesRS D R K` — `D.iotaRulesR R` with
+`R.csubst D K` substituted through it — which is why it takes `K`.  The obligation above is
+stated about that list, and its bridge (`VEnv.iotaRulesRS_wf_of_substC`,
+`Theory/Typing/ConstSubstNested.lean`) is now the *same shape* as (A)'s and (B)'s: both sides
+substituted.  At `nfnAuxDirty` that bridge holds by `rfl`
+(`InductiveDeclExamples.nfnAuxDirty_iotaRulesRS_bridge`), so the block that refuted (C) no
+longer does; what is left of the obligation there is `VInductDecl'.iotaRules_WF` and a
+`CSubst.WF`, neither of which mentions the restoration.
+
+**Two corrections to what the previous revision of this note predicted the cost would be.**
+
+1. It said the cost is that `VEnv.keysR_induct` and `VInductDecl'.iotaRulesR_key_declared` are
+   stated about the keys of `D.iotaRulesR R`, and that re-establishing the key after
+   substitution needs "`Faithful` plus freshness of the auxiliary names rather than `rfl`".
+   The first half is right — both are now `mem_iotaRulesRS` / `iotaRulesRS_key_declared`,
+   and `keysR_induct` folds `iotaRulesRS`.  The second half is **wrong on both counts**:
+   `VInductDecl'.key_iotaRuleR_substC` (`Theory/Inductive/NestedHead.lean`) needs neither
+   `Faithful` nor freshness, only `σ (R.recName …) = none` and `σ (R.ctorName C.name) = none`.
+2. And freshness could not have supplied those: a companion member's own name is declared by
+   **no** step — `typeConstsC` removes it — so nothing in `Faithful` + `OwnId` + the two
+   `addConstList` successes forbids `R.recName (mkRecName I_j)` from being exactly that name.
+   The two conditions are therefore a new syntactic side condition, `VIndRestore.KeysFree`
+   (`Theory/Inductive/Restore.lean`), sitting beside `KeysDistinct` on `keysR_induct`;
+   `InductiveDeclExamples.idRestore_not_keysFree` is the un-renamed recursor failing it, i.e.
+   G4's configuration reached through the substitution.
+
+What remains open on (C) *in general* is the bridge itself — the head-by-head equation
+`(D.iotaRule j q C).substC σ = (D.iotaRuleR R j q C).substC σ` at `σ = R.csubst D K`, the
+analogue of Part 4b's `ctorType_substC_eq_typeR_substC` over `iotaCtx`/`iotaLhs`/`iotaLam`/
+`ihValues`/`iotaType`.  It is strictly harder than (A)'s because `csubst`'s domain contains the
+companion's *constructor* and *recursor* names, which are not in `D.blockNames`
+(`nfn_csubst_dom_escapes_blockNames`), so no `NoBlock` clause of `VIndCtor.WF` covers them —
+Part 6 of `RestoreBridge.lean`. -/
 
 /-- **A companion ι-rule's major name is already declared.**  Directly `Faithful.ctor_agree`:
 the restoration presents the companion's constructors as constants the environment holds, and

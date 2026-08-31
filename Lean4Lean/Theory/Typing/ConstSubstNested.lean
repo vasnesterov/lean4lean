@@ -94,13 +94,40 @@ theorem VEnv.recConstsR_wf_of_substC {E₂ e₂ : VEnv} {D : VInductDecl'} {R : 
   rw [hbridge j T hT] at this
   exact this
 
-/-- **Obligation (C) reduces the same way.**  `hsrc` is `VInductDecl'.iotaRules_WF`. -/
+/-- **Obligation (C) reduces the same way.**  `hsrc` is `VInductDecl'.iotaRules_WF`.
+
+Stated about `D.iotaRulesR R` — the rules *before* the step's own substitution.  Since
+2026-08-31 `VEnv.addIndRulesR` registers `D.iotaRulesRS R K` instead, so the obligation
+`VEnv.addInductR_ordered'` actually asks for is `iotaRulesRS_wf_of_substC` below; this one is
+kept because it is what a block on which the substitution is the identity supplies. -/
 theorem VEnv.iotaRulesR_wf_of_substC {E₃ e₃ : VEnv} {D : VInductDecl'} {R : VIndRestore}
     {σ : CSubst}
     (hsrc : ∀ df ∈ D.iotaRules, VDefEq.WF E₃ df)
     (hσ : ∀ df ∈ D.iotaRules, σ.WF E₃ e₃ df.uvars)
     (hbridge : D.iotaRules.map (·.substC σ) = D.iotaRulesR R) :
     ∀ df ∈ D.iotaRulesR R, VDefEq.WF e₃ df := by
+  intro df hdf
+  rw [← hbridge, List.mem_map] at hdf
+  obtain ⟨df₀, hdf₀, rfl⟩ := hdf
+  exact VDefEq.WF.substC (hσ df₀ hdf₀) (hsrc df₀ hdf₀)
+
+/-- **Obligation (C), for the rules the step really registers.**
+
+`VEnv.addIndRulesR` folds `D.iotaRulesRS R K = (D.iotaRulesR R).map (·.substC (R.csubst D K))`,
+so the bridge is now the *same shape* as (A)'s and (B)'s — both sides substituted — rather than
+the asymmetric `map (·.substC σ) = iotaRulesR` the unsubstituted fold forced.  That asymmetry
+is exactly what made (C) false at `InductiveDeclExamples.nfnAuxDirty`
+(`nfnNodeDirty_fieldTypesR_dirty`): `iotaCtxR` splices the *unsubstituted* field telescope, and
+nothing downstream removed the companion constant sitting in a non-recursive entry of it.
+
+The proof is unchanged from `iotaRulesR_wf_of_substC` — the content of the repair is in the
+definition, not here. -/
+theorem VEnv.iotaRulesRS_wf_of_substC {E₃ e₃ : VEnv} {D : VInductDecl'} {R : VIndRestore}
+    {K : List Name} {σ : CSubst}
+    (hsrc : ∀ df ∈ D.iotaRules, VDefEq.WF E₃ df)
+    (hσ : ∀ df ∈ D.iotaRules, σ.WF E₃ e₃ df.uvars)
+    (hbridge : D.iotaRules.map (·.substC σ) = D.iotaRulesRS R K) :
+    ∀ df ∈ D.iotaRulesRS R K, VDefEq.WF e₃ df := by
   intro df hdf
   rw [← hbridge, List.mem_map] at hdf
   obtain ⟨df₀, hdf₀, rfl⟩ := hdf

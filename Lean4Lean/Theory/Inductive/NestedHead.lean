@@ -243,9 +243,18 @@ theorem allConstsCR_id_nil (h : D.Canonical) :
 
 end VInductDecl'
 
+/-- At `K = []` the substitution `addIndRulesR` now applies is the identity
+(`VIndRestore.csubst_nil`), so the identity restoration still folds exactly `addIndRules`'
+list.  This is what keeps conservativity a `rfl`-level fact after the substitution landed. -/
+theorem VInductDecl'.iotaRulesRS_id_nil {D : VInductDecl'} (h : D.Canonical) :
+    D.iotaRulesRS D.idRestore [] = D.iotaRules := by
+  rw [VInductDecl'.iotaRulesRS, VIndRestore.csubst_nil, ← D.iotaRulesR_id h]
+  refine List.map_congr_left (fun df _ => ?_) |>.trans (List.map_id _)
+  cases df; simp [VDefEq.substC]
+
 theorem VEnv.addIndRulesR_id (env : VEnv) {D : VInductDecl'} (h : D.Canonical) :
-    env.addIndRulesR D D.idRestore = env.addIndRules D := by
-  rw [VEnv.addIndRulesR, VEnv.addIndRules, D.iotaRulesR_id h]
+    env.addIndRulesR D [] D.idRestore = env.addIndRules D := by
+  rw [VEnv.addIndRulesR, VEnv.addIndRules, VInductDecl'.iotaRulesRS_id_nil h]
 
 /-- **Conservativity of the repaired step.**  With no companion members and the identity
 restoration, `addInductR` *is* `addInduct'`. -/
@@ -293,6 +302,84 @@ theorem VInductDecl'.key_iotaRuleR (D : VInductDecl') (R : VIndRestore) (j q : N
       (VLevel.params D.recUvars)) (by nofun)]
   simp [List.getLast?_append, VInductDecl'.headName_ctorAppR]
 
+/-- A constant applied to a spine has no leading λ to peel — so `VDefEq.key` reads the whole
+spine.  (`Theory/Typing/StructureRuleFree.lean` has this as `peelLams_snd_mkApp_const`, but
+that file imports `Injectivity.lean` and is not in this cone.) -/
+theorem VExpr.peelLams_snd_mkApp_notLam : ∀ (as : List VExpr) {f : VExpr},
+    (∀ A b, f ≠ .lam A b) → (VExpr.peelLams (f.mkApp as)).2 = f.mkApp as
+  | [], f, hf => by
+    cases f
+    case lam A b => exact absurd rfl (hf A b)
+    all_goals rfl
+  | _ :: as, f, _ => by
+    rw [VExpr.mkApp_cons]
+    exact peelLams_snd_mkApp_notLam as (f := .app f _) nofun
+
+/-- **The key of a declaration-shaped rule, computed.**  `VDefEq.key` peels the λs, reads the
+head constant, then the head constant of the spine's last argument; for a `mkLams`-over-a-
+constant-spine left-hand side that is exactly the head plus the last argument's head.
+
+`key_iotaRuleR` above is the unsubstituted instance; the point of having it in general is that
+`VEnv.addIndRulesR` registers a `substC` of that shape, and `substC` preserves the shape. -/
+theorem VDefEq.key_of_lhs {df : VDefEq} {G as : List VExpr} {c : Lean.Name}
+    {ls : List VLevel} {m : VExpr}
+    (h : df.lhs = VExpr.mkLams G ((VExpr.const c ls).mkApp as))
+    (hm : as.getLast? = some m) :
+    df.key = c :: (VExpr.headName m).toList := by
+  have hpeel : (VExpr.peelLams df.lhs).2 = (VExpr.const c ls).mkApp as := by
+    rw [h, VExpr.peelLams_mkLams]
+    exact VExpr.peelLams_snd_mkApp_notLam as (f := VExpr.const c ls) (by nofun)
+  show ((VExpr.headName (VExpr.peelLams df.lhs).2).toList ++
+    (((VExpr.spine (VExpr.peelLams df.lhs).2).2.getLast?).bind VExpr.headName).toList) = _
+  rw [hpeel, VExpr.headName_mkApp, VExpr.spine_mkApp (e := VExpr.const c ls) (by nofun), hm]
+  rfl
+
+/-- **…and substituting does not move it.**  `VEnv.addIndRulesR` registers
+`(D.iotaRuleR R j q C).substC σ`, and `substC` is structural, so the left-hand side stays a
+`mkLams` over a constant spine whose last argument stays headed by the restored constructor —
+*provided* neither head is in σ's domain, which is `VIndRestore.KeysFree`.
+
+This is the fact the closing note of the previous revision of
+`Theory/Inductive/NestedOrdered.lean` said "needs `Faithful` plus freshness of the auxiliary
+names, not `rfl`".  It needs neither: it needs exactly the two `σ … = none` side conditions,
+and the audit of where *those* come from is at `VIndRestore.KeysFree`
+(`Theory/Inductive/Restore.lean`). -/
+theorem VInductDecl'.key_iotaRuleR_substC (D : VInductDecl') (R : VIndRestore) {σ : CSubst}
+    (j q : Nat) (C : VIndCtor)
+    (hrec : σ (R.recName (Lean.mkRecName (D.types.getD j default).name)) = none)
+    (hctor : σ (R.ctorName C.name) = none) :
+    ((D.iotaRuleR R j q C).substC σ).key
+      = [R.recName (Lean.mkRecName (D.types.getD j default).name), R.ctorName C.name] := by
+  have hlhs : ((D.iotaRuleR R j q C).substC σ).lhs
+      = VExpr.mkLams ((D.iotaCtxR R C).map (VExpr.substC · σ))
+          ((VExpr.const (R.recName (Lean.mkRecName (D.types.getD j default).name))
+            (VLevel.params D.recUvars)).mkApp
+              ((VExpr.bvars (C.fields.length + (D.nm + D.nmin)) D.np ++
+                VExpr.bvars (C.fields.length + D.nmin) D.nm ++
+                VExpr.bvars C.fields.length D.nmin ++
+                C.args.map (fun a => (D.atRec a).liftN (D.nm + D.nmin) C.fields.length) ++
+                [D.ctorAppR R j C (C.fields.length + (D.nm + D.nmin))
+                  (VExpr.bvars 0 C.fields.length)]).map (VExpr.substC · σ))) := by
+    show ((VExpr.mkLams (D.iotaCtxR R C) (D.iotaLhsR R j C)).substC σ) = _
+    rw [VExpr.substC_mkLams, VInductDecl'.iotaLhsR, VExpr.substC_mkApp,
+      VExpr.substC_const_none hrec]
+  rw [VDefEq.key_of_lhs hlhs (m := (D.ctorAppR R j C (C.fields.length + (D.nm + D.nmin))
+        (VExpr.bvars 0 C.fields.length)).substC σ) (by simp [List.getLast?_append]),
+    VInductDecl'.ctorAppR, VExpr.substC_mkApp, VExpr.substC_const_none hctor,
+    VExpr.headName_mkApp]
+  rfl
+
+/-- No substituted restored ι-rule is a δ-rule: its key has two names, a δ-rule's has one. -/
+theorem VInductDecl'.not_isDeltaRule_iotaRuleR_substC (D : VInductDecl') (R : VIndRestore)
+    {σ : CSubst} (j q : Nat) (C : VIndCtor)
+    (hrec : σ (R.recName (Lean.mkRecName (D.types.getD j default).name)) = none)
+    (hctor : σ (R.ctorName C.name) = none) :
+    ∀ c, ¬ VEnv.IsDeltaRule ((D.iotaRuleR R j q C).substC σ) c := by
+  intro c hd
+  have hk := VEnv.key_of_isDeltaRule hd
+  rw [D.key_iotaRuleR_substC R j q C hrec hctor] at hk
+  exact absurd hk (by simp)
+
 /-- Every rule of `iotaRulesR` is an `iotaRuleR` of a constructor of the block. -/
 theorem VInductDecl'.mem_iotaRulesR {D : VInductDecl'} {R : VIndRestore} {df : VDefEq}
     (h : df ∈ D.iotaRulesR R) :
@@ -327,12 +414,38 @@ theorem VInductDecl'.iotaRulesR_key_declared (D : VInductDecl') (R : VIndRestore
   obtain ⟨T, hT, -⟩ := VInductDecl'.mem_ctorsAll hjC
   exact ⟨_, by rw [hk]; rfl, D.recName_mem_allNamesCR R K hT⟩
 
+/-- Every rule `VEnv.addIndRulesR` actually registers is a substituted restored ι-rule of a
+constructor of the block, and — under `KeysFree` — carries the *same* key as the unsubstituted
+one.  This is the lemma that lets every `key`-based argument keep reading
+`key_iotaRuleR` after the substitution landed. -/
+theorem VInductDecl'.mem_iotaRulesRS {D : VInductDecl'} {R : VIndRestore} {K : List Lean.Name}
+    {df : VDefEq} (hfree : R.KeysFree D K) (h : df ∈ D.iotaRulesRS R K) :
+    ∃ j C, (j, C) ∈ D.ctorsAll ∧
+      df.key
+        = [R.recName (Lean.mkRecName (D.types.getD j default).name), R.ctorName C.name] := by
+  rw [VInductDecl'.iotaRulesRS, List.mem_map] at h
+  obtain ⟨df₀, hdf₀, rfl⟩ := h
+  rw [VInductDecl'.iotaRulesR, List.mem_map] at hdf₀
+  obtain ⟨⟨⟨j, C⟩, q⟩, hm, rfl⟩ := hdf₀
+  have hm' := D.mem_ctorsAll_of_mem_zipIdx hm
+  obtain ⟨h1, h2⟩ := hfree (j, C) hm'
+  exact ⟨j, C, hm', D.key_iotaRuleR_substC R j q C h1 h2⟩
+
+/-- `iotaRulesR_key_declared` for the rules the step really emits. -/
+theorem VInductDecl'.iotaRulesRS_key_declared (D : VInductDecl') (R : VIndRestore)
+    (K : List Lean.Name) (hfree : R.KeysFree D K) {df : VDefEq} (h : df ∈ D.iotaRulesRS R K) :
+    ∃ n, df.key.head? = some n ∧ n ∈ D.allNamesCR R K := by
+  obtain ⟨j, C, hjC, hk⟩ := VInductDecl'.mem_iotaRulesRS hfree h
+  obtain ⟨T, hT, -⟩ := VInductDecl'.mem_ctorsAll hjC
+  exact ⟨_, by rw [hk]; rfl, D.recName_mem_allNamesCR R K hT⟩
+
 /-- …and it survives the step: the constant the rule is keyed on is present in the resulting
 environment, at the recursor type the step gave it. -/
 theorem VEnv.addInductR_key_declared {env env' : VEnv} {D : VInductDecl'} {R : VIndRestore}
-    {K : List Lean.Name} (hadd : env.addInductR D K R = some env') {df : VDefEq}
-    (h : df ∈ D.iotaRulesR R) : ∃ n, df.key.head? = some n ∧ env'.contains n := by
-  obtain ⟨n, hn, hmem⟩ := D.iotaRulesR_key_declared R K h
+    {K : List Lean.Name} (hadd : env.addInductR D K R = some env') (hfree : R.KeysFree D K)
+    {df : VDefEq}
+    (h : df ∈ D.iotaRulesRS R K) : ∃ n, df.key.head? = some n ∧ env'.contains n := by
+  obtain ⟨n, hn, hmem⟩ := D.iotaRulesRS_key_declared R K hfree h
   refine ⟨n, hn, ?_⟩
   rw [VInductDecl'.allNamesCR, List.mem_map] at hmem
   obtain ⟨c, hc, rfl⟩ := hmem
@@ -396,9 +509,11 @@ theorem addInductR_eq_some_iff :
   · rintro ⟨env₁, h⟩
     exact ⟨_, by rw [VEnv.addInductR, h]; rfl⟩
 
-/-- Every ι-rule the step emits is in the resulting environment's `defeqs`. -/
+/-- Every ι-rule the step emits is in the resulting environment's `defeqs`.  Since
+2026-08-31 the rules it emits are `iotaRulesRS` — the restored rules *substituted* — so this
+is stated about those. -/
 theorem addInductR_defeqs (h : env.addInductR D K R = some env') :
-    ∀ df ∈ D.iotaRulesR R, env'.defeqs df := by
+    ∀ df ∈ D.iotaRulesRS R K, env'.defeqs df := by
   rw [VEnv.addInductR, Option.map_eq_some_iff] at h
   obtain ⟨env₁, h1, rfl⟩ := h
   exact VEnv.addDefEqList_defeqs _ _

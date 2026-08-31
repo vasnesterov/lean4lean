@@ -105,7 +105,7 @@ def AddInductStagesR (m₁ : ConstMap) (env₁ : VEnv) (D : VInductDecl')
     AddIndConsts (IndShapeOf D R.ctorName) (D.typeConstsC K) m₁ env₁ mt et ∧
     AddIndConsts (CtorShapeOf D R.ctorName R.tyName) (D.ctorConstsCR R K) mt et mc ec ∧
     AddIndConsts (fun ci => ∃ v, ci = .recInfo v) (D.recConstsR R K) mc ec m₂ e₃ ∧
-    env₂ = e₃.addIndRulesR D R
+    env₂ = e₃.addIndRulesR D K R
 
 theorem AddInductStagesR.to_addInductR {m₁ m₂ : ConstMap} {env₁ env₂ : VEnv}
     {D : VInductDecl'} {K : List Name} {R : VIndRestore}
@@ -163,7 +163,7 @@ stages add none. -/
 theorem AddInductStagesR.defeqs {m₁ m₂ : ConstMap} {env₁ env₂ : VEnv} {D : VInductDecl'}
     {K : List Name} {R : VIndRestore} {df}
     (H : AddInductStagesR m₁ env₁ D K R m₂ env₂) (h : env₂.defeqs df) :
-    env₁.defeqs df ∨ df ∈ D.iotaRulesR R := by
+    env₁.defeqs df ∨ df ∈ D.iotaRulesRS R K := by
   obtain ⟨mt, et, mc, ec, e₃, h1, h2, h3, rfl⟩ := H
   have hstage : e₃.defeqs = env₁.defeqs := by rw [h3.defeqs, h2.defeqs, h1.defeqs]
   rw [VEnv.addIndRulesR] at h

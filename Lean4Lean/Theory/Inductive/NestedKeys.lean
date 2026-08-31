@@ -176,6 +176,17 @@ theorem not_isDeltaRule_iotaRulesR {D : VInductDecl'} {R : VIndRestore} :
   obtain ⟨⟨⟨j, C⟩, q⟩, _, rfl⟩ := hdf
   exact fun c => not_isDeltaRule_iotaRuleR D R j q C c
 
+/-- …and neither is the *substituted* one, which is what the step registers. -/
+theorem not_isDeltaRule_iotaRulesRS {D : VInductDecl'} {R : VIndRestore} {K : List Lean.Name}
+    (hfree : R.KeysFree D K) : ∀ df ∈ D.iotaRulesRS R K, ∀ c, ¬ IsDeltaRule df c := by
+  intro df hdf
+  rw [VInductDecl'.iotaRulesRS, List.mem_map] at hdf
+  obtain ⟨df₀, hdf₀, rfl⟩ := hdf
+  rw [VInductDecl'.iotaRulesR, List.mem_map] at hdf₀
+  obtain ⟨⟨⟨j, C⟩, q⟩, hm, rfl⟩ := hdf₀
+  obtain ⟨h1, h2⟩ := hfree (j, C) (D.mem_ctorsAll_of_mem_zipIdx hm)
+  exact D.not_isDeltaRule_iotaRuleR_substC R j q C h1 h2
+
 end VEnv
 
 /-- The renamed recursor of a member is one of the *recursor* constants the step declares —
@@ -236,6 +247,24 @@ theorem VInductDecl'.iotaRulesR_pairwise_key (D : VInductDecl') (R : VIndRestore
   simp only [List.cons.injEq, and_true] at he
   exact hh.elim (fun h => h he.1) (fun h => h he.2)
 
+/-- **The pairwise key separation, for the rules the step registers.**  `substC` leaves the
+keys where they were (`VInductDecl'.key_iotaRuleR_substC`), so this is
+`iotaRulesR_pairwise_key` transported along that equation. -/
+theorem VInductDecl'.iotaRulesRS_pairwise_key (D : VInductDecl') (R : VIndRestore)
+    {K : List Lean.Name} (hd : R.KeysDistinct D) (hfree : R.KeysFree D K) :
+    (D.iotaRulesRS R K).Pairwise fun a b => a.key ≠ b.key := by
+  have hkey : ∀ df₀ ∈ D.iotaRulesR R, (df₀.substC (R.csubst D K)).key = df₀.key := by
+    intro df₀ hdf₀
+    rw [VInductDecl'.iotaRulesR, List.mem_map] at hdf₀
+    obtain ⟨⟨⟨j, C⟩, q⟩, hm, rfl⟩ := hdf₀
+    obtain ⟨h1, h2⟩ := hfree (j, C) (D.mem_ctorsAll_of_mem_zipIdx hm)
+    rw [D.key_iotaRuleR_substC R j q C h1 h2, D.key_iotaRuleR R j q C]
+  rw [VInductDecl'.iotaRulesRS]
+  refine List.pairwise_map.2 ((D.iotaRulesR_pairwise_key R hd).imp_of_mem ?_)
+  intro a b ha hb hne
+  rw [hkey a ha, hkey b hb]
+  exact hne
+
 namespace VEnv
 
 /-- **The nested arm.**  `KeysDeclared`, `KeyHeadDelta` and `KeyUnique` all survive a nested
@@ -246,7 +275,7 @@ arm, and only becomes provable once that arm's third conclusion is `KeyUnique`: 
 theorem keysR_induct {env env' : VEnv} {D : VInductDecl'} {K : List Lean.Name}
     {R : VIndRestore} {npJ : Nat → Nat}
     (hR : env.addInductR D K R = some env')
-    (hf : R.Faithful D env K npJ) (hd : R.KeysDistinct D)
+    (hf : R.Faithful D env K npJ) (hd : R.KeysDistinct D) (hfree : R.KeysFree D K)
     (ih : env.KeysDeclared ∧ env.KeyHeadDelta ∧ env.KeyUnique) :
     env'.KeysDeclared ∧ env'.KeyHeadDelta ∧ env'.KeyUnique := by
   obtain ⟨e1, e2, e3, h1, h2, h3, rfl⟩ := VEnv.addInductR_stages hR
@@ -287,11 +316,12 @@ theorem keysR_induct {env env' : VEnv} {D : VInductDecl'} {K : List Lean.Name}
     have heq := ih.2.1 df' (D₀.iotaRule j₀ q₀ C₀) _ hdf' hrule hδ
       (by rw [D₀.key_iotaRule, hname]; exact List.mem_cons_of_mem _ List.mem_cons_self)
     exact not_isDeltaRule_iotaRule D₀ j₀ q₀ C₀ _ (heq ▸ hδ)
-  refine keysU_addDefEqList_notDelta (D.iotaRulesR R) (keysU_mono hdefeqs hle ih)
-    not_isDeltaRule_iotaRulesR ?_ ?_ ?_ (D.iotaRulesR_pairwise_key R hd)
+  refine keysU_addDefEqList_notDelta (D.iotaRulesRS R K) (keysU_mono hdefeqs hle ih)
+    (not_isDeltaRule_iotaRulesRS hfree) ?_ ?_ ?_
+    (D.iotaRulesRS_pairwise_key R hd hfree)
   · -- hdecl
     intro df hdf n hn
-    obtain ⟨j, C, hm, hk⟩ := VInductDecl'.mem_iotaRulesR hdf
+    obtain ⟨j, C, hm, hk⟩ := VInductDecl'.mem_iotaRulesRS hfree hdf
     obtain ⟨T, hT, hC⟩ := VInductDecl'.mem_ctorsAll hm
     rw [hk] at hn
     rcases List.mem_cons.1 hn with rfl | hn
@@ -307,7 +337,7 @@ theorem keysR_induct {env env' : VEnv} {D : VInductDecl'} {K : List Lean.Name}
     rw [hdefeqs] at hdf'
     have hcdecl : env.contains c :=
       ih.1 df' hdf' c (key_of_isDeltaRule hδ ▸ List.mem_singleton_self c)
-    obtain ⟨j, C, hm, hk⟩ := VInductDecl'.mem_iotaRulesR hdf
+    obtain ⟨j, C, hm, hk⟩ := VInductDecl'.mem_iotaRulesRS hfree hdf
     obtain ⟨T, hT, hC⟩ := VInductDecl'.mem_ctorsAll hm
     rw [hk] at hmem
     rcases List.mem_cons.1 hmem with rfl | hmem
@@ -319,7 +349,7 @@ theorem keysR_induct {env env' : VEnv} {D : VInductDecl'} {K : List Lean.Name}
   · -- hkey
     intro df hdf df' hdf' hkeq
     rw [hdefeqs] at hdf'
-    obtain ⟨j, C, hm, hk⟩ := VInductDecl'.mem_iotaRulesR hdf
+    obtain ⟨j, C, hm, hk⟩ := VInductDecl'.mem_iotaRulesRS hfree hdf
     obtain ⟨T, hT, hC⟩ := VInductDecl'.mem_ctorsAll hm
     exact hrecfresh _ (D.recName_mem_recConstsR R hT)
       (ih.1 df' hdf' _ (by rw [← hkeq, hk]; exact List.mem_cons_self))
@@ -328,10 +358,11 @@ theorem keysR_induct {env env' : VEnv} {D : VInductDecl'} {K : List Lean.Name}
 `inductNested` rule of `Theory/Typing/Env.lean` would take. -/
 theorem keys_addNestedStep {env env' : VEnv} {D : VInductDecl'} {K : List Lean.Name}
     {R : VIndRestore} (hs : VEnv.AddNestedStep env D K R env') (hd : R.KeysDistinct D)
+    (hfree : R.KeysFree D K)
     (ih : env.KeysDeclared ∧ env.KeyHeadDelta ∧ env.KeyUnique) :
     env'.KeysDeclared ∧ env'.KeyHeadDelta ∧ env'.KeyUnique :=
   let ⟨_, _, _, _, hf, hadd⟩ := hs
-  keysR_induct hadd hf hd ih
+  keysR_induct hadd hf hd hfree ih
 
 end VEnv
 
@@ -349,6 +380,34 @@ theorem ntreeRestore_keysDistinct : ntreeRestore.KeysDistinct ntreeAux := by
 
 theorem nfnRestore_keysDistinct : nfnRestore.KeysDistinct nfnAux := by
   unfold VIndRestore.KeysDistinct; decide
+
+/-! `VIndRestore.KeysFree` — `keysR_induct`'s *second* syntactic side condition, the one the
+substitution in `VEnv.addIndRulesR` introduced — at the same two witnesses.  Both are
+`decide`, and both are non-trivial in the same way `KeysDistinct` is: `nfnRestore` really does
+rename `_nested.PFn_1.rec ↦ NFn.rec_1` and `_nested.PFn_1.mk ↦ PFn.mk`, and what is being
+checked is that neither *image* is back in `csubst`'s domain
+`{_nested.PFn_1, _nested.PFn_1.rec, _nested.PFn_1.mk}`. -/
+
+theorem ntreeRestore_keysFree : ntreeRestore.KeysFree ntreeAux ntreeK := by
+  unfold VIndRestore.KeysFree; decide
+
+theorem nfnRestore_keysFree : nfnRestore.KeysFree nfnAux nfnK := by
+  unfold VIndRestore.KeysFree; decide
+
+/-- **…and `KeysFree` is not vacuous: G4's own configuration fails it.**
+
+`VInductDecl'.idRestore` leaves the recursor name alone, so at the *companion* member it
+presents `_nested.PFn_1.rec` — which is precisely a name `R.csubst nfnAux nfnK` rewrites.  Under
+that restoration the substitution in `VEnv.addIndRulesR` would rewrite the ι-rule's **head**,
+i.e. change which constant the rule reduces, which is G4 reached by a new route.  So `KeysFree`
+is the hypothesis that excludes the un-renamed recursor at the substitution level, exactly as
+`VInductDecl'.key_iotaRule_ne_renamed` (`Theory/Inductive/NestedHead.lean`) excludes it at the
+key level.
+
+Note this does *not* contradict `VIndRestore.keysFree_nil`: there `K = []`, so σ is empty.  It
+is having a companion member **and** not renaming its recursor that fails. -/
+theorem idRestore_not_keysFree : ¬ (nfnAux.idRestore).KeysFree nfnAux nfnK := by
+  unfold VIndRestore.KeysFree; decide
 
 /-- …and the property is not trivially true of any restoration: a restoration that renamed
 both members' recursors to the *same* name and both constructors to the same name would fail
@@ -384,7 +443,7 @@ theorem nfn_keys_summary :
   obtain ⟨env₃, hs⟩ := nfnAux_AddNestedStep h
   obtain ⟨npJ, hwf, hcan, hoi, hf, hadd⟩ := hs
   exact ⟨env₂, env₃, h, ⟨npJ, hwf, hcan, hoi, hf, hadd⟩, nfn_keyMajorUnique_false h hadd,
-    fun ih => VEnv.keysR_induct hadd hf nfnRestore_keysDistinct ih⟩
+    fun ih => VEnv.keysR_induct hadd hf nfnRestore_keysDistinct nfnRestore_keysFree ih⟩
 
 end InductiveDeclExamples
 
@@ -405,13 +464,21 @@ The header of this file promised this list; here it is, measured against the tre
 
 **Still open, in the order a nested `VDecl.WF` arm would hit them.**
 
-1. **`VIndRestore.KeysDistinct` has to stop being a hypothesis.**  `keysR_induct` takes it,
-   and §3.3 discharges it by `decide` at the two concrete witnesses.  For a general rule it
-   must be either derived — from the two `addConstList` successes plus
-   `Faithful.ctors_complete`, the argument sketched in `VIndRestore.KeysDistinct`'s own
-   docstring, which is list combinatorics over a `filterMap` — or added to
-   `VEnv.AddNestedStep`'s premises, where the checker would then have to establish it.  The
-   derivation is the right answer; it is the only *mathematical* debt this section leaves.
+1. **`VIndRestore.KeysDistinct` and `VIndRestore.KeysFree` have to stop being hypotheses.**
+   `keysR_induct` takes both, and §3.3 discharges both by `decide` at the two concrete
+   witnesses.  They are *not* the same debt:
+
+   * `KeysDistinct` is derivable — from the two `addConstList` successes plus
+     `Faithful.ctors_complete`, the argument sketched in its own docstring, which is list
+     combinatorics over a `filterMap`.
+   * `KeysFree` is **not** derivable from the premises the step carries, and that is a measured
+     claim rather than a failure to find the proof: σ's domain is the companion members' own
+     names, and `VInductDecl'.typeConstsC` declares none of them, so no freshness argument can
+     separate a restored head from one.  Either it joins `VEnv.AddNestedStep`'s premises (where
+     the checker discharges it — trivially, since `mkAuxRecNameMap` renames every auxiliary
+     recursor to a name outside the `_nested` namespace), or `VIndRestore.Faithful` gains a
+     clause asserting the restored names are declared in `env` while the auxiliary ones are not.
+     `InductiveDeclExamples.idRestore_not_keysFree` is why it cannot simply be dropped.
 2. **The other `VEnv.WF'` inductions need their own nested arms.**  `WF'.keys` is one of four
    in `Theory/Typing/DeltaUnique.lean` alone:
    * `WF'.keysNonempty` — trivial: `VInductDecl'.key_iotaRuleR` gives every restored ι-rule a

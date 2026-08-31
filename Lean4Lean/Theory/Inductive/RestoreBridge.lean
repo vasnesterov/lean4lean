@@ -94,21 +94,13 @@ open VExpr (mkPi mkLams mkApp bvars instAll)
 /-! ## Part 1: the syntactic toolkit
 
 `substC` is a structural homomorphism, so it commutes with every telescope former.
-`VExpr.substC_mkPi` is already in `ConstSubstNested.lean`; these are its siblings. -/
+`VExpr.substC_mkPi` is in `ConstSubstNested.lean`; `substC_mkApp`, `substC_mkLams` and
+`map_substC_bvars` **moved down to `Theory/Inductive/Restore.lean`** when
+`VEnv.addIndRulesR` started substituting — `Theory/Inductive/NestedKeys.lean` needs them and
+does not import this file. -/
 
 namespace VExpr
 variable {σ : CSubst}
-
-theorem substC_mkApp : ∀ {as : List VExpr} {f : VExpr},
-    (f.mkApp as).substC σ = (f.substC σ).mkApp (as.map (VExpr.substC · σ))
-  | [], _ => rfl
-  | a :: as, f => by
-    rw [mkApp, List.map_cons, mkApp, substC_mkApp (as := as), substC_app]
-
-@[simp] theorem map_substC_bvars : ∀ {lo n : Nat},
-    (bvars lo n).map (VExpr.substC · σ) = bvars lo n
-  | _, 0 => rfl
-  | lo, n+1 => by rw [bvars, List.map_cons, map_substC_bvars (lo := lo) (n := n)]; rfl
 
 /-- A term free of every constant in a name list is `substC`-invariant for any `σ` whose
 domain sits inside that list. -/
@@ -1090,20 +1082,104 @@ theorem nfnNodeDirty_not_restoreClean : ¬ nfnNodeDirty.RestoreClean nfnSubst :=
 theorem nfnAuxDirty_params_nil : nfnAuxDirty.params = [] := rfl
 theorem nfnAuxDirty_blockNames_nodup : nfnAuxDirty.blockNames.Nodup := by decide
 
-/-- **What is left of the refutation: it has moved from `hctors` to `hrules`.**
+/-! ### …and the refutation of `hrules` is gone too — the repair landed
 
-`VEnv.addIndRulesR` folds `D.iotaRulesR R` *unsubstituted*, and `iotaCtxR` splices
-`C.fieldTypesR` — the same telescope whose non-recursive entry carries `_nested.PFn_1`.  So the
-first ι-rule the dirty step emits still has a type mentioning a constant the environment does
-not hold, and obligation **(C)** of `VEnv.addInductR_ordered'` is false at this block for
-exactly the reason (A) used to be.
+The previous revision of this section ended: "`VEnv.addIndRulesR` folds `D.iotaRulesR R`
+*unsubstituted*, and `iotaCtxR` splices `C.fieldTypesR` — the same telescope whose
+non-recursive entry carries `_nested.PFn_1`.  So the first ι-rule the dirty step emits still has
+a type mentioning a constant the environment does not hold, and obligation **(C)** of
+`VEnv.addInductR_ordered'` is false at this block for exactly the reason (A) used to be."
 
-The repair is the same one: substitute in `addIndRulesR` too.  What that costs is not a
-`substC` — it is that `VEnv.keysR_induct` (`Theory/Inductive/NestedKeys.lean`) is stated about
-the keys of `D.iotaRulesR R`, and after substitution the environment holds
-`(D.iotaRuleR R j q C).substC σ`, whose key is the same only because the restored recursor and
-constructor heads are outside σ's domain — a fact that needs `Faithful` plus the freshness of
-the auxiliary names, not `rfl`.  Stated here rather than attempted. -/
+That is no longer true.  `VEnv.addIndRulesR` now folds `VInductDecl'.iotaRulesRS D R K` — the
+restored rules with `R.csubst D K` substituted through them — and at this block the substituted
+rules are exactly the *ordinary* block's ι-rules substituted, `rfl`
+(`nfnAuxDirty_iotaRulesRS_bridge`).  So the (C) bridge that
+`VEnv.iotaRulesRS_wf_of_substC` asks for holds here, and what is left of the obligation is
+`hsrc`/`hσ` — `VInductDecl'.iotaRules_WF` and a `CSubst.WF`, neither of which mentions the
+restoration.
+
+Two things about the cost, because the previous note mis-priced it.
+
+* The note said the cost was that `VEnv.keysR_induct` is stated about the keys of
+  `D.iotaRulesR R` and re-establishing the key "needs `Faithful` plus the freshness of the
+  auxiliary names, not `rfl`".  **Both halves are wrong.**  What re-establishes the key is
+  `VInductDecl'.key_iotaRuleR_substC` (`Theory/Inductive/NestedHead.lean`), and it needs
+  neither `Faithful` nor freshness: it needs exactly `σ (R.recName …) = none` and
+  `σ (R.ctorName C.name) = none`, isolated as `VIndRestore.KeysFree`.
+* And `KeysFree` is **not** derivable from `Faithful` + `OwnId` + the two `addConstList`
+  successes, so freshness could not have been the route: a companion member's own name is
+  declared by *no* step (`typeConstsC` removes it), so nothing among those hypotheses forbids
+  `R.recName (mkRecName I_j)` from being that name.  It is a syntactic side condition of
+  `keysR_induct` alongside `KeysDistinct`, `decide`-able at a concrete block, and it is exactly
+  what excludes G4's configuration at the substitution level:
+  `InductiveDeclExamples.idRestore_not_keysFree` (`Theory/Inductive/NestedKeys.lean`) is the
+  un-renamed recursor failing it.
+
+What survives unchanged is that the dirt is still in `VIndCtor.typeR`, hence still in
+`iotaCtxR`: `typeR` is the *canonical* restored form and `Faithful.ctor_agree` is stated against
+it, so it was never the thing to change. -/
+
+/-- **The general substitution at the dirty block is still `nfnSubstAll`** — the full one, with
+the companion's constructor and recursor entries.  Compare `nfn_csubstTy_dirty`, the type-only
+one that obligation (A) uses. -/
+theorem nfn_csubst_dirty : nfnRestore.csubst nfnAuxDirty nfnK = nfnSubstAll := by
+  funext n
+  show List.lookup n [(`_nested.PFn_1, nfnVal), (`_nested.PFn_1.rec, nfnValRec),
+    (`_nested.PFn_1.mk, nfnValMk)] = _
+  by_cases h1 : n = `_nested.PFn_1
+  · subst h1; rfl
+  by_cases h2 : n = `_nested.PFn_1.mk
+  · subst h2; rfl
+  by_cases h3 : n = `_nested.PFn_1.rec
+  · subst h3; rfl
+  rw [List.lookup_cons, show (n == `_nested.PFn_1) = false from beq_eq_false_iff_ne.2 h1,
+    List.lookup_cons, show (n == `_nested.PFn_1.rec) = false from beq_eq_false_iff_ne.2 h3,
+    List.lookup_cons, show (n == `_nested.PFn_1.mk) = false from beq_eq_false_iff_ne.2 h2]
+  show none = _
+  rw [nfnSubstAll, if_neg h1, if_neg h2, if_neg h3]
+
+/-- **Obligation (C)'s bridge, at the block that used to refute it.**  This is
+`nfn_iotaRules_substC` (the clean witness's (C) bridge) at the *dirty* block, and it is `rfl`
+for the same reason: `iotaCtx` and `iotaCtxR` differ only in positions the substitution
+identifies. -/
+theorem nfnAuxDirty_iotaRulesRS_bridge :
+    nfnAuxDirty.iotaRules.map (·.substC nfnSubstAll)
+      = nfnAuxDirty.iotaRulesRS nfnRestore nfnK := by
+  rw [VInductDecl'.iotaRulesRS, nfn_csubst_dirty]; rfl
+
+/-- `KeysFree` holds at the dirty block too — the extra field is in a constructor's telescope
+and `KeysFree` reads only the restoration's names. -/
+theorem nfnRestore_keysFree_dirty : nfnRestore.KeysFree nfnAuxDirty nfnK := by
+  unfold VIndRestore.KeysFree; decide
+
+/-! ### The change is bounded both ways
+
+`docs/vacuity-ledger.md` §5: a repair that could not have changed anything is not a repair, and
+one that changes what the implementation declares breaks faithfulness.  The substitution in
+`VEnv.addIndRulesR` is measured on both sides.
+
+* **It does nothing on a clean block.**  At *both* end-to-end witnesses the substituted rule
+  list is the restored one on the nose, `rfl` — so `AddInductStagesR`
+  (`Verify/Environment/InductR.lean`) and every `Faithful` equation are untouched, and
+  `nfnAux_addInductR_ordered` (`Theory/Typing/ConstSubstNested.lean`) still discharges all
+  three obligations with the *same* proofs.
+* **It does something on the block that refuted (C).**  The first rule's `type` moves. -/
+
+theorem nfnAux_iotaRulesRS_noop :
+    nfnAux.iotaRulesRS nfnRestore nfnK = nfnAux.iotaRulesR nfnRestore := rfl
+
+theorem ntreeAux_iotaRulesRS_noop :
+    ntreeAux.iotaRulesRS ntreeRestore ntreeK = ntreeAux.iotaRulesR ntreeRestore := rfl
+
+theorem nfnAuxDirty_iotaRulesRS_moves :
+    (nfnAuxDirty.iotaRulesRS nfnRestore nfnK).head?.map (·.type)
+      ≠ (nfnAuxDirty.iotaRulesR nfnRestore).head?.map (·.type) := by
+  rw [VInductDecl'.iotaRulesRS, nfn_csubst_dirty]; decide
+
+/-- **The dirt is still in the canonical restored telescope.**  `VIndField.typeR` copies a
+non-recursive field's stored type verbatim, so `fieldTypesR` — and therefore `iotaCtxR` — still
+names `_nested.PFn_1`.  What changed is that this is no longer what the step *registers*:
+`iotaRulesRS` substitutes.  Kept because it pins which positions the substitution is for. -/
 theorem nfnNodeDirty_fieldTypesR_dirty :
     ∃ A ∈ nfnNodeDirty.fieldTypesR nfnAuxDirty nfnRestore, ¬ A.NoCSubst nfnSubst := by
   refine ⟨nfnDirtyField.type, ?_, ?_⟩
