@@ -102,7 +102,7 @@ currently sorry-free, and that is the real cost of the flip:
 |---|---|
 | `TrEnv.find?_shape` | **repairable** — restate with three more disjuncts (`AddInductStages.find?_shape`) |
 | `checkEqType.WF` | **repairable** — `checkEqType.WF_quotReady_closed` (already proved, §0a) |
-| `addQuot.WF` | **repairable modulo the `AddQuot` construction** (§6) |
+| `addQuot.WF` | **proved and sorry-free, still vacuous** — the `AddQuot` construction landed; the residual obstacle is `AddInduct`, via `VEnvs.WF` in the hypothesis. `docs/vacuity-ledger.md` row 5 |
 | `TrEnv.not_inductInfo` | **dies** |
 | `TrEnv.not_ctorInfo` | **dies** |
 | `TrEnv.not_recInfo` | **dies** |
@@ -344,7 +344,17 @@ the remaining 56 tier-2 users are already `sorryAx`-tainted.
 
 ## 7. What to pick up first
 
-1. **`addQuot.WF`'s `AddQuot` construction.** This is now the *only* thing between the checker
+1. ~~**`addQuot.WF`'s `AddQuot` construction.**~~ **DONE, and the conclusion drawn from it here
+   was wrong.** `Environment.addQuot.WF` (`Verify/Environment.lean:140`) is proved and
+   sorry-free. But it is *still vacuous*, and the reason is `AddInduct` after all: its
+   hypothesis is `ves.WF env`, and `VEnvs.WF` cannot hold of any environment whose constant map
+   carries an `.inductInfo` (`VEnvs.WF.no_inductInfo`). The non-initialized branch is
+   unreachable — `addQuot_trivial_of_wf` and `no_wf_envEqInd` (`Verify/QuotReach.lean`) prove
+   this outright. So the construction was never "the only thing between the checker and a
+   non-vacuous `addQuot.WF`", and it was never "orthogonal to `AddInduct`": it was the smaller
+   of two obstacles, and the flip is the other. Row 5 of `docs/vacuity-ledger.md`.
+
+   *(Original text, for the record:)* This is now the *only* thing between the checker
    and a non-vacuous `addQuot.WF`, and it is orthogonal to `AddInduct`. Needed: from the
    executable `Environment.addQuot`, exhibit
    `AddQuot env.constants env'.constants (ves.venv safety) (venv' safety)` — four `AddQuot1`
@@ -383,10 +393,10 @@ Each is machine-checked; the file named is **not** this stream's unless marked.
 | `docs/handoff-eq-safety.md` §3, §6.1 | `htr` is "a pure `AddInduct` obligation", "not provable today" | False. `checkEqType.WF_quotReady_closed`, no `AddInduct` in its cone (§0a). |
 | `Verify/EqSafety.lean:26-27, 110-113` (not owned) | same | same |
 | `Verify/SafeFragment.lean:60-63` (not owned) | the honest replacement "is not provable from the checker **as written**"; the fix is a checker change | Accurate, and now **discharged**: the checker change landed (`3bc24d6`), and `WF_type` does use `info.isUnsafe = false`. Not a correction — recorded so the note is not read as a live blocker. |
-| `docs/handoff-eq-safety.md` §6.1 | `htr` is "*the only* thing between the checker and a non-vacuous `addQuot.WF`" | Also wrong in the other direction: the `AddQuot` construction (§7.1) is a second, larger obligation, and it is now the only one left. |
+| `docs/handoff-eq-safety.md` §6.1 | `htr` is "*the only* thing between the checker and a non-vacuous `addQuot.WF`" | Also wrong in the other direction: the `AddQuot` construction (§7.1) is a second, larger obligation, and it is now the only one left. **This correction was itself wrong**: the construction landed and `addQuot.WF` is *still* vacuous, because `VEnvs.WF env` in the hypothesis needs the flip. See §7.1. |
 | `Verify/Environment/Basic.lean:140` (owned, **fixed**) | the flip makes "*everything* in `Verify/` go red" | Over-stated; 174 of 182 tier-1 users only need arms that are already proved, and the irreparable set is eight declarations (§1.3). |
 | `Theory/Inductive/Decl.lean:703` (not owned) | an unsafe block "is taken by `TrEnv'.ignore` instead" | False at `.unsafe` (`ignore_unavailable_at_unsafe`). Same wording in `Verify/Environment/Induct.lean`'s `TrIndDecl.safe`. Already recorded in `Verify/TypeChecker/Reduce.lean`; repeated here because two files still carry the false version. |
-| `Verify/Environment.lean` (owned, **fixed**) | `checkEqType.WF`/`addQuot.WF` blocked on `AddInduct` | Blocked on the `AddQuot` construction only. |
+| `Verify/Environment.lean` (owned, **fixed**) | `checkEqType.WF`/`addQuot.WF` blocked on `AddInduct` | Blocked on the `AddQuot` construction only. **And the original claim was right after all**: with the construction done, what remains is exactly `AddInduct`. |
 
 ---
 

@@ -155,11 +155,14 @@ Worth saying plainly about what is being "lost": these are theorems asserting th
 handles inductives. They are sorry-free today *only because* `AddInduct` is empty. For a kernel
 whose theorem must cover full Lean type theory, their falsity is the goal, not a regression.
 
-**This remains the human's decision and I am not taking it.** Two prerequisites from §7 are
-independent of it and can proceed now: §7.1 (`addQuot.WF`'s `AddQuot` construction — explicitly
-orthogonal to `AddInduct`, and the only thing between the checker and a non-vacuous
-`addQuot.WF`), and §7.3 (`addDecl.WF`'s `inductDecl` branch, which must show the map the
-executable `addInductive` produces *is* the map `AddInductStages` builds).
+**This remains the human's decision and I am not taking it.** Of the two prerequisites from §7
+once called independent of it, §7.1 (`addQuot.WF`'s `AddQuot` construction) is **done** —
+`Environment.addQuot.WF` is proved and sorry-free — and it turned out **not** to be orthogonal
+to `AddInduct`: `addQuot.WF` is still vacuous, because its hypothesis `ves.WF env` cannot hold
+at an environment carrying an `.inductInfo` (`addQuot_trivial_of_wf`, `no_wf_envEqInd`;
+`docs/vacuity-ledger.md` row 5). What genuinely can proceed is §7.3 (`addDecl.WF`'s
+`inductDecl` branch, which must show the map the executable `addInductive` produces *is* the map
+`AddInductStages` builds).
 
 ### Correction 3: one of the nine holes is not fillable as stated
 

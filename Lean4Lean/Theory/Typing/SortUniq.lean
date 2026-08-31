@@ -88,7 +88,25 @@ so `SortUniq` and `sort_inv` are the same statement *modulo unique typing* — a
 supplies the unique typing.  **Neither is the thing to target: the whole corner bottoms out
 at `IsDefEqU.forallE_inv_stratified`.**  `docs/handoff-sortuniq.md` has the measurements.
 
-## There is no model route to `SortUniq`
+## The model route to `SortUniq` is closed, and to `SortInv` it is open and EXACT
+
+**CORRECTION (2026-08-31).**  This section used to be headed "There is no model route to
+`SortUniq`" and to close with a note that it was "the one claim in this file that is not
+machine-checked".  Both are now out of date, in opposite directions:
+
+* The negative half **is** machine-checked, and by a sharper route than the cumulativity
+  sketch below.  `hasChains_refutes_levelSeparating` (`Theory/SemanticRouteClosed.lean:235`)
+  proves that `LevelSeparating` — the model property that was supposed to deliver `SortUniq`
+  — is *false* in any model with chains, i.e. in the intended one.  `SortUniq` is measured
+  **dead** semantically, not merely unproven.
+* But the model is **not** useless here, and saying "no model route" was too strong.  What
+  the model delivers is `SortInv`, exactly: `sortEqRaw_iff` (`SemanticRouteClosed.lean:217`)
+  is an `iff`, so the semantic side of this corner is *finished*, not approximated.  Combined
+  with the implication chain above (`UniqTy ∧ SortInv → SortUniq → SortInv`), the gap the
+  model leaves is precisely **unique typing** — which is syntactic, and is where the effort
+  belongs.
+
+The cumulativity argument below remains correct and is kept as the intuition.
 
 **`SortUniq` is not a semantic consequence of Lean's rules**, so no argument from
 `Theory/SetModel/` — or from any model — can establish it.  The check is short:
@@ -121,18 +139,27 @@ request is unanswerable in principle, not merely hard.
 It is also the statement two of `unique.tex`'s three uses of unique typing reduce to
 (`docs/options-circularity-breakers.md`).
 
-**And the model is parameterised on it.**  `Theory/SetModel/` carries
-`(L : LevelAssign env nv)` through every section of `InterpSound.lean`, and nothing in that
-directory constructs one.  `LevelAssign.srt_sound` *is* `SortUniq` restated — `Interp.lean`'s
-own `srt_uniq` docstring says as much.  So the two facts meet: no model can prove `SortUniq`,
-and this model cannot be instantiated without it.  If that is to be broken, it is by giving
-the model a proof-splitting criterion that does not require a canonical level per term
-(`LevelAssign.IsProp`/`IsProof` are defined from `lvl`/`srt`) — a question for the model
-stream.
+**The model USED to be parameterised on it — that circularity is fixed.**  `Theory/SetModel/`
+once carried `(L : LevelAssign env nv)` through every section of `InterpSound.lean` with
+nothing constructing one, and `LevelAssign.srt_sound` *is* `SortUniq` restated.  So the
+parameter contained the very hole the model was being used to fill.  This is now
+machine-checked rather than argued: `levelAssign_gives_sortUniq`
+(`Theory/SemanticRouteClosed.lean:136`) derives `SortUniq` from a `LevelAssign` outright.
 
-*This subsection is analysis, not a Lean proof — it is the one claim in this file that is
-not machine-checked.  Making it rigorous costs a scratch copy of `IsDefEq` with the
-cumulativity rule added and a re-run of the model's soundness proof.*
+It is also **repaired**.  The live parameter is `PropSplit`
+(`Interp.lean:408`, `:462`, and every section of `InterpSubst.lean`, `Cnst.lean`,
+`CnstRecursion.lean`, `FalseProp.lean`), which is exactly the proof-splitting criterion this
+paragraph asked for: it does not require a canonical level per term.  `LevelAssign` survives
+only in `Interp.lean`'s legacy section at :285.
+
+Recorded as row 7 of `docs/vacuity-ledger.md`, where it is the entry for a failure mode no
+instrument in this repo can see: **a cone cannot see a hypothesis**, so a parameter that
+assumes its own conclusion registers as zero holes and zero axioms.
+
+*The cumulativity sketch above is analysis, not a Lean proof; making that particular argument
+rigorous would cost a scratch copy of `IsDefEq` with the cumulativity rule added and a re-run
+of the model's soundness proof.  It is no longer worth doing, because the stronger negative
+result is already machine-checked: see `hasChains_refutes_levelSeparating`.*
 
 ## Two guards, and why they are there
 
