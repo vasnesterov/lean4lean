@@ -33,9 +33,9 @@ one move, exactly as predicted, and the collapse is now checked rather than argu
 
 **Exactly one** hypothesis is carried: `hK`, saying `KStep Γ e e' → ParRed Γ e e'` -- *the
 K-rule is in the reduction relation*.  Nothing else.  In particular the universe-uniqueness
-side condition that `DescendRefute.lean`'s `NormalEq.appDF_proof_escape` takes (`hsu`) is
-**discharged**, not propagated: `Params.sortUniq` below derives it from
-`Injectivity.lean`'s `VEnv.WF.sortUniq'`, which is relative to
+side condition that `DescendRefute.lean`'s `NormalEq.appDF_proof_escape_of_sortUniq` takes
+(`hsu`) is **discharged**, not propagated: `ChurchRosser.lean`'s `VEnv.Params.sortUniq`
+derives it from `Params.henv` via `Injectivity.lean`'s `VEnv.WF.sortUniq'`, which is relative to
 `IsDefEqU.forallE_inv_stratified` alone -- a hole the confluence development already has in
 its cone through `IsDefEq.uniq`.  So E3 costs nothing at all any more, and E5 costs `hK`.
 
@@ -96,22 +96,15 @@ theorem Params.pat_app_noApp {p₁ p₂ : Pattern} {r} (h : Pat (.app p₁ p₂)
     exact ⟨Pattern.NoApp.varN (p := .const rc) trivial m,
       Pattern.NoApp.varN (p := .const c) trivial n⟩
 
-/-- **Universe uniqueness, discharged rather than assumed.**  `DescendRefute.lean`'s
-`NormalEq.appDF_proof_escape` -- and therefore `descendV`'s E3 branch -- asks for "a term with
-two sort typings has `≈` levels", which was carried as an explicit hypothesis `hsu` because
-`VEnv.SortUniq` was a hypothesis when that file was written.
+/-! ### Universe uniqueness: discharged upstream
 
-It no longer is: `Injectivity.lean`'s `VEnv.WF.sortUniq'` proves it for every well-formed
-environment, relative to `IsDefEqU.forallE_inv_stratified` alone -- which is *already* in the
-confluence development's cone through `IsDefEq.uniq`.  So `hsu` costs this development
-nothing, and it is discharged here rather than propagated.  The two level-well-formedness
-side conditions `SortUniq` carries come straight back out of the typings. -/
-theorem Params.sortUniq {Δ : List VExpr} {e : VExpr} {u v : VLevel}
-    (hΔ : OnCtx Δ (IsType env univs))
-    (h1 : Δ ⊢ e : .sort u) (h2 : Δ ⊢ e : .sort v) : u ≈ v :=
-  WF.sortUniq' henv hΔ
-    (have ⟨_, h⟩ := h1.isType henv hΔ; h.sort_inv henv)
-    (have ⟨_, h⟩ := h2.isType henv hΔ; h.sort_inv henv) h1 h2
+The `hsu` hypothesis that `NormalEq.appDF_proof_escape` used to take is gone.  It is
+`VEnv.Params.sortUniq` (`ChurchRosser.lean`), derived from `Params.henv` via
+`Injectivity.lean`'s `VEnv.WF.sortUniq'` -- relative to `IsDefEqU.forallE_inv_stratified`
+alone, which is *already* in the confluence development's cone through `IsDefEq.uniq`.  So
+E3 costs this development nothing.  (This file previously carried its own copy of that
+derivation; it now lives in `ChurchRosser.lean`, above `descend`'s own E3 branches, which are
+closed there by the same lemma.) -/
 
 /-! ## The descent proper, at an `.app`-free pattern
 
@@ -182,7 +175,7 @@ theorem NormalEq.descendV :
           (DescentLam.beta hΓ (u1.symm.defeq l3) (fun x => hf.hasType hΓ l2 x) l6 D)⟩
       | .inr ⟨P, hP, hp1, hp2⟩ =>
         -- **E3**, closed: the function child is a proof, so the node is one.
-        exact .inr (NormalEq.appDF_proof_escape Params.sortUniq hΓ l1 l2 l3 l4 l6 hP hp1)
+        exact .inr (NormalEq.appDF_proof_escape_of_sortUniq Params.sortUniq hΓ l1 l2 l3 l4 l6 hP hp1)
     | @app q₁ _ m1 g1 q₂ _ m2 g2 hf ha =>
       -- **E5** is unreachable: `q` has no `.app` node.
       exact (hq : False).elim

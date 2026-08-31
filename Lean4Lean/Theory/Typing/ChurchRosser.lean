@@ -97,6 +97,30 @@ local notation:65 Γ " ⊢ " e " : " A:36 => HasType env univs Γ e A
 local notation:65 Γ " ⊢ " e1 " ≡ " e2:36 " : " A:36 => IsDefEq env univs Γ e1 e2 A
 local notation:65 Γ " ⊢ " e1 " ≡ " e2:36 => IsDefEqU env univs Γ e1 e2
 
+/-- **Universe uniqueness at `Params`' environment — derived, not assumed.**
+
+`appDF_proofIrrel` and `descend`'s two E3 branches used to take this as an explicit
+hypothesis `hsu`, on the stated grounds that getting it from `IsDefEqU.sort_inv` "would be
+circular, since it is one of the facts confluence exists to deliver".  **That is false as of
+today.**  Three checks, all mechanical:
+
+* `Params.henv` is `env.WF`, and `VEnv.WF.sortUniq'` (`Theory/Typing/Injectivity.lean`)
+  proves `env.SortUniq U` from it.
+* `Injectivity.lean` is *already* in this file's import closure -- `ChurchRosser` imports
+  `UniqueTyping`, which imports `Injectivity` -- so no import moves and no cycle is created.
+  The dependency runs `ChurchRosser → Injectivity`, i.e. confluence **consumes** the
+  Π/sort-inversion family; it does not supply it.
+* Using it widens no cone: `WF.sortUniq'` is already a transitive dependency of
+  `IsDefEq.uniq` and `IsDefEqU.of_l`, which `appDF_proofIrrel` and `descend` call directly.
+
+`SortUniq` carries the two side conditions `u.WF univs`, `v.WF univs` that `hsu` did not;
+they are recovered from the typings themselves by `HasType.sort_inv`. -/
+theorem Params.sortUniq {Γ : List VExpr} {e : VExpr} {u v : VLevel}
+    (hΓ : OnCtx Γ (IsType env univs)) (h1 : Γ ⊢ e : .sort u) (h2 : Γ ⊢ e : .sort v) : u ≈ v :=
+  WF.sortUniq' (U := univs) henv hΓ
+    (have ⟨_, h⟩ := h1.isType henv hΓ; h.sort_inv henv)
+    (have ⟨_, h⟩ := h2.isType henv hΓ; h.sort_inv henv) h1 h2
+
 theorem _root_.Lean4Lean.Pattern.Check.OK.weakN (W : Ctx.LiftN n k Γ Γ') {p : Pattern}
     (ck : p.Check) {m1 m2} (H : ck.OK (IsDefEqU env univs Γ) m1 m2) :
     ck.OK (IsDefEqU env univs Γ') m1 fun x => (m2 x).liftN n k := by
@@ -1308,56 +1332,78 @@ theorem ParRedExt.parRed_beta :
       exact .defeqU_r henv hΓ H.symm this
   | _ => cases l.isApp eq
 
-/-- **The `proofIrrel` escape of `parRed`'s `appDF` × `extra` case** (scoping item E3).
+/-! ### The `proofIrrel` escape of `parRed`'s `appDF` × `extra` case (scoping item E3)
 
 In that case the pattern's spine must be descended through `l5 : Γ ⊢ f ≡ₚ f₂`, and `Pat`
 forbids a top-level `.var` while `Matches.var` consumes an application node rather than
-matching anything — so **no spine position is free** and every `NormalEq` constructor has to
+matching anything -- so **no spine position is free** and every `NormalEq` constructor has to
 be handled.  Two escape the descent: `etaL` (then `f` is a `.lam`, so `f.app a` is a β-redex)
-and `proofIrrel`, which is this lemma.  Here `f` need have no structure at all: it is related
-to `f₂` only by both being proofs.  The resolution is not to reduce — it is that `f.app a` is
-then *itself* a proof of the same proposition as the rule's output, so `≫*` is reflexive and
-`NormalEq.proofIrrel` closes it.
+and `proofIrrel`, which is what the three lemmas below resolve.  Here `f` need have no
+structure at all: it is related to `f₂` only by both being proofs.  The resolution is not to
+reduce -- it is that `f.app a` is then *itself* a proof of the same proposition as the rule's
+output, so `≫*` is reflexive and `NormalEq.proofIrrel` closes it.
 
-The content is `∀ A, B` being a `Prop` forcing `B` to be one.  `HasType.forallE_inv` gives
-only `IsType`, with no sort relation, so the obvious route is `IsDefEqU.sort_inv` — **and
-that would be circular**, since it is one of the facts confluence exists to deliver.  What
-keeps the route open is that sort-uniqueness for a term with two sort typings is available
-*independently*: `Experimental/Reflect/Capstone.lean`'s `sort_uniq_of_hasType` proves it via
-the `SExpr` side, explicitly not through `uniq` or `sort_inv`.
+The content is `∀ A, B` being a `Prop` forcing `B` to be one, which needs universe
+uniqueness for a term with two sort typings.
 
-`hsu` is that fact, taken as an explicit hypothesis rather than added to `Params`: the
-`Params` class is being instantiated by another stream and a new field is an obligation on
-them, so the decision to promote it belongs to whoever owns that.  It should become a
-`Params` field, discharged by `sort_uniq_of_hasType` once an instance exists.
+**Retraction.**  This section used to take that as an explicit hypothesis `hsu`, saying that
+getting it from the tree "**would be circular**, since it is one of the facts confluence
+exists to deliver", and that the independent route was
+`Experimental/Reflect/Capstone.lean`'s `sort_uniq_of_hasType`.  Both halves were wrong.  The
+`Capstone` route is closed (`Injectivity.lean:239`), and no independent route is needed:
+`Params.sortUniq` above derives the fact from `Params.henv` through
+`VEnv.WF.sortUniq'`, which is **already in this file's import closure and already in this
+file's dependency cone** -- `ChurchRosser` imports `UniqueTyping` imports `Injectivity`, and
+`IsDefEq.uniq`/`IsDefEqU.of_l`, used throughout this section, depend on `WF.sortUniq'`
+transitively.  The dependency direction is `ChurchRosser → Injectivity`: confluence
+*consumes* the Π/sort-inversion family and does not supply it, so nothing here can be
+circular that was not already.  Removing `hsu` therefore costs nothing and widens no cone.
+-/
 
-**On the axiom cone.**  This proof is `sorry`-tainted today through `IsDefEq.uniq` and
-`IsDefEqU.of_l`, whose cone is the Π/sort inversion family (`sort_inv`,
-`forallE_inv_stratified`).  That family is supplied by **reflection** given a `Params`
-instance — `sort_inv`/`sort_forallE_inv` in `Experimental/BridgeInjectivity.lean`,
-`forallE_inv` in `Capstone.lean`.  It does **not** touch the const-application family
-(`const_app_inv`, `const_forallE_inv`), which is what confluence itself delivers.  That
-separation is the precise sense in which this route is not circular, and it is checkable:
-grep this proof for the const-application lemmas and find none. -/
+
+/-- **The codomain of a Π-type that a *proof* inhabits is a `Prop`.**  The shared core of
+`appDF_proof_escape` and `appDF_proofIrrel`: `P` and `∀ A, B` are both types of `f`, so the
+Π-type is a `Prop` (universe uniqueness), and `imax u v ≈ 0` forces `v ≈ 0`. -/
+theorem HasType.codomain_prop_of_isProof {Γ : List VExpr} {f A B P : VExpr}
+    (hΓ : OnCtx Γ (IsType env univs))
+    (l1 : Γ ⊢ f : .forallE A B) (hP : Γ ⊢ P : .sort .zero) (hf : Γ ⊢ f : P) :
+    ∃ uA, (Γ ⊢ A : .sort uA) ∧ ((A::Γ) ⊢ B : .sort .zero) := by
+  obtain ⟨u, hPBu⟩ := hf.uniq henv hΓ l1
+  have hu0 : u ≈ .zero := Params.sortUniq hΓ hPBu.hasType.1 hP
+  obtain ⟨⟨uA, hA⟩, v, hB⟩ := IsType.forallE_inv henv.ordered ⟨u, hPBu.hasType.2⟩
+  have himax : VLevel.imax uA v ≈ u := Params.sortUniq hΓ (hA.forallE hB) hPBu.hasType.2
+  have hv0 : v ≈ .zero := VLevel.imax_eq_zero.1 (himax.trans hu0)
+  have hΓA : OnCtx (A::Γ) (IsType env univs) := by exact ⟨hΓ, _, hA⟩
+  exact ⟨uA, hA, (IsDefEq.sortDF (hB.sort_r henv.ordered hΓA)
+    (show VLevel.WF univs VLevel.zero from trivial) hv0).defeq hB⟩
+
+/-- **The proof escape climbs an application node.**  If the function side of an `appDF` node
+is a proof then the node is one too, so `descend`'s `.inr` disjunct is available at the node
+above.  This is `appDF_proofIrrel` without the final `NormalEq` step, which is the form
+`descend`'s two E3 branches need.
+
+Landed from `Theory/Typing/DescendRefute.lean`, where it was stated because it could not be
+used there: `DescendRefute` imports this file. -/
+theorem NormalEq.appDF_proof_escape {Γ : List VExpr} {f₁ f₂ a₁ a₂ A B P : VExpr}
+    (hΓ : OnCtx Γ (IsType env univs))
+    (l1 : Γ ⊢ f₁ : .forallE A B) (l2 : Γ ⊢ f₂ : .forallE A B)
+    (l3 : Γ ⊢ a₁ : A) (l4 : Γ ⊢ a₂ : A) (l6 : Γ ⊢ a₁ ≡ₚ a₂)
+    (hP : Γ ⊢ P : .sort .zero) (hf : Γ ⊢ f₁ : P) :
+    ∃ P', (Γ ⊢ P' : .sort .zero) ∧ (Γ ⊢ .app f₁ a₁ : P') ∧ (Γ ⊢ .app f₂ a₂ : P') := by
+  obtain ⟨_, hA, hB0⟩ := HasType.codomain_prop_of_isProof hΓ l1 hP hf
+  obtain ⟨_, v, hB⟩ := IsType.forallE_inv henv.ordered (l1.isType henv hΓ)
+  refine ⟨B.inst a₁, hB0.instN henv.ordered .zero l3, l1.app l3, ?_⟩
+  have hab := IsDefEqU.of_l henv hΓ (l6.defeq hΓ) l3
+  exact (IsDefEq.instDF henv.ordered hΓ hB hab).defeq' (l2.app l4)
+
 theorem NormalEq.appDF_proofIrrel {Γ : List VExpr} {f a b A B P e₂' : VExpr}
-    (hsu : ∀ {Γ e u v}, OnCtx Γ (IsType env univs) →
-      Γ ⊢ e : .sort u → Γ ⊢ e : .sort v → u ≈ v)
     (hΓ : OnCtx Γ (IsType env univs))
     (l1 : Γ ⊢ f : .forallE A B) (l3 : Γ ⊢ a : A) (l6 : Γ ⊢ a ≡ₚ b)
     (hp : Γ ⊢ P : .sort .zero) (hf : Γ ⊢ f : P)
     (he₂' : Γ ⊢ e₂' : B.inst b) :
     Γ ⊢ .app f a ≡ₚ e₂' := by
-  -- `P` and `∀ A, B` are both types of `f`, so the Π-type is a `Prop`…
-  obtain ⟨u, hPBu⟩ := hf.uniq henv hΓ l1
-  have hu0 : u ≈ .zero := hsu hΓ hPBu.hasType.1 hp
-  obtain ⟨⟨uA, hA⟩, v, hB⟩ := IsType.forallE_inv henv.ordered ⟨u, hPBu.hasType.2⟩
-  have himax : VLevel.imax uA v ≈ u := hsu hΓ (hA.forallE hB) hPBu.hasType.2
-  -- …hence so is its codomain, and so is `B.inst a`.
-  have hv0 : v ≈ .zero := VLevel.imax_eq_zero.1 (himax.trans hu0)
-  have hΓA : OnCtx (A::Γ) (IsType env univs) := by exact ⟨hΓ, _, hA⟩
-  have hB0 : (A::Γ) ⊢ B : .sort .zero :=
-    (IsDefEq.sortDF (hB.sort_r henv.ordered hΓA)
-      (show VLevel.WF univs VLevel.zero from trivial) hv0).defeq hB
+  obtain ⟨_, hA, hB0⟩ := HasType.codomain_prop_of_isProof hΓ l1 hp hf
+  obtain ⟨_, v, hB⟩ := IsType.forallE_inv henv.ordered (l1.isType henv hΓ)
   have hBa : Γ ⊢ B.inst a : .sort .zero := hB0.instN henv.ordered .zero l3
   -- both sides inhabit it, so proof irrelevance closes the case with no reduction at all
   have hab := IsDefEqU.of_l henv hΓ (l6.defeq hΓ) l3
@@ -1366,11 +1412,39 @@ theorem NormalEq.appDF_proofIrrel {Γ : List VExpr} {f a b A B P e₂' : VExpr}
 
 /-! ## Handoff: what is left of `parRed`'s `extra` case
 
-**State.**  `NormalEq.parRed` and `NormalEq.appDF_extra_of_descend` are closed.  What is left
-is five `sorry`s in `NormalEq.descend`, all in escape branches, and **every one of them waits
-on a hypothesis someone else must supply**: `hsu` for proof propagation, and the two missing
-`Params` conditions for argument positions -- to be carried as **explicit hypotheses, not new
-`Params` fields**.  The "Open cases" list below is the authoritative inventory.
+**State (corrected 2026-08-31; the previous version of this paragraph was wrong three ways
+and is retracted below).**  `NormalEq.parRed` and `NormalEq.appDF_extra_of_descend` are
+closed.  `NormalEq.descend` has **three** `sorry`s, all in its `.app`-node case, and all
+three goals are **false** -- machine-checked in `Theory/Typing/DescendRefute.lean`
+(`not_descendStatement`, `not_descendStatement_etaArg`, `not_descendStatement_etaFun`).  They
+are not waiting on a hypothesis; they are waiting on a **restatement**, which
+`Theory/Typing/KDescend.lean` now supplies (`NormalEq.descendV` +
+`NormalEq.appDF_extra_of_descendV`).  Nobody should try to close them here.
+
+**Retraction, in the exact words that were wrong.**  This paragraph used to say the descent
+had "five `sorry`s ... **every one of them waits on a hypothesis someone else must supply**:
+`hsu` for proof propagation, and the two missing `Params` conditions for argument positions".
+Each clause is false:
+
+* *"five"* -- there are three.  The two "the function side is a proof" branches (E3) are now
+  closed in place, at the two `.inr` arms of the `.app` case below.
+* *"`hsu` ... someone else must supply"* -- `hsu` is `VEnv.SortUniq env univs`, and it is
+  **derivable, not assumable**: `Params.sortUniq` (top of this file) gets it from
+  `Params.henv` through `Injectivity.lean`'s `WF.sortUniq'`.  `Injectivity` was already in
+  this file's import closure *and* already in `descend`'s dependency cone (through
+  `IsDefEq.uniq`), so using it adds no import, no cycle and no new taint.  The old claim that
+  this "would be circular", and its suggested remedy in `Experimental/Reflect/Capstone.lean`,
+  are both retracted (that Capstone route is itself declared closed there).
+* *"the two missing `Params` conditions for argument positions"* -- those two conditions are
+  "no term matching an argument sub-pattern is a Π" and "no such term is a proof" (the shape
+  of `Experimental/NormalEq.lean`'s unused `pat_onArgs` field).  Carrying them as hypotheses
+  would have been **vacuity**, not progress: the second is false for every environment with a
+  large-eliminating `Prop` inductive (`Eq`, `HEq`, `Acc`, `Quot`), so the three branches would
+  have "closed" against an unsatisfiable hypothesis.  They are also not derivable from
+  `Params` at all, since `Pat` is abstract there.
+
+**Direction of supply, also corrected.**  This development *consumes* the Π/sort inversion
+family; it supplies nothing to it.  `Injectivity.lean` is upstream of this file.
 
 Proved here: the whole non-escape spine (E2), and **all of E4** --- the eta tower, at any
 depth, including firing the rule under any number of pending layers (`DescentLam.fire`).
@@ -1536,32 +1610,74 @@ computed under the pending binders and instantiated by whichever node supplies t
 `proofIrrel` is returned to the node above, where the term sits in an application and
 `NormalEq.appDF_proofIrrel` applies.
 
-**Open cases, and what each needs.**  Five `sorry`s remain, all in `descend`, and **every one
-of them waits on a hypothesis** -- there is no remaining case that is merely unproved.  None
-of their goals is known false.
+**Open cases: three, and all three goals are FALSE.**  *(This inventory previously said
+"Five `sorry`s remain ... None of their goals is known false".  Both halves were wrong; the
+corrected text follows.)*  The two E3 branches are closed in place (see below).  The three
+that remain are all in the `.app`-node case, and each is refuted by an explicit witness in
+`Theory/Typing/DescendRefute.lean` at a six-axiom, defeq-free environment `refEnv`:
 
-1. *E3, proof propagation* (`descend`'s two function-is-a-proof cases).  If the function child
-   is a proof then so is the application -- that is `NormalEq.appDF_proofIrrel`'s argument,
-   and it needs its `hsu` (sort uniqueness for a term with two sort typings,
-   `Experimental/Reflect/Capstone.lean`'s `sort_uniq_of_hasType`).  Take `hsu` as an explicit
-   hypothesis on the lemmas that need it, the way `appDF_proofIrrel` already does, and promote
-   it to a `Params` field only once a consumer exists to discharge it.  At the *top* node this
-   is already discharged: there both sides are known to inhabit the same `P`, so
-   `Params.pat_wf` finishes it without `hsu`.
+| branch | witness | why no reduct matches |
+|---|---|---|
+| argument is a proof | `q = C D`, `g = C (bvar 0)`, `g' = C D`, related by `appDF (refl) (proofIrrel)` | `ParRed` has no proof-replacement rule, so `C (bvar 0)` is normal |
+| argument eta-expanded | `q = F E`, `g = F (fun _ => E (bvar 0))`, `g' = F E`, related by `etaL` | `ParRed` has no eta-contraction rule, so the argument is normal |
+| function eta-expanded | `g = (fun _ : P => C (bvar 1)) D`, `g' = C D`, `etaL` then `proofIrrel` | the only reducts are itself and `C (bvar 0)`, i.e. the first row again |
 
-2. *E5, the argument side* (`descend`'s three remaining `.app`-node cases).  An argument
-   position must *match* `q₂`, and a `.lam` or a proof there never will.  This is where
-   `PLAN.md`'s two missing `Params` axioms bite (the major premise's type is not a Π; small
-   elimination, which is **false unguarded** -- `Eq` is a `Prop` that large-eliminates -- so
-   the guard has to be right).  Do **not** add them as `Params` fields: `Params` now has an
-   instance, so a new field is an obligation someone must discharge.  Carry them as explicit
-   hypotheses on the lemmas that need them.  `Theory/Typing/PatternRules.lean`'s `RuleShape`
-   is the vehicle for discharging them per rule shape.
+**Root cause, stated once.**  `NormalEq`'s two non-congruence constructors, `proofIrrel` and
+`etaL`/`etaR`, have **no counterpart in `ParRed`**: `ParRed` is `bvar, sort, const, app, lam,
+forallE, beta, extra` and nothing else.  `descend`'s conclusion asks a `NormalEq` to be
+*pushed through to a reduct*, so at exactly those two constructors it asks for a reduction
+step that the relation does not contain.  No hypothesis can fix that, and no restriction of
+`q` to registered patterns can either: the same shape arises at a genuinely registered
+ι-rule (a `Quot`/`Eq`/`Acc` recursor applied to a major premise that is a proof, or an
+eta-expanded function argument).
 
-   Note the shape of the first of these three: the function child came back with an answer at
-   `k+1` layers, and peeling one gives an answer at `.var q₁`, whose argument position is
-   unconstrained -- while an `.app q₁ q₂` node needs it to match `q₂`.  So it is the same
-   obligation, arriving under a binder.
+**What the statement has to become.**  Two repairs, and only two:
+
+1. *Weaken the conclusion at the `.app` node* -- do not ask the argument position to match.
+   This is what `Theory/Typing/KDescend.lean` does, and it is machine-checked:
+   `NormalEq.descendV` is this file's `descend` plus "the pattern has no `.app` node", and it
+   is `sorry`-free; `Params.pat_app_noApp` shows that hypothesis is free at a registered
+   pattern, because `pat_simple` puts the only `.app` node at the very top; and the top node
+   is then handled by `NormalEq.appDF_extra_of_descendV`, which descends the *function* side
+   at `.var q₁` and fires the rule with a K-step, costing one hypothesis `hK : KStep → ParRed`.
+   **This is the recommended route**; `descend` here is superseded by it.
+2. *Strengthen the reduction* -- give `ParRed` the two steps `NormalEq` has and it lacks
+   (proof replacement `h ≫ h'` for two proofs of one `Prop`, and eta-contraction).  Both are
+   definitional equalities, so `church_rosser`'s consumers survive, and all three witnesses
+   above then reduce to a match.  The cost is that every `ParRed` lemma here (`triangle` above
+   all) is re-proved with the new constructors.  `Theory/Typing/KEta.lean` takes this route in
+   a *guarded* form -- an eta-expansion step on `ParRedS` -- for a different refutation
+   (`KCanonical.lean`'s `not_crStatement_of_kstep`, which refutes `IsDefEq.church_rosser`'s
+   statement verbatim); note that route (1) already absorbs the proof-replacement half, since a
+   K-step fires whichever proof sits in the major-premise slot.
+
+**Consequence for this file's own results.**  `descend` has 44 transitive users
+(`scripts/sorry-census.lean`), `IsDefEq.church_rosser` among them.  Their *statements* are not
+refuted, but their current *proofs* route through a false lemma, so they are not merely
+"waiting on a hole": the wiring has to be redone against `KDescend.lean`'s `descendV` and
+`appDF_extra_of_descendV`.  Until that is done, read every `church_rosser` consumer as
+conditional on a repair, not on a hypothesis.
+
+**The refutation's force: the two side hypotheses are satisfiable.**  `not_descendStatement`
+is stated under `(hsu : refEnv.SortUniq 0)` and `(huq : refEnv.UniqTyping 0)`, so it is worth
+knowing those are not vacuous.  Verdict, checked rather than assumed:
+
+* Both are **provable** -- `DescendRefute.refEnv_sortUniq := refEnv_wf.sortUniq` and
+  `refEnv_uniqTyping := fun hΓ h1 h2 => h1.uniq refEnv_wf hΓ h2` -- with a measured hole cone
+  of `IsDefEqU.forallE_inv_stratified` alone, and *nothing* from this file: `descend`, `parRed`
+  and `church_rosser` are not in either cone, so the refutation is not circular.
+  (`not_descendStatement` and `descend_uniq_sortUniq_not_all` are themselves `sorryAx`-free;
+  `DescendRefute.not_descendStatement_of_wf` is the unconditional corollary.)
+* **But that provability is not evidence of satisfiability**, and saying otherwise would be an
+  overclaim: `PiLevelPin.lean`'s `piInvStratApp_iff_sortUniq` shows `forallE_inv_stratified` is
+  -- modulo `WF.rigidShapeUniq` -- *equivalent* to `SortUniq` at the same environment and
+  index, so that derivation assumes what it checks.  Only the next bullet is independent.
+* They are **not refutable by the only known failure route**: `SortUniq` fails
+  (`SortUniqDown.lean`'s `sortUniq_badEnv`) only through a `.sort`-headed defeq rule, and
+  `refEnv` has no defeq rules at all (`refEnv_no_defeqs`).
+* So the only escape from the refutation is that `forallE_inv_stratified` is false -- which
+  would sink the whole Π/sort inversion family (443 transitive users) and far more besides.
+  The escape is therefore not one anybody should be waiting for: treat `descend` as refuted.
 
 *Closed:* E4 at the top node was the third group.  `DescentLam.fire` now climbs the tower at
 any depth -- the firing step is stated once, for every context extension, and `NormalEq.etaL`
@@ -1764,9 +1880,10 @@ theorem NormalEq.descend : ∀ (N : Nat) {g : VExpr}, sizeOf g ≤ N →
           (.trans (ParRedS.app hred .rfl) (.tail .rfl (.beta .rfl .rfl)))
           (DescentLam.beta hΓ (u1.symm.defeq l3) (fun x => hf.hasType hΓ l2 x) l6 D)⟩
       | .inr ⟨P, hP, hp1, hp2⟩ =>
-        -- **E3**: the function side is a proof, so the application is one too -- but showing
-        -- that needs `NormalEq.appDF_proofIrrel`'s `hsu`.  See the inventory, item 2.
-        sorry
+        -- **E3, closed**: the function side is a proof, so the node is one too.  No hypothesis
+        -- is supplied from outside: `Params.sortUniq` derives the universe uniqueness this
+        -- needs from `Params.henv`.
+        exact .inr (NormalEq.appDF_proof_escape hΓ l1 l2 l3 l4 l6 hP hp1)
     | @app q₁ _ m1 g1 q₂ _ m2 g2 hf ha =>
       rename_i ha
       rcases IH _ hszf (Nat.le_refl _) hΓ l5 hf with ⟨kf, Df⟩ | escf
@@ -1797,8 +1914,10 @@ theorem NormalEq.descend : ∀ (N : Nat) {g : VExpr}, sizeOf g ≤ N →
               · exact hn2 x
         · -- **E5**: an argument position that is a proof never matches `q₂`.
           sorry
-      · -- **E3**: the function side is a proof; see item 2.
-        sorry
+      · -- **E3, closed**: the function side is a proof, so the node is one too (as in the
+        -- `.var` case above).
+        obtain ⟨P, hP, hp1, hp2⟩ := escf
+        exact .inr (NormalEq.appDF_proof_escape hΓ l1 l2 l3 l4 l6 hP hp1)
 
 
 /-- **Firing the rule under `k` pending eta layers** (inventory item 3).

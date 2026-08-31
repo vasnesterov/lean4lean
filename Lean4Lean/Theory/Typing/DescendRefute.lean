@@ -464,6 +464,37 @@ theorem descend_uniq_sortUniq_not_all :
     ¬ (DescendStatement refParams ∧ refEnv.SortUniq 0 ∧ refEnv.UniqTyping 0) :=
   fun ⟨h, hsu, huq⟩ => not_descendStatement hsu huq h
 
+/-- **The two side hypotheses are satisfiable, so `descend` is simply false.**
+
+`not_descendStatement` is conditional on `refEnv.SortUniq 0` and `refEnv.UniqTyping 0`, and a
+conditional refutation is worth only as much as its hypotheses.  They are discharged here by
+`refEnv_sortUniq` / `refEnv_uniqTyping`, whose only open input is
+`IsDefEqU.forallE_inv_stratified` -- so this statement is `sorryAx`-tainted **through that
+hole alone**, and in particular *not* through `NormalEq.descend`: the refutation is not
+circular.  Three registers, kept apart:
+
+* **[machine-checked]** `not_descendStatement` and `descend_uniq_sortUniq_not_all` are
+  `sorryAx`-free; this corollary's hole cone is `forallE_inv_stratified` and nothing else, and
+  `NormalEq.descend` is **not** in it (measured on the value cone, not read off the source).
+* **[machine-checked, and it cuts against the first bullet]** `PiLevelPin.lean`'s
+  `piInvStratApp_iff_sortUniq` shows that hole is, modulo `WF.rigidShapeUniq`, *equivalent* to
+  `VEnv.SortUniq` at the same environment and index.  So deriving `refEnv.SortUniq 0` from it
+  is **no independent evidence of satisfiability** -- it assumes the very statement.  What the
+  first bullet does establish is only non-circularity with `descend`.  The evidence that the
+  hypothesis is satisfiable is the next bullet.
+* **[machine-checked]** the *only* known way `SortUniq` fails is a `.sort`-headed defeq rule
+  (`SortUniqDown.lean`'s `sortUniq_badEnv`), and `refEnv_no_defeqs` says `refEnv` has no defeq
+  rules at all.  So the known failure route is closed at this environment.
+* **[analysis]** hence the only escape left is that `forallE_inv_stratified` is false, which
+  would sink the whole Π/sort inversion family.  Nobody should wait for that escape.
+
+**This is not a proof of `False`.**  Composing it with `descendStatement_holds` derives `False`
+*from `sorryAx`*, which says nothing: it is the ordinary meaning of "an open `sorry` stands
+where a false statement was assumed".  The content is that `descend` must be **restated**
+(`Theory/Typing/KDescend.lean` does so), not that the theory is inconsistent. -/
+theorem not_descendStatement_of_wf : ¬ DescendStatement refParams :=
+  not_descendStatement refEnv_sortUniq refEnv_uniqTyping
+
 
 /-! ## The two `sorry`s that are **not** refuted: E3 closes from `SortUniq`
 
@@ -487,7 +518,13 @@ local notation:65 Γ " ⊢ " e1 " ≡ₚ " e2:30 => NormalEq Γ e1 e2
 node is a proof then the node is one too, so `descend`'s `.inr` disjunct is available at the
 node above.  This is the first half of `NormalEq.appDF_proofIrrel`, split out because
 `descend`'s E3 branches need the *escape*, not the `NormalEq`. -/
-theorem NormalEq.appDF_proof_escape {Γ : List VExpr} {f₁ f₂ a₁ a₂ A B P : VExpr}
+-- Renamed from `appDF_proof_escape`: `ChurchRosser.lean` grew a version of the same
+-- conclusion that needs no `hsu`, and two identical names make the two modules
+-- un-importable together (fifth occurrence of that class in this session; it is invisible
+-- to a narrowed `lake build` and fatal to both measurement scripts). This is the weaker,
+-- `hsu`-taking form, kept because `KDescend.lean` consumes it; it should be retired in
+-- favour of the hypothesis-free one once that file settles.
+theorem NormalEq.appDF_proof_escape_of_sortUniq {Γ : List VExpr} {f₁ f₂ a₁ a₂ A B P : VExpr}
     (hsu : ∀ {Δ e u v}, OnCtx Δ (IsType env univs) →
       Δ ⊢ e : .sort u → Δ ⊢ e : .sort v → u ≈ v)
     (hΓ : OnCtx Γ (IsType env univs))
