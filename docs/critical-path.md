@@ -2,6 +2,18 @@
 
 *Measured 2026-08-31. Reproduce with `~/.elan/bin/lake env lean scripts/kernel-sound-path.lean`.*
 
+## Stop-condition status
+
+| Condition | State |
+|---|---|
+| **1.** Kernel Arena: `uv run lka.py run --checker lean4lean-local`, every non-`either` test correct | **MET** — measured 2026-08-31 at commit `43d6d25`: **185 correct, 6 `either`, nothing incorrect** |
+| **2.** `Lean4Lean.kernel_sound` proven (Guard 2 prints "proof COMPLETE") | **NOT met** — 2 hypotheses + 9 holes, enumerated below |
+
+CLAUDE.md requires both **on the same commit**, so the goal is not reached. Condition 1 is not
+"done" in a way that can be banked either: it must still hold at whatever commit finally closes
+condition 2, and the `AddInduct` flip (re-priced in the addendum) is exactly the kind of change
+that could disturb it. Re-run the Arena after any change to the executable checker.
+
 Until now the project's only global progress number was the sorry census (`TOTAL 14`). That
 counts holes in the census import cone, which is the right *global* figure but says nothing
 about which holes actually block stop-condition 2. This document answers that, for the first
