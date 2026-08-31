@@ -28,10 +28,9 @@ Guard 3 on master now reads `checker cone implementation gaps within frozen list
 and the two survivors are `ptrEqExpr` / `ptrEqConstantInfo`, both `@[implemented_by]`, both
 deliberate and both axiomatised.
 
-**Follow-up now available and not yet done:** 52 of the 54 `implGapWhitelist` entries are dead.
-Check 3 only throws for a flagged name *absent* from the whitelist, so dead entries are harmless —
-but CLAUDE.md counts shrinking the allowlist as progress, and the whitelist is now 96% noise.
-Trimming it is a separate frozen edit and would need its own PR.
+**Follow-up: done, PR #43** — `implGapWhitelist` trimmed 54 → 2. The two survivors were measured
+by replaying check 3's own walk, not assumed, and they are the `.unsafe_impl_2` *companions* rather
+than the `ptrEq*` wrappers. `guard 3: … (2/2 remaining) ✓`.
 
 **File:** `Verify/Guard.lean`, inside check 3.
 **Evidence:** `Lean4Lean/Tests/KernelHardening.lean`, final section, measured 2026-08-31 by
