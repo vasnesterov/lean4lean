@@ -206,17 +206,26 @@ theorem iotaRulesR_id (h : D.Canonical) : D.iotaRulesR D.idRestore = D.iotaRules
   rintro ⟨⟨j, C⟩, q⟩ hm
   exact D.iotaRuleR_id h (h j C (D.mem_ctorsAll_of_mem_zipIdx hm))
 
-theorem recConstsR_id (h : D.Canonical) : D.recConstsR D.idRestore = D.recConsts := by
+theorem recConstsR_id (h : D.Canonical) : D.recConstsR D.idRestore [] = D.recConsts := by
   refine List.map_congr_left ?_
   rintro ⟨T, j⟩ -
   rw [idRestore]
   exact congrArg (fun e => (Lean.mkRecName T.name, (⟨D.recUvars, e⟩ : VConstant)))
-    (D.recTypeR_id h j)
+    (by rw [VIndRestore.csubst_nil, VExpr.substC_id]; exact D.recTypeR_id h j)
 
-/-- The declared constructor constants are unchanged by the identity restoration — for
-*every* companion list, not only the empty one. -/
-theorem ctorConstsCR_id (h : D.Canonical) (K : List Lean.Name) :
-    D.ctorConstsCR D.idRestore K = D.ctorConstsC K := by
+/-- The declared constructor constants are unchanged by the identity restoration.
+
+**This used to hold for *every* companion list `K`, and now holds only at `K = []`.**  What
+changed is that `ctorConstsCR` declares `(C.typeR D R j).substC (R.csubstTy D K)`, and at
+`D.idRestore` a *companion* member's substitution value is `mkLams D.params (I_j.{ownLvls}
+params)` — the **η-expansion** of `I_j`, not `I_j` — so at a nonempty `K` the declared type is
+the stored one with each companion head η-expanded, which is defeq but not equal.  The
+configuration is degenerate (`idRestore` presents a companion member as *itself*, which
+`ElimNestedInductive` never does: the auxiliary name always differs from the real one), and
+both consumers — `AddInductStages.toR` and `AddInductStagesR.of_addInductStages`
+(`Verify/Environment/InductR.lean`) — are at `K = []`. -/
+theorem ctorConstsCR_id (h : D.Canonical) :
+    D.ctorConstsCR D.idRestore [] = D.ctorConstsC [] := by
   rw [ctorConstsCR, VInductDecl'.ctorConstsC]
   refine filterMap_congr_left ?_
   rintro ⟨j, C⟩ hm
@@ -224,7 +233,8 @@ theorem ctorConstsCR_id (h : D.Canonical) (K : List Lean.Name) :
   split
   · rfl
   · exact congrArg some (congrArg (fun e => (C.name, (⟨D.uvars, e⟩ : VConstant)))
-      (VIndCtor.typeR_id (h j C hm)))
+      (by rw [VIndRestore.csubstTy_nil, VExpr.substC_id]; exact VIndCtor.typeR_id (h j C hm)))
+
 
 theorem allConstsCR_id_nil (h : D.Canonical) :
     D.allConstsCR D.idRestore [] = D.allConsts := by
@@ -298,7 +308,8 @@ theorem VInductDecl'.recName_mem_allNamesCR (D : VInductDecl') (R : VIndRestore)
     R.recName (Lean.mkRecName (D.types.getD j default).name) ∈ D.allNamesCR R K := by
   rw [VInductDecl'.getD_types hT, VInductDecl'.allNamesCR]
   refine List.mem_map_of_mem (f := (·.1))
-    (a := (R.recName (Lean.mkRecName T.name), (⟨D.recUvars, D.recTypeR R j⟩ : VConstant))) ?_
+    (a := (R.recName (Lean.mkRecName T.name),
+      (⟨D.recUvars, (D.recTypeR R j).substC (R.csubst D K)⟩ : VConstant))) ?_
   simp only [VInductDecl'.allConstsCR, List.mem_append]
   exact .inr (List.mem_map_of_mem (List.mk_mem_zipIdx_iff_getElem?.2 hT))
 
@@ -576,6 +587,33 @@ left-hand sides would be headed `_nested.List_1 α`; Lean's are headed `List (NT
 /-- The user's constructor, re-stored. -/
 theorem ntreeNode_typeR : ntreeNode.typeR ntreeAux ntreeRestore 0
     = (vconst(type_of% @NTree.node)).type := rfl
+
+/-- **…and the substitution `VInductDecl'.ctorConstsCR` applies to it changes nothing.**
+
+This is the faithfulness half of that `substC` (added 2026-08-31 to close obligation (A)'s
+`RestoreClean` hole — see `ctorConstsCR`): the type the step declares is *still* the type
+Lean's own kernel stores for `NTree.node`, at a block with a parameter, where the rewrite had
+every chance to move something.  It cannot: `typeR` has already restored every position
+`ElimNestedInductive` put `_nested.List_1` in, so the substitution's domain does not occur.
+
+Note what this pins about the *shape*: Lean's stored type is `restoreNested`'s output, i.e.
+the **contracted** `List (NTree α)`, not the β-redex `(fun α => List (NTree α)) α` that
+`VExpr.substC` of the auxiliary type would give (`ntreeNode_substC_ne_typeR`,
+`Theory/Typing/ConstSubstNested.lean`).  So "`typeR` *is* the substitution" is not available as
+a definition: `TrConstant` (`Verify/Environment/Basic.lean`) relates the two through
+`TrExprS`, which has no defeq slack. -/
+theorem ntreeNode_declared_typeR :
+    (ntreeNode.typeR ntreeAux ntreeRestore 0).substC (ntreeRestore.csubstTy ntreeAux ntreeK)
+      = (vconst(type_of% @NTree.node)).type := rfl
+
+/-- The same for the two recursors, whose declared types `recConstsR` now substitutes too. -/
+theorem ntreeAux_declared_recTypeR_0 :
+    swap01 ((ntreeAux.recTypeR ntreeRestore 0).substC (ntreeRestore.csubst ntreeAux ntreeK))
+      = (vconst(type_of% @NTree.rec)).type := rfl
+
+theorem ntreeAux_declared_recTypeR_1 :
+    swap01 ((ntreeAux.recTypeR ntreeRestore 1).substC (ntreeRestore.csubst ntreeAux ntreeK))
+      = (vconst(type_of% @NTree.rec_1)).type := rfl
 
 theorem ntreeAux_recUvars_eq : ntreeAux.recUvars = (vconst(type_of% @NTree.rec)).uvars := rfl
 

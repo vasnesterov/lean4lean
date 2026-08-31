@@ -54,7 +54,8 @@ theorem VEnv.ctorConstsCR_wf_of_substC {env env₃ e₁ : VEnv} {D : VInductDecl
     (hD : D.WF env) (h₃ : env.addIndTypes D = some env₃) (henv₃ : env₃.Ordered)
     (hσ : σ.WF env₃ e₁ D.uvars)
     (hbridge : ∀ (j : Nat) (T : VIndType) (C : VIndCtor), D.types[j]? = some T →
-      T.name ∉ K → C ∈ T.ctors → (C.type D j).substC σ = C.typeR D R j) :
+      T.name ∉ K → C ∈ T.ctors →
+      (C.type D j).substC σ = (C.typeR D R j).substC (R.csubstTy D K)) :
     ∀ c ∈ D.ctorConstsCR R K, VConstant.WF e₁ c.2 := by
   intro c hc
   rw [VInductDecl'.ctorConstsCR, List.mem_filterMap] at hc
@@ -82,8 +83,8 @@ theorem VEnv.recConstsR_wf_of_substC {E₂ e₂ : VEnv} {D : VInductDecl'} {R : 
     (hsrc : ∀ c ∈ D.recConsts, VConstant.WF E₂ c.2)
     (hσ : σ.WF E₂ e₂ D.recUvars)
     (hbridge : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T →
-      (D.recType j).substC σ = D.recTypeR R j) :
-    ∀ c ∈ D.recConstsR R, VConstant.WF e₂ c.2 := by
+      (D.recType j).substC σ = (D.recTypeR R j).substC (R.csubst D K)) :
+    ∀ c ∈ D.recConstsR R K, VConstant.WF e₂ c.2 := by
   intro c hc
   simp only [VInductDecl'.recConstsR, List.mem_map] at hc
   obtain ⟨⟨T, j⟩, hTj, rfl⟩ := hc
@@ -173,7 +174,8 @@ theorem VExpr.substC_mkPi {σ : CSubst} :
 
 /-- **Obligation (A), with a *definitional* bridge instead of a syntactic one.**
 
-`VEnv.ctorConstsCR_wf_of_substC` needs `(C.type D j).substC σ = C.typeR D R j` on the nose.
+`VEnv.ctorConstsCR_wf_of_substC` needs
+`(C.type D j).substC σ = (C.typeR D R j).substC (R.csubstTy D K)` on the nose.
 That equation holds when the block has no parameters, and **fails** when it has: the
 restoration replaces a companion constant by a `mkLams` and every occurrence is saturated, so
 the two sides differ by one β-step per parameter per occurrence.  This is the same reduction
@@ -188,10 +190,11 @@ theorem VEnv.ctorConstsCR_wf_of_substC' {env env₃ e₁ : VEnv} {D : VInductDec
       ∃ v : VLevel,
         e₁.TeleDefEq D.uvars []
           (((C.params ++ C.fields.map (·.type)).map (VExpr.substC · σ)))
-          (C.params ++ C.fieldTypesR D R) ∧
+          ((C.params ++ C.fieldTypesR D R).map (VExpr.substC · (R.csubstTy D K))) ∧
         e₁.IsDefEq D.uvars
           (((C.params ++ C.fields.map (·.type)).map (VExpr.substC · σ)).reverse)
-          ((C.canonResult D j).substC σ) (D.tyAppR R j C.fields.length C.args) (.sort v)) :
+          ((C.canonResult D j).substC σ)
+          ((D.tyAppR R j C.fields.length C.args).substC (R.csubstTy D K)) (.sort v)) :
     ∀ c ∈ D.ctorConstsCR R K, VConstant.WF e₁ c.2 := by
   intro c hc
   rw [VInductDecl'.ctorConstsCR, List.mem_filterMap] at hc
@@ -209,6 +212,10 @@ theorem VEnv.ctorConstsCR_wf_of_substC' {env env₃ e₁ : VEnv} {D : VInductDec
       (hD.ctors env₃ h₃ j T hT C hCT).constant_wf henv₃
     have hsub := hwf.substC hσ
     obtain ⟨v, htele, hbody⟩ := hbridge j T C hT hK hCT
+    rw [show ((C.typeR D R j).substC (R.csubstTy D K))
+        = VExpr.mkPi ((C.params ++ C.fieldTypesR D R).map (VExpr.substC · (R.csubstTy D K)))
+            ((D.tyAppR R j C.fields.length C.args).substC (R.csubstTy D K)) from
+      by rw [VIndCtor.typeR, VExpr.substC_mkPi]]
     refine VEnv.IsType.mkPi_congr' (v := v) he₁ htele (by simpa using hbody) ?_
     have : ((C.type D j).substC σ) = VExpr.mkPi
         ((C.params ++ C.fields.map (·.type)).map (VExpr.substC · σ))
@@ -240,41 +247,10 @@ namespace VIndRestore
 
 open VExpr (mkLams mkApp)
 
-/-- The term the restoration presents member `j`'s type constant as, abstracted over the
-block's parameters.  `mkLams` is the only place a β-redex can enter: at `D.np = 0` it is
-absent and the presentation is a closed application. -/
-def tyVal (R : VIndRestore) (D : VInductDecl') (j : Nat) : VExpr :=
-  mkLams D.params ((VExpr.const (R.tyName j) (R.tyLvls j)).mkApp (R.tyArgs j))
-
-/-- …and constructor `C` of member `j`, at the *same* spine — which is what
-`VInductDecl'.ctorAppR` uses. -/
-def ctorVal (R : VIndRestore) (D : VInductDecl') (j : Nat) (C : VIndCtor) : VExpr :=
-  mkLams D.params ((VExpr.const (R.ctorName C.name) (R.tyLvls j)).mkApp (R.tyArgs j))
-
-/-- …and the recursor, which `mkAuxRecNameMap` only renames.  A rename is a constant
-substitution because `substC` replaces a constant by a *term*. -/
-def recVal (R : VIndRestore) (D : VInductDecl') (n : Lean.Name) : VExpr :=
-  .const (R.recName n) (VLevel.params D.recUvars)
-
-/-- The type entries alone — the domain obligation **(A)** uses. -/
-def csubstTyList (R : VIndRestore) (D : VInductDecl') (K : List Lean.Name) :
-    List (Lean.Name × VExpr) :=
-  (D.types.zipIdx.filter fun p => decide (p.1.name ∈ K)).map fun (T, j) => (T.name, R.tyVal D j)
-
-/-- **The restoration, as a constant substitution.**  One entry for each companion member's
-type constant, one for its recursor, one for each of its constructors. -/
-def csubstList (R : VIndRestore) (D : VInductDecl') (K : List Lean.Name) :
-    List (Lean.Name × VExpr) :=
-  (D.types.zipIdx.filter fun p => decide (p.1.name ∈ K)).flatMap fun (T, j) =>
-    (T.name, R.tyVal D j) ::
-    (Lean.mkRecName T.name, R.recVal D (Lean.mkRecName T.name)) ::
-    T.ctors.map fun C => (C.name, R.ctorVal D j C)
-
-def csubstTy (R : VIndRestore) (D : VInductDecl') (K : List Lean.Name) : CSubst :=
-  fun n => (R.csubstTyList D K).lookup n
-
-def csubst (R : VIndRestore) (D : VInductDecl') (K : List Lean.Name) : CSubst :=
-  fun n => (R.csubstList D K).lookup n
+/-! `tyVal`, `ctorVal`, `recVal`, `csubstTyList`, `csubstList`, `csubstTy` and `csubst` are
+**no longer defined here**: they moved down to `Theory/Inductive/Restore.lean`, because
+`VIndCtor.typeR` now uses `csubstTy` (at the restoration's own domain `R.aux`) to rewrite the
+positions it used to copy verbatim.  Everything below is unchanged. -/
 
 /-- `List.lookup` returns an entry of the list.  (Core has the `isSome` form but not this
 one at the pin.) -/
@@ -911,7 +887,7 @@ variable (hE₂ : E₁.addIndCtors nfnAux = some E₂)
 variable (hE₃ : E₂.addIndRecs nfnAux = some E₃)
 variable (hF₁ : env₂.addConstList (nfnAux.typeConstsC nfnK) = some F₁)
 variable (hF₂ : F₁.addConstList (nfnAux.ctorConstsCR nfnRestore nfnK) = some F₂)
-variable (hF₃ : F₂.addConstList (nfnAux.recConstsR nfnRestore) = some F₃)
+variable (hF₃ : F₂.addConstList (nfnAux.recConstsR nfnRestore nfnK) = some F₃)
 
 include h in
 theorem nfnSubstAll_fresh : nfnSubstAll.FreshIn env₂ := by
@@ -1071,7 +1047,7 @@ theorem nfnSubstAll_WF₂ : nfnSubstAll.WF E₂ F₂ 1 := by
 include h hE₁ hE₂ hF₁ hF₂ in
 /-- **Obligation (B), discharged at the witness.** -/
 theorem nfnAux_recConstsR_wf :
-    ∀ c ∈ nfnAux.recConstsR nfnRestore, VConstant.WF F₂ c.2 := by
+    ∀ c ∈ nfnAux.recConstsR nfnRestore nfnK, VConstant.WF F₂ c.2 := by
   have hσ := nfnSubstAll_WF₂ h hE₁ hE₂ hF₁ hF₂
   have hsrc := nfn_recConsts_wf h hE₁ hE₂
   have h0 := (hsrc _ (by exact List.Mem.head _)).substC (ci := ⟨1, nfnAux.recType 0⟩) hσ
@@ -1080,7 +1056,7 @@ theorem nfnAux_recConstsR_wf :
   rw [nfn_recType_substC_0] at h0
   rw [nfn_recType_substC_1] at h1
   intro c hc
-  have hl : nfnAux.recConstsR nfnRestore
+  have hl : nfnAux.recConstsR nfnRestore nfnK
       = [(``NFn.rec, ⟨1, nfnAux.recTypeR nfnRestore 0⟩),
          (``NFn.rec_1, ⟨1, nfnAux.recTypeR nfnRestore 1⟩)] := rfl
   rw [hl] at hc
@@ -1103,7 +1079,7 @@ variable (hE₂ : E₁.addIndCtors nfnAux = some E₂)
 variable (hE₃ : E₂.addIndRecs nfnAux = some E₃)
 variable (hF₁ : env₂.addConstList (nfnAux.typeConstsC nfnK) = some F₁)
 variable (hF₂ : F₁.addConstList (nfnAux.ctorConstsCR nfnRestore nfnK) = some F₂)
-variable (hF₃ : F₂.addConstList (nfnAux.recConstsR nfnRestore) = some F₃)
+variable (hF₃ : F₂.addConstList (nfnAux.recConstsR nfnRestore nfnK) = some F₃)
 
 include h hE₁ hE₂ hF₁ hF₂ hF₃ in
 theorem nfnF₃_ordered : F₃.Ordered :=
@@ -1219,7 +1195,7 @@ theorem nfnAux_declaredR_exists {env₂ : VEnv}
     (h : VEnv.empty.addInduct' pfnDecl = some env₂) :
     ∃ F₁ F₂ F₃, env₂.addConstList (nfnAux.typeConstsC nfnK) = some F₁ ∧
       F₁.addConstList (nfnAux.ctorConstsCR nfnRestore nfnK) = some F₂ ∧
-      F₂.addConstList (nfnAux.recConstsR nfnRestore) = some F₃ := by
+      F₂.addConstList (nfnAux.recConstsR nfnRestore nfnK) = some F₃ := by
   obtain ⟨env', he⟩ := nfnAux_admitted h
   rw [VEnv.addInductR, Option.map_eq_some_iff] at he
   obtain ⟨F₃, h1, -⟩ := he

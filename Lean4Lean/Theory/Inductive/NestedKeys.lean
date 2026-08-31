@@ -183,7 +183,7 @@ end VEnv
 theorem VInductDecl'.recName_mem_recConstsR (D : VInductDecl') (R : VIndRestore) {j : Nat}
     {T : VIndType} (hT : D.types[j]? = some T) :
     R.recName (Lean.mkRecName (D.types.getD j default).name)
-      ∈ (D.recConstsR R).map (·.1) := by
+      ∈ (D.recConstsR R K).map (·.1) := by
   rw [VInductDecl'.getD_types hT, VInductDecl'.recConstsR, List.map_map]
   exact List.mem_map.2 ⟨(T, j), List.mem_zipIdx_iff_getElem?.2 hT, rfl⟩
 
@@ -194,7 +194,8 @@ theorem VInductDecl'.ctorName_mem_ctorConstsCR (D : VInductDecl') (R : VIndResto
     (hK : (D.types.getD j default).name ∉ K) :
     R.ctorName C.name ∈ (D.ctorConstsCR R K).map (·.1) := by
   rw [VInductDecl'.ctorConstsCR]
-  refine List.mem_map.2 ⟨(R.ctorName C.name, ⟨D.uvars, C.typeR D R j⟩),
+  refine List.mem_map.2 ⟨(R.ctorName C.name,
+      ⟨D.uvars, (C.typeR D R j).substC (R.csubstTy D K)⟩),
     List.mem_filterMap.2 ⟨(j, C), hm, ?_⟩, rfl⟩
   simp only [if_neg hK]
 
@@ -207,7 +208,7 @@ witnesses.
 
 It is also derivable rather than assumed, from the two `addConstList` successes plus
 `Faithful.ctors_complete`: the renamed recursor names are `Nodup` because
-`addConstList (D.recConstsR R)` succeeded, which separates different members; within one
+`addConstList (D.recConstsR R K)` succeeded, which separates different members; within one
 member, a declared member's restored constructor names are `Nodup` for the same reason, and a
 companion member's are the constructor names of the block `ctors_complete` names, which are
 `Nodup` because that block was declared.  That derivation is list combinatorics over a
@@ -253,7 +254,7 @@ theorem keysR_induct {env env' : VEnv} {D : VInductDecl'} {K : List Lean.Name}
     rw [addConstList_defeqs h3, addConstList_defeqs h2, addConstList_defeqs h1]
   have hle : env ≤ e3 :=
     ((addConstList_le h1).trans (addConstList_le h2)).trans (addConstList_le h3)
-  have hrecfresh : ∀ n ∈ (D.recConstsR R).map (·.1), ¬ env.contains n := by
+  have hrecfresh : ∀ n ∈ (D.recConstsR R K).map (·.1), ¬ env.contains n := by
     rintro n hn ⟨x, hx⟩
     have := (addConstList_le h2).constants ((addConstList_le h1).constants hx)
     rw [(addConstList_fresh h3).1 n hn] at this; exact absurd this nofun
@@ -261,7 +262,7 @@ theorem keysR_induct {env env' : VEnv} {D : VInductDecl'} {K : List Lean.Name}
     rintro n hn ⟨x, hx⟩
     have := (addConstList_le h1).constants hx
     rw [(addConstList_fresh h2).1 n hn] at this; exact absurd this nofun
-  have hrecdecl : ∀ n ∈ (D.recConstsR R).map (·.1), e3.contains n := by
+  have hrecdecl : ∀ n ∈ (D.recConstsR R K).map (·.1), e3.contains n := by
     intro n hn
     obtain ⟨c, hc, rfl⟩ := List.mem_map.1 hn
     exact ⟨_, addConstList_constants h3 c hc⟩

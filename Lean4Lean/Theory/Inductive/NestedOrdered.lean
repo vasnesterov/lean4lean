@@ -38,7 +38,7 @@ twice, since `allConstsCR` is an append of three. -/
 theorem addInductR_stages (h : env.addInductR D K R = some env') :
     ∃ e₁ e₂ e₃, env.addConstList (D.typeConstsC K) = some e₁ ∧
       e₁.addConstList (D.ctorConstsCR R K) = some e₂ ∧
-      e₂.addConstList (D.recConstsR R) = some e₃ ∧ env' = e₃.addIndRulesR D R := by
+      e₂.addConstList (D.recConstsR R K) = some e₃ ∧ env' = e₃.addIndRulesR D R := by
   rw [VEnv.addInductR, Option.map_eq_some_iff] at h
   obtain ⟨e₃, h1, rfl⟩ := h
   rw [VInductDecl'.allConstsCR, VEnv.addConstList_append, Option.bind_eq_some_iff] at h1
@@ -52,7 +52,7 @@ theorem addInductR_stages (h : env.addInductR D K R = some env') :
 theorem addInductR_of_stages {e₁ e₂ e₃ : VEnv}
     (h1 : env.addConstList (D.typeConstsC K) = some e₁)
     (h2 : e₁.addConstList (D.ctorConstsCR R K) = some e₂)
-    (h3 : e₂.addConstList (D.recConstsR R) = some e₃) :
+    (h3 : e₂.addConstList (D.recConstsR R K) = some e₃) :
     env.addInductR D K R = some (e₃.addIndRulesR D R) := by
   rw [VEnv.addInductR, VInductDecl'.allConstsCR, VEnv.addConstList_append,
     VEnv.addConstList_append, h1]
@@ -69,10 +69,10 @@ theorem addInductR_ordered (henv : env.Ordered)
     (hctors : ∀ {e₁ : VEnv}, env.addConstList (D.typeConstsC K) = some e₁ →
       ∀ c ∈ D.ctorConstsCR R K, c.2.WF e₁)
     (hrecs : ∀ {e₁ e₂ : VEnv}, env.addConstList (D.typeConstsC K) = some e₁ →
-      e₁.addConstList (D.ctorConstsCR R K) = some e₂ → ∀ c ∈ D.recConstsR R, c.2.WF e₂)
+      e₁.addConstList (D.ctorConstsCR R K) = some e₂ → ∀ c ∈ D.recConstsR R K, c.2.WF e₂)
     (hrules : ∀ {e₁ e₂ e₃ : VEnv}, env.addConstList (D.typeConstsC K) = some e₁ →
       e₁.addConstList (D.ctorConstsCR R K) = some e₂ →
-      e₂.addConstList (D.recConstsR R) = some e₃ → ∀ df ∈ D.iotaRulesR R, df.WF e₃)
+      e₂.addConstList (D.recConstsR R K) = some e₃ → ∀ df ∈ D.iotaRulesR R, df.WF e₃)
     (he : env.addInductR D K R = some env') : env'.Ordered := by
   obtain ⟨e₁, e₂, e₃, h1, h2, h3, rfl⟩ := addInductR_stages he
   have o1 := VEnv.addConstList_ordered henv htys h1
@@ -147,10 +147,10 @@ theorem addInductR_ordered' (henv : env.Ordered) (h : D.WF env) (hown : R.OwnId 
     (hctors : ∀ {e₁ : VEnv}, env.addConstList (D.typeConstsC K) = some e₁ →
       ∀ c ∈ D.ctorConstsCR R K, c.2.WF e₁)
     (hrecs : ∀ {e₁ e₂ : VEnv}, env.addConstList (D.typeConstsC K) = some e₁ →
-      e₁.addConstList (D.ctorConstsCR R K) = some e₂ → ∀ c ∈ D.recConstsR R, c.2.WF e₂)
+      e₁.addConstList (D.ctorConstsCR R K) = some e₂ → ∀ c ∈ D.recConstsR R K, c.2.WF e₂)
     (hrules : ∀ {e₁ e₂ e₃ : VEnv}, env.addConstList (D.typeConstsC K) = some e₁ →
       e₁.addConstList (D.ctorConstsCR R K) = some e₂ →
-      e₂.addConstList (D.recConstsR R) = some e₃ → ∀ df ∈ D.iotaRulesR R, df.WF e₃)
+      e₂.addConstList (D.recConstsR R K) = some e₃ → ∀ df ∈ D.iotaRulesR R, df.WF e₃)
     (he : env.addInductR D K R = some env') : env'.Ordered :=
   addInductR_ordered henv (addInductR_typeConstsC_wf h) hctors hrecs hrules he
 
@@ -215,7 +215,40 @@ One correction to what this paragraph predicted: it was **not** two mechanical e
 premises say nothing and `KeyUnique` cannot be established.
 
 So `addInductR_ordered'`'s three obligations — `hctors`, `hrecs`, `hrules` — are now the *only*
-thing the `inductNested` rule waits on. -/
+thing the `inductNested` rule waits on.
+
+**STATUS (2026-08-31, second entry).**  `hctors` is **proved for every parameterless block**,
+unconditionally: `VEnv.ctorConstsCR_wf_of_np_zero'` (`Theory/Inductive/RestoreBridge.lean`).
+Two things had to happen for that.
+
+1. `hctors` was **false** as it stood — `nfnAuxDirty_refutation`, a block satisfying every
+   conjunct of `VEnv.AddNestedB` whose step declared `NFn.node` at a type mentioning
+   `_nested.PFn_1`.  The cause was that `VIndCtor.typeR` copies `C.params`, the non-recursive
+   fields' stored types and `C.args` verbatim while `VIndCtor.WF.params_eq` and
+   `VIndField.WF.pos`'s `none` branch make those only *definitionally* block-free.  The repair
+   is that `VInductDecl'.ctorConstsCR` and `recConstsR` declare the restored type **with the
+   restoration substituted through it** — `restoreNested` is a whole-expression rewrite, so the
+   implementation restores the occurrence wherever it sits.  On anything the implementation can
+   produce the substitution is the identity (`ntreeNode_declared_typeR`,
+   `ntreeAux_declared_recTypeR_0/1` check that against Lean's own stored types at the
+   parameterised witness), so faithfulness is untouched.
+2. The residual on `hctors` is now exactly the **β-gap**: `substC` leaves a saturated `D.np`-fold
+   redex where `tyAppR` is the contractum, so the syntactic bridge holds iff `D.params = []`.
+   Above that, `VEnv.ctorConstsCR_wf_of_substC'` (telescope defeq) is the route, and
+   `ntreeNode_beta_bridge` is the one-block instance of it.
+
+`hrecs` is one bridge away from the same treatment: `recConstsR` substitutes, so the statement
+is right, and what is missing is (B)'s head-by-head equation for `recTypeR` — the same argument
+as (A)'s but over motives, minors, `ihTypes` and the major premise.
+
+`hrules` is **still false** at `nfnAuxDirty`, and now that is the *only* thing that block
+refutes: `VEnv.addIndRulesR` folds `D.iotaRulesR R` unsubstituted, and `iotaCtxR` splices the
+dirty field telescope.  Substituting there is one `·.substC (R.csubst D K)`, and the cost is
+**not** the `substC`: `VEnv.keysR_induct` (`Theory/Inductive/NestedKeys.lean`) and
+`VInductDecl'.iotaRulesR_key_declared` are stated about the keys of `D.iotaRulesR R`, and after
+substitution the environment holds `(D.iotaRuleR R j q C).substC σ`, whose key is the same only
+because the *restored* recursor and constructor heads lie outside σ's domain — true, but needing
+`Faithful` plus freshness of the auxiliary names rather than `rfl`. -/
 
 /-- **A companion ι-rule's major name is already declared.**  Directly `Faithful.ctor_agree`:
 the restoration presents the companion's constructors as constants the environment holds, and

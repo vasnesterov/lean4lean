@@ -1,78 +1,89 @@
 import Lean4Lean.Theory.Typing.ConstSubstNested
 
 /-!
-# The nested route's three bridges, in general — and the side condition nobody asked for
+# The nested route's three bridges, and the defect two of them just lost
 
 `VEnv.addInductR_ordered'` (`Theory/Inductive/NestedOrdered.lean`) reduces "a nested
 declaration step preserves `VEnv.Ordered`" to three obligations, and
 `VEnv.ctorConstsCR_wf_of_substC` / `recConstsR_wf_of_substC` / `iotaRulesR_wf_of_substC`
-(`Theory/Typing/ConstSubstNested.lean`) reduce each of those to one **syntactic bridge**:
+(`Theory/Typing/ConstSubstNested.lean`) reduce each of those to one **syntactic bridge**.
+Since 2026-08-31 the first two read
 
-    (C.type D j).substC σ = C.typeR D R j            -- (A) declared constructors
-    (D.recType j).substC σ = D.recTypeR R j          -- (B) renamed recursors
-    D.iotaRules.map (·.substC σ) = D.iotaRulesR R    -- (C) ι-rules
+    (C.type D j).substC σ  = (C.typeR D R j).substC σ          -- (A) declared constructors
+    (D.recType j).substC σ = (D.recTypeR R j).substC σ'        -- (B) renamed recursors
 
-with `σ = VIndRestore.csubstTy D K` (for (A)) or `csubst D K` (for (B), (C)).  This file is
-about proving those in general.  Two things came out of trying.
+with `σ = VIndRestore.csubstTy D K`, `σ' = csubst D K`, because `VInductDecl'.ctorConstsCR`
+and `recConstsR` now declare the *substituted* restored type; (C) is unchanged,
 
-## 1. The bridges are **false** in general, for two independent reasons
+    D.iotaRules.map (·.substC σ') = D.iotaRulesR R             -- (C) ι-rules
+
+because `VEnv.addIndRulesR` still folds `iotaRulesR` unsubstituted.  The history of that
+asymmetry, and what it costs to remove, is Part 5's closing note.
+
+## 1. Where the bridges stood, and what changed
+
+Two independent obstructions were measured here.
 
 * **β.** `R.tyVal D j = mkLams D.params …`, and `VInductDecl'.tyApp` supplies the block's
   parameter run as `bvars k D.np`, so a *companion* head becomes a saturated `D.np`-fold
-  β-redex under `substC`, while `tyAppR` is the contractum.  This was already known
-  (`InductiveDeclExamples.ntreeNode_substC_ne_typeR`, a `decide`).  Part 3 **measures** it:
+  β-redex under `substC`, while `tyAppR` is the contractum
+  (`InductiveDeclExamples.ntreeNode_substC_ne_typeR`, a `decide`).  Part 3 measures it exactly:
   `substC_tyApp_comp` computes the redex, `instAll_tyBody` proves its contractum is the
-  restored head *exactly*, so the gap is `D.np` β-steps per companion occurrence and nothing
-  else.  Hence Part 4: for `D.params = []` the bridge (A) is a theorem in general —
-  `VEnv.ctorConstsCR_wf_of_np_zero`.
+  restored head, so the gap is `D.np` β-steps per companion occurrence and nothing else.
+  **This obstruction is still open** above `D.np = 0`, and it is not an artefact: Lean's own
+  kernel stores the *contractum* (`ntreeNode_typeR`, `ntreeNode_declared_typeR`,
+  `Theory/Inductive/NestedHead.lean`, `rfl` against `type_of% @NTree.node`), so `typeR` cannot
+  be *defined* as `substC` — `TrConstant` relates the two through `TrExprS`, which has no defeq
+  slack.  Closing it needs the telescope-defeq route
+  (`VEnv.ctorConstsCR_wf_of_substC'`), not a syntactic equation.
 
-* **Positions restoration never visits.**  `VIndCtor.typeR` restores the *result* head and
-  the *recursive* fields' heads.  It copies `C.params` and every **non-recursive** field's
-  stored type **verbatim**.  But `VIndCtor.WF.params_eq` only makes `C.params`
-  *definitionally* `D.params`, and `VIndField.WF.pos`'s `none` branch only makes a
-  non-recursive field *definitionally* block-free — deliberately, and `Theory/Inductive/Decl.lean`
-  says so at the field, with `(fun _ : T => Nat) r` as the accepted shape.  So a companion
-  constant may sit under a redex in either place, and `typeR` leaves it there.
+* **Positions restoration never visits — CLOSED.**  `VIndCtor.typeR` restores the *result*
+  head and the *recursive* fields' heads, and copies `C.params`, every **non**-recursive
+  field's stored type and `C.args` verbatim.  `VIndCtor.WF.params_eq` and `VIndField.WF.pos`'s
+  `none` branch make those only *definitionally* block-free — deliberately, with
+  `(fun _ : T => Nat) r` as the accepted shape — so a companion constant could sit under a
+  redex in one of them and be *declared*.  That was not a β-gap and not repairable by defeq
+  slack: the step declared a constant whose type names a constant the environment does not
+  hold.
 
-  That second reason is **not** a β-gap and not repairable by any amount of defeq slack: the
-  type the step declares mentions a constant the environment it declares it in does not hold.
+  The repair is in `VInductDecl'.ctorConstsCR` and `recConstsR`: the declared type is
+  `(C.typeR D R j).substC σ`, the abstract counterpart of `restoreNested` being a
+  whole-expression `replaceNoCache`.  It is the **identity** on every position `typeR` already
+  restored (checked at the real parameterised witness, `ntreeNode_declared_typeR`), so nothing
+  the implementation declares moves; and it removes the dirt everywhere else.
 
-## 2. So obligation (A) is false under the premises the rule actually has
+## 2. Obligation (A) is a theorem for `D.params = []`, with no side condition on the block
 
-Part 5 is the counterexample, and it is not a fragment: `nfnAuxDirty` is `nfnAux` with one
-extra non-recursive field on `NFn.node`, and
+`VEnv.ctorConstsCR_wf_of_np_zero'` (Part 4b) needs `Canonical`, `OwnId`, `Nodup`, and three
+`decide`-able side conditions on the restoration *data* — and **no cleanliness hypothesis**.
+`VIndCtor.RestoreClean` is no longer a hypothesis of anything; Part 4 keeps it, and
+`VIndRestore.ctorType_substC_eq_typeR`, as the statement of what the new `substC` does *not*
+change on a clean block.
 
-* `nfnAuxDirty_AddNestedB` — it satisfies **every** conjunct of `VEnv.AddNestedB`
-  (`D.WF env`, `CanonicalOwn`, `Built` — hence `Faithful`, `Canonical` and `OwnId` — and the
-  step succeeds), so it satisfies `VEnv.AddNestedStep`, the premise of
-  `VDecl.WF.inductNested`;
-* `nfnAuxDirty_step_not_ordered` — and the environment the step produces is **not**
-  `VEnv.Ordered`, because it holds `NFn.node` at a type mentioning `_nested.PFn_1`;
-* `nfnAuxDirty_obligationA_false` — equivalently, `addInductR_ordered'`'s `hctors` is false
-  there.
+## 3. What Part 5 is now
 
-`nfnNodeDirty_not_restoreClean` pins the hypothesis that fails to exactly one:
-`VIndCtor.RestoreClean`.  Every other hypothesis of `ctorConstsCR_wf_of_np_zero` holds at
-`nfnAuxDirty` (`nfnAuxDirty_params_nil`, `nfnAuxDirty_blockNames_nodup`,
-`nfnRestore_ownId_dirty`, and `Built.canonical`).
+`nfnAuxDirty` — `nfnAux` with one extra non-recursive field whose stored type mentions
+`_nested.PFn_1` under a redex — still satisfies **every** conjunct of `VEnv.AddNestedB`
+(`nfnAuxDirty_AddNestedB`), and it is still not `RestoreClean`
+(`nfnNodeDirty_not_restoreClean`).  What has changed is the conclusion:
+`nfnAuxDirty_obligationA` now *proves* obligation (A) there, through the general theorem.
+`nfnAuxDirty_step_not_ordered` and `nfnAuxDirty_obligationA_false` are **gone**; they were
+theorems about the old `ctorConstsCR`.
 
-**This is a defect in the abstract step, not in the C++ kernel.**  `restoreNested` is a whole-
-expression rewrite, so the implementation restores the occurrence wherever it sits;
-`VIndField.typeR`'s `none` branch and `VIndCtor.typeR`'s use of `C.params` under-restore
-relative to it.  The repair is one of: (i) add `RestoreClean` (for the members off `K`) as a
-conjunct of `VEnv.AddNested`/`VInductDecl'.Built`, or (ii) make `typeR` apply the restoration
-everywhere, i.e. define it *as* the substitution — which is what would make the bridges
-trivial.  Both edits are in files this file does not own; neither is made here.
+The counterexample has not evaporated, it has **moved**: `VEnv.addIndRulesR` does not
+substitute, `iotaCtxR` splices `C.fieldTypesR`, and the dirty entry is still there
+(`nfnNodeDirty_fieldTypesR_dirty`, `nfnAuxDirty_iotaCtxR_eq`).  So `nfnAuxDirty` refutes
+`hrules` where it used to refute `hctors`.
 
-## 3. Obligations (B) and (C) carry a *third* obstruction
+## 4. Obligations (B) and (C) carry a *third* obstruction
 
-They run on `R.csubst`, not `csubstTy`, and `csubst`'s domain contains the companion's
+They run on `csubst`, not `csubstTy`, and `csubst`'s domain contains the companion's
 **constructor** and **recursor** names as well — names that are *not* in `D.blockNames`
-(`nfn_csubst_dom_escapes_blockNames`).  So `VIndCtor.WF`'s `NoBlock` clauses, which are what
-makes every non-restored position `csubstTy`-invariant in Part 4, buy nothing there: a
-constructor's result indices or a recursive field's `ξ`/`π` may mention `PFn.mk`, and
-`iotaRulesR` does not restore them.  Part 6 records this; the (B)/(C) bridges are left open,
-and the note says what they would need.
+(`nfn_csubst_dom_escapes_blockNames`).  For (A) that is harmless and provably so: `D.WF env`
+types a constructor in the environment carrying the block's *type* constants only, so no
+constructor or recursor name of the block can occur in `C.type D j` at all.  For (B)/(C) it is
+not: the recursor's type and the ι-rules are checked where those constants exist.  Part 6
+records it.
 -/
 
 namespace Lean4Lean
@@ -463,29 +474,161 @@ theorem ctorType_substC_eq_typeR {C : VIndCtor} {j : Nat}
 
 end VIndRestore
 
-/-- **Obligation (A), in general, for a parameterless nested block.**
+/-! ## Part 4b: the (A) bridge **without** the cleanliness side condition
 
-This is `VEnv.ctorConstsCR_wf_of_substC` with its `hbridge` discharged.  It generalises
-`InductiveDeclExamples.nfnAux_ctorConstsCR_wf` — a `rfl` at one block — to every block with
-`D.params = []`, and it makes explicit the one hypothesis that block happens to satisfy and a
-general one need not: `VIndCtor.RestoreClean`. -/
-theorem VEnv.ctorConstsCR_wf_of_np_zero {env env₃ e₁ : VEnv} {D : VInductDecl'}
+`VInductDecl'.ctorConstsCR` no longer declares `C.typeR D R j` but
+`(C.typeR D R j).substC (R.csubstTy D K)` — the restoration substituted through the positions
+`typeR` copies verbatim, which is what `restoreNested`'s whole-expression `replaceNoCache`
+does and what `VIndCtor.RestoreClean` was standing in for.  The bridge that
+`VEnv.ctorConstsCR_wf_of_substC` now asks for is therefore
+
+    (C.type D j).substC σ = (C.typeR D R j).substC σ,      σ = R.csubstTy D K
+
+and **that is a theorem with no cleanliness hypothesis at all**: every position `typeR`
+copies appears under `substC σ` on *both* sides, so it cancels rather than having to be
+assumed clean.  What is left is one equation per *head* position, and there the two sides
+differ only by the β-gap of Part 3 — zero at `D.np = 0`.
+
+Two side conditions on the restoration data appear that Part 4 did not need, both of the same
+`decide`-able nature as `hlw`/`hcl`: the presented head `R.tyName i` and spine `R.tyArgs i`
+must not themselves name a companion member.  A restoration violating either would present a
+companion member *as another companion member*; nothing downstream would be true of it. -/
+
+namespace VIndRestore
+variable {R : VIndRestore} {D : VInductDecl'} {K : List Lean.Name}
+variable (hp : D.params = []) (hnd : D.blockNames.Nodup) (hown : R.OwnId D K)
+  (hlw : ∀ i, (R.tyVal D i).LevelWF D.uvars)
+  (hcl : ∀ i, ∀ a ∈ R.tyArgs i, a.ClosedN D.np)
+  (hnn : ∀ i, R.csubstTy D K (R.tyName i) = none)
+  (hna : ∀ i, ∀ a ∈ R.tyArgs i, a.NoCSubst (R.csubstTy D K))
+
+include hp hnd hown hlw hcl
+
+/-- **The head equation with the arguments substituted on both sides.**  Compare
+`substC_tyApp_eq_tyAppR`, which needs the arguments to be `σ`-invariant; here they are
+rewritten by `σ` in the conclusion, so nothing is assumed about them. -/
+theorem substC_tyApp_eq_tyAppR_map {j : Nat} (hna' : ∀ a ∈ R.tyArgs j, a.ClosedN 0)
+    {T : VIndType} (hT : D.types[j]? = some T) {k : Nat} {args : List VExpr} :
+    (D.tyApp j k args).substC (R.csubstTy D K)
+      = D.tyAppR R j k (args.map (VExpr.substC · (R.csubstTy D K))) := by
+  have hnp : D.np = 0 := by rw [show D.np = D.params.length from rfl, hp]; rfl
+  have hg : (D.types.getD j default).name = T.name := by
+    rw [List.getD_eq_getElem?_getD, hT]; rfl
+  rw [VInductDecl'.tyApp, VExpr.substC_mkApp, List.map_append, VExpr.map_substC_bvars]
+  by_cases hK : T.name ∈ K
+  · have hid : ((R.tyArgs j).map fun x => x.liftN k) = R.tyArgs j := by
+      rw [show ((R.tyArgs j).map fun x => x.liftN k) = (R.tyArgs j).map id from
+        List.map_congr_left fun a ha => (hna' a ha).liftN_eq (Nat.zero_le _), List.map_id]
+    rw [VExpr.substC_const_some (by rw [hg]; exact csubstTy_eq_some hnd hT hK),
+      show (R.tyVal D j).instL D.ownLvls = R.tyVal D j from
+        VExpr.LevelWF.instL_id (U := D.uvars) (hlw j),
+      tyVal_eq, hp, VExpr.mkLams_nil, tyBody, VInductDecl'.tyAppR, VInductDecl'.tyAppH,
+      ← VExpr.mkApp_append, hnp, VExpr.bvars_zero, List.nil_append, hid]
+  · rw [VExpr.substC_const_none (by rw [hg]; exact csubstTy_eq_none hK),
+      hnp, VExpr.bvars_zero, List.nil_append,
+      show (VExpr.const (D.types.getD j default).name D.ownLvls).mkApp
+            (args.map (VExpr.substC · (R.csubstTy D K)))
+          = D.tyApp j k (args.map (VExpr.substC · (R.csubstTy D K))) from by
+        rw [VInductDecl'.tyApp, hnp, VExpr.bvars_zero, List.nil_append],
+      hown.tyAppR_eq hT hK]
+
+include hnn hna
+
+/-- **…and the restored head is `σ`-invariant**, which is what lets the right-hand side of the
+bridge carry a `substC σ` that does nothing to the head. -/
+theorem substC_tyAppR (j k : Nat) (args : List VExpr) :
+    (D.tyAppR R j k args).substC (R.csubstTy D K)
+      = D.tyAppR R j k (args.map (VExpr.substC · (R.csubstTy D K))) := by
+  rw [VInductDecl'.tyAppR, VInductDecl'.tyAppH, VExpr.substC_mkApp,
+    VExpr.substC_const_none (hnn j), List.map_append, List.map_map]
+  congr 2
+  exact List.map_congr_left fun a ha =>
+    ((hna j a ha).liftN (n := k) (k := 0)).substC_eq
+
+/-- **The (A) bridge, in general, for a parameterless block — no `RestoreClean`.** -/
+theorem ctorType_substC_eq_typeR_substC {C : VIndCtor} {j : Nat}
+    (hcanon : C.Canonical D)
+    (hpos : ∀ (i : Nat) (F : VIndField) (r : VIndRecArg), C.fields[i]? = some F →
+      F.recArg = some r → r.idx < D.nm)
+    (hcl0 : ∀ i, ∀ a ∈ R.tyArgs i, a.ClosedN 0)
+    {T : VIndType} (hT : D.types[j]? = some T) :
+    (C.type D j).substC (R.csubstTy D K)
+      = (C.typeR D R j).substC (R.csubstTy D K) := by
+  have hfl : ∀ (Fs : List VIndField) (i : Nat),
+      (∀ (k : Nat) (F : VIndField) (r : VIndRecArg), Fs[k]? = some F → F.recArg = some r →
+        F.type = r.canonType D (i + k) ∧ r.idx < D.nm) →
+      Fs.map (fun F => F.type.substC (R.csubstTy D K))
+        = ((Fs.zipIdx i).map (fun p => p.1.typeR D R p.2)).map
+            (VExpr.substC · (R.csubstTy D K)) := by
+    intro Fs
+    induction Fs with
+    | nil => intro _ _; rfl
+    | cons F Fs ih =>
+      intro i hs
+      rw [List.zipIdx_cons, List.map_cons, List.map_cons, List.map_cons,
+        ih (i+1) (fun k F' r hF' hr => by
+          rw [show i + 1 + k = i + (k+1) from by omega]
+          exact hs (k+1) F' r (by simpa using hF') hr)]
+      congr 1
+      cases hr : F.recArg with
+      | none => rw [show F.typeR D R i = F.type from by rw [VIndField.typeR, hr]]
+      | some r =>
+        obtain ⟨hct, hlt⟩ := hs 0 F r rfl hr
+        obtain ⟨T', hT'⟩ : ∃ T', D.types[r.idx]? = some T' := ⟨_, List.getElem?_eq_getElem hlt⟩
+        rw [show F.typeR D R i = r.canonTypeR D R i from by rw [VIndField.typeR, hr],
+          show i + 0 = i from rfl] at *
+        rw [hct, VIndRecArg.canonType, VIndRecArg.canonTypeR, VExpr.substC_mkPi,
+          VExpr.substC_mkPi, VIndRecArg.canonResult, VIndRecArg.canonResultR,
+          substC_tyApp_eq_tyAppR_map hp hnd hown hlw hcl (hcl0 r.idx) hT',
+          substC_tyAppR hp hnd hown hlw hcl hnn hna]
+  rw [VIndCtor.type, VIndCtor.typeR, VExpr.substC_mkPi, VExpr.substC_mkPi,
+    List.map_append, List.map_append, VIndCtor.canonResult,
+    substC_tyApp_eq_tyAppR_map hp hnd hown hlw hcl (hcl0 j) hT,
+    substC_tyAppR hp hnd hown hlw hcl hnn hna, List.map_map,
+    show ((fun x : VExpr => x.substC (R.csubstTy D K)) ∘ fun F : VIndField => F.type)
+        = (fun F : VIndField => F.type.substC (R.csubstTy D K)) from rfl,
+    VIndCtor.fieldTypesR,
+    hfl C.fields 0 (fun k F r hF hr =>
+      ⟨by simpa using hcanon k F r hF hr, hpos k F r hF hr⟩)]
+
+end VIndRestore
+
+/-- **Obligation (A), in general, for a parameterless nested block, with no cleanliness
+condition.**
+
+This is `VEnv.ctorConstsCR_wf_of_np_zero` with `hclean` **removed** — the hypothesis that
+`nfnAuxDirty` refuted.  What replaced it is the `substC` in `VInductDecl'.ctorConstsCR`, i.e.
+the abstract counterpart of `restoreNested` restoring the occurrence wherever it sits.  The
+two new hypotheses are side conditions on the restoration *data*, not on the block. -/
+theorem VEnv.ctorConstsCR_wf_of_np_zero' {env env₃ e₁ : VEnv} {D : VInductDecl'}
     {K : List Lean.Name} {R : VIndRestore}
     (hD : D.WF env) (h₃ : env.addIndTypes D = some env₃) (henv₃ : env₃.Ordered)
     (hσ : (R.csubstTy D K).WF env₃ e₁ D.uvars)
     (hp : D.params = []) (hnd : D.blockNames.Nodup) (hown : R.OwnId D K)
     (hlw : ∀ i, (R.tyVal D i).LevelWF D.uvars)
     (hcl : ∀ i, ∀ a ∈ R.tyArgs i, a.ClosedN D.np)
-    (hcanon : D.Canonical)
-    (hclean : ∀ (j : Nat) (T : VIndType) (C : VIndCtor), D.types[j]? = some T → C ∈ T.ctors →
-      C.RestoreClean (R.csubstTy D K)) :
+    (hnn : ∀ i, R.csubstTy D K (R.tyName i) = none)
+    (hna : ∀ i, ∀ a ∈ R.tyArgs i, a.NoCSubst (R.csubstTy D K))
+    (hcanon : D.Canonical) :
     ∀ c ∈ D.ctorConstsCR R K, VConstant.WF e₁ c.2 := by
   refine VEnv.ctorConstsCR_wf_of_substC hD h₃ henv₃ hσ ?_
   intro j T C hT hK hC
+  have hnp : D.np = 0 := by rw [show D.np = D.params.length from rfl, hp]; rfl
   have hct := hD.ctors env₃ h₃ j T hT C hC
-  exact VIndRestore.ctorType_substC_eq_typeR hp hnd hown hlw hcl
-    (hclean j T C hT hC) (hcanon j C (VInductDecl'.mem_ctorsAll_of hT hC))
-    (fun i F r hF hr => (hct.fields i F hF).recArg_noBlock hr) hct.args_fresh hT
+  exact VIndRestore.ctorType_substC_eq_typeR_substC hp hnd hown hlw hcl hnn hna
+    (hcanon j C (VInductDecl'.mem_ctorsAll_of hT hC))
+    (fun i F r hF hr => ((hct.fields i F hF).recArg_noBlock hr).1)
+    (fun i => hnp ▸ hcl i) hT
+
+/-! ### The superseded form
+
+`VEnv.ctorConstsCR_wf_of_np_zero` used to sit here: obligation (A) for a parameterless block
+**given `VIndCtor.RestoreClean`**, which `nfnAuxDirty` refutes as a consequence of
+`VEnv.AddNestedB`.  It is gone, replaced by `VEnv.ctorConstsCR_wf_of_np_zero'` above, which
+needs no cleanliness at all.  `VIndRestore.ctorType_substC_eq_typeR` (Part 4) survives as the
+statement that *under* `RestoreClean` the old, unsubstituted `typeR` was already the bridge's
+right-hand side — i.e. that the `substC` in `ctorConstsCR` changes nothing on a clean block,
+which is the faithfulness half. -/
 
 namespace InductiveDeclExamples
 
@@ -540,20 +683,20 @@ include h henv₂ h₃ h₄ in
 `nfnAux_ctorConstsCR_wf`, which supplies `hbridge` by `rfl` at this one block. -/
 theorem nfnAux_ctorConstsCR_wf_general :
     ∀ c ∈ nfnAux.ctorConstsCR nfnRestore nfnK, VConstant.WF env₄ c.2 :=
-  VEnv.ctorConstsCR_wf_of_np_zero nfnAux_WF h₃ (env₃_ordered henv₂ h₃)
+  VEnv.ctorConstsCR_wf_of_np_zero' nfnAux_WF h₃ (env₃_ordered henv₂ h₃)
     (by rw [nfn_csubstTy]; exact nfnSubst_WF h henv₂ h₃ h₄)
     nfnAux_params_nil nfnAux_blockNames_nodup nfnRestore_ownId
     nfnRestore_tyVal_levelWF nfnRestore_tyArgs_closed
-    ((nfnAux_built h).canonical nfnAux_canonicalOwn)
+    (by rw [nfn_csubstTy]; rintro (_ | _ | i) <;> rfl)
     (by
-      rintro (_ | _ | j) T C hT hC
-      · cases hT
-        simp only [List.mem_cons, List.not_mem_nil, or_false] at hC
-        subst hC; rw [nfn_csubstTy]; exact nfnNode_restoreClean
-      · cases hT
-        simp only [List.mem_cons, List.not_mem_nil, or_false] at hC
-        subst hC; rw [nfn_csubstTy]; exact pfnAuxMk_restoreClean
-      · simp [nfnAux] at hT)
+      rw [nfn_csubstTy]
+      intro i a ha
+      rw [show nfnRestore.tyArgs i = if i = 1 then [VExpr.const ``NFn []] else [] from rfl] at ha
+      split at ha
+      · simp only [List.mem_cons, List.not_mem_nil, or_false] at ha
+        subst ha; exact nfnSubst_of_ne (by decide)
+      · simp at ha)
+    ((nfnAux_built h).canonical nfnAux_canonicalOwn)
 
 end
 
@@ -608,11 +751,13 @@ theorem nfnAuxDirty_allNamesCR :
 
 theorem nfnAuxDirty_ctorConstsCR :
     nfnAuxDirty.ctorConstsCR nfnRestore nfnK
-      = [(``NFn.node, ⟨0, nfnNodeDirty.typeR nfnAuxDirty nfnRestore 0⟩)] := rfl
+      = [(``NFn.node,
+          ⟨0, (nfnNodeDirty.typeR nfnAuxDirty nfnRestore 0).substC
+                (nfnRestore.csubstTy nfnAuxDirty nfnK)⟩)] := rfl
 
-/-- **The dirt survives restoration.**  `VIndField.typeR` copies a non-recursive field's
-stored type verbatim, so the companion constant is still there in the type the step
-declares. -/
+/-- **The dirt survives `VIndCtor.typeR`** — `VIndField.typeR` copies a non-recursive field's
+stored type verbatim, so the companion constant is still there in the *canonical* restored
+type.  What has changed is that this is no longer the type the step declares. -/
 theorem nfnNodeDirty_typeR_eq :
     nfnNodeDirty.typeR nfnAuxDirty nfnRestore 0
       = .forallE (.app (.const ``PFn []) (.const ``NFn []))
@@ -625,6 +770,27 @@ theorem nfnNodeDirty_typeR_dirty :
   intro h
   have h1 : nfnSubst `_nested.PFn_1 = none := h.2.1.2
   simp [nfnSubst_aux] at h1
+
+/-- **…and the substitution removes it.**  The type `VInductDecl'.ctorConstsCR` declares is
+the one above with `_nested.PFn_1` replaced by `PFn NFn` — the β-redex the field's `pos`
+obligation was discharged through is still there (the implementation would leave it too;
+`restoreNested` is a replacement, not a reduction), but it no longer names a constant the
+environment does not hold. -/
+theorem nfnNodeDirty_declared_eq :
+    (nfnNodeDirty.typeR nfnAuxDirty nfnRestore 0).substC (nfnRestore.csubstTy nfnAuxDirty nfnK)
+      = .forallE (.app (.const ``PFn []) (.const ``NFn []))
+          (.forallE (.app (.lam (.sort (.succ .zero)) (.sort .zero))
+            (.app (.const ``PFn []) (.const ``NFn []))) (.const ``NFn [])) := rfl
+
+/-- **The declared type is clean.**  This is the refutation's premise, negated: what
+`nfnAuxDirty_step_not_ordered` used to derive `¬ Ordered` from is now false. -/
+theorem nfnNodeDirty_declared_clean :
+    ((nfnNodeDirty.typeR nfnAuxDirty nfnRestore 0).substC
+      (nfnRestore.csubstTy nfnAuxDirty nfnK)).NoCSubst nfnSubst := by
+  rw [nfnNodeDirty_declared_eq]
+  exact ⟨⟨nfnSubst_of_ne (by decide), nfnSubst_of_ne (by decide)⟩,
+    ⟨⟨trivial, trivial⟩, nfnSubst_of_ne (by decide), nfnSubst_of_ne (by decide)⟩,
+    nfnSubst_of_ne (by decide)⟩
 
 
 theorem nfnAuxDirty_typeConsts : nfnAuxDirty.typeConsts = nfnAux.typeConsts := rfl
@@ -827,73 +993,92 @@ theorem nfnAuxDirty_AddNestedB :
   ⟨(nfnAuxDirty_admitted h).choose, nfnAuxDirty_WF, nfnAuxDirty_canonicalOwn,
     nfnAuxDirty_built h, (nfnAuxDirty_admitted h).choose_spec⟩
 
-/-! ### …and the step it takes does **not** preserve `Ordered` -/
+/-! ### …and the step it takes now **does** preserve `Ordered` at the constructor stage
+
+This subsection used to end in `nfnAuxDirty_step_not_ordered` and
+`nfnAuxDirty_obligationA_false`.  Both are gone, and what replaced them is below: with the
+restoration substituted through the declared type (`VInductDecl'.ctorConstsCR`), obligation
+**(A)** *holds* at the dirty block — through the general theorem
+`VEnv.ctorConstsCR_wf_of_np_zero'`, which has no cleanliness hypothesis left to violate.
+
+What survives of the counterexample is stated at the end: the dirt is still in
+`VIndCtor.typeR`, hence still in `iotaCtxR`, hence still in the **ι-rules** the step emits,
+and `VEnv.addIndRulesR` does *not* substitute.  So `nfnAuxDirty` has moved from refuting
+`hctors` to refuting `hrules`. -/
+
+theorem nfnAuxDirty_typeConstsC : nfnAuxDirty.typeConstsC nfnK = nfnAux.typeConstsC nfnK := rfl
+
+/-- The staging environment of the dirty block is the staging environment of `nfnAux`: the two
+blocks differ only inside a constructor, and `addIndTypes` reads `typeConsts`. -/
+theorem nfnAuxDirty_addIndTypes {env₃ : VEnv} :
+    env₂.addIndTypes nfnAuxDirty = some env₃ ↔ env₂.addIndTypes nfnAux = some env₃ := by
+  rw [VEnv.addIndTypes, VEnv.addIndTypes, nfnAuxDirty_typeConsts]
+
+/-- **The general type-entry substitution at the dirty block is still `nfnSubst`.**  It reads
+only the member *names* and the (empty) parameter telescope, neither of which the extra field
+touches. -/
+theorem nfn_csubstTy_dirty : nfnRestore.csubstTy nfnAuxDirty nfnK = nfnSubst := by
+  funext n
+  show List.lookup n [(`_nested.PFn_1, nfnVal)] = _
+  rw [List.lookup_cons]
+  by_cases hq : n = `_nested.PFn_1
+  · subst hq; rfl
+  · rw [show (n == `_nested.PFn_1) = false from beq_eq_false_iff_ne.2 hq]
+    exact (CSubst.one_of_ne hq).symm
+
+theorem nfnAuxDirty_params_nil' : nfnAuxDirty.params = [] := rfl
+theorem nfnAuxDirty_blockNames_nodup' : nfnAuxDirty.blockNames.Nodup := by decide
+
+theorem nfnRestore_tyVal_levelWF_dirty (i : Nat) :
+    (nfnRestore.tyVal nfnAuxDirty i).LevelWF nfnAuxDirty.uvars := by
+  rw [VIndRestore.tyVal, nfnAuxDirty_params_nil', VExpr.mkLams_nil,
+    show nfnRestore.tyArgs i = if i = 1 then [VExpr.const ``NFn []] else [] from rfl]
+  split
+  · exact ⟨nofun, nofun⟩
+  · exact nofun
+
+theorem nfnRestore_tyArgs_closed_dirty (i : Nat) :
+    ∀ a ∈ nfnRestore.tyArgs i, a.ClosedN nfnAuxDirty.np := by
+  rw [show nfnRestore.tyArgs i = if i = 1 then [VExpr.const ``NFn []] else [] from rfl]
+  split
+  · intro a ha
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at ha
+    subst ha; trivial
+  · intro a ha; simp at ha
 
 include h in
-theorem nfnAuxDirty_step_constants {env₃ : VEnv}
-    (he : env₂.addInductR nfnAuxDirty nfnK nfnRestore = some env₃) :
-    env₃.constants `_nested.PFn_1 = none ∧
-      env₃.constants ``NFn.node
-        = some ⟨0, nfnNodeDirty.typeR nfnAuxDirty nfnRestore 0⟩ := by
-  obtain ⟨e₁, e₂, e₃, h1, h2, h3, rfl⟩ := VEnv.addInductR_stages he
-  refine ⟨?_, ?_⟩
-  · rw [VEnv.addIndRulesR, VEnv.addDefEqList_constants,
-      VEnv.addConstList_constants_of_not_mem h3 (by decide),
-      VEnv.addConstList_constants_of_not_mem h2 (by decide),
-      VEnv.addConstList_constants_of_not_mem h1 (by decide),
-      VEnv.addInduct'_constants_of_not_mem h (by decide)]
-    rfl
-  · refine (VEnv.addDefEqList_le _ _).constants ((VEnv.addConstList_le h3).constants ?_)
-    refine VEnv.addConstList_constants h2
-      (``NFn.node, ⟨0, nfnNodeDirty.typeR nfnAuxDirty nfnRestore 0⟩) ?_
-    rw [nfnAuxDirty_ctorConstsCR]; exact List.Mem.head _
-
-theorem nfnDirty_freshIn {env₃ : VEnv}
-    (hnone : env₃.constants `_nested.PFn_1 = none) : nfnSubst.FreshIn env₃ := by
-  intro c ci hc
-  cases hn : nfnSubst c with
-  | none => rfl
-  | some t =>
-    have hce : c = `_nested.PFn_1 := by
-      by_cases hq : c = `_nested.PFn_1
-      · exact hq
-      · rw [nfnSubst_of_ne hq] at hn; exact absurd hn nofun
-    subst hce; rw [hnone] at hc; exact absurd hc nofun
-
-include h in
-/-- **The headline.**  The environment a nested step produces from a block satisfying every
-premise of `VEnv.AddNestedB` is **not** `Ordered`: it holds `NFn.node` at a type mentioning
-`_nested.PFn_1`, a constant it does not declare. -/
-theorem nfnAuxDirty_step_not_ordered {env₃ : VEnv}
-    (he : env₂.addInductR nfnAuxDirty nfnK nfnRestore = some env₃) : ¬ env₃.Ordered := by
-  intro ho
-  obtain ⟨hnone, hnode⟩ := nfnAuxDirty_step_constants h he
-  exact nfnNodeDirty_typeR_dirty (ho.noCSubstC (nfnDirty_freshIn hnone) hnode)
-
-include h in
-/-- …hence obligation **(A)** of `VEnv.addInductR_ordered'` is false at this block. -/
-theorem nfnAuxDirty_obligationA_false {env₄ : VEnv}
+/-- **Obligation (A) holds at the dirty block.**  The theorem the previous revision of this
+file proved is `nfnAuxDirty_obligationA_false`; this is its negation's negation, and nothing
+about the block changed — only `ctorConstsCR`. -/
+theorem nfnAuxDirty_obligationA {env₃ env₄ : VEnv} (henv₂ : env₂.Ordered)
+    (h₃ : env₂.addIndTypes nfnAuxDirty = some env₃)
     (h₄ : env₂.addConstList (nfnAuxDirty.typeConstsC nfnK) = some env₄) :
-    ¬ ∀ c ∈ nfnAuxDirty.ctorConstsCR nfnRestore nfnK, VConstant.WF env₄ c.2 := by
-  intro hall
-  obtain ⟨u, hu⟩ := hall (``NFn.node, ⟨0, nfnNodeDirty.typeR nfnAuxDirty nfnRestore 0⟩)
-    (by rw [nfnAuxDirty_ctorConstsCR]; exact List.Mem.head _)
-  have henv₄ : env₄.Ordered :=
-    VEnv.addConstList_ordered (pfnEnv_ordered h)
-      (VEnv.addInductR_typeConstsC_wf nfnAuxDirty_WF) h₄
-  have hnone : env₄.constants `_nested.PFn_1 = none := by
-    rw [VEnv.addConstList_constants_of_not_mem h₄ (by decide),
-      VEnv.addInduct'_constants_of_not_mem h (by decide)]
-    rfl
-  have hfresh := nfnDirty_freshIn hnone
-  exact nfnNodeDirty_typeR_dirty
-    (VEnv.IsDefEq.noCSubst' (henv₄.noCSubst hfresh) hfresh hu nofun).1
+    ∀ c ∈ nfnAuxDirty.ctorConstsCR nfnRestore nfnK, VConstant.WF env₄ c.2 := by
+  have h₃' : env₂.addIndTypes nfnAux = some env₃ := nfnAuxDirty_addIndTypes.1 h₃
+  have h₄' : env₂.addConstList (nfnAux.typeConstsC nfnK) = some env₄ := by
+    rwa [← nfnAuxDirty_typeConstsC]
+  refine VEnv.ctorConstsCR_wf_of_np_zero' nfnAuxDirty_WF h₃
+    (VInductDecl'.addIndTypes_ordered henv₂ nfnAuxDirty_WF h₃)
+    (by rw [nfn_csubstTy_dirty]; exact nfnSubst_WF h henv₂ h₃' h₄')
+    nfnAuxDirty_params_nil' nfnAuxDirty_blockNames_nodup' nfnRestore_ownId_dirty
+    nfnRestore_tyVal_levelWF_dirty nfnRestore_tyArgs_closed_dirty
+    (by rw [nfn_csubstTy_dirty]; rintro (_ | _ | i) <;> rfl)
+    (by
+      rw [nfn_csubstTy_dirty]
+      intro i a ha
+      rw [show nfnRestore.tyArgs i = if i = 1 then [VExpr.const ``NFn []] else [] from rfl] at ha
+      split at ha
+      · simp only [List.mem_cons, List.not_mem_nil, or_false] at ha
+        subst ha; exact nfnSubst_of_ne (by decide)
+      · simp at ha)
+    ((nfnAuxDirty_built h).canonical nfnAuxDirty_canonicalOwn)
 
 end
 
-/-- **Exactly which hypothesis the counterexample violates.**  It is `RestoreClean`, and
-nothing else: `nfnAuxDirty` has no parameters, its block names are `Nodup`, its restoration
-satisfies `OwnId` and the level/closedness side conditions, and it is `Canonical`. -/
+/-- **The hypothesis the old counterexample violated.**  `VIndCtor.RestoreClean` is no longer a
+hypothesis of anything: `VEnv.ctorConstsCR_wf_of_np_zero'` does without it.  The predicate and
+this refutation of it stay, because they are what pins *which* positions the `substC` in
+`ctorConstsCR` is there for. -/
 theorem nfnNodeDirty_not_restoreClean : ¬ nfnNodeDirty.RestoreClean nfnSubst := by
   intro hc
   have h1 := hc.2 nfnDirtyField (by
@@ -905,20 +1090,40 @@ theorem nfnNodeDirty_not_restoreClean : ¬ nfnNodeDirty.RestoreClean nfnSubst :=
 theorem nfnAuxDirty_params_nil : nfnAuxDirty.params = [] := rfl
 theorem nfnAuxDirty_blockNames_nodup : nfnAuxDirty.blockNames.Nodup := by decide
 
-/-- **The refutation, with no hypotheses left.** -/
-theorem nfnAuxDirty_refutation :
-    ∃ env₂ env₃ env₄ : VEnv,
-      VEnv.AddNestedB env₂ nfnAuxDirty nfnK nfnRestore (fun _ => pfnOcc) env₃ ∧
-      ¬ env₃.Ordered ∧
-      env₂.addConstList (nfnAuxDirty.typeConstsC nfnK) = some env₄ ∧
-      ¬ ∀ c ∈ nfnAuxDirty.ctorConstsCR nfnRestore nfnK, VConstant.WF env₄ c.2 := by
-  obtain ⟨env₂, h⟩ : ∃ e, VEnv.empty.addInduct' pfnDecl = some e := ⟨_, rfl⟩
-  obtain ⟨env₃, he⟩ := nfnAuxDirty_admitted h
-  obtain ⟨env₄, h₄⟩ : ∃ e, env₂.addConstList (nfnAuxDirty.typeConstsC nfnK) = some e :=
-    nfnAux_declared_exists h
-  exact ⟨env₂, env₃, env₄,
-    ⟨nfnAuxDirty_WF, nfnAuxDirty_canonicalOwn, nfnAuxDirty_built h, he⟩,
-    nfnAuxDirty_step_not_ordered h he, h₄, nfnAuxDirty_obligationA_false h h₄⟩
+/-- **What is left of the refutation: it has moved from `hctors` to `hrules`.**
+
+`VEnv.addIndRulesR` folds `D.iotaRulesR R` *unsubstituted*, and `iotaCtxR` splices
+`C.fieldTypesR` — the same telescope whose non-recursive entry carries `_nested.PFn_1`.  So the
+first ι-rule the dirty step emits still has a type mentioning a constant the environment does
+not hold, and obligation **(C)** of `VEnv.addInductR_ordered'` is false at this block for
+exactly the reason (A) used to be.
+
+The repair is the same one: substitute in `addIndRulesR` too.  What that costs is not a
+`substC` — it is that `VEnv.keysR_induct` (`Theory/Inductive/NestedKeys.lean`) is stated about
+the keys of `D.iotaRulesR R`, and after substitution the environment holds
+`(D.iotaRuleR R j q C).substC σ`, whose key is the same only because the restored recursor and
+constructor heads are outside σ's domain — a fact that needs `Faithful` plus the freshness of
+the auxiliary names, not `rfl`.  Stated here rather than attempted. -/
+theorem nfnNodeDirty_fieldTypesR_dirty :
+    ∃ A ∈ nfnNodeDirty.fieldTypesR nfnAuxDirty nfnRestore, ¬ A.NoCSubst nfnSubst := by
+  refine ⟨nfnDirtyField.type, ?_, ?_⟩
+  · rw [show nfnNodeDirty.fieldTypesR nfnAuxDirty nfnRestore
+          = [nfnNodeDirty.fields[0]!.typeR nfnAuxDirty nfnRestore 0, nfnDirtyField.type] from rfl]
+    exact List.mem_cons_of_mem _ List.mem_cons_self
+  · intro hcl
+    have h1 : nfnSubst `_nested.PFn_1 = none := hcl.2
+    simp [nfnSubst_aux] at h1
+
+/-- …and `VInductDecl'.iotaCtxR` splices exactly that telescope (through `atRecTele` and
+`liftTele`, neither of which touches a constant), so the ι-rule's `type` still names
+`_nested.PFn_1`.  The membership plumbing through the two telescope maps is not written out
+here; the entry above is the whole content. -/
+theorem nfnAuxDirty_iotaCtxR_eq (C : VIndCtor) :
+    nfnAuxDirty.iotaCtxR nfnRestore C
+      = nfnAuxDirty.atRecTele nfnAuxDirty.params ++ nfnAuxDirty.motivesR nfnRestore ++
+          nfnAuxDirty.minorsR nfnRestore ++
+          VExpr.liftTele (nfnAuxDirty.nm + nfnAuxDirty.nmin)
+            (nfnAuxDirty.atRecTele (C.fieldTypesR nfnAuxDirty nfnRestore)) := rfl
 
 /-! ## Part 6: obligations (B) and (C) need strictly more
 

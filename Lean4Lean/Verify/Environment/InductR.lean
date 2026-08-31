@@ -20,7 +20,7 @@ side —
 
 * `VInductDecl'.typeConstsC K` / `ctorConstsCR R K` — the members named in `K` are *not*
   declared (their type constants and constructors already exist, under their restored names);
-* `VInductDecl'.recConstsR R` — **every** member gets a recursor, including the ones in `K`,
+* `VInductDecl'.recConstsR R K` — **every** member gets a recursor, including the ones in `K`,
   under `R.recName (mkRecName ·)`;
 * `VEnv.addInductR D K R` — the environment step built from those three lists plus
   `iotaRulesR R`, whose every emitted ι-rule is keyed to a constant the *same* step declares
@@ -104,7 +104,7 @@ def AddInductStagesR (m₁ : ConstMap) (env₁ : VEnv) (D : VInductDecl')
   ∃ mt et mc ec e₃,
     AddIndConsts (IndShapeOf D R.ctorName) (D.typeConstsC K) m₁ env₁ mt et ∧
     AddIndConsts (CtorShapeOf D R.ctorName R.tyName) (D.ctorConstsCR R K) mt et mc ec ∧
-    AddIndConsts (fun ci => ∃ v, ci = .recInfo v) (D.recConstsR R) mc ec m₂ e₃ ∧
+    AddIndConsts (fun ci => ∃ v, ci = .recInfo v) (D.recConstsR R K) mc ec m₂ e₃ ∧
     env₂ = e₃.addIndRulesR D R
 
 theorem AddInductStagesR.to_addInductR {m₁ m₂ : ConstMap} {env₁ env₂ : VEnv}
@@ -728,7 +728,7 @@ the renamed auxiliary one, `NFn.rec_1`.  That is the whole finding of
 example : nfnAux.typeConstsC nfnK = [(``NFn, ⟨0, .sort (.succ .zero)⟩)] := rfl
 example : nfnAux.ctorConstsCR nfnRestore nfnK
     = [(``NFn.node, ⟨0, nfnNode.typeR nfnAux nfnRestore 0⟩)] := rfl
-example : nfnAux.recConstsR nfnRestore
+example : nfnAux.recConstsR nfnRestore nfnK
     = [(``NFn.rec, ⟨1, nfnAux.recTypeR nfnRestore 0⟩),
        (``NFn.rec_1, ⟨1, nfnAux.recTypeR nfnRestore 1⟩)] := rfl
 
@@ -939,7 +939,7 @@ theorem addInductStagesR_wit {m : ConstMap} (hwf : m.WF) (hfr : ∀ n, m.find? n
       ((m.insert ``NFn (.inductInfo nfnInd)).insert ``NFn.node (.ctorInfo nfnNodeCI)) e2 :=
     .cons (ci := .ctorInfo nfnNodeCI) rfl ctorShapeOf_nfnNodeCI
       ⟨by decide, rfl, tr_nodeType hPFn1 hNFn1⟩ f2 he2 .nil
-  have s3 : AddIndConsts (fun ci => ∃ v, ci = .recInfo v) (nfnAux.recConstsR nfnRestore)
+  have s3 : AddIndConsts (fun ci => ∃ v, ci = .recInfo v) (nfnAux.recConstsR nfnRestore nfnK)
       ((m.insert ``NFn (.inductInfo nfnInd)).insert ``NFn.node (.ctorInfo nfnNodeCI)) e2
       ((((m.insert ``NFn (.inductInfo nfnInd)).insert ``NFn.node (.ctorInfo nfnNodeCI)).insert
         ``NFn.rec (.recInfo nfnRecCI)).insert ``NFn.rec_1 (.recInfo nfnRec1CI)) e4 :=

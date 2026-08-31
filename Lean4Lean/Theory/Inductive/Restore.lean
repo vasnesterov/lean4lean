@@ -1,4 +1,5 @@
 import Lean4Lean.Theory.Inductive.Decl
+import Lean4Lean.Theory.Typing.ConstSubst
 
 /-!
 # The restoration data, and the nested declaration step — the *definitions*
@@ -110,6 +111,74 @@ def VInductDecl'.idRestore (D : VInductDecl') : VIndRestore where
   ctorName := id
   recName := id
 
+/-! ### The restoration as a constant substitution
+
+Moved down from `Theory/Typing/ConstSubstNested.lean` (where the theorems about it stay),
+because `VIndCtor.typeR` now *uses* it: the positions restoration used to copy verbatim —
+a constructor's own parameter binders, a **non**-recursive field's stored type, the result's
+index arguments — are the positions the old definition left a companion constant sitting in
+(`nfnAuxDirty_refutation`, `Theory/Inductive/RestoreBridge.lean`), and the substitution is
+what removes it.  See `VIndCtor.typeR` for why *this* rewrite and not the contracting one. -/
+
+namespace VIndRestore
+
+/-- The term the restoration presents member `j`'s type constant as, abstracted over the
+block's parameters.  `mkLams` is the only place a β-redex can enter: at `D.np = 0` it is
+absent and the presentation is a closed application. -/
+def tyVal (R : VIndRestore) (D : VInductDecl') (j : Nat) : VExpr :=
+  mkLams D.params ((VExpr.const (R.tyName j) (R.tyLvls j)).mkApp (R.tyArgs j))
+
+/-- …and constructor `C` of member `j`, at the *same* spine — which is what
+`VInductDecl'.ctorAppR` uses. -/
+def ctorVal (R : VIndRestore) (D : VInductDecl') (j : Nat) (C : VIndCtor) : VExpr :=
+  mkLams D.params ((VExpr.const (R.ctorName C.name) (R.tyLvls j)).mkApp (R.tyArgs j))
+
+/-- …and the recursor, which `mkAuxRecNameMap` only renames.  A rename is a constant
+substitution because `substC` replaces a constant by a *term*. -/
+def recVal (R : VIndRestore) (D : VInductDecl') (n : Lean.Name) : VExpr :=
+  .const (R.recName n) (VLevel.params D.recUvars)
+
+/-- The type entries alone — the domain obligation **(A)** uses. -/
+def csubstTyList (R : VIndRestore) (D : VInductDecl') (K : List Lean.Name) :
+    List (Lean.Name × VExpr) :=
+  (D.types.zipIdx.filter fun p => decide (p.1.name ∈ K)).map fun (T, j) => (T.name, R.tyVal D j)
+
+/-- **The restoration, as a constant substitution.**  One entry for each companion member's
+type constant, one for its recursor, one for each of its constructors. -/
+def csubstList (R : VIndRestore) (D : VInductDecl') (K : List Lean.Name) :
+    List (Lean.Name × VExpr) :=
+  (D.types.zipIdx.filter fun p => decide (p.1.name ∈ K)).flatMap fun (T, j) =>
+    (T.name, R.tyVal D j) ::
+    (Lean.mkRecName T.name, R.recVal D (Lean.mkRecName T.name)) ::
+    T.ctors.map fun C => (C.name, R.ctorVal D j C)
+
+def csubstTy (R : VIndRestore) (D : VInductDecl') (K : List Lean.Name) : CSubst :=
+  fun n => (R.csubstTyList D K).lookup n
+
+def csubst (R : VIndRestore) (D : VInductDecl') (K : List Lean.Name) : CSubst :=
+  fun n => (R.csubstList D K).lookup n
+
+/-- **At an empty domain the substitution is the identity.**  This is what makes every
+`idRestore` collapse lemma (`VIndField.typeR_id` and friends, `Theory/Inductive/NestedHead.lean`)
+survive the redefinition: `idRestore.aux = []`, so the rewrite the new `typeR` applies is
+`VExpr.substC CSubst.id`. -/
+theorem csubstTy_nil (R : VIndRestore) (D : VInductDecl') : R.csubstTy D [] = CSubst.id := by
+  funext n
+  rw [csubstTy, csubstTyList,
+    show (D.types.zipIdx.filter fun p => decide (p.1.name ∈ ([] : List Lean.Name))) = [] from
+      List.filter_eq_nil_iff.2 (by simp)]
+  rfl
+
+/-- …and the same for the full substitution, which is what `recConstsR` uses. -/
+theorem csubst_nil (R : VIndRestore) (D : VInductDecl') : R.csubst D [] = CSubst.id := by
+  funext n
+  rw [csubst, csubstList,
+    show (D.types.zipIdx.filter fun p => decide (p.1.name ∈ ([] : List Lean.Name))) = [] from
+      List.filter_eq_nil_iff.2 (by simp)]
+  rfl
+
+end VIndRestore
+
 namespace VInductDecl'
 variable (D : VInductDecl') (R : VIndRestore)
 
@@ -145,9 +214,19 @@ def VIndRecArg.canonResultR (r : VIndRecArg) (D : VInductDecl') (R : VIndRestore
 def VIndRecArg.canonTypeR (r : VIndRecArg) (D : VInductDecl') (R : VIndRestore) (i : Nat) :
     VExpr := mkPi r.binders (r.canonResultR D R i)
 
-/-- The stored type of field `i`, restored.  A non-recursive field mentions no block constant
-(up to defeq) and is emitted verbatim; a recursive one is `∀ ξ, I_idx params π` and its head
-is the thing restoration rewrites. -/
+/-- The stored type of field `i`, restored.  A recursive field is `∀ ξ, I_idx params π` and
+its head is the thing restoration rewrites; a non-recursive one is only *definitionally*
+block-free (`VIndField.WF.pos`'s `none` branch, deliberately — `Decl.lean`'s
+`(fun _ : T => Nat) r`), so a companion constant can sit under a redex in it and the
+restoration has to visit it too.
+
+**This branch used to be `F.type`, verbatim, and that was a defect**:
+`nfnAuxDirty_refutation` (`Theory/Inductive/RestoreBridge.lean`) is a block satisfying every
+conjunct of `VEnv.AddNestedB` whose step declared `NFn.node` at a type mentioning
+`_nested.PFn_1`, a constant the environment does not hold — so `VEnv.Ordered` failed and
+obligation (A) of `VEnv.addInductR_ordered'` was **false**.  `ElimNestedInductive.restoreNested`
+(`Lean4Lean/Inductive/Add.lean`) is a whole-expression `replaceNoCache`, so the implementation
+restores the occurrence wherever it sits; this branch now does too. -/
 def VIndField.typeR (F : VIndField) (D : VInductDecl') (R : VIndRestore) (i : Nat) : VExpr :=
   match F.recArg with
   | none => F.type
@@ -176,7 +255,33 @@ def VInductDecl'.Canonical (D : VInductDecl') : Prop :=
 
 /-- A constructor's stored type, restored.  `Environment.addInductive` re-stores the
 constructors of the *user's* types through `restoreNested`; a companion's constructors are
-never declared at all. -/
+never declared at all.
+
+**Three positions, three treatments, and the reason for each.**
+
+* The **result head** is `tyAppR`: the *contracted* restored application.  This is what
+  `restoreNested` produces — it strips the leading `nparams` binders into `As`, and at an
+  occurrence emits `mkAppRange ((nested.abstract r.params).instantiateRev As) nparams …`,
+  i.e. the nested instance with the *enclosing* parameters substituted and the occurrence's
+  own `nparams` arguments **discarded**.  So it is *not* `VExpr.substC`, which would leave a
+  saturated `D.np`-fold β-redex (`ntreeNode_substC_ne_typeR`) and re-instantiate at the
+  occurrence's own arguments.  The difference is invisible at `D.np = 0` and load-bearing
+  above it: `TrConstant` (`Verify/Environment/Basic.lean`) relates a declared constant to the
+  implementation's through `TrExprS`, which has **no defeq slack**, so a spec that declared
+  the redex would make `addDecl.WF` *false* for every parameterised nested block.
+* `C.params` and `C.args` are rewritten by `VExpr.substC` — the *closed-value* substitution.
+  Both are positions `restoreNested` leaves alone (the parameter binders are stripped and
+  re-abstracted unchanged; `C.args` is `NoBlock` by `VIndCtor.WF.args_fresh`, so on anything
+  the implementation can produce the rewrite is the identity and faithfulness is untouched).
+  `substC` rather than the contracting rewrite because inside `C.params[p]` only `p`
+  parameters are in scope, so a contracted `tyAppR` there would name de Bruijn indices that
+  do not exist — the contracting rewrite is *unavailable* in a parameter binder, which is
+  exactly why the implementation strips them.
+* the field telescope is `fieldTypesR`, which restores each field per its `recArg`.
+
+`C.args` is substituted rather than copied only to make the bridge
+`(C.type D j).substC σ = C.typeR D R j` need no `NoCSubst` hypothesis on it; under
+`args_fresh` the two are equal (`VIndRestore.noBlock_noCSubst`). -/
 def VIndCtor.typeR (C : VIndCtor) (D : VInductDecl') (R : VIndRestore) (j : Nat) : VExpr :=
   mkPi (C.params ++ C.fieldTypesR D R) (D.tyAppR R j C.fields.length C.args)
 
@@ -266,25 +371,59 @@ def iotaRulesR : List VDefEq :=
   D.ctorsAll.zipIdx.map fun ((j, C), q) => D.iotaRuleR R j q C
 
 /-- The recursor constants, renamed and with restored types.  This *is*
-`VInductDecl'.recConstsC` with the type restored as well as the name renamed. -/
-def recConstsR : List (Lean.Name × VConstant) :=
+`VInductDecl'.recConstsC` with the type restored as well as the name renamed — and, since
+2026-08-31, with the restoration also **substituted through the positions `recTypeR` copies
+verbatim**: see `ctorConstsCR` for why. -/
+def recConstsR (K : List Lean.Name) : List (Lean.Name × VConstant) :=
   D.types.zipIdx.map fun (T, j) =>
-    (R.recName (Lean.mkRecName T.name), ⟨D.recUvars, D.recTypeR R j⟩)
+    (R.recName (Lean.mkRecName T.name),
+      ⟨D.recUvars, (D.recTypeR R j).substC (R.csubst D K)⟩)
 
-/-- The constructor constants actually declared, with restored names and types. -/
+/-- **The constructor constants actually declared, with restored names and types.**
+
+The type is `C.typeR D R j` **with the restoration substituted through it**, and the
+`substC` is the repair of a defect: `VIndCtor.typeR` restores the *result* head and the
+*recursive* fields' heads, and copies `C.params`, every **non**-recursive field's stored type
+and `C.args` verbatim — while `VIndCtor.WF.params_eq` and `VIndField.WF.pos`'s `none` branch
+make those only *definitionally* block-free.  So a companion constant could sit under a redex
+in one of them, `typeR` left it there, and the step declared a constant whose type names a
+constant the environment does not hold: `VEnv.Ordered` failed and obligation (A) of
+`VEnv.addInductR_ordered'` was **false** (`nfnAuxDirty_refutation`,
+`Theory/Inductive/RestoreBridge.lean`).
+
+`ElimNestedInductive.restoreNested` (`Lean4Lean/Inductive/Add.lean`) is a whole-expression
+`replaceNoCache`, so the implementation restores the occurrence *wherever it sits*; this is
+the abstract counterpart.  Two things about the placement are deliberate:
+
+* the `substC` is **outside** `typeR`, not inside it.  `typeR` is also what
+  `VIndRestore.Faithful.ctor_agree` and the recursor's minor premises are stated against, and
+  those are equations about the *canonical* restored form; putting the rewrite here says
+  exactly "this is what the step **declares**", which is what obligation (A) is about.
+* it is `VExpr.substC` — the closed-value substitution — and **not** the contracting rewrite
+  `tyAppR` is.  On a clean block (everything `ElimNestedInductive` can produce, since
+  `checkNoNestedAux` rejects any input constructor type mentioning a `_nested` constant and
+  `replaceIfNested` inserts the auxiliary constant only in saturated recursive-field
+  positions) `substC` is the **identity**, so nothing the implementation declares moves and
+  faithfulness is untouched.  A contracting rewrite is not even available in a parameter
+  binder: inside `C.params[p]` only `p` parameters are in scope, so the `bvars k D.np` a
+  contracted head names would be out of scope. -/
 def ctorConstsCR (K : List Lean.Name) : List (Lean.Name × VConstant) :=
   D.ctorsAll.filterMap fun (j, C) =>
     if (D.types.getD j default).name ∈ K then none
-    else some (R.ctorName C.name, ⟨D.uvars, C.typeR D R j⟩)
+    else some (R.ctorName C.name, ⟨D.uvars, (C.typeR D R j).substC (R.csubstTy D K)⟩)
 
 def allConstsCR (K : List Lean.Name) : List (Lean.Name × VConstant) :=
-  D.typeConstsC K ++ D.ctorConstsCR R K ++ D.recConstsR R
+  D.typeConstsC K ++ D.ctorConstsCR R K ++ D.recConstsR R K
 
 def allNamesCR (K : List Lean.Name) : List Lean.Name := (D.allConstsCR R K).map (·.1)
 
 end VInductDecl'
 
-/-- The block's ι-rules, restored and renamed. -/
+/-- The block's ι-rules, restored and renamed.
+
+**Not** substituted, unlike `ctorConstsCR` and `recConstsR` — see the note at
+`VEnv.addInductR_ordered'` (`Theory/Inductive/NestedOrdered.lean`) for why obligation **(C)**
+still carries the defect those two just lost, and what closing it costs. -/
 def VEnv.addIndRulesR (env : VEnv) (D : VInductDecl') (R : VIndRestore) : VEnv :=
   (D.iotaRulesR R).foldl VEnv.addDefEq env
 
