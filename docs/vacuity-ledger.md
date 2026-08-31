@@ -1,7 +1,9 @@
 # The vacuity ledger
 
-*Written 2026-08-31, after four independent instances of the same failure mode turned up in
-one round.*
+*Written 2026-08-31, after four instances of the same failure mode turned up in one round, and
+a survey then found four more already refuted elsewhere in the tree. Eighteen statements are
+now measured; five are vacuous or false, three are refuted outright, two routes are dead, and
+eight are bounded or acquitted.*
 
 ## 0. Why this file exists
 
@@ -112,11 +114,18 @@ Every row is backed by a **proved** lemma in the tree, not an argument in a docs
 | 11 | `InductOracleOK` residual | **bounded** both ways | `not_inductOracleOK_falseProp` (:663) and `inductOracleOK_empty` (:676) | n/a |
 | 12 | `SortInv` from the model | **bounded** — exact, an `iff` | `sortEqRaw_iff` (`SemanticRouteClosed.lean:217`) | n/a |
 | 13 | `inferProj` / `tryEtaStructCore` / `isDefEqUnitLike` never fire | **true today, and their falsity is the goal** | `inferProj_always_throws`, `tryEtaStructCore_never_true`, `isDefEqUnitLike_never_true` | the flip **kills** these three (correctly) |
+| 14 | `LevelAssign` as originally stated (`LevelAssignUnguarded`) | **`IsEmpty`** — the strongest form there is | `no_levelAssign` (`Theory/SetModel/LevelAssignUnsat.lean:106`) | **no** — independent; repaired by guarding `lvl_sound` |
+| 15 | `LevelAssign.Stable`'s `lvl_instN` as originally stated | **unsatisfiable** | `no_stable` (`LevelAssignUnsat.lean:172`) | **no** — repaired by the `env.HasType` guard, which its docstring flags as load-bearing |
+| 16 | `CtxInvariant L R` **in isolation** | **trivially satisfiable, hence untestable alone** — take `R := Eq` | argued at `Theory/SetModel/CoherentWitness.lean:109`; the *pair* with `hRd` is machine-checked consistent by `ctxInvariant_prop_agrees` | n/a |
+| 17 | `PropSplit` (the live parameter) | **satisfiable and non-trivial** | `exists_propSplit`, `propSplit_not_constant`, `prop_forces_false`/`prop_forces_true` (`PropSplitAudit.lean`) | n/a |
+| 18 | `PropSplit.Stable` (the live parameter) | **satisfiable, and exact** | `exists_stable_propSplit`, `propSplitOf_stable_iff` (`StableAudit.lean`) | n/a |
 
-Rows 1–5 are one bug. Rows 6 and 7 are independent, and that is the ledger's main finding:
-**the failure mode is not confined to `AddInduct`.** It recurred in the abstract theory
-(row 6, a hypothesis stated at the wrong environment) and in the model interface (row 7, a
-parameter that assumed its own conclusion). Neither has anything to do with the other.
+Rows 1–5 are one bug. Rows 6, 7, 14 and 15 are independent of it, and that is the ledger's main
+finding: **the failure mode is not confined to `AddInduct`.** It recurred in the abstract theory
+(row 6, a hypothesis stated at the wrong environment) and three times over in the model
+interface (rows 7, 14, 15). Nothing connects them.
+
+Rows 16–18 are the *good* rows, and §5a is about where they came from.
 
 ## 4. The trap: how guard 2 could print a false "proof COMPLETE"
 
@@ -185,9 +194,36 @@ cone is **7244 declarations with zero holes**. The soundness statement's other w
 Reproduce with the walker in `scripts/hole-cone.lean` seeded at
 `Lean4Lean.Bridge.foldAddDecl_tr`, `Lean4Lean.addDecl.WF`, `Lean4Lean.Bridge.hasType_falseProp`.
 
-## 5. The discipline this ledger asks for
+## 5. The diagnostic, and the discipline
 
-Three checks, in order of cost:
+### The defect signature
+
+`Theory/SetModel/CoherentWitness.lean:109` states the general rule, and it is better than an
+inventory because it predicts:
+
+> The defect signature is a structure quantifying over a relation **parameter** that the
+> relation's own constructors never constrain.
+
+It covers all three model-side refutations and correctly *acquits* the fourth candidate:
+
+* row 14, `LevelAssign` — `IsDefEq.bvar` places no condition on the context, so `lvl_wf` and
+  `lvl_sound` could be pointed at a context holding an out-of-range universe parameter.
+* row 15, `Stable.lvl_instN` — `Ctx.InstN` declares `e₀` as a parameter its `zero` constructor
+  never mentions, so the field could be pointed at an arbitrary substituted term.
+* row 6, `coherentOn_addConstList`'s `hocc` — stated at the *pre-block* environment, which the
+  constructors of the block-building relation never tie to the post-block one.
+* **acquitted:** `CtxInvariant`'s companion `hRd` — its `A` and `A'` are not free, they arrive
+  with a derivation `Γ ⊢ A ≡ A' : .sort u`, and that derivation is exactly what makes the two
+  demands agree (`ctxInvariant_prop_agrees`, machine-checked).
+
+Row 4 fits the same shape one level up: `TrEnv'`'s `induct` constructor constrains its premise
+with `AddInduct`, which no constructor of anything can satisfy.
+
+**So the check to run when writing a structure with several fields over a shared parameter:**
+for each field, ask what pins the parameter. If nothing does, two fields can be pointed at
+inconsistent instances and the structure is empty.
+
+### Three checks, in order of cost
 
 1. **Before proving a lemma, satisfy its hypotheses.** Exhibit one environment / one
    declaration / one value where they all hold — an `#eval` is enough, and `#eval` witnesses in
@@ -201,11 +237,33 @@ Three checks, in order of cost:
    empty inductive in the package needs an entry here saying why it is empty. Today: one, and
    §1 is its entry.
 
+## 5a. This is already done well in one place — copy it
+
+`Theory/SetModel/` is the best-audited directory in the tree, and every practice §5 asks for was
+invented there. It carries **three files whose entire purpose is this audit**:
+
+| file | what it establishes |
+| --- | --- |
+| `LevelAssignUnsat.lean` | the two refutations (rows 14, 15), each with the *repair* stated and the guard's load-bearing role documented at the field |
+| `PropSplitAudit.lean` | satisfiability (`exists_propSplit`) **and** non-triviality of the replacement (`propSplit_not_constant`, plus `prop_forces_false` / `prop_forces_true` — a forced-`False` case and a forced-`True` case, which is non-triviality in both directions) |
+| `StableAudit.lean` | satisfiability of the guarded `Stable` (`exists_stable_propSplit`) and an **exact** characterisation (`propSplitOf_stable_iff`), plus the bridge `toPropSplit_stable` from the old parameter |
+
+Note what `no_stable`'s repair did: the `env.HasType nv Γ₀ e₀ A₀` guard now sits in
+`PropSplit.Stable`'s `prop_instN` field with a docstring that says *why* it is load-bearing and
+names the lemma that would fail without it. That is the pattern — **the refutation lives next to
+the guard it justifies**, so nobody removes the guard as redundant.
+
+`CnstRecursion.lean`'s residual bounds (rows 10–11) and `SemanticRouteClosed.lean`'s dead routes
+(rows 8–9) are the same discipline applied outward.
+
 ## 6. Unmeasured — the to-do
 
 Load-bearing statements whose hypotheses have **not** been checked for joint satisfiability.
-This is the honest part of the ledger; the entries above were all found by looking, and nobody
-has looked at these.
+
+The gap is **not** uniform, and an earlier draft of this section implied otherwise, which was
+unfair and would have misdirected effort. `Theory/SetModel/` is audited to the standard of §5a.
+What is unaudited is `Verify/` and `Theory/Typing/` — and note that rows 1–5, all in `Verify/`,
+were found the moment anyone looked.
 
 - `Bridge.AddDeclWF` (`Verify/Bridge.lean:132`) — repeats row 1's refuted statement verbatim,
   and `Bridge.addDeclWF` (:138) derives it from `addDecl.WF`. Presumed **false** by row 1 but
@@ -216,9 +274,13 @@ has looked at these.
 - `inferProj.WF` (0 users), `isDefEqUnitLike.WF` (1), `tryEtaStructCore.WF` (2) — the three
   checker `.WF` holes. Row 13 says the functions never fire today, so these three are
   vacuity-adjacent by construction: they will only acquire content after the flip.
-- `Theory/Typing/` step lemmas generally. Row 6 was found in `docs/soundness-ledger.md`'s list
-  of "available" step lemmas, which means that list was not satisfiability-checked. It should
-  be, entry by entry.
+- `docs/soundness-ledger.md`'s "Full ingredient list". Row 6 was found in it, so at least one
+  entry marked available was not satisfiability-checked. Its three entries marked *hypothesis*
+  — `AgreeInst` entanglement, `Stable`, `CtxInvariant` — are in fact all covered (rows 16–18 and
+  §5a), and its `LevelAssign` rows are stale by rows 7/14. **The file needs re-marking against
+  this ledger**, and the remaining unchecked entries identified rather than assumed.
+- `Theory/Typing/` step lemmas. No file in that directory does what `PropSplitAudit.lean` does.
+  Worth a single audit file on the model of §5a rather than case-by-case doubt.
 
 ## 7. Related files
 
@@ -227,4 +289,7 @@ has looked at these.
 - `docs/frozen-edit-requests.md` — the proposals touching frozen files, none made. Its closing
   section notes that the flip is *not* one.
 - `docs/soundness-ledger.md` — the abstract-side inventory; row 6 is its correction.
-- `scripts/empty-inductives.lean` — the instrument for §1.
+- `scripts/empty-inductives.lean` — the instrument for §1; wired into `scripts/status-report.sh`.
+- `Theory/SetModel/LevelAssignUnsat.lean`, `PropSplitAudit.lean`, `CoherentWitness.lean`,
+  `StableAudit.lean` — the audit apparatus of §5a, and the source of the defect signature.
+  Read these before writing a new one.
