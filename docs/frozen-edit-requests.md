@@ -8,9 +8,12 @@ Proposals accumulate in the docstrings of the files that prove them, which makes
 lose. This file is the index. **Nothing here has been made.** Each entry states the exact edit,
 what it buys, what it costs, and where the supporting proof or measurement lives.
 
-Status values: `PR OPEN` — the edit is made on a branch and under review; `READY` — the
+Status values: `MERGED`; `PR OPEN` — the edit is on a branch and under review; `READY` — the
 supporting work is complete and the edit can be made as written; `NOT READY` — the edit is written
 down but its premise is not yet established.
+
+By standing instruction from the human (2026-08-31): **every frozen-file change goes out as a PR**,
+not as a direct commit to master.
 
 **A `READY` here means "believed ready", not "built".** Entry 2 was marked `READY` on the strength
 of a by-name search and turned out to break the build. Before promoting anything to `PR OPEN`,
@@ -18,11 +21,17 @@ make the edit on a branch and run a full `lake build`.
 
 ---
 
-## 1. Guard 3's `partial` detection is measuring the wrong thing — `PR OPEN`
+## 1. Guard 3's `partial` detection is measuring the wrong thing — **`MERGED`**
 
-**PR:** https://github.com/vasnesterov/lean4lean/pull/41 (branch
-`frozen/guard3-opaque-detection`, one file, one commit). Built and measured: the count comes out
-at exactly the predicted **2/54**, all three guards pass, census 14 unchanged.
+**PR #41, merged 2026-08-31** (`53f4dc2`). The count came out at exactly the predicted **2/54**.
+Guard 3 on master now reads `checker cone implementation gaps within frozen list (2/54 remaining)`,
+and the two survivors are `ptrEqExpr` / `ptrEqConstantInfo`, both `@[implemented_by]`, both
+deliberate and both axiomatised.
+
+**Follow-up now available and not yet done:** 52 of the 54 `implGapWhitelist` entries are dead.
+Check 3 only throws for a flagged name *absent* from the whitelist, so dead entries are harmless —
+but CLAUDE.md counts shrinking the allowlist as progress, and the whitelist is now 96% noise.
+Trimming it is a separate frozen edit and would need its own PR.
 
 **File:** `Verify/Guard.lean`, inside check 3.
 **Evidence:** `Lean4Lean/Tests/KernelHardening.lean`, final section, measured 2026-08-31 by
@@ -58,7 +67,33 @@ with no `_unsafe_rec` companion and no attribute is invisible to check 3
 (`Lean4Lean.ptrEqExpr.unsafe_1` is in the cone and is not flagged), and the `Lean4Lean.*` module
 filter hides every upstream gap.
 
-## 2. The axiom `Expr.replace_eq` is now unused — ~~`READY`~~ **`NOT READY` — premise refuted**
+## 2. The axiom `Expr.replace_eq` is now unused — **`PR OPEN`** (was refuted, then made true)
+
+**PR:** https://github.com/vasnesterov/lean4lean/pull/42 (branch `frozen/drop-replace-eq`, two
+files, one commit). Frozen axiom list **25 → 24**.
+
+**The history matters more than the edit.** This entry was `READY`, then refuted, then made
+genuinely ready by changing the checker rather than the argument:
+
+1. Marked `READY` on the strength of a by-name grep.
+2. **Refuted** — applying it broke the build twelve times at `Verify/Expr.lean:1360`. The axiom is
+   `@[simp]` and was silently bridging `replace` to `replaceNoCache` inside
+   `instantiateLevelParamsCore_eq`. No grep can see an implicit rewrite.
+3. **Made true** by `24d3c5b`: six level-parameter sites re-pointed to core's own pure
+   `Lean.Expr.instantiateLevelParamsNoCache`, after which an 8444-constant walk of `addDecl`'s cone
+   finds `replaceImpl`, `Expr.replace`, `Expr.instantiateLevelParams`,
+   `Expr.instantiateLevelParamsCore` and `ConstantInfo.instantiateTypeLevelParams` all absent.
+4. Verified by **build**: 1436 jobs green on the branch, guard 1 at 24 axioms; and independently
+   1384 jobs plus Arena 185/6/0 in a separate tree copy.
+
+The axiom could never have become a theorem — upstream `Expr.replace` is `replaceImpl`, `opaque`
+with `@[extern "lean_replace_expr"]`, no Lean body. Orphaning was the only route.
+
+---
+
+### Superseded text of entry 2, kept for the lesson
+
+**`NOT READY` — premise refuted**
 
 **Files:** `Verify/Axioms.lean` (delete the axiom) and `Verify/Guard.lean` (guard 1 checks for
 *exactly* 25 axioms, so the count becomes 24).
@@ -105,7 +140,8 @@ The shape of the eventual edit is
       Bridge.kernel_sound_of <prelude proof> <upper bound proof> ds fuel env hok hax hfalse
 ```
 
-**Why not ready:** `Bridge.kernel_sound_of` is correctly proved, but its route runs through
+**Why not ready** (unchanged, and now more precisely blocked — see the note after this entry):
+`Bridge.kernel_sound_of` is correctly proved, but its route runs through
 `Bridge.addDeclWF`, hence `addDecl.WF`, whose `inductDecl` branch is *refuted*
 (`Verify/Inductive/AddDeclWF.lean` §4), and through `foldAddDecl_tr`, which is a *false statement*
 (`Verify/PreludeVacuity.lean`, `foldAddDecl_tr_false`). Both trace to `AddInduct` having no
@@ -116,6 +152,17 @@ would buy nothing.
 `Verify/Inductive/AddDeclWF.lean` §5.4 item 3 suggests:
 `anything_of_foldAddDecl_tr_hypothesis` proves that assuming it yields *any* proposition, so
 guard 2 would print "proof COMPLETE" over an empty proof.
+
+**What would make entry 3 ready, as of 2026-08-31.** Every route from the checker to the abstract
+environment passes through `TrEnv .safe`, which is unsatisfiable while `AddInduct` has no
+constructors. Giving it constructors needs the *nested* form, which needs
+`addInductR_ordered'`'s `hctors`/`hrecs`/`hrules` — and `hctors` is **false** as stated
+(`nfnAuxDirty_refutation`). The design ruling is recorded in `ORCHESTRATOR.md`: `VIndCtor.typeR`
+becomes the substitution, which is the faithful model of the implementation's whole-expression
+`restoreNested`. That work is in flight. Entry 3 cannot become ready before it lands, and **must
+not** be made to typecheck by assuming `foldAddDecl_tr` or `Bridge.AddDeclWF` — both are false
+statements, and `anything_of_foldAddDecl_tr_hypothesis` / `anything_of_addDeclWF_hypothesis` prove
+that assuming either yields any proposition at all.
 
 ---
 
