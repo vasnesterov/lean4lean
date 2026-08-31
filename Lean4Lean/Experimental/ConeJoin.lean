@@ -1,6 +1,7 @@
 import Lean4Lean.Verify.Typing.ProjLvlCongr  -- added 2026-08-31: EqUpToLevels kit for TrProj.uniq
 import Lean4Lean.Theory.Typing.ParRedKWeakN  -- added 2026-08-31: entry (2) = the hole restated
 import Lean4Lean.Verify.SoundnessAssembly  -- added 2026-08-31: the kernel_sound assembly
+import Lean4Lean.Theory.SemanticRouteClosed  -- added 2026-08-31: injectivity-stream semantic route
 import Lean4Lean.Theory.Typing.PatternRules
 import Lean4Lean.Theory.Typing.ParamsBuild
 import Lean4Lean.Verify.TypeChecker

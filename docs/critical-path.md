@@ -160,3 +160,42 @@ independent of it and can proceed now: §7.1 (`addQuot.WF`'s `AddQuot` construct
 orthogonal to `AddInduct`, and the only thing between the checker and a non-vacuous
 `addQuot.WF`), and §7.3 (`addDecl.WF`'s `inductDecl` branch, which must show the map the
 executable `addInductive` produces *is* the map `AddInductStages` builds).
+
+### Correction 3: one of the nine holes is not fillable as stated
+
+The body of this document enumerates nine holes below `Bridge.kernel_sound_of` and treats them
+uniformly as *open*. That is wrong for one of them. **`addDecl.WF`'s `inductDecl` branch is not
+merely unproved; its statement is refuted.**
+
+The chain, all four links re-read at the source:
+
+1. `Verify/Environment.lean:240-275` — `addDecl.WF`'s `inductDecl` branch is `sorry`, and the
+   docstring states the statement is refuted, not open.
+2. `Verify/Inductive/AddDeclWF.lean:306` — `addDecl_inductDecl_WF_false` proves the negation from
+   `VEnvs.WF.no_inductInfo` plus a hypothesis `hex` asserting the refuting environment exists.
+   `hex` is **not proved**; it is backed by `#eval` check A at `:330`, which runs the real checker
+   on the `R10.Wit.U` block and confirms it returns `.ok` with `U` an `inductInfo`. So the
+   refutation is a proof modulo an evaluation-checked existence claim — decisive for planning,
+   short of a closed proof of `¬ AddDeclWF`.
+3. `Verify/Bridge.lean:132-136` — `Bridge.AddDeclWF` repeats the refuted statement **verbatim**,
+   universally quantified over `decl`, so it includes the `inductDecl` case.
+4. `Verify/Bridge.lean:138` — `theorem addDeclWF (fuel) : AddDeclWF fuel :=`
+   `fun wf decl => addDecl.WF wf decl fuel`.
+
+So `Bridge.kernel_sound_of` is itself a correctly-proved theorem, but its route reaches a
+dependency that cannot be discharged. **`kernel_sound` cannot be obtained through
+`Bridge.addDeclWF` as that statement now stands, no matter how much proof effort goes into the
+other eight holes.** The statement has to be reshaped to `AddDeclPost` first
+(`Verify/Inductive/AddDeclWF.lean` §5; `addDecl.WF_honest` is already proved there with no `sorry`
+of its own, from the single obligation `AddInductiveStepWF`), and landing that is blocked by §5.4's
+three changes — one of which is precisely `Bridge.AddDeclWF`, because it restates the false form.
+
+The nuance that matters for the flip decision: `addDecl.WF` is false **because `AddInduct` is
+empty**. `VEnvs.WF` forces the modelled environment to contain no `.inductInfo`, while the
+executable checker demonstrably produces one. It is not intrinsically false — the flip is what
+repairs it. Both repair routes, reshaping to `AddDeclPost` and giving `AddInduct` its
+constructors, are blocked on the same emptiness that H1 needs. That sharpens the pending decision
+above; it does not settle it, and I am still not taking it.
+
+Revised reading of stop condition 2: **2 hypotheses + 8 holes + 1 refuted statement**, the last
+being a reshape rather than a proof.
