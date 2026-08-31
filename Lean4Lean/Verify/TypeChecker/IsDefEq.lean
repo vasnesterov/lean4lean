@@ -544,7 +544,15 @@ bridge, which `Verify/StructureBridge.lean` shows is not attainable as `IsStruct
 stands — and, since Lean's kernel performs structure eta on members of *mutual* non-recursive
 blocks (`MutNonRec.kernelProjChecks`), not attainable by weakening `IsStructure.types` either.
 
-See `tryEtaStructCore_never_true` for the vacuity argument. -/
+See `tryEtaStructCore_never_true` for the vacuity argument.
+
+**Status 2026-08-31 (checked, not attempted).**  Re-verified against the source rather than
+taken from the note above: `WF_of_structEta` and `WF_prop` are both `sorry`-free (census: the
+only hole in this file's eta section is this theorem and `isDefEqUnitLike.WF`), so the residual
+really is exactly the two hypotheses.  Of those, `EtaStructSpine`'s missing ingredient is the
+strengthening of `VEnv.IsStructure`'s `decl` field, which is being worked in
+`Theory/Inductive/Structure.lean` and `Verify/Typing/Lemmas.lean`; this round did not touch it
+(scope boundary), and there is nothing else on the `Verify` side to do here first. -/
 theorem tryEtaStructCore.WF {c : VContext} {s : VState}
     (he₁ : c.TrExprS e₁ e₁') (he₂ : c.TrExprS e₂ e₂') :
     RecM.WF c s (tryEtaStructCore e₁ e₂) fun b _ => b → c.IsDefEqU e₁' e₂' := sorry
@@ -999,7 +1007,12 @@ fun _ _ _ h hb => absurd (h ▸ hb) nofun` closes it today; that close is vacuou
 discarded when `AddInduct` lands.  `WF_of_structEta` above is the non-vacuous version: this
 statement is exactly that one with its two hypotheses removed, and neither is provable in this
 tree (`Theory/Inductive/StructureEta.lean`, `Verify/StructureBridge.lean` say why).
-See `isDefEqUnitLike_never_true`. -/
+See `isDefEqUnitLike_never_true`.
+
+**Status 2026-08-31 (checked, not attempted).**  Same reading as `tryEtaStructCore.WF`:
+`WF_of_structEta`, `WF_prop` and `WF_proof` are `sorry`-free, so the residual is exactly
+`c.venv.StructEta` and `UnitLikeBridge`, and the latter waits on the `VEnv.IsStructure.decl`
+strengthening in flight elsewhere.  Not attempted this round (scope boundary). -/
 theorem isDefEqUnitLike.WF {c : VContext} {s : VState}
     (he₁ : c.TrExprS e₁ e₁') (he₂ : c.TrExprS e₂ e₂') :
     RecM.WF c s (isDefEqUnitLike e₁ e₂) fun b _ => b = .true → c.IsDefEqU e₁' e₂' := sorry
