@@ -364,3 +364,68 @@ in the family **refuted** in `Theory/Typing/SubstCRefute.lean`, with no rule abl
 If that holds, `PropTypeAgreeN` is unreachable by its own induction and the question becomes
 whether `sort_not_proof` can be had from `SortForallEDisjoint` + `SortInvN` alone. Sent back
 to be verified rather than inherited — this session has caught several stale docstrings.
+
+### RETRACTION: the `IsStructure.decl` ruling above was wrong, and the strengthening would have been unsound
+
+The "Decision made: `IsStructure.decl` strengthening APPROVED" section above, and its
+"Stream C's route really is the cheapest" conclusion, are **both retracted.**
+
+`VEnv.RuleFreeHead env s` at a structure name **is** derivable from `VEnv.WF env` +
+`IsStructure S D T C` exactly as `IsStructure` already stands. `StructureRuleFree.lean`
+(new, sorry-free) proves `IsStructure.ruleFreeHead` in four lines from
+`VEnv.WF.iotaTypeNotKey` (`Theory/Typing/DeltaUnique.lean`, sorry-free). The provenance
+argument I approved building into `decl` — "the declaring step was the `.induct` step" — had
+**already been run**, for this exact name, in `iotaTypeNotKey`'s `WF'` induction. `env₁ ≤ env`
+was never asked to carry it. The only real gap was **notational**: the injectivity family
+speaks `VExpr.headConst?`, DeltaUnique Part III speaks `VDefEq.key`, and nothing related the
+two. One bridge lemma closed it.
+
+**And the strengthening was not merely unnecessary, it was unsound as design — provably, not
+riskily.** `RuleFreeHead env s` is *anti*-monotone in `env`; `IsStructure` is *monotone*
+(`IsStructure.mono`). So any `IsStructure` field strong enough to imply `RuleFreeHead` must
+break `mono`: `env.addDefEq (δ-rule at S)` is `≥ env`, so no monotone field can exclude that
+rule. The cascade would have been `IsStructure.mono` → `TrProj.mono` → `TrExprS.mono` and its
+~15 call sites. What reconciles the polarities is passing `VEnv.WF env`, which is what the
+real proof does. I did flag `mono` in the brief as "a risk to check"; I should have seen it
+was decisive rather than a risk, because it settles the question a priori and in one line.
+
+**New reusable check, and it would have caught this ruling before I made it:** before
+strengthening a hypothesis-position predicate to imply a target, compare their monotonicity
+in `env`. A monotone predicate cannot imply an anti-monotone one. `IsStructure` is monotone
+by design (`TrProj.mono` needs it); `RuleFreeHead`, `PatFreeHead`, `WeakNorm` and the whole
+rigidity family are anti-monotone, because adding rules can only destroy them. Any future
+"just strengthen the structure predicate" proposal dies to this in one line.
+
+**Third error of this class today**, and the pattern is now unmistakable: stream C reported
+"not derivable as `IsStructure` stands", I ruled on it without checking, and it was derivable
+from a lemma already in the tree. The earlier two were the inverted supplier direction
+(`descend` vs. `Injectivity`) and the cumulativity non-sequitur in the model brief. In all
+three the check was one grep or one line of reasoning, and in all three I passed a stream's
+analysis through as a premise instead of testing it. **Rule: a stream's negative claim
+("X is not derivable", "Y is closed") is a lead, not a finding, until I have checked it or
+had a second stream check it.** Positive claims come with a build; negative ones do not.
+
+Nothing was cost-shifted: `IsStructure`, `mono`, all four concrete witnesses, and every
+construction site (`inferProj.WF`, `TrExprS`'s `proj` sites, `StructureBridge.lean`'s two
+bridges) are untouched. `docs/audit-classes.md:181` also references `IsStructure.decl` and
+should be re-read against this.
+
+### Where the two `TrProj` holes now stand (census still 14 — neither closed)
+
+`ProjSpineInv.lean` (new, sorry-free, placed upstream of `Verify/Typing/Lemmas.lean`) reduced
+`TrProj.uniq` from four obligations to **one**. Obligations (B) `const_app_inv` and (D)
+no-confusion fall together to `VEnv.constApp_inv_of_wf`, with both `RuleFreeHead` side
+conditions from the new lemma — no `PatWF`, no `Params`, and `S₁ = S₂` comes out as a
+*conclusion* rather than a hypothesis.
+
+The single residual is `VEnv.ProjTermCongr`: congruence for `VInductDecl'.projTerm` at one
+context and one structure name, mentioning no environment invariant. It is implied by
+`TrProj.uniq` itself via `IsDefEqCtx.refl`, so the reduction smuggles nothing in. Route:
+`instL_r` for the `≈`-levels half; `mkAppDF` at the recursor telescope for the spine half,
+recursing on `i` as `VInductDecl'.projArgs` does, each step wanting the typing the
+`Verify/Typing/ProjGen*` family already supplies for `TrProj.wf`. Mechanical, comparable in
+size to that family.
+
+`TrProj.weak'_inv` is now blocked on **`VEnv.WeakNorm` alone** (`Verify/Typing/ConstSpine.lean:526`
+— defined, consumed twice, proved nowhere) plus the shared `weakN_iff`. Its docstring's
+"provably cannot supply `RuleFreeHead`" claim is retracted in place.
