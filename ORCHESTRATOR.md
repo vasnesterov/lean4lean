@@ -896,3 +896,42 @@ Arena: correct: 185 ✅ / either: 6 🤷   (no incorrect line, i.e. 0)
 So **condition 1 is MET at this commit** and condition 2 is not. Both must hold together, and the
 one thing standing between the two is not a measurement problem — it is `AddInduct`'s emptiness plus
 the holes above.
+
+## Design ruling: `typeR` becomes the substitution (2026-08-31, mine)
+
+The human declined to arbitrate and pointed at CLAUDE.md, which settles it. Recording the reasoning
+because a later reader will otherwise see only the refactor.
+
+Obligation (A) of `addInductR_ordered'` is **false** (`nfnAuxDirty_refutation`). Two repairs existed:
+
+- **(i) add a `RestoreClean` conjunct to `VEnv.AddNested` / `Built`.** Ruled out as *unsound*, not
+  merely inferior. `AddNested` is the **premise** of `VDecl.WF.inductNested`, so strengthening it
+  makes the abstract spec accept a strictly smaller class of nested declarations than the checker
+  does. Declarations the checker accepts would then have no `VDecl.WF` derivation, and
+  `addDecl.WF` would be **false** for them. CLAUDE.md line 21 forbids narrowing to make a proof go
+  through, and this would manufacture precisely the false-but-green statement the vacuity ledger
+  exists to catch — a new row, not a repair.
+- **(ii) redefine `VIndField.typeR`'s `none` branch and `VIndCtor.typeR` so restoration applies
+  everywhere**, i.e. `typeR` *is* the substitution. **Chosen.** `ElimNestedInductive.restoreNested`
+  is a whole-expression rewrite, so this is the faithful model of the implementation (line 24's
+  soft guideline), and it makes all three bridges trivial rather than merely provable. Line 22 puts
+  `Theory/` in the orchestrator's remit, so it needs no sign-off.
+
+Cost, stated up front: `addInductR`'s declared types change, so `Verify/Environment/InductR.lean`
+moves with `Theory/Inductive/Restore.lean` and `NestedBuild.lean`, and the concrete witnesses
+(`nfnAux`/`pfnDecl`, `ntreeAux`/`listDecl`) are `rfl`/`decide` checks that will fail loudly if the
+new definition is wrong. The acceptance test I set: **`nfnAuxDirty_refutation` must stop refuting**.
+If it still refutes the new definition, the redefinition is wrong or incomplete.
+
+### Round 2 assignments (five streams, disjoint files)
+
+| stream | target |
+| --- | --- |
+| 1 | `typeR` as the substitution — the critical path, and then `hctors`/`hrecs`/`hrules` in general |
+| 2 | construct a `Coherent ModelData.cnst` — specified nowhere-constructed, and the one thing that unblocks two of hole B's five conjuncts |
+| 3 | `forallE_inv_stratified` (534) + `rigidShapeUniqNS` (311), with the polarity split now known |
+| 4 | `weakN_iff` (198) round 8, from `TransStrengtheningNarrowNeutral` |
+| 5 | `NormalEq.descend` (145) — third-largest hole, unattacked, and holds the unapplied round-6 `ChurchRosser` edit stream 4 is waiting on |
+
+Frozen edits are now PRs by standing instruction: **#41 merged** (guard 3, 51/54 → **2/54**),
+**#42 open** (drop `Expr.replace_eq`, 25 → 24).
