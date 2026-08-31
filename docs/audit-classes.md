@@ -190,23 +190,49 @@ concrete declaration despite 36 consumers. Route to that file's owner.
 
 ## Incidental findings
 
-1. **Duplicate declaration name.** `Lean4Lean.VEnv.addDefEqs_le` is declared twice, with
-   different signatures: `Theory/Typing/DeltaUnique.lean:773` (`∀ (cis) (env), env ≤ …`,
-   two explicit arguments) and `Verify/Environment/Lemmas.lean:181` (all implicit).
-   Importing both fails with `environment already contains 'Lean4Lean.VEnv.addDefEqs_le._f'`
-   — verified, it is what blocked the first whole-tree census run. Currently latent: no
-   module imports both. `Theory/Typing/PatternRules.lean:503` uses the `DeltaUnique`
-   spelling. Worth renaming one before the two cones meet.
+1. ~~**Duplicate declaration name.** `Lean4Lean.VEnv.addDefEqs_le` is declared twice…~~
+   **FIXED (`3e13a0f`), and this entry was stale.** The clash — along with four siblings —
+   was deduplicated, none of them renamed; `Verify/InductFlip.lean:325` records it. The
+   `Theory`/`Verify` import wall it created is down, which is why the whole-tree census and
+   `Experimental/ConeJoin.lean` now run at all.
+
+   Retained here because the *check* it motivated is now permanent:
+   `scripts/dup-names.lean` imports `Experimental.ConeJoin` so that a collision between the
+   two cones surfaces as an import error rather than a silent wall, and it is part of the
+   pre-commit set. Re-verified 2026-08-31: no duplicate `Lean4Lean` declaration across the
+   joined cone, and no `addDefEqs_le` declaration remains in either
+   `Theory/Typing/DeltaUnique.lean` or `Verify/Environment/Lemmas.lean`.
 
 2. **`#exit` at `Experimental/MoreStepIndexed.lean:420`** leaves 69 lines (including the
    only two producers of `SExpr.LogRel`) unelaborated. The only `#exit` in the tree.
 
-3. **`Experimental/` modules are not mutually importable.** Three name collisions found
-   while grouping the census: `SExpr.Classifier` (StepIndexed vs MoreStepIndexed),
-   `Classifier'` (LogRel vs CoinductiveLogRel vs StepIndexed), `WHRed` (Thierry vs
-   Thierry2). Expected for a scratch directory; recorded so nobody plans a combined
-   `Experimental.lean` root.
+3. **`Experimental/` modules are not mutually importable.** Still true (re-verified
+   2026-08-31), but the names were recorded wrongly here: they are `Classifier` and
+   `Classifier'`, **not** `SExpr.Classifier`. `Classifier'` is a `structure` in
+   `CoinductiveLogRel.lean:15` and a declaration of the same name in `StepIndexed.lean`;
+   `Classifier` is `def`'d in `CoinductiveLogRel.lean:18` and again in
+   `StepIndexed.lean:11`. Plus `WHRed` (Thierry vs Thierry2). Expected for a scratch
+   directory; recorded so nobody plans a combined `Experimental.lean` root. Note these do
+   **not** show up in `scripts/dup-names.lean`, which walks the joined *cone* — `Experimental/`
+   modules outside `ConeJoin.lean` are not in it.
 
-4. **`ConstantInfo.value?` is `none` for every imported theorem** in this build
-   configuration. Any future audit tool that plans to scan proof terms for `S.mk` needs the
-   modules elaborated from source, not imported.
+4. ~~**`ConstantInfo.value?` is `none` for every imported theorem** in this build
+   configuration.~~ **WRONG AS STATED — and this entry is a trap that has since cost real
+   time.** `value?` takes an `allowOpaque` argument defaulting to `false`, and it is *that*
+   default, not the build configuration or the import, which hides theorem values. Measured
+   on an imported theorem (`VEnv.NormalEq.defeq`):
+
+   | call | result |
+   | --- | --- |
+   | `ci.value?` | `none` |
+   | `ci.value? (allowOpaque := true)` | `some …` |
+
+   So no audit tool needs the modules elaborated from source; it needs one keyword argument.
+   The failure mode is silent and looks like success: a dependency walk without
+   `allowOpaque := true` sees **types only**, so every theorem's cone comes back clean and a
+   `sorry`-tainted proof measures as `sorry`-free. That is exactly what happened on
+   2026-08-31 to an ad-hoc cone script written without reading
+   `scripts/hole-cone.lean`, whose own header documents the trap.
+
+   **Rule: cone measurements go through `scripts/hole-cone.lean`'s `deps`.** Do not write a
+   competing walker; if you must, copy `deps` verbatim.
