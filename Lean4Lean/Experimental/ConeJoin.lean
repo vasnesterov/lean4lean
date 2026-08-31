@@ -102,6 +102,7 @@ import Lean4Lean.Verify.Typing.ProjSpineInv
 import Lean4Lean.Verify.Typing.WeakNormRefute
 import Lean4Lean.Theory.Typing.InjSortPiModel  -- added 2026-08-31: sort/Pi separation, and the vacuity of the packaged part-4 supply
 import Lean4Lean.Theory.Inductive.RestoreBridge  -- added 2026-08-31: obligation (A) of addInductR_ordered' is FALSE
+import Lean4Lean.Theory.SetModel.CoherentConstShape  -- added 2026-08-31: CoherentOn cannot separate a constant from a universe or a Pi
 
 /-!
 # Acceptance test: the `PatternRules` cone and the `Verify/` cone join

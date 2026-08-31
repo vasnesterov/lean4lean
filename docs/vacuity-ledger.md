@@ -1,9 +1,15 @@
 # The vacuity ledger
 
 *Written 2026-08-31, after four instances of the same failure mode turned up in one round, and
-a survey then found four more already refuted elsewhere in the tree. Twenty-eight statements are
+a survey then found four more already refuted elsewhere in the tree. Twenty-nine statements are
 now measured; ten are vacuous, near-vacuous or false, three are refuted outright, two routes
 are dead, and nine are bounded or acquitted.*
+
+**The injectivity corner's semantic tally is now final: 1 usable conjunct of 5.** Two of
+`rigidShapeUniqNS_iff_family`'s five are positive and need faithfulness no soundness model has
+(rows 8–9); two are refuted even under `CoherentOn` (row 29); only the sort/Π one is live, and
+`interp_sort_ne_interp_forallE` already proves its residual. Everything else in that corner is
+syntactic.
 
 ## 0. Why this file exists
 
@@ -147,6 +153,7 @@ Every row is backed by a **proved** lemma in the tree, not an argument in a docs
 | 26 | `addInductR_ordered'`'s `hctors` — obligation **(A)** of the nested route | **false** under the premises `VDecl.WF.inductNested` actually has, not merely open. `VIndCtor.typeR` copies `C.params` and every *non-recursive* field's stored type verbatim, while `WF.params_eq` and `WF.pos`'s `none` branch make those only *definitionally* block-free — so a companion constant can sit under a redex there and the step declares a constant whose type names a constant the environment lacks | `nfnAuxDirty_refutation` (`Theory/Inductive/RestoreBridge.lean`), hypothesis-free: `nfnAuxDirty` satisfies every conjunct of `AddNestedB` and yields `¬ env₃.Ordered`. Already refuted for parameterful blocks by `ntreeNode_substC_ne_typeR` (`ConstSubstNested.lean:583`) | **no** — needs a **new conjunct** (`VIndCtor.RestoreClean`) on `AddNested`/`Built`, or `typeR` redefined as the substitution |
 | 27 | `Faithful` / `Built` / `Canonical` / `OwnId` / `D.WF` as a defence against row 26 | **insufficient, provably** — every clause of each is about the *companion* members, and the constructor that fails is *user-written* | `nfnAuxDirty_AddNestedB` + `nfnAuxDirty_step_not_ordered` (same file) | n/a |
 | 28 | obligations **(B)** and **(C)**'s cleanliness condition as stated against `csubstTy` | **mis-stated** — (B)/(C) run on `R.csubst`, whose domain escapes `D.blockNames`, so no `VIndCtor.WF` clause makes a non-restored position σ-invariant | `csubstTy_dom_blockNames` (holds) vs `nfn_csubst_dom_escapes_blockNames` (fails), same file | n/a |
+| 29 | `CoherentOn` as the rescue for `RigidConstPiDisj` / `RigidConstSortDisj` | **dead route, and the blocker was misdiagnosed for months.** `CoherentOn.const_type` constrains `M.cnst c us` by *membership* in `⟦ci.type⟧` and nothing more, and both target shapes live inside a declared type — so a `CoherentOn` model over a `VEnv.WF` environment with **no defeqs at all** still lets `.const c us` and `.sort .zero` share a denotation. The refuted guard is *stronger* than what the conjuncts supply (whole-environment rule-freeness vs `RuleFreeHead c`), so no weakening rescues them | `not_coherentConstNotUniv`, `not_coherentConstNotPi`, `coherent_const_denot_eq_sort`, `oracleOK_univ` (`Theory/SetModel/CoherentConstShape.lean`); non-degeneracy by `above_iff_of_chain` and `not_coherentOn_falseProp` + `coherentOn_axEnv_separates` | n/a |
 
 Rows 1–5 are one bug. Rows 6, 7, 14 and 15 are independent of it, and that is the ledger's main
 finding: **the failure mode is not confined to `AddInduct`.** It recurred in the abstract theory

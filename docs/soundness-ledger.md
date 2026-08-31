@@ -225,7 +225,7 @@ impredicativity and it is what makes the bound tight rather than merely finite.
 | `piProp_mem_UProp` | part 1, `forallE` case | **proved** |
 | validity (`Γ ⊢ e : A → IsType Γ A`) | `appDF`, to level the `∀` | available, `Theory/Typing/` |
 | `function_eq_graph` (a function is its graph) | `eta` | **proved** |
-| `ModelData.Coherent` | `constDF`, `extra` | specification **stated**; construction **open** |
+| `SetModel.CoherentOn` (there is no `ModelData.Coherent`) | `constDF`, `extra` | **CONSTRUCTED, in two places** — `CoherentWitness.coherentOn_witness` (closed witness, arbitrary `L`, all four fields non-vacuous) and `CnstRecursion.coherentOn_cnstOf` (the full `VEnv.WF'` recursion, six of seven `VDecl` forms discharged). This row said "construction open" for months and was **stale**. The open items are `InductOracleOK` alone — bounded both ways by `not_inductOracleOK_falseProp` / `inductOracleOK_empty` — and `AxiomsValidated`. Caveat worth knowing: `coherentOn_witness`'s environment is reachable only via `VDecl.unsafeDef`, which `VDecl.noUnsafe` forbids and `coherentOn_cnstOf` refuses, so it certifies coherence at an environment the soundness induction never visits; `axEnv_wf` (`SetModel/CoherentConstShape.lean`) supplies a `VEnv.WF`, `.axiom`-produced, rule-free one instead |
 | `IsDefEqU.sort_inv` | ~~packaged as `LevelAssign`~~ — that packaging is refuted; see the correction below | **open**, one `sorry` |
 | `IsDefEqU.forallE_inv` | — | **not needed** |
 | `IsDefEqU.sort_forallE_inv` | — | **not needed** |
