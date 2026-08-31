@@ -312,6 +312,26 @@ the flip that would actually unblock `kernel_sound`:
    `addInductR_ordered_nil` shows that at the identity restoration they collapse to what
    `addInduct'` already discharges. So this is a genuine open proof, not a vacuity.
 
+   **And they are further along than "three open obligations" suggests.** All three are already
+   reduced *in general* to one syntactic condition each, by
+   `VEnv.ctorConstsCR_wf_of_substC` / `recConstsR_wf_of_substC` / `iotaRulesR_wf_of_substC`
+   (`ConstSubstNested.lean:50, 78, 95`). Each takes a `σ : CSubst` with `σ.WF`, and a *bridge*
+   asking only that the restoration's substitution carries the ordinary stored type to the
+   restored one:
+
+       (C.type D j).substC σ = C.typeR D R j          -- constructors
+       (D.recType j).substC σ = D.recTypeR R j        -- recursors
+       D.iotaRules.map (·.substC σ) = D.iotaRulesR R  -- ι-rules
+
+   The `σ` is general too — `VIndRestore.csubst D K`, built from the restoration's five fields —
+   and `nfn_csubst` / `nfn_csubstTy` / `ntree_csubstTy` check by computation that it *is* the
+   substitution the hand-written witnesses used, with no hypothesis about the block entering.
+   `csubst_closed` / `csubstTy_closed` discharge the side conditions at both witnesses.
+
+   So the residual on the whole nested route is **three syntactic identities** about
+   `VIndRestore.csubst`, discharged at two blocks and not yet in general. Not semantics, not a
+   model question, and not a decision.
+
 4. ~~The `induct` arm of `VEnv.WF'.keys`.~~ **Already done — `Theory/Inductive/NestedKeys.lean`.**
    And done better than "a different argument": the *invariant* is false, not just the proof.
    `KeyMajorUnique` — a rule is determined by the head of its major premise — fails in any
