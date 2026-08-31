@@ -312,11 +312,30 @@ the flip that would actually unblock `kernel_sound`:
    `addInductR_ordered_nil` shows that at the identity restoration they collapse to what
    `addInduct'` already discharges. So this is a genuine open proof, not a vacuity.
 
-4. The `induct` arm of `VEnv.WF'.keys` in `Theory/Typing/DeltaUnique.lean`. Its `hfresh` — every
-   name in an emitted rule's key is absent from `env` — is **false** for a nested step:
-   `iotaRulesR_major_not_fresh` (`NestedOrdered.lean:196`) proves the key's second component is
-   a constructor of a block the environment already holds. The replacement argument (freshness of
-   the key's *head* only, via `recName_mem_allNamesCR`) is available but is a different proof.
+4. ~~The `induct` arm of `VEnv.WF'.keys`.~~ **Already done — `Theory/Inductive/NestedKeys.lean`.**
+   And done better than "a different argument": the *invariant* is false, not just the proof.
+   `KeyMajorUnique` — a rule is determined by the head of its major premise — fails in any
+   environment holding a nested block, because the companion's restored ι-rule and the real
+   block's own ι-rule share a major (`[NFn.rec_1, PFn.mk]` against `[PFn.rec, PFn.mk]`;
+   `nfn_keyMajorUnique_false`). The replacement `VEnv.KeyUnique` (whole key determines the rule)
+   is **preserved** by a nested step (`keysR_induct`), is *not* refuted by the same witness
+   (`nfn_keys_ne`), and the sole consumer is re-proved from it
+   (`Pat.iota_rule_uniq_keyUnique`). `nfn_keys_summary` packages all of it with no hypotheses.
+
+   What is left is **plumbing in two files**: swap `KeyMajorUnique` for `KeyUnique` in
+   `DeltaUnique.lean`'s `WF'.keys` chain, and re-point `PatternRules.lean`'s `Pat.iota_data_uniq`
+   at `Pat.iota_rule_uniq_keyUnique` (a hypothesis reshuffle — the two `types[j]? = some T`
+   hypotheses it needs are already at the call site).
+
+**A process note, from getting item 4 wrong.** I read `NestedOrdered.lean:170`'s docstring —
+"it is the second of the two obligations that the `inductNested` rule waits on" — took it at face
+value, and wrote a fresh refutation of `KeyMajorUnique` at the `NTree`/`List.cons` witness before
+grepping. `Theory/Inductive/NestedKeys.lean` had already refuted it at `NFn`/`PFn`, stated the
+replacement, proved the nested arm, and re-proved the consumer. The duplicate was deleted.
+`dup-names.lean` could never have caught it: the names differed, only the *result* was the same.
+**The rule that would have: grep for the invariant's name across the tree before proving anything
+about it.** And note the direction of the drift — the stale docstring overstated what was open,
+which is the direction that wastes work rather than the direction that hides it.
 
 **This corrects a framing carried in `docs/critical-path.md` and in §2 above.** The `AddInduct`
 flip was described as the thing standing between the tree and the main theorem, and therefore as

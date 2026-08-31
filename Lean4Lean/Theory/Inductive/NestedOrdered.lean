@@ -187,8 +187,26 @@ So the nested arm of `keys_induct` cannot be a transcription; the freshness it c
 *head* of the key only.  That is available (`VInductDecl'.recName_mem_allNamesCR` puts the
 renamed recursor among the step's own constants, and `addConstList` succeeded, so it is fresh),
 but it is a different argument.  Recording it here because it is invisible from the
-`addInduct'` side, and because it is the second of the two obligations — after
-`addInductR_ordered'` — that the `inductNested` rule waits on. -/
+`addInduct'` side.
+
+**CORRECTION (2026-08-31).**  This paragraph used to end "and because it is the second of the two
+obligations — after `addInductR_ordered'` — that the `inductNested` rule waits on".  That is no
+longer true, and the sentence above ("cannot be a transcription; the freshness it can use is the
+head of the key only") is also too optimistic about what survives.
+`Theory/Inductive/NestedKeys.lean` settled the whole question:
+
+* `VEnv.KeyMajorUnique` is not merely hard to re-prove for a nested step, it is **false** —
+  `nfn_keyMajorUnique_false` exhibits `[PFn.rec, PFn.mk]` against `[NFn.rec_1, PFn.mk]`, two
+  distinct rules with one major.  So no proof was ever going to work.
+* The replacement `VEnv.KeyUnique` (the *whole* key determines the rule) is preserved by a nested
+  step — `VEnv.keysR_induct`, from `Faithful` plus `VIndRestore.KeysDistinct` — and is not
+  refuted by the same witness (`nfn_keys_ne`).
+* The sole consumer is re-proved from it: `Pat.iota_rule_uniq_keyUnique`.
+
+So what the `inductNested` rule waits on here is not a theorem but two mechanical edits:
+`KeyMajorUnique` → `KeyUnique` in `Theory/Typing/DeltaUnique.lean`'s `WF'.keys` chain, and
+re-pointing `Theory/Typing/PatternRules.lean`'s `Pat.iota_data_uniq`.  `docs/vacuity-ledger.md`
+§6 item 4 tracks it.  `addInductR_ordered'`'s three obligations are the ones still open. -/
 
 /-- **A companion ι-rule's major name is already declared.**  Directly `Faithful.ctor_agree`:
 the restoration presents the companion's constructors as constants the environment holds, and

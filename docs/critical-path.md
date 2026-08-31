@@ -275,9 +275,12 @@ There are **two** flips, and they are not the same change:
 * **The nested flip** — `AddInduct := ∃ K R, AddInductStagesR …`, which is what
   `AddInductFlip` is stated in terms of and the only version that covers full Lean type theory.
   This one is **not** a decision. It is blocked on four ordinary open obligations, listed in
-  `docs/vacuity-ledger.md` §6: the three hypotheses `hctors` / `hrecs` / `hrules` of
-  `VEnv.addInductR_ordered'`, and the nested arm of `DeltaUnique`'s `keys_induct`, whose
-  `hfresh` is false for a nested step (`iotaRulesR_major_not_fresh`).
+  `docs/vacuity-ledger.md` §6. **Three** of them are open theorems: the hypotheses
+  `hctors` / `hrecs` / `hrules` of `VEnv.addInductR_ordered'`. The fourth — the nested arm of
+  `DeltaUnique`'s `keys_induct` — turned out to be **already done** in
+  `Theory/Inductive/NestedKeys.lean`, and more sharply than expected: `KeyMajorUnique` is *false*
+  after a nested step, the replacement `KeyUnique` is preserved, and the sole consumer is
+  re-proved from it. What remains there is two mechanical edits, not a proof.
 
 Why this was missed for several rounds: all four are **hypotheses of proved, sorry-free
 theorems**, so the census reads 0 where the work is, and no hole cone can see them either — a
@@ -289,3 +292,8 @@ because the decision only ever unlocked the partial flip. The four obligations a
 They are known satisfiable — `nfnAux_addInductR_ordered` discharges all three of the first kind
 in a non-trivial instance, and `addInductR_ordered_nil` shows they collapse to `addInduct'`'s
 own obligations at the identity restoration — so this is proving, not repairing.
+
+One caution earned the hard way while writing this: `NestedOrdered.lean`'s docstring said the
+`keys_induct` arm was "the second of the two obligations the `inductNested` rule waits on", and it
+had been done for some time. Stale docstrings in this tree drift toward *overstating* what is
+open — the direction that wastes work. Grep for a statement before proving it.
