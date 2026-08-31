@@ -1,8 +1,8 @@
 # The vacuity ledger
 
 *Written 2026-08-31, after four instances of the same failure mode turned up in one round, and
-a survey then found four more already refuted elsewhere in the tree. Twenty-two statements are
-now measured; eight are vacuous, near-vacuous or false, three are refuted outright, two routes
+a survey then found four more already refuted elsewhere in the tree. Twenty-eight statements are
+now measured; ten are vacuous, near-vacuous or false, three are refuted outright, two routes
 are dead, and nine are bounded or acquitted.*
 
 ## 0. Why this file exists
@@ -144,6 +144,9 @@ Every row is backed by a **proved** lemma in the tree, not an argument in a docs
 | 23 | `InjSortPi.SortPiSupplyAll` — the per-conversion model supply for `sort_forallE_inv` | **restatement** — provably *equivalent* to its own conclusion `RigidSortPiDisj`, because the supply itself is refuted | `sortPiSupplyAll_iff` (`Theory/Typing/InjSortPiModel.lean`), both directions | n/a |
 | 24 | the hypothesis of `SemanticRoute.semantic_sortInv_packaged` (the ∀-over-all-contexts form of the part-4 supply) | **vacuous** — false for **every** `env` and `nv`: the model has no valuation for the legitimate context `[∀ p : Prop, p]`, and reflexivity of `.sort .zero` supplies the conversion it cannot see | `sortInvSupply_vacuous`, from `interpCtx_vFalse` + `onCtx_vFalse` (`InjSortPiModel.lean`) | n/a |
 | 25 | `InjSortPi.ConstNotUniv` — the part-4 residual for `RigidConstSortDisj`/`RigidConstPiDisj` | **dead route** unguarded: `ModelData.cnst` is a free field, so a constant may denote a universe stage | `not_constNotUniv`, `const_denot_arbitrary` (`InjSortPiModel.lean`) | n/a |
+| 26 | `addInductR_ordered'`'s `hctors` — obligation **(A)** of the nested route | **false** under the premises `VDecl.WF.inductNested` actually has, not merely open. `VIndCtor.typeR` copies `C.params` and every *non-recursive* field's stored type verbatim, while `WF.params_eq` and `WF.pos`'s `none` branch make those only *definitionally* block-free — so a companion constant can sit under a redex there and the step declares a constant whose type names a constant the environment lacks | `nfnAuxDirty_refutation` (`Theory/Inductive/RestoreBridge.lean`), hypothesis-free: `nfnAuxDirty` satisfies every conjunct of `AddNestedB` and yields `¬ env₃.Ordered`. Already refuted for parameterful blocks by `ntreeNode_substC_ne_typeR` (`ConstSubstNested.lean:583`) | **no** — needs a **new conjunct** (`VIndCtor.RestoreClean`) on `AddNested`/`Built`, or `typeR` redefined as the substitution |
+| 27 | `Faithful` / `Built` / `Canonical` / `OwnId` / `D.WF` as a defence against row 26 | **insufficient, provably** — every clause of each is about the *companion* members, and the constructor that fails is *user-written* | `nfnAuxDirty_AddNestedB` + `nfnAuxDirty_step_not_ordered` (same file) | n/a |
+| 28 | obligations **(B)** and **(C)**'s cleanliness condition as stated against `csubstTy` | **mis-stated** — (B)/(C) run on `R.csubst`, whose domain escapes `D.blockNames`, so no `VIndCtor.WF` clause makes a non-restored position σ-invariant | `csubstTy_dom_blockNames` (holds) vs `nfn_csubst_dom_escapes_blockNames` (fails), same file | n/a |
 
 Rows 1–5 are one bug. Rows 6, 7, 14 and 15 are independent of it, and that is the ledger's main
 finding: **the failure mode is not confined to `AddInduct`.** It recurred in the abstract theory
@@ -368,9 +371,21 @@ the flip that would actually unblock `kernel_sound`:
    substitution the hand-written witnesses used, with no hypothesis about the block entering.
    `csubst_closed` / `csubstTy_closed` discharge the side conditions at both witnesses.
 
-   So the residual on the whole nested route is **three syntactic identities** about
-   `VIndRestore.csubst`, discharged at two blocks and not yet in general. Not semantics, not a
-   model question, and not a decision.
+   **CORRECTION (same day, later): the first of the three is FALSE, not open.** See rows 26–28.
+   `hctors` fails under the premises `VDecl.WF.inductNested` actually has, and no strengthening of
+   `Faithful`/`Built`/`Canonical`/`OwnId`/`D.WF` repairs it, because they all constrain the
+   *companion* members while the failing constructor is *user-written*. It needs a **new
+   conjunct** — `VIndCtor.RestoreClean` on `AddNested` and `Built` — or `VIndCtor.typeR` redefined
+   so restoration applies everywhere, which is the faithful model of the implementation's
+   whole-expression `restoreNested` and would make all three bridges trivial.
+
+   What *is* proved in general: (A) for every **parameterless** nested block
+   (`ctorConstsCR_wf_of_np_zero`), with the parameterful case reduced to exactly `D.np` β-steps per
+   companion occurrence and nothing else. And (B)/(C) need their cleanliness condition restated
+   against `csubst` rather than `csubstTy` (row 28).
+
+   So: not three syntactic identities. One false statement needing a new conjunct, one proved case
+   plus a measured β-gap, and two mis-stated conditions.
 
 4. ~~The `induct` arm of `VEnv.WF'.keys`.~~ **Already done — `Theory/Inductive/NestedKeys.lean`.**
    And done better than "a different argument": the *invariant* is false, not just the proof.

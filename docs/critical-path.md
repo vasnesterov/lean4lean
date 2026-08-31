@@ -15,15 +15,24 @@ correction is worth reading for *how* the picture was wrong, but the headline "2
 
 What actually blocks condition 2, in the shape it really has:
 
-1. **The typing holes**, which are ordinary open proofs and the bulk of the work:
-   `forallE_inv_stratified` (527 transitive users), `rigidShapeUniqNS` (235),
-   `IsDefEqU.weakN_iff` (136, narrowed to `TransStrengtheningNarrowNeutral` by round 7),
-   `TrProj.uniq` (93), `TrProj.weak'_inv` (29), `NormalEq.descend` (49).
-2. **The nested-inductive route**, whose entire residual is **three syntactic identities** about
-   `VIndRestore.csubst` — the bridge hypotheses of `ctorConstsCR_wf_of_substC` /
-   `recConstsR_wf_of_substC` / `iotaRulesR_wf_of_substC`. Proved at two blocks, not in general.
-   Correction 5 explains why this was invisible: they are hypotheses of proved, sorry-free
-   theorems, so the census reads 0 where the work is.
+1. **The typing holes**, which are ordinary open proofs and the bulk of the work. Counts as of the
+   end of 2026-08-31, after `TrProj.uniq` closed: `forallE_inv_stratified` **534**,
+   `rigidShapeUniqNS` **311**, `IsDefEqU.weakN_iff` **198** (narrowed to
+   `TransStrengtheningNarrowNeutral`), `NormalEq.descend` **145**, `TrProj.weak'_inv` **30**.
+   Note the counts *rose* while the census fell 14 → 13: closing `TrProj.uniq` routed its 94
+   consumers through `projData_uniq` into these four instead of stopping at its own `sorry`. The
+   blocking is more concentrated, not reduced — which is the honest reading of that census drop.
+2. **The nested-inductive route**, whose first obligation is **false**, not open.
+   `addInductR_ordered'`'s `hctors` fails under the premises `VDecl.WF.inductNested` actually has
+   (`nfnAuxDirty_refutation`, hypothesis-free), because `VIndCtor.typeR` under-restores: it copies
+   `C.params` and non-recursive field types verbatim, and those are only *definitionally*
+   block-free. No strengthening of `Faithful`/`Built`/`Canonical`/`OwnId` repairs it — they all
+   constrain the *companion* members, and the failing constructor is *user-written*. The fix is a
+   **new conjunct** (`VIndCtor.RestoreClean`), or redefining `typeR` as the substitution, which is
+   the faithful model of the implementation's whole-expression `restoreNested`.
+   Proved meanwhile: (A) in general for parameterless blocks, with the parameterful case reduced to
+   exactly `D.np` β-steps per companion occurrence. (B)/(C) additionally need their cleanliness
+   condition restated against `csubst`, not `csubstTy`. `docs/vacuity-ledger.md` rows 26–28.
 3. **The `AddInduct` flip**, which is *two* flips (Correction 5). The non-nested one is available
    and is a decision (census 14 → 17, partial result). The nested one needs item 2 first.
 4. **Statements that are false rather than open** — `addDecl.WF`'s `inductDecl` branch,
