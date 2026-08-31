@@ -222,3 +222,82 @@ worth doing precisely when several consumers share it. The failure mode to avoid
 inventing a convenient interface: `descend`'s docstring records that an earlier version of
 its own interface was **refuted** by `NormalEq.etaL` and `NormalEq.proofIrrel`, so any
 bridge stated against it must survive those two witnesses.
+
+## Round: census 14, descend refuted, four streams out
+
+### Decision made: `IsStructure.decl` strengthening APPROVED
+
+Stream C stated it and stopped, judging it an orchestrator call. It is: `IsStructure`
+lives in `Theory/Inductive/Structure.lean:478`, which CLAUDE.md designates proof
+machinery I may freely design. Polarity is favourable — `IsStructure` is a *hypothesis*
+of `TrProj.mk`, so strengthening helps all four `TrProj` consumers (`wf`, `uniq`,
+`weak'_inv`, `defeqDFC`) and charges the construction sites (`inferProj.WF`, `TrExprS`'s
+`proj` sites). Target: `TrProj.uniq` [89] + `TrProj.weak'_inv` [29].
+
+Constraint the stream must respect: `IsStructure.mono` exists and `TrProj.mono` needs
+monotonicity in `env`. A field placing a step in `env`'s own WF chain is at risk there.
+
+### Dead route, checked and killed — do not retry
+
+I hoped to avoid touching `IsStructure` at all: distinguish a `.def` from an inductive by
+the constant record (no value ⇒ not a `.def` ⇒ no δ-rule ⇒ `RuleFreeHead`). **Dead at the
+representation level.** `VConstant` (`Theory/VEnv.lean:5`) has exactly two fields, `uvars`
+and `type` — no value — and δ-rules live in a separate `env.defeqs`. Nothing in the
+constant record separates them. Stream C's route really is the cheapest.
+
+### New instrument rule: `allowOpaque := true` or the measurement is a lie
+
+I wrote an ad-hoc cone script and it reported `descendV`'s hole cone as **empty** while
+`#print axioms` on the same declaration reported `sorryAx`. The bug: `ci.value?` without
+`allowOpaque := true` returns `none` for `.thmInfo`, so the walk saw types only and every
+theorem cone looked clean. `scripts/hole-cone.lean` documents this in its own header and I
+did not read it before writing a competing script.
+
+**Rule: cone measurements go through `scripts/hole-cone.lean`'s `deps`, not a fresh script.**
+This is the second instrument-trust failure of the session (the first: grep-for-`sorry`
+reporting 89 against a true 21). Both times the ad-hoc tool was the wrong one and a
+canonical one already existed.
+
+Measured properly, and this is what licensed the rewiring round:
+
+    descendV                  {rigidShapeUniq, weakN_iff, forallE_inv_stratified}
+    appDF_extra_of_descendV    same three
+    descend                    those three + itself
+    church_rosser              those three + descend
+
+`descend` absent from `descendV`'s cone ⇒ genuine replacement, not a relabelling.
+
+### `descend`: 44 transitive users, one direct consumer
+
+The 44 all route through a single chain, which makes the rewire tractable:
+
+    parRed (ChurchRosser:2117) → appDF_extra_of_descend (2021) → descend (1831)
+
+Real obstacle is layering, not proof: `KDescend` → `DescendRefute` → `ChurchRosser`, so
+`parRed` sits *above* `descendV` and cannot call it in place. Either lift `descendV` up
+(friction: `appDF_extra_of_descendV`'s K-step hypothesis lives in the downstream
+`KRule.lean`) or push `parRed` and the `church_rosser` chain down. Left to the stream on
+evidence, with one hard constraint: **do not propagate the `NoApp` hypothesis up into
+`church_rosser`'s statement** — that would weaken the confluence theorem rather than fix it.
+
+### `forallE_inv_stratified` [449]: syntactic side declared closed, model round opened
+
+Accumulated verdict across three rounds, all machine-checked: the hole **is** `SortUniq`
+(`piInvStratApp_iff_sortUniq`); a counterexample at *any* WF env sinks the whole Π/sort
+family unconditionally (`not_piInvStratApp_of_not_sortUniq`, sorry-free); level bookkeeping
+alone provably cannot finish the `app` case (`imax_cod_not_pinned`); and the last syntactic
+hope — `sort_not_proof` from the descend side — is closed, because ChurchRosser's E3
+branches *consume* `Params.sortUniq` and so sit inside the circle. A model is the only
+remaining candidate source. Stream sent at `Theory/SetModel/` + `~/lean-type-theory/unique.tex`,
+briefed to establish the *transfer* direction before building any semantics, since a model
+argument that cannot reflect back to `IsDefEq` is no progress.
+
+### Two satisfiability arguments retracted this session
+
+Both were assuming what they were checking. Worth remembering as a pattern: (1) the
+`refEnv.SortUniq` derivation went through a statement `piInvStratApp_iff_sortUniq` proves
+*equivalent* to its own target; (2) "the `badEnv` failure route is closed at `refEnv`" rests
+on `WF.instL_lhs_ne_sort`, which holds at every WF env and so says nothing about `refEnv`.
+What survives is that `refEnv_no_defeqs` kills the `extra` constructor, reducing
+`SortUniq refEnv 0` to beta/eta/proofIrrel/trans confluence over six axioms with no rewrite
+rules — the first finite, self-contained instance of this circle in the tree.
