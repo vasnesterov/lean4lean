@@ -648,8 +648,34 @@ The classification, as of this writing (27 entries):
   and the two `ptrEq*.unsafe_impl_2` under `ptrEqExpr_eq` / `ptrEqConstantInfo_eq`. Flagged only
   because the spec names the wrapper, not the implementation. Not gaps.
 
-  `Lean.Expr.replaceImpl` stays on the list, and the last clause of what this paragraph used to
-  say was **wrong**. It claimed that because both nested-inductive substitution sites now call
+  `Lean.Expr.replaceImpl` is **gone from `addDecl`'s cone**, and this paragraph has now been wrong
+  in both directions in one day. Its history is worth keeping, because the two errors have opposite
+  causes.
+
+  **Round 1 (wrong):** it claimed the frozen axiom `Expr.replace_eq` "has no consumers left"
+  because the two nested-inductive substitution sites had stopped calling `Expr.replace`. False —
+  the axiom is `@[simp]` and was bridging `replace` to `replaceNoCache` invisibly inside
+  `instantiateLevelParamsCore_eq`, so deleting it failed the build twelve times. Cause: a by-name
+  grep, which cannot see an implicit `simp` rewrite.
+
+  **Round 2 (also wrong, and this was the correction to round 1):** it then claimed that "no change
+  under `Lean4Lean/` can orphan it while the checker calls `Lean.instantiateLevelParamsCore`,
+  because that call site is upstream". Also false, and for a duller reason: the checker did not have
+  to call that function at all. Six sites were re-pointed at core's own pure twin
+  `Lean.Expr.instantiateLevelParamsNoCache`, and `Lean.Expr.replaceImpl`, `Expr.replace`,
+  `Expr.instantiateLevelParams`, `Expr.instantiateLevelParamsCore` and
+  `ConstantInfo.instantiateTypeLevelParams` all left the cone. The axiom **is** orphaned. See
+  `divergences.md` § "level-parameter instantiation is uncached".
+
+  **The measurement that settled it, and the one that should have been demanded both times:** a
+  full build of a tree copy with the axiom deleted — `1384 jobs`, `guard 1: … exactly the 24 frozen
+  axioms ✓`, guards 2 and 3 unchanged, Arena `185 correct / 6 either / 0 incorrect`. An 8444-constant
+  walk of `addDecl`'s cone reports `false` for all five cached names and `true` for
+  `instantiateLevelParamsNoCache` and `replaceNoCache`. **An `@[simp]` axiom's reachability is a
+  build result, never a grep result.**
+
+  What follows is the round-1 text, kept because the diagnosis of *why* the grep failed is still
+  the useful part. It claimed that because both nested-inductive substitution sites now call
   `Expr.replaceNoCache` / `Expr.replaceNoCacheT` directly (`divergences.md`'s "nested-inductive
   replacement is uncached" entry), "the frozen axiom `Expr.replace_eq` that modelled it has no
   consumers left". Measured 2026-08-31 by deleting the axiom and rebuilding: **the build fails**,
@@ -741,7 +767,6 @@ private def unmodelledConeOpaques : List String := [
   "Lean.EnvExtensionEntrySpec",
   "Lean.EnvExtensionStateSpec",
   "Lean.Expr.dbgToString",
-  "Lean.Expr.replaceImpl",
   "Lean.Level.beq",
   "Lean.PersistentArray.insertNewLeaf",
   "Lean.PersistentArray.mkNewPath",

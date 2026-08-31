@@ -1338,10 +1338,20 @@ theorem instantiateLevelParamsCore_id {e : Expr} :
   induction e <;> simp_all [instantiateLevelParamsCore', Level.substParams_id]
 
 open private instantiateLevelParamsCore.replaceFn from Lean.Util.InstantiateLevelParams in
-theorem instantiateLevelParamsCore_eq :
-    instantiateLevelParamsCore s e =
+/-- The pure half of what used to be `instantiateLevelParamsCore_eq`.
+
+`Lean.Expr.instantiateLevelParamsNoCache` is, by definition,
+`replaceNoCache (instantiateLevelParamsCore.replaceFn ..)` under an emptiness guard, so this
+lemma is stated directly about that traversal. Nothing here mentions the cached
+`Lean.Expr.replace`, which is `replaceImpl`: `opaque` with `@[extern "lean_replace_expr"]`,
+hence unprovable-about. The old `instantiateLevelParamsCore_eq`, which *did* mention it,
+opened with `simp [instantiateLevelParamsCore]` and was silently bridged from `replace` to
+`replaceNoCache` by the `@[simp] axiom Expr.replace_eq`. That axiom is what this
+restructuring exists to orphan; the proof body below is unchanged from it, because the
+whole proof was already about `replaceNoCache`. -/
+theorem instantiateLevelParamsCoreNoCache_eq :
+    replaceNoCache (instantiateLevelParamsCore.replaceFn s) e =
     instantiateLevelParamsCore' true (fun x => (s x).getD (.param x)) e := by
-  simp [instantiateLevelParamsCore]
   -- The case split is on the **cached** `hasLevelParam` bit, which is what
   -- `replaceFn` actually tests. Going from the cached bit to the structural one
   -- is the unconditional direction (`hasLevelParam_eq_false`), so no
@@ -1363,14 +1373,18 @@ theorem instantiateLevelParamsCore_eq :
     simp_all [instantiateLevelParamsCore'])
 
 open private getParamSubst from Lean.Util.InstantiateLevelParams in
-theorem instantiateLevelParams_eq {e ps ls} :
-    instantiateLevelParams e ps ls =
+/-- Specification of `Lean.Expr.instantiateLevelParamsNoCache`, the pure-Lean level-parameter
+substitution the checker calls. Replaces the old `instantiateLevelParams_eq`, whose left-hand
+side was the cached `Lean.Expr.instantiateLevelParams` and which therefore needed the
+`Expr.replace_eq` axiom. -/
+theorem instantiateLevelParamsNoCache_eq {e ps ls} :
+    instantiateLevelParamsNoCache e ps ls =
     instantiateLevelParamsCore' (!ps.isEmpty && !ls.isEmpty)
       (fun x => ((ps.idxOf? x).bind (ls[·]?)).getD (.param x)) e := by
-  simp only [instantiateLevelParams]; rw [← Bool.not_or];
+  simp only [instantiateLevelParamsNoCache]; rw [← Bool.not_or];
   cases eq : ps.isEmpty || ls.isEmpty <;> simp
   · clear eq
-    simp [instantiateLevelParamsCore_eq, List.idxOf?]; congr; ext n; congr
+    simp [instantiateLevelParamsCoreNoCache_eq, List.idxOf?]; congr; ext n; congr
     induction ps generalizing ls <;> cases ls <;> simp [getParamSubst]
     split <;> simp [*, List.findIdx?_cons]; cases List.findIdx? .. <;> simp
   · refine instantiateLevelParamsCore_id.symm.trans ?_; congr; ext n

@@ -839,7 +839,7 @@ def replaceIfNested (lctx : LocalContext) (params : Array Expr) (As : Array Expr
     let J := .const J_name I_lvls
     let JAs := mkAppRange J 0 I_nparams args
     let auxJ_name ← mkUniqueName (`_nested ++ J_name)
-    let auxJ_type := J_info.type.instantiateLevelParams J_info.levelParams I_lvls
+    let auxJ_type := J_info.type.instantiateLevelParamsNoCache J_info.levelParams I_lvls
     let auxJ_type := lctx.mkForall As <| ← instantiateForallParams auxJ_type I_nparams args
     let JAs' ← replaceParams params JAs As
     modify fun st => { st with nestedAux := st.nestedAux.push (JAs', auxJ_name) }
@@ -850,7 +850,8 @@ def replaceIfNested (lctx : LocalContext) (params : Array Expr) (As : Array Expr
       let J_ctor_info ← env.get J_ctor_name
       -- auxJ_cnstr_type still has references to `J`, this will be fixed later when we process it.
       let auxJ_ctor_name := J_ctor_name.replacePrefix J_name auxJ_name
-      let auxJ_ctor_type := J_ctor_info.type.instantiateLevelParams J_ctor_info.levelParams I_lvls
+      let auxJ_ctor_type :=
+        J_ctor_info.type.instantiateLevelParamsNoCache J_ctor_info.levelParams I_lvls
       let auxJ_ctor_type ← instantiateForallParams auxJ_ctor_type I_nparams args
       return { name := auxJ_ctor_name, type := lctx.mkForall As auxJ_ctor_type }
     let newType := { name := auxJ_name, type := auxJ_type, ctors := auxJ_ctors }

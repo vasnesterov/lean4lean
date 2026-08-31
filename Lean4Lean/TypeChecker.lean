@@ -131,7 +131,7 @@ def inferConstant (tc : Context) (name : Name) (ls : List Level) (inferOnly : Bo
           s!"invalid declaration, safe declaration must not contain partial declaration '{e}'"
     for l in ls do
       checkLevel tc l
-  return info.instantiateTypeLevelParams ls
+  return info.instantiateTypeLevelParamsNoCache ls
 
 /-- Infers the type of expression `e`. If `inferOnly := false`, this function throws an error
 whenever `e` is not typeable according to Lean's algorithmic typing judgment (barring resource
@@ -242,7 +242,7 @@ def inferProj (typeName : Name) (idx : Nat) (struct structType : Expr) : RecM Ex
   let [c] := I_val.ctors | fail
   if args.size != I_val.numParams + I_val.numIndices then fail
   let c_info ← env.get c
-  let mut r := c_info.instantiateTypeLevelParams I_levels
+  let mut r := c_info.instantiateTypeLevelParamsNoCache I_levels
   for i in [:I_val.numParams] do
     let .forallE _ _ b _ ← whnf r | fail
     r := b.instantiate1 args[i]!
@@ -432,7 +432,7 @@ def isDelta (env : Environment) (e : Expr) : Option ConstantInfo := do
   none
 
 def instantiateDeltaValue (ci : ConstantInfo) (ls : List Level) : Expr :=
-  ci.deltaValue?.get!.instantiateLevelParams ci.levelParams ls
+  ci.deltaValue?.get!.instantiateLevelParamsNoCache ci.levelParams ls
 
 /-- If `e` is itself a constant that can be delta-reduced, returns its value with the constant's
 level parameters instantiated. Unlike `unfoldDefinition`, this does not look through applications:

@@ -73,6 +73,61 @@ This is a list of places where lean4lean deliberately has different behavior fro
 
   **What remains.** `String.Internal.append` stays in `addDecl`'s cone, reached now only through `mkPanicMessageWithDecl` — the message string a `panic!`/`assert!`/`get!` prints on the way to returning `Inhabited.default`, which never enters a returned value. It therefore moves from the inventory's "consumed only through a decidable observation" bucket to "decision-irrelevant", alongside `Expr.dbgToString`. The structural check `opaqueNameAppenders` in the same file requires that no `Lean4Lean.*` constant reachable from `addDecl` name the upstream appenders again.
 
+* [`Lean4Lean.TypeChecker`](Lean4Lean/TypeChecker.lean),
+  [`Lean4Lean.RecursorRule` reduction](Lean4Lean/Inductive/Reduce.lean),
+  [`Lean4Lean.ElimNestedInductive`](Lean4Lean/Inductive/Add.lean) — **level-parameter
+  instantiation is uncached.** Every site that substituted universe levels into an expression
+  called `Lean.Expr.instantiateLevelParams` or `Lean.ConstantInfo.instantiateTypeLevelParams`.
+  Both go through `Lean.Expr.instantiateLevelParamsCore`, which is implemented with
+  `Expr.replace`, i.e. `Expr.replaceImpl`: `opaque` with `@[extern "lean_replace_expr"]` and
+  **no Lean body at all**, so nothing can ever be proved about it. C++'s `instantiate_lparams`
+  (`~/lean4/src/kernel/instantiate.cpp`) likewise runs through the address-keyed `replace_fn`
+  cache. The six sites now call core's `Lean.Expr.instantiateLevelParamsNoCache` — upstream's
+  own pure, structurally recursive version of the same function, defined as
+  `replaceNoCache (instantiateLevelParamsCore.replaceFn ..)` under the same emptiness guard —
+  via a one-line `Lean.ConstantInfo.instantiateTypeLevelParamsNoCache`
+  ([`Lean4Lean/Expr.lean`](Lean4Lean/Expr.lean)) for the two `ConstantInfo` sites. The sites are
+  `inferConstant` and `inferProj` in `TypeChecker.lean`, `instantiateDeltaValue` (delta
+  unfolding), the recursor-rule RHS in `Inductive/Reduce.lean`, and the two nested-inductive
+  auxiliary-type sites in `Inductive/Add.lean`. Consequences:
+  * **No difference in the answer.** `instantiateLevelParamsNoCache` is upstream's own
+    documented uncached twin of `instantiateLevelParams` ("Does not preserve expression
+    sharing"); the two compute the same expression. Only the pointer-keyed sharing cache is
+    dropped, and the kernel never observes pointer identity.
+  * **This is what orphaned the frozen axiom `Expr.replace_eq`.** The axiom's single consumer
+    was `Verify/Expr.lean`'s `instantiateLevelParamsCore_eq`, and it was consumed *implicitly*:
+    the axiom is `@[simp]`, the proof opened with `simp [instantiateLevelParamsCore]`, that
+    unfolding left a goal about the cached `Expr.replace`, and the axiom silently rewrote it to
+    `replaceNoCache`. Everything after that first line was already about `replaceNoCache`, so
+    the proof body carries over verbatim to `instantiateLevelParamsCoreNoCache_eq`, which is
+    stated about the pure traversal and uses no axiom. Because the axiom could never become a
+    theorem (there is no Lean body for `replaceImpl`), re-pointing the checker was the only
+    route to dropping it. With this change `Lean.Expr.replaceImpl`, `Expr.replace`,
+    `Expr.instantiateLevelParams`, `Expr.instantiateLevelParamsCore` and
+    `ConstantInfo.instantiateTypeLevelParams` are all **out of `Lean4Lean.addDecl`'s cone**
+    (measured: an 8444-constant cone walk reports `false` for each).
+  * **Complexity: the same blowup as the nested-inductive entry further down this file, on
+    a much hotter path.** The pointer cache
+    made each *shared* subterm cost one visit; without it each *occurrence* costs a visit, so a
+    type that is a maximally shared DAG of depth `d` costs `2^d` instead of `d`. The mitigating
+    factor is that `instantiateLevelParamsCore.replaceFn` returns `some e` — halting the
+    descent — at any subterm whose **cached** `hasLevelParam` bit is `false`, and that bit is an
+    `O(1)` field read, so only the level-parameter-carrying part of a term is ever re-walked.
+    A monomorphic subterm, however deeply shared, costs one test. The worst case is a
+    polymorphic constant whose type is a deeply shared DAG in which level parameters occur on
+    every branch; the C++ kernel handles that in time linear in the DAG. This path is much
+    hotter than the nested-inductive one — it runs on every constant lookup during inference
+    and on every delta unfolding — so the timing evidence is the Arena run recorded below
+    rather than an argument that the inputs are rare.
+  * **Measured.** Kernel Arena after the change: **185 correct, 6 `either`, 0 incorrect** —
+    the same reading as before. The two whole-library tests are `init` 1.4 min and `std` 2.5 min,
+    inside the band already recorded for that entry (`init` 1.4 min, `std` 2.4 min), and the
+    sharing-stress cases in the `perf/` group are unmoved: `perf/shared-subterm` 77 ms,
+    `perf/identical-nesting` 42 ms, `perf/repeated-subproblem` 39 ms, `perf/let-ladder` 979 ms.
+    No crafted worst-case input was constructed for this path; the argument above (the cached
+    `hasLevelParam` bit prunes every monomorphic subterm in `O(1)`) is why the hot path does not
+    move, and it is an argument, not a measurement of the worst case.
+
 * [`Lean4Lean.checkEqType`](Lean4Lean/Quot.lean): lean4lean **rejects a quotient initialization whose `Eq` is an `unsafe inductive`**; the C++ kernel's `check_eq_type` (`~/lean4/src/kernel/quot.cpp`) accepts it. Concretely, the input treated differently is any environment in which `Eq` is declared as an inductive with one universe parameter, one constructor, and the exact type and constructor type `check_eq_type` demands, but with `isUnsafe := true` — for example the `prelude` file
 
   ```lean
@@ -173,8 +228,10 @@ This is a list of places where lean4lean deliberately has different behavior fro
   now call `Expr.replaceNoCache` and `Expr.replaceNoCacheT` — the pure, structurally recursive
   versions the `implemented_by` pair is supposed to implement. Consequences:
   * **Logically none.** `Expr.replace`'s only stated relation to `replaceNoCache` in this repo
-    is the frozen axiom `Expr.replace_eq` (`Verify/Axioms.lean`), which asserts exactly that the
-    cached version *equals* the uncached one; no proof in the tree ever used it. The state
+    was the frozen axiom `Expr.replace_eq` (`Verify/Axioms.lean`), which asserts exactly that the
+    cached version *equals* the uncached one. **The clause that used to follow — "no proof in
+    the tree ever used it" — was false**, and its evidence was a by-name grep. The axiom is
+    `@[simp]`, so its one consumer was implicit: see the entry below. The state
     written by `replaceIfNested` is unaffected, because its own `nestedAux` memo is keyed on
     **structural** equality (`Iparams == e`) and is consulted before any auxiliary type is
     created — so re-visiting a structurally equal nested application still returns the same
@@ -196,5 +253,6 @@ This is a list of places where lean4lean deliberately has different behavior fro
     `Verify/Guard.lean`'s check 3 drops from 52 to 51 flagged declarations, and of the *three*
     entries there that were genuine `@[implemented_by]`/`unsafe` implementations rather than
     equation-compiler artefacts, this was the only removable one (the other two are
-    `ptrEqExpr`/`ptrEqConstantInfo`, deliberate and axiomatised). The frozen axiom
-    `Expr.replace_eq` is now unused by anything in the tree.
+    `ptrEqExpr`/`ptrEqConstantInfo`, deliberate and axiomatised). **It did not, on its own,
+    make `Expr.replace_eq` unused** — that claim was retracted; removing the axiom's last
+    consumer took the separate change recorded in the next entry.

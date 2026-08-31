@@ -2,6 +2,7 @@ import Batteries.Data.String.Lemmas
 import Lean4Lean.Verify.Typing.Expr
 import Lean4Lean.Theory.Inductive.StructureClosed
 import Lean4Lean.Verify.Typing.ProjSkip
+import Lean4Lean.Verify.Typing.ProjSpineCongr
 import Lean4Lean.Verify.Expr
 import Lean4Lean.Theory.Typing.Strong
 import Lean4Lean.Theory.Typing.UniqueTyping
@@ -1364,6 +1365,30 @@ theorem projMinor_hasType {env : VEnv} {U : Nat} {S : Lean.Name}
       (hlv i (Nat.le_refl _) (.inl rfl))) hcong)).symm (hrgt i hi)
 
 set_option maxHeartbeats 1000000 in
+/-- **F17, as `projTerm_hasType` wants it.**  `TrProj` records the guarded `Prop` clause;
+`projTerm_hasType` asks for the field level to match the recursor's *elimination* level at the
+level list `projLvls` supplies.  The two are the same statement: when `D.isLE`, `elimLvl` reads
+the head of `projLvls`, which is the field level; when it does not, both sides are `zero`.
+
+Factored out of `TrProj.wf`'s proof, which had it inline, so that `TrProj.uniq` can spend it
+too. -/
+theorem projLvls_elim_of_F17 {D : VInductDecl'} {C : VIndCtor} {us : List VLevel} {i : Nat}
+    (hF : D.isLE = true ∨ ∀ k, k ≤ i → (k = i ∨ C.FieldUsed D 0 k) →
+      (C.fields.getD k default).lvl.inst us ≈ .zero) :
+    ∀ k, k ≤ i → (k = i ∨ C.FieldUsed D 0 k) →
+      (C.fields.getD k default).lvl.inst us ≈ D.elimLvl.inst (D.projLvls C us k) := by
+  intro k hk hg
+  by_cases hLE : D.isLE = true
+  · simp only [VInductDecl'.elimLvl, VInductDecl'.projLvls, hLE, if_true, VLevel.inst,
+      List.getD_cons_zero]
+    rfl
+  · simp only [Bool.not_eq_true] at hLE
+    rw [VInductDecl'.elimLvl, VInductDecl'.projLvls, if_neg (by simp [hLE]),
+      if_neg (by simp [hLE])]
+    rcases hF with h | h
+    · exact absurd h (by simp [hLE])
+    · simpa [VLevel.inst] using h k hk hg
+
 theorem projTerm_hasType {env : VEnv} {U : Nat} {S : Lean.Name}
     {D : VInductDecl'} {T : VIndType} {C : VIndCtor} {us : List VLevel}
     (henv : VEnv.WF env) (H : env.IsStructure S D T C)
@@ -1702,10 +1727,35 @@ Both new lemmas are `sorryAx`-tainted only through `VEnv.IsDefEqU.forallE_inv_st
 The level and record lemmas are hole-free.  The composed reduction inherits four holes, all of
 them from the pre-existing `VEnv.IsStructure.projData_uniq` (which any route to `ProjDataCongr`
 must use): `IsDefEqU.weakN_iff`, `IsDefEqU.forallE_inv_stratified`, `WF.rigidShapeUniqNS`,
-`NormalEq.descend`. -/
+`NormalEq.descend`.  That is still true of the closed proof below: `TrProj.uniq` is no longer a
+`sorry`, but those four holes remain in its *cone*, because `projData_uniq` is unavoidable.
+
+**Update 7: CLOSED.**  `Verify/Typing/ProjSpineCongr.lean` discharges obligation 3.  What
+Update 6 mis-costed is recorded there in full; the two corrections that mattered:
+
+* `VEnv.IsDefEq.instAllCongrSort`'s docstring says the general form of that lemma is
+  unreachable because "the general statement would need `instAll B as ≡ instAll B as'` to even
+  state its conclusion".  That is true of `IsDefEq` and **false of `IsDefEqU`**, where the type
+  is existentially quantified and `IsDefEqU.trans` glues the two β-steps at different types.
+  `VEnv.IsDefEqU.instAllCongr` is the general lemma, three lines.
+* With it, no `mkAppDF` over the recursor telescope is needed at all, and the `ProjGen*` family
+  is not needed either.  `VInductDecl'.projTerm_instAll` (`Theory/Inductive/Structure.lean`),
+  read right-to-left at a spine of *variables*, says every `projTerm` is **one** term — the
+  projection of the last variable at the parameter and index variables — with `ps ++ ιs ++ [e]`
+  substituted in.  So the two sides of the spine congruence are `instAll` of the *same* term
+  and `projTerm`'s internal structure (motives, minors, `projArgs`) is never unfolded.
+
+The only genuinely new typing obligation was that the generic term is well typed over its own
+telescope, and that is `projTerm_hasType` below at a variable spine
+(`VInductDecl'.projGeneric_wf`), whose side conditions are `onCtxParams_instL`, `motiveCtx_wf`
+at the identity spine and two `HasArgs.bvars`. -/
 theorem TrProj.uniq (H1 : TrProj env U Γ₁ s₁ i e₁ e₁') (H2 : TrProj env U Γ₂ s₂ i e₂ e₂')
     (H : env.IsDefEqU U Γ₁ e₁ e₂) :
-    env.IsDefEqU U Γ₁ e₁' e₂' := sorry
+    env.IsDefEqU U Γ₁ e₁' e₂' :=
+  TrProj.uniq_of_projTermCongr henv hΓ
+    (VEnv.ProjDataCongr.projTermCongr henv (fun h1 h2 h3 => TrProj.wf henv h1 h2 h3)
+      (VEnv.ProjTypingAll.projDataCongr henv fun HS h3 h7 hi hF =>
+        projTerm_hasType henv HS h3 h7 _ hi (projLvls_elim_of_F17 hF))) H1 H2 H
 
 variable! (henv : VEnv.WF env) {Us : List Name} (hΔ : VLCtx.IsDefEq env Us.length Δ₁ Δ₂) in
 theorem TrExprS.uniq (H1 : TrExprS env Us Δ₁ e e₁) (H2 : TrExprS env Us Δ₂ e e₂) :
@@ -2369,8 +2419,8 @@ end
 include henv hΔ
 
 theorem TrExprS.instL (H : TrExprS env ps Δ e e') :
-    TrExpr env Us (Δ.instL ls') (e.instantiateLevelParams ps ls) (e'.instL ls') := by
-  simp [Expr.instantiateLevelParams_eq]
+    TrExpr env Us (Δ.instL ls') (e.instantiateLevelParamsNoCache ps ls) (e'.instL ls') := by
+  simp [Expr.instantiateLevelParamsNoCache_eq]
   generalize (_ && _) = red, eqF : (fun x : Name => _) = F
   have Hls' := VLevel.WF.of_mapM_ofLevel Hls
   have eq' := eq.trans (List.mapM_eq_some.1 Hls).length_eq
@@ -2409,7 +2459,7 @@ theorem TrExprS.instL (H : TrExprS env ps Δ e e') :
       (VLCtx.instL_toCtx _ ▸ h2.instL Hls')
 
 theorem TrExpr.instL (H : TrExpr env ps Δ e e') :
-    TrExpr env Us (Δ.instL ls') (e.instantiateLevelParams ps ls) (e'.instL ls') :=
+    TrExpr env Us (Δ.instL ls') (e.instantiateLevelParamsNoCache ps ls) (e'.instL ls') :=
   let ⟨_, s1, h1⟩ := H
   have Hls' := .of_mapM_ofLevel Hls
   (s1.instL henv hΔ Hls eq).defeq henv (hΔ.instL Hls') (VLCtx.instL_toCtx _ ▸ h1.instL Hls')

@@ -96,7 +96,7 @@ def inductiveReduceRec [Monad m] (env : Environment) (e : Expr)
   let majorArgs := major.getAppArgs
   if rule.nfields > majorArgs.size then return none
   if ls.length != info.levelParams.length then return none
-  let mut rhs := rule.rhs.instantiateLevelParams info.levelParams ls
+  let mut rhs := rule.rhs.instantiateLevelParamsNoCache info.levelParams ls
   -- get the parameters, motives and minor premises from the recursor application (recursor rules
   -- don't need the indices, as these are determined by the constructor and its parameters/fields)
   rhs := mkAppRange rhs 0 info.getFirstIndexIdx recArgs

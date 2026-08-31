@@ -96,6 +96,21 @@ def strLitToConstructor (s : String) : Expr :=
 
 end Expr
 
+namespace ConstantInfo
+
+/-- Pure-Lean replacement for `Lean.ConstantInfo.instantiateTypeLevelParams`.
+
+Upstream's version goes through `Expr.instantiateLevelParams`, hence `Expr.replace`, hence
+`Expr.replaceImpl` -- `opaque` with `@[extern "lean_replace_expr"]`, so nothing can be proved
+about it and it had to be modelled by the frozen axiom `Expr.replace_eq`.  This one goes
+through core's `Expr.instantiateLevelParamsNoCache`, which is ordinary structural Lean.  The
+two compute the same expression; only the pointer-keyed sharing cache is dropped.  See
+`divergences.md`, "level-parameter instantiation is uncached". -/
+def instantiateTypeLevelParamsNoCache (c : ConstantInfo) (ls : List Level) : Expr :=
+  c.type.instantiateLevelParamsNoCache c.levelParams ls
+
+end ConstantInfo
+
 namespace Literal
 
 def toConstructor : Literal → Expr
