@@ -301,3 +301,66 @@ on `WF.instL_lhs_ne_sort`, which holds at every WF env and so says nothing about
 What survives is that `refEnv_no_defeqs` kills the `extra` constructor, reducing
 `SortUniq refEnv 0` to beta/eta/proofIrrel/trans confluence over six axioms with no rewrite
 rules — the first finite, self-contained instance of this circle in the tree.
+
+### The model route to `sort_not_proof` is CLOSED — and my brief's premise was a non-sequitur
+
+I sent a stream at `Theory/SetModel/` on the reasoning that `sort_not_proof` survives
+cumulativity, so "unlike `SortUniq` it is not blocked for the n-inaccessible model." That
+inference is invalid and the stream said so: **surviving cumulativity means a model cannot
+*refute* it; it does not follow that a model can *prove* it.** A negative check rules a route
+out; passing one does not rule a route in. The claim came from `Typing/SortUniq.lean`'s
+closing paragraph ("`sort_not_proof` is the statement worth asking the model stream for"),
+which I repeated without checking. That paragraph is wrong.
+
+The machine-checked reason the route is closed is stronger than the correction
+(`Theory/SetModel/NotProofNoModel.lean`, 559 lines, 16 of 18 declarations sorry-free):
+
+    nonempty_propSplit_iff_agree : Nonempty (PropSplit env nv) ↔ PropUniq nv ∧ PropTypeAgree nv
+    sortNotProof_of_propSplit    : gets sort_not_proof from PropSplit with NO interpretation
+
+No ZFC, no inaccessibles, no `Stable`. **The semantic construction is strictly dominated: it
+cannot prove anything about `sort_not_proof` that its own hypothesis does not prove more
+cheaply.** Building the model to get `sort_not_proof` is circular.
+
+Independent corroboration, which I should have found before briefing: `Typing/UniqueTypingN.lean`'s
+`PropTypeAgreeN` section already said the model route is closed, for the same reason (a
+cut-down model bottoms out at `sort_not_proof`, which is `PropTypeAgreeN` at a sort). It was
+prose there; it is now machine-checked. Two independent derivations agreeing is worth having,
+but a third of that round was rediscovery, and reading the existing analysis first was one grep.
+
+Also from that round, all sorry-free: `sortNotProof_of_propTypeAgree` and
+`forallENotProof_of_propTypeAgree` drop **both** the `SortUniq` and `OnCtx` hypotheses the
+existing `sort_not_proof` carries; and the transfer obstruction is isolated exactly —
+`Sound`'s fields quantify over `ρ ∈ interpCtx M L Γ`, `interp_falseProp` gives
+`⟦∀p:Prop,p⟧ ∅ = ∅`, so `Sound M L [falseProp] e₁ e₂ A` holds for **arbitrary** terms with no
+typing premise, at precisely the context shape every consumer of `sort_not_proof` supplies.
+The semantics is easy; the quantifier is empty where the hole is used. Closing over the context
+moves it to `[]` but makes the term a `lam`, whose obligation is false — which is *why*
+cumulativity is semantically valid.
+
+**New composition defect found, at the level layer.** The model's `PropTypeAgree` is pointwise
+in `ls`; the syntactic `IsPropN` is the `≈ .zero` shape. `propAgree_pointwise_not_from_equivZero`
+**refutes** the direction needed (`.param 0`, `.param 1`, both `WF 2`, both `≉ .zero`,
+disagreeing at `ls = [0,1]`). So a completed `PropTypeAgreeN` would *not* discharge
+`PropSplit`'s import. Cheap repair: nothing in `Interp.lean` evaluates a level at any `ls`
+other than `M.ls`, so the `∀ ls` is unused generality — narrow it. Authorised.
+
+### Revised frontier for the 449-user family
+
+The target is **not** `SortUniq` and **not** `sort_not_proof`. It is `PropTypeAgreeN`, and per
+`UniqueTypingN.lean` that is not self-sufficient either — the primitive to route or fund is
+
+    SortForallEDisjoint env U n : ∀ {Γ e A B u},
+      HasTypeN U n Γ e (.sort u) → HasTypeN U n Γ e (.forallE A B) → False
+
+`eta`'s case of `PropTypeAgreeN` is exactly this; `proofIrrel`'s case is by contrast a
+self-reference (an instance of `PropTypeAgreeN` at another subject, measure `≤` not `<`).
+`sortForallEDisjoint_of` forces any counterexample to have an **application** subject and the
+`const` case is proved, so it is a narrow target.
+
+**The open risk, and the thing I most need answered:** `UniqueTypingN.lean` claims
+`PropTypeAgreeN`'s `forallEDF` case drops an index exactly as `SubstC` does and therefore sits
+in the family **refuted** in `Theory/Typing/SubstCRefute.lean`, with no rule able to repair it.
+If that holds, `PropTypeAgreeN` is unreachable by its own induction and the question becomes
+whether `sort_not_proof` can be had from `SortForallEDisjoint` + `SortInvN` alone. Sent back
+to be verified rather than inherited — this session has caught several stale docstrings.
