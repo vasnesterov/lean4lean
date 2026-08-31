@@ -16,6 +16,14 @@ blind to the same failure mode**.
 | guard 3 (`Verify/Guard.lean`) | `partial` / `@[extern]` / `@[implemented_by]` reachable from `addDecl` | anything in the *specification* |
 | `scripts/hole-cone.lean` | which `sorry`s a given theorem depends on | **a hypothesis** — a cone walks `deps`, and a hypothesis is not a dependency |
 
+And a fourth blindness, the mirror image of the third and just as costly: **an obligation
+carried as a hypothesis of a *proved* theorem counts as zero.** `VEnv.addInductR_ordered'`
+(`Theory/Inductive/NestedOrdered.lean:146`) is proved, sorry-free, and in nobody's hole cone —
+and it carries three undischarged obligations (`hctors`, `hrecs`, `hrules`) that are the entire
+nested-soundness content of the inductive route. Factoring a hole into named hypotheses is good
+practice and this repo does it well; the cost is that the census then reads 0 where the work
+is. §6 lists the four such obligations that block the goal today.
+
 The failure mode none of them sees: **a statement that is green because it says nothing.**
 
 A lemma whose hypotheses cannot be jointly satisfied is *provable*, records as sorry-free,
@@ -284,6 +292,38 @@ were found the moment anyone looked.
   this ledger**, and the remaining unchecked entries identified rather than assumed.
 - `Theory/Typing/` step lemmas. No file in that directory does what `PropSplitAudit.lean` does.
   Worth a single audit file on the model of §5a rather than case-by-case doubt.
+
+### The four uncounted obligations that block the inductive route
+
+Found by reading for the fourth blindness above rather than by running anything. **None of these
+is a decision; all four are ordinary open theorems that the census reads as 0.** They are what
+stands between the tree and a nested-capable `AddInduct`, i.e. between here and the version of
+the flip that would actually unblock `kernel_sound`:
+
+1. `hctors` — a *declared* constructor's **restored** stored type is a type in the environment
+   carrying the step's type constants.
+2. `hrecs` — each **renamed** recursor's **restored** type is a type in the environment carrying
+   those and the constructors.
+3. `hrules` — each **restored** ι-rule is a well-formed definitional equation there.
+
+   All three are hypotheses of `VEnv.addInductR_ordered'`, to be discharged from
+   `OwnId` + `Faithful` + `D.WF env`. They are known **satisfiable**: `nfnAux_addInductR_ordered`
+   (`Theory/Typing/ConstSubstNested.lean:1235`) supplies all three in a non-trivial instance, and
+   `addInductR_ordered_nil` shows that at the identity restoration they collapse to what
+   `addInduct'` already discharges. So this is a genuine open proof, not a vacuity.
+
+4. The `induct` arm of `VEnv.WF'.keys` in `Theory/Typing/DeltaUnique.lean`. Its `hfresh` — every
+   name in an emitted rule's key is absent from `env` — is **false** for a nested step:
+   `iotaRulesR_major_not_fresh` (`NestedOrdered.lean:196`) proves the key's second component is
+   a constructor of a block the environment already holds. The replacement argument (freshness of
+   the key's *head* only, via `recName_mem_allNamesCR`) is available but is a different proof.
+
+**This corrects a framing carried in `docs/critical-path.md` and in §2 above.** The `AddInduct`
+flip was described as the thing standing between the tree and the main theorem, and therefore as
+a decision. Half of that is wrong. The *non-nested* flip is available today and is a decision
+(it costs census 14 → 17 and leaves nested blocks vacuous). The *nested* flip — the only one that
+unblocks `kernel_sound`, and the one CLAUDE.md's "nested declarations are a primary target"
+requires — is blocked on the four items above, and no decision makes them go away.
 
 ## 7. Related files
 

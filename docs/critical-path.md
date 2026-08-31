@@ -254,3 +254,38 @@ Every route from the checker to the abstract environment passes through `TrEnv .
 `AddInduct` is empty that relation cannot hold of any environment containing `Eq`. The flip is
 not a way to buy progress; it is the only thing that makes the route exist. The decision is
 still the human's, and the price recorded above (census 14 → 17) is still the price.
+
+### Correction 5: the flip is two flips, and the one that matters is not a decision
+
+Corrections 3 and 4, and §2 of `docs/vacuity-ledger.md`, present the `AddInduct` flip as the
+single thing standing between the tree and `kernel_sound`, and therefore as a decision waiting
+on a human. Reading `Theory/Inductive/NestedOrdered.lean` shows that is half wrong.
+
+There are **two** flips, and they are not the same change:
+
+* **The non-nested flip** — `AddInduct := ∃ …, AddInductStages …`. Every arm is proved in
+  `Verify/Environment/Basic.lean` (`.le`, `.map_wf`, `.find?_shape`, `.defeqs`,
+  `.to_addInduct`), and `AddInductStages` is *satisfiable* (`Basic.lean:844`, all three stages
+  fire). The one repair the handoff called "not yet in hand" — `addQuot.WF`'s second branch —
+  **is** in hand now. So this flip is available today. It is genuinely a decision, because it
+  costs census 14 → 17 and buys a *partial* result: `AddInductStages` is refuted for a nested
+  block (`Basic.lean:108`), so `TrEnv'` stays unsatisfiable there and rows 1–5 of the vacuity
+  ledger survive with a narrower witness.
+
+* **The nested flip** — `AddInduct := ∃ K R, AddInductStagesR …`, which is what
+  `AddInductFlip` is stated in terms of and the only version that covers full Lean type theory.
+  This one is **not** a decision. It is blocked on four ordinary open obligations, listed in
+  `docs/vacuity-ledger.md` §6: the three hypotheses `hctors` / `hrecs` / `hrules` of
+  `VEnv.addInductR_ordered'`, and the nested arm of `DeltaUnique`'s `keys_induct`, whose
+  `hfresh` is false for a nested step (`iotaRulesR_major_not_fresh`).
+
+Why this was missed for several rounds: all four are **hypotheses of proved, sorry-free
+theorems**, so the census reads 0 where the work is, and no hole cone can see them either — a
+cone walks dependencies, and a hypothesis is not one. That is the fourth instrument-blindness
+now recorded at the top of the vacuity ledger.
+
+What this changes about priorities: waiting on the decision was never going to reach the goal,
+because the decision only ever unlocked the partial flip. The four obligations are the work.
+They are known satisfiable — `nfnAux_addInductR_ordered` discharges all three of the first kind
+in a non-trivial instance, and `addInductR_ordered_nil` shows they collapse to `addInduct'`'s
+own obligations at the identity restoration — so this is proving, not repairing.
