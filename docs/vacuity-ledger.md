@@ -1,8 +1,8 @@
 # The vacuity ledger
 
 *Written 2026-08-31, after four instances of the same failure mode turned up in one round, and
-a survey then found four more already refuted elsewhere in the tree. Thirty-one statements are
-now measured; ten are vacuous, near-vacuous or false, three are refuted outright, two routes
+a survey then found four more already refuted elsewhere in the tree. Thirty-five statements are
+now measured; twelve are vacuous, near-vacuous or false, three are refuted outright, two routes
 are dead, and nine are bounded or acquitted.*
 
 **The injectivity corner's semantic tally is now final: 1 usable conjunct of 5** — and per row 30
@@ -22,6 +22,16 @@ blind to the same failure mode**.
 | `scripts/sorry-census.lean` | declarations whose value mentions `sorryAx` | a hole that is not a `sorry` |
 | guard 3 (`Verify/Guard.lean`) | `partial` / `@[extern]` / `@[implemented_by]` reachable from `addDecl` | anything in the *specification* |
 | `scripts/hole-cone.lean` | which `sorry`s a given theorem depends on | **a hypothesis** — a cone walks `deps`, and a hypothesis is not a dependency |
+
+**An instrument can also be simply wrong, which is worse than blind.** `scripts/hole-rank.lean`
+built its graph with a filter that excluded internal names, so a declaration compiled by
+well-founded recursion (its recursive calls routed through `NormalEq.trans._unary`) had no outgoing
+edges and every walk truncated there. It therefore reported `NormalEq.descend`'s cone as *not*
+reaching `IsDefEqU.weakN_iff` when it reached it in seven hops — it printed "no cycle" at the one
+place a cycle existed — and every `users`/`sole` figure it produced was an undercount
+(`weakN_iff` 60 → 69 in the Guard+K closure). Fixed 2026-08-31: internal names are pass-through
+nodes in the graph, `inScope` filters only what is counted and printed. **Every transitive-user
+count quoted before that fix is a floor, not a figure.**
 
 And a **fifth**, found by measurement on 2026-08-31 and the subtlest so far: **a model-side
 statement can be vacuous because the model has no valuation for the context the judgement lives
@@ -155,6 +165,10 @@ Every row is backed by a **proved** lemma in the tree, not an argument in a docs
 | 27 | `Faithful` / `Built` / `Canonical` / `OwnId` / `D.WF` as a defence against row 26 | **insufficient, provably** — every clause of each is about the *companion* members, and the constructor that fails is *user-written* | `nfnAuxDirty_AddNestedB` + `nfnAuxDirty_step_not_ordered` (same file) | n/a |
 | 28 | obligations **(B)** and **(C)**'s cleanliness condition as stated against `csubstTy` | **mis-stated** — (B)/(C) run on `R.csubst`, whose domain escapes `D.blockNames`, so no `VIndCtor.WF` clause makes a non-restored position σ-invariant | `csubstTy_dom_blockNames` (holds) vs `nfn_csubst_dom_escapes_blockNames` (fails), same file | n/a |
 | 30 | `rigidShapeUniqNS_of_family` — the *useful* direction of the five-conjunct decomposition | **not unconditional**, which I had presented it as. It additionally needs `ProofTransport`, available only through `WF.proofTransport` and therefore tainted by **hole A**. So hole B cannot be closed from the five conjuncts without hole A first, or without an independent `sort_not_proof` / `forallE_not_proof` | measured by the injectivity stream, 2026-08-31; recorded in `docs/handoff-injectivity.md` §4G | n/a |
+| 32 | `VEnv.NormalEq.descend` (145 users) | **refuted**, not open — its `sorry` is unfillable. `DescendStatement` fails at a `Params` instance that exists (`refParams` over `refEnv`), given `SortUniq` and `UniqTyping` there | `not_descendStatement`, `not_descendStatement_etaArg`, `not_descendStatement_etaFun` (`Theory/Typing/DescendRefute.lean:425`+), all `sorryAx`-free | n/a — it must be **restated**, and the descent layer no longer depends on the strengthening hole regardless |
+| 33 | `VEnv.parRed`'s statement | **refuted verbatim** — no `hK`, no `KStep`, no eta step needed. So "re-prove `parRed` before deleting `descend`/`appDF_extra_of_descend`" — a standing constraint I wrote — is ill-formed: `parRed` must be **restated** over `ParRedK` (`KSite7.ParRedKStatement`), whose gate is `EtaRLiftInv`, itself refuted at `not_etaRLiftInv_of_etaK` | `not_parRedStatement_of_propMajor` (`Theory/Typing/ParRedPropRefute.lean:83`) | n/a |
+| 34 | `TransStrengtheningNarrowNeutral` / `…Spine` — the `weakN_iff` residual | **bounded three ways, and the conclusion is not free** — the first `Theory/Typing/` entry meeting §5a's standard | `transStrengtheningNarrowSpine_hyps_satisfiable`, `exists_wf_narrowSpine`, `no_neutral_proofIrrel`, with the collapse test `audit_witness_is_substitution_case` showing bound 1 tests only the *easy* case (`Theory/Typing/StrengthenAudit.lean`) | n/a |
+| 35 | any *syntactic* narrowing of the residual's middle term `b` | **cannot help** — `b` is always convertible to a lift, and "may be taken to be a lift" is satisfied by `b₀ := e2`, so rounds 5–8's restrictions constrain representatives, not conversion classes. Only a normalisation result can sharpen it | `mid_defeq_lift`, `midNormalise_trivial` (same file), both hole-free, `[propext]` | n/a |
 | 31 | `Experimental/ShapeLogRel.lean` as a usable asset | **not one, and the claim about it was wrong in every particular.** Reported to me as "6 100 lines, 0 sorries, blocked by one standalone axiom that proves `False`". Measured: **8 435 lines**, `sorry` in tactic position at several sites, **no `axiom` declared in it at all**, and it **does not compile** (`lake build Lean4Lean.Experimental.ShapeLogRel` fails on a `PiDefEq` goal). It is also not in `ConeJoin`'s closure, so no instrument sees it | direct measurement, 2026-08-31 | n/a |
 | 29 | `CoherentOn` as the rescue for `RigidConstPiDisj` / `RigidConstSortDisj` | **dead route, and the blocker was misdiagnosed for months.** `CoherentOn.const_type` constrains `M.cnst c us` by *membership* in `⟦ci.type⟧` and nothing more, and both target shapes live inside a declared type — so a `CoherentOn` model over a `VEnv.WF` environment with **no defeqs at all** still lets `.const c us` and `.sort .zero` share a denotation. The refuted guard is *stronger* than what the conjuncts supply (whole-environment rule-freeness vs `RuleFreeHead c`), so no weakening rescues them | `not_coherentConstNotUniv`, `not_coherentConstNotPi`, `coherent_const_denot_eq_sort`, `oracleOK_univ` (`Theory/SetModel/CoherentConstShape.lean`); non-degeneracy by `above_iff_of_chain` and `not_coherentOn_falseProp` + `coherentOn_axEnv_separates` | n/a |
 

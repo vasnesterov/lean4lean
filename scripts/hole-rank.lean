@@ -45,6 +45,21 @@ def deps (ci : ConstantInfo) : NameSet :=
 
 def inScope (n : Name) : Bool := (`Lean4Lean).isPrefixOf n && !n.isInternal
 
+/-- **Graph membership is deliberately wider than `inScope`.**
+
+`inScope` excludes internal names, and using it to *build* the graph was a real bug: a
+declaration compiled by well-founded recursion routes its recursive calls through an internal
+companion (`NormalEq.trans._unary`), so that node got no outgoing edges and every walk truncated
+there.  The instrument then reported `NormalEq.descend`'s cone as
+`[forallE_inv_stratified, rigidShapeUniqNS]` while `IsDefEqU.weakN_iff` was in fact reachable in
+seven hops through exactly such a companion — i.e. it printed "no cycle" at the one place a cycle
+existed, and every `users`/`sole` count it produced was an undercount (`weakN_iff` 60 → 69,
+`rigidShapeUniqNS` 136 → 139, `forallE_inv_stratified` 232 → 233 in the Guard+K closure).
+
+So internal names are **pass-through nodes** in the graph, and `inScope` remains the filter on
+what is *counted and printed*.  Found by the `descend` stream, 2026-08-31. -/
+def inGraph (n : Name) : Bool := (`Lean4Lean).isPrefixOf n
+
 structure Graph where
   rev : Std.HashMap Name (Array Name)
   fwd : Std.HashMap Name (Array Name)
@@ -53,7 +68,7 @@ def buildGraph (env : Environment) : Graph := Id.run do
   let mut rev : Std.HashMap Name (Array Name) := {}
   let mut fwd : Std.HashMap Name (Array Name) := {}
   for (n, ci) in env.constants.toList do
-    unless inScope n do continue
+    unless inGraph n do continue
     let ds := (deps ci).toList.toArray
     fwd := fwd.insert n ds
     for d in ds do rev := rev.insert d ((rev.getD d #[]).push n)
