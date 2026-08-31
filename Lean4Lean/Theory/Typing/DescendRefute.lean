@@ -477,9 +477,18 @@ circular.  Three registers, kept apart:
   `sorryAx`-free; this corollary's hole cone is `forallE_inv_stratified` and nothing else, and
   `NormalEq.descend` is **not** in it (measured on the value cone, not read off the source).
 * **[machine-checked, and it cuts against the first bullet]** `PiLevelPin.lean`'s
-  `piInvStratApp_iff_sortUniq` shows that hole is, modulo `WF.rigidShapeUniq`, *equivalent* to
+  `piInvStratApp_iff_sortUniq` shows that hole is, **given `VEnv.PiInv`**, *equivalent* to
   `VEnv.SortUniq` at the same environment and index.  So deriving `refEnv.SortUniq 0` from it
-  is **no independent evidence of satisfiability** -- it assumes the very statement.  What the
+  is **no independent evidence of satisfiability** -- it assumes the very statement.
+
+  *Correction, 2026-08-31.*  This bullet used to say "modulo `WF.rigidShapeUniq`", which reads
+  as though the side condition were already discharged.  It is not: the side condition is
+  `PiInv env U`, an explicit hypothesis of `sortUniq_iff_piInvStratApp`
+  (`Injectivity.lean:620`), and `PiInv` is a **second open node**, not a lemma -- see
+  `Injectivity.lean:1221-1225`, and `RigidNodeCircle.lean`'s `rigidPiUniq_iff_piInv`, which
+  shows the `pi`/`pi` entry of the bridge *is* `PiInv` on the nose.  The wording here caused a
+  brief to be written on the premise that the two large holes were one hole seen twice; they
+  are not, and `SortUniq` alone does not finish the corner.  What the
   first bullet does establish is only non-circularity with `descend`.  The evidence that the
   hypothesis is satisfiable is the next bullet.
 * **[not evidence, recorded so nobody re-derives it]** "the only known failure route

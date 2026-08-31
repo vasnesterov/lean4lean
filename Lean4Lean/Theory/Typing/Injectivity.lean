@@ -198,6 +198,15 @@ are no longer five: they are *one*, `VEnv.WF.rigidShapeUniq`, and all five of `f
 `trans` case from it.  The file's hole count for this family dropped 5 → 1 with no statement
 changed.  The description above of *what* the residual says is still accurate; what was wrong
 was calling it five obligations.
+
+**Narrowed again, 2026-08-31.**  The open statement is now `VEnv.WF.rigidShapeUniqNS`, which
+is `rigidShapeUniq` minus its `sort`/`sort` entry: eight of nine entries, because
+`rigidShapeUniq_of_sortUniq` puts that entry back from `VEnv.SortUniq` alone.
+`WF.rigidShapeUniq` survives as a theorem, so no consumer changed.  And the classification
+question — *does the bridge reduce to `SortUniq`?* — is answered **no** in
+`Theory/Typing/RigidNodeCircle.lean`: the narrowed bridge is exactly `PiInv` together with
+three constant-spine facts (`rigidShapeUniqNS_iff_family`, `sorryAx`-free in both directions),
+and `rigidPiUniq_iff_piInv` below identifies its `pi`/`pi` entry with `PiInv` on the nose.
 -/
 
 /-- **NOT PROVED**, and — unlike `sort_inv` — *not* reducible to the conversion-derivation
@@ -696,6 +705,42 @@ theorem IsProof.defeqU {Γ : List VExpr} {e₁ e₂ : VExpr} (henv : VEnv.WF env
     (hp : env.IsProof U Γ e₁) : env.IsProof U Γ e₂ :=
   let ⟨p, hp0, hep⟩ := hp; ⟨p, hp0, HasType.defeqU_l' henv hΓ h hep⟩
 
+/-- **Proof-ness transport, as a named property.**
+
+`IsProof.defeqU` proves it, but *not* `sorryAx`-freely: it goes through
+`HasType.defeqU_l'`, whose cone reaches `IsDefEqU.forallE_inv_stratified` (checked by transitive
+scan, 2026-08-31).  Anything that wants to state a result about the `RigidShapeBridge` family
+without inheriting that taint has to take this as a hypothesis instead — the same discipline
+`PiLevelPin.lean` uses for `SortUniq`.
+
+It is a *small* node, not a new obstruction: it is the only place the bridge's `¬ IsProof`
+premise needs anything at all, and it is used nowhere else in the classification. -/
+def ProofTransport (env : VEnv) (U : Nat) : Prop :=
+  ∀ {Γ : List VExpr} {e₁ e₂ : VExpr}, OnCtx Γ (env.IsType U) →
+    env.IsDefEqU U Γ e₁ e₂ → env.IsProof U Γ e₁ → env.IsProof U Γ e₂
+
+/-- `IsProof.defeqU` as an inhabitant of `ProofTransport` — the anti-strawman check.  Carries
+that theorem's `sorryAx` taint; use the hypothesis form where that matters. -/
+theorem WF.proofTransport (henv : VEnv.WF env) : env.ProofTransport U :=
+  fun hΓ h hp => hp.defeqU henv hΓ h
+
+/-- A term convertible with a Π is not a proof — `sorryAx`-free version, with both of
+`not_isProof_of_defeqU_forallE`'s tainted ingredients hypothesised. -/
+theorem not_isProof_of_forallE' (hsu : env.SortUniq U) (hord : Ordered env)
+    (htr : env.ProofTransport U) {Γ : List VExpr} {e A B : VExpr}
+    (hΓ : OnCtx Γ (env.IsType U)) (h : env.IsDefEqU U Γ e (.forallE A B)) :
+    ¬ env.IsProof U Γ e := fun hp =>
+  have ⟨_, hq, he⟩ := htr hΓ h hp
+  forallE_not_proof hsu hord hΓ hq he
+
+/-- A term convertible with a sort is not a proof — `sorryAx`-free version. -/
+theorem not_isProof_of_sort' (hsu : env.SortUniq U) (hord : Ordered env)
+    (htr : env.ProofTransport U) {Γ : List VExpr} {e : VExpr} {u : VLevel}
+    (hΓ : OnCtx Γ (env.IsType U)) (h : env.IsDefEqU U Γ e (.sort u)) :
+    ¬ env.IsProof U Γ e := fun hp =>
+  have ⟨_, hq, he⟩ := htr hΓ h hp
+  sort_not_proof hsu hord hΓ hq he
+
 /-- **A type is not a proof.**  The companion of `VEnv.sort_not_proof` and
 `VEnv.forallE_not_proof` (`Theory/Typing/SortUniq.lean`, `Theory/Typing/NotProof.lean`) at
 one more level of generality: those two are about a *particular shape* being a type, this is
@@ -1021,12 +1066,16 @@ theorem WF.rigidShapeUniq (henv : VEnv.WF env) : env.RigidShapeUniq U :=
 
 /-- **The `pi`/`pi` entry, extracted.**  The `¬ IsProof` premise is discharged on the spot from
 `SortUniq`, so `RigidPiUniq` carries none. -/
-theorem RigidShapeUniqNS.piUniq (henv : VEnv.WF env) (hsu : env.SortUniq U)
-    (h : env.RigidShapeUniqNS U) : env.RigidPiUniq U := by
+theorem RigidShapeUniqNS.piUniqOf (hsu : env.SortUniq U) (hord : Ordered env)
+    (htr : env.ProofTransport U) (h : env.RigidShapeUniqNS U) : env.RigidPiUniq U := by
   intro Γ e T A B A' B' hΓ h₁ h₂
-  refine h (s₁ := .pi A B) (s₂ := .pi A' B') hΓ (fun hp => ?_) trivial trivial not_false h₁ h₂
-  have ⟨_, hq, he⟩ := hp.defeqU henv hΓ ⟨T, h₁⟩
-  exact forallE_not_proof hsu henv.ordered hΓ hq he
+  exact h (s₁ := .pi A B) (s₂ := .pi A' B') hΓ
+    (not_isProof_of_forallE' hsu hord htr hΓ ⟨_, h₁⟩) trivial trivial not_false h₁ h₂
+
+@[inherit_doc RigidShapeUniqNS.piUniqOf]
+theorem RigidShapeUniqNS.piUniq (henv : VEnv.WF env) (hsu : env.SortUniq U)
+    (h : env.RigidShapeUniqNS U) : env.RigidPiUniq U :=
+  piUniqOf hsu henv.ordered (WF.proofTransport henv) h
 
 /-- **The converse: `VEnv.PiInv` gives back the `pi`/`pi` entry.**  This is the pi branch of
 `rigidShapeUniq_of_family`, isolated; `sorry`-free.  Together with

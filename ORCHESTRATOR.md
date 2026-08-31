@@ -541,3 +541,73 @@ written-but-unproved, guard 3 counts implementation gaps, guard 2 counts `kernel
 axioms. A construction nobody has started registers as zero everywhere. So "census 14"
 understates what is left, and I should stop quoting it as though it were the distance to the
 goal — it is the distance to the goal *of the proof machinery*, with the last mile unmeasured.
+
+## Corrections to the two entries above, both mine (2026-08-31)
+
+**(a) The user counts did not "grow with the tree".** I wrote that
+`forallE_inv_stratified` 449→468 and `rigidShapeUniqNS` 176→193 reflected tree growth. They
+reflect a **measurement-scope fix**: `Theory/Typing/PiLevelPin.lean` was not in
+`Experimental/ConeJoin.lean`'s import closure, so it was invisible to both `dup-names.lean`
+and `sorry-census.lean`. The rigid-shape stream added the leaf that imports it. The counts
+rose because the instrument started seeing declarations it had been blind to — plus that
+stream's new wrappers. No regression, but also no growth: it was **under-measurement**, and
+anything I concluded from the older numbers was concluded from a partial tree.
+
+**(b) `sorry-census.lean` already reported per-hole user counts**, grouped by module, and has
+all along. My claim that the ranking "had been recomputed ad hoc each round" with "no standing
+instrument" was wrong, and I would have seen it by reading the census's own full output before
+writing a second walker — the same failure as the ad-hoc cone script earlier today, one level
+up. What `hole-rank.lean` actually adds is narrower than I claimed: the `sole` column (users
+surviving with every *other* hole cut) and the inter-hole forward-cone column. Those are new
+and they carry the finding that the holes are near-independent. The ranking itself was not.
+
+## The injectivity corner has two nodes, and my brief said one
+
+`WF.rigidShapeUniq` does **not** reduce to `VEnv.SortUniq`. `SortUniq` buys exactly one of the
+bridge's nine `Compat` entries (`sort`/`sort`); the other eight contain `VEnv.PiInv` as an
+exact conjunct. Machine-checked, sorry-free, both directions:
+
+* `RigidNodeCircle.lean`'s `rigidShapeUniqNS_iff_family` — the narrowed bridge **is**
+  `PiInv ∧ RigidSortPiDisj ∧ RigidConstAppInv ∧ RigidConstPiDisj ∧ RigidConstSortDisj`. An
+  exact decomposition, not a bracketing.
+* `rigidPiUniq_iff_piInv` — the `pi`/`pi` entry *is* `PiInv`, on the nose.
+* `imax_dom_not_pinned`, with the existing `imax_cod_not_pinned`, closes the level-arithmetic
+  route from `SortUniq` to `PiInv` in **both** coordinates.
+
+The hole narrowed 9/9 → 8/9 entries: the `sorry` moved to `WF.rigidShapeUniqNS`
+(`Injectivity.lean:1046`) and `rigidShapeUniq_of_sortUniq` puts the `sort`/`sort` entry back,
+so `WF.rigidShapeUniq` survives as a *theorem* and all five consumers are untouched.
+
+**My error, and it is the fourth of this class today.** I briefed the stream on the premise
+that `piInvStratApp_iff_sortUniq` shows `forallE_inv_stratified` *is* `SortUniq`, so the two
+largest holes were one hole seen twice. It does not: that lemma is
+`(sortUniq_iff_piInvStratApp henv (piInv_axiom henv)).symm`, and
+`sortUniq_iff_piInvStratApp` (`Injectivity.lean:620`) takes **`hpi : PiInv env U` as an
+explicit hypothesis**. The established equivalence is `forallE_inv_stratified ≈ SortUniq`
+*given* `PiInv`. So a model-side proof of `SortUniq` alone would leave `PiInv` standing and
+would not finish the corner. **Plan two fronts.**
+
+Worth naming precisely, because the check was again nearly free: `Injectivity.lean:1221-1225`
+*already said* "the injectivity corner has **two** nodes, not one". My brief contradicted a
+docstring in the very file the stream was sent to. The bad framing came from
+`DescendRefute.lean:480`, which said "modulo `WF.rigidShapeUniq`" — wording that reads as a
+discharged side condition rather than a second open node. Corrected there at the source, with
+a note saying what it cost, so the next brief cannot inherit it.
+
+Also: `WF.sortUniq'` is `sortUniq_of_piInvStratApp henv (piInvStratApp_axiom henv)` — tainted
+through the 468-user hole. Anything taking it as a supply is tainted too.
+
+## Two more instrument traps, both found by a stream
+
+1. **`#print axioms` in a `lake env lean` scratch file reads the compiled `.olean`, not the
+   source just edited.** Three runs reported `sorryAx` against already-clean source. This is
+   the third instrument-trust failure of the day and the second where the instrument reported
+   the *opposite* of the truth.
+2. **`¬ IsProof` premises are not free in this corner.** `IsProof.defeqU` is `sorryAx`-backed
+   via `HasType.defeqU_l'` → `forallE_inv_stratified`, so lemmas that carry no visible
+   hypothesis can still be tainted through it. The stream's first classification draft was
+   silently tainted this way; fixed by hypothesising `ProofTransport`.
+
+Standing rule, restated because it keeps paying: **before briefing a stream on a claim of the
+form "X is equivalent to Y" or "X reduces to Y", open the lemma and read its hypotheses.**
+Three of today's four errors were a side condition I did not look at.

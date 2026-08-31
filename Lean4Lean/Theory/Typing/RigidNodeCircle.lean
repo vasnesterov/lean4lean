@@ -7,9 +7,18 @@ import Lean4Lean.Theory.Typing.PiLevelPin
 transitive users).  The question this file answers is the classification question: **does it
 reduce to `VEnv.SortUniq`?**
 
-**Answer: no.**  It reduces to a conjunction of four properties, one of which is `VEnv.PiInv`
-— unstratified Π-injectivity — and universe uniqueness provably does not deliver `PiInv` by
-any of the routes this tree has.  Concretely, this file proves:
+**Answer: no.**  It reduces to a conjunction of five properties, the first of which is
+`VEnv.PiInv` — unstratified Π-injectivity — and `SortUniq` is not one of them.
+
+Read the "no" precisely, because it is a claim about this tree and not a provability
+separation: nothing below shows `SortUniq → PiInv` is *unprovable*.  What is machine-checked
+is (a) the exact decomposition, which contains `PiInv` and does not contain `SortUniq`, and
+(b) that the one route from `SortUniq` towards `PiInv` this tree has — level arithmetic
+through `PiInvStratApp` — is closed in **both** coordinates (`PiLevelPin.imax_cod_not_pinned`
+and `imax_dom_not_pinned` below).  A model-side proof of `SortUniq` therefore leaves `PiInv`
+standing, and planning should assume two fronts, not one.
+
+Concretely, this file proves:
 
 1. `rigidShapeUniqNS_iff_family`: the narrowed bridge **is** the conjunction
 
@@ -45,8 +54,10 @@ Its side hypothesis is `piInv_axiom`, i.e. `PiInv`, and that is *precisely* why 
 
 not `forallE_inv_stratified ≈ SortUniq` outright.  And the reverse road is blocked:
 `PiLevelPin.piInvCod_of_piInvStratApp` shows `PiInvStratApp` recovers only `PiInvCod`, the
-codomain half, and its docstring records that the domain half is not recoverable at all.  So
-`SortUniq → PiInv` is not available here, and the corner has **two** nodes:
+codomain half, and `imax_dom_not_pinned` below machine-checks why the domain half cannot come
+from that direction: at a `Prop`-valued codomain the type of a Π carries *no* information
+about its domain.  So `SortUniq → PiInv` is not available here, and the corner has **two**
+nodes:
 
 * `VEnv.SortUniq` — universe uniqueness, the target of the set-model attack;
 * `VEnv.PiInv` — Π-injectivity, which is confluence content.
@@ -139,8 +150,12 @@ def RigidConstSortDisj (env : VEnv) (U : Nat) : Prop :=
 /-! ## §3 The narrowed bridge is exactly their conjunction -/
 
 /-- **⟸.**  `rigidShapeUniq_of_family` minus its `hsort` hypothesis: with the `sort`/`sort`
-entry excluded by `¬ BothSort`, universe uniqueness is not needed anywhere.  `sorry`-free. -/
-theorem rigidShapeUniqNS_of_family (henv : VEnv.WF env)
+entry excluded by `¬ BothSort`, universe uniqueness is not needed anywhere.
+
+`sorryAx`-free.  `htr` is `VEnv.ProofTransport`, taken as a hypothesis rather than supplied by
+`WF.proofTransport`, because that supply is tainted through `forallE_inv_stratified`; see
+`ProofTransport`'s docstring. -/
+theorem rigidShapeUniqNS_of_family (hord : Ordered env) (htr : env.ProofTransport U)
     (hpi : env.PiInv U) (hsp : env.RigidSortPiDisj U) (hca : env.RigidConstAppInv U)
     (hcp : env.RigidConstPiDisj U) (hcs : env.RigidConstSortDisj U) :
     env.RigidShapeUniqNS U := by
@@ -157,7 +172,7 @@ theorem rigidShapeUniqNS_of_family (henv : VEnv.WF env)
     | sort v => exact hsp hΓ hs.symm
     | pi A' B' =>
       obtain ⟨⟨u, ha⟩, v, hb⟩ := hpi hΓ hs
-      exact ⟨⟨u, ha⟩, v, hb, ha.defeqDF_l henv.ordered hb⟩
+      exact ⟨⟨u, ha⟩, v, hb, ha.defeqDF_l hord hb⟩
     | app c ls as => exact hcp hΓ hr₂ hs.symm
   | app c ls as =>
     cases s₂ with
@@ -165,62 +180,66 @@ theorem rigidShapeUniqNS_of_family (henv : VEnv.WF env)
     | pi A B => exact hcp hΓ hr₁ hs
     | app c' ls' as' =>
       rintro rfl
-      exact hca hΓ hr₁ (fun hp => hnp (hp.defeqU henv hΓ ⟨T, h₁.symm⟩)) hs
+      exact hca hΓ hr₁ (fun hp => hnp (htr hΓ ⟨T, h₁.symm⟩ hp)) hs
 
 /-- **⟹, first conjunct.**  Chases `Injectivity.rigidPiUniq_iff_piInv`. -/
 theorem RigidShapeUniqNS.piInv (henv : VEnv.WF env) (hsu : env.SortUniq U)
-    (h : env.RigidShapeUniqNS U) : env.PiInv U :=
-  piInv_of_rigidPiUniq henv hsu (RigidShapeUniqNS.piUniq henv hsu h)
+    (htr : env.ProofTransport U) (h : env.RigidShapeUniqNS U) : env.PiInv U :=
+  piInv_of_rigidPiUniq henv hsu (RigidShapeUniqNS.piUniqOf hsu henv.ordered htr h)
 
 /-- Every off-diagonal entry is reached by taking the middle term to be the left shape
-itself: `h.trans h.symm` types it at the shared type, and the `¬ IsProof` side condition is
-free because a term convertible to a sort or a Π is not a proof. -/
-theorem RigidShapeUniqNS.sortPiDisj (henv : VEnv.WF env) (h : env.RigidShapeUniqNS U) :
-    env.RigidSortPiDisj U := by
+itself: `h.trans h.symm` types it at the shared type.  For the sort/Π entry the `¬ IsProof`
+side condition needs no transport at all — the middle term *is* `.sort u`, so
+`sort_not_proof` applies directly. -/
+theorem RigidShapeUniqNS.sortPiDisj (hsu : env.SortUniq U) (hord : Ordered env)
+    (h : env.RigidShapeUniqNS U) : env.RigidSortPiDisj U := by
   intro Γ u A B hΓ ⟨T, hd⟩
   exact h (s₁ := .sort u) (s₂ := .pi A B) hΓ
-    (not_isProof_of_defeqU_sort henv hΓ ⟨_, hd.trans hd.symm⟩) trivial trivial not_false
+    (fun ⟨_, hp0, he⟩ => sort_not_proof hsu hord hΓ hp0 he) trivial trivial not_false
     (hd.trans hd.symm) hd
 
 @[inherit_doc RigidShapeUniqNS.sortPiDisj]
-theorem RigidShapeUniqNS.constPiDisj (henv : VEnv.WF env) (h : env.RigidShapeUniqNS U) :
-    env.RigidConstPiDisj U := by
+theorem RigidShapeUniqNS.constPiDisj (hsu : env.SortUniq U) (hord : Ordered env)
+    (htr : env.ProofTransport U) (h : env.RigidShapeUniqNS U) : env.RigidConstPiDisj U := by
   intro Γ c ls as A B hΓ hc ⟨T, hd⟩
   exact h (s₁ := .app c ls as) (s₂ := .pi A B) hΓ
-    (not_isProof_of_defeqU_forallE henv hΓ ⟨_, hd⟩) hc trivial not_false
+    (not_isProof_of_forallE' hsu hord htr hΓ ⟨_, hd⟩) hc trivial not_false
     (hd.trans hd.symm) hd
 
 @[inherit_doc RigidShapeUniqNS.sortPiDisj]
-theorem RigidShapeUniqNS.constSortDisj (henv : VEnv.WF env) (h : env.RigidShapeUniqNS U) :
-    env.RigidConstSortDisj U := by
+theorem RigidShapeUniqNS.constSortDisj (hsu : env.SortUniq U) (hord : Ordered env)
+    (htr : env.ProofTransport U) (h : env.RigidShapeUniqNS U) : env.RigidConstSortDisj U := by
   intro Γ c ls as u hΓ hc ⟨T, hd⟩
   exact h (s₁ := .app c ls as) (s₂ := .sort u) hΓ
-    (not_isProof_of_defeqU_sort henv hΓ ⟨_, hd⟩) hc trivial not_false
+    (not_isProof_of_sort' hsu hord htr hΓ ⟨_, hd⟩) hc trivial not_false
     (hd.trans hd.symm) hd
 
-@[inherit_doc RigidShapeUniqNS.sortPiDisj]
-theorem RigidShapeUniqNS.constAppInv (_henv : VEnv.WF env) (h : env.RigidShapeUniqNS U) :
+/-- The `app`/`app` entry needs no side input at all: the family statement already carries the
+`¬ IsProof` premise the bridge asks for, at the very term the bridge asks about. -/
+theorem RigidShapeUniqNS.constAppInv (h : env.RigidShapeUniqNS U) :
     env.RigidConstAppInv U := by
   intro Γ c ls ls' as as' hΓ hc hnp ⟨T, hd⟩
   exact h (s₁ := .app c ls as) (s₂ := .app c ls' as') hΓ hnp hc hc not_false
     (hd.trans hd.symm) hd rfl
 
-/-- **The classification, both ways.**  `sorry`-free.
+/-- **The classification, both ways.**  `sorryAx`-free.
 
 The narrowed 176-user bridge is *exactly* the conjunction of unstratified Π-injectivity and
 the three constant-spine facts.  `VEnv.SortUniq` does not occur in it; it occurs only in the
 `sort`/`sort` entry that `Injectivity.rigidShapeUniq_of_sortUniq` already removed, and as a
-side hypothesis of the `⟹` direction here (needed only to know a Π is not a proof).
+side hypothesis here, where its only job is to know that a sort and a Π are not proofs.
 
 So the answer to "does `rigidShapeUniq` reduce to `SortUniq`?" is **no**, and the second node
 of the injectivity corner is `VEnv.PiInv`. -/
-theorem rigidShapeUniqNS_iff_family (henv : VEnv.WF env) (hsu : env.SortUniq U) :
+theorem rigidShapeUniqNS_iff_family (henv : VEnv.WF env) (hsu : env.SortUniq U)
+    (htr : env.ProofTransport U) :
     env.RigidShapeUniqNS U ↔
       (env.PiInv U ∧ env.RigidSortPiDisj U ∧ env.RigidConstAppInv U ∧
         env.RigidConstPiDisj U ∧ env.RigidConstSortDisj U) :=
-  ⟨fun h => ⟨h.piInv henv hsu, h.sortPiDisj henv, h.constAppInv henv,
-      h.constPiDisj henv, h.constSortDisj henv⟩,
-   fun ⟨hpi, hsp, hca, hcp, hcs⟩ => rigidShapeUniqNS_of_family henv hpi hsp hca hcp hcs⟩
+  ⟨fun h => ⟨h.piInv henv hsu htr, h.sortPiDisj hsu henv.ordered, h.constAppInv,
+      h.constPiDisj hsu henv.ordered htr, h.constSortDisj hsu henv.ordered htr⟩,
+   fun ⟨hpi, hsp, hca, hcp, hcs⟩ =>
+     rigidShapeUniqNS_of_family henv.ordered htr hpi hsp hca hcp hcs⟩
 
 /-!
 ## §4 Axiom check
@@ -228,12 +247,25 @@ theorem rigidShapeUniqNS_iff_family (henv : VEnv.WF env) (hsu : env.SortUniq U) 
     #print axioms Lean4Lean.VEnv.imax_dom_not_pinned
     #print axioms Lean4Lean.VEnv.rigidShapeUniqNS_of_family
     #print axioms Lean4Lean.VEnv.rigidShapeUniqNS_iff_family
+    #print axioms Lean4Lean.VEnv.RigidShapeUniqNS.piInv
 
-all report `[propext, Classical.choice, Quot.sound]` — **no `sorryAx`**, despite the import of
-`Injectivity.lean`.  Nothing here consumes either of that file's holes; the `SortUniq`
-hypothesis is taken, not supplied (`Injectivity.WF.sortUniq'` *would* supply it, but it is
-`sorryAx`-tainted through `forallE_inv_stratified`, which is why this file's statements carry
-`hsu` explicitly instead).
+all report no `sorryAx`, and so do `Injectivity.rigidShapeUniq_of_sortUniq`,
+`Injectivity.IsDefEqU.forallE_inv_of_rigidPi`, `Injectivity.rigidPiUniq_iff_piInv` and
+`Injectivity.RigidShapeUniqNS.piUniqOf`.  That took care: the first draft of this file *was*
+tainted, through `VEnv.IsProof.defeqU`, whose cone reaches `IsDefEqU.forallE_inv_stratified`
+by way of `HasType.defeqU_l'`.  Hence `VEnv.ProofTransport`, and hence every statement here
+carrying `hsu` and `htr` explicitly instead of helping itself to `WF.sortUniq'` and
+`WF.proofTransport`.
+
+The lesson generalises: in this corner of the tree, `¬ IsProof` premises are *not* free.  They
+look free because `Injectivity.not_isProof_of_defeqU_forallE` and `not_isProof_of_defeqU_sort`
+discharge them with no hypothesis — but both are `sorryAx`-backed.  `not_isProof_of_forallE'`
+and `not_isProof_of_sort'` are the clean forms.
+
+Instrument caution, paid for here: `#print axioms` run from a `lake env lean` scratch file
+reads the **compiled `.olean`**, not the source just edited.  The first three runs of the check
+above reported `sorryAx` for statements whose source had already been cleaned; the module had
+not been rebuilt.  `lake build <module>` first, or the answer is the previous build's.
 
 ## §5 What this does *not* settle
 
