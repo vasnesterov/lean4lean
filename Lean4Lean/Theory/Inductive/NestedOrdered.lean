@@ -203,10 +203,19 @@ head of the key only") is also too optimistic about what survives.
   refuted by the same witness (`nfn_keys_ne`).
 * The sole consumer is re-proved from it: `Pat.iota_rule_uniq_keyUnique`.
 
-So what the `inductNested` rule waits on here is not a theorem but two mechanical edits:
-`KeyMajorUnique` → `KeyUnique` in `Theory/Typing/DeltaUnique.lean`'s `WF'.keys` chain, and
-re-pointing `Theory/Typing/PatternRules.lean`'s `Pat.iota_data_uniq`.  `docs/vacuity-ledger.md`
-§6 item 4 tracks it.  `addInductR_ordered'`'s three obligations are the ones still open. -/
+**LANDED.**  `WF'.keys` now carries `KeysDeclared ∧ KeyHeadDelta ∧ KeyUnique`, and
+`keys_induct`'s key fact is discharged from the freshness of the key's *head* only — so the
+non-nested arm and `keysR_induct` finally have the same shape.  `KeyMajorUnique` survives as a
+definition because the refutations are statements *about* it, but nothing derives it from
+`VEnv.WF` any more.
+
+One correction to what this paragraph predicted: it was **not** two mechanical edits.
+`keysU_addDefEq` and `keysU_addDefEqs` had to be written, and the first needs a hypothesis the
+`KeyMajorUnique` version did not — `df.key ≠ []`, since with an empty key the `∀ n ∈ df.key`
+premises say nothing and `KeyUnique` cannot be established.
+
+So `addInductR_ordered'`'s three obligations — `hctors`, `hrecs`, `hrules` — are now the *only*
+thing the `inductNested` rule waits on. -/
 
 /-- **A companion ι-rule's major name is already declared.**  Directly `Faithful.ctor_agree`:
 the restoration presents the companion's constructors as constants the environment holds, and

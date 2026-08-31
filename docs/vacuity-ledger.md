@@ -131,11 +131,30 @@ Every row is backed by a **proved** lemma in the tree, not an argument in a docs
 | 20 | `AddInductiveStepWF`'s premise `ves.WF env` | **near-vacuous** — applicable only to the *first* inductive block, because `no_inductInfo` holds even at `.unsafe`, so `ves.WF env` requires an environment with no inductive at all | `VEnvs.WF.find?_ne_inductInfo` (`Verify/Inductive/AddInductiveStep.lean:213`) | **yes** |
 | 21 | the nested rebuild inside `Environment.addInductive` | **unreachable** under row 20's premise: `numNested` is forced to `0`, so `mkAuxRecNameMap`, `restoreNested`, `processRec` and three re-check passes are dead code there | `run_run'_aux2nested`, `replaceAllNested_id` (same file) | **yes** |
 | 22 | `AgreeInst` (Carneiro's entanglement) | **satisfiable, and the meaningful pair is inhabited** — same shape as row 16: `AgreeInst` alone says little, and what matters is `AgreeInst` together with `ρ₁ ∈ interpCtx Γ₁` | `agreeInst_zero` (`Theory/SetModel/InterpSound.lean:166`) exhibits the witness `snoc ρ ⟦e'⟧ρ`; `beta_sound` (:183) builds the pair from it with `mem_interpCtx_cons`, conditional on `h3e'` — part 3 for the substituted term, i.e. the entanglement stated as an explicit hypothesis rather than assumed | n/a |
+| 23 | `InjSortPi.SortPiSupplyAll` — the per-conversion model supply for `sort_forallE_inv` | **restatement** — provably *equivalent* to its own conclusion `RigidSortPiDisj`, because the supply itself is refuted | `sortPiSupplyAll_iff` (`Theory/Typing/InjSortPiModel.lean`), both directions | n/a |
+| 24 | the hypothesis of `SemanticRoute.semantic_sortInv_packaged` (the ∀-over-all-contexts form of the part-4 supply) | **vacuous** — false for **every** `env` and `nv`: the model has no valuation for the legitimate context `[∀ p : Prop, p]`, and reflexivity of `.sort .zero` supplies the conversion it cannot see | `sortInvSupply_vacuous`, from `interpCtx_vFalse` + `onCtx_vFalse` (`InjSortPiModel.lean`) | n/a |
+| 25 | `InjSortPi.ConstNotUniv` — the part-4 residual for `RigidConstSortDisj`/`RigidConstPiDisj` | **dead route** unguarded: `ModelData.cnst` is a free field, so a constant may denote a universe stage | `not_constNotUniv`, `const_denot_arbitrary` (`InjSortPiModel.lean`) | n/a |
 
 Rows 1–5 are one bug. Rows 6, 7, 14 and 15 are independent of it, and that is the ledger's main
 finding: **the failure mode is not confined to `AddInduct`.** It recurred in the abstract theory
 (row 6, a hypothesis stated at the wrong environment) and three times over in the model
 interface (rows 7, 14, 15). Nothing connects them.
+
+**Correction to row 12 from rows 23–24.**  Row 12 records `SortInv` from the model as *bounded —
+exact, an `iff`*, on the strength of `sortEqRaw_iff`.  That `iff` is about `SortEqRaw`, which
+mentions no context and no valuation `ρ`.  It does **not** certify `SortEqSupply`, the statement
+`semantic_sortInv` and `semantic_sortInv_packaged` actually consume, and row 24 shows the
+packaged form of that supply is vacuous.  Row 12 stands for what it says; it was being read as
+covering more.  What survives of the upstream route is `U_injOn` and `semantic_sortInv` itself —
+*where the model can see the conversion*.  Anything that wants the model on a judgement in an
+arbitrary context owes a valuation for that context, and rows 23–24 are the first measurement of
+that debt.
+
+**Row 23 is the good failure.**  The route it records has a residual that is a *theorem*
+(`interp_sort_ne_interp_forallE`), unlike rows 8, 9 and 25 whose residuals are refuted; what
+collapses is only the per-conversion *packaging*, which `Above`-wrapped soundness forces.  The
+distinction is worth keeping: a proved residual behind a collapsing package is a dividend waiting
+on `SetModel.sound`'s deferred inputs, whereas a refuted residual is a closed road.
 
 Rows 16–18 are the *good* rows, and §5a is about where they came from.
 
@@ -353,10 +372,12 @@ the flip that would actually unblock `kernel_sound`:
    (`nfn_keys_ne`), and the sole consumer is re-proved from it
    (`Pat.iota_rule_uniq_keyUnique`). `nfn_keys_summary` packages all of it with no hypotheses.
 
-   What is left is **plumbing in two files**: swap `KeyMajorUnique` for `KeyUnique` in
-   `DeltaUnique.lean`'s `WF'.keys` chain, and re-point `PatternRules.lean`'s `Pat.iota_data_uniq`
-   at `Pat.iota_rule_uniq_keyUnique` (a hypothesis reshuffle — the two `types[j]? = some T`
-   hypotheses it needs are already at the call site).
+   **The swap is now landed** (`8942782`): `WF'.keys` carries
+   `KeysDeclared ∧ KeyHeadDelta ∧ KeyUnique`, and `keys_induct` uses head-freshness only, so its
+   arm and `keysR_induct` have the same shape. `KeyMajorUnique` stays as a definition — the
+   refutations are statements about it — but nothing derives it from `VEnv.WF`. It was **not** the
+   "plumbing in two files" I predicted here: `keysU_addDefEq` and `keysU_addDefEqs` had to be
+   written, and the first needs `df.key ≠ []`, a hypothesis the refuted version never required.
 
 **A second process note, and it is the same failure twice.** I listed `AgreeInst` satisfiability
 as unmeasured in this file's first draft. `agreeInst_zero` (`InterpSound.lean:166`) already
