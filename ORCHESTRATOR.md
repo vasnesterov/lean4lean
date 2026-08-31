@@ -935,3 +935,19 @@ If it still refutes the new definition, the redefinition is wrong or incomplete.
 
 Frozen edits are now PRs by standing instruction: **#41 merged** (guard 3, 51/54 → **2/54**),
 **#42 open** (drop `Expr.replace_eq`, 25 → 24).
+
+### Two orchestration bugs of mine, both wasting cycles
+
+**`pgrep -f 'bin/lake'` self-matches and never reaches zero.** I used
+`until [ "$(pgrep -cf 'bin/lake')" = "0" ]; do sleep 20; done; lake build …` as a "wait for other
+streams' builds to finish" guard. It can never terminate: the MCP server's persistent `lake serve`
+always matches, and so does the waiter's own command line. One such task sat in the loop and **never
+ran its build at all**, which I then misread as "the build is slow". Two tasks killed.
+
+Correct forms: to wait on a *specific* build, use its own background task's completion notification;
+to test a file's readiness, poll the artefact (`grep -q "Build completed" <output>`), never a process
+table. And never wait on "no lake running" — an LSP session makes that permanently false.
+
+**`tail -N` buffers, so a background task's output file stays empty until the command exits.** I read
+an empty file as "still building" several times. Use a line-buffered filter (`grep --line-buffered`)
+if you want progress, or just wait for the notification.
