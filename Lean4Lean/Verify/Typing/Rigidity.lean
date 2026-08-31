@@ -392,7 +392,14 @@ pattern's head constant is the head constant of a rule's left-hand side
 With that repair, (C) is **proved from weak-head normalisation and nothing else**:
 `VEnv.constRigid_of_weakNorm`.  See `Verify/Typing/ConstSpine.lean` for why the
 Church--Rosser route that settles (B) and (D) does not settle (C) on its own — `NormalEq.etaL`
-relates a λ to a constant application, and a λ is a weak-head normal form. -/
+relates a λ to a constant application, and a λ is a weak-head normal form.
+
+**Update: weak-head normalisation is false**, so `constRigidPat_of_weakNorm` below is not a
+route to (C) either.  `Verify/Typing/WeakNormRefute.lean` refutes `VEnv.WeakNorm` at two
+independent `Params` instances over `CycleConv.propLoopEnv` — one of them derived from
+`VEnv.WF` alone — where a δ-cycle between two well-typed constants has no weak-head normal
+form.  (C) is not refuted: it is strictly weaker, and at that witness it is vacuous.  What is
+refuted is the *only currently available* proof of it. -/
 
 /-- **(C) with the repaired side condition, proved from weak-head normalisation.**  This is
 `VEnv.ConstRigid` with `RuleFreeHead` replaced by `VEnv.PatFreeHead`; see the section
@@ -406,6 +413,9 @@ def VEnv.ConstRigidPat [VEnv.Params] : Prop :=
     ∃ (us' : List VLevel) (as' : List VExpr),
       VEnv.WHRedS Γ e ((VExpr.const c us').mkApp as')
 
+/-- **(C) from weak-head normalisation.**  A true implication with a *false* antecedent in
+general: `VEnv.WeakNorm` is refuted in `Verify/Typing/WeakNormRefute.lean`, so this cannot be
+discharged at the `∀ env, env.WF → …` generality its consumers need. -/
 theorem VEnv.constRigidPat_of_weakNorm [VEnv.Params] (hwn : VEnv.WeakNorm) :
     VEnv.ConstRigidPat :=
   fun _Γ _e _c _us _as hΓ hc hty hdf => VEnv.constRigid_of_weakNorm hwn hΓ hc hty hdf

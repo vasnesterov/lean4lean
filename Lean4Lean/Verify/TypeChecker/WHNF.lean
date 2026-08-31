@@ -1,4 +1,5 @@
 import Lean4Lean.Verify.TypeChecker.Reduce
+import Lean4Lean.Verify.QuotReduce
 
 namespace Lean4Lean.TypeChecker.Inner
 open Lean hiding Environment Exception
@@ -28,46 +29,87 @@ theorem inductiveReduceRec_eq_none {c : VContext} {e₀ st₀} (h : c.TrExprS e�
   rename_i info heq2
   exact absurd heq2 fun hh => c.trenv.not_recInfo ⟨_, hc⟩ hh
 
-/-- **The one blocked half of `reduceRecursor`.**  `quotReduceRec` *is* reachable — unlike
-everything else downstream of `AddInduct` — because `TrEnv'.quot` fires on `AddQuot`, which
-never inspects `Eq`: the `QuotReady` premise is on the `VEnv` side and an `axiomDecl` named
-`Eq` satisfies it.  So a `VContext` with `quotInit = true` and `Quot.lift` in its map exists.
+/-- **`quotReduceRec` is sound** — CLOSED 2026-08-31.  This was the last open half of
+`reduceRecursor`; the other half (`inductiveReduceRec`) is vacuous today
+(`inductiveReduceRec_eq_none` above).
 
-It is blocked on **const-application injectivity**, not on anything about inductives.
+`quotReduceRec` is reachable — unlike everything else downstream of `AddInduct` — because
+`TrEnv'.quot` fires on `AddQuot`, which never inspects `Eq`: the `QuotReady` premise is on the
+`VEnv` side and an `axiomDecl` named `Eq` satisfies it.  So a `VContext` with
+`quotInit = true` and `Quot.lift` in its map exists, and this branch has to be proved, not
+argued away.
 
-**Fact correction.**  The statement needed is `VEnv.IsDefEqU.const_app_inv`
-(`Theory/Typing/Injectivity.lean`, fact **(B)**, `sorry`), not ledger I13 — I13 is
-`const_forallE_inv`, fact **(A)**, *disjointness*, which is a different statement and does not
-imply (B).  That file's module docstring already lists this branch as one of (B)'s consumers.
+## How it is proved
 
-**The residual is now one open statement, not two.**  (B) carries two side conditions.
-`IsType` on the application is free here, because the fact is used at the *type* of a term.
-The other, `RuleFreeHead env ``Quot``, was previously charged to "ledger M2" and to a
-`VEnv.Sig` invariant that does not exist.  Both halves of that were wrong: M2
-(`docs/design-inductive.md:1040`, row I12 there) is about *inductive* heads, the `Quot` case
-is a separate sibling the same section says should not be paid for by the inductive design,
-and it needs no `VEnv.Sig`.  It is now **proved**, as
-`TrEnv.ruleFreeHead_quot` (`Verify/TypeChecker/Reduce.lean`), with no `VEnv.Sig` and no
-`VEnv.WF` induction.  The argument is temporal rather than typal: `VEnv.addConst` refuses a
-name already present, `TrEnv'` only grows `constants`, and `Q = true` forces the `quot` step
-— so a δ-rule named `Quot` and the quotient step cannot both occur.  It is discharged at a
-concrete witness in `Verify/QuotConsts.lean` (`QuotWit.ruleFreeHead_quot_wit`), at an
-environment whose model really does carry a rule.
+Everything abstract lives in `Verify/QuotReduce.lean`:
 
-**Why `hq` is a hypothesis of this theorem.**  It is `reduceRecursor`'s own guard: the
-implementation calls `quotReduceRec` only under `if env.quotInit`, and `reduceRecursor.WF`
-supplies `hq` from the `split`, so nothing is lost.  It is not bookkeeping.  `quotReduceRec`
-itself checks only that the head constant is `Quot.lift`/`Quot.ind` and that argument 5
-whnf's to a three-argument `Quot.mk`; it never consults `quotInit`.  With `quotInit = false`
-a `TrEnv'` chain may still hold `Quot.lift` and `Quot.mk` as ordinary *axioms* of arbitrary
-type — `TrEnv'.axiom` inspects no names — while the model contains **no `quotDefEq` at all**
-(`TrEnv'.defeqs_shape`).  The branch then fires and the postcondition has no rule to appeal
-to.  So the theorem is, to the best reading of the source, **false without `hq`**; that
-reading is *not* machine-checked, because turning it into a witness needs `.app`-at-a-
-non-function ill-typedness, i.e. sort/Π disjointness — fact (A), itself `sorry`.  Adding the
-hypothesis is therefore a correction, not a weakening for convenience.
+* `TrEnv.quotFacts` reads the five facts the branch needs off `quotInit = true`: the four
+  constants `Quot`/`Quot.mk`/`Quot.lift`/`Quot.ind` are in the map with their intended
+  `VConstant`s, and `quotDefEq` is in `defeqs`.
+* `VEnv.quotLift_reduce` fires `IsDefEq.extra_applied` on `quotDefEq` and reconciles the two
+  readings of `α`/`r` (see the hazard below) via `VEnv.quotLift_reconcile`, which is where
+  const-application injectivity is spent.
+* `VEnv.quotInd_reduce` does the `Quot.ind` half by `IsDefEq.proofIrrel` — `addQuot` adds
+  exactly one `VDefEq`, the `Quot.lift` rule, so `Quot.ind` gets no δ-style rule; its motive
+  is `Quot α r → Prop`, so both sides inhabit the same `Prop`.
+* `VContext.quotLiftFull` / `quotIndFull` package the spine bookkeeping: each takes a
+  `TrExprS` of the full application, returns **one** translation `v` of the major premise, and
+  a continuation that consumes exactly `whnf.WF`'s postcondition at `v`.  That shape is
+  deliberate: no two translations of the same subterm ever have to be reconciled, which is
+  what made earlier attempts collapse.
 
-The original analysis, unchanged:
+The `WHNF`-side proof below is then only implementation-shape glue: `exists_cons6`/
+`exists_cons5` turn the `mkPos < args.size` guard into a cons pattern, `isAppOfArity3_inv`
+inverts the `Quot.mk` test, `Expr.mkAppRange_eq` turns the re-applied trailing arguments back
+into `mkAppList`, and `FVarsIn.mkAppList` plus `whnf`'s own `FVarsBelow` discharge the
+`FVarsBelow` half (the reduct's new subterm `b3` is a subterm of the whnf'd major premise).
+
+## What it costs, honestly
+
+`quotLift_reconcile` runs on `IsDefEqU.const_app_inv` (`Theory/Typing/Injectivity.lean`, fact
+**(B)**) at the constant `Quot`, and both ι-steps take `VEnv.PiInv` from `VEnv.piInv_axiom`.
+Neither is a carried hypothesis any more: (B) is proved from `VEnv.WF` alone (its residual is
+the `trans` case, i.e. `VEnv.WF.rigidShapeUniqNS`), and `patWF_quot` takes `PiInv` plus
+`VEnv.WF`.  So this theorem is `sorry`-free but not hole-free.
+
+**[measured 2026-08-31]**, forward cone over type *and* value, `allowOpaque := true`:
+
+    quotReduceRec.WF   cone  9770   holes  TrProj.uniq, weakN_iff,
+                                           forallE_inv_stratified, rigidShapeUniqNS
+    inferType.WF       cone  9043   holes  TrProj.uniq, weakN_iff, forallE_inv_stratified
+    whnf.WF            cone   195   holes  (none)
+
+so three of the four holes were already required by the checker's own `inferType` stack, and
+the one this branch newly brings into the whnf/`reduceRecursor` cone is `rigidShapeUniqNS` —
+a hole with 202 transitive users, hence already load-bearing tree-wide rather than new
+pressure.  `VEnv.IsDefEq.church_rosser` and `VEnv.NormalEq.descend` are **not** in the cone
+(checked by name), so the conditional-refutation caveat recorded in
+`Verify/Typing/ConstSpineWF.lean` does *not* apply here: this branch takes the direct
+`IsDefEqStrong` route to (B), not the Church--Rosser one.
+
+**Two corrections to this docstring's previous text.**  (1) It said the residual was "forward
+(discharge `PatWF`)" and that the theorem "cannot acquire" a `PatWF` hypothesis.  The second
+half is right, the first is stale: `PatWF` never had to be discharged upward, because
+`patWF_quot` is stated with `PiInv` as its only extra premise and (B) has since been proved
+outright.  (2) It said (B) was `sorry` and that this branch was "blocked on const-application
+injectivity".  (B) is proved; what remains under it is the injectivity *corner*
+(`rigidShapeUniqNS` and friends), which is a different and shared obstruction.
+
+## Why `hq` is a hypothesis
+
+It is `reduceRecursor`'s own guard: the implementation calls `quotReduceRec` only under
+`if env.quotInit`, and `reduceRecursor.WF` supplies `hq` from the `split`, so nothing is lost.
+It is not bookkeeping.  `quotReduceRec` itself checks only that the head constant is
+`Quot.lift`/`Quot.ind` and that the major premise whnf's to a three-argument `Quot.mk`; it
+never consults `quotInit`.  With `quotInit = false` a `TrEnv'` chain may still hold
+`Quot.lift` and `Quot.mk` as ordinary *axioms* of arbitrary type — `TrEnv'.axiom` inspects no
+names — while the model contains **no `quotDefEq` at all** (`TrEnv'.defeqs_shape`).  The
+branch then fires and the postcondition has no rule to appeal to.  So the theorem is, to the
+best reading of the source, **false without `hq`**; that reading is *not* machine-checked,
+because turning it into a witness needs `.app`-at-a-non-function ill-typedness, i.e. sort/Π
+disjointness — fact (A), itself `sorry`.
+
+## The reconciliation hazard, kept for the record
 
 * `quotDefEq` binds *one* `α` and *one* `r` and uses each in **both** the `Quot.lift` head and
   the `Quot.mk` argument (`bvar 5`/`bvar 4` in both positions), so every instance of the rule
@@ -76,40 +118,132 @@ The original analysis, unchanged:
   kernel (`~/lean4/src/kernel/quot.h:39-69`) — we mirror it faithfully, and it is sound
   because `Quot` really is injective.
 * Hence the last component of `IsDefEq.extra_applied`'s `hargs` — `a : α` for the `a` read off
-  the whnf'd `Quot.mk` and the `α` read off the head — is a *reconciliation* obligation, i.e.
-  `Quot α r ≡ Quot α' r' → α ≡ α'`.
-
-`Theory/Typing/PatternRules.lean`'s `quotCheck` meets the identical hazard from the other
-side and resolves it by making the *matcher refuse* (two `defeq` clauses, discharged by
-reflexivity where `extra_pat` sees the rule's own variables).  The kernel does not refuse, so
-this must **derive** what the pattern framework **assumes**.
-
-A second, independent gap: `VEnv.addQuot` adds exactly one `VDefEq`, the `Quot.lift` rule,
-while `quotReduceRec` reduces `Quot.ind` too.  That half is still derivable — `Quot.ind`'s
-motive is `Quot α r → Prop`, so both sides inhabit the same `Prop` and `IsDefEq.proofIrrel`
-applies — but it is a different argument from `extra`, and needs the same spine inversion.
-
-The peel itself is *not* a cost: `VEnv.IsDefEq.extra_applied`
-(`Theory/Inductive/StructureClosed.lean`) states it once for any `VDefEq` whose `lhs`/`rhs`/
-`type` share a `mkLams`/`mkPi` telescope.
-
-**Update: (B) is proved, modulo one hypothesis.**  `VEnv.const_app_inv_of_patWF`
-(`Verify/Typing/ConstSpine.lean`) proves `IsDefEqU.const_app_inv`'s statement verbatim —
-anti-strawman check `VEnv.constAppInvStmt_of_patWF` — from `VEnv.WF` plus `VEnv.PatWF`, by the
-Church--Rosser route rather than by the `IsDefEqStrong` induction whose `trans` case made it
-look open.  Its measured cone is `IsDefEqU.weakN_iff`, `forallE_inv_stratified`,
-`NormalEq.descend` and `forallE_inv`, and **no constant-application fact**.
-
-That does not close this `sorry`: this theorem's statement carries no `PatWF` hypothesis and
-cannot acquire one, since it is consumed all the way up to `kernel_sound`.  `VEnv.PatWF` for a
-quotient-carrying environment is the concrete next step — `Theory/Typing/ParamsBuild.lean`
-proves it on the δ fragment and records that the quotient case needs `IsDefEqU.forallE_inv`,
-an existing census hole.  So this branch's residual is now *forward* (discharge `PatWF`), not
-*sideways* (state and prove a new inversion principle). -/
+  the whnf'd `Quot.mk` and the `α` read off the head — is a *reconciliation* obligation,
+  `Quot α r ≡ Quot α' r' → α ≡ α'`.  `Theory/Typing/PatternRules.lean`'s `quotCheck` meets the
+  identical hazard from the other side and resolves it by making the *matcher refuse*; the
+  kernel does not refuse, so this branch had to **derive** what the pattern framework
+  **assumes**.  `quotLift_reconcile` is that derivation.
+* `RuleFreeHead env ``Quot``, (B)'s other side condition, is proved as
+  `TrEnv.ruleFreeHead_quot` (`Verify/TypeChecker/Reduce.lean`) with no `VEnv.Sig` and no
+  `VEnv.WF` induction: `VEnv.addConst` refuses a name already present, `TrEnv'` only grows
+  `constants`, and `Q = true` forces the `quot` step — so a δ-rule named `Quot` and the
+  quotient step cannot both occur.  Non-vacuity is checked at a concrete witness in
+  `Verify/QuotConsts.lean` (`QuotWit.ruleFreeHead_quot_wit`). -/
 theorem quotReduceRec.WF {c : VContext} {s : VState} (hq : c.env.quotInit = true)
     (he : c.TrExprS e e') :
     RecM.WF c s (quotReduceRec e whnf) fun oe _ =>
-      ∀ e₁, oe = some e₁ → c.FVarsBelow e e₁ ∧ c.TrExpr e₁ e' := sorry
+      ∀ e₁, oe = some e₁ → c.FVarsBelow e e₁ ∧ c.TrExpr e₁ e' := by
+  unfold quotReduceRec
+  split
+  · rename_i fn ls heq
+    split
+    · rename_i hlift
+      dsimp only
+      have hfn : e.getAppFn = .const ``Quot.lift ls := by rw [heq, eq_of_beq hlift]
+      split
+      · rename_i h
+        obtain ⟨a1, a2, a3, a4, a5, q, post, hLeq⟩ := exists_cons6 (l := e.getAppArgsList)
+          (by rw [Expr.getAppArgs_eq] at h; simpa using h)
+        have hargs : e.getAppArgs = (a1::a2::a3::a4::a5::q::post).toArray := by
+          rw [Expr.getAppArgs_eq, hLeq]
+        have he2 : c.TrExprS
+            ((Expr.const ``Quot.lift ls).mkAppList (a1::a2::a3::a4::a5::q::post)) e' := by
+          rw [← hLeq, ← hfn, Expr.mkAppList_getAppArgsList]; exact he
+        obtain ⟨v, hqv, hstep⟩ := c.quotLiftFull hq he2
+        have heqe : e = (Expr.const ``Quot.lift ls).mkAppList (a1::a2::a3::a4::a5::q::post) := by
+          rw [← hLeq, ← hfn, Expr.mkAppList_getAppArgsList]
+        simp only [hargs]
+        refine (whnf.WF hqv).bind fun mk _ _ ⟨hfb, hmkr⟩ => ?_
+        split
+        · exact .pure nofun
+        · rename_i hari
+          obtain ⟨us', b1, b2, b3, rfl⟩ := isAppOfArity3_inv (n := ``Quot.mk) (by simpa using hari)
+          have happ : (Lean.mkApp3 (Expr.const ``Quot.mk us') b1 b2 b3).appArg! = b3 := rfl
+          have hres := hstep (us' := us') (b1 := b1) (b2 := b2) (b3 := b3) hmkr
+          have hbelow : c.FVarsBelow e ((a4.app b3).mkAppList post) := by
+            intro P hP hfv
+            rw [heqe, FVarsIn.mkAppList] at hfv
+            rw [FVarsIn.mkAppList]
+            refine ⟨⟨hfv.2 _ (by simp), ?_⟩, fun a ha => hfv.2 _ (by simp [ha])⟩
+            exact (hfb P hP (hfv.2 _ (by simp))).2
+          have hidx : (a1::a2::a3::a4::a5::q::post).toArray[3]! = a4 := rfl
+          split
+          · rename_i hpost
+            have hrange : mkAppRange ((a1::a2::a3::a4::a5::q::post).toArray[3]!.app b3) (5+1)
+                (a1::a2::a3::a4::a5::q::post).toArray.size
+                (a1::a2::a3::a4::a5::q::post).toArray = (a4.app b3).mkAppList post := by
+              rw [hidx]
+              exact Expr.mkAppRange_eq (l₁ := [a1,a2,a3,a4,a5,q]) (l₂ := post) (l₃ := [])
+                (by simp) (by simp) (by simp)
+            rw [happ, hrange]
+            refine .pure fun e₁ eqn => ?_
+            obtain rfl := Option.some.inj eqn
+            exact ⟨hbelow, hres⟩
+          · rename_i hpost
+            have hnil : post = [] := by
+              rw [List.size_toArray] at hpost
+              simp_all
+            subst hnil
+            rw [happ, hidx]
+            refine .pure fun e₁ eqn => ?_
+            obtain rfl := Option.some.inj eqn
+            exact ⟨hbelow, by simpa using hres⟩
+      · exact .pure nofun
+    · split
+      · rename_i hind
+        dsimp only
+        have hfn : e.getAppFn = .const ``Quot.ind ls := by rw [heq, eq_of_beq hind]
+        split
+        · rename_i h
+          obtain ⟨a1, a2, a3, a4, q, post, hLeq⟩ := exists_cons5 (l := e.getAppArgsList)
+            (by rw [Expr.getAppArgs_eq] at h; simpa using h)
+          have hargs : e.getAppArgs = (a1::a2::a3::a4::q::post).toArray := by
+            rw [Expr.getAppArgs_eq, hLeq]
+          have heqe : e = (Expr.const ``Quot.ind ls).mkAppList (a1::a2::a3::a4::q::post) := by
+            rw [← hLeq, ← hfn, Expr.mkAppList_getAppArgsList]
+          have he2 : c.TrExprS
+              ((Expr.const ``Quot.ind ls).mkAppList (a1::a2::a3::a4::q::post)) e' := heqe ▸ he
+          obtain ⟨v, hqv, hstep⟩ := c.quotIndFull hq he2
+          simp only [hargs]
+          refine (whnf.WF hqv).bind fun mk _ _ ⟨hfb, hmkr⟩ => ?_
+          split
+          · exact .pure nofun
+          · rename_i hari
+            obtain ⟨us', b1, b2, b3, rfl⟩ :=
+              isAppOfArity3_inv (n := ``Quot.mk) (by simpa using hari)
+            have happ : (Lean.mkApp3 (Expr.const ``Quot.mk us') b1 b2 b3).appArg! = b3 := rfl
+            have hres := hstep (us' := us') (b1 := b1) (b2 := b2) (b3 := b3) hmkr
+            have hbelow : c.FVarsBelow e ((a4.app b3).mkAppList post) := by
+              intro P hP hfv
+              rw [heqe, FVarsIn.mkAppList] at hfv
+              rw [FVarsIn.mkAppList]
+              refine ⟨⟨hfv.2 _ (by simp), ?_⟩, fun a ha => hfv.2 _ (by simp [ha])⟩
+              exact (hfb P hP (hfv.2 _ (by simp))).2
+            have hidx : (a1::a2::a3::a4::q::post).toArray[3]! = a4 := rfl
+            split
+            · rename_i hpost
+              have hrange : mkAppRange ((a1::a2::a3::a4::q::post).toArray[3]!.app b3) (4+1)
+                  (a1::a2::a3::a4::q::post).toArray.size
+                  (a1::a2::a3::a4::q::post).toArray = (a4.app b3).mkAppList post := by
+                rw [hidx]
+                exact Expr.mkAppRange_eq (l₁ := [a1,a2,a3,a4,q]) (l₂ := post) (l₃ := [])
+                  (by simp) (by simp) (by simp)
+              rw [happ, hrange]
+              refine .pure fun e₁ eqn => ?_
+              obtain rfl := Option.some.inj eqn
+              exact ⟨hbelow, hres⟩
+            · rename_i hpost
+              have hnil : post = [] := by
+                rw [List.size_toArray] at hpost
+                simp_all
+              subst hnil
+              rw [happ, hidx]
+              refine .pure fun e₁ eqn => ?_
+              obtain rfl := Option.some.inj eqn
+              exact ⟨hbelow, by simpa using hres⟩
+        · exact .pure nofun
+      · exact .pure nofun
+  · exact .pure nofun
 
 theorem reduceRecursor.WF {c : VContext} {s : VState} (he : c.TrExprS e e') :
     RecM.WF c s (reduceRecursor e) fun oe _ =>

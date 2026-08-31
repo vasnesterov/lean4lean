@@ -792,7 +792,30 @@ had already run the temporal argument over the `WF'` chain, for this very name.
 
 So this lemma's residual is now **`VEnv.WeakNorm` alone** (plus the shared
 `IsDefEqU.weakN_iff`).  That is unchanged in difficulty: `WeakNorm` is still proved nowhere,
-and `VEnv.ConstRigidPat` is still its only consumer route. -/
+and `VEnv.ConstRigidPat` is still its only consumer route.
+
+**Update 5: `VEnv.WeakNorm` is FALSE — the residual is not open, it is refuted.**
+`Verify/Typing/WeakNormRefute.lean` proves `¬ VEnv.WeakNorm` at two independent `VEnv.Params`
+instances over `CycleConv.propLoopEnv` (`A : Prop := B`, `B : Prop := A`, `VEnv.WF`, one
+`.unsafeDef` step from empty), one of them built from `VEnv.WF` alone via `paramsOfDelta` at
+the canonical `Lean4Lean.Pat` table: the two constants are well typed and δ-reduce to each
+other, and `WHRed.determ` makes their reduction path unique, so neither reaches a `WHNF`.
+
+Consequences for *this* lemma, precisely:
+
+* The route through `constRigidPat_of_weakNorm` is dead at this lemma's generality
+  (`henv : VEnv.WF env` for an arbitrary `env`).  Not "hard": unusable.
+* (C) itself — `VEnv.ConstRigidPat` — is **not** refuted, and remains what this lemma needs.
+  It is strictly weaker than `WeakNorm`: it asks for a reduct with a *given* rule-free head,
+  and only of subjects already convertible with such a spine.  At the refuting witness it is
+  vacuous (`PatFreeHead` excludes both declared constants), so that witness is no evidence
+  against it.
+* So the repair is either a direct proof of `ConstRigidPat` that does not go through
+  whnf-existence, or an environment hypothesis excluding cyclic δ-rules — which would have to
+  be threaded through `TrProj` and `addDecl.WF`, since `VEnv.WF` permits `.unsafeDef`
+  blocks.  `Theory/Typing/CycleConv.lean` is the reference for what such a block does (and
+  does not do) to conversion: at `loopEnv` it adds no conversions at all, but `propLoopEnv`
+  cycles between *types*, where that collapse argument does not apply. -/
 theorem TrProj.weak'_inv (henv : VEnv.WF env) (hΓ' : OnCtx Γ' (env.IsType U))
     (W : Ctx.Lift' l Γ Γ') (H : TrProj env U Γ' s i (e.lift' l) e') :
     ∃ e'', TrProj env U Γ s i e e'' := sorry
@@ -1635,7 +1658,28 @@ carry `ps` under binders and, through `VInductDecl'.projArgs`, the earlier proje
 recurses on `i` as `projArgs` does and needs, at every step, the typing the
 `Verify/Typing/ProjGen*` family supplies for `TrProj.wf`.  Mechanical, and comparable in size
 to that family.  `ProjSpineInv.lean` is deliberately upstream of this file, so closing the
-residual closes this `sorry` by one application. -/
+residual closes this `sorry` by one application.
+
+**Update 5: the residual splits, and the subject half is proved.**  `ProjTermCongr` quantifies
+over *both* the subject `e` and the projection data; those two halves are not equally hard, and
+only one of them is still open.
+
+* `VInductDecl'.projTerm_eq_app` (`ProjSpineInv.lean`) observes that the subject occurs in
+  `projTerm` exactly once, as the *last* spine argument: `projTerm … i e = .app (recursor
+  applied to ps ++ [motive, minor] ++ ιs) e`.  Nothing else in the term mentions `e`.
+* So the subject half is one `VEnv.IsDefEq.appDF` against the reflexive typing of that head,
+  obtained from `VEnv.HasType.app_inv`: `VInductDecl'.projTerm_congr_subject` proves
+  `IsDefEqU (projTerm … e₁) (projTerm … e₂)` from `IsDefEqU e₁ e₂`, `VEnv.WF env`, and
+  well-typedness of *one* side.  It needs none of the `ProjGen*` typing machinery.
+* What is left is `VEnv.ProjDataCongr`: for a *fixed* subject `e`, any two `TrProj env U Γ S i e`
+  results are `IsDefEqU`.  `VEnv.ProjDataCongr.projTermCongr` proves `ProjTermCongr` from it
+  (using `TrProj.wf`, passed as a hypothesis so the reduction can live upstream of this file).
+  The `instL_r` level half and the `mkAppDF`-over-`projArgs` spine half of Update 4's estimate
+  are entirely inside `ProjDataCongr`; the subject quantifier is no longer part of the cost.
+
+Both new lemmas are `sorryAx`-tainted only through `VEnv.IsDefEqU.forallE_inv_stratified`
+(`Theory/Typing/Injectivity.lean`), inherited via `HasType.app_inv`; measured with
+`hole-cone`-style `deps`, that is their whole hole cone. -/
 theorem TrProj.uniq (H1 : TrProj env U Γ₁ s₁ i e₁ e₁') (H2 : TrProj env U Γ₂ s₂ i e₂ e₂')
     (H : env.IsDefEqU U Γ₁ e₁ e₂) :
     env.IsDefEqU U Γ₁ e₁' e₂' := sorry

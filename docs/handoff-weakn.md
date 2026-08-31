@@ -887,3 +887,117 @@ and shows it is where the users are.
   tautology of §9/§5.1.  Any residual must exclude middle terms in the image of the lift.
 * Do not prove the nine typing wrappers again; §5 of `StrengthenNarrow.lean` has them.
 * Do not expect `PiDescend` to unblock the tree: 18 of 131 (§5.3).
+
+# Round 6 — the `NormalEq` route: strengthening below `trans`
+
+New file: `Lean4Lean/Theory/Typing/NormalEqStrengthen.lean` (336 lines, green, zero `sorry`).
+Census 14 before, 14 after.  Nothing outside that file was edited.
+
+## 6.1 The lead, and how it changed under measurement
+
+Round 5 ended with: closing the residual needs "a normalisation result pushing `b` into the
+image of the lift — which is what `NormalEq`/Church-Rosser would give and which is cyclic in
+this import order".  Round 6 attacked the cyclicity instead of the residual.
+
+`NormalEq` (`ChurchRosser.lean:165`) has **no `trans` constructor** — nine constructors:
+`refl sortDF constDF appDF lamDF forallEDF etaL etaR proofIrrel` (`NormalEq.trans` at `:481`
+is a theorem needing confluence).  `trans` is the one `IsDefEq` rule that defeats
+strengthening.  So `NormalEq`-strengthening should not need the hole.  Measured case by case,
+against the elaborated types rather than the informal table:
+
+| case | what `weakN_iff` was actually instantiated at | needs |
+| --- | --- | --- |
+| `sortDF`, `constDF` | — | nothing |
+| `refl`, `proofIrrel` | `⟨_, h⟩` with `h : HasType` (i.e. `VExpr.WF.weakN_iff`) | typing half |
+| `forallEDF`, `etaL`, `etaR` | `HasType.weakN_iff` at `.sort _` / `.forallE _ _` | typing half |
+| `appDF` | genuine conversion, middle term = the upstairs type | **eliminable** |
+| `lamDF` | genuine conversion, but at type `.sort u` | sort residual |
+
+Two of the informal table's claims were wrong: `appDF` is not irreducible, and
+`etaL`/`etaR`/`forallEDF` are not "restricted conversion" at all, they are pure typing.
+
+`appDF` is eliminated, not weakened: the original retypes the second argument using
+`uniqU` upstairs, whose `.trans` has an upstairs middle term.  But the two induction
+hypotheses already give `NormalEq Γ f₁ f₂` and `NormalEq Γ a₁ a₂` *downstairs*, and
+`NormalEq.defeq` converts those into the retyping conversions directly.  This is the one
+substantive change to the proof.
+
+## 6.2 The sort residual collapses (the round's real result)
+
+`SortConvStrengthening` = `Strengthening` with the premise's type a sort.  It is **provable
+from the typing half**:
+
+> `SortConvStrengthening.of_typing (henv) : TypingStrengthening env U → SortConvStrengthening env U`
+
+Given `A₂↑ ≡ A₁↑ : Sort u` upstairs, build `fun (_ : A₂↑) => bvar 0 : A₂↑ → A₂↑`, retype it by
+`defeqDF` through `forallEDF` at `A₁↑ → A₁↑`.  Both subject and type are now lifts
+(`liftN_lam_bvar0`, `liftN_forallE_self_lift`), so `TypingStrengthening.hasType_inv` descends
+it; `uniqU` against `lamDF hA₂ (.bvar .zero)` downstairs and `forallE_inv` recover `A₂ ≡ A₁`.
+
+**Why this does not extend to the full hole.**  Encoding a conversion inside a typing
+judgement needs a type former with a slot for the converted object.  `forallE` supplies one
+for *types*.  Nothing in this pure fragment supplies one for a general *term*: the obvious
+attempt, applying a constant function, is information-free —
+`sortConv_encoding_vacuous` (§4) proves
+`app (lam T (sort 0)) e1 ≡ app (lam T (sort 0)) e2 : Sort 1` with **no hypothesis relating
+`e1` and `e2`**, by `beta.trans beta.symm`.  That is the exact boundary of the trick, and it
+is why `TransStrengtheningNarrow` survives round 6.
+
+Immediate consequence, `TransStrengtheningNarrow.at_sort`: every **sort-typed** instance of
+round 5's residual is closed by the typing half.  Round 5's "18 of 131" pessimism about
+`PiDescend` is unchanged for the general residual, but the sort-typed slice is now free.
+
+## 6.3 What is now known
+
+* `NormalEq.weakN_inv_DFC_of_typing`, `NormalEq.weakN_iff_of_typing`: `ChurchRosser.lean:361`
+  and `:466` hold from `TypingStrengthening` **alone** — equivalently from `PiDescend`.
+* `StrengtheningTarget.of_normalEqComplete`, `.iff_piDescend_of_normalEqComplete`,
+  `TransStrengtheningNarrow.of_normalEqComplete`: with confluence as the explicit hypothesis
+  `NormalEqComplete : ∀ {Γ e1 e2 A}, OnCtx Γ (IsType env univs) → (Γ ⊢ e1 ≡ e2 : A) →
+  Γ ⊢ e1 ≡ₚ e2`, the **hole is exactly `PiDescend`**.  Contrast
+  `StrengtheningTarget.iff_piDescend_narrow` (round 5), which additionally needed the narrow
+  `trans` residual: `NormalEqComplete` removes that conjunct.
+
+Measured cones (`hole-cone.lean`'s `deps`, `allowOpaque := true`):
+
+| seed | holes |
+| --- | --- |
+| `NormalEq.weakN_inv_DFC` (original) | `weakN_iff`, `forallE_inv_stratified`, `rigidShapeUniqNS` |
+| `NormalEq.weakN_iff` (original) | `weakN_iff`, `forallE_inv_stratified`, `rigidShapeUniqNS` |
+| `IsDefEq.church_rosser` | + `NormalEq.descend` |
+| all 13 results of `NormalEqStrengthen.lean` | `forallE_inv_stratified`, `rigidShapeUniqNS` |
+| `TypingStrengthening.onCtx_inv` (baseline) | `forallE_inv_stratified`, `rigidShapeUniqNS` |
+
+## 6.4 Verdict, stated without inflation
+
+`TypingStrengthening` has no unconditional inhabitant here; it *is* `PiDescend`, still open.
+So round 6's result is "**`NormalEq`-strengthening reduces to `PiDescend`**", not "the hole is
+closed".  It removes **one of the two** cycle entries:
+`NormalEq.weakN_iff → weakN_inv_DFC → IsDefEqU.weakN_iff` is gone; the other,
+`NormalEq.parRed → ParRed.weakN_inv → IsDefEqU.weakN_iff`, is untouched — `ParRedK` defers it
+behind `WeakNInvDS` and discharging that reinstates it.  `NormalEqComplete` is a hypothesis,
+not an instantiation of `IsDefEq.church_rosser`, because that proof's cone still contains the
+hole and routes through `NormalEq.parRed`, whose statement `ParRedPropRefute.lean` refutes.
+
+The reference gap is unchanged and now better localised: `~/lean-type-theory/typesys.tex:88-89`
+(thm:weak (3)(4)) is sound for every conversion rule except `trans`, and for `trans` it is
+sound whenever the shared type is a sort (§6.2).  Recorded here only.
+
+## 6.5 Proposed edit to `ChurchRosser.lean` (NOT made — file owned by another stream)
+
+Add `(HT : TypingStrengthening env univs)` to `NormalEq.weakN_inv_DFC` (`:361`) and
+`NormalEq.weakN_iff` (`:466`), and replace their bodies with
+`NormalEqStrengthen.lean`'s `weakN_inv_DFC_of_typing` / `weakN_iff_of_typing`: concretely,
+the `IsDefEqU.weakN_iff` / `VExpr.WF.weakN_iff` / `HasType.weakN_iff` / `OnCtx.weakN_inv`
+appeals in `:361-470` become `HT.wf_inv`, `HT.hasType_inv`, `HT.onCtx_inv`.  This makes
+`ChurchRosser.lean` import `StrengthenNarrow.lean`; check that direction is acyclic before
+applying (`NormalEqStrengthen.lean` currently imports `ChurchRosser`, so the shared §2 proof
+must move into `ChurchRosser.lean` or into a file both import).
+
+## 6.6 Do not reattempt
+
+* Do not try to run §6.2's identity-function encoding on term-level conversions;
+  `sortConv_encoding_vacuous` is the counterexample.
+* Do not instantiate `NormalEqComplete` from `IsDefEq.church_rosser` as it stands (§6.4).
+* Do not claim the hole closed from round 6: `PiDescend` is the remaining obligation, and
+  `ParRed.weakN_inv` is the remaining cycle entry.

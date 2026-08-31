@@ -262,3 +262,45 @@ concrete declaration despite 36 consumers. Route to that file's owner.
    inhabitants falsify a hypothesis stated over it is the dual failure, and it is only
    visible once someone builds an instance. `Theory/Typing/ParamsWitness.lean` built the
    first `Params`; the refutation is a direct dividend of that.
+
+## Class: modules outside the census import closure (third occurrence)
+
+`scripts/sorry-census.lean` and `scripts/dup-names.lean` measure the import closure of
+`Lean4Lean.Verify.Guard` + `Lean4Lean.Experimental.ConeJoin`. A module outside that closure is
+invisible to both. `ConeJoin.lean`'s own comment has said "Add every new leaf here" since
+2026-08-30 and it was not being done.
+
+A sweep on 2026-08-31 found **59 of 265 modules outside the closure, 26 of them mentioning
+`sorry`**. Most were `Experimental/` (excluded by design). Three findings were not:
+
+1. **`Theory/Equiconsistency.lean` had never been counted.** Nothing imported it. It holds
+   `leanTT_equiconsistent_zfc_omega_inaccessibles`, a `sorry`, and the half of it that
+   `kernel_sound` actually consumes (`Consistent ZFC+Inacc -> leanTTConsistent`, isolated
+   there as `inconsistent_of_upper_bound`) is the single largest piece of unwritten work in
+   the project. The instrument that is supposed to say how far the proof has to go was silent
+   about the furthest part of it.
+
+2. **A two-module orphan island, `SortUniqDown` <- `UniqSort`.** Five files in the main cone
+   cite `SortUniqDown.lean` in prose -- `Injectivity.lean`, `SortUniq.lean`, `ChurchRosser.lean`,
+   `DescendRefute.lean` -- and `SortUniq.lean:75` calls one of its theorems "`sorryAx`-free",
+   but no file in the main cone ever imported it. Prose citation is not a dependency.
+
+3. **A name collision the island was hiding.** `VEnv.sortInv_of_sortUniq` named two *different*
+   theorems: `SortUniqDown.lean:160` (`SortUniq -> SortInv`) and `BaseUniqChain.lean:373`
+   (levels agree at a strong sort defeq). `DescendRefute.lean:237` had already written
+   "if both survive, dedupe" -- an instruction that could not be acted on, because the
+   instrument that would have flagged it was blind to one of the two files. Renamed the
+   island's copy to `SortInv.of_sortUniq`.
+
+Fixed by adding all 23 non-`Experimental` orphans to `ConeJoin.lean`, and by
+`scripts/cone-orphans.py`, which now fails if any proof module is outside the closure.
+Present state: 265 modules, 229 in the cone, 0 orphaned.
+
+**Rule: the census number is only as wide as `ConeJoin.lean`'s imports. Run
+`scripts/cone-orphans.py` before quoting a census figure as evidence of anything.**
+
+Effect on the numbers, stated plainly: the census stayed at 14, but only by coincidence --
+the checker stream closed `Inner.quotReduceRec.WF` in the same window that
+`leanTT_equiconsistent_zfc_omega_inaccessibles` became visible. Transitive user counts rose
+where the new modules use existing holes: `forallE_inv_stratified` 468 -> 499,
+`rigidShapeUniqNS` 193 -> 210. Those are corrections, not regressions.

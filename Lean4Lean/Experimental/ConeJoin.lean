@@ -63,6 +63,34 @@ import Lean4Lean.Theory.SetModel.CoherentWitness
 import Lean4Lean.Theory.SetModel.CtorTransExamples
 import Lean4Lean.Theory.SetModel.LevelAssignUnsat
 import Lean4Lean.Theory.SetModel.FalseProp
+-- Added 2026-08-31 after a sweep found 59 of 265 modules outside this closure, 26 of them
+-- mentioning `sorry`.  The worst was `Theory/Equiconsistency.lean`: the single statement
+-- `kernel_sound` most needs (`Consistent ZFC+Inacc -> leanTTConsistent`) was a `sorry` that
+-- NOTHING imported, so the census had never counted it.  `scripts/cone-orphans.py` is now a
+-- standing check that fails if any non-Experimental, non-Tests module is missing here.
+import Lean4Lean.Theory.Equiconsistency
+import Lean4Lean.Theory.LevelSat
+import Lean4Lean.Theory.SetModel.NotProofNoModel
+import Lean4Lean.Theory.SetModel.PropSplitUp
+import Lean4Lean.Theory.SetModel.QuotInterp
+import Lean4Lean.Theory.Typing.ConstInvWitness
+import Lean4Lean.Theory.Typing.ConstVar
+import Lean4Lean.Theory.Typing.CtxConvIndex
+import Lean4Lean.Theory.Typing.Enlarged
+import Lean4Lean.Theory.Typing.EnlargedModel
+import Lean4Lean.Theory.Typing.KSite7App
+import Lean4Lean.Theory.Typing.ParRedPropRefute
+import Lean4Lean.Theory.Typing.SortUniqDown
+import Lean4Lean.Theory.Typing.StrengthenCanon
+import Lean4Lean.Theory.Typing.StrengthenVerdict
+import Lean4Lean.Theory.Typing.StructureRuleFree
+import Lean4Lean.Theory.Typing.SubstTRefute
+import Lean4Lean.Theory.Typing.UniqSort
+import Lean4Lean.Verify.Typing.RecTypePeel
+import Lean4Lean.Verify.Typing.StructureUniq
+import Lean4Lean.Theory.Typing.NormalEqStrengthen
+import Lean4Lean.Verify.Typing.ProjSpineInv
+import Lean4Lean.Verify.Typing.WeakNormRefute
 
 /-!
 # Acceptance test: the `PatternRules` cone and the `Verify/` cone join

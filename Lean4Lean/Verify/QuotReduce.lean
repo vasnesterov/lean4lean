@@ -406,4 +406,215 @@ theorem quotInd_reduce (henv : env.WF) (hpi : env.PiInv U)
 
 end VEnv
 
+
+/-! ## The `Verify` side: from a translated redex to `TrExpr` of the contraction
+
+The three lemmas below are all the bookkeeping `quotReduceRec.WF` needs.  They are stated on
+the *destructured* spine rather than on `Expr.mkAppList`, because the checker's `mkPos` is a
+literal (5 for `Quot.lift`, 4 for `Quot.ind`) and `TrExprS` inversion on a literal spine
+hands over every component — the translations of the arguments, and the `HasType` facts at
+each application node — with no `AppStack` induction. -/
+
+namespace TypeChecker
+
+open Lean (Expr Name) in
+/-- **Inversion of `TrExprS` at an application**, in equation form.  The `let`-pattern
+inversions used elsewhere in this file cannot refine the *translation* variable `v` in
+hypotheses that mention it; returning the equation makes the refinement available as an
+`rfl` pattern at the call site. -/
+theorem VContext.trApp_inv {c : VContext} {f a : Expr} {v : VExpr}
+    (h : c.TrExprS (.app f a) v) :
+    ∃ f' a', v = .app f' a' ∧ c.TrExprS f f' ∧ c.TrExprS a a' := by
+  cases h; exact ⟨_, _, rfl, ‹_›, ‹_›⟩
+
+open Lean (Expr Name) in
+/-- **Inversion of `TrExprS` at a constant**, in equation form; see `VContext.trApp_inv`. -/
+theorem VContext.trConst_inv {c : VContext} {n : Name} {us : List Lean.Level} {v : VExpr}
+    (h : c.TrExprS (.const n us) v) : ∃ ls, v = .const n ls := by
+  cases h; exact ⟨_, rfl⟩
+
+open Lean (Expr Name mkApp3) in
+/-- **The shared tail.**  Given the abstract reduction step at the *whnf'd* major premise
+(`hstep`), the defeq between that and the major premise as it actually appears in the
+translated redex (`hmkv`), and the translations of the two surviving subterms, rebuild
+`TrExpr` of the contraction.  The two `HasType` obligations of `TrExprS.app` are recovered
+from the step's own right-hand side by `HasType.app_inv`, so no caller has to supply the
+minor premise's function type. -/
+theorem VContext.quotTail {c : VContext} {a4 b3 : Expr} {A B G q' mkv a4' b3' : VExpr}
+    (hG : c.HasType G (.forallE A B)) (hq'A : c.HasType q' A)
+    (hmkv : c.IsDefEqU mkv q')
+    (hstep : c.IsDefEqU (.app G mkv) (.app a4' b3'))
+    (ha4 : c.TrExprS a4 a4') (hb3 : c.TrExprS b3 b3') :
+    c.TrExpr (.app a4 b3) (.app G q') := by
+  have hΓ := c.Δwf.toCtx
+  have h1 : c.IsDefEqU (.app G q') (.app G mkv) :=
+    ⟨_, VEnv.IsDefEq.appDF hG (hmkv.symm.of_l c.Ewf hΓ hq'A)⟩
+  have h2 := h1.trans c.Ewf hΓ hstep
+  obtain ⟨_, hT⟩ := h2
+  obtain ⟨_, _, hf, ha⟩ := VEnv.HasType.app_inv c.Ewf.ordered hΓ hT.hasType.2
+  exact ⟨_, .app hf ha ha4 hb3, ⟨_, hT.symm⟩⟩
+
+open Lean (Expr Name mkApp3) in
+/-- **The `Quot.lift` branch.**  `hg` is the translated redex with its six argument slots
+exposed; `hmk`/`hdf` say that the sixth argument whnf'd to a three-argument `Quot.mk` spine.
+The conclusion is exactly the postcondition `quotReduceRec.WF` needs before the trailing
+arguments are re-applied. -/
+theorem VContext.quotLiftStep {c : VContext} (hq : c.env.quotInit = true)
+    {us us' : List Lean.Level} {lsv : List VLevel}
+    {a1 a2 a3 a4 a5 q b1 b2 b3 : Expr}
+    {a1' a2' a3' a4' a5' q' mkv : VExpr}
+    (hg : c.TrExprS
+      (.app (.app (.app (.app (.app (.app (.const ``Quot.lift us) a1) a2) a3) a4) a5) q)
+      (.app (.app (.app (.app (.app (.app (.const ``Quot.lift lsv) a1') a2') a3') a4') a5') q'))
+    (hmk : c.TrExprS (mkApp3 (.const ``Quot.mk us') b1 b2 b3) mkv)
+    (hdf : c.IsDefEqU mkv q') :
+    c.TrExpr (.app a4 b3)
+      (.app (.app (.app (.app (.app (.app (.const ``Quot.lift lsv) a1') a2') a3') a4') a5') q') := by
+  have hΓ := c.Δwf.toCtx
+  obtain ⟨-, hmkc, hlift, -, hdfq⟩ := c.trenv.quotFacts hq
+  obtain ⟨_, _, rfl, hmk2, hb3t⟩ := c.trApp_inv hmk
+  obtain ⟨_, _, rfl, hmk3, -⟩ := c.trApp_inv hmk2
+  obtain ⟨_, _, rfl, hhd, -⟩ := c.trApp_inv hmk3
+  obtain ⟨_, rfl⟩ := c.trConst_inv hhd
+  let .app hfun hq'A hg5 _ := hg
+  let .app _ _ hg4 _ := hg5
+  let .app _ _ hg3 ha4t := hg4
+  have hmkT := VEnv.HasType.defeqU_l c.Ewf hΓ hdf.symm hq'A
+  have hT := VEnv.HasType.app hfun hmkT
+  have hstep := VEnv.quotLift_reduce c.Ewf (VEnv.piInv_axiom c.Ewf) hdfq hlift hmkc
+    (c.trenv.ruleFreeHead_quot hq) hΓ (ls := lsv)
+    (a1 := a1') (a2 := a2') (a3 := a3') (a4 := a4') (a5 := a5') hT
+  exact c.quotTail hfun hq'A hdf hstep ha4t hb3t
+
+open Lean (Expr Name mkApp3) in
+/-- **The `Quot.ind` branch**, five argument slots, and the step justified by proof
+irrelevance rather than by `quotDefEq`. -/
+theorem VContext.quotIndStep {c : VContext} (hq : c.env.quotInit = true)
+    {us us' : List Lean.Level} {lsv : List VLevel}
+    {a1 a2 a3 a4 q b1 b2 b3 : Expr}
+    {a1' a2' a3' a4' q' mkv : VExpr}
+    (hg : c.TrExprS
+      (.app (.app (.app (.app (.app (.const ``Quot.ind us) a1) a2) a3) a4) q)
+      (.app (.app (.app (.app (.app (.const ``Quot.ind lsv) a1') a2') a3') a4') q'))
+    (hmk : c.TrExprS (mkApp3 (.const ``Quot.mk us') b1 b2 b3) mkv)
+    (hdf : c.IsDefEqU mkv q') :
+    c.TrExpr (.app a4 b3)
+      (.app (.app (.app (.app (.app (.const ``Quot.ind lsv) a1') a2') a3') a4') q') := by
+  have hΓ := c.Δwf.toCtx
+  obtain ⟨-, hmkc, -, hind, -⟩ := c.trenv.quotFacts hq
+  obtain ⟨_, _, rfl, hmk2, hb3t⟩ := c.trApp_inv hmk
+  obtain ⟨_, _, rfl, hmk3, -⟩ := c.trApp_inv hmk2
+  obtain ⟨_, _, rfl, hhd, -⟩ := c.trApp_inv hmk3
+  obtain ⟨_, rfl⟩ := c.trConst_inv hhd
+  let .app hfun hq'A hg4 _ := hg
+  let .app _ _ hg3 ha4t := hg4
+  have hmkT := VEnv.HasType.defeqU_l c.Ewf hΓ hdf.symm hq'A
+  have hT := VEnv.HasType.app hfun hmkT
+  have hstep := VEnv.quotInd_reduce c.Ewf (VEnv.piInv_axiom c.Ewf) hind hmkc
+    (c.trenv.ruleFreeHead_quot hq) hΓ (ls := lsv)
+    (a1 := a1') (a2 := a2') (a3 := a3') (a4 := a4') hT
+  exact c.quotTail hfun hq'A hdf hstep ha4t hb3t
+
+open Lean (Expr Name mkApp3) in
+/-- **The `Quot.lift` branch as `quotReduceRec` presents it**: head, six arguments, and however
+many trailing arguments the caller re-applies.
+
+The interface is shaped for the checker's own control flow.  It hands back *one* translation
+`v` of the major premise — the one the redex's own spine carries — so that the caller can run
+`whnf.WF` on it, and then accepts `whnf`'s postcondition (`TrExpr` of whatever came back)
+once the caller has learned, from `isAppOfArity ``Quot.mk 3`, that the result is a
+three-argument `Quot.mk` spine.  No reconciliation of two different translations of the same
+subterm is needed anywhere.
+
+The trailing arguments cost nothing: `TrExpr.rebuild_mkAppList` re-applies them to the
+contraction, given that the head part translates. -/
+theorem VContext.quotLiftFull {c : VContext} {e' : VExpr} (hq : c.env.quotInit = true)
+    {us : List Lean.Level} {a1 a2 a3 a4 a5 q : Expr} {post : List Expr}
+    (he : c.TrExprS
+      (Expr.mkAppList (.const ``Quot.lift us) (a1::a2::a3::a4::a5::q::post)) e') :
+    ∃ v, c.TrExprS q v ∧ ∀ {us' : List Lean.Level} {b1 b2 b3 : Expr},
+      c.TrExpr (mkApp3 (.const ``Quot.mk us') b1 b2 b3) v →
+      c.TrExpr (Expr.mkAppList (.app a4 b3) post) e' := by
+  obtain ⟨f'', stk⟩ := AppStack.build he
+  let .app _ _ hhd _ stk1 := stk
+  cases hhd
+  let .app _ _ _ _ stk2 := stk1
+  let .app _ _ _ _ stk3 := stk2
+  let .app _ _ _ _ stk4 := stk3
+  let .app _ _ _ _ stk5 := stk4
+  let .app _ _ _ hqq stk6 := stk5
+  refine ⟨_, hqq, ?_⟩
+  intro us' b1 b2 b3 hwh
+  obtain ⟨mkv, hmkS, hmkdf⟩ := hwh
+  exact TrExpr.rebuild_mkAppList c.Ewf c.Δwf stk6.tr he
+    (c.quotLiftStep hq stk6.tr hmkS hmkdf)
+
+open Lean (Expr Name mkApp3) in
+/-- **The `Quot.ind` branch as `quotReduceRec` presents it**, five arguments; see
+`VContext.quotLiftFull` for the shape of the interface. -/
+theorem VContext.quotIndFull {c : VContext} {e' : VExpr} (hq : c.env.quotInit = true)
+    {us : List Lean.Level} {a1 a2 a3 a4 q : Expr} {post : List Expr}
+    (he : c.TrExprS
+      (Expr.mkAppList (.const ``Quot.ind us) (a1::a2::a3::a4::q::post)) e') :
+    ∃ v, c.TrExprS q v ∧ ∀ {us' : List Lean.Level} {b1 b2 b3 : Expr},
+      c.TrExpr (mkApp3 (.const ``Quot.mk us') b1 b2 b3) v →
+      c.TrExpr (Expr.mkAppList (.app a4 b3) post) e' := by
+  obtain ⟨f'', stk⟩ := AppStack.build he
+  let .app _ _ hhd _ stk1 := stk
+  cases hhd
+  let .app _ _ _ _ stk2 := stk1
+  let .app _ _ _ _ stk3 := stk2
+  let .app _ _ _ _ stk4 := stk3
+  let .app _ _ _ hqq stk5 := stk4
+  refine ⟨_, hqq, ?_⟩
+  intro us' b1 b2 b3 hwh
+  obtain ⟨mkv, hmkS, hmkdf⟩ := hwh
+  exact TrExpr.rebuild_mkAppList c.Ewf c.Δwf stk5.tr he
+    (c.quotIndStep hq stk5.tr hmkS hmkdf)
+
+/-! ## Syntactic helpers for the checker's own shape
+
+`quotReduceRec` reads its spine through `Expr.getAppArgs` and tests the whnf'd major premise
+with `Expr.isAppOfArity`.  These four turn those into the cons-list and application shapes the
+lemmas above are stated on.  They are pure `Lean.Expr` facts, no environment involved. -/
+
+/-- `isAppOfArity` at a successor arity: the term is an application whose function passes the
+test at one less. -/
+theorem isAppOfArity_succ_inv {e : Lean.Expr} {n : Lean.Name} {k : Nat}
+    (h : e.isAppOfArity n (k+1) = true) :
+    ∃ f a, e = .app f a ∧ f.isAppOfArity n k = true := by
+  cases e <;> simp [Lean.Expr.isAppOfArity] at h
+  exact ⟨_, _, rfl, h⟩
+
+/-- `isAppOfArity` at arity zero: the term is the constant itself. -/
+theorem isAppOfArity_zero_inv {e : Lean.Expr} {n : Lean.Name} (h : e.isAppOfArity n 0 = true) :
+    ∃ us, e = .const n us := by
+  cases e <;> simp [Lean.Expr.isAppOfArity] at h
+  exact ⟨_, by rw [h]⟩
+
+/-- **The shape `quotReduceRec`'s `Quot.mk` test really pins down.** -/
+theorem isAppOfArity3_inv {e : Lean.Expr} {n : Lean.Name} (h : e.isAppOfArity n 3 = true) :
+    ∃ us b1 b2 b3, e = Lean.mkApp3 (.const n us) b1 b2 b3 := by
+  obtain ⟨f, b3, rfl, h1⟩ := isAppOfArity_succ_inv h
+  obtain ⟨f, b2, rfl, h2⟩ := isAppOfArity_succ_inv h1
+  obtain ⟨f, b1, rfl, h3⟩ := isAppOfArity_succ_inv h2
+  obtain ⟨us, rfl⟩ := isAppOfArity_zero_inv h3
+  exact ⟨us, b1, b2, b3, rfl⟩
+
+/-- A list longer than five is six cons cells and a tail — the `Quot.lift` arity check. -/
+theorem exists_cons6 {α} {l : List α} (h : 5 < l.length) :
+    ∃ x1 x2 x3 x4 x5 x6 t, l = x1::x2::x3::x4::x5::x6::t := by
+  match l with
+  | x1::x2::x3::x4::x5::x6::t => exact ⟨x1, x2, x3, x4, x5, x6, t, rfl⟩
+  | [] | [_] | [_,_] | [_,_,_] | [_,_,_,_] | [_,_,_,_,_] => simp at h
+
+/-- A list longer than four is five cons cells and a tail — the `Quot.ind` arity check. -/
+theorem exists_cons5 {α} {l : List α} (h : 4 < l.length) :
+    ∃ x1 x2 x3 x4 x5 t, l = x1::x2::x3::x4::x5::t := by
+  match l with
+  | x1::x2::x3::x4::x5::t => exact ⟨x1, x2, x3, x4, x5, t, rfl⟩
+  | [] | [_] | [_,_] | [_,_,_] | [_,_,_,_] => simp at h
+
+end TypeChecker
+
 end Lean4Lean

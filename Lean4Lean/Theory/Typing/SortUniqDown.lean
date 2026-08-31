@@ -156,8 +156,15 @@ def SortInv (env : VEnv) (U : Nat) : Prop :=
 theorem sortUniq_of (huq : env.UniqTy U) (hsi : env.SortInv U) : env.SortUniq U :=
   fun hΓ _ _ h1 h2 => hsi hΓ (huq hΓ h1 h2)
 
-/-- **Lower bound**: `SortUniq` gives sort injectivity back, on its own. -/
-theorem sortInv_of_sortUniq (huniq : env.SortUniq U) (henv : Ordered env) : env.SortInv U :=
+/-- **Lower bound**: `SortUniq` gives sort injectivity back, on its own.
+
+Renamed 2026-08-31 from `sortInv_of_sortUniq`: that name is taken, by a *different*
+theorem in `Theory/Typing/BaseUniqChain.lean` (levels agree at a strong sort defeq).  The
+collision was invisible until this module was added to `Experimental/ConeJoin.lean`, because
+`SortUniqDown` <- `UniqSort` formed an orphan island that nothing in the main cone imported --
+though five files in it cite this module in prose.  `DescendRefute.lean:237` had already
+written "if both survive, dedupe". -/
+theorem SortInv.of_sortUniq (huniq : env.SortUniq U) (henv : Ordered env) : env.SortInv U :=
   fun hΓ H => sort_inv_of_sortUniq huniq henv hΓ H
 
 end VEnv

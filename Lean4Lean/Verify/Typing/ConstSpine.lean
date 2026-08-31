@@ -54,6 +54,26 @@ Knowing the subject's weak-head normal form exists repairs it, because a `WHNF` 
 has a `WHNF`, non-λ function.  `constRigid_of_weakNorm` is the result: **(C) follows from
 weak-head normalisation and nothing else.**
 
+### Update: that hypothesis is FALSE, so this is not a route to (C)
+
+`VEnv.WeakNorm` below is **refuted**, not open.  `Verify/Typing/WeakNormRefute.lean` exhibits
+a `Params` instance at which it fails: `CycleConv.propLoopEnv` (`A : Prop := B`,
+`B : Prop := A`, one `.unsafeDef` step from `VEnv.empty`, `VEnv.WF`) has two well-typed
+constants that δ-reduce to each other, and since `WHRed` is deterministic neither has a
+weak-head normal form.  The refutation is run at *two* independent instances — the hand-built
+`propLoopParams` and `paramsOfDelta propLoopEnv_wf 0 …`, which comes from `VEnv.WF` alone at
+the canonical `Lean4Lean.Pat` table — so it is not an artefact of a bespoke pattern table
+(`not_forall_weakNorm_of_wf`).
+
+Consequences.  `constRigid_of_weakNorm` and `Rigidity.lean`'s `constRigidPat_of_weakNorm` are
+true implications with an unsatisfiable-in-general antecedent: they cannot be applied at the
+`∀ env, env.WF → …` generality their consumers (`Verify/Typing/Lemmas.lean`'s
+`TrProj.weak'_inv`) need.  (C) itself is *not* refuted — it is strictly weaker than
+`WeakNorm`, asking only for a reduct with a *given* rule-free head and only of subjects
+convertible with such a spine, and at the refuting witness (C) is vacuous, since `PatFreeHead`
+excludes both constants the environment declares.  A repair must prove (C) directly or add an
+environment hypothesis ruling out cyclic δ-rules.
+
 ## Two side conditions, and a correction to one of them
 
 `RuleFreeHead` is a fact about `env.defeqs`.  The step it has to block is `WHRed.extra` /
@@ -521,8 +541,14 @@ theorem isType_lam_false {Γ : List VExpr} {A b : VExpr}
   obtain ⟨w, hw⟩ := WF.uniq' Params.henv hΓ hu (hA.lam hb)
   exact IsDefEqU.sort_forallE_inv Params.henv hΓ ⟨_, hw⟩
 
-/-- **Weak-head normalisation**: every well-typed term has a weak-head normal form.  This is
-(C)'s residual, and the only one. -/
+/-- **Weak-head normalisation**: every well-typed term has a weak-head normal form.  This was
+(C)'s residual, and the only one.
+
+**It is false.**  `Verify/Typing/WeakNormRefute.lean` proves `¬ WeakNorm` at two independent
+`Params` instances over `CycleConv.propLoopEnv`, one of them built from `VEnv.WF` alone
+(`not_forall_weakNorm_of_wf`): a δ-cycle between two well-typed constants has no weak-head
+normal form, `WHRed` being deterministic.  So `constRigid_of_weakNorm` just below is a true
+implication that can never be discharged from `env.WF`; see the module docstring's Update. -/
 def WeakNorm : Prop :=
   ∀ (Γ : List VExpr) (e A : VExpr), OnCtx Γ (IsType env univs) →
     HasType env univs Γ e A → ∃ e', WHRedS Γ e e' ∧ WHNF Γ e'
