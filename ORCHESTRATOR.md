@@ -650,3 +650,70 @@ repair matters.
 Booked as a lead. The failure mode to expect: `forallE_inv` is load-bearing for confluence
 because the `appDF` case genuinely needs to invert the function's type, in which case the
 circle is real and the corner needs the model after all.
+
+## Round: the cycle's first entry is gone (2026-08-31, later)
+
+The lead I briefed this morning was right, and it paid. Recording the algebra because
+it is the reason the round worked, and it was sitting in `Strengthen.lean` all along.
+
+From `Strengthen.lean`, two existing sorry-free equivalences:
+
+    Strengthening        <-> SortDescend /\ PiDescend /\ TransStrengthening   (iff_descend)
+    TypingStrengthening  <-> PiDescend                                        (iff_piDescend)
+
+so `Strengthening <-> TypingStrengthening /\ TransStrengthening`, and `TransStrengthening`
+-- the `trans` case, middle term arbitrary, both induction hypotheses vacuous -- is the only
+resistant conjunct. **`NormalEq` has no `trans` constructor.** That is the whole lead in one
+line: a statement about `NormalEq` should not need the one part of strengthening that resists,
+and today `NormalEqStrengthen.lean` confirmed it for entry (1). Conversion strengthening
+survives in ONE of ten cases (`lamDF`), restricted to a premise at a sort type.
+
+Measured, `hole-cone.lean`'s `deps`:
+
+    weakN_inv_DFC   ->  weakN_iff, forallE_inv_stratified, rigidShapeUniqNS
+    weakN_inv_DFC'  ->            forallE_inv_stratified, rigidShapeUniqNS
+
+No new taint: both injectivity holes were already in the old cone.
+
+### What this is NOT
+
+`TypingStrengthening` has no unconditional inhabitant -- it *is* `PiDescend`, still open. So
+the honest statement is "NormalEq-strengthening reduces to `PiDescend`", not "the hole closed".
+Census 14, unchanged. And entry (2) (`ParRed.weakN_inv`) is untouched: `ParRedK` defers it
+behind a hypothesis `WeakNInvDS`, and discharging that reinstates it. One of two entries.
+
+### Fifth error of the same class, and the standing rule that catches it
+
+I relayed the ParRedK stream's table to the NormalEqStrengthen stream as a correction to my
+own: "full `weakN_iff` in `refl`, `appDF`, `etaL`, `etaR`, so four cases at full strength, not
+one or two." Both tables were *true of the original proof* and both were beside the point,
+because the stream's job was to find a different proof -- which it did, and in which `appDF`,
+`etaL`, `etaR`, `refl` and `proofIrrel` go through typing strengthening instead
+(`HT.wf_inv`, `HT.hasType_inv`, `HasType.app_inv`, `uniq`).
+
+So the rule "read the lemma's hypotheses before briefing an equivalence" has a companion:
+**a measurement of the existing proof does not bound what a new proof needs.** I twice sent a
+stream a census of the artefact it had been asked to replace. Harmless this time only because
+the stream ignored me and re-derived from source, which is what its brief told it to do.
+
+### Two claims of the tree's corrected by streams today
+
+- "`PropTypeAgreeN` is unreachable by its own induction" -- OVERSTATED. `CtxConvIndex.lean`
+  keeps the two indices apart and shows the mechanism is real (`ctxTransportD_one_false`,
+  `ctxTransportT_drop_false`) but that at the same witness the typing transports
+  (`witness_transports_typing`), so `CtxConvProp` is not refuted. Status: blocked induction,
+  statement OPEN. `uniform_index_hypothesis_vacuous` kills the obvious repair -- "domain
+  conversion at every index <= n" IS syntactic equality -- and also refutes a hypothesis I
+  had been carrying since before the last compaction.
+- `SortForallEDisjoint`'s app case is walled on BOTH sides: every positive route already had
+  a refutation in `AppCase.lean`, and `stuck_side_excluded` now shows no witness in this tree
+  can refute it either, because every witness separates two types of one term as a beta-redex
+  from its reduct and the redex side is stuck.
+
+### Priced, not funded
+
+Two authorised model repairs are flag days, not local edits: `OnCtx` on
+`prop_sound`/`proof_sound` costs 64 call sites (~40 in `QuotInterp.lean`) at hand-built
+contexts with obligations proved nowhere today; pinning the valuation costs 82 occurrences
+across 20 files. A stream declined to start either rather than leave the tree red, which was
+the right call. Funding them is a deliberate decision, not a side effect of a round.
