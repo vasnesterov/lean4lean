@@ -829,3 +829,49 @@ Two further consequences worth keeping:
 2. **Attribution damage is not repairable by rewriting** once master is shared with an open PR's
    branch. `24d3c5b`'s message is wrong about who closed `TrProj.uniq`; the correction lives in
    `28a3afd` instead. Cheaper to read the diff.
+
+## Round result: five streams, one hole closed, three statements refuted (2026-08-31)
+
+| stream | outcome |
+| --- | --- |
+| A — `csubst` bridges | **refuted obligation (A)**: `hctors` is false under `inductNested`'s actual premises (`nfnAuxDirty_refutation`, hypothesis-free). Proved (A) in general for parameterless blocks; measured the parameterful gap as exactly `D.np` β-steps. |
+| B — `KeyUnique` | **landed**: a refuted invariant left the `WF'.keys` chain; both arms now have the same shape. |
+| C — pure level instantiation | **axiom orphaned**: five cached names left `addDecl`'s cone; the deletion is now backed by a full build, so proposal 2 is genuinely READY. |
+| D — `TrProj` | **`TrProj.uniq` CLOSED**, census 14 → 13, statement unchanged, no hypothesis added. `weak'_inv` blocked on two gates, one of which (`WeakNorm`) is itself refuted. |
+| E — injectivity | nothing closed, **and proved why** (`sortPiSupplyAll_iff`). Found the packaged part-4 supply is *vacuous*, and that 3 of hole B's 5 conjuncts are negative and had never been measured. |
+
+**The scoreboard moved the wrong way on purpose.** Census 14 → 13, but the four Theory-side holes
+gained users (`descend` 49→145, `rigidShapeUniqNS` 236→311, `weakN_iff` 137→198,
+`forallE_inv_stratified` 528→534) because closing `TrProj.uniq` routed its 94 consumers through
+`projData_uniq` instead of stopping at its own `sorry`. D predicted this before doing it. A falling
+census with rising concentration is the number most likely to be mistaken for progress.
+
+### What the streams corrected in my briefs — the pattern, not the list
+
+Six corrections, and five share one cause: **I set a stream on something the tree had already
+settled, because I trusted my own earlier summary instead of reading the file.**
+
+- (A)'s bridge was already refuted at `ConstSubstNested.lean:583`, with a docstring saying so.
+- `KeyMajorUnique` was already refuted, with the replacement proved, in `NestedKeys.lean`.
+- `AgreeInst` satisfiability was already established by `agreeInst_zero`.
+- `TrProj.uniq`'s residual was not `mkAppDF`/`ProjGen*` at all — that family was a red herring I
+  supplied.
+- "No model route to hole B" was true of the target and false of three of its five conjuncts,
+  because I had not noticed the polarity split.
+
+The sixth is different and worse: **I repeated `SemanticRouteClosed.lean`'s "closed, and exact" as
+"the semantic side is finished" all day**, and it is vacuous in its packaged form. That one I put
+into `SortUniq.lean` myself this morning.
+
+Standing instruction for future briefs, from this: **grep for the statement, and read the file it
+lives in, before setting anyone to prove it.** Cheap, and it would have saved four of the six.
+
+### Two breaks of my own
+
+1. Uncommitted frozen-file edits survived a branch delete and sat dirty through five commits and
+   five streams' builds. Nothing was committed only because every `git add` named paths.
+2. `24d3c5b` swept a concurrent stream's in-flight work into a commit about something else, and
+   imported a still-untracked file, breaking a fresh clone until `28a3afd`.
+
+Both had the same fix available and unused: **`git diff --cached --stat` before committing, and
+account for every insertion.**
