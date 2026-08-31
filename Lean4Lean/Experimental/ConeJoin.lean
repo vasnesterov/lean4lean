@@ -33,6 +33,7 @@ import Lean4Lean.Verify.QuotReach
 import Lean4Lean.Verify.EqSafety
 import Lean4Lean.Verify.SafeFragment
 import Lean4Lean.Verify.Inductive.AddDeclWF
+import Lean4Lean.Verify.Inductive.AddInductiveStep
 import Lean4Lean.Theory.Typing.KMeasure
 import Lean4Lean.Theory.Typing.KSite7
 import Lean4Lean.Theory.Typing.KDescend
