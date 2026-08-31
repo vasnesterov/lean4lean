@@ -759,3 +759,31 @@ Three process rules added to every brief this round, each from a failure earlier
   axiom's consumers cannot be established by grep — only a build with it removed settles it**,
   and a `READY` there means "believed ready", not "built". Stream C is the route to making it
   real.
+
+### Near-miss: uncommitted frozen-file edits survived a branch delete
+
+Worth recording because it is the one way this workflow could commit a frozen-file edit without
+approval, and it nearly did.
+
+I made proposal 2's edits to `Verify/Axioms.lean` and `Verify/Guard.lean` on a branch, the build
+failed, and I did `git checkout master` followed by `git branch -D`. **The branch and master were
+at the same commit**, so `checkout` carried the uncommitted changes across silently and the branch
+delete did not remove them. The frozen files then sat dirty in the working tree — with an axiom
+deleted — through five subsequent commits and while five streams were building against it.
+
+Nothing was committed, for one reason only: every `git add` in that window named specific paths.
+Had one of them been a bare `git add -A`, a frozen-file edit the human had not approved would have
+gone into master, and the failure would have been silent because guard 1 *passes* at 24 axioms
+once both files move together.
+
+Two rules from it:
+
+1. **Never `git add -A`.** Always name paths. This was already the habit; now it is the rule, and
+   the reason is written down.
+2. **After abandoning a branch, `git status` before anything else.** A `checkout` between refs at
+   the same commit is not a state reset.
+
+Collateral: `Verify/Expr.lean` fails with twelve errors while that axiom is missing, so streams
+owning `Verify/` files saw phantom failures. Both were told directly, with the symptom named, so
+they would not "fix" it. A stream that silently repaired a defect I had introduced would have been
+the worse outcome.
