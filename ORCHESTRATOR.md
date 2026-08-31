@@ -875,3 +875,24 @@ lives in, before setting anyone to prove it.** Cheap, and it would have saved fo
 
 Both had the same fix available and unused: **`git diff --cached --stat` before committing, and
 account for every insertion.**
+
+### Round acceptance, one commit, verbatim
+
+Measured at `a2ac3a7` — the first same-commit reading since the checker changed (six level-parameter
+sites re-pointed), which is the one change this round that could have disturbed condition 1.
+
+```
+Build completed successfully (1436 jobs).
+guard 1: Axioms.lean declares exactly the 25 frozen axioms ✓
+guard 2: kernel_sound axioms within whitelist ✓ (proof INCOMPLETE: sorryAx present)
+guard 3: checker cone implementation gaps within frozen list (51/54 remaining) ✓
+TOTAL declarations directly containing sorryAx: 13
+no duplicate Lean4Lean declarations across the joined cone
+277 modules, 241 in the census cone, 0 orphaned
+empty-inductives: Lean4Lean.AddInduct: reach 31, Prop  <-- VACUITY SOURCE
+Arena: correct: 185 ✅ / either: 6 🤷   (no incorrect line, i.e. 0)
+```
+
+So **condition 1 is MET at this commit** and condition 2 is not. Both must hold together, and the
+one thing standing between the two is not a measurement problem — it is `AddInduct`'s emptiness plus
+the holes above.
