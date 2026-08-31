@@ -199,3 +199,55 @@ above; it does not settle it, and I am still not taking it.
 
 Revised reading of stop condition 2: **2 hypotheses + 8 holes + 1 refuted statement**, the last
 being a reshape rather than a proof.
+
+### Correction 4: H1 is vacuous, and `foldAddDecl_tr` is the false link
+
+Correction 3 said one of the nine holes is refuted. Measuring *where* the falsity surfaces in
+`Verify/Bridge.lean` gives a worse answer, and it invalidates this document's headline count of
+"2 hypotheses". Proved in `Verify/PreludeVacuity.lean` (sorry-free; axioms = `propext`,
+`Classical.choice`, `Quot.sound`):
+
+* `TrEnv.not_safe_inductInfo` — `TrEnv .safe env venv` is unsatisfiable once `env` holds one
+  **safe** inductive. Unconditional, no `VEnv`-side guard: `TrEnv'.ignore` needs
+  `¬ safety ≤ ci.safety`, and `.safe` is the top of `DefinitionSafety`, so a safe constant is
+  not ignorable, and no other `TrEnv'` constructor emits an `.inductInfo` while `AddInduct` is
+  empty. The `isUnsafe = false` hypothesis is load-bearing:
+  `no_inductInfo_false_at_safe` shows an *unsafe* inductive really can sit in a `.safe` map.
+* Check B (`#eval`): the checker run on `stdPrelude` leaves `Eq` an `.inductInfo` with
+  `isUnsafe = false`.
+* Hence `foldAddDecl_tr` (`Bridge.lean:172`) is a **false statement**, refuted at
+  `ds = stdPrelude` (`foldAddDecl_tr_false`). This is the link that `addDecl.WF`'s falsity
+  reaches, and it sits upstream of everything else in the chain.
+* Hence **H1 is vacuous.** `PreludeBridge stdPrelude` assumes `TrEnv .safe env venv`, which is
+  unsatisfiable at the instances the main theorem uses (`preludeBridge_vacuous_at_nil`, stated
+  at `ds = []`; covering every `ds` would need an `addDecl` constant-map monotonicity lemma the
+  tree does not have). Discharging H1 as it stands buys the main theorem nothing. It becomes
+  real content only *after* the flip, when `TrEnv` can hold an inductive at all.
+
+So the honest reading of stop condition 2 is not "2 hypotheses + 8 holes + 1 refuted
+statement". It is:
+
+| item | status |
+| --- | --- |
+| H2, `Consistent 𝗭𝗙𝗖+𝗜𝗻𝗮𝗰𝗰 → leanTTConsistent` | a real hypothesis, real content |
+| H1, `PreludeBridge stdPrelude` | **vacuous today**; real only after the flip |
+| `foldAddDecl_tr` | **false**; must be re-derived, not proved |
+| `addDecl.WF` | **refuted**; reshape to `AddDeclPost` |
+| the other 8 holes | genuinely open, genuinely fillable |
+| the `False`-witness side (`hasType_falseProp`) | hole-free already |
+
+### The trap, recorded so it cannot be walked into
+
+`Verify/Inductive/AddDeclWF.lean` §5.4 item 3 proposes that `foldAddDecl_tr` "become a
+hypothesis alongside `PreludeBridge`". `anything_of_foldAddDecl_tr_hypothesis` shows what that
+would produce: assuming the refuted statement proves **any** proposition, `kernel_sound`'s
+conclusion included, with no `sorryAx` anywhere — guard 2 would print "proof COMPLETE" over a
+proof that means nothing. A hypothesis is honest only if it is satisfiable. The repair has to
+weaken the chain's *conclusion* — `AddDeclPost`, plus a fold-level invariant that does not claim
+`TrEnv .safe` — and never assume the false form.
+
+This is the concrete reason the flip is no longer a trade to be priced against three new holes.
+Every route from the checker to the abstract environment passes through `TrEnv .safe`, and while
+`AddInduct` is empty that relation cannot hold of any environment containing `Eq`. The flip is
+not a way to buy progress; it is the only thing that makes the route exist. The decision is
+still the human's, and the price recorded above (census 14 → 17) is still the price.
