@@ -753,14 +753,14 @@ which-leaf) cases reduces to a statement about *names*:
 | ι | δ | constructor leaf | `Pat.deltaHead_ne_ctorName` (`KeyHeadDelta`) |
 | ι | ι | recursor chain, short | `Pat.rec_arity_uniq` |
 | ι | ι | constructor chain, short | `rec_ne_ctor` (already proved above) |
-| ι | ι | all of `p₁` | `Pat.iota_data_uniq` (`KeyMajorUnique`) |
+| ι | ι | all of `p₁` | `Pat.iota_data_uniq` (`KeyUnique`) |
 
 The three bold entries are provenance facts — a rule that is syntactically an ι-rule of a
 block really was contributed by that block's declaration.  `env.defeqs` is a bare predicate
 with no memory of which declaration produced a rule, so none of them follows from the data
 `Pat` carries; they need the declaration history.  All three are now discharged by the *key*
 invariants of `Theory/Typing/DeltaUnique.lean` — `KeyHeadDelta` for the first two,
-`KeyMajorUnique` for the third — **without** a `VEnv.Sig` (design §7.7, ledger I1) and
+`KeyUnique` for the third — **without** a `VEnv.Sig` (design §7.7, ledger I1) and
 without ledger G4: the block is never recovered from a name, only the rule is. -/
 
 /-- **`pat_uniq` at a δ-pattern.**  A δ-rule's value is determined by its head constant
@@ -842,19 +842,38 @@ theorem VInductDecl'.iotaPat_inj {D D' : VInductDecl'} {T T' : VIndType} {C C' :
   obtain ⟨h3, h4⟩ := Pattern.varN_const_inj ha
   exact ⟨h1, h2, h3, h4⟩
 
-/-- **The payoff of `KeyMajorUnique`.**  Two registered ι-rules with the same pattern are the
-*same rule*: the pattern pins the constructor's name, the key's last entry is that name, and
-a rule is determined by it.  No block recovery — hence no ledger G4 — is involved.
+/-- **The payoff of `KeyUnique`.**  Two registered ι-rules with the same pattern are the
+*same rule*: the pattern pins **both** leaf names — the recursor and the constructor — which
+is the whole key, and a rule is determined by its key.  No block recovery — hence no
+ledger G4 — is involved.
 
-This is what reduces Obligation 3 below to a statement with no environment in it. -/
-theorem Pat.iota_rule_uniq {env : VEnv} (henv : env.WF)
+This is what reduces Obligation 3 below to a statement with no environment in it.
+
+Until 2026-08-31 this appealed to `KeyMajorUnique` (the constructor name alone), which needed
+neither `hTj` nor `hTj'`.  That invariant is **false** in an environment holding a nested
+block — `Theory/Inductive/NestedKeys.lean`'s `nfn_keyMajorUnique_false` exhibits
+`[PFn.rec, PFn.mk]` against `[NFn.rec_1, PFn.mk]` — so the appeal is now to `KeyUnique`, and
+the two `types[j]? = some T` hypotheses are threaded in to turn the pattern's
+`mkRecName T.name` into the key's `mkRecName (D.types.getD j default).name`.  Both were
+already in scope at the sole call site, `Pat.iota_data_uniq`. -/
+theorem Pat.iota_rule_uniq_keyUnique {env : VEnv} (hU : env.KeyUnique)
     {D D' : VInductDecl'} {j q j' q' : Nat} {T T' : VIndType} {C C' : VIndCtor}
+    (hTj : D.types[j]? = some T) (hTj' : D'.types[j']? = some T')
     (hdf : env.defeqs (D.iotaRule j q C)) (hdf' : env.defeqs (D'.iotaRule j' q' C'))
     (hp : D.iotaPat T C = D'.iotaPat T' C') :
     D.iotaRule j q C = D'.iotaRule j' q' C' := by
-  obtain ⟨-, -, hname, -⟩ := VInductDecl'.iotaPat_inj hp
-  refine henv.keyMajorUnique _ _ C.name hdf hdf' ?_ ?_ <;>
-    rw [VInductDecl'.key_iotaRule] <;> simp [hname]
+  obtain ⟨hrec, -, hname, -⟩ := VInductDecl'.iotaPat_inj hp
+  refine hU _ _ hdf hdf' ?_
+  rw [VInductDecl'.key_iotaRule, VInductDecl'.key_iotaRule, D.getD_types hTj,
+    D'.getD_types hTj', hrec, hname]
+
+theorem Pat.iota_rule_uniq {env : VEnv} (henv : env.WF)
+    {D D' : VInductDecl'} {j q j' q' : Nat} {T T' : VIndType} {C C' : VIndCtor}
+    (hTj : D.types[j]? = some T) (hTj' : D'.types[j']? = some T')
+    (hdf : env.defeqs (D.iotaRule j q C)) (hdf' : env.defeqs (D'.iotaRule j' q' C'))
+    (hp : D.iotaPat T C = D'.iotaPat T' C') :
+    D.iotaRule j q C = D'.iotaRule j' q' C' :=
+  Pat.iota_rule_uniq_keyUnique henv.keyUnique hTj hTj' hdf hdf' hp
 
 /-! ### Reading the block's shape back out of the rule -/
 
@@ -1013,7 +1032,7 @@ theorem Pat.iota_data_uniq {env : VEnv} (henv : env.WF)
     rw [VInductDecl'.recUvars, VInductDecl'.recUvars, huv] at hru
     cases hb : D.isLE <;> cases hb' : D'.isLE <;> rw [hb, hb'] at hru <;> simp at hru ⊢
   obtain ⟨hnp, hnf, hoff, hlam⟩ :=
-    VInductDecl'.iotaRule_inj hTj hTj' hN (Pat.iota_rule_uniq henv hdf hdf' hp)
+    VInductDecl'.iotaRule_inj hTj hTj' hN (Pat.iota_rule_uniq henv hTj hTj' hdf hdf' hp)
   obtain ⟨hpar, hfld, harg⟩ := VIndCtor.type_inj hnp hnf hty
   rw [iotaDatum_eq, iotaDatum_eq]
   refine iotaDatum_congr hR hK hM hN hlam (by omega) hnp harg (by rw [hpar, hfld]) ?_

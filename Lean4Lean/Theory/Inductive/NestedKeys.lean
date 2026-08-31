@@ -15,67 +15,52 @@ the problem.  The defect is not in the *argument*; it is in the **invariant**.
 in an environment holding a nested block.  `nfn_keyMajorUnique_false` below exhibits the pair:
 `PFn`'s own ι-rule, keyed `[PFn.rec, PFn.mk]`, and `NFn`'s companion ι-rule, keyed
 `[NFn.rec_1, PFn.mk]`.  Two distinct rules, one major-premise head.  So no repair of
-`keys_induct`'s proof could have worked; the statement it proves has to change.
+`keys_induct`'s proof could have worked; the statement it proves had to change.
 
-The replacement is `VEnv.KeyUnique` (`Theory/Typing/DeltaUnique.lean` Part IV): a rule is
-determined by its **whole key**.  It is what a nested step can defend, because the *head* of
+The replacement is `VEnv.KeyUnique` (`Theory/Typing/DeltaUnique.lean` Part II): a rule is
+determined by its **whole** key.  It is what a nested step can defend, because the *head* of
 every rule the step emits is a constant the step itself declares, hence fresh — the freshness
 §5.3 identified as the one that is available.  This file:
 
-1. **refutes** `KeyMajorUnique` at the `NFn`/`PFn` witness, and checks that the same pair does
+1. records the swap in the two files that carried the old invariant (§1), now landed;
+2. **refutes** `KeyMajorUnique` at the `NFn`/`PFn` witness, and checks that the same pair does
    *not* refute `KeyUnique` (`nfn_keys_ne`) — so the replacement is not refuted by the very
    example that kills the original;
-2. re-proves the **only consumer**, `Pat.iota_rule_uniq`, from `KeyUnique`
-   (`Pat.iota_rule_uniq_keyUnique`), and states the exact edit `Theory/Typing/PatternRules.lean`
-   would need;
 3. proves the **nested arm** — `addInductR` preserves `KeysDeclared ∧ KeyHeadDelta ∧ KeyUnique`
    — from `VIndRestore.Faithful` plus one syntactic property of the restoration,
-   `VIndRestore.KeysDistinct`, which is discharged at both nested witnesses by `decide`.
+   `VIndRestore.KeysDistinct`, which is discharged at both nested witnesses by `decide`;
+4. lists what is left for the nested `VDecl.WF` rule itself (§4).
 
-Nothing here edits a file this stream does not own, and `KeyMajorUnique` is left in place and
-still proved: it is still *true* today, because `VDecl.WF` has no nested rule yet.  What
-changes when that rule lands is listed in §4 below.
+**Status (2026-08-31).**  The swap has landed: `VEnv.WF'.keys` carries
+`KeysDeclared ∧ KeyHeadDelta ∧ KeyUnique`, `VEnv.WF.keyMajorUnique` no longer exists, and
+`Pat.iota_rule_uniq` reads `KeyUnique`.  `VEnv.KeyMajorUnique` survives as a definition only,
+as the subject of `nfn_keyMajorUnique_false` and of `VEnv.keyUnique_of_major` (the record that
+the replacement is a *weakening*, hence lost nothing in the current tree).  Nothing derives it
+from `VEnv.WF` any more.
 -/
 
 namespace Lean4Lean
 
 open VInductDecl' (iotaRuleR iotaRulesR)
 
-/-! ## 1. The consumer, re-proved from `KeyUnique`
+/-! ## 1. The consumer, re-proved from `KeyUnique` — **landed**
 
-`Theory/Typing/PatternRules.lean`'s `Pat.iota_rule_uniq` is the **only** use of
+`Theory/Typing/PatternRules.lean`'s `Pat.iota_rule_uniq` was the **only** use of
 `KeyMajorUnique` in the tree (`Pat.deltaHead_ne_recName`, `.deltaHead_ne_ctorName` and
-`Pat.deltaHead_ne_quot` use `KeyHeadDelta`, which survives).  It reads the constructor name
-off the shared pattern and appeals to the last key entry.
+`Pat.deltaHead_ne_quot` use `KeyHeadDelta`, which survives).  It read the constructor name off
+the shared pattern and appealed to the last key entry.
 
-`VInductDecl'.iotaPat_inj` already returns the recursor name equation too — it is discarded
-there — so the whole key is available and the appeal can be to `KeyUnique` instead.  The only
-cost is that the key's head is `mkRecName (D.types.getD j default).name` while the pattern
-carries `mkRecName T.name`, so the two `types[j]? = some T` hypotheses have to be threaded in.
-**They are already present at the sole call site** (`Pat.iota_data_uniq`, `PatternRules.lean`
-line 1005, which passes exactly `hTj` and `hTj'` to `VInductDecl'.iotaRule_inj` on the very
-next line), so this is a hypothesis reshuffle inside one file and not a new obligation. -/
+`VInductDecl'.iotaPat_inj` already returned the recursor name equation too — it was discarded
+there — so the whole key was available and the appeal could be to `KeyUnique` instead.  The
+only cost was that the key's head is `mkRecName (D.types.getD j default).name` while the
+pattern carries `mkRecName T.name`, so the two `types[j]? = some T` hypotheses had to be
+threaded in.  They were already present at the sole call site (`Pat.iota_data_uniq`, which
+passes exactly `hTj` and `hTj'` to `VInductDecl'.iotaRule_inj` on the very next line), so this
+was a hypothesis reshuffle inside one file and not a new obligation — **verified, and done**.
 
-theorem Pat.iota_rule_uniq_keyUnique {env : VEnv} (hU : env.KeyUnique)
-    {D D' : VInductDecl'} {j q j' q' : Nat} {T T' : VIndType} {C C' : VIndCtor}
-    (hTj : D.types[j]? = some T) (hTj' : D'.types[j']? = some T')
-    (hdf : env.defeqs (D.iotaRule j q C)) (hdf' : env.defeqs (D'.iotaRule j' q' C'))
-    (hp : D.iotaPat T C = D'.iotaPat T' C') :
-    D.iotaRule j q C = D'.iotaRule j' q' C' := by
-  obtain ⟨hrec, -, hname, -⟩ := VInductDecl'.iotaPat_inj hp
-  refine hU _ _ hdf hdf' ?_
-  rw [VInductDecl'.key_iotaRule, VInductDecl'.key_iotaRule, D.getD_types hTj,
-    D'.getD_types hTj', hrec, hname]
-
-/-- Regression: the statement `PatternRules.lean` proves today is an instance of the one
-above, so replacing `WF.keyMajorUnique` by `WF.keyUnique` there loses nothing. -/
-theorem Pat.iota_rule_uniq_keyUnique' {env : VEnv} (henv : env.WF)
-    {D D' : VInductDecl'} {j q j' q' : Nat} {T T' : VIndType} {C C' : VIndCtor}
-    (hTj : D.types[j]? = some T) (hTj' : D'.types[j']? = some T')
-    (hdf : env.defeqs (D.iotaRule j q C)) (hdf' : env.defeqs (D'.iotaRule j' q' C'))
-    (hp : D.iotaPat T C = D'.iotaPat T' C') :
-    D.iotaRule j q C = D'.iotaRule j' q' C' :=
-  Pat.iota_rule_uniq_keyUnique henv.keyUnique hTj hTj' hdf hdf' hp
+The lemmas this section used to carry, `Pat.iota_rule_uniq_keyUnique` and its `env.WF`
+wrapper, now live in `Theory/Typing/PatternRules.lean` itself as
+`Pat.iota_rule_uniq_keyUnique` and `Pat.iota_rule_uniq`. -/
 
 /-! ## 2. The refutation, at a real nested block
 
@@ -121,9 +106,10 @@ theorem nfn_companion_mem :
 
 `PFn.rec`'s ι-rule and `NFn.rec_1`'s companion ι-rule are two *different* rules of the same
 environment whose keys end in the same name, `PFn.mk`.  So the `induct` arm of
-`VEnv.WF'.keys` cannot be extended to a nested step by any argument whatever: its conclusion
-is false there.  This is the statement `docs/handoff-inductive-add.md` §5.3 recorded as an
-argument gap; it is a refutation of the invariant. -/
+`VEnv.WF'.keys` could never have been extended to a nested step *while it concluded
+`KeyMajorUnique`*, by any argument whatever: its conclusion is false there.  This is the
+statement `docs/handoff-inductive-add.md` §5.3 recorded as an argument gap; it is a refutation
+of the invariant, and it is why `WF'.keys` concludes `KeyUnique` today. -/
 theorem nfn_keyMajorUnique_false {env₃ : VEnv}
     (hR : env₂.addInductR nfnAux nfnK nfnRestore = some env₃) : ¬ env₃.KeyMajorUnique := by
   intro H
@@ -252,8 +238,10 @@ theorem VInductDecl'.iotaRulesR_pairwise_key (D : VInductDecl') (R : VIndRestore
 namespace VEnv
 
 /-- **The nested arm.**  `KeysDeclared`, `KeyHeadDelta` and `KeyUnique` all survive a nested
-declaration step.  Compare `VEnv.keys_induct`, whose third conclusion — `KeyMajorUnique` —
-is *false* here (`InductiveDeclExamples.nfn_keyMajorUnique_false`). -/
+declaration step.  It is the exact analogue of `VEnv.keys_induct`, the non-nested `induct`
+arm, and only becomes provable once that arm's third conclusion is `KeyUnique`: with
+`KeyMajorUnique` there the statement below would be *false*
+(`InductiveDeclExamples.nfn_keyMajorUnique_false`). -/
 theorem keysR_induct {env env' : VEnv} {D : VInductDecl'} {K : List Lean.Name}
     {R : VIndRestore} {npJ : Nat → Nat}
     (hR : env.addInductR D K R = some env')
@@ -379,8 +367,7 @@ theorem nfnAux_keys :
 `env₂` is `PFn`'s environment (it exists, by `rfl`); `env₃` is the nested step's, and the step
 is a real `VEnv.AddNestedStep`, not an assumption.  In `env₃`:
 
-* `KeyMajorUnique` — Part II's third invariant, and the one `VEnv.WF'.keys` currently proves —
-  is **false**;
+* `KeyMajorUnique` — the third invariant `VEnv.WF'.keys` used to prove — is **false**;
 * `KeysDeclared ∧ KeyHeadDelta ∧ KeyUnique` — the replacement — is **preserved**.
 
 So the repair of §5.3 of `docs/handoff-inductive-add.md` is not a stronger proof of the same
@@ -399,5 +386,70 @@ theorem nfn_keys_summary :
     fun ih => VEnv.keysR_induct hadd hf nfnRestore_keysDistinct ih⟩
 
 end InductiveDeclExamples
+
+/-! ## 4. What is left when the nested `VDecl.WF` rule lands
+
+The header of this file promised this list; here it is, measured against the tree as of
+2026-08-31, when the `KeyMajorUnique` → `KeyUnique` swap landed in
+`Theory/Typing/DeltaUnique.lean` and `Theory/Typing/PatternRules.lean`.
+
+**Already done.**
+
+* `VEnv.WF'.keys` proves `KeysDeclared ∧ KeyHeadDelta ∧ KeyUnique`, by the same seven arms as
+  before; the `keysU_*` step lemmas are the whole of the change on the `VEnv` side.
+* `Pat.iota_rule_uniq` — the sole consumer — reads `WF.keyUnique`, via
+  `Pat.iota_rule_uniq_keyUnique`.  `Pat.deltaHead_ne_recName`, `.deltaHead_ne_ctorName` and
+  `.deltaHead_ne_quot` were untouched: they use `KeyHeadDelta`, which survives a nested step.
+* The nested arm itself, `VEnv.keysR_induct` / `VEnv.keys_addNestedStep` (§3).
+
+**Still open, in the order a nested `VDecl.WF` arm would hit them.**
+
+1. **`VIndRestore.KeysDistinct` has to stop being a hypothesis.**  `keysR_induct` takes it,
+   and §3.3 discharges it by `decide` at the two concrete witnesses.  For a general rule it
+   must be either derived — from the two `addConstList` successes plus
+   `Faithful.ctors_complete`, the argument sketched in `VIndRestore.KeysDistinct`'s own
+   docstring, which is list combinatorics over a `filterMap` — or added to
+   `VEnv.AddNestedStep`'s premises, where the checker would then have to establish it.  The
+   derivation is the right answer; it is the only *mathematical* debt this section leaves.
+2. **The other `VEnv.WF'` inductions need their own nested arms.**  `WF'.keys` is one of four
+   in `Theory/Typing/DeltaUnique.lean` alone:
+   * `WF'.keysNonempty` — trivial: `VInductDecl'.key_iotaRuleR` gives every restored ι-rule a
+     two-element key.
+   * `WF'.defEqHeads` (`DefEqHeadsDeclared`/`DefEqHeadsUnique`) — these are the bare-`const`
+     case of `KeysDeclared`/`KeyHeadDelta`, so the cheapest route is to stop proving them by
+     their own induction and derive them from `WF'.keys` instead, which removes the arm rather
+     than writing it.  `VEnv.defEqHeads_of_keys` below checks that this really is a
+     derivation and not a plan.
+   * `WF'.iotaTypes` (Part III, `IotaTypeNotKey`) — a real arm: it must say that a nested
+     step's block-type names head no rule key either.  For the step's *own* members that is
+     the same freshness `keysR_induct` uses; for a **companion** member the type name is one
+     the environment already holds, so it needs the `ctors_complete` route, exactly as `hδ`
+     does in §3.
+3. **`VEnv.WF'.ruleShape` (`Theory/Typing/PatternRules.lean`) needs a fourth rule shape.**
+   `RuleShape` currently enumerates δ-rule, `quotDefEq`, and `D.iotaRule j q C`; a nested step
+   registers `D.iotaRuleR R j q C`, which is none of them.  `Pat`'s `iota` constructor and
+   `Params.extra_pat` then have to accept the restored form.  This is the largest remaining
+   item, and it is *not* about keys.  `Pat.iota_rule_uniq` may well need no change at all: it
+   is stated about `D.iotaRule` for an arbitrary `D`, so it applies as soon as a restored rule
+   is exhibited as the `iotaRule` of *some* `VInductDecl'` — plausible, since `iotaRuleR`
+   renames the constants and restores the types but keeps the shape, and **unverified**.
+   Checking that is the first thing to do there.
+
+**Not on the list.**  `VEnv.KeyMajorUnique` is retired and must stay retired: it is refuted
+above, so no future arm can restore it.  It survives as a definition only, so that
+`nfn_keyMajorUnique_false` and `VEnv.keyUnique_of_major` keep stating what they state. -/
+
+namespace VEnv
+
+/-- §4 item 2, machine-checked rather than asserted: the two `DefEqHeads*` invariants are
+consequences of the key invariants, via `key_of_isDeltaRule`.  So a nested `VDecl.WF` arm owes
+`WF'.defEqHeads` nothing — that induction can be deleted in favour of `WF'.keys`. -/
+theorem defEqHeads_of_keys {env : VEnv} (h1 : env.KeysDeclared) (h2 : env.KeyHeadDelta) :
+    env.DefEqHeadsDeclared ∧ env.DefEqHeadsUnique :=
+  ⟨fun df c hdf hδ => h1 df hdf c (key_of_isDeltaRule hδ ▸ List.mem_singleton_self c),
+   fun df df' c hdf hdf' hδ hδ' =>
+     h2 df df' c hdf hdf' hδ (key_of_isDeltaRule hδ' ▸ List.mem_singleton_self c)⟩
+
+end VEnv
 
 end Lean4Lean

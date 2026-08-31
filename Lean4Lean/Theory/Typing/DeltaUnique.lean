@@ -512,7 +512,7 @@ Together they replace what design §7.7 / ledger I1 calls a `VEnv.Sig`, for ever
 `Params` makes of it.  What a `Sig` adds beyond them — a `kind : Name → Option ObjKind`,
 `KindMatches`, `sound`, `coherent` — all answers "what kind of object is this name?"; these
 never ask that, only "which rule owns this name?".  In particular **G4 (a name belongs to at
-most one block) is not needed**: `KeyMajorUnique` recovers the *rule*, and an ι-rule's own
+most one block) is not needed**: `KeyUnique` recovers the *rule*, and an ι-rule's own
 syntax already contains every component of the ι-datum. -/
 
 end VEnv
@@ -559,33 +559,70 @@ def KeyHeadDelta (env : VEnv) : Prop :=
 /-- **A rule is determined by the head of its major premise.**  Stated with an explicit `n`
 rather than as `df.key.getLast? = df'.key.getLast?` so that the `none` case — a rule whose
 left-hand side is not a constant spine, which no declaration produces — never has to be
-excluded by a fourth invariant. -/
+excluded by a fourth invariant.
+
+**Retired.**  This was the third invariant `WF'.keys` carried, and it is **false** in an
+environment holding a nested inductive block: a companion member's restored ι-rule and the
+already-declared block's own ι-rule share a major premise
+(`Theory/Inductive/NestedKeys.lean`'s `nfn_keyMajorUnique_false`, `[PFn.rec, PFn.mk]` against
+`[NFn.rec_1, PFn.mk]` — two distinct rules, one major).  `WF'.keys` carries `KeyUnique`
+instead.  The definition survives only as the *subject* of that refutation and of
+`keyUnique_of_major`; **nothing derives it from `VEnv.WF`**, and nothing should. -/
 def KeyMajorUnique (env : VEnv) : Prop :=
   ∀ df df' n, env.defeqs df → env.defeqs df' →
     df.key.getLast? = some n → df'.key.getLast? = some n → df = df'
 
+/-- **A rule is determined by its whole key.**  The third invariant of the triple.
+
+Weaker than `KeyMajorUnique` in the presence of `KeysNonempty` (`keyUnique_of_major`,
+Part IV) — and, unlike it, *true* of an environment holding a nested block: the **head** of
+every rule a nested step emits is a constant that step declares itself, hence fresh, and head
+freshness is the freshness a nested step has.  `Theory/Inductive/NestedKeys.lean`'s
+`keysR_induct` is the nested arm, and `nfn_keys_ne` checks that the very pair refuting
+`KeyMajorUnique` does not refute this. -/
+def KeyUnique (env : VEnv) : Prop :=
+  ∀ df df', env.defeqs df → env.defeqs df' → df.key = df'.key → df = df'
+
+theorem key_toDefEq (v : VDefVal) : v.toDefEq.key = [v.name] := rfl
+
 /-! ## Moving the three invariants
 
 All three mention only `defeqs` and `contains`, so a step that leaves the rules alone lifts
-all three at once — one `keys_mono` in place of six lemmas. -/
+all three at once — one `keysU_mono` in place of six lemmas.
 
-theorem keys_mono {env env' : VEnv} (hd : env'.defeqs = env.defeqs) (hle : env ≤ env')
-    (H : env.KeysDeclared ∧ env.KeyHeadDelta ∧ env.KeyMajorUnique) :
-    env'.KeysDeclared ∧ env'.KeyHeadDelta ∧ env'.KeyMajorUnique := by
+The `U` in these names is `KeyUnique`.  They ask that a new rule's **whole key** be new,
+where the retired `KeyMajorUnique` family asked only that its *last* name be new.  That is
+the strengthening the hypotheses had to undergo when the invariant changed, and it is the one
+a nested step can supply: `Theory/Inductive/NestedKeys.lean` §3 discharges it from the
+freshness of the recursor names the step declares. -/
+
+theorem keysU_mono {env env' : VEnv} (hd : env'.defeqs = env.defeqs) (hle : env ≤ env')
+    (H : env.KeysDeclared ∧ env.KeyHeadDelta ∧ env.KeyUnique) :
+    env'.KeysDeclared ∧ env'.KeyHeadDelta ∧ env'.KeyUnique := by
   obtain ⟨H1, H2, H3⟩ := H
-  refine ⟨fun df hdf n hn => ?_, fun df df' c hdf hdf' => ?_, fun df df' n hdf hdf' => ?_⟩
+  refine ⟨fun df hdf n hn => ?_, fun df df' c hdf hdf' => ?_, fun df df' hdf hdf' => ?_⟩
   · obtain ⟨ci, hci⟩ := H1 df (hd ▸ hdf) n hn; exact ⟨ci, hle.constants hci⟩
   · exact H2 df df' c (hd ▸ hdf) (hd ▸ hdf')
-  · exact H3 df df' n (hd ▸ hdf) (hd ▸ hdf')
+  · exact H3 df df' (hd ▸ hdf) (hd ▸ hdf')
 
 /-- **The step for a δ-rule.**  Its key is a singleton, so demanding that no existing rule's
-key mentions it settles all three at once. -/
-theorem keys_addDefEq {env : VEnv} {df : VDefEq}
-    (H1 : env.KeysDeclared) (H2 : env.KeyHeadDelta) (H3 : env.KeyMajorUnique)
+key mentions it settles all three at once — for the third via `hne`: a non-empty key sharing
+no name with any registered key is not a registered key. -/
+theorem keysU_addDefEq {env : VEnv} {df : VDefEq}
+    (H1 : env.KeysDeclared) (H2 : env.KeyHeadDelta) (H3 : env.KeyUnique)
+    (hne : df.key ≠ [])
     (hdecl : ∀ n ∈ df.key, env.contains n)
     (hnew : ∀ df', env.defeqs df' → ∀ n ∈ df.key, n ∉ df'.key) :
     (env.addDefEq df).KeysDeclared ∧ (env.addDefEq df).KeyHeadDelta ∧
-      (env.addDefEq df).KeyMajorUnique := by
+      (env.addDefEq df).KeyUnique := by
+  have hsome : ∃ n, n ∈ df.key := by
+    cases hm : df.key with
+    | nil => exact absurd hm hne
+    | cons n t => exact ⟨n, List.mem_cons_self ..⟩
+  have hkey : ∀ df', env.defeqs df' → df.key ≠ df'.key := by
+    intro df' hdf' hk
+    obtain ⟨n, hn⟩ := hsome
+    exact hnew df' hdf' n hn (hk ▸ hn)
   refine ⟨?_, ?_, ?_⟩
   · rintro x (rfl | hx) n hn
     · exact hdecl n hn
@@ -596,24 +633,24 @@ theorem keys_addDefEq {env : VEnv} {df : VDefEq}
     · exact absurd (key_of_isDeltaRule hd ▸ List.mem_singleton_self c)
         (fun h => hnew x hx c hc h)
     · exact H2 x y c hx hy hd hc
-  · rintro x y n (rfl | hx) (rfl | hy) hn hn'
+  · rintro x y (rfl | hx) (rfl | hy) hk
     · rfl
-    · exact absurd (List.mem_of_getLast? hn') (hnew y hy n (List.mem_of_getLast? hn))
-    · exact absurd (List.mem_of_getLast? hn) (hnew x hx n (List.mem_of_getLast? hn'))
-    · exact H3 x y n hx hy hn hn'
+    · exact absurd hk (hkey y hy)
+    · exact absurd hk.symm (hkey x hx)
+    · exact H3 x y hx hy hk
 
-/-- **The step for a non-δ rule.**  Its key may share its *head* with rules already present —
-the two ι-rules of a two-constructor block share their recursor — so only the last name has
-to be new.  Getting this right is the whole reason the key has two positions. -/
-theorem keys_addDefEq_notDelta {env : VEnv} {df : VDefEq}
-    (H : env.KeysDeclared ∧ env.KeyHeadDelta ∧ env.KeyMajorUnique)
+/-- **The step for a non-δ rule whose key is new as a whole.**  Its key may share its *head*
+with rules already present — the two ι-rules of a two-constructor block share their recursor
+— and, at a nested step, may share its *last* name too, with the ι-rule of a block the
+environment already holds.  What has to be new is the pair. -/
+theorem keysU_addDefEq_notDelta {env : VEnv} {df : VDefEq}
+    (H : env.KeysDeclared ∧ env.KeyHeadDelta ∧ env.KeyUnique)
     (hnd : ∀ c, ¬ IsDeltaRule df c)
     (hdecl : ∀ n ∈ df.key, env.contains n)
     (hδ : ∀ df' c, env.defeqs df' → IsDeltaRule df' c → c ∉ df.key)
-    (hmaj : ∀ df' n, env.defeqs df' → df.key.getLast? = some n →
-      df'.key.getLast? = some n → False) :
+    (hkey : ∀ df', env.defeqs df' → df.key ≠ df'.key) :
     (env.addDefEq df).KeysDeclared ∧ (env.addDefEq df).KeyHeadDelta ∧
-      (env.addDefEq df).KeyMajorUnique := by
+      (env.addDefEq df).KeyUnique := by
   obtain ⟨H1, H2, H3⟩ := H
   refine ⟨?_, ?_, ?_⟩
   · rintro x (rfl | hx) n hn
@@ -624,31 +661,31 @@ theorem keys_addDefEq_notDelta {env : VEnv} {df : VDefEq}
     · exact absurd hd (hnd c)
     · exact absurd hc (hδ x c hx hd)
     · exact H2 x y c hx hy hd hc
-  · rintro x y n (rfl | hx) (rfl | hy) hn hn'
+  · rintro x y (rfl | hx) (rfl | hy) hk
     · rfl
-    · exact absurd hn' (fun h => hmaj y n hy hn h)
-    · exact absurd hn (fun h => hmaj x n hx hn' h)
-    · exact H3 x y n hx hy hn hn'
+    · exact absurd hk (hkey y hy)
+    · exact absurd hk.symm (hkey x hx)
+    · exact H3 x y hx hy hk
 
 /-- The δ-fold: `.unsafeDef`'s block of rules, all δ-rules with pairwise distinct heads. -/
-theorem keys_addDefEqs : ∀ {cis : List VDefVal} {env : VEnv},
-    (env.KeysDeclared ∧ env.KeyHeadDelta ∧ env.KeyMajorUnique) →
+theorem keysU_addDefEqs : ∀ {cis : List VDefVal} {env : VEnv},
+    (env.KeysDeclared ∧ env.KeyHeadDelta ∧ env.KeyUnique) →
     (∀ ci ∈ cis, env.contains ci.name) →
     (∀ ci ∈ cis, ∀ df', env.defeqs df' → ci.name ∉ df'.key) →
     cis.Pairwise (fun a b => a.name ≠ b.name) →
     (env.addDefEqs cis).KeysDeclared ∧ (env.addDefEqs cis).KeyHeadDelta ∧
-      (env.addDefEqs cis).KeyMajorUnique
+      (env.addDefEqs cis).KeyUnique
   | [], _, H, _, _, _ => H
   | ci :: cis, env, H, hc, hn, hp => by
     have hkey : ci.toDefEq.key = [ci.name] := rfl
     have hne := (List.pairwise_cons.1 hp).1
-    have step := keys_addDefEq H.1 H.2.1 H.2.2
+    have step := keysU_addDefEq H.1 H.2.1 H.2.2 (by rw [hkey]; exact nofun)
       (by rw [hkey]; intro n hn2; cases List.mem_singleton.1 hn2; exact hc ci (.head _))
       (by
         intro df' hdf' n hn2
         rw [hkey] at hn2; cases List.mem_singleton.1 hn2
         exact hn ci (.head _) df' hdf')
-    refine keys_addDefEqs (cis := cis) step (fun ci' hci' => hc ci' (.tail _ hci')) ?_
+    refine keysU_addDefEqs (cis := cis) step (fun ci' hci' => hc ci' (.tail _ hci')) ?_
       (List.pairwise_cons.1 hp).2
     intro ci' hci' df' hdf'
     have hor : df' = ci.toDefEq ∨ env.defeqs df' := hdf'
@@ -657,34 +694,35 @@ theorem keys_addDefEqs : ∀ {cis : List VDefVal} {env : VEnv},
     · exact hn ci' (.tail _ hci') df' hdf'
 
 /-- The non-δ fold: `quot`'s single rule and `induct`'s block of ι-rules. -/
-theorem keys_addDefEqList_notDelta : ∀ (dfs : List VDefEq) {env : VEnv},
-    (env.KeysDeclared ∧ env.KeyHeadDelta ∧ env.KeyMajorUnique) →
+theorem keysU_addDefEqList_notDelta : ∀ (dfs : List VDefEq) {env : VEnv},
+    (env.KeysDeclared ∧ env.KeyHeadDelta ∧ env.KeyUnique) →
     (∀ df ∈ dfs, ∀ c, ¬ IsDeltaRule df c) →
     (∀ df ∈ dfs, ∀ n ∈ df.key, env.contains n) →
     (∀ df ∈ dfs, ∀ df' c, env.defeqs df' → IsDeltaRule df' c → c ∉ df.key) →
-    (∀ df ∈ dfs, ∀ df' n, env.defeqs df' → df.key.getLast? = some n →
-      df'.key.getLast? = some n → False) →
-    dfs.Pairwise (fun a b => ∀ n, a.key.getLast? = some n → b.key.getLast? ≠ some n) →
+    (∀ df ∈ dfs, ∀ df', env.defeqs df' → df.key ≠ df'.key) →
+    dfs.Pairwise (fun a b => a.key ≠ b.key) →
     (dfs.foldl VEnv.addDefEq env).KeysDeclared ∧
       (dfs.foldl VEnv.addDefEq env).KeyHeadDelta ∧
-      (dfs.foldl VEnv.addDefEq env).KeyMajorUnique
+      (dfs.foldl VEnv.addDefEq env).KeyUnique
   | [], _, H, _, _, _, _, _ => H
-  | df :: dfs, env, H, hnd, hdecl, hδ, hmaj, hp => by
+  | df :: dfs, env, H, hnd, hdecl, hδ, hkey, hp => by
     have hpc := List.pairwise_cons.1 hp
-    have step := keys_addDefEq_notDelta H (hnd df (.head _)) (hdecl df (.head _))
-      (hδ df (.head _)) (hmaj df (.head _))
-    refine keys_addDefEqList_notDelta dfs step
-      (fun x hx => hnd x (.tail _ hx)) (fun x hx => hdecl x (.tail _ hx)) ?_ ?_ hpc.2
+    have step := keysU_addDefEq_notDelta H (hnd df (.head _)) (hdecl df (.head _))
+      (hδ df (.head _)) (hkey df (.head _))
+    refine keysU_addDefEqList_notDelta dfs step
+      (fun x hx => hnd x (.tail _ hx))
+      (fun x hx n hn => ⟨_, VEnv.LE.constants VEnv.addDefEq_le
+        (hdecl x (.tail _ hx) n hn).choose_spec⟩) ?_ ?_ hpc.2
     · intro x hx df' c hdf'
       have hor : df' = df ∨ env.defeqs df' := hdf'
       rcases hor with rfl | hdf'
       · exact fun hd => absurd hd (hnd df' (.head _) c)
       · exact hδ x (.tail _ hx) df' c hdf'
-    · intro x hx df' n hdf' hn hn'
+    · intro x hx df' hdf'
       have hor : df' = df ∨ env.defeqs df' := hdf'
       rcases hor with rfl | hdf'
-      · exact hpc.1 x hx n hn' hn
-      · exact hmaj x (.tail _ hx) df' n hdf' hn hn'
+      · exact (hpc.1 x hx).symm
+      · exact hkey x (.tail _ hx) df' hdf'
 
 end VEnv
 
@@ -718,12 +756,14 @@ theorem VInductDecl'.mem_key_iotaRules {D : VInductDecl'} {df : VDefEq} (h : df 
   exact ⟨j, C, List.zipIdx_map_fst 0 D.ctorsAll ▸ List.mem_map_of_mem hm,
     D.key_iotaRule j q C⟩
 
-/-- The block's ι-rules have pairwise distinct major-premise heads, because
-`addConstList D.ctorConsts` succeeding makes the constructor names pairwise distinct. -/
-theorem VInductDecl'.iotaRules_pairwise_major (D : VInductDecl')
+/-- The block's ι-rules have pairwise distinct **keys**, because `addConstList D.ctorConsts`
+succeeding makes the constructor names pairwise distinct and the constructor name is the
+key's last entry.  Compare `VInductDecl'.iotaRulesR_pairwise_key`
+(`Theory/Inductive/NestedKeys.lean`), which does the same for a nested step's restored rules
+from `VIndRestore.KeysDistinct`. -/
+theorem VInductDecl'.iotaRules_pairwise_key (D : VInductDecl')
     (hnd : (D.ctorConsts.map (·.1)).Nodup) :
-    D.iotaRules.Pairwise
-      (fun a b => ∀ n, a.key.getLast? = some n → b.key.getLast? ≠ some n) := by
+    D.iotaRules.Pairwise (fun a b => a.key ≠ b.key) := by
   have h1 : D.ctorsAll.Pairwise (fun a b => a.2.name ≠ b.2.name) := by
     rw [VInductDecl'.ctorConsts, List.map_map] at hnd
     exact List.pairwise_map.1 hnd
@@ -732,11 +772,10 @@ theorem VInductDecl'.iotaRules_pairwise_major (D : VInductDecl')
     exact (List.pairwise_map (f := Prod.fst)).1 h1
   rw [VInductDecl'.iotaRules]
   refine List.pairwise_map.2 (h2.imp ?_)
-  rintro ⟨⟨j, C⟩, q⟩ ⟨⟨j', C'⟩, q'⟩ h n hn hn'
-  rw [VInductDecl'.key_iotaRule] at hn
-  rw [VInductDecl'.key_iotaRule] at hn'
-  simp at hn hn'
-  exact h (hn ▸ hn' ▸ rfl)
+  rintro ⟨⟨j, C⟩, q⟩ ⟨⟨j', C'⟩, q'⟩ h he
+  rw [VInductDecl'.key_iotaRule, VInductDecl'.key_iotaRule] at he
+  simp only [List.cons.injEq, and_true] at he
+  exact h he.2
 
 namespace VEnv
 
@@ -783,13 +822,13 @@ unification fixes each step's data instead of the proof depending on the order i
 
 theorem keys_def {env env' : VEnv} {ci : VDefVal}
     (h : env.addConst ci.name ci.toVConstant = some env')
-    (ih : env.KeysDeclared ∧ env.KeyHeadDelta ∧ env.KeyMajorUnique) :
+    (ih : env.KeysDeclared ∧ env.KeyHeadDelta ∧ env.KeyUnique) :
     (env'.addDefEq ci.toDefEq).KeysDeclared ∧ (env'.addDefEq ci.toDefEq).KeyHeadDelta ∧
-      (env'.addDefEq ci.toDefEq).KeyMajorUnique := by
+      (env'.addDefEq ci.toDefEq).KeyUnique := by
   have hfresh : ¬ env.contains ci.name := by
     rintro ⟨x, hx⟩; rw [addConst_constants_eq_none h] at hx; exact absurd hx nofun
-  have H₁ := keys_mono (addConst_defeqs h) (addConst_le h) ih
-  refine keys_addDefEq H₁.1 H₁.2.1 H₁.2.2 ?_ ?_
+  have H₁ := keysU_mono (addConst_defeqs h) (addConst_le h) ih
+  refine keysU_addDefEq H₁.1 H₁.2.1 H₁.2.2 (by rw [key_toDefEq]; exact nofun) ?_ ?_
   · intro n hn
     cases List.mem_singleton.1 (show n ∈ [ci.name] from hn)
     exact ⟨_, addConst_self h⟩
@@ -799,18 +838,18 @@ theorem keys_def {env env' : VEnv} {ci : VDefVal}
     exact hfresh (ih.1 df' hdf' _ hmem)
 
 theorem keys_unsafeDef {env env' : VEnv} {cis : List VDefVal} (h : env.addConsts cis = some env')
-    (ih : env.KeysDeclared ∧ env.KeyHeadDelta ∧ env.KeyMajorUnique) :
+    (ih : env.KeysDeclared ∧ env.KeyHeadDelta ∧ env.KeyUnique) :
     (env'.addDefEqs cis).KeysDeclared ∧ (env'.addDefEqs cis).KeyHeadDelta ∧
-      (env'.addDefEqs cis).KeyMajorUnique := by
-  refine keys_addDefEqs (keys_mono (addConsts_defeqs h) (addConsts_le h) ih)
+      (env'.addDefEqs cis).KeyUnique := by
+  refine keysU_addDefEqs (keysU_mono (addConsts_defeqs h) (addConsts_le h) ih)
     (addConsts_contains h) ?_ (addConsts_nodup h)
   intro ci hci df' hdf' hmem
   rw [addConsts_defeqs h] at hdf'
   exact addConsts_fresh h ci hci (ih.1 df' hdf' _ hmem)
 
 theorem keys_quot {env env' : VEnv} (h : env.addQuot = some env')
-    (ih : env.KeysDeclared ∧ env.KeyHeadDelta ∧ env.KeyMajorUnique) :
-    env'.KeysDeclared ∧ env'.KeyHeadDelta ∧ env'.KeyMajorUnique := by
+    (ih : env.KeysDeclared ∧ env.KeyHeadDelta ∧ env.KeyUnique) :
+    env'.KeysDeclared ∧ env'.KeyHeadDelta ∧ env'.KeyUnique := by
   obtain ⟨e1, e2, e3, e4, h1, h2, h3, h4, rfl⟩ := addQuot_stages h
   have hdefeqs : e4.defeqs = env.defeqs := by
     rw [addConst_defeqs h4, addConst_defeqs h3, addConst_defeqs h2, addConst_defeqs h1]
@@ -823,11 +862,11 @@ theorem keys_quot {env env' : VEnv} (h : env.addQuot = some env')
     have := (addConst_le h2).constants ((addConst_le h1).constants hx)
     rw [addConst_constants_eq_none h3] at this; exact absurd this nofun
   have hkey : quotDefEq.key = [``Quot.lift, ``Quot.mk] := rfl
-  have H₄ := keys_mono (addConst_defeqs h4) (addConst_le h4)
-    (keys_mono (addConst_defeqs h3) (addConst_le h3)
-      (keys_mono (addConst_defeqs h2) (addConst_le h2)
-        (keys_mono (addConst_defeqs h1) (addConst_le h1) ih)))
-  refine keys_addDefEqList_notDelta [quotDefEq] H₄ ?_ ?_ ?_ ?_ (by simp)
+  have H₄ := keysU_mono (addConst_defeqs h4) (addConst_le h4)
+    (keysU_mono (addConst_defeqs h3) (addConst_le h3)
+      (keysU_mono (addConst_defeqs h2) (addConst_le h2)
+        (keysU_mono (addConst_defeqs h1) (addConst_le h1) ih)))
+  refine keysU_addDefEqList_notDelta [quotDefEq] H₄ ?_ ?_ ?_ ?_ (by simp)
   · intro df hdf; cases List.mem_singleton.1 hdf; exact not_isDeltaRule_quotDefEq
   · intro df hdf n hn
     cases List.mem_singleton.1 hdf
@@ -844,16 +883,19 @@ theorem keys_quot {env env' : VEnv} (h : env.addQuot = some env')
     rcases List.mem_cons.1 hmem with rfl | hmem
     · exact hlift hc
     · cases List.mem_singleton.1 hmem; exact hmk hc
-  · intro df hdf df' n hdf' hn hn'
+  · intro df hdf df' hdf' hkeq
     cases List.mem_singleton.1 hdf
     rw [hdefeqs] at hdf'
-    rw [hkey] at hn
-    cases (show some ``Quot.mk = some n from hn)
-    exact hmk (ih.1 df' hdf' _ (List.mem_of_getLast? hn'))
+    refine hlift (ih.1 df' hdf' ``Quot.lift ?_)
+    rw [← hkeq, hkey]; exact List.mem_cons_self
 
+/-- **The `induct` arm.**  Every name in an emitted ι-rule's key is fresh here, which is more
+than `KeyUnique` needs — the freshness of the key's *head* alone settles `hkey`, and that is
+the form `Theory/Inductive/NestedKeys.lean`'s `keysR_induct` reuses at a nested step, where a
+companion member's *major* is a constant the environment already holds. -/
 theorem keys_induct {env env' : VEnv} {D : VInductDecl'} (h : env.addInduct' D = some env')
-    (ih : env.KeysDeclared ∧ env.KeyHeadDelta ∧ env.KeyMajorUnique) :
-    env'.KeysDeclared ∧ env'.KeyHeadDelta ∧ env'.KeyMajorUnique := by
+    (ih : env.KeysDeclared ∧ env.KeyHeadDelta ∧ env.KeyUnique) :
+    env'.KeysDeclared ∧ env'.KeyHeadDelta ∧ env'.KeyUnique := by
   obtain ⟨e1, e2, e3, h1, h2, h3, rfl⟩ := addInduct'_stages h
   have hdefeqs : e3.defeqs = env.defeqs := by
     rw [addConstList_defeqs h3, addConstList_defeqs h2, addConstList_defeqs h1]
@@ -882,11 +924,11 @@ theorem keys_induct {env env' : VEnv} {D : VInductDecl'} (h : env.addInduct' D =
     rcases hkey df hdf n hn with hm | hm
     · exact hctorfresh n hm
     · exact hrecfresh n hm
-  have H₃ := keys_mono (addConstList_defeqs h3) (addConstList_le h3)
-    (keys_mono (addConstList_defeqs h2) (addConstList_le h2)
-      (keys_mono (addConstList_defeqs h1) (addConstList_le h1) ih))
-  refine keys_addDefEqList_notDelta D.iotaRules H₃ not_isDeltaRule_iotaRules ?_ ?_ ?_
-    (D.iotaRules_pairwise_major (addConstList_fresh h2).2)
+  have H₃ := keysU_mono (addConstList_defeqs h3) (addConstList_le h3)
+    (keysU_mono (addConstList_defeqs h2) (addConstList_le h2)
+      (keysU_mono (addConstList_defeqs h1) (addConstList_le h1) ih))
+  refine keysU_addDefEqList_notDelta D.iotaRules H₃ not_isDeltaRule_iotaRules ?_ ?_ ?_
+    (D.iotaRules_pairwise_key (addConstList_fresh h2).2)
   · intro df hdf n hn
     rcases hkey df hdf n hn with hm | hm
     · obtain ⟨c, hc, rfl⟩ := List.mem_map.1 hm
@@ -897,18 +939,20 @@ theorem keys_induct {env env' : VEnv} {D : VInductDecl'} (h : env.addInduct' D =
     rw [hdefeqs] at hdf'
     exact hfresh df hdf c hmem
       (ih.1 df' hdf' c (key_of_isDeltaRule hδ ▸ List.mem_singleton_self c))
-  · intro df hdf df' n hdf' hn hn'
+  · intro df hdf df' hdf' hkeq
     rw [hdefeqs] at hdf'
-    exact hfresh df hdf n (List.mem_of_getLast? hn)
-      (ih.1 df' hdf' n (List.mem_of_getLast? hn'))
+    obtain ⟨j, C, hjC, hk⟩ := VInductDecl'.mem_key_iotaRules hdf
+    have hn : Lean.mkRecName (D.types.getD j default).name ∈ df.key := by
+      rw [hk]; exact List.mem_cons_self
+    exact hfresh df hdf _ hn (ih.1 df' hdf' _ (hkeq ▸ hn))
 
 theorem WF'.keys {ds : List VDecl} {env : VEnv} (H : VEnv.WF' ds env) :
-    env.KeysDeclared ∧ env.KeyHeadDelta ∧ env.KeyMajorUnique := by
+    env.KeysDeclared ∧ env.KeyHeadDelta ∧ env.KeyUnique := by
   induction H with
-  | empty => exact ⟨fun _ h => h.elim, fun _ _ _ h => h.elim, fun _ _ _ h => h.elim⟩
+  | empty => exact ⟨fun _ h => h.elim, fun _ _ _ h => h.elim, fun _ _ h => h.elim⟩
   | @decl env d env' ds hd _ ih =>
     cases hd with
-    | «axiom» _ h | «opaque» _ h => exact keys_mono (addConst_defeqs h) (addConst_le h) ih
+    | «axiom» _ h | «opaque» _ h => exact keysU_mono (addConst_defeqs h) (addConst_le h) ih
     | «example» _ => exact ih
     | «def» _ h => exact keys_def h ih
     | unsafeDef _ h _ => exact keys_unsafeDef h ih
@@ -921,7 +965,11 @@ theorem WF.keysDeclared {env : VEnv} (h : env.WF) : env.KeysDeclared :=
 theorem WF.keyHeadDelta {env : VEnv} (h : env.WF) : env.KeyHeadDelta :=
   (WF'.keys h.choose_spec).2.1
 
-theorem WF.keyMajorUnique {env : VEnv} (h : env.WF) : env.KeyMajorUnique :=
+/-- **The invariant `Params.pat_uniq`'s ι/ι case reads** (`Pat.iota_rule_uniq`).  It replaced
+`WF.keyMajorUnique`, which was refuted at a nested block and is gone.  The swap could not
+have lost anything: `keyUnique_of_major` (Part IV) shows this is the *weaker* of the two on
+any environment whose keys are non-empty, which `WF.keysNonempty` says every one is. -/
+theorem WF.keyUnique {env : VEnv} (h : env.WF) : env.KeyUnique :=
   (WF'.keys h.choose_spec).2.2
 
 end VEnv
@@ -1256,11 +1304,11 @@ theorem WF.iotaTypeNotKey {env : VEnv} (h : env.WF) : env.IotaTypeNotKey :=
 end VEnv
 
 
-/-! # Part IV: uniqueness by the **whole** key
+/-! # Part IV: what the retired `KeyMajorUnique` was, and why `KeyUnique` replaced it
 
-Part II's `KeyMajorUnique` — *a rule is determined by the head of its major premise* — is
-`Params.pat_uniq`'s ι/ι case, and it is **the invariant a nested declaration step destroys.**
-Not the freshness argument that proves it; the statement.
+Part II used to carry a third invariant `KeyMajorUnique` — *a rule is determined by the head
+of its major premise* — as `Params.pat_uniq`'s ι/ι case.  It is **the invariant a nested
+declaration step destroys**; not the freshness argument that proved it, the statement.
 
 The reason is `VInductDecl'.key_iotaRuleR`.  A nested step emits, for a *companion* member,
 an ι-rule keyed `[R.recName I_j.rec, R.ctorName C.name]`, and the second component is the
@@ -1269,32 +1317,23 @@ block's own ι-rule is keyed `[PFn.rec, PFn.mk]`.  Two distinct rules, one major
 `Theory/Inductive/NestedKeys.lean` exhibits exactly that pair at the `NFn`/`PFn` witness
 (`nfn_keyMajorUnique_false`), so this is a refutation, not a proof gap.
 
-What survives is uniqueness by the **whole** key, `KeyUnique`: the two rules above differ in
-their *head*, and the head of a rule a nested step emits is a constant that step declares
-itself, hence fresh.  §5.3 of `docs/handoff-inductive-add.md` observed that head freshness is
-the freshness a nested step actually has; `KeyUnique` is the invariant that only needs it.
+What survives is uniqueness by the **whole** key, `KeyUnique` (Part II): the two rules above
+differ in their *head*, and the head of a rule a nested step emits is a constant that step
+declares itself, hence fresh.  §5.3 of `docs/handoff-inductive-add.md` observed that head
+freshness is the freshness a nested step actually has; `KeyUnique` is the invariant that only
+needs it.  `WF'.keys` now proves `KeyUnique` directly, by the same seven arms.
 
-`KeyUnique` is proved here for the *current* tree the cheap way — from `KeyMajorUnique` plus
-`KeysNonempty`, since every rule a declaration produces has a two- or one-element key — so
-nothing in Part II is disturbed and no existing proof is re-run.  When the nested rule lands,
-`KeyMajorUnique` must be **dropped** from `WF'.keys` and `KeyUnique` proved directly; the
-three arms that change and the one consumer that has to move are listed in
-`Theory/Inductive/NestedKeys.lean`. -/
+This part is what is left of the changeover: `KeysNonempty` — every rule a declaration
+produces is headed by a constant — and `keyUnique_of_major`, the implication that makes
+`KeyUnique` *weaker* than the retired invariant, so that the swap in `WF'.keys` provably lost
+nothing in the current tree.  Neither is consumed by the chain any more; they are the record
+that the replacement is a weakening and not a different claim. -/
 
 namespace VEnv
 
 /-- Every registered rule's key is non-empty.  True because every rule a declaration
 produces is headed by a constant: `[v.name]`, `[Quot.lift, Quot.mk]`, `[I_j.rec, C.name]`. -/
 def KeysNonempty (env : VEnv) : Prop := ∀ df, env.defeqs df → df.key ≠ []
-
-/-- **A rule is determined by its whole key.**
-
-Weaker than `KeyMajorUnique` in the presence of `KeysNonempty` — and, unlike it, *true* of an
-environment holding a nested block. -/
-def KeyUnique (env : VEnv) : Prop :=
-  ∀ df df', env.defeqs df → env.defeqs df' → df.key = df'.key → df = df'
-
-theorem key_toDefEq (v : VDefVal) : v.toDefEq.key = [v.name] := rfl
 
 /-- `KeyMajorUnique` implies `KeyUnique` when no key is empty.  The converse fails: the two
 rules of `nfn_keyMajorUnique_false` have the same last name and different keys. -/
@@ -1359,86 +1398,6 @@ theorem WF'.keysNonempty {ds : List VDecl} {env : VEnv} (H : VEnv.WF' ds env) :
 
 theorem WF.keysNonempty {env : VEnv} (h : env.WF) : env.KeysNonempty :=
   WF'.keysNonempty h.choose_spec
-
-/-! ## The `KeyUnique` step lemmas
-
-The `KeyMajorUnique` versions above (`keys_addDefEq_notDelta`, `keys_addDefEqList_notDelta`)
-ask that the new rule's *last* key name be new.  These ask instead that its *whole key* be
-new, which is what a nested step can supply: its rules are headed by constants it declares
-itself.  Everything else is unchanged, so the two families sit side by side and the
-`KeyMajorUnique` proofs are untouched. -/
-
-theorem keysU_mono {env env' : VEnv} (hd : env'.defeqs = env.defeqs) (hle : env ≤ env')
-    (H : env.KeysDeclared ∧ env.KeyHeadDelta ∧ env.KeyUnique) :
-    env'.KeysDeclared ∧ env'.KeyHeadDelta ∧ env'.KeyUnique := by
-  obtain ⟨H1, H2, H3⟩ := H
-  refine ⟨fun df hdf n hn => ?_, fun df df' c hdf hdf' => ?_, fun df df' hdf hdf' => ?_⟩
-  · obtain ⟨ci, hci⟩ := H1 df (hd ▸ hdf) n hn; exact ⟨ci, hle.constants hci⟩
-  · exact H2 df df' c (hd ▸ hdf) (hd ▸ hdf')
-  · exact H3 df df' (hd ▸ hdf) (hd ▸ hdf')
-
-/-- **The step for a non-δ rule whose key is new as a whole.**  `hkey` replaces
-`keys_addDefEq_notDelta`'s `hmaj`: the new rule's key differs from every registered rule's
-key, rather than its last name being absent from every registered key. -/
-theorem keysU_addDefEq_notDelta {env : VEnv} {df : VDefEq}
-    (H : env.KeysDeclared ∧ env.KeyHeadDelta ∧ env.KeyUnique)
-    (hnd : ∀ c, ¬ IsDeltaRule df c)
-    (hdecl : ∀ n ∈ df.key, env.contains n)
-    (hδ : ∀ df' c, env.defeqs df' → IsDeltaRule df' c → c ∉ df.key)
-    (hkey : ∀ df', env.defeqs df' → df.key ≠ df'.key) :
-    (env.addDefEq df).KeysDeclared ∧ (env.addDefEq df).KeyHeadDelta ∧
-      (env.addDefEq df).KeyUnique := by
-  obtain ⟨H1, H2, H3⟩ := H
-  refine ⟨?_, ?_, ?_⟩
-  · rintro x (rfl | hx) n hn
-    · exact hdecl n hn
-    · exact H1 x hx n hn
-  · rintro x y c (rfl | hx) (rfl | hy) hd hc
-    · rfl
-    · exact absurd hd (hnd c)
-    · exact absurd hc (hδ x c hx hd)
-    · exact H2 x y c hx hy hd hc
-  · rintro x y (rfl | hx) (rfl | hy) hk
-    · rfl
-    · exact absurd hk (hkey y hy)
-    · exact absurd hk.symm (hkey x hx)
-    · exact H3 x y hx hy hk
-
-/-- The fold, for a block of non-δ rules with pairwise distinct keys. -/
-theorem keysU_addDefEqList_notDelta : ∀ (dfs : List VDefEq) {env : VEnv},
-    (env.KeysDeclared ∧ env.KeyHeadDelta ∧ env.KeyUnique) →
-    (∀ df ∈ dfs, ∀ c, ¬ IsDeltaRule df c) →
-    (∀ df ∈ dfs, ∀ n ∈ df.key, env.contains n) →
-    (∀ df ∈ dfs, ∀ df' c, env.defeqs df' → IsDeltaRule df' c → c ∉ df.key) →
-    (∀ df ∈ dfs, ∀ df', env.defeqs df' → df.key ≠ df'.key) →
-    dfs.Pairwise (fun a b => a.key ≠ b.key) →
-    (dfs.foldl VEnv.addDefEq env).KeysDeclared ∧
-      (dfs.foldl VEnv.addDefEq env).KeyHeadDelta ∧
-      (dfs.foldl VEnv.addDefEq env).KeyUnique
-  | [], _, H, _, _, _, _, _ => H
-  | df :: dfs, env, H, hnd, hdecl, hδ, hkey, hp => by
-    have hpc := List.pairwise_cons.1 hp
-    have step := keysU_addDefEq_notDelta H (hnd df (.head _)) (hdecl df (.head _))
-      (hδ df (.head _)) (hkey df (.head _))
-    refine keysU_addDefEqList_notDelta dfs step
-      (fun x hx => hnd x (.tail _ hx))
-      (fun x hx n hn => ⟨_, VEnv.LE.constants VEnv.addDefEq_le
-        (hdecl x (.tail _ hx) n hn).choose_spec⟩) ?_ ?_ hpc.2
-    · intro x hx df' c hdf'
-      have hor : df' = df ∨ env.defeqs df' := hdf'
-      rcases hor with rfl | hdf'
-      · exact fun hd => absurd hd (hnd df' (.head _) c)
-      · exact hδ x (.tail _ hx) df' c hdf'
-    · intro x hx df' hdf'
-      have hor : df' = df ∨ env.defeqs df' := hdf'
-      rcases hor with rfl | hdf'
-      · exact (hpc.1 x hx).symm
-      · exact hkey x (.tail _ hx) df' hdf'
-
-/-- **The invariant `Params.pat_uniq`'s ι/ι case should be reading.**  Equal to
-`WF.keyMajorUnique` today; the two part company exactly at a nested step. -/
-theorem WF.keyUnique {env : VEnv} (h : env.WF) : env.KeyUnique :=
-  keyUnique_of_major h.keysNonempty h.keyMajorUnique
 
 end VEnv
 
