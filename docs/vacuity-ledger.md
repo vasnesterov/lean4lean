@@ -1,9 +1,9 @@
 # The vacuity ledger
 
 *Written 2026-08-31, after four instances of the same failure mode turned up in one round, and
-a survey then found four more already refuted elsewhere in the tree. Nineteen statements are
-now measured; six are vacuous or false, three are refuted outright, two routes are dead, and
-eight are bounded or acquitted.*
+a survey then found four more already refuted elsewhere in the tree. Twenty-one statements are
+now measured; eight are vacuous, near-vacuous or false, three are refuted outright, two routes
+are dead, and eight are bounded or acquitted.*
 
 ## 0. Why this file exists
 
@@ -128,6 +128,8 @@ Every row is backed by a **proved** lemma in the tree, not an argument in a docs
 | 17 | `PropSplit` (the live parameter) | **satisfiable and non-trivial** | `exists_propSplit`, `propSplit_not_constant`, `prop_forces_false`/`prop_forces_true` (`PropSplitAudit.lean`) | n/a |
 | 18 | `PropSplit.Stable` (the live parameter) | **satisfiable, and exact** | `exists_stable_propSplit`, `propSplitOf_stable_iff` (`StableAudit.lean`) | n/a |
 | 19 | `Bridge.AddDeclWF` (`Verify/Bridge.lean:132`) | **false**, and `Bridge.addDeclWF` (:138) is a *proved theorem* of it — a second instance of §4a, on a shorter path than row 2's | `addDeclWF_false` (`Verify/PreludeVacuity.lean`) | **yes** |
+| 20 | `AddInductiveStepWF`'s premise `ves.WF env` | **near-vacuous** — applicable only to the *first* inductive block, because `no_inductInfo` holds even at `.unsafe`, so `ves.WF env` requires an environment with no inductive at all | `VEnvs.WF.find?_ne_inductInfo` (`Verify/Inductive/AddInductiveStep.lean:213`) | **yes** |
+| 21 | the nested rebuild inside `Environment.addInductive` | **unreachable** under row 20's premise: `numNested` is forced to `0`, so `mkAuxRecNameMap`, `restoreNested`, `processRec` and three re-check passes are dead code there | `run_run'_aux2nested`, `replaceAllNested_id` (same file) | **yes** |
 
 Rows 1–5 are one bug. Rows 6, 7, 14 and 15 are independent of it, and that is the ledger's main
 finding: **the failure mode is not confined to `AddInduct`.** It recurred in the abstract theory
@@ -135,6 +137,13 @@ finding: **the failure mode is not confined to `AddInduct`.** It recurred in the
 interface (rows 7, 14, 15). Nothing connects them.
 
 Rows 16–18 are the *good* rows, and §5a is about where they came from.
+
+Rows 20–21 are worth reading together, because they are the sharpest single illustration of what
+row 4 costs. `AddInductiveStepWF` is the obligation that was supposed to be *where nested
+inductive declarations get verified*. Under its own premise it contains **no nested content at
+all**: `ves.WF env` forbids any `.inductInfo` in the environment, so `isNestedInductiveApp?` never
+fires, `numNested` is `0`, and `addInductive` returns before reaching the rebuild. Naming an
+obligation after the hard case does not make the obligation cover it.
 
 ## 4. The trap: how guard 2 could print a false "proof COMPLETE"
 
