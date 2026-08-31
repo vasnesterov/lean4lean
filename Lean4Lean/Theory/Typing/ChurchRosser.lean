@@ -1672,12 +1672,21 @@ knowing those are not vacuous.  Verdict, checked rather than assumed:
   overclaim: `PiLevelPin.lean`'s `piInvStratApp_iff_sortUniq` shows `forallE_inv_stratified` is
   -- modulo `WF.rigidShapeUniq` -- *equivalent* to `SortUniq` at the same environment and
   index, so that derivation assumes what it checks.  Only the next bullet is independent.
-* They are **not refutable by the only known failure route**: `SortUniq` fails
-  (`SortUniqDown.lean`'s `sortUniq_badEnv`) only through a `.sort`-headed defeq rule, and
-  `refEnv` has no defeq rules at all (`refEnv_no_defeqs`).
-* So the only escape from the refutation is that `forallE_inv_stratified` is false -- which
-  would sink the whole Π/sort inversion family (443 transitive users) and far more besides.
-  The escape is therefore not one anybody should be waiting for: treat `descend` as refuted.
+* **Nor is "no known refutation route applies at `refEnv`" evidence.**  `SortUniq` fails
+  (`SortUniqDown.lean`'s `sortUniq_badEnv`) only through a `.sort`-headed defeq rule, and that
+  route is closed by `WF.instL_lhs_ne_sort`, which holds at *every* well-formed environment --
+  so citing `refEnv_no_defeqs` for it adds nothing that `refEnv.WF` did not already give.
+* So **satisfiability is open**, not settled, and what is genuinely special about `refEnv` is
+  that it is a *bounded target*: `refEnv_no_defeqs` kills the `extra` case, leaving
+  beta/eta/proof-irrelevance/`trans` confluence over six axioms with no rewrite rules -- the
+  first finite instance of this circle anywhere in the tree.
+* What **is** settled -- unconditionally, and machine-checked -- is the price of the escape:
+  rescuing `descend` means refuting `SortUniq` or `UniqTyping` at a defeq-free six-axiom
+  environment, and `PiLevelPin.lean`'s `not_piInvStratApp_of_not_sortUniq` (no `sorryAx`: only
+  the converse direction of the equivalence needs `WF.rigidShapeUniq`) turns that into a
+  refutation of `forallE_inv_stratified` (446 transitive users) and the Π/sort inversion family,
+  with no dependence on the other hole.  Nobody should plan around that escape; treat `descend`
+  as refuted.
 
 *Closed:* E4 at the top node was the third group.  `DescentLam.fire` now climbs the tower at
 any depth -- the firing step is stated once, for every context extension, and `NormalEq.etaL`

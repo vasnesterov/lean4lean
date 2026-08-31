@@ -221,7 +221,37 @@ theorem piInvStratApp_iff_sortUniq (henv : VEnv.WF env) :
     PiInvStratApp env U ↔ env.SortUniq U :=
   (sortUniq_iff_piInvStratApp henv (piInv_axiom henv)).symm
 
+/-- **The refutation direction needs no other hole.**  `sortUniq_of_piInvStratApp` is
+`sorryAx`-free (checked: `[propext, Classical.choice, Quot.sound]`), so its contrapositive is
+unconditional — unlike `piInvStratApp_iff_sortUniq`, which passes through
+`WF.rigidShapeUniq` in the other direction.
+
+Consequence: a counterexample to `SortUniq` at *any* well-formed environment refutes
+`forallE_inv_stratified` outright, and with it the whole Π/sort inversion family, without
+anyone having to settle `rigidShapeUniq` first.  Anyone hoping to rescue a statement by
+refuting universe uniqueness at a small environment should know that this is the price. -/
+theorem not_piInvStratApp_of_not_sortUniq (henv : VEnv.WF env) (h : ¬ env.SortUniq U) :
+    ¬ PiInvStratApp env U := fun hpi => h (sortUniq_of_piInvStratApp henv hpi)
+
 /-!
+## The one finite instance of the circle
+
+`DescendRefute.lean`'s witness environment `refEnv` — six axioms and `refEnv_no_defeqs` —
+kills the `extra` constructor outright: no δ, no ι, no quotient rules.  So `SortUniq refEnv 0`
+reduces to beta/eta/proofIrrel/trans confluence over a pure calculus with no rewrite rules,
+which is the only *finite, self-contained* instance of this circle anywhere in the tree.
+Proved outright it would be the first non-vacuity witness for `SortUniq`, and by
+`piInvStratApp_iff_sortUniq` it would make `PiInvStratApp refEnv 0` a theorem at the same
+stroke.  Not attempted here: `proofIrrel` and `trans` are still the hard cases.
+
+Caution for anyone using `refEnv` as *satisfiability* evidence for a `SortUniq` side
+hypothesis: "the `sortUniq_badEnv` failure route is closed at `refEnv`" is **not**
+`refEnv`-specific.  `VEnv.WF.instL_lhs_ne_sort` (`DeclRules.lean:234`) is proved for every
+`env.WF`, with no hypothesis on the environment's rule set, and `badEnv_not_wf` is exactly
+that lemma applied to `badEnv`.  Reduced to its content the observation is "the general fact
+holds", which is what is open; `refEnv_no_defeqs` adds nothing to it.  What `refEnv_no_defeqs`
+does add is the dead `extra` case above.
+
 ## Where the demand actually comes from: `uniq`'s `defeq` case, not its `app` case
 
 `UniqueTyping.lean`'s `IsDefEq.uniq` has an *unstratified* statement

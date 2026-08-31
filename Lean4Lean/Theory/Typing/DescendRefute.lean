@@ -482,11 +482,30 @@ circular.  Three registers, kept apart:
   is **no independent evidence of satisfiability** -- it assumes the very statement.  What the
   first bullet does establish is only non-circularity with `descend`.  The evidence that the
   hypothesis is satisfiable is the next bullet.
-* **[machine-checked]** the *only* known way `SortUniq` fails is a `.sort`-headed defeq rule
-  (`SortUniqDown.lean`'s `sortUniq_badEnv`), and `refEnv_no_defeqs` says `refEnv` has no defeq
-  rules at all.  So the known failure route is closed at this environment.
-* **[analysis]** hence the only escape left is that `forallE_inv_stratified` is false, which
-  would sink the whole Π/sort inversion family.  Nobody should wait for that escape.
+* **[not evidence, recorded so nobody re-derives it]** "the only known failure route
+  (`SortUniqDown.lean`'s `sortUniq_badEnv`, a `.sort`-headed defeq rule) is closed here,
+  because `refEnv_no_defeqs`" is **worthless as evidence**: what closes that route is
+  `WF.instL_lhs_ne_sort` (`DeclRules.lean`), proved for *every* `env.WF` with no hypothesis on
+  the rule set -- `badEnv_not_wf` is literally that lemma applied to `badEnv`.  So the argument
+  reduces to "the general fact holds", which is the open problem.  An earlier version of this
+  docstring rested on it; retracted.
+* **[what is actually specific to `refEnv`, and it is a target rather than a verdict]**
+  `refEnv_no_defeqs` kills the `extra` constructor outright, so at `refEnv` one whole case of
+  the judgment is dead: no δ, no ι, no quotient rules.  `SortUniq refEnv 0` therefore reduces
+  to beta/eta/proof-irrelevance/`trans` confluence over a pure calculus with six axioms and no
+  rewrite rules -- the first *finite, self-contained* instance of this circle in the tree.
+  Proving it outright would be the first non-vacuity witness for `SortUniq`, and by
+  `PiLevelPin.lean`'s `piInvStratApp_iff_sortUniq` would make `PiInvStratApp refEnv 0` a
+  theorem at the same time.  Not attempted here: `proofIrrel` and `trans` are the hard cases.
+* **[the honest status; the escape's price is machine-checked]** satisfiability is therefore
+  **open**, not settled.  What *is* settled, and unconditionally, is the price of the escape:
+  rescuing `descend` requires *refuting* `SortUniq` or `UniqTyping` at a defeq-free six-axiom
+  environment, and `PiLevelPin.lean`'s `not_piInvStratApp_of_not_sortUniq` -- axioms
+  `[propext, Classical.choice, Quot.sound]`, **no `sorryAx`**, since only the *converse*
+  direction of the equivalence routes through `WF.rigidShapeUniq` -- turns any such refutation
+  into a refutation of `PiInvStratApp`, hence of `forallE_inv_stratified` and the whole Π/sort
+  inversion family, *without anyone having to settle `rigidShapeUniq` first*.  Nobody should
+  plan around that escape.
 
 **This is not a proof of `False`.**  Composing it with `descendStatement_holds` derives `False`
 *from `sorryAx`*, which says nothing: it is the ordinary meaning of "an open `sorry` stands
