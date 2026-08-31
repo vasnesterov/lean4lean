@@ -611,3 +611,42 @@ through the 468-user hole. Anything taking it as a supply is tainted too.
 Standing rule, restated because it keeps paying: **before briefing a stream on a claim of the
 form "X is equivalent to Y" or "X reduces to Y", open the lemma and read its hypotheses.**
 Three of today's four errors were a side condition I did not look at.
+
+## The corner is a closed circle: neither node has a non-circular supply (measured)
+
+Follow-up to the two-node finding, and it changes what "two nodes" is worth. Measured cones
+(canonical `deps`, `allowOpaque := true`):
+
+| supply | its statement | holes in its cone |
+| --- | --- | --- |
+| `piInv_axiom` | `PiInv` | `forallE_inv_stratified`, `rigidShapeUniqNS` |
+| `IsDefEqU.forallE_inv` | `PiInv` verbatim | `forallE_inv_stratified`, `rigidShapeUniqNS` |
+| `WF.sortUniq'` | `SortUniq` | `forallE_inv_stratified` |
+| `WF.rigidShapeUniq` | the full bridge | `forallE_inv_stratified`, `rigidShapeUniqNS` |
+
+So **every** existing inhabitant of either node routes back through the holes the nodes
+decompose. `PiInv` is not an independent target: `piInv_axiom` is `IsDefEqU.forallE_inv`
+verbatim, and `forallE_inv` is proved from the `rigidPi` entry of the bridge, i.e. from
+`rigidShapeUniqNS` — which `rigidShapeUniqNS_iff_family` then decomposes *back into* `PiInv`.
+
+Consequence, and it is the honest reading of today's rigid-shape round: the decomposition is
+sorry-free, exact and correct, and it is a **restatement**, not progress toward a proof. No
+rearrangement inside `Theory/Typing/` can close this corner, because the corner has no external
+supply anywhere in the tree. 468 + 193 users sit behind it.
+
+What an external supply would have to be: a **model**, or **confluence**. And confluence is
+the classical proof of Π-injectivity — two convertible Π-types normalise to a common form, and
+`NormalEq`'s `forallEDF` constructor hands back exactly the componentwise conversions `PiInv`
+asserts. The blocker the rigid-shape stream named is that `NormalEq.constApp_inv`'s `appDF`
+case calls `h.forallE_inv henv`, so the route as written is circular.
+
+That is the *same* shape of question as the one already briefed for `weakN_iff`: is
+confluence's use of the hole essential, or incidental? If it is incidental, one repair supplies
+**the entire corner plus the strengthening hole** — `PiInv` (→ `rigidShapeUniqNS`, 193, and the
+side condition that makes `forallE_inv_stratified ≈ SortUniq`, 468) and `weakN_iff` (131). That
+is the largest single lever in the tree by a wide margin, and it is now the reason the `ParRedK`
+repair matters.
+
+Booked as a lead. The failure mode to expect: `forallE_inv` is load-bearing for confluence
+because the `appDF` case genuinely needs to invert the function's type, in which case the
+circle is real and the corner needs the model after all.
