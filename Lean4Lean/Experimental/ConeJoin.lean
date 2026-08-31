@@ -1,3 +1,4 @@
+import Lean4Lean.Theory.Typing.ParRedKWeakN  -- added 2026-08-31: entry (2) = the hole restated
 import Lean4Lean.Verify.SoundnessAssembly  -- added 2026-08-31: the kernel_sound assembly
 import Lean4Lean.Theory.Typing.PatternRules
 import Lean4Lean.Theory.Typing.ParamsBuild
