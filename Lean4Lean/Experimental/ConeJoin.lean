@@ -2,6 +2,7 @@ import Lean4Lean.Verify.Typing.ProjLvlCongr  -- added 2026-08-31: EqUpToLevels k
 import Lean4Lean.Theory.Typing.ParRedKWeakN  -- added 2026-08-31: entry (2) = the hole restated
 import Lean4Lean.Verify.SoundnessAssembly  -- added 2026-08-31: the kernel_sound assembly
 import Lean4Lean.Theory.SemanticRouteClosed  -- added 2026-08-31: injectivity-stream semantic route
+import Lean4Lean.Verify.PreludeVacuity  -- added 2026-08-31: where the Bridge chain is false
 import Lean4Lean.Theory.Typing.PatternRules
 import Lean4Lean.Theory.Typing.ParamsBuild
 import Lean4Lean.Verify.TypeChecker
@@ -28,6 +29,7 @@ import Lean4Lean.Verify.Typing.ConstSpineWF
 import Lean4Lean.Verify.StructureBridge
 import Lean4Lean.Verify.InductFlip
 import Lean4Lean.Verify.QuotConsts
+import Lean4Lean.Verify.QuotReach
 import Lean4Lean.Verify.EqSafety
 import Lean4Lean.Verify.SafeFragment
 import Lean4Lean.Verify.Inductive.AddDeclWF
@@ -77,6 +79,7 @@ import Lean4Lean.Theory.LevelSat
 import Lean4Lean.Theory.SetModel.NotProofNoModel
 import Lean4Lean.Theory.SetModel.PropSplitUp
 import Lean4Lean.Theory.SetModel.QuotInterp
+import Lean4Lean.Theory.SetModel.CnstRecursion
 import Lean4Lean.Theory.Typing.ConstInvWitness
 import Lean4Lean.Theory.Typing.ConstVar
 import Lean4Lean.Theory.Typing.CtxConvIndex
