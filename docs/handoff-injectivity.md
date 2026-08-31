@@ -1178,6 +1178,172 @@ edits survived a branch delete"*), after which every measurement above ran.  **L
 orchestrator: an uncommitted edit to a frozen file blocks every stream's instruments at once, and
 no stream may clear it.**
 
+## 4G. `SortUniq` split: `ConvStep2 ∧ SortInv` — and the constant-spine semantic route is DEAD  *(seventh session, 2026-08-31)*
+
+New file, owned by this stream: **`Lean4Lean/Theory/Typing/InjChainStep.lean`** — 15
+declarations (2 defs, 13 theorems), all `sorry`-free, `#print axioms` block at the end.  It
+imports `Theory/Typing/BaseUniqChain.lean` and `Theory/Typing/SortUniqDown.lean` and is imported
+by **nothing**.  **The import line the next orchestrator should add to
+`Experimental/ConeJoin.lean` is:**
+
+```lean
+import Lean4Lean.Theory.Typing.InjChainStep
+```
+
+Also changed: **`Lean4Lean/Theory/Typing/InjSortPiModel.lean`** (docstrings only — four
+corrections, see §4G.0) and this document.  Nothing else was touched.
+
+### 4G.0 The `Coherent` route to the two constant-spine conjuncts is DEAD **[machine, elsewhere]**
+
+§4F.5 and §8 item 0a said `RigidConstPiDisj` and `RigidConstSortDisj` "may well be semantically
+reachable under `Coherent`", and called that "the highest-value unexplored item in this corner".
+**Both halves of that were wrong**, and `Theory/SetModel/CoherentConstShape.lean` (another
+stream, this round) machine-checks it:
+
+* `CoherentOn` **is** constructed, in two places — `SetModel/CoherentWitness.lean`'s
+  `coherentOn_witness` and `SetModel/CnstRecursion.lean`'s `coherentOn_cnstOf`.
+* the `CoherentOn`-guarded strengthening of the residual is **false**:
+  `not_coherentConstNotUniv`, `not_coherentConstNotUniv_chain`, `not_coherentConstNotPi`, with
+  `coherent_const_denot_eq_sort` / `coherent_const_denot_eq_forallE` exhibiting a `CoherentOn`
+  model over a `VEnv.WF` environment with **no defeqs at all** in which `.const cShape us` and
+  `.sort .zero` have the same denotation in every context at every valuation, and
+  `oracleOK_univ` closing the `Cnst.OracleOK` escape one level down.
+* the reason is structural, not a gap: **`CoherentOn.const_type` constrains `M.cnst c us` by
+  *membership* in `⟦ci.type⟧` and by nothing else**, and both target shapes live inside a
+  declared type.  The refuted guard is moreover *stronger* than what the conjuncts supply —
+  whole-environment rule-freeness versus `RuleFreeHead c` — so no weakening of it rescues them.
+
+**Semantic tally for the second hole: 1 usable conjunct of 5, permanently.**  Two positive
+conjuncts need faithfulness; two are now refuted even under `Coherent`; only `RigidSortPiDisj`
+is live, and `InjSortPiModel.interp_sort_ne_interp_forallE` already proves its residual (behind
+the packaging collapse of row 23).  `InjSortPiModel.lean`'s headline item 3, its status table,
+`const_denot_arbitrary`'s docstring and `not_constNotUniv`'s docstring are corrected in place.
+**`docs/vacuity-ledger.md` row 25 should be re-marked from "dead route unguarded" to "dead
+route, guarded too", citing `SetModel/CoherentConstShape.lean`** — not done here to avoid a
+collision with the concurrent streams that own that file.
+
+### 4G.1 What is proved **[machine]**
+
+| name | statement |
+|---|---|
+| `ConvStep2` | the chain-composition step, **existential** form: two `IsDefEqStrong` at syntactic sorts sharing an endpoint compose to one at *some* sort |
+| `ConvStep2Level` | the same with the two link levels identified (`a ≈ b`) |
+| **`convStep2Level_iff_sortUniq`** | **the collapse test, FAILING for the level form**: `ConvStep2Level ↔ VEnv.SortUniq`, both directions |
+| `convStep2_of_convStep2Level`, `convStep2_of_sortUniq` | the existential form is implied by the level form and hence by `SortUniq` (the **upper** bound) |
+| **`ConvC.collapseE`** | a whole `ConvC` chain collapses from `ConvStep2` alone — `[propext]`, no `SortUniq`, and no reflexivity witness for the left endpoint (contrast `BaseUniqChain.ConvC.collapse`) |
+| `convSortInv_of_convStep2` | `ConvStep2 ∧ SortInv → ConvSortInv` |
+| `convPiInv_of_convStep2` | `Ordered ∧ ConvStep2 ∧ PiInv → ConvPiInv` |
+| `sortUniq_of_convStep2` | `Ordered ∧ ConvStep2 ∧ SortInv ∧ PiInv → SortUniq` (the **lower** bound) |
+| **`sortUniq_iff_convStep2_sortInv`** | **the split**: over `PiInv`, `SortUniq ↔ ConvStep2 ∧ SortInv` |
+| `piInvStratApp_of_convStep2`, `piInvStratApp_iff_convStep2_sortInv` | …and therefore the same for `PiInvStratApp`, i.e. for the 534-user hole |
+| `convStep2_fires` | non-vacuity: premise inhabited over **every** environment at `Γ = []`, with `X`, `Y`, `Z` pairwise distinct and the two link levels *syntactically* different |
+
+`#print axioms`: `ConvC.collapseE` and `convSortInv_of_convStep2` are `[propext]`; the two
+`piInvStratApp_*` are `[propext, Classical.choice, Quot.sound]` (the `Classical.choice` comes
+from `piInvStratApp_of` upstream); everything else is `[propext, Quot.sound]`.  **None mentions
+`sorryAx`.**  Forward cones, `scripts/hole-cone.lean`'s walker verbatim (`allowOpaque := true`,
+type *and* value), over the closure of the new file (3 880 non-internal `Lean4Lean`
+declarations): **`holes reached: []` for all ten headline results** — in particular neither
+`forallE_inv_stratified` nor `rigidShapeUniqNS` nor `weakN_iff` nor `NormalEq.descend`.  Cone
+sizes 46 (`collapseE`) to 3 461.
+
+### 4G.2 What the split buys, exactly **[machine]**
+
+Before: `SortUniq` bought one of the bridge's nine `Compat` entries
+(`rigidShapeUniq_of_sortUniq`), and nothing said the bridge bought any part of `SortUniq`.  Now
+it does: `SortInv` **is** the bridge's `sort`/`sort` entry, and it is one of the two halves of
+the first hole.  So the accounting runs both ways, and whatever closes the nine-entry
+`RigidShapeUniq` closes half of `forallE_inv_stratified` as well.
+
+The corner therefore reads:
+
+    hole A  =  PiInvStratApp  ⟺  SortUniq  ⟺  ConvStep2 ∧ SortInv          (given PiInv)
+    hole B  =  RigidShapeUniqNS  ⟺  PiInv ∧ RigidSortPiDisj ∧ RigidConstAppInv
+                                     ∧ RigidConstPiDisj ∧ RigidConstSortDisj  (given SortUniq, ProofTransport)
+    SortInv  =  the `sort`/`sort` entry that `rigidShapeUniq_of_sortUniq` removed from hole B
+
+### 4G.3 The limit, stated plainly — this narrows the STATEMENT, not the WORK **[analysis]**
+
+The only route to `ConvStep2` in the file is through `ConvStep2Level`, which is `SortUniq` on the
+nose.  Aligning the two link levels is universe uniqueness at the midpoint `Y`, and `Y` is a
+*type* (both `.sort a` and `.sort b` are its types) — so that instance is `SortUniq` in its full
+stated generality, `SortUniq` being itself stated for types only.  Every way of building the
+composed conversion in this calculus goes through `IsDefEqStrong.defeqDF`, whose type premise at
+a sort is `sortDF`, whose side condition is `a ≈ b`.  **No census movement, no cone movement, and
+no evidence that `ConvStep2` is easier than `SortUniq`.**  It is formally weaker (the `∃ u`
+discards both input levels, so the `X = Y = Z` instantiation that settles the level form returns
+nothing), and that is all.
+
+### 4G.4 Two "next things to try" answered in the negative **[analysis]**
+
+* **§8 item 1's last bullet** — "`ConvSortInv` … every chain it is applied to has both endpoints
+  syntactic sorts and arises from `UniqStrongCAt` at a proper subterm.  Whether that shape can be
+  exploited was not examined."  It **cannot** be exploited at the endpoints: the endpoint shape is
+  already in `ConvSortInv`'s statement, and the obstruction is at the **interior** links, whose
+  midpoints are arbitrary terms carrying two unrelated sort types.  The chain `ConvSortInv` is
+  applied to in `baseUniqCAt_forallE` is *peel(a3)⁻¹ ++ BaseUniqCAt ++ peel(b3)*, and the peeled
+  segments' interiors are the `defeq`-wrapper types of an arbitrary derivation.  What the shape
+  question *does* yield is 4G.1's split: the endpoint shape is exactly what lets `SortInv` — a
+  single conversion between two syntactic sorts — discharge the outer comparison once the chain
+  is collapsed, leaving `ConvStep2`, which mentions no sort endpoints at all.
+* **`PiLevelPin.lean`'s closing advice** — "run the same induction with `sort_inv` and `PiInv` as
+  external inputs and the `app` case becomes `⟨_, d3.instN henv a6.hasType .zero⟩` with no level
+  alignment at all".  Accurate for the structural cases, and **not** a route to `SortUniq`.
+  Written out: `uniqQ`'s invariant couples the level of its output *conversion* to the level of
+  its output *stratified* typing (the conjunct `∃ v, u ≈ v ∧ …`), and that coupling is
+  load-bearing.  Decoupling it is what would let plain `PiInv` replace `PiInvStratApp` in the
+  `app` case, because `PiInv`'s output level is existential — but decoupling breaks the
+  `base`/`defeq` cases, where the recovered conversion level `u₁` must be matched against the
+  level `u` of the derivation's own `defeq` premise, and the only handle on that pair is two
+  *plain* sort-typings of the intermediate type, i.e. `SortUniq` again and **not** `SortInv`.
+  So `Injectivity.uniqQ`'s `∃ v, u ≈ v` is content, not bookkeeping.  Do not re-attempt the
+  decoupled invariant.
+* **Also checked and dead**: `SortInv ∧ PiInv → SortUniq` without `ConvStep2` (same wall);
+  `BaseUniq`/`UniqStrong` from `SortInv ∧ PiInv` in the *single-equation* form (`peelEq` needs
+  the collapse, and `base_flag_not_droppable` forbids recursing on `BaseUniqAt` at the subterm);
+  `ConvPiInv` from `ConvSortInv ∧ PiInv` without `ConvStep2` (the strengthened chain induction's
+  step still has to trans a link with a conversion at a different sort);
+  `sort_not_proof` / `forallE_not_proof` / `ProofTransport` from the bridge (each needs
+  `HasTypeStrong.sort_type` / `forallE_type`, whose `defeq` case is the same collapse).
+
+### 4G.5 Instrument state at the end of the seventh session **[machine]**
+
+* `~/.elan/bin/lake build Lean4Lean.Theory.Typing.InjChainStep` — **green**, 15 declarations, no
+  `sorry`, LSP diagnostics empty.
+* `~/.elan/bin/lake build Lean4Lean.Theory.Typing.InjSortPiModel` — green (docstring-only edits).
+* `~/.elan/bin/lake build Lean4Lean.Verify.Guard` — green.  guard 1 ✓ (25 frozen axioms),
+  guard 2 ✓ (`proof INCOMPLETE: sorryAx present`), guard 3 ✓ (**2/54** implementation gaps
+  remaining — was 51/54 at §4F.6; other streams have moved that a long way).
+* `scripts/sorry-census.lean` at the **start** of this session — TOTAL **13**:
+  `Theory.Equiconsistency` 1 (0 users); `Theory.Inductive.Decl` 1 (0);
+  `Theory.Typing.ChurchRosser` 1 (`NormalEq.descend`, 145); **`Theory.Typing.Injectivity` 2
+  (`WF.rigidShapeUniqNS` 311, `IsDefEqU.forallE_inv_stratified` 534)**;
+  `Theory.Typing.UniqueTyping` 1 (`weakN_iff`, 198); `Verify.Environment` 1 (1);
+  `Verify.Soundness` 2 (0, 0); `Verify.TypeChecker.InferType` 1 (0);
+  `Verify.TypeChecker.IsDefEq` 2 (1, 2); `Verify.Typing.Lemmas` 1 (`TrProj.weak'_inv`, 30).
+  This stream contributes **0**.
+* `scripts/sorry-census.lean` and `scripts/dup-names.lean` at the **end** of the session —
+  **BLOCKED, and not by anything this stream did.**  Both import `Experimental/ConeJoin.lean`,
+  whose closure now fails to elaborate: `Lean4Lean/Theory/Inductive/NestedBuild.lean` has four
+  errors in the working tree (`:328:2 unsolved goals`, `:381:2 'show' tactic failed`,
+  `:765:63` and `:1241:56` `Fields missing: 'aux'`) — an uncommitted in-flight edit by the
+  nested-inductive stream, alongside modifications to `NestedHead.lean`,
+  `NestedPositivity.lean`, `Restore.lean`, `ChurchRosser.lean` and `ConstSubstNested.lean`.
+  This is the §4F.6 blockage recurring from a different cause: **any stream's broken in-flight
+  file in the `ConeJoin` closure disables every stream's census and dup-names at once.**  No
+  stream may clear another's edit.
+* **Duplicate-name check, done the way that does not need `dup-names.lean`**: all fifteen new
+  full names grepped tree-wide — zero hits outside `InjChainStep.lean`.  (`ConvC.collapseE` does
+  not collide with `Enlarged.loop_conv_collapseE`.)  The file also imports both
+  `BaseUniqChain.lean` and `SortUniqDown.lean`, so any same-namespace collision inside that
+  closure would have been a hard elaboration error; it elaborates clean.
+* **Proposed `docs/vacuity-ledger.md` rows** (not written, to avoid collisions):
+  row for `InjChainStep.ConvStep2` — kind **bounded both ways**, above by `convStep2_of_sortUniq`,
+  below by `sortUniq_of_convStep2`, with `convStep2Level_iff_sortUniq` as the control that the
+  *level* form is a restatement; and the re-marking of row 25 described in §4G.0.
+
+---
+
 ---
 
 ## 5. The refutation attempt, and why it does not reach **[analysis]**
@@ -1335,13 +1501,26 @@ kept below it as item 1a, because its head table is still the right map.)*
    because an uncommitted, *self-declared-refuted* deletion in `Verify/Axioms.lean` broke
    `Verify/Expr.lean:1360`.  No stream may clear that; it was reverted at commit `8173ebc`.
 
-0a. **The semantic route is NOT exhausted, and the polarity split is why** (§4F).  Three of the
-   second hole's five conjuncts are *negative*, so soundness alone can settle them without
-   faithfulness.  One of the three now has a **proved** residual
-   (`InjSortPiModel.interp_sort_ne_interp_forallE`); the other two turn on `Coherent`, which
-   `Theory/SetModel/` does not yet construct — **that is the highest-value unexplored item in
-   this corner.**  And §4F.4's valuation obligation is a new, un-instrumented debt on *every*
-   semantic route, including the upstream one this document treated as closed.
+0a. **RETRACTED by §4G.0 — the semantic route IS exhausted, 1 usable conjunct of 5.**  This item
+   used to read: *"Three of the second hole's five conjuncts are negative … the other two turn on
+   `Coherent`, which `Theory/SetModel/` does not yet construct — that is the highest-value
+   unexplored item in this corner."*  **Do not spend a session on it.**  `CoherentOn` is
+   constructed twice (`coherentOn_witness`, `coherentOn_cnstOf`) and the `CoherentOn`-guarded
+   residual is **refuted** — `SetModel/CoherentConstShape.lean`'s `not_coherentConstNotUniv`,
+   `not_coherentConstNotUniv_chain`, `not_coherentConstNotPi`, because
+   `CoherentOn.const_type` pins `M.cnst c us` by *membership* in `⟦ci.type⟧` and nothing else.
+   What survives of §4F: the polarity split is still the right distinction, and
+   `InjSortPiModel.interp_sort_ne_interp_forallE` is still the one proved semantic residual
+   (behind the packaging collapse of ledger row 23).  §4F.4's valuation obligation also stands
+   and is still un-instrumented.
+
+0b. **`SortInv` is a separable half of the FIRST hole** (§4G).  Over `PiInv`,
+   `SortUniq ↔ ConvStep2 ∧ SortInv` (`InjChainStep.sortUniq_iff_convStep2_sortInv`), and
+   `SortInv` is the `sort`/`sort` entry `rigidShapeUniq_of_sortUniq` removed from the second
+   hole.  So the two holes are not disjoint after all: closing the *nine*-entry
+   `RigidShapeUniq` closes half of `forallE_inv_stratified`.  The residual `ConvStep2` is
+   bounded both ways but is **not** known to be easier than `SortUniq` — read §4G.3 before
+   attacking it, and read §4G.4 before re-trying either of the two routes it closes.
 
 1. **`BaseUniq` by term recursion is done, and so is the `SortUniq` localisation §4D.5 said
    was impossible.**  `BaseUniqTerm.lean` (§4D) and `BaseUniqChain.lean` (§4E).  Three things

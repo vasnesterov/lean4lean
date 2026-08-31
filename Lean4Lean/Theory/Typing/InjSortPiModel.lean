@@ -53,12 +53,30 @@ never measured against the majority of that hole.
    to use it can only be picked after the derivation is in hand.  The content is entirely in
    item 1, which takes no supply.
 
-3. **The other two negative conjuncts need `Coherent`, machine-checked.**
+3. **The other two negative conjuncts are DEAD, and `Coherent` does not rescue them.**
    `interp M L Γ (.const c us) = M.cnst c us` and `M.cnst` is a free field of `ModelData`:
    `const_denot_arbitrary` makes every constant denote whatever one likes, and the residual
    `ConstNotUniv` is **false unguarded** (`not_constNotUniv`) — the same idiom as
    `not_levelSeparating`.  So `RigidConstPiDisj` and `RigidConstSortDisj` are unreachable from
    `interp` alone.
+
+   **CORRECTION (2026-08-31, later).**  This item used to end "they become reachable only under
+   `Coherent`, which `Theory/SetModel/` does not yet construct".  **Both halves of that were
+   wrong.**  `CoherentOn` *is* constructed, in two places — `SetModel/CoherentWitness.lean`'s
+   `coherentOn_witness` and `SetModel/CnstRecursion.lean`'s `coherentOn_cnstOf` — and the
+   `CoherentOn`-guarded strengthening of the residual is **refuted**:
+   `SetModel/CoherentConstShape.lean`'s `not_coherentConstNotUniv`,
+   `not_coherentConstNotUniv_chain` and `not_coherentConstNotPi`, with
+   `coherent_const_denot_eq_sort` / `coherent_const_denot_eq_forallE` exhibiting a `CoherentOn`
+   model over a `VEnv.WF` environment with **no defeqs at all** in which `.const cShape us` and
+   `.sort .zero` have the same denotation in every context at every valuation, and
+   `oracleOK_univ` showing `Cnst.OracleOK` does not exclude it one level down.  The reason is
+   structural: **`CoherentOn.const_type` constrains `M.cnst c us` by *membership* in
+   `⟦ci.type⟧` and by nothing else**, and both target shapes live inside a declared type.  The
+   refuted guard is moreover *stronger* than what these conjuncts supply — whole-environment
+   rule-freeness (`∀ df, ¬ env.defeqs df`) versus `RuleFreeHead c` — so no weakening of it
+   rescues them.  **The semantic tally for the second hole is therefore 1 usable conjunct of 5,
+   permanently**, not 1 plus 2 pending.
 
 4. **A limit on every semantic route into this corner, and a correction upstream.**  Both this
    file's supply and `SemanticRoute.SortEqSupply` demand `ρ ∈ interpCtx M L Γ`, because that is
@@ -81,8 +99,8 @@ So the classification of the second hole's five conjuncts by *semantic* reachabi
 | `PiInv` | positive | dead (faithfulness; domain half also refuted upstream) |
 | `RigidConstAppInv` | positive | dead (faithfulness) |
 | `RigidSortPiDisj` | negative | residual **proved** here; packaging collapses (item 2) |
-| `RigidConstPiDisj` | negative | needs `Coherent` (`not_constNotUniv`) |
-| `RigidConstSortDisj` | negative | needs `Coherent` (`not_constNotUniv`) |
+| `RigidConstPiDisj` | negative | **dead** — `CoherentOn` constrains `cnst` by membership only (`not_constNotUniv`; `SetModel/CoherentConstShape.lean`'s `not_coherentConstNotPi`) |
+| `RigidConstSortDisj` | negative | **dead** — `CoherentOn` constrains `cnst` by membership only (`not_constNotUniv`; `SetModel/CoherentConstShape.lean`'s `not_coherentConstNotUniv`) |
 
 and over all of them sits item 4's valuation obligation.
 
@@ -329,10 +347,15 @@ argument above applies to them.  It nevertheless delivers nothing, because
 Take `t := U κ i` and the const/sort route dies; take `t := ` a `∀` node's denotation and the
 const/Π route dies.
 
-Closing those two semantically therefore needs `Coherent` — the constraint linking `M.cnst` to
-the declarations, which `Theory/SetModel/` does not yet construct (`docs/soundness-ledger.md`,
-H2 of `docs/critical-path.md`).  That is a *different* obligation from the one this file
-discharges, and it is the honest reason the count is 5 → 4 and not 5 → 2. -/
+This file once said that closing those two semantically "needs `Coherent` — the constraint
+linking `M.cnst` to the declarations, which `Theory/SetModel/` does not yet construct".
+**CORRECTED 2026-08-31:** `CoherentOn` *is* constructed (`SetModel/CoherentWitness.lean`'s
+`coherentOn_witness`, `SetModel/CnstRecursion.lean`'s `coherentOn_cnstOf`), and the
+`CoherentOn`-guarded residual is **false** — `SetModel/CoherentConstShape.lean`'s
+`not_coherentConstNotUniv` and `not_coherentConstNotPi`.  `CoherentOn.const_type` pins
+`M.cnst c us` only by *membership* in `⟦ci.type⟧`, which both target shapes satisfy.  So the
+count is 5 → 4 **permanently**, and the two constant-spine conjuncts have no semantic route at
+all rather than one waiting on a construction. -/
 theorem const_denot_arbitrary (κ : ℕ → V) (ls : List ℕ) (t : V) :
     ∃ M : ModelData V, M.κ = κ ∧ M.ls = ls ∧
       ∀ (L : PropSplit env nv) (Γ : List VExpr) (c : Lean.Name) (us : List VLevel) (ρ : V),
@@ -383,12 +406,23 @@ theorem interp_const_eq_U_iff (M : ModelData V) (L : PropSplit env nv) (Γ : Lis
 a free field, so a model may assign a universe stage to a constant.
 
 Consequence, and it is the reason this file closes **one** conjunct and not three: the two
-constant-spine conjuncts are unreachable from `interp` alone.  They become reachable only under
+constant-spine conjuncts are unreachable from `interp` alone.
+
+**CORRECTED 2026-08-31.**  This docstring used to continue "they become reachable only under
 `Coherent` — the constraint tying `M.cnst` to the declarations — which `Theory/SetModel/` does
-not yet construct.  So the classification of `WF.rigidShapeUniqNS`'s five conjuncts by semantic
-reachability is: `PiInv` and `RigidConstAppInv` are *positive* and need faithfulness (absent
-from any soundness model); `RigidSortPiDisj` is *negative* and needs nothing further (§3);
-`RigidConstPiDisj` and `RigidConstSortDisj` are *negative* but need `Coherent`. -/
+not yet construct".  `CoherentOn` is constructed twice (`coherentOn_witness`,
+`coherentOn_cnstOf`), and `SetModel/CoherentConstShape.lean` **refutes the guarded residual**:
+`not_coherentConstNotUniv`, `not_coherentConstNotUniv_chain`, `not_coherentConstNotPi`, with
+`coherent_const_denot_eq_sort` / `_eq_forallE` as the witnesses and `oracleOK_univ` closing the
+`Cnst.OracleOK` escape.  `CoherentOn.const_type` constrains `M.cnst c us` by *membership* in
+`⟦ci.type⟧` and nothing else, and the refuted guard (whole-environment rule-freeness) is
+*stronger* than the `RuleFreeHead c` these conjuncts supply, so weakening it cannot help.
+
+So the classification of `WF.rigidShapeUniqNS`'s five conjuncts by semantic reachability is:
+`PiInv` and `RigidConstAppInv` are *positive* and need faithfulness (absent from any soundness
+model); `RigidSortPiDisj` is *negative* and needs nothing further (§3); `RigidConstPiDisj` and
+`RigidConstSortDisj` are *negative* and **dead under `Coherent` too**.  One usable conjunct of
+five, permanently. -/
 theorem not_constNotUniv : ¬ ConstNotUniv V := by
   intro h
   exact h ⟨fun _ => (∅ : V), [], fun _ _ => U (fun _ => (∅ : V)) 0⟩ .anonymous [] 0 rfl
