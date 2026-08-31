@@ -640,13 +640,29 @@ build.
 
 The classification, as of this writing (27 entries):
 
-* **Modelled through a wrapper that *is* axiomatised (11).** `Expr.replaceImpl` under
-  `Expr.replace_eq`; `Level.beq` under `Level.instLawfulBEqLevel`; `Level.getMaxArgsAux` under
-  `Level.normalize_eq`; the four `PersistentHashMap` aux functions and the two
-  `PersistentArray` ones under `PersistentHashMap.WF.find?_eq` / `.WF.toList'_insert` /
-  `findAux_isSome` / `PersistentArray.WF.toList'_push`; and the two `ptrEq*.unsafe_impl_2`
-  under `ptrEqExpr_eq` / `ptrEqConstantInfo_eq`. Flagged only because the axiom names the
-  wrapper, not the implementation. Not gaps.
+* **Modelled through a wrapper (13).** `Level.beq` under `Level.instLawfulBEqLevel`;
+  `Level.getMaxArgsAux` under `Level.normalize_eq`; the **six** `PersistentHashMap` aux
+  functions (`insertAux`, `insertAtCollisionNodeAux`, `findAux`, `findAtAux`, `containsAux`,
+  `containsAtAux` — all `partial` upstream, hence opaque) and the two `PersistentArray` ones
+  under `PersistentHashMap.WF.find?_eq` / `.WF.toList'_insert` / `PersistentArray.WF.toList'_push`;
+  and the two `ptrEq*.unsafe_impl_2` under `ptrEqExpr_eq` / `ptrEqConstantInfo_eq`. Flagged only
+  because the spec names the wrapper, not the implementation. Not gaps.
+
+  `Lean.Expr.replaceImpl` stays on the list for now but is **no longer reached by code that
+  runs**: both nested-inductive substitution sites call `Expr.replaceNoCache` /
+  `Expr.replaceNoCacheT` directly as of `divergences.md`'s "nested-inductive replacement is
+  uncached" entry, so the frozen axiom `Expr.replace_eq` that modelled it has no consumers left.
+
+  **`findAux` and `containsAux` were added to the list on 2026-08-31, and the check was RED
+  before that.** Their entries had been carried by the *axiom*
+  `PersistentHashMap.findAux_isSome` (and its companion): the
+  `modelled` set below is built from the axioms of `Verify/Axioms.lean`, so an opaque named by
+  an axiom is exempt from the list. That axiom is gone from `Verify/Axioms.lean`, and with it
+  the exemption — proving an axiom away silently *removed* a classification here. Two lessons,
+  both structural: this check's exemption path (`modelled`) makes its own inventory drift
+  whenever `Axioms.lean` shrinks, and nothing noticed for as long as it did because
+  `Lean4Lean.Tests` is **not** in `lakefile.toml`'s `defaultTargets` — a bare `lake build`, the
+  project's acceptance command, never runs the checks in this file.
 
 * **No observable result (7).** `EnvExtensionEntrySpec` and `EnvExtensionStateSpec` are opaque
   *types*; `Std.Internal.idOpaque` likewise; `opaqueId` and the three `WellFounded.opaqueFix`
@@ -714,7 +730,9 @@ private def unmodelledConeOpaques : List String := [
   "Lean.PersistentArray.insertNewLeaf",
   "Lean.PersistentArray.mkNewPath",
   "Lean.PersistentHashMap.containsAtAux",
+  "Lean.PersistentHashMap.containsAux",
   "Lean.PersistentHashMap.findAtAux",
+  "Lean.PersistentHashMap.findAux",
   "Lean.PersistentHashMap.insertAtCollisionNodeAux",
   "Lean.PersistentHashMap.insertAux",
   "Lean.opaqueId",
@@ -833,5 +851,57 @@ run_meta do
         structure. Remove it from `quickCmpExecutors`."
   logInfo m!"quickCmp-ordered lookups on a decision path: {found.length} \
     ({found.map (·.toString)})"
+
+/-! ## What `Verify/Guard.lean`'s check 3 actually measures
+
+**Measured 2026-08-31**, by replaying check 3's own walk (`getUsedConstantsAsSet` +
+`getImplementedBy?` + the `_unsafe_rec` companion) from `Lean4Lean.addDecl` and then asking, of
+every name it flags, which of the three properties in its docstring actually holds:
+
+    flagged, in `Lean4Lean.*` modules                          51
+      of which `@[implemented_by]`                              2   (ptrEq{Expr,ConstantInfo})
+      of which `@[extern]`                                      0
+      of which genuinely `partial`                              0
+      of which ordinary total definitions                      49
+
+The 49 are flagged because check 3 tests `env.contains (n ++ "_unsafe_rec")`, and the equation
+compiler emits an `_unsafe_rec` companion for **every** computable recursive definition, whether
+it is `partial` or not. Spot-checked kinds: `Lean.Expr.cheapBetaReduce.loop`,
+`Lean.Expr.replaceNoCacheT`, `Lean.Level.forEach` and
+`Lean.Kernel.Environment.checkDuplicatedUnivParams` are all `.defnInfo` compiled through
+`brecOn` — total structural definitions, whose `-- partial` comments in `implGapWhitelist` are
+simply wrong. A real `partial def` looks different: it elaborates to `.opaqueInfo` whose value
+is an `Inhabited.default` witness. `Compiler.getImplementedBy?` cannot be used to tell them
+apart — it returns `none` for structural, well-founded and `partial` definitions alike.
+
+So the honest reading of check 3 today is: **the checker's cone contains no `partial` and no
+`@[extern]` at all, and exactly two `@[implemented_by]` constants, both the deliberate
+pointer-equality opaques axiomatised in `Verify/Axioms.lean`.** The count 51 measures how many
+recursive definitions the cone has, which is not what the guard says it measures and does not
+shrink as the checker is made total.
+
+`Verify/Guard.lean` is frozen, so the fix is stated here and not made. The one-line change
+would be, inside check 3:
+
+    if env.contains (.str n "_unsafe_rec") then
+      match env.find? n with
+      | some (.opaqueInfo _) => kinds := "partial" :: kinds
+      | _ => pure ()   -- ordinary recursive def: `_unsafe_rec` is codegen, not `partial`
+
+With it the reachable count drops from 51 to 2 and 52 of the 54 `implGapWhitelist` entries
+become removable. It is a **narrowing** of the guard, and that is the argument against it: an
+`_unsafe_rec` companion is what the *executable* runs, so the 49 do each name a mechanical
+compiler transcription of a definition this project verifies in its `brecOn` form. That is the
+same trust assumption every compiled Lean function carries, which is why the count is
+uninformative — but narrowing check 3 means the guard stops mentioning it. A human decides.
+
+Two coverage gaps in check 3 found by the same measurement, neither fixed here:
+
+* an `unsafe def` with no `_unsafe_rec` companion and no attribute is invisible to it —
+  `Lean4Lean.ptrEqExpr.unsafe_1` is in the cone (reached through the `implemented_by` chain) and
+  is not flagged;
+* the `Lean4Lean.*` module filter hides every upstream gap, which is what the opaque inventory
+  above exists to cover.
+-/
 
 end Lean4Lean.Tests.KernelHardening

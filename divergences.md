@@ -164,3 +164,37 @@ This is a list of places where lean4lean deliberately has different behavior fro
   were re-read against C++ line by line, and this is what that reading found. The reading also
   established a fact this development relies on: **neither C++ function tests the structure's
   universe**, so both fire on `Prop` structures.
+
+* [`Lean4Lean.ElimNestedInductive`](Lean4Lean/Inductive/Add.lean) — **nested-inductive
+  replacement is uncached.** Both substitution walks in the nested-inductive eliminator used
+  `Lean.Expr.replace` / `Lean.Expr.replaceM`, each of which is `@[implemented_by]` an `unsafe`
+  traversal keyed on a *pointer* map (`Lean.mkPtrMap`); C++'s `replace_fn`
+  (`~/lean4/src/kernel/replace_fn.cpp`) does the same thing with an address-keyed cache. They
+  now call `Expr.replaceNoCache` and `Expr.replaceNoCacheT` — the pure, structurally recursive
+  versions the `implemented_by` pair is supposed to implement. Consequences:
+  * **Logically none.** `Expr.replace`'s only stated relation to `replaceNoCache` in this repo
+    is the frozen axiom `Expr.replace_eq` (`Verify/Axioms.lean`), which asserts exactly that the
+    cached version *equals* the uncached one; no proof in the tree ever used it. The state
+    written by `replaceIfNested` is unaffected, because its own `nestedAux` memo is keyed on
+    **structural** equality (`Iparams == e`) and is consulted before any auxiliary type is
+    created — so re-visiting a structurally equal nested application still returns the same
+    `_nested…` name and pushes no duplicate `newTypes`. Pointer caching was never what kept
+    that idempotent.
+  * **Complexity: a real blowup.** The pointer cache made each *shared* subterm of the
+    constructor types under replacement cost one visit; without it, each *occurrence* costs a
+    visit, so a DAG-shaped constructor type of depth `d` with two-way sharing at every level
+    costs `2^d` instead of `d`. The inputs at risk are nested inductive declarations whose
+    constructor types share large subterms — the C++ kernel handles those in time linear in the
+    DAG. Measured after the change: the whole Kernel Arena suite is still correct (185 correct,
+    6 `either`, 0 incorrect), with the two whole-library tests at `init` 1.4 min and `std`
+    2.4 min and every nested-inductive test in the tens of milliseconds; no per-test baseline
+    from before the change was retained, so this records absence of *failure*, not a timing
+    comparison. Constructor types in practice are small and sharing in them is shallow, but the
+    worst case is genuinely worse than C++'s.
+  * **Why it was done anyway.** It removes `Lean.Expr.replaceM` — and, on the compiled path,
+    core's `unsafe` `Expr.ReplaceImpl` — from the cone reachable from `Lean4Lean.addDecl`:
+    `Verify/Guard.lean`'s check 3 drops from 52 to 51 flagged declarations, and of the *three*
+    entries there that were genuine `@[implemented_by]`/`unsafe` implementations rather than
+    equation-compiler artefacts, this was the only removable one (the other two are
+    `ptrEqExpr`/`ptrEqConstantInfo`, deliberate and axiomatised). The frozen axiom
+    `Expr.replace_eq` is now unused by anything in the tree.

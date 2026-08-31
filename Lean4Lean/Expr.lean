@@ -64,6 +64,11 @@ def replaceNoCacheT [Monad m] (f? : Expr → m (Option Expr)) (e : Expr) : m Exp
       return e.updateProj! (← replaceNoCacheT f? b)
     | e => return e
 
+/-- **Not used by the checker, and must not become used.**  Every call site in the cone of
+`Lean4Lean.addDecl` calls `replaceNoCacheT` (or core's `replaceNoCache`) directly; this
+wrapper is `@[implemented_by]` an `unsafe`, pointer-keyed traversal, so a single use of it
+puts `Lean.Expr.ReplaceImpl` back into the trusted base and back onto `Verify/Guard.lean`'s
+check-3 list.  See `divergences.md`, "nested-inductive replacement is uncached". -/
 @[implemented_by ReplaceImpl.replaceUnsafe']
 partial def replaceM [Monad m] (f? : Expr → m (Option Expr)) (e : Expr) : m Expr :=
   e.replaceNoCacheT f?

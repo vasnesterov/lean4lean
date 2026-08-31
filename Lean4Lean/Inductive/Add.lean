@@ -713,7 +713,9 @@ def restoreNested (r : Result) (env' : Environment) (e : Expr)
       e := body.instantiate1 arg
       As := As.push arg
     | _ => unreachable!
-  e := e.replace fun t => do
+  -- `Expr.replaceNoCache`, not `Expr.replace`: the latter is `@[implemented_by]` an unsafe
+  -- pointer-keyed cache.  See `divergences.md` § "nested-inductive replacement is uncached".
+  e := e.replaceNoCache fun t => do
     if let .const c ls := t then
       if let some recName := auxRec.lookup c then
         return .const recName ls
@@ -857,7 +859,7 @@ def replaceIfNested (lctx : LocalContext) (params : Array Expr) (As : Array Expr
   return result
 
 def replaceAllNested (lctx : LocalContext) (params : Array Expr) (As : Array Expr) (e : Expr) :
-    M Expr := e.replaceM (replaceIfNested lctx params As)
+    M Expr := e.replaceNoCacheT (replaceIfNested lctx params As)
 
 def withParams (type : Expr) (nparams : Nat)
     (k : LocalContext → Expr → Array Expr → M α) : M α := loop {} type #[] nparams where
