@@ -105,6 +105,7 @@ import Lean4Lean.Theory.Inductive.RestoreBridge  -- 2026-08-31: obligation (A) o
 import Lean4Lean.Theory.SetModel.CoherentConstShape  -- added 2026-08-31: CoherentOn cannot separate a constant from a universe or a Pi
 import Lean4Lean.Theory.Typing.InjChainStep  -- added 2026-08-31: SortUniq splits over PiInv into a bridge entry plus ConvStep2
 import Lean4Lean.Theory.Typing.StrengthenAudit  -- added 2026-08-31: the neutral residual bounded three ways, and no syntactic slice of b can help
+import Lean4Lean.Theory.Typing.InjSpineTransport  -- added 2026-08-31: hole B's ProofTransport tax is only ConvStep2, not all of hole A
 
 /-!
 # Acceptance test: the `PatternRules` cone and the `Verify/` cone join

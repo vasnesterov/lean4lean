@@ -154,7 +154,18 @@ entry excluded by `¬ BothSort`, universe uniqueness is not needed anywhere.
 
 `sorryAx`-free.  `htr` is `VEnv.ProofTransport`, taken as a hypothesis rather than supplied by
 `WF.proofTransport`, because that supply is tainted through `forallE_inv_stratified`; see
-`ProofTransport`'s docstring. -/
+`ProofTransport`'s docstring.
+
+**The `htr` tax is smaller than it looks** (`Theory/Typing/InjSpineTransport.lean`).  It is used
+in **one** of the nine branches below — `app`/`app` — and there its subject is the rule-free
+constant spine, never an arbitrary term.  `proofTransportSpine_of` supplies that restricted form
+from `ConvPiInv` alone (`BaseUniqChain.baseUniqCAt_of` needs `ConvSortInv` only for its
+`.forallE` head, which a spine never presents), and `InjChainStep.convPiInv_of_convStep2`
+supplies `ConvPiInv` from `ConvStep2 ∧ PiInv` — with `PiInv` already conjunct 1 here.  So
+`rigidShapeUniqNS_of_family_convStep2` replaces `htr` by `ConvStep2`, and since
+`InjChainStep.sortUniq_iff_convStep2_sortInv` splits hole A into `ConvStep2 ∧ SortInv` over
+`PiInv`, this bridge's dependence on hole A is exactly the `ConvStep2` half.
+`docs/vacuity-ledger.md` row 30's "tainted by hole A" should read "tainted by `ConvStep2`". -/
 theorem rigidShapeUniqNS_of_family (hord : Ordered env) (htr : env.ProofTransport U)
     (hpi : env.PiInv U) (hsp : env.RigidSortPiDisj U) (hca : env.RigidConstAppInv U)
     (hcp : env.RigidConstPiDisj U) (hcs : env.RigidConstSortDisj U) :

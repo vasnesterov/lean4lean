@@ -147,12 +147,31 @@ development either.  It has to arrive from the syntactic side.  The model develo
 carry it as an import, and nobody should spend a session deriving it semantically — the
 request is unanswerable in principle, not merely hard.
 
-**The useful half of the same check.**  `sort_not_proof` below — currently *derived* from
-`SortUniq` — **does** survive cumulativity, which produces `.sort u : .sort v` and never
-`.sort u : p : Prop`.  So the model route is closed for `SortUniq` and open for
-`sort_not_proof`, and `sort_not_proof` is the statement worth asking the model stream for.
-It is also the statement two of `unique.tex`'s three uses of unique typing reduce to
-(`docs/options-circularity-breakers.md`).
+**The useful half of the same check — and its conclusion is RETRACTED.**  `sort_not_proof`
+below — currently *derived* from `SortUniq` — **does** survive cumulativity, which produces
+`.sort u : .sort v` and never `.sort u : p : Prop`.  This paragraph used to continue: "so the
+model route is closed for `SortUniq` and open for `sort_not_proof`, and `sort_not_proof` is the
+statement worth asking the model stream for."  **That inference is invalid and the conclusion is
+false.**  Surviving a negative check means a model cannot *refute* the statement; it does not
+follow that a model can *prove* it.  The model route to `sort_not_proof` is measured **closed**:
+`Theory/SetModel/NotProofNoModel.lean`'s `sortNotProof_of_propSplit` obtains `sort_not_proof`
+from `PropSplit` with **no interpretation at all**, so the semantic construction is strictly
+dominated by its own hypothesis and building it to get `sort_not_proof` is circular
+(`ORCHESTRATOR.md`, "The model route to `sort_not_proof` is CLOSED"; independently prefigured in
+prose by `Theory/Typing/UniqueTypingN.lean`'s `PropTypeAgreeN` section).  Do not ask the model
+stream for `sort_not_proof`; the live semantic target is `PropTypeAgreeN`, and its own primitive
+is `SortForallEDisjoint`.
+
+`sort_not_proof` remains the statement two of `unique.tex`'s three uses of unique typing reduce
+to (`docs/options-circularity-breakers.md`) — that part stands.
+
+**And it is not the only way to pay hole B's transport tax.**  The reading that made an
+*independent* `sort_not_proof` the sole route to cashing in the five-conjunct decomposition of
+`WF.rigidShapeUniqNS` (`docs/vacuity-ledger.md` row 30) is too pessimistic:
+`Theory/Typing/InjSpineTransport.lean` shows the `ProofTransport` that
+`RigidNodeCircle.rigidShapeUniqNS_of_family` consumes is only ever instantiated at a *constant
+spine*, and that restricted form follows from `ConvPiInv` alone — hence from `ConvStep2 ∧ PiInv`,
+with no `SortUniq`, no `SortInv` and no `sort_not_proof`.
 
 **The model USED to be parameterised on it — that circularity is fixed.**  `Theory/SetModel/`
 once carried `(L : LevelAssign env nv)` through every section of `InterpSound.lean` with
