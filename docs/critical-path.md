@@ -2,12 +2,44 @@
 
 *Measured 2026-08-31. Reproduce with `~/.elan/bin/lake env lean scripts/kernel-sound-path.lean`.*
 
-## Stop-condition status
+## Read this first: current state (2026-08-31, end of day)
+
+**The body of this file is the original measurement plus five dated corrections.** Each
+correction is worth reading for *how* the picture was wrong, but the headline "2 hypotheses +
+9 holes" below is superseded. The current state is:
+
+| | state |
+| --- | --- |
+| **1.** Kernel Arena | **MET** — 185 correct, 6 `either`, 0 incorrect. Holds at every commit today; the last commit touching the executable is `eddc0ff`. |
+| **2.** `kernel_sound` | **NOT met.** Guard 2: `proof INCOMPLETE: sorryAx present`. Census **14**. |
+
+What actually blocks condition 2, in the shape it really has:
+
+1. **The typing holes**, which are ordinary open proofs and the bulk of the work:
+   `forallE_inv_stratified` (527 transitive users), `rigidShapeUniqNS` (235),
+   `IsDefEqU.weakN_iff` (136, narrowed to `TransStrengtheningNarrowNeutral` by round 7),
+   `TrProj.uniq` (93), `TrProj.weak'_inv` (29), `NormalEq.descend` (49).
+2. **The nested-inductive route**, whose entire residual is **three syntactic identities** about
+   `VIndRestore.csubst` — the bridge hypotheses of `ctorConstsCR_wf_of_substC` /
+   `recConstsR_wf_of_substC` / `iotaRulesR_wf_of_substC`. Proved at two blocks, not in general.
+   Correction 5 explains why this was invisible: they are hypotheses of proved, sorry-free
+   theorems, so the census reads 0 where the work is.
+3. **The `AddInduct` flip**, which is *two* flips (Correction 5). The non-nested one is available
+   and is a decision (census 14 → 17, partial result). The nested one needs item 2 first.
+4. **Statements that are false rather than open** — `addDecl.WF`'s `inductDecl` branch,
+   `foldAddDecl_tr`, `Bridge.AddDeclWF` — which must be *re-derived*, never assumed.
+   `docs/vacuity-ledger.md` is the registry, 22 statements measured, and §4 records how assuming
+   one of them would make Guard 2 print "proof COMPLETE" over nothing.
+
+The `False`-witness half of the soundness statement is **finished**: `hasType_falseProp`'s cone
+is 7244 declarations with zero holes.
+
+## Stop-condition status (original measurement)
 
 | Condition | State |
 |---|---|
 | **1.** Kernel Arena: `uv run lka.py run --checker lean4lean-local`, every non-`either` test correct | **MET** — measured 2026-08-31 at commit `43d6d25`: **185 correct, 6 `either`, nothing incorrect** |
-| **2.** `Lean4Lean.kernel_sound` proven (Guard 2 prints "proof COMPLETE") | **NOT met** — 2 hypotheses + 9 holes, enumerated below |
+| **2.** `Lean4Lean.kernel_sound` proven (Guard 2 prints "proof COMPLETE") | **NOT met** — 2 hypotheses + 9 holes, enumerated below (**superseded**; see the block above) |
 
 CLAUDE.md requires both **on the same commit**, so the goal is not reached. Condition 1 is not
 "done" in a way that can be banked either: it must still hold at whatever commit finally closes
