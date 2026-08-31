@@ -22,7 +22,13 @@ What actually blocks condition 2, in the shape it really has:
    Note the counts *rose* while the census fell 14 → 13: closing `TrProj.uniq` routed its 94
    consumers through `projData_uniq` into these four instead of stopping at its own `sorry`. The
    blocking is more concentrated, not reduced — which is the honest reading of that census drop.
-2. **The nested-inductive route**, whose first obligation is **false**, not open.
+2. **The nested-inductive route.** Obligation (A) is now **closed for parameterless nested
+   blocks** (`ctorConstsCR_wf_of_np_zero'`, unconditional), by substituting at the *declaration
+   sites* rather than inside `typeR`. Above `np = 0` a β-gap remains, on the telescope-defeq route.
+   The live blocker moved to **`hrules`**: `addIndRulesR` folds `iotaRulesR` unsubstituted. The fix
+   is one `·.substC (R.csubst D K)`, and its cost is in `keysR_induct` /
+   `iotaRulesR_key_declared`, which are stated about the *unsubstituted* keys.
+   *Superseded reading:* whose first obligation is **false**, not open.
    `addInductR_ordered'`'s `hctors` fails under the premises `VDecl.WF.inductNested` actually has
    (`nfnAuxDirty_refutation`, hypothesis-free), because `VIndCtor.typeR` under-restores: it copies
    `C.params` and non-recursive field types verbatim, and those are only *definitionally*
