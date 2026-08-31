@@ -473,3 +473,71 @@ task 0 is to falsify it, and the honest failure mode is that the `.sort`/`.foral
 restrictions are just as hard as the general case, in which case the round ends with a sharp
 negative. Second risk, named: entry (2) `ParRed.weakN_inv` is a separate obligation, and the
 transport argument needs `church_rosser`, which routes through it.
+
+## The hole ranking gets a standing instrument, and it corrects me twice (2026-08-31)
+
+`scripts/hole-rank.lean`. The per-hole user counts I have been quoting each round were
+recomputed ad hoc, which is how a stale number outlives the tree it described. This one
+**discovers** the holes by the census's own rule (own type-or-value mentions `sorryAx`), so it
+cannot disagree with `scripts/sorry-census.lean` and needs no edit when a hole opens or
+closes. Columns: `users` = transitive reverse-reachable declarations; `sole` = users that
+still reach this hole with **every other hole cut**; `cone` = other holes in this hole's own
+forward cone. It is a per-round instrument, not per-commit — it builds the joined cone.
+
+```
+14 holes, ranked by blast radius
+      users   sole  hole
+      468     464   IsDefEqU.forallE_inv_stratified
+      193     189   WF.rigidShapeUniqNS
+      131     129   IsDefEqU.weakN_iff
+       89      87   TrProj.uniq
+       44      44   NormalEq.descend      cone: [forallE_inv_stratified, rigidShapeUniqNS]
+       29      27   TrProj.weak'_inv
+        2       2   Inner.tryEtaStructCore.WF
+        1       1   Inner.quotReduceRec.WF
+        1       1   Inner.isDefEqUnitLike.WF
+        1       1   addDecl.WF            cone: [weak'_inv, uniq, weakN_iff,
+                                                 forallE_inv_stratified, rigidShapeUniqNS]
+        0       0   VIndRecArg.exists_indep
+        0       0   Inner.inferProj.WF
+        0       0   kernel_sound
+        0       0   kernel_complete
+union of all blast radii: 479 declarations tainted
+```
+
+Numbers I had wrong: `forallE_inv_stratified` is **468**, not the 449 I have been repeating,
+and `rigidShapeUniqNS` is **193**, not 176. Both grew with the tree. `weakN_iff` 131,
+`TrProj.uniq` 89, `weak'_inv` 29 are confirmed.
+
+**`sole` ≈ `users` for every row.** So the holes are near-independent in their blast radii:
+closing one frees essentially all of its own users and almost nothing else's. There is no
+grouping to exploit, and no hole can be justified by "it also unblocks the others" — each has
+to be worth closing on its own.
+
+**Correction: deleting `descend` is not hygiene.** I have twice described removing it as
+tidying worth "census 14→13". It has **44 users, 44 sole** — meaning 44 declarations are
+currently proved from a statement that is *refuted*
+(`Theory/Typing/ChurchRosser.lean:1845`, false at three of its sites). That is a defect
+surface, not housekeeping, and re-proving those 44 against a working relation is the actual
+size of the `ParRedK` job.
+
+## What the instruments do not measure
+
+`kernel_sound` is a **bare one-line `sorry`** (`Verify/Soundness.lean:191`) whose forward cone
+contains **none of the other thirteen holes**. So census 14 is not "fourteen lemmas from
+done": it is thirteen lemma holes plus a top-level stub, and closing all thirteen would leave
+the binding goal untouched.
+
+What the stub needs is documented and not a blind spot — `docs/soundness-ledger.md` records
+all thirteen `IsDefEq` cases as proved sorry-free in `SetModel/InterpSound.lean`, and states
+that what remains "is not a case but a *construction*: `ModelData.cnst` itself, together with
+a proof of `Coherent`, by induction over the declaration list." Today that construction exists
+for the **prelude only** (`SetModel/PreludeSpec.lean:295`) and as a satisfiability witness
+(`SetModel/CoherentWitness.lean`), not for an arbitrary `ds`. The plumbing beneath it is real:
+`Verify/Bridge.lean:172`'s `foldAddDecl_tr` is proved.
+
+The point to keep: **no instrument counts unwritten work.** The census counts
+written-but-unproved, guard 3 counts implementation gaps, guard 2 counts `kernel_sound`'s
+axioms. A construction nobody has started registers as zero everywhere. So "census 14"
+understates what is left, and I should stop quoting it as though it were the distance to the
+goal — it is the distance to the goal *of the proof machinery*, with the last mile unmeasured.
