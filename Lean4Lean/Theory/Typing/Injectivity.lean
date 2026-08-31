@@ -929,6 +929,51 @@ def RigidShapeUniq (env : VEnv) (U : Nat) : Prop :=
     env.IsDefEq U Γ e s₁.toExpr T → env.IsDefEq U Γ e s₂.toExpr T →
     s₁.Compat env U Γ s₂
 
+/-! ### The nine entries are not one node: what `SortUniq` buys, and what it does not
+
+`RigidShapeUniq` quantifies over a pair of shapes, so it has **nine** entries, and they are
+not interchangeable.  Exactly one of them is a consequence of universe uniqueness:
+
+* `sort`/`sort` is `IsDefEqU.sort_inv`, which `sort_inv_of_sortUniq`
+  (`Theory/Typing/SortUniqDown.lean`) derives from `VEnv.SortUniq` **without opening the
+  conversion derivation at all**.  `RigidShapeUniqNS` below therefore drops it, and
+  `rigidShapeUniq_of_sortUniq` puts it back; the `sorry` moved to the narrower statement.
+* the other eight do **not** follow from `SortUniq`, and the reason is visible in
+  `sort_inv_of_sortUniq`'s argument: what makes it work is that *both* endpoints are sorts, so
+  `HasTypeStrong.sort_type` pins the shared type `T` from both sides.  With endpoints of
+  different shapes the shared type says nothing — `.sort u` and `.forallE (.sort u) (.sort u)`
+  are types at one and the same universe `.succ u` (`Theory/Typing/UnivDiscrim.lean`'s
+  "Reason 2", machine-checked there) — so the shared-type route is exhausted, not merely
+  unfinished.
+
+See `Theory/Typing/RigidNodeCircle.lean` for what the eight *do* reduce to. -/
+
+/-- The two shapes are both sorts — the one entry of `RigidShape.Compat` that universe
+uniqueness settles. -/
+def RigidShape.BothSort : RigidShape → RigidShape → Prop
+  | .sort _, .sort _ => True
+  | _, _ => False
+
+/-- **`RigidShapeUniq` minus its `sort`/`sort` entry** — the statement the `sorry` now sits
+on.  `rigidShapeUniq_of_sortUniq` recovers the full bridge from this plus `VEnv.SortUniq`, so
+no consumer sees a difference; what changed is that the open statement no longer contains a
+case that is a theorem. -/
+def RigidShapeUniqNS (env : VEnv) (U : Nat) : Prop :=
+  ∀ {Γ : List VExpr} {e T : VExpr} {s₁ s₂ : RigidShape},
+    OnCtx Γ (env.IsType U) → ¬ env.IsProof U Γ e →
+    s₁.RuleFree env → s₂.RuleFree env → ¬ s₁.BothSort s₂ →
+    env.IsDefEq U Γ e s₁.toExpr T → env.IsDefEq U Γ e s₂.toExpr T →
+    s₁.Compat env U Γ s₂
+
+/-- **The `pi`/`pi` entry alone**, with the `¬ IsProof` premise dropped (it is free at a Π,
+`not_isProof_of_defeqU_forallE`).  This is the entry `IsDefEqU.forallE_inv` consumes, and
+`rigidPiUniq_iff_piInv` below shows it *is* `VEnv.PiInv`: neither weaker nor stronger. -/
+def RigidPiUniq (env : VEnv) (U : Nat) : Prop :=
+  ∀ {Γ : List VExpr} {e T A B A' B' : VExpr}, OnCtx Γ (env.IsType U) →
+    env.IsDefEq U Γ e (.forallE A B) T → env.IsDefEq U Γ e (.forallE A' B') T →
+    (∃ u, env.IsDefEq U Γ A A' (.sort u)) ∧
+    ∃ u, env.IsDefEq U (A::Γ) B B' (.sort u) ∧ env.IsDefEq U (A'::Γ) B B' (.sort u)
+
 /-- A term convertible with a Π is not a proof — the `¬ IsProof` premise of the bridge,
 discharged for free wherever one of the two shapes is a Π.  From `VEnv.SortUniq`, which
 `WF.sortUniq'` proves above, so it costs no statement a hypothesis. -/
@@ -947,9 +992,50 @@ theorem not_isProof_of_defeqU_sort {Γ : List VExpr} {e : VExpr} {u : VLevel}
   sort_not_proof (WF.sortUniq' henv) henv.ordered hΓ hq he
 
 /-- **The one open obligation of the whole inversion family** (`forallE_inv_stratified`
-excepted — that is a different shape and has its own hole).  Five `sorry`s became this one;
-see the section docstring. -/
-theorem WF.rigidShapeUniq (henv : VEnv.WF env) : env.RigidShapeUniq U := sorry
+excepted — that is a different shape and has its own hole), **narrowed**: the `sort`/`sort`
+entry has been removed, because `sort_inv_of_sortUniq` proves it from `VEnv.SortUniq` with no
+normalisation argument.  Eight of the nine entries remain.
+
+The name changed with the statement on purpose: `WF.rigidShapeUniq` below is now a theorem,
+and anyone measuring the hole should measure *this*. -/
+theorem WF.rigidShapeUniqNS (henv : VEnv.WF env) : env.RigidShapeUniqNS U := sorry
+
+/-- **The `sort`/`sort` entry, put back from universe uniqueness.**  `sorry`-free: the whole
+content of the bridge that `SortUniq` pays for is this one line, and
+`sort_inv_of_sortUniq`'s argument never inspects the conversion derivation. -/
+theorem rigidShapeUniq_of_sortUniq (henv : VEnv.WF env) (hsu : env.SortUniq U)
+    (h : env.RigidShapeUniqNS U) : env.RigidShapeUniq U := by
+  intro Γ e T s₁ s₂ hΓ hnp hr₁ hr₂ h₁ h₂
+  cases s₁ with
+  | sort u =>
+    cases s₂ with
+    | sort v => exact sort_inv_of_sortUniq hsu henv.ordered hΓ ⟨T, h₁.symm.trans h₂⟩
+    | pi A B => exact h hΓ hnp hr₁ hr₂ not_false h₁ h₂
+    | app c ls as => exact h hΓ hnp hr₁ hr₂ not_false h₁ h₂
+  | pi A B => cases s₂ <;> exact h hΓ hnp hr₁ hr₂ not_false h₁ h₂
+  | app c ls as => cases s₂ <;> exact h hΓ hnp hr₁ hr₂ not_false h₁ h₂
+
+/-- The bridge as it was before the narrowing, so that every consumer below is unchanged. -/
+theorem WF.rigidShapeUniq (henv : VEnv.WF env) : env.RigidShapeUniq U :=
+  rigidShapeUniq_of_sortUniq henv (WF.sortUniq' henv) (WF.rigidShapeUniqNS henv)
+
+/-- **The `pi`/`pi` entry, extracted.**  The `¬ IsProof` premise is discharged on the spot from
+`SortUniq`, so `RigidPiUniq` carries none. -/
+theorem RigidShapeUniqNS.piUniq (henv : VEnv.WF env) (hsu : env.SortUniq U)
+    (h : env.RigidShapeUniqNS U) : env.RigidPiUniq U := by
+  intro Γ e T A B A' B' hΓ h₁ h₂
+  refine h (s₁ := .pi A B) (s₂ := .pi A' B') hΓ (fun hp => ?_) trivial trivial not_false h₁ h₂
+  have ⟨_, hq, he⟩ := hp.defeqU henv hΓ ⟨T, h₁⟩
+  exact forallE_not_proof hsu henv.ordered hΓ hq he
+
+/-- **The converse: `VEnv.PiInv` gives back the `pi`/`pi` entry.**  This is the pi branch of
+`rigidShapeUniq_of_family`, isolated; `sorry`-free.  Together with
+`forallE_inv_of_rigidPi` below it makes `rigidPiUniq_iff_piInv` an equivalence, i.e. the
+`pi`/`pi` entry of the bridge *is* unstratified Π-injectivity, on the nose. -/
+theorem PiInv.rigidPiUniq (henv : VEnv.WF env) (hpi : env.PiInv U) : env.RigidPiUniq U := by
+  intro Γ e T A B A' B' hΓ h₁ h₂
+  obtain ⟨⟨u, ha⟩, v, hb⟩ := hpi hΓ ⟨T, h₁.symm.trans h₂⟩
+  exact ⟨⟨u, ha⟩, v, hb, ha.defeqDF_l henv.ordered hb⟩
 
 /-- **The bridge is no stronger than the family it packages**, and therefore satisfiable if
 the family is: this derives it from the five conclusions, taken as explicit hypotheses, with
@@ -1032,7 +1118,8 @@ conjunct is discarded at the end.
 
 So Π-injectivity is **not** a second obligation beyond `sort_inv`: granted a `trans` case
 (normalisation) and "a Π is not a proof", it follows.  See `docs/handoff-injectivity.md`. -/
-theorem IsDefEqU.forallE_inv (henv : VEnv.WF env) (hΓ : OnCtx Γ (env.IsType U))
+theorem IsDefEqU.forallE_inv_of_rigidPi (henv : VEnv.WF env) (hsu : env.SortUniq U)
+    (hrp : env.RigidPiUniq U) (hΓ : OnCtx Γ (env.IsType U))
     (h1 : env.IsDefEqU U Γ (.forallE A B) (.forallE A' B')) :
     (∃ u, env.IsDefEq U Γ A A' (.sort u)) ∧ ∃ u, env.IsDefEq U (A::Γ) B B' (.sort u) := by
   have aux : ∀ {Γ : List VExpr} {e1 e2 T : VExpr}, env.IsDefEqStrong U Γ e1 e2 T →
@@ -1058,19 +1145,43 @@ theorem IsDefEqU.forallE_inv (henv : VEnv.WF env) (hΓ : OnCtx Γ (env.IsType U)
       -- induction hypotheses are not used, and cannot be: they fire only when the middle
       -- term is syntactically a Π.
       rintro hΓ' A B A' B' rfl rfl
-      exact WF.rigidShapeUniq henv (s₁ := .pi A B) (s₂ := .pi A' B') hΓ'
-        (not_isProof_of_defeqU_forallE henv hΓ' ⟨_, hd1.defeq.symm⟩) trivial trivial
-        hd1.defeq.symm hd2.defeq
+      exact hrp hΓ' hd1.defeq.symm hd2.defeq
     | proofIrrel h1 h2 _ _ _ _ =>
       -- CLOSED: "a Π is not a proof", from `VEnv.SortUniq` — proved above (`WF.sortUniq'`),
       -- so this costs the statement no hypothesis.
       rintro hΓ' A B A' B' rfl rfl
-      exact absurd (forallE_not_proof (WF.sortUniq' henv) henv.ordered hΓ'
+      exact absurd (forallE_not_proof hsu henv.ordered hΓ'
         h1.defeq.hasType.1 h2.defeq.hasType.1) not_false
     | _ => rintro _ A B A' B' ⟨⟩ ⟨⟩
   obtain ⟨_, h1⟩ := h1
   obtain ⟨ha, u, hb, -⟩ := aux (h1.strong henv.ordered hΓ) hΓ _ _ _ _ rfl rfl
   exact ⟨ha, u, hb⟩
+
+/-- Π-injectivity, unchanged in statement.  Every ingredient beyond the `pi`/`pi` entry of the
+bridge is now discharged: see `forallE_inv_of_rigidPi`. -/
+theorem IsDefEqU.forallE_inv (henv : VEnv.WF env) (hΓ : OnCtx Γ (env.IsType U))
+    (h1 : env.IsDefEqU U Γ (.forallE A B) (.forallE A' B')) :
+    (∃ u, env.IsDefEq U Γ A A' (.sort u)) ∧ ∃ u, env.IsDefEq U (A::Γ) B B' (.sort u) :=
+  forallE_inv_of_rigidPi henv (WF.sortUniq' henv)
+    (RigidShapeUniqNS.piUniq henv (WF.sortUniq' henv) (WF.rigidShapeUniqNS henv)) hΓ h1
+
+/-- **The `pi`/`pi` entry of the bridge is exactly `VEnv.PiInv`.**  `sorry`-free.
+
+This is the first half of the classification of `WF.rigidShapeUniq` (see
+`Theory/Typing/RigidNodeCircle.lean` for the rest).  It says the bridge does **not** reduce to
+`VEnv.SortUniq`: modulo universe uniqueness it still contains unstratified Π-injectivity, and
+`PiLevelPin.piInvCod_of_piInvStratApp`'s docstring records that `PiInvStratApp` — hence
+`SortUniq`, by `piInvStratApp_iff_sortUniq` — recovers only `PiInvCod`, never the *domain*
+conjunct of `PiInv`.  So `SortUniq → PiInv` is not available by any of the bracketings in this
+file, and the injectivity corner has **two** nodes, not one. -/
+theorem piInv_of_rigidPiUniq (henv : VEnv.WF env) (hsu : env.SortUniq U)
+    (hrp : env.RigidPiUniq U) : env.PiInv U :=
+  fun hΓ h => IsDefEqU.forallE_inv_of_rigidPi henv hsu hrp hΓ h
+
+@[inherit_doc piInv_of_rigidPiUniq]
+theorem rigidPiUniq_iff_piInv (henv : VEnv.WF env) (hsu : env.SortUniq U) :
+    env.RigidPiUniq U ↔ env.PiInv U :=
+  ⟨piInv_of_rigidPiUniq henv hsu, PiInv.rigidPiUniq henv⟩
 
 /-- **(A) Disjointness, sort/Π half** — a sort is not a Π.
 

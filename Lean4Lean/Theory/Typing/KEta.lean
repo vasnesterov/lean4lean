@@ -153,7 +153,14 @@ recovered from Shape C's by `ParRed.rfl`.) -/
 theorem HasEtaK.step (h : HasEtaK) {Γ : List VExpr} {e e' : VExpr} (H : EtaK Γ e e') :
     ParRed Γ e e' := h H .rfl
 
-/-- `HasEtaK` implies `hK`, `NormalEq.appDF_extra_of_descendV`'s only hypothesis. -/
+/-- `HasEtaK` implies `hK`, `NormalEq.appDF_extra_of_descendV`'s only hypothesis.
+
+**Both are false**: `Theory/Typing/ParRedPropRefute.lean`'s `not_hK_of_propMajor` and
+`not_hasEtaK_of_propMajor` refute them at a registered `.app` rule with a `Prop`-typed
+major-premise slot, where `K⁺` fires on any proof and `ParRed` moves nothing.  That is the
+machine-checked reason this file introduces `ParRedK` rather than proving the closure
+condition for `ParRed`, and it holds with no eta step and no `KStep` on the `NormalEq` side --
+`NormalEq.proofIrrel` alone. -/
 theorem HasEtaK.hK (h : HasEtaK) {Γ : List VExpr} {a b : VExpr} (hst : KStep Γ a b) :
     ParRed Γ a b := h (.here hst) .rfl
 

@@ -36,12 +36,15 @@ import Lean4Lean.Theory.Typing.ProofRetypeHeads
 import Lean4Lean.Theory.Typing.BaseUniqTerm
 import Lean4Lean.Theory.Typing.StrengthenAxiom
 import Lean4Lean.Theory.Typing.StrengthenWitness
+import Lean4Lean.Theory.Typing.StrengthenNarrow
 import Lean4Lean.Theory.Typing.SortClauses
 import Lean4Lean.Theory.Typing.AppCase
 import Lean4Lean.Theory.Typing.SortRedApp
 import Lean4Lean.Theory.Typing.DefInvRefute
 import Lean4Lean.Theory.Typing.RegPiSat
 import Lean4Lean.Theory.Typing.PatWFIota
+-- Imports `PiLevelPin`, which was itself outside this closure until 2026-08-31.
+import Lean4Lean.Theory.Typing.RigidNodeCircle
 import Lean4Lean.Theory.Typing.ConstSubstNested
 import Lean4Lean.Theory.Inductive.NestedKeys
 import Lean4Lean.Theory.Inductive.NestedPositivity

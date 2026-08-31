@@ -1640,7 +1640,16 @@ eta-expanded function argument).
    pattern, because `pat_simple` puts the only `.app` node at the very top; and the top node
    is then handled by `NormalEq.appDF_extra_of_descendV`, which descends the *function* side
    at `.var q₁` and fires the rule with a K-step, costing one hypothesis `hK : KStep → ParRed`.
-   **This is the recommended route**; `descend` here is superseded by it.
+   `descend` here is superseded by it -- **but route (1) alone is not enough, and the earlier
+   text calling it "the recommended route" was wrong.**
+   `Theory/Typing/ParRedPropRefute.lean`'s `not_hK_of_propMajor` refutes that hypothesis
+   outright: at a registered `.app` rule whose major-premise slot is typed by a `Prop`, `K⁺`
+   fires at `.app f a` for *any* proof `a` (proof irrelevance supplies `KStep`'s `hdq`) while
+   `ParRed` leaves `.app f a` fixed (`Pattern.Matches` is syntactic).  The same witness gives
+   `not_parRedStatement_of_propMajor`: `NormalEq.parRed`'s statement, verbatim, is false there
+   -- **with no `hK`, no `KStep` and no eta step**, from `NormalEq.proofIrrel` alone.  So route
+   (1) restates the descent correctly and still cannot close `parRed`; it must be combined with
+   route (2).
 2. *Strengthen the reduction* -- give `ParRed` the two steps `NormalEq` has and it lacks
    (proof replacement `h ≫ h'` for two proofs of one `Prop`, and eta-contraction).  Both are
    definitional equalities, so `church_rosser`'s consumers survive, and all three witnesses
@@ -1655,8 +1664,13 @@ eta-expanded function argument).
 (`scripts/sorry-census.lean`), `IsDefEq.church_rosser` among them.  Their *statements* are not
 refuted, but their current *proofs* route through a false lemma, so they are not merely
 "waiting on a hole": the wiring has to be redone against `KDescend.lean`'s `descendV` and
-`appDF_extra_of_descendV`.  Until that is done, read every `church_rosser` consumer as
-conditional on a repair, not on a hypothesis.
+`appDF_extra_of_descendV` **and** against a `ParRed` that has the proof-replacement step --
+`ParRedPropRefute.lean` shows the rewiring alone is not enough, since `parRed`'s statement is
+already false against the present `ParRed`.  Until that is done, read every `church_rosser`
+consumer as conditional on a repair, not on a hypothesis.  In particular, deleting `descend`
+and rewiring `parRed`/`church_rosser` onto the `V` versions is *not* a hole-count improvement:
+it exchanges a lemma refuted at an instance that exists (`refEnv`) for a hypothesis refuted at
+instances that do not exist yet, and the hole stays.
 
 **The refutation's force: the two side hypotheses are satisfiable.**  `not_descendStatement`
 is stated under `(hsu : refEnv.SortUniq 0)` and `(huq : refEnv.UniqTyping 0)`, so it is worth

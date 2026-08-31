@@ -168,6 +168,21 @@ theorem IsDefEqU.trans (henv : VEnv.WF env) (hΓ : OnCtx Γ (env.IsType U))
     (h1 : env.IsDefEqU U Γ e₁ e₂) (h2 : env.IsDefEqU U Γ e₂ e₃) :
     env.IsDefEqU U Γ e₁ e₃ := h1.imp fun _ h1 => let ⟨_, h2⟩ := h2; h1.trans_l henv hΓ h2
 
+-- OPEN.  Five files attack this: `Theory/Typing/Strengthen.lean` (the statement, its
+-- equivalents, and the case analysis of the induction), `StrengthenCanon.lean`,
+-- `StrengthenVerdict.lean`, `StrengthenWitness.lean`, `StrengthenAxiom.lean` (equivalences to
+-- one-entry, canonical-entry and axiom-conservativity forms), and `StrengthenNarrow.lean`.
+-- The current sharpest statement of what is left is
+-- `VEnv.StrengtheningTarget.iff_piDescend_narrow`: this hole is **exactly**
+-- `VEnv.PiDescend` (shape descent, sorry-free reduction) together with
+-- `VEnv.TransStrengtheningNarrow` — the `trans` case restricted to a middle term that
+-- genuinely mentions one of the stripped variables (`¬ b.Skips n k`).  That restriction is
+-- what makes the reduction non-trivial: without it the residual re-instantiates at the whole
+-- statement.  `scripts/weakn-gate-split.lean` measures the split of this hole's 131 users:
+-- 18 need only the typing half, 113 need the narrow residual.  Not circular with
+-- `WF.rigidShapeUniqNS` / `IsDefEqU.forallE_inv_stratified` — see `StrengthenNarrow.lean`'s
+-- module docstring for the measured cone table, and `docs/handoff-weakn.md` for the routes
+-- already ruled out (do not reattempt them).
 variable! (henv : VEnv.WF env) (hΓ : OnCtx Γ' (env.IsType U)) in
 theorem IsDefEqU.weakN_iff (W : Ctx.LiftN n k Γ Γ') :
     env.IsDefEqU U Γ' (e1.liftN n k) (e2.liftN n k) ↔ env.IsDefEqU U Γ e1 e2 := by

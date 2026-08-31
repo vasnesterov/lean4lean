@@ -779,7 +779,20 @@ offer.  And its two gates are both still shut: `VEnv.ConstRigidPat` comes only f
 *defined and consumed twice but proved nowhere*; and `PatFreeHead` at `s` reduces via
 `RuleFreeHead.patFreeHead` to the same `RuleFreeHead`-at-a-structure-name obligation analysed
 under `TrProj.uniq` below (Update 3 there), which `IsStructure.decl` provably cannot supply as
-stated. -/
+stated.
+
+**Update 4: one of those two gates is open — the `RuleFreeHead` half, and the "provably
+cannot supply" verdict was wrong.**  `VEnv.IsStructure.ruleFreeHead`
+(`Theory/Typing/StructureRuleFree.lean`) proves `VEnv.RuleFreeHead env s` from `VEnv.WF env`
+and `IsStructure` *exactly as stated*, so `PatFreeHead` at `s` is available and no
+strengthening of `IsStructure.decl` is needed here or anywhere.  What Update 3 got right is
+that `env₁ ≤ env` carries no step of `env`'s own chain; what it got wrong is the inference
+that no such step is reachable — `VEnv.WF.iotaTypeNotKey` (`Theory/Typing/DeltaUnique.lean`)
+had already run the temporal argument over the `WF'` chain, for this very name.
+
+So this lemma's residual is now **`VEnv.WeakNorm` alone** (plus the shared
+`IsDefEqU.weakN_iff`).  That is unchanged in difficulty: `WeakNorm` is still proved nowhere,
+and `VEnv.ConstRigidPat` is still its only consumer route. -/
 theorem TrProj.weak'_inv (henv : VEnv.WF env) (hΓ' : OnCtx Γ' (env.IsType U))
     (W : Ctx.Lift' l Γ Γ') (H : TrProj env U Γ' s i (e.lift' l) e') :
     ∃ e'', TrProj env U Γ s i e e'' := sorry
@@ -1585,7 +1598,44 @@ The `TrEnv'`-side precedent is worth knowing and does **not** transfer: `TrEnv.r
 (`Verify/TypeChecker/Reduce.lean`) discharges exactly this shape of fact at `Quot` by a
 *temporal* argument over the `TrEnv'` chain, where the name information is present.  This
 lemma's statement mentions no `TrEnv'` — it quantifies over a bare `VEnv` — so the argument
-has nothing to induct on. -/
+has nothing to induct on.
+
+**Update 4: `RuleFreeHead` at a structure name is proved, obligations (B) and (D) are
+discharged, and the only thing left is obligation 3.**  Two claims of Update 3 are retracted:
+that `RuleFreeHead env s` is "not derivable from `VEnv.WF env` together with
+`IsStructure s D T C` as `IsStructure` currently stands", and that the cheapest fix is to
+strengthen `IsStructure.decl`.  Both are wrong.
+
+* `VEnv.IsStructure.ruleFreeHead` (`Theory/Typing/StructureRuleFree.lean`) derives it from
+  `VEnv.WF env` and `IsStructure` unchanged.  The temporal argument Update 3 asked for
+  already existed as `VEnv.WF.iotaTypeNotKey` (`Theory/Typing/DeltaUnique.lean`, Part III,
+  sorry-free): no rule of a well-formed environment carries a *block type name* in its
+  `VDefEq.key`.  `IsStructure.iotaDefeq` puts `D`'s ι-rule in `env.defeqs`,
+  `H.types`/`H.name` identify `s` as that block's type name, and the only missing step was
+  notational — the injectivity family speaks of `VExpr.headConst?`, Part III of `VDefEq.key`.
+  `VDefEq.IsDeclRule.headConst?_mem_key` is that bridge.
+* The proposed strengthening would have been **wrong as design**, not merely unnecessary:
+  `RuleFreeHead env s` is *anti*-monotone in `env`, `IsStructure` is monotone
+  (`IsStructure.mono`), so a field of `IsStructure` implying it must break `mono`, hence
+  `TrProj.mono`, hence `TrExprS.mono` and its call sites.  Passing `VEnv.WF env` is what makes
+  the polarities agree.  No construction site (`inferProj.WF`, `TrExprS`'s `proj` sites) is
+  charged anything, and the four concrete `IsStructure` witnesses are untouched.
+
+`Verify/Typing/ProjSpineInv.lean` spends this: `VEnv.IsStructure.spine_inv` discharges (B) and
+(D) together in one application of `VEnv.constApp_inv_of_wf` (`s₁ = s₂` is a *conclusion*
+there, not an assumption), `projData_uniq` adds obligation 1 and splits the two spines at the
+parameter/index boundary, and `TrProj.uniq_of_projTermCongr` proves **this statement** from a
+single residual, `VEnv.ProjTermCongr` — congruence for `VInductDecl'.projTerm` at one context
+and one structure name, with every environment invariant already spent.
+
+Why this `sorry` is still here: `ProjTermCongr` is obligation 3, and it is unproved.  Its
+scope, now measured rather than guessed: the level half is `VEnv.IsDefEq.instL_r`; the spine
+half is `VEnv.IsDefEq.mkAppDF` over the recursor telescope, whose motive and minor arguments
+carry `ps` under binders and, through `VInductDecl'.projArgs`, the earlier projections — so it
+recurses on `i` as `projArgs` does and needs, at every step, the typing the
+`Verify/Typing/ProjGen*` family supplies for `TrProj.wf`.  Mechanical, and comparable in size
+to that family.  `ProjSpineInv.lean` is deliberately upstream of this file, so closing the
+residual closes this `sorry` by one application. -/
 theorem TrProj.uniq (H1 : TrProj env U Γ₁ s₁ i e₁ e₁') (H2 : TrProj env U Γ₂ s₂ i e₂ e₂')
     (H : env.IsDefEqU U Γ₁ e₁ e₂) :
     env.IsDefEqU U Γ₁ e₁' e₂' := sorry

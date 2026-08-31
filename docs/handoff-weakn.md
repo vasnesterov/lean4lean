@@ -762,3 +762,128 @@ without `forallE_inv`; and the open-constant-type witness of §2.
 * Read-only and load-bearing: `Strong.lean` (`IsDefEq.instL_r`, `HasType.lam_inv`),
   `Stratified.lean` (has `trans`), `LogRelRowZero.lean` (`headStep_not_wf`, and the
   `loop_wf` name), `Theory/MutualDefUnsound.lean` (the `unsafeDef` pattern).
+
+---
+
+# Round 5 (2026-08-31) — the `trans` residual, narrowed; and the user split
+
+New file: `Lean4Lean/Theory/Typing/StrengthenNarrow.lean` (22 declarations, no new holes;
+census stays at 14).  Added to `Experimental/ConeJoin.lean` so both instruments see it.
+New script: `scripts/weakn-gate-split.lean`.
+
+## 5.0 First, a correction to the round-5 brief
+
+The brief said this hole "has had less direct attention than `WF.rigidShapeUniq` and
+`IsDefEqU.forallE_inv_stratified`".  That is **false** and should not be repeated: five
+dedicated files (`Strengthen.lean` 755 lines, `StrengthenAxiom.lean` 385,
+`StrengthenCanon.lean` 295, `StrengthenVerdict.lean` 216, `StrengthenWitness.lean` 222) plus
+`ConstVar.lean` (666) and this 764-line document precede round 5.  The brief's *direction*
+claim was correct: what is open is the strengthening direction
+`IsDefEqU Γ' (e1↑) (e2↑) → IsDefEqU Γ e1 e2`; the weakening direction is `h.weakN henv W`.
+
+## 5.1 What was wrong with round 4's capstone, and the repair
+
+`Strengthen.lean` §9 correctly noticed that §8's capstone
+`Strengthening ↔ SortDescend ∧ PiDescend ∧ TransStrengthening` is a **tautology** in the `←`
+direction: `TransStrengthening.strengthening` instantiates the residual's middle term at
+`e2.liftN n k` and its second premise at reflexivity, recovering the whole statement.  So
+round 4 ended with a *case analysis*, not a reduction.
+
+The repair is one observation: that self-instantiation picks a middle term that is **itself a
+lift**, and in exactly that situation the two induction hypotheses of the `trans` case — which
+`Strengthening.of_typing` discards — apply verbatim and `IsDefEqU.trans` composes them.  So
+restrict the residual to `¬ b.Skips n k` (equivalently `∀ b₀, b ≠ b₀.liftN n k`, proved
+equivalent as `TransStrengtheningNarrow.hyp_iff`).  That kills the self-instantiation
+(`TransStrengtheningNarrow.not_hyp_of_lifted`) and leaves a genuine reduction:
+
+* `Strengthening.of_typing_narrow` — `of_typing` with only its `trans` case changed.
+* `Strengthening.iff_typing_narrow`, `StrengtheningTarget.iff_typing_narrow`,
+  `Strengthening.iff_descend_narrow`, and the sharpest form
+  **`StrengtheningTarget.iff_piDescend_narrow` : the hole ↔ `PiDescend ∧
+  TransStrengtheningNarrow`** — two statements, neither of which implies the other trivially.
+
+`TransStrengtheningNarrow` also carries three things the `trans` case has in hand and round 4
+threw away: a type `T` for the left endpoint **downstairs**, well-formedness of the right
+endpoint downstairs, and both premises retyped at the **lifted** type `T.liftN n k` (obtained
+by `IsDefEq.uniqU` + `IsDefEqU.defeqDF` against `hT.weakN`).  All three are free at the call
+site, so the residual is strictly weaker than `TransStrengthening` in three further ways.
+
+Negative controls, all sorry-free: `not_hyp_of_lifted`, `hyp_iff`, `vacuous_at_zero`
+(nothing is stripped at `n = 0`, so the hypothesis is unsatisfiable — the narrowing has not
+hidden content in the degenerate case), `vacuous_of_closedN`.
+
+## 5.2 Circularity: measured, not assumed
+
+Using `scripts/hole-cone.lean`'s `deps` (`allowOpaque := true`):
+
+* the **equivalence chain** — `strengthen_of_instN`, `Strengthening.iff_trans`,
+  `Strengthening.iff_target`, `Strengthening1.iff_target`, `Strengthening1Uninhab.iff_target`,
+  `StrengtheningCanon.iff_target`, `StrengtheningCanonUninhab.iff_strengthening1`,
+  `strengtheningTarget_of_allInhabited`, `TypingStrengthening.iff_descend` — has **no** named
+  hole in its cone.  A refutation or verdict reached along it would be independent of the
+  other two holes.
+* every route through the **typing form** — `Strengthening.of_typing`,
+  `TypingStrengthening.iff_piDescend`, `PiDescend.sortDescend`, `TypingStrengthening.typed`,
+  and therefore all of round 5's §2/§3/§5 — carries **both** `WF.rigidShapeUniqNS` and
+  `IsDefEqU.forallE_inv_stratified`, entering through `IsDefEqU.forallE_inv` in
+  `Strengthen.lean` §3's ascription-redex trick and **nowhere else**.
+* `IsDefEq.church_rosser` and `NormalEq.descend` carry all four holes including
+  `IsDefEqU.weakN_iff` itself — the Church–Rosser route is genuinely cyclic, confirming §8.5.
+* **nothing** in `Strengthen.lean` or `StrengthenNarrow.lean` depends on
+  `IsDefEqU.weakN_iff`: verified for all 22 declarations of the new file.
+
+So the answer to "is it circular with the other two?" is *no cycle, but a shared dependency*:
+any proof that goes through the typing half will be `forallE_inv`-tainted until
+`forallE_inv_stratified` closes.  The chain that does **not** go through the typing half is
+clean, which is why the refutation/verdict work in `StrengthenCanon.lean` and
+`StrengthenAxiom.lean` remains the independent line.
+
+## 5.3 The user split — 18 of 131, so the residual is the bottleneck
+
+`UniqueTyping.lean` proves nine wrappers off the full *conversion* form that do not need it:
+`OnCtx.weakN_inv`, `HasType.weakN_iff`, `IsType.weakN_iff`, `VExpr.WF.weakN_iff`,
+`HasType.skips`, `OnCtx.weak'_inv`, `HasType.weak'_iff`, `IsType.weak'_iff`,
+`VExpr.WF.weak'_iff`.  §5 of `StrengthenNarrow.lean` reproves all nine from
+`TypingStrengthening` alone (`TypingStrengthening.{onCtx_inv, isType_inv, hasType_inv, wf_inv,
+hasType_weakN_iff, hasType_weak'_iff, isType_weak'_iff, onCtx_weak'_inv, wf_weak'_inv,
+hasType_skips}`).  Note `Strengthen.lean` §10's `Strengthening.onCtx_inv` runs the same
+induction off the *full* `Strengthening` and so needs `SortDescend` where
+`TypingStrengthening.typed` suffices.
+
+`scripts/weakn-gate-split.lean` then does reverse reachability with those nine cut:
+
+```
+transitive users (all)                  : 131
+still reach it with the typing gates cut: 113
+freed by the typing half alone          :  18
+```
+
+The surviving 113 enter through the five genuine two-endpoint conversions, which are *not* in
+the gate set.  Additionally cutting one of them as well loses, marginally (the sets overlap,
+so these do not partition the 113): `IsDefEq.weakN_iff` 3, `IsDefEq.weakN_iff'` 5,
+`IsDefEqU.weak'_iff` 8, `IsDefEq.weak'_iff` 1, `IsDefEq.skips` 2.  The bulk of the 113 route
+through several of them, i.e. through `IsDefEq.weakN_iff'`, which is the load-bearing wrapper.
+
+**Consequence for prioritisation, and it reverses §8.4 of this document.**  §8.4 said
+`PiDescend` is "the cheaper target".  It is cheaper, but it is not where the users are:
+closing `PiDescend` alone unblocks 18 of 131.  The next round should spend its budget on
+`TransStrengtheningNarrow`, not on shape descent.
+
+## 5.4 Verdict
+
+The statement is believed true and is not closable by induction on the derivation.  Exactly
+one thing is open, and round 5 states it: **given `Γ' ⊢ e1↑ ≡ b` and `Γ' ⊢ b ≡ e2↑` at a
+lifted type, where `b` genuinely mentions a variable of the stripped block, produce
+`Γ ⊢ e1 ≡ e2`.**  `~/lean-type-theory/typesys.tex:88-89` (thm:weak (3)(4)) claims this "by
+mutual induction on the first hypothesis"; the gap in that proof is precisely here.  Closing
+it needs either a normalisation result pushing `b` into the image of the lift — which is what
+`NormalEq`/Church–Rosser would give and which is cyclic in this import order — or a model
+interpreting open terms.  Round 5 adds no new route; it makes the remaining obligation sharp
+and shows it is where the users are.
+
+## 5.5 Do not reattempt (round 5 additions to §8's list)
+
+* Do not "reduce the hole to `TransStrengthening`" or restate §8's capstone: that is the
+  tautology of §9/§5.1.  Any residual must exclude middle terms in the image of the lift.
+* Do not prove the nine typing wrappers again; §5 of `StrengthenNarrow.lean` has them.
+* Do not expect `PiDescend` to unblock the tree: 18 of 131 (§5.3).
