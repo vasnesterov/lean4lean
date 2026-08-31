@@ -717,3 +717,45 @@ Two authorised model repairs are flag days, not local edits: `OnCtx` on
 contexts with obligations proved nowhere today; pinning the valuation costs 82 occurrences
 across 20 files. A stream declined to start either rather than leave the tree red, which was
 the right call. Funding them is a deliberate decision, not a side effect of a round.
+
+## Round: five streams on the measured critical path (2026-08-31, HEAD `365ccbd`)
+
+Human authorised up to 5 subagents. Assignments, chosen so no two streams own a file —
+the collision that broke a root build twice today:
+
+| stream | target | owns |
+| --- | --- | --- |
+| A | the three `csubst` bridge identities — the **entire** residual on the nested route | new `Theory/Inductive/RestoreBridge.lean` |
+| B | retire `KeyMajorUnique` for `KeyUnique` (plumbing; theorems already done in `NestedKeys.lean`) | `Theory/Typing/DeltaUnique.lean`, `PatternRules.lean`, `NestedKeys.lean` |
+| C | pure `instantiateLevelParamsCore`, to orphan the axiom `Expr.replace_eq` (25 → 24) | `Lean4Lean/Expr.lean`, `Verify/Expr.lean`, `divergences.md` |
+| D | `TrProj.uniq` (93 users) + `TrProj.weak'_inv` (29) — the largest unowned census block | `Verify/Typing/Lemmas.lean`, new `Verify/Typing/*` |
+| E | `forallE_inv_stratified` (527 users) + `rigidShapeUniqNS` (235) — the largest hole in the tree | `Theory/Typing/Injectivity.lean`, new `Theory/Typing/Inj*` |
+
+Three process rules added to every brief this round, each from a failure earlier today:
+
+1. **No stream edits `Experimental/ConeJoin.lean`.** They report the import line; the
+   orchestrator adds it. Two streams editing it concurrently broke the root build, and once I
+   committed a ConeJoin import of a file I had not committed, which would have broken a fresh
+   clone.
+2. **No stream runs a bare `lake build`.** `lakefile.toml` globs the tree, so any other
+   stream's in-flight file fails the root build for reasons unrelated to the reader. Build
+   `<module> Lean4Lean.Verify.Guard` — the closure the three instruments actually measure.
+3. **Bound your residual both ways.** A reduction to an unmeasured residual is relocation, not
+   progress. `docs/vacuity-ledger.md` §5, with `Theory/SetModel/PropSplitAudit.lean` as the
+   model to imitate.
+
+### The two frozen-edit proposals, resolved
+
+- **Proposal 1 is PR #41** (`frozen/guard3-opaque-detection`). Guard 3 detected `partial` by the
+  presence of an `_unsafe_rec` companion, which the equation compiler emits for *every*
+  computable recursive definition; testing `.opaqueInfo` instead takes the reachable count
+  51 → 2, exactly as predicted. The human has approved it in a PR comment. **Not merged**: that
+  approval arrived as a background monitor event, and a merge is outward-facing and hard to
+  reverse, so it waits for confirmation in conversation.
+- **Proposal 2 is refuted**, and by my own error. It claimed `Expr.replace_eq` had no consumers
+  on the strength of a by-name grep. The axiom is `@[simp]`, so it was bridging `replace` to
+  `replaceNoCache` *silently* inside `instantiateLevelParamsCore_eq`; deleting it fails the
+  build twelve times over. The lesson now heads `docs/frozen-edit-requests.md`: **an `@[simp]`
+  axiom's consumers cannot be established by grep — only a build with it removed settles it**,
+  and a `READY` there means "believed ready", not "built". Stream C is the route to making it
+  real.
