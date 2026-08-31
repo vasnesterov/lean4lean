@@ -101,6 +101,7 @@ import Lean4Lean.Theory.Typing.StrengthenPiProp  -- added 2026-08-31: round 7 Pr
 import Lean4Lean.Verify.Typing.ProjSpineInv
 import Lean4Lean.Verify.Typing.WeakNormRefute
 import Lean4Lean.Theory.Typing.InjSortPiModel  -- added 2026-08-31: sort/Pi separation, and the vacuity of the packaged part-4 supply
+import Lean4Lean.Theory.Inductive.RestoreBridge  -- added 2026-08-31: obligation (A) of addInductR_ordered' is FALSE
 
 /-!
 # Acceptance test: the `PatternRules` cone and the `Verify/` cone join

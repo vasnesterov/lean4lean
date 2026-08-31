@@ -816,7 +816,25 @@ Consequences for *this* lemma, precisely:
   be threaded through `TrProj` and `addDecl.WF`, since `VEnv.WF` permits `.unsafeDef`
   blocks.  `Theory/Typing/CycleConv.lean` is the reference for what such a block does (and
   does not do) to conversion: at `loopEnv` it adds no conversions at all, but `propLoopEnv`
-  cycles between *types*, where that collapse argument does not apply. -/
+  cycles between *types*, where that collapse argument does not apply.
+
+**Update 6: the verdict re-measured, and one framing correction.**  Nothing here has moved, and
+the three facts a next round would otherwise re-derive are:
+
+* The refutation is real and sorry-free: `VEnv.PropLoopWeakNorm.not_weakNorm` and
+  `.not_forall_weakNorm` depend on `[propext, Classical.choice, Quot.sound]` only.  So
+  `constRigidPat_of_weakNorm` is not "hard", it is unusable, and `VEnv.ConstRigidPat` has no
+  other producer in the tree -- it occurs in `Rigidity.lean`'s table and in this docstring, and
+  nowhere as the conclusion of a theorem.
+* **This lemma is blocked on a census hole and should not be chained through.**  Its live route
+  needs `VEnv.IsDefEqU.weakN_iff` (`Theory/Typing/UniqueTyping.lean`), itself one of the
+  census's open holes, *and* `ConstRigidPat`, whose only route is refuted.  Two independent
+  gates, one of them another stream's hole.
+* **Framing correction, measured.**  It is *not* on today's `Lean4Lean.kernel_sound` cone:
+  measured with `hole-cone`-style `deps`, that cone is 7893 constants and contains neither
+  `TrProj.weak'_inv` nor `TrExprS.weakFV'_inv`, because `kernel_sound`'s value is still
+  `sorryAx`.  It *is* on `Lean4Lean.addDecl.WF`'s cone (20307 constants), which is the intended
+  route.  Its sole direct user is still `TrExprS.weakFV'_inv`, and nothing else. -/
 theorem TrProj.weak'_inv (henv : VEnv.WF env) (hΓ' : OnCtx Γ' (env.IsType U))
     (W : Ctx.Lift' l Γ Γ') (H : TrProj env U Γ' s i (e.lift' l) e') :
     ∃ e'', TrProj env U Γ s i e e'' := sorry

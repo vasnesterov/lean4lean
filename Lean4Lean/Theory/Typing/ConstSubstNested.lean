@@ -23,7 +23,9 @@ The witness is the one with a non-empty `ξ` (`nfnAux`), and it is an **exact** 
 has no parameters, so the restoration `_nested.PFn_1 ↦ PFn NFn` replaces a constant by a
 *closed* term with no lambda, and `VIndCtor.typeR` **is** `VExpr.substC` on the nose
 (`nfnNode_substC`, `rfl`).  For a block with parameters that is no longer true — see
-`ntreeAux_substC_beta` at the end, which measures exactly what is missing.
+`ntreeNode_substC_redex` / `ntreeNode_substC_ne_typeR` / `ntreeNode_typeR_reduct` at the end,
+which measure exactly what is missing.  (This sentence used to cite `ntreeAux_substC_beta`, which
+does not exist.)
 -/
 
 namespace Lean4Lean
