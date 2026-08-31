@@ -173,3 +173,52 @@ this repo's construction history and buries the findings someone outside it need
 
 Ten such statements were filed as issues once, and removed. The commit messages and
 `docs/handoff-*.md` already carried every one of them.
+
+## Census 18: the remaining work is narrower than the count suggests
+
+Measured on the canonical instrument after `b58b248`, once the fourth duplicate-name
+collision was cleared and `sorry-census.lean` could see the whole tree again.
+
+**Five of the six `Injectivity.lean` holes were the same goal**, and they are now one.
+Sites 840/878/938/992/1049 were all the **`trans` case of an induction on `IsDefEqStrong`,
+middle term arbitrary**. A stream verified that from the *goals* — both halves arrive at a
+**common type `T`** with the middle term arbitrary, so the induction hypotheses are unusable
+and it used none of them in any of the five. They now sit behind one named statement,
+`VEnv.WF.rigidShapeUniq` (176 users). **Census 18 → 14.**
+
+Its sharper correction to the comments at those sites: `trans` is not a residual *fragment*
+of each theorem. `IsDefEq.trans` composes the two halves back into the theorem's own
+hypothesis, so each induction reduces its statement **to itself** — the other ten cases are
+shape bookkeeping and `trans` *is* the theorem. That is why five separate attempts had all
+stalled in the same place.
+
+**I had the supplier direction backwards, and it matters.** I wrote below that closing
+`NormalEq.descend` would close the `trans` case and drop five holes. That is **circular**:
+`ChurchRosser.lean` imports `UniqueTyping` imports `Injectivity`, and `descend`'s own proof
+region calls `IsDefEqU.forallE_inv`. `descend` **consumes** the injectivity holes. Worse,
+`descend` is **false at three of its five branches** — `Theory/Typing/DescendRefute.lean`,
+`not_descendStatement`, with `NormalEq.etaL` and `NormalEq.proofIrrel` as witnesses. I sent a
+stream to "supply hypotheses" for branches that cannot be proved at all.
+
+**The rule that would have caught it:** before declaring X the supplier for Y, check the
+import edge and check whether X's own proof already calls Y. Both are one `grep`. I checked
+neither, and the brief asked a stream to match an interface to a statement that had already
+been refuted **in this repo**, in a file named for the refutation.
+
+**And the standing caution applies to the refutation too.** `not_descendStatement` is
+conditional on `refEnv.SortUniq 0` and `refEnv.UniqTyping 0`, carried as hypotheses because
+`IsDefEq.uniq` is tainted here. Whether it bites depends on those being satisfiable — the
+same structure as the `church_rosser` claim I overclaimed and retracted. Unsettled; asked.
+
+**Method note.** I found this by reading the five `sorry` sites, not by reading the
+count. The count treats holes as independent; they are not, and no instrument I have
+reports the *shape* of a residual. When the census stalls, read the goals — the number
+cannot tell you that five of its entries are one problem, nor that its largest entry is
+unrelated to the other five.
+
+**Corollary for briefs.** A consumer can be written against the supplier's conclusion
+*before* the supplier exists, so long as the interface is the supplier's real one. That is
+worth doing precisely when several consumers share it. The failure mode to avoid is
+inventing a convenient interface: `descend`'s docstring records that an earlier version of
+its own interface was **refuted** by `NormalEq.etaL` and `NormalEq.proofIrrel`, so any
+bridge stated against it must survive those two witnesses.

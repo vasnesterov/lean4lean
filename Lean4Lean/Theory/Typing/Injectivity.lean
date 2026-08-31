@@ -191,6 +191,13 @@ was previously thought to need a human call (`docs/handoff-injectivity.md` §9.1
 not, because nothing is weakened.  The residual of every one of them is now the **`trans`**
 case alone: *a term convertible with a Π (resp. with a rule-free constant application)
 reduces to one*.  The sort-flavoured residual is gone from this file entirely.
+
+**Superseded in one respect (see section `RigidShapeBridge`).**  Those five `trans` residuals
+are no longer five: they are *one*, `VEnv.WF.rigidShapeUniq`, and all five of `forallE_inv`,
+`sort_forallE_inv`, `const_app_inv`, `const_forallE_inv` and `const_sort_inv` now derive their
+`trans` case from it.  The file's hole count for this family dropped 5 → 1 with no statement
+changed.  The description above of *what* the residual says is still accurate; what was wrong
+was calling it five obligations.
 -/
 
 /-- **NOT PROVED**, and — unlike `sort_inv` — *not* reducible to the conversion-derivation
@@ -789,9 +796,220 @@ theorem IsProof.app'_fires {env : VEnv} (henv : env.WF) {U : Nat} :
 
 end UniqAux
 
-/-- **Π-injectivity, proved directly rather than through the stratified form.**  Still
-`sorry`-backed, but the residual is now **exactly `sort_inv`'s two holes** — `trans` and
-`proofIrrel` — and *nothing else*.  Nine of the eleven `IsDefEqStrong` cases close.
+/-! ## The `trans` bridge: one statement for five inversions
+
+The five theorems below — `forallE_inv`, `sort_forallE_inv`, `const_app_inv`,
+`const_forallE_inv`, `const_sort_inv` — each run the same induction on `IsDefEqStrong` and
+each leave the same case open: `trans`, where the middle term is arbitrary.  **The five
+residuals are one statement**, and it is stated here once, as `VEnv.RigidShapeUniq`, so that
+whatever eventually closes it closes all five at once.
+
+### Why the residual is the statement, not a fragment of it
+
+`trans` is not a special case that a normalisation lemma chips away at: **it is the theorem
+again**.  Given `Γ ⊢ e₁ ≡ m : T` and `Γ ⊢ m ≡ e₂ : T` with `e₁`, `e₂` rigid, `IsDefEq.trans`
+composes them into `Γ ⊢ e₁ ≡ e₂ : T`, which is exactly the hypothesis of the theorem being
+proved.  So each theorem's induction reduces it to itself, and the induction hypotheses
+`ih1`/`ih2` are unusable: they fire only when the *middle* term is syntactically rigid, which
+is what nothing knows.  This is worth saying plainly because the previous comments at those
+five sites ("nine of the eleven cases close", "the only residual") invite the reading that a
+small extra lemma finishes the job.  It does not: the ten closing cases are *shape*
+bookkeeping, and the eleventh carries all of the content.
+
+`RigidShapeUniq` is therefore stated as the *whole* family, hoisted, with the middle term as
+its subject — `e` below **is** the arbitrary middle term.  Two things make that hoisting
+honest rather than cosmetic, and both are machine-checked:
+
+* `rigidShapeUniq_of_family` derives it from the five conclusions, so it is **no stronger
+  than the family**: if the five are true, it is true.  (It is not vacuous for the same
+  reason — nothing here is a hypothesis of the five statements, whose text is unchanged.)
+* the five proofs below derive the family from it, so it is no weaker.
+
+### What will discharge it, and what will not
+
+**Confluence, in the form of `IsDefEq.church_rosser`** (`Theory/Typing/ChurchRosser.lean`,
+end of file): `Γ ⊢ e₁ ≡ e₂ : A → Γ ⊢ e₁ ≫≪ e₂`, i.e. common reducts related by `NormalEq`.
+From it the bridge is a three-step argument: `ParRedS` out of a sort / a Π / a rule-free
+constant spine preserves that shape; `NormalEq` between two such shapes is `refl`, `sortDF`,
+`constDF`, `forallEDF` or `proofIrrel` (`etaL`/`etaR` need a `.lam` endpoint, `proofIrrel`
+needs both endpoints to be proofs and is excluded by `¬ IsProof e`); and those five
+constructors give exactly `Compat`.
+
+**Not `NormalEq.descend`.**  Three corrections to the folklore that says otherwise:
+
+1. *Subject matter.*  `descend`'s conclusion is `DescentOut Γ q g g' n1 n2` — a `ParRedS`
+   reduction of `g` to a term matching a **`Pattern`**, with `≈`-related level lists and
+   `NormalEq`-related matched arguments, or the proof escape.  It says nothing about Π-types
+   or sorts.  It is a lemma *inside* the confluence development (it is what lets
+   `NormalEq.parRed`'s `appDF` × `extra` case fire a rule on the left), two levels below the
+   theorem that actually delivers this bridge.
+2. *Direction of the import graph.*  `ChurchRosser.lean` imports `UniqueTyping.lean`, which
+   imports this file, so **nothing in `ChurchRosser` is nameable here** — not `NormalEq`, not
+   `ParRedS`, not `DescentOut`, not `Pattern`.  A bridge phrased in `descend`'s vocabulary
+   could not be written in this file at all, let alone used by it.  The dependency is real
+   and not merely an import artefact: `descend`'s own `appDF` case calls
+   `IsDefEqU.forallE_inv` (`ChurchRosser.lean:1766`).  So "close `descend`, then close these
+   five" is circular as the tree stands; breaking the circle means re-basing the parts of
+   `ChurchRosser` that consume this family, which is a separate job.
+3. *`descend` is false as stated.*  `Theory/Typing/DescendRefute.lean` exhibits machine-
+   checked witnesses against three of its five open goals (`not_descendStatement`,
+   `not_descendStatement_etaArg`, `not_descendStatement_etaFun`), so its statement must
+   change before it can be closed.  Matching a bridge to that conclusion would be matching it
+   to a refuted one.
+
+So this bridge is deliberately phrased in the vocabulary this file *has*: conversion,
+typing, `IsProof`, `RuleFreeHead`.  The `¬ IsProof` premise, not `IsType`, is what makes it
+usable inside `const_app_inv`'s induction, where a sub-spine has a Π type and is not a type
+(`IsProof.forallE_fires` above is that witness).
+-/
+
+section RigidShapeBridge
+variable {env : VEnv} {U : Nat}
+
+/-- One of the three **rigid shapes** whose conversion class this file reads back: a sort, a
+Π, or an application spine headed by a constant that heads no rule.  Everything else — a
+`.lam`, a `.bvar` spine, a spine headed by a δ- or ι-rule's constant — is deliberately absent:
+those are not rigid, and no statement here claims anything about them. -/
+inductive RigidShape where
+  | sort (u : VLevel)
+  | pi (A B : VExpr)
+  | app (c : Lean.Name) (ls : List VLevel) (as : List VExpr)
+
+/-- The term a shape denotes. -/
+def RigidShape.toExpr : RigidShape → VExpr
+  | .sort u => .sort u
+  | .pi A B => .forallE A B
+  | .app c ls as => (VExpr.const c ls).mkApp as
+
+/-- The side condition a shape carries.  Only the application spine has one, and it is the
+`RuleFreeHead` the const-family already takes: without it a δ-rule reduces the spine to
+anything at all. -/
+def RigidShape.RuleFree (env : VEnv) : RigidShape → Prop
+  | .sort _ => True
+  | .pi _ _ => True
+  | .app c _ _ => env.RuleFreeHead c
+
+/-- **What two shapes in one conversion class have in common.**  The diagonal entries are the
+three injectivity facts; the six off-diagonal ones are `False`, i.e. disjointness.
+
+Two deliberate weaknesses, both to keep this exactly as strong as the family it packages and
+no stronger:
+
+* the `app`/`app` entry is guarded by `c = c'`, so nothing is claimed about *distinct*
+  rule-free heads — the no-confusion fact the module docstring says no consumer has asked for.
+* the `pi`/`pi` entry carries the codomain conversion in **both** contexts, because
+  `forallE_inv`'s induction carries it in both (that is how its `symm` case closes).  This is
+  not an overreach: given the domain conversion, `IsDefEq.defeqDF_l` moves the codomain
+  conversion from `A::Γ` to `A'::Γ`, and `rigidShapeUniq_of_family` does exactly that. -/
+def RigidShape.Compat (env : VEnv) (U : Nat) (Γ : List VExpr) : RigidShape → RigidShape → Prop
+  | .sort u, .sort v => u ≈ v
+  | .sort _, .pi _ _ => False
+  | .sort _, .app _ _ _ => False
+  | .pi _ _, .sort _ => False
+  | .pi A B, .pi A' B' =>
+    (∃ u, env.IsDefEq U Γ A A' (.sort u)) ∧
+    ∃ u, env.IsDefEq U (A::Γ) B B' (.sort u) ∧ env.IsDefEq U (A'::Γ) B B' (.sort u)
+  | .pi _ _, .app _ _ _ => False
+  | .app _ _ _, .sort _ => False
+  | .app _ _ _, .pi _ _ => False
+  | .app c ls as, .app c' ls' as' =>
+    c = c' → List.Forall₂ (· ≈ ·) ls ls' ∧ List.Forall₂ (env.IsDefEqU U Γ) as as'
+
+/-- **The bridge.**  A well-typed term that is not a proof is convertible with at most one
+rigid shape, up to `Compat`: `e` is the arbitrary middle term of every `trans` case in this
+file, and `s₁`, `s₂` are the two shapes the two halves of the `trans` hand back.
+
+See the section docstring for what discharges this (confluence, via
+`IsDefEq.church_rosser`), for why `NormalEq.descend`'s conclusion does not, and for the two
+machine-checked bounds that keep it exactly as strong as the family it replaces. -/
+def RigidShapeUniq (env : VEnv) (U : Nat) : Prop :=
+  ∀ {Γ : List VExpr} {e T : VExpr} {s₁ s₂ : RigidShape},
+    OnCtx Γ (env.IsType U) → ¬ env.IsProof U Γ e →
+    s₁.RuleFree env → s₂.RuleFree env →
+    env.IsDefEq U Γ e s₁.toExpr T → env.IsDefEq U Γ e s₂.toExpr T →
+    s₁.Compat env U Γ s₂
+
+/-- A term convertible with a Π is not a proof — the `¬ IsProof` premise of the bridge,
+discharged for free wherever one of the two shapes is a Π.  From `VEnv.SortUniq`, which
+`WF.sortUniq'` proves above, so it costs no statement a hypothesis. -/
+theorem not_isProof_of_defeqU_forallE {Γ : List VExpr} {e A B : VExpr} (henv : VEnv.WF env)
+    (hΓ : OnCtx Γ (env.IsType U)) (h : env.IsDefEqU U Γ e (.forallE A B)) :
+    ¬ env.IsProof U Γ e := fun hp =>
+  have ⟨_, hq, he⟩ := hp.defeqU henv hΓ h
+  forallE_not_proof (WF.sortUniq' henv) henv.ordered hΓ hq he
+
+/-- A term convertible with a sort is not a proof.  The sort half of
+`not_isProof_of_defeqU_forallE`. -/
+theorem not_isProof_of_defeqU_sort {Γ : List VExpr} {e : VExpr} {u : VLevel}
+    (henv : VEnv.WF env) (hΓ : OnCtx Γ (env.IsType U))
+    (h : env.IsDefEqU U Γ e (.sort u)) : ¬ env.IsProof U Γ e := fun hp =>
+  have ⟨_, hq, he⟩ := hp.defeqU henv hΓ h
+  sort_not_proof (WF.sortUniq' henv) henv.ordered hΓ hq he
+
+/-- **The one open obligation of the whole inversion family** (`forallE_inv_stratified`
+excepted — that is a different shape and has its own hole).  Five `sorry`s became this one;
+see the section docstring. -/
+theorem WF.rigidShapeUniq (henv : VEnv.WF env) : env.RigidShapeUniq U := sorry
+
+/-- **The bridge is no stronger than the family it packages**, and therefore satisfiable if
+the family is: this derives it from the five conclusions, taken as explicit hypotheses, with
+no `sorry` of its own.  Read together with the five proofs below — which go the other way —
+it says the bridge *is* the family, so hoisting it neither weakened nor strengthened
+anything.
+
+The one hypothesis that is not literally a theorem of this file is `happ`: it is
+`const_app_inv` with `IsType` weakened to `¬ IsProof`.  That is the form
+`const_app_inv`'s own induction proves (its invariant is `¬ IsProof`, because `IsType` does
+not propagate down a spine), and `IsType.not_isProof` turns the stated theorem's side
+condition into it, so nothing here asks for more than the file already has. -/
+theorem rigidShapeUniq_of_family (henv : VEnv.WF env)
+    (hsort : ∀ {Γ : List VExpr} {u v : VLevel}, OnCtx Γ (env.IsType U) →
+      env.IsDefEqU U Γ (.sort u) (.sort v) → u ≈ v)
+    (hpi : env.PiInv U)
+    (hsortpi : ∀ {Γ : List VExpr} {u : VLevel} {A B : VExpr}, OnCtx Γ (env.IsType U) →
+      ¬ env.IsDefEqU U Γ (.sort u) (.forallE A B))
+    (happ : ∀ {Γ : List VExpr} {c : Lean.Name} {ls ls' : List VLevel} {as as' : List VExpr},
+      OnCtx Γ (env.IsType U) → env.RuleFreeHead c →
+      ¬ env.IsProof U Γ ((VExpr.const c ls).mkApp as) →
+      env.IsDefEqU U Γ ((VExpr.const c ls).mkApp as) ((VExpr.const c ls').mkApp as') →
+      List.Forall₂ (· ≈ ·) ls ls' ∧ List.Forall₂ (env.IsDefEqU U Γ) as as')
+    (happpi : ∀ {Γ : List VExpr} {c : Lean.Name} {ls : List VLevel} {as : List VExpr}
+      {A B : VExpr}, OnCtx Γ (env.IsType U) → env.RuleFreeHead c →
+      ¬ env.IsDefEqU U Γ ((VExpr.const c ls).mkApp as) (.forallE A B))
+    (happsort : ∀ {Γ : List VExpr} {c : Lean.Name} {ls : List VLevel} {as : List VExpr}
+      {u : VLevel}, OnCtx Γ (env.IsType U) → env.RuleFreeHead c →
+      ¬ env.IsDefEqU U Γ ((VExpr.const c ls).mkApp as) (.sort u)) :
+    env.RigidShapeUniq U := by
+  intro Γ e T s₁ s₂ hΓ hnp hr₁ hr₂ h₁ h₂
+  have hs : env.IsDefEqU U Γ s₁.toExpr s₂.toExpr := ⟨T, h₁.symm.trans h₂⟩
+  cases s₁ with
+  | sort u =>
+    cases s₂ with
+    | sort v => exact hsort hΓ hs
+    | pi A B => exact hsortpi hΓ hs
+    | app c ls as => exact happsort hΓ hr₂ hs.symm
+  | pi A B =>
+    cases s₂ with
+    | sort v => exact hsortpi hΓ hs.symm
+    | pi A' B' =>
+      obtain ⟨⟨u, ha⟩, v, hb⟩ := hpi hΓ hs
+      exact ⟨⟨u, ha⟩, v, hb, ha.defeqDF_l henv.ordered hb⟩
+    | app c ls as => exact happpi hΓ hr₂ hs.symm
+  | app c ls as =>
+    cases s₂ with
+    | sort v => exact happsort hΓ hr₁ hs
+    | pi A B => exact happpi hΓ hr₁ hs
+    | app c' ls' as' =>
+      rintro rfl
+      exact happ hΓ hr₁ (fun hp => hnp (hp.defeqU henv hΓ ⟨T, h₁.symm⟩)) hs
+
+end RigidShapeBridge
+
+/-- **Π-injectivity, proved directly rather than through the stratified form.**  All eleven
+`IsDefEqStrong` cases are now discharged; the proof is `sorry`-free **modulo the single
+bridge `VEnv.WF.rigidShapeUniq`** (section `RigidShapeBridge`), which its `trans` case
+applies at the two Π shapes.  `proofIrrel` closes outright, from `VEnv.SortUniq` being a
+theorem.
 
 **This corrects `forallE_inv_stratified`'s docstring, which is about that statement and not
 about this one.**  That docstring says Π-injectivity needs universe uniqueness *in the
@@ -833,11 +1051,16 @@ theorem IsDefEqU.forallE_inv (henv : VEnv.WF env) (hΓ : OnCtx Γ (env.IsType U)
       exact ⟨⟨u, ha.symm⟩, v, hb2.symm, hb1.symm⟩
     | defeqDF _ _ _ _ ih => exact ih
     | extra h1 => exact fun _ A B _ _ h _ => absurd h (henv.instL_lhs_ne_forallE h1 _ A B)
-    | trans _ _ ih1 ih2 =>
-      -- OPEN, and the only residual of this theorem: `Γ ⊢ .forallE A B ≡ e₂ ≡ .forallE A' B'`
-      -- with `e₂` arbitrary; needs `e₂` to reduce to a Π.  This is the normalisation
-      -- statement the whole corner now rests on.
-      rintro hΓ' A B A' B' rfl rfl; sorry
+    | trans hd1 hd2 ih1 ih2 =>
+      -- `Γ ⊢ .forallE A B ≡ e₂ ≡ .forallE A' B'` with `e₂` arbitrary — **the** residual of
+      -- this family, discharged by `WF.rigidShapeUniq` (see its section docstring).  Note
+      -- the two halves are at the *same* type, which is what the bridge asks for; the
+      -- induction hypotheses are not used, and cannot be: they fire only when the middle
+      -- term is syntactically a Π.
+      rintro hΓ' A B A' B' rfl rfl
+      exact WF.rigidShapeUniq henv (s₁ := .pi A B) (s₂ := .pi A' B') hΓ'
+        (not_isProof_of_defeqU_forallE henv hΓ' ⟨_, hd1.defeq.symm⟩) trivial trivial
+        hd1.defeq.symm hd2.defeq
     | proofIrrel h1 h2 _ _ _ _ =>
       -- CLOSED: "a Π is not a proof", from `VEnv.SortUniq` — proved above (`WF.sortUniq'`),
       -- so this costs the statement no hypothesis.
@@ -860,7 +1083,8 @@ family as `sort_inv` was prose.
 * `extra` closes from `VEnv.WF.instL_lhs_ne_sort` **and** `VEnv.WF.instL_lhs_ne_forallE`
   (`Theory/Typing/DeclRules.lean`): no rule's left-hand side is a sort, and none is a Π.
 * every remaining structural case is vacuous on the *shape* of one endpoint.
-* `trans` — the arbitrary middle term, exactly `sort_inv`'s hole.
+* `trans` — the arbitrary middle term; discharged by `VEnv.WF.rigidShapeUniq` at the shapes
+  `.sort u` and `.pi A B`, whose `RigidShape.Compat` entry is `False`.
 * `proofIrrel` — needs "a sort is not a proof" *or* "a Π is not a proof"; either suffices,
   and the first is `VEnv.sort_not_proof` given `VEnv.SortUniq`.  So this statement's
   `proofIrrel` residual is **not a new obligation**: it is a strictly weaker demand than
@@ -874,9 +1098,16 @@ theorem IsDefEqU.sort_forallE_inv (henv : VEnv.WF env) (hΓ : OnCtx Γ (env.IsTy
     induction H with
     | symm _ ih => exact fun hΓ' u A B h => ih hΓ' u A B h.symm
     | defeqDF _ _ _ _ ih => exact ih
-    | trans _ _ ih1 ih2 =>
-      -- OPEN, and the only residual: the middle term is arbitrary.
-      intro hΓ' u A B h; sorry
+    | trans hd1 hd2 ih1 ih2 =>
+      -- The middle term is arbitrary: `WF.rigidShapeUniq` at the shapes `.sort u` and
+      -- `.pi A B`, whose `Compat` entry is `False`.
+      rintro hΓ' u A B (⟨rfl, rfl⟩ | ⟨rfl, rfl⟩)
+      · exact WF.rigidShapeUniq henv (s₁ := .sort u) (s₂ := .pi A B) hΓ'
+          (not_isProof_of_defeqU_sort henv hΓ' ⟨_, hd1.defeq.symm⟩) trivial trivial
+          hd1.defeq.symm hd2.defeq
+      · exact WF.rigidShapeUniq henv (s₁ := .pi A B) (s₂ := .sort u) hΓ'
+          (not_isProof_of_defeqU_forallE henv hΓ' ⟨_, hd1.defeq.symm⟩) trivial trivial
+          hd1.defeq.symm hd2.defeq
     | proofIrrel h1 h2 h3 _ _ _ =>
       -- CLOSED: "a Π is not a proof" (the sort half would do equally well), from
       -- `VEnv.SortUniq` — proved above, so this costs the statement no hypothesis.
@@ -909,7 +1140,10 @@ so the statement is unweakened, and it **does** propagate down a spine.  With th
 the thirteen `IsDefEqStrong` cases close and the residual is the **`trans`** case alone —
 byte for byte the residual of `forallE_inv`, `sort_forallE_inv`, `const_forallE_inv` and
 `const_sort_inv`.  So this is no longer an independent obligation: the whole family now rests
-on one normalisation statement.
+on one normalisation statement, and since `VEnv.WF.rigidShapeUniq` *is* that statement, all
+five `trans` cases are literally the same appeal.  This case is also the reason the bridge's
+premise is `¬ IsProof` and not `IsType`, for exactly the reason recorded in the next
+paragraph.
 
 Case by case: `constDF` gives the level list outright; `appDF` peels one argument off each
 spine (`VExpr.mkApp_app_inv`) and appends the argument conversion; `extra` is blocked by
@@ -934,11 +1168,14 @@ theorem IsDefEqU.const_app_inv (henv : VEnv.WF env) (hΓ : OnCtx Γ (env.IsType 
         ls₁' ls₁ as₁' as₁ he₂ he₁
       exact ⟨h1.symm' (fun h => Eq.symm h), h2.symm' IsDefEqU.symm⟩
     | defeqDF _ _ _ _ ih => exact ih
-    | trans _ _ ih1 ih2 =>
-      -- OPEN, and the only residual: the middle term is arbitrary.  Needs a term
-      -- convertible with a rule-free constant application to reduce to one — the same
-      -- normalisation statement the rest of this family waits on.
-      intro hΓ' hnp ls₁ ls₁' as₁ as₁' he₁ he₂; sorry
+    | trans hd1 hd2 ih1 ih2 =>
+      -- The middle term is arbitrary: `WF.rigidShapeUniq` at two `.app` shapes with the
+      -- same head.  This is the case that forces the bridge's premise to be `¬ IsProof`
+      -- rather than `IsType`: here `e₁` may be a sub-spine, whose type is a Π.
+      rintro hΓ' hnp ls₁ ls₁' as₁ as₁' rfl rfl
+      exact WF.rigidShapeUniq henv (s₁ := .app c ls₁ as₁) (s₂ := .app c ls₁' as₁') hΓ'
+        (fun hp => hnp (hp.defeqU henv hΓ' ⟨_, hd1.defeq.symm⟩)) hrigid hrigid
+        hd1.defeq.symm hd2.defeq rfl
     | proofIrrel h1 h2 _ =>
       -- CLOSED by the `¬IsProof` invariant, which the statement's `IsType` side condition
       -- supplies at the root (`IsType.not_isProof`) and `IsProof.app'` threads down.
@@ -988,9 +1225,16 @@ theorem IsDefEqU.const_forallE_inv (henv : VEnv.WF env) (hΓ : OnCtx Γ (env.IsT
     induction H with
     | symm _ ih => exact fun hΓ' ls as A B h => ih hΓ' ls as A B h.symm
     | defeqDF _ _ _ _ ih => exact ih
-    | trans _ _ ih1 ih2 =>
-      -- OPEN, and the only residual: the middle term is arbitrary.
-      intro hΓ' ls as A B h; sorry
+    | trans hd1 hd2 ih1 ih2 =>
+      -- The middle term is arbitrary: `WF.rigidShapeUniq` at `.app c ls as` and `.pi A B`,
+      -- whose `Compat` entry is `False`.
+      rintro hΓ' ls as A B (⟨rfl, rfl⟩ | ⟨rfl, rfl⟩)
+      · exact WF.rigidShapeUniq henv (s₁ := .app c ls as) (s₂ := .pi A B) hΓ'
+          (not_isProof_of_defeqU_forallE henv hΓ' ⟨_, hd2.defeq⟩) hrigid trivial
+          hd1.defeq.symm hd2.defeq
+      · exact WF.rigidShapeUniq henv (s₁ := .pi A B) (s₂ := .app c ls as) hΓ'
+          (not_isProof_of_defeqU_forallE henv hΓ' ⟨_, hd1.defeq.symm⟩) trivial hrigid
+          hd1.defeq.symm hd2.defeq
     | proofIrrel h1 h2 h3 _ _ _ =>
       -- CLOSED: "a Π is not a proof", from `VEnv.SortUniq` — proved above, so this costs the
       -- statement no hypothesis.
@@ -1045,9 +1289,16 @@ theorem IsDefEqU.const_sort_inv (henv : VEnv.WF env) (hΓ : OnCtx Γ (env.IsType
     induction H with
     | symm _ ih => exact fun hΓ' ls as u h => ih hΓ' ls as u h.symm
     | defeqDF _ _ _ _ ih => exact ih
-    | trans _ _ ih1 ih2 =>
-      -- OPEN, and the only residual: the middle term is arbitrary.
-      intro hΓ' ls as u h; sorry
+    | trans hd1 hd2 ih1 ih2 =>
+      -- The middle term is arbitrary: `WF.rigidShapeUniq` at `.app c ls as` and `.sort u`,
+      -- whose `Compat` entry is `False`.
+      rintro hΓ' ls as u (⟨rfl, rfl⟩ | ⟨rfl, rfl⟩)
+      · exact WF.rigidShapeUniq henv (s₁ := .app c ls as) (s₂ := .sort u) hΓ'
+          (not_isProof_of_defeqU_sort henv hΓ' ⟨_, hd2.defeq⟩) hrigid trivial
+          hd1.defeq.symm hd2.defeq
+      · exact WF.rigidShapeUniq henv (s₁ := .sort u) (s₂ := .app c ls as) hΓ'
+          (not_isProof_of_defeqU_sort henv hΓ' ⟨_, hd1.defeq.symm⟩) trivial hrigid
+          hd1.defeq.symm hd2.defeq
     | proofIrrel h1 h2 h3 _ _ _ =>
       -- CLOSED: "a sort is not a proof", from `VEnv.SortUniq` — proved above, so this costs
       -- the statement no hypothesis.
