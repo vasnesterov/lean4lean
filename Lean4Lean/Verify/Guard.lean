@@ -9,12 +9,12 @@ This file mechanically enforces the guardrails stated in `CLAUDE.md`. It is
 requires human sign-off. The checks run during elaboration and fail the build
 on violation; they are tests, not proofs, and nothing imports this file.
 
-1. **Axiom freeze**: `Lean4Lean/Verify/Axioms.lean` declares exactly the **25**
+1. **Axiom freeze**: `Lean4Lean/Verify/Axioms.lean` declares exactly the **24**
    axioms of `frozenAxioms` below (32 at commit `20e2d14`). Every frozen axiom of
    this project is declared in that one file, which is what lets this check see
    all of them: it enumerates axioms by *defining module*.
 2. **Axiom whitelist**: the axioms of `kernel_sound` are contained in
-   {`propext`, `Classical.choice`, `Quot.sound`} ∪ those **25**
+   {`propext`, `Classical.choice`, `Quot.sound`} ∪ those **24**
    (∪ {`sorryAx`} while the proof is in progress). The build fails the moment
    any other axiom enters the proof cone. The check reports whether `sorryAx`
    is still present; the goal is met only when it reports COMPLETE.
@@ -32,7 +32,7 @@ on violation; they are tests, not proofs, and nothing imports this file.
 namespace Lean4Lean.Guard
 open Lean
 
-/-- The 25 axioms declared by `Lean4Lean/Verify/Axioms.lean` — check 1's
+/-- The 24 axioms declared by `Lean4Lean/Verify/Axioms.lean` — check 1's
 reference set, and exactly the axioms that file may declare. The three standard
 axioms are *not* here; see `axiomWhitelist`.
 
@@ -94,6 +94,23 @@ satisfiable by the exhibited model `fun _ _ => false`. Neither can be deleted
 (they are used) nor discharged (`ptrEqExpr` is `opaque` by design). See
 `docs/axiom-audit.md` §14.
 
+Re-pinned from 25 to 24: `Lean.Expr.replace_eq` was **deleted**. It asserted
+`Lean.Expr.replace = Expr.replaceNoCache`, and upstream `Expr.replace` is
+`replaceImpl`: `opaque` with `@[extern "lean_replace_expr"]` and no Lean body, so
+the axiom could never become a theorem. It is gone because the checker no longer
+reaches it. Six level-parameter sites now call core's own pure
+`Lean.Expr.instantiateLevelParamsNoCache` instead of the cached
+`instantiateLevelParams`/`instantiateTypeLevelParams`, and an 8444-constant walk of
+`Lean4Lean.addDecl`'s cone reports `Expr.replaceImpl`, `Expr.replace`,
+`Expr.instantiateLevelParams`, `Expr.instantiateLevelParamsCore` and
+`ConstantInfo.instantiateTypeLevelParams` all absent. See `divergences.md`
+§ "level-parameter instantiation is uncached".
+
+Note for anyone re-treading this: the axiom was `@[simp]`, so a by-name search
+wrongly reported it unused once before — it was silently bridging `replace` to
+`replaceNoCache` inside `instantiateLevelParamsCore_eq`. **An `@[simp]` axiom's
+reachability is a build result, never a grep result.**
+
 Shrinking this list is progress; adding to it requires sign-off. -/
 def frozenAxioms : List Name := [
   `Lean.Expr.abstractRange_eq,
@@ -109,7 +126,6 @@ def frozenAxioms : List Name := [
   `Lean.Expr.lowerLooseBVars_eq,
   `Lean.Expr.mkAppData_eq,
   `Lean.Expr.mkData_eq,
-  `Lean.Expr.replace_eq,
   `Lean.Level.hasMVar_eq,
   `Lean.Level.hasParam_eq,
   `Lean.Level.instLawfulBEqLevel,
@@ -187,7 +203,7 @@ def implGapWhitelist : List Name := [
   `Lean4Lean.ptrEqExpr.unsafe_impl_2,                     -- implemented_by
   `List.all2]                                             -- partial
 
-/- Check 1: the frozen axiom file declares exactly the 25 whitelisted axioms. -/
+/- Check 1: the frozen axiom file declares exactly the 24 whitelisted axioms. -/
 #eval show CoreM Unit from do
   let env ← getEnv
   let some modIdx := env.getModuleIdx? `Lean4Lean.Verify.Axioms
@@ -204,13 +220,13 @@ def implGapWhitelist : List Name := [
   for n in declared.toList do
     unless frozen.contains n do
       throwError "guard VIOLATION: Axioms.lean declares {n}, \
-        which is not in the frozen 25-axiom whitelist. \
+        which is not in the frozen 24-axiom whitelist. \
         Changing that file requires human sign-off."
   for n in frozen.toList do
     unless declared.contains n do
       throwError "guard VIOLATION: frozen axiom {n} is no longer declared by \
         Axioms.lean. Changing that file requires human sign-off."
-  IO.println s!"guard 1: Axioms.lean declares exactly the 25 frozen axioms ✓"
+  IO.println s!"guard 1: Axioms.lean declares exactly the 24 frozen axioms ✓"
 
 /- Check 2: the axioms of `kernel_sound` are within the whitelist. -/
 #eval show CoreM Unit from do
@@ -223,7 +239,7 @@ def implGapWhitelist : List Name := [
     else unless allowed.contains n do
       throwError "guard VIOLATION: kernel_sound uses axiom {n}, which is \
         outside the whitelist (propext, Classical.choice, Quot.sound, and the \
-        25 frozen axioms of Axioms.lean). Adding an axiom requires human \
+        24 frozen axioms of Axioms.lean). Adding an axiom requires human \
         sign-off."
   if sorries then
     IO.println "guard 2: kernel_sound axioms within whitelist ✓ \
