@@ -4,7 +4,8 @@ import Lean4Lean.Theory.Typing.SortUniqFacts
 /-!
 # `NormalEq.descend` is false
 
-`Theory/Typing/ChurchRosser.lean`'s `NormalEq.descend` carries five `sorry`s and its own
+`Theory/Typing/ChurchRosser.lean`'s `NormalEq.descend` carries **three** `sorry`s (at `:2074`,
+`:2079`, `:2094`; this file said "five" in three places, measured stale 2026-08-31) and its own
 inventory says of them: *"every one of them waits on a hypothesis -- there is no remaining
 case that is merely unproved.  None of their goals is known false."*  **Three of the five
 goals are false**, and this file exhibits a machine-checked witness for each.
@@ -379,7 +380,7 @@ theorem refNoDescentLam3 : ∀ {k : Nat} {n1 n2},
 
 /-! ## The refutation
 
-Each of the three witnesses lands on a different one of `NormalEq.descend`'s five `sorry`s.
+Each of the three witnesses lands on a different one of `NormalEq.descend`'s three `sorry`s.
 Tracing `descend` on witness A: `cases hne` takes the `appDF` branch, `cases hm` the `app`
 branch, the function child's recursive call returns `.inl` (its `NormalEq` is `refl`) and the
 argument child's returns `.inr` (its `NormalEq` is `proofIrrel`) -- which is the branch
@@ -416,7 +417,7 @@ def DescendStatement (I : VEnv.Params) : Prop :=
       @VEnv.DescentOut I Γ q g g' n1 n2
 
 /-- **Anti-strawman check.**  `DescendStatement` is literally `NormalEq.descend`'s type.
-`sorryAx`-tainted, inherited from `descend`'s five holes -- that is the point. -/
+`sorryAx`-tainted, inherited from `descend`'s three holes -- that is the point. -/
 theorem descendStatement_holds {I : VEnv.Params} : DescendStatement I :=
   @VEnv.NormalEq.descend I
 
