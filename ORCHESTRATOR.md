@@ -787,3 +787,21 @@ Collateral: `Verify/Expr.lean` fails with twelve errors while that axiom is miss
 owning `Verify/` files saw phantom failures. Both were told directly, with the symptom named, so
 they would not "fix" it. A stream that silently repaired a defect I had introduced would have been
 the worse outcome.
+
+### Guard 1 cannot tell you which way the tree moved
+
+From stream B, and sharper than the lesson I offered it. B saw guard 1 print 24 axioms, later 25,
+and concluded "another stream added a frozen axiom". Wrong — I had *deleted* one in a dirty
+working tree and then reverted it.
+
+The reusable point is about the instrument, not about git: **guard 1 asserts set equality against a
+frozen list, so its printed count is a property of the list, not a measurement of change.** It
+passes at 24 and it passes at 25, and it is silent about direction. Two passing samples of an
+equality check can never establish that something moved, let alone which way.
+
+So: attribute a change only from a source that *records* change — `git status`, `git diff`,
+`git log` — and otherwise report the number without an inferred cause. B also noted it had those
+reads available and declined them, having over-read the standing "no git operations" rule as
+covering reads. It does not: that rule bars **mutations** (commit, branch, push, PR, stash,
+checkout), never `status`/`diff`/`log`. Say so explicitly in future briefs, because a stream that
+cannot read the log will guess instead.
