@@ -46,6 +46,33 @@ discharged, the edit to `Verify/Soundness.lean` is
       Bridge.kernel_sound_of <prelude proof> <upper bound proof> ds fuel env hok hax hfalse
 
 and it needs explicit human approval for that specific change before any agent makes it.
+
+## CORRECTION (2026-08-31): this route is blocked, and H1 above is vacuous
+
+The reading at the top of this file — "the remaining work is exactly: inhabit those two" — is
+wrong, and `Verify/PreludeVacuity.lean` proves why.  Two facts, both machine-checked there:
+
+* `foldAddDecl_tr` (`Verify/Bridge.lean:172`), which `not_leanTTConsistent_of_kernel_proves_false`
+  uses to obtain `TrEnv .safe env venv`, is a **false statement**.  `TrEnv .safe` is
+  unsatisfiable once the environment holds one safe inductive
+  (`TrEnv.not_safe_inductInfo`), and check B evaluates the checker to show `stdPrelude` leaves
+  `Eq` exactly that.  The falsity comes from `addDecl.WF`, whose `inductDecl` branch is itself
+  refuted (`Verify/Inductive/AddDeclWF.lean` §4), and both trace to `AddInduct` having no
+  constructors.
+* Therefore `Bridge.PreludeBridge stdPrelude` — H1 — is **vacuously true** at the instances used
+  (`preludeBridge_vacuous_at_nil`).  It assumes the unsatisfiable `TrEnv .safe env venv`.
+  Inhabiting it as stated buys the main theorem nothing.
+
+`kernel_sound_of` below is still a correctly-proved theorem, and the assembly's *shape* is still
+the shape the frozen edit will take.  What is not true is that applying it to two proofs would
+finish the job: `Bridge.AddDeclWF` must first be reshaped to `AddDeclPost`
+(`Verify/Inductive/AddDeclWF.lean` §5, `addDecl.WF_honest` already proved from the single
+obligation `AddInductiveStepWF`), and `foldAddDecl_tr` re-derived from a fold-level invariant
+that does not claim `TrEnv .safe`.  **Not** assumed as a hypothesis: §5.4 item 3 suggests that,
+and `anything_of_foldAddDecl_tr_hypothesis` shows assuming it proves any proposition at all,
+which would make guard 2 report "proof COMPLETE" over an empty proof.
+
+`docs/critical-path.md` corrections 3 and 4 carry the full reading.
 -/
 
 namespace Lean4Lean.Bridge
