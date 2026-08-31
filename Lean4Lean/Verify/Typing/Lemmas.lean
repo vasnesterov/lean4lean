@@ -1679,7 +1679,30 @@ only one of them is still open.
 
 Both new lemmas are `sorryAx`-tainted only through `VEnv.IsDefEqU.forallE_inv_stratified`
 (`Theory/Typing/Injectivity.lean`), inherited via `HasType.app_inv`; measured with
-`hole-cone`-style `deps`, that is their whole hole cone. -/
+`hole-cone`-style `deps`, that is their whole hole cone.
+
+**Update 6: the records and the levels are proved too — the residual is now spine-only.**
+`Verify/Typing/ProjLvlCongr.lean` closes the whole non-spine part of `ProjDataCongr`:
+
+* `VInductDecl'.projTerm_congr_records` (`ProjSpineInv.lean` §4): `StructureAgree` alone — i.e.
+  everything `addInduct'` writes — makes the two encodings **syntactically identical**, once the
+  field `lvl`s are equal.  So the only record-shaped slack anywhere is the `≈` on levels, and it
+  enters through exactly one place, `VInductDecl'.projLvls` (the recursor's level arguments).
+* `VInductDecl'.projTerm_eqUpToLevels` lifts `Forall₂ (·≈·)` on `projLvls` to
+  `VEnv.EqUpToLevels` on the whole encoded term, by structural closure of `EqUpToLevels` over
+  `mkApp`/`mkLams`/`instAll`/`instAllTele`/`bvars`; `VInductDecl'.projTerm_defeq_of_levels` then
+  turns that into `IsDefEqU` via `VEnv.IsDefEq.eqUpToLevels`, needing only `VEnv.WF` and a
+  typing of one side.  **This corrects Update 4's estimate**: the level half is structural, not
+  `VEnv.IsDefEq.instL_r`.
+* `VEnv.ProjSpineCongr` (`ProjSpineInv.lean` §5) is what is left: for one record, one level
+  list and one subject, `projTerm` is congruent in its parameter and index spines.
+  `TrProj.uniq_of_projSpineCongr` derives this `sorry` from it in one application (modulo
+  `TrProj.wf`, passed as a hypothesis as before).
+
+The level and record lemmas are hole-free.  The composed reduction inherits four holes, all of
+them from the pre-existing `VEnv.IsStructure.projData_uniq` (which any route to `ProjDataCongr`
+must use): `IsDefEqU.weakN_iff`, `IsDefEqU.forallE_inv_stratified`, `WF.rigidShapeUniqNS`,
+`NormalEq.descend`. -/
 theorem TrProj.uniq (H1 : TrProj env U Γ₁ s₁ i e₁ e₁') (H2 : TrProj env U Γ₂ s₂ i e₂ e₂')
     (H : env.IsDefEqU U Γ₁ e₁ e₂) :
     env.IsDefEqU U Γ₁ e₁' e₂' := sorry

@@ -2,6 +2,7 @@ import Lean4Lean.Verify.Typing.ConstSpineWF
 import Lean4Lean.Verify.Typing.RecTypePeel
 import Lean4Lean.Theory.Typing.StructureRuleFree
 import Lean4Lean.Verify.Typing.Expr
+import Lean4Lean.Verify.Typing.ProjLvlCongr
 
 /-!
 # `TrProj.uniq`, reduced to a congruence
@@ -100,12 +101,20 @@ recorded.  `VEnv.IsStructure.projData_uniq` says what that difference can be —
 agree except for `VInductDecl'.lvl` and `VIndField.lvl` (which are `≈`), the levels are `≈`,
 and the parameter/index spines are pointwise `IsDefEqU`.
 
-Scope of the remaining work, for whoever takes it: the `≈`-in-levels half goes through
-`VEnv.IsDefEq.instL_r`; the spine half is `VEnv.IsDefEq.mkAppDF` at the recursor's telescope,
-whose motive and minor arguments contain `ps` *under binders* and, through
-`VInductDecl'.projArgs`, contain the earlier projections — so it recurses on `i` exactly as
-`projArgs` does, and each step needs the typing the `Verify/Typing/ProjGen*` family provides
-for `TrProj.wf`.  It is mechanical and it is not small. -/
+Scope of the remaining work, for whoever takes it: **only the spine half is left**, and
+`TrProj.uniq_of_projSpineCongr` (§5) is that reduction, machine-checked end to end.  The
+record and level halves are *done*: `projTerm_congr_records` (§4) shows `StructureAgree` makes
+the two encodings syntactically identical once the `lvl` fields agree, and
+`VInductDecl'.projTerm_defeq_of_levels` (`Verify/Typing/ProjLvlCongr.lean`) absorbs the
+remaining `≈` slack in the `lvl` fields *and* in `us` through `EqUpToLevels`.  Note this
+corrects the earlier estimate recorded here: the level half is **structural**, not
+`VEnv.IsDefEq.instL_r`.
+
+What is left is `VEnv.IsDefEq.mkAppDF` at the recursor's telescope, whose motive and minor
+arguments contain `ps` *under binders* and, through `VInductDecl'.projArgs`, contain the
+earlier projections — so it recurses on `i` exactly as `projArgs` does, and each step needs the
+typing the `Verify/Typing/ProjGen*` family provides for `TrProj.wf`.  It is mechanical and it
+is not small. -/
 def VEnv.ProjTermCongr (env : VEnv) (U : Nat) : Prop :=
   ∀ {Γ : List VExpr} {S : Lean.Name} {i : Nat} {e₁ e₂ e₁' e₂' : VExpr},
     OnCtx Γ (env.IsType U) →
@@ -228,29 +237,12 @@ writes) plus `StructureLvlAgree` (the `lvl` fields, up to `≈`).  This section 
 only record-shaped slack left anywhere in the residual is the `≈` in the level fields — which
 enters exactly one place, `projLvls`, i.e. the recursor's level arguments.
 
-Everything here is equational: no typing, no environment, no holes. -/
+Everything here is equational: no typing, no environment, no holes.
 
-theorem VIndField.Agree.getD_type : ∀ {l₁ l₂ : List VIndField},
-    List.Forall₂ VIndField.Agree l₁ l₂ → ∀ k : Nat,
-    (l₁.getD k default).type = (l₂.getD k default).type
-  | [], [], _, _ => rfl
-  | _ :: _, _ :: _, .cons h t, k => by
-    match k with
-    | 0 => exact h.type
-    | _+1 => exact VIndField.Agree.getD_type t _
-
-theorem StructureAgree.field_type {D₁ D₂ : VInductDecl'} {T₁ T₂ : VIndType} {C₁ C₂ : VIndCtor}
-    (hag : StructureAgree D₁ T₁ C₁ D₂ T₂ C₂) (k : Nat) :
-    (C₁.fields.getD k default).type = (C₂.fields.getD k default).type :=
-  VIndField.Agree.getD_type hag.fields k
-
-theorem StructureAgree.fields_map_instL {D₁ D₂ : VInductDecl'} {T₁ T₂ : VIndType}
-    {C₁ C₂ : VIndCtor} (hag : StructureAgree D₁ T₁ C₁ D₂ T₂ C₂) (us : List VLevel) :
-    C₁.fields.map (fun F => F.type.instL us) = C₂.fields.map (fun F => F.type.instL us) := by
-  have e : ∀ l : List VIndField, l.map (fun F => F.type.instL us)
-      = (l.map (·.type)).map (fun t => VExpr.instL us t) := by
-    intro l; simp [List.map_map, Function.comp_def]
-  rw [e, e, hag.fields_map]
+`VIndField.Agree.getD_type`, `StructureAgree.field_type` and the `EqUpToLevels` closure lemmas
+live in `Verify/Typing/ProjLvlCongr.lean`, which also discharges the *level* half of the
+residual outright (`VInductDecl'.projTerm_defeq_of_levels`); this section records how far the
+purely syntactic collapse gets on its own. -/
 
 /-- The motive depends on the records only through `T.name`, `T.indices` and the `i`-th field's
 *type* — all three pinned by `StructureAgree`. -/
@@ -306,7 +298,106 @@ theorem VInductDecl'.projTerm_congr_records {D₁ D₂ : VInductDecl'} {T₁ T�
   rw [VInductDecl'.projTerm, VInductDecl'.projTerm,
     VInductDecl'.projArgs_congr hag hl, VInductDecl'.projCore_congr hag hl]
 
-/-! ## 5. Non-vacuity
+/-! ## 5. Collapsing the residual to the spines
+
+With the level half discharged in `Verify/Typing/ProjLvlCongr.lean`, `ProjDataCongr` reduces to
+a statement in which **the records, the universe arguments and the subject are all fixed**, and
+only the parameter and index spines vary.  That is the whole of what is left of `TrProj.uniq`.
+
+The side conditions the level step needs (`∀ l ∈ us, l.WF U` and `LevelWF` for the spines and
+the subject) are not extra hypotheses: they are already inside a `TrProj` derivation.  `hus` is
+a recorded field, and the rest comes from the derivation's own `HasType`, whose *type* is
+`(const S us).mkApp (ps ++ ιs)` — so `VExpr.levelWF_mkApp` reads them straight off. -/
+
+/-- **The final residual of `TrProj.uniq`**: congruence of the projection encoding in its
+parameter and index spines, at one record, one level list and one subject. -/
+def VEnv.ProjSpineCongr (env : VEnv) (U : Nat) : Prop :=
+  ∀ {Γ : List VExpr} {D : VInductDecl'} {T : VIndType} {C : VIndCtor} {us : List VLevel}
+    {ps₁ ps₂ ιs₁ ιs₂ : List VExpr} {i : Nat} {e : VExpr},
+    OnCtx Γ (env.IsType U) →
+    List.Forall₂ (env.IsDefEqU U Γ) ps₁ ps₂ → List.Forall₂ (env.IsDefEqU U Γ) ιs₁ ιs₂ →
+    VExpr.WF env U Γ (D.projTerm T C us ps₁ ιs₁ i e) →
+    env.IsDefEqU U Γ (D.projTerm T C us ps₁ ιs₁ i e) (D.projTerm T C us ps₂ ιs₂ i e)
+
+/-- **`ProjDataCongr` from the spine residual.**  Two steps: `projTerm_defeq_of_levels` moves
+the records and the universe arguments (this is where `StructureUniq` and `EqUpToLevels` are
+spent), then `ProjSpineCongr` moves the spines. -/
+theorem VEnv.ProjSpineCongr.projDataCongr {env : VEnv} {U : Nat} (henv : VEnv.WF env)
+    (hwf : ∀ {Γ : List VExpr} {s : Lean.Name} {i : Nat} {e e' : VExpr},
+      OnCtx Γ (env.IsType U) → TrProj env U Γ s i e e' → VExpr.WF env U Γ e →
+      VExpr.WF env U Γ e')
+    (H : env.ProjSpineCongr U) : env.ProjDataCongr U := by
+  intro Γ S i e e₁' e₂' hΓ H1 H2
+  have H1' := H1
+  obtain @⟨_, D₁, T₁, C₁, us₁, ps₁, ιs₁, _, _, _, HS₁, hty₁, _, hnp₁, _, hi₁, hu₁, hA₁, hB₁, hF₁⟩ :=
+    H1
+  obtain @⟨_, D₂, T₂, C₂, us₂, ps₂, ιs₂, _, _, _, HS₂, hty₂, _, hnp₂, _, hi₂, hu₂, hA₂, hB₂, hF₂⟩ :=
+    H2
+  -- what the two derivations can disagree about
+  obtain ⟨-, hag, hlv, hus, hps, hιs⟩ :=
+    HS₁.projData_uniq henv hΓ HS₂ hty₁ hty₂ hnp₁ hnp₂ (.refl ⟨_, hty₁⟩)
+  -- the level side conditions, read off the derivation's own typing
+  have hlwf := hty₁.levelWF (VEnv.CtxStrong.strong henv.ordered hΓ).levelWF
+  have hspine := (VExpr.levelWF_mkApp.1 hlwf.2.2).2
+  obtain ⟨X, hX⟩ := hwf hΓ H1' ⟨_, hty₁⟩
+  -- step 1: move the records and the universe arguments
+  have step1 : env.IsDefEqU U Γ (D₁.projTerm T₁ C₁ us₁ ps₁ ιs₁ i e)
+      (D₂.projTerm T₂ C₂ us₂ ps₁ ιs₁ i e) :=
+    D₁.projTerm_defeq_of_levels henv hΓ hag hlv hu₁ hu₂ hus
+      (fun p hp => hspine _ (List.mem_append.2 (.inl hp)))
+      (fun x hx => hspine _ (List.mem_append.2 (.inr hx))) hlwf.1 hX
+  -- step 2: move the spines
+  exact step1.trans henv hΓ
+    (H hΓ hps hιs ⟨_, (step1.of_l henv hΓ hX).hasType.2⟩)
+
+/-- **`TrProj.uniq` from the spine residual, in one statement.**  This is the whole reduction
+chain of this file composed: spines ⟶ data (`projDataCongr`) ⟶ subject+data
+(`ProjDataCongr.projTermCongr`) ⟶ `TrProj.uniq` (`uniq_of_projTermCongr`).
+
+So `TrProj.uniq` — modulo `TrProj.wf`, which is already proved downstream — is *exactly*
+`VEnv.ProjSpineCongr`: congruence of `projTerm` in its parameter and index spines, at one
+record, one level list and one subject. -/
+theorem TrProj.uniq_of_projSpineCongr {env : VEnv} {U : Nat} {Γ₁ Γ₂ : List VExpr}
+    {s₁ s₂ : Lean.Name} {i : Nat} {e₁ e₂ e₁' e₂' : VExpr} (henv : VEnv.WF env)
+    (hwf : ∀ {Γ : List VExpr} {s : Lean.Name} {i : Nat} {e e' : VExpr},
+      OnCtx Γ (env.IsType U) → TrProj env U Γ s i e e' → VExpr.WF env U Γ e →
+      VExpr.WF env U Γ e')
+    (H : env.ProjSpineCongr U) (hΓ : env.IsDefEqCtx U [] Γ₁ Γ₂)
+    (H1 : TrProj env U Γ₁ s₁ i e₁ e₁') (H2 : TrProj env U Γ₂ s₂ i e₂ e₂')
+    (hdf : env.IsDefEqU U Γ₁ e₁ e₂) :
+    env.IsDefEqU U Γ₁ e₁' e₂' :=
+  TrProj.uniq_of_projTermCongr henv hΓ
+    (VEnv.ProjDataCongr.projTermCongr henv hwf
+      (VEnv.ProjSpineCongr.projDataCongr henv hwf H)) H1 H2 hdf
+
+/-! ### What the eventual prover of `ProjSpineCongr` may use
+
+`ProjSpineCongr` as stated assumes only that **one** side is well typed.  That is deliberately
+the weakest hypothesis that can work — `VEnv.IsDefEq.mkAppDF`
+(`Theory/Inductive/StructureClosed.lean`) needs a `HasArgsDF` at the recursor's telescope, and
+the telescope itself can be dug out of that one typing with `VEnv.HasType.mkApp_arg` /
+`HasType.mkApp_inv` (`Theory/Typing/SpineInv.lean`), turning the left `HasArgs` into
+`HasArgsDF` by `HasType.defeqU_r` against the pointwise spine equalities.
+
+If that turns out to be awkward, the residual may be *weakened* freely: at the only use site
+(`projDataCongr` above) both sides come from real `TrProj` derivations at the same record, so
+all ten `TrProj.mk` fields are available for each side — `IsStructure S D T C`, `i <
+C.fields.length`, `∀ l ∈ us, l.WF U`, both length equations, `HasType e ((const S us).mkApp
+(ps ++ ιs))`, both `HasArgs`, and F17 — and `VEnv.IsStructure.projData_uniq` additionally
+hands over `StructureAgree`.  Adding any of these to `ProjSpineCongr` costs the reduction only
+the corresponding `us₁ → us₂` transports, which `projTerm_defeq_of_levels`' own ingredients
+(`EqUpToLevels` + `HasType.defeqU_r`) already supply. -/
+
+/-- Satisfiability check on the residual's *shape*: on the diagonal it is reflexivity, so
+nothing about the argument order or the direction of the conclusion is false-by-typo.  (The
+hypotheses are non-vacuous for the reason recorded in §6: `TrProj` derivations exist.) -/
+theorem VInductDecl'.projSpineCongr_diag {env : VEnv} {U : Nat} {Γ : List VExpr}
+    {D : VInductDecl'} {T : VIndType} {C : VIndCtor} {us : List VLevel} {ps ιs : List VExpr}
+    {i : Nat} {e : VExpr} (h : VExpr.WF env U Γ (D.projTerm T C us ps ιs i e)) :
+    env.IsDefEqU U Γ (D.projTerm T C us ps ιs i e) (D.projTerm T C us ps ιs i e) :=
+  VEnv.IsDefEqU.refl h
+
+/-! ## 6. Non-vacuity
 
 `ProjTermCongr` is not trivially satisfiable-by-accident and not trivially false:
 
