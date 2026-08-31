@@ -788,9 +788,11 @@ theorem parRedK_weakN_invP (HK : KStepLiftInvP) (HP : PiTypeDescend) (HT : KStep
     obtain ⟨b', hb1, hbn⟩ := ih2 hΓ' W ha rfl
     refine ⟨t'.inst b', .beta ht1 hb1, ?_⟩
     rw [liftN_inst_hi]
-    refine (NormalEq.instN (hp2.hasType hΓ' ha) .zero htn).trans hΓ' ?_
-    exact NormalEq.instN_r (by exact ⟨hΓ', _, hD⟩) (hp2.hasType hΓ' ha) hbn .zero
-      ((ht1.weakN W.succ).hasType (by exact ⟨hΓ', _, hD⟩) hb)
+    -- `NormalEq.instN₂` in place of `instN` + `instN_r` + `trans`: one substitution step that
+    -- moves *both* sides at once, so the `NormalEq.trans` (hence `IsDefEqU.weakN_iff`) entry
+    -- this composition used to carry is gone from here.  Measured: it does not clear
+    -- `weakN_iff` from `parRedK_weakN_invP`, whose `extra` case calls it directly.
+    exact NormalEq.instN₂ (hp2.hasType hΓ' ha) hbn htn (by exact ⟨hΓ', _, hD⟩) .zero
   | @extra Γ' p r e0 m1 m2 m2' hpat hm hck hstep ih =>
     intro k Γ e1 A hΓ' W h eq
     subst eq
@@ -1040,9 +1042,11 @@ theorem parRedK_weakN_invPS (HK : KStepLiftInvP) (HP : PiTypeDescend) (HT : KSte
     refine ⟨t'.inst b', .tail (ParRedKS.app (ParRedKS.lam .rfl ht1) hb1)
       (.beta ParRedK.rfl ParRedK.rfl), ?_⟩
     rw [liftN_inst_hi]
-    refine (NormalEq.instN (hp2.hasType hΓ' ha) .zero htn).trans hΓ' ?_
-    exact NormalEq.instN_r (by exact ⟨hΓ', _, hD⟩) (hp2.hasType hΓ' ha) hbn .zero
-      ((ht1.weakN W.succ).hasType (by exact ⟨hΓ', _, hD⟩) hb)
+    -- `NormalEq.instN₂` in place of `instN` + `instN_r` + `trans`: one substitution step that
+    -- moves *both* sides at once, so the `NormalEq.trans` (hence `IsDefEqU.weakN_iff`) entry
+    -- this composition used to carry is gone from here.  Measured: it does not clear
+    -- `weakN_iff` from `parRedK_weakN_invP`, whose `extra` case calls it directly.
+    exact NormalEq.instN₂ (hp2.hasType hΓ' ha) hbn htn (by exact ⟨hΓ', _, hD⟩) .zero
   | @extra Γ' p r e0 m1 m2 m2' hpat hm hck hstep ih =>
     intro k Γ e1 A hΓ' W h eq
     subst eq

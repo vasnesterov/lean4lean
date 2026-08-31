@@ -834,7 +834,33 @@ the three facts a next round would otherwise re-derive are:
   measured with `hole-cone`-style `deps`, that cone is 7893 constants and contains neither
   `TrProj.weak'_inv` nor `TrExprS.weakFV'_inv`, because `kernel_sound`'s value is still
   `sorryAx`.  It *is* on `Lean4Lean.addDecl.WF`'s cone (20307 constants), which is the intended
-  route.  Its sole direct user is still `TrExprS.weakFV'_inv`, and nothing else. -/
+  route.  Its sole direct user is still `TrExprS.weakFV'_inv`, and nothing else.
+
+**Update 7: the two-gate verdict is right about its facts and wrong about its conclusion.  The
+residual is a *strengthening* statement, it is now stated, and this lemma is proved from it.**
+`Verify/Typing/ProjWeakInv.lean` states
+
+    `VEnv.ConstAppTypeStrengthen` — if `Γ' ⊢ e.lift' l : (.const c us).mkApp as` then
+    `Γ ⊢ e : (.const c us').mkApp as'` for some `us' ≈ us` pointwise and some `as'` of the
+    same length
+
+and proves **this lemma's exact statement** from it (`TrProj.weak'_inv_of_strengthen`), adding
+nothing and narrowing nothing.  Measured hole cone: 3661 constants, holes `IsDefEqU.weakN_iff`,
+`IsDefEqU.forallE_inv_stratified`, `WF.rigidShapeUniqNS` — **no `ConstRigidPat`, no `WeakNorm`,
+no `NormalEq.descend`**, and every hole it does carry is one `TrProj.wf` or `TrProj.uniq`
+already carries.  Update 6's two facts stand and were re-measured: an environment-wide scan of
+declaration *types* finds `VEnv.ConstRigidPat` in exactly one theorem (`constRigidPat_of_weakNorm`),
+and the `WeakNorm` refutations carry `[propext, Classical.choice, Quot.sound]`.  What is new is
+that they no longer decide this lemma: (C) is *sufficient* for the shape step, not necessary —
+it asks for a weak-head reduct of an arbitrary subject, while all that is wanted here is a
+**definitional equation in the smaller context**, for a subject that is a *lift*.
+
+Also measured there, and worth not rediscovering: `IsDefEqU.weakN_iff` enters this lemma through
+**exactly one step**, `OnCtx.weak'_inv`, recovering the well-formedness of the smaller context.
+The `TrProj.weak'_inv_of_strengthen_onCtx` variant, which takes `OnCtx Γ` instead, has cone 3628
+and does **not** carry the strengthening hole at all — so gate 1 is real (the sole consumer,
+`TrExprS.weakFV'_inv`, carries `VLCtx.WF` for the *larger* context only) but it is one
+bookkeeping step, not a mathematical obstruction inside the projection data. -/
 theorem TrProj.weak'_inv (henv : VEnv.WF env) (hΓ' : OnCtx Γ' (env.IsType U))
     (W : Ctx.Lift' l Γ Γ') (H : TrProj env U Γ' s i (e.lift' l) e') :
     ∃ e'', TrProj env U Γ s i e e'' := sorry
