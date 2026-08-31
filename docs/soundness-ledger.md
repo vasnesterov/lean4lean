@@ -216,7 +216,7 @@ impredicativity and it is what makes the bound tight rather than merely finite.
 |---|---|---|
 | `interp_liftN` (weakening) | `bvar`, `eta` | **proved** |
 | `interp_inst` (substitution) | `appDF` part 3, `beta` | **proved** |
-| `AgreeInst` entanglement | `beta` | **hypothesis by design** — satisfiability **unmeasured**; `docs/vacuity-ledger.md` §6 |
+| `AgreeInst` entanglement | `beta` | **hypothesis by design, and measured** — `agreeInst_zero` (`SetModel/InterpSound.lean:166`) exhibits the witness `snoc ρ ⟦e'⟧ρ`; `beta_sound` builds the meaningful pair (`AgreeInst` ∧ `ρ₁ ∈ interpCtx Γ₁`) from it, conditional on `h3e'`. `docs/vacuity-ledger.md` row 22 |
 | ~~`LevelAssign.lvl_congr` / `srt_congr`~~ | every congruence case | **the parameter is gone** — `LevelAssign` as stated is `IsEmpty` (`no_levelAssign`). Live: `PropSplit`, measured satisfiable and non-trivial (`exists_propSplit`, `propSplit_not_constant`) |
 | `PropSplit.Stable` (was `LevelAssign.Stable`) | `bvar`, `beta`, `eta`, `appDF` | hypothesis, **measured**: the unguarded form was unsatisfiable (`no_stable`); the guarded one is satisfiable and *exactly* characterised (`exists_stable_propSplit`, `propSplitOf_stable_iff`) |
 | `CtxInvariant` (context conversion) | `lamDF`, `forallEDF` | hypothesis, **measured**: trivially satisfiable ALONE (take `R := Eq`), so only the pair with `hRd` means anything — and that pair is machine-checked consistent (`ctxInvariant_prop_agrees`) |

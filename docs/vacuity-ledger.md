@@ -1,9 +1,9 @@
 # The vacuity ledger
 
 *Written 2026-08-31, after four instances of the same failure mode turned up in one round, and
-a survey then found four more already refuted elsewhere in the tree. Twenty-one statements are
+a survey then found four more already refuted elsewhere in the tree. Twenty-two statements are
 now measured; eight are vacuous, near-vacuous or false, three are refuted outright, two routes
-are dead, and eight are bounded or acquitted.*
+are dead, and nine are bounded or acquitted.*
 
 ## 0. Why this file exists
 
@@ -130,6 +130,7 @@ Every row is backed by a **proved** lemma in the tree, not an argument in a docs
 | 19 | `Bridge.AddDeclWF` (`Verify/Bridge.lean:132`) | **false**, and `Bridge.addDeclWF` (:138) is a *proved theorem* of it — a second instance of §4a, on a shorter path than row 2's | `addDeclWF_false` (`Verify/PreludeVacuity.lean`) | **yes** |
 | 20 | `AddInductiveStepWF`'s premise `ves.WF env` | **near-vacuous** — applicable only to the *first* inductive block, because `no_inductInfo` holds even at `.unsafe`, so `ves.WF env` requires an environment with no inductive at all | `VEnvs.WF.find?_ne_inductInfo` (`Verify/Inductive/AddInductiveStep.lean:213`) | **yes** |
 | 21 | the nested rebuild inside `Environment.addInductive` | **unreachable** under row 20's premise: `numNested` is forced to `0`, so `mkAuxRecNameMap`, `restoreNested`, `processRec` and three re-check passes are dead code there | `run_run'_aux2nested`, `replaceAllNested_id` (same file) | **yes** |
+| 22 | `AgreeInst` (Carneiro's entanglement) | **satisfiable, and the meaningful pair is inhabited** — same shape as row 16: `AgreeInst` alone says little, and what matters is `AgreeInst` together with `ρ₁ ∈ interpCtx Γ₁` | `agreeInst_zero` (`Theory/SetModel/InterpSound.lean:166`) exhibits the witness `snoc ρ ⟦e'⟧ρ`; `beta_sound` (:183) builds the pair from it with `mem_interpCtx_cons`, conditional on `h3e'` — part 3 for the substituted term, i.e. the entanglement stated as an explicit hypothesis rather than assumed | n/a |
 
 Rows 1–5 are one bug. Rows 6, 7, 14 and 15 are independent of it, and that is the ledger's main
 finding: **the failure mode is not confined to `AddInduct`.** It recurred in the abstract theory
@@ -295,7 +296,8 @@ were found the moment anyone looked.
   checker `.WF` holes. Row 13 says the functions never fire today, so these three are
   vacuity-adjacent by construction: they will only acquire content after the flip.
 - `docs/soundness-ledger.md`'s "Full ingredient list". Row 6 was found in it, so at least one
-  entry marked available was not satisfiability-checked. Its three entries marked *hypothesis*
+  entry marked available was not satisfiability-checked. Note that this bullet listed `AgreeInst`
+  as unmeasured and **that was wrong** — see row 22, and the process note below. Its three entries marked *hypothesis*
   — `AgreeInst` entanglement, `Stable`, `CtxInvariant` — are in fact all covered (rows 16–18 and
   §5a), and its `LevelAssign` rows are stale by rows 7/14. **The file needs re-marking against
   this ledger**, and the remaining unchecked entries identified rather than assumed.
@@ -355,6 +357,15 @@ the flip that would actually unblock `kernel_sound`:
    `DeltaUnique.lean`'s `WF'.keys` chain, and re-point `PatternRules.lean`'s `Pat.iota_data_uniq`
    at `Pat.iota_rule_uniq_keyUnique` (a hypothesis reshuffle — the two `types[j]? = some T`
    hypotheses it needs are already at the call site).
+
+**A second process note, and it is the same failure twice.** I listed `AgreeInst` satisfiability
+as unmeasured in this file's first draft. `agreeInst_zero` (`InterpSound.lean:166`) already
+exhibits the witness and `beta_sound` already builds the pair with it — row 22. Combined with
+item 4 below, that is **two claims of "open" in one day that were already closed in the tree**,
+both from trusting a summary instead of reading the code. The rule is the same one item 4 produced
+and it now applies to this file as much as to any docstring: **read the code before recording
+something as open.** An instrument that overstates the work left is not conservative, it is just
+wrong in the direction that wastes effort.
 
 **A process note, from getting item 4 wrong.** I read `NestedOrdered.lean:170`'s docstring —
 "it is the second of the two obligations that the `inductNested` rule waits on" — took it at face
