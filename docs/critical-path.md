@@ -254,6 +254,44 @@ discharges its clauses (1), (2) and (3) — sort inversion, Π inversion, sort/�
 `RigidSortPiDisj` are **three instances of one fact — a κ-normal rigid head has no reduct of another
 shape — plus Church–Rosser.** One prerequisite, three consumers.
 
+**SUPERSEDED, 2026-09-01 (later): `KDiamond` ITSELF IS FALSE, and so is M3 — but the rule table is
+not at fault.** The canonical `.app`-pattern instance now exists
+(`Lean4Lean/Verify/QuotAppParams.lean`, `quotParams := paramsOfPiInv quotVEnv_wf 0 (piInv_axiom _)`),
+and at it:
+
+* `quotParams_not_patMajorCanonical` and `quotParams_not_kDiamond` — **both false.** The witness:
+  `quotRHS` is `g x` for the *matched* argument, so two matches at the same function side already
+  differ syntactically (`quotRHS_depends_on_match`, `sorryAx`-free). Take major premises
+  `Quot.mk α r x` and `Quot.mk α r ((fun y => y) x)` — definitionally equal **by β**, both typed
+  `Quot.{1} α r`. M3 then demands `NormalEq (g x) (g ((fun y => y) x))`, and **`NormalEq` has no β
+  step**. The same witness gives one redex, two `K⁺` steps, two reducts, refuting `KDiamond` — the
+  very object `kDiamond_of_patMajorCanonical` reduces confluence *to*.
+* **The rule table is not the defect.** `quotParams_kDiamond_joinable`: the two reducts are joinable
+  in **one β-step**. So the joinability shape `KEta.lean`'s `EtaKDiamond` already uses survives, and
+  what fails is `KDiamond`/M3 **demanding `NormalEq` of reducts on the nose**. *The repair is a
+  restatement to joinability, not a new `Params` field and not a rule-table property.*
+* **Both refutations are reachable there**, and the stated reason they could not be is false.
+  `quotParams_not_parRedStatement` and `quotParams_not_crStatement` are `NormalEq.parRed`'s and
+  `IsDefEq.church_rosser`'s statements *verbatim*. The blocker on record — "`Quot.mk r a` is not a
+  proof of a `Prop`, so this needs an `addInduct'` witness (the `Eq.rec` shape)" — is wrong:
+  `quotConst.type` is `(α : Sort u) → (α → α → Prop) → Sort u`, so at `u = 0`, `Quot.{0} α r` **is**
+  a proposition while `β` stays in `Type 0`. The quotient rule supplies the shape by itself. The
+  missing ingredient was never the pattern; it was `hne`, a `¬IsProof` fact, which
+  `WF.propTypeAgreeOn` supplies.
+* **Conditional, and it must not be quoted otherwise.** All four results carry `sorryAx`, with direct
+  sorry sites exactly `IsDefEqU.forallE_inv_stratified` and `WF.rigidShapeUniqNS`. So ledger row 33's
+  grade moves from *"refuted only at an instance that does not exist"* to **"refuted at an instance
+  conditional on the injectivity corner"** — not unconditional.
+* **Two consumers need reshaping, not just noting.** `KEtaDiamond.etaKDiamondAt_of_kDiamond` is a
+  true implication whose premise is now known false at a concrete instance, so it needs the
+  joinability form first. And the four `IsDefEq.church_rosser` call sites in
+  `Verify/Typing/ConstSpine.lean` and `Verify/Typing/Rigidity.lean` rest on a statement false in the
+  same sense — root cause the known one (`ParRed` lacks the K-step, so `.app f (.bvar 0)` is
+  `ParRed`-normal while defeq to `g x`, and joinability collapses to `NormalEq` between two normal
+  terms), i.e. ledger row 78b's `ParRed → ParRedK` repair, now with a reachable witness.
+
+**What the paragraph below claimed, kept for the record.**
+
 **And Church–Rosser reduces to one named property of the rule table.**
 `ParRedCycle.kDiamond_of_patMajorCanonical` (`[propext, Quot.sound]`, `Classical.choice`-free)
 derives `KDiamond` from `PatMajorCanonical`, which mentions only `Params.Pat`,

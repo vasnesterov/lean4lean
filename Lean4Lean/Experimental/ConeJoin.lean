@@ -141,6 +141,8 @@ import Lean4Lean.Theory.Typing.ParRedMissing  -- 2026-09-01: what ParRed lacks, 
 import Lean4Lean.Theory.Typing.ParRedCycle  -- 2026-09-01: the cycle is essential, no grading helps, and the confluence layer reduces to M3 (PatMajorCanonical)
 import Lean4Lean.Theory.Typing.PatAppParams  -- 2026-09-01: first Params instance registering .app patterns (appParams); PatMajorCanonical true and non-vacuous there; KStep.stuck_fires closed
 import Lean4Lean.Verify.Inductive.TrIndDeclNCtorOwn  -- 2026-09-01: TrIndDeclN.ctorName_own -- producer side for all three paths, six-consumer audit, RestoreData.ctor's prefix half
+import Lean4Lean.Verify.QuotAppParams  -- 2026-09-01: canonical .app-pattern instance (quotParams, one PiInv away); M3 and KDiamond FALSE there; parRed/church_rosser refutations reachable
+import Lean4Lean.Theory.Typing.KEtaDiamond  -- 2026-09-01: the lambda-congruence induction; the eta-half reduces to injectivity, not the rule table
 
 /-!
 # Acceptance test: the `PatternRules` cone and the `Verify/` cone join
