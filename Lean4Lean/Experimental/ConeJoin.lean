@@ -132,6 +132,7 @@ import Lean4Lean.Theory.Typing.StrengthenInhabGate  -- 2026-09-01: the typing ha
 import Lean4Lean.Verify.Inductive.NestedOccData      -- 2026-09-01: OccResidue reduced to member+occurs; head and ctorName_inv closed in general
 import Lean4Lean.Verify.Inductive.NestedRunInvariant -- 2026-09-01: MWF, the nested-branch M calculus with the state invariant a parameter
 import Lean4Lean.Theory.Typing.InjPiRogue  -- 2026-09-01: Pi-side rogue Ordered env; ConvPiFromEntry is FALSE at Ordered strength, so the localisation program must consume VEnv.WF
+import Lean4Lean.Theory.SetModel.UnitOracleWitness  -- 2026-09-01: the .induct residual at a WF block with NO empty domain; the frontier is isLE, not Prop
 
 /-!
 # Acceptance test: the `PatternRules` cone and the `Verify/` cone join

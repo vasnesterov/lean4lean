@@ -225,7 +225,7 @@ impredicativity and it is what makes the bound tight rather than merely finite.
 | `piProp_mem_UProp` | part 1, `forallE` case | **proved** |
 | validity (`Γ ⊢ e : A → IsType Γ A`) | `appDF`, to level the `∀` | available, `Theory/Typing/` |
 | `function_eq_graph` (a function is its graph) | `eta` | **proved** |
-| `SetModel.CoherentOn` (there is no `ModelData.Coherent`) | `constDF`, `extra` | **CONSTRUCTED, in two places** — `CoherentWitness.coherentOn_witness` (closed witness, arbitrary `L`, all four fields non-vacuous) and `CnstRecursion.coherentOn_cnstOf` (the full `VEnv.WF'` recursion, six of seven `VDecl` forms discharged). This row said "construction open" for months and was **stale**. The open items are `InductOracleOK` alone — now a **two**-field structure, its deleted third field `staged` having been false at ordinary blocks (`not_stagedField_boxDecl`) and replaced by the theorem `stagedOcc_allConsts`; bounded field by field in `InductOracleAudit.lean` §5, where `consts`'s positive bound at a `WF` block is still open. `AxiomsValidated` is no longer open: its only content was `hκ`, closed by `InaccChainOmega.exists_inaccessibleChain_omega`. Caveat worth knowing: `coherentOn_witness`'s environment is reachable only via `VDecl.unsafeDef`, which `VDecl.noUnsafe` forbids and `coherentOn_cnstOf` refuses, so it certifies coherence at an environment the soundness induction never visits; `axEnv_wf` (`SetModel/CoherentConstShape.lean`) supplies a `VEnv.WF`, `.axiom`-produced, rule-free one instead |
+| `SetModel.CoherentOn` (there is no `ModelData.Coherent`) | `constDF`, `extra` | **CONSTRUCTED, in two places** — `CoherentWitness.coherentOn_witness` (closed witness, arbitrary `L`, all four fields non-vacuous) and `CnstRecursion.coherentOn_cnstOf` (the full `VEnv.WF'` recursion, six of seven `VDecl` forms discharged). This row said "construction open" for months and was **stale**. The open items are `InductOracleOK` alone — now a **two**-field structure, its deleted third field `staged` having been false at ordinary blocks (`not_stagedField_boxDecl`) and replaced by the theorem `stagedOcc_allConsts`; bounded field by field in `InductOracleAudit.lean` §5. `consts`'s positive bound at a `WF` block is closed twice: at `boxDecl` by emptiness (`inductOracleOK_zero`) and at `inductive Unit1 : Prop | mk` with **no** empty domain (`inductOracleOK_unit`, `SetModel/UnitOracleWitness.lean`); the `rules`-negative cell is bounded tighter but **not** closed (`not_defEqOK_falseType`; the cell's wording is probably unachievable — see §"Boundary control"). What is open is the **large** eliminator (`isLE := true`). `AxiomsValidated` is no longer open: its only content was `hκ`, closed by `InaccChainOmega.exists_inaccessibleChain_omega`. Caveat worth knowing: `coherentOn_witness`'s environment is reachable only via `VDecl.unsafeDef`, which `VDecl.noUnsafe` forbids and `coherentOn_cnstOf` refuses, so it certifies coherence at an environment the soundness induction never visits; `axEnv_wf` (`SetModel/CoherentConstShape.lean`) supplies a `VEnv.WF`, `.axiom`-produced, rule-free one instead |
 | `IsDefEqU.sort_inv` | ~~packaged as `LevelAssign`~~ — that packaging is refuted; see the correction below | **open**, one `sorry` |
 | `IsDefEqU.forallE_inv` | — | **not needed** |
 | `IsDefEqU.sort_forallE_inv` | — | **not needed** |
@@ -2956,13 +2956,61 @@ Boundary control on the residual, both sorry-free, both in the same file:
   `fun _ _ ↦ ∅`, which makes `axiom Ext : Prop` **false** in the model, so every declared
   type is a `∀` over an **empty** domain (`interp_param_zero_eq_empty`). What is therefore
   still open is sharper than before: `consts` at a `WF` block all of whose parameter and
-  index domains are *inhabited* — `inductive Unit1 : Prop | mk` is the smallest, and its
-  recursor needs a real `mkLam`, i.e. `IndInterp.lean`'s work. The three enabling lemmas
-  (`mkLam_eq_empty_of_empty`, `interp_lam_of_empty_dom`,
+  index domains are *inhabited* — `inductive Unit1 : Prop | mk` is the smallest. The three
+  enabling lemmas (`mkLam_eq_empty_of_empty`, `interp_lam_of_empty_dom`,
   `pt_mem_interp_forallE_of_empty_dom`) carry **no typing hypotheses at all**: `interp`'s
   `lam`/`forallE` clauses branch on the decidable syntactic `L.IsProof` / `L.IsProp`, so
   both branches are taken directly, and `pt = ∅` makes the propositional witness and the
   empty function the same element.
+* **And now with no empty domain anywhere** — `SetModel/UnitOracleWitness.lean`'s
+  `inductOracleOK_unit : InductOracleOK L κ ls (unitOracle V) (unitOracle V) unitDecl`,
+  at `unitDecl = inductive Unit1 : Prop | mk`, which is `VInductDecl'.WF` over
+  **`VEnv.empty`** (`unitDecl_WF`, no ambient constant needed) on the one-declaration
+  history `unitDecl_history`. The oracle is `Unit1 ↦ {•}`, everything else `↦ •`, so the
+  type former's denotation is **nonempty** (`interp_Unit1_ne_empty`); the block has no
+  parameter and no index telescope at all (`unitDecl_params_nil`, `unitTy_indices_nil`), so
+  the empty-domain mechanism has nothing to act on. All three of the recursor's binder
+  domains are inhabited, and the two inner quantifiers are non-vacuous:
+  `exists_true_motive` exhibits an `f ∈ ⟦Unit1 → Prop⟧` with `f ‘ • = {•}`, and
+  `exists_nonempty_minor_domain` exhibits the resulting nonempty minor-premise domain.
+  `Above`-free at an arbitrary `κ`: `mem_interp_consts_unit`, `defEq_rules_unit`.
+  `oracleFits_unit` extends it to `[.induct unitDecl]`.
+* **Correction to the previous bullet's forecast.** It said this case "needs a real
+  `mkLam`, i.e. `IndInterp.lean`'s work". **It does not.** With `isLE := false` the whole
+  of `recType 0` is a proposition (`hasType_recB1`, sort `imax 0 (imax 0 0)`), so `interp`
+  takes the impredicative `mkForallProp` branch at every binder and the oracle can hand
+  `Unit1.rec` the value `•`; the membership is three `mem_interp_forallE_prop_iff` steps
+  closed by `U₀`-irrelevance (`eq_empty_or_eq_true_of_mem_UProp`), and the ι-rule's two
+  sides are both `•` because their bodies are *proofs* (`isProof_iotaLhsLam`,
+  `isProof_iotaRhsLam`), so `interp_lam_proof` settles it. No fixed point, no `mkLam` nest,
+  no `IndInterp.lean`.
+* **The frontier is therefore `isLE := true`, not `Unit1 : Prop`.** Real Lean declares the
+  *large* eliminator for `Unit1` (it is a subsingleton) and `VInductDecl'.WF` permits it:
+  `unitDeclLE_LECond` holds, vacuously, because the constructor has no fields. At
+  `isLE := true` the recursor gains a universe parameter (`unitDeclLE_recUvars = 1`,
+  `unitDeclLE_elimLvl = .param 0`), so for an instantiation with `u.eval ls ≠ 0` the
+  innermost binder is not propositional, `interp` takes `mkForallType`, and `•` is **not**
+  a legal value — `pt_not_mem_mkForallType_of_nonempty`, because the domain `{•}` is
+  nonempty. *That* is where the three-layer `mkLam` nest and the ι-rule's β-computation are
+  needed, and it is open.
+* **The `hle` hypothesis costs nothing.** Every branch decision above is read off a typing
+  derivation in `unitEnv` via `isProp_iff`/`isProof_iff`, so §5–§6 carry
+  `hle : unitEnv ≤ envF` — the same hypothesis `QuotInterp.lean` carries for the four
+  quotient constants. It is not a strengthening: `coherentOn_cnstOf` threads `env ≤ envF`
+  through every declaration step, and at `[.induct unitDecl]` that `env` **is** `unitEnv`
+  (`eq_unitEnv_of_wf'`), so `oracleFits_unit_at_consumer` discharges the step from the
+  recursion's own hypotheses with no `hle` in its statement.
+* **`InductOracleAudit.lean` §5's `rules`-negative cell: bounded tighter, NOT closed.**
+  `not_defEqOK_falseType` refutes `DefEqOK` at a `VDefEq` whose equated type is `falseProp`,
+  given `hκ`. The cell asks for "an ι-rule of a `WF` block known to be refutable", and this
+  is **not** that: it refutes the field's *body* at a `VDefEq` of one's own choosing, since
+  `iotaRules` is derived and a `D` carrying such a rule is not freely constructible. And the
+  cell as worded is probably asking for something that must not exist — a `WF` block's
+  ι-rules are well typed (`addInduct_WF`), so a correct model must satisfy `DefEqOK` at every
+  one of them, and a refutation there would refute the model rather than bound the residual.
+  **Recommendation: reword the cell** to "the field's body is refutable", which
+  `not_defEqOK_falseType` discharges. That is a change to `InductOracleAudit.lean`'s §5 table
+  and has not been made.
 
 ### H2 after this: a reduction, not a closure
 

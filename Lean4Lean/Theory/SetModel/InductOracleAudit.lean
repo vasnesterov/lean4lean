@@ -309,7 +309,7 @@ field that is false, so record the two remaining fields separately.
 | field | not trivially true | satisfiable |
 |---|---|---|
 | `consts` | `not_inductOracleOK_falseProp` (`CnstRecursion.lean`) — a block declaring a constant of type `∀ p : Prop, p` | **`inductOracleOK_zero`** at `boxDecl` (`SetModel/InductOracleWitness.lean`), a `WF` block on a certified history; also free at any block with no type formers (`inductOracleOK_empty`, `empty_block_allConsts`) |
-| `rules` | open — no ι-rule of a `WF` block is known to be refutable | **`inductOracleOK_zero`** at `boxDecl`'s one ι-rule; also free at any block whose types have no constructors (`iotaRules_eq_nil`) |
+| `rules` | open — the field's **body** is refutable (`not_defEqOK_falseType`, at a `VDefEq` of our choosing), but no ι-rule of a `WF` block is. **Reworded 2026-09-01: the previous wording asked for the wrong thing.** A `WF` block's ι-rules are well typed, so a correct model *must* satisfy `DefEqOK` at each of them — a refutation there would refute the model, not the field. The honest control is refutability of the body, which is what we have | **`inductOracleOK_zero`** at `boxDecl`'s one ι-rule; also free at any block whose types have no constructors (`iotaRules_eq_nil`) |
 
 **Update 2026-09-01: the "at a `WF` block" gap in the right-hand column is closed.**  Both
 entries in the "not trivially true" column, and `inductOracleOK_empty`, are still at blocks

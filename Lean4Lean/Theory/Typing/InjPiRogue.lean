@@ -1,4 +1,6 @@
 import Lean4Lean.Theory.Typing.InjPiInhab
+import Lean4Lean.Theory.Typing.DeltaUnique
+import Lean4Lean.Theory.Typing.PatternRules
 
 /-!
 # `ConvPiFromEntry` is not provable over `Ordered env`, and the barrier claimed against the
@@ -113,6 +115,73 @@ Any other separation must survive `IsDefEqStrong.beta`, which can turn an applic
 (`.app (.lam _ (.bvar 0)) (∀ (_ : Prop), Prop) ≡ ∀ (_ : Prop), Prop`), so a head- or
 occurrence-counting invariant cannot be β-stable: separating two terms here is a normalisation
 or model obligation, not a syntactic one.  That is why the residual is left named.
+
+
+## Round 2 (2026-09-01): the `VEnv.WF` clause is TRUE, and it was already a theorem
+
+The first version of this file flagged `[analysis]`: "`RuleShape.delta` pins a δ-rule's lhs to
+`.const ci.name _` and `addConst` refuses a duplicate name, so a `VEnv.WF` environment cannot
+carry two δ-rules for one constant — a statement about `VEnv.WF'`'s history, not machine-checked
+here."  **It is true, and it did not need proving: `DeltaUnique.WF.defEqHeadsUnique` is exactly
+it** (`Theory/Typing/DeltaUnique.lean`, `sorryAx`-free; `Classical.choice` only, from
+`WF.choose_spec`).  Missing it was my error, not a gap in the tree — `DeltaUnique.lean`'s whole
+Part I is this invariant, run as a `WF'` induction on the conjunction with `DefEqHeadsDeclared`
+because neither half goes through alone.  So the flag is retired and replaced by
+
+    not_defEqHeadsUnique_roguePiEnv : ¬ roguePiEnv.DefEqHeadsUnique
+    not_wf_roguePiEnv               : ¬ VEnv.WF roguePiEnv          (§8)
+
+`roguePiEnv` is `Ordered` and **not** `VEnv.WF`, both machine-checked.  The refutation therefore
+does not extend to `VEnv.WF`, and the hypothesis that repairs the statement is named.
+
+### The boundary is one link, not zero (§9)
+
+`def rogueC : Sort 1 := ∀ (_ : Prop), Prop` is an ordinary pure declaration, so
+`wfPiEnv := roguePiEnv` *minus its second rule* is well-formed (`wf_wfPiEnv`, built as a genuine
+`VDecl.WF.def` step over `∅`) and still carries a `ConvC` link from a `const` to a Π-shape
+(`wfPiEnv_link`).  So well-formedness does **not** shut the rogue idiom out of the Π side by
+making rules harmless; it removes the *second* link out of the same source, and only that.
+`wfPiEnv_defeqs_iff` is the check that the witness dies rather than being blocked: at `wfPiEnv`
+both chains of §5 would be the same link, so `B = B'` and the conclusion is `ConvC.refl`.
+
+### A second, independent clause `Ordered` lacks (§10)
+
+`WF.noPiLhs`: **no rule of a well-formed environment has a Π-shaped left-hand side**, in any level
+instance — from `PatternRules.WF.ruleShape` plus a shape computation on the three `RuleShape`
+constructors (δ: a `const`; quot: a `lam`; ι: `mkLams Γ' (iotaLhs …)`, a `lam` or an `app`,
+`iotaLhs` always carrying the major premise).  Consequence, `WF.piPi_extra_closed`: **the `extra`
+case of single-link Π/Π inversion is discharged at `VEnv.WF`.**  Of the three cases that carry the
+content of that inversion, `extra` is now closed by well-formedness and `proofIrrel` is closed by
+shape; `trans` is the entire residual, and `trans` is `InjMidpoint.lean`'s midpoint.
+
+The lhs/rhs asymmetry in §10 is real and is checked (`noPiLhs_fires`): `wfPiEnv` is well-formed,
+carries a rule, and that rule's **right**-hand side *is* a Π.  So §10 is not the vacuous
+observation that well-formed environments have no interesting rules.
+
+### Which reductions survive the strength change: all of them, trivially (§11)
+
+`VEnv.WF.ordered` exists, so every `Ordered`-strength theorem in `InjMidLocal.lean`,
+`InjChainLower.lean` and `InjPiInhab.lean` holds at `VEnv.WF` by passing `henv.ordered`.
+`piChainAt_bvar_iff_convPiFromEntry_wf` and `convStep2_of_convSortInv_convPiFromEntry_wf` record
+that, and it must **not** be read as a repair: they are the same theorems with a stronger
+hypothesis.  Everything the strength change buys is in §8 and §10.
+
+### Is the `VEnv.WF`-strength statement still refutable?  No witness, and the reason is the
+### confluence hypothesis itself
+
+Proving *un*refutability would be proving the statement, so what is offered is the three blockers,
+each a theorem, plus an honest search report.  The blockers: `WF.defEqHeadsUnique` (no two δ-rules
+per head), `WF.noPiLhs` (no Π-shaped lhs), and `DeltaUnique.WF.keyUnique` (no two rules sharing a
+key, so no ι/ι or ι/δ overlap).  **Remark, not a hinge:** together these say the rule set of a
+well-formed environment is one left-linear rule per head with no overlaps, i.e. *orthogonal* — and
+orthogonality is exactly the hypothesis under which δ ∪ β is confluent.  So a rogue `VEnv.WF`
+witness would be a non-confluence of Lean's own rule set, not an artefact of `Ordered`.  Routes
+tried and found not to give one: `unsafeDef` (circular by design, `MutualDefUnsound.lean` — but a
+circular value gives *one* rule, e.g. `C ≡ ∀ (_ : Prop), C`, whose chains are joined by that same
+rule); a mutual `unsafeDef` block with rules `A ≡ ∀ (_ : Prop), B`, `B ≡ ∀ (_ : Prop), Prop` (the
+two Π-chains out of `A` have codomains `B` and `∀ (_ : Prop), Prop`, joined by `B`'s rule); a
+second δ-rule for `Quot.lift` alongside the quot rule (`addConst` refuses the redeclaration, the
+same mechanism as §8).  This paragraph is a search report and nothing in the file depends on it.
 
 ## Axioms and cone
 
@@ -305,8 +374,8 @@ name it already holds, so a `VEnv.WF` environment cannot carry two δ-rules for 
 `Ordered` has no such clause — `Ordered.defeq` asks only `df.WF env`, which both rules satisfy
 (`ordered_roguePiEnv`).  That single missing clause is what makes `roguePiEnv` possible, and it
 is therefore the hypothesis a confluence development aimed at `ConvPiFromEntry` has to consume.
-(The "at most one δ-rule per constant" half is `[analysis]`: it is a statement about the
-declaration history `VEnv.WF'`, not machine-checked here.) -/
+("At most one δ-rule per constant" is **not** `[analysis]` any more: it is
+`DeltaUnique.WF.defEqHeadsUnique`, and §8 cashes it in as `not_wf_roguePiEnv`.) -/
 theorem rogue_rules_share_lhs : rogueDf1.lhs = rogueDf2.lhs ∧ rogueDf1 ≠ rogueDf2 := by
   refine ⟨rfl, ?_⟩
   intro h; rw [rogueDf1, rogueDf2] at h; injection h with _ _ h; simp [roguePi1, roguePi2] at h
@@ -316,6 +385,171 @@ syntactically distinct, so §6 is not about an empty set of instances.  (Firing 
 evidence that the hypothesis is satisfiable.) -/
 theorem rogue_fires : ConvC roguePiEnv 0 [VExpr.const rogueC []] roguePi1 roguePi2 ∧
     (VExpr.sort .zero : VExpr) ≠ roguePi1 := ⟨rogue_piPi, rogue_cod_ne⟩
+
+/-! ## §8 The `VEnv.WF` clause, checked -/
+
+/-- `roguePiEnv` carries **two** δ-rules with the head `rogueC`, and they are distinct. -/
+theorem not_defEqHeadsUnique_roguePiEnv : ¬ roguePiEnv.DefEqHeadsUnique := by
+  intro H
+  exact rogue_rules_share_lhs.2
+    (H _ _ rogueC roguePiEnv_defeqs1 roguePiEnv_defeqs2 ⟨[], rfl⟩ ⟨[], rfl⟩)
+
+/-- **The clause, no longer `[analysis]`.**  `roguePiEnv` is not a well-formed environment, and
+the reason is `DeltaUnique.WF.defEqHeadsUnique` — `VEnv.WF`'s declaration history, in which
+`addConst` rejects a duplicate name, so no name carries two δ-rules. -/
+theorem not_wf_roguePiEnv : ¬ VEnv.WF roguePiEnv :=
+  fun h => not_defEqHeadsUnique_roguePiEnv h.defEqHeadsUnique
+
+/-- **Degenerate check for §8.**  `DefEqHeadsUnique` is not false everywhere — it holds at the
+empty environment, vacuously — so `not_defEqHeadsUnique_roguePiEnv` is content and not an artefact
+of a predicate nothing satisfies. -/
+theorem defEqHeadsUnique_empty : (∅ : VEnv).DefEqHeadsUnique := fun _ _ _ h => h.elim
+
+/-! ## §9 The boundary: **one** such link does survive `VEnv.WF`
+
+`def rogueC : Sort 1 := ∀ (_ : Prop), Prop` is a perfectly ordinary pure declaration, so the
+*first* rogue rule alone builds a `VEnv.WF` environment.  `roguePiEnv` is that environment plus
+one more rule for the same constant, and §8 is what refuses the second.  So the barrier is
+precisely "at most one δ-rule per constant", not "no δ-rule may have a Π-shaped value" — the
+latter is false (`wfPiEnv_link`). -/
+
+def rogueDefVal : VDefVal where
+  uvars := 0
+  type := .sort (.succ .zero)
+  name := rogueC
+  value := roguePi1
+
+theorem rogueDefVal_toDefEq : rogueDefVal.toDefEq = rogueDf1 := by
+  simp [rogueDefVal, VDefVal.toDefEq, rogueDf1, VLevel.params]
+
+/-- `roguePiEnv` minus its second rule. -/
+def wfPiEnv : VEnv := rogueEnv1.addDefEq rogueDf1
+
+theorem roguePiEnv_eq : roguePiEnv = wfPiEnv.addDefEq rogueDf2 := rfl
+
+theorem rogue_decl_wf : VDecl.WF VEnv.empty (.def rogueDefVal) wfPiEnv := by
+  have h := VDecl.WF.def (env := VEnv.empty) (ci := rogueDefVal) (env' := rogueEnv1)
+    (show VDefVal.WF _ _ from roguePi1_type) (by exact addConst_rogueEnv1)
+  rwa [rogueDefVal_toDefEq] at h
+
+theorem wf_wfPiEnv : VEnv.WF wfPiEnv := ⟨[.def rogueDefVal], .decl rogue_decl_wf .empty⟩
+
+theorem wfPiEnv_defeqs1 : wfPiEnv.defeqs rogueDf1 := .inl rfl
+
+theorem wfPiEnv_constants : wfPiEnv.constants rogueC = some roguePiCi := rogueEnv1_constants
+
+theorem ordered_wfPiEnv : Ordered wfPiEnv :=
+  .defeq ordered_rogueEnv1 ⟨rogueC_type rogueEnv1_constants, roguePi1_type⟩
+
+theorem wfPiEnv_onCtx : OnCtx [VExpr.const rogueC []] (wfPiEnv.IsType 0) :=
+  ⟨trivial, _, rogueC_type wfPiEnv_constants⟩
+
+/-- **A `ConvC` link from a `const` to a Π-type, at a `VEnv.WF` environment.**  So the rogue
+idiom is *not* shut out of the Π side by well-formedness; what well-formedness removes is the
+**second** link out of the same source. -/
+theorem wfPiEnv_link : ConvC wfPiEnv 0 [VExpr.const rogueC []] (VExpr.const rogueC []) roguePi1 := by
+  have h := IsDefEq.extra (env := wfPiEnv) (uvars := 0) (Γ := [VExpr.const rogueC []])
+    (ls := []) (df := rogueDf1) wfPiEnv_defeqs1 (by simp) rfl
+  simp [rogueDf1, roguePi1, VExpr.instL, VLevel.inst] at h
+  exact .one (h.strong ordered_wfPiEnv wfPiEnv_onCtx)
+
+/-- **`wfPiEnv` has exactly one rule.**  This is the check that §9's environment does not merely
+*fail* to carry a second link but cannot: instantiating §5 at `wfPiEnv` would have to use the same
+link for both chains, so `B = B'` and the conclusion is `ConvC.refl`.  The witness dies, it is not
+merely blocked. -/
+theorem wfPiEnv_defeqs_iff {df : VDefEq} : wfPiEnv.defeqs df ↔ df = rogueDf1 :=
+  ⟨fun h => h.resolve_right (fun h => h.elim), .inl⟩
+
+/-! ## §10 What `VEnv.WF` gives on the Π side: no rule has a Π-shaped left-hand side
+
+`RuleShape` (`PatternRules.lean`) says every rule of a well-formed environment is a δ-rule, the
+quotient rule, or an ι-rule.  All three have a left-hand side whose head is a `const`, a `lam` or
+an `app`, in **every** level instance.  So the `extra` route to a `ConvC` link *out of* a Π-shape
+is closed at `VEnv.WF` — which is the second thing `Ordered` does not give, alongside §8.
+
+The statement is about the **left**-hand side only, and that asymmetry is real, not an
+oversight: `rogueDf1.rhs` **is** a Π (`noPiLhs_fires`), and `wfPiEnv` is well-formed. -/
+
+/-- `df.lhs` is not a Π-shape, in any level instance. -/
+def NoPiLhs (df : VDefEq) : Prop := ∀ ls A B, df.lhs.instL ls ≠ .forallE A B
+
+theorem instL_ne_forallE : ∀ {e : VExpr}, (∀ A B, e ≠ .forallE A B) →
+    ∀ {ls : List VLevel} {A B : VExpr}, e.instL ls ≠ .forallE A B
+  | .bvar _, _ => nofun
+  | .sort _, _ => nofun
+  | .const _ _, _ => nofun
+  | .app _ _, _ => nofun
+  | .lam _ _, _ => nofun
+  | .forallE A B, h => fun _ => absurd rfl (h A B)
+
+theorem mkLams_ne_forallE {As : List VExpr} {b : VExpr} (hb : ∀ A B, b ≠ .forallE A B) :
+    ∀ A B, VExpr.mkLams As b ≠ .forallE A B := by
+  cases As with
+  | nil => exact hb
+  | cons A As => rintro A B ⟨⟩
+
+/-- **Every rule shape has a non-Π left-hand side.** -/
+theorem RuleShape.noPiLhs {env : VEnv} {df : VDefEq} : env.RuleShape df → NoPiLhs df
+  | .delta ci _ => fun _ _ _ => instL_ne_forallE (by rintro A B ⟨⟩)
+  | .quot _ _ => fun _ _ _ => instL_ne_forallE (by rintro A B h; exact absurd h nofun)
+  | .iota D j q T C .. => fun _ _ _ => instL_ne_forallE
+      (mkLams_ne_forallE (by rw [VInductDecl'.iotaLhs, VExpr.mkApp_concat]; nofun))
+
+/-- **No rule of a well-formed environment has a Π-shaped left-hand side.** -/
+theorem WF.noPiLhs {env : VEnv} (h : VEnv.WF env) {df : VDefEq} (hdf : env.defeqs df) :
+    NoPiLhs df := (h.ruleShape hdf).noPiLhs
+
+/-- Non-vacuity, at the one place where it could be vacuous: §10 is *not* the observation that a
+well-formed environment has no interesting rules.  `wfPiEnv` is well-formed, carries a rule, and
+that rule's **right**-hand side is a Π. -/
+theorem noPiLhs_fires :
+    wfPiEnv.defeqs rogueDf1 ∧ NoPiLhs rogueDf1 ∧ rogueDf1.rhs = VExpr.forallE (.sort .zero) (.sort .zero) :=
+  ⟨wfPiEnv_defeqs1, WF.noPiLhs wf_wfPiEnv wfPiEnv_defeqs1, rfl⟩
+
+/-- **The payoff: the `extra` case of single-link Π/Π inversion is discharged at `VEnv.WF`.**
+An `IsDefEqStrong.extra` link relates `df.lhs.instL ls` to `df.rhs.instL ls`; for it to relate
+two Π-shapes (in either order, `symm` being a rule) one of them must be the **left**-hand side,
+and §10 forbids that.  So of the three cases that carry the content of Π/Π inversion — `trans`,
+`proofIrrel`, `extra` — the third is closed by well-formedness alone, and `proofIrrel` is closed
+by shape (a Π's type is a sort, and `.sort (.imax u v) : p` with `p : .sort .zero` would need
+`.succ (.imax u v) ≈ .zero`).  `trans` is the whole residual, and it is `InjMidpoint.lean`'s
+midpoint. -/
+theorem WF.piPi_extra_closed {env : VEnv} (h : VEnv.WF env) {df : VDefEq}
+    (hdf : env.defeqs df) {ls : List VLevel} {A B A' B' : VExpr} :
+    ¬ (df.lhs.instL ls = .forallE A B ∧ df.rhs.instL ls = .forallE A' B') :=
+  fun ⟨hl, _⟩ => WF.noPiLhs h hdf ls A B hl
+
+/-- **Degenerate check for §10.**  `NoPiLhs` is a refutable predicate: the rule that *would* break
+Π/Π inversion — one whose left-hand side is a Π — fails it.  So `WF.noPiLhs` is not a tautology
+about `VDefEq`, and `WF.piPi_extra_closed` is not vacuous by construction. -/
+theorem not_noPiLhs_piRule :
+    ¬ NoPiLhs ⟨0, .forallE (.sort .zero) (.sort .zero), .sort .zero, .sort (.succ .zero)⟩ :=
+  fun h => h [] _ _ rfl
+
+/-! ## §11 The reductions at `VEnv.WF` strength
+
+`VEnv.WF.ordered` (`EnvLemmas.lean`) means **every** `Ordered`-strength reduction in
+`InjMidLocal.lean`, `InjChainLower.lean` and `InjPiInhab.lean` survives the strength change
+verbatim: pass `henv.ordered`.  There is no work to do and no theorem to re-prove, and it would
+be misleading to present the restatements below as a repair — they are the same theorems with a
+stronger hypothesis, recorded so that the `VEnv.WF`-strength target has a name.
+
+What the strength change buys is **not** in these statements.  It is §8 and §10: the two clauses
+that refuse `roguePiEnv`. -/
+
+theorem piChainAt_bvar_iff_convPiFromEntry_wf (henv : VEnv.WF env) :
+    PiChainAt env U (.bvar 0) ↔ ConvPiFromEntry env U :=
+  piChainAt_bvar_iff_convPiFromEntry henv.ordered
+
+theorem convStep2_of_convSortInv_convPiFromEntry_wf (henv : VEnv.WF env)
+    (hsi : ConvSortInv env U) (hpe : ConvPiFromEntry env U) : ConvStep2 env U :=
+  convStep2_of_convSortInv_convPiFromEntry henv.ordered hsi hpe
+
+/-- The degenerate instance, checked as the brief demands: at the empty environment the
+equivalence is not vacuous on the left — `PiChainAt ∅ 0 (.bvar 0)`'s premises are inhabited
+(`ProofRetypeHeads.prhPi12` fires over *every* environment, `InjPiInhab.piChainAt_bvar_fires`) —
+and `∅` is well-formed, so §11 has a firing instance at the degenerate point. -/
+theorem empty_wf : VEnv.WF (∅ : VEnv) := ⟨[], .empty⟩
 
 end VEnv
 end Lean4Lean
@@ -340,4 +574,20 @@ open Lean4Lean.VEnv
 #print axioms Lean4Lean.VEnv.not_convPiInvCodInhab_of_convSortPiDisj
 #print axioms Lean4Lean.VEnv.rogue_rules_share_lhs
 #print axioms Lean4Lean.VEnv.rogue_fires
+#print axioms Lean4Lean.VEnv.not_defEqHeadsUnique_roguePiEnv
+#print axioms Lean4Lean.VEnv.not_wf_roguePiEnv
+#print axioms Lean4Lean.VEnv.defEqHeadsUnique_empty
+#print axioms Lean4Lean.VEnv.rogue_decl_wf
+#print axioms Lean4Lean.VEnv.wf_wfPiEnv
+#print axioms Lean4Lean.VEnv.wfPiEnv_link
+#print axioms Lean4Lean.VEnv.instL_ne_forallE
+#print axioms Lean4Lean.VEnv.mkLams_ne_forallE
+#print axioms Lean4Lean.VEnv.RuleShape.noPiLhs
+#print axioms Lean4Lean.VEnv.WF.noPiLhs
+#print axioms Lean4Lean.VEnv.noPiLhs_fires
+#print axioms Lean4Lean.VEnv.not_noPiLhs_piRule
+#print axioms Lean4Lean.VEnv.WF.piPi_extra_closed
+#print axioms Lean4Lean.VEnv.piChainAt_bvar_iff_convPiFromEntry_wf
+#print axioms Lean4Lean.VEnv.convStep2_of_convSortInv_convPiFromEntry_wf
+#print axioms Lean4Lean.VEnv.empty_wf
 end Audit

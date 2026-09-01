@@ -1077,4 +1077,177 @@ end
 end VIndRestore
 
 
+/-! ## §T10 `hpar` is free, and the σ-free identification is derivable
+
+Two of the three items §T9 left are closed here, and neither needed a new side condition.
+
+### `hpar`: route A, and it is the whole job
+
+§T9 offered three moves.  **Route A wins outright**, and not via the `csubstTy` lemma: the
+machinery is `VEnv.Ordered.noCSubst` (`Theory/Typing/ConstSubst.lean:393`) together with
+`VEnv.IsDefEq.noCSubst'` (`:351`) — "nothing derivable in `env` mentions a constant `env` does
+not declare" — plus `VIndRestore.csubst_freshIn` (`Theory/Inductive/NestedRules.lean:1187`),
+which already proves `(R.csubst D K).FreshIn env` from the three staging successes with **no new
+side condition**.
+
+So the general fact is `VEnv.OnCtx.noCSubst`: a well-formed context in a well-formed environment
+mentions nothing in a fresh `σ`'s domain, hence `VEnv.OnCtx.substC_eq` — `substC` is the
+**identity** on it.  Applied to `VInductDecl'.WF.onCtxParamsAtRec`
+(`Theory/Inductive/Lemmas.lean:848`) and pushed across by §T1's `OnCtx.substC`, that is
+`VInductDecl'.onCtxParamsAtRec_substC`: **`hpar` at `e`, from `D.WF env` and `σ.FreshIn env`
+alone.**  Route B (deriving `NoBlock D.params` from the typing) is unnecessary — `noCSubst'`
+already *is* that argument, at the right level of generality — and Route C (a named side
+condition with two bounds) is not needed.  This also means `RestoreBridge.lean` needed no edit:
+the `csubst`-analogue of `noBlock_noCSubst` is not the lemma to want, because
+`Ordered.noCSubst` subsumes it for *any* fresh `σ`, `csubst` included.
+
+`[]`-check: `OnCtx.noCSubst` and `OnCtx.substC_eq` at `Γ = []` are `nofun`/`rfl` — true and
+uninformative, not contradictory, so nothing collapses.  `onCtxParamsAtRec_substC` is not a
+`Γ`-indexed statement at all; its hypotheses (`D.WF env`, `csubst_freshIn`) are exactly what the
+nested-ordered audit already carries.
+
+### The σ-free identification: derivable, so no instance had to be built
+
+§T9 asked for a positive `np > 0` instance of `B' = tyAppR'`.  There is a better answer: **it is
+a theorem**, from `Faithful.ctor_agree` plus `VIndCtor.WF.params_len`, with no `np` bound and no
+environment at all.
+
+`R.instAt D npJ j ci.type` is `mkPi D.params (instAll (splitPis npJ (ci.type.instL …)).2 …)` and
+`C.typeR D R j` is `mkPi (C.params ++ C.fieldTypesR D R) (D.tyAppR R j nf C.args)`.  Since
+`params_len` gives `C.params.length = D.np = D.params.length`, `VExpr.mkPi_inj`
+(`Theory/Inductive/Telescope.lean:237`) reads both components off the agreement equation at
+once (`instAt_ctor_body_eq`):
+
+* `D.params = C.params` — F3's syntactic half, for free; and
+* the instantiated body **is** `mkPi (C.fieldTypesR D R) (D.tyAppR R j nf C.args)`.
+
+`instAt_ctor_hpi` then computes §8.9's `hpi` outright by `instL_mkPi` + `instAll_mkPi` +
+`atRec_tyAppH`: `As` is the restored field telescope instantiated and `B'` is
+`D.tyAppR' R j nf (D.atRecTele C.args)` instantiated.  So **`hpi` is not data either**, and
+`instAll B' (bvars nr nf)` is a `tyAppR'` on the nose — which is what
+`substC_minorBody_defeq_of_conv`'s `hconv` (§8.9's type-head defeq, no `np` bound) then converts
+to the substituted motive's domain.  Nothing here is `rfl`-at-`np = 0`: `mkPi_inj` is applied at
+a telescope of length `D.np`, and the conclusion is *stronger* the larger `D.np` is.
+
+`[]`-check: `instAt_ctor_body_eq` and `instAt_ctor_hpi` are equations between expressions with
+no ambient context, so the `[]` test does not apply; their hypotheses are an equation
+(`ctor_agree`) and a length (`params_len`), neither of which degenerates.
+
+### And the ctor head's `hsplit` is a theorem too — the asymmetry with the type head
+
+§8.7's `hsplit` says the presented head's type really has `npJ j` leading pis *syntactically*.
+For the **type** head that cannot be proved: F1 makes `T.type` only *definitionally* the
+canonical pi-telescope (`VIndType.WF.canon` is an `IsDefEqType`), which is why `hsplit` is a
+hypothesis of `tyVal_hasType_of_faithful`.  For the **constructor** head it is mechanical, by
+F2: `VIndCtor.type` *is* the telescope on the nose, and
+`VIndCtor.splitPis_type_instL` splits it at `C.params.length` by `splitPis_mkPi`.  So the
+`hsplit` half of §8.7 is data for one clause and a theorem for the other.
+
+### What is left, and the `PiInv` line
+
+`hargs` — the presented spine `R.tyArgs j` typed against those `npJ j` binders — remains data,
+and `instAt_indep_of_tyArgs` (`NestedRules.lean:1509`) says no restoration-independent argument
+can produce it.  The route taken here is **forward**: `HasType.const` for the declared constant
+plus `HasType.mkApp'` for the spine, which is how `tyVal_hasType_of_faithful` already does it.
+The *inverting* route — recovering `HasArgs` from a typed application — is
+`HasArgs.of_mkApp'` (`Theory/Typing/PatWF.lean:146`), which takes `env.WF` **and**
+`env.PiInv`; it is **not** used anywhere in this file, and given that `ConvPiFromEntry` is false
+over `Ordered`, taking it would put this whole cone behind `VEnv.WF`.  So: `hargs` stays data,
+and it stays `PiInv`-free. -/
+
+namespace VEnv
+variable {env : VEnv} {σ : CSubst} {U : Nat}
+
+/-- **A well-formed context mentions nothing in a fresh `σ`'s domain.**  `IsDefEq.noCSubst'`
+iterated along the context. -/
+theorem OnCtx.noCSubst (henv : env.Ordered) (hfresh : σ.FreshIn env) :
+    ∀ {Γ : List VExpr}, OnCtx Γ (env.IsType U) → ∀ B ∈ Γ, B.NoCSubst σ
+  | [], _, _, h => absurd h nofun
+  | A :: Γ, ⟨h1, _, h2⟩, B, hB => by
+    have ih := OnCtx.noCSubst henv hfresh h1
+    rcases List.mem_cons.1 hB with rfl | hB
+    · exact (VEnv.IsDefEq.noCSubst' (henv.noCSubst hfresh) hfresh h2 ih).1
+    · exact ih B hB
+
+/-- …so `substC` is the identity on it. -/
+theorem OnCtx.substC_eq (henv : env.Ordered) (hfresh : σ.FreshIn env)
+    {Γ : List VExpr} (h : OnCtx Γ (env.IsType U)) :
+    Γ.map (VExpr.substC · σ) = Γ := by
+  induction Γ with
+  | nil => rfl
+  | cons A Γ ih =>
+    rw [List.map_cons, (OnCtx.noCSubst henv hfresh h A (List.mem_cons_self ..)).substC_eq,
+      ih h.1]
+
+end VEnv
+
+namespace VInductDecl'
+
+/-- **`hpar`, free.**  The parameter telescope at the recursor's numbering, well-formed in the
+substituted environment, from `D.WF env` and a fresh `σ` — no side condition. -/
+theorem onCtxParamsAtRec_substC {env e : VEnv} {D : VInductDecl'} {σ : CSubst}
+    (henv : env.Ordered) (hD : D.WF env) (hfresh : σ.FreshIn env)
+    (hσ : σ.WF env e D.recUvars) :
+    OnCtx ((D.atRecTele D.params).reverse) (e.IsType D.recUvars) := by
+  have hsrc := hD.onCtxParamsAtRec
+  have h := VEnv.OnCtx.substC hσ hsrc
+  rwa [VEnv.OnCtx.substC_eq henv hfresh hsrc] at h
+
+end VInductDecl'
+
+namespace VIndCtor
+
+/-- **The ctor head's `hsplit`, as a theorem.**  F2: a constructor's stored type is the
+telescope on the nose, so `splitPis` at `C.params.length` is `splitPis_mkPi`.  There is no
+counterpart for the *type* head, where F1 leaves `T.type` only definitionally canonical. -/
+theorem splitPis_type_instL {C : VIndCtor} {D : VInductDecl'} {j n : Nat} {ls : List VLevel}
+    (hlen : C.params.length = n) :
+    VExpr.splitPis n ((C.type D j).instL ls)
+      = (C.params.map (VExpr.instL ls),
+         VExpr.mkPi ((C.fields.map (·.type)).map (VExpr.instL ls))
+           ((C.canonResult D j).instL ls)) := by
+  rw [VIndCtor.type, VExpr.instL_mkPi, List.map_append, VExpr.mkPi_append,
+    show n = (C.params.map (VExpr.instL ls)).length from by rw [List.length_map, hlen],
+    VExpr.splitPis_mkPi]
+
+end VIndCtor
+
+namespace VIndRestore
+section
+variable {R : VIndRestore} {D : VInductDecl'} {C : VIndCtor} {j npJ : Nat}
+
+/-- **`Faithful.ctor_agree` read componentwise.**  `mkPi_inj` at the parameter telescope: the
+agreement equation determines *both* `D.params = C.params` and the instantiated body, with no
+`np` bound. -/
+theorem instAt_ctor_body_eq {ci : VConstant}
+    (hlen : D.params.length = C.params.length)
+    (hagree : R.instAt D npJ j ci.type = C.typeR D R j) :
+    D.params = C.params ∧
+      VExpr.instAll (VExpr.splitPis npJ (ci.type.instL (R.tyLvls j))).2 (R.tyArgs j)
+        = VExpr.mkPi (C.fieldTypesR D R) (D.tyAppR R j C.fields.length C.args) := by
+  rw [VIndRestore.instAt, VIndCtor.typeR, VExpr.mkPi_append] at hagree
+  exact VExpr.mkPi_inj hlen hagree
+
+/-- **…and therefore §8.9's `hpi` is derivable, with `B'` a `tyAppR'`.**  This is the σ-free
+identification §T9 flagged as the one genuinely new residual of the minor entry: it is not a
+residual. -/
+theorem instAt_ctor_hpi {ci : VConstant} {k : Nat}
+    (hlen : D.params.length = C.params.length)
+    (hagree : R.instAt D npJ j ci.type = C.typeR D R j) :
+    VExpr.instAll
+        (D.atRec (VExpr.instAll (VExpr.splitPis npJ (ci.type.instL (R.tyLvls j))).2
+          (R.tyArgs j))) (VExpr.bvars k D.np)
+      = VExpr.mkPi (VExpr.instAllTele (D.atRecTele (C.fieldTypesR D R)) (VExpr.bvars k D.np) 0)
+          (VExpr.instAll (D.tyAppR' R j C.fields.length (D.atRecTele C.args))
+            (VExpr.bvars k D.np) (C.fieldTypesR D R).length) := by
+  rw [(instAt_ctor_body_eq hlen hagree).2, VInductDecl'.atRec, VExpr.instL_mkPi,
+    VExpr.instAll_mkPi,
+    show (D.tyAppR R j C.fields.length C.args).instL D.selfLvls
+        = D.tyAppR' R j C.fields.length (D.atRecTele C.args) from VInductDecl'.atRec_tyAppH D]
+  simp [VInductDecl'.atRecTele]
+
+end
+end VIndRestore
+
+
 end Lean4Lean

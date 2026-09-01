@@ -56,8 +56,19 @@ So the honest statement of what is measured:
 
 What remains open after this file is therefore sharper than "`consts` at a `WF` block":
 it is `consts` at a `WF` block **all of whose parameter and index domains are inhabited**.
-`inductive Unit1 : Prop | mk` is the smallest such block, and its recursor needs a genuine
-`mkLam`, i.e. `SetModel/IndInterp.lean`'s work.
+`inductive Unit1 : Prop | mk` is the smallest such block.
+
+**UPDATE (2026-09-01): closed, and this paragraph's forecast was wrong.**
+`SetModel/UnitOracleWitness.lean` proves `inductOracleOK_unit` at that block, with the
+oracle `Unit1 ↦ {•}` — a nonempty type former, no parameter or index telescope at all, and
+every binder domain inhabited (`exists_true_motive`, `exists_nonempty_minor_domain`).  The
+sentence this note replaces said the recursor "needs a genuine `mkLam`, i.e.
+`SetModel/IndInterp.lean`'s work"; **it does not.**  With `isLE := false` the whole of
+`recType 0` is a proposition, so `interp` takes the impredicative `mkForallProp` branch at
+every binder, the oracle hands `Unit1.rec` the value `•`, and the ι-rule's two sides are
+both `•` because their bodies are *proofs*.  What genuinely needs `IndInterp.lean` is the
+**large** eliminator, `isLE := true` — which `VInductDecl'.WF` permits for this very block
+(`unitDeclLE_LECond`) and which is what Lean actually declares.
 
 ## The three model lemmas
 
