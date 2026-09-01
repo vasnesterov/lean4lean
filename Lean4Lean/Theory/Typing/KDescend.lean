@@ -21,7 +21,17 @@ structural fact about the rule table that was already in `Params`:
 `descend`'s three refuted E5 branches are all in its `.app`-node case.  At a registered
 pattern that case arises **once**, at the top -- and at the top there is a rule to fire.  So
 the descent proper never needs it: `NormalEq.descendV` below is `descend` restricted to
-`.app`-free patterns, and it is `sorry`-free.
+`.app`-free patterns, and it carries no `sorry` of its own.
+
+**Do not read that as "hole-free".**  `#print axioms NormalEq.descendV` gives
+`[propext, sorryAx, Classical.choice, Quot.sound]`: the `sorryAx` arrives through
+`Params.sortUniq` and `IsDefEq.uniq` in the E3 branch, i.e. through
+`IsDefEqU.forallE_inv_stratified` and `WF.rigidShapeUniqNS`, the tree's two ambient holes
+(measured cone 3839, exactly the two -- `descend` itself is *not* in it).  What `descendV`
+*is*, precisely: a genuine restatement, whose one added hypothesis is free at every registered
+pattern (`Params.pat_app_noApp`, which is itself `sorryAx`-free), and which is not refuted at
+the instance that refutes `descend` (`DescendRestate.lean`'s `descendV_dodges_witnessA`).  It
+is not a discharge of `descend`'s obligation, and the earlier wording here said otherwise.
 
 The top node is then handled by descending the whole node at the pattern `.var q₁` -- the
 function side's pattern with the argument position left **free** -- and firing the rule there
@@ -109,7 +119,9 @@ closed there by the same lemma.) -/
 /-! ## The descent proper, at an `.app`-free pattern
 
 `NormalEq.descendV` is `ChurchRosser.lean`'s `NormalEq.descend` with one hypothesis added --
-the pattern has no `.app` node -- and it is `sorry`-free.  Adding that hypothesis deletes the
+the pattern has no `.app` node -- and it carries no `sorry` of its own (but see the header: its
+axiom set is `[propext, sorryAx, Classical.choice, Quot.sound]`, the `sorryAx` coming from the
+E3 branch's `Params.sortUniq` / `IsDefEq.uniq`, not from `descend`).  Adding that hypothesis deletes the
 whole `.app`-node case, which is where all three of `DescendRefute.lean`'s counterexamples
 live; the remaining escape (`E3`, the function child is a proof) is closed by
 `NormalEq.appDF_proof_escape`, which needs only universe uniqueness.

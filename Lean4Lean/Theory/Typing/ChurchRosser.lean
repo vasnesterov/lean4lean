@@ -1812,19 +1812,30 @@ eta-expanded function argument).
    statement verbatim); note that route (1) already absorbs the proof-replacement half, since a
    K-step fires whichever proof sits in the major-premise slot.
 
-**Consequence for this file's own results.**  `descend` has **145** transitive users
-(`scripts/hole-rank.lean`, 2026-08-31; the "44" this paragraph used to quote predates
-`TrProj.uniq` closing and routing its consumers through `projData_uniq`),
+**Consequence for this file's own results.**  `descend` has **193** transitive users
+(`scripts/sorry-census.lean` at `f4b32ea`; 206 users / 196 sole per `hole-rank.lean`.  The
+"145" this paragraph quoted until 2026-09-01 was measured with a reverse-reachability graph
+that skipped internal names while *building* it, so it was an undercount -- see
+`docs/handoff-weakn.md` 5.3; and the "44" before that predates `TrProj.uniq` closing and
+routing its consumers through `projData_uniq`),
 `IsDefEq.church_rosser` among them.  Their *statements* are not
 refuted, but their current *proofs* route through a false lemma, so they are not merely
 "waiting on a hole": the wiring has to be redone against `KDescend.lean`'s `descendV` and
 `appDF_extra_of_descendV` **and** against a `ParRed` that has the proof-replacement step --
 `ParRedPropRefute.lean` shows the rewiring alone is not enough, since `parRed`'s statement is
 already false against the present `ParRed`.  Until that is done, read every `church_rosser`
-consumer as conditional on a repair, not on a hypothesis.  In particular, deleting `descend`
-and rewiring `parRed`/`church_rosser` onto the `V` versions is *not* a hole-count improvement:
-it exchanges a lemma refuted at an instance that exists (`refEnv`) for a hypothesis refuted at
-instances that do not exist yet, and the hole stays.
+consumer as conditional on a repair, not on a hypothesis.  **The last sentence of this paragraph used to say the rewiring buys nothing; that is no
+longer true, corrected 2026-09-01.**  It said deleting `descend` and rewiring
+`parRed`/`church_rosser` onto the `V` versions "is *not* a hole-count improvement: it exchanges
+a lemma refuted at an instance that exists (`refEnv`) for a hypothesis refuted at instances that
+do not exist yet".  That hypothesis was `hK`, and `NormalEq.appDF_extra_of_descendVK`
+(`KSite7App.lean:370`) now discharges it **unconditionally** via `ParRedK.hK`.  Measured at
+`f4b32ea`: `appDF_extra_of_descend` cone 3942 **with** `descend` in it, `appDF_extra_of_descendVK`
+cone 3989 **without**.  So the rewiring does drop the hole count by one -- it exchanges a lemma
+refuted at a reachable instance for one that is merely open.  It is not free: the route through
+`parRedKStatement_of_rows` (cone 4261) adds `IsDefEqU.weakN_iff`.  And `descend` has exactly
+**one** direct user, `NormalEq.appDF_extra_of_descend`, so all 193 pass through a single
+chokepoint and the rewiring is all-or-none.
 
 **The refutation's force: the two side hypotheses are satisfiable.**  `not_descendStatement`
 is stated under `(hsu : refEnv.SortUniq 0)` and `(huq : refEnv.UniqTyping 0)`, so it is worth
@@ -1852,7 +1863,7 @@ knowing those are not vacuous.  Verdict, checked rather than assumed:
   rescuing `descend` means refuting `SortUniq` or `UniqTyping` at a defeq-free six-axiom
   environment, and `PiLevelPin.lean`'s `not_piInvStratApp_of_not_sortUniq` (no `sorryAx`: only
   the converse direction of the equivalence needs `WF.rigidShapeUniq`) turns that into a
-  refutation of `forallE_inv_stratified` (446 transitive users) and the Π/sort inversion family,
+  refutation of `forallE_inv_stratified` (650 transitive users at `f4b32ea`; the 446 here was a pre-graph-fix undercount) and the Π/sort inversion family,
   with no dependence on the other hole.  Nobody should plan around that escape; treat `descend`
   as refuted.
 

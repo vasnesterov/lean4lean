@@ -20,9 +20,14 @@ asserting it of a pattern nobody registered.  Each of the three is refuted by a 
 
 | `sorry` | `ChurchRosser.lean` | branch | witness |
 |---|---|---|---|
-| E5, argument is a proof | `:1799` | `not_descendStatement` | `C h` vs `C D` |
-| E5, argument eta-expanded | `:1784` | `not_descendStatement_etaArg` | `F (fun x => E x)` vs `F E` |
-| E5, function eta-expanded | `:1779` | `not_descendStatement_etaFun` | `(fun x => C h) D` vs `C D` |
+| E5, argument is a proof | `:2074` | `not_descendStatement` | `C h` vs `C D` |
+| E5, argument eta-expanded | `:2079` | `not_descendStatement_etaArg` | `F (fun x => E x)` vs `F E` |
+| E5, function eta-expanded | `:2094` | `not_descendStatement_etaFun` | `(fun x => C h) D` vs `C D` |
+
+(Those three line numbers are the `sorry`s' current positions, re-measured 2026-09-01.  This
+table previously read `:1799` / `:1784` / `:1779`, which were stale by some 290 lines -- the
+same drift the paragraph above flags for the *count*.  The three docstrings on the refutations
+themselves carried the same stale numbers and are corrected too.)
 
 The remaining two -- the "E3" branches, where the *function* side is a proof -- are **not**
 refuted, and `NormalEq.appDF_proof_escape` at the end of this file closes them from
@@ -421,7 +426,7 @@ def DescendStatement (I : VEnv.Params) : Prop :=
 theorem descendStatement_holds {I : VEnv.Params} : DescendStatement I :=
   @VEnv.NormalEq.descend I
 
-/-- **The refutation, at witness A** (`ChurchRosser.lean:1799`, "an argument position that is
+/-- **The refutation, at witness A** (`ChurchRosser.lean:2074`, "an argument position that is
 a proof never matches `q₂`"). -/
 theorem not_descendStatement (hsu : refEnv.SortUniq 0) (huq : refEnv.UniqTyping 0) :
     ¬ DescendStatement refParams := by
@@ -429,7 +434,7 @@ theorem not_descendStatement (hsu : refEnv.SortUniq 0) (huq : refEnv.UniqTyping 
   obtain ⟨n1, n2, hm⟩ := refMatches
   exact refNoDescentOut hsu huq (H _ (Nat.le_refl _) refEnv_hΓ refNormalEq hm)
 
-/-- **The refutation, at witness B** (`ChurchRosser.lean:1784`, "an argument position that
+/-- **The refutation, at witness B** (`ChurchRosser.lean:2079`, "an argument position that
 eta-expanded never matches `q₂`"). -/
 theorem not_descendStatement_etaArg (hsu : refEnv.SortUniq 0) (huq : refEnv.UniqTyping 0) :
     ¬ DescendStatement refParams := by
@@ -437,7 +442,7 @@ theorem not_descendStatement_etaArg (hsu : refEnv.SortUniq 0) (huq : refEnv.Uniq
   obtain ⟨n1, n2, hm⟩ := refMatches2
   exact refNoDescentOut2 hsu huq (H _ (Nat.le_refl _) refEnv_hΓ refNormalEq2 hm)
 
-/-- **The refutation, at witness C** (`ChurchRosser.lean:1779`, "the function side
+/-- **The refutation, at witness C** (`ChurchRosser.lean:2094`, "the function side
 eta-expanded at an `.app` node"). -/
 theorem not_descendStatement_etaFun (hsu : refEnv.SortUniq 0) (huq : refEnv.UniqTyping 0) :
     ¬ DescendStatement refParams := by

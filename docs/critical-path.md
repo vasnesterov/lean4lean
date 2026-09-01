@@ -158,6 +158,20 @@ three for reasons that must not be misread as slack:
    reference's judgment.  Ledger rows 69–69b, and row 52's `[analysis]` claim that no rogue
    refutation was available here is superseded on both Π-side entries.
 
+   **Amended the same day, and the amendment is a retraction.**  The follow-up finding that the
+   `extra` case of Π/Π inversion closes at `VEnv.WF` (`WF.noPiLhs`) stands.  The two claims
+   published alongside it do **not**: `proofIrrel` is *not* closed by shape — it needs
+   `SortNotPropStrong`, bounded above by `SortUniq`, strictly weaker but not free — and
+   `ConvStep2`'s midpoint is *not* the Π/Π `trans` midpoint.  `ConvStep2`'s entire content is the
+   **level mismatch** (when the two link levels are the same expression the composition is
+   `IsDefEqStrong.trans` and costs nothing), while `trans` needs **Π-shape descent**; closing
+   either does not close the other.  So "`trans` is the entire residual" was wrong on two of its
+   three clauses.  Ledger row 77.  A third attempt to localise `trans` also collapsed into its
+   own target with no hypothesis (row 77b) — that makes three such collapses in this corner, so:
+   **test any proposed localisation against its own target before building on it.**  What
+   confluence would have to supply is now stated tightly as `PiMidNonPi` (row 77c), bounded above
+   by the statement it is asked to supply.
+
 ## Honest statement of where this leaves the main theorem
 
 `kernel_sound` is *not* closer to proved than the census suggested. What changed is that the

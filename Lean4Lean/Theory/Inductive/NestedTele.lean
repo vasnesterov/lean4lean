@@ -1393,4 +1393,187 @@ end
 end VIndRestore
 
 
+/-! ## §T12 The blocker, closed — and what the assembly is left standing on
+
+§T11 named two lemmas as the whole remaining obstruction.  Both are proved here, plus the
+weakening companion the same proof shape gives for free.  The assembly itself is **still not
+closed**, and the residual has changed *kind*; that is the finding of this section.
+
+### The two named lemmas
+
+`VEnv.TeleDefEq.instN` is the `TeleDefEq` substitution lemma, and §T11's analysis was right on
+both counts: it is `IsDefEq.instN` (`Theory/Typing/Lemmas.lean:634`) per entry, and the
+`Ctx.InstN` witness is **not** constructed by a separate telescope-prefix lemma — it is
+*threaded* through the induction and extended by `Ctx.InstN.succ` at each `cons`/`rfl` step.
+That is why constraint 3's worry does not arise: no prefix witness has to exist independently,
+because the induction never needs one at an arbitrary prefix — only one step at a time.  (Had it
+needed a standalone `Ctx.InstN Δ.length (Δ.reverse ++ A :: Γ) ((instTele a Δ 0).reverse ++ Γ)`,
+that *is* constructible too, but by induction from the inside out, which is awkward to state;
+threading avoids it entirely.  Worth recording as the shape to reach for.)
+
+`VEnv.HasArgs.congr_tele` then goes by induction on the **`HasArgs`** derivation with the
+`TeleDefEq` universally quantified — not on the `TeleDefEq`, because §T11's observation stands:
+in the `rfl` case the `TeleDefEq`'s own IH sits at `A :: Γ` while the goal is at `Γ`, so the
+recursive call has to be made on the *instantiated* telescope, which is not a sub-derivation of
+the `TeleDefEq`.  Inducting on `HasArgs` makes it structural, because `HasArgs.cons`'s tail is
+already at `instTele a As`.
+
+`VEnv.TeleDefEq.weakN` is the mirror image (`IsDefEq.weakN` + `Ctx.LiftN.succ`, threaded the
+same way), needed because the field spine `HasArgs.bvars` produces is typed against the
+telescope **lifted** over the intervening motive and minor blocks.
+
+All three are **`PiInv`-free**: substitution and weakening of typed defeqs, no spine inversion.
+`HasArgs.of_mkApp'` is still not used anywhere in this file, so nothing here touches the corner
+whose residual is now `trans`.
+
+### The assembly is still not closed, and the residual is now *syntactic*
+
+With `congr_tele` available, `hAs` is no longer blocked on a missing judgement.  What it is now
+blocked on is a **normalisation mismatch with no typing content**, and this is a different kind
+of residual from everything above it:
+
+* `HasArgs.bvars` types the field spine against
+  `liftTele (nr + nf) (liftTele (D.nm + q) ((D.atRecTele (C.fields.map (·.type))).map (substC · σ)) 0) 0`
+  — the source field telescope, **lifted** over the induction hypotheses, then over the motives
+  and earlier minors;
+* §T10's derived `hpi` delivers
+  `As = instAllTele (D.atRecTele (C.fieldTypesR D R)) (bvars k D.np) 0`
+  — the restored field telescope, with the parameter references **instantiated** at the
+  parameter variables.
+
+`congr_tele` (+ `TeleDefEq.weakN` to lift `hfld`) bridges the *source-versus-restored* half.
+What is left is the *lifted-versus-instantiated* half, and it is pure de Bruijn bookkeeping: an
+identity of the form `liftTele off X k = instAllTele X (bvars k' np) 0` for a telescope whose
+free variables below `np` are the parameters — the telescope analogue of
+`VExpr.instAll_bvars_lift`, which `instAll_tyBody'` already uses at the term level.
+
+There is a **second route** worth recording, because it may be cheaper and it is the reason
+`congr_tele` is a genuine convenience rather than a necessity: `hpi` in
+`substC_ctorApp'_defeq_ctorAppR_comp` is a *hypothesis*, so the caller may convert `B` before
+decomposing it.  Since `hbody` is a typing, `defeqDF` moves it along any defeq of `B`, and
+`mkPi_congrU` applied to `hfld.symm` supplies that defeq with `hOn` free (§T9).  So the caller
+can arrange for `As` to be the *source-substituted* telescope and discharge `hAs` by
+`HasArgs.bvars` outright — at the cost of the same lifted-versus-instantiated identity, one step
+later.  Both routes meet the same de Bruijn fact; neither needs a new judgement.
+
+### Plainly: (B) and (C) do **not** yet lift off `np = 0`
+
+The closure theorems for `recConstsR_wf_of_substC'` and `iotaRulesRS_wf_of_substC'` are **not**
+proved.  The blocker §T11 identified is closed, and the residual is now
+`hargs` (two data, factored by `hbody_weak`) **plus** one telescope-level de Bruijn identity.
+The nested route still has no closure theorem above the parameterless case.
+
+### Instrument 7
+
+* `TeleDefEq.instN` at `Γ₂ = []`: satisfiable — `Ctx.InstN.zero` with `Γ₀ = []` and `ha` a closed
+  term's typing.  Not empty.
+* `HasArgs.congr_tele` at `Γ = []`: satisfiable — `HasArgs U [] As as` holds for closed spines
+  (`.nil` at minimum).  Not empty.
+* `TeleDefEq.weakN` at `Γ₂ = []`: forces `Ctx.LiftN n k Γ₁ []`, hence `Γ₁ = []` and `n = 0` —
+  degenerate but *true*, not contradictory.  Not empty.
+
+None of the three carries a `bvars` spine in a hypothesis, which is what made the §T5 collapse
+possible, so the trap has no purchase.  The check that still has not been run is the one
+constraint 2 asks for — joint satisfiability of `hargs`'s two instances at a real parameterised
+block — because there is no closure statement yet to check it against. -/
+
+namespace VEnv
+variable {env : VEnv} {U : Nat}
+
+/-- **`TeleDefEq` under substitution.**  `IsDefEq.instN` per entry, with the `Ctx.InstN` witness
+threaded through the induction rather than constructed at each telescope prefix. -/
+theorem TeleDefEq.instN (henv : env.Ordered) {Γ₀ : List VExpr} {a A : VExpr}
+    (ha : env.HasType U Γ₀ a A) :
+    ∀ {Γ₁ Γ₂ : List VExpr} {k : Nat}, Ctx.InstN Γ₀ a A k Γ₁ Γ₂ →
+      ∀ {As As' : List VExpr}, env.TeleDefEq U Γ₁ As As' →
+        env.TeleDefEq U Γ₂ (VExpr.instTele a As k) (VExpr.instTele a As' k) := by
+  intro Γ₁ Γ₂ k W As As' h
+  induction h generalizing Γ₂ k with
+  | nil => exact .nil
+  | @rfl Γ B As As' _ ih =>
+    rw [VExpr.instTele, VExpr.instTele]
+    exact .rfl (ih W.succ)
+  | @cons Γ B B' u As As' hB _ ih =>
+    rw [VExpr.instTele, VExpr.instTele]
+    exact .cons (hB.instN henv ha W) (ih W.succ)
+
+/-- **…and under weakening**, which is what the field spine needs: `HasArgs.bvars` types it
+against the telescope lifted over the intervening blocks. -/
+theorem TeleDefEq.weakN (henv : env.Ordered) {n : Nat} :
+    ∀ {Γ₁ Γ₂ : List VExpr} {k : Nat}, Ctx.LiftN n k Γ₁ Γ₂ →
+      ∀ {As As' : List VExpr}, env.TeleDefEq U Γ₁ As As' →
+        env.TeleDefEq U Γ₂ (VExpr.liftTele n As k) (VExpr.liftTele n As' k) := by
+  intro Γ₁ Γ₂ k W As As' h
+  induction h generalizing Γ₂ k with
+  | nil => exact .nil
+  | @rfl Γ B As As' _ ih =>
+    rw [VExpr.liftTele_cons, VExpr.liftTele_cons]
+    exact .rfl (ih W.succ)
+  | @cons Γ B B' u As As' hB _ ih =>
+    rw [VExpr.liftTele_cons, VExpr.liftTele_cons]
+    exact .cons (hB.weakN henv W) (ih W.succ)
+
+/-- **A spine typed against one telescope is typed against any definitionally equal one.**
+Induction on the **`HasArgs`** derivation, not the `TeleDefEq`: in the `rfl` case the latter's
+IH sits at `A :: Γ` while the goal is at `Γ`, so the recursive call is on the *instantiated*
+telescope, which `TeleDefEq.instN` supplies and which is not a `TeleDefEq` sub-derivation. -/
+theorem HasArgs.congr_tele (henv : env.Ordered) {Γ : List VExpr} :
+    ∀ {As as : List VExpr}, env.HasArgs U Γ As as →
+      ∀ {As' : List VExpr}, env.TeleDefEq U Γ As As' → env.HasArgs U Γ As' as
+  | _, _, .nil, _, h => by cases h; exact .nil
+  | _, _, .cons ha h2, _, h => by
+    cases h with
+    | rfl ht => exact .cons ha (h2.congr_tele henv (TeleDefEq.instN henv ha .zero ht))
+    | cons hA ht =>
+      exact .cons (hA.defeqDF ha) (h2.congr_tele henv (TeleDefEq.instN henv ha .zero ht))
+
+end VEnv
+
+
+/-! ### §T12.1 The de Bruijn half, closed — and the two side conditions left
+
+The lifted-versus-instantiated identity §T12 named is the telescope analogue of
+`VExpr.instAll_bvars_lift` (`Theory/Inductive/RestoreBridge.lean:269`), and it goes by the same
+induction.  With it, `hAs`'s remaining arithmetic lines up exactly:
+
+* `As = instAllTele (D.atRecTele (C.fieldTypesR D R)) (bvars k D.np) 0` becomes
+  `liftTele k (D.atRecTele (C.fieldTypesR D R)) 0`;
+* `HasArgs.bvars` produces the spine against
+  `liftTele (nr + nf) (liftTele (D.nm + q) fld 0) 0`, which `liftTele_collapse₂` collapses to
+  `liftTele (nr + nf + (D.nm + q)) fld 0`;
+* and `k` in `substC_minorType_defeq` is `nr + nf + (D.nm + q)` — **the same offset**.  So the
+  two normalisations do meet, and the offsets were already right.
+
+`TeleDefEq.weakN` + `HasArgs.congr_tele` then bridge source-substituted to restored.  What is
+left is **two side conditions, both about the restored field telescope and neither a judgement
+about the environment**:
+
+1. `VExpr.ClosedTele (D.atRecTele (C.fieldTypesR D R)) D.np` — the restored field telescope is
+   closed at the parameter count.  This is the hypothesis `instAllTele_bvars_lift` consumes.
+2. `(D.atRecTele (C.fieldTypesR D R)).map (VExpr.substC · σ) = D.atRecTele (C.fieldTypesR D R)`
+   — `substC` is the identity on it, because a *restored* telescope mentions only names the step
+   declares and `SubstFree` says `csubst` is `none` on those.  `hfld` relates the source
+   telescope to the **substituted** restored one, so this is what identifies its right endpoint
+   with `As`.
+
+Neither is a new kind of obligation — (1) is de Bruijn closedness of stored field types and (2)
+is the `SubstFree`/`NoCSubst` argument §T10 already ran for `D.params` (`OnCtx.substC_eq`), one
+telescope over.  But neither is proved here, so the closure theorems remain unproved and I am
+not claiming otherwise. -/
+
+namespace VExpr
+
+/-- **`instAll_bvars_lift`, on a telescope.**  Instantiating a telescope closed at `m + n` at the
+variable spine `bvars j n` is lifting it by `j`. -/
+theorem instAllTele_bvars_lift : ∀ {As : List VExpr} {n j m : Nat}, ClosedTele As (m + n) →
+    instAllTele As (bvars j n) m = liftTele j As m
+  | [], _, _, _, _ => rfl
+  | A :: As, n, j, m, h => by
+    rw [instAllTele_cons, liftTele_cons, instAll_bvars_lift h.1,
+      instAllTele_bvars_lift (As := As) (n := n) (j := j) (m := m+1)
+        (by rw [Nat.add_right_comm]; exact h.2)]
+
+end VExpr
+
+
 end Lean4Lean

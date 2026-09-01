@@ -151,8 +151,8 @@ instance — from `PatternRules.WF.ruleShape` plus a shape computation on the th
 constructors (δ: a `const`; quot: a `lam`; ι: `mkLams Γ' (iotaLhs …)`, a `lam` or an `app`,
 `iotaLhs` always carrying the major premise).  Consequence, `WF.piPi_extra_closed`: **the `extra`
 case of single-link Π/Π inversion is discharged at `VEnv.WF`.**  Of the three cases that carry the
-content of that inversion, `extra` is now closed by well-formedness and `proofIrrel` is closed by
-shape; `trans` is the entire residual, and `trans` is `InjMidpoint.lean`'s midpoint.
+content of that inversion, `extra` is now closed by well-formedness; see §12/§15 for the two
+corrections to what Round 2 said about the other two.
 
 The lhs/rhs asymmetry in §10 is real and is checked (`noPiLhs_fires`): `wfPiEnv` is well-formed,
 carries a rule, and that rule's **right**-hand side *is* a Π.  So §10 is not the vacuous
@@ -182,6 +182,74 @@ rule); a mutual `unsafeDef` block with rules `A ≡ ∀ (_ : Prop), B`, `B ≡ �
 two Π-chains out of `A` have codomains `B` and `∀ (_ : Prop), Prop`, joined by `B`'s rule); a
 second δ-rule for `Quot.lift` alongside the quot rule (`addConst` refuses the redeclaration, the
 same mechanism as §8).  This paragraph is a search report and nothing in the file depends on it.
+
+## Round 3 (2026-09-01): two of my own Round-2 claims were wrong, and `trans` does not localise
+
+Round 2's §10 closed with: "of the three cases that carry the content of Π/Π inversion — `trans`,
+`proofIrrel`, `extra` — the third is closed by well-formedness and `proofIrrel` is closed by
+shape; `trans` is the whole residual, and it is `InjMidpoint.lean`'s midpoint."  **Only the
+`extra` clause of that sentence survives.**
+
+**Correction 1 (§12): `ConvStep2`'s midpoint is not the Π/Π `trans` midpoint.**
+`convStep2At_of_sort_eq` — when the two link levels are the same expression, the composition is
+`IsDefEqStrong.trans` and costs nothing.  So `ConvStep2`'s entire content is the *level mismatch*.
+A `trans` node of `IsDefEqStrong` carries **one** type index on both halves by construction, so
+the Π/Π `trans` case is not an instance of `ConvStep2`'s obligation at all: what it needs is
+Π-shape descent across the midpoint, not level alignment.  Two obligations, not one seen twice.
+
+**Correction 2 (§15): the `proofIrrel` case is not closed by shape.**  The level argument I gave
+("`.succ (.imax u v) ≈ .zero` is impossible") is arithmetic applied to something that is not a
+level equation.  `IsDefEqStrong.proofIrrel` carries the type index `p`, so at a Π/Π link indexed
+`.sort u` the case fires exactly when `env.IsDefEqStrong U Γ (.sort u) (.sort u) (.sort .zero)` is
+derivable, and refuting that is a sort/sort inversion.  The tree agrees:
+`Injectivity.not_isProof_of_defeqU_forallE` routes through `forallE_not_proof`, whose hypothesis
+is `VEnv.SortUniq`, supplied there by the hole `WF.sortUniq'`.  What the case costs is named as
+`SortNotPropStrong` and bounded above by `SortUniq` (`sortNotPropStrong_of_sortUniq`) — strictly weaker than
+`SortUniq`, but *not* free.
+
+### Task 1, answered: the `VEnv.WF` clauses do not constrain a midpoint (§13)
+
+`WF.defEqHeadsUnique`, `WF.noPiLhs` and `DeltaUnique.WF.keyUnique` are facts about the rule set;
+a midpoint is a term.  `midpoint_app_at_empty` exhibits an `.app`-headed midpoint between two
+Π-shapes at one sort **over `∅`**, reached by β alone — where all three clauses are vacuous.  So
+the answer is **no**, in the strongest available form, and the guess that orthogonality of the
+rule set bounds which terms two chains pass through is refuted rather than accepted.
+
+### Task 2's test, and it FAILS: `trans` does not localise (§14)
+
+Row 51's pattern exactly.  `PiMid` — the Π/Π `trans` case written out, two links through an
+arbitrary midpoint at one sort — is **equivalent to the single-link statement `PiLinkInvCod` with
+no hypothesis at all** (`piMid_iff_piLinkInvCod`), because `IsDefEqStrong.trans` is a rule one way
+and `ConvC.one` composes the other.  So "localise the residual at its midpoint" is a restatement.
+Nothing is built on it.
+
+`convPiInvCod_of_convStep2_piLinkInvCod` (§16) prices the single-link form: chain form and link
+form differ by exactly `ConvStep2` (via `InjChainStep.ConvC.collapseE`), and `PiLinkInvCod` is
+strictly weaker input than the `PiInv` that `InjChainStep.convPiInv_of_convStep2` uses.  But the
+circle is explicit and is the point: `ConvPiInvCod → ConvPiFromEntry` (§1, free) and
+`ConvSortInv ∧ ConvPiFromEntry → ConvStep2`, so §16 buys `ConvStep2 → ConvStep2` unless
+`ConvStep2` arrives from outside the corner.  Same verdict as row 51, reached by another route.
+
+### What confluence would have to give, tight (§17)
+
+The only content-bearing restriction of the `trans` case is to a **non-Π** midpoint, and the
+Π-midpoint sub-case then needs the two codomain chains — in `A::Γ` and `A''::Γ` — brought into one
+context.  The tree had no `IsDefEqStrong.defeqDFC`; §17 supplies the chain form,
+`ConvC.defeqDFC`, from `IsDefEq.defeqDF_l` link by link over `Ordered env`.  The request is then
+
+    PiMidNonPi : CtxStrong Γ → (∀ D E, M ≠ .forallE D E) →
+                 IsDefEqStrong Γ (.forallE A B) M (.sort u) →
+                 IsDefEqStrong Γ M (.forallE A' B') (.sort u) → ConvC (A::Γ) B B'
+
+— *Π-shape descent and nothing else*: no reduction relation, no subject, no typing judgment, no
+level arithmetic; it is what "a term convertible to a Π reduces to a Π" buys, in `ConvC` form.
+`PiLinkInvCod.piMidNonPi` bounds it above by the statement it is being asked to supply, so the
+request is not stronger than the target, and `piMidNonPi_side_fires` checks that the non-Π side
+condition is satisfiable at §13's firing midpoint.  Alongside it: `SortNotPropStrong` (the `proofIrrel`
+case) and `PiLinkInvDom` (needed only to *apply* `ConvC.defeqDFC`).
+
+**Not claimed:** that those three plus `VEnv.WF` close `PiLinkInvCod`.  That induction is not
+done, and no theorem here depends on it.
 
 ## Axioms and cone
 
@@ -551,6 +619,207 @@ equivalence is not vacuous on the left — `PiChainAt ∅ 0 (.bvar 0)`'s premise
 and `∅` is well-formed, so §11 has a firing instance at the degenerate point. -/
 theorem empty_wf : VEnv.WF (∅ : VEnv) := ⟨[], .empty⟩
 
+/-! ## §12 CORRECTION: `ConvStep2`'s midpoint is **not** the Π/Π `trans` midpoint
+
+§10's closing sentence — "`trans` is the whole residual, and it is `InjMidpoint.lean`'s
+midpoint" — is **wrong**, and this section is the check.  `ConvStep2At env U Y` composes
+`IsDefEqStrong Γ X Y (.sort a)` with `IsDefEqStrong Γ Y Z (.sort b)` at **different** levels
+`a`, `b`; when the two levels are the same expression the conclusion is `IsDefEqStrong.trans`
+and there is nothing to pay (`convStep2At_of_sort_eq`).  So `ConvStep2`'s entire content is the
+*level mismatch*.
+
+The Π/Π `trans` case is the opposite shape: `IsDefEqStrong.trans` is a **rule**, so both halves
+of a `trans` node carry the *same* type index `.sort u`, and what is needed there is not level
+alignment but Π-shape descent across the midpoint.  Closing `ConvStep2` therefore does not close
+it and closing it does not close `ConvStep2`; they are two obligations, not one seen twice. -/
+
+theorem convStep2At_of_sort_eq {Y : VExpr} {Γ : List VExpr} {X Z : VExpr} {a : VLevel}
+    (h1 : env.IsDefEqStrong U Γ X Y (.sort a)) (h2 : env.IsDefEqStrong U Γ Y Z (.sort a)) :
+    ∃ u, env.IsDefEqStrong U Γ X Z (.sort u) := ⟨a, .trans h1 h2⟩
+
+/-! ## §13 Task 1, answered: the `VEnv.WF` clauses do **not** constrain a midpoint
+
+`WF.defEqHeadsUnique`, `WF.noPiLhs` and `DeltaUnique.WF.keyUnique` are facts about the *rule
+set*.  A midpoint is a term, and the costly midpoint heads of `InjMidpoint.MidFree` are reached
+by **β alone** — so they are reached at the *empty* environment, where all three clauses are
+vacuous.  `midpoint_app_at_empty` is that witness: an `.app`-headed midpoint sitting between two
+Π-shapes, at one and the same sort, over `∅`.
+
+So orthogonality of the rule set bounds nothing about midpoints, and the answer to "do the three
+clauses constrain what a midpoint can be" is **no**, in the strongest available form. -/
+
+/-- The midpoint, named: a β-redex, `.app`-headed. -/
+def appMid : VExpr := .app (.lam (.sort (.succ .zero)) (.bvar 0)) roguePi1
+
+theorem appMid_isApp : ∃ f a, appMid = .app f a := ⟨_, _, rfl⟩
+
+theorem midpoint_app_at_empty :
+    (∅ : VEnv).IsDefEqStrong 0 [] roguePi1 appMid (.sort (.succ .zero)) ∧
+      (∅ : VEnv).IsDefEqStrong 0 [] appMid roguePi1 (.sort (.succ .zero)) := by
+  have hb : (∅ : VEnv).HasType 0 [VExpr.sort (.succ .zero)] (.bvar 0) (.sort (.succ .zero)) :=
+    .bvar .zero
+  have hbeta : (∅ : VEnv).IsDefEq 0 [] appMid roguePi1 (.sort (.succ .zero)) := by
+    have h := IsDefEq.beta (env := ∅) (uvars := 0) (Γ := []) (A := .sort (.succ .zero))
+      (B := .sort (.succ .zero)) (e := .bvar 0) (e' := roguePi1) hb roguePi1_type
+    simpa [appMid, VExpr.inst] using h
+  have h1 : (∅ : VEnv).IsDefEqStrong 0 [] appMid roguePi1 (.sort (.succ .zero)) :=
+    hbeta.strong .empty trivial
+  exact ⟨h1.symm, h1⟩
+
+/-! ## §14 Task 2's test, and it FAILS: localising `trans` at its midpoint buys nothing
+
+Row 51's pattern, exactly.  `PiMid` is the Π/Π `trans` case written out — two links through an
+arbitrary midpoint at one sort — and `PiLinkInvCod` is the single-link statement it was supposed
+to localise.  They are **equivalent with no hypothesis at all** (`piMid_iff_piLinkInvCod`),
+because `IsDefEqStrong.trans` is a rule in one direction and `ConvC.one` composes in the other.
+So "localise the residual at its midpoint" is a restatement; do not build on it.
+
+The only content-bearing restriction is to a **non-Π** midpoint (`PiMidNonPi`, §17), and that
+one is not free: the Π-midpoint sub-case then needs the induction hypothesis twice *and* a
+context conversion for `ConvC` (the two codomain chains land in `A::Γ` and `A''::Γ`).  No
+`IsDefEqStrong.defeqDFC` exists in this tree — checked — so that lemma is a prerequisite, not a
+detail. -/
+
+/-- Π-injectivity's codomain half for a **single** `IsDefEqStrong` link at a syntactic sort. -/
+def PiLinkInvCod (env : VEnv) (U : Nat) : Prop :=
+  ∀ {Γ : List VExpr} {A B A' B' : VExpr} {u : VLevel}, CtxStrong env U Γ →
+    env.IsDefEqStrong U Γ (.forallE A B) (.forallE A' B') (.sort u) → ConvC env U (A::Γ) B B'
+
+/-- The same, written as the `trans` case: two links through an arbitrary midpoint at one sort. -/
+def PiMid (env : VEnv) (U : Nat) : Prop :=
+  ∀ {Γ : List VExpr} {A B A' B' M : VExpr} {u : VLevel}, CtxStrong env U Γ →
+    env.IsDefEqStrong U Γ (.forallE A B) M (.sort u) →
+    env.IsDefEqStrong U Γ M (.forallE A' B') (.sort u) → ConvC env U (A::Γ) B B'
+
+/-- **The collapse test, FAILING.**  Both directions, no hypotheses. -/
+theorem piMid_iff_piLinkInvCod : PiMid env U ↔ PiLinkInvCod env U := by
+  constructor
+  · intro H Γ A B A' B' u hΓ h
+    exact H hΓ h (h.symm.trans h)
+  · intro H Γ A B A' B' M u hΓ h1 h2
+    exact H hΓ (h1.trans h2)
+
+/-! ## §15 CORRECTION: the `proofIrrel` case is **not** closed by shape
+
+§10 also claimed `proofIrrel` is "closed by shape (a Π's type is a sort, and
+`.sort (.imax u v) : p` with `p : .sort .zero` would need `.succ (.imax u v) ≈ .zero`)".  That
+reasoning is a *level* argument applied to a judgment that is not a level equation.
+`IsDefEqStrong.proofIrrel`'s conclusion carries the type index `p`, so for a Π/Π link at
+`.sort u` the case fires exactly when `env.IsDefEqStrong U Γ (.sort u) (.sort u) (.sort .zero)`
+is derivable — and refuting *that* is a sort/sort inversion, not arithmetic.  The tree agrees:
+`Injectivity.not_isProof_of_defeqU_forallE` ("a term convertible with a Π is not a proof") goes
+through `forallE_not_proof`, whose hypothesis is `VEnv.SortUniq`, supplied there by the hole
+`WF.sortUniq'`.
+
+What the case actually costs is named below, and it is **strictly weaker** than `SortUniq`: a
+single closed level fact plus one sort/sort inversion, with no subject and no context quantifier
+beyond `Γ`. -/
+
+/-- A sort is never a proposition, in `IsDefEqStrong` form.  **Name note:** `PropConv.lean`
+already declares a `VEnv.SortNotProp`, over the *stratified* `IsDefEqN` at a fixed index; the two
+are different statements and the collision is real, so this one carries the `Strong` suffix.  (It
+was caught by importing `Experimental/ConeJoin.lean` into a measurement file — the file builds
+standalone either way, which is exactly the failure mode `scripts/dup-names.lean` exists for.) -/
+def SortNotPropStrong (env : VEnv) (U : Nat) : Prop :=
+  ∀ {Γ : List VExpr} {u : VLevel}, ¬ env.IsDefEqStrong U Γ (.sort u) (.sort u) (.sort .zero)
+
+/-- `SortNotPropStrong` is cheap *given* `SortUniq` — which is the upper bound, not a discharge. -/
+theorem sortNotPropStrong_of_sortUniq (hsu : env.SortUniq U) (hΓ : OnCtx Γ (env.IsType U))
+    {u : VLevel} (hu : u.WF U) : ¬ env.IsDefEqStrong U Γ (.sort u) (.sort u) (.sort .zero) := by
+  intro h
+  have h1 : env.HasType U Γ (.sort u) (.sort .zero) := h.defeq
+  have h2 : env.HasType U Γ (.sort u) (.sort (.succ u)) := .sortDF hu hu rfl
+  have := VLevel.equiv_def.1 (hsu (u := .succ u) (v := .zero) hΓ hu trivial h2 h1) []
+  simp [VLevel.eval] at this
+
+/-! ## §16 What the single-link form is worth: it is `ConvPiInvCod` **given `ConvStep2`**
+
+`InjChainStep.ConvC.collapseE` collapses a whole `ConvC` chain to one link given `ConvStep2`, so
+the chain form and the single-link form differ by exactly `ConvStep2`.  Compare
+`InjChainStep.convPiInv_of_convStep2`, which does the same collapse and then applies `PiInv` —
+the `IsDefEqU` form, i.e. the hole.  `PiLinkInvCod` is **strictly weaker input** than `PiInv`:
+its premise is an `IsDefEqStrong` at a *syntactic* sort rather than an `IsDefEqU` (more premises,
+narrower index) and its conclusion is a `ConvC` chain rather than one `IsDefEq`.
+
+**And the circle is explicit, which is the point.**  `ConvPiFromEntry` follows from
+`ConvPiInvCod` with no hypothesis (§1), and `convStep2_of_convSortInv_convPiFromEntry` turns
+`ConvSortInv ∧ ConvPiFromEntry` into `ConvStep2`.  So §16 buys `ConvStep2 → ConvStep2` unless
+`ConvStep2` arrives from outside the corner.  That is the same verdict row 51 records for the
+`SortChainAt` localisation, reached here by a different route, and it is why the single-link
+localisation is **not** progress on its own. -/
+
+theorem convPiInvCod_of_convStep2_piLinkInvCod (hcs : ConvStep2 env U)
+    (hpl : PiLinkInvCod env U) : ConvPiInvCod env U := by
+  intro Γ A B A' B' hΓ h
+  match h.collapseE hcs hΓ with
+  | .inl eq => cases eq; exact .refl
+  | .inr ⟨_, hw⟩ => exact hpl hΓ hw
+
+/-! ## §17 The prerequisite the induction needs, supplied — and the request for the CR stream
+
+§14 says the case analysis of a single Π/Π link is not a reduction: `PiMid ↔ PiLinkInvCod` with
+no hypotheses, so only a genuine **induction on the derivation** can make progress, and there the
+`trans`-with-a-Π-midpoint sub-case needs the two codomain chains — landing in `A::Γ` and
+`A''::Γ` — brought into one context.  No `IsDefEqStrong.defeqDFC` exists in this tree.  It is not
+needed: `IsDefEq.defeqDF_l` (`Lemmas.lean`) plus `IsDefEq.strong` gives the chain form link by
+link, over `Ordered env` alone.  That is `ConvC.defeqDFC` below, and it is the missing
+prerequisite rather than a detail.
+
+With it in hand the request that can be handed to the confluence/`descend` stream is exactly
+`PiMidNonPi` together with `SortNotPropStrong` (§15), plus the domain half `PiLinkInvDom`:
+
+* `PiMidNonPi` is Π-shape descent and nothing else: *a term sitting between two Π-shapes at one
+  sort, and itself not syntactically a Π, has its two neighbours' codomains chain-linked.*  It is
+  what "a term convertible to a Π reduces to a Π" buys, stated with no reduction relation, no
+  subject, no typing judgment and no level arithmetic in it.
+* `SortNotPropStrong` is the `proofIrrel` case and is a sort/sort inversion.
+* `PiLinkInvDom` is needed only to *use* `ConvC.defeqDFC` in the Π-midpoint sub-case.
+
+**Explicitly not claimed:** that these three plus `VEnv.WF` close `PiLinkInvCod`.  That induction
+is not done here, and nothing in this file depends on it — every theorem above is independent of
+§17 except `ConvC.defeqDFC`, which is a theorem in its own right. -/
+
+/-- **Chain transport across a one-entry context conversion**, one `IsDefEq.defeqDF_l` per link,
+over `Ordered env`. -/
+theorem ConvC.defeqDF_l (henv : Ordered env) {Γ : List VExpr} {A A' : VExpr} {u : VLevel}
+    (hΓ : CtxStrong env U Γ) (hA : env.IsDefEqStrong U Γ A A' (.sort u))
+    {B B' : VExpr} (h : ConvC env U (A::Γ) B B') : ConvC env U (A'::Γ) B B' := by
+  have hΓ' : OnCtx (A'::Γ) (env.IsType U) := ⟨hΓ.defeq, _, hA.defeq.hasType.2⟩
+  induction h with
+  | refl => exact .refl
+  | step hl _ ih => exact .step ((hA.defeq.defeqDF_l henv hl.defeq).strong henv hΓ') ih
+
+/-- **…and across a whole domain chain.**  The lemma the Π-midpoint sub-case of an induction on
+`PiLinkInvCod` needs, and the one the tree did not have. -/
+theorem ConvC.defeqDFC (henv : Ordered env) {Γ : List VExpr} (hΓ : CtxStrong env U Γ)
+    {A A' : VExpr} (hA : ConvC env U Γ A A') {B B' : VExpr} :
+    ConvC env U (A::Γ) B B' → ConvC env U (A'::Γ) B B' := by
+  induction hA with
+  | refl => exact id
+  | step hl _ ih => exact fun h => ih (h.defeqDF_l henv hΓ hl)
+
+/-- **Π-shape descent at a non-Π midpoint, at one sort.**  The request. -/
+def PiMidNonPi (env : VEnv) (U : Nat) : Prop :=
+  ∀ {Γ : List VExpr} {A B A' B' M : VExpr} {u : VLevel}, CtxStrong env U Γ →
+    (∀ D E, M ≠ .forallE D E) →
+    env.IsDefEqStrong U Γ (.forallE A B) M (.sort u) →
+    env.IsDefEqStrong U Γ M (.forallE A' B') (.sort u) → ConvC env U (A::Γ) B B'
+
+/-- The domain half of the single-link statement. -/
+def PiLinkInvDom (env : VEnv) (U : Nat) : Prop :=
+  ∀ {Γ : List VExpr} {A B A' B' : VExpr} {u : VLevel}, CtxStrong env U Γ →
+    env.IsDefEqStrong U Γ (.forallE A B) (.forallE A' B') (.sort u) → ConvC env U Γ A A'
+
+/-- `PiMidNonPi` is bounded above by the single-link statement, so the request is not stronger
+than what it is being asked to supply. -/
+theorem PiLinkInvCod.piMidNonPi (H : PiLinkInvCod env U) : PiMidNonPi env U :=
+  fun hΓ _ h1 h2 => H hΓ (h1.trans h2)
+
+/-- Non-vacuity of the *restriction*: §13's midpoint is `.app`-headed, hence not a Π, so
+`PiMidNonPi`'s side condition is satisfiable at a firing instance — the restriction does not
+empty the statement. -/
+theorem piMidNonPi_side_fires : ∀ D E, appMid ≠ .forallE D E := by rintro D E ⟨⟩
+
 end VEnv
 end Lean4Lean
 
@@ -590,4 +859,14 @@ open Lean4Lean.VEnv
 #print axioms Lean4Lean.VEnv.piChainAt_bvar_iff_convPiFromEntry_wf
 #print axioms Lean4Lean.VEnv.convStep2_of_convSortInv_convPiFromEntry_wf
 #print axioms Lean4Lean.VEnv.empty_wf
+#print axioms Lean4Lean.VEnv.convStep2At_of_sort_eq
+#print axioms Lean4Lean.VEnv.appMid_isApp
+#print axioms Lean4Lean.VEnv.midpoint_app_at_empty
+#print axioms Lean4Lean.VEnv.piMid_iff_piLinkInvCod
+#print axioms Lean4Lean.VEnv.sortNotPropStrong_of_sortUniq
+#print axioms Lean4Lean.VEnv.convPiInvCod_of_convStep2_piLinkInvCod
+#print axioms Lean4Lean.VEnv.ConvC.defeqDF_l
+#print axioms Lean4Lean.VEnv.ConvC.defeqDFC
+#print axioms Lean4Lean.VEnv.PiLinkInvCod.piMidNonPi
+#print axioms Lean4Lean.VEnv.piMidNonPi_side_fires
 end Audit

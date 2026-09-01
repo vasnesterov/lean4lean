@@ -427,11 +427,18 @@ Two claims that circulated with this cluster and that the table refutes:
 (A::Γ) ⊢ e.lift : B → ∃ B', Γ ⊢ e : B'` and its `IsType` variant -- i.e. they would be
 discharged by `TypingStrengthening` alone (`StrengthenNarrow.lean`'s
 `TypingStrengthening.hasType_weakN_iff`), the half `scripts/weakn-gate-split.lean` measures as
-sufficient for 18 of the hole's users.  The fourth, line 1438, is a `NormalEq.trans` with a
+sufficient for **43** of `IsDefEqU.weakN_iff`'s 296 users -- **46** once the tenth gate
+(`hasType_app_bvar0`) is cut; see `docs/handoff-weakn.md` §5.3 for the split and for why the
+"18" this paragraph used to quote was a pre-fix undercount (that figure predates the
+internal-names fix to the measurement scripts, and it was never about `descend` at all).
+The fourth, line 1438, is a `NormalEq.trans` with a
 general `NormalEq` on **both** sides, so the `DomEq`-narrowing that cleaned `etaR` does not
-apply to it.  **Reading by inspection, not machine-checked:** that one composition is the whole
-obstruction, and it is not reducible to the typing half.  Anyone attacking it should confirm
-that reading first.
+apply to it.  **That reading was flagged "inspection, not machine-checked", and it has since
+been refuted** -- `Theory/Typing/CRBetaGen.lean`'s `ParRedExt.parRed_beta_gen` does the same
+proof carrying the argument mismatch in the *statement* (via `NormalEq.instN₂`), and
+`NormalEq.trans` / `NormalEq.weakN_iff` / `NormalEq.weakN_inv_DFC` all leave the cone
+(3875 -> 3847).  `docs/vacuity-ledger.md` row 59 has the measurement; the paragraph above is
+retained only as the record of what the inspection claimed.
 -/
 
 end VEnv
