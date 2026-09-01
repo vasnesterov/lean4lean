@@ -488,6 +488,20 @@ pinned from `e`'s head constant by `Params.pat_app_depth_uniq`.  So the residual
 *equal-height* diamond `KMeasure.EtaKDiamondAt`, and `KMeasure.etaKDiamond_of_at` discharges
 the rest.  What remains is a λ-congruence induction whose base is `KDiamond`-shaped.
 
+**Round 6: that induction is now run, and `KDiamond` does NOT suffice.**
+`Theory/Typing/KEtaDiamond.lean`'s `etaKDiamondAt_of_kDiamond` proves
+`KDiamond → PiDomAgreeK → EtaKBodyTyped → ParRedKSDomConv → EtaKDiamondAt` (`sorryAx`-free, hole
+cone empty), and the base case is `KDiamond` *verbatim* rather than merely `KDiamond`-shaped.
+The extra hypothesis that matters is `PiDomAgree`: **two Π-typings of one term have convertible
+domains**, i.e. Π-injectivity at a shared subject.  It is forced by `EtaK.under`'s domain slack
+(`EtaK.under_dom` below, and `KEtaDiamond.appParams_etaK_under_dom_distinct`, which exhibits two
+`EtaK` reducts at one subject whose domains differ *syntactically* at a real rule table), so it
+is not an artefact of the proof; and discharging it in-tree
+(`KEtaDiamond.piDomAgree_tree`) costs exactly
+`{IsDefEqU.forallE_inv_stratified, WF.rigidShapeUniqNS}` and nothing else.
+`KEtaDiamond.etaKDDiamondAt_of_kDiamond` shows the alternative: pin `under`'s domain to a
+function of the subject and `KDiamond` suffices outright, `[propext, Quot.sound]`.
+
 Do not spend `Params` fields on this or on `KDiamond` until confluence is re-derived for
 `ParRedK`; §S7's eight construction sites are still eight. -/
 def EtaKDiamond : Prop :=
@@ -860,9 +874,11 @@ theorem kStepLiftInv_of (KT : KTable) (HP : PiTypeDescend) : KStepLiftInv := by
 
 /-- **The refutation's hypotheses are load-bearing.**  Where `EtaK` is empty, `ParRedK` is
 `ParRed` and `WeakNInvStatement` *holds* -- `ChurchRosser.lean`'s `ParRed.weakN_inv` is
-exactly it.  So the statement is not refutable outright: what refutes it is a live K-step,
-and the standing caveat applies (no `Params` instance in this tree registers an `.app`
-pattern, and "no witness" is not evidence). -/
+exactly it.  So the statement is not refutable outright: what refutes it is a live K-step.
+
+**The parenthetical "no `Params` instance in this tree registers an `.app` pattern" was stale
+and is removed** (`docs/vacuity-ledger.md` row 96): `PatAppParams.appParams` does, and
+`KEtaDiamond.appParams_etaK_under` exhibits a live `EtaK` step with an `under` layer over it. -/
 theorem weakNInvStatement_of_no_etaK (hno : ∀ {Δ a b}, ¬ EtaK Δ a b) : WeakNInvStatement := by
   intro n k Γ Γ' e1 e2' A hΓ' W hty H
   obtain ⟨e2, h1, h2⟩ := ParRed.weakN_inv hΓ' W hty (ParRedK.toParRed hno H)

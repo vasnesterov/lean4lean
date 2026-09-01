@@ -260,7 +260,33 @@ derives `KDiamond` from `PatMajorCanonical`, which mentions only `Params.Pat`,
 `Pattern.Matches`, `HasType`/`IsDefEq` and `NormalEq` — **no `ParRed`, no `ParRedK`, no grading, no
 reduction relation at all.** It is `design-inductive.md` §7.6's lemma **M3**.
 
-So both corners now point at the same place: **the rule table.** What is *not* claimed: that
+So both corners now point at the same place: **the rule table.**
+
+**PARTLY RETRACTED, 2026-09-01: true of `KDiamond`, FALSE of the η-layer.** `KDiamond` does **not
+suffice** for `ParRedK` confluence. The λ-congruence induction has since been run
+(`KEtaDiamond.etaKDiamondAt_of_kDiamond`), and its blocker is `PiDomAgree` — *two Π-typings of one
+term in one context agree on the domain* — which the tree discharges only from `IsDefEq.uniqU` +
+`IsDefEqU.forallE_inv`. Measured: `etaKDiamond_of_kDiamond_holes` holds relative to **exactly**
+`{IsDefEqU.forallE_inv_stratified, WF.rigidShapeUniqNS}` — notably **not** `weakN_iff` and **not**
+`NormalEq.descend`. So the η-layer creates no *new* obligation, but it reduces to **injectivity**,
+not to the rule table. The convergence is therefore: `KDiamond` → rule table, `EtaKDiamond` →
+injectivity corner — the known Church–Rosser ↔ definitional-inversion cycle
+(`docs/research-forallE-inv.md` §4) touching the η-layer.
+
+The domain agreement is **forced, not an artefact**: `EtaK.under` reads its λ-domain off an
+*arbitrary* Π-typing of the subject, and `appParams_etaK_under_dom_distinct` exhibits two `EtaK`
+derivations at one subject with the **same body** and **syntactically distinct** domains, so
+`NormalEq.refl` is unavailable and `NormalEq.lamDF` — which demands exactly that conversion — is
+what closes the pair.
+
+**A route past it exists and is measured.** `EtaKD` pins `under`'s domain to a function of the
+subject; then `etaKDDiamondAt_of_kDiamond` needs **`KDiamond` and nothing else** — cone 235, hole
+cone empty, `[propext, Quot.sound]`, the same axiom set as `kDiamond_of_patMajorCanonical`. The
+obligation it creates is stated and **not** discharged: `ParRedK`'s two refutation-kills build their
+`EtaK` step at a domain handed to them, so under pinning they need that domain defined and
+Π-typing-derivable — a statement about spine typing and the rule table, which is the direction this
+section wants, but it is not proved. `EtaKD.toEtaKn` records that `EtaKD` is a *sub*relation, so the
+kills as stated are about the larger one. What is *not* claimed: that
 `KDiamond` suffices for `ParRedK` confluence (`EtaKDiamond` reduces to an equal-height diamond plus
 a λ-congruence induction that is open), and that `PatMajorCanonical` is satisfiable — it is
 **vacuous** at `cycParams`, so non-vacuity needs an instance registering an `.app` pattern, the same

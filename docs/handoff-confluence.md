@@ -8,6 +8,31 @@ work in the wrong direction.*
 
 ---
 
+## 0. STALE — read this before §1, §9 or §10 (2026-09-01, later)
+
+**Three sections of this file are superseded, and §9's "what I would pick up first" is dead work.**
+
+* §1 item (3), §9 and §10 say `PatMajorCanonical` is untested for want of a `Params` instance
+  registering an `.app` pattern, and that `PatWFIota.lean` would supply it. **An instance exists** —
+  `Theory/Typing/PatAppParams.lean`'s `appParams` — and M3 is **non-vacuous and true** there, though
+  with its **typing premises never used** (both right-hand sides closed and mutually `NormalEq`), so
+  the test is weak. And `PatWFIota.lean` is not where the *canonical* instance can come from: its
+  `paramsOfPiInv` is parametrised, and the concrete environment already exists in
+  `Verify/QuotConsts.lean`, which `Theory/` cannot import — so the canonical instance must live
+  **outside `Theory/`**. Ledger rows 96–96e.
+* The reason this file and three `K*` files gave for there being no such instance — that
+  `paramsOfWF`'s `PatWF` is open — was a **wrong reason**, not a gap: `ParamsWitness.lean` builds a
+  `Params` by hand. Four items looked blocked on it. Ledger row 96a, and row 100c on the two copies
+  that survived the first repair.
+* **`KDiamond` does not suffice**, which this file's §1 correctly declined to claim. The
+  λ-congruence induction is now run (`Theory/Typing/KEtaDiamond.lean`), and the η-half reduces to
+  **injectivity** — `{forallE_inv_stratified, rigidShapeUniqNS}` — not to the rule table. A pinned
+  variant (`EtaKD`) needs `KDiamond` and nothing else, with its own stated, undischarged obligation.
+  Ledger rows 100–100b.
+
+§2–§8 stand.
+
+
 ## 1. The state, unhedged
 
 Three sentences, and none of them should be softened when quoted upward.

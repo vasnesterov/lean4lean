@@ -312,12 +312,19 @@ depth-3 ι-shaped pattern and a term it matches, and reads the measure off both:
 `depth` and `headName` all agree, at a pattern with two `.var` layers on the function side and
 one on the constructor side.  Nothing about it is degenerate, and it needs no `Params`.
 
-**The `Params`-gated half has no witness in this tree, and that is not evidence of truth.**
-`EtaKn.height_eq`, `height_uniq` and `fuel_eq` all consume `Params.Pat` at an `.app` pattern,
-and **no `Params` instance in this tree registers one** -- `refParams` registers none, and
-`paramsOfWF`'s `PatWF` is open in its ι and quotient cases (`docs/handoff-params.md` §1.1).
-So the measure is checked against the rule *table*'s laws (`pat_simple`, `pat_app_l_uniq`) and
-not against any instance.  Same standing caveat as `KStep.stuck_fires` and both kills. -/
+**The `Params`-gated half.**  `EtaKn.height_eq`, `height_uniq` and `fuel_eq` all consume
+`Params.Pat` at an `.app` pattern.
+
+**CORRECTED 2026-09-01, and the correction matters more than the claim did.**  This paragraph
+said "no `Params` instance in this tree registers one -- `refParams` registers none, and
+`paramsOfWF`'s `PatWF` is open in its ι and quotient cases".  The first half is **stale**:
+`Theory/Typing/PatAppParams.lean`'s `appParams` registers two `.app` patterns.  The second half
+was never a *reason* -- it treats `paramsOfWF` as the only route to a `Params`, and
+`ParamsWitness.lean` builds one by hand (`docs/vacuity-ledger.md` row 96a; the same sentence was
+corrected in `KCanonical.lean` and this copy was missed).  The measure now *is* instantiated:
+`KEtaDiamond.appParams_etaKn_under` is a tower of height exactly `1` at `appParams`, which is
+what `fuel_eq` predicts from `.const C []`'s `appDepth 0` against a function-side pattern depth
+of `0`. -/
 
 /-- The measure at a concrete, non-degenerate ι-shaped pattern: `rec a b (ctor c)`. -/
 theorem measure_witness (rec ctor : Lean.Name) (ls ls' : List VLevel) (a b c : VExpr) :
@@ -337,7 +344,12 @@ a λ-congruence induction whose base (`k = 0`) is `KDiamond`-shaped.
 This is a reduction, not a proof.  It passes the collapse test -- `EtaKDiamondAt` is
 *strictly weaker* than `EtaKDiamond` as a `Prop` (it quantifies over one height, not two), so
 `etaKDiamond_of_at` is not a tautology; what supplies the missing generality is
-`EtaK.same_height`, and nothing else. -/
+`EtaK.same_height`, and nothing else.
+
+**The induction is now run**, in `Theory/Typing/KEtaDiamond.lean`: the base case is `KDiamond`
+verbatim, and every `under` layer costs `PiDomAgree` -- Π-injectivity at a shared subject, forced
+by `EtaK.under`'s domain slack rather than by the proof.  So `KDiamond` alone does **not** finish
+the η-layer, and what closes the gap is not a fact about the rule table. -/
 
 /-- `EtaKDiamond` restricted to two derivations of the **same** η-tower height. -/
 def EtaKDiamondAt : Prop :=
