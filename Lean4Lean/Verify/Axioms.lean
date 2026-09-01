@@ -612,9 +612,6 @@ theorem BVarBounded.looseBVarRange'_le :
     simp only [looseBVarRange']; omega
   | _ => exact fun _ => Nat.zero_le _
 
-/-- This could be an `@[implemented_by]` -/
-@[simp] axiom replace_eq (e : Expr) (f) : e.replace f = e.replaceNoCache f
-
 def liftLooseBVars' (e : @& Expr) (s d : @& Nat) : Expr :=
   match e with
   | .bvar i => .bvar (if i < s then i else i + d)
