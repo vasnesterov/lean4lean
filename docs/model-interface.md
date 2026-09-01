@@ -57,6 +57,34 @@
 > decidable syntactic predicates; and `pt = ∅` (`Universe.lean:53`) makes the propositional
 > witness and the empty function the same element, so no case split leaks outward.
 
+> **UPDATE (2026-09-01, machine-checked, sorry-free).** The 2026-08-30 correction above
+> listed the import as `PropTypeAgree ∧ PropUniq ∧ InstDescendUp` on the strength of
+> `PropSplitUp.exists_stable_propSplitUp`. **That was one step ahead of the chain**, and the
+> missing step is now supplied. `ModelFits` fixes *one* `L` for all its components, and the
+> tree's only producer of the relation slot (`AboveAudit.ctxAgreeRd_propSplitOf`) was proved
+> for `propSplitOf` alone — `exists_stable_propSplitUp` says nothing about its `L`'s relation
+> slot, and `R := Eq` fails the pairing hypothesis. So the only route into `ModelFits` still
+> took `PropDescend 0`.
+>
+> `Theory/SetModel/PropUpFits.lean` closes it: `Ctx.Lift'.split_mid` (a lift splits at a
+> marked context entry, and everything above the entry is independent of it — pure de Bruijn
+> bookkeeping) gives `ctxAgreeRd_propSplitUp`, hence
+>
+>     modelFits_of_propSplitUp_inputs :
+>       env.Ordered → env.PropUniq 0 → env.PropTypeAgree 0 → env.InstDescendUp 0 →
+>       OracleFits (propSplitUp env 0 henv hU hT) κ ls o ds → ModelFits κ env ds
+>
+> and `modelFits_of_agree_instDescendUp` with `PropUniq` discharged from `hfalse`.
+> `OracleFits`' witnesses transfer unchanged: `InductOracleWitness.oracleFits_zero` is stated
+> for an arbitrary `L`.
+>
+> The trade is bounded **both ways**: `propDescend_iff_instDescendUp` proves
+> `PropDescend nv ↔ SortLiftDescend nv ∧ ProofLiftDescend nv ∧ InstDescendUp nv`, so the only
+> difference between the old and new top-level reductions is the two strengthening-shaped
+> `lift` fields. Both fields of `InstDescendUp` are exhibited separately, at one substitution
+> that really substitutes. `InstDescendUp env 0` remains **open**, and it is not shown
+> *strictly* weaker than `PropDescend` — no separating environment is exhibited.
+
 # The syntax ↔ set-theory boundary
 
 Specification of the interface between `Lean4Lean/Theory/` (the abstract syntax

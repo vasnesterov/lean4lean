@@ -3113,3 +3113,84 @@ Bounds on the new relation: `ctxAgree_refl` (nonempty) and `not_ctxAgree_sortShi
 contexts of the *same* length that every `PropSplit` distinguishes, so `CtxAgree` is not
 trivially true and the refutation is not a length artefact.  `prop_forces_false_bvar` is
 the `Type`-side companion of `PropSplitAudit.prop_forces_true`.
+
+## `PropDescend` leaves the top-level model input — 2026-09-01
+
+`Theory/SetModel/PropUpFits.lean`, sorry-free (`#print axioms` census in the file: only
+`propext` / `Classical.choice` / `Quot.sound`; `instN_witness` needs none).
+
+### The gap this closes
+
+`docs/model-interface.md`'s 2026-08-30 correction already records the syntactic import as
+`PropTypeAgree ∧ PropUniq ∧ InstDescendUp`, on the strength of
+`PropSplitUp.exists_stable_propSplitUp`.  **That ledger entry was one step ahead of the
+machine-checked chain.**  `ModelFits` fixes *one* `L` for all its components, and
+`AboveAudit.ctxAgreeRd_propSplitOf` — the only producer of `CtxAgreeRd` in the tree — is
+proved for `propSplitOf` **only**.  `exists_stable_propSplitUp` gives `∃ L, L.Stable` and
+nothing about that `L`'s relation slot, and `R := Eq` (the trivial `CtxInvariant` of
+`CoherentWitness.lean:109`) fails `hRd`.  So before this file there was **no path at all**
+from `InstDescendUp` to `ModelFits`: the only route into `ModelFits` was
+`modelFits_of_propSplit_inputs`, which takes `env.PropDescend 0`.
+
+### What is proved
+
+* `Ctx.Lift'.split_mid` — **a lift splits at a marked context entry.**  For every `l`,
+  `Ctx.Lift' l (Δ ++ A :: Γ) Γ'` gives `Δ'`, `ρ`, `Γ'r` with `Γ' = Δ' ++ A.lift' ρ :: Γ'r`,
+  `Ctx.Lift' ρ Γ Γ'r`, and — the load-bearing part — `Ctx.Lift' l (Δ ++ B :: Γ)
+  (Δ' ++ B.lift' ρ :: Γ'r)` for **every** `B`: the image of everything above the marked
+  entry does not depend on the entry.  Pure de Bruijn bookkeeping, no typing, no
+  environment, like `PropSplitUp.lean`'s pushout.
+* `propSplitUp_ctxAgree` / `ctxAgreeRd_propSplitUp` — `ModelFits`' relation slot discharged
+  for the lift-closed split.  `split_mid` locates the entry, `IsDefEq.weak'` moves the
+  defeq up the residual lift `ρ`, and `IsDefEq.defeqDFC'` (which already carries an
+  arbitrary common prefix) finishes.
+* `modelFits_of_propSplitUp_inputs` —
+
+      env.Ordered → env.PropUniq 0 → env.PropTypeAgree 0 → env.InstDescendUp 0 →
+      OracleFits (propSplitUp env 0 henv hU hT) κ ls o ds → ModelFits κ env ds
+
+  and `modelFits_of_agree_instDescendUp`, the same with `PropUniq` discharged from the
+  goal's own `hfalse`.  `OracleFits`' witnesses are unaffected:
+  `InductOracleWitness.oracleFits_zero` is stated for an **arbitrary** `L`.
+
+**So the model-side input is now `PropTypeAgree env 0`, `InstDescendUp env 0`, and
+`OracleFits` — replacing `PropDescend env 0`.**
+
+### Bounded both ways, and field by field
+
+`propDescend_iff_instDescendUp`:
+
+    env.PropDescend nv  ↔  env.SortLiftDescend nv ∧ env.ProofLiftDescend nv
+                                                  ∧ env.InstDescendUp nv
+
+`→` is `PropSplitUp.instDescendUp_of_propDescend` plus the two projections; `←` uses
+`propUpCollapse_of_sortLiftDescend` / `proofUpCollapse_of_proofLiftDescend` to turn the
+lift-closed conclusion of `InstDescendUp` back into a typing at `Γ₁`.  So the **only**
+difference between `modelFits_of_propSplit_inputs` and `modelFits_of_propSplitUp_inputs` is
+the conjunct `SortLiftDescend ∧ ProofLiftDescend` — exactly the two fields
+`StableAudit.sort_lift_of_strengthening` / `proof_lift_of_strengthening` obtain from
+`TypingStrengthening` + `SortDescend`, i.e. from the strengthening hole
+(`IsDefEqU.weakN_iff`, 211 transitive users in the census).  Nothing else moved.
+
+Field by field (row 11a's discipline — a structure-level bound can be vacuous on the one
+field that is false), both at the *same* substitution `Ctx.InstN [] falseProp Prop 0 [Prop] []`
+(`instN_witness`), which really substitutes (`k = 0`, subject mentioning `bvar 0`):
+
+* `instDescendUp_prop_inst_witness` — `B = .bvar 0`; premise and conclusion both hold.
+* `instDescendUp_proof_inst_witness` — `e = λ (h : p), h`, a *proof* (type
+  `.sort (.imax .zero .zero)`), so this field is not an instance of the previous one.
+
+Each premise is obtained from its conclusion by `isPropUp_instN_up` / `isProofUp_instN_up`,
+whose ascent direction is free, so nothing is assumed.
+
+### What is **not** claimed
+
+`InstDescendUp env 0` is **open** — blocked on `IsDefEqU.sort_forallE_inv`, per
+`StableAudit.lean`'s note, and the candidate refutation there is still not machine-checked.
+No `PropSplit` is constructed; `ModelFits` is not shown satisfiable.  And
+`InstDescendUp` is **not** shown *strictly* weaker than `PropDescend`: `→` shows it is no
+stronger and `←` shows what would have to be added back, but no environment separating them
+is exhibited.  `PropTypeAgree env 0` is untouched and is irreducible for this route —
+`NotProofNoModel.nonempty_propSplit_iff_agree` proves
+`Nonempty (PropSplit env nv) ↔ PropUniq nv ∧ PropTypeAgree nv`, so no choice of predicate
+removes it.

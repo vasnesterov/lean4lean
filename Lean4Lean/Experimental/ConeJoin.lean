@@ -123,6 +123,7 @@ import Lean4Lean.Theory.SetModel.AboveAudit  -- 2026-09-01: the Above wrapper we
 import Lean4Lean.Theory.Typing.InjChainLower  -- 2026-09-01: SortChainAt at .bvar 0 IS ConvSortInv; the sort-side localisation collapses
 import Lean4Lean.Verify.Inductive.NestedRestore  -- 2026-09-01: VIndRestore from checker data + the _nested name barrier
 import Lean4Lean.Theory.Typing.CRBetaGen  -- 2026-09-01: parRed_beta with the argument mismatch absorbed; ChurchRosser:1438's NormalEq.trans removed
+import Lean4Lean.Theory.SetModel.PropUpFits  -- 2026-09-01: ModelFits from InstDescendUp; the relation slot discharged for the lift-closed split
 
 /-!
 # Acceptance test: the `PatternRules` cone and the `Verify/` cone join
