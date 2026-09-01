@@ -313,7 +313,7 @@ Row by row, which rows carry `IsDefEqU.weakN_iff`:
 `ChurchRosser.lean`'s `NormalEq.instN₂` / `NormalEq.apply_congr` removed the entry from the
 descent layer after that note was written.  So `NormalEq.trans` is the *only* remaining entry
 into site 7, through exactly two rows, and `NormalEq.trans`'s own residual is its `etaR`-after-
-`etaL` case (`NormalEqStrengthen.lean`'s `weakN_inv_one_of_inhabited` bounds it to uninhabited
+`etaL` case (`ChurchRosser.lean`'s `weakN_inv_one_of_inhabited` bounds it to uninhabited
 binders).  Discharging `WeakNInvDS` would bring `ParRed.weakN_inv`'s `extra` case back as a
 third entry, as `KSite7App.lean` says. -/
 

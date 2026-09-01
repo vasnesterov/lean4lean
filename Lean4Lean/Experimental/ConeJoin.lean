@@ -121,6 +121,8 @@ import Lean4Lean.Theory.SetModel.ModelExists  -- 2026-09-01: Input A DISCHARGED 
 import Lean4Lean.Theory.SetModel.InductOracleWitness  -- 2026-09-01: the .induct residual satisfied at a WF, reachable block
 import Lean4Lean.Theory.SetModel.AboveAudit  -- 2026-09-01: the Above wrapper weakens nothing at or below ModelFits; CtxAgree is the greatest CtxInvariant
 import Lean4Lean.Theory.Typing.InjChainLower  -- 2026-09-01: SortChainAt at .bvar 0 IS ConvSortInv; the sort-side localisation collapses
+import Lean4Lean.Verify.Inductive.NestedRestore  -- 2026-09-01: VIndRestore from checker data + the _nested name barrier
+import Lean4Lean.Theory.Typing.CRBetaGen  -- 2026-09-01: parRed_beta with the argument mismatch absorbed; ChurchRosser:1438's NormalEq.trans removed
 
 /-!
 # Acceptance test: the `PatternRules` cone and the `Verify/` cone join
