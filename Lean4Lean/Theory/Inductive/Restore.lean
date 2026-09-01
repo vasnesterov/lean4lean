@@ -63,6 +63,32 @@ theorem substC_mkLams : ∀ {As : List VExpr} {b : VExpr},
   | _, 0 => rfl
   | lo, n+1 => by rw [bvars, List.map_cons, map_substC_bvars (lo := lo) (n := n)]; rfl
 
+/-! ### The spine head
+
+`spineFn` is `Lean.Expr.getAppFn`.  It used to live in `Theory/Inductive/NestedBuild.lean`
+(with `mkApp_spineFn_spineArgs`); it moved here because `VIndRestore.restore` — the
+restoration operator `VIndField.typeR` now applies — has to read the head of a spine to
+decide whether it is a block occurrence. -/
+
+/-- The head of an application spine (`Lean.Expr.getAppFn`). -/
+def spineFn : VExpr → VExpr
+  | .app f _ => f.spineFn
+  | e => e
+
+@[simp] theorem spineFn_app {f a : VExpr} : (VExpr.app f a).spineFn = f.spineFn := rfl
+@[simp] theorem spineFn_const {c : Lean.Name} {ls : List VLevel} :
+    (VExpr.const c ls).spineFn = .const c ls := rfl
+
+/-- Every term is its head applied to its spine. -/
+theorem mkApp_spineFn_spineArgs : ∀ e : VExpr, mkApp e.spineFn e.spineArgs = e
+  | .app f a => by
+    rw [spineFn_app, spineArgs, VExpr.mkApp_append, mkApp_spineFn_spineArgs f]; rfl
+  | .bvar _ | .sort _ | .const _ _ | .lam _ _ | .forallE _ _ => rfl
+
+theorem spineFn_mkApp : ∀ (as : List VExpr) (f : VExpr), (mkApp f as).spineFn = f.spineFn
+  | [], _ => rfl
+  | a :: as, f => by rw [VExpr.mkApp_cons, spineFn_mkApp as, spineFn_app]
+
 end VExpr
 
 /-! ## Part 0: two pieces from further downstream
@@ -228,6 +254,260 @@ def ctorAppR (j : Nat) (C : VIndCtor) (k : Nat) (args : List VExpr) : VExpr :=
     ((D.atRecTele (R.tyArgs j)).map (·.liftN k) ++ args)
 end VInductDecl'
 
+/-! ## Part 1b: the restoration as a **whole-expression rewrite**
+
+`ElimNestedInductive.restoreNested` (`Lean4Lean/Inductive/Add.lean`) is an
+`Expr.replaceNoCache` over the *whole* stored expression: at every subterm whose spine head is
+an auxiliary constant it emits
+`mkAppRange ((nested.abstract r.params).instantiateRev As) r.nparams args.size args`, i.e. the
+restored head applied to the occurrence's arguments **from `nparams` on**, and it does *not*
+descend into the replacement.  `VIndRestore.restore` is that operator at the `VExpr` level.
+
+**Why a rewrite and not `VExpr.substC`.**  `substC` replaces a constant by a *closed term*, so
+it must substitute `mkLams D.params (J.{ls} A)` and leaves the occurrence's own `D.np`
+arguments in place — a saturated `D.np`-fold β-redex, which is what
+`ntreeNode_substC_ne_typeR` (`Theory/Typing/ConstSubstNested.lean`) exhibits.  `TrConstant`
+(`Verify/Environment/Basic.lean`) relates a declared constant to the implementation's through
+`TrExprS`, which has **no defeq slack**, so a specification that declared the redex would make
+`addDecl.WF` false for every parameterised nested block.  The rewrite *contracts*: it drops the
+occurrence's own parameter run and splices `R.tyArgs j` weakened past the enclosing binders,
+which is `VInductDecl'.tyAppR` on the nose.  (Row 36 of `docs/vacuity-ledger.md` is the record
+of getting this backwards once.)
+
+**Why the trigger is the *uniform* occurrence.**  `ElimNestedInductive.replaceIfNested` inserts
+an auxiliary occurrence only as `mkAppRange (mkAppN (.const auxJ_name st.lvls) As) I_nparams …`
+— the auxiliary constant at the **block's own levels** applied to the **block's own parameter
+run** and then to the occurrence's indices.  So every occurrence the restoration has to undo is
+syntactically `I_j.{D.ownLvls} (bvars k D.np ++ π)`, and that is exactly the trigger below.
+It is also exactly the condition C++'s `check_uniform_ind_occs` (`inductive.cpp`) enforces
+syntactically before nested elimination (ledger row 116e), and exactly
+`CGMGuard.cgmValidIndApp`'s condition (`Verify/Inductive/CanonGapMeasure.lean` §3).
+
+The point of the trigger being *syntactic and total* is that it needs no side condition: the
+operator is defined on every `VExpr`, and `restore_id` — the identity restoration restores
+nothing — holds **unconditionally**, which is what removes `VInductDecl'.Canonical` from
+`NestedHead.lean`'s Part 3. -/
+
+namespace VInductDecl'
+
+/-- `memberIdxFrom ms n i`: the position of `n` in `ms`, offset by `i`. -/
+def memberIdxFrom : List Name → Name → Nat → Option Nat
+  | [], _, _ => none
+  | m :: ms, n, i => if m = n then some i else memberIdxFrom ms n (i+1)
+
+/-- Which member of the block the name `n` is, if any. -/
+def memberIdx (D : VInductDecl') (n : Name) : Option Nat := memberIdxFrom D.blockNames n 0
+
+theorem memberIdxFrom_spec : ∀ (ms : List Name) (n : Name) (i j : Nat),
+    memberIdxFrom ms n i = some j → ∃ k, j = i + k ∧ ms[k]? = some n
+  | [], _, _, _, h => absurd h nofun
+  | m :: ms, n, i, j, h => by
+    rw [memberIdxFrom] at h
+    split at h
+    · next he => cases h; exact ⟨0, rfl, by rw [List.getElem?_cons_zero, he]⟩
+    · obtain ⟨k, rfl, hk⟩ := memberIdxFrom_spec ms n (i+1) j h
+      exact ⟨k+1, by omega, by rwa [List.getElem?_cons_succ]⟩
+
+theorem memberIdxFrom_none : ∀ (ms : List Name) (n : Name) (i : Nat),
+    n ∉ ms → memberIdxFrom ms n i = none
+  | [], _, _, _ => rfl
+  | m :: ms, n, i, h => by
+    rw [memberIdxFrom, if_neg (fun he => h (List.mem_cons.2 (Or.inl he.symm)))]
+    exact memberIdxFrom_none ms n (i+1) (fun hm => h (List.mem_cons_of_mem _ hm))
+
+theorem memberIdxFrom_complete : ∀ (ms : List Name) (n : Name) (i k : Nat),
+    ms.Nodup → ms[k]? = some n → memberIdxFrom ms n i = some (i + k)
+  | [], _, _, _, _, h => absurd h nofun
+  | m :: ms, n, i, 0, _, hk => by
+    rw [memberIdxFrom, if_pos (by simpa using hk)]; rw [Nat.add_zero]
+  | m :: ms, n, i, k+1, hnd, hk => by
+    rw [List.getElem?_cons_succ] at hk
+    have hne : m ≠ n := fun he => (List.nodup_cons.1 hnd).1 (he ▸ List.mem_of_getElem? hk)
+    rw [memberIdxFrom, if_neg hne,
+      memberIdxFrom_complete ms n (i+1) k (List.nodup_cons.1 hnd).2 hk]
+    congr 1; omega
+
+theorem memberIdx_spec' {D : VInductDecl'} {n : Name} {j : Nat}
+    (h : D.memberIdx n = some j) : ∃ T, D.types[j]? = some T ∧ T.name = n := by
+  obtain ⟨k, rfl, hk⟩ := memberIdxFrom_spec _ _ _ _ h
+  rw [Nat.zero_add]
+  rw [VInductDecl'.blockNames, List.getElem?_map, Option.map_eq_some_iff] at hk
+  obtain ⟨T, hT, rfl⟩ := hk
+  exact ⟨T, hT, rfl⟩
+
+theorem memberIdx_spec {D : VInductDecl'} {n : Name} {j : Nat}
+    (h : D.memberIdx n = some j) : (D.types.getD j default).name = n := by
+  obtain ⟨T, hT, rfl⟩ := memberIdx_spec' h
+  rw [List.getD_eq_getElem?_getD, hT]; rfl
+
+theorem memberIdx_none {D : VInductDecl'} {n : Name} (h : n ∉ D.blockNames) :
+    D.memberIdx n = none := memberIdxFrom_none _ _ _ h
+
+theorem memberIdx_complete {D : VInductDecl'} (hnd : D.blockNames.Nodup) {j : Nat}
+    {T : VIndType} (hT : D.types[j]? = some T) : D.memberIdx T.name = some j := by
+  have h : D.blockNames[j]? = some T.name := by
+    rw [VInductDecl'.blockNames, List.getElem?_map, hT]; rfl
+  show memberIdxFrom D.blockNames T.name 0 = some j
+  simpa using memberIdxFrom_complete _ _ 0 j hnd h
+
+/-! The trigger is a *decision*, so `VExpr` needs decidable equality.  (These two
+`deriving instance` lines used to sit in `Theory/Inductive/NestedBuild.lean`, where
+`VIndRestore.recogAt` — the opposite direction, restored form to `VIndRecArg` — needs them
+too.) -/
+deriving instance DecidableEq for VLevel
+deriving instance DecidableEq for VExpr
+
+/-- **The trigger.**  Is `e`, sitting `k` binders above the block's parameter telescope, a
+*uniform* occurrence `I_j.{D.ownLvls} (bvars k D.np ++ π)` of a block member?  If so, its
+member index and the residual arguments `π`. -/
+def uniformOcc? (D : VInductDecl') (k : Nat) (e : VExpr) : Option (Nat × List VExpr) :=
+  match e.spineFn with
+  | .const n ls =>
+    match D.memberIdx n with
+    | some j =>
+      if ls = D.ownLvls ∧ e.spineArgs.take D.np = bvars k D.np then
+        some (j, e.spineArgs.drop D.np)
+      else none
+    | none => none
+  | _ => none
+
+/-- **Soundness of the trigger**: what it fires on *is* the occurrence it reports. -/
+theorem uniformOcc?_sound {D : VInductDecl'} {k : Nat} {e : VExpr} {j : Nat} {rest : List VExpr}
+    (h : D.uniformOcc? k e = some (j, rest)) : D.tyApp j k rest = e := by
+  rw [uniformOcc?] at h
+  split at h
+  · next n ls hsp =>
+    split at h
+    · next j' hj =>
+      split at h
+      · next hc =>
+        obtain ⟨rfl, h2⟩ := hc
+        cases h
+        rw [VInductDecl'.tyApp, memberIdx_spec hj, ← h2, List.take_append_drop, ← hsp,
+          VExpr.mkApp_spineFn_spineArgs]
+      · exact absurd h nofun
+    · exact absurd h nofun
+  · exact absurd h nofun
+
+theorem noBlock_spineFn {D : VInductDecl'} : ∀ {e : VExpr}, D.NoBlock e →
+    ∀ {n : Name} {ls : List VLevel}, e.spineFn = .const n ls → n ∉ D.blockNames
+  | .app _ _, h, _, _, hs => noBlock_spineFn h.1 hs
+  | .const _ _, h, _, _, hs => by cases hs; exact h
+  | .bvar _, _, _, _, hs | .sort _, _, _, _, hs
+  | .lam _ _, _, _, _, hs | .forallE _ _, _, _, _, hs => by cases hs
+
+theorem noConsts_spineFn {S : List Name} : ∀ {e : VExpr}, VExpr.NoConsts S e →
+    ∀ {n : Name} {ls : List VLevel}, e.spineFn = .const n ls → n ∉ S
+  | .app _ _, h, _, _, hs => noConsts_spineFn h.1 hs
+  | .const _ _, h, _, _, hs => by cases hs; exact h
+  | .bvar _, _, _, _, hs | .sort _, _, _, _, hs
+  | .lam _ _, _, _, _, hs | .forallE _ _, _, _, _, hs => by cases hs
+
+/-- The trigger does not fire inside a block-free expression. -/
+theorem uniformOcc?_noBlock {D : VInductDecl'} {k : Nat} {e : VExpr} (h : D.NoBlock e) :
+    D.uniformOcc? k e = none := by
+  cases hs : e.spineFn with
+  | const n ls => simp only [uniformOcc?, hs, memberIdx_none (noBlock_spineFn h hs)]
+  | _ => simp only [uniformOcc?, hs]
+
+/-- **Completeness of the trigger** on the canonical head: it fires on `tyApp`, at the member
+it names.  `Nodup` is needed because `memberIdx` reads the *first* member of that name; it is
+the hypothesis `VEnv.addConstList`'s success supplies (`Theory/Inductive/Nested.lean`). -/
+theorem uniformOcc?_tyApp {D : VInductDecl'} (hnd : D.blockNames.Nodup) {j : Nat}
+    {T : VIndType} (hT : D.types[j]? = some T) (k : Nat) (args : List VExpr) :
+    D.uniformOcc? k (D.tyApp j k args) = some (j, args) := by
+  have hg : (D.types.getD j default).name = T.name := by
+    rw [List.getD_eq_getElem?_getD, hT]; rfl
+  rw [VInductDecl'.tyApp, uniformOcc?, VExpr.spineFn_mkApp, hg]
+  simp only [VExpr.spineFn_const, memberIdx_complete hnd hT, VExpr.spineArgs_mkApp,
+    VExpr.spineArgs, List.nil_append]
+  rw [show List.take D.np (bvars k D.np ++ args) = bvars k D.np from by simp,
+    show List.drop D.np (bvars k D.np ++ args) = args from by simp, if_pos ⟨trivial, rfl⟩]
+
+end VInductDecl'
+
+namespace VIndRestore
+
+/-- **The restoration, as a whole-expression rewrite** — `ElimNestedInductive.restoreNested`'s
+`Expr.replaceNoCache` at the `VExpr` level.  `k` is the number of binders between the block's
+parameter telescope and the current position, which is what `R.tyArgs j` has to be weakened
+past.  Like `replaceNoCache`, the operator does **not** descend into a replacement. -/
+def restore (R : VIndRestore) (D : VInductDecl') : Nat → VExpr → VExpr
+  | _, .bvar i => .bvar i
+  | _, .sort u => .sort u
+  | k, .const n ls =>
+    match D.uniformOcc? k (.const n ls) with
+    | some (j, rest) => D.tyAppR R j k rest
+    | none => .const n ls
+  | k, .app f a =>
+    match D.uniformOcc? k (.app f a) with
+    | some (j, rest) => D.tyAppR R j k rest
+    | none => .app (R.restore D k f) (R.restore D k a)
+  | k, .lam A b => .lam (R.restore D k A) (R.restore D (k+1) b)
+  | k, .forallE A b => .forallE (R.restore D k A) (R.restore D (k+1) b)
+
+theorem tyAppR_idRestore (D : VInductDecl') (j k : Nat) (args : List VExpr) :
+    D.tyAppR D.idRestore j k args = D.tyApp j k args := D.tyAppH_bvars j k args
+
+/-- **The identity restoration restores nothing, unconditionally.**
+
+This is the whole point of the reparameterisation: `VIndField.typeR_id` and every collapse
+lemma below it used to need `VIndCtor.Canonical`, because `typeR`'s `some` branch *replaced*
+the stored type by the canonical one.  With the branch a restoration of the stored type, the
+collapse is this lemma, and it has no hypotheses. -/
+theorem restore_id (D : VInductDecl') : ∀ (k : Nat) (e : VExpr), D.idRestore.restore D k e = e
+  | _, .bvar _ | _, .sort _ => rfl
+  | k, .const n ls => by
+    rw [restore]
+    split
+    · next h => rw [tyAppR_idRestore]; exact VInductDecl'.uniformOcc?_sound h
+    · rfl
+  | k, .app f a => by
+    rw [restore]
+    split
+    · next h => rw [tyAppR_idRestore]; exact VInductDecl'.uniformOcc?_sound h
+    · rw [restore_id D k f, restore_id D k a]
+  | k, .lam A b => by rw [restore, restore_id D k A, restore_id D (k+1) b]
+  | k, .forallE A b => by rw [restore, restore_id D k A, restore_id D (k+1) b]
+
+/-- **The restoration is the identity on a block-free expression** — for *every* `R`. -/
+theorem restore_noBlock {R : VIndRestore} {D : VInductDecl'} :
+    ∀ (k : Nat) (e : VExpr), D.NoBlock e → R.restore D k e = e
+  | _, .bvar _, _ | _, .sort _, _ => rfl
+  | _, .const _ _, h => by rw [restore, VInductDecl'.uniformOcc?_noBlock h]
+  | k, .app f a, h => by
+    rw [restore, VInductDecl'.uniformOcc?_noBlock h, restore_noBlock k f h.1,
+      restore_noBlock k a h.2]
+  | k, .lam A b, h => by rw [restore, restore_noBlock k A h.1, restore_noBlock (k+1) b h.2]
+  | k, .forallE A b, h => by rw [restore, restore_noBlock k A h.1, restore_noBlock (k+1) b h.2]
+
+/-- `restore` passes through a block-free binder telescope, tracking the depth. -/
+theorem restore_mkPi_noBlock {R : VIndRestore} {D : VInductDecl'} :
+    ∀ (As : List VExpr) (k : Nat) (b : VExpr), (∀ A ∈ As, D.NoBlock A) →
+      R.restore D k (mkPi As b) = mkPi As (R.restore D (k + As.length) b)
+  | [], _, _, _ => rfl
+  | A :: As, k, b, h => by
+    rw [VExpr.mkPi_cons, restore, restore_noBlock k A (h A List.mem_cons_self),
+      restore_mkPi_noBlock As (k+1) b (fun B hB => h B (List.mem_cons_of_mem _ hB)),
+      VExpr.mkPi_cons, List.length_cons,
+      show k + 1 + As.length = k + (As.length + 1) from by omega]
+
+/-- **The restoration of a uniform head is the restored head** — `tyApp ↦ tyAppR`, which is
+what the whole apparatus is about. -/
+theorem restore_tyApp {R : VIndRestore} {D : VInductDecl'} (hnd : D.blockNames.Nodup) {j : Nat}
+    {T : VIndType} (hT : D.types[j]? = some T) (k : Nat) (args : List VExpr) :
+    R.restore D k (D.tyApp j k args) = D.tyAppR R j k args := by
+  have h := VInductDecl'.uniformOcc?_tyApp hnd hT k args (D := D)
+  cases hsp : D.tyApp j k args with
+  | const n ls => rw [restore]; rw [hsp] at h; rw [h]
+  | app f a => rw [restore]; rw [hsp] at h; rw [h]
+  | bvar i => rw [hsp] at h; exact absurd h nofun
+  | sort u => rw [hsp] at h; exact absurd h nofun
+  | lam A b => rw [hsp] at h; exact absurd h nofun
+  | forallE A b => rw [hsp] at h; exact absurd h nofun
+
+end VIndRestore
+
 /-! ## Part 2: the recursor construction, restored
 
 Every definition here is its `Theory/Inductive/Decl.lean` original with `tyApp`, `tyApp'`,
@@ -245,37 +525,92 @@ def VIndRecArg.canonResultR (r : VIndRecArg) (D : VInductDecl') (R : VIndRestore
 def VIndRecArg.canonTypeR (r : VIndRecArg) (D : VInductDecl') (R : VIndRestore) (i : Nat) :
     VExpr := mkPi r.binders (r.canonResultR D R i)
 
-/-- The stored type of field `i`, restored.  A recursive field is `∀ ξ, I_idx params π` and
-its head is the thing restoration rewrites; a non-recursive one is only *definitionally*
-block-free (`VIndField.WF.pos`'s `none` branch, deliberately — `Decl.lean`'s
-`(fun _ : T => Nat) r`), so a companion constant can sit under a redex in it and the
-restoration has to visit it too.
+/-- The stored type of field `i`, restored.
 
-**This branch used to be `F.type`, verbatim, and that was a defect**:
-`nfnAuxDirty_refutation` (`Theory/Inductive/RestoreBridge.lean`) is a block satisfying every
-conjunct of `VEnv.AddNestedB` whose step declared `NFn.node` at a type mentioning
-`_nested.PFn_1`, a constant the environment does not hold — so `VEnv.Ordered` failed and
-obligation (A) of `VEnv.addInductR_ordered'` was **false**.  `ElimNestedInductive.restoreNested`
-(`Lean4Lean/Inductive/Add.lean`) is a whole-expression `replaceNoCache`, so the implementation
-restores the occurrence wherever it sits; this branch now does too. -/
+**The `some` branch restores the *stored* type; it used to be `r.canonTypeR D R i`, the
+canonical form with the head rewritten** (ledger ruling 116d).  The old branch *replaced* the
+stored type rather than rewriting it, and the substitution was sound only under
+`VIndCtor.Canonical` — a **syntactic** demand that `F.type` be `r.canonType D i` on the nose.
+That demand is machine-checked **false** at a real Lean declaration: `ElimNestedInductive.run`
+manufactures a recursive field whose stored type is a β-redex whenever a block nests through an
+inductive with a dependent parameter, which `Lean.Json` and `Lean.PrefixTreeNode` both do
+(`CGMAbstract.cgm_not_canonical`, `Verify/Inductive/CanonGapMeasure.lean`).  `Canonical` was
+load-bearing **only** for the collapse equations of `Theory/Inductive/NestedHead.lean` Part 3,
+and with this branch a rewrite those hold unconditionally
+(`VIndRestore.restore_id`) — so it is gone.
+
+The `none` branch stays `F.type` verbatim: `VInductDecl'.ctorConstsCR` and
+`VInductDecl'.iotaRulesRS` apply `VExpr.substC` on top of `typeR`, and that is what cleans a
+companion constant out of a *non*-recursive field (ledger row 26's repair).  Restoring it here
+as well would change what those declare, which is a separate change with its own proof debt;
+see ledger row 116f(i), which records that this docstring used to *claim* the `none` branch was
+restored while the code did not do it. -/
 def VIndField.typeR (F : VIndField) (D : VInductDecl') (R : VIndRestore) (i : Nat) : VExpr :=
   match F.recArg with
   | none => F.type
-  | some r => r.canonTypeR D R i
+  | some _ => R.restore D i F.type
+
+namespace VIndRestore
+
+/-- **The bridge to the canonical restored form.**  On a *canonical* recursive field whose
+binder telescope is block-free — the second is `VIndField.WF.pos`'s own conjunct, the first is
+what `VIndCtor.Canonical` used to assert — restoring the **stored** type gives
+`VIndRecArg.canonTypeR`, i.e. exactly what `VIndField.typeR`'s `some` branch used to *be*.
+
+So the old definition is the special case of the new one at a canonical field, and every
+statement that genuinely reads the canonical restored telescope can recover it here.  This is
+where the conditionality went: it is no longer in the collapse lemmas, it is in this bridge. -/
+theorem restore_canonType {R : VIndRestore} {D : VInductDecl'} (hnd : D.blockNames.Nodup)
+    {r : VIndRecArg} {T : VIndType} (hT : D.types[r.idx]? = some T) {i : Nat}
+    (hb : ∀ B ∈ r.binders, D.NoBlock B) :
+    R.restore D i (r.canonType D i) = r.canonTypeR D R i := by
+  rw [VIndRecArg.canonType, restore_mkPi_noBlock _ _ _ hb, VIndRecArg.canonTypeR,
+    VIndRecArg.canonResult, VIndRecArg.canonResultR,
+    show i + r.binders.length = r.binders.length + i from by omega,
+    restore_tyApp hnd hT]
+
+
+/-- **`VIndField.typeR` at a canonical field is what it used to be.**  So the change is a
+generalisation of the old definition, not a rival one — at every field the old definition was
+*sound* for. -/
+theorem typeR_canonical {R : VIndRestore} {D : VInductDecl'} (hnd : D.blockNames.Nodup)
+    {F : VIndField} {r : VIndRecArg} {T : VIndType} (hr : F.recArg = some r)
+    (hT : D.types[r.idx]? = some T) {i : Nat} (hb : ∀ B ∈ r.binders, D.NoBlock B)
+    (hcanon : F.type = r.canonType D i) : F.typeR D R i = r.canonTypeR D R i := by
+  rw [VIndField.typeR, hr, hcanon, restore_canonType hnd hT hb]
+
+end VIndRestore
 
 /-- The constructor's stored field telescope, restored. -/
 def VIndCtor.fieldTypesR (C : VIndCtor) (D : VInductDecl') (R : VIndRestore) : List VExpr :=
   C.fields.zipIdx.map fun (F, i) => F.typeR D R i
 
-/-- **The side condition the restored field telescope carries.**  `VIndField.WF.pos` requires
-a recursive field's stored type to be only *definitionally* `∀ ξ, I_idx params π`
-(`Decl.lean`'s `(fun _ : T => Nat) r` example), so `typeR` — which rewrites the canonical form
-— is the stored form only on a block whose recursive fields are stored canonically.
+/-- **A syntactic side condition that is FALSE on the nested path, and is no longer a
+hypothesis of anything in the specification.**
 
-Every witness in `Theory/Inductive/DeclExamples.lean` is canonical, and so is every
-constructor `ElimNestedInductive` generates: `replaceIfNested` builds an auxiliary
-constructor's field types by instantiating the nested type's own stored type, whose recursive
-positions are applications of a block constant on the nose. -/
+This docstring used to read: *"`VIndField.WF.pos` requires a recursive field's stored type to be
+only definitionally `∀ ξ, I_idx params π`, so `typeR` — which rewrites the canonical form — is
+the stored form only on a block whose recursive fields are stored canonically.  Every witness in
+`Theory/Inductive/DeclExamples.lean` is canonical, and so is every constructor
+`ElimNestedInductive` generates: `replaceIfNested` builds an auxiliary constructor's field types
+by instantiating the nested type's own stored type, whose recursive positions are applications of
+a block constant on the nose."*  **The last claim is machine-checked false** (ledger row 116a).
+`instantiateForallParams` is a plain `instantiateRevRange` with no β step, so when a block nests
+through an inductive with a *dependent* parameter `β : ι → Sort v` and the instance supplies
+`β := fun _ => I`, a field stored as `β k` becomes the β-redex `(fun _ => I) k` — a **recursive**
+field of the auxiliary block whose stored type is `.app`-headed, which no `r.canonType D i` ever
+is (`CGMAbstract.cgm_canonType_ne_redex` / `cgm_not_canonical`,
+`Verify/Inductive/CanonGapMeasure.lean`).  `Lean.Json` and `Lean.PrefixTreeNode` are both real
+instances, reproduced from the empty environment by `CGMNestWit`.
+
+Under ruling 116d it is **no longer a conjunct of `VEnv.AddNested`** and no longer a hypothesis
+of any conservativity equation: `VIndField.typeR`'s `some` branch restores the *stored* type, so
+`Theory/Inductive/NestedHead.lean` Part 3 collapses through `VIndRestore.restore_id`, which has
+no hypotheses.  **The definition survives only because `Verify/` files still name it** —
+`Verify/Inductive/CanonGapMeasure.lean` (which *refutes* it), `TrIndDeclNCtorOwn.lean`,
+`NestedRestoreWit.lean`, `AddInductiveStep.lean`, `RunIdentity.lean`, `Environment/InductR.lean`
+— and `Theory/Inductive/` may not edit those.  **The remaining deletion is those sites plus
+these two definitions.** -/
 def VIndCtor.Canonical (C : VIndCtor) (D : VInductDecl') : Prop :=
   ∀ (i : Nat) (F : VIndField) (r : VIndRecArg), C.fields[i]? = some F → F.recArg = some r →
     F.type = r.canonType D i
@@ -611,6 +946,81 @@ theorem VIndRestore.OwnId.tyAppR_eq {R : VIndRestore} {D : VInductDecl'} {K : Li
   rw [VInductDecl'.tyAppR, h.tyName j T hT hK, h.tyLvls j T hT hK, h.tyArgs j T hT hK,
     ← hg, VInductDecl'.tyAppH_bvars]
 
+namespace VIndRestore
+
+/-- The rewrite the trigger performs is the **identity** at a member off `K` — the payoff of
+`VIndRestore.OwnId`, at an arbitrary occurrence rather than at a `tyApp` written by hand. -/
+theorem uniformOcc?_tyAppR_eq {R : VIndRestore} {D : VInductDecl'} {K : List Lean.Name}
+    (hown : R.OwnId D K) {k : Nat} {e : VExpr} {j : Nat} {rest : List VExpr}
+    (hu : D.uniformOcc? k e = some (j, rest)) (h : VExpr.NoConsts K e) :
+    D.tyAppR R j k rest = D.tyApp j k rest := by
+  rw [VInductDecl'.uniformOcc?] at hu
+  split at hu
+  · next m ms hsp =>
+    split at hu
+    · next hj =>
+      split at hu
+      · cases hu
+        obtain ⟨T, hT, rfl⟩ := VInductDecl'.memberIdx_spec' hj
+        exact hown.tyAppR_eq hT (VInductDecl'.noConsts_spineFn h hsp) _ _
+      · exact absurd hu nofun
+    · exact absurd hu nofun
+  · exact absurd hu nofun
+
+/-- **The restoration is the identity on anything free of *companion* constants** — which is
+the fact the implementation's side has for free, since `ElimNestedInductive` invents the
+auxiliary names.  Strictly weaker than `restore_noBlock`: an occurrence of a member the step
+*declares* may be present, and `OwnId` makes the rewrite the identity on it
+(`VIndRestore.OwnId.tyAppR_eq`).  This is the abstract counterpart of "`restoreNested` rewrites
+exactly the names in `aux2nested`". -/
+theorem restore_noK {R : VIndRestore} {D : VInductDecl'} {K : List Lean.Name}
+    (hown : R.OwnId D K) :
+    ∀ (k : Nat) (e : VExpr), VExpr.NoConsts K e → R.restore D k e = e
+  | _, .bvar _, _ | _, .sort _, _ => rfl
+  | k, .const n ls, h => by
+    rw [restore]
+    split
+    · next hu => rw [uniformOcc?_tyAppR_eq hown hu h]; exact VInductDecl'.uniformOcc?_sound hu
+    · rfl
+  | k, .app f a, h => by
+    rw [restore]
+    split
+    · next hu => rw [uniformOcc?_tyAppR_eq hown hu h]; exact VInductDecl'.uniformOcc?_sound hu
+    · rw [restore_noK hown k f h.1, restore_noK hown k a h.2]
+  | k, .lam A b, h => by
+    rw [restore, restore_noK hown k A h.1, restore_noK hown (k+1) b h.2]
+  | k, .forallE A b, h => by
+    rw [restore, restore_noK hown k A h.1, restore_noK hown (k+1) b h.2]
+
+/-- `restore` passes through a companion-free binder telescope, tracking the depth. -/
+theorem restore_mkPi_noK {R : VIndRestore} {D : VInductDecl'} {K : List Lean.Name}
+    (hown : R.OwnId D K) :
+    ∀ (As : List VExpr) (k : Nat) (b : VExpr), (∀ A ∈ As, VExpr.NoConsts K A) →
+      R.restore D k (mkPi As b) = mkPi As (R.restore D (k + As.length) b)
+  | [], _, _, _ => rfl
+  | A :: As, k, b, h => by
+    rw [VExpr.mkPi_cons, restore, restore_noK hown k A (h A List.mem_cons_self),
+      restore_mkPi_noK hown As (k+1) b (fun B hB => h B (List.mem_cons_of_mem _ hB)),
+      VExpr.mkPi_cons, List.length_cons,
+      show k + 1 + As.length = k + (As.length + 1) from by omega]
+
+/-- **The bridge, in the form the built companion member needs**: `restore` of the *stored*
+canonical form is `canonTypeR`, with the binder telescope only required to be free of
+**companion** constants rather than of every block constant.  This is what
+`VNestedOcc.field_typeR` uses, and the weaker hypothesis is the one that is actually true there
+— a nested occurrence's binders routinely mention the block's *own* members (`Tree α`). -/
+theorem restore_canonType_noK {R : VIndRestore} {D : VInductDecl'} {K : List Lean.Name}
+    (hown : R.OwnId D K) (hnd : D.blockNames.Nodup)
+    {r : VIndRecArg} {T : VIndType} (hT : D.types[r.idx]? = some T) {i : Nat}
+    (hb : ∀ B ∈ r.binders, VExpr.NoConsts K B) :
+    R.restore D i (r.canonType D i) = r.canonTypeR D R i := by
+  rw [VIndRecArg.canonType, restore_mkPi_noK hown _ _ _ hb, VIndRecArg.canonTypeR,
+    VIndRecArg.canonResult, VIndRecArg.canonResultR,
+    show i + r.binders.length = r.binders.length + i from by omega,
+    restore_tyApp hnd hT]
+
+end VIndRestore
+
 /-! ## Part 6: the repaired step, assembled
 
 `VEnv.AddCompanion` (`CompanionResolve.lean`) is *resolve, check, extend*.  Part 7 shows
@@ -622,7 +1032,7 @@ auxiliary block is an ordinary mutual inductive. -/
 `npJ j` the parameter count of the type member `j` is presented as. -/
 def VEnv.AddNested (env : VEnv) (D : VInductDecl') (K : List Lean.Name)
     (R : VIndRestore) (npJ : Nat → Nat) (env' : VEnv) : Prop :=
-  D.WF env ∧ D.Canonical ∧ R.OwnId D K ∧ R.Faithful D env K npJ ∧
+  D.WF env ∧ R.OwnId D K ∧ R.Faithful D env K npJ ∧
     env.addInductR D K R = some env'
 
 /-- **The nested step, with the parameter count discharged rather than supplied.**

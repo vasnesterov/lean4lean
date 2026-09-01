@@ -361,7 +361,7 @@ theorem keys_addNestedStep {env env' : VEnv} {D : VInductDecl'} {K : List Lean.N
     (hfree : R.KeysFree D K)
     (ih : env.KeysDeclared ∧ env.KeyHeadDelta ∧ env.KeyUnique) :
     env'.KeysDeclared ∧ env'.KeyHeadDelta ∧ env'.KeyUnique :=
-  let ⟨_, _, _, _, hf, hadd⟩ := hs
+  let ⟨_, _, _, hf, hadd⟩ := hs
   keysR_induct hadd hf hd hfree ih
 
 end VEnv
@@ -441,8 +441,8 @@ theorem nfn_keys_summary :
         env₃.KeysDeclared ∧ env₃.KeyHeadDelta ∧ env₃.KeyUnique) := by
   obtain ⟨env₂, h⟩ : ∃ e, VEnv.empty.addInduct' pfnDecl = some e := ⟨_, rfl⟩
   obtain ⟨env₃, hs⟩ := nfnAux_AddNestedStep h
-  obtain ⟨npJ, hwf, hcan, hoi, hf, hadd⟩ := hs
-  exact ⟨env₂, env₃, h, ⟨npJ, hwf, hcan, hoi, hf, hadd⟩, nfn_keyMajorUnique_false h hadd,
+  obtain ⟨npJ, hwf, hoi, hf, hadd⟩ := hs
+  exact ⟨env₂, env₃, h, ⟨npJ, hwf, hoi, hf, hadd⟩, nfn_keyMajorUnique_false h hadd,
     fun ih => VEnv.keysR_induct hadd hf nfnRestore_keysDistinct nfnRestore_keysFree ih⟩
 
 end InductiveDeclExamples

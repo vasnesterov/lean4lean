@@ -85,7 +85,7 @@ theorem eqIndDecl_addIndTypes : ∃ et, VEnv.empty.addIndTypes eqIndDecl = some 
 environment.**  This is the witness the audit of §2 instantiates every non-nested consumer at. -/
 theorem trIndDeclN_eq :
     TrIndDeclN VEnv.empty [`u_1] 2 [eqIndTypeE] false 0 eqIndDecl [] eqIndDecl.idRestore :=
-  trIndDecl_eq.toN eqIndDecl_Canonical eqIndDecl_addIndTypes
+  trIndDecl_eq.toN eqIndDecl_addIndTypes
 
 /-- The clause is *not* vacuous at that instance: it has a member with a constructor, so both
 antecedents fire.  (Row 65a's discipline: instantiate at the degenerate instance and check the

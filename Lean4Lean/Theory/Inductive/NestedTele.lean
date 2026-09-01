@@ -534,17 +534,18 @@ theorem substC_minorType_hbv_false_of_nil (henv : e.Ordered) (hnp : 0 < D.np)
 /-- **`hfld` is inhabited.**  At `D.params = []` §7.5's strict field-telescope equation gives
 the `TeleDefEq` for free, so the general-`Γ` minor bridge below is a weakening of what
 `substC_minors` already closed and cannot be vacuous. -/
-theorem teleDefEq_fld_of_np_zero (hp : D.params = []) (hown : R.OwnId D K)
+theorem teleDefEq_fld_of_np_zero (hp : D.params = []) (hnd : D.blockNames.Nodup)
+    (hown : R.OwnId D K)
     (hat : R.SubstAt D K σ) (hcl0 : ∀ i, ∀ a ∈ R.tyArgs i, a.ClosedN 0)
     (hfr : R.SubstFree D σ) (hcanon : C.Canonical D)
     (hpos : ∀ (i : Nat) (F : VIndField) (r : VIndRecArg), C.fields[i]? = some F →
-      F.recArg = some r → r.idx < D.nm) {Γ : List VExpr} :
+      F.recArg = some r → r.idx < D.nm ∧ ∀ B ∈ r.binders, D.NoBlock B) {Γ : List VExpr} :
     e.TeleDefEq U Γ
       (VExpr.liftTele (D.nm + q)
         ((D.atRecTele (C.fields.map (·.type))).map (VExpr.substC · σ)))
       (VExpr.liftTele (D.nm + q) ((D.atRecTele (C.fieldTypesR D R)).map (VExpr.substC · σ))) :=
   VEnv.TeleDefEq.of_eq (by
-    rw [VIndRestore.substC_atRec_fieldTypes hp hown hat hcl0 hfr hcanon hpos])
+    rw [VIndRestore.substC_atRec_fieldTypes hp hnd hown hat hcl0 hfr hcanon hpos])
 
 /-! ### §T6.3 The minor entry's conclusion: one `appDF`, not a spine congruence -/
 
@@ -1707,12 +1708,16 @@ section
 variable {D : VInductDecl'} {R : VIndRestore} {C : VIndCtor}
 
 /-- **§T12.1's side condition 1.** -/
-theorem fieldTypesR_closedTele (hcl : ∀ j, ∀ a ∈ R.tyArgs j, a.ClosedN D.np)
-    (hcanon : C.Canonical D) (hsrc : VExpr.ClosedTele (C.fields.map (·.type)) D.np) :
+theorem fieldTypesR_closedTele (hnd : D.blockNames.Nodup)
+    (hcl : ∀ j, ∀ a ∈ R.tyArgs j, a.ClosedN D.np)
+    (hcanon : C.Canonical D)
+    (hpos : ∀ (i : Nat) (F : VIndField) (r : VIndRecArg), C.fields[i]? = some F →
+      F.recArg = some r → r.idx < D.nm ∧ ∀ B ∈ r.binders, D.NoBlock B)
+    (hsrc : VExpr.ClosedTele (C.fields.map (·.type)) D.np) :
     VExpr.ClosedTele (C.fieldTypesR D R) D.np := by
   have key : ∀ (Fs : List VIndField) (o : Nat),
       (∀ (k : Nat) (F : VIndField) (r : VIndRecArg), Fs[k]? = some F → F.recArg = some r →
-        F.type = r.canonType D (o + k)) →
+        F.type = r.canonType D (o + k) ∧ r.idx < D.nm ∧ ∀ B ∈ r.binders, D.NoBlock B) →
       VExpr.ClosedTele (Fs.map (·.type)) (D.np + o) →
       VExpr.ClosedTele ((Fs.zipIdx o).map fun p => p.1.typeR D R p.2) (D.np + o) := by
     intro Fs
@@ -1726,26 +1731,34 @@ theorem fieldTypesR_closedTele (hcl : ∀ j, ∀ a ∈ R.tyArgs j, a.ClosedN D.n
       · cases hr : F.recArg with
         | none => rw [show F.typeR D R o = F.type from by rw [VIndField.typeR, hr]]; exact hcl0.1
         | some r =>
-          rw [show F.typeR D R o = r.canonTypeR D R o from by rw [VIndField.typeR, hr]]
+          obtain ⟨hct, hlt, hb⟩ := hs 0 F r rfl hr
+          rw [show o + 0 = o from rfl] at hct
+          obtain ⟨T', hT'⟩ : ∃ T', D.types[r.idx]? = some T' :=
+            ⟨_, List.getElem?_eq_getElem hlt⟩
+          rw [R.typeR_canonical hnd hr hT' hb hct]
           refine VIndRecArg.canonTypeR_closedN (hcl r.idx) ?_
-          rw [← show F.type = r.canonType D o from by
-            have := hs 0 F r rfl hr; simpa using this]
+          rw [← hct]
           exact hcl0.1
       · have := ih (o+1) (fun k F' r hF' hr => by
           rw [show o + 1 + k = o + (k+1) from by omega]
           exact hs (k+1) F' r (by simpa using hF') hr)
           (by rw [show D.np + (o+1) = D.np + o + 1 from by omega]; exact hcl0.2)
         rwa [show D.np + (o+1) = D.np + o + 1 from by omega] at this
-  have h := key C.fields 0 (fun k F r hF hr => by simpa using hcanon k F r hF hr)
+  have h := key C.fields 0
+    (fun k F r hF hr => ⟨by simpa using hcanon k F r hF hr, hpos k F r hF hr⟩)
     (by simpa using hsrc)
   rw [VIndCtor.fieldTypesR]
   simpa using h
 
 /-- …at the recursor's level numbering, which is the form `instAllTele_bvars_lift` consumes. -/
-theorem atRecTele_fieldTypesR_closedTele (hcl : ∀ j, ∀ a ∈ R.tyArgs j, a.ClosedN D.np)
-    (hcanon : C.Canonical D) (hsrc : VExpr.ClosedTele (C.fields.map (·.type)) D.np) :
+theorem atRecTele_fieldTypesR_closedTele (hnd : D.blockNames.Nodup)
+    (hcl : ∀ j, ∀ a ∈ R.tyArgs j, a.ClosedN D.np)
+    (hcanon : C.Canonical D)
+    (hpos : ∀ (i : Nat) (F : VIndField) (r : VIndRecArg), C.fields[i]? = some F →
+      F.recArg = some r → r.idx < D.nm ∧ ∀ B ∈ r.binders, D.NoBlock B)
+    (hsrc : VExpr.ClosedTele (C.fields.map (·.type)) D.np) :
     VExpr.ClosedTele (D.atRecTele (C.fieldTypesR D R)) D.np :=
-  VExpr.ClosedTele.map_instL (fieldTypesR_closedTele hcl hcanon hsrc)
+  VExpr.ClosedTele.map_instL (fieldTypesR_closedTele hnd hcl hcanon hpos hsrc)
 
 end
 end VIndCtor
@@ -2300,19 +2313,20 @@ theorem VEnv.recConstsR_wf_of_np_zero_via_blocks {E₂ e₂ : VEnv} {D : VInduct
     {R : VIndRestore} {K : List Name}
     (hsrc : ∀ c ∈ D.recConsts, VConstant.WF E₂ c.2)
     (hσ : (R.csubst D K).WF E₂ e₂ D.recUvars) (he₂ : e₂.Ordered)
-    (hp : D.params = []) (hown : R.OwnId D K) (hsep : R.DomSep D K)
+    (hp : D.params = []) (hnd : D.blockNames.Nodup) (hown : R.OwnId D K)
+    (hsep : R.DomSep D K)
     (hcl0 : ∀ i, ∀ a ∈ R.tyArgs i, a.ClosedN 0)
     (hfr : R.SubstFree D (R.csubst D K)) (hcanon : D.Canonical)
     (hpos : ∀ (t : Nat) (C : VIndCtor), (t, C) ∈ D.ctorsAll →
       ∀ (i : Nat) (F : VIndField) (r : VIndRecArg), C.fields[i]? = some F →
-        F.recArg = some r → r.idx < D.nm) :
+        F.recArg = some r → r.idx < D.nm ∧ ∀ B ∈ r.binders, D.NoBlock B) :
     ∀ c ∈ D.recConstsR R K, VConstant.WF e₂ c.2 := by
   have hat := hsep.substAt
   have hσc : (R.csubst D K).Closed := VIndRestore.csubst_closed' hp hcl0
   refine VEnv.recConstsR_wf_of_blocks hsrc hσ he₂
-    (VEnv.TeleDefEq.of_eq (VIndRestore.substC_motives hp hown hat hcl0 hfr))
+    (VEnv.TeleDefEq.of_eq (VIndRestore.substC_motives hp hnd hown hat hcl0 hfr))
     (VEnv.TeleDefEq.of_eq
-      (VIndRestore.substC_minors hp hown hat hcl0 hfr hσc hcanon hpos))
+      (VIndRestore.substC_minors hp hnd hown hat hcl0 hfr hσc hcanon hpos))
     fun j T hT => ?_
   have hmem : (Lean.mkRecName T.name, (⟨D.recUvars, D.recType j⟩ : VConstant)) ∈ D.recConsts := by
     simp only [VInductDecl'.recConsts, List.mem_map]
@@ -2343,12 +2357,13 @@ theorem VEnv.iotaRulesRS_wf_of_np_zero_via_components {E₃ e₃ : VEnv} {D : VI
     (hsrc : ∀ df ∈ D.iotaRules, VDefEq.WF E₃ df)
     (hσ : ∀ df ∈ D.iotaRules, (R.csubst D K).WF E₃ e₃ df.uvars)
     (htype : ∀ df ∈ D.iotaRules, e₃.IsType df.uvars [] (df.type.substC (R.csubst D K)))
-    (hp : D.params = []) (hown : R.OwnId D K) (hsep : R.DomSep D K)
+    (hp : D.params = []) (hnd : D.blockNames.Nodup) (hown : R.OwnId D K)
+    (hsep : R.DomSep D K)
     (hcl0 : ∀ i, ∀ a ∈ R.tyArgs i, a.ClosedN 0)
     (hfr : R.SubstFree D (R.csubst D K)) (hcanon : D.Canonical)
     (hpos : ∀ (t : Nat) (C : VIndCtor), (t, C) ∈ D.ctorsAll →
       ∀ (i : Nat) (F : VIndField) (r : VIndRecArg), C.fields[i]? = some F →
-        F.recArg = some r → r.idx < D.nm) :
+        F.recArg = some r → r.idx < D.nm ∧ ∀ B ∈ r.binders, D.NoBlock B) :
     ∀ df ∈ D.iotaRulesRS R K, VDefEq.WF e₃ df := by
   refine VEnv.iotaRulesRS_wf_of_components fun q j C hqC => ?_
   obtain ⟨T, hT, hC⟩ := VInductDecl'.mem_ctorsAll (List.mem_of_getElem? hqC)
@@ -2356,7 +2371,7 @@ theorem VEnv.iotaRulesRS_wf_of_np_zero_via_components {E₃ e₃ : VEnv} {D : VI
     simp only [VInductDecl'.iotaRules, List.mem_map]
     exact ⟨((j, C), q), List.mk_mem_zipIdx_iff_getElem?.2 hqC, rfl⟩
   have hσc : (R.csubst D K).Closed := VIndRestore.csubst_closed' hp hcl0
-  have heq := VIndRestore.substC_iotaRule_eq hp hown hsep.substAt hcl0 hfr
+  have heq := VIndRestore.substC_iotaRule_eq hp hnd hown hsep.substAt hcl0 hfr
     hσc hcanon hpos hT hC q
   have hty : ((D.iotaRule j q C).type).substC (R.csubst D K)
       = ((D.iotaRuleR R j q C).type).substC (R.csubst D K) := by
@@ -2433,7 +2448,10 @@ sides and cost nothing.  A recursive entry is `canonType` versus `canonTypeR`, w
 field's own binder telescope and differ only in the result head: `mkPi_congrU` over
 `TeleDefEq.refl` with `substC_tyApp'_defeq_tyAppR'_comp` at the body, i.e. `hargs` one binder
 layer deeper. -/
-theorem substC_atRec_fieldTypes_defeq {Γ : List VExpr} (hcanon : C.Canonical D)
+theorem substC_atRec_fieldTypes_defeq {Γ : List VExpr} (hnd : D.blockNames.Nodup)
+    (hcanon : C.Canonical D)
+    (hpos : ∀ (i : Nat) (F : VIndField) (r : VIndRecArg), C.fields[i]? = some F →
+      F.recArg = some r → r.idx < D.nm ∧ ∀ B ∈ r.binders, D.NoBlock B)
     (hrec : ∀ (i : Nat) (F : VIndField) (r : VIndRecArg), C.fields[i]? = some F →
       F.recArg = some r → ∃ u, e.IsDefEq U
         ((((D.atRecTele (C.fields.map (·.type))).map (VExpr.substC · σ)).take i).reverse ++ Γ)
@@ -2458,8 +2476,10 @@ theorem substC_atRec_fieldTypes_defeq {Γ : List VExpr} (hcanon : C.Canonical D)
     refine Or.inr ?_
     obtain ⟨u, hu⟩ := hrec i F r hF hr
     refine ⟨u, ?_⟩
-    simp only [Function.comp_def, Nat.zero_add, VIndField.typeR, hr]
-    rw [hcanon i F r hF hr] at *
+    obtain ⟨hlt, hb⟩ := hpos i F r hF hr
+    obtain ⟨T', hT'⟩ : ∃ T', D.types[r.idx]? = some T' := ⟨_, List.getElem?_eq_getElem hlt⟩
+    simp only [Function.comp_def, Nat.zero_add]
+    rw [R.typeR_canonical hnd hr hT' hb (hcanon i F r hF hr), hcanon i F r hF hr] at *
     exact hu
 
 end
@@ -3330,17 +3350,18 @@ theorem atRec_canonType_hbv_false_of_nil (henv : e.Ordered) (hnp : 0 < D.np)
 
 /-- **§T15.4's `htele` is inhabited** — the `np = 0` certificate for every §T16 statement that
 binds it.  `TeleDefEq.of_eq` off §7.6's strict equation, so it carries no typing. -/
-theorem iotaCtx_teleDefEq_of_np_zero (hp : D.params = []) (hown : R.OwnId D K)
+theorem iotaCtx_teleDefEq_of_np_zero (hp : D.params = []) (hnd : D.blockNames.Nodup)
+    (hown : R.OwnId D K)
     (hat : R.SubstAt D K σ) (hcl0 : ∀ i, ∀ a ∈ R.tyArgs i, a.ClosedN 0)
     (hfr : R.SubstFree D σ) (hσc : σ.Closed) (hcanon : D.Canonical)
     (hpos : ∀ (t : Nat) (C : VIndCtor), (t, C) ∈ D.ctorsAll →
       ∀ (i : Nat) (F : VIndField) (r : VIndRecArg), C.fields[i]? = some F →
-        F.recArg = some r → r.idx < D.nm)
+        F.recArg = some r → r.idx < D.nm ∧ ∀ B ∈ r.binders, D.NoBlock B)
     {j : Nat} {T : VIndType} (hT : D.types[j]? = some T) (hC : C ∈ T.ctors) :
     e.TeleDefEq D.recUvars [] ((D.iotaCtx C).map (VExpr.substC · σ))
       ((D.iotaCtxR R C).map (VExpr.substC · σ)) :=
   VEnv.TeleDefEq.of_eq
-    (substC_iotaCtx hp hown hat hcl0 hfr hσc hcanon hpos hT hC)
+    (substC_iotaCtx hp hnd hown hat hcl0 hfr hσc hcanon hpos hT hC)
 
 end
 end VIndRestore

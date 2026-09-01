@@ -36,9 +36,11 @@ and then follows the consequences all the way to `VEnv.AddNested`.
 * §4 the four name-discipline obligations, at this data, by instantiation.
 * §5 `trIndDeclN_wit'`: `TrIndDeclN` at `mkRestore` in place of `nfnRestore`.  This is the
   import `Verify/Environment/InductR.lean`'s nested witness made unnecessary.
-* §6 the general bridge: `RestoreData` discharges four of `VInductDecl'.Built`'s eight clauses,
-  the other four are named `OccResidue`, and with them `Faithful`, `Canonical`, `AddNested` and
-  `AddNestedStep` are **theorems** about a `mkRestore`-derived restoration.
+* §6 the general bridge: `RestoreData` discharges four of `VInductDecl'.Built`'s **nine**
+  clauses, four more are named `OccResidue`, the remaining two are ruling 116d's freshness pair
+  `VInductDecl'.BuiltFresh` (`Theory/Inductive/NestedBuild.lean`) carried as a hypothesis, and
+  with them `Faithful`, `Canonical`, `AddNested` and `AddNestedStep` are **theorems** about a
+  `mkRestore`-derived restoration.
 * §7 `OccResidue` satisfied, and hence `Built`, `Faithful`, `VEnv.AddNestedB`, `VEnv.AddNested`
   and `VEnv.AddNestedStep`, all at `mkRestore`, at the `NFn` block.
 * §8 the constant-map half: `AddInductStagesR` and `InductStepNested` at `mkRestore`.  So
@@ -500,10 +502,21 @@ end NestedWit
 /-! ## 6. The general bridge: `Built` from `RestoreData` plus a named residue
 
 §6 is concrete.  This is the general form, and it is what makes the shape of the remaining work
-visible: of `VInductDecl'.Built`'s eight clauses, **four are discharged by `RestoreData`** — the
+visible: of `VInductDecl'.Built`'s nine clauses, **four are discharged by `RestoreData`** — the
 three presentation clauses (given the occurrence's own levels and spine as `mkRestore`'s two
-semantic parameters, which is a *choice*, not a hypothesis) and `own` — and the other four are
-collected as `OccResidue`.
+semantic parameters, which is a *choice*, not a hypothesis) and `own` — four more are
+collected as `OccResidue`, and the last two are `VInductDecl'.BuiltFresh`.
+
+**`BuiltFresh` is where ruling 116d's cost sits, and it is a hypothesis, not a theorem.**  Its
+two clauses — `D.blockNames.Nodup` and the source block's substituted field types being free of
+companion constants — are statements about `D`, `K` and `occ`; **nothing in `RestoreData`, and
+nothing in `NestedOccData.lean`'s `OccData`, mentions them**, since both bundles are about the
+checker's `Lean.Name`s.  So the bridge takes them as a separate argument rather than pretending
+to derive them: a bundled hypothesis whose cost is visible is the honest form.  `nodup` is what
+`VEnv.addConstList`'s success forces of the *declared* members, but `addInductR` does **not**
+declare the companion members (`VInductDecl'.typeConstsC` filters them out), so `hadd` alone
+does not reach it; the companion half would come from `RestoreData.auxNodup` and the
+`IsNestedName` separation, and that derivation is not done here.
 
 `OccResidue`'s four clauses are where the translation relation genuinely enters: `member` is the
 `TrExprS`-level agreement between `restoreNested`'s output and `VIndCtor.typeR`, `occurs` is the
@@ -545,7 +558,7 @@ include h
 /-- **`VInductDecl'.Built` for the construction.**  The two semantic parameters of `mkRestore`
 are taken at the occurrence's own values — which is a choice available to any caller, since they
 are parameters — and the rest of the presentation is computed. -/
-theorem mkRestore_built
+theorem mkRestore_built (hf : D.BuiltFresh K occ)
     (hl : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → ls j = (occ j).lvls)
     (ha : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → as j = (occ j).args)
     (hres : r.OccResidue types D K env (r.mkRestore types D.uvars D.np ls as) occ) :
@@ -554,6 +567,8 @@ theorem mkRestore_built
   occurs := hres.occurs
   ctorName_inv := hres.ctorName_inv
   own := h.mkRestore_ownId
+  nodup := hf.nodup
+  fields_noK := hf.fields_noK
   tyName := by
     intro j T hT hK
     obtain ⟨t, ht, -, hle⟩ := h.on hT hK
@@ -580,41 +595,41 @@ theorem mkRestore_built
 /-- **`VIndRestore.Faithful` for the construction** — a theorem, not a hypothesis.  Its `npJ` is
 the parameter count of the block the *environment* holds, which is what
 `Faithful.ctors_complete` pins. -/
-theorem mkRestore_faithful
+theorem mkRestore_faithful (hf : D.BuiltFresh K occ)
     (hl : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → ls j = (occ j).lvls)
     (ha : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → as j = (occ j).args)
     (hres : r.OccResidue types D K env (r.mkRestore types D.uvars D.np ls as) occ) :
     (r.mkRestore types D.uvars D.np ls as).Faithful D env K (fun j => (occ j).decl.np) :=
-  (h.mkRestore_built hl ha hres).toFaithful
+  (h.mkRestore_built hf hl ha hres).toFaithful
 
 /-- **`VInductDecl'.Canonical` for the construction**, from canonicity on the members the *user*
 wrote: a built companion member is canonical by construction
 (`VNestedOcc.member_Canonical`). -/
-theorem mkRestore_canonical (hown : D.CanonicalOwn K)
+theorem mkRestore_canonical (hf : D.BuiltFresh K occ) (hown : D.CanonicalOwn K)
     (hl : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → ls j = (occ j).lvls)
     (ha : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → as j = (occ j).args)
     (hres : r.OccResidue types D K env (r.mkRestore types D.uvars D.np ls as) occ) :
     D.Canonical :=
-  (h.mkRestore_built hl ha hres).canonical hown
+  (h.mkRestore_built hf hl ha hres).canonical hown
 
 /-- **The whole nested step, from the checker's data plus the residue.** -/
-theorem mkRestore_AddNested {env' : VEnv} (hwf : D.WF env) (hown : D.CanonicalOwn K)
+theorem mkRestore_AddNested {env' : VEnv} (hwf : D.WF env) (hf : D.BuiltFresh K occ)
     (hl : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → ls j = (occ j).lvls)
     (ha : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → as j = (occ j).args)
     (hres : r.OccResidue types D K env (r.mkRestore types D.uvars D.np ls as) occ)
     (hadd : env.addInductR D K (r.mkRestore types D.uvars D.np ls as) = some env') :
     VEnv.AddNested env D K (r.mkRestore types D.uvars D.np ls as)
       (fun j => (occ j).decl.np) env' :=
-  VEnv.AddNestedB.toAddNested ⟨hwf, hown, h.mkRestore_built hl ha hres, hadd⟩
+  VEnv.AddNestedB.toAddNested ⟨hwf, h.mkRestore_built hf hl ha hres, hadd⟩
 
 /-- …and the packaged premise of `VDecl.WF.inductNested`. -/
-theorem mkRestore_AddNestedStep {env' : VEnv} (hwf : D.WF env) (hown : D.CanonicalOwn K)
+theorem mkRestore_AddNestedStep {env' : VEnv} (hwf : D.WF env) (hf : D.BuiltFresh K occ)
     (hl : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → ls j = (occ j).lvls)
     (ha : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → as j = (occ j).args)
     (hres : r.OccResidue types D K env (r.mkRestore types D.uvars D.np ls as) occ)
     (hadd : env.addInductR D K (r.mkRestore types D.uvars D.np ls as) = some env') :
     VEnv.AddNestedStep env D K (r.mkRestore types D.uvars D.np ls as) env' :=
-  ⟨_, h.mkRestore_AddNested hwf hown hl ha hres hadd⟩
+  ⟨_, h.mkRestore_AddNested hwf hf hl ha hres hadd⟩
 
 end RestoreData
 end ElimNestedInductive.Result
@@ -677,6 +692,7 @@ include h in
 presentation clauses and `own` come from `RestoreData`, the other four from `OccResidue`. -/
 theorem nfnAux_built' : nfnAux.Built nfnRestore' nfnK env₂ (fun _ => pfnOcc) :=
   nfnResult_restoreData.mkRestore_built (ls := nfnLs) (occ := fun _ => pfnOcc)
+    nfnAux_builtFresh
     (fun _ _ _ _ => rfl)
     (by rintro (_ | _ | j) T hT hK
         · cases hT; exact absurd hK (by decide)
@@ -696,7 +712,7 @@ include h in
 /-- **`VEnv.AddNestedB` at the restoration the checker's own data determines.** -/
 theorem nfnAux_AddNestedB' :
     ∃ env₃, VEnv.AddNestedB env₂ nfnAux nfnK nfnRestore' (fun _ => pfnOcc) env₃ :=
-  ⟨(nfnAux_admitted' h).choose, nfnAux_WF, nfnAux_canonicalOwn, nfnAux_built' h,
+  ⟨(nfnAux_admitted' h).choose, nfnAux_WF, nfnAux_built' h,
     (nfnAux_admitted' h).choose_spec⟩
 
 include h in

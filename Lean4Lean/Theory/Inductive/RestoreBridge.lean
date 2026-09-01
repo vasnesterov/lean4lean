@@ -413,7 +413,7 @@ theorem field_typeR_substC {F : VIndField} {i : Nat}
     obtain ⟨hct, hlt, hb, ha⟩ := hsome r hr
     obtain ⟨T', hT'⟩ : ∃ T', D.types[r.idx]? = some T' :=
       ⟨_, List.getElem?_eq_getElem hlt⟩
-    rw [show F.typeR D R i = r.canonTypeR D R i from by rw [VIndField.typeR, hr],
+    rw [R.typeR_canonical hnd hr hT' hb hct,
       hct, VIndRecArg.canonType, VExpr.substC_mkPi, VIndRecArg.canonTypeR,
       VExpr.map_substC_eq_self (fun B hB => noBlock_noCSubst (hb B hB)),
       VIndRecArg.canonResult, VIndRecArg.canonResultR,
@@ -541,14 +541,14 @@ theorem substC_tyAppR (j k : Nat) (args : List VExpr) :
 theorem ctorType_substC_eq_typeR_substC {C : VIndCtor} {j : Nat}
     (hcanon : C.Canonical D)
     (hpos : ∀ (i : Nat) (F : VIndField) (r : VIndRecArg), C.fields[i]? = some F →
-      F.recArg = some r → r.idx < D.nm)
+      F.recArg = some r → r.idx < D.nm ∧ ∀ B ∈ r.binders, D.NoBlock B)
     (hcl0 : ∀ i, ∀ a ∈ R.tyArgs i, a.ClosedN 0)
     {T : VIndType} (hT : D.types[j]? = some T) :
     (C.type D j).substC (R.csubstTy D K)
       = (C.typeR D R j).substC (R.csubstTy D K) := by
   have hfl : ∀ (Fs : List VIndField) (i : Nat),
       (∀ (k : Nat) (F : VIndField) (r : VIndRecArg), Fs[k]? = some F → F.recArg = some r →
-        F.type = r.canonType D (i + k) ∧ r.idx < D.nm) →
+        F.type = r.canonType D (i + k) ∧ r.idx < D.nm ∧ ∀ B ∈ r.binders, D.NoBlock B) →
       Fs.map (fun F => F.type.substC (R.csubstTy D K))
         = ((Fs.zipIdx i).map (fun p => p.1.typeR D R p.2)).map
             (VExpr.substC · (R.csubstTy D K)) := by
@@ -565,10 +565,10 @@ theorem ctorType_substC_eq_typeR_substC {C : VIndCtor} {j : Nat}
       cases hr : F.recArg with
       | none => rw [show F.typeR D R i = F.type from by rw [VIndField.typeR, hr]]
       | some r =>
-        obtain ⟨hct, hlt⟩ := hs 0 F r rfl hr
+        obtain ⟨hct, hlt, hb⟩ := hs 0 F r rfl hr
         obtain ⟨T', hT'⟩ : ∃ T', D.types[r.idx]? = some T' := ⟨_, List.getElem?_eq_getElem hlt⟩
-        rw [show F.typeR D R i = r.canonTypeR D R i from by rw [VIndField.typeR, hr],
-          show i + 0 = i from rfl] at *
+        rw [show i + 0 = i from rfl] at *
+        rw [R.typeR_canonical hnd hr hT' hb hct]
         rw [hct, VIndRecArg.canonType, VIndRecArg.canonTypeR, VExpr.substC_mkPi,
           VExpr.substC_mkPi, VIndRecArg.canonResult, VIndRecArg.canonResultR,
           substC_tyApp_eq_tyAppR_map hp hnd hown hlw hcl (hcl0 r.idx) hT',
@@ -609,7 +609,8 @@ theorem VEnv.ctorConstsCR_wf_of_np_zero' {env env₃ e₁ : VEnv} {D : VInductDe
   have hct := hD.ctors env₃ h₃ j T hT C hC
   exact VIndRestore.ctorType_substC_eq_typeR_substC hp hnd hown hlw hcl hnn hna
     (hcanon j C (VInductDecl'.mem_ctorsAll_of hT hC))
-    (fun i F r hF hr => ((hct.fields i F hF).recArg_noBlock hr).1)
+    (fun i F r hF hr =>
+      let hn := (hct.fields i F hF).recArg_noBlock hr; ⟨hn.1, hn.2.1⟩)
     (fun i => hnp ▸ hcl i) hT
 
 /-! ### The superseded form
@@ -968,6 +969,22 @@ theorem nfnAuxDirty_built :
       subst hC; rfl
     · simp [nfnAuxDirty] at hT
   own := nfnRestore_ownId_dirty
+  nodup := by decide
+  fields_noK := by
+    rintro (_ | _ | j) T hT hK C₀ hC₀ k F₀ hF₀
+    · cases hT; exact absurd hK (by decide)
+    · simp only [show pfnOcc.src.ctors = [pfnMk] from rfl, List.mem_cons,
+        List.not_mem_nil, or_false] at hC₀
+      subst hC₀
+      rcases k with _ | _ | k
+      · cases hF₀
+        exact VExpr.noConsts_instAll _ _ (by simp [VExpr.NoConsts, VExpr.instL, nfnK])
+          (by simp [pfnOcc, VExpr.NoConsts, nfnK])
+      · cases hF₀
+        exact VExpr.noConsts_instAll _ _ (by simp [VExpr.NoConsts, VExpr.instL, nfnK])
+          (by simp [pfnOcc, VExpr.NoConsts, nfnK])
+      · exact absurd hF₀ nofun
+    · simp [nfnAuxDirty] at hT
 
 include h in
 theorem nfnAuxDirty_admitted :
@@ -982,7 +999,7 @@ conjunct of `VEnv.AddNestedB` — hence of `VEnv.AddNested`, hence of `VEnv.AddN
 which is what `VDecl.WF.inductNested` takes — holds. -/
 theorem nfnAuxDirty_AddNestedB :
     ∃ env₃, VEnv.AddNestedB env₂ nfnAuxDirty nfnK nfnRestore (fun _ => pfnOcc) env₃ :=
-  ⟨(nfnAuxDirty_admitted h).choose, nfnAuxDirty_WF, nfnAuxDirty_canonicalOwn,
+  ⟨(nfnAuxDirty_admitted h).choose, nfnAuxDirty_WF,
     nfnAuxDirty_built h, (nfnAuxDirty_admitted h).choose_spec⟩
 
 /-! ### …and the step it takes now **does** preserve `Ordered` at the constructor stage

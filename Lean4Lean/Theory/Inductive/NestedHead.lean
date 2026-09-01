@@ -114,8 +114,11 @@ end VInductDecl'
 /-! ## Part 3: conservativity
 
 Every construction of Part 2, at `D.idRestore`, **is** its `Theory/Inductive/Decl.lean`
-original.  The constructor-side equations are conditional on `VIndCtor.Canonical`, for the
-reason stated at that definition; the type-side ones are unconditional.
+original — **all of them unconditionally, since ruling 116d.**  They used to be conditional on
+`VIndCtor.Canonical` / `VInductDecl'.Canonical`; `VIndField.typeR`'s `some` branch is now a
+restoration of the *stored* type rather than a replacement of it, so the whole block collapses
+through `VIndRestore.restore_id`, which has no hypotheses.  `VInductDecl'.Canonical` was
+load-bearing nowhere else and is gone.
 
 This is what makes Part 2 a generalisation rather than a rival specification, and it is what
 lets `VEnv.addInductR` replace `VEnv.addInduct'` without disturbing anything already proved
@@ -129,15 +132,19 @@ about the latter (`addInductR_eq_addInduct'`). -/
     r.canonTypeR D D.idRestore i = r.canonType D i := by
   rw [canonTypeR, canonType, canonResultR_id]
 
-theorem VIndField.typeR_id {F : VIndField} {D : VInductDecl'} {i : Nat}
-    (h : ∀ r : VIndRecArg, F.recArg = some r → F.type = r.canonType D i) :
+/-- **Unconditional since ruling 116d.**  It used to carry the field's canonicity as a
+hypothesis, because `typeR`'s `some` branch replaced the stored type by `canonTypeR`; the branch
+is now a restoration of the stored type, and at `idRestore` a restoration is the identity
+(`VIndRestore.restore_id`) — for *every* expression, canonical or not. -/
+@[simp] theorem VIndField.typeR_id {F : VIndField} {D : VInductDecl'} {i : Nat} :
     F.typeR D D.idRestore i = F.type := by
   rw [VIndField.typeR]
   split
   · rfl
-  · next r hr => rw [VIndRecArg.canonTypeR_id, ← h r hr]
+  · exact VIndRestore.restore_id D i F.type
 
-theorem VIndCtor.fieldTypesR_id {C : VIndCtor} {D : VInductDecl'} (h : C.Canonical D) :
+/-- Unconditional; was conditional on `C.Canonical D`. -/
+theorem VIndCtor.fieldTypesR_id {C : VIndCtor} {D : VInductDecl'} :
     C.fieldTypesR D D.idRestore = C.fields.map (·.type) := by
   rw [VIndCtor.fieldTypesR]
   refine List.ext_getElem? fun n => ?_
@@ -145,12 +152,12 @@ theorem VIndCtor.fieldTypesR_id {C : VIndCtor} {D : VInductDecl'} (h : C.Canonic
     Nat.zero_add]
   cases hf : C.fields[n]? with
   | none => rfl
-  | some F =>
-    exact congrArg some (VIndField.typeR_id fun r hr => h n F r hf hr)
+  | some F => exact congrArg some VIndField.typeR_id
 
-theorem VIndCtor.typeR_id {C : VIndCtor} {D : VInductDecl'} {j : Nat} (h : C.Canonical D) :
+/-- Unconditional; was conditional on `C.Canonical D`. -/
+theorem VIndCtor.typeR_id {C : VIndCtor} {D : VInductDecl'} {j : Nat} :
     C.typeR D D.idRestore j = C.type D j := by
-  rw [VIndCtor.typeR, VIndCtor.type, VIndCtor.canonResult, fieldTypesR_id h,
+  rw [VIndCtor.typeR, VIndCtor.type, VIndCtor.canonResult, fieldTypesR_id,
     VInductDecl'.tyAppR_id]
 
 namespace VInductDecl'
@@ -162,32 +169,32 @@ variable (D : VInductDecl')
 @[simp] theorem motivesR_id : D.motivesR D.idRestore = D.motives :=
   List.map_congr_left fun t _ => D.motiveTypeR_id t
 
-theorem minorTypeR_id {q t : Nat} {C : VIndCtor} (h : C.Canonical D) :
+theorem minorTypeR_id {q t : Nat} {C : VIndCtor} :
     D.minorTypeR D.idRestore q t C = D.minorType q t C := by
-  rw [minorTypeR, minorType, VIndCtor.fieldTypesR_id h, ctorAppR_id]
+  rw [minorTypeR, minorType, VIndCtor.fieldTypesR_id, ctorAppR_id]
 
 theorem mem_ctorsAll_of_mem_zipIdx {j q : Nat} {C : VIndCtor}
     (hm : ((j, C), q) ∈ D.ctorsAll.zipIdx) : (j, C) ∈ D.ctorsAll :=
   List.zipIdx_map_fst 0 D.ctorsAll ▸ List.mem_map_of_mem hm
 
-theorem minorsR_id (h : D.Canonical) : D.minorsR D.idRestore = D.minors := by
+theorem minorsR_id : D.minorsR D.idRestore = D.minors := by
   refine List.map_congr_left ?_
-  rintro ⟨⟨t, C⟩, q⟩ hm
-  exact D.minorTypeR_id (h t C (D.mem_ctorsAll_of_mem_zipIdx hm))
+  rintro ⟨⟨t, C⟩, q⟩ -
+  exact D.minorTypeR_id
 
-theorem recTypeR_id (h : D.Canonical) (j : Nat) : D.recTypeR D.idRestore j = D.recType j := by
-  rw [recTypeR, recType, tyAppR'_id, motivesR_id, D.minorsR_id h]
+theorem recTypeR_id (j : Nat) : D.recTypeR D.idRestore j = D.recType j := by
+  rw [recTypeR, recType, tyAppR'_id, motivesR_id, D.minorsR_id]
 
-theorem iotaCtxR_id {C : VIndCtor} (h : D.Canonical) (hC : C.Canonical D) :
+theorem iotaCtxR_id {C : VIndCtor} :
     D.iotaCtxR D.idRestore C = D.iotaCtx C := by
-  rw [iotaCtxR, iotaCtx, motivesR_id, D.minorsR_id h, VIndCtor.fieldTypesR_id hC]
+  rw [iotaCtxR, iotaCtx, motivesR_id, D.minorsR_id, VIndCtor.fieldTypesR_id]
 
 @[simp] theorem ihValuesR_id (C : VIndCtor) : D.ihValuesR D.idRestore C = D.ihValues C := by
   simp only [ihValuesR, ihValues, idRestore, id_eq]
 
-theorem iotaLamR_id {q : Nat} {C : VIndCtor} (h : D.Canonical) (hC : C.Canonical D) :
+theorem iotaLamR_id {q : Nat} {C : VIndCtor} :
     D.iotaLamR D.idRestore q C = D.iotaLam q C := by
-  rw [iotaLamR, iotaLam, D.iotaCtxR_id h hC, ihValuesR_id]
+  rw [iotaLamR, iotaLam, D.iotaCtxR_id, ihValuesR_id]
 
 theorem iotaLhsR_id {j : Nat} {C : VIndCtor} :
     D.iotaLhsR D.idRestore j C = D.iotaLhs j C := by
@@ -197,21 +204,21 @@ theorem iotaTypeR_id {j : Nat} {C : VIndCtor} :
     D.iotaTypeR D.idRestore j C = D.iotaType j C := by
   rw [iotaTypeR, iotaType, ctorAppR_id]
 
-theorem iotaRuleR_id {j q : Nat} {C : VIndCtor} (h : D.Canonical) (hC : C.Canonical D) :
+theorem iotaRuleR_id {j q : Nat} {C : VIndCtor} :
     D.iotaRuleR D.idRestore j q C = D.iotaRule j q C := by
-  rw [iotaRuleR, iotaRule, D.iotaCtxR_id h hC, iotaLhsR_id, D.iotaLamR_id h hC, iotaTypeR_id]
+  rw [iotaRuleR, iotaRule, D.iotaCtxR_id, iotaLhsR_id, D.iotaLamR_id, iotaTypeR_id]
 
-theorem iotaRulesR_id (h : D.Canonical) : D.iotaRulesR D.idRestore = D.iotaRules := by
+theorem iotaRulesR_id : D.iotaRulesR D.idRestore = D.iotaRules := by
   refine List.map_congr_left ?_
-  rintro ⟨⟨j, C⟩, q⟩ hm
-  exact D.iotaRuleR_id h (h j C (D.mem_ctorsAll_of_mem_zipIdx hm))
+  rintro ⟨⟨j, C⟩, q⟩ -
+  exact D.iotaRuleR_id
 
-theorem recConstsR_id (h : D.Canonical) : D.recConstsR D.idRestore [] = D.recConsts := by
+theorem recConstsR_id : D.recConstsR D.idRestore [] = D.recConsts := by
   refine List.map_congr_left ?_
   rintro ⟨T, j⟩ -
   rw [idRestore]
   exact congrArg (fun e => (Lean.mkRecName T.name, (⟨D.recUvars, e⟩ : VConstant)))
-    (by rw [VIndRestore.csubst_nil, VExpr.substC_id]; exact D.recTypeR_id h j)
+    (by rw [VIndRestore.csubst_nil, VExpr.substC_id]; exact D.recTypeR_id j)
 
 /-- The declared constructor constants are unchanged by the identity restoration.
 
@@ -224,46 +231,46 @@ configuration is degenerate (`idRestore` presents a companion member as *itself*
 `ElimNestedInductive` never does: the auxiliary name always differs from the real one), and
 both consumers — `AddInductStages.toR` and `AddInductStagesR.of_addInductStages`
 (`Verify/Environment/InductR.lean`) — are at `K = []`. -/
-theorem ctorConstsCR_id (h : D.Canonical) :
+theorem ctorConstsCR_id :
     D.ctorConstsCR D.idRestore [] = D.ctorConstsC [] := by
   rw [ctorConstsCR, VInductDecl'.ctorConstsC]
   refine filterMap_congr_left ?_
-  rintro ⟨j, C⟩ hm
+  rintro ⟨j, C⟩ -
   simp only [idRestore, id_eq]
   split
   · rfl
   · exact congrArg some (congrArg (fun e => (C.name, (⟨D.uvars, e⟩ : VConstant)))
-      (by rw [VIndRestore.csubstTy_nil, VExpr.substC_id]; exact VIndCtor.typeR_id (h j C hm)))
+      (by rw [VIndRestore.csubstTy_nil, VExpr.substC_id]; exact VIndCtor.typeR_id))
 
 
-theorem allConstsCR_id_nil (h : D.Canonical) :
+theorem allConstsCR_id_nil :
     D.allConstsCR D.idRestore [] = D.allConsts := by
-  rw [allConstsCR, VInductDecl'.allConsts, typeConstsC_nil, D.ctorConstsCR_id h,
-    ctorConstsC_nil, D.recConstsR_id h]
+  rw [allConstsCR, VInductDecl'.allConsts, typeConstsC_nil, D.ctorConstsCR_id,
+    ctorConstsC_nil, D.recConstsR_id]
 
 end VInductDecl'
 
 /-- At `K = []` the substitution `addIndRulesR` now applies is the identity
 (`VIndRestore.csubst_nil`), so the identity restoration still folds exactly `addIndRules`'
 list.  This is what keeps conservativity a `rfl`-level fact after the substitution landed. -/
-theorem VInductDecl'.iotaRulesRS_id_nil {D : VInductDecl'} (h : D.Canonical) :
+theorem VInductDecl'.iotaRulesRS_id_nil {D : VInductDecl'} :
     D.iotaRulesRS D.idRestore [] = D.iotaRules := by
-  rw [VInductDecl'.iotaRulesRS, VIndRestore.csubst_nil, ← D.iotaRulesR_id h]
+  rw [VInductDecl'.iotaRulesRS, VIndRestore.csubst_nil, ← D.iotaRulesR_id]
   refine List.map_congr_left (fun df _ => ?_) |>.trans (List.map_id _)
   cases df; simp [VDefEq.substC]
 
-theorem VEnv.addIndRulesR_id (env : VEnv) {D : VInductDecl'} (h : D.Canonical) :
+theorem VEnv.addIndRulesR_id (env : VEnv) {D : VInductDecl'} :
     env.addIndRulesR D [] D.idRestore = env.addIndRules D := by
-  rw [VEnv.addIndRulesR, VEnv.addIndRules, VInductDecl'.iotaRulesRS_id_nil h]
+  rw [VEnv.addIndRulesR, VEnv.addIndRules, VInductDecl'.iotaRulesRS_id_nil]
 
 /-- **Conservativity of the repaired step.**  With no companion members and the identity
 restoration, `addInductR` *is* `addInduct'`. -/
-theorem VEnv.addInductR_eq_addInduct' (env : VEnv) {D : VInductDecl'} (h : D.Canonical) :
+theorem VEnv.addInductR_eq_addInduct' (env : VEnv) {D : VInductDecl'} :
     env.addInductR D [] D.idRestore = env.addInduct' D := by
-  rw [VEnv.addInductR, D.allConstsCR_id_nil h, VEnv.addInduct'_eq]
+  rw [VEnv.addInductR, D.allConstsCR_id_nil, VEnv.addInduct'_eq]
   cases env.addConstList D.allConsts with
   | none => rfl
-  | some env₁ => exact congrArg some (VEnv.addIndRulesR_id env₁ h)
+  | some env₁ => exact congrArg some (VEnv.addIndRulesR_id env₁)
 
 /-! ## Part 4: G4, repaired — and the invariant whose absence hid it
 
@@ -536,18 +543,18 @@ introduced to discharge. -/
 
 
 /-- **Conservativity.**  With no auxiliary members and the identity restoration, the step is
-exactly `VDecl.WF.induct`'s premise pair together with the canonicity side condition — no new
-obligation on, and none removed from, any existing declaration.  `Faithful` is vacuous at
+**exactly** `VDecl.WF.induct`'s premise pair — no new obligation on, and none removed from, any
+existing declaration.  It used to carry `hc : D.Canonical` on **both** sides, as a hypothesis
+*and* as a conjunct of `AddNested`; since ruling 116d neither is there.  `Faithful` is vacuous at
 `K = []`, which is the formal content of "a block with no nested occurrence needs no
 restoration". -/
-theorem VEnv.AddNested_nil {env env' : VEnv} {D : VInductDecl'}
-    {npJ : Nat → Nat} (hc : D.Canonical) :
+theorem VEnv.AddNested_nil {env env' : VEnv} {D : VInductDecl'} {npJ : Nat → Nat} :
     VEnv.AddNested env D [] D.idRestore npJ env' ↔ D.WF env ∧ env.addInduct' D = some env' := by
-  rw [VEnv.AddNested, VEnv.addInductR_eq_addInduct' env hc]
+  rw [VEnv.AddNested, VEnv.addInductR_eq_addInduct' env]
   constructor
-  · rintro ⟨h1, -, -, -, h4⟩; exact ⟨h1, h4⟩
+  · rintro ⟨h1, -, -, h4⟩; exact ⟨h1, h4⟩
   · rintro ⟨h1, h4⟩
-    exact ⟨h1, hc, D.idRestore_ownId [],
+    exact ⟨h1, D.idRestore_ownId [],
       ⟨by rintro _ _ _ ⟨⟩, by rintro _ _ _ ⟨⟩, by rintro _ _ _ ⟨⟩⟩, h4⟩
 
 /-- **G4 travels with the step.**  Every ι-rule the step emits is keyed to a constant the step
@@ -560,7 +567,7 @@ theorem VEnv.AddNested_keys_declared {env env' : VEnv} {D : VInductDecl'}
   refine ⟨n, hn, hmem, ?_⟩
   rw [VInductDecl'.allNamesCR, List.mem_map] at hmem
   obtain ⟨c, hc, rfl⟩ := hmem
-  exact ⟨c.2, VEnv.addInductR_constants h.2.2.2.2 c hc⟩
+  exact ⟨c.2, VEnv.addInductR_constants h.2.2.2 c hc⟩
 
 
 /-! ## Part 7: a real nested block, end to end
@@ -999,7 +1006,7 @@ theorem ntreeAux_admitted :
   · decide
 
 /-- **The whole step, on a real nested declaration.**  `VInductDecl'.WF` at the auxiliary
-block, canonicity, the restoration's obligations against `List` as the history declares it,
+block, the restoration's obligations against `List` as the history declares it,
 and the extension — the last of which declares `NTree.rec_1` at the type `restoreNested`
 computes and keys its ι-rules on that same constant.
 
@@ -1008,7 +1015,7 @@ claim is consistency of the result; that is `leanTTConsistent`, open. -/
 theorem ntreeAux_AddNested :
     ∃ env₂, VEnv.AddNested env₁ ntreeAux ntreeK ntreeRestore
       (fun _ => 1) env₂ :=
-  ⟨(ntreeAux_admitted h).choose, ntreeAux_WF h, ntreeAux_Canonical, ntreeRestore_ownId,
+  ⟨(ntreeAux_admitted h).choose, ntreeAux_WF h, ntreeRestore_ownId,
     ntreeRestore_faithful h, (ntreeAux_admitted h).choose_spec⟩
 
 omit h in

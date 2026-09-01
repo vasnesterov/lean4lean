@@ -155,11 +155,12 @@ theorem addInductR_ordered' (henv : env.Ordered) (h : D.WF env) (hown : R.OwnId 
   addInductR_ordered henv (addInductR_typeConstsC_wf h) hctors hrecs hrules he
 
 /-- **Conservativity: at the identity restoration the three obligations are the ones
-`addInduct'` already discharges.**  With no companion members and `D.Canonical`, the restored
-constant lists *are* `addInduct'`'s, so `addInductR_ordered'` collapses to
+`addInduct'` already discharges.**  With no companion members the restored
+constant lists *are* `addInduct'`'s — **unconditionally, since ruling 116d dropped the
+`D.Canonical` hypothesis this used to carry** — so `addInductR_ordered'` collapses to
 `VInductDecl'.addInduct'_ordered` — nothing has been strengthened, and the three open
 obligations are genuinely about the *restoration* rather than about inductives. -/
-theorem addInductR_ordered_nil (henv : env.Ordered) (h : D.WF env) (hc : D.Canonical)
+theorem addInductR_ordered_nil (henv : env.Ordered) (h : D.WF env)
     (hrec : ∀ {env₁ env₂ : VEnv}, env.addIndTypes D = some env₁ →
       env₁.addIndCtors D = some env₂ → ∀ c ∈ D.recConsts, VConstant.WF env₂ c.2)
     (hrules : ∀ {env₁ env₂ env₃ : VEnv}, env.addIndTypes D = some env₁ →
@@ -167,7 +168,7 @@ theorem addInductR_ordered_nil (henv : env.Ordered) (h : D.WF env) (hc : D.Canon
       ∀ df ∈ D.iotaRules, df.WF env₃)
     (he : env.addInductR D [] D.idRestore = some env') : env'.Ordered :=
   VInductDecl'.addInduct'_ordered henv h hrec hrules
-    (by rwa [VEnv.addInductR_eq_addInduct' env hc] at he)
+    (by rwa [VEnv.addInductR_eq_addInduct' env] at he)
 
 /-! ## A second transcription that does not go through: `DeltaUnique`'s freshness
 

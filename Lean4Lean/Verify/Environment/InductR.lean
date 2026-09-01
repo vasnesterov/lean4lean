@@ -196,23 +196,23 @@ statements of it.  So `AddInductStagesR` is a *generalisation* of `AddInductStag
 non-nested theory (`Verify/InductFlip.lean`, `AddDeclWF.lean` §1 and §3) is unaffected. -/
 
 theorem AddInductStages.toR {m₁ m₂ : ConstMap} {env₁ env₂ : VEnv} {D : VInductDecl'}
-    (H : AddInductStages m₁ env₁ D m₂ env₂) (hc : D.Canonical) :
+    (H : AddInductStages m₁ env₁ D m₂ env₂) :
     AddInductStagesR m₁ env₁ D [] D.idRestore m₂ env₂ := by
   obtain ⟨mt, et, mc, ec, e₃, h1, h2, h3, rfl⟩ := H
   refine ⟨mt, et, mc, ec, e₃, ?_, ?_, ?_, ?_⟩
   · rwa [VInductDecl'.typeConstsC_nil]
-  · rwa [D.ctorConstsCR_id hc, VInductDecl'.ctorConstsC_nil]
-  · rwa [D.recConstsR_id hc]
-  · rw [VEnv.addIndRulesR_id _ hc]
+  · rwa [D.ctorConstsCR_id, VInductDecl'.ctorConstsC_nil]
+  · rwa [D.recConstsR_id]
+  · rw [VEnv.addIndRulesR_id _]
 
 theorem AddInductStagesR.of_addInductStages {m₁ m₂ : ConstMap} {env₁ env₂ : VEnv}
     {D : VInductDecl'} (H : AddInductStagesR m₁ env₁ D [] D.idRestore m₂ env₂)
-    (hc : D.Canonical) : AddInductStages m₁ env₁ D m₂ env₂ := by
+    : AddInductStages m₁ env₁ D m₂ env₂ := by
   obtain ⟨mt, et, mc, ec, e₃, h1, h2, h3, rfl⟩ := H
   rw [VInductDecl'.typeConstsC_nil] at h1
-  rw [D.ctorConstsCR_id hc, VInductDecl'.ctorConstsC_nil] at h2
-  rw [D.recConstsR_id hc] at h3
-  exact ⟨mt, et, mc, ec, e₃, h1, h2, h3, by rw [VEnv.addIndRulesR_id _ hc]⟩
+  rw [D.ctorConstsCR_id, VInductDecl'.ctorConstsC_nil] at h2
+  rw [D.recConstsR_id] at h3
+  exact ⟨mt, et, mc, ec, e₃, h1, h2, h3, by rw [VEnv.addIndRulesR_id _]⟩
 
 /-! ## 2. The names a nested block may introduce, and the translation that pins them
 
@@ -388,7 +388,7 @@ At `numNested = 0`, `K = []`, `R = D.idRestore`, `TrIndDeclN` **is** `TrIndDecl`
 non-nested theory is unchanged and `Verify/Environment/Induct.lean`'s witnesses transfer. -/
 
 theorem TrIndDecl.toN {env : VEnv} {Us : List Name} {np : Nat} {types : List InductiveType}
-    {iu : Bool} {D : VInductDecl'} (h : TrIndDecl env Us np types iu D) (hc : D.Canonical)
+    {iu : Bool} {D : VInductDecl'} (h : TrIndDecl env Us np types iu D)
     (hst : ∃ et, env.addIndTypes D = some et) :
     TrIndDeclN env Us np types iu 0 D [] D.idRestore where
   safe := h.safe
@@ -406,7 +406,7 @@ theorem TrIndDecl.toN {env : VEnv} {Us : List Name} {np : Nat} {types : List Ind
     rw [VEnv.addIndTypesC_nil] at hst
     obtain ⟨hname, htr⟩ := h.trCtors env₁ hst j t T ht hT q c C hc' hC
     refine ⟨hname, ?_⟩
-    rwa [VIndCtor.typeR_id (hc j C (VInductDecl'.mem_ctorsAll_of hT (List.mem_iff_getElem?.2 ⟨q, hC⟩)))]
+    rwa [VIndCtor.typeR_id]
   ctorName_own := by
     intro j t T ht hT q c C hc' hC
     obtain ⟨et, het⟩ := hst

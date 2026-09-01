@@ -1132,7 +1132,7 @@ theorem addInductiveStepWFClosed_of_run (H : AddInductiveRunRealisesClosed) :
   obtain ⟨ves', hves⟩ := h'
   refine ⟨ves', 0, fun safety => ?_⟩
   obtain ⟨D, htr, hwf, hc, hadd⟩ := hves safety
-  exact ⟨D, [], D.idRestore, htr.toN hc hadd.addIndTypes, hadd.addIndTypes, hwf, hadd.toR hc⟩
+  exact ⟨D, [], D.idRestore, htr.toN hadd.addIndTypes, hadd.addIndTypes, hwf, hadd.toR⟩
 
 /-! ## 8. Instrument 7: every new statement at its degenerate instance
 

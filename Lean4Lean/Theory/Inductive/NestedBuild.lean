@@ -57,20 +57,58 @@ open VExpr (mkPi mkLams mkApp bvars liftTele shift shiftTele instAll instAllTele
 
 namespace VExpr
 
-/-- The head of an application spine (`Lean.Expr.getAppFn`). -/
-def spineFn : VExpr → VExpr
-  | .app f _ => f.spineFn
-  | e => e
+/-- `NoConsts` is stable under weakening. -/
+theorem noConsts_liftN {S : List Lean.Name} {n : Nat} :
+    ∀ {e : VExpr} (k : Nat), NoConsts S e → NoConsts S (e.liftN n k)
+  | .bvar _, _, _ => trivial
+  | .sort _, _, _ => trivial
+  | .const _ _, _, h => h
+  | .app _ _, k, h => ⟨noConsts_liftN k h.1, noConsts_liftN k h.2⟩
+  | .lam _ _, k, h => ⟨noConsts_liftN k h.1, noConsts_liftN (k+1) h.2⟩
+  | .forallE _ _, k, h => ⟨noConsts_liftN k h.1, noConsts_liftN (k+1) h.2⟩
 
-@[simp] theorem spineFn_app {f a : VExpr} : (VExpr.app f a).spineFn = f.spineFn := rfl
-@[simp] theorem spineFn_const {c : Lean.Name} {ls : List VLevel} :
-    (VExpr.const c ls).spineFn = .const c ls := rfl
+/-- …and under substitution. -/
+theorem noConsts_inst {S : List Lean.Name} {a : VExpr} (ha : NoConsts S a) :
+    ∀ {e : VExpr} (k : Nat), NoConsts S e → NoConsts S (e.inst a k)
+  | .bvar i, k, _ => by
+    rw [VExpr.inst, VExpr.instVar]
+    split
+    · trivial
+    · split
+      · exact noConsts_liftN 0 ha
+      · trivial
+  | .sort _, _, _ => trivial
+  | .const _ _, _, h => h
+  | .app _ _, k, h => ⟨noConsts_inst ha k h.1, noConsts_inst ha k h.2⟩
+  | .lam _ _, k, h => ⟨noConsts_inst ha k h.1, noConsts_inst ha (k+1) h.2⟩
+  | .forallE _ _, k, h => ⟨noConsts_inst ha k h.1, noConsts_inst ha (k+1) h.2⟩
 
-/-- Every term is its head applied to its spine. -/
-theorem mkApp_spineFn_spineArgs : ∀ e : VExpr, mkApp e.spineFn e.spineArgs = e
-  | .app f a => by
-    rw [spineFn_app, spineArgs, VExpr.mkApp_append, mkApp_spineFn_spineArgs f]; rfl
-  | .bvar _ | .sort _ | .const _ _ | .lam _ _ | .forallE _ _ => rfl
+/-- …hence under a whole `instAll`, which is how `VNestedOcc.field`'s substituted type is
+built.  This is what makes `VInductDecl'.Built.fields_noK` checkable from two separate facts —
+`J`'s stored field types and the nested spine — rather than from the substituted result. -/
+theorem noConsts_instAll {S : List Lean.Name} : ∀ (as : List VExpr) {e : VExpr} (k : Nat),
+    NoConsts S e → (∀ a ∈ as, NoConsts S a) → NoConsts S (e.instAll as k)
+  | [], _, _, h, _ => h
+  | a :: as, _, k, h, has => by
+    rw [VExpr.instAll]
+    exact noConsts_instAll as k (noConsts_inst (has a List.mem_cons_self) _ h)
+      (fun b hb => has b (List.mem_cons_of_mem _ hb))
+
+/-- `NoConsts` passes to a pi telescope's binders.  Needed since ruling 116d: `field_typeR`
+now has to know that the *recognised* binder telescope — which is `S`'s own — is free of
+companion constants, because `VIndField.typeR` restores the stored type rather than replacing
+it, and `VIndRestore.restore_noK` is what makes the restoration the identity there. -/
+theorem noConsts_splitPis {S : List Lean.Name} : ∀ (n : Nat) {e : VExpr}, NoConsts S e →
+    ∀ B ∈ (splitPis n e).1, NoConsts S B
+  | 0, _, _ => nofun
+  | n+1, .forallE A B, h => by
+    rw [splitPis]
+    intro C hC
+    rcases List.mem_cons.1 hC with rfl | hC
+    · exact h.1
+    · exact noConsts_splitPis n h.2 C hC
+  | _+1, .bvar _, _ | _+1, .sort _, _ | _+1, .const _ _, _
+  | _+1, .lam _ _, _ | _+1, .app _ _, _ => nofun
 
 /-- `splitPis` never loses anything: re-assembling its output returns the input, at **every**
 `n`, because the `n+1`-at-a-non-`forallE` case returns the empty telescope. -/
@@ -95,9 +133,6 @@ weakened past those binders, and then to some index arguments.
 Nothing about `D` enters: `VInductDecl'.tyAppR` ignores its `VInductDecl'` argument, so the
 recogniser is a function of the restoration alone.  That is what breaks the circularity —
 an auxiliary member's *own* field types mention the block being declared. -/
-
-deriving instance DecidableEq for VLevel
-deriving instance DecidableEq for VExpr
 
 namespace VIndRestore
 
@@ -317,29 +352,68 @@ theorem getElem?_fieldsFrom (H : VIndHeader) (R : VIndRestore) :
       show i + 1 + k = i + (k+1) from by omega]
 
 /-- **The recogniser is a section of `VIndField.typeR`.**  Whatever branch `field` takes, its
-restored stored type is the substituted type it was built from — unconditionally: no
-canonicity, no shape hypothesis on `J`. -/
-theorem field_typeR (H : VIndHeader) (R : VIndRestore) (D : VInductDecl') (i : Nat)
-    (F₀ : VIndField) :
+restored stored type is the substituted type it was built from.
+
+**This used to hold unconditionally — no canonicity, no shape hypothesis on `J` — and under
+ruling 116d it does not.**  That is the honest price of the ruling, and it is worth stating
+plainly: the *old* `VIndField.typeR` discarded `F.type` on a recursive field and returned
+`r.canonTypeR D R i`, so this equation said nothing whatever about the **stored** type; the
+recogniser was a section of it for free.  The new `typeR` *reads* the stored type, so the
+equation now has content there, and paying for it takes four facts:
+
+* `hH : H = D.header` — the stored form is `r.canonTypeH H i`, and it is `r.canonType D i` only
+  at `D`'s own header;
+* `hnd`/`hown` — what makes `VIndRestore.restore` fire at the result head and be the identity
+  everywhere else;
+* `hS` — the substituted type mentions no **companion** constant.  True of everything
+  `ElimNestedInductive.replaceIfNested` builds, since the auxiliary names are freshly invented
+  by `mkUniqueName`, and it is `decide`-able at a concrete block.
+
+Note it is *not* canonicity that came back: `hS` is a statement about `J`'s stored field type
+and the nested spine, not about the shape of the field. -/
+theorem field_typeR (H : VIndHeader) (R : VIndRestore) (D : VInductDecl') (K : List Lean.Name)
+    (hH : H = D.header) (hown : R.OwnId D K) (hnd : D.blockNames.Nodup) (i : Nat)
+    (F₀ : VIndField)
+    (hS : VExpr.NoConsts K (VExpr.instAll (F₀.type.instL N.lvls) N.args i)) :
     (N.field H R i F₀).typeR D R i = VExpr.instAll (F₀.type.instL N.lvls) N.args i := by
   rw [field]
   split <;> rename_i heq
-  · rw [VIndField.typeR]; exact R.recog_sound heq D
+  · next r =>
+    rw [VIndField.typeR]
+    show R.restore D i (r.canonTypeH H i) = _
+    have hlt : r.idx < D.types.length := by
+      have := R.recog_idx_lt heq; rw [hH] at this; exact this
+    obtain ⟨T, hT⟩ : ∃ T, D.types[r.idx]? = some T := ⟨_, List.getElem?_eq_getElem hlt⟩
+    rw [hH, VIndRecArg.canonTypeH_header,
+      VIndRestore.restore_canonType_noK hown hnd hT
+        (by rw [R.recog_binders heq]; exact VExpr.noConsts_splitPis _ hS)]
+    exact R.recog_sound heq D
   · rw [VIndField.typeR]
 
-theorem fieldTypes_from (H : VIndHeader) (R : VIndRestore) (D : VInductDecl') :
+theorem fieldTypes_from (H : VIndHeader) (R : VIndRestore) (D : VInductDecl')
+    (K : List Lean.Name) (hH : H = D.header) (hown : R.OwnId D K)
+    (hnd : D.blockNames.Nodup) :
     ∀ (Fs : List VIndField) (i : Nat),
+      (∀ (k : Nat) (F₀ : VIndField), Fs[k]? = some F₀ →
+        VExpr.NoConsts K (VExpr.instAll (F₀.type.instL N.lvls) N.args (i + k))) →
       ((N.fieldsFrom H R i Fs).zipIdx i).map (fun p => p.1.typeR D R p.2)
         = VExpr.instAllTele (Fs.map (fun F => F.type.instL N.lvls)) N.args i
-  | [], _ => rfl
-  | F₀ :: Fs, i => by
+  | [], _, _ => rfl
+  | F₀ :: Fs, i, hS => by
     rw [fieldsFrom, List.zipIdx_cons, List.map_cons, List.map_cons, VExpr.instAllTele_cons,
-      field_typeR, fieldTypes_from H R D Fs (i+1)]
+      field_typeR N H R D K hH hown hnd i F₀ (by simpa using hS 0 F₀ rfl),
+      fieldTypes_from H R D K hH hown hnd Fs (i+1) (fun k F' hF' => by
+        rw [show i + 1 + k = i + (k+1) from by omega]
+        exact hS (k+1) F' (by simpa using hF'))]
 
-theorem ctor_fieldTypesR (H : VIndHeader) (R : VIndRestore) (D : VInductDecl') (C₀ : VIndCtor) :
+theorem ctor_fieldTypesR (H : VIndHeader) (R : VIndRestore) (D : VInductDecl')
+    (K : List Lean.Name) (hH : H = D.header) (hown : R.OwnId D K) (hnd : D.blockNames.Nodup)
+    (C₀ : VIndCtor)
+    (hS : ∀ (k : Nat) (F₀ : VIndField), C₀.fields[k]? = some F₀ →
+      VExpr.NoConsts K (VExpr.instAll (F₀.type.instL N.lvls) N.args k)) :
     (N.ctor H R C₀).fieldTypesR D R
       = VExpr.instAllTele (C₀.fields.map (fun F => F.type.instL N.lvls)) N.args 0 := by
-  rw [VIndCtor.fieldTypesR, ctor, fieldTypes_from]
+  rw [VIndCtor.fieldTypesR, ctor, fieldTypes_from N H R D K hH hown hnd _ 0 (by simpa using hS)]
 
 /-- The constructor's *result*, substituted, is the restored head applied to the substituted
 index arguments — the one place the arithmetic of the parameter run and the stored spine
@@ -367,13 +441,16 @@ There is no canonicity hypothesis and no hypothesis about `J`'s field shapes: th
 is a section of `VIndField.typeR` whatever it returns (`field_typeR`).  The three `R`
 equations say only that the restoration presents member `j` as this occurrence; the two
 length equations are `replaceIfNested`'s own `assert!`s. -/
-theorem ctor_typeR (H : VIndHeader) (R : VIndRestore) (D : VInductDecl') (j : Nat)
+theorem ctor_typeR (H : VIndHeader) (R : VIndRestore) (D : VInductDecl') (K : List Lean.Name)
+    (hH : H = D.header) (hown : R.OwnId D K) (hnd : D.blockNames.Nodup) (j : Nat)
     (C₀ : VIndCtor)
+    (hS : ∀ (k : Nat) (F₀ : VIndField), C₀.fields[k]? = some F₀ →
+      VExpr.NoConsts K (VExpr.instAll (F₀.type.instL N.lvls) N.args k))
     (hname : R.tyName j = N.tyName) (hls : R.tyLvls j = N.lvls) (hargs : R.tyArgs j = N.args)
     (hnp : C₀.params.length = N.decl.np) (hA : N.args.length = N.decl.np)
     (hlv : N.lvls.length = N.decl.uvars) :
     (N.ctor H R C₀).typeR D R j = N.instAt H (C₀.type N.decl N.idx) := by
-  rw [VIndCtor.typeR, ctor_fieldTypesR, instAt, VIndCtor.type]
+  rw [VIndCtor.typeR, ctor_fieldTypesR N H R D K hH hown hnd C₀ hS, instAt, VIndCtor.type]
   simp only [VExpr.instL_mkPi, VExpr.mkPi_append, List.map_map]
   rw [show N.decl.np = (C₀.params.map (VExpr.instL N.lvls)).length from by
       rw [List.length_map, hnp],
@@ -485,6 +562,42 @@ structure VInductDecl'.Built (D : VInductDecl') (R : VIndRestore) (K : List Lean
   unconstrained on the members the step actually declares — see `VIndRestore.OwnId`
   (`Theory/Inductive/Restore.lean`) for what goes wrong. -/
   own : R.OwnId D K
+  /-- **New under ruling 116d.**  `D`'s member names are distinct — which
+  `VEnv.addConstList`'s success already forces (`Theory/Inductive/Nested.lean`), so this costs a
+  caller nothing it does not already have — and it is what makes `VIndRestore.restore` fire at
+  the *right* member (`VInductDecl'.memberIdx` reads the first member of a given name). -/
+  nodup : D.blockNames.Nodup
+  /-- **New under ruling 116d.**  A companion member's substituted field types mention no
+  companion name.  True of everything `ElimNestedInductive.replaceIfNested` builds — the
+  auxiliary names come from `mkUniqueName`, and `checkNoNestedAux` rejects any input constructor
+  type that mentions a `_nested` constant — and `decide`-able at a concrete block.
+
+  It is what `VNestedOcc.field_typeR` needs now that `VIndField.typeR` *reads* the stored type
+  instead of discarding it: `VIndRestore.restore_noK` makes the restoration the identity on the
+  recognised binder telescope.  **It is not canonicity**: it says nothing about the *shape* of a
+  field, only that `J`'s stored types and the nested spine do not mention the fresh names. -/
+  fields_noK : ∀ j T, D.types[j]? = some T → T.name ∈ K →
+    ∀ C₀ ∈ (occ j).src.ctors, ∀ (k : Nat) (F₀ : VIndField), C₀.fields[k]? = some F₀ →
+      VExpr.NoConsts K (VExpr.instAll (F₀.type.instL (occ j).lvls) (occ j).args k)
+
+/-- **The two clauses ruling 116d added to `VInductDecl'.Built`, bundled.**  Both are
+*freshness* facts about the auxiliary names — `nodup` says the block's member names are
+distinct, `fields_noK` says the source block's substituted field types do not mention them —
+and **neither is a statement about the checker's `Result`**: `ElimNestedInductive.Result`'s
+`RestoreData` and `OccData` bundles see only `Lean.Name`s and one `Expr.getAppFn`, and this
+bundle is about `D`, `K` and `occ`.  So the general bridge
+(`ElimNestedInductive.Result.RestoreData.mkRestore_built`) carries it as a separate hypothesis,
+where its cost is visible; see `Verify/Inductive/NestedRestoreWit.lean` §6. -/
+structure VInductDecl'.BuiltFresh (D : VInductDecl') (K : List Lean.Name)
+    (occ : Nat → VNestedOcc) : Prop where
+  nodup : D.blockNames.Nodup
+  fields_noK : ∀ j T, D.types[j]? = some T → T.name ∈ K →
+    ∀ C₀ ∈ (occ j).src.ctors, ∀ (k : Nat) (F₀ : VIndField), C₀.fields[k]? = some F₀ →
+      VExpr.NoConsts K (VExpr.instAll (F₀.type.instL (occ j).lvls) (occ j).args k)
+
+theorem VInductDecl'.Built.toFresh {D : VInductDecl'} {R : VIndRestore} {K : List Lean.Name}
+    {env : VEnv} {occ : Nat → VNestedOcc} (h : D.Built R K env occ) : D.BuiltFresh K occ :=
+  ⟨h.nodup, h.fields_noK⟩
 
 /-- **`Faithful` is a consequence of the construction.**  This is `docs/handoff-nested-restore.md`
 §7.1: `ctors_complete` and `ctor_agree` stop being hypotheses. -/
@@ -512,7 +625,8 @@ theorem VInductDecl'.Built.toFaithful {D : VInductDecl'} {R : VIndRestore}
     · rw [h.tyLvls j T hT hK, ho.lvls_len]
     · rw [(occ j).instAt_eq D.header R D j _ _ rfl (h.tyLvls j T hT hK)
         (h.tyArgs j T hT hK) rfl]
-      exact ((occ j).ctor_typeR D.header R D j C₀ (h.tyName j T hT hK)
+      exact ((occ j).ctor_typeR D.header R D K rfl h.own h.nodup j C₀
+        (h.fields_noK j T hT hK C₀ hC₀) (h.tyName j T hT hK)
         (h.tyLvls j T hT hK) (h.tyArgs j T hT hK) (ho.ctor_params C₀ hC₀) ho.args_len
         ho.lvls_len).symm
   ctors_complete := by
@@ -542,17 +656,20 @@ theorem VInductDecl'.Built.canonical {D : VInductDecl'} {R : VIndRestore}
 
 /-- **The nested declaration step, with the auxiliary members built rather than checked.**
 
-Compare `VEnv.AddNested`: `VIndRestore.Faithful` is gone, and `VInductDecl'.Canonical` is
-weakened to the members the user wrote. -/
+Compare `VEnv.AddNested`: `VIndRestore.Faithful` is gone.
+
+**`D.CanonicalOwn K` was the second conjunct and is gone too** (ruling 116d): `AddNested` no
+longer has a canonicity conjunct for it to discharge, and `VInductDecl'.Built.canonical` — the
+lemma that turned it into `D.Canonical` — is used by nothing in `Theory/` any more. -/
 def VEnv.AddNestedB (env : VEnv) (D : VInductDecl') (K : List Lean.Name)
     (R : VIndRestore) (occ : Nat → VNestedOcc) (env' : VEnv) : Prop :=
-  D.WF env ∧ D.CanonicalOwn K ∧ D.Built R K env occ ∧ env.addInductR D K R = some env'
+  D.WF env ∧ D.Built R K env occ ∧ env.addInductR D K R = some env'
 
 theorem VEnv.AddNestedB.toAddNested {env env' : VEnv} {D : VInductDecl'}
     {K : List Lean.Name} {R : VIndRestore} {occ : Nat → VNestedOcc}
     (h : VEnv.AddNestedB env D K R occ env') :
     VEnv.AddNested env D K R (fun j => (occ j).decl.np) env' :=
-  ⟨h.1, h.2.2.1.canonical h.2.1, h.2.2.1.own, h.2.2.1.toFaithful, h.2.2.2⟩
+  ⟨h.1, h.2.1.own, h.2.1.toFaithful, h.2.2⟩
 
 /-- **The constructive form implies the rule's premise.**  `VDecl.WF.inductNested`
 (`Theory/Typing/Env.lean`) takes `VEnv.AddNestedStep`, i.e. `AddNested` with `npJ`
@@ -765,6 +882,24 @@ theorem ntreeAux_built :
     · cases hT; rfl
     · simp [ntreeAux] at hT
   occurs := fun _ _ _ _ => listOcc_occurs h
+  nodup := by decide
+  fields_noK := by
+    rintro (_ | _ | j) T hT hK C₀ hC₀ k F₀ hF₀
+    · cases hT; exact absurd hK (by decide)
+    · cases hT
+      simp only [show listOcc.src.ctors = [listNil, listCons] from rfl, List.mem_cons,
+        List.not_mem_nil, or_false] at hC₀
+      obtain rfl | rfl := hC₀
+      · exact absurd hF₀ nofun
+      · rcases k with _ | _ | k
+        · cases hF₀
+          exact VExpr.noConsts_instAll _ _ (by simp [VExpr.NoConsts, VExpr.instL, ntreeK])
+            (by simp [listOcc, VExpr.NoConsts, ntreeK])
+        · cases hF₀
+          exact VExpr.noConsts_instAll _ _ (by simp [VExpr.NoConsts, VExpr.instL, ntreeK])
+            (by simp [listOcc, VExpr.NoConsts, ntreeK])
+        · exact absurd hF₀ nofun
+    · simp [ntreeAux] at hT
   tyName := by
     rintro (_ | _ | j) T hT hK
     · cases hT; exact absurd hK (by decide)
@@ -839,7 +974,7 @@ theorem ntreeAux_canonicalOwn : ntreeAux.CanonicalOwn ntreeK :=
 theorem ntreeAux_AddNestedB :
     ∃ env₂, VEnv.AddNestedB env₁ ntreeAux ntreeK ntreeRestore
       (fun _ => listOcc) env₂ :=
-  ⟨(ntreeAux_admitted h).choose, ntreeAux_WF h, ntreeAux_canonicalOwn, ntreeAux_built h,
+  ⟨(ntreeAux_admitted h).choose, ntreeAux_WF h, ntreeAux_built h,
     (ntreeAux_admitted h).choose_spec⟩
 
 /-- **The rule's premise is inhabited at a real nested block.**  `VEnv.AddNestedStep`
@@ -944,8 +1079,7 @@ theorem pfn_idRestore_ctorConstsCR :
       = [(``PFn.mk, ⟨0, pfnMk.type pfnDecl 0⟩)] := by
   rw [VInductDecl'.ctorConstsCR]
   show [(id ``PFn.mk, (⟨0, pfnMk.typeR pfnDecl pfnDecl.idRestore 0⟩ : VConstant))] = _
-  rw [VIndCtor.typeR_id (by rintro (_ | _ | i) F r hF hr <;> simp [pfnMk] at hF ⊢ <;>
-    (try subst hF) <;> simp_all)]
+  rw [VIndCtor.typeR_id]
   rfl
 
 /-- The step is admitted at the junk restoration: `addInductR` cannot see the difference. -/
@@ -1231,8 +1365,33 @@ theorem pfnOcc_occurs : pfnOcc.Occurs env₂ where
       or_false] at hC
     subst hC; exact pfnMk_const h
 
+omit h in
+/-- **The freshness half of `Built`, on its own** — it does not mention the environment, so it
+is available to any caller of the general bridge, `nfnAux_built'`
+(`Verify/Inductive/NestedRestoreWit.lean`) included. -/
+theorem nfnAux_builtFresh : nfnAux.BuiltFresh nfnK (fun _ => pfnOcc) where
+  nodup := by decide
+  fields_noK := by
+    rintro (_ | _ | j) T hT hK C₀ hC₀ k F₀ hF₀
+    · cases hT; exact absurd hK (by decide)
+    · cases hT
+      simp only [show pfnOcc.src.ctors = [pfnMk] from rfl, List.mem_cons,
+        List.not_mem_nil, or_false] at hC₀
+      subst hC₀
+      rcases k with _ | _ | k
+      · cases hF₀
+        exact VExpr.noConsts_instAll _ _ (by simp [VExpr.NoConsts, VExpr.instL])
+          (by simp [pfnOcc, VExpr.NoConsts, nfnK])
+      · cases hF₀
+        exact VExpr.noConsts_instAll _ _ (by simp [VExpr.NoConsts, VExpr.instL])
+          (by simp [pfnOcc, VExpr.NoConsts, nfnK])
+      · exact absurd hF₀ nofun
+    · simp [nfnAux] at hT
+
 theorem nfnAux_built :
     nfnAux.Built nfnRestore nfnK env₂ (fun _ => pfnOcc) where
+  nodup := nfnAux_builtFresh.nodup
+  fields_noK := nfnAux_builtFresh.fields_noK
   member := by
     rintro (_ | _ | j) T hT hK
     · cases hT; exact absurd hK (by decide)
@@ -1297,7 +1456,7 @@ reach: a recursive field with a non-empty binder telescope. -/
 theorem nfnAux_AddNestedB :
     ∃ env₃, VEnv.AddNestedB env₂ nfnAux nfnK nfnRestore
       (fun _ => pfnOcc) env₃ :=
-  ⟨(nfnAux_admitted h).choose, nfnAux_WF, nfnAux_canonicalOwn, nfnAux_built h,
+  ⟨(nfnAux_admitted h).choose, nfnAux_WF, nfnAux_built h,
     (nfnAux_admitted h).choose_spec⟩
 
 /-- The same at `NFn`/`PFn`, the block `Verify/Environment/InductR.lean`'s constant-map

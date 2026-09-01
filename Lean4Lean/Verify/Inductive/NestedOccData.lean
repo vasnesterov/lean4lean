@@ -466,48 +466,50 @@ variable {r : Result} {types : List Lean.InductiveType} {D : VInductDecl'} {K : 
 
 /-- **`VInductDecl'.Built` from the two-clause residue.** -/
 theorem mkRestore_built (hd : r.OccData types occ) (h : r.RestoreData types D K as)
+    (hf : D.BuiltFresh K occ)
     (hl : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → ls j = (occ j).lvls)
     (ha : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → as j = (occ j).args)
     (hs : SemResidue types D K env (r.mkRestore types D.uvars D.np ls as) occ) :
     D.Built (r.mkRestore types D.uvars D.np ls as) K env occ :=
-  h.mkRestore_built hl ha (hd.occResidue h hs)
+  h.mkRestore_built hf hl ha (hd.occResidue h hs)
 
 /-- **`VIndRestore.Faithful`** — still a theorem, now from two clauses instead of four. -/
 theorem mkRestore_faithful (hd : r.OccData types occ) (h : r.RestoreData types D K as)
+    (hf : D.BuiltFresh K occ)
     (hl : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → ls j = (occ j).lvls)
     (ha : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → as j = (occ j).args)
     (hs : SemResidue types D K env (r.mkRestore types D.uvars D.np ls as) occ) :
     (r.mkRestore types D.uvars D.np ls as).Faithful D env K (fun j => (occ j).decl.np) :=
-  (hd.mkRestore_built h hl ha hs).toFaithful
+  (hd.mkRestore_built h hf hl ha hs).toFaithful
 
 theorem mkRestore_canonical (hd : r.OccData types occ) (h : r.RestoreData types D K as)
-    (hown : D.CanonicalOwn K)
+    (hf : D.BuiltFresh K occ) (hown : D.CanonicalOwn K)
     (hl : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → ls j = (occ j).lvls)
     (ha : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → as j = (occ j).args)
     (hs : SemResidue types D K env (r.mkRestore types D.uvars D.np ls as) occ) :
     D.Canonical :=
-  (hd.mkRestore_built h hl ha hs).canonical hown
+  (hd.mkRestore_built h hf hl ha hs).canonical hown
 
 /-- **The whole nested step, from the checker's data plus `member` and `occurs`.** -/
 theorem mkRestore_AddNested {env' : VEnv} (hd : r.OccData types occ)
-    (h : r.RestoreData types D K as) (hwf : D.WF env) (hown : D.CanonicalOwn K)
+    (h : r.RestoreData types D K as) (hwf : D.WF env) (hf : D.BuiltFresh K occ)
     (hl : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → ls j = (occ j).lvls)
     (ha : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → as j = (occ j).args)
     (hs : SemResidue types D K env (r.mkRestore types D.uvars D.np ls as) occ)
     (hadd : env.addInductR D K (r.mkRestore types D.uvars D.np ls as) = some env') :
     VEnv.AddNested env D K (r.mkRestore types D.uvars D.np ls as)
       (fun j => (occ j).decl.np) env' :=
-  h.mkRestore_AddNested hwf hown hl ha (hd.occResidue h hs) hadd
+  h.mkRestore_AddNested hwf hf hl ha (hd.occResidue h hs) hadd
 
 /-- …and the packaged premise of `VDecl.WF.inductNested`. -/
 theorem mkRestore_AddNestedStep {env' : VEnv} (hd : r.OccData types occ)
-    (h : r.RestoreData types D K as) (hwf : D.WF env) (hown : D.CanonicalOwn K)
+    (h : r.RestoreData types D K as) (hwf : D.WF env) (hf : D.BuiltFresh K occ)
     (hl : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → ls j = (occ j).lvls)
     (ha : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → as j = (occ j).args)
     (hs : SemResidue types D K env (r.mkRestore types D.uvars D.np ls as) occ)
     (hadd : env.addInductR D K (r.mkRestore types D.uvars D.np ls as) = some env') :
     VEnv.AddNestedStep env D K (r.mkRestore types D.uvars D.np ls as) env' :=
-  ⟨_, hd.mkRestore_AddNested h hwf hown hl ha hs hadd⟩
+  ⟨_, hd.mkRestore_AddNested h hwf hf hl ha hs hadd⟩
 
 end OccData
 end ElimNestedInductive.Result
