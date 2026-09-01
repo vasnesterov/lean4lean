@@ -2,6 +2,57 @@
 
 *Measured 2026-08-31. Reproduce with `~/.elan/bin/lake env lean scripts/kernel-sound-path.lean`.*
 
+## Read this FIRST: state of play, 2026-09-02
+
+**Everything dated 2026-08-31 or 2026-09-01 below has been amended, in some cases twice. Read this
+section, then read amendments where they appear, then treat the older prose as history.**
+
+**Goal 1 holds.** Kernel Arena `lean4lean-local`: **185 correct / 6 either / 0 wrong**, re-verified
+twice on 2026-09-01–02 across two changes that moved a rejection boundary.
+
+**Goal 2 is open.** Census steady at **13** holes; guards `1 ✓ (24 axioms) / 2 ✓ (INCOMPLETE) /
+3 ✓ (2/2)`.
+
+**Two implementation fixes landed, both surfaced by *proof-side audits* rather than by testing.**
+(i) The reserved-prefix test now runs on a member's own type, as C++ does — lean4lean had been more
+permissive at that gate. (ii) A loose-bvar guard, because a constructor type carrying a loose bvar
+small enough to fall inside the parameter telescope is **captured** by a parameter binder, so the
+stored declaration is not the submitted one — both kernels do this, and without the guard the
+specification is false. Choosing the guard over a closedness *premise* required reversing my own
+ruling: the premise reaches `kernel_sound`'s **frozen** statement and would narrow it (ledger
+rows 108–109, 112).
+
+**Neither corner of the injectivity/confluence cluster localises.** In the injectivity corner,
+**seven** localisation attempts collapsed into their own targets, and one theorem explains why: no
+syntactic condition on a `trans` midpoint can localise it, because β manufactures a midpoint of any
+shape. In the confluence corner, the object the whole layer had been reduced to is **false**, and its
+repaired form — joinability rather than `NormalEq` on the nose — is provably **equivalent to
+Church–Rosser** itself. So further localisation there is a known dead end (rows 94, 100–103).
+
+**The critical-path node is conditionally refuted, and three of its four conjuncts are vacuous.**
+`addDecl.WF` is *not* vacuous (a hole-free inhabitant exists), but its inductive branch is refuted;
+all five non-inductive branch lemmas carry the **same 8 holes**, so closing the inductive branch does
+**not** unblock the node. And the join between the abstract side and a real checker run has never been
+exercised: the field-well-formedness apparatus is vacuous at every witness in the tree, and one
+conjunct had **zero** firing instances until 2026-09-02 (rows 104, 113, 115).
+
+**The most consequential refutation is on the nested path**, which `CLAUDE.md` names as the primary
+target: `Built`, `AddNestedB` and `AddNested` are **false at `Lean.Json`**, because the
+nested-elimination pass manufactures a non-canonical constructor field whenever a block nests through
+an inductive with a **dependent** parameter. A guard was priced and **refuted** by that same fact.
+**Ruling in force (row 116d): reparameterise the restoration to target the *stored* type and drop the
+canonicity predicate** — measured to make every collapse unconditional and the residue true using
+nothing but β. Execution in progress.
+
+**One known gap in the permissive direction, not yet closed:** C++ runs a syntactic uniform-occurrence
+pre-pass that lean4lean lacks, and upstream's own comment shows they added it *because* later phases
+inspect constructor types modulo `whnf` (row 116e).
+
+**Reading this document safely.** Roughly twenty claims of mine were corrected on 2026-09-01–02,
+three of them published headlines. Two mechanisms account for most: **every instrument here looks at
+conclusions, so only a witness can see a false or empty hypothesis**; and **a claim repaired in N
+places needs a grep, not a count**. `ORCHESTRATOR.md`'s front section lists the rest.
+
 ## Read this first: current state (2026-08-31, end of day)
 
 **The body of this file is the original measurement plus five dated corrections.** Each
