@@ -455,30 +455,32 @@ theorem replaceAppendsOnly (env : Environment) : ReplaceAppendsOnly env :=
   fun _ lctx params As e => MWF.replaceNoCacheT (fun _ => MWF.replaceIfNested' lctx params As _) e
 
 
-/-! ## 7. The one link left to `run`, and its mathematical core
+/-! ## 7. From `ReplaceAppendsOnly` to `run`
 
-`ReplaceAppendsOnly` is a statement about `replaceAllNested`.  Getting from it to the four
-`RestoreData` prefix fields needs one more step: `run.loop`'s own write,
+`run.loop`'s own write is
 
 ```
 modify fun s => { s with newTypes := s.newTypes.set! i { indType with ctors } }
 ```
 
-where `indType` was read off an *earlier* `get` and `ctors` comes from a `mapM` whose every
-element is `{ ctor with type := … }`.  Two facts make it skeleton-preserving, and the second is
-proved here:
+with `indType` read off an *earlier* `get` in the same iteration and `ctors` from a `mapM` whose
+every element is `{ ctor with type := … }`.  Three facts make it skeleton-preserving:
 
-1. the `mapM` preserves each constructor's *name* — `MWF.mapM_forall₂` (§1) is the vehicle, with
-   `p ctor ctor' := ctor'.name = ctor.name`;
-2. **overwriting an entry with one of the same name skeleton is a no-op on `nameSkel`** —
-   `nameSkel_set` below.
+1. **overwriting an entry by one with the same name skeleton is a no-op on `nameSkel`** —
+   `nameSkel_set`, and `SkelExt.set`, which also covers `i` past the pinned prefix (there the
+   write cannot touch it at all);
+2. the `mapM` keeps each constructor's *name* — `MWF.mapM_forall₂` at
+   `p c c' := c'.name = c.name`.  Its panic branch would return `default`, whose name is
+   `.anonymous`; this is the one place where `withParams`' `ps.size = n` conclusion is genuinely
+   needed, and it is needed **by the caller**, exactly as the corrected
+   `AddInductiveStep.lean:184-190` now says;
+3. the cross-state step: `indType` comes from `s₀`, and `replaceAllNested` may have appended
+   since.  `SkelExt sk` pins the whole prefix in *every* state, so `SkelExt.getElem` reads the
+   `i`-th skeleton entry off `s₀` and `MWF.frame` carries that pure fact across the `mapM`.
 
-What is *not* done is the bookkeeping between them: `indType` is the entry as of the earlier
-`get`, and `replaceAllNested` may have appended since, so the proof must carry that index `i`
-still holds an entry with `indType`'s name skeleton.  `SkelExt` at the *full* skeleton gives
-exactly that (it pins every entry of the prefix), so this is plumbing rather than content — but
-it is plumbing that is not written, and until it is, **none of the four fields falls out**.
-`RunSkelExtends` is the statement it would establish. -/
+So `RunSkelExtends` closes, and `run_prefix` is the entrywise form the `RestoreData` fields
+consume.  Which of them actually follow is settled in
+`Verify/Inductive/NestedOccData.lean` §8 — field by field, and not all of them do. -/
 
 theorem List.set_eq_self_of_getElem? {α : Type _} : ∀ {l : List α} {i : Nat} {a : α},
     l[i]? = some a → l.set i a = l
@@ -494,12 +496,129 @@ theorem nameSkel_set {l : List InductiveType} {i : Nat} {T : InductiveType}
   rw [nameSkel, List.map_set]
   exact List.set_eq_self_of_getElem? h
 
+/-- …and `SkelExt` survives such a write at *any* index: inside the pinned prefix by
+`nameSkel_set`, past it because the write cannot reach the prefix. -/
+theorem SkelExt.set {sk} {s : State} {i : Nat} {T : InductiveType} (h : SkelExt sk s)
+    (hT : ∀ p, sk[i]? = some p → p = (T.name, T.ctors.map (·.name))) :
+    SkelExt sk { s with newTypes := s.newTypes.set! i T } := by
+  obtain ⟨tail, ht⟩ := h
+  have hL : ({ s with newTypes := s.newTypes.set! i T } : State).newTypes.toList
+      = s.newTypes.toList.set i T := Array.toList_set!
+  rw [SkelExt, hL, nameSkel, List.map_set,
+    show List.map (fun T => (T.name, T.ctors.map (·.name))) s.newTypes.toList
+      = sk ++ tail from ht]
+  by_cases hi : i < sk.length
+  · refine ⟨tail, ?_⟩
+    rw [List.set_append_left _ _ hi]
+    congr 1
+    refine List.set_eq_self_of_getElem? ?_
+    have hp : sk[i]? = some sk[i] := List.getElem?_eq_getElem hi
+    rw [hp, ← hT _ hp]
+  · exact ⟨tail.set (i - sk.length) _, List.set_append_right _ _ (Nat.le_of_not_lt hi)⟩
+
+/-- The `i`-th pinned skeleton entry, read off the array. -/
+theorem SkelExt.getElem {sk} {s : State} {i : Nat} (h : SkelExt sk s)
+    (hi : i < s.newTypes.size) :
+    ∀ p, sk[i]? = some p → p = (s.newTypes[i].name, s.newTypes[i].ctors.map (·.name)) := by
+  obtain ⟨tail, ht⟩ := h
+  intro p hp
+  have hlt : i < sk.length := by
+    rcases Nat.lt_or_ge i sk.length with h | h
+    · exact h
+    · rw [List.getElem?_eq_none h] at hp; exact absurd hp nofun
+  have h1 : (nameSkel s.newTypes.toList)[i]?
+      = some (s.newTypes[i].name, s.newTypes[i].ctors.map (·.name)) := by
+    rw [nameSkel, List.getElem?_map,
+      show s.newTypes.toList[i]? = some s.newTypes[i] from by
+        simp [List.getElem?_eq_getElem (l := s.newTypes.toList)
+          (show i < s.newTypes.toList.length by simpa using hi)]]
+    rfl
+  rw [ht, List.getElem?_append_left hlt, hp] at h1
+  exact Option.some.injEq .. ▸ h1
+
+theorem map_name_of_forall₂ : ∀ {l bs : List Constructor},
+    List.Forall₂ (fun c c' => c'.name = c.name) l bs → bs.map (·.name) = l.map (·.name)
+  | _, _, .nil => rfl
+  | _, _, .cons h hs => by rw [List.map_cons, List.map_cons, h, map_name_of_forall₂ hs]
+
+set_option maxHeartbeats 1000000 in
+/-- **`run.loop` extends the name skeleton and never rewrites it.** -/
+theorem run_loop_skel {sk} (nparams : Nat) (lctx : LocalContext) (params : Array Expr) :
+    ∀ (fuel i : Nat), MWF env (SkelExt sk) (run.loop nparams lctx params i fuel)
+      (fun r s => SkelExt sk s ∧ ∃ tail, nameSkel r.types = sk ++ tail) := by
+  intro fuel
+  induction fuel with
+  | zero => intro i; rw [run.loop]; exact MWF.throw' _
+  | succ fuel ih =>
+    intro i
+    rw [run.loop]
+    refine MWF.bind' MWF.get' fun s0 => ?_
+    split
+    · rename_i hi
+      dsimp only
+      refine MWF.weaken (P := fun s' =>
+        (∀ p, sk[i]? = some p
+            → p = (s0.newTypes[i].name, s0.newTypes[i].ctors.map (·.name))) ∧ SkelExt sk s')
+        ?_ (fun s' h => ⟨SkelExt.getElem (by rw [h.2]; exact h.1) hi, h.1⟩)
+      refine MWF.bind' (MWF.frame (MWF.mapM_forall₂
+        (p := fun c c' => Constructor.name c' = Constructor.name c) (fun ctor => ?_) _))
+        fun ctors => ?_
+      · refine MWF.withParams' (fun _ h => h) nparams (fun lctx' t As hAs => ?_) _
+        rw [hAs]
+        simp only [beq_self_eq_true, if_true]
+        exact MWF.bind' (replaceAppendsOnly env sk lctx' params As t) fun _ =>
+          MWF.pure' fun _ h => ⟨rfl, h⟩
+      · refine MWF.bind' (MWF.modify' (Q := fun _ => SkelExt sk) fun s h => ?_)
+          fun _ => ih (i+1)
+        refine SkelExt.set h.2.2 fun p hp => ?_
+        rw [h.1 p hp, map_name_of_forall₂ h.2.1]
+    · exact MWF.pure' fun s' h => ⟨h.1, by rw [h.2]; exact h.1⟩
+
+theorem run_skel {sk} (fuel np : Nat) (types : List InductiveType) :
+    MWF env (SkelExt sk) (run fuel np types)
+      (fun r s => SkelExt sk s ∧ ∃ tail, nameSkel r.types = sk ++ tail) := by
+  unfold run
+  split
+  · refine MWF.bind' (MWF.modify' (Q := fun _ => SkelExt sk) fun s h => h) fun _ => ?_
+    exact MWF.withParams' (fun _ h => h) np
+      (fun lctx t ps _ => run_loop_skel np lctx ps fuel 0) _
+  · exact MWF.throw' _
+
 /-- The `run`-level conclusion the four prefix fields of `RestoreData` read off: `run` only ever
 *extends* the name skeleton of the block it was handed. -/
 def RunSkelExtends (env : Environment) : Prop :=
   ∀ (fuel np : Nat) (types : List InductiveType) (s : State) (r : Result) (s' : State),
     run fuel np types env s = .ok (r, s') →
       ∃ tail, nameSkel r.types = nameSkel s.newTypes.toList ++ tail
+
+/-- **Proved.** -/
+theorem runSkelExtends (env : Environment) : RunSkelExtends env := fun fuel np types s r s' h =>
+  (run_skel (sk := nameSkel s.newTypes.toList) fuel np types s r s' (SkelExt.rfl' s) h).2
+
+/-- **The entrywise form.**  On the prefix, `run`'s output member has the input member's name and
+its constructors' names, in order. -/
+theorem run_prefix {fuel np : Nat} {types : List InductiveType} {s : State} {r : Result}
+    {s' : State} (hs : s.newTypes.toList = types)
+    (h : run fuel np types env s = .ok (r, s')) :
+    ∀ (j : Nat) (t : InductiveType), r.types[j]? = some t → j < types.length →
+      ∃ u, types[j]? = some u ∧ t.name = u.name ∧
+        t.ctors.map (·.name) = u.ctors.map (·.name) := by
+  obtain ⟨tail, ht⟩ := runSkelExtends env fuel np types s r s' h
+  rw [hs] at ht
+  intro j t hjt hj
+  have h1 : (nameSkel r.types)[j]? = some (t.name, t.ctors.map (·.name)) := by
+    rw [nameSkel, List.getElem?_map, hjt]; rfl
+  rw [ht, List.getElem?_append_left (by rwa [nameSkel, List.length_map])] at h1
+  rw [nameSkel, List.getElem?_map] at h1
+  cases hu : types[j]? with
+  | none => rw [hu] at h1; exact absurd h1 nofun
+  | some u =>
+    rw [hu] at h1
+    have h2 := Option.some.injEq .. ▸ h1
+    refine ⟨u, rfl, ?_, ?_⟩
+    · exact ((Prod.mk.injEq .. ▸ h2).1 : u.name = t.name).symm
+    · exact ((Prod.mk.injEq .. ▸ h2).2 :
+        List.map (·.name) u.ctors = List.map (·.name) t.ctors).symm
 
 end ElimNestedInductive
 end Lean4Lean

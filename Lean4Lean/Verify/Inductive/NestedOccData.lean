@@ -1,4 +1,5 @@
 import Lean4Lean.Verify.Inductive.NestedRestoreWit
+import Lean4Lean.Verify.Inductive.NestedRunInvariant
 
 /-!
 # `OccResidue` reduced to its two semantic clauses
@@ -196,6 +197,8 @@ theorem replacePrefix_replacePrefix : ∀ {n p q : Name}, p.isPrefixOf n = true 
         rw [replacePrefix_replacePrefix h']
 
 end Name
+
+
 
 end Lean4Lean
 
@@ -452,6 +455,7 @@ theorem occResidue (hd : r.OccData types occ) (h : r.RestoreData types D K as)
 end OccData
 end ElimNestedInductive.Result
 
+
 /-! ## 7. The nested step, from `RestoreData ∧ OccData ∧ SemResidue` -/
 
 namespace ElimNestedInductive.Result
@@ -685,6 +689,274 @@ theorem pfnOccBadTy_not_occurs {env₂ : VEnv} (h : VEnv.empty.addInduct' pfnDec
     VExpr.forallE.injEq, VExpr.sort.injEq] at h2
   exact absurd h2.2 (by simp)
 
+/-! ### 6.4 `member` is not slack even given `occurs` — and the freedom is on the `D` side
+
+Row 75c asked whether `member` is slack once `occurs` is added, and expected the question to turn
+on whether `VInductDecl'.Declared` pins `(occ j).src.indices`.  It does not turn on that, and the
+answer is **no, `member` is not slack** — for a different and more structural reason.
+
+`occurs` constrains `occ`; it says nothing about `D`.  And **nothing else in the chain constrains
+`D`'s companion members either**: `TrIndDeclN.trType` and `trCtors` are quantified over
+`types[j]? = some t`, which is `none` past the cut (§8), so the companion members of `D` are
+pinned by `Built.member` and by *nothing else anywhere*.  `nfnAuxBadTy` is that freedom used: the
+companion member of the **new** block is given type `Prop`, `occ` is left completely alone, and
+
+* all fourteen `RestoreData` fields still hold (`nfnResult_restoreData_badD` — the four that
+  mention `D` see only names, which are unchanged);
+* all six `OccData` fields still hold — `OccData` does not mention `D` at all, so
+  `nfnResult_occData` applies verbatim;
+* `hl` and `ha` still hold — they read `D` only through `T.name ∈ K`;
+* **`occurs` still holds** — it is `pfnOcc_occurs`, untouched;
+* `member` is **false**.
+
+So the residue is genuinely two clauses, and `member` is the one that pins `D`'s companions.  For
+the record on the `Declared` half of row 75c: `VEnv.LE.constants` is *exact* equality of the
+`VConstant` (`Theory/VEnv.lean:36`), and `addInduct'` runs `addIndRecs`, so `Declared D env` does
+pin `D.recType j` exactly, and `recType` mentions `T.indices` syntactically (`Decl.lean:545-551`,
+through `atRecTele T.indices` and `bvars 0 ni`).  `Decl.lean:694`'s "unrecoverable" is about
+recovering a field from a `Lean.Declaration`, **not** about being pinned by `Declared` against an
+environment — I conflated the two in row 75c.  So `indices` is pinned up to injectivity of
+`recType` in that field; that injectivity is not proved and is now not needed for this question. -/
+
+/-- `nfnAux` with the **companion** member's stored type perturbed by one universe.  Only `D`
+changes; `occ` is `pfnOcc` throughout. -/
+def nfnAuxBadTy : VInductDecl' :=
+  { nfnAux with types :=
+      [{ name := ``NFn, type := .sort (.succ .zero), indices := [], ctors := [nfnNode] },
+       { name := `_nested.PFn_1, type := .sort .zero, indices := [], ctors := [pfnAuxMk] }] }
+
+example : nfnAuxBadTy.types.map (·.name) = nfnAux.types.map (·.name) := rfl
+example : nfnAuxBadTy.uvars = nfnAux.uvars := rfl
+example : nfnAuxBadTy.np = nfnAux.np := rfl
+
+theorem nfnResult_restoreData_badD :
+    nfnResult.RestoreData [nfnIndType] nfnAuxBadTy nfnK nfnAs where
+  len := rfl
+  name := by
+    rintro (_ | _ | j) T hT t ht <;> simp only [nfnAuxBadTy, nfnAux, nfnResult] at hT ht ⊢ <;>
+      first | (cases hT; cases ht; rfl) | simp at hT
+  ctor := by
+    rintro (_ | _ | j) T hT t ht C hC <;> simp only [nfnAuxBadTy, nfnAux, nfnResult] at hT ht ⊢ <;>
+      first
+        | (cases hT; cases ht; simp only [List.mem_cons, List.not_mem_nil, or_false] at hC;
+           subst hC; exact ⟨_, List.mem_cons_self, rfl⟩)
+        | simp at hT
+  companions := by
+    rintro (_ | _ | j) T hT <;> simp only [nfnAuxBadTy, nfnAux] at hT <;> [skip; skip; simp at hT] <;>
+      cases hT <;> simp [nfnK]
+  auxName := by
+    rintro (_ | _ | j) t ht hle
+    · exact absurd hle (by simp)
+    · simp only [nfnResult] at ht; cases ht; decide
+    · simp [nfnResult] at ht
+  auxCtorName := by
+    rintro (_ | _ | j) t ht hle c hc
+    · exact absurd hle (by simp)
+    · simp only [nfnResult] at ht; cases ht
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at hc
+      subst hc; decide
+    · simp [nfnResult] at ht
+  auxCtorPrefix := by
+    rintro (_ | _ | j) t ht hle c hc
+    · exact absurd hle (by simp)
+    · simp only [nfnResult] at ht; cases ht
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at hc
+      subst hc; decide
+    · simp [nfnResult] at ht
+  auxNodup := by decide
+  ownName := by
+    rintro (_ | _ | j) t ht hlt
+    · simp only [nfnResult] at ht; cases ht; decide
+    · exact absurd hlt (by simp)
+    · exact absurd hlt (by simp)
+  ownCtor := by
+    rintro (_ | _ | j) t ht hlt c hc
+    · simp only [nfnResult] at ht; cases ht
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at hc
+      subst hc; decide
+    · exact absurd hlt (by simp)
+    · exact absurd hlt (by simp)
+  head := by
+    rintro (_ | _ | j) t ht hle
+    · exact absurd hle (by simp)
+    · simp only [nfnResult] at ht; cases ht; decide
+    · simp [nfnResult] at ht
+  headNe := by
+    rintro (_ | _ | j) t ht hle
+    · exact absurd hle (by simp)
+    · simp only [nfnResult] at ht; cases ht; decide
+    · simp [nfnResult] at ht
+  auxRec := nfn_auxRec
+  args := by
+    intro j a ha
+    simp only [nfnAs] at ha
+    split at ha
+    · simp only [List.mem_cons, List.not_mem_nil, or_false] at ha; subst ha; decide
+    · simp at ha
+
+/-- The `occurs` clause holds at the perturbed `D`: it does not mention `D` except through the
+guard, and `occ` is unchanged. -/
+theorem occurs_badD {env₂ : VEnv} (h : VEnv.empty.addInduct' pfnDecl = some env₂) :
+    ∀ (j : Nat) (T : VIndType), nfnAuxBadTy.types[j]? = some T → T.name ∈ nfnK →
+      pfnOcc.Occurs env₂ := fun _ _ _ _ => pfnOcc_occurs h
+
+/-- The construction's companion member, at the perturbed header.  Its `type` does not depend on
+`H.names`, so the perturbation cannot reach it. -/
+theorem pfnOcc_member_badD_type :
+    (pfnOcc.member nfnAuxBadTy.header nfnRestore').type = .sort (.succ .zero) := rfl
+
+/-- **`member` is false**, with `occurs` satisfied. -/
+theorem semResidue_not_member_badD {env : VEnv} :
+    ¬ Result.SemResidue [nfnIndType] nfnAuxBadTy nfnK env nfnRestore' (fun _ => pfnOcc) := by
+  intro hs
+  have hm := hs.member 1 _ rfl (by decide)
+  have h2 := congrArg VIndType.type hm
+  rw [pfnOcc_member_badD_type] at h2
+  exact absurd h2 (by simp)
+
+/-- …hence `Built` is false there too, at `member`. -/
+theorem nfnAuxBadTy_not_built {env : VEnv} :
+    ¬ nfnAuxBadTy.Built nfnRestore' nfnK env (fun _ => pfnOcc) := fun hb =>
+  semResidue_not_member_badD ⟨hb.member, hb.occurs⟩
+
 end NestedWit
+
+/-! ## 8. `RestoreData` at `run`'s monadic output, field by field
+
+`Verify/Inductive/NestedRunInvariant.lean` §7 closes `RunSkelExtends` and gives `run_prefix`: on
+the prefix `j < types.length`, `run`'s output member carries the *input* member's name and its
+constructors' names, in order.  Here is what each of the four fields I previously claimed as a
+bundle actually does with that.
+
+**A correction to my own claim.**  Last round I wrote that `name`, `ctor`, `ownName` and
+`ownCtor` "follow from a single statement about `replaceIfNested`".  That was a bundle claim and
+it was wrong twice over: `name` and `ctor` are not `r`-side facts at all — they compare `r.types`
+to `D.types`, so they need the *translation* (`TrIndDeclN`) as well — and even with it only their
+prefix halves follow.  The truth, field by field:
+
+| field | status |
+| --- | --- |
+| `ownName` | **falls** — `ownName_of_run`, reduced to a hypothesis on the checker's *input* |
+| `ownCtor` | **falls** — `ownCtor_of_run`, likewise |
+| `name` | **prefix half falls** (`name_prefix_of_run`); tail half declined |
+| `ctor` | **declined**, and not for want of plumbing — see below |
+
+`ownName`/`ownCtor` do not become *provable*: they become statements about `types`, which is what
+`Environment.addInductive`'s caller hands in, and there they are the unchecked name-discipline
+fact `NestedRestore.lean` §8.2 measures (ledger row 58).  That is still progress: the obligation
+moves off the checker's *output* — which no caller can inspect — onto its *input*, which the
+caller supplies and could in principle check.
+
+**Why the tail halves do not follow.**  `RunSkelExtends` pins only the prefix; it says nothing
+about `r.types`' auxiliary tail, by design (`replaceIfNested` *creates* that tail).  And
+`TrIndDeclN` has **no** `trType`/`trCtors` clause for `j ≥ types.length`: `trType` is quantified
+over `types[j]? = some t`, which is `none` past the cut.  So nothing currently relates
+`r.types[j].name` to `D.types[j].name` on the companions — that is `RestoreData.auxName`'s
+territory and it needs `mkUniqueName`'s output, not the skeleton.
+
+**Why `ctor` is declined.**  Its prefix half needs `∃ c ∈ t.ctors, c.name = C.name`, and
+`TrIndDeclN.trCtors` gives `c.name = R.ctorName C.name` — the *restored* name.  Closing the gap
+needs `R.ctorName C.name = C.name` on a user member, which is `VIndRestore.OwnId.ctorName`; and
+in the bundle `mkRestore_ownId`'s `ctorName` clause is proved **from `RestoreData.ctor`**
+(`NestedRestore.lean:617-622`).  So deriving `ctor` from `OwnId` here would be circular.
+
+The escape route is visible and not taken: `mkRestore.ctorName` misses whenever its argument is
+outside the barrier (`ctorRenames_dom` + `List.lookup_eq_none_of_forall`), so
+`¬ IsNestedName C.name` for a constructor of a user member would give `R.ctorName C.name = C.name`
+outright.  But `C.name` is a `D`-side name and nothing in `TrIndDeclN` or `RunSkelExtends` bounds
+it; the fact that would is exactly `mkUniqueName`'s freshness against the *input* block, which is
+`auxNodup`/`auxName` territory.  So `ctor` is not slack-in-the-plumbing: it is a genuinely
+separate obligation, and I am naming it rather than smuggling it in. -/
+
+namespace ElimNestedInductive.Result
+
+variable {fuel np : Nat} {types : List Lean.InductiveType} {s : ElimNestedInductive.State}
+  {r : Result} {s' : ElimNestedInductive.State} {cenv : Environment}
+
+/-- **`RestoreData.ownName` at `run`'s monadic output**, reduced to the same fact about the
+checker's *input* block. -/
+theorem ownName_of_run (hs : s.newTypes.toList = types)
+    (h : ElimNestedInductive.run fuel np types cenv s = .ok (r, s'))
+    (hin : ∀ u ∈ types, ¬ IsNestedName u.name) :
+    ∀ (j : Nat) t, r.types[j]? = some t → j < types.length → ¬ IsNestedName t.name := by
+  intro j t hjt hj
+  obtain ⟨u, hu, hn, -⟩ := ElimNestedInductive.run_prefix hs h j t hjt hj
+  rw [hn]
+  exact hin u (List.mem_iff_getElem?.2 ⟨j, hu⟩)
+
+/-- **`RestoreData.ownCtor` at `run`'s monadic output**, likewise. -/
+theorem ownCtor_of_run (hs : s.newTypes.toList = types)
+    (h : ElimNestedInductive.run fuel np types cenv s = .ok (r, s'))
+    (hin : ∀ u ∈ types, ∀ c ∈ u.ctors, ¬ IsNestedName c.name) :
+    ∀ (j : Nat) t, r.types[j]? = some t → j < types.length →
+      ∀ c ∈ t.ctors, ¬ IsNestedName c.name := by
+  intro j t hjt hj c hc
+  obtain ⟨u, hu, -, hcs⟩ := ElimNestedInductive.run_prefix hs h j t hjt hj
+  have hmem : c.name ∈ u.ctors.map (·.name) := by
+    rw [← hcs]; exact List.mem_map.2 ⟨c, hc, rfl⟩
+  obtain ⟨c', hc', hn⟩ := List.mem_map.1 hmem
+  rw [← hn]
+  exact hin u (List.mem_iff_getElem?.2 ⟨j, hu⟩) c' hc'
+
+/-- **`RestoreData.name` at `run`'s monadic output, on the prefix.**  `run_prefix` moves the
+question from `r.types` to `types`, and `TrIndDeclN.trType` answers it there. -/
+theorem name_prefix_of_run {venv : VEnv} {Us : List Lean.Name} {npar nn : Nat} {iu : Bool}
+    {D : VInductDecl'} {K : List Lean.Name} {R : VIndRestore}
+    (htr : TrIndDeclN venv Us npar types iu nn D K R)
+    (hs : s.newTypes.toList = types)
+    (h : ElimNestedInductive.run fuel np types cenv s = .ok (r, s')) :
+    ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → ∀ t, r.types[j]? = some t →
+      j < types.length → t.name = T.name := by
+  intro j T hT t hjt hj
+  obtain ⟨u, hu, hn, -⟩ := ElimNestedInductive.run_prefix hs h j t hjt hj
+  rw [hn]
+  exact (htr.trType j u T hu hT).1
+
+end ElimNestedInductive.Result
+
+
+/-! ## 9. `member`'s three commutation lemmas: status
+
+Last round I named three commutations as what `member` needs, one level below it, and said they
+needed proving.  **One of the three is already proved in the tree** — a correction to that claim:
+
+* **(A) `instantiateLevelParamsNoCache` vs `instL`.**  `Lean4Lean.TrExprS.instL`
+  (`Verify/Typing/Lemmas.lean:2465`):
+  ```
+  env.WF → VLCtx.WF env ls'.length Δ → List.mapM (VLevel.ofLevel Us) ls = some ls' →
+    ps.length = ls.length → TrExprS env ps Δ e e' →
+    TrExpr env Us (Δ.instL ls') (e.instantiateLevelParamsNoCache ps ls) (VExpr.instL ls' e')
+  ```
+  It is stated over `instantiateLevelParamsNoCache` — core's pure function, the one PR #42
+  re-pointed six checker sites to — and mentions neither `Expr.replace` nor the cached
+  `instantiateLevelParams`.  Its side conditions are the level list translating
+  (`mapM (VLevel.ofLevel Us) ls = some ls'`) and the arity match `ps.length = ls.length`, and
+  `replaceIfNested` supplies both: `I_lvls` comes from a well-formed constant application
+  `I.{I_lvls}` and `J_info.levelParams.length = I_lvls.length` is the `numLevelParams` check.
+  **One caveat**: it lands in `TrExpr` (∃ up to `IsDefEqU`), not `TrExprS`.  `Built.member` is a
+  *syntactic* equality of `VIndType`s, so the `TrExpr`/`TrExprS` gap is real content, not
+  bookkeeping — it is where `IsDefEqU` would have to be discharged or the statement of `member`
+  routed through `TrExpr`.
+
+* **(B) `instantiateForallParams` vs `splitPis`/`instAll`.**  Not proved.  What is needed:
+  `ElimNestedInductive.instantiateForallParams e n ps = .ok body` peels `n` `forallE` nodes off
+  `e` and then applies `instantiateRevRange 0 n ps`; the `VExpr` side is
+  `VExpr.instAll (splitPis n E).2 Args`.  So this is an `n`-fold `TrExprS` substitution lemma
+  composed with a `forallE`-peeling lemma, and it will carry two side conditions — `ps.size = n`
+  and each `ps[i]` translating to `Args[i]` — both of which `replaceIfNested` supplies
+  (`assert! I_nparams ≤ args.size`, discharged by `isNestedInductiveApp?`, plus the
+  already-checked translation of the occurrence's spine).  It also needs
+  `Expr.instantiateRevRange_eq`, one of the 24 frozen axioms, which is how every other
+  `instantiateRev` fact in `Verify/` is stated.
+
+* **(C) `LocalContext.mkForall` vs `mkPi`.**  Not proved.  `Verify/LocalContext.lean` has the pure
+  half (`mkBinding_eq`, `mkBindingList1_abstract`, `mkBindingList_eq_fold`), whose side conditions
+  are `b.looseBVarRange' = 0` and `xs.Nodup` — supplied by `withParams`, which allocates each
+  parameter with a fresh `mkFreshId`.  What is missing is the `TrExprS` half: that abstracting the
+  `As` fvars in declaration order corresponds to `mkPi H.params`.
+
+**Neither (B) nor (C) becomes an `OccData` field.**  Both are proof machinery with side conditions
+the call site supplies, exactly as they should be, and the conclusion of §5 stands unrevised:
+`member` needs no new field and no new premise. -/
 
 end Lean4Lean

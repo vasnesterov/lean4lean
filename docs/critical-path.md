@@ -172,6 +172,17 @@ three for reasons that must not be misread as slack:
    confluence would have to supply is now stated tightly as `PiMidNonPi` (row 77c), bounded above
    by the statement it is asked to supply.
 
+   **Amended once more, and this is the load-bearing one.**  The two halves of `ConvStep2` are
+   **not independent**: the Π side's `proofIrrel` case costs `SortNotPropStrong`, which follows
+   from `ConvSortInv` (`sortNotPropStrong_of_convSortInv`), and
+   `BaseUniqChain.sortUniq_iff_convSortInv` makes `ConvSortInv` the *same* hypothesis as
+   `SortUniq` — the corner's own sort residual.  So **the Π half consumes the sort half**, and any
+   plan that treats them as two fronts to be attacked separately is wrong.  Ledger row 82.
+   Relatedly, `WF.noPiLhs` was already in the tree as `DeclRules.WF.instL_lhs_ne_forallE`, so of
+   the `VEnv.WF` work only `not_wf_roguePiEnv` is original (row 82a), and the `extra` case — the
+   one thing well-formedness buys — **was never the residual on either side**.  Localisation has
+   now collapsed four times, on both halves.
+
 ## Honest statement of where this leaves the main theorem
 
 `kernel_sound` is *not* closer to proved than the census suggested. What changed is that the

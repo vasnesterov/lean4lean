@@ -1576,4 +1576,217 @@ theorem instAllTele_bvars_lift : ∀ {As : List VExpr} {n j m : Nat}, ClosedTele
 end VExpr
 
 
+/-! ## §T13 §T12.1's two side conditions, both closed
+
+### 1. Closedness: the asymmetry **does** hold, so the typed route does not fail here
+
+The answer to the question posed: `ClosedN D.np` of `R.tyArgs` suffices and `ClosedN 0` is never
+needed, exactly as for the head defeqs.  `VIndRecArg.canonTypeR_closedN` is where it happens.
+`canonType` and `canonTypeR` are both `mkPi r.binders (…)` differing only in the head —
+`D.tyApp r.idx k r.args` versus `D.tyAppR R r.idx k r.args` — and the two heads' spines are
+`bvars k D.np ++ r.args` and `(R.tyArgs r.idx).map (·.liftN k) ++ r.args`.  The `r.args` half is
+shared; the other half needs each `a ∈ R.tyArgs r.idx` to satisfy
+`(a.liftN k).ClosedN (D.np + i + r.binders.length)`, and `ClosedN.liftN` turns
+`a.ClosedN D.np` into exactly that, `k` being `r.binders.length + i`.  So this is the same
+`ClosedN D.np`-versus-`ClosedN 0` split as `ntree_tyArgs_closedN_np` versus
+`ntree_not_tyArgs_closed0` (`NestedRules.lean:1116`, `:1105`), one construction over — **not**
+the first place the typed route fails.
+
+`VIndCtor.fieldTypesR_closedTele` assembles it over the `zipIdx`, with the non-recursive entries
+free (`F.typeR = F.type`, so the source `ClosedTele` serves) and the recursive ones by the lemma
+above under `Canonical`.  The source closedness it consumes is already in the tree:
+`VIndCtor.WF.tele_closed` (`Theory/Inductive/Lemmas.lean:1724`) split by `closedTele_append`.
+
+### 2. `substC`-invariance: my previous characterisation of this was **wrong**, and the repair is a
+    better route
+
+Last round I wrote that this is "the `NoCSubst` argument §T10 already ran for `D.params`, one
+telescope over".  **That is false.**  `OnCtx.substC_eq` runs off `WF.params`, i.e. off a context
+typed in `env`; `C.fieldTypesR D R` is *not* such a context, and worse, its **non-recursive**
+entries are literally `F.type` — which `Theory/Inductive/Restore.lean`'s own docstring says is
+only *definitionally* block-free, so a companion constant can sit under a redex inside one.  On
+that route `substC` is **not** the identity on this telescope.
+
+The conclusion survives, by a different and sharper argument: the telescope is σ-free because it
+is a fragment of a **declared constant's type**.  `Faithful.ctor_agree` hands over
+`env.constants (R.ctorName C.name) = some ci`; `VEnv.Ordered.noCSubstC` with
+`VIndRestore.csubst_freshIn` gives `ci.type.NoCSubst σ`; and `NoCSubst` survives every step
+between there and the field telescope — `instL` and `inst` already
+(`Theory/Typing/ConstSubst.lean:309`, `:313`), and `splitPis`, `instAll`, `mkPi` are added here
+(`VExpr.NoCSubst.splitPis` / `.instAll` / `.mkPi_tele`, three routine structural inductions).
+§T10's `instAt_ctor_body_eq` is what lands the result on `C.fieldTypesR D R` specifically.
+`VIndRestore.atRecTele_fieldTypesR_substC_eq` is the conclusion.
+
+So the fact is true and the *reason* I gave was wrong.  Recording it here rather than quietly
+substituting the better proof: the wrong reason would have sent the next reader to
+`WF.params`, where nothing about `fieldTypesR` can be proved.
+
+### 3. Not reached: the closure statement, and therefore not row 11a either
+
+Both side conditions are closed, so `hAs` is no longer standing on anything unproved.  The
+closure theorems for `recConstsR_wf_of_substC'` and `iotaRulesRS_wf_of_substC'` are **still not
+stated**, and consequently **row 11a's joint-satisfiability test has still not been run**.  I am
+not claiming (B)/(C) lift off `np = 0`: what is now true is that every *identified* residual
+except `hargs` is discharged, which is a different and weaker statement, and the last two times
+that distinction was blurred in this corner it produced a retraction.
+
+The row-75d warning is noted and not yet hit: nothing in §T13 needs `(occ j).src.indices` pinned.
+It becomes live only at the joint-satisfiability witness, where the two `hargs` instances have to
+be produced at one block with one `D`, `R`, `σ`. -/
+
+namespace VExpr
+variable {σ : CSubst}
+
+/-- `NoCSubst` survives `splitPis`. -/
+theorem NoCSubst.splitPis : ∀ {n : Nat} {e : VExpr}, e.NoCSubst σ →
+    (∀ A ∈ (VExpr.splitPis n e).1, A.NoCSubst σ) ∧ (VExpr.splitPis n e).2.NoCSubst σ
+  | 0, _, h => ⟨nofun, h⟩
+  | n+1, .forallE A B, h => by
+    obtain ⟨h1, h2⟩ := NoCSubst.splitPis (n := n) (e := B) h.2
+    refine ⟨?_, h2⟩
+    intro X hX
+    rw [VExpr.splitPis] at hX
+    simp only [List.mem_cons] at hX
+    rcases hX with rfl | hX
+    · exact h.1
+    · exact h1 X hX
+  | _+1, .bvar _, h | _+1, .sort _, h | _+1, .const .., h
+  | _+1, .app .., h | _+1, .lam .., h => ⟨nofun, h⟩
+
+/-- …and `instAll`, given the spine is σ-free. -/
+theorem NoCSubst.instAll : ∀ {as : List VExpr} {e : VExpr} {k : Nat}, e.NoCSubst σ →
+    (∀ a ∈ as, a.NoCSubst σ) → (VExpr.instAll e as k).NoCSubst σ
+  | [], _, _, h, _ => h
+  | a :: as, e, k, h, ha => by
+    rw [VExpr.instAll_cons]
+    exact NoCSubst.instAll (as := as) (h.inst (ha a (List.mem_cons_self ..)))
+      (fun b hb => ha b (List.mem_cons_of_mem _ hb))
+
+/-- …and it splits back off a `mkPi`. -/
+theorem NoCSubst.mkPi_tele : ∀ {As : List VExpr} {B : VExpr}, (mkPi As B).NoCSubst σ →
+    (∀ A ∈ As, A.NoCSubst σ) ∧ B.NoCSubst σ
+  | [], _, h => ⟨nofun, h⟩
+  | A :: As, B, h => by
+    rw [VExpr.mkPi_cons] at h
+    obtain ⟨h1, h2⟩ := NoCSubst.mkPi_tele (As := As) h.2
+    exact ⟨fun X hX => by
+      rcases List.mem_cons.1 hX with rfl | hX
+      · exact h.1
+      · exact h1 X hX, h2⟩
+
+end VExpr
+
+namespace VIndRecArg
+section
+variable {D : VInductDecl'} {R : VIndRestore} {r : VIndRecArg} {i : Nat}
+
+/-- **The restored recursive-field type is closed at `D.np + i` whenever the source one is** —
+needing only `ClosedN D.np` of the presented spine, never `ClosedN 0`. -/
+theorem canonTypeR_closedN (hcl : ∀ a ∈ R.tyArgs r.idx, a.ClosedN D.np)
+    (h : (r.canonType D i).ClosedN (D.np + i)) :
+    (r.canonTypeR D R i).ClosedN (D.np + i) := by
+  rw [VIndRecArg.canonType, VIndRecArg.canonResult, VExpr.closedN_mkPi,
+    VInductDecl'.tyApp, VExpr.closedN_mkApp] at h
+  obtain ⟨hb, -, hargs⟩ := h
+  rw [VIndRecArg.canonTypeR, VIndRecArg.canonResultR, VExpr.closedN_mkPi,
+    VInductDecl'.tyAppR, VInductDecl'.tyAppH, VExpr.closedN_mkApp]
+  refine ⟨hb, trivial, ?_⟩
+  intro e he
+  rcases List.mem_append.1 he with he | he
+  · obtain ⟨a, ha, rfl⟩ := List.mem_map.1 he
+    have := (hcl a ha).liftN (n := r.binders.length + i) (j := 0)
+    rw [show D.np + (r.binders.length + i) = D.np + i + r.binders.length from by omega] at this
+    exact this
+  · exact hargs e (List.mem_append_right _ he)
+
+end
+end VIndRecArg
+
+namespace VIndCtor
+section
+variable {D : VInductDecl'} {R : VIndRestore} {C : VIndCtor}
+
+/-- **§T12.1's side condition 1.** -/
+theorem fieldTypesR_closedTele (hcl : ∀ j, ∀ a ∈ R.tyArgs j, a.ClosedN D.np)
+    (hcanon : C.Canonical D) (hsrc : VExpr.ClosedTele (C.fields.map (·.type)) D.np) :
+    VExpr.ClosedTele (C.fieldTypesR D R) D.np := by
+  have key : ∀ (Fs : List VIndField) (o : Nat),
+      (∀ (k : Nat) (F : VIndField) (r : VIndRecArg), Fs[k]? = some F → F.recArg = some r →
+        F.type = r.canonType D (o + k)) →
+      VExpr.ClosedTele (Fs.map (·.type)) (D.np + o) →
+      VExpr.ClosedTele ((Fs.zipIdx o).map fun p => p.1.typeR D R p.2) (D.np + o) := by
+    intro Fs
+    induction Fs with
+    | nil => intro _ _ _; simp
+    | cons F Fs ih =>
+      intro o hs hcl0
+      rw [List.zipIdx_cons, List.map_cons, VExpr.closedTele_cons]
+      rw [List.map_cons, VExpr.closedTele_cons] at hcl0
+      refine ⟨?_, ?_⟩
+      · cases hr : F.recArg with
+        | none => rw [show F.typeR D R o = F.type from by rw [VIndField.typeR, hr]]; exact hcl0.1
+        | some r =>
+          rw [show F.typeR D R o = r.canonTypeR D R o from by rw [VIndField.typeR, hr]]
+          refine VIndRecArg.canonTypeR_closedN (hcl r.idx) ?_
+          rw [← show F.type = r.canonType D o from by
+            have := hs 0 F r rfl hr; simpa using this]
+          exact hcl0.1
+      · have := ih (o+1) (fun k F' r hF' hr => by
+          rw [show o + 1 + k = o + (k+1) from by omega]
+          exact hs (k+1) F' r (by simpa using hF') hr)
+          (by rw [show D.np + (o+1) = D.np + o + 1 from by omega]; exact hcl0.2)
+        rwa [show D.np + (o+1) = D.np + o + 1 from by omega] at this
+  have h := key C.fields 0 (fun k F r hF hr => by simpa using hcanon k F r hF hr)
+    (by simpa using hsrc)
+  rw [VIndCtor.fieldTypesR]
+  simpa using h
+
+/-- …at the recursor's level numbering, which is the form `instAllTele_bvars_lift` consumes. -/
+theorem atRecTele_fieldTypesR_closedTele (hcl : ∀ j, ∀ a ∈ R.tyArgs j, a.ClosedN D.np)
+    (hcanon : C.Canonical D) (hsrc : VExpr.ClosedTele (C.fields.map (·.type)) D.np) :
+    VExpr.ClosedTele (D.atRecTele (C.fieldTypesR D R)) D.np :=
+  VExpr.ClosedTele.map_instL (fieldTypesR_closedTele hcl hcanon hsrc)
+
+end
+end VIndCtor
+
+namespace VIndRestore
+section
+open VExpr (mkPi)
+variable {env : VEnv} {R : VIndRestore} {D : VInductDecl'} {C : VIndCtor} {σ : CSubst}
+variable {npJ j : Nat}
+
+/-- **§T12.1's side condition 2, by the route that actually works.**  The restored field
+telescope is σ-free because it is a fragment of a *declared constant's* type — not because it is
+a well-formed context, which it is not. -/
+theorem fieldTypesR_noCSubst {ci : VConstant}
+    (henv : env.Ordered) (hfresh : σ.FreshIn env)
+    (hci : env.constants (R.ctorName C.name) = some ci)
+    (hargsF : ∀ a ∈ R.tyArgs j, a.NoCSubst σ)
+    (hlen : D.params.length = C.params.length)
+    (hagree : R.instAt D npJ j ci.type = C.typeR D R j) :
+    ∀ A ∈ C.fieldTypesR D R, A.NoCSubst σ := by
+  have h0 : ci.type.NoCSubst σ := henv.noCSubstC hfresh hci
+  have h2 := (((h0.instL (ls := R.tyLvls j)).splitPis (n := npJ)).2).instAll (k := 0) hargsF
+  rw [(instAt_ctor_body_eq hlen hagree).2] at h2
+  exact h2.mkPi_tele.1
+
+/-- …so `substC` is the identity on it, which is what identifies `hfld`'s right endpoint with
+the `As` §T10's `hpi` delivers. -/
+theorem atRecTele_fieldTypesR_substC_eq {ci : VConstant}
+    (henv : env.Ordered) (hfresh : σ.FreshIn env)
+    (hci : env.constants (R.ctorName C.name) = some ci)
+    (hargsF : ∀ a ∈ R.tyArgs j, a.NoCSubst σ)
+    (hlen : D.params.length = C.params.length)
+    (hagree : R.instAt D npJ j ci.type = C.typeR D R j) :
+    (D.atRecTele (C.fieldTypesR D R)).map (VExpr.substC · σ)
+      = D.atRecTele (C.fieldTypesR D R) := by
+  have h := fieldTypesR_noCSubst henv hfresh hci hargsF hlen hagree
+  rw [VInductDecl'.atRecTele, List.map_map]
+  exact List.map_congr_left fun A hA => ((h A hA).instL).substC_eq
+
+end
+end VIndRestore
+
+
 end Lean4Lean

@@ -251,6 +251,54 @@ case) and `PiLinkInvDom` (needed only to *apply* `ConvC.defeqDFC`).
 **Not claimed:** that those three plus `VEnv.WF` close `PiLinkInvCod`.  That induction is not
 done, and no theorem here depends on it.
 
+## Round 4 (2026-09-01): `SortNotPropStrong` costs the sort half; `WF.noPiLhs` was a duplicate
+
+**Correction 3 (§18).**  `DeclRules.WF.instL_lhs_ne_forallE` (`Theory/Typing/DeclRules.lean:239`)
+is Round 2's §10 statement character for character, and `WF.instL_lhs_ne_sort` (`:234`) is its sort
+analogue; both come from `WF.defeq_isDeclRule`/`IsDeclRule.lhs_shape`.  **§10 re-proved an existing
+theorem** (independently, through `PatternRules.RuleShape`).  `noPiLhs_of_declRules` records the
+identification.  The only original content of Round 2 is §8, `not_wf_roguePiEnv`.
+
+**Question 1 — is `SortNotPropStrong` free at `VEnv.WF`?  No, and the reason is sharp (§19).**
+`sortNotPropStrong_of_convSortInv`: peel the `true`-level typing `Γ ⊢ .sort u : .sort .zero` with
+`HasTypeStrong.peelChain`; the base rule can only be `sort'`, which pins the base type to
+`.sort (.succ l')`, leaving `ConvC Γ (.sort (.succ l')) (.sort .zero)`; `ConvSortInv` turns that
+into `.succ l' ≈ .zero`, refuted by `VLevel.eval` (`succ_not_equiv_zero`).  So
+
+> **the `proofIrrel` case of the Π side costs the sort side.**
+
+`sortUniq_iff_convSortInv` (`BaseUniqChain.lean`) makes `ConvSortInv` and `SortUniq` the same
+hypothesis, and `InjChainLower.sortChainAt_bvar_iff_convSortInv` makes it the corner's sort
+residual at `.bvar 0`.  `WF.instL_lhs_ne_sort` is exactly the right lemma and it does close the
+`extra` route (`WF.sortSort_extra_closed`) — but the `extra` route was never the residual, on
+either side.  So the two halves of `ConvStep2` are **not independent**: the Π half's `proofIrrel`
+case consumes the sort half.
+
+**Question 2 — refutable at a `VEnv.WF` environment?  No witness found, and the rule routes are
+closed.**  Refuting `SortNotPropStrong` needs `ConvC Γ (.sort (.succ l')) (.sort .zero)`.  A link
+between two syntactic sorts can come from `sortDF` (which forces the levels equivalent —
+`succ_not_equiv_zero` kills it), from `extra` (closed by §18), or from `symm`/`trans`/`defeqDF`
+(the wall).  Two δ-rules identifying `Sort 1` with `Prop` through a common constant are refused by
+`WF.defEqHeadsUnique` (§8); two *different* constants give no link between their values.  So the
+search has nowhere to go for the same orthogonality reason as Round 2's, and no claim of
+unrefutability is made.
+
+**Four for four (§20).**  The sort side localises no better than the Π side, for the identical
+reason: `sortMid_iff_sortLinkInv` is a free equivalence in both directions
+(`IsDefEqStrong.trans` is a rule), and `convSortInv_of_convStep2_sortLinkInv` prices the chain
+form against the link form at exactly `ConvStep2`, mirroring §14/§16.  So the standing "test a
+localisation against its own target first" rule holds on both halves.
+
+**`PiLinkInvDom`, priced (§21).**  It **is** row 53's dead conjunct in single-link guise as an
+*output* — `ConvPiInv.piLinkInvDom` is `.1` of the chain form and every consumer takes `.2`.
+Neither half implies the other and nothing makes it strictly weaker than `PiLinkInvCod`; they are
+two projections of one statement.  Where it is not dead is as an **input** to §17's induction, and
+that is flagged in §21 as a remark rather than a hinge, because the induction is not written:
+strengthening the conclusion to both contexts at once (the `Injectivity.RigidPiUniq` shape) does
+not remove the need to move `B'' ⇝ B'` from `A''::Γ` into `A::Γ`.
+
+**No dependency taken on the confluence layer.**  `PiMidNonPi` stays a request (§17), unchanged.
+
 ## Axioms and cone
 
 `#print axioms` block at the end: every declaration is `sorryAx`-free; `Classical.choice` appears
@@ -711,9 +759,11 @@ is derivable — and refuting *that* is a sort/sort inversion, not arithmetic.  
 through `forallE_not_proof`, whose hypothesis is `VEnv.SortUniq`, supplied there by the hole
 `WF.sortUniq'`.
 
-What the case actually costs is named below, and it is **strictly weaker** than `SortUniq`: a
-single closed level fact plus one sort/sort inversion, with no subject and no context quantifier
-beyond `Γ`. -/
+What the case actually costs is named below.  **Amended in Round 4 (§19):** the sharp upper bound
+is `ConvSortInv`, not `SortUniq` — and `BaseUniqChain.sortUniq_iff_convSortInv` makes those the
+same hypothesis, so "strictly weaker than `SortUniq`" was unjustified.  No lower bound is
+established: `SortNotPropStrong` is one instance (one subject shape, one index) and nothing here
+shows it is as strong as `ConvSortInv`. -/
 
 /-- A sort is never a proposition, in `IsDefEqStrong` form.  **Name note:** `PropConv.lean`
 already declares a `VEnv.SortNotProp`, over the *stratified* `IsDefEqN` at a fixed index; the two
@@ -820,6 +870,124 @@ theorem PiLinkInvCod.piMidNonPi (H : PiLinkInvCod env U) : PiMidNonPi env U :=
 empty the statement. -/
 theorem piMidNonPi_side_fires : ∀ D E, appMid ≠ .forallE D E := by rintro D E ⟨⟩
 
+/-! ## §18 CORRECTION: `WF.noPiLhs` was already in the tree
+
+`DeclRules.WF.instL_lhs_ne_forallE` (`Theory/Typing/DeclRules.lean:239`) is §10's statement
+character for character — "no rule rewrites a Π-type" — and `WF.instL_lhs_ne_sort` (`:234`) is its
+sort analogue.  Both are proved from `WF.defeq_isDeclRule`/`IsDeclRule.lhs_shape`; §10 reached the
+Π one independently through `PatternRules.RuleShape`.  **So §10 re-proved an existing theorem**,
+and the interesting content of Round 2 is §8 (`not_wf_roguePiEnv`) alone.  `noPiLhs_of_declRules`
+records the identification so the duplication is visible rather than latent; the two routes are
+kept because `RuleShape` and `IsDeclRule` are different decompositions of the same fact and
+nothing in the tree relates them. -/
+
+theorem noPiLhs_of_declRules {env : VEnv} (h : VEnv.WF env) {df : VDefEq} (hdf : env.defeqs df) :
+    NoPiLhs df := fun ls A B => h.instL_lhs_ne_forallE hdf ls A B
+
+/-- The sort analogue of `WF.piPi_extra_closed`, from the sort half of `DeclRules.lean`: **the
+`extra` case of a sort/sort link is closed by well-formedness**, exactly as the `extra` case of a
+Π/Π link is.  So `VEnv.WF` buys one case on each side and the same case on each side. -/
+theorem WF.sortSort_extra_closed {env : VEnv} (h : VEnv.WF env) {df : VDefEq}
+    (hdf : env.defeqs df) {ls : List VLevel} {a b : VLevel} :
+    ¬ (df.lhs.instL ls = .sort a ∧ df.rhs.instL ls = .sort b) :=
+  fun ⟨hl, _⟩ => h.instL_lhs_ne_sort hdf ls a hl
+
+/-! ## §19 Task 1: `SortNotPropStrong` is **not** free at `VEnv.WF` — it costs the *sort half*
+
+The sharp upper bound is not `SortUniq` but `ConvSortInv`, and the route is `peelChain`: a
+`true`-level typing `Γ ⊢ .sort u : .sort .zero` peels to the base rule `HasTypeStrong.sort'`,
+which pins the base type to `.sort (.succ l')` with `l' ≈ u`, plus a chain
+`ConvC Γ (.sort (.succ l')) (.sort .zero)`.  `ConvSortInv` turns that chain into
+`.succ l' ≈ .zero`, which `VLevel.eval` refutes.
+
+So **the `proofIrrel` case of the Π side costs the sort side.**  `BaseUniqChain`'s
+`sortUniq_iff_convSortInv` makes `ConvSortInv` and `SortUniq` the same hypothesis, and
+`InjChainLower.sortChainAt_bvar_iff_convSortInv` makes it the corner's sort residual at `.bvar 0`.
+`VEnv.WF` does not touch it: §18 closes the `extra` case of a sort/sort link and nothing else, and
+§20 shows the remaining `trans` case is the whole statement — the same shape as the Π side.
+
+That answers question 1: **no**, `SortNotPropStrong` is not a corollary of well-formedness.
+`WF.instL_lhs_ne_sort` is the right lemma and it does close the `extra` route, but the `extra`
+route was never the residual on either side.
+
+No lower bound is established: `SortNotPropStrong` is a single instance (one subject shape, one
+index) and nothing here shows it is *as strong as* `ConvSortInv`. -/
+
+theorem sortNotPropStrong_of_convSortInv (hsi : ConvSortInv env U) {Γ : List VExpr}
+    (hΓ : CtxStrong env U Γ) {u : VLevel} :
+    ¬ env.IsDefEqStrong U Γ (.sort u) (.sort u) (.sort .zero) := by
+  intro h
+  obtain ⟨B₀, hb, hc⟩ := h.hasType'.1.peelChain
+  cases hb with
+  | sort' h1 h2 h3 =>
+    have := VLevel.equiv_def.1 (hsi hΓ hc) []
+    simp [VLevel.eval] at this
+
+/-- The level fact the `sortDF` route dies on, and the reason the *rule* routes to refuting
+`SortNotPropStrong` at a well-formed environment are all closed: `sortDF` forces the two levels
+equivalent, `extra` is closed by §18, and everything else is the `trans` wall of §20. -/
+theorem succ_not_equiv_zero (l : VLevel) : ¬ (VLevel.succ l ≈ .zero) := by
+  intro h
+  have := VLevel.equiv_def.1 h []
+  simp [VLevel.eval] at this
+
+/-! ## §20 Four for four: the sort side localises no better than the Π side
+
+`piMid_iff_piLinkInvCod` (§14) showed the Π/Π `trans` case *is* the single-link statement.  The
+sort side is identical, for the identical reason — `IsDefEqStrong.trans` is a rule — and
+`ConvC.collapseE` prices the chain form the same way.  So the standing rule ("test a localisation
+against its own target before building on it") holds on both halves, and the score is four. -/
+
+/-- Sort injectivity for a **single** `IsDefEqStrong` link. -/
+def SortLinkInv (env : VEnv) (U : Nat) : Prop :=
+  ∀ {Γ : List VExpr} {u v w : VLevel}, CtxStrong env U Γ →
+    env.IsDefEqStrong U Γ (.sort u) (.sort v) (.sort w) → u ≈ v
+
+/-- The same, written as the `trans` case. -/
+def SortMid (env : VEnv) (U : Nat) : Prop :=
+  ∀ {Γ : List VExpr} {u v w : VLevel} {M : VExpr}, CtxStrong env U Γ →
+    env.IsDefEqStrong U Γ (.sort u) M (.sort w) →
+    env.IsDefEqStrong U Γ M (.sort v) (.sort w) → u ≈ v
+
+/-- **The collapse test on the sort side, FAILING.**  Both directions, no hypotheses. -/
+theorem sortMid_iff_sortLinkInv : SortMid env U ↔ SortLinkInv env U := by
+  constructor
+  · intro H Γ u v w hΓ h
+    exact H hΓ h (h.symm.trans h)
+  · intro H Γ u v w M hΓ h1 h2
+    exact H hΓ (h1.trans h2)
+
+/-- And the chain form differs from the link form by exactly `ConvStep2`, as on the Π side. -/
+theorem convSortInv_of_convStep2_sortLinkInv (hcs : ConvStep2 env U) (hsl : SortLinkInv env U) :
+    ConvSortInv env U := by
+  intro Γ u v hΓ h
+  match h.collapseE hcs hΓ with
+  | .inl eq => cases eq; rfl
+  | .inr ⟨_, hw⟩ => exact hsl hΓ hw
+
+/-! ## §21 `PiLinkInvDom`, priced
+
+It **is** row 53's dead conjunct in single-link guise, as an *output*: `ConvPiInv.piLinkInvDom` is
+`.1` of the chain form, and every consumer in the tree takes `.2`.  Neither half implies the
+other and nothing here makes it strictly weaker than `PiLinkInvCod`; they are the two projections
+of the same single-link inversion.
+
+**Remark, not a hinge** (the induction it refers to is not written, so nothing may depend on
+this): where it is *not* dead is as an **input**.  §17's Π-midpoint sub-case has the two codomain
+chains landing in `A::Γ` and `A''::Γ`, and `ConvC.defeqDFC` needs a domain chain to move between
+them.  Strengthening the conclusion to both contexts at once — the shape `Injectivity.RigidPiUniq`
+uses — does not remove the need: from `ConvC (A::Γ) B B''`, `ConvC (A''::Γ) B B''`,
+`ConvC (A''::Γ) B'' B'` and `ConvC (A'::Γ) B'' B'` one still cannot reach `ConvC (A::Γ) B B'`
+without moving `B'' ⇝ B'` from `A''::Γ` into `A::Γ`.  So a domain link is an ingredient of any
+proof of the codomain half by this route, which is a different status from "dead code" and worth
+not conflating with it. -/
+
+theorem ConvPiInv.piLinkInvDom (H : ConvPiInv env U) : PiLinkInvDom env U :=
+  fun hΓ h => (H hΓ (.one h)).1
+
+theorem ConvPiInv.piLinkInvCod (H : ConvPiInv env U) : PiLinkInvCod env U :=
+  fun hΓ h => (H hΓ (.one h)).2
+
 end VEnv
 end Lean4Lean
 
@@ -869,4 +1037,12 @@ open Lean4Lean.VEnv
 #print axioms Lean4Lean.VEnv.ConvC.defeqDFC
 #print axioms Lean4Lean.VEnv.PiLinkInvCod.piMidNonPi
 #print axioms Lean4Lean.VEnv.piMidNonPi_side_fires
+#print axioms Lean4Lean.VEnv.noPiLhs_of_declRules
+#print axioms Lean4Lean.VEnv.WF.sortSort_extra_closed
+#print axioms Lean4Lean.VEnv.sortNotPropStrong_of_convSortInv
+#print axioms Lean4Lean.VEnv.succ_not_equiv_zero
+#print axioms Lean4Lean.VEnv.sortMid_iff_sortLinkInv
+#print axioms Lean4Lean.VEnv.convSortInv_of_convStep2_sortLinkInv
+#print axioms Lean4Lean.VEnv.ConvPiInv.piLinkInvDom
+#print axioms Lean4Lean.VEnv.ConvPiInv.piLinkInvCod
 end Audit
