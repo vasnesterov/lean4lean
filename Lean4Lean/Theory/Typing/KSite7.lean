@@ -1042,6 +1042,114 @@ theorem etaR_inner (HD : WeakNInvDS) {Γ : List VExpr} {A B e : VExpr} {uA vB : 
     · exact .inr (.inr hpe)
 
 
+/-! ## Two narrow compositions of `NormalEq`, free of strengthening
+
+`NormalEq.trans` (`ChurchRosser.lean:630`) has exactly one appeal to strengthening -- hence to
+`IsDefEqU.weakN_iff` -- and it is in the case where the left derivation ends in `etaR` and the
+right in `etaL`.  Killing *either* side suffices, and `DomEq` has neither constructor, so both
+compositions below are unconditional.
+
+They are what `etaR_case` composes with: every one of its three `NormalEq.trans` calls already
+has a `DomEq` on one side.  Proved in `KKetaRow.lean` first (as `DomEq.trans_normalEq` /
+`NormalEq.trans_domEq`, with `etaR_case_clean` as the measured drop-in); landed here so that
+`etaR_case` itself is clean of the 204-user hole rather than only a copy of it.
+-/
+
+private def meas' : VExpr → Nat
+  | .app f a
+  | .forallE f a => meas' f + meas' a + 1
+  | .bvar _ | .const .. | .sort _ => 0
+  | .lam A e => meas' A + meas' e + 3
+
+omit [Params] in private theorem meas'_liftN {e : VExpr} {n k : Nat} :
+    meas' (e.liftN n k) = meas' e := by
+  induction e generalizing k <;> simp [*, meas', VExpr.liftN]
+omit [Params] in private theorem meas'_lift {e : VExpr} : meas' e.lift = meas' e := meas'_liftN
+
+attribute [local simp] meas' meas'_lift in
+/-- **`DomEq ∘ NormalEq = NormalEq`, with no appeal to strengthening.**  Compare
+`NormalEq.trans`, whose one use of `NormalEq.weakN_iff` -- hence of `IsDefEqU.weakN_iff` -- is
+in the case where the left derivation ends in `etaR` and the right in `etaL`.  `DomEq` has no
+`etaR`, so that case does not arise and the composition is unconditional. -/
+theorem DomEq.trans_normalEq {Γ : List VExpr} {e1 e2 e3 : VExpr}
+    (hΓ : OnCtx Γ (IsType env univs)) :
+    DomEq Γ e1 e2 → Γ ⊢ e2 ≡ₚ e3 → Γ ⊢ e1 ≡ₚ e3
+  | .sortDF l1 _ l3, .sortDF _ r2 r3 => .sortDF l1 r2 (l3.trans r3)
+  | .constDF l1 l2 _ l4 l5, .constDF _ _ r3 r4 r5 =>
+    .constDF l1 l2 r3 l4 (List.Forall₂.trans (fun _ _ _ h1 => h1.trans) l5 r5)
+  | .appDF l1 l2 l3 l4 l5 l6, .appDF r1 r2 r3 r4 r5 r6 =>
+    .appDF l1 ((r1.uniqU henv hΓ l2).defeqDF henv hΓ r2) l3
+      ((r3.uniqU henv hΓ l4).defeqDF henv hΓ r4)
+      (l5.trans_normalEq hΓ r5) (l6.trans_normalEq hΓ r6)
+  | .lamDF l1 l2 l3, .lamDF r1 r2 r3 =>
+    have aa := r1.trans_r henv hΓ l2.symm
+    .lamDF l1 (aa.symm.trans_l henv hΓ r2)
+      (l3.trans_normalEq ⟨hΓ, _, l1.hasType.1⟩ (r3.defeq_l hΓ aa))
+  | .forallEDF l1 l2 l3 l4, .forallEDF r1 r2 r3 r4 =>
+    have r4' := r4.defeq_l hΓ
+      (.trans_l henv hΓ (.transU_l henv hΓ r1 (l2.defeq hΓ).symm) l1.symm)
+    .forallEDF l1 (l2.trans_normalEq hΓ r2) l3
+      (l4.trans_normalEq ⟨hΓ, _, l1.hasType.1⟩ r4')
+  | .lamDF l1 l2 l3, .etaL r1 ih =>
+    have ⟨_, _, hB⟩ := let ⟨_, h⟩ := r1.isType henv hΓ; h.forallE_inv henv
+    have eq := l2.symm.trans l1
+    .etaL (IsDefEq.defeq (.forallEDF eq hB) r1) <|
+      (l3.defeq_l hΓ l1).trans_normalEq ⟨hΓ, _, l1.hasType.2⟩ (ih.defeq_l hΓ eq)
+  | .refl h, H2 => H2
+  | .proofIrrel l1 l2 l3, H2 => .proofIrrel l1 l2 (.defeqU_l henv hΓ (H2.defeq hΓ) l3)
+  | H1, .refl _ => H1.toNormalEq
+  | H1, .etaR r1 ih => by
+    have ⟨⟨_, hA⟩, _⟩ := let ⟨_, h⟩ := r1.isType henv hΓ; h.forallE_inv henv
+    refine .etaR (.defeqU_l henv hΓ (H1.defeq hΓ).symm r1)
+      (DomEq.trans_normalEq (e2 := .app _ (.bvar 0)) ⟨hΓ, _, hA⟩ ?_ ih)
+    exact .appDF ((r1.defeqU_l henv hΓ (H1.defeq hΓ).symm).weakN henv .one)
+      (r1.weakN henv .one) (.bvar .zero) (.bvar .zero)
+      (H1.weakN .one) (.refl (.bvar .zero))
+  | H1, .proofIrrel h1 h2 h3 => .proofIrrel h1 (.defeqU_l henv hΓ (H1.defeq hΓ).symm h2) h3
+termination_by meas' e1 + meas' e2 + meas' e3
+
+
+attribute [local simp] meas' meas'_lift in
+/-- **The mirror: `NormalEq ∘ DomEq = NormalEq`, also with no appeal to strengthening.**  The
+bad case of `NormalEq.trans` needs `etaR` on the left *and* `etaL` on the right; killing either
+one suffices, and `DomEq` on the right kills the second. -/
+theorem NormalEq.trans_domEq {Γ : List VExpr} {e1 e2 e3 : VExpr}
+    (hΓ : OnCtx Γ (IsType env univs)) :
+    Γ ⊢ e1 ≡ₚ e2 → DomEq Γ e2 e3 → Γ ⊢ e1 ≡ₚ e3
+  | .sortDF l1 _ l3, .sortDF _ r2 r3 => .sortDF l1 r2 (l3.trans r3)
+  | .constDF l1 l2 _ l4 l5, .constDF _ _ r3 r4 r5 =>
+    .constDF l1 l2 r3 l4 (List.Forall₂.trans (fun _ _ _ h1 => h1.trans) l5 r5)
+  | .appDF l1 l2 l3 l4 l5 l6, .appDF r1 r2 r3 r4 r5 r6 =>
+    .appDF l1 ((r1.uniqU henv hΓ l2).defeqDF henv hΓ r2) l3
+      ((r3.uniqU henv hΓ l4).defeqDF henv hΓ r4)
+      (l5.trans_domEq hΓ r5) (l6.trans_domEq hΓ r6)
+  | .lamDF l1 l2 l3, .lamDF r1 r2 r3 =>
+    have aa := r1.trans_r henv hΓ l2.symm
+    .lamDF l1 (aa.symm.trans_l henv hΓ r2)
+      (l3.trans_domEq ⟨hΓ, _, l1.hasType.1⟩ (r3.defeq_l hΓ aa))
+  | .forallEDF l1 l2 l3 l4, .forallEDF r1 r2 r3 r4 =>
+    have r4' := r4.defeq_l hΓ
+      (.trans_l henv hΓ (.transU_l henv hΓ r1 (l2.defeq hΓ).symm) l1.symm)
+    .forallEDF l1 (l2.trans_domEq hΓ r2) l3 (l4.trans_domEq ⟨hΓ, _, l1.hasType.1⟩ r4')
+  | .etaR l1 ih, .lamDF r1 r2 r3 =>
+    have ⟨_, _, hB⟩ := let ⟨_, h⟩ := l1.isType henv hΓ; h.forallE_inv henv
+    have eq := r1.symm.trans r2
+    .etaR (IsDefEq.defeq (.forallEDF eq hB) l1) <|
+      (ih.defeq_l hΓ eq).trans_domEq ⟨hΓ, _, r2.hasType.2⟩ (r3.defeq_l hΓ r2)
+  | .refl h, H2 => H2.toNormalEq
+  | .proofIrrel l1 l2 l3, H2 => .proofIrrel l1 l2 (.defeqU_l henv hΓ (H2.defeq hΓ) l3)
+  | .etaL l1 ih, H2 => by
+    have ⟨⟨_, hA⟩, _⟩ := let ⟨_, h⟩ := l1.isType henv hΓ; h.forallE_inv henv
+    refine .etaL (.defeqU_l henv hΓ (H2.defeq hΓ) l1)
+      (NormalEq.trans_domEq (e3 := .app _ (.bvar 0)) ⟨hΓ, _, hA⟩ ih ?_)
+    exact .appDF (l1.weakN henv .one)
+      ((l1.defeqU_l henv hΓ (H2.defeq hΓ)).weakN henv .one) (.bvar .zero) (.bvar .zero)
+      (H2.weakN .one) (.refl (.bvar .zero))
+  | H1, .refl _ => H1
+  | H1, .proofIrrel h1 h2 h3 => .proofIrrel h1 (.defeqU_l henv hΓ (H1.defeq hΓ).symm h2) h3
+termination_by meas' e1 + meas' e2 + meas' e3
+
+
 /-- **Site 7's `etaR` case, closed.**  `ChurchRosser.lean:2077-2110` for `ParRedK`, from
 `WeakNInvDS` alone: the `keta` sub-case of the inner `cases` is `EtaK.under` (`etaR_inner`),
 the `extra` sub-case is dead because the argument is `.bvar 0` on the nose, and the proof
@@ -1068,7 +1176,7 @@ theorem etaR_case (HD : WeakNInvDS) {Γ : List VExpr} {A B e eb A' b' : VExpr}
     ⟨A₂, c, hred, hA₂, dc⟩ | ⟨e', f₀, hred, rfl, df⟩ | hpe
   · refine ⟨.lam A₂ c, hred, ?_⟩
     exact .lamDF (hA₂.of_r henv hΓ hA).symm (r1.defeq hΓ hA)
-      (((dc.toNormalEq).symm hΓA).trans hΓA a2)
+      ((dc.symm hΓA).trans_normalEq hΓA a2)
   · have he'ty : Γ ⊢ e' : .forallE A B := ParRedKS.hasType hΓ hred l1
     have he'l2 := he'ty.weak (B := A) henv
     simp only [VExpr.liftN] at he'l2
@@ -1076,9 +1184,9 @@ theorem etaR_case (HD : WeakNInvDS) {Γ : List VExpr} {A B e eb A' b' : VExpr}
     have Dsub : DomEq (A::Γ) (.app e'.lift (.bvar 0)) (.app f₀ (.bvar 0)) :=
       .appDF he'l2 hf₀ty (.bvar .zero) (.bvar .zero) (df.symm hΓA) (.refl (.bvar .zero))
     have hne : NormalEq (A::Γ) (.app e'.lift (.bvar 0)) b' :=
-      (Dsub.toNormalEq).trans hΓA a2
+      Dsub.trans_normalEq hΓA a2
     refine ⟨e', hred, ?_⟩
-    exact (NormalEq.etaR he'ty hne).trans hΓ
+    exact (NormalEq.etaR he'ty hne).trans_domEq hΓ
       (.lamDF hA (r1.defeq hΓ hA) (.refl (r2.hasType hΓA hebty)))
   · obtain ⟨P, hP, he1, -⟩ := hpe
     refine ⟨e, .rfl, .proofIrrel hP he1 ?_⟩

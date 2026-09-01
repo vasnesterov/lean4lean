@@ -54,9 +54,9 @@ This file does five things.
    strengthening is its `etaR`-after-`etaL` case -- unreachable when either side is `DomEq`.
    `DomEq.trans_normalEq` and `NormalEq.trans_domEq` are those two narrow compositions, proved
    here and clean of `weakN_iff` (indeed clean of `WF.rigidShapeUniqNS` too).
-   `etaR_case_clean` is `KSite7.etaR_case` rebuilt on them: same statement, and clean, which
-   leaves `appDF` x `beta` (through `ChurchRosser.ParRedExt.parRed_beta`) as the **only**
-   remaining entry of `weakN_iff` into site 7.
+   They are now landed in `KSite7.lean` and `KSite7.etaR_case` is built on them, which leaves
+   `appDF` x `beta` (through `ChurchRosser.ParRedExt.parRed_beta`) as the **only** remaining
+   entry of `weakN_iff` into site 7 -- measured on `ParRedKGraded.parRedKStatementN_succ`.
 
 ## What is *not* claimed
 
@@ -69,8 +69,9 @@ quantify over ungraded `ParRedK` and so cannot be reused as they stand.  So `App
 here**; what is established is that every ingredient the discharge needs exists and is measured,
 and that nothing in it costs a hypothesis beyond `WeakNInvDS`.
 
-`etaR_case_clean` is a drop-in for `KSite7.etaR_case` and the substitution is **not** performed
-in `KSite7.lean`.
+*(Both caveats above are now discharged elsewhere: `ParRedKGraded.lean` restates the eight rows
+and proves `ParRedKStatementN N` for every `N`, and the `etaR_case` substitution is landed in
+`KSite7.lean`.  They are left in place as the record of what this file did and did not do.)*
 
 Lower bounds are stated with `KSite7Rows.appKetaRow_of_no_etaK`'s honesty:
 `etaKNormalEqInv_of_no_etaK` holds because its `EtaK` premise has no witness, which rules out
@@ -468,154 +469,14 @@ theorem appKetaRow_step {N : Nat} (HE : EtaKNormalEqInv) (S : ParRedKStatementN 
 
 /-! ## A cleaner composition: `DomEq` on the left needs no strengthening
 
-The `under` half above closes with `NormalEq.trans`, and that is the *only* thing in it that
-carries `IsDefEqU.weakN_iff` -- `NormalEq.trans`'s single appeal to strengthening
-(`ChurchRosser.lean:630`) is its `etaR`-after-`etaL` case.  Both compositions the `under` half
-performs have a **`DomEq` on the left**, and `DomEq` has no `etaL`, so that case is
-*unreachable* for them.
-
-`DomEq.trans_normalEq` is the composition with that case deleted.  It is `NormalEq.trans`'s
-proof with the left relation narrowed: same term measure, same case split, one case gone.
-`ketaHere_inv_clean` and `etaKNormalEqInv_of_weakNInvDS'` below are the `under` half rebuilt on
-it, and they are clean of `weakN_iff` -- so the `keta` row does not add a third entry to the
-two `KSite7Rows.lean` measures.  The same substitution would clean `KSite7.etaR_case`, which
-composes the same way (`((dc.toNormalEq).symm hΓA).trans hΓA a2`); that edit is not made here.
+`DomEq.trans_normalEq` and `NormalEq.trans_domEq` -- the two compositions of `NormalEq` that
+avoid `NormalEq.trans`'s single appeal to `IsDefEqU.weakN_iff` -- were proved here originally
+and have since been **landed in `KSite7.lean`**, together with the substitution they were built
+for: `KSite7.etaR_case` now uses them directly and is clean of the 204-user hole, so the
+separate `etaR_case_clean` drop-in is gone (it would be character-for-character `etaR_case`).
+`ParRedKGraded.etaR_case_cleanN` is the graded restatement, and the `under` half below composes
+through the same two lemmas.
 -/
-
-private def meas' : VExpr → Nat
-  | .app f a
-  | .forallE f a => meas' f + meas' a + 1
-  | .bvar _ | .const .. | .sort _ => 0
-  | .lam A e => meas' A + meas' e + 3
-
-omit [Params] in private theorem meas'_liftN {e : VExpr} {n k : Nat} :
-    meas' (e.liftN n k) = meas' e := by
-  induction e generalizing k <;> simp [*, meas', VExpr.liftN]
-omit [Params] in private theorem meas'_lift {e : VExpr} : meas' e.lift = meas' e := meas'_liftN
-
-attribute [local simp] meas' meas'_lift in
-/-- **`DomEq ∘ NormalEq = NormalEq`, with no appeal to strengthening.**  Compare
-`NormalEq.trans`, whose one use of `NormalEq.weakN_iff` -- hence of `IsDefEqU.weakN_iff` -- is
-in the case where the left derivation ends in `etaR` and the right in `etaL`.  `DomEq` has no
-`etaR`, so that case does not arise and the composition is unconditional. -/
-theorem DomEq.trans_normalEq {Γ : List VExpr} {e1 e2 e3 : VExpr}
-    (hΓ : OnCtx Γ (IsType env univs)) :
-    DomEq Γ e1 e2 → Γ ⊢ e2 ≡ₚ e3 → Γ ⊢ e1 ≡ₚ e3
-  | .sortDF l1 _ l3, .sortDF _ r2 r3 => .sortDF l1 r2 (l3.trans r3)
-  | .constDF l1 l2 _ l4 l5, .constDF _ _ r3 r4 r5 =>
-    .constDF l1 l2 r3 l4 (List.Forall₂.trans (fun _ _ _ h1 => h1.trans) l5 r5)
-  | .appDF l1 l2 l3 l4 l5 l6, .appDF r1 r2 r3 r4 r5 r6 =>
-    .appDF l1 ((r1.uniqU henv hΓ l2).defeqDF henv hΓ r2) l3
-      ((r3.uniqU henv hΓ l4).defeqDF henv hΓ r4)
-      (l5.trans_normalEq hΓ r5) (l6.trans_normalEq hΓ r6)
-  | .lamDF l1 l2 l3, .lamDF r1 r2 r3 =>
-    have aa := r1.trans_r henv hΓ l2.symm
-    .lamDF l1 (aa.symm.trans_l henv hΓ r2)
-      (l3.trans_normalEq ⟨hΓ, _, l1.hasType.1⟩ (r3.defeq_l hΓ aa))
-  | .forallEDF l1 l2 l3 l4, .forallEDF r1 r2 r3 r4 =>
-    have r4' := r4.defeq_l hΓ
-      (.trans_l henv hΓ (.transU_l henv hΓ r1 (l2.defeq hΓ).symm) l1.symm)
-    .forallEDF l1 (l2.trans_normalEq hΓ r2) l3
-      (l4.trans_normalEq ⟨hΓ, _, l1.hasType.1⟩ r4')
-  | .lamDF l1 l2 l3, .etaL r1 ih =>
-    have ⟨_, _, hB⟩ := let ⟨_, h⟩ := r1.isType henv hΓ; h.forallE_inv henv
-    have eq := l2.symm.trans l1
-    .etaL (IsDefEq.defeq (.forallEDF eq hB) r1) <|
-      (l3.defeq_l hΓ l1).trans_normalEq ⟨hΓ, _, l1.hasType.2⟩ (ih.defeq_l hΓ eq)
-  | .refl h, H2 => H2
-  | .proofIrrel l1 l2 l3, H2 => .proofIrrel l1 l2 (.defeqU_l henv hΓ (H2.defeq hΓ) l3)
-  | H1, .refl _ => H1.toNormalEq
-  | H1, .etaR r1 ih => by
-    have ⟨⟨_, hA⟩, _⟩ := let ⟨_, h⟩ := r1.isType henv hΓ; h.forallE_inv henv
-    refine .etaR (.defeqU_l henv hΓ (H1.defeq hΓ).symm r1)
-      (DomEq.trans_normalEq (e2 := .app _ (.bvar 0)) ⟨hΓ, _, hA⟩ ?_ ih)
-    exact .appDF ((r1.defeqU_l henv hΓ (H1.defeq hΓ).symm).weakN henv .one)
-      (r1.weakN henv .one) (.bvar .zero) (.bvar .zero)
-      (H1.weakN .one) (.refl (.bvar .zero))
-  | H1, .proofIrrel h1 h2 h3 => .proofIrrel h1 (.defeqU_l henv hΓ (H1.defeq hΓ).symm h2) h3
-termination_by meas' e1 + meas' e2 + meas' e3
-
-
-attribute [local simp] meas' meas'_lift in
-/-- **The mirror: `NormalEq ∘ DomEq = NormalEq`, also with no appeal to strengthening.**  The
-bad case of `NormalEq.trans` needs `etaR` on the left *and* `etaL` on the right; killing either
-one suffices, and `DomEq` on the right kills the second. -/
-theorem NormalEq.trans_domEq {Γ : List VExpr} {e1 e2 e3 : VExpr}
-    (hΓ : OnCtx Γ (IsType env univs)) :
-    Γ ⊢ e1 ≡ₚ e2 → DomEq Γ e2 e3 → Γ ⊢ e1 ≡ₚ e3
-  | .sortDF l1 _ l3, .sortDF _ r2 r3 => .sortDF l1 r2 (l3.trans r3)
-  | .constDF l1 l2 _ l4 l5, .constDF _ _ r3 r4 r5 =>
-    .constDF l1 l2 r3 l4 (List.Forall₂.trans (fun _ _ _ h1 => h1.trans) l5 r5)
-  | .appDF l1 l2 l3 l4 l5 l6, .appDF r1 r2 r3 r4 r5 r6 =>
-    .appDF l1 ((r1.uniqU henv hΓ l2).defeqDF henv hΓ r2) l3
-      ((r3.uniqU henv hΓ l4).defeqDF henv hΓ r4)
-      (l5.trans_domEq hΓ r5) (l6.trans_domEq hΓ r6)
-  | .lamDF l1 l2 l3, .lamDF r1 r2 r3 =>
-    have aa := r1.trans_r henv hΓ l2.symm
-    .lamDF l1 (aa.symm.trans_l henv hΓ r2)
-      (l3.trans_domEq ⟨hΓ, _, l1.hasType.1⟩ (r3.defeq_l hΓ aa))
-  | .forallEDF l1 l2 l3 l4, .forallEDF r1 r2 r3 r4 =>
-    have r4' := r4.defeq_l hΓ
-      (.trans_l henv hΓ (.transU_l henv hΓ r1 (l2.defeq hΓ).symm) l1.symm)
-    .forallEDF l1 (l2.trans_domEq hΓ r2) l3 (l4.trans_domEq ⟨hΓ, _, l1.hasType.1⟩ r4')
-  | .etaR l1 ih, .lamDF r1 r2 r3 =>
-    have ⟨_, _, hB⟩ := let ⟨_, h⟩ := l1.isType henv hΓ; h.forallE_inv henv
-    have eq := r1.symm.trans r2
-    .etaR (IsDefEq.defeq (.forallEDF eq hB) l1) <|
-      (ih.defeq_l hΓ eq).trans_domEq ⟨hΓ, _, r2.hasType.2⟩ (r3.defeq_l hΓ r2)
-  | .refl h, H2 => H2.toNormalEq
-  | .proofIrrel l1 l2 l3, H2 => .proofIrrel l1 l2 (.defeqU_l henv hΓ (H2.defeq hΓ) l3)
-  | .etaL l1 ih, H2 => by
-    have ⟨⟨_, hA⟩, _⟩ := let ⟨_, h⟩ := l1.isType henv hΓ; h.forallE_inv henv
-    refine .etaL (.defeqU_l henv hΓ (H2.defeq hΓ) l1)
-      (NormalEq.trans_domEq (e3 := .app _ (.bvar 0)) ⟨hΓ, _, hA⟩ ih ?_)
-    exact .appDF (l1.weakN henv .one)
-      ((l1.defeqU_l henv hΓ (H2.defeq hΓ)).weakN henv .one) (.bvar .zero) (.bvar .zero)
-      (H2.weakN .one) (.refl (.bvar .zero))
-  | H1, .refl _ => H1
-  | H1, .proofIrrel h1 h2 h3 => .proofIrrel h1 (.defeqU_l henv hΓ (H1.defeq hΓ).symm h2) h3
-termination_by meas' e1 + meas' e2 + meas' e3
-
-/-- **`KSite7.etaR_case`, rebuilt on the two narrow compositions and clean of
-`IsDefEqU.weakN_iff`.**  Statement and proof are `KSite7.etaR_case`'s; the only changes are the
-three `NormalEq.trans` calls, replaced by `DomEq.trans_normalEq` / `NormalEq.trans_domEq` at
-the exact places where one side is already a `DomEq`.
-
-`KSite7Rows.lean`'s row-by-row measurement lists `etaR` as one of the two rows carrying
-`weakN_iff`.  With this body it does not, which leaves `appDF` x `beta` (through
-`ChurchRosser.ParRedExt.parRed_beta`) as the **only** entry of `weakN_iff` into site 7.  The
-substitution is not made in `KSite7.lean` here; this is the drop-in, measured. -/
-theorem etaR_case_clean (HD : WeakNInvDS) {Γ : List VExpr} {A B e eb A' b' : VExpr}
-    (hΓ : OnCtx Γ (IsType env univs))
-    (l1 : Γ ⊢ e : .forallE A B) (l2 : NormalEq (A::Γ) (.app e.lift (.bvar 0)) eb)
-    (ih1 : ∀ {x : VExpr}, ParRedK (A::Γ) eb x →
-      ∃ t, ParRedKS (A::Γ) (.app e.lift (.bvar 0)) t ∧ NormalEq (A::Γ) t x)
-    (r1 : ParRedK Γ A A') (r2 : ParRedK (A::Γ) eb b') :
-    ∃ e₁', ParRedKS Γ e e₁' ∧ NormalEq Γ e₁' (.lam A' b') := by
-  obtain ⟨⟨uA, hA⟩, vB, hB⟩ := (have ⟨_, h⟩ := l1.isType henv hΓ; h.forallE_inv henv)
-  have hΓA : OnCtx (A::Γ) (IsType env univs) := ⟨hΓ, _, hA⟩
-  have hb0 : (A::Γ) ⊢ VExpr.app e.lift (.bvar 0) : B := by
-    simpa [instN_bvar0] using HasType.app (l1.weak (B := A) henv) (.bvar .zero)
-  have hebty : (A::Γ) ⊢ eb : B := HasType.defeqU_l henv hΓA (l2.defeq hΓA) hb0
-  have hlamty : Γ ⊢ VExpr.lam A eb : .forallE A B := hA.lam hebty
-  obtain ⟨t, a1, a2⟩ := ih1 r2
-  rcases etaR_inner HD hΓ hA hB l1 a1 with
-    ⟨A₂, c, hred, hA₂, dc⟩ | ⟨e', f₀, hred, rfl, df⟩ | hpe
-  · exact ⟨.lam A₂ c, hred, .lamDF (hA₂.of_r henv hΓ hA).symm (r1.defeq hΓ hA)
-      ((dc.symm hΓA).trans_normalEq hΓA a2)⟩
-  · have he'ty : Γ ⊢ e' : .forallE A B := ParRedKS.hasType hΓ hred l1
-    have he'l2 := he'ty.weak (B := A) henv
-    simp only [VExpr.liftN] at he'l2
-    have hf₀ty := DomEq.hasType hΓA (df.symm hΓA) he'l2
-    have Dsub : DomEq (A::Γ) (.app e'.lift (.bvar 0)) (.app f₀ (.bvar 0)) :=
-      .appDF he'l2 hf₀ty (.bvar .zero) (.bvar .zero) (df.symm hΓA) (.refl (.bvar .zero))
-    refine ⟨e', hred, ?_⟩
-    exact (NormalEq.etaR he'ty (Dsub.trans_normalEq hΓA a2)).trans_domEq hΓ
-      (.lamDF hA (r1.defeq hΓ hA) (.refl (r2.hasType hΓA hebty)))
-  · obtain ⟨P, hP, he1, -⟩ := hpe
-    refine ⟨e, .rfl, .proofIrrel hP he1 ?_⟩
-    have hlam' : Γ ⊢ VExpr.lam A' b' : .forallE A B := (ParRedK.lam r1 r2).hasType hΓ hlamty
-    exact HasType.defeqU_r henv hΓ (l1.uniqU henv hΓ he1) hlam'
 
 /-! ## The `under` half, from `WeakNInvDS` -- so the whole transport costs nothing new
 
@@ -725,55 +586,17 @@ theorem ketaRow_of_weakNInvDS_at_one (HD : WeakNInvDS)
   ketaRow_of_weakNInvDS HD parRedKStatementN_zero hΓ H1 hek htail
 
 
-/-! ## The substitution, run inside the real assembly
+/-! ## Where the assembly now lives
 
-`parRedKStatement_of_rows_clean` is `KSite7Rows.parRedKStatement_of_rows` with one change:
-`KSite7.etaR_case` replaced by `etaR_case_clean`.  It is here so that the drop-in claim is
-*checked in situ* rather than only in isolation -- the rest of the assembly is untouched, and
-the hypotheses are the same two.
+`parRedKStatement_of_rows_clean` -- this file's in-situ check that `etaR_case_clean` was a
+drop-in -- has served its purpose and is gone: the substitution is landed inside
+`KSite7.etaR_case` itself, so `KSite7Rows.parRedKStatement_of_rows` *is* the clean assembly and
+there is nothing left to compare it against.
 
-The remaining `weakN_iff` in its cone is `appDF` x `beta`'s, through
-`ChurchRosser.ParRedExt.parRed_beta`; every other row is measured clean
-(`KSite7Rows.lean`'s own table, plus `etaR_case_clean` and `ketaRow_of_weakNInvDS` here). -/
-theorem parRedKStatement_of_rows_clean (HD : WeakNInvDS) (HA : AppKetaRow) :
-    ParRedKStatement := by
-  suffices H : ∀ {Γ : List VExpr} {e₁ e₂ : VExpr}, NormalEq Γ e₁ e₂ →
-      OnCtx Γ (IsType env univs) → ∀ {e₂' : VExpr}, ParRedK Γ e₂ e₂' →
-      ∃ e₁', ParRedKS Γ e₁ e₁' ∧ Γ ⊢ e₁' ≡ₚ e₂' from
-    fun _ _ _ _ hΓ H1 H2 => H H1 hΓ H2
-  intro Γ e₁ e₂ H1
-  induction H1 with
-  | refl l1 => exact fun hΓ _ H2 => parRedKStatement_of_domEq hΓ (.refl l1) H2
-  | sortDF l1 l2 l3 => exact fun hΓ _ H2 => parRedKStatement_of_domEq hΓ (.sortDF l1 l2 l3) H2
-  | constDF l1 l2 l3 l4 l5 =>
-    exact fun hΓ _ H2 => parRedKStatement_of_domEq hΓ (.constDF l1 l2 l3 l4 l5) H2
-  | proofIrrel l1 l2 l3 =>
-    exact fun hΓ _ H2 => parRedKStatement_of_domEq hΓ (.proofIrrel l1 l2 l3) H2
-  | appDF l1 l2 l3 l4 l5 l6 ih1 ih2 =>
-    intro hΓ e₂' H2
-    cases H2 with
-    | app r1 r2 => exact NormalEq.appDF_app_of_parRedK hΓ l1 l2 l3 l4 (ih1 hΓ) (ih2 hΓ) r1 r2
-    | beta r1 r2 => exact NormalEq.appDF_beta_of_parRedK hΓ l1 l2 l3 l4 (ih1 hΓ) (ih2 hΓ) r1 r2
-    | extra r1 r2 r3 r4 =>
-      exact NormalEq.appDF_extra_of_descendVK hΓ l1 l2 l3 l4 (ih1 hΓ) (ih2 hΓ) r1 r2 r3 r4
-    | keta hek htail => exact HA hΓ l1 l2 l3 l4 l5 l6 hek htail
-  | lamDF l1 l2 l3 ih1 =>
-    exact fun hΓ _ H2 =>
-      NormalEq.lamDF_of_parRedK hΓ l1 l2 l3 (ih1 ⟨hΓ, _, l1.hasType.1⟩) H2
-  | forallEDF l1 l2 l3 l4 ih1 ih2 =>
-    exact fun hΓ _ H2 =>
-      NormalEq.forallEDF_of_parRedK hΓ l1 l2 l3 l4 (ih1 hΓ) (ih2 ⟨hΓ, _, l1.hasType.1⟩) H2
-  | etaL l1 l2 ih1 =>
-    intro hΓ e₂' H2
-    have ⟨⟨_, hA⟩, _, hB⟩ := have ⟨_, h⟩ := l1.isType henv hΓ; h.forallE_inv henv
-    exact NormalEq.etaL_of_parRedK hΓ l1 (ih1 ⟨hΓ, _, hA⟩) H2
-  | etaR l1 l2 ih1 =>
-    intro hΓ e₂' H2
-    have ⟨⟨_, hA⟩, _, hB⟩ := have ⟨_, h⟩ := l1.isType henv hΓ; h.forallE_inv henv
-    cases H2 with
-    | lam r1 r2 => exact etaR_case_clean HD hΓ l1 l2 (ih1 ⟨hΓ, _, hA⟩) r1 r2
-    | extra _ r2 => cases r2
-    | keta hek _ => exact absurd hek EtaK.not_lam
+The assembly that removes `AppKetaRow` altogether is `ParRedKGraded.parRedKStatementN_succ` and
+its corollary `ParRedKGraded.parRedKStatement_of_weakNInvDS`.  It uses the graded restatements
+of the eight non-`keta` rows and `ketaRow_of_weakNInvDS` above; the base is
+`parRedKStatementN_zero`. -/
 
 end VEnv
 end Lean4Lean

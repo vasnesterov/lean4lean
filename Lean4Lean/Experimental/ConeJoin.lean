@@ -115,6 +115,8 @@ import Lean4Lean.Theory.SetModel.ModelFitsVacuous  -- 2026-09-01: ModelFitsInput
 import Lean4Lean.Theory.Typing.InjMidpoint  -- 2026-09-01: ConvStep2 localised at its midpoint; three of six heads free; the sortDF reading refuted
 import Lean4Lean.Theory.Typing.KKetaRow  -- 2026-09-01: ParRedK graded by redex height; AppKetaRow's hard half free; one weakN_iff entry removed from site 7
 import Lean4Lean.Verify.Typing.ProjInhab  -- 2026-09-01: uninhabited-prop existence IS VEnv.Consistent; first positive instance of the residual
+import Lean4Lean.Theory.Typing.ParRedKGraded  -- 2026-09-01: eight non-keta rows graded; AppKetaRow DISCHARGED -- site 7 for ParRedK from WeakNInvDS alone
+import Lean4Lean.Theory.Typing.InjMidLocal  -- 2026-09-01: the two costly midpoint heads re-priced at localised residuals
 
 /-!
 # Acceptance test: the `PatternRules` cone and the `Verify/` cone join

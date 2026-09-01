@@ -68,33 +68,48 @@ local notation:65 Γ " ⊢ " e1 " ≫* " e2:36 => ParRedS Γ e1 e2
 
 /-! ## The three ports -/
 
-/-- `parRed_of_matches` for `ParRedK`: reduce a matched term's arguments in place.  The spine
-is untouched, so the result still matches the same pattern with the reduced arguments.
+omit [Params] in
+/-- `parRed_of_matches`, **generic in the development relation**.  Reduce a matched term's
+arguments in place; the spine is untouched, so the result still matches the same pattern with
+the reduced arguments.
 
-Constructor-for-constructor identical to `ChurchRosser.lean`'s version; only `ParRed.app` /
-`ParRed.const` become `ParRedK.app` / `ParRedK.const`. -/
-theorem parRedK_of_matches {Γ : List VExpr} :
+The proof of `parRedK_of_matches` used exactly two constructors of `ParRedK` -- `const` and
+`app` -- so those two closure properties are all it needs.  Abstracting them is what lets the
+*graded* relation `ParRedKn n` (`KKetaRow.lean`) reuse this body verbatim instead of
+duplicating it: `ParRedKn n Γ` satisfies both at the **same** grade `n`, which is the fact the
+grade-preservation conjecture for this row amounts to. -/
+theorem develop_of_matches {R : VExpr → VExpr → Prop}
+    (hRc : ∀ {c : Lean.Name} {ls : List VLevel}, R (.const c ls) (.const c ls))
+    (hRa : ∀ {f f' a a' : VExpr}, R f f' → R a a' → R (.app f a) (.app f' a')) :
     ∀ {q : Pattern} {g : VExpr} {m1 : q.LPath → List VLevel} {m2 m2' : q.Path → VExpr},
-      q.Matches g m1 m2 → (∀ x, ParRedK Γ (m2 x) (m2' x)) →
-      ∃ g', ParRedK Γ g g' ∧ q.Matches g' m1 m2'
-  | .const c, _, _, _, m2', .const, _ => ⟨_, .const, by
+      q.Matches g m1 m2 → (∀ x, R (m2 x) (m2' x)) →
+      ∃ g', R g g' ∧ q.Matches g' m1 m2'
+  | .const c, _, _, _, m2', .const, _ => ⟨_, hRc, by
       have : m2' = nofun := funext nofun
       subst this; exact .const⟩
   | .var q, _, _, _, m2', .var h, hr => by
     obtain ⟨g', h1, h2⟩ :=
-      parRedK_of_matches h (m2' := fun x => m2' (some x)) (fun x => hr (some x))
-    refine ⟨.app g' (m2' none), .app h1 (hr none), ?_⟩
+      develop_of_matches hRc hRa h (m2' := fun x => m2' (some x)) (fun x => hr (some x))
+    refine ⟨.app g' (m2' none), hRa h1 (hr none), ?_⟩
     have : m2' = (·.elim (m2' none) fun x => m2' (some x)) := funext fun x => by cases x <;> rfl
     rw [this]; exact .var h2
   | .app q₁ q₂, _, _, _, m2', .app h1 h2, hr => by
     obtain ⟨g1, a1, b1⟩ :=
-      parRedK_of_matches h1 (m2' := fun x => m2' (.inl x)) (fun x => hr (.inl x))
+      develop_of_matches hRc hRa h1 (m2' := fun x => m2' (.inl x)) (fun x => hr (.inl x))
     obtain ⟨g2, a2, b2⟩ :=
-      parRedK_of_matches h2 (m2' := fun x => m2' (.inr x)) (fun x => hr (.inr x))
-    refine ⟨.app g1 g2, .app a1 a2, ?_⟩
+      develop_of_matches hRc hRa h2 (m2' := fun x => m2' (.inr x)) (fun x => hr (.inr x))
+    refine ⟨.app g1 g2, hRa a1 a2, ?_⟩
     have : m2' = Sum.elim (fun x => m2' (.inl x)) (fun x => m2' (.inr x)) :=
       funext fun x => by cases x <;> rfl
     rw [this]; exact .app b1 b2
+
+/-- `parRed_of_matches` for `ParRedK`: the instance of `develop_of_matches` at `ParRedK Γ`.
+Statement unchanged from before the generalisation. -/
+theorem parRedK_of_matches {Γ : List VExpr} {q : Pattern} {g : VExpr}
+    {m1 : q.LPath → List VLevel} {m2 m2' : q.Path → VExpr}
+    (hm : q.Matches g m1 m2) (hr : ∀ x, ParRedK Γ (m2 x) (m2' x)) :
+    ∃ g', ParRedK Γ g g' ∧ q.Matches g' m1 m2' :=
+  develop_of_matches (R := ParRedK Γ) .const .app hm hr
 
 /-- `DescentLam` for `ParRedK`.  The only change is `ParRedS` → `ParRedKS` in the two
 reduction positions; the `NormalEq` and level data are untouched. -/
@@ -213,39 +228,42 @@ That one-token difference is the whole repair, and `ParRedPropRefute.lean`'s
 Read against `ParRedPropRefute.lean`: `not_parRedStatement_of_propMajor` refutes site 7 for
 `ParRed` at precisely this case, and `ParRedK.propMajor_fires` kills its rigidity hypothesis.
 This theorem is the positive form -- the case that was refuted is now proved. -/
-theorem NormalEq.appDF_extra_of_descendVK
-    {Γ : List VExpr} {f A B a b f₂ : VExpr}
+theorem NormalEq.appDF_extra_of_descendVK'
+    {Γ : List VExpr} {f A B a b f₂ : VExpr} {R : VExpr → VExpr → Prop}
+    (hRs : ∀ {e e' : VExpr}, R e e' → ParRedK Γ e e')
+    (hRc : ∀ {c : Lean.Name} {ls : List VLevel}, R (.const c ls) (.const c ls))
+    (hRa : ∀ {f f' a a' : VExpr}, R f f' → R a a' → R (.app f a) (.app f' a'))
     (hΓ : OnCtx Γ (IsType env univs))
     (l1 : Γ ⊢ f : .forallE A B) (l2 : Γ ⊢ f₂ : .forallE A B)
     (l3 : Γ ⊢ a : A) (l4 : Γ ⊢ b : A)
-    (ih1 : ∀ {e₂'}, ParRedK Γ f₂ e₂' → ∃ e₁', ParRedKS Γ f e₁' ∧ Γ ⊢ e₁' ≡ₚ e₂')
-    (ih2 : ∀ {e₂'}, ParRedK Γ b e₂' → ∃ e₁', ParRedKS Γ a e₁' ∧ Γ ⊢ e₁' ≡ₚ e₂')
+    (ih1 : ∀ {e₂'}, R f₂ e₂' → ∃ e₁', ParRedKS Γ f e₁' ∧ Γ ⊢ e₁' ≡ₚ e₂')
+    (ih2 : ∀ {e₂'}, R b e₂' → ∃ e₁', ParRedKS Γ a e₁' ∧ Γ ⊢ e₁' ≡ₚ e₂')
     {p : Pattern} {r : p.RHS × p.Check} {m1 m2 m2'}
     (r1 : Params.Pat p r) (r2 : p.Matches (f₂.app b) m1 m2)
     (r3 : Pattern.Check.OK (IsDefEqU env univs Γ) m1 m2 r.snd)
-    (r4 : ∀ x, ParRedK Γ (m2 x) (m2' x)) :
+    (r4 : ∀ x, R (m2 x) (m2' x)) :
     ∃ e₁', ParRedKS Γ (f.app a) e₁' ∧ Γ ⊢ e₁' ≡ₚ Pattern.RHS.apply m1 m2' r.fst := by
   cases r2 with
   | var h => exact absurd r1 Params.pat_not_var
   | @app q₁ _ f1 g1 q₂ _ f2 g2 h1 h2 =>
     obtain ⟨hq1, hq2⟩ := Params.pat_app_noApp r1
     obtain ⟨f₂', hpf, hmf⟩ :=
-      parRedK_of_matches h1 (m2' := fun x => m2' (.inl x)) (fun x => r4 (.inl x))
+      develop_of_matches hRc hRa h1 (m2' := fun x => m2' (.inl x)) (fun x => r4 (.inl x))
     obtain ⟨b', hpb, hmb⟩ :=
-      parRedK_of_matches h2 (m2' := fun x => m2' (.inr x)) (fun x => r4 (.inr x))
+      develop_of_matches hRc hRa h2 (m2' := fun x => m2' (.inr x)) (fun x => r4 (.inr x))
     obtain ⟨tf, hf1, hf2⟩ := ih1 hpf
     obtain ⟨ta, ha1, ha2⟩ := ih2 hpb
     have heq : Sum.elim (fun x => m2' (Sum.inl x)) (fun x => m2' (Sum.inr x)) = m2' :=
       funext fun x => by cases x <;> rfl
     have hmnode : (q₁.app q₂).Matches (f₂'.app b') (Sum.elim f1 f2) m2' := heq ▸ .app hmf hmb
-    have hb'ty : Γ ⊢ b' : A := hpb.hasType hΓ l4
-    have hf₂'ty : Γ ⊢ f₂' : .forallE A B := hpf.hasType hΓ l2
+    have hb'ty : Γ ⊢ b' : A := (hRs hpb).hasType hΓ l4
+    have hf₂'ty : Γ ⊢ f₂' : .forallE A B := (hRs hpf).hasType hΓ l2
     have htf : Γ ⊢ tf : .forallE A B := hf1.hasType hΓ l1
     have hta : Γ ⊢ ta : A := ha1.hasType hΓ l3
     have hnode : Γ ⊢ tf.app ta ≡ₚ f₂'.app b' := .appDF htf hf₂'ty hta hb'ty hf2 ha2
     have hck' : Pattern.Check.OK (IsDefEqU env univs Γ) (p := q₁.app q₂)
         (Sum.elim f1 f2) m2' r.snd :=
-      r3.congr_defeq hΓ _ fun x _ hty => ⟨_, (r4 x).defeq hΓ hty⟩
+      r3.congr_defeq hΓ _ fun x _ hty => ⟨_, (hRs (r4 x)).defeq hΓ hty⟩
     have hwB : ∀ lp, ∀ l ∈ Sum.elim f1 f2 lp, VLevel.WF univs l :=
       hmnode.levelWF hΓ (hf₂'ty.app hb'ty)
     -- The node, matched at `.var q₁`: the function side's pattern, argument position free.
@@ -346,6 +364,23 @@ theorem NormalEq.appDF_extra_of_descendVK
       exact ⟨_, ParRedKS.app hf1 ha1,
         .proofIrrel hP hp1
           ((Params.pat_wf r1 hmnode hΓ hp2 hck').of_l henv hΓ hp2).hasType.2⟩
+
+/-- **The `ParRedK` instance**, with the statement `KSite7Rows.lean` and `KKetaRow.lean` call.
+Unchanged from before `appDF_extra_of_descendVK'` was abstracted out of it. -/
+theorem NormalEq.appDF_extra_of_descendVK
+    {Γ : List VExpr} {f A B a b f₂ : VExpr}
+    (hΓ : OnCtx Γ (IsType env univs))
+    (l1 : Γ ⊢ f : .forallE A B) (l2 : Γ ⊢ f₂ : .forallE A B)
+    (l3 : Γ ⊢ a : A) (l4 : Γ ⊢ b : A)
+    (ih1 : ∀ {e₂'}, ParRedK Γ f₂ e₂' → ∃ e₁', ParRedKS Γ f e₁' ∧ Γ ⊢ e₁' ≡ₚ e₂')
+    (ih2 : ∀ {e₂'}, ParRedK Γ b e₂' → ∃ e₁', ParRedKS Γ a e₁' ∧ Γ ⊢ e₁' ≡ₚ e₂')
+    {p : Pattern} {r : p.RHS × p.Check} {m1 m2 m2'}
+    (r1 : Params.Pat p r) (r2 : p.Matches (f₂.app b) m1 m2)
+    (r3 : Pattern.Check.OK (IsDefEqU env univs Γ) m1 m2 r.snd)
+    (r4 : ∀ x, ParRedK Γ (m2 x) (m2' x)) :
+    ∃ e₁', ParRedKS Γ (f.app a) e₁' ∧ Γ ⊢ e₁' ≡ₚ Pattern.RHS.apply m1 m2' r.fst :=
+  NormalEq.appDF_extra_of_descendVK' (R := ParRedK Γ) id .const .app
+    hΓ l1 l2 l3 l4 ih1 ih2 r1 r2 r3 r4
 
 /-! ## The routine rows: `appDF` congruence, `lamDF`, `forallEDF`
 
