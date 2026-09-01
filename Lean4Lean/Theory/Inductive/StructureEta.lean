@@ -73,6 +73,26 @@ The rule is an addition to the theory, to be discharged by the model constructio
 `StructureExamples.lean` checks `etaExpansion` against Lean's own elaborator at four
 structures, including two-field and dependent-field ones, so the *term* the rule produces is
 machine-checked even though the rule itself is an assumption.
+
+## The zero-field case is stated elsewhere, over a **wider** class of blocks
+
+`VEnv.StructEta`'s `IsStructure` hypothesis has a `types : D.types = [T]` field, so the rule
+below says nothing about a member of a *mutual* block — and `isDefEqUnitLike` fires at one
+(`Verify/TypeChecker/FiringWitness.lean`), which is why `isDefEqUnitLike.WF`'s residual
+`UnitLikeBridge` is **false** rather than merely unproved once `AddInduct` is non-empty
+(`docs/vacuity-ledger.md` row 99c).
+
+The zero-field repair is `VEnv.UnitEta` in `Lean4Lean/Verify/TypeChecker/UnitEta.lean`: the same
+rule at `C.fields = []`, stated over `VEnv.IsStructureG`, together with the widened bridge
+`UnitLikeBridgeG` and `isDefEqUnitLike.WF_of_unitEta`.  It lives under `Verify/` **only** because
+`VEnv.IsStructureG` is declared in `Verify/Typing/ProjGen.lean` and nothing under `Theory/`
+imports `Verify/`; `IsStructureG` mentions nothing outside `Theory/`, so moving it here would let
+`UnitEta` be stated in this file, and that move is a pending design decision, not an oversight.
+
+`VEnv.UnitEta.structEta_at_no_fields` there proves that `UnitEta` delivers everything
+`StructEta` delivers at zero fields, so the two do not overlap redundantly: what remains for
+`StructEta` is the **positive-field** case, whose analogous widening needs `projTermG` and the
+`ProjGen` swap, because with fields present a recursor is back in the statement.
 -/
 
 namespace Lean4Lean
