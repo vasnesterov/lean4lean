@@ -863,10 +863,16 @@ end
   discharged here by `decide` because `NFn`/`NFn.node` are concrete.
 * **`OccResidue`'s four clauses, in general.**  §6 reduces the nested step to them and §7
   discharges them at one block, by `rfl` and by `pfnOcc_occurs`.  In general:
-  - `member` is the `TrExprS`-level agreement between `restoreNested`'s output and
-    `VIndCtor.typeR`.  This is the clause the handoff described as the content of `Faithful`;
+  - `member` is an **equation between two `VIndType`s** — `T = (occ j).member D.header R` —
+    and mentions no translation relation at all: the transitive constant cone of its *type* is
+    29 declarations and contains no `TrExpr`, no `TrExprS`, and no `Lean.Expr` (measured
+    2026-09-01; `VNestedOcc.member` 5, `SemResidue.member` 30, `OccResidue.member` 31,
+    `Faithful` 7, all `TrExpr`-free).  **The sentence that stood here called it "the
+    `TrExprS`-level agreement between `restoreNested`'s output and `VIndCtor.typeR`", which was
+    wrong, and contradicted this file's own §1 bullet four lines from the top ("No `TrExprS`
+    appears").**  It is the clause the handoff described as the content of `Faithful`;
     `Built.toFaithful` shows it is the *only* such clause, and that `ty_agree`, `ctor_agree`
-    and `ctors_complete` follow from it plus `occurs`.
+    and `ctors_complete` follow from it plus `occurs`.  See `NestedOccData.lean` §5.
   - `occurs` needs `VInductDecl'.Declared env` for the nested block, which a declaration
     history supplies (`VEnv.WF'.declared`) and which `Faithful.ctors_complete` also needs.
   - `ctorName_inv` is a `Name.replacePrefix` round trip; its *lookup* half additionally needs

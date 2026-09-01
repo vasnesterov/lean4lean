@@ -1,0 +1,671 @@
+import Lean4Lean.Verify.Inductive.NestedRestoreWit
+
+/-!
+# `OccResidue` reduced to its two semantic clauses
+
+`Verify/Inductive/NestedRestoreWit.lean` §6 splits `VInductDecl'.Built` into four clauses the
+fourteen-field `RestoreData` bundle discharges and four it cannot, collected as
+`ElimNestedInductive.Result.OccResidue`:
+
+| clause | what it says |
+| --- | --- |
+| `head` | the `Expr` `aux2nested` stores at an auxiliary member is headed by the member the occurrence is at |
+| `ctorName_inv` | `restoreCtorName` inverts the auxiliary constructor naming |
+| `member` | the companion member **is** the value `VNestedOcc.member` computes |
+| `occurs` | the environment already holds the nested block |
+
+**This file closes the first two, in general.**  They come from a six-field bundle `OccData`
+of *name-and-head* facts about the checker's `Result` — every field a `Bool`-decidable statement
+about `Lean.Name`s and one `Expr.getAppFn`, none of them mentioning `TrExprS`, `VEnv` or any
+typing judgement — and from two pieces of general kit proved here:
+
+* §1 the **`Name.replacePrefix` round trip**: `(c.replacePrefix p q).replacePrefix q p = c`
+  whenever `p` really is a prefix of `c`, with **no side condition on `q`**.  The proof needs a
+  component-count function, because the step that has to be ruled out is
+  `q = .str (c.replacePrefix p q) s` — a name equal to a strict extension of itself.
+* §2 `Expr.getAppFn` through the four operations `replaceIfNested` composes when it builds the
+  stored `Expr`: `mkAppList`, `mkAppRange`, `abstract1` and `instantiate1'`.  So the shape
+  `Add.lean:840,844` pushes — `replaceParams params (mkAppRange (.const J I_lvls) 0 I_nparams args) As` —
+  has head `.const J I_lvls` **as a theorem** (§3.1), which is what makes `OccData.auxHead` a
+  fact about the implementation rather than an assumption about it.
+
+What is left of the residue is `SemResidue` (§5): `member` and `occurs`, and nothing else.
+§6 bounds the split both ways at the `NFn`/`PFn` block:
+
+* `nfnResult_occData` — `OccData` holds, so §4's two theorems are not vacuous;
+* `nfnOccData_not_occurs` — `RestoreData ∧ OccData` at the *empty* environment still holds and
+  `occurs` is false, so `occurs` is not slack;
+* `nfnAuxPerturbed_*` — a one-`VExpr` perturbation of `D`'s companion member at which
+  `RestoreData ∧ OccData` still hold and `member` is false, so `member` is not slack either.
+
+§7 then re-derives `Built`, `Faithful`, `Canonical`, `AddNested` and `AddNestedStep` from
+`RestoreData ∧ OccData ∧ SemResidue`.
+-/
+
+open Lean hiding Environment
+open Kernel
+
+namespace Lean4Lean
+
+/-! ## 1. The `replacePrefix` round trip
+
+`replaceIfNested` names an auxiliary constructor `J_ctor_name.replacePrefix J_name auxJ_name`
+(`Lean4Lean/Inductive/Add.lean:855`) and `restoreCtorName` reads it back as
+`c.replacePrefix auxI_name I` (`:698`).  `Built.ctorName_inv` is exactly the statement that the
+second undoes the first.
+
+`Name.replacePrefix` matches **outermost-first** — `if n == queryP then newP else …` before
+recursing into the parent — so it fires at the unique element of `n`'s prefix chain equal to the
+query.  That is why the round trip needs no hypothesis on the *replacement*: after
+`c.replacePrefix p q` the chain of the result contains `q`, and `q` is the outermost chain element
+equal to `q` because a name is never equal to a strict extension of itself.  `nameDepth` is what
+turns "never" into a proof. -/
+
+/-- The number of components of a name — `n.components.length`, without the intermediate list.
+Used only to rule out `q = .str q' s` with `q` a chain prefix of `q'`. -/
+def nameDepth : Name → Nat
+  | .anonymous => 0
+  | .str p _ => nameDepth p + 1
+  | .num p _ => nameDepth p + 1
+
+namespace Name
+
+theorem isPrefixOf_self : ∀ n : Name, n.isPrefixOf n = true
+  | .anonymous => rfl
+  | .str .. => by rw [Lean.Name.isPrefixOf]; simp
+  | .num .. => by rw [Lean.Name.isPrefixOf]; simp
+
+/-- A prefix has no more components. -/
+theorem nameDepth_le_of_isPrefixOf : ∀ {p n : Name}, p.isPrefixOf n = true →
+    nameDepth p ≤ nameDepth n
+  | p, .anonymous, h => by
+    rw [Lean.Name.isPrefixOf] at h
+    have : p = .anonymous := eq_of_beq h
+    subst this; exact Nat.le_refl _
+  | p, .str n' s, h => by
+    rw [Lean.Name.isPrefixOf, Bool.or_eq_true, beq_iff_eq] at h
+    rcases h with rfl | h
+    · exact Nat.le_refl _
+    · exact Nat.le_trans (nameDepth_le_of_isPrefixOf h) (Nat.le_succ _)
+  | p, .num n' i, h => by
+    rw [Lean.Name.isPrefixOf, Bool.or_eq_true, beq_iff_eq] at h
+    rcases h with rfl | h
+    · exact Nat.le_refl _
+    · exact Nat.le_trans (nameDepth_le_of_isPrefixOf h) (Nat.le_succ _)
+
+/-- **No name is a prefix of its own parent.**  The fact that makes the round trip
+unconditional in `q`. -/
+theorem not_isPrefixOf_str {r : Name} {s : String} : ¬ (Name.str r s).isPrefixOf r = true := by
+  intro h
+  have := nameDepth_le_of_isPrefixOf h
+  simp [nameDepth] at this
+  omega
+
+theorem not_isPrefixOf_num {r : Name} {i : Nat} : ¬ (Name.num r i).isPrefixOf r = true := by
+  intro h
+  have := nameDepth_le_of_isPrefixOf h
+  simp [nameDepth] at this
+  omega
+
+/-- `replacePrefix` at the whole name: the outermost test fires. -/
+theorem replacePrefix_self : ∀ (n newP : Name), n.replacePrefix n newP = newP
+  | .anonymous, _ => rfl
+  | .str .., _ => by rw [Lean.Name.replacePrefix]; simp
+  | .num .., _ => by rw [Lean.Name.replacePrefix]; simp
+
+/-- After replacing the prefix `p` by `q`, `q` is a prefix of the result. -/
+theorem isPrefixOf_replacePrefix : ∀ {n p q : Name}, p.isPrefixOf n = true →
+    q.isPrefixOf (n.replacePrefix p q) = true
+  | .anonymous, p, q, h => by
+    rw [Lean.Name.isPrefixOf] at h
+    have : p = .anonymous := eq_of_beq h
+    subst this
+    show q.isPrefixOf q = true
+    exact isPrefixOf_self _
+  | .str n' s, p, q, h => by
+    rw [Lean.Name.replacePrefix]
+    split
+    · exact isPrefixOf_self _
+    · rename_i hne
+      rw [Lean.Name.isPrefixOf, Bool.or_eq_true, beq_iff_eq] at h
+      have h' := h.resolve_left fun h => hne (by simp [h])
+      show (_ || _) = true
+      rw [Bool.or_eq_true]
+      exact .inr (isPrefixOf_replacePrefix h')
+  | .num n' i, p, q, h => by
+    rw [Lean.Name.replacePrefix]
+    split
+    · exact isPrefixOf_self _
+    · rename_i hne
+      rw [Lean.Name.isPrefixOf, Bool.or_eq_true, beq_iff_eq] at h
+      have h' := h.resolve_left fun h => hne (by simp [h])
+      show (_ || _) = true
+      rw [Bool.or_eq_true]
+      exact .inr (isPrefixOf_replacePrefix h')
+
+/-- **The round trip.**  `restoreCtorName` inverts `replaceIfNested`'s renaming whenever the
+member's name really is a prefix of the constructor's — which is `RestoreData.auxCtorPrefix` on
+the auxiliary side and `OccData.srcCtorPrefix` on the source side.
+
+There is **no hypothesis on `q`**: the replacement may be anything, `.anonymous` included. -/
+theorem replacePrefix_replacePrefix : ∀ {n p q : Name}, p.isPrefixOf n = true →
+    (n.replacePrefix p q).replacePrefix q p = n
+  | .anonymous, p, q, h => by
+    rw [Lean.Name.isPrefixOf] at h
+    have : p = .anonymous := eq_of_beq h
+    subst this
+    show Lean.Name.replacePrefix q q .anonymous = .anonymous
+    exact replacePrefix_self ..
+  | .str n' s, p, q, h => by
+    rw [Lean.Name.replacePrefix]
+    split
+    · rename_i he
+      rw [replacePrefix_self]; exact (eq_of_beq he).symm
+    · rename_i hne
+      rw [Lean.Name.isPrefixOf, Bool.or_eq_true, beq_iff_eq] at h
+      have h' := h.resolve_left fun h => hne (by simp [h])
+      show (Lean.Name.str (n'.replacePrefix p q) s).replacePrefix q p = _
+      rw [Lean.Name.replacePrefix]
+      split
+      · rename_i he
+        have hpre := isPrefixOf_replacePrefix (n := n') (p := p) (q := q) h'
+        have hq : Lean.Name.str (n'.replacePrefix p q) s = q := eq_of_beq he
+        have hc : (Lean.Name.str (n'.replacePrefix p q) s).isPrefixOf
+            (n'.replacePrefix p q) = true := by rw [hq]; exact hpre
+        exact absurd hc not_isPrefixOf_str
+      · show Lean.Name.mkStr _ s = _
+        rw [replacePrefix_replacePrefix h']
+  | .num n' i, p, q, h => by
+    rw [Lean.Name.replacePrefix]
+    split
+    · rename_i he
+      rw [replacePrefix_self]; exact (eq_of_beq he).symm
+    · rename_i hne
+      rw [Lean.Name.isPrefixOf, Bool.or_eq_true, beq_iff_eq] at h
+      have h' := h.resolve_left fun h => hne (by simp [h])
+      show (Lean.Name.num (n'.replacePrefix p q) i).replacePrefix q p = _
+      rw [Lean.Name.replacePrefix]
+      split
+      · rename_i he
+        have hpre := isPrefixOf_replacePrefix (n := n') (p := p) (q := q) h'
+        have hq : Lean.Name.num (n'.replacePrefix p q) i = q := eq_of_beq he
+        have hc : (Lean.Name.num (n'.replacePrefix p q) i).isPrefixOf
+            (n'.replacePrefix p q) = true := by rw [hq]; exact hpre
+        exact absurd hc not_isPrefixOf_num
+      · show Lean.Name.mkNum _ i = _
+        rw [replacePrefix_replacePrefix h']
+
+end Name
+
+end Lean4Lean
+
+/-! ## 2. `Expr.getAppFn` through the four operations that build the stored `Expr` -/
+
+namespace Lean.Expr
+
+@[simp] theorem getAppFn_app {f a : Expr} : (Expr.app f a).getAppFn = f.getAppFn := rfl
+
+/-- The head of a spine is the head of its function. -/
+@[simp] theorem getAppFn_mkAppList : ∀ (e : Expr) (l : List Expr),
+    (mkAppList e l).getAppFn = e.getAppFn
+  | _, [] => rfl
+  | e, a :: l => by rw [mkAppList, getAppFn_mkAppList, getAppFn_app]
+
+/-- **`getAppFn` of a `mkAppRange`.**  `replaceIfNested`'s `mkAppRange J 0 I_nparams args`
+(`Add.lean:840`) is headed by `J`.  The two bounds are `replaceIfNested`'s own
+`assert! I_nparams ≤ args.size`. -/
+theorem getAppFn_mkAppRange {e : Expr} {i j : Nat} {args : Array Expr}
+    (hij : i ≤ j) (hj : j ≤ args.size) : (mkAppRange e i j args).getAppFn = e.getAppFn := by
+  have hL : args.toList.length = args.size := by simp
+  rw [Expr.mkAppRange_eq (l₁ := args.toList.take i)
+      (l₂ := (args.toList.drop i).take (j - i)) (l₃ := (args.toList.drop i).drop (j - i))
+      (by rw [List.append_assoc, List.take_append_drop, List.take_append_drop])
+      (by rw [List.length_take]; omega)
+      (by rw [List.length_append, List.length_take, List.length_take, List.length_drop]; omega),
+    getAppFn_mkAppList]
+
+/-- `abstract1` never changes the head constant of a spine. -/
+theorem getAppFn_abstract1 : ∀ (v : FVarId) (e : Expr) (k : Nat) (c : Name) (ls : List Level),
+    e.getAppFn = .const c ls → (Expr.abstract1 v e k).getAppFn = .const c ls
+  | v, .app f a, k, c, ls, h => by
+    rw [show abstract1 v (.app f a) k = .app (abstract1 v f k) (abstract1 v a k) from rfl,
+      getAppFn_app]
+    exact getAppFn_abstract1 v f k c ls h
+  | _, .const .., _, _, _, h => h
+  | _, .bvar .., _, _, _, h => absurd h nofun
+  | _, .fvar .., _, _, _, h => absurd h nofun
+  | _, .mvar .., _, _, _, h => absurd h nofun
+  | _, .sort .., _, _, _, h => absurd h nofun
+  | _, .lam .., _, _, _, h => absurd h nofun
+  | _, .forallE .., _, _, _, h => absurd h nofun
+  | _, .letE .., _, _, _, h => absurd h nofun
+  | _, .lit .., _, _, _, h => absurd h nofun
+  | _, .mdata .., _, _, _, h => absurd h nofun
+  | _, .proj .., _, _, _, h => absurd h nofun
+
+/-- …and neither does `instantiate1'`. -/
+theorem getAppFn_instantiate1' : ∀ (e a : Expr) (k : Nat) (c : Name) (ls : List Level),
+    e.getAppFn = .const c ls → (Expr.instantiate1' e a k).getAppFn = .const c ls
+  | .app f b, a, k, c, ls, h => by
+    rw [show instantiate1' (.app f b) a k
+        = .app (instantiate1' f a k) (instantiate1' b a k) from rfl, getAppFn_app]
+    exact getAppFn_instantiate1' f a k c ls h
+  | .const .., _, _, _, _, h => h
+  | .bvar .., _, _, _, _, h => absurd h nofun
+  | .fvar .., _, _, _, _, h => absurd h nofun
+  | .mvar .., _, _, _, _, h => absurd h nofun
+  | .sort .., _, _, _, _, h => absurd h nofun
+  | .lam .., _, _, _, _, h => absurd h nofun
+  | .forallE .., _, _, _, _, h => absurd h nofun
+  | .letE .., _, _, _, _, h => absurd h nofun
+  | .lit .., _, _, _, _, h => absurd h nofun
+  | .mdata .., _, _, _, _, h => absurd h nofun
+  | .proj .., _, _, _, _, h => absurd h nofun
+
+theorem getAppFn_abstractList : ∀ (e : Expr) (vs : List FVarId) (k : Nat) (c : Name)
+    (ls : List Level), e.getAppFn = .const c ls →
+    (Expr.abstractList e vs k).getAppFn = .const c ls
+  | _, [], _, _, _, h => h
+  | e, v :: vs, k, c, ls, h => by
+    rw [show abstractList e (v :: vs) k = abstractList (abstract1 v e k) vs k from rfl]
+    exact getAppFn_abstractList _ vs k c ls (getAppFn_abstract1 v e k c ls h)
+
+theorem getAppFn_instantiateRevList : ∀ (e : Expr) (as : List Expr) (k : Nat) (c : Name)
+    (ls : List Level), e.getAppFn = .const c ls →
+    (Expr.instantiateRevList e as k).getAppFn = .const c ls
+  | _, [], _, _, _, h => h
+  | e, a :: as, k, c, ls, h => by
+    rw [show instantiateRevList e (a :: as) k
+        = instantiate1' (instantiateRevList e as k) a k from rfl]
+    exact getAppFn_instantiate1' _ a k c ls (getAppFn_instantiateRevList e as k c ls h)
+
+end Lean.Expr
+
+namespace Lean4Lean
+
+/-! ## 3. `presentedHead` from the stored head
+
+`Result.presentedHead` (`NestedRestore.lean` §5) is `restoreNested`'s
+`nested'.withApp fun I …` as a total function; these two lemmas are the only interface `OccData`
+needs to it. -/
+
+namespace ElimNestedInductive.Result
+
+/-- If the stored `Expr` is headed by `.const c ls`, `presentedHead` returns `c`. -/
+theorem presentedHead_eq {r : Result} {n c : Name} {e : Expr} {ls : List Level}
+    (he : r.aux2nested.lookup n = some e) (hfn : e.getAppFn = .const c ls) :
+    r.presentedHead n = c := by
+  rw [presentedHead, he]
+  show (match e.getAppFn with | .const c _ => c | _ => n) = c
+  rw [hfn]
+
+/-- **§3.1: the shape `replaceIfNested` stores has the head it should.**  `Add.lean:840,844`
+push `(replaceParams params (mkAppRange (.const J I_lvls) 0 I_nparams args) As, auxJ_name)` onto
+`nestedAux`, and `replaceParams params e As = (e.abstract As).instantiateRev params`
+(`Add.lean:779-781`).  Modulo the two frozen `Expr.abstract_eq`/`instantiateRev_eq` axioms —
+which is how every other `abstract`/`instantiateRev` fact in `Verify/` is stated — this says the
+stored `Expr`'s `getAppFn` is `.const J I_lvls`, so `OccData.auxHead` is a *consequence* of the
+implementation's own shape, not an extra assumption about it.
+
+Stated over the pure models `abstractList`/`instantiateRevList` so that no side condition is
+needed here; the transfer to `Expr.abstract`/`Expr.instantiateRev` is the axiom pair. -/
+theorem getAppFn_stored {J : Name} {I_lvls : List Level} {np n : Nat} {args : Array Expr}
+    {vs : List FVarId} {params : List Expr} (hnp : np ≤ args.size) :
+    (Expr.instantiateRevList
+        (Expr.abstractList (mkAppRange (.const J I_lvls) 0 np args) vs n) params n).getAppFn
+      = .const J I_lvls :=
+  Expr.getAppFn_instantiateRevList _ _ _ _ _ <|
+    Expr.getAppFn_abstractList _ _ _ _ _ <|
+      Expr.getAppFn_mkAppRange (Nat.zero_le _) hnp
+
+end ElimNestedInductive.Result
+
+/-! ## 4. `OccData`, and the two clauses it closes
+
+Six fields.  Read them against `replaceIfNested` (`Lean4Lean/Inductive/Add.lean:821-860`):
+`auxName` and `auxCtors` are the lockstep between the `nestedAux.push` at `:845` and the
+`newTypes.push` at `:857`; `auxHead` is the `Expr` half of that same push (§3.1); `ctorName` is
+`:855` verbatim; `srcCtorPrefix` is the fact that makes `:855`'s `replacePrefix` a rename;
+`ctorNodup` is the `Nodup` that makes `restoreCtorName`'s lookup find *its own* entry.
+
+**None of the six mentions `TrExprS`, `VEnv`, or any typing judgement**, and all six are
+`Bool`-decidable at a concrete block (§6). -/
+
+namespace ElimNestedInductive.Result
+
+/-- The name-level correspondence between the checker's `Result` and the abstract occurrences,
+at the auxiliary tail. -/
+structure OccData (r : Result) (types : List Lean.InductiveType) (occ : Nat → VNestedOcc) :
+    Prop where
+  /-- `nestedAux.push (JAs', auxJ_name)` and `newTypes.push {name := auxJ_name, …}` happen
+  together (`Add.lean:845,857`), so the `j`-th auxiliary member of `r.types` carries the name
+  the `j`-th occurrence invented. -/
+  auxName : ∀ (j : Nat) t, r.types[j]? = some t → types.length ≤ j → (occ j).auxName = t.name
+  /-- …and `aux2nested` stores at that name an `Expr` headed by the member the occurrence is at.
+  `getAppFn_stored` (§3.1) is why this holds of what `replaceIfNested` pushes. -/
+  auxHead : ∀ (j : Nat) t, r.types[j]? = some t → types.length ≤ j →
+    ∃ e ls, r.aux2nested.lookup t.name = some e ∧ e.getAppFn = .const (occ j).tyName ls
+  /-- `auxJ_ctor_name := J_ctor_name.replacePrefix J_name auxJ_name` (`Add.lean:855`).  Required
+  only **on the source block's own constructors** — `VNestedOcc.ctorName` is a total function and
+  need not be `replacePrefix` off them (`pfnOcc`'s is not). -/
+  ctorName : ∀ (j : Nat), ∀ C ∈ (occ j).src.ctors,
+    (occ j).ctorName C.name = C.name.replacePrefix (occ j).tyName (occ j).auxName
+  /-- **`J`'s constructor names carry `J`'s own name as a prefix.**  Without it `:855`'s
+  `replacePrefix` is the identity and the auxiliary constructor keeps the *source* block's name.
+  Neither this kernel nor the C++ one checks it — see §6.1. -/
+  srcCtorPrefix : ∀ (j : Nat), ∀ C ∈ (occ j).src.ctors,
+    (occ j).tyName.isPrefixOf C.name = true
+  /-- The auxiliary member's constructor list is the source block's, renamed. -/
+  auxCtors : ∀ (j : Nat) t, r.types[j]? = some t → types.length ≤ j →
+    ∀ C ∈ (occ j).src.ctors, ∃ c ∈ t.ctors, c.name = (occ j).ctorName C.name
+  /-- **The auxiliary constructor names are pairwise distinct.**  `RestoreData.auxNodup` gives
+  this for the auxiliary *member* names only, and that is not enough: two members whose names are
+  prefixes of one another could otherwise name the same constructor, and `List.lookup` would
+  return the wrong entry. -/
+  ctorNodup : ((r.ctorRenames types.length).map (·.1)).Nodup
+
+namespace OccData
+variable {r : Result} {types : List Lean.InductiveType} {D : VInductDecl'} {K : List Name}
+  {ls : Nat → List VLevel} {as : Nat → List VExpr} {occ : Nat → VNestedOcc}
+
+/-- **`OccResidue.head`, in general.**  `RestoreData.companions` turns `T.name ∈ K` into
+`types.length ≤ j`, and `auxHead` plus §3's `presentedHead_eq` do the rest. -/
+theorem head (hd : r.OccData types occ) (h : r.RestoreData types D K as)
+    (j : Nat) (T : VIndType) (hT : D.types[j]? = some T) (hK : T.name ∈ K)
+    (t : Lean.InductiveType) (ht : r.types[j]? = some t) :
+    r.presentedHead t.name = (occ j).tyName := by
+  obtain ⟨e, lvls, he, hfn⟩ := hd.auxHead j t ht ((h.companions j T hT).1 hK)
+  exact presentedHead_eq he hfn
+
+/-- The entry of `ctorRenames` that an auxiliary constructor contributes. -/
+theorem mem_ctorRenames {j : Nat} {t : Lean.InductiveType} {c : Lean.Constructor}
+    (ht : r.types[j]? = some t) (hle : types.length ≤ j) (hc : c ∈ t.ctors) :
+    (c.name, c.name.replacePrefix t.name (r.presentedHead t.name))
+      ∈ r.ctorRenames types.length :=
+  List.mem_flatMap.2 ⟨t, getElem?_mem_drop hle ht, List.mem_map.2 ⟨c, hc, rfl⟩⟩
+
+/-- **`OccResidue.ctorName_inv`, in general.**  Three facts meet here: the round trip (§1), the
+head (§4's `head`), and the `Nodup` that makes the lookup find the entry the auxiliary member
+contributed rather than an earlier one. -/
+theorem ctorName_inv (hd : r.OccData types occ) (h : r.RestoreData types D K as)
+    (j : Nat) (T : VIndType) (hT : D.types[j]? = some T) (hK : T.name ∈ K)
+    (C : VIndCtor) (hC : C ∈ (occ j).src.ctors) :
+    (r.mkRestore types D.uvars D.np ls as).ctorName ((occ j).ctorName C.name) = C.name := by
+  obtain ⟨t, ht, -, hle⟩ := h.on hT hK
+  obtain ⟨c, hc, hcn⟩ := hd.auxCtors j t ht hle C hC
+  have hhead : r.presentedHead t.name = (occ j).tyName := hd.head h j T hT hK t ht
+  have haux : (occ j).auxName = t.name := hd.auxName j t ht hle
+  have hcn' : c.name = C.name.replacePrefix (occ j).tyName t.name := by
+    rw [hcn, hd.ctorName j C hC, haux]
+  have hval : c.name.replacePrefix t.name (r.presentedHead t.name) = C.name := by
+    rw [hhead, hcn']
+    exact Name.replacePrefix_replacePrefix (hd.srcCtorPrefix j C hC)
+  show ((r.ctorRenames types.length).lookup ((occ j).ctorName C.name)).getD _ = _
+  rw [← hcn, List.lookup_eq_some_of_nodup hd.ctorNodup
+    (hval ▸ mem_ctorRenames (types := types) ht hle hc)]
+  rfl
+
+end OccData
+end ElimNestedInductive.Result
+
+/-! ## 5. What is left: two clauses
+
+`SemResidue` is `OccResidue` minus the two clauses §4 closes.  Both of its clauses are about
+`env` and the *expression* content of `D`; neither is a name fact.
+
+**A correction, measured.**  `member` has been described — in the handoff this file answers and
+in `NestedRestoreWit.lean` §9 — as "the `TrExprS`-level agreement between `restoreNested`'s
+output and `VIndCtor.typeR`".  It is not at that level.  `Built.member` is
+`T = (occ j).member D.header R`, an equation between two `VIndType`s: `Lean.Name`, `VExpr`,
+`List VExpr`, `List VIndCtor`.  The transitive constant cone of its *type* is 29 declarations and
+contains no `TrExpr`, `TrExprS` or `Lean.Expr` at all — the same measurement that already
+corrected the claim about `VIndRestore.Faithful` (type cone 7, likewise `TrExpr`-free).  At the
+`NFn` block `member` is discharged by `rfl`, i.e. by computation in the abstract term language.
+What `member` genuinely needs in general is that the checker's `Expr`-level rebuild agrees with
+`VNestedOcc.member` *after* translation — so `TrExprS` enters through whatever connects a
+`Result` to a `VInductDecl'`, not through this clause. -/
+
+namespace ElimNestedInductive.Result
+
+/-- The genuinely semantic residue of `VInductDecl'.Built`. -/
+structure SemResidue (types : List Lean.InductiveType) (D : VInductDecl') (K : List Lean.Name)
+    (env : VEnv) (R : VIndRestore) (occ : Nat → VNestedOcc) : Prop where
+  /-- The companion member **is** the value the construction computes. -/
+  member : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K →
+    T = (occ j).member D.header R
+  /-- The environment holds the nested block the occurrence is at. -/
+  occurs : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → (occ j).Occurs env
+
+namespace OccData
+variable {r : Result} {types : List Lean.InductiveType} {D : VInductDecl'} {K : List Name}
+  {ls : Nat → List VLevel} {as : Nat → List VExpr} {occ : Nat → VNestedOcc} {env : VEnv}
+
+/-- **The four-clause residue from the two-clause one.**  `head` and `ctorName_inv` are gone. -/
+theorem occResidue (hd : r.OccData types occ) (h : r.RestoreData types D K as)
+    (hs : SemResidue types D K env (r.mkRestore types D.uvars D.np ls as) occ) :
+    r.OccResidue types D K env (r.mkRestore types D.uvars D.np ls as) occ where
+  member := hs.member
+  occurs := hs.occurs
+  ctorName_inv := fun j T hT hK C hC => hd.ctorName_inv h j T hT hK C hC
+  head := fun j T hT hK t ht => hd.head h j T hT hK t ht
+
+end OccData
+end ElimNestedInductive.Result
+
+/-! ## 7. The nested step, from `RestoreData ∧ OccData ∧ SemResidue` -/
+
+namespace ElimNestedInductive.Result
+
+namespace OccData
+variable {r : Result} {types : List Lean.InductiveType} {D : VInductDecl'} {K : List Name}
+  {ls : Nat → List VLevel} {as : Nat → List VExpr} {occ : Nat → VNestedOcc} {env : VEnv}
+
+/-- **`VInductDecl'.Built` from the two-clause residue.** -/
+theorem mkRestore_built (hd : r.OccData types occ) (h : r.RestoreData types D K as)
+    (hl : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → ls j = (occ j).lvls)
+    (ha : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → as j = (occ j).args)
+    (hs : SemResidue types D K env (r.mkRestore types D.uvars D.np ls as) occ) :
+    D.Built (r.mkRestore types D.uvars D.np ls as) K env occ :=
+  h.mkRestore_built hl ha (hd.occResidue h hs)
+
+/-- **`VIndRestore.Faithful`** — still a theorem, now from two clauses instead of four. -/
+theorem mkRestore_faithful (hd : r.OccData types occ) (h : r.RestoreData types D K as)
+    (hl : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → ls j = (occ j).lvls)
+    (ha : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → as j = (occ j).args)
+    (hs : SemResidue types D K env (r.mkRestore types D.uvars D.np ls as) occ) :
+    (r.mkRestore types D.uvars D.np ls as).Faithful D env K (fun j => (occ j).decl.np) :=
+  (hd.mkRestore_built h hl ha hs).toFaithful
+
+theorem mkRestore_canonical (hd : r.OccData types occ) (h : r.RestoreData types D K as)
+    (hown : D.CanonicalOwn K)
+    (hl : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → ls j = (occ j).lvls)
+    (ha : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → as j = (occ j).args)
+    (hs : SemResidue types D K env (r.mkRestore types D.uvars D.np ls as) occ) :
+    D.Canonical :=
+  (hd.mkRestore_built h hl ha hs).canonical hown
+
+/-- **The whole nested step, from the checker's data plus `member` and `occurs`.** -/
+theorem mkRestore_AddNested {env' : VEnv} (hd : r.OccData types occ)
+    (h : r.RestoreData types D K as) (hwf : D.WF env) (hown : D.CanonicalOwn K)
+    (hl : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → ls j = (occ j).lvls)
+    (ha : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → as j = (occ j).args)
+    (hs : SemResidue types D K env (r.mkRestore types D.uvars D.np ls as) occ)
+    (hadd : env.addInductR D K (r.mkRestore types D.uvars D.np ls as) = some env') :
+    VEnv.AddNested env D K (r.mkRestore types D.uvars D.np ls as)
+      (fun j => (occ j).decl.np) env' :=
+  h.mkRestore_AddNested hwf hown hl ha (hd.occResidue h hs) hadd
+
+/-- …and the packaged premise of `VDecl.WF.inductNested`. -/
+theorem mkRestore_AddNestedStep {env' : VEnv} (hd : r.OccData types occ)
+    (h : r.RestoreData types D K as) (hwf : D.WF env) (hown : D.CanonicalOwn K)
+    (hl : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → ls j = (occ j).lvls)
+    (ha : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → as j = (occ j).args)
+    (hs : SemResidue types D K env (r.mkRestore types D.uvars D.np ls as) occ)
+    (hadd : env.addInductR D K (r.mkRestore types D.uvars D.np ls as) = some env') :
+    VEnv.AddNestedStep env D K (r.mkRestore types D.uvars D.np ls as) env' :=
+  ⟨_, hd.mkRestore_AddNested h hwf hown hl ha hs hadd⟩
+
+end OccData
+end ElimNestedInductive.Result
+
+/-! ## 6. `OccData` at the checker's own data, and the split bounded both ways
+
+The block is `NestedRestoreWit.lean`'s: `NFn` nesting `PFn`, with `nfnResult` the `Result` the
+implementation produces (checked against `run` by execution there, §1.1). -/
+
+namespace NestedWit
+open InductiveDeclExamples ElimNestedInductive
+
+/-- **`OccData` is satisfiable.**  Six fields, all by computation. -/
+theorem nfnResult_occData : nfnResult.OccData [nfnIndType] (fun _ => pfnOcc) where
+  auxName := by
+    rintro (_ | _ | j) t ht hle
+    · exact absurd hle (by simp)
+    · simp only [nfnResult] at ht; cases ht; rfl
+    · simp [nfnResult] at ht
+  auxHead := by
+    rintro (_ | _ | j) t ht hle
+    · exact absurd hle (by simp)
+    · simp only [nfnResult] at ht; cases ht
+      exact ⟨.app (.const ``PFn []) (.const ``NFn []), [], rfl, rfl⟩
+    · simp [nfnResult] at ht
+  ctorName := by
+    intro j C hC
+    simp only [show pfnOcc.src.ctors = [pfnMk] from rfl, List.mem_cons, List.not_mem_nil,
+      or_false] at hC
+    subst hC; decide
+  srcCtorPrefix := by
+    intro j C hC
+    simp only [show pfnOcc.src.ctors = [pfnMk] from rfl, List.mem_cons, List.not_mem_nil,
+      or_false] at hC
+    subst hC; decide
+  auxCtors := by
+    rintro (_ | _ | j) t ht hle C hC
+    · exact absurd hle (by simp)
+    · simp only [nfnResult] at ht; cases ht
+      simp only [show pfnOcc.src.ctors = [pfnMk] from rfl, List.mem_cons, List.not_mem_nil,
+        or_false] at hC
+      subst hC; exact ⟨_, List.mem_cons_self, rfl⟩
+    · simp [nfnResult] at ht
+  ctorNodup := by decide
+
+/-- …and the two clauses §4 closes are the ones §7 of `NestedRestoreWit.lean` discharged by
+hand, so this reproduces `nfnResult_occResidue`'s `head` and `ctorName_inv` by theorem. -/
+theorem nfnResult_occResidue' {env₂ : VEnv} (h : VEnv.empty.addInduct' pfnDecl = some env₂) :
+    nfnResult.OccResidue [nfnIndType] nfnAux nfnK env₂ nfnRestore' (fun _ => pfnOcc) :=
+  nfnResult_occData.occResidue nfnResult_restoreData
+    { member := by
+        rintro (_ | _ | j) T hT hK
+        · cases hT; exact absurd hK (by decide)
+        · cases hT; rfl
+        · simp [nfnAux] at hT
+      occurs := fun _ _ _ _ => pfnOcc_occurs h }
+
+/-! ### 6.1 `OccData` is not slack in `RestoreData`
+
+`nfnResultBadHead` (`NestedRestoreWit.lean` §2.1) satisfies all fourteen `RestoreData` fields and
+all four name-discipline obligations.  It fails `OccData` — at `auxHead`, the one field that
+reads the stored `Expr` — so the six fields are content the fourteen cannot see. -/
+
+theorem nfnResultBadHead_not_occData :
+    ¬ nfnResultBadHead.OccData [nfnIndType] (fun _ => pfnOcc) := by
+  intro hd
+  obtain ⟨e, lvls, he, hfn⟩ := hd.auxHead 1 _ rfl (by simp)
+  rw [show nfnResultBadHead.aux2nested.lookup `_nested.PFn_1
+      = some (.const ``NFn []) from rfl] at he
+  cases he
+  have h1 : (Expr.const ``NFn ([] : List Level)) = .const pfnOcc.tyName lvls := hfn
+  injection h1 with h2 _
+  exact absurd h2 (by decide)
+
+/-! ### 6.2 `occurs` is not slack: `RestoreData` and `OccData` say nothing about `env`
+
+Neither bundle mentions the environment, so both hold verbatim at `VEnv.empty`, where the nested
+block `PFn` has not been declared and `Occurs.ty_const` is false.  This is the lower bound on
+`SemResidue.occurs`. -/
+
+theorem semResidue_not_occurs_empty :
+    ¬ Result.SemResidue [nfnIndType] nfnAux nfnK VEnv.empty nfnRestore' (fun _ => pfnOcc) := by
+  intro hs
+  have ho := hs.occurs 1 _ rfl (by decide)
+  exact absurd ho.ty_const (by simp [VEnv.empty])
+
+/-! ### 6.3 `member` is not slack either
+
+`pfnOccBadTy` perturbs the **source block** `PFn`'s stored type by one universe: `PFn`'s arity
+becomes `Type → Prop` instead of `Type → Type`.  Nothing in `RestoreData` or `OccData` reads
+`(occ j).src.type` — the six `OccData` fields see only `src`'s *constructor names*, `tyName` and
+`auxName`, all of which are unchanged — and the two semantic parameters `nfnLs`/`nfnAs` still
+agree with `pfnOccBadTy.lvls`/`.args`, so `mkRestore_built`'s `hl` and `ha` hold too.  What fails
+is `member`: the companion member the construction computes now has type `Prop`, and
+`nfnAux`'s does not. -/
+
+def pfnTypeBadTy : VIndType := { pfnType with type := .forallE (.sort (.succ .zero)) (.sort .zero) }
+
+def pfnDeclBadTy : VInductDecl' := { pfnDecl with types := [pfnTypeBadTy] }
+
+/-- The occurrence at the perturbed source block: same index, same levels, same spine, same
+names. -/
+def pfnOccBadTy : VNestedOcc := { pfnOcc with decl := pfnDeclBadTy }
+
+example : pfnOccBadTy.tyName = pfnOcc.tyName := rfl
+example : pfnOccBadTy.src.ctors.map (·.name) = pfnOcc.src.ctors.map (·.name) := rfl
+example : pfnOccBadTy.auxName = pfnOcc.auxName := rfl
+example : pfnOccBadTy.lvls = nfnLs 1 := rfl
+example : pfnOccBadTy.args = nfnAs 1 := rfl
+
+/-- `OccData` still holds — it is the same proof, since every field reads only names. -/
+theorem nfnResult_occData_badTy : nfnResult.OccData [nfnIndType] (fun _ => pfnOccBadTy) where
+  auxName := by
+    rintro (_ | _ | j) t ht hle
+    · exact absurd hle (by simp)
+    · simp only [nfnResult] at ht; cases ht; rfl
+    · simp [nfnResult] at ht
+  auxHead := by
+    rintro (_ | _ | j) t ht hle
+    · exact absurd hle (by simp)
+    · simp only [nfnResult] at ht; cases ht
+      exact ⟨.app (.const ``PFn []) (.const ``NFn []), [], rfl, rfl⟩
+    · simp [nfnResult] at ht
+  ctorName := by
+    intro j C hC
+    simp only [show pfnOccBadTy.src.ctors = [pfnMk] from rfl, List.mem_cons, List.not_mem_nil,
+      or_false] at hC
+    subst hC; decide
+  srcCtorPrefix := by
+    intro j C hC
+    simp only [show pfnOccBadTy.src.ctors = [pfnMk] from rfl, List.mem_cons, List.not_mem_nil,
+      or_false] at hC
+    subst hC; decide
+  auxCtors := by
+    rintro (_ | _ | j) t ht hle C hC
+    · exact absurd hle (by simp)
+    · simp only [nfnResult] at ht; cases ht
+      simp only [show pfnOccBadTy.src.ctors = [pfnMk] from rfl, List.mem_cons, List.not_mem_nil,
+        or_false] at hC
+      subst hC; exact ⟨_, List.mem_cons_self, rfl⟩
+    · simp [nfnResult] at ht
+  ctorNodup := by decide
+
+/-- The companion member the construction computes at the perturbed source. -/
+theorem pfnOccBadTy_member_type :
+    (pfnOccBadTy.member nfnAux.header nfnRestore').type = .sort .zero := rfl
+
+/-- **`member` fails**, at any environment. -/
+theorem semResidue_not_member_badTy {env : VEnv} :
+    ¬ Result.SemResidue [nfnIndType] nfnAux nfnK env nfnRestore' (fun _ => pfnOccBadTy) := by
+  intro hs
+  have hm := hs.member 1 _ rfl (by decide)
+  have := congrArg VIndType.type hm
+  rw [pfnOccBadTy_member_type] at this
+  exact absurd this (by simp)
+
+/-- …and so does `Built`, at the same clause. -/
+theorem nfnAux_not_built_badTy {env : VEnv} :
+    ¬ nfnAux.Built nfnRestore' nfnK env (fun _ => pfnOccBadTy) := by
+  intro hb
+  exact semResidue_not_member_badTy ⟨hb.member, hb.occurs⟩
+
+end NestedWit
+
+end Lean4Lean
