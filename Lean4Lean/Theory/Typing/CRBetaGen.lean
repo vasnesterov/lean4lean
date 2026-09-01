@@ -284,6 +284,27 @@ uniqueness then gives `A::Γ ⊢ C.lift ≡ forallE A.lift B₁`.  What is missi
 `IsDefEqU.forallE_inv_stratified` (both of whose sides must already be Π) does not supply it
 either.  The eta route in `ChurchRosser.lean` sidesteps that by strengthening the eta
 conversion instead -- hence the appeal.
+
+### Retracted, 2026-09-01: the appeal is the typing half after all
+
+**The paragraph above analyses one route and mistakes it for the only route.**  It is wrong;
+`Theory/Typing/CRPiDescend.lean` proves it wrong.  Do not take the uniqueness step at all:
+
+* `c1.eta`'s left `hasType` half is `A::Γ ⊢ (A.lam (e.lift.app (bvar 0))).lift : forallE A.lift B₁`
+  -- a typing whose **subject is a lift** and whose type is arbitrary, which is exactly the
+  shape `TypingStrengthening` consumes.  It descends to `Γ ⊢ A.lam (e.lift.app (bvar 0)) : D`.
+* `HasType.lam_inv` then `HasType.lam` re-derive `Γ ⊢ A.lam (e.lift.app (bvar 0)) : forallE A D'`.
+  This Π is **built downstairs from the λ**, with the binder `A` on the nose.  No shape descent
+  happens anywhere.
+* Weakening that and pushing the η-conversion across it with `HasType.defeqU_l` gives
+  `A::Γ ⊢ e.lift : (forallE A D').lift` -- subject *and* type now both lifts -- so
+  `TypingStrengthening.hasType_inv` finishes.
+
+So `hasType_app_bvar0` is a **tenth typing gate**, and the gate-cut table above becomes a
+theorem: `CRPiDescend.lean` §3's `NormalEq.appDF_beta_of_parRedKn_of_typing` is this file's row
+with `(HT : TypingStrengthening env univs)` threaded, and its cone (3914) does **not** contain
+`IsDefEqU.weakN_iff`.  Site 7's `appDF` x `beta` row appeals to the hole in exactly **one** way,
+not two: `TypingStrengthening`, i.e. `PiDescend`.
 -/
 
 end VEnv

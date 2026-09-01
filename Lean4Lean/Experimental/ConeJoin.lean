@@ -124,6 +124,10 @@ import Lean4Lean.Theory.Typing.InjChainLower  -- 2026-09-01: SortChainAt at .bva
 import Lean4Lean.Verify.Inductive.NestedRestore  -- 2026-09-01: VIndRestore from checker data + the _nested name barrier
 import Lean4Lean.Theory.Typing.CRBetaGen  -- 2026-09-01: parRed_beta with the argument mismatch absorbed; ChurchRosser:1438's NormalEq.trans removed
 import Lean4Lean.Theory.SetModel.PropUpFits  -- 2026-09-01: ModelFits from InstDescendUp; the relation slot discharged for the lift-closed split
+import Lean4Lean.Theory.Typing.InjPiInhab  -- 2026-09-01: ConvCStrengthen retired as unnecessary; ConvStep2 from the two .bvar 0 residuals alone
+import Lean4Lean.Theory.Typing.CRPiDescend  -- 2026-09-01: hasType_app_bvar0 from TypingStrengthening alone; site 7's appDF x beta row is weakN_iff-free
+import Lean4Lean.Theory.Inductive.NestedTele  -- 2026-09-01: the motive-entry vacuity above np=0 and its general-Gamma repair
+import Lean4Lean.Verify.Inductive.NestedRestoreWit  -- 2026-09-01: RestoreData satisfied; AddNested + InductStepNested at mkRestore
 
 /-!
 # Acceptance test: the `PatternRules` cone and the `Verify/` cone join

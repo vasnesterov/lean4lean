@@ -66,25 +66,32 @@ private def convGates : List Name :=
 run_cmd do
   let env ← getEnv
   let hole := ``Lean4Lean.VEnv.IsDefEqU.weakN_iff
+  -- INTERNAL names are pass-through nodes in the graph; excluding them truncated every walk at
+  -- an equation-compiler companion, and one (`NormalEq.trans._unary`) sits on a live path to
+  -- this very hole.  See the long note in `scripts/sorry-census.lean`.  Fixed 2026-09-01.
+  -- `names` (counted and printed) stays non-internal.
   let mut names : Array Name := #[]
+  let mut graphNames : Array Name := #[]
   let mut direct : Std.HashMap Name NameSet := {}
   for (n, _) in env.constants.toList do
-    if n.isInternal then continue
     unless (`Lean4Lean).isPrefixOf n do continue
-    names := names.push n
+    graphNames := graphNames.push n
     direct := direct.insert n (depsOf env n)
+    unless n.isInternal do names := names.push n
   -- reverse reachability, optionally with a set of nodes that do not propagate
   let reach (cut : NameSet) : NameSet := Id.run do
     let mut hit : NameSet := ({} : NameSet).insert hole
     let mut changed := true
     while changed do
       changed := false
-      for n in names do
+      for n in graphNames do
         if hit.contains n then continue
         if (direct.getD n {}).any fun d => hit.contains d && !cut.contains d then
           hit := hit.insert n
           changed := true
-    return hit
+    -- report only non-internal reachers
+    return names.foldl (fun acc n => if hit.contains n then acc.insert n else acc)
+      (({} : NameSet).insert hole)
   let gateSet : NameSet := typingGates.foldl (fun s n => s.insert n) {}
   let all := reach {}
   let conv := reach gateSet
