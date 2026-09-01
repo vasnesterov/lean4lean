@@ -4,8 +4,9 @@ import Lean4Lean.Theory.Typing.SortUniqFacts
 /-!
 # `NormalEq.descend` is false
 
-`Theory/Typing/ChurchRosser.lean`'s `NormalEq.descend` carries **three** `sorry`s (at `:2074`,
-`:2079`, `:2094`; this file said "five" in three places, measured stale 2026-08-31) and its own
+`Theory/Typing/ChurchRosser.lean`'s `NormalEq.descend` carries **three** `sorry`s (all three in
+its `.app`-node case, in the `appDF` x `app` branch; this file said "five" in three places,
+measured stale 2026-08-31) and its own
 inventory says of them: *"every one of them waits on a hypothesis -- there is no remaining
 case that is merely unproved.  None of their goals is known false."*  **Three of the five
 goals are false**, and this file exhibits a machine-checked witness for each.
@@ -18,16 +19,18 @@ branches, which all assert something about an *argument position* of an `.app` n
 asserting it of a pattern nobody registered.  Each of the three is refuted by a term that is
 `NormalEq` to a matching term, does not reduce to one, and is not a proof:
 
-| `sorry` | `ChurchRosser.lean` | branch | witness |
+| `sorry` | position | witness | shape |
 |---|---|---|---|
-| E5, argument is a proof | `:2074` | `not_descendStatement` | `C h` vs `C D` |
-| E5, argument eta-expanded | `:2079` | `not_descendStatement_etaArg` | `F (fun x => E x)` vs `F E` |
-| E5, function eta-expanded | `:2094` | `not_descendStatement_etaFun` | `(fun x => C h) D` vs `C D` |
+| E5, argument is a proof | 1st of the three | `not_descendStatement` | `C h` vs `C D` |
+| E5, argument eta-expanded | 2nd | `not_descendStatement_etaArg` | `F (fun x => E x)` vs `F E` |
+| E5, function eta-expanded | 3rd | `not_descendStatement_etaFun` | `(fun x => C h) D` vs `C D` |
 
-(Those three line numbers are the `sorry`s' current positions, re-measured 2026-09-01.  This
-table previously read `:1799` / `:1784` / `:1779`, which were stale by some 290 lines -- the
-same drift the paragraph above flags for the *count*.  The three docstrings on the refutations
-themselves carried the same stale numbers and are corrected too.)
+**Deliberately no line numbers.**  This table has now been stale twice: it read `:1799`/`:1784`/
+`:1779` (off by ~290 lines), was corrected to `:2074`/`:2079`/`:2094` on 2026-09-01, and those
+went stale **within one commit** when prose was inserted higher up the same file.  A `sorry`'s
+line number in a 2500-line file is not a durable citation; its *branch* is.  All three are in
+`NormalEq.descend`'s `.app`-node case, in the `cases hm` / `app` branch, distinguished by which
+recursive call returns `.inr`.  See `docs/handoff-confluence.md` §7.
 
 The remaining two -- the "E3" branches, where the *function* side is a proof -- are **not**
 refuted, and `NormalEq.appDF_proof_escape` at the end of this file closes them from
@@ -426,15 +429,15 @@ def DescendStatement (I : VEnv.Params) : Prop :=
 theorem descendStatement_holds {I : VEnv.Params} : DescendStatement I :=
   @VEnv.NormalEq.descend I
 
-/-- **The refutation, at witness A** (`ChurchRosser.lean:2074`, "an argument position that is
-a proof never matches `q₂`"). -/
+/-- **The refutation, at witness A** (`descend`'s `.app`-node case, "an argument position that
+is a proof never matches `q₂`"). -/
 theorem not_descendStatement (hsu : refEnv.SortUniq 0) (huq : refEnv.UniqTyping 0) :
     ¬ DescendStatement refParams := by
   intro H
   obtain ⟨n1, n2, hm⟩ := refMatches
   exact refNoDescentOut hsu huq (H _ (Nat.le_refl _) refEnv_hΓ refNormalEq hm)
 
-/-- **The refutation, at witness B** (`ChurchRosser.lean:2079`, "an argument position that
+/-- **The refutation, at witness B** (`descend`'s `.app`-node case, "an argument position that
 eta-expanded never matches `q₂`"). -/
 theorem not_descendStatement_etaArg (hsu : refEnv.SortUniq 0) (huq : refEnv.UniqTyping 0) :
     ¬ DescendStatement refParams := by
@@ -442,7 +445,7 @@ theorem not_descendStatement_etaArg (hsu : refEnv.SortUniq 0) (huq : refEnv.Uniq
   obtain ⟨n1, n2, hm⟩ := refMatches2
   exact refNoDescentOut2 hsu huq (H _ (Nat.le_refl _) refEnv_hΓ refNormalEq2 hm)
 
-/-- **The refutation, at witness C** (`ChurchRosser.lean:2094`, "the function side
+/-- **The refutation, at witness C** (`descend`'s `.app`-node case, "the function side
 eta-expanded at an `.app` node"). -/
 theorem not_descendStatement_etaFun (hsu : refEnv.SortUniq 0) (huq : refEnv.UniqTyping 0) :
     ¬ DescendStatement refParams := by
