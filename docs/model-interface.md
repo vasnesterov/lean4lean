@@ -23,6 +23,40 @@
 > Everything below predates all of that. Read it for the construction, not for the
 > ledger.
 
+> **UPDATE (2026-09-01, machine-checked, sorry-free).** Two model-side items moved, and
+> **neither is the `PropSplit env 0` with `Stable` that this document tracks** — that one is
+> untouched and is now the *only* thing left between the recursion and `CoherentOn` at the
+> one list where everything else is discharged.
+>
+> **1. Input A is gone.** `Theory/SetModel/ModelExists.lean`'s `modelExistsInput` proves
+> `InaccChainOmega.ModelExistsInput` from Foundation — `Theory.small_satisfiable_of_consistent`
+> (which is `Satisfiable.{0}` for `ℒₛₑₜ : Language.{0}`, so the model lands in `Type 0` with
+> no `ULift`), `QuotNormalize` to make `=` real, and `𝗘𝗤 ℒₛₑₜ ⊆ 𝗭𝗙𝗖+𝗜𝗻𝗮𝗰𝗰` to form it. Hence
+> `inaccModelInput : InaccModelInput` is a theorem and
+> `upper_bound_of_modelFits (hB : ModelFitsLeanInput) : Consistent 𝗭𝗙𝗖+𝗜𝗻𝗮𝗰𝗰 →
+> leanTTConsistent` — the whole model side on **one** input. Bounded both ways:
+> `consistent_of_setModel` (soundness converse) makes the consistency-free form of the input
+> *equivalent* to `Consistent 𝗭𝗙𝗖+𝗜𝗻𝗮𝗰𝗰`, and `not_forall_model_false` is the Row-24 check
+> that the class of models it binds over is inhabited rather than empty.
+>
+> **2. The `.induct` residual has a positive witness at a `WF`, reachable block.**
+> `Theory/SetModel/InductOracleWitness.lean`'s `inductOracleOK_zero` proves **both** fields
+> of `InductOracleOK` at `InductOracleAudit.lean`'s `boxDecl`
+> (`inductive Box (e : Ext) : Prop | mk`, `VInductDecl'.WF` over `extEnv`, on the certified
+> history `boxDecl_history`), and `oracleFits_zero` extends it to the whole list. So
+> `coherentOn_zero` gives `CoherentOn` there with **no oracle obligation left** — the
+> remaining hypotheses are exactly `L.Stable`, `CtxInvariant` and `env ≤ envF`. Read the
+> bound with its limitation: the oracle is `fun _ _ ↦ ∅`, making `axiom Ext : Prop` false in
+> the model, so every declared type is a `∀` over an **empty** domain. What is still open is
+> `consts` at a `WF` block whose parameter and index domains are *inhabited*.
+>
+> The three enabling lemmas are worth reusing and carry **no typing hypotheses**:
+> `mkLam_eq_empty_of_empty`, `interp_lam_of_empty_dom` (`⟦λ x : A, b⟧ = pt` when `⟦A⟧ = ∅`)
+> and `pt_mem_interp_forallE_of_empty_dom` (`pt ∈ ⟦∀ x : A, B⟧` when `⟦A⟧ = ∅`). Both
+> branches of each `interp` clause are taken directly, because `L.IsProof` / `L.IsProp` are
+> decidable syntactic predicates; and `pt = ∅` (`Universe.lean:53`) makes the propositional
+> witness and the empty function the same element, so no case split leaks outward.
+
 # The syntax ↔ set-theory boundary
 
 Specification of the interface between `Lean4Lean/Theory/` (the abstract syntax
@@ -1142,4 +1176,7 @@ Nothing else on the set-theoretic side is outstanding.
 | `SetModel/FalseProp.lean` | `interp_falseProp` (`⟦∀ p : Prop, p⟧ ∅ = ∅`, branch-independent), `falseProp_above_false`, the non-vacuity instances |
 | `SetModel/CtorTransExamples.lean` | the translation applied to `Acc`, `W'`, `Forest'.cons`; the `IsSubsingletonSignature₃` instance and `accSig_wf` |
 | `SetModel/Cnst.lean` | `cnstOf`, `oracleExtend`, `CoherentOn` and its `addConst`/`addDefEq`/`addConstList` steps |
+| `SetModel/InaccChainOmega.lean` | `inaccSeq`, `exists_inaccessibleChain_omega` (one `κ` for every finite length), `ModelExistsInput` |
+| `SetModel/ModelExists.lean` | `modelExistsInput` / `inaccModelInput` — **Input A discharged**; `upper_bound_of_modelFits`; `ZFCInaccModel`; the two-way bounds |
+| `SetModel/InductOracleWitness.lean` | the empty-domain `λ`/`∀` lemmas; `zeroOracle`; `inductOracleOK_zero`, `oracleFits_zero`, `coherentOn_zero` — the `.induct` residual's positive bound at a `WF` block |
 | `docs/foundation-gaps.md` | what Foundation is missing, and the `isDefEq` hazard |

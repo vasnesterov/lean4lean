@@ -2923,6 +2923,17 @@ duplicates are retired. `SetModel/InductOracleAudit.lean` keeps the refutation o
 deleted field and the field-by-field bounds on the surviving two; see
 `docs/vacuity-ledger.md` rows 11 and 11a.
 
+**A hazard any bound on this residual has to clear.** `Above M P` is
+`∃ m, IsInaccessibleChain m M.κ → P` (`InterpSound.lean:696`), and *every* field of
+`OracleOK`, `QuotOracleOK`, `InductOracleOK` and `DefEqOK` is an `Above`. So all of them are
+**trivially true at any `κ` that is not an inaccessible chain of every finite length** —
+`m = 2` with a constant `κ`, refuted by `InaccChainOmega.not_isInaccessibleChain_const`.
+A "the residual is satisfiable" claim stated through the wrapper therefore measures nothing
+unless it factors through `Above.pure`; conversely the refutations all take
+`hκ : ∀ m, IsInaccessibleChain m κ` for exactly this reason. Every witness below is
+`Above.pure`, and `InductOracleWitness.mem_interp_consts_zero` / `defEq_rules_zero` state
+the obligations with the wrapper stripped, at an arbitrary `κ`, as the check.
+
 Boundary control on the residual, both sorry-free, both in the same file:
 
 * `not_oracleOK_falseProp` / `not_inductOracleOK_falseProp` — `InductOracleOK` is
@@ -2932,6 +2943,26 @@ Boundary control on the residual, both sorry-free, both in the same file:
   that a declared type *be* a type, never that it be inhabited.
 * `inductOracleOK_empty` — `InductOracleOK` **holds** for a block with no type
   formers, so the residual is not plainly false either.
+* **And now at a `WF`, reachable block** — `SetModel/InductOracleWitness.lean`'s
+  `inductOracleOK_zero : InductOracleOK L κ ls (zeroOracle V) (zeroOracle V) boxDecl`,
+  with **both** fields proved, at the block `InductOracleAudit.lean` certifies as
+  `VInductDecl'.WF` over `extEnv` on the two-declaration history `boxDecl_history`. This
+  closes `InductOracleAudit.lean` §5's open `consts` cell (and the `rules` cell), which had
+  only entries at blocks that are *not* `VInductDecl'.WF`. `oracleFits_zero` extends it to
+  the whole list `[.induct boxDecl, .axiom extAx]`, so `coherentOn_zero` produces
+  `CoherentOn` at the block's environment with **no oracle obligation left** — the only
+  remaining hypotheses are `L.Stable`, `CtxInvariant` and `env ≤ envF`, i.e. the *other*
+  open model-side item. Read the bound with its stated limitation: the oracle is
+  `fun _ _ ↦ ∅`, which makes `axiom Ext : Prop` **false** in the model, so every declared
+  type is a `∀` over an **empty** domain (`interp_param_zero_eq_empty`). What is therefore
+  still open is sharper than before: `consts` at a `WF` block all of whose parameter and
+  index domains are *inhabited* — `inductive Unit1 : Prop | mk` is the smallest, and its
+  recursor needs a real `mkLam`, i.e. `IndInterp.lean`'s work. The three enabling lemmas
+  (`mkLam_eq_empty_of_empty`, `interp_lam_of_empty_dom`,
+  `pt_mem_interp_forallE_of_empty_dom`) carry **no typing hypotheses at all**: `interp`'s
+  `lam`/`forallE` clauses branch on the decidable syntactic `L.IsProof` / `L.IsProp`, so
+  both branches are taken directly, and `pt = ∅` makes the propositional witness and the
+  empty function the same element.
 
 ### H2 after this: a reduction, not a closure
 
@@ -2953,7 +2984,22 @@ are open, and they are **not** the same thing as the residual:
   which by leastness are *all* the inaccessibles that far up (`inaccSeq_spec`). Hence
   `inaccModelInput_of_modelExists : ModelExistsInput → InaccModelInput`, and what is left
   of Input A is `ModelExistsInput` — **pure model existence, chain-free**, i.e. Foundation
-  glue, still not applied here.
+  glue. **That glue has now been applied, and Input A is discharged outright.**
+  `SetModel/ModelExists.lean`'s `modelExistsInput : ModelExistsInput` is a proof, hence
+  `inaccModelInput : InaccModelInput` is a *theorem*, not a hypothesis. The three steps:
+  `Theory.small_satisfiable_of_consistent` is `Satisfiable.{0}` for `ℒₛₑₜ : Language.{0}`,
+  so `satisfiable_iff` returns a model in `Type 0` — exactly the `V : Type` the downstream
+  statement quantifies over, with no `ULift` needed or available; that model is a bare
+  `Structure ℒₛₑₜ`, whose `=` is an arbitrary congruence, so `QuotNormalize` quotients by
+  it (universe-preserving, `SetStructure`, `Nonempty`, elementarily equivalent); and forming
+  `QuotNormalize` needs `M ⊧* 𝗘𝗤 ℒₛₑₜ`, which is *not* automatic for a bare structure and
+  comes from `𝗘𝗤 ℒₛₑₜ ⊆ 𝗭𝗙 ⊆ 𝗭𝗙𝗖 ⊆ 𝗭𝗙𝗖+𝗜𝗻𝗮𝗰𝗰` (`eq_subset_zfcInacc`). Bounds both ways:
+  `consistent_of_setModel` is the soundness converse, so `modelExists_iff_consistent` says
+  the consistency-free form of the input is *equivalent* to `Consistent 𝗭𝗙𝗖+𝗜𝗻𝗮𝗰𝗰` —
+  nothing weaker would have sufficed, nothing stronger was used — and
+  `not_forall_model_false` is the Row-24 non-vacuity check: under consistency the class of
+  models the input binds over is **inhabited**, so the premise `∀ V …, P` is not satisfied
+  for free. `ZFCInaccModel` names the model for consumers that want to fix one.
 * ~~`ModelFitsInput`~~ — **FALSE, and replaced.** `SetModel/ModelFitsVacuous.lean`'s
   `not_modelFitsInput (hA : InaccModelInput) (hc : Consistent 𝗭𝗙𝗖+𝗜𝗻𝗮𝗰𝗰) : ¬ ModelFitsInput`
   witnesses `docs/vacuity-ledger.md` row 11b, which had named that statement without
@@ -2976,18 +3022,23 @@ are open, and they are **not** the same thing as the residual:
   `leanTTConsistent_of_lean` / `upper_bound_of_lean` re-run the reduction. With Input A's
   chain half discharged as above, `upper_bound_of_omega : ModelExistsInput →
   ModelFitsLeanInput → Consistent 𝗭𝗙𝗖+𝗜𝗻𝗮𝗰𝗰 → leanTTConsistent` is the whole model-side
-  reduction on **two** inputs. The `.axiom` refutation route is closed not just at that one
+  reduction on **two** inputs — and now, with `modelExistsInput` proved,
+  `ModelExists.upper_bound_of_modelFits (hB : ModelFitsLeanInput) : Consistent 𝗭𝗙𝗖+𝗜𝗻𝗮𝗰𝗰 →
+  leanTTConsistent` is that reduction on **one**. The `.axiom` refutation route is closed not just at that one
   witness but in general — `axiom_mem_pureOverPrelude`: every `.axiom` in a Lean history is
   one of `propext`, `Classical.choice`, `Quot.sound` — and the narrowing is not a
   trivialisation: `pureOverPrelude_prelude` holds and the prelude carries three `.induct`
   steps, so the residual survives unchanged.
 
 **No joint witness for the whole hypothesis set has been exhibited**, and
-`ModelFitsLeanInput` is **not** shown satisfiable — its two known unknowns are untouched by
-the narrowing: the `PropSplit env 0` with `Stable` (`docs/model-interface.md`'s standing
-label; nothing in the tree exhibits one) and, since `.axiom` can no longer refute it, an
-`.induct` step at some `VInductDecl'.WF` block with an uninhabited declared constant, which
-is exactly `InductOracleAudit.lean` §5's open `consts` bound. The claim here is exactly:
+`ModelFitsLeanInput` is **not** shown satisfiable — the model-side reduction now rests on
+that one input. Of its two known unknowns, one is untouched and one has moved: the
+`PropSplit env 0` with `Stable` is untouched (`docs/model-interface.md`'s standing label;
+nothing in the tree exhibits one), and the `.induct` route — an `.induct` step at some
+`VInductDecl'.WF` block with an uninhabited declared constant, `InductOracleAudit.lean`
+§5's open `consts` bound — now has a positive witness at *one* `WF` block
+(`inductOracleOK_zero`), which narrows the open question to `WF` blocks whose parameter and
+index domains are inhabited but does not close it. The claim here is exactly:
 every `VDecl` case of the recursion is discharged or refuted outright; Input A's chain half
 is proved; Input B as previously stated is false and has been replaced by one that the
 target actually needs.

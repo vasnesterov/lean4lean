@@ -117,6 +117,8 @@ import Lean4Lean.Theory.Typing.KKetaRow  -- 2026-09-01: ParRedK graded by redex 
 import Lean4Lean.Verify.Typing.ProjInhab  -- 2026-09-01: uninhabited-prop existence IS VEnv.Consistent; first positive instance of the residual
 import Lean4Lean.Theory.Typing.ParRedKGraded  -- 2026-09-01: eight non-keta rows graded; AppKetaRow DISCHARGED -- site 7 for ParRedK from WeakNInvDS alone
 import Lean4Lean.Theory.Typing.InjMidLocal  -- 2026-09-01: the two costly midpoint heads re-priced at localised residuals
+import Lean4Lean.Theory.SetModel.ModelExists  -- 2026-09-01: Input A DISCHARGED -- ModelExistsInput is a theorem
+import Lean4Lean.Theory.SetModel.InductOracleWitness  -- 2026-09-01: the .induct residual satisfied at a WF, reachable block
 
 /-!
 # Acceptance test: the `PatternRules` cone and the `Verify/` cone join

@@ -308,21 +308,27 @@ field that is false, so record the two remaining fields separately.
 
 | field | not trivially true | satisfiable |
 |---|---|---|
-| `consts` | `not_inductOracleOK_falseProp` (`CnstRecursion.lean`) — a block declaring a constant of type `∀ p : Prop, p` | **open at a `WF` block**; free at any block with no type formers (`inductOracleOK_empty`, `empty_block_allConsts`) |
-| `rules` | open — no ι-rule of a `WF` block is known to be refutable | free at any block whose types have no constructors (`iotaRules_eq_nil`) |
+| `consts` | `not_inductOracleOK_falseProp` (`CnstRecursion.lean`) — a block declaring a constant of type `∀ p : Prop, p` | **`inductOracleOK_zero`** at `boxDecl` (`SetModel/InductOracleWitness.lean`), a `WF` block on a certified history; also free at any block with no type formers (`inductOracleOK_empty`, `empty_block_allConsts`) |
+| `rules` | open — no ι-rule of a `WF` block is known to be refutable | **`inductOracleOK_zero`** at `boxDecl`'s one ι-rule; also free at any block whose types have no constructors (`iotaRules_eq_nil`) |
 
-Both entries in the "not trivially true" column and the `inductOracleOK_empty` entry are
-at blocks that are **not `VInductDecl'.WF`**: `types_ne` forbids the type-former-free
-block, and no well-formed block declares a constant of type `∀ p : Prop, p` (a type
-former's stored type ends in a sort, a constructor's in an application of a type former,
-and a recursor's in a motive application; `.bvar 0` is none of those).  So the pair is a
-sanity check on the *statement* of the residual, not a measurement at a reachable block —
-the same weakness row 11a flagged, now recorded rather than repaired.
+**Update 2026-09-01: the "at a `WF` block" gap in the right-hand column is closed.**  Both
+entries in the "not trivially true" column, and `inductOracleOK_empty`, are still at blocks
+that are **not `VInductDecl'.WF`**: `types_ne` forbids the type-former-free block, and no
+well-formed block declares a constant of type `∀ p : Prop, p` (a type former's stored type
+ends in a sort, a constructor's in an application of a type former, and a recursor's in a
+motive application; `.bvar 0` is none of those).  That was the weakness row 11a flagged.
+`SetModel/InductOracleWitness.lean` repairs the positive side of it at `boxDecl` — **both**
+fields, plus `OracleFits` for the whole two-declaration list (`oracleFits_zero`), which
+makes `coherentOn_boxDecl_history_of` below hypothesis-free on its inhabitation arguments
+(`coherentOn_zero`).
 
-`boxDecl` is the natural candidate for a bound at a `WF`, reachable block, and it needs
-real model work: `boxDecl.iotaRules` has exactly one rule (one constructor), and `consts`
-asks for elements of `⟦∀ e : Ext, Prop⟧`, `⟦∀ e : Ext, Box e⟧` and `⟦Box.rec's type⟧`.
-That is `SetModel/IndInterp.lean`'s job, not this file's. -/
+Read that witness with its limitation, which the file states: the oracle is `fun _ _ ↦ ∅`,
+so `axiom Ext : Prop` is **false** in the model and every declared type is a `∀` over an
+**empty** domain — the obligations are met over nothing.  So `boxDecl` no longer bounds the
+question, but it does not exercise it either.  What remains open is one step sharper:
+`consts` at a `WF` block whose parameter and index domains are **inhabited**, where the
+recursor really needs an element of `⟦Box.rec's type⟧`.  `inductive Unit1 : Prop | mk` is
+the smallest such block, and that is `SetModel/IndInterp.lean`'s job, not this file's. -/
 
 /-- Row 11a, machine-checked: the old positive bound's block declares nothing, so its
 `staged` field was `StagedOcc env []`, i.e. `True`. -/

@@ -1,4 +1,8 @@
 import Lean4Lean.Theory.Inductive.RestoreBridge
+-- 2026-09-01: for `VEnv.IsDefEq.betaMkLams` / `mkAppDF` / `HasArgs.toDF`, the multi-β
+-- judgement §8.8 closes the β-gap with.  StructureClosed imports only Lemmas/RecApp/
+-- Structure, so this adds no cycle through the nested cone.
+import Lean4Lean.Theory.Inductive.StructureClosed
 
 /-!
 # Part 7: the (B) and (C) bridges — the full restoration as one substitution
@@ -1106,4 +1110,475 @@ theorem ntree_not_tyArgs_closed0 : ¬ (∀ i, ∀ a ∈ ntreeRestore.tyArgs i, a
 
 end InductiveDeclExamples
 
+end Lean4Lean
+
+/-! # §8 `(R.csubst D K).WF` — the shared remainder, derived down to one clause
+
+§7 closes obligations (A), (B) and (C) for a parameterless nested block *given* a
+`CSubst.WF` for the restoration, which was previously supplied only per-witness
+(`Theory/Typing/ConstSubstNested.lean`'s `nfnSubst_WF`, a `CSubst.one`).  This section
+derives it in general, and isolates what cannot be derived.
+
+**First, a correction to how the remainder is usually described.**  It is *not* one statement
+shared by the three obligations.  Reading the three signatures:
+
+* `VEnv.ctorConstsCR_wf_of_np_zero'` takes `(R.csubstTy D K).WF env₃ e₁ D.uvars` — the
+  **type-only** substitution;
+* `VEnv.recConstsR_wf_of_np_zero` takes `(R.csubst D K).WF E₂ e₂ D.recUvars`;
+* `VEnv.iotaRulesRS_wf_of_np_zero` takes `(R.csubst D K).WF E₃ e₃ df.uvars` for each rule.
+
+`csubstTy` and `csubst` are different substitutions with different domains — `csubst` also
+replaces the companion members' **constructor** and **recursor** names — so (A)'s hypothesis is
+strictly weaker than (B)'s and (C)'s, and the three sit at three different environment pairs.
+
+**Second, the dependency runs one way.**  `VIndRestore.substC_ctorType_csubst_eq_csubstTy`
+below shows that on a *declared* constructor's stored type the two substitutions agree, so the
+`const` clause of `(R.csubst D K).WF E₂ e₂` reduces to **obligation (A)'s own bridge equation**
+(`hbridge` of `csubst_WF_const`).  (B) and (C) therefore do not sit "at (A)'s reach": their
+hypothesis *contains* (A)'s conclusion.  `csubst_WF` additionally needs `e₂.Ordered`, which is
+what `addConstList_ordered` gives once (A) has been discharged.  So closing the β-gap is
+necessary for all three but sufficient for none of (B), (C) on its own.
+
+**Third, three of the four `CSubst.WF` fields are derivable and the fourth is not.**
+`closed` is `csubst_closed`; `const` and `defeq` are `csubst_WF_const` / `csubst_WF_defeq`,
+from `Ordered.noCSubst` plus freshness that the staging successes already give
+(`csubst_freshIn`).  `val` is not: `csubst_val_cases` reduces it to two `HasType` obligations,
+`tyVal_hasType_of_faithful` reduces the first to `hsplit` + `hargs`, and
+`instAt_indep_of_tyArgs` shows `Faithful` cannot supply `hargs` — see its docstring. -/
+
+namespace Lean4Lean
+
+/-- **Two constant substitutions agreeing on every constant an expression mentions give the
+same result.**  `δ` witnesses the disagreement set: wherever `δ` is undefined the two agree,
+and `e` mentions nothing in `δ`'s domain. -/
+theorem VExpr.substC_congr {σ₁ σ₂ δ : CSubst} (hδ : ∀ c, δ c = none → σ₁ c = σ₂ c) :
+    ∀ {e : VExpr}, e.NoCSubst δ → e.substC σ₁ = e.substC σ₂
+  | .bvar _, _ | .sort _, _ => rfl
+  | .const c _, h => by rw [substC, substC, hδ c h]
+  | .app .., h | .lam .., h | .forallE .., h => by
+    simp [substC, substC_congr hδ h.1, substC_congr hδ h.2]
+
+namespace VIndRestore
+variable {R : VIndRestore} {D : VInductDecl'} {K : List Name}
+variable {env E₁ E₂ E₃ e₁ e₂ : VEnv} {n : Name}
+
+/-! ## §8.1 Freshness, from the staging successes
+
+`csubst`'s domain is the block's own type, constructor and recursor names at the companion
+members.  `addConst` fails on a duplicate, so the three staging successes — the auxiliary block
+declared as an ordinary block, which is exactly what `ElimNestedInductive` really does — say
+every one of those names was fresh in the history.  No new side condition. -/
+
+theorem csubst_freshIn
+    (h₁ : env.addIndTypes D = some E₁) (h₂ : E₁.addIndCtors D = some E₂)
+    (h₃ : E₂.addIndRecs D = some E₃) : (R.csubst D K).FreshIn env := by
+  intro c ci hc
+  cases hn : R.csubst D K c with
+  | none => rfl
+  | some v =>
+    have le₁ : env ≤ E₁ := VEnv.addConstList_le h₁
+    obtain ⟨j, T, hT, hK, ⟨he, -⟩ | ⟨he, -⟩ | ⟨C, hC, he, -⟩⟩ := csubst_dom hn
+    · subst he
+      have := (VEnv.addConstList_fresh h₁).1 T.name (by
+        rw [VInductDecl'.typeConsts_names]
+        exact List.mem_map.2 ⟨_, List.mem_of_getElem? hT, rfl⟩)
+      rw [this] at hc; exact absurd hc nofun
+    · subst he
+      have := (VEnv.addConstList_fresh h₃).1 (Lean.mkRecName T.name) (by
+        rw [D.recConsts_names]; exact List.mem_map.2 ⟨_, List.mem_of_getElem? hT, rfl⟩)
+      rw [(VEnv.addConstList_le h₂).constants (le₁.constants hc)] at this
+      exact absurd this nofun
+    · subst he
+      have := (VEnv.addConstList_fresh h₂).1 C.name (by
+        rw [D.ctorConsts_names]
+        exact List.mem_map.2 ⟨(j, C), VInductDecl'.mem_ctorsAll_of hT hC, rfl⟩)
+      rw [le₁.constants hc] at this; exact absurd this nofun
+
+/-! ## §8.2 `csubst` versus `csubstTy`
+
+The extra domain — the companion members' constructor and recursor names — is what makes (A)'s
+hypothesis weaker than (B)'s.  It is also invisible to anything the block *declares*, and that
+is a theorem rather than a side condition: a constructor's stored type is checked in the
+environment carrying only the block's **types**, where the constructor and recursor names are
+all still fresh. -/
+
+/-- The part of `csubst` that `csubstTy` does not carry. -/
+def csubstCR (R : VIndRestore) (D : VInductDecl') (K : List Name) : CSubst :=
+  fun n => match R.csubstTy D K n with
+    | some _ => none
+    | none => R.csubst D K n
+
+theorem csubst_eq_csubstTy_of_csubstCR_none (hdn : R.DomNodup D K)
+    (c : Name) (h : R.csubstCR D K c = none) : R.csubst D K c = R.csubstTy D K c := by
+  unfold csubstCR at h
+  split at h
+  case h_1 t hTy =>
+    rw [hTy]
+    have hm := Lean4Lean.List.lookup_mem hTy
+    rw [csubstTyList, List.mem_map] at hm
+    obtain ⟨⟨T, jj⟩, hmem, hpair⟩ := hm
+    rw [List.mem_filter] at hmem
+    obtain ⟨hz, hdk⟩ := hmem
+    cases hpair
+    exact csubst_ty_eq_some hdn (List.mk_mem_zipIdx_iff_getElem?.1 hz) (of_decide_eq_true hdk)
+  case h_2 hTy => rw [h, hTy]
+
+theorem csubstCR_freshIn
+    (h₁ : env.addIndTypes D = some E₁) (h₂ : E₁.addIndCtors D = some E₂)
+    (h₃ : E₂.addIndRecs D = some E₃) : (R.csubstCR D K).FreshIn E₁ := by
+  have hnd : D.blockNames.Nodup := by
+    have := (VEnv.addConstList_fresh h₁).2; rwa [VInductDecl'.typeConsts_names] at this
+  intro c ci hc
+  cases hn : R.csubstCR D K c with
+  | none => rfl
+  | some v =>
+    unfold csubstCR at hn
+    split at hn
+    · exact absurd hn nofun
+    case h_2 hTy =>
+    obtain ⟨j, T, hT, hK, ⟨he, -⟩ | ⟨he, -⟩ | ⟨C, hC, he, -⟩⟩ := csubst_dom hn
+    · subst he; rw [csubstTy_eq_some hnd hT hK] at hTy; exact absurd hTy nofun
+    · subst he
+      have := (VEnv.addConstList_fresh h₃).1 (Lean.mkRecName T.name) (by
+        rw [D.recConsts_names]; exact List.mem_map.2 ⟨_, List.mem_of_getElem? hT, rfl⟩)
+      rw [(VEnv.addConstList_le h₂).constants hc] at this; exact absurd this nofun
+    · subst he
+      have := (VEnv.addConstList_fresh h₂).1 C.name (by
+        rw [D.ctorConsts_names]
+        exact List.mem_map.2 ⟨(j, C), VInductDecl'.mem_ctorsAll_of hT hC, rfl⟩)
+      rw [hc] at this; exact absurd this nofun
+
+/-- **A declared constructor's stored type does not see `csubst`'s extra domain.**  Hence
+substituting `csubst` through it is the same as substituting `csubstTy` — which is what turns
+the `const` clause of `(R.csubst D K).WF E₂ e₂` into obligation (A)'s own bridge equation. -/
+theorem substC_ctorType_csubst_eq_csubstTy (hE₁ : E₁.Ordered) (hdn : R.DomNodup D K)
+    (h₁ : env.addIndTypes D = some E₁) (h₂ : E₁.addIndCtors D = some E₂)
+    (h₃ : E₂.addIndRecs D = some E₃)
+    (hD : D.WF env) {j : Nat} {T : VIndType} (hT : D.types[j]? = some T)
+    {C : VIndCtor} (hC : C ∈ T.ctors) :
+    (C.type D j).substC (R.csubst D K) = (C.type D j).substC (R.csubstTy D K) := by
+  have hfr : (R.csubstCR D K).FreshIn E₁ := csubstCR_freshIn h₁ h₂ h₃
+  obtain ⟨u, hu⟩ := (hD.ctors E₁ h₁ j T hT C hC).constant_wf hE₁
+  exact VExpr.substC_congr (csubst_eq_csubstTy_of_csubstCR_none hdn)
+    (VEnv.IsDefEq.noCSubst' (hE₁.noCSubst hfr) hfr hu nofun).1
+
+/-- …and a **type** member's stored type is checked in `env` itself, so `csubst` is outright
+the identity on it. -/
+theorem substC_tyType_eq (henv : env.Ordered) (hD : D.WF env)
+    (h₁ : env.addIndTypes D = some E₁) (h₂ : E₁.addIndCtors D = some E₂)
+    (h₃ : E₂.addIndRecs D = some E₃)
+    {T : VIndType} (hT : T ∈ D.types) : T.type.substC (R.csubst D K) = T.type := by
+  have hfr : (R.csubst D K).FreshIn env := csubst_freshIn h₁ h₂ h₃
+  obtain ⟨u, hu⟩ := (hD.types T hT).constant_wf
+  exact (VEnv.IsDefEq.noCSubst' (henv.noCSubst hfr) hfr hu nofun).1.substC_eq
+
+/-! ## §8.3 The name bookkeeping the `const` clause needs -/
+
+theorem mem_typeConstsC_names (h : n ∈ (D.typeConstsC K).map (·.1)) : n ∈ D.blockNames := by
+  rw [VInductDecl'.typeConstsC, List.mem_map] at h
+  obtain ⟨p, hp, rfl⟩ := h
+  rw [List.mem_filterMap] at hp
+  obtain ⟨q, hq, hqe⟩ := hp
+  rw [← VInductDecl'.typeConsts_names]
+  split at hqe
+  · exact absurd hqe nofun
+  · cases hqe; exact List.mem_map.2 ⟨_, hq, rfl⟩
+
+theorem mem_ctorConstsCR_names (hown : R.OwnId D K)
+    (h : n ∈ (D.ctorConstsCR R K).map (·.1)) : n ∈ D.ctorConsts.map (·.1) := by
+  rw [VInductDecl'.ctorConstsCR, List.mem_map] at h
+  obtain ⟨p, hp, rfl⟩ := h
+  rw [List.mem_filterMap] at hp
+  obtain ⟨⟨j, C⟩, hq, hqe⟩ := hp
+  simp only [] at hqe
+  split at hqe
+  · exact absurd hqe nofun
+  case isFalse hK =>
+  cases hqe
+  obtain ⟨T, hT, hC⟩ := VInductDecl'.mem_ctorsAll hq
+  have hTe : D.types.getD j default = T := by rw [List.getD_eq_getElem?_getD, hT]; rfl
+  rw [hTe] at hK
+  rw [D.ctorConsts_names, hown.ctorName j T hT hK C hC]
+  exact List.mem_map.2 ⟨(j, C), hq, rfl⟩
+
+/-! ## §8.4 The `const` and `defeq` clauses, derived
+
+`hbridge` below is **exactly** obligation (A)'s bridge equation — the hypothesis of
+`VEnv.ctorConstsCR_wf_of_substC`, which `VIndRestore.ctorType_substC_eq_typeR_substC` supplies
+for a parameterless block.  That is the precise sense in which (B) and (C) are downstream of
+(A) rather than beside it. -/
+
+theorem csubst_WF_const (henv : env.Ordered) (hE₁ : E₁.Ordered) (hD : D.WF env)
+    (hown : R.OwnId D K) (hdn : R.DomNodup D K)
+    (h₁ : env.addIndTypes D = some E₁) (h₂ : E₁.addIndCtors D = some E₂)
+    (h₃ : E₂.addIndRecs D = some E₃)
+    (f₁ : env.addConstList (D.typeConstsC K) = some e₁)
+    (f₂ : e₁.addConstList (D.ctorConstsCR R K) = some e₂)
+    (hbridge : ∀ (j : Nat) (T : VIndType) (C : VIndCtor), D.types[j]? = some T →
+      T.name ∉ K → C ∈ T.ctors →
+      (C.type D j).substC (R.csubstTy D K) = (C.typeR D R j).substC (R.csubstTy D K))
+    {c : Name} {ci : VConstant} (hn : R.csubst D K c = none) (hc : E₂.constants c = some ci) :
+    e₂.constants c = some ⟨ci.uvars, ci.type.substC (R.csubst D K)⟩ := by
+  by_cases hct : c ∈ D.ctorConsts.map (·.1)
+  · rw [VInductDecl'.ctorConsts, List.map_map, List.mem_map] at hct
+    obtain ⟨⟨j, C⟩, hjC, hce⟩ := hct
+    replace hce : C.name = c := hce
+    obtain ⟨T, hT, hC⟩ := VInductDecl'.mem_ctorsAll hjC
+    have hE : E₂.constants C.name = some ⟨D.uvars, C.type D j⟩ :=
+      VEnv.addConstList_constants h₂ (C.name, ⟨D.uvars, C.type D j⟩)
+        (by rw [VInductDecl'.ctorConsts, List.mem_map]; exact ⟨(j, C), hjC, rfl⟩)
+    subst hce
+    rw [hE] at hc; cases hc
+    have hK : T.name ∉ K := fun hK => by
+      rw [csubst_ctor_eq_some hdn hT hK hC] at hn; exact absurd hn nofun
+    have hTe : D.types.getD j default = T := by rw [List.getD_eq_getElem?_getD, hT]; rfl
+    have hmem :
+        (R.ctorName C.name, (⟨D.uvars, (C.typeR D R j).substC (R.csubstTy D K)⟩ : VConstant))
+          ∈ D.ctorConstsCR R K := by
+      rw [VInductDecl'.ctorConstsCR, List.mem_filterMap]
+      exact ⟨(j, C), hjC, by simp only []; rw [if_neg (by rw [hTe]; exact hK)]⟩
+    have := VEnv.addConstList_constants f₂ _ hmem
+    rw [hown.ctorName j T hT hK C hC] at this
+    rw [this]
+    congr 1
+    exact congrArg _ ((substC_ctorType_csubst_eq_csubstTy hE₁ hdn h₁ h₂ h₃ hD hT hC).trans
+      (hbridge j T C hT hK hC)).symm
+  · by_cases hbn : c ∈ D.blockNames
+    · rw [VInductDecl'.blockNames_eq, List.mem_map] at hbn
+      obtain ⟨T, hTm, rfl⟩ := hbn
+      obtain ⟨j, hT⟩ := List.getElem?_of_mem hTm
+      have hK : T.name ∉ K := fun hK => by
+        rw [csubst_ty_eq_some hdn hT hK] at hn; exact absurd hn nofun
+      have hE : E₁.constants T.name = some ⟨D.uvars, T.type⟩ :=
+        VEnv.addConstList_constants h₁ (T.name, ⟨D.uvars, T.type⟩)
+          (by rw [VInductDecl'.typeConsts, List.mem_map]; exact ⟨T, hTm, rfl⟩)
+      rw [VEnv.addConstList_constants_of_not_mem h₂ hct, hE] at hc
+      cases hc
+      have h1 : e₁.constants T.name = some ⟨D.uvars, T.type⟩ :=
+        VEnv.addConstList_constants f₁ (T.name, ⟨D.uvars, T.type⟩)
+          (by rw [VInductDecl'.typeConstsC, List.mem_filterMap]
+              exact ⟨(T.name, ⟨D.uvars, T.type⟩),
+                by rw [VInductDecl'.typeConsts, List.mem_map]; exact ⟨T, hTm, rfl⟩,
+                by rw [if_neg hK]⟩)
+      rw [VEnv.addConstList_constants_of_not_mem f₂
+        (fun hm => hct (mem_ctorConstsCR_names hown hm)), h1]
+      exact congrArg _ (by rw [substC_tyType_eq henv hD h₁ h₂ h₃ hTm])
+    · rw [VEnv.addConstList_constants_of_not_mem h₂ hct,
+        VEnv.addConstList_constants_of_not_mem h₁
+          (by rw [VInductDecl'.typeConsts_names]; exact hbn)] at hc
+      rw [VEnv.addConstList_constants_of_not_mem f₂
+          (fun hm => hct (mem_ctorConstsCR_names hown hm)),
+        VEnv.addConstList_constants_of_not_mem f₁ (fun hm => hbn (mem_typeConstsC_names hm)), hc]
+      exact congrArg _ (by rw [(henv.noCSubstC (csubst_freshIn h₁ h₂ h₃) hc).substC_eq])
+
+theorem csubst_WF_defeq (henv : env.Ordered)
+    (h₁ : env.addIndTypes D = some E₁) (h₂ : E₁.addIndCtors D = some E₂)
+    (h₃ : E₂.addIndRecs D = some E₃)
+    (f₁ : env.addConstList (D.typeConstsC K) = some e₁)
+    (f₂ : e₁.addConstList (D.ctorConstsCR R K) = some e₂)
+    {df : VDefEq} (hdf : E₂.defeqs df) : e₂.defeqs (df.substC (R.csubst D K)) := by
+  rw [VEnv.addConstList_defeqs h₂, VEnv.addConstList_defeqs h₁] at hdf
+  rw [(henv.noCSubstD (csubst_freshIn h₁ h₂ h₃) hdf).substC_eq,
+    VEnv.addConstList_defeqs f₂, VEnv.addConstList_defeqs f₁]
+  exact hdf
+
+/-! ## §8.5 The `val` clause: two positions, not three
+
+At the second stage the companion members' **recursor** entries of `csubst`'s domain impose
+nothing, because `E₂` does not declare them yet and `CSubst.WF.val` is guarded by
+`env₀.constants c = some ci`.  So `val` is exactly two `HasType` obligations here.  At the
+third stage (`E₃`, what obligation (C) needs) the recursor entry becomes live — a third
+obligation that (C) faces and (B) does not. -/
+
+theorem csubst_val_cases
+    (h₁ : env.addIndTypes D = some E₁) (h₂ : E₁.addIndCtors D = some E₂)
+    (h₃ : E₂.addIndRecs D = some E₃)
+    (hty : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K →
+      e₂.HasType D.uvars [] (R.tyVal D j) (T.type.substC (R.csubst D K)))
+    (hctor : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → ∀ C ∈ T.ctors,
+      e₂.HasType D.uvars [] (R.ctorVal D j C) ((C.type D j).substC (R.csubst D K)))
+    {c : Name} {t : VExpr} {ci : VConstant}
+    (hσ : R.csubst D K c = some t) (hc : E₂.constants c = some ci) :
+    e₂.HasType ci.uvars [] t (ci.type.substC (R.csubst D K)) := by
+  obtain ⟨j, T, hT, hK, ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨C, hC, rfl, rfl⟩⟩ := csubst_dom hσ
+  · have hE : E₂.constants T.name = some ⟨D.uvars, T.type⟩ :=
+      (VEnv.addConstList_le h₂).constants
+        (VEnv.addConstList_constants h₁ (T.name, ⟨D.uvars, T.type⟩)
+          (by rw [VInductDecl'.typeConsts, List.mem_map]
+              exact ⟨T, List.mem_of_getElem? hT, rfl⟩))
+    rw [hE] at hc; cases hc
+    exact hty j T hT hK
+  · exact absurd (((VEnv.addConstList_fresh h₃).1 (Lean.mkRecName T.name)
+      (by rw [D.recConsts_names]
+          exact List.mem_map.2 ⟨_, List.mem_of_getElem? hT, rfl⟩)) ▸ hc) nofun
+  · have hE : E₂.constants C.name = some ⟨D.uvars, C.type D j⟩ :=
+      VEnv.addConstList_constants h₂ (C.name, ⟨D.uvars, C.type D j⟩)
+        (by rw [VInductDecl'.ctorConsts, List.mem_map]
+            exact ⟨(j, C), VInductDecl'.mem_ctorsAll_of hT hC, rfl⟩)
+    rw [hE] at hc; cases hc
+    exact hctor j T hT hK C hC
+
+/-! ## §8.6 The packaged reduction -/
+
+/-- **`(R.csubst D K).WF E₂ e₂ U`, with only the `val` clause left.**
+
+`closed`, `const` and `defeq` are discharged; `hval` is the residual.  Note the three
+hypotheses that make (B) strictly downstream of (A): `he₂` (`e₂.Ordered`, which
+`addConstList_ordered` gives from (A)'s conclusion), `hbridge` (obligation (A)'s bridge), and
+`hval`.  The statement is `U`-polymorphic — `CSubst.val_of_hasType` absorbed the level
+clause — so the same instance serves `D.recUvars` for (B) and each `df.uvars` for (C). -/
+theorem csubst_WF (henv : env.Ordered) (hE₁ : E₁.Ordered) (he₂ : e₂.Ordered) (hD : D.WF env)
+    (hown : R.OwnId D K) (hdn : R.DomNodup D K)
+    (h₁ : env.addIndTypes D = some E₁) (h₂ : E₁.addIndCtors D = some E₂)
+    (h₃ : E₂.addIndRecs D = some E₃)
+    (f₁ : env.addConstList (D.typeConstsC K) = some e₁)
+    (f₂ : e₁.addConstList (D.ctorConstsCR R K) = some e₂)
+    (hclp : VExpr.ClosedTele D.params 0)
+    (hcla : ∀ j, ∀ a ∈ R.tyArgs j, a.ClosedN D.np)
+    (hbridge : ∀ (j : Nat) (T : VIndType) (C : VIndCtor), D.types[j]? = some T →
+      T.name ∉ K → C ∈ T.ctors →
+      (C.type D j).substC (R.csubstTy D K) = (C.typeR D R j).substC (R.csubstTy D K))
+    (hval : ∀ {c : Name} {t : VExpr} {ci : VConstant}, R.csubst D K c = some t →
+      E₂.constants c = some ci →
+      e₂.HasType ci.uvars [] t (ci.type.substC (R.csubst D K))) :
+    (R.csubst D K).WF E₂ e₂ U :=
+  CSubst.WF_of_hasType he₂ (csubst_closed R D K hclp hcla)
+    (fun hs hc => hval hs hc)
+    (fun hs hc => csubst_WF_const henv hE₁ hD hown hdn h₁ h₂ h₃ f₁ f₂ hbridge hs hc)
+    (fun hdf => csubst_WF_defeq henv h₁ h₂ h₃ f₁ f₂ hdf)
+
+/-! ## §8.7 What `Faithful` gives, and what it cannot
+
+`VIndRestore.Faithful.ty_agree` is a **syntactic** instantiation equation; the `val` clause is a
+**typing** judgement.  §8.7 measures the gap exactly. -/
+
+variable {npJ : Nat → Nat}
+
+/-- **The `val` clause at a companion member's type, reduced.**  The two hypotheses are the
+whole gap between `Faithful.ty_agree` and a typing derivation: `hsplit` says the presented head
+really has `npJ j` leading binders, `hargs` says the presented spine is well typed against
+them. -/
+theorem tyVal_hasType_of_faithful (hfa : R.Faithful D env K npJ) (hle : env ≤ e₂)
+    (hparams : OnCtx D.params.reverse (e₂.IsType D.uvars))
+    {j : Nat} {T : VIndType} (hT : D.types[j]? = some T) (hK : T.name ∈ K)
+    (hlvl : ∀ l ∈ R.tyLvls j, l.WF D.uvars)
+    (hsplit : ∀ ci : VConstant, env.constants (R.tyName j) = some ci →
+      ci.type.instL (R.tyLvls j)
+        = VExpr.mkPi (VExpr.splitPis (npJ j) (ci.type.instL (R.tyLvls j))).1
+            (VExpr.splitPis (npJ j) (ci.type.instL (R.tyLvls j))).2)
+    (hargs : ∀ ci : VConstant, env.constants (R.tyName j) = some ci →
+      e₂.HasArgs D.uvars D.params.reverse
+        (VExpr.splitPis (npJ j) (ci.type.instL (R.tyLvls j))).1 (R.tyArgs j)) :
+    e₂.HasType D.uvars [] (R.tyVal D j) T.type := by
+  obtain ⟨ci, hci, huv, heq⟩ := hfa.ty_agree j T hT hK
+  rw [← heq, VIndRestore.instAt, tyVal]
+  refine VEnv.HasType.mkLams (by simpa using hparams) ?_
+  rw [List.append_nil]
+  have hconst : e₂.HasType D.uvars D.params.reverse (.const (R.tyName j) (R.tyLvls j))
+      (ci.type.instL (R.tyLvls j)) := VEnv.HasType.const (hle.constants hci) hlvl huv.symm
+  rw [hsplit ci hci] at hconst
+  exact VEnv.HasType.mkApp' (hargs ci hci) hconst
+
+/-- **…and `Faithful` cannot supply `hargs`: `instAt` does not always read the spine.**
+
+`VIndRestore.instAt` substitutes the presented spine into the **body** of the head's type after
+`npJ j` binders have been split off.  When that body is closed the substitution is the identity,
+so `instAt` — and therefore `Faithful`'s `ty_agree` and `ctor_agree`, which are equations
+*about* `instAt` — takes the same value for **every** spine whatsoever, including one that is
+not typeable at all.  So `hargs` is not a lemma waiting to be proved from `Faithful`: no
+restoration-independent argument can produce it, and it has to be supplied as data.
+
+The configuration is not exotic: a member presented as a block whose stored type does not
+mention its own parameters (`Foo : Type → Type 1`, body `sort 2` after one split) has exactly
+this shape. -/
+theorem instAt_indep_of_tyArgs {e : VExpr} {npJ' j : Nat}
+    (hcl : (VExpr.splitPis npJ' (e.instL (R.tyLvls j))).2.ClosedN 0) (R' : VIndRestore)
+    (hn : R'.tyLvls j = R.tyLvls j) :
+    R'.instAt D npJ' j e
+      = VExpr.mkPi D.params (VExpr.splitPis npJ' (e.instL (R.tyLvls j))).2 := by
+  rw [VIndRestore.instAt, hn]
+  congr 1
+  clear hn
+  induction R'.tyArgs j generalizing npJ' with
+  | nil => rfl
+  | cons a as ih => rw [VExpr.instAll_cons, hcl.instN_eq (Nat.zero_le _)]; exact ih hcl
+
+end VIndRestore
+
+/-! ## §8.8 The β-gap: closed, with machinery that already existed
+
+The standing account of the β-gap was that `Theory/Typing/ChurchRosser.lean`'s `ParRedS.defeq`
+is the right machinery but is gated behind `class VEnv.Params`, whose `henv : env.WF` field is
+circular through `addInduct_WF` — leaving "a direct typed-β lemma avoiding it" open.
+
+The `henv : env.WF` reading of `Params` is correct (`ChurchRosser.lean:12`).  The conclusion is
+not: **the direct typed-β lemma already exists.**  `VEnv.IsDefEq.betaMkLams`
+(`Theory/Inductive/StructureClosed.lean:305`) is exactly "the multi-β judgement for a saturated
+`mkLams`", it takes `env.Ordered` and nothing more, and it is sorry-free.  `IsDefEq` has `beta`
+as a *primitive constructor* (`Theory/Typing/Basic.lean:45`), so one typed β-step never needed
+confluence at all; `betaMkLams` is the iteration, and `VEnv.IsDefEq.mkAppDF` carries it under
+the arguments past the parameter telescope.
+
+What is left after that is `hbody` below — and `hbody` is *the same statement* as §8.7's
+`hargs`, the residual of the `val` clause.  So the β-gap and the `CSubst.WF` remainder are one
+obligation. -/
+
+namespace VIndRestore
+variable {R : VIndRestore} {D : VInductDecl'} {K : List Name} {e : VEnv}
+
+/-- **The β-gap head equation, as a `IsDefEq`, with no bound on `D.np`.**
+
+`substC_tyApp_comp` says a companion head becomes a saturated `D.np`-fold redex;
+`instAll_tyBody` says its contractum is `VInductDecl'.tyAppR`.  The missing step was never
+Church–Rosser: `VEnv.IsDefEq.betaMkLams` (`Theory/Inductive/StructureClosed.lean`) is the
+multi-β judgement for a saturated `mkLams` and needs only `env.Ordered` — not `env.WF`, so
+not `VEnv.Params`, so **not circular through `addInduct_WF`**.  Composed with
+`VEnv.IsDefEq.mkAppDF` for the arguments past the parameters, that is this lemma.
+
+The residual is `hbody`: the presented head applied to the presented spine must be **well
+typed**.  That is the *same* residual as the `val` clause of `(R.csubst D K).WF` (§8.7's
+`hargs`), so the β-gap and the `CSubst.WF` remainder are one obligation, not two. -/
+theorem substC_tyApp_defeq_tyAppR_comp (hnd : D.blockNames.Nodup)
+    (hlw : ∀ i, (R.tyVal D i).LevelWF D.uvars)
+    (hcl : ∀ i, ∀ a ∈ R.tyArgs i, a.ClosedN D.np) (henv : e.Ordered)
+    {j : Nat} {T : VIndType} (hT : D.types[j]? = some T) (hK : T.name ∈ K)
+    {k : Nat} {args Γ As : List VExpr} {B B' : VExpr}
+    (hargs : ∀ a ∈ args, a.NoCSubst (R.csubstTy D K))
+    (hOn : OnCtx (D.params.reverse ++ Γ) (e.IsType D.uvars))
+    (hbv : e.HasArgs D.uvars Γ D.params (VExpr.bvars k D.np))
+    (hbody : e.HasType D.uvars (D.params.reverse ++ Γ) (R.tyBody D j) B)
+    (hpi : VExpr.instAll B (VExpr.bvars k D.np) = VExpr.mkPi As B')
+    (hAs : e.HasArgs D.uvars Γ As args) :
+    e.IsDefEq D.uvars Γ ((D.tyApp j k args).substC (R.csubstTy D K))
+      (D.tyAppR R j k args) (VExpr.instAll B' args) := by
+  have hbeta := VEnv.IsDefEq.betaMkLams henv hOn hbv hbody
+  rw [hpi] at hbeta
+  have hstep := VEnv.IsDefEq.mkAppDF hAs.toDF hbeta
+  rw [instAll_tyBody (hcl j) k args] at hstep
+  rwa [substC_tyApp_comp hnd hT hK (hlw j) hargs, VExpr.mkApp_append]
+
+/-- **…and both head positions at once.**  Off `K` the head does not move at all
+(`substC_tyApp_own`), so this is the `IsDefEqU` form of
+`VIndRestore.substC_tyApp_eq_tyAppR` with the `D.params = []` hypothesis **removed**. -/
+theorem substC_tyApp_defeqU_tyAppR (hnd : D.blockNames.Nodup) (hown : R.OwnId D K)
+    (hlw : ∀ i, (R.tyVal D i).LevelWF D.uvars)
+    (hcl : ∀ i, ∀ a ∈ R.tyArgs i, a.ClosedN D.np) (henv : e.Ordered)
+    {j : Nat} {T : VIndType} (hT : D.types[j]? = some T)
+    {k : Nat} {args Γ : List VExpr}
+    (hargs : ∀ a ∈ args, a.NoCSubst (R.csubstTy D K))
+    (hcomp : T.name ∈ K → ∃ (As : List VExpr) (B B' : VExpr),
+      OnCtx (D.params.reverse ++ Γ) (e.IsType D.uvars) ∧
+      e.HasArgs D.uvars Γ D.params (VExpr.bvars k D.np) ∧
+      e.HasType D.uvars (D.params.reverse ++ Γ) (R.tyBody D j) B ∧
+      VExpr.instAll B (VExpr.bvars k D.np) = VExpr.mkPi As B' ∧
+      e.HasArgs D.uvars Γ As args)
+    (hown' : T.name ∉ K → e.IsDefEqU D.uvars Γ (D.tyAppR R j k args) (D.tyAppR R j k args)) :
+    e.IsDefEqU D.uvars Γ ((D.tyApp j k args).substC (R.csubstTy D K))
+      (D.tyAppR R j k args) := by
+  by_cases hK : T.name ∈ K
+  · obtain ⟨As, B, B', hOn, hbv, hbody, hpi, hAs⟩ := hcomp hK
+    exact ⟨_, substC_tyApp_defeq_tyAppR_comp hnd hlw hcl henv hT hK hargs hOn hbv hbody hpi hAs⟩
+  · rw [substC_tyApp_own hown hT hK hargs]; exact hown' hK
+
+end VIndRestore
 end Lean4Lean
