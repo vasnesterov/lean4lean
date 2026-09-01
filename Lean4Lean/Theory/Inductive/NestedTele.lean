@@ -849,4 +849,232 @@ end
 end VIndRestore
 
 
+/-! ## §T9 The residual, worked down: `hOn`, `hOnp`, `hmot`, `hidx`, `hmatch`
+
+§T6–§T8 left five things at `np > 0`.  Four of them are now discharged or reduced to a single
+global datum; the fifth is not a new obligation at all.  **Every statement here is checked at
+`Γ = []` for the §T5 collapse** — the results are recorded per item.
+
+### 1. `hOn` at both levels is free for (B), exactly as §T7 showed it is for (C)
+
+`recConstsR_wf_of_substC'` already takes `hsrc` and `hσ`, and §T3's
+`VConstant.WF.substC_mkPi_inv` peels the *outer* telescope off them on `Ordered` alone.  The
+missing step was the **second** peel: the motive and minor entries are `mkPi`s sitting inside
+one *entry* of that telescope, not segments of it, so `OnCtx.take_of_reverse` does not reach
+them.  `VEnv.OnCtx.mkPi_entry_inv` is that step — an `OnCtx` of a reversed telescope whose
+`i`-th entry is a `mkPi Bs Cd` yields `OnCtx (Bs.reverse ++ (prefix ++ Γ))` **and** the
+entry's body `IsType`, again on `Ordered` alone.  Composed
+(`VEnv.recTypeEntry_substC_onCtx`), `hsrc` + `hσ` give every entry defeq's `hOn`.  So `hOn` is
+**not an obligation for (B)**: the residual shrinks by one, and the shrink is the same fact
+§T7 found for (C) with `htype` in place of `hsrc`.
+
+`[]`-check: `mkPi_entry_inv`'s hypotheses are an `OnCtx` and a `getElem?`; both are satisfiable
+at `Γ = []`, and `Γ = []` is in fact the *intended* instance here (a recursor type is checked
+at the empty context).  No spine hypothesis, so no `bvars` trap.
+
+### 2. `hOnp` is `hOn` plus one global datum
+
+`hOnp` re-adds the parameter telescope on **top** of the entry's context (the β-step in
+`substC_ctorApp'_defeq_ctorAppR_comp` types `mkLams (atRecTele params) body`), so it is not a
+prefix of anything.  But the parameters are closed, and `OnCtx.appendR`
+(`Theory/Inductive/StructureClosed.lean:713`) already says a closed well-formed telescope stays
+well-formed over any well-formed context.  `VEnv.onCtx_params_append` is `appendR` **applied**
+— nothing more, and it should not be counted as new content — reducing `hOnp` to `hOn` plus
+
+    hpar : OnCtx ((D.atRecTele D.params).reverse) (e.IsType D.recUvars)
+
+one datum for the whole construction rather than one per entry.  `hpar` is *not* claimed free
+here: `VInductDecl'.WF.onCtxParamsAtRec` (`Theory/Inductive/Lemmas.lean:848`) is exactly this
+statement at the **source** environment, and transporting it to `e` needs `substC` to be the
+identity on `D.params`.  That should hold — `csubst`'s domain is inside the block's own names
+(§7.2 `csubst_dom`) and `D.params` are typed *before* the block's types are added
+(`VInductDecl'.WF.params`), hence block-free — but `VInductDecl'.WF` carries the typing, not a
+`NoBlock D.params` clause, and `VIndRestore.noBlock_noCSubst`
+(`Theory/Inductive/RestoreBridge.lean:160`) is stated for `csubstTy`, not `csubst`.  So `hpar`
+is the **one** telescope-typing residual left, and it is a side condition about parameters, not
+a β-gap.
+
+### 3. `hmot` needs no `VInductDecl'` at all
+
+`lookup_motive` (`Theory/Inductive/Lemmas.lean:1600`) is proved from
+`List.map_range_reverse_split`, which is already `D`-free; only the statement mentions `D`.
+`Lookup.range_map` below is that statement `D`-free, and `lookup_motive_substC` is its instance
+at the **substituted** motive block — `D.motives.map (substC · σ)` is
+`(List.range D.nm).map (fun t => (D.motiveType t).substC σ)` by `List.map_map`, so the
+substituted `hmot` is pure de Bruijn arithmetic with no environment in it.  Answering the
+question §T8's template poses: `hmot` is *not* a statement that needs the source block.
+
+`[]`-check: `Lookup.range_map` has no environment hypothesis and holds for `Δ = Γ₀ = []`; it is
+`Lookup`, which is total on a long enough context, so there is nothing to collapse.
+
+### 4. `hidx` is the source D-series plus §T1's transport
+
+`hidx`'s telescope is a `liftTele` of the substituted index telescope.  §T1's
+`VEnv.HasArgs.substC` moves a `HasArgs` across the substitution, and
+`VExpr.map_substC_liftTele` commutes the `substC` past the `liftTele`; `VEnv.HasArgs.substC_liftTele`
+is those two composed.  So `hidx` at `e` is `hidx` at the source (which is
+`VIndCtor.WF.args_ty` after the two weakenings, as `minorBody_hasType`'s call site already
+does) transported — no new mathematics, and no `np` bound.
+
+`[]`-check: the transport is hypothesis-preserving; its `[]` instance is exactly the source's
+`[]` instance, so it introduces no new vacuity.
+
+### 5. `hmatch` is not a new obligation — it is §8.9's *type*-head defeq
+
+The type match does **not** have to be an equation.  `IsDefEq.defeqDF` converts a typed defeq
+along a defeq of its type, so `substC_minorBody_defeq` can take `hmaj` at the restored
+constructor's result type `A₀` and a conversion `A₀ ≡ A` to the substituted motive's domain
+(`substC_minorBody_defeq_of_conv`).  And that conversion is
+`VIndRestore.substC_tyApp'_defeq_tyAppR'_comp` (§8.9) — which has **no `np` bound**.
+
+The strict reading is what carries the bound: as an equation, `hmatch` is
+`substC_tyApp'_eq_tyAppR'`, which needs `hp : D.params = []` **and** `hcl0`, and `hcl0` is
+outright refuted at the parameterised witness (`InductiveDeclExamples.ntree_not_tyArgs_closed0`,
+`Theory/Inductive/NestedRules.lean:1105`) while the typed route needs only `ClosedN D.np`, which
+that same witness satisfies (`ntree_tyArgs_closedN_np`, `:1116`).  (The analogous *strict*
+equation for obligation (A) is refuted outright at a real parameterised block —
+`ntreeNode_substC_ne_typeR`, `Theory/Typing/ConstSubstNested.lean:774`, which is about
+`C.type`/`C.typeR`, not about `tyApp'`; it is the same phenomenon one obligation over, not this
+equation's refutation.)  So `hmatch` is one more instance of "prefer typed
+throughout": **refuted strict, free typed.**  What is left of it after the conversion is a
+σ-free syntactic identification of the chosen `B'` with `D.tyAppR' R t M ιs` — a choice the
+caller makes when it picks `B` in `hcbody`, involving no substitution and no β-step, i.e.
+`Faithful.ctor_agree` / `Canonical` bookkeeping.  It is **not** derivable from
+`instAt_indep_of_tyArgs`, which bounds `hcbody`/`hAs` from below and says nothing about the
+result head.
+
+`[]`-check, and it is the sharp one: `minorBody_hfun_false_of_nil` shows `substC_minorBody_defeq`'s
+`hfun` — hence `substC_minorType_defeq'` and `substC_minorType_defeq` — is **empty at `Γ = []`**,
+because a `bvar` head cannot be typed in the empty context.  So the minor entry's general-`Γ`
+form is *necessary*, not merely convenient; the §T5 collapse would have recurred here had the
+statement been written at `[]`.  This is the third place in this corner where `[]` is empty
+above the trivial case, after `substC_motiveType_defeq` and the minor `hbv`. -/
+
+namespace VEnv
+variable {e : VEnv} {U : Nat}
+
+/-- **The second peel.**  `OnCtx` of a reversed telescope, at an entry that is itself a `mkPi`:
+the entry's own telescope and body come out, over the prefix below it.  `Ordered` only. -/
+theorem OnCtx.mkPi_entry_inv (he : e.Ordered) {As Γ Bs : List VExpr} {Cd : VExpr} {i : Nat}
+    (hOn : OnCtx (As.reverse ++ Γ) (e.IsType U)) (hi : As[i]? = some (VExpr.mkPi Bs Cd)) :
+    OnCtx (Bs.reverse ++ ((As.take i).reverse ++ Γ)) (e.IsType U) ∧
+      e.IsType U (Bs.reverse ++ ((As.take i).reverse ++ Γ)) Cd := by
+  have hlt : i < As.length := (List.getElem?_eq_some_iff.1 hi).1
+  obtain ⟨L, Rr, hAs, hL⟩ : ∃ L Rr, As = L ++ VExpr.mkPi Bs Cd :: Rr ∧ L.length = i := by
+    refine ⟨As.take i, As.drop (i+1), ?_, by simp [Nat.min_eq_left (Nat.le_of_lt hlt)]⟩
+    have h1 : As.take (i+1) ++ As.drop (i+1) = As := List.take_append_drop _ _
+    have h2 : As.take (i+1) = As.take i ++ [VExpr.mkPi Bs Cd] := by
+      rw [List.take_add_one, hi]; rfl
+    rw [h2] at h1
+    simpa using h1.symm
+  subst hAs
+  rw [show (L ++ VExpr.mkPi Bs Cd :: Rr).take i = L from by rw [← hL]; simp]
+  rw [List.reverse_append, List.reverse_cons] at hOn
+  simp only [List.append_assoc, List.singleton_append] at hOn
+  refine VEnv.IsType.mkPi_inv he ?_ (OnCtx.head_of_append hOn)
+  exact OnCtx.append_right (Δ := [VExpr.mkPi Bs Cd])
+    (OnCtx.append_right (Δ := Rr.reverse) hOn)
+
+/-- **(B)'s entry `hOn`, from `hsrc` and `hσ` alone.**  §T3's outer peel composed with the
+second peel; no hypothesis beyond the ones `recConstsR_wf_of_substC'` already takes. -/
+theorem recTypeEntry_substC_onCtx {E₂ e₂ : VEnv} {D : VInductDecl'} {σ : CSubst}
+    {As Bs : List VExpr} {B Cd : VExpr} {i : Nat}
+    (he₂ : e₂.Ordered) (hσ : σ.WF E₂ e₂ D.recUvars)
+    (hs : VConstant.WF E₂ ⟨D.recUvars, VExpr.mkPi As B⟩)
+    (hi : (As.map (VExpr.substC · σ))[i]? = some (VExpr.mkPi Bs Cd)) :
+    OnCtx (Bs.reverse ++ (((As.map (VExpr.substC · σ)).take i).reverse ++ ([] : List VExpr)))
+        (e₂.IsType D.recUvars) ∧
+      e₂.IsType D.recUvars
+        (Bs.reverse ++ (((As.map (VExpr.substC · σ)).take i).reverse ++ ([] : List VExpr))) Cd :=
+  OnCtx.mkPi_entry_inv he₂ (by simpa using (VConstant.WF.substC_mkPi_inv he₂ hσ hs).1) hi
+
+/-- **`hOnp` from `hOn` plus `hpar`.**  This is `OnCtx.appendR` *applied* — no new content;
+it is here only to name the reduction. -/
+theorem onCtx_params_append {D : VInductDecl'} {Γ : List VExpr}
+    (henv : e.Ordered) (hpcl : VExpr.ClosedTele (D.atRecTele D.params) 0)
+    (hpar : OnCtx ((D.atRecTele D.params).reverse) (e.IsType U))
+    (hOn : OnCtx Γ (e.IsType U)) :
+    OnCtx ((D.atRecTele D.params).reverse ++ Γ) (e.IsType U) :=
+  _root_.Lean4Lean.OnCtx.appendR henv hOn (by simpa using hpcl.ctxClosed (Γ := []) trivial) hpar
+
+end VEnv
+
+/-- **`hmot`, with no `VInductDecl'` in it.**  `lookup_motive`'s content, at an arbitrary
+mapped range. -/
+theorem Lookup.range_map {f : Nat → VExpr} {n j : Nat} (hj : j < n) (Δ Γ₀ : List VExpr) :
+    Lookup (Δ ++ ((List.range n).map f).reverse ++ Γ₀) (Δ.length + (n - 1 - j))
+      ((f j).liftN (Δ.length + (n - 1 - j) + 1)) := by
+  obtain ⟨Ξ, rest, he, hlen⟩ := List.map_range_reverse_split f hj
+  have hsplit : Δ ++ ((List.range n).map f).reverse ++ Γ₀
+      = (Δ ++ Ξ) ++ f j :: (rest ++ Γ₀) := by rw [he]; simp
+  have hΞ : (Δ ++ Ξ).length = Δ.length + (n - 1 - j) := by rw [List.length_append, hlen]
+  rw [hsplit, ← hΞ]
+  exact Lookup.append _
+
+namespace VInductDecl'
+
+/-- **…and its instance at the substituted motive block**, which is the `hmot` §T8 needs. -/
+theorem lookup_motive_substC {D : VInductDecl'} {σ : CSubst} {j : Nat} (hj : j < D.nm)
+    (Δ Γ₀ : List VExpr) :
+    Lookup (Δ ++ (D.motives.map (VExpr.substC · σ)).reverse ++ Γ₀)
+      (Δ.length + (D.nm - 1 - j))
+      (((D.motiveType j).substC σ).liftN (Δ.length + (D.nm - 1 - j) + 1)) := by
+  have hm : D.motives.map (VExpr.substC · σ)
+      = (List.range D.nm).map (fun t => (D.motiveType t).substC σ) := by
+    rw [VInductDecl'.motives, List.map_map]; rfl
+  rw [hm]
+  exact Lookup.range_map hj Δ Γ₀
+
+end VInductDecl'
+
+namespace VEnv
+
+/-- **`hidx` transported.**  §T1's `HasArgs.substC` with the `substC`/`liftTele` commutation. -/
+theorem HasArgs.substC_liftTele {env₀ env₁ : VEnv} {σ : CSubst} {U : Nat}
+    (hσ : σ.WF env₀ env₁ U) {Γ As as : List VExpr} {n k : Nat}
+    (h : env₀.HasArgs U Γ (VExpr.liftTele n As k) as) :
+    env₁.HasArgs U (Γ.map (VExpr.substC · σ))
+      (VExpr.liftTele n (As.map (VExpr.substC · σ)) k) (as.map (VExpr.substC · σ)) := by
+  have := HasArgs.substC hσ h
+  rwa [VExpr.map_substC_liftTele hσ.closed] at this
+
+end VEnv
+
+namespace VIndRestore
+section
+variable {R : VIndRestore} {D : VInductDecl'} {σ : CSubst} {e : VEnv}
+variable {U t : Nat} {C : VIndCtor}
+
+/-- **`hmatch` as a conversion, not an equation.**  `hmaj` arrives at the restored
+constructor's result type `A₀`; `hconv` — which is
+`VIndRestore.substC_tyApp'_defeq_tyAppR'_comp`, no `np` bound — moves it to the substituted
+motive's domain `A`.  The strict-equation reading of the same step is
+`substC_tyApp'_eq_tyAppR'`, whose `hcl0` the parameterised witness refutes
+(`ntree_not_tyArgs_closed0`) while the typed route's `ClosedN D.np` it satisfies. -/
+theorem substC_minorBody_defeq_of_conv {Γ : List VExpr} {A A₀ : VExpr} {v : VLevel}
+    {m k nr nf : Nat} {ιs : List VExpr}
+    (hfun : e.HasType U Γ ((VExpr.bvar m).mkApp (ιs.map (VExpr.substC · σ)))
+      (.forallE A (.sort D.elimLvl)))
+    (hconv : e.IsDefEq U Γ A₀ A (.sort v))
+    (hmaj : e.IsDefEq U Γ ((D.ctorApp' C k (VExpr.bvars nr nf)).substC σ)
+      ((D.ctorAppR R t C k (VExpr.bvars nr nf)).substC σ) A₀) :
+    e.IsDefEq U Γ
+      (((VExpr.bvar m).mkApp (ιs ++ [D.ctorApp' C k (VExpr.bvars nr nf)])).substC σ)
+      (((VExpr.bvar m).mkApp (ιs ++ [D.ctorAppR R t C k (VExpr.bvars nr nf)])).substC σ)
+      (.sort D.elimLvl) :=
+  substC_minorBody_defeq hfun (hconv.defeqDF hmaj)
+
+/-- **The `[]`-check on §T6, and it is empty.**  A `bvar` head has no type in the empty
+context, so `substC_minorBody_defeq`'s `hfun` — and with it every §T6 statement — is vacuous at
+`Γ = []`.  The general-`Γ` form is therefore forced, exactly as for the motive entry. -/
+theorem minorBody_hfun_false_of_nil {A : VExpr} {m : Nat} {ιs : List VExpr}
+    (henv : e.Ordered) (hfun : e.HasType U [] ((VExpr.bvar m).mkApp ιs) A) : False := by
+  have hcl := hfun.closedN henv trivial
+  rw [VExpr.closedN_mkApp] at hcl
+  exact absurd (show m < 0 from hcl.1) (Nat.not_lt_zero m)
+
+end
+end VIndRestore
+
+
 end Lean4Lean
