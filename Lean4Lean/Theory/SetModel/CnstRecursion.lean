@@ -25,7 +25,7 @@ list, and proves the per-declaration coherence steps.  What was missing is the
 | `.unsafeDef` | excluded by `VDecl.noUnsafe`, which `VEnv.LeanWF` supplies |
 | `.axiom` | `coherentOn_addConst` from the oracle obligation `OracleOK` |
 | `.quot` | `coherentOn_addConstList'` + `coherentOn_addDefEq`, occurrence side-condition **proved** (`stagedOcc_quotConsts`) |
-| `.induct` | **not discharged** — `InductOracleOK`, the residual |
+| `.induct` | occurrence side-condition **proved** (`stagedOcc_allConsts`, §4b); inhabitation **not discharged** — `InductOracleOK`, the residual |
 
 So the reduction is: *H2 minus the `.induct` oracle*, plus the separately-tracked
 inputs of §7 (`InaccModelInput`, `ModelFitsInput`).  §6 composes the recursion with
@@ -333,6 +333,97 @@ theorem stagedOcc_quotConsts {env : VEnv} (hq : env.QuotReady) :
     fun _ _ ↦ trivial⟩
 
 
+/-! ## 4b. The staged occurrence condition for an inductive block, **discharged**
+
+`.quot`'s occurrence side condition is `stagedOcc_quotConsts`.  This section is the
+`.induct` analogue, and it is the whole reason the residual of §5 has two fields rather
+than three: `StagedOcc env D.allConsts` at the block's *own* environment follows from
+`env.Ordered` and `D.WF env` with nothing from the oracle, the model, or the split.
+
+The three `addConstList` stages of `addInduct'` line up with `VInductDecl'.WF`'s own
+staging: the type formers are checked over `env`, the constructors over
+`addIndTypes`, and the recursors' types are `recType_isType`, which
+`VInductDecl'.recCtx` supplies unconditionally.
+
+**History.** The residual used to carry this as a *hypothesis*, stated as
+`∀ {env env'}, env.addInduct' D = some env' → StagedOcc env D.allConsts`.  That field is
+**false** at ordinary blocks: `addInduct'` inspects no type, so it succeeds at
+`VEnv.empty` for every block with distinct names, and instantiating the `∀ env` there
+forces the first type former's stored type to mention no constant at all.
+`SetModel/InductOracleAudit.lean` keeps that refutation (`not_stagedField_boxDecl`, at a
+block with a machine-checked two-declaration `VEnv.WF'` history), and
+`docs/vacuity-ledger.md` row 11 records it. -/
+
+/-- If every member of the block is checkable at the *initial* environment, the staged
+condition holds: `ConstsIn` is monotone and each `addConst` only grows the environment. -/
+theorem stagedOcc_of_forall {env : VEnv} :
+    ∀ {cs : List (Name × VConstant)}, (∀ p ∈ cs, p.2.type.ConstsIn env.contains) →
+      StagedOcc env cs
+  | [], _ => trivial
+  | p :: _, h => ⟨h p (.head _), fun _ hadd ↦
+      stagedOcc_of_forall fun q hq ↦
+        (h q (.tail _ hq)).mono fun _ ↦ (VEnv.addConst_le hadd).contains⟩
+
+/-- Splitting the staged condition along an append: check the first block at `env`, the
+second at whatever `addConstList` produces. -/
+theorem stagedOcc_append {env : VEnv} :
+    ∀ {cs ds : List (Name × VConstant)}, StagedOcc env cs →
+      (∀ env₁, env.addConstList cs = some env₁ → StagedOcc env₁ ds) →
+      StagedOcc env (cs ++ ds)
+  | [], _, _, h2 => h2 _ (by simp [VEnv.addConstList])
+  | p :: cs, ds, ⟨h1, h2⟩, h3 => ⟨h1, fun env₁ hadd ↦
+      stagedOcc_append (h2 _ hadd) fun env₂ hadd₂ ↦ h3 env₂ (addConstList_cons.2 ⟨_, hadd, hadd₂⟩)⟩
+
+theorem stagedOcc_typeConsts {env : VEnv} {D : VInductDecl'} (henv : env.Ordered)
+    (h : D.WF env) : StagedOcc env D.typeConsts := by
+  refine stagedOcc_of_forall fun p hp ↦ ?_
+  simp only [VInductDecl'.typeConsts, List.mem_map] at hp
+  obtain ⟨T, hT, rfl⟩ := hp
+  exact (VEnv.IsDefEq.constsIn henv.constsIn (h.types T hT).isType.choose_spec trivial).1
+
+theorem stagedOcc_ctorConsts {env env₁ : VEnv} {D : VInductDecl'} (henv : env.Ordered)
+    (h : D.WF env) (h1 : env.addIndTypes D = some env₁) : StagedOcc env₁ D.ctorConsts := by
+  have o1 := VInductDecl'.addIndTypes_ordered henv h h1
+  refine stagedOcc_of_forall fun p hp ↦ ?_
+  simp only [VInductDecl'.ctorConsts, List.mem_map] at hp
+  obtain ⟨⟨j, C⟩, hjC, rfl⟩ := hp
+  obtain ⟨T, hT, hC⟩ := VInductDecl'.mem_ctorsAll hjC
+  exact (VEnv.IsDefEq.constsIn o1.constsIn
+    (((h.ctors env₁ h1 j T hT C hC).constant_wf o1).choose_spec) trivial).1
+
+theorem stagedOcc_recConsts {env env₁ env₂ : VEnv} {D : VInductDecl'} (henv : env.Ordered)
+    (h : D.WF env) (h1 : env.addIndTypes D = some env₁) (h2 : env₁.addIndCtors D = some env₂) :
+    StagedOcc env₂ D.recConsts := by
+  have o1 := VInductDecl'.addIndTypes_ordered henv h h1
+  have o2 := VInductDecl'.addIndCtors_ordered o1 h h1 h2
+  have hR2 : D.RecCtx env₂ := h.recCtx h1 h2 VEnv.LE.rfl o2
+  refine stagedOcc_of_forall fun p hp ↦ ?_
+  simp only [VInductDecl'.recConsts, List.mem_map] at hp
+  obtain ⟨⟨T, j⟩, hTj, rfl⟩ := hp
+  have hT : D.types[j]? = some T := List.mk_mem_zipIdx_iff_getElem?.1 hTj
+  have hj : j < D.nm := by
+    rcases Nat.lt_or_ge j D.types.length with hlt | hge
+    · exact hlt
+    · rw [List.getElem?_eq_none hge] at hT; exact absurd hT (by simp)
+  have hty := VInductDecl'.recType_isType hR2 hT hj (VInductDecl'.onCtxMinors hR2)
+  exact (VEnv.IsDefEq.constsIn o2.constsIn hty.choose_spec trivial).1
+
+/-- **The `.induct` occurrence condition, discharged.**  `StagedOcc` at the block's own
+environment from `env.Ordered` and `D.WF env` — the exact counterpart of
+`stagedOcc_quotConsts`, and what makes §5's residual a two-field structure. -/
+theorem stagedOcc_allConsts {env env' : VEnv} {D : VInductDecl'} (henv : env.Ordered)
+    (h : D.WF env) (he : env.addInduct' D = some env') : StagedOcc env D.allConsts := by
+  obtain ⟨env₁, env₂, env₃, h1, h2, h3, rfl⟩ := VEnv.addInduct'_stages he
+  rw [VInductDecl'.allConsts, List.append_assoc]
+  refine stagedOcc_append (stagedOcc_typeConsts henv h) fun e₁ he₁ ↦ ?_
+  have hde : env₁ = e₁ := Option.some_inj.1 (h1.symm.trans he₁)
+  subst hde
+  refine stagedOcc_append (stagedOcc_ctorConsts henv h h1) fun e₂ he₂ ↦ ?_
+  have hde₂ : env₂ = e₂ := Option.some_inj.1 (h2.symm.trans he₂)
+  subst hde₂
+  exact stagedOcc_recConsts henv h h1 h2
+
+
 /-! ## 5. The recursion, and the residual
 
 `coherentOn_cnstOf` is the induction over `VEnv.WF'`.  It takes one hypothesis
@@ -346,8 +437,10 @@ per *non-computed* declaration form — `.axiom`, `.quot`, `.induct` — bundled
   `quotFn`/`quotMkFn`/`quotLiftFn` inhabitation lemmas), once the oracle is
   *defined* to be those functions at the four quotient names.  The occurrence
   side condition is proved here (`stagedOcc_quotConsts`).
-* `.induct`'s is **`InductOracleOK`, the residual**.  Nothing in the tree
-  inhabits it, and §6 says exactly why.
+* `.induct`'s is **`InductOracleOK`, the residual** — inhabitation of the block's
+  constants and its ι-rules, and nothing else: its occurrence side condition is
+  proved in §4b (`stagedOcc_allConsts`), exactly as `.quot`'s is.  Nothing in the
+  tree inhabits the remaining two fields, and §6 says exactly why.
 -/
 
 section Recursion
@@ -378,29 +471,30 @@ structure QuotOracleOK (L : PropSplit envF nv) (κ : ℕ → V) (ls : List ℕ)
 /-- **The residual: what the oracle owes at an `.induct` step.**
 
 `c` is the assignment *after* the block, i.e. `cnstOf` applied to the list whose
-head is this declaration — so all three fields are stated at the one assignment
+head is this declaration — so both fields are stated at the one assignment
 the construction actually produces, with no partial stage anywhere.
 
 To inhabit this for a block `D` one must produce, from `D` alone:
 
-1. `staged` — that each of `D`'s declared types (type formers, then constructors,
-   then recursors, in `addInduct'`'s order) mentions only constants available at
-   its own stage.  For the type formers this is `D.WF env`'s `params`/`types`
-   fields; for the constructors it is its `ctors` field, which is *already*
-   staged at `addIndTypes`; for the recursors it is a consequence of
-   `addInduct_WF`, which is where the work is.
-2. `consts` — a set-theoretic element of `⟦T.type⟧` for each type former, of
+1. `consts` — a set-theoretic element of `⟦T.type⟧` for each type former, of
    `⟦C.type D j⟧` for each constructor, and of `⟦D.recType j⟧` for each
    recursor, each invariant under level-equivalent instantiations.  This is the
    inductive-types model: `SetModel/IndStage.lean`'s least fixed point for the
    type formers, `mkLam` nests for the constructors, and the recursion theorem
    for the recursors.
-3. `rules` — that every ι-rule of `D` holds in the model, i.e. that the
+2. `rules` — that every ι-rule of `D` holds in the model, i.e. that the
    recursor's denotation applied to a constructor's denotation reduces to the
    corresponding minor premise.  `Cnst.lean`'s `interp_lam_congr_of_type` peels
    the λ-nest; the bodies are where the ι-computation happens.
 
-**What blocks it today.** (2) and (3) need the translation from `VIndCtor` to the
+**There is no third, occurrence-shaped field.**  There used to be — `staged`,
+asking for `StagedOcc env D.allConsts` at *every* `env` the block is declarable
+over — and it was **false** at any block one of whose declared types names an
+ambient constant, which made this whole case vacuous.  §4b discharges the
+condition outright (`stagedOcc_allConsts`) and the field is gone;
+`SetModel/InductOracleAudit.lean` keeps the refutation of the deleted field.
+
+**What blocks it today.** (1) and (2) need the translation from `VIndCtor` to the
 argument/field data the fixed-point construction consumes (`CtorData₃`/`Args`);
 per `docs/soundness-ledger.md` item 2 that translation is waiting on a
 `Theory/Inductive/Decl.lean` clause making the recursive-argument position `Pos q a`
@@ -409,7 +503,6 @@ blocked on the `.quot`, `.axiom`, `.def` or `.opaque` cases, all of which are
 discharged here. -/
 structure InductOracleOK (L : PropSplit envF nv) (κ : ℕ → V) (ls : List ℕ)
     (o c : Name → List VLevel → V) (D : VInductDecl') : Prop where
-  staged : ∀ {env env' : VEnv}, env.addInduct' D = some env' → StagedOcc env D.allConsts
   consts : ∀ p ∈ D.allConsts, OracleOK L κ ls o c p.1 p.2
   rules : ∀ df ∈ D.iotaRules, DefEqOK L ⟨κ, ls, c⟩ df
 
@@ -488,10 +581,10 @@ theorem coherentOn_cnstOf :
         (stagedOcc_quotConsts hqr) hok.consts
       exact coherentOn_addDefEq h1 (fun {_} hw hl ↦ (hok.rule hw hl).1)
         (fun {_} hw hl ↦ (hok.rule hw hl).2)
-    | .induct D, .induct _ hadd, hok =>
+    | .induct D, .induct hD hadd, hok =>
       obtain ⟨e, he, rfl⟩ := addInduct'_iff.1 hadd
       have h1 := coherentOn_addConstList' L o D.allConsts henv₀.constsClosed hC he
-        (hok.staged hadd) hok.consts
+        (stagedOcc_allConsts henv₀ hD hadd) hok.consts
       exact coherentOn_addDefEqFold D.iotaRules h1 (fun df hdf ↦ hok.rules df hdf)
 
 end Recursion
@@ -667,16 +760,20 @@ theorem not_inductOracleOK_falseProp (hκ : ∀ m : ℕ, IsInaccessibleChain m �
   not_oracleOK_falseProp (ls := ls) hκ L o c n (h.consts _ hp)
 
 /-- **The residual is satisfiable**, so it is not plainly false.  A block with no
-type formers declares nothing and has no ι-rules, so all three fields hold.
+type formers declares nothing and has no ι-rules, so both fields hold.
 
 (Such a `D` is not `VInductDecl'.WF` — `types_ne` forbids it — which is the
 point: `InductOracleOK` constrains only what `D` *declares*, so the residual has
 no hidden inconsistency of its own.  The content is entirely in blocks that
-declare something.) -/
+declare something.  **Both** bounds in this section are at blocks that are not
+`VInductDecl'.WF`: `not_inductOracleOK_falseProp` needs a declared constant of
+type `∀ p : Prop, p`, which no well-formed block has either.  So this pair is a
+sanity check on the *statement*, not a measurement at a reachable block; see
+`InductOracleAudit.lean` §7 for what a `WF`-block bound would take.) -/
 theorem inductOracleOK_empty (L : PropSplit envF nv) (o c : Name → List VLevel → V) :
     InductOracleOK L κ ls o c
       { uvars := 0, params := [], lvl := .zero, types := [], isLE := false } :=
-  ⟨fun _ ↦ trivial, fun _ h ↦ absurd h nofun, fun _ h ↦ absurd h nofun⟩
+  ⟨fun _ h ↦ absurd h nofun, fun _ h ↦ absurd h nofun⟩
 
 end Control
 
