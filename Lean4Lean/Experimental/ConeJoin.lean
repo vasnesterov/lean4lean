@@ -120,6 +120,7 @@ import Lean4Lean.Theory.Typing.InjMidLocal  -- 2026-09-01: the two costly midpoi
 import Lean4Lean.Theory.SetModel.ModelExists  -- 2026-09-01: Input A DISCHARGED -- ModelExistsInput is a theorem
 import Lean4Lean.Theory.SetModel.InductOracleWitness  -- 2026-09-01: the .induct residual satisfied at a WF, reachable block
 import Lean4Lean.Theory.SetModel.AboveAudit  -- 2026-09-01: the Above wrapper weakens nothing at or below ModelFits; CtxAgree is the greatest CtxInvariant
+import Lean4Lean.Theory.Typing.InjChainLower  -- 2026-09-01: SortChainAt at .bvar 0 IS ConvSortInv; the sort-side localisation collapses
 
 /-!
 # Acceptance test: the `PatternRules` cone and the `Verify/` cone join
