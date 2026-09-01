@@ -27,6 +27,63 @@ Legitimate uses of `SendMessage`: relaying a fact a stream needs *for work alrea
 
 If the answer to a question needs the transcript, it belongs in the handoff.
 
+## Lessons from the 2026-09-01 session — read before commissioning anything
+
+**I violated the handoff rule above, all session, and the rule won.** Every "continue: X" message
+was a resume by the definition three paragraphs up. The evidence for the rule is now concrete:
+**four proofs duplicated theorems the tree already had** (`WF.defEqHeadsUnique`,
+`Ordered.noCSubst`, `WF.instL_lhs_ne_forallE`, `ParRedKS.defeqDFC`), a parameterised witness that
+settled a two-round question had been sitting in the tree **unlooked-for through six rounds of the
+same agent**, and the first *fresh* agent pointed at a handoff found a dropped obligation those six
+rounds had propagated. Resumed agents stop re-exploring. Write the handoff; spawn fresh.
+
+**Cite declarations, not line numbers.** A citation repaired in one commit went stale in the *next*,
+because a prose edit elsewhere in the same file moved the target. A resolvable name is evidence; a
+line number is a hint that may already be wrong. This supersedes the older `file:line` rule in
+`docs/vacuity-ledger.md`.
+
+**When a claim appears in N places, grep before recording how many you repaired.** I wrote that a
+wrong sentence was "corrected in both files" having corrected one; a second copy stood verbatim and
+a third existed that nobody had mentioned. A repair count is a measurement like any other.
+
+**Read every grep hit; never trust the count.** Two false positives in one day, each of which would
+have produced a confident wrong report: a match inside a fenced code block in a docstring, and the
+word `imports` in prose matching `^import`.
+
+**Every instrument in this repo looks at conclusions.** The census reads proof terms, the cone
+walker follows dependencies, `#print axioms` reports what a proof uses — **none asks whether a
+hypothesis is inhabited.** That is the shared mechanism behind three of the ledger's nine
+blindnesses. The only instrument for a false or empty hypothesis is **building a witness**, and
+every "right in substance, wrong in force" error this session was caught that way rather than by
+re-reading an argument.
+
+**"Already proved" can be true of the statement and false of the cone.** One lemma existed exactly
+as needed and carried all four census holes. Say which you mean.
+
+**A `[not machine-checked]` flag is a request to check, not a citation.** I quoted one as an
+obstruction to three separate streams; when checked it was symmetric and could never have
+obstructed anything. Correspondingly: **no `[analysis]` flag may be load-bearing** — one such flag
+had four open items looking blocked on a reason that was simply wrong.
+
+**Ask for the theorem, not the witness, when the theorem is available.** Twice a stream returned
+something strictly better than the brief asked for. And when framing a test, do not offer a binary:
+one brief asked "true, or also false and that is bigger news" and the real answer was a third thing
+— *equivalent to its own target*.
+
+**Instrument 7, and its dual.** Before reporting any statement, instantiate it at the degenerate
+instance (empty context, nil telescope, zero grade) and confirm the hypotheses are **satisfiable** —
+five statements in one corner were green because they were empty exactly there. The dual applies when
+a conclusion is *weakened*: check it is not trivially true.
+
+**Report the blocker; do not work around it.** The rounds that returned "here is the missing lemma,
+stated" were worth more than the rounds that returned a partial proof. Likewise: a stream that
+declines to claim a field, and says which of three it did not cover, beats a bundle claim — the
+bundle claim was wrong three times in one corner.
+
+**State discharge costs when you strengthen a negative-position premise.** Widening what a
+hypothesis quantifies over makes it *stronger*, so whatever eventually discharges it must validate
+more. I ruled on such a widening without saying so; the stream that implemented it said so for me.
+
 ## Frozen files
 
 `Verify/Soundness.lean`, `Verify/Axioms.lean`, `Verify/Guard.lean`.
