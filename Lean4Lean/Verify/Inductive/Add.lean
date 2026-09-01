@@ -1250,7 +1250,10 @@ that and `of_scan` firing is the *loop invariant itself*: that a successful run 
 `Nodup` the `NameGenerator` supplies) and stops at a `type` translating to
 `C.canonResult D j`.  That is an `M.WF` induction over the loop, using R1's
 `TrExprS.forallE_inst_fvar` at each step and `VIndCtor.canonResult_ne_forallE` to pin where it
-stops; it is stated here as the remaining obligation rather than assumed.  The per-field step
+stops; it is stated here as the remaining obligation rather than assumed.  **Stale as of
+2026-09-02: `M.WF.elim_loop`, further down this same file, PROVES that loop invariant,
+`sorryAx`-free, and `LECond.of_elimLoop` closes the gate — so R8 is closed and this paragraph
+describes the state before it was.**  The per-field step
 below never depended on it. -/
 
 /-! ### R7, assembled

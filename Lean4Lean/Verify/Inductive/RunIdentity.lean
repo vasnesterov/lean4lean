@@ -447,7 +447,16 @@ end ElimNestedInductive
 *input* block, which is the direction `Verify/Inductive/AddInductiveStep.lean` §6 asks for.
 
 The price is the premise `BlockClosed types`, and §5 shows it is not a proof artefact: without
-it the statement below **and `AddInductiveRunRealises` itself** are false. -/
+it the statement below is false.
+
+**Corrected 2026-09-02, and the correction is about this very sentence.** It used to add "**and
+`AddInductiveRunRealises` itself**", which §5 does **not** show: §5 refutes
+`AddInductiveRunRealises`, which is applied to `res.types`, whereas the residue below applies
+`AddInductive.run` to `types`. Measured: `AddInductive.run 1 [fooBad] 0 ctx` **rejects**, with
+*"type checker does not support loose bound variables"*. So `fooBad` does **not** refute a
+premise-free `AddInductiveRunRealisesClosed`, and nothing in the tree does. `BlockClosed` is
+load-bearing for the **chain** — it is what makes `run_types_eq` true — not for the residue's
+truth. An unproved negative asserted as established is ledger blindness kind 4. -/
 def AddInductiveRunRealisesClosed : Prop :=
   ∀ {env : Environment} {ves : VEnvs}, ves.WF env →
     ∀ (lp : List Name) (np : Nat) (types : List InductiveType) (ap : Bool) (fuel : FuelConfig),
