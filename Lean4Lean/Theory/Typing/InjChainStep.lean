@@ -254,7 +254,18 @@ at the midpoint `Y`, which is a *type* (both `.sort a` and `.sort b` are its typ
 `SortUniq` in its full stated generality, since `SortUniq` is itself stated for types only.
 Every attempt to build the composed conversion in this tree's calculus goes through
 `IsDefEqStrong.defeqDF`, whose type premise at a sort is `sortDF`, whose side condition is
-`a ≈ b`.  So the honest reading is:
+`a ≈ b`.
+
+**Correction, 2026-09-01 (`Theory/Typing/InjMidpoint.lean`).**  The last sentence is false as a
+claim about the tree, and only the sentence before it survives.  `BaseUniqChain.ConvC.transport`
+builds one `defeqDF` per chain link at an **arbitrary** type — never at a pair of syntactic
+sorts — so `convStep2At_of_baseUniqCAt` composes the two conversions with no `sortDF` and no
+level comparison at all, from `BaseUniqCAt` at the single midpoint `Y`.  Consequences: three of
+`VExpr`'s six midpoint heads (`.bvar`, `.sort`, `.const`) discharge `ConvStep2` outright from
+`Ordered env` alone, and the instance `convStep2_fires` below advertises as a *firing test* is a
+*theorem* (`convStep2At_sort_discharges`).  The circle is not cut — `baseUniqC_iff_convStep2`
+shows `BaseUniqC` is `ConvStep2` over `SortInv ∧ PiInv` — but the residual is not a level
+alignment.  So the honest reading is:
 
 * **gained** — `SortInv` is now a *separable half* of the first hole.  Over `PiInv` the
   534-user hole is `ConvStep2 ∧ SortInv`, and `SortInv` is the `sort`/`sort` entry of the

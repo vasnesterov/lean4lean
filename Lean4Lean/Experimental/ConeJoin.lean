@@ -112,6 +112,7 @@ import Lean4Lean.Verify.Typing.ProjWeakInv  -- added 2026-08-31: TrProj.weak'_in
 import Lean4Lean.Theory.SetModel.InaccChainOmega  -- 2026-09-01: the hκ gap, one κ for every finite length
 import Lean4Lean.Theory.Inductive.NestedRules  -- 2026-09-01: the (B)/(C) bridges
 import Lean4Lean.Theory.SetModel.ModelFitsVacuous  -- 2026-09-01: ModelFitsInput is FALSE; the repair narrows to PureOverPrelude
+import Lean4Lean.Theory.Typing.InjMidpoint  -- 2026-09-01: ConvStep2 localised at its midpoint; three of six heads free; the sortDF reading refuted
 
 /-!
 # Acceptance test: the `PatternRules` cone and the `Verify/` cone join
