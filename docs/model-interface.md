@@ -78,12 +78,36 @@
 > their bodies are proofs. Three `mem_interp_forallE_prop_iff` steps and
 > `eq_empty_or_eq_true_of_mem_UProp` close it.
 >
-> **What is open is the large eliminator.** Real Lean declares it for `Unit1` and
-> `VInductDecl'.WF` permits it (`unitDeclLE_LECond`, vacuous because the constructor has no
-> fields). At `isLE := true` the recursor gains a universe parameter, and for `u.eval ls ≠ 0`
-> the innermost binder takes `mkForallType`, where `•` is not a legal value
-> (`pt_not_mem_mkForallType_of_nonempty`). *That* needs the three-layer `mkLam` nest and the
-> ι-rule's β-computation.
+> **The large eliminator was the next open case, and it is now closed.** Real Lean declares it
+> for `Unit1` and `VInductDecl'.WF` permits it (`unitDeclLE_LECond`, vacuous because the
+> constructor has no fields). At `isLE := true` the recursor gains a universe parameter, and
+> for `u.eval ls ≠ 0` the innermost binder takes `mkForallType`, where `•` is not a legal value
+> (`pt_not_mem_mkForallType_of_nonempty`). `Theory/SetModel/UnitOracleLarge.lean` supplies the
+> three-layer `mkLam` nest and the ι-rule's β-computation: `inductOracleOKL`, `oracleFitsL`,
+> `oracleFitsL_at_consumer`.
+
+> **UPDATE (2026-09-01, machine-checked, sorry-free): the large eliminator.**
+>
+> * **`u.eval ls = 0` is a separable slice and it is free** (`pt_mem_interpL_recType_of_zero`,
+>   `interpL_unitRule_sides_of_zero`): large elimination *into `Prop`* collapses to the small
+>   case, so the genuine residual is the `≠ 0` slice alone. Both slices are non-empty cases
+>   (`exists_eq_zero_level`, `exists_ne_zero_level`).
+> * **The ι-rule still closes with a functional recursor value** (`interpL_unitRule_eq_of_ne`).
+>   The computational core is `recFnL_beta : ((recFnL κ n ‘ f) ‘ m) ‘ • = m`.
+> * **The oracle's level branch is forced** (`pt_not_mem_interpL_recType_of_ne`): no
+>   level-uniform value works for a large eliminator. The hypothesis "given any inhabitant of
+>   the motive space" is load-bearing — a junk `κ` with `U κ n = ∅` collapses `recFnL κ n` to
+>   `∅ = •`. **No `κ` is chosen.**
+> * **It did not need `IndInterp.lean`** — the second forecast this pair of files corrected.
+>   Four reusable, `interp`-free lemmas carried it: `mem_mkForallType_of_graph`,
+>   `mkLam_mem_mkForallType_of_dom` (domains need only *agree at the valuation*;
+>   `InterpSound.mkLam_mem_mkForallType` demands the same term, impossible when one side is the
+>   oracle and the other `interp`), `mkForallType_singleton_const`
+>   (`⟦Unit1 → Sort u⟧ = U_n ^ {•}`) and `mkLam_ext`.
+> * `Above`-free at an arbitrary `κ`, both fields, both slices: `mem_interp_constsL`,
+>   `defEq_rulesL`.
+> * **What is open now** is a block with **recursive fields** (the least fixed point,
+>   `SetModel/IndInterp.lean`) or with parameters/indices; `unitDecl`/`unitDeclLE` have neither.
 >
 > **Cost of the `hle`.** Every branch decision is read off a typing derivation in `unitEnv`
 > through `isProp_iff`/`isProof_iff`, so the theorems carry `hle : unitEnv ≤ envF` — the same
@@ -1251,5 +1275,6 @@ Nothing else on the set-theoretic side is outstanding.
 | `SetModel/ModelExists.lean` | `modelExistsInput` / `inaccModelInput` — **Input A discharged**; `upper_bound_of_modelFits`; `ZFCInaccModel`; the two-way bounds |
 | `SetModel/AboveAudit.lean` | the `Above` vacuity witnesses (`above_false_zeroChain`), the wrapper-stripping equivalences (`oracleOK_iff_of_chain`, `inductOracleOK_iff_of_chain`, `coherentOn_iff_of_chain`, `above_omegaChain_iff`), `CtxAgree`/`CtxAgreeRd` and `modelFits_iff_ctxAgreeRd`, `modelFits_of_propSplit_inputs` |
 | `SetModel/InductOracleWitness.lean` | the empty-domain `λ`/`∀` lemmas; `zeroOracle`; `inductOracleOK_zero`, `oracleFits_zero`, `coherentOn_zero` — the `.induct` residual's positive bound at a `WF` block |
+| `SetModel/UnitOracleLarge.lean` | the four `interp`-free `mkForallType`/`mkLam` lemmas (`mem_mkForallType_of_graph`, `mkLam_mem_mkForallType_of_dom`, `mkForallType_singleton_const`, `mkLam_ext`); `unitDeclLE`'s environment and `WF`; `recFn3`/`recFn2`/`recFnL` and `recFnL_beta`; `interpL_motTyU`; the `= 0` / `≠ 0` slices; `inductOracleOKL`, `oracleFitsL`, `oracleFitsL_at_consumer`; `pt_not_mem_interpL_recType_of_ne` |
 | `SetModel/UnitOracleWitness.lean` | `unitDecl`/`unitEnv`/`unitOracle`; `unitDecl_WF`, `unitDecl_history`; the branch facts from typing (`isProp_recB*`, `isProof_iota*Lam`); `inductOracleOK_unit`, `oracleFits_unit`, `oracleFits_unit_at_consumer` — the same bound with **no empty domain**; `exists_true_motive`, `pt_not_mem_mkForallType_of_nonempty`, `not_defEqOK_falseType` |
 | `docs/foundation-gaps.md` | what Foundation is missing, and the `isDefEq` hazard |

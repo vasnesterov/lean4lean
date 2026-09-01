@@ -225,7 +225,7 @@ impredicativity and it is what makes the bound tight rather than merely finite.
 | `piProp_mem_UProp` | part 1, `forallE` case | **proved** |
 | validity (`Γ ⊢ e : A → IsType Γ A`) | `appDF`, to level the `∀` | available, `Theory/Typing/` |
 | `function_eq_graph` (a function is its graph) | `eta` | **proved** |
-| `SetModel.CoherentOn` (there is no `ModelData.Coherent`) | `constDF`, `extra` | **CONSTRUCTED, in two places** — `CoherentWitness.coherentOn_witness` (closed witness, arbitrary `L`, all four fields non-vacuous) and `CnstRecursion.coherentOn_cnstOf` (the full `VEnv.WF'` recursion, six of seven `VDecl` forms discharged). This row said "construction open" for months and was **stale**. The open items are `InductOracleOK` alone — now a **two**-field structure, its deleted third field `staged` having been false at ordinary blocks (`not_stagedField_boxDecl`) and replaced by the theorem `stagedOcc_allConsts`; bounded field by field in `InductOracleAudit.lean` §5. `consts`'s positive bound at a `WF` block is closed twice: at `boxDecl` by emptiness (`inductOracleOK_zero`) and at `inductive Unit1 : Prop | mk` with **no** empty domain (`inductOracleOK_unit`, `SetModel/UnitOracleWitness.lean`); the `rules`-negative cell is bounded tighter but **not** closed (`not_defEqOK_falseType`; the cell's wording is probably unachievable — see §"Boundary control"). What is open is the **large** eliminator (`isLE := true`). `AxiomsValidated` is no longer open: its only content was `hκ`, closed by `InaccChainOmega.exists_inaccessibleChain_omega`. Caveat worth knowing: `coherentOn_witness`'s environment is reachable only via `VDecl.unsafeDef`, which `VDecl.noUnsafe` forbids and `coherentOn_cnstOf` refuses, so it certifies coherence at an environment the soundness induction never visits; `axEnv_wf` (`SetModel/CoherentConstShape.lean`) supplies a `VEnv.WF`, `.axiom`-produced, rule-free one instead |
+| `SetModel.CoherentOn` (there is no `ModelData.Coherent`) | `constDF`, `extra` | **CONSTRUCTED, in two places** — `CoherentWitness.coherentOn_witness` (closed witness, arbitrary `L`, all four fields non-vacuous) and `CnstRecursion.coherentOn_cnstOf` (the full `VEnv.WF'` recursion, six of seven `VDecl` forms discharged). This row said "construction open" for months and was **stale**. The open items are `InductOracleOK` alone — now a **two**-field structure, its deleted third field `staged` having been false at ordinary blocks (`not_stagedField_boxDecl`) and replaced by the theorem `stagedOcc_allConsts`; bounded field by field in `InductOracleAudit.lean` §5. `consts`'s positive bound at a `WF` block is closed twice: at `boxDecl` by emptiness (`inductOracleOK_zero`) and at `inductive Unit1 : Prop | mk` with **no** empty domain (`inductOracleOK_unit`, `SetModel/UnitOracleWitness.lean`); the `rules`-negative cell is bounded tighter but **not** closed (`not_defEqOK_falseType`; the cell's wording is probably unachievable — see §"Boundary control"). The **large** eliminator (`isLE := true`) is closed too (`inductOracleOKL`, `SetModel/UnitOracleLarge.lean`); what is open is a block with **recursive fields** (needing `IndInterp.lean`'s fixed point) or with parameters/indices. `AxiomsValidated` is no longer open: its only content was `hκ`, closed by `InaccChainOmega.exists_inaccessibleChain_omega`. Caveat worth knowing: `coherentOn_witness`'s environment is reachable only via `VDecl.unsafeDef`, which `VDecl.noUnsafe` forbids and `coherentOn_cnstOf` refuses, so it certifies coherence at an environment the soundness induction never visits; `axEnv_wf` (`SetModel/CoherentConstShape.lean`) supplies a `VEnv.WF`, `.axiom`-produced, rule-free one instead |
 | `IsDefEqU.sort_inv` | ~~packaged as `LevelAssign`~~ — that packaging is refuted; see the correction below | **open**, one `sorry` |
 | `IsDefEqU.forallE_inv` | — | **not needed** |
 | `IsDefEqU.sort_forallE_inv` | — | **not needed** |
@@ -2984,15 +2984,49 @@ Boundary control on the residual, both sorry-free, both in the same file:
   sides are both `•` because their bodies are *proofs* (`isProof_iotaLhsLam`,
   `isProof_iotaRhsLam`), so `interp_lam_proof` settles it. No fixed point, no `mkLam` nest,
   no `IndInterp.lean`.
-* **The frontier is therefore `isLE := true`, not `Unit1 : Prop`.** Real Lean declares the
-  *large* eliminator for `Unit1` (it is a subsingleton) and `VInductDecl'.WF` permits it:
+* **The frontier moved to `isLE := true` — and that is now closed too.** Real Lean declares
+  the *large* eliminator for `Unit1` (it is a subsingleton) and `VInductDecl'.WF` permits it:
   `unitDeclLE_LECond` holds, vacuously, because the constructor has no fields. At
   `isLE := true` the recursor gains a universe parameter (`unitDeclLE_recUvars = 1`,
-  `unitDeclLE_elimLvl = .param 0`), so for an instantiation with `u.eval ls ≠ 0` the
-  innermost binder is not propositional, `interp` takes `mkForallType`, and `•` is **not**
-  a legal value — `pt_not_mem_mkForallType_of_nonempty`, because the domain `{•}` is
-  nonempty. *That* is where the three-layer `mkLam` nest and the ι-rule's β-computation are
-  needed, and it is open.
+  `unitDeclLE_elimLvl = .param 0`), so for `u.eval ls ≠ 0` the innermost binder is not
+  propositional, `interp` takes `mkForallType`, and `•` is **not** a legal value
+  (`pt_not_mem_mkForallType_of_nonempty`). `SetModel/UnitOracleLarge.lean` supplies what is
+  then needed: `inductOracleOKL` proves **both** fields at `unitDeclLE`, `oracleFitsL` extends
+  it to `[.induct unitDeclLE]`, and `oracleFitsL_at_consumer` discharges the step from
+  `VEnv.WF'` + `env ≤ envF` alone.
+  * **`u.eval ls = 0` is a separable slice, and it is free.**
+    `pt_mem_interpL_recType_of_zero`, `interpL_unitRule_sides_of_zero`: at a `Prop`
+    instantiation every binder of `recType` is propositional again and `•` is the value, so
+    the argument is the small-eliminator one verbatim. Large elimination *into `Prop`*
+    collapses to the small case, and the genuine residual is the `≠ 0` slice alone. Both
+    slices are non-empty cases (`exists_eq_zero_level`, `exists_ne_zero_level`).
+  * **The ι-rule still closes with a functional recursor value.** `recFnL_beta`:
+    `((recFnL κ n ‘ f) ‘ m) ‘ • = m`, three set-theoretic applications. The rule's left side
+    is a real application of the oracle's value and reduces to the minor premise; the right
+    side is the η-expanded β-redex `iotaRule` builds and reduces to the same
+    (`interpL_unitRule_eq_of_ne`). Nothing about the rule wanted the value to be `•`.
+  * **The oracle's level branch is forced, not a convenience.**
+    `pt_not_mem_interpL_recType_of_ne` excludes `•` at `n ≠ 0` given any inhabitant of the
+    motive space, while at `n = 0` the type is a proposition whose only element is `•`. So no
+    level-uniform value exists for a large eliminator — the model-side shadow of `Prop`'s
+    collapse. The inhabitant hypothesis is load-bearing, not cosmetic: a junk `κ` with
+    `U κ n = ∅` empties the motive space and `recFnL κ n` collapses to `∅ = •`. **No `κ` is
+    chosen anywhere in the file.**
+  * **A second forecast corrected: this did NOT need `IndInterp.lean`.** What needs the fixed
+    point is a block with *recursive fields*; `unitDeclLE` has none. Four reusable lemmas
+    carried the weight instead, none mentioning `interp`: `mem_mkForallType_of_graph`;
+    `mkLam_mem_mkForallType_of_dom` (the two domains need only *agree at the valuation* —
+    `InterpSound.mkLam_mem_mkForallType` demands the same term, which is impossible when one
+    side is the oracle's value and the other `interp`'s, since `interp` reads `M.cnst`);
+    `mkForallType_singleton_const` (a `∀` over a singleton domain with constant codomain **is**
+    the function space, i.e. `⟦Unit1 → Sort u⟧ = U_n ^ {•}` — `interpL_motTyU`, the equation
+    the oracle's value is built against); and `mkLam_ext`.
+  * `Above`-free at an arbitrary `κ`, both fields, both slices: `mem_interp_constsL`,
+    `defEq_rulesL`.
+* **What is open after this** is neither large elimination nor "an inhabited domain": it is a
+  block with **recursive fields**, where the type former's denotation must be a least fixed
+  point (`SetModel/IndInterp.lean`), and a block with parameters or indices — `unitDecl` and
+  `unitDeclLE` have neither.
 * **The `hle` hypothesis costs nothing.** Every branch decision above is read off a typing
   derivation in `unitEnv` via `isProp_iff`/`isProof_iff`, so §5–§6 carry
   `hle : unitEnv ≤ envF` — the same hypothesis `QuotInterp.lean` carries for the four

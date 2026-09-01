@@ -133,6 +133,7 @@ import Lean4Lean.Verify.Inductive.NestedOccData      -- 2026-09-01: OccResidue r
 import Lean4Lean.Verify.Inductive.NestedRunInvariant -- 2026-09-01: MWF, the nested-branch M calculus with the state invariant a parameter
 import Lean4Lean.Theory.Typing.InjPiRogue  -- 2026-09-01: Pi-side rogue Ordered env; ConvPiFromEntry is FALSE at Ordered strength, so the localisation program must consume VEnv.WF
 import Lean4Lean.Theory.SetModel.UnitOracleWitness  -- 2026-09-01: the .induct residual at a WF block with NO empty domain; the frontier is isLE, not Prop
+import Lean4Lean.Theory.SetModel.UnitOracleLarge  -- 2026-09-01: the .induct residual at the LARGE eliminator; the oracle's level branch is FORCED; IndInterp was not needed
 import Lean4Lean.Theory.Typing.DescendRestate  -- 2026-09-01: descend's restatement bounded both ways; the ParRedKn route closed for it
 import Lean4Lean.Theory.Typing.ParRedMissing  -- 2026-09-01: what ParRed lacks, as CONSTRUCTORS of an extension; all three descend witnesses repaired, and the extension is cyclic
 

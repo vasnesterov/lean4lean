@@ -49,7 +49,8 @@ The frontier is therefore **large elimination**, not `Prop`.  `VInductDecl'.WF` 
 `isLE := true` for this block (`unitDeclLE_LECond`, vacuous because the constructor has no
 fields), and that is what Lean actually declares.  There the innermost binder is no longer
 propositional for `u.eval ls ≠ 0`, `interp` takes `mkForallType`, and `•` is not a legal
-value (`pt_not_mem_mkForallType_of_nonempty`).  Open.
+value (`pt_not_mem_mkForallType_of_nonempty`).  **Closed** in
+`SetModel/UnitOracleLarge.lean` (`inductOracleOKL`) — see §9's update.
 
 ## The `hle` hypothesis
 
@@ -866,7 +867,13 @@ At `isLE := true` the recursor gains a universe parameter and its result type be
 propositional, so `interp` takes the `mkForallType` branch — and `•` is then **not** a legal
 value (`pt_not_mem_mkForallType_of_nonempty`, since the domain `{•}` is nonempty).  The oracle
 must supply a genuine three-layer `mkLam` nest, and the ι-rule must β-compute through it.
-*That* is the case `SetModel/IndInterp.lean`'s machinery is for; it is open.
+
+**UPDATE (2026-09-01): closed, in `SetModel/UnitOracleLarge.lean`.**  `inductOracleOKL`
+proves both fields at `unitDeclLE`.  The `u.eval ls = 0` slice is free — it is §5's argument
+verbatim — and the `≠ 0` slice takes the three-layer `mkLam` `recFnL`; the ι-rule closes there
+because `recFnL_beta : ((recFnL κ n ‘ f) ‘ m) ‘ • = m`, i.e. the rule's left side really
+*applies* the recursor's value.  It did **not** need `SetModel/IndInterp.lean`: what needs the
+fixed point is a block with *recursive fields*, and this one has none.
 
 So the frontier this file moves is: from "`consts` at a `WF` block with an inhabited
 parameter/index domain" to "`consts` at a `WF` block with a **large** eliminator". -/
