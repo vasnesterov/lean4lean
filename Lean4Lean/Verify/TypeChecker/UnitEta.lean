@@ -3,7 +3,7 @@ import Lean4Lean.Verify.StructureBridge
 import Lean4Lean.Verify.TypeChecker.IsDefEq
 
 /-!
-# Zero-field structure eta, over the **widened** shape predicate
+# Zero-field structure eta: the widened bridge, and the two-type firing witness
 
 `docs/vacuity-ledger.md` row 99c: `isDefEqUnitLike.WF`'s residual `UnitLikeBridge`
 (`Verify/TypeChecker/IsDefEq.lean`) is not merely unproved but **false** once `AddInduct` stops
@@ -12,170 +12,29 @@ being empty, because it concludes `VEnv.IsStructure I D T C`, whose `types` fiel
 (`FM1`, `Verify/TypeChecker/FiringWitness.lean`).  Row 99d rules that the repair is to *widen
 the abstract premise*, not to narrow the checker.
 
-This file is that widening.  `VEnv.UnitEta` is the zero-field eta rule stated over
-`VEnv.IsStructureG` (`Verify/Typing/ProjGen.lean`), and `UnitLikeBridgeG` is the correspondingly
-widened bridge; `isDefEqUnitLike.WF_of_unitEta` is `isDefEqUnitLike.WF` from those two, in place
-of `VEnv.StructEta` and `UnitLikeBridge`.
+**The abstract half of that widening moved to `Theory/`.**  `VEnv.UnitEta` — the zero-field eta
+rule over `VEnv.IsStructureG` — and its four lemmas (`unitEta_rhs_eq`, `UnitEta.unitLike`,
+`.unitLike_of_isStructure`, `.structEta_at_no_fields`, plus `VEnv.empty_unitEta` and
+`VIndCtor.recFields_of_fields_nil`) are now in `Theory/Inductive/StructureEta.lean`, beside the
+`VEnv.StructEta` they generalise, and `VEnv.IsStructureG` itself is in
+`Theory/Inductive/Structure.lean` beside `VEnv.IsStructure` (ledger row 102d, decided
+2026-09-01).  Nothing about the statements changed in the move.
 
-## Why this file is in `Verify/` and not in `Theory/Inductive/StructureEta.lean`
+**What is left here is what genuinely belongs under `Verify/`:**
 
-**`VEnv.IsStructureG` is not reachable from `Theory/`.**  It is declared in
-`Lean4Lean/Verify/Typing/ProjGen.lean`, and no file under `Lean4Lean/Theory/` imports anything
-under `Lean4Lean/Verify/` (checked: zero hits for `import Lean4Lean.Verify` in `Theory/`).  So
-stating `UnitEta` in `StructureEta.lean` would require either duplicating `IsStructureG` or
-moving it across the layer boundary — a design decision that is not this file's to take.  Note
-that `ProjGen.lean`'s *only* import is `Lean4Lean.Theory.Inductive.StructureClosed`, and
-`IsStructureG` mentions nothing outside `Theory/`, so the move is available if wanted; it is
-reported rather than performed.
+* the **two-type firing witness** (`MutNonRec.decl2_WF` … `decl2Env_unitLike`), because it is
+  built on `MutNonRec.decl2` from `Verify/StructureBridge.lean`;
+* `UnitLikeBridgeG`, the widened bridge, and `UnitLikeBridge.toG`;
+* `isDefEqUnitLike.WF_of_unitEta`.
 
-## What the widening costs, exactly
-
-`IsStructureG` drops two fields of `IsStructure`.  At **zero fields** one of them is free:
-
-* `noRec : C.recFields = []` — `VIndCtor.recFields` is a `filterMap` over `C.fields`, so
-  `C.fields = []` forces it (`VIndCtor.recFields_of_fields_nil` below).  The zero-field rule
-  therefore loses nothing by dropping it.
-* `types : D.types = [T]` → `D.types[j]? = some T`.  This is the whole content of the
-  widening, and it is the field row 99c is about.
-
-So `UnitEta` is `StructEta`'s zero-field instance plus *members of mutual blocks*, and nothing
-else.  It is semantically harmless: at no indices and one constructor with no fields, `S ps` has
-exactly one closed inhabitant `C.mk ps` whether or not `S`'s block has siblings — the sibling
-types are simply other constants.  The reason `IsStructure.types` cannot be dropped **for the
-projection path** does not apply here at all: that reason is `projCore`'s arity
-(`MutNonRec.projCore_arity_wrong`, `Verify/StructureBridge.lean`), and at zero fields no
-recursor is built into the statement — the η-expansion is `C.mk ps`
-(`VInductDecl'.etaExpansion_of_no_fields`).
-
-## Polarity
-
-`StructEta`/`UnitEta` occur as **hypotheses** of the `.WF` obligations, i.e. in negative
-position, so widening the class of blocks they quantify over *strengthens* the assumption.  That
-is the right direction: it is what both kernels do.  C++'s `is_def_eq_unit_like`
-(`~/lean4/src/kernel/type_checker.cpp`) delegates to `is_non_rec_structure`, which reads
-`is_inductive`, one constructor, zero indices and not-recursive, and **never**
-`InductiveVal.all`.  The price of a stronger assumption is that it must still be *consistent*
-and its consumers must still be *satisfiable*; both are discharged below
-(`VEnv.empty_unitEta`, and the two-type witness section).
+The costing of the widening — `noRec` free at zero fields, `types` the whole content, and the
+*discharge* burden it grows (surjective pairing at mutual blocks, ledger row 102a) — is recorded
+where the rule now lives.
 -/
 
 namespace Lean4Lean
 
 open VExpr
-
-/-- **`noRec` is free at zero fields.**  `VIndCtor.recFields` is a `filterMap` over the field
-list, so a constructor with no fields has no recursive fields.  This is why dropping
-`VEnv.IsStructure.noRec` costs nothing in the zero-field rule. -/
-theorem VIndCtor.recFields_of_fields_nil {C : VIndCtor} (h : C.fields = []) :
-    C.recFields = [] := by simp [VIndCtor.recFields, h]
-
-/-- **Zero-field structure eta, over `VEnv.IsStructureG`.**
-
-`env.UnitEta` says: whenever `env` declares `S` as the `j`-th type of a block, with no indices
-and exactly one constructor `C`, and `C` has no fields, then every inhabitant of `S ps` is
-definitionally equal to the closed term `C.mk ps`.
-
-Differences from `VEnv.StructEta` (`Theory/Inductive/StructureEta.lean`), all forced by the
-zero-field specialisation:
-
-* `IsStructureG` in place of `IsStructure` — the point of the file;
-* `C.fields = []` is a premise, and consequently the right-hand side is spelled out as
-  `(const C.name us).mkApp ps` rather than `D.etaExpansion T C us ps e`.  The two agree
-  (`unitEta_rhs_eq`), and the explicit spelling is what makes it visible that **no `projTerm`,
-  and hence no recursor, occurs anywhere in the statement**;
-* the F17 clause (`D.isLE = true ∨ ∀ k < C.fields.length, …`) is dropped, because at zero fields
-  its right disjunct is vacuously true — there is no projection whose typing could fail.
-
-Every binder is pinned by a hypothesis — `S`, `D`, `j`, `T`, `C` by `IsStructureG`, `us` and `ps`
-by the length and `HasArgs` clauses, `e` by the `HasType` clause — so the conclusion mentions
-nothing the premises leave free. -/
-def VEnv.UnitEta (env : VEnv) : Prop :=
-  ∀ {U : Nat} {Γ : List VExpr} {S : Lean.Name} {D : VInductDecl'} {j : Nat} {T : VIndType}
-    {C : VIndCtor} {us : List VLevel} {ps : List VExpr} {e : VExpr},
-    env.IsStructureG S D j T C →
-    T.indices = [] →
-    C.fields = [] →
-    us.length = D.uvars → (∀ l ∈ us, l.WF U) →
-    ps.length = D.np →
-    env.HasArgs U Γ (D.params.map (VExpr.instL us)) ps →
-    env.HasType U Γ e ((VExpr.const S us).mkApp ps) →
-    env.IsDefEq U Γ e ((VExpr.const C.name us).mkApp ps) ((VExpr.const S us).mkApp ps)
-
-namespace VEnv
-
-variable {env : VEnv} {U : Nat} {Γ : List VExpr} {S : Lean.Name} {D : VInductDecl'} {j : Nat}
-  {T : VIndType} {C : VIndCtor} {us : List VLevel} {ps : List VExpr} {e e₁ e₂ : VExpr}
-
-/-- The right-hand side of `UnitEta` **is** `VInductDecl'.etaExpansion`, at zero fields.  So
-`UnitEta` really is the zero-field instance of the same rule `StructEta` states, and not a
-different rule that happens to look similar. -/
-theorem unitEta_rhs_eq (hnf : C.fields = []) :
-    D.etaExpansion T C us ps e = (VExpr.const C.name us).mkApp ps :=
-  D.etaExpansion_of_no_fields T C us hnf
-
-namespace UnitEta
-
-/-- **What `isDefEqUnitLike` needs.**  At zero fields the right-hand side is the same closed
-term `C.mk ps` for every inhabitant, so any two inhabitants of `S ps` are definitionally equal.
-
-This is `VEnv.StructEta.unitLike`'s proof, verbatim modulo the widened predicate and the
-already-specialised right-hand side (the `rw [etaExpansion_of_no_fields]` step is discharged in
-the statement of `UnitEta` itself). -/
-theorem unitLike (H : env.UnitEta) (hS : env.IsStructureG S D j T C)
-    (hidx : T.indices = []) (hnf : C.fields = [])
-    (hus : us.length = D.uvars) (husWF : ∀ l ∈ us, l.WF U)
-    (hps : ps.length = D.np)
-    (hpsA : env.HasArgs U Γ (D.params.map (VExpr.instL us)) ps)
-    (he₁ : env.HasType U Γ e₁ ((VExpr.const S us).mkApp ps))
-    (he₂ : env.HasType U Γ e₂ ((VExpr.const S us).mkApp ps)) :
-    env.IsDefEq U Γ e₁ e₂ ((VExpr.const S us).mkApp ps) :=
-  (H hS hidx hnf hus husWF hps hpsA he₁).trans
-    (H hS hidx hnf hus husWF hps hpsA he₂).symm
-
-/-- **Nothing is lost by the swap: every `IsStructure` instance is still covered.**
-
-`VEnv.IsStructure.toG` (`Verify/Typing/ProjGen.lean`) embeds the narrow predicate at `j = 0`, so
-`UnitEta` implies `StructEta.unitLike`'s conclusion at every instance `StructEta.unitLike` has
-one — this is the negative-position check made concrete rather than argued. -/
-theorem unitLike_of_isStructure (H : env.UnitEta) (hS : env.IsStructure S D T C)
-    (hidx : T.indices = []) (hnf : C.fields = [])
-    (hus : us.length = D.uvars) (husWF : ∀ l ∈ us, l.WF U)
-    (hps : ps.length = D.np)
-    (hpsA : env.HasArgs U Γ (D.params.map (VExpr.instL us)) ps)
-    (he₁ : env.HasType U Γ e₁ ((VExpr.const S us).mkApp ps))
-    (he₂ : env.HasType U Γ e₂ ((VExpr.const S us).mkApp ps)) :
-    env.IsDefEq U Γ e₁ e₂ ((VExpr.const S us).mkApp ps) :=
-  H.unitLike hS.toG hidx hnf hus husWF hps hpsA he₁ he₂
-
-/-- …and the same for `StructEta`'s own conclusion, spelled with `etaExpansion`: at zero fields
-`UnitEta` delivers exactly what `VEnv.StructEta` delivers.  (The F17 clause of `StructEta` is
-not needed as an input here — at zero fields it is free.) -/
-theorem structEta_at_no_fields (H : env.UnitEta) (hS : env.IsStructure S D T C)
-    (hidx : T.indices = []) (hnf : C.fields = [])
-    (hus : us.length = D.uvars) (husWF : ∀ l ∈ us, l.WF U)
-    (hps : ps.length = D.np)
-    (hpsA : env.HasArgs U Γ (D.params.map (VExpr.instL us)) ps)
-    (he : env.HasType U Γ e ((VExpr.const S us).mkApp ps)) :
-    env.IsDefEq U Γ e (D.etaExpansion T C us ps e) ((VExpr.const S us).mkApp ps) := by
-  rw [unitEta_rhs_eq (D := D) (T := T) (us := us) (ps := ps) (e := e) hnf]
-  exact H hS.toG hidx hnf hus husWF hps hpsA he
-
-end UnitEta
-
-/-- `UnitEta` is consistent: the empty environment declares no block, so every instance is
-vacuous there.  Read together with the two-type witness below, which shows the premises are
-**not** vacuous in general — and, unlike anything available for `StructEta`, are satisfiable at
-exactly the configuration `UnitLikeBridge`'s conclusion cannot describe. -/
-theorem empty_unitEta : VEnv.empty.UnitEta := by
-  intro U Γ S D j T C us ps e hS _ _ _ _ _ _ _
-  obtain ⟨env₀, env₁, _, hadd, hle⟩ := hS.decl
-  have h := hle.constants
-    (VEnv.addInduct'_types (T := T) hadd (List.getElem?_eq_some_iff.1 hS.types |>.2 ▸ (by
-      exact List.getElem_mem _)))
-  simp [VEnv.empty] at h
-
-end VEnv
-
 
 /-! ## The firing instance: a **two-type mutual block**
 
@@ -423,9 +282,11 @@ end TypeChecker.Inner
 
 /-! ## Audit
 
-**Axioms.**  Every declaration above is `[propext, Classical.choice, Quot.sound]` — the two
-`Prop`-only ones (`VIndCtor.recFields_of_fields_nil`, `VEnv.unitEta_rhs_eq`) are `[propext]` —
-**except** `isDefEqUnitLike.WF_of_unitEta`, which carries `sorryAx`.
+**Axioms.**  Every declaration above is `[propext, Classical.choice, Quot.sound]` —
+**except** `isDefEqUnitLike.WF_of_unitEta`, which carries `sorryAx`.  (The two `Prop`-only ones,
+`VIndCtor.recFields_of_fields_nil` and `VEnv.unitEta_rhs_eq`, are `[propext]`; they moved to
+`Theory/Inductive/StructureEta.lean` on 2026-09-01 and their axiom sets are unchanged by the
+move, re-measured there.)
 
 **And that `sorryAx` is entirely borrowed, none of it new.**  Measured hole cones (transitive
 `getUsedConstantsAsSet` sweep, filtering to declarations whose *value* mentions `sorryAx`):
@@ -470,10 +331,23 @@ because it is not uniform.**
 **What this file does *not* repair.**  Only the zero-field path.  `tryEtaStructCore.WF`'s
 residual `EtaStructSpine` (`Verify/TypeChecker/IsDefEq.lean`) has the same `IsStructure.types`
 defect (ledger row 99c, "Same for `EtaStructSpine`"), and repairing *it* means restating
-`VEnv.StructEta` itself over `IsStructureG` **with** the projection terms — which does need
-`projTermG` and the `Verify/Typing/ProjGen*` swap (`docs/handoff-projections.md` §0.5), because
-with fields present a recursor is back in the statement and `MutNonRec.projCore_arity_wrong`
-bites again.  That is why the zero-field path is the cheap one and why it was taken first.
+`VEnv.StructEta` itself over `IsStructureG` **with** the projection terms.
+
+**CORRECTION, 2026-09-01, and the correction is this paragraph's own.**  An earlier edition said
+that repair needs the `Verify/Typing/ProjGen*` swap "because with fields present a recursor is
+back in the statement and `MutNonRec.projCore_arity_wrong` bites again".  The first half is right
+and the *reason* is wrong.  `projCore_arity_wrong` is inert against a rule stated over
+`projTermG`, because `recArity_eq_projCoreG` is unconditional — machine-checked at a two-type
+block *with a field*, `MutField.projCore_arity_wrong_here` and
+`MutField.projCoreG_arity_right_here` (`Verify/TypeChecker/EtaStructG.lean`).  `VEnv.StructEtaG`
+is that rule, and its whole assembly (`unitLike`, `congrSpine`, `congrProj`,
+`congrProj_at_projAllG`) went through with **no arity side condition anywhere** and no new hole.
+What actually blocks the positive-field path is two other things: `projTerm_hasType` has no
+`IsStructureG` counterpart (remainder: `iota_law` at an arbitrary constructor, and
+`realMinor_app` — `docs/handoff-projections.md` §0**.1, owned elsewhere), and — the one nothing
+had recorded — **`TrProj` itself carries `VEnv.IsStructure`** (`TrProj.isStructure`), so the
+bridge's `TrExprS (.proj …)` clause is no more satisfiable at a mutual block after the widening
+than before it.  See `EtaStructG.lean`'s header for the three walls stated apart.
 
 **One obligation this widening does grow, and it should be recorded rather than glossed.**
 `UnitEta` is a strictly stronger assumption than `StructEta`'s zero-field instance, so whatever
@@ -481,6 +355,13 @@ eventually discharges it — the set model, as for `quotDefEq` — must validate
 at members of *mutual* blocks, not only at singleton ones.  Nothing here shows that it does.
 What is shown is that the strengthening is (i) consistent (`VEnv.empty_unitEta`), (ii) satisfiable
 at the configuration that matters (`decl2Env_unitEta_premises`), and (iii) exactly what both
-kernels' gates license, since neither reads `InductiveVal.all`. -/
+kernels' gates license, since neither reads `InductiveVal.all`.
+
+`VEnv.StructEtaG` (`Verify/TypeChecker/EtaStructG.lean`) is the positive-field rule over the same
+widened predicate, and it grows the obligation **by exactly the same one step and no more**:
+surjective pairing at members of mutual blocks, now with the projections present.  It keeps
+`C.recFields = []` as an explicit premise rather than inheriting `IsStructureG`'s omission of it —
+see its docstring for the two reasons, one of which is that dropping it is not known to be *safe*
+rather than merely strong.  `StructEtaG.toStructEta` is the polarity certificate. -/
 
 end Lean4Lean

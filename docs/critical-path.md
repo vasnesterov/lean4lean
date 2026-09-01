@@ -133,11 +133,20 @@ three for reasons that must not be misread as slack:
 - `leanTT_equiconsistent_zfc_omega_inaccessibles` — off the *cone* only because H2 is taken as a
   hypothesis rather than derived from the theorem. It is squarely on the path. A cone measurement
   can never see a hypothesis, which is exactly why H1 and H2 are tabulated separately above.
-- `NormalEq.descend` (47 users) — off-cone because the results it supplies (`ParRed.weakN_inv`,
-  and confluence generally) exist to *prove* `IsDefEqU.weakN_iff`, which is itself still a
-  `sorry`; a hole's cone is empty, so its intended suppliers look unreachable. `descend` re-enters
-  the cone the moment `weakN_iff` stops being a hole. Do not read this row as "the confluence
-  work is idle".
+- ~~`NormalEq.descend` (47 users) — off-cone~~ **WRONG, corrected 2026-09-01: `descend` is ON
+  `Bridge.kernel_sound_of`'s cone today, and in *every* branch lemma of `addDecl.WF`,
+  `addAxiom.WF` included.** Measured: that cone's hole set is 9 and contains `NormalEq.descend`;
+  the single direct user inside it is `NormalEq.appDF_extra_of_descend`, and the chain is
+  `addAxiom.WF ← … ← constApp_inv_of_patWF ← IsDefEq.constApp_inv ← IsDefEq.church_rosser ←
+  CRDefEq.trans ← NormalEq.parRedS ← NormalEq.parRed ← appDF_extra_of_descend ← descend`. So it
+  enters through **Church–Rosser / constant-application injectivity** — which this document's own
+  Correction 2 already states — and the two passages contradicted each other. Grade it per ledger
+  row 32 *as corrected*: **conditionally** refuted, not unfillable. The old text is kept below for
+  the record because its *reasoning* about hole cones is sound and still worth knowing; only its
+  verdict was false.
+  *Was:* off-cone because the results it supplies (`ParRed.weakN_inv`, and confluence generally)
+  exist to *prove* `IsDefEqU.weakN_iff`, which is itself still a `sorry`; a hole's cone is empty,
+  so its intended suppliers look unreachable.
 
 ## Consequences for sequencing
 
@@ -150,6 +159,11 @@ three for reasons that must not be misread as slack:
    only *given* `PiInv` — so that is two fronts, not one hole seen twice.
 3. Nothing on the path is unowned: H1 and H2 have named workstreams, and the nine holes are all
    either checker-side or in the injectivity/weakening region.
+3a. **Closing the inductive branch of `addDecl.WF` does NOT unblock that node — measured
+   2026-09-01.** All five non-quot branch lemmas (`addAxiom.WF`, `addDefinition.WF`,
+   `addTheorem.WF`, `addOpaque.WF`, `addMutual.WF`) carry **the identical 8 holes**, and so do the
+   honest restatement and its reduction to `AddInductiveRunRealises`. So the five other branches
+   are blocked on the typing/checker cluster and **nothing about inductives**. Ledger row 104.
 4. **The injectivity *localisation* programme is retired as stated, 2026-09-01.**  Every theorem
    in `InjMidLocal.lean`, `InjChainLower.lean` and `InjPiInhab.lean` assumes `Ordered env` and
    nothing more, and at that strength the Π-side target is **false**: `roguePiEnv`

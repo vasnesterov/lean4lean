@@ -143,6 +143,7 @@ import Lean4Lean.Theory.Typing.PatAppParams  -- 2026-09-01: first Params instanc
 import Lean4Lean.Verify.Inductive.TrIndDeclNCtorOwn  -- 2026-09-01: TrIndDeclN.ctorName_own -- producer side for all three paths, six-consumer audit, RestoreData.ctor's prefix half
 import Lean4Lean.Verify.QuotAppParams  -- 2026-09-01: canonical .app-pattern instance (quotParams, one PiInv away); M3 and KDiamond FALSE there; parRed/church_rosser refutations reachable
 import Lean4Lean.Verify.TypeChecker.UnitEta  -- 2026-09-01: zero-field eta over IsStructureG; UnitLikeBridgeG satisfiable at a two-type mutual block
+import Lean4Lean.Verify.TypeChecker.EtaStructG  -- 2026-09-01: StructEtaG over IsStructureG with projTermG -- projCore_arity_wrong INERT; the wall is TrProj carrying IsStructure
 import Lean4Lean.Verify.TypeChecker.FiringWitness  -- 2026-09-01: the three "never fires" gates, fired
 import Lean4Lean.Theory.Typing.KEtaDiamond  -- 2026-09-01: the lambda-congruence induction; the eta-half reduces to injectivity, not the rule table
 import Lean4Lean.Theory.Typing.KDiamondJoin  -- 2026-09-01: KDiamond/M3 as joinability, and its CR price -- the repair works and lands back on confluence

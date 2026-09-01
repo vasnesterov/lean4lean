@@ -1210,46 +1210,15 @@ theorem VIndCtor.fieldUsed_index_irrel (C : VIndCtor) (D : VInductDecl') (j j' k
 
 /-! ## The widened shape predicate
 
-`VEnv.IsStructure` narrows what the kernel accepts in two fields (both recorded at its
-docstring, both machine-checked against Lean's own kernel by `MutNonRec.kernelProjChecks`,
-`Verify/StructureBridge.lean`):
+`VEnv.IsStructureG` **moved** to `Theory/Inductive/Structure.lean`, next to the
+`VEnv.IsStructure` it generalises, on 2026-09-01 (`docs/vacuity-ledger.md` row 102d).  It was
+declared here, and that placement forced `VEnv.UnitEta` — the zero-field eta rule stated over
+it — out of `Theory/` as well, because nothing under `Theory/` imports `Verify/`.  The move is
+cycle-free: this file's only import is `Theory.Inductive.StructureClosed`, and `IsStructureG`
+mentions nothing outside `Theory/`.
 
-* `types : D.types = [T]` — `infer_proj` never checks that the block is a singleton, and the
-  eta gate performs structure eta at a member of a two-type block;
-* `noRec : C.recFields = []` — `infer_proj` never reads `InductiveVal.isRec`.
-
-`IsStructureG` drops both.  `ctors` stays: it is genuinely forced, by `infer_proj` and by
-`is_structure_like` alike. -/
-
-structure VEnv.IsStructureG (env : VEnv) (S : Lean.Name) (D : VInductDecl') (j : Nat)
-    (T : VIndType) (C : VIndCtor) : Prop where
-  /-- `T` is *a* type of the block, at index `j` — not necessarily the only one. -/
-  types : D.types[j]? = some T
-  name : T.name = S
-  /-- Forced by the kernel: `infer_proj` fails unless `I_val.ctors` is a singleton. -/
-  ctors : T.ctors = [C]
-  decl : ∃ env₀ env₁, D.WF env₀ ∧ env₀.addInduct' D = some env₁ ∧ env₁ ≤ env
-
-namespace VEnv.IsStructureG
-
-variable {env env' : VEnv} {S : Lean.Name} {D : VInductDecl'} {j : Nat}
-  {T : VIndType} {C : VIndCtor}
-
-theorem mono (h : env ≤ env') (H : env.IsStructureG S D j T C) : env'.IsStructureG S D j T C :=
-  { H with decl := let ⟨_, _, h1, h2, h3⟩ := H.decl; ⟨_, _, h1, h2, h3.trans h⟩ }
-
-theorem lt_nm (H : env.IsStructureG S D j T C) : j < D.nm :=
-  List.getElem?_eq_some_iff.1 H.types |>.1
-
-end VEnv.IsStructureG
-
-/-- The narrow predicate is the wide one at index `0`. -/
-theorem VEnv.IsStructure.toG {env : VEnv} {S : Lean.Name} {D : VInductDecl'}
-    {T : VIndType} {C : VIndCtor} (H : env.IsStructure S D T C) :
-    env.IsStructureG S D 0 T C where
-  types := by rw [H.types]; rfl
-  name := H.name
-  ctors := H.ctors
-  decl := H.decl
+`IsStructureG`, `IsStructureG.mono`, `IsStructureG.lt_nm` and `VEnv.IsStructure.toG` are all
+still in scope here, and every consumer in this directory (`ProjClosedG.lean`,
+`ProjGenMotive.lean`, `ProjGenSwap.lean`, `ProjGenBeta.lean`) is unchanged. -/
 
 end Lean4Lean

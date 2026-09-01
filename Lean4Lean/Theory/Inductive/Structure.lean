@@ -492,8 +492,8 @@ structure VEnv.IsStructure (env : VEnv) (S : Lean.Name)
   `Verify/Typing/ProjGen.lean`: `VInductDecl'.projCoreG` pads both blocks to full length
   (`recArity_eq_projCoreG`, unconditional — so `projCore_arity_wrong` is inert against it,
   `MutNonRec.projCoreG_arity_right'`), agrees with `projCore` at every block this field
-  admits (`projCoreG_eq_projCore`, `projTermG_eq_projTerm`), and `VEnv.IsStructureG` is the
-  correspondingly widened predicate.  What is not yet done is the swap; `docs/handoff-
+  admits (`projCoreG_eq_projCore`, `projTermG_eq_projTerm`); `VEnv.IsStructureG` is the
+  correspondingly widened predicate, and lives below in this file.  What is not yet done is the swap; `docs/handoff-
   projections.md` §0.5 lists the exact remainder.
 
   **It is nevertheless narrower than what the kernel accepts**, and that is a recorded gap,
@@ -526,7 +526,7 @@ structure VEnv.IsStructure (env : VEnv) (S : Lean.Name)
   `VEnv.StructEta` (`Theory/Inductive/StructureEta.lean`), so weakening it there does not
   weaken an obligation — it *strengthens the eta assumption*, to recursive one-constructor
   inductives, which is exactly what Lean's eta gate excludes.  The widened predicate for the
-  projection path is `VEnv.IsStructureG` (`Verify/Typing/ProjGen.lean`), which is separate
+  projection path is `VEnv.IsStructureG` (below in this file), which is separate
   for this reason.  `docs/handoff-projections.md` §0.3, correction 4. -/
   noRec : C.recFields = []
   /-- The block was declared, well-formedly, at some point in `env`'s past. -/
@@ -547,6 +547,64 @@ theorem nmin_eq (H : env.IsStructure S D T C) : D.nmin = 1 := by
   simp [VInductDecl'.nmin, VInductDecl'.ctorsAll, H.types, H.ctors]
 
 end VEnv.IsStructure
+
+/-! ## The widened shape predicate
+
+`VEnv.IsStructure` narrows what the kernel accepts in two fields (both recorded at its
+docstring, both machine-checked against Lean's own kernel by `MutNonRec.kernelProjChecks`,
+`Verify/StructureBridge.lean`):
+
+* `types : D.types = [T]` — `infer_proj` never checks that the block is a singleton, and the
+  eta gate performs structure eta at a member of a two-type block;
+* `noRec : C.recFields = []` — `infer_proj` never reads `InductiveVal.isRec`.
+
+`IsStructureG` replaces the first by `D.types[j]? = some T` (so it carries a **block index**
+`j`), and drops the second.  `ctors` stays: it is genuinely forced, by `infer_proj` and by
+`is_structure_like` alike.
+
+**Why it lives here.**  It was declared in `Verify/Typing/ProjGen.lean` until 2026-09-01, and
+that placement forced `VEnv.UnitEta` (`Theory/Inductive/StructureEta.lean`) — the zero-field
+eta rule stated over it — out of `Theory/` too, because no file under `Theory/` imports
+anything under `Verify/`.  The move here is cycle-free: `IsStructureG` mentions only `VEnv`,
+`VInductDecl'`, `VIndType`, `VIndCtor`, `VInductDecl'.WF`, `VEnv.addInduct'` and `VEnv.LE`,
+all of which this file already uses for `IsStructure` itself.  `docs/vacuity-ledger.md` row
+102d is the decision.
+
+**It is deliberately a separate predicate, not a weakening of `IsStructure` in place.**
+`IsStructure` occurs in *negative* position in `VEnv.StructEta`, so weakening it there would
+*strengthen* the eta assumption rather than weaken an obligation — see `IsStructure.noRec`'s
+docstring and `docs/handoff-projections.md` §0.3, correction 4. -/
+
+structure VEnv.IsStructureG (env : VEnv) (S : Lean.Name) (D : VInductDecl') (j : Nat)
+    (T : VIndType) (C : VIndCtor) : Prop where
+  /-- `T` is *a* type of the block, at index `j` — not necessarily the only one. -/
+  types : D.types[j]? = some T
+  name : T.name = S
+  /-- Forced by the kernel: `infer_proj` fails unless `I_val.ctors` is a singleton. -/
+  ctors : T.ctors = [C]
+  decl : ∃ env₀ env₁, D.WF env₀ ∧ env₀.addInduct' D = some env₁ ∧ env₁ ≤ env
+
+namespace VEnv.IsStructureG
+
+variable {env env' : VEnv} {S : Lean.Name} {D : VInductDecl'} {j : Nat}
+  {T : VIndType} {C : VIndCtor}
+
+theorem mono (h : env ≤ env') (H : env.IsStructureG S D j T C) : env'.IsStructureG S D j T C :=
+  { H with decl := let ⟨_, _, h1, h2, h3⟩ := H.decl; ⟨_, _, h1, h2, h3.trans h⟩ }
+
+theorem lt_nm (H : env.IsStructureG S D j T C) : j < D.nm :=
+  List.getElem?_eq_some_iff.1 H.types |>.1
+
+end VEnv.IsStructureG
+
+/-- The narrow predicate is the wide one at index `0`. -/
+theorem VEnv.IsStructure.toG {env : VEnv} {S : Lean.Name} {D : VInductDecl'}
+    {T : VIndType} {C : VIndCtor} (H : env.IsStructure S D T C) :
+    env.IsStructureG S D 0 T C where
+  types := by rw [H.types]; rfl
+  name := H.name
+  ctors := H.ctors
+  decl := H.decl
 
 /-! ## Why `nm_eq`/`nmin_eq` cannot simply be dropped
 
