@@ -177,10 +177,21 @@ theorem EWF.mapM' {f : α → M β} (hf : ∀ a, EWF env (f a) (fun _ => True)) 
 /-- `withParams` calls its continuation with exactly `n` parameters — which is what makes the
 `assert!` inside `run.loop` unreachable — and transports `EWF`.
 
-The `ps.size = n` conclusion is load-bearing: `assert!` elaborates to `panicWithPosWithDecl`,
-which in this monad returns `.ok (default, default)` rather than an error, and
-`(default : State).nestedAux = #[]` is *not* the incoming state, so a proof that ignored the
-assert's condition would have to prove a false statement. -/
+**Corrected 2026-09-01; the paragraph that stood here was wrong on both counts.**  It said the
+`ps.size = n` conclusion is load-bearing because `assert!` elaborates to
+`panicWithPosWithDecl`, which "in this monad returns `.ok (default, default)` rather than an
+error", and that `(default : State).nestedAux = #[]` is not the incoming state.  In fact
+`Inhabited (M α)` does **not** resolve through `Inhabited (Except ε α)` — that instance needs
+`[Inhabited ε]` and `Inhabited Kernel.Exception` does not synthesise — so it resolves through
+`instInhabitedOfMonad`, i.e. `pure default`: the value is `default` and the **incoming state is
+untouched**.  Machine-checked as `ElimNestedInductive.panic_eq`
+(`Verify/Inductive/NestedRunInvariant.lean`).
+
+Consequences: on the panic branch `s' = s`, so `EWF`'s postcondition holds there for free and
+`ps.size = n` is *not* load-bearing for the stated reason; and all five panic sites reachable
+from `replaceAllNested` are invariant-preserving, which is what makes
+`ElimNestedInductive.replaceAppendsOnly` provable with **no** environment or arity side
+condition.  The conclusion is kept because callers use it, not because the assert forces it. -/
 theorem EWF.withParams' {k : LocalContext → Expr → Array Expr → M α}
     (n : Nat) (hk : ∀ lctx t ps, ps.size = n → EWF env (k lctx t ps) Q) (type : Expr) :
     EWF env (withParams type n k) Q := by

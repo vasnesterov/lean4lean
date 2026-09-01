@@ -1250,4 +1250,147 @@ end
 end VIndRestore
 
 
+/-! ## §T11 The assembly — and the one lemma it is blocked on
+
+The composition of §T5–§T10 into `np > 0` closures for `recConstsR_wf_of_substC'` and
+`iotaRulesRS_wf_of_substC'` is **not** completed here, and the reason is a specific missing
+lemma, not effort.  Reporting it rather than working around it, as instructed.
+
+### What the assembly needs, and what is now present
+
+For (B) the bridge wants, at `σ := R.csubst D K`,
+
+    ∃ As As' B B' v, (D.recType j).substC σ = mkPi As B ∧ (D.recTypeR R j).substC σ = mkPi As' B'
+                     ∧ e₂.TeleDefEq D.recUvars [] As As' ∧ e₂.IsDefEq D.recUvars As.reverse B B' _
+
+with `As`/`As'` the four-block recursor telescope substituted.  The first two conjuncts are
+`substC_mkPi` + `List.map_append`.  The `TeleDefEq` splits by `TeleDefEq.append` into
+params (`refl`), motives (§T5), minors (§T6), indices (`refl`), and each block is built
+entrywise by **`VEnv.TeleDefEq.of_entries`** below — the structural glue that was missing:
+`TeleDefEq` is an inductive relation and nothing turned a pointwise family of entry defeqs into
+one.  Its context bookkeeping is exactly what the entry lemmas were stated for: entry `i` is
+related over `(As.take i).reverse ++ Γ`, which is `substC_motiveType_defeq'`'s and
+`substC_minorType_defeq`'s ambient `Γ` with `M := As.take i`.
+
+### `hargs` **is** factorable, and to one datum per `Faithful` clause
+
+Constraint 1 is satisfiable.  §8.9's `hbody`/`hcbody` are typings of `D.atRec (R.tyBody D j)`
+and `D.atRec (R.ctorBody D j C)` at `(D.atRecTele D.params).reverse ++ Γ` with `Γ` varying per
+entry — but the subject is closed at `D.np`, so one typing at the **params-only** context
+weakens to every entry's context: `VIndRestore.hbody_weak`, which is `IsDefEq.weakR`
+(`Theory/Typing/Lemmas.lean:550`) *applied* — no new content, named only to record the
+reduction.  So the data enters **twice, once per `Faithful` clause** (`ty_agree`'s spine for the
+motive block, `ctor_agree`'s for the minor block), not once per block and not once per entry.
+Two rather than one is forced by the construction, not by the statement: the two blocks apply
+*different constants* with *different declared types*, so no single `HasArgs` can serve both.
+That is the fact about the construction the factoring question was asking for.
+
+### The blocker: `hAs` cannot be discharged the way `hbv` was
+
+`hbv` was free because `HasArgs.bvars` types a telescope's own variable spine against **the
+telescope sitting in the context**.  `hAs` is not of that shape, and §T10 is what made this
+visible: `hpi` is now *derived*, and it delivers
+
+    As = instAllTele (D.atRecTele (C.fieldTypesR D R)) (bvars k D.np) 0
+
+— the **restored** field telescope — while the minor entry's context carries
+
+    liftTele (D.nm + q) ((D.atRecTele (C.fields.map (·.type))).map (VExpr.substC · σ))
+
+— the **source-substituted** one.  `HasArgs.bvars` gives the spine against the latter; the comp
+lemma needs it against the former.  The two are definitionally equal — that is precisely
+`substC_minorType_defeq`'s own `hfld` — so the application typechecks *up to conversion*, and
+what is missing is the conversion:
+
+    theorem VEnv.HasArgs.congr_tele {env : VEnv} {U : Nat} {Γ As As' as : List VExpr} :
+        env.TeleDefEq U Γ As As' → env.HasArgs U Γ As as → env.HasArgs U Γ As' as
+
+whose `cons` step needs `HasType.defeqDF` (available) **and** a substituted `TeleDefEq`
+
+    theorem VEnv.TeleDefEq.inst {a A : VExpr} (ha : env.HasType U Γ a A) :
+        env.TeleDefEq U (A :: Γ) As As' → env.TeleDefEq U Γ (instTele a As) (instTele a As')
+
+because `HasArgs.cons`'s tail is at `instTele a As`.  `TeleDefEq.inst` is `IsDefEq.instN`
+(`Theory/Typing/Lemmas.lean:634`) per entry plus the `Ctx.InstN` witness for each telescope
+prefix; it is not deep, but it is not one line and it is the whole remaining obstruction to the
+assembly.  **It is `PiInv`-free** — a forward conversion by substitution, not a spine inversion
+— so closing it does not put this cone behind `VEnv.WF`.  `HasArgs.of_mkApp'` is still not used
+anywhere in this file.
+
+So the honest state: `hargs` (two data, factored) **plus** `HasArgs.congr_tele`/`TeleDefEq.inst`.
+Everything else in §T9's list is discharged.
+
+### Instrument 7 on the *composed* statement
+
+The composed bridge is stated at `Γ = []`, and a conjunction of individually non-vacuous
+statements can still be jointly empty, so this needed checking rather than assuming.  It passes,
+and the reason is worth recording:
+
+* the top-level `TeleDefEq D.recUvars [] As As'` starts with the **parameter** block, which is
+  identical on both sides and so costs `TeleDefEq.rfl` — a constructor that carries **no
+  typing**.  Had the parameter block moved, entry 0 would have needed a defeq at `[]` and the
+  `bvars` spine of `substC_tyApp'_defeq_tyAppR'_comp` would have been out of scope there,
+  exactly the §T5 collapse.  `TeleDefEq.rfl`'s existence is what saves it.
+* the **motive** entries sit over `(As.take i).reverse`, whose parameter block is non-empty as
+  soon as `D.np > 0` — and at `D.np = 0` their `hbv` is `bvars k 0 = []`, i.e. `HasArgs.nil`
+  (`hasArgs_params_bvars_of_np_zero`).  Non-empty in both regimes.
+* the **minor** entries sit over `M` with `M.length = D.nm + q`, and `D.nm ≥ 1` always
+  (`VInductDecl'.nm_pos_of_types_ne`, from `VInductDecl'.WF.types_ne`).  So a minor entry's
+  ambient context is **never** empty, and `minorBody_hfun_false_of_nil` — which would have made
+  the entry vacuous — cannot fire.  The block-non-emptiness clause of `WF` is load-bearing for
+  §T6's satisfiability, which is not obvious from §T6 alone.
+
+No sub-statement of the composed bridge is forced to `Γ = []`. -/
+
+namespace VEnv
+variable {env : VEnv} {U : Nat}
+
+/-- **Entrywise to `TeleDefEq`.**  The structural glue the assembly needs: a pointwise family of
+entry defeqs, each stated over the prefix below it, becomes one `TeleDefEq`. -/
+theorem TeleDefEq.of_entries {Γ : List VExpr} :
+    ∀ {As As' : List VExpr}, As.length = As'.length →
+      (∀ (i : Nat) (A A' : VExpr), As[i]? = some A → As'[i]? = some A' →
+        ∃ u, env.IsDefEq U ((As.take i).reverse ++ Γ) A A' (.sort u)) →
+      env.TeleDefEq U Γ As As'
+  | [], [], _, _ => .nil
+  | A :: As, A' :: As', hlen, h => by
+    obtain ⟨u, h0⟩ := h 0 A A' (by simp) (by simp)
+    simp only [List.take_zero, List.reverse_nil, List.nil_append] at h0
+    refine .cons h0 (TeleDefEq.of_entries (by simpa using hlen) ?_)
+    intro i B B' hB hB'
+    obtain ⟨v, hv⟩ := h (i+1) B B' (by simpa using hB) (by simpa using hB')
+    rw [List.take_succ_cons, List.reverse_cons, List.append_assoc,
+      List.singleton_append] at hv
+    exact ⟨v, hv⟩
+
+end VEnv
+
+namespace VInductDecl'
+
+/-- **The block is non-empty**, and §T11's instrument-7 check needs it: it is what keeps every
+minor entry's ambient context non-empty and so keeps §T6 out of `minorBody_hfun_false_of_nil`. -/
+theorem nm_pos_of_types_ne {D : VInductDecl'} (h : D.types ≠ []) : 0 < D.nm := by
+  simp only [VInductDecl'.nm]
+  exact List.length_pos_iff.2 h
+
+end VInductDecl'
+
+namespace VIndRestore
+section
+variable {R : VIndRestore} {D : VInductDecl'} {e : VEnv} {U j : Nat} {C : VIndCtor}
+
+/-- **The `hargs` factorisation.**  One typing at the params-only context serves every entry's
+context, the subject being closed at `D.np`.  This is `VEnv.IsDefEq.weakR` *applied* — no new
+content; it is named to record that `hargs` enters once per `Faithful` clause rather than once
+per block. -/
+theorem hbody_weak {b B : VExpr} {Γ : List VExpr} (henv : e.Ordered)
+    (hpcl : VExpr.ClosedTele (D.atRecTele D.params) 0)
+    (h : e.HasType U ((D.atRecTele D.params).reverse) b B) :
+    e.HasType U ((D.atRecTele D.params).reverse ++ Γ) b B :=
+  VEnv.IsDefEq.weakR henv (by simpa using hpcl.ctxClosed (Γ := []) trivial) h Γ
+
+end
+end VIndRestore
+
+
 end Lean4Lean

@@ -666,6 +666,25 @@ theorem nfnAux_not_built_badTy {env : VEnv} :
   intro hb
   exact semResidue_not_member_badTy ⟨hb.member, hb.occurs⟩
 
+/-- **The exact scope of that bound.**  `pfnOccBadTy` also violates `occurs` — `Occurs.ty_const`
+pins the source member's *stored* type against the environment, and the perturbation is exactly
+that type.  So the bound above says `member` is not slack in
+`RestoreData ∧ OccData ∧ hl ∧ ha`; it does **not** say `member` is not slack in those *plus*
+`occurs`.  Whether it is remains open, and it turns on whether `VInductDecl'.Declared` pins
+`(occ j).src.indices` — which `Theory/Inductive/Decl.lean:694`'s own docstring says is one of the
+fields *unrecoverable* from a declaration, so only up to the recursor type's `IsDefEqU`. -/
+theorem pfnOccBadTy_not_occurs {env₂ : VEnv} (h : VEnv.empty.addInduct' pfnDecl = some env₂) :
+    ¬ pfnOccBadTy.Occurs env₂ := by
+  intro ho
+  have h1 := ho.ty_const
+  rw [show pfnOccBadTy.tyName = ``PFn from rfl, pfn_const h] at h1
+  simp only [Option.some.injEq] at h1
+  have h2 : pfnType.type = pfnOccBadTy.src.type := congrArg VConstant.type h1
+  simp only [show pfnType.type = .forallE (.sort (.succ .zero)) (.sort (.succ .zero)) from rfl,
+    show pfnOccBadTy.src.type = .forallE (.sort (.succ .zero)) (.sort .zero) from rfl,
+    VExpr.forallE.injEq, VExpr.sort.injEq] at h2
+  exact absurd h2.2 (by simp)
+
 end NestedWit
 
 end Lean4Lean
