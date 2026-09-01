@@ -1,7 +1,7 @@
 # The vacuity ledger
 
 *Written 2026-08-31, after four instances of the same failure mode turned up in one round, and
-a survey then found four more already refuted elsewhere in the tree. Sixty-two statements are
+a survey then found four more already refuted elsewhere in the tree. Sixty-three statements are
 now measured; twelve are vacuous, near-vacuous or false, and one of those twelve is a design
 ruling of my own (row 36), three are refuted outright, two routes
 are dead, and nine are bounded or acquitted.*
@@ -80,14 +80,28 @@ row 11a taught us to check. `SetModel.Above M P := ∃ m, IsInaccessibleChain m 
 (`InterpSound.lean:696`). If there is **any** `m` at which `M.κ` fails to be a chain, that
 implication is vacuously true and so is `Above M P` — **for every `P`, including `False`**. And such
 a `κ` exists: `not_isInaccessibleChain_const` (`InaccChainOmega.lean:303`). Every field of
-`OracleOK`, `QuotOracleOK`, `InductOracleOK` and `DefEqOK` is an `Above`. So **any "this residual is
-satisfiable" claim stated through the wrapper at an arbitrary `κ` measures nothing** — the witness
-may be discharging the wrapper rather than the obligation. Only under `∀ m, IsInaccessibleChain m
-M.κ` does `Above M P ↔ P` (`above_iff_of_chain`), and that hypothesis is exactly what
-`exists_inaccessibleChain_omega` now supplies. **Guard: a positive bound on an `Above`-wrapped field
-must factor through `Above.pure`, or be restated with the wrapper stripped.** Every pre-existing
-positive bound in `Theory/SetModel/` needs re-auditing against this; row 11's repaired residual is
-the first that was built with it in mind.
+`OracleOK`, `QuotOracleOK`, `InductOracleOK` and `DefEqOK` is an `Above`. **CORRECTED, same day, and the correction is mine to own.** I wrote that "any such claim stated at
+an *arbitrary* `κ` measures nothing" and that every pre-existing positive bound needed re-auditing.
+**Both halves were wrong**, and this is the taxonomy's kind 4 — a hazard asserted as established
+without checking whether anything actually exhibited it.
+
+*Arbitrary* means universally quantified: instantiate at `omegaChain V` and `above_iff_of_chain`
+strips the wrapper, so **a `∀ κ` claim is exactly as strong as its payload at the only `κ` the
+reduction uses**. The genuinely worthless shape is a claim that *chooses* its `κ` — `∃ κ` with no
+chain condition, or a fixed non-chain `κ` — and **the audit found none in the directory**: every
+`∃ κ` statement there carries `IsInaccessibleChain` in its body. Stronger still,
+`ModelFitsLeanInput` takes `hκ` as a hypothesis, so the wrapper collapses *inside* it: four
+equivalences (`oracleOK_iff_of_chain`, `defEqOK_iff_of_chain`, `inductOracleOK_iff_of_chain`,
+`coherentOn_iff_of_chain`) show **the wrapper weakens nothing at or below `ModelFits`**.
+
+What survives is a real but narrow hazard, and one actual gap. The hazard: `above_false_zeroChain`
+proves `Above ⟨fun _ ↦ ∅, ls, c⟩ False` with **no hypotheses at all** — `IsInaccessible` demands
+`ω ∈ k`, so `∅` fails at length 1, which is cheaper than the `not_isInaccessibleChain_const` witness
+I cited. So the wrapper *is* trivially satisfiable at a chosen bad `κ`; nothing in the tree chooses
+one. The gap: `coherentOn_zero`'s conclusion was wrapped with no stripped restatement — the single
+row of the audit table needing repair, now supplied as `coherentOn'_zero`. **Guard, in its
+surviving form: a positive bound must factor through `Above.pure`, be stated with the wrapper
+stripped, or quantify over `κ` — but never choose one.**
 
 And a **fifth**, found by measurement on 2026-08-31 and the subtlest so far: **a model-side
 statement can be vacuous because the model has no valuation for the context the judgement lives
@@ -217,6 +231,7 @@ Every row is backed by a **proved** lemma in the tree, not an argument in a docs
 | 45 | "the sole consumer `TrExprS.weakFV'_inv` cannot supply `OnCtx Γ`" — mine | **false.** `VLCtx.FVLift'.wf` (`Verify/Typing/Lemmas.lean:314`) converts `VLCtx.WF` for the larger context to the smaller, and `weakFV'_inv` **already calls it** at `Lemmas.lean:2001`. Consequence: "close the bookkeeping gap independently" buys nothing — `weakN_iff` reaches the consumer by a path that never touches `weak'_inv`, so the 3661 → 3628 cone drop I quoted is an artefact of viewing it in isolation | `TrProj.weakFV'_inv_of_strengthen` (proved by construction) | n/a |
 | 42 | `rigidShapeUniqNS_iff_family` as an unqualified `iff` | **carries two side hypotheses** my table omitted, `hsu : SortUniq` and `htr : ProofTransport`. Only the ⟸ direction is `SortUniq`-free — which *is* the direction rows 30/30a use, so those rows stand, but the `iff` is not available without `SortUniq` | `RigidNodeCircle.lean:245` | n/a |
 | 11c″ | **Input A** of `CnstRecursion.lean` §7 | **DISCHARGED.** `ModelExistsInput` really was Foundation-gluing, ~10 lines: `Theory.small_satisfiable_of_consistent` returns a model in `Type 0` for `ℒₛₑₜ : Language.{0}` (so no `ULift` is needed, and none is available), `QuotNormalize` quotients the bare structure's arbitrary congruence into a `SetStructure`, and the `𝗘𝗤` instance that step needs comes from the theory via `eq_subset_zfcInacc` — the two non-obvious steps that had kept it unapplied. So `inaccModelInput : InaccModelInput` is a **theorem**, and `upper_bound_of_modelFits` puts the whole model side on **one** input | `modelExistsInput`, `inaccModelInput`, `upper_bound_of_modelFits` (`Theory/SetModel/ModelExists.lean`); bounded both ways by `consistent_of_setModel` / `modelExists_iff_consistent` (the *consistency-free* form is equivalent to `Consistent 𝗭𝗙𝗖+𝗜𝗻𝗮𝗰𝗰` — deliberately **not** stated as `↔ True`, which is true and useless) and `not_forall_model_false` (the row-24 test: under consistency the class the premise binds over is inhabited) | n/a |
+| 50 | `CtxInvariant`'s relation existential in `ModelFits` | **eliminated, then discharged.** `CtxAgree` (equal length + indistinguishable under every common prefix) is the **greatest** `CtxInvariant` relation, so `modelFits_iff_ctxAgreeRd` removes the existential; and for the natural split it is *discharged* — `IsDefEq.defeqDFC'` already generalises an arbitrary prefix and `propSplitOf`'s predicates carry their own typing derivations, so unlike `ctxInvariant_prop_agrees` no `hB` is needed. `modelFits_of_propSplit_inputs` reduces the model-side input to `PropTypeAgree env 0` (which gives `PropUniq` via `PropUniqFromFalse`), `PropDescend env 0`, and `OracleFits` | `ctxInvariant_ctxAgree`, `ctxAgree_of_ctxInvariant`, `propSplitOf_ctxAgree`, `modelFits_of_propSplit_inputs` (`Theory/SetModel/AboveAudit.lean`); bounded by `ctxAgree_refl` and `not_ctxAgree_sortShift` via the new `prop_forces_false_bvar` | n/a |
 | 11c′ | ~~`hκ` as "the real open content" of the model side~~ — **superseded by 11c″** | *Was:* **closed, but it *reduces* Input A rather than discharging it.** `exists_inaccessibleChain_omega` (`Theory/SetModel/InaccChainOmega.lean`) gives one `κ` with `∀ m, IsInaccessibleChain m κ` from `𝗭𝗙𝗖+𝗜𝗻𝗮𝗰𝗰` alone — audited: `IsInaccessibleChain` has exactly two fields and both are proved, and the pigeonhole against the schema is sound. But `inaccModelInput_of_modelExists` replaces `InaccModelInput` with `ModelExistsInput` — pure model existence from consistency, provable from Foundation, **not applied anywhere**. So the mathematical half is closed and the library-glue half is not | `exists_inaccessibleChain_omega`, bounded by `not_isInaccessibleChain_const` / `inaccSeq_zero_le` | n/a |
 | 11c | `AxiomsValidated` as an open obligation | **not one** — it is a *consequence* of `CoherentOn` plus the declaration history, via the previously-missing `VEnv.WF'.constants_axiom`. The real open content is `hκ : ∀ m, IsInaccessibleChain m M.κ`: `AxiomsValidated.axioms` is the **only** obligation in `InterpSound.lean` stated *without* `Above M`, hence strictly stronger than `CoherentOn.const_type` | `axiomsValidated_of_coherentOn`, `axiomsValidatedAbove_of_coherentOn`; bounded both ways by `not_axiomsValidated_falseProp` (needing **no** `hκ`, precisely because the field is un-truncated) and `axiomsValidated_extAx` (satisfiable at a one-axiom list, not merely at `ds = []`) | n/a |
 | 12 | `SortInv` from the model | **bounded** — exact, an `iff` | `sortEqRaw_iff` (`SemanticRouteClosed.lean:217`) | n/a |

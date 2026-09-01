@@ -3042,3 +3042,74 @@ index domains are inhabited but does not close it. The claim here is exactly:
 every `VDecl` case of the recursion is discharged or refuted outright; Input A's chain half
 is proved; Input B as previously stated is false and has been replaced by one that the
 target actually needs.
+
+---
+
+## `Above` audited, and `ModelFits` lost a component — 2026-09-01
+
+`Theory/SetModel/AboveAudit.lean` (new).
+
+### 1. The audit
+
+`Above M P := ∃ m, IsInaccessibleChain m M.κ → P` (`InterpSound.lean:696`) is trivially
+true at any `κ` that is not an inaccessible chain of every finite length, and every field
+of `CoherentOn`, `OracleOK`, `QuotOracleOK`, `InductOracleOK` and `DefEqOK` is an `Above`.
+The vacuity is real and needs **no** large-cardinal hypothesis: `not_isInaccessible_empty`
+(`ω ∈ k` is part of `IsInaccessible`) gives `¬ IsInaccessibleChain 1 (fun _ ↦ ∅)`, hence
+`above_false_zeroChain : Above ⟨fun _ ↦ ∅, ls, c⟩ False`.  (`InaccChainOmega.lean:303`'s
+`not_isInaccessibleChain_const` is the length-two version and needs an inaccessible to
+*exist* before it can name a bad `κ`.)
+
+Every positive/satisfiability bound in `Theory/SetModel/` touching an `Above` was checked;
+the table is the file's header docstring.  **Result: no worthless bound.**  Each one either
+goes through `Above.pure` (`oracleOK_of`, `oracleOK_prop`, `coherentOn_witness`,
+`coherentOn_propAx`, `quotDefEq_ok`, `inductOracleOK_*_zero`) or names a threshold and uses
+it (`coherentOn_typeAx`, `oracleOK_univ`, both at `m = 1`, both with the stripped companion
+`typeAx_const_type_unwrapped`).  `QuotOracleOK` is never inhabited, so it has no row.
+The one entry lacking an independent wrapper-free restatement was
+`InductOracleWitness.coherentOn_zero`; `coherentOn'_zero` supplies it.
+
+### 2. The correction the audit carries
+
+*"Stated at an arbitrary `κ` through the wrapper" is not a defect.*  Arbitrary means
+universally quantified, and `above_omegaChain_iff` collapses the wrapper at
+`InaccChainOmega.omegaChain V`, the only `κ` the reduction ever uses; so a `∀κ`-quantified
+`Above` claim is exactly as strong as its payload there (`payload_omegaChain_of_forall`).
+The worthless pattern would be a claim that *chooses* its `κ` — an `∃ κ` with no chain
+condition, or a fixed `κ` not known to be a chain.  There is none in the directory.
+
+Stronger, and the point for the single remaining model-side input: `ModelFitsLeanInput`
+takes `hκ : ∀ m, IsInaccessibleChain m κ` as a hypothesis, so the wrapper is collapsible
+*inside* it.  `oracleOK_iff_of_chain`, `defEqOK_iff_of_chain`,
+`inductOracleOK_iff_of_chain` and `coherentOn_iff_of_chain` are the four equivalences
+(against `OracleOKRaw`, `DefEqOKRaw`, `CoherentOn'`).  **The `Above` wrapper weakens
+nothing at or below `ModelFits`.**
+
+### 3. `ModelFits` has three components, not four — and then two
+
+`ModelFits` (`CnstRecursion.lean:655`) existentially quantifies a relation `R` with
+`CtxInvariant L R` plus the pairing hypothesis `hRd`.  `CtxAgree L` — same length, plus
+indistinguishability under *every* common prefix — is the **greatest** `CtxInvariant`
+relation (`ctxInvariant_ctxAgree`, `ctxAgree_of_ctxInvariant`), so the existential is
+eliminable: `exists_ctxInvariant_rd_iff`, hence
+`modelFits_iff_ctxAgreeRd : ModelFits κ env ds ↔ ∃ ls L o, L.Stable ∧ CtxAgreeRd L ∧ OracleFits L κ ls o ds`.
+
+And for the *natural* split the slot is **discharged**.  `IsDefEq.defeqDFC'`
+(`Theory/Typing/Lemmas.lean:712`) already generalises an arbitrary common prefix `Δ`, and
+`PropSplitAudit.propSplitOf`'s `IsPropAt`/`IsProofAt` carry their own typing derivations —
+so no well-typedness side condition has to be supplied, unlike
+`CoherentWitness.ctxInvariant_prop_agrees`, which needs `hB` because it is stated for an
+arbitrary `PropSplit`.  Hence `ctxAgreeRd_propSplitOf`, and
+
+    modelFits_of_propSplit_inputs :
+      env.Ordered → env.PropUniq 0 → env.PropTypeAgree 0 → env.PropDescend 0 →
+      OracleFits (propSplitOf env 0 hU hT) κ ls o ds → ModelFits κ env ds
+
+**So the model-side input is now: `PropTypeAgree env 0` (which gives `PropUniq` via
+`PropUniqFromFalse`), `PropDescend env 0`, and `OracleFits`.**  Two syntactic statements and
+the oracle; the relation parameter is gone.
+
+Bounds on the new relation: `ctxAgree_refl` (nonempty) and `not_ctxAgree_sortShift` — two
+contexts of the *same* length that every `PropSplit` distinguishes, so `CtxAgree` is not
+trivially true and the refutation is not a length artefact.  `prop_forces_false_bvar` is
+the `Type`-side companion of `PropSplitAudit.prop_forces_true`.

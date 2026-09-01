@@ -119,6 +119,7 @@ import Lean4Lean.Theory.Typing.ParRedKGraded  -- 2026-09-01: eight non-keta rows
 import Lean4Lean.Theory.Typing.InjMidLocal  -- 2026-09-01: the two costly midpoint heads re-priced at localised residuals
 import Lean4Lean.Theory.SetModel.ModelExists  -- 2026-09-01: Input A DISCHARGED -- ModelExistsInput is a theorem
 import Lean4Lean.Theory.SetModel.InductOracleWitness  -- 2026-09-01: the .induct residual satisfied at a WF, reachable block
+import Lean4Lean.Theory.SetModel.AboveAudit  -- 2026-09-01: the Above wrapper weakens nothing at or below ModelFits; CtxAgree is the greatest CtxInvariant
 
 /-!
 # Acceptance test: the `PatternRules` cone and the `Verify/` cone join

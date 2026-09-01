@@ -1079,6 +1079,15 @@ lemma. What remains from the syntax side is:
    is unique typing. `LevelAssign.srt_uniq` (`SetModel/Interp.lean`) is the
    necessary condition that makes this testable; the test is to attempt
    `levelAssign_of_sort_inv` and see which hypothesis the second field demands.
+1b. **`PropDescend env 0`** — and, since `SetModel/AboveAudit.lean`, together with item 1
+   that is the *whole* proof-split side of `ModelFits`. `ModelFits`'s relation parameter is
+   no longer an obligation at all: `CtxAgree L` is the greatest `CtxInvariant` relation, so
+   the existential over `R` is eliminable (`modelFits_iff_ctxAgreeRd`), and for
+   `PropSplitAudit.propSplitOf` the pairing hypothesis `hRd` is **discharged** —
+   `IsDefEq.defeqDFC'` already carries an arbitrary common prefix, and `propSplitOf`'s two
+   predicates contain their own typing derivations, so nothing well-typedness-shaped has to
+   be supplied. Net: `modelFits_of_propSplit_inputs` builds `ModelFits` from
+   `Ordered`, `PropUniq 0`, `PropTypeAgree 0`, `PropDescend 0` and `OracleFits` alone.
 2. **`NoBlock.indep`** (§2) — the remaining obligation that makes `interpSig`
    well defined. `interp_congr` is **no longer on this list**: it is proved
    (§4), and its `Above`-wrapped form is sufficient.
@@ -1178,5 +1187,6 @@ Nothing else on the set-theoretic side is outstanding.
 | `SetModel/Cnst.lean` | `cnstOf`, `oracleExtend`, `CoherentOn` and its `addConst`/`addDefEq`/`addConstList` steps |
 | `SetModel/InaccChainOmega.lean` | `inaccSeq`, `exists_inaccessibleChain_omega` (one `κ` for every finite length), `ModelExistsInput` |
 | `SetModel/ModelExists.lean` | `modelExistsInput` / `inaccModelInput` — **Input A discharged**; `upper_bound_of_modelFits`; `ZFCInaccModel`; the two-way bounds |
+| `SetModel/AboveAudit.lean` | the `Above` vacuity witnesses (`above_false_zeroChain`), the wrapper-stripping equivalences (`oracleOK_iff_of_chain`, `inductOracleOK_iff_of_chain`, `coherentOn_iff_of_chain`, `above_omegaChain_iff`), `CtxAgree`/`CtxAgreeRd` and `modelFits_iff_ctxAgreeRd`, `modelFits_of_propSplit_inputs` |
 | `SetModel/InductOracleWitness.lean` | the empty-domain `λ`/`∀` lemmas; `zeroOracle`; `inductOracleOK_zero`, `oracleFits_zero`, `coherentOn_zero` — the `.induct` residual's positive bound at a `WF` block |
 | `docs/foundation-gaps.md` | what Foundation is missing, and the `isDefEq` hazard |
