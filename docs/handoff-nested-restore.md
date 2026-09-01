@@ -332,3 +332,303 @@ the three `iotaLamR` checks all fail.  The checks discriminate.
 4. **Refinement side**: prove `ElimNestedInductive` produces a `Faithful` restoration.  This is
    where lean4#14576/#14577 (the unchecked `Ds` arguments) lives, and where the historical
    soundness bug was.
+
+---
+---
+
+# Part II — `OccResidue` spent: the residue is `member` + `occurs`
+
+*Appended 2026-09-01 by the `OccResidue` stream (four rounds, commits `61166b7`, `50858df`,
+`873f5f4`, `4de3a3b`, plus the implementation fix `dcf6ec5`).  Part I above is earlier and is not
+revised by this; where Part I §7 lists "what to pick up first", items 1 and 4 are now largely
+done — the abstract `replaceIfNested` is `VNestedOcc.member` and the refinement-side `Faithful`
+is `VInductDecl'.Built.toFaithful`.  §15 below is the current answer, and the banner at the
+top of this file still applies to Part I only.*
+
+Files this stream owns and wrote: `Lean4Lean/Verify/Inductive/NestedOccData.lean` and
+`Lean4Lean/Verify/Inductive/NestedRunInvariant.lean`.
+
+---
+
+## 8. The state, unhedged
+
+**`VInductDecl'.Built`'s eight clauses.**  Four come from `ElimNestedInductive.Result.RestoreData`
+(`RestoreData.mkRestore_built`).  Of the other four, collected as
+`ElimNestedInductive.Result.OccResidue`:
+
+* **`head` closes** in general — `Result.OccData.head`.
+* **`ctorName_inv` closes** in general — `Result.OccData.ctorName_inv`.
+* **`member` and `occurs` remain**, and are exactly `Result.SemResidue`.
+
+`Result.OccData.occResidue` is the reduction; `OccData.mkRestore_built`, `_faithful`,
+`_canonical`, `_AddNested`, `_AddNestedStep` re-derive the whole nested step from
+`RestoreData ∧ OccData ∧ SemResidue`.
+
+`OccData` is six fields — `auxName`, `auxHead`, `ctorName`, `srcCtorPrefix`, `auxCtors`,
+`ctorNodup` — all name-and-head facts about the checker's `Result`, none mentioning `TrExprS`,
+`VEnv`, or any judgement, all decidable at a concrete block.
+
+**The monadic side.**  `ElimNestedInductive.MWF` is the calculus with the state invariant a
+*parameter* on both sides; `EWF_iff` exhibits `AddInductiveStep.lean`'s `EWF` as its instance at
+`fun s => s.nestedAux = #[]`, so nothing there is lost.  With it:
+
+* **`replaceAppendsOnly : ∀ env, ReplaceAppendsOnly env` — proved, no hypothesis at all.**
+* **`runSkelExtends : ∀ env, RunSkelExtends env` — proved, no hypothesis at all.**
+* `run_prefix` is the entrywise form: on `j < types.length`, `run`'s output member carries the
+  *input* member's name and its constructors' names, in order.
+
+**The four `RestoreData` prefix fields, individually** (`NestedOccData.lean` §8):
+
+| field | status |
+| --- | --- |
+| `ownName` | **claimed** (`Result.ownName_of_run`) — but as a statement about the checker's *input* |
+| `ownCtor` | **claimed** (`Result.ownCtor_of_run`) — likewise |
+| `name` | **prefix half only** (`Result.name_prefix_of_run`); tail half open |
+| `ctor` | **declined** — for a circle, not a gap |
+
+`ownName`/`ownCtor` do not become *provable*: they become statements about `types`, which
+`Environment.addInductive`'s caller hands in.  That is still progress — the obligation moves off
+the checker's *output*, which no caller can inspect, onto its *input*.  There it is row 58's
+unchecked fact.
+
+Neither tail half follows and this is structural: `RunSkelExtends` pins only the prefix (by
+design — `replaceIfNested` *creates* the tail), and `TrIndDeclN.trType`/`trCtors` are quantified
+over `types[j]? = some t`, which is `none` past the cut.  **`TrIndDeclN` says nothing about `D`'s
+companion members.**
+
+**The single strongest fact this stream found:** `Built.member` is what pins `D`'s companion
+members, and nothing else in the chain does.  Witnessed by `NestedWit.nfnAuxBadTy` +
+`nfnResult_restoreData_badD` + `occurs_badD` + `semResidue_not_member_badD`: perturb `D`'s
+companion member's stored type, leave `occ` alone, and `RestoreData` (all 14), `OccData` (all 6),
+`mkRestore_built`'s `hl`/`ha`, **and `occurs`** all still hold while `member` is false.
+
+---
+
+## 9. Three things asked for that were not provable, and why
+
+### 9.1 `mkUniqueName`'s freshness against the input block — **false**
+
+I said (and it was carried into a later brief) that what would break `ctor`'s circle is
+"`mkUniqueName`'s freshness against the input block".  There is no such freshness.
+`mkUniqueName`'s loop tests `env.contains r` and nothing else — `mkUniqueName_fresh`
+(`NestedRunInvariant.lean`) is the exact and only statement.  The block being declared is not in
+`env`; keeping its names apart from what is already there is `Environment.addInductive`'s separate
+business.  `NestedOccData.lean` §10.1 exhibits a block where `mkUniqueName`'s output collides
+with a member of the block being declared.
+
+**Do not try to prove it.**  It is false, not merely unproved.
+
+### 9.2 The two commutation lemmas for `member` — declined, with suppliers named
+
+`member`'s content is that the checker's `Expr`-level companion rebuild agrees with
+`VNestedOcc.member` after translation.  Three commutations; `NestedOccData.lean` §9 records them.
+
+* **(A) `instantiateLevelParamsNoCache` vs `instL` — already exists**: `Lean4Lean.TrExprS.instL`
+  (`Verify/Typing/Lemmas.lean`), stated over core's pure `instantiateLevelParamsNoCache`,
+  mentioning neither `Expr.replace` nor the cached `instantiateLevelParams`.  Side conditions
+  (`mapM (VLevel.ofLevel Us) ls = some ls'`, `ps.length = ls.length`) are supplied by
+  `replaceIfNested`.
+  **But "already proved" was true of the statement and false of the cone**: `TrExprS.instL`'s
+  cone is **9446 with four holes** and its `#print axioms` carries `sorryAx` plus five frozen
+  axioms.  It also lands in `TrExpr` (∃ up to `IsDefEqU`), not `TrExprS`, and `Built.member` is a
+  *syntactic* `VIndType` equality — that gap is content, not bookkeeping.
+* **(B) `instantiateForallParams` vs `splitPis`/`instAll` — not proved.**  An `n`-fold `TrExprS`
+  substitution composed with a `forallE`-peeling lemma.  Side conditions `ps.size = n` (supplied
+  by `isNestedInductiveApp?` via the `assert!`) and the spine translating.  **It will need the
+  frozen axiom `Lean.Expr.instantiateRevRange_eq`** (guard 1 whitelist) — flagged because
+  shrinking that list is progress and this would block removing that entry.
+* **(C) `LocalContext.mkForall` vs `mkPi` — not proved.**  Pure half exists
+  (`Verify/LocalContext.lean`: `mkBinding_eq`, `mkBindingList1_abstract`, `mkBindingList_eq_fold`),
+  side conditions `b.looseBVarRange' = 0` and `xs.Nodup`, both supplied by `withParams`'
+  `mkFreshId`.  **The `xs.Nodup` supplier is `Verify/NameGenerator.lean`** —
+  `NameGenerator.Reserves`, `next_reserves_self`, `not_reserves_self`, `NameGenerator.LE`.  Using
+  it needs `MWF.withParams'` restated with an `ngen`-reservation invariant alongside `I`: a
+  refactor of that lemma, not a use of it.  The `TrExprS` half is the bulk of the work.
+
+Neither (B) nor (C) becomes an `OccData` field.  **`member` needs no new field and no new
+premise** — that conclusion survived all four rounds.
+
+### 9.3 `ctor`'s circle — a translation-relation gap, not a name-discipline fact
+
+`RestoreData.ctor` is the bundle's *only* statement that the checker's constructor names and
+`D`'s agree on user members.  `TrIndDeclN` relates the two sides only through `R.ctorName`
+(`TrIndCtorR` is `c.name = R.ctorName C.name`).  Closing the prefix half needs
+`R.ctorName C.name = C.name`, i.e. `VIndRestore.OwnId.ctorName` — and `mkRestore_ownId`'s
+`ctorName` clause is proved **from `RestoreData.ctor`**.  Circular.
+
+The escape (`¬ IsNestedName C.name` ⇒ the `ctorRenames` lookup misses) needs a bound on a
+`D`-side name, and `ownCtor` bounds only the checker's.  So the fix is one new clause on
+`TrIndDeclN`:
+
+```
+ctorName_own : ∀ (j : Nat) t T, types[j]? = some t → D.types[j]? = some T →
+  ∀ (q : Nat) c C, t.ctors[q]? = some c → T.ctors[q]? = some C → c.name = C.name
+```
+
+which the nested path establishes by construction (`run.loop` rebuilds each constructor as
+`{ ctor with type := … }`; `run_prefix` is the proof, already in place).  `TrIndDeclN` is a
+definition the `addDecl.WF` chain consumes, so this is **reported, gated on a human decision, not
+done**.
+
+---
+
+## 10. The two `#eval` witnesses, and what each does and does not guard
+
+Both live in `NestedOccData.lean` §10.  The distinction between them is the clearest example in
+this repo of a test that looks like a guard and is not.
+
+* **§10.1, the collision.**  A constructor-less member carrying the exact name
+  `mkUniqueName (`_nested ++ ``PFn)` returns, alongside an ordinary nested member.  Runs the
+  real `ElimNestedInductive.run` and the real `Environment.addInductive`.  **Guards the finding**:
+  it `throwError`s if `checkNoNestedAux` starts rejecting the block, if `run` stops producing the
+  duplicate, or if `addInductive` starts *accepting* it.  What it settles is proof-side —
+  `RestoreData.ownName` is exactly what excludes this state and nothing in the implementation
+  does.  Outcome is a rejection, not unsoundness, and **C++ rejects identically**.
+
+* **§10.2, first `#eval` — guards nothing.**  It *models* the old gate inline by iterating
+  `divIndType.ctors` (which is empty) and then calls `checkNoNestedAux` on the member type
+  directly.  It never calls `Environment.addInductive`, so it passes identically with and without
+  the fix.  It demonstrates the difference between two *checks*.  The commit message for the fix
+  claimed this eval meant the fix "cannot be silently reverted"; that claim was **false** and is
+  now corrected in the file.
+
+* **§10.2, second `#eval` — the actual regression test.**  Calls the real
+  `Environment.addInductive` and requires the failure to be the **reserved-prefix** error
+  specifically; `divIndType` has no constructors, so only the member-type `checkNoNestedAux` call
+  can produce that message.  It fails if the fix is reverted *and* if the rejection moves to some
+  other cause.  The negative control was run both ways.
+
+**The general lesson to carry:** an `#eval` that reconstructs the code path it is testing tests
+your model of the code, not the code.  A guard must call the real entry point and pin the
+*reason* for the outcome, not just the outcome.
+
+---
+
+## 11. The concentration measurement, two-sided
+
+| seeds | cone | holes |
+| --- | --- | --- |
+| `OccData.mkRestore_built` + `OccData.mkRestore_AddNestedStep` (the nested step **without** `member`) | 2565 | **0** |
+| the same **plus** `TrExprS.instL` | 9446 (+6881) | **4** |
+
+Holes that arrive, with transitive `Lean4Lean` user counts:
+
+```
+VEnv.IsDefEqU.weakN_iff                214
+VEnv.IsDefEqU.forallE_inv_stratified   590
+VEnv.WF.rigidShapeUniqNS               356
+VEnv.NormalEq.descend                  145
+```
+
+**These figures are *relative*, not absolute**: my instrument walks reverse edges only where both
+endpoints are `Lean4Lean.*` and skips internal names.  The census's absolute figures for the same
+four were 296 / 650 / 409 / 193.  Compare mine to mine, the census's to the census's.
+
+The reading: **the nested step chain is hole-free today, and `member` is precisely where the
+injectivity/confluence cluster would enter.**  A `member` built on `TrExprS.instL` may still be
+the right thing to have, but it must be labelled "modulo the injectivity/confluence cluster" and
+must not be counted as closing the clause.
+
+---
+
+## 12. Tried and failed, with the failing step
+
+* **The bundle claim on the four `RestoreData` prefix fields — wrong twice over.**  I wrote that
+  `name`, `ctor`, `ownName`, `ownCtor` "follow from a single statement about `replaceIfNested`".
+  Failing step: `name` and `ctor` are not `r`-side facts at all (they compare `r.types` to
+  `D.types`, so they need `TrIndDeclN`), and even with it only their prefix halves follow.  This is
+  ledger row 11a recurring in a corner already warned about.  **A bundle claim here has now been
+  wrong three times; claim fields individually.**
+* **The `member`-not-slack bound that did not cover the case that mattered.**
+  `semResidue_not_member_badTy` (perturbing `pfnOcc`'s *source* block) shows `member` is not slack
+  in `RestoreData ∧ OccData ∧ hl ∧ ha`.  Failing step: the witness also violates `occurs`
+  (`pfnOccBadTy_not_occurs`), so it said nothing about the hypothesis set that mattered.  The
+  bound that does is `nfnAuxBadTy`, which perturbs **`D`**.  *A non-slackness bound is only as
+  strong as the hypothesis set it holds the field against.*
+* **`Declared` vs "unrecoverable" — a conflation.**  I read `Theory/Inductive/Decl.lean`'s
+  `VInductDecl'.Declared` docstring's "unrecoverable" as "not pinned".  It means *not recoverable
+  from a `Lean.Declaration`*.  `VEnv.LE.constants` is **exact** equality of the `VConstant`, and
+  `addInduct'` runs `addIndRecs`, so `Declared D env` pins `D.recType j` exactly, hence `indices`
+  up to injectivity of `recType` in that field (unproved, and no longer needed).
+* **Predicted that the `assert!`/`unreachable!` panics would force arity side conditions on
+  `ReplaceAppendsOnly`.**  Failing step: `panic_eq` — `Inhabited (M α)` resolves through
+  `instInhabitedOfMonad`, i.e. `pure default`, so a panic returns `default` **with the incoming
+  state**.  A wrong comment in `AddInductiveStep.lean` (since corrected) was costing a real
+  hypothesis.
+* **An `#eval` collision scenario via a member that references itself** — rejected by
+  `checkNoNestedAux`, which scans constructor types and therefore catches a self-reference to a
+  `_nested`-named member.  The scenario that works uses a **constructor-less** member.
+* **An O(n²) reverse-user scan** for §11 — killed by its own timeout (exit 143), superseded by a
+  version that builds the reverse adjacency map once.  Read-only, nothing to undo.
+
+---
+
+## 13. Traps
+
+* **`srcCtorPrefix` and `ownName` are unchecked name-discipline facts** under row 58's standing
+  decision: do not add a check neither kernel performs.  `OccData.srcCtorPrefix` (`J`'s
+  constructor names carry `J`'s own name as a prefix) is the third such fact and the first about
+  the *previously declared* block; it has **no** witness that it fails and stays flagged.
+  `RestoreData.ownName` now **does** have its witness (§10.1) — **and the decision still stands**,
+  because C++ rejects that block identically, so adding the check would not close a divergence.
+* **No conjunct on `AddNested`, `Built`, or `InductStepNested`.**  `InductStepNested` has a model
+  (`inductStepNested_wit'`) rather than an unsatisfiable precondition, which is why the decision
+  is live; a conjunct there changes a definition the `addDecl.WF` chain consumes.  Same for the
+  `TrIndDeclN.ctorName_own` clause of §9.3.
+* **`VIndCtor.typeR` must not become the substitution** (ledger row 36).  Unchanged by this
+  stream.
+* **`RestoreData.ownName`/`ownCtor` stay hypotheses.**  Row 58.
+* **Frozen files** — `Verify/Soundness.lean`, `Verify/Axioms.lean`, `Verify/Guard.lean`: read,
+  never edit.
+* **`Verify/Typing/Lemmas.lean` was cited, never edited** (another stream's).  `TrExprS.instL`
+  lives there.
+
+---
+
+## 14. Measured / read off source / not run
+
+**Measured (machine-checked in-tree).**  Everything in §8; the two `#eval`s of §10 (they run at
+build time and `throwError` on regression); the cone and axiom figures of §11 and below.
+`#print axioms` on every declaration this stream proved: `[propext]`,
+`[propext, Quot.sound]`, or `[propext, Classical.choice, Quot.sound]` — **no `sorryAx`, no frozen
+axiom, anywhere in this stream's own proofs.**  Hole cones, all **0 holes**:
+`replacePrefix_replacePrefix` 1489, `getAppFn_mkAppRange` 1606, `getAppFn_stored` 1718,
+`OccData.head` 696, `OccData.ctorName_inv` 1938, `occResidue` 2089, `mkRestore_built` 2154,
+`mkRestore_faithful` 2483, `mkRestore_AddNestedStep` 2564, `MWF.forIn'` 218, `EWF_iff` 25,
+`panic_eq` 426, `MWF.isNestedApp'` 5096, `MWF.replaceIfNested'` 5517, `replaceAppendsOnly` 5573,
+`SkelExt.set` 704, `run_loop_skel` 5759, `runSkelExtends` 5770, `run_prefix` 5774,
+`ownName_of_run` 5794, `name_prefix_of_run` 5789, `nfnResult_restoreData_badD` 3762,
+`semResidue_not_member_badD` 1371, `mkUniqueName_fresh` 2444.  Guards, every round: guard 1 ✓ (24
+axioms) / guard 2 ✓ (INCOMPLETE) / guard 3 ✓ (2/2).
+
+**Read off source, not machine-checked.**  That the C++ kernel calls `check_no_nested_aux` once
+per `inductive_type` and once per constructor (`~/lean4/src/kernel/inductive.cpp`,
+`environment::add_inductive`) — the basis for the divergence, now fixed in `dcf6ec5`.  That
+`replaceIfNested` pushes `(replaceParams params (mkAppRange (.const J I_lvls) 0 I_nparams args) As,
+auxJ_name)` to `nestedAux` in lockstep with the `newTypes.push` — this is what makes
+`OccData.auxHead` a fact about the implementation, and `Result.getAppFn_stored` is the `Expr`-level
+half proved, but the lockstep itself is read, not proved.
+
+**Not run: `scripts/sorry-census.lean` and `scripts/dup-names.lean`.**  Both import
+`Experimental/ConeJoin.lean`, and two other streams were mid-edit inside its import closure
+throughout the last two rounds.  The signature of that condition is a build failing with
+`object file '…/<Module>.olean' of module … does not exist` — a `.olean` moving underneath a
+`lake env lean` invocation.  Running either instrument then reports numbers for a tree that never
+existed.  The last quiescent figures, from the orchestrator at `d451fe5`: build green 1402 jobs,
+guards all ✓, dup-names clean, census **13**.  §11's reverse-cone measurement was done in a
+private ConeJoin-importing file under `/tmp`, which is safe because it is read-only and its
+failure mode is the visible one above.
+
+---
+
+## 15. What to pick up first
+
+**Ask for the `TrIndDeclN.ctorName_own` decision, then do `MWF.withParams'`.**  I partly disagree
+with taking `ctor`'s clause first: it is the right *next result* and `run_prefix` makes it cheap,
+but it is gated on a human decision about a definition the `addDecl.WF` chain consumes, so a fresh
+agent cannot start there — it can only draft the clause and stop.  Request the decision in the
+first message, and meanwhile do the one piece of work that is unblocked, entirely inside
+`Verify/Inductive/*`, and needed either way: **restate `MWF.withParams'` with an
+`ngen`-reservation invariant** (`Verify/NameGenerator.lean` supplies `Reserves`/`LE`).  That yields
+`xs.Nodup` for commutation (C), which is the first of `member`'s two open commutations, and
+`member` is the load-bearing clause — with the §11 label attached, not counted as closed.
