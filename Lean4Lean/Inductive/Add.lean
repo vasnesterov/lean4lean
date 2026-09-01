@@ -929,6 +929,12 @@ def Environment.addInductive (env : Environment) (lparams : List Name) (nparams 
     Except Exception Environment := do
   for indType in types do
     env.checkNoMVarNoFVar indType.name indType.type
+    -- C++ applies the reserved-prefix test to the member's OWN type as well as to each
+    -- constructor's (`inductive.cpp`, `environment::add_inductive`, the two
+    -- `check_no_nested_aux` calls).  This line was missing, so lean4lean accepted at the gate a
+    -- member whose own type mentions a `_nested` constant, where C++ rejects it -- verified by
+    -- a self-checking `#eval` in `Verify/Inductive/NestedOccData.lean`.
+    checkNoNestedAux indType.name indType.type
     for ctor in indType.ctors do
       env.checkNoMVarNoFVar ctor.name ctor.type
       checkNoNestedAux ctor.name ctor.type
