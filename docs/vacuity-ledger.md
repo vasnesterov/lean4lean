@@ -1,7 +1,7 @@
 # The vacuity ledger
 
 *Written 2026-08-31, after four instances of the same failure mode turned up in one round, and
-a survey then found four more already refuted elsewhere in the tree. Forty-nine statements are
+a survey then found four more already refuted elsewhere in the tree. Fifty-two statements are
 now measured; twelve are vacuous, near-vacuous or false, and one of those twelve is a design
 ruling of my own (row 36), three are refuted outright, two routes
 are dead, and nine are bounded or acquitted.*
@@ -33,6 +33,30 @@ blind to the same failure mode**.
 | `scripts/sorry-census.lean` | declarations whose value mentions `sorryAx` | a hole that is not a `sorry` |
 | guard 3 (`Verify/Guard.lean`) | `partial` / `@[extern]` / `@[implemented_by]` reachable from `addDecl` | anything in the *specification* |
 | `scripts/hole-cone.lean` | which `sorry`s a given theorem depends on | **a hypothesis** — a cone walks `deps`, and a hypothesis is not a dependency |
+
+### Four kinds of overstatement, each needing a different guard
+
+Recorded on 2026-09-01 after all four occurred in a single day, all mine. They look alike in a
+report and are not alike at all.
+
+1. **Fabricated citation.** Row 11b named `not_modelFitsInput` in its *witness* column and no such
+   theorem existed — a claim recorded as a result, in the one document whose value is that every row
+   is backed by something proved. *Guard:* every witness column carries a `file:line`; a row without
+   one is a claim (row 11b′).
+2. **Measurement by grep.** "`staged` occurs 46 times, so the repair is incomplete" — those were
+   `StagedOcc`/`stagedOcc` identifier hits; the field did not exist and the repair had landed.
+   *Guard:* structural facts need a structural query (`grep "staged :"`, `#print axioms`, the LSP),
+   never a substring count.
+3. **Dropped qualifier.** "`IsDefEqU.sort_forallE_inv` is proved" — true of its local `sorry`, false
+   of its axiom set, which carries both holes it would be used to attack (row 41). *Guard:*
+   `#print axioms`, not the absence of a `sorry`.
+4. **False negative asserted as established.** "Every route to `ConvStep2` goes through `sortDF`" —
+   refuted in three lines, and the claim was in the source file too (row 40). *Guard:* a negative is
+   a theorem like any other; if it is not proved, mark it a conjecture. An unproved negative is
+   worse than an unproved positive, because it stops people looking.
+
+Kinds 1 and 4 are the expensive ones: both send work in the wrong direction, and kind 4 also
+suppresses work that would have succeeded.
 
 **A refutation is only as strong as the reachability of its witness.** Rows 32 and 33 were both
 filed as "refuted" and they are not the same thing: `descend` fails at `refParams` over `refEnv`,
@@ -168,6 +192,9 @@ Every row is backed by a **proved** lemma in the tree, not an argument in a docs
 | 11a | **row 11's own "bounded both ways" claim** | **the two-way bound did not cover the broken field.** `inductOracleOK_empty` is at the block with *no type formers*, whose `allConsts` is `[]` (`empty_block_allConsts`, `rfl`) — so its `staged` is `True`. The positive bound said nothing about the field that is refuted, which is exactly how the defect survived an audit that was supposed to catch it. **A two-way bound must be checked field by field, not on the structure as a whole** | measured by the model stream, 2026-08-31; the repaired residual *is* bounded both ways (`not_inductOracleOK_falseProp` transfers via `.consts`, `inductOracleOK_empty` via `.to₂`) | n/a |
 | 11b | `ModelFitsInput` / `CnstRecursion.upper_bound_of` | **row-2-shaped**: a proved theorem whose second hypothesis is false exactly when it has anything to say. **And one level deeper than this row first claimed** — the same refutation kills `leanTTConsistent_of`'s hypothesis `H` *verbatim*, so it is not an artefact of §7's packaging. Cause: `noUnsafe` excludes only `.unsafeDef`, **not `.axiom`**, and `VDecl.WF`'s `.axiom` rule asks only that the type be a type — so `axiom Bad : ∀ p : Prop, p` is a certified one-declaration history. Repair, conceding nothing: narrow to `PureOverPrelude`, since `.axiom` is the one former that is `noUnsafe` but not `isPure` (`leanWF_iff`, `upper_bound_of_omega`) | `not_modelFitsInput`, `not_modelFits_uniform`, `badAx_history`, `badEnv_not_consistent` (`Theory/SetModel/ModelFitsVacuous.lean`); bounded both ways by `not_pureOverPrelude_badAx` / `pureOverPrelude_prelude`, and closed in general by `axiom_mem_pureOverPrelude` | n/a |
 | 11b′ | **this row's own witness column, as I first wrote it** | **the citation was fabricated.** Row 11b named `not_modelFitsInput` as its witness with no `file:line`, and **no such theorem existed** — I recorded a claim as a result in the one document whose value is that every row is backed by something proved. It is now proved (above), but the ledger asserted it for a full day before anyone checked. **Every witness column in this file needs a `file:line`, and a row without one is a claim, not a measurement.** | found by the model stream, 2026-09-01 | n/a |
+| 40 | "every route to `ConvStep2` goes through `defeqDF`'s `sortDF` premise, so aligning the two link levels *is* `SortUniq`" — mine, and also stated in `InjChainStep.lean` §6 | **false.** `BaseUniqChain.ConvC.transport` builds one `defeqDF` per chain link at an **arbitrary** type, never at a pair of syntactic sorts; at a `.bvar` midpoint the two base types are *syntactically equal* (`Lookup.uniq`), so no `sortDF` link exists. `ConvStep2` holds **unconditionally** at `.bvar`/`.sort`/`.const` midpoints from `Ordered env` alone, so the obstruction is exactly Π- and application-headed midpoints | `convStep2At_of_baseUniqCAt`, `convStep2At_of_midFree`, `convStep2At_sort_discharges` (`Theory/Typing/InjMidpoint.lean`) | n/a |
+| 41 | `IsDefEqU.sort_forallE_inv` (and `WF.sortUniq'`) as "proved" | **available only with a qualifier I dropped.** Neither has a local `sorry`, but `#print axioms` on `sort_forallE_inv` gives `[propext, sorryAx, Classical.choice, Quot.sound]` — its `trans` case consumes **hole B**, its `proofIrrel` case **hole A**. So it must not be fed to anything attacking either hole. "No local `sorry`" is not "available"; the test is `#print axioms` | measured by the `ConvStep2` stream, `Injectivity.lean:1252` and `:556` | n/a |
+| 42 | `rigidShapeUniqNS_iff_family` as an unqualified `iff` | **carries two side hypotheses** my table omitted, `hsu : SortUniq` and `htr : ProofTransport`. Only the ⟸ direction is `SortUniq`-free — which *is* the direction rows 30/30a use, so those rows stand, but the `iff` is not available without `SortUniq` | `RigidNodeCircle.lean:245` | n/a |
 | 11c′ | `hκ` as "the real open content" of the model side | **closed, but it *reduces* Input A rather than discharging it.** `exists_inaccessibleChain_omega` (`Theory/SetModel/InaccChainOmega.lean`) gives one `κ` with `∀ m, IsInaccessibleChain m κ` from `𝗭𝗙𝗖+𝗜𝗻𝗮𝗰𝗰` alone — audited: `IsInaccessibleChain` has exactly two fields and both are proved, and the pigeonhole against the schema is sound. But `inaccModelInput_of_modelExists` replaces `InaccModelInput` with `ModelExistsInput` — pure model existence from consistency, provable from Foundation, **not applied anywhere**. So the mathematical half is closed and the library-glue half is not | `exists_inaccessibleChain_omega`, bounded by `not_isInaccessibleChain_const` / `inaccSeq_zero_le` | n/a |
 | 11c | `AxiomsValidated` as an open obligation | **not one** — it is a *consequence* of `CoherentOn` plus the declaration history, via the previously-missing `VEnv.WF'.constants_axiom`. The real open content is `hκ : ∀ m, IsInaccessibleChain m M.κ`: `AxiomsValidated.axioms` is the **only** obligation in `InterpSound.lean` stated *without* `Above M`, hence strictly stronger than `CoherentOn.const_type` | `axiomsValidated_of_coherentOn`, `axiomsValidatedAbove_of_coherentOn`; bounded both ways by `not_axiomsValidated_falseProp` (needing **no** `hκ`, precisely because the field is un-truncated) and `axiomsValidated_extAx` (satisfiable at a one-axiom list, not merely at `ds = []`) | n/a |
 | 12 | `SortInv` from the model | **bounded** — exact, an `iff` | `sortEqRaw_iff` (`SemanticRouteClosed.lean:217`) | n/a |
