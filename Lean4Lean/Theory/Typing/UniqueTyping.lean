@@ -178,8 +178,11 @@ theorem IsDefEqU.trans (henv : VEnv.WF env) (hΓ : OnCtx Γ (env.IsType U))
 -- `VEnv.TransStrengtheningNarrow` — the `trans` case restricted to a middle term that
 -- genuinely mentions one of the stripped variables (`¬ b.Skips n k`).  That restriction is
 -- what makes the reduction non-trivial: without it the residual re-instantiates at the whole
--- statement.  `scripts/weakn-gate-split.lean` measures the split of this hole's 131 users:
--- 18 need only the typing half, 113 need the narrow residual.  Not circular with
+-- statement.  `scripts/weakn-gate-split.lean` measures the split of this hole's 296 users
+-- (at `d67375b`): 43 need only the typing half, 253 need the narrow residual; with
+-- `hasType_app_bvar0` also treated as a typing gate, 46 / 250.  The `18 of 131` this comment
+-- used to carry was measured on a graph that dropped internal names while building it — see
+-- `docs/handoff-weakn.md` §5.3.  Not circular with
 -- `WF.rigidShapeUniqNS` / `IsDefEqU.forallE_inv_stratified` — see `StrengthenNarrow.lean`'s
 -- module docstring for the measured cone table, and `docs/handoff-weakn.md` for the routes
 -- already ruled out (do not reattempt them).

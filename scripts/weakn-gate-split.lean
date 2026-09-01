@@ -13,13 +13,18 @@ Why this exists. `Theory/Typing/Strengthen.lean` §7/§9 and
 `StrengthenNarrow.lean` §5 proves that nine of `UniqueTyping.lean`'s downstream wrappers --
 `HasType.weakN_iff`, `IsType.weakN_iff`, `VExpr.WF.weakN_iff`, `OnCtx.weakN_inv`,
 `OnCtx.weak'_inv`, `HasType.weak'_iff`, `IsType.weak'_iff`, `VExpr.WF.weak'_iff` and
-`HasType.skips` -- follow from `TypingStrengthening` **alone**.  So a proof of the typing half
-would unblock every user that reaches the hole only through those nine.
+`HasType.skips` -- follow from `TypingStrengthening` **alone**, and `CRPiDescend.lean` §1 adds
+a tenth, `hasType_app_bvar0`.  So a proof of the typing half would unblock every user that
+reaches the hole only through those ten.
 
 This script measures that set.  It walks the reverse dependency graph twice: once normally
-(the hole's transitive users, matching `scripts/sorry-census.lean`), and once with the nine
-gates treated as leaves that do not propagate reachability.  The difference is the population
+(the hole's transitive users, matching `scripts/sorry-census.lean`), and once with the gates
+treated as leaves that do not propagate reachability.  The difference is the population
 that shape descent alone would free.
+
+Measured at `d67375b`: 296 transitive users; 253 still reach the hole with the ten gates cut,
+so 46 are freed by the typing half (43 with the nine that this array carried before
+2026-09-01).
 
 Run:  lake env lean scripts/weakn-gate-split.lean
 
@@ -42,10 +47,15 @@ private def depsOf (env : Environment) (n : Name) : NameSet :=
            | some v => cs.union v.getUsedConstantsAsSet
            | none => cs
 
-/-- The nine wrappers proved from `TypingStrengthening` alone in
-`Theory/Typing/StrengthenNarrow.lean` §5. -/
+/-- The typing gates: the nine wrappers proved from `TypingStrengthening` alone in
+`Theory/Typing/StrengthenNarrow.lean` §5, plus `hasType_app_bvar0`
+(`ChurchRosser.lean:1336`), which `Theory/Typing/CRPiDescend.lean` §1's
+`hasType_app_bvar0_of_typing` reproves from `TypingStrengthening` alone -- verbatim statement,
+`TypingStrengthening` its only hypothesis beyond the original's.  Added 2026-09-01; before that
+the array had nine entries and the "freed" figure it printed was a floor. -/
 private def typingGates : List Name :=
-  [``Lean4Lean.VEnv.HasType.weakN_iff,
+  [``Lean4Lean.VEnv.hasType_app_bvar0,
+   ``Lean4Lean.VEnv.HasType.weakN_iff,
    ``Lean4Lean.VEnv.IsType.weakN_iff,
    ``Lean4Lean.VExpr.WF.weakN_iff,
    ``Lean4Lean.OnCtx.weakN_inv,
@@ -99,7 +109,7 @@ run_cmd do
   logInfo s!"  transitive users (all)                : {all.size - 1}"
   logInfo s!"  still reach it with the typing gates cut: {conv.size - 1}"
   logInfo s!"  freed by the typing half alone         : {all.size - conv.size}"
-  logInfo "typing gates (provable from TypingStrengthening alone, StrengthenNarrow §5):"
+  logInfo "typing gates (provable from TypingStrengthening alone; StrengthenNarrow §5 + CRPiDescend §1):"
   for g in typingGates do
     logInfo s!"    {g}  [in cone: {all.contains g}]"
   logInfo "conversion gates (need the narrow trans residual):"

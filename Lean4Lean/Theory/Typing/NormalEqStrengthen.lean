@@ -4,7 +4,7 @@ import Lean4Lean.Theory.Typing.StrengthenNarrow
 /-!
 # `NormalEq`-strengthening needs only the *typing* half
 
-`IsDefEqU.weakN_iff` (`UniqueTyping.lean:174`, **131 transitive users**) is the largest hole in
+`IsDefEqU.weakN_iff` (`UniqueTyping.lean:174`, **296 transitive users** at `d67375b`) is the largest hole in
 the theory half of this development: if `e1.liftN n k ≡ e2.liftN n k` upstairs then `e1 ≡ e2`
 downstairs.  `Strengthen.lean` §§1-9 and `StrengthenNarrow.lean` located the whole difficulty in
 one of `IsDefEq`'s twelve rules: `trans`, whose middle term lives upstairs and need not be in the
@@ -28,7 +28,7 @@ carries that out and measures the result.
   that take types; §4's `sortConv_encoding_vacuous` shows why the same move cannot encode a
   conversion between general *terms*, which is exactly why `TransStrengtheningNarrow` survives.
 * §1c `TransStrengtheningNarrow.at_sort`: hence every **sort-typed** instance of
-  `StrengthenNarrow.lean`'s residual — where 113 of the 131 users sit — is closed by the typing
+  `StrengthenNarrow.lean`'s residual — where 253 of the 296 users sit — is closed by the typing
   half.
 * §2 `NormalEq.weakN_inv_DFC'`: `ChurchRosser.lean:361` reproved from `TypingStrengthening` plus
   §1's residual, with `IsDefEqU.weakN_iff` nowhere in the proof.  `appDF`'s genuine conversion
@@ -152,16 +152,24 @@ theorem SortConvStrengthening.of_typing (HT : TypingStrengthening env U) :
 theorem TypingStrengthening.sortConv (henv : VEnv.WF env) (HT : TypingStrengthening env U) :
     SortConvStrengthening env U := SortConvStrengthening.of_typing henv HT
 
-/-- **`SortConvStrengthening` is exactly `PiDescend`.**  With `Strengthen.lean` §9(b)
+/-- **`SortConvStrengthening` is no stronger than `PiDescend`.**  With `Strengthen.lean` §9(b)
 collapsing the two descent statements, §1b says the sort fragment of the hole is not a new
-unknown at all: it is the *typing* half, which is `PiDescend`. -/
+unknown at all: it is implied by the *typing* half, which is `PiDescend`.
+
+**Correction (2026-09-01): this docstring used to say "is exactly `PiDescend`", and only the
+`⟸` direction is proved -- here and nowhere else in the tree.**  The converse
+`SortConvStrengthening → TypingStrengthening` is *not* available: recovering a Π shape for the
+subject's downstairs type from `C.liftN ≡ .forallE A B` upstairs would need
+`SortConvStrengthening` at a pair whose right-hand side is `.forallE A B`, which is not in the
+image of the lift (its codomain lives in the extended upstairs context).  So the sort fragment
+is a consequence of the typing half, not a restatement of it, and it may be strictly weaker. -/
 theorem SortConvStrengthening.of_piDescend (henv : VEnv.WF env) (HP : PiDescend env U) :
     SortConvStrengthening env U :=
   SortConvStrengthening.of_typing henv ((TypingStrengthening.iff_piDescend henv).2 HP)
 
 /-! ### 1c. The sort-typed instances of the narrow `trans` residual are closed
 
-`StrengthenNarrow.lean` §1's `TransStrengtheningNarrow` is where 113 of the hole's 131 users
+`StrengthenNarrow.lean` §1's `TransStrengtheningNarrow` is where 253 of the hole's 296 users
 sit.  §1b closes every instance of it whose shared type is a sort, so the residual may be
 narrowed once more: only instances whose endpoints are **not types** are left. -/
 
@@ -331,7 +339,7 @@ theorem NormalEq.weakN_iff_of_typing (HT : TypingStrengthening env univs)
 only form §3 needs.  It is *not* instantiated from `ChurchRosser.lean`'s `church_rosser`: that
 proof's cone contains `IsDefEqU.weakN_iff` (which is what §2 removes) and routes through
 `NormalEq.parRed`, whose statement is refuted outright by `ParRedPropRefute.lean`.  The point of
-§3 is to convert "repair confluence" into "close the 131-user hole". -/
+§3 is to convert "repair confluence" into "close the 296-user hole". -/
 def NormalEqComplete : Prop :=
   ∀ {Γ : List VExpr} {e1 e2 A : VExpr}, OnCtx Γ (IsType env univs) →
     (Γ ⊢ e1 ≡ e2 : A) → Γ ⊢ e1 ≡ₚ e2
@@ -356,7 +364,7 @@ theorem StrengtheningTarget.iff_piDescend_of_normalEqComplete (HN : NormalEqComp
      ((TypingStrengthening.iff_piDescend henv).2 H)⟩
 
 /-- The same, against `StrengthenNarrow.lean`'s residual: **confluence plus `PiDescend` closes
-the narrow `trans` residual**, where 113 of the hole's 131 users sit. -/
+the narrow `trans` residual**, where 253 of the hole's 296 users sit. -/
 theorem TransStrengtheningNarrow.of_normalEqComplete (HN : NormalEqComplete)
     (HP : PiDescend env univs) : TransStrengtheningNarrow env univs :=
   ((StrengtheningTarget.iff_typing_narrow henv).1

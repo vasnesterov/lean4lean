@@ -869,6 +869,23 @@ propagated here; **every transitive-user count quoted from these two scripts bef
 frees a minority — but the ratio moved from 14% to 15%, and the absolute residual more than
 doubled.
 
+**A tenth gate (2026-09-01, same day).**  `hasType_app_bvar0` is provable from
+`TypingStrengthening` alone (`CRPiDescend.lean:152` has the verbatim statement with that as its
+only added hypothesis), so it belongs in the gate set and is now in the script's `typingGates`.
+With it:
+
+```
+transitive users (all)                  : 296
+still reach it with the typing gates cut: 250
+freed by the typing half alone          :  46
+```
+
+So the 43 above is itself a floor and **46 / 250 is the figure to quote**; the marginal
+conversion-gate losses below are unchanged.  Note the gate is a *hypothesis*-level fact, not a
+proof of `hasType_app_bvar0` — `StrengthenInhabGate.lean` §5 has a version needing only an
+inhabitant of the binder, with a strictly smaller hole set, but neither of its two call sites
+can supply one.
+
 The surviving 253 enter through the five genuine two-endpoint conversions, which are *not* in
 the gate set.  Additionally cutting one of them as well loses, marginally (the sets overlap,
 so these do not partition the 253): `IsDefEq.weakN_iff` 3, `IsDefEq.weakN_iff'` 5,

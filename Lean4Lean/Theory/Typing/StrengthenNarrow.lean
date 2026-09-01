@@ -51,13 +51,21 @@ strictly weaker — i.e. a strictly better target for a future round.
   `IsType.weakN_iff`, `VExpr.WF.weakN_iff`, `HasType.skips` and the four `weak'` analogues
   from the full *conversion* form; none of them needs it.  §5 reproves all nine from
   `TypingStrengthening` — equivalently, by `Strengthen.lean` §7/§9(b), from `PiDescend` — and
-  that splits the hole's 131 transitive users in two.  **Measured**
-  (`scripts/weakn-gate-split.lean`, reverse reachability with those nine cut): 18 of the 131
-  are freed by the typing half alone, and **113 still need the narrow `trans` residual**,
-  reaching the hole through `IsDefEq.weakN_iff{,'}`, `IsDefEqU.weak'_iff`,
-  `IsDefEq.weak'_iff` or `IsDefEq.skips`.  So shape descent is *not* the bottleneck: the
-  residual of §1 is where the 113 sit.  That is an argument for spending the next round on
-  §1 and not on `PiDescend`.
+  that splits the hole's transitive users in two.  **Measured at `d67375b`**
+  (`scripts/weakn-gate-split.lean`, reverse reachability with those nine cut): the hole has
+  **296** transitive users, **253** still reach it with the nine cut, so **43** are freed by
+  the typing half alone; adding `hasType_app_bvar0` (`CRPiDescend.lean` §1, a tenth typing
+  gate) takes that to **250 / 46**.  The 253 reach the hole through `IsDefEq.weakN_iff{,'}`,
+  `IsDefEqU.weak'_iff`, `IsDefEq.weak'_iff` or `IsDefEq.skips`.  So shape descent is *not* the
+  bottleneck: the residual of §1 is where the 253 sit.  That is an argument for spending the
+  next round on §1 and not on `PiDescend`.
+
+  **The earlier figure in this docstring was `18 of 131`, and it was wrong in both numbers.**
+  `scripts/{sorry-census,weakn-gate-split}.lean` skipped `Name.isInternal` names when
+  *building* the dependency graph, not merely when printing it, so every walk was truncated at
+  an equation-compiler companion and a user reaching the hole only through its own equation
+  lemmas was scored as not reaching it at all.  Fixed 2026-09-01; see
+  `docs/handoff-weakn.md` §5.3 for the history — do not re-derive the old ratio.
 
 ## Circularity, measured (`scripts/hole-cone.lean`'s `deps`, `allowOpaque := true`)
 
@@ -339,9 +347,11 @@ strictly smaller lifting witnesses and only to *typing* judgments, so `TypingStr
 
 `Strengthen.lean` §10's `Strengthening.onCtx_inv` is the same induction run off the full
 `Strengthening`; this is the sharper version.  The same holds for the other eight wrappers
-below, and the split it induces on the hole's 131 transitive users is measured by
-`scripts/weakn-gate-split.lean`: **18 freed by the typing half, 113 still needing the narrow
-`trans` residual of §1.**  `IsDefEq.skips` is deliberately *not* in the gate set — its two
+below, and the split it induces on the hole's 296 transitive users is measured by
+`scripts/weakn-gate-split.lean`: **43 freed by the typing half, 253 still needing the narrow
+`trans` residual of §1** (46 / 250 with `hasType_app_bvar0` in the gate set).  The `18 / 131`
+this line used to carry came from the pre-fix graph; see the module docstring and
+`docs/handoff-weakn.md` §5.3.  `IsDefEq.skips` is deliberately *not* in the gate set — its two
 endpoints differ, so it is a genuine conversion; its reflexive instance `HasType.skips` is. -/
 
 /-- `OnCtx` of a suffix.  (`Strengthen.lean` has this too, but privately.) -/

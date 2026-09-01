@@ -393,4 +393,460 @@ theorem hasArgs_params_bvars_of_np_zero {e : VEnv} {U : Nat} {D : VInductDecl'}
 end VIndRestore
 
 
+/-! ## §T6 The minor block
+
+§T5 repaired the *motive* entry.  The **minor** entry was untouched, and it is the other
+non-reflexive block of `TeleDefEq [] As As'` for obligation (B): with
+`As := (atRecTele params ++ motives ++ minors ++ indices).map (substC · σ)`, the parameter and
+index blocks are literally the same expression on both sides (`TeleDefEq.refl`), the motive
+block is §T5's, and the minor block is this one.
+
+`minorType` and `minorTypeR` differ in exactly **two** positions — machine-checked by the
+`simp only` in `substC_minorType_defeq'`, whose two sides reduce to the same expression apart
+from them:
+
+1. the field telescope, `liftTele (nm+q) (atRecTele (fields.map (·.type)))` versus
+   `liftTele (nm+q) (atRecTele (fieldTypesR D R))` — the ingredient (B)'s minor block shares
+   with (C)'s `iotaCtx`;
+2. the **last** argument of the conclusion, `ctorApp'` versus `ctorAppR`.
+
+The induction-hypothesis block `D.ihTypes q C`, the motive `bvar` head and the index prefix
+`C.args.map (shift …)` are *identical* on the two sides, so they cost `TeleDefEq.refl` and
+`IsDefEq.appDF`'s reflexive left factor respectively.  That is why the minor entry needs only
+**one** `appDF` and not a `HasArgsDF` over the whole spine: `mkApp_concat` splits the
+conclusion at its last argument, which is the only one that moves.
+
+**Three things this settles, and one it does not.**
+
+* `hbv` — the hypothesis §T5 found contradictory at `Γ = []` — is *derivable* at the minor
+  entry's real ambient context for **every** `D.np`, by the same `HasArgs.bvars` route
+  (`hasArgs_params_bvars_minorCtx'`).  The generic form `hasArgs_params_bvars_ctx` now covers
+  both blocks: the parameter spine `bvars k D.np` is typed by the parameter telescope in any
+  context whose first `k` entries sit above `(atRecTele D.params).reverse`.
+* Bounded the other way: `substC_minorType_hbv_false_of_nil` shows the `Γ = []` instance of
+  that same `hbv` is **empty** above `D.np = 0`, exactly as for the motive.  So the minor entry
+  had to be stated at a general `Γ` too; it is not an accident of §8.9's motive statement.
+* `hfld` is inhabited: `teleDefEq_fld_of_np_zero` derives it from §7.5's strict equation, so
+  the general-`Γ` minor bridge subsumes what `D.params = []` already closed.
+* What is **not** settled: `hOn`, `hOnp`, `hcbody`, `hAs` and `hfun` at that `Γ`.  `hcbody`,
+  `hAs` and `hfun` are the data residual — `hcbody`/`hAs` are §8.9's `hbody`/`hAs` for the
+  *constructor* head, and `hfun` is `minorBody_hasType`'s partial application
+  (`Theory/Inductive/Lemmas.lean:1550` builds exactly it, one `mkApp_concat` short of the
+  conclusion) restated at the substituted environment. -/
+
+namespace VEnv
+
+/-- `HasArgs.bvars_lt` in the form the two blocks use it: a `bvar` spine starting at or beyond
+the context length cannot be typed, whatever the telescope. -/
+theorem HasArgs.bvars_ctx_false {env : VEnv} {U : Nat} {Γ As : List VExpr} {lo n : Nat}
+    (henv : env.Ordered) (hΓ : CtxClosed Γ) (hle : Γ.length ≤ lo)
+    (h : env.HasArgs U Γ As (VExpr.bvars lo (n + 1))) : False := by
+  have := HasArgs.bvars_lt henv hΓ h
+  omega
+
+end VEnv
+
+namespace VIndRestore
+section
+variable {R : VIndRestore} {D : VInductDecl'} {K : List Name} {σ : CSubst} {e : VEnv}
+variable {U t q : Nat} {T : VIndType} {C : VIndCtor}
+
+/-! ### §T6.1 The parameter spine, at any block of the recursor telescope
+
+`hasArgs_params_bvars_motiveCtx` (§T5) specialised the shape to the motive entry.  This is the
+statement behind it: whatever sits between the spine and the parameters, `HasArgs.bvars` types
+the parameter spine as long as the count matches the intervening length. -/
+
+/-- **`hbv`, generically.**  `Δ` is everything between the spine's position and the parameter
+block; `hp` (`VInductDecl'.WF.params`) makes the parameter telescope's `liftTele` the
+identity. -/
+theorem hasArgs_params_bvars_ctx {Δ Γ₀ : List VExpr} {k : Nat}
+    (hp : VExpr.ClosedTele (D.atRecTele D.params) 0) (hΔ : Δ.length = k) :
+    e.HasArgs U (Δ ++ ((D.atRecTele D.params).reverse ++ Γ₀))
+      (D.atRecTele D.params) (VExpr.bvars k D.np) := by
+  have h := VEnv.HasArgs.bvars (env := e) (U := U) (Δ := Δ)
+    (As := D.atRecTele D.params) (Γ₀ := Γ₀)
+  rw [hΔ, VInductDecl'.length_atRecTele, hp.liftTele_eq (Nat.le_refl 0)] at h
+  rw [List.append_assoc] at h
+  exact h
+
+/-- …split the way a minor entry's context splits: `nr` induction hypotheses over `nf` fields
+over the `nm + q` motives and earlier minors, over the parameters. -/
+theorem hasArgs_params_bvars_minorCtx {V Φ M Γ₀ : List VExpr} {nr nf : Nat}
+    (hp : VExpr.ClosedTele (D.atRecTele D.params) 0)
+    (hV : V.length = nr) (hΦ : Φ.length = nf) (hM : M.length = D.nm + q) :
+    e.HasArgs U (V ++ (Φ ++ (M ++ ((D.atRecTele D.params).reverse ++ Γ₀))))
+      (D.atRecTele D.params) (VExpr.bvars (nr + nf + (D.nm + q)) D.np) := by
+  have h := hasArgs_params_bvars_ctx (D := D) (e := e) (U := U)
+    (Δ := V ++ Φ ++ M) (Γ₀ := Γ₀) (k := nr + nf + (D.nm + q)) hp
+    (by simp [hV, hΦ, hM]; omega)
+  rwa [List.append_assoc, List.append_assoc] at h
+
+/-- **…in exactly the form `substC_minorType_defeq` needs it**, i.e. over the context the
+minor entry's conclusion actually lives in: the substituted field telescope and the
+induction-hypothesis block, over the entry's own ambient context. -/
+theorem hasArgs_params_bvars_minorCtx' {M Γ₀ : List VExpr}
+    (hp : VExpr.ClosedTele (D.atRecTele D.params) 0) (hM : M.length = D.nm + q) :
+    e.HasArgs U
+      ((VExpr.liftTele (D.nm + q)
+          ((D.atRecTele (C.fields.map (·.type))).map (VExpr.substC · σ))
+          ++ (D.ihTypes q C).map (VExpr.substC · σ)).reverse
+        ++ (M ++ ((D.atRecTele D.params).reverse ++ Γ₀)))
+      (D.atRecTele D.params)
+      (VExpr.bvars ((D.ihTypes q C).length + C.fields.length + (D.nm + q)) D.np) := by
+  have h := hasArgs_params_bvars_minorCtx (D := D) (e := e) (U := U) (q := q)
+    (V := ((D.ihTypes q C).map (VExpr.substC · σ)).reverse)
+    (Φ := (VExpr.liftTele (D.nm + q)
+      ((D.atRecTele (C.fields.map (·.type))).map (VExpr.substC · σ))).reverse)
+    (M := M) (Γ₀ := Γ₀) (nr := (D.ihTypes q C).length) (nf := C.fields.length)
+    hp (by simp) (by simp [VInductDecl'.length_atRecTele]) hM
+  rw [List.reverse_append, List.append_assoc]
+  exact h
+
+/-! ### §T6.2 …and bounded the other way -/
+
+/-- A parameter spine pointing `nm + q` binders below a context that is only `nr + nf` long
+cannot be typed, for `D.np > 0`.  This is `motive_params_spine_false` for the minor block. -/
+theorem minor_params_spine_false {Γ' : List VExpr} {nr nf : Nat}
+    (henv : e.Ordered) (hnp : 0 < D.np) (hOn : OnCtx Γ' (e.IsType U))
+    (hlen : Γ'.length ≤ nr + nf + (D.nm + q))
+    (hbv : e.HasArgs U Γ' (D.atRecTele D.params)
+      (VExpr.bvars (nr + nf + (D.nm + q)) D.np)) : False := by
+  obtain ⟨n, hn⟩ : ∃ n, D.np = n + 1 := ⟨D.np - 1, by omega⟩
+  rw [hn] at hbv
+  exact VEnv.HasArgs.bvars_ctx_false henv (hOn.ctxClosed henv) hlen hbv
+
+/-- **The `Γ = []` instance of the minor entry's `hbv` is empty above `D.np = 0`**, so the
+minor entry had to be stated at a general ambient context for the same reason §8.9's motive
+entry did.  (`nm + q = 0` is the only escape, i.e. a one-type block at its first minor.) -/
+theorem substC_minorType_hbv_false_of_nil (henv : e.Ordered) (hnp : 0 < D.np)
+    (hOn : OnCtx ((VExpr.liftTele (D.nm + q)
+        ((D.atRecTele (C.fields.map (·.type))).map (VExpr.substC · σ))
+        ++ (D.ihTypes q C).map (VExpr.substC · σ)).reverse) (e.IsType U))
+    (hbv : e.HasArgs U ((VExpr.liftTele (D.nm + q)
+        ((D.atRecTele (C.fields.map (·.type))).map (VExpr.substC · σ))
+        ++ (D.ihTypes q C).map (VExpr.substC · σ)).reverse) (D.atRecTele D.params)
+      (VExpr.bvars ((D.ihTypes q C).length + C.fields.length + (D.nm + q)) D.np)) :
+    False :=
+  minor_params_spine_false henv hnp hOn
+    (by simp [VInductDecl'.length_atRecTele]) hbv
+
+/-- **`hfld` is inhabited.**  At `D.params = []` §7.5's strict field-telescope equation gives
+the `TeleDefEq` for free, so the general-`Γ` minor bridge below is a weakening of what
+`substC_minors` already closed and cannot be vacuous. -/
+theorem teleDefEq_fld_of_np_zero (hp : D.params = []) (hown : R.OwnId D K)
+    (hat : R.SubstAt D K σ) (hcl0 : ∀ i, ∀ a ∈ R.tyArgs i, a.ClosedN 0)
+    (hfr : R.SubstFree D σ) (hcanon : C.Canonical D)
+    (hpos : ∀ (i : Nat) (F : VIndField) (r : VIndRecArg), C.fields[i]? = some F →
+      F.recArg = some r → r.idx < D.nm) {Γ : List VExpr} :
+    e.TeleDefEq U Γ
+      (VExpr.liftTele (D.nm + q)
+        ((D.atRecTele (C.fields.map (·.type))).map (VExpr.substC · σ)))
+      (VExpr.liftTele (D.nm + q) ((D.atRecTele (C.fieldTypesR D R)).map (VExpr.substC · σ))) :=
+  VEnv.TeleDefEq.of_eq (by
+    rw [VIndRestore.substC_atRec_fieldTypes hp hown hat hcl0 hfr hcanon hpos])
+
+/-! ### §T6.3 The minor entry's conclusion: one `appDF`, not a spine congruence -/
+
+/-- **The minor conclusion's defeq.**  Only the last argument moves, so `mkApp_concat` reduces
+the whole congruence to `IsDefEq.appDF` with a *reflexive* left factor — `hfun`, the motive
+applied to the index prefix, which is literally the intermediate `minorBody_hasType`
+(`Theory/Inductive/Lemmas.lean`) builds before its own final `.app`.  `A` is a parameter: it is
+where `hfun`'s domain and `hmaj`'s type have to meet, and neither side fixes it. -/
+theorem substC_minorBody_defeq {Γ : List VExpr} {A : VExpr} {m k nr nf : Nat}
+    {ιs : List VExpr}
+    (hfun : e.HasType U Γ ((VExpr.bvar m).mkApp (ιs.map (VExpr.substC · σ)))
+      (.forallE A (.sort D.elimLvl)))
+    (hmaj : e.IsDefEq U Γ ((D.ctorApp' C k (VExpr.bvars nr nf)).substC σ)
+      ((D.ctorAppR R t C k (VExpr.bvars nr nf)).substC σ) A) :
+    e.IsDefEq U Γ
+      (((VExpr.bvar m).mkApp (ιs ++ [D.ctorApp' C k (VExpr.bvars nr nf)])).substC σ)
+      (((VExpr.bvar m).mkApp (ιs ++ [D.ctorAppR R t C k (VExpr.bvars nr nf)])).substC σ)
+      (.sort D.elimLvl) := by
+  simp only [VExpr.substC_mkApp, VExpr.mkApp_concat, VExpr.substC]
+  exact VEnv.IsDefEq.appDF hfun hmaj
+
+/-- **The minor entry, reduced to its two moving parts.**  The `simp only` is the check that
+`minorType` and `minorTypeR` agree everywhere else: after it, `mkPi_congrU` needs only the
+field-telescope `TeleDefEq` (`TeleDefEq.append`ed with `refl` for the induction-hypothesis
+block) and the conclusion's defeq. -/
+theorem substC_minorType_defeq' (hσ : σ.Closed) {Γ : List VExpr} {w : VLevel}
+    (hfld : e.TeleDefEq U Γ
+      (VExpr.liftTele (D.nm + q)
+        ((D.atRecTele (C.fields.map (·.type))).map (VExpr.substC · σ)))
+      (VExpr.liftTele (D.nm + q) ((D.atRecTele (C.fieldTypesR D R)).map (VExpr.substC · σ))))
+    (hOn : OnCtx ((VExpr.liftTele (D.nm + q)
+        ((D.atRecTele (C.fields.map (·.type))).map (VExpr.substC · σ))
+        ++ (D.ihTypes q C).map (VExpr.substC · σ)).reverse ++ Γ) (e.IsType U))
+    (hbody : e.IsDefEq U ((VExpr.liftTele (D.nm + q)
+        ((D.atRecTele (C.fields.map (·.type))).map (VExpr.substC · σ))
+        ++ (D.ihTypes q C).map (VExpr.substC · σ)).reverse ++ Γ)
+      (((VExpr.bvar ((D.ihTypes q C).length + C.fields.length + q + (D.nm - 1 - t))).mkApp
+        ((C.args.map fun a => VExpr.shift (D.nm + q) (D.ihTypes q C).length
+            C.fields.length (D.atRec a))
+          ++ [D.ctorApp' C ((D.ihTypes q C).length + C.fields.length + (D.nm + q))
+                (VExpr.bvars (D.ihTypes q C).length C.fields.length)])).substC σ)
+      (((VExpr.bvar ((D.ihTypes q C).length + C.fields.length + q + (D.nm - 1 - t))).mkApp
+        ((C.args.map fun a => VExpr.shift (D.nm + q) (D.ihTypes q C).length
+            C.fields.length (D.atRec a))
+          ++ [D.ctorAppR R t C ((D.ihTypes q C).length + C.fields.length + (D.nm + q))
+                (VExpr.bvars (D.ihTypes q C).length C.fields.length)])).substC σ)
+      (.sort w)) :
+    ∃ u, e.IsDefEq U Γ ((D.minorType q t C).substC σ)
+      ((D.minorTypeR R q t C).substC σ) (.sort u) := by
+  simp only [VInductDecl'.minorType, VInductDecl'.minorTypeR, VExpr.substC_mkPi,
+    List.map_append, VExpr.map_substC_liftTele (σ := σ) hσ]
+  exact VEnv.IsDefEq.mkPi_congrU (hfld.append VEnv.TeleDefEq.refl) hOn ⟨w, hbody⟩
+
+/-- **The join, on the minor entry — the §T5 chain for the other non-reflexive block.**
+
+`hbv` is discharged internally by `hasArgs_params_bvars_minorCtx'`, so there is **no bound on
+`D.np`** here and none hidden in a vacuous hypothesis: the ambient context is the real one,
+`M` being the motive block and the earlier minors (`M.length = D.nm + q`).  What is left is
+`hOn`/`hOnp` (telescope typing at `e`) and `hcbody`/`hAs`/`hfun` (the data residual). -/
+theorem substC_minorType_defeq (hσ : σ.Closed) (hat : R.SubstAt D K σ)
+    (hfr : R.SubstFree D σ)
+    (hcl : ∀ a ∈ R.tyArgs t, a.ClosedN D.np) (henv : e.Ordered)
+    (hT : D.types[t]? = some T) (hK : T.name ∈ K) (hC : C ∈ T.ctors)
+    (hpcl : VExpr.ClosedTele (D.atRecTele D.params) 0)
+    {M Γ₀ As : List VExpr} {B B' : VExpr} (hM : M.length = D.nm + q)
+    (hfld : e.TeleDefEq U (M ++ ((D.atRecTele D.params).reverse ++ Γ₀))
+      (VExpr.liftTele (D.nm + q)
+        ((D.atRecTele (C.fields.map (·.type))).map (VExpr.substC · σ)))
+      (VExpr.liftTele (D.nm + q) ((D.atRecTele (C.fieldTypesR D R)).map (VExpr.substC · σ))))
+    (hOn : OnCtx ((VExpr.liftTele (D.nm + q)
+        ((D.atRecTele (C.fields.map (·.type))).map (VExpr.substC · σ))
+        ++ (D.ihTypes q C).map (VExpr.substC · σ)).reverse
+        ++ (M ++ ((D.atRecTele D.params).reverse ++ Γ₀))) (e.IsType U))
+    (hOnp : OnCtx ((D.atRecTele D.params).reverse ++ ((VExpr.liftTele (D.nm + q)
+        ((D.atRecTele (C.fields.map (·.type))).map (VExpr.substC · σ))
+        ++ (D.ihTypes q C).map (VExpr.substC · σ)).reverse
+        ++ (M ++ ((D.atRecTele D.params).reverse ++ Γ₀)))) (e.IsType U))
+    (hcbody : e.HasType U ((D.atRecTele D.params).reverse ++ ((VExpr.liftTele (D.nm + q)
+        ((D.atRecTele (C.fields.map (·.type))).map (VExpr.substC · σ))
+        ++ (D.ihTypes q C).map (VExpr.substC · σ)).reverse
+        ++ (M ++ ((D.atRecTele D.params).reverse ++ Γ₀))))
+      (D.atRec (R.ctorBody D t C)) B)
+    (hpi : VExpr.instAll B
+      (VExpr.bvars ((D.ihTypes q C).length + C.fields.length + (D.nm + q)) D.np)
+        = VExpr.mkPi As B')
+    (hAs : e.HasArgs U ((VExpr.liftTele (D.nm + q)
+        ((D.atRecTele (C.fields.map (·.type))).map (VExpr.substC · σ))
+        ++ (D.ihTypes q C).map (VExpr.substC · σ)).reverse
+        ++ (M ++ ((D.atRecTele D.params).reverse ++ Γ₀)))
+      As (VExpr.bvars (D.ihTypes q C).length C.fields.length))
+    (hfun : e.HasType U ((VExpr.liftTele (D.nm + q)
+        ((D.atRecTele (C.fields.map (·.type))).map (VExpr.substC · σ))
+        ++ (D.ihTypes q C).map (VExpr.substC · σ)).reverse
+        ++ (M ++ ((D.atRecTele D.params).reverse ++ Γ₀)))
+      ((VExpr.bvar ((D.ihTypes q C).length + C.fields.length + q + (D.nm - 1 - t))).mkApp
+        ((C.args.map fun a => VExpr.shift (D.nm + q) (D.ihTypes q C).length
+            C.fields.length (D.atRec a)).map (VExpr.substC · σ)))
+      (.forallE (VExpr.instAll B' (VExpr.bvars (D.ihTypes q C).length C.fields.length))
+        (.sort D.elimLvl))) :
+    ∃ u, e.IsDefEq U (M ++ ((D.atRecTele D.params).reverse ++ Γ₀))
+      ((D.minorType q t C).substC σ) ((D.minorTypeR R q t C).substC σ) (.sort u) := by
+  refine substC_minorType_defeq' hσ hfld hOn (w := D.elimLvl) ?_
+  refine substC_minorBody_defeq hfun ?_
+  have hmaj := substC_ctorApp'_defeq_ctorAppR_comp (R := R) (D := D) (K := K) (σ := σ)
+    (U := U) (j := t) (T := T) (C := C) hat hcl henv hT hK hC
+    (k := (D.ihTypes q C).length + C.fields.length + (D.nm + q))
+    (args := VExpr.bvars (D.ihTypes q C).length C.fields.length)
+    hOnp (hasArgs_params_bvars_minorCtx' hpcl hM) hcbody hpi
+    (by rwa [VExpr.map_substC_bvars])
+  rw [VExpr.map_substC_bvars] at hmaj
+  rwa [substC_ctorAppR hfr hT hC, VExpr.map_substC_bvars]
+
+end
+end VIndRestore
+
+
+/-! ## §T7 (C)'s telescope typing is not a fourth obligation
+
+The standing account of (C) is that it "needs `htype` as data".  That is exact for the
+**strict** route: `VEnv.iotaRulesRS_wf_of_substC_of_eq` (`Theory/Typing/ConstSubstNested.lean`)
+takes `htype : ∀ df ∈ D.iotaRules, e₃.IsType df.uvars [] (df.type.substC σ)` as a hypothesis,
+because a `VDefEq.WF` is two `HasType`s and says nothing about the `type` field.
+
+It is **not** exact for the defeq-tolerant `VEnv.iotaRulesRS_wf_of_substC'`, and this section is
+the reason.  That bridge's own `type` component is
+
+    e₃.IsDefEq df.uvars [] (df.type.substC σ) df'.type (.sort v)
+
+and a typed defeq at a sort *contains* `htype`: `IsDefEq.hasType.1` is
+`HasType _ [] (df.type.substC σ) (.sort v)`, i.e. an `IsType`.  So (C)' does not ask for
+`htype`, and more usefully:
+
+**the `type` component discharges the telescope typing the `lhs`/`rhs` components need.**
+`VEnv.IsDefEq.mkLams_congr` — the congruence (C) runs the `lhs`/`rhs` through, because those
+are `mkLams` over `iotaCtx` — takes `OnCtx (As.reverse ++ Γ)`, and that is exactly what
+`IsType.mkPi_inv` peels off the `type` component's left endpoint on `Ordered` alone
+(`iotaRule_tele_onCtx_of_type_defeq`).  Ordering matters and there is no circularity: the
+`type` component has to be built first, from a source `IsType` (which is `htype`, or the
+per-entry `hOn`s below); once built, the other two components' `OnCtx` is free.
+
+`OnCtx.take_of_reverse` is the companion fact for the entry defeqs *inside* the `type`
+component: every entry of `TeleDefEq` is stated over a **prefix** of the telescope, and an
+`OnCtx` of the whole reversed telescope restricts to every prefix.  So one telescope typing
+serves all of `mkPi_congrU`'s per-entry `hOn`s as well.
+
+**And the body defeq is shared with (B).**  `iotaType` and `iotaTypeR` differ in exactly the
+same one position as `minorType`'s and `minorTypeR`'s conclusions — the last argument,
+`ctorApp'` versus `ctorAppR` — so `substC_iotaType_defeq` below *is*
+`substC_minorBody_defeq`, at `nr := 0`.  That is machine-checked: its proof term is the §T6
+lemma applied, nothing else. -/
+
+/-- An `OnCtx` of a reversed telescope restricts to every prefix of that telescope — which is
+where `TeleDefEq`'s entry defeqs live. -/
+theorem OnCtx.take_of_reverse {P : List VExpr → VExpr → Prop} :
+    ∀ {As Γ : List VExpr} (k : Nat), OnCtx (As.reverse ++ Γ) P →
+      OnCtx ((As.take k).reverse ++ Γ) P := by
+  intro As Γ k h
+  rw [show As = As.take k ++ As.drop k from (List.take_append_drop k As).symm,
+    List.reverse_append, List.append_assoc] at h
+  exact OnCtx.append_right h
+
+namespace VEnv
+variable {e : VEnv} {U : Nat}
+
+/-- **`mkPi_inv` off a *defeq at a sort* rather than an `IsType`.**  A typed defeq already
+carries both endpoints' typing, so no extra hypothesis is needed. -/
+theorem IsType.mkPi_inv_of_defeq {Γ As : List VExpr} {B B' : VExpr} {v : VLevel}
+    (he : e.Ordered) (hΓ : OnCtx Γ (e.IsType U))
+    (h : e.IsDefEq U Γ (VExpr.mkPi As B) B' (.sort v)) :
+    OnCtx (As.reverse ++ Γ) (e.IsType U) ∧ e.IsType U (As.reverse ++ Γ) B :=
+  VEnv.IsType.mkPi_inv he hΓ ⟨v, h.hasType.1⟩
+
+/-- …and through the substitution, at the empty ambient context — the shape (C)'s `type`
+component has. -/
+theorem mkPi_substC_onCtx_of_defeq {σ : CSubst} {As : List VExpr} {B B' : VExpr} {v : VLevel}
+    (he : e.Ordered) (h : e.IsDefEq U [] ((VExpr.mkPi As B).substC σ) B' (.sort v)) :
+    OnCtx ((As.map (VExpr.substC · σ)).reverse) (e.IsType U) ∧
+      e.IsType U ((As.map (VExpr.substC · σ)).reverse) (B.substC σ) := by
+  rw [VExpr.substC_mkPi] at h
+  simpa using IsType.mkPi_inv_of_defeq he (Γ := []) trivial h
+
+end VEnv
+
+namespace VIndRestore
+section
+variable {R : VIndRestore} {D : VInductDecl'} {K : List Name} {σ : CSubst} {e : VEnv}
+variable {U t q j : Nat} {T : VIndType} {C : VIndCtor}
+
+/-- **(C)'s `lhs`/`rhs` telescope typing, out of its own `type` component.**  The `++ []` is
+kept because that is the shape `VEnv.IsDefEq.mkLams_congr` binds at `Γ := []`. -/
+theorem iotaRule_tele_onCtx_of_type_defeq (he : e.Ordered) {t' : VExpr} {v : VLevel}
+    (hty : e.IsDefEq U [] (((D.iotaRule j q C).type).substC σ) t' (.sort v)) :
+    OnCtx (((D.iotaCtx C).map (VExpr.substC · σ)).reverse ++ ([] : List VExpr))
+        (e.IsType U) ∧
+      e.IsType U (((D.iotaCtx C).map (VExpr.substC · σ)).reverse)
+        ((D.iotaType j C).substC σ) := by
+  have h := VEnv.mkPi_substC_onCtx_of_defeq (As := D.iotaCtx C) (B := D.iotaType j C) he hty
+  exact ⟨by simpa using h.1, h.2⟩
+
+/-- **(C)'s `type`-component body defeq is (B)'s minor conclusion defeq**, at `nr := 0`. -/
+theorem substC_iotaType_defeq {Γ : List VExpr} {A : VExpr}
+    (hfun : e.HasType U Γ
+      ((VExpr.bvar (C.fields.length + D.nmin + (D.nm - 1 - j))).mkApp
+        ((C.args.map fun a =>
+          (D.atRec a).liftN (D.nm + D.nmin) C.fields.length).map (VExpr.substC · σ)))
+      (.forallE A (.sort D.elimLvl)))
+    (hmaj : e.IsDefEq U Γ
+      ((D.ctorApp' C (C.fields.length + (D.nm + D.nmin))
+        (VExpr.bvars 0 C.fields.length)).substC σ)
+      ((D.ctorAppR R j C (C.fields.length + (D.nm + D.nmin))
+        (VExpr.bvars 0 C.fields.length)).substC σ) A) :
+    e.IsDefEq U Γ ((D.iotaType j C).substC σ) ((D.iotaTypeR R j C).substC σ)
+      (.sort D.elimLvl) :=
+  substC_minorBody_defeq hfun hmaj
+
+end
+end VIndRestore
+
+
+/-! ## §T8 `hfun` is not data — the call site builds it and the statement throws it away
+
+§T6's `substC_minorBody_defeq` takes `hfun`, the motive applied to the *index prefix* of the
+minor's conclusion, as a hypothesis.  It is not a new residual.
+
+`VInductDecl'.motiveApp_hasType'` (`Theory/Inductive/Lemmas.lean:1493`) builds
+
+    happ := VEnv.HasType.mkApp' hidx hm0     -- `(bvar K).mkApp ιs : ∀ (major), Sort elimLvl`
+
+from `hmot` and `hidx` alone, and then **discards** it in `happ.app hz`: its statement mentions
+only the saturated application.  `minorBody_hasType` (`:1550`) inherits that.  So `hfun` is
+`hmot` + `hidx`, which are exactly the two hypotheses `minorBody_hasType` already takes.
+
+`motiveApp_partial_hasType` below is that intermediate, stated once and with no `D` in it — a
+`Lookup` at a `mkPi Ξ (forallE Dom (.sort l))` plus the telescope's spine gives the partial
+application at `forallE (instAll (Dom.liftN (K+1) Ξ.length) ιs 0) (.sort l)`.  Being
+`D`-free it instantiates at the **substituted** motive block as readily as at the source one,
+because `(D.motiveType t).substC σ` is a `mkPi … (forallE … (.sort D.elimLvl))` on the nose
+(`substC_mkPi`/`substC_forallE`/`substC_sort`); `substC_motiveApp_partial` is that instance.
+
+**What is left after this, exactly.**  Composing into §T6 is one line,
+
+    hfun := hmatch ▸ substC_motiveApp_partial hT hmot hidx
+
+so the minor entry's residual is no longer `hfun` but:
+
+* `hmot`/`hidx` — the D-series (`lookup_motive`, `HasArgs`) restated at `e` over the
+  *substituted* telescope.  Not a β-gap, not new mathematics.
+* `hcbody`/`hAs` — §8.9's `hbody`/`hAs` for the **constructor** head, i.e. §8.7's `hargs`.
+* `hmatch` — the **type match**: `instAll B' (bvars nr nf)`, the restored constructor's result
+  type, against `instAll (((D.tyApp' t …).substC σ).liftN (k+1) ni) ιs 0`, the substituted
+  motive's domain.  This is the one genuinely new obligation the minor entry adds over the
+  motive entry, and it is `Faithful.ctor_agree` content: "the restored constructor really
+  constructs the substituted type".  `instAt_indep_of_tyArgs` bounds `hcbody`/`hAs` from below
+  but says nothing about `hmatch`. -/
+
+namespace VEnv
+
+/-- **The partial motive application `motiveApp_hasType'` builds and discards.**  Stated with no
+`VInductDecl'` in it, so it applies to the substituted motive block as well as the source one. -/
+theorem motiveApp_partial_hasType {env : VEnv} {U K ni : Nat} {Γ Ξ ιs : List VExpr}
+    {Dom : VExpr} {l : VLevel} (hlen : Ξ.length = ni)
+    (hmot : Lookup Γ K ((VExpr.mkPi Ξ (VExpr.forallE Dom (.sort l))).liftN (K + 1)))
+    (hidx : env.HasArgs U Γ (VExpr.liftTele (K + 1) Ξ 0) ιs) :
+    env.HasType U Γ ((VExpr.bvar K).mkApp ιs)
+      (.forallE (VExpr.instAll (Dom.liftN (K + 1) ni) ιs 0) (.sort l)) := by
+  have hm0 : env.HasType U Γ (.bvar K)
+      ((VExpr.mkPi Ξ (VExpr.forallE Dom (.sort l))).liftN (K + 1)) := .bvar hmot
+  rw [VExpr.liftN_mkPi, hlen, Nat.zero_add] at hm0
+  have happ := VEnv.HasType.mkApp' hidx hm0
+  simpa only [VExpr.liftN, VExpr.instAll_forallE, VExpr.instAll_sort] using happ
+
+end VEnv
+
+namespace VIndRestore
+section
+variable {R : VIndRestore} {D : VInductDecl'} {K : List Name} {σ : CSubst} {e : VEnv}
+variable {U t q j : Nat} {T : VIndType} {C : VIndCtor}
+
+/-- **…at the substituted motive block**, which is what §T6's `hfun` asks for.  `hmot` and
+`hidx` are the substituted D-series; nothing else enters. -/
+theorem substC_motiveApp_partial {k : Nat} {Γ ιs : List VExpr}
+    (hT : D.types[t]? = some T)
+    (hmot : Lookup Γ k (((D.motiveType t).substC σ).liftN (k + 1)))
+    (hidx : e.HasArgs U Γ
+      (VExpr.liftTele (k + 1)
+        ((VExpr.liftTele t (D.atRecTele T.indices) 0).map (VExpr.substC · σ)) 0) ιs) :
+    e.HasType U Γ ((VExpr.bvar k).mkApp ιs)
+      (.forallE (VExpr.instAll
+        (((D.tyApp' t (T.indices.length + t) (VExpr.bvars 0 T.indices.length)).substC σ).liftN
+          (k + 1) T.indices.length) ιs 0) (.sort D.elimLvl)) := by
+  have hmt : (D.motiveType t).substC σ
+      = VExpr.mkPi ((VExpr.liftTele t (D.atRecTele T.indices) 0).map (VExpr.substC · σ))
+          (VExpr.forallE ((D.tyApp' t (T.indices.length + t)
+            (VExpr.bvars 0 T.indices.length)).substC σ) (.sort D.elimLvl)) := by
+    simp only [VInductDecl'.motiveType, VInductDecl'.getD_types hT, VExpr.substC_mkPi,
+      VExpr.substC_forallE, VExpr.substC_sort]
+  rw [hmt] at hmot
+  exact VEnv.motiveApp_partial_hasType
+    (by simp [VInductDecl'.length_atRecTele]) hmot hidx
+
+end
+end VIndRestore
+
+
 end Lean4Lean

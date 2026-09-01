@@ -128,6 +128,7 @@ import Lean4Lean.Theory.Typing.InjPiInhab  -- 2026-09-01: ConvCStrengthen retire
 import Lean4Lean.Theory.Typing.CRPiDescend  -- 2026-09-01: hasType_app_bvar0 from TypingStrengthening alone; site 7's appDF x beta row is weakN_iff-free
 import Lean4Lean.Theory.Inductive.NestedTele  -- 2026-09-01: the motive-entry vacuity above np=0 and its general-Gamma repair
 import Lean4Lean.Verify.Inductive.NestedRestoreWit  -- 2026-09-01: RestoreData satisfied; AddNested + InductStepNested at mkRestore
+import Lean4Lean.Theory.Typing.StrengthenInhabGate  -- 2026-09-01: the typing half's obstruction IS its uninhabited stripped entries -- closes the handed-over-inhabitant route
 
 /-!
 # Acceptance test: the `PatternRules` cone and the `Verify/` cone join
