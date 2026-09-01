@@ -22,6 +22,18 @@ statement is frozen.  This file measures that, and prices the alternative the ru
 inductive step's postcondition it does not; and a one-line implementation guard removes it
 entirely with no statement change anywhere.**
 
+**Outcome, 2026-09-01: the guard was installed** (`Lean4Lean/Inductive/Add.lean`,
+`Environment.addInductive`'s pre-`run` guard loop, `checkNoLooseBVars` on each member's own type
+and on each constructor's).  §4.1 is the consequence: `rejectsNonClosed` and
+`rejectsNonClosedFull` are **theorems**, `addInductiveStepWF_of_reject` fires as
+`addInductiveStepWF_of_closed`, and §2 — the whole lift to `kernel_sound`'s frozen statement —
+does not happen.  Nothing in §2 or §3 is deleted: §2 is the priced alternative and §3 is the
+priced alternative to *that*, and both are what justify the choice.
+
+None of this proves `AddInductiveStepWF`.  It reduces it to `AddInductiveStepWFClosed` — open —
+at zero cost in statements.  See `AddInductiveStepWFFull` for why the *stronger*-premised version
+is the one to aim at.
+
 The three sections that establish this:
 
 * §2 — the lift.  `AddDeclWFClosed` (the step with the premise) folds only under
@@ -64,9 +76,13 @@ The three sections that establish this:
 
 Everything named above is a theorem.  Three things are *not*:
 
-1. that `Environment.addInductive` accepts `fooBad` — an `#eval` (§5), for the reason
-   `not_addInductiveStepWF`'s docstring gives: `Expr.abstract` is `opaque`, so this cannot be a
-   kernel proof.  `not_closedFromAccept` therefore takes acceptance as a hypothesis.
+1. ~~that `Environment.addInductive` accepts `fooBad`~~ — this *was* an `#eval`, for the reason
+   `not_addInductiveStepWF`'s docstring gives: `Expr.abstract` is `opaque`, so acceptance could not
+   be a kernel proof, and `not_closedFromAccept` therefore takes acceptance as a hypothesis.  Since
+   the guard, the *rejection* is a theorem (`addInductive_rejects_fooBad`), because the guard runs
+   before `run` and never calls `Expr.abstract`.  §5's first `#eval` is flipped to assert the
+   rejection and to check it carries the guard's own message; `not_closedFromAccept` is kept, with
+   an unsatisfiable hypothesis.
 2. that `InductStepOut` holds at `fooBad`'s stored block.  §3 proves only that
    `InductStepOut` is *not refuted* by the witness (it does not mention the block) and that it
    is satisfiable (`inductStepOut_sat`, from `inductStepNested_wit_closed`).  Whether the
@@ -75,25 +91,31 @@ Everything named above is a theorem.  Three things are *not*:
    `.inductInfo`/`.ctorInfo` in the running environment for a loose bvar; it is evidence, not a
    proof, and it says nothing about inputs the Kernel Arena feeds that no elaborator produced.
 
-## `BlockClosed` covers constructor types only — and that turns out to be right
+## `BlockClosed` covers constructor types only — and that was the wrong call to leave open
 
 `TrIndDeclN.trType` demands `TrIndType env Us t T`, i.e. `TrExprS env Us [] t.type T.type`,
-which forces the *member's own* type closed too, and the pre-`run` guard loop does not check it
-(§5's second `#eval` confirms `checkNoMVarNoFVar` accepts an open member type).  So
-`BlockClosedFull` (§1) is the conservative premise, and it is what `DeclClosed` uses here.
+which forces the *member's own* type closed too.  `BlockClosedFull` (§1) is therefore the
+conservative premise, and it is what `DeclClosed` uses here.
 
-But the same `#eval` shows the member-type half is **not reachable**, and the mechanism is the
-asymmetry that makes the constructor case interesting in the first place: `run.loop` round-trips
-only the *constructor* types through `withParams`/`mkForall` (`run_loop_id` rebuilds
-`{ t with ctors := … }`), so a loose bvar in a member's own type is never captured — it survives
-to `AddInductive.run`'s type checker, which rejects with "does not support loose bound
-variables".  Verified at `Bar : ∀ (α : Type) (x : #1), Type`, `np = 1`, the exact analogue of
-`fooBad`.
+An earlier revision of this docstring argued the member-type half was **not reachable** and so
+`BlockClosed`-only was enough.  The argument was: `run.loop` round-trips only the *constructor*
+types through `withParams`/`mkForall` (`run_loop_id` rebuilds `{ t with ctors := … }`), so a loose
+bvar in a member's own type is never captured — it survives to `AddInductive.run`'s type checker,
+which rejects.  Verified at `Bar : ∀ (α : Type) (x : #1), Type`, `np = 1`.
 
-So on today's evidence `BlockClosedFull`'s first conjunct is *dischargeable from the checker's
-success* while the second is not — one witness, so this is a bound rather than a proof.  Nothing
-below turns on it: the two conjuncts propagate identically, and every verdict in §2–§4 is stated
-for `DeclClosed`.
+**Two things were wrong with that.**  It was one witness, hence a bound and not a proof — stated at
+the time.  Worse, and not stated at the time: *reachability is the wrong question*.
+`AddInductiveStepWFClosed`'s proof needs `t.type.looseBVarRange' = 0` as a **hypothesis**, and
+`BlockClosed` does not supply it; recovering it inside the proof from the later type checker's
+success is precisely the hard route the constructor case already showed to be a dead end.  So
+`AddInductiveStepWFClosed` is plausibly false for the member-type reason even though the
+constructor-type reason has been guarded away.
+
+The guard settles it either way: it checks the member's own type too, so `RejectsNonClosedFull`
+holds and `AddInductiveStepWFFull` — premised on the full condition — yields the unrestricted
+`AddInductiveStepWF` just as `AddInductiveStepWFClosed` does.  **`AddInductiveStepWFFull` is the
+statement the remaining work should target**, and there is no reason left to prefer the weaker
+premise.
 -/
 
 namespace Lean4Lean
@@ -377,33 +399,186 @@ theorem addDecl_WF_honest_of_reject (Hcl : AddInductiveStepWFClosed) (Hrej : Rej
     (Lean4Lean.addDecl env decl (check := true) (fuel := fuel)).WF (AddDeclPost env decl ves) :=
   addDecl.WF_honest (addInductiveStepWF_of_reject Hcl Hrej) wf decl fuel
 
+/-! ### 4.1 The guard, installed — and fired
+
+The two `checkNoLooseBVars` calls of §4 are **in the tree** since 2026-09-01
+(`Lean4Lean/Inductive/Add.lean`, `Environment.addInductive`'s pre-`run` guard loop, one on each
+member's own type and one on each constructor's).  `Verify/Inductive/RunIdentity.lean` §6 exposes
+them as `addInductive_WF_blockClosedFull`, and the three theorems below are the consequences §4
+priced. -/
+
+/-- **`RejectsNonClosed`, proved.**  Straight from `addInductive_WF_blockClosedFull`: `Except.WF`
+with a result-independent postcondition *is* the contrapositive.
+
+Axioms: none beyond `propext`/`Classical.choice`/`Quot.sound`.  In particular **no frozen
+axiom** — the guard is `Lean4Lean.noLooseBVars`, a pure structural recursion, and its bridge
+`looseBVarRange'_le_of_noLooseBVars` is a plain induction.  Had the guard read the cached
+`Expr.looseBVarRange` header field instead, `Expr.looseBVarRange_eq`'s `BVarBounded` side
+condition (resting on the frozen `Lean.Expr.mkData_eq`) would have landed *inside this
+statement's hypothesis*, where instrument 7 and every other instrument in this repo — all of
+which inspect conclusions — would have been blind to it. -/
+theorem rejectsNonClosed : RejectsNonClosed :=
+  fun _env _lp _np _types _ap _fuel hcl env' hok =>
+    hcl (addInductive_WF_blockClosed env' hok).2
+
+/-- The member-type half as well: the guard loop's first `checkNoLooseBVars` call gives
+`BlockClosedFull`, not merely `BlockClosed`.  So the whole of `DeclClosed` — both conjuncts —
+is recovered from acceptance. -/
+theorem addInductive_WF_blockClosedFull' {env : Environment} {lp : List Name} {np : Nat}
+    {types : List InductiveType} {iu ap : Bool} {fuel : FuelConfig} :
+    (Environment.addInductive env lp np types iu ap fuel).WF fun _ => BlockClosedFull types :=
+  addInductive_WF_blockClosed.mono fun _ h => ⟨h.1, h.2⟩
+
+/-- **`ClosedFromAccept` for the inductive branch**, in the strong `BlockClosedFull` form.  Note
+what this does *not* say: `not_closedFromAccept` is not thereby refuted, because its hypothesis
+`hok` — acceptance of `badInductDecl` — is now unsatisfiable.  See §5. -/
+def RejectsNonClosedFull : Prop :=
+  ∀ (env : Environment) (lp : List Name) (np : Nat) (types : List InductiveType)
+    (ap : Bool) (fuel : FuelConfig), ¬ BlockClosedFull types →
+    ∀ env', Environment.addInductive env lp np types false ap fuel ≠ .ok env'
+
+theorem rejectsNonClosedFull : RejectsNonClosedFull :=
+  fun _env _lp _np _types _ap _fuel hcl env' hok =>
+    hcl (addInductive_WF_blockClosedFull' env' hok)
+
+/-- **`AddInductiveStepWF`, unrestricted, from the restricted statement.**  `§4`'s
+`addInductiveStepWF_of_reject` fired: its second argument is `rejectsNonClosed`.
+
+**What is and is not established.**  `AddInductiveStepWF` is *not* proved here — it is reduced to
+`AddInductiveStepWFClosed`, which is open.  What the guard buys is precisely that the reduction
+costs no statement change: `AddInductiveStepWF` is consumed verbatim by `addDecl.WF_honest`,
+`AddDeclPost`, `Bridge.AddDeclWF`, the fold and `kernel_sound`, and none of them acquires a
+premise.  §2's lift does not happen. -/
+theorem addInductiveStepWF_of_closed (Hcl : AddInductiveStepWFClosed) : AddInductiveStepWF :=
+  addInductiveStepWF_of_reject Hcl rejectsNonClosed
+
+/-- `AddInductiveStepWFClosed` with the **stronger** premise `BlockClosedFull`, i.e. the member's
+own type closed too.
+
+This is the statement the remaining work should aim at, and the reason is a real gap in
+`AddInductiveStepWFClosed`: `TrIndDeclN.trType` demands `TrExprS env Us [] t.type T.type`, which
+forces `t.type.looseBVarRange' = 0`, and `BlockClosed` says nothing about `t.type`.  So
+`AddInductiveStepWFClosed` may well be **false** for the same reason the unrestricted statement
+was — the module docstring's evidence that the member-type half is unreachable was one witness
+(`Bar`), and one witness is a bound, not a proof.  `BlockClosedFull` closes that hole, and the
+guard supplies it, so nothing is lost by asking for the stronger premise. -/
+def AddInductiveStepWFFull : Prop :=
+  ∀ {env : Environment} {ves : VEnvs}, ves.WF env →
+    ∀ lp np types ap fuel, BlockClosedFull types →
+      (Environment.addInductive env lp np types false ap fuel).WF fun env' =>
+        AddInductPost env env' ves lp np types
+
+theorem AddInductiveStepWFClosed.toFull (H : AddInductiveStepWFClosed) :
+    AddInductiveStepWFFull := fun wf lp np types ap fuel hcl =>
+  H wf lp np types ap fuel hcl.toBlockClosed
+
+/-- The same payoff from the weaker obligation: the guard supplies **both** conjuncts of
+`BlockClosedFull`, so `AddInductiveStepWFFull` already yields the unrestricted
+`AddInductiveStepWF`. -/
+theorem addInductiveStepWF_of_full (H : AddInductiveStepWFFull) : AddInductiveStepWF := by
+  intro env ves wf lp np types ap fuel
+  by_cases hcl : BlockClosedFull types
+  · exact H wf lp np types ap fuel hcl
+  · exact Except.WF_of_no_ok (rejectsNonClosedFull env lp np types ap fuel hcl)
+
+/-- **Instrument 7 for `rejectsNonClosed`, firing** — and the one thing about `fooBad` that used
+to be executable-only and is now a theorem.
+
+Before the guard, "the checker rejects/accepts `fooBad`" could only be observed by `#eval`, because
+the outcome went through the `opaque` `Expr.abstract` (`not_addInductiveStepWF`'s docstring).  The
+rejection does not: the guard runs *before* `run`, it is a pure recursion, and so this is a kernel
+proof at every `env`, `lp`, `ap`, `fuel`. -/
+theorem addInductive_rejects_fooBad (env : Environment) (lp : List Name) (ap : Bool)
+    (fuel : FuelConfig) (env' : Environment) :
+    Environment.addInductive env lp 1 [LooseBVarWitness.fooBad] false ap fuel ≠ .ok env' :=
+  rejectsNonClosed env lp 1 _ ap fuel LooseBVarWitness.fooBad_not_closed env'
+
+/-- The same for `badInductDecl`'s block read through `DeclClosed`: `not_declClosed_badInductDecl`
+makes the premise of `rejectsNonClosedFull` available. -/
+theorem addInductive_rejects_badInductDecl (env : Environment) (lp : List Name) (ap : Bool)
+    (fuel : FuelConfig) (env' : Environment) :
+    Environment.addInductive env lp 1 [LooseBVarWitness.fooBad] false ap fuel ≠ .ok env' :=
+  rejectsNonClosedFull env lp 1 _ ap fuel
+    (fun h => LooseBVarWitness.fooBad_not_closed h.2) env'
+
+/-- And `addDecl.WF_honest` at its published statement, with no closedness anywhere in sight and
+no hypothesis but the open `AddInductiveStepWFFull`. -/
+theorem addDecl_WF_honest_of_full (H : AddInductiveStepWFFull)
+    {env : Environment} {ves : VEnvs} (wf : ves.WF env) (decl : Declaration)
+    (fuel : FuelConfig := {}) :
+    (Lean4Lean.addDecl env decl (check := true) (fuel := fuel)).WF (AddDeclPost env decl ves) :=
+  addDecl.WF_honest (addInductiveStepWF_of_full H) wf decl fuel
+
 /-! ## 5. The instruments
 
 Three `#eval`s.  All three `throwError` when the fact they report stops holding.  None is a
 kernel proof. -/
 
-/- **Acceptance, at the shape `kernel_sound` quantifies over.**  `hok` of
-`not_closedFromAccept` and `not_closedFromAccept_prelude`: `Lean4Lean.addDecl` accepts the
-loose-bvar block from the empty environment *and* after `stdPrelude`, and stores the captured
-constructor type in both cases. -/
+/- **Rejection, at the shape `kernel_sound` quantifies over.**
+
+**Historical record.**  Until 2026-09-01 this instrument asserted *acceptance*: it supplied the
+`hok` of `not_closedFromAccept` and `not_closedFromAccept_prelude` by executing
+`Lean4Lean.addDecl` on the loose-bvar block, bare and after `stdPrelude`, and checking that the
+**captured** constructor type (`fooGoodCtor.type`, not `fooBadCtor.type`) was what got stored.
+That acceptance was the whole content of §2's "the premise cannot be discharged from `hok`".
+
+Since the two `checkNoLooseBVars` calls were added to `Environment.addInductive`'s pre-`run` guard
+loop, the block is rejected — and rejected *at the guard*, before `run`, so nothing is captured
+and nothing is stored.  The instrument is flipped accordingly, and it now checks three things:
+
+* both lists are rejected, and with the guard's own loose-bound-variable message rather than by
+  some later accident;
+* `Foo.mk` is absent from the resulting environment in neither case (there is no resulting
+  environment);
+* the prelude alone still goes through, so the rejection is genuinely about `badInductDecl` and
+  not a prelude regression.
+
+`not_closedFromAccept` and `not_closedFromAccept_prelude` are **not** withdrawn.  They are true
+implications; what has changed is that their `hok` is now unsatisfiable, which is not the same as
+`ClosedFromAccept` being proved — see `RejectsNonClosedFull` for what *is* proved, and note that
+it is a statement about the inductive branch only. -/
 #eval show Lean.CoreM Unit from do
+  match Bridge.foldAddDecl {} stdPrelude with
+  | .error e => throwError "reject: the PRELUDE ALONE is rejected ({e.toMessageData {}}) -- \
+      this instrument says nothing about badInductDecl until that is fixed"
+  | .ok _ => pure ()
   let check (label : String) (ds : List Declaration) : Lean.CoreM Unit := do
     match Bridge.foldAddDecl {} ds with
-    | .error e => throwError "accept/{label}: REJECTED ({e.toMessageData {}}) -- \
-        not_closedFromAccept has no witness at this list and must be withdrawn"
     | .ok env =>
-      unless (env.find? LooseBVarWitness.fooGoodCtor.name).map (·.type)
-          == some LooseBVarWitness.fooGoodCtor.type do
-        throwError "accept/{label}: the stored constructor type is not the captured one"
+      throwError "reject/{label}: addDecl ACCEPTS the loose-bvar block again (stored ctor type \
+        {repr ((env.find? LooseBVarWitness.fooGoodCtor.name).map (·.type))}) -- the guard is gone, \
+        `rejectsNonClosed` is FALSE, and addInductiveStepWF_of_closed no longer fires"
+    | .error e =>
+      let msg := (← (e.toMessageData {}).toString)
+      unless (msg.splitOn "loose bound variable").length ≥ 2 do
+        throwError "reject/{label}: rejected, but not for loose bound variables ({msg}) -- \
+          the guard is not what is doing the work"
   check "bare" [badInductDecl]
   check "prelude" (stdPrelude ++ [badInductDecl])
-  logInfo "accept: addDecl accepts the loose-bvar block bare AND after stdPrelude, storing the \
-    captured constructor type -- so `hok` cannot yield `DeclClosed` ✓"
+  logInfo "reject: stdPrelude alone is accepted, while addDecl REJECTS the loose-bvar block both \
+    bare and after stdPrelude, with a loose-bound-variable error -- so `∀ d ∈ ds, DeclClosed d` is \
+    recovered from `hok` for the inductive branch and §2's lift is dead ✓"
 
-/- **`BlockClosed` is not the whole condition.**  `TrIndDeclN.trType` forces the *member's own*
-type closed too.  This checks that nothing in the pre-`run` guard loop rejects a member whose
-own type carries a loose bvar, i.e. that `BlockClosedFull`'s first conjunct is as unsupplied as
-its second. -/
+/- **`BlockClosed` is not the whole condition — and the member half is now supplied too.**
+
+`TrIndDeclN.trType` forces the *member's own* type closed, not just each constructor's.  Until
+2026-09-01 nothing in the pre-`run` guard loop checked it, and this instrument recorded that:
+`checkNoMVarNoFVar` accepts an open member type, and the whole of `addInductive` was observed to
+*store the captured member type* at `Bar : ∀ (α : Type) (x : #1), Type`, `np = 1` — the exact
+analogue of `fooBad`, which is why the module docstring's claim that the member half is
+"not reachable" was only ever a one-witness bound.
+
+The guard loop now calls `checkNoLooseBVars` on the member's own type as well, so this checks:
+
+* `checkNoMVarNoFVar` still accepts the open member type — i.e. the *old* guards supply nothing
+  about loose bvars, so the new call is not redundant;
+* `checkNoNestedAux` still accepts it;
+* `checkNoLooseBVars` **rejects** it, and so does the whole of `addInductive`, with the guard's own
+  message.
+
+That is what makes `RejectsNonClosedFull` — and hence `addInductiveStepWF_of_full` — available,
+which matters because `AddInductiveStepWFClosed`'s `BlockClosed`-only premise does *not* give
+`TrIndDeclN.trType` what it needs. -/
 #eval show Lean.CoreM Unit from do
   let kenv := Kernel.Environment.empty `main
   let openMember : InductiveType :=
@@ -414,16 +589,22 @@ its second. -/
     throwError "member: the probe member's own type is closed after all"
   match kenv.checkNoMVarNoFVar openMember.name openMember.type with
   | .error _ =>
-    throwError "member: the pre-run guard rejects an open member type -- \
-      BlockClosedFull's first conjunct IS supplied and the docstring's correction is wrong"
+    throwError "member: checkNoMVarNoFVar rejects an open member type -- then the member-type \
+      checkNoLooseBVars call is redundant and §6's account of which guard supplies what is wrong"
   | .ok _ =>
     match checkNoNestedAux openMember.name openMember.type with
     | .error (_ : Kernel.Exception) =>
       throwError "member: the reserved-prefix guard rejects it -- unexpected"
     | .ok _ => pure ()
-  -- …and the whole of `addInductive` accepts one, with the loose bvar captured by the
-  -- parameter binder exactly as in `fooBad`: `Bar : ∀ (α : Type) (x : #1), Type` at `np = 1`
-  -- is stored as `Bar : ∀ (α : Type) (x : α), Type`.
+  match checkNoLooseBVars openMember.name openMember.type with
+  | .ok _ =>
+    throwError "member: checkNoLooseBVars ACCEPTS an open member type -- \
+      guardLoop_blockNoFVar's BlockClosedMembers conjunct is vacuous and RejectsNonClosedFull \
+      is false"
+  | .error _ => pure ()
+  -- the full block, whose member type carried the loose bvar that used to be captured by the
+  -- parameter binder: `Bar : ∀ (α : Type) (x : #1), Type` at `np = 1` was stored as
+  -- `Bar : ∀ (α : Type) (x : α), Type`.
   let barOpen : InductiveType :=
     { name := `Lean4Lean.ClosednessProp.Bar
       type := .forallE `α (.sort (.succ .zero))
@@ -438,17 +619,19 @@ its second. -/
   unless barOpen.type.looseBVarRange == 1 do
     throwError "member: the probe block's member type is closed after all"
   match Environment.addInductive kenv [] 1 [barOpen] false false with
-  | .error e =>
-    logInfo m!"member: the pre-run guard loop accepts a member whose OWN type has a loose \
-      bvar, so BlockClosedFull's first conjunct is unsupplied before `run`; the full \
-      `addInductive` nevertheless rejects this probe ({e.toMessageData {}}), so the member-type \
-      half is NOT known to be reachable ⚠"
   | .ok env' =>
-    unless (env'.find? barOpen.name).map (·.type) == some barClosedTy do
-      throwError "member: accepted, but the stored member type is not the captured one"
-    logInfo "member: `addInductive` ACCEPTS a block whose MEMBER's own type carries a loose \
-      bvar and stores the captured type -- so BlockClosedFull's first conjunct is load-bearing \
-      for truth, exactly as BlockClosed is ✓"
+    throwError "member: addInductive ACCEPTS a block whose MEMBER's own type carries a loose \
+      bvar (stored member type {repr ((env'.find? barOpen.name).map (·.type))}, captured form is \
+      {repr barClosedTy}) -- the member-type guard is gone and RejectsNonClosedFull is FALSE"
+  | .error e =>
+    let msg := (← (e.toMessageData {}).toString)
+    unless (msg.splitOn "loose bound variable").length ≥ 2 do
+      throwError "member: rejected, but not for loose bound variables ({msg}) -- \
+        the member-type guard is not what is doing the work"
+  logInfo "member: checkNoMVarNoFVar and checkNoNestedAux accept an open member type while \
+    checkNoLooseBVars rejects it, and addInductive rejects the whole Bar block with a \
+    loose-bound-variable error -- so BlockClosedFull's FIRST conjunct is supplied by the guard \
+    loop too, and RejectsNonClosedFull is not vacuous ✓"
 
 /- **What the guard of §4 would cost, empirically.**  Every `.inductInfo` and `.ctorInfo` in
 the running environment is scanned for a loose bvar in its stored type.  A nonzero count would
@@ -489,6 +672,13 @@ rejects nothing an elaborator emits.  It is *not* evidence about the Kernel Aren
 | `kernel_sound_of` / `kernel_sound_of_equiconsistent` | (a) absorbed as carried; `pre := stdPrelude` is discharged by `stdPrelude_closed` |
 | `kernel_sound` | **reaches the statement** — `∀ d ∈ ds, DeclClosed d` survives, and `not_closedFromAccept` refutes discharging it from `hok` |
 
+**All of which is now counterfactual.**  The table is the price of the premise route, and it is why
+the guard route was taken instead.  Since 2026-09-01 the premise is never introduced:
+`rejectsNonClosed` discharges it at the inductive step, so `Bridge.AddDeclWF` is used unchanged and
+no link below it ever sees a closedness hypothesis.  `not_closedFromAccept` is kept as a true
+implication with an unsatisfiable hypothesis — for the inductive branch, `ClosedFromAccept`'s
+content is now supplied by `rejectsNonClosedFull`.
+
 ### The frozen edit, stated and not made
 
 `Verify/Soundness.lean` cannot name `DeclClosed` (this module imports it, so the dependency runs
@@ -514,21 +704,39 @@ and `kernel_complete`'s conclusion would gain the matching conjunct, or tightnes
 is a narrowing of the frozen statement, which is exactly what `CLAUDE.md` and the brief forbid,
 so **it is written here and nowhere else**, and it is the human's call.
 
-### Against which: the guard
+### Against which: the guard, and what it actually cost
 
 `addInductiveStepWF_of_reject` needs **no** statement change at all — not in `addDecl.WF`, not in
-`AddDeclPost`, not in `Bridge.AddDeclWF`, not in the fold, not in `kernel_sound`.  Measured price:
+`AddDeclPost`, not in `Bridge.AddDeclWF`, not in the fold, not in `kernel_sound`.  Price as
+predicted, and as paid on 2026-09-01:
 
-* one pre-`run` check in `Environment.addInductive`'s existing guard loop, and a lemma of the
-  shape `guardLoop_blockNoFVar` to expose it.  No new axiom: `Lean.Expr.hasLooseBVar_eq` is
-  already frozen and already used, and a pure recursive check needs nothing at all;
+* **two** pre-`run` checks in `Environment.addInductive`'s existing guard loop (one per member
+  type, one per constructor type), and the exposing lemmas §6/§6.1 of
+  `Verify/Inductive/RunIdentity.lean`.  **No axiom at all**, as predicted and now measured:
+  `looseBVarRange'_le_of_noLooseBVars`, `checkNoLooseBVars.WF`, `guardLoop_blockClosed`,
+  `addInductive_WF_blockClosed`, `rejectsNonClosed`, `rejectsNonClosedFull`,
+  `addInductiveStepWF_of_closed` and `addInductiveStepWF_of_full` are all
+  `[propext, Classical.choice, Quot.sound]`.  The prediction hedged on `Lean.Expr.hasLooseBVar_eq`
+  "already being frozen and already used"; that hedge was unnecessary — `noLooseBVars` is a pure
+  structural recursion and reads no cached header field, so nothing frozen is touched.  Had it read
+  `Expr.looseBVarRange` instead, the `BVarBounded` side condition of `Expr.looseBVarRange_eq`
+  (which rests on the frozen `Lean.Expr.mkData_eq`) would have entered `RejectsNonClosed`'s
+  *hypothesis*, invisible to every instrument here;
 * one `divergences.md` entry — a **restrictive** divergence, since C++ accepts and silently
   reinterprets (`docs/vacuity-ledger.md` row 108c), which is also the `bugs-found.md` candidate
-  that row already left open;
+  that row already left open.  **Not yet written** — the orchestrator's call, not this file's;
 * one Arena re-run.  Nothing in the suite is at risk on today's evidence: all 43 inductive blocks
   in the arena's ten `.ndjson` tests have closed member and constructor types, and §5's third
   `#eval` finds 0 of 10902 inductive/constructor types in the running environment with a loose
   bvar.
+
+### What the guard did *not* buy
+
+`AddInductiveStepWF` is not proved.  `addInductiveStepWF_of_closed` /
+`addInductiveStepWF_of_full` have a pristine axiom set precisely because everything hard is now in
+their hypotheses, and `AddInductiveStepWFClosed` / `AddInductiveStepWFFull` have no known
+inhabitant.  No instrument in this repo detects an uninhabited hypothesis — they all inspect
+conclusions — so this is recorded in prose on purpose.
 -/
 
 end Lean4Lean

@@ -917,6 +917,45 @@ def mkAuxRecNameMap (env' : Environment) (types : List InductiveType) :
     oldRecNames := oldRecNames.push oldRecName
   return (oldRecNames.toList, recMap)
 
+/--
+`noLooseBVars d e` is `true` when every `Expr.bvar` in `e` is bound within `e` itself, given
+that `e` sits under `d` enclosing binders.
+
+A pure structural recursion, deliberately *not* routed through `Expr.looseBVarRange`: that is a
+cached 20-bit header field, so reading it would put `Lean.Expr.mkData_eq`'s side condition in the
+way of every consequence. This function needs no axiom at all.
+-/
+def noLooseBVars (d : Nat) : Expr → Bool
+  | .bvar i => i < d
+  | .app f a => noLooseBVars d f && noLooseBVars d a
+  | .lam _ t b _ => noLooseBVars d t && noLooseBVars (d + 1) b
+  | .forallE _ t b _ => noLooseBVars d t && noLooseBVars (d + 1) b
+  | .letE _ t v b _ => noLooseBVars d t && noLooseBVars d v && noLooseBVars (d + 1) b
+  | .mdata _ e => noLooseBVars d e
+  | .proj _ _ e => noLooseBVars d e
+  | .fvar .. | .mvar .. | .sort .. | .const .. | .lit .. => true
+
+/--
+Reject a declaration whose type carries a **loose** bound variable.
+
+**This is a divergence from the C++ kernel, in the restrictive direction — see
+`divergences.md`.** C++ accepts such a declaration and *silently reinterprets it*:
+`elim_nested_inductive_fn` round-trips every constructor type through `get_params` and
+`lctx.mk_pi`, and `abstract` rewrites only `fvar`/`mvar` nodes, so a loose bvar whose index is
+small enough gets **captured** by a parameter binder and the stored constructor type is not the
+one written. `Lean4Lean/Verify/Inductive/RunIdentity.lean` exhibits the witness and proves that
+the specification — that the resulting environment realises a translation of the *submitted*
+declaration — is **false** without this check.
+
+Rejecting is the cheaper of the two repairs: the alternative is a closedness *premise*, which
+`Lean4Lean/Verify/ClosednessPropagation.lean` measures as reaching `kernel_sound`'s frozen
+statement and therefore narrowing it. A top-level `Expr` with a loose bvar is not a term of the
+type theory and no elaborator emits one, so nothing legitimate is refused.
+-/
+def checkNoLooseBVars (n : Name) (e : Expr) : Except Exception Unit := do
+  unless noLooseBVars 0 e do
+    throw <| .other s!"invalid declaration '{n}', it contains a loose bound variable"
+
 def checkNoNestedAux (n : Name) (e : Expr) : Except Exception Unit := do
   if anySubterm (fun
       | .const c _ => (`_nested).isPrefixOf c
@@ -935,9 +974,11 @@ def Environment.addInductive (env : Environment) (lparams : List Name) (nparams 
     -- member whose own type mentions a `_nested` constant, where C++ rejects it -- verified by
     -- a self-checking `#eval` in `Verify/Inductive/NestedOccData.lean`.
     checkNoNestedAux indType.name indType.type
+    checkNoLooseBVars indType.name indType.type
     for ctor in indType.ctors do
       env.checkNoMVarNoFVar ctor.name ctor.type
       checkNoNestedAux ctor.name ctor.type
+      checkNoLooseBVars ctor.name ctor.type
   let res ← ElimNestedInductive.run fuel.inductiveFuel nparams types env
     |>.run' { lvls := lparams.map .param, newTypes := types.toArray }
   -- `nestedAux`'s names are `mkUniqueName`'s output, hence pairwise distinct, so the list's
