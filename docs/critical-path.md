@@ -145,6 +145,18 @@ three for reasons that must not be misread as slack:
    only *given* `PiInv` — so that is two fronts, not one hole seen twice.
 3. Nothing on the path is unowned: H1 and H2 have named workstreams, and the nine holes are all
    either checker-side or in the injectivity/weakening region.
+4. **The injectivity *localisation* programme is retired as stated, 2026-09-01.**  Every theorem
+   in `InjMidLocal.lean`, `InjChainLower.lean` and `InjPiInhab.lean` assumes `Ordered env` and
+   nothing more, and at that strength the Π-side target is **false**: `roguePiEnv`
+   (`Theory/Typing/InjPiRogue.lean`) is a provably `Ordered` environment carrying **two** δ-rules
+   for one constant, at which `ConvPiFromEntry` forces a sort/Π conversion.  `Ordered.defeq` asks
+   only `df.WF env`, which both rules satisfy.  So a proof in this corner must consume
+   `VEnv.WF` — specifically the clause that makes two δ-rules for one constant impossible
+   (`RuleShape.delta` pins the lhs to `.const ci.name _` and `addConst` refuses a duplicate
+   name).  Sequencing consequence: **do not commission further `Ordered`-only localisations of
+   `ConvStep2`**; the next statement in this corner should carry `VEnv.WF` or be aimed at the
+   reference's judgment.  Ledger rows 69–69b, and row 52's `[analysis]` claim that no rogue
+   refutation was available here is superseded on both Π-side entries.
 
 ## Honest statement of where this leaves the main theorem
 
