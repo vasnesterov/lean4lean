@@ -1346,6 +1346,168 @@ nothing), and that is all.
 
 ---
 
+## 4H. `Ordered` is not enough, `VEnv.WF` is, and the corner reduces to ONE fact  *(eighth session, 2026-09-01)*
+
+**Written by the orchestrator from the stream's reports, not by the stream.** The agent that did
+this work was killed by an API error while appending to this file; every claim below was
+machine-checked in `Lean4Lean/Theory/Typing/InjPiRogue.lean` (committed at `1109bab`) and the
+headline theorems were independently re-verified with `#print axioms`. Where a claim is analysis
+rather than a theorem it says so. Prior sections are untouched.
+
+### 4H.1 `ConvPiFromEntry` is **FALSE** over `Ordered env` — the localisation programme is retired
+
+Every theorem in `InjMidLocal.lean`, `InjChainLower.lean` and `InjPiInhab.lean` assumes
+`Ordered env` and nothing stronger. At that strength the Π-side target is refuted.
+
+`roguePiEnv` — one constant `C : Sort 1` with **two** δ-rules for it, `C ≡ ∀(_:Prop),Prop` and
+`C ≡ ∀(_:Prop),∀(_:Prop),Prop`, both at `df.type = Sort 1` — is `Ordered`
+(`ordered_roguePiEnv`), because `Ordered.defeq` asks only `df.WF env` and both rules satisfy it.
+At it, `convPiFromEntry_forces` derives a sort/Π conversion.
+
+**So any proof in this corner must consume `VEnv.WF`.** And it does not extend to `VEnv.WF`:
+`not_wf_roguePiEnv`, via `DeltaUnique.WF.defEqHeadsUnique` (`DeltaUnique.lean:489`), which is the
+"at most one δ-rule per constant" clause — **already in the tree**; it was flagged `[analysis]`
+for a round before anyone grepped.
+
+### 4H.2 The `extra` case closes at `VEnv.WF` — and was never the residual
+
+`WF.piPi_extra_closed` and `WF.sortSort_extra_closed` discharge the `extra` case on the Π and sort
+sides. But `WF.noPiLhs`, proved for that purpose, **duplicates `DeclRules.WF.instL_lhs_ne_forallE`
+(`DeclRules.lean:239`) character for character** (`instL_lhs_ne_sort` at `:234` is its sort
+analogue). `noPiLhs_of_declRules` records the identification. **Of the whole `VEnv.WF` push only
+`not_wf_roguePiEnv` is original**, and the case it buys was never where the difficulty was.
+
+*Standing step, and it is the orchestrator's fault three times over:* **grep `DeltaUnique.lean`,
+`DeclRules.lean` and `PatternRules.lean` before proving any structural clause about `VEnv.WF`.**
+
+### 4H.3 Two claims from this session's own round 2, retracted
+
+- **`ConvStep2`'s midpoint is NOT the Π/Π `trans` midpoint.** When the two link levels are the
+  same *expression* the composition is `IsDefEqStrong.trans` and costs nothing
+  (`convStep2At_of_sort_eq`), so `ConvStep2`'s entire content is the **level mismatch**, while a
+  `trans` node carries one type index on both halves and needs **Π-shape descent**. Closing either
+  does not close the other.
+- **`proofIrrel` is NOT closed by shape.** That argument was level arithmetic applied to something
+  that is not a level equation: `IsDefEqStrong.proofIrrel` carries the type index `p`, so at a Π/Π
+  link indexed `.sort u` it fires exactly when a sort/sort inversion is derivable.
+
+### 4H.4 The Π half **consumes** the sort half
+
+`sortNotPropStrong_of_convSortInv` derives the `proofIrrel` cost from `ConvSortInv`, and
+`BaseUniqChain.sortUniq_iff_convSortInv` makes `ConvSortInv` the **same hypothesis** as `SortUniq`
+— the corner's own sort residual at `.bvar 0` (`sortChainAt_bvar_iff_convSortInv`). **So the two
+halves of `ConvStep2` are not independent and must not be planned as two fronts.** The earlier
+"strictly weaker than `SortUniq`" bound was unjustified; no lower bound is established either.
+
+### 4H.5 Localisation collapsed five times, then worked once
+
+`piMid_iff_piLinkInvCod` and `sortMid_iff_sortLinkInv` are each an `iff` **with no hypotheses**,
+killing the Π- and sort-side localisations for the same reason: `IsDefEqStrong.trans` is a rule one
+way and `ConvC.one` composes the other. With §4G's and row 51's earlier collapses that is five.
+
+**The sixth works.** `sortLinkInv_of_wf` runs the induction the Π side could not, and the reason is
+structural: **the sort side's conclusion `a ≈ b` carries no context and no type index**, so
+`defeqDF` is free, `symm` is `Eq.symm`, `trans`-through-a-sort is `Eq.trans` — no `ConvC.defeqDFC`,
+no domain half, nothing to transport. Eleven of thirteen constructors close inside the proof
+(`extra` by `instL_lhs_ne_sort`), leaving exactly two:
+
+| open case | statement |
+| --- | --- |
+| `trans` at a non-sort midpoint | `SortMidNonSort` |
+| `proofIrrel` | `SortNotProof` |
+
+Both are **descent** statements about a term that is not a sort — *not* statements about rules — so
+every rule-level route into a sort/sort link is shut. It is a genuine reduction, not another
+collapse: target → residual is free (`SortLinkInvU.sortMidNonSort`) and **the converse has no
+route**, because a single link offers no non-sort midpoint. Measure against the index-free
+`SortLinkInvU`: `SortMidNonSort` must quantify over an arbitrary index, since its conclusion may
+not mention one.
+
+**`SortNotProof` is not new.** It is `Injectivity.not_isProof_of_defeqU_sort` at `e = .sort a`,
+which that file proves from `WF.sortUniq'` — i.e. from the statement being reduced. Cited
+deliberately and **not imported**: the bound runs through `sorryAx`.
+
+### 4H.6 Priced against the reference: **one prerequisite, three consumers**
+
+All from `~/lean-type-theory/unique.tex`, quoted with line numbers so the reading is checkable.
+`ConvSortInv` *is* clause (1) of definitional inversion (`:31-35`), from which `thm:utype` (`:40`)
+derives unique typing. Inversion at `n+1` (`:259`) goes only via `thm:ckappa` (`:242`), whose
+transitivity is *"the Church-Rosser property implies it is also transitive"* (`:240`); `:8` says
+the circularity outright and `:64` fixes the direction. Clauses (1), (2) and (3) — sort inversion
+(`:263`), Π inversion (`:267`), sort/Π disjointness (`:274`) — are discharged by the **same two
+moves**. So `SortMidNonSort`, `PiMidNonPi` and `RigidSortPiDisj` are **three instances of one fact
+— a κ-normal rigid head has no reduct of another shape — plus Church-Rosser.** The reference also
+says which residual needs what: the sort-midpoint case needs κ-normality *plus* CR; the
+`proofIrrel` case needs the *stratification*.
+
+**Divergence from the reference, machine-checked.** Its route to the `proofIrrel` residuals runs
+through unique typing at `n`, whose application case needs closure of `⊢ₙ`-conversion under
+instantiation (`unique.tex:51`) — and `Theory/Typing/SubstCRefute.lean` **refutes exactly that**
+(`VEnv.SubstC`, false at `n = 1` over `∅`). **The stratified route to `SortNotProof` is not
+available here as written.** CR-side residuals unaffected. Per `CLAUDE.md` this stays in the repo.
+
+### 4H.7 The confluence request, stated tightly
+
+`PiMidNonPi`: Π-shape descent at a **non-Π** midpoint in `ConvC` form — no reduction relation, no
+subject, no typing judgement, no level arithmetic. Bounded above by the statement it is asked to
+supply (`PiLinkInvCod.piMidNonPi`), side condition satisfiable (`piMidNonPi_side_fires`). Its
+missing prerequisite was supplied: there is **no** `IsDefEqStrong.defeqDFC` in the tree, but
+`ConvC.defeqDF_l` / `ConvC.defeqDFC` do the job one link at a time over `Ordered` alone.
+`SortMidNonSort` is the sort-side twin. **Not claimed, and nothing depends on it:** that these plus
+`VEnv.WF` close `PiLinkInvCod`.
+
+Meanwhile a concurrent stream reduced Church-Rosser itself to **one named property of the rule
+table** — `PatMajorCanonical → KDiamond`, `sorryAx`- and `Choice`-free, mentioning no reduction
+relation at all (`design-inductive.md` §7.6's M3). See `docs/critical-path.md` §"The convergence"
+and `docs/handoff-confluence.md`.
+
+### 4H.8 Tried and failed, with the failing step
+
+1. **The `[analysis]` flag on "a WF env cannot carry two δ-rules for one constant"** — it was
+   already a theorem. Cost: one round. *No `[analysis]` flag may be load-bearing.*
+2. **`WF.noPiLhs`** — re-proved `DeclRules.WF.instL_lhs_ne_forallE`. See 4H.2's standing step.
+3. **The premise-count argument** that "no rogue-environment refutation is available by this
+   idiom" (`InjChainLower.lean`, `[analysis]`): sound for **sort** chains, where `.sort l : .sort
+   (.succ l)` forces the mismatch; **invalid for Π chains**, where all nine `extra` premises are
+   satisfiable with no anomaly.
+4. **Re-running the `Ordered` reductions at `VEnv.WF`** — free via `WF.ordered`, therefore buys
+   nothing. Looks like progress and produces a diff.
+5. **Whether the WF rule-set clauses constrain a *midpoint*** — no. Midpoints are terms; the costly
+   heads are reached by **β alone**, exhibited at `∅` where all three clauses are vacuous
+   (`midpoint_app_at_empty`).
+6. **Refuting `ConvSortInv`/`SortNotPropStrong` at a WF environment** — no witness. `sortDF` forces
+   the levels equivalent, `extra` is closed, two δ-rules for one constant are refused, two
+   constants give no link. **No claim of unrefutability**; the rule-level routes are shut and a
+   witness would be a non-confluence of Lean's own rule set.
+7. **`PiLinkInvDom`** — row 53's dead conjunct as an *output* (every consumer takes `.2`), but
+   load-bearing as an *ingredient* to the §17 induction, which is **not written**. Strengthening
+   the conclusion to both contexts at once does not remove the need.
+
+### 4H.9 Traps, and a stale figure in this file
+
+- **`Above`**: positive bounds must factor through `Above.pure`, be wrapper-stripped, or be `∀ κ`
+  — never choose a `κ`.
+- **Import `ConeJoin` in any private measurement file**: that import *is* the duplicate-name
+  check. A real collision (`VEnv.SortNotProp`, already in `PropConv.lean:431` with a *different*
+  statement) compiled fine standalone and surfaced only under that import. While it stood,
+  `ConeJoin` was un-importable and another stream's measurement **silently** returned 19/68 where
+  the truth is 193/296. Renamed `SortNotPropStrong`.
+- **Never feed `IsDefEqU.sort_forallE_inv` into anything meant to be clean** — it carries `sorryAx`
+  and its cone contains both injectivity holes.
+- **§8 item 4 of this file is stale**: it prices `weakN_iff` at "169 users (census)". Measured
+  2026-09-01 at **296**, of which the ten typing gates free **46**. Every user count in this file
+  written before 2026-09-01 is an undercount — both `sorry-census.lean` and `weakn-gate-split.lean`
+  skipped internal names while *building* the reachability graph. `forallE_inv_stratified` is
+  **651**, `rigidShapeUniqNS` **410**. See `docs/handoff-weakn.md` §5.3.
+
+### 4H.10 What to pick up first
+
+**`SortMidNonSort`, pursued as an instance of the one fact of 4H.6 rather than on its own** — a
+κ-normal rigid head has no reduct of another shape. Doing it once serves `PiMidNonPi` and
+`RigidSortPiDisj` too, and 4H.6 says which half needs CR and which needs the stratification. Do
+**not** start from `SortNotProof`: its only route in the tree runs through the statement being
+reduced.
+
 ## 5. The refutation attempt, and why it does not reach **[analysis]**
 
 The brief asks for a machine-checked negative if one exists. The one crack in the hypothesis
