@@ -597,7 +597,12 @@ namespace VEnv
 **This is a consistency check, not evidence.**  `KStep` is empty at `refParams`
 (`refParams_no_kstep`), so `KDiamond` is vacuously true there too, and nothing about the
 non-vacuous case is tested.  The instance that would test it does not exist: no `Params`
-instance in this tree registers an `.app` pattern, because `paramsOfWF`'s `PatWF` is open in
+instance in this tree registers an `.app` pattern.  **The reason given here was wrong, corrected
+2026-09-01: it said "because" `paramsOfWF`'s `PatWF` is open, which treats `paramsOfWF` as the only
+route to a `Params` — but `ParamsWitness.lean`, in this same tree, builds one by hand.  An
+`.app`-pattern instance was available all along without touching `PatWF`, and
+`Theory/Typing/PatAppParams.lean` now exhibits one (`appParams`).  The observation about `PatWF` is
+still true of `paramsOfWF`; it was never the reason.**  For the record, `paramsOfWF`'s `PatWF` is open in
 exactly its ι and quotient cases (`docs/handoff-params.md` §1.1). -/
 theorem refParams_kSmall : @KSmall refParams := fun h _ _ _ _ _ => absurd h refNoPat
 

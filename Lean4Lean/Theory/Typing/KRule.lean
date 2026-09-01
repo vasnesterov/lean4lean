@@ -119,7 +119,11 @@ relation -- was what was wrong.
 
 The hypotheses are the honest cost: somebody must exhibit a `c` making `.app f c` a redex and
 `.bvar i` definitionally equal to it.  For an inductive predicate that is proof irrelevance
-plus `docs/design-inductive.md` §7.6's M3; no `Params` instance in the tree supplies it yet. -/
+plus `docs/design-inductive.md` §7.6's M3.  **Stale as of 2026-09-01: an instance now supplies it.**
+`Theory/Typing/PatAppParams.lean`'s `appParams` is the first `Params` instance registering `.app`
+patterns, and `appParams_stuck_fires` instantiates this statement fully — at `Γ = [P]`,
+`C (.bvar 0)` is weak-head normal *and* a `K⁺` redex, proof irrelevance supplying the major-premise
+conversion. -/
 theorem KStep.stuck_fires {Γ : List VExpr} {p₁ p₂ : Pattern}
     {r : (Pattern.app p₁ p₂).RHS × (Pattern.app p₁ p₂).Check} {f c A₀ B₀ : VExpr} {i : Nat}
     {m1 m2}

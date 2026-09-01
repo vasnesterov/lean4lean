@@ -139,6 +139,8 @@ import Lean4Lean.Theory.SetModel.InstDescendAudit  -- 2026-09-01: sort_inst's re
 import Lean4Lean.Theory.Typing.DescendRestate  -- 2026-09-01: descend's restatement bounded both ways; the ParRedKn route closed for it
 import Lean4Lean.Theory.Typing.ParRedMissing  -- 2026-09-01: what ParRed lacks, as CONSTRUCTORS of an extension; all three descend witnesses repaired, and the extension is cyclic
 import Lean4Lean.Theory.Typing.ParRedCycle  -- 2026-09-01: the cycle is essential, no grading helps, and the confluence layer reduces to M3 (PatMajorCanonical)
+import Lean4Lean.Theory.Typing.PatAppParams  -- 2026-09-01: first Params instance registering .app patterns (appParams); PatMajorCanonical true and non-vacuous there; KStep.stuck_fires closed
+import Lean4Lean.Verify.Inductive.TrIndDeclNCtorOwn  -- 2026-09-01: TrIndDeclN.ctorName_own -- producer side for all three paths, six-consumer audit, RestoreData.ctor's prefix half
 
 /-!
 # Acceptance test: the `PatternRules` cone and the `Verify/` cone join

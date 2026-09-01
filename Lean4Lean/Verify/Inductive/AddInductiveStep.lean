@@ -416,7 +416,7 @@ theorem addInductiveStepWF_of_run (H : AddInductiveRunRealises) : AddInductiveSt
   obtain ⟨ves', hves⟩ := h'
   refine ⟨ves', 0, fun safety => ?_⟩
   obtain ⟨D, htr, hwf, hc, hadd⟩ := hves safety
-  exact ⟨D, [], D.idRestore, htr.toN hc, hadd.addIndTypes, hwf, hadd.toR hc⟩
+  exact ⟨D, [], D.idRestore, htr.toN hc hadd.addIndTypes, hadd.addIndTypes, hwf, hadd.toR hc⟩
 
 /-- **The chain, end to end.**  The residue implies `addDecl.WF_honest` — the honest
 restatement of `addDecl.WF` — with nothing else added.

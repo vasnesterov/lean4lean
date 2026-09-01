@@ -1122,6 +1122,16 @@ which `Environment.addInductive`'s nested path establishes by construction on th
 `{ ctor with type := … }`, and `run_prefix` is the proof).  `TrIndDeclN` is a definition the
 `addDecl.WF` chain consumes, so this is **reported, not done**.  Note it is *not* a hypothesis
 about the input block and *not* a check any kernel would perform; it is a fact about the
-translation, and the machinery to prove it — `run_prefix` — is already in place. -/
+translation, and the machinery to prove it — `run_prefix` — is already in place.
+
+**Done, 2026-09-01, on a human decision.**  The clause is now a field of `TrIndDeclN` exactly as
+displayed above, and `RestoreData.ctor`'s prefix half is
+`ElimNestedInductive.Result.ctor_prefix_of_run` (`Verify/Inductive/TrIndDeclNCtorOwn.lean`).  Two
+things that file records and this section did not anticipate: the clause must be left **unstaged**,
+which costs `TrIndDecl.toN` one new premise (`∃ et, env.addIndTypes D = some et`, available at its
+only call site); and adding a conjunct to a *hypothesis* relation needs a per-consumer
+satisfiability audit, since no instrument here would notice a consumer going vacuous — §2 of that
+file is the audit, and one consumer (`NestedWit.tBlock_not_refuted_at_trec1`) turns out to have had
+no witness for its `TrIndDeclN` hypothesis before the change either. -/
 
 end Lean4Lean

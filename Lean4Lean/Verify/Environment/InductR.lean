@@ -256,18 +256,23 @@ def TrIndCtorR (env : VEnv) (Us : List Name) (D : VInductDecl') (R : VIndRestore
     (c : Constructor) (C : VIndCtor) : Prop :=
   c.name = R.ctorName C.name ∧ TrExprS env Us [] c.type (C.typeR D R j)
 
-/-- **The nested translation relation.**  `TrIndDecl` with three additions, all of them
+/-- **The nested translation relation.**  `TrIndDecl` with four additions, all of them
 *name* discipline — the semantic content stays in `VInductDecl'.WF` exactly as before:
 
 * `length`/`companions` say `D` is the user's block followed by `numNested` auxiliary
   members, and that `K` is exactly that auxiliary tail;
+* `ctorName_own` says the two sides' constructor names agree on the user's members;
 * `recName_own` says a member the user wrote keeps its recursor name;
 * `recName_aux` says an auxiliary member's recursor is renamed to `mkAuxRecNameMap`'s name.
 
-These are the three facts `Environment.addInductive`'s nested path establishes by
-construction, and together with `AddInductStagesR.find?_of_not_mem` they give the invariant:
-*every constant the step adds to the map is one the translated declaration accounts for*
-(`mem_indDeclNamesN`). -/
+These are facts `Environment.addInductive`'s nested path establishes by
+construction, and together with `AddInductStagesR.find?_of_not_mem` the first two groups give
+the invariant: *every constant the step adds to the map is one the translated declaration
+accounts for* (`mem_indDeclNamesN`).
+
+`ctorName_own` was added 2026-09-01; its producer side, the consumer audit that a new conjunct
+on a *hypothesis* relation requires, and the `RestoreData.ctor` result it unblocks are in
+`Verify/Inductive/TrIndDeclNCtorOwn.lean`. -/
 structure TrIndDeclN (env : VEnv) (Us : List Name) (nparams : Nat)
     (types : List InductiveType) (isUnsafe : Bool) (numNested : Nat)
     (D : VInductDecl') (K : List Name) (R : VIndRestore) : Prop where
@@ -289,6 +294,24 @@ structure TrIndDeclN (env : VEnv) (Us : List Name) (nparams : Nat)
   trCtors : ∀ env₁, env.addIndTypesC D K = some env₁ →
     ∀ (j : Nat) t T, types[j]? = some t → D.types[j]? = some T →
     ∀ (q : Nat) c C, t.ctors[q]? = some c → T.ctors[q]? = some C → TrIndCtorR env₁ Us D R j c C
+  /-- **The two sides' constructor names agree pointwise on the user's members.**
+
+  Not derivable from `trCtors`, which compares against `R.ctorName C.name` — the *restored*
+  name — so it says nothing about `C.name` itself.  This clause is what breaks the circle
+  recorded at `docs/vacuity-ledger.md` row 80a/91c: `RestoreData.ctor`'s prefix half was
+  reachable only through `VIndRestore.OwnId.ctorName`, whose own proof
+  (`Result.mkRestore_ownId`) runs *through* `RestoreData.ctor`.  With `ctorName_own` the
+  derivation mentions no `R` at all (`Result.ctor_prefix_of_run`).
+
+  **Unstaged, deliberately.**  `trCtors` is quantified over `env.addIndTypesC D K = some env₁`
+  because `TrExprS` of a constructor type needs the block's type constants declared; a *name*
+  equation needs no environment, and staging it would push the premise onto every consumer.
+  The cost is paid by the one bridge that can only get it from `trCtors`: `TrIndDecl.toN` takes
+  the `addIndTypes` success as an explicit premise, which is available at its only call site
+  (`Verify/Inductive/AddInductiveStep.lean`'s `addInductiveStepWF_of_run`, from
+  `AddInductStages.addIndTypes`). -/
+  ctorName_own : ∀ (j : Nat) t T, types[j]? = some t → D.types[j]? = some T →
+    ∀ (q : Nat) c C, t.ctors[q]? = some c → T.ctors[q]? = some C → c.name = C.name
   /-- A member the user wrote keeps its recursor name. -/
   recName_own : ∀ (j : Nat) t T, types[j]? = some t → D.types[j]? = some T →
     R.recName (Lean.mkRecName T.name) = Lean.mkRecName t.name
@@ -365,7 +388,8 @@ At `numNested = 0`, `K = []`, `R = D.idRestore`, `TrIndDeclN` **is** `TrIndDecl`
 non-nested theory is unchanged and `Verify/Environment/Induct.lean`'s witnesses transfer. -/
 
 theorem TrIndDecl.toN {env : VEnv} {Us : List Name} {np : Nat} {types : List InductiveType}
-    {iu : Bool} {D : VInductDecl'} (h : TrIndDecl env Us np types iu D) (hc : D.Canonical) :
+    {iu : Bool} {D : VInductDecl'} (h : TrIndDecl env Us np types iu D) (hc : D.Canonical)
+    (hst : ∃ et, env.addIndTypes D = some et) :
     TrIndDeclN env Us np types iu 0 D [] D.idRestore where
   safe := h.safe
   uvars := h.uvars
@@ -383,6 +407,10 @@ theorem TrIndDecl.toN {env : VEnv} {Us : List Name} {np : Nat} {types : List Ind
     obtain ⟨hname, htr⟩ := h.trCtors env₁ hst j t T ht hT q c C hc' hC
     refine ⟨hname, ?_⟩
     rwa [VIndCtor.typeR_id (hc j C (VInductDecl'.mem_ctorsAll_of hT (List.mem_iff_getElem?.2 ⟨q, hC⟩)))]
+  ctorName_own := by
+    intro j t T ht hT q c C hc' hC
+    obtain ⟨et, het⟩ := hst
+    exact (h.trCtors et het j t T ht hT q c C hc' hC).1
   recName_own := by
     intro j t T ht hT
     rw [VInductDecl'.idRestore]; exact congrArg Lean.mkRecName (h.trType j t T ht hT).1.symm
@@ -851,6 +879,12 @@ theorem trIndDeclN_wit : TrIndDeclN env [] 0 [nfnIndType] false 1 nfnAux nfnK nf
       refine ⟨rfl, tr_nodeType (hle.constants hPFn) ?_⟩
       exact VEnv.addConstList_constants hst (``NFn, ⟨0, .sort (.succ .zero)⟩)
         (by exact List.Mem.head _)
+    · cases ht; cases hT; simp [nfnIndType] at hc
+    · simp at ht
+    · simp at ht
+  ctorName_own := by
+    rintro (_ | j) t T ht hT (_ | q) c C hc hC
+    · cases ht; cases hT; cases hc; cases hC; rfl
     · cases ht; cases hT; simp [nfnIndType] at hc
     · simp at ht
     · simp at ht

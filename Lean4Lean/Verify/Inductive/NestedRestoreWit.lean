@@ -476,6 +476,12 @@ theorem trIndDeclN_wit' :
     · cases ht; cases hT; simp [nfnIndType] at hc
     · simp at ht
     · simp at ht
+  ctorName_own := by
+    rintro (_ | j) t T ht hT (_ | q) c C hc hC
+    · cases ht; cases hT; cases hc; cases hC; rfl
+    · cases ht; cases hT; simp [nfnIndType] at hc
+    · simp at ht
+    · simp at ht
   recName_own := by
     rintro (_ | j) t T ht hT
     · cases ht; cases hT; rfl

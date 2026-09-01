@@ -642,5 +642,171 @@ theorem run_prefix {fuel np : Nat} {types : List InductiveType} {s : State} {r :
     · exact ((Prod.mk.injEq .. ▸ h2).2 :
         List.map (·.name) u.ctors = List.map (·.name) t.ctors).symm
 
+/-! ## 7. `withParams`, with the `ngen`-reservation invariant
+
+`MWF.withParams'` (§1) transports an arbitrary state invariant through `withParams` and reports
+only `ps.size = n`.  That is everything the `SkelExt` proofs of §5–§6 need, and *not* enough for
+commutation (C) of `Verify/Inductive/NestedOccData.lean` §9 — `LocalContext.mkForall` vs the
+pure `mkBindingList` model — whose side condition is `xs.Nodup` on the abstracted fvars.
+
+The restatement below carries three more facts, all of them consequences of the one thing
+`withParams.loop` does per binder (`mkFreshId`, then `lctx.mkLocalDecl id …`):
+
+* the parameter array is `fvs.map .fvar` for a *list of `FVarId`s* — the shape
+  `Lean4Lean.LocalContext.mkBinding_eq` is stated at;
+* that list is `Nodup`;
+* the local context holds exactly those fvars, in reverse (`LocalContext.fvars`), and is `WF`.
+
+**The invariant that supplies the `Nodup` is `NameGenerator.Reserves`**
+(`Verify/NameGenerator.lean`): carried alongside the caller's `I` as
+`∀ fv ∈ fvs, s.ngen.Reserves fv`, it is re-established on a push by `next_reserves_self` for the
+new id and `Reserves.mono NameGenerator.LE.next` for the old ones, and it *refutes* a duplicate
+by `not_reserves_self`.  This is the same argument `Verify/Inductive/Add.lean`'s
+`VContext.reserves`/`VContext.curr_not_mem` runs for `AddInductive.M`; here it is run for
+`ElimNestedInductive.M`, where the generator lives in the state rather than the reader.
+
+The reservation invariant is also *handed to the continuation*, so a caller that keeps
+allocating (as `run.loop` does, through a nested `withParams` per constructor) can chain it. -/
+
+/-- Appending a fresh element to a `Nodup` list keeps it `Nodup`.  (Local: `List.nodup_append`
+is `Mathlib`.) -/
+theorem nodup_append_singleton {α : Type _} {l : List α} {x : α} (h : l.Nodup) (hx : x ∉ l) :
+    (l ++ [x]).Nodup := by
+  induction l with
+  | nil => simp
+  | cons a t ih =>
+    simp only [List.nodup_cons, List.cons_append, List.mem_append, List.mem_cons, not_or,
+      List.not_mem_nil, not_false_eq_true, and_true] at *
+    exact ⟨⟨h.1, fun e => hx.1 e.symm⟩, ih h.2 hx.2⟩
+
+/-- A *pure* consequence of the precondition may be used to pick the proof.  Needed because
+`MWF`'s precondition is a predicate on the state, while the `Nodup` the loop maintains is a fact
+about the program's `fvs` argument. -/
+theorem MWF.of_pure_pre {x : M α} {A : Prop} (h : ∀ s, P s → A) (hx : A → MWF env P x Q) :
+    MWF env P x Q := fun s a s' hs hr => hx (h s hs) s a s' hs hr
+
+/-- **`MWF.withParams'` with the `ngen`-reservation invariant.**  Same conclusion as
+`MWF.withParams'`, and the continuation additionally learns that its parameter array is the
+`.fvar` image of a `Nodup` list of `FVarId`s which is exactly the local context's fvar list
+reversed.
+
+`hng` is unchanged: the caller's invariant must survive a fresh-name allocation, which every
+invariant about `newTypes`/`nestedAux` does (`SkelExt.ngen`). -/
+theorem MWF.withParams_fvars {k : LocalContext → Expr → Array Expr → M α} {I : State → Prop}
+    (hng : ∀ s, I s → I { s with ngen := s.ngen.next })
+    (n : Nat)
+    (hk : ∀ lctx t (ps : Array Expr) (fvs : List FVarId), ps.toList = fvs.map .fvar →
+      fvs.length = n → fvs.Nodup →
+      Lean4Lean.LocalContext.WF lctx → Lean4Lean.LocalContext.fvars lctx = fvs.reverse →
+      MWF env (fun s => I s ∧ ∀ fv ∈ fvs, s.ngen.Reserves fv) (k lctx t ps) Q)
+    (type : Expr) :
+    MWF env I (withParams type n k) Q := by
+  have main : ∀ i lctx t (ps : Array Expr) (fvs : List FVarId), ps.toList = fvs.map .fvar →
+      fvs.length + i = n → fvs.Nodup →
+      Lean4Lean.LocalContext.WF lctx → Lean4Lean.LocalContext.fvars lctx = fvs.reverse →
+      MWF env (fun s => I s ∧ ∀ fv ∈ fvs, s.ngen.Reserves fv)
+        (withParams.loop k lctx t ps i) Q := by
+    intro i
+    induction i with
+    | zero =>
+      intro lctx t ps fvs hps hlen hnd hwf hlist
+      rw [withParams.loop]
+      exact hk lctx t ps fvs hps (by omega) hnd hwf hlist
+    | succ i ih =>
+      intro lctx t ps fvs hps hlen hnd hwf hlist
+      cases t with
+      | forallE name dom body bi =>
+        rw [withParams.loop]
+        refine MWF.bind' (Q := fun a s' =>
+            (I s' ∧ ∀ fv ∈ fvs ++ [(⟨a⟩ : FVarId)], s'.ngen.Reserves fv)
+              ∧ (⟨a⟩ : FVarId) ∉ fvs) (MWF.mkFreshId' ?_) ?_
+        · intro s hs
+          refine ⟨⟨hng s hs.1, ?_⟩, ?_⟩
+          · intro fv hfv
+            rcases List.mem_append.1 hfv with h | h
+            · exact (hs.2 fv h).mono NameGenerator.LE.next
+            · rw [List.mem_singleton] at h; subst h
+              exact NameGenerator.next_reserves_self
+          · exact fun h => s.ngen.not_reserves_self (hs.2 _ h)
+        · intro a
+          refine MWF.of_pure_pre (A := (⟨a⟩ : FVarId) ∉ fvs) (fun s hs => hs.2) fun hmem => ?_
+          have hfind : lctx.find? ⟨a⟩ = none := by
+            rw [hwf.find?_eq_find?_toList, List.find?_eq_none]
+            intro d hd h
+            simp only [beq_iff_eq] at h
+            refine hmem ?_
+            have : (⟨a⟩ : FVarId) ∈ Lean4Lean.LocalContext.fvars lctx :=
+              List.mem_map.2 ⟨d, hd, h.symm⟩
+            rwa [hlist, List.mem_reverse] at this
+          refine MWF.weaken (ih (lctx.mkLocalDecl ⟨a⟩ name dom bi)
+            (body.instantiate1 (.fvar ⟨a⟩)) (ps.push (.fvar ⟨a⟩)) (fvs ++ [⟨a⟩])
+            (by simp [hps]) (by simp; omega) (nodup_append_singleton hnd hmem)
+            (hwf.mkLocalDecl hfind)
+            (by simp [Lean4Lean.LocalContext.fvars] at hlist ⊢; simp [hlist]; rfl))
+            fun s hs => hs.1
+      | _ => rw [withParams.loop] <;> first | exact MWF.throw' _ | nofun
+  refine MWF.weaken (main n {} type #[] [] (by simp) (by simp) List.nodup_nil
+    Lean4Lean.LocalContext.wf_empty (by simp [Lean4Lean.LocalContext.fvars]))
+    fun s hs => ⟨hs, by simp⟩
+
+/-- **The other side condition of `mkBindingList_eq_fold`**, from the same two facts: every
+parameter fvar is declared in the context `withParams` built. -/
+theorem exists_find?_of_fvars {lctx : LocalContext} {fvs : List FVarId}
+    (hwf : Lean4Lean.LocalContext.WF lctx)
+    (hlist : Lean4Lean.LocalContext.fvars lctx = fvs.reverse) :
+    ∀ x ∈ fvs, ∃ decl, lctx.find? x = some decl := by
+  intro x hx
+  have hm : x ∈ Lean4Lean.LocalContext.fvars lctx := by
+    rw [hlist, List.mem_reverse]; exact hx
+  obtain ⟨d, hd, he⟩ := List.mem_map.1 hm
+  rw [hwf.find?_eq_find?_toList]
+  cases h : lctx.toList.find? (x == ·.fvarId) with
+  | some d' => exact ⟨d', rfl⟩
+  | none => exact absurd (List.find?_eq_none.1 h _ hd) (by simp [he])
+
+/-- **Commutation (C)'s pure half at `withParams`' continuation.**  Nothing new is proved here:
+the content is `Lean4Lean.LocalContext.mkForall_list` (`Verify/QuotConsts.lean`, itself
+`mkBinding_eq` composed with `mkBindingList_eq_fold`).  What this adds is the *interface* —
+`withParams` hands its continuation an `Array Expr` about which we know only
+`ps.toList = fvs.map .fvar`, not that it is the array literal `⟨fvs.map .fvar⟩` — plus
+`exists_find?_of_fvars` for the `hex` side condition.
+
+This is the *pure* half only.  See the note below on what the `VExpr` half needs. -/
+theorem withParams_mkForall_eq {lctx : LocalContext} {ps : Array Expr} {fvs : List FVarId}
+    {b : Expr} (hps : ps.toList = fvs.map .fvar) (hnd : fvs.Nodup)
+    (hwf : Lean4Lean.LocalContext.WF lctx)
+    (hlist : Lean4Lean.LocalContext.fvars lctx = fvs.reverse)
+    (hb : b.looseBVarRange' = 0)
+    (hlc : ∀ x ∈ fvs, ∀ d, lctx.find? x = some d →
+      d.type.looseBVarRange' = 0 ∧ ∀ v ∈ d.value? true, v.looseBVarRange' = 0) :
+    lctx.mkForall ps b =
+      fvs.foldr (fun a e => Lean4Lean.LocalContext.mkBindingList1 false lctx [] a
+        (e.abstract1 a)) b := by
+  have h : ps = ⟨fvs.map .fvar⟩ := by cases ps; simpa using hps
+  subst h
+  exact Lean4Lean.LocalContext.mkForall_list hb hnd hlc (exists_find?_of_fvars hwf hlist)
+
+/-! ### What commutation (C) still needs — a correction to `NestedOccData.lean` §9
+
+§9(C) says the pure half exists and "what is missing is the `TrExprS` half: that abstracting the
+`As` fvars in declaration order corresponds to `mkPi H.params`", and `docs/handoff-nested-restore.md`
+§9.2 adds that "the `TrExprS` half is the bulk of the work".  **The `TrExprS` half is already in
+the tree**, for the type checker's context representation:
+
+* `Lean4Lean.TypeChecker.MLCtx.WF.mkForall_eq` (`Verify/TypeChecker/Basic.lean`) is
+  `c.lctx.mkForall arr e = c.mkForall n hn e` under `e.looseBVarRange' = 0` and
+  `arr.toList.reverse = (c.fvarRevList n hn).map .fvar` — i.e. the pure half *including* the
+  `Nodup`, taken from `MLCtx.WF` rather than from a `NameGenerator`;
+* `MLCtx.WF.mkForall_trS` is the `TrExprS` half: `TrExprS env Us (c.dropN n hn).vlctx
+  (c.mkForall n hn e) (c.mkForall' n hn e')`, and `MLCtx.mkForall'` over an all-`vlam` context is
+  `VExpr.mkPi` of the binder types.
+
+So the missing piece for (C) is **not** a `mkForall`/`mkPi` lemma: it is an `MLCtx.WF` for the
+context `withParams` builds, whose `vlam` fields require a `TrExprS` for each binder *domain*
+and an `IsType` for it — the semantic content §9 attributes to the wrong lemma.  Whether to
+build that, or to keep the `NameGenerator` route above and prove the `VExpr` half directly, is a
+design choice this file does not make; the reservation invariant is needed either way, because
+`MLCtx.WF`'s own freshness obligation (`VContext.fresh`'s shape) is the same `Reserves` fact. -/
+
 end ElimNestedInductive
 end Lean4Lean
