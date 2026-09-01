@@ -30,6 +30,13 @@ work in the wrong direction.*
   variant (`EtaKD`) needs `KDiamond` and nothing else, with its own stated, undischarged obligation.
   Ledger rows 100–100b.
 
+* **And after the joinability repair, §1(1) and §1(2) are superseded too.** §1(1) calls
+  `PatMajorCanonical → KDiamond` "the deliverable"; its conclusion is now **false** at a concrete
+  instance. §1(2)'s "next proof obligation" should be the **joinability** form. The repair itself is
+  in `Theory/Typing/KDiamondJoin.lean` — and it lands back on Church–Rosser: `KDiamondJ` is
+  sandwiched between `kDiamondJ_of_crK` above and the hole-free
+  `quotPat_argJoin_of_kDiamondJ` below, so proving it is proving confluence. Ledger rows 103–103c.
+
 §2–§8 stand.
 
 

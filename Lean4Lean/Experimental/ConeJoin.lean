@@ -145,6 +145,7 @@ import Lean4Lean.Verify.QuotAppParams  -- 2026-09-01: canonical .app-pattern ins
 import Lean4Lean.Verify.TypeChecker.UnitEta  -- 2026-09-01: zero-field eta over IsStructureG; UnitLikeBridgeG satisfiable at a two-type mutual block
 import Lean4Lean.Verify.TypeChecker.FiringWitness  -- 2026-09-01: the three "never fires" gates, fired
 import Lean4Lean.Theory.Typing.KEtaDiamond  -- 2026-09-01: the lambda-congruence induction; the eta-half reduces to injectivity, not the rule table
+import Lean4Lean.Theory.Typing.KDiamondJoin  -- 2026-09-01: KDiamond/M3 as joinability, and its CR price -- the repair works and lands back on confluence
 
 /-!
 # Acceptance test: the `PatternRules` cone and the `Verify/` cone join

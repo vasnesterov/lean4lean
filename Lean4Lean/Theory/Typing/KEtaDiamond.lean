@@ -32,6 +32,30 @@ constructor is an escape: `refl` needs the domains syntactically equal, which
 negative is *not* proved -- treat it as a conjecture, per `docs/vacuity-ledger.md` §0's fourth
 overstatement kind.
 
+## SUPERSEDED IN ITS PREMISE (2026-09-01, later): `KDiamond` is FALSE
+
+`Verify/QuotAppParams.lean`'s `quotParams_not_kDiamond` refutes `KDiamond` at the canonical
+`.app`-pattern instance (modulo the injectivity corner), and `quotParams_not_patMajorCanonical`
+refutes M3 there.  So `etaKDiamondAt_of_kDiamond`, `etaKDiamond_of_kDiamond`,
+`etaKDDiamondAt_of_kDiamond` and the three `*_tree`/`*_holes` assemblies below are **true
+implications whose premise cannot be discharged**.  Nothing in this file is wrong; it is
+unusable as stated.
+
+**The repair is `Theory/Typing/KDiamondJoin.lean`**, which restates `KDiamond` and M3 with a
+*joinability* conclusion (`KDiamondJ`, `PatMajorCanonicalJ`) -- the shape `EtaKDiamond` already
+uses -- and reshapes every theorem below onto it: `etaKDiamondAt_of_kDiamondJ`,
+`etaKDiamond_of_kDiamondJ`, `etaKDiamond_of_kDiamondJ_holes`, `etaKDDiamondAt_of_kDiamondJ`,
+with the same axiom sets.  Two things that file establishes and that should be read with the
+table below:
+
+* **`EtaKD` is still needed.**  Joinability repairs only the induction's *base* case;
+  `PiDomAgreeK` is created by the `under` case and survives it.  Pinning repairs only the
+  `under` case; its base case still needs the false `KDiamond`.  The two repairs are
+  independent, and `etaKDDiamondAt_of_kDiamondJ` is both at once.
+* **The restatement is not a localisation.**  `quotPat_argJoin_of_kDiamondJ` (`sorryAx`-free)
+  shows `KDiamondJ` at the quotient rule table implies Church--Rosser at an application, so the
+  "confluence reduces to the rule table" reading of `KDiamond` does not survive either.
+
 ## What is proved here
 
 | declaration | content |

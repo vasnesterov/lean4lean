@@ -290,6 +290,40 @@ and at it:
   `ParRed`-normal while defeq to `g x`, and joinability collapses to `NormalEq` between two normal
   terms), i.e. ledger row 78b's `ParRed → ParRedK` repair, now with a reachable witness.
 
+**THIRD NOTE, and this is where the section actually lands: after the repair, NEITHER corner
+points at the rule table.** The joinability restatement works — `KDiamondJ` and
+`PatMajorCanonicalJ` (`Theory/Typing/KDiamondJoin.lean`), with
+`kDiamondJ_of_patMajorCanonicalJ` at **the same axiom cost as the original**
+(`[propext, Quot.sound]`, `Classical.choice`-free), and the β-witness that refuted `KDiamond` dies
+instance-independently (`joins_beta_arg`, hole-free). It is also not trivially true:
+`joins_normal_iff` shows `Joins ↔ NormalEq` on `ParRedK`-normal terms, so the only way past
+`NormalEq` is a real reduction step.
+
+**But the localisation is gone — `KDiamondJ` is sandwiched between two Church–Rosser statements.**
+
+* *Above:* `kDiamondJ_of_crK` — CR over `ParRedK` implies `KDiamondJ`. So it is an **instance** of CR,
+  where `KDiamond` had been strictly stronger than one.
+* *Below, and hole-free:* `quotPat_argJoin_of_kDiamondJ` — at any instance registering `quotPat`,
+  `KDiamondJ` implies that for **arbitrary definitionally equal** carrier elements `x`, `x'`, the
+  spine's `g x` and `g x'` join. Mechanism: take the major premise to be `Quot.mk α r x` and let the
+  second `K⁺` step match at `x'`; `hdq` is an arbitrary `IsDefEq`, so nothing constrains `x'` beyond
+  conversion.
+
+So **proving `KDiamondJ` is proving confluence, and refuting it is refuting confluence** — neither is
+reachable, and a refutation would refute CR for a real `VEnv.WF` environment, which nothing here
+suggests. `KDescend.KDiamond`'s own docstring had warned that its content is "the upgrade from `≡` to
+`≡ₚ`, which is exactly what confluence is being built to deliver"; joinability does not escape that,
+it lands on it. **Ledger row 101a's "the repair is a restatement to joinability" is right about what
+to do and silent about what it costs.**
+
+Net for this section: the injectivity corner collapsed **seven** times (`midShapeless_vacuous`
+explains why in one theorem), and the confluence corner's repaired target is itself a CR statement.
+**Neither corner localises.** What survives is real but smaller than the section's title claimed:
+`kDiamondJ_of_patMajorCanonicalJ` clean, the η-layer's two repairs identified and independent
+(joinability fixes the *base* case, domain-pinning fixes the *`under`* case —
+`etaKDDiamondAt_of_kDiamondJ` is both, `[propext, Quot.sound]`), and the whole route measured rather
+than hoped.
+
 **What the paragraph below claimed, kept for the record.**
 
 **And Church–Rosser reduces to one named property of the rule table.**
