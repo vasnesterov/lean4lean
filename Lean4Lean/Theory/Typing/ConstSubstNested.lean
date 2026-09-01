@@ -249,6 +249,192 @@ theorem VEnv.ctorConstsCR_wf_of_substC' {env env₃ e₁ : VEnv} {D : VInductDec
         ((C.canonResult D j).substC σ) := VExpr.substC_mkPi
     exact this ▸ hsub
 
+/-! ## §A The two missing defeq-tolerant bridges, and the congruences they run on
+
+`ctorConstsCR_wf_of_substC'` above is obligation **(A)** with the syntactic bridge equation
+weakened to a telescope defeq.  Obligations **(B)** and **(C)** had no such analogue: only the
+strict-equality `recConstsR_wf_of_substC` / `iotaRulesRS_wf_of_substC` existed, so the
+parameterised block — where the two sides differ by one β-step per parameter per occurrence —
+could not reach them even after `VIndRestore.substC_tyApp_defeq_tyAppR_comp`
+(`Theory/Inductive/NestedRules.lean` §8.8) removed the bound on `D.np` at the head.
+
+Two congruences are new here, both trivial iterations of a *primitive* `IsDefEq`
+constructor and neither needing `env.Ordered`:
+
+* `VEnv.IsDefEq.mkLams_congr` iterates `lamDF` — (C) needs it because an ι-rule's `lhs`/`rhs`
+  are `mkLams` over `iotaCtx`, not `mkPi`, so `IsType.mkPi_congr'` does not apply;
+* `VEnv.IsDefEq.mkPi_congrU` iterates `forallEDF` and gives a *defeq of two pis at a sort*,
+  which `IsType.mkPi_congr'` (whose conclusion is only `IsType`) does not.
+
+**Where (C)' differs in kind from (A)' and (B)'.**  (A)' and (B)' keep their strict
+counterpart's `hsrc`/`hσ`: the source's `IsType` pays for every telescope entry the bridge does
+*not* move, which is exactly what `TeleDefEq.rfl` is for.  (C)' cannot: `VDefEq.WF` is two
+`HasType`s at a `mkLams`, and peeling a λ-telescope off a typing is `HasType.mkLams_inv`
+(`Theory/Typing/PatWF.lean`), which needs `env.WF` and `env.PiInv` — circular here.  So the
+`lhs`/`rhs` components of (C)'s bridge have to be *typed* defeqs, and a typed defeq already
+carries both sides' typing; `hsrc`/`hσ` are then redundant and are **not** hypotheses of
+`iotaRulesRS_wf_of_substC'`.  That asymmetry is a fact about `VDefEq.WF`, not an oversight. -/
+
+/-- An unchanged telescope, as a `TeleDefEq`.  Free: `TeleDefEq.rfl` carries no typing. -/
+theorem VEnv.TeleDefEq.refl {env : VEnv} {U : Nat} :
+    ∀ {As Γ : List VExpr}, env.TeleDefEq U Γ As As
+  | [], _ => .nil
+  | _ :: _, _ => .rfl refl
+
+/-- **The λ-telescope congruence.**  `IsDefEq.lamDF` iterated; the type is the *left*
+telescope's `mkPi`, exactly as `lamDF` gives the left domain.  `OnCtx` is what pays for the
+entries `TeleDefEq.rfl` skips — the source typing cannot, because peeling a `mkLams` needs
+`HasType.mkLams_inv`. -/
+theorem VEnv.IsDefEq.mkLams_congr {env : VEnv} {U : Nat} :
+    ∀ {Γ As As' : List VExpr} {b b' B : VExpr}, env.TeleDefEq U Γ As As' →
+      OnCtx (As.reverse ++ Γ) (env.IsType U) →
+      env.IsDefEq U (As.reverse ++ Γ) b b' B →
+      env.IsDefEq U Γ (VExpr.mkLams As b) (VExpr.mkLams As' b') (VExpr.mkPi As B) := by
+  intro Γ As As' b b' B h
+  induction h with
+  | nil => intro _ hb; exact hb
+  | rfl _ ih =>
+    intro hOn hb
+    rw [VExpr.tele_ctx_cons] at hOn hb
+    obtain ⟨u, hA⟩ := OnCtx.head_of_append hOn
+    rw [VExpr.mkLams_cons, VExpr.mkLams_cons, VExpr.mkPi_cons]
+    exact .lamDF hA (ih hOn hb)
+  | cons hA _ ih =>
+    intro hOn hb
+    rw [VExpr.tele_ctx_cons] at hOn hb
+    rw [VExpr.mkLams_cons, VExpr.mkLams_cons, VExpr.mkPi_cons]
+    exact .lamDF hA (ih hOn hb)
+
+/-- **The pi-telescope congruence, as a defeq at a sort.**  `IsType.mkPi_congr'` concludes
+`IsType`, which is enough for a `VConstant.WF` but not for the `type` component of a
+`VDefEq.WF` transport, where the two types must be related.  The result level is existential
+because `forallEDF` builds a nested `imax`. -/
+theorem VEnv.IsDefEq.mkPi_congrU {env : VEnv} {U : Nat} :
+    ∀ {Γ As As' : List VExpr} {B B' : VExpr}, env.TeleDefEq U Γ As As' →
+      OnCtx (As.reverse ++ Γ) (env.IsType U) →
+      (∃ v : VLevel, env.IsDefEq U (As.reverse ++ Γ) B B' (.sort v)) →
+      ∃ u : VLevel, env.IsDefEq U Γ (VExpr.mkPi As B) (VExpr.mkPi As' B') (.sort u) := by
+  intro Γ As As' B B' h
+  induction h with
+  | nil => intro _ hb; exact hb
+  | rfl _ ih =>
+    intro hOn hb
+    rw [VExpr.tele_ctx_cons] at hOn hb
+    obtain ⟨u, hA⟩ := OnCtx.head_of_append hOn
+    obtain ⟨w, hw⟩ := ih hOn hb
+    exact ⟨_, VExpr.mkPi_cons ▸ VExpr.mkPi_cons ▸ VEnv.IsDefEq.forallEDF hA hw⟩
+  | cons hA _ ih =>
+    intro hOn hb
+    rw [VExpr.tele_ctx_cons] at hOn hb
+    obtain ⟨w, hw⟩ := ih hOn hb
+    exact ⟨_, VExpr.mkPi_cons ▸ VExpr.mkPi_cons ▸ VEnv.IsDefEq.forallEDF hA hw⟩
+
+/-- **Obligation (B), with a *definitional* bridge instead of a syntactic one.**
+
+`VEnv.recConstsR_wf_of_substC` needs `(D.recType j).substC σ = (D.recTypeR R j).substC σ'` on
+the nose; that holds at `D.params = []` and fails above it by one β-step per parameter per
+companion-head occurrence.  Here the caller instead picks a `mkPi` decomposition of each side —
+it need not be the one `recType`/`recTypeR` are written with — and relates the two entrywise.
+`he₂` is the same `Ordered` hypothesis `ctorConstsCR_wf_of_substC'` takes, for the same reason
+(`IsType.forallE_congr` moves the body between the two domains with `defeqDFC`). -/
+theorem VEnv.recConstsR_wf_of_substC' {E₂ e₂ : VEnv} {D : VInductDecl'} {R : VIndRestore}
+    {K : List Name} {σ : CSubst}
+    (hsrc : ∀ c ∈ D.recConsts, VConstant.WF E₂ c.2)
+    (hσ : σ.WF E₂ e₂ D.recUvars) (he₂ : e₂.Ordered)
+    (hbridge : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T →
+      ∃ (As As' : List VExpr) (B B' : VExpr) (v : VLevel),
+        (D.recType j).substC σ = VExpr.mkPi As B ∧
+        (D.recTypeR R j).substC (R.csubst D K) = VExpr.mkPi As' B' ∧
+        e₂.TeleDefEq D.recUvars [] As As' ∧
+        e₂.IsDefEq D.recUvars As.reverse B B' (.sort v)) :
+    ∀ c ∈ D.recConstsR R K, VConstant.WF e₂ c.2 := by
+  intro c hc
+  simp only [VInductDecl'.recConstsR, List.mem_map] at hc
+  obtain ⟨⟨T, j⟩, hTj, rfl⟩ := hc
+  have hT : D.types[j]? = some T := List.mk_mem_zipIdx_iff_getElem?.1 hTj
+  have hs := (hsrc (Lean.mkRecName T.name, ⟨D.recUvars, D.recType j⟩)
+    (by simp only [VInductDecl'.recConsts, List.mem_map]; exact ⟨(T, j), hTj, rfl⟩)).substC hσ
+  obtain ⟨As, As', B, B', v, hL, hRr, htele, hbody⟩ := hbridge j T hT
+  refine (show ((D.recTypeR R j).substC (R.csubst D K)) = VExpr.mkPi As' B' from hRr) ▸ ?_
+  exact VEnv.IsType.mkPi_congr' (v := v) he₂ htele (by simpa using hbody) (hL ▸ hs)
+
+/-- **`VDefEq.WF` transported along defeqs of the three components.**
+
+`defeqDF` moves each side's typing from the old `type` to the new one.  No source
+`VDefEq.WF` is needed: a typed defeq already contains both sides' typing.  This is why (C)'s
+defeq-tolerant bridge cannot keep the `hsrc`/`hσ` of `iotaRulesRS_wf_of_substC`. -/
+theorem VDefEq.WF.of_congr {env : VEnv} {df df' : VDefEq} {v : VLevel}
+    (hu : df'.uvars = df.uvars)
+    (hty : env.IsDefEq df.uvars [] df.type df'.type (.sort v))
+    (hl : env.IsDefEq df.uvars [] df.lhs df'.lhs df.type)
+    (hr : env.IsDefEq df.uvars [] df.rhs df'.rhs df.type) :
+    VDefEq.WF env df' :=
+  ⟨hu ▸ hty.defeqDF hl.hasType.2, hu ▸ hty.defeqDF hr.hasType.2⟩
+
+/-- **Obligation (C), with a *definitional* bridge instead of a syntactic one.**
+
+`VEnv.iotaRulesRS_wf_of_substC` needs the list equation
+`D.iotaRules.map (·.substC σ) = D.iotaRulesRS R K`; this replaces it by, for each registered
+rule, a source rule and a componentwise defeq at the *source's* substituted type.  The three
+components come from `IsDefEq.mkLams_congr` (`lhs`, `rhs`) and `IsDefEq.mkPi_congrU` (`type`)
+over `VInductDecl'.iotaCtx`; see the §A note above for why `hsrc`/`hσ` are absent. -/
+theorem VEnv.iotaRulesRS_wf_of_substC' {e₃ : VEnv} {D : VInductDecl'} {R : VIndRestore}
+    {K : List Name} {σ : CSubst}
+    (hbridge : ∀ df' ∈ D.iotaRulesRS R K, ∃ df ∈ D.iotaRules, ∃ v : VLevel,
+      df'.uvars = df.uvars ∧
+      e₃.IsDefEq df.uvars [] (df.type.substC σ) df'.type (.sort v) ∧
+      e₃.IsDefEq df.uvars [] (df.lhs.substC σ) df'.lhs (df.type.substC σ) ∧
+      e₃.IsDefEq df.uvars [] (df.rhs.substC σ) df'.rhs (df.type.substC σ)) :
+    ∀ df ∈ D.iotaRulesRS R K, VDefEq.WF e₃ df := by
+  intro df' hdf'
+  obtain ⟨df, -, v, hu, hty, hl, hr⟩ := hbridge df' hdf'
+  exact VDefEq.WF.of_congr (df := df.substC σ) (v := v) hu hty hl hr
+
+/-! ### §A.1 The two primed bridges are weakenings, not replacements
+
+`docs/vacuity-ledger.md` §5: a bridge nothing satisfies is not a bridge.  These two show that
+the strict-equality hypothesis of `recConstsR_wf_of_substC` / `iotaRulesRS_wf_of_substC`
+*implies* the primed bridge's, so everything already discharged at `D.params = []` (§7.7's
+`csubst_recType_eq` / `csubst_iotaRules_eq`) still goes through, and (B)'/(C)' cannot be
+vacuous.
+
+**(C) needs one thing (B) does not.**  Factoring (B) is free: `hsrc`'s `VConstant.WF` **is** an
+`IsType`, so the reflexive body defeq comes from it.  Factoring (C) needs `htype` — the rule's
+substituted `type` is a type in `e₃` — because `VDefEq.WF` is two `HasType`s and says nothing
+about its `type` field, and "the type of a typed term is a type" is regularity, which is not
+available here (`Theory/Typing/PropShadow.lean`'s `regularity_two_typing_false` shows the
+stratified two-typing form of it is outright *false*).  So `htype` is data, and it is data the
+strict (C) route never had to produce. -/
+
+theorem VEnv.recConstsR_wf_of_substC_of_eq {E₂ e₂ : VEnv} {D : VInductDecl'} {R : VIndRestore}
+    {K : List Name} {σ : CSubst}
+    (hsrc : ∀ c ∈ D.recConsts, VConstant.WF E₂ c.2)
+    (hσ : σ.WF E₂ e₂ D.recUvars) (he₂ : e₂.Ordered)
+    (heq : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T →
+      (D.recType j).substC σ = (D.recTypeR R j).substC (R.csubst D K)) :
+    ∀ c ∈ D.recConstsR R K, VConstant.WF e₂ c.2 := by
+  refine VEnv.recConstsR_wf_of_substC' hsrc hσ he₂ fun j T hT => ?_
+  obtain ⟨v, hv⟩ := (hsrc (Lean.mkRecName T.name, ⟨D.recUvars, D.recType j⟩)
+    (by simp only [VInductDecl'.recConsts, List.mem_map]
+        exact ⟨(T, j), List.mk_mem_zipIdx_iff_getElem?.2 hT, rfl⟩)).substC hσ
+  simp only [] at hv
+  exact ⟨[], [], (D.recType j).substC σ, (D.recTypeR R j).substC (R.csubst D K), v,
+    rfl, rfl, .nil, (heq j T hT) ▸ hv⟩
+
+theorem VEnv.iotaRulesRS_wf_of_substC_of_eq {E₃ e₃ : VEnv} {D : VInductDecl'}
+    {R : VIndRestore} {K : List Name} {σ : CSubst}
+    (hsrc : ∀ df ∈ D.iotaRules, VDefEq.WF E₃ df)
+    (hσ : ∀ df ∈ D.iotaRules, σ.WF E₃ e₃ df.uvars)
+    (htype : ∀ df ∈ D.iotaRules, e₃.IsType df.uvars [] (df.type.substC σ))
+    (heq : D.iotaRules.map (·.substC σ) = D.iotaRulesRS R K) :
+    ∀ df ∈ D.iotaRulesRS R K, VDefEq.WF e₃ df := by
+  refine VEnv.iotaRulesRS_wf_of_substC' (σ := σ) fun df' hdf' => ?_
+  rw [← heq, List.mem_map] at hdf'
+  obtain ⟨df, hdf, rfl⟩ := hdf'
+  obtain ⟨v, hv⟩ := htype df hdf
+  obtain ⟨hl, hr⟩ := VDefEq.WF.substC (hσ df hdf) (hsrc df hdf)
+  exact ⟨df, hdf, v, rfl, hv, hl, hr⟩
+
 /-! ## The restoration, as a constant substitution
 
 `VIndRestore` has five fields — `tyName`, `tyLvls`, `tyArgs`, `ctorName`, `recName` — and

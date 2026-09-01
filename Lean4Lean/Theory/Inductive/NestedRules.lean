@@ -1107,6 +1107,21 @@ theorem ntree_not_tyArgs_closed0 : ¬ (∀ i, ∀ a ∈ ntreeRestore.tyArgs i, a
   have := h 0 (.bvar 0) (by decide)
   exact absurd (show (0 : Nat) < 0 from this) (Nat.lt_irrefl 0)
 
+theorem ntreeAux_np : ntreeAux.np = 1 := by decide
+
+/-- **…but `ClosedN D.np` does hold there.**  §8.9's β-*defeqs* ask only for this, so `hcl0`
+is not a second obstruction hiding behind `hp`: the closedness §7.4's head *equations* need is
+strictly stronger than the closedness the typed route needs, and only the former is refuted at
+the parameterised witness. -/
+theorem ntree_tyArgs_closedN_np :
+    ∀ i, ∀ a ∈ ntreeRestore.tyArgs i, a.ClosedN ntreeAux.np := by
+  intro i a ha
+  rw [ntreeAux_np]
+  simp only [ntreeRestore] at ha
+  split at ha
+  · simp only [List.mem_singleton] at ha; subst ha; exact ⟨trivial, Nat.zero_lt_one⟩
+  · simp only [List.mem_singleton] at ha; subst ha; exact Nat.zero_lt_one
+
 
 end InductiveDeclExamples
 
@@ -1580,5 +1595,256 @@ theorem substC_tyApp_defeqU_tyAppR (hnd : D.blockNames.Nodup) (hown : R.OwnId D 
     exact ⟨_, substC_tyApp_defeq_tyAppR_comp hnd hlw hcl henv hT hK hargs hOn hbv hbody hpi hAs⟩
   · rw [substC_tyApp_own hown hT hK hargs]; exact hown' hK
 
+
+/-! ## §8.9 The β-gap at the *recursor's* level numbering, and at `csubst`
+
+§8.8 closes the β-gap for `VInductDecl'.tyApp` at `R.csubstTy D K` — the head obligation (A)
+consumes.  Obligations (B) and (C) consume three other heads, and none of them is an instance
+of §8.8:
+
+* `VInductDecl'.tyApp'` and `VInductDecl'.ctorApp'` — the **primed** heads, instantiated at
+  `D.selfLvls` rather than `D.ownLvls` (`Theory/Inductive/Decl.lean`), which is where the whole
+  recursor construction lives;
+* the recursor constant, which `R.recVal` only **renames** — a `substC` value with no `mkLams`,
+  hence no β-gap at all (`substC_recConst` already has it, with no bound on `D.np`).
+
+So the primed pair is what is missing, and this section supplies it.  Each is the same three
+steps as §8.8 — compute the redex (`substC_tyApp'_comp` / `substC_ctorApp'_comp`), identify the
+contractum (`instAll_tyBody'` / `instAll_ctorBody'`), and run `VEnv.IsDefEq.betaMkLams` under
+`VEnv.IsDefEq.mkAppDF` — and each is stated at a **general** `σ` satisfying
+`VIndRestore.SubstAt`, so `R.csubst D K` is an instance via `DomSep.substAt`.
+
+Two things are worth stating plainly about the reach of this.
+
+**`hcl` is `ClosedN D.np`, not `ClosedN 0`.**  §7.4's head *equations* need
+`hcl0 : ∀ a ∈ R.tyArgs i, a.ClosedN 0`, which the parameterised witness **refutes**
+(`InductiveDeclExamples.ntree_not_tyArgs_closed0`).  The defeqs here need only
+`ClosedN D.np` — the hypothesis `csubst_WF` already carries as `hcla` — so `hcl0` is not a
+second obstruction hiding behind `hp`.  `InductiveDeclExamples.ntree_tyArgs_closedN_np` is that
+same witness satisfying the weaker hypothesis.
+
+**`hp : D.params = []` enters §7.5/§7.6 at three sites, not two.**  Two are the head equations
+`substC_tyApp'_eq_tyAppR'` and `substC_ctorApp'_eq_ctorAppR`, via `hnp : D.np = 0`.  The third
+is `csubst_closed' hp hcl0`, whose `σ.Closed` conclusion `VExpr.map_substC_liftTele` needs in
+`substC_minors` and `substC_iotaCtx`.  That third one is **not** an obstruction: `σ.Closed` is
+`VIndRestore.csubst_closed`, which asks for `VExpr.ClosedTele D.params 0` and
+`ClosedN D.np` — both available above `D.np = 0`, and both already hypotheses of `csubst_WF`.
+It is only `csubst_closed'`, the convenience instance, that routes through `hp`. -/
+
+/-- The body of `R.ctorVal D j C`, the constructor counterpart of `VIndRestore.tyBody`. -/
+def ctorBody (R : VIndRestore) (_D : VInductDecl') (j : Nat) (C : VIndCtor) : VExpr :=
+  (VExpr.const (R.ctorName C.name) (R.tyLvls j)).mkApp (R.tyArgs j)
+
+section
+variable {R : VIndRestore} {D : VInductDecl'} {K : List Name} {σ : CSubst} {e : VEnv}
+variable {U j : Nat} {T : VIndType} {C : VIndCtor}
+
+theorem ctorVal_eq (R : VIndRestore) (D : VInductDecl') (j : Nat) (C : VIndCtor) :
+    R.ctorVal D j C = VExpr.mkLams D.params (R.ctorBody D j C) := rfl
+
+theorem tyVal_instL_selfLvls :
+    (R.tyVal D j).instL D.selfLvls
+      = VExpr.mkLams (D.atRecTele D.params) (D.atRec (R.tyBody D j)) := by
+  rw [tyVal_eq, VExpr.instL_mkLams, VInductDecl'.atRecTele, VInductDecl'.atRec]
+
+theorem ctorVal_instL_selfLvls :
+    (R.ctorVal D j C).instL D.selfLvls
+      = VExpr.mkLams (D.atRecTele D.params) (D.atRec (R.ctorBody D j C)) := by
+  rw [ctorVal_eq, VExpr.instL_mkLams, VInductDecl'.atRecTele, VInductDecl'.atRec]
+
+/-- **The contractum of the substituted primed type head is `tyAppR'`, exactly.**  The
+`instL D.selfLvls` version of `instAll_tyBody`; `ClosedN` survives `instL`, which is why no
+extra hypothesis appears. -/
+theorem instAll_tyBody' (hcl : ∀ a ∈ R.tyArgs j, a.ClosedN D.np) (k : Nat)
+    (args : List VExpr) :
+    (VExpr.instAll (D.atRec (R.tyBody D j)) (VExpr.bvars k D.np)).mkApp args
+      = D.tyAppR' R j k args := by
+  rw [VInductDecl'.atRec, tyBody, VExpr.instL_mkApp, VExpr.instL_const',
+    VExpr.instAll_mkApp, VExpr.instAll_const, VInductDecl'.tyAppR',
+    VInductDecl'.tyAppH, ← VExpr.mkApp_append, VInductDecl'.atRecTele, List.map_map,
+    List.map_map]
+  congr 2
+  exact List.map_congr_left fun a ha =>
+    VExpr.instAll_bvars_lift (by simpa using (hcl a ha).instL)
+
+/-- …and of the substituted constructor head is `ctorAppR`. -/
+theorem instAll_ctorBody' (hcl : ∀ a ∈ R.tyArgs j, a.ClosedN D.np) (k : Nat)
+    (args : List VExpr) :
+    (VExpr.instAll (D.atRec (R.ctorBody D j C)) (VExpr.bvars k D.np)).mkApp args
+      = D.ctorAppR R j C k args := by
+  rw [VInductDecl'.atRec, ctorBody, VExpr.instL_mkApp, VExpr.instL_const',
+    VExpr.instAll_mkApp, VExpr.instAll_const, VInductDecl'.ctorAppR,
+    ← VExpr.mkApp_append, VInductDecl'.atRecTele, List.map_map, List.map_map]
+  congr 2
+  exact List.map_congr_left fun a ha =>
+    VExpr.instAll_bvars_lift (by simpa using (hcl a ha).instL)
+
+/-- **A companion primed type head becomes a saturated `D.np`-fold redex.**  Unlike
+`substC_tyApp_comp` this needs no `LevelWF` hypothesis: the value is re-instantiated at
+`D.selfLvls` and `tyAppR'` is defined at exactly that instantiation. -/
+theorem substC_tyApp'_comp (hat : R.SubstAt D K σ) (hT : D.types[j]? = some T)
+    (hK : T.name ∈ K) (k : Nat) (args : List VExpr) :
+    (D.tyApp' j k args).substC σ
+      = (VExpr.mkLams (D.atRecTele D.params) (D.atRec (R.tyBody D j))).mkApp
+          (VExpr.bvars k D.np ++ args.map (VExpr.substC · σ)) := by
+  have hg : (D.types.getD j default).name = T.name := by
+    rw [List.getD_eq_getElem?_getD, hT]; rfl
+  rw [VInductDecl'.tyApp', VExpr.substC_mkApp, List.map_append, VExpr.map_substC_bvars,
+    VExpr.substC_const_some (by rw [hg]; exact hat.tySome j T hT hK),
+    tyVal_instL_selfLvls]
+
+/-- …and so does a companion constructor head. -/
+theorem substC_ctorApp'_comp (hat : R.SubstAt D K σ) (hT : D.types[j]? = some T)
+    (hK : T.name ∈ K) (hC : C ∈ T.ctors) (k : Nat) (args : List VExpr) :
+    (D.ctorApp' C k args).substC σ
+      = (VExpr.mkLams (D.atRecTele D.params) (D.atRec (R.ctorBody D j C))).mkApp
+          (VExpr.bvars k D.np ++ args.map (VExpr.substC · σ)) := by
+  rw [VInductDecl'.ctorApp', VExpr.substC_mkApp, List.map_append, VExpr.map_substC_bvars,
+    VExpr.substC_const_some (hat.ctorSome j T hT hK C hC), ctorVal_instL_selfLvls]
+
+/-- **§8.8 for the primed type head, at a general `σ`: no bound on `D.np`.**
+
+The residual is again `hbody` + `hAs` — the presented head applied to the presented spine,
+well typed — i.e. §8.7's `hargs`.  `U` is free, so `D.recUvars` (what (B) and (C) need) is as
+available as `D.uvars`. -/
+theorem substC_tyApp'_defeq_tyAppR'_comp (hat : R.SubstAt D K σ)
+    (hcl : ∀ a ∈ R.tyArgs j, a.ClosedN D.np) (henv : e.Ordered)
+    (hT : D.types[j]? = some T) (hK : T.name ∈ K)
+    {k : Nat} {args Γ As : List VExpr} {B B' : VExpr}
+    (hOn : OnCtx ((D.atRecTele D.params).reverse ++ Γ) (e.IsType U))
+    (hbv : e.HasArgs U Γ (D.atRecTele D.params) (VExpr.bvars k D.np))
+    (hbody : e.HasType U ((D.atRecTele D.params).reverse ++ Γ)
+      (D.atRec (R.tyBody D j)) B)
+    (hpi : VExpr.instAll B (VExpr.bvars k D.np) = VExpr.mkPi As B')
+    (hAs : e.HasArgs U Γ As (args.map (VExpr.substC · σ))) :
+    e.IsDefEq U Γ ((D.tyApp' j k args).substC σ)
+      (D.tyAppR' R j k (args.map (VExpr.substC · σ)))
+      (VExpr.instAll B' (args.map (VExpr.substC · σ))) := by
+  have hbeta := VEnv.IsDefEq.betaMkLams henv hOn hbv hbody
+  rw [hpi] at hbeta
+  have hstep := VEnv.IsDefEq.mkAppDF hAs.toDF hbeta
+  rw [instAll_tyBody' (R := R) (D := D) (j := j) hcl k (args.map (VExpr.substC · σ))] at hstep
+  rwa [substC_tyApp'_comp hat hT hK, VExpr.mkApp_append]
+
+/-- **…and for the constructor head — the ingredient (B) and (C) share.** -/
+theorem substC_ctorApp'_defeq_ctorAppR_comp (hat : R.SubstAt D K σ)
+    (hcl : ∀ a ∈ R.tyArgs j, a.ClosedN D.np) (henv : e.Ordered)
+    (hT : D.types[j]? = some T) (hK : T.name ∈ K) (hC : C ∈ T.ctors)
+    {k : Nat} {args Γ As : List VExpr} {B B' : VExpr}
+    (hOn : OnCtx ((D.atRecTele D.params).reverse ++ Γ) (e.IsType U))
+    (hbv : e.HasArgs U Γ (D.atRecTele D.params) (VExpr.bvars k D.np))
+    (hbody : e.HasType U ((D.atRecTele D.params).reverse ++ Γ)
+      (D.atRec (R.ctorBody D j C)) B)
+    (hpi : VExpr.instAll B (VExpr.bvars k D.np) = VExpr.mkPi As B')
+    (hAs : e.HasArgs U Γ As (args.map (VExpr.substC · σ))) :
+    e.IsDefEq U Γ ((D.ctorApp' C k args).substC σ)
+      (D.ctorAppR R j C k (args.map (VExpr.substC · σ)))
+      (VExpr.instAll B' (args.map (VExpr.substC · σ))) := by
+  have hbeta := VEnv.IsDefEq.betaMkLams henv hOn hbv hbody
+  rw [hpi] at hbeta
+  have hstep := VEnv.IsDefEq.mkAppDF hAs.toDF hbeta
+  rw [instAll_ctorBody' (R := R) (D := D) (j := j) (C := C) hcl k
+    (args.map (VExpr.substC · σ))] at hstep
+  rwa [substC_ctorApp'_comp hat hT hK hC, VExpr.mkApp_append]
+
+/-! ### The join, on one entry of the recursor telescope
+
+The point of §8.9 together with `VEnv.recConstsR_wf_of_substC'` is that the chain
+*head defeq → entry defeq → telescope defeq → obligation* now composes above `D.np = 0`.  The
+motive entry is the shortest instance where it does, so it is checked here.
+
+What this measures is where the remaining work is.  The entry defeq needs the entry's own
+`OnCtx` in the substituted environment; that is `VInductDecl'.motives`' typing, which for the
+whole recursor telescope (`atRecTele D.params ++ motives ++ minors ++ indices`) is the D-series
+of `Theory/Inductive/Lemmas.lean`, restated at `e₂`.  It is **not** a further β-gap.
+
+**The verdict, stated plainly: the two bridges are necessary for lifting (B)/(C) off
+`D.np = 0` and they are not sufficient.**  With `recConstsR_wf_of_substC'` /
+`iotaRulesRS_wf_of_substC'` and §8.9 in place, three things stand between
+`VEnv.recConstsR_wf_of_np_zero` / `iotaRulesRS_wf_of_np_zero` and their parameterised
+analogues, and none of them is a bridge:
+
+1. **The same data residual as §8.8 and §8.7.**  Each head defeq's `hbody` + `hAs` is the
+   presented head applied to the presented spine, well typed — §8.7's `hargs`.  So
+   `instAt_indep_of_tyArgs`' lower bound transports verbatim: `VIndRestore.Faithful` cannot
+   supply it for (B) or (C) either, for exactly the reason it cannot for the `val` clause.
+2. **Telescope typing at the *substituted* environment.**  Every `TeleDefEq.rfl` and every
+   `mkPi_congrU`/`mkLams_congr` step needs `OnCtx` of the substituted binder context in `e₂`
+   (for (B)) or `e₃` (for (C)).  That is `Theory/Inductive/Lemmas.lean`'s D-series moved across
+   the substitution — bulk, not depth.
+3. **A `TeleDefEq` in place of `substC_atRec_fieldTypes`' equality**, and a nested
+   `mkPi_congrU` inside `VIndRecArg.canonTypeR`, because a *recursive field*'s companion head
+   sits under the field's own `ξ`-telescope.  Same three ingredients as (1) and (2), one binder
+   layer deeper.
+
+What is *not* on the list: `hcl0` (see above), `σ.Closed` (see above), and any appeal to
+confluence or to `VEnv.Params`. -/
+
+/-- **One motive entry of the recursor telescope, at `D.np > 0`.**
+
+Both sides' index telescope is literally the same list once `σ.Closed` moves the `substC`
+through `liftTele`, so the whole entry defeq is `mkPi_congrU` over a reflexive `TeleDefEq`
+with `forallEDF` at the body — and the domain defeq is
+`substC_tyApp'_defeq_tyAppR'_comp` at `Γ = the index telescope`. -/
+theorem substC_motiveType_defeq_of_head {t : Nat} (hσ : σ.Closed) (hfr : R.SubstFree D σ)
+    (helim : D.elimLvl.WF U) (hg : D.types.getD t default = T) {w : VLevel}
+    (hOn : OnCtx (VExpr.liftTele t ((D.atRecTele T.indices).map (VExpr.substC · σ)) 0).reverse
+      (e.IsType U))
+    (hhead : e.IsDefEq U
+      (VExpr.liftTele t ((D.atRecTele T.indices).map (VExpr.substC · σ)) 0).reverse
+      ((D.tyApp' t (T.indices.length + t) (VExpr.bvars 0 T.indices.length)).substC σ)
+      (D.tyAppR' R t (T.indices.length + t) (VExpr.bvars 0 T.indices.length))
+      (.sort w)) :
+    ∃ u, e.IsDefEq U [] ((D.motiveType t).substC σ)
+      ((D.motiveTypeR R t).substC σ) (.sort u) := by
+  simp only [VInductDecl'.motiveType, VInductDecl'.motiveTypeR, hg,
+    VExpr.substC_mkPi, VExpr.substC_forallE, VExpr.substC_sort,
+    VExpr.map_substC_liftTele hσ, substC_tyAppR' hfr, VExpr.map_substC_bvars]
+  have key := VEnv.IsDefEq.forallEDF hhead
+    (.sortDF (l := D.elimLvl) (l' := D.elimLvl) helim helim rfl)
+  exact VEnv.IsDefEq.mkPi_congrU (As' := VExpr.liftTele t
+    ((D.atRecTele T.indices).map (VExpr.substC · σ)) 0) .refl (by simpa using hOn)
+    ⟨_, by simpa using key⟩
+
+/-- **…and the join itself, machine-checked.**  `substC_tyApp'_defeq_tyAppR'_comp` feeding
+`substC_motiveType_defeq_of_head`: the chain from §8.9's head defeq to a recursor-telescope
+entry defeq closes, with **no bound on `D.np`**.  The `substC` on the presented spine
+disappears because that spine is `bvars` (`VExpr.map_substC_bvars`).
+
+The hypotheses left are exactly the three the §8.9 verdict note lists: `hbody`/`hAs` (the
+`hargs` data residual), `hOn`/`hOnp`/`hbv` (telescope typing at the substituted environment),
+and `hpi`/`hsort` (the head's type is a pi that lands in a sort — a shape fact about the
+companion's stored type, not a β-fact). -/
+theorem substC_motiveType_defeq (hσ : σ.Closed) (hfr : R.SubstFree D σ)
+    (hat : R.SubstAt D K σ) (hcl : ∀ a ∈ R.tyArgs t, a.ClosedN D.np) (henv : e.Ordered)
+    (helim : D.elimLvl.WF U) (hT : D.types[t]? = some T) (hK : T.name ∈ K)
+    (hg : D.types.getD t default = T)
+    {As : List VExpr} {B B' : VExpr} {w : VLevel}
+    (hOn : OnCtx (VExpr.liftTele t ((D.atRecTele T.indices).map (VExpr.substC · σ)) 0).reverse
+      (e.IsType U))
+    (hOnp : OnCtx ((D.atRecTele D.params).reverse ++
+      (VExpr.liftTele t ((D.atRecTele T.indices).map (VExpr.substC · σ)) 0).reverse)
+      (e.IsType U))
+    (hbv : e.HasArgs U
+      (VExpr.liftTele t ((D.atRecTele T.indices).map (VExpr.substC · σ)) 0).reverse
+      (D.atRecTele D.params) (VExpr.bvars (T.indices.length + t) D.np))
+    (hbody : e.HasType U ((D.atRecTele D.params).reverse ++
+      (VExpr.liftTele t ((D.atRecTele T.indices).map (VExpr.substC · σ)) 0).reverse)
+      (D.atRec (R.tyBody D t)) B)
+    (hpi : VExpr.instAll B (VExpr.bvars (T.indices.length + t) D.np) = VExpr.mkPi As B')
+    (hAs : e.HasArgs U
+      (VExpr.liftTele t ((D.atRecTele T.indices).map (VExpr.substC · σ)) 0).reverse
+      As (VExpr.bvars 0 T.indices.length))
+    (hsort : VExpr.instAll B' (VExpr.bvars 0 T.indices.length) = .sort w) :
+    ∃ u, e.IsDefEq U [] ((D.motiveType t).substC σ)
+      ((D.motiveTypeR R t).substC σ) (.sort u) := by
+  refine substC_motiveType_defeq_of_head hσ hfr helim hg (w := w) hOn ?_
+  have := substC_tyApp'_defeq_tyAppR'_comp (R := R) (D := D) (K := K) (σ := σ) (U := U)
+    (j := t) (T := T) hat hcl henv hT hK (k := T.indices.length + t)
+    (args := VExpr.bvars 0 T.indices.length) hOnp hbv hbody hpi
+    (by rwa [VExpr.map_substC_bvars])
+  rwa [VExpr.map_substC_bvars, hsort] at this
+
+end
 end VIndRestore
 end Lean4Lean
