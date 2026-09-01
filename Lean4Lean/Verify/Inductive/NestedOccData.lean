@@ -959,4 +959,136 @@ needed proving.  **One of the three is already proved in the tree** — a correc
 the call site supplies, exactly as they should be, and the conclusion of §5 stands unrevised:
 `member` needs no new field and no new premise. -/
 
+
+/-! ## 10. `ctor`'s circle does not break, and why: `mkUniqueName` is fresh against the
+*environment*, not against the block
+
+§8 declined `RestoreData.ctor` and named the escape: `¬ IsNestedName C.name` on a user member makes
+the `ctorRenames` lookup miss, so `R.ctorName C.name = C.name`.  I then said the fact that would
+supply it is "`mkUniqueName`'s freshness against the input block".  **That was wrong, and it is
+wrong in a way that cannot be patched: no such freshness exists.**
+
+`mkUniqueName`'s loop tests `env.contains r` (`Add.lean:766-773`), and that is *all* it tests —
+`mkUniqueName_fresh` (`Verify/Inductive/NestedRunInvariant.lean` §5) is the exact statement.  The
+block being declared is not in `env`; keeping its names apart from what is already there is
+`Environment.addInductive`'s separate business.  So `mkUniqueName` cannot separate its output from
+the input block, and §10.1 exhibits a block where it does not.
+
+### 10.1 A reachable collision (test, not a proof)
+
+Member 0 is **constructor-less** and carries the exact name `mkUniqueName (`_nested ++ ``PFn)`
+returns at `nextIdx = 1`; member 1 is an ordinary nested member.  Because member 0 has no
+constructors, its name occurs in no constructor *type*, and `checkNoNestedAux` — which scans
+constructor types only (`Add.lean:934`) — never sees it.  `run` then invents that same name for the
+companion, and `r.types` carries it **twice**.
+
+`Lean4Lean.Environment.addInductive` on this block reports
+`(kernel) constant has already been declared '_nested.Lean4Lean.InductiveDeclExamples.PFn_1'`, so
+the outcome is a *rejection*, not unsoundness — and the C++ kernel rejects it the same way, for the
+same reason.  What the witness settles is the proof-side question: **`RestoreData.ownName` is
+exactly what excludes this state, and nothing in the implementation does.**  That is ledger row
+58's standing decision meeting the witness it asked for, on `ownName` (not on `srcCtorPrefix`,
+which stays flagged and untouched). -/
+
+namespace NestedWit
+open InductiveDeclExamples ElimNestedInductive
+
+/-- The name `mkUniqueName (`_nested ++ ``PFn)` returns at `nextIdx = 1`. -/
+def collName : Lean.Name := `_nested ++ (``PFn).appendAfter "_1"
+
+/-- A constructor-less member carrying that name: its own name appears in no constructor type. -/
+def collA : Lean.InductiveType := { name := collName, type := .sort (.succ .zero), ctors := [] }
+
+/-- …and an ordinary nested member alongside it. -/
+def collB : Lean.InductiveType :=
+  { name := `CollFoo, type := .sort (.succ .zero),
+    ctors := [{ name := `CollFoo.mk,
+                type := .forallE `a (.app (.const ``PFn []) (.const `CollFoo []))
+                  (.const `CollFoo []) .default }] }
+
+#eval show Lean.CoreM Unit from do
+  let kenv := (← Lean.getEnv).toKernelEnv
+  let types := [collA, collB]
+  for indType in types do
+    for ctor in indType.ctors do
+      match Lean4Lean.checkNoNestedAux ctor.name ctor.type with
+      | Except.ok _ => pure ()
+      | Except.error _ => throwError "gate rejected the block -- finding void"
+  let .ok r := (ElimNestedInductive.run 1000 0 types kenv).run'
+      { lvls := [], newTypes := types.toArray }
+    | throwError "run rejected the block"
+  let names := r.types.map (·.name)
+  unless names.length = 3 && names[0]! = names[2]! do
+    throwError "no collision: r.types names = {names}"
+  match Lean4Lean.Environment.addInductive kenv [] 0 types false false with
+  | Except.ok _ => throwError "addInductive ACCEPTED a block with a duplicated member name"
+  | Except.error _ =>
+    Lean.logInfo m!"collision: checkNoNestedAux accepts the block, run's r.types names are \
+      {names} (member 0 duplicated by the companion), and addInductive then rejects it on the \
+      duplicate constant ✓"
+
+/-! ### 10.2 A divergence found on the way: one missing `checkNoNestedAux` call
+
+The C++ kernel applies the reserved-prefix test to **both** a member's own type and each
+constructor's type:
+
+```
+check_no_nested_aux(*this, ind_type.get_name(), ind_type.get_type());          // inductive.cpp:1241
+for (constructor const & cnstr : ind_type.get_cnstrs()) {
+    check_no_metavar_no_fvar(*this, constructor_name(cnstr), constructor_type(cnstr));
+    check_no_nested_aux(*this, constructor_name(cnstr), constructor_type(cnstr));  // :1244
+}
+```
+
+`Lean4Lean.Environment.addInductive` (`Lean4Lean/Inductive/Add.lean:930-935`) has the constructor
+call and **not** the member one: it runs `checkNoMVarNoFVar indType.name indType.type` and then, per
+constructor, `checkNoMVarNoFVar` and `checkNoNestedAux`.  So a member whose *own type* mentions a
+`_nested` constant passes lean4lean's gate and is rejected by C++.  The `#eval` below is that
+difference, both halves computed.
+
+`Lean4Lean/Inductive/Add.lean` is not this stream's file, so this is reported rather than fixed;
+it belongs in `divergences.md` (lean4lean accepts at the gate what C++ rejects), and the fix is one
+line. -/
+
+def divIndType : Lean.InductiveType :=
+  { name := `DivBar,
+    type := .forallE `x (.const `_nested.Foo []) (.sort (.succ .zero)) .default,
+    ctors := [] }
+
+#eval show Lean.CoreM Unit from do
+  let mut rejected := false
+  for ctor in divIndType.ctors do
+    match Lean4Lean.checkNoNestedAux ctor.name ctor.type with
+    | Except.ok _ => pure () | Except.error _ => rejected := true
+  if rejected then throwError "lean4lean's gate rejected it -- finding void"
+  match Lean4Lean.checkNoNestedAux divIndType.name divIndType.type with
+  | Except.ok _ => throwError "C++'s extra call would also accept -- no divergence"
+  | Except.error _ =>
+    Lean.logInfo "divergence: lean4lean's gate accepts a member whose own type mentions a \
+      `_nested` constant; the call C++ makes at inductive.cpp:1241 rejects it ✓"
+
+end NestedWit
+
+/-! ### 10.3 So what does `ctor` need?
+
+Not a name-discipline check.  `RestoreData.ctor` is the bundle's **only** statement that the
+checker's constructor names and `D`'s agree on the user's members, and `TrIndDeclN` relates the two
+sides *only through* `R.ctorName` (`TrIndCtorR` is `c.name = R.ctorName C.name`).  `ownCtor` bounds
+the **checker's** names; `C.name` is a `D`-side name, and no available fact bounds it.
+
+So `ctor` is neither slack nor a fourth row-58 fact: it is a **translation-relation gap**.  Closing
+it means one new clause on `TrIndDeclN`, of the shape
+
+```
+ctorName_own : ∀ (j : Nat) t T, types[j]? = some t → D.types[j]? = some T →
+  ∀ (q : Nat) c C, t.ctors[q]? = some c → T.ctors[q]? = some C → c.name = C.name
+```
+
+which `Environment.addInductive`'s nested path establishes by construction on the user's members
+(their names pass through the pass untouched — `run.loop` rebuilds each constructor as
+`{ ctor with type := … }`, and `run_prefix` is the proof).  `TrIndDeclN` is a definition the
+`addDecl.WF` chain consumes, so this is **reported, not done**.  Note it is *not* a hypothesis
+about the input block and *not* a check any kernel would perform; it is a fact about the
+translation, and the machinery to prove it — `run_prefix` — is already in place. -/
+
 end Lean4Lean

@@ -352,6 +352,28 @@ theorem mkUniqueName_state {n : Name} {s a s'} (h : mkUniqueName n env s = .ok (
       · cases hi; rfl
   exact main _ _ h
 
+/-- **`mkUniqueName`'s freshness, stated correctly: it is against the `Environment`.**  The loop
+tests `env.contains r` and returns the first index that fails it (`Add.lean:766-773`).
+
+Read this together with `Verify/Inductive/NestedOccData.lean` §10: the block being declared is
+**not** in `env` — that is what `Environment.addInductive`'s own collision checks are for — so this
+gives no separation at all between `mkUniqueName`'s output and the input block's names, and §10
+exhibits a block where they collide. -/
+theorem mkUniqueName_fresh {n : Name} {s a s'} (h : mkUniqueName n env s = .ok (a, s')) :
+    env.contains a = false := by
+  have main : ∀ fuel i, mkUniqueName.loop env n s i fuel = .ok (a, s') →
+      env.contains a = false := by
+    intro fuel
+    induction fuel with
+    | zero => intro i hi; rw [mkUniqueName.loop] at hi; exact absurd hi nofun
+    | succ fuel ih =>
+      intro i hi
+      rw [mkUniqueName.loop] at hi
+      split at hi
+      · exact ih _ hi
+      · rename_i hc; cases hi; simpa using hc
+  exact main _ _ h
+
 theorem MWF.mkUniqueName_skel {sk} (n : Name) :
     MWF env (SkelExt sk) (mkUniqueName n) (fun _ => SkelExt sk) := by
   intro s a s' hs h; rw [mkUniqueName_state h]; exact hs
