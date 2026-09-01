@@ -1046,9 +1046,21 @@ constructor, `checkNoMVarNoFVar` and `checkNoNestedAux`.  So a member whose *own
 `_nested` constant passes lean4lean's gate and is rejected by C++.  The `#eval` below is that
 difference, both halves computed.
 
-`Lean4Lean/Inductive/Add.lean` is not this stream's file, so this is reported rather than fixed;
-it belongs in `divergences.md` (lean4lean accepts at the gate what C++ rejects), and the fix is one
-line. -/
+**FIXED 2026-09-01** in `Lean4Lean/Inductive/Add.lean`: `Environment.addInductive` now calls
+`checkNoNestedAux indType.name indType.type` alongside the `checkNoMVarNoFVar` on the same type, so
+the two gates agree and there is **no** `divergences.md` entry to make. Arena re-run after the
+change: 185 correct / 6 either / 0 wrong, unchanged.
+
+**Correction to how this was first described, and it is the coordinator's.** The commit that made
+the fix claimed this `#eval` "throwErrors if the two gates stop disagreeing, so the fix cannot be
+silently reverted". **That was false.** The first `#eval` below *models* the old gate by iterating
+constructors inline — `divIndType.ctors` is `[]`, so its loop body never runs — and never calls
+`Environment.addInductive`, so it passes identically with or without the fix. It demonstrates the
+difference between two *checks*; it does not guard the implementation. The second `#eval` is the
+actual regression test: it calls the real function and requires the failure to be the
+**reserved-prefix** error, which only the member-type call can produce, and which therefore fails if
+the fix is reverted. Claiming a test guards something it does not is the failure mode this file's
+own §10.1 note exists to prevent. -/
 
 def divIndType : Lean.InductiveType :=
   { name := `DivBar,
@@ -1064,8 +1076,29 @@ def divIndType : Lean.InductiveType :=
   match Lean4Lean.checkNoNestedAux divIndType.name divIndType.type with
   | Except.ok _ => throwError "C++'s extra call would also accept -- no divergence"
   | Except.error _ =>
-    Lean.logInfo "divergence: lean4lean's gate accepts a member whose own type mentions a \
-      `_nested` constant; the call C++ makes at inductive.cpp:1241 rejects it ✓"
+    Lean.logInfo "the shape: the OLD gate (constructor types only) accepts a member whose own \
+      type mentions a `_nested` constant, while the call C++ makes on the member type rejects \
+      it.  This eval models the old gate and is NOT a regression test -- see the next one ✓"
+
+/-! **The actual regression test for the fix.**  Calls the real `Environment.addInductive` and
+requires the failure to be the *reserved-prefix* error.  Only the member-type `checkNoNestedAux`
+call can produce that message here (`divIndType` has no constructors), so this `#eval` fails if
+that call is removed.  Unlike the eval above, it cannot pass with the fix reverted. -/
+#eval show Lean.CoreM Unit from do
+  let kenv := (← Lean.getEnv).toKernelEnv
+  match Lean4Lean.Environment.addInductive kenv [] 0 [divIndType] false false with
+  | Except.ok _ =>
+    throwError "REGRESSION: addInductive accepted a member whose own type mentions a `_nested` \
+      constant.  The `checkNoNestedAux indType.name indType.type` call in Add.lean is missing."
+  | Except.error (.other msg) =>
+    unless (msg.splitOn "reserved prefix").length ≥ 2 do
+      throwError "addInductive rejected it, but not on the reserved prefix -- the member-type \
+        gate may be gone and something else is rejecting.  Message: {msg}"
+    Lean.logInfo "regression test: addInductive rejects a member whose own type mentions a \
+      `_nested` constant, on the reserved-prefix gate ✓"
+  | Except.error _ =>
+    throwError "addInductive rejected it, but not with an `.other` message, so the \
+      reserved-prefix gate is not what fired"
 
 end NestedWit
 
