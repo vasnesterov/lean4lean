@@ -825,13 +825,42 @@ Note again what is absent: **`e₂` plays no role.**  `isDefEqUnitLike.WF` claim
 second term.  Dies with `AddInduct`, exactly as the sibling above; see its docstring for the
 mechanism and for what the real proof needs (`structEta` at zero fields, twice, plus a
 kernel→abstract `IsStructure` bridge — but **no** `TrProj`, since a zero-field structure has
-no projections). -/
+no projections).
+
+**The hole-free route, and why this theorem used to carry `sorryAx` (2026-09-01).**  Until
+today the first step was `inferType.WF he₁`, whose *only* extra content over `inferType.WF'`
+is one appeal to `TrExprS.uniq` — the step that aligns the inferred type with the given `e₁'`
+(`Verify/TypeChecker/Basic.lean`, `inferType.WF`'s two-line proof).  `TrExprS.uniq`'s cone
+carries `weakN_iff`, `forallE_inv_stratified`, `rigidShapeUniqNS` and `NormalEq.descend`, and
+`descend` is *refuted* (`Theory/Typing/DescendRefute.lean`), so this theorem's cone contained a
+hole with no fillable statement in it and the claim "the vacuity of `isDefEqUnitLike.WF` is
+established" was false — `docs/vacuity-ledger.md` row 39.
+
+**This statement never needed the alignment.**  Its conclusion is `b = false`; it discards the
+term's translation and uses only the *type*'s.  `inferType.WF'` supplies exactly that
+(`∃ e' ty', TrTyping e ty e' ty'`, with `e'` existential), takes `he₁.fvarsIn` and
+`fun _ => ⟨_, he₁⟩` as its two arguments, and is **hole-free** (cone 204).  Swapping it in
+takes the cone from 11027 to 6522 with no holes, so the vacuity of `isDefEqUnitLike.WF` is now
+*established* rather than asserted.
+
+The sibling theorems `isDefEqUnitLike.WF_prop`, `.WF_proof` and `.WF_of_structEta` genuinely
+do need `inferType.WF`: their conclusions mention `e₁'`, so the alignment is load-bearing
+there and the four holes above are not removable from them by this route.
+
+**And what "never fires" does and does not mean.**  It is this *proof-side branch* that is
+dead, not the code path: `TrEnv.not_inductInfo` holds only because `AddInduct` is empty, and
+the hypothesis `c.TrExprS e₁ e₁'` is what carries that emptiness in.  The executable checker
+has no such hypothesis and answers `true` at this gate on two distinct free variables of a
+zero-field structure — machine-checked in `Verify/TypeChecker/FiringWitness.lean`, together
+with the same fact for `tryEtaStructCore` and `inferProj`. -/
 theorem isDefEqUnitLike_never_true {c : VContext} {s : VState} (he₁ : c.TrExprS e₁ e₁') :
     RecM.WF c s (isDefEqUnitLike e₁ e₂) fun b _ => b = false := by
   have hget : ∀ {name}, (c.env.get name).WF fun ci => c.env.find? name = some ci := by
     intro name; simp [Kernel.Environment.get]; split <;> [refine .pure ‹_›; exact .throw]
   unfold isDefEqUnitLike
-  refine (inferType.WF he₁).bind fun ty _ _ ⟨_, _, _, hty, _⟩ => ?_
+  -- `inferType.WF'`, not `inferType.WF`: see the paragraph on the hole-free route above.
+  refine (inferType.WF' he₁.fvarsIn fun _ => ⟨_, he₁⟩).bind
+    fun ty _ _ ⟨_, _, _, _, hty, _⟩ => ?_
   refine (whnf.WF hty).bind fun tType _ _ ⟨_, _, htT, _⟩ => ?_
   obtain ⟨f', hf⟩ := head_tr htT
   split <;> [skip; exact .pure rfl]
@@ -865,13 +894,20 @@ That observation was never machine-checked.  This theorem is the `Prop` column, 
    mentions `AddInduct`, so — unlike `isDefEqUnitLike_never_true`, which is scheduled to go red
    — this survives the flip verbatim and is a *component* of the eventual real proof, not a
    placeholder for it.
-2. *Its residual holes are all borrowed, none of them structure-eta.*  Measured cone (a
-   transitive `getUsedConstantsAsSet` sweep against the 20 census holes):
-   `{IsDefEqU.forallE_inv_stratified, TrProj.uniq, TrProj.wf}` — **identical** to
-   `inferType.WF`'s own cone, and identical to `isDefEqUnitLike_never_true`'s.  Every one of
-   the three enters through `inferType.WF`'s single appeal to `TrExprS.uniq`/`IsDefEq.uniq`
-   (unique typing, whose `.proj` case is `TrProj.uniq`).  Nothing in this proof adds a hole,
-   and in particular the `Prop` half of the obligation costs **no** structure-eta content.
+2. *Its residual holes are all borrowed, none of them structure-eta.*  Measured cone
+   (a transitive `getUsedConstantsAsSet` sweep against the census holes):
+   `{IsDefEqU.weakN_iff, IsDefEqU.forallE_inv_stratified, WF.rigidShapeUniqNS,
+   NormalEq.descend}` — **identical** to `inferType.WF`'s own cone.  Every one of them enters
+   through `inferType.WF`'s single appeal to `TrExprS.uniq`/`IsDefEq.uniq` (unique typing).
+   Nothing in this proof adds a hole, and in particular the `Prop` half of the obligation
+   costs **no** structure-eta content.
+
+   *Re-measured 2026-09-01, and the earlier reading is superseded twice over.*  The list used
+   to read `{forallE_inv_stratified, TrProj.uniq, TrProj.wf}`; `TrProj.uniq` has since closed
+   and routed its consumers through `projData_uniq` into the four above.  And it is **no
+   longer** "identical to `isDefEqUnitLike_never_true`'s": that theorem is now hole-free (it
+   never needed the alignment — see its docstring), so this cone is the price of mentioning
+   `e₁'` in the conclusion, which is exactly what distinguishes the two.
 
    That is also the answer to "did the newly-proved unique-typing facts change anything here":
    yes.  `IsDefEq.uniq`'s own cone is now the single hole `IsDefEqU.forallE_inv_stratified`

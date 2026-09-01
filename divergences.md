@@ -201,7 +201,7 @@ This is a list of places where lean4lean deliberately has different behavior fro
   `type_checker.cpp` while auditing the primitive recognizer; see `docs/handoff-primitive.md` §6.
 
 * [`Lean4Lean.TypeChecker.Inner.isDefEqUnitLike`](Lean4Lean/TypeChecker.lean): C++ writes
-  `env().get(ctor_name).to_constructor_val()` (`~/lean4/src/kernel/type_checker.cpp:1159`), which
+  `env().get(ctor_name).to_constructor_val()` (in `type_checker::is_def_eq_unit_like`, `~/lean4/src/kernel/type_checker.cpp` — cited by declaration rather than line, since the line has already drifted once: it was `:1159`, and on current master the call is at `:1126` with the function at `:1120`), which
   **raises a kernel exception** if the inductive's sole listed constructor name does not resolve
   to a constructor. lean4lean writes `let .ctorInfo { numFields := 0, .. } ← env.get c | return
   false`, folding "not a constructor" together with "has fields" into a `false`. Reachable only

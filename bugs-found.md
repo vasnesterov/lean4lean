@@ -422,7 +422,13 @@ because they are what `kernel_sound` is stated against.
     `addDecl.WF`'s conclusion is unavailable, and the soundness argument says
     nothing about an environment the checker accepted.
 
-    Two ways out, neither implemented — recorded and costed first:
+    Two ways out — recorded and costed first. **Status corrected 2026-09-01: exit (a) is PARTLY
+    IMPLEMENTED and owned, so this bullet should not send a reader off to "decide".**
+    `VEnv.IsStructureG` (`Verify/Typing/ProjGen.lean`) already drops `noRec`, and
+    `projCoreG`/`projTermG`'s `minorBinders` already includes `D.ihTypes`; what remains is two
+    lemmas (`iota_law`, `realMinor_app`) plus the assembly, tracked in
+    `docs/handoff-projections.md` §0**.1 and owned by the projections stream. So `inferProj.WF`'s
+    falsity has a repair in flight:
 
     * **Generalise the minor premise** over `D.ihTypes`, dropping `noRec`. Keeps
       both kernels in agreement and needs no arena run, but the generalised term

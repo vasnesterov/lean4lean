@@ -97,17 +97,22 @@ Hypotheses (the cone cannot see these — they are premises, not dependencies):
 | H1 | `Bridge.PreludeBridge stdPrelude` | inductive-declaration workstream: `AddInduct` has no constructors, so `TrEnv` provably contains no inductive at all, while `stdPrelude` is mostly `.inductDecl`s; plus a `foldAddDecl`-level invariant pinning the first `pre.length` steps |
 | H2 | `Consistent 𝗭𝗙𝗖+𝗜𝗻𝗮𝗰𝗰 → leanTTConsistent` | model workstream: the outer recursion building `ModelData.cnst` and `Coherent` along the declaration list (`docs/soundness-ledger.md` — the step lemmas and soundness are done) |
 
-Holes, all nine of which enter through `Bridge.addDeclWF`:
+Holes, all nine of which enter through `Bridge.addDeclWF`.
 
-| Hole | Census transitive users |
-|---|---|
-| `addDecl.WF` | 1 |
-| `TypeChecker.Inner.inferProj.WF` | 0 |
-| `TypeChecker.Inner.isDefEqUnitLike.WF` | 1 |
-| `TypeChecker.Inner.tryEtaStructCore.WF` | 2 |
-| `TrProj.weak'_inv` | 29 |
-| `TrProj.uniq` | 93 |
-| `VEnv.IsDefEqU.weakN_iff` | 134 |
+**Every figure in this table is a pre-2026-09-01 undercount** — `scripts/sorry-census.lean` skipped
+internal names while *building* the reverse-reachability graph, so a user reaching a hole through one
+of its own equation lemmas was invisible (ledger §0). Current figures at the last quiescent run are
+in the right-hand column; `TrProj.uniq` has since closed.
+
+| Hole | Old (broken graph) | Current |
+|---|---|---|
+| `addDecl.WF` | 1 | **8** |
+| `TypeChecker.Inner.inferProj.WF` | 0 | **68** |
+| `TypeChecker.Inner.isDefEqUnitLike.WF` | 1 | **68** |
+| `TypeChecker.Inner.tryEtaStructCore.WF` | 2 | **69** |
+| `TrProj.weak'_inv` | 29 | **88** |
+| `TrProj.uniq` | 93 | *closed* |
+| `VEnv.IsDefEqU.weakN_iff` | 134 | **296** |
 | `VEnv.WF.rigidShapeUniqNS` | 224 |
 | `VEnv.IsDefEqU.forallE_inv_stratified` | 515 |
 
