@@ -52,6 +52,18 @@ Row 102c and `UnitEta.lean`'s audit both say the blocker is `MutNonRec.projCore_
    itself is widened.  `TrProj` is not this file's to change, and widening it touches
    `TrExprS`, `TrProj.wf`, `TrProj.uniq`, `TrProj.weak'_inv` and `inferProj.WF`.
 
+**Correction, 2026-09-01 (ledger row 107b): walls 2 and 3 are NOT separable — wall 2 gates
+wall 3.**  The list above presents them as three independent obstructions.  That is wrong about
+the last two, and the error would misdirect anyone who tried to take wall 3 first.
+`TrExprS.wf`'s `proj` case is `h2.wf …`, so **`TrProj.wf` must cover every `TrProj`
+derivation**; hence any widening of `TrProj` that admits a derivation at a member of a mutual
+block makes `TrProj.wf` *assert* that `projTermG … j` is well typed — and that assertion **is**
+wall 2, `projTermG_hasType`.  So `iota_law` at an arbitrary constructor of an arbitrary block
+and `realMinor_app` are **prerequisites** of the `TrProj` widening, not parallel to it, and wall
+2 gates `TrExprS.wf`'s 158 transitive users rather than one conjunct of this file's bridge.  The
+one route that relocates rather than removes it is ledger row 107d's option (d) — carry the
+target's typing as an extra field of `TrProj.mk` — which moves wall 2 onto `inferProj.WF`.
+
 **Consequence, stated plainly.**  The abstract rule generalises cleanly and is delivered here.
 The *bridge* does not become satisfiable at a mutual block by being restated — unlike
 `UnitLikeBridgeG`, which does, because `isDefEqUnitLike` never builds a `.proj` node and so
@@ -557,8 +569,14 @@ blocks per name, which is *absent*).
 So the per-iteration clause of `EtaStructSpineG`, which asks for exactly such a translation, is
 no more satisfiable at this block than `EtaStructSpine`'s is.  **Widening the bridge is necessary
 and not sufficient**; `TrProj` must be widened to `IsStructureG`/`projTermG` too, and that is a
-change to a predicate consumed by `TrExprS`, `TrProj.wf` (`Verify/Typing/ProjSkip.lean`, proved,
-so its statement must survive), `TrProj.uniq`, `TrProj.weak'_inv` and `inferProj.WF`. -/
+change to a predicate consumed by `TrExprS`, `TrProj.wf` (**`Verify/Typing/Lemmas.lean`** — not
+`ProjSkip.lean`, which holds the syntactic core of its live route; corrected per ledger row
+107f(iii)), `TrProj.uniq`, `TrProj.weak'_inv` and `inferProj.WF`.  And `TrProj.wf` is proved only
+in the sense that its *local* proof has no `sorry`: its **cone carries two**, `weakN_iff` and
+`forallE_inv_stratified`, via `projTerm_hasType` (row 107f(i)).  Its statement must survive a
+widening either way, and by `TrExprS.wf`'s `proj` case — `h2.wf henv hΔ.toCtx (ih hΔ)`,
+`Verify/Typing/Lemmas.lean` — a widened `TrProj.wf` would have to *assert* `projTermG`'s typing,
+which is wall 2.  That is why the two walls are not separable. -/
 theorem trProj_at_MutField_needs_other_block {U : Nat} {Γ : List VExpr} {i : Nat}
     {e e' : VExpr} (h : TrProj MutField.declEnv U Γ `MutField.B i e e') :
     ∃ D T C, MutField.declEnv.IsStructure `MutField.B D T C ∧ D ≠ MutField.decl := by
@@ -770,6 +788,198 @@ theorem tryEtaStructCore.WF_of_structEtaG {c : VContext} {s : VState}
         hprojty hkey hctor hB c.Ewf c.Δwf⟩
     · rw [h1]; exact .pure nofun
 
+/-! ### A bridge that `TrProj.isStructure` cannot refute — and what that does and does not buy
+
+Ledger row 107.  The measurement behind this block is that `WF_of_structEtaG` uses the
+per-iteration `TrExprS` **pair** for exactly one thing: feeding `isDefEq.WF` so as to read off
+its postcondition.  So the bridge can carry the postcondition directly, and then it mentions no
+translation relation at all.
+-/
+
+/-- **`EtaStructSpineG` with the per-iteration `TrExprS` pair replaced by the call's
+postcondition.**
+
+Conjunct for conjunct `EtaStructSpineG`, except the last: instead of
+
+    c.TrExprS (.proj w.induct (i - w.numParams) t) (D.projTermG … (i - w.numParams) j t') ∧
+    c.TrExprS s.getAppArgs[i] (args.getD (i - w.numParams) default)
+
+it asks, at every state, for the `RecM.WF` of the call `tryEtaStructCore` actually makes.  That
+is *exactly* what `WF_of_structEtaG` derives from the pair (by `isDefEq.WF`) and all it derives
+from it, so this is the weakest form of that conjunct the theorem can consume —
+`EtaStructSpineG.toCall` is the implication and it is hole-free.
+
+**Why it is worth stating.**  Wall 3 (`TrProj.isStructure`) refutes `EtaStructSpineG` at a
+member of a mutual block by refuting its `TrExprS (.proj …)` clause.  This predicate's constant
+cone contains **neither `TrProj` nor `TrExprS` nor `VEnv.IsStructure`** (measured: 3130
+constants, none of the three; `EtaStructSpineG`'s cone contains all three), so that refutation
+does not reach it.
+
+**Why that is a relocation and not a repair, which is the honest label.**  `isDefEq.WF`
+(`Verify/EquivManager.lean`) is the *only* WF lemma for `isDefEq` in the tree, and its contract
+takes a `c.TrExprS` per argument.  So the only route to this conjunct that anything can
+currently walk is `toCall`, i.e. the refuted pair.  What the swap achieves is therefore precise
+and small: **a refuted hypothesis becomes a not-refuted one.**  No proof fires that did not fire
+before, and the obstruction moves from the bridge's *satisfiability* to its *discharge*.
+Blindness 4 cuts both ways — a machine-checked refutation that no longer applies is worth
+recording — but this is not satisfiability, and it is not a proof.
+
+**Two caveats that belong on the definition.**
+
+* `RecM.WF` is partial correctness (`∀ m, m.WF → M.WF …`, and `M.WF` speaks only about runs that
+  return `.ok`), so this conjunct is also discharged by a call that *throws*.  That is aligned
+  rather than sloppy — the conclusion of `WF_of_structEtaGC` is a `RecM.WF` in the same currency,
+  and a throwing `isDefEq` makes `tryEtaStructCore` throw too — but it means the conjunct is
+  strictly weaker than "the projections really are defeq to the arguments".  It is not
+  *trivially* true: `Methods.WF` is inhabited (`Methods.withFuel.WF`) at every fuel, so the
+  `∀ m` is not an empty quantifier.
+* The cone contains `TypeChecker.Methods.WF`, whose **fields** mention `c.TrExprS` — in negative
+  position, as hypotheses of the method contracts.  So "mentions no translation relation" is a
+  claim about what the predicate *asserts*, which is what `TrProj.isStructure` can attack, and
+  not about what its unfolding contains. -/
+def EtaStructSpineGC (c : VContext) (t s : Expr) (t' s' : VExpr) : Prop :=
+  ∀ {f : Name} {w : ConstructorVal},
+    (∃ us, s.getAppFn = .const f us) →
+    c.env.find? f = some (.ctorInfo w) →
+    (s.getAppNumArgs == w.numParams + w.numFields) = true →
+    c.env.isNonRecStructure w.induct = true →
+    ∃ (D : VInductDecl') (j : Nat) (T : VIndType) (C : VIndCtor) (us : List VLevel)
+      (ps args : List VExpr) (B : VExpr),
+      c.venv.IsStructureG w.induct D j T C ∧ C.name = f ∧ T.indices = [] ∧
+      C.recFields = [] ∧
+      us.length = D.uvars ∧ (∀ l ∈ us, l.WF c.lparams.length) ∧ ps.length = D.np ∧
+      w.numParams = D.np ∧ C.fields.length = w.numFields ∧
+      args.length = C.fields.length ∧
+      c.venv.HasArgs c.lparams.length c.vlctx.toCtx (D.params.map (VExpr.instL us)) ps ∧
+      c.venv.HasType c.lparams.length c.vlctx.toCtx t'
+        ((VExpr.const w.induct us).mkApp ps) ∧
+      (D.isLE = true ∨ ∀ k, k < C.fields.length →
+        (C.fields.getD k default).lvl.inst us ≈ .zero) ∧
+      s' = (VExpr.const C.name us).mkApp (ps ++ args) ∧
+      c.venv.HasType c.lparams.length c.vlctx.toCtx (VExpr.const C.name us)
+        (VExpr.mkPi (D.params.map (VExpr.instL us) ++
+          C.fields.map (fun F => VExpr.instL us F.type)) B) ∧
+      VExpr.instAll B (ps ++ D.projAllG T C us ps j t') = (VExpr.const w.induct us).mkApp ps ∧
+      (∀ k, k < C.fields.length →
+        c.venv.HasType c.lparams.length c.vlctx.toCtx (D.projTermG T C us ps [] k j t')
+          (VExpr.instAll ((C.fields.getD k default).type.instL us)
+            (ps ++ (List.range k).map fun m => D.projTermG T C us ps [] m j t'))) ∧
+      (∀ i (_ : i < s.getAppArgs.size), w.numParams ≤ i → ∀ st : VState,
+        RecM.WF c st (isDefEq (.proj w.induct (i - w.numParams) t) s.getAppArgs[i])
+          fun b _ => b → c.IsDefEqU (D.projTermG T C us ps [] (i - w.numParams) j t')
+            (args.getD (i - w.numParams) default))
+
+/-- **The `TrExprS` pair implies the call's postcondition** — one `isDefEq.WF` per iteration and
+nothing else, so this is the whole of the swap's cost.
+
+**Hole-free** (cone 9592, no `sorryAx`), but *not* axiom-free: it carries `Classical.choice` and
+the three frozen `Lean.*` axioms of guard 1's whitelist (`Lean.Expr.eqv_eq`,
+`Lean.Level.instLawfulBEqLevel`, `Lean.Syntax.structEq_eq`), all of them through `isDefEq.WF`.
+That is the same set `WF_of_structEtaG` already carried, so nothing new is trusted here. -/
+theorem EtaStructSpineG.toCall {c : VContext} {t s : Expr} {t' s' : VExpr}
+    (hbr : EtaStructSpineG c t s t' s') : EtaStructSpineGC c t s t' s' := by
+  intro f w h1 h2 h3 h4
+  obtain ⟨D, j, T, C, us, ps, args, B, hIS, hCname, hidx, hrec, hus, huswf, hps, hnp, hnfl,
+    hargl, hpsA, hty1, hF17, hs'eq, hctor, hB, hprojty, hiter⟩ := hbr h1 h2 h3 h4
+  refine ⟨D, j, T, C, us, ps, args, B, hIS, hCname, hidx, hrec, hus, huswf, hps, hnp,
+    hnfl, hargl, hpsA, hty1, hF17, hs'eq, hctor, hB, hprojty, fun i hi hge _ => ?_⟩
+  obtain ⟨hp, hq⟩ := hiter i hi hge
+  exact isDefEq.WF hp hq
+
+/-- **The GC bridge is satisfiable today, vacuously** — established rather than asserted, since
+an unproved claim of vacuity is worth nothing (ledger §0, blindness 4).
+
+The route is `tryEtaStructCore_never_true`'s: a translated `s` puts its head constant in
+`c.venv`, and `TrEnv.not_ctorInfo` then forbids `c.env.find?` from answering `.ctorInfo` while
+`AddInduct` is empty.  So the second premise is refuted and every instance is vacuous — exactly
+the status `EtaStructSpine`'s docstring records for the narrow bridge, and unchanged by the
+swap.  This is *why* `WF_of_structEtaGC` does not fire: its remaining hypothesis
+`c.venv.StructEtaG` is an abstract rule nothing discharges. -/
+theorem EtaStructSpineGC.today {c : VContext} {t s : Expr} {t' s' : VExpr}
+    (hs : c.TrExprS s s') : EtaStructSpineGC c t s t' s' := by
+  intro f w h1 h2 _ _
+  obtain ⟨us, heq⟩ := h1
+  obtain ⟨f', hf⟩ := head_tr hs
+  rw [heq] at hf
+  let .const hc _ _ := hf
+  exact absurd h2 fun hh => c.trenv.not_ctorInfo ⟨_, hc⟩ hh
+
+/-- **`tryEtaStructCore.WF` from the GC bridge.**
+
+`WF_of_structEtaG`'s proof with **one line changed**: `refine (hiter a hlt hge ss).bind …` in
+place of destructuring the pair and calling `isDefEq.WF`.  Measured axiom set: **identical to
+`WF_of_structEtaG`'s**, and the same four holes (`weakN_iff`, `forallE_inv_stratified`,
+`rigidShapeUniqNS`, `NormalEq.descend`), and the cone is the **same size**, 12439 — the GC
+bridge's statement adds the executable `isDefEq` and the `RecM.WF`/`Methods.WF` layer, all of
+which `WF_of_structEtaG`'s own proof already reached.
+
+**Read this together with `EtaStructSpineGC`'s docstring, which says what it is worth.**  The
+statement is strictly stronger than `WF_of_structEtaG` (weaker hypothesis, by `toCall`), and its
+hypothesis is not refuted at a member of a mutual block.  It is still not satisfiable there,
+because `isDefEq.WF` is the only producer of the conjunct and it asks for the refuted pair.  The
+wall has moved from satisfiability to discharge; it has not come down. -/
+theorem tryEtaStructCore.WF_of_structEtaGC {c : VContext} {s : VState}
+    (he₁ : c.TrExprS e₁ e₁') (he₂ : c.TrExprS e₂ e₂')
+    (hSE : c.venv.StructEtaG) (hbr : EtaStructSpineGC c e₁ e₂ e₁' e₂') :
+    RecM.WF c s (tryEtaStructCore e₁ e₂) fun b _ => b → c.IsDefEqU e₁' e₂' := by
+  have hget : ∀ {name}, (c.env.get name).WF fun ci => c.env.find? name = some ci := by
+    intro name; simp [Kernel.Environment.get]; split <;> [refine .pure ‹_›; exact .throw]
+  unfold tryEtaStructCore
+  split <;> [skip; exact .pure nofun]
+  rename_i f us heq
+  refine .getEnv <| (M.WF.liftExcept hget).lift.bind fun ci _ _ hci => ?_
+  split <;> [skip; exact .pure nofun]
+  rename_i fInfo hfi
+  split <;> [skip; exact .pure nofun]
+  rename_i hnum
+  split <;> [skip; exact .pure nofun]
+  rename_i hnrs
+  obtain ⟨D, j, T, C, us', ps, args, B, hIS, hCname, hidx, hrec, hus, huswf, hps, hnp, hnf,
+    hargl, hpsA, hty1, hF17, he₂eq, hctor, hB, hprojty, hiter⟩ := hbr ⟨us, heq⟩ hci hnum hnrs
+  refine (inferType.WF he₁).bind fun _ _ _ ⟨_, _, _, ht1, _⟩ => ?_
+  refine (inferType.WF he₂).bind fun _ _ _ ⟨_, _, _, ht2, _⟩ => ?_
+  refine (isDefEq.WF ht1 ht2).bind fun b _ _ _ => ?_
+  split <;> [skip; exact .pure nofun]
+  simp only [Std.Legacy.Range.forIn'_eq_forIn'_range']
+  refine (RecM.WF.forIn'Prefix
+    (Inv := fun ys st _ => st.1 = none ∧ ∀ a ∈ ys,
+      c.IsDefEqU (D.projTermG T C us' ps [] (a - hfi.numParams) j e₁')
+        (args.getD (a - hfi.numParams) default))
+    (Br := fun st _ => st.1 = some false)
+    (pre := []) ?_ ⟨rfl, nofun⟩).bind fun r _ _ hr => ?_
+  · intro ys a ha bb ss ⟨_, hb2⟩
+    have hlt : a < e₂.getAppArgs.size := by simp [List.mem_range'] at ha; omega
+    have hge : hfi.numParams ≤ a := by simp [List.mem_range'] at ha; omega
+    refine (hiter a hlt hge ss).bind fun _ _ _ hres => ?_
+    split
+    · rename_i hrt
+      refine .pure ⟨rfl, ?_⟩
+      intro x hx
+      simp at hx
+      rcases hx with hx | rfl
+      · exact hb2 x hx
+      · exact hres hrt
+    · exact .pure rfl
+  · rcases hr with ⟨h1, h2⟩ | h1
+    · rw [h1]
+      refine .pure fun _ => ?_
+      have hkey : ∀ k, k < C.fields.length →
+          c.IsDefEqU (D.projTermG T C us' ps [] k j e₁') (args.getD k default) := by
+        intro k hk
+        have hmem : hfi.numParams + k ∈
+            [] ++ List.range' hfi.numParams [hfi.numParams:e₂.getAppArgs.size].size := by
+          simp [List.mem_range']
+          have hsz : e₂.getAppArgs.size = hfi.numParams + hfi.numFields := by
+            have h0 : e₂.getAppArgs.toList.length = e₂.getAppNumArgs := by
+              rw [Expr.getAppArgs_toList_rev, List.length_reverse, ← Expr.getAppNumArgs_eq]
+            simp only [Array.length_toList] at h0
+            rw [h0]; simpa using hnum
+          omega
+        simpa using h2 _ hmem
+      exact ⟨_, he₂eq ▸ hSE.congrProj hIS hidx hrec hus huswf hps hpsA hty1 hF17 hargl
+        hprojty hkey hctor hB c.Ewf c.Δwf⟩
+    · rw [h1]; exact .pure nofun
+
 end TypeChecker.Inner
 
 /-! ## Audit
@@ -788,6 +998,8 @@ counterpart**, declaration for declaration:
 | `TrProj.isStructure`, `MutField.projCoreG_arity_right_here`, `bCtor_field_prop` | `[propext, Quot.sound]` | — |
 | `EtaStructSpine.toG` | `+ sorryAx, Classical.choice` | — |
 | `tryEtaStructCore.WF_of_structEtaG` | `+ sorryAx, Classical.choice, Lean.Expr.eqv_eq, Lean.Level.instLawfulBEqLevel, Lean.Syntax.structEq_eq` | `WF_of_structEta`: **identical, including the three `Lean.*` ones** |
+| `EtaStructSpineG.toCall`, `EtaStructSpineGC.today` | `[propext, Classical.choice, Quot.sound, Lean.Expr.eqv_eq, Lean.Level.instLawfulBEqLevel, Lean.Syntax.structEq_eq]` — **no `sorryAx`**, but three **frozen** axioms of guard 1's whitelist, all via `isDefEq.WF` | — |
+| `tryEtaStructCore.WF_of_structEtaGC` | `+ sorryAx, Classical.choice, Lean.Expr.eqv_eq, Lean.Level.instLawfulBEqLevel, Lean.Syntax.structEq_eq` | `WF_of_structEtaG`: **identical, axiom for axiom and hole for hole** |
 
 **Hole cones** (transitive `getUsedConstantsAsSet` sweep, filtered to declarations whose value
 mentions `sorryAx`).  **No new hole anywhere:**
@@ -811,6 +1023,9 @@ mentions `sorryAx`).  **No new hole anywhere:**
 | `MutField.projCoreG_arity_right_here` | 1528 | none |
 | `TrProj.isStructure` | 690 | none |
 | `trProj_at_MutField_needs_other_block` | 993 | none |
+| `EtaStructSpineG.toCall` | 9592 | none |
+| `EtaStructSpineGC` (the definition) | 3130 | none — and it contains **no `TrProj`, no `TrExprS`, no `VEnv.IsStructure`**, where `EtaStructSpineG`'s cone contains all three |
+| `tryEtaStructCore.WF_of_structEtaGC` | 12439 | **the same four as `WF_of_structEtaG`**, and the same cone size |
 
 `StructEtaG.congrProj`'s single hole is `HasArgsDF.ofMap`'s, i.e. the narrow `congrProj`'s, and the
 G-version's cone is eleven constants larger purely because `projTermG` is a longer definition than
@@ -861,6 +1076,28 @@ not uniform.**
 
 So the count of residual hypotheses of `tryEtaStructCore.WF` is unchanged at **two**, one of them
 is no longer refuted by the mutual-block witness, and the remaining obstruction has moved from
-`IsStructure` in the bridge to `IsStructure` in `TrProj`. -/
+`IsStructure` in the bridge to `IsStructure` in `TrProj`.
+
+**And the `GC` block, labelled honestly** (ledger row 107).  `EtaStructSpineGC` /
+`EtaStructSpineG.toCall` / `WF_of_structEtaGC` replace the per-iteration `TrExprS` pair by the
+`isDefEq` call's own postcondition, which is the only thing `WF_of_structEtaG` ever reads off it.
+
+* *What is measured*: `toCall` is hole-free; `WF_of_structEtaGC`'s axiom set and hole set are
+  identical to `WF_of_structEtaG`'s; and `EtaStructSpineGC`'s cone mentions none of `TrProj`,
+  `TrExprS`, `VEnv.IsStructure`, so `TrProj.isStructure` cannot refute it.
+* *What that is worth*: **a refuted hypothesis becomes a not-refuted one.**  It is a
+  **relocation of the wall from the bridge's satisfiability to the bridge's discharge**, not a
+  repair: `isDefEq.WF` is the only WF lemma for `isDefEq`, its contract still asks for a
+  `TrExprS` per argument, and so the only route to the GC conjunct is `toCall` — from the very
+  pair that is refuted.  **No proof fires that did not fire before.**
+* *Instrument 7, both directions.*  Satisfiability: `EtaStructSpineGC.today` proves the
+  hypothesis holds for every `c` and every translated `s`, vacuously, by `TrEnv.not_ctorInfo` —
+  so `WF_of_structEtaGC` is not vacuous as an implication, and its one remaining hypothesis is
+  `c.venv.StructEtaG`.  The dual (a weakened hypothesis that is trivially true): `RecM.WF` is
+  partial correctness and quantifies over `Methods.WF`, so the conjunct is also met by a call
+  that *throws* — but `Methods.WF` is inhabited (`Methods.withFuel.WF`), so the quantifier is
+  not empty and the conjunct is not trivially true.  The one qualifier the swap needs: the cone
+  does contain `TypeChecker.Methods.WF`, whose **fields** mention `c.TrExprS` in *negative*
+  position; "mentions no translation relation" is a claim about what the predicate asserts. -/
 
 end Lean4Lean

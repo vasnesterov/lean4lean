@@ -1,5 +1,39 @@
 # Handoff: the projection cluster
 
+## STALE — corrections of 2026-09-01, read before §0**
+
+* **§0\*\*.7 items 1–2 are CLOSED.** `iota_law_gen` (the ι rule at an arbitrary constructor of an
+  arbitrary block, with `hnm`, `hnmin`, `hTd` and `hrec` **all four dropped** and `IsStructure`
+  replaced by the four facts it was used for) and `realMinor_app` (which needed **no** induction and
+  no structure predicate) are both proved and **hole-free**, in `Theory/Inductive/IotaGen.lean` and
+  `Verify/Typing/ProjGenMinor.lean`. Cones 3034 and 2088; the generalisations cost nothing against
+  their narrow counterparts, and both collapse into them.
+* **§0\*\*.7 item 4's dependency ordering is WRONG, and this is the most useful correction here.**
+  It says block B "needs `projCoreG_hasType`, which needs `hiota`". The two are **entangled, not
+  ordered**: `hiota` runs through the ι law, whose `hspine` needs part of block B — the minor
+  block's typing, the *real* minor included. The narrow proof resolves this by **strong induction on
+  the field index** (`projMinor_hasType`'s `Nat.strongRecOn`, whose `IHmin` supplies the minor typing
+  at *earlier* fields only). **So the generalisation cannot be split into "prove `hiota`, then block
+  B" — it must be one strong induction carrying `ProjHasTypeG` and the minor typing together.**
+  Attempting `hiota` alone circles.
+* **What remains, as two statements rather than a difficulty.** (1) `padMinors_getElem_eq` **does not
+  exist**: nothing says minor `q` of `projCoreG`'s block *is* the corresponding `realMinor` — the
+  motive block has `padMotives_getElem_eq`/`_ne`, the minor block has no counterpart, and that is
+  exactly `iota_law_gen`'s `hminor` premise. (2) **Neither padded block has a `HasArgs`**: individual
+  entries are typed (`padMotive_hasType`, `padMinor_hasType'`, `realMinor_hasType_atPadMotives`) but
+  nothing assembles the spine at `nm ≥ 2`, and the narrow route builds it from `motives_eq`/
+  `minors_eq`, both of which assert **singletons**.
+* **§0\*\*.1's left column carries a stale name.** The open lemma is `realMinor_app` (now closed);
+  `projMinor_app` exists and is proved in `Theory/Inductive/StructureClosed.lean`.
+* **§0\*\*.8's "budget a full round" for step 1 was too pessimistic:** `iotaLhs_hasType`,
+  `iotaLamBody_hasType`, `iotaLam_hasType` and `onCtxIota` were **already general** in `j` and `q`.
+  Only three *computation* lemmas plus the `IsStructure` packaging were narrow.
+* **Two hypotheses of the narrow `iota_law` are dead**, found by the collapse test:
+  `h7 : ∀ l ∈ us, l.WF U` is unused, and `hTd` follows from `H.types`. Kept as `_h7`/`_hTd` so the
+  collapse stays hypothesis-for-hypothesis.
+* **Census figures in this file are stale**: the current count is **13** declarations directly
+  containing `sorryAx`, not 19.
+
 **Census: 19 → 19** (`lake env lean scripts/sorry-census.lean`, run at the start *and* at the
 end of the round; the same 19 names).  No hole closed, none added.  `scripts/dup-names.lean`:
 no duplicates across the joined cone, at both ends.  All three `Verify/Guard.lean` checks

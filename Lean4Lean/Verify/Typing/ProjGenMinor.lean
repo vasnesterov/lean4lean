@@ -1,4 +1,5 @@
 import Lean4Lean.Verify.Typing.ProjGenBeta
+import Lean4Lean.Theory.Inductive.IotaGen
 
 /-!
 # The real minor premise, at an arbitrary block member and with recursive fields
@@ -23,6 +24,25 @@ index* generalisation of the ι-law/swap chain, which is a different axis.  See
 
 What is left is `realMinor_hasType_gen'`'s `hiota` premise, and it mentions neither `nr` nor
 `q` nor `ihTypes` — see `docs/handoff-projections.md` §0*.7 item 1.
+
+## `realMinor_app`, added 2026-09-01
+
+`docs/handoff-projections.md` §0**.7 item 2 named `realMinor_app` as open and it was: the
+name occurred nowhere in the tree as a declaration.  (§0**.1's left column calls the same
+row `projMinor_app`, which **is** proved, in `Theory/Inductive/StructureClosed.lean` — the
+row is about its *real-minor* counterpart.)  It is now below, together with
+`projMinor_app_of_realMinor_app`, the collapse test that recovers `projMinor_app`'s statement
+hypothesis for hypothesis at `C.recFields = []`.
+
+It needed no induction and no `IsStructure`: the ih block is simply the tail of the spine
+that `instAll_bvar_get` walks past, so the field lookup is the same one `projMinor_app` does
+at a longer substitution.  Axioms `[propext, Quot.sound]`, cone 2088, **no holes** — the same
+set as `projMinor_app`'s (cone 2034).
+
+The import of `Theory/Inductive/IotaGen.lean` above is deliberate and is not used by any
+proof in this file yet: it is what puts that file — the general ι law, this cluster's other
+open lemma — inside `Lean4Lean/Experimental/ConeJoin.lean`'s closure, which this module
+already sits in.  Without it both census instruments would be blind to a new leaf.
 -/
 
 namespace Lean4Lean
@@ -234,6 +254,66 @@ theorem realMinor_hasType_atPadMotives (henv : env.Ordered) (H : D.ProjClosedG)
     (D.padMotives_getElem_eq T C us ps is i j earlier e hjlt) hps
     (D.length_padMotives T C us ps is i j earlier e) hacc hjlt hi hΓ hdecl hiota
 
+
 end VInductDecl'
+
+
+/-- **`projMinor_app` for the real minor**: the minor premise
+`fun f₀ … f_{nf-1} ih₀ … ih_{nr-1} => fᵢ` applied to a fields-and-ih spine β-reduces to field
+`i`. -/
+theorem VInductDecl'.realMinor_app (henv : env.Ordered)
+    {lvls : List VLevel} {i q : Nat} {Γ spine fs ihs : List VExpr} {B : VExpr}
+    (hi : i < C.fields.length) (hfs : fs.length = C.fields.length)
+    (hOn : OnCtx
+      ((VExpr.instAllTele ((D.minorBinders q C).map (VExpr.instL lvls)) spine).reverse ++ Γ)
+      (env.IsType U))
+    (hA : env.HasArgs U Γ
+      (VExpr.instAllTele ((D.minorBinders q C).map (VExpr.instL lvls)) spine) (fs ++ ihs))
+    (hb : env.HasType U
+      ((VExpr.instAllTele ((D.minorBinders q C).map (VExpr.instL lvls)) spine).reverse ++ Γ)
+      (.bvar ((VExpr.instAllTele ((D.minorBinders q C).map (VExpr.instL lvls)) spine).length
+        - 1 - i)) B) :
+    env.IsDefEq U Γ ((D.realMinor lvls spine i q C).mkApp (fs ++ ihs)) (fs.getD i default)
+      (VExpr.instAll B (fs ++ ihs)) := by
+  have hΘ : (VExpr.instAllTele ((D.minorBinders q C).map (VExpr.instL lvls)) spine).length
+      = (D.ihTypes q C).length + C.fields.length := by
+    rw [VExpr.length_instAllTele, D.length_minorBinders_map q C lvls]
+  have hlen : (fs ++ ihs).length
+      = (VExpr.instAllTele ((D.minorBinders q C).map (VExpr.instL lvls)) spine).length :=
+    hA.length_eq.symm
+  have hget : (fs ++ ihs)[i]? = some (fs.getD i default) := by
+    rw [List.getElem?_append_left (by omega), List.getElem?_eq_getElem (by omega)]
+    simp [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem (show i < fs.length by omega)]
+  have h := VEnv.IsDefEq.betaMkLams henv hOn hA hb
+  rw [VExpr.instAll_bvar_get hget (by omega)] at h
+  simpa [VInductDecl'.realMinor] using h
+
+/-- **Collapse test: `projMinor_app` is `realMinor_app` at no recursive fields.**
+`projMinor_app`'s statement (`Theory/Inductive/StructureClosed.lean`), hypothesis for
+hypothesis, derived from `realMinor_app` with `ihs = []`. -/
+theorem VInductDecl'.projMinor_app_of_realMinor_app {env : VEnv} {U : Nat}
+    {D : VInductDecl'} {C : VIndCtor} (henv : env.Ordered)
+    {us lvls : List VLevel} {i q : Nat} {Γ ps mots acc fs : List VExpr} {B : VExpr}
+    (hrec : C.recFields = []) (hmots : mots.length = D.nm) (hacc : acc.length = q)
+    (hself : D.selfLvls.map (VLevel.inst lvls) = us)
+    (hi : i < C.fields.length) (hfs : fs.length = C.fields.length)
+    (hOn : OnCtx
+      ((VExpr.instAllTele (C.fields.map fun F => F.type.instL us) ps).reverse ++ Γ)
+      (env.IsType U))
+    (hA : env.HasArgs U Γ (VExpr.instAllTele (C.fields.map fun F => F.type.instL us) ps) fs)
+    (hb : env.HasType U
+      ((VExpr.instAllTele (C.fields.map fun F => F.type.instL us) ps).reverse ++ Γ)
+      (.bvar (C.fields.length - 1 - i)) B) :
+    env.IsDefEq U Γ ((C.projMinor us ps i).mkApp fs) (fs.getD i default)
+      (VExpr.instAll B fs) := by
+  have hT := D.minorTele_norec (us := us) (ps := ps) (C := C) hrec hmots hacc hself
+  have hih : D.ihTypes q C = [] := by simp [VInductDecl'.ihTypes, hrec]
+  have h := D.realMinor_app (lvls := lvls) (spine := ps ++ mots ++ acc) (ihs := [])
+    (Γ := Γ) (B := B) henv hi hfs (by rw [hT]; exact hOn) (by rw [hT]; simpa using hA)
+    (by rw [hT]; simpa [VExpr.length_instAllTele, D.length_minorBinders_map q C lvls, hih]
+          using hb)
+  rw [D.realMinor_norec (us := us) hrec hmots hacc hself] at h
+  simpa using h
+
 
 end Lean4Lean
