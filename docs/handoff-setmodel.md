@@ -324,3 +324,205 @@ The brief asked whether a wall like the removed `Theory`/`Verify` one exists aro
 | `Lean4Lean/Theory/Equiconsistency.lean` | added `inconsistent_of_upper_bound`, `upper_bound_of_equiconsistent`. The pre-existing `sorry` at :45 is untouched. |
 
 No frozen file was read for anything but its statement, and none was edited.
+
+## 7. Session of 2026-09-01: the recorded obstruction was misattributed, and the `.induct` residual closed twice
+
+**Written by the orchestrator from the stream's reports, not by the stream** — that agent was killed
+by an API error immediately before writing this section, having just noted that two of the line
+numbers it was about to use were off by one. Every claim below is machine-checked in the named
+declaration and the headline theorems were independently re-verified with `#print axioms`. Per
+ledger row 90, citations here name **declarations**, not lines.
+
+### 7.1 The obstruction on record was wrong at the level of a type
+
+§2 of this file, and `StableAudit.lean`, recorded a candidate refutation of `PropDescend.sort_inst`
+and said it was blocked on `IsDefEqU.sort_forallE_inv`, flagged as **stated but not
+machine-checked**. It was briefed to three separate streams on that basis. **It does not work, and
+the blockage is not `sort_forallE_inv`.**
+
+The note claimed `B.inst e₀ 0`'s inner head `(fun p : Prop => p) falseProp` "has type
+`falseProp = ∀ p : Prop, p`, a Π-type, so the outer application types". **Its type is `Prop`** —
+exactly like `(bvar 0) falseProp` at `Γ₁`. In `Theory/SetModel/InstDescendAudit.lean`:
+
+- `w_head_unsubst`, `w_head_subst` — the two typings, both at `.sort .zero`;
+- `w_head_inst` — the instantiation identity, by `rfl`;
+- `w_types_of_sortPiConv` — **one** `Prop ≡ Π` hypothesis derives **both** typings.
+
+So the witness is **symmetric**: whatever settles `sort_forallE_inv` settles both sides together,
+and **no disposition of it can make this witness refute `sort_inst`.** `sort_inst` remains open;
+what is gone is the recorded reason for believing it refutable — and with it the reason to feed a
+`sorryAx`-tainted lemma into this corner at all. Corrected in place in `StableAudit.lean`.
+
+*Lesson, and it is the orchestrator's:* a claim flagged "stated but not machine-checked" in a file
+this layer owns was quoted as an obstruction three times. **A `[not machine-checked]` flag is a
+request to check, not a citation.**
+
+### 7.2 The level condition in the residual is free
+
+`SortInstDescend0` is `sort_inst` with the conclusion's `v.eval ls = 0` dropped.
+`sortInstDescend_iff` proves the two **equivalent** given `Ordered` and `PropUniq` — both of which
+`modelFits_of_propSplitUp_inputs` already assumes. Bounded both ways as ledger rows 51/77b/82b
+demand: `→` is projection; `←` forward-substitutes the descended typing and compares the two sorts,
+which works because `PropSplitAudit.PropUniq` is **pointwise in `ls`** rather than the `≈` form.
+`sortInstDescend0_nonvacuous` checks neither side is empty, at `k = 0` so the substitution genuinely
+substitutes.
+
+**So the entire content of the residual is typeability descent. None of it is about levels.**
+
+### 7.3 The model side and the syntactic side do share a residual — but not the one on record
+
+Walking `SortInstDescend0`'s cases:
+
+| case | status |
+| --- | --- |
+| `.sort`, `.const`, `.bvar i (i ≠ k)` | free — substitution is the identity, or the lookup transports |
+| **`.bvar k`** | **uniqueness of typing for `e₀`** |
+| `.forallE`, `.app`, `.lam` | **inversion at a sort** |
+
+`sortInstDescend0_bvar_forces_sort` is the machine-checked half: from `e₀ : A₀` and `e₀ : Sort u`
+the residual demands a sort for `.bvar 0` at `A₀ :: Γ₀`, whose only type is `A₀.lift`
+(`bvar0_type_is_lift`). That is `UniqueTyping`-strength. The three syntactic cases need inversion
+because the premise's derivation need not have the matching rule at its root — `defeqDF`, `trans`
+and `proofIrrel` all apply.
+
+Both are downstream of the same injectivity work as `sort_forallE_inv` but are **different
+statements** from it. **No equivalence with `UniqueTyping` is claimed** — only that one instance of
+the residual demands its content.
+
+*Bearing of concurrent work, stated as a question rather than an answer:* the syntactic side's sort
+residual has since been reduced to `SortMidNonSort` + `SortNotProof`, both *descent* statements, and
+`docs/critical-path.md` §"The convergence" prices those as instances of one fact plus
+Church–Rosser. Whether that reaches this residual has **not** been checked. Do not assume it does.
+
+The orchestrator's suggested lever — `DeclRules.WF.instL_lhs_ne_forallE` / `WF.piPi_extra_closed`,
+on the grounds that the model side always has `VEnv.WF` — **is not the lever**: the `extra` case was
+never the residual on either side, and `VEnv.WF` does not supply inversion.
+
+### 7.4 The `.induct` residual: closed at the small eliminator, then at the large one
+
+Both in `Theory/SetModel/UnitOracleWitness.lean` and `Theory/SetModel/UnitOracleLarge.lean`, and
+both `Above`-free at arbitrary `κ` — every proof through `Above.pure`, **no `κ` chosen anywhere**.
+
+- **Small.** `unitDecl_WF` (`inductive Unit1 : Prop | mk`) is `WF` over the **empty** environment —
+  unlike `boxDecl`, no ambient constant is needed — and `inductOracleOK_unit` proves both
+  `InductOracleOK` fields. Anti-vacuity both ways: no telescope that could be empty,
+  `interp_Unit1_ne_empty`, a hypothesis-free true motive, a non-empty minor domain, non-nil
+  ι-rules.
+- **Large.** `unitDeclLE_WF` is the block Lean **actually** declares (`isLE := true`, permitted here
+  because the constructor has no fields), and `inductOracleOKL` proves both fields at **both level
+  slices**. `recFnL_beta` makes the ι-rule's left side really apply the oracle's value and reduce to
+  the minor premise; the right side is the η-expanded β-redex `iotaRule` builds, reducing to the
+  same. **Nothing about the rule ever wanted the value to be `•`.** And
+  `interpL_unitRule_sides_of_zero`: at a `Prop` instantiation every binder of `recType` is
+  propositional again, so large elimination **into `Prop`** collapses to the small case. Both slices
+  non-empty (`exists_eq_zero_level`, `exists_ne_zero_level`), so the split is real.
+
+**The finding to keep: the oracle's level branch is FORCED, not a convenience.**
+`pt_not_mem_interpL_recType_of_ne` excludes `•` at `n ≠ 0` *given any inhabitant of the motive
+space*, while at `n = 0` the type is a proposition whose only element is `•`. So **no level-uniform
+oracle value exists for a large eliminator** — the model-side shadow of `Prop`'s collapse. The
+inhabitant hypothesis is load-bearing, not cosmetic: a junk `κ` with `U κ n = ∅` empties the motive
+space and `recFnL κ n` collapses to `∅ = •`, forcing nothing. Hence the statement is **conditional**
+rather than at a chosen `κ`.
+
+### 7.5 Two forecasts from this layer's own docstrings, both wrong in the same direction
+
+`InductOracleWitness.lean` predicted `SetModel/IndInterp.lean` would be needed — first for the small
+case, then for the large one. **Both false, both corrected in place.** What needs the fixed point is
+a block with **recursive fields**, and neither `unitDecl` nor `unitDeclLE` has any. Four reusable,
+`interp`-free lemmas carried the large case instead, of which one removes a real structural
+obstacle:
+
+- `mkLam_mem_mkForallType_of_dom` — lands `mkLam` in `mkForallType` when the domains merely **agree
+  at the valuation**. `InterpSound.mkLam_mem_mkForallType` demands the same *term*, which is
+  impossible here: **the oracle's value cannot mention `interp`, because `interp` reads `M.cnst`.**
+- `mkForallType_singleton_const` — a `∀` over a singleton domain with constant codomain **is** the
+  function space.
+- `mem_mkForallType_of_graph`, `mkLam_ext`.
+
+**The frontier, re-recorded:** not large elimination, not "an inhabited domain" — both closed. It is
+a block with **recursive fields** (needs `IndInterp.lean`) or with **parameters/indices**.
+
+### 7.6 The model import, unhedged
+
+`modelFits_of_propSplitUp_inputs` needs `Ordered`, `PropUniq 0`, `PropTypeAgree 0`,
+`InstDescendUp 0` and `OracleFits`.
+
+- `PropTypeAgree 0` is **irreducible**: `NotProofNoModel.nonempty_propSplit_iff_agree` makes
+  `Nonempty (PropSplit env nv)` equivalent to `PropUniq nv ∧ PropTypeAgree nv`, so **no choice of
+  predicate removes it**, the `propSplitUp` route included. It is the real unique-typing content.
+  Do not spend a round there.
+- `InstDescendUp 0` is **not closed** (§7.2, §7.3).
+- Input A is **discharged** — `inaccModelInput` is a theorem (`ModelExists.lean`).
+- `ModelFitsLeanInput` cannot be refuted by an `.axiom` step any more
+  (`axiom_mem_pureOverPrelude`), so any refutation must come from an `.induct` step at a `WF` block
+  with an uninhabited declared constant — which is why §7.4 matters beyond bookkeeping. **But
+  `ModelFitsVacuous.lean`'s own disclaimer lists TWO unknowns and this is only the second.** The
+  first is independent and untouched: `ModelFits` demands a `PropSplit env 0` with `L.Stable`, and
+  **the tree exhibits none unconditionally** — `exists_stable_propSplit` takes `PropTypeAgree 0` and
+  `PropDescend nv`, i.e. exactly the open inputs.
+- One thing that *looks* like a vacuity and is not: `exists_stable_propSplit`'s hypothesis
+  `∃ e, HasType 0 [] e falseProp` appears to demand an inhabitant of `∀ p : Prop, p`, i.e.
+  inconsistency. It is the **goal's own** hypothesis — `kernel_sound` is proved by refuting "the
+  kernel accepts a proof of `False`" — so it is free wherever the reduction is consumed.
+
+### 7.7 Tried and failed, with the failing step
+
+1. **The recorded `sort_inst` refutation** — symmetric; §7.1. *Three briefs pointed at a
+   non-obstruction.*
+2. **`WF.instL_lhs_ne_forallE` as the lever for `InstDescendUp`** — the `extra` case was never the
+   residual, and `VEnv.WF` does not supply inversion.
+3. **`IndInterp.lean` for `Unit1`, twice** — §7.5; the fixed point is needed only for recursive
+   fields.
+4. **`sort_not_proof` via the interpretation** — `NotProofNoModel.sortNotProof_of_propSplit` already
+   gets it from `PropSplit` with no interpretation, dominating any model construction.
+5. **Structure-level two-way bounds** — ledger row 11a is this directory's own case:
+   `inductOracleOK_empty` sits at the block with *no* type formers, whose `allConsts` is `[]`, so
+   its `staged` is `True` and the bound said nothing about the field that was refuted. **Bound field
+   by field.**
+
+### 7.8 Traps of this directory
+
+- **`Above M P := ∃ m, IsInaccessibleChain m M.κ → P`** is vacuously true at a `κ` that fails to be
+  a chain, and such a `κ` exists (`not_isInaccessibleChain_const`). Positive bounds must factor
+  through `Above.pure`, be wrapper-stripped, or be `∀ κ` — **never** choose one. (Audited: no claim
+  in the tree exhibits the worthless shape.)
+- **`interpCtx M L [∀ p : Prop, p]` is empty in every model**, so a hypothesis quantifying over
+  `ρ ∈ interpCtx` for all `Γ` can be vacuous (`sortInvSupply_vacuous`).
+- The field is **`CoherentOn.const_type`** (`Coherent` is docstring-only) and it constrains `M.cnst`
+  by **membership only**.
+- **`coherentOn_witness` certifies coherence at an environment the induction never visits** — prefer
+  `axEnv_wf'` or `boxDecl_history`.
+- `InaccChainOmega.lean` installs two global instances; `ModelExists.lean` has **four** `instance`
+  declarations though its docstring says three.
+- **Never feed `IsDefEqU.sort_forallE_inv` into anything meant to be clean** — `sorryAx`, and its
+  cone contains both injectivity holes.
+- A **deliberate** duplication: `falsePropTy`/`falseProp_prop` in `InstDescendAudit.lean` duplicate
+  `Companion.lean`'s `falseProp_hasType` (identical proof). Pulling `Theory/Inductive/Companion.lean`
+  onto the model side to share two lines is the worse trade; the docstring records this. Do not
+  "fix" it.
+
+### 7.9 What to pick up first
+
+**`InstDescendUp 0`'s `.bvar k` case**, and treat it as the uniqueness-of-typing instance it is
+(§7.3) rather than as a descent problem — then decide, on evidence, whether the syntactic side's
+`SortMidNonSort`/`SortNotProof` reduction reaches the three syntactic cases. That question is open
+and this file does not answer it.
+
+**Do not** re-attack `PropTypeAgree 0` (irreducible), the `sort_inst` refutation (§7.1), or
+`IndInterp.lean` for a block without recursive fields (§7.5).
+
+### 7.10 Measured / read / not run
+
+**[measured]** this session: `#print axioms` on every new declaration in
+`InstDescendAudit.lean`, `UnitOracleWitness.lean`, `UnitOracleLarge.lean` — `[propext]`,
+`[propext, Quot.sound]` or `[propext, Classical.choice, Quot.sound]`, **no `sorryAx`**; guards 1–3
+all ✓ at each build.
+
+**[read]** off source, not run: the collision scans for the new files were plain greps over
+declaration headers, reported as such. One of them found the real `falseProp_hasType` clash.
+
+**[not run]** by the stream: `scripts/sorry-census.lean` and `scripts/dup-names.lean` — the tree was
+not quiescent. The orchestrator ran them at a quiescent commit: **census 13**, dup-names clean,
+build green. The Kernel Arena was **not** run this session; no implementation file changed, so the
+last recorded result stands — but *expected is not measured*.
