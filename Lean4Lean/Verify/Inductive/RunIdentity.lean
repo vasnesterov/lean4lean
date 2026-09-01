@@ -1157,6 +1157,21 @@ there below, and what is *not* tested is said explicitly.
   nested block at all — row 104b, `isNestedInductiveApp?` needs an `.inductInfo` that
   `VEnvs.WF.no_inductInfo` forbids — so `numNested` is always `0` here and nothing below is
   evidence about nesting.
+
+  **CORRECTION 2026-09-02 (`docs/vacuity-ledger.md` row 113a), and it is about the *conclusion*,
+  not the premises.**  Satisfiable premises are all this bullet ever claimed, and that reading
+  was too kind to what follows from it: at the very instance where the premises hold —
+  `[R10.Wit.uIndType]` from the empty environment — the `D` that witnesses the conclusion
+  **cannot be `R10.Wit.decl`**.  `AddInductStages` pins each stored recursor's
+  `levelParams.length` to `D.recUvars` (`r113a_addInductStages_recUvars`,
+  `Verify/Inductive/StagesFiring.lean`), which is `0` at `R10.Wit.decl`, and the run stores
+  `R10.Wit.U.rec` with `levelParams = [u]` (check R1, same file — `U : Type` makes
+  `isLargeEliminator` true, so `getElimLevel` returns a fresh `.param`).  The conclusion is
+  witnessed at `R113a.declLE = { R10.Wit.decl with isLE := true }`
+  (`R113a.addInductStages_firing`), and that is the tree's **first** instance of
+  `AddInductStages` whose output map is the one the executable builds.  So this bullet's
+  "premises satisfiable" is not evidence that the statement's `∃ D` can be met by the witness
+  bundle as it stood; `isLE = true` is forced.
 * **`not_addInductiveStepWF` / `not_addInductiveRunRealises`** — **now vacuous, deliberately.**
   Until 2026-09-01 §5.1's second `#eval` exhibited `hok` at the empty environment.  The guard
   removed that: `hok` is unsatisfiable (`Verify/ClosednessPropagation.lean`'s `rejectsNonClosed`

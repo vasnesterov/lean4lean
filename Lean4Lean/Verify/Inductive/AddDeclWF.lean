@@ -227,12 +227,26 @@ def AddInductiveObligation : Prop :=
           InductStepSafe env.constants env'.constants (ves.venv safety) (ves'.venv safety)
             lp np types
 
-/-! ### The obligation fires at a witness
+/-! ### `InductStepSafe` has a model — and it is **not** the checker's map
+
+**CORRECTED 2026-09-02 (`docs/vacuity-ledger.md` row 113a).**  This heading used to read "the
+obligation fires at a witness", and that is false: `AddInductiveObligation` is a statement about
+the constant map `Environment.addInductive` *produces*, and `inductStepSafe_wit` below exhibits an
+`m'` of `R10.Wit.addInductStages_wit`'s own making.  At `R10.Wit.decl` the two cannot be the same
+map: `AddInductStages` pins the stored recursor's `levelParams.length` to `D.recUvars`
+(`r113a_addInductStages_recUvars`, `Verify/Inductive/StagesFiring.lean`), which is `0` there
+(`isLE = false`, `uvars = 0`), while `AddInductive.run` stores `R10.Wit.U.rec` with
+`levelParams = [u]` — because `U : Type` makes `isLargeEliminator` true and `getElimLevel` returns
+a fresh `.param`.  So `AddInductStages … R10.Wit.decl … env'.constants …` is **false** for the
+`env'` the executable builds (`r113a_not_addInductStages_of_rec_lp` plus check R1 in that file),
+and `inductStepSafe_wit` is a satisfiability statement and nothing more.
+
+`R113a.inductStepSafe_firing` (same file) is the statement this heading used to promise: the same
+three conjuncts, at the repaired declaration `R113a.declLE = { R10.Wit.decl with isLE := true }`,
+with the output map the three `ConstantInfo`s the run really stores.  Read the two together.
 
 `InductFlip.lean`'s `R10.Wit` supplies `decl.WF VEnv.empty` and `AddInductStages`; what it
-did not supply is the *syntactic* half, so the two were never joined.  They are joined here:
-`inductStepSafe_wit` is a closed instance of `InductStepSafe`, so the obligation above is not
-vacuously satisfiable-looking — it has a model. -/
+did not supply is the *syntactic* half, so the two were never joined.  They are joined here. -/
 
 namespace R10.Wit
 
@@ -273,7 +287,13 @@ theorem trIndDecl_wit : TrIndDecl VEnv.empty [] 0 [uIndType] false decl where
       | 0, hc, hC => cases hc; cases hC; exact ⟨rfl, tr_uUnit h⟩
 
 /-- **`InductStepSafe` has a model.**  All three conjuncts at once, at the empty environment
-and any empty well-formed constant map. -/
+and any empty well-formed constant map.
+
+**Not a firing instance of `AddInductiveObligation`**: the `m'` here is the one
+`R10.Wit.addInductStages_wit` builds, which stores `R10.Wit.uRec` (`levelParams = []`), and the
+checker stores `levelParams = [u]` instead.  See the section heading, and
+`R113a.inductStepSafe_firing` (`Verify/Inductive/StagesFiring.lean`) for the version at the
+checker's own map. -/
 theorem inductStepSafe_wit {m : ConstMap} (hwf : m.WF) (hfr : ∀ n, m.find? n = none) :
     ∃ m' venv', InductStepSafe m m' VEnv.empty venv' [] 0 [uIndType] := by
   obtain ⟨m', venv', H, -, -, -, -, -⟩ := addInductStages_wit hwf hfr
