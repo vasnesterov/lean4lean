@@ -63,12 +63,25 @@ Three things to read off, none of which was on the record before:
 2. **The strengthening hole enters through exactly one step.**  Dropping to the `_onCtx`
    version removes `IsDefEqU.weakN_iff` from the cone: its only appeal is `OnCtx.weak'_inv`,
    recovering well-formedness of the smaller context.  Nothing in the projection data needs it.
-   (The sole consumer, `TrExprS.weakFV'_inv`, cannot supply `OnCtx Γ` today: it carries
-   `VLCtx.WF` for the *larger* context only.  So gate 1 is real — but it is one bookkeeping
-   step, not a mathematical obstruction inside the projection.)
+   **But that reduction does not survive contact with the consumer, and the parenthesis this
+   docstring used to carry here was false** — see §"Gate 1 is not a bookkeeping gap" below.
+   `TrExprS.weakFV'_inv` *can* supply `OnCtx Γ`, via `VLCtx.FVLift'.wf`, which it already
+   calls; and doing so re-imports `weakN_iff`, because `FVLift'.wf` is proved from
+   `VLocalDecl.weak'_iff`.  Measured: `TrProj.weakFV'_inv_of_strengthen`, the consumer-shaped
+   reduction, has cone 3729 with holes `{weakN_iff, forallE_inv_stratified,
+   rigidShapeUniqNS}`.  So 3628 is an artefact of looking at `weak'_inv` in isolation.
 3. **`rigidShapeUniqNS` is new to this family's `weak'_inv` route** and arrives with
    `HasArgs.of_mkApp` (`Theory/Typing/SpineInv.lean`), i.e. with Π-injectivity, not with
-   anything about constants.
+   anything about constants.  It is *not* new to anything downstream: `IsDefEqU.forallE_inv`
+   itself carries it (cone 3537), and it already reaches the sole consumer without passing
+   through `weak'_inv` at all —
+   `weakFV'_inv → TrExprS.uniq → TrProj.uniq → TrProj.uniq_of_projTermCongr →
+   IsStructure.spine_inv → constApp_inv_of_wf → patWF_of_wf → piInv_axiom →
+   IsDefEqU.forallE_inv → rigidShapeUniqNS`
+   (breadth-first search with `TrProj.weak'_inv` deleted from the graph).  `NormalEq.descend`
+   likewise reaches it, via `constApp_inv_of_patWF → IsDefEq.constApp_inv → church_rosser`.
+   So discharging the residual **does not widen the blocking set** of anything that consumes
+   this lemma; all four holes are already there.
 
 ## What is left, stated exactly
 
@@ -85,6 +98,35 @@ definitional equation is all that is wanted.  Two costs are known in advance and
 paid here: that route re-imports `NormalEq.descend` (false, so it needs `KDescend.lean`'s
 repair first), and its `ParRed.weakN_inv` step is the cycle entry `Theory/Typing/ParRedKWeakN.lean`
 analyses.  A direct proof avoiding both is the open question.
+
+## Round 2 (2026-09-01): the residual localised to one uninhabited binder
+
+Neither cost above needs to be paid to shrink the residual substantially.  Two results, both
+hole-free (`[propext, Classical.choice, Quot.sound]` only), both avoiding Church--Rosser,
+`NormalEq.descend`, `ParRed.weakN_inv`, `OnCtx.weak'_inv` and `IsDefEqU.weakN_iff` entirely:
+
+* `constAppTypeStrengthen_inhab` (cone 1156, no holes) — the residual **holds at every depth**
+  across any lift each of whose inserted binders is inhabited in the context below it
+  (`Ctx.InhabLift`), and then with `us' = us` on the nose and `as'` an explicit substitution
+  instance of `as`.  Mechanism: `VExpr.inst_liftN` undoes the lift, `VExpr.inst_mkApp` keeps the
+  head.  `Ctx.InhabLift.sorts` exhibits such lifts at **every** depth in **every** environment
+  (a `Sort 1` binder is inhabited by `Sort 0`), so this strictly extends
+  `constAppTypeStrengthen_depth_zero`, and `constAppTypeStrengthen_inhab_fires` shows the bound
+  is not vacuous at depth one.
+* `constAppTypeStrengthen_of_skipUninhab` (cone 1207, no holes) — the converse half of the same
+  case split, and a genuine **reduction**: `VEnv.ConstAppSkipUninhab`, which strips the
+  arbitrary `Ctx.Lift'` to a **single** binder `Ctx.LiftN 1 k` *and* lets that binder be assumed
+  **uninhabited in its own prefix**, implies the full residual.
+  `VEnv.ConstAppTypeStrengthen.skip_step` is the other direction pointwise, so nothing beyond
+  the residual's own `OnCtx Γ'` premise is given away.
+
+This is the move `Theory/Typing/Strengthen.lean` §12 already ran for `IsDefEqU.weakN_iff`
+(`Strengthening1Uninhab.strengthening1`, `strengtheningTarget_of_allInhabited`); what is new is
+that it applies to the projection residual as well.  The honest consequence is the same as there:
+the residual carries content exactly to the extent that **uninhabited** types over a `VEnv.WF`
+environment exist, and exhibiting one is itself open in this tree (`VEnv.Consistent` is a
+definition; `leanTTConsistent` is proved nowhere).  So "no witness exhibited" is not evidence
+either way — but any future attack may now assume one binder and no inhabitant.
 -/
 
 namespace Lean4Lean
@@ -223,3 +265,250 @@ theorem constAppTypeStrengthen_needs_lift {env : VEnv} {U : Nat} {c : Lean.Name}
   · rintro ⟨us', as', h⟩
     have := h.closedN henv (Γ := []) trivial
     simp [VExpr.ClosedN] at this
+
+/-! ## Gate 1 is not a bookkeeping gap: the sole consumer *can* supply `OnCtx Γ`
+
+`TrProj.weak'_inv_of_strengthen_onCtx` was described as localising the `IsDefEqU.weakN_iff`
+gate to one step, `OnCtx.weak'_inv`, on the ground that the sole consumer
+`TrExprS.weakFV'_inv` "cannot supply `OnCtx Γ`, it carries `VLCtx.WF` for the larger context
+only".  **That is false.**  `VLCtx.FVLift'.wf` (`Verify/Typing/Lemmas.lean:314`) turns
+`VLCtx.WF` for the larger context into `VLCtx.WF` for the smaller one, and
+`TrExprS.weakFV'_inv` *already calls it* — its `app` case reads
+`this.app_inv henv (W.wf henv hΔ₂).toCtx`.  So the consumer-shaped reduction below needs no
+`OnCtx.weak'_inv` at all.
+
+It also buys nothing, and that is the point worth recording.  `VLCtx.FVLift'.wf` is itself
+proved by `VLocalDecl.weak'_iff`, so its own measured hole cone is 3542 with holes
+`{IsDefEqU.weakN_iff, IsDefEqU.forallE_inv_stratified}`.  `weakN_iff` therefore reaches
+`TrExprS.weakFV'_inv` by a path that never touches `TrProj.weak'_inv`:
+
+    weakFV'_inv → VExpr.WF.weak'_iff → IsDefEqU.weak'_iff → IsDefEqU.weakN_iff
+
+(measured by breadth-first search with `TrProj.weak'_inv` deleted from the graph).  Closing
+"gate 1" inside the projection therefore removes `weakN_iff` from `weak'_inv`'s cone and from
+nothing that consumes it. -/
+theorem TrProj.weakFV'_inv_of_strengthen {env : VEnv} {U : Nat} {Δ Δ₂ : VLCtx}
+    {dk : Nat} {n : Lift} {k : Nat} {s : Lean.Name} {i : Nat} {e e' : VExpr}
+    (henv : VEnv.WF env) (hst : env.ConstAppTypeStrengthen U)
+    (W : VLCtx.FVLift' Δ Δ₂ dk n k) (hΔ₂ : VLCtx.WF env U Δ₂)
+    (H : TrProj env U Δ₂.toCtx s i (e.lift' (n.consN k)) e') :
+    ∃ e'', TrProj env U Δ.toCtx s i e e'' :=
+  TrProj.weak'_inv_of_strengthen_onCtx henv hst hΔ₂.toCtx
+    (W.wf henv hΔ₂).toCtx W.toCtx H
+
+/-! ## The residual holds across every *inhabited* lift, at every depth
+
+`constAppTypeStrengthen_depth_zero` bounds the residual from below at depth 0 only.  The bound
+below is at **every** depth: the residual holds, sorry-free, whenever each binder the lift
+inserts is inhabited in the context below it — and then with `us' = us` on the nose, not merely
+up to `≈`, and with `as'` an explicit substitution instance of `as`.
+
+The mechanism is the one the strengthening literature calls "substituting the strengthened
+variables away": a lift is undone by instantiating each inserted variable, `inst` after
+`liftN 1 k` is the identity (`VExpr.inst_liftN`), and `inst` commutes with `mkApp` while fixing
+`const` (`VExpr.inst_mkApp`).  So the *whole* difficulty of `ConstAppTypeStrengthen` — and, by
+`TrProj.weak'_inv_of_strengthen`, of `TrProj.weak'_inv` — is concentrated in lifts over
+**uninhabited** binders.  Nothing here goes through Church--Rosser, `NormalEq.descend`, or
+`ParRed.weakN_inv`. -/
+
+/-- A single-binder insertion, inverted.  `Ctx.LiftN 1 k Γ Γ'` inserts one type `A` at cut `k`;
+everything of `Γ'` above the cut is a lift, so instantiating the inserted variable with *any*
+term `t` returns `Γ` on the nose.  The `Γ₀`/`A` produced are the context below the cut and the
+inserted type. -/
+theorem Ctx.LiftN.one_split : ∀ {k : Nat} {Γ Γ' : List VExpr}, Ctx.LiftN 1 k Γ Γ' →
+    ∃ Γ₀ A, ∀ t, Ctx.InstN Γ₀ t A k Γ' Γ := by
+  intro k Γ Γ' W
+  induction W with
+  | @zero Γ As h =>
+    match As, h with
+    | [A], _ => exact ⟨Γ, A, fun _ => .zero⟩
+  | @succ k Γ Γ' B W ih =>
+    obtain ⟨Γ₀, A, ih⟩ := ih
+    refine ⟨Γ₀, A, fun t => ?_⟩
+    have := Ctx.InstN.succ (A := B.liftN 1 k) (ih t)
+    rwa [VExpr.inst_liftN] at this
+
+/-- `Ctx.Lift'` refined: a chain of single-binder insertions, each carrying an **inhabitant** of
+the inserted type in the context below it.  `Lift.consN (.skip .refl) k` is the lift of a single
+binder at cut `k`, i.e. `liftN 1 k`. -/
+inductive Ctx.InhabLift (env : VEnv) (U : Nat) : Lift → List VExpr → List VExpr → Prop where
+  | refl {Γ} : Ctx.InhabLift env U .refl Γ Γ
+  | step {l : Lift} {k : Nat} {Γ Γ₂ Γ₃ Γ₀ : List VExpr} {t A : VExpr} :
+    Ctx.InhabLift env U l Γ Γ₂ → Ctx.LiftN 1 k Γ₂ Γ₃ →
+    env.HasType U Γ₀ t A → Ctx.InstN Γ₀ t A k Γ₃ Γ₂ →
+    Ctx.InhabLift env U (Lift.comp l (Lift.consN (.skip .refl) k)) Γ Γ₃
+
+/-- An inhabited lift *is* a lift: `Ctx.InhabLift` refines `Ctx.Lift'`, so the theorem below
+really is an instance of `VEnv.ConstAppTypeStrengthen` and not a different statement. -/
+theorem Ctx.InhabLift.toLift' {env : VEnv} {U : Nat} :
+    ∀ {l : Lift} {Γ Γ' : List VExpr}, Ctx.InhabLift env U l Γ Γ' → Ctx.Lift' l Γ Γ'
+  | _, _, _, .refl => .refl
+  | _, _, _, .step H W _ _ => H.toLift'.comp (Ctx.liftN_iff_lift'.1 W)
+
+/-- The convenient form of `step`: the caller supplies the insertion and an inhabitant, and the
+context below the cut is computed by `Ctx.LiftN.one_split`. -/
+theorem Ctx.InhabLift.step' {env : VEnv} {U : Nat} {l : Lift} {k : Nat} {Γ Γ₂ Γ₃ : List VExpr}
+    (H : Ctx.InhabLift env U l Γ Γ₂) (W : Ctx.LiftN 1 k Γ₂ Γ₃)
+    (hinh : ∀ Γ₀ A, (∀ t, Ctx.InstN Γ₀ t A k Γ₃ Γ₂) → ∃ t, env.HasType U Γ₀ t A) :
+    Ctx.InhabLift env U (Lift.comp l (Lift.consN (.skip .refl) k)) Γ Γ₃ :=
+  let ⟨_, _, hI⟩ := W.one_split
+  let ⟨_, ht⟩ := hinh _ _ hI
+  .step H W ht (hI _)
+
+/-- The `.skip` constructor of `Ctx.Lift'`, refined. -/
+theorem Ctx.InhabLift.skip {env : VEnv} {U : Nat} {l : Lift} {Γ Γ' : List VExpr} {A t : VExpr}
+    (H : Ctx.InhabLift env U l Γ Γ') (ht : env.HasType U Γ' t A) :
+    Ctx.InhabLift env U (.skip l) Γ (A :: Γ') := by
+  have h := Ctx.InhabLift.step (k := 0) H .one ht .zero
+  rwa [show Lift.comp l (Lift.consN (.skip .refl) 0) = .skip l from
+    (Lift.consN_skip_eq (l := l) (k := 0)).symm] at h
+
+/-- **The residual holds at every inhabited lift**, with `us` untouched and `as'` the explicit
+substitution instance of `as`. -/
+theorem hasType_const_mkApp_of_inhabLift {env : VEnv} {U : Nat} (henv : env.Ordered)
+    {c : Lean.Name} {us : List VLevel} :
+    ∀ {l : Lift} {Γ Γ' : List VExpr}, Ctx.InhabLift env U l Γ Γ' →
+      ∀ {e : VExpr} {as : List VExpr},
+      env.HasType U Γ' (e.lift' l) ((VExpr.const c us).mkApp as) →
+      ∃ as', as'.length = as.length ∧ env.HasType U Γ e ((VExpr.const c us).mkApp as') := by
+  intro l Γ Γ' W
+  induction W with
+  | refl => intro e as H; exact ⟨as, rfl, by simpa using H⟩
+  | step W1 WL ht WI ih =>
+    intro e as H
+    rw [VExpr.lift'_comp, ← Lift.skipN_one, VExpr.lift'_consN_skipN] at H
+    have H2 := H.instN henv WI ht
+    rw [VExpr.inst_liftN, VExpr.inst_mkApp,
+      show (VExpr.const c us).inst _ _ = VExpr.const c us from rfl] at H2
+    obtain ⟨as', hlen, H3⟩ := ih H2
+    exact ⟨as', by simpa using hlen, H3⟩
+
+/-- The same, packaged in `VEnv.ConstAppTypeStrengthen`'s exact conclusion shape. -/
+theorem constAppTypeStrengthen_inhab {env : VEnv} {U : Nat} (henv : env.Ordered) {l : Lift}
+    {Γ Γ' : List VExpr} {e : VExpr} {c : Lean.Name} {us : List VLevel} {as : List VExpr}
+    (W : Ctx.InhabLift env U l Γ Γ') (hlv : ∀ u ∈ us, u.WF U)
+    (H : env.HasType U Γ' (e.lift' l) ((VExpr.const c us).mkApp as)) :
+    ∃ us' as', (∀ u ∈ us', u.WF U) ∧ List.Forall₂ (· ≈ ·) us' us ∧
+      as'.length = as.length ∧ env.HasType U Γ e ((VExpr.const c us').mkApp as') :=
+  let ⟨as', h1, h2⟩ := hasType_const_mkApp_of_inhabLift henv W H
+  ⟨us, as', hlv, .rfl fun _ _ => rfl, h1, h2⟩
+
+/-- **Inhabited lifts exist at every depth**, in *every* environment: a binder of type
+`Sort 1` is inhabited by `Sort 0`, with no environment hypothesis at all.  So the bound above
+is strictly stronger than `constAppTypeStrengthen_depth_zero`, which covers depth 0 only. -/
+theorem Ctx.InhabLift.sorts {env : VEnv} {U : Nat} :
+    ∀ (n : Nat) {Γ : List VExpr},
+      Ctx.InhabLift env U (.skipN .refl n) Γ
+        (List.replicate n (VExpr.sort (.succ .zero)) ++ Γ)
+  | 0, _ => .refl
+  | n+1, Γ => by
+    have h := (Ctx.InhabLift.sorts (env := env) (U := U) n (Γ := Γ)).skip
+      (A := VExpr.sort (.succ .zero)) (t := .sort .zero) (VEnv.HasType.sort trivial)
+    simpa [List.replicate_succ] using h
+
+/-- **The inhabited-lift bound is not vacuous**: at a lift of depth one whose skipped binder is
+inhabited, the residual's hypotheses hold *and* `constAppTypeStrengthen_inhab` discharges its
+conclusion — sorry-free, in every environment declaring a `Sort 0`-valued constant.  Compare
+`constAppTypeStrengthen_fires`, whose skipped binder is `const c []` and therefore carries no
+inhabitant. -/
+theorem constAppTypeStrengthen_inhab_fires {env : VEnv} {U : Nat} {c : Lean.Name}
+    (henv : env.Ordered) (hc : env.constants c = some ⟨0, .sort .zero⟩) :
+    OnCtx [VExpr.sort (.succ .zero), VExpr.const c []] (env.IsType U) ∧
+      Ctx.InhabLift env U (.skip .refl) [VExpr.const c []]
+        [VExpr.sort (.succ .zero), VExpr.const c []] ∧
+      env.HasType U [VExpr.sort (.succ .zero), VExpr.const c []]
+        ((VExpr.bvar 0).lift' (.skip .refl)) ((VExpr.const c []).mkApp []) ∧
+      ∃ us' as', (∀ u ∈ us', u.WF U) ∧ List.Forall₂ (· ≈ ·) us' ([] : List VLevel) ∧
+        as'.length = ([] : List VExpr).length ∧
+        env.HasType U [VExpr.const c []] (.bvar 0) ((VExpr.const c us').mkApp as') := by
+  have hW : Ctx.InhabLift env U (.skip .refl) [VExpr.const c []]
+      [VExpr.sort (.succ .zero), VExpr.const c []] :=
+    Ctx.InhabLift.refl.skip (t := .sort .zero) (VEnv.HasType.sort trivial)
+  have hty : env.HasType U [VExpr.sort (.succ .zero), VExpr.const c []]
+      ((VExpr.bvar 0).lift' (.skip .refl)) ((VExpr.const c []).mkApp []) := by
+    have := VEnv.HasType.bvar (env := env) (U := U)
+      (Γ := [VExpr.sort (.succ .zero), VExpr.const c []]) (i := 1) (A := _) (.succ .zero)
+    simpa [VExpr.lift, VExpr.liftN] using this
+  exact ⟨⟨⟨trivial, _, hasType_const_sortZero hc⟩, _, VEnv.HasType.sort trivial⟩,
+    hW, hty, constAppTypeStrengthen_inhab henv hW (by simp) hty⟩
+
+/-! ## The residual reduced to **one uninhabited binder**
+
+The bound above is one half of a case split, and the other half is a genuine reduction of the
+residual rather than a bound on it.  `Theory/Typing/Strengthen.lean` §12 ran exactly this move
+for `IsDefEqU.weakN_iff` (`Strengthening1Uninhab.strengthening1`): a lift over an *inhabited*
+entry is undone by instantiation, so the open statement may be restricted to entries with no
+inhabitant.  The same move applies here, and it strips two things at once — the arbitrary
+`Ctx.Lift'` becomes a **single** binder `Ctx.LiftN 1 k`, and that binder may be assumed
+**uninhabited in its own prefix**.
+
+`constAppTypeStrengthen_of_skipUninhab` is that reduction, and it is hole-free: it needs only
+`env.Ordered`, `HasType.instN` and `Lift.depth_succ`/`Ctx.Lift'.of_cons_skip`.  In particular it
+does **not** use `OnCtx.weak'_inv`, `IsDefEqU.weakN_iff`, Church--Rosser, `NormalEq.descend` or
+`ParRed.weakN_inv`, and it does not consume the `OnCtx Γ'` premise of the residual at all. -/
+
+/-- **The residual, reduced: one binder, and it may be assumed uninhabited.**  Compare
+`VEnv.Strengthening1Uninhab` (`Theory/Typing/Strengthen.lean` §12), which is the same
+restriction of the `weakN_iff` hole. -/
+def VEnv.ConstAppSkipUninhab (env : VEnv) (U : Nat) : Prop :=
+  ∀ {k : Nat} {Γ Γ' : List VExpr} {e : VExpr} {c : Lean.Name} {us : List VLevel}
+    {as : List VExpr},
+    Ctx.LiftN 1 k Γ Γ' → (∀ u ∈ us, u.WF U) →
+    (∀ Γ₀ A₀ e₀, Ctx.InstN Γ₀ e₀ A₀ k Γ' Γ → ¬ env.HasType U Γ₀ e₀ A₀) →
+    env.HasType U Γ' (e.liftN 1 k) ((VExpr.const c us).mkApp as) →
+    ∃ us' as', (∀ u ∈ us', u.WF U) ∧ List.Forall₂ (· ≈ ·) us' us ∧
+      as'.length = as.length ∧ env.HasType U Γ e ((VExpr.const c us').mkApp as')
+
+theorem constAppTypeStrengthen_of_skipUninhab_aux {env : VEnv} {U : Nat} (henv : env.Ordered)
+    (H : env.ConstAppSkipUninhab U) {c : Lean.Name} :
+    ∀ (n : Nat) {l : Lift} {Γ Γ' : List VExpr} {e : VExpr} {us : List VLevel} {as : List VExpr},
+      l.depth = n → Ctx.Lift' l Γ Γ' → (∀ u ∈ us, u.WF U) →
+      env.HasType U Γ' (e.lift' l) ((VExpr.const c us).mkApp as) →
+      ∃ us' as', (∀ u ∈ us', u.WF U) ∧ List.Forall₂ (· ≈ ·) us' us ∧
+        as'.length = as.length ∧ env.HasType U Γ e ((VExpr.const c us').mkApp as') := by
+  intro n
+  induction n with
+  | zero =>
+    intro l Γ Γ' e us as hd W hlv hty
+    cases W.depth_zero hd
+    rw [VExpr.lift'_depth_zero hd] at hty
+    exact ⟨us, as, hlv, .rfl fun _ _ => rfl, rfl, hty⟩
+  | succ n ih =>
+    intro l Γ Γ' e us as hd W hlv hty
+    obtain ⟨l, k, hdl, rfl⟩ := Lift.depth_succ hd
+    obtain ⟨Γ₂, W1, W2⟩ := W.of_cons_skip
+    rw [Lift.consN_skip_eq, VExpr.lift'_comp, ← Lift.skipN_one, VExpr.lift'_consN_skipN] at hty
+    have step : ∃ us₂ as₂, (∀ u ∈ us₂, u.WF U) ∧ List.Forall₂ (· ≈ ·) us₂ us ∧
+        as₂.length = as.length ∧
+        env.HasType U Γ₂ (e.lift' (Lift.consN l k)) ((VExpr.const c us₂).mkApp as₂) := by
+      by_cases hin : ∃ Γ₀ A₀ e₀, Ctx.InstN Γ₀ e₀ A₀ k Γ' Γ₂ ∧ env.HasType U Γ₀ e₀ A₀
+      · obtain ⟨Γ₀, A₀, e₀, hI, h₀⟩ := hin
+        have h2 := hty.instN henv hI h₀
+        rw [VExpr.inst_liftN, VExpr.inst_mkApp,
+          show (VExpr.const c us).inst _ _ = VExpr.const c us from rfl] at h2
+        exact ⟨us, _, hlv, .rfl fun _ _ => rfl, by simp, h2⟩
+      · exact H W2 hlv (fun Γ₀ A₀ e₀ hI h₀ => hin ⟨Γ₀, A₀, e₀, hI, h₀⟩) hty
+    obtain ⟨us₂, as₂, hlv₂, heq₂, hlen₂, hty₂⟩ := step
+    obtain ⟨us', as', hlv', heq', hlen', hty'⟩ :=
+      ih (by simpa using hdl) W1 hlv₂ hty₂
+    exact ⟨us', as', hlv', List.Forall₂.trans (fun _ _ _ ha hb => ha.trans hb) heq' heq₂,
+      hlen'.trans hlen₂, hty'⟩
+
+/-- **The reduction.**  `ConstAppSkipUninhab` — one binder, uninhabited — implies the whole
+residual `VEnv.ConstAppTypeStrengthen`, hole-free. -/
+theorem constAppTypeStrengthen_of_skipUninhab {env : VEnv} {U : Nat} (henv : env.Ordered)
+    (H : env.ConstAppSkipUninhab U) : env.ConstAppTypeStrengthen U := fun _ W hlv hty =>
+  constAppTypeStrengthen_of_skipUninhab_aux henv H _ rfl W hlv hty
+
+/-- The other direction, stated pointwise so that no hypothesis has to be invented: the
+one-binder form **is** an instance of the residual, modulo the `OnCtx Γ'` premise the residual
+carries.  So `ConstAppSkipUninhab` gives away nothing beyond that premise. -/
+theorem VEnv.ConstAppTypeStrengthen.skip_step {env : VEnv} {U : Nat}
+    (H : env.ConstAppTypeStrengthen U) {k : Nat} {Γ Γ' : List VExpr} {e : VExpr}
+    {c : Lean.Name} {us : List VLevel} {as : List VExpr}
+    (hΓ' : OnCtx Γ' (env.IsType U)) (W : Ctx.LiftN 1 k Γ Γ') (hlv : ∀ u ∈ us, u.WF U)
+    (hty : env.HasType U Γ' (e.liftN 1 k) ((VExpr.const c us).mkApp as)) :
+    ∃ us' as', (∀ u ∈ us', u.WF U) ∧ List.Forall₂ (· ≈ ·) us' us ∧
+      as'.length = as.length ∧ env.HasType U Γ e ((VExpr.const c us').mkApp as') := by
+  refine H hΓ' (Ctx.liftN_iff_lift'.1 W) hlv ?_
+  rwa [← VExpr.lift'_consN_skipN, Lift.skipN_one] at hty
