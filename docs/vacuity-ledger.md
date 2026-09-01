@@ -75,6 +75,15 @@ place a cycle existed — and every `users`/`sole` figure it produced was an und
 nodes in the graph, `inScope` filters only what is counted and printed. **Every transitive-user
 count quoted before that fix is a floor, not a figure.**
 
+**And fixing one instrument is not fixing the instruments.** `scripts/sorry-census.lean` and
+`scripts/weakn-gate-split.lean` carried the *same* line (`if n.isInternal then continue` inside
+the graph build) for a further day, so every count they produced in that window was an
+undercount too — repaired 2026-09-01, and the headline figure moved materially:
+`IsDefEqU.weakN_iff` has **296** transitive users, not 293, and the typing half frees **43** of
+them, not 18 of 131 (`docs/handoff-weakn.md` §5.3, where the old figures are kept alongside the
+correction). When an instrument is found wrong, grep every script for the same construct before
+recording the fix.
+
 And a **sixth**, and it is the most dangerous so far because it sits *below* the field level that
 row 11a taught us to check. `SetModel.Above M P := ∃ m, IsInaccessibleChain m M.κ → P`
 (`InterpSound.lean:696`). If there is **any** `m` at which `M.κ` fails to be a chain, that

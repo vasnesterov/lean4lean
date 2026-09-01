@@ -838,7 +838,7 @@ any proof that goes through the typing half will be `forallE_inv`-tainted until
 clean, which is why the refutation/verdict work in `StrengthenCanon.lean` and
 `StrengthenAxiom.lean` remains the independent line.
 
-## 5.3 The user split — 18 of 131, so the residual is the bottleneck
+## 5.3 The user split — 43 of 296, so the residual is the bottleneck
 
 `UniqueTyping.lean` proves nine wrappers off the full *conversion* form that do not need it:
 `OnCtx.weakN_inv`, `HasType.weakN_iff`, `IsType.weakN_iff`, `VExpr.WF.weakN_iff`,
@@ -853,20 +853,31 @@ induction off the *full* `Strengthening` and so needs `SortDescend` where
 `scripts/weakn-gate-split.lean` then does reverse reachability with those nine cut:
 
 ```
-transitive users (all)                  : 131
-still reach it with the typing gates cut: 113
-freed by the typing half alone          :  18
+transitive users (all)                  : 296
+still reach it with the typing gates cut: 253
+freed by the typing half alone          :  43
 ```
 
-The surviving 113 enter through the five genuine two-endpoint conversions, which are *not* in
+**These are the re-measured figures (2026-09-01).**  Every count in this section previously
+read `131 / 113 / 18`, because `scripts/weakn-gate-split.lean` skipped internal names
+(`_proof_*`, `_eq_def`, …) when *building* the reverse-reachability graph rather than only
+when printing it, so a user reaching the hole through one of its own equation lemmas was
+invisible.  Internal names are now pass-through nodes in the graph and the reported set is
+still non-internal.  The same bug was fixed in `scripts/hole-rank.lean` days earlier and not
+propagated here; **every transitive-user count quoted from these two scripts before
+2026-09-01 is an undercount.**  The *shape* of the conclusion is unchanged — the typing half
+frees a minority — but the ratio moved from 14% to 15%, and the absolute residual more than
+doubled.
+
+The surviving 253 enter through the five genuine two-endpoint conversions, which are *not* in
 the gate set.  Additionally cutting one of them as well loses, marginally (the sets overlap,
-so these do not partition the 113): `IsDefEq.weakN_iff` 3, `IsDefEq.weakN_iff'` 5,
-`IsDefEqU.weak'_iff` 8, `IsDefEq.weak'_iff` 1, `IsDefEq.skips` 2.  The bulk of the 113 route
+so these do not partition the 253): `IsDefEq.weakN_iff` 3, `IsDefEq.weakN_iff'` 5,
+`IsDefEqU.weak'_iff` 3, `IsDefEq.weak'_iff` 1, `IsDefEq.skips` 2.  The bulk of the 253 route
 through several of them, i.e. through `IsDefEq.weakN_iff'`, which is the load-bearing wrapper.
 
 **Consequence for prioritisation, and it reverses §8.4 of this document.**  §8.4 said
 `PiDescend` is "the cheaper target".  It is cheaper, but it is not where the users are:
-closing `PiDescend` alone unblocks 18 of 131.  The next round should spend its budget on
+closing `PiDescend` alone unblocks 43 of 296.  The next round should spend its budget on
 `TransStrengtheningNarrow`, not on shape descent.
 
 ## 5.4 Verdict
@@ -886,7 +897,7 @@ and shows it is where the users are.
 * Do not "reduce the hole to `TransStrengthening`" or restate §8's capstone: that is the
   tautology of §9/§5.1.  Any residual must exclude middle terms in the image of the lift.
 * Do not prove the nine typing wrappers again; §5 of `StrengthenNarrow.lean` has them.
-* Do not expect `PiDescend` to unblock the tree: 18 of 131 (§5.3).
+* Do not expect `PiDescend` to unblock the tree: 43 of 296 (§5.3).
 
 # Round 6 — the `NormalEq` route: strengthening below `trans`
 
@@ -944,7 +955,7 @@ attempt, applying a constant function, is information-free —
 is why `TransStrengtheningNarrow` survives round 6.
 
 Immediate consequence, `TransStrengtheningNarrow.at_sort`: every **sort-typed** instance of
-round 5's residual is closed by the typing half.  Round 5's "18 of 131" pessimism about
+round 5's residual is closed by the typing half.  Round 5's "43 of 296" pessimism about
 `PiDescend` is unchanged for the general residual, but the sort-typed slice is now free.
 
 ## 6.3 What is now known
