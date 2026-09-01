@@ -1138,6 +1138,42 @@ which is *not* built here.
   nothing in the tree constructs; §7 narrows what would construct it from two
   open statements to one.
 
+## 2b. Zero-field structure eta needs one thing from the inductive interface, and it is not mutuality
+
+*Added 2026-09-01, answering `docs/vacuity-ledger.md` row 102a.  Full measurement in
+`docs/soundness-ledger.md` §"Zero-field structure eta … at a mutual block" and
+`Theory/SetModel/UnitEtaPairing.lean`.*
+
+`VEnv.UnitEta` (`Theory/Inductive/StructureEta.lean`) is zero-field surjective pairing over
+`VEnv.IsStructureG`, so it fires at members of **mutual** blocks.  The set level validates it
+outright: `mem_Ind₃_fibre_iff_of_zero_field` makes the fibre over `S.resIdx q₀ a₀` exactly
+`{indCtorVal q₀ a₀ ∅}`, with no rank induction and no bound on `js.length`, and at the real
+`interpSig₃` translation four of its five premises are discharged from the translation's own
+definitions at `C.fields = []`.
+
+**What the interface must supply is one predicate, `ResIdxDetAt S i`** — "the result index `i`
+determines the constructor tag" — and at `interpSig₃` its only input is that member `j` has one
+constructor (`interpSig₃_resIdxDetAt`), because `resIdxVal` already tags every result index by
+its member (`resIdxVal_tagged`, `rfl`).  It must be **local to the index**: a global form is
+false at `mutual inductive A | mk : A; inductive B | t | f end`, where `A` is unit-like and `B`
+is not.
+
+**Two things this changed in the interface's own furniture.**
+
+1. `IsSubsingletonSignature₃.single` — "one constructor in the whole block" — is the
+   singleton-block assumption in the model's language, and is **false** at the block
+   `isDefEqUnitLike` fires at (`mutUnitSig_not_single`).  `Ind₃_subsingleton` is therefore not
+   the route to zero-field eta at a mutual block; `ResIdxDetAt` is the weakening that works, and
+   `single` implies it at every index so nothing is lost.
+2. `mkIndSignature₃`'s tag readbacks (`Fld`, `Args`, `Pos`, `resIdx`) were proved only inline
+   inside `mkIndSignature₃_wf`.  They are now named (`mkIndSignature₃_Fld` and friends) —
+   anything reading a component at a tag wants them.
+
+**And what it does *not* supply.**  `OracleOK` has exactly two fields, a level-congruence and a
+**membership**, so `InductOracleOK` pins no type former's denotation.  Until the `.induct` oracle
+is *defined* to be `IndFiber ∘ interpSig₃`, no eta rule can be discharged from it — at a
+singleton block either.  That is the residual, and the widening of row 99d did not create it.
+
 ## What the model still needs from the syntax side
 
 The interpretation `⟦Γ ⊢ e⟧` is now **defined** — see `SetModel/Interp.lean` —

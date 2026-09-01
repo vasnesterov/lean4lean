@@ -136,6 +136,7 @@ import Lean4Lean.Theory.Typing.InjOneFact  -- 2026-09-01: the one fact stated on
 import Lean4Lean.Theory.SetModel.UnitOracleWitness  -- 2026-09-01: the .induct residual at a WF block with NO empty domain; the frontier is isLE, not Prop
 import Lean4Lean.Theory.SetModel.UnitOracleLarge  -- 2026-09-01: the .induct residual at the LARGE eliminator; the oracle's level branch is FORCED; IndInterp was not needed
 import Lean4Lean.Theory.SetModel.InstDescendAudit  -- 2026-09-01: sort_inst's recorded refutation is SYMMETRIC; the level condition is free; the shared residual is UniqueTyping + sort-inversion
+import Lean4Lean.Theory.SetModel.UnitEtaPairing  -- 2026-09-01: zero-field surjective pairing at a MUTUAL block; IsSubsingletonSignature3.single is the singleton-block assumption in the model's own language
 import Lean4Lean.Theory.Typing.DescendRestate  -- 2026-09-01: descend's restatement bounded both ways; the ParRedKn route closed for it
 import Lean4Lean.Theory.Typing.ParRedMissing  -- 2026-09-01: what ParRed lacks, as CONSTRUCTORS of an extension; all three descend witnesses repaired, and the extension is cyclic
 import Lean4Lean.Theory.Typing.ParRedCycle  -- 2026-09-01: the cycle is essential, no grading helps, and the confluence layer reduces to M3 (PatMajorCanonical)

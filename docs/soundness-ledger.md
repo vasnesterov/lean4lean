@@ -3312,3 +3312,95 @@ is exhibited.  `PropTypeAgree env 0` is untouched and is irreducible for this ro
 `NotProofNoModel.nonempty_propSplit_iff_agree` proves
 `Nonempty (PropSplit env nv) ↔ PropUniq nv ∧ PropTypeAgree nv`, so no choice of predicate
 removes it.
+
+## Zero-field structure eta (`VEnv.UnitEta`) at a **mutual** block — ledger row 102a, measured
+
+*Added 2026-09-01 by the model stream, in answer to `docs/vacuity-ledger.md` row 102a: does
+the set model validate surjective pairing at a member of a mutual block, or only at a
+singleton one?  All claims machine-checked in `Theory/SetModel/UnitEtaPairing.lean`, all
+`[propext, Classical.choice, Quot.sound]`, no `sorryAx`, no `Above`.*
+
+### The answer: at zero fields it is trivial, and mutuality costs one `kpair_inj`
+
+`mem_Ind₃_fibre_iff_of_zero_field` proves the fibre of `Ind₃ S D` over
+`S.resIdx q₀ a₀` is **exactly** `{indCtorVal q₀ a₀ ∅}`, in `iff` form, so it carries
+inhabitation as well as uniqueness.  It uses **no rank induction** and imposes **no bound on
+the number of block members**.  The whole proof is `mem_Ind₃_iff` (no junk) plus three
+pinnings: the tag, the field valuation, the recursive filler.  Row 102a's *incremental* cost
+over the singleton case is therefore **nil**, and that is recorded here as plainly as a
+difficulty would be.
+
+At the real translation (`SetModel/CtorTrans.lean`) four of the five premises are discharged
+outright at `C.fields = []` — `Fld` is `{params}` (`ctorFldSet_of_no_fields`, `teleFun_nil`),
+`Pos` is `∅` (`posDoms_of_no_fields`), `Args`' condition is `True` (`argCond` at nil) — so
+`interpSig₃_fibre_iff_of_no_fields` reduces zero-field surjective pairing to one hypothesis.
+
+### The one hypothesis, and why it is *not* about mutuality
+
+`ResIdxDetAt S i` — **the result index determines the constructor tag**.  It is *local to the
+index*, which matters: in `mutual inductive A | mk : A; inductive B | t : B | f : B end` the
+member `A` is unit-like and `B` is not, so a global condition would be false at that block
+for the wrong reason.
+
+At the real translation it is discharged by `interpSig₃_resIdxDetAt`, whose only input is
+**"member `j` has exactly one constructor"** — which is `VEnv.IsStructureG.ctors : T.ctors =
+[C]`, i.e. a gate `isDefEqUnitLike` already tests.  The mutual-specific step is one
+`kpair_inj`: `resIdxVal M L D params j C a = ⟨j, …⟩ₖ` **by definition**
+(`resIdxVal_tagged`, `interpSig₃_resIdx_tagged`, both `rfl`-level), so constructors of
+different members can never share a result index.  *`hone` is not automatic*: at
+`InductiveDeclExamples.mutDecl` the zero-field `forestNil` sits at a member with two
+constructors and it fails — correctly, since `isDefEqUnitLike` rejects `Forest'`.
+
+### What the existing theorem could NOT do, and this is the finding worth keeping
+
+**`Ind₃_subsingleton` is unusable at a mutual block, and the reason is a hypothesis field, not
+the zero-field case.**  `IsSubsingletonSignature₃.single` reads `∀ q ∈ S.Q, ∀ q' ∈ S.Q, q = q'`
+— **one constructor in the whole block**.  At a two-member block with one constructor each —
+`MutNonRec.decl2`, what `isDefEqUnitLike` actually fires at — `S.Q` is the numeral `2` and
+`single` is **false** (`mutUnitSig_not_single`, for every carrier).  So the singleton-block
+assumption row 99c removed from `VEnv.IsStructure` was *also* sitting in the model's
+subsingleton theorem, in the model's own language, and nothing had noticed.
+`IsSubsingletonSignature₃.resIdxDetAt` shows `single` implies `ResIdxDetAt` at every index, so
+the weakening loses nothing.
+
+### Bounded both ways
+
+* **Positive, unconditional:** `mutUnitSig` = `zfSig mutIdx [0, 1]` — a genuinely two-member
+  signature built through `mkIndSignature₃` (so its six definability and two monotonicity
+  obligations are real), with a finite explicit carrier `zfCar 2` and no inaccessible
+  anywhere.  Both fibres are singletons (`mutUnitSig_fibre_zero`, `_fibre_one`), both are
+  **inhabited** (`_fibre_zero_mem`, `_fibre_one_mem`), and they are **distinct**
+  (`mutUnitSig_ctorVal_ne`); the block is genuinely mutual (`mutUnitSig_Q_two`).
+* **Negative, and reachable:** `zfSig boolIdx [0, 0]` — one member, two zero-field
+  constructors.  `ResIdxDetAt` is **false** (`boolSig_not_resIdxDetAt`) and the fibre
+  genuinely holds two distinct elements (`boolSig_fibre_two`), so surjective pairing is *false*
+  there.  The hypothesis is load-bearing, not decoration.
+* **Combinatorial premises at a two-member block:** `zfMutDecl_premises` discharges `hck`,
+  `hnf` and `hone` at **both** members of a `Theory/`-side rebuild of `MutNonRec.decl2`.
+
+### The residual, and it is the pre-existing one
+
+Nothing above links a fibre to `⟦(const S us).mkApp ps⟧`.  **`OracleOK`
+(`SetModel/Cnst.lean`) has exactly two fields** — `congr`, a level-congruence, and `type`, a
+*membership* — so `InductOracleOK` pins no type former's denotation, and a model satisfying it
+may interpret a zero-field structure as a two-element set and refute eta outright.  (Same
+defect as ledger row 29 for `CoherentOn.const_type`.)  Closing it means **defining** the
+`.induct` oracle to be `IndFiber ∘ interpSig₃` and adding the equation as an obligation — this
+ledger's standing `InductOracleOK` item — and it is **identical for singleton and mutual
+blocks**.
+
+Note also that `UnitEta` is not a `VDefEq` and so **cannot** be discharged the way
+`quotDefEq` is (`DefEqOK`, closed terms, empty valuation): `design-inductive.md` §6.3 rules out
+the `VDefEq` route because `Pattern.Matches` matches only const-headed spines while the rule's
+left side is a variable.  The eta rule is a *soundness case* — `∀ ρ ∈ interpCtx M L Γ` — so its
+obligation is an equation at an arbitrary valuation, not at `∅`.  **The brief's "as for
+`quotDefEq`" is right about *who* discharges it and wrong about *how*.**
+
+### Stale citation corrected in this file
+
+The closing section above says `InstDescendUp env 0` is "blocked on
+`IsDefEqU.sort_forallE_inv`, per `StableAudit.lean`'s note, and the candidate refutation there
+is still not machine-checked."  That is **superseded**: `docs/handoff-setmodel.md` §7.1 records
+that the candidate refutation *was* checked and is **symmetric**
+(`InstDescendAudit.w_types_of_sortPiConv`), so no disposition of `sort_forallE_inv` can make it
+refute `sort_inst`.  `InstDescendUp` remains open; the recorded *reason* is gone.
