@@ -36,6 +36,8 @@ import Lean4Lean.Verify.Inductive.AddDeclWF
 import Lean4Lean.Verify.Inductive.AddInductiveStep
 import Lean4Lean.Verify.Inductive.RunIdentity  -- 2026-09-01: run_types_eq, and the loose-bvar refutation of AddInductiveStepWF
 import Lean4Lean.Verify.ClosednessPropagation  -- 2026-09-01: the closedness measurement, and the guard's consequences
+import Lean4Lean.Verify.Typing.ProjGenBlockNarrow  -- 2026-09-02: hreal satisfiable at every IsStructure block
+import Lean4Lean.Verify.Typing.ProjGenBlockWitness  -- 2026-09-02: padMinors at a MUTUAL block with a non-empty accumulator
 import Lean4Lean.Theory.Typing.KMeasure
 import Lean4Lean.Theory.Typing.KSite7
 import Lean4Lean.Theory.Typing.KDescend

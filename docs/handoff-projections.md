@@ -32,7 +32,20 @@
   `h7 : ∀ l ∈ us, l.WF U` is unused, and `hTd` follows from `H.types`. Kept as `_h7`/`_hTd` so the
   collapse stays hypothesis-for-hypothesis.
 * **Census figures in this file are stale**: the current count is **13** declarations directly
-  containing `sorryAx`, not 19.
+  containing `sorryAx`, not 19. **So are its guard figures:** guard 1 is **24** frozen axioms, not
+  25, and guard 3 reads **2/2**, not 54/54.
+* **§0\*\*.7 item 4 and line 1434 are wrong about `projCoreG_hasType`**: it needs **no** generalised
+  `recApp_hasType` — `recApp_hasType''` is already general in the block, and
+  `projCoreG_hasType_of_block` compiles hole-free from it.
+* **Both gaps of the previous banner are now closed or nearly so** (`Verify/Typing/ProjGenBlock.lean`):
+  `padMinors_getElem_eq` exists, and **both padded blocks have a `HasArgs`** — motive half outright,
+  minor half except the real entry. `iota_law_gen`'s `hspine` has a producer (`iotaCtx_hasArgs`). **So
+  the circle is in exactly one premise**, `realMinor_hasType_atPadMotives`'s `hiota`, and the
+  remaining work is one `Nat.strongRecOn` on the field index carrying `ProjHasTypeG` and the
+  minor-block spine together. Ledger rows 114–114g.
+* **A second circularity, recorded nowhere before:** the motive block's own `hspine` is circular at
+  `j > 0` and is broken by `motiveType j` being `liftN j` of an offset-free type, hence `ms`-free.
+  Independent of the ι law, and it had to be broken before either block could be assembled.
 
 **Census: 19 → 19** (`lake env lean scripts/sorry-census.lean`, run at the start *and* at the
 end of the round; the same 19 names).  No hole closed, none added.  `scripts/dup-names.lean`:
