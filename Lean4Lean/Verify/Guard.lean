@@ -130,62 +130,25 @@ def axiomWhitelist : List Name :=
 /-- Constants defined in this repo, reachable from `Lean4Lean.addDecl`, that
 are `partial`, `@[extern]`, or `@[implemented_by]` — frozen at the state of
 the implementation when this guard was written. Entries may be removed as the
-checker is made total; none may be added without human sign-off. -/
+checker is made total; none may be added without human sign-off.
+
+**Trimmed from 54 entries to 2 (2026-08-31).** The other 52 were dead: check 3 used to
+call a name `partial` whenever an `_unsafe_rec` companion existed, which the equation
+compiler emits for *every* computable recursive definition, so 49 ordinary total
+definitions were flagged along with three genuine gaps that had since gone. Once
+check 3 began testing `.opaqueInfo` instead (PR #41), the reachable count dropped
+51 → 2 and those 52 entries stopped matching anything.
+
+Check 3 only throws for a flagged name **absent** from this list, so dead entries were
+harmless — but they were also actively misleading, since the `-- partial` comments on
+them were false, and CLAUDE.md counts shrinking this list as progress. What survives is
+the honest content: the checker's cone contains **no `partial` and no `@[extern]` at
+all**, and exactly two `@[implemented_by]` constants — the deliberate pointer-equality
+opaques, axiomatised in `Verify/Axioms.lean`. Note the flagged names are the
+`.unsafe_impl_2` companions, not the `ptrEq*` wrappers. -/
 def implGapWhitelist : List Name := [
-  `Lean.Expr.cheapBetaReduce.loop,                        -- partial
-  `Lean.Expr.replaceM,                                    -- implemented_by
-  `Lean.Expr.replaceNoCacheT,                             -- partial
-  `Lean.Kernel.Environment.checkDuplicatedUnivParams,     -- partial
-  `Lean.Level.Normalize.VarNode.addVar,                   -- partial
-  `Lean.Level.Normalize.normalizeAux,                     -- partial
-  `Lean.Level.Normalize.orderedInsert,                    -- partial
-  `Lean.Level.Normalize.subset,                           -- partial
-  `Lean.Level.Normalize.subsumeVars,                      -- partial
-  `Lean.Level.forEach,                                    -- partial
-  `Lean4Lean.AddInductive.checkConstructors.loop,         -- partial
-  `Lean4Lean.AddInductive.checkInductiveTypes.loopInd,    -- partial
-  `Lean4Lean.AddInductive.checkInductiveTypes.loopInd.loop, -- partial
-  `Lean4Lean.AddInductive.checkPositivity.loop,           -- partial
-  `Lean4Lean.AddInductive.declareConstructors.arity,      -- partial
-  `Lean4Lean.AddInductive.getElimLevel.loop,              -- partial
-  `Lean4Lean.AddInductive.isKTarget.loop,                 -- partial
-  `Lean4Lean.AddInductive.isLargeEliminator.loop,         -- partial
-  `Lean4Lean.AddInductive.isRec.loop,                     -- partial
-  `Lean4Lean.AddInductive.isRecArg.loop,                  -- partial
-  `Lean4Lean.AddInductive.isReflexive.loop,               -- partial
-  `Lean4Lean.AddInductive.mkRecInfos.loopArgs1,           -- partial
-  `Lean4Lean.AddInductive.mkRecInfos.loopCtorArgs.loop,   -- partial
-  `Lean4Lean.AddInductive.mkRecInfos.loopCtors,           -- partial
-  `Lean4Lean.AddInductive.mkRecInfos.loopInd1,            -- partial
-  `Lean4Lean.AddInductive.mkRecInfos.loopInd2,            -- partial
-  `Lean4Lean.AddInductive.mkRecInfos.loopU,               -- partial
-  `Lean4Lean.AddInductive.mkRecInfos.loopUArgs.loop,      -- partial
-  `Lean4Lean.AddInductive.mkRecRules.loopU,               -- partial
-  `Lean4Lean.ElimNestedInductive.mkUniqueName.loop,       -- partial
-  `Lean4Lean.ElimNestedInductive.run.loop,                -- partial
-  `Lean4Lean.ElimNestedInductive.withParams.loop,         -- partial
-  `Lean4Lean.Environment.forallTelescope.loop,            -- partial
-  `Lean4Lean.Environment.lambdaTelescope.loop,            -- partial
-  `Lean4Lean.EquivManager.isEquiv,                        -- partial
-  `Lean4Lean.TypeChecker.Inner.inferApp.loop,             -- partial
-  `Lean4Lean.TypeChecker.Inner.inferForall.loop,          -- partial
-  `Lean4Lean.TypeChecker.Inner.inferLambda.loop,          -- partial
-  `Lean4Lean.TypeChecker.Inner.inferLet.loop,             -- partial
-  `Lean4Lean.TypeChecker.Inner.inferType',                -- partial
-  `Lean4Lean.TypeChecker.Inner.isDefEqApp.loop,           -- partial
-  `Lean4Lean.TypeChecker.Inner.isDefEqArgs,               -- partial
-  `Lean4Lean.TypeChecker.Inner.isDefEqForall,             -- partial
-  `Lean4Lean.TypeChecker.Inner.isDefEqLambda,             -- partial
-  `Lean4Lean.TypeChecker.Inner.lazyDeltaProjReduction.loop, -- partial
-  `Lean4Lean.TypeChecker.Inner.lazyDeltaReduction.loop,   -- partial
-  `Lean4Lean.TypeChecker.Inner.whnf',                     -- partial
-  `Lean4Lean.TypeChecker.Inner.whnf'.loop,                -- partial
-  `Lean4Lean.TypeChecker.Inner.whnfCore',                 -- partial
-  `Lean4Lean.TypeChecker.Inner.whnfCore'.loop,            -- partial
-  `Lean4Lean.TypeChecker.Methods.withFuel,                -- partial
   `Lean4Lean.ptrEqConstantInfo.unsafe_impl_2,             -- implemented_by
-  `Lean4Lean.ptrEqExpr.unsafe_impl_2,                     -- implemented_by
-  `List.all2]                                             -- partial
+  `Lean4Lean.ptrEqExpr.unsafe_impl_2]                     -- implemented_by
 
 /- Check 1: the frozen axiom file declares exactly the 25 whitelisted axioms. -/
 #eval show CoreM Unit from do
