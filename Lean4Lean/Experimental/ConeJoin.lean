@@ -114,6 +114,7 @@ import Lean4Lean.Theory.Inductive.NestedRules  -- 2026-09-01: the (B)/(C) bridge
 import Lean4Lean.Theory.SetModel.ModelFitsVacuous  -- 2026-09-01: ModelFitsInput is FALSE; the repair narrows to PureOverPrelude
 import Lean4Lean.Theory.Typing.InjMidpoint  -- 2026-09-01: ConvStep2 localised at its midpoint; three of six heads free; the sortDF reading refuted
 import Lean4Lean.Theory.Typing.KKetaRow  -- 2026-09-01: ParRedK graded by redex height; AppKetaRow's hard half free; one weakN_iff entry removed from site 7
+import Lean4Lean.Verify.Typing.ProjInhab  -- 2026-09-01: uninhabited-prop existence IS VEnv.Consistent; first positive instance of the residual
 
 /-!
 # Acceptance test: the `PatternRules` cone and the `Verify/` cone join
