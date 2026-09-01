@@ -49,7 +49,8 @@ only thing left in that input.
 * `inaccSeq_spec` — `inaccSeq V i` is inaccessible **and** exhausts the inaccessibles below
   it.  The second conjunct is what makes the induction go through; it is the invariant a
   bare "there is an inaccessible above" statement cannot carry.
-* `exists_inaccessibleChain_omega` — the result.
+* `omegaChain` / `omegaChain_isInaccessibleChain` — the chain as a named function, and
+  `exists_inaccessibleChain_omega` — the result.
 * `ModelExistsInput` / `inaccModelInput_of_modelExists` — the residual input, chain-free.
 * Bounds, per `docs/vacuity-ledger.md` §5: `inaccSeq_zero_le` (the enumeration is not junk —
   `inaccSeq V 0` really is the least inaccessible) and `not_isInaccessibleChain_const`
@@ -187,14 +188,29 @@ theorem inaccSeq_lt_succ (i : ℕ) : inaccSeq V i < inaccSeq V (i + 1) :=
 theorem inaccSeq_strictMono : StrictMono (inaccSeq V) :=
   strictMono_nat_of_lt_succ inaccSeq_lt_succ
 
+/-- **The chain, named.**  `exists_inaccessibleChain_omega` below hides it behind an `∃`,
+which is awkward for any consumer whose *later* data depends on `κ`: `cnstOf L κ ls o ds`
+does, which is why `axiomsValidated_of_coherentOn_omega` (§4) has to quantify its
+`CoherentOn` hypothesis over **all** `κ` in order to sequence the two.  With the chain
+named, a consumer fixes `κ := omegaChain V` first and picks the rest afterwards. -/
+noncomputable def omegaChain (V : Type*) [SetStructure V] [Nonempty V]
+    [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙𝗖+𝗜𝗻𝗮𝗰𝗰] (i : ℕ) : V := (inaccSeq V i).val
+
+theorem omegaChain_isInaccessibleChain (m : ℕ) : IsInaccessibleChain m (omegaChain V) :=
+  { inaccessible := fun i _ ↦ oInacc_inaccSeq i
+    mem := fun _ _ hij _ ↦ Ordinal.lt_def.1 (inaccSeq_strictMono hij) }
+
+/-- `omegaChain` is strictly `∈`-increasing at every index, not merely below a threshold —
+the two-way bound `not_isInaccessibleChain_const` (§5) is what says this is information. -/
+theorem omegaChain_mem_succ (i : ℕ) : omegaChain V i ∈ omegaChain V (i + 1) :=
+  Ordinal.lt_def.1 (inaccSeq_lt_succ i)
+
 /-- **The result: one `κ` carrying an inaccessible chain of every finite length.**  This is
 the `hκ` that `CnstRecursion.leanTTConsistent_of`, `CnstRecursion.consistent_of` and
 `AxiomsValidatedAudit.axiomsValidated_of_coherentOn` take as a hypothesis. -/
 theorem exists_inaccessibleChain_omega :
     ∃ κ : ℕ → V, ∀ m : ℕ, IsInaccessibleChain m κ :=
-  ⟨fun i ↦ (inaccSeq V i).val, fun _ ↦
-    { inaccessible := fun i _ ↦ oInacc_inaccSeq i
-      mem := fun _ _ hij _ ↦ Ordinal.lt_def.1 (inaccSeq_strictMono hij) }⟩
+  ⟨omegaChain V, omegaChain_isInaccessibleChain⟩
 
 end Chain
 
@@ -254,6 +270,17 @@ theorem axiomsValidated_of_coherentOn_omega {V : Type*} [SetStructure V] [Nonemp
     ∃ κ : ℕ → V, (∀ m : ℕ, IsInaccessibleChain m κ) ∧ AxiomsValidated ⟨κ, ls, c⟩ L ds := by
   obtain ⟨κ, hκ⟩ := exists_inaccessibleChain_omega (V := V)
   exact ⟨κ, hκ, axiomsValidated_of_coherentOn hκ (hC κ hκ) hwf⟩
+
+/-- **The usable form.**  `axiomsValidated_of_coherentOn_omega` above has to quantify `hC`
+over *every* `κ` at a **fixed** `c`, which no consumer can meet: the assignment the
+recursion produces is `cnstOf L κ ls o ds`, which depends on `κ`.  Naming the chain fixes
+that — here `c` may depend on `omegaChain V`. -/
+theorem axiomsValidated_of_coherentOn_chain {V : Type*} [SetStructure V] [Nonempty V]
+    [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙𝗖+𝗜𝗻𝗮𝗰𝗰] {envF : VEnv} {nv : ℕ} {L : PropSplit envF nv}
+    {ls : List ℕ} {c : Name → List VLevel → V} {env : VEnv} {ds : List VDecl}
+    (hC : CoherentOn ⟨omegaChain V, ls, c⟩ L env) (hwf : VEnv.WF' ds env) :
+    AxiomsValidated (V := V) ⟨omegaChain V, ls, c⟩ L ds :=
+  axiomsValidated_of_coherentOn omegaChain_isInaccessibleChain hC hwf
 
 end Reduce
 

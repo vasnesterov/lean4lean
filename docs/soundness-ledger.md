@@ -225,7 +225,7 @@ impredicativity and it is what makes the bound tight rather than merely finite.
 | `piProp_mem_UProp` | part 1, `forallE` case | **proved** |
 | validity (`Γ ⊢ e : A → IsType Γ A`) | `appDF`, to level the `∀` | available, `Theory/Typing/` |
 | `function_eq_graph` (a function is its graph) | `eta` | **proved** |
-| `SetModel.CoherentOn` (there is no `ModelData.Coherent`) | `constDF`, `extra` | **CONSTRUCTED, in two places** — `CoherentWitness.coherentOn_witness` (closed witness, arbitrary `L`, all four fields non-vacuous) and `CnstRecursion.coherentOn_cnstOf` (the full `VEnv.WF'` recursion, six of seven `VDecl` forms discharged). This row said "construction open" for months and was **stale**. The open items are `InductOracleOK` alone — bounded both ways by `not_inductOracleOK_falseProp` / `inductOracleOK_empty` — and `AxiomsValidated`. Caveat worth knowing: `coherentOn_witness`'s environment is reachable only via `VDecl.unsafeDef`, which `VDecl.noUnsafe` forbids and `coherentOn_cnstOf` refuses, so it certifies coherence at an environment the soundness induction never visits; `axEnv_wf` (`SetModel/CoherentConstShape.lean`) supplies a `VEnv.WF`, `.axiom`-produced, rule-free one instead |
+| `SetModel.CoherentOn` (there is no `ModelData.Coherent`) | `constDF`, `extra` | **CONSTRUCTED, in two places** — `CoherentWitness.coherentOn_witness` (closed witness, arbitrary `L`, all four fields non-vacuous) and `CnstRecursion.coherentOn_cnstOf` (the full `VEnv.WF'` recursion, six of seven `VDecl` forms discharged). This row said "construction open" for months and was **stale**. The open items are `InductOracleOK` alone — now a **two**-field structure, its deleted third field `staged` having been false at ordinary blocks (`not_stagedField_boxDecl`) and replaced by the theorem `stagedOcc_allConsts`; bounded field by field in `InductOracleAudit.lean` §5, where `consts`'s positive bound at a `WF` block is still open. `AxiomsValidated` is no longer open: its only content was `hκ`, closed by `InaccChainOmega.exists_inaccessibleChain_omega`. Caveat worth knowing: `coherentOn_witness`'s environment is reachable only via `VDecl.unsafeDef`, which `VDecl.noUnsafe` forbids and `coherentOn_cnstOf` refuses, so it certifies coherence at an environment the soundness induction never visits; `axEnv_wf` (`SetModel/CoherentConstShape.lean`) supplies a `VEnv.WF`, `.axiom`-produced, rule-free one instead |
 | `IsDefEqU.sort_inv` | ~~packaged as `LevelAssign`~~ — that packaging is refuted; see the correction below | **open**, one `sorry` |
 | `IsDefEqU.forallE_inv` | — | **not needed** |
 | `IsDefEqU.sort_forallE_inv` | — | **not needed** |
@@ -325,7 +325,7 @@ injectivity fact.
 | `PropSplit.Stable` (4 fields) | `InterpSubst.lean` | the split commutes with weakening and substitution. The `env.HasType` guard on the `instN` fields is **load-bearing** — without it the field is unsatisfiable (`no_stable`), and its docstring says so |
 | `CtxInvariant L R` + `R (A'::Γ) (A::Γ)` for `A ≡ A'` | `InterpSound.lean`, `SoundInduction.lean` | the split cannot distinguish definitionally equal contexts. Only the **pair** is meaningful: `CtxInvariant` alone holds of `R := Eq` |
 | `ModelData.Coherent` (3 fields) | `InterpSound.lean` | constants inhabit their types; `env.defeqs` holds in the model |
-| ~~`AxiomsValidated`~~ | `InterpSound.lean` | **demoted — it is a consequence, not an input.** `axiomsValidated_of_coherentOn` derives it from `CoherentOn` plus the history (`VEnv.WF'.constants_axiom`), and `OracleFits`'s `.axiom` clause already carries the content where the recursion consumes it. The real open content is `hκ`, since `AxiomsValidated.axioms` is the only obligation in that file stated *without* `Above M` |
+| ~~`AxiomsValidated`~~ | `InterpSound.lean` | **demoted — it is a consequence, not an input.** `axiomsValidated_of_coherentOn` derives it from `CoherentOn` plus the history (`VEnv.WF'.constants_axiom`), and `OracleFits`'s `.axiom` clause already carries the content where the recursion consumes it. The real open content was `hκ`, since `AxiomsValidated.axioms` is the only obligation in that file stated *without* `Above M` — and **`hκ` is now closed**: `InaccChainOmega.exists_inaccessibleChain_omega` produces a single `κ` with `∀ m, IsInaccessibleChain m κ` inside any model of `𝗭𝗙𝗖+𝗜𝗻𝗮𝗰𝗰`, and `axiomsValidated_of_coherentOn_omega` is the composite. Nothing on the `AxiomsValidated` line is open |
 | `CoherentOn.const_congr` | `InterpSound.lean` | **new** — equivalent level arguments give the same value |
 
 The last two are genuine constructions, described below.
@@ -2905,12 +2905,23 @@ new lemma is not vacuous in turn.
 | `.quot` | occurrence side **discharged** (`stagedOcc_quotConsts`, from `VEnv.QuotReady` alone — precisely what `VDecl.WF.quot` carries); value side is `QuotOracleOK`, i.e. the four `const_type` obligations plus `quotDefEq`, all already proved in `QuotInterp.lean` |
 | `.induct` | reduced to `InductOracleOK` — **the residual** |
 
-`InductOracleOK L κ ls o c D` has three fields: `staged` (`StagedOcc env D.allConsts`
-whenever `addInduct' D` succeeds — this is what the repaired lemma now *asks* for and
-what `VInductDecl'.WF` should supply), `consts` (per-constant `OracleOK`), `rules`
-(per-ι-rule `DefEqOK`). Fields 2 and 3 are the ones the ledger already says wait on
-the `VIndCtor → CtorData₃`/`Args` translation; field 1 is new, and is the part the
-vacuity was hiding.
+`InductOracleOK L κ ls o c D` has **two** fields: `consts` (per-constant `OracleOK`)
+and `rules` (per-ι-rule `DefEqOK`), both waiting on the `VIndCtor → CtorData₃`/`Args`
+translation.
+
+**This paragraph used to say three, and the third was false.** `staged` asked for
+`StagedOcc env D.allConsts` at *every* `env` over which `addInduct' D` succeeds; since
+`addInduct'` checks no types it succeeds at `VEnv.empty`, which forces the first type
+former's stored type to mention no constant at all — refuted at
+`inductive Box (e : Ext) : Prop | mk : Box e` over `axiom Ext : Prop`
+(`not_stagedField_boxDecl`, with a certified two-declaration history `boxDecl_history`).
+The field is now **deleted**: `stagedOcc_allConsts` (`CnstRecursion.lean` §4b) discharges
+the condition outright from `env.Ordered` + `D.WF env`, exactly as `.quot`'s is discharged
+from `QuotReady`, and `coherentOn_cnstOf`'s `.induct` case calls the theorem. There is one
+recursion, not two — the `InductOracleOK₂` / `OracleFits₂` / `coherentOn_cnstOf₂`
+duplicates are retired. `SetModel/InductOracleAudit.lean` keeps the refutation of the
+deleted field and the field-by-field bounds on the surviving two; see
+`docs/vacuity-ledger.md` rows 11 and 11a.
 
 Boundary control on the residual, both sorry-free, both in the same file:
 
@@ -2928,18 +2939,55 @@ Boundary control on the residual, both sorry-free, both in the same file:
 `Entailment.Consistent 𝗭𝗙𝗖+𝗜𝗻𝗮𝗰𝗰 → leanTTConsistent`, sorry-free. Its two inputs
 are open, and they are **not** the same thing as the residual:
 
-* `InaccModelInput` — model existence. Foundation supplies the two halves
-  separately (`small_satisfiable_of_consistent` + `QuotNormalize`/`standardStructure`,
-  and `exists_inaccessibleChain`), and **neither is applied here**. The second is a
-  real gap, not bookkeeping: `exists_inaccessibleChain` gives one `κ` *per* `n`,
-  while `consistent_of` needs a single `κ` with `∀ m, IsInaccessibleChain m κ`,
-  because the threshold `sound_nil` produces is not known in advance.
-* `ModelFitsInput` — per-environment model data: a `PropSplit env 0` with `Stable`
-  and a `CtxInvariant`, plus `OracleFits`. The `PropSplit` part carries
-  `docs/model-interface.md`'s standing label (nothing in the tree exhibits one);
-  the `OracleFits` part is the `.axiom`/`.quot`/`.induct` oracle, of which only the
-  `.induct` clause is the residual.
+* `InaccModelInput` — model existence. It bundled two halves, and **the second is now
+  closed**. It used to read: Foundation supplies `small_satisfiable_of_consistent` +
+  `QuotNormalize`/`standardStructure` for the model, and `exists_inaccessibleChain` gives
+  one `κ` *per* `n` while `consistent_of` needs a single `κ` with
+  `∀ m, IsInaccessibleChain m κ` — "a real gap, not bookkeeping". That reordering is
+  **proved**: `SetModel/InaccChainOmega.lean`'s `exists_inaccessibleChain_omega` produces
+  one such `κ` inside any model of `𝗭𝗙𝗖+𝗜𝗻𝗮𝗰𝗰`, by taking `κ i` to be the `(i+1)`-st
+  *least* inaccessible (`inaccSeq`, available because `IsInaccessible` is internally
+  definable, so Foundation's `exists_minimal` applies) and getting "one more inaccessible
+  above" from a pigeonhole against the schema — the `(i+2)`-nd sentence of `𝗜𝗻𝗮𝗰𝗰` cannot
+  inject `i+2` distinct inaccessibles into the `i+1` values `inaccSeq 0 … inaccSeq i`,
+  which by leastness are *all* the inaccessibles that far up (`inaccSeq_spec`). Hence
+  `inaccModelInput_of_modelExists : ModelExistsInput → InaccModelInput`, and what is left
+  of Input A is `ModelExistsInput` — **pure model existence, chain-free**, i.e. Foundation
+  glue, still not applied here.
+* ~~`ModelFitsInput`~~ — **FALSE, and replaced.** `SetModel/ModelFitsVacuous.lean`'s
+  `not_modelFitsInput (hA : InaccModelInput) (hc : Consistent 𝗭𝗙𝗖+𝗜𝗻𝗮𝗰𝗰) : ¬ ModelFitsInput`
+  witnesses `docs/vacuity-ledger.md` row 11b, which had named that statement without
+  proving it. The defect: the input quantifies over every `ds` with `VEnv.WF' ds env` and
+  `∀ d ∈ ds, d.noUnsafe`, and `noUnsafe` excludes only `.unsafeDef` — not `.axiom`. So the
+  one-declaration history `axiom Bad : ∀ p : Prop, p` is admissible (`badAx_history`,
+  `badAx_noUnsafe`; `VDecl.WF`'s `.axiom` rule asks only that the type *be* a type, which
+  `falseProp_isType` gives at any environment), and there `OracleFits`' `.axiom` clause is
+  refuted by `not_oracleOK_falseProp`. `upper_bound_of` is therefore a vacuous reduction:
+  its second hypothesis is false exactly when its conclusion is not free. The same argument
+  refutes `leanTTConsistent_of`'s hypothesis `H` verbatim (`not_modelFits_uniform`), so
+  this is not an artefact of the §7 packaging. **It routes through neither open unknown**:
+  the `PropSplit` is *received* from `ModelFits`' existential rather than built, and the
+  list has no `.induct` step.
+* `ModelFitsLeanInput` — **the replacement**, in the same file. `leanTTConsistent`
+  quantifies over `env.LeanWF`, whose user part must be `VDecl.isPure`, and `.axiom` is the
+  one former that is `noUnsafe` but not `isPure`. So narrow the input to `PureOverPrelude`
+  (the standard prelude, then pure steps): `leanWF_iff` shows
+  `VEnv.WF' ds env ∧ PureOverPrelude ds` *is* `env.LeanWF`, so nothing is conceded, and
+  `leanTTConsistent_of_lean` / `upper_bound_of_lean` re-run the reduction. With Input A's
+  chain half discharged as above, `upper_bound_of_omega : ModelExistsInput →
+  ModelFitsLeanInput → Consistent 𝗭𝗙𝗖+𝗜𝗻𝗮𝗰𝗰 → leanTTConsistent` is the whole model-side
+  reduction on **two** inputs. The `.axiom` refutation route is closed not just at that one
+  witness but in general — `axiom_mem_pureOverPrelude`: every `.axiom` in a Lean history is
+  one of `propext`, `Classical.choice`, `Quot.sound` — and the narrowing is not a
+  trivialisation: `pureOverPrelude_prelude` holds and the prelude carries three `.induct`
+  steps, so the residual survives unchanged.
 
-**No joint witness for the whole hypothesis set has been exhibited.** The claim
-here is exactly: every `VDecl` case of the recursion is discharged or refuted
-outright, and what remains is the three named inputs above.
+**No joint witness for the whole hypothesis set has been exhibited**, and
+`ModelFitsLeanInput` is **not** shown satisfiable — its two known unknowns are untouched by
+the narrowing: the `PropSplit env 0` with `Stable` (`docs/model-interface.md`'s standing
+label; nothing in the tree exhibits one) and, since `.axiom` can no longer refute it, an
+`.induct` step at some `VInductDecl'.WF` block with an uninhabited declared constant, which
+is exactly `InductOracleAudit.lean` §5's open `consts` bound. The claim here is exactly:
+every `VDecl` case of the recursion is discharged or refuted outright; Input A's chain half
+is proved; Input B as previously stated is false and has been replaced by one that the
+target actually needs.

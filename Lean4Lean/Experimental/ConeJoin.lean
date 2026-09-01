@@ -111,6 +111,7 @@ import Lean4Lean.Theory.Typing.InjSpineTransport  -- added 2026-08-31: hole B's 
 import Lean4Lean.Verify.Typing.ProjWeakInv  -- added 2026-08-31: TrProj.weak'_inv's residual, reduced and bounded
 import Lean4Lean.Theory.SetModel.InaccChainOmega  -- 2026-09-01: the hκ gap, one κ for every finite length
 import Lean4Lean.Theory.Inductive.NestedRules  -- 2026-09-01: the (B)/(C) bridges
+import Lean4Lean.Theory.SetModel.ModelFitsVacuous  -- 2026-09-01: ModelFitsInput is FALSE; the repair narrows to PureOverPrelude
 
 /-!
 # Acceptance test: the `PatternRules` cone and the `Verify/` cone join
