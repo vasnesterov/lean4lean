@@ -3046,6 +3046,42 @@ Boundary control on the residual, both sorry-free, both in the same file:
   `not_defEqOK_falseType` discharges. That is a change to `InductOracleAudit.lean`'s §5 table
   and has not been made.
 
+### `InstDescendUp` / `PropDescend.sort_inst`: the recorded obstruction was misattributed
+
+`Theory/SetModel/InstDescendAudit.lean`, machine-checked, sorry-free.
+
+* **The recorded candidate refutation of `sort_inst` does not work, and the blockage is not
+  `IsDefEqU.sort_forallE_inv`.** `StableAudit.lean` recorded the witness
+  `Γ₀ = []`, `A₀ = Prop → Prop`, `e₀ = fun p : Prop => p`, `k = 0`, `Γ₁ = [Prop → Prop]`,
+  `B = (bvar 0) falseProp falseProp`, claiming that `B.inst e₀ 0`'s inner head
+  `(fun p => p) falseProp` "has type `falseProp`, a Π-type". **It has type `Prop`** — exactly
+  like `(bvar 0) falseProp` at `Γ₁` (`w_head_unsubst`, `w_head_subst`, `w_head_type_agree`), and
+  the two are `inst`-related on the nose (`w_head_inst`). `w_types_of_sortPiConv` derives
+  **both** typings from one `Prop ≡ Π` hypothesis, so the witness is symmetric: no disposition
+  of `sort_forallE_inv` can make it refute `sort_inst`. The note was stated as
+  "not machine-checked"; it is now checked, and it is wrong. Corrected in place.
+  `sort_inst` remains **open** — what is gone is the recorded reason for thinking it refutable.
+* **The level condition in the residual is free.** `SortInstDescend0` is `sort_inst` with the
+  conclusion's `v.eval ls = 0` dropped, and `sortInstDescend_iff` proves the two equivalent
+  given `Ordered` and `PropUniq` — both of which the model side assumes outright
+  (`modelFits_of_propSplitUp_inputs` takes `PropUniq 0`). Bounded **both ways**:
+  `→` is projection, `←` is the `PropUniq` bridge (forward-substitute the descended typing and
+  compare the two sorts; `PropSplitAudit.PropUniq` is pointwise in `ls`, which is exactly the
+  form needed). Neither side vacuous (`sortInstDescend0_nonvacuous`, at `k = 0`). So the entire
+  content of the residual is **typeability descent**, none of it about levels.
+* **The model side and the syntactic side DO share a residual — but not the one on record.**
+  Walking `SortInstDescend0`'s cases: `.sort`/`.const`/`.bvar i (i ≠ k)` are free; `.bvar k` is
+  *uniqueness of typing for `e₀`* (`sortInstDescend0_bvar_forces_sort`, machine-checked — the
+  premise types `e₀` at a sort while the hypothesis types it at `A₀`, and the conclusion demands
+  `A₀` be a sort, whose only candidate is `A₀.lift` via `bvar0_type_is_lift`); `.forallE`/`.app`/
+  `.lam` each need *inversion at a sort*, because the premise's derivation need not have the
+  matching rule at its root (`defeqDF`, `trans`, `proofIrrel`). Both are downstream of the same
+  injectivity stream as `sort_forallE_inv` but are **different statements** from it. Stated
+  explicitly rather than absorbed.
+* **No equivalence with `UniqueTyping` is claimed** — only that one instance of the residual
+  demands its content. Rows 51/77b/82b: any proposed equivalence must be tested in both
+  directions before it is recorded.
+
 ### H2 after this: a reduction, not a closure
 
 `upper_bound_of (hA : InaccModelInput) (hB : ModelFitsInput) :`

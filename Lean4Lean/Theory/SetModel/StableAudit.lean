@@ -65,14 +65,25 @@ not.  The candidate witness, stated but **not** machine-checked:
 B  = (bvar 0) falseProp falseProp        -- two arguments
 ```
 
-`B.inst e₀ 0` is `(fun p => p) falseProp falseProp`, whose head `(fun p => p)
-falseProp` has type `falseProp = ∀ p : Prop, p`, a Π-type, so the outer
-application types and the whole term is a proof of `falseProp`.  In `Γ₁` the
-head `(bvar 0) falseProp` has type `Prop`, and applying a term of type `Prop`
-requires `Prop` to convert to a Π — which is exactly
-`IsDefEqU.sort_forallE_inv` (`Theory/Typing/Injectivity.lean`), still open.  So
-the refutation of `sort_inst` is blocked on the same statement the model was
-trying to avoid, and this file claims only that `sort_inst` is **open**.
+**UPDATE (2026-09-01): the witness above does not work, and this paragraph was wrong.**
+`SetModel/InstDescendAudit.lean` §1 machine-checks it.  The claim was that
+`B.inst e₀ 0`'s inner head `(fun p => p) falseProp` has type `falseProp`, a
+Π-type, so the outer application types while the `Γ₁` side does not.  It does
+not: `(fun p : Prop => p) falseProp` has type **`Prop`**, exactly like
+`(bvar 0) falseProp` at `Γ₁` (`w_head_unsubst`, `w_head_subst`,
+`w_head_type_agree`), and the two terms are `inst`-related on the nose.  So the
+outer application needs a term of type `Prop` to be applied on *both* sides:
+`w_types_of_sortPiConv` derives **both** typings from one `Prop ≡ Π`
+hypothesis.  The witness is symmetric and cannot refute `sort_inst`, whatever
+the disposition of `IsDefEqU.sort_forallE_inv`.
+
+`sort_inst` is still **open** — what is gone is the recorded reason for
+believing it refutable, and with it the attribution of the blockage to
+`sort_forallE_inv`.  `InstDescendAudit.lean` §2 removes the level condition from
+the residual (`sortInstDescend_iff`, given `Ordered` + `PropUniq`, which the
+model side already assumes), so the whole content is typeability descent; §3
+walks its cases and finds the real shared residual to be **uniqueness of typing
+plus inversion at a sort**, not `Prop ≡ Π`.
 
 ## Scope
 
