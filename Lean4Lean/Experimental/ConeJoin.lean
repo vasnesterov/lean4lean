@@ -132,6 +132,7 @@ import Lean4Lean.Theory.Typing.StrengthenInhabGate  -- 2026-09-01: the typing ha
 import Lean4Lean.Verify.Inductive.NestedOccData      -- 2026-09-01: OccResidue reduced to member+occurs; head and ctorName_inv closed in general
 import Lean4Lean.Verify.Inductive.NestedRunInvariant -- 2026-09-01: MWF, the nested-branch M calculus with the state invariant a parameter
 import Lean4Lean.Theory.Typing.InjPiRogue  -- 2026-09-01: Pi-side rogue Ordered env; ConvPiFromEntry is FALSE at Ordered strength, so the localisation program must consume VEnv.WF
+import Lean4Lean.Theory.Typing.InjOneFact  -- 2026-09-01: the one fact stated once (ShapeLinkAgree = 3 consumers, both ways); betaMid COLLAPSES SortMidNonSort and PiMidNonPi into their targets
 import Lean4Lean.Theory.SetModel.UnitOracleWitness  -- 2026-09-01: the .induct residual at a WF block with NO empty domain; the frontier is isLE, not Prop
 import Lean4Lean.Theory.SetModel.UnitOracleLarge  -- 2026-09-01: the .induct residual at the LARGE eliminator; the oracle's level branch is FORCED; IndInterp was not needed
 import Lean4Lean.Theory.SetModel.InstDescendAudit  -- 2026-09-01: sort_inst's recorded refutation is SYMMETRIC; the level condition is free; the shared residual is UniqueTyping + sort-inversion

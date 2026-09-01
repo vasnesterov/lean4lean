@@ -197,8 +197,51 @@ Eleven of thirteen constructors close inside the proof (`extra` by
 midpoint) and `SortNotProof` (`proofIrrel`). **Both are descent statements about a term that is
 not a sort — not statements about rules** — so every rule-level route into a sort/sort link is
 shut, and a rogue `VEnv.WF` witness would have to be a non-confluence of Lean's own rule set.
-This is the **first genuine localisation in six attempts** in that corner: target → residual is
-free, and the converse has no route.
+
+**RETRACTED, 2026-09-01, the same day it was written.** This paragraph said "target → residual is
+free, and the converse has no route", and called it the first genuine localisation in six attempts.
+**Both halves are false.** A single link *does* offer a non-sort midpoint: β manufactures one for
+**every** well-typed `X` at **every** index, because `Type 0` is inhabited by `Prop` in every
+context — `InjOneFact.betaMid`, `betaMid_link`. So `sortMidNonSortC_iff_sortLinkInvUC` is an `iff`
+and `sortLinkInv_of_wf` is **collapse six**, not a reduction. The same β witness makes
+`piLinkInvCod_iff_piMidNonPi` an `iff` — **collapse seven**, so the `PiMidNonPi` "request" below
+gives back exactly the statement it was asked to supply.
+
+Worse, the mechanism was already recorded three paragraphs from the claim, in
+`docs/handoff-injectivity.md` §4H.8 item 5 ("the costly midpoint heads are reached by **β alone**",
+`midpoint_app_at_empty`), which the same section flagged `[analysis]`. **Two mutually inconsistent
+claims, in one document, written by me on one day — and the `[analysis]`-flagged half was the
+right one.**
+
+**Generalised, and this is the durable result:** `midShapeless_vacuous` / `shapeMidP_iff` — for
+**any** predicate `P` with `∀ X, P (betaMid X)`, the `P`-restricted midpoint statement is
+equivalent to the unrestricted link statement. **No syntactic condition on a midpoint can ever
+localise a `trans` node.** That kills "not a sort", "not a Π", "neither", "is an application", "is
+a β-redex" and "no rigid head" in one theorem, and it is why localisation has now collapsed seven
+times here.
+
+**The one fact, and it is now a theorem rather than a reading of the reference.**
+`InjOneFact.ShapeLinkAgree` states it once — one relation over `SPShape` (sort | pi) with
+`Agree` diagonal-and-disjoint — and `shapeLinkAgree_iff` proves
+`ShapeLinkAgree ↔ SortLinkInvUC ∧ PiLinkInvUC ∧ SortPiDisjUC`, **both directions**. So "one
+prerequisite, three consumers" is established here, not inferred from `unique.tex`.
+`shapeAgree_of_wf` then closes **eleven of thirteen** constructors at `VEnv.WF`, leaving
+`ShapeMidShapeless` and `ShapeNotProof` — and it **discharges the item `InjPiRogue.lean` §17
+explicitly left open**, that these plus `VEnv.WF` close `PiLinkInvCod`. What unblocked the Π-side
+induction was *not* `ConvC.defeqDFC`: it was dropping the `.sort u` index and carrying the domain
+chain in the conclusion, so `PiLinkInvDom` is **part of what the induction proves**, not a
+hypothesis it needs.
+
+**Where the CR boundary actually falls: the `trans` node and nothing weaker.** That is the sharp
+content of `midShapeless_vacuous`, and it has a hard consequence for how the confluence layer is
+asked for anything — **any request must name a reduction relation or a normal-form predicate.** A
+request that proudly mentions no reduction relation is, for that reason, equivalent to its own
+target. The minimal honest form is `ShapeCR`, parametric in `Red`, with `join` and `normal`; it
+discharges the whole target (`shapeLinkAgree_of_shapeCR`) with no `VEnv.WF` and no induction, and
+**both clauses are proved load-bearing** — `Red := Eq` fails `join`, conversion fails `normal`, the
+latter by the β witness again. *Not claimed: that any `Red` satisfies both.* Note also that
+`ShapeCR.join` **absorbs** `ShapeNotProof`, since a `proofIrrel` link is a link — so only the
+constructor-by-constructor packaging separates the stratification residual from the CR one.
 
 **Priced against the reference, the three residuals are one fact.** `~/lean-type-theory/unique.tex`
 discharges its clauses (1), (2) and (3) — sort inversion, Π inversion, sort/Π disjointness — by the

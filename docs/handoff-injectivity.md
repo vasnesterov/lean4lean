@@ -1405,6 +1405,12 @@ halves of `ConvStep2` are not independent and must not be planned as two fronts.
 killing the Π- and sort-side localisations for the same reason: `IsDefEqStrong.trans` is a rule one
 way and `ConvC.one` composes the other. With §4G's and row 51's earlier collapses that is five.
 
+**RETRACTED 2026-09-01, same day, by `Theory/Typing/InjOneFact.lean` — see the note at the end of
+§4H.10. The claim below that "the converse has no route" is false: β manufactures a non-sort
+midpoint for every well-typed `X` at every index, so the sixth attempt is a collapse too, and so is
+§4H.7's `PiMidNonPi`. §4H.8 item 5 already said this. Read §4H.11 before using anything in §4H.5 or
+§4H.7.**
+
 **The sixth works.** `sortLinkInv_of_wf` runs the induction the Π side could not, and the reason is
 structural: **the sort side's conclusion `a ≈ b` carries no context and no type index**, so
 `defeqDF` is free, `symm` is `Eq.symm`, `trans`-through-a-sort is `Eq.trans` — no `ConvC.defeqDFC`,
@@ -1500,8 +1506,29 @@ and `docs/handoff-confluence.md`.
   skipped internal names while *building* the reachability graph. `forallE_inv_stratified` is
   **651**, `rigidShapeUniqNS` **410**. See `docs/handoff-weakn.md` §5.3.
 
+### 4H.11 Collapse six and seven: no syntactic midpoint condition can localise a `trans` node
+
+`Theory/Typing/InjOneFact.lean`, same day. `betaMid X := .app (.lam (.sort (.succ .zero)) X.lift)
+(.sort .zero)` and `betaMid_link` give an `.app`-headed link to **every** well-typed `X` at **every**
+index, because `Type 0` is inhabited by `Prop` in every context. Hence
+`sortMidNonSortC_iff_sortLinkInvUC` and `piLinkInvCod_iff_piMidNonPi` are both **`iff`s** over
+`Ordered` alone: §4H.5 is collapse six and §4H.7 is collapse seven.
+
+Generalised: `midShapeless_vacuous` / `shapeMidP_iff` — for **any** `P` with `∀ X, P (betaMid X)`,
+the `P`-restricted midpoint statement is equivalent to the unrestricted link statement. **Do not
+attempt a syntactic localisation of a `trans` node at all.**
+
+What survives and is new: `ShapeLinkAgree` states the one fact once, and `shapeLinkAgree_iff`
+proves it equivalent to the three consumers **both ways**, so §4H.6's "one prerequisite, three
+consumers" is a theorem here rather than a reading of `unique.tex`. `shapeAgree_of_wf` closes eleven
+of thirteen constructors at `VEnv.WF` and **discharges §17's explicitly-open item**. The CR boundary
+is **the `trans` node and nothing weaker**, so any request to the confluence layer must name a
+reduction relation or a normal-form predicate — `ShapeCR` is the minimal such form, with both
+clauses proved load-bearing.
+
 ### 4H.10 What to pick up first
 
+**SUPERSEDED by §4H.11: `SortMidNonSort` is not a residual, it is the target.** *Was:*
 **`SortMidNonSort`, pursued as an instance of the one fact of 4H.6 rather than on its own** — a
 κ-normal rigid head has no reduct of another shape. Doing it once serves `PiMidNonPi` and
 `RigidSortPiDisj` too, and 4H.6 says which half needs CR and which needs the stratification. Do
