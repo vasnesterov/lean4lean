@@ -299,6 +299,46 @@ not remove the need to move `B'' ⇝ B'` from `A''::Γ` into `A::Γ`.
 
 **No dependency taken on the confluence layer.**  `PiMidNonPi` stays a request (§17), unchanged.
 
+## Round 5 (2026-09-01): the sort side reduces, and the critical path has one prerequisite
+
+**Task 1 — is `ConvSortInv` refutable at a `VEnv.WF` environment?**  No witness, and now the case
+list is a theorem rather than prose.  `sortLinkInv_of_wf` (§22) is an induction on
+`IsDefEqStrong` whose conclusion is the level equation `a ≈ b` — carrying **no context and no type
+index** — and that is what makes it go through where §17's Π-side induction could not: `defeqDF` is
+free (the index changes, the conclusion does not mention it), `symm` is `Eq.symm`, and
+`trans`-through-a-sort is `Eq.trans`.  Eleven of the thirteen constructors close inside the proof:
+seven by endpoint shape, `sortDF` by its own side condition, `extra` by
+`DeclRules.WF.instL_lhs_ne_sort`, `symm`/`defeqDF` by the induction hypothesis.  **Exactly two
+survive** — `trans` at a non-sort midpoint (`SortMidNonSort`) and `proofIrrel` (`SortNotProof`) —
+and both are *descent* statements about a term that is not a sort, not statements about rules.
+So every rule-level route into a sort/sort link is shut, and a rogue `VEnv.WF` witness would have
+to exhibit a term converting to two `≉` sorts, i.e. a non-confluence of Lean's own rule set.  No
+such witness is claimed and none was found.
+
+**And this localisation, unlike the previous five tests, is a genuine reduction.**
+`SortLinkInvU.sortMidNonSort` gives target → residual for free; the converse has **no route**,
+because a single link offers no non-sort midpoint and the sort-midpoint case is supplied by the
+induction hypothesis, which only the induction has.  One correction inside the round: the first
+draft asserted `SortLinkInv → SortMidNonSort`, which does not typecheck — `SortMidNonSort`
+quantifies over an arbitrary index, so the right target is the index-free `SortLinkInvU`.
+
+**`SortNotProof` is not a new obligation**: it is `Injectivity.not_isProof_of_defeqU_sort` at
+`e = .sort a`, which that file proves from `WF.sortUniq'` — from `SortUniq`, i.e. from the very
+statement being reduced.  Cited, not imported (the bound runs through `sorryAx`).
+
+**Task 2 — priced against the reference (§23).**  `unique.tex` proves clause (1) of definitional
+inversion — which *is* `ConvSortInv` — **only** through `thm:ckappa`, whose transitivity is the
+Church–Rosser property, and its own §8 says the theorem cannot be proved before CR.  So
+`ConvSortInv` presupposes confluence.  Better: the reference discharges clauses (1), (2) and (3)
+by the *same* two moves, so this tree's `SortMidNonSort`, `PiMidNonPi` and `RigidSortPiDisj` are
+**three instances of one fact** — a κ-normal rigid head has no reduct of another shape — plus CR.
+**The critical path has one prerequisite, not two.**  The `proofIrrel` residuals are the exception:
+the reference kills them with unique typing at the *previous* index, and `SubstCRefute.lean` has
+refuted the step of that proof (`VEnv.SubstC`, `unique.tex:51`), so that route is not available
+here as written.
+
+No dependency taken on the confluence layer; `PiMidNonPi` and `SortMidNonSort` are requests.
+
 ## Axioms and cone
 
 `#print axioms` block at the end: every declaration is `sorryAx`-free; `Classical.choice` appears
@@ -988,6 +1028,190 @@ theorem ConvPiInv.piLinkInvDom (H : ConvPiInv env U) : PiLinkInvDom env U :=
 theorem ConvPiInv.piLinkInvCod (H : ConvPiInv env U) : PiLinkInvCod env U :=
   fun hΓ h => (H hΓ (.one h)).2
 
+/-! ## §22 The sort side's residual, isolated by a real induction — and `extra` discharged inside it
+
+§19 made `ConvSortInv` the corner's single residual (the Π side's `proofIrrel` case consumes it).
+This section runs the induction that §17 could not run on the Π side, and the reason it goes
+through is a structural asymmetry worth stating on its own:
+
+> **the sort side's conclusion is a level equation, so it carries no context.**
+
+The Π side's conclusion `ConvC (A::Γ) B B'` is indexed by the binder, which is why its
+`trans`-with-a-Π-midpoint sub-case needs `ConvC.defeqDFC` and a domain half (§17, §21).  Here
+`a ≈ b` mentions neither `Γ` nor the type index, so `symm` composes by `Eq.symm`, `trans` with a
+*sort* midpoint composes by `Eq.trans`, and — the case that matters — `defeqDF` is free: the index
+changes and the conclusion does not mention it.  Nothing has to be transported.
+
+`sortLinkInv_of_wf` is the result.  Every rule-level case is closed inside the proof:
+
+| constructor | how it closes |
+| --- | --- |
+| `bvar`, `constDF`, `appDF`, `lamDF`, `forallEDF`, `beta`, `eta` | endpoint shape: not a `.sort` |
+| `sortDF` | its own side condition **is** `a ≈ b` |
+| `extra` | `DeclRules.WF.instL_lhs_ne_sort` — no rule rewrites a sort |
+| `symm`, `defeqDF` | induction hypothesis, unchanged |
+| `trans`, midpoint a `.sort` | induction hypothesis twice, `Eq.trans` |
+| `trans`, midpoint **not** a `.sort` | `SortMidNonSort` — **open** |
+| `proofIrrel` | `SortNotProof` — **open** |
+
+So the answer to "say exactly which cases remain open" is a theorem rather than prose: **exactly
+two**, and both are *descent* statements about a term that is not a sort, not statements about
+rules.  That is also the answer to "is `ConvSortInv` refutable at a `VEnv.WF` environment": every
+rule-level route into a sort/sort link is closed by the table above, so a rogue `VEnv.WF` witness
+would have to come through one of the two open cases — i.e. it would have to exhibit a term that
+converts to two `≉` sorts, which is a non-confluence of Lean's own rule set rather than an
+artefact of the environment.  **No such witness is claimed and none was found.** -/
+
+/-- The `trans` case with a midpoint that is not a syntactic sort.  Note there is no level index
+and no context conversion: both halves sit at one type index `A`, which the conclusion ignores. -/
+def SortMidNonSort (env : VEnv) (U : Nat) : Prop :=
+  ∀ {Γ : List VExpr} {a b : VLevel} {M A : VExpr}, (∀ c, M ≠ .sort c) →
+    env.IsDefEqStrong U Γ (.sort a) M A → env.IsDefEqStrong U Γ M (.sort b) A → a ≈ b
+
+/-- The `proofIrrel` case: **a sort is not a proof.**  Compare
+`Injectivity.not_isProof_of_defeqU_sort`, which proves this from `WF.sortUniq'`, i.e. from the
+hole; here it is a named residual instead. -/
+def SortNotProof (env : VEnv) (U : Nat) : Prop :=
+  ∀ {Γ : List VExpr} {p : VExpr} {a : VLevel},
+    env.IsDefEqStrong U Γ p p (.sort .zero) → env.IsDefEqStrong U Γ (.sort a) (.sort a) p → False
+
+theorem sortLinkInv_of_wf (henv : VEnv.WF env) (hm : SortMidNonSort env U)
+    (hp : SortNotProof env U) {Γ : List VExpr} {e1 e2 A : VExpr}
+    (h : env.IsDefEqStrong U Γ e1 e2 A) :
+    ∀ {a b : VLevel}, e1 = .sort a → e2 = .sort b → a ≈ b := by
+  induction h with
+  | bvar _ _ _ => exact fun h => absurd h nofun
+  | symm _ ih => exact fun h1 h2 => (ih h2 h1).symm
+  | @trans _ _ M _ _ hl hr ihl ihr =>
+    intro a b ea eb; subst ea; subst eb
+    by_cases hs : ∃ c, M = .sort c
+    · obtain ⟨c, rfl⟩ := hs; exact (ihl rfl rfl).trans (ihr rfl rfl)
+    · exact hm (fun c e => hs ⟨c, e⟩) hl hr
+  | sortDF _ _ h3 => exact fun ea eb => by cases ea; cases eb; exact h3
+  | constDF _ _ _ _ _ _ _ _ => exact fun h => absurd h nofun
+  | appDF _ _ _ _ _ _ _ => exact fun h => absurd h nofun
+  | lamDF _ _ _ _ _ _ _ => exact fun h => absurd h nofun
+  | forallEDF _ _ _ _ _ => exact fun h => absurd h nofun
+  | defeqDF _ _ _ _ ih2 => exact ih2
+  | beta _ _ _ _ _ _ _ _ => exact fun h => absurd h nofun
+  | eta _ _ _ _ _ _ _ _ => exact fun h => absurd h nofun
+  | proofIrrel h1 h2 _ _ _ _ =>
+    intro a b ea eb; subst ea
+    exact absurd (hp h1 h2) not_false
+  | extra h1 _ _ _ _ _ _ _ _ =>
+    exact fun ea _ => absurd ea (henv.instL_lhs_ne_sort h1 _ _)
+
+/-- **The sort side's single-link statement, from two descent residuals and `VEnv.WF`.** -/
+theorem sortLinkInv_of (henv : VEnv.WF env) (hm : SortMidNonSort env U)
+    (hp : SortNotProof env U) : SortLinkInv env U :=
+  fun _ h => sortLinkInv_of_wf henv hm hp h rfl rfl
+
+/-- **…and hence the corner's single residual, given the chain collapse.**  Composed with §20. -/
+theorem convSortInv_of (henv : VEnv.WF env) (hcs : ConvStep2 env U) (hm : SortMidNonSort env U)
+    (hp : SortNotProof env U) : ConvSortInv env U :=
+  convSortInv_of_convStep2_sortLinkInv hcs (sortLinkInv_of henv hm hp)
+
+/-! ### The collapse test, and this time it **PASSES**
+
+`SortMidNonSort` quantifies over an **arbitrary** type index `A`, not over `.sort w`.  That is
+forced: the induction's conclusion must not mention the index — that is exactly what makes
+`defeqDF` free — so the `trans` case inherits an arbitrary `A`.  The right target to measure
+against is therefore the index-free single-link statement `SortLinkInvU`, and there:
+
+* `SortLinkInvU.sortMidNonSort` — the target implies the residual, free, one `IsDefEqStrong.trans`;
+* **the converse has no route.**  A single link `.sort a ≡ .sort b : A` offers no *non-sort*
+  midpoint, and the sort-midpoint case of the `trans` node is supplied inside §22's induction by
+  the induction hypothesis — which only the induction has.
+
+So after four collapses this localisation is **not** one: restricting the midpoint to non-sorts
+loses content, and `sortLinkInvU_of` is a genuine reduction rather than a restatement.  The
+structural reason is the one stated above the table — the sort side's conclusion is a level
+equation and carries no context, so the Π side's blocker (`ConvC.defeqDFC` plus a domain half,
+§17/§21) has no analogue here.
+
+**And `SortNotProof` is not a new obligation.**  It is `Injectivity.not_isProof_of_defeqU_sort`
+at `e = .sort a` — `IsProof env U Γ e := ∃ p, HasType Γ p (.sort .zero) ∧ HasType Γ e p`
+(`Injectivity.lean:699`) — which that file already proves, from `WF.sortUniq'`, i.e. from the hole
+`SortUniq`.  Since `sortUniq_iff_convSortInv` makes `SortUniq` the very statement being reduced,
+`SortNotProof` is free *given the target* and adds nothing to the residual.  (Stated as a citation,
+not re-proved here: the bound runs through a `sorryAx`-carrying declaration, so it is deliberately
+not imported.)
+
+**Net:** at `VEnv.WF` and modulo `ConvStep2`, the corner's single residual `ConvSortInv` reduces to
+**sort-descent at a non-sort midpoint**, `SortMidNonSort` — the sort analogue of §17's
+`PiMidNonPi`, and the one of the two that actually reduces. -/
+
+/-- The single-link statement with **no constraint on the type index** — the form §22's induction
+actually proves, and the form `SortMidNonSort` must be measured against. -/
+def SortLinkInvU (env : VEnv) (U : Nat) : Prop :=
+  ∀ {Γ : List VExpr} {a b : VLevel} {A : VExpr},
+    env.IsDefEqStrong U Γ (.sort a) (.sort b) A → a ≈ b
+
+theorem SortLinkInvU.sortLinkInv (H : SortLinkInvU env U) : SortLinkInv env U := fun _ h => H h
+
+/-- The target implies the residual — the only direction that holds. -/
+theorem SortLinkInvU.sortMidNonSort (H : SortLinkInvU env U) : SortMidNonSort env U :=
+  fun _ h1 h2 => H (h1.trans h2)
+
+theorem sortLinkInvU_of (henv : VEnv.WF env) (hm : SortMidNonSort env U)
+    (hp : SortNotProof env U) : SortLinkInvU env U :=
+  fun h => sortLinkInv_of_wf henv hm hp h rfl rfl
+
+/-- Degenerate check: at the empty environment `SortMidNonSort`'s premise is inhabited — §13's
+β-redex `appMid` is not a syntactic sort and sits between two conversions at one index — so the
+non-sort side condition does not empty the statement. -/
+theorem sortMidNonSort_side_fires : ∀ c, appMid ≠ .sort c := by rintro c ⟨⟩
+
+/-! ## §23 Task 2: priced against the reference — `ConvSortInv` **presupposes confluence**, and the
+critical path has **one** prerequisite, not two
+
+`~/lean-type-theory/unique.tex` proves uniqueness of typing, and its structure answers the
+question exactly.  Citations are file:line in that document.
+
+**(a) The reference cannot prove it before Church–Rosser, and says so.**  `unique.tex:8`: *"we
+cannot yet prove this theorem.  The critical step is the Church-Rosser theorem … the Church-Rosser
+theorem will require that this theorem is true, and we will be caught in a circularity unless we
+are careful about the claims."*  The circularity is managed by the alternation index `⊢ₙ`
+(`:11–16`), and `sec:kappa`'s opening note (`:64`) makes the direction explicit: *"importantly, we
+will assume that `⊢ₙ` has unique typing."*  So CR at `n+1` consumes unique typing at `n`.
+
+**(b) `ConvSortInv` *is* clause (1) of the reference's "definitional inversion"** (`:31–35`):
+`Γ ⊢ₙ U_ℓ ≡ U_ℓ' ⟹ ℓ ≡ ℓ'`.  `thm:utype` (`:40`) derives unique typing *from* definitional
+inversion, and `sortUniq_iff_convSortInv` makes the tree's `ConvSortInv` and `SortUniq` the same
+hypothesis.  Definitional inversion at `n+1` (`thm:1dinv`, `:259`) is proved **only** by applying
+`thm:ckappa` — completeness of κ-reduction (`:242`) — whose transitivity is *"the Church-Rosser
+property implies it is also transitive"* (`:240`), and the top-level induction (`:283–287`) closes
+`n+1` by "all the results of `sec:church_rosser` follow".  **There is no route in the reference to
+clause (1) that avoids confluence.**  Answer to the second question: it presupposes confluence.
+
+**(c) §22's two residuals are the reference's two cases, with the reference's two discharges.**
+`thm:1dinv` clause (1) splits exactly as §22's table does:
+
+| §22's open case | the reference's discharge (`:263`) |
+| --- | --- |
+| `SortMidNonSort` (`trans`, non-sort midpoint) | *"there are no `⇝_κ` reductions from `U_ℓ`"* — κ-normality of a universe, **plus CR** |
+| `SortNotProof` (`proofIrrel`) | *"by unique typing at `n`, `P ≡ U_{SSℓ}`, so `0 ≡ SSℓ`, a contradiction"* — the **stratification**, not CR |
+
+Independent confirmation that the case inventory is right, and it says which residual needs what.
+
+**(d) One prerequisite, not two.**  Clause (2) (`:267`, the Π case) and clause (3) (`:274`,
+sort/Π disjointness) are discharged by the *same* two moves: no `⇝_κ` reductions from a `∀` except
+the compatibility rules, plus `proofIrrel` killed by unique typing at `n`.  So this tree's
+`SortMidNonSort`, `PiMidNonPi` (§17) and `RigidSortPiDisj` are **three instances of one fact** —
+*a κ-normal rigid head has no reduct of another shape* — together with CR.  That is a cleaner
+statement of the critical path than "two fronts": the corner has one prerequisite, confluence,
+and three consumers of it.
+
+**(e) A caveat that is already in this tree, cited not re-derived.**  The reference's discharge of
+the `proofIrrel` cases runs through unique typing at `n`, i.e. through `thm:utype` (`:40–54`),
+whose application case uses closure of `⊢ₙ`-conversion under instantiation — `unique.tex:51`.
+`Theory/Typing/SubstCRefute.lean` **refutes** that step (`VEnv.SubstC`, false at `n = 1` over
+`∅`), so the reference's stratified route to `SortNotProof` is not available here as written.  The
+CR-side residual (`SortMidNonSort`, `PiMidNonPi`) is unaffected by that refutation.
+
+Nothing in this section is a Lean statement; it is a reading of the blueprint, and every claim in
+it is a quotation with a line number so it can be checked without trusting the reading. -/
+
 end VEnv
 end Lean4Lean
 
@@ -1045,4 +1269,11 @@ open Lean4Lean.VEnv
 #print axioms Lean4Lean.VEnv.convSortInv_of_convStep2_sortLinkInv
 #print axioms Lean4Lean.VEnv.ConvPiInv.piLinkInvDom
 #print axioms Lean4Lean.VEnv.ConvPiInv.piLinkInvCod
+#print axioms Lean4Lean.VEnv.sortLinkInv_of_wf
+#print axioms Lean4Lean.VEnv.sortLinkInv_of
+#print axioms Lean4Lean.VEnv.convSortInv_of
+#print axioms Lean4Lean.VEnv.SortLinkInvU.sortLinkInv
+#print axioms Lean4Lean.VEnv.sortLinkInvU_of
+#print axioms Lean4Lean.VEnv.SortLinkInvU.sortMidNonSort
+#print axioms Lean4Lean.VEnv.sortMidNonSort_side_fires
 end Audit

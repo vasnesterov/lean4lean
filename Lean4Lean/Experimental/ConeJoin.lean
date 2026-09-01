@@ -136,6 +136,7 @@ import Lean4Lean.Theory.SetModel.UnitOracleWitness  -- 2026-09-01: the .induct r
 import Lean4Lean.Theory.SetModel.UnitOracleLarge  -- 2026-09-01: the .induct residual at the LARGE eliminator; the oracle's level branch is FORCED; IndInterp was not needed
 import Lean4Lean.Theory.Typing.DescendRestate  -- 2026-09-01: descend's restatement bounded both ways; the ParRedKn route closed for it
 import Lean4Lean.Theory.Typing.ParRedMissing  -- 2026-09-01: what ParRed lacks, as CONSTRUCTORS of an extension; all three descend witnesses repaired, and the extension is cyclic
+import Lean4Lean.Theory.Typing.ParRedCycle  -- 2026-09-01: the cycle is essential, no grading helps, and the confluence layer reduces to M3 (PatMajorCanonical)
 
 /-!
 # Acceptance test: the `PatternRules` cone and the `Verify/` cone join

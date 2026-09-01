@@ -183,6 +183,56 @@ three for reasons that must not be misread as slack:
    one thing well-formedness buys — **was never the residual on either side**.  Localisation has
    now collapsed four times, on both halves.
 
+## The convergence (2026-09-01): two independent corners both reduce to the rule table
+
+This is the cleanest statement of the critical path the project has had, and it came from two
+streams that were not working together.
+
+**The injectivity corner reduces to sort-descent at a non-sort midpoint.**
+`InjPiRogue.sortLinkInv_of_wf` runs the induction the Π side could not, because the sort side's
+conclusion `a ≈ b` **carries no context and no type index** — so `defeqDF` is free, `symm` is
+`Eq.symm`, and `trans`-through-a-sort is `Eq.trans`, with nothing to transport between contexts.
+Eleven of thirteen constructors close inside the proof (`extra` by
+`DeclRules.WF.instL_lhs_ne_sort`), leaving exactly two: `SortMidNonSort` (`trans` at a non-sort
+midpoint) and `SortNotProof` (`proofIrrel`). **Both are descent statements about a term that is
+not a sort — not statements about rules** — so every rule-level route into a sort/sort link is
+shut, and a rogue `VEnv.WF` witness would have to be a non-confluence of Lean's own rule set.
+This is the **first genuine localisation in six attempts** in that corner: target → residual is
+free, and the converse has no route.
+
+**Priced against the reference, the three residuals are one fact.** `~/lean-type-theory/unique.tex`
+discharges its clauses (1), (2) and (3) — sort inversion, Π inversion, sort/Π disjointness — by the
+*same* two moves (`:263`, `:267`, `:274`). So this tree's `SortMidNonSort`, `PiMidNonPi` and
+`RigidSortPiDisj` are **three instances of one fact — a κ-normal rigid head has no reduct of another
+shape — plus Church–Rosser.** One prerequisite, three consumers.
+
+**And Church–Rosser reduces to one named property of the rule table.**
+`ParRedCycle.kDiamond_of_patMajorCanonical` (`[propext, Quot.sound]`, `Classical.choice`-free)
+derives `KDiamond` from `PatMajorCanonical`, which mentions only `Params.Pat`,
+`Pattern.Matches`, `HasType`/`IsDefEq` and `NormalEq` — **no `ParRed`, no `ParRedK`, no grading, no
+reduction relation at all.** It is `design-inductive.md` §7.6's lemma **M3**.
+
+So both corners now point at the same place: **the rule table.** What is *not* claimed: that
+`KDiamond` suffices for `ParRedK` confluence (`EtaKDiamond` reduces to an equal-height diamond plus
+a λ-congruence induction that is open), and that `PatMajorCanonical` is satisfiable — it is
+**vacuous** at `cycParams`, so non-vacuity needs an instance registering an `.app` pattern, the same
+instance `ParRedPropRefute.lean` and `KCanonical.lean` need and that `PatWFIota.lean` would supply.
+
+**Two routes are closed for good, by theorem rather than by remark.** Adding the two missing steps
+to `ParRed` cannot work: the cycle is *essential* (`cyc_of_answers`, `[propext]`, for an
+**arbitrary** relation — `descend`'s own obligation demands both directions before any constructor
+is written), no well-founded strict order orients it (`no_wf_orientation`), and **no grading
+removes it** (`no_grading_removes_cycle`, `[propext]`) because a grading bounds structure *within*
+a step and never the length of a chain. Proof irrelevance has no preferred direction and any
+relation strong enough for `descend` inherits that.
+
+**One divergence from the published reference, machine-checked.** The reference's route to the
+`proofIrrel` residuals runs through unique typing at `n`, whose application case needs closure of
+`⊢ₙ`-conversion under instantiation (`unique.tex:51`) — and `Theory/Typing/SubstCRefute.lean`
+**refutes** exactly that (`VEnv.SubstC`, false at `n = 1` over `∅`). So the stratified route to
+`SortNotProof` is not available here as written; the CR-side residuals are unaffected. Per
+`CLAUDE.md` this stays in the repo.
+
 ## Honest statement of where this leaves the main theorem
 
 `kernel_sound` is *not* closer to proved than the census suggested. What changed is that the
