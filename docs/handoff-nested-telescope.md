@@ -5,6 +5,33 @@ and the restored ι-rules — for a nested block with **parameters** (`D.np > 0`
 described here lives in `Lean4Lean/Theory/Inductive/NestedTele.lean`, which is imported only by
 `Lean4Lean/Experimental/ConeJoin.lean:129` and is therefore **outside `kernel_sound`'s cone**.
 
+## HEADLINE SUPERSEDED — read this first (2026-09-01, later)
+
+**The headline below is doubly stale and its "what I would pick up first" is wrong by three items.**
+It says the residual is `hargs` alone. Two fresh agents have since shown otherwise:
+
+* §T15 built the closure theorems (`recConstsR_wf_of_blocks`, `_of_entries`,
+  `iotaRulesRS_wf_of_components`), and row 11a's joint-satisfiability test **passes at the composed
+  level in the strong form** — the `np = 0` closures are re-derived *through* the new ones, so the
+  hypothesis bundles are jointly **inhabited**, not merely non-contradictory. **So the assembly
+  lifts off `np = 0`.**
+* But the residual was never one item. §T15 found **`hfld`** dropped from every `hargs`-only
+  summary (ledger row 92), and §T16 found a **fourth**, `hmatch`/`hconv`: §T9 item 5 did not make
+  it *free*, it made it **typed**, converting a refuted strict equation into **a second instance of
+  `hargs`**. Free and reduced-to-`hargs` are not the same thing.
+* §T16 then closed `hfld`, (C)'s `rhs` body defeq, `lhs`'s `hfun`, both σ-identities and the
+  closedness side condition — **but closing `hfld` does not remove it, it collapses it onto
+  `hargs`.**
+
+**Current honest residual for (B)/(C) at `np > 0`:** `hargs` **at two heads** (constructor via
+`hmaj`, type via `hconv`), `htele` (= `hmot` + `hmin` + `hfld`, each bottoming out in `hargs` plus
+the substituted D-series), and `hfunM` (§T8's motive-partial application — not data, but the domain
+identification is not done). **No `hp : D.params = []` and no `hcl0` anywhere in §T15 or §T16.**
+
+**The obligations still do not lift off `np = 0`. The assembly does.** That distinction has now been
+blurred three times in this corner and each time it produced a retraction; §T15.8 and §T16's header
+state it correctly, and this note exists so the sections below cannot be read as current.
+
 ## Headline, stated plainly
 
 **(B) and (C) still do not lift off `np = 0`. The closure theorems are still not stated.**
