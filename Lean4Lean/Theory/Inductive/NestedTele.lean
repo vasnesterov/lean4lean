@@ -1789,4 +1789,84 @@ end
 end VIndRestore
 
 
+/-! ## §T14 Row 11a's test, run — and it corrects row 76a rather than the development
+
+### The test is runnable, contrary to what §T13 assumed
+
+§T13 reported row 11a's test as un-runnable for want of a closure statement.  That was the wrong
+reason to defer it: the test is about the **hypotheses**, not the conclusion, so it can be run
+against `hargs`'s two instances directly.  And a parameterised `Faithful` witness exists —
+`InductiveDeclExamples.ntreeRestore_faithful` (`Theory/Inductive/NestedHead.lean:841`) at
+`ntreeAux`, whose `np` is `1` (`ntreeAux_np`, `NestedRules.lean:1110`).  So the test can be run
+at a real parameterised block with one `D`, one `R`, one `σ`.
+
+### Result: jointly satisfiable — because at the witness the two instances **coincide**
+
+Both `hargs` instances are `HasArgs` of the **same** spine `R.tyArgs 1` against the telescope
+`splitPis (npJ 1) (ci.type.instL (R.tyLvls 1))).1` for their respective declared constants.  At
+this witness the companion member is presented as `List`, and the three telescopes — `List`'s own
+stored type, `List.nil`'s and `List.cons`'s — are **the same list**,
+`[.sort (.succ (.param 0))]`, i.e. `α : Type u`.  `ntree_hargs_telescopes_coincide` below is that,
+by `rfl`.  The spine is `[NTree α]` in every case.
+
+So the two instances are not merely jointly satisfiable: at this witness they are **literally the
+same statement**, and what `hargs` amounts to is one typing,
+`e.HasType _ D.params.reverse (NTree α) (.sort (.succ (.param 0)))` — the nested instance is a
+type — which is exactly what the step being audited declares.  **The closure theorems would not be
+vacuous.**  That is row 11a answered in the affirmative.
+
+### …and therefore row 76a is too strong
+
+Row 76a recorded my finding that `hargs` is "two data, and two rather than one is forced by the
+construction, because the two blocks apply different constants with different declared types".
+The constants *are* different (`List` versus `List.cons`).  The **telescopes are not**, and it is
+the telescopes that the `HasArgs` statement mentions.  The reason is F3: a constructor's parameter
+binders are a definitionally equal copy of the block's, and on a canonically stored member they are
+*syntactically* equal.
+
+So the corrected statement is:
+
+* the two instances are forced to be genuinely two **only** under F1 — when the companion's stored
+  type is presented in a non-canonical but definitionally equal form, so that
+  `splitPis npJ T.type` is not the parameter telescope.  That is precisely the asymmetry §T10
+  found between `hsplit` for the type head (data) and for the constructor head (a theorem);
+* on any **canonically stored** companion — every witness in this tree, and everything
+  `ElimNestedInductive` generates, since `replaceIfNested` instantiates the nested type's own
+  stored type — the two are one statement, and `hargs` is **one** datum.
+
+Row 76a is not vacuous, it is conditional, and the condition is F1 storage.  I am flagging this
+against my own earlier claim: "forced" was too strong, and the witness is what shows it.
+
+### What is still not done
+
+The closure theorems for `recConstsR_wf_of_substC'` and `iotaRulesRS_wf_of_substC'` are **still
+not stated**.  Row 11a's test has now been run and passed, so the assembly is no longer at risk of
+being vacuous — but (B) and (C) still do **not** lift off `np = 0`, because the closure statements
+do not exist.  Row 75d was not hit: the witness needs no `(occ j).src.indices` pinning, because
+`List`'s stored type is canonical and `splitPis` reads the telescope off it syntactically. -/
+
+namespace InductiveDeclExamples
+
+/-- **Row 11a's test at the parameterised witness.**  The type head's and both constructor heads'
+`hargs` telescopes are the same list, so the two `hargs` instances are one statement here. -/
+theorem ntree_hargs_telescopes_coincide :
+    (VExpr.splitPis 1 (listType.type.instL (ntreeRestore.tyLvls 1))).1
+        = (VExpr.splitPis 1 ((listCons.type listDecl 0).instL (ntreeRestore.tyLvls 1))).1 ∧
+      (VExpr.splitPis 1 (listType.type.instL (ntreeRestore.tyLvls 1))).1
+        = (VExpr.splitPis 1 ((listNil.type listDecl 0).instL (ntreeRestore.tyLvls 1))).1 :=
+  ⟨rfl, rfl⟩
+
+/-- …and the telescope is the single type parameter, so `hargs` is one typing: the nested
+instance is a type. -/
+theorem ntree_hargs_telescope_eq :
+    (VExpr.splitPis 1 (listType.type.instL (ntreeRestore.tyLvls 1))).1
+      = [.sort (.succ (.param 0))] := rfl
+
+/-- …and the spine both instances are applied to is the nested instance itself. -/
+theorem ntree_hargs_spine_eq :
+    ntreeRestore.tyArgs 1 = [(VExpr.const ``NTree [.param 0]).app (.bvar 0)] := rfl
+
+end InductiveDeclExamples
+
+
 end Lean4Lean
