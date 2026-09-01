@@ -1,0 +1,827 @@
+import Lean4Lean.Verify.Inductive.NestedRunInvariant
+
+/-!
+# `ElimNestedInductive.run` is the identity on `types` — and the premise that costs
+
+`Verify/Inductive/AddInductiveStep.lean` §6 leaves the residue `AddInductiveRunRealises`, which
+still mentions `ElimNestedInductive`: `AddInductive.run` is applied to `res.types`, while
+`TrIndDecl` speaks of the input `types`, and the file records `res.types = types` as "looks
+provable" and the way to remove `ElimNestedInductive` from the residue entirely.
+
+**It is provable, and it is proved here** (`ElimNestedInductive.run_types_eq`,
+`run_run'_types`), from two premises:
+
+| premise | supplied by |
+| --- | --- |
+| `∀ n v, env.find? n ≠ some (.inductInfo v)` | `VEnvs.WF.find?_ne_inductInfo`, i.e. by `ves.WF env` |
+| `BlockNoFVar types` — no fvars/mvars in a constructor type | **`Environment.addInductive`'s own guard loop** (§6, `guardLoop_blockNoFVar`) |
+| `BlockClosed types` — no *loose bound variables* in a constructor type | **nothing** (§5) |
+
+§4 turns that into `AddInductiveRunRealisesClosed`: the residue with no `res`, no run-success
+equation and no `ElimNestedInductive`, and §7 chains it to `AddInductiveStepWFClosed`.
+
+## The finding: the missing premise is not a proof artefact
+
+`AddInductiveStepWF` and `AddInductiveRunRealises` — as `AddInductiveStep.lean` states them, with
+no closedness premise — are **false**.  §5 is the refutation and it is a witness, not an
+obstruction argument:
+
+* `LooseBVarWitness.fooBad` is `inductive Foo (α : Type) | mk : ∀ (α : Type) (x : #1), Foo #1`,
+  whose constructor type has `looseBVarRange = 1`.
+* `withParams` lowers that `#1` to `#0`; `LocalContext.mkForall` restores the binder with the
+  real `Expr.abstract`, which **leaves bound variables untouched** — so the loose variable is
+  **captured** by the parameter binder and the output is `∀ (α : Type), α → Foo α`, closed and
+  perfectly ordinary.
+* `Environment.addInductive` therefore **accepts** the block and stores a constructor type that
+  is not the one it was given (machine-observed by §5.1's second `#eval`, at
+  `Kernel.Environment.empty`, where `ves.WF env` is inhabited by `Bridge.hasEmptyModel`).
+* But `TrIndDecl`/`TrIndDeclN` require `TrExprS venv Us [] c.type _`, which forces
+  `c.type.looseBVarRange' = 0` (`trExprS_looseBVarRange_nil`).  So no `D` translates the *input*
+  block, and `AddInductPost env env' ves [] 1 [fooBad]` is false for **every** `ves'` and
+  `numNested` (`not_addInductPost_of_looseBVar`).
+
+Hence `not_addInductiveStepWF` and `not_addInductiveRunRealises`.  Consequences:
+
+1. The closedness premise is needed for **truth**, not merely for provability — so of the three
+   options "(a) add it as a premise / (b) recover it from `AddInductive.run`'s success / (c)
+   neither works", the answer is **(a), and (a) is forced**.
+2. **(b) is refuted, not merely doubtful.**  The only thing the output side can give is
+   closedness of `res.types`, and at this witness `res.types` **is** closed
+   (`LooseBVarWitness.fooGood_closed`) while `types` is not (`fooBad_not_closed`).  So no
+   strengthening of what `checkConstructors` establishes recovers the premise.
+3. Whoever installs the premise must carry it up through `AddDeclPost`/`addDecl.WF`, or the
+   implementation must reject such blocks.  **No implementation change is proposed here.**
+
+## Two corrections to the received account
+
+* "at a block whose constructor type carries a loose bvar, `run` is not the identity …
+  **and both kernels reject via the type checker**" — the first half is right, the second is
+  **false in exactly the interesting sub-case**.  When the loose index is small enough to be
+  captured by one of the `np` parameter binders, the output is closed and *accepted*; that is
+  `fooBad`.  The rejecting case is `fooFar` (index beyond `np`), also checked by the `#eval`.
+  This distinction is what makes the refutation above possible.
+* This is still **not a C++ divergence**: `kernel/abstract.cpp`'s `abstract` rewrites only
+  `fvar`/`mvar` nodes (and returns `e` unchanged when `!has_fvar(e)`), and
+  `kernel/inductive.cpp`'s `elim_nested_inductive_fn::operator()` performs the same
+  unconditional `get_params` / `replace_all_nested` / `lctx.mk_pi(As, ·)` round trip on every
+  constructor of every block, with `check_no_metavar_no_fvar` as the only pre-pass.  So C++
+  captures identically.  Nothing is added to `divergences.md`.
+
+## Frozen axioms
+
+Measured by `#print axioms`, not by grep.  **No declaration here carries `sorryAx`.**  Two
+disjoint frozen sets are reached:
+
+* the identity chain (`mkForall_push_mkLocalDecl`, `MWF.withParams_id`, `run_loop_id`,
+  `run_types_eq`, `run_run'_types`, `addInductiveRunRealises_of_closed`,
+  `mkForall_push_degenerate`) reaches `Lean.Expr.abstract_eq`, `Lean.Expr.abstractRange_eq`,
+  `Lean.Expr.hasLooseBVar_eq`, `Lean.Expr.instantiate1_eq`, `Lean.Expr.lowerLooseBVars_eq` —
+  through `Lean4Lean.LocalContext.mkForall_list` → `mkBinding_eq`, exactly as
+  `withParams_mkForall_eq` and `QuotConsts.lean` already do;
+* the guard-loop lemmas (`guardLoop_ctors`, `guardLoop_blockNoFVar`, `addInductive_WF_of_run'`)
+  reach `Lean.Expr.mkAppData_eq`, `Lean.Expr.mkData_eq`, `Lean.Level.hasMVar_eq` — through
+  `checkNoMVarNoFVar.WF`'s `hasFVar`/`hasMVar` bridging;
+* `addInductiveStepWFClosed_of_run` reaches all eight, and nothing else.
+
+All eight are on `Verify/Guard.lean`'s `frozenAxioms` list and all eight already have users, so
+**no axiom use is new and the list is not enlarged**.  The refutation side
+(`not_addInductiveStepWF`, `not_addInductiveRunRealises`, `not_addInductPost_of_looseBVar`, …)
+uses **no frozen axiom at all**: `[propext, Classical.choice, Quot.sound]`.
+
+`abstract_eq`'s side condition `looseBVarRange' = 0` *is* the missing premise: the axiom is what
+makes closedness load-bearing, and `fooBad` is precisely a point where the axiom does not apply
+and the real `abstract` disagrees with the model `abstractList` (which shifts loose bvars rather
+than capturing them).  That is also why the acceptance of `fooBad` can only be *executed*, never
+proved by `rfl`: `Expr.abstract` is `opaque`.
+-/
+
+namespace Lean4Lean
+open Lean hiding Environment Exception
+open Kernel
+
+/-! ## 1. The one-step `mkForall` lemma -/
+
+open Lean4Lean.LocalContext in
+theorem foldr_mkBindingList1_congr {lctx₁ lctx₂ : LocalContext} {isLambda : Bool}
+    {fvs : List FVarId} (H : ∀ x ∈ fvs, lctx₁.find? x = lctx₂.find? x) (b : Expr) :
+    fvs.foldr (fun a e => mkBindingList1 isLambda lctx₁ [] a (e.abstract1 a)) b =
+    fvs.foldr (fun a e => mkBindingList1 isLambda lctx₂ [] a (e.abstract1 a)) b := by
+  induction fvs with
+  | nil => rfl
+  | cons a l ih =>
+    simp only [List.foldr_cons]
+    rw [ih (fun x hx => H x (List.mem_cons_of_mem _ hx)),
+      mkBindingList1_congr (H a List.mem_cons_self)]
+
+/-- **One binder of `withParams`, undone.**  `withParams` replaces
+`.forallE name dom body bi` by `body.instantiate1 (.fvar fv)` and records `fv : dom` in the
+local context; `mkForall` over the extended context and the pushed parameter array puts the
+binder back — *provided the type is loose-bvar-free*, which is the side condition of the frozen
+axiom `Expr.abstract_eq` that `mkForall`'s `Expr.abstract` call needs. -/
+theorem mkForall_push_mkLocalDecl {lctx : LocalContext} {fv : FVarId}
+    {name : Name} {dom body : Expr} {bi : BinderInfo}
+    {ps : Array Expr} {fvs : List FVarId}
+    (hps : ps.toList = fvs.map .fvar) (hnd : fvs.Nodup) (hfv : fv ∉ fvs)
+    (hwf : Lean4Lean.LocalContext.WF lctx)
+    (hfind : lctx.find? fv = none)
+    (hlc : ∀ x ∈ fvs, ∀ d, lctx.find? x = some d →
+      d.type.looseBVarRange' = 0 ∧ ∀ v ∈ d.value? true, v.looseBVarRange' = 0)
+    (hex : ∀ x ∈ fvs, ∃ d, lctx.find? x = some d)
+    (hty : (Expr.forallE name dom body bi).looseBVarRange' = 0)
+    (hbfv : FVarsIn (· ≠ fv) body) :
+    (lctx.mkLocalDecl fv name dom bi).mkForall (ps.push (.fvar fv))
+        (body.instantiate1 (.fvar fv))
+      = lctx.mkForall ps (.forallE name dom body bi) := by
+  have hdom : dom.looseBVarRange' = 0 := by
+    simp only [Expr.looseBVarRange', Nat.max_eq_zero_iff] at hty; omega
+  have hbody : body.looseBVarRange' ≤ 1 := by
+    simp only [Expr.looseBVarRange', Nat.max_eq_zero_iff] at hty; omega
+  have hbi : (body.instantiate1 (Expr.fvar fv)).looseBVarRange' = 0 := by
+    rw [Expr.instantiate1_eq]
+    have := Expr.instantiate1'_looseBVarRange (e := body) (a := .fvar fv) (n := 0) (k := 0)
+      (by simpa using hbody) (by simp [Expr.looseBVarRange'])
+    omega
+  have hpsE : ps = ⟨fvs.map (.fvar ·)⟩ := by cases ps; simpa using hps
+  have hpush : (ps.push (Expr.fvar fv)) = ⟨(fvs ++ [fv]).map (.fvar ·)⟩ := by
+    rw [hpsE]; simp
+  have hnd' : (fvs ++ [fv]).Nodup := ElimNestedInductive.nodup_append_singleton hnd hfv
+  have hfind' : ∀ x, (lctx.mkLocalDecl fv name dom bi).find? x =
+      if x == fv then some (.cdecl lctx.decls.size fv name dom bi .default)
+      else lctx.find? x := fun _ => LocalContext.find?_mkLocalDecl hwf hfind
+  have hne : ∀ x ∈ fvs, (lctx.mkLocalDecl fv name dom bi).find? x = lctx.find? x := by
+    intro x hx
+    rw [hfind', if_neg (by simp; rintro rfl; exact hfv hx)]
+  have hlc' : ∀ x ∈ fvs ++ [fv], ∀ d, (lctx.mkLocalDecl fv name dom bi).find? x = some d →
+      d.type.looseBVarRange' = 0 ∧ ∀ v ∈ d.value? true, v.looseBVarRange' = 0 := by
+    intro x hx d hd
+    rcases List.mem_append.1 hx with h | h
+    · exact hlc x h d (by rwa [hne x h] at hd)
+    · simp only [List.mem_singleton] at h; subst h
+      rw [hfind', if_pos (by simp)] at hd
+      cases hd; exact ⟨hdom, by simp [Lean.LocalDecl.value?]⟩
+  have hex' : ∀ x ∈ fvs ++ [fv], ∃ d, (lctx.mkLocalDecl fv name dom bi).find? x = some d := by
+    intro x hx
+    rcases List.mem_append.1 hx with h | h
+    · obtain ⟨d, hd⟩ := hex x h; exact ⟨d, by rw [hne x h, hd]⟩
+    · simp only [List.mem_singleton] at h; subst h
+      exact ⟨_, by rw [hfind', if_pos (by simp)]⟩
+  rw [hpush, LocalContext.mkForall_list hbi hnd' hlc' hex',
+    hpsE, LocalContext.mkForall_list hty hnd hlc hex,
+    List.foldr_append]
+  have key : List.foldr (fun a e => LocalContext.mkBindingList1 false
+        (lctx.mkLocalDecl fv name dom bi) [] a (Expr.abstract1 a e))
+      (body.instantiate1 (Expr.fvar fv)) [fv] = Expr.forallE name dom body bi := by
+    simp only [List.foldr_cons, List.foldr_nil]
+    rw [show Expr.abstract1 fv (body.instantiate1 (Expr.fvar fv)) = body from by
+      rw [Expr.instantiate1_eq]; exact FVarsIn.abstract_instantiate1 hbfv]
+    rw [LocalContext.mkBindingList1, hfind', if_pos (by simp)]
+    rfl
+  rw [key]
+  exact foldr_mkBindingList1_congr hne _
+
+/-! ## 2. `withParams` hands its continuation the inverse equation -/
+
+namespace ElimNestedInductive
+
+variable {α : Type} {env : Environment}
+
+/-- **`withParams` is invertible by `mkForall`.**  Same shape as
+`MWF.withParams_fvars` (`Verify/Inductive/NestedRunInvariant.lean` §7), with one extra fact for
+the continuation: `lctx.mkForall ps t` is the `type` it started from.
+
+Both side conditions are load-bearing and neither is supplied by `Environment.addInductive`'s
+pre-`run` guard loop for a constructor type:
+
+* `hcl` — loose-bvar-freeness — is the side condition of the frozen axiom `Expr.abstract_eq`,
+  and it is **false** at the witnesses of §5;
+* `hfv` — no free variables and no metavariables — *is* supplied, by
+  `Environment.checkNoMVarNoFVar` (`checkNoMVarNoFVar.WF` returns exactly
+  `e.FVarsIn fun _ => False`). -/
+theorem MWF.withParams_id {k : LocalContext → Expr → Array Expr → M α} {I : State → Prop}
+    {Q : α → State → Prop}
+    (hng : ∀ s, I s → I { s with ngen := s.ngen.next }) (n : Nat) (type : Expr)
+    (hcl : type.looseBVarRange' = 0) (hfv : FVarsIn (fun _ => False) type)
+    (hk : ∀ lctx t (ps : Array Expr), ps.size = n → lctx.mkForall ps t = type →
+      MWF env I (k lctx t ps) Q) :
+    MWF env I (withParams type n k) Q := by
+  have hempty : ({} : LocalContext).mkForall #[] type = type := by
+    have h := LocalContext.mkForall_list (lctx := ({} : LocalContext)) (xs := ([] : List FVarId))
+      (b := type) hcl List.nodup_nil (by simp) (by simp)
+    simpa using h
+  have main : ∀ i lctx t (ps : Array Expr) (fvs : List FVarId),
+      ps.toList = fvs.map .fvar → fvs.length + i = n → fvs.Nodup →
+      Lean4Lean.LocalContext.WF lctx → Lean4Lean.LocalContext.fvars lctx = fvs.reverse →
+      (∀ x ∈ fvs, ∀ d, lctx.find? x = some d →
+        d.type.looseBVarRange' = 0 ∧ ∀ v ∈ d.value? true, v.looseBVarRange' = 0) →
+      t.looseBVarRange' = 0 → FVarsIn (· ∈ fvs) t →
+      (∀ lctx' t' (ps' : Array Expr), ps'.size = n → lctx'.mkForall ps' t' = lctx.mkForall ps t →
+        MWF env (fun s => I s ∧ ∀ fv ∈ fvs, s.ngen.Reserves fv) (k lctx' t' ps') Q) →
+      MWF env (fun s => I s ∧ ∀ fv ∈ fvs, s.ngen.Reserves fv)
+        (withParams.loop k lctx t ps i) Q := by
+    intro i
+    induction i with
+    | zero =>
+      intro lctx t ps fvs hps hlen hnd hwf hlist hlc hcl' hfv' hk'
+      rw [withParams.loop]
+      refine hk' lctx t ps ?_ rfl
+      have : ps.size = fvs.length := by rw [← Array.length_toList, hps, List.length_map]
+      omega
+    | succ i ih =>
+      intro lctx t ps fvs hps hlen hnd hwf hlist hlc hcl' hfv' hk'
+      cases t with
+      | forallE name dom body bi =>
+        rw [withParams.loop]
+        have hdom : dom.looseBVarRange' = 0 := by
+          simp only [Expr.looseBVarRange', Nat.max_eq_zero_iff] at hcl'; omega
+        have hbody : body.looseBVarRange' ≤ 1 := by
+          simp only [Expr.looseBVarRange', Nat.max_eq_zero_iff] at hcl'; omega
+        obtain ⟨hfvd, hfvb⟩ : FVarsIn (· ∈ fvs) dom ∧ FVarsIn (· ∈ fvs) body := hfv'
+        refine MWF.bind' (Q := fun a s' =>
+            (I s' ∧ ∀ fv ∈ fvs ++ [(⟨a⟩ : FVarId)], s'.ngen.Reserves fv)
+              ∧ (⟨a⟩ : FVarId) ∉ fvs) (MWF.mkFreshId' ?_) ?_
+        · intro s hs
+          refine ⟨⟨hng s hs.1, ?_⟩, ?_⟩
+          · intro fv hfv2
+            rcases List.mem_append.1 hfv2 with h | h
+            · exact (hs.2 fv h).mono NameGenerator.LE.next
+            · rw [List.mem_singleton] at h; subst h
+              exact NameGenerator.next_reserves_self
+          · exact fun h => s.ngen.not_reserves_self (hs.2 _ h)
+        · intro a
+          refine MWF.of_pure_pre (A := (⟨a⟩ : FVarId) ∉ fvs) (fun s hs => hs.2) fun hmem => ?_
+          have hfind : lctx.find? ⟨a⟩ = none := by
+            rw [hwf.find?_eq_find?_toList, List.find?_eq_none]
+            intro d hd h
+            simp only [beq_iff_eq] at h
+            refine hmem ?_
+            have : (⟨a⟩ : FVarId) ∈ Lean4Lean.LocalContext.fvars lctx :=
+              List.mem_map.2 ⟨d, hd, h.symm⟩
+            rwa [hlist, List.mem_reverse] at this
+          have hfind' : ∀ x, (lctx.mkLocalDecl ⟨a⟩ name dom bi).find? x =
+              if x == (⟨a⟩ : FVarId) then
+                some (.cdecl lctx.decls.size ⟨a⟩ name dom bi .default)
+              else lctx.find? x := fun _ => LocalContext.find?_mkLocalDecl hwf hfind
+          have hne : ∀ x ∈ fvs, (lctx.mkLocalDecl ⟨a⟩ name dom bi).find? x = lctx.find? x := by
+            intro x hx
+            rw [hfind', if_neg (by simp; rintro rfl; exact hmem hx)]
+          refine MWF.weaken (ih (lctx.mkLocalDecl ⟨a⟩ name dom bi)
+            (body.instantiate1 (.fvar ⟨a⟩)) (ps.push (.fvar ⟨a⟩)) (fvs ++ [⟨a⟩])
+            (by simp [hps]) (by simp; omega) (nodup_append_singleton hnd hmem)
+            (hwf.mkLocalDecl hfind)
+            (by simp [Lean4Lean.LocalContext.fvars] at hlist ⊢; simp [hlist]; rfl)
+            ?_ ?_ ?_ ?_) fun s hs => hs.1
+          · intro x hx d hd
+            rcases List.mem_append.1 hx with h | h
+            · exact hlc x h d (by rwa [hne x h] at hd)
+            · simp only [List.mem_singleton] at h; subst h
+              rw [hfind', if_pos (by simp)] at hd
+              cases hd; exact ⟨hdom, by simp [Lean.LocalDecl.value?]⟩
+          · rw [Expr.instantiate1_eq]
+            have := Expr.instantiate1'_looseBVarRange (e := body) (a := .fvar ⟨a⟩)
+              (n := 0) (k := 0) (by simpa using hbody) (by simp [Expr.looseBVarRange'])
+            omega
+          · rw [Expr.instantiate1_eq]
+            exact FVarsIn.instantiate1 (hfvb.mono fun _ h => by simp [h])
+              (show FVarsIn _ (Expr.fvar ⟨a⟩) from by simp [FVarsIn])
+          · intro lctx' t' ps' hsz heq
+            refine (hk' lctx' t' ps' hsz (heq.trans ?_)).weaken fun s hs =>
+              ⟨hs.1, fun fv hfv2 => hs.2 fv (List.mem_append.2 (.inl hfv2))⟩
+            exact mkForall_push_mkLocalDecl hps hnd hmem hwf hfind hlc
+              (exists_find?_of_fvars hwf hlist) hcl' (hfvb.mono fun x h e => hmem (e ▸ h))
+      | _ => rw [withParams.loop] <;> first | exact MWF.throw' _ | nofun
+  refine MWF.weaken (main n {} type #[] [] (by simp) (by simp) List.nodup_nil
+    Lean4Lean.LocalContext.wf_empty (by simp [Lean4Lean.LocalContext.fvars])
+    (by simp) hcl (hfv.mono fun _ h => h.elim)
+    (fun lctx' t' ps' hsz heq => (hk lctx' t' ps' hsz (heq.trans hempty)).weaken
+      fun s hs => hs.1))
+    fun s hs => ⟨hs, by simp⟩
+
+end ElimNestedInductive
+
+/-! ## 3. The identity -/
+
+
+/-- The half of the premise that `Environment.addInductive`'s guard loop **does** supply:
+every constructor type is free of free variables and metavariables
+(`checkNoMVarNoFVar.WF`). -/
+def BlockNoFVar (types : List InductiveType) : Prop :=
+  ∀ t ∈ types, ∀ c ∈ t.ctors, FVarsIn (fun _ => False) c.type
+
+/-- The half **nothing** supplies before `run`: every constructor type is loose-bvar-free.  See
+§5 for what happens when it fails, and why no guard in either kernel rules it out. -/
+def BlockClosed (types : List InductiveType) : Prop :=
+  ∀ t ∈ types, ∀ c ∈ t.ctors, c.type.looseBVarRange' = 0
+
+theorem forall₂_eq {α : Type _} : ∀ {l bs : List α},
+    List.Forall₂ (fun a b => b = a) l bs → bs = l
+  | _, _, .nil => rfl
+  | _, _, .cons h hs => by rw [h, forall₂_eq hs]
+
+namespace ElimNestedInductive
+
+/-- `MWF.mapM_forall₂` (`Verify/Inductive/NestedRunInvariant.lean` §1) with the body's
+obligation restricted to the list's **members**.  Needed because the per-constructor
+hypotheses of §3 are facts about the constructors of the block, not about every
+`Constructor`. -/
+theorem MWF.mapM_forall₂_mem {β : Type} {f : α → M β} {I : State → Prop} {p : α → β → Prop} :
+    ∀ (l : List α), (∀ a ∈ l, MWF env I (f a) (fun b s' => p a b ∧ I s')) →
+      MWF env I (l.mapM f) (fun bs s' => List.Forall₂ p l bs ∧ I s')
+  | [], _ => by rw [List.mapM_nil]; exact MWF.pure' fun _ h => ⟨.nil, h⟩
+  | a :: l, hf => by
+    rw [List.mapM_cons]
+    refine (hf a List.mem_cons_self).bind' fun b => ?_
+    refine MWF.bind' (MWF.frame (A := p a b) (MWF.mapM_forall₂_mem l
+      (fun x hx => hf x (List.mem_cons_of_mem _ hx)))) fun bs => ?_
+    exact MWF.pure' fun _ h => ⟨.cons h.1 h.2.1, h.2.2⟩
+
+/-- **`run.loop` leaves `newTypes` alone**, and so reports the input block. -/
+theorem run_loop_id {env : Environment} (h : ∀ n v, env.find? n ≠ some (.inductInfo v))
+    {types : List InductiveType} (hcl : BlockClosed types) (hfv : BlockNoFVar types)
+    (nparams : Nat) (lctx : LocalContext) (params : Array Expr) :
+    ∀ (fuel i : Nat), MWF env (fun s => s.newTypes.toList = types)
+      (run.loop nparams lctx params i fuel)
+      (fun r s => s.newTypes.toList = types ∧ r.types = types) := by
+  intro fuel
+  induction fuel with
+  | zero => intro i; rw [run.loop]; exact MWF.throw' _
+  | succ fuel ih =>
+    intro i
+    rw [run.loop]
+    refine MWF.bind' MWF.get' fun s0 => ?_
+    split
+    · rename_i hi
+      dsimp only
+      refine MWF.weaken (P := fun s' =>
+        (types[i]? = some s0.newTypes[i]) ∧ s'.newTypes.toList = types) ?_ ?_
+      · refine MWF.of_pure_pre (A := types[i]? = some s0.newTypes[i])
+          (fun s hs => hs.1) fun hmemT => ?_
+        have hmem : s0.newTypes[i] ∈ types := List.mem_of_getElem? hmemT
+        refine MWF.bind' (MWF.frame (MWF.mapM_forall₂_mem
+          (p := fun c c' => c' = c) _ (fun ctor hctor => ?_))) fun ctors => ?_
+        · refine MWF.withParams_id (fun _ h' => h') nparams _
+            (hcl _ hmem ctor hctor) (hfv _ hmem ctor hctor) fun lctx' t As hAs heq => ?_
+          rw [hAs]
+          simp only [beq_self_eq_true, if_true]
+          refine MWF.bind' (Q := fun a s' => a = t ∧ s'.newTypes.toList = types) ?_ ?_
+          · intro s a s' hs hr
+            rw [replaceAllNested_id h] at hr; cases hr; exact ⟨rfl, hs⟩
+          · intro a
+            refine MWF.pure' fun s hs => ?_
+            rw [hs.1, heq]
+            exact ⟨rfl, hs.2⟩
+        · refine MWF.bind' (MWF.modify' (Q := fun _ s => s.newTypes.toList = types)
+            fun s hs => ?_) fun _ => ih (i+1)
+          show (Array.set! _ i _).toList = types
+          rw [Array.toList_set!, hs.2.2, forall₂_eq hs.2.1]
+          have he : ({ s0.newTypes[i] with ctors := s0.newTypes[i].ctors } : InductiveType)
+            = s0.newTypes[i] := rfl
+          rw [he]
+          exact List.set_eq_self_of_getElem? hs.1
+      · intro s' hs'
+        obtain ⟨h1, rfl⟩ := hs'
+        refine ⟨?_, h1⟩
+        rw [← h1]
+        exact List.getElem?_eq_getElem (by simpa using hi)
+    · refine MWF.pure' fun s' h' => ?_
+      obtain ⟨h1, rfl⟩ := h'
+      exact ⟨h1, h1⟩
+
+/-- **`ElimNestedInductive.run` is the identity on `types`.**  Two premises: no `.inductInfo` in
+the environment (which `ves.WF env` forces -- `VEnvs.WF.find?_ne_inductInfo`), and the block's
+constructor types closed and free of free variables. -/
+theorem run_types_eq {env : Environment} (h : ∀ n v, env.find? n ≠ some (.inductInfo v))
+    {types : List InductiveType} (hcl : BlockClosed types) (hfv : BlockNoFVar types)
+    (fuel nparams : Nat) :
+    MWF env (fun s => s.newTypes.toList = types) (run fuel nparams types)
+      (fun r s => s.newTypes.toList = types ∧ r.types = types) := by
+  cases types with
+  | nil => unfold run; exact MWF.throw' _
+  | cons I rest =>
+    unfold run
+    refine MWF.bind' (MWF.modify' (Q := fun _ s => s.newTypes.toList = I :: rest)
+      fun s hs => hs) fun _ => ?_
+    exact MWF.withParams' (fun _ h' => h') nparams
+      (fun lctx t ps _ => run_loop_id h hcl hfv nparams lctx ps fuel 0) _
+
+/-- The `run'` form, as `Environment.addInductive` calls it -- the shape
+`run_run'_aux2nested` (`Verify/Inductive/AddInductiveStep.lean` §4) has. -/
+theorem run_run'_types {env : Environment} (h : ∀ n v, env.find? n ≠ some (.inductInfo v))
+    {types : List InductiveType} (hcl : BlockClosed types) (hfv : BlockNoFVar types)
+    (fuel nparams : Nat) (s : State) (hs : s.newTypes.toList = types)
+    (r : Result) (hr : (run fuel nparams types env).run' s = .ok r) : r.types = types :=
+  let ⟨_, hr⟩ := run'_ok hr; (run_types_eq h hcl hfv fuel nparams s r _ hs hr).2
+
+end ElimNestedInductive
+
+/-! ## 4. The residue, with `ElimNestedInductive` removed -/
+
+/-- **`AddInductiveRunRealises` with `ElimNestedInductive` gone.**  No `res`, no
+`ElimNestedInductive.run` success equation, no `aux2nested`: `AddInductive.run` is applied to the
+*input* block, which is the direction `Verify/Inductive/AddInductiveStep.lean` §6 asks for.
+
+The price is the premise `BlockClosed types`, and §5 shows it is not a proof artefact: without
+it the statement below **and `AddInductiveRunRealises` itself** are false. -/
+def AddInductiveRunRealisesClosed : Prop :=
+  ∀ {env : Environment} {ves : VEnvs}, ves.WF env →
+    ∀ (lp : List Name) (np : Nat) (types : List InductiveType) (ap : Bool) (fuel : FuelConfig),
+      BlockClosed types →
+      (AddInductive.run np types 0
+          { env, allowPrimitive := ap, lparams := lp, safety := .safe, fuel }).WF fun env' =>
+        ∃ ves' : VEnvs, ∀ safety, ∃ D : VInductDecl',
+          TrIndDecl (ves.venv safety) lp np types false D ∧
+          D.WF (ves.venv safety) ∧ D.Canonical ∧
+          AddInductStages env.constants (ves.venv safety) D env'.constants (ves'.venv safety)
+
+/-- **The identity's payoff.**  `AddInductiveRunRealisesClosed` discharges the body of
+`AddInductiveRunRealises` at every block whose constructor types are closed and fvar-free — with
+the `res` of the run-success equation *identified with `types`*, so `ElimNestedInductive` no
+longer appears in what has to be proved. -/
+theorem addInductiveRunRealises_of_closed (H : AddInductiveRunRealisesClosed)
+    {env : Environment} {ves : VEnvs} (wf : ves.WF env)
+    (lp : List Name) (np : Nat) (types : List InductiveType) (ap : Bool) (fuel : FuelConfig)
+    (res : ElimNestedInductive.Result)
+    (hcl : BlockClosed types) (hfv : BlockNoFVar types)
+    (hres : (ElimNestedInductive.run fuel.inductiveFuel np types env).run'
+        { lvls := lp.map .param, newTypes := types.toArray } = .ok res)
+    (_hz : res.aux2nested = []) :
+    (AddInductive.run np res.types 0
+        { env, allowPrimitive := ap, lparams := lp, safety := .safe, fuel }).WF fun env' =>
+      ∃ ves' : VEnvs, ∀ safety, ∃ D : VInductDecl',
+        TrIndDecl (ves.venv safety) lp np types false D ∧
+        D.WF (ves.venv safety) ∧ D.Canonical ∧
+        AddInductStages env.constants (ves.venv safety) D env'.constants (ves'.venv safety) := by
+  rw [ElimNestedInductive.run_run'_types (fun _ _ => wf.find?_ne_inductInfo) hcl hfv
+    _ _ _ (by simp) _ hres]
+  exact H wf lp np types ap fuel hcl
+
+/-! ## 5. The premise is not a proof artefact -/
+
+-- `trExprS_looseBVarRange_nil` (`Verify/PrimitiveWF.lean`) is the `Closed`-of-`TrExprS` step;
+-- it is already in the tree and is reused verbatim below.
+
+/-- A constructor type with a loose bound variable has **no translation**, so the conjunction
+`AddInductiveRunRealises` asserts is unreachable at such a block. -/
+theorem not_trIndDecl_step_of_looseBVar {venv venv' : VEnv} {m m' : ConstMap}
+    {lp : List Name} {np : Nat} {types : List InductiveType}
+    {j : Nat} {t : InductiveType} (ht : types[j]? = some t)
+    {q : Nat} {c : Constructor} (hcq : t.ctors[q]? = some c)
+    (hc : c.type.looseBVarRange' ≠ 0) :
+    ¬ ∃ D : VInductDecl', TrIndDecl venv lp np types false D ∧
+        D.WF venv ∧ D.Canonical ∧ AddInductStages m venv D m' venv' := by
+  rintro ⟨D, htr, -, -, hadd⟩
+  obtain ⟨et, het⟩ := hadd.addIndTypes
+  have hj : j < D.types.length := by
+    rw [← htr.length]; exact (List.getElem?_eq_some_iff.1 ht).1
+  obtain ⟨T, hT⟩ : ∃ T, D.types[j]? = some T := ⟨_, List.getElem?_eq_getElem hj⟩
+  have hq : q < T.ctors.length := by
+    rw [← htr.trCtorsLen j t T ht hT]; exact (List.getElem?_eq_some_iff.1 hcq).1
+  obtain ⟨C, hC⟩ : ∃ C, T.ctors[q]? = some C := ⟨_, List.getElem?_eq_getElem hq⟩
+  exact hc (trExprS_looseBVarRange_nil (htr.trCtors et het j t T ht hT q c C hcq hC).2)
+
+/-- The same for the nested relation, i.e. for `AddInductPost`'s own conjunct. -/
+theorem not_inductStepNested_of_looseBVar {m m' : ConstMap} {venv venv' : VEnv}
+    {lp : List Name} {np : Nat} {types : List InductiveType} {numNested : Nat}
+    {j : Nat} {t : InductiveType} (ht : types[j]? = some t)
+    {q : Nat} {c : Constructor} (hcq : t.ctors[q]? = some c)
+    (hc : c.type.looseBVarRange' ≠ 0) :
+    ¬ InductStepNested m m' venv venv' lp np types numNested := by
+  rintro ⟨D, K, R, htr, -, -, hadd⟩
+  obtain ⟨et, het⟩ := hadd.addIndTypesC
+  have hj : j < D.types.length := by
+    rw [htr.length]
+    exact Nat.lt_of_lt_of_le (List.getElem?_eq_some_iff.1 ht).1 (Nat.le_add_right ..)
+  obtain ⟨T, hT⟩ : ∃ T, D.types[j]? = some T := ⟨_, List.getElem?_eq_getElem hj⟩
+  have hq : q < T.ctors.length := by
+    rw [← htr.trCtorsLen j t T ht hT]; exact (List.getElem?_eq_some_iff.1 hcq).1
+  obtain ⟨C, hC⟩ : ∃ C, T.ctors[q]? = some C := ⟨_, List.getElem?_eq_getElem hq⟩
+  exact hc (trExprS_looseBVarRange_nil (htr.trCtors et het j t T ht hT q c C hcq hC).2)
+
+/-- **`AddInductPost` is false at a block with a loose bvar in a constructor type**, for every
+`numNested` — so no choice of witness rescues it. -/
+theorem not_addInductPost_of_looseBVar {env env' : Environment} {ves : VEnvs}
+    {lp : List Name} {np : Nat} {types : List InductiveType}
+    {j : Nat} {t : InductiveType} (ht : types[j]? = some t)
+    {q : Nat} {c : Constructor} (hcq : t.ctors[q]? = some c)
+    (hc : c.type.looseBVarRange' ≠ 0) :
+    ¬ AddInductPost env env' ves lp np types := by
+  rintro ⟨ves', numNested, hstep⟩
+  exact not_inductStepNested_of_looseBVar ht hcq hc (hstep .safe)
+
+namespace LooseBVarWitness
+
+/-- The constructor of the witness block, declared at `∀ (α : Type) (x : #1), Foo #1`.  The `#1`
+in `x`'s domain is **loose**: at that position only `α` is bound. -/
+def fooBadCtor : Constructor :=
+  { name := `Lean4Lean.LooseBVarWitness.Foo.mk,
+    type := .forallE `α (.sort (.succ .zero))
+      (.forallE `x (.bvar 1)
+        (.app (.const `Lean4Lean.LooseBVarWitness.Foo []) (.bvar 1)) .default) .default }
+
+/-- What `ElimNestedInductive.run` turns `fooBadCtor` into: `∀ (α : Type), α → Foo α`.
+
+`withParams` strips the `α` binder, lowering the loose `#1` to `#0`; `LocalContext.mkForall`
+then puts the binder back using the real `Expr.abstract`, which **leaves bound variables
+alone** (`kernel/abstract.cpp`: its `replace` rewrites only `fvar`/`mvar` nodes, and it returns
+`e` unchanged when `!has_fvar(e)`).  So the loose `#0` is *captured* by the restored `α`. -/
+def fooGoodCtor : Constructor :=
+  { name := `Lean4Lean.LooseBVarWitness.Foo.mk,
+    type := .forallE `α (.sort (.succ .zero))
+      (.forallE `x (.bvar 0)
+        (.app (.const `Lean4Lean.LooseBVarWitness.Foo []) (.bvar 1)) .default) .default }
+
+/-- A constructor whose loose bvar is **too far out to be captured** — `∀ (α : Type) (x : #9),
+Foo α`.  `run` is not the identity here either, but the output is still open, so the type
+checker rejects: this is the sub-case the received account covers. -/
+def fooFarCtor : Constructor :=
+  { name := `Lean4Lean.LooseBVarWitness.Foo.mk,
+    type := .forallE `α (.sort (.succ .zero))
+      (.forallE `x (.bvar 9)
+        (.app (.const `Lean4Lean.LooseBVarWitness.Foo []) (.bvar 1)) .default) .default }
+
+/-- `Foo : Type → Type`, `np = 1`, with the loose-bvar constructor. -/
+def fooBad : InductiveType :=
+  { name := `Lean4Lean.LooseBVarWitness.Foo
+    type := .forallE `α (.sort (.succ .zero)) (.sort (.succ .zero)) .default
+    ctors := [fooBadCtor] }
+
+/-- `run`'s output at `fooBad`: an ordinary `Foo.mk : ∀ (α : Type), α → Foo α`. -/
+def fooGood : InductiveType := { fooBad with ctors := [fooGoodCtor] }
+
+def fooFar : InductiveType := { fooBad with ctors := [fooFarCtor] }
+
+theorem fooBadCtor_looseBVar : fooBadCtor.type.looseBVarRange' ≠ 0 := by decide
+
+theorem fooBad_ctor_zero : fooBad.ctors[0]? = some fooBadCtor := rfl
+
+theorem fooBad_zero : ([fooBad] : List InductiveType)[0]? = some fooBad := rfl
+
+/-- The output block *is* closed — so the premise cannot be recovered from the success of
+`AddInductive.run`, which only ever sees `res.types`.  This is route (b) of the brief, refuted. -/
+theorem fooGood_closed : BlockClosed [fooGood] := by
+  intro t ht
+  rw [List.mem_singleton] at ht; subst ht
+  decide
+
+/-- And the input block is not. -/
+theorem fooBad_not_closed : ¬ BlockClosed [fooBad] :=
+  fun h => fooBadCtor_looseBVar (h fooBad List.mem_cons_self fooBadCtor List.mem_cons_self)
+
+/-- **`AddInductPost` — hence `AddInductiveStepWF`, hence `addDecl.WF_honest`'s inductive
+branch — is false**, at any environment carrying an abstract model at which the checker accepts
+`fooBad`.  `ves.WF env` is inhabited at `Kernel.Environment.empty `main` by
+`Bridge.hasEmptyModel`, and the `#eval` below witnesses `hok` there.
+
+`hok` is an *executable* observation and provably cannot be turned into a kernel proof: the
+capture is performed by `Expr.abstract`, which is `opaque` in this repo (its only equation is
+the frozen axiom `Expr.abstract_eq`, whose side condition `looseBVarRange' = 0` is exactly what
+fails here), so `rfl`/`decide` cannot evaluate it. -/
+theorem not_addInductiveStepWF {env : Environment} {ves : VEnvs} (wf : ves.WF env)
+    (fuel : FuelConfig) (env' : Environment)
+    (hok : Environment.addInductive env [] 1 [fooBad] false false fuel = .ok env') :
+    ¬ AddInductiveStepWF := fun H =>
+  not_addInductPost_of_looseBVar fooBad_zero fooBad_ctor_zero fooBadCtor_looseBVar
+    (H wf [] 1 [fooBad] false fuel env' hok)
+
+/-- **`AddInductiveRunRealises` is false too**, at the same witness — so the residue
+`Verify/Inductive/AddInductiveStep.lean` §6 names is not merely open. -/
+theorem not_addInductiveRunRealises {env : Environment} {ves : VEnvs} (wf : ves.WF env)
+    (fuel : FuelConfig) (res : ElimNestedInductive.Result) (env' : Environment)
+    (hres : (ElimNestedInductive.run fuel.inductiveFuel 1 [fooBad] env).run'
+        { lvls := [], newTypes := #[fooBad] } = .ok res)
+    (hz : res.aux2nested = [])
+    (hok : AddInductive.run 1 res.types 0
+        { env, allowPrimitive := false, lparams := [], safety := .safe, fuel } = .ok env') :
+    ¬ AddInductiveRunRealises := fun H => by
+  obtain ⟨ves', hves⟩ := H wf [] 1 [fooBad] false fuel res hres hz env' hok
+  exact not_trIndDecl_step_of_looseBVar fooBad_zero fooBad_ctor_zero fooBadCtor_looseBVar
+    (hves .safe)
+
+/-- …while `AddInductiveRunRealisesClosed` (§4) is **not** refuted by this witness: its premise
+excludes it. -/
+theorem fooBad_excluded_by_closed : ¬ BlockClosed [fooBad] := fooBad_not_closed
+
+end LooseBVarWitness
+
+/-! ### 5.1 The instruments
+
+Two `#eval` checks.  Both `throwError` when the fact they assert stops holding, so they are
+self-guarding; neither is a kernel proof (see `not_addInductiveStepWF`'s docstring for why the
+second one cannot be). -/
+
+open LooseBVarWitness in
+/- **Firing.**  At the four blocks the soundness theorem actually needs — `R10.Wit.uIndType`
+(`np = 0`) and the toolchain's own `Eq` (2), `Iff` (2), `Nonempty` (1), read out of the running
+environment rather than re-spelled — `ElimNestedInductive.run` from the *empty* kernel
+environment (the only kind `ves.WF env` admits) returns `aux2nested = []` and `types` **equal to
+its input**, and `BlockClosed` holds at each.  So §3's identity has firing instances and §4's
+premise is satisfied at every one of them. -/
+#eval show Lean.CoreM Unit from do
+  let kenv := Kernel.Environment.empty `main
+  let mkBlock (n : Name) : Lean.CoreM (Nat × List Level × InductiveType) := do
+    let some (.inductInfo v) := (← getEnv).find? n | throwError "firing: no inductive {n}"
+    let ctors ← v.ctors.mapM fun c => do
+      let some ci := (← getEnv).find? c | throwError "firing: no constructor {c}"
+      return ({ name := c, type := ci.type } : Constructor)
+    return (v.numParams, v.levelParams.map .param, { name := v.name, type := v.type, ctors })
+  let blocks := (0, [], R10.Wit.uIndType) :: (← ([``Eq, ``Iff, ``Nonempty] : List Name).mapM mkBlock)
+  for (np, lvls, t) in blocks do
+    unless t.ctors.all (·.type.looseBVarRange == 0) do
+      throwError "firing: BlockClosed fails at {t.name} -- §4's premise is not satisfied there"
+    let .ok r := (ElimNestedInductive.run 1000 np [t] kenv).run' { lvls, newTypes := #[t] }
+      | throwError "firing: run rejected {t.name}"
+    unless r.aux2nested == [] do throwError "firing: aux2nested nonempty at {t.name}"
+    unless r.types == [t] do
+      throwError "firing: run is NOT the identity at {t.name}: {r.types.map (·.ctors.map (·.type))}"
+  logInfo "firing: run is the identity at uIndType, Eq, Iff, Nonempty, all BlockClosed ✓"
+
+open LooseBVarWitness in
+/- **The witness.**  `fooBad` has `looseBVarRange = 1` in its constructor type, and
+
+* `run` maps it to `fooGood`, which is **closed** — the loose bvar is captured by the parameter
+  binder — so no fact about `res.types` can recover `BlockClosed types` (route (b), refuted);
+* `Environment.addInductive` **accepts** `fooBad` from the empty environment and stores
+  `fooGood`'s constructor type, so `not_addInductiveStepWF`/`not_addInductiveRunRealises` have
+  their `hok`;
+* the pre-`run` guard `checkNoMVarNoFVar` accepts it, so nothing before `run` supplies the
+  premise;
+* `fooFar`, whose loose bvar is too far out to be captured, is *rejected* — that is the
+  sub-case in which "both kernels reject via the type checker" is true, and `fooBad` is the one
+  in which it is not. -/
+#eval show Lean.CoreM Unit from do
+  let kenv := Kernel.Environment.empty `main
+  unless fooBadCtor.type.looseBVarRange == 1 do throwError "witness: fooBad is closed after all"
+  unless fooGoodCtor.type.looseBVarRange == 0 do throwError "witness: fooGood is not closed"
+  match kenv.checkNoMVarNoFVar fooBadCtor.name fooBadCtor.type with
+  | .error _ => throwError "witness: the pre-run guard rejects fooBad -- the premise IS supplied"
+  | .ok _ => pure ()
+  let fuel : FuelConfig := {}
+  let .ok r := (ElimNestedInductive.run fuel.inductiveFuel 1 [fooBad] kenv).run'
+      { lvls := ([] : List Name).map .param, newTypes := #[fooBad] }
+    | throwError "witness: run rejected fooBad"
+  unless r.aux2nested == [] do throwError "witness: aux2nested nonempty"
+  unless r.types == [fooGood] do
+    throwError "witness: run's output is not fooGood: {r.types.map (·.ctors.map (·.type))}"
+  -- `hok` of `not_addInductiveRunRealises`, at exactly its arguments
+  match AddInductive.run 1 r.types 0
+      { env := kenv, allowPrimitive := false, lparams := [], safety := .safe, fuel } with
+  | .error e => throwError "witness: AddInductive.run rejected run's output ({e.toMessageData {}})"
+  | .ok _ => pure ()
+  match Environment.addInductive kenv [] 1 [fooBad] false false with
+  | .error e => throwError "witness: addInductive REJECTED fooBad ({e.toMessageData {}}) -- \
+      the refutation of AddInductiveStepWF is void and must be withdrawn"
+  | .ok env' =>
+    unless (env'.find? fooGoodCtor.name).map (·.type) == some fooGoodCtor.type do
+      throwError "witness: the stored constructor type is not fooGood's"
+  match Environment.addInductive kenv [] 1 [fooFar] false false with
+  | .ok _ => throwError "witness: addInductive accepted fooFar too -- the sub-case split is wrong"
+  | .error _ => pure ()
+  logInfo "witness: addInductive ACCEPTS the loose-bvar block fooBad, capturing #1 as the \
+    parameter binder and storing a different constructor type; fooFar is rejected ✓"
+
+/-! ## 6. Which half of the premise the guard loop supplies -/
+
+/-- The inner loop of `Environment.addInductive`'s guard: each constructor type is checked by
+`checkNoMVarNoFVar`, whose postcondition (`checkNoMVarNoFVar.WF`) is exactly
+`FVarsIn fun _ => False`. -/
+theorem guardLoop_ctors (env : Environment) : ∀ (cs : List Constructor),
+    (forIn cs PUnit.unit (fun ctor _ => do
+        env.checkNoMVarNoFVar ctor.name ctor.type
+        checkNoNestedAux ctor.name ctor.type
+        pure (ForInStep.yield PUnit.unit)) : Except Exception PUnit).WF
+      (fun _ => ∀ c ∈ cs, FVarsIn (fun _ => False) c.type)
+  | [] => Except.WF.pure (fun _ h => absurd h nofun)
+  | c :: cs => by
+    rw [List.forIn_cons]
+    refine Except.WF.bind (Q := fun r =>
+      r = ForInStep.yield PUnit.unit ∧ FVarsIn (fun _ => False) c.type) ?_ ?_
+    · refine Except.WF.bind (checkNoMVarNoFVar.WF env c.name c.type) fun _ hfv => ?_
+      refine Except.WF.bind (Q := fun _ => True) (fun _ _ => trivial) fun _ _ => ?_
+      exact Except.WF.pure ⟨rfl, hfv⟩
+    · rintro r ⟨rfl, hfv⟩
+      refine (guardLoop_ctors env cs).mono fun _ h x hx => ?_
+      rcases List.mem_cons.1 hx with rfl | hx
+      · exact hfv
+      · exact h x hx
+
+/-- **`BlockNoFVar` is supplied**, by `Environment.addInductive`'s own guard loop — and nothing
+in that loop mentions loose bound variables, which is why `BlockClosed` is not. -/
+theorem guardLoop_blockNoFVar (env : Environment) : ∀ (types : List InductiveType),
+    (forIn types PUnit.unit (fun indType _ => do
+        env.checkNoMVarNoFVar indType.name indType.type
+        checkNoNestedAux indType.name indType.type
+        for ctor in indType.ctors do
+          env.checkNoMVarNoFVar ctor.name ctor.type
+          checkNoNestedAux ctor.name ctor.type
+        pure (ForInStep.yield PUnit.unit)) : Except Exception PUnit).WF
+      (fun _ => BlockNoFVar types)
+  | [] => Except.WF.pure (fun _ h => absurd h nofun)
+  | t :: l => by
+    rw [List.forIn_cons]
+    refine Except.WF.bind (Q := fun r =>
+      r = ForInStep.yield PUnit.unit ∧ ∀ c ∈ t.ctors, FVarsIn (fun _ => False) c.type) ?_ ?_
+    · refine Except.WF.bind (Q := fun _ => True) (fun _ _ => trivial) fun _ _ => ?_
+      refine Except.WF.bind (Q := fun _ => True) (fun _ _ => trivial) fun _ _ => ?_
+      refine Except.WF.bind (guardLoop_ctors env t.ctors) fun _ hc => ?_
+      exact Except.WF.pure ⟨rfl, hc⟩
+    · rintro r ⟨rfl, hfv⟩
+      refine (guardLoop_blockNoFVar env l).mono fun _ h x hx => ?_
+      rcases List.mem_cons.1 hx with rfl | hx
+      · exact hfv
+      · exact h x hx
+
+/-- `addInductive_WF_of_run` (`Verify/Inductive/AddInductiveStep.lean` §5) with `BlockNoFVar
+types` additionally handed to the continuation, read off the guard loop the collapse lemma
+discarded as `Q := fun _ => True`. -/
+theorem addInductive_WF_of_run' {env : Environment} {lparams : List Name} {np : Nat}
+    {types : List InductiveType} {iu ap : Bool} {fuel : FuelConfig} {Q : Environment → Prop}
+    (h : ∀ n v, env.find? n ≠ some (.inductInfo v))
+    (H : BlockNoFVar types → ∀ res : ElimNestedInductive.Result,
+        (ElimNestedInductive.run fuel.inductiveFuel np types env).run'
+            { lvls := lparams.map .param, newTypes := types.toArray } = .ok res →
+        res.aux2nested = [] →
+        (AddInductive.run np res.types 0
+          { env, allowPrimitive := ap, lparams,
+            safety := if iu then .unsafe else .safe, fuel }).WF Q) :
+    (Environment.addInductive env lparams np types iu ap fuel).WF Q := by
+  unfold Environment.addInductive
+  refine Except.WF.bind (guardLoop_blockNoFVar env types) fun _ hnf => ?_
+  refine Except.WF.bind_self fun res hres => ?_
+  have hz : res.aux2nested = [] :=
+    ElimNestedInductive.run_run'_aux2nested h _ _ _ _ rfl _ hres
+  simp only [hz, List.length_nil]
+  refine Except.WF.bind (H hnf res hres hz) fun env' hq => ?_
+  simp only [if_true]
+  exact Except.WF.pure hq
+
+/-! ## 7. End to end -/
+
+/-- `AddInductiveStepWF` restricted to blocks whose constructor types are loose-bvar-free.  §5
+shows the restriction cannot be dropped: the unrestricted statement is false. -/
+def AddInductiveStepWFClosed : Prop :=
+  ∀ {env : Environment} {ves : VEnvs}, ves.WF env →
+    ∀ lp np types ap fuel, BlockClosed types →
+      (Environment.addInductive env lp np types false ap fuel).WF fun env' =>
+        AddInductPost env env' ves lp np types
+
+/-- **The payoff.**  `AddInductiveStepWFClosed` follows from `AddInductiveRunRealisesClosed`,
+which mentions neither `ElimNestedInductive` nor a `res`: the residue is now a statement purely
+about `AddInductive.run np types`. -/
+theorem addInductiveStepWFClosed_of_run (H : AddInductiveRunRealisesClosed) :
+    AddInductiveStepWFClosed := by
+  intro env ves wf lp np types ap fuel hcl
+  refine addInductive_WF_of_run' (fun _ _ => wf.find?_ne_inductInfo) fun hnf res hres hz => ?_
+  refine (addInductiveRunRealises_of_closed H wf lp np types ap fuel res hcl hnf hres hz).mono
+    fun env' h' => ?_
+  obtain ⟨ves', hves⟩ := h'
+  refine ⟨ves', 0, fun safety => ?_⟩
+  obtain ⟨D, htr, hwf, hc, hadd⟩ := hves safety
+  exact ⟨D, [], D.idRestore, htr.toN hc hadd.addIndTypes, hadd.addIndTypes, hwf, hadd.toR hc⟩
+
+/-! ## 8. Instrument 7: every new statement at its degenerate instance
+
+`docs/vacuity-ledger.md` §0's seventh blindness: a statement can be green because its
+hypotheses are unsatisfiable at the degenerate instance.  Each new statement is instantiated
+there below, and what is *not* tested is said explicitly.
+
+* **`mkForall_push_mkLocalDecl` at `fvs = []`** — the first binder `withParams` consumes.  All
+  eight hypotheses hold with no assumptions at all, so the conclusion is a genuine equation
+  (`mkForall_push_degenerate`).
+* **`MWF.withParams_id` at `n = 0`** — `withParams type 0 k = k {} type #[]`, and `hcl` is still
+  load-bearing there because `{}.mkForall #[] type` still calls `Expr.abstract`.  It **fires**:
+  `R10.Wit.uIndType` has `np = 0` and is one of the four blocks §5.1's first `#eval` checks.
+* **`run_loop_id` / `run_types_eq` at `types = []`** — `BlockClosed []` and `BlockNoFVar []` hold
+  vacuously, but `ElimNestedInductive.run` *throws* on an empty block, so the statement is
+  **empty at `types = []`** and is discharged there by `MWF.throw'`.  Its firing instances are
+  the four blocks of §5.1, none of which is degenerate in the list.
+* **`AddInductiveRunRealisesClosed` / `AddInductiveStepWFClosed`** — premises satisfiable:
+  `BlockClosed [R10.Wit.uIndType]` holds (`blockClosed_uIndType`), and `ves.WF env` is inhabited
+  at `Kernel.Environment.empty` by `Bridge.hasEmptyModel` (hole-free; `docs/vacuity-ledger.md`
+  row 104a).  **What they do not test:** being premised on `ves.WF env` they cannot exercise a
+  nested block at all — row 104b, `isNestedInductiveApp?` needs an `.inductInfo` that
+  `VEnvs.WF.no_inductInfo` forbids — so `numNested` is always `0` here and nothing below is
+  evidence about nesting.
+* **`not_addInductiveStepWF` / `not_addInductiveRunRealises`** — hypotheses satisfiable, and
+  §5.1's second `#eval` exhibits `hok` at the empty environment; `not_trIndDecl_step_of_looseBVar`
+  and friends are non-vacuous for the same reason.  **What they do not test:** whether the
+  *restricted* statements of §4/§7 are provable — the witness is excluded by `BlockClosed`
+  (`LooseBVarWitness.fooBad_excluded_by_closed`). -/
+
+/-- Instrument 7 for `mkForall_push_mkLocalDecl`: the degenerate instance, with no hypotheses
+left over. -/
+theorem mkForall_push_degenerate (fv : FVarId) :
+    (({} : LocalContext).mkLocalDecl fv `α (.sort .zero) .default).mkForall
+        ((#[] : Array Expr).push (.fvar fv)) ((Expr.bvar 0).instantiate1 (.fvar fv))
+      = ({} : LocalContext).mkForall #[] (.forallE `α (.sort .zero) (.bvar 0) .default) :=
+  mkForall_push_mkLocalDecl (fvs := []) (by simp) List.nodup_nil (by simp)
+    LocalContext.wf_empty LocalContext.find?_empty (by simp) (by simp) (by decide) trivial
+
+/-- Instrument 7 for `AddInductiveRunRealisesClosed`: its `BlockClosed` premise is satisfiable,
+at the very block `AddDeclWF.lean` §4 uses as its witness. -/
+theorem blockClosed_uIndType : BlockClosed [R10.Wit.uIndType] := by
+  intro t ht
+  rw [List.mem_singleton] at ht; subst ht
+  decide
+
+theorem blockNoFVar_nil : BlockNoFVar [] := fun _ h => absurd h nofun
+
+theorem blockClosed_nil : BlockClosed [] := fun _ h => absurd h nofun

@@ -34,6 +34,7 @@ import Lean4Lean.Verify.EqSafety
 import Lean4Lean.Verify.SafeFragment
 import Lean4Lean.Verify.Inductive.AddDeclWF
 import Lean4Lean.Verify.Inductive.AddInductiveStep
+import Lean4Lean.Verify.Inductive.RunIdentity  -- 2026-09-01: run_types_eq, and the loose-bvar refutation of AddInductiveStepWF
 import Lean4Lean.Theory.Typing.KMeasure
 import Lean4Lean.Theory.Typing.KSite7
 import Lean4Lean.Theory.Typing.KDescend

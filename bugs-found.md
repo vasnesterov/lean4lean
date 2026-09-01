@@ -582,3 +582,43 @@ those attributes create), axioms about `partial` functions, axioms about data
 structures whose statements may quietly assume a well-formedness invariant the
 caller has not established, and `Lean.Level.instLawfulBEqLevel`, since asserting
 a `LawfulBEq` instance is a strong claim.
+
+## Shared behaviour, both kernels: a loose-bvar constructor type is silently reinterpreted (2026-09-01)
+
+**Not a lean4lean bug and not a divergence — a property both kernels share, recorded because a
+proof-side audit had to characterise it and someone will hit it again.**
+
+A constructor type carrying a **loose** bvar whose index is small enough to be captured by a
+parameter binder is **accepted**, and the declaration stored is *not* the one written. Witness
+(`Lean4Lean/Verify/Inductive/RunIdentity.lean`, `LooseBVarWitness.fooBad`): `Foo : Type → Type`,
+`np = 1`, constructor declared at `∀ (α : Type) (x : #1), Foo #1`, so `looseBVarRange = 1`. The
+nested-elimination pass lowers the loose bvar with `withParams` and restores the binder with
+`Expr.abstract`, **which rewrites only `fvar`/`mvar` nodes and leaves bvars alone** — so the loose
+variable is *captured* and the stored constructor type is the perfectly ordinary
+`∀ α, α → Foo α`.
+
+* **`Environment.addInductive` accepts it** from the empty environment (`#eval`-witnessed;
+  `Expr.abstract` is `opaque`, so this **cannot** be a kernel proof, and the refutation theorems
+  that use it take the acceptance as an explicit hypothesis).
+* **C++ does the same**, verified against the source: `abstract.cpp`'s `abstract` rewrites only
+  `fvar`/`mvar` and returns `e` unchanged when `!has_fvar(e)`;
+  `inductive.cpp`'s `elim_nested_inductive_fn` runs the same unconditional
+  `get_params` / `replace_all_nested` / `mk_pi` round trip on every constructor, with
+  `check_no_metavar_no_fvar` as the only pre-pass. Nothing for `divergences.md`.
+* **When the loose index exceeds `np`** the term cannot be captured and both kernels reject
+  (`LooseBVarWitness.fooFar`). The received wisdom "both kernels reject via the type checker" is
+  true only in *that* sub-case, and false in the one that matters.
+
+**No unsoundness follows** — the stored declaration is well formed, so the environment stays
+consistent. What it breaks is the *specification*: `AddInductiveStepWF` and
+`AddInductiveRunRealises` claim the output realises a translation of the **input**, and
+`TrIndDecl` requires closedness, so those statements are **false** at this witness
+(`not_addInductiveStepWF`, `not_addInductPost_of_looseBVar`). The repair is on our side and is
+recorded as ledger row 108d: **`addDecl.WF` carries the closedness side condition**, because a
+top-level `Expr` with a loose bvar is not a term of the type theory at all and no elaborator
+produces one — so the condition states the contract's domain rather than narrowing it. Adding a
+kernel-side rejection is **not** proposed; that would be a divergence in the restrictive direction.
+
+Arguably by design in both kernels: the kernel's contract is over closed terms, and the elaborator
+never emits a loose bvar at top level. Listed here rather than in `divergences.md` because it is
+shared, and flagged rather than reported anywhere — per `CLAUDE.md` nothing leaves this repo.
