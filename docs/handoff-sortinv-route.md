@@ -715,3 +715,294 @@ PropUniqN.AppCase`), plus `RegPi`, `InstLvl`, `PropConvInv`, `SortDisjInvN`.
    * a row for §9.1 — `SortForallEDisjoint` is outside the cone of the live route, measured;
    * a row for §9.2 — the `∀ n` pair is one obligation, and the reduction to it is an `↔`;
    * a row for §9.4 — `SortForallEDisjoint` false at an `Ordered` environment.
+
+---
+
+# Round 3 (2026-09-02, later still): task 1 was already in HEAD; **`∀ n, AppUniqLvl` is FALSE at an `Ordered` environment**
+
+Appended, not editing §0–§11.  Conventions unchanged: **[machine]** = a `sorry`-free declaration
+on this commit plus a `lake build` / `#print axioms` / cone run; **[analysis]** = read off source.
+
+**First thing I did, per the brief's standing advice: `#print axioms` on what already exists.  It
+redirected the round.**
+
+## 12. Task 1 needed no work — it was landed last round, in commit `8fa3e6d`
+
+The brief says `InjOneFact.lean` "exports only the codomain half" and asks for the domain half
+plus the wiring.  **Both are already in HEAD** [machine]:
+
+* `InjOneFact.lean:396` — `theorem PiLinkInvUC.piLinkInvDom (H : PiLinkInvUC env U) :
+  PiLinkInvDom env U := fun hΓ h => (H hΓ h).1`.  The domain half is exported.
+* `Theory/Typing/PiInvResidual.lean` (216 lines, 13 declarations) — the whole cheap route,
+  including `convPiInv_of_convStep2_piLinkInvUC` and `convPiInv_of_shapeLinkAgree`, plus the
+  five rows of §8.3.
+* `git log -1 -- Lean4Lean/Theory/Typing/PiInvResidual.lean` → `8fa3e6d feat: ConvPiInv is free,
+  hole B needs three conjuncts not five -- and COLLAPSE NINE, self-identified`.
+* `lake build Lean4Lean.Theory.Typing.PiInvResidual` → **`Build completed successfully (84
+  jobs).`**  All 13 `#print axioms` lines `[propext]` / `[propext, Quot.sound]` /
+  `[propext, Classical.choice, Quot.sound]`; no `sorryAx`.
+
+So the brief's task 1 is a restatement of §8, which already executed it.  **Nothing was
+reproved and no budget was spent there.**  Consequences for the two questions task 1 asked:
+
+* *"What does the corrected route make free downstream?"* — exactly §8.3's five rows, already
+  landed and already graded (§8.4) as consolidating rather than strength-reducing.  Nothing new.
+* *"Does the corner table's hole-B line move again?"* — **no.**  It moved once, from five
+  conjuncts to three, in §8.3.  `docs/vacuity-ledger.md` row 138 records that; the corner table
+  at **ledger line 15** still reads "the five conjuncts (incl. `PiInv`) `∧ ConvStep2`" and is the
+  line to fix (I did not edit the ledger).  Nothing this round touches it.
+
+## 13. Task 2: the answer is **NO — and it is a machine-checked refutation, not a difficulty**
+
+New file **`/home/vasilii/lean4lean/Lean4Lean/Theory/Typing/AppUniqRefute.lean`** (38
+declarations — 5 `def`s and 33 theorems, all `sorryAx`-free, all cone-holes `[]`).  Nothing else was touched.
+
+> `piLvlEnv_appUniqLvl_all_false : ¬ ∀ n, piLvlEnv.AppUniqLvl 0 n`
+> `piLvlEnv_ordered : Ordered piLvlEnv`
+
+**`∀ n, AppUniqLvl` cannot be proved from `Ordered env`** — the hypothesis every current
+consumer of it carries.
+
+### 13.1 The witness, and why it is not the one `AppCase.lean` already had
+
+The mechanism is `imax` degeneracy at the *domain*, which the tree had not used:
+
+    C := Type 0        D₀ := Prop          D₁ := Type 0
+
+    C : .sort 2,  D₀ : .sort 1,  D₁ : .sort 2
+    (Type 0 → Prop)   : .sort (.imax 2 1) ≈ .sort 2
+    (Type 0 → Type 0) : .sort (.imax 2 2) ≈ .sort 2      ← the same sort
+
+So the `VDefEq` `⟨0, Type 0 → Prop, Type 0 → Type 0, .sort 2⟩` has **both sides typed at one
+type**, which is all `Ordered.defeq` asks (`piLvlRule_wf`), while relating two Π-types whose
+codomains disagree on propositionhood.  Then, in the one-entry context `[Type 0 → Prop]`:
+
+    .bvar 0 : Type 0 → Prop                       (Lookup)
+    .bvar 0 : Type 0 → Type 0                     (conv along the rule, one `extra` step)
+    Prop    : Type 0                              (one `Stratified.sort`)
+    .app (.bvar 0) Prop : Prop   and   : Type 0   (two `Stratified.app`s)
+
+`piLvl_appData` is `AppCase.AppData` at this data, verbatim, and **both conversion premises of
+`AppUniqLvl` are discharged by `.rfl`** — the two instantiated codomains are *literally* `Prop`
+and `Type 0`, so not even the conversion-free specialisation of the case survives.
+
+This is exactly the gap `AppCase.lean` §4 left open and said so: `witness_shapes` machine-checks
+that `AppCaseRefute`'s witness supplies one sort-shaped type and one **stuck** type, hence "is not
+a (sort, sort) pair", which is why it refutes `AppTypeUniq` and `UniqN` but leaves `AppUniqLvl`
+alone.  This witness supplies two literal sorts. [machine]
+
+### 13.2 What it closes
+
+| statement | verdict at `piLvlEnv` |
+| --- | --- |
+| `∀ n, AppUniqLvl` (§9.2's single obligation) | **FALSE** (`piLvlEnv_appUniqLvl_all_false`) |
+| `∀ n, PropUniqN.AppCase` (the tree's form) | **FALSE** (`piLvlEnv_appCase_all_false`) |
+| `∀ n, PropUniqN` (the same by `propUniqN_iff_appCase_all`) | **FALSE** (`piLvlEnv_propUniqN_all_false`) |
+| `∀ n, PropUniqNOn` (§9.3's guarded form) | **FALSE** (`piLvlEnv_propUniqNOn_all_false`) |
+| `PropUniqZeroN` (the *only* instance route B applies) | **FALSE** (`piLvlEnv_propUniqZeroN_all_false`) |
+
+The guard does not help: the witness context is genuinely well-formed — `piLvlL_isType`
+(`OnCtx [piLvlL] (piLvlEnv.IsType 0)`) is `piLvlRule_wf`'s own first component, and
+`piLvlL_isTypeN` / `piLvlL_onCtxN` give the indexed form at every `k+1`.  So **§9.3's weakening
+and §11 item 3's proposed `SetModel/PropAgreeWall.lean` edit change nothing about
+satisfiability** — they are still real weakenings of the *statement*, just not of what is
+provable from `Ordered`.
+
+`ordered_not_enough_for_propUniqN`, `..._appUniqLvl`, `..._propUniqNOn` state the negative in
+the form a consumer reads: `¬ ∀ env, Ordered env → …`.
+
+### 13.3 The instance route B consumes — named, refuted, and graded as a non-weakening
+
+`propAgreeOn_of_stratifiedNOn` applies `pun` exactly twice, and in both places one universe is
+literally `.zero`: `(pun _ hΓ (pta _ hΓ He He' hpA) HA').1 hrefl`.  So route B consumes only
+
+    PropUniqZeroN :  Γ ⊢ₙ A : Prop  →  Γ ⊢ₙ A : .sort v  →  v ≈ 0
+
+`PropUniqN.propUniqZeroN` is free.  **The converse is also free** at any index `k+1`
+(`PropUniqZeroN.propUniqN`): `sortDF` turns `A : .sort u` with `u ≈ 0` into `A : Prop`.  The one
+extra thing it needs is `u.WF U`, which `SortInvIndep.PropAgreeOn` supplies as `hu`.  So
+**naming this instance is not a reduction** — graded as such up front, per the brief's rule —
+and its only value is that the refutation reaches it too, which makes the negative stronger.
+
+### 13.4 What it does **not** refute — the part that decides how much this is worth
+
+1. **Not `VEnv.WF`.**  `piLvlEnv_not_wf`: a well-formed environment's rules are declaration
+   rules and `DeclRules.IsDeclRule.lhs_ne_forallE` says none rewrites a Π-type.  So
+   `∀ n, AppUniqLvl preludeEnv 0 n` is **still open**.  What the refutation establishes is where
+   the proof's content has to come from: **any proof must consume `WF.defeq_isDeclRule` /
+   `IsDeclRule.lhs_shape`**, and no argument that runs on `Ordered env` can exist.  That is
+   §9.4's verdict for a *side condition*, now established for the **obligation itself**.
+2. **Not `PropTypeAgreeN`, and provably not by any rule of this shape.**  The witness's two
+   types are `Prop` and `Type 0`, neither of which is a *proposition*, so `PropTypeAgreeN`'s
+   hypothesis `IsPropN A` is never met.  Stronger, and machine-checked:
+   `imax_congr_agree_zero` — if a Π–Π rule sits at one type then `.imax c d₀ ≈ .imax c d₁`,
+   and that already forces `d₀ ≈ 0 ↔ d₁ ≈ 0`.  **The `imax` slack that separates two sorts
+   cannot separate a proposition from a non-proposition.**  So `∀ n, PropTypeAgreeN` is
+   untouched at `piLvlEnv`, and so — as far as this witness goes — is route B's *conclusion*
+   `PropAgreeOn`: at the witness the two type-universes are `1` and `2`, and `PropAgreeOn` asks
+   only that they agree on being `0`, which they do. [machine for `imax_congr_agree_zero`;
+   analysis for the reading of `PropAgreeOn` at the witness]
+3. **Not "the corner is closed".**  `PropAgreeWall.nonempty_propSplit_preludeEnv` still gives
+   `Nonempty (PropSplit preludeEnv 0)` with no hypotheses by route A (§10 item 5).  What dies is
+   the *hole-free* route's `Ordered`-only formulation, not the corner.
+
+### 13.5 A correction the brief and §9.2 both need: `RegPi` is not "unsatisfiable-unknown", it is **FALSE**
+
+The brief carries the caveat "`RegPi` is **not known satisfiable**, so
+`propTypeAgreeN_and_propUniqN_iff` is conditional", attributing it to §9.2, which says the same.
+**Both understate it.**  `Theory/Typing/RegPiSat.lean:117` has
+
+    theorem regPi_false : ¬ env.RegPi U n
+
+for **every** environment, every `U`, every `n` — the witness is the one-entry context
+`[.forallE (.bvar 0) (.bvar 0)]`, where `Lookup` hands back a Π whose components are untypeable.
+`regPi_all_false` (this file) is the `∀ n` form.  So `propTypeAgreeN_and_propUniqN_of` and
+`propTypeAgreeN_and_propUniqN_iff` are not conditional — they are **vacuous, unconditionally, at
+every environment**, and no satisfiability work on `RegPi` is possible.  `RegPiSat.lean` already
+supplies the repair (`RegPiOn` / `Regular`, from `EnvReg` + `InstLvl` + `RegConvE`), and §9.2
+should be restated against `propTypeAgree_appCase_on_of` rather than
+`propTypeAgree_appCase_of`.  `propUniqN_iff_appCase_all` is unaffected, exactly as §9.2 and the
+brief both say.  [machine: `regPi_false` is `sorryAx`-free on this commit, cone 682, holes `[]`]
+
+### 13.6 What I tried that failed, and the step it failed at
+
+1. **Prove `∀ n, PropUniqN` from the unstratified `SortUniq`** — which `PiInvResidual.sortUniq_of_shapeLinkAgree`
+   now supplies hole-free from `Ordered ∧ ConvStep2 ∧ ShapeLinkAgree`.  **Failed at the bridge**:
+   there is no `HasTypeN → HasType`.  `Theory/Typing/Stratified.lean:~322` says so explicitly and
+   says why — "the converse `IsDefEqN n → IsDefEqU` is *not* proved here … it needs
+   `IsDefEq.uniq`, because `IsDefEqN`'s `conv` rule is three-place while `IsDefEq.defeqDF`
+   demands a type."  Worth recording as a *positive*: it means the stratified obligation is **not
+   equivalent** to the unstratified corner, so §9.2's target is genuinely separate content and
+   the composition I was about to build (which would have been collapse ten) does not exist.
+2. **Refute `AppUniqLvl` over the empty environment**, as `AppCaseRefute` does for `AppTypeUniq`.
+   **Failed at the shape of the obstruction**: the only device that breaks the index over `∅` is
+   an instantiation that blocks a `beta` step (`SubstCRefute.inst_does_not_preserve_index`), and a
+   blocked redex is **stuck** — `SubstCRefute.stuck` says it is `⊢₁`-related to nothing but
+   itself, so it is not convertible to a sort, and `AppUniqLvl` needs *both* codomains
+   sort-convertible.  Every variation I tried collapsed to one of: the redex unblocks (and then
+   the two sorts coincide), or it stays stuck (and the premise is unmet).  That is why the
+   refutation needs an environment rule, and why it lands at `Ordered` rather than `∅`.
+3. **Prove `SortDisjInvN piLvlEnv 0 1`**, to upgrade the refutation to "not implied by
+   `Ordered ∧ ∀ n, SortDisjInvN`".  **Failed at the `beta` case** of a `SubstCRefute.stuck`-style
+   induction: a sort *is* `⊢₁`-convertible to a β-redex (`symm` of `beta` whose reduct is a
+   sort), so no shape-class invariant is preserved and the case is the general weak-head
+   confluence problem — the hole itself.  **Not claimed either way.**  See §13.7.
+
+### 13.7 Not established — and it is the first thing to pick up
+
+Whether `piLvlEnv` satisfies **`SortDisjInvN` at index 1** (clause (1) `SortInvN` and clause (3)
+`SortForallEDisjN`).  Neither is refuted by the rule: it relates two **Π**-types, so it respects
+both shapes — contrast `SortClauses.sortPiEnv`, whose rule relates a sort to a Π and refutes
+clause (3) outright (§9.4).  This matters because it decides the strength of §13:
+
+* if they **hold**, then `∀ n, AppUniqLvl` is not implied by `Ordered env ∧ ∀ n, SortDisjInvN`
+  either, and §9.2's four side conditions provably do not rescue the obligation;
+* if one **fails**, §13 is the weaker statement "`Ordered` alone is not enough", which is still
+  what route B needs and still decisive for route B, but no longer separates the obligation from
+  its side conditions.
+
+### 13.8 The grade
+
+**This is a refutation, not a reduction**, so the collapse trap that caught rows 51, 86, 94 and
+collapses eight and nine does not apply: there is no target here that could turn out equivalent
+to what it was reduced from.  What *does* need saying, in the brief's own vocabulary:
+
+* **hole-free ≠ discharged, and this is the third shape of that.**  §9.2's assembly is hole-free
+  and discharges nothing because its fifth hypothesis is its own second conclusion.  §13.5 adds:
+  it is also *vacuous*, because `∀ n, RegPi` is false at every environment.  And §13 adds: the
+  one surviving obligation is *false* at the hypothesis its consumers carry.  Three independent
+  reasons the hole-free route pays nothing as currently stated.
+* **What is genuinely new**: (i) a (sort, sort) counterexample to the shared `app` case, which
+  `AppCase.lean` §4 explicitly did not have; (ii) the `imax`-at-the-domain device, which is what
+  makes an `Ordered` rule able to separate two sort levels; (iii) the machine-checked proof that
+  the same device *cannot* separate propositionhood (`imax_congr_agree_zero`), which is why
+  `PropTypeAgreeN` survives and `PropUniqN` does not; (iv) the localisation of the remaining
+  content to `IsDeclRule.lhs_shape`.
+
+### 13.9 Verification, verbatim [machine]
+
+* `lake build Lean4Lean.Theory.Typing.AppUniqRefute`: **`Build completed successfully (96
+  jobs).`**  `lake build Lean4Lean.Theory.Typing.PiInvResidual`: **`Build completed successfully
+  (84 jobs).`**  No error in any file I own.
+* `#print axioms`, one per declaration, in the file (`section Audit`), checked at build time.
+  **33 lines**: 32 report `[propext]`, `[propext, Quot.sound]` or `[propext, Classical.choice,
+  Quot.sound]`, and one (`piLvlEnv_defeqs`) reports *does not depend on any axioms*.  **No
+  `sorryAx`, no frozen axiom, no new `sorry`, none traded.**
+* Cone measurement — forward walk over **type and value**, `allowOpaque := true`, private copy of
+  `scripts/hole-cone.lean`'s algorithm, 38 seeds (my 33 + 5 upstream ingredients) plus 4
+  controls.  **All 33 report `holes []`**: `piLvlRule_wf` 1502, `piLvlEnv_ordered` 1510,
+  `piLvlEnv_defeqs` 32, `piLvlEnv_not_wf` 1885, `piLvlEnv_conv` 607, `piLvl_fn₀` 163, `piLvl_fn₁` 620, `piLvl_arg` 63,
+  `piLvl_appData` 625, `piLvlEnv_appUniqLvl_false` 654, `piLvlEnv_appUniqLvl_all_false` 655,
+  `piLvlEnv_appCase_false` 663, `piLvlEnv_appCase_all_false` 664, `piLvl_witness₀` 208,
+  `piLvl_witness₁` 628, `piLvlEnv_propUniqN_false` 653, `piLvlEnv_propUniqN_all_false` 654,
+  `piLvl_witness` 1556, `piLvlL_isType` 1556, `piLvlL_onCtx` 1560, `piLvlL_isTypeN` 624,
+  `piLvlL_onCtxN` 629, `piLvlEnv_propUniqNOn_false` 1581, `piLvlEnv_propUniqNOn_all_false` 1582,
+  `ordered_not_enough_for_propUniqN` 1558, `ordered_not_enough_for_appUniqLvl` 1559,
+  `ordered_not_enough_for_propUniqNOn` 1586, `imax_congr_agree_zero` 1514, `regPi_all_false` 683,
+  `PropUniqN.propUniqZeroN` 589, `PropUniqZeroN.propUniqN` 583,
+  `piLvlEnv_propUniqZeroN_false` 652, `piLvlEnv_propUniqZeroN_all_false` 653.
+  Upstream ingredients also clean: `regPi_false` 682, `AppUniqLvl.iff` 682,
+  `PropUniqN.appCase_iff` 1651, `propUniqN_iff_appCase_all` 1652,
+  `propAgreeOn_of_stratifiedNOn` 2410 — all `holes []`.
+* **The instrument fires** on all four controls, so an empty cone here means something:
+  `piInv_axiom` 3539 `[forallE_inv_stratified, rigidShapeUniqNS]`; `WF.sortUniq'` 3404
+  `[forallE_inv_stratified]`; `IsDefEqU.sort_inv` 3409 `[forallE_inv_stratified]`;
+  `WF.proofTransport` 3408 `[forallE_inv_stratified]`.  All four big holes were confirmed
+  *present in the environment* before the run (`BIGHOLE … present=true`), so a `[]` is not a
+  missing-name artefact.
+* **Tooling**: `lean_local_search` / `lean_hammer_premise` remain dead (`rg` absent) —
+  confirmed again.  Every search claim in §12–§13 is backed by **`grep`**, by `git log`/`git
+  log -S`, or by `lake build` / `lake env lean`.  `lean_references` was not needed.
+* **Not run, deliberately, per the brief**: full `lake build`, the three guards,
+  `scripts/sorry-census.lean`, `scripts/dup-names.lean`, `MemberRedexScan`.  Two other streams
+  are editing `Theory/SetModel/*` and `Theory/Inductive/*` concurrently.  The only pre-existing
+  `sorry` warnings my module build surfaces are in `Theory/Inductive/Decl.lean:405` and
+  `Theory/Typing/Injectivity.lean:261,1046` — none of them mine, none of them new.
+
+## 14. Where the brief was wrong — one list
+
+1. **Task 1 was already done**, in commit `8fa3e6d`, including the domain export at
+   `InjOneFact.lean:396`.  The brief describes it as "the missing export … reportedly one line of
+   work"; there is nothing missing.  §12.
+2. **`RegPi` is false, not merely "not known satisfiable"** — at every environment, every `U`,
+   every `n` (`RegPiSat.regPi_false`).  So `propTypeAgreeN_and_propUniqN_iff` is *vacuous*, not
+   *conditional*, and §9.2's own caveat understates it in the same way.  §13.5.
+3. **"`∀ n, AppUniqLvl` is now the whole remaining syntactic import of the model side on the
+   hole-free route"** — true as a *location* claim, and now known to be **false at the hypothesis
+   the route carries**.  The right statement is: it is the whole remaining import *and* it is not
+   provable from `Ordered env`, so the hole-free route must be restated at `VEnv.WF` before the
+   sentence means anything.  §13.
+4. Correct in the brief, and confirmed: `propUniqN_iff_appCase_all` carries no `RegPi` caveat;
+   the `rg` tooling is dead; the standing advice to `#print axioms` first was decisive (it saved
+   the whole of task 1); and separating "hole-free" from "discharged" is right — §13.8 finds a
+   third independent reason the route pays nothing.
+
+## 15. What to pick up first
+
+1. **`SortDisjInvN` at `piLvlEnv`, index 1** (§13.7).  Cheapest thing that changes the meaning of
+   §13.  If it holds, §9.2's side conditions are provably no rescue.
+2. **Restate the whole `∀ n` family at `VEnv.WF`, not `Ordered`.**  §9.4 said this for a side
+   condition; §13 makes it mandatory for the obligation.  Concretely:
+   `PropAgreeGuarded.propAgreeOn_of_stratifiedN` / `propAgreeOn_of_stratifiedNOn` and
+   `SetModel/PropAgreeWall.propTypeAgreeOnCtx_of_stratifiedN` should take `env.WF`.  `preludeEnv`
+   is `WF`, so nothing is lost.  Until then their hypotheses are **refuted**, not merely open.
+3. **Attack `∀ n, AppUniqLvl` at `VEnv.WF` through `IsDeclRule.lhs_shape`** (§13.4 item 1).  The
+   refutation says exactly what a proof must use, and `DeclRules.lean` already has it. The shape
+   of the argument: at a `WF` environment no rule rewrites a Π, so a function's two Π-types are
+   related only by `forallEDF`/`trans`/`symm`/`beta`/`appDF`/`eta`/`proofIrrel` and δ-rules on
+   constants; §13.6 item 2 is then the reason the two instantiated codomains cannot be two
+   *different* sorts.  That is a sketch, **not** a proof, and it is the round's main open item.
+4. **Re-price §9.2 against `RegPiSat`** (§13.5): replace `propTypeAgree_appCase_of` with
+   `propTypeAgree_appCase_on_of` and `RegPi` with `RegPiOn`/`Regular`, so the assembly stops
+   being vacuous.  Pure bookkeeping in `Theory/Typing`, no new mathematics.
+5. **Ledger rows to write** (I did not edit `docs/vacuity-ledger.md`):
+   * corner table **line 15**: hole B is **three** const-spine conjuncts `∧ ConvStep2 ∧
+     ShapeMidShapeless`, not five `∧ ConvStep2` — row 138 already says so, the table was not
+     updated;
+   * a row for §13 — `∀ n, AppUniqLvl` / `∀ n, PropUniqN` **false at an `Ordered` environment**,
+     guard and `u = .zero` instance included, `VEnv.WF` untouched;
+   * a row for §13.5 — `RegPi` is **false at every environment**, so
+     `propTypeAgreeN_and_propUniqN_of`/`_iff` are vacuous rather than conditional;
+   * a row for §13.6 item 1 — there is no `HasTypeN → HasType`, so the stratified obligation is
+     **not** equivalent to the unstratified corner (the one place this round a collapse was
+     available and turned out not to exist).
