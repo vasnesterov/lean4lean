@@ -526,3 +526,206 @@ declaration headers, reported as such. One of them found the real `falseProp_has
 not quiescent. The orchestrator ran them at a quiescent commit: **census 13**, dup-names clean,
 build green. The Kernel Arena was **not** run this session; no implementation file changed, so the
 last recorded result stands — but *expected is not measured*.
+
+---
+
+## 8. Session of 2026-09-02: the `←` half named, and its witness gap measured
+
+Brief: *target the `←` half of `Equiconsistency.lean`'s `↔` as a separately named theorem;
+prove as much as is reachable; leave the `↔` open.*  Done, plus the anti-vacuity measurement
+that turns out to be the substantive result.
+
+Everything below is **[measured]** unless marked `[read]`.  New file:
+`Lean4Lean/Theory/SetModel/UpperBound.lean` (365 lines, 20 declarations, sorry-free).
+
+### 8.0 Audit of the five claims I was asked to check against the tree
+
+| claim as briefed | verdict |
+|---|---|
+| `CnstRecursion.coherentOn_cnstOf` runs the full `VEnv.WF'` recursion with **six of seven** `VDecl` forms discharged; which is open? | **The recursion is a complete theorem — no form is left as a goal.** All seven are handled: `.def`/`.opaque`/`.example` outright, `.unsafeDef` *refuted* by `noUnsafe`, `.axiom`/`.quot`/`.induct` from the `OracleFits` **hypothesis**. What is open is not a form but a *field* of that hypothesis at `.induct`: `InductOracleOK`. `stagedOcc_allConsts` closes the `.induct` occurrence side-condition; inhabitation is what is not discharged. So "six of seven discharged" is the wrong shape of statement — the file's own §"What is proved outright" table says `.induct`'s **occurrence** condition is proved and its **inhabitation** is not, which is correct |
+| `InductOracleOK` is a two-field structure | **correct** — `consts` and `rules` (`CnstRecursion.lean:504`), bounded field by field in `InductOracleAudit.lean` §5 |
+| `consts`' positive bound closed twice (`inductOracleOK_zero`, `inductOracleOK_unit`), large eliminator closed (`inductOracleOKL`) | **correct**; `inductOracleOK_zero` (`InductOracleWitness.lean:270`), `inductOracleOK_unit` (`UnitOracleWitness.lean:687`), `inductOracleOKL` (`UnitOracleLarge.lean:1206`) all exist |
+| the `rules`-negative cell is "bounded tighter but not closed", **and its wording is probably unachievable** | **the source has already been corrected and the ledger row is stale.** `InductOracleAudit.lean` §5's `rules` row carries "**Reworded 2026-09-01: the previous wording asked for the wrong thing**". The right wording, verbatim from the source and confirmed here: a `WF` block's ι-rules are well typed, so *a correct model must satisfy `DefEqOK` at each of them — a refutation there would refute the model, not the field*; the honest control is refutability of the field's **body** at a `VDefEq` of our choosing, which is `not_defEqOK_falseType`. So: the briefed wording is indeed unachievable, and the achievable one is already in place |
+| `AxiomsValidated` fully closed, `hκ` by `InaccChainOmega.exists_inaccessibleChain_omega` | **correct.** `AxiomsValidatedAudit.axiomsValidated_of_coherentOn` takes `hκ`; `axiomsValidatedAbove_of_coherentOn` is the `hκ`-free half. Both present, both bounded (`not_axiomsValidated_falseProp`, `axiomsValidated_extAx`) |
+| `IsDefEqU.sort_inv` listed "open, one `sorry`" but absent from the 13-hole census — resolve | **the row is stale in form and right in substance.** `IsDefEqU.sort_inv` (`Injectivity.lean:565`) has **no `sorry` of its own** — it is `sort_inv_of_sortUniq (WF.sortUniq' henv) …`, three lines. `#print axioms` gives `[propext, sorryAx, Classical.choice, Quot.sound]`: the taint comes from `IsDefEqU.forallE_inv_stratified` (`:261`), which *is* a census row. So the census is right, the ledger's "one `sorry`" is wrong, and "open" is right. **Ledger row should read: `sort_inv` is proved from `forallE_inv_stratified` and carries its hole.** (Exactly the vacuity-ledger's blindness kind 3 — dropped qualifier — so it is worth fixing in place.) |
+
+### 8.1 What landed — the `←` half, from three unbundled inputs
+
+`SetModel/UpperBound.lean`, all `[propext, Classical.choice, Quot.sound]` or cleaner, no
+`sorryAx`, no frozen axiom:
+
+```lean
+def PropTypeAgreeInput : Prop := ∀ env : VEnv, env.LeanWF → env.PropTypeAgree 0
+def InstDescendInput   : Prop := ∀ env : VEnv, env.LeanWF → env.InstDescendUp 0
+def OracleInput        : Prop := ∀ V [SetStructure V] … (κ) (hκ) (env) (ds),
+  VEnv.WF' ds env → PureOverPrelude ds →
+  ∀ (henv : env.Ordered) (hU : env.PropUniq 0) (hT : env.PropTypeAgree 0),
+    ∃ ls o, OracleFits (propSplitUp env 0 henv hU hT) κ ls o ds
+
+theorem upper_bound_of_inputs (hTI) (hII) (hO) :
+    Entailment.Consistent 𝗭𝗙𝗖+𝗜𝗻𝗮𝗰𝗰 → leanTTConsistent
+```
+
+and in `Theory/Equiconsistency.lean` (which this stream owns), the two named forms the
+endgame reads off: `leanTTConsistent_of_consistent_zfcInacc` and
+`inconsistent_zfcInacc_of_inputs`.  **The `↔` at `:46` keeps its single `sorry`, untouched**
+— census TOTAL unchanged at 13, same rows.
+
+Two things the unbundling buys that `ModelExists.upper_bound_of_modelFits` (one hypothesis,
+`ModelFitsLeanInput`) does not:
+
+* **`VEnv.PropUniq 0` disappears from the input list.**  `env.Consistent` is a negation, so
+  its own hypothesis is available inside the proof, and `PropUniq.of_propTypeAgree` consumes
+  it.  `ModelFitsLeanInput`'s shape has nowhere to put that, so it cannot make the saving.
+* **no existential over `PropSplit`, `ls`, `o`, `R`.**  `ModelFits` is an existential, so a
+  proof of it may be discharged at *any* split; here the split is the named `propSplitUp`,
+  fixed before the oracle obligations are stated.
+
+### 8.2 The measurement that matters: `VEnv.LeanWF` is not known to be inhabited
+
+This is the anti-vacuity result, and it applies to the *whole* corner rather than to anything
+this session added.
+
+`leanTTConsistent = ∀ env, env.LeanWF → env.Consistent`.  **No declaration in the tree
+exhibits an `env` with `env.LeanWF`**, and the three inputs above quantify over the same
+class.  So (all proved in §3 of the new file):
+
+```lean
+theorem upper_bound_vacuous_of_no_leanWF (h : ∀ env : VEnv, ¬ env.LeanWF) :
+    PropTypeAgreeInput ∧ InstDescendInput ∧ OracleInput ∧ leanTTConsistent
+```
+
+— premises **and** conclusion go true together.  Recorded as a theorem rather than prose
+because the vacuity ledger's kind 4 (an unproved negative) is the expensive mistake here.
+
+§4 pins the missing object, and does so **exactly** rather than sufficiently:
+
+```lean
+def PreludeWF : Prop := ∃ env : VEnv, VEnv.WF' leanPrelude.reverse env
+theorem exists_leanWF_iff : (∃ env : VEnv, env.LeanWF) ↔ PreludeWF
+```
+
+The `←` is `ds := []`; the `→` is `exists_wf'_of_append` — a longer Lean history contains a
+prelude-only prefix at an intermediate environment, so the user part `ds` cannot supply the
+witness.  **`PreludeWF` is the whole of it.**
+
+This is the model side's analogue of vacuity-ledger row 104a (`addDecl.WF` *is* inhabited,
+witness the empty environment).  Here the witness must be a prelude environment.
+
+### 8.3 One of the seven prelude steps discharged
+
+`preludeRev_eq` lists them in `VEnv.WF'` order (most recent first), so the innermost — the
+only one over `VEnv.empty` — is `.induct eqIndDecl`.  Proved this session:
+
+```lean
+theorem eqIndDecl_WF (env : VEnv) : VInductDecl'.WF env eqIndDecl        -- [propext, Quot.sound]
+theorem exists_eqIndDecl_history : ∃ env, VEnv.WF' [VDecl.induct eqIndDecl] env
+```
+
+Note the generality: **over an arbitrary environment.**  Nothing in the `Eq` block's data
+mentions any constant but its own type former, and `ctors` reads that out of the staged
+environment `env₁` via `addConstList_constants`, exactly as `unitDecl_WF` does.  The proof is
+pure introduction rules — `sortDF`, `bvar`, `forallEDF`, one `constDF` and three `appDF`s for
+`Eq α a a` — with no rewriting and no transport, which is the soundness ledger's standing
+prediction about constructor-spine de Bruijn arithmetic holding for a fourth time.
+
+**So the witness gap is six steps, not seven, and it is *unbuilt* rather than blocked.**
+`[read]` for the costing of the remaining six:
+
+* `iffIndDecl`, `nonemptyIndDecl` — same pattern, and also over an arbitrary environment
+  (neither block's data mentions `Eq`).  What `Eq` avoided is `VIndField.WF`: `Eq.refl` has
+  **no fields**, while `Iff.intro` has two and `Nonempty.intro` one, so each needs
+  `binders_indep`, `level` (`imax F.lvl D.lvl ≤ D.lvl`, which is *not* `decide`-able as
+  stated — `VLevel.le` is a `∀ ls`) and `pos` (`∃ A, NoBlock A ∧ IsDefEqType Γ F.type A`,
+  discharged by `A := F.type` plus a `NoConsts` fact).  Attempted this session and **failed
+  at exactly those three fields** — see §8.5.
+* the three `.axiom` steps are the expensive half: `propext`'s type mentions `Iff` and `Eq`,
+  `Classical.choice`'s mentions `Nonempty`, `Quot.sound`'s mentions `Eq`, `Quot` and
+  `Quot.mk`, so each needs a `constDF`/`appDF` spine over an environment whose constant map
+  is the *result* of the earlier `addInduct'` folds.  That is the size of derivation
+  `QuotInterp.lean` pays for `Quot.lift`, not a one-liner — and unlike `eqIndDecl_WF` it
+  cannot be stated over an arbitrary environment.
+* the `.quot` step needs `VEnv.addQuot` to succeed and the four quotient constants' types to
+  be types.
+
+### 8.4 Positive control: which input is *not* the binding constraint
+
+§5 of the new file.  At a certified `VEnv.WF'` history the recursion is entitled to visit —
+`unitEnv`, from `UnitOracleWitness.unitDecl_history` — `OracleFits` is **discharged outright,
+at an arbitrary `PropSplit` and an arbitrary `κ`** (`exists_oracleFits_unit`, via
+`oracleFits_unit`).  So input 3's payload is *satisfiable*; what is missing there is only the
+split.  At a *prelude* history that is no longer true: its `.induct` steps are `eqIndDecl`,
+`iffIndDecl`, `nonemptyIndDecl`, all with parameters and (for `Eq`) an index, which is
+vacuity-ledger row 83c's open frontier for `InductOracleOK`.  **Both statements are needed;
+neither implies the other**, and conflating them is how "the oracle is done" gets said.
+
+### 8.5 Tried and failed, with the step it failed at
+
+1. **Making the `↔` at `Equiconsistency.lean:46` derive its `←` half from the new theorem.**
+   Not possible without introducing a hypothesis into the `↔`'s own statement: the `←` half is
+   available only *conditionally* on the three inputs, so an unconditional `←` cannot be
+   supplied and the `sorry` cannot be split without trading one hole for another.  The `↔` is
+   left byte-identical.  **Failed at**: there is no unconditional `←`; this is a fact about
+   the tree, not about the proof attempt.
+2. **`iffIndDecl.WF env`.**  The block-level fields (`types_ne`, `params`, `types`, `isLE`,
+   `params_eq`, `args_len`, `args_ty`, `result`) all went through on the `eqIndDecl_WF`
+   pattern first try.  It **failed at `VIndField.WF`**, three fields at once: `binders_indep`
+   was not in my field list at all (the structure has four fields, not three); `level` is
+   `VLevel.imax F.lvl D.lvl ≤ D.lvl` and `by decide` fails — no `Decidable` instance, because
+   `VLevel.le` quantifies over all valuations; and `pos`'s `NoBlock` is `VExpr.NoConsts`,
+   which `trivial` does not close.  None of the three looks hard; all three are missing
+   one-line lemmas.  Reverted rather than left half-built.
+3. **Factoring the reduction through `ModelFitsLeanInput`.**  Failed at `PropUniq`: that
+   input's shape has no place for the goal's own inconsistency hypothesis, so going through it
+   would have *added* `PropUniqInput` as a fourth input.  Going directly to
+   `leanTTConsistent` is what removes it — the reason `consistent_of_inputs` re-derives
+   `consistent_of`'s application rather than calling `leanTTConsistent_of_lean`.
+4. **`by decide` for `VLevel.WF` inside `constDF`'s level-list side conditions at `Eq`.**
+   Fails on the bare `∀ l ∈ ls, l.WF uvars` because `ls` is a metavariable at that point; the
+   fix is to `intro l hl; simp at hl; subst hl; decide`, i.e. name the level first.  Same
+   family as the ledger's "do not ascribe coercion indices" note: give the elaborator the
+   shape before the decision procedure.
+
+### 8.6 Measured / read / not run
+
+**[measured]** `lake build`: **1500 jobs** before this session's file, **1501** after, 0
+errors in any file, and the sorry set unchanged (13 declarations).  Guards, verbatim:
+
+```
+guard 1: Axioms.lean declares exactly the 24 frozen axioms ✓
+guard 2: kernel_sound axioms within whitelist ✓ (proof INCOMPLETE: sorryAx present)
+guard 3: checker cone implementation gaps within frozen list (2/2 remaining) ✓
+```
+
+`lake build Lean4Lean.Experimental.ConeJoin` green — relevant because
+`Theory/Equiconsistency.lean` now imports the `SetModel/` tower, so `Verify/SoundnessAssembly`
+and everything downstream of it does too.  No name collision: `ConeJoin` already imported
+`SetModel.ModelExists`, `SetModel.PropUpFits` and `SetModel.UnitOracleWitness` alongside
+`Verify.SoundnessAssembly`, and the `VEnv.PropUniq` / `VEnv.PropTypeAgree` wall recorded in §4
+of this document **is gone** — the `Theory/Typing` copies are now `PropUniqN` /
+`PropTypeAgreeN`.  §4 should be marked resolved.
+
+`scripts/sorry-census.lean`: **TOTAL 13**, no row changed.
+`#print axioms` on all 13 new declarations: quoted in the file's own census block; the two
+strongest are `[propext, Classical.choice, Quot.sound]`, `eqIndDecl_WF` is
+`[propext, Quot.sound]`, `preludeRev_eq` depends on no axioms.
+
+**[read]** off source, not run: the costing of the six remaining prelude steps (§8.3), and
+the claim that no declaration in the tree produces `∃ env, env.LeanWF` — that one is a grep
+over `LeanWF` occurrences plus inspection of each hit, so it is a *floor* on the search, not a
+theorem. If someone finds such a witness, §8.2 collapses and that is the best possible news.
+
+**[not run]** the Kernel Arena (no implementation file changed) and `scripts/dup-names.lean`.
+
+### 8.7 What to pick up first
+
+1. **`PreludeWF`.**  It is the cheapest thing on the list with the largest effect: until it
+   holds, *every* theorem in this corner — including `soundAbove` composed all the way to the
+   `←` half — is a statement about a possibly-empty class.  Order: `iffIndDecl_WF` and
+   `nonemptyIndDecl_WF` (three small `VIndField.WF` lemmas, §8.5 item 2), then the `.quot`
+   step, then the three axiom types, which need the staged constant maps and are the real
+   work.
+2. **`InstDescendUp 0`'s `.bvar k` case**, unchanged from §7.9 — still the sharpest open
+   mathematics on the model side.
+3. **Do not** re-attack `PropTypeAgree 0` (irreducible, §7.6), the `sort_inst` refutation
+   (§7.1), or `Equiconsistency.lean`'s `↔` (§8.5 item 1).

@@ -1,5 +1,6 @@
 import Foundation.FirstOrder.SetTheory.InaccessibleCardinal
 import Lean4Lean.Theory.Consistency
+import Lean4Lean.Theory.SetModel.UpperBound
 
 /-!
 # Main theorem: Lean TT is equiconsistent with ZFC + ω-many inaccessibles
@@ -72,5 +73,40 @@ lost by aiming the model at it. -/
 theorem upper_bound_of_equiconsistent
     (h : Entailment.Consistent 𝗭𝗙𝗖+𝗜𝗻𝗮𝗰𝗰 ↔ leanTTConsistent) :
     Entailment.Consistent 𝗭𝗙𝗖+𝗜𝗻𝗮𝗰𝗰 → leanTTConsistent := h.mp
+
+/-! ## The `←` half, as a theorem of its own
+
+The `↔` above keeps its `sorry`: its `→` half is not this project's theorem, and its `←`
+half is not unconditional either.  What *is* available is the `←` half from three named
+inputs, which is what `SetModel/UpperBound.lean` assembles out of the whole `SetModel/`
+tower — the thirteen-case soundness induction, the `VEnv.WF'` recursion for the constant
+assignment, the inaccessible chain, and Foundation's completeness theorem.
+
+Read `upper_bound_of_inputs` with §3–§5 of that file: the three inputs and the conclusion are
+**simultaneously** free if `VEnv.LeanWF` is uninhabited, and the tree exhibits no inhabitant.
+`SetModel.exists_leanWF_iff` pins the missing object as `SetModel.PreludeWF`. -/
+
+/-- **The upper bound, from the three model-side inputs** — the half `kernel_sound` consumes.
+Composing with `inconsistent_of_upper_bound` above turns a checker run certifying `False`
+into `Entailment.Inconsistent 𝗭𝗙𝗖+𝗜𝗻𝗮𝗰𝗰`.
+
+The three inputs are, in the vocabulary of `SetModel/UpperBound.lean`:
+`PropTypeAgreeInput` (unique typing, in the one form the interpretation needs),
+`InstDescendInput` (the substitution-descent residual of `PropSplit.Stable`), and
+`OracleInput` (the `.axiom`/`.quot`/`.induct` oracle obligations).  Everything else the
+model needs is discharged. -/
+theorem leanTTConsistent_of_consistent_zfcInacc
+    (hTI : SetModel.PropTypeAgreeInput) (hII : SetModel.InstDescendInput)
+    (hO : SetModel.OracleInput) :
+    Entailment.Consistent 𝗭𝗙𝗖+𝗜𝗻𝗮𝗰𝗰 → leanTTConsistent :=
+  SetModel.upper_bound_of_inputs hTI hII hO
+
+/-- …and the same composed all the way to `kernel_sound`'s conclusion, so that the endgame
+reads off one statement rather than three. -/
+theorem inconsistent_zfcInacc_of_inputs
+    (hTI : SetModel.PropTypeAgreeInput) (hII : SetModel.InstDescendInput)
+    (hO : SetModel.OracleInput) (hbad : ¬ leanTTConsistent) :
+    Entailment.Inconsistent 𝗭𝗙𝗖+𝗜𝗻𝗮𝗰𝗰 :=
+  inconsistent_of_upper_bound (leanTTConsistent_of_consistent_zfcInacc hTI hII hO) hbad
 
 end Lean4Lean
