@@ -1756,3 +1756,180 @@ value* (negative) and one route's *grade* (collapse).  `AppUniqLvlOn`, `PropUniq
    (`CodType0Refute.lhs_not_defeq_sort`), which is now machine-checked parameter-free and at every
    `U`, `0` included.  So the search should not be re-run over `beta`-through-`forallEDF`
    witnesses; that whole family is excluded.
+
+# 29. The `Stratified` analogue of `IsDefEq.levelWF` — **proved** (after refuting the literal form), and §28.8 item 2 is closed
+
+New files, both sorry-free and hole-free:
+
+* `Lean4Lean/Theory/Typing/StratLevelWF.lean` — the analogue and its two negative controls.
+  `lake build Lean4Lean.Theory.Typing.StratLevelWF`: **33 jobs, 1.3 s**.
+* `Lean4Lean/Theory/Typing/AppCodLevelWF.lean` — the route consequence.
+  `lake build Lean4Lean.Theory.Typing.AppCodLevelWF`: **108 jobs, 1.2 s**.
+* `scripts/appcodlevelwf-cone.lean` — hole-cone measurement for all 18 new declarations.
+
+`AppCodType0.lean` and `Stratified.lean` are **unmodified**.
+
+## 29.1 Verdict, graded
+
+**Refuted.** The analogue *as `IsDefEq.levelWF` states it* — a conjunction on both endpoints —
+is false on the conversion half, at every environment, every `U`, every index, every context
+(`isDefEqN_levelWF_conj_false`).  `Stratified.rfl` relates `.sort (.param U)` to itself.  One
+line, and it is why the lemma "does not exist": as literally transcribed it cannot.
+
+**Proved.** With the conversion half read as an **iff** instead, the whole thing goes through as
+one induction over the `Bool`-indexed pair:
+
+```
+Stratified.levelWF (H : Stratified env U n Γ e A b) (W : OnCtx Γ fun _ A => A.LevelWF U) :
+    (b = true  → e.LevelWF U ∧ A.LevelWF U) ∧
+    (b = false → (e.LevelWF U ↔ A.LevelWF U))
+```
+
+with `HasTypeN.levelWF` / `IsDefEqN.levelWF` as the two projections, and
+`HasTypeN.sort_levelWF` — *"in a guarded context, a term typed at `.sort w` has `w.WF U`"*, §28.8
+item 2's own phrasing — as the corollary the route wanted.  No `Classical` (see §29.3), no
+`Ordered env`, no environment condition at all.  Axioms: `propext`, `Quot.sound` only, on every
+declaration.  **Grade: proved, not reduced.** Nothing is assumed; there is no residual hypothesis
+to collapse.
+
+**Closed.** §28.8 item 2 — the non-`WF`-level loophole — is closed, not reduced.  §29.4.
+
+## 29.2 Where the briefing was wrong (three places, all consequential)
+
+1. **The loophole is not `rfl`'s fault.**  I was briefed that it is "a non-`WF`-level loophole
+   that `Stratified`'s unconditional `rfl` opens".  `rfl` refutes the *conjunctive* analogue, yes.
+   But the loophole in the route — `codType0OnC_sortCase_iff_agree`'s and
+   `codShareOn_sortCase_forces_syntactic_eq`'s side conditions `hu₀ : u₀.WF U`, `hu₁ : u₁.WF U`
+   being unsupplied — has nothing to do with `rfl`.
+   `badLevel_sortCase_without_guard` exhibits the loophole's premise shape with **no `rfl`
+   anywhere**: a context entry `.sort (.param U)` types `.bvar 0` at a bad sort, `bvar` supplies a
+   function at a Π-type and an argument at its domain, and the codomain instance is a sort at a
+   non-`WF` level.  The cause is the **guard's reach** — `OnCtx Γ (env.IsType U)` constrains the
+   context and nothing else, and until now nothing propagated it into the derivation.  Right
+   lemma, wrong mechanism; and the wrong mechanism is why it looked like a `rfl` problem rather
+   than a propagation problem.
+2. **"Prove it or refute it" was a false dichotomy, and the literal statement is the refutable
+   one.**  Both happen: the literal conjunctive form is refuted, the iff form is proved, and it is
+   the iff form the route needs.  So the refutation kills nothing — in particular it does **not**
+   "kill the `type0_pin` strategy outright".  Anyone who runs the refutation first and stops has
+   the wrong answer.
+3. **Both "structural facts that bound any answer" were inapplicable, in both of my directions.**
+   Antitonicity in the environment: `Stratified.levelWF` has the environment only in its premise
+   and is proved for an arbitrary `env`, so there is no `∅` bound to invoke — and my two
+   refutations are likewise stated at arbitrary `env`.  Antitonicity in `U`: I checked this
+   explicitly, since it is the one the briefing said a previous round nearly got wrong — every
+   refutation witness here uses `.param U`, which is non-`WF` at **every** `U`, `0` included, so
+   none of them lives above the target's `U`.  Neither bound did any work; the briefing's warning
+   to check the polarity first was the useful half.
+
+Also wrong, but not mine — **`Stratified.lean`'s own docstring**: `Stratified.forallE`'s premises
+`u.WF U`, `v.WF U` are documented as *"cannot be recovered afterwards without the soundness
+direction (which needs `uniq`)"*.  They can (`forallE_wf_free`): over a `LevelWF` context both
+come straight off the two typing premises via the type half, with no `uniq`, no `Ordered`, no
+environment.  This does **not** make them removable from the definition — `thm:utype`'s `forallE`
+case works at a context not known `LevelWF` — but the stated reason for keeping them is not the
+real one, and anyone pricing that definition change should know it.
+
+## 29.3 What failed, and the step it failed at
+
+* **First statement attempt: conjunction on the conversion half.**  Failed at *statement* time,
+  not proof time — `Stratified.rfl`. Kept as `isDefEqN_levelWF_conj_false`.
+* **Second attempt: drop the context hypothesis `W` entirely** (the conversion half looks
+  context-free).  Failed at the `beta` case: the left side `.app (.lam A e) e'` needs `A.LevelWF`,
+  which only the *type* of `e' : A` supplies, and the type half needs `W` at `bvar`.  Kept as
+  `isDefEqN_levelWF_iff_needs_ctx` and `hasTypeN_levelWF_type_needs_ctx` — both machine-checked,
+  so `W` is not defensive, it is necessary, and necessary in each half separately.
+* **Third attempt: case-split on `A.LevelWF U` at `lamDF`** — the one case where the induction
+  looks stuck, since the IH only gives `A.LevelWF U ↔ A'.LevelWF U` while the recursion needs
+  `OnCtx (A::Γ)`.  This *works* but drags in `Classical.choice` through `by_cases`.  Abandoned at
+  the axiom-audit step, and it was unnecessary: proving the iff by `constructor` hands you
+  `A.LevelWF U` (resp. `A'.LevelWF U`) as the first component of the hypothesis in **each**
+  direction, so the annotation's well-formedness is free exactly where it is needed.  Same for
+  `forallEDF`.  This is the only non-obvious step in the proof and worth knowing about before
+  re-deriving it.
+* Three Lean-level traps, all "reads right, is wrong", to add to `Stratified.lean`'s own list:
+  `⟨fun h => nomatch h, e⟩` **parses as one field** (`nomatch` takes comma-separated
+  discriminants) — parenthesise it; inside `theorem Stratified.foo` the token `rfl` resolves to
+  `Stratified.rfl`, not `Eq.refl`, so index-discharging arguments must be written
+  `(Eq.refl true)` / `(Eq.refl false)`; and `H.levelWF` inside `theorem HasTypeN.levelWF`
+  resolves to the theorem *being declared* (`HasTypeN` is an `abbrev` for `Stratified`, so the
+  namespaces collide) — write `Stratified.levelWF H`.
+
+## 29.4 The route consequence: the fringe is empty
+
+`AppCodLevelWF.lean`, all under the route's own guard, nothing new assumed:
+
+* `AppData.levelWF` — both codomain instances of an `AppData` are `LevelWF U`.  Read off
+  `fn₀`/`fn₁` (a Π-type, so its codomain is `LevelWF`) and `arg₀`, combined by `LevelWF.inst`;
+  the guard enters only through `onCtx_levelWF` (`StrengthenVerdict.lean`).
+* `AppData.sort_levelWF`, `no_badLevel_sortCase` — hence `hu₀`/`hu₁` are **free**.  There is no
+  `AppData` under the guard whose codomain instance is a sort at a non-`WF` level.  **The fringe
+  the loophole lived on does not exist.**
+* `codType0OnC_sortCase_iff_agree'`, `codType0OnC_sortCase_of_agree'`,
+  `codShareOn_sortCase_forces_syntactic_eq'` — §28's three collapse theorems with `hu₀`/`hu₁`
+  deleted.  So the collapse holds on the **whole** sort sub-family, not on a `WF`-level fragment
+  of it, and the weakest side condition of that shape still forces *syntactic* level equality
+  there, unconditionally.
+* `badLevel_sortCase_without_guard` — and the guard is load-bearing for all of the above, tested
+  rather than assumed (§29.2 item 1).
+
+**The premise trade, stated unfavourably as required.**  §29.4's theorems drop `hu₀`/`hu₁` and
+pick up `hΓ` and `d`.  For the *consumer* that is a strict weakening — `AppCodType0OnC` and
+`AppLvlAgreeOn` quantify over `hΓ` and `d` by definition, and `codType0OnC_sortCase_of_agree'` is
+strictly weaker in premises than `codType0OnC_sortCase_of_agree` outright.  Read as a bare `iff`
+lemma in isolation it is a trade, not a weakening.  Say it that way in the ledger.
+
+## 29.5 Hole-free is not discharged, and what is *not* settled
+
+`scripts/appcodlevelwf-cone.lean`, over `AppCodLevelWF` + `Injectivity` + `UniqueTyping` +
+`ChurchRosser` (the last two so `weakN_iff` and `descend` are *present*, the round-4/5 trap):
+all four holes `present = true`; both tainted controls fire (`piInv_axiom` → cone 3539, holes
+`forallE_inv_stratified`, `rigidShapeUniqNS`; `WF.sortUniq'` → cone 3404, holes
+`forallE_inv_stratified`); **0 of 18 seeds contain any of the four holes, `sorryAx` false on all
+18**, cones 126–1005 over type and value with `allowOpaque := true`.
+
+**Discharged: nothing.**  `AppUniqLvlOn`, `PropUniqNOn`, `AppUniqLvl ∅ 0 1` are where §28 left
+them.  What is settled is §28.8 item 2's truth value — positively — and one route's grade is now
+complete rather than partial.
+
+**And one residual, which is not the loophole and is not closed by this section.**  The collapse
+is proved on the sub-family where `B₀.inst a` and `B₁.inst a` are *syntactically* sorts.  The
+conditioned premise space is larger: `c₀ : IsDefEqN (n+1) Γ (B₀.inst a) (.sort u)` permits a
+codomain instance merely *convertible* to a sort.  The forward direction
+(`appLvlAgreeOn_of_sortRedInv_codType0OnC`) already covers all of it; the **converse** does not,
+because it must *produce* a `⊢₀` typing, and a stuck redex has none — which is exactly how
+`AppCodType0On` was refuted.  So off the syntactic-sort sub-family, `AppCodType0OnC` could still
+be strictly stronger than `AppLvlAgreeOn`, or false.  Nothing here decides that, and it is the
+honest next question.  Level well-formedness cannot reach it: the obstruction there is
+`⊢₀`-typeability, not levels.
+
+## 29.6 What to pick up first
+
+1. **Rewrite §28.8 item 2 as done.**  The lemma exists, is proved, is 60 lines including both
+   negative controls, and its statement in that item (*"in a guarded context, a term typed at
+   `.sort w` has `w.WF U`"*) is now `HasTypeN.sort_levelWF` verbatim.  The route grade does not
+   change — it was a collapse and it still is — but it is now a collapse with no unmeasured
+   fringe, and the ledger row for it can be written without a caveat.
+2. **The residual in §29.5** is the only remaining attack on `AppCodType0OnC`: find an `AppData`
+   under the guard, at index `n+1`, with both codomain instances *convertible* to sorts but at
+   least one of them `⊢₀`-typeable at nothing.  §28's own witness is excluded
+   (`witness_outside_conditioned`), and §28.8 item 4 excludes the whole `beta`-through-`forallEDF`
+   family, so this needs a genuinely new shape.  If it exists, the conditioned form is refuted and
+   the `type0_pin` strategy is dead outright.
+3. **Reuse `Stratified.levelWF` outside this corner.**  It is the level-well-formedness fact for
+   the *whole* stratified judgment and it is what `unique.tex` §§3–4 will need every time it builds
+   a `sortDF` (which demands both levels `WF`).  Concretely: `Stratified.lean` §"Price of the
+   inductive step" prices `thm:utype` at ~270 lines and lists "the level-`n` congruence helpers" as
+   remaining — those helpers are exactly where this lemma pays, and `forallE_wf_free` says the two
+   hand-added `WF` premises on `Stratified.forallE` are not the only way to get them.
+4. **`Stratified.levelWF_subject` is free and context-free** — the subject of any `⊢ₙ` typing is
+   `LevelWF U` with no hypothesis whatever.  Use it wherever the guard is unavailable; it is the
+   half that survives.
+
+**Tooling note.**  `lean_local_search` and `lean_hammer_premise` are broken in this checkout
+(`rg` absent), as briefed; I used neither, and I did not need `lean_references`.  Every search
+claim above is backed by `grep` (which resolves to `ugrep` here) over `Lean4Lean/`, and every
+measurement by `lake build <module>` or `lake env lean scripts/appcodlevelwf-cone.lean`.  Nothing
+in this section is read off a docstring: the two claims I inherited as text — that the analogue
+does not exist, and that `Stratified.forallE`'s premises need `uniq` — are the two I checked and
+one of them is false.
