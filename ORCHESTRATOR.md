@@ -58,6 +58,18 @@ print(len(bad), bad[:10])
 Run after the day's commits, not after each one. It reported **0** once the one-off was fixed, which
 is what makes it worth keeping: it is a cheap check for a class of damage that no build catches.
 
+**And then I broke `HEAD` a second time the same day, with the OPPOSITE error.** Staging by explicit
+path for a spec-clause change, I committed the clause and **left out the nine files that discharge
+it** — `HEAD` failed with 4 errors while my working tree was green. So the rule is not "use `-u`" or
+"use explicit paths"; each fails in its own direction:
+
+> **After any commit, build WHAT YOU COMMITTED, not what is in the working tree.**
+
+The working tree was green through *both* failures, which is precisely why neither surfaced. The
+cheap version, for a commit you are unsure about:
+`git stash push -u && lake build; git stash pop` — that is how the second breakage was diagnosed,
+and it takes one command.
+
 ## Briefs can get too heavy to start
 
 A stream stalled (no progress for 600s, watchdog did not recover) having produced exactly one
