@@ -2905,3 +2905,200 @@ of §1.2 unchanged as field `0` (`tq_objH_field0`, `rfl`).
 
 Measured: `lake build Lean4Lean.Theory.Inductive.IndexedNested` — **73 jobs**, green, no new
 warnings from §8.
+
+### 56.2 …and the stored type is `VIndField.WF`, in the environment the spec itself supplies
+
+The closure would be worthless if the hostile stored type were merely a `VExpr`.  It is not: the
+**whole** of `VIndField.WF` holds of it.
+
+* `tq_hostile_field_WF` — every clause: `hasType`, `level`, `pos`'s eight conjuncts,
+  `binders_indep`.  `pos`'s block-freeness conjuncts are satisfied *as stated*, because they are
+  conditions on the `VIndRecArg` record (`binders = []`, `args = [Prop]`) and the record is clean.
+  That is the entire mechanism of the closure.
+* `tq_staged_env_exists` — the two constant lookups it takes are **not** a convenient pair:
+  `tqAuxH.typeConsts = [(TQ, ⟨0, tqMemberType⟩), (_nested.MI_1, ⟨0, tqMemberType⟩)]` (`rfl`), so the
+  two `addConst` steps *are* `VEnv.empty.addIndTypes tqAuxH`, which is exactly the environment
+  `VInductDecl'.WF.ctors` hands to `VIndCtor.WF`.
+* `tq_hostile_field_WF_staged` — the two combined: `∃ env, VEnv.empty.addIndTypes tqAuxH = some env
+  ∧ env.Ordered ∧ VIndField.WF env …`.  Nothing assumed.
+* `tq_auxH_faithful` — `VIndRestore.Faithful` transfers from §1's block to `tqAuxH`, because every
+  one of its three clauses is guarded by `T.name ∈ K` and only `TQ`'s constructors moved.  So the
+  restoration obligations of `VEnv.AddNested` do not see the hostile field either.
+
+**Boundary, stated because it is the one place to attack this result.**  What is proved is the
+*field* clause, `VIndField.WF`.  `VIndCtor.WF env tqAuxH 0 T₀ tqObjH` and
+`VInductDecl'.WF env tqAuxH` are **not attempted** — not holed, not `sorry`, just absent.  Reading
+the remaining clauses (`params_eq`, `args_ty`, `result`, the sibling field's `pos`, `VIndType.WF`,
+`LECond` at `lvl = 1`), I see nothing the hostile field's *shape* obstructs — the hostile field is
+last, so it enters only the context of `args_ty`/`result`, where it needs to be a type and is one
+(`tq_hostile_hasType`) — but that is **reasoning, not a run**.
+
+### 56.3 Load-bearing at an existing consumer, not just as a fact about `restore`
+
+`VIndRestore.substC_atRec_fieldTypes_defeq_of_noK` (§T15.7) is the form ruling 122e's payoff is
+used in: it charges the field-telescope obligation at fields whose **stored** type mentions a
+companion.  At `tqObjH`'s field `1` that premise **fires**.  The sharper form
+`substC_atRec_fieldTypes_defeq'` charges it only where the substituted entries differ, and there
+they do not — `tq_hostile_entry_substC_eq`, for every `σ`, by rewriting with
+`tq_hostile_restore_id`.  `tq_hostile_obligation_split` states both halves in one theorem.
+
+So the two forms of §T15.7 separate *exactly here*, and the cost of not having the strengthening is
+concrete: `_of_noK` becomes the best available and the hostile field carries an obligation that is
+in fact empty.
+
+### 56.4 Anti-vacuity, measured: **no block in this tree has such a stored type**
+
+`storedCleanB D K` (new, decidable) decides *at every constructor field, if the trigger fires on the
+**stored** type, is the residual `K`-free?* — i.e. exactly "`restore_noK` covers every stored
+occurrence".  `hasConstB_eq_false_iff` anchors its constant test to `VExpr.NoConsts` (which has no
+`Decidable` instance), and `noConsts_of_storedCleanB` is the bridge from `= true` to the `Prop`, so
+the `decide`s below are statements about the specification and not about a `Bool`.
+
+| block | `storedCleanB` |
+| --- | --- |
+| `tqAuxH` (§8) | **false** |
+| `tqAux tqAuxNodeB` (§1 — same members, same `K`, same restoration; only the stored field differs) | true |
+| `MRWit.mrAux mrAuxNodeB`, `MPWit.mpAux mpAuxNodeB`, `ntreeAux`, `nfnAux` | true |
+| `tqAux (tqOcc.ctor … miNode)` — the **constructed** companion constructor | true |
+
+The last row is the one that matters most: the construction cannot produce a flagged block, because
+`VNestedOcc.ctor` builds the recursive field as the head-β redex `(fun x => I p π) k`, whose residual
+is a `bvar` run and a sort.  The scan is **not** vacuously true on the cone — the trigger does fire
+inside it, at `tqObj`'s stored field (`tq_uniformOcc_objField`, `some (1, [Prop])`).
+
+**So: the closure is about what the specification admits.  Every block anything in this tree builds
+is clean, and the hostile block is one I wrote for the purpose.**  Quoting §56 as "the strengthening
+is exercised by a real declaration" would be false.
+
+### 56.5 What the real kernel does — and the ruling this now asks for
+
+Measured with `lean_run_code` on scratch snippets **outside the repository**, for §55.5's reason (a
+rejected `inductive` still lands `sorryAx`-carrying constants, so a `#guard_msgs` control would
+import them into the build).  Proxy: a plain **mutual** block, because the kernel's positivity check
+does not distinguish a companion from any other member being declared.  Four declarations across two
+runs:
+
+| field type | verdict |
+| --- | --- |
+| `TT Prop` (clean) | accepted |
+| `TT ((fun _ : Type => Prop) Nat)` — β redex in the index, no block constant in it | accepted |
+| `TT ((fun _ : Type => Prop) (SS Prop))` — a *sibling* member under the redex | rejected: `(kernel) arg #1 of 'TT.hostile' contains a non valid occurrence of the datatypes being declared` |
+| `TT ((fun _ : Type => Prop) (TT Prop))` — the **own** member under the redex | rejected, same message |
+
+The redex is not what offends; a block constant *anywhere* in a stored index argument is, whether it
+survives `whnf` or not.  **Lean's kernel is strictly stricter here than `VIndField.WF.pos` is.**
+That is slack, not unsoundness — refinement runs *checker ⇒ spec*, and a permissive spec is
+discharged by a stricter check — but it turns the corner into a ruling:
+
+1. **Keep F7 as it is** ⇒ `restore_ownOcc`/`restore_ownHeads` are load-bearing, §8 is the witness,
+   nothing further is owed.
+2. **Tighten F7's `some` branch** to require the stored type's own-head residual to be block-free
+   ⇒ §8's witness stops being well-formed, the stored-type case is *refuted* after all,
+   `restore_noK` suffices everywhere, and `restore_ownOcc` can be retired to a curiosity.  Cost: one
+   new spec conjunct, whose refinement obligation the four measurements above suggest the checker
+   already discharges.
+
+I have **not** taken that decision; §8.8 records both options.  Note the asymmetry: option 2 is the
+only route by which the strengthening dies, and it is a *spec change*, not a theorem — which is why
+§55.5's "no witness in this theory" and §56's "load-bearing" are both true, of different objects.
+
+### 56.6 Where the briefing is wrong — four places
+
+1. **"I believe `IsDefEqType` refuses, and that refusal is the missing theorem" (§55.7 item 1).**
+   Backwards.  `IsDefEqType` is *one `beta`* away from accepting; there is no theorem to find, and
+   the round spent its time proving the opposite of what was predicted.
+2. **The suggested refutation route — "F7/F5 reach the stored form too, e.g. because the relevant
+   well-formedness is stated over the stored telescope after ruling 122e" — is structurally
+   unavailable.**  Ruling 122e moved the **iota layer** onto the stored telescope; F7 and F5 are
+   clauses of `VIndField.WF`/`VIndCtor.WF` about `r.args`/`C.args`, i.e. about the `VIndRecArg` and
+   `VIndCtor` *records*, and 122e did not touch them and could not have.  If anything 122e makes the
+   stored-type case more pressing, because the layer that now reads stored types is bigger.
+3. **"Lean's kernel independently rejects the shape that would be needed, three ways" was used in §6
+   to support the negative result; it does not support it.**  Kernel rejection is evidence about the
+   *checker*, and the specification is what `kernel_sound` quantifies over.  The measurement is
+   nonetheless the most useful thing in the round — see §56.5 — because it is what makes option 2
+   cheap.  (I re-measured rather than trusting the read: the fourth row, the **own** member under a
+   redex, was not among §6's three.)
+4. **"exhibit a stored type … making the strengthening genuinely load-bearing" and "say whether any
+   block in the tree has one" were posed as one question; they are two, with opposite answers.**
+   The spec admits one (§56.2); nothing in the tree has one (§56.4).  A round that reported only the
+   first would be the over-claim you have been fighting all day.
+
+### 56.7 What failed, and at which step
+
+Six failures, all in elaboration rather than in mathematics; recorded because each cost a build
+cycle and each will recur.
+
+1. **`section` + `variable (hTQ : …)` for the two constant lookups.**  Lean includes a section
+   variable only in declarations that *mention* it, so the first lemma that did not name `hMI`
+   silently lost it and every later `… hMI` failed with `Function expected`.  Failed at
+   elaboration of the second declaration in the section.  Fix: explicit binders per theorem.  (This
+   is why `StoredIota.lean` §5.2 spells its hypotheses out — that is not a style choice.)
+2. **`.constDF hMI nofun nofun rfl .nil` inline inside a nested `.appDF`.**  `Missing cases: _, _` —
+   `nofun` was handed `∀ l ∈ ?ls, …` with `?ls` still a metavariable.  Failed at unification.  Fix:
+   a fully annotated `have` for every intermediate typing.
+3. **`.appDF`/`.beta` do not determine their `B`.**  The conclusion is `B.inst a`, so a target of
+   `.sort (.succ .zero)` leaves `B` open and `.sortDF trivial trivial rfl` fails with
+   `VLevel.WF ?m ?m`.  Failed at unification.  Same fix as 2 — this is the whole reason
+   `mr_tyBody_hasType` is written as four `have`s.
+4. **`Lookup` at index 1.**  `.bvar (.succ .zero)` cannot be elaborated against
+   `.sort (.succ .zero)`: it needs `?ty.lift ≡ .sort …`, which unification will not solve.  Failed
+   at implicit-argument synthesis.  Fix: `Lookup.zero (ty := …) (Γ := …)`, then `lift` computes.
+5. **`liftTele` unqualified.**  `IndexedNested.lean` does not `open VExpr`, so `autoImplicit`
+   swallowed it and reported `Function expected at liftTele`.  A one-character fix that reads like a
+   type error.
+6. **`tq_auxH_faithful.ctor_agree`.**  `exact h.ctor_agree 1 _ rfl hK` fails: the conclusions differ
+   by `C.typeR tqAuxH …` vs `C.typeR (tqAux tqAuxNodeB) …`, which are defeq only once `C` is
+   *specialised* — with `C` a bound variable neither side computes.  And the obvious repair,
+   `simp only [List.mem_cons] at hC`, made **no progress**, because
+   `((tqAux tqAuxNodeB).types.getD 1 default).ctors` is not syntactically a cons.  Fix: `rw [show … =
+   [tqAuxNodeB] from rfl] at hC`, `subst`, then `rfl` closes it.  `ty_agree` and `ctors_complete`
+   needed none of this — their conclusions do not mention `typeR`.
+
+### 56.8 Measured versus read-off; hole-free versus discharged
+
+**Measured (runs):** `lake build Lean4Lean.Theory.Inductive.IndexedNested` — **73 jobs**, green, no
+new warnings, at every one of the eight increments.  **63** new declarations (53 theorems, 9 defs, 1
+`example`), 598 lines, all in `Theory/Inductive/IndexedNested.lean` §8.  `#print axioms` on all **62**
+named declarations: **29 `[propext]`, 26 `[propext, Quot.sound]`, 7 axiom-free**; **0 `sorryAx`, 0
+`Classical.choice`**, no frozen axiom.  No new `sorry` in the file (its only two occurrences are the
+pre-existing §6 prose).  The four kernel verdicts of §56.5.  Nothing else was built: no full `lake
+build`, no guards, no census, no `dup-names`, no `MemberRedexScan`, no MCP `lean_build`.
+
+**Read-off / reasoning, labelled as such:** that no clause of `VInductDecl'.WF` other than
+`VIndField.WF` reads a stored field type except through the field contexts (from reading `Decl.lean`
+§4, not from a proof); that the remaining `VIndCtor.WF`/`VInductDecl'.WF` clauses are satisfiable at
+`tqAuxH`; that guards/census are **unmoved** — I did not run them, and §8 adds no axiom and no
+`sorry`, so I expect no movement, but that is an expectation.
+
+**Hole-free versus discharged.**  §8 is both: no `sorry`, no holes, and every hypothesis of every
+new theorem is either universally quantified over environments or discharged in a constructed
+`Ordered` environment (`tq_staged_env_exists`).  The one *conditional* result is
+`tq_auxH_faithful`, whose premise (`Faithful` at §1's block) is **not discharged anywhere in the
+tree** — no `Faithful` instance exists for any `TQ` block — so read it as a transfer, not as a fact.
+
+Search tooling: `lean_local_search` and `lean_hammer_premise` are indeed broken here (`rg` absent).
+Every "where does X live" claim above is backed by `grep`/`sed` over the tree, except
+`substC_atRec_fieldTypes_defeq'`/`_of_noK`'s signatures, which I read from `NestedTele.lean`
+directly, and the four kernel verdicts, which are `lean_run_code`.
+
+### 56.9 What to pick up first
+
+1. **Take the §56.5 ruling.**  Everything else in this corner is downstream of it.  Keep F7 and
+   `restore_ownOcc` is load-bearing with a witness; tighten F7 and the strengthening can be retired.
+   The tightening is the *only* remaining route to the refutation you asked for, and it is a spec
+   edit, not a theorem.
+2. **If F7 stays: promote §6's and §8.6's helpers into `Restore.lean`** — `noConsts_mono`,
+   `noConsts_mkApp`, `noConsts_bvars`, `tq_ownOcc_noConsts_of_WF`, `tq_restore_id_of_WF`,
+   `hasConstB`, `hasConstB_eq_false_iff`, `storedCleanB`, `noConsts_of_storedCleanB`.  Nine general
+   declarations now sit in a witness file with `tq_` prefixes.  `storedCleanB` in particular deserves
+   to be run over every transcribed block as a standing check, the way `MemberRedexScan` is.
+3. **If F7 is tightened: the first casualty list is short and known** — `restore_ownOcc`,
+   `restore_ownHeads`, `VInductDecl'.OwnHeads`, `ownHeads_of_noConsts`, and the §4/§5/§7
+   instantiations here and in `ParamRedex.lean` §19.3.  Everything else in the redex corner already
+   goes through `restore_noK`.
+4. **`VIndCtor.WF env tqAuxH 0 T₀ tqObjH` is the honest next proof** if anyone wants the closure at
+   block level rather than field level.  From §8.2–§8.4 it is bookkeeping: the sibling field's `pos`
+   is *reflexivity* (`r.canonType` **is** its stored type — measured, `tq_objH_field0_canonical`,
+   `rfl`), and `args_ty`/`result` need only
+   `Prop : Type` and the parameter, in a three-entry context whose entries §8.3 already types.

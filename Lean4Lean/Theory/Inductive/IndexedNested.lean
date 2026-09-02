@@ -620,6 +620,13 @@ def tqAuxH : VInductDecl' :=
 
 /-! ### §8.1 The block's invariants transfer, and the trigger fires with a hostile residual -/
 
+/-- The **sibling** field's canonical type *is* its stored type — so if anyone wants
+`VIndCtor.WF` at `tqObjH` rather than just `VIndField.WF` at its hostile field, that field's `pos`
+is reflexivity, not a conversion.  (Measured here so the remark is not a reading.) -/
+theorem tq_objH_field0_canonical :
+    (tqObjH.fields.getD 0 default).type
+      = ({ binders := [], idx := 1, args := [.sort .zero] } : VIndRecArg).canonType tqAuxH 0 := rfl
+
 theorem tq_auxH_blockNames : tqAuxH.blockNames = [``TQ, tqNestedName] := rfl
 
 theorem tq_auxH_np : tqAuxH.np = 1 := rfl
