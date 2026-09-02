@@ -155,6 +155,8 @@ import Lean4Lean.Verify.TypeChecker.EtaStructG  -- 2026-09-01: StructEtaG over I
 import Lean4Lean.Verify.TypeChecker.FiringWitness  -- 2026-09-01: the three "never fires" gates, fired
 import Lean4Lean.Theory.Typing.KEtaDiamond  -- 2026-09-01: the lambda-congruence induction; the eta-half reduces to injectivity, not the rule table
 import Lean4Lean.Theory.Typing.KDiamondJoin  -- 2026-09-01: KDiamond/M3 as joinability, and its CR price -- the repair works and lands back on confluence
+import Lean4Lean.Verify.Typing.ProjWeakInvSplit  -- 2026-09-02: weak'_inv split into the typing half + ConstAppDefeqStrengthen; weakN_iff LEAVES this hole's cone. Listing it is what makes the census see its +10/+10/+3 users
+import Lean4Lean.Verify.TypeChecker.EtaResidual  -- 2026-09-02: both eta .WFs from StructEtaG alone -- one residual predicate where there were two each
 
 /-!
 # Acceptance test: the `PatternRules` cone and the `Verify/` cone join

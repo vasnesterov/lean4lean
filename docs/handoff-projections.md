@@ -31,6 +31,12 @@
 * **Two hypotheses of the narrow `iota_law` are dead**, found by the collapse test:
   `h7 : ∀ l ∈ us, l.WF U` is unused, and `hTd` follows from `H.types`. Kept as `_h7`/`_hTd` so the
   collapse stays hypothesis-for-hypothesis.
+* **`TrProj.weak'_inv` has its own handoff now: `docs/handoff-trproj-weakinv.md` (2026-09-02).**
+  Every "28 transitive users" figure below is a pre-instrument-fix floor; the measured count is
+  **90**.  §0**.7 item 5's "structurally blocked" verdict still stands, but its *reason* has moved:
+  the hole is now split into the **typing half** of `weakN_iff` plus one conversion statement
+  (`VEnv.ConstAppDefeqStrengthen`), and that statement is provably **not** an instance of the
+  strengthening hole — so "closing `weakN_iff` closes `weak'_inv`" is false, machine-checked.
 * **Census figures in this file are stale**: the current count is **13** declarations directly
   containing `sorryAx`, not 19. **So are its guard figures:** guard 1 is **24** frozen axioms, not
   25, and guard 3 reads **2/2**, not 54/54.

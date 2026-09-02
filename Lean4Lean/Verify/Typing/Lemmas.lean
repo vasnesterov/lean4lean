@@ -860,7 +860,45 @@ Also measured there, and worth not rediscovering: `IsDefEqU.weakN_iff` enters th
 The `TrProj.weak'_inv_of_strengthen_onCtx` variant, which takes `OnCtx Γ` instead, has cone 3628
 and does **not** carry the strengthening hole at all — so gate 1 is real (the sole consumer,
 `TrExprS.weakFV'_inv`, carries `VLCtx.WF` for the *larger* context only) but it is one
-bookkeeping step, not a mathematical obstruction inside the projection data. -/
+bookkeeping step, not a mathematical obstruction inside the projection data.
+
+**Update 8: the residual splits, and the half that is new is *exactly* the shape step.**
+`Verify/Typing/ProjWeakInvSplit.lean` factors `VEnv.ConstAppTypeStrengthen` into
+
+* `VEnv.TypingStrengthening` — the **typing half** of the `weakN_iff` hole, already a named
+  statement (`Theory/Typing/Strengthen.lean` §2) and already measured as a separate gate
+  (`scripts/weakn-gate-split.lean`); and
+* `VEnv.ConstAppDefeqStrengthen` — *a `c`-spine definitionally equal to a lift is definitionally
+  a `c`-spine one context down*, a statement about `IsDefEqU` alone.
+
+`TrProj.weak'_inv_of_typing_head` proves **this lemma's exact statement** from those two, at the
+same `OnCtx Γ'` premise the `sorry` carries, and its measured cone is 3679 with holes
+`{forallE_inv_stratified, rigidShapeUniqNS}` — **`IsDefEqU.weakN_iff` is not in it**, and unlike
+the 3628 figure above that is not an artefact of assuming `OnCtx Γ`.
+
+Three consequences worth not rediscovering, all measured there:
+
+* **Discharging the strengthening hole cannot pay for this lemma.**  `Strengthening`,
+  `StrengtheningTarget` and `IsDefEqU.weakN_iff` all need *both* endpoints to be lifts;
+  `constAppDefeqStrengthen_rhs_not_skips` exhibits an instance of the head statement whose
+  hypothesis holds while the right-hand side **does not skip** the stripped binder.  So the head
+  statement is a genuinely separate obligation — and it is the only one.
+* **Rigidity is sufficient for that separate obligation, now as a theorem rather than as prose**
+  (§7–§8 there): (C) `VEnv.ConstRigid` together with (B) `ConstAppInvStmt` gives it — (C) the head,
+  (B) the levels *and the arity*, `VEnv.IsStructure.ruleFreeHead` the side condition — and
+  `TrProj.weak'_inv_of_constRigid` is this lemma's statement from the typing half, (C) and (B) at a
+  `VEnv.Params` environment.  So the verdict on this lemma is unchanged in substance: its remaining
+  content is bounded above by the classical rigidity/injectivity pair, and (C)'s only producer
+  needs the refuted `VEnv.WeakNorm`.
+* **The rigidity route costs *more* than the split, and by a measured step.**  It re-imports
+  `IsDefEqU.weakN_iff` in full — through `WHRed.weakU_inv` (cone 3611, holes
+  `{weakN_iff, forallE_inv_stratified}`), the step that moves the reduction into the smaller
+  context.  The split needs only the typing half.
+
+Both hypotheses of the split are **simultaneously satisfiable** at a `VEnv.WF` environment
+(`exists_univInhabEnv_typing_and_head`, cone 3274, hole-free), so the reduction is not vacuous;
+that environment is inconsistent, exactly as `Verify/Typing/ProjInhab.lean` §2 records, so it
+witnesses satisfiability and nothing about the obstruction. -/
 theorem TrProj.weak'_inv (henv : VEnv.WF env) (hΓ' : OnCtx Γ' (env.IsType U))
     (W : Ctx.Lift' l Γ Γ') (H : TrProj env U Γ' s i (e.lift' l) e') :
     ∃ e'', TrProj env U Γ s i e e'' := sorry
