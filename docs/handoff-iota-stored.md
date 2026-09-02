@@ -2662,3 +2662,207 @@ claim this round removed a measurement anyone was actually doing.
 4. **Row 143d in `docs/vacuity-ledger.md`** now has a theorem to point at; the row should say
    *six* confirmations and name the two faces, with confirmation 2 reclassified as `np = 0`
    degeneracy (§54.2).  I did not edit the ledger.
+
+## 55. §54.8's item 2 built: an INDEXED nested block — and the strengthening is *still* unexercised, provably
+
+New file, mine end to end: **`Lean4Lean/Theory/Inductive/IndexedNested.lean`**
+(namespace `Lean4Lean.MRedex.TQWit`, 100 declarations, no `sorry`).  §54.8 asked for "an indexed
+nested witness … the first place `restore_noK` is genuinely insufficient".  The witness is built.
+The conclusion is **negative**, and the negative is now a theorem rather than a failure to find one.
+
+### 55.1 The block
+
+```
+inductive MI (α : Type) (β : α → Type) : Type → Type | node : (k : α) → β k → MI α β Prop
+inductive TQ (α : Type) : Type → Type            | obj : MI Prop (fun _ => TQ α Prop) Prop → TQ α Prop
+```
+
+`MRWit.MJ` with **two** coordinates moved: a parameter (as at `MPWit.MP`, `np = 1`) *and* an index
+— and the container `MI` is itself indexed, which is what makes **both** faces carry a residual:
+
+| | own-head occurrence | companion-pointing occurrence |
+|---|---|---|
+| `MRWit.MJ` (`np=0`) | `MJ`, residual `[]` | `_nested.MDep_1`, residual `[]` |
+| `MPWit.MP` (`np=1`) | `MP α`, residual `[]` | `_nested.MDep_1 α`, residual `[]` |
+| **`TQWit.TQ`** (`np=1`, 1 index) | `TQ α Prop`, residual **`[Prop]`** | `_nested.MI_1 α Prop`, residual **`[Prop]`** |
+
+Still a *redex* block (`tq_auxNodeB_not_canonical`): the companion's stored field is
+`(fun x : Prop => TQ #2 Prop) #0`, exactly the `MJ`/`MP`/`Lean.Json` shape.  So the indices are the
+only coordinate that moves.  `tq_cone_unindexed` (`decide`) records that every member of
+`mrAux`, `mpAux` and `ntreeAux` has `indices = []`; the only prior indexed object in the tree is
+`InductiveDeclExamples.ntreeAuxI`, which is the deliberately-wrong negative control of
+`ntreeAuxI_not_built`.
+
+Anchored to the `MP` standard, five ways, all `rfl`: `type_of% @TQ`, `type_of% @TQ.obj` (through
+`typeR` + `σ`), `type_of% @TQ.rec`'s `uvars`, plus `tqOcc.ctor … miNode = tqAuxNodeB` and
+`types[1]? = some (tqOcc.member …)` — i.e. the companion constructor *and* member are what
+`VNestedOcc` computes, not hand-written.  The container is anchored too (`type_of% @MI`,
+`@MI.node`, `@MI.rec`).  **Every anchor passed on the first attempt**; the transcription needed no
+iteration, which was not what I expected of an indexed block.
+
+### 55.2 Proved: the strengthening exercised at a non-empty residual (§4 of the file)
+
+* `tq_uniformOcc_redexBody` (`decide`): at depth 2 the trigger fires on the redex's body and
+  reports `some (0, [.sort .zero])` — `rest ≠ []` (`tq_redexBody_residual_ne_nil`).
+  **Self-correction, caught while writing this section:** §19.3's `mp_ownComp_ownHeads` *already*
+  instantiates `own` at a non-empty `rest`, so "first non-empty residual in the tree" — which I had
+  written both here and in the file — is false.  The narrow true claim, and the one now in the file:
+  first non-empty residual at an occurrence the block **contains**, at a member that genuinely takes
+  the argument.  `grep -rn "rest :=" Lean4Lean/` is what caught it.
+* `tq_restore_redexBody_id` = `VIndRestore.restore_ownOcc` at that occurrence;
+  `tq_ownHeads_redex` = `OwnHeads.own (rest := [.sort .zero])` under the two congruences;
+  `tq_restore_redex_id` = `restore_ownHeads`; `tq_auxFieldTypesR_eq_fields` the collapse.
+  So `OwnHeads.own`'s residual-blindness is now *exercised*, not merely stated.
+
+### 55.3 …and refuted: `restore_noK` still suffices, for a reason that generalises
+
+The three questions the brief asked me to answer, answered:
+
+1. **Restoration at own-head positions with non-empty residuals** — identical to the empty-residual
+   case: the identity, and `restore_noK` gets it too (`tq_redex_noK`,
+   `tq_restore_redex_id_noK`).  A non-empty residual is **not** what separates the two lemmas; a
+   residual containing a member of `K` is, and `[Prop]` is a sort.
+2. **Companion-pointing positions** — `OwnHeads` fails and the restoration moves them, as at `MJ`
+   and `MP`; what the index adds is *arity bookkeeping*, and it is visible:
+   `tq_objField_restore_eq` (`rfl`) shows `_nested.MI_1 #0 Prop` restoring to
+   `MI Prop (fun x => TQ #1 Prop) Prop` — presented spine of length 2, then the residual index
+   appended **unrestored**, so the restored occurrence has `2+1` arguments where the stored one had
+   `1+1`.  That path was untested before, because every companion residual in the cone was `[]`.
+3. **Does `restore_noK` genuinely fail where `restore_ownHeads` succeeds?**  Exhibited, at
+   `tqOwnComp = TQ #0 (_nested.MI_1 #0 Prop)`: `OwnHeads` holds
+   (`uniformOcc?_tyApp`), `NoConsts tqK` is **false** (`tq_ownComp_not_noConsts`), restoration is
+   the identity (`tq_ownComp_restore_id`).  Better than §19.3's `mpOwnComp` in one respect only:
+   the residual now fills a real **index slot** whose sort is `Type`, and the residual is literally
+   `tqObj`'s stored field type (`tq_ownComp_residual_is_objField`), where `mpOwnComp` applied `MP`
+   to an argument it has no slot for.  **`tq_index_slot` is arity-and-sort agreement by `rfl`, NOT
+   a typing derivation** — no environment in the file holds `_nested.MI_1`.
+   Sharpness kept in view: `tqOwnNonUnif = TQ #5 (_nested.MI_1 #0 Prop)` — same constants, own head,
+   parameter run `#5` — is **not** uniform and **moves** (`decide`), so `¬ OwnHeads` there.
+
+**And why (3) cannot be upgraded to a position the block contains — the theorem (§6 of the file).**
+`VIndField.WF.pos` (F7) requires `∀ a ∈ r.args, D.NoBlock a` of a recursive field's index
+arguments, and `VIndCtor.WF.args_fresh` (F5) the same of a constructor's result indices.  `K` listing members of
+the block is a *hypothesis* (`hKB`, discharged at the witness by `tq_K_sub_blockNames`) and not a
+framework invariant — I checked, and nothing in `Restore.lean`/`NestedBuild.lean` imposes it; the
+nearest thing is `RestoreBridge.csubstTy_dom_blockNames`.  Given it, block-free ⇒ companion-free.
+Hence:
+
+* `tq_ownOcc_noConsts_of_WF` — for an **arbitrary** block: a uniform occurrence of a member off `K`
+  with block-free residual arguments is `VExpr.NoConsts K` outright;
+* `tq_restore_id_of_WF` — so the restoration is the identity there **by `restore_noK`**;
+* `tq_restore_redexBody_id_of_WF` + `tq_nt_eq_tyApp` — the instance at §4's own position, making
+  §4's `restore_ownOcc` route demonstrably redundant *at this witness*.
+
+Three general helpers came with it (`noConsts_mono`, `noConsts_mkApp`, `noConsts_bvars`), kept local
+in `TQWit`; they belong beside `restore_noK` in `Restore.lean` when a second consumer appears.
+
+**Left open, precisely** — and this is the one door still ajar for a future positive result:
+`pos`'s last conjunct pins a *stored* field type only up to `IsDefEqType` against `r.canonType`, so
+the theorem covers **canonical** own-head occurrences (and stored ones only where
+`VIndCtor.Canonical` holds, e.g. `ntreeAux`).  Whether a WF *stored* type can put a companion
+inside a uniform own occurrence's residual is **not settled**.  My guess is no — the residual would
+have to be defeq to a block-free index while syntactically naming a freshly declared inductive —
+but that is a guess, not a measurement, and §54.5's "unexercised" should now read "unexercised, and
+provably unreachable at canonical occurrences; open for stored ones".
+
+### 55.4 What I tried that failed, and the step it failed at
+
+1. **`Foo : Aux Foo → Type` literally, as the brief wrote it** — failed at *stating* it: the shape is
+   circular (the index type mentions the block), so no Lean declaration and no `VInductDecl'`
+   corresponds.  What the brief meant, and what §55.1 builds, is a block whose **index value** can
+   mention the container.
+2. **`inductive T1 : Nat → Type | obj : (n : Nat) → Aux (T1 n) → T1 (n+1)`** — failed at the
+   kernel: *"invalid nested inductive datatype 'Aux', nested inductive datatypes parameters cannot
+   contain local variables"*.  A nesting argument may mention block **parameters** but not
+   constructor-bound locals, so the indexed nesting has to be at a *closed* index (`TQ α Prop`).
+   That is also why I indexed over `Type` with the value `Prop` rather than over `Nat` with `0`:
+   `Nat` literals have no `VExpr` transcription in this theory, sorts do.
+3. **Result index mentioning the container** (`| obj : … → TR α (MI Prop (fun _ => TR α Prop) Prop)`)
+   — failed at the kernel: *"invalid return type for 'TR.obj'"*.
+4. **Index of a recursive field mentioning it** (`| obj : TS α (MI Prop … Prop) → TS α Prop`) —
+   *"arg #2 of 'TS.obj' contains a non valid occurrence of the datatypes being declared"*.
+5. **The on-point one — the nesting argument's own index mentioning the container**
+   (`MI Prop (fun _ => TT α (MI Prop (fun _ => TT α Prop) Prop)) Prop`), which would have put a
+   companion in the residual of exactly the field §55.2 exercises — *"arg #3 of
+   '_nested.Lean4Lean.MRedex.TQWit.MI_1.node' contains a non valid occurrence of the datatypes being
+   declared"*.
+6. **Machine-checking 3–5 in the repo with `#guard_msgs`** — written, all three **passed**, then
+   **removed**: a rejected `inductive` still adds constants, and `#print axioms` on `TR`/`TS`/`TT`
+   reports **`sorryAx`**.  Keeping them would have imported three new `sorry`-dependent constants
+   into the build.  *This is worth remembering: `#guard_msgs` over a failing `inductive` is not
+   sorry-free.*  §6 of the file therefore quotes the three messages as out-of-repo measurements and
+   proves the spec-level theorem instead — which is stronger anyway, being about `VIndField.WF`
+   rather than about the C++ kernel.
+7. **`decide` on `VExpr.NoConsts`** — no `Decidable` instance; the two `NoConsts` facts are by
+   anonymous-constructor terms (`tq_redex_noK`, `tq_ownComp_not_noConsts`), as at `mp_redex_noK`.
+8. **`noConsts_mkApp` / `noConsts_mono` by merged `|` alternatives** — "expected type … is not an
+   inductive type": with implicit `{f}` or merged patterns the `NoConsts` application stays a
+   metavariable and never unfolds to the `And`.  Fixed with `(f := …)` + `show`, and one branch per
+   constructor.
+
+### 55.5 Corrections to the brief I was given
+
+* **"shape `Foo : Aux Foo → Type`"** is not a shape any block can have (55.4.1).  The reachable
+  shape is *index value* mentioning the container, which is what I built and which Lean then rejects
+  at every position (55.4.3–5).
+* **"the theorem becomes load-bearing only at an indexed nested block"** — half right and the
+  interesting half is wrong: an indexed block is what makes the residual **non-empty**, and I
+  confirm that, but non-empty is not enough.  Load-bearing needs a **companion inside the residual**,
+  which F7/F5 forbid at canonical occurrences.  So the brief's framing predicted a positive result
+  where the specification already contains its refutation.
+* **"expect the construction, not the instantiation, to be the work"** — wrong here: the
+  construction was ~40 minutes and every `rfl`/`decide` landed first time.  The work was **finding
+  which shape Lean accepts** (five rejections, 55.4.2–5) and then noticing that F7 says the same
+  thing the kernel does.
+* **`_nested.MI_1` is a naming *convention*, not Lean's internal name**: for a container inside a
+  namespace, Lean generates `_nested.Lean4Lean.MRedex.TQWit.MI_1` (visible in 55.4.5's message).
+  `MRWit`/`MPWit` have the same discrepancy with `_nested.MDep_1`; it is harmless because the
+  auxiliary constants never reach the environment, but nothing in the tree says so and I nearly
+  claimed the names matched.
+
+### 55.6 Measured vs read off
+
+* **Measured (per-module `lake build`):** `Lean4Lean.Theory.Inductive.IndexedNested` —
+  **73 jobs**, success, **1.7s** for the module (the other 72 replayed from cache).  Run twice, same
+  figure.  No full build, no guard run, no `sorry-census`, no `dup-names`, no `MemberRedexScan`.
+  **I did not call the MCP `lean_build` tool at any point** (the trap §54.7 reported).
+* **Measured (axioms, by namespace):** all **100** declarations of `Lean4Lean.MRedex.TQWit`
+  enumerated with `collectAxioms` under `lake env lean`: 53 with **no** axioms, 13 `[propext]`,
+  34 `[propext, Quot.sound]`, **0** with `sorryAx`, **0** with `Classical.choice`, 0 frozen.
+  Baseline check: `MPWit.mp_restore_redex_id'` prints the same `[propext, Quot.sound]`, so this is
+  the corner's normal footprint and not something my file introduces.
+  *First run of the same census read three `sorryAx` declarations — that was the pre-removal olean
+  of §55.4.6, and it is why the removal happened; the figure above is from a clean rebuild.*
+* **Hole-free vs discharged:** everything in §55.2–55.3 is **discharged** — no new hypothesis, no
+  `sorry`, no admitted side condition.  The two things that are *not* discharged are named as such:
+  the stored-type case in §55.3 (open, stated in the file's §6) and `tq_index_slot`'s sort agreement,
+  which is **not** a typing derivation and says so in its own docstring.
+* **Read off, not run — reasoning, not a run:** that guard 1/2/3, `sorry-census`, `dup-names` and
+  `MemberRedexScan` figures are unmoved.  The file is new and imported by nothing; it adds no
+  `axiom`, no `partial`, no `@[extern]`, no `@[implemented_by]`, and touches no existing
+  declaration.  `MemberRedexScan` scans the *running* environment's blocks, and `TQ`/`MI` are
+  declared inside `Theory/`, which that scan does not import.
+* **Searches:** `lean_local_search` and `lean_hammer_premise` are broken here (no `rg`), as briefed.
+  Every "there is no such lemma" claim in this section is backed by `grep`/`rg`-free `grep -rn`
+  over `Lean4Lean/`, and the `VNestedOcc.member`/`ctor`/`fieldTypesR`/`WF` readings by `sed` on the
+  source.  No `lean_references` call was needed.
+
+### 55.7 What to pick up first
+
+1. **Close or refute the stored-type case** (§55.3, "left open").  If a WF stored field type can put
+   a companion inside a uniform own occurrence's residual, `restore_ownHeads` becomes load-bearing
+   after all; if not, the honest move is to *retire* the strengthening's marketing and keep it as
+   the clean statement of a rule that `restore_noK` happens to cover.  Concretely: try to build a
+   stored type defeq to `TQ α Prop` that syntactically reads `TQ α X` with `X` mentioning
+   `_nested.MI_1` — I believe `IsDefEqType` refuses, and that refusal is the missing theorem.
+2. **Move `noConsts_mono`/`_mkApp`/`_bvars` and `tq_ownOcc_noConsts_of_WF` into `Restore.lean`**
+   under general names (`VIndRestore.restore_id_of_WF`?).  The last is a fact about the whole
+   specification and reads oddly with a `tq_` prefix in a witness file; I kept it local rather than
+   touch `Restore.lean` in a round that did not otherwise need to.
+3. **`ntreeAuxI` deserves a companion note**: it is an *indexed* block that is `¬ Built`, and now
+   `tqAux tqAuxNodeB` is an indexed block that **is** `Built`.  The pair is the positive/negative
+   control for `Built.member`'s index clause, and `NestedBuild.lean`'s §5 should cite it.
+4. **`tq_cone_unindexed` is the anti-vacuity measurement row 143d's ledger entry needs** — the row
+   should now say the strengthening is *exercised at a non-empty residual* and *unreachable at a
+   companion-bearing one*, with `tq_ownOcc_noConsts_of_WF` as the reason.  I did not edit
+   `docs/vacuity-ledger.md`.
