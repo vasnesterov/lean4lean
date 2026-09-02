@@ -393,3 +393,199 @@ I did **not** remove it. Doing so ripples to ~15 call sites across `NestedRules.
    witness theorems (`nfnAux_canonical`, `ntreeAux_Canonical`, `eqIndDecl_Canonical`) and
    `CanonicalOwn`. `Restore.lean`'s docstring says "the remaining deletion is those sites plus
    these two definitions" — that is now a smaller job than it was, and worth re-costing.
+
+---
+
+# Round 2 (2026-09-02, second stream): §T15.7's `hrec` CLOSED, and `hnd` removed
+
+Written by the stream that took §10 items 1 and 3.  Same convention: **measured** means the figure
+is quoted from tool output on this tree; *read off source* means I read text, not a measurement.
+
+## 11. Bottom line, and three corrections to §10
+
+| question | answer |
+|---|---|
+| §10 item 1 — is §T15.7's `hrec` at the redex field closed? | **Yes, and not the way §10 said.** At a redex field the obligation is **empty**, not hard: the restoration is the *identity* there, so `VEnv.TeleDefEq.of_entries'` charges nothing. §2/§10 predicted a join from `mr_pos_beta` to §T16.1's shape; **no join is needed.** |
+| Is the `mr_pos_beta` route nonetheless available? | **Yes — measured, three lines** (`mr_hrec_redex_via_beta`). So the route §10 named is not *closed*, it is *unnecessary*, and it costs a typing that `TeleDefEq.rfl` does not charge. §10's "the only thing standing between §T15's assembly and a redex block" was **not standing there**. |
+| Was §10's description of the shape mismatch right? | **No.** It said `mr_pos_beta` gives "an `IsDefEqType` at the field's own context" while consumers want "a sorted `IsDefEq`". `VEnv.IsDefEqType` *is* `∃ u, IsDefEq … (.sort u)` (`Theory/Inductive/Decl.lean:278`) — the same shape. The real differences were the target (`canonType` vs `restore`), `U = 0`, and the `atRec`/`substC` wrappers, all three of which are identities or one rewrite at this block. |
+| Is the companion-pointing field's `hrec` produced? | **Yes** (`mr_hrec_obj`), from §T16.1 through `substC_atRec_stored_defeq_of_canonical`, with the environment premises discharged in an actually constructed `Ordered` environment (`mr_env_exists`, `mr_hrec_obj_closed`). |
+| …and is *that* instance non-degenerate? | **No, and this is the finding worth carrying.** Measured (`mr_obj_entry_substC_eq`, `decide`): at `D.np = 0` the two sides of `hrec` are the **same `VExpr`** after `σ`. So `mr_hrec_obj` proves a *typing*, not a conversion. `hrec` is a genuine conversion only at `D.np > 0`, and **no block in this tree is both a redex block and parameterised** (§13). |
+| §10 item 3 — was `hnd` really unused? | **Yes.** Removed from **20** statements across `NestedRules.lean` and `NestedTele.lean`; **four** "automatically included section variable(s) unused" warnings disappeared, which is the measurement that it was dead. |
+| New `sorry`? New frozen axiom? | **None.** Census TOTAL still **13**, every entry where it was. Every new or changed declaration is `[propext, Quot.sound]` or a subset (§14). |
+| Anything weakened? | Two *hypotheses* weakened (which strengthens the theorems) — §12.1. Nothing's conclusion weakened. Non-vacuity of the weakened forms is exhibited at named fields. |
+
+## 12. What is proved
+
+### 12.1 `Theory/Inductive/NestedTele.lean` §T15.7 — three forms instead of one
+
+The obligation is now stated only where the telescope entry actually *moves*, which is what
+`TeleDefEq.of_entries'` needs and what its own docstring is built around.
+
+| declaration | `hrec` demanded at a recursive field when… | status |
+|---|---|---|
+| `substC_atRec_fieldTypes_defeq'` (**new**) | `(D.atRec F.type).substC σ ≠ (D.atRec (R.restore D i F.type)).substC σ` — the substituted entries differ | sharpest; the other two are corollaries |
+| `substC_atRec_fieldTypes_defeq` (**hypothesis weakened**) | `R.restore D i F.type ≠ F.type` — the restoration moves the stored type | the caller-checkable form |
+| `substC_atRec_fieldTypes_defeq_of_noK` (**new**) | `¬ VExpr.NoConsts K F.type` — the field points at a **companion** | needs `hown : R.OwnId D K` |
+
+Conclusions are byte-identical to before in all three. The engine of the third is
+**`VIndRestore.restore_noK`, which has been in `Theory/Inductive/Restore.lean` all along** — "the
+restoration is the identity on anything free of companion constants". Nobody had connected it to
+§T15.7; that connection is the whole of item 1.
+
+**Why the redex field is free, generally and not just at the witness.** The redex
+`ElimNestedInductive` manufactures is `(fun _ => I) k` with `I` the block's **own** member. The own
+member is not in `K`, so the stored type is `NoConsts K`, so `restore_noK` applies. That is a
+one-line derivation of §4.2's `decide`, and it means §4.2's finding generalises to `Lean.Json` and
+`Lean.PrefixTreeNode` for a *reason* rather than by inspection of their shape.
+
+### 12.2 `Theory/Inductive/StoredIota.lean` §5 (new, ~180 lines) — the instances
+
+| theorem | what it says |
+|---|---|
+| `mr_redex_noK` | the redex field's stored type is companion-free |
+| `mr_restore_redex_id` | …so `restore_noK` gives the identity there — §4.2's `decide` from a general lemma (and an `example` re-checks it by `decide`) |
+| `mr_hrec_nodeB_vacuous` | every recursive field of `mrAuxNodeB` is companion-free, so `_of_noK`'s `hrec` has a false premise |
+| `mr_teleDefEq_fld_stored` | §T15.7's field-telescope `TeleDefEq` at the redex constructor **with no input at all**, for every `env`, `U`, `Γ` |
+| `mr_objField_not_noK` | `MJ.obj`'s field *does* point at a companion, so §5.1's escape is unavailable there |
+| `mr_tyBody_hasType` | §T16.1's `hbody`: `MDep Prop (fun _ => MJ)` is a type, from two constant lookups |
+| `mr_hrec_obj` | **§T15.7's `hrec` produced at the companion-pointing field**, from §T16.1 |
+| `mr_teleDefEq_fld_obj` | …and the field telescope assembled at `MJ.obj` from it |
+| `mr_redex_defeq_own`, `mr_hrec_redex_via_beta` | the β route: `mr_pos_beta` generalised off `U = 0`, and `hrec` at the redex field in §10's requested shape |
+| `mr_MJ_constant_wf`, `mr_MDep_type_hasType`, `mr_MDep_constant_wf`, `mr_env_exists`, `mr_hrec_obj_closed` | a **constructed** `Ordered` environment holding `MJ` and `MDep`, and §5.2's conclusion with every premise discharged |
+| `mr_obj_entry_substC_eq` | **the honesty measurement**: the two sides of §5.2's `hrec` are the same `VExpr` |
+| `mr_teleDefEq_fld_obj_free` | …so the *sharpest* §T15.7 form is free at `MJ.obj` too |
+| `mrAuxB_np_not_pos` | the only transcribed redex block has `np = 0` |
+
+**Anti-vacuity, per the brief's two kinds.** `mr_teleDefEq_fld_stored` and
+`mr_teleDefEq_fld_obj_free` are at a **redex** field / an identity-after-`σ` field: *degenerate by
+construction*, and said so in the file. `mr_hrec_obj` / `mr_teleDefEq_fld_obj` are at the
+**companion-pointing** field `MJ.obj` — the kind row 127f says is the real instance — and its
+`hrec` premise (`¬ NoConsts mrK F.type`) is **true** there, so the hypothesis is not vacuous and the
+producer really runs. Its *conclusion* is nonetheless degenerate at `np = 0` (§13).
+
+### 12.3 `hnd` removed from 20 statements (§10 item 3)
+
+`hnd : D.blockNames.Nodup` was threaded through §7.5–§7.7 and the `np = 0` route of §T6/§T12/§T15
+and **used by no proof step** — its one consumer, `R.typeR_canonical`, died with ruling 122e.
+
+* `NestedRules.lean` §7.5/§7.6, 12 statements: `substC_atRec_uniformOcc`, `substC_atRec_restore`,
+  `substC_atRec_fieldTypes`, `substC_motives`, `substC_minors`, `substC_recType_eq`,
+  `substC_iotaCtx`, `iotaCtx_length_eq`, `substC_iotaLhs`, `substC_iotaType`, `substC_iotaLam`,
+  `substC_iotaRule_eq` (`substC_ihValues` already `omit`ted it);
+* §7.7, 2: `csubst_recType_eq`, `csubst_iotaRules_eq`;
+* the two obligations, 2: `VEnv.recConstsR_wf_of_np_zero`, `VEnv.iotaRulesRS_wf_of_np_zero`;
+* `NestedTele.lean`, 4: `teleDefEq_fld_of_np_zero`, `iotaCtx_teleDefEq_of_np_zero`,
+  `VEnv.recConstsR_wf_of_np_zero_via_blocks`, `VEnv.iotaRulesRS_wf_of_np_zero_via_components`.
+
+**So obligation (B) of `VEnv.addInductR_ordered'` at `D.params = []` now needs `hp`, `hown`,
+`hsep`, `hcl0`, `hfr` — five hypotheses, none per-field.** (C) adds `hpos`, which is genuine.
+`hnd` survives in the tree where it is *used*: `restore_canonType`, hence
+`substC_atRec_stored_defeq_of_canonical`, hence §5.2 — so `mrAuxB_blockNames_nodup` is still
+load-bearing in `StoredIota.lean` and its docstring now says why.
+
+**Measured**: four `automatically included section variable(s) unused` warnings in
+`NestedRules.lean` (for `substC_atRec_uniformOcc`, `substC_motives`, `substC_iotaLhs`,
+`substC_iotaType`) are **gone**; the only warnings left in the three files I touched are two
+pre-existing `This simp argument is unused` at `NestedRules.lean:1024`/`:1028`.
+
+## 13. What is refuted, and the limit this exposes
+
+1. **§10 item 1's costing is refuted.** The redex field carries no obligation. Machine-checked
+   twice: `mr_restore_redex_id` (general route) and an `example … := by decide`.
+2. **§2's shape claim is refuted**: `IsDefEqType` and "a sorted `IsDefEq`" are the same predicate.
+3. **`mr_hrec_obj` is degenerate as a conversion** — `mr_obj_entry_substC_eq` (`decide`) shows the
+   two sides are one expression. The reason is §7.4's strict head equation
+   `substC_tyApp'_eq_tyAppR'`, whose `hcl0` *is* available at `D.params = []`. So:
+
+   > **§T15.7's `hrec` can be a genuine conversion only at a block that is both a redex block and
+   > parameterised, and this tree contains no such block.**
+
+   `Verify/Inductive/MemberRedexScan.lean` finds exactly three redex blocks
+   (`MRedex.MRWit.MJ`, `Lean.Json`, `Lean.PrefixTreeNode`); only `MJ` is transcribed as a
+   `VInductDecl'`, with `np = 0` (`mrAuxB_np_not_pos`). The parameterised nested witness that *is*
+   transcribed, `ntreeAux`, satisfies `ntreeAux_Canonical` (`NestedHead.lean:646`, *read off
+   source*), so it stores no redex. **The next step on this path is a witness, not a proof**:
+   transcribing `Lean.PrefixTreeNode`'s auxiliary block, which has parameters.
+
+## 14. Measurements, verbatim
+
+* `lake build`: **1503 jobs, exit 0**. **Zero errors in any file, in every run**; zero in files I
+  own. (1502 at the time §1–§10 was written; the extra job is another stream's
+  `Theory/SetModel/PreludeOracle.lean`, untracked in this tree — not mine, not touched.)
+* `lake build Lean4Lean.Experimental.ConeJoin Lean4Lean.Verify.Guard`: **1429 jobs, exit 0**
+  (1426 before that stream's commit `107751a`), and the guards **unmoved**:
+
+      guard 1: Axioms.lean declares exactly the 24 frozen axioms ✓
+      guard 2: kernel_sound axioms within whitelist ✓ (proof INCOMPLETE: sorryAx present)
+      guard 3: checker cone implementation gaps within frozen list (2/2 remaining) ✓
+
+* `lake build Lean4Lean.Verify.Inductive.MemberRedexScan`: **1430 jobs**, exit 0, guarded coverage
+  **unmoved** — `48 safe blocks with a nested-shaped field, 793 auxiliary constructor fields`,
+  `DEFECT … 3 field(s) in 3 block(s) [Lean4Lean.MRedex.MRWit.MJ, Lean.Json, Lean.PrefixTreeNode]`,
+  `COVERED by one head-β step … 3`, `RESIDUAL after the repair: 0 in 0 block(s) []`.
+* `scripts/sorry-census.lean`: **TOTAL declarations directly containing sorryAx: 13** — unchanged,
+  every entry where it was. **No `sorry` added, none traded.**
+* `#print axioms` on **all 51** new-or-materially-changed declarations — the **20** that lost `hnd`,
+  the **2** `nfn*` bridges whose call sites changed with them, the **3** §T15.7 forms, the **19**
+  new theorems in `StoredIota.lean` §5, and the **7** `StoredIota` bridges whose proof terms
+  changed: every one is `[propext, Quot.sound]` or a subset (`mrAuxB_np_not_pos` depends on none).
+  **No frozen axiom, no `Classical.choice`, no `sorryAx`.**
+  (`mr_env_exists`/`mr_hrec_obj_closed` reached `Classical.choice` in a first version, through two
+  `simp`s in the environment construction; replacing them with `if_pos`/`if_neg` removed it.)
+
+## 15. What I tried that failed, and the step it failed at
+
+1. **`⟨_, .sortDF trivial trivial rfl⟩` for `VConstant.WF` inside `Ordered.const`** — *"Application
+   type mismatch: `trivial` has type `True` but is expected to have type `VLevel.WF ?m ?m`"*.
+   Failure step: `.const`'s implicit `env`/`ci` are fixed only by its **third** argument, so the
+   second argument elaborates against a fully-meta expected type and `VLevel.WF`'s `l` is unknown.
+   Fixed by hoisting `mr_MJ_constant_wf` / `mr_MDep_constant_wf` into named theorems. The same
+   failure hit `.beta (.constDF hMJ nofun nofun rfl .nil) …` (`nofun` reported "Missing cases:
+   _, _" because `ls` was a metavariable) — fixed the same way, with a `have`.
+2. **`VExpr.NoConsts mrK mrRedex := ⟨⟨trivial, by decide⟩, trivial⟩`** — *"failed to synthesize
+   `Decidable (VExpr.NoConsts mrK (VExpr.const MJ []))`"*. `NoConsts` is a `Prop`-valued match with
+   no `Decidable` instance; `decide` cannot see through it to the `∉`. Fixed with
+   `show ``MJ ∉ mrK from by decide`. (Worth knowing: **`NoConsts` is not `decide`-able**, so a
+   "check it at the block by `decide`" reflex fails here.)
+3. **`rw [c2, if_neg …]`** after `VEnv.addConst_constants_eq` — *"Did not find an occurrence of the
+   pattern"*: `rw [c2]` leaves a β-redex `(fun n => if … ) ``MJ` and `rw` will not enter it. Fixed
+   by `exact (if_neg …).trans hMJ`, which only needs defeq.
+4. **Not a failure but a near-miss worth recording.** My first §5.2 docstring said the two sides are
+   "different expressions and `σ` identifies them up to defeq". `decide` says they are the *same*
+   expression (§13.3). I wrote the claim before checking it; the file now carries the measurement
+   and the docstring points at it. This is the fourth mis-attribution in this corner — the pattern
+   is asserting non-degeneracy of a *conclusion* from non-degeneracy of a *hypothesis*.
+
+Not attempted, deliberately: `Built.fields_noK` (out of scope), any implementation file, any
+frozen file, `Theory/SetModel/*` and `Theory/Equiconsistency.lean` (another stream's).
+
+## 16. Ledger rows this round needs (I did not edit `docs/vacuity-ledger.md`)
+
+1. **127g must be rewritten, not just closed.** Its claim — "nothing produces §T15.7's restated
+   `hrec` at the redex field … that join is the only thing between §T15's assembly and a redex
+   block" — is wrong in both halves: there is nothing to produce (the entry does not move), and the
+   join it names is three lines when you do want it. Blindness kind 4 (an unproved negative that
+   stops people looking), committed in a *handoff* and copied into a ledger row.
+2. **A new row for §13.3**, and it is the substantive one: **a redex block with `np = 0` cannot
+   witness §T15.7's `hrec` non-degenerately either**, because at `D.params = []` §7.4's strict head
+   equation makes the two sides equal on the nose. Row 127f said "a redex block is not a witness for
+   any restoration lemma's `some` branch"; this is the same lesson one layer out, and it says the
+   *companion-pointing* field is not enough either — you need `np > 0`. **Instrument: the residual
+   on this path is now a missing witness (a parameterised redex block), not a missing proof.**
+3. **A new row for §12.1**: `VIndRestore.restore_noK` existed and answered the question. Three
+   rounds priced a β join for an obligation a pre-existing lemma deletes. Guard: before costing a
+   restoration obligation, grep `Restore.lean` for `restore_no*`.
+4. **A row for §12.3**: `hnd` removed from 20 statements, measured by four vanished linter
+   warnings; (B) at `np = 0` is down to five hypotheses, none per-field.
+
+## 17. What I would pick up first
+
+1. **Transcribe `Lean.PrefixTreeNode`'s auxiliary block as a `VInductDecl'`** (it has two
+   parameters and is one of the three redex blocks). That is the only thing that can make §T15.7's
+   `hrec`, §T16.1's typing bundle, and `hcl0`'s failure meet at one block — and until it exists,
+   every statement on the parameterised nested path is being certified at a block where the
+   parameterised case is invisible. This is now the top item on this path, ahead of any proof.
+2. **`Built.fields_noK`** — still no producer but `decide` (row 117c). Untouched again.
+3. **`substC_atRec_canonType_defeq`'s typing bundle at `np > 0`** — at `np = 0` it collapsed to two
+   constant lookups (§12.2). What it costs when `r.binders`/`r.args` are non-empty and `D.np > 0`
+   is unmeasured, and item 1 is the prerequisite for measuring it.

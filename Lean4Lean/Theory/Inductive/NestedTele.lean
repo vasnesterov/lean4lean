@@ -534,7 +534,7 @@ theorem substC_minorType_hbv_false_of_nil (henv : e.Ordered) (hnp : 0 < D.np)
 /-- **`hfld` is inhabited.**  At `D.params = []` §7.5's strict field-telescope equation gives
 the `TeleDefEq` for free, so the general-`Γ` minor bridge below is a weakening of what
 `substC_minors` already closed and cannot be vacuous. -/
-theorem teleDefEq_fld_of_np_zero (hp : D.params = []) (hnd : D.blockNames.Nodup)
+theorem teleDefEq_fld_of_np_zero (hp : D.params = [])
     (hown : R.OwnId D K)
     (hat : R.SubstAt D K σ) (hcl0 : ∀ i, ∀ a ∈ R.tyArgs i, a.ClosedN 0)
     (hfr : R.SubstFree D σ) {Γ : List VExpr} :
@@ -543,7 +543,7 @@ theorem teleDefEq_fld_of_np_zero (hp : D.params = []) (hnd : D.blockNames.Nodup)
         ((D.atRecTele (C.fields.map (·.type))).map (VExpr.substC · σ)))
       (VExpr.liftTele (D.nm + q) ((D.atRecTele (C.fieldTypesR D R)).map (VExpr.substC · σ))) :=
   VEnv.TeleDefEq.of_eq (by
-    rw [VIndRestore.substC_atRec_fieldTypes hp hnd hown hat hcl0 hfr])
+    rw [VIndRestore.substC_atRec_fieldTypes hp hown hat hcl0 hfr])
 
 /-! ### §T6.3 The minor entry's conclusion: one `appDF`, not a spine congruence -/
 
@@ -2340,7 +2340,7 @@ theorem VEnv.recConstsR_wf_of_np_zero_via_blocks {E₂ e₂ : VEnv} {D : VInduct
     {R : VIndRestore} {K : List Name}
     (hsrc : ∀ c ∈ D.recConsts, VConstant.WF E₂ c.2)
     (hσ : (R.csubst D K).WF E₂ e₂ D.recUvars) (he₂ : e₂.Ordered)
-    (hp : D.params = []) (hnd : D.blockNames.Nodup) (hown : R.OwnId D K)
+    (hp : D.params = []) (hown : R.OwnId D K)
     (hsep : R.DomSep D K)
     (hcl0 : ∀ i, ∀ a ∈ R.tyArgs i, a.ClosedN 0)
     (hfr : R.SubstFree D (R.csubst D K)) :
@@ -2348,9 +2348,9 @@ theorem VEnv.recConstsR_wf_of_np_zero_via_blocks {E₂ e₂ : VEnv} {D : VInduct
   have hat := hsep.substAt
   have hσc : (R.csubst D K).Closed := VIndRestore.csubst_closed' hp hcl0
   refine VEnv.recConstsR_wf_of_blocks hsrc hσ he₂
-    (VEnv.TeleDefEq.of_eq (VIndRestore.substC_motives hp hnd hown hat hcl0 hfr))
+    (VEnv.TeleDefEq.of_eq (VIndRestore.substC_motives hp hown hat hcl0 hfr))
     (VEnv.TeleDefEq.of_eq
-      (VIndRestore.substC_minors hp hnd hown hat hcl0 hfr hσc))
+      (VIndRestore.substC_minors hp hown hat hcl0 hfr hσc))
     fun j T hT => ?_
   have hmem : (Lean.mkRecName T.name, (⟨D.recUvars, D.recType j⟩ : VConstant)) ∈ D.recConsts := by
     simp only [VInductDecl'.recConsts, List.mem_map]
@@ -2381,7 +2381,7 @@ theorem VEnv.iotaRulesRS_wf_of_np_zero_via_components {E₃ e₃ : VEnv} {D : VI
     (hsrc : ∀ df ∈ D.iotaRules, VDefEq.WF E₃ df)
     (hσ : ∀ df ∈ D.iotaRules, (R.csubst D K).WF E₃ e₃ df.uvars)
     (htype : ∀ df ∈ D.iotaRules, e₃.IsType df.uvars [] (df.type.substC (R.csubst D K)))
-    (hp : D.params = []) (hnd : D.blockNames.Nodup) (hown : R.OwnId D K)
+    (hp : D.params = []) (hown : R.OwnId D K)
     (hsep : R.DomSep D K)
     (hcl0 : ∀ i, ∀ a ∈ R.tyArgs i, a.ClosedN 0)
     (hfr : R.SubstFree D (R.csubst D K))
@@ -2395,7 +2395,7 @@ theorem VEnv.iotaRulesRS_wf_of_np_zero_via_components {E₃ e₃ : VEnv} {D : VI
     simp only [VInductDecl'.iotaRules, List.mem_map]
     exact ⟨((j, C), q), List.mk_mem_zipIdx_iff_getElem?.2 hqC, rfl⟩
   have hσc : (R.csubst D K).Closed := VIndRestore.csubst_closed' hp hcl0
-  have heq := VIndRestore.substC_iotaRule_eq hp hnd hown hsep.substAt hcl0 hfr
+  have heq := VIndRestore.substC_iotaRule_eq hp hown hsep.substAt hcl0 hfr
     hσc hpos hT hC q
   have hty : ((D.iotaRule j q C).type).substC (R.csubst D K)
       = ((D.iotaRuleR R j q C).type).substC (R.csubst D K) := by
@@ -2479,10 +2479,18 @@ real nested block in the running environment (`MRedex.MRWit.mr_auxNodeB_block_no
 the whole statement was vacuous there.  Stated at the stored type it is not: `hrec` is then a
 defeq between the field as stored and the field as restored, which is what the checker actually
 has to justify, and at a canonical field
-`VIndRestore.substC_atRec_stored_defeq_of_canonical` recovers the old producer verbatim. -/
-theorem substC_atRec_fieldTypes_defeq {Γ : List VExpr}
+`VIndRestore.substC_atRec_stored_defeq_of_canonical` recovers the old producer verbatim.
+
+**And `hrec` now carries `R.restore D i F.type ≠ F.type`** — the obligation is only at the
+entries that actually *move*.  That is not a convenience: `VEnv.TeleDefEq.of_entries'` charges
+`TeleDefEq.rfl` (no typing at all) for an unchanged entry, and at a **redex** field the
+restoration *is* the identity, so demanding a defeq there was demanding a typing the telescope
+does not need.  `substC_atRec_fieldTypes_defeq_of_noK` below is the usable form. -/
+theorem substC_atRec_fieldTypes_defeq' {Γ : List VExpr}
     (hrec : ∀ (i : Nat) (F : VIndField) (r : VIndRecArg), C.fields[i]? = some F →
-      F.recArg = some r → ∃ u, e.IsDefEq U
+      F.recArg = some r →
+      (D.atRec F.type).substC σ ≠ (D.atRec (R.restore D i F.type)).substC σ →
+      ∃ u, e.IsDefEq U
         ((((D.atRecTele (C.fields.map (·.type))).map (VExpr.substC · σ)).take i).reverse ++ Γ)
         ((D.atRec F.type).substC σ)
         ((D.atRec (R.restore D i F.type)).substC σ) (.sort u)) :
@@ -2502,11 +2510,58 @@ theorem substC_atRec_fieldTypes_defeq {Γ : List VExpr}
     refine Or.inl ?_
     simp only [Function.comp_def, Nat.zero_add, VIndField.typeR, hr]
   | some r =>
-    refine Or.inr ?_
-    obtain ⟨u, hu⟩ := hrec i F r hF hr
-    refine ⟨u, ?_⟩
-    simp only [Function.comp_def, Nat.zero_add, VIndField.typeR, hr]
-    exact hu
+    by_cases hmv : (D.atRec F.type).substC σ = (D.atRec (R.restore D i F.type)).substC σ
+    · refine Or.inl ?_
+      simp only [Function.comp_def, Nat.zero_add, VIndField.typeR, hr]
+      exact hmv
+    · refine Or.inr ?_
+      obtain ⟨u, hu⟩ := hrec i F r hF hr hmv
+      refine ⟨u, ?_⟩
+      simp only [Function.comp_def, Nat.zero_add, VIndField.typeR, hr]
+      exact hu
+
+/-- **The same with the syntactic premise** — `hrec` only where the *restoration* moves the stored
+type.  Weaker than the primed form (an entry can move and still be identified by `σ` on the nose:
+`MRedex.MRWit.mr_obj_entry_substC_eq` is exactly that, and it is what makes §T16.1's route
+degenerate at a parameterless block), but it is the premise a caller can check without computing
+`σ`. -/
+theorem substC_atRec_fieldTypes_defeq {Γ : List VExpr}
+    (hrec : ∀ (i : Nat) (F : VIndField) (r : VIndRecArg), C.fields[i]? = some F →
+      F.recArg = some r → R.restore D i F.type ≠ F.type → ∃ u, e.IsDefEq U
+        ((((D.atRecTele (C.fields.map (·.type))).map (VExpr.substC · σ)).take i).reverse ++ Γ)
+        ((D.atRec F.type).substC σ)
+        ((D.atRec (R.restore D i F.type)).substC σ) (.sort u)) :
+    e.TeleDefEq U Γ ((D.atRecTele (C.fields.map (·.type))).map (VExpr.substC · σ))
+      ((D.atRecTele (C.fieldTypesR D R)).map (VExpr.substC · σ)) :=
+  substC_atRec_fieldTypes_defeq' (fun i F r hF hr hmv =>
+    hrec i F r hF hr fun hid => hmv (by rw [hid]))
+
+/-- **…and at a field whose stored type mentions no COMPANION constant, `hrec` is not even
+statable as an obligation: the entry does not move.**
+
+This is the sharp form of ruling 122e's payoff, and it closes the item the handoff listed as the
+next join (§10 item 1 of `docs/handoff-iota-stored.md`).  The pre-existing
+`VIndRestore.restore_noK` says the restoration is the identity on anything free of companion
+constants, so a recursive field stored *without* a companion contributes
+`VEnv.TeleDefEq.rfl` — **no defeq, no typing, nothing**.  The β-redex
+`ElimNestedInductive` manufactures is exactly of that kind: it is `(fun _ => I) k` with `I` the
+block's **own** member, and the own member is not in `K`.  So **§T15.7's `hrec` at a redex field
+is empty, not hard** — the β step (`MRedex.MRWit.mr_pos_beta`) is not needed for it, and the
+obligation that survives is the one at a field pointing at a **companion**, where
+`substC_atRec_stored_defeq_of_canonical` ∘ §T16.1 is the producer.
+
+`Theory/Inductive/StoredIota.lean` §5 instantiates both halves at `mrAux mrAuxNodeB`. -/
+theorem substC_atRec_fieldTypes_defeq_of_noK {K : List Name} (hown : R.OwnId D K)
+    {Γ : List VExpr}
+    (hrec : ∀ (i : Nat) (F : VIndField) (r : VIndRecArg), C.fields[i]? = some F →
+      F.recArg = some r → ¬ VExpr.NoConsts K F.type → ∃ u, e.IsDefEq U
+        ((((D.atRecTele (C.fields.map (·.type))).map (VExpr.substC · σ)).take i).reverse ++ Γ)
+        ((D.atRec F.type).substC σ)
+        ((D.atRec (R.restore D i F.type)).substC σ) (.sort u)) :
+    e.TeleDefEq U Γ ((D.atRecTele (C.fields.map (·.type))).map (VExpr.substC · σ))
+      ((D.atRecTele (C.fieldTypesR D R)).map (VExpr.substC · σ)) :=
+  substC_atRec_fieldTypes_defeq (fun i F r hF hr hmv =>
+    hrec i F r hF hr fun hnc => hmv (VIndRestore.restore_noK hown i F.type hnc))
 
 end
 end VIndRestore
@@ -2579,11 +2634,17 @@ for *satisfiability*, not truth.
 * `substC_atRec_fieldTypes_defeq`: at `C.fields = []` both telescopes are `[]` and `hrec` is
   vacuous — degenerate but true.  **Amended under ruling 122e:** `hcanon` and `hpos` are gone and
   `hrec` is now stated over the *stored* type, so the honest reading is different — `hrec`
-  quantifies only over *recursive* fields (the nested witnesses have one), and at a canonical
-  field `substC_atRec_stored_defeq_of_canonical` recovers the old producer while at a redex field
-  the producer is a β step (`MRedex.MRWit.mr_pos_beta`).  What the old bullet claimed —
-  "`Canonical` is discharged for every witness in the tree" — was true of the *witnesses* and
-  false of the *blocks the statement is for*, which is why the hypothesis had to go. -/
+  quantifies only over the recursive fields **that move** (`substC_atRec_fieldTypes_defeq_of_noK`
+  confines it further, to the ones pointing at a *companion*), and at a canonical field
+  `substC_atRec_stored_defeq_of_canonical` recovers the old producer.  **At a redex field there is
+  no obligation at all** — the restoration is the identity there
+  (`VIndRestore.restore_noK`; `MRedex.MRWit.mr_restore_redex_id`), which is *not* what this bullet
+  said in its first version: it said the producer at a redex field "is a β step
+  (`MRedex.MRWit.mr_pos_beta`)".  The β step does deliver it
+  (`MRedex.MRWit.mr_hrec_redex_via_beta`) but pays a typing `TeleDefEq.rfl` does not charge, so it
+  is the wrong route.  What the *old* bullet claimed — "`Canonical` is discharged for every witness
+  in the tree" — was true of the *witnesses* and false of the *blocks the statement is for*, which
+  is why the hypothesis had to go. -/
 
 
 /-! ## §T16 The three residuals §T15 left, and what actually remains
@@ -2669,9 +2730,13 @@ it is **per field** (`hct : F.type = r.canonType D i`), not per block (`C.Canoni
 per declaration (`D.Canonical`).  At the three redex blocks in the running environment
 (`Lean.Json`, `Lean.PrefixTreeNode`, `MRedex.MRWit.MJ`) the block-level form is false while the
 per-field form still holds at *every field but one*, so a hypothesis at this level is
-discharged where it is true instead of being vacuous everywhere.  The remaining field — the one
-whose stored type is the β-redex `ElimNestedInductive` manufactures — needs the β step, which is
-`MRedex.mr_pos_beta`'s business and not this file's. -/
+discharged where it is true instead of being vacuous everywhere.
+
+**And the remaining field needs nothing.**  An earlier version of this docstring said it "needs the
+β step, which is `MRedex.mr_pos_beta`'s business and not this file's".  That is wrong: the redex
+field's stored type is free of *companion* constants, so `VIndRestore.restore_noK` makes the
+restoration the identity on it and `substC_atRec_fieldTypes_defeq_of_noK` charges nothing.  See
+`MRedex.MRWit` §5 in `Theory/Inductive/StoredIota.lean`. -/
 theorem substC_atRec_stored_defeq_of_canonical (hnd : D.blockNames.Nodup)
     {F : VIndField} {Γ : List VExpr}
     (hT : D.types[r.idx]? = some T) (hb : ∀ B ∈ r.binders, D.NoBlock B)
@@ -3401,7 +3466,7 @@ theorem atRec_canonType_hbv_false_of_nil (henv : e.Ordered) (hnp : 0 < D.np)
 
 /-- **§T15.4's `htele` is inhabited** — the `np = 0` certificate for every §T16 statement that
 binds it.  `TeleDefEq.of_eq` off §7.6's strict equation, so it carries no typing. -/
-theorem iotaCtx_teleDefEq_of_np_zero (hp : D.params = []) (hnd : D.blockNames.Nodup)
+theorem iotaCtx_teleDefEq_of_np_zero (hp : D.params = [])
     (hown : R.OwnId D K)
     (hat : R.SubstAt D K σ) (hcl0 : ∀ i, ∀ a ∈ R.tyArgs i, a.ClosedN 0)
     (hfr : R.SubstFree D σ) (hσc : σ.Closed)
@@ -3409,7 +3474,7 @@ theorem iotaCtx_teleDefEq_of_np_zero (hp : D.params = []) (hnd : D.blockNames.No
     e.TeleDefEq D.recUvars [] ((D.iotaCtx C).map (VExpr.substC · σ))
       ((D.iotaCtxR R C).map (VExpr.substC · σ)) :=
   VEnv.TeleDefEq.of_eq
-    (substC_iotaCtx hp hnd hown hat hcl0 hfr hσc hT hC)
+    (substC_iotaCtx hp hown hat hcl0 hfr hσc hT hC)
 
 end
 end VIndRestore

@@ -39,10 +39,14 @@ instantiated there, and §3 says which of them have content there and which do n
   its `Built` clauses hold — those are `MemberRedex.lean` §5/§8's business and `Built.fields_noK`
   still has no producer but `decide` (ledger row 117c).  The certificate is about the **syntactic**
   side conditions of the iota layer, which are exactly the ones `hcanon` sat among.
-* **Not certified.** The parameterised (`D.np > 0`) route's per-field defeq. §T15.7's `hrec` is
-  now stated over the stored type, which is what makes it *statable* at a redex field, but the
-  producer for a redex field is a β step and lives in `MemberRedex.lean`
-  (`MRedex.MRWit.mr_pos_beta`), not here.
+* **Certified, and it corrects the handoff.** §5 (added after the first version of this file)
+  closes §T15.7's `hrec` at this block, at **both** constructors, and the answer is not the one
+  the handoff predicted.  At the *redex* field the obligation is **empty** — the restoration is the
+  identity there, generally, by the pre-existing `VIndRestore.restore_noK` — so no join to
+  `MRedex.MRWit.mr_pos_beta` is needed (§5.1; the β route is exhibited in §5.3 and shown to cost
+  strictly more).  At the *companion-pointing* field of `MJ.obj` the obligation is real and is
+  **produced** from §T16.1 (§5.2), with the environment premises discharged in an actually
+  constructed `Ordered` environment (§5.4).
 * **The ruling's scope, checked.** §4 shows obligation **(A)** needed no restatement: its
   `hcanon` is consumed only through `D.CanonicalOwn K`, which quantifies over the members
   *outside* `K`, and `CanonicalOwn` **holds** at this very block (`mrAuxB_canonicalOwn`) while
@@ -55,7 +59,7 @@ namespace MRWit
 
 open Lean (Name)
 
-/-! ## §1 The seven side conditions, at the redex block
+/-! ## §1 The side conditions, at the redex block
 
 `mrAux mrAuxNodeB` is `[MJ, _nested.MDep_1]` with the companion's field `1` stored as
 `mrRedex = (fun x : Prop => MJ) #0` and *recorded as recursive* (that is what `mrAuxNodeB` is:
@@ -69,6 +73,11 @@ theorem mrAuxB_np_zero : (mrAux mrAuxNodeB).np = 0 := rfl
 
 theorem mrAuxB_blockNames : (mrAux mrAuxNodeB).blockNames = [``MJ, mrNestedName] := rfl
 
+/-- `hnd`.  **No longer a hypothesis of the iota layer at all**: it was dead through §7.5–§7.7 of
+`NestedRules.lean` and §T12/§T15's `np = 0` route (it was used by exactly one step,
+`typeR_canonical`, which ruling 122e deleted), and it has now been removed from those eleven
+statements.  It survives here because §5.2's `substC_atRec_stored_defeq_of_canonical` genuinely
+reads it, through `restore_canonType`. -/
 theorem mrAuxB_blockNames_nodup : (mrAux mrAuxNodeB).blockNames.Nodup := by decide
 
 theorem mrAuxB_ctorsAll_eq : (mrAux mrAuxNodeB).ctorsAll = [(0, mrObj), (1, mrAuxNodeB)] := rfl
@@ -223,7 +232,7 @@ theorem mr_fieldTypes_bridge_nodeB :
         (VExpr.substC · (mrRestore.csubst (mrAux mrAuxNodeB) mrK))
       = ((mrAux mrAuxNodeB).atRecTele (mrAuxNodeB.fieldTypesR (mrAux mrAuxNodeB) mrRestore)).map
         (VExpr.substC · (mrRestore.csubst (mrAux mrAuxNodeB) mrK)) :=
-  VIndRestore.substC_atRec_fieldTypes mrAuxB_params_nil mrAuxB_blockNames_nodup
+  VIndRestore.substC_atRec_fieldTypes mrAuxB_params_nil
     mrRestore_ownId mrRestore_domSep.substAt mrRestore_tyArgs_closed0 mrRestore_substFree
 
 /-- **…and at the user's constructor `MJ.obj`**, whose single recursive field the restoration
@@ -234,7 +243,7 @@ theorem mr_fieldTypes_bridge_obj :
         (VExpr.substC · (mrRestore.csubst (mrAux mrAuxNodeB) mrK))
       = ((mrAux mrAuxNodeB).atRecTele (mrObj.fieldTypesR (mrAux mrAuxNodeB) mrRestore)).map
         (VExpr.substC · (mrRestore.csubst (mrAux mrAuxNodeB) mrK)) :=
-  VIndRestore.substC_atRec_fieldTypes mrAuxB_params_nil mrAuxB_blockNames_nodup
+  VIndRestore.substC_atRec_fieldTypes mrAuxB_params_nil
     mrRestore_ownId mrRestore_domSep.substAt mrRestore_tyArgs_closed0 mrRestore_substFree
 
 /-- **Obligation (B) at the redex block** — `VEnv.recConstsR_wf_of_np_zero`'s `hbridge`. -/
@@ -243,14 +252,14 @@ theorem mr_recTypeR_bridge (j : Nat) (T : VIndType)
     ((mrAux mrAuxNodeB).recType j).substC (mrRestore.csubst (mrAux mrAuxNodeB) mrK)
       = ((mrAux mrAuxNodeB).recTypeR mrRestore j).substC
           (mrRestore.csubst (mrAux mrAuxNodeB) mrK) :=
-  VIndRestore.csubst_recType_eq mrAuxB_params_nil mrAuxB_blockNames_nodup mrRestore_ownId
+  VIndRestore.csubst_recType_eq mrAuxB_params_nil mrRestore_ownId
     mrRestore_domSep mrRestore_tyArgs_closed0 mrRestore_substFree j T hT
 
 /-- **Obligation (C) at the redex block** — `VEnv.iotaRulesRS_wf_of_np_zero`'s `hbridge`. -/
 theorem mr_iotaRules_bridge :
     (mrAux mrAuxNodeB).iotaRules.map (·.substC (mrRestore.csubst (mrAux mrAuxNodeB) mrK))
       = (mrAux mrAuxNodeB).iotaRulesRS mrRestore mrK :=
-  VIndRestore.csubst_iotaRules_eq mrAuxB_params_nil mrAuxB_blockNames_nodup mrRestore_ownId
+  VIndRestore.csubst_iotaRules_eq mrAuxB_params_nil mrRestore_ownId
     mrRestore_domSep mrRestore_tyArgs_closed0 mrRestore_substFree mrAuxB_pos
 
 /-- **…and the same for the two `TeleDefEq` certificates `NestedTele.lean` binds.**  §T6's
@@ -264,7 +273,7 @@ theorem mr_teleDefEq_fld {env : VEnv} {U q : Nat} {Γ : List VExpr} :
         (((mrAux mrAuxNodeB).atRecTele
             (mrAuxNodeB.fieldTypesR (mrAux mrAuxNodeB) mrRestore)).map
           (VExpr.substC · (mrRestore.csubst (mrAux mrAuxNodeB) mrK)))) :=
-  VIndRestore.teleDefEq_fld_of_np_zero mrAuxB_params_nil mrAuxB_blockNames_nodup
+  VIndRestore.teleDefEq_fld_of_np_zero mrAuxB_params_nil
     mrRestore_ownId mrRestore_domSep.substAt mrRestore_tyArgs_closed0 mrRestore_substFree
 
 /-- §T15.4's `htele` at the redex block. -/
@@ -275,7 +284,7 @@ theorem mr_iotaCtx_teleDefEq {env : VEnv} {j : Nat} {T : VIndType}
         (VExpr.substC · (mrRestore.csubst (mrAux mrAuxNodeB) mrK)))
       (((mrAux mrAuxNodeB).iotaCtxR mrRestore C).map
         (VExpr.substC · (mrRestore.csubst (mrAux mrAuxNodeB) mrK))) :=
-  VIndRestore.iotaCtx_teleDefEq_of_np_zero mrAuxB_params_nil mrAuxB_blockNames_nodup
+  VIndRestore.iotaCtx_teleDefEq_of_np_zero mrAuxB_params_nil
     mrRestore_ownId mrRestore_domSep.substAt mrRestore_tyArgs_closed0 mrRestore_substFree
     (VIndRestore.csubst_closed' mrAuxB_params_nil mrRestore_tyArgs_closed0) hT hC
 
@@ -377,6 +386,305 @@ theorem mrAuxB_canonicalOwn : (mrAux mrAuxNodeB).CanonicalOwn mrK := by
   obtain ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ := h
   · exact mrObj_canonical
   · exact absurd (by decide) hK
+
+/-! ## §5 §T15.7's `hrec` at the redex field: the obligation is **EMPTY**, not hard
+
+The handoff (`docs/handoff-iota-stored.md` §10 item 1) named this as "the next real obligation on
+the parameterised nested path" and priced it as a join from `MRedex.MRWit.mr_pos_beta`'s β step to
+§T16.1's sorted `IsDefEq`.  **That is not the obligation, and the correction follows from this
+file's own §3.**  At the redex field the restoration is the *identity*
+(`mr_auxFieldTypesR_eq_fields`), so `hrec`'s two sides are the **same expression** and the entry
+does not move.  `VEnv.TeleDefEq.of_entries'` charges nothing for an unchanged entry — that is the
+property §T15.7's docstring is built around — so the honest statement of §T15.7 asks for a defeq
+only where the entry moves, and at a redex field it asks for nothing.
+
+The reason generalises off this witness, and the lemma was already in the tree:
+`VIndRestore.restore_noK` (`Theory/Inductive/Restore.lean`) makes the restoration the identity on
+any expression free of **companion** constants, and the manufactured redex `(fun _ => I) k` has
+`I` the block's **own** member.  §T15.7's new `substC_atRec_fieldTypes_defeq_of_noK` is that
+observation as a hypothesis-shape: `hrec` only at fields whose stored type mentions a companion.
+
+**So `mr_pos_beta` is not the missing producer, and no join to it is required.**  §5.3 shows the
+join is nonetheless *available* — the β step does deliver `hrec` in the unweakened shape — so the
+route the handoff named is not closed, merely unnecessary. -/
+
+/-- The redex field's stored type mentions no **companion** constant: its only constant is `MJ`,
+the member the step declares.  (Not `decide`: `VExpr.NoConsts` has no `Decidable` instance.) -/
+theorem mr_redex_noK : VExpr.NoConsts mrK mrRedex :=
+  ⟨⟨trivial, show ``MJ ∉ mrK from by decide⟩, trivial⟩
+
+/-- **§3's `decide` is an instance of a theorem, not a coincidence of this witness.**  The same
+`restore_noK` argument applies at every field whose stored type is companion-free, hence at every
+redex field of every block whose nested instance is `fun _ => I` for `I` its own member. -/
+theorem mr_restore_redex_id :
+    mrRestore.restore (mrAux mrAuxNodeB) 1 mrRedex = mrRedex :=
+  VIndRestore.restore_noK mrRestore_ownId 1 mrRedex mr_redex_noK
+
+/-- …and the computation agrees, independently. -/
+example : mrRestore.restore (mrAux mrAuxNodeB) 1 mrRedex = mrRedex := by decide
+
+/-! ### §5.1 The obligation at the companion constructor is uninhabited *as a premise* -/
+
+/-- **Every recursive field of `mrAuxNodeB` is companion-free**, so
+`substC_atRec_fieldTypes_defeq_of_noK`'s `hrec` has a false premise at this constructor and
+costs nothing.  Field `0` is not recursive at all; field `1` is the redex. -/
+theorem mr_hrec_nodeB_vacuous (i : Nat) (F : VIndField) (r : VIndRecArg)
+    (hF : mrAuxNodeB.fields[i]? = some F) (hr : F.recArg = some r)
+    (hnc : ¬ VExpr.NoConsts mrK F.type) : False := by
+  rcases i with _ | _ | i
+  · cases hF; exact absurd hr nofun
+  · cases hF; exact hnc mr_redex_noK
+  · simp [mrAuxNodeB] at hF
+
+/-- **§T15.7's field-telescope `TeleDefEq` at the redex constructor, with NO input at all** —
+for every environment, every universe count and every context.  This is the parameterised
+(`D.np > 0`) route's `hfld` at the redex block, and it is free.
+
+**Read this honestly**: it is free *because* the two telescopes are equal here
+(`mr_auxFieldTypesR_eq_fields`), so the certificate is the identity one — row 127f's lesson, one
+layer out.  The content is not that a hard defeq was proved; it is that **the obligation the
+handoff costed does not exist**.  §5.2 is the instance where something is actually proved. -/
+theorem mr_teleDefEq_fld_stored {env : VEnv} {U : Nat} {Γ : List VExpr} :
+    env.TeleDefEq U Γ
+      (((mrAux mrAuxNodeB).atRecTele (mrAuxNodeB.fields.map (·.type))).map
+        (VExpr.substC · (mrRestore.csubst (mrAux mrAuxNodeB) mrK)))
+      (((mrAux mrAuxNodeB).atRecTele (mrAuxNodeB.fieldTypesR (mrAux mrAuxNodeB) mrRestore)).map
+        (VExpr.substC · (mrRestore.csubst (mrAux mrAuxNodeB) mrK))) :=
+  VIndRestore.substC_atRec_fieldTypes_defeq_of_noK mrRestore_ownId
+    (fun i F r hF hr hnc => absurd (mr_hrec_nodeB_vacuous i F r hF hr hnc) not_false)
+
+/-! ### §5.2 The obligation that DOES survive: `hrec` at a COMPANION-pointing field
+
+Row 127f's lesson, executed one layer out.  `MJ.obj`'s single recursive field is stored as the
+companion constant `_nested.MDep_1` and restored to `MDep Prop (fun _ => MJ)`
+(`mr_objFieldTypesR_ne_fields`), so it is precisely the field where §T15.7's `hrec` is a **real**
+obligation.  It is discharged here — at the block where `Canonical` is false — from §T16.1
+(`substC_atRec_canonType_defeq`) through `substC_atRec_stored_defeq_of_canonical`, whose per-field
+`hct` is *true* at this field (`mrObj_canonical`).
+
+The two environment premises are constant lookups the staged environment supplies; they are the
+same reduction `mr_const_hasType` performs for `mr_pos_beta`, and no stronger. -/
+
+/-- The field really does point at a companion, so §5.1's escape is unavailable here. -/
+theorem mr_objField_not_noK : ¬ VExpr.NoConsts mrK (mrObj.fields.getD 0 default).type :=
+  fun h => h (show mrNestedName ∈ mrK from by decide)
+
+/-- The restored presentation of the companion member, computed. -/
+theorem mr_atRec_tyBody_one :
+    (mrAux mrAuxNodeB).atRec (mrRestore.tyBody (mrAux mrAuxNodeB) 1)
+      = .app (.app (.const ``MDep []) (.sort .zero)) (.lam (.sort .zero) (.const ``MJ [])) := rfl
+
+/-- **§T16.1's `hbody` at this block**: `MDep Prop (fun _ => MJ)` is a type. -/
+theorem mr_tyBody_hasType {env : VEnv} {U : Nat} {Γ : List VExpr}
+    (hMDep : env.constants ``MDep = some ⟨0, mrDepType.type⟩)
+    (hMJ : env.constants ``MJ = some ⟨0, .sort (.succ .zero)⟩) :
+    env.HasType U Γ ((mrAux mrAuxNodeB).atRec (mrRestore.tyBody (mrAux mrAuxNodeB) 1))
+      (.sort (.succ .zero)) := by
+  rw [mr_atRec_tyBody_one]
+  have h1 : env.HasType U Γ (.const ``MDep [])
+      (.forallE (.sort (.succ .zero))
+        (.forallE (.forallE (.bvar 0) (.sort (.succ .zero))) (.sort (.succ .zero)))) :=
+    .constDF hMDep nofun nofun rfl .nil
+  have h2 : env.HasType U Γ (.sort .zero) (.sort (.succ .zero)) :=
+    .sortDF trivial trivial rfl
+  have h3 : env.HasType U Γ (.app (.const ``MDep []) (.sort .zero))
+      (.forallE (.forallE (.sort .zero) (.sort (.succ .zero))) (.sort (.succ .zero))) :=
+    .appDF h1 h2
+  have h4 : env.HasType U Γ (.lam (.sort .zero) (.const ``MJ []))
+      (.forallE (.sort .zero) (.sort (.succ .zero))) :=
+    .lamDF (.sortDF trivial trivial rfl) (.constDF hMJ nofun nofun rfl .nil)
+  exact .appDF h3 h4
+
+/-- **§T15.7's `hrec`, PRODUCED at the companion-pointing field of the redex block.**  The
+restoration genuinely *moves* this field (`mr_objFieldTypesR_ne_fields`), so §5.1's escape is
+unavailable and §T16.1 has to run.  Everything §T16.1 asks for beyond the two constant lookups is
+free here because `D.params = []` and the field's `recArg` has empty binders and empty
+arguments — so `hbv`/`hAs` are `HasArgs.nil`, `hpi`/`hsort` are `rfl`, and `hOnp` is `hOn`.
+
+**Read §5.5 before quoting this as a conversion.**  At `D.np = 0` the two sides turn out to be the
+*same expression* after `σ`, so what is proved here is a well-typedness fact, not a conversion. -/
+theorem mr_hrec_obj {env : VEnv} {U : Nat} {Γ : List VExpr}
+    (henv : env.Ordered) (hOn : OnCtx Γ (env.IsType U))
+    (hMDep : env.constants ``MDep = some ⟨0, mrDepType.type⟩)
+    (hMJ : env.constants ``MJ = some ⟨0, .sort (.succ .zero)⟩) :
+    ∃ u, env.IsDefEq U Γ
+      (((mrAux mrAuxNodeB).atRec (mrObj.fields.getD 0 default).type).substC
+        (mrRestore.csubst (mrAux mrAuxNodeB) mrK))
+      (((mrAux mrAuxNodeB).atRec
+          (mrRestore.restore (mrAux mrAuxNodeB) 0 (mrObj.fields.getD 0 default).type)).substC
+        (mrRestore.csubst (mrAux mrAuxNodeB) mrK)) (.sort u) :=
+  VIndRestore.substC_atRec_stored_defeq_of_canonical (r := ⟨[], 1, []⟩) (i := 0)
+    mrAuxB_blockNames_nodup rfl nofun rfl
+    (VIndRestore.substC_atRec_canonType_defeq (K := mrK) mrRestore_substFree
+      mrRestore_domSep.substAt (mrRestore_tyArgs_closed0 1) henv rfl (by decide)
+      (As := []) (B' := .sort (.succ .zero)) (w := .succ .zero)
+      hOn hOn .nil (mr_tyBody_hasType hMDep hMJ) rfl .nil rfl)
+
+/-- **§T15.7's field telescope at `MJ.obj`, assembled** — the parameterised route's `hfld` at the
+*user* constructor of the redex block, with `hrec` supplied at the one field that moves.  Together
+with `mr_teleDefEq_fld_stored` this is §T15.7 discharged at **both** constructors of a block at
+which `D.Canonical` is false. -/
+theorem mr_teleDefEq_fld_obj {env : VEnv} {U : Nat} {Γ : List VExpr}
+    (henv : env.Ordered) (hOn : OnCtx Γ (env.IsType U))
+    (hMDep : env.constants ``MDep = some ⟨0, mrDepType.type⟩)
+    (hMJ : env.constants ``MJ = some ⟨0, .sort (.succ .zero)⟩) :
+    env.TeleDefEq U Γ
+      (((mrAux mrAuxNodeB).atRecTele (mrObj.fields.map (·.type))).map
+        (VExpr.substC · (mrRestore.csubst (mrAux mrAuxNodeB) mrK)))
+      (((mrAux mrAuxNodeB).atRecTele (mrObj.fieldTypesR (mrAux mrAuxNodeB) mrRestore)).map
+        (VExpr.substC · (mrRestore.csubst (mrAux mrAuxNodeB) mrK))) :=
+  VIndRestore.substC_atRec_fieldTypes_defeq_of_noK mrRestore_ownId (by
+    rintro (_ | i) F r hF hr hnc
+    · cases hF; exact mr_hrec_obj henv hOn hMDep hMJ
+    · simp [mrObj] at hF)
+
+/-! ### §5.3 The β route the handoff asked for is AVAILABLE — it is just not needed
+
+For the record, and because "cannot be closed" and "need not be closed" are different answers:
+the join the handoff priced *does* go through.  At the redex field the two sides of `hrec` are the
+same expression, so the β step contracts one of them to the own member and back, and `hrec` holds
+in the **unweakened** §T15.7 shape as well.  This is `mr_pos_beta`'s content, generalised off
+`U = 0` (its statement fixes `U = 0` and `Γ = [VExpr.sort .zero]`; §T15.7's consumers want
+`U = D.recUvars`, which is `1` here, so the generalisation is needed to feed them and is one
+line).
+
+**The cost comparison is the point.**  Via §5.1 the redex field costs nothing and needs no
+environment at all.  Via this route it costs one constant lookup and a β step, i.e. it pays a
+typing that `VEnv.TeleDefEq.rfl` does not charge.  §5.1 is therefore the form to use, and the
+handoff's "only thing standing between §T15's assembly and a redex block" was **not** standing
+there. -/
+
+/-- `mr_pos_beta`, at an arbitrary universe count and over an arbitrary tail context. -/
+theorem mr_redex_defeq_own {env : VEnv} {U : Nat} {Γ : List VExpr}
+    (hMJ : env.constants ``MJ = some ⟨0, .sort (.succ .zero)⟩) :
+    env.IsDefEq U (.sort .zero :: Γ) mrRedex (.const ``MJ []) (.sort (.succ .zero)) :=
+  have hMJT : env.HasType U (.sort .zero :: .sort .zero :: Γ) (.const ``MJ [])
+      (.sort (.succ .zero)) := .constDF hMJ nofun nofun rfl .nil
+  .beta hMJT (.bvar .zero)
+
+/-- …and `mr_pos_beta` itself is the `U = 0`, `Γ = []` instance, so nothing new is assumed. -/
+example {env : VEnv} (hT : env.HasType 0 [VExpr.sort .zero, VExpr.sort .zero]
+    (.const ``MJ []) (.sort (.succ .zero))) :
+    env.IsDefEqType 0 [VExpr.sort .zero] mrRedex
+      (({ binders := [], idx := 0, args := [] } : VIndRecArg).canonType (mrAux mrAuxNodeB) 1) :=
+  mr_pos_beta hT
+
+/-- **§T15.7's `hrec` at the redex field, in the shape the handoff asked for**, from the β step.
+The context is the field's own: one earlier field (`Prop`) over `Γ`. -/
+theorem mr_hrec_redex_via_beta {env : VEnv} {U : Nat} {Γ : List VExpr}
+    (hMJ : env.constants ``MJ = some ⟨0, .sort (.succ .zero)⟩) :
+    ∃ u, env.IsDefEq U (.sort .zero :: Γ)
+      (((mrAux mrAuxNodeB).atRec (mrAuxNodeB.fields.getD 1 default).type).substC
+        (mrRestore.csubst (mrAux mrAuxNodeB) mrK))
+      (((mrAux mrAuxNodeB).atRec (mrRestore.restore (mrAux mrAuxNodeB) 1
+          (mrAuxNodeB.fields.getD 1 default).type)).substC
+        (mrRestore.csubst (mrAux mrAuxNodeB) mrK)) (.sort u) := by
+  refine ⟨.succ .zero, ?_⟩
+  show env.IsDefEq U (.sort .zero :: Γ) mrRedex mrRedex (.sort (.succ .zero))
+  exact (mr_redex_defeq_own hMJ).trans (mr_redex_defeq_own hMJ).symm
+
+/-! ### §5.4 The environment premises of §5.2 are satisfiable — a closed witness
+
+`mr_hrec_obj` takes `henv`, `hOn` and two constant lookups.  `hOn` is `trivial` at `Γ = []`; the
+other three are exhibited here in an actually-constructed `Ordered` environment, so §5.2 is not
+green by an unsatisfiable premise.  (`MRedex.MRWit.mr_pos_beta`'s own hypothesis is only *reduced*
+to a constant lookup by `mr_const_hasType`; this closes that reduction too.) -/
+
+/-- `MJ : Sort 1` is a well-formed constant over any environment. -/
+theorem mr_MJ_constant_wf {env : VEnv} : VConstant.WF env ⟨0, .sort (.succ .zero)⟩ :=
+  ⟨_, .sortDF trivial trivial rfl⟩
+
+/-- …and so is `MDep : (α : Type) → (α → Type) → Type`, at the level `forallEDF` computes. -/
+theorem mr_MDep_type_hasType {env : VEnv} :
+    env.HasType 0 [] mrDepType.type
+      (.sort (.imax (.succ (.succ .zero))
+        (.imax (.imax (.succ .zero) (.succ (.succ .zero))) (.succ (.succ .zero))))) :=
+  .forallEDF (.sortDF trivial trivial rfl)
+    (.forallEDF (.forallEDF (.bvar .zero) (.sortDF trivial trivial rfl))
+      (.sortDF trivial trivial rfl))
+
+theorem mr_MDep_constant_wf {env : VEnv} : VConstant.WF env ⟨0, mrDepType.type⟩ :=
+  ⟨_, mr_MDep_type_hasType⟩
+
+theorem mr_env_exists : ∃ env : VEnv, env.Ordered ∧
+    env.constants ``MJ = some ⟨0, .sort (.succ .zero)⟩ ∧
+    env.constants ``MDep = some ⟨0, mrDepType.type⟩ := by
+  obtain ⟨e1, he1⟩ := VEnv.addConst_eq_none (env := VEnv.empty) (name := ``MJ)
+    (ci := ⟨0, .sort (.succ .zero)⟩) rfl
+  have c1 := VEnv.addConst_constants_eq he1
+  have hMJ : e1.constants ``MJ = some ⟨0, .sort (.succ .zero)⟩ := by
+    rw [c1]; exact if_pos rfl
+  have ho1 : e1.Ordered := .const .empty mr_MJ_constant_wf he1
+  obtain ⟨e2, he2⟩ := VEnv.addConst_eq_none (env := e1) (name := ``MDep)
+    (ci := ⟨0, mrDepType.type⟩) (by rw [c1]; exact if_neg (by decide))
+  have c2 := VEnv.addConst_constants_eq he2
+  refine ⟨e2, .const ho1 mr_MDep_constant_wf he2, ?_, by rw [c2]; exact if_pos rfl⟩
+  rw [c2]
+  exact (if_neg (show ¬ ((``MDep : Name) = ``MJ) from by decide)).trans hMJ
+
+/-- **§5.2's conclusion, with every premise discharged**: the `hrec` §T15.7 asks for at the
+companion-pointing field of the redex block holds in a *concrete* environment, at `Γ = []`. -/
+theorem mr_hrec_obj_closed : ∃ (env : VEnv) (u : VLevel), env.Ordered ∧ env.IsDefEq 0 []
+      (((mrAux mrAuxNodeB).atRec (mrObj.fields.getD 0 default).type).substC
+        (mrRestore.csubst (mrAux mrAuxNodeB) mrK))
+      (((mrAux mrAuxNodeB).atRec
+          (mrRestore.restore (mrAux mrAuxNodeB) 0 (mrObj.fields.getD 0 default).type)).substC
+        (mrRestore.csubst (mrAux mrAuxNodeB) mrK)) (.sort u) := by
+  obtain ⟨env, henv, hMJ, hMDep⟩ := mr_env_exists
+  obtain ⟨u, hu⟩ := mr_hrec_obj (U := 0) (Γ := []) henv trivial hMDep hMJ
+  exact ⟨env, u, henv, hu⟩
+
+/-! ### §5.5 …and the limit of what a redex block in THIS tree can witness
+
+The honest grading of §5.2, and it is a measurement, not a reading.  `σ` identifies the two sides
+of `hrec` at `MJ.obj`'s field **on the nose** — they are the same `VExpr`
+(`mr_obj_entry_substC_eq`, `decide`).  So `mr_hrec_obj` proves `∃ u, IsDefEq U Γ X X (.sort u)`,
+i.e. that the substituted entry is a *type*; it does not exercise a conversion.
+
+The reason is structural and is §7.4's business: at `D.params = []` the strict head equation
+`substC_tyApp'_eq_tyAppR'` holds (its `hcl0` is available — `mrRestore_tyArgs_closed0`), so
+restoration-then-`σ` and `σ` alone agree syntactically.  `hrec` is a genuine *conversion* only
+where that equation fails, i.e. at `D.np > 0`, which is exactly where
+`InductiveDeclExamples.ntree_not_tyArgs_closed0` refutes `hcl0`.
+
+**Consequence, stated so nobody re-prices this corner from the shape of the proof.**  A
+non-degenerate instance of §T15.7's `hrec` needs a block that is *both* a redex block *and*
+parameterised.  `Verify/Inductive/MemberRedexScan.lean` finds exactly three redex blocks in the
+running environment — `MRedex.MRWit.MJ`, `Lean.Json`, `Lean.PrefixTreeNode` — and only the first
+is transcribed as a `VInductDecl'` here, with `np = 0`.  The parameterised witness that *is*
+transcribed (`ntreeAux`) is not a redex block.  So **no block in this tree can witness §T15.7's
+`hrec` non-degenerately**, and the next step on this path is a witness (a transcription of
+`Lean.PrefixTreeNode`'s auxiliary block, which has parameters), not a proof. -/
+
+/-- **The two sides of §5.2's `hrec` are the same expression at this block.**  So §5.2 is a typing
+obligation discharged, not a conversion. -/
+theorem mr_obj_entry_substC_eq :
+    ((mrAux mrAuxNodeB).atRec (mrObj.fields.getD 0 default).type).substC
+        (mrRestore.csubst (mrAux mrAuxNodeB) mrK)
+      = ((mrAux mrAuxNodeB).atRec (mrRestore.restore (mrAux mrAuxNodeB) 0
+          (mrObj.fields.getD 0 default).type)).substC
+        (mrRestore.csubst (mrAux mrAuxNodeB) mrK) := by decide
+
+/-- …and therefore §T15.7's **sharpest** form (`substC_atRec_fieldTypes_defeq'`, whose premise is
+that the *substituted* entries differ) has an empty obligation at `MJ.obj` too — the field
+telescope defeq at the user constructor is free, for every environment and context.  Compare
+`mr_teleDefEq_fld_obj`, which pays §T16.1's typing to get the same conclusion. -/
+theorem mr_teleDefEq_fld_obj_free {env : VEnv} {U : Nat} {Γ : List VExpr} :
+    env.TeleDefEq U Γ
+      (((mrAux mrAuxNodeB).atRecTele (mrObj.fields.map (·.type))).map
+        (VExpr.substC · (mrRestore.csubst (mrAux mrAuxNodeB) mrK)))
+      (((mrAux mrAuxNodeB).atRecTele (mrObj.fieldTypesR (mrAux mrAuxNodeB) mrRestore)).map
+        (VExpr.substC · (mrRestore.csubst (mrAux mrAuxNodeB) mrK))) :=
+  VIndRestore.substC_atRec_fieldTypes_defeq' (by
+    rintro (_ | i) F r hF hr hne
+    · cases hF; exact absurd mr_obj_entry_substC_eq hne
+    · simp [mrObj] at hF)
+
+/-- **The only transcribed redex block is parameterless** — the half of §5.5's gap that is a fact
+about this file rather than about the tree.  The other half, *read off source*: the parameterised
+nested witness `InductiveDeclExamples.ntreeAux` satisfies `ntreeAux.Canonical`
+(`Theory/Inductive/NestedHead.lean:646`), so it stores no β-redex and cannot serve either. -/
+theorem mrAuxB_np_not_pos : ¬ (mrAux mrAuxNodeB).np > 0 := by decide
 
 end MRWit
 end MRedex
