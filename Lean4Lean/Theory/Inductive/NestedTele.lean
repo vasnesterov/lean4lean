@@ -47,6 +47,40 @@ theorem HasArgsDF.substC (hσ : σ.WF env₀ env₁ U) {Γ : List VExpr} :
     have := HasArgsDF.substC hσ h2
     rwa [VExpr.map_substC_instTele hσ.closed] at this
 
+/-! ### §T1a …and the same three over `CSubst.WFD`
+
+`Theory/Typing/ConstSubstNested.lean` §B refutes `σ.WF E F U` between **both** staging pairs of a
+parameterised nested block (`ntree_csubst_WF₂_false` at the constructor stage,
+`ntree_csubst_WF₃_false` at the ι-rule stage).  So every transport above is vacuous at
+`D.np ≥ 1` — including the one §T15.4 advertises as *"a cheaper route, and it is free"* for (C)'s
+`hOn`, which is the hypothesis nobody audited.  These are the same statements over `CSubst.WFD`,
+whose proofs are the originals with `IsType.substCD` in place of `IsType.substC`; `CSubst.WF.wfd`
+carries every `D.np = 0` instance over unchanged. -/
+
+theorem OnCtx.substCD (hσ : σ.WFD env₀ env₁ U) :
+    ∀ {Γ : List VExpr}, OnCtx Γ (env₀.IsType U) →
+      OnCtx (Γ.map (VExpr.substC · σ)) (env₁.IsType U)
+  | [], _ => trivial
+  | _ :: _, ⟨h1, h2⟩ => ⟨OnCtx.substCD hσ h1, h2.substCD hσ⟩
+
+theorem HasArgs.substCD (hσ : σ.WFD env₀ env₁ U) {Γ : List VExpr} :
+    ∀ {As as : List VExpr}, env₀.HasArgs U Γ As as →
+      env₁.HasArgs U (Γ.map (VExpr.substC · σ)) (As.map (VExpr.substC · σ))
+        (as.map (VExpr.substC · σ))
+  | _, _, .nil => .nil
+  | _, _, .cons h1 h2 => by
+    refine .cons (h1.substCD hσ) ?_
+    have := HasArgs.substCD hσ h2
+    rwa [VExpr.map_substC_instTele hσ.closed] at this
+
+/-- The telescope shape over `WFD`. -/
+theorem OnCtx.substCD_tele (hσ : σ.WFD env₀ env₁ U) {As Γ : List VExpr}
+    (h : OnCtx (As.reverse ++ Γ) (env₀.IsType U)) :
+    OnCtx ((As.map (VExpr.substC · σ)).reverse ++ Γ.map (VExpr.substC · σ))
+      (env₁.IsType U) := by
+  have := OnCtx.substCD hσ h
+  rwa [List.map_append, List.map_reverse] at this
+
 /-- The telescope shape: `OnCtx (As.reverse ++ Γ)` transported. -/
 theorem OnCtx.substC_tele (hσ : σ.WF env₀ env₁ U) {As Γ : List VExpr}
     (h : OnCtx (As.reverse ++ Γ) (env₀.IsType U)) :
@@ -2357,6 +2391,21 @@ theorem iotaCtx_substC_onCtx {env e : VEnv} {D : VInductDecl'} {σ : CSubst} {j 
   have h := VEnv.OnCtx.substC hσ hsrc
   rwa [List.map_reverse] at h
 
+/-- **…and the same over `CSubst.WFD`, which is the version that is not vacuous.**
+
+`iotaCtx_substC_onCtx` above takes `hσ : σ.WF env e D.recUvars` at the ι-rule staging pair, and
+`Theory/Typing/ConstSubstNested.lean`'s `ntree_csubst_WF₃_false` **refutes exactly that** at
+`ntreeAux`.  So the "free route" for (C)'s `hOn` was free and empty at every parameterised block;
+this is the same proof with §T1a's `OnCtx.substCD`, and it is free where the block has a `WFD`. -/
+theorem iotaCtx_substC_onCtxD {env e : VEnv} {D : VInductDecl'} {σ : CSubst} {j : Nat}
+    {T : VIndType} {C : VIndCtor} (hR : D.RecCtx env) (hσ : σ.WFD env e D.recUvars)
+    (hT : D.types[j]? = some T) (hC : C ∈ T.ctors) :
+    OnCtx (((D.iotaCtx C).map (VExpr.substC · σ)).reverse) (e.IsType D.recUvars) := by
+  have hsrc : OnCtx ((D.iotaCtx C).reverse) (env.IsType D.recUvars) := by
+    rw [D.iotaCtx_reverse' C]; exact VInductDecl'.onCtxIota hR hT hC
+  have h := VEnv.OnCtx.substCD hσ hsrc
+  rwa [List.map_reverse] at h
+
 end VInductDecl'
 
 /-! ### §T15.5 (C)'s three components, and the closure
@@ -3668,5 +3717,261 @@ conversion is forward — `substC`, `weakN`, `appDF`, `defeqDF`.
   identical, which is `IsDefEq`-reflexivity on a typed term.  **Stated as an argument, not a
   measurement**: unlike §T15.6 I have not built the `np = 0` certificate for the composed
   §T16.8 statement, so it is checked non-contradictory, not inhabited. -/
+
+/-! ### §T16.11 The same chain over `CSubst.WFD` — because `σ.WF` is REFUTED at every
+parameterised block
+
+**A correction to §T16.10's residual list, and to `docs/handoff-iota-stored.md` §F.**  §F says
+obligation (C) "never had this blocker", because `VEnv.iotaRulesRS_wf_of_substC'` carries no `hσ`.
+That is true of the *bridge* and false of every *producer* of its components: `hσ : σ.WF env e
+D.recUvars` is a hypothesis of `substC_iotaLhsPre_hasType` (§T16.5), `substC_iotaLam_defeq` and
+`substC_iotaRhs_defeq` (§T16.3), `substC_iotaLhs_defeq_of_conv` (§T16.7),
+`iotaCtx_substC_onCtx` (§T15.4) and hence of `iotaRule_components_of_hargs` (§T16.8) — the
+composed statement (C) is supposed to be discharged through.  `ntree_csubst_WF₃_false`
+(`Theory/Typing/ConstSubstNested.lean` §B) **refutes exactly that hypothesis** at the ι-rule
+staging pair of `ntreeAux`.  So the entire §T16 route for (C) is vacuous at `D.np ≥ 1`, which is
+the only regime it was built for, and §T16.9's instrument-7 audit missed it because it audited
+every hypothesis *except* `hσ`.
+
+Below is the same chain with `hσ` weakened to `CSubst.WFD` — five statements, each the original
+with `HasType.substCD`/`OnCtx.substCD` in place of the strict transport, and nothing else changed.
+`CSubst.WF.wfd` carries every `D.np = 0` instance over unchanged. -/
+
+namespace VIndRestore
+section
+variable {R : VIndRestore} {D : VInductDecl'} {K : List Name} {σ : CSubst} {env e : VEnv}
+variable {j q : Nat} {T : VIndType} {C : VIndCtor}
+
+/-- §T16.5's `hfun`, over `WFD`. -/
+theorem substC_iotaLhsPre_hasTypeD (hσ : σ.WFD env e D.recUvars) (hI : D.IotaCtx env)
+    (hT : D.types[j]? = some T) (hj : j < D.nm) (hC : C ∈ T.ctors) :
+    e.HasType D.recUvars (((D.iotaCtx C).map (VExpr.substC · σ)).reverse)
+      ((D.iotaLhsPre j C).substC σ)
+      (.forallE ((D.tyApp' j (D.nm + D.nmin + C.fields.length)
+          (C.args.map fun a => (D.atRec a).liftN (D.nm + D.nmin) C.fields.length)).substC σ)
+        ((D.iotaCod j C).substC σ)) := by
+  have h := (VInductDecl'.iotaLhsPre_hasType hI hT hj hC).substCD hσ
+  rw [VExpr.substC_forallE] at h
+  rw [← List.map_reverse, D.iotaCtx_reverse' C]
+  simpa using h
+
+/-- §T16.7's `lhs` body defeq, over `WFD`. -/
+theorem substC_iotaLhs_defeq_of_convD (hown : R.OwnId D K) (hat : R.SubstAt D K σ)
+    (hfr : R.SubstFree D σ) (hσc : σ.Closed) (hσ : σ.WFD env e D.recUvars)
+    (hI : D.IotaCtx env) (hT : D.types[j]? = some T) (hj : j < D.nm) (hC : C ∈ T.ctors)
+    {A₀ : VExpr} {v : VLevel}
+    (hconv : e.IsDefEq D.recUvars (((D.iotaCtx C).map (VExpr.substC · σ)).reverse) A₀
+      ((D.tyApp' j (D.nm + D.nmin + C.fields.length)
+        (C.args.map fun a => (D.atRec a).liftN (D.nm + D.nmin) C.fields.length)).substC σ)
+      (.sort v))
+    (hmaj : e.IsDefEq D.recUvars (((D.iotaCtx C).map (VExpr.substC · σ)).reverse)
+      ((D.ctorApp' C (C.fields.length + (D.nm + D.nmin))
+        (VExpr.bvars 0 C.fields.length)).substC σ)
+      ((D.ctorAppR R j C (C.fields.length + (D.nm + D.nmin))
+        (VExpr.bvars 0 C.fields.length)).substC σ) A₀) :
+    e.IsDefEq D.recUvars (((D.iotaCtx C).map (VExpr.substC · σ)).reverse)
+      ((D.iotaLhs j C).substC σ) ((D.iotaLhsR R j C).substC σ)
+      ((D.iotaType j C).substC σ) :=
+  substC_iotaLhs_defeq' hown hat hfr hσc hT
+    (substC_iotaLhsPre_hasTypeD hσ hI hT hj hC) (hconv.defeqDF hmaj)
+
+/-- §T16.3's `iotaLam` defeq, over `WFD`. -/
+theorem substC_iotaLam_defeqD (hown : R.OwnId D K) (hat : R.SubstAt D K σ)
+    (hfr : R.SubstFree D σ)
+    (hσ : σ.WFD env e D.recUvars) (hI : D.IotaCtx env)
+    (hT : D.types[j]? = some T) (hC : C ∈ T.ctors) (hqC : D.ctorsAll[q]? = some (j, C))
+    (hpos : ∀ (i : Nat) (F : VIndField) (r : VIndRecArg), C.fields[i]? = some F →
+      F.recArg = some r → r.idx < D.nm)
+    (htele : e.TeleDefEq D.recUvars [] ((D.iotaCtx C).map (VExpr.substC · σ))
+      ((D.iotaCtxR R C).map (VExpr.substC · σ)))
+    (hOn : OnCtx (((D.iotaCtx C).map (VExpr.substC · σ)).reverse) (e.IsType D.recUvars)) :
+    e.IsDefEq D.recUvars [] ((D.iotaLam q C).substC σ) ((D.iotaLamR R q C).substC σ)
+      (VExpr.mkPi ((D.iotaCtx C).map (VExpr.substC · σ)) ((D.iotaType j C).substC σ)) := by
+  have hbody := (VInductDecl'.iotaLamBody_hasType hI hT hC hqC).substCD hσ
+  rw [List.map_reverse] at hbody
+  have hbodyDF : e.IsDefEq D.recUvars (((D.iotaCtx C).map (VExpr.substC · σ)).reverse)
+      (((VExpr.bvar (C.fields.length + (D.nmin - 1 - q))).mkApp
+        (VExpr.bvars 0 C.fields.length ++ D.ihValues C)).substC σ)
+      (((VExpr.bvar (C.fields.length + (D.nmin - 1 - q))).mkApp
+        (VExpr.bvars 0 C.fields.length ++ D.ihValuesR R C)).substC σ)
+      ((D.iotaType j C).substC σ) := by
+    rw [← substC_iotaLamBody_eq (R := R) (q := q) hown hat hfr hpos]
+    exact hbody
+  simp only [VInductDecl'.iotaLam, VInductDecl'.iotaLamR, VExpr.substC_mkLams]
+  exact VEnv.IsDefEq.mkLams_congr htele (by simpa using hOn) (by simpa using hbodyDF)
+
+/-- §T16.3's `rhs` body defeq, over `WFD`. -/
+theorem substC_iotaRhs_defeqD (hown : R.OwnId D K) (hat : R.SubstAt D K σ)
+    (hfr : R.SubstFree D σ) (henv : e.Ordered) (hσ : σ.WFD env e D.recUvars)
+    (hI : D.IotaCtx env)
+    (hT : D.types[j]? = some T) (hC : C ∈ T.ctors) (hqC : D.ctorsAll[q]? = some (j, C))
+    (hpos : ∀ (i : Nat) (F : VIndField) (r : VIndRecArg), C.fields[i]? = some F →
+      F.recArg = some r → r.idx < D.nm)
+    (htele : e.TeleDefEq D.recUvars [] ((D.iotaCtx C).map (VExpr.substC · σ))
+      ((D.iotaCtxR R C).map (VExpr.substC · σ)))
+    (hOn : OnCtx (((D.iotaCtx C).map (VExpr.substC · σ)).reverse) (e.IsType D.recUvars)) :
+    e.IsDefEq D.recUvars (((D.iotaCtx C).map (VExpr.substC · σ)).reverse)
+      (((D.iotaLam q C).mkApp (VExpr.bvars 0 (D.iotaCtx C).length)).substC σ)
+      (((D.iotaLamR R q C).mkApp (VExpr.bvars 0 (D.iotaCtxR R C).length)).substC σ)
+      ((D.iotaType j C).substC σ) := by
+  have hlam := substC_iotaLam_defeqD hown hat hfr hσ hI hT hC hqC hpos htele hOn
+  obtain ⟨hc1, hc2, -⟩ := hlam.closedN' henv.closed trivial
+  have h := VEnv.IsDefEq.appBVars (Γ := []) henv (by simpa using hOn) hlam
+  rw [List.length_map, hc1.liftN_eq (Nat.zero_le _), hc2.liftN_eq (Nat.zero_le _),
+    List.append_nil] at h
+  rw [VExpr.substC_mkApp, VExpr.substC_mkApp, VExpr.map_substC_bvars, VExpr.map_substC_bvars,
+    VInductDecl'.length_iotaCtxR]
+  exact h
+
+/-- **§T16.8's composed (C) statement, over `WFD`** — the version that is not vacuous at a
+parameterised block. -/
+theorem iotaRule_components_of_hargsD (hown : R.OwnId D K) (hat : R.SubstAt D K σ)
+    (hfr : R.SubstFree D σ) (hσc : σ.Closed) (hσ : σ.WFD env e D.recUvars)
+    (hI : D.IotaCtx env) (henv : e.Ordered)
+    (hT : D.types[j]? = some T) (hj : j < D.nm) (hC : C ∈ T.ctors)
+    (hqC : D.ctorsAll[q]? = some (j, C))
+    (hpos : ∀ (i : Nat) (F : VIndField) (r : VIndRecArg), C.fields[i]? = some F →
+      F.recArg = some r → r.idx < D.nm)
+    (htele : e.TeleDefEq D.recUvars [] ((D.iotaCtx C).map (VExpr.substC · σ))
+      ((D.iotaCtxR R C).map (VExpr.substC · σ)))
+    {A₀ : VExpr} {v : VLevel}
+    (hfunM : e.HasType D.recUvars (((D.iotaCtx C).map (VExpr.substC · σ)).reverse)
+      ((VExpr.bvar (C.fields.length + D.nmin + (D.nm - 1 - j))).mkApp
+        ((C.args.map fun a =>
+          (D.atRec a).liftN (D.nm + D.nmin) C.fields.length).map (VExpr.substC · σ)))
+      (.forallE ((D.tyApp' j (D.nm + D.nmin + C.fields.length)
+        (C.args.map fun a => (D.atRec a).liftN (D.nm + D.nmin) C.fields.length)).substC σ)
+        (.sort D.elimLvl)))
+    (hconv : e.IsDefEq D.recUvars (((D.iotaCtx C).map (VExpr.substC · σ)).reverse) A₀
+      ((D.tyApp' j (D.nm + D.nmin + C.fields.length)
+        (C.args.map fun a => (D.atRec a).liftN (D.nm + D.nmin) C.fields.length)).substC σ)
+      (.sort v))
+    (hmaj : e.IsDefEq D.recUvars (((D.iotaCtx C).map (VExpr.substC · σ)).reverse)
+      ((D.ctorApp' C (C.fields.length + (D.nm + D.nmin))
+        (VExpr.bvars 0 C.fields.length)).substC σ)
+      ((D.ctorAppR R j C (C.fields.length + (D.nm + D.nmin))
+        (VExpr.bvars 0 C.fields.length)).substC σ) A₀) :
+    (∃ w : VLevel, e.IsDefEq D.recUvars [] (((D.iotaRule j q C).type).substC σ)
+        (((D.iotaRuleR R j q C).type).substC σ) (.sort w)) ∧
+      e.IsDefEq D.recUvars [] (((D.iotaRule j q C).lhs).substC σ)
+        (((D.iotaRuleR R j q C).lhs).substC σ) (((D.iotaRule j q C).type).substC σ) ∧
+      e.IsDefEq D.recUvars [] (((D.iotaRule j q C).rhs).substC σ)
+        (((D.iotaRuleR R j q C).rhs).substC σ) (((D.iotaRule j q C).type).substC σ) := by
+  have hOn := VInductDecl'.iotaCtx_substC_onCtxD hI.toRecCtx hσ hT hC
+  refine VInductDecl'.iotaRule_components htele hOn
+    ⟨D.elimLvl, substC_minorBody_defeq_of_conv (t := j) hfunM hconv hmaj⟩
+    (substC_iotaLhs_defeq_of_convD hown hat hfr hσc hσ hI hT hj hC hconv hmaj)
+    (substC_iotaRhs_defeqD hown hat hfr henv hσ hI hT hC hqC hpos htele hOn)
+
+end
+end VIndRestore
+
+/-! ### §T16.11a The composition §T16.10 asserts in prose — written out
+
+§T16.10 says *"obligation (C) follows from it and `iotaRulesRS_wf_of_components` pointwise
+(`fun q j C hqC => iotaRule_components_of_hargs …`)"*.  It was never written, and
+`iotaRule_components_of_hargs` had **no consumer anywhere in the tree** (`grep`: every other
+occurrence of the name is prose).  Here it is, over `WFD`, with `hT`/`hj`/`hC` *derived* from
+`hqC` rather than assumed — which is the part a prose composition hides. -/
+
+/-- The per-rule data §T16.8 needs, bundled: the telescope defeq and the two `hargs` instances
+with the motive-partial typing that shares their `A₀`. -/
+def VIndRestore.IotaHargs (R : VIndRestore) (D : VInductDecl') (σ : CSubst) (e : VEnv)
+    (j : Nat) (C : VIndCtor) : Prop :=
+  e.TeleDefEq D.recUvars [] ((D.iotaCtx C).map (VExpr.substC · σ))
+      ((D.iotaCtxR R C).map (VExpr.substC · σ)) ∧
+    ∃ (A₀ : VExpr) (v : VLevel),
+      e.HasType D.recUvars (((D.iotaCtx C).map (VExpr.substC · σ)).reverse)
+        ((VExpr.bvar (C.fields.length + D.nmin + (D.nm - 1 - j))).mkApp
+          ((C.args.map fun a =>
+            (D.atRec a).liftN (D.nm + D.nmin) C.fields.length).map (VExpr.substC · σ)))
+        (.forallE ((D.tyApp' j (D.nm + D.nmin + C.fields.length)
+          (C.args.map fun a => (D.atRec a).liftN (D.nm + D.nmin) C.fields.length)).substC σ)
+          (.sort D.elimLvl)) ∧
+      e.IsDefEq D.recUvars (((D.iotaCtx C).map (VExpr.substC · σ)).reverse) A₀
+        ((D.tyApp' j (D.nm + D.nmin + C.fields.length)
+          (C.args.map fun a => (D.atRec a).liftN (D.nm + D.nmin) C.fields.length)).substC σ)
+        (.sort v) ∧
+      e.IsDefEq D.recUvars (((D.iotaCtx C).map (VExpr.substC · σ)).reverse)
+        ((D.ctorApp' C (C.fields.length + (D.nm + D.nmin))
+          (VExpr.bvars 0 C.fields.length)).substC σ)
+        ((D.ctorAppR R j C (C.fields.length + (D.nm + D.nmin))
+          (VExpr.bvars 0 C.fields.length)).substC σ) A₀
+
+/-- **Obligation (C) at `D.np > 0`, from `hargs` + `htele` + `hfunM` + `WFD` and nothing else.**
+The statement §T16.10 describes; `hT`, `hj` and `hC` come out of `hqC`. -/
+theorem VEnv.iotaRulesRS_wf_of_hargsD {env e₃ : VEnv} {D : VInductDecl'} {R : VIndRestore}
+    {K : List Name}
+    (hown : R.OwnId D K) (hat : R.SubstAt D K (R.csubst D K))
+    (hfr : R.SubstFree D (R.csubst D K)) (hσc : (R.csubst D K).Closed)
+    (hσ : (R.csubst D K).WFD env e₃ D.recUvars) (hI : D.IotaCtx env) (henv : e₃.Ordered)
+    (hpos : ∀ (t : Nat) (C : VIndCtor), (t, C) ∈ D.ctorsAll →
+      ∀ (i : Nat) (F : VIndField) (r : VIndRecArg), C.fields[i]? = some F →
+        F.recArg = some r → r.idx < D.nm)
+    (hdata : ∀ (q j : Nat) (C : VIndCtor), D.ctorsAll[q]? = some (j, C) →
+      R.IotaHargs D (R.csubst D K) e₃ j C) :
+    ∀ df ∈ D.iotaRulesRS R K, VDefEq.WF e₃ df := by
+  refine VEnv.iotaRulesRS_wf_of_components fun q j C hqC => ?_
+  obtain ⟨T, hT, hC⟩ := VInductDecl'.mem_ctorsAll (List.mem_of_getElem? hqC)
+  have hj : j < D.nm := by
+    rcases Nat.lt_or_ge j D.types.length with hlt | hle
+    · exact hlt
+    · rw [List.getElem?_eq_none hle] at hT; exact absurd hT (by simp)
+  obtain ⟨htele, A₀, v, hfunM, hconv, hmaj⟩ := hdata q j C hqC
+  exact VIndRestore.iotaRule_components_of_hargsD hown hat hfr hσc hσ hI henv hT hj hC hqC
+    (hpos j C (List.mem_of_getElem? hqC)) htele hfunM hconv hmaj
+
+/-! ### §T16.12 Obligation (C) at `ntreeAux`, reduced to **nine** concrete conversions
+
+`VEnv.iotaRulesRS_wf_of_components` (§T15.5) has **no** environment hypotheses at all — the
+`hσ`/`he₂`/`hsrc` of (B)'s route are absent because a typed defeq carries both sides' typing
+(§A of `Theory/Typing/ConstSubstNested.lean`).  So (C) at the parameterised nested block reduces,
+outright and with nothing assumed, to the three components of each of its **three** ι-rules.
+
+`ntreeAux.ctorsAll` is `[(0, NTree.node), (1, _nested.List_1.nil), (1, _nested.List_1.cons)]`
+(`rfl`), so the `∀ q j C` collapses to three named instances, and the ι-contexts they live under
+have lengths 8, 6, 8 (measured, not read off).  All nine components **move**
+(`ntree_iota_components_ne`, `decide`), so none of the nine is an identity and no
+`TeleDefEq.rfl`-style discount applies to any of them: this is the honest size of (C) at
+`ntreeAux`, and it is three times §E's job on bigger terms. -/
+
+namespace InductiveDeclExamples
+
+/-- The three components of one ι-rule of `ntreeAux`, as (C)'s bridge asks for them. -/
+def rIotaComp (F : VEnv) (q j : Nat) (C : VIndCtor) : Prop :=
+  (∃ w : VLevel, F.IsDefEq ntreeAux.recUvars []
+      (((ntreeAux.iotaRule j q C).type).substC (ntreeRestore.csubst ntreeAux ntreeK))
+      (((ntreeAux.iotaRuleR ntreeRestore j q C).type).substC
+        (ntreeRestore.csubst ntreeAux ntreeK)) (.sort w)) ∧
+    F.IsDefEq ntreeAux.recUvars []
+      (((ntreeAux.iotaRule j q C).lhs).substC (ntreeRestore.csubst ntreeAux ntreeK))
+      (((ntreeAux.iotaRuleR ntreeRestore j q C).lhs).substC
+        (ntreeRestore.csubst ntreeAux ntreeK))
+      (((ntreeAux.iotaRule j q C).type).substC (ntreeRestore.csubst ntreeAux ntreeK)) ∧
+    F.IsDefEq ntreeAux.recUvars []
+      (((ntreeAux.iotaRule j q C).rhs).substC (ntreeRestore.csubst ntreeAux ntreeK))
+      (((ntreeAux.iotaRuleR ntreeRestore j q C).rhs).substC
+        (ntreeRestore.csubst ntreeAux ntreeK))
+      (((ntreeAux.iotaRule j q C).type).substC (ntreeRestore.csubst ntreeAux ntreeK))
+
+theorem ntreeAux_ctorsAll_eq :
+    ntreeAux.ctorsAll = [((0 : Nat), ntreeNode), (1, nlistNil), (1, nlistCons)] := rfl
+
+/-- **Obligation (C) at `ntreeAux`, reduced to the nine conversions and nothing else.**  No
+staging hypothesis, no `hσ`, no `Ordered`: the reduction itself is free, and every remaining
+input is a conversion that provably moves. -/
+theorem ntreeAux_iotaRulesRS_wf_of_nine {F : VEnv}
+    (h0 : rIotaComp F 0 0 ntreeNode) (h1 : rIotaComp F 1 1 nlistNil)
+    (h2 : rIotaComp F 2 1 nlistCons) :
+    ∀ df ∈ ntreeAux.iotaRulesRS ntreeRestore ntreeK, VDefEq.WF F df := by
+  refine VEnv.iotaRulesRS_wf_of_components fun q j C hq => ?_
+  rw [ntreeAux_ctorsAll_eq] at hq
+  match q with
+  | 0 => obtain ⟨rfl, rfl⟩ := Prod.mk.injEq .. ▸ Option.some.inj hq; exact h0
+  | 1 => obtain ⟨rfl, rfl⟩ := Prod.mk.injEq .. ▸ Option.some.inj hq; exact h1
+  | 2 => obtain ⟨rfl, rfl⟩ := Prod.mk.injEq .. ▸ Option.some.inj hq; exact h2
+  | (n+3) => simp at hq
+
+end InductiveDeclExamples
 
 end Lean4Lean

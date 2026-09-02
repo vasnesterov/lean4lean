@@ -2727,5 +2727,177 @@ theorem ntree_iota_components_ne :
         VDefEq.rhs p.1 ≠ VDefEq.rhs p.2 := by decide
 
 
+/-! ## §G Obligation (B) at `ntreeAux`, with **no hypotheses left**
+
+`ntreeAux_recConstsR_wf` is hypothetical in the five staging equations, and a derivation whose
+hypotheses are themselves open pays nothing ("hole-free" is not "discharged",
+`docs/vacuity-ledger.md` §0).  `ntree_stage₂_exists` supplies exactly those five, so the two
+compose: (B) at the parameterised nested block holds with nothing assumed.  This is the (B)
+counterpart of `ntreeAux_obligationA`. -/
+
+theorem ntreeAux_obligationB :
+    ∃ env₁ E₁ E₂ F₁ F₂ : VEnv, VEnv.empty.addInduct' listDecl = some env₁ ∧
+      env₁.addIndTypes ntreeAux = some E₁ ∧ E₁.addIndCtors ntreeAux = some E₂ ∧
+      env₁.addConstList (ntreeAux.typeConstsC ntreeK) = some F₁ ∧
+      F₁.addConstList (ntreeAux.ctorConstsCR ntreeRestore ntreeK) = some F₂ ∧
+      ∀ c ∈ ntreeAux.recConstsR ntreeRestore ntreeK, VConstant.WF F₂ c.2 := by
+  obtain ⟨env₁, E₁, E₂, F₁, F₂, h, hE₁, hE₂, hF₁, hF₂⟩ := ntree_stage₂_exists
+  exact ⟨env₁, E₁, E₂, F₁, F₂, h, hE₁, hE₂, hF₁, hF₂,
+    ntreeAux_recConstsR_wf h hE₁ hE₂ hF₁ hF₂⟩
+
+
+/-! ## §H The recursor-type conversion in the form `CSubst.WFD`'s `const` clause asks for
+
+Obligation (C)'s route through `Theory/Inductive/NestedTele.lean` §T16 needs
+`(R.csubst D K).WFD E₃ F₃ D.recUvars` — the ι-rule-stage counterpart of §D.5 — and the clause that
+is *new* at that stage is `const` at **`NTree.rec`**: `E₃` holds it at `ntreeAux.recType 0` and
+`F₃` at `(ntreeAux.recTypeR ntreeRestore 0).substC σ` (measured: `recConstsR` names are
+`[NTree.rec, NTree.rec_1]`, `recConsts` names are `[NTree.rec, _nested.List_1.rec]`, and
+`σ NTree.rec = none` while `σ _nested.List_1.rec ≠ none`).  `ntree_recTypeR_bridge_false_0`
+refutes the strict disjunct, so it must be the defeq one — **at every level instantiation and in
+every context**, which is what `WFD.const` demands.
+
+**That is free from §E, and my first costing of it was wrong.**  I estimated a level-generic
+rewrite of §E (~200 lines); `VEnv.IsDefEq.instL` (`Theory/Typing/Lemmas.lean`) and
+`VEnv.IsDefEq.weak0` do the whole of it: prove the *whole-pi* defeq once at `Γ = []` with the
+levels `.param 0` / `.param 1` §E already uses, then instantiate the levels and weaken the
+context.  Same trap as the `hbridge` costing above: a generalisation assumed to need new
+mathematics, when the transport lemma was already in the tree. -/
+
+section
+variable {F : VEnv}
+variable (hL : F.constants ``List = some ⟨1, listType.type⟩)
+variable (hN : F.constants ``NTree
+  = some ⟨1, .forallE (.sort (.succ (.param 0))) (.sort (.succ (.param 0)))⟩)
+variable (hnil : F.constants ``List.nil = some ⟨1, listNil.type listDecl 0⟩)
+variable (hcons : F.constants ``List.cons = some ⟨1, listCons.type listDecl 0⟩)
+variable (hnode : F.constants ``NTree.node
+  = some ⟨1, (ntreeNode.typeR ntreeAux ntreeRestore 0).substC
+      (ntreeRestore.csubstTy ntreeAux ntreeK)⟩)
+
+/-! ### §H.1 The recursor telescope is a context — the one input `mkPi_congrU` adds over
+`rhbridge` -/
+
+theorem rIsTypeA0 : F.IsType 2 [] rA0 := ⟨_, .sortDF (by decide) (by decide) rfl⟩
+
+include hN in
+theorem rIsTypeA1 : F.IsType 2 [rA0] rA1 :=
+  ⟨_, .forallEDF (.appDF (rNC hN) (.bvar .zero)) (.sortDF rp0_wf rp0_wf rfl)⟩
+
+include hL hN hnil hcons hnode in
+theorem rOnCtx : OnCtx rTele.reverse (F.IsType 2) := by
+  obtain ⟨u3, h3⟩ := rE3 hL hN hnode
+  obtain ⟨u4, h4⟩ := rE4 hL hN hnil
+  obtain ⟨u5, h5⟩ := rE5 hL hN hcons
+  exact ⟨⟨⟨⟨⟨⟨trivial, rIsTypeA0⟩, rIsTypeA1 hN⟩, ⟨_, (rE2 hL hN).hasType.1⟩⟩,
+    ⟨_, h3.hasType.1⟩⟩, ⟨_, h4.hasType.1⟩⟩, ⟨_, h5.hasType.1⟩⟩
+
+/-! ### §H.2 The two whole-pi conversions, at `Γ = []` and at `.param 0`/`.param 1` -/
+
+include hL hN hnil hcons hnode in
+/-- **The restored recursor type is definitionally the stored one**, as a single defeq at a sort.
+`rhbridge`'s two halves glued by `IsDefEq.mkPi_congrU`. -/
+theorem rRecPi0 : ∃ u, F.IsDefEq 2 []
+    ((ntreeAux.recTypeR ntreeRestore 0).substC (ntreeRestore.csubst ntreeAux ntreeK))
+    ((ntreeAux.recType 0).substC (ntreeRestore.csubst ntreeAux ntreeK)) (.sort u) := by
+  obtain ⟨u, h⟩ := VEnv.IsDefEq.mkPi_congrU (rTeleDefEq hL hN hnil hcons hnode)
+    (by simpa using rOnCtx hL hN hnil hcons hnode) (rB0 hN)
+  exact ⟨u, rrecType_eq_0 ▸ rrecTypeR_eq_0 ▸ h.symm⟩
+
+include hL hN hnil hcons hnode in
+/-- …and at the **companion** recursor, which is the one the `val` clause of `WFD` needs at
+`_nested.List_1.rec ↦ NTree.rec_1`. -/
+theorem rRecPi1 : ∃ u, F.IsDefEq 2 []
+    ((ntreeAux.recTypeR ntreeRestore 1).substC (ntreeRestore.csubst ntreeAux ntreeK))
+    ((ntreeAux.recType 1).substC (ntreeRestore.csubst ntreeAux ntreeK)) (.sort u) := by
+  obtain ⟨u, h⟩ := VEnv.IsDefEq.mkPi_congrU (rTeleDefEq hL hN hnil hcons hnode)
+    (by simpa using rOnCtx hL hN hnil hcons hnode) (rB1 hL hN)
+  exact ⟨u, rrecType_eq_1 ▸ rrecTypeR_eq_1 ▸ h.symm⟩
+
+/-! ### §H.3 …in the exact shape `CSubst.WFD.const` asks for -/
+
+include hL hN hnil hcons hnode in
+/-- **The `const` clause's defeq disjunct at `NTree.rec`, level- and context-generic.**  Free from
+§H.2 by `IsDefEq.instL` and `IsDefEq.weak0`; no new conversion content. -/
+theorem rRecConstClause0 (henv : F.Ordered) {U : Nat} :
+    ∀ {Γ : List VExpr} {ls : List VLevel}, (∀ l ∈ ls, l.WF U) → ls.length = 2 →
+      ∃ v, F.IsDefEq U Γ
+        (((ntreeAux.recTypeR ntreeRestore 0).substC
+          (ntreeRestore.csubst ntreeAux ntreeK)).instL ls)
+        (((ntreeAux.recType 0).substC (ntreeRestore.csubst ntreeAux ntreeK)).instL ls)
+        (.sort v) := by
+  intro Γ ls hls _
+  obtain ⟨u, h⟩ := rRecPi0 hL hN hnil hcons hnode
+  obtain ⟨v, h2⟩ : ∃ v, F.IsDefEq U []
+      (((ntreeAux.recTypeR ntreeRestore 0).substC
+        (ntreeRestore.csubst ntreeAux ntreeK)).instL ls)
+      (((ntreeAux.recType 0).substC (ntreeRestore.csubst ntreeAux ntreeK)).instL ls)
+      (.sort v) := ⟨_, h.instL hls⟩
+  exact ⟨v, h2.weak0 henv⟩
+
+include hL hN hnil hcons hnode in
+theorem rRecConstClause1 (henv : F.Ordered) {U : Nat} :
+    ∀ {Γ : List VExpr} {ls : List VLevel}, (∀ l ∈ ls, l.WF U) → ls.length = 2 →
+      ∃ v, F.IsDefEq U Γ
+        (((ntreeAux.recTypeR ntreeRestore 1).substC
+          (ntreeRestore.csubst ntreeAux ntreeK)).instL ls)
+        (((ntreeAux.recType 1).substC (ntreeRestore.csubst ntreeAux ntreeK)).instL ls)
+        (.sort v) := by
+  intro Γ ls hls _
+  obtain ⟨u, h⟩ := rRecPi1 hL hN hnil hcons hnode
+  obtain ⟨v, h2⟩ : ∃ v, F.IsDefEq U []
+      (((ntreeAux.recTypeR ntreeRestore 1).substC
+        (ntreeRestore.csubst ntreeAux ntreeK)).instL ls)
+      (((ntreeAux.recType 1).substC (ntreeRestore.csubst ntreeAux ntreeK)).instL ls)
+      (.sort v) := ⟨_, h.instL hls⟩
+  exact ⟨v, h2.weak0 henv⟩
+
+/-! ### §H.4 …and the `val` clause's datum at the companion recursor
+
+The one clause that is *new* at the ι-rule stage on the `val` side: at stage 2 the case
+`_nested.List_1.rec` is discharged by `exfalso` (the constant is not yet in `E₂`), and at stage 3
+it is a real obligation.  `σ` sends it to `NTree.rec_1`, so the datum is `constDF` at the renamed
+recursor followed by one `defeqDF` along §H.3 — no new conversion content beyond §E. -/
+
+include hL hN hnil hcons hnode in
+theorem rNestedRecVal (henv : F.Ordered)
+    (hrec1 : F.constants ``NTree.rec_1 = some
+      ⟨2, (ntreeAux.recTypeR ntreeRestore 1).substC (ntreeRestore.csubst ntreeAux ntreeK)⟩)
+    {U : Nat} {Γ : List VExpr} {ls ls' : List VLevel}
+    (hls : ∀ l ∈ ls, l.WF U) (hls' : ∀ l ∈ ls', l.WF U)
+    (hll : List.Forall₂ (· ≈ ·) ls ls') (hlen : ls.length = 2) :
+    F.IsDefEq U Γ
+      ((VExpr.const ``NTree.rec_1 [.param 0, .param 1]).instL ls)
+      ((VExpr.const ``NTree.rec_1 [.param 0, .param 1]).instL ls')
+      (((ntreeAux.recType 1).substC (ntreeRestore.csubst ntreeAux ntreeK)).instL ls) := by
+  obtain ⟨v, hv⟩ := rRecConstClause1 hL hN hnil hcons hnode henv (U := U) (Γ := Γ) hls hlen
+  have hlen' : ls'.length = 2 := List.Forall₂.length_eq hll ▸ hlen
+  match ls, ls', hlen, hlen', hls, hls', hll, hv with
+  | [_, _], [_, _], _, _, hls, hls', hll, hv =>
+    exact hv.defeqDF (.constDF hrec1 hls hls' rfl hll)
+
+end
+
+/-! ### §H.5 Anti-vacuity: `hrec1` and the `const`-clause pairing are what the step really declares
+
+Both by `rfl`.  The left-hand sides are the lists `VEnv.addIndRecs` and `VEnv.addConstListR` fold
+at stage 3, so §H.3's `const` clause and §H.4's `hrec1` are about the two environments the nested
+step actually builds — not a convenient pair.  Note the asymmetry they exhibit: `recConsts` carries
+the **companion's own** recursor name `_nested.List_1.rec`, `recConstsR` carries the **renamed**
+`NTree.rec_1`, and the *first* entry has the same name on both sides with different types.  That is
+precisely why `NTree.rec` needs the `const` clause's defeq disjunct while `_nested.List_1.rec`
+needs the `val` clause. -/
+
+theorem ntree_recConstsR_eq : ntreeAux.recConstsR ntreeRestore ntreeK
+    = [(``NTree.rec, ⟨2, (ntreeAux.recTypeR ntreeRestore 0).substC
+          (ntreeRestore.csubst ntreeAux ntreeK)⟩),
+       (``NTree.rec_1, ⟨2, (ntreeAux.recTypeR ntreeRestore 1).substC
+          (ntreeRestore.csubst ntreeAux ntreeK)⟩)] := rfl
+
+theorem ntree_recConsts_eq : ntreeAux.recConsts
+    = [(``NTree.rec, ⟨2, ntreeAux.recType 0⟩),
+       (`_nested.List_1.rec, ⟨2, ntreeAux.recType 1⟩)] := rfl
+
+
 end InductiveDeclExamples
 end Lean4Lean
