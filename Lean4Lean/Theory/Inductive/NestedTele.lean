@@ -2148,6 +2148,113 @@ theorem VEnv.recConstsR_wf_of_entries {E₂ e₂ : VEnv} {D : VInductDecl'} {R :
       exact hmin q t C hq))
     hbody
 
+/-! ### §T15.3a …and the same two closures over `CSubst.WFD`
+
+`Theory/Typing/ConstSubstNested.lean` §B proves that the `hσ` of `recConstsR_wf_of_blocks` and
+`recConstsR_wf_of_entries` — `(R.csubst D K).WF E₂ e₂ D.recUvars` between the two staging
+environments `VEnv.addInductR_ordered'` fixes — is **false** at every parameterised block, because
+`CSubst.WF.const` *is* obligation (A)'s refuted syntactic bridge.  So both closures above, and
+`recConstsR_wf_of_substC'` itself, are vacuous *in `hσ`* at `D.np ≥ 1`, however non-vacuous their
+`hbridge` is (§A.1 audited only the latter).
+
+These two are the same statements with `hσ` weakened to `CSubst.WFD`, which is what
+`ntree_csubst_WFD₂` actually proves at a parameterised block.  Nothing else changes: the proofs are
+the originals with `recConstsR_wf_of_substCD'` in place of `recConstsR_wf_of_substC'`, and
+`CSubst.WF.wfd` makes every `D.np = 0` instance carry over unchanged.  This is §32 item 1 of
+`docs/handoff-iota-stored.md`, executed. -/
+
+theorem VEnv.recConstsR_wf_of_blocksD {E₂ e₂ : VEnv} {D : VInductDecl'} {R : VIndRestore}
+    {K : List Name}
+    (hsrc : ∀ c ∈ D.recConsts, VConstant.WF E₂ c.2)
+    (hσ : (R.csubst D K).WFD E₂ e₂ D.recUvars) (he₂ : e₂.Ordered)
+    (hM : e₂.TeleDefEq D.recUvars
+      (((D.atRecTele D.params).map (VExpr.substC · (R.csubst D K))).reverse)
+      (D.motives.map (VExpr.substC · (R.csubst D K)))
+      ((D.motivesR R).map (VExpr.substC · (R.csubst D K))))
+    (hQ : e₂.TeleDefEq D.recUvars
+      ((D.motives.map (VExpr.substC · (R.csubst D K))).reverse
+        ++ ((D.atRecTele D.params).map (VExpr.substC · (R.csubst D K))).reverse)
+      (D.minors.map (VExpr.substC · (R.csubst D K)))
+      ((D.minorsR R).map (VExpr.substC · (R.csubst D K))))
+    (hbody : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → ∃ v : VLevel,
+      e₂.IsDefEq D.recUvars
+        (((D.atRecTele D.params ++ D.motives ++ D.minors ++
+            VExpr.liftTele (D.nm + D.nmin) (D.atRecTele T.indices)).map
+            (VExpr.substC · (R.csubst D K))).reverse)
+        ((VExpr.forallE (D.tyApp' j (T.indices.length + D.nmin + D.nm)
+              (VExpr.bvars 0 T.indices.length))
+            ((VExpr.bvar (1 + T.indices.length + D.nmin + (D.nm - 1 - j))).mkApp
+              (VExpr.bvars 1 T.indices.length ++ [.bvar 0]))).substC (R.csubst D K))
+        ((VExpr.forallE (D.tyAppR' R j (T.indices.length + D.nmin + D.nm)
+              (VExpr.bvars 0 T.indices.length))
+            ((VExpr.bvar (1 + T.indices.length + D.nmin + (D.nm - 1 - j))).mkApp
+              (VExpr.bvars 1 T.indices.length ++ [.bvar 0]))).substC (R.csubst D K)) (.sort v)) :
+    ∀ c ∈ D.recConstsR R K, VConstant.WF e₂ c.2 := by
+  refine VEnv.recConstsR_wf_of_substCD' hsrc hσ he₂ fun j T hT => ?_
+  have hg : D.types.getD j default = T := VInductDecl'.getD_types hT
+  obtain ⟨v, hv⟩ := hbody j T hT
+  refine ⟨_, _, _, _, v, ?_, ?_,
+    VInductDecl'.recTypeTele_teleDefEq_of_blocks hM hQ, hv⟩
+  · simp only [VInductDecl'.recType, hg, VExpr.substC_mkPi]
+  · simp only [VInductDecl'.recTypeR, hg, VExpr.substC_mkPi]
+
+/-- …and entrywise, which is the form §T5's and §T6's entry defeqs deliver. -/
+theorem VEnv.recConstsR_wf_of_entriesD {E₂ e₂ : VEnv} {D : VInductDecl'} {R : VIndRestore}
+    {K : List Name}
+    (hsrc : ∀ c ∈ D.recConsts, VConstant.WF E₂ c.2)
+    (hσ : (R.csubst D K).WFD E₂ e₂ D.recUvars) (he₂ : e₂.Ordered)
+    (hmot : ∀ t : Nat, t < D.nm → ∃ u, e₂.IsDefEq D.recUvars
+      (((D.motives.map (VExpr.substC · (R.csubst D K))).take t).reverse
+        ++ ((D.atRecTele D.params).map (VExpr.substC · (R.csubst D K))).reverse)
+      ((D.motiveType t).substC (R.csubst D K))
+      ((D.motiveTypeR R t).substC (R.csubst D K)) (.sort u))
+    (hmin : ∀ (q t : Nat) (C : VIndCtor), D.ctorsAll[q]? = some (t, C) → ∃ u,
+      e₂.IsDefEq D.recUvars
+        (((D.minors.map (VExpr.substC · (R.csubst D K))).take q).reverse
+          ++ ((D.motives.map (VExpr.substC · (R.csubst D K))).reverse
+            ++ ((D.atRecTele D.params).map (VExpr.substC · (R.csubst D K))).reverse))
+        ((D.minorType q t C).substC (R.csubst D K))
+        ((D.minorTypeR R q t C).substC (R.csubst D K)) (.sort u))
+    (hbody : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → ∃ v : VLevel,
+      e₂.IsDefEq D.recUvars
+        (((D.atRecTele D.params ++ D.motives ++ D.minors ++
+            VExpr.liftTele (D.nm + D.nmin) (D.atRecTele T.indices)).map
+            (VExpr.substC · (R.csubst D K))).reverse)
+        ((VExpr.forallE (D.tyApp' j (T.indices.length + D.nmin + D.nm)
+              (VExpr.bvars 0 T.indices.length))
+            ((VExpr.bvar (1 + T.indices.length + D.nmin + (D.nm - 1 - j))).mkApp
+              (VExpr.bvars 1 T.indices.length ++ [.bvar 0]))).substC (R.csubst D K))
+        ((VExpr.forallE (D.tyAppR' R j (T.indices.length + D.nmin + D.nm)
+              (VExpr.bvars 0 T.indices.length))
+            ((VExpr.bvar (1 + T.indices.length + D.nmin + (D.nm - 1 - j))).mkApp
+              (VExpr.bvars 1 T.indices.length ++ [.bvar 0]))).substC (R.csubst D K)) (.sort v)) :
+    ∀ c ∈ D.recConstsR R K, VConstant.WF e₂ c.2 :=
+  VEnv.recConstsR_wf_of_blocksD hsrc hσ he₂
+    (VEnv.TeleDefEq.of_entries (by simp) (by
+      intro i A A' hA hA'
+      rw [List.getElem?_map] at hA hA'
+      obtain ⟨B, hB, rfl⟩ := Option.map_eq_some_iff.1 hA
+      obtain ⟨B', hB', rfl⟩ := Option.map_eq_some_iff.1 hA'
+      have hi : i < D.nm := by
+        have := List.getElem?_eq_some_iff.1 hB; simpa using this.1
+      rw [VInductDecl'.motives, List.getElem?_map, List.getElem?_range hi] at hB
+      rw [VInductDecl'.motivesR, List.getElem?_map, List.getElem?_range hi] at hB'
+      cases hB; cases hB'
+      exact hmot i hi))
+    (VEnv.TeleDefEq.of_entries (by simp) (by
+      intro q A A' hA hA'
+      rw [List.getElem?_map] at hA hA'
+      obtain ⟨B, hB, rfl⟩ := Option.map_eq_some_iff.1 hA
+      obtain ⟨B', hB', rfl⟩ := Option.map_eq_some_iff.1 hA'
+      rw [VInductDecl'.minors_getElem?] at hB
+      rw [VInductDecl'.minorsR_getElem?] at hB'
+      obtain ⟨⟨t, C⟩, hq, rfl⟩ := Option.map_eq_some_iff.1 hB
+      obtain ⟨⟨t', C'⟩, hq', rfl⟩ := Option.map_eq_some_iff.1 hB'
+      rw [hq] at hq'
+      cases hq'
+      exact hmin q t C hq))
+    hbody
+
 /-! ### §T15.4 Obligation (C), off `np = 0`
 
 (C) is the same assembly one telescope over, with two differences.

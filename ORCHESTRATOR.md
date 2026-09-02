@@ -40,7 +40,14 @@ because it had been editing as it went; the other left **nothing at all** — it
 
 So brief every stream to **write incrementally**: land each proved lemma in its file as it is
 proved, and write the handoff section by section rather than composing it at the end. A crash then
-costs the last step instead of the round. This also makes a partial result inspectable, which is
+costs the last step instead of the round.
+
+**Confirmed by a controlled repeat.** A third stream crashed the same way, on the same task as the
+second, with the same last words ("Now let me write the handoff section") — but this one had been
+briefed to write incrementally, and **503 green lines survived** (396 in `ConstSubstNested.lean`,
+107 in `NestedTele.lean`, building clean at 69 jobs) where its predecessor on that identical task
+had left nothing at all. Same task, same crash, same failure point, opposite outcome: the
+instruction is worth the line it costs in every brief. This also makes a partial result inspectable, which is
 what let me recover the `fieldB` work by building its modules myself.
 
 Two related habits from the same pair of failures:

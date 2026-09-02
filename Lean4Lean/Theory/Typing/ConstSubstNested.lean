@@ -2331,5 +2331,401 @@ theorem ntreeAux_recConstsR_wf_of_bridge
 
 end
 
+/-! ## §E `hbridge` at the parameterised witness — obligation (B) DISCHARGED at `ntreeAux`
+
+§D reduced obligation (B) at `ntreeAux` to `hbridge` alone
+(`ntreeAux_recConstsR_wf_of_bridge`).  This section **proves** `hbridge`, so (B) holds outright
+at a parameterised nested block.
+
+What `hbridge` asks for is a `mkPi` decomposition of each side plus a `VEnv.TeleDefEq` and a body
+defeq.  At `ntreeAux` the two substituted telescopes are
+
+    A₀ = Sort (u+1)                                          -- the parameter α
+    A₁ = Π (NTree.{u} #0), Sort v                             -- motive for `NTree`
+    A₂ = Π ((λ α, List.{u} (NTree.{u} α)) #1), Sort v         -- motive for the companion
+    A₃ = the `NTree.node` minor
+    A₄ = the `List.nil` minor
+    A₅ = the `List.cons` minor
+
+against the same list with each `(λ α, c.{u} (NTree.{u} α)) #k` β-contracted to
+`c.{u} (NTree.{u} #k)`, for `c ∈ {List, List.nil, List.cons}`.  Entries `A₀`/`A₁` do not move
+(`VEnv.TeleDefEq.rfl`, free); the other four do, and each moves by **exactly one β step** —
+`rbetaL`/`rbetaNil`/`rbetaCons` below.  The body moves at `j = 1` and not at `j = 0`, because the
+major premise of `NTree.rec_1` is a companion application and that of `NTree.rec` is not.
+
+Everything is at `U = ntreeAux.recUvars = 2`: the block's own universe is `.param 1` (the
+recursor's numbering, `ntreeAux.selfLvls = [.param 1]`) and `.param 0` is the fresh elimination
+universe.  That is why §D.3's helpers, which are at `U = 1` and `.param 0`, are not reused. -/
+
+
+def rV : VExpr := .lam (.sort (.succ (.param 1)))
+  (.app (.const ``List [.param 1]) (.app (.const ``NTree [.param 1]) (.bvar 0)))
+def rVnil : VExpr := .lam (.sort (.succ (.param 1)))
+  (.app (.const ``List.nil [.param 1]) (.app (.const ``NTree [.param 1]) (.bvar 0)))
+def rVcons : VExpr := .lam (.sort (.succ (.param 1)))
+  (.app (.const ``List.cons [.param 1]) (.app (.const ``NTree [.param 1]) (.bvar 0)))
+
+section
+variable {F : VEnv}
+variable (hL : F.constants ``List = some ⟨1, listType.type⟩)
+variable (hN : F.constants ``NTree
+  = some ⟨1, .forallE (.sort (.succ (.param 0))) (.sort (.succ (.param 0)))⟩)
+variable (hnil : F.constants ``List.nil = some ⟨1, listNil.type listDecl 0⟩)
+variable (hcons : F.constants ``List.cons = some ⟨1, listCons.type listDecl 0⟩)
+variable (hnode : F.constants ``NTree.node
+  = some ⟨1, (ntreeNode.typeR ntreeAux ntreeRestore 0).substC
+      (ntreeRestore.csubstTy ntreeAux ntreeK)⟩)
+
+theorem ntree_p1_wf : ∀ l ∈ [(VLevel.param 1)], VLevel.WF 2 l := by
+  intro l hl; simp only [List.mem_cons, List.not_mem_nil, or_false] at hl
+  exact hl ▸ (by decide)
+
+include hN in
+theorem rNC {Γ : List VExpr} : F.IsDefEq 2 Γ (.const ``NTree [.param 1])
+    (.const ``NTree [.param 1])
+    (.forallE (.sort (.succ (.param 1))) (.sort (.succ (.param 1)))) :=
+  .constDF hN ntree_p1_wf ntree_p1_wf rfl (.cons rfl .nil)
+
+include hL in
+theorem rLC {Γ : List VExpr} : F.IsDefEq 2 Γ (.const ``List [.param 1])
+    (.const ``List [.param 1])
+    (.forallE (.sort (.succ (.param 1))) (.sort (.succ (.param 1)))) :=
+  .constDF hL ntree_p1_wf ntree_p1_wf rfl (.cons rfl .nil)
+
+include hnil in
+theorem rNilC {Γ : List VExpr} : F.IsDefEq 2 Γ (.const ``List.nil [.param 1])
+    (.const ``List.nil [.param 1])
+    (.forallE (.sort (.succ (.param 1))) (.app (.const ``List [.param 1]) (.bvar 0))) :=
+  .constDF hnil ntree_p1_wf ntree_p1_wf rfl (.cons rfl .nil)
+
+include hcons in
+theorem rConsC {Γ : List VExpr} : F.IsDefEq 2 Γ (.const ``List.cons [.param 1])
+    (.const ``List.cons [.param 1])
+    (.forallE (.sort (.succ (.param 1)))
+      (.forallE (.bvar 0)
+        (.forallE (.app (.const ``List [.param 1]) (.bvar 1))
+          (.app (.const ``List [.param 1]) (.bvar 2))))) :=
+  .constDF hcons ntree_p1_wf ntree_p1_wf rfl (.cons rfl .nil)
+
+include hnode in
+theorem rNodeC {Γ : List VExpr} : F.IsDefEq 2 Γ (.const ``NTree.node [.param 1])
+    (.const ``NTree.node [.param 1])
+    (.forallE (.sort (.succ (.param 1)))
+      (.forallE (.bvar 0)
+        (.forallE (.app (.const ``List [.param 1])
+            (.app (.const ``NTree [.param 1]) (.bvar 1)))
+          (.app (.const ``NTree [.param 1]) (.bvar 2))))) :=
+  .constDF hnode ntree_p1_wf ntree_p1_wf rfl (.cons rfl .nil)
+
+/-! ### The three β-steps -/
+
+include hL hN in
+theorem rbetaL {Γ : List VExpr} {k : Nat} (hk : Lookup Γ k (.sort (.succ (.param 1)))) :
+    F.IsDefEq 2 Γ (.app rV (.bvar k))
+      (.app (.const ``List [.param 1]) (.app (.const ``NTree [.param 1]) (.bvar k)))
+      (.sort (.succ (.param 1))) := by
+  have h := VEnv.IsDefEq.beta (env := F) (uvars := 2) (Γ := Γ)
+    (A := .sort (.succ (.param 1))) (B := .sort (.succ (.param 1)))
+    (.appDF (rLC hL) (.appDF (rNC hN) (.bvar .zero))) (.bvar hk)
+  simpa [rV, VExpr.inst] using h
+
+include hN hnil in
+theorem rbetaNil {Γ : List VExpr} {k : Nat} (hk : Lookup Γ k (.sort (.succ (.param 1)))) :
+    F.IsDefEq 2 Γ (.app rVnil (.bvar k))
+      (.app (.const ``List.nil [.param 1]) (.app (.const ``NTree [.param 1]) (.bvar k)))
+      (.app (.const ``List [.param 1]) (.app (.const ``NTree [.param 1]) (.bvar k))) := by
+  have h := VEnv.IsDefEq.beta (env := F) (uvars := 2) (Γ := Γ)
+    (A := .sort (.succ (.param 1)))
+    (e := .app (.const ``List.nil [.param 1]) (.app (.const ``NTree [.param 1]) (.bvar 0)))
+    (.appDF (rNilC hnil) (.appDF (rNC hN) (.bvar .zero))) (.bvar hk)
+  simpa [rVnil, VExpr.inst] using h
+
+include hN hcons in
+theorem rbetaCons {Γ : List VExpr} {k : Nat} (hk : Lookup Γ k (.sort (.succ (.param 1)))) :
+    F.IsDefEq 2 Γ (.app rVcons (.bvar k))
+      (.app (.const ``List.cons [.param 1]) (.app (.const ``NTree [.param 1]) (.bvar k)))
+      (.forallE (.app (.const ``NTree [.param 1]) (.bvar k))
+        (.forallE (.app (.const ``List [.param 1])
+            (.app (.const ``NTree [.param 1]) (.bvar (k+1))))
+          (.app (.const ``List [.param 1])
+            (.app (.const ``NTree [.param 1]) (.bvar (k+2)))))) := by
+  have h := VEnv.IsDefEq.beta (env := F) (uvars := 2) (Γ := Γ)
+    (A := .sort (.succ (.param 1)))
+    (e := .app (.const ``List.cons [.param 1]) (.app (.const ``NTree [.param 1]) (.bvar 0)))
+    (.appDF (rConsC hcons) (.appDF (rNC hN) (.bvar .zero))) (.bvar hk)
+  have e2 : 1 + (k + 1) = k + 2 := by omega
+  simpa [rVcons, VExpr.inst, VExpr.lift, VExpr.liftN, e2] using h
+
+end
+
+/-! ### §E.1 The two substituted telescopes, written out -/
+
+def rNt : VExpr := .const ``NTree [.param 1]
+def rLt : VExpr := .const ``List [.param 1]
+
+def rA0 : VExpr := .sort (.succ (.param 1))
+def rA1 : VExpr := .forallE (.app rNt (.bvar 0)) (.sort (.param 0))
+def rA2 : VExpr := .forallE (.app rV (.bvar 1)) (.sort (.param 0))
+def rA2' : VExpr := .forallE (.app rLt (.app rNt (.bvar 1))) (.sort (.param 0))
+def rA3 : VExpr :=
+  .forallE (.bvar 2) (.forallE (.app rV (.bvar 3)) (.forallE (.app (.bvar 2) (.bvar 0))
+    (.app (.bvar 4) (.app (.app (.app (.const ``NTree.node [.param 1]) (.bvar 5)) (.bvar 2))
+      (.bvar 1)))))
+def rA3' : VExpr :=
+  .forallE (.bvar 2) (.forallE (.app rLt (.app rNt (.bvar 3)))
+    (.forallE (.app (.bvar 2) (.bvar 0))
+      (.app (.bvar 4) (.app (.app (.app (.const ``NTree.node [.param 1]) (.bvar 5)) (.bvar 2))
+        (.bvar 1)))))
+def rA4 : VExpr := .app (.bvar 1) (.app rVnil (.bvar 3))
+def rA4' : VExpr := .app (.bvar 1) (.app (.const ``List.nil [.param 1]) (.app rNt (.bvar 3)))
+def rA5 : VExpr :=
+  .forallE (.app rNt (.bvar 4)) (.forallE (.app rV (.bvar 5))
+    (.forallE (.app (.bvar 5) (.bvar 1)) (.forallE (.app (.bvar 5) (.bvar 1))
+      (.app (.bvar 6) (.app (.app (.app rVcons (.bvar 8)) (.bvar 3)) (.bvar 2))))))
+def rA5' : VExpr :=
+  .forallE (.app rNt (.bvar 4)) (.forallE (.app rLt (.app rNt (.bvar 5)))
+    (.forallE (.app (.bvar 5) (.bvar 1)) (.forallE (.app (.bvar 5) (.bvar 1))
+      (.app (.bvar 6) (.app (.app (.app (.const ``List.cons [.param 1]) (.app rNt (.bvar 8)))
+        (.bvar 3)) (.bvar 2))))))
+
+def rTele : List VExpr := [rA0, rA1, rA2, rA3, rA4, rA5]
+def rTeleR : List VExpr := [rA0, rA1, rA2', rA3', rA4', rA5']
+
+def rBody0 : VExpr := .forallE (.app rNt (.bvar 5)) (.app (.bvar 5) (.bvar 0))
+def rBody1 : VExpr := .forallE (.app rV (.bvar 5)) (.app (.bvar 4) (.bvar 0))
+def rBody1' : VExpr := .forallE (.app rLt (.app rNt (.bvar 5))) (.app (.bvar 4) (.bvar 0))
+
+/-- The decompositions `hbridge` asks for, both `rfl`. -/
+theorem rrecType_eq_0 :
+    (ntreeAux.recType 0).substC (ntreeRestore.csubst ntreeAux ntreeK)
+      = VExpr.mkPi rTele rBody0 := rfl
+theorem rrecType_eq_1 :
+    (ntreeAux.recType 1).substC (ntreeRestore.csubst ntreeAux ntreeK)
+      = VExpr.mkPi rTele rBody1 := rfl
+theorem rrecTypeR_eq_0 :
+    (ntreeAux.recTypeR ntreeRestore 0).substC (ntreeRestore.csubst ntreeAux ntreeK)
+      = VExpr.mkPi rTeleR rBody0 := rfl
+theorem rrecTypeR_eq_1 :
+    (ntreeAux.recTypeR ntreeRestore 1).substC (ntreeRestore.csubst ntreeAux ntreeK)
+      = VExpr.mkPi rTeleR rBody1' := rfl
+
+
+section
+variable {F : VEnv}
+variable (hL : F.constants ``List = some ⟨1, listType.type⟩)
+variable (hN : F.constants ``NTree
+  = some ⟨1, .forallE (.sort (.succ (.param 0))) (.sort (.succ (.param 0)))⟩)
+variable (hnil : F.constants ``List.nil = some ⟨1, listNil.type listDecl 0⟩)
+variable (hcons : F.constants ``List.cons = some ⟨1, listCons.type listDecl 0⟩)
+variable (hnode : F.constants ``NTree.node
+  = some ⟨1, (ntreeNode.typeR ntreeAux ntreeRestore 0).substC
+      (ntreeRestore.csubstTy ntreeAux ntreeK)⟩)
+
+theorem rp0_wf : VLevel.WF 2 (.param 0) := by decide
+theorem rp1_wf : VLevel.WF 2 (.param 1) := by decide
+
+include hL hN in
+theorem rE2 : F.IsDefEq 2 [rA1, rA0] rA2 rA2'
+    (.sort (.imax (.succ (.param 1)) (.succ (.param 0)))) :=
+  .forallEDF (rbetaL hL hN (Γ := [rA1, rA0]) (k := 1) (.succ .zero))
+    (.sortDF rp0_wf rp0_wf rfl)
+
+include hL hN hnode in
+theorem rE3 : ∃ u, F.IsDefEq 2 [rA2, rA1, rA0] rA3 rA3' (.sort u) := by
+  refine ⟨_, .forallEDF (.bvar (show Lookup [rA2, rA1, rA0] 2 (.sort (.succ (.param 1))) from
+      .succ (.succ .zero)))
+    (.forallEDF (rbetaL hL hN (k := 3) (.succ (.succ (.succ .zero))))
+      (.forallEDF (v := .param 0) (.appDF (B := .sort (.param 0))
+        (.bvar (.succ (.succ .zero))) (.bvar .zero)) ?_))⟩
+  refine .appDF (.bvar (show Lookup _ 4 (.forallE (.app rNt (.bvar 5)) (.sort (.param 0))) from
+      .succ (.succ (.succ (.succ .zero)))))
+    (.appDF (.appDF (.appDF (rNodeC hnode)
+        (.bvar (show Lookup _ 5 (.sort (.succ (.param 1))) from
+          .succ (.succ (.succ (.succ (.succ .zero))))))) (.bvar (.succ (.succ .zero))))
+      (.defeqDF (rbetaL hL hN (k := 5)
+        (.succ (.succ (.succ (.succ (.succ .zero)))))) (.bvar (.succ .zero))))
+
+include hL hN hnil in
+theorem rE4 : ∃ u, F.IsDefEq 2 [rA3, rA2, rA1, rA0] rA4 rA4' (.sort u) :=
+  ⟨_, .appDF (.bvar (show Lookup [rA3, rA2, rA1, rA0] 1
+      (.forallE (.app rV (.bvar 3)) (.sort (.param 0))) from .succ .zero))
+    (.defeqDF (.symm (rbetaL hL hN (k := 3) (.succ (.succ (.succ .zero)))))
+      (rbetaNil hN hnil (k := 3) (.succ (.succ (.succ .zero)))))⟩
+
+include hL hN hcons in
+theorem rE5 : ∃ u, F.IsDefEq 2 [rA4, rA3, rA2, rA1, rA0] rA5 rA5' (.sort u) := by
+  refine ⟨_, .forallEDF (.appDF (rNC hN) (.bvar (show Lookup [rA4, rA3, rA2, rA1, rA0] 4
+      (.sort (.succ (.param 1))) from .succ (.succ (.succ (.succ .zero))))))
+    (.forallEDF (rbetaL hL hN (k := 5) (.succ (.succ (.succ (.succ (.succ .zero))))))
+      (.forallEDF (.appDF (B := .sort (.param 0))
+          (.bvar (.succ (.succ (.succ (.succ (.succ .zero)))))) (.bvar (.succ .zero)))
+        (.forallEDF (v := .param 0) (.appDF (B := .sort (.param 0))
+            (.bvar (.succ (.succ (.succ (.succ (.succ .zero)))))) (.bvar (.succ .zero))) ?_)))⟩
+  refine .appDF (.bvar (show Lookup _ 6 (.forallE (.app rV (.bvar 8)) (.sort (.param 0))) from
+      .succ (.succ (.succ (.succ (.succ (.succ .zero)))))))
+    (.defeqDF (.symm (rbetaL hL hN (k := 8) ?hk8))
+      (.appDF (.appDF (rbetaCons hN hcons (k := 8) ?hk8) (.bvar (.succ (.succ (.succ .zero)))))
+        (.defeqDF (rbetaL hL hN (k := 8) ?hk8) (.bvar (.succ (.succ .zero))))))
+  case hk8 => exact .succ (.succ (.succ (.succ (.succ (.succ (.succ (.succ .zero)))))))
+
+/-! ### The body defeqs -/
+
+include hN in
+theorem rB0 : ∃ v, F.IsDefEq 2 rTele.reverse rBody0 rBody0 (.sort v) :=
+  ⟨_, .forallEDF (.appDF (rNC hN) (.bvar (show Lookup rTele.reverse 5
+      (.sort (.succ (.param 1))) from .succ (.succ (.succ (.succ (.succ .zero)))))))
+    (.appDF (B := .sort (.param 0))
+      (.bvar (.succ (.succ (.succ (.succ (.succ .zero)))))) (.bvar .zero))⟩
+
+include hL hN in
+theorem rB1 : ∃ v, F.IsDefEq 2 rTele.reverse rBody1 rBody1' (.sort v) :=
+  ⟨_, .forallEDF (rbetaL hL hN (k := 5)
+      (show Lookup rTele.reverse 5 (.sort (.succ (.param 1))) from
+        .succ (.succ (.succ (.succ (.succ .zero))))))
+    (.appDF (B := .sort (.param 0))
+      (.bvar (.succ (.succ (.succ (.succ .zero))))) (.bvar .zero))⟩
+
+/-! ### The telescope defeq and `hbridge` -/
+
+include hL hN hnil hcons hnode in
+theorem rTeleDefEq : F.TeleDefEq 2 [] rTele rTeleR := by
+  obtain ⟨u2, h2⟩ : ∃ u, F.IsDefEq 2 [rA1, rA0] rA2 rA2' (.sort u) := ⟨_, rE2 hL hN⟩
+  obtain ⟨u3, h3⟩ := rE3 hL hN hnode
+  obtain ⟨u4, h4⟩ := rE4 hL hN hnil
+  obtain ⟨u5, h5⟩ := rE5 hL hN hcons
+  exact .rfl (.rfl (.cons h2 (.cons h3 (.cons h4 (.cons h5 .nil)))))
+
+include hL hN hnil hcons hnode in
+/-- **`hbridge` at `ntreeAux`, proved.**  Both recursors of the parameterised nested block. -/
+theorem rhbridge : ∀ (j : Nat) (T : VIndType), ntreeAux.types[j]? = some T →
+    ∃ (As As' : List VExpr) (B B' : VExpr) (v : VLevel),
+      (ntreeAux.recType j).substC (ntreeRestore.csubst ntreeAux ntreeK) = VExpr.mkPi As B ∧
+      (ntreeAux.recTypeR ntreeRestore j).substC (ntreeRestore.csubst ntreeAux ntreeK)
+        = VExpr.mkPi As' B' ∧
+      F.TeleDefEq ntreeAux.recUvars [] As As' ∧
+      F.IsDefEq ntreeAux.recUvars As.reverse B B' (.sort v) := by
+  have htd := rTeleDefEq hL hN hnil hcons hnode
+  rintro (_ | _ | j) T hT
+  · obtain ⟨v, hv⟩ := rB0 hN
+    exact ⟨rTele, rTeleR, rBody0, rBody0, v, rrecType_eq_0, rrecTypeR_eq_0, htd, hv⟩
+  · obtain ⟨v, hv⟩ := rB1 hL hN
+    exact ⟨rTele, rTeleR, rBody1, rBody1', v, rrecType_eq_1, rrecTypeR_eq_1, htd, hv⟩
+  · simp [ntreeAux] at hT
+
+end
+
+/-! ### §E.5 Anti-vacuity: the bridge carries genuine conversion content
+
+`docs/vacuity-ledger.md` §5.  Four of the six telescope entries actually **move** under the
+bridge, so `VEnv.TeleDefEq.cons` — the disjunct that costs a real `IsDefEq` — is taken four times
+and the free `VEnv.TeleDefEq.rfl` only twice.  And the *equation* form of the bridge, which is
+what `VEnv.recConstsR_wf_of_substC`/`_of_substC_of_eq` ask for, is **false** at both recursors, so
+`hbridge` is not an identity in disguise. -/
+
+theorem rA2_ne : rA2 ≠ rA2' := by decide
+theorem rA3_ne : rA3 ≠ rA3' := by decide
+theorem rA4_ne : rA4 ≠ rA4' := by decide
+theorem rA5_ne : rA5 ≠ rA5' := by decide
+theorem rTele_ne : rTele ≠ rTeleR := by decide
+
+/-- The `j = 1` body moves… -/
+theorem rBody1_ne : rBody1 ≠ rBody1' := by decide
+
+/-- …and the `j = 0` body does **not**: `NTree.rec`'s major premise is an application of the
+member the step declares, on which the restoration is the identity (`ntreeRestore_ownId`).  A
+negative result, recorded as one: at `j = 0` only the *telescope* carries content. -/
+theorem rBody0_eq : (ntreeAux.recType 0).substC (ntreeRestore.csubst ntreeAux ntreeK)
+    = VExpr.mkPi rTele rBody0
+    ∧ (ntreeAux.recTypeR ntreeRestore 0).substC (ntreeRestore.csubst ntreeAux ntreeK)
+      = VExpr.mkPi rTeleR rBody0 := ⟨rrecType_eq_0, rrecTypeR_eq_0⟩
+
+/-- **The strict bridge is false at both recursors of `ntreeAux`** — the `np ≥ 1` analogue of
+`mp_recTypeR_bridge_false` (`Theory/Inductive/ParamRedex.lean` §6) at the *canonical*
+parameterised block.  So `hbridge` above cannot be obtained from
+`VEnv.recConstsR_wf_of_substC_of_eq`. -/
+theorem ntree_recTypeR_bridge_false_0 :
+    (ntreeAux.recType 0).substC (ntreeRestore.csubst ntreeAux ntreeK)
+      ≠ (ntreeAux.recTypeR ntreeRestore 0).substC (ntreeRestore.csubst ntreeAux ntreeK) := by
+  decide
+
+theorem ntree_recTypeR_bridge_false_1 :
+    (ntreeAux.recType 1).substC (ntreeRestore.csubst ntreeAux ntreeK)
+      ≠ (ntreeAux.recTypeR ntreeRestore 1).substC (ntreeRestore.csubst ntreeAux ntreeK) := by
+  decide
+
+section
+variable {env₁ E₁ E₂ F₁ F₂ : VEnv}
+variable (h : VEnv.empty.addInduct' listDecl = some env₁)
+variable (hE₁ : env₁.addIndTypes ntreeAux = some E₁)
+variable (hE₂ : E₁.addIndCtors ntreeAux = some E₂)
+variable (hF₁ : env₁.addConstList (ntreeAux.typeConstsC ntreeK) = some F₁)
+variable (hF₂ : F₁.addConstList (ntreeAux.ctorConstsCR ntreeRestore ntreeK) = some F₂)
+
+include h hE₁ hE₂ hF₁ hF₂ in
+/-- **Obligation (B) at a PARAMETERISED nested block, DISCHARGED.** -/
+theorem ntreeAux_recConstsR_wf :
+    ∀ c ∈ ntreeAux.recConstsR ntreeRestore ntreeK, VConstant.WF F₂ c.2 :=
+  ntreeAux_recConstsR_wf_of_bridge h hE₁ hE₂ hF₁ hF₂
+    (rhbridge (ntreeF₂_list h hF₁ hF₂) (ntreeF₂_ntree hF₁ hF₂) (ntreeF₂_nil h hF₁ hF₂)
+      (ntreeF₂_cons h hF₁ hF₂) (ntreeF₂_node hF₂))
+
+end
+
+
+/-! ## §F Obligation (C) at `ntreeAux`: what it actually needs, measured
+
+The brief this section answers asked for (C) *after* (B), and warned that the residual list §21
+carried for it over-counted.  It did, and in a specific way: **(C)' has no `hσ` at all**
+(`VEnv.iotaRulesRS_wf_of_substC'`, §A), so the obstruction §B refutes — `CSubst.WF`'s `const`
+clause — was never one of (C)'s inputs.  What (C) at `ntreeAux` actually needs, measured rather
+than read off:
+
+* **three rules**, `iotaRules.length = iotaRulesRS.length = 3`, all at `uvars = 2`, so the
+  `df'.uvars = df.uvars` clause of (C)'s bridge is free (`ntree_iotaRulesRS_uvars`);
+* **nine componentwise conversions** — `type`, `lhs`, `rhs` for each rule — and *every one of the
+  nine moves* (`ntree_iota_components_ne`), on terms of size 83–273 against 93–253 substituted;
+  none is an identity, so (C) is nine real conversions and no `TeleDefEq.rfl`-style discount
+  applies to any of them;
+* the strict form is refuted here too (`ntree_iotaRules_bridge_false`), the `ntreeAux` analogue of
+  `ParamRedex.lean`'s `mp_iotaRules_bridge_false`;
+* and the two pieces of *data* the strict route never had to produce, which §A.1 already names and
+  this measurement confirms are what is left: `htype` — `e₃.IsType 2 [] (df.type.substC σ)`, from
+  which §T7's `iotaRule_tele_onCtx_of_type_defeq` gets the substituted ι-context's `OnCtx` — and
+  `D.IotaCtx`, which §T16.5's `iotaLhsPre_hasType` needs to type the recursor spine in the `lhs`.
+  Neither is an environment-level `CSubst` obligation, which is the correction: **(C)'s residual is
+  a typing residual, not a substitution residual.**
+
+So (C) is *not* the same shape of job as (B).  (B) at `ntreeAux` came down to six telescope entries
+of which two were free and four moved by one β step each, plus one body — §E closes it.  (C) is
+nine conversions over λ-telescopes with recursor-application bodies, none free, and it needs
+`htype`/`IotaCtx` first.  It is **not** attempted here; what is here is the measurement that says
+how big it is and which of §21's items were phantom. -/
+
+theorem ntree_iotaRules_len : ntreeAux.iotaRules.length = 3 := rfl
+theorem ntree_iotaRulesRS_len :
+    (ntreeAux.iotaRulesRS ntreeRestore ntreeK).length = 3 := rfl
+
+theorem ntree_iotaRules_uvars : ∀ df ∈ ntreeAux.iotaRules, VDefEq.uvars df = 2 := by decide
+theorem ntree_iotaRulesRS_uvars :
+    ∀ df ∈ ntreeAux.iotaRulesRS ntreeRestore ntreeK, VDefEq.uvars df = 2 := by decide
+
+/-- The strict (C) bridge, refuted at the canonical parameterised block. -/
+theorem ntree_iotaRules_bridge_false :
+    ((ntreeAux.iotaRules.map (·.substC (ntreeRestore.csubst ntreeAux ntreeK))).map
+        VDefEq.type, (ntreeAux.iotaRules.map
+        (·.substC (ntreeRestore.csubst ntreeAux ntreeK))).map VDefEq.lhs)
+      ≠ ((ntreeAux.iotaRulesRS ntreeRestore ntreeK).map VDefEq.type,
+        (ntreeAux.iotaRulesRS ntreeRestore ntreeK).map VDefEq.lhs) := by decide
+
+/-- All **nine** components of (C)'s defeq-tolerant bridge move: for every one of the three
+rules, none of `type`/`lhs`/`rhs` is an identity under the substitution.  So (C) at `ntreeAux` is
+nine genuine conversions, not a repackaging. -/
+theorem ntree_iota_components_ne :
+    ∀ p ∈ (ntreeAux.iotaRules.map (·.substC (ntreeRestore.csubst ntreeAux ntreeK))).zip
+        (ntreeAux.iotaRulesRS ntreeRestore ntreeK),
+      VDefEq.type p.1 ≠ VDefEq.type p.2 ∧ VDefEq.lhs p.1 ≠ VDefEq.lhs p.2 ∧
+        VDefEq.rhs p.1 ≠ VDefEq.rhs p.2 := by decide
+
+
 end InductiveDeclExamples
 end Lean4Lean
