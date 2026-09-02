@@ -3827,3 +3827,271 @@ Verified: `git show HEAD:Lean4Lean/Theory/Equiconsistency.lean | grep -c EqRecLa
 * `Lean4Lean/Theory/Equiconsistency.lean` — one import line, added on the same edit as the file
   (already in `HEAD`, see §19.12).
 * `docs/handoff-setmodel.md` — this section.
+
+## 20. Session of 2026-09-02 (thirteenth): the shared witness priced — **the repair is two cells, not three**, and its dominant cost is an import cycle, not a re-proof count
+
+Brief: price the `preludeWitness` fix that §19 declined to take; measure whether the same gap
+hits `Iff.rec` and `Nonempty.rec`; find out whether anything *depends* on the recursor entries
+being `•`.
+
+**All of it landed in one new file, `Lean4Lean/Theory/SetModel/PreludeRecGap.lean`** (543 lines,
+namespace `Lean4Lean.SetModel.RecGap`), imported from `Theory/Equiconsistency.lean` on the same
+edit. No existing file was changed except that import line. `PreludeSpec.lean` is **untouched**.
+
+### 20.1 Where the brief is wrong
+
+Three places, and the third is the one that changes what to do next.
+
+1. **"the fix is one edit for three cells rather than one" — no, two cells.**
+   `Nonempty.rec` is not affected and cannot be. `NEAudit.ne_isLE : nonemptyIndDecl.isLE = false`
+   and `NEAudit.ne_elimLvl : … = .zero` are already `rfl` in the tree: a small eliminator has no
+   elimination universe, so `Nonempty.rec`'s type is a proposition at *every* instantiation and
+   `•` is the **correct** value there — `NEAudit.pt_mem_interp_NE_recType` proves it, and
+   `RecGap.preludeWitness_mem_interp_neRecType` restates it at the shared witness. The gap is a
+   consequence of `isLE = true`, which holds at `eqIndDecl` and `iffIndDecl` and nowhere else in
+   the prelude.
+
+2. **"how many existing results about `preludeWitness` would need re-proof" is the wrong cost
+   axis.** The re-proof count is *small* (§20.4: four statements refuted or removed, one proof
+   needing one extra rewrite, everything else verbatim — measured by running it). The cost that
+   actually blocks the edit is an **import cycle**, and no re-proof count would have surfaced it:
+   `eqRecFn` is defined in `EqRecLarge.lean`, seven files **downstream** of `PreludeSpec.lean`
+   (`PreludeSpec ← PreludeOracle ← IffOracle ← EqOracle ← EqZeroSlice ← EqTypeFormer ←
+   EqRecNecessity ← EqRecLarge`, read off `grep ^import`). Putting `eqRecVal` into
+   `preludeWitness` requires *relocating* the six-layer `mkLam` nest (`EqLargeAudit.motSet`,
+   `lamH`, `lamB`, `lamM`, `lamF`, `lamA`, `eqRecFn`, `eqRecVal` and `EqRecLarge` §2's three
+   definability lemmas) up into `PreludeSpec.lean` first. That relocation is *mechanical* — those
+   definitions use only `mkLam`, `mkForallType`, their `_definable` lemmas (`Definability.lean`)
+   and `eqFn` (`PreludeSpec.lean` itself), all of which `PreludeSpec.lean` already has — but it is
+   a relocation across eight modules, and it also breaks the `#print axioms` block at the bottom
+   of `EqRecLarge.lean` (nine names move out of `EqLargeAudit`). **Reasoning, not a run**: I did
+   not perform the relocation, so "mechanical" is an argument from the import graph and the
+   definitions' dependency sets, not a build.
+
+3. **The three-point scale grades the negative controls, not the obligations** — the brief says so
+   itself and then asks for it applied to §4.3's `OracleOK`. It does not apply there.
+   `oracleOK_EqRec_preludeWitnessR` is a *positive* obligation, and the honest statement about it
+   is the one in §20.6: hole-free and `sorryAx`-free, at an arbitrary `κ`, with `Above` discharged
+   by `Above.pure`, and **not discharged** as part of `InductOracleOK` because the `Eq.refl` and
+   type-former cells and the `rules` field are separate statements. The scale applies to
+   `RecGap.eqRec_arm_ne_empty` and to §1's refutation.
+
+### 20.2 PROVED — `Iff.rec` is refuted at the shared witness (the flagged item, now a run)
+
+`RecGap.preludeWitness_not_mem_interp_iffRecType`: at `u.eval ls ≠ 0`,
+`(preludeWitness κ ls).cnst ``Iff.rec [u] ∉ ⟦(iffIndDecl.recType 0).instL [u]⟧ ∅`.
+
+Cost: **one rewrite.** `IffAudit.pt_not_mem_interp_iffRecType_of_ne` already existed and — unlike
+its `Eq` and `Unit` counterparts — carries **no** hypothesis about an inhabitant of any parameter
+space, because `Iff`'s outermost recursor binder is a parameter over `Prop` and `∅ ∈ U κ 0` at
+every `κ`. So the `Iff.rec` refutation is strictly *cheaper* than §19's `Eq.rec` one. This
+upgrades `NEAudit.preludeWitness_iffRec_empty`, whose own docstring said "*a fact about the
+assignment, not yet a refutation of `InductOracleOK` at those blocks*".
+
+### 20.3 REFUTED — the `Nonempty.rec` half of the brief's question
+
+`RecGap.preludeWitness_mem_interp_neRecType`: `•` **is** in `⟦Nonempty.rec's type⟧` at every `u`,
+no branch, no side condition. So the shared witness is already right at that cell.
+
+*Where the anti-vacuity control stands there, and it is not good.* The
+`EqRecNec.recCell_discriminates` form cannot be had at `Nonempty.rec` as "a bad *value*": the type
+is a proposition, so `mem_interp_forallE_prop_iff` makes every member equal `•` and excluding any
+`w ≠ •` is free. The informative control has to vary the **model**, and at that block the control
+is **prose**: `PreludeOracle.lean:905` asserts "a constant-true `Nonempty` satisfies the
+constructor and fails here", and the machine-checked analogue of
+`EqRecNec.not_pt_mem_interp_eqRecType_badTrue` at `nonemptyIndDecl` **does not exist**. What does
+exist as a run is the faithfulness the cell consumes: `NEAudit.nonemptyFn_zero_empty` and
+`NEAudit.nonemptyFn_zero_true`. Recording this as an open control, not claiming it.
+
+### 20.4 MEASURED — the re-proof census, run rather than estimated
+
+`RecGap.preludeWitnessR` is `preludeWitness` with one extra arm,
+`else if n = ``Eq.rec then EqLargeAudit.eqRecVal κ ls us`. The brief's guessed shape
+(`eqRecVal κ ls [u,v] = if u.eval ls = 0 then • else eqRecFn …`) is right. Each row below is an
+existing result restated at `preludeWitnessR` with the **same proof term**; "verbatim" means the
+file compiles, not that it looks similar.
+
+| existing result | file | verdict |
+|---|---|---|
+| `SetModel.preludeWitness_eq` / `_iff` / `_nonempty` | `PreludeSpec` | verbatim (×3) |
+| `SetModel.preludeSpec_satisfiable` | `PreludeSpec` | verbatim |
+| `EqTFAudit.preludeWitness_cnst_eq` | `EqTypeFormer` | verbatim, **still `rfl`** |
+| `EqTFAudit.mem_interp_EqType_preludeWitness`, `oracleOK_Eq` | `EqTypeFormer` | verbatim (`RecGap.mem_interp_EqType_preludeWitnessR`, `oracleOK_Eq_preludeWitnessR`) |
+| `EqTFAudit.preludeWitness_congr_Eq` | `EqTypeFormer` | **DOES NOT transfer** — `(kernel) deterministic timeout`; one line rewritten (§20.4a) |
+| `NEAudit.neOracle_NE` / `_intro` / `_rec` | `PreludeOracle` | `simp` proofs need no change |
+| `EqLargeAudit.preludeWitness_mem_interp_eqRecType_of_zero` | `EqRecLarge` | statement survives, **one extra rewrite** (`RecGap.preludeWitnessR_cnst_eqRec_zero`) |
+| `NEAudit.preludeWitness_eqRec_empty` | `PreludeOracle` | **REFUTED** |
+| `EqLargeAudit.preludeWitness_cnst_eqRec` | `EqRecLarge` | **REFUTED** |
+| `NEAudit.neOracle_eq_empty_of_not_mem` | `PreludeOracle` | **REFUTED** — one extra hypothesis (§20.5) |
+| `EqLargeAudit.preludeWitness_not_mem_interp_eqRecType` | `EqRecLarge` | **REMOVED, not repaired** |
+
+**So: 4 statements refuted or removed, 2 proofs needing repair (one an extra rewrite, one a kernel timeout), everything else verbatim.**
+Not one of the three `*Spec` witnesses gets harder, and none gets easier — they read `M.cnst` only
+at `Eq`, `Iff`, `Nonempty`, so an arm added *after* those three is invisible to them. The one
+thing that could plausibly have broken did not: `preludeWitness_cnst_eq` is `rfl` at
+`preludeWitness` and `RecGap.preludeWitnessR_cnst_eq` is **still `rfl`**, which matters because
+`EqTFAudit.eqSpec_not_sufficient` shows the type-former cell needs the value's *identity*, not
+just its applied values.
+
+#### 20.4a The one row that did NOT transfer — and I only found it because I ran it
+
+I first wrote this census listing `EqTFAudit.preludeWitness_congr_Eq` as "transfers through
+`_cnst_eq`". **That was wrong**, and I had already written it into this handoff before compiling
+it. At `preludeWitnessR` its proof
+
+```lean
+  rcases hd with _ | ⟨h, ht⟩
+  · rfl
+  rcases ht with _ | ⟨h2, ht2⟩
+  · rw [preludeWitness_cnst_eq, preludeWitness_cnst_eq, VLevel.equiv_def.mp h ls]
+  · rfl
+```
+
+fails at the **last `rfl`** with `(kernel) deterministic timeout` — and note *which* stage: the
+declaration **elaborates**, `#print axioms` reports it clean, and the kernel then rejects it. An
+elaboration-only check would have passed it. The degenerate branch (`us` of length ≥ 2, both sides
+`∅`) is the culprit: closing it by `rfl` asks the kernel to whnf the whole `if`-cascade including
+the new arm's body, which contains `eqRecFn`'s six-layer `mkLam` nest with its `definability`
+proofs. The first `rfl` (both lists empty) is **fine** — measured, in the sense that the repaired
+proof leaves it untouched and compiles.
+
+The fix is two lines: name the `Eq` arm once by `simp`
+(`RecGap.preludeWitnessR_cnst_Eq_arm`) and close the degenerate branch by `rw` on it, so `rfl`
+never sees the cascade. `RecGap.preludeWitnessR_cnst_eq` stays `rfl` — the difference is that it
+is at `us = [w]`, where the arm fires and the cascade is not traversed.
+
+**This is the sharpest single number in the costing:** the relocation of §20.1 item 2 will make the
+`Eq.rec` arm's body a *local* definition of `PreludeSpec.lean`, and every `rfl` in that file and
+downstream that whnfs `preludeWitness.cnst` at a non-`[w]` level list is a candidate for the same
+kernel timeout. `NEAudit.neOracle_NE` / `_intro` / `_rec` are `simp`, not `rfl`, so they are safe;
+`EqTFAudit.preludeWitness_cnst_eq` is `rfl` at `[w]`, so it is safe; `preludeWitness_congr_Eq` is
+the one that is not, and there is exactly one of it.
+
+**The last row is a difference in kind, not degree.** A costing that lists
+`preludeWitness_not_mem_interp_eqRecType` as "needs re-proof" is wrong: after the repair that
+statement is **false**. What survives is `EqAudit.pt_not_mem_interp_eqRecType_of_ne`, a statement
+about the value `•`, which is what the refutation was really about and is already in the tree.
+
+**The payoff, and it is the deliverable:** `RecGap.oracleOK_EqRec_preludeWitnessR` is
+`OracleOK L κ ls (preludeWitnessR κ ls).cnst (preludeWitnessR κ ls).cnst ``Eq.rec
+⟨eqIndDecl.recUvars, eqIndDecl.recType 0⟩` — **one assignment**, no side oracle parameter, no
+chain hypothesis, no chosen `κ`. `EqLargeAudit.oracleOK_EqRec` needed two assignments precisely
+because `preludeWitness` could not supply the second; at the repaired witness `ho` is `rfl`-adjacent
+(`RecGap.preludeWitnessR_cnst_eqRec`, by `simp`) and `EqSpec` is §20.4's first row.
+
+**The discriminating control, in the form the trap list demands** and now at the *actual* shared
+witness rather than an abstract value: `RecGap.repair_discriminates` — one `L`, one
+`M = preludeWitnessR κ ls`, one `(u, v)`, **one interpretation** — the repaired entry is in it and
+`preludeWitness`'s entry (`•`) is not; `RecGap.repair_changes_the_value` shows the two entries are
+different sets. Both halves are at the *same* `interp (preludeWitnessR κ ls) …`, deliberately:
+`interp` at the two witnesses is *extensionally* the same (`Eq.rec`'s type mentions `Eq` and
+`Eq.refl`, not `Eq.rec`, and the two agree there) but not `rfl`-equal, and no `interp`
+constant-congruence lemma exists to bridge them. Where each hypothesis goes is unchanged from
+`EqRecLarge` §7: the *positive* half needs no parameter-space inhabitant, the **exclusion** needs
+`hx`, and `hx` is a hypothesis *about the given* `κ`, not a construction of one.
+
+### 20.5 The answer to "is there a reason it was `else ∅`" — two parts, pointing opposite ways
+
+**Yes, at `Nonempty.rec`, and it is load-bearing.** `NEAudit.oracleOK_NE_rec` and
+`NEAudit.mem_interp_consts_NE` both rewrite with `NEAudit.neOracle_rec : … recN us = •` and then
+apply `pt_mem_interp_NE_recType`. That is a real dependency, and it is the one `.induct` step of
+the prelude discharged today. It is **not a conflict** — it is a constraint: the fallback must
+stay `∅` at `Nonempty.rec`, and both cells the repair touches are at other names.
+
+**And one place depends on the *fallback's shape*:** `NEAudit.neOracle_eq_empty_of_not_mem`
+(`m ≠ Eq → m ≠ Iff → m ≠ Nonempty → neOracle κ ls m us = ∅`) is **refuted** by the repair at
+`m := ``Eq.rec``. Its only consumer is `NEAudit.cnstOf_preludeTail`, and all three of
+`RecGap.preludeWitnessR_cnst_empty_of_not_mem` (repaired shape, one extra hypothesis
+`m ≠ ``Eq.rec``), `RecGap.eqRec_arm_ne_empty` (the extra hypothesis is **necessary**, not
+defensive — without it the statement is false, at `u.eval ls ≠ 0` and a `κ` with an inhabited
+`U κ (v.eval ls)`) and `RecGap.eqRec_mem_eqIndDecl_allNames` (the consumer **can** supply it,
+because `Eq.rec ∈ eqIndDecl.allNames`) are proved. So: **a cheap extension, not a conflict** —
+one extra hypothesis and one extra line in `cnstOf_preludeTail`.
+
+Note `neOracle` is `(preludeWitness κ ls).cnst` *definitionally* and `NEAudit.neM_eq` is `rfl`, so
+the repair is not optional-per-file: repairing `preludeWitness` repairs the prelude's oracle too,
+which is exactly why it is a shared-witness decision.
+
+### 20.6 What is NOT discharged — hole-free is not discharged
+
+Measured with a cone over **type and value**, `allowOpaque := true`, in an environment importing
+`PreludeRecGap` plus `Theory.Typing.{AppCodType0, Injectivity, UniqueTyping, ChurchRosser}`.
+**All four big holes `present = true`** (`IsDefEqU.forallE_inv_stratified`, `WF.rigidShapeUniqNS`,
+`IsDefEqU.weakN_iff`, `NormalEq.descend`) — checked, because `descend` reads absent without
+`ChurchRosser` and every cone then looks clean. Both controls fire (`piInv_axiom`: cone 3539,
+2 holes, `sorryAx true`; `WF.sortUniq'`: cone 3404, 1 hole, `sorryAx true`). **All 27 seeds:
+0 holes, `sorryAx false`.** `#print axioms` by namespace on all 24 `RecGap.*` theorems:
+`[propext, Classical.choice, Quot.sound]` only — no new `sorry`, none traded, no frozen-axiom
+dependency.
+
+Hole-free ≠ discharged. Still open, and none of it is claimed here:
+
+* **`Iff.rec` has no value.** `iffRecFn` does not exist anywhere (`grep` over
+  `Lean4Lean/**.lean`; `lean_local_search` and `lean_hammer_premise` are broken in this
+  environment, `lean_references` works). §1 is a **negation**, and a negation is free if the
+  interpretation is empty. At `Eq.rec` that worry is answered — `eqRecFn_mem_interp_eqRecType`
+  exhibits a member, so the gap is provably *repairable*. At `Iff.rec` nothing is exhibited, so §1
+  leaves open which of two things holds: the cell is satisfiable by an unwritten `iffRecFn`, or
+  `⟦Iff.rec's type⟧` is **empty** at `u.eval ls ≠ 0` and the block's obligation is unsatisfiable.
+  Either way `preludeWitness` fails it. **This is the sharpest open question in the corner.**
+* `InductOracleOK` at `eqIndDecl` is still not assembled: §20.4 closes the `Eq.rec` `consts` cell
+  at one witness, `EqTFAudit.oracleOK_Eq` the type-former cell, `EqZeroAudit.pt_mem_interp_EqReflType`
+  the `Eq.refl` cell — the **`rules` field** (the ι-rule, whose typing `EqRecLarge` §10.1 shows is
+  free) is not done, and nothing has been composed.
+* `NEAudit.nonempty_propSplit_preludeEnv` prints `sorryAx` via route A, so nothing above is called
+  "sorry-free at `preludeEnv`" through it. Everything above is parametric in `L : PropSplit envF nv`.
+* The relocation of §20.1 item 2 is unperformed.
+
+### 20.7 What I tried that failed, and the step it failed at
+
+* `simp [eqIndDecl, VInductDecl'.allNames, VInductDecl'.allConsts, VInductDecl'.typeConsts,
+  VInductDecl'.recConsts]` for `Eq.rec ∈ eqIndDecl.allNames` — **failed at the residual goal**
+  `` `Eq.rec = Lean.mkRecName `Eq ``, which `simp` will not close (it is `rfl` but not a
+  simp-normalisable equation). Fix: `simp only [allNames, allConsts, recConsts, List.map_append,
+  List.mem_append]; right; simp [eqIndDecl]; rfl`. Same at `Iff`.
+* `RecGap.repair_changes_the_value` — **failed at elaboration** with `Unknown identifier L`:
+  `include hu hv hle in` does not pull in the explicit `L`, whose statement does not mention it.
+  Fix: `include L hu hv hle in`, exactly as `EqLargeAudit.eqRecFn_ne_pt` already does. Worth
+  recording because it is the third time this file family has hit it.
+* `EqTFAudit.preludeWitness_congr_Eq`'s proof, verbatim — **failed at the KERNEL**, not at
+  elaboration: `(kernel) deterministic timeout` on the last `rfl`. See §20.4a; this is the one
+  place where my own read-off costing was refuted by a run, and the run is the reason the census
+  above says two repairs rather than one.
+* Stating `repair_discriminates` with the two memberships at `interp (preludeWitness κ ls)` and
+  `interp (preludeWitnessR κ ls)` respectively — **not attempted past the design step**: it needs
+  an `interp` congruence in the constant assignment, which does not exist. Stated at one
+  interpretation instead (see §20.4).
+
+### 20.8 What to pick up first
+
+1. **Build `iffRecFn`** and its `Iff.rec` arm. It settles §20.6's sharpest open question, it is the
+   second of the two cells, and the scaffolding is all present: five `mkLam` layers (not six),
+   both parameters over `UProp` rather than `U κ n`, `iffIndDecl.recUvars = 1` so the `if` keys on
+   a one-element `match`, no index (`NEAudit.iff_indices = []`) so the motive's domain is a
+   *single* `mkForallType`, the `≠ 0` exclusion already free, the level-branch obstruction already
+   proved. **The one genuinely new cost**: `IffAudit.minTyI` is
+   `∀ (mp : a → b), (b → a) → motive (Iff.intro a b mp mpr)` — two nested function spaces and an
+   application of the **constructor** inside the motive's argument, where `Eq`'s minor premise had
+   `Eq.refl` which `interp` discards as a proof. There is no counterpart to that step in
+   `EqRecLarge.lean`.
+2. **Then take the relocation** (§20.1 item 2) and the repair, in one edit, at both arms. Doing it
+   before step 1 lands a half-repaired witness that §1 still refutes.
+3. `eqIndDecl`'s `rules` field, from `EqLargeAudit.eqRule_WF` / `eqRule_lhs_hasType`.
+4. The machine-checked bad-model control at `Nonempty.rec` (§20.3), if the `Nonempty` block's cell
+   is ever quoted as more than "correct by `isLE = false`".
+
+### 20.9 Files touched this session
+
+* `Lean4Lean/Theory/SetModel/PreludeRecGap.lean` — **new**, 543 lines, no `sorry`
+  (24 `#print axioms` lines, all resolving, all `Lean4Lean.SetModel.RecGap.*`).
+* `Lean4Lean/Theory/Equiconsistency.lean` — one import line, added on the same edit as the file.
+* `docs/handoff-setmodel.md` — this section.
+
+Per-module `lake build` job counts: baseline `EqRecLarge` + `PreludeOracle` **1209 jobs**, exit 0;
+with `PreludeRecGap` **1210 jobs**, exit 0 (the new module elaborates in ~2 s);
+`lake build Lean4Lean.Theory.Equiconsistency` **1246 jobs**, exit 0, validating the import line
+(the five `declaration uses \`sorry\`` warnings are the pre-existing ones: `Inductive/Decl.lean:405`,
+`Typing/Injectivity.lean:261` and `:1046`, `Typing/UniqueTyping.lean:190`, and
+`Equiconsistency.lean:57` — the main `↔`). No full
+`lake build`, no guards, no `sorry-census`, no `dup-names`, no `MemberRedexScan`, no
+`lean_build` MCP call.
