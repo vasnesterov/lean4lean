@@ -3620,3 +3620,210 @@ itself — carries no such hypothesis and needs none. So the three-point scale
 "`iffIndDecl` nothing / `eqIndDecl` a parameter-space inhabitant / `unitDeclLE` a motive-space one"
 grades the *negative* controls, not the slices. The slice at `eqIndDecl` costs `EqSpec` and nothing
 else.
+
+### 19.6 The ι-rule: shape measured, and **its typing turns out to be free**
+
+`EqAudit.eq_iotaRules_length = 1`. All of the following are `rfl`, guessed-and-checked rather than
+read off (`eqRule_lhs_instL`, `eqRule_rhs_instL`, `eqRule_type_instL`, `eq_iotaCtx`,
+`eq_iotaCtx_reverse`, `eqRule_uvars`):
+
+* `lhs.instL [u,v] = λ α a motive m, Eq.rec α a motive m a (Eq.refl α a)` — **six** application
+  nodes, one of which (`Eq.refl α`) is a proof, so `interp` discards its argument
+  (`EqZeroAudit.isProof_reflC1_ctxM` already proves that);
+* `rhs.instL [u,v] = λ α a motive m, (λ α a motive m, m) α a motive m` — the η-expansion
+  `Decl.lean` insists on, i.e. a **four-fold β-redex**. Reading `iotaLam` alone would miss this;
+* `type.instL [u,v] = ∀ α a motive m, motive a (Eq.refl α a)` — `minTyE` one binder deeper;
+* `((iotaCtx eqCtor).map (VExpr.instL [u,v])).reverse = EqAudit.ectxN [] u v` **on the nose**, so
+  every `OnCtx`/`IsProp`/`interp_*_val` lemma in `EqZeroSlice.lean` applies to the ι-rule unchanged.
+  That is worth more than it sounds: it means the rule needs *no new context ladder*.
+
+`eqRuleSort_eval_eq_zero_iff : (imax (succ v) (imax v (imax (motSortE u v) (imax u u)))).eval ls = 0
+↔ u.eval ls = 0` — pure level arithmetic, no typing needed, so **the ι-rule has the same two slices
+as the recursor** and this is available before any derivation exists.
+
+**And the part I expected to dominate is free.** The saturated recursor spine's typing — six
+`hasType_app'` steps each with its own `.inst` equation, exactly the trap §18.8 carries forward —
+does not have to be written at all:
+
+```lean
+theorem eqRule_WF : VDefEq.WF eqEnv (eqIndDecl.iotaRule 0 0 eqCtor)   -- both sides typed
+theorem eqRule_lhs_hasType : eqEnv.HasType 2 [] (…).lhs (…).type
+theorem eqRule_rhs_hasType : eqEnv.HasType 2 [] (…).rhs (…).type
+```
+
+from `VInductDecl'.iotaRules_WF` (`Theory/Inductive/Lemmas.lean`, general, for every block) applied
+to `eqIndDecl.IotaCtx eqE3`, which `VInductDecl'.WF.iotaCtx` produces from three staged
+`addConstList`s that are all `rfl` at `VEnv.empty` for this block. Twelve lines, no `VExpr`
+arithmetic, and `#print axioms` shows **no `sorryAx`** — so `eqIndDecl_WF` and the general ι
+machinery are both hole-free on this path.
+
+**This is the thing to know before attacking the rule, and it was in no handoff.** §17.8 item 4 and
+§18.9 item 2 both priced the ι-rule without noticing that `Theory/Inductive/` already types both
+sides of it.
+
+### 19.7 What is OPEN, and what I tried
+
+**Open: the ι-rule itself** (`InductOracleOK.rules` at `eqIndDecl`), both slices. What each needs,
+now that §19.6 has removed the guesswork:
+
+1. **`= 0` slice.** `DefEqOK` wants ⟦lhs⟧∅ = ⟦rhs⟧∅ and ⟦lhs⟧∅ ∈ ⟦type⟧∅. Both sides are proofs at
+   `u.eval ls = 0`, so `interp_lam_proof` gives `pt` twice and the equality is free — *but*
+   `interp_lam_proof` needs `L.IsProof M (ectxA [] v) (inner 3-fold lam)`, and `isProof_iff` needs
+   the inner lam's `HasType` **at `nv`, instantiated**, plus the *type's own* sort derivation
+   (`HasType nv [] (type.instL [u,v]) (.sort (eqRuleSort u v))`). §19.6 supplies the first at
+   `uvars = 2` uninstantiated; what is missing is (a) a `HasType.instL`-style transfer to `nv` with
+   `[u,v]`, and (b) `.forallEDF` four times for the sort, which needs two `.bvar` lemmas
+   `EqOracle.lean` does not have (`hasType_a_ctxN`, `hasType_mot_ctxN`) and two `hasType_app'` steps
+   for `motive a (Eq.refl α a)` at `ectxN`. I did **not** attempt (a) — I stopped at the point where
+   I had verified §19.6 and judged the remaining budget better spent on the write-up than on a
+   half-finished slice. So: **not attempted, not failed.**
+   Then `pt ∈ ⟦type⟧∅` is a four-layer `mkForallProp` membership whose innermost step is
+   *literally* the one in `pt_mem_interp_eqRecType_of_zero` (`motive_value_mem_UProp` forces
+   `m = pt`). Estimate: 60–80 lines, no new mathematics.
+2. **`≠ 0` slice.** Four-layer `mkLam` on both sides, plus the computation
+   `eqRecFn ‘ α ‘ a ‘ f ‘ m ‘ b ‘ • = m` (the analogue of `UnitAudit.recFnL_beta`; five
+   `mkLam_value` steps off the definitions in §3 of the new file) and the four-fold β-redex on the
+   right. `UnitOracleLarge.lean` §10 is the template at three binders and three app nodes and runs
+   ~100 lines; expect 150–200 here. **Note the model must be the one whose `Eq.rec` entry is
+   `eqRecVal`** — at `preludeWitness` the lhs's ⟦·⟧ is not the function (§19.4).
+
+**Open, and I now think it is cheap: `EqSpec`'s necessity for the `≠ 0` slice.** I did *not* build
+it, and I want to be explicit about where the obvious route dies:
+`EqRecNec.sepMot_mem_interp_motTyE` — the separating motive, the only motive-in-`⟦motTyE⟧` in the
+tree — carries `h0 : u.eval M.ls = 0` as a hypothesis, because its fibres land in `U κ 0 = UProp`.
+So it **cannot** be reused at `u.eval ls ≠ 0`, and the control needs a fresh motive whose values lie
+in `U κ nu` for `nu ≠ 0`. That is where I stopped. `recCell_discriminates_of_ne` (§19.5) covers the
+anti-vacuity requirement without it.
+
+**Refuted:** `preludeWitness` as a witness for this cell (§19.4) — machine-checked, both
+directions.
+
+### 19.8 Measurements versus readings
+
+**Measured (runs):**
+
+* Per-module `lake build` job counts, every increment: `Lean4Lean.Theory.SetModel.EqRecLarge`
+  **1209 jobs**, `Build completed successfully`, zero errors, zero warnings at every one of the
+  seven increments. `Lean4Lean.Theory.Equiconsistency` (edited to import the new file)
+  **1245 jobs**, `Build completed successfully`.
+* `#print axioms` on **all 49 declarations of the new file, by fully-qualified name in
+  `Lean4Lean.SetModel.EqLargeAudit`** — every one resolved (no *unknown constant*, the trap §18.7
+  flags for `PreludeSpec.*`), and **none depends on `sorryAx`**. The heaviest is
+  `[propext, Classical.choice, Quot.sound]`; `eqIndDecl_recUvars` depends on nothing.
+* **No new `sorry`, none traded.** The full `Equiconsistency` build reports exactly the five
+  pre-existing `declaration uses 'sorry'` warnings (`Inductive/Decl.lean:405`,
+  `Typing/Injectivity.lean:261`, `:1046`, `Typing/UniqueTyping.lean:190`,
+  `Equiconsistency.lean:56`) — the same five as before this session.
+* **Cone measurement, over type *and* value with `allowOpaque := true`**, in an environment
+  importing `EqRecLarge` + `ChurchRosser` + `Injectivity` + `UniqueTyping`. Presence check first,
+  because §18.7's environment had to be arranged for it:
+
+  | hole | `present` |
+  |---|---|
+  | `Lean4Lean.VEnv.IsDefEqU.forallE_inv_stratified` | **true** |
+  | `Lean4Lean.VEnv.IsDefEqU.weakN_iff` | **true** |
+  | `Lean4Lean.VEnv.WF.rigidShapeUniqNS` | **true** |
+  | `Lean4Lean.VEnv.NormalEq.descend` | **true** |
+
+  All **12** seeded cones: `bigHoles []`, `sorryAx-carriers []`. Cone sizes 696–8313
+  (`eqRecFn_mem_interp_eqRecType` 6897, `oracleOK_EqRec` 6943,
+  `preludeWitness_mem_interp_eqRecType_of_zero` 8313, the four `rfl` shape lemmas 696–1043).
+* Every "does X exist / what is X's shape" claim above is backed by `grep` over the working tree
+  plus `lean_run_code` for the six ι-rule shape guesses and the `eqRule_WF` chain (both probed in a
+  scratch snippet before being landed). **`lean_local_search` and `lean_hammer_premise` were not
+  used** (reported broken here). `lean_references` was not needed.
+
+**Hole-free is not discharged.** Everything above is a *reachability* measurement: it says no
+`sorryAx` is in these cones. It does **not** say the `≠ 0` slice is discharged at any concrete
+model, and §19.4 is the proof that it is not discharged at the one witness the corner has.
+Nothing here goes through `NEAudit.nonempty_propSplit_preludeEnv` (which prints `sorryAx`), so
+nothing above is claimed "sorry-free at `preludeEnv`"; the new file's statements are all
+parametric in `L : PropSplit envF nv` with `hle : eqEnv ≤ envF`, exactly as `EqZeroSlice.lean`'s.
+
+**Reasoning, not a run** (labelled as such):
+
+* the 60–80 / 150–200 line estimates in §19.7;
+* the claim that `Iff.rec` and `Nonempty.rec` have the *same* `preludeWitness` gap as `Eq.rec`
+  (§19.4) — it follows from `pt = ∅` and `else ∅`, but I checked neither block's exclusion lemma;
+* that `hle : eqEnv ≤ envF` and `hu`/`hv` are *semantically* necessary in
+  `eqRecFn_mem_interp_eqRecType`. They are used in the proof body; I did not run
+  `lean_minimal_hypotheses`, and §18.7 records that its verdict is about the body anyway;
+* that `mkForallType_ext` is what any other large-eliminator block will need (§19.2). Argued from
+  `unitDeclLE`'s non-dependent motive space, not tested at `iffIndDecl`.
+
+### 19.9 The two infrastructure traps, and one of them **did** bite
+
+* **`InterpSound.propSound_of_mem_sort` is circular at a slice.** Not exercised, again: every
+  `¬IsProp` came from `SoundInduction.isProp_iff` plus an existing `HasType` derivation. Warning
+  carried forward, no new evidence.
+* **`hasType_app'` needs `Lean4Lean.liftVar`, an `omega`, and `.bvar (i+1)`.** *This one is real and
+  I confirmed it obliquely*: it is exactly the cost §19.6 shows you do not have to pay, because
+  `VInductDecl'.iotaRules_WF` already types the spine. The recipe's difficulty is why the shortcut
+  matters. I never wrote a `hasType_app'` call in this session.
+* **New trap, cost me one build:** `VExpr.instL` takes the level list **first**
+  (`instL : List VLevel → VExpr → VExpr`), so `e.instL us` works by generalized field notation but
+  `(VExpr.instL · us)` as a `List.map` argument does **not** — it type-errors with
+  "`[u, v]` … expected to have type `VExpr`". Write `(VExpr.instL us)`.
+* **`Above` appears in no statement in the new file**, and no `κ` is chosen anywhere in it — not
+  even in a control, because the control (§19.5) borrows
+  `EqAudit.pt_not_mem_interp_eqRecType_of_ne`, which is at an arbitrary `κ` with an explicit
+  parameter-space inhabitant instead. So the `Above`-is-free-at-a-false-antecedent hazard does not
+  arise here.
+
+### 19.10 Where the brief was wrong
+
+Three places, in decreasing importance.
+
+1. **"`preludeWitness`'s `Eq` entry **is** `eqFn`, so the corner already pays the hypothesis."**
+   True at `Eq`, and it reads as though the witness is in good shape at this block. It is **not**:
+   its `Eq.rec` entry is `•` and the `≠ 0` slice refutes it (§19.4). The brief's framing pointed at
+   the slice as the only obstacle; the slice is now closed and the *witness* is the obstacle.
+2. **"the `≠ 0` side condition needs a **parameter**-space inhabitant … the three-point scale
+   across blocks: `iffIndDecl` nothing, `eqIndDecl` a parameter-space inhabitant, `unitDeclLE` a
+   motive-space one."** That scale grades the **negative controls** (`•` is excluded), not the
+   slices. `eqRecFn_mem_interp_eqRecType` needs no inhabitant of anything: its only hypothesis is
+   `EqSpec M v` (§19.5).
+3. **"a six-layer `mkLam` — its own handoff says take the slice first."** Right about the order and
+   right that it is six layers, but the costing "six copies of the type-former cell's step" is wrong
+   at one layer: the **motive** binder's domain is a dependent product that the oracle has to spell
+   out itself, and matching it needs a new combinator (`mkForallType_ext`, §19.2). Five layers were
+   the predicted price; the sixth was a missing lemma. Symmetrically, the brief (and §17.8, §18.9)
+   over-priced the ι-rule: its typing is free (§19.6).
+
+### 19.11 What to pick up first
+
+1. **The ι-rule's `= 0` slice**, with §19.6 in hand — `eqRule_lhs_hasType` / `eqRule_rhs_hasType`
+   are landed and hole-free; what is missing is the `instL` transfer to `nv` and the four-fold
+   `.forallEDF` sort derivation. This closes half of the last obligation at `eqIndDecl`.
+2. **The ι-rule's `≠ 0` slice.** `UnitOracleLarge.lean` §10 is the template; `eqRecFn`'s five
+   `mkLam_value` β-steps are the new content.
+3. **Decide the `preludeWitness` question** (§19.4). Either extend its `cnst` with `eqRecVal` (and
+   the `Iff.rec` / `Nonempty.rec` analogues), or introduce a separate oracle for the `.induct`
+   steps. `oracleOK_EqRec` is already stated so that either choice works: the oracle `o` is a
+   parameter pinned by `ho`, independent of the ambient `c`. **This is a shared-witness decision,
+   not a slice — it needs the coordinator, not a stream.**
+4. **`iffIndDecl`'s `= 0` slice** — unchanged from §18.9 item 3, and §18.6 item 3's prediction is
+   still untested.
+5. **`EqSpec`'s necessity at the `≠ 0` slice** (§19.7) — only worth doing if challenged; needs a
+   motive at a non-`Prop` universe, which is the one thing `EqRecNec.sepMot` cannot give.
+
+**Do not** re-attack: everything §10.9–§18.9 name, plus — new — **`Eq.rec`'s `≠ 0` slice**
+(proved), **the `Eq.rec` `consts` cell as an `OracleOK`** (proved, both slices), **`preludeWitness`
+at the `Eq.rec` cell** (refuted), and **hand-typing the ι-rule's recursor spine** (unnecessary —
+§19.6).
+
+### 19.12 **Repo hazard — needs one `git add`**
+
+While this session was running, another stream's commit (`b57d2e0`) swept up my edit to
+`Theory/Equiconsistency.lean`, so **`HEAD` now imports
+`Lean4Lean.Theory.SetModel.EqRecLarge` while `EqRecLarge.lean` itself is still untracked**
+(`git status`: `?? Lean4Lean/Theory/SetModel/EqRecLarge.lean`). A fresh checkout of `HEAD` will not
+build. I did no git operations (not mine to do): **the new file needs adding and committing.**
+Verified: `git show HEAD:Lean4Lean/Theory/Equiconsistency.lean | grep -c EqRecLarge` = 1.
+
+### 19.13 Files touched
+
+* `Lean4Lean/Theory/SetModel/EqRecLarge.lean` — **new**, 686 lines, no `sorry` (49 `#print axioms` lines, all resolving).
+* `Lean4Lean/Theory/Equiconsistency.lean` — one import line, added on the same edit as the file
+  (already in `HEAD`, see §19.12).
+* `docs/handoff-setmodel.md` — this section.
