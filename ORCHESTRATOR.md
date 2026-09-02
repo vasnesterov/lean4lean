@@ -31,6 +31,33 @@
   inspected while the bisect is still running. **Do not run streams during a bisect** -- the tree is
   checking out old commits underneath them.
 
+## Never stage with `-u` or `-A` while streams are live, and check HEAD is self-consistent
+
+I broke `HEAD` once today with `git add -u`. It stages every tracked modification, which in a
+multi-stream session includes other streams' half-finished edits — so a commit picked up a live
+stream's new `import` line while the file it imports was still **untracked**. `HEAD` then imported a
+module absent from the repository: **the build is fine locally, because the file is on disk, and
+only a fresh checkout fails.** The same command also swept a second stream's file mid-work, under an
+unrelated commit message. Both were noticed by the streams, not by me.
+
+**Use explicit paths, always.** I did for every other commit today and reached for `-u` once, in the
+one environment where it is unsafe.
+
+And because the failure is silent locally, check it after committing:
+
+```python
+# every import of a Lean4Lean module, in every tracked .lean file, must name a tracked file
+import subprocess, re
+tracked = set(subprocess.run(['git','ls-files'],capture_output=True,text=True).stdout.split())
+bad = [(f, m.group(1)) for f in tracked if f.endswith('.lean')
+       for m in re.finditer(r'^import\s+(Lean4Lean[\w.]*)', open(f).read(), re.M)
+       if m.group(1).replace('.','/') + '.lean' not in tracked]
+print(len(bad), bad[:10])
+```
+
+Run after the day's commits, not after each one. It reported **0** once the one-off was fixed, which
+is what makes it worth keeping: it is a cheap check for a class of damage that no build catches.
+
 ## Briefs can get too heavy to start
 
 A stream stalled (no progress for 600s, watchdog did not recover) having produced exactly one
