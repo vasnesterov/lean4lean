@@ -19,140 +19,22 @@ open Lean4Lean.SetModel.IffAudit
 open Lean4Lean.SetModel.EqZeroAudit
 open scoped Classical
 
-/-! ## 1. The missing combinator
+/-! ## 1--3. **RELOCATED to `PreludeSpec.lean`**
 
-`EqLargeAudit.mkForallType_ext` says a `mkForallType` is determined by its domain *set* and its
-fibres.  `Iff.rec`'s minor premise needs the same for `mkForallProp`, because the two field
-binders `mp : a → b` and `mpr : b → a` are **propositional** function spaces: their codomains are
-`Prop`, so `interp` takes the impredicative branch at each, and the oracle has to write those two
-sets down for itself. -/
+`mkForallProp_ext`, the three definability lemmas (`iffAt_definable`, `appPt_definable₂`,
+`minAppPt_definable₂`), the five-layer `mkLam` nest (`impSet`, `minSet`, `motSetI`, `lamHI`,
+`lamNI`, `lamFI`, `lamBI`, `iffRecFn` and their `_definable` companions) and `iffRecVal` used to be
+defined here.  They now live in `PreludeSpec.lean`, for the same reason `EqRecLarge.lean` §§1--3 do:
+`SetModel.preludeWitness` has to *mention* `iffRecVal`, and `PreludeSpec.lean` sits eight files
+upstream.  Compiling the payload against `PreludeSpec.lean`'s own import surface shows it needs
+nothing this file adds (`docs/handoff-setmodel.md` §22.5).
 
-section Combinators
+Re-exported below, so every `IffLargeAudit.…` use site still resolves unchanged. -/
 
-variable {V : Type*} [SetStructure V] [Nonempty V] [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙]
-
-/-- **`mkForallProp` is determined by its domain set and its fibres on it.** -/
-theorem mkForallProp_ext {G G' : V → V} {hG : ℒₛₑₜ-function₁[V] G} {hG' : ℒₛₑₜ-function₁[V] G'}
-    {F F' : V → V → V} {hF : ℒₛₑₜ-function₂[V] F} {hF' : ℒₛₑₜ-function₂[V] F'}
-    {ρ ρ' : V} (hdom : G' ρ' = G ρ) (h : ∀ v ∈ G ρ, F' ρ' v = F ρ v) :
-    mkForallProp G' hG' F' hF' ρ' = mkForallProp G hG F hF ρ := by
-  rw [mem_ext_iff]
-  intro z
-  rw [mem_mkForallProp_iff, mem_mkForallProp_iff, hdom]
-  exact and_congr_right fun _ ↦ forall_congr' fun v ↦ imp_congr_right fun hv ↦ by rw [h v hv]
-
-end Combinators
-
-/-! ## 2. Definability of the domain shapes the value needs -/
-
-section Definable
-
-variable {V : Type*} [SetStructure V] [Nonempty V] [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙]
-
-/-- `ρ ↦ I ‘ (ρ ‘ i) ‘ (ρ ‘ j)` — the shape of `⟦Iff a b⟧` read out of a valuation. -/
-theorem iffAt_definable (I : V) (i j : ℕ) :
-    ℒₛₑₜ-function₁[V] (fun ρ ↦ (I ‘ (ρ ‘ ((i : ℕ) : V))) ‘ (ρ ‘ ((j : ℕ) : V))) := by
-  definability
-
-/-- `ρ ↦ (ρ ‘ i) ‘ •` — the shape of `⟦motive (Iff.intro a b mp mpr)⟧`: the constructor
-application is a proof, so `interp` discards all four arguments and the motive is applied to `•`. -/
-theorem appPt_definable₂ (i : ℕ) :
-    ℒₛₑₜ-function₂[V] (fun (ρ _ : V) ↦ (ρ ‘ ((i : ℕ) : V)) ‘ (pt : V)) := by definability
-
-/-- `ρ ↦ (ρ ‘ i) ‘ • ‘ •` — the innermost layer's body: the minor premise applied to the two
-field values, both of which are `•`. -/
-theorem minAppPt_definable₂ (i : ℕ) :
-    ℒₛₑₜ-function₂[V] (fun (ρ _ : V) ↦ ((ρ ‘ ((i : ℕ) : V)) ‘ (pt : V)) ‘ (pt : V)) := by
-  definability
-
-end Definable
-
-/-! ## 3. The value: `λ a b motive min h, min • •`
-
-Five `mkLam` layers, against `Eq.rec`'s six, in the same environment-passing style: at the
-innermost valuation `snoc⁵ ∅ a b f min h` the five values sit at `0,1,2,3,4`.  The body is
-`(ρ ‘ 3) ‘ • ‘ •` — the **minor premise applied to two points**, which is where this block differs
-from `Eq.rec`, whose body was the minor premise itself.  The two points are the denotations of
-`Iff.intro`'s two fields `mp : a → b` and `mpr : b → a`, both proofs. -/
-
-section Value
-
-variable {V : Type*} [SetStructure V] [Nonempty V] [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖]
-
-/-- `⟦a → b⟧` written **without** `interp`: the impredicative `∀` from `ρ ‘ i` to `ρ ‘ j`.
-`i = 0, j = 1` is `mp`'s type read at `snoc³ ∅ a b f`; `i = 1, j = 0` is `mpr`'s. -/
-noncomputable def impSet (i j : ℕ) : V → V :=
-  mkForallProp (fun ρ ↦ ρ ‘ ((i : ℕ) : V)) (value_definable _)
-    (fun ρ _ ↦ ρ ‘ ((j : ℕ) : V)) (value_definable₂ _)
-
-theorem impSet_definable (i j : ℕ) : ℒₛₑₜ-function₁[V] (impSet (V := V) i j) :=
-  mkForallProp_definable _ _ _ _
-
-/-- **The minor premise's domain, as the oracle spells it**: `Π mp ∈ ⟦a → b⟧, Π mpr ∈ ⟦b → a⟧,
-f ‘ •`.  Read at `snoc³ ∅ a b f`.  Two nested `mkForallType`s whose *domains* are `mkForallProp`s
-— the shape with no counterpart in `EqRecLarge.lean`. -/
-noncomputable def minSet : V → V :=
-  mkForallType (impSet 0 1) (impSet_definable 0 1)
-    (fun ρ mp ↦
-      mkForallType (impSet 1 0) (impSet_definable 1 0)
-        (fun σ _ ↦ (σ ‘ ((2 : ℕ) : V)) ‘ (pt : V)) (appPt_definable₂ 2) (snoc ρ mp))
-    (by
-      have := mkForallType_definable (V := V) (impSet 1 0) (impSet_definable 1 0)
-        (fun σ _ ↦ (σ ‘ ((2 : ℕ) : V)) ‘ (pt : V)) (appPt_definable₂ 2)
-      definability)
-
-theorem minSet_definable : ℒₛₑₜ-function₁[V] (minSet (V := V)) :=
-  mkForallType_definable _ _ _ _
-
-/-- The motive binder's domain, spelled without `interp`: `Π x ∈ ⟦Iff a b⟧, U κ nu`.  **One**
-`mkForallType`, not `Eq`'s nested pair, because `iffIndDecl` has no index.  Read at
-`snoc² ∅ a b`. -/
-noncomputable def motSetI (κ : ℕ → V) (nu : ℕ) : V → V :=
-  mkForallType (fun ρ ↦ ((iffFn : V) ‘ (ρ ‘ ((0 : ℕ) : V))) ‘ (ρ ‘ ((1 : ℕ) : V)))
-    (iffAt_definable _ 0 1) (fun _ _ ↦ U κ nu) (EqLargeAudit.const_definable₂ _)
-
-theorem motSetI_definable (κ : ℕ → V) (nu : ℕ) : ℒₛₑₜ-function₁[V] (motSetI (V := V) κ nu) :=
-  mkForallType_definable _ _ _ _
-
-/-- Layer 5: `λ (h : Iff a b), min • •`. -/
-noncomputable def lamHI : V → V :=
-  mkLam (fun ρ ↦ ((iffFn : V) ‘ (ρ ‘ ((0 : ℕ) : V))) ‘ (ρ ‘ ((1 : ℕ) : V)))
-    (iffAt_definable _ 0 1)
-    (fun ρ _ ↦ ((ρ ‘ ((3 : ℕ) : V)) ‘ (pt : V)) ‘ (pt : V)) (minAppPt_definable₂ 3)
-
-theorem lamHI_definable : ℒₛₑₜ-function₁[V] (lamHI (V := V)) := mkLam_definable _ _ _ _
-
-/-- Layer 4: `λ (min : ∀ mp mpr, motive (Iff.intro a b mp mpr)), λ h, min • •`. -/
-noncomputable def lamNI : V → V :=
-  mkLam minSet minSet_definable (fun ρ m ↦ lamHI (snoc ρ m))
-    (by have := lamHI_definable (V := V); definability)
-
-theorem lamNI_definable : ℒₛₑₜ-function₁[V] (lamNI (V := V)) := mkLam_definable _ _ _ _
-
-/-- Layer 3: `λ (motive : Iff a b → Sort u), …`. -/
-noncomputable def lamFI (κ : ℕ → V) (nu : ℕ) : V → V :=
-  mkLam (motSetI κ nu) (motSetI_definable κ nu) (fun ρ f ↦ lamNI (snoc ρ f))
-    (by have := lamNI_definable (V := V); definability)
-
-theorem lamFI_definable (κ : ℕ → V) (nu : ℕ) : ℒₛₑₜ-function₁[V] (lamFI (V := V) κ nu) :=
-  mkLam_definable _ _ _ _
-
-/-- Layer 2: `λ (b : Prop), …`.  Its domain is `U κ 0`, **not** `U κ n`: both of `Iff.rec`'s
-parameters range over `Prop`. -/
-noncomputable def lamBI (κ : ℕ → V) (nu : ℕ) : V → V :=
-  mkLam (fun _ ↦ U κ 0) (by definability) (fun ρ b ↦ lamFI κ nu (snoc ρ b))
-    (by have := lamFI_definable (V := V) κ nu; definability)
-
-theorem lamBI_definable (κ : ℕ → V) (nu : ℕ) : ℒₛₑₜ-function₁[V] (lamBI (V := V) κ nu) :=
-  mkLam_definable _ _ _ _
-
-/-- **The value the oracle must hand `Iff.rec` once the elimination universe is not `Prop`.**
-`nu` is `u.eval ls`; there is no second level, because `iffIndDecl.recUvars = 1`. -/
-noncomputable def iffRecFn (κ : ℕ → V) (nu : ℕ) : V :=
-  mkLam (fun _ ↦ U κ 0) (by definability) (fun ρ a ↦ lamBI κ nu (snoc ρ a))
-    (by have := lamBI_definable (V := V) κ nu; definability) ∅
-
-end Value
+export Lean4Lean.SetModel (mkForallProp_ext iffAt_definable appPt_definable₂ minAppPt_definable₂
+  impSet impSet_definable minSet minSet_definable motSetI motSetI_definable lamHI lamHI_definable
+  lamNI lamNI_definable lamFI lamFI_definable lamBI lamBI_definable iffRecFn iffRecVal
+  iffRecVal_single)
 
 /-! ## 4. `OnCtx` at all five of `Iff.rec`'s contexts, plus the two inside the minor premise
 
@@ -819,15 +701,6 @@ section Oracle
 variable {V : Type*} [SetStructure V] [Nonempty V]
 variable [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖]
 
-/-- **`Iff.rec`'s oracle value.**  `•` on the `Prop` branch, the five-layer function otherwise. -/
-noncomputable def iffRecVal (κ : ℕ → V) (ls : List ℕ) : List VLevel → V
-  | [u] => if u.eval ls = 0 then (pt : V) else iffRecFn κ (u.eval ls)
-  | _ => ∅
-
-theorem iffRecVal_single (κ : ℕ → V) (ls : List ℕ) (u : VLevel) :
-    iffRecVal (V := V) κ ls [u]
-      = if u.eval ls = 0 then (pt : V) else iffRecFn κ (u.eval ls) := rfl
-
 theorem iffRecVal_congr (κ : ℕ → V) (ls : List ℕ) {us us' : List VLevel}
     (hd : List.Forall₂ (· ≈ ·) us us') : iffRecVal (V := V) κ ls us = iffRecVal κ ls us' := by
   rcases hd with _ | ⟨h1, ht1⟩
@@ -975,31 +848,31 @@ theorem joint_repair_discriminates (hleE : eqEnv ≤ envF) (hleI : iffEnv ≤ en
     (hn : u.eval ls ≠ 0) {x : V} (hx : x ∈ U κ (v.eval ls)) :
     ((preludeWitnessRR (V := V) κ ls).cnst ``Eq.rec [u, v] ∈
         (interp (preludeWitnessRR κ ls) L [] ((eqIndDecl.recType 0).instL [u, v])).toFun ∅ ∧
-      (preludeWitness (V := V) κ ls).cnst ``Eq.rec [u, v] ∉
+      (preludeWitnessPt (V := V) κ ls).cnst ``Eq.rec [u, v] ∉
         (interp (preludeWitnessRR κ ls) L [] ((eqIndDecl.recType 0).instL [u, v])).toFun ∅) ∧
     ((preludeWitnessRR (V := V) κ ls).cnst ``Iff.rec [u] ∈
         (interp (preludeWitnessRR κ ls) L [] ((iffIndDecl.recType 0).instL [u])).toFun ∅ ∧
-      (preludeWitness (V := V) κ ls).cnst ``Iff.rec [u] ∉
+      (preludeWitnessPt (V := V) κ ls).cnst ``Iff.rec [u] ∉
         (interp (preludeWitnessRR κ ls) L [] ((iffIndDecl.recType 0).instL [u])).toFun ∅) := by
   refine ⟨⟨?_, ?_⟩, ?_, ?_⟩
   · rw [preludeWitnessRR_cnst_eqRec, EqLargeAudit.eqRecVal_pair, if_neg hn]
     exact EqLargeAudit.eqRecFn_mem_interp_eqRecType hu hv hleE
       (preludeWitnessRR_eq κ ls v) hn
-  · rw [EqLargeAudit.preludeWitness_cnst_eqRec]
+  · rw [preludeWitnessPt_cnst_eqRec]
     exact EqAudit.pt_not_mem_interp_eqRecType_of_ne L (preludeWitnessRR κ ls) hu hv hleE hn hx
   · rw [preludeWitnessRR_cnst_iffRec, iffRecVal_single, if_neg hn]
     exact iffRecFn_mem_interp_iffRecType hu hleI (preludeWitnessRR_iff κ ls) hn
-  · rw [RecGap.preludeWitness_cnst_iffRec]
+  · rw [preludeWitnessPt_cnst_iffRec]
     exact IffAudit.pt_not_mem_interp_iffRecType_of_ne L (preludeWitnessRR κ ls) hu hleI hn
 
 include L hu in
 /-- …and the `Iff.rec` entry really changes: the two witnesses give different sets there. -/
 theorem joint_repair_changes_the_iffRec_value (hleI : iffEnv ≤ envF) (hn : u.eval ls ≠ 0) :
     (preludeWitnessRR (V := V) κ ls).cnst ``Iff.rec [u]
-      ≠ (preludeWitness (V := V) κ ls).cnst ``Iff.rec [u] := by
+      ≠ (preludeWitnessPt (V := V) κ ls).cnst ``Iff.rec [u] := by
   intro h
   rw [preludeWitnessRR_cnst_iffRec, iffRecVal_single, if_neg hn,
-    RecGap.preludeWitness_cnst_iffRec] at h
+    preludeWitnessPt_cnst_iffRec] at h
   exact iffRecFn_ne_pt L (preludeWitnessRR κ ls) hu hleI (preludeWitnessRR_iff κ ls) hn h
 
 end JointRepair
@@ -1060,23 +933,107 @@ theorem oracleOK_Eq_preludeWitnessRR (hle : eqEnv ≤ envF) :
 
 end TypeFormerTransfer
 
-/-! ## 15. Axiom audit, **by namespace**
+/-! ## 15. The repair, **installed**: both cells at `SetModel.preludeWitness` itself
+
+§14's `preludeWitnessRR` was a measuring instrument living downstream.  The relocation it priced has
+been performed -- `motSet`/`lam*`/`eqRecFn`/`eqRecVal` and the `Iff` analogues now live in
+`PreludeSpec.lean`, and `SetModel.preludeWitness` carries both recursor arms -- so the same
+statements can now be made about the assignment `PreludeOracle.lean` really uses
+(`NEAudit.neOracle` is `(preludeWitness κ ls).cnst` byte for byte, `NEAudit.neM_eq`).
+
+Everything below is the same proof as its `preludeWitnessRR` counterpart with the witness swapped;
+none of it needed the `_cnst_Eq_arm` + `rw` detour §14.1 prescribes, because `preludeWitness` is
+written in the η-contracted shape (`docs/handoff-setmodel.md` §22.4) and its cells are `rfl`. -/
+
+section Installed
+
+variable {V : Type*} [SetStructure V] [Nonempty V]
+variable [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖]
+variable {envF : VEnv} {nv : ℕ} (L : PropSplit envF nv) (κ : ℕ → V) (ls : List ℕ)
+
+/-- **`OracleOK` at `Iff.rec`, both level slices, at the shared witness.** -/
+theorem oracleOK_IffRec_preludeWitness (hle : iffEnv ≤ envF) :
+    OracleOK L κ ls (preludeWitness κ ls).cnst (preludeWitness κ ls).cnst ``Iff.rec
+      ⟨iffIndDecl.recUvars, iffIndDecl.recType 0⟩ :=
+  oracleOK_IffRec L κ ls hle (preludeWitness_iff κ ls) (preludeWitness_cnst_iffRec κ ls)
+
+/-- **`OracleOK` at `Eq.rec`, both level slices, at the shared witness.** -/
+theorem oracleOK_EqRec_preludeWitness (hle : eqEnv ≤ envF) :
+    OracleOK L κ ls (preludeWitness κ ls).cnst (preludeWitness κ ls).cnst ``Eq.rec
+      ⟨eqIndDecl.recUvars, eqIndDecl.recType 0⟩ :=
+  EqLargeAudit.oracleOK_EqRec L κ ls hle
+    (fun w ↦ preludeWitness_eq κ ls w) (preludeWitness_cnst_eqRec κ ls)
+
+variable {u : VLevel} (hu : u.WF nv)
+
+include hu in
+/-- The `≠ 0` slice at `Iff.rec`, at the shared witness -- what
+`RecGap.preludeWitnessPt_not_mem_interp_iffRecType` is the negation of at the pre-repair
+assignment. -/
+theorem preludeWitness_mem_interp_iffRecType (hle : iffEnv ≤ envF) (hn : u.eval ls ≠ 0) :
+    (preludeWitness (V := V) κ ls).cnst ``Iff.rec [u] ∈
+      (interp (preludeWitness κ ls) L [] ((iffIndDecl.recType 0).instL [u])).toFun ∅ := by
+  rw [preludeWitness_cnst_iffRec, iffRecVal_single, if_neg hn]
+  exact iffRecFn_mem_interp_iffRecType hu hle (preludeWitness_iff κ ls) hn
+
+variable {v : VLevel} (hv : v.WF nv)
+
+include hu hv in
+/-- **The installed repair discriminates at BOTH cells**, at one `L`, one `κ`, one `ls`, one level
+tuple and **one `interp`** -- the interpretation of the *repaired* witness in all four conjuncts, so
+the two `∉` halves are not statements about a different model.  The bad witness is
+`SetModel.preludeWitnessPt`, the pre-repair assignment, which meets all three prelude
+specifications and agrees with `preludeWitness` at all three type formers, so the only difference
+exercised here is the one the repair makes. -/
+theorem installed_repair_discriminates (hleE : eqEnv ≤ envF) (hleI : iffEnv ≤ envF)
+    (hn : u.eval ls ≠ 0) {x : V} (hx : x ∈ U κ (v.eval ls)) :
+    ((preludeWitness (V := V) κ ls).cnst ``Eq.rec [u, v] ∈
+        (interp (preludeWitness κ ls) L [] ((eqIndDecl.recType 0).instL [u, v])).toFun ∅ ∧
+      (preludeWitnessPt (V := V) κ ls).cnst ``Eq.rec [u, v] ∉
+        (interp (preludeWitness κ ls) L [] ((eqIndDecl.recType 0).instL [u, v])).toFun ∅) ∧
+    ((preludeWitness (V := V) κ ls).cnst ``Iff.rec [u] ∈
+        (interp (preludeWitness κ ls) L [] ((iffIndDecl.recType 0).instL [u])).toFun ∅ ∧
+      (preludeWitnessPt (V := V) κ ls).cnst ``Iff.rec [u] ∉
+        (interp (preludeWitness κ ls) L [] ((iffIndDecl.recType 0).instL [u])).toFun ∅) := by
+  refine ⟨⟨?_, ?_⟩, ?_, ?_⟩
+  · rw [preludeWitness_cnst_eqRec, EqLargeAudit.eqRecVal_pair, if_neg hn]
+    exact EqLargeAudit.eqRecFn_mem_interp_eqRecType hu hv hleE (preludeWitness_eq κ ls v) hn
+  · rw [preludeWitnessPt_cnst_eqRec]
+    exact EqAudit.pt_not_mem_interp_eqRecType_of_ne L (preludeWitness κ ls) hu hv hleE hn hx
+  · rw [preludeWitness_cnst_iffRec, iffRecVal_single, if_neg hn]
+    exact iffRecFn_mem_interp_iffRecType hu hleI (preludeWitness_iff κ ls) hn
+  · rw [preludeWitnessPt_cnst_iffRec]
+    exact IffAudit.pt_not_mem_interp_iffRecType_of_ne L (preludeWitness κ ls) hu hleI hn
+
+include L hu in
+/-- ...and the two assignments' `Iff.rec` entries really are different sets. -/
+theorem installed_repair_changes_the_iffRec_value (hleI : iffEnv ≤ envF) (hn : u.eval ls ≠ 0) :
+    (preludeWitness (V := V) κ ls).cnst ``Iff.rec [u]
+      ≠ (preludeWitnessPt (V := V) κ ls).cnst ``Iff.rec [u] := by
+  intro h
+  rw [preludeWitness_cnst_iffRec, iffRecVal_single, if_neg hn,
+    preludeWitnessPt_cnst_iffRec] at h
+  exact iffRecFn_ne_pt L (preludeWitness κ ls) hu hleI (preludeWitness_iff κ ls) hn h
+
+end Installed
+
+/-! ## 16. Axiom audit, **by namespace**
 
 Not by filename: this file declares into `Lean4Lean.SetModel.IffLargeAudit`, and the names it
 reuses live in `Lean4Lean.SetModel` (`iffFn_value`, `preludeWitness`), `…IffAudit`, `…EqZeroAudit`,
 `…EqLargeAudit` and `…RecGap`.  Every name below is `Lean4Lean.SetModel.IffLargeAudit.*`. -/
 
-#print axioms Lean4Lean.SetModel.IffLargeAudit.mkForallProp_ext
-#print axioms Lean4Lean.SetModel.IffLargeAudit.iffAt_definable
-#print axioms Lean4Lean.SetModel.IffLargeAudit.appPt_definable₂
-#print axioms Lean4Lean.SetModel.IffLargeAudit.minAppPt_definable₂
-#print axioms Lean4Lean.SetModel.IffLargeAudit.impSet_definable
-#print axioms Lean4Lean.SetModel.IffLargeAudit.minSet_definable
-#print axioms Lean4Lean.SetModel.IffLargeAudit.motSetI_definable
-#print axioms Lean4Lean.SetModel.IffLargeAudit.lamHI_definable
-#print axioms Lean4Lean.SetModel.IffLargeAudit.lamNI_definable
-#print axioms Lean4Lean.SetModel.IffLargeAudit.lamFI_definable
-#print axioms Lean4Lean.SetModel.IffLargeAudit.lamBI_definable
+#print axioms Lean4Lean.SetModel.mkForallProp_ext
+#print axioms Lean4Lean.SetModel.iffAt_definable
+#print axioms Lean4Lean.SetModel.appPt_definable₂
+#print axioms Lean4Lean.SetModel.minAppPt_definable₂
+#print axioms Lean4Lean.SetModel.impSet_definable
+#print axioms Lean4Lean.SetModel.minSet_definable
+#print axioms Lean4Lean.SetModel.motSetI_definable
+#print axioms Lean4Lean.SetModel.lamHI_definable
+#print axioms Lean4Lean.SetModel.lamNI_definable
+#print axioms Lean4Lean.SetModel.lamFI_definable
+#print axioms Lean4Lean.SetModel.lamBI_definable
 #print axioms Lean4Lean.SetModel.IffLargeAudit.onCtxI_M
 #print axioms Lean4Lean.SetModel.IffLargeAudit.onCtxI_N
 #print axioms Lean4Lean.SetModel.IffLargeAudit.onCtxI_H
@@ -1130,7 +1087,7 @@ reuses live in `Lean4Lean.SetModel` (`iffFn_value`, `preludeWitness`), `…IffAu
 #print axioms Lean4Lean.SetModel.IffLargeAudit.pt_mem_interp_iffRecType_of_zero
 #print axioms Lean4Lean.SetModel.IffLargeAudit.iffRecCell_discriminates
 #print axioms Lean4Lean.SetModel.IffLargeAudit.iffRecFn_ne_pt
-#print axioms Lean4Lean.SetModel.IffLargeAudit.iffRecVal_single
+#print axioms Lean4Lean.SetModel.iffRecVal_single
 #print axioms Lean4Lean.SetModel.IffLargeAudit.iffRecVal_congr
 #print axioms Lean4Lean.SetModel.IffLargeAudit.eq_single_of_length_one
 #print axioms Lean4Lean.SetModel.IffLargeAudit.iffIndDecl_recUvars
@@ -1152,3 +1109,8 @@ reuses live in `Lean4Lean.SetModel` (`iffFn_value`, `preludeWitness`), `…IffAu
 #print axioms Lean4Lean.SetModel.IffLargeAudit.preludeWitnessRR_congr_Eq
 #print axioms Lean4Lean.SetModel.IffLargeAudit.mem_interp_EqType_preludeWitnessRR
 #print axioms Lean4Lean.SetModel.IffLargeAudit.oracleOK_Eq_preludeWitnessRR
+#print axioms Lean4Lean.SetModel.IffLargeAudit.oracleOK_IffRec_preludeWitness
+#print axioms Lean4Lean.SetModel.IffLargeAudit.oracleOK_EqRec_preludeWitness
+#print axioms Lean4Lean.SetModel.IffLargeAudit.preludeWitness_mem_interp_iffRecType
+#print axioms Lean4Lean.SetModel.IffLargeAudit.installed_repair_discriminates
+#print axioms Lean4Lean.SetModel.IffLargeAudit.installed_repair_changes_the_iffRec_value

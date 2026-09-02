@@ -1337,10 +1337,17 @@ abbrev preludeTail : List VDecl :=
 
 theorem preludeTail_eq : (preludeTail : List VDecl) = leanPrelude.reverse.drop 3 := rfl
 
-/-- `neOracle` is `∅` off the ten names the prelude's first four steps declare. -/
+/-- `neOracle` is `∅` off the **five** names the assignment sets.
+
+The `h4`/`h5` hypotheses are the ones the recursor repair forces: `preludeWitness` no longer sends
+`Eq.rec` and `Iff.rec` to `•`, so "not one of the three type formers" is no longer enough.  They
+are suppliable at the one use site (`cnstOf_preludeTail`), which reaches this lemma only in the
+branch where `m` is in none of the three blocks' `allNames`, and `Eq.rec ∈ eqIndDecl.allNames`,
+`Iff.rec ∈ iffIndDecl.allNames`.  See `docs/handoff-setmodel.md` §22.7. -/
 theorem neOracle_eq_empty_of_not_mem {m : Name} (h1 : m ≠ ``Eq) (h2 : m ≠ ``Iff)
-    (h3 : m ≠ ``Nonempty) (us : List VLevel) : neOracle κ ls m us = (∅ : V) := by
-  simp [neOracle, preludeWitness, h1, h2, h3]
+    (h3 : m ≠ ``Nonempty) (h4 : m ≠ ``Eq.rec) (h5 : m ≠ ``Iff.rec) (us : List VLevel) :
+    neOracle κ ls m us = (∅ : V) := by
+  simpa [neOracle] using preludeWitness_cnst_empty κ ls h1 h2 h3 h4 h5 us
 
 /-- **`cnstOf` at the prelude tail *is* the oracle.**  Every name the four steps declare is
 set to `neOracle`'s value, and `neOracle` is `∅` — which is `cnstOf …  []` — everywhere
@@ -1372,13 +1379,25 @@ theorem cnstOf_preludeTail :
   · rw [if_pos he]
   rw [if_neg he]
   show (∅ : V) = _
-  refine (neOracle_eq_empty_of_not_mem κ ls ?_ ?_ ?_ us).symm
+  refine (neOracle_eq_empty_of_not_mem κ ls ?_ ?_ ?_ ?_ ?_ us).symm
   · exact fun h ↦ he (by rw [h]; simp [eqIndDecl, VInductDecl'.allNames,
       VInductDecl'.allConsts, VInductDecl'.typeConsts])
   · exact fun h ↦ hi (by rw [h]; simp [iffIndDecl, VInductDecl'.allNames,
       VInductDecl'.allConsts, VInductDecl'.typeConsts])
   · exact fun h ↦ hn (by rw [h]; simp [nonemptyIndDecl, VInductDecl'.allNames,
       VInductDecl'.allConsts, VInductDecl'.typeConsts])
+  · intro h
+    refine he ?_
+    rw [h]
+    simp only [VInductDecl'.allNames, VInductDecl'.allConsts, VInductDecl'.recConsts,
+      List.map_append, List.mem_append]
+    right; simp [eqIndDecl]; rfl
+  · intro h
+    refine hi ?_
+    rw [h]
+    simp only [VInductDecl'.allNames, VInductDecl'.allConsts, VInductDecl'.recConsts,
+      List.map_append, List.mem_append]
+    right; simp [iffIndDecl]; rfl
 
 /-- **The oracle's obligation at the prelude's `.induct nonemptyIndDecl` step**, in the exact
 form `OracleFits` asks for. -/
@@ -1464,24 +1483,25 @@ theorem eq_indices : (eqIndDecl.types.getD 0 default).indices = [.bvar 1] := rfl
 theorem iff_indices : (iffIndDecl.types.getD 0 default).indices = [] := rfl
 theorem ne_indices : (nonemptyIndDecl.types.getD 0 default).indices = [] := rfl
 
-/-- And `PreludeSpec.lean`'s witness assigns `∅` to both recursors, so it is **not** a
-candidate oracle at either block: `preludeWitness` was written to satisfy `EqSpec`/`IffSpec`,
-which constrain only the type formers.
+/-! **`preludeWitness` no longer assigns `∅` to the two recursors.**  This is where
+`preludeWitness_eqRec_empty` and `preludeWitness_iffRec_empty` used to stand.  Both said "the
+entry is `∅`", both were flagged here as "a fact about the assignment, not yet a refutation of
+`InductOracleOK`", and both have since been **refuted** rather than upgraded: the refutation
+arrived as `EqRecLarge.lean` §8 and `PreludeRecGap.lean` §1, and the repair that answers it is now
+in `PreludeSpec.lean` itself, so the two statements are false at the current witness.
 
-*This is a fact about the assignment, not yet a refutation of `InductOracleOK` at those
-blocks* — flagged as such, because an unproved negative is worse than an unproved positive
-(`docs/vacuity-ledger.md` §0, kind 4).  What would refute it is the `mkForallType` argument of
-`UnitOracleLarge.pt_not_mem_interpL_recType_of_ne` transported to a five- or six-binder
-telescope, and that has **not** been done. -/
-theorem preludeWitness_eqRec_empty {V : Type*} [SetStructure V] [Nonempty V]
-    [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖] (κ : ℕ → V) (ls : List ℕ) (us : List VLevel) :
-    (preludeWitness κ ls).cnst ``Eq.rec us = (∅ : V) := by
-  simp [preludeWitness]
+What replaces them:
 
-theorem preludeWitness_iffRec_empty {V : Type*} [SetStructure V] [Nonempty V]
-    [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖] (κ : ℕ → V) (ls : List ℕ) (us : List VLevel) :
-    (preludeWitness κ ls).cnst ``Iff.rec us = (∅ : V) := by
-  simp [preludeWitness]
+* `preludeWitness_cnst_eqRec` / `preludeWitness_cnst_iffRec` (`PreludeSpec.lean`) — the entries are
+  `eqRecVal`/`iffRecVal`, `•` on the `Prop` slice and the `mkLam` nest otherwise;
+* `preludeWitnessPt_cnst_eqRec` / `preludeWitnessPt_cnst_iffRec` (`PreludeSpec.lean`) — the two
+  old statements, at the preserved pre-repair assignment, which is what the discrimination
+  theorems now vary against;
+* `neOracle_eq_empty_of_not_mem` above, whose hypothesis list grew by the two names.
+
+`Nonempty.rec` is untouched: `ne_isLE : nonemptyIndDecl.isLE = false`, so its recursor's type is a
+proposition at every instantiation and `•` is the *correct* value there
+(`pt_mem_interp_NE_recType`). -/
 
 end Remaining
 

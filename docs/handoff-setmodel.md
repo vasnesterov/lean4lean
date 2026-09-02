@@ -4342,3 +4342,471 @@ import line. The five `declaration uses 'sorry'` warnings are the pre-existing o
 differ from §20.9's because of my import line and another stream's edit to `Decl.lean`). No full
 `lake build`, no guards, no `sorry-census`, no `dup-names`, no `MemberRedexScan`, no `lean_build`
 MCP call.
+
+---
+
+## 22. The kernel-timeout surface, measured — and the one-line shape fix that removes it
+
+Brief: measure the kernel cost of the `if`-cascade witness across arm counts before touching
+`PreludeSpec.lean`; if the surface says the relocation is unaffordable, stop and say so.
+
+**Verdict: the surface clears the relocation, and it clears it in a *better* shape than the brief
+asked for.** The trap is not the arm count and not the `rfl`. It is a single syntactic choice in
+how the witness is written, and reversing that choice removes the trap entirely — no `simp`
+workaround, no arm-lemma detour, naive `rfl` everywhere, at 1/50 of the default heartbeat budget.
+
+### 22.1 The instrument (and why wall clock was the wrong axis)
+
+`(kernel) deterministic timeout` is raised by the kernel's own `check_system`, which reads the
+**`maxHeartbeats` option** — the same one the elaborator uses. So the trap has a *deterministic*
+cost measure, not just a wall clock, and it can be dialled:
+
+* `set_option maxHeartbeats 2000 in` reproduces the five-arm failure in **3.6 s** total instead of
+  minutes, and `#print axioms` on the rejected declaration still prints
+  `does not depend on any axioms` — the trap, at 1/100 the cost of observing it.
+* Wall clock is **linear in the budget**: ≈1.2 s per 1000 heartbeat-units of burn. So §20.4a /
+  §14.1's "two to eight minutes before the kernel rejects it" is **not a measurement of the
+  proof's cost** — it is the time to exhaust the default 200 000-unit budget. Corrected below.
+* The elaborator/kernel split falls out for free: at `maxHeartbeats 4000` the failing declarations
+  fail with `(kernel) deterministic timeout`, i.e. **elaboration finished inside 4000 units while
+  the kernel could not**. The gap is not marginal; see 22.3.
+
+All runs are `lake env lean /tmp/km/*.lean` against the built `.olean`s — no module was created and
+no `lake build` was run for the measurement. Import overhead baseline: 2.4 s.
+
+### 22.2 Phase 1 table: arms × formulation × outcome × wall clock
+
+`cell A` is the failing shape: `cnst ``Eq (a::b::t) = cnst ``Eq (a'::b'::t')` — the degenerate
+branch of `preludeWitness_congr_Eq`, both sides cascades, `us` differing. All at
+`maxHeartbeats 4000` unless stated. "heavy" = the arm body is `eqRecVal κ ls us` / `iffRecVal κ ls
+us` (which unfold to the six- and five-layer `mkLam` nests); "light" = `∅`.
+
+| witness | `if` arms | untaken-arm bodies | cell | formulation | outcome | wall |
+|---|---|---|---|---|---|---|
+| `w3` (= `preludeWitness`) | 3 | — | A | `rfl` | **pass** | 12.3 s / 20 decls |
+| `w4` (= `preludeWitnessR`) | 4 | heavy, `us`-dep | A | `rfl` | **(kernel) timeout** | |
+| `w5` (= `preludeWitnessRR`) | 5 | heavy, `us`-dep | A | `rfl` | **(kernel) timeout** | |
+| `w7` | 7 | heavy, `us`-dep ×4 | A | `rfl` | **(kernel) timeout** | |
+| `s5` | 5 | light (`∅`) | A | `rfl` | **pass** | |
+| `s7` | 7 | light (`∅`) ×4 | A | `rfl` | **pass** | 8.3 s / 14 decls |
+| `h4` | 3 + heavy fallback | heavy, `us`-dep | A | `rfl` | **(kernel) timeout** | |
+| `hX4` | 3 + heavy fallback | heavy, **no `us`** (`eqRecVal κ ls [zero,zero]`) | A | `rfl` | **pass** | |
+| `hY4` | 3 + fallback | light, `us`-dep (stuck matcher) | A | `rfl` | **pass** | |
+| `hZ4` | 3 + fallback | `κ us.length` | A | `rfl` | **pass** | |
+| `hW4` | 3 + fallback | `us`-dep matcher-over-`ite`, **`eqRecFn` replaced by `pt`** | A | `rfl` | **pass** | 2.9 s / 8 decls |
+| `h4` | 4 | heavy, `us`-dep | A, same tail variable | `rfl` | **(kernel) timeout** | |
+| `h4` | 4 | heavy, `us`-dep | A, **closed** level lists both sides | `rfl` | **(kernel) timeout** @200 000 | 2 m 17 s |
+| `w4` | 4 | heavy | A | `rfl`, `maxHeartbeats 0` | **PASSES** | **8 m 17 s** |
+| `w5`,`w7` | 5,7 | heavy | `cnst Eq (a::b::t) = (∅:V)` (one side a literal) | `rfl` | **pass** | |
+| `w5`,`w7` | 5,7 | heavy | `cnst Eq [w] = eqFn …` (arm 1) | `rfl` | **pass** | |
+| `w5`,`w7` | 5,7 | heavy | deepest arm, `cnst Iff.rec us = iffRecVal …` | `rfl` | **pass** | |
+| `w5`,`w7` | 5,7 | heavy | fallback, `cnst Nat us = ∅` | `rfl` | **pass** | |
+| `w7` | 7 | heavy | A with the **same** `us` both sides | `rfl` | **pass** | |
+| `w5`,`w7` | 5,7 | heavy | arm lemma `cnst Eq us = match us with …` | `simp [w]` | **pass** | |
+| **`e5`** | **5, η-contracted** | heavy, `us`-dep | A, **and every other cell, and the full congruence theorem** | **`rfl`** | **pass** | **2.9 s** |
+
+### 22.3 What makes an arm expensive — the answer, and it is not the arm count
+
+Three claims in the brief and in `PreludeRecGap` §20.4a / `IffRecLarge` §14.1 are **wrong**:
+
+1. **"The cost scales with arm count."** It does not. `s7` — *seven* arms — passes the naive `rfl`
+   at 4000 heartbeats. `h4` — *three* `if`s, one heavy fallback — fails. Arm count is a confound:
+   the arms being added happened to carry the `mkLam` nests.
+2. **"The `rfl` at the end is the problem."** Not on its own: `B`, `C`, `D`, `E`, `F` are all `rfl`
+   through the same five- and seven-arm cascades and all pass. What fails is specifically `rfl`
+   between **two** cascade terms at **different** `us`.
+3. **"It takes 2–8 minutes and then the kernel refuses it."** It takes 2–8 minutes because that is
+   how long burning the default budget takes. At `maxHeartbeats 0` the four-arm naive `rfl`
+   **succeeds** in 8 m 17 s, i.e. it needs ≈4.1 × 10⁵ heartbeat-units against a default of
+   2 × 10⁵. The proof is **not** divergent; it is a factor ~2 over budget.
+
+The measured predictor is a **conjunction**, and each conjunct is refuted alone:
+
+> the blowup happens iff an **untaken** arm's body both (a) mentions `us` and (b) unfolds to
+> `eqRecFn`/`iffRecFn`.
+
+* drop (a) — `hX4`, heavy body at a *closed* level list — **passes**;
+* drop (b) — `hY4`/`hZ4`/`hW4`, `us`-dependent bodies of ordinary size, `hW4` keeping the exact
+  matcher-over-`ite` shape of `eqRecVal` with only `eqRecFn` swapped for `pt` — **all pass**.
+
+So the cost lives **inside `eqRecFn`/`iffRecFn`** (six and five `mkLam` layers, each carrying
+`definability` proof terms), and it is reached only because the two sides differ at `us`.
+
+Mechanism, consistent with all twelve cells but **not itself measured** (I did not instrument the
+kernel): both sides are applications of the same head, so the kernel tries argument-wise congruence
+*before* reducing the `ite`; congruence descends into the untaken else-branch, which is
+`eqRecVal κ ls us` vs `eqRecVal κ ls us'`; those have the same head too, so it recurses, fails on
+the scrutinee, and unfolds — into the `mkLam` nests. The taken branch, which is what makes the goal
+true, is only reached after that whole descent has been paid for. Treat this paragraph as a
+hypothesis; the twelve rows above are the measurement.
+
+### 22.4 The fix: η-contract the witness. Zero proof cost.
+
+The witness is written `cnst := fun n us ↦ if n = ``Eq then … else … else ∅`. Write it instead as
+
+```lean
+  cnst := fun n ↦
+    if n = ``Eq then (fun us ↦ match us with | [w] => eqFn κ (w.eval ls) | _ => ∅)
+    else if n = ``Iff then (fun us ↦ match us with | [] => (iffFn : V) | _ => ∅)
+    else if n = ``Nonempty then (fun us ↦ match us with | [w] => nonemptyFn κ (w.eval ls) | _ => ∅)
+    else if n = ``Eq.rec then eqRecVal κ ls
+    else if n = ``Iff.rec then iffRecVal κ ls
+    else fun _ ↦ ∅
+```
+
+— branch on `n` alone, each arm a *function* of `us`. Now no untaken arm mentions `us`, so the two
+sides of any `us`-differing comparison have **syntactically identical** untaken branches and the
+congruence attempt succeeds instead of descending. Measured at five arms (`e5`, last row of 22.2):
+
+* cell A by naive `rfl` — **passes**, at `maxHeartbeats 4000`;
+* A with closed level lists — passes;
+* arm 1, deepest arm, `Nonempty.rec`, the fallback — all naive `rfl`, all pass;
+* **the whole `preludeWitness_congr_Eq`, degenerate branch by `rfl`** — passes.
+
+This supersedes `PreludeRecGap` §4.5's and `IffRecLarge` §14.1's prescription ("name the `Eq` arm
+once by `simp` and never let `rfl` see the cascade"). That prescription works, and it is what
+`preludeWitnessR_cnst_Eq_arm` / `preludeWitnessRR_cnst_Eq_arm` do; but it is a workaround for a
+self-inflicted shape, and it costs an extra lemma plus an `rw` at every use site. The η-contraction
+costs nothing and keeps every downstream statement a `rfl`.
+
+### 22.5 The relocation, **run** rather than read off the import graph
+
+`/tmp/km/reloc.lean` and `/tmp/km/reloc2.lean`: a file importing **only**
+`Lean4Lean.Theory.SetModel.PreludeSpec`, i.e. exactly `PreludeSpec.lean`'s own surface
+(`Cnst` + `Definability` + itself), carrying the whole payload extracted verbatim by `awk` from
+`EqRecLarge.lean` and `IffRecLarge.lean` (`section Combinators`, `section Definable`,
+`section Value` of each, plus `eqRecVal`/`iffRecVal`).
+
+**It compiles clean, exit 0, no errors and no warnings, in 3.8 s.** One textual change was needed:
+`EqLargeAudit.const_definable₂` → `const_definable₂`, because the two halves land in one namespace.
+Nothing else — the brief's "those need only `mkLam`, `mkForallType`, their `_definable` lemmas and
+`eqFn`/`iffFn`, all already imported" is **confirmed by running it**.
+
+**The count is wrong, though: 40 declarations, not ~19.** Measured by name:
+
+| block | declarations |
+|---|---|
+| `EqRecLarge` §1 combinators | `mkFamUnion_ext`, `mkForallType_ext` |
+| `EqRecLarge` §2 definability | `eqAt_definable`, `eqAt_definable₂`, `minAt_definable`, `const_definable₂` |
+| `EqRecLarge` §3 value | `motSet`, `lamH`, `lamB`, `lamM`, `lamF`, `lamA`, `eqRecFn` + the six `_definable` companions |
+| `EqRecLarge` §9 | `eqRecVal` |
+| `IffRecLarge` §1 | `mkForallProp_ext` |
+| `IffRecLarge` §2 | `iffAt_definable`, `appPt_definable₂`, `minAppPt_definable₂` |
+| `IffRecLarge` §3 value | `impSet`, `minSet`, `motSetI`, `lamHI`, `lamNI`, `lamFI`, `lamBI`, `iffRecFn` + the seven `_definable` companions |
+| `IffRecLarge` §13 | `iffRecVal` |
+
+19 + 21 = **40**. The brief's 19 is the `Eq` half with the `lam*_definable` companions and
+`mkFamUnion_ext` omitted; `IffRecLarge` §14's "eight definitions more … plus §2's three
+definability lemmas and `mkForallProp_ext`" (12) is likewise short by the `Iff` half's eight
+`_definable` companions. The *character* of the estimate holds — mechanical, no new imports — but
+the size is 2.1×.
+
+### 22.6 The full drop-in, compiled
+
+`/tmp/km/reloc2.lean` = the 40 declarations + the η-contracted five-arm `preludeWitness'` + every
+cell the downstream files read, each in its **naive** form, at the **default** heartbeat budget:
+`_eq`/`_iff`/`_nonempty`/`preludeSpec_satisfiable`; `cnst ``Eq [w]`, `cnst ``Iff []`,
+`cnst ``Nonempty [w]`, `cnst ``Eq.rec us`, `cnst ``Iff.rec us`, `cnst ``Nonempty.rec us`,
+`cnst ``Nonempty.intro us` — all `rfl`; `preludeWitness_congr_Eq` with the degenerate branch by
+**`rfl`**; and `neOracle_eq_empty_of_not_mem` in its repaired five-hypothesis shape by `simp`.
+
+**Exit 0, 4.0 s, no errors, no warnings.** So the answer to "is the relocation affordable in the
+current shape" is: yes, and the repaired shape is *cheaper* than the present one, because the
+`_cnst_Eq_arm` + `rw` detour disappears.
+
+### 22.7 The fallout inventory, and the one thing the census misses
+
+Enumeration tool: `rg` (**which is present in this environment — ripgrep 14.1.1**; see 22.10).
+`rg -c preludeWitness Lean4Lean` gives 315 occurrences in 9 files. The reverse-import closure of
+`PreludeSpec.lean`, computed by a Python walk over `^import` lines of all 369 `.lean` modules, is
+**24 modules** — 17 in `SetModel`, plus `Theory/Equiconsistency`, `Experimental/ConeJoin`,
+`Verify/ClosednessPropagation`, `Verify/SoundnessAssembly`, and three `Verify/Inductive/*`. Of those
+seven non-`SetModel` modules, **none mentions `preludeWitness`, `neOracle` or `neM`** (`rg` over
+`Lean4Lean/Verify`, `Lean4Lean/Experimental`, `Theory/Equiconsistency.lean` — the only hits are four
+import *comments* in `Equiconsistency.lean`). So they need rebuilding, not editing — which matters,
+because `Experimental/ConeJoin.lean` is in the closure and is a file no stream may touch.
+
+Declarations the repair breaks, with **their consumers**, all located by `rg`:
+
+| refuted / changed | at | consumers |
+|---|---|---|
+| `EqLargeAudit.preludeWitness_cnst_eqRec` | `EqRecLarge:425` | `EqRecLarge:437`, `EqRecLarge:447`, `PreludeRecGap:379`, `IffRecLarge:988` |
+| `EqLargeAudit.preludeWitness_not_mem_interp_eqRecType` | `EqRecLarge:433` | none (only its own `#print axioms`) |
+| `EqLargeAudit.preludeWitness_mem_interp_eqRecType_of_zero` | `EqRecLarge:444` | none; statement survives, one extra rewrite |
+| `RecGap.preludeWitness_cnst_iffRec` | `PreludeRecGap:62` | `PreludeRecGap:75`, `IffRecLarge:992`, `IffRecLarge:1002` |
+| `RecGap.preludeWitness_not_mem_interp_iffRecType` | `PreludeRecGap:72` | none in code (prose + an import comment) |
+| `NEAudit.preludeWitness_eqRec_empty` | `PreludeOracle:1476` | none |
+| `NEAudit.preludeWitness_iffRec_empty` | `PreludeOracle:1481` | none |
+| `NEAudit.neOracle_eq_empty_of_not_mem` | `PreludeOracle:1341` | `PreludeOracle:1375` (`cnstOf_preludeTail`) |
+| `EqTFAudit.preludeWitness_congr_Eq` | `EqTypeFormer:269` | `EqTypeFormer:297` (`oracleOK_Eq`) — and with η-contraction its proof needs **no** change |
+
+`NEAudit.neM_eq : neM κ ls = preludeWitness κ ls := rfl` (`PreludeOracle:552`) survives: `neOracle`
+is *defined* as `(preludeWitness κ ls).cnst`, so both sides move together and the `rfl` is
+syntactic. `cnstOf_preludeTail`'s tactic proof is unaffected except at its one call to
+`neOracle_eq_empty_of_not_mem`, and §5.3's argument that the two extra hypotheses are suppliable
+there is sound: the branch that reaches it has `m ∉ eqIndDecl.allNames` and `m ∉
+iffIndDecl.allNames`, while `Eq.rec ∈ eqIndDecl.allNames` and `Iff.rec ∈ iffIndDecl.allNames`
+(`RecGap.eqRec_mem_eqIndDecl_allNames`, `RecGap.iffRec_mem_iffIndDecl_allNames`, both already in the
+tree).
+
+**What the census in `PreludeRecGap` §4 misses, and it is not cosmetic.** Repairing `preludeWitness`
+*in place* destroys the negative control that gives the repair its content. `RecGap.repair_discriminates`
+and `IffLargeAudit.joint_repair_discriminates` are of the form "the repaired witness is in the
+interpretation **and `preludeWitness` is not**". After the edit there is no `preludeWitness` in the
+failing shape, so both theorems either fail to compile (they rewrite with
+`preludeWitness_cnst_eqRec` / `preludeWitness_cnst_iffRec`, which become false) or degenerate into
+"the repaired witness differs from itself". The repair must therefore **preserve the old assignment
+under a new name** in the same edit. `/tmp/km/reloc2.lean` does this as `preludeWitnessPt`, and
+checks that it is a *legitimate* control rather than a broken object: `pwPt_cnst_eqRec` and
+`pwPt_cnst_iffRec` are still `•`, `pwPt_eq`/`pwPt_iff`/`pwPt_nonempty` still meet all three
+specifications, and `pw_agree_Eq`/`_Iff`/`_NE` are `rfl` — so the two witnesses differ *only* at the
+two recursor cells, which is exactly what a discrimination theorem wants. All of that compiles in
+the same 4.0 s run.
+
+### 22.8 Phase 2, **performed**: the relocation and the real edit, both arms, one edit
+
+`PreludeSpec.lean` now carries the payload and the repaired witness; `SetModel.preludeWitness` — the
+assignment `NEAudit.neOracle` *is* (`neOracle := (preludeWitness κ ls).cnst`, so `NEAudit.neM_eq`
+stays `rfl`) — has both recursor arms. `Nonempty.rec` was **not** touched: it falls through to `∅`,
+which is `•`, which `nonemptyIndDecl.isLE = false` makes correct, and
+`RecGap.preludeWitness_mem_interp_neRecType` still proves it at the new witness with no change.
+
+**`PreludeSpec.lean`** (+407 lines): the 40 relocated declarations (42 installed, counting the two `_pair`/`_single` `rfl`s pulled up with them), verbatim except
+`EqLargeAudit.const_definable₂ → const_definable₂`; `eqRecVal`, `iffRecVal`, `eqRecVal_pair`,
+`iffRecVal_single` (the last two moved up as well, because §8 of `EqRecLarge.lean` now needs
+`eqRecVal_pair` earlier in its own file); the η-contracted five-arm `preludeWitness`; the preserved
+pre-repair `preludeWitnessPt`; and the cell lemmas — six `_cnst_*` all `rfl`,
+`preludeWitness_congr_Eq` with a `rfl` degenerate branch, `preludeWitness_cnst_empty`, the three
+`preludeWitnessPt_*` specification proofs, the two `preludeWitnessPt_cnst_*Rec` `= •` facts and the
+three `preludeWitness_agree_*` `rfl`s.
+
+**`EqRecLarge.lean`** (−255/+…): §§1--3 and `eqRecVal`/`eqRecVal_pair` deleted, replaced by a
+pointer note and one `export Lean4Lean.SetModel (…)` — after which **no use site anywhere had to be
+rewritten**, and `#print axioms Lean4Lean.SetModel.EqLargeAudit.motSet` still resolves (through the
+alias; verified, it prints `Lean4Lean.SetModel.motSet`). §8's two refuted theorems are restated at
+`preludeWitnessPt` (`preludeWitnessPt_not_mem_interp_eqRecType`,
+`preludeWitnessPt_mem_interp_eqRecType_of_zero`), and two new ones say what the repair buys at the
+real witness: `preludeWitness_mem_interp_eqRecType_of_zero` (the census's "one extra rewrite", which
+is exactly `rw [preludeWitness_cnst_eqRec, eqRecVal_pair, if_pos h0]`) and
+`preludeWitness_mem_interp_eqRecType_of_ne`.
+
+**`IffRecLarge.lean`**: §§1--3 and `iffRecVal`/`iffRecVal_single` deleted + `export`; §14's
+`joint_repair_discriminates` and `joint_repair_changes_the_iffRec_value` re-pointed at
+`preludeWitnessPt`; and a **new §15** with the installed repair at the shared witness —
+`oracleOK_IffRec_preludeWitness`, `oracleOK_EqRec_preludeWitness`,
+`preludeWitness_mem_interp_iffRecType`, `installed_repair_discriminates` (both cells, one `L`, one
+`κ`, one `ls`, one level tuple, **one `interp` — the repaired witness's, in all four conjuncts**) and
+`installed_repair_changes_the_iffRec_value`.
+
+**`PreludeRecGap.lean`**: §1's `preludeWitness_cnst_iffRec` deleted (it is now
+`SetModel.preludeWitnessPt_cnst_iffRec`) and `preludeWitness_not_mem_interp_iffRecType` restated as
+`preludeWitnessPt_not_mem_interp_iffRecType`; §4.3's `repair_discriminates` /
+`repair_changes_the_value` re-pointed at `preludeWitnessPt`. §2's `Nonempty.rec` results unchanged.
+
+**`PreludeOracle.lean`**: `neOracle_eq_empty_of_not_mem` grew `h4 : m ≠ ``Eq.rec` and
+`h5 : m ≠ ``Iff.rec` and is now `simpa [neOracle] using preludeWitness_cnst_empty …`;
+`cnstOf_preludeTail` supplies both, in the branch §5.3 predicted, by the `recConsts` route
+(`simp only [VInductDecl'.allNames, allConsts, recConsts, List.map_append, List.mem_append]; right;
+simp [eqIndDecl]; rfl` — the `typeConsts` `simp` the three existing bullets use does **not** close
+these two, which is the one thing §5.3 did not say); and §13's `preludeWitness_eqRec_empty` /
+`preludeWitness_iffRec_empty` are deleted, with a note recording that they were refuted rather than
+upgraded and naming their four replacements.
+
+**Every module in the reverse-import closure builds.** `lake build Lean4Lean.Theory.Equiconsistency`
+**1247 jobs**, exit 0; adding the `Verify` tail,
+`lake build Lean4Lean.Verify.ClosednessPropagation Lean4Lean.Verify.Inductive.CanonGapMeasure
+Lean4Lean.Verify.Inductive.UniformOccMeasure` **1447 jobs**, exit 0 — which pulled in
+`Verify.SoundnessAssembly` and `Experimental.ConeJoin` as dependencies and built both. Per-module:
+`PreludeSpec` **1158** (4.9 s), `PreludeOracle` **1203** (4.3 s), `EqTypeFormer` **1207** (2.3 s,
+**rebuilt with no source change at all** — see below), `EqRecLarge` **1209** (2.5 s),
+`PreludeRecGap` **1210** (2.2 s), `IffRecLarge` **1211** (3.2 s). `MemberRedexScan` was not built,
+per the brief. No full `lake build`, no guards, no `sorry-census`, no `dup-names`, no `lean_build`
+MCP call.
+
+**`EqTypeFormer.lean` needed zero changes.** Its `preludeWitness_cnst_eq` (`rfl`) and
+`preludeWitness_congr_Eq` (degenerate branch by `rfl`) — the very proof `PreludeRecGap` §4.5
+identified as the one that does not transfer — compiled unmodified against the five-arm witness.
+That is the sharpest confirmation of 22.4 available: the trap was the shape, not the arms.
+
+### 22.9 Proved / open / refuted, and hole-free vs discharged
+
+**Proved, and new.** `SetModel.preludeSpec_satisfiable` at the repaired witness (all three
+specifications still met, proofs byte-identical); the six `preludeWitness_cnst_*` cells and
+`preludeWitness_congr_Eq`; `preludeWitness_cnst_empty`;
+`EqLargeAudit.preludeWitness_mem_interp_eqRecType_of_zero` and `_of_ne`;
+`IffLargeAudit.preludeWitness_mem_interp_iffRecType`;
+`IffLargeAudit.oracleOK_EqRec_preludeWitness` and `oracleOK_IffRec_preludeWitness` — **the two
+`consts` cells at the two large-eliminator recursors, discharged at the shared witness with no side
+oracle parameter, no chain hypothesis and no chosen `κ`**; `installed_repair_discriminates` and
+`installed_repair_changes_the_iffRec_value` as the anti-vacuity controls; and the negative control's
+legitimacy (`preludeWitnessPt_eq`/`_iff`/`_nonempty`, `preludeWitness_agree_*`).
+
+**Axioms, by namespace** (`#print axioms` on 50 names, `Lean4Lean.SetModel.*`,
+`…EqLargeAudit.*`, `…IffLargeAudit.*`, `…RecGap.*`, `…EqTFAudit.*`, `…NEAudit.*`): every one is
+`[propext, Classical.choice, Quot.sound]`. **No `sorryAx`, no new frozen-axiom dependency, no
+axiom traded.** `NEAudit.cnstOf_preludeTail` and `NEAudit.oracleStepOK_NE` are clean again — they
+printed `sorryAx` in the intermediate broken state, which is a reminder that an axiom print during a
+failing build reports the *error recovery*, not the proof.
+
+**No new `sorry`, none traded.** The five `declaration uses 'sorry'` warnings in the
+`Equiconsistency` build are the pre-existing ones: `Inductive/Decl.lean:561`,
+`Typing/Injectivity.lean:261` and `:1046`, `Typing/UniqueTyping.lean:190`,
+`Equiconsistency.lean:58` (the main `↔`).
+
+**Hole-free is not discharged.** Still open, none of it claimed:
+
+* `InductOracleOK` at `eqIndDecl` and `iffIndDecl` is **not assembled**. Two of three `consts` cells
+  are now closed at the shared witness at each block (the recursor by §15, the type former by
+  `EqTFAudit.oracleOK_Eq` for `Eq`); `Iff`'s type-former cell and `Iff.intro ↦ •` are still
+  `IffAudit` §7's rows, and **both blocks' `rules` fields are still not done**.
+* `NEAudit.propSplitPreludeEnv` still prints `sorryAx`, so **nothing here is "sorry-free at
+  `preludeEnv`"** through it; everything above is parametric in `L : PropSplit envF nv`.
+* The machine-checked bad-model control at `Nonempty.rec` (§20.3) still does not exist.
+* `RecGap.preludeWitnessR` and `IffLargeAudit.preludeWitnessRR` are now **redundant** — the objects
+  they were instruments for are in `PreludeSpec.lean`. They still compile and their theorems still
+  hold; they should be retired, and with them `preludeWitnessRR_cnst_Eq_arm` /
+  `preludeWitnessR_cnst_Eq_arm`, whose whole reason to exist was the trap 22.4 removes.
+* Nothing here mentions `Above`, at any point, so no result is free at a false antecedent.
+
+**Refuted, and now stated at the preserved control instead of deleted.**
+`preludeWitnessPt_not_mem_interp_eqRecType` (`Eq.rec`, `≠ 0` slice) and
+`preludeWitnessPt_not_mem_interp_iffRecType` (`Iff.rec`, `≠ 0` slice). Both are non-vacuous: the
+matching `∈` at the repaired witness is proved in the same files, so the interpretation is not empty.
+
+### 22.10 What failed, and the step it failed at
+
+* **The naive `rfl` at five arms**, reproduced first: `(kernel) deterministic timeout`, after
+  elaboration succeeded and `#print axioms` printed `does not depend on any axioms`. Failed at the
+  *kernel*, not the elaborator — which is how I learned the elaborator closes it inside 4000
+  heartbeats.
+* **First matrix run**: `` `Unit.rec `` is not a constant (`Unit` is a `def` for `PUnit`), so `w7`
+  and `s7` were `sorry`-poisoned and their five rows were noise. Failed at *elaboration of the
+  witness definition*, before any measurement. Re-ran with `` `Nat.rec ``/`` `And.rec ``.
+* **`maxHeartbeats 4000` for the whole file**: too small for the elaborator on two cells
+  (`A_h4_closed` reported `(deterministic) timeout at isDefEq` rather than a kernel error), so the
+  budget dial cuts both ways and a low global budget cannot separate the two engines by itself. Fixed
+  by reading the *message*, not the exit code.
+* **`G_congr_w7` in the harness**: `rw [arm, arm, VLevel.equiv_def.mp h ls]` failed with "did not
+  find an occurrence" in the `us = [a]` case, because the arm lemma leaves a `match` the rewrite
+  cannot see through. Failed at the *middle* branch, not the degenerate one — a harness bug, not a
+  cost result; the tree's own version uses the `[w]` cell lemma there and is right.
+* **`preludeWitness_mem_interp_iffRecType` first placed in `PreludeRecGap.lean`**: unknown
+  identifier `IffLargeAudit.iffRecFn_mem_interp_iffRecType` — `IffRecLarge.lean` *imports*
+  `PreludeRecGap.lean`, so the positive half of the `Iff.rec` story cannot live beside the negative
+  half. Failed at *elaboration of the new theorem*; moved to §15.
+* **`eqRecVal_pair` left behind in `EqRecLarge.lean`**: §8 now needs it and §8 precedes §9. Failed at
+  *`EqRecLarge` §8's two new rewrites*; fixed by moving `eqRecVal_pair` (and `iffRecVal_single`)
+  upstream too, which is why the payload is 42 declarations installed rather than 40 measured.
+* **`cnstOf_preludeTail`'s two new bullets** with the `typeConsts` `simp` the three existing bullets
+  use: unsolved goals. `Eq.rec` is in `recConsts`, not `typeConsts`. Failed at the *`simp`*, fixed by
+  copying `RecGap.eqRec_mem_eqIndDecl_allNames`'s proof inline (it cannot be reused: it lives
+  downstream).
+* **`/-- … -/` with no declaration after it** where I removed a theorem: `unexpected token 'end'`.
+  Trivial, but it is the second time this session a doc-comment/`/-!` confusion cost a build.
+
+### 22.11 Measured versus read off
+
+| claim | source | status |
+|---|---|---|
+| relocation needs no new import | brief + `PreludeRecGap` header, read off `^import` | **measured**: payload compiles against `PreludeSpec`'s surface, 3.8 s |
+| relocation is ~19 declarations | brief, read off the import graph | **measured wrong**: 40 to move, 42 installed |
+| cost scales with arm count | `IffRecLarge` §14.1, from two data points | **measured wrong**: 7 light arms pass, 3 arms + 1 heavy `us`-dependent body fail |
+| the naive `rfl` is refused by the kernel | §20.4a, measured | **true but mis-priced**: it *succeeds* at `maxHeartbeats 0` in 8 m 17 s; the default budget is ~2× too small |
+| `#print axioms` cannot see the trap coming | brief | **confirmed**, reproduced twice |
+| `Nonempty.rec` must stay untouched | brief | **confirmed**: untouched, and `RecGap.preludeWitness_mem_interp_neRecType` needed no change |
+| the fix is `simp` then `rw` | `PreludeRecGap` §4.5 | **superseded**: η-contraction makes every cell `rfl` again |
+| `neOracle_eq_empty_of_not_mem`'s extra hypotheses are suppliable at the one use site | `PreludeRecGap` §5.3, argued | **measured**: yes, but not by the `simp` the site already uses |
+| `Iff.rec`'s cell is satisfiable | `IffRecLarge` §7, measured | used, and now installed at the shared witness |
+| the two ι-rules are free from `VInductDecl'.iotaRules_WF` | §21.9 item 3, "argument from the shape of the lemma, not a measurement" | **still not measured** |
+
+### 22.12 Tooling, named — and one brief claim that is simply false
+
+* **`rg` is present and works: ripgrep 14.1.1 (`rg --version`).** The brief's "all three search
+  instruments are unreliable — `rg` is absent so `lean_local_search`/`lean_hammer_premise` are dead"
+  is wrong on its premise. I used `rg` throughout; treat its counts as floors anyway, because a
+  string search cannot see through an `export` alias or a `simp` set.
+* Every enumeration above names its tool. The 24-module reverse-import closure and the 369-module
+  count are from a **Python walk over `^import` lines**, not `rg` — that is exact for this repo's
+  import style and is the one enumeration here I would call complete rather than a floor.
+* **The absence claim in 22.7** — that no module outside `SetModel` touches the repair — is not a
+  string search for a name I hoped was absent: the objects are `SetModel.preludeWitness`,
+  `NEAudit.neOracle` (**defined** as `(preludeWitness κ ls).cnst`) and `NEAudit.neM` (**defined** as
+  `⟨κ, ls, neOracle κ ls⟩`), and I searched for all three definitions' names plus every relocated
+  definition's name across `Lean4Lean/Verify` and `Lean4Lean/Experimental`. Zero hits, and the
+  build of the whole closure — `ConeJoin` and `SoundnessAssembly` included — is the independent
+  check.
+* Ground truth everywhere is the compiler: `lake build`, `lake env lean`, `#print axioms`.
+  `lean_references`, `lean_local_search` and `lean_hammer_premise` were not used, so I neither
+  confirm nor refute the brief's claims about the latter two.
+* **Not mine**: `Lean4Lean/Verify/Inductive/NestedRestoreWit.lean` is modified in the working tree
+  (one line, `nfnAux_builtFresh → (nfnAux_builtFresh h)`). Another stream's in-flight edit; I did
+  not touch that file and it is unrelated to this change.
+
+### 22.13 Where the brief is wrong
+
+Asked for plainly, so: four things.
+
+1. **"The cost scales with arm count, and the relocation adds arms."** No. The predictor is a
+   *conjunction* about untaken arm bodies (`us`-dependent **and** unfolding to `eqRecFn`), and
+   dropping either conjunct removes the cost at any arm count up to seven. Framing the gate as
+   "measure across arm counts" pointed at the confound; the cells that settled it are the ones that
+   vary body *shape* at fixed arm count (`hX4`, `hY4`, `hZ4`, `hW4`), which the brief did not ask
+   for.
+2. **"Wall clock 2--8 minutes, then refused."** That is the default heartbeat budget burning, not the
+   proof's cost. The right instrument is `maxHeartbeats`, which makes the trap reproducible in 3.6 s
+   and shows the proof *terminates* at 8 m 17 s. A gate framed on wall clock would have concluded
+   "unaffordable"; the correct conclusion is "affordable, and the shape is wrong".
+3. **"~19 declarations, mechanical."** Mechanical: right, and now run rather than read. Nineteen:
+   wrong by 2.1× (40 measured, 42 installed). The omissions are systematic — every `lam*_definable`
+   companion — so the same undercount would have recurred in any similar estimate.
+4. **The under-scoped question, and it is the one that would have half-settled a cell.** The brief
+   priced the relocation and the two arms, and said nothing about what repairing `preludeWitness`
+   *in place* does to the theorems that make the repair meaningful. `RecGap.repair_discriminates`
+   and `IffLargeAudit.joint_repair_discriminates` discriminate the repaired witness **against
+   `preludeWitness`**; edit `preludeWitness` and their negative half evaporates. Doing "both arms in
+   one edit" as instructed, without also preserving the pre-repair assignment, would have landed two
+   `consts` cells whose anti-vacuity controls had silently become trivial — the exact failure mode
+   the brief's own "check the CONCLUSION is not free" warns about, arriving from the direction it
+   did not look. `preludeWitnessPt` is the fix, and it had to be part of the same edit.
+
+Two things the brief got right that mattered: **do both arms at once** (a witness repaired only at
+`Eq.rec` is refuted by `preludeWitnessPt_not_mem_interp_iffRecType`'s predecessor, and the `Iff`
+half cost almost nothing once `iffRecFn` existed), and **leave `Nonempty.rec` alone** (its
+`isLE = false` makes `•` correct, and the fall-through preserves that with no proof at all).
+
+### 22.14 What to pick up first
+
+1. **The `rules` fields at `eqIndDecl` and `iffIndDecl`** — now the only unfinished part of
+   `InductOracleOK` at the two blocks whose `consts` recursor cells §15 closes. `EqRecLarge` §10.1's
+   block-generic argument (`VInductDecl'.iotaRules_WF` from `D.IotaCtx env`) is still **an argument
+   from the shape of the lemma, not a measurement** (§21.9 item 3, unchanged).
+2. **`Iff`'s other two `consts` cells** — the type former and `Iff.intro ↦ •` — unchanged from
+   §21.9 item 2, and now the only `consts` gap left at that block.
+3. **Retire `preludeWitnessR` / `preludeWitnessRR`** and the two `_cnst_Eq_arm` lemmas. They are
+   dead weight and, worse, they document a workaround for a trap that no longer exists; leaving them
+   invites the next stream to reproduce the applied shape.
+4. **`NEAudit.propSplitPreludeEnv`'s `sorryAx`.** It is the single thing standing between this
+   corner and any claim at `preludeEnv` rather than at an arbitrary `L : PropSplit envF nv`.
+5. If any future witness must be written in the applied `fun n us ↦ if …` shape for a reason I did
+   not find, the escape hatches measured in 22.2 are, in increasing cost: state each side against a
+   literal (`B` rows, `rfl`), the arm-lemma + `rw` route (`G` rows, one extra lemma), or
+   `set_option maxHeartbeats 800000` (works, 8 minutes per declaration, and pollutes the build time
+   of every module downstream).
+
+### 22.15 Files touched this session
+
+* `Lean4Lean/Theory/SetModel/PreludeSpec.lean` — +407 lines: the relocated payload, the
+  η-contracted repaired `preludeWitness`, `preludeWitnessPt`, and 19 cell/control lemmas.
+* `Lean4Lean/Theory/SetModel/EqRecLarge.lean` — §§1--3 + `eqRecVal`/`eqRecVal_pair` removed, one
+  `export`, §8 restated at `preludeWitnessPt` and two new positive results at `preludeWitness`.
+* `Lean4Lean/Theory/SetModel/IffRecLarge.lean` — §§1--3 + `iffRecVal`/`iffRecVal_single` removed,
+  one `export`, §14 re-pointed, **new §15** (five theorems), §15→§16 renumbered.
+* `Lean4Lean/Theory/SetModel/PreludeRecGap.lean` — §1 restated at `preludeWitnessPt`, §4.3
+  re-pointed.
+* `Lean4Lean/Theory/SetModel/PreludeOracle.lean` — `neOracle_eq_empty_of_not_mem` +2 hypotheses,
+  `cnstOf_preludeTail` +2 bullets, §13's two refuted `∅`-statements replaced by a note.
+* `docs/handoff-setmodel.md` — this section.
+
+No new file, so no `Equiconsistency.lean` import line was needed. `Verify/Soundness.lean`,
+`Verify/Axioms.lean`, `Verify/Guard.lean`, `Experimental/ConeJoin.lean`, `Theory/Inductive/*` and
+`Theory/Typing/*` were not touched; `implGapWhitelist` was not touched; no git operation was run.

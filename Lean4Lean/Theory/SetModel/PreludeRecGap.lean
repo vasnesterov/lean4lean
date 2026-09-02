@@ -59,21 +59,27 @@ variable {V : Type*} [SetStructure V] [Nonempty V]
 variable [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖]
 variable {envF : VEnv} {nv : ℕ} (L : PropSplit envF nv) (κ : ℕ → V) (ls : List ℕ)
 
-theorem preludeWitness_cnst_iffRec (us : List VLevel) :
-    (preludeWitness (V := V) κ ls).cnst ``Iff.rec us = (pt : V) := by
-  simp [preludeWitness, pt]
-
 variable {u : VLevel} (hu : u.WF nv) (hle : iffEnv ≤ envF)
 
 include hu hle in
-/-- **The `Iff.rec` cell FAILS at `preludeWitness` on the `≠ 0` slice** — the twin of
-`EqLargeAudit.preludeWitness_not_mem_interp_eqRecType`, and with one hypothesis fewer (no
-parameter-space inhabitant). -/
-theorem preludeWitness_not_mem_interp_iffRecType (hn : u.eval ls ≠ 0) :
-    (preludeWitness (V := V) κ ls).cnst ``Iff.rec [u] ∉
-      (interp (preludeWitness κ ls) L [] ((iffIndDecl.recType 0).instL [u])).toFun ∅ := by
-  rw [preludeWitness_cnst_iffRec]
-  exact IffAudit.pt_not_mem_interp_iffRecType_of_ne L (preludeWitness κ ls) hu hle hn
+/-- **The `Iff.rec` cell FAILS at the pre-repair assignment on the `≠ 0` slice** — the twin of
+`EqLargeAudit.preludeWitnessPt_not_mem_interp_eqRecType`, and with one hypothesis fewer (no
+parameter-space inhabitant).
+
+Stated at `SetModel.preludeWitnessPt`.  When this section was written that assignment *was*
+`preludeWitness`; the repair this file prices has since been performed in `PreludeSpec.lean`, and
+the pre-repair assignment is preserved there under the new name precisely so this refutation keeps
+a subject.  `preludeWitnessPt` is not a straw man: it meets all three prelude specifications and
+agrees with the repaired witness at all three type formers. -/
+theorem preludeWitnessPt_not_mem_interp_iffRecType (hn : u.eval ls ≠ 0) :
+    (preludeWitnessPt (V := V) κ ls).cnst ``Iff.rec [u] ∉
+      (interp (preludeWitnessPt κ ls) L [] ((iffIndDecl.recType 0).instL [u])).toFun ∅ := by
+  rw [preludeWitnessPt_cnst_iffRec]
+  exact IffAudit.pt_not_mem_interp_iffRecType_of_ne L (preludeWitnessPt κ ls) hu hle hn
+
+/-! The positive half — that the *repaired* `preludeWitness` passes this cell — cannot be stated
+here: it needs `IffLargeAudit.iffRecFn_mem_interp_iffRecType`, and `IffRecLarge.lean` imports this
+file.  It is `IffLargeAudit.preludeWitness_mem_interp_iffRecType`. -/
 
 end IffGap
 
@@ -371,12 +377,12 @@ in the interpretation, and `preludeWitness`' entry (`•`) is not. -/
 theorem repair_discriminates (hn : u.eval ls ≠ 0) {x : V} (hx : x ∈ U κ (v.eval ls)) :
     (preludeWitnessR (V := V) κ ls).cnst ``Eq.rec [u, v] ∈
         (interp (preludeWitnessR κ ls) L [] ((eqIndDecl.recType 0).instL [u, v])).toFun ∅ ∧
-      (preludeWitness (V := V) κ ls).cnst ``Eq.rec [u, v] ∉
+      (preludeWitnessPt (V := V) κ ls).cnst ``Eq.rec [u, v] ∉
         (interp (preludeWitnessR κ ls) L [] ((eqIndDecl.recType 0).instL [u, v])).toFun ∅ := by
   refine ⟨?_, ?_⟩
   · rw [preludeWitnessR_cnst_eqRec, EqLargeAudit.eqRecVal_pair, if_neg hn]
     exact EqLargeAudit.eqRecFn_mem_interp_eqRecType hu hv hle (preludeWitnessR_eq κ ls v) hn
-  · rw [EqLargeAudit.preludeWitness_cnst_eqRec]
+  · rw [preludeWitnessPt_cnst_eqRec]
     exact EqAudit.pt_not_mem_interp_eqRecType_of_ne L (preludeWitnessR κ ls) hu hv hle hn hx
 
 include L hu hv hle in
@@ -384,7 +390,7 @@ include L hu hv hle in
 about one set under two names. -/
 theorem repair_changes_the_value (hn : u.eval ls ≠ 0) {x : V} (hx : x ∈ U κ (v.eval ls)) :
     (preludeWitnessR (V := V) κ ls).cnst ``Eq.rec [u, v]
-      ≠ (preludeWitness (V := V) κ ls).cnst ``Eq.rec [u, v] := by
+      ≠ (preludeWitnessPt (V := V) κ ls).cnst ``Eq.rec [u, v] := by
   intro h
   exact (repair_discriminates L κ ls hu hv hle hn hx).2
     (h ▸ (repair_discriminates L κ ls hu hv hle hn hx).1)
@@ -517,8 +523,7 @@ Not by filename: `PreludeSpec.lean` declares into `Lean4Lean.SetModel`, not
 `Lean4Lean.SetModel.PreludeSpec`, and two names in earlier handoffs are *unknown constant* for
 exactly that reason.  Every name below is `Lean4Lean.SetModel.RecGap.*`. -/
 
-#print axioms Lean4Lean.SetModel.RecGap.preludeWitness_cnst_iffRec
-#print axioms Lean4Lean.SetModel.RecGap.preludeWitness_not_mem_interp_iffRecType
+#print axioms Lean4Lean.SetModel.RecGap.preludeWitnessPt_not_mem_interp_iffRecType
 #print axioms Lean4Lean.SetModel.RecGap.preludeWitness_cnst_neRec
 #print axioms Lean4Lean.SetModel.RecGap.preludeWitness_mem_interp_neRecType
 #print axioms Lean4Lean.SetModel.RecGap.preludeWitnessR_eq
