@@ -1,310 +1,274 @@
-# Structure eta: `structEta` in the spec, and what it unblocks
+# The two eta holes: residual reduced to **one** abstract rule (round of 2026-09-02)
 
-Stream owning `Theory/Inductive/Structure{,Closed,Eta,Examples}.lean`,
-`Verify/StructureBridge.lean`, `Verify/TypeChecker/IsDefEq.lean`.
+Stream owning `Lean4Lean/Verify/TypeChecker/IsDefEq.lean` and new files under
+`Verify/TypeChecker/`.  Targets: `TypeChecker.Inner.isDefEqUnitLike.WF` (70 transitive users) and
+`TypeChecker.Inner.tryEtaStructCore.WF` (71).
 
-Every claim is tagged **[checked]** (machine-checked this round; the declaration name is given
-and `lake build <module>` reproduces it) or **[source]** (read off C++ or Lean source, not
-machine-checked).  Nothing is tagged from memory.
-
-Census **19 → 19**.  No `sorry` added, none removed.  This stream's files still hold exactly
-two, by name: `tryEtaStructCore.WF`, `isDefEqUnitLike.WF`.  **[checked]**,
-`lake env lean scripts/sorry-census.lean`, which now runs green (the `Boundaries.lean` failure
-that blocked it mid-round was another stream's in-flight edit and cleared on its own).
+Every claim below is tagged **[measured]** (I ran it this round; the command or declaration name is
+given) or **[source]** (read off source or a prior document, not re-run).  Nothing is from memory.
+Earlier rounds of this corner are in `docs/vacuity-ledger.md` rows 99–110 and
+`docs/research-structeta.md`; this file supersedes the previous edition of `handoff-eta.md`,
+whose state (census 19, `StructEta` before the `IsStructureG` widening) is two rounds stale.
 
 ---
 
 ## Bottom line
 
-1. **The redesign this round was handed — "`types : D.types = [T]` → `T ∈ D.types`, dropping
-   `nm_eq`/`nmin_eq`; it is a redesign, not a substitution" — is neither.  It is a
-   *refuted* repair.**  `VInductDecl'.projCore` hands the recursor exactly one motive and one
-   minor premise; `VInductDecl'.recType` binds `D.nm` motives and `D.nmin` minors.  Weakening
-   `types` admits blocks with `nm = nmin = 2`, at which `projTerm` is a recursor **under-applied
-   by two arguments** — so `TrProj.mk`'s conclusion would name an ill-typed term and
-   `TrProj.wf` (`Verify/Typing/Lemmas.lean`, *proved*) would become false.  §2.
-   `MutNonRec.projCore_arity_wrong`.  **[checked]**
-2. **The underlying gap is real, bigger than reported, and reachable in Lean's own kernel.**
-   `MutNonRec.kernelProjChecks` runs the **kernel** (`Lean.addDecl`, not the elaborator) on three
-   hand-built declarations and fails the build if any verdict changes: the kernel accepts
-   `.proj` on a member of a two-type block, **performs structure eta on it**, and accepts
-   `.proj` on a *recursive* one-constructor inductive.  So `IsStructure` is narrower than
-   `inferProj` in **two** fields, not one — `noRec` as well as `types` — and the eta gate is
-   reachable at the first.  §2.  **[checked]**
-3. **What the repair actually is**: a generalisation of `projCore` to padded motive and minor
-   blocks, not a weakening of a field.  §3 gives the design, including the one non-obvious
-   ingredient (the dummy motive must land in `Sort ℓ` at the *field's* level and be inhabited by
-   a closed term).  It is a `Theory/Inductive` + `Verify/Typing/ProjSkip` job, most of it in
-   files this stream does not own.  **Not made.**
-4. **The work the repair was supposed to unblock did not need it, and is now done.**
-   `tryEtaStructCore.WF_of_structEta` — the **whole** statement, non-`Prop` case included —
-   is proved from `c.venv.StructEta` plus one named bridge.  §4.  **[checked]**
-5. **Its measured hole cone is identical to `WF_prop`'s**:
-   `{TrProj.uniq, IsDefEqU.forallE_inv_stratified, IsDefEqU.weakN_iff}`, every one borrowed
-   through `inferType.WF`'s appeal to unique typing.  The two new ingredients
-   (`projTerm_hasType`, `StructEta.congrProj`) add **no** hole.  §4.  **[checked]**
-6. Both target theorems still enter the **live** `.inductInfo`/`.ctorInfo` arm rather than the
-   dead placeholder, so both survive the `AddInduct` flip verbatim; and both bridges are still
-   **empty today** for the `TrEnv.not_ctorInfo` reason.  §6 keeps that recorded, unchanged.
+1. **Neither hole is closed, and neither can be closed honestly in this tree.**  Both are
+   *provable today* by a one-line vacuity argument, which I declined; see §4 for the exact lines
+   and the measurement that says the close would buy nothing on guard 2.
+2. **What did change: the residual is now ONE hypothesis for BOTH holes, where it was two each.**
+   New file `Lean4Lean/Verify/TypeChecker/EtaResidual.lean` (mine, 224 lines, `sorry`-free):
+   `isDefEqUnitLike.WF` and `tryEtaStructCore.WF` (and `tryEtaStruct.WF`) all follow from
+   `c.venv.StructEtaG` **and nothing else** — `etaHoles_of_structEtaG` states all three in one
+   theorem.  **[measured]**
+3. Three of the four residual hypotheses were removed, each by a named theorem:
+   `VEnv.StructEtaG.toUnitEta` (the positive-field rule subsumes the zero-field one),
+   `UnitLikeBridgeG.today` (the zero-field bridge is vacuously satisfiable today — the
+   counterpart of `EtaStructSpineGC.today`, which had no zero-field twin), and
+   `EtaStructSpineGC.today` (pre-existing, applied).  **[measured]**
+4. **Both claims I was asked to check are true**, with one qualifier the second needs (§2).
+5. **Correction to the brief: neither hole is in `kernel_sound`'s dependency cone today**, so
+   closing them cannot move guard 2's axiom set.  `kernel_sound`'s cone is 7914 constants and its
+   *only* hole is itself; `addDecl.WF`'s cone is 1 constant — itself.  Both are bare `sorry`s with
+   no proof body, so the route from the checker's `.WF` layer to the main theorem is currently
+   severed at those two points, not at the eta holes.  **[measured]**  (Consistent with ledger row
+   107g, which measured the same thing from the other side.)
+6. The only route that discharges `StructEtaG` is a new `VEnv.IsDefEq` constructor.  Re-measured
+   price: **65 induction sites** over the `IsDefEq`/`IsDefEqStrong`/`HasTypeStrong`/
+   `HasTypeStratified` family, in 15 modules, **none of them in `Verify/`** — reproducing
+   `docs/handoff-isdefequ.md` §4's figure exactly.  **[measured]**  All 65 are in files this
+   stream does not own, so it is not a job for this stream alone.
 
-**Kernel Arena not run, and not required**: no executable code was touched.  Edited files:
-`Theory/Inductive/Structure.lean` (docstrings + four length/arity lemmas),
-`Theory/Inductive/StructureEta.lean` (two theorems, one import),
-`Verify/StructureBridge.lean` (one theorem, three inductives, one kernel check),
-`Verify/TypeChecker/IsDefEq.lean` (one loop rule, one bridge, one theorem, docstrings).
-Nothing has an `@[implemented_by]`, a `partial`, or a place in `Lean4Lean.addDecl`'s cone.
+**Instruments, run at the end of the round.**  `lake build`: **1499 jobs, completed
+successfully, zero errors** (1497 jobs before my file was added; it is picked up by the
+`Lean4Lean.Verify.*` glob, so it is in the default build).  Zero errors in files I own.  `lake build
+Lean4Lean.Experimental.ConeJoin Lean4Lean.Verify.Guard`: 1423 jobs, verbatim —
 
----
+```
+guard 1: Axioms.lean declares exactly the 24 frozen axioms ✓
+guard 2: kernel_sound axioms within whitelist ✓ (proof INCOMPLETE: sorryAx present)
+guard 3: checker cone implementation gaps within frozen list (2/2 remaining) ✓
+```
 
-## 1. The relay's claim, re-audited
+`scripts/sorry-census.lean`: **TOTAL 13**, unchanged, with my two rows unchanged —
 
-The incoming relay stated, correctly and machine-checked last round:
+```
+Lean4Lean.Verify.TypeChecker.IsDefEq: 2
+    Lean4Lean.TypeChecker.Inner.isDefEqUnitLike.WF   [70 transitive users]
+    Lean4Lean.TypeChecker.Inner.tryEtaStructCore.WF  [71 transitive users]
+```
 
-> `VEnv.IsStructure.types` (`D.types = [T]`) is FALSE of what `isNonRecStructure` accepts,
-> because `isRec` is computed block-wide.
-
-That much is confirmed (`MutNonRec.indShapeOf_not_singleton`, unchanged) and is now confirmed a
-third way, against the kernel rather than the elaborator (§2).  What does **not** follow is the
-relay's next sentence — "the repair is `types : D.types = [T]` → `T ∈ D.types`, dropping
-`nm_eq`/`nmin_eq`".  The method note this round carried is exactly why: *auditing a statement's
-binders does not audit the statements it depends on*.  `IsStructure.types` was audited against
-`isNonRecStructure`, which is what it must **describe**; it was not audited against `projCore`,
-which is what it must **support**.
+No `sorry` added, none removed, no `sorryAx` traded for another.
 
 ---
 
-## 2. Why the proposed repair is refuted  **[checked]**
+## 1. What I added, and its axioms  **[measured]**
 
-`Verify/StructureBridge.lean`, `MutNonRec.projCore_arity_wrong`:
+`Lean4Lean/Verify/TypeChecker/EtaResidual.lean`.  `#print axioms` on every declaration:
 
-| | supplied by `projCore` | demanded by `recType j` |
-|---|---|---|
-| parameters | `ps` (`D.np`) | `D.np` |
-| motives + minors | **2**, the pair `[mot, minor]` | `D.nm + D.nmin` |
-| indices | `is` | `T.indices.length` |
-| major | `e` | 1 |
-
-`Theory/Inductive/Structure.lean` now carries the two counts as lemmas
-(`VInductDecl'.length_motives`, `length_minors`), the spine length
-(`length_projCore_spine`), and the recursor's arity (`recArity`,
-`recArity_eq_projCore_iff`: they agree **iff** `D.nm + D.nmin = 2`).  At `decl2` — the abstract
-image of a two-type non-recursive block — the theorem checks `motives.length = 2`,
-`minors.length = 2`, `recArity = 5`, spine length `3`, and `¬ (nm + nmin = 2)`, all by
-`rfl`/`decide`.
-
-The consequence is not "a proof gets blocked".  `TrProj.mk`'s conclusion is
-`TrProj Γ S i e (D.projTerm T C us ps ιs i e)`, and `TrProj.wf` types that term at the projected
-field's type.  An under-applied recursor has a `∀`-type.  So the weakening turns a **proved**
-theorem in an unowned file into a false one.
-
-### The gap it was trying to close is real — and reachable
-
-`MutNonRec.kernelProjChecks` (a named `CoreM` check, run by `#eval`; a changed verdict is a build
-failure).  Declarations `P`/`Q` are a two-type non-recursive block with a field on `P`; `R` is
-`inductive R | mk : Nat → R → R`.  Verdicts:
-
-* `P.isRec = false`, `numIndices = 0`, `ctors = [P.mk]`, `all = [P, Q]`, `isNonRecStructure P`
-  is `true`;
-* the kernel accepts `fun a : P => .proj P 0 a`;
-* the kernel accepts `fun a : P => rfl : ∀ a : P, a = P.mk a.0` — i.e. it **performs structure
-  eta at a mutual-block member**.  This is the fact that makes the gap reachable through
-  `tryEtaStructCore`, not merely through `inferProj`;
-* the kernel accepts `fun a : R => .proj R 0 a`.
-
-`infer_proj` (`~/lean4/src/kernel/type_checker.cpp:247`) never reads `InductiveVal.isRec` and
-never checks that the block is a singleton; it checks only `ctors` is a singleton and the spine
-length.  **[source]**, re-read this round.
-
-**So `IsStructure` is narrower than `inferProj` in two fields.**  `noRec` was already documented
-as a deliberate narrowing at `projCore`; `types` was not, and now is.  Both docstrings in
-`Theory/Inductive/Structure.lean` say which side of the kernel each is narrower than, and cite
-the check.  The third field, `ctors`, is **not** a narrowing: `infer_proj` and
-`is_structure_like` both require a singleton constructor list.  **[source]**
-
----
-
-## 3. The repair that would work, stated and not made
-
-Generalise `projCore` to pad the motive and minor blocks.  For a projection at `T_j`, field `i`
-with level `ℓ = (C.fields.getD i default).lvl.inst us`:
-
-* motive `j` and the minor for `C` are unchanged;
-* motive `k ≠ j` must inhabit `∀ ι_k, T_k ι_k → Sort ℓ`.  The obstruction is that a *closed*
-  inhabitant of `Sort ℓ` is needed and none exists uniformly.  The available one is the field
-  type itself: `Xᵢ := instAll (A_i.instL us) (ps ++ [proj 0 e, …, proj (i-1) e])`, which is in
-  `Sort ℓ` by construction.  Take motive `k := fun ι_k x_k => Xᵢ → Xᵢ`, legal because
-  `imax ℓ ℓ ≈ ℓ` in `VLevel` for every valuation (including `ℓ = 0`);
-* the minor for every constructor of `T_k`, `k ≠ j`, binds its fields **and its induction
-  hypotheses** (`D.ihTypes`) and returns `fun z => z`.  This is the same generalisation the
-  `noRec` narrowing needs, so one change covers both fields.
-
-Note the earlier projections here are of the ambient `e`, not of the motive's own binder, so the
-`projArgs` recursion stays structural in `i` — the property `projCore`'s docstring warns must be
-preserved or every `rfl` check in `StructureExamples.lean` breaks.
-
-**Cost, honestly.**  `Theory/Inductive/StructureClosed.lean` (1657 lines, owned) re-derives every
-`lift'`/`instN`/`instL` commutation over the new shape; `Verify/Typing/ProjSkip.lean` and
-`Verify/Typing/Lemmas.lean` (≈2500 lines, **not owned**) carry the typing chain
-(`projMinor_hasType`, `projTerm_hasType`) that would gain `nm - 1` motive and `nmin - 1` minor
-obligations.  `Verify/Typing/StructureUniq.lean` (not owned) uses `H.types` in three places.
-This is the reason it is stated and not made: it is a multi-file redesign whose bulk is in files
-this stream must not edit.
-
-**What it is not.**  It is not a prerequisite for anything in §4.  The eta bridge is a hypothesis
-either way; generalising `projCore` changes *which* environments can discharge it, not whether
-the checker obligation is proved from it.
-
----
-
-## 4. What closed: `tryEtaStructCore.WF`'s non-`Prop` half  **[checked]**
-
-The previous round named the exact failing step.  All three of its ingredients are now in the
-tree, and the theorem is `tryEtaStructCore.WF_of_structEta`
-(`Verify/TypeChecker/IsDefEq.lean`) — the **whole** statement, `Prop` case included.
-
-### 4.1 `RecM.WF.forIn'Prefix` — the loop rule that did not exist
-
-`M.WF.forIn` requires the body to `yield` every iteration; `RecM.WF.forIn'Break` allows a
-`break` but deliberately does not index its invariant, so it cannot accumulate anything across
-iterations.  `forIn'Prefix` indexes the invariant by the prefix already processed, splits the
-body obligation (a `yield` extends the invariant by the element just handled; a `done` lands in
-a separate break predicate `Br`), and concludes `Inv (pre ++ xs) ∨ Br`.  Sorry-free, and with
-an **empty** hole cone.  Reusable: `isDefEqApp`'s and `isDefEqArgs`' loops have the same shape.
-
-### 4.2 `VEnv.StructEta.congrProj` — the assembly, in the spec
-
-`Theory/Inductive/StructureEta.lean`.  `congrSpine` (last round) wants a `HasArgsDF`; the
-checker produces one `IsDefEqU` per field.  `congrProj` bridges them: `VEnv.HasArgsDF.ofMap`
-over the constructor's field telescope, `HasArgsDF.append` for the parameter block, then
-`congrSpine`.  The telescope is instantiated at the **left** spine — the projections — so, as
-with `congrSpine`, no parameter lists are ever compared and no injectivity is needed.
-
-`congrProj_at_projAll` is the round-trip check: at the identity spine, `congrProj` reproduces
-`e ≡ D.etaExpansion T C us ps e` exactly.  A misaligned telescope, instantiation spine, or
-off-by-one in the `range` would fail it while leaving `congrProj` type-correct.
-
-`StructureEta.lean` gained one import, `Theory.Typing.UniqueTyping` (for `VEnv.WF` and
-`IsDefEqU.of_l`).  Checked for cycles: `UniqueTyping`'s transitive imports reach
-`Theory.Inductive.{Lemmas, Decl, Telescope, Restore}` and no `Structure*` module.
-
-### 4.3 `EtaStructSpine` — the bridge, strengthened, and one item *removed* from it
-
-`EtaStructBridge` (last round) is what the `Prop` half needs: two translations per iteration.
-Outside `Prop` the loop's output is the whole content, so the bridge must additionally say which
-abstract terms those translations land on, and supply the block data:
-
-* `IsStructure` and the eta side conditions (`T.indices = []`, universe and parameter data,
-  `e₁' : S ps`, F17);
-* **the decomposition** `e₂' = (.const C.name us).mkApp (ps ++ args)` — the second ingredient the
-  previous round named, supplied rather than recovered by `AppStack` inversion;
-* the constructor's declared telescope split at the parameter/field boundary, and its result;
-* per iteration, the two translations *pinned* to `D.projTerm … (i - np) e₁'` and
-  `args[i - np]`.
-
-A draft also carried the projections' typing.  **It is not assumed**: `projTerm_hasType`
-(`Verify/Typing/Lemmas.lean`) derives `ProjHasType` at every field from `IsStructure`, the
-universe data and the F17 clause, by the same two-branch level argument `TrProj.wf` uses
-(`isLE = true`: `elimLvl.inst (projLvls C us k)` *is* `lvl_k.inst us`; `isLE = false`: both
-sides are `.zero`, which is F17's right disjunct).  So the heaviest premise of `congrProj` costs
-nothing at this call site.
-
-### 4.4 The measured cone
-
-Transitive `getUsedConstantsAsSet` sweep against the 19 census names, with the `.thmInfo` trap
-handled:
-
-| declaration | hole cone |
+| declaration | axioms |
 |---|---|
-| `tryEtaStructCore.WF_of_structEta` | `{TrProj.uniq, IsDefEqU.forallE_inv_stratified, IsDefEqU.weakN_iff}` |
-| `tryEtaStructCore.WF_prop` | the same three |
-| `isDefEqUnitLike.WF_of_structEta` | the same three |
-| `RecM.WF.forIn'Prefix` | ∅ |
-| `VEnv.StructEta.congrProj` | `{IsDefEqU.forallE_inv_stratified}` |
-| `projTerm_hasType` | `{IsDefEqU.forallE_inv_stratified, IsDefEqU.weakN_iff}` |
+| `VEnv.StructEtaG.toUnitEta` | `[propext, Quot.sound]` |
+| `TypeChecker.Inner.UnitLikeBridgeG.today` | `[propext, Classical.choice, Quot.sound]` |
+| `isDefEqUnitLike.WF_of_structEtaG` | `[propext, sorryAx, Classical.choice, Quot.sound]` |
+| `tryEtaStructCore.WF_of_structEtaG'` | `+ Lean.Expr.eqv_eq, Lean.Level.instLawfulBEqLevel, Lean.Syntax.structEq_eq` |
+| `etaHoles_of_structEtaG` | same as the row above |
+| `MutField.declEnv_IsStructureG_0`, `declEnv_unitEta_premises`, `declEnv_unitEta_of_structEtaG`, `declEnv_unitLike_of_structEtaG`, `declEnv_Amk`, `declEnv_Amk_hasType` | `[propext, Classical.choice, Quot.sound]` |
 
-Every one enters through `inferType.WF`'s single appeal to unique typing.  **No structure-eta
-content is borrowed, and the non-`Prop` half added no hole to the `Prop` half's cone.**
+**No new frozen-axiom dependency.**  The three `Lean.*` axioms are frozen (guard 1's whitelist)
+and reach `tryEtaStructCore.WF_of_structEtaG'` only through the pre-existing
+`WF_of_structEtaGC`, whose axiom set I re-measured this round and which is **identical, axiom for
+axiom**.  Likewise `isDefEqUnitLike.WF_of_structEtaG`'s set is identical to `WF_of_unitEta`'s.
+The two new *ingredients* carry no frozen axiom and no `sorryAx` at all.
 
----
+**Hole cones** (transitive `getUsedConstantsAsSet`, `.thmInfo` values included):
 
-## 5. Non-vacuity, re-run  **[checked]**
+| seed | cone | holes |
+|---|---|---|
+| `isDefEqUnitLike.WF_of_unitEta` (pre-existing) | 10939 | `descend`, `rigidShapeUniqNS`, `forallE_inv_stratified`, `weakN_iff` |
+| `isDefEqUnitLike.WF_of_structEtaG` (new) | 11156 | **the same four** |
+| `tryEtaStructCore.WF_of_structEtaGC` (pre-existing) | 12461 | the same four |
+| `tryEtaStructCore.WF_of_structEtaG'` (new) | 12579 | **the same four** |
+| `UnitLikeBridgeG.today` | 6313 | **none** |
+| `VEnv.StructEtaG.toUnitEta` | 819 | **none** |
 
-Unchanged from last round and re-verified after the edits:
+The four are `inferType.WF`'s, borrowed through its single appeal to `TrExprS.uniq`; the cone
+growth (+217, +118) is the two bridge proofs and adds no hole.
 
-* `VEnv.empty_structEta` — the assumption is satisfiable, so a theorem taking `StructEta` as a
-  hypothesis is not vacuous for want of a model of it.
-* `bazEnv_structEta_premises` — **every** premise of `StructEta` at once, at the two-field `Prop`
-  structure `bazDecl`, with `bazDecl.WF VEnv.empty` proved from scratch and the F17 clause
-  discharged in its **small-elimination** branch (`isLE = false`, so the `.inl` disjunct is
-  unavailable).  `barDecl`, the tree's other two-field structure, **fails** that clause
-  (`barField0_lvl_ne_zero`), so the clause is not decorative and the witness is not free.
-* `bazEnv_structEta`, `bazEnv_etaExpansion_eq`, `bazEnv_projMinors_distinct` — the rule fires,
-  and the two projections it produces really are two.
-* `StructureExamples.lean`'s `rfl` checks of `etaExpansion` against **Lean's own elaborator** at
-  `Prod`, `Sigma` (dependent second field), `And` (a `Prop` structure), `Subtype` (dependent
-  `Prop` field), plus the F17 clause in its non-trivial disjunct at `And`.  All still pass.
+### The three steps, one line each
 
-New this round, and weaker than the above on purpose: `congrProj_at_projAll` (§4.2) is a
-consistency check on the *assembly*, not a witness for it.  **No witness is claimed for
-`EtaStructSpine`**, and none exists — see §6.
-
----
-
-## 6. The honest caveat, preserved
-
-`EtaStructBridge` and `EtaStructSpine` are **currently provable for every `c`**: their premise
-asks for a `.ctorInfo` under the head of a translated term, and `TrEnv.not_ctorInfo` forbids
-that while `AddInduct` has no constructors.  **Today's instantiation is empty.**
-
-What the theorems buy is that their conclusions are derived from `proofIrrel`, `StructEta`,
-`congrProj` and the loop rules — never from the vacuity.  Both proofs `split` at each gate,
-discharge the `return false` arms by `nofun`, and **enter** the live `.inductInfo`/`.ctorInfo`
-arm.  Neither mentions `AddInduct` or `TrEnv.not_*Info`, so both survive the flip verbatim,
-unlike `tryEtaStructCore_never_true`/`isDefEqUnitLike_never_true`, which are scheduled to go red
-and are kept live as exactly that alarm.
-
-The redesign in §3 does **not** convert any of this into an apparent result: it would change
-which environments can supply `EtaStructSpine`, and nothing else.
+* `StructEtaG.toUnitEta`: at `C.fields = []`, `etaExpansionG_of_no_fields` identifies the two
+  right-hand sides, `VIndCtor.recFields_of_fields_nil` supplies `C.recFields = []`, and the F17
+  clause is free.  `StructEtaG.unitLike`'s docstring already *claimed* the subsumption ("the two
+  widenings are one rule, not two competing ones"); this is the claim as a theorem, and it is what
+  lets one rule serve both holes.
+* `UnitLikeBridgeG.today`: `head_tr` on the bridge's own first premise puts the head constant in
+  `c.venv`, then `TrEnv.not_inductInfo` refutes its third premise.  Five lines,
+  `isDefEqUnitLike_never_true`'s route.
+* `EtaStructSpineGC.today` (pre-existing) needs exactly the `he₂` that `tryEtaStructCore.WF`
+  already has, so the second bridge was already free and nobody had composed it.
 
 ---
 
-## 7. Corrections to the incoming relay
+## 2. The two claims I was told to verify rather than trust
 
-* "**The repair: `types : D.types = [T]` → `T ∈ D.types`, dropping `nm_eq`/`nmin_eq` … It is a
-  redesign, not a substitution.  You own the redesign.  Make it.**"  Refuted.  It is neither a
-  substitution nor a redesign but a false step: it makes `projTerm` an under-applied recursor and
-  `TrProj.wf` false.  §2.  The redesign that *is* correct is §3, and its bulk is in unowned
-  files.
-* "**No shape strengthening can fix it.**"  Confirmed, and for a stronger reason than given: the
-  problem is not on the shape-predicate side at all, it is that `projCore` cannot express the
-  situation.
-* "**`isDefEqUnitLike.WF` — one of the 19**" and "**close what it unblocks**" (item 2).  Not
-  closed, and it is not unblocked by anything here: `isDefEqUnitLike.WF_of_structEta` already
-  had the whole statement last round, and what is missing is the same two hypotheses.  No
-  progress is claimed on it.
-* "**A false docstring to correct, `UnitLikeBridge` ~line 719: 'the six fields … are free'.**"
-  Correct, and fixed — but the correction is not only that the fields are now pinned.  The
-  docstring also gave the wrong obstruction; it now names `IsStructure.types`, cites the kernel
-  check, and says why weakening it is not available.
-* "**The transport lemmas carry every field of `IsStructure` except `types` and `decl` — so
-  `types` is exactly the field this redesign is about.**"  True of the transport lemmas, but the
-  inference does not follow: `noRec` is a second field the kernel's `inferProj` does not
-  respect.  It happens not to be transported because the eta gate *does* test `isRec`; the
-  `TrProj` gap is separate and is now recorded.  §2.
-* Everything else checked out: `structEta`'s statement, the five `rfl` checks, the two
-  non-vacuity directions, and the two `WF_of_structEta` theorems entering the live arm.
+**Claim A — "a lemma along the lines of `isDefEqUnitLike_never_true` was repaired hole-free".
+TRUE.**  **[measured]** `#print axioms Lean4Lean.TypeChecker.Inner.isDefEqUnitLike_never_true`
+= `[propext, Classical.choice, Quot.sound]`; no `sorryAx`.  Its sibling
+`tryEtaStructCore_never_true` is the same.  Ledger rows 39/99a are accurate: the repair is the
+swap of `inferType.WF` for `inferType.WF'`, which the statement can afford because its conclusion
+is `b = false` and discards the term's translation.
+
+**Claim B — "zero-field eta was widened and the model-side pairing cost was nil, the model having
+carried the same singleton assumption".  TRUE, with one qualifier that matters.**  **[measured]**
+`Theory/SetModel/UnitEtaPairing.lean` exists (766 lines); `mem_Ind₃_fibre_iff_of_zero_field`,
+`interpSig₃_fibre_iff_of_no_fields`, `interpSig₃_resIdxDetAt`,
+`IsSubsingletonSignature₃.resIdxDetAt` and `mutUnitSig_not_single` are all
+`[propext, Classical.choice, Quot.sound]`, no `sorryAx`.  Reading the statements rather than the
+names: `mem_Ind₃_fibre_iff_of_zero_field` has **no hypothesis bounding `S.Q`**, so "no incremental
+cost over the singleton case" is right; and `mutUnitSig_not_single` really does refute
+`IsSubsingletonSignature₃` at a two-member block **for every carrier**, so "the model carried the
+same singleton assumption" is right too.
+
+*The qualifier.*  None of this discharges `UnitEta` (or `StructEtaG`) in the model, and the file
+says so itself: `OracleOK` (`SetModel/Cnst.lean`) has **exactly two fields**, `congr` and `type`,
+and `type` is a **membership** — verified by reading the structure this round — so
+`InductOracleOK` pins no type former's denotation and a model satisfying it may interpret a
+zero-field structure as a two-element set.  What is done is the *set-level* pairing step; what is
+open is connecting a fibre to `⟦(const S us).mkApp ps⟧`.  So if the plan is "the model discharges
+the eta rule", the pairing lemma is a prerequisite that is finished, not the discharge.
 
 ---
 
-## 8. What to pick up first
+## 3. Anti-vacuity, for the new content specifically
 
-1. **`projCore`'s generalisation** (§3).  It is the only thing standing between
-   `StructureBridge` and provability, and it is now a specified job rather than an open
-   question.  Needs coordination with the `Theory/Inductive` and `Verify/Typing` owners.
-2. **`structEta` as an `IsDefEq` constructor.**  `VEnv.StructEta` is the statement; promoting it
-   turns both `WF_of_structEta` theorems into halves of the real ones.  The coordinated
-   multi-file change is described at `VEnv.StructEta`'s docstring.
-3. **`RecM.WF.forIn'Prefix` at `isDefEqApp`/`isDefEqArgs`.**  Same loop shape, rule already
-   proved and hole-free.
-4. **Do not** close either hole vacuously, and do not weaken or build on
-   `tryEtaStructCore_never_true` / `isDefEqUnitLike_never_true`.  Unchanged from last round.
+`toUnitEta` is an implication between two predicates, so it is green whether or not either side is
+ever satisfiable — exactly blindness 4/7 of `docs/vacuity-ledger.md` §0.  So:
+
+* **The derived rule fires at the shape the checker fires at.**  `MutField.declEnv` is a two-type
+  mutual block in `Type` whose narrow `VEnv.IsStructure` is refuted
+  (`MutField.decl_not_isStructure`, pre-existing) and whose *other* member carries a field.  New
+  this round: `declEnv_IsStructureG_0` (the shape at the **zero-field** member),
+  `declEnv_unitEta_premises` (all eight premises of `VEnv.UnitEta` discharged at once there, plus two shape facts; the
+  degenerate instance `Γ = [A]`, `us = []`, `ps = []`), and
+  `declEnv_unitEta_of_structEtaG` / `declEnv_unitLike_of_structEtaG`, which fire the derived rule
+  from `declEnv.StructEtaG` **alone** and conclude specific `IsDefEq`s between syntactically
+  distinct terms (`x ≡ A.mk`, and `x ≡ y` for two inhabitants).  `declEnv_Amk_hasType` types the
+  right-hand side, so the fired instance is not satisfied by an ill-typed conclusion.
+  **[measured]**  A single `StructEtaG` assumption is therefore used at *both* arities of one
+  block, which is what makes `toUnitEta` more than bookkeeping.
+* **Where the anti-vacuity guarantee stops, stated rather than glossed.**  `declEnv.StructEtaG`
+  itself is an assumption; nothing proves it *holds* at `declEnv` (that needs the model, §2).  And
+  `c.venv.StructEtaG` — the residual as its callers use it — is satisfied today only vacuously,
+  since a translated `venv` contains no inductive block at all while `AddInduct` is empty.  So the
+  honest status of the residual is: **premises satisfiable and non-degenerate at the abstract
+  level, conclusion not derivable, and today's call sites are themselves dead.**  The last of those
+  is why the reduction is progress in *statement* and not in *content*.
+* **Nothing here strengthens a hypothesis.**  `toUnitEta` and the two `today` lemmas all
+  *discharge* hypotheses; the surviving hypothesis `c.venv.StructEtaG` is one the tree already had
+  (`Verify/TypeChecker/EtaStructG.lean`), unchanged.  No conclusion was weakened.  The
+  implementation was not touched — `Lean4Lean/TypeChecker.lean` has no edit this round — so
+  nothing was narrowed to make a proof go through, and `kernel_sound`'s statement is untouched
+  (frozen files: not opened).
+
+---
+
+## 4. Why I did not close them, and the exact lines that would
+
+Both holes are provable **today**:
+
+```lean
+theorem tryEtaStructCore.WF … := (tryEtaStructCore_never_true he₂).mono
+  fun _ _ _ h hb => absurd (h ▸ hb) nofun
+theorem isDefEqUnitLike.WF … := (isDefEqUnitLike_never_true he₁).mono
+  fun _ _ _ h hb => absurd (h ▸ hb) nofun
+```
+
+Both witnesses are hole-free (§2, claim A), so this is a genuine close: census 13 → 11, no new
+axiom.  Three measurements say it is not worth doing, and the third is new this round:
+
+1. It is discarded at the `AddInduct` flip.  The proof works only because `TrEnv.not_inductInfo`
+   holds, and the flip is required for `kernel_sound` to cover nested inductives (CLAUDE.md).
+   **[source]**
+2. The two census rows are the only place a build surfaces that `structEta` is missing from the
+   spec.  `docs/research-structeta.md` §5 and ledger row 39 both already ruled against the
+   vacuous close for this reason.  **[source]**
+3. **It moves nothing on guard 2.**  Neither hole is in `kernel_sound`'s cone; `kernel_sound` and
+   `addDecl.WF` are bare `sorry`s (cones 7914 and 1, each containing itself as its only hole), so
+   the eta holes' 70/71 users are the checker-refinement layer and the link to the main theorem
+   does not exist yet.  **[measured]**
+
+If the user wants the census number instead of the marker, the two lines above are it, and they
+should be labelled in-file as vacuous the way `Verify/Environment.lean` labels `addQuot.WF`.
+
+---
+
+## 5. What I tried that failed, and the step it failed at
+
+* **Restricting the residual to non-`Prop` blocks** (so the eventual spec rule could carry the
+  `IsNeverZero` side condition `docs/design-inductive.md` proposes, with `isDefEqUnitLike.WF_prop`
+  covering the `Prop` half — the pairing `docs/research-structeta.md` §2 flags as `[inferred]` and
+  never machine-checked).  **Abandoned before writing Lean, at a step I can name:** the `Prop`
+  branch needs `c.HasType ((VExpr.const S us).mkApp ps) (.sort .zero)` (for `WF_prop`/`WF_proof`),
+  and at zero fields the eta branch needs `HasType ((const C.name us).mkApp ps) ((const S us).mkApp
+  ps)` (for `structEta_of_prop`).  Neither is derivable from `VEnv.IsStructureG` in a file I own:
+  the block constant's and constructor's typings come from the declaration through the
+  `Verify/Typing/*` chain, which is why `EtaStructSpineGC` **carries** `hctor` and `hB` as
+  conjuncts rather than deriving them.  Adding them as hypotheses would have turned one residual
+  into two and moved the hole rather than closing it, so I stopped.  **[source]**  If someone owns
+  that chain, the missing lemma is: `IsStructureG S D j T C → HasArgs (D.params.map (instL us)) ps
+  → HasType ((const S us).mkApp ps) (.sort (D.lvl.inst us))`, plus the same for `C.name`.
+* **Making `c.venv.StructEtaG` provable for a `VContext`** (i.e. the deep vacuity route, V1 of
+  `docs/research-structeta.md` §4).  Not attempted: it is the vacuous close in a different
+  costume, and it would additionally need "no `VInductDecl'` has `addInduct' D ≤ c.venv`", which
+  is a `TrEnv` disjointness fact about `venv.defeqs`, not just `venv.constants`.
+* **One instrument error of my own, recorded per ledger §0.**  My first eliminator count returned
+  `0` for all four recursors: I had imported only `Lean4Lean.Verify.Guard`, whose closure **does
+  not contain the abstract spec** (`Lean4Lean.VEnv.IsDefEq` is not a constant there —
+  `#check` fails).  Corrected by importing the Theory modules; the count is then 65.  Anyone
+  measuring the spec against Guard's environment will get zeros for everything.  **[measured]**
+
+---
+
+## 6. Proposed ledger row (not added; the ledger is shared)
+
+> **111** | rows 102/105/107/110's residual pairs — "two hypotheses per eta hole" | **now ONE
+> hypothesis, and the same one for both holes.** `StructEtaG.toUnitEta` (the positive-field rule
+> subsumes the zero-field rule, so `UnitEta` is no longer an independent assumption) and
+> `UnitLikeBridgeG.today` (the zero-field bridge, vacuously satisfiable today — the twin
+> `EtaStructSpineGC.today` had never been written) reduce `isDefEqUnitLike.WF` and
+> `tryEtaStructCore.WF` to `c.venv.StructEtaG` alone; `etaHoles_of_structEtaG` states all three
+> `.WF`s from it in one theorem. Axiom sets identical to the predecessors', hole for hole, cones
+> +217/+118 with the same four borrowed holes and no new frozen-axiom route. **And the correction
+> that reprices the corner: neither hole is in `kernel_sound`'s cone** (7914 constants, only hole
+> itself; `addDecl.WF`'s cone is 1) **so no close here can move guard 2 today** |
+> `VEnv.StructEtaG.toUnitEta`, `UnitLikeBridgeG.today`, `isDefEqUnitLike.WF_of_structEtaG`,
+> `tryEtaStructCore.WF_of_structEtaG'`, `etaHoles_of_structEtaG`,
+> `MutField.declEnv_{IsStructureG_0,unitEta_premises,unitEta_of_structEtaG,unitLike_of_structEtaG,Amk_hasType}`
+> (`Verify/TypeChecker/EtaResidual.lean`) | the flip kills the two `today` lemmas, by design |
+
+---
+
+## 7. What I would pick up first
+
+1. **`structEta` as a `VEnv.IsDefEq` constructor — and price it against the 65 sites before
+   starting.**  It is now the *only* thing between both eta holes and a proof, which was not true
+   at the start of this round (there were four hypotheses; three are gone).  The shape to add is
+   `StructEtaG`'s, not `StructEta`'s: it is the widest of the three
+   (`toStructEta`, `toUnitEta`) and the one satisfiable at the mutual blocks the kernel really
+   performs eta on.  Ownership: all 65 sites are in `Theory/`, none in `Verify/`; the one that
+   does **not** go through mechanically is `IsDefEq.uniq`'s (`Theory/Typing/UniqueTyping.lean`),
+   by the same argument `docs/handoff-isdefequ.md` §3 makes for `retype`.
+2. **The model side of the same rule.**  §2's qualifier is the live item: define the `.induct`
+   oracle as `IndFiber ∘ interpSig₃` and add the denotation equation to `OracleOK`, which is
+   `docs/soundness-ledger.md`'s standing item and is identical for singleton and mutual blocks
+   (ledger row 106c).  Until that lands, `StructEtaG` has no discharge route at all, and the
+   syntactic work above buys a rule nothing can supply.
+3. **`addDecl.WF` and `kernel_sound` are bare `sorry`s with no proof body.**  Finding 5 means the
+   eta corner cannot affect guard 2 until the refinement layer is wired to the main theorem.  If
+   the goal is guard 2 saying "COMPLETE", that wiring — not this corner — is the critical path,
+   and it is measurable: `addDecl.WF`'s cone is a single constant today.
+4. **Do not** close either hole vacuously (§4), and do not build on the two `today` lemmas as if
+   they were bridges: they are satisfiability certificates that go red at the flip, and
+   `WF_of_unitEta` / `WF_of_structEtaGC` are the versions that survive it.
