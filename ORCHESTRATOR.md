@@ -2,6 +2,54 @@
 
 `CLAUDE.md` is for every agent. This file is for the orchestrator only.
 
+## Measuring the checker: the arena is not what it looks like
+
+- **`lka.py run` does NOT build.** `build-checker` copies the whole source tree into
+  `_build/checkers/<name>/src/` and builds *there*; `run` executes that copy's binary and never
+  rebuilds it. Run `uv run lka.py build-checker lean4lean-local` first -- the checker name is
+  **positional** there, unlike `run --checker <name>`. Then verify the copy really is this tree:
+  `grep` it for the behaviour you just added and check the binary's mtime. A whole session's
+  figures, and three commits' verification claims, were fiction for want of this.
+- **Name the expected flip BEFORE running, and treat its absence as a harness fault.** "Identical
+  to the last recorded result" is the signature of a safe change *and* of an untested one, and
+  only a named flip tells them apart. A rejection-boundary change that moves nothing is a
+  red flag, not a pass -- especially when the test that should move is graded `either`, where a
+  flipped verdict does not change the summary line at all.
+- **Three tests carry the whole scale signal**: `init`, `std`, `perf/grind-ring-5`. The other 188
+  are small hand-built cases. A regression that only fires at real-library scale shows up in
+  exactly those three and nowhere else, so a clean summary minus those three is not a clean suite.
+- **Ask whether the constant was ever ADDED before asking why the lookup failed.**
+  `lean4lean --import --verbose` prints `adding <name>` per declaration;
+  `grep -c "adding <thatName>"` returning 0 separates "never inserted" from "inserted but
+  unfindable" in one command. This killed a plausible and wrong hypothesis (the HAMT/`SMap`
+  replacement, whose real failure mode *is* a lost entry) before it cost a single build.
+- **Bisect over implementation-touching commits only.** 550 commits since the snapshot, 29 of them
+  touching anything the binary is built from; `git log --oneline --reverse <base>..HEAD -- Lean4Lean/
+  ':!Lean4Lean/Theory' ':!Lean4Lean/Verify' ':!Lean4Lean/Experimental' ':!Lean4Lean/Tests'` gets the
+  list, and `lake build lean4lean` (95 jobs, not 1497) is the only target needed. Five probes, and
+  `git show <sha> -- <path>` reads objects without disturbing the working tree, so the diff can be
+  inspected while the bisect is still running. **Do not run streams during a bisect** -- the tree is
+  checking out old commits underneath them.
+
+## A soundness fix can introduce a completeness regression
+
+`f743c46` closed a real hole (a lying `Nat.gcd` passing the recognizer while `reduceNat`
+accelerates it by name) and, in the same edit, made the checker reject the *genuine* `Nat.gcd`.
+Reverting was not available: it reopens the hole. Two habits follow.
+
+- **When a check constructs a reference term, ask which constants that term names and whether the
+  declaration under test depends on them.** Anything outside the declaration's own cone is absent
+  under minimal-cone replay, and the check dies on a valid input. Nothing in this repo measures
+  this; the arena's real-library tests are the only instrument that sees it.
+- **Check what the available fallbacks actually do before designing around them.** Here neither was
+  open: `fail` throws, and `return false` makes `checkName` throw because the name is in
+  `Environment.primitives`. A name in that list may be declared only if the recognizer *succeeds*,
+  so "decline to accelerate" was not a repair. I had designed the wrong fix before reading that,
+  and would have shipped a second rejection.
+- The repair route that worked is worth remembering generally: **a proof argument can be bound as a
+  variable instead of constructed.** Proof irrelevance makes the check equivalent, the statement
+  universally quantified (if anything stronger), and the constant cone smaller.
+
 ## Handoffs, not resumes
 
 **Avoid resuming an agent.** A resumed agent carries a long, mostly irrelevant transcript, and its answers drift toward what it already believes.

@@ -7,14 +7,36 @@
 **Everything dated 2026-08-31 or 2026-09-01 below has been amended, in some cases twice. Read this
 section, then read amendments where they appear, then treat the older prose as history.**
 
-**Goal 1's status is UNVERIFIED for this tree, and the earlier claim in this header was wrong.**
-It said "goal 1 holds… re-verified twice". Every arena figure quoted in this session — the
-inherited 185/6/0 baseline included — measured a **snapshot copy** at
-`_build/checkers/lean4lean-local/src`, pinned at git commit `4f31e00` with a binary dated
-**Aug 21**, because `lka.py run` **does not build**: `build-checker` copies the tree and builds
-there, and it had not been run since Aug 21. See ledger rows 120–120c. The working-tree binary
-does behave correctly on the test in question; what is missing is a suite run against it. **Until
-a `build-checker` + `run` pair is reported, treat goal 1 as unmeasured on this commit.**
+**Goal 1 HOLDS, and for the first time it has actually been measured: 185 correct / 6 either /
+0 incorrect**, from `uv run lka.py build-checker lean4lean-local` followed by
+`uv run lka.py run --checker lean4lean-local`, against a binary built from this tree (the copy was
+verified to contain the new code before the run). `init` ✅ 1.6 m, `std` ✅ 3.1 m,
+`perf/grind-ring-5` ✅ 2.6 s, and `nested-nonuniform-param` stays **rejected**, which is the C++
+verdict and the flip that proves the new uniform-occurrence check is reached.
+
+**Getting there required fixing a twelve-day-old regression that had made goal 1 FAIL, and every
+earlier claim in this header about goal 1 was worthless.** Two layers:
+
+1. *No arena figure in this session measured this tree.* `lka.py run` **does not build** —
+   `build-checker` copies the tree into `_build/checkers/lean4lean-local/src` and builds there, and
+   it had not been run since Aug 21, so every figure (the inherited 185/6/0 baseline included)
+   came from a snapshot at commit `4f31e00`. Rows 120–120c.
+2. *Underneath that, three tests were genuinely failing.* The first honest run reported
+   **182 / 3 incorrect / 6**: `init`, `std` and `perf/grind-ring-5` all rejected with
+   `(kernel) unknown constant 'Nat.pos_of_ne_zero'` at `Nat.gcd`. Bisect over the 29
+   implementation-touching commits: first bad `f743c46`, last good `ab1f9f8`. That commit closed a
+   **real soundness hole** (a lying `Nat.gcd` passing the recognizer while `reduceNat` accelerates
+   it by name) and in the same edit built the fuel-decrease proof out of six lemmas, of which
+   **exactly one — `Nat.pos_of_ne_zero` — is outside the checked declaration's constant cone.** The
+   other five are in it; my first account of this said all six were absent, and that was wrong
+   (row 121h; the cones are 238 and 352 constants, not 135 and 147). Reverting `f743c46` was not
+   available: it reopens the hole. **Fixed by a one-token swap** to `Nat.zero_lt_of_ne_zero` —
+   same statement, same binder kinds, in both cones, and what `Nat.gcd`'s own `decreasing_by`
+   uses — which restores `f743c46`'s shape and therefore needs **no proof-side work at all**
+   (`lake build` green, guards unmoved). My intervening redesign, which bound the proof as a
+   variable and added a `Condition.natLE` check to manufacture witnesses, was **wrong** and is
+   reverted: hoisting the proof out of the `dite`'s else-λ created an obligation at `m = 0` that
+   is semantically false. Rows 121–121i.
 
 **Goal 2 is open.** Census steady at **13** holes; guards `1 ✓ (24 axioms) / 2 ✓ (INCOMPLETE) /
 3 ✓ (2/2)`.

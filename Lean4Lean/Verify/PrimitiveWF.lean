@@ -86,7 +86,13 @@ components move at the recursive call, so the induction is on the fuel with the 
 
 `Ok` is left to the caller for the same reason as in `reflects_fuel_go`: `hgo`'s left-hand side
 asserts a defeq, and `IsDefEqU` entails well-typedness, so the fuel bound `h` must be typed at
-`go`'s declared domain for *these* `fuel` and `x`. -/
+`go`'s declared domain for *these* `fuel` and `x`.
+
+`hK` also receives `x < f + 1`, the induction's own invariant at the step.  It is not needed by
+the current caller (which reads the recursive call's bound off the right-hand side's
+well-formedness) but it is needed by any caller that has to *build* that bound: `y % x + 1 ≤ f`
+follows from `x ≠ 0` and `x ≤ f`, and from nothing weaker.  Weakening `hK` this way strengthens
+the theorem. -/
 theorem reflects_fuel_gcd (henv : env.WF) (hlit : env.NatLits)
     {GO PACK : VExpr} {RHS K : Nat → Nat → Nat → VExpr → VExpr}
     {Ok : Nat → Nat → Nat → VExpr → Prop}
@@ -100,7 +106,7 @@ theorem reflects_fuel_gcd (henv : env.WF) (hlit : env.NatLits)
         (if x = 0 then .natLit y
           else VExpr.app3 GO (.natLit f)
             (VExpr.app2' PACK (.natLit (y % x)) (.natLit x)) (K f x y h)))
-    (hK : ∀ f x y h, Ok (f+1) x y h → ¬ x = 0 → Ok f (y % x) x (K f x y h)) :
+    (hK : ∀ f x y h, x < f+1 → Ok (f+1) x y h → ¬ x = 0 → Ok f (y % x) x (K f x y h)) :
     ∀ (fuel x y : Nat), x < fuel → ∀ h, Ok fuel x y h →
       env.IsDefEqU 0 []
         (VExpr.app3 GO (.natLit fuel) (VExpr.app2' PACK (.natLit x) (.natLit y)) h)
@@ -120,7 +126,7 @@ theorem reflects_fuel_gcd (henv : env.WF) (hlit : env.NatLits)
     · rw [if_neg hx0, Nat.gcd_rec]
       exact ih (y % x) x (by
         have : y % x < x := Nat.mod_lt _ (Nat.pos_of_ne_zero hx0)
-        omega) _ (hK f x y h hok hx0)
+        omega) _ (hK f x y h hx hok hx0)
 
 end VEnv
 
@@ -501,6 +507,125 @@ theorem IsDefEqU.instGcd (henv : env.WF) (hlit : env.NatLits) {MEAS PACK e₁ e�
       (VExpr.closedN_natLit f).liftN_eq (Nat.zero_le _)] using this
   exact IsDefEqU.instN (Γ₀ := []) (e₀ := h) henv.ordered .zero s3 hh
 
+end VEnv
+
+/-- **The context the fuel recurrence is *now* checked in.**  `VExpr.gcdCtx` plus one more
+binder, the recursive call's own fuel bound `Nat.succ (h (pack (n % m) m)) ≤ fuel`.
+
+**This context is NOT the one the implementation uses, and the reason is worth reading before
+using anything here.**  `Lean4Lean/Primitive.lean`'s `Nat.gcd` branch briefly bound that proof with
+`withCheckedLocalDecl` instead of constructing it, on the belief that the six lemmas the
+construction used were outside `Nat.gcd`'s constant cone.  **Exactly one of them was**
+(`Nat.pos_of_ne_zero`); the other five are in it, and the cone is 238 constants, not the 135 that
+belief rested on (`scripts/gcd-cone-probe.lean`, ledger row 121h).  The branch now constructs the
+proof again, inside the `dite`'s else-λ where `¬(m = 0)` is in scope, with
+`Nat.zero_lt_of_ne_zero` — same statement, same binder kinds, present in both cones, and what
+`Nat.gcd`'s own `decreasing_by` uses — in place of the one missing lemma.  Hoisting the proof out
+of that λ is what created the `m = 0` gap described below, so the four-binder
+`VExpr.gcdCtx` is what `reflects_gcd_of_equations` is proved over and this definition is
+**currently unused by the implementation**.  It is kept because it is real machinery for any future
+five-binder route.  See `docs/handoff-primitive-natle.md` §1 and §6.
+
+The proposition this binder inhabits is **false in general** (at `m = n = fuel = 0` the
+hypothesis `1 ≤ 1` holds and the conclusion `1 ≤ 0` does not), so it cannot be discharged once
+and for all: `IsDefEqU.instGcdWF` takes a witness *per instance*.
+
+**And a witness does not exist at every instance the fuel induction visits.**  At `m = 0` the
+binder asks for `n + 1 ≤ fuel`, which the induction's invariant (`m < fuel`, i.e. `0 ≤ fuel`)
+does not give, and `VEnv.reflects_fuel_gcd` calls `hgo` *before* splitting on `m = 0`.
+`scripts/gcd-fuel-zero-gap.lean` exhibits the states: `Nat.gcd 0 5` needs `6 ≤ 0` at its entry
+state, and `Nat.gcd 4 6` needs `3 ≤ 2` at `(fuel, m, n) = (3, 0, 2)`.  So this definition and
+`instGcdWF` are the machinery a fix will need, but they do **not** on their own let
+`reflects_gcd_of_equations` be restated over the five-binder equation.  See
+`docs/handoff-primitive-natle.md` §5.2. -/
+def VExpr.gcdCtxWF (MEAS PACK : VExpr) : List VExpr :=
+  .natLEApp (.app .natSucc (.app MEAS (VExpr.app2' PACK
+      (.natOp ``Nat.mod (.bvar 2) (.bvar 3)) (.bvar 3)))) (.bvar 1) :: VExpr.gcdCtx MEAS PACK
+
+namespace VEnv
+variable {env : VEnv}
+
+/-- Instantiate an equation proved in `VExpr.gcdCtxWF`.  Both proof binders are substituted by
+terms the caller supplies together with their typings; nothing else about them is needed.
+
+The order is forced: the four `m`, `n`, `fuel`, `h` binders must go first, because the fifth
+binder's *type* mentions the first three, and a witness for it exists only once they are
+numerals. -/
+theorem IsDefEqU.instGcdWF (henv : env.WF) (hlit : env.NatLits) {MEAS PACK e₁ e₂ : VExpr}
+    (hMEASc : MEAS.ClosedN 0) (hPACKc : PACK.ClosedN 0)
+    (H : env.IsDefEqU 0 (VExpr.gcdCtxWF MEAS PACK) e₁ e₂) (x y f : Nat) {h w : VExpr}
+    (hh : env.HasType 0 [] h
+      (.natLEApp (.app .natSucc (.app MEAS (VExpr.app2' PACK (.natLit x) (.natLit y))))
+        (.natLit (f+1))))
+    (hw : env.HasType 0 [] w
+      (.natLEApp (.app .natSucc (.app MEAS (VExpr.app2' PACK
+        (.natOp ``Nat.mod (.natLit y) (.natLit x)) (.natLit x)))) (.natLit f))) :
+    env.IsDefEqU 0 []
+      (((((e₁.inst (.natLit x) 4).inst (.natLit y) 3).inst (.natLit f) 2).inst h 1).inst w)
+      (((((e₂.inst (.natLit x) 4).inst (.natLit y) 3).inst (.natLit f) 2).inst h 1).inst w) := by
+  have eM : ∀ {u : VExpr} {j}, MEAS.inst u j = MEAS := fun {_ _} =>
+    hMEASc.instN_eq (Nat.zero_le _)
+  have eP : ∀ {u : VExpr} {j}, PACK.inst u j = PACK := fun {_ _} =>
+    hPACKc.instN_eq (Nat.zero_le _)
+  have lM : ∀ {j}, MEAS.liftN j = MEAS := fun {_} => hMEASc.liftN_eq (Nat.zero_le _)
+  have lP : ∀ {j}, PACK.liftN j = PACK := fun {_} => hPACKc.liftN_eq (Nat.zero_le _)
+  have s1 : env.IsDefEqU 0
+      (.natLEApp (.app .natSucc (.app MEAS (VExpr.app2' PACK
+          (.natOp ``Nat.mod (.bvar 2) (.natLit x)) (.natLit x)))) (.bvar 1) ::
+        [.natLEApp (.app .natSucc (.app MEAS (VExpr.app2' PACK (.natLit x) (.bvar 1))))
+          (.app .natSucc (.bvar 0)), .nat, .nat])
+      (e₁.inst (.natLit x) 4) (e₂.inst (.natLit x) 4) := by
+    have := IsDefEqU.instN (Γ₀ := []) (A₀ := .nat) (e₀ := .natLit x) henv.ordered
+      (.succ (.succ (.succ (.succ .zero)))) H (hlit x)
+    simpa [VExpr.gcdCtxWF, VExpr.gcdCtx, VExpr.app2', VExpr.natOp, VExpr.inst, VExpr.instVar,
+      VExpr.natLEApp, VExpr.natLE, lM, lP, eM, eP,
+      (VExpr.closedN_natLit x).liftN_eq (Nat.zero_le _)] using this
+  have s2 : env.IsDefEqU 0
+      (.natLEApp (.app .natSucc (.app MEAS (VExpr.app2' PACK
+          (.natOp ``Nat.mod (.natLit y) (.natLit x)) (.natLit x)))) (.bvar 1) ::
+        [.natLEApp (.app .natSucc (.app MEAS (VExpr.app2' PACK (.natLit x) (.natLit y))))
+          (.app .natSucc (.bvar 0)), .nat])
+      ((e₁.inst (.natLit x) 4).inst (.natLit y) 3)
+      ((e₂.inst (.natLit x) 4).inst (.natLit y) 3) := by
+    have := IsDefEqU.instN (Γ₀ := []) (A₀ := .nat) (e₀ := .natLit y) henv.ordered
+      (.succ (.succ (.succ .zero))) s1 (hlit y)
+    simpa [VExpr.app2', VExpr.natOp, VExpr.inst, VExpr.instVar,
+      VExpr.natLEApp, VExpr.natLE, lM, lP, eM, eP,
+      (VExpr.closedN_natLit x).liftN_eq (Nat.zero_le _),
+      (VExpr.closedN_natLit y).liftN_eq (Nat.zero_le _)] using this
+  have s3 : env.IsDefEqU 0
+      (.natLEApp (.app .natSucc (.app MEAS (VExpr.app2' PACK
+          (.natOp ``Nat.mod (.natLit y) (.natLit x)) (.natLit x)))) (.natLit f) ::
+        [.natLEApp (.app .natSucc (.app MEAS (VExpr.app2' PACK (.natLit x) (.natLit y))))
+          (.natLit (f+1))])
+      (((e₁.inst (.natLit x) 4).inst (.natLit y) 3).inst (.natLit f) 2)
+      (((e₂.inst (.natLit x) 4).inst (.natLit y) 3).inst (.natLit f) 2) := by
+    have := IsDefEqU.instN (Γ₀ := []) (A₀ := .nat) (e₀ := .natLit f) henv.ordered
+      (.succ (.succ .zero)) s2 (hlit f)
+    simpa [VExpr.app2', VExpr.natOp, VExpr.inst, VExpr.instVar,
+      VExpr.natLEApp, VExpr.natLE, VExpr.natLit_succ, lM, lP, eM, eP,
+      (VExpr.closedN_natLit x).liftN_eq (Nat.zero_le _),
+      (VExpr.closedN_natLit y).liftN_eq (Nat.zero_le _),
+      (VExpr.closedN_natLit f).liftN_eq (Nat.zero_le _)] using this
+  have hhc : h.ClosedN 0 := VExpr.WF.closedN henv.ordered ⟨_, hh⟩ trivial
+  have s4 : env.IsDefEqU 0
+      [.natLEApp (.app .natSucc (.app MEAS (VExpr.app2' PACK
+          (.natOp ``Nat.mod (.natLit y) (.natLit x)) (.natLit x)))) (.natLit f)]
+      ((((e₁.inst (.natLit x) 4).inst (.natLit y) 3).inst (.natLit f) 2).inst h 1)
+      ((((e₂.inst (.natLit x) 4).inst (.natLit y) 3).inst (.natLit f) 2).inst h 1) := by
+    have := IsDefEqU.instN (Γ₀ := []) (e₀ := h) henv.ordered (.succ .zero) s3 hh
+    simpa [VExpr.app2', VExpr.natOp, VExpr.inst, VExpr.instVar,
+      VExpr.natLEApp, VExpr.natLE, lM, lP, eM, eP,
+      (VExpr.closedN_natLit x).liftN_eq (Nat.zero_le _),
+      (VExpr.closedN_natLit y).liftN_eq (Nat.zero_le _),
+      (VExpr.closedN_natLit f).liftN_eq (Nat.zero_le _)] using this
+  exact IsDefEqU.instN (Γ₀ := []) (e₀ := w) henv.ordered .zero s4 hw
+
+end VEnv
+
+namespace VEnv
+variable {env : VEnv}
+
 /-- Replace the first argument of a three-fold application. -/
 theorem IsDefEqU.app3_congr_arg1 (henv : env.WF) {F u u' v w : VExpr}
     (hwt : VExpr.WF env 0 [] (VExpr.app3 F u v w)) (h : env.IsDefEqU 0 [] u u') :
@@ -794,14 +919,14 @@ theorem reflects_gcd_of_equations (henv : env.WF) (hlit : env.NatLits)
       exact IsDefEqU.app3_congr_arg2 henv hmw
         (IsDefEqU.app2'_congr_arg1 henv ((hmw.app_fn' henv).app_arg' henv)
           (hprim.natMod hmodC y x))
-  have hK : ∀ (f x y : Nat) (h : VExpr),
+  have hK : ∀ (f x y : Nat) (h : VExpr), x < f + 1 →
       env.HasType 0 [] h (.natLEApp (.natLit (x+1)) (.natLit (f+1))) → ¬ x = 0 →
       env.HasType 0 []
         (((((KA.inst (.natLit x) 4).inst (.natLit y) 3).inst (.natLit f) 2).inst h 1).inst
           (.app (.app OF (.natEqApp (.natLit x) .natZero))
             (.app (.app PR (.natLit x)) .natZero)))
         (.natLEApp (.natLit (y % x + 1)) (.natLit f)) := by
-    intro f x y h hok hx0
+    intro f x y h _ hok hx0
     have d := hgo f x y h hok
     have s := hsel f x y h hok d.wf_r
     rw [if_neg hx0] at s

@@ -613,7 +613,7 @@ def checkPrimitiveDef (v : DefinitionVal) : M Bool := do
     withCheckedLocalDecl `h .default
       (mkApp2 q(@LE.le Nat instLENat) X (succ fuel)) fun h => do
     -- `.bvar 0` is the `¬(m = 0)` that `Condition.dite`'s else-branch `lam0` binds.
-    let hpos := mkApp2 q(@Nat.pos_of_ne_zero) m (.bvar 0)
+    let hpos := mkApp2 q(@Nat.zero_lt_of_ne_zero) m (.bvar 0)
     let prf := mkApp5 q(@Nat.lt_of_lt_of_le) (mod n m) m fuel
       (mkApp3 q(@Nat.mod_lt) n m hpos) (mkApp3 q(@Nat.le_of_lt_succ) m fuel h)
     unless ← checkedIsDefEq (mkApp3 u.go (succ fuel) (pk m n) h)
@@ -683,7 +683,7 @@ def checkPrimitiveDef (v : DefinitionVal) : M Bool := do
     let b₂ := c.decide #[mod m two, one]
     -- `.bvar 0` is the `¬(n = 0)` the `dite`'s else-branch binds.
     let prf := mkApp5 q(@Nat.lt_of_lt_of_le) n' n fuel
-      (mkApp4 q(@Nat.div_lt_self) n two (mkApp2 q(@Nat.pos_of_ne_zero) n (.bvar 0))
+      (mkApp4 q(@Nat.div_lt_self) n two (mkApp2 q(@Nat.zero_lt_of_ne_zero) n (.bvar 0))
         (mkApp q(@Nat.le.refl) two))
       (mkApp3 q(@Nat.le_of_lt_succ) n fuel h)
     let r := mkApp3 go fuel (pk f n' m') prf
