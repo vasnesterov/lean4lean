@@ -1006,3 +1006,231 @@ to what it was reduced from.  What *does* need saying, in the brief's own vocabu
    * a row for §13.6 item 1 — there is no `HasTypeN → HasType`, so the stratified obligation is
      **not** equivalent to the unstratified corner (the one place this round a collapse was
      available and turned out not to exist).
+
+# Round 4 (2026-09-02, later still): item (c) is **closed, not expensive** — and §13.6's diagnosis of it was wrong
+
+Appended, not editing §0–§15.  Conventions unchanged: **[machine]** = a `sorry`-free
+declaration on this commit plus `lake build` / `#print axioms` / a cone run; **[analysis]** =
+read off source.
+
+**One-line answer to §13.5/§13.7 item (c): `SortDisjInvN piLvlEnv 0 1` is neither proved nor
+refuted, and it cannot be either cheaply — it is *sandwiched between two open statements*, and
+the lower bound is an empty-environment clause the tree has had open since `DefInvRefute`.  The
+`beta` case that §13.6 item 3 blamed is FREE.  The obstruction is `appDF`.**
+
+New file **`/home/vasilii/lean4lean/Lean4Lean/Theory/Typing/SortDisjPiLvl.lean`** (39
+declarations, all `sorryAx`-free, all cone-holes `[]`).  Nothing else in the tree was touched.
+
+## 16. First, what `#print axioms` said — and the machinery §13.6 did not know about
+
+Per the standing advice, everything the brief named was checked before anything was proved.
+All of it is as claimed [machine]: `piLvlEnv_ordered` `[propext, Quot.sound]`,
+`piLvlEnv_appUniqLvl_all_false` `[propext]`, `piLvlEnv_propUniqZeroN_false` `[propext]`,
+`RegPiSat.regPi_false` `[propext]` (with `RegPiOn`/`Regular` present as the repair, as §13.5
+says), `regPi_all_false` `[propext]`.  No `sorryAx` in any of them.  **The brief was right on
+every point I could check.**
+
+What the check *did* turn up is that round 3 duplicated existing work:
+
+* **`Theory/Typing/SortClauses.lean` §4 already contains the right predicate for this exact
+  job**, and has since before round 3: `SortRed u X` ("`X` weak-head β-reduces to a sort of
+  level `≈ u`"), `SortRedInv` (its invariance along a `⊢ₙ` conversion), and
+  `sortRedInv_of` — which proves `SortRedInv` at `n+1` from **four** residuals at `n`.  In
+  that induction `rfl`, `symm`, **`trans`**, `sortDF`, `constDF`, `lamDF`, `forallEDF` **and
+  `beta`** all close outright.  `SortRed.beta_iff` is the `beta` case, one line.
+* `Theory/Typing/SortRedApp.lean` (114 declarations) then narrows the surviving residual to one
+  branch and names it `SortRedLamExpose`, with `docs/handoff-sortred.md` as its handoff.
+
+So **§13.6 item 3 is wrong in its diagnosis** [machine].  Its report — "failed at the `beta`
+case … a sort *is* `⊢₁`-convertible to a β-redex … so no shape-class invariant is preserved and
+the case is the general weak-head confluence problem" — has a true premise and a false
+conclusion.  The premise is exhibited over `piLvlEnv` itself (`piLvlRedex_conv_sort`:
+`fun (_ : Type 0) => Prop` applied to `Prop` is `⊢₁`-convertible to `Prop`), and
+`piLvlRedex_sortRed_iff` shows `SortRed` does not care.  What that fact defeats is a *syntactic
+shape class*, which is what a `SubstCRefute.stuck`-style induction carries — not the invariant
+the tree already uses.  `beta_and_trans_are_free` records both free cases in one statement.
+
+**The brief inherited the wrong diagnosis and asked me to confirm it** ("establish sharply that
+the `beta` case genuinely is weak-head confluence").  It is not; the `appDF` case is.
+
+## 17. What is proved [machine]
+
+| statement | declaration |
+| --- | --- |
+| `piLvlEnv`'s rule is invisible to `SortRed` — the `extra` residual is free | `extraSortRed_piLvlEnv` |
+| a Π-type is never `⊢₀`-typed at a Π-type (companion to `forallE_not_prop0`) | `forallE_not_pi0` |
+| the rule's two sides are not `⊢₀`-typed at a Π-type, so `extra` cannot be an `appDF`'s `f ≡ f'` | `piLvl_rule_not_pi_typed0` |
+| …and their `⊢₀` types differ *syntactically* (`.imax 2 1` vs `.imax 2 2`), so it cannot be its `a ≡ a'` either | `piLvl_rule_sides_not_one_type0` |
+| `SortRedAppDF piLvlEnv 0 0 → SortDisjInvN piLvlEnv 0 1` (both clauses) | `piLvlEnv_sortDisjInvN_one_of_appDF` |
+| …and from the narrowed form | `piLvlEnv_sortDisjInvN_one_of_lamExpose` |
+| the residual **is** the whole reduction here, as over `∅` | `piLvlEnv_sortRedAppDF_iff`, `piLvlEnv_chain` (three `↔`s) |
+| `⊢ₙ` conversions transfer up an environment extension (**new**, `Stratified.mono` is index-only) | `Stratified.mono_env` |
+| clauses (1)/(3)/both are antitone in the environment | `SortInvN.mono_env`, `SortForallEDisjN.mono_env`, `SortDisjInvN.mono_env` |
+| **the lower bound**: `SortDisjInvN piLvlEnv 0 1 → SortDisjInvN ∅ 0 1` | `sortDisjInvN_le` |
+| a refutation over `∅` at `U = 0` refutes item (c) outright | `sortInvN_empty_false_imp` |
+| `⊢ₙ` conversions transfer up a universe-count extension (**new**) | `VLevel.WF.mono_univs`, `Stratified.mono_univs` |
+| the sandwich in one statement, incl. `SortInvN ∅ 1 1 → SortInvN ∅ 0 1` | `sortDisjInvN_sandwich` |
+| **§13.7's separation, index-1 form, conditional on the residual** | `piLvlEnv_separates_at_one`, `ordered_and_sortDisjInvN_not_enough_at_one` |
+| **§13.7's separation, `∀ n` form** — needs **three** open families, not one | `sortDisjInvN_all_of`, `piLvlEnv_sortDisjInvN_all_of`, `ordered_and_sortDisjInvN_all_not_enough_of` |
+| **new refutation**: the spine predicate with each argument `⊢₀`-typed at *some* type is FALSE | `spineInvTyped_one_false` |
+| **new necessary sub-obligation**: the residual also demands *argument replacement* | `SortRedArgSwap`, `sortRedArgSwap_of_lamExpose` |
+
+### 17.1 The answer to §13.7's question, stated exactly
+
+§13.7 asks which branch holds, and says the positive branch would show "§9.2's four side
+conditions provably do not rescue the obligation".  Both branches are now priced:
+
+* **Positive branch — not reachable today.**  `SortDisjInvN piLvlEnv 0 1` *implies*
+  `SortDisjInvN ∅ 0 1` [machine, `sortDisjInvN_le`], which is open: it is the `U = 0` instance
+  of the clause `DefInvRefute` left at `U = 1`, and §8 of the new file machine-checks that the
+  `U = 1` instance implies the `U = 0` one, so the tree has *nothing* that discharges either.
+  The separation is therefore landed as a **conditional theorem** on the residual, in both the
+  index-local form (one hypothesis) and the `∀ n` form (three).
+* **Negative branch — cannot come from the rule.**  `extraSortRed_piLvlEnv` says the rule is
+  invisible to `SortRed`; `piLvl_rule_not_pi_typed0` and `piLvl_rule_sides_not_one_type0` say it
+  cannot fire at any of the four typing positions of the residual.  And a refutation that did
+  *not* use the rule would refute the `∅` clause, which by `sortInvN_empty_false_imp` settles
+  item (c) as a corollary.  So there is no cheap negative either.
+
+**So §15 item 1 — "`SortDisjInvN` at `piLvlEnv`, index 1 … cheapest thing that changes the
+meaning of §13" — is wrong.  It is the most expensive item on that list**: it entails the
+tree's oldest open index-1 clause.  §15 item 3 (attack `∀ n, AppUniqLvl` at `VEnv.WF` through
+`IsDeclRule.lhs_shape`) is the one that does not sit behind that wall.
+
+### 17.2 The grade — where I could be collapsing, said up front
+
+* The route in §3 of the new file is a **sufficient condition, not a reduction**:
+  `SortRedInv → SortDisjInvN` is one-way and no converse is known, so `SortRedAppDF piLvlEnv 0 0`
+  is **possibly strictly stronger** than item (c).  I have *not* shown item (c) is as hard as
+  the residual.  Graded as such in the file's Verdict section.
+* The only **real** lower bound is `sortDisjInvN_le` (§4), and what it bounds by is
+  `SortDisjInvN ∅ 0 1` — *not* the residual and *not* the `U = 1` goal the tree tracks.  The
+  precise relationship is machine-checked in §8 rather than read off, because getting it wrong
+  in the optimistic direction is exactly this corner's failure mode.
+* **Hole-freeness is reported separately from dischargedness, as always.**  All 39 declarations
+  are hole-free (cones below).  **Nothing here is discharged**: every conclusion about
+  `SortDisjInvN piLvlEnv 0 1` is under a hypothesis, and that hypothesis is open.  This is a
+  *fourth* shape of "hole-free ≠ discharged" to set beside §13.8's three: an assembly all of
+  whose conclusions are conditional on a statement that is open, at an environment where the
+  hypothesis is at least as strong as a known-open goal.
+
+## 18. What I tried that failed, and the step it failed at
+
+1. **Proving `SortRedLamExpose piLvlEnv 0 0` (equivalently the residual) by induction on the
+   conversion `f ≡₁ f'`.**  Failed at the **`trans` case**, and for a reason that is a hard
+   constraint rather than a difficulty: `Stratified.trans` carries **no typing premise for its
+   middle term**, while the induction hypothesis needs `f` `⊢₀`-typed at `.forallE A (.sort w)`
+   — the premise that protects `f` and `f'` from `proofIrrel` (`proofIrrel_not_at_pi`) and from
+   `constDF`.  Not abandoned for lack of effort: this is the same wall `docs/handoff-sortred.md`
+   §8 item 2 names, and I add one machine-checked step to it (item 2 below).
+2. **The intermediate repair — a spine predicate whose arguments are `⊢₀`-typed but not at the
+   function's domain.**  This is the natural next design point after
+   `SortRedApp.spineInv_one_false` (typing-free) and before §8 item 2's domain-tied spine.
+   **Refuted** (`spineInvTyped_one_false`), at `SortRedApp.ArgWitness`'s own witness: the
+   separating argument `Prop` *is* `⊢₀`-typed, at `.sort 1`.  So the strengthened predicate has
+   to tie the argument's type to the function's **domain**, and a `trans` midpoint has no
+   domain — the two horns of the dilemma are now
+   `SortRedApp.sortRedAppDF_needs_arg_typing` (arg typing is load-bearing) and this.  **This is
+   what "closed rather than expensive" means concretely.**
+3. **Refuting `SortDisjInvN piLvlEnv 0 1` using the rule.**  Failed at the shape of the rule:
+   both its sides are Π-types, so neither weak-head reduces at all (`extraSortRed_piLvlEnv`),
+   and the two `⊢₀`-typing positions where it might have entered are closed by
+   `piLvl_rule_not_pi_typed0` / `piLvl_rule_sides_not_one_type0`.  Recorded as a *positive*: it
+   is why the environment contributes nothing to this question either way.
+4. **Looking for a `Stratified` environment-monotonicity lemma to reuse.**  There is none —
+   `Stratified.mono` is monotonicity in the *index* only.  `Stratified.mono_env` and
+   `Stratified.mono_univs` are new here; both are 20-line inductions and both are generally
+   useful (they are what make §4 and §8 possible at all).  Search backed by **`grep`** and
+   `lean_references`; `lean_local_search` / `lean_hammer_premise` remain dead (`rg` absent) —
+   confirmed again this round.
+5. **Deciding `SortRedArgSwap`** (§9 of the new file, the argument-replacement half).  Not
+   attempted beyond establishing necessity: an attempted refutation reduces to finding two
+   `⊢₁`-convertible terms at one Π-type of which only one exposes a sort-reaching λ, which *is*
+   the residual.  Recorded because it is `SubstC`-shaped and `SubstC` is **false** — so this is
+   the most promising place to look for a *refutation* of the residual, and refuting the
+   residual would not refute the clauses (`SortRedInv → SortDisjInvN` is one-way).
+
+## 19. Where the brief was wrong — one list
+
+1. **"the `beta` case of a `stuck`-style induction is the general weak-head-confluence
+   problem"** (from §13.6 item 3, repeated in the brief as the thing to establish).  **False as
+   a statement about this route**: `beta` and `trans` are both free against `SortRed`
+   (`SortRed.beta_iff`, `Iff.trans`), and the obstruction is `appDF`.  The brief's *spirit* —
+   that the residual is weak-head-confluence-flavoured — is right: the residual is λ-exposure
+   invariance plus argument replacement.
+2. **"prove it, or establish that this route is closed rather than expensive"** — the right
+   answer is neither of the two the brief expected.  The route is **closed against cheap
+   attack** (§18 items 2–3) *and* item (c) is **not decidable without an open clause** (§17.1),
+   which is stronger than "expensive" and weaker than "impossible".
+3. **§13.7's framing that one of the two branches must be reachable.**  Neither is, today.  What
+   *is* reachable, and is landed, is the separation **conditional on the residual** — which is
+   worth having, because it is exactly the form §9.2's consumers would use.
+4. Correct in the brief, and confirmed: `RegPi` is false at every environment; `piLvlEnv`
+   appears in exactly one file and nobody had touched `SortDisjInvN` at it; the `rg`-backed
+   tools are dead; and the instruction to `#print axioms` first paid again — it is what found
+   `SortClauses.lean` §4 and stopped me re-deriving `sortRedInv_of` by hand.
+
+## 20. Verification, verbatim [machine]
+
+* `lake build Lean4Lean.Theory.Typing.SortDisjPiLvl`: **`Build completed successfully (98
+  jobs).`**  No error in any file I own.  **Not run, per the brief**: full `lake build`, the
+  three guards, `scripts/sorry-census.lean`, `scripts/dup-names.lean`, `MemberRedexScan`.
+* `#print axioms`, **39 lines**, one per declaration, checked at build time: 25 `[propext]`,
+  11 `[propext, Quot.sound]`, 3 *does not depend on any axioms*
+  (`VLevel.WF.mono_univs`, `empty_le_piLvlEnv`, `headBetaS_lam_inv`).  **No `sorryAx`, no frozen
+  axiom, no new `sorry`, none traded.**
+* **Cone measurement** — forward walk over **type and value**, `allowOpaque := true`, private
+  copy of `scripts/hole-cone.lean`'s algorithm; 39 seeds (mine) + 6 upstream ingredients + 4
+  controls.  **All 45 non-control seeds report `holes []`.**  Sizes:
+  `Stratified.mono_env` 644, `SortInvN.mono_env` 647, `SortForallEDisjN.mono_env` 647,
+  `SortDisjInvN.mono_env` 654, `extraSortRed_piLvlEnv` 627, `forallE_not_pi0` 672,
+  `piLvlL_type0` 66, `piLvlR_type0` 66, `piLvl_rule_not_pi_typed0` 681,
+  `piLvl_rule_sides_not_one_type0` 792, `piLvlEnv_sortRedInv_one_of_appDF` 2002,
+  `piLvlEnv_sortRedAppDF_iff` 2004, `piLvlEnv_chain` 2048,
+  `piLvlEnv_sortInvN_one_of_appDF` 2005, `piLvlEnv_sortForallEDisjN_one_of_appDF` 2005,
+  `piLvlEnv_sortDisjInvN_one_of_appDF` 2011, `piLvlEnv_sortDisjInvN_one_of_lamExpose` 2051,
+  `empty_le_piLvlEnv` 43, `sortInvN_le` 661, `sortForallEDisjN_le` 661, `sortDisjInvN_le` 668,
+  `piLvlEnv_separates_at_one` 2026, `ordered_and_sortDisjInvN_not_enough_at_one` 2026,
+  `sortDisjInvN_all_of` 722, `piLvlEnv_sortDisjInvN_all_of` 730,
+  `ordered_and_sortDisjInvN_all_not_enough_of` 1652, `piLvlRedex_conv_sort` 202,
+  `piLvlRedex_sortRed_iff` 626, `beta_and_trans_are_free` 629, `spineInvTyped_of_spineInv` 43,
+  `spineInvTyped_one_false` 701, `Stratified.mono_univs` 641, `VLevel.WF.mono_univs` 62,
+  `SortInvN.mono_univs` 644, `SortForallEDisjN.mono_univs` 644, `sortDisjInvN_sandwich` 673,
+  `sortInvN_empty_false_imp` 662, `headBetaS_lam_inv` 179, `sortRedArgSwap_of_lamExpose` 215.
+  Upstream ingredients also clean: `sortRedInv_of` 697, `sortRedAppDF_of_sortBranch` 1213,
+  `sortRedAppDFSort_iff_lamExpose` 1181, `spineInv_one_false` 667,
+  `piLvlEnv_appUniqLvl_false` 654, `piLvlEnv_ordered` 1510.
+* **The instrument fires**, so `[]` means something: `piInv_axiom` 3539
+  `[forallE_inv_stratified, rigidShapeUniqNS]`; `WF.sortUniq'` 3404
+  `[forallE_inv_stratified]`; `IsDefEqU.sort_inv` 3409 `[forallE_inv_stratified]`;
+  `WF.rigidShapeUniqNS` 630 `[rigidShapeUniqNS]`.
+* **All four big holes were verified *present in the measuring environment*** before the run —
+  `forallE_inv_stratified`, `rigidShapeUniqNS`, `IsDefEqU.weakN_iff` and `NormalEq.descend` all
+  `present=true` (the last two required importing `UniqueTyping`/`ChurchRosser` into the
+  measuring script; my module's own import closure does not reach them, which is a *stronger*
+  statement than their absence from a cone).  So no `[]` here is a missing-name artefact.
+  Every declaration's cone contains **none of the four**.
+
+## 21. What to pick up first
+
+1. **`SortRedLamExpose ∅ 1 0` — but only with the two horns of §18 item 2 in hand.**  It is
+   still the whole of clauses (1) and (3) at index 1, and it is now known to have *two* halves:
+   λ-exposure and argument replacement (`SortRedArgSwap`).  Attack the second first: it is the
+   `SubstC`-shaped one, `SubstC` is false, and a refutation there kills the residual (though not
+   the clauses).
+2. **§15 item 3 — `∀ n, AppUniqLvl` at `VEnv.WF` through `IsDeclRule.lhs_shape`.**  This is the
+   item that does *not* sit behind the index-1 wall, and §13.4 item 1 already localises the
+   content.  It should be re-ranked above item 1 of §15.
+3. **Reuse `Stratified.mono_env` / `Stratified.mono_univs`.**  They did not exist; several
+   witness files could be shortened by them, and any future "witness environment" argument needs
+   the antitonicity direction to know which way its statement transfers.
+4. **Ledger rows to write** (I did not edit `docs/vacuity-ledger.md`):
+   * a row for §16 — round 3 rediscovered a problem the tree had already reduced, and blamed the
+     wrong case (`beta` is free; `appDF` is the residual).  The lesson is the one this project
+     keeps relearning: `grep` the tree for the *predicate*, not only for the statement name;
+   * a row for §17.1 — item (c) is sandwiched between two open statements, so §15 item 1's
+     "cheapest" is wrong; the separation is landed **conditionally**, in both forms;
+   * a row for §18 item 2 — `SpineInvTyped` is FALSE, so the argument typing in the residual
+     must be **domain-tied**, which `trans` cannot supply;
+   * a row for §9 of the new file — `SortRedArgSwap`, a second necessary half of the residual,
+     non-trivial already at `f = f'`.
