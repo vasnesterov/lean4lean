@@ -701,7 +701,7 @@ include h in
 presentation clauses and `own` come from `RestoreData`, the other four from `OccResidue`. -/
 theorem nfnAux_built' : nfnAux.Built nfnRestore' nfnK env₂ (fun _ => pfnOcc) :=
   nfnResult_restoreData.mkRestore_built (ls := nfnLs) (occ := fun _ => pfnOcc)
-    nfnAux_builtFresh
+    (nfnAux_builtFresh h)
     (fun _ _ _ _ => rfl)
     (by rintro (_ | _ | j) T hT hK
         · cases hT; exact absurd hK (by decide)
