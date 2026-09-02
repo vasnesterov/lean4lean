@@ -31,6 +31,24 @@
   inspected while the bisect is still running. **Do not run streams during a bisect** -- the tree is
   checking out old commits underneath them.
 
+## Briefs can get too heavy to start
+
+A stream stalled (no progress for 600s, watchdog did not recover) having produced exactly one
+line: "I'll start by reading the required context." Its brief told it to read **3365 lines** across
+four files — two handoff section-ranges, two Lean modules — plus §0 and three row ranges of a
+1034-line ledger, all before any work.
+
+The other two streams launched in that same round, with reading lists half the size, both finished.
+
+So: **inline the five or six facts the task actually turns on, and point at ONE file.** A stream
+does not need the corner's whole history to prove one lemma; it needs the names, the measured
+figures, and the traps specific to its target. The long trap lists earned their place one at a
+time, but pasting all of them into every brief is how a brief stops being readable — and the
+stall came at the reading step, not the proving step, so the cost was the whole round for nothing.
+
+Symptom to watch for: a brief where the "read this first" list is longer than the task
+description. Two of mine were, and one of those two stalled.
+
 ## Streams that write their artefact last lose everything when they crash
 
 Two streams died with `API Error: context canceled` on 2026-09-02, both long-running, and **both
