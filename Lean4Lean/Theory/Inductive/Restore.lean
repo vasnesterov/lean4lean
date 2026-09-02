@@ -70,14 +70,8 @@ theorem substC_mkLams : ∀ {As : List VExpr} {b : VExpr},
 restoration operator `VIndField.typeR` now applies — has to read the head of a spine to
 decide whether it is a block occurrence. -/
 
-/-- The head of an application spine (`Lean.Expr.getAppFn`). -/
-def spineFn : VExpr → VExpr
-  | .app f _ => f.spineFn
-  | e => e
-
-@[simp] theorem spineFn_app {f a : VExpr} : (VExpr.app f a).spineFn = f.spineFn := rfl
-@[simp] theorem spineFn_const {c : Lean.Name} {ls : List VLevel} :
-    (VExpr.const c ls).spineFn = .const c ls := rfl
+/-! `spineFn` itself, and the two `rfl` lemmas about it, moved to
+`Theory/Inductive/Decl.lean`: `VIndField.WF.pos` mentions `uniformOcc?`, which needs it. -/
 
 /-- Every term is its head applied to its spine. -/
 theorem mkApp_spineFn_spineArgs : ∀ e : VExpr, mkApp e.spineFn e.spineArgs = e
@@ -290,13 +284,8 @@ nothing — holds **unconditionally**, which is what removes `VInductDecl'.Canon
 
 namespace VInductDecl'
 
-/-- `memberIdxFrom ms n i`: the position of `n` in `ms`, offset by `i`. -/
-def memberIdxFrom : List Name → Name → Nat → Option Nat
-  | [], _, _ => none
-  | m :: ms, n, i => if m = n then some i else memberIdxFrom ms n (i+1)
-
-/-- Which member of the block the name `n` is, if any. -/
-def memberIdx (D : VInductDecl') (n : Name) : Option Nat := memberIdxFrom D.blockNames n 0
+/-! `memberIdxFrom` and `memberIdx` moved to `Theory/Inductive/Decl.lean`; their lemmas stayed
+here. -/
 
 theorem memberIdxFrom_spec : ∀ (ms : List Name) (n : Name) (i j : Nat),
     memberIdxFrom ms n i = some j → ∃ k, j = i + k ∧ ms[k]? = some n
@@ -350,26 +339,9 @@ theorem memberIdx_complete {D : VInductDecl'} (hnd : D.blockNames.Nodup) {j : Na
   show memberIdxFrom D.blockNames T.name 0 = some j
   simpa using memberIdxFrom_complete _ _ 0 j hnd h
 
-/-! The trigger is a *decision*, so `VExpr` needs decidable equality.  (These two
-`deriving instance` lines used to sit in `Theory/Inductive/NestedBuild.lean`, where
-`VIndRestore.recogAt` — the opposite direction, restored form to `VIndRecArg` — needs them
-too.) -/
-deriving instance DecidableEq for VLevel
-deriving instance DecidableEq for VExpr
-
-/-- **The trigger.**  Is `e`, sitting `k` binders above the block's parameter telescope, a
-*uniform* occurrence `I_j.{D.ownLvls} (bvars k D.np ++ π)` of a block member?  If so, its
-member index and the residual arguments `π`. -/
-def uniformOcc? (D : VInductDecl') (k : Nat) (e : VExpr) : Option (Nat × List VExpr) :=
-  match e.spineFn with
-  | .const n ls =>
-    match D.memberIdx n with
-    | some j =>
-      if ls = D.ownLvls ∧ e.spineArgs.take D.np = bvars k D.np then
-        some (j, e.spineArgs.drop D.np)
-      else none
-    | none => none
-  | _ => none
+/-! The two `deriving instance DecidableEq` lines (for `VLevel` and `VExpr`) and the trigger
+`uniformOcc?` itself moved to `Theory/Inductive/Decl.lean`, where `VIndField.WF.pos` needs to
+name the trigger.  Everything below is unchanged. -/
 
 /-- **Soundness of the trigger**: what it fires on *is* the occurrence it reports. -/
 theorem uniformOcc?_sound {D : VInductDecl'} {k : Nat} {e : VExpr} {j : Nat} {rest : List VExpr}

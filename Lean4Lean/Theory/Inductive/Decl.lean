@@ -46,6 +46,59 @@ def NoConsts (S : List Name) : VExpr → Prop
   | .const c _ => c ∉ S
   | .app a b | .lam a b | .forallE a b => NoConsts S a ∧ NoConsts S b
 
+
+/-- The head of an application spine (`Lean.Expr.getAppFn`).
+
+Moved up from `Theory/Inductive/Restore.lean` (its lemmas stayed there): `VInductDecl'.uniformOcc?`
+has to be nameable *here*, because `VIndField.WF.pos`'s `some` branch now mentions it. -/
+def spineFn : VExpr → VExpr
+  | .app f _ => f.spineFn
+  | e => e
+
+@[simp] theorem spineFn_app {f a : VExpr} : (VExpr.app f a).spineFn = f.spineFn := rfl
+@[simp] theorem spineFn_const {c : Name} {ls : List VLevel} :
+    (VExpr.const c ls).spineFn = .const c ls := rfl
+
+/-- The argument spine of an application, left to right. -/
+def spineArgs : VExpr → List VExpr
+  | .app f a => f.spineArgs ++ [a]
+  | _ => []
+
+theorem spineArgs_mkApp : ∀ (as : List VExpr) (f : VExpr),
+    (mkApp f as).spineArgs = f.spineArgs ++ as
+  | [], f => by rw [mkApp, List.append_nil]
+  | a :: as, f => by
+    rw [mkApp, spineArgs_mkApp as, spineArgs, List.append_assoc]
+    rfl
+
+@[simp] theorem spineArgs_const {c : Name} {ls : List VLevel} :
+    (VExpr.const c ls).spineArgs = [] := rfl
+/-- Boolean twin of `NoConsts`, so that the occurrence check is a *decision*.
+
+`VExpr.NoConsts` is `Prop`-valued by design, and until now it had no `Decidable` instance at all
+-- which is why `Theory/Inductive/StoredIota.lean`'s `MRWit.mr_redex_noK` says "not `decide`".
+The instance below is what lets F7's residual clause be discharged by `decide` at a concrete
+block.
+
+`MRedex.TQWit.hasConstB` (`Theory/Inductive/IndexedNested.lean` §8.6) is left alone: different
+namespace, and it is quantified over an arbitrary `K` rather than over `D.blockNames`. -/
+def hasConstB (S : List Name) : VExpr → Bool
+  | .bvar _ | .sort _ => false
+  | .const c _ => decide (c ∈ S)
+  | .app a b | .lam a b | .forallE a b => hasConstB S a || hasConstB S b
+
+theorem hasConstB_eq_false_iff {S : List Name} :
+    ∀ {e : VExpr}, hasConstB S e = false ↔ NoConsts S e
+  | .bvar _ | .sort _ => ⟨fun _ => trivial, fun _ => rfl⟩
+  | .const c _ => by simp [hasConstB, NoConsts]
+  | .app a b | .lam a b | .forallE a b => by
+    show (hasConstB S a || hasConstB S b) = false ↔ (NoConsts S a ∧ NoConsts S b)
+    rw [Bool.or_eq_false_iff]
+    exact and_congr hasConstB_eq_false_iff hasConstB_eq_false_iff
+
+instance decidableNoConsts (S : List Name) (e : VExpr) : Decidable (NoConsts S e) :=
+  decidable_of_iff _ hasConstB_eq_false_iff
+
 end VExpr
 
 /-! ## The declaration record (design §2.2) -/
@@ -182,6 +235,92 @@ def ctorApp' (C : VIndCtor) (k : Nat) (args : List VExpr) : VExpr :=
   (VExpr.const C.name D.selfLvls).mkApp (bvars k D.np ++ args)
 
 end VInductDecl'
+
+/-! ## The uniform-occurrence trigger (moved up from `Theory/Inductive/Restore.lean`)
+
+`VIndField.WF.pos`'s `some` branch constrains the residual of a *stored* uniform occurrence
+(F7's residual clause, `ResidualClean` below), so the trigger has to be nameable here.  Only
+the four definitions are here; every lemma about them stayed in `Restore.lean`, which is where
+their consumers are. -/
+
+/-! The trigger is a *decision*, so `VExpr` needs decidable equality. -/
+deriving instance DecidableEq for VLevel
+deriving instance DecidableEq for VExpr
+
+namespace VInductDecl'
+
+/-- `memberIdxFrom ms n i`: the position of `n` in `ms`, offset by `i`. -/
+def memberIdxFrom : List Name → Name → Nat → Option Nat
+  | [], _, _ => none
+  | m :: ms, n, i => if m = n then some i else memberIdxFrom ms n (i+1)
+
+/-- Which member of the block the name `n` is, if any. -/
+def memberIdx (D : VInductDecl') (n : Name) : Option Nat := memberIdxFrom D.blockNames n 0
+
+/-- **The trigger.**  Is `e`, sitting `k` binders above the block's parameter telescope, a
+*uniform* occurrence `I_j.{D.ownLvls} (bvars k D.np ++ π)` of a block member?  If so, its
+member index and the residual arguments `π`. -/
+def uniformOcc? (D : VInductDecl') (k : Nat) (e : VExpr) : Option (Nat × List VExpr) :=
+  match e.spineFn with
+  | .const n ls =>
+    match D.memberIdx n with
+    | some j =>
+      if ls = D.ownLvls ∧ e.spineArgs.take D.np = bvars k D.np then
+        some (j, e.spineArgs.drop D.np)
+      else none
+    | none => none
+  | _ => none
+
+/-- **F7's residual clause** (`docs/audit-f7-radius.md` §4).  If the *stored* expression `e`,
+read at depth `k`, is itself a uniform occurrence of a block member, then the residual
+arguments the trigger reports are block-free.
+
+This is the abstract counterpart of `isValidIndAppIdx`'s residual scan
+(`Lean4Lean/Inductive/Add.lean`:299-345), which applies `hasIndOcc` to each residual argument
+**purely syntactically**; `checkPositivity`'s leading `whnf` is head-only, and at a firing
+trigger the head is an `inductInfo` constant, which has no unfolding rules, so the `whnf` is the
+identity there and the two scans coincide.
+
+**Conditional on the trigger, deliberately.**  When `e` is `.lam`- or `.forallE`-headed the
+trigger does not fire and the clause is *vacuous*, not merely satisfied.  That is what keeps it
+strictly weaker than `CGMGuard.cgmSynPos` (`Verify/Inductive/CanonGapMeasure.lean` §3, which
+deletes the head `whnf` and therefore rejects the auxiliary blocks `ElimNestedInductive.run`
+builds for `Lean.Json` and `Lean.PrefixTreeNode`), and it is why the clause does *not* constrain
+`r.binders` or a stored pi domain.  See `docs/handoff-iota-stored.md`. -/
+def ResidualClean (D : VInductDecl') (k : Nat) (e : VExpr) : Prop :=
+  ∀ j rest, D.uniformOcc? k e = some (j, rest) → ∀ a ∈ rest, D.NoBlock a
+
+instance decidableNoBlock (D : VInductDecl') (e : VExpr) : Decidable (D.NoBlock e) :=
+  VExpr.decidableNoConsts _ _
+
+/-- The clause is vacuous where the trigger does not fire. -/
+theorem residualClean_of_uniformOcc_none {D : VInductDecl'} {k : Nat} {e : VExpr}
+    (h : D.uniformOcc? k e = none) : D.ResidualClean k e := by
+  intro j rest h'; rw [h] at h'; exact absurd h' nofun
+
+/-- …and it is exactly the residual condition where it does. -/
+theorem residualClean_of_uniformOcc_some {D : VInductDecl'} {k : Nat} {e : VExpr}
+    {j : Nat} {rest : List VExpr} (h : D.uniformOcc? k e = some (j, rest))
+    (hr : ∀ a ∈ rest, D.NoBlock a) : D.ResidualClean k e := by
+  intro j' rest' h'
+  rw [h] at h'
+  have : rest = rest' := congrArg Prod.snd (Option.some.inj h')
+  exact this ▸ hr
+
+/-- `ResidualClean` is a decision: at a concrete block every producer discharges it by
+`decide`. -/
+instance decidableResidualClean (D : VInductDecl') (k : Nat) (e : VExpr) :
+    Decidable (D.ResidualClean k e) :=
+  match h : D.uniformOcc? k e with
+  | none => isTrue (residualClean_of_uniformOcc_none h)
+  | some (_, rest) =>
+    if hr : ∀ a ∈ rest, D.NoBlock a then
+      isTrue (residualClean_of_uniformOcc_some h hr)
+    else
+      isFalse fun H => hr (H _ rest h)
+
+end VInductDecl'
+
 
 /-! ## Canonical types (design §3) -/
 
@@ -366,7 +505,24 @@ structure VIndField.WF (env : VEnv) (D : VInductDecl') (pre : List VIndField)
       (∀ T', D.types[r.idx]? = some T' →
         env.HasArgs D.uvars (r.binders.reverse ++ Γ)
           (liftTele (r.binders.length + i) T'.indices) r.args) ∧
-      env.IsDefEqType D.uvars Γ F.type (r.canonType D i)
+      env.IsDefEqType D.uvars Γ F.type (r.canonType D i) ∧
+      -- **F7's residual clause** (ruling 159e; `docs/audit-f7-radius.md` §4).  The conjuncts
+      -- above constrain `r.binders` and `r.args` — the *canonical* data — and the last one ties
+      -- `F.type` to `r.canonType D i` only *definitionally*.  So without this clause the spec
+      -- admits a **stored** type that is itself a uniform occurrence `I_j params π` whose
+      -- residual `π` mentions the block, provided `π` is defeq to a block-free `r.args`
+      -- (`MRedex.TQWit.tqHostile`, `Theory/Inductive/IndexedNested.lean` §8).  Lean's kernel
+      -- rejects exactly that: `isValidIndAppIdx` (`Lean4Lean/Inductive/Add.lean`:299-345) scans
+      -- the residual arguments with `hasIndOcc` **syntactically**, and `checkPositivity`'s
+      -- leading `whnf` is head-only, hence the identity at a firing trigger.
+      --
+      -- The depth is `r.binders.length + i`, the depth `VIndRecArg.canonResult` itself uses, so
+      -- the clause compares the stored expression against the canonical *result* at the same
+      -- de Bruijn offset.  It is conditional on the trigger, hence **vacuous** whenever the
+      -- stored type is `.lam`- or `.forallE`-headed — which is what keeps it strictly weaker
+      -- than `CGMGuard.cgmSynPos` and why it constrains neither `r.binders` nor a stored pi
+      -- domain (`VIndRecArg.exists_indep` needs that freedom; see `docs/handoff-iota-stored.md`).
+      D.ResidualClean (r.binders.length + i) F.type
   /-- **The recorded `ξ` is independent of the earlier recursive fields**
   (`VIndRecArg.BindersIndep`).
 
@@ -799,22 +955,6 @@ theorem splitPis_mkPi : ∀ {As : List VExpr} {B : VExpr},
   | [], _ => rfl
   | A :: As, B => by
     rw [List.length_cons, mkPi, splitPis, splitPis_mkPi (As := As) (B := B)]
-
-/-- The argument spine of an application, left to right. -/
-def spineArgs : VExpr → List VExpr
-  | .app f a => f.spineArgs ++ [a]
-  | _ => []
-
-theorem spineArgs_mkApp : ∀ (as : List VExpr) (f : VExpr),
-    (mkApp f as).spineArgs = f.spineArgs ++ as
-  | [], f => by rw [mkApp, List.append_nil]
-  | a :: as, f => by
-    rw [mkApp, spineArgs_mkApp as, spineArgs, List.append_assoc]
-    rfl
-
-@[simp] theorem spineArgs_const {c : Name} {ls : List VLevel} :
-    (VExpr.const c ls).spineArgs = [] := rfl
-
 end VExpr
 
 /-- **The constructor skeleton.**  From the number of parameters and a constructor's *stored*

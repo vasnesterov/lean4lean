@@ -3102,3 +3102,282 @@ directly, and the four kernel verdicts, which are `lean_run_code`.
    is *reflexivity* (`r.canonType` **is** its stored type — measured, `tq_objH_field0_canonical`,
    `rfl`), and `args_ty`/`result` need only
    `Prop : Type` and the parameter, in a three-entry context whose entries §8.3 already types.
+
+## 57 Ruling 159e INSTALLED: F7 now constrains the **stored** residual — and §8 flipped sign instead of being retired
+
+Written incrementally, each change landed and re-proved before the next. Nothing was composed in
+memory. Frozen files (`Verify/Soundness.lean`, `Verify/Axioms.lean`, `Verify/Guard.lean`) were not
+opened for edit; `Experimental/ConeJoin.lean` and `implGapWhitelist` untouched; no implementation
+file changed; no git operation performed.
+
+### 57.1 What changed
+
+**The clause.** `VIndField.WF.pos`'s `some` branch (`Theory/Inductive/Decl.lean`) gained a ninth
+conjunct, appended last:
+
+```
+      D.ResidualClean (r.binders.length + i) F.type
+```
+
+where, new in the same file,
+
+```
+def VInductDecl'.ResidualClean (D : VInductDecl') (k : Nat) (e : VExpr) : Prop :=
+  ∀ j rest, D.uniformOcc? k e = some (j, rest) → ∀ a ∈ rest, D.NoBlock a
+```
+
+This is §4 of `docs/audit-f7-radius.md` **verbatim**, at the depth `VIndRecArg.canonResult`
+itself uses. The clause is statable and it is right; the ruling is not retired on that account.
+
+**Two things §4 did not say, and both cost real work.**
+
+1. **The clause has no home where `VIndField.WF` lives.** `uniformOcc?` is defined in
+   `Theory/Inductive/Restore.lean`, which **imports** `Decl.lean`. §4 gives the clause but no
+   module that can state it. I moved into `Decl.lean`: `VExpr.spineFn` (+ its two `rfl` lemmas),
+   `VInductDecl'.memberIdxFrom`, `VInductDecl'.memberIdx`, `VInductDecl'.uniformOcc?`, and the two
+   `deriving instance DecidableEq` lines (`VLevel`, `VExpr`); and moved `VExpr.spineArgs` (+ its two
+   lemmas) earlier *within* `Decl.lean`, above `VIndField.WF`. Every lemma about these stayed in
+   `Restore.lean`. **Zero call sites changed** — `Restore` imports `Decl`, so all consumers still
+   see the same fully-qualified names — but this is six declarations relocated across the boundary
+   of the most-imported module in the tree, and the audit costed it at zero.
+2. **`VExpr.NoConsts` had no `Decidable` instance**, which the audit's "21 `decide`s" presupposes
+   (`Theory/Inductive/StoredIota.lean`:412 says so in as many words). I added, in `Decl.lean`:
+   `VExpr.hasConstB`, `VExpr.hasConstB_eq_false_iff`, `VExpr.decidableNoConsts`,
+   `VInductDecl'.decidableNoBlock`, `VInductDecl'.residualClean_of_uniformOcc_none`,
+   `VInductDecl'.residualClean_of_uniformOcc_some`, `VInductDecl'.decidableResidualClean`.
+   `MRedex.TQWit.hasConstB` (§8.6) was left alone — different namespace, arbitrary `K`.
+
+### 57.2 Measured versus predicted
+
+| item | audit predicted | measured | verdict |
+|---|---|---|---|
+| `VIndField.WF.pos` records (1 def + usages) | 1 + 52 | **1 + 52** | ✔ exact |
+| `some`-branch producers / blocks | 22 / 11 | **22 / 11** | ✔ exact |
+| `none`-branch producers touched | 0 | **0** | ✔ |
+| producers discharged by `decide` | 21 | **21** | ✔ exact |
+| producer *sites* needing a second, unpredicted edit | 0 | **18** | ✘ see 57.3 |
+| consumer sites edited | 4 | **2** | ✘ over-counted by 2 |
+| statements needing downstream re-proof | 0 | **0** | ✔ |
+| theorems that die | 1 + 2 wrappers | **exactly those 3** | ✔ |
+| blocks failing the clause | 1 (`tqAuxH`), 13 of 14 true | **1, 13 of 14 true** | ✔ exact |
+| files outside my ownership needing edits | 1 implied (`Verify/Typing/ProjClosedG`) | **0** | ✔ better |
+
+Census provenance: `python3` over **377** `.ilean` files (the audit had 374; the tree has grown —
+`Theory/Inductive/NestedRules.lean` is untracked in git but *is* built and *is* in the scan, and it
+contains no `pos` producer, only `recArg_noBlock` consumers in docstrings). `lean_references` was
+not used for any count. `lean_local_search`/`lean_hammer_premise` remain broken (`rg` absent).
+Treat every count as a floor; the floor is now backed by a source-level `grep` cross-check that
+found **no** file mentioning `VIndField.WF` without a fresh `.ilean`.
+
+### 57.3 The three places the audit's cost model was wrong
+
+**(a) Anonymous-constructor flattening does not re-associate — 18 extra edits.** The `some` branch
+is an **8**-fold conjunction, not the 9-fold one the audit reports; it reads as 9
+anonymous-constructor slots because its trailing `IsDefEqType` is an `∃ u` that the flattener
+absorbs. 18 of the 21 surviving producer sites therefore ended `…, _, by type_tac⟩`. Appending a
+tenth slot makes the flattener hand `_` to the `∃` and `⟨by type_tac, by decide⟩` to the new
+conjunct, and elaboration fails with `Invalid ⟨...⟩ notation`. Every one of those sites needed the
+`∃` **re-nested** — `…, ⟨_, by type_tac⟩, by decide⟩` — a second mechanical edit per site.
+(The remaining three sites were free: `accIntro_WF` and `ro_field_WF` discharge `pos` by
+`refine` and took a bare extra `?_`/bullet, and `mpAuxB_WF`'s second site ends in a named term
+(`mp_redex_pos_defeq ht`) rather than a flattened `∃`.)
+
+**(b) Only 2 consumer sites needed editing, not 4.** Appending at the end leaves projection-style
+consumers alone, and leaves an `obtain` with *n* patterns against an *n+1*-fold nesting alone too,
+because its last pattern simply binds the pair:
+
+* `VIndField.WF.recArg_noBlock` (`RestoreBridge.lean`:384) — uses `hp.1, hp.2.2.1, hp.2.2.2.1`.
+  **Zero edits.**
+* `VInductDecl'.projClosedG_of_wf` (`Verify/Typing/ProjClosedG.lean`:141) — `obtain ⟨-,-,-,-,honctx,hres,-,-⟩`;
+  the trailing `-` now clears `h8 ∧ h9`. **Zero edits**, and this is the one file outside my
+  ownership the audit implied would need touching. It did not. Built clean, 39 jobs.
+* `VInductDecl'.recField_facts` (`Lemmas.lean`) — the 8th pattern **binds** (`hFdefeq`), so it
+  needed `, -`. **1 edit.**
+* `VIndField.WF.mono` (`Lemmas.lean`) — needed the 9th slot and the carry. `ResidualClean` mentions
+  no environment, so the carry is `h9` itself, `id`, exactly as the audit predicted for the only
+  structural consumer. **1 edit.**
+
+**(c) The ruling's *second* payoff is also largely absent.** The audit (§2, §3c) and the briefing
+both frame the cost as "§8 is retired". **§8 was not retired — it flipped sign.** Of §8's
+declarations exactly **three** died: `tq_hostile_field_WF`, `tq_hostile_field_WF_closed`,
+`tq_hostile_field_WF_staged`. Everything else survives *verbatim*, because none of it went through
+`VIndField.WF`: `tq_hostile_uniformOcc`, `tq_hostile_args_not_noBlock`, `tq_hostile_not_noConsts`,
+`tq_hostile_ownHeads`, `tq_hostile_restore_id`, §8.2's `tq_hostile_defeq_canon` and the three typing
+lemmas §8.3 was built from, §8.4's `tq_env_exists`/`tq_staged_env_exists`/`tq_typeConsts_eq`, §8.5
+entire, §8.6 entire, and — flagged specifically because the audit §3c said it would be lost —
+**§8.7's `tq_hostile_obligation_split` survives untouched.** The separation measurement between
+`substC_atRec_fieldTypes_defeq'` and `_of_noK` is *not* lost.
+
+So the honest ledger for ruling 159e is: it buys **specification fidelity in one position**, and it
+buys **nothing else at all**. Not `restore_noK` sufficing everywhere (audit §3b, and I add a
+confirmation below), and not the retirement of a section either.
+
+### 57.4 What died, what replaced it, what survived
+
+Dead, and **unprovable** rather than merely unproved:
+
+* `MRedex.TQWit.tq_hostile_field_WF` — refuted outright by `tq_hostile_field_not_WF`;
+* `tq_hostile_field_WF_closed`, `tq_hostile_field_WF_staged` — a fortiori.
+
+Nothing outside `IndexedNested.lean` ever used any of the three (measured: zero `.ilean` usages
+outside the module; `grep` confirms only the two internal wrapper call sites).
+
+What replaced them, all `sorry`-free and all in `IndexedNested.lean` §8.3:
+
+* `tq_hostile_not_residualClean : ¬ tqAuxH.ResidualClean 1 tqHostile` — one `decide`;
+* `tq_hostile_field_not_WF : ∀ {env}, ¬ VIndField.WF env tqAuxH …` — **stronger than the old
+  theorem's negation**: it holds in every environment, with no hypothesis on the constant lookups
+  at all, where the old acceptance needed two;
+* `tq_hostile_field_not_WF_staged` — the same in the environment `VInductDecl'.WF.ctors` itself
+  supplies, so the rejection is not green by an unsatisfiable hypothesis;
+* the `decide`-level shape facts that used to be inline in the dead proof, kept as facts so that the
+  rejection is *located*: `tq_hostileRec_idx_lt`, `tq_hostileRec_args_len`,
+  `tq_hostileRec_binders_noBlock`, `tq_hostileRec_bindersIndep`. Together with the four surviving
+  typing lemmas these show every clause of `pos` except the new one still holds at the hostile
+  field, so the only reason it fails is ruling 159e's conjunct.
+
+§8's headline prose was rewritten, not deleted, and it now records what was lost: §8 no longer
+supplies a witness that `restore_ownOcc`'s strengthening is *exercised*, and no other block in the
+tree does either. The strengthening is still a theorem; it is now unexercised.
+
+### 57.5 The two things the edit must not do — both confirmed
+
+**(1) `VIndField.WF` is not unsatisfiable at any block the tree builds.** Confirmed twice over,
+and the second is stronger than the audit's `#eval`:
+
+* All 21 surviving producer sites now *discharge* the clause by `decide` inside a real
+  `VIndField.WF` proof, at all 10 surviving blocks that carry a `some`-branch producer
+  (`nfnAux`, `nfnAuxDirty`, `ntreeAux`, `mpAux mpAuxNodeB`, `accDecl`, `mutDecl`, `wDecl`, `qnAux`,
+  `listDecl`, `roDecl`). Satisfied, not merely satisfiable.
+* New in §8.6b, `residualCleanAllB` is the **installed** clause (right depth, right name set —
+  `NoBlock` is `NoConsts D.blockNames`) scanned over a whole block, with
+  `tq_cone_residualCleanAll` reading `true` at `tqAux tqAuxNodeB`, `mrAux mrAuxNodeB`,
+  `mpAux mpAuxNodeB`, `ntreeAux`, `nfnAux`, and the *built* block
+  `tqAux (tqOcc.ctor … miNode)`, and `tq_auxH_not_residualCleanAll` reading `false` at `tqAuxH`.
+  §8.6's older `storedCleanB` differs from the clause in three ways (all fields not just recursive
+  ones; depth `q.2` not `r.binders.length + q.2`; arbitrary `K` not `blockNames`) and is kept as the
+  historical instrument.
+
+Union: **13 blocks true, `tqAuxH` false**, exactly the audit's re-run. (`pfnDecl`, the 14th, has
+only `none`-branch fields, so the clause is vacuous there and needs no producer.)
+
+**(2) Nothing on `kernel_sound`'s path narrowed.** The edit *strengthens* `VIndField.WF`, hence
+`VIndCtor.WF` and `VInductDecl'.WF`. Census of `VInductDecl'.WF`: 83 usages, and **every single one
+under `Verify/` is in prose except one hypothesis-position use in
+`Verify/ClosednessPropagation`** — there is no theorem anywhere in the tree that *concludes*
+`VInductDecl'.WF` from checker success. So a strengthened `VIndField.WF` is a strengthened
+**hypothesis** everywhere it appears on the soundness path, which is free, and no statement narrowed.
+Verified by building, with **zero edits**: `Verify/Typing/ProjClosedG` (39 jobs),
+`Verify/Typing/ProjLevelWitness` (36), `Verify/Typing/StructureUniq` (60),
+`Verify/TypeChecker/EtaStructG` (142), and 11 of the 14 `Verify/Inductive/*` modules (182 jobs).
+
+**The honest debit.** The refinement obligation "checker success ⟹ `VInductDecl'.WF`" is not stated
+anywhere yet, so this edit adds no burden to any existing proof — but it does add one to that future
+proof. That is a real cost, deferred, not avoided.
+
+### 57.6 The kernel-fidelity premise, re-measured — and where the audit is wrong about the pi domain
+
+Probes run with `lean_run_code` on scratch snippets, **no `#guard_msgs`, nothing written into the
+repository**, for the reason §8.8 gives.
+
+| probe | shape | kernel |
+|---|---|---|
+| A | `TQ ((fun _ => Nat) (MI Nat))` — firing trigger, residual names a **sibling** | **REJECTS**: "arg #2 of 'TQ.obj' contains a non valid occurrence of the datatypes being declared" |
+| B | `TQ2 ((fun _ => Nat) (TQ2 Nat))` — residual names the block's **own** member | **REJECTS**: "arg #1 of 'TQ2.obj' …" |
+| C | `TQ3 ((fun _ => Nat) Nat)` — same redex, **block-free** residual | **ACCEPTS** |
+| D | `T4.mk : (r : T4) → (fun _ : T4 => Nat) r → T4` — the `none`-branch docstring's example | **ACCEPTS** |
+| E | `T5.mk : ((_ : (fun _ => Nat) T5) → T5) → T5` — the **pi-domain** shape | inconclusive, see below |
+
+A and B confirm the briefing's premise **in both cases** — the kernel refuses both a sibling and the
+block's own member under such a redex. C confirms the clause must be *conditional on the trigger*
+and vacuous off it, which is how it is written. D confirms the `none`-branch design note survives.
+
+**E failed at the elaborator, not the kernel.** Surface Lean beta-reduces a binder-domain redex
+before the kernel sees it: `#print T5.mk` reports `(Nat → T5) → T5`. I could not present the
+pi-domain shape to the kernel through surface syntax at all, so **audit §4's claim that the
+implementation rejects `tqBinderHostile` remains a source reading, not a run** — the same status
+the audit gave it. I did verify the source independently, and it does say what the audit says:
+`checkConstructors` calls `checkPositivity stats dom n i` on **every** field domain
+(`Lean4Lean/Inductive/Add.lean`:382), and `checkPositivity` throws on `hasIndOcc stats.indConsts dom`
+with **no `whnf` on `dom`** (`:335-338`). So the spec still over-accepts at the pi domain, the
+residual half of the gap is now closed and the binder half is not, and audit §3b's conclusion — that
+`restore_noK` does **not** suffice everywhere — stands. Note the distinction that makes this
+consistent with `VIndRecArg.exists_indep`: `BindersIndep` is about a binder mentioning an earlier
+recursive **field variable** (a `bvar`), which the implementation permits freely because `isRecArg`
+strips pi binders without ever looking at their domains; the pi-domain gap is about a binder
+mentioning a block **constant**, which `checkPositivity` rejects. Those are different positions and
+only the second is a fidelity gap.
+
+### 57.7 What I tried that failed, and the step it failed at
+
+1. **`decidableResidualClean` via `decidable_of_iff` + a `residualClean_iff` proved by
+   `cases h : D.uniformOcc? k e`.** Failed at `rw [h] at h'`: `cases h :` had already substituted
+   the scrutinee, so the rewrite pattern no longer occurred, and for the same reason `H j rest h`
+   was an application type mismatch (`H`'s type had been substituted too). Replaced by a direct
+   `match h : … with` instance.
+2. **`simp only [Option.some.injEq, Prod.mk.injEq] at h'`** on
+   `some (j, rest) = some (j', rest')`. Failed — `rewrite` reported no occurrence of the pattern in
+   that target. Replaced by `congrArg Prod.snd (Option.some.inj h')`, which pins the residual
+   without touching the index; that is all the clause needs.
+3. **First DeclExamples patch: appending `, by decide` inside the existing `⟨…⟩`.** Failed at
+   elaboration, `Invalid ⟨...⟩ notation`, at 5 of the 6 sites — the flattening problem of 57.3(a).
+   Fixed by re-nesting the trailing `∃` as `⟨_, by type_tac⟩`.
+4. **`tq_hostileRec_binders_noBlock … := by simp`.** Failed, "`simp` made no progress", as a
+   standalone theorem — inside the old `refine` the goal had already been reduced by unification.
+   Needed `by simp [tqHostileRec]`.
+5. **Probe E** — failed at the elaborator, 57.6.
+6. **Not attempted, deliberately**: `Verify/Inductive/CanonGapMeasure`, `MemberRedexScan`,
+   `UniformOccMeasure`. A closure walk shows all three transitively import the three
+   `Theory/SetModel/*` files another stream has live this session (`CnstRecursion`,
+   `InductOracleAudit`, `InaccChainOmega`); building them would compile another stream's
+   work-in-progress. Their `VIndField.WF.pos` uses are `none`-branch consumers
+   (`CGMAbstract.cgm_wf_forces_escape`), which the edit cannot reach. `Theory/SetModel/CtorTrans`
+   and `PreludeWitness` likewise unbuilt for the same reason; both are `none`-branch only.
+   **This is the one verification gap in this round.** No full `lake build`, no guards, no
+   `sorry-census`, no `dup-names`, no `MemberRedexScan`, no MCP `lean_build`, as instructed.
+
+### 57.8 Hygiene
+
+Per-module `lake build` job counts, all green:
+`Decl` 31 · `Restore` 34 · `Lemmas` 33 · `DeclExamples` 44 · `NestedHead` 61 · `NestedBuild` 62 ·
+`RestoreOpWit` 62 · `MemberRedex` 63 · `RestoreBridge` 65 · `ParamRedex` 72 · `IndexedNested` 73 ·
+`ConstSubstNested` 64 · `StructureEta` 61 · all 28 `Theory/Inductive/*` together 85 ·
+11 `Verify/Inductive/*` together 182 · `ProjClosedG` 39 · `ProjLevelWitness` 36 ·
+`StructureUniq` 60 · `EtaStructG` 142.
+
+`sorry`: **one**, `VIndRecArg.exists_indep` (`Decl.lean`:561), pre-existing and untouched. No new
+`sorry`, none traded, and it is the only `declaration uses sorry` warning across every module built.
+
+`#print axioms` **by namespace**, on everything changed or added — 33 declarations across
+`Lean4Lean.VExpr`, `Lean4Lean.VInductDecl'`, `Lean4Lean.VIndField.WF`,
+`Lean4Lean.InductiveDeclExamples`, `Lean4Lean.MRedex.{QNWit,MPWit,TQWit}`, `Lean4Lean.ROWit`:
+**no `sorryAx` anywhere**, and no axiom beyond `propext` / `Quot.sound` / `Classical.choice`.
+`Classical.choice` appears at `recField_facts`, `nfnAux_WF`, `nfnAuxDirty_WF`, `mutDecl_WF`,
+`wDecl_WF` and is pre-existing — `ntreeAux_WF` and `qnAux_WF` took the identical edit and do not
+have it, so it is not coming from the edit. I did not re-measure a baseline (that needs git, which
+I did no operations with), so read that last sentence as an argument, not a measurement.
+
+### 57.9 What to pick up first
+
+1. **`VIndCtor.WF env tqAuxH 0 T₀ tqObjH` is now IMPOSSIBLE, and §56.9's item 4 should be struck.**
+   The previous round listed it as "the honest next proof". It is refuted by
+   `tq_hostile_field_not_WF` composed with `VIndCtor.WF.fields`. Do not spend a session on it.
+2. **`restore_ownOcc` / `restore_ownHeads` are now unexercised — decide whether to keep them.**
+   `restore_ownOcc` has 3 usages, `restore_ownHeads` 10, none under `Verify/`. Their only witness of
+   necessity was `tqAuxH`. They are not *refuted* — the pi-domain gap (57.6) means `restore_noK`
+   genuinely does not suffice — but a witness for that would have to be a *recursive field whose
+   stored binder domain hides a companion*, and 57.6 shows surface Lean cannot even express it. The
+   witness would have to be written directly as a `VInductDecl'`, the way `tqAuxH` was.
+   **That is the concrete next construction if anyone wants the strengthening exercised again.**
+3. **Promote §8.6's helpers and retire the duplicate.** `VExpr.hasConstB` /
+   `hasConstB_eq_false_iff` now live in `Decl.lean` with a `Decidable` instance; `MRedex.TQWit`'s
+   local twins are redundant except for their arbitrary `K`. Re-point `storedCleanB` and
+   `noConsts_of_storedCleanB` at the `Decl.lean` versions and delete the local copies —
+   §56.9's item 2, now half-done by this round.
+4. **`StoredIota.lean`:412's docstring is stale.** It says `VExpr.NoConsts` has no `Decidable`
+   instance. It now has one, and `MRWit.mr_redex_noK` could be a `decide`.
+5. **State the refinement obligation.** 57.5's debit: nothing yet concludes `VInductDecl'.WF` from
+   checker success, so the new conjunct has no consumer on the soundness path. When that obligation
+   is stated, `isValidIndAppIdx`'s residual loop (`Add.lean`:307) is what discharges it, and the
+   `whnf`-is-identity-at-a-firing-trigger step is the one place it will need an argument rather
+   than a computation.

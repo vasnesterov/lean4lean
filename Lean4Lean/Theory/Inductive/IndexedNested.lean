@@ -543,8 +543,8 @@ theorem tq_not_ownHeads_objField : ¬ (tqAux tqAuxNodeB).OwnHeads tqK 0 tqObjFie
 theorem tq_objFieldTypesR_ne_fields :
     tqObj.fieldTypesR (tqAux tqAuxNodeB) tqRestore ≠ tqObj.fields.map (·.type) := by decide
 
-/-! ## §8 The stored-type case, **closed**: a companion inside a uniform own occurrence's
-residual, at a stored field type the specification admits
+/-! ## §8 The stored-type case, **closed the other way** (ruling 159e): a companion inside a
+uniform own occurrence's residual, at a stored field type the specification now REJECTS
 
 §6 left exactly one case open, and named it precisely: `VIndField.WF.pos`'s last conjunct is
 `env.IsDefEqType D.uvars Γ F.type (r.canonType D i)`, an `IsDefEqType` and **not** an equation,
@@ -562,13 +562,23 @@ This section closes the case *in the affirmative*: there is a stored field type 
   (`tq_hostile_args_not_noBlock`) — the failure is located at the hypothesis, not at the
   conclusion,
 
-and the type is one `VIndField.WF` **accepts**: §8.3 proves `VIndField.WF` of it outright, in a
-concrete `Ordered` environment built in §8.4.  So the strengthening is load-bearing at a stored
-type, which is what §6 could not decide.
+**and, until ruling 159e, the type was one `VIndField.WF` accepted.**  §8.3 used to prove
+`VIndField.WF` of it outright, in the concrete `Ordered` environment built in §8.4, which made
+the `restore_ownOcc` strengthening load-bearing at a stored type — the thing §6 could not decide.
 
-**Read the gradings in §8.6 and §8.8 before quoting this as a win.**  What is closed is that the
-*specification* admits such a stored type; **no block in this tree has one**, and the
-construction cannot produce one (§8.6).  That is the honest scope. -/
+**That is no longer true, and this is now the section that shows why.**  `VIndField.WF.pos`'s
+`some` branch carries F7's residual clause (`VInductDecl'.ResidualClean`), which is **false** at
+this field (`tq_hostile_not_residualClean`, one `decide`), so the specification rejects the
+hostile stored type in *every* environment (`tq_hostile_field_not_WF`) — matching what Lean's own
+kernel does with the same shape (§8.8).  What died with it: §8's demonstration that
+`restore_ownOcc`'s strengthening is *exercised* anywhere.  The strengthening is still a theorem,
+and `restore_noK` still does **not** suffice everywhere (a companion in a stored *pi domain*
+passes the tightened clause and still moves), but §8 no longer supplies a witness for it, and no
+other block in the tree does either.  See `docs/handoff-iota-stored.md` and
+`docs/audit-f7-radius.md` §3b.
+
+**Read the gradings in §8.6/§8.6b and §8.8 before quoting this section either way.**  No block in
+this tree ever had such a stored type, and the construction cannot produce one (§8.6, §8.6b). -/
 
 /-- The residual index argument, stored hostilely: a β-redex whose *argument* is a companion
 occurrence.  Definitionally `Prop` (§8.3), syntactically it names `_nested.MI_1`. -/
@@ -827,30 +837,74 @@ theorem tq_hostile_hasArgs {env : VEnv} :
       tqHostileRec.args :=
   .cons tq_prop_hasType .nil
 
-/-- **The specification accepts the hostile stored field.**  `pre`, `Γ` and `i` are exactly what
-`VIndCtor.WF.fields` supplies at field `1` of `tqObjH` (`tq_hostileCtx_eq`). -/
-theorem tq_hostile_field_WF {env : VEnv}
-    (hTQ : env.constants ``TQ = some ⟨0, tqMemberType⟩)
-    (hMI : env.constants tqNestedName = some ⟨0, tqMemberType⟩) :
-    VIndField.WF env tqAuxH (tqObjH.fields.take 1) tqHostileCtx 1
-      (tqObjH.fields.getD 1 default) where
-  hasType := tq_hostile_hasType hTQ hMI
-  level := by
-    intro ls
-    simp [tqAuxH, tqAux, tqObjH, VLevel.eval, Lean.Nat.imax]
-  pos := by
-    refine ⟨by decide, rfl, by simp, tq_hostileRec_args_noBlock, ?_, ?_, ?_, ?_⟩
-    · exact tq_hostile_ctx_onCtx hMI
-    · exact tq_hostile_canonResult_hasType hTQ
-    · rintro T' hT'
-      cases hT'
-      exact tq_hostile_hasArgs
-    · exact tq_hostile_defeq_canon hTQ hMI
-  binders_indep := by
-    rintro r hr
-    cases hr
-    rintro i' t F' h1 h2 h3 k B hB
-    exact absurd hB (by simp)
+/-! **`tq_hostile_field_WF` is DEAD, and this is what replaced it.**
+
+Until ruling 159e, this position held
+
+    theorem tq_hostile_field_WF {env : VEnv} (hTQ …) (hMI …) :
+      VIndField.WF env tqAuxH (tqObjH.fields.take 1) tqHostileCtx 1
+        (tqObjH.fields.getD 1 default)
+
+together with its two wrappers `tq_hostile_field_WF_closed` and `tq_hostile_field_WF_staged`.
+`VIndField.WF.pos`'s `some` branch now carries F7's residual clause
+(`VInductDecl'.ResidualClean`, `Theory/Inductive/Decl.lean`), and that clause is **false** at
+this field — see `tq_hostile_not_residualClean`, one `decide`.  So the three theorems are not
+merely unproved, they are **unprovable**: `tq_hostile_field_not_WF` below refutes the first one
+outright, in *every* environment, which kills the two wrappers a fortiori.
+
+Nothing outside this file ever used them (measured: a scan of all built `.ilean` files reports
+zero usages of all three names outside `IndexedNested`).  Everything else in §8 survives
+unchanged, because none of it went through `VIndField.WF`: the trigger fires
+(`tq_hostile_uniformOcc`), the residual is not block-free (`tq_hostile_args_not_noBlock`),
+`restore_noK`'s hypothesis is false (`tq_hostile_not_noConsts`), `OwnHeads` holds
+(`tq_hostile_ownHeads`), the restoration is the identity (`tq_hostile_restore_id`), and the
+stored type is definitionally the canonical one (`tq_hostile_defeq_canon`, §8.2).
+
+What §8 no longer shows is that the *specification* admits such a stored type.  It now shows the
+opposite, and that is the whole content of ruling 159e.  The information genuinely lost is
+recorded at §8.7 and in `docs/handoff-iota-stored.md`. -/
+
+/-- The three `pos` conjuncts that used to be discharged inline by `by decide` / `rfl` /
+`by simp`, kept as facts: they are still true, and naming them is what makes it checkable that
+the rejection below is located at the *new* clause and at nothing else. -/
+theorem tq_hostileRec_idx_lt : tqHostileRec.idx < tqAuxH.nm := by decide
+
+theorem tq_hostileRec_args_len :
+    tqHostileRec.args.length
+      = (tqAuxH.types.getD tqHostileRec.idx default).indices.length := rfl
+
+theorem tq_hostileRec_binders_noBlock : ∀ B ∈ tqHostileRec.binders, tqAuxH.NoBlock B := by
+  simp [tqHostileRec]
+
+/-- The field's `binders_indep` clause also still holds — `ξ = []`, so it is vacuous. -/
+theorem tq_hostileRec_bindersIndep :
+    ∀ r, (tqObjH.fields.getD 1 default).recArg = some r →
+      r.BindersIndep (tqObjH.fields.take 1) 1 := by
+  rintro r hr
+  cases hr
+  rintro i' t F' h1 h2 h3 k B hB
+  exact absurd hB (by simp)
+
+/-- **F7's residual clause is FALSE at the hostile stored field.**  One `decide`: the trigger
+fires at depth `r.binders.length + i = 0 + 1` (`tq_hostile_uniformOcc`) and reports the residual
+`[tqHostileArg]`, which names the companion. -/
+theorem tq_hostile_not_residualClean : ¬ tqAuxH.ResidualClean 1 tqHostile := by decide
+
+/-- **The specification now REJECTS the hostile stored field** — in every environment, with no
+hypothesis on the constant lookups at all.  Contrast the old `tq_hostile_field_WF`, which
+*accepted* it under two lookups §8.4 then discharged.
+
+Everything except the residual clause still holds of this field (`tq_hostile_hasType`,
+`tq_hostile_ctx_onCtx`, `tq_hostile_canonResult_hasType`, `tq_hostile_hasArgs`,
+`tq_hostile_defeq_canon`, and the four facts just above), so this refutation is *located*: the
+only reason the field fails is the clause ruling 159e installed. -/
+theorem tq_hostile_field_not_WF {env : VEnv} :
+    ¬ VIndField.WF env tqAuxH (tqObjH.fields.take 1) tqHostileCtx 1
+        (tqObjH.fields.getD 1 default) := by
+  intro h
+  have hp := h.pos
+  rw [tq_hostileRec_stored] at hp
+  exact tq_hostile_not_residualClean hp.2.2.2.2.2.2.2.2
 
 /-! ### §8.4 The two constant lookups are satisfiable — a closed witness
 
@@ -912,22 +966,21 @@ theorem tq_staged_env_exists : ∃ env : VEnv, VEnv.empty.addIndTypes tqAuxH = s
   · rw [c2]
     exact (if_neg (show ¬ (tqNestedName = ``TQ) from by decide)).trans hTQ
 
-/-- **§8.3 with every premise discharged.**  The specification's field clause accepts the hostile
-stored type in a *concrete* `Ordered` environment. -/
-theorem tq_hostile_field_WF_closed : ∃ env : VEnv, env.Ordered ∧
-    VIndField.WF env tqAuxH (tqObjH.fields.take 1) tqHostileCtx 1
-      (tqObjH.fields.getD 1 default) := by
-  obtain ⟨env, henv, hTQ, hMI⟩ := tq_env_exists
-  exact ⟨env, henv, tq_hostile_field_WF hTQ hMI⟩
+/-- **The rejection holds in the staged environment too**, which is what makes it a statement
+about the specification rather than about an unsatisfiable hypothesis: §8.4's two `addConst`
+steps *are* `VEnv.empty.addIndTypes tqAuxH`, the environment `VInductDecl'.WF.ctors` itself
+checks constructors in, and it is `Ordered`.
 
-/-- **The closure, in one statement.**  In the environment `VInductDecl'.WF.ctors` itself supplies,
-the specification's field clause accepts a stored field type at which `restore_noK` fails and
-`restore_ownOcc` succeeds. -/
-theorem tq_hostile_field_WF_staged : ∃ env : VEnv, VEnv.empty.addIndTypes tqAuxH = some env ∧
-    env.Ordered ∧ VIndField.WF env tqAuxH (tqObjH.fields.take 1) tqHostileCtx 1
-      (tqObjH.fields.getD 1 default) := by
-  obtain ⟨env, hstage, henv, hTQ, hMI⟩ := tq_staged_env_exists
-  exact ⟨env, hstage, henv, tq_hostile_field_WF hTQ hMI⟩
+This replaces `tq_hostile_field_WF_closed` / `tq_hostile_field_WF_staged`, which asserted the
+opposite and are dead (see the note above §8.3's facts).  The environment witnesses they were
+built from — `tq_env_exists`, `tq_staged_env_exists`, `tq_typeConsts_eq` — are untouched and
+still carry their content. -/
+theorem tq_hostile_field_not_WF_staged : ∃ env : VEnv,
+    VEnv.empty.addIndTypes tqAuxH = some env ∧ env.Ordered ∧
+    ¬ VIndField.WF env tqAuxH (tqObjH.fields.take 1) tqHostileCtx 1
+        (tqObjH.fields.getD 1 default) := by
+  obtain ⟨env, hstage, henv, -, -⟩ := tq_staged_env_exists
+  exact ⟨env, hstage, henv, tq_hostile_field_not_WF⟩
 
 /-! ### §8.5 Why this makes the strengthening load-bearing, and where the alternatives fail
 
@@ -937,7 +990,14 @@ statement *about this very expression*, and it does not apply: its `hargs` is fa
 (`tq_hostile_not_noConsts`).  The failure is at the hypothesis of each, and the conclusion is
 nonetheless true (`tq_hostile_restore_id`, and `decide` agrees).  So on the *stored* telescope —
 the telescope ruling 122e moved the whole iota layer onto — `restore_ownOcc` proves something its
-corollary cannot. -/
+corollary cannot.
+
+**Post-159e caveat.**  Everything in this subsection is still true, and none of it goes through
+`VIndField.WF`.  What it no longer supports is the conclusion "…at a stored type the
+specification admits": it does not.  `tqAuxH` is now a block `VIndField.WF` rejects, so
+`restore_ownOcc`'s advantage over `restore_noK` is exhibited here only at a *specification-invalid*
+block.  The advantage is not thereby refuted — see the pi-domain gap in
+`docs/audit-f7-radius.md` §3b — it is merely unwitnessed. -/
 
 theorem tq_hostile_eq_tyApp : tqHostile = tqAuxH.tyApp 0 1 [tqHostileArg] := rfl
 
@@ -1074,6 +1134,37 @@ sort.  So the hostile stored type has to be written by hand, as §8 writes it. -
 theorem tq_built_storedClean :
     storedCleanB (tqAux (tqOcc.ctor (tqAux tqAuxNodeB).header tqRestore miNode)) tqK = true := by
   decide
+
+/-! ### §8.6b The scan re-run against the **installed** clause (ruling 159e)
+
+§8.6's `storedCleanB` predates the clause and differs from it in two ways: it reads *every* stored
+field (not only the recursive ones) at depth `q.2` (not `r.binders.length + q.2`), and it is
+parameterised on an arbitrary `K` rather than on `D.blockNames`.  `residualCleanAllB` below is the
+installed clause verbatim — `VInductDecl'.ResidualClean (r.binders.length + i) F.type`, whose
+`NoBlock` is `NoConsts D.blockNames` — scanned over a whole block.
+
+**This is the anti-vacuity measurement ruling 159e is gated on.**  Every block in the witness cone
+reads `true`, so `VIndField.WF` remains *satisfiable* — indeed satisfied, since each block's
+`VIndCtor.WF` proof now discharges the clause by `decide` — at every block the tree actually
+builds; `tqAuxH`, the block written to exhibit the slack, reads `false`. -/
+def residualCleanAllB (D : VInductDecl') : Bool :=
+  D.ctorsAll.all fun p => p.2.fields.zipIdx.all fun q =>
+    match q.1.recArg with
+    | some r => decide (D.ResidualClean (r.binders.length + q.2) q.1.type)
+    | none => true
+
+theorem tq_cone_residualCleanAll :
+    residualCleanAllB (tqAux tqAuxNodeB) = true
+      ∧ residualCleanAllB (MRWit.mrAux MRWit.mrAuxNodeB) = true
+      ∧ residualCleanAllB (MPWit.mpAux MPWit.mpAuxNodeB) = true
+      ∧ residualCleanAllB InductiveDeclExamples.ntreeAux = true
+      ∧ residualCleanAllB InductiveDeclExamples.nfnAux = true
+      ∧ residualCleanAllB (tqAux (tqOcc.ctor (tqAux tqAuxNodeB).header tqRestore miNode))
+          = true := by
+  decide
+
+/-- …and `tqAuxH` is the one block that fails, which is what kills `tq_hostile_field_WF`. -/
+theorem tq_auxH_not_residualCleanAll : residualCleanAllB tqAuxH = false := by decide
 
 /-! ### §8.7 The load-bearing instance, at an existing consumer
 
