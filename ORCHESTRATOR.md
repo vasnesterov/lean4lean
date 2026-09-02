@@ -31,6 +31,26 @@
   inspected while the bisect is still running. **Do not run streams during a bisect** -- the tree is
   checking out old commits underneath them.
 
+## Streams that write their artefact last lose everything when they crash
+
+Two streams died with `API Error: context canceled` on 2026-09-02, both long-running, and **both
+at the moment they were about to write their output**. One left ~800 lines of good work on disk
+because it had been editing as it went; the other left **nothing at all** — its last words were
+"Now let me write the final file", and its whole session was unrecoverable.
+
+So brief every stream to **write incrementally**: land each proved lemma in its file as it is
+proved, and write the handoff section by section rather than composing it at the end. A crash then
+costs the last step instead of the round. This also makes a partial result inspectable, which is
+what let me recover the `fieldB` work by building its modules myself.
+
+Two related habits from the same pair of failures:
+
+- **Check `git status` before assuming damage.** The second crash looked worse than the first and
+  was actually harmless: nothing was written, so nothing was corrupted.
+- **Do not resume a crashed agent.** Its context is gone or polluted; spawn a fresh one with the
+  same brief plus whatever the dead one established. That is the handoff rule, and a crash is the
+  case it was written for.
+
 ## A soundness fix can introduce a completeness regression
 
 `f743c46` closed a real hole (a lying `Nat.gcd` passing the recognizer while `reduceNat`
