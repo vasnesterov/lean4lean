@@ -2337,3 +2337,203 @@ directly is "conversion preserves being a type, at the index", i.e. the same ind
 green after wiring the import, **1239 jobs**. `#print axioms` on all 14 declarations:
 `[propext]`, `[propext, Quot.sound]` or `[propext, Classical.choice, Quot.sound]` — **no
 `sorryAx`, no frozen axiom, nothing new on the frozen cone**. `grep -c "sorry"` on the file: 0.
+
+### 15.3 Task 1: the level branch at `iffIndDecl` is **measured and confirmed** — and §10.9's other prediction is **refuted**
+
+New file `Lean4Lean/Theory/SetModel/IffOracle.lean` (516 lines, **84 declarations**, **0
+`sorry`**), also imported by `Theory/Equiconsistency.lean`.  `InductOracleOK` at `iffIndDecl` is
+**not** closed; what is closed is the part §10.9 asked to be *verified rather than assumed*, plus
+the piece of infrastructure the next stream would otherwise build first.
+
+```lean
+-- §3.  The datum `VInductDecl'.recType_isType` withholds: it returns `IsType`, i.e. the sort
+--      existentially, and the level branch is a statement about WHICH sort.
+theorem hasType_iffRecType (hu : u.WF nv) (Γ) :
+    iffEnv.HasType nv Γ ((iffIndDecl.recType 0).instL [u]) (.sort (iffRecSort u))
+-- §4.  Four `imax`es, each `0` exactly when its codomain is.
+theorem iffRecSort_eval_eq_zero_iff : (iffRecSort u).eval ls = 0 ↔ u.eval ls = 0
+-- §5.  Five `VDecl.WF.le` steps, so nothing below is at an unreachable environment.
+theorem iffEnv_le_preludeEnv : iffEnv ≤ preludeEnv
+-- §6.  The model consequence, and the headline.
+theorem isProp_iffRecType_iff : L.IsProp M Γ ((iffIndDecl.recType 0).instL [u]) ↔ u.eval M.ls = 0
+theorem pt_not_mem_interp_iffRecType_of_ne (hn : u.eval M.ls ≠ 0) :
+    (pt : V) ∉ (interp M L [] ((iffIndDecl.recType 0).instL [u])).toFun ∅
+theorem eq_pt_of_mem_interp_iffRecType_of_zero (h0 : u.eval M.ls = 0) :
+    v ∈ (interp M L [] ((iffIndDecl.recType 0).instL [u])).toFun ∅ → v = pt
+theorem level_branch_forced (hu₀ hu₁) (h0 : u₀.eval M.ls = 0) (hn : u₁.eval M.ls ≠ 0)
+    (hv₀ : v ∈ ⟦recType.instL [u₀]⟧) : v ∉ ⟦recType.instL [u₁]⟧
+```
+
+**The prediction is confirmed, and it is now a theorem rather than a reading.**  §7.4's "the
+level branch is FORCED" reappears at `iffIndDecl` exactly as §10.9 said it would, at a block
+with **two parameters and two constructor fields** rather than none of either.  Both slices are
+non-empty (`exists_eq_zero_level`, `exists_ne_zero_level`), so `level_branch_forced` is not a
+vacuous implication.
+
+**Two things came out better than predicted, and one worse.**
+
+*Better, 1 — the `≠ 0` exclusion needs no hypothesis here.*
+`UnitOracleLarge.pt_not_mem_interpL_recType_of_ne` carries `hg : g ∈ ⟦motTyU u⟧` — an inhabitant
+of the motive space — because at `unitDeclLE` the outermost binder *is* the motive and a junk `κ`
+can make `U κ n` empty.  At `iffIndDecl` the outermost binder is a **parameter over `Prop`**, and
+`∅ ∈ U κ 0` at every `κ` (`U_zero`, `mem_UProp_iff`), so
+`pt_not_mem_interp_iffRecType_of_ne` is unconditional.  **The parameter makes this obligation
+cheaper, not dearer** — which is the opposite of how §10.4 priced the block ("`Iff` wants five
+layers", i.e. read as strictly harder throughout).
+
+*Better, 2 — the level computation is `imax`'s doing, not `Prop`'s.*  Two of the five binders
+have a `Prop` domain and a possibly-non-`Prop` codomain, so their sorts are `imax 1 X`; the
+telescope stays propositional at `u.eval ls = 0` only because `imax _ 0 = 0`.  Had the parameters
+been `Type`-valued the branch would be identical (`imax 2 0 = 0`).  So the mechanism is not
+"`Prop` parameters collapse" and a stream that transports this to `eqIndDecl` — whose first
+parameter is `.sort (.param 1)`, a **Type** — should expect the same shape.  That is a
+prediction, labelled as one.
+
+*Worse — **§10.9's "the `= 0` slice should be free by §10.1's argument" is FALSE at this
+block.***  It is free at `nonemptyIndDecl` because the recursor type's *truth* in the model
+follows from the minor premise's own value.  Here the proposition to be verified at `= 0` is
+
+> for all `p q ∈ U κ 0`, every motive `f`, every minor premise and every `h ∈ ⟦Iff p q⟧`,
+> `• ∈ f ‘ h`
+
+and closing it needs **`iffFn`'s faithfulness in both directions** — the easy half is
+`PreludeSpec.iffFn_value` (`⟦Iff p q⟧ = if p = q then {•} else ∅`), and the other half is
+"`⟦p → q⟧` and `⟦q → p⟧` both nonempty implies `p = q`", i.e. the model-side shadow of `propext`
+(`PreludeSpec.propext_of_mem_UProp` is the tool).  **So `iffIndDecl` is the first block in this
+corner where the *constructor's* content is needed to close the *recursor's* obligation**, and
+the `= 0` slice is not free.  This is recorded in the file's §7 as OPEN, not as done.
+
+What is left at the block, from the file's own §7 table: `• ∈ ⟦Iff.rec's type⟧` at `= 0` (above);
+`Iff ↦ iffFn ∈ ⟦Prop → Prop → Prop⟧`; `Iff.intro ↦ •` (its type **is** a proposition — measured:
+`imax _ (imax _ (imax 0 (imax 0 0))) = 0`, so this one really is the small-eliminator argument);
+the `≠ 0` slice's five-layer `mkLam` value, two of whose layers are over `U κ 0`; and the single
+ι-rule (`iffIndDecl.iotaRules.length = 1`, `#reduce`d).
+
+### 15.4 What I tried that failed, and the step it failed at
+
+1. **`VInductDecl'.recType_isType` as the typing input.**  It is a theorem
+   (`Theory/Inductive/Lemmas.lean:1623`) and it gives `env.IsType D.recUvars [] (D.recType j)` —
+   the sort **under an `∃`**.  `isProp_iff` needs the sort *named*, because the level branch is a
+   statement about its evaluation.  So the existential is unusable and §3's derivation had to be
+   written by hand.  This is worth knowing before someone else reaches for it at `eqIndDecl`.
+2. **`Lookup.zero'` / `Lookup.succ'`.**  `Theory/Typing/Meta.lean` is **not** in
+   `PreludeOracle`'s import closure, so those two do not resolve; the raw constructors
+   (`.bvar .zero`, `.bvar (.succ (.succ .zero))`) do, and the lift computations unify.
+3. **`.appDF` against an expected `.sort u`.**  `appDF`'s conclusion is `B.inst a`, and
+   `?B.inst a =?= .sort u` is not solvable, so `hasType_minBodyI` and `hasType_resI` both failed
+   with a metavariable in the function's type.  **Fix**: state the motive variable's type
+   explicitly first (`hasType_mot_ctxQ`, `hasType_mot_ctxH`) so `B` is pinned.  This is the same
+   class of failure as §12.5 items 1–2 and §13.5 item 6, in a fourth costume.
+4. **`hasType_motTyI hu (ictxA Γ)`.**  `ictxB` already prepends **two** entries, so passing
+   `ictxA Γ` produced a three-`Prop` context.  Caught by the type mismatch; worth a line because
+   the abbrev names are the same shape as `UnitOracleLarge`'s and there the offset is one.
+5. **`.imax`'s `WF` for `sortN`.**  `⟨trivial, …⟩` does not close `(minSortI u).WF nv`: the
+   nesting is `⟨⟨⟨_,_⟩, ⟨_,_⟩, hu⟩, _⟩`, i.e. `mpSortI`'s own `WF` twice plus `u`'s.  Trivial to
+   fix, easy to mis-nest.
+6. **Reaching for `interp_forallE_type` at the top binder without staging the body.**  It reads
+   `¬ L.IsProp M (A :: Γ) B`, i.e. the *body's* propositionhood one binder in — so the four
+   intermediate bodies (`recBH`, `recBN`, `recBM`, `recBB`) and their four sorts had to be named
+   and typed separately.  That is why §3 has nine lemmas rather than one.
+7. **Attempting the `= 0` slice.**  Stopped at the step above: the proposition's *truth* needs
+   `iffFn`'s hard direction.  Not attempted in Lean past writing the goal down; recorded as a
+   costing, not as a refutation of anything.
+
+### 15.5 Measured / read / not run
+
+**[measured]**
+* `lake build Lean4Lean.Theory.SetModel.RegPiRepriced`: green, **1232 jobs**.
+* `lake build Lean4Lean.Theory.SetModel.IffOracle`: green, **1204 jobs**.
+* `lake build Lean4Lean.Theory.Equiconsistency` (after wiring both imports): green, **1240 jobs**
+  (1239 with `RegPiRepriced` alone).
+* `lake env lean` on both new files: **zero diagnostics** — no errors, no warnings, no `sorry`
+  warning.  `grep -c sorry`: `IffOracle` **0**, `RegPiRepriced` **1** and that one is the word
+  "sorry-free" inside a docstring.
+* **`#print axioms` on all 98 declarations** (84 in `IffOracle`, 14 in `RegPiRepriced`): each is
+  `[]`, `[propext]`, `[propext, Quot.sound]` or `[propext, Classical.choice, Quot.sound]`.
+  **No `sorryAx` anywhere.  No frozen axiom.  No new `sorry`, none traded.**
+* **Hole cones**, forward over type **and** value with `allowOpaque := true`, the
+  `scripts/hole-cone.lean` walker re-seeded on **all 98** declarations out of `/tmp`, reporting
+  each cone's *complete* `sorryAx` membership as well as the four named holes:
+  **`seeds walked: 98; seeds with any hole: 0`.**  Not one cone contains a `sorryAx`-carrying
+  member, so a fortiori none contains `forallE_inv_stratified`, `weakN_iff`,
+  `rigidShapeUniqNS` or `descend`.  Import-closure presence by `env.find?`:
+  `forallE_inv_stratified`, `weakN_iff`, `rigidShapeUniqNS` **are** in the closure and in **no**
+  cone (available and unused); `NormalEq.descend` is **not** in the closure.
+* Block shape facts by `#reduce`: `iffIndDecl.allConsts.map Prod.fst = [Iff, Iff.intro, Iff.rec]`,
+  `iffIndDecl.iotaRules.length = 1`.  `iffEnv`'s three constant lookups are `rfl`.
+* Collision check: both files declare into **fresh namespaces**
+  (`Lean4Lean.SetModel.IffAudit`, `Lean4Lean.SetModel.RegPiAudit`) — `grep` over the tree finds
+  no other occurrence of either, so no name in either file can collide.
+
+**Hole-free is not discharged, reported separately as instructed:**
+
+| result | holes | open hypotheses |
+|---|---|---|
+| `hasType_iffRecType`, the nine §3 typing lemmas, `iffRecSort_eval_eq_zero_iff` | none | `u.WF nv` only |
+| `isProp_iffRecType_iff`, `isProp_recBB_iff` | none | `iffEnv ≤ envF` (a theorem at `preludeEnv`), `OnCtx Γ`, and **a `PropSplit envF nv`** — inhabited at `preludeEnv` as data (`propSplitPreludeEnv`, route A with `forallE_inv_stratified`; or route B `sorryAx`-free) |
+| `pt_not_mem_interp_iffRecType_of_ne`, `level_branch_forced` | none | the same, and nothing else — in particular **no** motive-space inhabitant |
+| `iffEnv_le_preludeEnv` | none | none |
+| `not_repricedInput_piLvlEnv`, `zero_replay_is_free`, `propTypeAgreeOnN_zero_free` | none | none |
+| `propTypeAgreeOnN_of_repricedInput` | none | the five-member bundle, **which is refuted at `piLvlEnv`** — this is the one place in this round where a hypothesis is not merely open |
+
+**Anti-vacuity.**  `Above` occurs **nowhere** in either new file (grep: zero occurrences); no `κ`
+is chosen anywhere in `IffOracle` — every statement is at an arbitrary `κ : ℕ → V` — so nothing
+here is free at a false `IsInaccessibleChain` antecedent.  Both witness environments are
+exhibited and graded: `preludeEnv` is `VEnv.WF` (`preludeEnv_WF`), built by
+`preludeEnv_history` with **no `VDecl.unsafeDef`**, and `iffEnv ≤ preludeEnv` is proved; `piLvlEnv`
+is `Ordered` and **provably not `WF`**, and §15.2 says so in the row that uses it.  The `= 0` /
+`≠ 0` split is a real split (`exists_eq_zero_level`, `exists_ne_zero_level`), so
+`level_branch_forced` is not satisfied by an empty slice.
+
+**[read]** off source, not run: that `Theory/Inductive/Lemmas.lean:1623` is `recType_isType`'s
+declaration and that it returns `IsType` (read, then confirmed by `#check` — so the *shape* claim
+is measured and only the line number is grep); that `PreludeSpec.propext_of_mem_UProp` is the
+tool for the `= 0` slice's hard half (read, **not** attempted).  §15.3's prediction that
+`eqIndDecl`'s branch has the same shape because `imax 2 0 = 0` is **reasoning, not a
+measurement**.
+
+**[not run]** as the brief directed: the full `lake build`, guards 1–3,
+`scripts/sorry-census.lean`, `scripts/dup-names.lean`, `MemberRedexScan`, the Kernel Arena (no
+implementation file touched).  `lean_local_search` and `lean_hammer_premise` were **unusable
+again** (`which rg` → nothing; row 131f, **fifth** confirmation), so every search claim above
+rests on `grep`/`sed` over source, `#reduce`/`#check`/`#print axioms`, `lake env lean`
+diagnostics, or the re-seeded cone walker — never on a substring count presented as a structural
+fact.  `lean_references` was **not** needed this round (no call-site counting).
+
+### 15.6 What to pick up first
+
+1. **`iffIndDecl`'s `= 0` slice, and it needs `PreludeSpec`, not more telescope work.**  §3–§6 are
+   done and reusable; the next step is `iffFn`'s faithfulness (`⟦p → q⟧`, `⟦q → p⟧` both nonempty
+   ⇒ `p = q`), which is `PreludeSpec.lean`'s business and is the model-side `propext`.  **Do not
+   start from §10.9's "free by §10.1's argument"** — that is refuted at this block (15.3).
+2. **Then `Iff.intro ↦ •`**, which *is* the small-eliminator argument: its type is measurably a
+   proposition.  Cheapest remaining piece of the `consts` field.
+3. **Then the `≠ 0` value**: a five-layer `mkLam`, two layers over `U κ 0`.
+   `UnitOracleLarge.mkLam_mem_mkForallType_of_dom` and `mem_mkForallType_of_graph` are the
+   entries; `recFnL` is *not* a template for the layers over a universe, only for the ones over a
+   singleton.
+4. **`RegConvE env U (k+1)` — the residual the `RegPi` repair created and nobody has graded.**
+   `RegularAtSucc` (`∃ env U k, env.Regular U (k+1)`) is inhabited by nothing in the tree, and
+   `RegConvE`'s only instance is at index `0` where `IsDefEqN` is syntactic equality.  Either
+   exhibit one at `k+1` or record it as a second unchecked hypothesis; **as it stands the repaired
+   assembly has no non-degenerate instance at all** (15.2 item 3).
+5. **`propAgreeOn_of_stratifiedNOn` route-B weakening: DO NOT FUND IT.**  I did not make this
+   edit, and the reason is not budget.  `Theory/Typing/AppUniqRefute.lean` already contains
+   `piLvlEnv_propUniqNOn_all_false` and `ordered_not_enough_for_propUniqNOn` — **the guarded
+   `∀ n, PropUniqNOn` is refuted at `Ordered`, and that file's own §"What this closes" says in
+   terms that §11 item 3's proposed edit to `PropAgreeWall.lean` "does not change that".**  So the
+   weakening buys a strictly weaker hypothesis that is *also* refuted at the same environment.  It
+   remains worth having only if a consumer carries `VEnv.WF` rather than `Ordered`, and the brief's
+   standing caveat is right about that; but it discharges nothing, and the ten lines should be spent
+   only once someone has named the `VEnv.WF`-carrying consumer.  **Verified, not assumed:
+   `propAgreeOn_of_stratifiedNOn` is present at `PropAgreeGuarded.lean:193` and takes
+   `Ordered env`.**
+6. **`eqIndDecl`** — now genuinely next after `iffIndDecl`'s `consts` field, and 15.3 says what to
+   expect (the same branch, for `imax`'s reason rather than `Prop`'s; six binders, one index, a
+   two-binder motive, and a **`Type`-valued** first parameter, so the `≠ 0` exclusion will need the
+   nonemptiness of `U κ (v.eval ls)` rather than of `U κ 0`).
+
+**Do not** re-attack: everything §10.9, §11.7, §12.7, §13.7 and §14.7 name, plus — new —
+**`propTypeAgree_appCase_on_of`** (already a theorem in HEAD, 15.1), **`recType_isType` as a
+source of the recursor's sort** (it withholds it, 15.4 item 1), and **`iffIndDecl`'s `= 0` slice
+as a free case** (refuted, 15.3).
