@@ -1049,28 +1049,39 @@ theorem qnOcc_occurs : qnOcc.Occurs env₂ where
     subst hC; exact qjMk_const h
 
 omit h in
+/-- §F2's Route A premise for `qjDecl`.  **This block has no `WF` proof anywhere in the tree**
+(measured: `grep -rn "qjDecl" --include=*.lean Lean4Lean/ | grep -i "wf\\|ordered"` — empty), so
+Route B (`VEnv.Ordered.constsClosed`) is unavailable here and the `decide`-able self-containment
+premise is the whole of the environment side condition. -/
+theorem qjDecl_selfConsts :
+    qjDecl.allConsts.all (fun c => c.2.type.constsInB qjDecl.allNames) = true := by decide
+
+/-- `ConstsClosedC` at the `QN` step's history environment. -/
+theorem qjEnv_constsClosedC : env₂.ConstsClosedC :=
+  qjDecl.constsClosedC_addInduct'_of_B VEnv.empty_constsClosedC h qjDecl_selfConsts
+
+omit h in
+theorem qnOcc_args_noK : ∀ a ∈ qnOcc.args, VExpr.NoConsts qnK a := by decide
+
+theorem qnK_not_contains : ∀ n ∈ qnK, ¬ env₂.contains n := by
+  intro n hn
+  have hnm : n ∉ qjDecl.allNames := by revert hn; revert n; decide
+  rintro ⟨ci, hc⟩
+  rw [VEnv.addInduct'_constants_of_not_mem h hnm] at hc
+  exact absurd hc nofun
+
+/-- **`fields_noK` from the producer** (`NestedBuild.lean` §F3).  As at `nfnAux_builtFresh`, the
+price of connecting the producer is the environment hypothesis `h`: the old proof computed over
+`QJ`'s fields and mentioned no environment.  The only consumer, `qnAux_built` below, carries `h`. -/
 theorem qnAux_builtFresh : qnAux.BuiltFresh qnK (fun _ => qnOcc) where
   nodup := by decide
-  fields_noK := by
-    rintro (_ | _ | j) T hT hK C₀ hC₀ k F₀ hF₀
-    · cases hT; exact absurd hK (by decide)
-    · cases hT
-      simp only [show qnOcc.src.ctors = [qjMk] from rfl, List.mem_cons,
-        List.not_mem_nil, or_false] at hC₀
-      subst hC₀
-      rcases k with _ | _ | k
-      · cases hF₀
-        exact VExpr.noConsts_instAll _ _ (by simp [VExpr.NoConsts, VExpr.instL])
-          (by simp [qnOcc, VExpr.NoConsts, qnK])
-      · cases hF₀
-        exact VExpr.noConsts_instAll _ _ (by simp [VExpr.NoConsts, VExpr.instL])
-          (by simp [qnOcc, VExpr.NoConsts, qnK])
-      · exact absurd hF₀ nofun
-    · simp [qnAux] at hT
+  fields_noK := fun _ _ _ _ _ hC₀ _ _ hF₀ =>
+    VNestedOcc.fields_noK_of_occurs (qjEnv_constsClosedC h) (qnOcc_occurs h)
+      (qnK_not_contains h) qnOcc_args_noK hC₀ hF₀
 
 theorem qnAux_built : qnAux.Built qnRestore qnK env₂ (fun _ => qnOcc) where
-  nodup := qnAux_builtFresh.nodup
-  fields_noK := qnAux_builtFresh.fields_noK
+  nodup := (qnAux_builtFresh h).nodup
+  fields_noK := (qnAux_builtFresh h).fields_noK
   member := by
     rintro (_ | _ | j) T hT hK
     · cases hT; exact absurd hK (by decide)
@@ -1203,6 +1214,10 @@ end QNWit
 #print axioms Lean4Lean.MRedex.QNWit.qn_recog_betaHead_none
 #print axioms Lean4Lean.MRedex.QNWit.qn_field0_none_branch
 #print axioms Lean4Lean.MRedex.QNWit.qnAux_WF
+#print axioms Lean4Lean.MRedex.QNWit.qjDecl_selfConsts
+#print axioms Lean4Lean.MRedex.QNWit.qjEnv_constsClosedC
+#print axioms Lean4Lean.MRedex.QNWit.qnOcc_args_noK
+#print axioms Lean4Lean.MRedex.QNWit.qnK_not_contains
 #print axioms Lean4Lean.MRedex.QNWit.qnAux_builtFresh
 #print axioms Lean4Lean.MRedex.QNWit.qnAux_built
 #print axioms Lean4Lean.MRedex.QNWit.qnOcc_occurs

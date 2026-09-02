@@ -3603,3 +3603,275 @@ Kept in the file as the record of the refutation: `listOccBadSpine_field_typeR_h
    is permanent, but it is one order of magnitude smaller than recorded — from a clause quantified
    over a foreign block's constructors and fields to `D.np` decidable checks on `RestoreData`'s own
    `as`.
+
+# §59 The producer CONNECTED: all four `fields_noK` sites re-pointed, the bridge given a consumer, and the `run`-level spine obligation **refuted** (round 10)
+
+Assignment: connect §58's `fields_noK` producer — (1) re-point the four `fields_noK :=` sites and
+give `mkRestore_built_of_spine` a consumer, (2) supply `env.ConstsClosed` at the witness
+environments or establish why it cannot be supplied, (3) prove or refute the spine obligation over
+`ElimNestedInductive.run`.
+
+**All three are answered, and two of them differently from the way the brief framed them.**
+
+## 59.1 Where the brief is wrong — six places
+
+1. **"The four existing `fields_noK :=` sites still `decide`."**  None of them did.  All four
+   discharged the clause by `rintro` over the member index plus `VExpr.noConsts_instAll` and
+   `simp [VExpr.NoConsts, VExpr.instL, …]`, 15–19 lines each; the `decide`s inside those blocks were
+   on the *side conditions* (`T.name ∈ K` at a non-companion index), never on `fields_noK` itself.
+   The distinction is not cosmetic: the re-pointed proofs **do** each end in one `decide`, on the
+   spine, so the direction of travel is `simp`-over-`J`'s-fields → `decide`-over-one-spine, not
+   `decide` → proof.
+
+2. **"Doing so needs `env.ConstsClosed` at the witness environments, which is unproven there —
+   measured last round: no `Ordered`/`ConstsClosed` fact about those environments exists."**  False
+   for two of the three witnesses.  `InductiveDeclExamples.listEnv_ordered`
+   (`Theory/Typing/ConstSubstNested.lean`:848) and `pfnEnv_ordered` (*ibid.*:608) prove
+   `env₁.Ordered` and `env₂.Ordered` **outright**, from `listDecl_WF` / `pfnDecl_WF` in the same
+   file, and `VEnv.Ordered.constsClosed` is one step from there.  §58.6's measurement was
+   `grep -rn "\.Ordered" Theory/Inductive` — **scoped by directory**, and the facts live in
+   `Theory/Typing/`.  That is the §58.1 error (filed by consumer, not by content) repeated one round
+   later, by the same stream, having written the lesson down.  The brief inherited it.
+   It *is* right about the third witness: `qjDecl` (`MemberRedex.lean` §10) has no `WF` and no
+   `Ordered` anywhere — measured, `grep -rn "qjDecl" --include=*.lean Lean4Lean/ | grep -i
+   "wf\|ordered"`, empty.
+
+3. **`ConstsClosed` was the wrong thing to ask for.**  The producer applies `hcc.1` at exactly one
+   name, so only the *constants* half is used, and that half is obtainable with **no**
+   `VInductDecl'.WF`, no `Ordered`, no levels, no positivity — from a premise about `D` alone
+   ("every type the block declares mentions only names the block declares"), which is `decide` at a
+   concrete block.  §59.3.  So the price was over-quoted at `listDecl`/`pfnDecl` and correctly
+   quoted at `qjDecl`, where Route B does not exist and this is the only route.
+
+4. **"A precise 'item 2 is unavailable at these environments because X' is a first-class result."**
+   It is not the outcome: item 2 was available at all three environments, twice over at two of them.
+
+5. **The blocker for item 1 was module order, not item 2** — and the brief does not mention it.
+   §58's producer sat in `Theory/Inductive/NestedFresh.lean`, which **imports**
+   `Theory/Inductive/NestedBuild.lean`, and two of the four sites are *in* `NestedBuild.lean`.  No
+   amount of `ConstsClosed` could have re-pointed those two.  Fixed by moving the producer up into
+   `NestedBuild.lean` (§F1–§F4 there) at the cost of one added import.
+
+6. **Item 3's recorded reason is insufficient, not merely unproved.**  §58.6 read off that "`args`
+   always comes from a term that predates the replacement pass".  That covers aux names introduced
+   *by* replacement and says nothing about aux names present in the **input**, and the input is
+   where they get in.  §59.5.
+
+The brief's five traps were all accurate.  I hit none of them: I did not chase `field_typeR`'s
+conclusion, did not route through F7's `ResidualClean`, ran the `run`-level probe outside the
+repository first, and every restoration claim below is `decide`d or built.
+
+## 59.2 Item 1: all four sites re-pointed, in place
+
+The producer moved from `NestedFresh.lean` into `NestedBuild.lean` as **§F1–§F4**, with one new
+import (`Lean4Lean.Theory.SetModel.Consts`; its transitive closure adds exactly one module, since
+`Theory/Inductive/Decl.lean` already imports `Theory.Typing.Lemmas`).  `NestedFresh.lean` keeps §4
+(freshness), §5 (`fields_noK_needs_spine` — the sharpness half) and §6 (the three refutations).
+Name-collision check before moving: `grep -rn` for each of the fourteen declarations
+`SetModel/Consts.lean` introduces (`VExpr.ConstsIn` and its lemmas, `CtxConstsIn`,
+`VEnv.LE.contains`, `VEnv.IsDefEq.constsIn`, `Ordered.constsIn{,C,D}`, `Ordered.constsClosed`,
+`ConstsClosed{,.addConst}`) plus the bare-name forms — no duplicate anywhere.
+
+| site | file:line (was) | before | after |
+| --- | --- | --- | --- |
+| 1 | `NestedBuild.lean`:1078 `ntreeAux_built` | 17 lines, `rintro`+`simp` | 3 lines, `fields_noK_of_occurs` |
+| 2 | `NestedBuild.lean`:1566 `nfnAux_builtFresh` | 19 lines | 3 lines |
+| 3 | `MemberRedex.lean`:1054 `qnAux_builtFresh` | 19 lines | 3 lines |
+| 4 | `RestoreBridge.lean`:972 `nfnAuxDirty_built` | 15 lines | 3 lines |
+
+**And `mkRestore_built_of_spine` has a consumer**: `NestedWit.nfnAux_built'_of_spine`
+(`Verify/Inductive/NestedFreshBridge.lean`) proves *the same conclusion* as
+`NestedRestoreWit.lean`'s `nfnAux_built'` at the same `Result` and restoration, with `BuiltFresh`
+replaced by `env₂.ConstsClosedC` + `nodup` + `nfnK_not_contains` + `nfnAs_noK`.  `nfnAs_noK` is the
+residual, and it is one `decide` over `nfnAs`, a `RestoreData` parameter.  That is the measurement
+§58.3 claimed and could not exhibit.
+
+**What re-pointing cost, and it is real.**  Sites 2 and 3 were `omit h in` — environment-free
+statements, and their docstrings said so.  The producer needs an environment, so both now take
+`h : VEnv.empty.addInduct' pfnDecl = some env₂` (resp. `qjDecl`).  Their statements are strictly
+weaker than they were.  Measured mitigation: **every consumer already carries `h`** —
+`nfnAux_built` (`NestedBuild.lean`), `nfnAux_built'` (`NestedRestoreWit.lean`:704, inside
+`include h in`), `qnAux_built` (`MemberRedex.lean`) — so nothing downstream lost generality, and the
+three call sites now pass `h`.  If a future caller needs the environment-free form, the old proof is
+in this file's git history and should be restored *alongside*, not instead.
+
+## 59.3 Item 2: supplied, three times, and the general lemma is the point
+
+`NestedBuild.lean` §F2, all new:
+
+* **`VEnv.ConstsClosedC`** — the constants half of `VEnv.ConstsClosed`, named so it can be a
+  hypothesis on its own.  `ConstsClosed.toC`, `Ordered.constsClosedC`, `empty_constsClosedC`.
+  `fields_noK_of_occurs` and `builtFresh_of_occurs` now take *this*, not `ConstsClosed`; so do
+  `mkRestore_built_of_spine` and `mkRestore_AddNested_of_spine`.
+* **`VEnv.constsClosedC_addConstList`** — the list-extension step.  Unlike
+  `ConstsClosed.addConst` it asks each added type to mention only constants of the **final**
+  environment, not of the stage it is added at — which is what a block whose constructor types
+  mention the block's own type names (i.e. every block) needs.  §58.8 item 1 asked for exactly
+  this and guessed the statement one hypothesis too strong.
+* **`VInductDecl'.constsClosedC_addInduct'`** (Route A) — `env.ConstsClosedC` +
+  `env.addInduct' D = some env'` + *"every type `D` declares mentions only names in `D.allNames`"*
+  ⟹ `env'.ConstsClosedC`.  No `WF`, no `Ordered`, no ι-rule obligation at all (`addInduct'_eq`
+  factors the ι-rules out, and `addIndRules_contains` is the one line that says they do not move
+  `contains`).
+* **`VExpr.constsInB` / `constsInB_iff`** and
+  **`VInductDecl'.constsClosedC_addInduct'_of_B`** — the side condition as a `Bool`.  Note
+  `IndexedNested.lean`'s `hasConstB` decides `NoConsts S = ConstsIn (· ∉ S)`, the *complement*; the
+  positive form needed here is a different function, and that file is downstream anyway.
+
+Instantiated: `listDecl_selfConsts`, `listEnv_constsClosedC`, `pfnDecl_selfConsts`,
+`pfnEnv_constsClosedC` (`NestedBuild.lean`), `qjDecl_selfConsts`, `qjEnv_constsClosedC`
+(`MemberRedex.lean`).  The `selfConsts` premises are `by decide` and **include the recursor types** —
+`List.rec`'s type went through without special handling, which was the thing I expected to have to
+work around.
+
+## 59.4 What each site's `decide` now is — the honest accounting
+
+`decide` did not disappear; it moved and shrank.  Per block, after re-pointing:
+
+* one `decide` on the **spine** (`listOcc_args_noK`, `pfnOcc_args_noK`, `qnOcc_args_noK`) — one to
+  three `VExpr`s;
+* one `decide` on the block's **self-containment** (`*_selfConsts`) — a `Bool` over `D.allConsts`;
+* the pre-existing `decide`s on `blockNames.Nodup` and on `n ∉ D.allNames`.
+
+What is gone is the `simp` traversal of *every field of every constructor of the foreign block `J`*.
+Line count is roughly flat (each block gained ~12 lines of witness lemmas and lost ~15 of proof);
+the gain is that the content is now general and the per-block residual is exactly the spine, which
+`fields_noK_needs_spine` (§58.2) proves cannot be reduced further.
+
+## 59.5 Item 3: REFUTED at the stated scope, and the missing premise named
+
+§58.6's obligation was "`ElimNestedInductive.run` never puts an auxiliary name into a spine".
+**It is false.**  Feed `run` directly
+
+```
+inductive T : Type | mk : List (_nested.List_1 T) → T
+```
+
+and it returns `aux2nested = [(`_nested.List_1, List (_nested.List_1 T))]` — the key and a constant
+inside the stored spine are the same name, so `∀ a ∈ as j, VExpr.NoConsts K a` fails at
+`K = [_nested.List_1]`.  Measured, not read off: `env.contains _nested.List_1 = false` at the repo's
+own environment, `nextIdx` starts at `1`, so `mkUniqueName (`_nested ++ `List)` generates precisely
+the name the input already mentions.  Nothing about the replacement pass is violated — the offending
+constant came from the **input**.
+
+So the obligation has **two** premises:
+
+1. *pass ordering* — `replaceNoCacheT` is top-down and does not revisit a replaced node, and
+   `newTypes[i]`'s stored constructor types are built before index `i` is processed.  This is what
+   §58.6 named; it excludes aux names that replacement introduces.
+2. *the gate* — `checkNoNestedAux` (`Lean4Lean/Inductive/Add.lean`:1056, called on every member type
+   and every constructor type at `Environment.addInductive`:1073,1077, **before** `run`), which
+   rejects any input mentioning a `_nested`-prefixed constant.  This is what excludes aux names the
+   input supplies, and §58.6 did not name it.
+
+Premise 2 is not a fact about `run`; it is a fact about its caller.  Landed:
+
+* `ElimNestedInductive.Result.spineNoAuxB : Result → List Name → Bool` and `SpineNoAux`, the
+  obligation as a decidable name fact about `aux2nested`, in `OccData`'s style (no `VEnv`, no
+  `TrExprS`, no typing judgement) — §58.8 item 2's Lean statement, which did not exist.
+* a **self-checking `#eval`** (`Verify/Inductive/NestedFreshBridge.lean`) asserting all three of:
+  `run` accepts the input and violates `spineNoAuxB`; `checkNoNestedAux` rejects it;
+  `Environment.addInductive` rejects it with the reserved-prefix error.  The third assertion is what
+  `NestedOccData.lean` §10.1's own note says such a probe must include — without it the test would
+  pass with the gate removed.  The build fails if any of the three stops holding.
+
+**Still open** and this is the next round's item: `spineNoAuxB` is about `Lean.Expr`s in
+`aux2nested`; `mkRestore_built_of_spine`'s `hspine` is about `VExpr`s in `as`.  Bridging them needs
+(a) "translation preserves constant occurrences" at `TrExprS`, and (b) `RestoreData`-level agreement
+between `aux2nested`'s stored args and `as j`.  Neither exists.  `nfnAs_noK` discharges `hspine` at
+the concrete witness *without* that bridge, by `decide` on the `VExpr` side, so the bridge is not on
+the critical path for the witnesses — only for the general theorem.
+
+## 59.6 Files, jobs, axioms
+
+Per-module `lake build`, all green, no `sorry` introduced and none traded (`grep -n sorry` over all
+six touched files: clean):
+
+| module | jobs |
+| --- | --- |
+| `Theory.Inductive.NestedBuild` | 63 (was 62 as a dependency; +1 = `SetModel/Consts`) |
+| `Theory.Inductive.NestedFresh` | 64 |
+| `Theory.Inductive.MemberRedex` | 64 |
+| `Theory.Inductive.RestoreBridge` | 66 |
+| `Verify.Inductive.NestedFreshBridge` | 152 |
+| downstream sweep: `IndexedNested`, `StoredIota`, `NestedTele`, `NestedKeys`, `ConstSubstNested`, `Verify.Inductive.NestedOccData` | 187 |
+
+`#print axioms`, by namespace, all inside Guard.lean's `{propext, Classical.choice, Quot.sound}`
+(`Verify/Guard.lean`:144):
+
+| namespace | result |
+| --- | --- |
+| `Lean4Lean.VExpr.*` (4) | `noConsts_iff_constsIn` **no axioms**; other three `[propext]` or `[propext, Quot.sound]` |
+| `Lean4Lean.VEnv.*` (1) | `[propext, Quot.sound]` |
+| `Lean4Lean.VInductDecl'.*` (3) | `[propext, Quot.sound]` |
+| `Lean4Lean.InductiveDeclExamples.*` (11, `NestedBuild`) | `*_selfConsts` `[propext]`; rest `[propext, Quot.sound]` |
+| `Lean4Lean.MRedex.QNWit.*` (5) | `qjDecl_selfConsts` `[propext]`; rest `[propext, Quot.sound]` |
+| `Lean4Lean.InductiveDeclExamples.nfnAuxDirty_built` | `[propext, Quot.sound]` |
+| `Lean4Lean.ElimNestedInductive.Result.RestoreData.*` (2) | `[propext, Quot.sound]` |
+| `Lean4Lean.NestedWit.*` (2) | `nfnAs_noK` `[propext, Quot.sound]`; `nfnAux_built'_of_spine` also `Classical.choice` (from `nfnResult_occResidue`, as `nfnAux_built'` already was) |
+
+No `sorryAx`, no frozen-axiom dependency, no new entry anywhere near `implGapWhitelist`.
+
+## 59.7 Hole-free versus discharged
+
+* **Discharged** (proved outright, no premise a caller does not already have): all of §F2's
+  environment machinery; `ConstsClosedC` at all three witness environments; the four re-pointed
+  `fields_noK` clauses; `nfnAs_noK`; the `run`-level refutation.
+* **Hole-free but not discharged**: `mkRestore_built_of_spine` / `mkRestore_AddNested_of_spine`
+  still carry the spine premise — that is §58.2's irreducible residual, and it has not shrunk, it
+  has only been *paid* at one concrete `Result`.  `SpineNoAux` is stated and, for `run`, **cannot**
+  be proved (§59.5); the statement that can be proved is about `addInductive`, and it is not proved.
+* **Not shrunk at all**: the `Expr` → `VExpr` transfer for the spine (§59.5's "still open").  This is
+  now the whole of ruling 116d's general residual.
+
+## 59.8 What I tried that failed, and the step it failed at
+
+| attempt | failed at | fix |
+| --- | --- | --- |
+| `ConstsClosed` for `addInduct'` including the **defeqs** half | the ι-rules' `lhs`/`rhs`/`type` are `mkLams` over `iotaCtx`; `ConstsIn` of them at a concrete block is a large `simp`, and *nothing uses it* — `ctorType_noConsts` touches `hcc.1` only | dropped the half; `ConstsClosedC` |
+| the Route A side condition as `ConstsIn (· ∈ D.allNames)`, proved by `simp only [allConsts, listDecl, typeConsts, ctorConsts, recConsts]` | the goal after `simp only` is a 50-line unfolded `List.map … ++ …` with the block inlined four times; no `Decidable` instance for `ConstsIn` with a `Prop` predicate | `VExpr.constsInB` + `constsInB_iff`, then `by decide` |
+| `constsInB_iff`'s `app`/`lam`/`forallE` case by `rw [show ∀ a b, …]` | the rewrite's motive did not match the `Bool.and_eq_true` shape (three identical errors, one per constructor) | `show (a.constsInB S && b.constsInB S) = true ↔ _; rw [Bool.and_eq_true]` |
+| `fields_noK := fun _ _ _ _ _ hC₀ _ _ hF₀ => … (by decide) …` at all four sites | `decide` on the spine goal under the bound member index: *"Expected type must not contain free variables"* | named lemma per block (`listOcc_args_noK` etc.), `decide` at closed type |
+| `ntreeK_not_contains` by `rintro n hn ⟨ci, hc⟩` then `revert hn; revert n; decide` | `hc` depends on `n`, so `revert n` drags it in and the `decide` goal has `ci` free | `have hnm : n ∉ listDecl.allNames := by revert hn; revert n; decide` **before** destructuring |
+| inserting the witness lemmas immediately above `theorem ntreeAux_built` | that position is between a `/-- … -/` docstring and its declaration; `omit` is not a declaration | insert above the docstring; and a `/-- … -/` on a structure-instance *field* and on an `#eval` are both parse errors — use `--` and `/-! … -/` |
+
+## 59.9 Search instruments, named, and treated as floors
+
+* `rg` **absent** (`which rg` empty) — so `lean_local_search` and `lean_hammer_premise` remain dead.
+  Not used.
+* `lean_references` not used (known incomplete).
+* Every enumeration here is `grep -rn --include=*.lean` over `Lean4Lean/`, plus `lean_diagnostic_messages`
+  and `lean_goal` for the four failures above.  **Absence claims, with the definition named rather
+  than a string:** (i) no declaration in the repo other than `Theory/SetModel/Consts.lean`'s
+  declares any of the fourteen names that file introduces — the check was on declaration-line
+  prefixes *and* bare-name forms, and it is a floor: a redeclaration inside `namespace VEnv.LE` of a
+  short name would evade it; (ii) no theorem anywhere establishes `VInductDecl'.WF` or `VEnv.Ordered`
+  at `qjDecl` (definition: `VInductDecl'.WF`, `Theory/Inductive/Decl.lean`; `VEnv.Ordered`,
+  `Theory/Typing/Lemmas.lean`:258) — floor, same tool.  §59.1.2 is what a directory-scoped floor
+  costs when it is read as a ceiling; do not repeat it.
+* The `run`-level probe was developed in `/tmp` with `lake env lean` and only then landed as a
+  self-checking `#eval`, per the brief's fifth trap.
+
+## 59.10 Pick up first
+
+1. **The `Expr` → `VExpr` spine transfer** (§59.7's "not shrunk").  Two lemmas: `TrExprS` preserves
+   constant occurrences (probably already implied by something in `Verify/Typing/`; I did not look),
+   and a `RestoreData`-level clause tying `aux2nested`'s stored args to `as j`.  With those,
+   `spineNoAuxB` discharges `mkRestore_built_of_spine`'s `hspine` in general and ruling 116d's
+   residual becomes a `Bool` the checker computes.
+2. **`SpineNoAux` for `Environment.addInductive`, not for `run`.**  The statement is: gate ⟹
+   `(run …).SpineNoAux K`.  Premise 1 of §59.5 is the monadic invariant "`newTypes[i]`'s stored ctor
+   types mention no `_nested`-prefixed constant, for every `i` not yet processed", carried through
+   `run.loop` and `replaceNoCacheT`.  This is the round's largest unbuilt piece.
+3. **Do not** restore the environment-free forms of `nfnAux_builtFresh` / `qnAux_builtFresh` unless a
+   consumer needs them (§59.2); all present consumers carry the environment.
+4. **Re-state ledger row 117c again.**  Not "no producer but `decide`" (§58 killed that), and no
+   longer "producer exists but has zero consumers": *all four production sites cite the producer,
+   `mkRestore_built_of_spine` has a consumer, the environment premise is discharged at all three
+   witness blocks with no `WF`, and the only remaining gap is the `Expr`/`VExpr` transfer for the
+   spine.*
+5. **Ledger note on the method.**  Two rounds in a row, a "this fact does not exist" claim was a
+   grep scoped by the wrong axis — first by predicate name (§58.1), then by directory (§59.1.2).
+   Both times the fact was one file away in `Theory/Typing/` or `Theory/SetModel/`. The cheap
+   defence is to grep for the *statement shape* (`grep -rn "Ordered\b"` over all of `Lean4Lean/`,
+   then filter) rather than for a name in a directory.

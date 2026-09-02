@@ -969,21 +969,11 @@ theorem nfnAuxDirty_built :
     · simp [nfnAuxDirty] at hT
   own := nfnRestore_ownId_dirty
   nodup := by decide
-  fields_noK := by
-    rintro (_ | _ | j) T hT hK C₀ hC₀ k F₀ hF₀
-    · cases hT; exact absurd hK (by decide)
-    · simp only [show pfnOcc.src.ctors = [pfnMk] from rfl, List.mem_cons,
-        List.not_mem_nil, or_false] at hC₀
-      subst hC₀
-      rcases k with _ | _ | k
-      · cases hF₀
-        exact VExpr.noConsts_instAll _ _ (by simp [VExpr.NoConsts, VExpr.instL, nfnK])
-          (by simp [pfnOcc, VExpr.NoConsts, nfnK])
-      · cases hF₀
-        exact VExpr.noConsts_instAll _ _ (by simp [VExpr.NoConsts, VExpr.instL, nfnK])
-          (by simp [pfnOcc, VExpr.NoConsts, nfnK])
-      · exact absurd hF₀ nofun
-    · simp [nfnAuxDirty] at hT
+  -- **From the producer** (`NestedBuild.lean` §F3): the environment facts are `pfnEnv_constsClosedC`
+  -- and `nfnK_not_contains`, both proved at this very `env₂`, and the residual is the spine.
+  fields_noK := fun _ _ _ _ _ hC₀ _ _ hF₀ =>
+    VNestedOcc.fields_noK_of_occurs (pfnEnv_constsClosedC h) (pfnOcc_occurs h)
+      (nfnK_not_contains h) pfnOcc_args_noK hC₀ hF₀
 
 include h in
 theorem nfnAuxDirty_admitted :
@@ -1251,5 +1241,6 @@ than merely weaker. -/
 #print axioms Lean4Lean.InductiveDeclExamples.nfnAux_ctorConstsCR_wf_general
 #print axioms Lean4Lean.InductiveDeclExamples.nfnAuxDirty_obligationA
 #print axioms Lean4Lean.InductiveDeclExamples.nfnAuxDirty_canonicalOwn
+#print axioms Lean4Lean.InductiveDeclExamples.nfnAuxDirty_built
 
 end Lean4Lean

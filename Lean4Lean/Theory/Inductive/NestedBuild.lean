@@ -1,4 +1,5 @@
 import Lean4Lean.Theory.Inductive.NestedHead
+import Lean4Lean.Theory.SetModel.Consts
 
 /-!
 # The abstract `replaceIfNested`: the auxiliary member as a *function* of `J`
@@ -736,6 +737,261 @@ theorem VInductDecl'.Built.toFresh {D : VInductDecl'} {R : VIndRestore} {K : Lis
     {env : VEnv} {occ : Nat → VNestedOcc} (h : D.Built R K env occ) : D.BuiltFresh K occ :=
   ⟨h.nodup, h.fields_noK⟩
 
+/-! ## Ruling 116d's residual: a producer for `Built.fields_noK`
+
+`fields_noK` above quantifies over *the foreign block `J`'s* constructors and fields, and was
+recorded for eight rounds as having "no producer but `decide` at a concrete block" (ledger row
+117c).  It has one, and it lives here rather than in `Theory/Inductive/NestedFresh.lean` (where it
+was first proved, handoff §58) for a module-order reason: the four `fields_noK :=` production
+sites are in **this** file, in `MemberRedex.lean` and in `RestoreBridge.lean`, and
+`NestedFresh.lean` *imports* this one — so a producer stated there can reach none of them.  What
+stays in `NestedFresh.lean` is the freshness discharge, the sharpness result
+(`fields_noK_needs_spine`: the residual spine premise is *necessary*, not merely sufficient) and
+the refutations.
+
+The fact the "no producer" record was missing is stated in this repo about a different predicate:
+`Theory/SetModel/Consts.lean`'s `VExpr.ConstsIn`, with `VEnv.ConstsClosed` as the environment
+invariant.  Hence this file's one added import.
+
+* `§F1` the `NoConsts`/`ConstsIn` bridge.
+* `§F2` the environment invariant in the exact strength that is used, plus a producer for it at
+  `addInduct'` that needs **no** `VInductDecl'.WF` — only "the block's own declared types mention
+  only names the block declares", which is `decide` at a concrete block.
+* `§F3` the producer proper: everything quantified over `J` discharged, spine residual left.
+* `§F4` `BuiltFresh` assembled. -/
+
+/-! ### §F1 `NoConsts` is `ConstsIn`, and two structural lemmas -/
+namespace VExpr
+
+/-! `NoConsts S` and `ConstsIn (· ∉ S)` are the same recursion.
+
+`NoConsts S` and `ConstsIn (· ∉ S)` are the same recursion.  Stating the identity is what lets
+the inductive corner reuse `Theory/SetModel/Consts.lean`'s environment invariant; keeping the
+two predicates apart is what hid it for eight rounds. -/
+
+/-- `NoConsts` is `ConstsIn` at the complement of `S`. -/
+theorem noConsts_iff_constsIn {S : List Lean.Name} :
+    ∀ {e : VExpr}, NoConsts S e ↔ e.ConstsIn (· ∉ S)
+  | .bvar _ | .sort _ => iff_of_true trivial trivial
+  | .const .. => .rfl
+  | .app .. | .lam .. | .forallE .. =>
+    and_congr noConsts_iff_constsIn noConsts_iff_constsIn
+
+/-- `NoConsts` ignores level arguments, so it survives `instL` in both directions. -/
+theorem noConsts_instL {S : List Lean.Name} {ls : List VLevel} {e : VExpr} :
+    NoConsts S (e.instL ls) ↔ NoConsts S e := by
+  rw [noConsts_iff_constsIn, noConsts_iff_constsIn]; exact ConstsIn.instL
+
+/-- A pi telescope's binders inherit `NoConsts` from the telescope.  Unlike
+`noConsts_splitPis` this reads the binders off the *list*, which is the form
+`VIndCtor.type` presents them in. -/
+theorem noConsts_mkPi_binders {S : List Lean.Name} :
+    ∀ {as : List VExpr} {b : VExpr}, NoConsts S (mkPi as b) → ∀ a ∈ as, NoConsts S a
+  | [], _, _ => nofun
+  | _ :: as, b, h => by
+    intro c hc
+    rcases List.mem_cons.1 hc with rfl | hc
+    · exact h.1
+    · exact noConsts_mkPi_binders (as := as) (b := b) h.2 c hc
+
+end VExpr
+/-! ### §F2 The environment premise, supplied
+
+Handoff §58.7 recorded the producer as unusable at the concrete witnesses because `env.ConstsClosed` was
+unproven at the existential environments `h : VEnv.empty.addInduct' listDecl = some env₁`.  Two
+routes exist and both are cheap.
+
+**Route A (general; the only one available for a block with no `WF` proof).**  Only the
+*constants* half of `ConstsClosed` is used — `ctorType_noConsts` applies `hcc.1` at one name — so
+§7.1 names that half and §7.2 supplies it for `addInduct'` from a premise about `D` alone: **the
+block's own declared types mention only names the block itself declares.**  No typing, no levels,
+no positivity, and nothing about the ι-rules.
+
+**Route B (free wherever a `WF` proof exists).**  `VEnv.Ordered.constsClosed`
+(`SetModel/Consts.lean`) composed with `InductiveDeclExamples.listEnv_ordered` /
+`pfnEnv_ordered` (`Theory/Typing/ConstSubstNested.lean`).  §58.6 recorded the *absence* of any
+`Ordered env₁` / `ConstsClosed env₁` fact, measured by `grep -rn "\.Ordered" Theory/Inductive`.
+That grep was scoped by **directory**; the facts are in `Theory/Typing/`.  Same
+filed-by-consumer-not-by-content failure as §58.1, one round later. -/
+
+namespace VEnv
+
+/-! #### §F2.1 The half that is used -/
+
+/-- The constants half of `VEnv.ConstsClosed`, named so it can be a hypothesis on its own.
+`fields_noK_of_occurs` uses only this. -/
+def ConstsClosedC (env : VEnv) : Prop :=
+  ∀ {n : Lean.Name} {ci : VConstant}, env.constants n = some ci → ci.type.ConstsIn env.contains
+
+theorem ConstsClosed.toC {env : VEnv} (H : env.ConstsClosed) : env.ConstsClosedC := H.1
+
+theorem Ordered.constsClosedC {env : VEnv} (H : env.Ordered) : env.ConstsClosedC :=
+  fun h => H.constsInC h
+
+theorem empty_constsClosedC : VEnv.empty.ConstsClosedC := fun h => absurd h nofun
+
+/-! #### §F2.2 Route A -/
+
+@[simp] theorem addIndRules_contains {env : VEnv} {D : VInductDecl'} {n : Lean.Name} :
+    (env.addIndRules D).contains n ↔ env.contains n := by
+  unfold VEnv.contains; rw [VEnv.addIndRules_constants]
+
+/-- `addConstList` preserves the constants half, provided each added type mentions only
+constants of the **final** environment.  Unlike `ConstsClosed.addConst` this does not ask the
+added type to be closed at the *stage* it is added, so a block whose constructor types mention
+the block's own type names — i.e. every block — is covered. -/
+theorem constsClosedC_addConstList {env' : VEnv} :
+    ∀ {cs : List (Lean.Name × VConstant)} {env : VEnv}, env.addConstList cs = some env' →
+    (∀ {n : Lean.Name} {ci : VConstant}, env.constants n = some ci →
+      ci.type.ConstsIn env'.contains) →
+    (∀ c ∈ cs, c.2.type.ConstsIn env'.contains) →
+    ∀ {n : Lean.Name} {ci : VConstant}, env'.constants n = some ci →
+      ci.type.ConstsIn env'.contains
+  | [], env, h, henv, _ => by cases h; exact henv
+  | c :: cs, env, h, henv, hcs => by
+    rw [VEnv.addConstList_cons, Option.bind_eq_some_iff] at h
+    obtain ⟨e₁, h1, h2⟩ := h
+    refine constsClosedC_addConstList h2 (fun {m cm} hm => ?_)
+      (fun d hd => hcs d (List.mem_cons_of_mem _ hd))
+    unfold VEnv.addConst at h1
+    split at h1
+    · exact absurd h1 nofun
+    · cases h1
+      simp only at hm
+      split at hm
+      · cases hm; exact hcs c (List.Mem.head _)
+      · exact henv hm
+
+end VEnv
+
+/-- **A name the block declares is in the resulting environment.** -/
+theorem VInductDecl'.addInduct'_contains {env env' : VEnv} {D : VInductDecl'}
+    (h : env.addInduct' D = some env') {n : Lean.Name} (hn : n ∈ D.allNames) :
+    env'.contains n := by
+  obtain ⟨c, hc, rfl⟩ := List.mem_map.1 hn
+  exact ⟨_, VEnv.addInduct'_constants h c hc⟩
+
+/-- **Route A.**  Declaring a block preserves the constants half of `ConstsClosed`, from a
+premise about `D` alone: every type the block declares mentions only names the block declares.
+At `env = VEnv.empty` the first hypothesis is `VEnv.empty_constsClosedC`. -/
+theorem VInductDecl'.constsClosedC_addInduct' {env env' : VEnv} {D : VInductDecl'}
+    (H : env.ConstsClosedC) (h : env.addInduct' D = some env')
+    (hc : ∀ c ∈ D.allConsts, c.2.type.ConstsIn (· ∈ D.allNames)) :
+    env'.ConstsClosedC := by
+  rw [VEnv.addInduct'_eq, Option.map_eq_some_iff] at h
+  obtain ⟨e₁, h1, rfl⟩ := h
+  have hle : env ≤ e₁ := VEnv.addConstList_le h1
+  have hmem : ∀ c ∈ D.allConsts, c.2.type.ConstsIn e₁.contains := fun c hcc =>
+    (hc c hcc).mono fun n hn => by
+      obtain ⟨c', hc', rfl⟩ := List.mem_map.1 hn
+      exact ⟨_, VEnv.addConstList_constants h1 c' hc'⟩
+  intro n ci hn
+  rw [VEnv.addIndRules_constants] at hn
+  refine (VEnv.constsClosedC_addConstList h1 (fun hm => (H hm).mono fun _ => hle.contains)
+    hmem hn).mono fun _ hx => VEnv.addIndRules_contains.2 hx
+
+#print axioms Lean4Lean.VEnv.constsClosedC_addConstList
+#print axioms Lean4Lean.VInductDecl'.constsClosedC_addInduct'
+
+/-! #### §F2.3 The side condition is decidable
+
+`ConstsIn (· ∈ S)` is the *dual* of `NoConsts S` (which is `ConstsIn (· ∉ S)`), so
+`IndexedNested.lean`'s `hasConstB` does not decide it — and that file is far downstream anyway.
+Three lines here, and Route A's premise becomes `by decide` at a concrete block. -/
+
+namespace VExpr
+
+/-- Decision procedure for `ConstsIn (· ∈ S)`. -/
+def constsInB : VExpr → List Lean.Name → Bool
+  | .bvar _, _ | .sort _, _ => true
+  | .const c _, S => S.contains c
+  | .app a b, S | .lam a b, S | .forallE a b, S => a.constsInB S && b.constsInB S
+
+theorem constsInB_iff {S : List Lean.Name} :
+    ∀ {e : VExpr}, e.constsInB S = true ↔ e.ConstsIn (· ∈ S)
+  | .bvar _ | .sort _ => iff_of_true rfl trivial
+  | .const .. => by simp [constsInB, ConstsIn]
+  | .app a b | .lam a b | .forallE a b => by
+    show (a.constsInB S && b.constsInB S) = true ↔ (a.ConstsIn _ ∧ b.ConstsIn _)
+    rw [Bool.and_eq_true]
+    exact and_congr constsInB_iff constsInB_iff
+
+end VExpr
+
+/-- **Route A, in the form a concrete block can discharge by `decide`.** -/
+theorem VInductDecl'.constsClosedC_addInduct'_of_B {env env' : VEnv} {D : VInductDecl'}
+    (H : env.ConstsClosedC) (h : env.addInduct' D = some env')
+    (hc : D.allConsts.all (fun c => c.2.type.constsInB D.allNames) = true) :
+    env'.ConstsClosedC :=
+  D.constsClosedC_addInduct' H h fun c hcc =>
+    VExpr.constsInB_iff.1 (List.all_eq_true.1 hc c hcc)
+
+#print axioms Lean4Lean.VExpr.constsInB_iff
+#print axioms Lean4Lean.VInductDecl'.constsClosedC_addInduct'_of_B
+
+
+/-! ### §F3 The producer, at one occurrence
+
+The clause quantifies over `J`'s constructors and, inside each, over its fields.  All of that
+is discharged here from **one** environment fact: `J`'s constructors are declared constants of
+`env` (`Occurs.ctor_const`), and in a constant-closed environment a declared constant's type
+mentions only declared constants (`VEnv.ConstsClosed`).  A companion name is not declared —
+that is what `hK` says — so the whole stored constructor type is `NoConsts K`, and its field
+binders with it.
+
+What is *not* discharged is `hargs`: the nested spine.  §5 shows that premise is not removable. -/
+
+namespace VNestedOcc
+variable {N : VNestedOcc} {env : VEnv} {K : List Lean.Name}
+
+/-- **`J`'s stored constructor types are companion-free.**  The single environment step. -/
+theorem ctorType_noConsts (hcc : env.ConstsClosedC) (ho : N.Occurs env)
+    (hK : ∀ n ∈ K, ¬ env.contains n) {C₀ : VIndCtor} (hC₀ : C₀ ∈ N.src.ctors) :
+    VExpr.NoConsts K (C₀.type N.decl N.idx) :=
+  VExpr.noConsts_iff_constsIn.2 <|
+    (hcc (ho.ctor_const C₀ hC₀)).mono fun n hn hnK => hK n hnK hn
+
+/-- **`Built.fields_noK`'s body, at one occurrence, as a theorem.**
+
+The three premises are, in order: the environment invariant every well-formed environment
+satisfies (`VEnv.Ordered.constsClosed`), the occurrence's own `Occurs` record, the freshness of
+the companion names (§4: free from the step's staging success), and cleanliness of the nested
+spine (§5: irreducibly a hypothesis, but one about `N.decl.np` expressions, decidable by
+`VExpr.decidableNoConsts`, rather than about all of `J`'s fields). -/
+theorem fields_noK_of_occurs (hcc : env.ConstsClosedC) (ho : N.Occurs env)
+    (hK : ∀ n ∈ K, ¬ env.contains n) (hargs : ∀ a ∈ N.args, VExpr.NoConsts K a)
+    {C₀ : VIndCtor} (hC₀ : C₀ ∈ N.src.ctors) {k : Nat} {F₀ : VIndField}
+    (hF₀ : C₀.fields[k]? = some F₀) :
+    VExpr.NoConsts K (VExpr.instAll (F₀.type.instL N.lvls) N.args k) := by
+  refine VExpr.noConsts_instAll _ _ (VExpr.noConsts_instL.2 ?_) hargs
+  refine VExpr.noConsts_mkPi_binders (ctorType_noConsts hcc ho hK hC₀) _ ?_
+  exact List.mem_append_right _ (List.mem_map_of_mem (List.mem_of_getElem? hF₀))
+
+end VNestedOcc
+
+/-! ### §F4 `BuiltFresh`, assembled
+
+`VInductDecl'.Built.occurs` is already one of `Built`'s clauses, so a caller building a `Built`
+has `hocc` in hand by construction; §4 gives `hK`; only `hargs` is new. -/
+
+/-- **`VInductDecl'.BuiltFresh`, from the occurrence records plus freshness.** -/
+theorem VInductDecl'.builtFresh_of_occurs {D : VInductDecl'} {K : List Lean.Name} {env : VEnv}
+    {occ : Nat → VNestedOcc} (hcc : env.ConstsClosedC) (hnd : D.blockNames.Nodup)
+    (hocc : ∀ j T, D.types[j]? = some T → T.name ∈ K → (occ j).Occurs env)
+    (hK : ∀ n ∈ K, ¬ env.contains n)
+    (hargs : ∀ j T, D.types[j]? = some T → T.name ∈ K →
+      ∀ a ∈ (occ j).args, VExpr.NoConsts K a) :
+    D.BuiltFresh K occ where
+  nodup := hnd
+  fields_noK j T hT hKT _C₀ hC₀ _k _F₀ hF₀ :=
+    VNestedOcc.fields_noK_of_occurs hcc (hocc j T hT hKT) hK (hargs j T hT hKT) hC₀ hF₀
+#print axioms Lean4Lean.VExpr.noConsts_iff_constsIn
+#print axioms Lean4Lean.VExpr.noConsts_instL
+#print axioms Lean4Lean.VExpr.noConsts_mkPi_binders
+#print axioms Lean4Lean.VNestedOcc.ctorType_noConsts
+#print axioms Lean4Lean.VNestedOcc.fields_noK_of_occurs
+#print axioms Lean4Lean.VInductDecl'.builtFresh_of_occurs
+
 /-- **`Faithful` is a consequence of the construction.**  This is `docs/handoff-nested-restore.md`
 §7.1: `ctors_complete` and `ctor_agree` stop being hypotheses. -/
 theorem VInductDecl'.Built.toFaithful {D : VInductDecl'} {R : VIndRestore}
@@ -1064,6 +1320,33 @@ theorem listOcc_occurs : listOcc.Occurs env₁ where
     · exact listNil_const h
     · exact listCons_const h
 
+omit h in
+/-- The `listDecl` block's own declared types — `List`, both constructors and the recursor —
+mention only names `listDecl` itself declares.  §F2's Route A premise, by `decide`. -/
+theorem listDecl_selfConsts :
+    listDecl.allConsts.all (fun c => c.2.type.constsInB listDecl.allNames) = true := by decide
+
+/-- **`ConstsClosedC` at the `NTree` step's history environment.**  Handoff §58.7 recorded this
+as the missing fact that made the producer unusable at the concrete witnesses.  Note what it does
+*not* need: no `listDecl.WF`, no `Ordered`, no levels, no positivity.  (Route B —
+`InductiveDeclExamples.listEnv_ordered.constsClosed`, `Theory/Typing/ConstSubstNested.lean` —
+also works, but lives two modules downstream of here, so it cannot reach this site.) -/
+theorem listEnv_constsClosedC : env₁.ConstsClosedC :=
+  listDecl.constsClosedC_addInduct'_of_B VEnv.empty_constsClosedC h listDecl_selfConsts
+
+omit h in
+/-- §F3's residual: the nested spine `[NTree α]` mentions no companion name.  **One** `decide`,
+over one expression, in place of the old per-field computation over all of `List`'s fields. -/
+theorem listOcc_args_noK : ∀ a ∈ listOcc.args, VExpr.NoConsts ntreeK a := by decide
+
+/-- The companion name is not in the history environment: §F3's `hK`. -/
+theorem ntreeK_not_contains : ∀ n ∈ ntreeK, ¬ env₁.contains n := by
+  intro n hn
+  have hnm : n ∉ listDecl.allNames := by revert hn; revert n; decide
+  rintro ⟨ci, hc⟩
+  rw [VEnv.addInduct'_constants_of_not_mem h hnm] at hc
+  exact absurd hc nofun
+
 /-- **The companion member is built, not supplied.**  This is what replaces
 `ntreeRestore_faithful`'s three clauses. -/
 theorem ntreeAux_built :
@@ -1075,23 +1358,10 @@ theorem ntreeAux_built :
     · simp [ntreeAux] at hT
   occurs := fun _ _ _ _ => listOcc_occurs h
   nodup := by decide
-  fields_noK := by
-    rintro (_ | _ | j) T hT hK C₀ hC₀ k F₀ hF₀
-    · cases hT; exact absurd hK (by decide)
-    · cases hT
-      simp only [show listOcc.src.ctors = [listNil, listCons] from rfl, List.mem_cons,
-        List.not_mem_nil, or_false] at hC₀
-      obtain rfl | rfl := hC₀
-      · exact absurd hF₀ nofun
-      · rcases k with _ | _ | k
-        · cases hF₀
-          exact VExpr.noConsts_instAll _ _ (by simp [VExpr.NoConsts, VExpr.instL, ntreeK])
-            (by simp [listOcc, VExpr.NoConsts, ntreeK])
-        · cases hF₀
-          exact VExpr.noConsts_instAll _ _ (by simp [VExpr.NoConsts, VExpr.instL, ntreeK])
-            (by simp [listOcc, VExpr.NoConsts, ntreeK])
-        · exact absurd hF₀ nofun
-    · simp [ntreeAux] at hT
+  -- **From the producer** (§F3), not by computation over `List`'s fields.
+  fields_noK := fun _ _ _ _ _ hC₀ _ _ hF₀ =>
+    VNestedOcc.fields_noK_of_occurs (listEnv_constsClosedC h) (listOcc_occurs h)
+      (ntreeK_not_contains h) listOcc_args_noK hC₀ hF₀
   tyName := by
     rintro (_ | _ | j) T hT hK
     · cases hT; exact absurd hK (by decide)
@@ -1558,32 +1828,39 @@ theorem pfnOcc_occurs : pfnOcc.Occurs env₂ where
     subst hC; exact pfnMk_const h
 
 omit h in
-/-- **The freshness half of `Built`, on its own** — it does not mention the environment, so it
-is available to any caller of the general bridge, `nfnAux_built'`
-(`Verify/Inductive/NestedRestoreWit.lean`) included. -/
+theorem pfnDecl_selfConsts :
+    pfnDecl.allConsts.all (fun c => c.2.type.constsInB pfnDecl.allNames) = true := by decide
+
+/-- **`ConstsClosedC` at the `NFn` step's history environment**, by Route A (§F2). -/
+theorem pfnEnv_constsClosedC : env₂.ConstsClosedC :=
+  pfnDecl.constsClosedC_addInduct'_of_B VEnv.empty_constsClosedC h pfnDecl_selfConsts
+
+omit h in
+theorem pfnOcc_args_noK : ∀ a ∈ pfnOcc.args, VExpr.NoConsts nfnK a := by decide
+
+theorem nfnK_not_contains : ∀ n ∈ nfnK, ¬ env₂.contains n := by
+  intro n hn
+  have hnm : n ∉ pfnDecl.allNames := by revert hn; revert n; decide
+  rintro ⟨ci, hc⟩
+  rw [VEnv.addInduct'_constants_of_not_mem h hnm] at hc
+  exact absurd hc nofun
+
+/-- **The freshness half of `Built`.**  `fields_noK` now comes **from the producer** (§F3), which
+costs it the environment hypothesis `h` — the previous proof computed over `PFn`'s fields and
+mentioned no environment.  Both of its consumers (`nfnAux_built` below and `nfnAux_built'`,
+`Verify/Inductive/NestedRestoreWit.lean`) already carry `h`, measured, so nothing downstream loses
+generality; but the *statement* is weaker than it was, and that is the price of connecting the
+producer at a concrete block. -/
 theorem nfnAux_builtFresh : nfnAux.BuiltFresh nfnK (fun _ => pfnOcc) where
   nodup := by decide
-  fields_noK := by
-    rintro (_ | _ | j) T hT hK C₀ hC₀ k F₀ hF₀
-    · cases hT; exact absurd hK (by decide)
-    · cases hT
-      simp only [show pfnOcc.src.ctors = [pfnMk] from rfl, List.mem_cons,
-        List.not_mem_nil, or_false] at hC₀
-      subst hC₀
-      rcases k with _ | _ | k
-      · cases hF₀
-        exact VExpr.noConsts_instAll _ _ (by simp [VExpr.NoConsts, VExpr.instL])
-          (by simp [pfnOcc, VExpr.NoConsts, nfnK])
-      · cases hF₀
-        exact VExpr.noConsts_instAll _ _ (by simp [VExpr.NoConsts, VExpr.instL])
-          (by simp [pfnOcc, VExpr.NoConsts, nfnK])
-      · exact absurd hF₀ nofun
-    · simp [nfnAux] at hT
+  fields_noK := fun _ _ _ _ _ hC₀ _ _ hF₀ =>
+    VNestedOcc.fields_noK_of_occurs (pfnEnv_constsClosedC h) (pfnOcc_occurs h)
+      (nfnK_not_contains h) pfnOcc_args_noK hC₀ hF₀
 
 theorem nfnAux_built :
     nfnAux.Built nfnRestore nfnK env₂ (fun _ => pfnOcc) where
-  nodup := nfnAux_builtFresh.nodup
-  fields_noK := nfnAux_builtFresh.fields_noK
+  nodup := (nfnAux_builtFresh h).nodup
+  fields_noK := (nfnAux_builtFresh h).fields_noK
   member := by
     rintro (_ | _ | j) T hT hK
     · cases hT; exact absurd hK (by decide)
@@ -1740,5 +2017,15 @@ the two `CanonicalOwn` witnesses that replaced `member_Canonical`. -/
 #print axioms Lean4Lean.VInductDecl'.CanonicalOwn.on
 #print axioms Lean4Lean.InductiveDeclExamples.nfnAux_canonicalOwn
 #print axioms Lean4Lean.InductiveDeclExamples.ntreeAux_canonicalOwn
+#print axioms Lean4Lean.InductiveDeclExamples.listDecl_selfConsts
+#print axioms Lean4Lean.InductiveDeclExamples.listEnv_constsClosedC
+#print axioms Lean4Lean.InductiveDeclExamples.listOcc_args_noK
+#print axioms Lean4Lean.InductiveDeclExamples.ntreeK_not_contains
+#print axioms Lean4Lean.InductiveDeclExamples.ntreeAux_built
+#print axioms Lean4Lean.InductiveDeclExamples.pfnDecl_selfConsts
+#print axioms Lean4Lean.InductiveDeclExamples.pfnEnv_constsClosedC
+#print axioms Lean4Lean.InductiveDeclExamples.pfnOcc_args_noK
+#print axioms Lean4Lean.InductiveDeclExamples.nfnK_not_contains
+#print axioms Lean4Lean.InductiveDeclExamples.nfnAux_builtFresh
 
 end Lean4Lean
