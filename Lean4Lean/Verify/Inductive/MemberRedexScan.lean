@@ -17,7 +17,8 @@ reason `CanonGapMeasure.lean` does, the duplicate-name check — so it must NEVE
   **is** the β-redex `(fun x => MJ) k`, and it **does** carry an induction hypothesis.  Both halves
   matter: the first is what makes `VNestedOcc.field`'s stored type faithful, the second is what
   makes its `recArg = none` unfaithful.
-* §2 — the coverage measurement.  For every safe block in the running environment that has a
+* §2 — the coverage measurement, **guarded** (four `throwError`s, added 2026-09-02: the figures
+  used to be `logInfo`-only, i.e. a report rather than a statement -- ledger row 118f's mistake).  For every safe block in the running environment that has a
   nested-shaped field, `ElimNestedInductive.run` is applied and every auxiliary constructor field
   is classified by three predicates: the **syntactic** one the recogniser uses today, the
   **head-β** one `VNestedOcc.field` adds, and the **whnf** one the implementation itself uses
@@ -179,16 +180,34 @@ partial def mrcWhnf (names : List Name) (t : Expr) : MetaM Bool := do
     mr/cov:   COVERED by one head-β step (VNestedOcc.field): {covered}\n\
     mr/cov:   RESIDUAL after the repair: {residual} in \
     {residualBlocks.eraseDups.length} block(s) {residualBlocks.eraseDups.take 20}"
-  if residual = 0 then
-    logInfo "mr/cov: the head-β second chance covers EVERY field in the running environment that \
-      the current recogniser misclassifies, so the repair is adequate on the population that \
-      matters.  It is still narrower than `isRecArg` in principle -- a redex under a binder, or \
-      one that needs δ, would need `isRecArg`'s full loop -- and that residue is named, not \
-      measured away."
-  else
-    logInfo s!"mr/cov: {residual} field(s) would STILL be misclassified after the head-β \
-      repair -- the repair must be strengthened to `isRecArg`'s full loop (whnf at every \
-      pi-stripping step), and VNestedOcc.field as written is not enough."
+  -- **Guards, not reports.**  Ledger row 118f: a `logInfo`-only `#eval` is not a measurement,
+  -- and until 2026-09-02 the "3/3 coverage, residual 0" figure was `logInfo`-only -- it traced to
+  -- notes rather than to anything that could fail.  These four `throwError`s are what make it a
+  -- machine-checked statement of this file.  Three of them are the claim; the first two are its
+  -- anti-vacuity dual, because a scan that walked nothing, or found nothing to fix, would satisfy
+  -- the other two trivially (row 118d: without it, a reject-everything check passes).
+  if tried = 0 || fields = 0 then
+    throwError "mr/cov: the scan walked {tried} block(s) and {fields} field(s) -- an empty \
+      population, so every coverage figure below it is vacuous.  Either ElimNestedInductive.run \
+      is failing everywhere or cgmWalkCtor's nested test is broken."
+  if defect = 0 then
+    throwError "mr/cov: DEFECT is 0 across {tried} block(s) and {fields} field(s) -- then the \
+      repair (VNestedOcc.field's head-β branch) fixes nothing on this population and the \
+      `3 of 3 covered` claim is vacuous.  Either the whnf transcription (mrcWhnf) or the \
+      syntactic one (mrcSyn) is wrong."
+  unless defect = covered do
+    throwError "mr/cov: {covered} of {defect} defect(s) covered by one head-β step -- the \
+      `3 of 3` claim in Theory/Inductive/MemberRedex.lean and ledger row 119c is FALSE on the \
+      current environment."
+  unless residual = 0 do
+    throwError "mr/cov: {residual} field(s) in {residualBlocks.eraseDups.length} block(s) \
+      {residualBlocks.eraseDups.take 20} would STILL be misclassified after the head-β repair \
+      -- the repair must be strengthened to `isRecArg`'s full loop (whnf at every pi-stripping \
+      step), and VNestedOcc.field as written is not enough."
+  logInfo "mr/cov: GUARDED -- population non-empty, at least one defect, every defect covered by \
+    one head-β step, residual 0.  So the repair is adequate on the population that matters.  It \
+    is still narrower than `isRecArg` in principle -- a redex under a binder, or one that needs \
+    δ, would need `isRecArg`'s full loop -- and that residue is named, not measured away."
 
 end MRScanCov
 end Lean4Lean

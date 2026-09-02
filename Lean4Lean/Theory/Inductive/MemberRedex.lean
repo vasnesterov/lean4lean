@@ -526,6 +526,20 @@ theorem mr_auxNodeB_not_canonical : ¬ mrAuxNodeB.Canonical (mrAux mrAuxNodeB) :
   intro h
   exact absurd (h 1 _ _ rfl rfl) (by decide)
 
+/-- **…and at the block level**, which is the form every downstream hypothesis is stated in
+(`VInductDecl'.Canonical`, the `hcanon` of `Theory/Inductive/NestedRules.lean`'s iota section and
+of `NestedTele.lean`, and a conjunct of the `AddInductive.run` specification in
+`Verify/Inductive/RunIdentity.lean`).  So at a block whose companion carries a redex-headed
+recursive field — three in the running environment, per
+`Verify/Inductive/MemberRedexScan.lean` — **every one of those statements is vacuous**, and the
+`run` specification's `D.Canonical` conjunct is unprovable.  That is the deletion's real cost,
+and it is a cost the deletion *revealed* rather than created: the lemma that used to discharge it
+was proving something false. -/
+theorem mr_auxNodeB_block_not_canonical : ¬ (mrAux mrAuxNodeB).Canonical :=
+  fun h => mr_auxNodeB_not_canonical (h 1 mrAuxNodeB
+    (by rw [show (mrAux mrAuxNodeB).ctorsAll = [((0 : Nat), mrObj), (1, mrAuxNodeB)] from rfl]
+        exact List.Mem.tail _ (List.Mem.head _)))
+
 /-- …and the general reason, with no witness in it: a redex-headed stored type is never
 `r.canonType`. -/
 theorem mr_not_canonical_general {D : VInductDecl'} {C : VIndCtor} {i : Nat} {F : VIndField}
@@ -747,6 +761,397 @@ is *discharged* by `A := F.type` rather than being a hole.  The reading to carry
   free win.
 -/
 
+
+/-! ## 8. The measurement §7 could not make: `Built ∧ WF.pos`'s `none` branch, INSTANTIATED
+
+§7 audits the `field`-level statements one at a time.  What it leaves with an empty witness
+column is the row that matters most — `built_wf_forces_escape` / `built_wf_of_escape_false`,
+whose hypothesis set is `D.Built ∧ D.WF ∧ addIndTypes ∧ hnone ∧ hnone2` **jointly**.  `DgWit`
+cannot fill it: `dgOcc` carries no environment, so `Built.occurs` is unreachable there, and
+`MRWit` cannot either, because at `MRWit` the repair makes `hnone2` **false** (`mr_recogB`).
+So after the repair **neither existing witness reaches the branch**, and a green
+`built_wf_forces_escape` might have been green for want of an instance.
+
+This section supplies the instance.  `QJ`/`QN` is `PFn`/`NFn` (`NestedBuild.lean` Part 9) with
+the higher-order field replaced by a **`Prop` field**: a companion field whose substituted type
+is block-free and unrecognised, i.e. the one shape that lands in the repaired `none` branch.
+The instance is degenerate in every coordinate the ledger's blindness 7 names — `D.params = []`
+(nil telescope), `D.uvars = 0` (zero grade), and the field is field `0`, so its context is
+`Γ = []` — and it is *not* degenerate by emptiness: the constructor has a second field, which
+takes the `some` branch, so `fieldsFrom` is not the empty list and `Built.member` is an equation
+between two-field constructors.
+
+Result: `qn_pos_none_forced` is `built_wf_forces_escape` with **every** hypothesis discharged by
+computation, so the branch is a real obligation and not an empty one; and `qn_escape_free` shows
+its conclusion is *also* provable outright here, so the residue at this instance is **empty** —
+which is what makes `qn_not_escape_false` true, i.e. **`built_wf_of_escape_false` has no witness
+at this instance either.** -/
+
+namespace QNWit
+
+/-- The source block: a parameterised inductive whose *first* field is `Prop`. -/
+inductive QJ (α : Type) where
+  | mk : Prop → α → QJ α
+
+/-- …nested. -/
+inductive QN where
+  | node : QJ QN → QN
+
+def qjMk : VIndCtor where
+  name := ``QJ.mk
+  params := [.sort (.succ .zero)]
+  fields :=
+    [{ type := .sort .zero, lvl := .succ .zero, recArg := none },
+     { type := .bvar 1, lvl := .succ .zero, recArg := none }]
+  args := []
+
+def qjType : VIndType where
+  name := ``QJ
+  type := .forallE (.sort (.succ .zero)) (.sort (.succ .zero))
+  indices := []
+  ctors := [qjMk]
+
+def qjDecl : VInductDecl' where
+  uvars := 0
+  params := [.sort (.succ .zero)]
+  lvl := .succ .zero
+  isLE := true
+  types := [qjType]
+
+example : qjType.type = (vconst(type_of% @QJ)).type := rfl
+example : qjMk.type qjDecl 0 = (vconst(type_of% @QJ.mk)).type := rfl
+example : qjDecl.recType 0 = (vconst(type_of% @QJ.rec)).type := rfl
+
+def qnOcc : VNestedOcc where
+  decl := qjDecl
+  idx := 0
+  lvls := []
+  args := [.const ``QN []]
+  auxName := `_nested.QJ_1
+  ctorName n := if n = ``QJ.mk then `_nested.QJ_1.mk else n
+
+def qnRestore : VIndRestore where
+  tyName j := if j = 1 then ``QJ else ``QN
+  tyLvls _ := []
+  tyArgs j := if j = 1 then [.const ``QN []] else []
+  ctorName n := if n = `_nested.QJ_1.mk then ``QJ.mk else n
+  recName n := if n = `_nested.QJ_1.rec then ``QN.rec_1 else n
+
+def qnNode : VIndCtor where
+  name := ``QN.node
+  params := []
+  fields := [{ type := .const `_nested.QJ_1 [], lvl := .succ .zero,
+               recArg := some { binders := [], idx := 1, args := [] } }]
+  args := []
+
+/-- The companion constructor, written out — and checked against the construction by
+`qjAuxMk_built`.  Field `0` is the **`none` branch** (a `Prop`), field `1` the `some` one. -/
+def qjAuxMk : VIndCtor where
+  name := `_nested.QJ_1.mk
+  params := []
+  fields :=
+    [{ type := .sort .zero, lvl := .succ .zero, recArg := none },
+     { type := .const ``QN [], lvl := .succ .zero,
+       recArg := some { binders := [], idx := 0, args := [] } }]
+  args := []
+
+def qnAux : VInductDecl' where
+  uvars := 0
+  params := []
+  lvl := .succ .zero
+  isLE := true
+  types :=
+    [{ name := ``QN, type := .sort (.succ .zero), indices := [], ctors := [qnNode] },
+     { name := `_nested.QJ_1, type := .sort (.succ .zero), indices := [],
+       ctors := [qjAuxMk] }]
+
+def qnK : List Lean.Name := [`_nested.QJ_1]
+
+/-! ### The construction computes the written-out companion, and it is anchored on Lean -/
+
+theorem qjAuxMk_built : qnOcc.ctor qnAux.header qnRestore qjMk = qjAuxMk := rfl
+
+theorem qnAux_member_built :
+    qnAux.types[1]? = some (qnOcc.member qnAux.header qnRestore) := rfl
+
+example : qnNode.typeR qnAux qnRestore 0 = (vconst(type_of% @QN.node)).type := rfl
+example : qnAux.recTypeR qnRestore 0 = (vconst(type_of% @QN.rec)).type := rfl
+example : qnAux.recTypeR qnRestore 1 = (vconst(type_of% @QN.rec_1)).type := rfl
+
+/-! ### The degenerate coordinates, stated so they cannot drift -/
+
+theorem qnAux_params_nil : qnAux.params = [] := rfl
+theorem qnAux_uvars_zero : qnAux.uvars = 0 := rfl
+theorem qnOcc_args_len : qnOcc.args.length = 1 := rfl
+
+/-- The field's own context is **empty**: no parameters, and it is field `0`. -/
+theorem qn_field0_ctx :
+    ((((qnOcc.ctor qnAux.header qnRestore qjMk).fields.take 0).map (·.type)).reverse
+      ++ qnAux.params.reverse) = [] := rfl
+
+/-- …and the instance is **not** degenerate by emptiness: the constructor has two fields, and
+field `1` takes the *other* branch. -/
+theorem qjAuxMk_two_fields : (qnOcc.ctor qnAux.header qnRestore qjMk).fields.length = 2 := rfl
+
+theorem qjAuxMk_field1_recArg :
+    ((qnOcc.ctor qnAux.header qnRestore qjMk).fields.getD 1 default).recArg
+      = some { binders := [], idx := 0, args := [] } := rfl
+
+/-! ### The two recognition hypotheses of the repaired `none` branch -/
+
+theorem qn_recog_none :
+    qnRestore.recog qnAux.header.nm 0
+      (VExpr.instAll ((qjMk.fields.getD 0 default).type.instL qnOcc.lvls) qnOcc.args 0)
+      = none := rfl
+
+theorem qn_recog_betaHead_none :
+    qnRestore.recog qnAux.header.nm 0
+      (betaHead (VExpr.instAll ((qjMk.fields.getD 0 default).type.instL qnOcc.lvls)
+        qnOcc.args 0)) = none := rfl
+
+/-- So `field` lands in the repaired `none`-`none` branch at field `0`. -/
+theorem qn_field0_none_branch :
+    qnOcc.field qnAux.header qnRestore 0 (qjMk.fields.getD 0 default)
+      = { type := .sort .zero, lvl := .succ .zero, recArg := none } :=
+  qnOcc.field_eq_none_branch qn_recog_none qn_recog_betaHead_none
+
+/-! ### `WF` and `Built`, at a real environment -/
+
+section
+variable {env₂ : VEnv} (h : VEnv.empty.addInduct' qjDecl = some env₂)
+include h
+
+theorem qj_const : env₂.constants ``QJ = some ⟨0, qjType.type⟩ :=
+  VEnv.addInduct'_types h (List.Mem.head _)
+
+theorem qjMk_const : env₂.constants ``QJ.mk = some ⟨0, qjMk.type qjDecl 0⟩ :=
+  VEnv.addInduct'_ctors h (List.Mem.head _)
+
+omit h in
+theorem qn_const_staged {env₃ : VEnv} (hs : env₂.addIndTypes qnAux = some env₃) :
+    env₃.constants ``QN = some ⟨0, .sort (.succ .zero)⟩ :=
+  VEnv.addConstList_constants hs (``QN, ⟨0, .sort (.succ .zero)⟩) (by exact List.Mem.head _)
+
+omit h in
+theorem qjaux_const_staged {env₃ : VEnv} (hs : env₂.addIndTypes qnAux = some env₃) :
+    env₃.constants `_nested.QJ_1 = some ⟨0, .sort (.succ .zero)⟩ :=
+  VEnv.addConstList_constants hs (`_nested.QJ_1, ⟨0, .sort (.succ .zero)⟩)
+    (by exact List.Mem.tail _ (List.Mem.head _))
+
+omit h in
+theorem qnAux_WF : qnAux.WF env₂ where
+  types_ne := by simp [qnAux]
+  params := trivial
+  types := by
+    intro T hT
+    simp only [qnAux, List.mem_cons, List.not_mem_nil, or_false] at hT
+    obtain rfl | rfl := hT <;>
+      exact { indices := trivial, isType := ⟨_, by type_tac⟩, canon := ⟨_, by type_tac⟩ }
+  ctors := by
+    intro env₃ hs j T hT C hC
+    have hn := qn_const_staged hs
+    have hp := qjaux_const_staged hs
+    match j, hT with
+    | 0, hT =>
+      simp only [qnAux] at hT
+      cases hT
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at hC
+      subst hC
+      refine { params_len := rfl, params_eq := .zero, fields := ?_, args_len := rfl,
+               args_fresh := nofun, args_ty := .nil, result := by type_tac }
+      intro i F hF
+      match i, hF with
+      | 0, hF =>
+        simp only [qnNode, List.getElem?_cons_zero, Option.some.injEq] at hF
+        subst hF
+        exact { hasType := by type_tac
+                level := fun ls => by simp [VLevel.eval, qnAux, Lean.Nat.imax]
+                binders_indep := fun r hr => by
+                  cases hr; intro _ _ _ _ _ _ k B hB; simp at hB
+                pos := ⟨by decide, rfl, nofun, nofun, trivial, by type_tac,
+                        fun T' hT' => by cases hT'; exact .nil, _, by type_tac⟩ }
+      | (_ + 1), hF => simp [qnNode] at hF
+    | 1, hT =>
+      simp only [qnAux] at hT
+      cases hT
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at hC
+      subst hC
+      refine { params_len := rfl, params_eq := .zero, fields := ?_, args_len := rfl,
+               args_fresh := nofun, args_ty := .nil, result := by type_tac }
+      intro i F hF
+      match i, hF with
+      | 0, hF =>
+        simp only [qjAuxMk, List.getElem?_cons_zero, Option.some.injEq] at hF
+        subst hF
+        exact { hasType := by type_tac
+                level := fun ls => by simp [VLevel.eval, qnAux, Lean.Nat.imax]
+                binders_indep := nofun
+                pos := ⟨.sort .zero, by simp [VInductDecl'.NoBlock, VExpr.NoConsts],
+                        ⟨.succ .zero, by type_tac⟩⟩ }
+      | 1, hF =>
+        simp only [qjAuxMk, List.getElem?_cons_succ, List.getElem?_cons_zero,
+          Option.some.injEq] at hF
+        subst hF
+        exact { hasType := by type_tac
+                level := fun ls => by simp [VLevel.eval, qnAux, Lean.Nat.imax]
+                binders_indep := fun r hr => by
+                  cases hr; intro _ _ _ _ _ _ k B hB; simp at hB
+                pos := ⟨by decide, rfl, nofun, nofun, ⟨trivial, _, by type_tac⟩, by type_tac,
+                        fun T' hT' => by cases hT'; exact .nil, _, by type_tac⟩ }
+      | (_ + 2), hF => simp [qjAuxMk] at hF
+  isLE := fun _ => .inl (by simp [VLevel.IsNeverZero, VLevel.eval, qnAux])
+
+omit h in
+theorem qnRestore_ownId : qnRestore.OwnId qnAux qnK where
+  tyName := by
+    rintro (_ | _ | j) T hT hK
+    · cases hT; rfl
+    · cases hT; exact absurd (by decide) hK
+    · simp [qnAux] at hT
+  tyLvls := by
+    rintro (_ | _ | j) T hT hK
+    · cases hT; rfl
+    · cases hT; exact absurd (by decide) hK
+    · simp [qnAux] at hT
+  tyArgs := by
+    rintro (_ | _ | j) T hT hK
+    · cases hT; rfl
+    · cases hT; exact absurd (by decide) hK
+    · simp [qnAux] at hT
+  recName := by
+    rintro (_ | _ | j) T hT hK
+    · cases hT; rfl
+    · cases hT; exact absurd (by decide) hK
+    · simp [qnAux] at hT
+  ctorName := by
+    rintro (_ | _ | j) T hT hK C hC
+    · cases hT
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at hC
+      subst hC; rfl
+    · cases hT; exact absurd (by decide) hK
+    · simp [qnAux] at hT
+
+theorem qnOcc_occurs : qnOcc.Occurs env₂ where
+  hist := ⟨_, _, h, .rfl⟩
+  idx_lt := by decide
+  lvls_len := rfl
+  args_len := rfl
+  ty_const := qj_const h
+  ctor_params := by
+    intro C hC
+    simp only [show qnOcc.src.ctors = [qjMk] from rfl, List.mem_cons, List.not_mem_nil,
+      or_false] at hC
+    subst hC; rfl
+  ctor_const := by
+    intro C hC
+    simp only [show qnOcc.src.ctors = [qjMk] from rfl, List.mem_cons, List.not_mem_nil,
+      or_false] at hC
+    subst hC; exact qjMk_const h
+
+omit h in
+theorem qnAux_builtFresh : qnAux.BuiltFresh qnK (fun _ => qnOcc) where
+  nodup := by decide
+  fields_noK := by
+    rintro (_ | _ | j) T hT hK C₀ hC₀ k F₀ hF₀
+    · cases hT; exact absurd hK (by decide)
+    · cases hT
+      simp only [show qnOcc.src.ctors = [qjMk] from rfl, List.mem_cons,
+        List.not_mem_nil, or_false] at hC₀
+      subst hC₀
+      rcases k with _ | _ | k
+      · cases hF₀
+        exact VExpr.noConsts_instAll _ _ (by simp [VExpr.NoConsts, VExpr.instL])
+          (by simp [qnOcc, VExpr.NoConsts, qnK])
+      · cases hF₀
+        exact VExpr.noConsts_instAll _ _ (by simp [VExpr.NoConsts, VExpr.instL])
+          (by simp [qnOcc, VExpr.NoConsts, qnK])
+      · exact absurd hF₀ nofun
+    · simp [qnAux] at hT
+
+theorem qnAux_built : qnAux.Built qnRestore qnK env₂ (fun _ => qnOcc) where
+  nodup := qnAux_builtFresh.nodup
+  fields_noK := qnAux_builtFresh.fields_noK
+  member := by
+    rintro (_ | _ | j) T hT hK
+    · cases hT; exact absurd hK (by decide)
+    · cases hT; rfl
+    · simp [qnAux] at hT
+  occurs := fun _ _ _ _ => qnOcc_occurs h
+  tyName := by
+    rintro (_ | _ | j) T hT hK
+    · cases hT; exact absurd hK (by decide)
+    · rfl
+    · simp [qnAux] at hT
+  tyLvls := by
+    rintro (_ | _ | j) T hT hK
+    · cases hT; exact absurd hK (by decide)
+    · rfl
+    · simp [qnAux] at hT
+  tyArgs := by
+    rintro (_ | _ | j) T hT hK
+    · cases hT; exact absurd hK (by decide)
+    · rfl
+    · simp [qnAux] at hT
+  ctorName_inv := by
+    rintro (_ | _ | j) T hT hK C hC
+    · cases hT; exact absurd hK (by decide)
+    · simp only [show qnOcc.src.ctors = [qjMk] from rfl, List.mem_cons,
+        List.not_mem_nil, or_false] at hC
+      subst hC; rfl
+    · simp [qnAux] at hT
+  own := qnRestore_ownId
+
+theorem qn_fresh (n : Lean.Name) (hn : n ∈ [``QN, `_nested.QJ_1]) :
+    env₂.constants n = none := by
+  rw [VEnv.addInduct'_constants_of_not_mem h (by revert hn; revert n; decide)]
+  rfl
+
+theorem qnAux_staged_exists : ∃ env₃, env₂.addIndTypes qnAux = some env₃ :=
+  VEnv.addConstList_eq_some_iff.2 ⟨fun n hn => qn_fresh h n hn, by decide⟩
+
+/-! ### The measurement
+
+`built_wf_forces_escape`, with **every** hypothesis discharged: `Built` and `WF` at the
+environment `QJ` was just declared into, `addIndTypes` by `qnAux_staged_exists`, and the two
+recognition hypotheses by `rfl`.  So the repaired `none` branch is a **reachable** obligation and
+not an empty one. -/
+theorem qn_pos_none_forced {env₃ : VEnv} (hst : env₂.addIndTypes qnAux = some env₃) :
+    ∃ A, qnAux.NoBlock A ∧ env₃.IsDefEqType 0 [] (.sort .zero) A :=
+  built_wf_forces_escape (K := qnK) (occ := fun _ => qnOcc) (j := 1)
+    (qnAux_built h) qnAux_WF hst rfl (by decide) (List.Mem.head _) rfl
+    qn_recog_none qn_recog_betaHead_none
+
+omit h in
+/-- …and the same statement, existentially in the environment, so no hypothesis is left. -/
+theorem qn_pos_none_forced' :
+    ∃ (env₂ env₃ : VEnv), VEnv.empty.addInduct' qjDecl = some env₂ ∧
+      env₂.addIndTypes qnAux = some env₃ ∧
+      ∃ A, qnAux.NoBlock A ∧ env₃.IsDefEqType 0 [] (.sort .zero) A := by
+  obtain ⟨e₂, h₂⟩ : ∃ e, VEnv.empty.addInduct' qjDecl = some e := ⟨_, rfl⟩
+  obtain ⟨e₃, h₃⟩ := qnAux_staged_exists h₂
+  exact ⟨e₂, e₃, h₂, h₃, qn_pos_none_forced h₂ h₃⟩
+
+end
+
+/-- **…and the escape is FREE here, for any environment.**  The stored type is `Prop`, which is
+block-free on the nose, so `A := F.type` discharges the `none` branch outright.  This is what
+makes the branch *reachable but empty* at this instance: the obligation exists and costs
+nothing. -/
+theorem qn_escape_free (env : VEnv) :
+    ∃ A, qnAux.NoBlock A ∧ env.IsDefEqType 0 [] (VExpr.sort .zero) A :=
+  ⟨.sort .zero, by simp [VInductDecl'.NoBlock, VExpr.NoConsts], .succ .zero, by type_tac⟩
+
+/-- **So `built_wf_of_escape_false` has no witness here either.**  Its `hesc` premise is the
+negation of `qn_escape_free`, hence false at this instance — exactly as `hnone2` is false at
+`MRWit`.  Stated rather than left to be inferred: the two escape theorems are now a matched pair
+of *conditionals*, and **neither has a reachable instance in this tree at which its residue is
+non-empty.** -/
+theorem qn_not_escape_false (env : VEnv) :
+    ¬ ¬ ∃ A, qnAux.NoBlock A ∧ env.IsDefEqType 0 [] (VExpr.sort .zero) A :=
+  fun hn => hn (qn_escape_free env)
+
+end QNWit
+
 #print axioms Lean4Lean.MRedex.recog_none_of_lamHead
 #print axioms Lean4Lean.MRedex.fieldO_eq_none_branch
 #print axioms Lean4Lean.MRedex.built_wf_forces_escape
@@ -776,6 +1181,7 @@ is *discharged* by `A := F.type` rather than being a hole.  The reading to carry
 #print axioms Lean4Lean.MRedex.MRWit.mr_ctor_built
 #print axioms Lean4Lean.MRedex.MRWit.mr_pos_beta
 #print axioms Lean4Lean.MRedex.MRWit.mr_auxNodeB_not_canonical
+#print axioms Lean4Lean.MRedex.MRWit.mr_auxNodeB_block_not_canonical
 #print axioms Lean4Lean.MRedex.MRWit.mr_not_canonical_general
 #print axioms Lean4Lean.MRedex.listOcc_field_eq_fieldO_0
 #print axioms Lean4Lean.MRedex.listOcc_field_eq_fieldO_1
@@ -786,6 +1192,25 @@ is *discharged* by `A := F.type` rather than being a hole.  The reading to carry
 #print axioms Lean4Lean.MRedex.DgWit.dg_field_recArg_none
 #print axioms Lean4Lean.MRedex.DgWit.dg_skips_betaHead_fires
 #print axioms Lean4Lean.MRedex.DgWit.dg_betaHead_nontrivial
+
+/-! §8's declarations: the instantiated `none` branch. -/
+#print axioms Lean4Lean.MRedex.QNWit.qjAuxMk_built
+#print axioms Lean4Lean.MRedex.QNWit.qnAux_member_built
+#print axioms Lean4Lean.MRedex.QNWit.qn_field0_ctx
+#print axioms Lean4Lean.MRedex.QNWit.qjAuxMk_two_fields
+#print axioms Lean4Lean.MRedex.QNWit.qjAuxMk_field1_recArg
+#print axioms Lean4Lean.MRedex.QNWit.qn_recog_none
+#print axioms Lean4Lean.MRedex.QNWit.qn_recog_betaHead_none
+#print axioms Lean4Lean.MRedex.QNWit.qn_field0_none_branch
+#print axioms Lean4Lean.MRedex.QNWit.qnAux_WF
+#print axioms Lean4Lean.MRedex.QNWit.qnAux_builtFresh
+#print axioms Lean4Lean.MRedex.QNWit.qnAux_built
+#print axioms Lean4Lean.MRedex.QNWit.qnOcc_occurs
+#print axioms Lean4Lean.MRedex.QNWit.qnAux_staged_exists
+#print axioms Lean4Lean.MRedex.QNWit.qn_pos_none_forced
+#print axioms Lean4Lean.MRedex.QNWit.qn_pos_none_forced'
+#print axioms Lean4Lean.MRedex.QNWit.qn_escape_free
+#print axioms Lean4Lean.MRedex.QNWit.qn_not_escape_false
 
 end MRedex
 end Lean4Lean
