@@ -4095,3 +4095,250 @@ with `PreludeRecGap` **1210 jobs**, exit 0 (the new module elaborates in ~2 s);
 `Equiconsistency.lean:57` — the main `↔`). No full
 `lake build`, no guards, no `sorry-census`, no `dup-names`, no `MemberRedexScan`, no
 `lean_build` MCP call.
+
+## 21. Session of 2026-09-02 (fourteenth): the sharpest open question, **answered affirmatively** — `Iff.rec`'s cell is SATISFIABLE, and *both* its slices are now closed
+
+Brief: build `iffRecFn`, or show the `Iff.rec` cell is unsatisfiable. §20.6 called this the sharpest
+open question in the corner, because `RecGap.preludeWitness_not_mem_interp_iffRecType` is a
+**negation** and a negation is free if `⟦Iff.rec's type⟧` is empty at `u.eval ls ≠ 0`.
+
+**Answer: SATISFIABLE.** `IffLargeAudit.iffRecFn_mem_interp_iffRecType` exhibits a member. So §1 of
+`PreludeRecGap.lean` is a genuine refutation of the shared witness, not a free negation, and the gap
+is provably *repairable*. All of it landed in one new file,
+`Lean4Lean/Theory/SetModel/IffRecLarge.lean` (1154 lines, namespace `Lean4Lean.SetModel.IffLargeAudit`,
+86 theorems, no `sorry`), imported from `Theory/Equiconsistency.lean` on the same edit. No existing
+file was changed except that import line. `PreludeSpec.lean` is **untouched**.
+
+**And the deliverable is larger than the brief asked for.** With the `≠ 0` machinery in place the
+`= 0` slice — `IffAudit` §7's fourth table row, recorded there as OPEN — came out in seven short
+lemmas plus twenty-five lines, so what landed is the **whole `Iff.rec` `consts` cell**
+(`oracleOK_IffRec`, both level slices, one `OracleOK`), plus the **joint** repair of the shared
+witness at both `Eq.rec` and `Iff.rec` (`preludeWitnessRR`).
+
+### 21.1 The value, stated
+
+`iffRecFn κ nu = λ a b motive min h, (min ‘ •) ‘ •` — five `mkLam` layers, environment-passing
+style, at the innermost valuation `snoc⁵ ∅ a b f min h` reading `0,1,2,3,4`. The body is
+`(ρ ‘ 3) ‘ • ‘ •`: the minor premise **applied to two points**, where `Eq.rec`'s body was the minor
+premise itself. The two points are the denotations of `Iff.intro`'s fields `mp : a → b` and
+`mpr : b → a`, both proofs.
+
+Why it is legal: `h ∈ ⟦Iff a b⟧` forces `a = b` (by `IffSpec`) and `h = •`; at `a = b` both field
+spaces are `⟦a → a⟧`, and a proposition is a subset of `{•}`, so `•` inhabits each; the minor
+premise's own type then *is* `f ‘ •`, which is `f ‘ h`.
+
+### 21.2 Where the brief is wrong
+
+Four places.
+
+1. **The framing was binary and under-scoped.** "Build `iffRecFn`, or show the cell is
+   unsatisfiable" left out the object that was actually reachable: the `= 0` slice. `IffOracle.lean`
+   §7 lists `• ∈ ⟦Iff.rec's type⟧` at `u.eval = 0` as OPEN *and predicts in prose that it needs
+   `iffFn`'s faithfulness in both directions, i.e. the model-side shadow of `propext`*. That
+   prediction is **refuted, measured**: `Lean4Lean.SetModel.propext_of_mem_UProp` is **not in the
+   cone** of `pt_mem_interp_iffRecType_of_zero` (checked with the type-and-value cone,
+   `allowOpaque := true`). `EqZeroSlice.lean` §6's counter-costing is confirmed, for the reason it
+   gave. So the honest deliverable is a whole cell, and the brief's cost axis (one slice) would have
+   stopped a stream one lemma short of it.
+2. **"One genuinely new cost: two nested function spaces and a constructor application inside the
+   motive's argument, with no counterpart in the `Eq` work" — half right, and the half that is wrong
+   is the one it emphasised.** The *constructor application* has an exact counterpart:
+   `EqZeroAudit.isProof_reflC1_ctxM` discards `Eq.refl α` for precisely the same reason
+   (`Lean.Nat.imax _ 0 = 0`), and `IffLargeAudit.isProof_introC3` is its twin — three lemmas, no new
+   mathematics. What has no counterpart is that the two field spaces are **propositional**: their
+   codomains are `Prop`, so `interp` takes the *impredicative* `mkForallProp` branch at each, which
+   needed a genuinely new combinator (`mkForallProp_ext`, the analogue of
+   `EqLargeAudit.mkForallType_ext`) and made the minor premise's domain a **four**-`_ext` match
+   where `Eq`'s motive was two. That is the new cost, and it is a `mkForallProp` cost, not a
+   constructor cost.
+3. **A cost the brief did not price at all, and it is where I lost the most time.**
+   `IffAudit.hasType_introAp_ctxQ` builds the constructor's saturated application as one four-fold
+   `.appDF` chain, so the **intermediate types never appear** — and `interp`'s `app` clause tests
+   exactly those. `trace_state` prints them as unreduced `.inst` chains
+   (`(…forallE…).inst (.bvar 4) (0+1)).inst (.bvar 3)`), which is not an answer. I had to
+   `deriving instance Repr for VExpr` in a scratch file and `#eval` the chain to get
+   `Iff.intro a b mp : ∀ (_ : b → a), Iff a b`, i.e.
+   `.forallE (.forallE (.bvar 3) (.bvar 5)) (iffAp (.bvar 5) (.bvar 4))` at `ictxQ`. **Measured, not
+   read off**; no hover, reference search, or reading of `IffOracle.lean` would have produced it.
+4. **`EqZeroSlice.lean` §6's "inhabitation is `pt_mem_mkForallProp_self` below and costs nothing"
+   is right about the fact and wrong about the lemma.** That lemma's `G` and `F` are *constant*
+   functions (`fun _ ↦ p`, `fun _ _ ↦ p`), but the oracle must read its domains out of the valuation
+   (`Definability.lean`'s "read the environment, do not capture"), so `G ρ = ρ ‘ i`. It does not
+   apply. Measured: `pt_mem_mkForallProp_self` is **not** in my cone. Replaced by two four-line
+   lemmas, `pt_mem_impSet01` / `pt_mem_impSet10`.
+
+Where the brief is **right**, and confirmed by running: 5 layers not 6; no index, so the motive's
+domain is a single `mkForallType` (`NEAudit.iff_indices = []`); both parameters over `UProp` (they
+are over `U κ 0`, and `U_zero` is `rfl`, so the two spellings are interchangeable at no cost);
+`iffIndDecl.recUvars = 1`, so `eqRecVal`'s two-element `match` becomes a one-element one
+(`iffRecVal`); the `≠ 0` exclusion is free; the level-branch obstruction is already proved. And
+"repairing only the `Eq.rec` arm lands a witness the `Iff.rec` refutation still kills" — right, which
+is why §21.5 lands both arms and not one.
+
+### 21.3 PROVED
+
+| result | statement |
+|---|---|
+| `iffRecFn_mem_interp_iffRecType` | **the `≠ 0` slice**: `iffRecFn M.κ (u.eval M.ls) ∈ ⟦(iffIndDecl.recType 0).instL [u]⟧ ∅` at `u.eval M.ls ≠ 0`, from `IffSpec M` alone |
+| `pt_mem_interp_iffRecType_of_zero` | **the `= 0` slice** — `IffAudit` §7's fourth row, CLOSED, from `IffSpec M` alone, **no model-side `propext`** |
+| `oracleOK_IffRec` | **the whole `consts` cell at `Iff.rec`**, both slices, one `OracleOK`, arbitrary `κ`, no chain hypothesis |
+| `iffRecCell_discriminates`, `iffRecFn_ne_pt` | the anti-vacuity controls, in the `RecGap.repair_discriminates` form |
+| `mkForallProp_ext` | the missing combinator (the `mkForallType_ext` analogue) |
+| `isProof_introC3` + `hasType_introC3`/`Ty` | `Iff.intro a b mp` **is a proof**, at every level valuation |
+| `impSet01_eq_interp_mpTy`, `impSet10_eq_interp_mprTy` | the two field spaces, matched to `interp` — used by **both** slices |
+| `minSet_eq_interp_minTyI`, `motSetI_eq_interp_motTyI` | the two domains the oracle spells for itself |
+| `preludeWitnessRR` + 14 theorems | the **joint** repair (§21.5) |
+
+`interp_iffAp_bvars`, `interp_majTyI_val`, `interp_resI_val`, `interp_minBody_val` are the four
+interpretation values at the closed context; the `snoc` reads are `EqZeroAudit`'s `r2_*`–`r5_*`
+**instantiated verbatim** — `Iff.rec`'s five-entry tower `a,b,f,min,h` sits at the same indices as
+`Eq.rec`'s first five, so no new ladder was needed. That is the single cheapest reuse in the file.
+
+### 21.4 The `= 0` slice, and why it is not free the way `Nonempty`'s was
+
+At `u.eval = 0` the minor premise is **itself** a proposition (`minSortI u` evaluates to `u.eval`),
+so `interp` takes the impredicative branch there too and `minSet` does **not** apply — `minSet` is
+`≠ 0`-only. The `= 0` slice therefore goes through `mem_interp_forallE_prop_iff` five times and then
+uses the two field-space matchings (§21.3) to extract `• ∈ f ‘ •` from the minor premise. Seven new
+`isProp_*_of_zero` lemmas, all one-liners off `IffAudit`'s `sort*_eval_eq_zero_iff`.
+
+### 21.5 The joint repair — both arms, one witness
+
+`RecGap.preludeWitnessR` repairs only `Eq.rec`, and `RecGap.preludeWitness_not_mem_interp_iffRecType`
+still refutes it (now that §21.3 shows that theorem is not vacuous, this is a real objection, not a
+bookkeeping one). `IffLargeAudit.preludeWitnessRR` adds the fifth arm
+`else if n = ``Iff.rec then iffRecVal κ ls us`, and:
+
+* the three `*Spec` witnesses transfer **verbatim** (`preludeWitnessRR_eq` / `_iff` / `_nonempty`,
+  `preludeSpecRR_satisfiable`) — an arm added after the first three is invisible to them;
+* `preludeWitnessRR_cnst_eq` is **still `rfl`** at `us = [w]`, so the type-former cell survives
+  (`oracleOK_Eq_preludeWitnessRR`, `mem_interp_EqType_preludeWitnessRR`);
+* both recursor cells are discharged at the *same* assignment:
+  `oracleOK_IffRec_preludeWitnessRR` and `oracleOK_EqRec_preludeWitnessRR`;
+* `Nonempty.rec` is untouched and still `•` (`preludeWitnessRR_mem_interp_neRecType`), which
+  `NEAudit.oracleOK_NE_rec` depends on;
+* `joint_repair_discriminates` gives the control at **both** cells at one witness and one
+  interpretation each, and `joint_repair_changes_the_iffRec_value` shows the `Iff.rec` entry really
+  changes. As in §20.4, both halves are stated at `interp (preludeWitnessRR κ ls)` deliberately:
+  `interp` at the two witnesses is extensionally equal but not `rfl`-equal, and **no `interp`
+  constant-congruence lemma exists**.
+
+**What the joint repair still needs** (unperformed, and the thing to pick up first): the relocation
+`PreludeRecGap.lean`'s header describes, now roughly doubled. The `Iff` side adds `impSet`,
+`minSet`, `motSetI`, `lamHI`, `lamNI`, `lamFI`, `lamBI`, `iffRecFn`, `iffRecVal` and their nine
+definability lemmas to the eight `Eq`-side definitions already listed — about **nineteen**
+declarations to move into `PreludeSpec.lean`. Measured constraint, not reasoning: those definitions
+use only `mkLam`, `mkForallType`, `mkForallProp`, their `_definable` lemmas (`Interp.lean`,
+`Definability.lean`), `pt`, `U`, and `iffFn`/`eqFn` (`PreludeSpec.lean` itself), so nothing they need
+is downstream. Everything *else* in this file — every `hasType_*`, `isProp_*`, `interp_*_val` — can
+stay downstream, because only the `cnst` arm's *value* has to move.
+
+### 21.6 The kernel trap, **reproduced and worse at five arms**
+
+§20.4a's finding replicates. The naive `preludeWitnessRR_congr_Eq` — degenerate branch (`us` of
+length ≥ 2, both sides `∅`) closed by `rfl` — is rejected with `(kernel) deterministic timeout`,
+after elaborating cleanly, and `#print axioms` on the rejected declaration prints **`does not depend
+on any axioms`**. New datum: at five arms it takes between **two and eight minutes of wall clock**
+before the kernel gives up, where at four arms the previous stream saw it promptly. So the trap
+**scales with the number of `if` arms**, which is exactly the number the relocation keeps adding.
+Fix is §20.4a's: name the `Eq` arm once by `simp` (`preludeWitnessRR_cnst_Eq_arm`) and never let
+`rfl` see the cascade; landed as `preludeWitnessRR_congr_Eq` (§14.1 of the file). Every
+`preludeWitnessRR_cnst_*` in the file is `simp`, never `rfl`, for this reason.
+
+### 21.7 What I tried that failed, and the step it failed at
+
+* `rw [show (3 - 1 - 2 : ℕ) = 0 from rfl]` after `simp only [List.length_cons, List.length_nil]` —
+  **failed at "No goals to be solved"**. `simp only` reduces the `Nat` subtraction literal and closes
+  the goal by `rfl` *when the two indices coincide*. It does **not** close it when the read has to be
+  peeled (`σ3 ‘ 1` versus `(snoc σ3 x) ‘ 1`), and there the explicit `show`-rw plus
+  `EqZeroAudit.read_peel` is required. The rule, which no handoff states: the `show`-rw is needed
+  exactly at the *peeling* steps, not at the coinciding ones. Two of my four numeral steps were of
+  each kind.
+* `(by rw [interp_sort])` for the two `U κ 0` binder domains — **failed at "unsolved goals"**: `rw`'s
+  terminal `rfl` will not unfold `VLevel.eval ls .zero` to `0`. Fix: `rw [interp_sort]; rfl`. This is
+  new in the family — `EqRecLarge`'s outermost domain is at a level *variable* `v`, so no reduction is
+  ever needed there. Any block with a `Prop`-valued parameter will hit it.
+* Reading `Iff.intro a b mp`'s type off `IffOracle.lean` — **failed at the `.inst` chain** (§21.2
+  item 3). Recovered by `#eval` with a derived `Repr`.
+* The naive `preludeWitnessRR_congr_Eq` — **failed at the KERNEL**, not at elaboration (§21.6).
+* Reusing `EqZeroAudit.pt_mem_mkForallProp_self` for the field spaces' inhabitation — **failed at
+  unification**: its `G`/`F` are constant, mine read the valuation (§21.2 item 4). Not attempted past
+  the `refine`.
+
+### 21.8 Bounds, and what is NOT discharged
+
+**Axioms, `#print axioms` by namespace** (not by filename — this file declares into
+`Lean4Lean.SetModel.IffLargeAudit`, while the names it reuses live in `Lean4Lean.SetModel`,
+`…IffAudit`, `…EqZeroAudit`, `…EqLargeAudit`, `…RecGap`): all 86 `#print axioms` lines resolve (one per theorem, no duplicates);
+47 report `[propext, Classical.choice, Quot.sound]`, 38 report `[propext, Quot.sound]`, and
+`iffIndDecl_recUvars` reports none. **No `sorryAx`, no new `sorry`, none traded, no frozen-axiom
+dependency.**
+
+**Cone, over type *and* value, `allowOpaque := true`**, in an environment importing `IffRecLarge`
+plus `Theory.Typing.{AppCodType0, Injectivity, UniqueTyping, ChurchRosser}`. **All four big holes
+`present = true`** (`IsDefEqU.forallE_inv_stratified`, `WF.rigidShapeUniqNS`, `IsDefEqU.weakN_iff`,
+`NormalEq.descend`) — checked, because `descend` reads absent without `ChurchRosser` and every cone
+then looks clean. Both controls fire: `piInv_axiom` cone 3576, `sorryAx true`, 2 holes;
+`WF.sortUniq'` cone 3441, `sorryAx true`, 1 hole. **All 26 seeds: 0 holes, `sorryAx false`**
+(cones 1491–8533).
+
+`Above` **does not occur** in the file except in two prose lines; `oracleOK_of` discharges both
+`OracleOK` fields with `Above.pure`, so no `IsInaccessibleChain` hypothesis is used and **no `κ` is
+chosen** — every statement is at an arbitrary `κ : ℕ → V`. The anti-vacuity controls here need **no**
+parameter-space inhabitant at all (`IffAudit.pt_not_mem_interp_iffRecType_of_ne` carries none,
+because `Iff`'s outermost binder is a parameter over `Prop` and `∅ ∈ U κ 0` at every `κ`), so unlike
+`EqRecLarge` §7 there is no `hx` whose satisfiability and necessity has to be argued. The
+three-point scale grades the negative controls, and these are the negative controls.
+
+**Hole-free is not discharged.** Still open, none of it claimed:
+
+* `InductOracleOK` at `iffIndDecl` is **not assembled**. This file closes one of three `consts`
+  cells. The other two are `IffAudit` §7's rows: `Iff ↦ iffFn ∈ ⟦Prop → Prop → Prop⟧` (template:
+  `EqTFAudit.eqFn_mem_interp_EqType`) and `Iff.intro ↦ •`. The **`rules` field** (one ι-rule,
+  `iffIndDecl.iotaRules.length = 1`) is not done either.
+* `eqIndDecl`'s `rules` field is still not done (unchanged from §20.8 item 3).
+* The relocation and the real `PreludeSpec.lean` edit are unperformed (§21.5).
+* `NEAudit.nonempty_propSplit_preludeEnv` prints `sorryAx`, so **nothing here is "sorry-free at
+  `preludeEnv`"** through it. Everything above is parametric in `L : PropSplit envF nv`.
+* The machine-checked bad-model control at `Nonempty.rec` (§20.3) still does not exist.
+
+**Tooling, named.** I used none of `lean_references`, `lean_local_search`, `lean_hammer_premise`, so
+I neither confirm nor refute the brief's claims about them. My enumeration tool was `grep -rn` over
+`Lean4Lean/**/*.lean` — treat it as a **floor**. Ground truth for the cone and the axioms is the
+compiler: `lake build`, `#print axioms`, and a `lake env lean` cone script. The one shape
+measurement (`Iff.intro a b mp`'s type) was `#eval` with a derived `Repr`, which is also the
+compiler.
+
+### 21.9 What to pick up first
+
+1. **The relocation and the real edit** to `PreludeSpec.lean`, at **both** arms, in one step
+   (§21.5). Nineteen declarations, mechanical by the import-graph measurement, and **measure the
+   kernel-timeout surface first** (§21.6): the trap scales with arm count and the relocation adds
+   arms.
+2. **`Iff`'s other two `consts` cells** — the type-former and `Iff.intro ↦ •`. Both should now be
+   short: the whole context ladder (`onCtxI_M` … `onCtxI_Qb`), the proof/value split, and
+   `interp_iffAp_bvars` are in this file, and `Iff.intro`'s type *is* a proposition
+   (`IffAudit` §7 says so, and `isProof_introC3` is the same computation one application further in).
+3. **The two ι-rules.** `EqRecLarge` §10.1's argument is block-generic — `VInductDecl'.iotaRules_WF`
+   from `D.IotaCtx env`, produced by `VInductDecl'.WF.iotaCtx` from three staged `addConstList`s,
+   all `rfl` at `VEnv.empty` — so `iffIndDecl`'s rule's *typing* should be free the same way.
+   **Not run**, so this is an argument from the shape of the lemma, not a measurement.
+4. The `Nonempty.rec` bad-model control, if that cell is ever quoted as more than "correct by
+   `isLE = false`".
+
+### 21.10 Files touched this session
+
+* `Lean4Lean/Theory/SetModel/IffRecLarge.lean` — **new**, 1154 lines, no `sorry`, 86 theorems,
+  86 `#print axioms` lines (all resolving, all `Lean4Lean.SetModel.IffLargeAudit.*`).
+* `Lean4Lean/Theory/Equiconsistency.lean` — one import line, added on the same edit as the file.
+* `docs/handoff-setmodel.md` — this section.
+
+Per-module `lake build` job counts, all exit 0: `Lean4Lean.Theory.SetModel.PreludeRecGap`
+**1210 jobs** (baseline); `Lean4Lean.Theory.SetModel.IffRecLarge` **1211 jobs** (the new module
+elaborates in ~9 s); `lake build Lean4Lean.Theory.Equiconsistency` **1247 jobs**, validating the
+import line. The five `declaration uses 'sorry'` warnings are the pre-existing ones
+(`Inductive/Decl.lean:561`, `Typing/Injectivity.lean:261` and `:1046`,
+`Typing/UniqueTyping.lean:190`, `Equiconsistency.lean:58` — the main `↔`; the last two line numbers
+differ from §20.9's because of my import line and another stream's edit to `Decl.lean`). No full
+`lake build`, no guards, no `sorry-census`, no `dup-names`, no `MemberRedexScan`, no `lean_build`
+MCP call.
