@@ -105,9 +105,20 @@ def mrcSyn (names : List Name) (e : Expr) : Bool :=
 /-- The same after one **head-β** contraction — what `VNestedOcc.field` adds. -/
 def mrcBeta (names : List Name) (e : Expr) : Bool := mrcSyn names e.headBeta
 
-/-- `AddInductive.isRecArg`'s own loop (`Lean4Lean/Inductive/Add.lean`): `whnf` at every step. -/
+/-- `AddInductive.isRecArg`'s own loop (`Lean4Lean/Inductive/Add.lean`): `whnf` at every step.
+
+**The loose-bvar guard is load-bearing and the `try`/`catch` below could not do its job without
+it.**  `Meta.whnf` on an expression with a loose bvar does not throw — it **panics**, and a Lean
+`panic!` prints to stderr and returns the `Inhabited` default, so `catch` never fires and `whnf`
+hands back an arbitrary expression.  Before this guard the scan panicked **nine times** per run
+(`PANIC at Lean.Meta.whnfEasyCases … loose bvar in expression`), which was visible only as
+stderr noise: all four `throwError` guards below still passed, because none of them can detect
+that a `whnf` result was fabricated.  So every coverage figure this scan has ever reported was
+computed partly from default values.  Skipping `whnf` where the term is not closed in the local
+context is the conservative choice: it can only make `mrcWhnf` return `false` where it used to
+return garbage, so a *defect* can disappear but none can be invented. -/
 partial def mrcWhnf (names : List Name) (t : Expr) : MetaM Bool := do
-  let t ← try Meta.whnf t catch _ => pure t
+  let t ← if t.hasLooseBVars then pure t else try Meta.whnf t catch _ => pure t
   match t with
   | .forallE n d b bi =>
     Meta.withLocalDecl n bi d fun x => mrcWhnf names (b.instantiate1 x)
@@ -155,15 +166,29 @@ partial def mrcWhnf (names : List Name) (t : Expr) : MetaM Bool := do
       let mut blockResidual := false
       for t in res.types do
         for c in t.ctors do
-          -- walk the constructor's syntactic pi spine; binders past `numParams` are fields
-          let rec walk (i : Nat) : Expr → List Expr
-            | .forallE _ dom body _ => (if i < v.numParams then [] else [dom]) ++ walk (i+1) body
-            | _ => []
-          for dom in walk 0 c.type do
+          -- Walk the constructor's pi spine; binders past `numParams` are fields.
+          --
+          -- **The binders MUST be instantiated as we descend, and the previous version did not
+          -- do it.**  It recursed into `body` with loose bvars intact, so every domain at depth
+          -- `k` carried up to `k` loose bvars; `mrcWhnf` then called `Meta.whnf` on them, which
+          -- does not throw but **panics** and returns the `Inhabited` default.  Nine panics per
+          -- run, invisible to all four guards below, and every coverage figure this scan has
+          -- reported was computed partly from fabricated `whnf` results.  The three verdicts are
+          -- therefore computed here, *inside* the enclosing `withLocalDecl`s, where each domain
+          -- is closed; only `Bool`s leave the scope, so no free variable escapes it.
+          let rec walk (i : Nat) : Expr → MetaM (List (Bool × Bool × Bool))
+            | .forallE n dom body bi => do
+              let here : List (Bool × Bool × Bool) ←
+                if i < v.numParams then pure [] else do
+                  let syn := mrcSyn anames dom
+                  let hb := mrcBeta anames dom
+                  let wh ← mrcWhnf anames dom
+                  pure [(syn, hb, wh)]
+              let rest ← Meta.withLocalDecl n bi dom fun x => walk (i + 1) (body.instantiate1 x)
+              return here ++ rest
+            | _ => return []
+          for (syn, hb, wh) in ← walk 0 c.type do
             fields := fields + 1
-            let syn := mrcSyn anames dom
-            let hb := mrcBeta anames dom
-            let wh ← mrcWhnf anames dom
             if wh && !syn then
               defect := defect + 1
               blockDefect := true

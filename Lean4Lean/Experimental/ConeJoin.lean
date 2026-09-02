@@ -159,6 +159,7 @@ import Lean4Lean.Verify.Typing.ProjWeakInvSplit  -- 2026-09-02: weak'_inv split 
 import Lean4Lean.Verify.TypeChecker.EtaResidual  -- 2026-09-02: both eta .WFs from StructEtaG alone -- one residual predicate where there were two each
 import Lean4Lean.Theory.SetModel.PreludeWitness  -- 2026-09-02: PreludeWF PROVED, so VEnv.LeanWF is inhabited and H2's corner is no longer about a possibly-empty class
 import Lean4Lean.Theory.Inductive.StoredIota  -- 2026-09-02: ruling 122e's witnesses -- (B), (C) and both TeleDefEq certificates instantiated at a redex block, where they were vacuous before
+import Lean4Lean.Theory.Inductive.ParamRedex  -- 2026-09-02: the parameterised redex block MP -- hrec as a GENUINE conversion (mp_obj_entry_substC_ne). Listed so the scan and census see it
 
 /-!
 # Acceptance test: the `PatternRules` cone and the `Verify/` cone join

@@ -589,3 +589,255 @@ frozen file, `Theory/SetModel/*` and `Theory/Equiconsistency.lean` (another stre
 3. **`substC_atRec_canonType_defeq`'s typing bundle at `np > 0`** — at `np = 0` it collapsed to two
    constant lookups (§12.2). What it costs when `r.binders`/`r.args` are non-empty and `D.np > 0`
    is unmeasured, and item 1 is the prerequisite for measuring it.
+
+---
+
+# Round 3 (2026-09-02, third stream): the parameterised redex block BUILT, and row 129b corrected
+
+Written by the stream that took §17 item 1 — with one change of target, argued below.  Same
+convention: **measured** means the figure is quoted from tool output on this tree; *read off source*
+means I read text, not a measurement.  New file: `Theory/Inductive/ParamRedex.lean` (~760 lines,
+56 theorems, no `sorry`).
+
+## 18. Bottom line, and the correction that matters most
+
+| question | answer |
+|---|---|
+| Is there now a block that is **both** a redex block **and** parameterised? | **Yes**: `MRedex.MPWit.mpAux mpAuxNodeB`, `np = 1` (`mpAuxB_np_one`), `¬ Canonical` (`mpAuxB_not_canonical`), transcribed from a real Lean declaration whose `MP.rec_1` stores `(fun x => MP α) k`. |
+| Is §T15.7's `hrec` a genuine **conversion** there? | **Yes, measured.** `mp_obj_entry_substC_ne` (`decide`): the two sides differ. Both sides are computed (`mp_obj_entry_stored`, `mp_obj_entry_restored`, both `rfl`) and the difference is exactly one β step (`mp_obj_entry_betaHead`, `rfl`). |
+| Does §T16.1 produce it? | **Yes**, `mp_hrec_obj`, every premise discharged, and closed in a constructed `Ordered` environment (`mp_hrec_obj_closed`). `hbv` — `HasArgs.nil` at `np = 0` — is a real lookup here (`mp_hbv`). |
+| **Was the brief's claim right that this needed a redex block?** | **NO, and this is the substantive correction.** `hrec` is a conversion at **any** block with `np > 0`; redex-ness is orthogonal. Measured: `ntree_obj_entry_substC_ne` (`decide`) — the same `≠` holds at `InductiveDeclExamples.ntreeAux`, which is parameterised **and `Canonical`**. So the tree *already contained* a witness for the conversion half and nobody checked it. Row 129b's "there is no proof to find until [such a block] exists" is wrong. |
+| So what is the new block actually for? | The **joint** property: it is the first block that is *simultaneously* a block where `hcanon` is false (so ruling 122e's deletion has content) *and* parameterised (so §T15.7's obligation is a conversion). Not the only witness of either half. |
+| Do obligations (B) and (C) go through there? | **No — and not because their hypotheses are unavailable: their `np = 0` conclusions are FALSE.** Measured, three `decide`s: `mp_fieldTypes_bridge_obj_false`, `mp_recTypeR_bridge_false`, `mp_iotaRules_bridge_false`. So `hp`/`hcl0` are load-bearing, not conservative. |
+| Where does the assembly stop, then? | At the **environment**, not the telescope layer: `recConstsR_wf_of_entries`'s `hσ : (R.csubst D K).WF E₂ e₂ D.recUvars`. **And the apparatus for it exists** — `nfnSubstAll_WF₂`/`₃` at the parameterless `nfnAux`, with `nfnAux_recConstsR_wf` instantiating (B) off it — so what is missing is that template at `np = 1`. (My first draft said no such witness existed anywhere; §24.5 records the correction.) |
+| Anything the general theory says cannot be derived, and that this witness supplies? | **Yes**: `hargs`. `instAt_indep_of_tyArgs` shows `Faithful` cannot produce it when the head's type body is closed after splitting — and `MDep`'s is (`mp_split_body_closed`). `mp_hargs` supplies it by hand. |
+| New `sorry`? New frozen axiom? | **None.** Census TOTAL still **13**, every entry where it was. All **54** new theorems `[propext, Quot.sound]` or a subset. |
+
+## 19. What is proved — `Theory/Inductive/ParamRedex.lean`
+
+`MP (α : Type)` is `MRWit.MJ` with one phantom parameter, nesting through the **same**
+`MRWit.MDep`, so every coordinate row 127f/129b measured at `MJ` is comparable and **only `np`
+moves**.  Lean's own kernel runs the elimination: `MP.rec_1`'s companion minor premise has the
+field domain `(fun x => MP α) k` and carries an induction hypothesis — the same defect as at `MJ`,
+`Lean.Json` and `Lean.PrefixTreeNode`.
+
+**Reused rather than rebuilt** (the brief asked): `MRWit.MDep` and its transcription `mrNode` /
+`mrDepDecl` / `mrDepType` verbatim; `MRWit.mr_MDep_constant_wf` for the environment; the whole
+`StoredIota.lean` §1 template for the side conditions; `VIndRestore.restore_noK`,
+`substC_atRec_fieldTypes_defeq'` / `_of_noK`, `substC_atRec_canonType_defeq`,
+`substC_atRec_stored_defeq_of_canonical`, `domSep_of_allNames_nodup`.  `DgWit` and `QNWit` were
+read and are the wrong shape (as `StoredIota.lean` already recorded): they are about
+`Built.member`'s `none` branch, not about the substitution bridges.  Nothing was copied that could
+be instantiated.
+
+### 19.1 The transcription is anchored three ways, all `rfl`
+
+* `((mpAux mpAuxNodeB).types.getD 0 default).type = (vconst(type_of% @MP)).type`;
+* `mp_obj_declared`: `(mpObj.typeR … ).substC (mpRestore.csubstTy …) = (vconst(type_of% @MP.obj)).type`;
+* `mpAuxNodeB_built`: `mpOcc.ctor (mpAux mpAuxNodeB).header mpRestore mrNode = mpAuxNodeB`, and
+  `mpAux_member_built` for the member.  So the block is **what the construction computes** from
+  `MDep`'s own constructor, not a hand-written guess.
+
+(The recursor cannot be anchored — `vconst(type_of% ·)` β-reduces the redex away, which is
+`MemberRedexScan.lean`'s standing caveat and why that file exists.)
+
+### 19.2 The side conditions
+
+`mpAuxB_blockNames_nodup`, `mpAuxB_allNames_nodup`, `mpRestore_ownId` (five clauses; the `tyArgs`
+clause now has content — `bvars 0 1 = [#0]`, not `[]`), `mpRestore_substFree` (four separate
+theorems, per `StoredIota`'s blindness-7 note), `mpRestore_domNodup` / `mpRestore_domSep`,
+`mp_csubstList_dom`, `mpAuxB_pos`, `mpObj_canonical`, `mpAuxB_canonicalOwn` — so obligation (A)'s
+consumer still has its hypothesis at this block, exactly as at `MJ`.
+
+Two are **false** here and are stated as such rather than omitted:
+
+* `mpAuxB_params_ne_nil` — `hp : D.params = []` fails;
+* `mp_not_tyArgs_closed0` — `hcl0` fails, the same refutation `ntree_not_tyArgs_closed0` makes at
+  the canonical parameterised witness.  What *does* hold is closedness at `D.np`
+  (`mpRestore_tyArgs_closedNp`), which is what §T16.1 asks for.
+
+### 19.3 The conversion, and both routes to it
+
+| theorem | content |
+|---|---|
+| `mp_obj_entry_stored` | the substituted entry is `(fun α : Type => MDep Prop (fun _ => MP α)) #0` — a β-redex, because `substC` must substitute a *closed* term and the occurrence's own parameter argument stays put |
+| `mp_obj_entry_restored` | the restored entry is its contractum |
+| `mp_obj_entry_betaHead` | …and the head β-contraction of the first **is** the second (`rfl`) |
+| `mp_obj_entry_substC_ne` | **the headline measurement** (`decide`): the two differ. Contrast `MRWit.mr_obj_entry_substC_eq`, the same statement with `=` at `np = 0` |
+| `mp_hrec_obj` | §T15.7's `hrec` produced from §T16.1, premises discharged; the context must begin with the block's parameter, which `hbv` forces |
+| `mp_hrec_obj_beta` | the same conversion as one `IsDefEq.beta`, with **no** `Ordered` environment — the cheap route, recorded for the cost comparison |
+| `mp_teleDefEq_fld_obj` | the field telescope at `MP.obj`, assembled through `of_entries'`'s **right** disjunct (contrast `MRWit.mr_teleDefEq_fld_obj_free`, which takes the left) |
+| `mp_env_exists`, `mp_hrec_obj_closed` | a constructed `Ordered` environment holding `MP` and `MDep`, and the conversion in it at `Γ = [Type]` |
+
+### 19.4 …and row 127f is confirmed to be `np`-independent
+
+`mp_redex_noK`, `mp_restore_redex_id` (from `restore_noK`, plus an `example … := by decide`),
+`mp_auxFieldTypesR_eq_fields`, `mp_hrec_nodeB_vacuous`, `mp_teleDefEq_fld_stored`: at the **redex**
+field the restoration is still the identity and §T15.7 still charges nothing.  So the two findings
+separate cleanly — row 127f is about redex-ness and holds at every `np`; row 129b's degeneracy was
+about `np` and holds at no redex-ness.
+
+## 20. What is refuted
+
+1. **Row 129b's conjunction.** `hrec` is a genuine conversion at any `np > 0` block; a redex block
+   is not needed.  `ntree_obj_entry_substC_ne` (`decide`) at `ntreeAux` — parameterised and
+   `ntreeAux_Canonical`.  This is blindness kind 4 for the third time in this corner: an unproved
+   negative ("the next step is a witness, not a proof") that suppressed a three-line check.
+   The general reason was already in the tree in two places —
+   `VIndRestore.substC_tyApp_comp` ("a companion head becomes a saturated `D.np`-fold redex") and
+   `VIndRestore.instAll_tyBody` ("the contractum of a substituted companion head is the restored
+   head, exactly") — and `ntreeNode_substC_ne_typeR` is the same β-gap measured one layer over, at
+   the same canonical witness, and has been in `Theory/Typing/ConstSubstNested.lean` all along.
+2. **The `np = 0` route is not "unavailable pending work" above `np = 0`; its conclusions are
+   false.**  Three `decide`s: the strict field-telescope equation `substC_atRec_fieldTypes`
+   (`mp_fieldTypes_bridge_obj_false`), obligation (B)'s `csubst_recType_eq`
+   (`mp_recTypeR_bridge_false`), obligation (C)'s `csubst_iotaRules_eq`
+   (`mp_iotaRules_bridge_false`, compared on `VDefEq.type` — there is still no `DecidableEq VDefEq`
+   — with `mp_iotaRules_length_eq` to show it is not a length artefact).  So `hp` and `hcl0` are
+   load-bearing and §7.5–§7.7 are `np = 0` statements by necessity, not by convenience.
+
+## 21. Where the assembly stops, named — §8 of the new file
+
+`hfld` is closed at both constructors of a parameterised redex block, so §T15.8's three-item
+residual for (B)/(C) at `np > 0` loses its second item **at this block**.  What remains, *read off
+the signatures* of `VEnv.recConstsR_wf_of_entries` and `VEnv.iotaRulesRS_wf_of_components`:
+
+1. `hsrc` / `hσ` / `he₂` — a **staged environment pair** with `(R.csubst D K).WF E₂ e₂ D.recUvars`.
+   `NestedRules.lean` §8.6's `csubst_WF` reduces it to five staging successes, obligation (A)'s
+   bridge, and the `val` clause.  **My first draft of this line said "nothing in the tree constructs
+   such a pair at any witness"; that is FALSE and I caught it while checking my own §21.**
+   `Theory/Typing/ConstSubstNested.lean`'s `nfnSubstAll_WF₂` / `nfnSubstAll_WF₃` are exactly such a
+   pair (identified with the general `R.csubst` by `nfn_csubst`), and `nfnAux_recConstsR_wf`
+   instantiates obligation (B) off it.  The true statement is narrower and more useful: **`nfnAux`
+   has `np = 0`, so (B)/(C) have an instance at a parameterless block and none at any parameterised
+   block**, and the residual is *instantiating the `nfnSubstAll_WF` template at `np = 1`* — a
+   template that exists — rather than inventing an environment.
+2. `hmot` / `hmin` — §T5's and §T6's entry defeqs.  `hmin`'s `hfld` is what this file supplies.
+3. `hbody` — a head defeq under the recursor telescope.
+
+Of the `val` clause's residual, `tyVal_hasType_of_faithful` leaves `hsplit` + `hargs`, and
+`instAt_indep_of_tyArgs` proves `Faithful` cannot supply `hargs` when the presented head's type
+body is closed after splitting.  `MDep`'s **is** closed (`mp_split_body_closed`), so this block is
+exactly that configuration — and `mp_hargs` supplies the datum anyway.  So the residual on this
+path is `hσ`'s *environment*, and that is once again **apparatus, not proof**: the fourth time this
+corner has run out of witness machinery (rows 122b, 129b, and now twice over).
+
+## 22. Measurements, verbatim
+
+* `lake build`: **1505 jobs, exit 0**, zero errors anywhere; zero warnings in the new file.  (1503
+  when §11–§17 was written; +1 is `ParamRedex.lean`, +1 is another stream's commit `ecc4602`.)
+* `lake build Lean4Lean.Experimental.ConeJoin Lean4Lean.Verify.Guard`: **1431 jobs, exit 0**, guards
+  **unmoved**:
+
+      guard 1: Axioms.lean declares exactly the 24 frozen axioms ✓
+      guard 2: kernel_sound axioms within whitelist ✓ (proof INCOMPLETE: sorryAx present)
+      guard 3: checker cone implementation gaps within frozen list (2/2 remaining) ✓
+
+* `lake build Lean4Lean.Verify.Inductive.MemberRedexScan` **after `touch`ing it, i.e. recompiled
+  from source rather than replayed**: **1432 jobs**, exit 0, guarded coverage **unmoved** —
+  `48 safe blocks with a nested-shaped field, 793 auxiliary constructor fields`,
+  `DEFECT … 3 field(s) in 3 block(s) [Lean4Lean.MRedex.MRWit.MJ, Lean.Json, Lean.PrefixTreeNode]`,
+  `COVERED by one head-β step … 3`, `RESIDUAL after the repair: 0 in 0 block(s) []`.
+  **Why the counts did not move**, since the brief flagged this: `MemberRedexScan.lean` imports
+  only `Verify/Inductive/CanonGapMeasure.lean` and `Theory/Inductive/MemberRedex.lean`, and nothing
+  imports `ParamRedex.lean`, so `MP` is not in the scanned environment.  That is a fact about the
+  import graph, not a loosened guard: `MP` *would* be a fourth defect covered by one head-β step
+  (residual still 0) if it were in the cone, and it is not there because I own no file in that cone
+  that could import it without changing what the scan measures.
+* `scripts/sorry-census.lean`: **TOTAL declarations directly containing sorryAx: 13** — unchanged,
+  every entry where it was.  **No `sorry` added, none traded.**  (`ParamRedex.lean` contains the
+  string `sorry` zero times; it is not in the census's cone either, since the census imports
+  `Experimental/ConeJoin.lean` and I may not edit that file.)
+* `#print axioms` on **all 56** theorems of `ParamRedex.lean`: **45** are `[propext, Quot.sound]`,
+  **6** are `[propext]` (`mpAuxB_pos`, `mpObj_canonical`, `mp_MP_type_hasType`,
+  `mp_MP_constant_wf`, `mp_hbv`, `ntree_canonical_and_parameterised`), **5** depend on none (`mpAuxB_np_one`, `mpAuxB_params`,
+  `mpAuxB_params_ne_nil`, `mpAuxB_ctorsAll_eq`, `mpAuxB_blockNames`).  **No frozen axiom, no
+  `Classical.choice`, no `sorryAx`.**  Nothing outside the new file changed, so no existing axiom
+  set moved.
+* **One pre-existing defect observed and not mine**: recompiling `MemberRedexScan.lean` prints
+  `PANIC at Lean.Meta.whnfEasyCases … loose bvar in expression` **nine times** during its `#eval`.
+  It is non-fatal (all four `throwError` guards pass, exit 0) and it cannot be caused by this round
+  — `ParamRedex.lean` is in no import cone of that file.  Not diagnosed, not touched; recorded
+  because no previous round's measurements mention it and it looks like the scan calling `whnf` on
+  a stored field type that still has loose bvars.
+
+## 23. What I tried that failed, and the step it failed at
+
+1. **`(mrRedex`-style`) NoConsts` term with `MJ`'s nesting** — `⟨⟨trivial, show ``MP ∉ mpK …⟩, trivial⟩`
+   was rejected: *"Type mismatch … expected `VExpr.NoConsts mpK ((const MP []).app (bvar 2))`"*.
+   `mpRedex`'s inner body is an **application** (`MP #2`, because the own member is now applied to
+   the parameter) where `mrRedex`'s is a bare constant, so the conjunction is one level deeper.
+   Fixed by adding the layer.  Worth knowing: the redex's *shape* changes with `np`, so `MRWit`
+   proof terms do not transplant even when the statements do.
+2. **`(a.ClosedN n)` by `decide`** — *"failed to synthesize `Decidable ((VExpr.bvar 1).ClosedN …)`"*.
+   `ClosedN` on a `.bvar` is `i < k` under a `Nat` that is not a literal after `simp`, so there is
+   no instance.  Fixed with `Nat.lt_succ_self` / `Nat.zero_lt_one`, and the *refutation*
+   (`mp_not_tyArgs_closed0`) with `simp [VExpr.ClosedN] at this` — `decide` fails on the negation
+   too.
+3. **`.constDF hMP nofun nofun rfl .nil` inline inside `HasArgs.cons`** — *"Missing cases: _, _"*,
+   twice.  Exactly failure 1 of §15: the level list is a metavariable at that position, so `nofun`
+   cannot see it is empty.  Fixed by hoisting the constant typing into a `have` with an explicit
+   type — the same fix, in the same place, for the second round running.
+4. **Not a failure, but the near-miss worth recording, and it is the same one §15.4 records.**  I
+   was briefed that the conversion needed a block that was *both* a redex block and parameterised,
+   and I built one.  Only when writing §8 did I check whether the redex half was needed — it is
+   not (§20.1), and the check is one `decide` at a witness that has been in the tree since
+   `NestedHead.lean` was written.  **The block was still worth building** (the *joint* property is
+   real and is what ruling 122e's non-vacuity needs), but "you need a new witness" was half false,
+   and I nearly reported it as wholly true.  The pattern is now five for five in this corner:
+   every claim of the form "no witness exists" has been narrower than stated.
+
+Not attempted, deliberately: `Built.fields_noK` (out of scope by row 117c); any implementation
+file; any frozen file; `Theory/SetModel/*` and `Theory/Equiconsistency.lean` (another stream's);
+adding `ParamRedex.lean` to `Experimental/ConeJoin.lean` (not mine to edit).
+
+## 24. Ledger rows this round needs (I did not edit `docs/vacuity-ledger.md`)
+
+1. **A new row for the correction, and it should be graded harder than the achievement.**  Row
+   129b's "`hrec` is a genuine conversion only at a block that is BOTH a redex block AND
+   parameterised" is **over-conjoined**: `np > 0` alone suffices, measured at the *canonical*
+   parameterised witness (`ntree_obj_entry_substC_ne`).  The general reason was already stated
+   twice in the tree (`substC_tyApp_comp`, `instAll_tyBody`) and measured once one layer over
+   (`ntreeNode_substC_ne_typeR`).  Blindness kind 4, and the guard is specific: **before recording
+   "no witness exists", instantiate the statement at every witness in
+   `Theory/Inductive/NestedHead.lean` and `DeclExamples.lean` — there are only a handful and each
+   test is one `decide`.**
+2. **A row for what the new block does establish**: `MRedex.MPWit.mpAux mpAuxNodeB` is the first
+   block that is simultaneously a redex block (`mpAuxB_not_canonical`) and parameterised
+   (`mpAuxB_np_one`), transcribed from a real Lean declaration and checked against the construction
+   (`mpAuxNodeB_built`).  §T15.7's `hrec` is a **conversion** there (`mp_obj_entry_substC_ne`),
+   produced from §T16.1 (`mp_hrec_obj`) and closed in a constructed environment
+   (`mp_hrec_obj_closed`).  So ruling 122e's layer is now certified non-vacuous **and**
+   non-degenerate at one block.
+3. **A row for the three refutations**: at `np ≥ 1` the `np = 0` route's *conclusions* are false —
+   `substC_atRec_fieldTypes`, `csubst_recType_eq`, `csubst_iotaRules_eq`, each by `decide`.  Anyone
+   costing "lift §7.5 off `np = 0`" should read this first: there is nothing to lift, the
+   `TeleDefEq` forms are the only ones available, and that is by design.
+4. **A row for `hargs`**: `instAt_indep_of_tyArgs` says `Faithful` cannot supply it, and `MDep`'s
+   split body is closed so this block is that configuration — yet `mp_hargs` supplies it by hand.
+   So the un-derivable residual is *witness-supplyable*, which changes its grade from "open" to
+   "data, and we can produce the data".
+5. **A row for the residual's new location**: (B)/(C) at `np > 0` stop at
+   `hσ : (R.csubst D K).WF E₂ e₂ D.recUvars`.  The witness apparatus for it **exists** at the
+   parameterless block `nfnAux` (`nfnSubstAll_WF₂`/`₃`, `nfn_csubst`, `nfnAux_recConstsR_wf`), so
+   this is a *template instantiation* at `np = 1`, not missing apparatus — and my own first draft of
+   §21 said the opposite, which is the fifth instance in this corner of an over-broad "no witness
+   exists" and the second by me in one round.  **Guard: `grep` for `Subst.*_WF` in
+   `Theory/Typing/ConstSubstNested.lean` before writing that sentence.**
+
+## 25. What I would pick up first
+
+1. **`(R.csubst D K).WF E₂ e₂ D.recUvars` at `mpAux mpAuxNodeB`**, by instantiating the
+   `nfnSubstAll_WF₂`/`₃` template at `np = 1`.  Every part is present: `csubst_WF` reduces it to
+   five staging successes + (A)'s bridge + `val`; `csubst_val_cases` +
+   `tyVal_hasType_of_faithful` + **`mp_hargs`** (this round) reduce `val`; `QNWit` shows how the
+   `addIndTypes` half is built.  Why it is the top item: §20.2 shows the `np = 0` strict route is
+   **false** above `np = 0`, and the only `hσ` witness in the tree is at `np = 0`, so **(B) and (C)
+   currently have no instance at any parameterised block at all** — a sharper gap than `hargs`
+   ever was.
+2. **`hmot` / `hbody` at `mpAux mpAuxNodeB`.**  §T16.1's premises came out free here at `k = 0`;
+   the motive block needs the same head datum at larger `k`, where `hbv` is `bvars k 1` and the
+   lookup is deeper.  Cheap to try, and it would leave `hσ` as the single blocker.
+3. **`Built.fields_noK`** — still no producer but `decide` (row 117c).  Untouched for the third
+   round.
+4. **The `MemberRedexScan` PANIC** (§22, last bullet).  Pre-existing, non-fatal, undocumented.
