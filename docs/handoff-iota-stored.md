@@ -2866,3 +2866,42 @@ provably unreachable at canonical occurrences; open for stored ones".
    should now say the strengthening is *exercised at a non-empty residual* and *unreachable at a
    companion-bearing one*, with `tq_ownOcc_noConsts_of_WF` as the reason.  I did not edit
    `docs/vacuity-ledger.md`.
+
+---
+
+## 56 The stored-type case is **CLOSED, affirmatively** — and the briefing's guess about why was backwards
+
+*Written incrementally as the round ran; each subsection landed before the next was started.*
+
+**Verdict up front: CLOSED, not refuted.**  §55.7 item 1 says *"try to build a stored type defeq to
+`TQ α Prop` that syntactically reads `TQ α X` with `X` mentioning `_nested.MI_1` — I believe
+`IsDefEqType` refuses, and that refusal is the missing theorem."*  **`IsDefEqType` does not refuse,
+and there is no such theorem to find.**  Take `X := (fun y : Type => Prop) (_nested.MI_1 α Prop)`.
+One `VEnv.IsDefEq.beta` step makes `X` defeq to `Prop`; one `appDF` lifts that to
+`TQ α X ≡ TQ α Prop`.  The whole obstruction the briefing expected costs two constant lookups —
+`TQ` and `_nested.MI_1`, both of which the staged environment of `VIndCtor.WF` *already holds*,
+because `VInductDecl'.WF.ctors` checks constructors in `env.addIndTypes D`, the environment
+extended by **all** the block's type constants, companions included.  The residual of a stored
+occurrence may therefore mention a companion freely, and F7 cannot see it: F7 constrains
+`r.args`, which is the *canonical* residual.
+
+`VIndRestore.restore_ownOcc`/`restore_ownHeads` are therefore **load-bearing**, at a stored field
+type, and §55.5's negative headline is confined to canonical occurrences exactly as it was stated.
+
+### 56.1 Proved (all in `Lean4Lean/Theory/Inductive/IndexedNested.lean` §8, module green)
+
+`tqHostile := TQ #1 ((fun y : Type => Prop) (_nested.MI_1 #1 Prop))`, stored as the **second**
+field of `TQ.obj` in `tqAuxH` — §1's block with one extra stored field, the genuine nesting field
+of §1.2 unchanged as field `0` (`tq_objH_field0`, `rfl`).
+
+| what | how |
+| --- | --- |
+| `tq_hostile_uniformOcc` | trigger fires, member `0` (own), residual `[tqHostileArg]` — `decide` |
+| `tq_hostile_not_noConsts` | `restore_noK`'s hypothesis is **false** |
+| `tq_hostile_args_not_noBlock` | §6's `tq_ownOcc_noConsts_of_WF` fails **at its `hargs`**, not at its conclusion — the stored residual is not block-free |
+| `tq_hostile_ownHeads` / `tq_hostile_restore_id` | `OwnHeads` holds; restore is the identity **by `restore_ownOcc`** |
+| `example … := by decide` | the same identity computed, independently of the rule |
+| `tqRestore_ownId_H`, `tq_auxH_{blockNames,np,types0,…}` | §3's invariants transfer to `tqAuxH` (`rfl`/`decide`) |
+
+Measured: `lake build Lean4Lean.Theory.Inductive.IndexedNested` — **73 jobs**, green, no new
+warnings from §8.

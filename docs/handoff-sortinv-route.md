@@ -1491,3 +1491,268 @@ programme for this statement, and it is the mirror image of what §13.4 claimed 
      (`appUniqLvl_witness_must_break`, void) is kept in the file as the record;
    * a row for §24 item 3 — **`IsDeclRule` does not imply `ExtraSortRed`**; a δ-rule may unfold a
      constant to a sort, and `SortRed` has no δ step.
+
+---
+
+# Round 6 — `AppCodType0On`: **REFUTED**, and its repair is a collapse
+
+New file: `Lean4Lean/Theory/Typing/AppCodType0.lean` (nothing else edited; `AppUniqWF.lean`
+untouched).  Namespace `Lean4Lean.VEnv`, witness in `Lean4Lean.VEnv.CodType0Refute`.
+
+## 28. The one-line answer
+
+**`AppCodType0On` is false** — at *every* environment, *every* `U`, and *every* index `n+1`
+(`appCodType0On_false`).  So §27 item 2's "the one route in the file with no known-false
+hypothesis" is now a route with a known-false hypothesis, and
+`appUniqLvlOn_of_sortRedInv_codType0On` is vacuous exactly like its unguarded predecessor
+`appUniqLvl_of_sortRedInv_codType0`.
+
+**The brief's diagnosis of *why* the unguarded version failed is also wrong**, and that is the
+part worth keeping.  `AppUniqWF.lean` says the cause is that "`Stratified` has no regularity",
+so that a λ-term *context entry* gives a codomain instantiation typed at a Π and at no sort —
+and concludes that `OnCtx Γ (env.IsType U)`, which excludes such an entry, is the repair.  The
+real cause is one level lower and the guard does not touch it: `AppCodType0On` demands a typing
+at **index `0`**, where conversion is syntactic equality (`IsDefEqN.zero_iff`), while the
+`AppData` it consumes lives at index `n+1`.  Instantiating a Π-codomain can **create a β-redex
+whose argument is typed at the λ's annotation only from index 1 up**, and such a term is
+`⊢₀`-typeable at *nothing at all* — in any context, however well-formed.
+
+## 28.1 The witness
+
+`SubstCRefute`'s, parameter-free.  Nothing here is new mathematics; what is new is that it
+satisfies the guard and lives at `U = 0`.
+
+    q  := .max .zero .zero          -- ≈ .zero, and not equal to it: no parameter needed
+    a  := .sort q                   -- ⊢₀-typed only at .sort (.succ q); at A from index 1
+    A  := .sort (.succ .zero)
+    D  := .app (.lam A (.bvar 0)) (.bvar 0)        -- the Π-body
+    P  := .forallE A D                             -- the context entry, closed
+
+    OnCtx [P] (env.IsType U)                                      CodType0Refute.onCtx
+    AppData env U (n+1) [P] (.bvar 0) a A D A (.bvar 0)           CodType0Refute.witness
+    D.inst a = .app (.lam A (.bvar 0)) a =: lhs                   CodType0Refute.D_inst
+    ¬ env.HasTypeN U 0 Γ lhs T          (any Γ, any T, any env)   CodType0Refute.lhs_not_hasType0
+
+Two things had to be rebuilt rather than imported, and both are the reason this was not already
+known:
+
+* **`ShapeAgreeRefute.P_type` is not the guard.**  It types `P` in the **stratified** judgment.
+  `OnCtx Γ (env.IsType U)` is the *unstratified* `IsDefEq`, and `Stratified.lean` has only the
+  `HasType → HasTypeN` direction (`HasType.stratifyN`); there is no soundness converse.  So the
+  guard is built directly here — `A_hasType`, `lam_hasType`, `D_hasType`, `P_hasType`, three
+  constructors and a `bvar`.  (`ShapeAgreeRefute`'s docstring already claims "the refutation does
+  not turn on the absence of an `OnCtx` hypothesis"; that claim was true and unproved.)
+* **`SubstCRefute` lives at `U ≥ 1`** — it uses `.param 0` to get a level `≈`-equal to another
+  without being equal to it.  The target is `U = 0`, and the family is **antitone in `U`**
+  (`AppUniqLvl.mono_univs`), so a `U = 1` refutation says nothing at `U = 0`.  `.max .zero .zero`
+  does the same job with no parameter, so every declaration in the new file is at an arbitrary
+  `U`, `0` included.  Also at every index: the derivations are at index 1 and `Stratified.mono`
+  lifts them, while the failing conclusion is at index 0 regardless of `n`.
+
+## 28.2 Measured, not read off: the `∅` argument does **not** apply to this hypothesis
+
+The brief asked whether `AppCodType0On` is subject to `no_wf_hypothesis_avoids_empty`.  **It is
+not**, and the reason is structural: that obstruction needs the statement to be *antitone* in the
+environment, and `AppCodType0On` has the environment in both positions — its premise `AppData` is
+monotone (`AppData.mono_env`) and so is its conclusion (`Stratified.mono_env`), so no bound
+follows in either direction (`AppCodType0On.premise_mono` records the two directions that do
+hold).  That is why the refutation is stated over an arbitrary environment **directly** instead
+of being transported from `∅`: every derivation in the witness is structural, and the single
+negative fact (`lhs_not_hasType0`) is proved from `⊢₀` inversion plus `IsDefEqN.zero_iff`, both
+unconditional in the environment.  A δ-rule cannot rescue it either — `extra` concludes at
+`n+1`, so a `⊢₀` typing may not use one.
+
+So: the answer to "check whether `AppCodType0On` is subject to the same argument" is *no*, and it
+did not need to be — the refutation is uniform in the environment for a different reason.
+
+## 28.3 The repair, and why the route is **closed** rather than expensive
+
+The stated condition is over-strong for a boring reason: it demands the `⊢₀` typings of *every*
+codomain instance, including instances that are `⊢ₙ₊₁`-convertible to no sort and so are never
+reached by `AppUniqLvlOn`.  Conditioning on the two conversions the consumer already has removes
+the counterexample.  That repair is `AppCodType0OnC` (§6 of the new file), and it is:
+
+* genuinely weaker — `AppCodType0On.conditioned`;
+* still sufficient — `appUniqLvlOn_of_sortRedInv_codType0OnC`;
+* **not** refuted by this file's witness — `CodType0Refute.witness_outside_conditioned`, which is
+  `SubstCRefute.stuck` re-proved parameter-free: the stuck codomain instance is `⊢₁`-convertible
+  to *no* sort, so it never enters the conditioned premises.  Tested before shipping, per this
+  corner's rule; the other codomain instance is a sort on the nose (`witness_snd_is_sort`), so the
+  failure is one-sided.
+
+**And it is a collapse.**  Machine-checked, both directions:
+
+* forward — with `SortRedInv` it yields **full** level agreement `u ≈ v`
+  (`appLvlAgreeOn_of_sortRedInv_codType0OnC`), which is strictly stronger as a conclusion than the
+  target's `u ≈ 0 ↔ v ≈ 0` (`lvlAgree_strictly_stronger`);
+* backward — on the sub-family where it is not vacuous (both codomain instances literally sorts,
+  levels `WF`) it is **equivalent** to that stronger statement
+  (`codType0OnC_sortCase_iff_agree`, an `iff`), modulo `SortInvN`, which the route already has
+  free (`sortInvN_of_route` = `sortInvN_of_sortRedInv`).
+
+So the "reduction" reduces the app case to the app case, strengthened.  §27 item 2 ranked this
+route first on the ground that its content is "ordinary `⊢₀` regularity"; the content is not
+regularity, and what is left of it after the refutation is the target itself.
+
+**The collapse is intrinsic to the `⊢₀`-pin, not to the phrasing** (§9 of the new file).  One
+might hope the condition is merely clumsy — that asking for typings *at sorts* with `≈`-equal
+levels is more than the pin needs.  It is, and both extras are free:
+`SortRed.type0_pin_any` generalises `AppUniqWF.lean`'s `SortRed.type0_pin` to an **arbitrary**
+`⊢₀` type (same proof: `HeadBeta` preserves `⊢₀` typing, and the base case's type is forced by
+`HasTypeN.sort_inv`).  So the weakest side condition of this shape is "**the two codomain
+instances share a `⊢₀` type**" — `AppCodShareOn`, no regularity and no levels — which suffices
+(`AppCodType0OnC.share`, `appLvlAgreeOn_of_sortRedInv_codShareOn`) and collapses *harder*: on the
+sort sub-family it forces the two levels to be **syntactically equal**
+(`codShareOn_sortCase_forces_syntactic_eq`).  Every sufficient hypothesis of this shape decides
+the app case's two levels outright.  There is no weaker restatement to find.
+
+## 28.4 What I tried that failed, and the step it failed at
+
+1. **Proving `AppCodType0On` from regularity, as the brief describes it.**  Failed at the step
+   *"the Π-codomain is a type"* → *"the codomain instance is `⊢₀`-typed at a sort"*.  Even granting
+   full regularity at index `n+1` — which the `OnCtx` guard plus the `lam` rule's own premise
+   would give — there is no way down to index `0`: `HasTypeN.mono` runs `0 → n`, never back.  The
+   witness sits exactly in that gap, and no strengthening of the *context* hypothesis can close
+   it.  This is the step to quote to anyone who proposes a further guard.
+2. **Refuting the conditioned form `AppCodType0OnC` through a non-`WF` level.**  The idea is
+   sharp and nearly works: `rfl` in `Stratified` is **unconditional** (the file's one deliberate
+   deviation from `axioms.tex:31`), so `.sort w ≡ₙ₊₁ .sort w` holds for a level `w` that is *not*
+   `WF U`, while `Stratified.sort` needs `w.WF U` — so such a codomain instance satisfies the
+   conditioned premise and has **no** `⊢₀` typing.  Failed at the step *"build an `AppData` whose
+   codomain instance is `.sort w`, `w` non-`WF`, in a guarded context"*: every route to typing a
+   term at a non-`WF` sort needs either the `sort` rule (which carries the `WF` premise), or a
+   context entry `.sort w` — and the `OnCtx` guard rejects that, because the unstratified `sortDF`
+   carries `WF` too.  **Not proved impossible.**  It would need a `Stratified` analogue of
+   `IsDefEq.levelWF` (`Typing/Lemmas.lean:457`), which does not exist.  This is the one place the
+   `OnCtx` guard demonstrably earns its keep, and it is the cheapest remaining attack on the
+   conditioned form.
+3. **Proving the conditioned form at `∅`.**  A shape analysis of "which terms are
+   `⊢₁`-convertible to a sort over `∅`" says every such term *is* `⊢₀`-typed — `sortDF` and
+   `constDF` give it directly, `beta` gives it on both sides through `Stratified.instN`, and
+   `eta`/`proofIrrel` cannot have a sort on either side because a sort's unique `⊢₀` type is a
+   sort — with the single exception of a bare `.sort w` with non-`WF` `w` (item 2's `rfl` case).
+   **This sketch is not machine-checked and is recorded as a sketch.**  It failed to become a
+   proof at the *second* conjunct, not the first: the `w ≈ w'` (or shared-type) half is the
+   collapse of §28.3, so completing the typeability half would buy nothing.
+
+## 28.5 Measured versus read off
+
+**Measured (machine):**
+
+* every claim about truth values above: `lake build Lean4Lean.Theory.Typing.AppCodType0`, **100
+  jobs**, clean, and the module's own `#print axioms` block — **47 declarations, all
+  `propext`/`Quot.sound` only**, no `sorryAx`, no `Classical.choice`, no frozen axiom.  No new
+  `sorry`, none traded, nothing else in the repo edited.
+* hole cones: `scripts/appcodtype0-cone.lean` (same instrument as `scripts/hole-cone.lean`, type
+  **and** value, `allowOpaque := true`).  **All four holes `present = true`** in the measuring
+  environment — `IsDefEqU.forallE_inv_stratified`, `WF.rigidShapeUniqNS`, `IsDefEqU.weakN_iff`,
+  `NormalEq.descend` — with `UniqueTyping` and `ChurchRosser` imported for the last two, exactly
+  as rounds 4–5 recorded.  **Both tainted controls fire**: `piInv_axiom` cone 3539
+  `[forallE_inv_stratified, rigidShapeUniqNS]`, `WF.sortUniq'` cone 3404
+  `[forallE_inv_stratified]`.  **0 / 50 seeds carry any of the four; `sorryAx false` on all 50.**
+  Cone sizes: witness 4–1553, the `VEnv`-level statements 186–1630 (largest:
+  `appCodType0On_false` 1629).
+* the two facts I expected to have to take on trust and did not: `CodType0Refute.onCtx` (the guard
+  really is satisfied, in the *unstratified* judgment) and `CodType0Refute.q_wf` (the witness is
+  parameter-free, so it lives at `U = 0`).
+
+**Read off (not measured), and flagged as such:**
+
+* §28.4 item 3's shape analysis — a hand argument, not a Lean induction.
+* "`Stratified` has no soundness direction (`HasTypeN → HasType`)": read off from `grep` over
+  `Theory/Typing/Stratified.lean` (only `stratifyN` and friends appear).  It was then made moot —
+  the guard is built directly, so nothing depends on that grep.
+* "no `Stratified` analogue of `IsDefEq.levelWF`": `grep` over `Theory/`.
+
+**Tooling note, as asked:** every search claim in this section and above is backed by **`grep`
+via Bash** — `lean_local_search` and `lean_hammer_premise` were not used (reported broken here),
+`lean_references` was not needed, and no external search (leansearch/loogle/statesearch) was
+consulted.  Cone claims are backed by the script above; axiom claims by the in-file
+`#print axioms` block, re-run on a forced rebuild.
+
+## 28.6 Where the brief was wrong — one list
+
+1. **"`AppCodType0On` … the only hypothesis in that file with nothing known false about it."**
+   It is now known false — at every environment, every `U`, every index.  `AppUniqWF.lean`'s own
+   verdict line ("not proved, and not refuted: `AppCodType0On`") and §27 item 2 both need
+   striking.
+2. **"its content being ordinary `⊢₀` regularity."**  It is not.  Ordinary regularity would put
+   the codomain's typing at the *same* index as the derivation; `AppCodType0On` demands it at
+   index **0**, and that is the whole difference between a plausible lemma and a false one.  The
+   phrase "`⊢₀` regularity" hides the index mismatch that kills it.
+3. **The relayed diagnosis of the earlier refutation — "`Stratified` has no regularity, so a
+   λ-term context entry gives a codomain instantiation `⊢₀`-typed at a Π and at no sort" — is the
+   wrong mechanism**, and that is why the proposed repair failed.  The λ-term context entry is one
+   witness; the mechanism is that `⊢₀` conversion is syntactic, so a codomain instance created by
+   instantiation can be `⊢₀`-typeable at **nothing at all**.  Guarding the context does not touch
+   it.
+4. **"`beta` is free; `appDF` is the live case"** — the brief flags this as a wrong diagnosis it
+   relayed earlier, and it is wrong again here, in the opposite direction from the one it warns
+   about: in my refutation `beta` (under `forallEDF`) is what *manufactures* the codomain with no
+   `⊢₀` type, and `appDF` appears only inside `stuck`, where it is one of the **closed** cases.
+   `beta` is not free in this corner; it is the source.
+5. **The `∅` / `VEnv.WF` check the brief asked for is a red herring here** — not wrong, but
+   inapplicable, and worth saying so plainly since it was ranked as possibly "the answer".
+   `no_wf_hypothesis_avoids_empty` needs the statement to be antitone in the environment;
+   `AppCodType0On` has the environment in *both* polarities (`AppData` monotone, conclusion
+   monotone), so no bound follows either way (`AppCodType0On.premise_mono`).  The refutation is
+   uniform in the environment for an unrelated reason: its one negative fact is proved from `⊢₀`
+   inversion, which no environment can help.
+6. **Right, and load-bearing:** the warning that the family is antitone in `U` as well as in the
+   environment.  That is exactly why `SubstCRefute`'s witness could not be reused as it stands
+   (it needs `.param 0`, so `U ≥ 1`) and why the parameter-free rebuild was necessary rather than
+   cosmetic.  Without that warning I would have shipped a `U = 1` refutation of a `U = 0` target.
+
+## 28.7 Verification, verbatim [machine]
+
+    $ ~/.elan/bin/lake build Lean4Lean.Theory.Typing.AppCodType0
+    Build completed successfully (100 jobs).
+
+    $ ~/.elan/bin/lake env lean scripts/appcodtype0-cone.lean
+    present Lean4Lean.VEnv.IsDefEqU.forallE_inv_stratified: true
+    present Lean4Lean.VEnv.WF.rigidShapeUniqNS: true
+    present Lean4Lean.VEnv.IsDefEqU.weakN_iff: true
+    present Lean4Lean.VEnv.NormalEq.descend: true
+    present Lean4Lean.VEnv.piInv_axiom: true
+    present Lean4Lean.VEnv.WF.sortUniq': true
+    Lean4Lean.VEnv.piInv_axiom: cone 3539, holes [forallE_inv_stratified, rigidShapeUniqNS]
+    Lean4Lean.VEnv.WF.sortUniq': cone 3404, holes [forallE_inv_stratified]
+    ...
+    Lean4Lean.VEnv.appCodType0On_false: cone 1629, holes [], sorryAx false
+    -- seeds with a hole in cone: 0 / 50
+
+    Lean4Lean.VEnv.appCodType0On_false : ∀ (env : VEnv) (U n : Nat), ¬env.AppCodType0On U (n + 1)
+    'Lean4Lean.VEnv.appCodType0On_false' depends on axioms: [propext, Quot.sound]
+
+**Hole-freeness and dischargedness, reported separately.**  47/47 hole-free, 0/50 seeds touching
+any of the four big holes.  **Discharged: nothing.**  What changed is one hypothesis' *truth
+value* (negative) and one route's *grade* (collapse).  `AppUniqLvlOn`, `PropUniqNOn`,
+`AppUniqLvl ∅ 0 1` are exactly where round 5 left them.
+
+## 28.8 What to pick up first
+
+1. **Strike the `AppCodType0On` route from the rankings** (§27 item 2, `AppUniqWF.lean`'s verdict,
+   `docs/vacuity-ledger.md`).  Two ledger rows to write: *(a)* `AppCodType0On` is **false at every
+   environment, `U`, and index** — the `OnCtx` guard is not the repair, and the earlier
+   "no regularity" diagnosis was the wrong mechanism; *(b)* every side condition that feeds
+   `SortRed.type0_pin` **collapses**: on the sort sub-family it decides the app case's two levels,
+   which is the target strengthened (`codType0OnC_sortCase_iff_agree`,
+   `codShareOn_sortCase_forces_syntactic_eq`).  Shape for the "hole-free ≠ discharged" list: *a
+   side condition whose only non-vacuous instances are the goal itself.*
+2. **If anyone still wants the conditioned form**, the one open attack is §28.4 item 2 — the
+   non-`WF`-level loophole that `rfl`'s unconditionality opens and the `OnCtx` guard appears to
+   close.  Closing it properly means proving a `Stratified` analogue of `IsDefEq.levelWF`
+   (*"in a guarded context, a term typed at `.sort w` has `w.WF U`"*), which is a clean, small,
+   reusable lemma and does not exist yet.  Refuting it refutes the conditioned form too, and then
+   the entire `type0_pin` strategy is dead rather than merely collapsed.
+3. **`SortRed.type0_pin_any` is a free strengthening** of `AppUniqWF.lean`'s `type0_pin` and is
+   worth reusing anywhere the `SortRed`/`⊢₀` interface appears: it says a `SortRed`-able term's
+   `⊢₀` type is *automatically* a successor sort, so "the codomain is a type" is never something a
+   side condition needs to assume.
+4. **Unchanged, and still the target**: `AppUniqLvl ∅ 0 1` (round 5 §27 item 1).  Nothing here
+   moves it.  One datum for the search it describes: the `SubstCRefute` family cannot supply the
+   sharp counterexample it asks for — *"an `AppData` over `∅` at index 1 whose two codomain
+   instantiations are both sort-convertible"* — because in that family one instance is stuck
+   (`CodType0Refute.lhs_not_defeq_sort`), which is now machine-checked parameter-free and at every
+   `U`, `0` included.  So the search should not be re-run over `beta`-through-`forallEDF`
+   witnesses; that whole family is excluded.

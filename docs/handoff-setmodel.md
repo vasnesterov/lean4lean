@@ -3501,3 +3501,122 @@ measurements that need elaboration. `lean_references` was not needed.
 (closed, 18.1), **`EqSpec` as a hypothesis for the type-former cell** (refuted, 18.2),
 **`EqSpec`'s necessity at the recursor cell** (proved, 18.5), and **the reading that
 `PreludeOracle.lean:905`'s "(§9)" points at a proof** (it does not, 18.6).
+
+## 19. Session of 2026-09-02 (twelfth): the `≠ 0` slice is **PROVED** — `Eq.rec`'s `consts` cell is closed at both slices, and `preludeWitness` is **refuted** as a witness for it
+
+Written incrementally, as landed. Files: `Lean4Lean/Theory/SetModel/EqRecLarge.lean` (new, imported
+from `Theory/Equiconsistency.lean` on the same edit).
+
+### 19.1 The slice, proved
+
+```lean
+theorem EqLargeAudit.eqRecFn_mem_interp_eqRecType
+    (hu : u.WF nv) (hv : v.WF nv) (hle : eqEnv ≤ envF)
+    (hspec : EqSpec M v) (hn : u.eval M.ls ≠ 0) :
+    eqRecFn M.κ (u.eval M.ls) (v.eval M.ls) ∈
+      (interp M L [] ((eqIndDecl.recType 0).instL [u, v])).toFun ∅
+```
+
+`eqRecFn` is the six-layer `mkLam` `λ α a motive m b h, m`, written in `Definability.lean`'s
+environment-passing style (each layer's domain is read out of the valuation, nothing captured). The
+proof is **six applications of `UnitAudit.mkLam_mem_mkForallType_of_dom`**, one per binder, and it
+went through on the first elaboration — no failed step at the cell itself.
+
+**The single hypothesis is `EqSpec M v`, the same one the `= 0` slice needs**, and it is used in
+exactly two places: identifying the motive binder's domain (§19.2) and collapsing `h : Eq α a b` to
+`b = a`, `h = •` at the innermost step.
+
+`Above` occurs in no statement in the file. Every positive statement is at an **arbitrary**
+`κ : ℕ → V`, an arbitrary `ModelData`, arbitrary `u`, `v`. **No `κ` is chosen anywhere in this
+file** — not even in a control (§19.4 gets its control for free from an existing theorem, which is
+why).
+
+### 19.2 The one genuinely new piece of infrastructure: `mkForallType_ext`
+
+The brief said "a six-layer `mkLam`" and priced it as six copies of the type-former cell's step.
+**That costing is right about five of the six layers and wrong about the third.** The oracle's value
+may not call `interp` (circularity), so every layer's domain has to be *written down* and then
+matched with `interp`'s by `mkLam_mem_mkForallType_of_dom`'s `hdom : G' ρ' = G ρ` — an **exact set
+equality**. Five domains are literals or reads (`U κ nv`, `ρ ‘ 0` twice, `(ρ‘2 ‘ ρ‘1) ‘ •`,
+`eqFn κ nv ‘ ρ‘0 ‘ ρ‘1 ‘ ρ‘4`). The **motive** binder's is not: it is
+`Π x ∈ α, Π w ∈ ⟦Eq α a x⟧, U κ nu`, a two-layer dependent product.
+
+So the file adds
+
+```lean
+theorem mkForallType_ext (hdom : G' ρ' = G ρ) (h : ∀ v ∈ G ρ, F' ρ' v = F ρ v) :
+    mkForallType G' hG' F' hF' ρ' = mkForallType G hG F hF ρ
+```
+
+(plus `mkFamUnion_ext`, which it needs) — the `mkForallType` analogue of the existing
+`UnitAudit.mkLam_ext`, and the lemma that lets the oracle's own spelling of a *type* be identified
+with `interp`'s. `motSet` is that spelling; `motSet_eq_interp_motTyE` is the identification, and it
+is where `EqSpec` first enters. **This is reusable and is the thing to pick up for any other
+large-eliminator block**: `unitDeclLE` never needed it because `⟦Unit1 → Sort u⟧` is
+`U κ n ^ {•}`, a *non*-dependent function space with an existing literal
+(`UnitAudit.mkForallType_singleton_const`).
+
+### 19.3 …and the whole `consts` cell at `Eq.rec` is closed, both slices
+
+```lean
+theorem EqLargeAudit.oracleOK_EqRec (hle : eqEnv ≤ envF) {c : Name → List VLevel → V}
+    (hspec : ∀ w : VLevel, EqSpec (⟨κ, ls, c⟩ : ModelData V) w)
+    {o : Name → List VLevel → V} (ho : ∀ us, o ``Eq.rec us = eqRecVal κ ls us) :
+    OracleOK L κ ls o c ``Eq.rec ⟨eqIndDecl.recUvars, eqIndDecl.recType 0⟩
+```
+
+`eqRecVal κ ls [u, v] = if u.eval ls = 0 then • else eqRecFn κ (u.eval ls) (v.eval ls)` — the same
+level-branching shape `UnitOracleLarge.unitOracleL` uses, forced for the same reason
+(`EqAudit.no_level_uniform_value`). Both `OracleOK` fields; `Above` discharged by `Above.pure`
+(`oracleOK_of`), so **no chain hypothesis and no chosen `κ`**. `eqIndDecl_recUvars : … = 2` is `rfl`.
+
+**Status of `InductOracleOK` at `eqIndDecl` after this file:**
+
+| obligation | status |
+|---|---|
+| `consts` at `Eq` (type former) | proved (`EqTFAudit.oracleOK_Eq`, §18) |
+| `consts` at `Eq.refl` | proved (`EqZeroAudit.pt_mem_interp_EqReflType`, §17) |
+| `consts` at `Eq.rec`, `u.eval ls = 0` | proved (`EqZeroAudit.pt_mem_interp_eqRecType_of_zero`) |
+| `consts` at `Eq.rec`, `u.eval ls ≠ 0` | **PROVED here** (`eqRecFn_mem_interp_eqRecType`) |
+| `consts` at `Eq.rec`, as one `OracleOK` | **PROVED here** (`oracleOK_EqRec`) |
+| `rules` (the one ι-rule) | see §19.6 |
+
+### 19.4 **`preludeWitness` is REFUTED at this cell** — the finding I did not expect
+
+`SetModel.pt` is *literally* `∅` (`Universe.lean:53`), and `preludeWitness`'s `cnst` sends every
+name outside `{Eq, Iff, Nonempty}` to `∅`. So its `Eq.rec` entry **is** `•`, and therefore:
+
+```lean
+theorem preludeWitness_mem_interp_eqRecType_of_zero (h0 : u.eval ls = 0) : … ∈ …      -- holds
+theorem preludeWitness_not_mem_interp_eqRecType (hn : u.eval ls ≠ 0)
+    {x : V} (hx : x ∈ U κ (v.eval ls)) : … ∉ …                                        -- FAILS
+```
+
+Both machine-checked. So **the corner's shared joint witness cannot discharge `InductOracleOK` at
+`eqIndDecl` as it stands** — it is correct on the `Prop` branch and refuted on the other. This was
+invisible before the `≠ 0` slice existed, because until now nobody could exhibit a value that *does*
+work there, so the natural reading was "the slice is open", not "the witness is wrong".
+
+The fix is known (`eqRecVal`, §19.3) and is not new mathematics. **I did not make it**:
+`preludeWitness` lives in `PreludeSpec.lean` and is consumed by `PreludeWitness.lean`,
+`EqTypeFormer.lean` §4 and `preludeSpec_satisfiable`; changing its `cnst` is a decision about the
+corner's shared witness, not about this slice. Whoever takes it should expect the same gap at
+`Iff.rec` and `Nonempty.rec`, for exactly the same reason (`else ∅` is `else •`).
+
+### 19.5 Anti-vacuity, in the form the brief demands
+
+`recCell_discriminates_of_ne`: at **one and the same** `(envF, nv, L, M, u, v)` with `EqSpec M v`,
+`u.eval M.ls ≠ 0` and a parameter-space inhabitant, `eqRecFn ∈ ⟦Eq.rec's type⟧` **and**
+`• ∉ ⟦Eq.rec's type⟧`. `eqRecFn_ne_pt` then closes the loophole that the two named values might be
+the same set. This is `EqRecNec.recCell_discriminates`'s form, not the empty-hypothesis form, so it
+does catch a conclusion that holds of everything — which matters here, because
+`mkForallType` over an empty domain is `{∅}` and the statement would otherwise be at risk of
+degenerating exactly the way §18.2's positive control did.
+
+**Where the brief is wrong about this.** It says "the `≠ 0` side condition needs a **parameter**-space
+inhabitant — `EqAudit.pt_not_mem_interp_eqRecType_of_ne` carries `x ∈ U M.κ (v.eval M.ls)`". That
+hypothesis belongs to the **exclusion of `•`**, and `eqRecFn_mem_interp_eqRecType` — the slice
+itself — carries no such hypothesis and needs none. So the three-point scale
+"`iffIndDecl` nothing / `eqIndDecl` a parameter-space inhabitant / `unitDeclLE` a motive-space one"
+grades the *negative* controls, not the slices. The slice at `eqIndDecl` costs `EqSpec` and nothing
+else.
