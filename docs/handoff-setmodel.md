@@ -1180,3 +1180,234 @@ stream is live in the tree:
 **Do not** re-attack: `inductOracleOK_zero`'s oracle at any prelude block (refuted, §10.1),
 `InterpSound.mkLam_mem_mkForallType` against an oracle-supplied domain (§10.6 item 2), the
 `sort_inst` refutation (§7.1), or `Equiconsistency.lean`'s `↔` (§8.5 item 1).
+
+---
+
+## 11. Session of 2026-09-02 (fourth): the wall question, answered — **`PropTypeAgree preludeEnv 0` is NOT the injectivity wall**
+
+### 11.0 The answer, plainly
+
+**No. `PropTypeAgree preludeEnv 0` does not reduce to any of the four holes gating
+`Bridge.kernel_sound_of`, and it is not gated on them.**  It splits into two pieces, and
+neither piece is one of those four:
+
+| piece | status |
+|---|---|
+| **A.** the *context-guarded* statement `PropTypeAgreeOnCtx preludeEnv 0` | **DISCHARGED at `preludeEnv`, twice, by two independent routes** — one through `forallE_inv_stratified`, one with no hole at all |
+| **B.** the *context guard* — `PropTypeAgree` quantifies over every `Γ`, junk contexts included | **open, and it is nobody's target.**  Not `weakN_iff`, contrary to `NotProofNoModel.lean` §5 |
+
+So the corner does **not** share a wall with the nine refinement holes.  What it shares with
+them is *one of two* routes; the other route is `Theory/Typing/PropConv.lean` +
+`Theory/Typing/PropShadow.lean`, i.e. the live target of the other stream, and it touches
+none of `forallE_inv_stratified`, `rigidShapeUniqNS`, `weakN_iff`, `descend`.
+
+New file: `Lean4Lean/Theory/SetModel/PropAgreeWall.lean` (301 lines, 15 declarations — 14 theorems plus the `CtxReplace` definition,
+**sorry-free**), imported by `Theory/Equiconsistency.lean` so the reduction is load-bearing.
+
+### 11.1 What landed
+
+```lean
+-- route A: the guarded import at the witness environment, NOTHING assumed
+theorem preludeEnv_propTypeAgreeOnCtx : preludeEnv.PropTypeAgreeOnCtx 0
+theorem preludeEnv_propUniqOnCtx     : preludeEnv.PropUniqOnCtx 0
+
+-- route B: the same statement from the SYNTACTIC side, `sorryAx`-FREE
+theorem propTypeAgreeOnCtx_of_stratifiedN (henv : Ordered env)
+    (pta : ∀ n, env.PropTypeAgreeN 0 n) (pun : ∀ n, env.PropUniqN 0 n) :
+    env.PropTypeAgreeOnCtx 0
+
+-- the residual, named as one object
+def CtxReplace (env) (nv) : Prop := …            -- context replacement, not deletion
+theorem preludeEnv_propTypeAgree_of_ctxReplace (h : CtxReplace preludeEnv 0) :
+    preludeEnv.PropTypeAgree 0
+theorem nonempty_propSplit_preludeEnv_of_ctxReplace (h) (hf) : Nonempty (PropSplit preludeEnv 0)
+theorem nonempty_propSplit_preludeEnv_of_stratifiedN (h) (pta) (pun) (hf) : Nonempty (…)
+```
+
+Route A is `NotProofNoModel.WF.propTypeAgreeOn` / `WF.propUniqOn` at
+`PreludeWitness.preludeEnv_WF`.  **Measured, not read:** a forward cone walk over
+type-and-value dependencies (`/tmp` script, same algorithm as `scripts/hole-cone.lean`) reports
+that `WF.propTypeAgreeOn`'s cone (3444 declarations) contains **exactly one** sorry-carrying
+declaration, `VEnv.IsDefEqU.forallE_inv_stratified` — and **not** `rigidShapeUniqNS`,
+**not** `weakN_iff`, **not** `descend`.  Same for `WF.propUniqOn`, `WF.sortUniq'`,
+`IsDefEqU.sort_inv`, `IsDefEq.uniqU`.
+
+> **Correction to two source docstrings.**  `NotProofNoModel.WF.propTypeAgreeOn` says it is
+> "`sorryAx`-tainted through `IsDefEqU.forallE_inv_stratified` **and `WF.rigidShapeUniq`**".
+> The second half is wrong: `WF.rigidShapeUniq` is not in the cone at all.  The whole cone is
+> one hole.  Same correction applies to that file's §5 axiom-check paragraph.
+
+Route B is new and is the substantive result.  Three ingredients, no holes:
+`VEnv.HasType.stratifyN` lands the four unstratified premises at a common index;
+`PropTypeAgreeN` carries `IsPropN Γ A` to `IsPropN Γ A'` there; `PropUniqN` reads the level
+back off `A'`'s two sort typings.  The `.conv (.sortDF …)` step is why the index is `N+1`
+(`sortDF` concludes one index up, `conv` wants both premises at one index, `Stratified.mono`
+pays for it free).
+
+**§10.3 turns out to be load-bearing, not a docstring correction.**  `nv = 0` is *essential*
+to route B: `NEAudit.equivZero_iff_eval_zero` is what converts the model's pointwise
+conclusion into the stratified side's `≈ .zero` shape, and at `nv ≥ 2` that step is refuted
+(`propAgree_pointwise_not_from_equivZero`).  `PropTypeAgreeInput` is at `nv = 0`, so the one
+instance H2 consumes is the one instance where the two streams compose at all.  Last round's
+"cheapest thing found" is what makes this round's route exist.
+
+**Anti-vacuity for route B, machine-checked**: `propUniqN_zero` and `propTypeAgreeN_zero`
+prove both inputs **at the base index, at every environment, with no hypothesis**, through
+`HasTypeN.uniq_zero` (`≡₀` is syntactic equality).  What that does *not* show — and the
+distinction is kept deliberately — is that `∀ n` holds anywhere; `stratifyN` chooses the
+index and it is not `0`.  The `∀ n` form is the other stream's open target, and route B is the
+statement that closing it closes the model's import.
+
+### 11.2 The residual, and the correction that matters most
+
+The guard is common to **both** routes and neither removes it: the only bridge from
+unstratified `HasType` to `HasTypeN` is `HasType.stratifyN`, which takes
+`OnCtx Γ (env.IsType U)` because `IsDefEq.strong` does — `Strong.lean`'s `CtxStrong` *is*
+"every entry is a type", by definition, so this is not bookkeeping that can be shaved.
+
+> **`NotProofNoModel.lean` §5 is wrong that the gap is `IsDefEqU.weakN_iff`.**  `weakN_iff` is
+> stated over `Ctx.LiftN n k Γ Γ'` at a **lifted** term, so the entries it deletes are exactly
+> the ones the derivation never mentions.  A junk entry that is *looked up* is outside its
+> reach.  Machine-checked witnesses, at **every** `Ordered` environment:
+> `not_onCtx_junk : ¬ OnCtx [.bvar 0] (env.IsType 0)` (`.bvar 0` is not `ClosedN 0`, so it
+> inhabits no sort in `[]`), `hasType_junk_sort` (typing *is* derivable there, so the extra
+> quantifier range is inhabited and the gap is not vacuous), and
+> `hasType_junk_lookup : env.HasType 0 [.bvar 0] (.bvar 0) (.bvar 1)` — a derivation in the
+> junk context whose subject *is* the junk entry.
+
+So the residual is **context replacement**, not deletion: `CtxReplace` in the new file.  It is
+not one of the four holes, it has no consumer anywhere else in the tree, and nobody is working
+on it.
+
+**And it should not be proved.**  `NotProofNoModel.lean` §5's own alternative is cheaper and it
+is now the recommendation: **guard `PropSplit`'s two fields with `OnCtx`** (priced there at 64
+call sites through `isProp_iff`/`isProof_iff`, ~40 of them in `SetModel/QuotInterp.lean`, plus
+`soundAbove` carrying `OnCtx` beside `CtxClosed` — the induction already builds
+`⟨hΓ, _, h.hasType⟩` at every binder).  With that edit, `Nonempty (PropSplit preludeEnv 0)` is
+**a theorem** — route A discharges it modulo `forallE_inv_stratified`, route B modulo the other
+stream's `PropTypeAgreeN`/`PropUniqN`, and `PropUniq` is free at the consumer as §10.2 says.
+That is the single highest-value edit in this corner and it is a flag day, not a proof.
+
+### 11.3 The §10.9 bridge: audited, and it exists
+
+§10.9 item 1 names the remaining bridge as `HasTypeN U n` ↔ `HasType 0` and says to check
+`Theory/Typing` first.  Checked (`lean_local_search` is unusable in this tree — no `rg` on
+PATH — so this is `lean_run_code` type-checking the candidates plus structural greps over
+declaration headers, reported as such):
+
+* **`→` exists and is what both routes use.**  `VEnv.HasType.stratifyN`
+  (`Theory/Typing/Stratified.lean`, reference basics (3)/(4)), `[propext, Quot.sound]`,
+  **no `sorryAx`** — with `Ordered env` and `OnCtx Γ (env.IsType U)`.  Restated at
+  `preludeEnv` as `stratifyN_at_preludeEnv` so the `Ordered` half is discharged and the
+  `OnCtx` half is visible.
+* **`←` is absent, deliberately**, and that file says so: it needs `IsDefEq.uniq` because
+  `IsDefEqN`'s `conv` is three-place while `IsDefEq.defeqDF` demands a type.  Route B does not
+  use it, so §10.9's "the remaining bridge" is **not** the obstruction — the obstruction is the
+  `OnCtx` the existing bridge carries.
+
+### 11.4 Audit of the briefing — where it is wrong
+
+| claim as briefed | verdict |
+|---|---|
+| `PropTypeAgree preludeEnv 0` is the vacuity guard for the entire `.induct` corner | **correct**, and unchanged: `nonempty_propSplit_preludeEnv_iff` + `PropUniq.of_propTypeAgree` |
+| §7.6: `PropTypeAgree 0` is irreducible, no choice of predicate removes it, do not spend a round there | **half right, and the half that is wrong sent five rounds the wrong way.**  "No choice of predicate removes it" is right about `PropSplit`'s *fields* (that is `nonempty_propSplit_iff_agree`).  "Irreducible" is **false**: it factors as guarded statement + context guard, the guarded half is a theorem at `preludeEnv` **today**, and it has a second route that touches no hole |
+| §10.9 item 1: the remaining bridge is `HasTypeN U n` ↔ `HasType 0` | **wrong about which half and about what it costs.**  The needed half exists, sorry-free (§11.3); the converse is not needed.  What the bridge *does* cost is `OnCtx`, which is the actual residual |
+| does it reduce to `forallE_inv_stratified`, `rigidShapeUniqNS`, `weakN_iff`, or `descend`? | **the guarded half reduces to `forallE_inv_stratified` alone** (cone-measured), and to nothing at all on route B.  The unguarded half reduces to **none of the four** — `weakN_iff` provably does not supply it (§11.2) |
+| "H2's model side and the nine refinement holes may share a wall" | **refuted as a structural claim.**  They share one route out of two.  The corner's true blocker is a statement (`CtxReplace`) that no other part of the tree wants, and the cheap fix is an edit to `PropSplit`, not a proof |
+| the correction that "the instance at `preludeEnv` is a different object" is false | **correct, and it cuts both ways**: the guarded statement at `preludeEnv` is not *easier* for being restricted — it is discharged because `preludeEnv_WF` is a theorem (row 128), not because the environment is small |
+
+### 11.5 Tried and failed, with the step it failed at
+
+1. **Refuting `PropTypeAgree preludeEnv 0` at a junk context.**  Got as far as: `IsDefEq`'s
+   only retyping rule is `defeqDF`, which converts **at a sort**, so any two types of one term
+   are joined by a sort-conversion; a counterexample therefore needs a failure of `PropUniq`
+   (two sort typings of one type at differing propositionhood) or of `PropConvInv` — the same
+   content one level in.  Junk contexts do **not** help: `propUniq_of`'s and
+   `propTypeAgree_of`'s `bvar` cases use `Lookup.uniq`, not the entry being a type, so the
+   stratified statements carry **no context guard at all**.  Not claimed as a negative
+   (`docs/vacuity-ledger.md` §0 kind 4); the file says so in its own words.
+2. **Deriving `CtxReplace` from `weakN_iff`.**  Failed at the referenced entry — §11.2.  This
+   is what turned into the correction.
+3. **Weakening `IsDefEq.strong`'s context hypothesis** so the unguarded statement is reachable.
+   Failed at the definition: `CtxStrong env U Γ := OnCtx Γ fun Γ A => ∃ u, IsDefEqStrong U Γ A A (.sort u)`
+   — the guard is what "strong" *means*, and `IsDefEqStrong` ships a type's typing at every
+   node.  This is a `Theory/Typing` file, so it was read, not edited.
+4. **`PropTypeAgree → sort_not_proof → sort_inv → SortUniq → forallE_inv_stratified` as a
+   *lower* bound** (i.e. "proving it would prove the hole").  Step 1 is machine-checked
+   (`sortNotProof_of_propTypeAgree`, sorry-free, no `OnCtx`); step 2 is **prose only** in
+   `PiLevelPin.lean` §"Where the demand actually comes from" ("with it, `sort_inv` follows from
+   `WF.rigidShapeUniq` alone"), and step 4 needs `UniqTy` on top of `SortInv`
+   (`SortUniqDown.sortUniq_of`).  Not attempted — it is a `Theory/Typing` result, and it is a
+   *consequence* of `PropTypeAgree`, not a bound on it.  **Named here because it is a real
+   opportunity for whoever owns `Theory/Typing`: an independent `sort_not_proof` plus
+   `rigidShapeUniq` is claimed to give `sort_inv` without `forallE_inv_stratified`, and
+   `sortNotProof_of_propTypeAgree` already supplies the first input from a strictly weaker
+   hypothesis than `SortUniq` and with `OnCtx` dropped.**
+5. **`lean_local_search` / `lean_hammer_premise`** — unusable: the MCP tool requires `rg` on
+   PATH and it is not installed.  Every "checked with the LSP" claim here is
+   `lean_run_code` / `lean_diagnostic_messages`, and every "checked by grep" is labelled.
+
+### 11.6 Measured / read / not run
+
+**[measured]** `lake build`: **1504 jobs** (1503 before — the new file), "Build completed
+successfully", **0 errors in any file I own**.  Guards, verbatim:
+
+```
+guard 1: Axioms.lean declares exactly the 24 frozen axioms ✓
+guard 2: kernel_sound axioms within whitelist ✓ (proof INCOMPLETE: sorryAx present)
+guard 3: checker cone implementation gaps within frozen list (2/2 remaining) ✓
+```
+
+`lake build Lean4Lean.Experimental.ConeJoin Lean4Lean.Verify.Guard` green (1431 jobs), same
+three guards.  `scripts/sorry-census.lean`: **TOTAL 13**, **no row changed, none traded, no new
+hole**.  `scripts/dup-names.lean`: "no duplicate Lean4Lean declarations across the joined
+cone".  `#print axioms` on all 14 new theorems: `[propext]`, `[propext, Quot.sound]`,
+`[propext, Classical.choice, Quot.sound]`, or — for the **four** that go through route A —
+`[propext, sorryAx, Classical.choice, Quot.sound]`, `sorryAx` there being
+`forallE_inv_stratified` and nothing else.  **No frozen axiom, nothing new on the frozen
+cone.**  Route B's four declarations (`propTypeAgreeOnCtx_of_stratifiedN`, `propUniqN_zero`,
+`propTypeAgreeN_zero`, `preludeEnv_propTypeAgreeOnCtx_of_stratifiedN`) are `sorryAx`-**free**.
+
+Hole user counts as of this commit: `forallE_inv_stratified` **718**, `rigidShapeUniqNS`
+**460**, `weakN_iff` **312**, `descend` **200**.  Four of the 718 are this file's route-A
+declarations; the rest of the movement since the last recorded figures is not mine to
+attribute — a second stream is live in the tree.
+
+**[read]** off source, not run: `PiLevelPin.lean`'s claim that `sort_not_proof` + `rigidShapeUniq`
+gives `sort_inv` (prose in that file, §11.5 item 4); the 64-call-site price of guarding
+`PropSplit`'s fields (`NotProofNoModel.lean` §5's own count, not re-counted here); and
+§11.5 item 1's "the stratified statements carry no context guard at all" — that is inspection
+of `propUniq_of`'s and `propTypeAgree_of`'s `bvar` cases in `Theory/Typing/PropConv.lean`
+(they use `Lookup.uniq`, never that the entry is a type), not a theorem.
+
+**[not run]** the Kernel Arena (no implementation file changed); `scripts/hole-cone.lean` and
+`scripts/hole-rank.lean` as shipped — the cone measurement used a private copy of
+`hole-cone.lean`'s algorithm seeded at the five declarations of interest, because the shipped
+seed list is another stream's.
+
+### 11.7 What to pick up first
+
+1. **Guard `PropSplit`'s two fields with `OnCtx`.**  This is the item, and it is an edit rather
+   than a proof: it converts `Nonempty (PropSplit preludeEnv 0)` from open into a theorem
+   modulo `forallE_inv_stratified` (route A) — or modulo the other stream's own targets
+   (route B) — and it retires `CtxReplace` entirely.  Price: `soundAbove` carries `OnCtx`
+   beside `CtxClosed` (cheap; `ctxClosed_of_isType` recovers the rest) and 64 call sites of
+   `isProp_iff`/`isProof_iff` each discharge an `OnCtx` for their own context, ~40 of them in
+   `SetModel/QuotInterp.lean` at hand-built contexts.  Read `NotProofNoModel.lean` §5 before
+   starting; it priced this and nobody funded it.
+2. **Tell the `Theory/Typing` stream about route B.**  `propTypeAgreeOnCtx_of_stratifiedN`
+   means `PropTypeAgreeN` + `PropUniqN` at every index buys the model's entire syntactic
+   import at `nv = 0`.  That is a consumer those two statements did not know they had, and it
+   is `sorryAx`-free.  The blocking residuals on that side are `SortForallEDisjoint`
+   (`UniqueTypingN.lean` — `AppCase` walled on both sides) and `PropUniqN.AppCase`
+   (`PropConv.lean`), plus `DefInv`/`SortInvN` at every index, which is `unique.tex` §§3–4
+   transcribed over `IsDefEqN` and nobody has written it.
+3. **`iffIndDecl` before `eqIndDecl`** — unchanged from §10.9 item 2, and now the *only*
+   remaining `.induct` frontier at a prelude block.
+4. **`InstDescendUp 0`'s `.bvar k` case** — unchanged from §7.9, §8.7, §9.7 and §10.9, and
+   still untouched.  Note that §11 does **not** touch `InstDescendUp`: `ModelFits` needs it
+   independently.
+
+**Do not** re-attack: everything §10.9's list names, plus — new — **`weakN_iff` as the route to
+the unguarded `PropTypeAgree`** (refuted, §11.2) and **`PropTypeAgree preludeEnv 0` as an
+instance of the injectivity wall** (it is not, §11.0; the guarded half is already discharged).

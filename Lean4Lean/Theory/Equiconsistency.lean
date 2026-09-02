@@ -2,6 +2,7 @@ import Foundation.FirstOrder.SetTheory.InaccessibleCardinal
 import Lean4Lean.Theory.Consistency
 import Lean4Lean.Theory.SetModel.UpperBound
 import Lean4Lean.Theory.SetModel.PreludeOracle  -- 2026-09-02: InductOracleOK at the prelude's `.induct nonemptyIndDecl` step, at `preludeEnv`. Imported for the same reason as PreludeWitness below: `oracleStepOK_NE_at_preludeEnv` discharges one of the three `.induct` obligations inside `OracleInput`, and §11 of that file names the single hypothesis (`PropTypeAgree preludeEnv 0`) that keeps the parameter `L : PropSplit preludeEnv nv` from being known inhabited.
+import Lean4Lean.Theory.SetModel.PropAgreeWall  -- 2026-09-02: the answer to "is `PropTypeAgree preludeEnv 0` the injectivity wall?". Imported so the reduction is load-bearing here: `preludeEnv_propTypeAgreeOnCtx` discharges the context-guarded half of `PropTypeAgreeInput`'s instance at the witness environment unconditionally, and `nonempty_propSplit_preludeEnv_of_ctxReplace` names the single residual (`CtxReplace preludeEnv 0`) that keeps `PropSplit preludeEnv 0` from being known inhabited.
 import Lean4Lean.Theory.SetModel.PreludeWitness  -- 2026-09-02: preludeWF / exists_leanWF. Imported so the witness is LOAD-BEARING here, not merely proved: without it `leanTTConsistent` and all three of `upper_bound_of_inputs`'s inputs are statements about a possibly-empty class (`upper_bound_vacuous_of_no_leanWF`), and `not_forall_not_leanWF` is what refutes that collapse.
 
 /-!
