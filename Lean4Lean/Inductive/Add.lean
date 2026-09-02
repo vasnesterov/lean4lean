@@ -956,6 +956,103 @@ def checkNoLooseBVars (n : Name) (e : Expr) : Except Exception Unit := do
   unless noLooseBVars 0 e do
     throw <| .other s!"invalid declaration '{n}', it contains a loose bound variable"
 
+/-!
+### The uniform-occurrence pre-pass
+
+`~/lean4/src/kernel/inductive.cpp`'s `check_uniform_ind_occs`, which
+`environment::add_inductive` runs immediately before nested elimination — exactly where this
+guard loop sits — and which lean4lean lacked, so it **accepted a declaration C++ rejects**
+(`nested-nonuniform-param` in the Kernel Arena, graded `either`).
+
+Upstream's own comment says why the check exists: *later phases inspect the constructor types
+modulo `whnf`, which can erase an occurrence*. So the soundness-relevant half of the
+whnf-versus-syntax gap is closed **syntactically**, before any reduction happens.
+
+Two things this transcription gets right and a naive reading does not.
+
+* **The visitor prunes.** C++ walks with `for_each_offset_fn` and returns `false` on success. Read
+  without that, "every occurrence applied to at most `nparams` arguments must be applied to
+  exactly `nparams`" is *unsatisfiable* whenever `nparams ≥ 1` — `I p₀ … p_{n-1}` contains
+  `I p₀ … p_{n-2}` — and would reject `List`. See `uio_naive_too_strong` in
+  `Verify/Inductive/UniformOccMeasure.lean`.
+* **An over-applied occurrence imposes nothing itself**; the demand falls on its `nparams`-prefix,
+  which is visited as a subterm. C++'s comment: *"so that occurrences in the indices are checked
+  too"*.
+
+The predicate coincides with `VInductDecl'.uniformOcc?`, the trigger of the abstract restoration
+operator (`Theory/Inductive/Restore.lean`) — proved, on the nodes C++ checks, as
+`uio_uniformOcc_iff`. `Verify/Inductive/UniformOccMeasure.lean` holds the specification `uioOk`,
+the exactness pair (`uioOk_iff` and `uio_ok_of_occ`, the latter ruling out a
+reject-everything check), and the scans: **0 of 7013** submitted constructors and **0 of 7215**
+post-elimination.
+-/
+
+/-- Argument count of an application spine. -/
+def spineNArgs : Expr → Nat
+  | .app f _ => spineNArgs f + 1
+  | _ => 0
+
+/-- Head of an application spine. -/
+def spineHead : Expr → Expr
+  | .app f _ => spineHead f
+  | e => e
+
+/-- C++'s `is_bvar(args[i], offset - 1 - i)`, written `j + 1 + i == d` so no truncated
+subtraction is involved; it entails `i < d`, which subsumes C++'s separate `offset >= nparams`
+conjunct. -/
+def isParamArg (d i : Nat) : Expr → Bool
+  | .bvar j => j + 1 + i == d
+  | _ => false
+
+/-- Every argument of the spine is the parameter bvar its position demands. -/
+def spineParamArgs (d : Nat) : Expr → Bool
+  | .app f a => spineParamArgs d f && isParamArg d (spineNArgs f) a
+  | _ => true
+
+/-- `us` is the block's own level list, i.e. `lps.map Level.param`.
+
+Deliberately **not** `us == lps.map .param`: `Lean.Level.beq` is `@[extern] opaque`, so that
+comparison is usable only through the frozen axiom `Lean.Level.instLawfulBEqLevel`. Matching
+`.param` and comparing `Name`s keeps this check — and its exactness lemma — free of every frozen
+axiom, the same trade `noLooseBVars` makes against `Expr.mkData_eq`. -/
+def ownLevels : List Name → List Level → Bool
+  | [], [] => true
+  | p :: ps, .param q :: us => p == q && ownLevels ps us
+  | _, _ => false
+
+/-- `noNonUniformOcc names lps np d e` is `true` when every occurrence in `e` of a member of the
+block being declared is applied to exactly `np` arguments, at the block's own levels, with those
+arguments the parameter bound variables — `d` being the binder depth (C++'s `offset`) at which
+`e` sits. -/
+def noNonUniformOcc (names : List Name) (lps : List Name) (np : Nat) : Nat → Expr → Bool
+  | _, .bvar _ | _, .fvar _ | _, .mvar _ | _, .sort _ | _, .lit _ => true
+  | _, .const c us => !names.contains c || (np == 0 && ownLevels lps us)
+  | d, .mdata _ e => noNonUniformOcc names lps np d e
+  | d, .proj _ _ e => noNonUniformOcc names lps np d e
+  | d, .lam _ t b _ => noNonUniformOcc names lps np d t && noNonUniformOcc names lps np (d + 1) b
+  | d, .forallE _ t b _ =>
+    noNonUniformOcc names lps np d t && noNonUniformOcc names lps np (d + 1) b
+  | d, .letE _ t v b _ =>
+    noNonUniformOcc names lps np d t && noNonUniformOcc names lps np d v
+      && noNonUniformOcc names lps np (d + 1) b
+  | d, .app f a =>
+    match spineHead (.app f a) with
+    | .const c us =>
+      if names.contains c && !decide (np < spineNArgs (.app f a)) then
+        spineNArgs (.app f a) == np && spineParamArgs d (.app f a) && ownLevels lps us
+      else noNonUniformOcc names lps np d f && noNonUniformOcc names lps np d a
+    | _ => noNonUniformOcc names lps np d f && noNonUniformOcc names lps np d a
+
+/-- Reject a constructor type in which a member of the block being declared occurs
+non-uniformly. See the section comment above; C++ names the offending datatype where this names
+the constructor, which is a wording difference only — the Kernel Arena grades accept/reject, not
+`stderr`. -/
+def checkUniformIndOccs (names : List Name) (lps : List Name) (np : Nat) (n : Name) (e : Expr) :
+    Except Exception Unit := do
+  unless noNonUniformOcc names lps np 0 e do
+    throw <| .other s!"invalid occurrence of a datatype being declared in '{n}': it must be \
+      applied to the parameters and universe levels of the mutual declaration"
+
 def checkNoNestedAux (n : Name) (e : Expr) : Except Exception Unit := do
   if anySubterm (fun
       | .const c _ => (`_nested).isPrefixOf c
@@ -979,6 +1076,7 @@ def Environment.addInductive (env : Environment) (lparams : List Name) (nparams 
       env.checkNoMVarNoFVar ctor.name ctor.type
       checkNoNestedAux ctor.name ctor.type
       checkNoLooseBVars ctor.name ctor.type
+      checkUniformIndOccs (types.map (·.name)) lparams nparams ctor.name ctor.type
   let res ← ElimNestedInductive.run fuel.inductiveFuel nparams types env
     |>.run' { lvls := lparams.map .param, newTypes := types.toArray }
   -- `nestedAux`'s names are `mkUniqueName`'s output, hence pairwise distinct, so the list's

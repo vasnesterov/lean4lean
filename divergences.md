@@ -284,8 +284,11 @@ This is a list of places where lean4lean deliberately has different behavior fro
   shows the check decides exactly `looseBVarRange' ≤ d`, both directions. (Without the converse, a
   guard that rejected everything would satisfy the rejection obligation and pass every instrument
   in this repo.) A top-level `Expr` with a loose bvar is not a term of the type theory and no
-  elaborator emits one; the Kernel Arena is unchanged at 185/6/0, and a scan of the running
-  environment found 0 of 10902 inductive and constructor types affected.
+  elaborator emits one; and a scan of the running environment found 0 of 10902
+  inductive and constructor types affected. (An earlier version of this paragraph claimed "the
+  Kernel Arena is unchanged at 185/6/0". That claim was **unfounded**: `lka.py run` does not
+  build, and the harness had been measuring an Aug 21 source copy, so no arena run had exercised
+  this check at all. See `docs/vacuity-ledger.md` rows 120-120c.)
 
   **Complexity.** `noLooseBVars` is an uncached structural recursion, where C++ reads the O(1)
   cached `looseBVarRange` header field, so on a heavily shared `Expr` DAG it is exponential in the
@@ -293,3 +296,33 @@ This is a list of places where lean4lean deliberately has different behavior fro
   goes through `Expr.replaceNoCacheT` — but it is a real difference. Reading the cached field instead
   was rejected deliberately: its model agreement would drag `Lean.Expr.mkData_eq`'s side condition
   into every downstream consequence, whereas the pure check reaches **no frozen axiom at all**.
+
+- **Uniform occurrence of the block's own types is checked inside the guard loop, not as a
+  separate later pass** (`checkUniformIndOccs`, `Lean4Lean/Inductive/Add.lean`).
+
+  C++ runs `check_uniform_ind_occs` as a pass *after* the whole
+  `check_no_metavar_no_fvar`/`check_no_nested_aux` loop has finished
+  (`kernel/inductive.cpp`, `add_inductive_fn::check_inductive_types`); lean4lean interleaves it
+  into that loop, so a block violating both conditions gets a **different error message** from
+  the two kernels. Both reject, so no accept/reject behaviour differs and the Kernel Arena is
+  unaffected. `checkNoLooseBVars` already set this interleaving precedent.
+
+  **Accept/reject is convergence, not divergence.** Before this check lean4lean *accepted* a block
+  whose constructor mentions its own type applied to a non-parameter where C++ rejects it; the
+  arena's `nested-nonuniform-param` flips from accepted to rejected with it, which is the C++
+  behaviour. Proved rather than sampled in both directions:
+  `Lean4Lean/Verify/Inductive/UniformOccMeasure.lean` shows the installed check decides the same
+  condition (`uio_impl_eq`, seven pointwise clause equalities) and that nothing uniform is refused
+  (`uio_impl_ok_of_occ`, plus 0 violations over 7013 submitted and 7215 post-elimination
+  constructors). That converse is load-bearing here, not decoration: the pruning-free reading of
+  the condition is identically false at every `nparams >= 1` (`uio_naive_too_strong`), i.e. it
+  would reject `List`, so "rejects everything" was a live failure mode rather than a hypothetical.
+
+  **Complexity.** C++'s `for_each_offset_fn` memoises on `(pointer, offset)`; `noNonUniformOcc` is
+  uncached, so it is exponential in `Expr` DAG sharing where C++ is linear. Same class of
+  difference as `checkNoLooseBVars` above, and for the same reason: the cached/pointer-keyed route
+  would drag frozen `Lean.Expr` header axioms into every downstream consequence, while the pure
+  check reaches no frozen axiom at all.
+
+  C++ additionally rejects a `nparams` that is not `is_small()`; lean4lean's `nparams : Nat` has no
+  counterpart. Pre-existing and unrelated to this check.

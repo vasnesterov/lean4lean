@@ -37,6 +37,15 @@ settled a two-round question had been sitting in the tree **unlooked-for through
 same agent**, and the first *fresh* agent pointed at a handoff found a dropped obligation those six
 rounds had propagated. Resumed agents stop re-exploring. Write the handoff; spawn fresh.
 
+**Verify the binary before quoting an arena result.** Every arena run reported on 2026-09-01–02
+tested a **two-day-old binary**: the checker config's `build:` step did not take, silently, and two
+commits cite verification they did not have (ledger rows 120, 120a). Before quoting an arena
+summary, check `.lake/build/bin/lean4lean` is newer than every implementation file changed since the
+last run, and for a change that adds a check, `strings` the binary for the new behaviour's own
+message. **A rejection-boundary change must FLIP a named test. If nothing moves, suspect the harness
+before concluding the change is safe** — "identical to the last recorded result" is the signature of
+a safe change *and* of an untested one, and only the flip tells them apart.
+
 **Cite declarations, not line numbers.** A citation repaired in one commit went stale in the *next*,
 because a prose edit elsewhere in the same file moved the target. A resolvable name is evidence; a
 line number is a hint that may already be wrong. This supersedes the older `file:line` rule in

@@ -7,8 +7,14 @@
 **Everything dated 2026-08-31 or 2026-09-01 below has been amended, in some cases twice. Read this
 section, then read amendments where they appear, then treat the older prose as history.**
 
-**Goal 1 holds.** Kernel Arena `lean4lean-local`: **185 correct / 6 either / 0 wrong**, re-verified
-twice on 2026-09-01–02 across two changes that moved a rejection boundary.
+**Goal 1's status is UNVERIFIED for this tree, and the earlier claim in this header was wrong.**
+It said "goal 1 holds… re-verified twice". Every arena figure quoted in this session — the
+inherited 185/6/0 baseline included — measured a **snapshot copy** at
+`_build/checkers/lean4lean-local/src`, pinned at git commit `4f31e00` with a binary dated
+**Aug 21**, because `lka.py run` **does not build**: `build-checker` copies the tree and builds
+there, and it had not been run since Aug 21. See ledger rows 120–120c. The working-tree binary
+does behave correctly on the test in question; what is missing is a suite run against it. **Until
+a `build-checker` + `run` pair is reported, treat goal 1 as unmeasured on this commit.**
 
 **Goal 2 is open.** Census steady at **13** holes; guards `1 ✓ (24 axioms) / 2 ✓ (INCOMPLETE) /
 3 ✓ (2/2)`.

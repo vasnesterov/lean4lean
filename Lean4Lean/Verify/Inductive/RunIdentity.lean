@@ -924,38 +924,92 @@ theorem checkNoLooseBVars.WF (n : Name) (e : Expr) :
   | false => simp [checkNoLooseBVars, hb] at h
   | true => exact Nat.le_zero.1 (looseBVarRange'_le_of_noLooseBVars hb)
 
+/-! ### The fourth check: `checkUniformIndOccs`
+
+Since 2026-09-02 the guard loop's **inner** (per-constructor) body has a fourth line,
+`checkUniformIndOccs (types.map (·.name)) lparams nparams ctor.name ctor.type` — C++'s
+`check_uniform_ind_occs`, run exactly where C++ runs it, immediately before nested elimination.
+Unlike the other three it is parameterised by data the loop does **not** recurse on: the block's
+member names, its level parameters and its `nparams`.  So the guard-loop lemmas below take
+`names`, `lps`, `np` as *fixed* arguments, and only the list being iterated varies — that is why
+the inner list (`cs`) and the outer list (`types`) can be recursed on independently while `names`
+stays the whole block's name list.
+
+`BlockUniformOccs` is the fact the loop yields.  It is stated with the **implementation**'s
+`Lean4Lean.noNonUniformOcc` rather than with `Verify/Inductive/UniformOccMeasure.lean`'s
+specification `uioOk`, for the boring reason that that file sits *downstream* of this one (it
+imports `Experimental/ConeJoin.lean`, which imports this).  The two are the same function —
+`UniformOccMeasure.lean`'s `uio_impl_eq` proves it pointwise — so via `uioOk_iff` this conjunct
+is `UIOCond`, C++'s condition in `Prop`, at every constructor type of the block. -/
+
+/-- **The fourth thing `Environment.addInductive`'s guard loop establishes**: every constructor
+type of the block passes the syntactic uniform-occurrence pre-pass, at binder depth 0, for the
+block's own member names `names`, level parameters `lps` and parameter count `np`.
+
+`names`/`lps`/`np` are explicit rather than read off `types` because the loop's fourth check is
+applied with the *whole* block's data while the loop recurses on a suffix; the call site
+instantiates `names := types.map (·.name)`.  Via `UniformOccMeasure.lean`'s `uio_impl_eq` and
+`uioOk_iff` this says: `UIOCond names lps np 0 c.type` for every constructor `c` of every
+member — C++'s `check_uniform_ind_occs`, in `Prop`. -/
+def BlockUniformOccs (names lps : List Name) (np : Nat) (types : List InductiveType) : Prop :=
+  ∀ t ∈ types, ∀ c ∈ t.ctors, noNonUniformOcc names lps np 0 c.type = true
+
+/-- The postcondition of the fourth guard, in the shape of `checkNoLooseBVars.WF`.  Like it, and
+deliberately, this reaches **no axiom at all**: `noNonUniformOcc` is a pure structural recursion
+that reads no cached `Expr` header field, and `ownLevels` pattern-matches `.param` instead of
+using `Lean.Level.beq`, whose lawfulness is the frozen axiom
+`Lean.Level.instLawfulBEqLevel`. -/
+theorem checkUniformIndOccs.WF (names lps : List Name) (np : Nat) (n : Name) (e : Expr) :
+    (checkUniformIndOccs names lps np n e).WF fun _ => noNonUniformOcc names lps np 0 e = true := by
+  intro _ h
+  cases hb : noNonUniformOcc names lps np 0 e with
+  | false => simp [checkUniformIndOccs, hb] at h
+  | true => rfl
+
 /-- The inner loop of `Environment.addInductive`'s guard: each constructor type is checked by
 `checkNoMVarNoFVar`, whose postcondition (`checkNoMVarNoFVar.WF`) is exactly
 `FVarsIn fun _ => False`, and by `checkNoLooseBVars`, whose postcondition
 (`checkNoLooseBVars.WF`) is exactly `looseBVarRange' = 0`. -/
-theorem guardLoop_ctors (env : Environment) : ∀ (cs : List Constructor),
+theorem guardLoop_ctors (env : Environment) (names lps : List Name) (np : Nat) :
+    ∀ (cs : List Constructor),
     (forIn cs PUnit.unit (fun ctor _ => do
         env.checkNoMVarNoFVar ctor.name ctor.type
         checkNoNestedAux ctor.name ctor.type
         checkNoLooseBVars ctor.name ctor.type
+        checkUniformIndOccs names lps np ctor.name ctor.type
         pure (ForInStep.yield PUnit.unit)) : Except Exception PUnit).WF
-      (fun _ => ∀ c ∈ cs, FVarsIn (fun _ => False) c.type ∧ c.type.looseBVarRange' = 0)
+      (fun _ => ∀ c ∈ cs, FVarsIn (fun _ => False) c.type ∧ c.type.looseBVarRange' = 0 ∧
+        noNonUniformOcc names lps np 0 c.type = true)
   | [] => Except.WF.pure (fun _ h => absurd h nofun)
   | c :: cs => by
     rw [List.forIn_cons]
     refine Except.WF.bind (Q := fun r =>
       r = ForInStep.yield PUnit.unit ∧
-        FVarsIn (fun _ => False) c.type ∧ c.type.looseBVarRange' = 0) ?_ ?_
+        FVarsIn (fun _ => False) c.type ∧ c.type.looseBVarRange' = 0 ∧
+        noNonUniformOcc names lps np 0 c.type = true) ?_ ?_
     · refine Except.WF.bind (checkNoMVarNoFVar.WF env c.name c.type) fun _ hfv => ?_
       refine Except.WF.bind (Q := fun _ => True) (fun _ _ => trivial) fun _ _ => ?_
       refine Except.WF.bind (checkNoLooseBVars.WF c.name c.type) fun _ hcl => ?_
-      exact Except.WF.pure ⟨rfl, hfv, hcl⟩
+      refine Except.WF.bind (checkUniformIndOccs.WF names lps np c.name c.type) fun _ hu => ?_
+      exact Except.WF.pure ⟨rfl, hfv, hcl, hu⟩
     · rintro r ⟨rfl, hfv⟩
-      refine (guardLoop_ctors env cs).mono fun _ h x hx => ?_
+      refine (guardLoop_ctors env names lps np cs).mono fun _ h x hx => ?_
       rcases List.mem_cons.1 hx with rfl | hx
       · exact hfv
       · exact h x hx
 
 /-- **The exposing lemma.**  `Environment.addInductive`'s own pre-`run` guard loop supplies
-`BlockNoFVar` (from `checkNoMVarNoFVar`) *and* `BlockClosedMembers` and `BlockClosed` (from the
-two `checkNoLooseBVars` calls added on 2026-09-01, one on the member's own type and one on each
-constructor's).  The name is kept from the version that could only deliver `BlockNoFVar`. -/
-theorem guardLoop_blockNoFVar (env : Environment) : ∀ (types : List InductiveType),
+`BlockNoFVar` (from `checkNoMVarNoFVar`), `BlockClosedMembers` and `BlockClosed` (from the two
+`checkNoLooseBVars` calls added on 2026-09-01, one on the member's own type and one on each
+constructor's), **and** `BlockUniformOccs` (from the `checkUniformIndOccs` call added on
+2026-09-02 to the inner loop only, which is where C++ puts it).  The name is kept from the
+version that could only deliver `BlockNoFVar`.
+
+`names`/`lps`/`np` are fixed while the loop recurses on `types`: the fourth check is applied with
+the *whole* block's data.  The call site takes `names := types.map (·.name)`, `lps := lparams`,
+`np := nparams`. -/
+theorem guardLoop_blockNoFVar (env : Environment) (names lps : List Name) (np : Nat) :
+    ∀ (types : List InductiveType),
     (forIn types PUnit.unit (fun indType _ => do
         env.checkNoMVarNoFVar indType.name indType.type
         checkNoNestedAux indType.name indType.type
@@ -964,22 +1018,25 @@ theorem guardLoop_blockNoFVar (env : Environment) : ∀ (types : List InductiveT
           env.checkNoMVarNoFVar ctor.name ctor.type
           checkNoNestedAux ctor.name ctor.type
           checkNoLooseBVars ctor.name ctor.type
+          checkUniformIndOccs names lps np ctor.name ctor.type
         pure (ForInStep.yield PUnit.unit)) : Except Exception PUnit).WF
-      (fun _ => BlockNoFVar types ∧ BlockClosedMembers types ∧ BlockClosed types)
+      (fun _ => BlockNoFVar types ∧ BlockClosedMembers types ∧ BlockClosed types ∧
+        BlockUniformOccs names lps np types)
   | [] => Except.WF.pure ⟨fun _ h => absurd h nofun, fun _ h => absurd h nofun,
-      fun _ h => absurd h nofun⟩
+      fun _ h => absurd h nofun, fun _ h => absurd h nofun⟩
   | t :: l => by
     rw [List.forIn_cons]
     refine Except.WF.bind (Q := fun r =>
       r = ForInStep.yield PUnit.unit ∧ t.type.looseBVarRange' = 0 ∧
-        ∀ c ∈ t.ctors, FVarsIn (fun _ => False) c.type ∧ c.type.looseBVarRange' = 0) ?_ ?_
+        ∀ c ∈ t.ctors, FVarsIn (fun _ => False) c.type ∧ c.type.looseBVarRange' = 0 ∧
+          noNonUniformOcc names lps np 0 c.type = true) ?_ ?_
     · refine Except.WF.bind (Q := fun _ => True) (fun _ _ => trivial) fun _ _ => ?_
       refine Except.WF.bind (Q := fun _ => True) (fun _ _ => trivial) fun _ _ => ?_
       refine Except.WF.bind (checkNoLooseBVars.WF t.name t.type) fun _ hm => ?_
-      refine Except.WF.bind (guardLoop_ctors env t.ctors) fun _ hc => ?_
+      refine Except.WF.bind (guardLoop_ctors env names lps np t.ctors) fun _ hc => ?_
       exact Except.WF.pure ⟨rfl, hm, hc⟩
     · rintro r ⟨rfl, hm, hc⟩
-      refine (guardLoop_blockNoFVar env l).mono fun _ h => ⟨?_, ?_, ?_⟩
+      refine (guardLoop_blockNoFVar env names lps np l).mono fun _ h => ⟨?_, ?_, ?_, ?_⟩
       · intro x hx
         rcases List.mem_cons.1 hx with rfl | hx
         · exact fun c hcm => (hc c hcm).1
@@ -990,8 +1047,12 @@ theorem guardLoop_blockNoFVar (env : Environment) : ∀ (types : List InductiveT
         · exact h.2.1 x hx
       · intro x hx
         rcases List.mem_cons.1 hx with rfl | hx
-        · exact fun c hcm => (hc c hcm).2
-        · exact h.2.2 x hx
+        · exact fun c hcm => (hc c hcm).2.1
+        · exact h.2.2.1 x hx
+      · intro x hx
+        rcases List.mem_cons.1 hx with rfl | hx
+        · exact fun c hcm => (hc c hcm).2.2
+        · exact h.2.2.2 x hx
 
 /-- **The guard, as a fact about the whole of `Environment.addInductive`.**  `Except.WF` with a
 postcondition that does not mention the result is exactly "if it succeeds, its input had this
@@ -1003,9 +1064,10 @@ first thing `addInductive` runs, so `Except.WF.bind` needs nothing about what fo
 theorem addInductive_WF_blockClosedFull {env : Environment} {lparams : List Name} {np : Nat}
     {types : List InductiveType} {iu ap : Bool} {fuel : FuelConfig} :
     (Environment.addInductive env lparams np types iu ap fuel).WF
-      fun _ => BlockNoFVar types ∧ BlockClosedMembers types ∧ BlockClosed types := by
+      fun _ => BlockNoFVar types ∧ BlockClosedMembers types ∧ BlockClosed types ∧
+        BlockUniformOccs (types.map (·.name)) lparams np types := by
   unfold Environment.addInductive
-  exact Except.WF.bind (guardLoop_blockNoFVar env types) fun _ hg _ _ => hg
+  exact Except.WF.bind (guardLoop_blockNoFVar env _ lparams np types) fun _ hg _ _ => hg
 
 /-! ### 6.1 The closedness half alone, with no frozen axiom
 
@@ -1020,31 +1082,40 @@ separately: the two lemmas below re-run the loop with `Q := fun _ => True` on ev
 That is the point of `noLooseBVars` being a pure recursion rather than a read of the
 `Expr.looseBVarRange` header field, made measurable. -/
 
-/-- `guardLoop_ctors` keeping only what `checkNoLooseBVars` gives.  No frozen axiom. -/
-theorem guardLoop_ctors_closed (env : Environment) : ∀ (cs : List Constructor),
+/-- `guardLoop_ctors` keeping only what `checkNoLooseBVars` and `checkUniformIndOccs` give — the
+two checks that are pure structural recursions.  No frozen axiom. -/
+theorem guardLoop_ctors_closed (env : Environment) (names lps : List Name) (np : Nat) :
+    ∀ (cs : List Constructor),
     (forIn cs PUnit.unit (fun ctor _ => do
         env.checkNoMVarNoFVar ctor.name ctor.type
         checkNoNestedAux ctor.name ctor.type
         checkNoLooseBVars ctor.name ctor.type
+        checkUniformIndOccs names lps np ctor.name ctor.type
         pure (ForInStep.yield PUnit.unit)) : Except Exception PUnit).WF
-      (fun _ => ∀ c ∈ cs, c.type.looseBVarRange' = 0)
+      (fun _ => ∀ c ∈ cs, c.type.looseBVarRange' = 0 ∧
+        noNonUniformOcc names lps np 0 c.type = true)
   | [] => Except.WF.pure (fun _ h => absurd h nofun)
   | c :: cs => by
     rw [List.forIn_cons]
     refine Except.WF.bind (Q := fun r =>
-      r = ForInStep.yield PUnit.unit ∧ c.type.looseBVarRange' = 0) ?_ ?_
+      r = ForInStep.yield PUnit.unit ∧ c.type.looseBVarRange' = 0 ∧
+        noNonUniformOcc names lps np 0 c.type = true) ?_ ?_
     · refine Except.WF.bind (Q := fun _ => True) (fun _ _ => trivial) fun _ _ => ?_
       refine Except.WF.bind (Q := fun _ => True) (fun _ _ => trivial) fun _ _ => ?_
       refine Except.WF.bind (checkNoLooseBVars.WF c.name c.type) fun _ hcl => ?_
-      exact Except.WF.pure ⟨rfl, hcl⟩
+      refine Except.WF.bind (checkUniformIndOccs.WF names lps np c.name c.type) fun _ hu => ?_
+      exact Except.WF.pure ⟨rfl, hcl, hu⟩
     · rintro r ⟨rfl, hcl⟩
-      refine (guardLoop_ctors_closed env cs).mono fun _ h x hx => ?_
+      refine (guardLoop_ctors_closed env names lps np cs).mono fun _ h x hx => ?_
       rcases List.mem_cons.1 hx with rfl | hx
       · exact hcl
       · exact h x hx
 
-/-- `guardLoop_blockNoFVar` keeping only its two closedness conjuncts.  No frozen axiom. -/
-theorem guardLoop_blockClosed (env : Environment) : ∀ (types : List InductiveType),
+/-- `guardLoop_blockNoFVar` keeping only its two closedness conjuncts **and** the uniformity one —
+i.e. dropping exactly the `checkNoMVarNoFVar` half, which is the only source of a frozen axiom
+here.  No frozen axiom. -/
+theorem guardLoop_blockClosed (env : Environment) (names lps : List Name) (np : Nat) :
+    ∀ (types : List InductiveType),
     (forIn types PUnit.unit (fun indType _ => do
         env.checkNoMVarNoFVar indType.name indType.type
         checkNoNestedAux indType.name indType.type
@@ -1053,37 +1124,109 @@ theorem guardLoop_blockClosed (env : Environment) : ∀ (types : List InductiveT
           env.checkNoMVarNoFVar ctor.name ctor.type
           checkNoNestedAux ctor.name ctor.type
           checkNoLooseBVars ctor.name ctor.type
+          checkUniformIndOccs names lps np ctor.name ctor.type
         pure (ForInStep.yield PUnit.unit)) : Except Exception PUnit).WF
-      (fun _ => BlockClosedMembers types ∧ BlockClosed types)
-  | [] => Except.WF.pure ⟨fun _ h => absurd h nofun, fun _ h => absurd h nofun⟩
+      (fun _ => BlockClosedMembers types ∧ BlockClosed types ∧
+        BlockUniformOccs names lps np types)
+  | [] => Except.WF.pure ⟨fun _ h => absurd h nofun, fun _ h => absurd h nofun,
+      fun _ h => absurd h nofun⟩
   | t :: l => by
     rw [List.forIn_cons]
     refine Except.WF.bind (Q := fun r =>
       r = ForInStep.yield PUnit.unit ∧ t.type.looseBVarRange' = 0 ∧
-        ∀ c ∈ t.ctors, c.type.looseBVarRange' = 0) ?_ ?_
+        ∀ c ∈ t.ctors, c.type.looseBVarRange' = 0 ∧
+          noNonUniformOcc names lps np 0 c.type = true) ?_ ?_
     · refine Except.WF.bind (Q := fun _ => True) (fun _ _ => trivial) fun _ _ => ?_
       refine Except.WF.bind (Q := fun _ => True) (fun _ _ => trivial) fun _ _ => ?_
       refine Except.WF.bind (checkNoLooseBVars.WF t.name t.type) fun _ hm => ?_
-      refine Except.WF.bind (guardLoop_ctors_closed env t.ctors) fun _ hc => ?_
+      refine Except.WF.bind (guardLoop_ctors_closed env names lps np t.ctors) fun _ hc => ?_
       exact Except.WF.pure ⟨rfl, hm, hc⟩
     · rintro r ⟨rfl, hm, hc⟩
-      refine (guardLoop_blockClosed env l).mono fun _ h => ⟨?_, ?_⟩
+      refine (guardLoop_blockClosed env names lps np l).mono fun _ h => ⟨?_, ?_, ?_⟩
       · intro x hx
         rcases List.mem_cons.1 hx with rfl | hx
         · exact hm
         · exact h.1 x hx
       · intro x hx
         rcases List.mem_cons.1 hx with rfl | hx
-        · exact hc
-        · exact h.2 x hx
+        · exact fun c hcm => (hc c hcm).1
+        · exact h.2.1 x hx
+      · intro x hx
+        rcases List.mem_cons.1 hx with rfl | hx
+        · exact fun c hcm => (hc c hcm).2
+        · exact h.2.2 x hx
 
-/-- **The axiom-free form of the guard**, and the one `RejectsNonClosed` is proved from. -/
+/-- **The axiom-free form of the guard**, with all three of its pure-recursion conjuncts. -/
+theorem addInductive_WF_blockClosedUniform {env : Environment} {lparams : List Name} {np : Nat}
+    {types : List InductiveType} {iu ap : Bool} {fuel : FuelConfig} :
+    (Environment.addInductive env lparams np types iu ap fuel).WF
+      fun _ => BlockClosedMembers types ∧ BlockClosed types ∧
+        BlockUniformOccs (types.map (·.name)) lparams np types := by
+  unfold Environment.addInductive
+  exact Except.WF.bind (guardLoop_blockClosed env _ lparams np types) fun _ hg _ _ => hg
+
+/-- **The axiom-free form of the guard**, and the one `RejectsNonClosed` is proved from.  Its
+statement is deliberately unchanged by the 2026-09-02 fourth check: `Verify/ClosednessPropagation`
+consumes it verbatim (`rejectsNonClosed` takes its `.2`), so the new conjunct is exposed by
+`addInductive_WF_blockClosedUniform` beside it rather than spliced into it. -/
 theorem addInductive_WF_blockClosed {env : Environment} {lparams : List Name} {np : Nat}
     {types : List InductiveType} {iu ap : Bool} {fuel : FuelConfig} :
     (Environment.addInductive env lparams np types iu ap fuel).WF
-      fun _ => BlockClosedMembers types ∧ BlockClosed types := by
-  unfold Environment.addInductive
-  exact Except.WF.bind (guardLoop_blockClosed env types) fun _ hg _ _ => hg
+      fun _ => BlockClosedMembers types ∧ BlockClosed types :=
+  addInductive_WF_blockClosedUniform.mono fun _ h => ⟨h.1, h.2.1⟩
+
+/-! ### 6.2 `RejectsNonUniform`
+
+The analogue of `Verify/ClosednessPropagation.lean`'s `RejectsNonClosed`, and it is free for the
+same reason the loose-bvar one was: `Except.WF x Q` unfolds to `∀ a, x = .ok a → Q a`, so an
+`Except.WF` whose postcondition does not mention the result **is** the contrapositive
+"if it succeeded, the input had this property".  Nothing about `ElimNestedInductive.run`,
+`AddInductive.run`, `ves.WF env` or `env.find?` enters: the guard loop is the first thing
+`Environment.addInductive` does.
+
+Stated here rather than in `Verify/ClosednessPropagation.lean` because that file is not this
+stream's to edit, and because `BlockUniformOccs` lives here.
+
+**What this is and is not.**  It is a fact about the *implementation*: lean4lean now refuses what
+C++'s `check_uniform_ind_occs` refuses.  It is **not** a soundness lemma, and unlike
+`rejectsNonClosed` it discharges no premise of any open statement — `AddInductiveStepWFClosed`
+does not ask for uniformity.  Its value is convergence with C++ plus the proof-side dividend
+`UniformOccMeasure.lean`'s `uio_restore_none_forces_reject` records: on an accepted constructor
+type, `VIndRestore.restore`'s non-uniform fallthrough is unreachable. -/
+
+/-- **`Environment.addInductive` rejects a block with a non-uniform occurrence.**  The uniformity
+analogue of `RejectsNonClosed`.
+
+Note where the difficulty could hide: the hypothesis is a *negation*, so an implementation whose
+check was identically `true` would make it vacuous, and no instrument in this repo inspects
+hypotheses.  The hypothesis is exhibited as inhabited in `UniformOccMeasure.lean`
+(`uio_rejectsNonUniform_fires`, at the arena's `nested-nonuniform-param` block), and the check is
+exhibited as *not* identically `false` by the same file's `uio/scanA` (0 violations in 7013
+submitted constructors) and `uio_ok_of_occ`. -/
+def RejectsNonUniform : Prop :=
+  ∀ (env : Environment) (lp : List Name) (np : Nat) (types : List InductiveType)
+    (ap : Bool) (fuel : FuelConfig), ¬ BlockUniformOccs (types.map (·.name)) lp np types →
+    ∀ env', Environment.addInductive env lp np types false ap fuel ≠ .ok env'
+
+/-- **`RejectsNonUniform`, proved**, straight from `addInductive_WF_blockClosedUniform`.
+
+Axioms: `[propext, Classical.choice, Quot.sound]` — **no frozen axiom**.  That is not an accident
+of the proof but of the port: `noNonUniformOcc` reads no cached `Expr` header bit (so no
+`Lean.Expr.mkData_eq`/`mkAppData_eq`) and `ownLevels` pattern-matches `.param` rather than calling
+`Lean.Level.beq`, whose `LawfulBEq` instance is the frozen `Lean.Level.instLawfulBEqLevel`.  Had
+it used `us == lps.map .param`, that axiom's side condition would have landed inside *this
+statement's hypothesis*, where instrument 7 — which reads conclusions — would not have seen it. -/
+theorem rejectsNonUniform : RejectsNonUniform :=
+  fun _env _lp _np _types _ap _fuel hu env' hok =>
+    hu (addInductive_WF_blockClosedUniform env' hok).2.2
+
+/-- The `isUnsafe = true` case as well, since the guard loop runs before the safety flag is
+consulted: the same rejection holds at either safety. -/
+theorem rejectsNonUniform' (env : Environment) (lp : List Name) (np : Nat)
+    (types : List InductiveType) (iu ap : Bool) (fuel : FuelConfig)
+    (hu : ¬ BlockUniformOccs (types.map (·.name)) lp np types) (env' : Environment) :
+    Environment.addInductive env lp np types iu ap fuel ≠ .ok env' :=
+  fun hok => hu (addInductive_WF_blockClosedUniform env' hok).2.2
 
 /-- `addInductive_WF_of_run` (`Verify/Inductive/AddInductiveStep.lean` §5) with everything the
 guard loop establishes additionally handed to the continuation, read off the loop the collapse
@@ -1092,6 +1235,7 @@ theorem addInductive_WF_of_run' {env : Environment} {lparams : List Name} {np : 
     {types : List InductiveType} {iu ap : Bool} {fuel : FuelConfig} {Q : Environment → Prop}
     (h : ∀ n v, env.find? n ≠ some (.inductInfo v))
     (H : BlockNoFVar types → BlockClosedMembers types → BlockClosed types →
+        BlockUniformOccs (types.map (·.name)) lparams np types →
         ∀ res : ElimNestedInductive.Result,
         (ElimNestedInductive.run fuel.inductiveFuel np types env).run'
             { lvls := lparams.map .param, newTypes := types.toArray } = .ok res →
@@ -1101,12 +1245,12 @@ theorem addInductive_WF_of_run' {env : Environment} {lparams : List Name} {np : 
             safety := if iu then .unsafe else .safe, fuel }).WF Q) :
     (Environment.addInductive env lparams np types iu ap fuel).WF Q := by
   unfold Environment.addInductive
-  refine Except.WF.bind (guardLoop_blockNoFVar env types) fun _ hg => ?_
+  refine Except.WF.bind (guardLoop_blockNoFVar env _ lparams np types) fun _ hg => ?_
   refine Except.WF.bind_self fun res hres => ?_
   have hz : res.aux2nested = [] :=
     ElimNestedInductive.run_run'_aux2nested h _ _ _ _ rfl _ hres
   simp only [hz, List.length_nil]
-  refine Except.WF.bind (H hg.1 hg.2.1 hg.2.2 res hres hz) fun env' hq => ?_
+  refine Except.WF.bind (H hg.1 hg.2.1 hg.2.2.1 hg.2.2.2 res hres hz) fun env' hq => ?_
   simp only [if_true]
   exact Except.WF.pure hq
 
@@ -1126,7 +1270,8 @@ about `AddInductive.run np types`. -/
 theorem addInductiveStepWFClosed_of_run (H : AddInductiveRunRealisesClosed) :
     AddInductiveStepWFClosed := by
   intro env ves wf lp np types ap fuel hcl
-  refine addInductive_WF_of_run' (fun _ _ => wf.find?_ne_inductInfo) fun hnf _ _ res hres hz => ?_
+  refine addInductive_WF_of_run' (fun _ _ => wf.find?_ne_inductInfo)
+    fun hnf _ _ _ res hres hz => ?_
   refine (addInductiveRunRealises_of_closed H wf lp np types ap fuel res hcl hnf hres hz).mono
     fun env' h' => ?_
   obtain ⟨ves', hves⟩ := h'
@@ -1252,3 +1397,96 @@ pure, so unlike the acceptance it used to replace, this *is* a kernel proof. -/
 theorem checkNoLooseBVars_fooBad_isError :
     (checkNoLooseBVars LooseBVarWitness.fooBadCtor.name
       LooseBVarWitness.fooBadCtor.type).isOk = false := by decide
+
+/-! ### 8.1 Instrument 7 for the fourth check (2026-09-02)
+
+* **`checkUniformIndOccs.WF` / `guardLoop_ctors` / `guardLoop_blockNoFVar` /
+  `guardLoop_blockClosed` / `addInductive_WF_blockClosedFull` /
+  `addInductive_WF_blockClosedUniform`** — `Except.WF` statements again, so **a rejecting input
+  satisfies them for free**, and `BlockUniformOccs names lps np []` holds vacuously
+  (`blockUniformOccs_nil`).  The degenerate instance therefore proves nothing, and is recorded as
+  such.  The firing instances are the whole running environment:
+  `Verify/Inductive/UniformOccMeasure.lean`'s `uio/scanA` runs the **installed**
+  `noNonUniformOcc` over 7013 submitted safe constructor types and 11 unsafe ones with 0
+  violations, and `uio/scanB` over 7215 post-elimination ones with 0 — so the succeeding case,
+  where all the content is, is the normal case rather than a curiosity.
+* **`RejectsNonUniform` / `rejectsNonUniform`** — the *rejecting* case is the content, and the
+  hypothesis is a negation.  Two things must hold for it to say anything, and neither is visible
+  to any instrument that reads conclusions:
+  1. `¬ BlockUniformOccs …` must be **inhabited** — otherwise the theorem is a true implication
+     with an empty antecedent.  `UniformOccMeasure.lean`'s `uio_not_blockUniformOccs_uioE` and
+     `uio_rejectsNonUniform_fires` supply an inhabitant, the arena's `nested-nonuniform-param`
+     block, which lean4lean accepted until 2026-09-02;
+  2. the check must **not** be identically `false` — otherwise the guard rejects every block and
+     the arena breaks.  `uio_ok_of_occ` (no uniform occurrence is refused) and the two scans are
+     the dual, and `uio_naive_too_strong` is why: the pruning-free reading of C++'s condition *is*
+     identically `false` at every `np ≥ 1`, so this failure mode was a live possibility rather
+     than a hypothetical.
+* **The trap, again.**  `rejectsNonUniform`'s axiom set is
+  `[propext, Classical.choice, Quot.sound]` — clean — and that says nothing about whether it is
+  vacuous; the two facts above are what does.  Conversely, the way to make this statement *look*
+  stronger while making it weaker would have been to phrase the fourth conjunct with
+  `Lean.Level.beq`: the axiom print would still have been clean at the top level, with
+  `Lean.Level.instLawfulBEqLevel` reachable only from a hypothesis.  The port avoids that by
+  construction (`Lean4Lean.ownLevels`), and `Verify/Guard.lean` check 1 is what would catch a
+  regression. -/
+
+/-- Instrument 7 for the fourth conjunct at the degenerate instance: **vacuous**, and recorded as
+vacuous. -/
+theorem blockUniformOccs_nil (names lps : List Name) (np : Nat) :
+    BlockUniformOccs names lps np [] := fun _ h => absurd h nofun
+
+/-- Instrument 7, **firing**, for the fourth conjunct at the same witness §8 uses for the other
+three: `R10.Wit.uIndType` passes the installed uniform-occurrence check.  So the new conjunct is
+not free-because-empty on the block that every other statement in this file is instantiated at.
+
+`lps := []` is **forced**, not chosen for convenience, and that is itself a measurement of the
+check: `uIndType`'s only constructor type is the bare `.const R10.Wit.U []`, a block member at
+`np = 0`, so the check demands the block's own levels there (§3.3's T7/T8 in
+`UniformOccMeasure.lean`).  At any other `lps` the statement is **false**, which is what
+`blockUniformOccs_uIndType_forces_lps` records: the fourth conjunct constrains levels, not merely
+argument shapes. -/
+theorem blockUniformOccs_uIndType :
+    BlockUniformOccs (List.map (·.name) [R10.Wit.uIndType]) [] 0 [R10.Wit.uIndType] := by
+  intro t ht
+  rw [List.mem_singleton] at ht; subst ht
+  decide
+
+/-- Instrument 7's dual for the level half: at a *nonempty* `lps` the same block **fails** the
+check.  So `blockUniformOccs_uIndType` is not an artefact of a `lps` that never mattered, and
+`RejectsNonUniform`'s hypothesis is inhabited already at this file's own witness — no need to
+reach for the arena block. -/
+theorem not_blockUniformOccs_uIndType_param :
+    ¬ BlockUniformOccs (List.map (·.name) [R10.Wit.uIndType]) [`u] 0 [R10.Wit.uIndType] := by
+  intro h
+  exact absurd (h _ (List.mem_singleton.2 rfl) _ (List.mem_singleton.2 rfl)) (by decide)
+
+/-- …and hence `Environment.addInductive` **rejects** `[uIndType]` when it is submitted at level
+parameters `[u]`: a firing instance of `rejectsNonUniform`, proved rather than executed. -/
+theorem addInductive_rejects_uIndType_at_param (env : Environment) (ap : Bool) (fuel : FuelConfig)
+    (env' : Environment) :
+    Environment.addInductive env [`u] 0 [R10.Wit.uIndType] false ap fuel ≠ .ok env' :=
+  rejectsNonUniform env [`u] 0 _ ap fuel not_blockUniformOccs_uIndType_param env'
+
+/-! ## 9. Axiom guards for the fourth check
+
+`#print axioms`, not the absence of a local `sorry`.  Every one of these must print
+`[propext, Classical.choice, Quot.sound]` (or a subset): **no frozen axiom from
+`Verify/Axioms.lean`**, and in particular neither `Lean.Level.instLawfulBEqLevel` nor
+`Lean.Expr.mkData_eq`.
+
+`guardLoop_blockNoFVar`, `addInductive_WF_blockClosedFull` and `addInductive_WF_of_run'` are
+*not* in this list, and deliberately: they still reach `Lean.Expr.mkAppData_eq`,
+`Lean.Expr.mkData_eq` and `Lean.Level.hasMVar_eq` through `checkNoMVarNoFVar.WF`, exactly as
+before this round — that is why the `_closed` chain exists. -/
+
+#print axioms Lean4Lean.checkUniformIndOccs.WF
+#print axioms Lean4Lean.guardLoop_ctors_closed
+#print axioms Lean4Lean.guardLoop_blockClosed
+#print axioms Lean4Lean.addInductive_WF_blockClosedUniform
+#print axioms Lean4Lean.addInductive_WF_blockClosed
+#print axioms Lean4Lean.rejectsNonUniform
+#print axioms Lean4Lean.rejectsNonUniform'
+#print axioms Lean4Lean.blockUniformOccs_uIndType
+#print axioms Lean4Lean.not_blockUniformOccs_uIndType_param
+#print axioms Lean4Lean.addInductive_rejects_uIndType_at_param

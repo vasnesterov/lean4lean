@@ -1,14 +1,22 @@
 import Lean4Lean.Experimental.ConeJoin
 
 /-!
-# Measurement: `check_uniform_ind_occs`, the syntactic pre-pass lean4lean lacks (ledger row 116e)
+# The specification of `check_uniform_ind_occs` — and the check it is now tested against
 
-**This file changes no implementation and weakens no statement.**  It is the scoping round for
-ledger row 116e.  The C++ kernel runs a purely syntactic uniformity pre-pass on constructor
+**This file changes no implementation and weakens no statement.**  It began as the scoping round
+for ledger row 116e: the C++ kernel runs a purely syntactic uniformity pre-pass on constructor
 types — `check_uniform_ind_occs` in `src/kernel/inductive.cpp`, called from
 `environment::add_inductive` immediately before `elim_nested_inductive_fn`, exactly where
-`Environment.addInductive`'s guard loop sits — and lean4lean has no counterpart, so lean4lean
-**accepts more than C++** here.
+`Environment.addInductive`'s guard loop sits — and lean4lean had no counterpart, so lean4lean
+**accepted more than C++** here.
+
+**Row 116e is closed as of 2026-09-02.**  `Lean4Lean.checkUniformIndOccs` is installed, in the
+guard loop's inner (per-constructor) body, where C++ puts it.  This file's role changed
+accordingly, and in one direction only: it is the **specification**, and §3.0 proves the installed
+check *equals* it (`uio_impl_eq`), so §3's exactness results are results about the real check.
+Every `#eval` in §5 and §6 now runs `Lean4Lean.noNonUniformOcc` — the implementation — rather than
+this file's `uioOk`; a table that agreed with its own twin would measure nothing.
+`Verify/Inductive/RunIdentity.lean` §6.2 carries the consequence, `rejectsNonUniform`.
 
 Every name is prefixed `uio`/`UIO` (ledger row 113f: inside the `ConeJoin` closure a short name
 collides, and a silent resolution produces a confidently wrong measurement).  Per row 116h this
@@ -72,7 +80,8 @@ C++ runs this on the **submitted** declaration `d`, on **constructor** types onl
 members' own types (unlike the two `check_no_nested_aux` calls beside it, which do both).
 
 `uioNArgs`/`uioFn`/`uioArgs`/`uioArgsOk`/`uioOwnLevels`/`uioOk` below are that, as pure
-structural recursions on `Lean.Expr`; `UIOCond` is the same condition in `Prop`.
+structural recursions on `Lean.Expr`; `UIOCond` is the same condition in `Prop`; and §3.0 proves
+each one equal to its installed counterpart in `Lean4Lean/Inductive/Add.lean`.
 
 ## 2. What is proved here
 
@@ -86,8 +95,14 @@ structural recursions on `Lean.Expr`; `UIOCond` is the same condition in `Prop`.
 | `uio_naive_too_strong` | the pruning-free reading is unsatisfiable, so it is not the condition |
 | `uio_uniformOcc_iff_prefix` | **§4: the C++ condition IS `VInductDecl'.uniformOcc?`** |
 | `uio_uniformOcc_iff` | …literally the same predicate on the nodes C++ checks |
+| `uio_impl_eq` | **§3.0: the specification IS the installed `Lean4Lean.noNonUniformOcc`** |
+| `uio_impl_check_eq` | …and `uioCheck` is `Lean4Lean.checkUniformIndOccs`, wrappers included |
+| `uio_impl_iff` | so the installed check decides `UIOCond` and nothing else |
+| `uio_not_blockUniformOccs_uioE` | **§7: `RejectsNonUniform`'s hypothesis, inhabited** |
+| `uio_rejectsNonUniform_fires` | `addInductive` rejects the arena's non-uniform block, proved |
+| `uio_uioL_uniform` | …and still accepts the uniform nested vehicle, so it is not "reject all" |
 
-No frozen axiom: the `#print axioms` block of §7 is the guard, and it is checked
+No frozen axiom: the `#print axioms` block of §9 is the guard, and it is checked
 against `{propext, Classical.choice, Quot.sound}` by `Verify/Guard.lean`'s check 1 for anything
 that ever reaches `kernel_sound`.  In particular `uioOwnLevels` pattern-matches `.param` and
 compares only `Name`s rather than using `Lean.Level.beq`, whose lawfulness is the **frozen**
@@ -101,7 +116,7 @@ open Kernel
 
 namespace UIOGuard
 
-/-! ## 3. The candidate check, and its exactness -/
+/-! ## 3. The check, and its exactness -/
 
 def uioNArgs : Expr → Nat
   | .app f _ => uioNArgs f + 1
@@ -137,9 +152,12 @@ def uioOwnLevels : List Name → List Level → Bool
   | p :: ps, .param q :: us => p == q && uioOwnLevels ps us
   | _, _ => false
 
-/-- **The candidate guard**, transcribed from `check_uniform_ind_occs` with the visitor's pruning
-built in.  `names` are the block's member names, `lps` its level parameters, `np` its `nparams`,
-`d` the binder depth (C++'s `offset`) at which `e` sits.  **Stated, not installed.** -/
+/-- **The specification of the guard**, transcribed from `check_uniform_ind_occs` with the
+visitor's pruning built in.  `names` are the block's member names, `lps` its level parameters,
+`np` its `nparams`, `d` the binder depth (C++'s `offset`) at which `e` sits.
+
+**Installed since 2026-09-02** as `Lean4Lean.noNonUniformOcc`, under different names so that this
+file stays a specification; `uio_impl_eq` (§3.0) proves the two are the same function. -/
 def uioOk (names : List Name) (lps : List Name) (np : Nat) : Nat → Expr → Bool
   | _, .bvar _ | _, .fvar _ | _, .mvar _ | _, .sort _ | _, .lit _ => true
   | _, .const c us => !names.contains c || (np == 0 && uioOwnLevels lps us)
@@ -157,8 +175,8 @@ def uioOk (names : List Name) (lps : List Name) (np : Nat) : Nat → Expr → Bo
       else uioOk names lps np d f && uioOk names lps np d a
     | _ => uioOk names lps np d f && uioOk names lps np d a
 
-/-- Rejection wrapper, in the shape of `checkNoLooseBVars`/`checkNoNestedAux`.  **Stated, not
-installed** — the constraint on this round is to measure.
+/-- Rejection wrapper, in the shape of `checkNoLooseBVars`/`checkNoNestedAux`.  Installed as
+`Lean4Lean.checkUniformIndOccs`; `uio_impl_check_eq` proves this is it.
 
 The message names the **constructor** rather than the offending datatype, where C++ names the
 datatype (`"invalid occurrence of datatype '" << const_name(fn) << "' being declared"`).  Matching
@@ -170,6 +188,97 @@ def uioCheck (names : List Name) (lps : List Name) (np : Nat) (n : Name) (e : Ex
   unless uioOk names lps np 0 e do
     throw <| .other s!"invalid occurrence of a datatype being declared in '{n}': it must be \
       applied to the parameters and universe levels of the mutual declaration"
+
+/-! ### 3.0 The specification IS the implementation
+
+Since 2026-09-02 the check is **installed**: `Environment.addInductive`'s pre-`run` guard loop
+calls `Lean4Lean.checkUniformIndOccs (types.map (·.name)) lparams nparams` on every constructor
+type, in the inner loop only, exactly where C++ calls `check_uniform_ind_occs`.  The
+implementation's names are deliberately different from this file's (`spineNArgs`/`spineHead`/
+`isParamArg`/`spineParamArgs`/`ownLevels`/`noNonUniformOcc`/`checkUniformIndOccs` against
+`uioNArgs`/`uioFn`/`uioIsParamArg`/`uioArgsOk`/`uioOwnLevels`/`uioOk`/`uioCheck`) so that this
+file stays a *specification* rather than becoming a second copy of the code.
+
+That only helps if the two are provably the same function, which is what this subsection does, one
+`=` per definition and `uio_impl_eq` for the whole check.  Everything downstream then transfers:
+`uioOk_iff` becomes the exactness lemma **of the installed check**, `uio_ok_of_occ` its
+no-false-rejection lemma, and `uio_naive_too_strong` says that *the installed check's* pruning is
+not optional.  §5 and §6's `#eval` guards are stated with `Lean4Lean.noNonUniformOcc` — the real
+one — for the same reason: a table that agreed with its own twin would measure nothing.
+
+These are pointwise equalities of two structurally identical recursions, so each is the same case
+split twice; none of them uses an axiom (§9). -/
+
+theorem uio_impl_nargs : ∀ e : Expr, uioNArgs e = _root_.Lean4Lean.spineNArgs e
+  | .app f _ => by rw [uioNArgs, _root_.Lean4Lean.spineNArgs, uio_impl_nargs f]
+  | .bvar _ | .fvar _ | .mvar _ | .sort _ | .const _ _ | .lit _
+  | .mdata _ _ | .proj _ _ _ | .lam .. | .forallE .. | .letE .. => rfl
+
+theorem uio_impl_head : ∀ e : Expr, uioFn e = _root_.Lean4Lean.spineHead e
+  | .app f _ => by rw [uioFn, _root_.Lean4Lean.spineHead, uio_impl_head f]
+  | .bvar _ | .fvar _ | .mvar _ | .sort _ | .const _ _ | .lit _
+  | .mdata _ _ | .proj _ _ _ | .lam .. | .forallE .. | .letE .. => rfl
+
+theorem uio_impl_isParamArg (d i : Nat) : ∀ a : Expr,
+    uioIsParamArg d i a = _root_.Lean4Lean.isParamArg d i a
+  | .bvar _ => rfl
+  | .fvar _ | .mvar _ | .sort _ | .const _ _ | .lit _ | .app _ _
+  | .mdata _ _ | .proj _ _ _ | .lam .. | .forallE .. | .letE .. => rfl
+
+theorem uio_impl_argsOk (d : Nat) : ∀ e : Expr,
+    uioArgsOk d e = _root_.Lean4Lean.spineParamArgs d e
+  | .app f a => by
+    rw [uioArgsOk, _root_.Lean4Lean.spineParamArgs, uio_impl_argsOk d f, uio_impl_isParamArg,
+      uio_impl_nargs]
+  | .bvar _ | .fvar _ | .mvar _ | .sort _ | .const _ _ | .lit _
+  | .mdata _ _ | .proj _ _ _ | .lam .. | .forallE .. | .letE .. => rfl
+
+theorem uio_impl_ownLevels : ∀ (lps : List Name) (us : List Level),
+    uioOwnLevels lps us = _root_.Lean4Lean.ownLevels lps us
+  | [], [] => rfl
+  | [], _ :: _ => rfl
+  | _ :: _, [] => rfl
+  | p :: ps, .param q :: us => by
+    rw [uioOwnLevels, _root_.Lean4Lean.ownLevels, uio_impl_ownLevels ps us]
+  | _ :: _, .zero :: _ | _ :: _, .succ _ :: _
+  | _ :: _, .max _ _ :: _ | _ :: _, .imax _ _ :: _ | _ :: _, .mvar _ :: _ => rfl
+
+/-- **The specification and the installed check are the same function.**  So `uioOk_iff` is the
+exactness lemma of `Lean4Lean.noNonUniformOcc` itself, and every other result in §3 is about the
+real check. -/
+theorem uio_impl_eq (names lps : List Name) (np : Nat) : ∀ (d : Nat) (e : Expr),
+    uioOk names lps np d e = _root_.Lean4Lean.noNonUniformOcc names lps np d e
+  | _, .bvar _ | _, .fvar _ | _, .mvar _ | _, .sort _ | _, .lit _ => rfl
+  | _, .const c us => by
+    rw [uioOk, _root_.Lean4Lean.noNonUniformOcc, uio_impl_ownLevels]
+  | d, .mdata _ e => by
+    rw [uioOk, _root_.Lean4Lean.noNonUniformOcc, uio_impl_eq names lps np d e]
+  | d, .proj _ _ e => by
+    rw [uioOk, _root_.Lean4Lean.noNonUniformOcc, uio_impl_eq names lps np d e]
+  | d, .lam _ t b _ => by
+    rw [uioOk, _root_.Lean4Lean.noNonUniformOcc, uio_impl_eq names lps np d t,
+      uio_impl_eq names lps np (d+1) b]
+  | d, .forallE _ t b _ => by
+    rw [uioOk, _root_.Lean4Lean.noNonUniformOcc, uio_impl_eq names lps np d t,
+      uio_impl_eq names lps np (d+1) b]
+  | d, .letE _ t v b _ => by
+    rw [uioOk, _root_.Lean4Lean.noNonUniformOcc, uio_impl_eq names lps np d t,
+      uio_impl_eq names lps np d v, uio_impl_eq names lps np (d+1) b]
+  | d, .app f a => by
+    rw [uioOk, _root_.Lean4Lean.noNonUniformOcc, uio_impl_head (.app f a)]
+    cases _root_.Lean4Lean.spineHead (.app f a) with
+    | const c us =>
+      simp only []
+      rw [uio_impl_nargs (.app f a), uio_impl_argsOk, uio_impl_ownLevels,
+        uio_impl_eq names lps np d f, uio_impl_eq names lps np d a]
+    | _ =>
+      simp only []
+      rw [uio_impl_eq names lps np d f, uio_impl_eq names lps np d a]
+
+/-- The wrappers too — so the `Except`-level statement transfers, not merely the `Bool` one. -/
+theorem uio_impl_check_eq (names lps : List Name) (np : Nat) (n : Name) (e : Expr) :
+    uioCheck names lps np n e = _root_.Lean4Lean.checkUniformIndOccs names lps np n e := by
+  rw [uioCheck, _root_.Lean4Lean.checkUniformIndOccs, uio_impl_eq]
 
 theorem uioArgs_length : ∀ e : Expr, (uioArgs e).length = uioNArgs e
   | .app f _ => by rw [uioArgs, uioNArgs, List.length_append, uioArgs_length f]; rfl
@@ -327,11 +436,23 @@ theorem uioOk_iff (names lps : List Name) (np : Nat) : ∀ (d : Nat) (e : Expr),
       simp only []
       rw [Bool.and_eq_true, uioOk_iff names lps np d f, uioOk_iff names lps np d a]
 
+/-- **The exactness lemma of the installed check.**  `uioOk_iff` re-pointed at the installed check: `Lean4Lean.noNonUniformOcc` decides `UIOCond`
+and nothing else. -/
+theorem uio_impl_iff (names lps : List Name) (np d : Nat) (e : Expr) :
+    _root_.Lean4Lean.noNonUniformOcc names lps np d e = true ↔ UIOCond names lps np d e := by
+  rw [← uio_impl_eq]; exact uioOk_iff names lps np d e
+
 /-! ### 3.1 The pruning is not optional
 
 The naive reading — "every subterm whose head is a block constant applied to at most `np`
 arguments is applied to exactly `np`" — is **not** the condition C++ decides, and is
-unsatisfiable at every legitimate block with `np ≥ 1`. -/
+unsatisfiable at every legitimate block with `np ≥ 1`.
+
+This is the single most important thing to have checked about the port, because getting it wrong
+would have installed a guard that rejects `List`, and every *rejection* statement about such a
+guard would still have been provable.  Via `uio_impl_eq` this is a statement about the installed
+`Lean4Lean.noNonUniformOcc`, and `uio_uioL_uniform` (§7) is the concrete dual at a `np = 1`
+block. -/
 
 def uioOkNaive (names : List Name) (lps : List Name) (np : Nat) : Nat → Expr → Bool
   | _, .bvar _ | _, .fvar _ | _, .mvar _ | _, .sort _ | _, .lit _ => true
@@ -424,6 +545,18 @@ theorem uio_ok_of_occ {names lps : List Name} {np d : Nat} {I : Name} {as : List
       by simp [hn, show I ∈ names from by simpa using hI])]
     rw [hn, Bool.and_eq_true, Bool.and_eq_true, uioArgsOk_iff, hargs', uioOwnLevels_iff]
     exact ⟨⟨beq_self_eq_true _, hargs⟩, rfl⟩
+
+/-- `uio_ok_of_occ` at the **installed** check, spelled out rather than left to `uio_impl_eq`:
+`Lean4Lean.noNonUniformOcc` accepts a block occurrence presented as the block's own constant, at
+the block's own levels, applied to exactly `np` parameter bound variables.
+
+This is the fact that must hold for `Lean4Lean.rejectsNonUniform` to be worth anything: a check
+that rejected everything would satisfy every rejection statement about it. -/
+theorem uio_impl_ok_of_occ {names lps : List Name} {np d : Nat} {I : Name} {as : List Expr}
+    (hI : names.contains I = true) (hlen : as.length = np) (hargs : UIOArgsSpec d as) :
+    _root_.Lean4Lean.noNonUniformOcc names lps np d
+      (uioMkApp (.const I (lps.map .param)) as) = true := by
+  rw [← uio_impl_eq]; exact uio_ok_of_occ hI hlen hargs
 
 /-! ### 3.3 Instrument 7: the degenerate instance
 
@@ -564,7 +697,7 @@ theorem uio_restore_none_forces_reject {D : VInductDecl'} {k : Nat} {e : VExpr}
     (h : D.uniformOcc? k e = none) : ¬ UIOVNode D k (uioVPrefix D e) := by
   rw [← uio_uniformOcc_iff_prefix]; rw [h]; exact fun hc => absurd hc (by simp)
 
-/-! ## 5. What lean4lean does today
+/-! ## 5. What lean4lean does — and what it did before 2026-09-02
 
 ### 5.1 A unit table for the transcription
 
@@ -629,17 +762,26 @@ def uioCases : List UIOCase :=
 #eval show Lean.CoreM Unit from do
   let mut bad : List String := []
   for c in uioCases do
-    unless uioOk c.names c.lps c.np 0 c.expr == c.want do bad := c.label :: bad
+    unless _root_.Lean4Lean.noNonUniformOcc c.names c.lps c.np 0 c.expr == c.want do
+      bad := c.label :: bad
   unless bad.isEmpty do
-    throwError "uio/table: uioOk disagrees with the transcribed check_uniform_ind_occs verdict \
-      on {bad.reverse}"
-  -- §3.1 in action: the same T1 that `uioOk` accepts, the pruning-free reading refuses.
+    throwError "uio/table: the INSTALLED check (Lean4Lean.noNonUniformOcc) disagrees with the \
+      transcribed check_uniform_ind_occs verdict on {bad.reverse}"
+  -- The specification is not measured against its own twin: every case is run through the real
+  -- check, and `uio_impl_eq` is what makes §3's exactness results apply to it.
+  for c in uioCases do
+    unless _root_.Lean4Lean.noNonUniformOcc c.names c.lps c.np 0 c.expr
+        == uioOk c.names c.lps c.np 0 c.expr do
+      throwError "uio/table: Lean4Lean.noNonUniformOcc and uioOk disagree on {c.label} -- \
+        uio_impl_eq is FALSE and the port has drifted from the specification"
+  -- §3.1 in action: the same T1 that the installed check accepts, the pruning-free reading
+  -- refuses.
   let t1 := uioPi (.app (uioIc) (.bvar 0))
-  unless uioOk [`uioI] [] 1 0 t1 && !uioOkNaive [`uioI] [] 1 0 t1 do
-    throwError "uio/table: the pruning-free reading no longer differs from uioOk on T1 -- \
+  unless _root_.Lean4Lean.noNonUniformOcc [`uioI] [] 1 0 t1 && !uioOkNaive [`uioI] [] 1 0 t1 do
+    throwError "uio/table: the pruning-free reading no longer differs from the installed check -- \
       uio_naive_too_strong's premise has moved"
-  logInfo s!"uio/table: {uioCases.length} cases, all agreeing with check_uniform_ind_occs; \
-    the pruning-free reading refuses T1"
+  logInfo s!"uio/table: {uioCases.length} cases, all agreeing with check_uniform_ind_occs and \
+    with uioOk; the pruning-free reading refuses T1"
 
 /-! ### 5.2 The gap, at a real declaration
 
@@ -649,10 +791,12 @@ in kernel form: `uioL (α : Type)` is the nested vehicle, and
     uioE.mk : (w : Bool) → uioL (uioE Bool.false) → uioE w
 
 has the nested occurrence `uioE Bool.false`, which supplies a *constant* where the parameter `w`
-should be.  C++ throws at it (`args.size() == nparams` holds, `is_bvar(args[0], 0)` fails);
-lean4lean accepts.  Arena outcome for that test is **`either`** and lean4lean's recorded status is
-`accepted` (`_results/lean4lean-local_nested-nonuniform-param.json`), which is why the suite still
-reports 0 wrong: **the gap is live but priced as `either`.**
+should be.  C++ throws at it (`args.size() == nparams` holds, `is_bvar(args[0], 0)` fails).
+lean4lean **accepted** it until 2026-09-02; the arena outcome for that test is **`either`** and
+lean4lean's recorded status was `accepted`
+(`_results/lean4lean-local_nested-nonuniform-param.json`), which is why the suite reported 0 wrong
+even while the gap was live.  **It now rejects**, and §7 proves that rather than observing it
+(`uio_rejectsNonUniform_fires`); the `#eval` below throws if the acceptance ever comes back.
 
 `uioUnusedCtorType` is the shape of the *other* test, `nested-unused-param` (outcome `reject`),
 where the occurrence `uioE #0` **is** uniform and the payload is a malformed second nested
@@ -687,20 +831,23 @@ def uioUnusedCtorType : Expr :=
 #eval show Lean.CoreM Unit from do
   let kenv := (← getEnv).toKernelEnv
   let env1 ← match Environment.addInductive kenv [] 1 [uioLBlock] false false with
-    | .error e => throwError "uio/wit: the nested vehicle uioL was rejected ({e.toMessageData {}})"
+    | .error e => throwError "uio/wit: the nested vehicle uioL was REJECTED \
+        ({e.toMessageData {}}) -- the installed pre-pass refuses an ordinary uniform block, i.e. \
+        the pruning is gone (see uio_naive_too_strong)"
     | .ok e => pure e
   match Environment.addInductive env1 [] 1 [uioEBlock] false false with
-  | .error e =>
-    throwError "uio/wit: lean4lean now REJECTS the non-uniform block ({e.toMessageData {}}) -- \
-      row 116e's gap has been closed by some route; re-measure and update the ledger"
-  | .ok _ => pure ()
-  unless uioOk [`uioE] [] 1 0 uioECtorType == false do
-    throwError "uio/wit: the candidate check no longer rejects the non-uniform constructor type"
-  unless uioOk [`uioE] [] 1 0 uioUnusedCtorType == true do
-    throwError "uio/wit: the candidate check now rejects the nested-unused-param shape, whose \
+  | .error _ => pure ()
+  | .ok _ =>
+    throwError "uio/wit: lean4lean ACCEPTS the non-uniform block again -- row 116e's gap has \
+      REOPENED; checkUniformIndOccs is no longer reached from Environment.addInductive"
+  unless _root_.Lean4Lean.noNonUniformOcc [`uioE] [] 1 0 uioECtorType == false do
+    throwError "uio/wit: the installed check no longer rejects the non-uniform constructor type"
+  unless _root_.Lean4Lean.noNonUniformOcc [`uioE] [] 1 0 uioUnusedCtorType == true do
+    throwError "uio/wit: the installed check now rejects the nested-unused-param shape, whose \
       occurrence is uniform -- it has stopped being a transcription of check_uniform_ind_occs"
-  logInfo "uio/wit: lean4lean ACCEPTS the non-uniform block (C++ throws); the candidate check \
-    rejects it, and is silent on the nested-unused-param shape, as C++ is"
+  logInfo "uio/wit: row 116e's gap is CLOSED -- lean4lean REJECTS the non-uniform block (as C++ \
+    does), still accepts the uniform nested vehicle uioL, and is silent on the \
+    nested-unused-param shape, as C++ is"
 
 /-! ### 5.3 The pre-pass does **not** subsume the gaps already priced
 
@@ -731,11 +878,14 @@ def uioJCtorType : Expr :=
 
 #eval show Lean.CoreM Unit from do
   let mut bad : List String := []
-  unless uioOk [`uioT] [] 0 0 uioRedexCtorType do bad := "row 113 redex witness" :: bad
-  unless uioOk [`uioDep] [] 1 0 uioDepCtorType do bad := "row 116 cgmDep" :: bad
-  unless uioOk [`uioJ] [] 0 0 uioJCtorType do bad := "row 116 cgmJ" :: bad
+  unless _root_.Lean4Lean.noNonUniformOcc [`uioT] [] 0 0 uioRedexCtorType do
+    bad := "row 113 redex witness" :: bad
+  unless _root_.Lean4Lean.noNonUniformOcc [`uioDep] [] 1 0 uioDepCtorType do
+    bad := "row 116 cgmDep" :: bad
+  unless _root_.Lean4Lean.noNonUniformOcc [`uioJ] [] 0 0 uioJCtorType do
+    bad := "row 116 cgmJ" :: bad
   unless bad.isEmpty do
-    throwError "uio/sep: the candidate check now REJECTS {bad.reverse} -- rows 113/116 and 116e \
+    throwError "uio/sep: the INSTALLED check now REJECTS {bad.reverse} -- rows 113/116 and 116e \
       are no longer independent, and the recommendation has to be re-derived"
   logInfo "uio/sep: the pre-pass accepts rows 113 and 116's witnesses -- every occurrence in them \
     is uniform, so 116e is a separate gap in the opposite direction"
@@ -768,7 +918,7 @@ Both `#eval`s **throw** on a nonzero violation count. -/
       let some (.inductInfo w) := env.find? m | continue
       for c in w.ctors do
         let some cci := env.find? c | continue
-        let ok := uioOk v.all v.levelParams v.numParams 0 cci.type
+        let ok := _root_.Lean4Lean.noNonUniformOcc v.all v.levelParams v.numParams 0 cci.type
         if v.isUnsafe then
           uctors := uctors + 1
           unless ok do uviol := uviol + 1; uviolCtors := c :: uviolCtors
@@ -776,7 +926,7 @@ Both `#eval`s **throw** on a nonzero violation count. -/
           ctors := ctors + 1
           unless ok do viol := viol + 1; violCtors := c :: violCtors
   unless viol == 0 && uviol == 0 do
-    throwError "uio/scanA: the candidate check REJECTS stored declarations: {viol} safe \
+    throwError "uio/scanA: the INSTALLED check REJECTS stored declarations: {viol} safe \
       {violCtors.eraseDups.take 40}, {uviol} unsafe {uviolCtors.eraseDups.take 40} -- \
       installing it would break the arena"
   logInfo s!"uio/scanA: SUBMITTED FORM: SAFE {blocks} blocks / {ctors} ctors, violations {viol}; \
@@ -812,7 +962,7 @@ Both `#eval`s **throw** on a nonzero violation count. -/
       for t in res.types do
         for c in t.ctors do
           auxCtors := auxCtors + 1
-          unless uioOk anames v.levelParams v.numParams 0 c.type do
+          unless _root_.Lean4Lean.noNonUniformOcc anames v.levelParams v.numParams 0 c.type do
             auxViol := auxViol + 1; bad := true
       if bad then badBlocks := n :: badBlocks
   unless auxViol == 0 do
@@ -827,9 +977,50 @@ Both `#eval`s **throw** on a nonzero violation count. -/
     {auxCtors} auxiliary constructors, violations {auxViol}"
 
 
-/-! ## 8. The implementation shape, and the recommendation
+/-! ## 7. The installed check: `RejectsNonUniform` fires, and its hypothesis is inhabited
 
-### Where it goes
+`Verify/Inductive/RunIdentity.lean` §6.2 proves `Lean4Lean.rejectsNonUniform`: if a block has a
+constructor type the pre-pass refuses, `Environment.addInductive` refuses the block.  Its
+hypothesis is a **negation**, so the statement is worth exactly as much as an inhabitant of that
+negation, and no instrument in this repo inspects hypotheses.  Here is the inhabitant, and it is
+the arena test that motivated the whole row: `nested-nonuniform-param`.
+
+The dual — that the check is not identically `false`, i.e. that installing it does not reject
+everything — is `uio_ok_of_occ` (nothing uniform is refused, via `uio_impl_eq` a statement about
+the installed check), §6's two scans (0 violations in 7013 submitted and 7215 post-elimination
+constructor types) and `uio_uioL_uniform` below (the nested *vehicle* still passes).  That dual is
+not decoration: `uio_naive_too_strong` shows the pruning-free reading of C++'s condition **is**
+identically `false` at every `np ≥ 1`, so "rejects everything" was a live failure mode of this
+port rather than a hypothetical one. -/
+
+/-- The arena's `nested-nonuniform-param` block violates `BlockUniformOccs` — the fourth conjunct
+of the guard loop's postcondition.  **This is `RejectsNonUniform`'s hypothesis, inhabited.** -/
+theorem uio_not_blockUniformOccs_uioE :
+    ¬ _root_.Lean4Lean.BlockUniformOccs (List.map (·.name) [uioEBlock]) [] 1 [uioEBlock] := by
+  intro h
+  exact absurd (h _ (List.mem_singleton.2 rfl) _ (List.mem_singleton.2 rfl)) (by decide)
+
+/-- **`rejectsNonUniform`, fired.**  `Environment.addInductive` rejects the arena's
+`nested-nonuniform-param` block at every `env`, `ap` and `fuel` — a kernel proof, not an `#eval`:
+the guard runs before `ElimNestedInductive.run`, so nothing `opaque` is in the way.  This is the
+declaration lean4lean **accepted** until 2026-09-02 and C++ has always thrown on. -/
+theorem uio_rejectsNonUniform_fires (env : Environment) (ap : Bool)
+    (fuel : _root_.Lean4Lean.FuelConfig) (env' : Environment) :
+    Environment.addInductive env [] 1 [uioEBlock] false ap fuel ≠ .ok env' :=
+  _root_.Lean4Lean.rejectsNonUniform env [] 1 _ ap fuel uio_not_blockUniformOccs_uioE env'
+
+/-- Instrument 7's **dual** at the same place: the nested *vehicle* `uioL` — an ordinary
+`List`-shaped block with `np = 1` — still satisfies `BlockUniformOccs`, so the guard is not
+"reject everything".  `uio_naive_too_strong` says the pruning-free reading fails exactly here. -/
+theorem uio_uioL_uniform :
+    _root_.Lean4Lean.BlockUniformOccs (List.map (·.name) [uioLBlock]) [] 1 [uioLBlock] := by
+  intro t ht
+  rw [List.mem_singleton] at ht; subst ht
+  decide
+
+/-! ## 8. The implementation, as installed
+
+### Where it went — and it is exactly where this section recommended
 
 One line in `Environment.addInductive`'s existing pre-`run` guard loop
 (`Lean4Lean/Inductive/Add.lean`), in the **inner** loop only — C++ applies the pre-pass to
@@ -840,10 +1031,10 @@ constructor types and not to member types:
         env.checkNoMVarNoFVar ctor.name ctor.type
         checkNoNestedAux ctor.name ctor.type
         checkNoLooseBVars ctor.name ctor.type
-        uioCheck (types.map (·.name)) lparams nparams ctor.name ctor.type   -- new
+        checkUniformIndOccs (types.map (·.name)) lparams nparams ctor.name ctor.type   -- 2026-09-02
 ```
 
-`types`, `lparams` and `nparams` are all in scope there.  The check must sit **before**
+`types`, `lparams` and `nparams` are all in scope there.  The check sits **before**
 `ElimNestedInductive.run`, which is where C++ puts it and where its purpose lies: it exists to
 catch what later, `whnf`-using phases can no longer see.
 
@@ -857,14 +1048,19 @@ axiom `Lean.Level.instLawfulBEqLevel`; that is the same trade `checkNoLooseBVars
 `Expr.looseBVarRange`/`Expr.mkData_eq`, and for the same reason — a frozen axiom's side condition
 would otherwise appear in every consequence.  Guard 3 gains no entry.
 
-Two adjustments to make when installing, both mechanical:
+Two adjustments this section flagged before installing:
 
-1. **`Option Name` instead of `Bool`**, if C++'s exact message is wanted (see `uioCheck`).  The
-   exactness lemma transfers by an `isNone` congruence over the same twelve cases.
+1. **`Option Name` instead of `Bool`**, if C++'s exact message is wanted (see `uioCheck`).  **Not
+   taken**: the port keeps the `Bool` and names the constructor rather than the offending
+   datatype.  The arena grades accept/reject, not `stderr`, so this stays a wording note.  If it is
+   ever wanted, the exactness lemma transfers by an `isNone` congruence over the same twelve cases.
 2. **`guardLoop_*` lemmas** — row 112's sequencing error was exactly this: the guard loop's shape
    lemmas (`guardLoop_blockNoFVar` and friends in `Verify/Inductive/RunIdentity.lean`) must be
    re-proved against the new loop *before* the implementation edit lands, or the dependent proofs
-   stop elaborating.  Nothing here changes that ordering requirement.
+   stop elaborating.  **Honoured**: the edit was held uncommitted while
+   `guardLoop_ctors`/`guardLoop_blockNoFVar`/`guardLoop_ctors_closed`/`guardLoop_blockClosed` grew
+   their fourth check and fourth conjunct (`BlockUniformOccs`), and the four dependent sites in
+   `RunIdentity.lean` were repaired in the same round.
 
 ### Divergence entry: NOT needed for the check, needed for one side effect
 
@@ -873,11 +1069,14 @@ kernels agree on exactly this input class, so there is nothing for `divergences.
 about accept/reject behaviour.
 
 What *would* need an entry is the **complexity**, on the same grounds as
-`checkNoLooseBVars`'s: C++'s `for_each_offset_fn` memoises on `(pointer, offset)`, whereas `uioOk`
-is an uncached structural recursion, so on a heavily shared `Expr` DAG it is exponential in the
-sharing where C++ is linear.  CLAUDE.md requires complexity blowups on inputs C++ handles
+`checkNoLooseBVars`'s: C++'s `for_each_offset_fn` memoises on `(pointer, offset)`, whereas
+`Lean4Lean.noNonUniformOcc` is an uncached structural recursion, so on a heavily shared `Expr` DAG
+it is exponential in the sharing where C++ is linear.  CLAUDE.md requires complexity blowups on inputs C++ handles
 differently to be recorded, so a short entry belongs there — a paragraph in the existing
-`checkNoLooseBVars` bullet's style, not a new accept/reject divergence.
+`checkNoLooseBVars` bullet's style, not a new accept/reject divergence.  **As of 2026-09-02
+`divergences.md` has no such paragraph**; the check is installed and the entry is outstanding.
+(Neither the implementation nor `divergences.md` is this file's stream to edit, so this is a flag,
+not a fix.)
 -/
 
 /-! ## 9. Axiom guards
@@ -898,6 +1097,13 @@ in particular not `Lean.Level.instLawfulBEqLevel`. -/
 #print axioms Lean4Lean.UIOGuard.uio_deg_uniformOcc
 #print axioms Lean4Lean.UIOGuard.uio_naive_eq_at_np_zero
 #print axioms Lean4Lean.UIOGuard.uio_restore_none_forces_reject
+#print axioms Lean4Lean.UIOGuard.uio_impl_eq
+#print axioms Lean4Lean.UIOGuard.uio_impl_check_eq
+#print axioms Lean4Lean.UIOGuard.uio_impl_iff
+#print axioms Lean4Lean.UIOGuard.uio_impl_ok_of_occ
+#print axioms Lean4Lean.UIOGuard.uio_not_blockUniformOccs_uioE
+#print axioms Lean4Lean.UIOGuard.uio_rejectsNonUniform_fires
+#print axioms Lean4Lean.UIOGuard.uio_uioL_uniform
 
 end UIOGuard
 end Lean4Lean
