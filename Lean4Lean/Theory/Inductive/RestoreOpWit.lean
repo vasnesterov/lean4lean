@@ -157,7 +157,7 @@ theorem ro_field_WF {env : VEnv} (hc : env.constants roName = some ⟨0, .sort (
   hasType := ro_field_hasType hc
   level := fun _ => Nat.le_refl _
   pos := by
-    refine ⟨by decide, by decide, nofun, nofun, trivial, ?_, ?_, ro_pos_beta (ro_const_hasType hc)⟩
+    refine ⟨by decide, by decide, nofun, nofun, trivial, ?_, ?_, ro_pos_beta (ro_const_hasType hc), by decide⟩
     · exact ro_const_hasType hc
     · rintro T' hT'; cases hT'; exact .nil
   binders_indep := by rintro r - i' t F' ⟨⟩

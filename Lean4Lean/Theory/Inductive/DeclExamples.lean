@@ -1629,7 +1629,7 @@ theorem accIntro_WF {env₁ : VEnv} (h : VEnv.empty.addIndTypes accDecl = some e
           (.sortDF (by decide) (by decide)
             (by simp [VLevel.equiv_def, VLevel.eval, Lean.Nat.imax])) hpi
       · exact fun ls => by simp [VLevel.eval, accDecl, Lean.Nat.imax]
-      · refine ⟨by decide, rfl, ?_, ?_, ?_, ?_, ?_, ?_⟩
+      · refine ⟨by decide, rfl, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
         · simp [accIntroRec, VInductDecl'.NoBlock, VExpr.NoConsts]
         · simp [accIntroRec, VInductDecl'.NoBlock, VExpr.NoConsts]
         · -- `ξ.reverse ++ Γ` is `[r y x, y, x, r, α]`
@@ -1639,6 +1639,9 @@ theorem accIntro_WF {env₁ : VEnv} (h : VEnv.empty.addIndTypes accDecl = some e
         · exact fun T' hT' => by cases hT'; exact .cons (by type_tac) .nil
         · -- `F.type` *is* `canonType` on the nose, so this is `IsType`, not a real conversion
           exact ⟨_, hpi⟩
+        · -- F7's residual clause: the stored type is `∀ (y : α), r y x → Acc r y`, which is
+          -- `.forallE`-headed, so the trigger does not fire and the clause is *vacuous*.
+          decide
       · exact fun r hr => by cases hr; exact accIntroRec_BindersIndep
   · intro a ha
     simp [accIntro] at ha
@@ -1718,7 +1721,7 @@ theorem mutDecl_WF : mutDecl.WF .empty where
                 -- no earlier field at all, so vacuous
                 binders_indep := by rintro r ⟨⟩ i' t F' hF'; simp at hF'
                 pos := ⟨by decide, rfl, nofun, nofun, trivial, by type_tac,
-                        fun T' hT' => by cases hT'; exact .nil, _, by type_tac⟩ }
+                        fun T' hT' => by cases hT'; exact .nil, ⟨_, by type_tac⟩, by decide⟩ }
     | 1, hT =>
       simp [mutDecl] at hT
       subst hT
@@ -1739,7 +1742,8 @@ theorem mutDecl_WF : mutDecl.WF .empty where
                   level := fun ls => by simp [VLevel.eval, mutDecl, Lean.Nat.imax]
                   binders_indep := forestCons_BindersIndep 0 _ rfl
                   pos := ⟨by decide, rfl, nofun, nofun, trivial, by type_tac,
-                          fun T' hT' => by cases hT'; exact .nil, _, by type_tac⟩ }
+                          fun T' hT' => by cases hT'; exact .nil, ⟨_, by type_tac⟩,
+                          by decide⟩ }
         | 1, hF =>
           simp [forestCons] at hF
           subst hF
@@ -1749,7 +1753,8 @@ theorem mutDecl_WF : mutDecl.WF .empty where
                   -- hypothesis holds and `ξ = []` is what discharges it
                   binders_indep := forestCons_BindersIndep 1 _ rfl
                   pos := ⟨by decide, rfl, nofun, nofun, ⟨trivial, _, by type_tac⟩, by type_tac,
-                          fun T' hT' => by cases hT'; exact .nil, _, by type_tac⟩ }
+                          fun T' hT' => by cases hT'; exact .nil, ⟨_, by type_tac⟩,
+                          by decide⟩ }
   isLE := fun _ => .inl (by simp [VLevel.IsNeverZero, VLevel.eval, mutDecl])
 
 /-! ### …and `wDecl`, the deepest rung
@@ -1806,7 +1811,7 @@ theorem wDecl_WF : wDecl.WF .empty where
                 binders_indep := wMk_BindersIndep 0 _ rfl
                 pos := ⟨by decide, rfl, nofun, nofun, ⟨trivial, _, .sort (by decide)⟩,
                         by type_tac, fun T' hT' => by cases hT'; exact .nil,
-                        _, by type_tac⟩ }
+                        ⟨_, by type_tac⟩, by decide⟩ }
       | 1, hF =>
         simp [wMk] at hF
         subst hF
@@ -1830,7 +1835,7 @@ theorem wDecl_WF : wDecl.WF .empty where
                         by simp [wRec1, VInductDecl'.NoBlock, VExpr.NoConsts], nofun,
                         ⟨⟨⟨trivial, _, .sort (by decide)⟩, _, by type_tac⟩, _, by type_tac⟩,
                         by type_tac, fun T' hT' => by cases hT'; exact .nil,
-                        _, hpi⟩ }
+                        ⟨_, hpi⟩, by decide⟩ }
   isLE := by simp [wDecl]
 
 end InductiveDeclExamples

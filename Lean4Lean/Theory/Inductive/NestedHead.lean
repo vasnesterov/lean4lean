@@ -960,7 +960,7 @@ theorem ntreeAux_WF : ntreeAux.WF env₁ where
                 binders_indep := fun r hr => by
                   cases hr; exact ntreeAux_binders_indep rfl
                 pos := ⟨by decide, rfl, nofun, nofun, ⟨ntreeAux_params_WF, _, by type_tac⟩,
-                        by type_tac, fun T' hT' => by cases hT'; exact .nil, _, by type_tac⟩ }
+                        by type_tac, fun T' hT' => by cases hT'; exact .nil, ⟨_, by type_tac⟩, by decide⟩ }
       | (_ + 2), hF => simp [ntreeNode] at hF
     | 1, hT =>
       simp only [ntreeAux] at hT
@@ -982,7 +982,7 @@ theorem ntreeAux_WF : ntreeAux.WF env₁ where
                   binders_indep := fun r hr => by
                     cases hr; exact ntreeAux_binders_indep rfl
                   pos := ⟨by decide, rfl, nofun, nofun, ntreeAux_params_WF, by type_tac,
-                          fun T' hT' => by cases hT'; exact .nil, _, by type_tac⟩ }
+                          fun T' hT' => by cases hT'; exact .nil, ⟨_, by type_tac⟩, by decide⟩ }
         | 1, hF =>
           simp only [nlistCons, List.getElem?_cons_succ, List.getElem?_cons_zero,
             Option.some.injEq] at hF
@@ -992,7 +992,7 @@ theorem ntreeAux_WF : ntreeAux.WF env₁ where
                   binders_indep := fun r hr => by
                     cases hr; exact ntreeAux_binders_indep rfl
                   pos := ⟨by decide, rfl, nofun, nofun, ⟨ntreeAux_params_WF, _, by type_tac⟩,
-                          by type_tac, fun T' hT' => by cases hT'; exact .nil, _, by type_tac⟩ }
+                          by type_tac, fun T' hT' => by cases hT'; exact .nil, ⟨_, by type_tac⟩, by decide⟩ }
         | (_ + 2), hF => simp [nlistCons] at hF
   isLE := fun _ => .inl (by simp [VLevel.IsNeverZero, VLevel.eval, ntreeAux])
 

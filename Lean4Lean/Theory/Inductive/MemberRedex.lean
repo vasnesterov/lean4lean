@@ -969,7 +969,7 @@ theorem qnAux_WF : qnAux.WF env₂ where
                 binders_indep := fun r hr => by
                   cases hr; intro _ _ _ _ _ _ k B hB; simp at hB
                 pos := ⟨by decide, rfl, nofun, nofun, trivial, by type_tac,
-                        fun T' hT' => by cases hT'; exact .nil, _, by type_tac⟩ }
+                        fun T' hT' => by cases hT'; exact .nil, ⟨_, by type_tac⟩, by decide⟩ }
       | (_ + 1), hF => simp [qnNode] at hF
     | 1, hT =>
       simp only [qnAux] at hT
@@ -997,7 +997,7 @@ theorem qnAux_WF : qnAux.WF env₂ where
                 binders_indep := fun r hr => by
                   cases hr; intro _ _ _ _ _ _ k B hB; simp at hB
                 pos := ⟨by decide, rfl, nofun, nofun, ⟨trivial, _, by type_tac⟩, by type_tac,
-                        fun T' hT' => by cases hT'; exact .nil, _, by type_tac⟩ }
+                        fun T' hT' => by cases hT'; exact .nil, ⟨_, by type_tac⟩, by decide⟩ }
       | (_ + 2), hF => simp [qjAuxMk] at hF
   isLE := fun _ => .inl (by simp [VLevel.IsNeverZero, VLevel.eval, qnAux])
 

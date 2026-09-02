@@ -1011,9 +1011,13 @@ theorem VIndField.WF.mono {env env' : VEnv} {D : VInductDecl'} {pre : List VIndF
     revert hp; cases F.recArg with
     | none => exact fun ⟨A, h1, h2⟩ => ⟨A, h1, h2.mono hle⟩
     | some r =>
-      exact fun ⟨h1, h2, h3, h4, h5, h6, h7, h8⟩ =>
+      -- `h9` is F7's residual clause.  Like `binders_indep` it mentions no environment
+      -- (`VInductDecl'.ResidualClean` is a function of `D`, a depth and `F.type` alone), so it
+      -- crosses the weakening as the identity — which is the "free" case the blast-radius audit
+      -- flagged as the only structural question at this consumer.
+      exact fun ⟨h1, h2, h3, h4, h5, h6, h7, h8, h9⟩ =>
         ⟨h1, h2, h3, h4, OnCtx.mono (fun hh => hh.mono hle) h5, h6.mono hle,
-          fun T' hT' => (h7 T' hT').mono hle, h8.mono hle⟩
+          fun T' hT' => (h7 T' hT').mono hle, h8.mono hle, h9⟩
 
 theorem VIndCtor.WF.mono {env env' : VEnv} {D : VInductDecl'} {j T C}
     (hle : env ≤ env') (h : VIndCtor.WF env D j T C) : VIndCtor.WF env' D j T C where
@@ -2260,7 +2264,7 @@ theorem recField_facts (hR : D.RecCtx env) {t q s i : Nat} {T : VIndType} {C : V
   rw [hmt] at hFwf
   have hpos := hFwf.pos
   rw [hrec] at hpos
-  obtain ⟨hridx, hargl, -, -, hXi, -, hargs, hFdefeq⟩ := hpos
+  obtain ⟨hridx, hargl, -, -, hXi, -, hargs, hFdefeq, -⟩ := hpos
   obtain ⟨T', hT'⟩ : ∃ T', D.types[r.idx]? = some T' := ⟨_, List.getElem?_eq_getElem hridx⟩
   have hΦi : (C.fields.map (·.type))[i]? = some F.type := by rw [List.getElem?_map, hF]; rfl
   have htakei : ((C.fields.map (·.type)).take i).length = i := by

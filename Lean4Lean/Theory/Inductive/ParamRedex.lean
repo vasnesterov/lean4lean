@@ -908,7 +908,7 @@ theorem mpAuxB_WF : (mpAux mpAuxNodeB).WF env where
                 level := fun ls => by simp [VLevel.eval, mpAux, Lean.Nat.imax]
                 binders_indep := fun r hr => by cases hr; exact mp_binders_indep rfl
                 pos := ⟨by decide, rfl, nofun, nofun, mpAuxB_params_WF, by type_tac,
-                        fun T' hT' => by cases hT'; exact .nil, _, by type_tac⟩ }
+                        fun T' hT' => by cases hT'; exact .nil, ⟨_, by type_tac⟩, by decide⟩ }
       | (_ + 1), hF => simp [mpObj] at hF
     | 1, hT =>
       simp only [mpAux] at hT
@@ -936,7 +936,7 @@ theorem mpAuxB_WF : (mpAux mpAuxNodeB).WF env where
                 binders_indep := fun r hr => by cases hr; exact mp_binders_indep rfl
                 pos := ⟨by decide, rfl, nofun, nofun,
                         ⟨mpAuxB_params_WF, _, by type_tac⟩, by type_tac,
-                        fun T' hT' => by cases hT'; exact .nil, mp_redex_pos_defeq ht⟩ }
+                        fun T' hT' => by cases hT'; exact .nil, mp_redex_pos_defeq ht, by decide⟩ }
       | (_ + 2), hF => simp [mpAuxNodeB] at hF
   isLE := fun _ => .inl (by simp [VLevel.IsNeverZero, VLevel.eval, mpAux])
 

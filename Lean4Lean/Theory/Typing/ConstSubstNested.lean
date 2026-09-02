@@ -836,7 +836,7 @@ theorem listDecl_WF : listDecl.WF VEnv.empty where
                    binders_indep := ?_
                    pos := ⟨by decide, rfl, nofun, nofun,
                            ⟨⟨trivial, _, by type_tac⟩, _, by type_tac⟩, by type_tac,
-                           fun T' hT' => by cases hT'; exact .nil, _, by type_tac⟩ }
+                           fun T' hT' => by cases hT'; exact .nil, ⟨_, by type_tac⟩, by decide⟩ }
           rintro r hr
           cases hr
           rintro i' t F' - - - k B hB

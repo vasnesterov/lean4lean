@@ -835,7 +835,7 @@ theorem nfnAuxDirty_WF : nfnAuxDirty.WF env₂ where
                 binders_indep := fun r hr => by
                   cases hr; intro _ _ _ _ _ _ k B hB; simp at hB
                 pos := ⟨by decide, rfl, nofun, nofun, trivial, by type_tac,
-                        fun T' hT' => by cases hT'; exact .nil, _, by type_tac⟩ }
+                        fun T' hT' => by cases hT'; exact .nil, ⟨_, by type_tac⟩, by decide⟩ }
       | 1, hF =>
         simp only [nfnNodeDirty, List.getElem?_cons_succ, List.getElem?_cons_zero,
           Option.some.injEq] at hF
@@ -872,7 +872,7 @@ theorem nfnAuxDirty_WF : nfnAuxDirty.WF env₂ where
                 binders_indep := fun r hr => by
                   cases hr; intro _ _ _ _ _ _ k B hB; simp at hB
                 pos := ⟨by decide, rfl, nofun, nofun, trivial, by type_tac,
-                        fun T' hT' => by cases hT'; exact .nil, _, by type_tac⟩ }
+                        fun T' hT' => by cases hT'; exact .nil, ⟨_, by type_tac⟩, by decide⟩ }
       | 1, hF =>
         simp only [pfnAuxMk, List.getElem?_cons_succ, List.getElem?_cons_zero,
           Option.some.injEq] at hF
@@ -886,7 +886,7 @@ theorem nfnAuxDirty_WF : nfnAuxDirty.WF env₂ where
                 pos := ⟨by decide, rfl,
                         by rintro B hB; simp at hB; subst hB; trivial, nofun,
                         ⟨⟨trivial, _, by type_tac⟩, _, by type_tac⟩, by type_tac,
-                        fun T' hT' => by cases hT'; exact .nil, _, by type_tac⟩ }
+                        fun T' hT' => by cases hT'; exact .nil, ⟨_, by type_tac⟩, by decide⟩ }
       | (_ + 2), hF => simp [pfnAuxMk] at hF
   isLE := fun _ => .inl (by simp [VLevel.IsNeverZero, VLevel.eval, nfnAuxDirty])
 
