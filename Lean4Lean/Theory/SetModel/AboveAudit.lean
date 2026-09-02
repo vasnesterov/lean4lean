@@ -350,7 +350,9 @@ theorem prop_forces_false_bvar (L : PropSplit envF nv) (ls : List ℕ) :
     ¬ L.IsPropAt ls [.sort (.succ .zero)] (.bvar 0) := by
   have h : envF.HasType nv [.sort (.succ .zero)] (.bvar 0) (.sort (.succ .zero)) :=
     VEnv.IsDefEq.bvar .zero
-  rw [L.prop_sound (u := .succ .zero) (by trivial) h]
+  have hΓ : OnCtx [(VExpr.sort (.succ .zero))] (envF.IsType nv) :=
+    ⟨trivial, .succ (.succ .zero), VEnv.HasType.sort trivial⟩
+  rw [L.prop_sound (u := .succ .zero) hΓ (by trivial) h]
   simp [VLevel.eval]
 
 /-- **Not trivially true**, and not merely by a length mismatch: two contexts of the *same*

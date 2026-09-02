@@ -1,5 +1,6 @@
 import Lean4Lean.Theory.SetModel.IndCard
 import Lean4Lean.Theory.Typing.Basic
+import Lean4Lean.Theory.Typing.Lemmas  -- 2026-09-02: `OnCtx`, for `PropSplit`'s context guard (§ below).
 
 /-!
 # The interpretation `⟦Γ ⊢ e⟧`, relative to a level assignment
@@ -387,7 +388,21 @@ that a `PropSplit` is independent of the model it is used with — the same
 arrangement `LevelAssign` had.
 
 Both guards (`u.WF nv`, and the typing premises) are load-bearing for the same
-reason they are in `LevelAssign`: see `SetModel/PropSplitAudit.lean`. -/
+reason they are in `LevelAssign`: see `SetModel/PropSplitAudit.lean`.
+
+**The `OnCtx` guard (added 2026-09-02).**  `prop_sound` and `proof_sound` now also
+take `OnCtx Γ (env.IsType nv)`.  Reason, in one line: without it the structure is
+not known inhabited at *any* environment, because
+`NotProofNoModel.propTypeAgree_of_propSplit` reads the unguarded fields back as
+`VEnv.PropTypeAgree`/`VEnv.PropUniq`, which quantify over junk contexts
+(`PropAgreeWall.hasType_junk_lookup` is a derivation in one), and the tree's only
+producers of those two statements — `VEnv.WF.propTypeAgreeOn`, `WF.propUniqOn`,
+and the stratified route through `HasType.stratifyN` — all carry the guard because
+`IsDefEq.strong`'s `CtxStrong` *is* "every entry is a type".  With the guard,
+`PropSplitAudit.propSplitOfOnCtx` builds a `PropSplit` from the two *guarded*
+statements, and `PropAgreeWall.nonempty_propSplit_preludeEnv` is a theorem with no
+hypotheses.  The price is paid at the consumers, which now discharge an `OnCtx`
+for their own context; `SoundInduction.isProp_iff`/`isProof_iff` carry it. -/
 structure PropSplit (env : VEnv) (nv : ℕ) where
   /-- `A` is a proposition, at the universe valuation `ls`. -/
   IsPropAt : List ℕ → List VExpr → VExpr → Prop
@@ -395,13 +410,15 @@ structure PropSplit (env : VEnv) (nv : ℕ) where
   IsProofAt : List ℕ → List VExpr → VExpr → Prop
   decProp : ∀ ls Γ A, Decidable (IsPropAt ls Γ A)
   decProof : ∀ ls Γ e, Decidable (IsProofAt ls Γ e)
-  /-- The split agrees with the typing rules on types. -/
+  /-- The split agrees with the typing rules on types, **in a context whose entries
+  are types**.  See the `OnCtx` note above for why the guard is here. -/
   prop_sound : ∀ {ls : List ℕ} {Γ : List VExpr} {A : VExpr} {u : VLevel},
-    u.WF nv → env.HasType nv Γ A (.sort u) → (IsPropAt ls Γ A ↔ u.eval ls = 0)
-  /-- …and on terms. -/
+    OnCtx Γ (env.IsType nv) → u.WF nv → env.HasType nv Γ A (.sort u) →
+    (IsPropAt ls Γ A ↔ u.eval ls = 0)
+  /-- …and on terms, under the same guard. -/
   proof_sound : ∀ {ls : List ℕ} {Γ : List VExpr} {e A : VExpr} {u : VLevel},
-    u.WF nv → env.HasType nv Γ e A → env.HasType nv Γ A (.sort u) →
-    (IsProofAt ls Γ e ↔ u.eval ls = 0)
+    OnCtx Γ (env.IsType nv) → u.WF nv → env.HasType nv Γ e A →
+    env.HasType nv Γ A (.sort u) → (IsProofAt ls Γ e ↔ u.eval ls = 0)
 
 namespace PropSplit
 
@@ -424,16 +441,19 @@ include L in
 /-- Definitionally equal terms take the same branch.  Where `LevelAssign` needed
 `srt_congr`, this is immediate: both sides have the same type. -/
 theorem proof_congr {M : ModelData V} {Γ : List VExpr} {e e' A : VExpr} {u : VLevel}
+    (hΓ : OnCtx Γ (env.IsType nv))
     (hw : u.WF nv) (h : env.IsDefEq nv Γ e e' A) (hA : env.HasType nv Γ A (.sort u)) :
     L.IsProof M Γ e ↔ L.IsProof M Γ e' :=
-  (L.proof_sound hw (h.trans h.symm) hA).trans (L.proof_sound hw (h.symm.trans h) hA).symm
+  (L.proof_sound hΓ hw (h.trans h.symm) hA).trans
+    (L.proof_sound hΓ hw (h.symm.trans h) hA).symm
 
 include L in
 /-- Definitionally equal types take the same branch. -/
 theorem prop_congr {M : ModelData V} {Γ : List VExpr} {A A' : VExpr} {u : VLevel}
+    (hΓ : OnCtx Γ (env.IsType nv))
     (hw : u.WF nv) (h : env.IsDefEq nv Γ A A' (.sort u)) :
     L.IsProp M Γ A ↔ L.IsProp M Γ A' :=
-  (L.prop_sound hw (h.trans h.symm)).trans (L.prop_sound hw (h.symm.trans h)).symm
+  (L.prop_sound hΓ hw (h.trans h.symm)).trans (L.prop_sound hΓ hw (h.symm.trans h)).symm
 
 end PropSplit
 
@@ -450,8 +470,8 @@ def LevelAssign.toPropSplit {env : VEnv} {nv : ℕ} (L : LevelAssign env nv) :
   IsProofAt ls Γ e := (L.srt Γ e).eval ls = 0
   decProp _ _ _ := inferInstanceAs (Decidable (_ = _))
   decProof _ _ _ := inferInstanceAs (Decidable (_ = _))
-  prop_sound {ls} _ _ _ hw ht := by rw [VLevel.equiv_def.mp (L.lvl_sound hw ht) ls]
-  proof_sound {ls} _ _ _ _ hw he hA := by
+  prop_sound {ls} _ _ _ _ hw ht := by rw [VLevel.equiv_def.mp (L.lvl_sound hw ht) ls]
+  proof_sound {ls} _ _ _ _ _ hw he hA := by
     rw [VLevel.equiv_def.mp (L.srt_sound he) ls, VLevel.equiv_def.mp (L.lvl_sound hw hA) ls]
 
 /-! ## The interpretation -/

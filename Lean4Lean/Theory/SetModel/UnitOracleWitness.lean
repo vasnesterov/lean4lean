@@ -302,6 +302,27 @@ theorem hasType_ruleB1 :
       (.sort (.imax .zero .zero)) :=
   .forallEDF hasType_minTy hasType_minTy1
 
+/-! ### The block's spine is `OnCtx`-well-formed
+
+Added 2026-09-02 with the `OnCtx` guard on `PropSplit`'s two fields
+(`SetModel/Interp.lean`).  Each of the four contexts the proof-splitting decisions below are
+taken in is one step above the previous, by the entry's own typing derivation just above —
+so the guard costs this file nothing but these four lemmas and a `hΓ` argument on the nine
+`isProp`/`isProof` readings. -/
+
+theorem onCtxU_unitTy (hΓ : OnCtx Γ (unitEnv.IsType nv)) :
+    OnCtx (VExpr.const `Unit1 [] :: Γ) (unitEnv.IsType nv) := ⟨hΓ, _, hasType_Unit1⟩
+
+theorem onCtxU_mot (hΓ : OnCtx Γ (unitEnv.IsType nv)) :
+    OnCtx (motTy :: Γ) (unitEnv.IsType nv) := ⟨hΓ, _, hasType_motTy⟩
+
+theorem onCtxU_min (hΓ : OnCtx Γ (unitEnv.IsType nv)) :
+    OnCtx (minTy :: motTy :: Γ) (unitEnv.IsType nv) := ⟨onCtxU_mot hΓ, _, hasType_minTy⟩
+
+theorem onCtxU_unit (hΓ : OnCtx Γ (unitEnv.IsType nv)) :
+    OnCtx (VExpr.const `Unit1 [] :: minTy :: motTy :: Γ) (unitEnv.IsType nv) :=
+  ⟨onCtxU_min hΓ, _, hasType_Unit1⟩
+
 /-- **The ι-rule's left-hand body is a proof**: `Unit1.rec motive m mk : motive mk`. -/
 theorem hasType_iotaLhsBody :
     unitEnv.HasType nv (minTy :: motTy :: Γ)
@@ -383,75 +404,77 @@ carries `hle : unitEnv ≤ envF`: the ambient environment must contain the block
 variable (hle : unitEnv ≤ envF)
 
 include hle in
-theorem not_isProof_bvar0 (Γ : List VExpr) :
+theorem not_isProof_bvar0 (Γ : List VExpr) (hΓ : OnCtx Γ (unitEnv.IsType nv)) :
     ¬ L.IsProof (unitM κ ls) (motTy :: Γ) (.bvar 0) := by
-  rw [isProof_iff hle hasType_bvar0_motTy hasType_motTy (u := .imax .zero (.succ .zero))
+  rw [isProof_iff hle (onCtxU_mot hΓ) hasType_bvar0_motTy hasType_motTy (u := .imax .zero (.succ .zero))
     ⟨trivial, trivial⟩]
   simp [VLevel.eval, Lean.Nat.imax]
 
 include hle in
-theorem not_isProof_bvar1 {A : VExpr} (Γ : List VExpr) :
+theorem not_isProof_bvar1 {A : VExpr} (Γ : List VExpr)
+    (hΓ : OnCtx (A :: motTy :: Γ) (unitEnv.IsType nv)) :
     ¬ L.IsProof (unitM κ ls) (A :: motTy :: Γ) (.bvar 1) := by
-  rw [isProof_iff hle hasType_bvar1_motTy hasType_motTy (u := .imax .zero (.succ .zero))
+  rw [isProof_iff hle hΓ hasType_bvar1_motTy hasType_motTy (u := .imax .zero (.succ .zero))
     ⟨trivial, trivial⟩]
   simp [VLevel.eval, Lean.Nat.imax]
 
 include hle in
-theorem not_isProof_bvar2 {A B : VExpr} (Γ : List VExpr) :
+theorem not_isProof_bvar2 {A B : VExpr} (Γ : List VExpr)
+    (hΓ : OnCtx (A :: B :: motTy :: Γ) (unitEnv.IsType nv)) :
     ¬ L.IsProof (unitM κ ls) (A :: B :: motTy :: Γ) (.bvar 2) := by
-  rw [isProof_iff hle hasType_bvar2_motTy hasType_motTy (u := .imax .zero (.succ .zero))
+  rw [isProof_iff hle hΓ hasType_bvar2_motTy hasType_motTy (u := .imax .zero (.succ .zero))
     ⟨trivial, trivial⟩]
   simp [VLevel.eval, Lean.Nat.imax]
 
 include hle in
-theorem isProp_recB1 (Γ : List VExpr) :
+theorem isProp_recB1 (Γ : List VExpr) (hΓ : OnCtx Γ (unitEnv.IsType nv)) :
     L.IsProp (unitM κ ls) (motTy :: Γ)
       (.forallE minTy (.forallE (.const `Unit1 []) (.app (.bvar 2) (.bvar 0)))) := by
-  rw [isProp_iff hle hasType_recB1 (u := .imax .zero (.imax .zero .zero))
+  rw [isProp_iff hle (onCtxU_mot hΓ) hasType_recB1 (u := .imax .zero (.imax .zero .zero))
     ⟨trivial, trivial, trivial⟩]
   simp [VLevel.eval, Lean.Nat.imax]
 
 include hle in
-theorem isProp_recB2 (Γ : List VExpr) :
+theorem isProp_recB2 (Γ : List VExpr) (hΓ : OnCtx Γ (unitEnv.IsType nv)) :
     L.IsProp (unitM κ ls) (minTy :: motTy :: Γ)
       (.forallE (.const `Unit1 []) (.app (.bvar 2) (.bvar 0))) := by
-  rw [isProp_iff hle hasType_recB2 (u := .imax .zero .zero) ⟨trivial, trivial⟩]
+  rw [isProp_iff hle (onCtxU_min hΓ) hasType_recB2 (u := .imax .zero .zero) ⟨trivial, trivial⟩]
   simp [VLevel.eval, Lean.Nat.imax]
 
 include hle in
-theorem isProp_recB3 (Γ : List VExpr) :
+theorem isProp_recB3 (Γ : List VExpr) (hΓ : OnCtx Γ (unitEnv.IsType nv)) :
     L.IsProp (unitM κ ls) (.const `Unit1 [] :: minTy :: motTy :: Γ)
       (.app (.bvar 2) (.bvar 0)) := by
-  rw [isProp_iff hle hasType_recBody (u := .zero) trivial]
+  rw [isProp_iff hle (onCtxU_unit hΓ) hasType_recBody (u := .zero) trivial]
   simp [VLevel.eval]
 
 include hle in
-theorem isProp_ruleB1 (Γ : List VExpr) :
+theorem isProp_ruleB1 (Γ : List VExpr) (hΓ : OnCtx Γ (unitEnv.IsType nv)) :
     L.IsProp (unitM κ ls) (motTy :: Γ)
       (.forallE minTy (.app (.bvar 1) (.const `Unit1.mk []))) := by
-  rw [isProp_iff hle hasType_ruleB1 (u := .imax .zero .zero) ⟨trivial, trivial⟩]
+  rw [isProp_iff hle (onCtxU_mot hΓ) hasType_ruleB1 (u := .imax .zero .zero) ⟨trivial, trivial⟩]
   simp [VLevel.eval, Lean.Nat.imax]
 
 include hle in
-theorem isProp_ruleB2 (Γ : List VExpr) :
+theorem isProp_ruleB2 (Γ : List VExpr) (hΓ : OnCtx Γ (unitEnv.IsType nv)) :
     L.IsProp (unitM κ ls) (minTy :: motTy :: Γ)
       (.app (.bvar 1) (.const `Unit1.mk [])) := by
-  rw [isProp_iff hle hasType_minTy1 (u := .zero) trivial]
+  rw [isProp_iff hle (onCtxU_min hΓ) hasType_minTy1 (u := .zero) trivial]
   simp [VLevel.eval]
 
 include hle in
-theorem isProof_iotaLhsLam (Γ : List VExpr) :
+theorem isProof_iotaLhsLam (Γ : List VExpr) (hΓ : OnCtx Γ (unitEnv.IsType nv)) :
     L.IsProof (unitM κ ls) (motTy :: Γ) (.lam minTy
       (.app (.app (.app (.const recN []) (.bvar 1)) (.bvar 0)) (.const `Unit1.mk []))) := by
-  rw [isProof_iff hle hasType_iotaLhsLam hasType_ruleB1 (u := .imax .zero .zero)
+  rw [isProof_iff hle (onCtxU_mot hΓ) hasType_iotaLhsLam hasType_ruleB1 (u := .imax .zero .zero)
     ⟨trivial, trivial⟩]
   simp [VLevel.eval, Lean.Nat.imax]
 
 include hle in
-theorem isProof_iotaRhsLam (Γ : List VExpr) :
+theorem isProof_iotaRhsLam (Γ : List VExpr) (hΓ : OnCtx Γ (unitEnv.IsType nv)) :
     L.IsProof (unitM κ ls) (motTy :: Γ) (.lam minTy
       (.app (.app (.lam motTy (.lam minTy (.bvar 0))) (.bvar 1)) (.bvar 0))) := by
-  rw [isProof_iff hle hasType_iotaRhsLam hasType_ruleB1 (u := .imax .zero .zero)
+  rw [isProof_iff hle (onCtxU_mot hΓ) hasType_iotaRhsLam hasType_ruleB1 (u := .imax .zero .zero)
     ⟨trivial, trivial⟩]
   simp [VLevel.eval, Lean.Nat.imax]
 
@@ -474,9 +497,12 @@ This is the step `boxDecl` never has to take: there, the motive binder's domain 
 so `f` is the empty function.  Here the domain is `{•}` and `f` is one of the *two*
 functions `{•} → U₀`. -/
 
-theorem motive_app_mem_UProp {Γ : List VExpr} {ρ f : V}
+theorem motive_app_mem_UProp (hle : unitEnv ≤ envF) {Γ : List VExpr} {ρ f : V}
+    (hΓ : OnCtx Γ (unitEnv.IsType nv))
     (hf : f ∈ (interp (unitM κ ls) L Γ motTy).toFun ρ) : f ‘ (pt : V) ∈ (UProp : V) := by
-  rw [interp_forallE_type _ L (not_isProp_sort_zero _), mem_mkForallType_iff] at hf
+  rw [interp_forallE_type _ L
+    (not_isProp_sort_zero _ ((onCtxU_unitTy hΓ).mono fun hh => hh.mono hle)),
+    mem_mkForallType_iff] at hf
   obtain ⟨hfn, hval⟩ := hf
   rw [interp_Unit1_eq L κ ls] at hfn hval
   have : IsFunction f := IsFunction.of_mem hfn
@@ -489,10 +515,11 @@ theorem motive_app_mem_UProp {Γ : List VExpr} {ρ f : V}
   simpa [VLevel.eval] using h
 
 /-- **A true motive contains `•`**: the two facts above combine to proof irrelevance. -/
-theorem pt_mem_of_mem_motive_app {Γ : List VExpr} {ρ f m : V}
+theorem pt_mem_of_mem_motive_app (hle : unitEnv ≤ envF) {Γ : List VExpr} {ρ f m : V}
+    (hΓ : OnCtx Γ (unitEnv.IsType nv))
     (hf : f ∈ (interp (unitM κ ls) L Γ motTy).toFun ρ) (hm : m ∈ f ‘ (pt : V)) :
     (pt : V) ∈ f ‘ (pt : V) := by
-  rcases eq_empty_or_eq_true_of_mem_UProp (motive_app_mem_UProp L κ ls hf) with h | h
+  rcases eq_empty_or_eq_true_of_mem_UProp (motive_app_mem_UProp L κ ls hle hΓ hf) with h | h
   · exact absurd (h ▸ hm) not_mem_empty
   · rw [h]; simp
 
@@ -503,7 +530,7 @@ include hle in
 theorem interp_minTy_eq {ρ f : V} (hf : ρ ‘ ((0 : ℕ) : V) = f) :
     (interp (unitM κ ls) L [motTy] minTy).toFun ρ = f ‘ (pt : V) := by
   rw [show minTy = VExpr.app (.bvar 0) (.const `Unit1.mk []) from rfl,
-    interp_app_type _ L (not_isProof_bvar0 L κ ls hle []), interp_bvar, interp_mk_eq]
+    interp_app_type _ L (not_isProof_bvar0 L κ ls hle [] trivial), interp_bvar, interp_mk_eq]
   simp only [List.length_cons, List.length_nil]
   rw [hf]
 
@@ -512,7 +539,7 @@ include hle in
 theorem interp_minTy1_eq {ρ f : V} (hf : ρ ‘ ((0 : ℕ) : V) = f) :
     (interp (unitM κ ls) L [minTy, motTy] (.app (.bvar 1) (.const `Unit1.mk []))).toFun ρ
       = f ‘ (pt : V) := by
-  rw [interp_app_type _ L (not_isProof_bvar1 L κ ls hle []), interp_bvar, interp_mk_eq]
+  rw [interp_app_type _ L (not_isProof_bvar1 L κ ls hle [] (onCtxU_min trivial)), interp_bvar, interp_mk_eq]
   simp only [List.length_cons, List.length_nil]
   rw [hf]
 
@@ -560,7 +587,7 @@ theorem pt_mem_interp_unit_recType :
       (.forallE (.const `Unit1 []) (.app (.bvar 2) (.bvar 0)))))).toFun ∅
   have h0 : (∅ : V) ∈ interpCtx (unitM κ ls) L [] := by rw [interpCtx_nil]; simp
   refine (mem_interp_forallE_prop_iff (unitM κ ls) L
-    (isProp_recB1 L κ ls hle [])).2 ⟨rfl, fun f hf ↦ ?_⟩
+    (isProp_recB1 L κ ls hle [] trivial)).2 ⟨rfl, fun f hf ↦ ?_⟩
   have hf0 : (snoc (∅ : V) f) ‘ ((0 : ℕ) : V) = f :=
     snoc_value_at_len (Γ := []) (unitM κ ls) L h0
   have h1 : snoc (∅ : V) f ∈ interpCtx (unitM κ ls) L [motTy] :=
@@ -568,15 +595,15 @@ theorem pt_mem_interp_unit_recType :
   have hmin : (interp (unitM κ ls) L [motTy] minTy).toFun (snoc (∅ : V) f) = f ‘ (pt : V) :=
     interp_minTy_eq L κ ls hle hf0
   refine (mem_interp_forallE_prop_iff (unitM κ ls) L
-    (isProp_recB2 L κ ls hle [])).2 ⟨rfl, fun m hm ↦ ?_⟩
+    (isProp_recB2 L κ ls hle [] trivial)).2 ⟨rfl, fun m hm ↦ ?_⟩
   rw [hmin] at hm
   have h2 : snoc (snoc (∅ : V) f) m ∈ interpCtx (unitM κ ls) L [minTy, motTy] :=
     (mem_interpCtx_cons (unitM κ ls) L).mpr ⟨snoc ∅ f, h1, m, by rw [hmin]; exact hm, rfl⟩
   refine (mem_interp_forallE_prop_iff (unitM κ ls) L
-    (isProp_recB3 L κ ls hle [])).2 ⟨rfl, fun t ht ↦ ?_⟩
+    (isProp_recB3 L κ ls hle [] trivial)).2 ⟨rfl, fun t ht ↦ ?_⟩
   rw [interp_Unit1_eq L κ ls] at ht
   obtain rfl : t = (pt : V) := mem_singleton_iff.mp ht
-  rw [interp_app_type (unitM κ ls) L (not_isProof_bvar2 L κ ls hle []),
+  rw [interp_app_type (unitM κ ls) L (not_isProof_bvar2 L κ ls hle [] (onCtxU_unit trivial)),
     interp_bvar, interp_bvar]
   have e0 : (snoc (snoc (snoc (∅ : V) f) m) pt) ‘ ((0 : ℕ) : V) = f :=
     ((snoc_value_of_lt (Γ := [minTy, motTy]) (unitM κ ls) L h2 (j := 0) (by simp)).trans
@@ -585,7 +612,7 @@ theorem pt_mem_interp_unit_recType :
     snoc_value_at_len (Γ := [minTy, motTy]) (unitM κ ls) L h2
   simp only [List.length_cons, List.length_nil]
   rw [show (2 + 1 - 1 - 2 : ℕ) = 0 from rfl, show (2 + 1 - 1 - 0 : ℕ) = 2 from rfl, e0, e2]
-  exact pt_mem_of_mem_motive_app L κ ls hf hm
+  exact pt_mem_of_mem_motive_app L κ ls hle (Γ := []) trivial hf hm
 
 include hle in
 theorem oracleOK_unit_rec :
@@ -610,7 +637,7 @@ theorem interp_unitRule_lhs :
   show (interp (unitM κ ls) L [] (VExpr.lam motTy (.lam minTy
     (.app (.app (.app (.const recN []) (.bvar 1)) (.bvar 0)) (.const `Unit1.mk []))))).toFun ∅
       = pt
-  exact interp_lam_proof (unitM κ ls) L (isProof_iotaLhsLam L κ ls hle []) ∅
+  exact interp_lam_proof (unitM κ ls) L (isProof_iotaLhsLam L κ ls hle [] trivial) ∅
 
 include hle in
 theorem interp_unitRule_rhs :
@@ -619,7 +646,7 @@ theorem interp_unitRule_rhs :
   rw [unitRule_rhs]
   show (interp (unitM κ ls) L [] (VExpr.lam motTy (.lam minTy
     (.app (.app (.lam motTy (.lam minTy (.bvar 0))) (.bvar 1)) (.bvar 0))))).toFun ∅ = pt
-  exact interp_lam_proof (unitM κ ls) L (isProof_iotaRhsLam L κ ls hle []) ∅
+  exact interp_lam_proof (unitM κ ls) L (isProof_iotaRhsLam L κ ls hle [] trivial) ∅
 
 include hle in
 /-- `•` inhabits the ι-rule's type `∀ (motive : Unit1 → Prop) (m : motive mk), motive mk`.
@@ -632,7 +659,7 @@ theorem pt_mem_interp_unitRule_type :
     (.forallE motTy (.forallE minTy (.app (.bvar 1) (.const `Unit1.mk []))))).toFun ∅
   have h0 : (∅ : V) ∈ interpCtx (unitM κ ls) L [] := by rw [interpCtx_nil]; simp
   refine (mem_interp_forallE_prop_iff (unitM κ ls) L
-    (isProp_ruleB1 L κ ls hle [])).2 ⟨rfl, fun f hf ↦ ?_⟩
+    (isProp_ruleB1 L κ ls hle [] trivial)).2 ⟨rfl, fun f hf ↦ ?_⟩
   have hf0 : (snoc (∅ : V) f) ‘ ((0 : ℕ) : V) = f :=
     snoc_value_at_len (Γ := []) (unitM κ ls) L h0
   have h1 : snoc (∅ : V) f ∈ interpCtx (unitM κ ls) L [motTy] :=
@@ -640,12 +667,12 @@ theorem pt_mem_interp_unitRule_type :
   have hmin : (interp (unitM κ ls) L [motTy] minTy).toFun (snoc (∅ : V) f) = f ‘ (pt : V) :=
     interp_minTy_eq L κ ls hle hf0
   refine (mem_interp_forallE_prop_iff (unitM κ ls) L
-    (isProp_ruleB2 L κ ls hle [])).2 ⟨rfl, fun m hm ↦ ?_⟩
+    (isProp_ruleB2 L κ ls hle [] trivial)).2 ⟨rfl, fun m hm ↦ ?_⟩
   rw [hmin] at hm
   have e0 : (snoc (snoc (∅ : V) f) m) ‘ ((0 : ℕ) : V) = f :=
     (snoc_value_of_lt (Γ := [motTy]) (unitM κ ls) L h1 (j := 0) (by simp)).trans hf0
   rw [interp_minTy1_eq L κ ls hle e0]
-  exact pt_mem_of_mem_motive_app L κ ls hf hm
+  exact pt_mem_of_mem_motive_app L κ ls hle (Γ := []) trivial hf hm
 
 include hle in
 /-- **The `rules` field of the residual.** -/
@@ -739,9 +766,10 @@ theorem interp_Unit1_ne_empty (Γ : List VExpr) (ρ : V) :
 /-- **The motive binder's domain is nonempty, and it contains a *true* motive.**  This is
 what makes `oracleOK_unit_rec`'s two inner quantifiers non-vacuous: there is an `f` in the
 domain for which the minor-premise domain `f ‘ •` is itself nonempty. -/
-theorem exists_true_motive :
+theorem exists_true_motive (hle : unitEnv ≤ envF) :
     ∃ f ∈ (interp (unitM κ ls) L [] motTy).toFun ∅, f ‘ (pt : V) = ({pt} : V) := by
-  rw [interp_forallE_type (unitM κ ls) L (not_isProp_sort_zero _)]
+  rw [interp_forallE_type (unitM κ ls) L
+    (not_isProp_sort_zero (nv := nv) _ ((onCtxU_unitTy (Γ := []) trivial).mono fun hh => hh.mono hle))]
   refine ⟨mkLam (interp (unitM κ ls) L [] (.const `Unit1 [])).toFun
       (interp (unitM κ ls) L [] (.const `Unit1 [])).definable
       (fun _ _ ↦ ({pt} : V)) (by definability) ∅, ?_, ?_⟩
@@ -758,7 +786,7 @@ inhabited, which is exactly the property `InductOracleWitness.lean` says its bou
 theorem exists_nonempty_minor_domain :
     ∃ f ∈ (interp (unitM κ ls) L [] motTy).toFun ∅,
       (pt : V) ∈ (interp (unitM κ ls) L [motTy] minTy).toFun (snoc ∅ f) := by
-  obtain ⟨f, hf, hfv⟩ := exists_true_motive L κ ls
+  obtain ⟨f, hf, hfv⟩ := exists_true_motive L κ ls hle
   have h0 : (∅ : V) ∈ interpCtx (unitM κ ls) L [] := by rw [interpCtx_nil]; simp
   refine ⟨f, hf, ?_⟩
   rw [interp_minTy_eq L κ ls hle (snoc_value_at_len (Γ := []) (unitM κ ls) L h0), hfv]

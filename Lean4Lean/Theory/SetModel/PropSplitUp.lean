@@ -427,8 +427,8 @@ noncomputable def propSplitUp (env : VEnv) (nv : ℕ) (henv : env.Ordered)
   IsProofAt := env.IsProofUp nv
   decProp _ _ _ := Classical.propDecidable _
   decProof _ _ _ := Classical.propDecidable _
-  prop_sound hw ht := VEnv.isPropUp_iff henv hU hw ht
-  proof_sound hw he hA := VEnv.isProofUp_iff henv hT hw he hA
+  prop_sound _ hw ht := VEnv.isPropUp_iff henv hU hw ht
+  proof_sound _ hw he hA := VEnv.isProofUp_iff henv hT hw he hA
 
 /-- **The headline.**  `Stable` for `propSplitUp`, from `Ordered` and the
 substitution residual alone.
@@ -482,16 +482,14 @@ theorem isPropUp_iff_isPropAt (henv : env.Ordered) (hU : env.PropUniq nv)
     {hT : env.PropTypeAgree nv} {ls Γ A u} (hw : u.WF nv)
     (ht : env.HasType nv Γ A (.sort u)) :
     env.IsPropUp nv ls Γ A ↔ (propSplitOf env nv hU hT).IsPropAt ls Γ A :=
-  (VEnv.isPropUp_iff henv hU hw ht).trans
-    ((propSplitOf env nv hU hT).prop_sound hw ht).symm
+  (VEnv.isPropUp_iff henv hU hw ht).trans (propSplitOf_isPropAt_iff hw ht).symm
 
 /-- The same for terms. -/
 theorem isProofUp_iff_isProofAt (henv : env.Ordered) {hU : env.PropUniq nv}
     (hT : env.PropTypeAgree nv) {ls Γ e A u} (hw : u.WF nv)
     (he : env.HasType nv Γ e A) (hA : env.HasType nv Γ A (.sort u)) :
     env.IsProofUp nv ls Γ e ↔ (propSplitOf env nv hU hT).IsProofAt ls Γ e :=
-  (VEnv.isProofUp_iff henv hT hw he hA).trans
-    ((propSplitOf env nv hU hT).proof_sound hw he hA).symm
+  (VEnv.isProofUp_iff henv hT hw he hA).trans (propSplitOf_isProofAt_iff hw he hA).symm
 
 /-- **The negative control.**  Collapsing `IsPropUp` back to the canonical
 predicate at *arbitrary* input is not a harmless simplification: it is exactly

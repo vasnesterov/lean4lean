@@ -346,6 +346,48 @@ theorem hasType_resTy :
     nonemptyEnv.HasType nv (ctx4 u Γ) resTy (.sort .zero) :=
   (hasType_bvar2_ctx4 Γ).appDF (hasType_bvar0_ctx4 Γ)
 
+/-! ### The seven contexts are `OnCtx`-well-formed
+
+Added 2026-09-02 with the `OnCtx` guard on `PropSplit`'s two fields
+(`SetModel/Interp.lean`): each proof-splitting decision in §6 is taken in one of §4's seven
+named contexts, and each is one entry above another by a typing derivation already proved
+above.  So the guard costs this file these seven lemmas and a `hΓ` argument on the nineteen
+readings. -/
+
+theorem onCtxNE_1 (hu' : u.WF nv) {Δ : List VExpr}
+    (hΔ : OnCtx Δ (nonemptyEnv.IsType nv)) :
+    OnCtx (ctx1 u Δ) (nonemptyEnv.IsType nv) := ⟨hΔ, _, VEnv.HasType.sort hu'⟩
+
+theorem onCtxNE_2 (hu' : u.WF nv) {Δ : List VExpr}
+    (hΔ : OnCtx Δ (nonemptyEnv.IsType nv)) :
+    OnCtx (ctx2 u Δ) (nonemptyEnv.IsType nv) :=
+  ⟨onCtxNE_1 hu' hΔ, _, hasType_motTy hu' Δ⟩
+
+theorem onCtxNE_3 (hu' : u.WF nv) {Δ : List VExpr}
+    (hΔ : OnCtx Δ (nonemptyEnv.IsType nv)) :
+    OnCtx (ctx3 u Δ) (nonemptyEnv.IsType nv) :=
+  ⟨onCtxNE_2 hu' hΔ, _, hasType_minTy hu' Δ⟩
+
+theorem onCtxNE_4 (hu' : u.WF nv) {Δ : List VExpr}
+    (hΔ : OnCtx Δ (nonemptyEnv.IsType nv)) :
+    OnCtx (ctx4 u Δ) (nonemptyEnv.IsType nv) :=
+  ⟨onCtxNE_3 hu' hΔ, _, hasType_majTy hu' Δ⟩
+
+theorem onCtxNE_F (hu' : u.WF nv) {Δ : List VExpr}
+    (hΔ : OnCtx Δ (nonemptyEnv.IsType nv)) :
+    OnCtx (ctxF u Δ) (nonemptyEnv.IsType nv) :=
+  ⟨onCtxNE_3 hu' hΔ, u, hasType_bvar2_ctx3 Δ⟩
+
+theorem onCtxNE_I (hu' : u.WF nv) {Δ : List VExpr}
+    (hΔ : OnCtx Δ (nonemptyEnv.IsType nv)) :
+    OnCtx (ctxI u Δ) (nonemptyEnv.IsType nv) :=
+  ⟨onCtxNE_1 hu' hΔ, u, .bvar .zero⟩
+
+theorem onCtxNE_M (hu' : u.WF nv) {Δ : List VExpr}
+    (hΔ : OnCtx Δ (nonemptyEnv.IsType nv)) :
+    OnCtx (ctxM u Δ) (nonemptyEnv.IsType nv) :=
+  ⟨onCtxNE_2 hu' hΔ, u, hasType_bvar1_ctx2 Δ⟩
+
 include hu in
 theorem hasType_recB3 :
     nonemptyEnv.HasType nv (ctx3 u Γ) (.forallE (majTy u) resTy)
@@ -555,35 +597,35 @@ theorem hasType_tyNE {Γ : List VExpr} :
   .forallEDF (.sortDF hu hu (.refl _)) (.sortDF trivial trivial (.refl _))
 
 include hu hle in
-theorem not_isProof_NE (Γ : List VExpr) :
+theorem not_isProof_NE (Γ : List VExpr) (hΓ : OnCtx Γ (nonemptyEnv.IsType nv)) :
     ¬ L.IsProof (neM κ ls) Γ (.const ``Nonempty [u]) := by
-  rw [isProof_iff hle (hasType_NE hu) (hasType_tyNE hu)
+  rw [isProof_iff hle hΓ (hasType_NE hu) (hasType_tyNE hu)
     (u := .imax (.succ u) (.succ .zero)) ⟨hu, trivial⟩]
   simp [VLevel.eval, Lean.Nat.imax]
 
 include hu hle in
 /-- `motive : Nonempty α → Prop`, one binder in: **not** a proof, sort `imax 0 1 = 1`. -/
-theorem not_isProof_bvar1_ctxM (Γ : List VExpr) :
+theorem not_isProof_bvar1_ctxM (Γ : List VExpr) (hΓ : OnCtx Γ (nonemptyEnv.IsType nv)) :
     ¬ L.IsProof (neM κ ls) (ctxM u Γ) (.bvar 1) := by
-  rw [isProof_iff hle (hasType_bvar1_ctxM Γ)
+  rw [isProof_iff hle (onCtxNE_M hu hΓ) (hasType_bvar1_ctxM Γ)
     (.forallEDF ((hasType_NE hu).appDF (hasType_bvar2_ctxM Γ))
       (.sortDF trivial trivial (.refl _)))
     (u := .imax .zero (.succ .zero)) ⟨trivial, trivial⟩]
   simp [VLevel.eval, Lean.Nat.imax]
 
 include hu hle in
-theorem not_isProof_bvar2_ctx4 (Γ : List VExpr) :
+theorem not_isProof_bvar2_ctx4 (Γ : List VExpr) (hΓ : OnCtx Γ (nonemptyEnv.IsType nv)) :
     ¬ L.IsProof (neM κ ls) (ctx4 u Γ) (.bvar 2) := by
-  rw [isProof_iff hle (hasType_bvar2_ctx4 Γ)
+  rw [isProof_iff hle (onCtxNE_4 hu hΓ) (hasType_bvar2_ctx4 Γ)
     (.forallEDF ((hasType_NE hu).appDF (.bvar (.succ (.succ (.succ .zero)))))
       (.sortDF trivial trivial (.refl _)))
     (u := .imax .zero (.succ .zero)) ⟨trivial, trivial⟩]
   simp [VLevel.eval, Lean.Nat.imax]
 
 include hu hle in
-theorem not_isProof_bvar2_ctxF (Γ : List VExpr) :
+theorem not_isProof_bvar2_ctxF (Γ : List VExpr) (hΓ : OnCtx Γ (nonemptyEnv.IsType nv)) :
     ¬ L.IsProof (neM κ ls) (ctxF u Γ) (.bvar 2) := by
-  rw [isProof_iff hle (hasType_bvar2_ctxF Γ)
+  rw [isProof_iff hle (onCtxNE_F hu hΓ) (hasType_bvar2_ctxF Γ)
     (.forallEDF ((hasType_NE hu).appDF (.bvar (.succ (.succ (.succ .zero)))))
       (.sortDF trivial trivial (.refl _)))
     (u := .imax .zero (.succ .zero)) ⟨trivial, trivial⟩]
@@ -592,17 +634,17 @@ theorem not_isProof_bvar2_ctxF (Γ : List VExpr) :
 include hu hle in
 /-- **`Nonempty.intro α val` is a proof**: its type `Nonempty α` is a proposition, so the
 partial application `Nonempty.intro α` is a proof and `interp` discards the argument. -/
-theorem isProof_introApp_ctxM (Γ : List VExpr) :
+theorem isProof_introApp_ctxM (Γ : List VExpr) (hΓ : OnCtx Γ (nonemptyEnv.IsType nv)) :
     L.IsProof (neM κ ls) (ctxM u Γ) (.app (.const ``Nonempty.intro [u]) (.bvar 2)) := by
-  rw [isProof_iff hle ((hasType_IN hu).appDF (hasType_bvar2_ctxM Γ))
+  rw [isProof_iff hle (onCtxNE_M hu hΓ) ((hasType_IN hu).appDF (hasType_bvar2_ctxM Γ))
     (.forallEDF (hasType_bvar2_ctxM Γ) ((hasType_NE hu).appDF (.bvar (.succ (.succ (.succ .zero))))))
     (u := .imax u .zero) ⟨hu, trivial⟩]
   simp [VLevel.eval, Lean.Nat.imax]
 
 include hu hle in
-theorem isProof_introApp_ctxF (Γ : List VExpr) :
+theorem isProof_introApp_ctxF (Γ : List VExpr) (hΓ : OnCtx Γ (nonemptyEnv.IsType nv)) :
     L.IsProof (neM κ ls) (ctxF u Γ) (.app (.const ``Nonempty.intro [u]) (.bvar 3)) := by
-  rw [isProof_iff hle ((hasType_IN hu).appDF (hasType_bvar3_ctxF Γ))
+  rw [isProof_iff hle (onCtxNE_F hu hΓ) ((hasType_IN hu).appDF (hasType_bvar3_ctxF Γ))
     (.forallEDF (hasType_bvar3_ctxF Γ)
       ((hasType_NE hu).appDF (.bvar (.succ (.succ (.succ (.succ .zero)))))))
     (u := .imax u .zero) ⟨hu, trivial⟩]
@@ -611,106 +653,106 @@ theorem isProof_introApp_ctxF (Γ : List VExpr) :
 /-! #### The four `IsProp`s of the recursor type, and the four of the ι-rule's type -/
 
 include hu hle in
-theorem isProp_recB1 (Γ : List VExpr) :
+theorem isProp_recB1 (Γ : List VExpr) (hΓ : OnCtx Γ (nonemptyEnv.IsType nv)) :
     L.IsProp (neM κ ls) (ctx1 u Γ)
       (.forallE (motTy u) (.forallE (minTy u) (.forallE (majTy u) resTy))) := by
-  rw [isProp_iff hle (hasType_recB1 hu Γ)
+  rw [isProp_iff hle (onCtxNE_1 hu hΓ) (hasType_recB1 hu Γ)
     (u := .imax (.imax .zero (.succ .zero)) (.imax (.imax u .zero) (.imax .zero .zero)))
     ⟨⟨trivial, trivial⟩, ⟨hu, trivial⟩, trivial, trivial⟩]
   simp [VLevel.eval, Lean.Nat.imax]
 
 include hu hle in
-theorem isProp_recB2 (Γ : List VExpr) :
+theorem isProp_recB2 (Γ : List VExpr) (hΓ : OnCtx Γ (nonemptyEnv.IsType nv)) :
     L.IsProp (neM κ ls) (ctx2 u Γ) (.forallE (minTy u) (.forallE (majTy u) resTy)) := by
-  rw [isProp_iff hle (hasType_recB2 hu Γ)
+  rw [isProp_iff hle (onCtxNE_2 hu hΓ) (hasType_recB2 hu Γ)
     (u := .imax (.imax u .zero) (.imax .zero .zero)) ⟨⟨hu, trivial⟩, trivial, trivial⟩]
   simp [VLevel.eval, Lean.Nat.imax]
 
 include hu hle in
-theorem isProp_recB3 (Γ : List VExpr) :
+theorem isProp_recB3 (Γ : List VExpr) (hΓ : OnCtx Γ (nonemptyEnv.IsType nv)) :
     L.IsProp (neM κ ls) (ctx3 u Γ) (.forallE (majTy u) resTy) := by
-  rw [isProp_iff hle (hasType_recB3 hu Γ) (u := .imax .zero .zero) ⟨trivial, trivial⟩]
+  rw [isProp_iff hle (onCtxNE_3 hu hΓ) (hasType_recB3 hu Γ) (u := .imax .zero .zero) ⟨trivial, trivial⟩]
   simp [VLevel.eval, Lean.Nat.imax]
 
-include hle in
-theorem isProp_resTy (Γ : List VExpr) :
+include hu hle in
+theorem isProp_resTy (Γ : List VExpr) (hΓ : OnCtx Γ (nonemptyEnv.IsType nv)) :
     L.IsProp (neM κ ls) (ctx4 u Γ) resTy := by
-  rw [isProp_iff hle (hasType_resTy Γ) (u := .zero) trivial]
+  rw [isProp_iff hle (onCtxNE_4 hu hΓ) (hasType_resTy Γ) (u := .zero) trivial]
   simp [VLevel.eval]
 
 include hu hle in
-theorem isProp_minBody (Γ : List VExpr) :
+theorem isProp_minBody (Γ : List VExpr) (hΓ : OnCtx Γ (nonemptyEnv.IsType nv)) :
     L.IsProp (neM κ ls) (ctxM u Γ)
       (.app (.bvar 1) (.app (.app (.const ``Nonempty.intro [u]) (.bvar 2)) (.bvar 0))) := by
-  rw [isProp_iff hle (hasType_minBody hu Γ) (u := .zero) trivial]
+  rw [isProp_iff hle (onCtxNE_M hu hΓ) (hasType_minBody hu Γ) (u := .zero) trivial]
   simp [VLevel.eval]
 
 include hu hle in
-theorem isProp_introB1 (Γ : List VExpr) :
+theorem isProp_introB1 (Γ : List VExpr) (hΓ : OnCtx Γ (nonemptyEnv.IsType nv)) :
     L.IsProp (neM κ ls) (ctx1 u Γ)
       (.forallE (.bvar 0) (.app (.const ``Nonempty [u]) (.bvar 1))) := by
-  rw [isProp_iff hle (hasType_introB1 hu Γ) (u := .imax u .zero) ⟨hu, trivial⟩]
+  rw [isProp_iff hle (onCtxNE_1 hu hΓ) (hasType_introB1 hu Γ) (u := .imax u .zero) ⟨hu, trivial⟩]
   simp [VLevel.eval, Lean.Nat.imax]
 
 include hu hle in
-theorem isProp_NEapp1_ctxI (Γ : List VExpr) :
+theorem isProp_NEapp1_ctxI (Γ : List VExpr) (hΓ : OnCtx Γ (nonemptyEnv.IsType nv)) :
     L.IsProp (neM κ ls) (ctxI u Γ) (.app (.const ``Nonempty [u]) (.bvar 1)) := by
-  rw [isProp_iff hle (hasType_NEapp1_ctxI hu Γ) (u := .zero) trivial]
+  rw [isProp_iff hle (onCtxNE_I hu hΓ) (hasType_NEapp1_ctxI hu Γ) (u := .zero) trivial]
   simp [VLevel.eval]
 
 include hu hle in
-theorem isProp_ruleB1 (Γ : List VExpr) :
+theorem isProp_ruleB1 (Γ : List VExpr) (hΓ : OnCtx Γ (nonemptyEnv.IsType nv)) :
     L.IsProp (neM κ ls) (ctx1 u Γ)
       (.forallE (motTy u) (.forallE (minTy u) (.forallE (.bvar 2)
         (.app (.bvar 2) (.app (.app (.const ``Nonempty.intro [u]) (.bvar 3)) (.bvar 0)))))) := by
-  rw [isProp_iff hle (hasType_ruleB1 hu Γ)
+  rw [isProp_iff hle (onCtxNE_1 hu hΓ) (hasType_ruleB1 hu Γ)
     (u := .imax (.imax .zero (.succ .zero)) (.imax (.imax u .zero) (.imax u .zero)))
     ⟨⟨trivial, trivial⟩, ⟨hu, trivial⟩, hu, trivial⟩]
   simp [VLevel.eval, Lean.Nat.imax]
 
 include hu hle in
-theorem isProp_ruleB2 (Γ : List VExpr) :
+theorem isProp_ruleB2 (Γ : List VExpr) (hΓ : OnCtx Γ (nonemptyEnv.IsType nv)) :
     L.IsProp (neM κ ls) (ctx2 u Γ)
       (.forallE (minTy u) (.forallE (.bvar 2)
         (.app (.bvar 2) (.app (.app (.const ``Nonempty.intro [u]) (.bvar 3)) (.bvar 0))))) := by
-  rw [isProp_iff hle (hasType_ruleB2 hu Γ)
+  rw [isProp_iff hle (onCtxNE_2 hu hΓ) (hasType_ruleB2 hu Γ)
     (u := .imax (.imax u .zero) (.imax u .zero)) ⟨⟨hu, trivial⟩, hu, trivial⟩]
   simp [VLevel.eval, Lean.Nat.imax]
 
 include hu hle in
-theorem isProp_ruleB3 (Γ : List VExpr) :
+theorem isProp_ruleB3 (Γ : List VExpr) (hΓ : OnCtx Γ (nonemptyEnv.IsType nv)) :
     L.IsProp (neM κ ls) (ctx3 u Γ)
       (.forallE (.bvar 2)
         (.app (.bvar 2) (.app (.app (.const ``Nonempty.intro [u]) (.bvar 3)) (.bvar 0)))) := by
-  rw [isProp_iff hle (hasType_ruleB3 hu Γ) (u := .imax u .zero) ⟨hu, trivial⟩]
+  rw [isProp_iff hle (onCtxNE_3 hu hΓ) (hasType_ruleB3 hu Γ) (u := .imax u .zero) ⟨hu, trivial⟩]
   simp [VLevel.eval, Lean.Nat.imax]
 
 include hu hle in
-theorem isProp_ruleBody (Γ : List VExpr) :
+theorem isProp_ruleBody (Γ : List VExpr) (hΓ : OnCtx Γ (nonemptyEnv.IsType nv)) :
     L.IsProp (neM κ ls) (ctxF u Γ)
       (.app (.bvar 2) (.app (.app (.const ``Nonempty.intro [u]) (.bvar 3)) (.bvar 0))) := by
-  rw [isProp_iff hle (hasType_ruleBody hu Γ) (u := .zero) trivial]
+  rw [isProp_iff hle (onCtxNE_F hu hΓ) (hasType_ruleBody hu Γ) (u := .zero) trivial]
   simp [VLevel.eval]
 
 include hu hle in
 /-- **The left-hand side of the ι-rule is a proof.** -/
-theorem isProof_lhsLam (Γ : List VExpr) :
+theorem isProof_lhsLam (Γ : List VExpr) (hΓ : OnCtx Γ (nonemptyEnv.IsType nv)) :
     L.IsProof (neM κ ls) (ctx1 u Γ)
       (.lam (motTy u) (.lam (minTy u) (.lam (.bvar 2)
         (.app (.app (.app (.app (.const recN [u]) (.bvar 3)) (.bvar 2)) (.bvar 1))
           (.app (.app (.const ``Nonempty.intro [u]) (.bvar 3)) (.bvar 0)))))) := by
-  rw [isProof_iff hle (hasType_lhsLam hu Γ) (hasType_ruleB1 hu Γ)
+  rw [isProof_iff hle (onCtxNE_1 hu hΓ) (hasType_lhsLam hu Γ) (hasType_ruleB1 hu Γ)
     (u := .imax (.imax .zero (.succ .zero)) (.imax (.imax u .zero) (.imax u .zero)))
     ⟨⟨trivial, trivial⟩, ⟨hu, trivial⟩, hu, trivial⟩]
   simp [VLevel.eval, Lean.Nat.imax]
 
 include hu hle in
 /-- **…and so is the right-hand side**, the η-expanded β-redex `iotaRule` builds. -/
-theorem isProof_rhsLam (Γ : List VExpr) :
+theorem isProof_rhsLam (Γ : List VExpr) (hΓ : OnCtx Γ (nonemptyEnv.IsType nv)) :
     L.IsProof (neM κ ls) (ctx1 u Γ)
       (.lam (motTy u) (.lam (minTy u) (.lam (.bvar 2)
         (.app (.app (.app (.app (iotaLamE u) (.bvar 3)) (.bvar 2)) (.bvar 1)) (.bvar 0))))) := by
-  rw [isProof_iff hle (hasType_rhsLam hu Γ) (hasType_ruleB1 hu Γ)
+  rw [isProof_iff hle (onCtxNE_1 hu hΓ) (hasType_rhsLam hu Γ) (hasType_ruleB1 hu Γ)
     (u := .imax (.imax .zero (.succ .zero)) (.imax (.imax u .zero) (.imax u .zero)))
     ⟨⟨trivial, trivial⟩, ⟨hu, trivial⟩, hu, trivial⟩]
   simp [VLevel.eval, Lean.Nat.imax]
@@ -733,15 +775,17 @@ theorem interp_sort_zero' (Γ : List VExpr) (ρ : V) :
 
 include hu hle in
 /-- `⟦Nonempty (bvar i)⟧ρ = nonemptyFn κ n ‘ (ρ ‘ …)`. -/
-theorem interp_NEapp (Γ : List VExpr) (i : ℕ) (ρ : V) :
+theorem interp_NEapp (Γ : List VExpr) (hΓ : OnCtx Γ (nonemptyEnv.IsType nv)) (i : ℕ)
+    (ρ : V) :
     (interp (neM κ ls) L Γ (.app (.const ``Nonempty [u]) (.bvar i))).toFun ρ
       = (nonemptyFn κ (u.eval ls)) ‘ (ρ ‘ ((Γ.length - 1 - i : ℕ) : V)) := by
-  rw [interp_app_type _ L (not_isProof_NE L κ ls hu hle Γ), interp_const, interp_bvar,
+  rw [interp_app_type _ L (not_isProof_NE L κ ls hu hle Γ hΓ), interp_const, interp_bvar,
     neM_cnst_NE]
 
 /-! ### The type former -/
 
-omit hu hle in
+omit hle in
+include hu in
 /-- **`Nonempty.{u} : ∀ α : Sort u, Prop`.**  Its value is a genuine internal *function* —
 the type former's type is not a proposition, so `•` is not a legal value here (contrast
 `boxDecl`, where the domain was empty, and `Unit1`, which has no parameter at all). -/
@@ -751,7 +795,9 @@ theorem mem_interp_NE_type :
         ((⟨1, .forallE (.sort (.param 0)) (.sort .zero)⟩ : VConstant).type.instL [u])).toFun ∅ := by
   rw [show ((⟨1, .forallE (.sort (.param 0)) (.sort .zero)⟩ : VConstant).type.instL [u])
       = VExpr.forallE (.sort u) (.sort .zero) from rfl,
-    interp_forallE_type _ L (not_isProp_sort_zero _), neOracle_NE]
+    interp_forallE_type _ L (not_isProp_sort_zero _
+      (⟨trivial, .succ u, VEnv.HasType.sort hu⟩ : OnCtx [(VExpr.sort u)] (envF.IsType nv))),
+    neOracle_NE]
   unfold nonemptyFn
   refine UnitAudit.mkLam_mem_mkForallType_of_dom (by rw [interp_sortu L κ ls]) (fun v _ ↦ ?_)
   rw [interp_sort_zero' L κ ls]
@@ -778,15 +824,15 @@ theorem mem_interp_NE_intro :
         (.forallE (.bvar 0) (.app (.const ``Nonempty [u]) (.bvar 1))) from rfl,
     neOracle_intro]
   refine (mem_interp_forallE_prop_iff _ L
-    (isProp_introB1 L κ ls hu hle [])).2 ⟨rfl, fun α hα ↦ ?_⟩
+    (isProp_introB1 L κ ls hu hle [] trivial)).2 ⟨rfl, fun α hα ↦ ?_⟩
   rw [interp_sortu L κ ls] at hα
   refine (mem_interp_forallE_prop_iff _ L
-    (isProp_NEapp1_ctxI L κ ls hu hle [])).2 ⟨rfl, fun v hv ↦ ?_⟩
+    (isProp_NEapp1_ctxI L κ ls hu hle [] trivial)).2 ⟨rfl, fun v hv ↦ ?_⟩
   rw [interp_bvar] at hv
   have h0 : (snoc (∅ : V) α) ‘ ((0 : ℕ) : V) = α := isSeq_empty.read_top
   simp only [List.length_cons, List.length_nil] at hv
   rw [show (0 + 1 - 1 - 0 : ℕ) = 0 from rfl, h0] at hv
-  rw [interp_NEapp L κ ls hu hle]
+  rw [interp_NEapp L κ ls hu hle _ (onCtxNE_I hu (Δ := []) trivial)]
   simp only [List.length_cons, List.length_nil]
   rw [show (1 + 1 - 1 - 1 : ℕ) = 0 from rfl,
     (isSeq_empty.snoc' (v := α)).read_lt (n := 1) (j := 0) (by omega), h0,
@@ -828,8 +874,8 @@ theorem interp_minBody_val (α f v : V) :
         (.app (.bvar 1)
           (.app (.app (.const ``Nonempty.intro [u]) (.bvar 2)) (.bvar 0)))).toFun
       (snoc (snoc (snoc (∅ : V) α) f) v) = f ‘ (pt : V) := by
-  rw [interp_app_type _ L (not_isProof_bvar1_ctxM L κ ls hu hle []),
-    interp_app_proof _ L (isProof_introApp_ctxM L κ ls hu hle []), interp_bvar]
+  rw [interp_app_type _ L (not_isProof_bvar1_ctxM L κ ls hu hle [] trivial),
+    interp_app_proof _ L (isProof_introApp_ctxM L κ ls hu hle [] trivial), interp_bvar]
   simp only [List.length_cons, List.length_nil]
   rw [show (2 + 1 - 1 - 1 : ℕ) = 1 from rfl, read3_1]
 
@@ -846,7 +892,7 @@ theorem pt_mem_f_pt_of_mem_interp_minTy {α f m : V}
     (hm : m ∈ (interp (neM κ ls) L (ctx2 u []) (minTy u)).toFun (snoc (snoc (∅ : V) α) f))
     {v : V} (hv : v ∈ α) : (pt : V) ∈ f ‘ (pt : V) := by
   obtain ⟨rfl, h⟩ :=
-    (mem_interp_forallE_prop_iff _ L (isProp_minBody L κ ls hu hle [])).1 hm
+    (mem_interp_forallE_prop_iff _ L (isProp_minBody L κ ls hu hle [] trivial)).1 hm
   have h2 := h v (by rw [interp_minTy_dom L κ ls]; exact hv)
   rwa [interp_minBody_val L κ ls hu hle] at h2
 
@@ -862,17 +908,17 @@ theorem pt_mem_interp_NE_recType :
       (interp (neM κ ls) L [] ((nonemptyIndDecl.recType 0).instL [u])).toFun ∅ := by
   rw [ne_recType_instL]
   refine (mem_interp_forallE_prop_iff _ L
-    (isProp_recB1 L κ ls hu hle [])).2 ⟨rfl, fun α hα ↦ ?_⟩
+    (isProp_recB1 L κ ls hu hle [] trivial)).2 ⟨rfl, fun α hα ↦ ?_⟩
   rw [interp_sortu L κ ls] at hα
   refine (mem_interp_forallE_prop_iff _ L
-    (isProp_recB2 L κ ls hu hle [])).2 ⟨rfl, fun f _ ↦ ?_⟩
+    (isProp_recB2 L κ ls hu hle [] trivial)).2 ⟨rfl, fun f _ ↦ ?_⟩
   refine (mem_interp_forallE_prop_iff _ L
-    (isProp_recB3 L κ ls hu hle [])).2 ⟨rfl, fun m hm ↦ ?_⟩
+    (isProp_recB3 L κ ls hu hle [] trivial)).2 ⟨rfl, fun m hm ↦ ?_⟩
   refine (mem_interp_forallE_prop_iff _ L
-    (isProp_resTy L κ ls hle [])).2 ⟨rfl, fun t ht ↦ ?_⟩
+    (isProp_resTy L κ ls hu hle [] trivial)).2 ⟨rfl, fun t ht ↦ ?_⟩
   -- the major premise's domain is `nonemptyFn κ n ‘ α`
   rw [show (majTy u) = VExpr.app (.const ``Nonempty [u]) (.bvar 2) from rfl,
-    interp_NEapp L κ ls hu hle] at ht
+    interp_NEapp L κ ls hu hle _ (onCtxNE_3 hu (Δ := []) trivial)] at ht
   simp only [List.length_cons, List.length_nil] at ht
   rw [show (2 + 1 - 1 - 2 : ℕ) = 0 from rfl, read3_0, nonemptyFn_value hα] at ht
   by_cases hα0 : α = ∅
@@ -882,7 +928,7 @@ theorem pt_mem_interp_NE_recType :
   obtain ⟨v, hv⟩ := ne_empty_iff_isNonempty.mp hα0
   -- the goal is `• ∈ f ‘ t`
   rw [show resTy = VExpr.app (.bvar 2) (.bvar 0) from rfl,
-    interp_app_type _ L (not_isProof_bvar2_ctx4 L κ ls hu hle []), interp_bvar, interp_bvar]
+    interp_app_type _ L (not_isProof_bvar2_ctx4 L κ ls hu hle [] trivial), interp_bvar, interp_bvar]
   simp only [List.length_cons, List.length_nil]
   rw [show (3 + 1 - 1 - 2 : ℕ) = 1 from rfl, show (3 + 1 - 1 - 0 : ℕ) = 3 from rfl,
     read4_1, read4_3]
@@ -901,14 +947,14 @@ theorem interp_neRule_lhs :
     (interp (neM κ ls) L [] ((nonemptyIndDecl.iotaRule 0 0 neCtor).lhs.instL [u])).toFun ∅
       = (pt : V) := by
   rw [neRule_lhs_instL]
-  exact interp_lam_proof _ L (isProof_lhsLam L κ ls hu hle []) ∅
+  exact interp_lam_proof _ L (isProof_lhsLam L κ ls hu hle [] trivial) ∅
 
 include hu hle in
 theorem interp_neRule_rhs :
     (interp (neM κ ls) L [] ((nonemptyIndDecl.iotaRule 0 0 neCtor).rhs.instL [u])).toFun ∅
       = (pt : V) := by
   rw [neRule_rhs_instL]
-  exact interp_lam_proof _ L (isProof_rhsLam L κ ls hu hle []) ∅
+  exact interp_lam_proof _ L (isProof_rhsLam L κ ls hu hle [] trivial) ∅
 
 include hu hle in
 /-- `•` inhabits the ι-rule's type — four impredicative `∀`s, and the last step is the minor
@@ -919,19 +965,19 @@ theorem pt_mem_interp_neRule_type :
         ((nonemptyIndDecl.iotaRule 0 0 neCtor).type.instL [u])).toFun ∅ := by
   rw [neRule_type_instL]
   refine (mem_interp_forallE_prop_iff _ L
-    (isProp_ruleB1 L κ ls hu hle [])).2 ⟨rfl, fun α hα ↦ ?_⟩
+    (isProp_ruleB1 L κ ls hu hle [] trivial)).2 ⟨rfl, fun α hα ↦ ?_⟩
   rw [interp_sortu L κ ls] at hα
   refine (mem_interp_forallE_prop_iff _ L
-    (isProp_ruleB2 L κ ls hu hle [])).2 ⟨rfl, fun f _ ↦ ?_⟩
+    (isProp_ruleB2 L κ ls hu hle [] trivial)).2 ⟨rfl, fun f _ ↦ ?_⟩
   refine (mem_interp_forallE_prop_iff _ L
-    (isProp_ruleB3 L κ ls hu hle [])).2 ⟨rfl, fun m hm ↦ ?_⟩
+    (isProp_ruleB3 L κ ls hu hle [] trivial)).2 ⟨rfl, fun m hm ↦ ?_⟩
   refine (mem_interp_forallE_prop_iff _ L
-    (isProp_ruleBody L κ ls hu hle [])).2 ⟨rfl, fun v hv ↦ ?_⟩
+    (isProp_ruleBody L κ ls hu hle [] trivial)).2 ⟨rfl, fun v hv ↦ ?_⟩
   rw [interp_bvar] at hv
   simp only [List.length_cons, List.length_nil] at hv
   rw [show (2 + 1 - 1 - 2 : ℕ) = 0 from rfl, read3_0] at hv
-  rw [interp_app_type _ L (not_isProof_bvar2_ctxF L κ ls hu hle []),
-    interp_app_proof _ L (isProof_introApp_ctxF L κ ls hu hle []), interp_bvar]
+  rw [interp_app_type _ L (not_isProof_bvar2_ctxF L κ ls hu hle [] trivial),
+    interp_app_proof _ L (isProof_introApp_ctxF L κ ls hu hle [] trivial), interp_bvar]
   simp only [List.length_cons, List.length_nil]
   rw [show (3 + 1 - 1 - 2 : ℕ) = 1 from rfl, read4_1]
   exact pt_mem_f_pt_of_mem_interp_minTy L κ ls hu hle hm hv
@@ -962,7 +1008,7 @@ theorem oracleOK_NE_type :
       ⟨1, .forallE (.sort (.param 0)) (.sort .zero)⟩ := by
   refine oracleOK_of (fun _ _ hd ↦ neOracle_congr_NE κ ls hd) (fun {us} hw hlen ↦ ?_)
   obtain ⟨w, rfl⟩ := eq_singleton_of_length_one hlen
-  exact mem_interp_NE_type L κ ls
+  exact mem_interp_NE_type L κ ls (hw _ (List.mem_singleton_self _))
 
 include hle in
 theorem oracleOK_NE_intro :
@@ -1058,7 +1104,7 @@ theorem mem_interp_consts_NE (hle : nonemptyEnv ≤ envF) :
   rw [ne_allConsts] at hp
   simp only [List.mem_cons, List.not_mem_nil, or_false] at hp
   obtain rfl | rfl | rfl := hp
-  · exact mem_interp_NE_type L κ ls
+  · exact mem_interp_NE_type L κ ls hw
   · exact mem_interp_NE_intro L κ ls hw hle
   · rw [show neOracle κ ls recN [w] = (pt : V) from neOracle_rec _]
     exact pt_mem_interp_NE_recType L κ ls hw hle
@@ -1126,7 +1172,9 @@ theorem not_mem_interp_zeroOracle_NE_type :
     zeroOracle V ``Nonempty [(.zero : VLevel)] ∉
       (interp (⟨κ, ls, zeroOracle V⟩ : ModelData V) L []
         (VExpr.forallE (.sort .zero) (.sort .zero))).toFun ∅ := by
-  rw [interp_forallE_type _ L (not_isProp_sort_zero _)]
+  rw [interp_forallE_type _ L (not_isProp_sort_zero _
+    (⟨trivial, .succ .zero, VEnv.HasType.sort trivial⟩ :
+      OnCtx [(VExpr.sort (.zero : VLevel))] (envF.IsType nv)))]
   show (pt : V) ∉ _
   refine UnitAudit.pt_not_mem_mkForallType_of_nonempty (x := ∅) ?_
   show (∅ : V) ∈ (interp (⟨κ, ls, zeroOracle V⟩ : ModelData V) L [] (.sort (.zero : VLevel))).toFun ∅
@@ -1194,11 +1242,39 @@ of the parameter that every `.induct` oracle result at the prelude is quantified
 
 section Vacuity
 
-/-- **The parameter of §10, pinned at `preludeEnv`.** -/
+/-- **The parameter of §10, pinned at `preludeEnv`.**
+
+**Restated 2026-09-02**: since `PropSplit`'s two fields carry `OnCtx Γ (env.IsType nv)`, the
+equivalence is with the *guarded* statements — and those, unlike the unguarded ones, the tree
+proves.  See `nonempty_propSplit_preludeEnv` immediately below, which is now a theorem with no
+hypotheses at all. -/
 theorem nonempty_propSplit_preludeEnv_iff :
     Nonempty (PropSplit preludeEnv 0) ↔
-      preludeEnv.PropUniq 0 ∧ preludeEnv.PropTypeAgree 0 :=
+      preludeEnv.PropUniqOnCtx 0 ∧ preludeEnv.PropTypeAgreeOnCtx 0 :=
   nonempty_propSplit_iff_agree
+
+/-- **The parameter every `.induct` oracle result at the prelude is quantified over is
+INHABITED.**  No hypotheses.
+
+This is what the `OnCtx` guard on `PropSplit`'s fields bought (2026-09-02): the two guarded
+agreement statements are `VEnv.WF.propTypeAgreeOn` and `WF.propUniqOn` — both theorems, at any
+`WF` environment — and `PreludeWitness.preludeEnv_WF` supplies the hypothesis.  Before the
+guard the equivalence was with the *unguarded* statements, which quantify over junk contexts
+and which nothing in the tree proves; `docs/vacuity-ledger.md` rows 130b/131/131d/136 record that
+history, and `PropAgreeWall.CtxReplace` was the residual it left.  That residual is now
+retired: it has no consumer.
+
+`sorryAx`-tainted through `IsDefEqU.forallE_inv_stratified` and nothing else (route A of
+`SetModel/PropAgreeWall.lean`); `PropAgreeWall.nonempty_propSplit_preludeEnv_of_stratifiedN`
+is the `sorryAx`-free variant, conditional on the syntactic stream's two `∀ n` statements. -/
+theorem nonempty_propSplit_preludeEnv : Nonempty (PropSplit preludeEnv 0) :=
+  exists_propSplit_onCtx (VEnv.WF.propUniqOn preludeEnv_WF)
+    (VEnv.WF.propTypeAgreeOn preludeEnv_WF)
+
+/-- …and hence a `PropSplit` at the prelude as data. -/
+noncomputable def propSplitPreludeEnv : PropSplit preludeEnv 0 :=
+  propSplitOfOnCtx preludeEnv 0 (VEnv.WF.propUniqOn preludeEnv_WF)
+    (VEnv.WF.propTypeAgreeOn preludeEnv_WF)
 
 /-- …and its `PropUniq` half is free wherever the reduction is consumed: `env.Consistent` is
 a negation, so the goal's own inhabitant of `∀ p : Prop, p` feeds
@@ -1209,7 +1285,8 @@ theorem nonempty_propSplit_preludeEnv_of_propTypeAgree
     (hT : preludeEnv.PropTypeAgree 0) (hf : ∃ e, preludeEnv.HasType 0 [] e falseProp) :
     Nonempty (PropSplit preludeEnv 0) :=
   nonempty_propSplit_preludeEnv_iff.2
-    ⟨VEnv.PropUniq.of_propTypeAgree preludeEnv_ordered hf hT, hT⟩
+    ⟨VEnv.PropUniq.onCtx (VEnv.PropUniq.of_propTypeAgree preludeEnv_ordered hf hT),
+      VEnv.PropTypeAgree.onCtx hT⟩
 
 /-- The same statement one level up: the input of `UpperBound.lean` delivers it. -/
 theorem propTypeAgree_preludeEnv_of_input (h : PropTypeAgreeInput) :
@@ -1512,6 +1589,8 @@ end Lean4Lean.SetModel.NEAudit
 #print axioms Lean4Lean.SetModel.NEAudit.oracleStepOK_NE
 #print axioms Lean4Lean.SetModel.NEAudit.oracleStepOK_NE_at_preludeEnv
 #print axioms Lean4Lean.SetModel.NEAudit.nonempty_propSplit_preludeEnv_iff
+#print axioms Lean4Lean.SetModel.NEAudit.nonempty_propSplit_preludeEnv
+#print axioms Lean4Lean.SetModel.NEAudit.propSplitPreludeEnv
 #print axioms Lean4Lean.SetModel.NEAudit.nonempty_propSplit_preludeEnv_of_propTypeAgree
 
 #print axioms Lean4Lean.SetModel.NEAudit.eval_const_of_wf_zero

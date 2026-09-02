@@ -288,22 +288,22 @@ left-hand side does not mention the type; two instances at the same term compose
 
 This is the converse `SetModel/PropSplitAudit.lean` did not state, and it is what makes the
 model route to `sort_not_proof` circular. -/
-theorem propTypeAgree_of_propSplit (L : PropSplit env nv) : env.PropTypeAgree nv :=
-  fun hw hw' he he' hA hA' =>
-    (L.proof_sound hw he hA).symm.trans (L.proof_sound hw' he' hA')
+theorem propTypeAgreeOnCtx_of_propSplit (L : PropSplit env nv) : env.PropTypeAgreeOnCtx nv :=
+  fun hΓ hw hw' he he' hA hA' =>
+    (L.proof_sound hΓ hw he hA).symm.trans (L.proof_sound hΓ hw' he' hA')
 
-/-- **`PropSplit` implies `PropUniq`**, by the same composition on `prop_sound`. -/
-theorem propUniq_of_propSplit (L : PropSplit env nv) : env.PropUniq nv :=
-  fun hw hw' hA hA' => (L.prop_sound hw hA).symm.trans (L.prop_sound hw' hA')
+/-- **`PropSplit` implies `PropUniqOnCtx`**, by the same composition on `prop_sound`. -/
+theorem propUniqOnCtx_of_propSplit (L : PropSplit env nv) : env.PropUniqOnCtx nv :=
+  fun hΓ hw hw' hA hA' => (L.prop_sound hΓ hw hA).symm.trans (L.prop_sound hΓ hw' hA')
 
 /-- **The audit's lower bound is an equivalence.**  `PropSplitAudit.exists_propSplit` builds
 a `PropSplit` from `PropUniq ∧ PropTypeAgree`; the two lemmas above recover them.  So the
 model's parameter carries *exactly* the content of the two syntactic statements — no slack in
 either direction. -/
 theorem nonempty_propSplit_iff_agree :
-    Nonempty (PropSplit env nv) ↔ env.PropUniq nv ∧ env.PropTypeAgree nv :=
-  ⟨fun ⟨L⟩ => ⟨propUniq_of_propSplit L, propTypeAgree_of_propSplit L⟩,
-   fun ⟨h1, h2⟩ => exists_propSplit h1 h2⟩
+    Nonempty (PropSplit env nv) ↔ env.PropUniqOnCtx nv ∧ env.PropTypeAgreeOnCtx nv :=
+  ⟨fun ⟨L⟩ => ⟨propUniqOnCtx_of_propSplit L, propTypeAgreeOnCtx_of_propSplit L⟩,
+   fun ⟨h1, h2⟩ => exists_propSplit_onCtx h1 h2⟩
 
 /-- **The closure result: the model route is strictly dominated.**
 
@@ -315,10 +315,17 @@ syntax, which is no progress on the hole.
 This is the machine-checked form of "a model is not a candidate source for
 `sort_not_proof`". -/
 theorem sortNotProof_of_propSplit (L : PropSplit env nv) (henv : env.Ordered)
-    {Γ : List VExpr} {u : VLevel} {p : VExpr}
+    {Γ : List VExpr} {u : VLevel} {p : VExpr} (hΓ : OnCtx Γ (env.IsType nv))
     (hp : env.HasType nv Γ p (.sort .zero))
-    (hup : env.HasType nv Γ (.sort u) p) : False :=
-  VEnv.sortNotProof_of_propTypeAgree (propTypeAgree_of_propSplit L) henv hp hup
+    (hup : env.HasType nv Γ (.sort u) p) : False := by
+  have hu : u.WF nv := hup.sort_inv_l henv
+  have h1 : env.HasType nv Γ (.sort u) (.sort (.succ u)) := VEnv.HasType.sort hu
+  have h2 : env.HasType nv Γ (.sort (.succ u)) (.sort (.succ (.succ u))) :=
+    VEnv.HasType.sort (show (VLevel.succ u).WF nv from hu)
+  have key := propTypeAgreeOnCtx_of_propSplit L (ls := []) (u := .zero)
+    (u' := .succ (.succ u)) hΓ trivial (show (VLevel.succ (.succ u)).WF nv from hu)
+    hup h1 hp h2
+  simp [VLevel.eval] at key
 
 end Circle
 
@@ -418,14 +425,9 @@ namespace VEnv
 
 variable {env : VEnv} {nv : ℕ}
 
-/-- **`PropTypeAgree`, guarded by `OnCtx`.**  The form every unique-typing result in the
-tree can supply, and the form `PropSplit`'s fields should have asked for. -/
-def PropTypeAgreeOnCtx (env : VEnv) (nv : ℕ) : Prop :=
-  ∀ {Γ : List VExpr} {e A A' : VExpr} {u u' : VLevel} {ls : List ℕ},
-    OnCtx Γ (env.IsType nv) → u.WF nv → u'.WF nv →
-    env.HasType nv Γ e A → env.HasType nv Γ e A' →
-    env.HasType nv Γ A (.sort u) → env.HasType nv Γ A' (.sort u') →
-    (u.eval ls = 0 ↔ u'.eval ls = 0)
+/-! `PropTypeAgreeOnCtx` and `PropUniqOnCtx` were defined here until 2026-09-02; they now
+live in `SetModel/PropSplitAudit.lean` beside `PropUniq`/`PropTypeAgree`, because
+`PropSplit`'s fields acquired the same guard and `propSplitOfOnCtx` consumes them. -/
 
 /-- **The guarded import is a theorem**, modulo the tree's existing holes and adding none.
 
@@ -448,13 +450,6 @@ theorem WF.propTypeAgreeOn (henv : env.WF) : env.PropTypeAgreeOnCtx nv := by
     IsDefEqU.trans henv hΓ h1.symm h2
   have h4 : u ≈ u' := IsDefEqU.sort_inv henv hΓ h3
   rw [VLevel.equiv_def.mp h4 ls]
-
-/-- **`PropUniq`, guarded by `OnCtx`** — the companion import. -/
-def PropUniqOnCtx (env : VEnv) (nv : ℕ) : Prop :=
-  ∀ {Γ : List VExpr} {A : VExpr} {u v : VLevel} {ls : List ℕ},
-    OnCtx Γ (env.IsType nv) → u.WF nv → v.WF nv →
-    env.HasType nv Γ A (.sort u) → env.HasType nv Γ A (.sort v) →
-    (u.eval ls = 0 ↔ v.eval ls = 0)
 
 /-- **The guarded `PropUniq` is a theorem**, modulo the same existing holes and adding none.
 
@@ -497,15 +492,11 @@ theorem propTypeAgree_of_onCtx_of_strengthen (hg : env.PropTypeAgreeOnCtx nv)
 it — at *every* environment, with no `WF` hypothesis — so the vacuity of §4 is not an
 artifact of a context the syntactic side would reject. -/
 
-/-- `∀ p : Prop, p` is a type, at every environment: `.sort (.imax 1 0)`. -/
-theorem isType_falseProp : env.IsType nv [] falseProp :=
-  ⟨.imax (.succ .zero) .zero,
-    IsDefEq.forallEDF (HasType.sort (l := .zero) trivial) (IsDefEq.bvar .zero)⟩
-
-/-- **`[falseProp]` is an `OnCtx`-well-formed context** — the hypothesis every consumer of
-`sort_not_proof` supplies — and by `sound_falseProp_ctx_trivial` it is one at which the model
-says nothing.  That pair is the transfer obstruction. -/
-theorem onCtx_falseProp : OnCtx [falseProp] (env.IsType nv) := ⟨trivial, isType_falseProp⟩
+/-! `isType_falseProp` and `onCtx_falseProp` moved to `SetModel/FalseProp.lean` on
+2026-09-02 (they are needed three files earlier now that `PropSplit`'s fields carry `OnCtx`).
+The point they made stands: `[falseProp]` **is** the hypothesis every consumer of
+`sort_not_proof` supplies, and by `sound_falseProp_ctx_trivial` it is a context at which the
+model says nothing.  That pair is the transfer obstruction. -/
 
 /-! ## 6. The syntactic stream is already attacking the model's parameter — but the two
 shapes are not interchangeable

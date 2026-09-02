@@ -1411,3 +1411,216 @@ seed list is another stream's.
 **Do not** re-attack: everything §10.9's list names, plus — new — **`weakN_iff` as the route to
 the unguarded `PropTypeAgree`** (refuted, §11.2) and **`PropTypeAgree preludeEnv 0` as an
 instance of the injectivity wall** (it is not, §11.0; the guarded half is already discharged).
+
+## 12. Session of 2026-09-02 (fifth): the `OnCtx` guard on `PropSplit` is DONE — `Nonempty (PropSplit preludeEnv 0)` is a theorem, and `CtxReplace` is retired
+
+### 12.0 The result, plainly
+
+**`PropSplit`'s two fields now carry `OnCtx Γ (env.IsType nv)`, and
+`Nonempty (PropSplit preludeEnv 0)` is a theorem with no hypotheses.**  §11.2's recommendation
+was right, and §11's residual `CtxReplace` has **no consumer left** in the tree.
+
+```lean
+-- Theory/SetModel/Interp.lean (the real definition; see 12.1)
+structure PropSplit (env : VEnv) (nv : ℕ) where
+  …
+  prop_sound  : ∀ {ls Γ A u},   OnCtx Γ (env.IsType nv) → u.WF nv → env.HasType nv Γ A (.sort u) →
+                                (IsPropAt ls Γ A ↔ u.eval ls = 0)
+  proof_sound : ∀ {ls Γ e A u}, OnCtx Γ (env.IsType nv) → u.WF nv → env.HasType nv Γ e A →
+                                env.HasType nv Γ A (.sort u) → (IsProofAt ls Γ e ↔ u.eval ls = 0)
+
+-- Theory/SetModel/PropSplitAudit.lean  (the guarded producer)
+noncomputable def propSplitOfOnCtx (env) (nv) (hU : env.PropUniqOnCtx nv)
+    (hT : env.PropTypeAgreeOnCtx nv) : PropSplit env nv
+theorem exists_propSplit_onCtx (hU) (hT) : Nonempty (PropSplit env nv)
+
+-- Theory/SetModel/PreludeOracle.lean  (the payoff; NO hypotheses)
+theorem nonempty_propSplit_preludeEnv : Nonempty (PropSplit preludeEnv 0)
+noncomputable def propSplitPreludeEnv : PropSplit preludeEnv 0     -- as data
+
+-- Theory/SetModel/PropAgreeWall.lean  (route B, sorryAx-FREE, hypothesis-carrying)
+theorem propUniqOnCtx_of_stratifiedN (henv : Ordered env) (pun : ∀ n, env.PropUniqN 0 n) :
+    env.PropUniqOnCtx 0
+theorem nonempty_propSplit_of_stratifiedN (henv) (pta : ∀ n, env.PropTypeAgreeN 0 n)
+    (pun : ∀ n, env.PropUniqN 0 n) : Nonempty (PropSplit env 0)
+```
+
+**Modulo exactly what.**  My brief said "modulo nothing at all via route B"; that is **wrong,
+and the correction matters**:
+
+| route | hypotheses | axioms |
+|---|---|---|
+| **A** — `nonempty_propSplit_preludeEnv` | **none** | `[propext, sorryAx, Classical.choice, Quot.sound]`; the `sorryAx` is `IsDefEqU.forallE_inv_stratified` and nothing else |
+| **B** — `nonempty_propSplit_of_stratifiedN` | `Ordered env` + `∀ n, PropTypeAgreeN env 0 n` + `∀ n, PropUniqN env 0 n` (the other stream's open targets) | `[propext, Classical.choice, Quot.sound]` — **`sorryAx`-free** |
+
+So: *unconditional* modulo one hole, or *hole-free* modulo two hypotheses.  There is no route
+that is both, and claiming one would be the ledger's blindness 4.
+
+### 12.1 Correction to the brief, before anything else
+
+* **`PropSplit` is declared in exactly one place**: `Theory/SetModel/Interp.lean:391`.  What
+  `InterpSubst.lean:121` declares is **`PropSplit.Stable`**, a *different* structure over a
+  `PropSplit`.  There is no re-export and there never was; the brief's "establish which is the
+  real definition and which the re-export" has no second candidate.
+* **The 64-call-site price is a 2.5× undercount** (see 12.4).
+* **"~40 of them in `QuotInterp.lean`"** — it is **88** there.
+
+### 12.2 What landed, file by file (15 files, all in `Theory/SetModel/`)
+
+| file | what changed |
+|---|---|
+| `Interp.lean` | the guard on both fields; `prop_congr`/`proof_congr` gain `hΓ`; `LevelAssign.toPropSplit` ignores it; new `import Theory.Typing.Lemmas` (for `OnCtx`) |
+| `PropSplitAudit.lean` | `PropTypeAgreeOnCtx`/`PropUniqOnCtx` **moved here** from `NotProofNoModel.lean` (they are now inputs of the producer, three files earlier); `PropTypeAgree.onCtx`/`PropUniq.onCtx`; `onCtx_sortZero`; `propSplitOfOnCtx`, `exists_propSplit_onCtx`; `propSplitOf_isPropAt_iff`/`propSplitOf_isProofAt_iff` (the *unguarded* soundness of the `propSplitOf` instance, which `PropSplitUp.lean` needs and the fields no longer say) |
+| `SoundInduction.lean` | **`soundAbove` now carries `OnCtx Γ (env₀.IsType nv)` instead of `CtxClosed Γ`** — §11.2's "the induction already builds `⟨hΓ, _, h.hasType⟩` at every binder" is correct; `ctxClosed_of_isType` moved above it and recovers `CtxClosed` in the five cases that still want it; `isProp_iff`/`isProof_iff` take `hΓ` **second** (`isProp_iff hle hΓ hA hw`); new `onCtxF` transports the guard along `env₀ ≤ envF` |
+| `InterpSound.lean` | `PropSplit.mono` transports the guard by `OnCtx.mono (·.mono h)` |
+| `Cnst.lean` | the four general helpers (`pt_mem_interp_forallE_prop`, `mkLam_mem_interp_forallE(')`, `interp_app_of_proof_sorted`, `interp_lam_congr_of_type`) gain `hΓA`/`hΓ` |
+| `FalseProp.lean` | `not_isProp_sort_zero` gains `hΓ`; `isType_falseProp`/`onCtx_falseProp` **moved here** from `NotProofNoModel.lean` |
+| `NotProofNoModel.lean` | `propTypeAgree_of_propSplit` → **`propTypeAgreeOnCtx_of_propSplit`**, `propUniq_of_propSplit` → **`propUniqOnCtx_of_propSplit`**, `nonempty_propSplit_iff_agree` now the **guarded** iff, `sortNotProof_of_propSplit` gains `OnCtx Γ` |
+| `PropSplitUp.lean` | fields ignore the guard; the two comparison lemmas go through the new `propSplitOf_*_iff` |
+| `QuotInterp.lean` | **16 + 16 new `onCtxQ_*` spine lemmas** (`Δ`-general and at `Δ = []`), 88 applications repaired; `interp_quotIndQ` gains `hqm`, `interp_quotLiftQ` gains `heq`/`hv`, `interp_quotLiftRab` gains `hv`, `quotLift_f_props` gains `hu`, `interp_quotDefMkAp` gains `heq`/`hv`, `interp_quotDefRhsBody` gains `heq` |
+| `UnitOracleWitness.lean` | 4 new `onCtxU_*`; 12 readings + `motive_app_mem_UProp`, `pt_mem_of_mem_motive_app`, `exists_true_motive` gain the guard |
+| `UnitOracleLarge.lean` | 4 new `onCtxL_*`; 20 readings + `interpL_motTyU`, `interpL_minTy_at`, `motiveL_app_mem_U` gain it |
+| `PreludeOracle.lean` | 7 new `onCtxNE_*` (one per named context `ctx1…ctxM`); 19 readings + `interp_NEapp`, `mem_interp_NE_type` gain it; **`nonempty_propSplit_preludeEnv` and `propSplitPreludeEnv`** land here |
+| `PropAgreeWall.lean` | route B's missing half (`propUniqOnCtx_of_stratifiedN`), `nonempty_propSplit_of_stratifiedN`, the retirement statement, and §6's anti-vacuity block |
+| `CoherentWitness.lean`, `AboveAudit.lean` | one guard each |
+
+### 12.3 Anti-vacuity — because the edit *narrows a quantifier*
+
+Run in both directions, machine-checked, in `PropAgreeWall.lean` §6:
+
+1. **The narrowing is real.**  `not_onCtx_junk` + `hasType_junk_sort` (already there from §11)
+   say the guard excludes a context in which typing *is* derivable.  The guarded fields say
+   strictly less than the unguarded ones.  That is the price, and it is paid knowingly: nothing
+   in the tree ever proved the unguarded statements, at any environment.
+2. **The narrowed structure is still non-degenerate.**  `witness_not_isPropAt_prop`,
+   `witness_isPropAt_bvar`, `witness_not_constant` — `PropSplitAudit`'s "both branches fire"
+   check, re-run **at the witness object** rather than at the class.  The `bvar` instance lives
+   at `[Prop]`, which the guard admits (`onCtx_sortZero`), so the check did not survive by
+   moving to a context the guard rejects.
+3. **The class is inhabited where the recursion goes.**  `propSplitPreludeEnv` is a
+   `PropSplit preludeEnv 0` **as data**, no hypotheses.
+4. **Nothing is stranded.**  All ~161 guard-consuming applications discharge the guard at their
+   own context; **no obligation was pushed up as a hypothesis of an `OracleOK`/`InductOracleOK`
+   result** (that would have been ledger blindness 8 in a new costume).  The one statement that
+   another stream might notice getting weaker is
+   `NotProofNoModel.sortNotProof_of_propSplit`, which now takes `OnCtx Γ (env.IsType nv)` — it
+   has **no Lean consumers** (grep: only prose mentions in `Theory/Typing/SortUniq.lean` and
+   `InjSpineTransport.lean`), and those prose consumers supply exactly that guard anyway
+   (`onCtx_falseProp`).  **`sortNotProof_of_propTypeAgree`'s statement is unchanged** — it
+   takes the *unguarded* `VEnv.PropTypeAgree`, whose definition I did not touch.
+
+### 12.4 The true call-site count — measured, not read
+
+`NotProofNoModel.lean` §5's "64 call sites, ~40 of them in `QuotInterp.lean`" is **low by
+about 2.5×**, and the QuotInterp figure is out by 2×.  Measured three independent ways:
+
+* **`lake build` error count at the moment each file first broke** (this is the sharpest
+  number, because it *is* "sites that need repair"): `QuotInterp` **83**, `PreludeOracle`
+  **61**, `UnitOracleLarge` **54**, `UnitOracleWitness` **32**, `Cnst` **8**, `PropSplitUp`
+  **8**, `FalseProp` **2**, `AboveAudit` **2**, `CoherentWitness` **1** — plus
+  `SoundInduction`, `Interp`, `InterpSound`, `PropSplitAudit`, `NotProofNoModel` which I
+  repaired before they could break.  (Lean emits ~2 errors per site, so this is an upper
+  bound on errors and a lower bound on nothing.)
+* **Inserted arguments, counted in the diff against `git show HEAD:`**: **161** applications
+  gained a guard argument, **88** of them in `QuotInterp.lean`.  This is a floor — the regex
+  only matches the `… hle X` shapes.
+* **Signatures**: **100** new `(hΓ/hΔ/hΓA : OnCtx …)` binders tree-wide, of which ~30 are the
+  new spine lemmas' own hypotheses and ~70 are consumer theorems that had to acquire the guard.
+
+**And the qualitative shape of the cost was mis-priced too.**  §5 says each site "would have
+to discharge a fresh `OnCtx` obligation for its own context, and those obligations are not
+currently proved anywhere".  True, but they are *cheap and systematic*: every hand-built
+context in those four files is the binder telescope of a declared constant's type, and the
+entry-by-entry typing derivation was **already in the file** (`quotRelTy_type`,
+`quotIndHyp_type`, `quotLiftC_type`, `hasTypeL_motTy`, `hasType_minTy`, …).  So the whole
+obligation set collapses to **47 `OnCtx` lemmas of two to four lines each** — 32 in `QuotInterp.lean` (half of
+them the `Δ = []` specialisations the elaborator needs, 12.5 item 2), 4 + 4 + 7 in the three
+oracle files — one per distinct context, and the rest is argument threading.  There is **no new mathematics in this edit** —
+which is what "a flag day, not a proof" should have meant, and §5 did not say.
+
+### 12.5 What I tried that failed, and the step it failed at
+
+1. **Harvesting the needed contexts from the compiler.**  Inserted `trivial` at all **41**
+   `isProp_iff`/`isProof_iff` sites in `QuotInterp.lean` intending to read the expected
+   `OnCtx Γ …` off the error messages.  **Failed at elaboration order**: the guard argument is
+   checked *before* `Γ` is solved, so every message reads `OnCtx ?m.344 (env₀.IsType ?m.341)`.
+   Recovered by reading the enclosing `have hnp… : ¬ L.IsProof M ⟦ctx⟧ …` statements out of the
+   source instead — which is grep, and is labelled as such.
+2. **Stating the spine lemmas only in `Δ`-general form.**  `onCtxQ_alpha hu trivial` fails
+   because `Δ` is a metavariable when `trivial : True` is checked against `OnCtx ?Δ …`.  Fixed
+   by adding 16 `Δ = []` variants (`onCtxQ_sort'`, …); the same bug then recurred three more
+   times in `UnitOracleLarge.lean`, where `(Γ := [])` was the cheaper fix.
+3. **`OnCtx.toF` by dot notation.**  Declared inside `namespace Lean4Lean.SetModel`, so its
+   real name is `SetModel.OnCtx.toF` while `hΓ.toF` looks for `Lean4Lean.OnCtx.toF`.  Renamed
+   to a plain `onCtxF`.  Same class of failure at `(… : env.PropUniq nv).onCtx`: `PropUniq`
+   whnf's to a `∀`, so dot notation resolves against `Function`.  Use the qualified name.
+4. **Guarding with something weaker than `OnCtx`.**  Considered and rejected on paper before
+   starting: the guard has to *imply* `OnCtx` (because `IsDefEq.uniqU` and `IsDefEqU.sort_inv`
+   need it, via `IsDefEq.strong`'s `CtxStrong`) and has to be *provable at the call sites*, and
+   `hasType_junk_lookup` shows nothing derivable from the typing premise alone can do the first
+   job.  Not attempted in Lean; recorded as reasoning, not as a theorem.
+5. **Leaving the obligations as hypotheses of the oracle theorems** (the cheap way out).
+   Rejected: `docs/vacuity-ledger.md` §0's eighth blindness — an obligation carried as a
+   hypothesis counts as zero — and it would have moved the vacuity from `PropSplit` to
+   `InductOracleOK` rather than removing it.
+
+### 12.6 Measured / read / not run
+
+**[measured]** `lake build`: **1506 jobs** (1505 before — the guard adds no module; the +1 is
+noise from the other live streams' files), "Build completed successfully", **0 errors in any
+file**, mine or anyone's.  Guards, verbatim:
+
+```
+guard 1: Axioms.lean declares exactly the 24 frozen axioms ✓
+guard 2: kernel_sound axioms within whitelist ✓ (proof INCOMPLETE: sorryAx present)
+guard 3: checker cone implementation gaps within frozen list (2/2 remaining) ✓
+```
+
+`lake build Lean4Lean.Experimental.ConeJoin Lean4Lean.Verify.Guard`: green, **1432 jobs**, same
+three guards verbatim.  `scripts/sorry-census.lean`: **TOTAL 13**, **no row changed, none
+traded, no new hole**.  `scripts/dup-names.lean`: "no duplicate Lean4Lean declarations across
+the joined cone".  Hole user counts: `forallE_inv_stratified` **725** (718 → 725; the +7 are my
+seven route-A declarations, `nonempty_propSplit_preludeEnv`, `propSplitPreludeEnv`,
+`nonempty_propSplit_preludeEnv_no_ctxReplace`, `witness` and its three checks),
+`rigidShapeUniqNS` **460**, `weakN_iff` **312**, `descend` **200** — the last three unmoved.
+`#print axioms` on everything added or materially changed: `[propext]`, `[propext, Quot.sound]`,
+`[propext, Classical.choice, Quot.sound]`, or `[propext, sorryAx, Classical.choice, Quot.sound]`
+for the route-A ones, the `sorryAx` being `forallE_inv_stratified` alone.  **No frozen axiom
+anywhere; nothing new on the frozen cone.**  Route B's chain
+(`propUniqOnCtx_of_stratifiedN`, `nonempty_propSplit_of_stratifiedN`,
+`nonempty_propSplit_preludeEnv_of_stratifiedN'`) is `sorryAx`-**free**.
+
+**[read]** off source, not run: that the `Theory/Typing` consumers of
+`sortNotProof_of_propSplit` supply `OnCtx Γ (env.IsType U)` — that is `NotProofNoModel.lean`
+§4's own claim about `Theory/Typing/Injectivity.lean`'s call sites, and this round did not
+re-check it (the lemma has no Lean consumers, so nothing depends on it being true).  Also
+grep-level, not LSP: the "no Lean consumers of `sortNotProof_of_propSplit`" claim itself.
+
+**[not run]** the Kernel Arena (no implementation file changed).  `lean_local_search` and
+`lean_hammer_premise` were **not usable** (row 131f confirmed again: `which rg` → nothing), so
+every search in this round was `grep`/`sed` over source plus `lake build` diagnostics; there is
+no "exhaustive search" claim in this section that rests on anything stronger.
+
+### 12.7 What to pick up first
+
+1. **Route B's two inputs are now the model corner's *entire* remaining syntactic import.**
+   `∀ n, PropTypeAgreeN env 0 n` and `∀ n, PropUniqN env 0 n` at `preludeEnv` buy
+   `Nonempty (PropSplit preludeEnv 0)` with **no hole of any kind**
+   (`nonempty_propSplit_of_stratifiedN`).  That is a strictly better deal than route A and it
+   is the `Theory/Typing` stream's own target; tell them the consumer exists.
+2. **`CtxReplace` is retired — do not fund it.**  `PropAgreeWall.CtxReplace` and its two
+   reductions are kept as the record of what the *unguarded* `VEnv.PropTypeAgree` costs, and
+   `nonempty_propSplit_preludeEnv_no_ctxReplace` is the one-line proof that nothing needs them.
+   `VEnv.PropTypeAgree` itself survives only as the hypothesis of
+   `sortNotProof_of_propTypeAgree`.
+3. **`iffIndDecl` before `eqIndDecl`** — unchanged from §10.9/§11.7, and now the only remaining
+   `.induct` frontier at a prelude block whose *parameter* is known inhabited.
+4. **`InstDescendUp 0`'s `.bvar k` case** — unchanged from §7.9 onward, untouched again.
+5. **A cheap follow-up nobody has done**: the 47 new `onCtx*` spine lemmas make the four oracle
+   files' hand-built contexts first-class objects.  Anything else that wants "this telescope is
+   a well-formed context" (`SoundInduction.sound` at a non-empty context, `interp_congr`)
+   can now take them off the shelf.
+
+**Do not** re-attack: everything §10.9 and §11.7 name, plus — new — **`CtxReplace`**
+(retired, 12.0), **`weakN_iff` as its route** (refuted, §11.2), and **guarding `PropSplit`**
+(done).

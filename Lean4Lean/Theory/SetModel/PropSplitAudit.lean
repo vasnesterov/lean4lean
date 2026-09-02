@@ -122,6 +122,41 @@ def PropTypeAgree (env : VEnv) (nv : ℕ) : Prop :=
     env.HasType nv Γ A (.sort u) → env.HasType nv Γ A' (.sort u') →
     (u.eval ls = 0 ↔ u'.eval ls = 0)
 
+/-! ### The `OnCtx`-guarded companions
+
+Moved here from `SetModel/NotProofNoModel.lean` on 2026-09-02, when `PropSplit`'s two fields
+acquired the same guard: these are now the *inputs* of `propSplitOfOnCtx` below, so they have
+to be in scope where the structure is built rather than three files later.  Their producers
+(`VEnv.WF.propTypeAgreeOn`, `WF.propUniqOn`, and the stratified route
+`PropAgreeWall.propTypeAgreeOnCtx_of_stratifiedN`) stay where they are. -/
+
+/-- **`PropTypeAgree`, guarded by `OnCtx`.**  The form every unique-typing result in the
+tree can supply — every one of them carries `OnCtx Γ (env.IsType U)`, because
+`IsDefEq.strong`'s `CtxStrong` *is* "every entry is a type" — and, since 2026-09-02, the
+form `PropSplit.proof_sound` asks for. -/
+def PropTypeAgreeOnCtx (env : VEnv) (nv : ℕ) : Prop :=
+  ∀ {Γ : List VExpr} {e A A' : VExpr} {u u' : VLevel} {ls : List ℕ},
+    OnCtx Γ (env.IsType nv) → u.WF nv → u'.WF nv →
+    env.HasType nv Γ e A → env.HasType nv Γ e A' →
+    env.HasType nv Γ A (.sort u) → env.HasType nv Γ A' (.sort u') →
+    (u.eval ls = 0 ↔ u'.eval ls = 0)
+
+/-- **`PropUniq`, guarded by `OnCtx`** — the companion import, and what
+`PropSplit.prop_sound` asks for. -/
+def PropUniqOnCtx (env : VEnv) (nv : ℕ) : Prop :=
+  ∀ {Γ : List VExpr} {A : VExpr} {u v : VLevel} {ls : List ℕ},
+    OnCtx Γ (env.IsType nv) → u.WF nv → v.WF nv →
+    env.HasType nv Γ A (.sort u) → env.HasType nv Γ A (.sort v) →
+    (u.eval ls = 0 ↔ v.eval ls = 0)
+
+/-- The unguarded statements are stronger: forget the guard. -/
+theorem PropTypeAgree.onCtx {env : VEnv} {nv : ℕ} (h : env.PropTypeAgree nv) :
+    env.PropTypeAgreeOnCtx nv := fun _ => h
+
+/-- The unguarded statements are stronger: forget the guard. -/
+theorem PropUniq.onCtx {env : VEnv} {nv : ℕ} (h : env.PropUniq nv) :
+    env.PropUniqOnCtx nv := fun _ => h
+
 end VEnv
 
 namespace SetModel
@@ -130,7 +165,17 @@ open LO LO.FirstOrder LO.FirstOrder.SetTheory
 
 variable {V : Type*} [SetStructure V] [Nonempty V]
 
-/-! ## 2. Both branches fire -/
+/-! ## 2. Both branches fire
+
+Both instances now have to exhibit the `OnCtx` guard `PropSplit`'s fields carry.  `[]` is
+`trivial`; `[.sort .zero]` is the one-line lemma below, and it is worth noting that this is
+the *`bvar` instance* — the shape that refuted the unguarded `LevelAssign` — so the guard has
+not made the "both branches fire" check vacuous. -/
+
+/-- `[Prop]` is an `OnCtx`-well-formed context, at every environment. -/
+theorem onCtx_sortZero {env : VEnv} {nv : ℕ} :
+    OnCtx [(VExpr.sort .zero)] (env.IsType nv) :=
+  ⟨trivial, .succ .zero, VEnv.HasType.sort trivial⟩
 
 section RealWork
 
@@ -141,7 +186,7 @@ include L in
 theorem prop_forces_false : ¬ L.IsPropAt ls [] (.sort .zero) := by
   have h : env.HasType nv [] (.sort .zero) (.sort (.succ .zero)) :=
     VEnv.IsDefEq.sortDF (by trivial) (by trivial) rfl
-  rw [L.prop_sound (u := .succ .zero) (by trivial) h]
+  rw [L.prop_sound (Γ := []) (u := .succ .zero) trivial (by trivial) h]
   simp [VLevel.eval]
 
 include L in
@@ -151,7 +196,7 @@ this is a genuine `bvar` instance — the shape that refuted the unguarded
 theorem prop_forces_true : L.IsPropAt ls [.sort .zero] (.bvar 0) := by
   have h : env.HasType nv [.sort .zero] (.bvar 0) (.sort .zero) :=
     VEnv.IsDefEq.bvar .zero
-  rw [L.prop_sound (u := .zero) (by trivial) h]
+  rw [L.prop_sound (u := .zero) onCtx_sortZero (by trivial) h]
   simp [VLevel.eval]
 
 include L in
@@ -177,11 +222,31 @@ noncomputable def propSplitOf (env : VEnv) (nv : ℕ)
     env.HasType nv Γ A (.sort u) ∧ u.eval ls = 0
   decProp _ _ _ := Classical.propDecidable _
   decProof _ _ _ := Classical.propDecidable _
-  prop_sound hw ht :=
+  prop_sound _ hw ht :=
     ⟨fun ⟨_, hw', ht', h0⟩ ↦ (hU hw' hw ht' ht).mp h0, fun h0 ↦ ⟨_, hw, ht, h0⟩⟩
-  proof_sound hw he hA :=
+  proof_sound _ hw he hA :=
     ⟨fun ⟨_, _, hw', he', hA', h0⟩ ↦ (hT hw' hw he' he hA' hA).mp h0,
       fun h0 ↦ ⟨_, _, hw, he, hA, h0⟩⟩
+
+/-! ### The unguarded instance keeps its unguarded soundness
+
+`propSplitOf`'s two predicates are pinned by `hU`/`hT` at **every** `Γ`, so the instance it
+builds satisfies the *pre-2026-09-02* (unguarded) form of the two fields as well.  Stated
+separately because the fields themselves no longer say so, and `SetModel/PropSplitUp.lean`'s
+comparison lemmas are about this instance rather than about an arbitrary `PropSplit`. -/
+
+theorem propSplitOf_isPropAt_iff {env : VEnv} {nv : ℕ} {hU : env.PropUniq nv}
+    {hT : env.PropTypeAgree nv} {ls : List ℕ} {Γ : List VExpr} {A : VExpr} {u : VLevel}
+    (hw : u.WF nv) (ht : env.HasType nv Γ A (.sort u)) :
+    (propSplitOf env nv hU hT).IsPropAt ls Γ A ↔ u.eval ls = 0 :=
+  ⟨fun ⟨_, hw', ht', h0⟩ ↦ (hU hw' hw ht' ht).mp h0, fun h0 ↦ ⟨_, hw, ht, h0⟩⟩
+
+theorem propSplitOf_isProofAt_iff {env : VEnv} {nv : ℕ} {hU : env.PropUniq nv}
+    {hT : env.PropTypeAgree nv} {ls : List ℕ} {Γ : List VExpr} {e A : VExpr} {u : VLevel}
+    (hw : u.WF nv) (he : env.HasType nv Γ e A) (hA : env.HasType nv Γ A (.sort u)) :
+    (propSplitOf env nv hU hT).IsProofAt ls Γ e ↔ u.eval ls = 0 :=
+  ⟨fun ⟨_, _, hw', he', hA', h0⟩ ↦ (hT hw' hw he' he hA' hA).mp h0,
+    fun h0 ↦ ⟨_, _, hw, he, hA, h0⟩⟩
 
 /-- **The audit's conclusion.**  `PropSplit` is satisfiable for every
 environment whose judgement satisfies the two agreement statements — so it is
@@ -190,6 +255,40 @@ a fact about the typing relation rather than about this structure. -/
 theorem exists_propSplit {env : VEnv} {nv : ℕ}
     (hU : env.PropUniq nv) (hT : env.PropTypeAgree nv) : Nonempty (PropSplit env nv) :=
   ⟨propSplitOf env nv hU hT⟩
+
+/-! ## 3′. The **guarded** lower bound — the one that is discharged at a named environment
+
+Added 2026-09-02 together with the `OnCtx` guard on `PropSplit`'s fields.  This is the
+version that matters: `propSplitOf` above takes the *unguarded* statements, and
+`docs/vacuity-ledger.md` rows 130b/131 record that those are nobody's target — the whole
+syntactic development produces the guarded forms, because `IsDefEq.strong` needs the
+context's entries to be types.  With the guard on the fields, the same construction runs on
+the guarded inputs verbatim: the predicates are unchanged, and every use of `hU`/`hT` inside
+`propSplitOf` happens at the `Γ` the field was handed, whose guard the field now supplies. -/
+
+/-- **The natural assignment, from the guarded statements.**  Same predicates as
+`propSplitOf`; the `OnCtx` the fields now carry is exactly what feeds `hU`/`hT`. -/
+noncomputable def propSplitOfOnCtx (env : VEnv) (nv : ℕ)
+    (hU : env.PropUniqOnCtx nv) (hT : env.PropTypeAgreeOnCtx nv) : PropSplit env nv where
+  IsPropAt ls Γ A := ∃ u : VLevel, u.WF nv ∧ env.HasType nv Γ A (.sort u) ∧ u.eval ls = 0
+  IsProofAt ls Γ e := ∃ (A : VExpr) (u : VLevel), u.WF nv ∧ env.HasType nv Γ e A ∧
+    env.HasType nv Γ A (.sort u) ∧ u.eval ls = 0
+  decProp _ _ _ := Classical.propDecidable _
+  decProof _ _ _ := Classical.propDecidable _
+  prop_sound hΓ hw ht :=
+    ⟨fun ⟨_, hw', ht', h0⟩ ↦ (hU hΓ hw' hw ht' ht).mp h0, fun h0 ↦ ⟨_, hw, ht, h0⟩⟩
+  proof_sound hΓ hw he hA :=
+    ⟨fun ⟨_, _, hw', he', hA', h0⟩ ↦ (hT hΓ hw' hw he' he hA' hA).mp h0,
+      fun h0 ↦ ⟨_, _, hw, he, hA, h0⟩⟩
+
+/-- **The audit's conclusion, guarded.**  `PropSplit` is inhabited at every environment
+satisfying the two *guarded* agreement statements — which, unlike the unguarded ones, the
+tree proves (`VEnv.WF.propTypeAgreeOn`, `WF.propUniqOn`, and hole-free from the stratified
+side by `PropAgreeWall.propTypeAgreeOnCtx_of_stratifiedN`). -/
+theorem exists_propSplit_onCtx {env : VEnv} {nv : ℕ}
+    (hU : env.PropUniqOnCtx nv) (hT : env.PropTypeAgreeOnCtx nv) :
+    Nonempty (PropSplit env nv) :=
+  ⟨propSplitOfOnCtx env nv hU hT⟩
 
 end SetModel
 

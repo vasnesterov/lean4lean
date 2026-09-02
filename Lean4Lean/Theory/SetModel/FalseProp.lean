@@ -45,7 +45,30 @@ And the whole file runs against `L : PropSplit envF nv`, **a parameter nothing
 in the tree constructs**; see `docs/model-interface.md`'s standing label.
 -/
 
-namespace Lean4Lean.SetModel
+namespace Lean4Lean
+
+namespace VEnv
+
+/-! ### `[∀ p : Prop, p]` is an `OnCtx`-well-formed context
+
+Moved here from `SetModel/NotProofNoModel.lean` on 2026-09-02: with `PropSplit`'s fields
+guarded by `OnCtx`, this pair is needed by `not_isProp_sort_zero`'s use below, which is three
+files earlier than where they used to live. -/
+
+/-- `∀ p : Prop, p` is a type, at every environment: `.sort (.imax 1 0)`. -/
+theorem isType_falseProp {env : VEnv} {nv : ℕ} : env.IsType nv [] falseProp :=
+  ⟨.imax (.succ .zero) .zero,
+    IsDefEq.forallEDF (HasType.sort (l := .zero) trivial) (IsDefEq.bvar .zero)⟩
+
+/-- **`[falseProp]` is an `OnCtx`-well-formed context** — the hypothesis every consumer of
+`sort_not_proof` supplies, and (since 2026-09-02) the one `PropSplit`'s fields want at the
+context `interp_forallE_falseProp_sort_nonempty` works in. -/
+theorem onCtx_falseProp {env : VEnv} {nv : ℕ} : OnCtx [falseProp] (env.IsType nv) :=
+  ⟨trivial, isType_falseProp⟩
+
+end VEnv
+
+namespace SetModel
 
 open LO LO.FirstOrder LO.FirstOrder.SetTheory
 
@@ -120,12 +143,12 @@ omit [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖] in
 /-- `Prop` is not a proposition in any context — `prop_forces_false` at an
 arbitrary `Γ`.  (The audit states it at `Γ = []`; nothing in its proof uses
 that, and the instance below needs `Γ = [falseProp]`.) -/
-theorem not_isProp_sort_zero (Γ : List VExpr) :
+theorem not_isProp_sort_zero (Γ : List VExpr) (hΓ : OnCtx Γ (envF.IsType nv)) :
     ¬ L.IsProp M Γ (.sort .zero) := by
   have h : envF.HasType nv Γ (.sort .zero) (.sort (.succ .zero)) :=
     VEnv.IsDefEq.sortDF (by trivial) (by trivial) rfl
   rw [show L.IsProp M Γ (.sort .zero) = L.IsPropAt M.ls Γ (.sort .zero) from rfl,
-    L.prop_sound (u := .succ .zero) (by trivial) h]
+    L.prop_sound (u := .succ .zero) hΓ (by trivial) h]
   simp [VLevel.eval]
 
 /-- **A `∀` with an inhabited denotation**, so the clause `interp_falseProp`
@@ -134,7 +157,8 @@ dependent-product branch over a domain that `interp_falseProp` has just shown to
 be `∅`, and the empty function inhabits it. -/
 theorem interp_forallE_falseProp_sort_nonempty :
     (∅ : V) ∈ (interp M L [] (.forallE falseProp (.sort .zero))).toFun ∅ := by
-  rw [interp_forallE_type M L (not_isProp_sort_zero _), mem_mkForallType_iff]
+  rw [interp_forallE_type M L (not_isProp_sort_zero _ VEnv.onCtx_falseProp),
+    mem_mkForallType_iff]
   refine ⟨mem_function_iff.mpr ⟨?_, ?_⟩, ?_⟩
   · rw [interp_falseProp]; simp
   · rw [interp_falseProp]; simp
@@ -173,4 +197,6 @@ end Consistency
 
 end
 
-end Lean4Lean.SetModel
+end SetModel
+
+end Lean4Lean

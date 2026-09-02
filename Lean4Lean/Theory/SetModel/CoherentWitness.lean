@@ -142,12 +142,15 @@ branch rather than of a level — which is all `CtxInvariant` ever asked for. -/
 
 theorem ctxInvariant_prop_agrees {env : VEnv} {nv : ℕ} (L : PropSplit env nv)
     (henv : env.Ordered) {Γ : List VExpr} {A A' B : VExpr} {u w : VLevel}
-    {ls : List ℕ} (h : env.IsDefEq nv Γ A A' (.sort u)) (hww : w.WF nv)
+    {ls : List ℕ} (hΓ : OnCtx Γ (env.IsType nv))
+    (h : env.IsDefEq nv Γ A A' (.sort u)) (hww : w.WF nv)
     (hB : env.HasType nv (A :: Γ) B (.sort w)) :
     L.IsPropAt ls (A :: Γ) B ↔ L.IsPropAt ls (A' :: Γ) B := by
   have hctx : VEnv.IsDefEqCtx env nv Γ (A :: Γ) (A' :: Γ) := .succ .zero h
   have hB' : env.HasType nv (A' :: Γ) B (.sort w) := hB.defeqDFC henv hctx
-  exact (L.prop_sound hww hB).trans (L.prop_sound hww hB').symm
+  have hΓA : OnCtx (A :: Γ) (env.IsType nv) := ⟨hΓ, u, h.trans h.symm⟩
+  have hΓA' : OnCtx (A' :: Γ) (env.IsType nv) := ⟨hΓ, u, h.symm.trans h⟩
+  exact (L.prop_sound hΓA hww hB).trans (L.prop_sound hΓA' hww hB').symm
 
 /-! ## The three inductive-side structures pass the declaration check
 

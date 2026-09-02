@@ -855,8 +855,9 @@ def PropSplit.mono {env env' : VEnv} {nv : ℕ} (h : env ≤ env')
   IsProofAt := L.IsProofAt
   decProp := L.decProp
   decProof := L.decProof
-  prop_sound hw ht := L.prop_sound hw (ht.mono h)
-  proof_sound hw he hA := L.proof_sound hw (he.mono h) (hA.mono h)
+  prop_sound hΓ hw ht := L.prop_sound (hΓ.mono fun hh => hh.mono h) hw (ht.mono h)
+  proof_sound hΓ hw he hA :=
+    L.proof_sound (hΓ.mono fun hh => hh.mono h) hw (he.mono h) (hA.mono h)
 
 end CnstStep
 

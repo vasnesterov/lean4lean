@@ -188,7 +188,56 @@ theorem preludeEnv_propTypeAgreeOnCtx_of_stratifiedN
     preludeEnv.PropTypeAgreeOnCtx 0 :=
   propTypeAgreeOnCtx_of_stratifiedN preludeEnv_ordered pta pun
 
-/-! ## 3. The residual, at the named environment
+/-! ## 2b. `PropUniqOnCtx` from the stratified side too — the companion of route B
+
+Added 2026-09-02 with the `OnCtx` guard on `PropSplit`'s two fields: with the guard,
+`Nonempty (PropSplit env 0)` needs **both** guarded statements (`PropSplitAudit.propSplitOfOnCtx`),
+so route B has to deliver `PropUniqOnCtx` as well.  It does, by the same three steps. -/
+
+/-- **The guarded `PropUniq` from the stratified side, `sorryAx`-free.** -/
+theorem propUniqOnCtx_of_stratifiedN (henv : VEnv.Ordered env)
+    (pun : ∀ n, env.PropUniqN 0 n) : env.PropUniqOnCtx 0 := by
+  intro Γ A u v ls hΓ hu hv hA hA'
+  rw [← equivZero_iff_eval_zero hu ls, ← equivZero_iff_eval_zero hv ls]
+  obtain ⟨n₁, sA⟩ := hA.stratifyN henv hΓ
+  obtain ⟨n₂, sA'⟩ := hA'.stratifyN henv hΓ
+  exact pun (max n₁ n₂) (sA.mono (Nat.le_max_left _ _)) (sA'.mono (Nat.le_max_right _ _))
+
+/-- **`Nonempty (PropSplit env 0)` from the stratified side alone** — no hole of any kind, and
+the only hypotheses are `Ordered env` plus the two `∀ n` statements that
+`Theory/Typing/PropConv.lean` and `Theory/Typing/PropShadow.lean` are working on. -/
+theorem nonempty_propSplit_of_stratifiedN (henv : VEnv.Ordered env)
+    (pta : ∀ n, env.PropTypeAgreeN 0 n) (pun : ∀ n, env.PropUniqN 0 n) :
+    Nonempty (PropSplit env 0) :=
+  exists_propSplit_onCtx (propUniqOnCtx_of_stratifiedN henv pun)
+    (propTypeAgreeOnCtx_of_stratifiedN henv pta pun)
+
+/-- The same at the witness environment. -/
+theorem nonempty_propSplit_preludeEnv_of_stratifiedN'
+    (pta : ∀ n, preludeEnv.PropTypeAgreeN 0 n) (pun : ∀ n, preludeEnv.PropUniqN 0 n) :
+    Nonempty (PropSplit preludeEnv 0) :=
+  nonempty_propSplit_of_stratifiedN preludeEnv_ordered pta pun
+
+/-! ## 3. The residual, **retired**
+
+Everything below this line was the residual of `PropTypeAgree preludeEnv 0` *as long as
+`PropSplit`'s fields were unguarded*.  On 2026-09-02 they were guarded
+(`SetModel/Interp.lean`), and `NEAudit.nonempty_propSplit_preludeEnv` is now a theorem with no
+hypotheses, so **`CtxReplace` has no consumer left**: nothing in the tree needs the *unguarded*
+`VEnv.PropTypeAgree`.  The definition and the two reductions are kept because they are the
+honest record of what the unguarded statement costs — and because `VEnv.PropTypeAgree` is still
+the hypothesis of `VEnv.sortNotProof_of_propTypeAgree`, which `Theory/Typing` may yet want. -/
+
+/-! ### 3.0 The retirement, stated
+
+`NEAudit.nonempty_propSplit_preludeEnv` (no hypotheses) versus
+`nonempty_propSplit_preludeEnv_of_ctxReplace` (one hypothesis, `CtxReplace preludeEnv 0`):
+the first implies the second trivially, which is exactly what "retired" means here. -/
+
+theorem nonempty_propSplit_preludeEnv_no_ctxReplace :
+    Nonempty (PropSplit preludeEnv 0) := nonempty_propSplit_preludeEnv
+
+/-! ### 3.1 The old residual, for the record
 
 `propTypeAgree_of_onCtx_of_strengthen` (`NotProofNoModel.lean` §5) names the gap as a
 hypothesis.  With §1 the guarded half is discharged at `preludeEnv`, so the residual of
@@ -279,6 +328,59 @@ theorem stratifyN_at_preludeEnv {Γ : List VExpr} {e A : VExpr}
     ∃ n, preludeEnv.HasTypeN 0 n Γ e A :=
   H.stratifyN preludeEnv_ordered hΓ
 
+/-! ## 6. Anti-vacuity for the `OnCtx` guard itself
+
+Adding a hypothesis to `PropSplit`'s two fields **narrows a quantifier**, which is exactly how
+a statement quietly becomes weaker.  `docs/vacuity-ledger.md` §0 asks for the check to be run
+on the *conclusion* and on the *hypotheses*, so both are run here, machine-checked.
+
+**1. The narrowing is real, not cosmetic.**  `not_onCtx_junk` (§4) says the guard excludes
+`[.bvar 0]` at every `Ordered` environment, and `hasType_junk_sort` says typing is derivable
+there — so the guarded fields genuinely say *less* than the unguarded ones did.  That is the
+price, and it is paid knowingly: nothing in the tree ever proved the unguarded ones.
+
+**2. The narrowed structure is still non-degenerate.**  The check
+`PropSplitAudit.propSplit_not_constant` runs on **any** `PropSplit`, and both of its instances
+(`prop_forces_false` at `[]`, `prop_forces_true` at `[Prop]`) exhibit contexts the guard
+admits — `[Prop]` by `PropSplitAudit.onCtx_sortZero`.  Instantiated at the witness below, so
+this is a statement about an object rather than about a class.
+
+**3. The class is inhabited at the environment the recursion visits.**
+`NEAudit.propSplitPreludeEnv` is a `PropSplit preludeEnv 0` **as data**, with no hypotheses
+(route A; `sorryAx` through `forallE_inv_stratified` alone).  Route B
+(`nonempty_propSplit_of_stratifiedN`) is `sorryAx`-free at every `Ordered` environment given
+the two `∀ n` statements.
+
+**4. Nothing that consumed the unguarded fields is now stranded.**  Every consumer in
+`SetModel/` discharges the guard at its own context, by one of the 47 spine lemmas added to
+`QuotInterp.lean`, `UnitOracleWitness.lean`, `UnitOracleLarge.lean` and `PreludeOracle.lean`.
+The one *statement* that got weaker in a way another file might notice is
+`NotProofNoModel.sortNotProof_of_propSplit`, which now takes `OnCtx Γ (env.IsType nv)` — and
+that is exactly what its (prose-only) consumers in `Theory/Typing` supply, `onCtx_falseProp`
+being the instance §4 of that file already checked. -/
+
+section AntiVacuity
+
+/-- The guarded structure is **inhabited at `preludeEnv`, as data**. -/
+noncomputable def witness : PropSplit preludeEnv 0 := propSplitPreludeEnv
+
+/-- …and it is not the degenerate assignment: `Prop` is not a proposition in it. -/
+theorem witness_not_isPropAt_prop (ls : List ℕ) : ¬ witness.IsPropAt ls [] (.sort .zero) :=
+  prop_forces_false witness ls
+
+/-- …while a variable of type `Prop` is — a genuine `bvar` instance, at a context the guard
+admits (`PropSplitAudit.onCtx_sortZero`). -/
+theorem witness_isPropAt_bvar (ls : List ℕ) :
+    witness.IsPropAt ls [.sort .zero] (.bvar 0) := prop_forces_true witness ls
+
+/-- So the guarded fields still force both branches: no constant predicate satisfies them. -/
+theorem witness_not_constant (ls : List ℕ) :
+    ¬ ∀ (Γ : List VExpr) (A : VExpr) (Γ' : List VExpr) (A' : VExpr),
+        witness.IsPropAt ls Γ A ↔ witness.IsPropAt ls Γ' A' :=
+  propSplit_not_constant witness ls
+
+end AntiVacuity
+
 end PropAgreeWall
 end SetModel
 end Lean4Lean
@@ -299,3 +401,11 @@ end Lean4Lean
 #print axioms Lean4Lean.SetModel.PropAgreeWall.hasType_junk_sort
 #print axioms Lean4Lean.SetModel.PropAgreeWall.hasType_junk_lookup
 #print axioms Lean4Lean.SetModel.PropAgreeWall.stratifyN_at_preludeEnv
+#print axioms Lean4Lean.SetModel.PropAgreeWall.propUniqOnCtx_of_stratifiedN
+#print axioms Lean4Lean.SetModel.PropAgreeWall.nonempty_propSplit_of_stratifiedN
+#print axioms Lean4Lean.SetModel.PropAgreeWall.nonempty_propSplit_preludeEnv_of_stratifiedN'
+#print axioms Lean4Lean.SetModel.PropAgreeWall.nonempty_propSplit_preludeEnv_no_ctxReplace
+#print axioms Lean4Lean.SetModel.PropAgreeWall.witness
+#print axioms Lean4Lean.SetModel.PropAgreeWall.witness_not_isPropAt_prop
+#print axioms Lean4Lean.SetModel.PropAgreeWall.witness_isPropAt_bvar
+#print axioms Lean4Lean.SetModel.PropAgreeWall.witness_not_constant
