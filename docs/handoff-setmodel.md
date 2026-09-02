@@ -729,3 +729,179 @@ theorem. If someone finds such a witness, §8.2 collapses and that is the best p
    mathematics on the model side.
 3. **Do not** re-attack `PropTypeAgree 0` (irreducible, §7.6), the `sort_inst` refutation
    (§7.1), or `Equiconsistency.lean`'s `↔` (§8.5 item 1).
+
+## 9. Session of 2026-09-02 (second): `PreludeWF` is a theorem — the corner is no longer vacuous
+
+Brief: *prove `PreludeWF`; do not weaken it, do not add a hypothesis; audit the briefing
+against the tree.*  **Done in full.**  New file
+`Lean4Lean/Theory/SetModel/PreludeWitness.lean` (462 lines, 34 declarations, sorry-free).
+
+Everything below is **[measured]** unless marked `[read]`.
+
+### 9.1 What landed
+
+```lean
+theorem preludeWF          : PreludeWF                                   -- [propext, Quot.sound]
+theorem exists_leanWF      : ∃ env : VEnv, env.LeanWF                    -- via exists_leanWF_iff
+theorem preludeEnv_leanWF  : preludeEnv.LeanWF
+theorem not_forall_not_leanWF : ¬ ∀ env : VEnv, ¬ env.LeanWF
+```
+
+`not_forall_not_leanWF` is the point: it **refutes the hypothesis of
+`upper_bound_vacuous_of_no_leanWF`**, so §8.2's collapse can no longer be used to discharge
+`PropTypeAgreeInput`, `InstDescendInput`, `OracleInput` or `leanTTConsistent`.  Every theorem
+in this corner is now a statement about a class with a member, and the member is named.
+
+The seven steps, all discharged (`preludeEnv_history : VEnv.WF' leanPrelude.reverse preludeEnv`):
+
+| step | discharge | cost |
+|---|---|---|
+| `.induct eqIndDecl` | `eqIndDecl_WF` (§8.3, previous session) | — |
+| `.induct iffIndDecl` | `iffIndDecl_WF (env)`, **arbitrary** environment | ~55 lines |
+| `.axiom propextConst` | `propextConst_WF` over `iffEnv` | 12 lines |
+| `.induct nonemptyIndDecl` | `nonemptyIndDecl_WF (env)`, **arbitrary** environment | ~40 lines |
+| `.axiom choiceConst` | `choiceConst_WF` over `nonemptyEnv` | 7 lines |
+| `.quot` | `choiceEnv_quotReady` + `quotEnv_add`, **two `rfl`s** | 2 lines |
+| `.axiom quotSoundConst` | `quotSoundConst_WF` over `quotEnv` | ~45 lines |
+
+Plus the reduction of the `←` half to something with content:
+
+```lean
+theorem preludeEnv_consistent_of_inputs (hTI) (hII) (hO)
+    (hc : Entailment.Consistent 𝗭𝗙𝗖+𝗜𝗻𝗮𝗰𝗰) : preludeEnv.Consistent
+```
+
+and `propTypeAgree_of_input`, `instDescend_of_input`, `consistent_of_leanTTConsistent`:
+each input, and the conclusion, now says something at a *named* environment.
+
+### 9.2 Audit of the briefing — three claims wrong, and all three in the same direction
+
+I was asked to check the brief against the tree.  Three of its costings are wrong, and every
+one of them **overstated** the difficulty, which is the opposite of §8.0's failure mode and
+worth recording as such.
+
+| claim as briefed | verdict |
+|---|---|
+| `eqIndDecl_WF` over an arbitrary environment, `[propext, Quot.sound]`, with `exists_eqIndDecl_history`; six steps remain; `exists_leanWF_iff`'s `→` via `exists_wf'_of_append` so `ds` cannot help | **correct**, all four, checked at source |
+| `VLevel.imax ≤` is a `∀ ls` and so not `decide`-able | **correct** — `VLevel.LE a b := ∀ ls, a.eval ls ≤ b.eval ls` (`Theory/VLevel.lean:41`) |
+| `NoBlock` is `VExpr.NoConsts` rather than `trivial` | **correct**, and sharper than briefed: `NoConsts` is a `def` by pattern match, not a structure, so `⟨trivial, trivial⟩` needs the existential's `A` given **explicitly** — with `A` a metavariable the anonymous constructor is rejected outright ("expected type is not an inductive type") |
+| **"three missing one-liners"** for `iffIndDecl_WF` / `nonemptyIndDecl_WF`, at `binders_indep`, `level`, `pos` | **the count and the characterisation are both wrong, and no lemma was missing.** (i) The blocking field list is wrong: `binders_indep` is `nofun` (both blocks' fields are non-recursive, so `VIndRecArg.exists_indep` — which carries a `sorry` — is **not** on this file's cone), while **`hasType`**, which the brief does not mention, was a real obstacle: `forallEDF` types a pi at `.sort (.imax u v)` and the recorded `F.lvl` is `.zero`, so a `defeqDF` through `sortDF … VLevel.imax_zero` is needed. (ii) Nothing was *missing*: `VLevel.imax_zero` and `VLevel.le_antisymm_iff` are already in `Theory/VLevel.lean`, and `level` is `(VLevel.le_antisymm_iff.1 VLevel.imax_zero).1`. What was needed was **explicit arguments**, not new lemmas — `A := F.type`, `u := VLevel.zero`, `(l := .zero)` on `sortDF` |
+| **the `.quot` step "needs `addQuot` to succeed and the four quotient constants' types to be types"** | **REFUTED.** `VDecl.WF.quot` (`Theory/Typing/Env.lean:43`) asks for exactly `env.QuotReady` — which is `env.constants ``Eq = some eqConst`, **one `rfl`** — and `env.addQuot = some env'`. Well-formedness of `Quot`, `Quot.mk`, `Quot.lift`, `Quot.ind` is a **theorem**, `addQuot_WF` (`Theory/Typing/QuotLemmas.lean:7`), which delivers `Ordered env'` from `QuotReady`. So this was the **cheapest** of the six steps, not a middle-cost one |
+| **the three axiom types are "the expensive half, with spines the size of `Quot.lift`'s"** | **REFUTED as a costing.** They are the largest of the six but not large: 12 / 7 / 45 lines, each one `constDF` per constant head plus `appDF`s and `bvar`s, every step `exact`, no rewriting, no transport, no `instL` bookkeeping beyond what `exact` computes. The `QuotInterp.lean` comparison is a category error: what `QuotInterp.lean` pays for `Quot.lift` is its **model interpretation**, a different obligation from "its type is a type" |
+
+### 9.3 The environment chain, and why its `rfl`s are not tautologies
+
+The seven environments are **computed**:
+
+```lean
+def eqEnv : VEnv := (VEnv.empty.addInduct' eqIndDecl).getD .empty
+theorem eqEnv_add : VEnv.empty.addInduct' eqIndDecl = some eqEnv := rfl
+```
+
+and likewise for `iffEnv`, `propextEnv`, `nonemptyEnv`, `choiceEnv`, `quotEnv`, `preludeEnv`.
+The pattern is `fooEnv_eq` from `Theory/Inductive/DeclExamples.lean:1359` in a form that
+*names* the result.  **The `rfl` is load-bearing**: had any `addConst`/`addInduct'` returned
+`none`, `getD .empty` would have returned `VEnv.empty` and the statement would read
+`none = some VEnv.empty`, which `rfl` refuses.  So these seven `rfl`s certify, as a side
+effect, freshness and pairwise distinctness of all sixteen names the prelude declares.
+
+Every constant lookup the axiom spines need is `rfl` too (`iffEnv_Iff`, `iffEnv_Eq`,
+`nonemptyEnv_Nonempty`, `choiceEnv_quotReady`, `quotEnv_Eq`, `quotEnv_Quot`,
+`quotEnv_QuotMk`), so no monotonicity lemma (`VEnv.addConst_le`, `addConstList_le`) is used
+anywhere in this file.  §5 adds controls: `preludeEnv_propext`, `preludeEnv_choice`,
+`preludeEnv_quotSound`, `preludeEnv_quotLift`, `preludeEnv_eqRec` (positive; the recursors
+really are there), `preludeEnv_no_Nat` (negative), `preludeEnv_ordered` (via
+`VEnv.WF.ordered`, the one declaration in the file that reaches `Classical.choice`).
+
+Total elaboration cost of the file: **~4 s**, and `lake build` went 1501 → 1502 jobs.  The
+whole thing was cheaper than the audit of the costing that said it would be expensive.
+
+### 9.4 Tried and failed, with the step it failed at
+
+1. **`⟨_, ⟨trivial, trivial⟩, ⟨_, ?_⟩⟩` for `VIndField.WF.pos`.**  Failed twice, at two
+   different placeholders.  First at `A`: `VExpr.NoConsts iffIndDecl.blockNames ?A` "is not an
+   inductive type", because `NoConsts` is a `def` by pattern match and cannot be reduced with
+   `A` unknown.  Then, after giving `A`, at the `IsDefEqType` existential's `u`: "don't know
+   how to synthesize placeholder for argument `w`", because a `?_` inside a structure instance
+   is elaborated after the surrounding term.  **Fix**: give both explicitly —
+   `pos := ⟨VExpr.forallE (.bvar 1) (.bvar 1), ⟨trivial, trivial⟩, ⟨VLevel.zero, ?_⟩⟩`.
+2. **`.sortDF trivial trivial (.refl _)` as the `Sort 1` argument of `Eq.{1}` in
+   `propextConst_WF`.**  Failed at the first `trivial`: `VLevel.WF 0 ?l`, i.e. `l` was still a
+   metavariable when the argument was elaborated, even though the expected *type*
+   `.sort (.succ .zero)` determines it.  **Fix**: `(l := .zero) (l' := .zero)`.  Same family as
+   §8.5 item 4 — name the level before the decision procedure runs.
+3. **`(VEnv.IsDefEq.bvar (.succ (.succ .zero))).appDF …` for `r a b` in `quotSoundConst_WF`.**
+   Failed at `appDF`: a `bvar` head's type comes out of the `Lookup` proof as
+   `Γ[i].lift.lift.…`, and with `Γ` itself a metavariable nothing can be unified with
+   `.forallE A B`.  **Fix**: a `have hr : … (.bvar 2) (.forallE (.bvar 3) (.forallE (.bvar 4)
+   (.sort .zero)))` with the context written out.  *Only the head needs this* — `bvar`s in
+   argument position are checked against a known domain and go through bare.
+4. **`simp only [iffIndDecl, …] at hF; subst hF` on `C.fields[i]? = some F`.**  Failed at
+   `subst`: `simp only [iffIndDecl]` does not reduce `[f₀, f₁][0]?`, so the hypothesis is not
+   an equation with a variable on one side.  **Fix**: `List.getElem?_cons_zero` /
+   `List.getElem?_cons_succ` in the simp set, and `nomatch hF` for the out-of-range arm.  The
+   `nomatch`/`nofun` forms also drop `Classical.choice` from the axiom set: with `simp`
+   everywhere, `iffIndDecl_WF` was `[propext, Classical.choice, Quot.sound]`; replacing five
+   `simp`s by `nofun` / `nomatch` brought it to `[propext, Quot.sound]`, matching
+   `eqIndDecl_WF`.
+5. **Nothing was attempted and abandoned at the level of a step.**  All six steps closed; no
+   hypothesis was introduced anywhere, and `PreludeWF` is stated byte-identically to
+   `UpperBound.lean`'s definition.
+
+### 9.5 Measured / read / not run
+
+**[measured]** `lake build`: **1502 jobs**, "Build completed successfully", **0 errors in any
+file** — including the four files another stream owns.  Guards, verbatim:
+
+```
+guard 1: Axioms.lean declares exactly the 24 frozen axioms ✓
+guard 2: kernel_sound axioms within whitelist ✓ (proof INCOMPLETE: sorryAx present)
+guard 3: checker cone implementation gaps within frozen list (2/2 remaining) ✓
+```
+
+`lake build Lean4Lean.Experimental.ConeJoin` green.  `scripts/sorry-census.lean`: **TOTAL 13**,
+**no row changed** — the new file contains no `sorry` and trades none.
+`scripts/dup-names.lean`: "no duplicate Lean4Lean declarations across the joined cone"; and a
+direct grep confirms all fourteen new top-level names (`iffIndDecl_WF`, `eqEnv`, …,
+`preludeEnv`, `preludeWF`) occur **nowhere else in the tree**.
+`#print axioms` on all 34 declarations: `[propext, Quot.sound]` throughout, the two exceptions
+being `preludeEnv_ordered` and `preludeEnv_consistent_of_inputs`, which reach
+`Classical.choice` through `VEnv.WF.ordered` and `upper_bound_of_inputs` respectively.  **No
+`sorryAx`, no frozen axiom, nothing new on the frozen cone.**
+
+**[read]** off source, not run: that `VIndRecArg.exists_indep`'s `sorry` is off this file's
+cone is *measured* (`#print axioms`), but the *reason* — both blocks' fields are
+non-recursive — is read off `Consistency.lean:96` and `:126`.
+
+**[not run]** the Kernel Arena (no implementation file changed); `scripts/hole-cone.lean`.
+
+### 9.6 What this does and does not buy
+
+* It does **not** move `kernel_sound`, `Equiconsistency.lean`'s `↔`, or any census row.  H2's
+  three inputs are exactly as open as they were.
+* It **does** remove the possibility that they are open *about nothing*.  Before this file,
+  `upper_bound_of_inputs` could have been discharged in four lines from an emptiness proof;
+  now it cannot.  Row 126 of `docs/vacuity-ledger.md` moves from "UNMEASURED, and nothing in
+  the tree settles it" to "measured, and the answer is no".
+* One structural consequence worth having: `preludeEnv` is a concrete, `Ordered`,
+  `LeanWF` environment.  Anything in this corner that wants a *reachable instance* to
+  instantiate at — a positive control for `PropTypeAgree 0`, `InstDescendUp 0`, or the
+  `.induct` oracle obligations at a block with parameters and an index — now has one, and it
+  is the one the statements are actually about, unlike `unitEnv` (§8.4).
+
+### 9.7 What to pick up first
+
+1. **`InstDescendUp 0`'s `.bvar k` case** — unchanged from §7.9 and §8.7, still the sharpest
+   open mathematics on the model side, and now the sharpest *non-vacuous* one.
+2. **`InductOracleOK` at `eqIndDecl` / `iffIndDecl` / `nonemptyIndDecl`** — vacuity-ledger row
+   83c's frontier, and `preludeEnv` is now a named environment to attack it at.  This is the
+   part of `OracleInput` that §8.4 correctly said is *not* covered by
+   `oracleFits_unit_at_consumer`.
+3. **`PropTypeAgree 0` at `preludeEnv`** is now a *concrete* question rather than a schema.
+   §7.6 says do not re-attack the general statement; the instance at `preludeEnv` is a
+   different object and has not been looked at.
+4. **Note for whoever needs `preludeEnv` downstream**: `PreludeWitness.lean` is built by the
+   `Lean4Lean.Theory.*` glob but **nothing imports it**, so it is not in `ConeJoin`'s closure
+   and the census/dup-names scripts do not see it.  If you want `preludeEnv` available to
+   `Equiconsistency.lean` or to the `Verify/` side, add the import there; there is no name
+   collision (checked).

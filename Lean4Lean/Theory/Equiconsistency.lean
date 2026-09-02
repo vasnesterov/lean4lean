@@ -1,6 +1,7 @@
 import Foundation.FirstOrder.SetTheory.InaccessibleCardinal
 import Lean4Lean.Theory.Consistency
 import Lean4Lean.Theory.SetModel.UpperBound
+import Lean4Lean.Theory.SetModel.PreludeWitness  -- 2026-09-02: preludeWF / exists_leanWF. Imported so the witness is LOAD-BEARING here, not merely proved: without it `leanTTConsistent` and all three of `upper_bound_of_inputs`'s inputs are statements about a possibly-empty class (`upper_bound_vacuous_of_no_leanWF`), and `not_forall_not_leanWF` is what refutes that collapse.
 
 /-!
 # Main theorem: Lean TT is equiconsistent with ZFC + ω-many inaccessibles

@@ -41,8 +41,16 @@ has nowhere to put that.
 
 ## What is **not** proved, and the reason it is the headline
 
-**Nothing in this repository exhibits an environment satisfying `VEnv.LeanWF`.**  That is
-the quantifier of `leanTTConsistent` itself, so:
+**UPDATE 2026-09-02 — this section is now historical.**  `SetModel/PreludeWitness.lean`
+proves `PreludeWF`, hence `∃ env, env.LeanWF` (through `exists_leanWF_iff` below), hence
+`not_forall_not_leanWF : ¬ ∀ env, ¬ env.LeanWF`.  So the hypothesis of §3's
+`upper_bound_vacuous_of_no_leanWF` is **refuted** and the collapse it records can no longer
+be used to discharge anything.  §3 and §4 are kept exactly as they were: they are the
+statement of the gap, and the instrument that measures it, and both are still what makes the
+witness worth having.  What follows describes the situation *before* that file.
+
+**At the time of writing, nothing in this repository exhibited an environment satisfying
+`VEnv.LeanWF`.**  That is the quantifier of `leanTTConsistent` itself, so:
 
 * the *conclusion* of the `←` half is true for free if `LeanWF` is empty
   (`leanTTConsistent_of_no_leanWF`);
@@ -62,7 +70,9 @@ help: a longer history contains a prelude-only prefix.
 
 §6 discharges the **first** of those seven steps, `eqIndDecl`, over an arbitrary environment
 (`eqIndDecl_WF`) — so the gap is six steps, not seven, and it is unbuilt rather than blocked.
-What the remaining six cost is recorded there and in `docs/handoff-setmodel.md`.
+**The other six are now discharged too** (`SetModel/PreludeWitness.lean`), and its §9.2 of
+`docs/handoff-setmodel.md` records that this file's costing of them, in §6 below, was wrong in
+three places and wrong in the pessimistic direction each time.
 -/
 
 namespace Lean4Lean.SetModel
@@ -271,14 +281,26 @@ end Control
 /-! ## 6. The first prelude step, discharged
 
 §4 reduces the witness gap to `PreludeWF`.  Seven steps; this is the first of them, and the
-only one over `VEnv.empty`.  What the other six need is recorded in
-`docs/handoff-setmodel.md`: the two remaining `.induct` steps extend by exactly this pattern
-(each `VIndField.WF` field — `binders_indep`, `level`, `pos` — wants its own one-line lemma,
-which `Eq` avoids by having no constructor fields), while the three `.axiom` steps need
-`propext`'s, `Classical.choice`'s and `Quot.sound`'s types to be types over an environment
-that already declares `Eq`, `Iff`, `Nonempty` and the quotient primitives — spine derivations
-of the size `QuotInterp.lean` pays for `Quot.lift`, not one-liners.  Nothing here is blocked;
-it is unbuilt. -/
+only one over `VEnv.empty`.
+
+**The remaining six are in `SetModel/PreludeWitness.lean`, and the forecast that used to
+stand here was wrong three times over — each time by overstating the cost.**  Kept, corrected,
+because `docs/soundness-ledger.md` tracks this file's forecasts:
+
+* "each `VIndField.WF` field — `binders_indep`, `level`, `pos` — wants its own one-line lemma":
+  **no lemma was missing.**  `binders_indep` is `nofun` (both blocks' fields are
+  non-recursive), `level` is `(VLevel.le_antisymm_iff.1 VLevel.imax_zero).1` from lemmas
+  already in `Theory/VLevel.lean`, and the field the forecast omitted — **`hasType`** — was the
+  one with content: `forallEDF` types a pi at `.sort (.imax u v)` while `F.lvl` is recorded as
+  `.zero`, so a `defeqDF` through `sortDF … VLevel.imax_zero` is needed.
+* "the three `.axiom` steps … spine derivations of the size `QuotInterp.lean` pays for
+  `Quot.lift`": **12, 7 and 45 lines**, every step an `exact` of `constDF`/`appDF`/`bvar`, no
+  rewriting and no transport.  What `QuotInterp.lean` pays for `Quot.lift` is its *model
+  interpretation*, which is a different obligation from its type being a type.
+* the `.quot` step: it needs **only** `env.QuotReady` (one `rfl`) and `addQuot = some env'`.
+  Well-formedness of the four quotient constants is the *theorem* `addQuot_WF`
+  (`Theory/Typing/QuotLemmas.lean`), not an obligation of `VDecl.WF.quot` — so it was the
+  cheapest of the six, not a middle-cost one. -/
 
 section PreludeSteps
 

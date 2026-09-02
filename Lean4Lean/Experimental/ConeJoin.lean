@@ -157,6 +157,8 @@ import Lean4Lean.Theory.Typing.KEtaDiamond  -- 2026-09-01: the lambda-congruence
 import Lean4Lean.Theory.Typing.KDiamondJoin  -- 2026-09-01: KDiamond/M3 as joinability, and its CR price -- the repair works and lands back on confluence
 import Lean4Lean.Verify.Typing.ProjWeakInvSplit  -- 2026-09-02: weak'_inv split into the typing half + ConstAppDefeqStrengthen; weakN_iff LEAVES this hole's cone. Listing it is what makes the census see its +10/+10/+3 users
 import Lean4Lean.Verify.TypeChecker.EtaResidual  -- 2026-09-02: both eta .WFs from StructEtaG alone -- one residual predicate where there were two each
+import Lean4Lean.Theory.SetModel.PreludeWitness  -- 2026-09-02: PreludeWF PROVED, so VEnv.LeanWF is inhabited and H2's corner is no longer about a possibly-empty class
+import Lean4Lean.Theory.Inductive.StoredIota  -- 2026-09-02: ruling 122e's witnesses -- (B), (C) and both TeleDefEq certificates instantiated at a redex block, where they were vacuous before
 
 /-!
 # Acceptance test: the `PatternRules` cone and the `Verify/` cone join
