@@ -1647,6 +1647,19 @@ theorem CSubst.WF.wfd {env₀ env₁ : VEnv} {σ : CSubst} {U : Nat} (h : σ.WF 
   defeq := h.defeq
   val := h.val
 
+/-- **`WFD` is monotone in its target environment.**  Needed to carry a staging instance up one
+`addConstList` layer: the `const` clause's *defeq* disjunct is the only part that is not a plain
+lookup, and `VEnv.IsDefEq.mono` moves it. -/
+theorem CSubst.WFD.mono {env₀ env₁ env₁' : VEnv} {σ : CSubst} {U : Nat}
+    (h : σ.WFD env₀ env₁ U) (le : env₁ ≤ env₁') : σ.WFD env₀ env₁' U where
+  closed := h.closed
+  const hn hc :=
+    let ⟨A, hA, hor⟩ := h.const hn hc
+    ⟨A, le.constants hA, hor.imp (fun x => x) fun hd _ _ h1 h2 =>
+      let ⟨v, hv⟩ := hd h1 h2; ⟨v, hv.mono le⟩⟩
+  defeq hdf := le.defeqs (h.defeq hdf)
+  val hs hc h1 h2 h3 h4 := (h.val hs hc h1 h2 h3 h4).mono le
+
 namespace VEnv
 
 variable {env₀ env₁ : VEnv} {σ : CSubst}
@@ -2897,6 +2910,346 @@ theorem ntree_recConstsR_eq : ntreeAux.recConstsR ntreeRestore ntreeK
 theorem ntree_recConsts_eq : ntreeAux.recConsts
     = [(``NTree.rec, ⟨2, ntreeAux.recType 0⟩),
        (`_nested.List_1.rec, ⟨2, ntreeAux.recType 1⟩)] := rfl
+
+
+/-! ## §J `htele` for obligation (C): the ι-context telescope is §E's, extended by ONE β step
+
+Measured (`#eval`, then each equation by `decide`), against §33.5's expectation that (C) is *"nine
+conversions on terms 1.2–2.6× the size, none free"*:
+
+| rule | ι-context length | entries that MOVE | the moving entries |
+|---|---|---|---|
+| `NTree.node` | 8 | **5** | the 4 of §E, plus one field |
+| `_nested.List_1.nil` | 6 | **4** | *exactly* §E's four |
+| `_nested.List_1.cons` | 8 | **5** | the 4 of §E, plus one field |
+
+and the **first six entries of all three ι-contexts are literally `rTele`/`rTeleR`** — the nil
+rule's ι-context *is* §E's recursor telescope on the nose (`rIotaCtx_nil_eq`, `decide`).  The two
+constructors with fields add two entries each, of which the first does not move and the second is
+one `rbetaL` step at `k = 6`.
+
+So route 1's `htele` is **not** a new job: it is `rTeleDefEq` plus at most one β step per rule.
+`ntreeAux_iotaRulesRS_wf_of_nine`'s nine components are big because each bundles a whole rule; the
+`IotaHargs` decomposition prices the same content per *telescope entry*, and there §E already paid
+for four of the five. -/
+
+section
+variable {F : VEnv}
+variable (hL : F.constants ``List = some ⟨1, listType.type⟩)
+variable (hN : F.constants ``NTree
+  = some ⟨1, .forallE (.sort (.succ (.param 0))) (.sort (.succ (.param 0)))⟩)
+variable (hnil : F.constants ``List.nil = some ⟨1, listNil.type listDecl 0⟩)
+variable (hcons : F.constants ``List.cons = some ⟨1, listCons.type listDecl 0⟩)
+variable (hnode : F.constants ``NTree.node
+  = some ⟨1, (ntreeNode.typeR ntreeAux ntreeRestore 0).substC
+      (ntreeRestore.csubstTy ntreeAux ntreeK)⟩)
+
+/-! ### §J.1 The three ι-contexts, written out — all by `decide` -/
+
+/-- **The nil rule's substituted ι-context IS §E's recursor telescope.** -/
+theorem rIotaCtx_nil_eq : (ntreeAux.iotaCtx nlistNil).map
+    (VExpr.substC · (ntreeRestore.csubst ntreeAux ntreeK)) = rTele := by decide
+
+theorem rIotaCtxR_nil_eq : (ntreeAux.iotaCtxR ntreeRestore nlistNil).map
+    (VExpr.substC · (ntreeRestore.csubst ntreeAux ntreeK)) = rTeleR := by decide
+
+theorem rIotaCtx_node_eq : (ntreeAux.iotaCtx ntreeNode).map
+    (VExpr.substC · (ntreeRestore.csubst ntreeAux ntreeK))
+      = rTele ++ [.bvar 5, .app rV (.bvar 6)] := by decide
+
+theorem rIotaCtxR_node_eq : (ntreeAux.iotaCtxR ntreeRestore ntreeNode).map
+    (VExpr.substC · (ntreeRestore.csubst ntreeAux ntreeK))
+      = rTeleR ++ [.bvar 5, .app rLt (.app rNt (.bvar 6))] := by decide
+
+theorem rIotaCtx_cons_eq : (ntreeAux.iotaCtx nlistCons).map
+    (VExpr.substC · (ntreeRestore.csubst ntreeAux ntreeK))
+      = rTele ++ [.app rNt (.bvar 5), .app rV (.bvar 6)] := by decide
+
+theorem rIotaCtxR_cons_eq : (ntreeAux.iotaCtxR ntreeRestore nlistCons).map
+    (VExpr.substC · (ntreeRestore.csubst ntreeAux ntreeK))
+      = rTeleR ++ [.app rNt (.bvar 5), .app rLt (.app rNt (.bvar 6))] := by decide
+
+/-! ### §J.2 `rTeleDefEq`, opened up so a field block can be appended -/
+
+include hL hN hnil hcons hnode in
+/-- `rTeleDefEq` with its `.nil` replaced by an arbitrary tail: the six-entry prefix every ι-context
+shares, proved once. -/
+theorem rTeleDefEq_ext {As As' : List VExpr}
+    (htail : F.TeleDefEq 2 [rA5, rA4, rA3, rA2, rA1, rA0] As As') :
+    F.TeleDefEq 2 [] (rTele ++ As) (rTeleR ++ As') := by
+  obtain ⟨u2, h2⟩ : ∃ u, F.IsDefEq 2 [rA1, rA0] rA2 rA2' (.sort u) := ⟨_, rE2 hL hN⟩
+  obtain ⟨u3, h3⟩ := rE3 hL hN hnode
+  obtain ⟨u4, h4⟩ := rE4 hL hN hnil
+  obtain ⟨u5, h5⟩ := rE5 hL hN hcons
+  rw [show rTele ++ As = rA0 :: rA1 :: rA2 :: rA3 :: rA4 :: rA5 :: As from rfl,
+    show rTeleR ++ As' = rA0 :: rA1 :: rA2' :: rA3' :: rA4' :: rA5' :: As' from rfl]
+  exact .rfl (.rfl (.cons h2 (.cons h3 (.cons h4 (.cons h5 htail)))))
+
+/-! ### §J.3 `htele` at each of the three ι-rules -/
+
+include hL hN hnil hcons hnode in
+theorem rIotaTele_nil : F.TeleDefEq 2 []
+    ((ntreeAux.iotaCtx nlistNil).map (VExpr.substC · (ntreeRestore.csubst ntreeAux ntreeK)))
+    ((ntreeAux.iotaCtxR ntreeRestore nlistNil).map
+      (VExpr.substC · (ntreeRestore.csubst ntreeAux ntreeK))) := by
+  rw [rIotaCtx_nil_eq, rIotaCtxR_nil_eq]
+  exact rTeleDefEq hL hN hnil hcons hnode
+
+include hL hN hnil hcons hnode in
+theorem rIotaTele_node : F.TeleDefEq 2 []
+    ((ntreeAux.iotaCtx ntreeNode).map (VExpr.substC · (ntreeRestore.csubst ntreeAux ntreeK)))
+    ((ntreeAux.iotaCtxR ntreeRestore ntreeNode).map
+      (VExpr.substC · (ntreeRestore.csubst ntreeAux ntreeK))) := by
+  rw [rIotaCtx_node_eq, rIotaCtxR_node_eq]
+  refine rTeleDefEq_ext hL hN hnil hcons hnode (.rfl (.cons (rbetaL hL hN (k := 6) ?_) .nil))
+  exact .succ (.succ (.succ (.succ (.succ (.succ .zero)))))
+
+include hL hN hnil hcons hnode in
+theorem rIotaTele_cons : F.TeleDefEq 2 []
+    ((ntreeAux.iotaCtx nlistCons).map (VExpr.substC · (ntreeRestore.csubst ntreeAux ntreeK)))
+    ((ntreeAux.iotaCtxR ntreeRestore nlistCons).map
+      (VExpr.substC · (ntreeRestore.csubst ntreeAux ntreeK))) := by
+  rw [rIotaCtx_cons_eq, rIotaCtxR_cons_eq]
+  refine rTeleDefEq_ext hL hN hnil hcons hnode (.rfl (.cons (rbetaL hL hN (k := 6) ?_) .nil))
+  exact .succ (.succ (.succ (.succ (.succ (.succ .zero)))))
+
+end
+
+/-! ### §J.4 Anti-vacuity for §J: the field entry really moves, and `hmaj` at the block's own
+constructor really does **not**
+
+Two `decide`s and one negative result.  The added field entry is a genuine β step at both
+constructors that have one; and the *major premise* conversion `hmaj`, which `IotaHargs` also asks
+for, is the **identity** at `NTree.node` — the block's own constructor, where the restoration is
+`ntreeRestore_ownId`.  That is the same asymmetry `rBody0_eq` records for (B) at `j = 0`, reappearing
+in (C), and it is a *negative* result: one of `hdata`'s nine pieces is free, contra the reading of
+§33.5 that "none of the nine is free" (which was measured of the **route-2** components, a different
+nine). -/
+
+theorem rIotaField_ne : (VExpr.app rV (.bvar 6)) ≠ .app rLt (.app rNt (.bvar 6)) := by decide
+
+theorem rIotaCtx_node_ne : (ntreeAux.iotaCtx ntreeNode).map
+      (VExpr.substC · (ntreeRestore.csubst ntreeAux ntreeK))
+    ≠ (ntreeAux.iotaCtxR ntreeRestore ntreeNode).map
+      (VExpr.substC · (ntreeRestore.csubst ntreeAux ntreeK)) := by decide
+
+/-- **`hmaj` is free at `NTree.node`** — the two sides are literally equal. -/
+theorem rMaj_node_eq :
+    (ntreeAux.ctorApp' ntreeNode (ntreeNode.fields.length + (ntreeAux.nm + ntreeAux.nmin))
+        (VExpr.bvars 0 ntreeNode.fields.length)).substC (ntreeRestore.csubst ntreeAux ntreeK)
+      = (ntreeAux.ctorAppR ntreeRestore 0 ntreeNode
+          (ntreeNode.fields.length + (ntreeAux.nm + ntreeAux.nmin))
+          (VExpr.bvars 0 ntreeNode.fields.length)).substC
+        (ntreeRestore.csubst ntreeAux ntreeK) := by decide
+
+/-- …and **not** free at either companion constructor. -/
+theorem rMaj_nil_ne :
+    (ntreeAux.ctorApp' nlistNil (nlistNil.fields.length + (ntreeAux.nm + ntreeAux.nmin))
+        (VExpr.bvars 0 nlistNil.fields.length)).substC (ntreeRestore.csubst ntreeAux ntreeK)
+      ≠ (ntreeAux.ctorAppR ntreeRestore 1 nlistNil
+          (nlistNil.fields.length + (ntreeAux.nm + ntreeAux.nmin))
+          (VExpr.bvars 0 nlistNil.fields.length)).substC
+        (ntreeRestore.csubst ntreeAux ntreeK) := by decide
+
+theorem rMaj_cons_ne :
+    (ntreeAux.ctorApp' nlistCons (nlistCons.fields.length + (ntreeAux.nm + ntreeAux.nmin))
+        (VExpr.bvars 0 nlistCons.fields.length)).substC (ntreeRestore.csubst ntreeAux ntreeK)
+      ≠ (ntreeAux.ctorAppR ntreeRestore 1 nlistCons
+          (nlistCons.fields.length + (ntreeAux.nm + ntreeAux.nmin))
+          (VExpr.bvars 0 nlistCons.fields.length)).substC
+        (ntreeRestore.csubst ntreeAux ntreeK) := by decide
+
+
+/-! ## §I `WFD` at the ι-rule staging pair — obligation (C)'s environment hypothesis
+
+`VEnv.iotaRulesRS_wf_of_hargsD` (`Theory/Inductive/NestedTele.lean` §T16.11a) asks for
+`(R.csubst D K).WFD E₃ F₃ D.recUvars`, one `addConstList` layer above §D.5.  `ntree_csubst_WF₃_false`
+refutes the strict `CSubst.WF` there, so this is the only form available.
+
+**Measured, and it is much smaller than §D.5's proof re-done**: `CSubst.WFD.mono` (§C) carries the
+whole of `ntree_csubst_WFD₂` from `F₂` to `F₃`, so every constant and every value that stage 2
+already handled is *reused verbatim* rather than re-proved.  Exactly **two** cases are new, and both
+are §H:
+
+* `const` at `NTree.rec` — §H.3's `rRecConstClause0`, the defeq disjunct;
+* `val` at `_nested.List_1.rec` — §H.4's `rNestedRecVal`, live for the first time because `E₃`
+  is the first environment in which the companion's recursor exists (at stage 2 this case is
+  `exfalso`).
+
+That is the whole delta.  `NTree.rec_1` never appears as a *source* constant, so it imposes nothing;
+it appears only as the value's head, which is `hrec1`. -/
+
+section
+variable {env₁ E₁ E₂ E₃ F₁ F₂ F₃ : VEnv}
+variable (h : VEnv.empty.addInduct' listDecl = some env₁)
+variable (hE₁ : env₁.addIndTypes ntreeAux = some E₁)
+variable (hE₂ : E₁.addIndCtors ntreeAux = some E₂)
+variable (hE₃ : E₂.addIndRecs ntreeAux = some E₃)
+variable (hF₁ : env₁.addConstList (ntreeAux.typeConstsC ntreeK) = some F₁)
+variable (hF₂ : F₁.addConstList (ntreeAux.ctorConstsCR ntreeRestore ntreeK) = some F₂)
+variable (hF₃ : F₂.addConstList (ntreeAux.recConstsR ntreeRestore ntreeK) = some F₃)
+
+/-! ### §I.1 The third staging environment -/
+
+include h hE₁ hE₂ hF₁ hF₂ hF₃ in
+theorem ntreeF₃_ordered : F₃.Ordered :=
+  VEnv.addConstList_ordered (ntreeF₂_ordered h hE₁ hF₁ hF₂)
+    (fun c hc => ntreeAux_recConstsR_wf h hE₁ hE₂ hF₁ hF₂ c hc) hF₃
+
+include h hF₁ hF₂ hF₃ in
+theorem ntreeF₃_list : F₃.constants ``List = some ⟨1, listType.type⟩ :=
+  (VEnv.addConstList_le hF₃).constants (ntreeF₂_list h hF₁ hF₂)
+
+include h hF₁ hF₂ hF₃ in
+theorem ntreeF₃_nil : F₃.constants ``List.nil = some ⟨1, listNil.type listDecl 0⟩ :=
+  (VEnv.addConstList_le hF₃).constants (ntreeF₂_nil h hF₁ hF₂)
+
+include h hF₁ hF₂ hF₃ in
+theorem ntreeF₃_cons : F₃.constants ``List.cons = some ⟨1, listCons.type listDecl 0⟩ :=
+  (VEnv.addConstList_le hF₃).constants (ntreeF₂_cons h hF₁ hF₂)
+
+include hF₁ hF₂ hF₃ in
+theorem ntreeF₃_ntree : F₃.constants ``NTree
+    = some ⟨1, .forallE (.sort (.succ (.param 0))) (.sort (.succ (.param 0)))⟩ :=
+  (VEnv.addConstList_le hF₃).constants (ntreeF₂_ntree hF₁ hF₂)
+
+include hF₂ hF₃ in
+theorem ntreeF₃_node : F₃.constants ``NTree.node
+    = some ⟨1, (ntreeNode.typeR ntreeAux ntreeRestore 0).substC
+        (ntreeRestore.csubstTy ntreeAux ntreeK)⟩ :=
+  (VEnv.addConstList_le hF₃).constants (ntreeF₂_node hF₂)
+
+include hF₃ in
+/-- The step's own recursor, at the *restored* type — the `const` clause's right-hand side. -/
+theorem ntreeF₃_rec : F₃.constants ``NTree.rec
+    = some ⟨2, (ntreeAux.recTypeR ntreeRestore 0).substC
+        (ntreeRestore.csubst ntreeAux ntreeK)⟩ :=
+  VEnv.addConstList_constants hF₃
+    (``NTree.rec, ⟨2, (ntreeAux.recTypeR ntreeRestore 0).substC
+      (ntreeRestore.csubst ntreeAux ntreeK)⟩) (by exact List.Mem.head _)
+
+include hF₃ in
+/-- …and the **companion's** recursor, under the renamed constant — `rNestedRecVal`'s `hrec1`. -/
+theorem ntreeF₃_rec1 : F₃.constants ``NTree.rec_1
+    = some ⟨2, (ntreeAux.recTypeR ntreeRestore 1).substC
+        (ntreeRestore.csubst ntreeAux ntreeK)⟩ :=
+  VEnv.addConstList_constants hF₃
+    (``NTree.rec_1, ⟨2, (ntreeAux.recTypeR ntreeRestore 1).substC
+      (ntreeRestore.csubst ntreeAux ntreeK)⟩) (by exact List.Mem.tail _ (List.Mem.head _))
+
+/-! ### §I.2 `hσ` at the ι-rule stage, proved -/
+
+include h hE₁ hE₂ hE₃ hF₁ hF₂ hF₃ in
+/-- **`(R.csubst ntreeAux ntreeK).WFD E₃ F₃ 2`** — obligation (C)'s environment hypothesis at the
+canonical parameterised nested block, where the strict `CSubst.WF` is *refuted*
+(`ntree_csubst_WF₃_false`).  Two new cases over §D.5, both supplied by §H. -/
+theorem ntree_csubst_WFD₃ : (ntreeRestore.csubst ntreeAux ntreeK).WFD E₃ F₃ 2 := by
+  have hFo := ntreeF₃_ordered h hE₁ hE₂ hF₁ hF₂ hF₃
+  have hσ₂ := (ntree_csubst_WFD₂ h hE₁ hE₂ hF₁ hF₂).mono (VEnv.addConstList_le hF₃)
+  have hL := ntreeF₃_list h hF₁ hF₂ hF₃
+  have hN := ntreeF₃_ntree hF₁ hF₂ hF₃
+  have hnil := ntreeF₃_nil h hF₁ hF₂ hF₃
+  have hcons := ntreeF₃_cons h hF₁ hF₂ hF₃
+  have hnode := ntreeF₃_node hF₂ hF₃
+  refine ⟨ntree_csubst_closed, ?_, ?_, ?_⟩
+  · intro c ci hn hc
+    by_cases hR : c = ``NTree.rec
+    · subst hR
+      rw [VEnv.addConstList_constants hE₃ (``NTree.rec, ⟨2, ntreeAux.recType 0⟩)
+        (by exact List.Mem.head _)] at hc
+      cases hc
+      exact ⟨_, ntreeF₃_rec hF₃, .inr fun hls hlen =>
+        rRecConstClause0 hL hN hnil hcons hnode hFo hls hlen⟩
+    · have hm : c ∉ (ntreeAux.recConsts.map (·.1)) := by
+        show c ∉ [``NTree.rec, `_nested.List_1.rec]
+        simp [hR, (ntree_csubst_ne hn).2.1]
+      rw [VEnv.addConstList_constants_of_not_mem hE₃ hm] at hc
+      exact hσ₂.const hn hc
+  · intro df hdf
+    rw [VEnv.addConstList_defeqs hE₃] at hdf
+    exact hσ₂.defeq hdf
+  · intro c t ci Γ ls ls' hσv hc
+    have hR : c ≠ ``NTree.rec := by
+      rintro rfl
+      rw [show ntreeRestore.csubst ntreeAux ntreeK ``NTree.rec = none from rfl] at hσv
+      exact absurd hσv nofun
+    by_cases hr1 : c = `_nested.List_1.rec
+    · subst hr1
+      rw [show ntreeRestore.csubst ntreeAux ntreeK `_nested.List_1.rec
+        = some (.const ``NTree.rec_1 [.param 0, .param 1]) from rfl] at hσv
+      cases hσv
+      rw [VEnv.addConstList_constants hE₃ (`_nested.List_1.rec, ⟨2, ntreeAux.recType 1⟩)
+        (by exact List.Mem.tail _ (List.Mem.head _))] at hc
+      cases hc
+      intro hls hls' hll hlen
+      exact rNestedRecVal hL hN hnil hcons hnode hFo (ntreeF₃_rec1 hF₃) hls hls' hll hlen
+    · have hm : c ∉ (ntreeAux.recConsts.map (·.1)) := by
+        show c ∉ [``NTree.rec, `_nested.List_1.rec]
+        simp [hR, hr1]
+      rw [VEnv.addConstList_constants_of_not_mem hE₃ hm] at hc
+      exact hσ₂.val hσv hc
+
+end
+
+/-! ### §I.3 …and the third staging pair exists, so §I.2 is not hypothetical
+
+`ntree_stage₂_exists` extended by the two `addConstList`s the recursor stage performs.  The
+freshness list grows by three names: the two recursors the block declares (`NTree.rec`,
+`_nested.List_1.rec`) and the renamed companion recursor (`NTree.rec_1`). -/
+
+theorem ntree_stage₃_exists :
+    ∃ (env₁ E₁ E₂ E₃ F₁ F₂ F₃ : VEnv), VEnv.empty.addInduct' listDecl = some env₁ ∧
+      env₁.addIndTypes ntreeAux = some E₁ ∧ E₁.addIndCtors ntreeAux = some E₂ ∧
+      E₂.addIndRecs ntreeAux = some E₃ ∧
+      env₁.addConstList (ntreeAux.typeConstsC ntreeK) = some F₁ ∧
+      F₁.addConstList (ntreeAux.ctorConstsCR ntreeRestore ntreeK) = some F₂ ∧
+      F₂.addConstList (ntreeAux.recConstsR ntreeRestore ntreeK) = some F₃ := by
+  obtain ⟨env₁, h⟩ : ∃ e, VEnv.empty.addInduct' listDecl = some e := ⟨_, rfl⟩
+  have hfresh : ∀ n ∈ [``NTree, `_nested.List_1, ``NTree.node,
+      `_nested.List_1.nil, `_nested.List_1.cons, ``NTree.rec, `_nested.List_1.rec,
+      ``NTree.rec_1], env₁.constants n = none := by
+    intro n hn
+    rw [VEnv.addInduct'_constants_of_not_mem h (by revert hn; revert n; decide)]
+    rfl
+  obtain ⟨E₁, hE₁⟩ : ∃ e, env₁.addIndTypes ntreeAux = some e :=
+    VEnv.addConstList_eq_some_iff.2
+      ⟨fun n hn => hfresh n (by revert hn; revert n; decide), by decide⟩
+  obtain ⟨F₁, hF₁⟩ : ∃ e, env₁.addConstList (ntreeAux.typeConstsC ntreeK) = some e :=
+    VEnv.addConstList_eq_some_iff.2
+      ⟨fun n hn => hfresh n (by revert hn; revert n; decide), by decide⟩
+  obtain ⟨E₂, hE₂⟩ : ∃ e, E₁.addIndCtors ntreeAux = some e := by
+    refine VEnv.addConstList_eq_some_iff.2 ⟨fun n hn => ?_, by decide⟩
+    rw [VEnv.addConstList_constants_of_not_mem hE₁ (by revert hn; revert n; decide)]
+    exact hfresh n (by revert hn; revert n; decide)
+  obtain ⟨F₂, hF₂⟩ : ∃ e, F₁.addConstList (ntreeAux.ctorConstsCR ntreeRestore ntreeK) = some e := by
+    refine VEnv.addConstList_eq_some_iff.2 ⟨fun n hn => ?_, by decide⟩
+    rw [VEnv.addConstList_constants_of_not_mem hF₁ (by revert hn; revert n; decide)]
+    exact hfresh n (by revert hn; revert n; decide)
+  obtain ⟨E₃, hE₃⟩ : ∃ e, E₂.addIndRecs ntreeAux = some e := by
+    refine VEnv.addConstList_eq_some_iff.2 ⟨fun n hn => ?_, by decide⟩
+    rw [VEnv.addConstList_constants_of_not_mem hE₂ (by revert hn; revert n; decide),
+      VEnv.addConstList_constants_of_not_mem hE₁ (by revert hn; revert n; decide)]
+    exact hfresh n (by revert hn; revert n; decide)
+  obtain ⟨F₃, hF₃⟩ : ∃ e, F₂.addConstList (ntreeAux.recConstsR ntreeRestore ntreeK) = some e := by
+    refine VEnv.addConstList_eq_some_iff.2 ⟨fun n hn => ?_, by decide⟩
+    rw [VEnv.addConstList_constants_of_not_mem hF₂ (by revert hn; revert n; decide),
+      VEnv.addConstList_constants_of_not_mem hF₁ (by revert hn; revert n; decide)]
+    exact hfresh n (by revert hn; revert n; decide)
+  exact ⟨env₁, E₁, E₂, E₃, F₁, F₂, F₃, h, hE₁, hE₂, hE₃, hF₁, hF₂, hF₃⟩
+
+/-- **`WFD` at the ι-rule staging pair, with nothing assumed** — the (C) counterpart of
+`ntreeAux_obligationB`'s composition step. -/
+theorem ntreeAux_WFD₃_exists :
+    ∃ (env₁ E₁ E₂ E₃ F₁ F₂ F₃ : VEnv), VEnv.empty.addInduct' listDecl = some env₁ ∧
+      env₁.addIndTypes ntreeAux = some E₁ ∧ E₁.addIndCtors ntreeAux = some E₂ ∧
+      E₂.addIndRecs ntreeAux = some E₃ ∧
+      env₁.addConstList (ntreeAux.typeConstsC ntreeK) = some F₁ ∧
+      F₁.addConstList (ntreeAux.ctorConstsCR ntreeRestore ntreeK) = some F₂ ∧
+      F₂.addConstList (ntreeAux.recConstsR ntreeRestore ntreeK) = some F₃ ∧
+      (ntreeRestore.csubst ntreeAux ntreeK).WFD E₃ F₃ 2 := by
+  obtain ⟨env₁, E₁, E₂, E₃, F₁, F₂, F₃, h, hE₁, hE₂, hE₃, hF₁, hF₂, hF₃⟩ := ntree_stage₃_exists
+  exact ⟨env₁, E₁, E₂, E₃, F₁, F₂, F₃, h, hE₁, hE₂, hE₃, hF₁, hF₂, hF₃,
+    ntree_csubst_WFD₃ h hE₁ hE₂ hE₃ hF₁ hF₂ hF₃⟩
 
 
 end InductiveDeclExamples

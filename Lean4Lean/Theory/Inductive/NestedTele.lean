@@ -3972,6 +3972,273 @@ theorem ntreeAux_iotaRulesRS_wf_of_nine {F : VEnv}
   | 2 => obtain ⟨rfl, rfl⟩ := Prod.mk.injEq .. ▸ Option.some.inj hq; exact h2
   | (n+3) => simp at hq
 
+/-! ### §T16.13 Obligation (C) at `ntreeAux` through `WFD`, reduced to `hdata` alone
+
+`VEnv.iotaRulesRS_wf_of_hargsD` (§T16.11a) has nine hypotheses.  Eight of them are now theorems at
+`ntreeAux`, `hσ` last — it is `ntree_csubst_WFD₃` (`Theory/Typing/ConstSubstNested.lean` §I), the
+form the strict `CSubst.WF` cannot take here (`ntree_csubst_WF₃_false`).  So (C)'s route-1 residual
+at the canonical parameterised nested block is **exactly `hdata`**: three `IotaHargs`, one per
+constructor of `ntreeAux.ctorsAll`.
+
+Contrast route 2 (`ntreeAux_iotaRulesRS_wf_of_nine`), which needs no environment hypothesis but
+shares nothing between the three rules.  Route 1's `hdata` is the *smaller* residual per rule
+(`htele` + one typing + two conversions, with the `lhs`/`rhs`/`type` assembly done by §T16.11)
+but it is the one that needed `WFD₃`. -/
+
+theorem ntreeRestore_domNodup : ntreeRestore.DomNodup ntreeAux ntreeK := by
+  show ((ntreeRestore.csubstList ntreeAux ntreeK).map (·.1)).Nodup
+  show ([`_nested.List_1, `_nested.List_1.rec, `_nested.List_1.nil,
+    `_nested.List_1.cons] : List Name).Nodup
+  decide
+
+theorem ntreeAux_allNames_nodup : ntreeAux.allNames.Nodup := by decide
+
+theorem ntreeRestore_domSep : ntreeRestore.DomSep ntreeAux ntreeK :=
+  VIndRestore.domSep_of_allNames_nodup ntreeAux_allNames_nodup ntreeRestore_domNodup
+
+/-- **`hpos` at `ntreeAux`, by `decide`** — every recursive argument's index is below `D.nm`. -/
+theorem ntreeAux_recArg_lt : ∀ (t : Nat) (C : VIndCtor), (t, C) ∈ ntreeAux.ctorsAll →
+    ∀ (i : Nat) (Fl : VIndField) (r : VIndRecArg), C.fields[i]? = some Fl →
+      Fl.recArg = some r → r.idx < ntreeAux.nm := by
+  have H : ∀ p ∈ ntreeAux.ctorsAll, ∀ Fl ∈ p.2.fields,
+      ∀ r ∈ Fl.recArg, r.idx < ntreeAux.nm := by decide
+  exact fun t C hmem i Fl r hi hr => H (t, C) hmem Fl (List.mem_of_getElem? hi) r hr
+
+section
+variable {env₁ E₁ E₂ E₃ F₁ F₂ F₃ : VEnv}
+variable (h : VEnv.empty.addInduct' listDecl = some env₁)
+variable (hE₁ : env₁.addIndTypes ntreeAux = some E₁)
+variable (hE₂ : E₁.addIndCtors ntreeAux = some E₂)
+variable (hE₃ : E₂.addIndRecs ntreeAux = some E₃)
+variable (hF₁ : env₁.addConstList (ntreeAux.typeConstsC ntreeK) = some F₁)
+variable (hF₂ : F₁.addConstList (ntreeAux.ctorConstsCR ntreeRestore ntreeK) = some F₂)
+variable (hF₃ : F₂.addConstList (ntreeAux.recConstsR ntreeRestore ntreeK) = some F₃)
+
+include h hE₁ hE₂ hE₃ hF₁ hF₂ hF₃ in
+/-- **Obligation (C) at the canonical parameterised nested block, from `hdata` and the staging
+equations alone.**  Every other hypothesis of §T16.11a is discharged here. -/
+theorem ntreeAux_obligationC_of_hdata
+    (hdata : ∀ (q j : Nat) (C : VIndCtor), ntreeAux.ctorsAll[q]? = some (j, C) →
+      ntreeRestore.IotaHargs ntreeAux (ntreeRestore.csubst ntreeAux ntreeK) F₃ j C) :
+    ∀ df ∈ ntreeAux.iotaRulesRS ntreeRestore ntreeK, VDefEq.WF F₃ df :=
+  VEnv.iotaRulesRS_wf_of_hargsD ntreeRestore_ownId ntreeRestore_domSep.substAt
+    ntreeRestore_substFree ntree_csubst_closed
+    (ntree_csubst_WFD₃ h hE₁ hE₂ hE₃ hF₁ hF₂ hF₃)
+    ((ntreeAux_WF h).iotaCtx (listEnv_ordered h) hE₁ hE₂ hE₃)
+    (ntreeF₃_ordered h hE₁ hE₂ hF₁ hF₂ hF₃) ntreeAux_recArg_lt hdata
+
+end
+
+/-! ### §T16.14 …and `hdata` reduced to three `A₀`-triples, with `htele` supplied by §J
+
+`IotaHargs` is `htele ∧ ∃ A₀ v, hfunM ∧ hconv ∧ hmaj`.  §J of
+`Theory/Typing/ConstSubstNested.lean` proves `htele` at all three rules, so the residual per rule is
+exactly the `∃ A₀ v` triple, named `rIotaRest` below.  Of the nine pieces that triple asks for across
+the three rules, one is measured **free** (`rMaj_node_eq`: `hmaj` at `NTree.node` is the identity,
+so its `IsDefEq` is a typing of the constructor application and no conversion).
+
+The composition below is what the next stream should aim at: three `rIotaRest`s and obligation (C)
+at the canonical parameterised nested block is closed. -/
+
+/-- (C)'s residual at one ι-rule of `ntreeAux`, after §J supplies `htele`. -/
+def rIotaRest (F : VEnv) (j : Nat) (C : VIndCtor) : Prop :=
+  ∃ (A₀ : VExpr) (v : VLevel),
+    F.HasType ntreeAux.recUvars
+        (((ntreeAux.iotaCtx C).map
+          (VExpr.substC · (ntreeRestore.csubst ntreeAux ntreeK))).reverse)
+        ((VExpr.bvar (C.fields.length + ntreeAux.nmin + (ntreeAux.nm - 1 - j))).mkApp
+          ((C.args.map fun a =>
+            (ntreeAux.atRec a).liftN (ntreeAux.nm + ntreeAux.nmin) C.fields.length).map
+              (VExpr.substC · (ntreeRestore.csubst ntreeAux ntreeK))))
+        (.forallE ((ntreeAux.tyApp' j (ntreeAux.nm + ntreeAux.nmin + C.fields.length)
+          (C.args.map fun a =>
+            (ntreeAux.atRec a).liftN (ntreeAux.nm + ntreeAux.nmin) C.fields.length)).substC
+            (ntreeRestore.csubst ntreeAux ntreeK))
+          (.sort ntreeAux.elimLvl)) ∧
+      F.IsDefEq ntreeAux.recUvars
+        (((ntreeAux.iotaCtx C).map
+          (VExpr.substC · (ntreeRestore.csubst ntreeAux ntreeK))).reverse) A₀
+        ((ntreeAux.tyApp' j (ntreeAux.nm + ntreeAux.nmin + C.fields.length)
+          (C.args.map fun a =>
+            (ntreeAux.atRec a).liftN (ntreeAux.nm + ntreeAux.nmin) C.fields.length)).substC
+            (ntreeRestore.csubst ntreeAux ntreeK))
+        (.sort v) ∧
+      F.IsDefEq ntreeAux.recUvars
+        (((ntreeAux.iotaCtx C).map
+          (VExpr.substC · (ntreeRestore.csubst ntreeAux ntreeK))).reverse)
+        ((ntreeAux.ctorApp' C (C.fields.length + (ntreeAux.nm + ntreeAux.nmin))
+          (VExpr.bvars 0 C.fields.length)).substC (ntreeRestore.csubst ntreeAux ntreeK))
+        ((ntreeAux.ctorAppR ntreeRestore j C (C.fields.length + (ntreeAux.nm + ntreeAux.nmin))
+          (VExpr.bvars 0 C.fields.length)).substC (ntreeRestore.csubst ntreeAux ntreeK)) A₀
+
+section
+variable {F : VEnv}
+variable (hL : F.constants ``List = some ⟨1, listType.type⟩)
+variable (hN : F.constants ``NTree
+  = some ⟨1, .forallE (.sort (.succ (.param 0))) (.sort (.succ (.param 0)))⟩)
+variable (hnil : F.constants ``List.nil = some ⟨1, listNil.type listDecl 0⟩)
+variable (hcons : F.constants ``List.cons = some ⟨1, listCons.type listDecl 0⟩)
+variable (hnode : F.constants ``NTree.node
+  = some ⟨1, (ntreeNode.typeR ntreeAux ntreeRestore 0).substC
+      (ntreeRestore.csubstTy ntreeAux ntreeK)⟩)
+
+/-! §T16.15 The three residual triples, from §E's β-steps.
+
+Measured (`#eval`) before proving, and the measurement is the whole content: at each rule the
+substituted `tyApp'` is `(λ α, List (NTree α)) #k` and the substituted `ctorApp'` is the same redex
+at `List.nil`/`List.cons`, while the restored `ctorAppR` is the contraction.  So
+
+* `hconv` is **`rbetaL.symm`** at every rule (choose `A₀` to be the *contracted* type),
+* `hmaj` is **`rbetaNil`** at nil, **`rbetaCons`** (plus two `appDF`s and one `defeqDF`) at cons,
+  and a plain typing at node, where `rMaj_node_eq` says the two sides are equal,
+* `hfunM` is one `Lookup` at every rule — the motive is a context entry.
+
+None of it is new mathematics; every β-step is one of §E's three. -/
+
+include hL hN hnil in
+theorem rIotaRest_nil : rIotaRest F 1 nlistNil := by
+  refine ⟨.app rLt (.app rNt (.bvar 5)), .succ (.param 1), ?_, ?_, ?_⟩
+  · exact .bvar (.succ (.succ (.succ .zero)))
+  · exact (rbetaL hL hN (k := 5) (.succ (.succ (.succ (.succ (.succ .zero)))))).symm
+  · exact rbetaNil hN hnil (k := 5) (.succ (.succ (.succ (.succ (.succ .zero)))))
+
+include hL hN hcons in
+theorem rIotaRest_cons : rIotaRest F 1 nlistCons := by
+  refine ⟨.app rLt (.app rNt (.bvar 7)), .succ (.param 1), ?_, ?_, ?_⟩
+  · exact .bvar (.succ (.succ (.succ (.succ (.succ .zero)))))
+  · exact (rbetaL hL hN (k := 7) (.succ (.succ (.succ (.succ (.succ (.succ (.succ .zero)))))))).symm
+  · exact .appDF (.appDF (rbetaCons hN hcons (k := 7) (.succ (.succ (.succ (.succ (.succ (.succ (.succ .zero)))))))) (.bvar (.succ .zero)))
+      (.defeqDF (rbetaL hL hN (k := 7) (.succ (.succ (.succ (.succ (.succ (.succ (.succ .zero)))))))) (.bvar .zero))
+
+include hL hN hnode in
+theorem rIotaRest_node : rIotaRest F 0 ntreeNode := by
+  refine ⟨.app rNt (.bvar 7), .succ (.param 1), ?_, ?_, ?_⟩
+  · exact .bvar (.succ (.succ (.succ (.succ (.succ (.succ .zero))))))
+  · exact .appDF (rNC hN) (.bvar (.succ (.succ (.succ (.succ (.succ (.succ (.succ .zero))))))))
+  · exact .appDF (.appDF (.appDF (rNodeC hnode) (.bvar (.succ (.succ (.succ (.succ (.succ (.succ (.succ .zero))))))))) (.bvar (.succ .zero)))
+      (.defeqDF (rbetaL hL hN (k := 7) (.succ (.succ (.succ (.succ (.succ (.succ (.succ .zero)))))))) (.bvar .zero))
+
+include hL hN hnil hcons hnode in
+/-- **`hdata` from the three residual triples**, `htele` coming from §J. -/
+theorem ntreeAux_hdata_of_rest
+    (h0 : rIotaRest F 0 ntreeNode) (h1 : rIotaRest F 1 nlistNil)
+    (h2 : rIotaRest F 1 nlistCons) :
+    ∀ (q j : Nat) (C : VIndCtor), ntreeAux.ctorsAll[q]? = some (j, C) →
+      ntreeRestore.IotaHargs ntreeAux (ntreeRestore.csubst ntreeAux ntreeK) F j C := by
+  intro q j C hq
+  rw [ntreeAux_ctorsAll_eq] at hq
+  match q with
+  | 0 =>
+    obtain ⟨rfl, rfl⟩ := Prod.mk.injEq .. ▸ Option.some.inj hq
+    exact ⟨rIotaTele_node hL hN hnil hcons hnode, h0⟩
+  | 1 =>
+    obtain ⟨rfl, rfl⟩ := Prod.mk.injEq .. ▸ Option.some.inj hq
+    exact ⟨rIotaTele_nil hL hN hnil hcons hnode, h1⟩
+  | 2 =>
+    obtain ⟨rfl, rfl⟩ := Prod.mk.injEq .. ▸ Option.some.inj hq
+    exact ⟨rIotaTele_cons hL hN hnil hcons hnode, h2⟩
+  | (n+3) => simp at hq
+
+end
+
+section
+variable {env₁ E₁ E₂ E₃ F₁ F₂ F₃ : VEnv}
+variable (h : VEnv.empty.addInduct' listDecl = some env₁)
+variable (hE₁ : env₁.addIndTypes ntreeAux = some E₁)
+variable (hE₂ : E₁.addIndCtors ntreeAux = some E₂)
+variable (hE₃ : E₂.addIndRecs ntreeAux = some E₃)
+variable (hF₁ : env₁.addConstList (ntreeAux.typeConstsC ntreeK) = some F₁)
+variable (hF₂ : F₁.addConstList (ntreeAux.ctorConstsCR ntreeRestore ntreeK) = some F₂)
+variable (hF₃ : F₂.addConstList (ntreeAux.recConstsR ntreeRestore ntreeK) = some F₃)
+
+include h hE₁ hE₂ hE₃ hF₁ hF₂ hF₃ in
+/-- **Obligation (C) at `ntreeAux` from three `rIotaRest`s and the staging equations — nothing
+else.**  This is (C)'s route-1 residual in its smallest current form: `WFD₃`, `htele`, `hpos`,
+`hat`, `hI`, `henv` are all discharged, and the three `A₀` triples are what remains. -/
+theorem ntreeAux_obligationC_of_rest
+    (h0 : rIotaRest F₃ 0 ntreeNode) (h1 : rIotaRest F₃ 1 nlistNil)
+    (h2 : rIotaRest F₃ 1 nlistCons) :
+    ∀ df ∈ ntreeAux.iotaRulesRS ntreeRestore ntreeK, VDefEq.WF F₃ df :=
+  ntreeAux_obligationC_of_hdata h hE₁ hE₂ hE₃ hF₁ hF₂ hF₃
+    (ntreeAux_hdata_of_rest (ntreeF₃_list h hF₁ hF₂ hF₃) (ntreeF₃_ntree hF₁ hF₂ hF₃)
+      (ntreeF₃_nil h hF₁ hF₂ hF₃) (ntreeF₃_cons h hF₁ hF₂ hF₃) (ntreeF₃_node hF₂ hF₃) h0 h1 h2)
+
+include h hE₁ hE₂ hE₃ hF₁ hF₂ hF₃ in
+/-- **OBLIGATION (C), DISCHARGED at the canonical parameterised nested block.**
+
+The third and last of `VEnv.addInductR_ordered'`'s obligations, at `ntreeAux` — the `np ≥ 1`
+counterpart of `nfnAux_iotaRulesR_wf`.  Everything it stands on is a theorem: §I's `WFD₃` (the form
+the strict `CSubst.WF` provably cannot take here), §J's three `htele`, and §T16.15's three residual
+triples, whose entire conversion content is §E's three β-steps. -/
+theorem ntreeAux_iotaRulesRS_wf :
+    ∀ df ∈ ntreeAux.iotaRulesRS ntreeRestore ntreeK, VDefEq.WF F₃ df :=
+  ntreeAux_obligationC_of_rest h hE₁ hE₂ hE₃ hF₁ hF₂ hF₃
+    (rIotaRest_node (ntreeF₃_list h hF₁ hF₂ hF₃) (ntreeF₃_ntree hF₁ hF₂ hF₃)
+      (ntreeF₃_node hF₂ hF₃))
+    (rIotaRest_nil (ntreeF₃_list h hF₁ hF₂ hF₃) (ntreeF₃_ntree hF₁ hF₂ hF₃)
+      (ntreeF₃_nil h hF₁ hF₂ hF₃))
+    (rIotaRest_cons (ntreeF₃_list h hF₁ hF₂ hF₃) (ntreeF₃_ntree hF₁ hF₂ hF₃)
+      (ntreeF₃_cons h hF₁ hF₂ hF₃))
+
+end
+
+/-- **Obligation (C) at `ntreeAux` with nothing assumed** — the (C) counterpart of
+`ntreeAux_obligationA` / `ntreeAux_obligationB`. -/
+theorem ntreeAux_obligationC :
+    ∃ (env₁ E₁ E₂ E₃ F₁ F₂ F₃ : VEnv), VEnv.empty.addInduct' listDecl = some env₁ ∧
+      env₁.addIndTypes ntreeAux = some E₁ ∧ E₁.addIndCtors ntreeAux = some E₂ ∧
+      E₂.addIndRecs ntreeAux = some E₃ ∧
+      env₁.addConstList (ntreeAux.typeConstsC ntreeK) = some F₁ ∧
+      F₁.addConstList (ntreeAux.ctorConstsCR ntreeRestore ntreeK) = some F₂ ∧
+      F₂.addConstList (ntreeAux.recConstsR ntreeRestore ntreeK) = some F₃ ∧
+      ∀ df ∈ ntreeAux.iotaRulesRS ntreeRestore ntreeK, VDefEq.WF F₃ df := by
+  obtain ⟨env₁, E₁, E₂, E₃, F₁, F₂, F₃, h, hE₁, hE₂, hE₃, hF₁, hF₂, hF₃⟩ := ntree_stage₃_exists
+  exact ⟨env₁, E₁, E₂, E₃, F₁, F₂, F₃, h, hE₁, hE₂, hE₃, hF₁, hF₂, hF₃,
+    ntreeAux_iotaRulesRS_wf h hE₁ hE₂ hE₃ hF₁ hF₂ hF₃⟩
+
+/-! ### §T16.16 …so the nested declaration step preserves `Ordered` at a PARAMETERISED block
+
+`VEnv.addInductR_ordered'` (`Theory/Inductive/NestedOrdered.lean`) has exactly three open
+obligations, and all three are now theorems at `ntreeAux`:
+
+| obligation | at `ntreeAux` |
+|---|---|
+| `hctors` (A) | `ntreeAux_ctorConstsCR_wf` |
+| `hrecs` (B) | `ntreeAux_recConstsR_wf` (§E/§G of `ConstSubstNested.lean`) |
+| `hrules` (C) | `ntreeAux_iotaRulesRS_wf` (§T16.15 above) |
+
+so the `np = 0` result `nfnAux_addInductR_ordered` now has its **`np ≥ 1` counterpart**. -/
+
+theorem ntreeAux_stages {env₁ : VEnv} (h : VEnv.empty.addInduct' listDecl = some env₁) :
+    ∃ E₁ E₂ E₃, env₁.addIndTypes ntreeAux = some E₁ ∧ E₁.addIndCtors ntreeAux = some E₂ ∧
+      E₂.addIndRecs ntreeAux = some E₃ := by
+  have : ∃ env', env₁.addInduct' ntreeAux = some env' := by
+    refine VEnv.addInduct'_eq_some_iff.2 ⟨fun n hn => ?_, by decide⟩
+    have hn' : n ∈ [``NTree, `_nested.List_1, ``NTree.node, `_nested.List_1.nil,
+      `_nested.List_1.cons, ``NTree.rec, `_nested.List_1.rec] := hn
+    rw [VEnv.addInduct'_constants_of_not_mem h (by revert hn'; revert n; decide)]
+    rfl
+  obtain ⟨env', he⟩ := this
+  obtain ⟨E₁, E₂, E₃, h1, h2, h3, -⟩ := VEnv.addInduct'_stages he
+  exact ⟨E₁, E₂, E₃, h1, h2, h3⟩
+
+/-- **The nested declaration step preserves `VEnv.Ordered` at a PARAMETERISED nested block.**
+
+`nfnAux_addInductR_ordered` at `np = 1`: all three of `addInductR_ordered'`'s obligations
+discharged, the last of them only now. -/
+theorem ntreeAux_addInductR_ordered :
+    ∃ env₁ env', VEnv.empty.addInduct' listDecl = some env₁ ∧
+      env₁.addInductR ntreeAux ntreeK ntreeRestore = some env' ∧ env'.Ordered := by
+  obtain ⟨env₁, h⟩ : ∃ e, VEnv.empty.addInduct' listDecl = some e := ⟨_, rfl⟩
+  obtain ⟨env', he⟩ := ntreeAux_admitted h
+  obtain ⟨E₁, E₂, E₃, hE₁, hE₂, hE₃⟩ := ntreeAux_stages h
+  refine ⟨env₁, env', h, he, ?_⟩
+  refine VEnv.addInductR_ordered' (listEnv_ordered h) (ntreeAux_WF h) ntreeRestore_ownId
+    (fun {F₁} hF₁ => ?_) (fun {F₁ F₂} hF₁ hF₂ => ?_) (fun {F₁ F₂ F₃} hF₁ hF₂ hF₃ => ?_) he
+  · exact ntreeAux_ctorConstsCR_wf h (listEnv_ordered h) hE₁ hF₁
+  · exact ntreeAux_recConstsR_wf h hE₁ hE₂ hF₁ hF₂
+  · exact ntreeAux_iotaRulesRS_wf h hE₁ hE₂ hE₃ hF₁ hF₂ hF₃
+
 end InductiveDeclExamples
 
 end Lean4Lean

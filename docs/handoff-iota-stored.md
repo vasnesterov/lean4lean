@@ -1391,3 +1391,353 @@ committed to it while I worked)
 5. **Re-run the tree-wide suite** (§30 lists the commands and expected numbers) once
    `Theory/SetModel/*` settles.  Do not take my §33.9 item 6 reasoning on trust.
 6. **`Built.fields_noK`** — still out of scope, fifth round untouched (row 117c).
+
+# Round 5 (2026-09-02, fifth stream): `ntree_csubst_WFD₃` PROVED, and the ~150-line estimate refuted
+
+*Written incrementally, as briefed.*
+
+## 34. `#print axioms` FIRST — §33's claims all check out
+
+The brief made this mandatory after last round's discovery.  Result: **§33 is accurate in every
+particular I checked**, so unlike the last two rounds the premise I was handed is *not* refuted.
+Verified before proving anything (per-module build first: `lake build
+Lean4Lean.Theory.Typing.ConstSubstNested Lean4Lean.Theory.Inductive.NestedTele` → **69 jobs,
+green**; then `#print axioms` in a scratch file outside the tree):
+
+| declaration | axioms | matches §33? |
+|---|---|---|
+| `rhbridge` | `[propext, Quot.sound]` | yes |
+| `ntreeAux_recConstsR_wf` | `[propext, Classical.choice, Quot.sound]` | yes |
+| `ntreeAux_obligationB` | `[propext, Classical.choice, Quot.sound]` | yes |
+| `VEnv.iotaRulesRS_wf_of_hargsD` | `[propext, Classical.choice, Quot.sound]` | yes |
+| `ntreeAux_iotaRulesRS_wf_of_nine` | `[propext, Quot.sound]` | yes — and **no** `Classical.choice`, i.e. the reduction really is free |
+| `rRecConstClause0/1`, `rNestedRecVal` | `[propext, Quot.sound]` | yes |
+| `ntree_stage₂_exists` | `[propext, Quot.sound]` | yes |
+| `ntreeAux_ctorsAll_eq` | **no axioms at all** | yes |
+| `ntree_csubst_WFD₂`, `ntreeAux_obligationA` | `[propext, Classical.choice, Quot.sound]` | yes |
+
+No `sorryAx`, no frozen axiom, on any of them.  Nothing in §33 was over-claimed and nothing was
+already-done-but-reported-open.  **So the standing advice paid off by confirming rather than
+redirecting this time — which is still worth two minutes.**
+
+## 35. `ntree_csubst_WFD₃` is PROVED — and the ~150-line estimate was too pessimistic *for the wrong reason*
+
+`ConstSubstNested.lean` §I, and it went in on the **first** attempt with no failed tactic step.
+
+* **`CSubst.WFD.mono`** (new, in §C beside `CSubst.WF.wfd`) — `WFD` is monotone in its *target*
+  environment along `VEnv.LE`.  10 lines.  `[propext]` only.
+* **§I.1** — `ntreeF₃_ordered`, `ntreeF₃_list/_nil/_cons/_ntree/_node` (weakenings of the §D.4
+  lookups along `addConstList_le hF₃`), and the two new ones: **`ntreeF₃_rec`** (`NTree.rec` at the
+  *restored* type) and **`ntreeF₃_rec1`** (`NTree.rec_1`, `rNestedRecVal`'s `hrec1`).
+* **§I.2 `ntree_csubst_WFD₃ : (ntreeRestore.csubst ntreeAux ntreeK).WFD E₃ F₃ 2`** — obligation
+  (C)'s environment hypothesis at the canonical parameterised block, where
+  `ntree_csubst_WF₃_false` refutes the strict `CSubst.WF`.
+* **§I.3 `ntree_stage₃_exists`** and **`ntreeAux_WFD₃_exists`** — the third staging pair exists, so
+  §I.2 is **not hypothetical**: `WFD₃` holds with nothing assumed.
+
+`#print axioms`: `CSubst.WFD.mono` `[propext]`; `ntreeF₃_rec`, `ntreeF₃_rec1`,
+`ntree_stage₃_exists` `[propext, Quot.sound]`; `ntree_csubst_WFD₃`, `ntreeF₃_ordered`,
+`ntreeAux_WFD₃_exists` `[propext, Classical.choice, Quot.sound]` — the `Classical.choice` inherited
+from `listEnv_ordered`/`ntree_csubst_WFD₂`/`ntreeAux_recConstsR_wf`, all measured as carrying it
+already in §30/§33.5.  `grep -c sorry` in `ConstSubstNested.lean` = **0**.  Per-module build after
+each landing: **64 jobs, green**, the only warning the pre-existing unused-section-variable one at
+`:1164`.
+
+### 35.1 The costing, corrected — and the reason matters more than the number
+
+§33.10 priced this as *"~150 lines, no new mathematics … §D.5's bookkeeping re-done one
+`addConstList` layer up"*, with the honest warning that three of the previous four such estimates
+were wrong.  **Measured: the §I section is 105 lines of which `ntree_csubst_WFD₃` itself is 55**,
+plus 10 for `CSubst.WFD.mono` and 55 for §I.3's existence proof (which §33.10 named as extra work
+and I have also done).  So the *theorem* came in at about a third of the estimate.
+
+But the interesting part is **why**, and it is not "the estimate was padded": §33.10's plan —
+re-do §D.5's case analysis one layer up — would indeed have cost ~150 lines.  It is the wrong plan.
+`CSubst.WFD.mono` carries **the whole of `ntree_csubst_WFD₂`** from `F₂` to `F₃`, so every constant
+and every value stage 2 already handled is *reused verbatim*, and the stage-3 proof only has to
+name the cases that are genuinely new.  There are exactly **two**:
+
+| new case | witness | why it is new |
+|---|---|---|
+| `const` at `NTree.rec` | §H.3 `rRecConstClause0` (defeq disjunct) | `E₃` is the first environment holding `NTree.rec` |
+| `val` at `_nested.List_1.rec` | §H.4 `rNestedRecVal` | at stage 2 this case is `exfalso`; `E₃` declares it |
+
+Everything else routes through `hσ₂ := (ntree_csubst_WFD₂ …).mono (VEnv.addConstList_le hF₃)`.
+**This is the same lesson as §33.4 in a new place**: the generalisation ("the same `WFD` one layer
+up") is a *transport*, not a re-proof — and the transport had to be written (10 lines), but writing
+it collapsed the job.  Fourth occurrence in this project of *"the generalisation is a lemma you
+already have, or a ten-line lemma you don't"*.  **Guard, sharpened:** before re-doing a staged proof
+one layer up, ask whether the hypothesis is monotone in the layer being added; if it is, the delta
+is only the constants the layer *declares*.
+
+### 35.2 Anti-vacuity for §I, to the standard the brief set
+
+* **`ntree_csubst_WFD₃` carries genuine conversion content.**  Not asserted: its `const` clause at
+  `NTree.rec` takes the **defeq** disjunct, and the strict alternative is refuted by
+  `decide` (`ntree_recTypeR_bridge_false_0`, §E.5).  Its `val` clause at `_nested.List_1.rec` is a
+  `defeqDF` along §H.3 (`rNestedRecVal`), not a `CSubst.val_of_hasType`.  And the whole statement is
+  unavailable in strict form: `ntree_csubst_WF₃_false` refutes `σ.WF E₃ F₃ U` for every `U`.
+* **The weakening count the brief demands.**  §33.6 reported **one** proved instance using `WFD`'s
+  new freedom (`WFD₂`'s `const` at `NTree.node`) and predicted §H.3 would add a second when `WFD₃`
+  was built.  Measured now: **exactly two**, `NTree.node` (inherited through `.mono`) and
+  `NTree.rec` (new).  Every other constant in both instances takes the strict `.inl` disjunct.  So
+  `WFD` is still not a weakening everything suddenly satisfies.
+* **`CSubst.WFD.mono` is pure transport — reported as such, not as content.**  Its only non-trivial
+  line is `VEnv.IsDefEq.mono` on the `const` clause's defeq disjunct.
+* **`ntree_stage₃_exists` is a typing/bookkeeping result, not a conversion** — reported as such.
+  Its value is anti-vacuity: without it `WFD₃` would be "hole-free but not discharged".
+
+## 36. Obligation (C) at `ntreeAux`: reduced to `hdata` alone, and `hdata` is much smaller than §33.5 read
+
+### 36.1 `ntreeAux_obligationC_of_hdata` — eight of nine hypotheses discharged
+
+`NestedTele.lean` §T16.13.  `VEnv.iotaRulesRS_wf_of_hargsD` has nine hypotheses; with §I's `WFD₃`
+in hand, **eight are now theorems at `ntreeAux`** and the residual is exactly `hdata`:
+
+| hypothesis | discharged by |
+|---|---|
+| `hown` | `ntreeRestore_ownId` (`NestedHead.lean`) |
+| `hat` | **new**: `ntreeRestore_domSep.substAt`, via `ntreeRestore_domNodup` + `ntreeAux_allNames_nodup` (both `decide`) |
+| `hfr` | `ntreeRestore_substFree` (`NestedRules.lean` §7) |
+| `hσc` | `ntree_csubst_closed` |
+| **`hσ`** | **`ntree_csubst_WFD₃` (§I) — this is what was missing** |
+| `hI` | `(ntreeAux_WF h).iotaCtx (listEnv_ordered h) hE₁ hE₂ hE₃` |
+| `henv` | `ntreeF₃_ordered` (§I.1) |
+| `hpos` | **new**: `ntreeAux_recArg_lt` |
+| `hdata` | **OPEN** — three `IotaHargs`, one per constructor |
+
+`#print axioms`: `ntreeAux_obligationC_of_hdata` `[propext, Classical.choice, Quot.sound]`;
+`ntreeRestore_domSep` `[propext, Quot.sound]`; `ntreeAux_recArg_lt` `[propext]`.  Per-module build
+`lake build Lean4Lean.Theory.Inductive.NestedTele` → **69 jobs, green**.  `grep -c sorry` = 0 in both
+files.
+
+**One failure to record, with the step it failed at.** `hpos` stated as written in
+`iotaRulesRS_wf_of_hargsD` — `∀ (t : Nat) (C : VIndCtor), (t, C) ∈ D.ctorsAll → ∀ (i : Nat) …` —
+is **not `decide`-able**: *"failed to synthesize `Decidable`"*, because `t` and `i` are unbounded
+`Nat`s even though every witness that matters is bounded.  Fix: prove the list-quantified form
+`∀ p ∈ ntreeAux.ctorsAll, ∀ Fl ∈ p.2.fields, ∀ r ∈ Fl.recArg, r.idx < ntreeAux.nm` by `decide` (all
+three quantifiers are `List`/`Option` membership, hence decidable) and derive the `getElem?` form
+through `List.mem_of_getElem?`.  **Guard:** a `decide`-shaped side condition in a general lemma may
+need re-indexing over list membership before `decide` will look at it; the obstruction is the
+*quantifier's domain*, not the proposition.
+
+### 36.2 §J: `htele` PROVED at all three rules — and the ι-context is §E's telescope
+
+`ConstSubstNested.lean` §J, 15 declarations, all green, all `[propext, Quot.sound]`.  Measured with
+`#eval` first, then each equation landed as a `decide`:
+
+| rule | ι-ctx length | entries that move | substituted entry sizes (L → R) |
+|---|---|---|---|
+| `NTree.node` | 8 | **5** | `[1,5,11,25,11,37,1,9]` → `[1,5,7,21,7,29,1,5]` |
+| `_nested.List_1.nil` | 6 | **4** | `[1,5,11,25,11,37]` → `[1,5,7,21,7,29]` |
+| `_nested.List_1.cons` | 8 | **5** | `[1,5,11,25,11,37,3,9]` → `[1,5,7,21,7,29,3,5]` |
+
+The **first six entries of all three ι-contexts are literally `rTele`/`rTeleR`**, and at the nil rule
+the ι-context *is* §E's recursor telescope on the nose:
+
+    rIotaCtx_nil_eq  : (ntreeAux.iotaCtx nlistNil).map (·.substC σ)                = rTele    -- decide
+    rIotaCtxR_nil_eq : (ntreeAux.iotaCtxR ntreeRestore nlistNil).map (·.substC σ)  = rTeleR   -- decide
+
+`node`/`cons` add two entries each; the first does not move, the second is **one `rbetaL` step at
+`k = 6`** — the same lemma §E already has.  So:
+
+* **`rTeleDefEq_ext`** — `rTeleDefEq` with its `.nil` replaced by an arbitrary tail (the shared
+  six-entry prefix, proved once);
+* **`rIotaTele_nil`, `rIotaTele_node`, `rIotaTele_cons`** — `htele` at each of the three ι-rules.
+
+All three went in on the first attempt.
+
+### 36.3 The correction to §33.5 that matters: **one of `hdata`'s pieces is FREE**
+
+§33.5 measured *"all nine (C) components move — `decide`"* and §33.6 concluded *"none of the nine is
+free"*.  That is true **of route 2's nine** (`type`/`lhs`/`rhs` per rule, `ntree_iota_components_ne`).
+It is **false of route 1's**, and I measured the counterexample:
+
+    rMaj_node_eq : (ntreeAux.ctorApp' ntreeNode …).substC σ = (ntreeAux.ctorAppR ntreeRestore 0 ntreeNode …).substC σ   -- decide
+
+**`hmaj` at `NTree.node` is the identity** — the block's own constructor, where the restoration is
+`ntreeRestore_ownId`; it still needs the constructor application's *typing*, but no conversion.  At
+both companion constructors it does move (`rMaj_nil_ne`, `rMaj_cons_ne`, `decide`; esize 9→5 and
+13→9).  **Reported as the negative result the brief asks for**, and it is the third instance in this
+corner of the pattern *"at the block's own member the restoration is the identity"* (`rBody0_eq` for
+(B) at `j = 0`, `mr_auxFieldTypesR_eq_fields` at a redex field, this one for (C)'s major premise).
+
+**So my predecessor's "(C) is ~3× (B) and none of it is free" is right about route 2 and wrong about
+route 1**, and the difference is not marginal: route 1's `htele` is §E plus one β step per rule, and
+one of its three `hmaj`s is `decide`-free.  *Guard:* a size measurement of a bundled component
+(`type`/`lhs`/`rhs` of a whole rule) does **not** transfer to a decomposition of the same content —
+`IotaHargs` prices per telescope entry, and the discount lives in the entries.
+
+## 37. OBLIGATION (C) IS DISCHARGED at `ntreeAux` — and with it `Ordered` at a parameterised nested block
+
+This went further than the brief asked, because the measurement in §36.2/§36.3 said it could.
+
+### 37.1 The three residual triples are §E's β-steps and nothing else (`NestedTele.lean` §T16.15)
+
+Measured with `#eval` *before* proving (the numbers are in §37.3), and the measurement is the whole
+content.  At each rule the substituted `tyApp'` is the **redex** `(λ α, List (NTree α)) #k` and the
+substituted `ctorApp'` is the same redex at `List.nil`/`List.cons`, while the restored `ctorAppR` is
+its **contraction**.  So, choosing `A₀` to be the *contracted* type:
+
+| piece | nil | cons | node |
+|---|---|---|---|
+| `hfunM` | one `Lookup` (index 3) | one `Lookup` (index 5) | one `Lookup` (index 6) |
+| `hconv` | `(rbetaL … k:=5).symm` | `(rbetaL … k:=7).symm` | `appDF (rNC hN) (bvar …)` |
+| `hmaj` | **`rbetaNil … k:=5`**, verbatim | `appDF (appDF (rbetaCons … k:=7) …) (defeqDF (rbetaL …) …)` | `appDF³ (rNodeC hnode) …` — *no conversion*, `rMaj_node_eq` |
+
+`rIotaRest_nil`, `rIotaRest_cons`, `rIotaRest_node`: **3, 5 and 5 lines of proof term**.  Every β-step
+is one of §E's three; nothing new was proved about conversion.
+
+A free measurement fell out of tightening the `include` lists (Lean's unused-section-variable warning
+is the instrument): each rule needs **exactly the constants its own β-step mentions** — nil needs
+`hL`/`hN`/`hnil`, cons needs `hL`/`hN`/`hcons`, node needs `hL`/`hN`/`hnode`, and none needs the other
+two.  That is a check on the decomposition being the right one: if a rule had needed a constant from
+another rule's minor, the split would have been leaking.  Both files now emit **no new warnings** (the
+only one left in either is the pre-existing unused-section-variable at `ConstSubstNested.lean:1164`).
+
+### 37.2 The composition, all the way up
+
+* **`ntreeAux_iotaRulesRS_wf`** — `∀ df ∈ ntreeAux.iotaRulesRS ntreeRestore ntreeK, VDefEq.WF F₃ df`:
+  **obligation (C), discharged at the canonical parameterised nested block**, the `np ≥ 1`
+  counterpart of `nfnAux_iotaRulesR_wf`.
+* **`ntreeAux_obligationC`** — the same with **nothing assumed** (staging supplied by
+  `ntree_stage₃_exists`), the (C) counterpart of `ntreeAux_obligationA`/`_obligationB`.
+* **`ntreeAux_stages`** — the E-chain exists for any `env₁` holding `List` (modelled on
+  `nfnAux_stages`).
+* **`ntreeAux_addInductR_ordered`** —
+
+      ∃ env₁ env', VEnv.empty.addInduct' listDecl = some env₁ ∧
+        env₁.addInductR ntreeAux ntreeK ntreeRestore = some env' ∧ env'.Ordered
+
+  **the nested declaration step preserves `VEnv.Ordered` at a PARAMETERISED nested block.**  All
+  three of `VEnv.addInductR_ordered'`'s obligations are now theorems at `ntreeAux`: `hctors` =
+  `ntreeAux_ctorConstsCR_wf` (A), `hrecs` = `ntreeAux_recConstsR_wf` (B), `hrules` =
+  `ntreeAux_iotaRulesRS_wf` (C).  Until this round the only block with all three was `nfnAux`, at
+  `np = 0`.
+
+`#print axioms` on all nine new declarations of §T16.15/§T16.16: `[propext, Quot.sound]` for the three
+`rIotaRest`s and `ntreeAux_hdata_of_rest`; `[propext, Classical.choice, Quot.sound]` for
+`ntreeAux_obligationC_of_rest`, `ntreeAux_iotaRulesRS_wf`, `ntreeAux_obligationC`, `ntreeAux_stages`
+and **`ntreeAux_addInductR_ordered`**.  **No `sorryAx`, no frozen axiom, none traded** — the
+`Classical.choice` is the same inherited one measured in §30/§33.5 (`listEnv_ordered`,
+`ntree_csubst_WFD₂`, `ntreeAux_recConstsR_wf`).  `grep -c sorry` = **0** in both files I touched.
+
+### 37.3 Anti-vacuity for (C), to the standard the brief set
+
+* **The block really is parameterised and really is nested**: `ntreeAux_np : ntreeAux.np = 1`
+  (`decide`, pre-existing) and `ntree_csubstList_dom` gives a **four-name** substitution domain, so
+  `K ≠ []`.
+* **(C) has genuine conversion content at this block, established by `decide`, not asserted**: the
+  strict bridge is refuted (`ntree_iotaRules_bridge_false`), all nine route-2 components move
+  (`ntree_iota_components_ne`), five of eight ι-context entries move at node/cons and four of six at
+  nil (§J), and the substitution's own `const` clause needs the defeq disjunct
+  (`ntree_recTypeR_bridge_false_0`) while the strict `CSubst.WF` is outright false at the pair
+  (`ntree_csubst_WF₃_false`).  There are exactly **three** identity pieces in the whole of (C), all
+  three measured and reported: `hmaj` at `NTree.node` (`rMaj_node_eq`) and the two non-moving
+  telescope prefix entries `rA0`/`rA1`.
+* **`ntreeAux_addInductR_ordered` is hypothesis-free** — an existential with constructed witnesses,
+  not a conditional.  It is not an "identity instance": `nfnAux_addInductR_ordered` is the `np = 0`
+  case and its (C) went through `CSubst.WF` (`nfnSubstAll_WF₃`), which is **provably unavailable**
+  here.
+* **The `WFD` weakening count, final for this round**: `WFD` is used in **two** proved instances
+  (`ntree_csubst_WFD₂`, `ntree_csubst_WFD₃`) and the new freedom is taken at exactly **two**
+  constants — `NTree.node` and `NTree.rec`.  Every other constant in both takes the strict `.inl`
+  disjunct.  So the brief's "a weakening everything suddenly satisfies is suspect" check still
+  passes.
+
+## 38. What I tried that failed, and the exact step it failed at
+
+1. **`hor.imp id …`** in `CSubst.WFD.mono` — *"Application type mismatch: the argument `id` has type
+   `CSubst`"*.  Inside `namespace CSubst` the identifier `id` resolves to **`CSubst.id`**, not
+   `_root_.id`.  Fixed with `(fun x => x)`.  Cheap, but worth a line: inside a namespace that has its
+   own `id`/`comp`/`map`, the `Or.imp id` idiom silently retargets.
+2. **`hpos` by `decide`** — *"failed to synthesize `Decidable`"*.  `iotaRulesRS_wf_of_hargsD`'s `hpos`
+   quantifies `∀ (t : Nat) … ∀ (i : Nat) …`; both are unbounded even though only finitely many
+   witnesses exist.  Fixed by proving the list/option-membership form
+   (`∀ p ∈ ntreeAux.ctorsAll, ∀ Fl ∈ p.2.fields, ∀ r ∈ Fl.recArg, …`) by `decide` and transporting
+   with `List.mem_of_getElem?`.  See §36.1.
+3. **`?hk7` inside `exact`** — *"don't know how to synthesize placeholder"* + *"Case tag `hk7` not
+   found"*.  Named holes only survive `refine`; under `exact` they are ordinary placeholders.  Fixed
+   by inlining the seven-`succ` `Lookup` term at each of its three occurrences.
+4. **Inserting a theorem after a section's `end`** — 30 *"Unknown identifier `h`"* errors in one
+   build.  My own scripted edit put `ntreeAux_iotaRulesRS_wf` (which needs the section variables)
+   after the `end` that closes them.  Mechanical, but it is the failure mode of scripted insertion
+   into a 4000-line file: **anchor on the last line of the block you mean to extend, not on the
+   `end`.**
+5. **`#eval` with `(L.zip R).filter fun p => p.1 != p.2`** — *"Invalid projection: type of `p` is not
+   known"*, three times running, including with an explicit `(p : VExpr × VExpr)` ascription.  Used
+   `L.zipWith (fun a b => a != b) R` instead.  A measurement instrument that will not elaborate is
+   the same hazard as one that lies (row 133); the fix was to change idiom, not to force it.
+6. **Not attempted, deliberately**: `Built.fields_noK` (out of scope, row 117c — sixth round
+   untouched); `MP`'s (B)/(C) (out of scope per the brief; §33.8's verdict stands — it needs
+   `VInductDecl'.WF (mpAux mpAuxNodeB)`, and I did not touch it); any implementation or frozen file;
+   `Theory/SetModel/*`; `Theory/Typing/*` other than `ConstSubstNested.lean`;
+   `Experimental/ConeJoin.lean`.  I also did **not** edit the untracked
+   `Theory/Inductive/NestedRules.lean` even though it is in my area and I used its lemmas
+   (`ntreeRestore_substFree`, `VIndRestore.domSep_of_allNames_nodup`) — it is uncommitted work whose
+   author I cannot identify, so I put `ntreeRestore_domNodup`/`_domSep` in `NestedTele.lean` instead
+   of beside `nfnRestore_domSep` where they belong.  **Someone should commit or delete that file**;
+   it is 1923 green lines that no commit contains.
+
+## 39. Ledger rows this round needs (I did **not** edit `docs/vacuity-ledger.md`)
+
+1. **(C) IS DISCHARGED at a parameterised nested block**, and so is `Ordered`:
+   `ntreeAux_iotaRulesRS_wf`, `ntreeAux_obligationC` (nothing assumed),
+   `ntreeAux_addInductR_ordered`.  Non-vacuity evidence in §37.3 — three identity pieces out of the
+   whole of (C), all three named and `decide`-established.
+2. **A row correcting §33.5/§33.6 in the optimistic direction.**  *"All nine components move, none
+   is free, (C) is ~3× (B)"* is true of **route 2**'s nine (whole-rule `type`/`lhs`/`rhs`) and
+   **false of route 1**'s.  Route 1's `htele` is §E's `rTeleDefEq` plus one β step per rule (the nil
+   rule's ι-context **is** `rTele`, `decide`), and `hmaj` at `NTree.node` is the **identity**
+   (`rMaj_node_eq`).  *Guard:* a size/movement measurement of a **bundled** component does not
+   transfer to a **decomposition** of the same content; measure the decomposition you intend to use.
+3. **A row for the monotonicity mis-plan** (§35.1): §33.10 priced `WFD₃` as "§D.5's bookkeeping one
+   `addConstList` layer up, ~150 lines".  The theorem is **55 lines** because `CSubst.WFD.mono` (10
+   lines) carries stage 2 wholesale and only the constants the layer *declares* are new — two of
+   them.  *Guard:* before re-doing a staged proof one layer up, ask whether the hypothesis is
+   **monotone in the layer**; if it is, the delta is only what the layer declares.  Fourth
+   occurrence of "the generalisation is a transport you already have (or a ten-line lemma you
+   don't)".
+4. **A row for `decide`'s quantifier domain** (§38 item 2): a finite-in-practice side condition
+   stated over `∀ (n : Nat)` is not `Decidable`; re-index it over `List`/`Option` membership first.
+   This is a *different* failure from row 131f (tool unavailable) and row 133 (tool lying): the tool
+   works and is honest, the *statement* is in the wrong shape.
+5. **A row for the namespace-shadowed combinator** (§38 item 1): `Or.imp id` inside
+   `namespace CSubst` picks up `CSubst.id`.  Pairs with §33.7 item 2 (a helper invisible to dot
+   notation because it is inside `namespace Lean4Lean`): **name resolution in this tree has bitten
+   two rounds running, in opposite directions.**
+6. **A row for the uncommitted file** (§38 item 6): `Theory/Inductive/NestedRules.lean` is 1923
+   green lines, untracked, and load-bearing — `NestedTele.lean` imports it and this round's (C)
+   depends on its `ntreeRestore_substFree` and `domSep_of_allNames_nodup`.  A `git clean` would
+   delete obligation (C).  This is the same class as row for the salvage commit (§33.9 item 2): work
+   that exists but that the repository does not record.
+7. **A row for the verification gap** (row 135d's rule, fourth round): **per-module builds only**, as
+   briefed — `ConstSubstNested` (64 jobs), `NestedTele` (69 jobs), `StoredIota` (71 jobs), all green.
+   No tree-wide build, no guards, no `sorry-census`, no `dup-names`, no `MemberRedexScan`.  Grounds
+   for expecting them unmoved, stated as **reasoning, not measurement**: `grep -c sorry` = 0 in both
+   files, no axiom and no import added, no implementation or frozen file touched, `ConeJoin.lean`
+   untouched, and I checked all nine new top-level names for tree-wide collisions (`grep`, one
+   occurrence each).  HEAD did **not** move under me this round (`6a570b1` throughout).
+
+## 40. What I would pick up first
+
+1. **Commit or delete `Theory/Inductive/NestedRules.lean`** (§38 item 6).  Cheapest highest-risk item
+   in the tree right now: obligation (C) at `ntreeAux` depends on an untracked file.
+2. **The same programme at the *redex* block `MP`** — but §33.8's verdict is unchanged and I did not
+   touch it: what `MP` needs is `VInductDecl'.WF (mpAux mpAuxNodeB)`, a block well-formedness proof
+   at a non-canonical block, not more substitution machinery.  Everything §I–§T16.16 did at
+   `ntreeAux` is now a template for it once that exists.
+3. **Ask the human the `CSubst.WF` question** — unchanged from §33.10 item 3 and now sharper: with
+   `WFD₂` **and** `WFD₃` proved and `CSubst.WF` **refuted** at both staging pairs, nothing in the
+   tree needs the strict `const` clause, and `CSubst.WF.wfd` shows the `np = 0` witnesses survive.
+   Should `CSubst.WF` simply *be* `WFD`?  That is a `Theory/Typing/ConstSubst.lean` edit — another
+   stream's file — and the count of `WFD`-mentioning signatures is now ~35 across two files.
+4. **A second parameterised block**, to test whether §T16.15's "the residual is `rbetaL`/`rbetaNil`/
+   `rbetaCons` and one `Lookup`" is about nested restoration in general or about `NTree`/`List` in
+   particular.  My honest read: the *shape* generalises (the substituted `tyApp'`/`ctorApp'` are
+   always redexes and the restored ones always their contractions — that is what `SubstAt` says), and
+   the per-block cost is one β-lemma per companion constructor.  **Stated as a conjecture, not a
+   measurement.**
+5. **Re-run the tree-wide suite** once `Theory/SetModel/*` settles (§30 lists the commands).  Do not
+   take §39 item 7's reasoning on trust.
+6. **`Built.fields_noK`** — still out of scope, sixth round untouched (row 117c).
