@@ -2537,3 +2537,348 @@ fact.  `lean_references` was **not** needed this round (no call-site counting).
 **`propTypeAgree_appCase_on_of`** (already a theorem in HEAD, 15.1), **`recType_isType` as a
 source of the recursor's sort** (it withholds it, 15.4 item 1), and **`iffIndDecl`'s `= 0` slice
 as a free case** (refuted, 15.3).
+
+---
+
+## 16. Session of 2026-09-02 (ninth): `eqIndDecl` — the transfer signal **holds**, the `≠ 0` exclusion acquires a hypothesis that is both **satisfiable and necessary**, and §15's own anti-vacuity table has a gap
+
+*Written incrementally, in the order the work happened.*
+
+### 16.0 The `#print axioms`-first check, run before proving anything
+
+Thirteen names, resolved **by namespace**.  All thirteen present and as described — this brief is
+**not** a fourth instance of row 144d/146e.
+
+| brief's name | real name | axioms |
+|---|---|---|
+| `inductOracleOK_NE` | `SetModel.NEAudit.inductOracleOK_NE` | `[propext, Classical.choice, Quot.sound]` |
+| `recFnL` | `SetModel.UnitAudit.recFnL` | same |
+| `pt_not_mem_interp_iffRecType_of_ne` | `SetModel.IffAudit.…` | same |
+| `level_branch_forced` | `SetModel.IffAudit.…` | same |
+| `iffEnv_le_preludeEnv`, `hasType_iffRecType`, `isProp_iffRecType_iff` | `SetModel.IffAudit.…` | `[propext, Quot.sound]` |
+| `RegularAtSucc`, `regularAtSucc_of` | `SetModel.RegPiAudit.…` | `[propext]` / `[propext, Quot.sound]` |
+| `recType_isType` | `Lean4Lean.VInductDecl'.recType_isType` | `[propext, Quot.sound]` |
+| `mkLam_mem_mkForallType_of_dom`, `pt_not_mem_mkForallType_of_nonempty` | `SetModel.UnitAudit.…` | `[propext, Classical.choice, Quot.sound]` |
+| `nonemptyEnv_le_preludeEnv` | `SetModel.NEAudit.…` | `[propext, Quot.sound]` |
+
+**And the naming trap struck again, this time inside §15 itself.**  §15.3 and §15.6 cite
+`PreludeSpec.iffFn_value` and `PreludeSpec.propext_of_mem_UProp`.  `PreludeSpec.lean` declares
+into `Lean4Lean.SetModel`, **not** `Lean4Lean.SetModel.PreludeSpec`, so both spellings fail with
+*unknown constant*.  The real names are `SetModel.iffFn_value`, `SetModel.eqFn_value`,
+`SetModel.propext_of_mem_UProp` — **verified by `#check`**.  Row 146e recorded this trap as the
+orchestrator's; it is the *handoff's* too, and the next stream will hit it at the exact lemma the
+`= 0` slice needs.
+
+### 16.1 What landed
+
+New file `Lean4Lean/Theory/SetModel/EqOracle.lean` (879 lines, **116 declarations**, **0
+`sorry`**, namespace `Lean4Lean.SetModel.EqAudit`, fresh — `grep` over the tree finds no other
+occurrence), **imported by `Theory/Equiconsistency.lean`** on the same edit that created it, so it
+was never orphaned (rows 128b / 133c / 142e — fifth round running).
+
+`InductOracleOK` at `eqIndDecl` is **not** closed.  What is closed is the level branch, the
+typing telescope it rests on, and — new relative to `iffIndDecl` — a **bracketed** account of the
+one hypothesis this block adds.
+
+```lean
+-- §3.  The telescope, with the sort EXPLICIT, at BOTH recursor universes (`recUvars = 2`).
+theorem hasType_eqRecType (hu : u.WF nv) (hv : v.WF nv) (Γ) :
+    eqEnv.HasType nv Γ ((eqIndDecl.recType 0).instL [u, v]) (.sort (eqRecSort u v))
+-- §4.  Six `imax`es.  `v` NEVER occupies a codomain position — the transfer signal, tested.
+theorem eqRecSort_eval_eq_zero_iff : (eqRecSort u v).eval ls = 0 ↔ u.eval ls = 0
+theorem eqRecSort_eval_eq_zero_iff_of_ne_zero (_hv : v.eval ls ≠ 0) : …   -- the control
+theorem exists_four_corners : ∀ bu bv : Bool, ∃ u v, …                    -- the two levels are independent
+-- §5.  One new `VDecl.WF.le` step; `eqEnv` is the FIRST environment of `leanPrelude.reverse`.
+theorem eqEnv_le_iffEnv : eqEnv ≤ iffEnv
+theorem eqEnv_le_preludeEnv : eqEnv ≤ preludeEnv
+-- §6.  The model consequence.
+theorem isProp_eqRecType_iff : L.IsProp M Γ ((eqIndDecl.recType 0).instL [u,v]) ↔ u.eval M.ls = 0
+theorem pt_not_mem_interp_eqRecType_of_ne (hn : u.eval M.ls ≠ 0) (hx : x ∈ U M.κ (v.eval M.ls)) :
+    (pt : V) ∉ (interp M L [] ((eqIndDecl.recType 0).instL [u, v])).toFun ∅
+theorem eq_pt_of_mem_interp_eqRecType_of_zero (h0 : u.eval M.ls = 0) (hw : w ∈ ⟦…⟧) : w = pt
+theorem level_branch_forced …
+theorem no_level_uniform_value …          -- §6.6, the form with no member hypothesis
+-- §6.4 / §6.5 / §6.5b.  The new hypothesis, bracketed.
+theorem exists_mem_U_of_eq_zero / exists_mem_U_of_chain / exists_mem_U_omegaChain
+theorem pt_mem_interp_eqRecType_of_empty_dom …        -- the exclusion is FALSE without `hx`
+theorem vsetV_empty : vsetV (∅ : V) = ∅
+theorem pt_mem_interp_eqRecType_at_zeroChain …        -- …at an EXHIBITED `κ`
+theorem exists_mem_interp_eqRecType_zero_iff …        -- §6.6, the gap in §15.5's table
+-- §7.  Block facts, all `rfl`.
+theorem eq_allConsts / eq_iotaRules_length / eqRefl_fields / iffIntro_fields_length
+theorem hasType_EqReflType / reflSort_eval_eq_zero    -- `Eq.refl`'s type IS a proposition
+theorem hasType_EqType / eqTyFormerSort_eval_zero     -- `Eq`'s type former is NOT
+```
+
+### 16.2 **The transfer signal HOLDS** — and it is a theorem, not a reading
+
+§15.3's positive signal (repeated in the brief) was: the collapse at `iffIndDecl` is **`imax`'s**
+(`imax _ 0 = 0`), not `Prop`'s, so `eqIndDecl`'s `Type`-valued parameter should behave the same.
+
+**Confirmed, and it is stronger than predicted.**  `eqRecSort_eval_eq_zero_iff`'s right-hand side
+**does not mention `v` at all**; the six-step proof is six `imax_eq_zero_iff`s in which `v`
+appears only ever as a *domain*.  I checked it where it could have failed rather than only where
+it was convenient:
+
+* `eqRecSort_eval_eq_zero_iff_of_ne_zero` instantiates at a `v` with `v.eval ls ≠ 0` — a
+  genuinely `Type`-valued parameter — and the branch is unchanged;
+* `exists_four_corners` shows the two universes are **independent**, i.e. all four
+  `(u = 0?, v = 0?)` corners are populated, so the previous control is not covering a corner that
+  does not exist.
+
+This is the first prediction in this corner that was made about a block *before* the block was
+touched and then held.  It is worth saying plainly because §10.9's other prediction did not
+(row 146b) and §10.4's pricing did not either (16.5 below).
+
+### 16.3 The prediction that cost something, and I brought back more than was asked
+
+The brief also predicted: *"the `≠ 0` exclusion will need the nonemptiness of `U κ (v.eval ls)`
+rather than of `U κ 0`."*  **Right.**  `pt_not_mem_interp_eqRecType_of_ne` carries
+`hx : x ∈ U M.κ (v.eval M.ls)`.  That puts this block **third** on a three-point scale nobody had
+drawn:
+
+| block | what the `≠ 0` exclusion needs | why |
+|---|---|---|
+| `iffIndDecl` | **nothing** | outermost binder is a parameter over `Prop`; `∅ ∈ U κ 0` always |
+| `eqIndDecl` | an inhabitant of the **parameter** space | outermost binder is `α : Sort v`; `U κ (i+1) = vsetV (κ i)` can be empty |
+| `unitDeclLE` | an inhabitant of the **motive** space | no parameters at all; the motive is the outermost binder |
+
+So `eqIndDecl` is strictly *between* the two, not simply "harder", and the motive-space
+hypothesis `UnitOracleLarge` needs is the strongest of the three (the motive space is a function
+space over the parameter space).
+
+**What was not asked for, and is the part I would keep:** the hypothesis is *bracketed on both
+sides*, machine-checked.
+
+* **Satisfiable, three ways.**  `exists_mem_U_of_eq_zero` (free at `v.eval ls = 0` — recovers
+  `iffIndDecl`'s situation as a special case); `exists_mem_U_of_chain` (free under
+  `IsInaccessibleChain n κ` with `v.eval ls ≤ n`, which is the hypothesis
+  `CnstRecursion.leanTTConsistent_of` already carries, so it is **not a new assumption**);
+  `exists_mem_U_omegaChain` (free at *every* index at `omegaChain V`, which is a chain of every
+  finite length).
+* **Necessary, at an exhibited `κ`.**  `pt_mem_interp_eqRecType_of_empty_dom` proves that with
+  `U M.κ (v.eval M.ls) = ∅` the conclusion of the exclusion is **false** — `mkForallType` over an
+  empty domain is `{∅}`, the empty function, so `•` is a member.  And the configuration is
+  reached, not hypothetical: `vsetV_empty` (`vsetV ∅ = ∅`, four lines) gives
+  `U zeroChain (i+1) = ∅`, and `pt_mem_interp_eqRecType_at_zeroChain` instantiates the refutation
+  at `v := .succ .zero`, `κ := zeroChain` — the same junk chain `AboveAudit.above_false_zeroChain`
+  uses.  `U_zero_nonempty` shows `1` really is the least index where this can happen.
+
+That is the shape row 146c asked for, run in the direction nobody runs it: not "is the hypothesis
+satisfiable" but "**is the hypothesis doing anything**".  Here it is, and both answers are yes.
+
+### 16.4 **A gap in §15.5's own anti-vacuity table**, and it is not cosmetic
+
+`IffAudit.level_branch_forced` takes `hv₀ : v ∈ ⟦iffRecType.instL [u₀]⟧`.  §15.5's table lists
+that theorem's open hypotheses as *"the same [as `isProp_iffRecType_iff`'s], and nothing else — in
+particular **no** motive-space inhabitant"*.  **`hv₀` is not in that list, and its satisfiability
+is not known.**  The "both slices non-empty" control quoted alongside
+(`exists_eq_zero_level` / `exists_ne_zero_level`) is about the two **level** slices; it says
+nothing about whether either *interpretation* has a member.
+
+And the two are not independent — they are the same question:
+
+```lean
+theorem exists_mem_interp_eqRecType_zero_iff (hu₀) (h0 : u₀.eval M.ls = 0) :
+    (∃ w : V, w ∈ ⟦eqRecType.instL [u₀, v]⟧) ↔ (pt : V) ∈ ⟦eqRecType.instL [u₀, v]⟧
+```
+
+i.e. **the member hypothesis is satisfiable exactly when the `= 0` slice — the obligation both
+files record as OPEN — is true.**  So the implication form of `level_branch_forced`, at *both*
+blocks, is conditional on an undischarged obligation.  By this project's own standard that is
+"unmeasured", not "no hypothesis but the usual".
+
+*The content survives; only the packaging has to change.*  `no_level_uniform_value` states
+`¬ ∃ w, w ∈ ⟦u₀-slice⟧ ∧ w ∈ ⟦u₁-slice⟧` — a **negation**, unconditional in the candidate value,
+and it does not evaporate if a slice turns out empty.  That is the form to quote, and the same
+restatement should be made at `iffIndDecl`; it is three lines there.  I did **not** edit
+`IffOracle.lean` (one-lemma edit, but it is last round's file and a second stream is live), so
+this is stated-but-not-landed for `iffIndDecl` and landed for `eqIndDecl`.
+
+### 16.5 **§10.4's pricing of the two blocks is backwards**, and the reason is measurable
+
+§10.4 and §15.6 price the remaining blocks by binder count: *"`Iff` wants five layers and `Eq`
+six"*, hence `eqIndDecl` last.  For the `mkLam` **value** that is right.  For the `= 0` **slice**
+it is the wrong metric, and the right one is **constructor fields**.
+
+* `iffIndDecl`'s `= 0` slice needs, per row 146b, `Iff`'s faithfulness in both directions, the
+  hard half being the model-side `propext`.  That difficulty is **`Iff.intro`'s**, not
+  `Iff.rec`'s: `iffIntro_fields_length = 2` (measured), both fields are implications, so
+  accepting the constructor forces "`p → q` and `q → p` both inhabited ⇒ `p = q`".
+* `eqRefl_fields = []` (measured).  `Eq.refl` has **no fields** — two parameters, one result
+  index, nothing else.  There is no propext analogue to pay.  And the faithfulness datum is
+  already in the tree as an **equation**, both directions at once:
+  `SetModel.eqFn_value : α ∈ U κ i → a ∈ α → b ∈ α → (((eqFn κ i) ‘ α) ‘ a) ‘ b = if a = b then {•} else ∅`
+  (verified by `#check`; note the namespace, 16.0).  From it, `h ∈ ⟦Eq α a b⟧` forces both
+  `a = b` and `h = •`, and the minor premise supplies the value.
+
+**So `eqIndDecl`'s `= 0` slice should be the cheapest of the three remaining pieces, not the
+dearest.**  Labelled a **costing** — not attempted in Lean, per ledger §0 kind 4.
+
+### 16.6 What the nine-lemma telescope actually cost here, and the new failure mode
+
+The brief said to expect `iffIndDecl`'s nine-lemma telescope again and to say what it cost.
+**It cost about thirty lemmas, and the extra was not the sixth binder.**
+
+`iffIndDecl`'s two parameters are `.sort .zero`, i.e. **closed**.  `eqIndDecl`'s are `α : Sort v`
+and `a : α`, and every application in the telescope applies a function to a **bound variable**.
+`.appDF`'s conclusion is `B.inst a`, and `B.inst a` reduces through
+`VExpr.instVar 0 a 0 = VExpr.liftN 0 a` — and `liftN_zero` is a **theorem proved by induction on
+the expression**, not a definitional unfolding.  So `.appDF` cannot unify the domain, and every
+application step needs its equation carried.  Fix, and it is the reusable part:
+
+```lean
+theorem hasType_app' (hf : env.HasType nv Γ f (.forallE A B)) (ha : env.HasType nv Γ a A)
+    (hC : B.inst a = C) : env.HasType nv Γ (.app f a) C := hC ▸ hf.appDF ha
+```
+
+with each `hC` closed by `simp [VExpr.inst, VExpr.instVar]` or `simp [VExpr.inst, VExpr.inst_lift]`.
+**Anyone doing a block with non-closed parameters — i.e. every real inductive — will hit this.**
+It is a fifth costume of the §12.5 items 1–2 / §13.5 item 6 / §15.4 item 3 family (a
+metavariable or a non-reducing substitution in `appDF`'s type), and the first one where the fix
+generalises.
+
+### 16.7 What I tried that failed, and the step it failed at
+
+1. **`.appDF` chains stated with the reduced type directly** (the `iffIndDecl` idiom).  Failed at
+   *"`ha` has type `HasType Γ a α` but is expected to have type `IsDefEq … ((.bvar 0).inst α)`"*.
+   Diagnosis and fix: 16.6.
+2. **`simpa [VExpr.inst] using this` to bridge the gap.**  Failed twice, differently: `simp` will
+   not fire on `(VExpr.bvar 0).inst α` without `VExpr.inst` *and* `VExpr.instVar` in the simp set,
+   and when it does fire it normalises `HasType` to `IsDefEq` and then reports a mismatch against
+   an unnormalised goal.  `rw [show … = … from by simp …]` on the hypothesis works; `simpa` does
+   not.  This is worth a line because `simpa` is the reflex.
+3. **`def zeroChain (V : Type*) [SetStructure V] : ℕ → V := fun _ ↦ ∅`.**  Failed at
+   `EmptyCollection V`: `∅ : V` needs `[V↓[ℒₛₑₜ] ⊧* 𝗭]`, which `SetStructure` does not give — and
+   re-binding `V` explicitly drops the section's instance.  Fix: leave `V` implicit from the
+   section variables.
+4. **Passing `M` as `_` to `pt_mem_interp_eqRecType_of_empty_dom`.**  Two successive
+   *deterministic timeout at `whnf` / `isDefEq`* (200000 heartbeats) — unification tries to
+   reduce `interp` against a concrete `ModelData` literal.  Fix: name `M` and `v` explicitly and
+   pre-compute the `U … = ∅` side condition as a `have`.  **No heartbeat bump was needed**; the
+   timeout was a symptom of an under-determined elaboration, not of a hard problem.
+5. **`vsetV ∅ = ∅` by `eq_empty_of_forall_not_mem`.**  No such lemma here; `mem_ext_iff` plus
+   `mem_vsetV_iff_mem_Vset`, `mem_Vset_iff` and `Ordinal.lt_def` does it in five lines.
+6. **`PreludeSpec.eqFn_value` / `PreludeSpec.propext_of_mem_UProp`** — *unknown constant*, twice,
+   copied straight out of §15.  See 16.0.
+7. **Not attempted, deliberately**: the `= 0` slice (16.5 costs it and says it is next), the
+   `≠ 0` slice's six-layer `mkLam`, the ι-rule, `Eq`'s type-former value, and the three-line
+   restatement inside `IffOracle.lean` (16.4 — last round's file, second stream live).
+
+### 16.8 Measured / read / not run
+
+**[measured]**
+* `lake build Lean4Lean.Theory.SetModel.EqOracle`: green, **1205 jobs**.
+* `lake build Lean4Lean.Theory.Equiconsistency` after wiring the import: green, **1241 jobs**
+  (1240 before).  The one warning it prints is `Equiconsistency.lean:52`, **pre-existing** — my
+  diff to that file is a single `import` line.
+* `lake env lean` on `EqOracle.lean`: **zero diagnostics** — no errors, no warnings, no `sorry`
+  warning.  `grep -c sorry` on the file: **0**.
+* **`#print axioms` (via `collectAxioms`) on all 116 declarations of `Lean4Lean.SetModel.EqAudit`**:
+  36 `[]`, 20 `[propext]`, 44 `[propext, Quot.sound]`, 16
+  `[propext, Classical.choice, Quot.sound]`.  **`sorryAx` count: 0.  No frozen axiom.  No new
+  `sorry`, none traded.**
+* **Hole cones**, forward over type **and** value with `allowOpaque := true`, a walker re-seeded
+  on **all 116** declarations, run in an environment importing `EqOracle` *and*
+  `Theory.Typing.ChurchRosser` so that all four named holes are reachable.  **Presence verified in
+  the measuring environment, not assumed:**
+
+  ```
+  Lean4Lean.VEnv.IsDefEqU.forallE_inv_stratified : present = true, sorryAx-tainted = true
+  Lean4Lean.VEnv.IsDefEqU.weakN_iff              : present = true, sorryAx-tainted = true
+  Lean4Lean.VEnv.WF.rigidShapeUniqNS             : present = true, sorryAx-tainted = true
+  Lean4Lean.VEnv.NormalEq.descend                : present = true, sorryAx-tainted = true
+  seeds walked: 116;  seeds with any sorryAx-carrying member: 0
+  ```
+
+  **Note for the next stream:** `descend`'s Lean name is `Lean4Lean.VEnv.NormalEq.descend`, and
+  `ChurchRosser` must be imported or it reads `present = false` — exactly the blind-environment
+  failure the brief warns about, which I hit on the first run and fixed.
+* **Tainted controls, which fire — including transitively, not only on the seed itself:**
+  `IsDefEqU.sort_inv` (cone 3409) reports `forallE_inv_stratified`; `NormalEq.descend` (cone 3837)
+  reports three of the four.  So a zero on the 116 seeds is a measurement, not a broken walker.
+* Block shape facts by `rfl`: `eqIndDecl.recUvars = 2`, `allConsts = [Eq, Eq.refl, Eq.rec]`,
+  `iotaRules.length = 1`, `params.length = 2`, `indices = [.bvar 1]`, `eqRefl_fields = []`,
+  `iffIntro_fields_length = 2`.  `eqEnv`'s three constant lookups are `rfl`.
+* Namespace collision check: `grep -rn 'EqAudit'` over `Lean4Lean/` and `docs/` before writing —
+  **zero** prior occurrences.
+
+**Hole-free is not discharged, reported separately as instructed:**
+
+| result | holes | open hypotheses |
+|---|---|---|
+| §3's ~30 typing lemmas, `hasType_eqRecType`, `hasType_app'` | none | `u.WF nv`, `v.WF nv` only |
+| §4's seven level lemmas and three controls | none | **none** |
+| `eqEnv_le_iffEnv`, `eqEnv_le_preludeEnv` | none | **none** |
+| `isProp_eqRecType_iff`, `isProp_recBA_iff` | none | `eqEnv ≤ envF` (a theorem at `preludeEnv`), `OnCtx Γ`, and a **`PropSplit envF nv`** — inhabited at `preludeEnv` as data (`propSplitPreludeEnv`, §12) |
+| `pt_not_mem_interp_eqRecType_of_ne` | none | the same, **plus** `x ∈ U M.κ (v.eval M.ls)` — satisfiable (§6.4) and necessary (§6.5) |
+| `level_branch_forced` | none | the same, **plus** `hw₀`, whose satisfiability **is** the open `= 0` slice (§6.6) — *unmeasured*, and this is 16.4 |
+| `no_level_uniform_value` | none | the same as the exclusion; **no member hypothesis** |
+| `pt_mem_interp_eqRecType_at_zeroChain`, `vsetV_empty`, `exists_mem_U_omegaChain` | none | none beyond the ambient instances |
+
+**Anti-vacuity.**  `Above` occurs in **no statement** in the file (three mentions, all prose), so
+nothing is free at a false `IsInaccessibleChain` antecedent.  **Two `κ`s are chosen, both
+deliberately, both in controls, never in a positive bound**, and the file says so in its header:
+`omegaChain V` (a good `κ`) only to *satisfy* a hypothesis, `zeroChain` (a bad `κ`, the ledger §0
+sixth-blindness one) only to *refute* an unconditional claim.  Every statement in §§3, 4, 6.1,
+6.2, 6.3, 6.6 is at an arbitrary `κ`.  Witness environments: `eqEnv ≤ preludeEnv` is proved,
+`preludeEnv` is `VEnv.WF` (`preludeEnv_WF`) with **no `VDecl.unsafeDef`** in
+`preludeEnv_history`.  Both level slices are non-empty and the two universes are independent
+(`exists_four_corners`, four corners).  **Conclusion-freeness checked too** (row 146c's new
+shape): `exists_mem_U_omegaChain`'s conclusion `∃ x, x ∈ U κ j` is **not** free — §6.5b exhibits a
+`κ` and a `j` where it fails; and `pt_not_mem_interp_eqRecType_of_ne`'s conclusion is not free
+either, by the same witness.
+
+**[read]** off source, not run: nothing load-bearing.  16.5's costing of the `= 0` slice is
+**reasoning from two measured facts** (`eqRefl_fields = []`, `eqFn_value`'s statement), not a
+measurement of the slice; it is labelled a costing.  16.4's claim that
+`IffAudit.level_branch_forced` has the same gap is read off that theorem's *statement* (`hv₀` is
+in its binder list) plus the machine-checked `exists_mem_interp_eqRecType_zero_iff` at
+`eqIndDecl`; the corresponding lemma at `iffIndDecl` is **not** written.
+
+**[not run]** as the brief directed: the full `lake build`, guards 1–3,
+`scripts/sorry-census.lean`, `scripts/dup-names.lean`, `MemberRedexScan`, the Kernel Arena (no
+implementation file touched).  `lean_local_search` / `lean_hammer_premise` **not used** — `rg` is
+still absent (row 131f, sixth confirmation); every search claim rests on `grep`/`sed` over source,
+`#check`/`#reduce`/`collectAxioms`, `lake env lean` diagnostics, or the re-seeded cone walker.
+`lean_references` was not needed (no call-site counting this round).
+
+### 16.9 Where the brief was wrong, and where it was right
+
+| brief's assertion | verdict |
+|---|---|
+| the `imax` transfer signal should carry to `eqIndDecl`'s `Type`-valued parameter | **right, and now a theorem** (16.2), with the four-corner control |
+| the `≠ 0` exclusion will need nonemptiness of `U κ (v.eval ls)` | **right** (16.3) — and it is both satisfiable and necessary, which was not asked |
+| six binders, one index, a two-binder motive | **right**, all `rfl` (16.1, §7.1) |
+| "expect the same nine-lemma telescope and say what it cost" | **understated**: ~30 lemmas, and the extra cost is *not* the sixth binder — it is `liftN_zero` in `appDF`'s substitution (16.6), a failure mode `iffIndDecl` could not exhibit because its parameters are closed |
+| row 146b: a prediction that held for the branch says nothing about the slice | **right in direction, wrong in sign for this block** — the slice here is *cheaper*, not dearer, and 16.5 measures why |
+| §15.5's anti-vacuity is complete for `level_branch_forced` | **wrong** — `hv₀` is unlisted and unmeasured (16.4) |
+| `RegConvE env U (k+1)` / `RegularAtSucc` uninhabited | **verified present and as described**; not attacked (the graded fallback was not needed) |
+
+### 16.10 What to pick up first
+
+1. **`eqIndDecl`'s `= 0` slice — and take it *before* `iffIndDecl`'s.**  16.5 is the argument:
+   `Eq.refl` has no fields, `SetModel.eqFn_value` is already a two-directional equation, and there
+   is no `propext` to pay.  §§3–6 of `EqOracle.lean` are done and reusable.  If 16.5's costing is
+   right this is the cheapest open item in the corner; if it is wrong, finding that out is worth
+   more than another telescope.
+2. **Restate `IffAudit.level_branch_forced` as a negation** (`no_level_uniform_value`'s shape),
+   three lines, and amend §15.5's table.  Until then, do not quote that theorem as unconditional
+   (16.4).
+3. **Then `Eq.refl ↦ •`** — `hasType_EqReflType` + `reflSort_eval_eq_zero` already prove its type
+   is a proposition at every `v`, so this is the small-eliminator argument and it is the cheapest
+   remaining `consts` cell at this block, as `Iff.intro ↦ •` is at `iffIndDecl`.
+4. **`Eq`'s type former** needs a real internal function (`eqTyFormerSort_eval_zero` shows its
+   sort is `1`, not `0`) — `SetModel.eqFn` **is** the intended denotation and
+   `UnitAudit.mkLam_mem_mkForallType_of_dom` is the entry, exactly as `nonemptyFn` was at
+   `nonemptyIndDecl` (§10.1).
+5. **`RegConvE env U (k+1)` / `RegularAtSucc`** — unchanged from §15.6 item 4, still inhabited by
+   nothing, not attacked this round because `eqIndDecl` did not stall.
+6. **Carry `hasType_app'` forward** (16.6).  Any block whose parameters are not closed needs it,
+   which is all of them outside this prelude.
+
+**Do not** re-attack: everything §10.9, §11.7, §12.7, §13.7, §14.7 and §15.6 name, plus — new —
+**`eqIndDecl`'s level branch** (done, 16.2), **the unconditional `≠ 0` exclusion at `eqIndDecl`**
+(refuted at `zeroChain`, 16.3), **`.appDF` with the reduced type stated directly at a block with
+open parameters** (16.6/16.7 item 1), and **`simpa` as the bridge for `VExpr.inst`**
+(16.7 item 2).
