@@ -1523,4 +1523,813 @@ theorem ntree_csubstTy_closed : (ntreeRestore.csubstTy ntreeAux ntreeK).Closed :
       | exact Nat.zero_lt_one
 
 end InductiveDeclExamples
+
+/-! ## §B The `nfnSubstAll_WF` template does **not** instantiate at `np = 1` — `hσ` is FALSE there
+
+`docs/handoff-iota-stored.md` §21/§25 and ledger row 132b record the residual of obligations
+(B)/(C) at a parameterised block as *"instantiating the `nfnSubstAll_WF₂`/`₃` template at
+`np = 1`, not new apparatus"*.  **That is refuted below.**  The template's *conclusion* —
+`(R.csubst D K).WF E₂ F₂ U`, the shared hypothesis of `VEnv.recConstsR_wf_of_substC'`,
+`recConstsR_wf_of_blocks`, `recConstsR_wf_of_entries` and (through `iotaRulesRS_wf_of_substC`)
+of the strict (C) route — is **false** at `ntreeAux`, for every `U` and, more sharply, for
+**every** constant substitution whatsoever.
+
+The reason is one clause and it is not `val`, which is where every previous costing of this
+corner looked:
+
+* `CSubst.WF.const` demands, of every constant of `E₂` outside `σ`'s domain, that `F₂` hold it
+  at `ci.type.substC σ`;
+* the constant `NTree.node` is in `E₂` at `ntreeNode.type ntreeAux 0` and in `F₂` at
+  `(ntreeNode.typeR ntreeAux ntreeRestore 0).substC (R.csubstTy …)`, because that is what
+  `VInductDecl'.ctorConstsCR` declares;
+* so `const` *is* the syntactic bridge `VEnv.ctorConstsCR_wf_of_substC` asks for as `hbridge`
+  — and `ctorConstsCR_wf_of_substC'` exists precisely because that bridge is **false** above
+  `D.np = 0` (`ntreeNode_substC_ne_typeR`, in this file since it was written).
+
+So obligation (A) was given a defeq-tolerant bridge, and (B) was given one too (§A) — but (B)'
+kept the **strict** `hσ`, which re-imposes (A)'s refuted syntactic equation through the back door.
+(C)' *dropped* `hσ` altogether, for the reason §A's note gives, so what is refuted here is (B)'
+and the **strict** (C) route `iotaRulesRS_wf_of_substC` (`ntree_csubst_WF₃_false`), not (C)'.
+§A.1 shows the primed bridges are not vacuous *in `hbridge`*; this section shows (B)' is unusable
+at `np ≥ 1` *in `hσ`*, at the staging pair its consumer `VEnv.addInductR_ordered'` fixes. -/
+
+/-- **The obstruction, in its minimal form.**  `CSubst.WF`'s `const` clause is an *equation*
+between what one environment holds and what the other holds substituted, so a single constant
+carried at a definitionally-equal-but-different type refutes the whole substitution — whatever
+else it does.  Everything in §B is this lemma plus a computation. -/
+theorem VEnv.subst_WF_false_of_const_ne {E F : VEnv} {σ : CSubst} {U : Nat} {c : Name}
+    {ci : VConstant} {A : VExpr}
+    (hE : E.constants c = some ci) (hF : F.constants c = some ⟨ci.uvars, A⟩)
+    (hdom : σ c = none) (hne : A ≠ ci.type.substC σ) : ¬ σ.WF E F U := by
+  intro hσ
+  have h := hσ.const hdom hE
+  rw [hF] at h
+  exact hne (by injection h with h; exact congrArg VConstant.type h)
+
+/-- **The general obstruction.**  If a *declared* constructor's stored type is not literally
+its restored type under the substitution, then no `σ` at all is well formed between the two
+staging environments — because `CSubst.WF.const` at that constructor *is* that equation.
+
+Nothing about `np` enters here: `np ≥ 1` is what makes `hne` true (one β-redex per parameter),
+and `hne` is what makes the conclusion bite. -/
+theorem VEnv.csubst_WF_staged_false {E₁ E₂ F₁ F₂ : VEnv} {D : VInductDecl'} {R : VIndRestore}
+    {K : List Name} {σ : CSubst} {U j : Nat} {C : VIndCtor}
+    (hE₂ : E₁.addIndCtors D = some E₂)
+    (hF₂ : F₁.addConstList (D.ctorConstsCR R K) = some F₂)
+    (hjC : (j, C) ∈ D.ctorsAll)
+    (hK : (D.types.getD j default).name ∉ K)
+    (hname : R.ctorName C.name = C.name)
+    (hdom : σ C.name = none)
+    (hne : (C.type D j).substC σ ≠ (C.typeR D R j).substC (R.csubstTy D K)) :
+    ¬ σ.WF E₂ F₂ U := by
+  intro hσ
+  have hE : E₂.constants C.name = some ⟨D.uvars, C.type D j⟩ :=
+    VEnv.addConstList_constants hE₂ (C.name, ⟨D.uvars, C.type D j⟩)
+      (List.mem_map.2 ⟨(j, C), hjC, rfl⟩)
+  have hF : F₂.constants C.name
+      = some ⟨D.uvars, (C.typeR D R j).substC (R.csubstTy D K)⟩ := by
+    have := VEnv.addConstList_constants hF₂
+      (R.ctorName C.name, ⟨D.uvars, (C.typeR D R j).substC (R.csubstTy D K)⟩)
+      (by rw [VInductDecl'.ctorConstsCR, List.mem_filterMap]
+          exact ⟨(j, C), hjC, by simp only []; rw [if_neg hK]⟩)
+    rwa [hname] at this
+  exact VEnv.subst_WF_false_of_const_ne hE hF hdom (fun hh => hne hh.symm) hσ
+
+/-! ## §C The repair, and why the other candidate repair is refuted
+
+There are exactly two ways to make `const` satisfiable at `np ≥ 1`:
+
+1. **change what the step declares** — let `ctorConstsCR` declare `(C.type D j).substC (R.csubst D K)`
+   (the β-redex form) instead of `(C.typeR D R j).substC (R.csubstTy D K)`.  **Refuted**:
+   `ntreeNode_typeR` anchors the current form against `type_of% @NTree.node`, i.e. against what
+   Lean's own kernel declares, and `ntree_node_redex_ne_declared` below shows the redex form is
+   *not* that.  This repair would trade obligation (B) for faithfulness, which is the wrong trade.
+2. **weaken `const` to a definitional equation**, which is what obligation (A) already did to its
+   own bridge (`ctorConstsCR_wf_of_substC'`).  That is `CSubst.WFD` below.
+
+`CSubst.WFD` differs from `CSubst.WF` in one clause and one disjunct: `const` may present the
+constant at *any* type `A`, provided either `A` is literally `ci.type.substC σ` (the old clause,
+so `CSubst.WF.wfd` is a weakening and `WFD` inherits every instance `WF` has — in particular
+`nfnSubstAll_WF₂.wfd` and `nfnSubstAll_WF₃.wfd` at `np = 0`) or `A` is definitionally equal to it
+at every level instantiation.  `IsDefEq.substCD` is then the same induction as
+`VEnv.IsDefEq.substC`, with `constDF` routed through one `defeqDF`; every other case is
+byte-identical, which is the measurement that this is a *weakening* and not a new system.
+
+`Theory/Typing/ConstSubst.lean` is another stream's file, so `WFD` lives here rather than beside
+`CSubst.WF`.  If it survives, it belongs there. -/
+
+/-- **`CSubst.WF` with a defeq-tolerant `const` clause.**  See §C. -/
+structure CSubst.WFD (σ : CSubst) (env₀ env₁ : VEnv) (U : Nat) : Prop where
+  /-- Every value is closed. -/
+  closed : σ.Closed
+  /-- Constants outside `σ`'s domain survive — at their substituted type, **or at any type
+  definitionally equal to it**.  This is the one clause `CSubst.WF` states too strictly for a
+  parameterised nested block (§B). -/
+  const : ∀ {c ci}, σ c = none → env₀.constants c = some ci →
+    ∃ A, env₁.constants c = some ⟨ci.uvars, A⟩ ∧
+      (A = ci.type.substC σ ∨
+        ∀ {Γ : List VExpr} {ls : List VLevel}, (∀ l ∈ ls, l.WF U) → ls.length = ci.uvars →
+          ∃ v, env₁.IsDefEq U Γ (A.instL ls) ((ci.type.substC σ).instL ls) (.sort v))
+  /-- Definitional equations survive, substituted. -/
+  defeq : ∀ {df}, env₀.defeqs df → env₁.defeqs (df.substC σ)
+  /-- A value inhabits the declared type of the constant it replaces. -/
+  val : ∀ {c t ci Γ ls ls'}, σ c = some t → env₀.constants c = some ci →
+    (∀ l ∈ ls, l.WF U) → (∀ l ∈ ls', l.WF U) → List.Forall₂ (· ≈ ·) ls ls' →
+    ls.length = ci.uvars →
+    env₁.IsDefEq U Γ (t.instL ls) (t.instL ls') ((ci.type.substC σ).instL ls)
+
+/-- **`WFD` is a weakening**: every `CSubst.WF` is one, so `WFD` is inhabited wherever `WF` is —
+`nfnSubstAll_WF₂` and `nfnSubstAll_WF₃` at `np = 0`, `ntreeSubst_WF` at the type stage. -/
+theorem CSubst.WF.wfd {env₀ env₁ : VEnv} {σ : CSubst} {U : Nat} (h : σ.WF env₀ env₁ U) :
+    σ.WFD env₀ env₁ U where
+  closed := h.closed
+  const hn hc := ⟨_, h.const hn hc, .inl rfl⟩
+  defeq := h.defeq
+  val := h.val
+
+namespace VEnv
+
+variable {env₀ env₁ : VEnv} {σ : CSubst}
+
+/-- The `constDF` case: one `defeqDF` more than `VEnv.IsDefEq.substC_constDF`. -/
+theorem IsDefEq.substCD_constDF (hσ : σ.WFD env₀ env₁ U)
+    (h1 : env₀.constants c = some ci) (h2 : ∀ l ∈ ls, l.WF U) (h3 : ∀ l ∈ ls', l.WF U)
+    (h4 : ls.length = ci.uvars) (h5 : List.Forall₂ (· ≈ ·) ls ls') :
+    env₁.IsDefEq U Γ ((VExpr.const c ls).substC σ) ((VExpr.const c ls').substC σ)
+      ((ci.type.instL ls).substC σ) := by
+  rw [VExpr.substC_instL]
+  cases h : σ c with
+  | none =>
+    rw [VExpr.substC_const_none h, VExpr.substC_const_none h]
+    obtain ⟨A, hA, hor⟩ := hσ.const h h1
+    match hor with
+    | .inl he => subst he; exact .constDF hA h2 h3 h4 h5
+    | .inr hd =>
+      obtain ⟨v, hv⟩ := hd (Γ := Γ) h2 h4
+      exact hv.defeqDF (.constDF hA h2 h3 h4 h5)
+  | some t =>
+    rw [VExpr.substC_const_some h, VExpr.substC_const_some h]
+    exact hσ.val h h1 h2 h3 h5 h4
+
+/-- The `extra` case, which reads only `defeq` and so is unchanged. -/
+theorem IsDefEq.substCD_extra (hσ : σ.WFD env₀ env₁ U)
+    (h1 : env₀.defeqs df) (h2 : ∀ l ∈ ls, l.WF U) (h3 : ls.length = df.uvars) :
+    env₁.IsDefEq U Γ ((df.lhs.instL ls).substC σ) ((df.rhs.instL ls).substC σ)
+      ((df.type.instL ls).substC σ) := by
+  simp only [VExpr.substC_instL]
+  exact .extra (hσ.defeq h1) h2 h3
+
+/-- **Substitution of constants preserves typing, under the weakened hypothesis.**  The same
+induction as `VEnv.IsDefEq.substC`; only `constDF` differs. -/
+theorem IsDefEq.substCD (hσ : σ.WFD env₀ env₁ U) (H : env₀.IsDefEq U Γ e1 e2 A) :
+    env₁.IsDefEq U (Γ.map (VExpr.substC · σ)) (e1.substC σ) (e2.substC σ) (A.substC σ) := by
+  induction H with
+  | bvar h => exact .bvar (h.substC hσ.closed)
+  | symm _ ih => exact .symm ih
+  | trans _ _ ih1 ih2 => exact .trans ih1 ih2
+  | sortDF h1 h2 h3 => exact .sortDF h1 h2 h3
+  | constDF h1 h2 h3 h4 h5 => exact substCD_constDF hσ h1 h2 h3 h4 h5
+  | appDF _ _ ih1 ih2 => rw [VExpr.substC_inst hσ.closed]; exact .appDF ih1 ih2
+  | lamDF _ _ ih1 ih2 => exact .lamDF ih1 ih2
+  | forallEDF _ _ ih1 ih2 => exact .forallEDF ih1 ih2
+  | defeqDF _ _ ih1 ih2 => exact .defeqDF ih1 ih2
+  | beta _ _ ih1 ih2 =>
+    rw [VExpr.substC_inst hσ.closed, VExpr.substC_inst hσ.closed]; exact .beta ih1 ih2
+  | eta _ ih =>
+    rw [VExpr.substC_lam, VExpr.substC_app, VExpr.substC_lift hσ.closed]
+    exact .eta ih
+  | proofIrrel _ _ _ ih1 ih2 ih3 => exact .proofIrrel ih1 ih2 ih3
+  | extra h1 h2 h3 => exact substCD_extra hσ h1 h2 h3
+
+theorem HasType.substCD (hσ : σ.WFD env₀ env₁ U) (H : env₀.HasType U Γ e A) :
+    env₁.HasType U (Γ.map (VExpr.substC · σ)) (e.substC σ) (A.substC σ) :=
+  IsDefEq.substCD hσ H
+
+theorem IsType.substCD (hσ : σ.WFD env₀ env₁ U) (H : env₀.IsType U Γ A) :
+    env₁.IsType U (Γ.map (VExpr.substC · σ)) (A.substC σ) :=
+  let ⟨_, h⟩ := H; ⟨_, h.substCD hσ⟩
+
+end VEnv
+
+theorem VConstant.WF.substCD {env₀ env₁ : VEnv} {σ : CSubst} {ci : VConstant}
+    (hσ : σ.WFD env₀ env₁ ci.uvars) (H : ci.WF env₀) :
+    VConstant.WF env₁ ⟨ci.uvars, ci.type.substC σ⟩ := by
+  show env₁.IsType ci.uvars [] (ci.type.substC σ)
+  simpa using VEnv.IsType.substCD hσ H
+
+theorem VDefEq.WF.substCD {env₀ env₁ : VEnv} {σ : CSubst} {df : VDefEq}
+    (hσ : σ.WFD env₀ env₁ df.uvars) (H : df.WF env₀) : (df.substC σ).WF env₁ :=
+  ⟨by simpa using VEnv.HasType.substCD hσ H.1, by simpa using VEnv.HasType.substCD hσ H.2⟩
+
+/-- **Obligation (B)'s `np`-free route, with `hσ` weakened to `WFD`.**  Identical to
+`VEnv.recConstsR_wf_of_substC'` except for the hypothesis — which is the point: §B shows the
+unweakened one is false at `np ≥ 1`, and `CSubst.WF.wfd` shows nothing is lost at `np = 0`.
+
+`recConstsR_wf_of_blocks` and `recConstsR_wf_of_entries` (`Theory/Inductive/NestedTele.lean`)
+factor through `recConstsR_wf_of_substC'` and would each acquire a `WFD` form the same way; they
+are another file's to restate. -/
+theorem VEnv.recConstsR_wf_of_substCD' {E₂ e₂ : VEnv} {D : VInductDecl'} {R : VIndRestore}
+    {K : List Name} {σ : CSubst}
+    (hsrc : ∀ c ∈ D.recConsts, VConstant.WF E₂ c.2)
+    (hσ : σ.WFD E₂ e₂ D.recUvars) (he₂ : e₂.Ordered)
+    (hbridge : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T →
+      ∃ (As As' : List VExpr) (B B' : VExpr) (v : VLevel),
+        (D.recType j).substC σ = VExpr.mkPi As B ∧
+        (D.recTypeR R j).substC (R.csubst D K) = VExpr.mkPi As' B' ∧
+        e₂.TeleDefEq D.recUvars [] As As' ∧
+        e₂.IsDefEq D.recUvars As.reverse B B' (.sort v)) :
+    ∀ c ∈ D.recConstsR R K, VConstant.WF e₂ c.2 := by
+  intro c hc
+  simp only [VInductDecl'.recConstsR, List.mem_map] at hc
+  obtain ⟨⟨T, j⟩, hTj, rfl⟩ := hc
+  have hT : D.types[j]? = some T := List.mk_mem_zipIdx_iff_getElem?.1 hTj
+  have hs := (hsrc (Lean.mkRecName T.name, ⟨D.recUvars, D.recType j⟩)
+    (by simp only [VInductDecl'.recConsts, List.mem_map]; exact ⟨(T, j), hTj, rfl⟩)).substCD hσ
+  obtain ⟨As, As', B, B', v, hL, hRr, htele, hbody⟩ := hbridge j T hT
+  refine (show ((D.recTypeR R j).substC (R.csubst D K)) = VExpr.mkPi As' B' from hRr) ▸ ?_
+  exact VEnv.IsType.mkPi_congr' (v := v) he₂ htele (by simpa using hbody) (hL ▸ hs)
+
+namespace InductiveDeclExamples
+
+/-- The `const` clause's equation at `NTree.node`, refuted by computation.  This is
+`ntreeNode_substC_ne_typeR` with the *full* substitution on the left and the type
+`ctorConstsCR` really declares on the right — i.e. exactly the two sides `CSubst.WF.const`
+identifies. -/
+theorem ntree_const_clause_ne :
+    (ntreeNode.type ntreeAux 0).substC (ntreeRestore.csubst ntreeAux ntreeK)
+      ≠ (ntreeNode.typeR ntreeAux ntreeRestore 0).substC
+          (ntreeRestore.csubstTy ntreeAux ntreeK) := by decide
+
+/-- **…and no constant substitution can satisfy it**, which is the structural half: `substC`
+replaces a constant in *head* position, so the third pi-domain of the stored type is
+`.app t (.bvar 1)` for whatever `t` is chosen, while the declared one is
+`.app (const List) (.app (const NTree) (.bvar 1))`.  Matching them would need `substC` to
+re-associate an application, and it cannot.  So the failure is not "the wrong value was
+picked". -/
+theorem ntree_node_no_substC (σ : CSubst) :
+    (ntreeNode.type ntreeAux 0).substC σ
+      ≠ (ntreeNode.typeR ntreeAux ntreeRestore 0).substC
+          (ntreeRestore.csubstTy ntreeAux ntreeK) := by
+  intro h
+  rw [show ntreeNode.type ntreeAux 0
+      = .forallE (.sort (.succ (.param 0)))
+        (.forallE (.bvar 0)
+          (.forallE (.app (.const `_nested.List_1 [.param 0]) (.bvar 1))
+            (.app (.const ``NTree [.param 0]) (.bvar 2)))) from rfl,
+    show (ntreeNode.typeR ntreeAux ntreeRestore 0).substC
+        (ntreeRestore.csubstTy ntreeAux ntreeK)
+      = .forallE (.sort (.succ (.param 0)))
+        (.forallE (.bvar 0)
+          (.forallE (.app (.const ``List [.param 0]) (.app (.const ``NTree [.param 0]) (.bvar 1)))
+            (.app (.const ``NTree [.param 0]) (.bvar 2)))) from rfl] at h
+  simp only [VExpr.substC] at h
+  injection h with _ h
+  injection h with _ h
+  injection h with h _
+  injection h with _ h
+  exact absurd h nofun
+
+theorem ntree_node_mem : (0, ntreeNode) ∈ ntreeAux.ctorsAll := by
+  rw [show ntreeAux.ctorsAll = [((0 : Nat), ntreeNode), (1, nlistNil), (1, nlistCons)] from rfl]
+  exact List.Mem.head _
+
+/-- **`hσ` is false at the parameterised witness.**  The `np = 1` counterpart of
+`nfnSubstAll_WF₂` — and it is a *refutation*, not a gap: two staging equations are all it
+takes.  `U` is unconstrained, so in particular `U = ntreeAux.recUvars = 2`, which is the
+instance `VEnv.recConstsR_wf_of_entries` needs. -/
+theorem ntree_csubst_WF₂_false {E₁ E₂ F₁ F₂ : VEnv} {U : Nat}
+    (hE₂ : E₁.addIndCtors ntreeAux = some E₂)
+    (hF₂ : F₁.addConstList (ntreeAux.ctorConstsCR ntreeRestore ntreeK) = some F₂) :
+    ¬ (ntreeRestore.csubst ntreeAux ntreeK).WF E₂ F₂ U :=
+  VEnv.csubst_WF_staged_false hE₂ hF₂ ntree_node_mem (by decide) rfl rfl
+    ntree_const_clause_ne
+
+/-- …and **for every substitution that leaves the declared constructor alone** — which is
+every substitution the nested step could mean, since `NTree.node` is a constant this step
+*declares* and `R.csubst` is guarded by `K`.  So obligation (B)'s `np`-free route is not
+merely missing a witness at `ntreeAux`: `VEnv.recConstsR_wf_of_substC'`'s `hσ` cannot be
+discharged at the staging pair by any such `σ`, however chosen. -/
+theorem ntree_any_WF₂_false {E₁ E₂ F₁ F₂ : VEnv} {U : Nat} (σ : CSubst)
+    (hdom : σ ``NTree.node = none)
+    (hE₂ : E₁.addIndCtors ntreeAux = some E₂)
+    (hF₂ : F₁.addConstList (ntreeAux.ctorConstsCR ntreeRestore ntreeK) = some F₂) :
+    ¬ σ.WF E₂ F₂ U :=
+  VEnv.csubst_WF_staged_false hE₂ hF₂ ntree_node_mem (by decide) rfl hdom
+    (ntree_node_no_substC σ)
+
+/-- **…and the same refutation at the ι-rule stage**, which is where the *strict* obligation-(C)
+route (`VEnv.iotaRulesRS_wf_of_substC`) asks for `hσ`.  `NTree.node` is carried up both chains
+unchanged, so the same disagreement refutes `σ.WF E₃ F₃` too.  (Obligation (C)'s *defeq-tolerant*
+route `iotaRulesRS_wf_of_substC'` has **no** `hσ` at all — see §A's note on why `VDefEq.WF` cannot
+keep one — so (C) is blocked only on its strict route, not on both.) -/
+theorem ntree_csubst_WF₃_false {E₁ E₂ E₃ F₁ F₂ F₃ : VEnv} {U : Nat}
+    (hE₂ : E₁.addIndCtors ntreeAux = some E₂)
+    (hE₃ : E₂.addIndRecs ntreeAux = some E₃)
+    (hF₂ : F₁.addConstList (ntreeAux.ctorConstsCR ntreeRestore ntreeK) = some F₂)
+    (hF₃ : F₂.addConstList (ntreeAux.recConstsR ntreeRestore ntreeK) = some F₃) :
+    ¬ (ntreeRestore.csubst ntreeAux ntreeK).WF E₃ F₃ U :=
+  VEnv.subst_WF_false_of_const_ne
+    ((VEnv.addConstList_le hE₃).constants
+      (VEnv.addConstList_constants hE₂ (``NTree.node, ⟨1, ntreeNode.type ntreeAux 0⟩)
+        (by exact List.Mem.head _)))
+    ((VEnv.addConstList_le hF₃).constants
+      (VEnv.addConstList_constants hF₂
+        (``NTree.node, ⟨1, (ntreeNode.typeR ntreeAux ntreeRestore 0).substC
+          (ntreeRestore.csubstTy ntreeAux ntreeK)⟩) (by exact List.Mem.head _)))
+    rfl (fun hh => ntree_const_clause_ne hh.symm)
+
+/-- The staging pair the refutation is about really exists — so `ntree_csubst_WF₂_false` is
+not a statement about an empty configuration.  (`ntreeAux_staged_exists` /
+`ntreeAux_declared_exists` give the first stage of each chain; these are the second.) -/
+theorem ntree_stage₂_exists :
+    ∃ (env₁ E₁ E₂ F₁ F₂ : VEnv), VEnv.empty.addInduct' listDecl = some env₁ ∧
+      env₁.addIndTypes ntreeAux = some E₁ ∧ E₁.addIndCtors ntreeAux = some E₂ ∧
+      env₁.addConstList (ntreeAux.typeConstsC ntreeK) = some F₁ ∧
+      F₁.addConstList (ntreeAux.ctorConstsCR ntreeRestore ntreeK) = some F₂ := by
+  obtain ⟨env₁, h⟩ : ∃ e, VEnv.empty.addInduct' listDecl = some e := ⟨_, rfl⟩
+  have hfresh : ∀ n ∈ [``NTree, `_nested.List_1, ``NTree.node,
+      `_nested.List_1.nil, `_nested.List_1.cons], env₁.constants n = none := by
+    intro n hn
+    rw [VEnv.addInduct'_constants_of_not_mem h (by revert hn; revert n; decide)]
+    rfl
+  obtain ⟨E₁, hE₁⟩ : ∃ e, env₁.addIndTypes ntreeAux = some e :=
+    VEnv.addConstList_eq_some_iff.2
+      ⟨fun n hn => hfresh n (by revert hn; revert n; decide), by decide⟩
+  obtain ⟨F₁, hF₁⟩ : ∃ e, env₁.addConstList (ntreeAux.typeConstsC ntreeK) = some e :=
+    VEnv.addConstList_eq_some_iff.2
+      ⟨fun n hn => hfresh n (by revert hn; revert n; decide), by decide⟩
+  obtain ⟨E₂, hE₂⟩ : ∃ e, E₁.addIndCtors ntreeAux = some e := by
+    refine VEnv.addConstList_eq_some_iff.2 ⟨fun n hn => ?_, by decide⟩
+    rw [VEnv.addConstList_constants_of_not_mem hE₁ (by revert hn; revert n; decide)]
+    exact hfresh n (by revert hn; revert n; decide)
+  obtain ⟨F₂, hF₂⟩ : ∃ e, F₁.addConstList (ntreeAux.ctorConstsCR ntreeRestore ntreeK) = some e := by
+    refine VEnv.addConstList_eq_some_iff.2 ⟨fun n hn => ?_, by decide⟩
+    rw [VEnv.addConstList_constants_of_not_mem hF₁ (by revert hn; revert n; decide)]
+    exact hfresh n (by revert hn; revert n; decide)
+  exact ⟨env₁, E₁, E₂, F₁, F₂, h, hE₁, hE₂, hF₁, hF₂⟩
+
+/-! ## §D The repair, instantiated at `np = 1` — `hσ`'s corrected form, proved
+
+§B refutes the template; §C states what replaces it.  This section supplies the instance, so that
+`CSubst.WFD` is not a hypothesis nobody meets at the place `CSubst.WF` fails (ledger §5: *a bridge
+nothing satisfies is not a bridge*).  Everything is at `ntreeAux`, `np = 1`, `uvars = 1`,
+`recUvars = 2`, over the history environment `listDecl_WF` makes `Ordered`.
+
+The four substituted names are `_nested.List_1` and its recursor and two constructors; the fourth
+(`_nested.List_1.rec`) is not yet in `E₂`, exactly as `nfnSubstAll_WF₂`'s third split records at
+`np = 0`, so its `val` obligation is discharged by `exfalso` there too. -/
+
+/-- §D.1 The full substitution is closed at the parameterised block — `csubstTy`'s companion
+(`ntree_csubstTy_closed`) for all four entries. -/
+theorem ntree_csubst_closed : (ntreeRestore.csubst ntreeAux ntreeK).Closed := by
+  refine VIndRestore.csubst_closed ntreeRestore ntreeAux ntreeK ⟨trivial, trivial⟩ ?_
+  intro j a ha
+  show a.ClosedN 1
+  revert ha
+  rw [show ntreeRestore.tyArgs j
+      = if j = 1 then [VExpr.app (.const ``NTree [.param 0]) (.bvar 0)] else [VExpr.bvar 0]
+    from rfl]
+  split <;>
+  · intro hh
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at hh
+    subst hh
+    first
+      | exact ⟨trivial, Nat.zero_lt_one⟩
+      | exact Nat.zero_lt_one
+
+/-- The domain, as four disequations — `nfnSubstAll_ne` one entry longer. -/
+theorem ntree_csubst_ne {c : Name} (hn : ntreeRestore.csubst ntreeAux ntreeK c = none) :
+    c ≠ `_nested.List_1 ∧ c ≠ `_nested.List_1.rec ∧
+      c ≠ `_nested.List_1.nil ∧ c ≠ `_nested.List_1.cons := by
+  refine ⟨?_, ?_, ?_, ?_⟩ <;> rintro rfl <;> exact absurd hn nofun
+
+/-- …and it is fresh in the history environment. -/
+theorem ntree_csubst_fresh {env₁ : VEnv} (h : VEnv.empty.addInduct' listDecl = some env₁) :
+    (ntreeRestore.csubst ntreeAux ntreeK).FreshIn env₁ := by
+  intro c ci hc
+  cases hn : ntreeRestore.csubst ntreeAux ntreeK c with
+  | none => rfl
+  | some t =>
+    exfalso
+    by_cases h1 : c = `_nested.List_1
+    · subst h1
+      rw [VEnv.addInduct'_constants_of_not_mem h (by decide)] at hc; exact absurd hc nofun
+    by_cases h2 : c = `_nested.List_1.rec
+    · subst h2
+      rw [VEnv.addInduct'_constants_of_not_mem h (by decide)] at hc; exact absurd hc nofun
+    by_cases h3 : c = `_nested.List_1.nil
+    · subst h3
+      rw [VEnv.addInduct'_constants_of_not_mem h (by decide)] at hc; exact absurd hc nofun
+    by_cases h4 : c = `_nested.List_1.cons
+    · subst h4
+      rw [VEnv.addInduct'_constants_of_not_mem h (by decide)] at hc; exact absurd hc nofun
+    · rw [show ntreeRestore.csubst ntreeAux ntreeK c = none from by
+        show List.lookup c [(`_nested.List_1, _), (`_nested.List_1.rec, _),
+          (`_nested.List_1.nil, _), (`_nested.List_1.cons, _)] = none
+        rw [List.lookup_cons, show (c == `_nested.List_1) = false from beq_eq_false_iff_ne.2 h1,
+          List.lookup_cons, show (c == `_nested.List_1.rec) = false from beq_eq_false_iff_ne.2 h2,
+          List.lookup_cons, show (c == `_nested.List_1.nil) = false from beq_eq_false_iff_ne.2 h3,
+          List.lookup_cons, show (c == `_nested.List_1.cons) = false from beq_eq_false_iff_ne.2 h4]
+        rfl] at hn
+      exact absurd hn nofun
+
+
+/-- **§D.2 The datum `CSubst.WF` cannot hold and `CSubst.WFD` asks for.**  At `NTree.node` the
+type `ctorConstsCR` declares and the type the substitution produces are **definitionally equal**
+in `F₂`, at every level instantiation: one `IsDefEq.beta` under two `forallEDF`s.  Contrast
+`ntree_node_no_substC`, which shows they are never *equal*.  This is the whole content of the
+repair: obligation (A)'s β-step, moved into the substitution's own interface. -/
+theorem ntree_node_const_defeq {F₂ : VEnv} {U : Nat} {l : VLevel}
+    (hL : F₂.constants ``List = some ⟨1, listType.type⟩)
+    (hN : F₂.constants ``NTree
+      = some ⟨1, .forallE (.sort (.succ (.param 0))) (.sort (.succ (.param 0)))⟩)
+    (hl : l.WF U) :
+    ∃ v, F₂.IsDefEq U []
+      (((ntreeNode.typeR ntreeAux ntreeRestore 0).substC
+        (ntreeRestore.csubstTy ntreeAux ntreeK)).instL [l])
+      (((ntreeNode.type ntreeAux 0).substC (ntreeRestore.csubst ntreeAux ntreeK)).instL [l])
+      (.sort v) := by
+  show ∃ v, F₂.IsDefEq U []
+      (.forallE (.sort (.succ l))
+        (.forallE (.bvar 0)
+          (.forallE (.app (.const ``List [l]) (.app (.const ``NTree [l]) (.bvar 1)))
+            (.app (.const ``NTree [l]) (.bvar 2)))))
+      (.forallE (.sort (.succ l))
+        (.forallE (.bvar 0)
+          (.forallE (.app (.lam (.sort (.succ l))
+              (.app (.const ``List [l]) (.app (.const ``NTree [l]) (.bvar 0)))) (.bvar 1))
+            (.app (.const ``NTree [l]) (.bvar 2))))) (.sort v)
+  have hlw : ∀ l' ∈ [l], VLevel.WF U l' := by
+    intro l' hl'; simp only [List.mem_cons, List.not_mem_nil, or_false] at hl'; exact hl' ▸ hl
+  have hNc : ∀ {Γ : List VExpr}, F₂.IsDefEq U Γ (.const ``NTree [l]) (.const ``NTree [l])
+      (.forallE (.sort (.succ l)) (.sort (.succ l))) := fun {_} =>
+    .constDF hN hlw hlw rfl (.cons rfl .nil)
+  have hLc : ∀ {Γ : List VExpr}, F₂.IsDefEq U Γ (.const ``List [l]) (.const ``List [l])
+      (.forallE (.sort (.succ l)) (.sort (.succ l))) := fun {_} =>
+    .constDF hL hlw hlw rfl (.cons rfl .nil)
+  have hs : F₂.IsDefEq U [] (.sort (.succ l)) (.sort (.succ l)) (.sort (.succ (.succ l))) :=
+    .sortDF (show VLevel.WF U (.succ l) from hl) (show VLevel.WF U (.succ l) from hl) rfl
+  have hα : F₂.IsDefEq U [.sort (.succ l)] (.bvar 0) (.bvar 0) (.sort (.succ l)) :=
+    .bvar (by exact .zero)
+  -- the β-step at the third domain, in Γ₂ = [bvar 0, sort (succ l)]
+  have hbeta : F₂.IsDefEq U [.bvar 0, .sort (.succ l)]
+      (.app (.const ``List [l]) (.app (.const ``NTree [l]) (.bvar 1)))
+      (.app (.lam (.sort (.succ l))
+        (.app (.const ``List [l]) (.app (.const ``NTree [l]) (.bvar 0)))) (.bvar 1))
+      (.sort (.succ l)) := by
+    refine .symm (.beta (A := .sort (.succ l)) (B := .sort (.succ l)) ?_ ?_)
+    · exact .appDF hLc (.appDF hNc (.bvar (by exact .zero)))
+    · exact .bvar (by exact .succ .zero)
+  have hres : F₂.IsDefEq U
+      [.app (.const ``List [l]) (.app (.const ``NTree [l]) (.bvar 1)), .bvar 0, .sort (.succ l)]
+      (.app (.const ``NTree [l]) (.bvar 2)) (.app (.const ``NTree [l]) (.bvar 2))
+      (.sort (.succ l)) :=
+    .appDF hNc (.bvar (by exact .succ (.succ .zero)))
+  exact ⟨_, .forallEDF hs (.forallEDF hα (.forallEDF hbeta hres))⟩
+
+
+section
+variable {F : VEnv}
+variable (hL : F.constants ``List = some ⟨1, listType.type⟩)
+variable (hN : F.constants ``NTree
+  = some ⟨1, .forallE (.sort (.succ (.param 0))) (.sort (.succ (.param 0)))⟩)
+variable (hnil : F.constants ``List.nil = some ⟨1, listNil.type listDecl 0⟩)
+variable (hcons : F.constants ``List.cons = some ⟨1, listCons.type listDecl 0⟩)
+
+/-! ### §D.3 The three values of the substitution are well typed in `F₂` -/
+
+theorem ntree_p0_wf : ∀ l ∈ [(VLevel.param 0)], VLevel.WF 1 l := by
+  intro l hl
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hl
+  exact hl ▸ Nat.zero_lt_one
+
+include hN in
+theorem ntree_NTreeC {Γ : List VExpr} : F.IsDefEq 1 Γ (.const ``NTree [.param 0])
+    (.const ``NTree [.param 0])
+    (.forallE (.sort (.succ (.param 0))) (.sort (.succ (.param 0)))) :=
+  .constDF hN ntree_p0_wf ntree_p0_wf rfl (.cons rfl .nil)
+
+include hL in
+theorem ntree_ListC {Γ : List VExpr} : F.IsDefEq 1 Γ (.const ``List [.param 0])
+    (.const ``List [.param 0])
+    (.forallE (.sort (.succ (.param 0))) (.sort (.succ (.param 0)))) :=
+  .constDF hL ntree_p0_wf ntree_p0_wf rfl (.cons rfl .nil)
+
+include hnil in
+theorem ntree_NilC {Γ : List VExpr} : F.IsDefEq 1 Γ (.const ``List.nil [.param 0])
+    (.const ``List.nil [.param 0])
+    (.forallE (.sort (.succ (.param 0))) (.app (.const ``List [.param 0]) (.bvar 0))) :=
+  .constDF hnil ntree_p0_wf ntree_p0_wf rfl (.cons rfl .nil)
+
+include hcons in
+theorem ntree_ConsC {Γ : List VExpr} : F.IsDefEq 1 Γ (.const ``List.cons [.param 0])
+    (.const ``List.cons [.param 0])
+    (.forallE (.sort (.succ (.param 0)))
+      (.forallE (.bvar 0)
+        (.forallE (.app (.const ``List [.param 0]) (.bvar 1))
+          (.app (.const ``List [.param 0]) (.bvar 2))))) :=
+  .constDF hcons ntree_p0_wf ntree_p0_wf rfl (.cons rfl .nil)
+
+include hL hN in
+theorem ntreeVal_hasType :
+    F.HasType 1 [] ntreeVal
+      (.forallE (.sort (.succ (.param 0))) (.sort (.succ (.param 0)))) :=
+  .lamDF (.sortDF Nat.zero_lt_one Nat.zero_lt_one rfl)
+    (.appDF (ntree_ListC hL) (.appDF (ntree_NTreeC hN) (.bvar (by exact .zero))))
+
+include hL hN hnil in
+theorem nlistNil_val_hasType :
+    F.HasType 1 [] (.lam (.sort (.succ (.param 0)))
+        (.app (.const ``List.nil [.param 0]) (.app (.const ``NTree [.param 0]) (.bvar 0))))
+      ((nlistNil.type ntreeAux 1).substC (ntreeRestore.csubst ntreeAux ntreeK)) := by
+  have hval : F.HasType 1 [] (.lam (.sort (.succ (.param 0)))
+      (.app (.const ``List.nil [.param 0]) (.app (.const ``NTree [.param 0]) (.bvar 0))))
+      (.forallE (.sort (.succ (.param 0)))
+        (.app (.const ``List [.param 0]) (.app (.const ``NTree [.param 0]) (.bvar 0)))) :=
+    .lamDF (.sortDF Nat.zero_lt_one Nat.zero_lt_one rfl)
+      (.appDF (ntree_NilC hnil) (.appDF (ntree_NTreeC hN) (.bvar (by exact .zero))))
+  have hbeta : F.IsDefEq 1 [.sort (.succ (.param 0))]
+      (.app (.const ``List [.param 0]) (.app (.const ``NTree [.param 0]) (.bvar 0)))
+      (.app ntreeVal (.bvar 0)) (.sort (.succ (.param 0))) := by
+    refine .symm (.beta (A := .sort (.succ (.param 0))) (B := .sort (.succ (.param 0))) ?_ ?_)
+    · exact .appDF (ntree_ListC hL) (.appDF (ntree_NTreeC hN) (.bvar (by exact .zero)))
+    · exact .bvar (by exact .zero)
+  exact .defeqDF (.forallEDF (.sortDF (l := .succ (.param 0)) (l' := .succ (.param 0))
+    Nat.zero_lt_one Nat.zero_lt_one rfl) hbeta) hval
+
+include hL hN hcons in
+theorem nlistCons_val_hasType :
+    F.HasType 1 [] (.lam (.sort (.succ (.param 0)))
+        (.app (.const ``List.cons [.param 0]) (.app (.const ``NTree [.param 0]) (.bvar 0))))
+      ((nlistCons.type ntreeAux 1).substC (ntreeRestore.csubst ntreeAux ntreeK)) := by
+  have hval : F.HasType 1 [] (.lam (.sort (.succ (.param 0)))
+      (.app (.const ``List.cons [.param 0]) (.app (.const ``NTree [.param 0]) (.bvar 0))))
+      (.forallE (.sort (.succ (.param 0)))
+        (.forallE (.app (.const ``NTree [.param 0]) (.bvar 0))
+          (.forallE (.app (.const ``List [.param 0]) (.app (.const ``NTree [.param 0]) (.bvar 1)))
+            (.app (.const ``List [.param 0]) (.app (.const ``NTree [.param 0]) (.bvar 2)))))) :=
+    .lamDF (.sortDF Nat.zero_lt_one Nat.zero_lt_one rfl)
+      (.appDF (ntree_ConsC hcons) (.appDF (ntree_NTreeC hN) (.bvar (by exact .zero))))
+  have hb1 : F.IsDefEq 1 [.app (.const ``NTree [.param 0]) (.bvar 0), .sort (.succ (.param 0))]
+      (.app (.const ``List [.param 0]) (.app (.const ``NTree [.param 0]) (.bvar 1)))
+      (.app ntreeVal (.bvar 1)) (.sort (.succ (.param 0))) := by
+    refine .symm (.beta (A := .sort (.succ (.param 0))) (B := .sort (.succ (.param 0))) ?_ ?_)
+    · exact .appDF (ntree_ListC hL) (.appDF (ntree_NTreeC hN) (.bvar (by exact .zero)))
+    · exact .bvar (by exact .succ .zero)
+  have hb2 : F.IsDefEq 1
+      [.app (.const ``List [.param 0]) (.app (.const ``NTree [.param 0]) (.bvar 1)),
+        .app (.const ``NTree [.param 0]) (.bvar 0), .sort (.succ (.param 0))]
+      (.app (.const ``List [.param 0]) (.app (.const ``NTree [.param 0]) (.bvar 2)))
+      (.app ntreeVal (.bvar 2)) (.sort (.succ (.param 0))) := by
+    refine .symm (.beta (A := .sort (.succ (.param 0))) (B := .sort (.succ (.param 0))) ?_ ?_)
+    · exact .appDF (ntree_ListC hL) (.appDF (ntree_NTreeC hN) (.bvar (by exact .zero)))
+    · exact .bvar (by exact .succ (.succ .zero))
+  refine .defeqDF (.forallEDF (.sortDF (l := .succ (.param 0)) (l' := .succ (.param 0))
+      Nat.zero_lt_one Nat.zero_lt_one rfl)
+    (.forallEDF (.appDF (ntree_NTreeC hN) (.bvar (by exact .zero))) (.forallEDF hb1 hb2))) hval
+
+end
+
+section
+variable {env₁ E₁ E₂ F₁ F₂ : VEnv}
+variable (h : VEnv.empty.addInduct' listDecl = some env₁)
+variable (hE₁ : env₁.addIndTypes ntreeAux = some E₁)
+variable (hE₂ : E₁.addIndCtors ntreeAux = some E₂)
+variable (hF₁ : env₁.addConstList (ntreeAux.typeConstsC ntreeK) = some F₁)
+variable (hF₂ : F₁.addConstList (ntreeAux.ctorConstsCR ntreeRestore ntreeK) = some F₂)
+
+/-! ### §D.4 The staging environments -/
+
+include h hF₁ in
+theorem ntreeF₁_ordered : F₁.Ordered :=
+  VEnv.addConstList_ordered (listEnv_ordered h) (VEnv.addInductR_typeConstsC_wf (ntreeAux_WF h)) hF₁
+
+include h hE₁ hF₁ hF₂ in
+theorem ntreeF₂_ordered : F₂.Ordered :=
+  VEnv.addConstList_ordered (ntreeF₁_ordered h hF₁)
+    (ntreeAux_ctorConstsCR_wf h (listEnv_ordered h) hE₁ hF₁) hF₂
+
+include h hF₁ hF₂ in
+theorem ntreeF₂_list : F₂.constants ``List = some ⟨1, listType.type⟩ :=
+  (VEnv.addConstList_le hF₂).constants ((VEnv.addConstList_le hF₁).constants (list_const h))
+
+include h hF₁ hF₂ in
+theorem ntreeF₂_nil : F₂.constants ``List.nil = some ⟨1, listNil.type listDecl 0⟩ :=
+  (VEnv.addConstList_le hF₂).constants ((VEnv.addConstList_le hF₁).constants (listNil_const h))
+
+include h hF₁ hF₂ in
+theorem ntreeF₂_cons : F₂.constants ``List.cons = some ⟨1, listCons.type listDecl 0⟩ :=
+  (VEnv.addConstList_le hF₂).constants ((VEnv.addConstList_le hF₁).constants (listCons_const h))
+
+include hF₁ hF₂ in
+theorem ntreeF₂_ntree : F₂.constants ``NTree
+    = some ⟨1, .forallE (.sort (.succ (.param 0))) (.sort (.succ (.param 0)))⟩ :=
+  (VEnv.addConstList_le hF₂).constants (VEnv.addConstList_constants hF₁
+    (``NTree, ⟨1, .forallE (.sort (.succ (.param 0))) (.sort (.succ (.param 0)))⟩)
+    (by exact List.Mem.head _))
+
+include hF₂ in
+theorem ntreeF₂_node : F₂.constants ``NTree.node
+    = some ⟨1, (ntreeNode.typeR ntreeAux ntreeRestore 0).substC
+        (ntreeRestore.csubstTy ntreeAux ntreeK)⟩ :=
+  VEnv.addConstList_constants hF₂
+    (``NTree.node, ⟨1, (ntreeNode.typeR ntreeAux ntreeRestore 0).substC
+      (ntreeRestore.csubstTy ntreeAux ntreeK)⟩) (by exact List.Mem.head _)
+
+end
+
+section
+variable {env₁ E₁ E₂ F₁ F₂ : VEnv}
+variable (h : VEnv.empty.addInduct' listDecl = some env₁)
+variable (hE₁ : env₁.addIndTypes ntreeAux = some E₁)
+variable (hE₂ : E₁.addIndCtors ntreeAux = some E₂)
+variable (hF₁ : env₁.addConstList (ntreeAux.typeConstsC ntreeK) = some F₁)
+variable (hF₂ : F₁.addConstList (ntreeAux.ctorConstsCR ntreeRestore ntreeK) = some F₂)
+
+include h hE₁ hE₂ hF₁ hF₂ in
+/-- **§D.5 `hσ` at `np = 1`, in its corrected form.**  This is what §B proves the *unweakened*
+statement cannot be: a well-formed substitution between the two staging environments at a
+**parameterised** nested block.  Every clause is discharged, and exactly one of them uses the new
+freedom — `const` at `NTree.node`, through `ntree_node_const_defeq`'s right disjunct.  The other
+six constants take the left disjunct, i.e. the old clause verbatim, which is the measurement that
+`WFD` is a weakening applied in one place and not a different hypothesis.
+
+`U = 2 = ntreeAux.recUvars`, which is the instantiation obligation (B)'s route wants. -/
+theorem ntree_csubst_WFD₂ : (ntreeRestore.csubst ntreeAux ntreeK).WFD E₂ F₂ 2 := by
+  have henv₁ := listEnv_ordered h
+  have hFo := ntreeF₂_ordered h hE₁ hF₁ hF₂
+  have hfresh := ntree_csubst_fresh h
+  have hL := ntreeF₂_list h hF₁ hF₂
+  have hN := ntreeF₂_ntree hF₁ hF₂
+  have hnil := ntreeF₂_nil h hF₁ hF₂
+  have hcons := ntreeF₂_cons h hF₁ hF₂
+  refine ⟨ntree_csubst_closed, ?_, ?_, ?_⟩
+  · intro c ci hn hc
+    obtain ⟨hd1, hd2, hd3, hd4⟩ := ntree_csubst_ne hn
+    by_cases hNT : c = ``NTree
+    · subst hNT
+      rw [VEnv.addConstList_constants_of_not_mem hE₂
+          (by show ``NTree ∉ [``NTree.node, `_nested.List_1.nil, `_nested.List_1.cons]; simp),
+        ntree_const_staged h hE₁] at hc
+      cases hc
+      exact ⟨_, hN, .inl rfl⟩
+    by_cases hND : c = ``NTree.node
+    · subst hND
+      rw [VEnv.addConstList_constants hE₂ (``NTree.node, ⟨1, ntreeNode.type ntreeAux 0⟩)
+        (by exact List.Mem.head _)] at hc
+      cases hc
+      refine ⟨_, ntreeF₂_node hF₂, .inr ?_⟩
+      intro Γ ls hls hlen
+      match ls, hlen with
+      | [l], _ =>
+        obtain ⟨v, hv⟩ := ntree_node_const_defeq (U := 2) (l := l) hL hN
+          (hls _ List.mem_cons_self)
+        exact ⟨v, hv.weak0 hFo⟩
+    · have hm₂ : c ∉ (ntreeAux.ctorConsts.map (·.1)) := by
+        show c ∉ [``NTree.node, `_nested.List_1.nil, `_nested.List_1.cons]
+        simp [hND, hd3, hd4]
+      have hm₁ : c ∉ (ntreeAux.typeConsts.map (·.1)) := by
+        show c ∉ [``NTree, `_nested.List_1]
+        simp [hNT, hd1]
+      rw [VEnv.addConstList_constants_of_not_mem hE₂ hm₂,
+        VEnv.addConstList_constants_of_not_mem hE₁ hm₁] at hc
+      refine ⟨_, ?_, .inl rfl⟩
+      rw [(henv₁.noCSubstC hfresh hc).substC_eq]
+      have hm₄ : c ∉ ((ntreeAux.ctorConstsCR ntreeRestore ntreeK).map (·.1)) := by
+        show c ∉ [``NTree.node]; simp [hND]
+      have hm₃ : c ∉ ((ntreeAux.typeConstsC ntreeK).map (·.1)) := by
+        show c ∉ [``NTree]; simp [hNT]
+      rw [VEnv.addConstList_constants_of_not_mem hF₂ hm₄,
+        VEnv.addConstList_constants_of_not_mem hF₁ hm₃]
+      exact hc
+  · intro df hdf
+    rw [VEnv.addConstList_defeqs hE₂, VEnv.addConstList_defeqs hE₁] at hdf
+    rw [(henv₁.noCSubstD hfresh hdf).substC_eq,
+      VEnv.addConstList_defeqs hF₂, VEnv.addConstList_defeqs hF₁]
+    exact hdf
+  · intro c t ci Γ ls ls' hσv hc
+    by_cases hd1 : c = `_nested.List_1
+    · subst hd1
+      rw [show ntreeRestore.csubst ntreeAux ntreeK `_nested.List_1 = some ntreeVal from rfl] at hσv
+      cases hσv
+      rw [VEnv.addConstList_constants_of_not_mem hE₂
+          (by show `_nested.List_1 ∉ [``NTree.node, `_nested.List_1.nil, `_nested.List_1.cons];
+              simp),
+        nlist_const_staged h hE₁] at hc
+      cases hc
+      exact CSubst.val_of_hasType hFo (ntreeVal_hasType hL hN)
+    by_cases hd3 : c = `_nested.List_1.nil
+    · subst hd3
+      rw [show ntreeRestore.csubst ntreeAux ntreeK `_nested.List_1.nil
+        = some (.lam (.sort (.succ (.param 0)))
+            (.app (.const ``List.nil [.param 0])
+              (.app (.const ``NTree [.param 0]) (.bvar 0)))) from rfl] at hσv
+      cases hσv
+      rw [VEnv.addConstList_constants hE₂
+        (`_nested.List_1.nil, ⟨1, nlistNil.type ntreeAux 1⟩)
+        (by exact List.Mem.tail _ (List.Mem.head _))] at hc
+      cases hc
+      exact CSubst.val_of_hasType hFo (nlistNil_val_hasType hL hN hnil)
+    by_cases hd4 : c = `_nested.List_1.cons
+    · subst hd4
+      rw [show ntreeRestore.csubst ntreeAux ntreeK `_nested.List_1.cons
+        = some (.lam (.sort (.succ (.param 0)))
+            (.app (.const ``List.cons [.param 0])
+              (.app (.const ``NTree [.param 0]) (.bvar 0)))) from rfl] at hσv
+      cases hσv
+      rw [VEnv.addConstList_constants hE₂
+        (`_nested.List_1.cons, ⟨1, nlistCons.type ntreeAux 1⟩)
+        (by exact List.Mem.tail _ (List.Mem.tail _ (List.Mem.head _)))] at hc
+      cases hc
+      exact CSubst.val_of_hasType hFo (nlistCons_val_hasType hL hN hcons)
+    by_cases hd2 : c = `_nested.List_1.rec
+    · subst hd2
+      exfalso
+      rw [VEnv.addConstList_constants_of_not_mem hE₂
+          (by show `_nested.List_1.rec ∉ [``NTree.node, `_nested.List_1.nil,
+                `_nested.List_1.cons]; simp),
+        VEnv.addConstList_constants_of_not_mem hE₁
+          (by show `_nested.List_1.rec ∉ [``NTree, `_nested.List_1]; simp),
+        VEnv.addInduct'_constants_of_not_mem h (by decide)] at hc
+      exact absurd hc nofun
+    · exfalso
+      rw [show ntreeRestore.csubst ntreeAux ntreeK c = none from by
+        show List.lookup c [(`_nested.List_1, _), (`_nested.List_1.rec, _),
+          (`_nested.List_1.nil, _), (`_nested.List_1.cons, _)] = none
+        rw [List.lookup_cons, show (c == `_nested.List_1) = false from beq_eq_false_iff_ne.2 hd1,
+          List.lookup_cons,
+          show (c == `_nested.List_1.rec) = false from beq_eq_false_iff_ne.2 hd2,
+          List.lookup_cons,
+          show (c == `_nested.List_1.nil) = false from beq_eq_false_iff_ne.2 hd3,
+          List.lookup_cons,
+          show (c == `_nested.List_1.cons) = false from beq_eq_false_iff_ne.2 hd4]
+        rfl] at hσv
+      exact absurd hσv nofun
+
+end
+
+/-- **The other candidate repair, refuted.**  If `ctorConstsCR` declared the substituted stored
+type instead of the restored one, `const` would be `rfl` — but the substituted stored type is
+**not** what Lean's kernel declares for `NTree.node` (contrast `ntreeNode_typeR`, which is `rfl`
+against `type_of% @NTree.node`).  So that repair buys obligation (B) by giving up faithfulness,
+and `CSubst.WFD` is the remaining option. -/
+theorem ntree_node_redex_ne_declared :
+    (ntreeNode.type ntreeAux 0).substC (ntreeRestore.csubst ntreeAux ntreeK)
+      ≠ (vconst(type_of% @NTree.node)).type := by decide
+
+section
+variable {env₁ E₁ E₂ F₁ F₂ : VEnv}
+variable (h : VEnv.empty.addInduct' listDecl = some env₁)
+variable (hE₁ : env₁.addIndTypes ntreeAux = some E₁)
+variable (hE₂ : E₁.addIndCtors ntreeAux = some E₂)
+variable (hF₁ : env₁.addConstList (ntreeAux.typeConstsC ntreeK) = some F₁)
+variable (hF₂ : F₁.addConstList (ntreeAux.ctorConstsCR ntreeRestore ntreeK) = some F₂)
+
+include h hE₁ hE₂ in
+/-- **§D.6 `hsrc` at `np = 1`.**  `nfn_recConsts_wf`'s proof verbatim at the parameterised block:
+the *unrestored* recursor constants are types in `E₂`, from `ntreeAux_WF` and the two staging
+`Ordered`s.  Nothing about `np` enters. -/
+theorem ntree_recConsts_wf : ∀ c ∈ ntreeAux.recConsts, VConstant.WF E₂ c.2 := by
+  intro c hc
+  have henv₁ := listEnv_ordered h
+  have o1 := VInductDecl'.addIndTypes_ordered henv₁ (ntreeAux_WF h) hE₁
+  have o2 := VInductDecl'.addIndCtors_ordered o1 (ntreeAux_WF h) hE₁ hE₂
+  have hR : ntreeAux.RecCtx E₂ := (ntreeAux_WF h).recCtx hE₁ hE₂ VEnv.LE.rfl o2
+  simp only [VInductDecl'.recConsts, List.mem_map] at hc
+  obtain ⟨⟨T, j⟩, hTj, rfl⟩ := hc
+  have hT : ntreeAux.types[j]? = some T := List.mk_mem_zipIdx_iff_getElem?.1 hTj
+  have hj : j < ntreeAux.nm := by
+    rcases Nat.lt_or_ge j ntreeAux.types.length with hlt | hle
+    · exact hlt
+    · rw [List.getElem?_eq_none hle] at hT; exact absurd hT (by simp)
+  exact VInductDecl'.recType_isType hR hT hj (VInductDecl'.onCtxMinors hR)
+
+include h hE₁ hE₂ hF₁ hF₂ in
+/-- **Obligation (B) at a PARAMETERISED nested block, reduced to `hbridge` alone.**
+
+Every environment-level input is discharged: `hsrc` (§D.6), `hσ` in its corrected form (§D.5),
+`he₂` (§D.4).  What is left is the telescope bridge — §T5's motive entries, §T6's minor entries
+(whose `hfld` `Theory/Inductive/ParamRedex.lean` §5 supplies at a parameterised block) and the
+head `hbody` — and *nothing else*.
+
+Compare `nfnAux_recConstsR_wf`, which discharges (B) outright at `np = 0` because there the
+bridge is `rfl` (`nfn_recType_substC_0`/`_1`) — and `mp_recTypeR_bridge_false` /
+`ntreeNode_substC_ne_typeR`, which show it is not `rfl` here.  So the `np ≥ 1` form of (B)'s
+`csubst_recType_eq` is not a patched equation: it is this `hbridge`, a telescope defeq, and the
+equation is *provably* unavailable. -/
+theorem ntreeAux_recConstsR_wf_of_bridge
+    (hbridge : ∀ (j : Nat) (T : VIndType), ntreeAux.types[j]? = some T →
+      ∃ (As As' : List VExpr) (B B' : VExpr) (v : VLevel),
+        (ntreeAux.recType j).substC (ntreeRestore.csubst ntreeAux ntreeK) = VExpr.mkPi As B ∧
+        (ntreeAux.recTypeR ntreeRestore j).substC (ntreeRestore.csubst ntreeAux ntreeK)
+          = VExpr.mkPi As' B' ∧
+        F₂.TeleDefEq ntreeAux.recUvars [] As As' ∧
+        F₂.IsDefEq ntreeAux.recUvars As.reverse B B' (.sort v)) :
+    ∀ c ∈ ntreeAux.recConstsR ntreeRestore ntreeK, VConstant.WF F₂ c.2 :=
+  VEnv.recConstsR_wf_of_substCD' (ntree_recConsts_wf h hE₁ hE₂)
+    (ntree_csubst_WFD₂ h hE₁ hE₂ hF₁ hF₂) (ntreeF₂_ordered h hE₁ hF₁ hF₂) hbridge
+
+end
+
+end InductiveDeclExamples
 end Lean4Lean

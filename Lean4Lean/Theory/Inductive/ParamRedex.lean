@@ -761,6 +761,50 @@ theorem ntree_canonical_and_parameterised :
     InductiveDeclExamples.ntreeAux.Canonical ∧ InductiveDeclExamples.ntreeAux.np = 1 :=
   ⟨InductiveDeclExamples.ntreeAux_Canonical, rfl⟩
 
+/-! ## §10 Where the assembly *really* stops: `hσ`'s `const` clause is FALSE, not unproved
+
+§8 above, and `docs/handoff-iota-stored.md` §21/§25 and ledger row 132b, say the residual of
+obligations (B)/(C) at a parameterised block is *"instantiating the `nfnSubstAll_WF₂` template at
+`np = 1`, not new apparatus"*.  **That is wrong, and the correction is a refutation.**
+
+`Theory/Typing/ConstSubstNested.lean` §B proves `VEnv.csubst_WF_staged_false`: at the staging pair
+`E₂ = E₁.addIndCtors D`, `F₂ = F₁.addConstList (D.ctorConstsCR R K)` — the pair
+`VEnv.addInductR_ordered'` fixes — **no** constant substitution leaving the declared
+constructors alone is `CSubst.WF`, as soon as one declared constructor satisfies
+
+    (C.type D j).substC σ ≠ (C.typeR D R j).substC (R.csubstTy D K)
+
+because `CSubst.WF.const` at that constructor *is* that equation.  It is the syntactic bridge
+`VEnv.ctorConstsCR_wf_of_substC` asks for as `hbridge` — the one `ctorConstsCR_wf_of_substC'`
+exists to avoid — re-imposed through `hσ`.  It is refuted at `ntreeAux`
+(`ntree_const_clause_ne`, `ntree_node_no_substC`), and it is refuted here too, which is what
+this section records: the obstruction is not an artefact of the canonical witness.
+
+The comparison below is against **Lean's own declared type for `MP.obj`**, which
+`mp_obj_declared` identifies with `(mpObj.typeR …).substC (mpRestore.csubstTy …)`.  So what
+`hσ`'s `const` clause demands of the environment at this block is *not* what Lean's kernel
+declares — one β-step off it, exactly as `mp_obj_entry_substC_ne` measures one layer in. -/
+
+/-- **`hσ`'s `const` clause is false at this block too.**  `hne` of
+`VEnv.csubst_WF_staged_false`, verified at `MP.obj` — and against `type_of% @MP.obj`, i.e.
+against what the environment really holds. -/
+theorem mp_const_clause_ne :
+    (mpObj.type (mpAux mpAuxNodeB) 0).substC (mpRestore.csubst (mpAux mpAuxNodeB) mpK)
+      ≠ (vconst(type_of% @MP.obj)).type := by decide
+
+/-- …and the remaining hypotheses of `VEnv.csubst_WF_staged_false` hold at `MP.obj`, so the
+refutation applies here verbatim once a staging pair for this block exists.  (It does not yet:
+`mpAux mpAuxNodeB` has no `VInductDecl'.WF`, which is why the instance is stated at `ntreeAux`,
+where `listDecl_WF` supplies the history.) -/
+theorem mp_ctorName_id : mpRestore.ctorName ``MP.obj = ``MP.obj := rfl
+
+theorem mp_own_not_K : ((mpAux mpAuxNodeB).types.getD 0 default).name ∉ mpK := by decide
+
+theorem mp_csubst_obj_none : mpRestore.csubst (mpAux mpAuxNodeB) mpK ``MP.obj = none := rfl
+
+theorem mp_obj_mem : (0, mpObj) ∈ (mpAux mpAuxNodeB).ctorsAll := by
+  rw [mpAuxB_ctorsAll_eq]; exact List.Mem.head _
+
 end MPWit
 end MRedex
 end Lean4Lean

@@ -841,3 +841,235 @@ adding `ParamRedex.lean` to `Experimental/ConeJoin.lean` (not mine to edit).
 3. **`Built.fields_noK`** — still no producer but `decide` (row 117c).  Untouched for the third
    round.
 4. **The `MemberRedexScan` PANIC** (§22, last bullet).  Pre-existing, non-fatal, undocumented.
+
+## 26. Bottom line: the brief's premise is REFUTED, and the repair is proved instead
+
+I was told to *"instantiate the `(R.csubst D K).WF` template at `np = 1`"*, and told to treat
+"not new apparatus, just instantiation" as a claim to test.  **It is false.**  The template's
+conclusion is not merely unproved at `np = 1` — it is **false**, for every constant substitution,
+and the failing clause is not the one anybody was looking at.
+
+| question | answer |
+|---|---|
+| Does `nfnSubstAll_WF₂` instantiate at `np = 1`? | **No. `(R.csubst D K).WF E₂ F₂ U` is FALSE at `ntreeAux`, for every `U`** — `ntree_csubst_WF₂_false`, two staging equations and a `decide`. |
+| Which hypothesis fails? | None of them. The **conclusion's `const` clause** fails. `CSubst.WF.const` demands, of every constant of `E₂` outside σ's domain, that `F₂` hold it at `ci.type.substC σ`; `F₂` holds `NTree.node` at `(typeR …).substC (csubstTy …)`, because that is what `VInductDecl'.ctorConstsCR` declares. **So `const` *is* obligation (A)'s syntactic bridge** — the one `ctorConstsCR_wf_of_substC'` exists because it is false above `np = 0` (`ntreeNode_substC_ne_typeR`, in the tree since it was written). (A) was given a defeq-tolerant bridge; (B) was too (§A of `ConstSubstNested.lean`) but **kept the strict `hσ`**, which re-imposes (A)'s refuted equation through the back door.  (C)' dropped `hσ` entirely, so what is refuted is (B)' and the *strict* (C) route. |
+| Is it a matter of picking a better σ? | **No.** `ntree_node_no_substC`: for *every* `σ`, the two differ. `substC` replaces a constant in **head** position, so the third pi-domain of the stored type is `.app t (.bvar 1)` for whatever `t`, while the declared one is `.app (const List) (.app (const NTree) (.bvar 1))`. Matching them needs `substC` to re-associate an application. |
+| Is it an artefact of the canonical witness `ntreeAux`? | **No** — the same inequality holds at the parameterised **redex** block: `mp_const_clause_ne` (`ParamRedex.lean` §10), and there the right-hand side is `type_of% @MP.obj`, i.e. what Lean's own kernel declares. |
+| Is there a cheap repair by changing what the step declares? | **Refuted**: `ntree_node_redex_ne_declared` — the substituted stored type is **not** `type_of% @NTree.node`, so that repair buys (B) by giving up faithfulness (`ntreeNode_typeR` is `rfl` against Lean's own type). |
+| So what does work? | **`CSubst.WFD`**: `CSubst.WF` with `const` weakened to "at that type **or at any type definitionally equal to it**". `CSubst.WF.wfd` shows it is a weakening (so it inherits every `np = 0` instance), and `VEnv.IsDefEq.substCD` is the same induction as `IsDefEq.substC` with **one** case changed in substance (`constDF`, one extra `defeqDF`). |
+| Is `WFD` inhabited where `WF` is refuted? | **Yes, proved**: `ntree_csubst_WFD₂ : (ntreeRestore.csubst ntreeAux ntreeK).WFD E₂ F₂ 2` — the corrected `hσ` at a **parameterised** block, every clause discharged. Exactly one clause uses the new freedom (`const` at `NTree.node`); the other six constants take the old disjunct verbatim. |
+| Does that move obligation (B)? | **Yes.** `ntreeAux_recConstsR_wf_of_bridge`: (B) at `ntreeAux` now follows from **`hbridge` alone** — `hsrc` (`ntree_recConsts_wf`), `hσ` (`ntree_csubst_WFD₂`) and `he₂` (`ntreeF₂_ordered`) are all discharged. The environment-level residual §21/§25 named is **gone**; what remains is the telescope bridge (§T5/§T6/§T15's `hmot`/`hmin`/`hbody`). |
+| New `sorry`? New frozen axiom? | **None.** All **46** new theorems (47 declarations; the 47th is the `structure CSubst.WFD`) are `[propext, Quot.sound]` or a subset, except six that also carry `Classical.choice` — and those six are exactly the ones that go through `listEnv_ordered`/`ntreeAux_ctorConstsCR_wf`, which **already** carry it (`nfnSubstAll_WF₂` does too). No `sorryAx` anywhere. |
+
+### 26.1 Verdict on each thing the brief asserted (it asked to be checked)
+
+| briefed assertion | verdict |
+|---|---|
+| `ParamRedex.lean` landed a parameterised redex block at which `hrec` is a genuine conversion (`mp_obj_entry_substC_ne`, `decide`) | **true** — file rebuilds, theorem is `by decide`, §T15.7/§T16.1 assembly present |
+| (B)'s `csubst_recType_eq` and (C)'s `csubst_iotaRules_eq` are **false** at `np ≥ 1` | **true** (`mp_recTypeR_bridge_false`, `mp_iotaRules_bridge_false`) |
+| the `np`-free route "stops at" `hσ : (R.csubst D K).WF E₂ e₂ D.recUvars` | **true but understated**: it does not stop there, it is **refuted** there |
+| `nfnSubstAll_WF₂`/`₃` + `nfn_csubst` + `nfnAux_recConstsR_wf` construct such a `WF` at `np = 0` | **true** |
+| "so the residual is instantiating that template at `np = 1`, not new apparatus" | **FALSE** — the headline correction; see §26.  New apparatus (`CSubst.WFD` + `substCD`) is exactly what is needed, and it is now here |
+| `np > 0` alone gives the conversion, redex-ness orthogonal (row 132b) | **true**, unchallenged (`ntree_obj_entry_substC_ne` in the tree) |
+| guard 1 = 24 frozen axioms, guard 3 = 2/2, guard 2 prints INCOMPLETE | **true, all three verified verbatim this round** |
+| census TOTAL 13 and `MemberRedexScan` 49/796/4/4/0 | **could not be verified** — see §30; both instruments are unrunnable while `Theory/SetModel/*` is broken |
+| `lean_local_search` / `lean_hammer_premise` broken in this tree | **not exercised** (I used `grep` and `lake env lean`).  **One caveat to add**: `lean_run_code` also became unusable after my first edit — *"Imports are out of date and must be rebuilt"* — with no way to restart the LSP from a Bash-only session.  `lake env lean` on a scratch file under `/tmp` is the working substitute and is what every measurement here used |
+| out of scope: `Built.fields_noK` | respected, untouched |
+
+## 27. What is proved
+
+### 27.1 `Theory/Typing/ConstSubstNested.lean` §B — the refutation (8 theorems)
+
+* `VEnv.subst_WF_false_of_const_ne` — **the minimal form**: one constant carried at a different
+  type refutes `σ.WF E F U` outright, because `const` is an *equation*.  Four lines; everything
+  else in §B is this plus a computation.
+* `VEnv.csubst_WF_staged_false` — **general**: at the staging pair `E₂ = E₁.addIndCtors D`,
+  `F₂ = F₁.addConstList (D.ctorConstsCR R K)` (the pair `VEnv.addInductR_ordered'` fixes), if one
+  *declared* constructor has `(C.type D j).substC σ ≠ (C.typeR D R j).substC (R.csubstTy D K)`
+  then `¬ σ.WF E₂ F₂ U`.  Two `addConstList_constants` and one `injection`; no `Ordered`, no `np`.
+* `ntree_const_clause_ne` (`decide`) — that inequality at `NTree.node`, with the *full*
+  substitution on the left and the type `ctorConstsCR` really declares on the right.
+* `ntree_node_no_substC` — …and for **every** `σ`, by peeling the pi-telescope.
+* `ntree_csubst_WF₂_false`, `ntree_any_WF₂_false` — the two instances, at every `U` (in
+  particular `U = ntreeAux.recUvars = 2`).
+* `ntree_csubst_WF₃_false` — the same refutation at the **ι-rule stage** `E₃`/`F₃`, which is where
+  the *strict* (C) route `iotaRulesRS_wf_of_substC` asks for `hσ`.  (C)'s defeq-tolerant route has
+  no `hσ`, so (C) is blocked on one route of two, not both.
+* `ntree_stage₂_exists` — the staging pair the refutation is about **exists** (anti-vacuity: the
+  refutation is not about an empty configuration).
+
+### 27.2 §C — the repair, as apparatus (1 structure + 9 theorems)
+
+`CSubst.WFD` (structure), `CSubst.WF.wfd` (the weakening), `IsDefEq.substCD_constDF`,
+`IsDefEq.substCD_extra`, `IsDefEq.substCD`, `HasType.substCD`, `IsType.substCD`,
+`VConstant.WF.substCD`, `VDefEq.WF.substCD`, `VEnv.recConstsR_wf_of_substCD'`.
+
+`substCD`'s induction is `substC`'s **byte for byte** except two lines: `constDF`, which gains one
+`defeqDF`, and `extra`, which only names a renamed helper whose proof is identical.  That is the
+measurement that this is a weakening and not a new system.  `Theory/Typing/ConstSubst.lean` is
+another stream's file, so `WFD` lives in `ConstSubstNested.lean`; **if it survives, it belongs next
+to `CSubst.WF`, and `recConstsR_wf_of_blocks`/`_of_entries` in `NestedTele.lean` want the same
+restatement** (they factor through `recConstsR_wf_of_substC'`, so it is one hypothesis swap each).
+
+### 27.3 §D — the instance at `np = 1` (22 theorems)
+
+`ntree_csubst_closed`, `ntree_csubst_ne`, `ntree_csubst_fresh`; **`ntree_node_const_defeq`** (the
+datum `WF` cannot have: `typeR` and the redex form are definitionally equal in `F₂` at every level
+instantiation — one `IsDefEq.beta` under two `forallEDF`s); the five constant-typing helpers and
+the three value typings `ntreeVal_hasType` / `nlistNil_val_hasType` / `nlistCons_val_hasType` (the
+last two are `defeqDF` through the β-redexes, which is where `np = 1` costs something);
+`ntreeF₁_ordered`, `ntreeF₂_ordered` and the five `F₂` lookups; **`ntree_csubst_WFD₂`**;
+`ntree_node_redex_ne_declared`; `ntree_recConsts_wf`; **`ntreeAux_recConstsR_wf_of_bridge`**.
+
+### 27.4 `Theory/Inductive/ParamRedex.lean` §10 (5 theorems)
+
+`mp_const_clause_ne` (`decide`, against `type_of% @MP.obj`), plus the other four hypotheses of
+`VEnv.csubst_WF_staged_false` at `MP.obj` (`mp_ctorName_id`, `mp_own_not_K`,
+`mp_csubst_obj_none`, `mp_obj_mem`).  The combined refutation is *stated* at `ntreeAux` and not at
+`MP`, because `mpAux mpAuxNodeB` has no `VInductDecl'.WF` and hence no staging pair; `ntreeAux`
+has one, through `listDecl_WF`.  (I did **not** add an import of `ConstSubstNested.lean` to
+`ParamRedex.lean` — `ConeJoin.lean` imports `ParamRedex.lean`, so that would change the census's
+and the scan's cone, and I may not edit `ConeJoin.lean`.)
+
+## 28. Anti-vacuity, per obligation, as the brief demanded
+
+| statement | genuine conversion content, or identity/typing? | established by |
+|---|---|---|
+| `ntree_const_clause_ne` / `ntree_node_no_substC` | a **refutation**; the two sides differ by one β step per parameter | `decide`, and a structural `injection` argument for the `∀σ` form |
+| `ntree_node_const_defeq` | **genuine conversion**: its proof *is* an `IsDefEq.beta`, and `ntree_node_no_substC` proves the two sides are never equal, so it cannot be a `rfl` in disguise | the two theorems together |
+| `ntree_csubst_WFD₂`'s `const` clause | **one** of seven constants takes the defeq disjunct; the other six take the strict one | the proof's case split, and `ntree_csubst_WF₂_false` shows the defeq disjunct is *necessary* |
+| `nlistNil_val_hasType` / `nlistCons_val_hasType` | **conversion**: each is `defeqDF` through one (resp. two) `IsDefEq.beta`s; at `np = 0` the analogous obligations are `CSubst.val_zero' … (by type_tac)` with no defeq at all (`nfnSubstAll_WF₂`) | compare the two proofs |
+| `CSubst.WF.wfd` | an **identity** instance, deliberately: it is the theorem that `WFD` costs nothing at `np = 0` | `.inl rfl` |
+| `ntreeAux_recConstsR_wf_of_bridge` | not vacuous in `hσ` any more; **still hypothetical in `hbridge`**, which I did **not** prove and do not claim | stated as a hypothesis, named |
+
+**The one thing I could not close and will not dress up**: `hbridge` at `ntreeAux`.  (B) is now
+"telescope defeqs ⇒ done" at a parameterised block, and the telescope defeqs are §T5/§T6/§T15's
+business.  `mp_recTypeR_bridge_false` and `ntreeNode_substC_ne_typeR` say the *equation* form is
+false there, so **the correct `np ≥ 1` form of `csubst_recType_eq` is not a patched equation: it is
+`hbridge`, a telescope defeq**, and that answers the brief's second question — (B)'s and (C)'s
+`np ≥ 1` forms are the primed bridges' `hbridge`/`hbridge`-analogue, not a repair of the equations.
+(C)'s `iotaRulesRS_wf_of_substC'` already has **no** `hσ` at all — §A's note explains why — so
+**(C)'s defeq-tolerant route never had this blocker**; (B) and the *strict* (C) route did, and
+`ntree_csubst_WF₃_false` measures the latter.  That is a correction to
+§21's list: of its three residual items, item 1 was two-thirds mine to fix and one-third not there.
+
+## 29. What I tried that failed, and the step it failed at
+
+1. **Instantiating `nfnSubstAll_WF₂` at `ntreeAux` directly, as briefed.**  Failed at the `const`
+   clause, and *before* writing any proof: computing what `F₂` holds for `NTree.node` and what the
+   clause demands showed they were the two sides of `ntreeNode_substC_ne_typeR`, a theorem sitting
+   30 lines below in the same file.  **This is the fourth "the residual is just an
+   instantiation" in this corner that was wrong** (rows 128c, 129c, 132b), and the first where the
+   claim was wrong in the *pessimistic-for-the-tree* direction: the residual was **bigger** than
+   briefed, not smaller.  The cheap check that would have caught it: *for each clause of the
+   template's conclusion, write down what the two environments actually hold at each constant.*
+2. **`∀ σ, ¬ σ.WF E₂ F₂ U` with no side condition** — **false as stated**, and I nearly landed it.
+   If `σ` substitutes `NTree.node` itself the `const` clause does not apply and the `val` clause
+   might conceivably be met.  The honest statement carries `σ NTree.node = none`, which every
+   substitution the nested step could mean satisfies (`R.csubst` is guarded by `K`).  Caught by
+   the `?_` that would not close.
+3. **`decide` on `(0, ntreeNode) ∈ ntreeAux.ctorsAll`** — *"failed to synthesize `Decidable`"*.
+   `ctorsAll` is a `flatMap` over `zipIdx`, so membership is not an instance target; fixed with
+   `rw [show ctorsAll = … from rfl]; exact List.Mem.head _` (the same fix `ParamRedex.lean` uses).
+4. **`.sortDF … : … (.sort ?u)` inside `forallEDF` inside `defeqDF`** — *"expected `VLevel.WF 1 ?m`"*
+   twice.  The result level is unconstrained when the whole defeq sits under `defeqDF`, so the
+   `sortDF`'s own level is a metavariable; fixed with `(l := …) (l' := …)`.  **Third round running
+   that a `VLevel` metavariable in a `constDF`/`sortDF` position is the failure** (§15.1, §23.3).
+5. **Doc-comment between `include … in` and `theorem`** — a parse error; in this file the order is
+   `include … in` **then** the doc comment.  And a regex that moved two `include` lines to the top
+   of the file, which broke obligation (A)'s statement for one build; caught by the build, reverted.
+6. **Not attempted, deliberately**: `Built.fields_noK` (out of scope, row 117c); restating
+   `recConstsR_wf_of_blocks`/`_of_entries` over `WFD` (`NestedTele.lean` is mine, but the
+   restatement is mechanical and the *interesting* content is `WFD` itself — and I would rather
+   the human decide whether `WFD` belongs in `ConstSubst.lean` first); any implementation or frozen
+   file; `Theory/SetModel/*` and `Theory/Typing/*` other than `ConstSubstNested.lean`.
+
+## 30. Measurements, and what I could NOT measure
+
+* `lake build`: **1506 jobs**, and it **fails throughout the round in `Theory/SetModel/*` only** —
+  another stream's files, mid-flight, and the failing file moved three times while I worked
+  (`AboveAudit.lean` + `UnitOracleWitness.lean`, 34 errors → `UnitOracleLarge.lean`, 14 →
+  `PreludeOracle.lean`, 61).  **Zero errors in any file I own, at every one of those snapshots**;
+  `lake build Lean4Lean.Theory.Typing.ConstSubstNested` and
+  `lake build Lean4Lean.Theory.Inductive.ParamRedex` are green (64 and 72 jobs), with **no new
+  warnings** — the only warning either file emits is the pre-existing unused-section-variable one at
+  `ConstSubstNested.lean:1164` (`nfnF₂_ordered`, untouched).
+* `lake build Lean4Lean.Experimental.ConeJoin Lean4Lean.Verify.Guard`: the **guards ran and are
+  unmoved**, verbatim —
+
+      guard 1: Axioms.lean declares exactly the 24 frozen axioms ✓
+      guard 2: kernel_sound axioms within whitelist ✓ (proof INCOMPLETE: sorryAx present)
+      guard 3: checker cone implementation gaps within frozen list (2/2 remaining) ✓
+
+  The build as a whole still exits non-zero, on `Theory/SetModel/UnitOracleLarge.lean` (another
+  stream's file, mid-flight); the three guard lines are emitted before that target fails.
+* **`scripts/sorry-census.lean` and `MemberRedexScan`'s coverage could NOT be run**, and this is the
+  one place I cannot give the brief what it asked for.  Both transitively import the broken
+  `Theory/SetModel/*` file of the moment, so both die with *"object file … .olean … does not
+  exist"* — three different filenames over the round, as the other stream moved.  I did **not** work around it, did not touch those files, and did not weaken anything to
+  make a number appear.  **What must be re-run once the SetModel stream is green:**
+  `lake env lean scripts/sorry-census.lean` (expect TOTAL 13) and
+  `touch Lean4Lean/Verify/Inductive/MemberRedexScan.lean && lake build
+  Lean4Lean.Verify.Inductive.MemberRedexScan` (expect 49 / 796 / 4 defects in 4 blocks / 4 covered /
+  residual 0).  My grounds for expecting both unmoved, stated as reasoning and **not** as
+  measurement: I added no `sorry` (the string does not occur in either file I touched), no axiom,
+  no implementation file, and no import — the scan's population is fixed by
+  `ConeJoin.lean`'s import list, which I did not edit.
+* `#print axioms` on **all 46** new theorems (47 new declarations, the 47th being the `structure`):
+  **40** `[propext, Quot.sound]` or a subset (2 on none at all), **6** also `Classical.choice` — `ntreeF₁_ordered`, `ntreeF₂_ordered`, `ntree_csubst_WFD₂`,
+  `ntree_recConsts_wf`, `ntreeAux_recConstsR_wf_of_bridge`, and (through `listEnv_ordered`) nothing
+  else.  Those six route through `listEnv_ordered` / `ntreeAux_ctorConstsCR_wf`, **measured to
+  carry `Classical.choice` already**, as does the template `nfnSubstAll_WF₂`.  **No frozen axiom,
+  no `sorryAx`, none traded.**
+* Search-tool provenance, per the brief's caveat: `lean_local_search` and `lean_hammer_premise`
+  were **not used** (broken in this tree).  Everything located here came from `grep`/`sed` over the
+  tree and from `lake env lean` on scratch files; `lean_run_code` returned
+  *"Imports are out of date"* after my first edit and I switched to `lake env lean` for the rest.
+
+## 31. Ledger rows this round needs (I did not edit `docs/vacuity-ledger.md`)
+
+1. **A row that supersedes 132b's last sentence.**  132b records "the residual is *instantiating
+   that template at `np = 1`*, not new apparatus".  **Refuted**: the template's conclusion is
+   **false** at `np = 1` (`ntree_csubst_WF₂_false`), for every substitution
+   (`ntree_node_no_substC`), and the failing clause is `CSubst.WF.const`, which *is* obligation
+   (A)'s refuted syntactic bridge.  Grade this harder than the two achievements below: it is the
+   fifth costing in this corner refuted by a check that cost three lines, and the **first** in the
+   direction "the residual is larger than briefed".  *Guard:* before recording a residual as
+   "instantiate template T at witness W", write down, for each clause of T's **conclusion**, what
+   the two environments hold at each constant.  A hypothesis-by-hypothesis audit would have missed
+   this — the hypotheses are all fine.
+2. **A row for the general obstruction**: `VEnv.csubst_WF_staged_false`.  `CSubst.WF` between the
+   two staging environments of `addInductR_ordered'` is unsatisfiable as soon as one declared
+   constructor's stored type is not literally its restored type under σ — so **every** consumer
+   with a strict `hσ` (`recConstsR_wf_of_substC'`, `_of_blocks`, `_of_entries`, and the strict (C)
+   route) is **vacuous at every parameterised block**, while §A.1 was checking only that their
+   `hbridge` was not.  *This is a new kind for §0's list: a lemma non-vacuous in the hypothesis
+   everyone audited and vacuous in the one nobody did.*
+3. **A row for the repair**: `CSubst.WFD` + `IsDefEq.substCD` (one case changed in substance out of fifteen) +
+   `ntree_csubst_WFD₂`, the corrected `hσ` **proved at a parameterised block**, and
+   `ntreeAux_recConstsR_wf_of_bridge`, which reduces obligation (B) at `ntreeAux` to `hbridge`
+   alone.  Also worth a line: the *other* candidate repair (declare the substituted stored type)
+   is refuted by faithfulness, `ntree_node_redex_ne_declared`.
+4. **A row for (C)**: `iotaRulesRS_wf_of_substC'` has **no** `hσ`, so obligation (C) never had this
+   blocker; §21's three-item residual over-counted.  (C)'s `np ≥ 1` form is its `hbridge`, and it
+   needs `htype` — data the strict route never had to produce (§A.1's own note).
+5. **A row for the measurement outage**: the census and `MemberRedexScan` were unrunnable this
+   round because they transitively import `Theory/SetModel/UnitOracleLarge.lean`, which another
+   stream had left broken (and before that, `AboveAudit.lean`); the guards ran only because their
+   output precedes the failing target.  **Every stream's verification block depends on every other stream's
+   file compiling**, and no instrument warns you of that before you have finished the work.
+
+## 32. What I would pick up first
+
+1. **`hbridge` at `ntreeAux`** — obligation (B)'s last input at a parameterised block, and now its
+   *only* one.  Feed `recConstsR_wf_of_blocks`/`_of_entries` (restated over `WFD` — one hypothesis
+   swap each) with §T5's `substC_motiveType_defeq'`, §T6's `substC_minorType_defeq` (whose `hfld`
+   `ParamRedex.lean` §5 supplies) and `hbody`.  This is now the *whole* of (B) at `np ≥ 1`.
+2. **Decide where `CSubst.WFD` lives.**  It belongs beside `CSubst.WF` in
+   `Theory/Typing/ConstSubst.lean` (another stream's file).  Better still: ask whether `CSubst.WF`
+   should simply *be* `WFD` — nothing in the tree needs the strict `const`, `CSubst.WF.wfd` shows
+   the `np = 0` witnesses survive, and the strict version is provably unusable at `np ≥ 1`.
+3. **Re-run the census and the scan** once `Theory/SetModel/UnitOracleLarge.lean` compiles (§30
+   lists the commands and the expected numbers).  Do not take my expectations on trust.  The three
+   guards *did* run and are unmoved.
+4. **`Built.fields_noK`** — still no producer but `decide` (row 117c), fourth round untouched.
