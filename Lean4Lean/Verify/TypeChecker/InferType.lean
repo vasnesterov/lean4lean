@@ -426,7 +426,45 @@ Still `sorry`, and deliberately so: it is **vacuously true today** (`TrProj` has
 inhabitants until the keystone lands), and it stays open until `bugs-found.md` item 10 —
 the kernel accepts `.proj` on a *recursive* single-constructor inductive, which `TrProj`
 cannot model — is decided.  See also the note on `TrProj.wf` (`Verify/Typing/Lemmas.lean`)
-for the second, independent, `.proj` case the encoding does not yet cover. -/
+for the second, independent, `.proj` case the encoding does not yet cover.
+
+**Round of 2026-09-02 — the abstention is now measured rather than argued.**  Everything in
+this paragraph was run in this tree; `docs/handoff-inferproj.md` has the full ledger.
+
+* **The statement is provable today, in one line, hole-free.**  `inferProj_always_throws hty`
+  below has exactly this type — it is universally quantified over the postcondition — so
+  `theorem inferProj.WF he hty hasty := inferProj_always_throws hty` compiles.  Measured in
+  scratch: axioms `[propext, Classical.choice, Quot.sound]`, **no `sorryAx`**, no frozen
+  axiom; `inferProj_always_throws`'s forward cone is 6973 constants with an **empty** hole
+  set.  So this hole is not hard, and it is not blocked — it is a *bookkeeping decision*, and
+  it is the only one of `kernel_sound`'s nine holes in that state.
+* **Closing it that way would add no tripwire and would delete a marker.**  The usual
+  argument for a vacuity close — "a `sorry` is silent at the flip, a vacuity proof breaks the
+  build" — does not apply here, because `inferProj_always_throws` is *already landed* and
+  already goes red when `AddInduct` gains constructors.  The tripwire exists either way; the
+  census row does not.  Net effect of closing: `sorry`-census 13 → 12 and guard 2's hole set
+  9 → 8, with zero new information.
+* **No split of this hole can carry information.**  Because `inferProj_always_throws` is
+  general in `Q`, *every* conditional reduction `R → (this statement)` is provable **without
+  using `R`**, for any `R` whatever (checked in scratch at an arbitrary `R : Prop`).  That is
+  the reason the `TrProj.weak'_inv` treatment (`docs/handoff-trproj-weakinv.md`) cannot be
+  borrowed: `weak'_inv`'s statement mentions no `VContext`, so its residuals are constrained
+  by concrete `VEnv`s, whereas every residual of *this* statement is unconstrained while
+  `TrEnv` admits no inductive.
+* **It is not downstream of `IsDefEqU.weakN_iff` — measured, not inferred.**  This
+  declaration's own forward cone is 4399 constants whose only hole is itself.  The *live*
+  route is: `projTerm_hasType` (cone 5067) and `TrProj.wf` (cone 5076) each carry
+  `{weakN_iff, forallE_inv_stratified}`, so the dependency appears only after the flip, and
+  only through the target-typing obligation.
+* **What actually resists, stated as fields.**  `inferProj` (`Lean4Lean/TypeChecker.lean:233`)
+  establishes eight of `VEnv.IsStructure`'s ten fields and **checks neither of the other two**:
+  `types : D.types = [T]` (it reads `I_val.ctors` and `numParams`/`numIndices`, never
+  `I_val.all`) and `noRec : C.recFields = []` (it never reads `I_val.isRec`).  Both sit in
+  **positive** position — `TrProj.mk` carries `IsStructure`, `TrExprS.proj` carries `TrProj`,
+  and the conclusion asserts a `TrExprS (.proj …)` — so no restatement of *this* lemma can
+  avoid them.  Dropping them is the `IsStructureG` widening plus `TrProj` option (d)
+  (`docs/vacuity-ledger.md` rows 107b–107d), which the standing ruling reserves to the
+  orchestrator, and which is in turn gated on wall 2 (`projTermG_hasType`). -/
 theorem inferProj.WF
     (he : c.TrExprS e e') (hty : c.TrExprS ety ety') (hasty : c.HasType e' ty') :
     (inferProj st i e ety).WF c s fun ty _ =>

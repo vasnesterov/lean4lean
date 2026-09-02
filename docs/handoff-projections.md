@@ -37,6 +37,13 @@
   the hole is now split into the **typing half** of `weakN_iff` plus one conversion statement
   (`VEnv.ConstAppDefeqStrengthen`), and that statement is provably **not** an instance of the
   strengthening hole — so "closing `weakN_iff` closes `weak'_inv`" is false, machine-checked.
+* **`inferProj.WF` has its own handoff now: `docs/handoff-inferproj.md` (2026-09-02).**  Headline,
+  because it changes how the census should be read: that hole's statement is **provable today,
+  hole-free, in one line** (`inferProj_always_throws hty`, same file, general in the
+  postcondition), and it is held open on purpose.  It is also **not** downstream of `weakN_iff`
+  (measured: own cone 4399, only hole itself).  And **no split of it can carry information** —
+  `R → its statement` is provable without `R` for any `R` — so the `weak'_inv` treatment cannot
+  be borrowed there.
 * **Census figures in this file are stale**: the current count is **13** declarations directly
   containing `sorryAx`, not 19. **So are its guard figures:** guard 1 is **24** frozen axioms, not
   25, and guard 3 reads **2/2**, not 54/54.
