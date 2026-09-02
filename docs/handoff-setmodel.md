@@ -3263,3 +3263,241 @@ new — **`eqIndDecl`'s `= 0` slice** (proved, 17.2), **`Eq.refl ↦ •`'s memb
 **`InterpSound.propSound_of_mem_sort` as free infrastructure for a slice** (circular, 17.5 item 1),
 **a generic `Eq`-application lemma stated at `.bvar i` rather than `.bvar (i+1)`** (false at
 `i = 0`, 17.4 item 2), and **`VExpr.liftVar`** (unknown constant; it is `Lean4Lean.liftVar`).
+
+## 18. Session of 2026-09-02 (eleventh): the **type-former cell is CLOSED**, and `EqSpec` is *refuted* as its hypothesis — the brief's Task-1 framing was wrong in one specific way
+
+New file: `Lean4Lean/Theory/SetModel/EqTypeFormer.lean` (namespace **`Lean4Lean.SetModel.EqTFAudit`**
+— not the filename; §16's row-146e trap again). Imported from `Theory/Equiconsistency.lean` on the
+same edit, so it was never orphaned.
+
+Per-module build: `lake build Lean4Lean.Theory.SetModel.EqTypeFormer` → **1207 jobs**, ✔, 2.0s.
+No `sorry` added, none traded. `#print axioms` on all 17 declarations, by namespace: every one is
+`[propext, Quot.sound]` or `[propext, Classical.choice, Quot.sound]`. **No `sorryAx` anywhere in
+this file**, and no new frozen-axiom dependency.
+
+### 18.1 Proved
+
+| name (`Lean4Lean.SetModel.EqTFAudit.*`) | what |
+|---|---|
+| `eqFn_mem_interp_EqType` | **`eqFn M.κ (v.eval M.ls) ∈ ⟦∀ (α : Sort v) (a b : α), Prop⟧ ∅`** — the cell |
+| `mem_interp_EqType_of_eqFn` | same, packaged as `OracleOK`'s `type` field wants it, from `hfn : M.cnst ``Eq [v] = eqFn M.κ (v.eval M.ls)` |
+| `not_isProp_tf1/2/3` | the three binders' codomains are not propositions (`imax v (imax v 1)`, `imax v 1`, `1`) |
+| `hasType_tf2/3` | the two inner telescopes typed with explicit sorts (what `not_isProp_*` need) |
+| `preludeWitness_cnst_eq` | `(preludeWitness κ ls).cnst ``Eq [w] = eqFn κ (w.eval ls)` — **`rfl`** |
+| `preludeWitness_congr_Eq` | the `congr` field at `Eq`, level computation only |
+| `mem_interp_EqType_preludeWitness` | the cell at this development's own witness |
+| **`oracleOK_Eq`** | **both `OracleOK` fields at the name `Eq`**, arbitrary `κ`, arbitrary `envF ≥ eqEnv`, via `oracleOK_of` (so `Above.pure` twice) |
+| `eqSpec_badEqM`, `not_mem_interp_EqType_badEqM`, `eqSpec_not_sufficient` | the control of 18.2 |
+
+The proof is **three** applications of `UnitAudit.mkLam_mem_mkForallType_of_dom`, one per `mkLam`
+layer of `SetModel.eqFn`, and nothing else — no set-theoretic content beyond
+`true_mem_UProp`/`empty_mem_UProp` at the innermost body. §17.8 item 3 named the entry correctly.
+Total: ~35 lines of tactic proof. **The route was cheap, not expensive, and not closed.**
+
+### 18.2 Where the brief is wrong — Task 1's hypothesis
+
+> "Two of the three are done … **both from `EqSpec M v` alone** … The **type former** is what
+> remains."
+
+The framing invites the reading that the type-former cell is the third instance of the same
+pattern and wants the same hypothesis. **It is not, and it does not.** `EqSpec` is *refuted* as a
+sufficient hypothesis here, machine-checked:
+
+```lean
+theorem eqSpec_not_sufficient (L : PropSplit envF nv) (ls : List ℕ) {v : VLevel}
+    (hv : v.WF nv) (hle : eqEnv ≤ envF) (hvz : v.eval ls ≠ 0) :
+    ∃ M : ModelData V, EqSpec M v ∧
+      ¬ (M.cnst ``Eq [v] ∈ (interp M L [] (eqTypeFormerType v)).toFun ∅)
+```
+
+The reason is structural and worth carrying to every future type-former cell:
+
+* the `Eq.rec` and `Eq.refl` cells conclude **`• ∈ …`**. That is decided by *applied values*, and
+  `EqSpec` — an equation about `M.cnst ``Eq [v] ‘ α ‘ a ‘ b` — is exactly the right strength.
+* the type-former cell concludes **`M.cnst ``Eq [v] ∈ …`**. By `mem_mkForallType_iff` that asks the
+  value *itself* to be a set of Kuratowski pairs, functional, with domain `U M.κ (v.eval M.ls)`.
+  Application `‘` is a **read** of a graph; an equation about reads constrains nothing outside what
+  the read sees. So no value-level spec can imply this cell, for any block.
+
+The hypothesis that does work is the value's **identity**: `hfn`. It costs nothing in this corner
+(`preludeWitness_cnst_eq` is `rfl`), but it is a *different kind* of assumption from `EqSpec`, and
+a stream that budgeted "EqSpec again" would have mis-scoped the file.
+
+**Honesty about the control's strength.** `badEqM` uses `zeroChain`, where
+`U zeroChain (j+1) = ∅` (`EqAudit.U_zeroChain_succ`), so `EqSpec` holds *vacuously* there while the
+conclusion still has content (`mkForallType` over an empty domain sits inside `Y ^ ∅`, whose only
+member is `∅`, and the bad entry `{•}` is not `∅`). That is a genuine proof that
+`EqSpec ⊬ cell`, and it is the cheapest one; it is **not** the stronger statement "EqSpec is
+insufficient at a good `κ`". A non-vacuous version is available and I did not build it: take
+`M.cnst ``Eq [v] := eqFn κ i ∪ {∅}` — `∅` is not a Kuratowski pair (`⟨a,b⟩ₖ = {{a},{a,b}}` is
+inhabited), so `subset_prod_of_mem_function` fails while every applied value is unchanged. That
+would hold at an arbitrary `κ`. Priced at ~15 lines; it needs the `value`/`‘` lemma that adding a
+non-pair leaves reads unchanged, which I did not locate.
+
+### 18.3 Anti-vacuity, this corner specifically
+
+* **`Above` occurs in no statement in the new file.** `oracleOK_Eq` goes through `oracleOK_of`,
+  which is `Above.pure` on both fields — so the substance is the *unwrapped* proposition
+  `mem_interp_EqType_preludeWitness`, and there is no false antecedent to hide behind.
+* **No `κ` is chosen in any positive statement.** `eqFn_mem_interp_EqType`, `oracleOK_Eq` and
+  everything they use are at an arbitrary `κ : ℕ → V`, arbitrary `ModelData`, arbitrary `v`. The
+  only named `κ` in the file is `zeroChain`, in §3's **control**, i.e. in a negative statement.
+* **The conclusion is not free** — checked in the direction the brief warns about, not only the
+  hypothesis direction. `not_mem_interp_EqType_badEqM` exhibits an assignment at which the *same
+  conclusion shape* is FALSE. So "eqFn lands in the interpretation" is not a statement that holds
+  of every assignment at every environment; it discriminates.
+* **`hle : eqEnv ≤ envF` is load-bearing — labelled REASONING, not measured.**
+  `lean_minimal_hypotheses` reports "load-bearing" but its own docstring says a body naming `hle`
+  fails to elaborate without the binder, so that verdict measures the *body*, not necessity. The
+  argument: `hle` is what `isProp_iff` uses to reach `L.prop_sound`; with `IsProp` unconstrained
+  `interp` could take the `mkForallProp` branch, whose members are `⊆ {•}`, and `eqFn κ i` is
+  neither `∅` nor `{•}` as soon as `U κ i` has an inhabited member. Not run.
+* `L : PropSplit envF nv` is a parameter of both the positive statement and the control, so they
+  sit on identical footing; the known wall (`Nonempty (PropSplit preludeEnv 0)`) is untouched
+  either way. Note also that **`NEAudit.nonempty_propSplit_preludeEnv` prints `sorryAx`** — I
+  re-confirmed this in the same build log — so nothing above may be quoted as "sorry-free *at
+  `preludeEnv`*" by routing through it. What is sorry-free is everything in the new file, at an
+  arbitrary `envF ≥ eqEnv`.
+
+### 18.4 Status of `InductOracleOK` at `eqIndDecl` after this file
+
+| obligation | status |
+|---|---|
+| `consts` at `Eq` (type former) | **CLOSED** (`oracleOK_Eq`), both fields |
+| `consts` at `Eq.refl` | **closed** (`EqZeroAudit.pt_mem_interp_EqReflType`); level-uniform, `reflSort_eval_eq_zero` is unconditional |
+| `consts` at `Eq.rec`, `u.eval ls = 0` | proved (`EqZeroAudit.pt_mem_interp_eqRecType_of_zero`) |
+| `consts` at `Eq.rec`, `u.eval ls ≠ 0` | **OPEN**; `•` is *refuted* there, so the value must be the six-layer `mkLam` |
+| `rules` (one ι-rule) | open |
+
+**"Hole-free" is not "discharged", and cell-closed is not block-closed.** `OracleOK`'s `type` field
+quantifies over *all* `us` of the right length, so `Eq.rec`'s cell is a single statement spanning
+both level slices; the `= 0` slice does not close it and no level-uniform value can
+(`EqAudit.no_level_uniform_value`). Two of three `consts` cells are closed. `InductOracleOK` at
+`eqIndDecl` is **not** closed.
+
+### 18.5 Task 2 also landed: `EqSpec` is **necessary at the recursor cell**
+
+New file: `Lean4Lean/Theory/SetModel/EqRecNecessity.lean` (namespace
+**`Lean4Lean.SetModel.EqRecNec`**), imported from `Theory/Equiconsistency.lean` on the same edit.
+Per-module build: **1208 jobs**, ✔, 3.2s. `#print axioms` on all 13 declarations: every one
+`[propext, Classical.choice, Quot.sound]`. **No `sorryAx`.** No new `sorry`, none traded.
+
+| name (`Lean4Lean.SetModel.EqRecNec.*`) | what |
+|---|---|
+| `eqTrueFn`, `eqTrueFn_value` | a **constant-`{•}`** `Eq` denotation: three `mkLam` layers, `SetModel.eqFn` with the `if` deleted |
+| `sepMot`, `sepW`, `sepMot_value_self`, `sepMot_value_other` | the **separating motive**, two layers, environment-passing (the inner layer reads `a` at index 1 and `x` at index 2) |
+| `sepMot_mem_interp_motTyE` | the motive really inhabits `⟦motTyE u v⟧` — two `mkLam_mem_mkForallType_of_dom`s |
+| `badTrueM`, `not_eqSpec_badTrueM` | the model, and the check that **what it violates is exactly `EqSpec`**, at the non-reflexive instance only |
+| **`not_pt_mem_interp_eqRecType_badTrue`** | **`• ∉ ⟦Eq.rec's type⟧` at `badTrueM`** — so `pt_mem_interp_eqRecType_of_zero`'s hypothesis cannot be dropped |
+| `eqSpec_necessary_at_recursor` | packaged: `∃ M, M.κ = κ ∧ M.ls = ls ∧ ¬EqSpec M (.succ .zero) ∧ ¬(• ∈ …)` |
+| **`recCell_discriminates`** | the tight bracket: at **one and the same** `κ, ls, L, hle, u := .zero, v := .succ .zero`, the membership **holds** at `preludeWitness` and **fails** at `badTrueM` |
+
+Total ~150 lines. §17.8 item 2 was right about the *shape* (two `mkLam` nests) and wrong about the
+*price*: see 18.6.
+
+### 18.6 Where the brief is wrong — Task 2's costing
+
+> "It is reported to need a constant-true `Eq` plus a separating motive — two `mkLam` nests. … the
+> expensive control has no precedent in the tree … Price it yourself."
+
+Three corrections, in descending order of how much they would have mis-scoped the block:
+
+1. **The dominant cost is not the two nests — it is that the control cannot live where the slice
+   lives.** The separation needs `α` with two distinct elements. At `u.eval ls = 0` (the slice's own
+   branch) that is fine, but the *carrier's* level is `v`, and at `v.eval ls = 0` every carrier is a
+   subset of `{•}`, so **no** motive separates two of its elements. The control therefore forces
+   `v.eval ls = 1` **and** `IsInaccessibleChain n κ` with `0 < n`. That is the first
+   chain-dependent hypothesis anywhere in this corner's controls — `EqOracle.lean` §6.4/§6.5 and
+   `EqZeroSlice.lean` §5 are all at an arbitrary `κ`. Anyone pricing "two `mkLam` nests" would have
+   budgeted zero for this and then discovered mid-file that the statement has to change shape.
+2. **"No precedent in the tree" is right about the statement and wrong about the lever.** The
+   two-element carrier is `℘{•} ∈ U κ 1` via `SetModel.U_mem_succ`, and
+   `PreludeSpec.eqFn_distinct` already uses exactly that lever, for exactly this purpose (to make
+   `eqFn`'s `else` branch fire). So the missing thing was not a technique, it was a hundred lines of
+   assembly. Pricing it as "expensive because unprecedented" over-charges.
+3. **"Expensive" is wrong outright.** ~150 lines, no new infrastructure, no set-theoretic content
+   beyond `U_mem_succ` + `mem_UProp_iff`. The reason is that `EqZeroSlice.lean` §§1–4 (the
+   `snoc`-ladder, the `OnCtx` ladder, the `IsProp` chain, the four `interp_*_val` equations) are
+   **exactly** the lemmas a refutation needs, used in the `.1` direction instead of the `.2`
+   direction of the same `mem_interp_forallE_prop_iff`. The forty-lemma telescope that made the
+   positive slice expensive is what makes its control cheap. **This generalises**: every future
+   `= 0` slice buys its own necessity control at a large discount, so long as the block has a
+   carrier at a level where two elements exist.
+
+What I confirm rather than repeat: `PreludeOracle.lean:905`'s parenthetical "(§9)" is a **dangling
+cross-reference** — §9 of that file proves `not_mem_interp_zeroOracle_NE_type` (the *empty* oracle
+at the *type former*) and nothing about a constant-true `Nonempty` at the recursor. Checked by
+reading §9 in full. The `Eq` analogue now exists, so the `Nonempty` one is a transcription rather
+than a design problem.
+
+### 18.7 Measured versus read off
+
+**Measured** (instrument run, output in this session):
+
+* per-module `lake build`: 1207 jobs (`EqTypeFormer`), 1208 jobs (`EqRecNecessity`);
+* `#print axioms` on all 30 new declarations, addressed **by namespace**
+  (`Lean4Lean.SetModel.EqTFAudit.*`, `Lean4Lean.SetModel.EqRecNec.*`), not by filename;
+* **forward cone over type AND value with `allowOpaque := true`**, walker copied from
+  `scripts/hole-cone.lean`, run out of `/tmp` over 19 seeds (every substantive new declaration).
+  **Presence check first, as instructed** — in the measuring environment
+  (`EqTypeFormer` + `EqRecNecessity` + `Theory/Typing/ChurchRosser` + `Injectivity` +
+  `RigidNodeCircle`):
+
+  | hole | `present` |
+  |---|---|
+  | `Lean4Lean.VEnv.IsDefEqU.forallE_inv_stratified` | **true** |
+  | `Lean4Lean.VEnv.IsDefEqU.weakN_iff` | **true** |
+  | `Lean4Lean.VEnv.WF.rigidShapeUniqNS` | **true** |
+  | `Lean4Lean.VEnv.NormalEq.descend` | **true** |
+
+  Result: **every one of the 19 cones has `bigHoles []` and `sorryAx-carriers []`.** Cone sizes
+  1098–7110. So the claim "hole-free" is a measurement, and it is not the vacuous one — the holes
+  were reachable in the environment that reported them absent.
+* `lean_diagnostic_messages` for both files: zero errors, zero warnings.
+
+**Reasoning, not run** (labelled as such):
+
+* that `hle : eqEnv ≤ envF` is semantically necessary in `oracleOK_Eq`.
+  `lean_minimal_hypotheses` says "load-bearing" but its verdict is about the proof *body* naming
+  `hle`, not about necessity; the argument is in `EqTypeFormer.lean` §3's note and 18.3 above.
+* the ~15-line price of the non-vacuous version of `eqSpec_not_sufficient` (18.2).
+* the transfer claim in 18.6 item 3 (every `= 0` slice buys its control cheaply). Untested at
+  `iffIndDecl`.
+
+Search-tool provenance: **`lean_local_search` and `lean_hammer_premise` were not used** (reported
+broken here — `rg` absent). Every "does X exist / where is X" claim above is backed by `grep` over
+the working tree, plus `lean_diagnostic_messages` / `lean_minimal_hypotheses` for the two
+measurements that need elaboration. `lean_references` was not needed.
+
+### 18.8 The two infrastructure traps — not exercised, so not confirmed either way
+
+* **`InterpSound.propSound_of_mem_sort` is circular at a slice.** I never reached for it: the
+  `¬IsProp` facts came from `SoundInduction.isProp_iff` + an explicit `HasType` derivation
+  (`hasType_tf2/tf3`), which is the route `EqZeroSlice.lean` already uses. So the warning cost me
+  nothing and I add no evidence for or against it.
+* **`hasType_app'` needs `Lean4Lean.liftVar` and `.bvar (i+1)`.** Also not exercised — the `Eq`
+  type former's binders are `.sort v`, `.bvar 0`, `.bvar 1`, all typed by bare `.bvar` derivations,
+  and the recursor control reuses `EqZeroSlice`'s existing `interp_*_val` equations rather than
+  building new applications. Carry the warning forward; nothing here tests it.
+
+### 18.9 What to pick up first
+
+1. **`Eq.rec`'s `≠ 0` slice — the six-layer `mkLam`, and it is now the *only* thing between this
+   block and `consts` being closed.** `EqRecNecessity.lean`'s `eqTrueFn` is a worked three-layer
+   example of building such a value from `PreludeSpec`'s `mkLam` idiom, and
+   `EqTFAudit.eqFn_mem_interp_EqType` is a worked example of landing one in a nested
+   `mkForallType`. The two together are the whole recipe; what is new at the recursor is that the
+   innermost body must *depend on the minor premise*, which neither of those does.
+2. **Then the ι-rule** (`eq_iotaRules_length = 1`). Unchanged in priority from §17.8 item 4.
+3. **`iffIndDecl`'s `= 0` slice** — still §17.8 item 1, and 18.6 item 3 now predicts its
+   *necessity control* will be cheap once the slice exists. Do the slice first.
+4. **The non-vacuous form of `eqSpec_not_sufficient`** (18.2): `eqFn κ i ∪ {∅}`, at arbitrary `κ`.
+   Only worth doing if someone challenges the vacuous-`EqSpec` control; it changes no downstream
+   statement.
+5. **`RegConvE env U (k+1)` / `RegularAtSucc`** — unchanged from §17.8 item 5, still inhabited by
+   nothing, still not attacked.
+
+**Do not** re-attack: everything §10.9–§17.8 name, plus — new — **`Eq`'s type-former cell**
+(closed, 18.1), **`EqSpec` as a hypothesis for the type-former cell** (refuted, 18.2),
+**`EqSpec`'s necessity at the recursor cell** (proved, 18.5), and **the reading that
+`PreludeOracle.lean:905`'s "(§9)" points at a proof** (it does not, 18.6).
