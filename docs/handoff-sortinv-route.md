@@ -1933,3 +1933,205 @@ measurement by `lake build <module>` or `lake env lean scripts/appcodlevelwf-con
 in this section is read off a docstring: the two claims I inherited as text — that the analogue
 does not exist, and that `Stratified.forallE`'s premises need `uniq` — are the two I checked and
 one of them is false.
+
+---
+
+# 30. §29.5's residual, settled: `AppCodType0OnC` is **FALSE**, and the `type0_pin` route is dead at every index
+
+New files, both sorry-free and hole-free:
+
+* `Lean4Lean/Theory/Typing/AppCodConvSort.lean` — the refutation, the index-`0` control, the
+  index-`1` `Ordered` witness.  `lake build Lean4Lean.Theory.Typing.AppCodConvSort`:
+  **109 jobs, 1.3 s** (36 declarations).
+* `scripts/appcodconvsort-cone.lean` — hole-cone measurement for all 36.
+
+`AppCodType0.lean`, `AppCodLevelWF.lean`, `Stratified.lean` are **unmodified**.  Nothing in
+`Theory/SetModel/*` or `Theory/Inductive/*` was touched.
+
+## 30.1 Verdict, graded
+
+**Refuted** — the third of §29.6 item 2's three options, and it is the strong one.
+
+| statement | at | status |
+|---|---|---|
+| `AppCodType0OnC env U m`, `m ≥ 2` | every `env`, every `U` | **false** (`appCodType0OnC_false`, `appCodType0OnC_false_of_two_le`) |
+| `AppCodShareOn env U m`, `m ≥ 2` | every `env`, every `U` | **false** (`appCodShareOn_false`) |
+| `AppCodHasType0On env U m`, `m ≥ 2` | every `env`, every `U` | **false** (`appCodHasType0On_false`) |
+| `AppCodType0OnC betaEnv U 1` | an **`Ordered`** env, every `U` | **false** (`appCodType0OnC_one_false_ordered`) |
+| `AppCodType0OnC env U 0` | every `env`, every `U` | **proved** (`appCodType0OnC_zero`) |
+| `AppCodType0OnC ∅ U 1` | `∅` | open — a curiosity, not a route (§30.5) |
+
+`AppCodHasType0On` is the weakest statement of the *shape* — "under the guard, a codomain instance
+convertible to a sort has **some** `⊢₀` type": one instance, one type, no sort, no level relation.
+The other two imply it, **proved** not asserted (`AppCodType0OnC.hasType0`,
+`AppCodShareOn.hasType0`), so what is refuted is the shape and not a phrasing of it.  There is no
+weaker restatement left to try: drop the `⊢₀`-typing demand and nothing feeds `SortRed.type0_pin`.
+
+**Grade: refutation.**  Not a reduction, not a collapse — so this corner's collapse rule does not
+apply, and I am not grading my own result a possible collapse: no statement here is claimed
+equivalent to anything, and the one new definition exists only to be *weaker* than what it kills.
+
+**Consequence.** `appUniqLvlOn_of_sortRedInv_codType0OnC` (`AppCodType0.lean` §6) assumes
+`Ordered env` and nothing else about the rules.  `codType0OnC_false_somewhere_ordered` says: for
+**every** index `n+1` there is an `Ordered` environment where its side condition fails.  So the
+conditional is vacuous somewhere `Ordered` at every index, and at index `≥ 2` it is vacuous
+*everywhere*.  §28.8/§29.1 graded this route a **collapse**; the correct grade is **false**.
+
+**Hole-free ≠ discharged.**  **Discharged: nothing.**  `AppUniqLvlOn`, `AppUniqLvl ∅ 0 1`,
+`PropUniqNOn` are exactly where §29 left them.  What is settled is one side condition's truth
+value, negatively, at every index the route consumes it at.
+
+## 30.2 The mechanism, in one paragraph
+
+`Stratified.beta` concludes at `n+1` from typing premises at `n`.  §28's witness has codomain
+instance `lhs = (fun x : Type 0 => x) (Sort (max 0 0))`, and its argument `a = Sort (max 0 0)` is
+typeable at the λ's annotation `A = Type 0` from index **1** up and never at `0`
+(`a_hasType1`, `a_not_hasType0`) — because `Sort (max 0 0)`'s `⊢₀` type is `Sort (succ (max 0 0))`,
+which is `≈`- but not syntactically equal to `Sort 1`.  So the redex is stuck at index `1`
+(`CodType0Refute.stuck`) and **fires from index 2 up**: `lhs_defeq_a` is one line,
+`.beta (Stratified.bvar Lookup.zero) a_hasTypeN`.  Its `⊢₀`-typeability is untouched —
+`lhs_not_hasType0` is index-`0` inversion, unconditional in the environment.  One term, therefore,
+satisfying the *conditioned* premises and refuting the conclusion, at every environment, every `U`,
+every index `≥ 2`.
+
+Nothing was rebuilt: `onCtx`, `witness`, `lhs_not_hasType0` are §28's, reused verbatim.  The whole
+refutation is `witness (n := n+1)` plus a β-step.
+
+## 30.3 Where the briefing was wrong — and where §28's own test was
+
+I was briefed six facts.  Five are right; the sixth is the grade.
+
+1. **"`AppCodType0OnC` collapses in both directions, and the collapse is intrinsic to the
+   `⊢₀`-pin."**  Wrong as a grade of the statement.  The collapse is real *on the syntactic-sort
+   sub-family* — `codType0OnC_sortCase_iff_agree'` is correct — but the statement as quantified is
+   simply **false**, and a false hypothesis has no interesting strength relative to its target.
+   "Collapse" was the right diagnosis of the *sub-family*; it was the wrong verdict on the
+   hypothesis.  The briefing's own framing contained the fix and stopped one step short: it said
+   the converse "must **produce** a `⊢₀` typing, and **a stuck redex lacks one**" — that is not
+   just why the converse fails, it is why the *hypothesis* fails, once you notice the stuck redex
+   is only stuck at one index.
+2. **"The obstruction is `⊢₀`-typeability, not levels."**  Right, decisive, and it is the sentence
+   that produced this section.  `AppCodLevelWF.lean`'s level work was necessary for §30.5's
+   index-`0` control (`AppData.sort_levelWF` is what `Stratified.sort` needs) and irrelevant to the
+   refutation, exactly as briefed.
+3. **"`AppCodType0On` is false at every environment, `U`, and index `n+1`."**  Right.
+4. **"The family is antitone in the environment, `∅` is `VEnv.WF`, but check the polarity first —
+   that test was inapplicable to `AppCodType0On`."**  Right, and it *mattered*, in the direction
+   the briefing warned about.  §3's refutation is stated at an arbitrary environment, so no `∅`
+   bound is needed.  §6's index-`1` refutation needs the environment in its **positive** position
+   (`Stratified.extra`), so it is *only* available away from `∅` — which is precisely why index `1`
+   survives over `∅` and dies over `Ordered`.  Checking the polarity first was the useful half,
+   again.
+5. **"Antitone in `U` too: a refutation must live at the target's `U`."**  Right and satisfied.
+   Every witness here is parameter-free (`q = max 0 0`), `betaRule.uvars = 0` and `ls = []`, so
+   every refutation holds at **every** `U`, `0` included.  I checked this rather than inheriting it.
+6. **"`beta` under `forallEDF` manufactures the bad codomain while `appDF` sits inside `stuck` as a
+   closed case."**  Right, and there is a second half worth recording: `beta` plays **both** roles.
+   Under `forallEDF` it manufactures the codomain (`hpi`); one index higher, as its own rule, it is
+   what makes that codomain convertible to a sort and kills the conditioned repair.  The same
+   constructor, in both the offence and the refutation.
+
+**And §28's own test was index-local — this is the transferable lesson.**  `AppCodType0.lean` §7
+did the right thing: it tested the conditioned repair against its own witness before shipping it,
+and reported the witness *outside* the conditioned premises.  That test is **correct and still
+correct**: `witness_outside_conditioned` is stated at index `1`, and at index `1` it is true
+(`lhs_not_defeq_sort`).  The gap is that the side condition is consumed at index `n+1` for
+arbitrary `n`.  So: *"test your side conditions"* was already being done here.  The rule that was
+missing is **"test them at every index they are quantified over"** — and, more generally, at every
+value of every parameter the consumer quantifies over.  A one-index test of an all-index hypothesis
+is a test of a different statement.
+
+## 30.4 What I tried that failed, and the step it failed at
+
+* **Refuting index `1` at an arbitrary environment** — attempted first, since §3's form is the
+  strong one.  Failed at the *case analysis*, before any Lean: over `∅` every index-`1` conversion
+  rule that can relate a non-sort to a sort hands you a `⊢₀` typing of the non-sort.  `beta` gives
+  `.app (.lam A e) e'` with both premises at `⊢₀`, so the redex is `⊢₀`-typeable; `proofIrrel`
+  gives both sides `⊢₀`-typed; `appDF`/`constDF`/`sortDF` are congruences with `⊢₀` premises;
+  `lamDF`/`forallEDF`/`rfl` are unconditional but cannot reach a sort from a non-sort; `extra` is
+  empty at `∅`.  That is why index `1` needed the environment (§6) and why §30.5 lists
+  `AppCodType0OnC ∅ U 1` as open rather than refuted.
+* **`rfl` at a non-`WF` level as the index-`1` witness** — `.sort u` with `¬ u.WF U` is
+  `⊢₀`-typeable at nothing, and `Stratified.rfl` is unconditional, so `IsDefEqN U 1 Γ (.sort u)
+  (.sort u)` holds.  Failed at the **guard**: `no_badLevel_sortCase` (§29.4) says no `AppData`
+  under `OnCtx Γ (env.IsType U)` has a sort codomain instance at a non-`WF` level.  §29's own
+  work closes this attack — worth knowing, since it is the first thing one reaches for.
+* **`Stratified.extra` with `ls := []` left implicit** — failed at *elaboration*: `ls` is not
+  determined by the conclusion, so `rfl : [].length = df.uvars` cannot be checked.  Pass
+  `(ls := [])` explicitly.
+* **`IsDefEq.defeqDF` with both arguments inferred** — failed at *unification*: with the
+  conversion's source type not written down, Lean unifies the `sortDF` level against the wrong
+  side (it took `l := q` where `l := .succ q` is meant).  Write the two premises as separate
+  `have`s with explicit types.  This is a third entry for the "reads right, is wrong" list in
+  §29.3.
+* **`.hasType0` as dot-notation on `appCodType0OnC_zero env U`** — the head is a `∀`, so dot
+  notation resolves in `Function`, not in `AppCodType0OnC`.  Write the projection applicatively.
+
+## 30.5 Measured versus read off
+
+**Measured** (`~/.elan/bin/lake env lean scripts/appcodconvsort-cone.lean`, transitive over type
+**and** value, `allowOpaque := true`, measuring environment `AppCodConvSort` + `Injectivity` +
+`UniqueTyping` + `ChurchRosser`):
+
+* **all four holes `present = true`** — `forallE_inv_stratified`, `rigidShapeUniqNS`, `weakN_iff`,
+  `descend`.  The last two are why `UniqueTyping` and `ChurchRosser` are imported; without them the
+  round-4/5 trap makes every cone measure clean.
+* **both tainted controls fire**: `piInv_axiom` → cone 3576, holes `forallE_inv_stratified` +
+  `rigidShapeUniqNS`; `WF.sortUniq'` → cone 3441, holes `forallE_inv_stratified`.
+* **0 of 36 seeds contain any of the four holes; `sorryAx` false on all 36.**  Cones 34–1669.
+* `#print axioms`, **by namespace** (`CodType0Refute`: 14 declarations; `Lean4Lean.VEnv`: 22):
+  `propext` and `Quot.sound` only, and three declarations depend on **no** axioms
+  (`betaRule_lhs_shape`, `betaRule_lhs_ne_sort`, `betaRule_lhs_ne_forallE`).  No `Classical.choice`
+  anywhere — §29.3's abandoned `by_cases` step is not reintroduced.  **No frozen axiom appears in
+  any cone**, and no `sorry` is created, moved or traded.
+
+**Read off, and flagged as such:** that the `unique.tex` induction consuming `AppUniqLvlOn` runs
+through every index.  I did not re-verify that chain; I verified the weaker fact that suffices,
+which is that `appUniqLvlOn_of_sortRedInv_codType0OnC` is itself stated `∀ n` at index `n+1`, so a
+side condition false at every index `≥ 2` discharges it at no index but `1`.
+
+**Not claimed:** that `betaEnv` is `VEnv.WF`, or that `betaRule.IsDeclRule`.  What *is* checked
+(§7 of the file) is that `betaRule` passes every consequence of `IsDeclRule` this repo records —
+`lhs_shape`, `lhs_ne_sort`, `lhs_ne_forallE` — because its `lhs` is an `.app`.  So "well-formedness
+obviously excludes that rule" is not available as an objection without new work; proving
+`¬ betaRule.IsDeclRule` would need the ι-rule shape, which I did not do.
+
+**Search instruments, named.**  `rg` is absent, so `lean_local_search` and `lean_hammer_premise`
+are unusable in this checkout; I used neither.  Every enumeration below is a **floor** from `grep`
+(which resolves to `ugrep` here) over `Lean4Lean/`, not a census.  For the one absence claim I
+make — that nothing outside `AppUniqWF.lean`/`AppCodType0.lean`/`AppCodLevelWF.lean` consumes
+`AppUniqLvlOn` — the predicate's **definition** is `AppUniqLvlOn` at
+`Lean4Lean/Theory/Typing/AppUniqWF.lean:407`, and the grep was for the literal strings
+`AppUniqLvlOn` and `AppUniqLvl\b`; the only other hits are prose in `PropAgreeGuarded.lean` and the
+`AppCase.lean` definitions/`iff`.  I did not use `lean_references`.
+
+## 30.6 What to pick up first
+
+1. **Rewrite the ledger row for the `type0_pin` route from *collapse* to *false*.**  §28.8 item 1
+   and §29.1's "closed, not merely expensive" both understate it.  `AppCodType0On`,
+   `AppCodType0OnC` and `AppCodShareOn` are now all three **refuted**, the last two at every index
+   the route uses.  Nothing of that shape remains: `AppCodHasType0On` is the weakest form and it is
+   false too.
+2. **Stop looking for a side condition that pins `SortRed`'s level through a `⊢₀` typing.**  The
+   pin itself (`SortRed.type0_pin_any`) is fine and worth keeping.  What is dead is *obtaining* the
+   `⊢₀` typing of a codomain instance: instantiation makes redexes, and a redex's `⊢₀` typing needs
+   its argument at the λ's **annotation** at index `0`, where conversion is syntactic.  Any future
+   attack on `AppUniqLvlOn` should get its level agreement from the index-`n` derivation directly,
+   or from a `SortRed`-style analysis that never descends to `0`.
+3. **The index-`0` control is reusable.**  `appCodType0OnC_zero` is the general fact that at index
+   `0` an `AppData`'s two Π-types are *syntactically equal* (`HasTypeN.uniq_zero d.fn₀ d.fn₁`),
+   hence `A₀ = A₁` and `B₀ = B₁`.  Anything in this corner phrased over `AppData` is trivial at
+   index `0` for that reason, and it is worth checking before a base case is proved by hand.
+4. **`AppCodType0OnC ∅ U 1` is the only sliver left, and it is a curiosity.**  If someone wants it:
+   the plausible statement is *"over `∅`, at index `1`, a term convertible to a sort has a `⊢₀`
+   type"*, by induction on the conversion following the case analysis in §30.4.  The case that
+   blocks it is `Stratified.eta`, whose premise `Γ ⊢₀ e : .forallE A B` does not hand back
+   `Γ ⊢₀ A : .sort u` — that is `⊢₀` regularity, which this corner does not have (and which is the
+   *real* content behind `AppUniqWF.lean`'s original "`Stratified` has no regularity" remark, even
+   though that remark was the wrong diagnosis of the `AppCodType0On` refutation).  It discharges
+   nothing either way.
+5. **`AppData.mono_index` is new and trivial** (`HasTypeN.mono` fieldwise) and the three
+   `mono_index` lemmas on the side conditions give the general shape: every statement in this
+   family that has the index only in its premises and its conclusion pinned at `0` is **antitone in
+   the index**, so a refutation at a small index is the strong one and propagates upward.  Use it
+   before restating anything here at a fresh index.
