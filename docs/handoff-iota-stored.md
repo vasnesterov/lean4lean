@@ -3381,3 +3381,225 @@ I did no operations with), so read that last sentence as an argument, not a meas
    is stated, `isValidIndAppIdx`'s residual loop (`Add.lean`:307) is what discharges it, and the
    `whnf`-is-identity-at-a-firing-trigger step is the one place it will need an argument rather
    than a computation.
+
+---
+
+# §58 `Built.fields_noK` — a producer, and a proof that it cannot be cheaper (round 9)
+
+Assignment: find a producer for `VInductDecl'.Built.fields_noK`, or establish that none can
+exist. After eight rounds of "no producer but `decide` at a concrete block" (ledger row 117c),
+**both halves are now theorems.** New file, all mine: `Lean4Lean/Theory/Inductive/NestedFresh.lean`
+(64 jobs, `lake build Lean4Lean.Theory.Inductive.NestedFresh`, no `sorry`, axioms per namespace
+below).
+
+## 58.1 Where the eight-round assessment went wrong
+
+> "A repo-wide grep of every `NoConsts` occurrence found **no lemma anywhere** deriving
+> `VExpr.NoConsts` from `HasType`, `VIndCtor.WF`, `Occurs` or `Declared`."
+
+The grep is accurate and the conclusion drawn from it is false. **The fact `fields_noK` needs is
+in this repo, stated about a different predicate.** `Theory/SetModel/Consts.lean` defines
+`VExpr.ConstsIn : VExpr → (Name → Prop) → Prop` — the same recursion as `VExpr.NoConsts` — and
+proves `VEnv.Ordered.constsInC`: *in an ordered environment, a declared constant's type mentions
+only declared constants*, plus the weaker staged-environment invariant `VEnv.ConstsClosed` built
+for exactly this situation ("`Ordered` is too strong for the *intermediate* stages of a block").
+`VEnv.IsDefEq.constsIn` is the `HasType → ConstsIn` bridge the grep was looking for.
+
+So the missing lemma was one `iff` away, and the `iff` is three lines:
+
+```
+theorem VExpr.noConsts_iff_constsIn {S : List Name} : ∀ {e}, NoConsts S e ↔ e.ConstsIn (· ∉ S)
+```
+
+**Lesson for the ledger, not for this corner only:** the eight-round claim was a grep on a
+*predicate name*, not on a *statement shape*, and the corner has two names for one predicate.
+`Theory/SetModel/Consts.lean`'s own header says it "would be at home in
+`Theory/Typing/Lemmas.lean`" and lives under `SetModel/` only because that is where it was needed
+— i.e. the file is filed by consumer, not by content, which is what made it invisible to an
+inductive-corner grep.
+
+## 58.2 Proved
+
+All in `Theory/Inductive/NestedFresh.lean`.
+
+* **`VNestedOcc.ctorType_noConsts`** — `env.ConstsClosed` + `Occurs env` + `∀ n ∈ K, ¬env.contains n`
+  ⟹ `NoConsts K (C₀.type N.decl N.idx)` for every `C₀ ∈ N.src.ctors`. One environment step:
+  `Occurs.ctor_const` says `J`'s constructor is a declared constant, `ConstsClosed` says its type
+  mentions only declared constants, `hK` says a companion name is not one.
+* **`VNestedOcc.fields_noK_of_occurs`** — the producer. Same three premises plus
+  `hargs : ∀ a ∈ N.args, NoConsts K a`, concluding exactly `fields_noK`'s body. **Everything that
+  quantifies over `J`'s constructors and fields is discharged**; the residual is the spine.
+* **`VInductDecl'.builtFresh_of_occurs`** — `BuiltFresh` assembled from `nodup`, `Built.occurs`
+  (which a `Built`-builder has by construction), `hK`, and per-member `hargs`.
+* **`VInductDecl'.not_contains_of_mem_blockNames` / `fresh_of_addIndTypes`** — `hK` costs nothing:
+  `addIndTypes` is an `addConstList`, `addConst` fails on a duplicate, so every member name of `D`
+  (companion names included) was absent from `env`. Same argument as
+  `VIndRestore.csubst_freshIn` (`NestedRules.lean` §8.1); the premise is `K ⊆ D.blockNames`, which
+  is what `Built`'s own guard `D.types[j]? = some T → T.name ∈ K` presupposes.
+* **`VNestedOcc.occurs_args_congr`** — `Occurs env` is invariant under replacing `N.args` by any
+  list of the same length. Measured, not read off: `Occurs`'s seven clauses are `hist`, `idx_lt`,
+  `lvls_len`, `args_len`, `ty_const`, `ctor_params`, `ctor_const`, and **only `args_len` mentions
+  `N.args`, and only its length**.
+* **`InductiveDeclExamples.fields_noK_needs_spine`** — the impossibility half, from the repo's own
+  witness. `listOccBadSpine := { listOcc with args := [.const `_nested.List_1 [.param 0]] }`
+  satisfies `Occurs env₁` (via `occurs_args_congr`), agrees with `listOcc` on `decl`, `idx`,
+  `lvls`, `auxName` and spine length, and **refutes `fields_noK`** — because `List.cons`'s first
+  field type is the bare parameter `.bvar 0`, so the substituted type is the spine entry verbatim
+  (`listOccBadSpine_not_fields_noK`, by `decide`). `listOcc` satisfies it (`ntreeAux_built`).
+
+  Therefore **no theorem whose hypotheses are `Occurs env` plus any facts about `env` and `K` —
+  freshness, `ConstsClosed`, `Ordered`, `WF` — can prove `fields_noK`**: it would apply to both
+  members of the pair and prove a false statement. A premise reading `N.args` is *necessary*;
+  §58.2's producer shows the weakest one (`∀ a ∈ N.args, NoConsts K a`) is *sufficient*.
+
+**So the answer to the assignment is neither "derivable" nor "unproducible" but a sharp
+reduction:** `fields_noK`, a clause quantified over all of a foreign block's constructors and
+fields, is equivalent — given facts every caller already has — to a statement about
+`N.decl.np` expressions, decidable by `VExpr.decidableNoConsts`, and that statement cannot be
+eliminated.
+
+Axioms, by namespace (`#print axioms` at the foot of the file):
+
+| namespace | result |
+| --- | --- |
+| `Lean4Lean.VExpr.*` (3) | `noConsts_iff_constsIn` **no axioms**; other two `[propext]` |
+| `Lean4Lean.VNestedOcc.*` (3) | `[propext, Quot.sound]` |
+| `Lean4Lean.VInductDecl'.*` (3) | `[propext, Quot.sound]` |
+| `Lean4Lean.InductiveDeclExamples.*` (3) | `[propext, Quot.sound]`; `fields_noK_needs_spine` also `Classical.choice` |
+
+No `sorryAx`, no frozen axiom, nothing traded. Whitelist base for all four rows is Guard.lean's
+`{propext, Classical.choice, Quot.sound}` (`Verify/Guard.lean`:144).
+
+## 58.3 Also landed: the general bridge, with the residual moved onto checker-visible data
+
+New file, additive, nothing existing touched:
+`Lean4Lean/Verify/Inductive/NestedFreshBridge.lean` (152 jobs, `[propext, Quot.sound]`).
+
+`RestoreData.mkRestore_built_of_spine` and `mkRestore_AddNested_of_spine` are
+`mkRestore_built` / `mkRestore_AddNested` with the `BuiltFresh` argument replaced by
+`D.blockNames.Nodup` + `env.ConstsClosed` + `∀ n ∈ K, ¬env.contains n` +
+`∀ j T, D.types[j]? = some T → T.name ∈ K → ∀ a ∈ as j, NoConsts K a`.
+
+**`as` is `RestoreData`'s own parameter** (`h : r.RestoreData types D K as`), and `mkRestore_built`
+already takes `ha : as j = (occ j).args`. So §6's note in `NestedRestoreWit.lean` — "nothing in
+`RestoreData`, and nothing in `OccData`, mentions them, since both bundles are about the checker's
+`Lean.Name`s" — is **half out of date**: after the reduction, the residual *is* about `RestoreData`,
+namely about `as`, and `RestoreData` carries it.
+
+## 58.4 Where the brief was wrong
+
+1. **"It is not a fact about the checker's `Result`, so neither the `RestoreData` name facts nor
+   the `OccData` ones can see it."** True of `fields_noK` as literally stated; **false of its
+   residual.** After §58.2, the residual is `∀ a ∈ as j, NoConsts K a`, and `as` is one of
+   `RestoreData`'s parameters — see §58.3.
+2. **"A repo-wide grep of every `NoConsts` occurrence found no lemma anywhere deriving
+   `VExpr.NoConsts` from `HasType`…"** The grep is a floor (`grep -rn`, mine too) and the
+   conclusion drawn from it is false: `VEnv.IsDefEq.constsIn` is exactly that lemma, stated over
+   `VExpr.ConstsIn`. See §58.1.
+3. **"eight consecutive rounds"** — the *count* is right (eight mentions in this file, at lines
+   384, 588, 841, 1075, 1393, 1743, 2088, 2471), but the file's own labels stop at "seventh": the
+   last two both say seventh, so the internal numbering is one short of the count. Measured by
+   `grep -n "fields_noK" docs/handoff-iota-stored.md`, not read off.
+4. **Change #2 (F7's `ResidualClean`) does not reach `fields_noK`, in whole or in part.** Asked
+   directly and answered by machine: `ntreeAux_residualClean_badSpine` shows `ResidualClean` is
+   **true of the very expression that refutes `fields_noK`**, because `uniformOcc?` needs the
+   parameter run and a bare companion constant has none. Structurally it is also the wrong object:
+   `ResidualClean` constrains `D`'s *own stored* field types at a firing trigger; `fields_noK`
+   constrains `J`'s field types before substitution, unconditionally.
+5. **Change #1 (the `Decidable` instance) is real but not load-bearing.** It is accurately
+   described — `hasConstB`, `hasConstB_eq_false_iff`, and three instances (`decidableNoConsts`,
+   `decidableNoBlock`, `decidableResidualClean`). But the producer is a *proof*, not a decision;
+   decidability only makes the residual spine premise cheap at a concrete block, which `simp
+   [NoConsts]` already did. Nothing in §58.2 needed it.
+6. **Change #3's framing was right about the restoration and wrong about the leverage.**
+   `NoConsts` *is* the wrong test for the restoration — and it is **also** wrong-in-the-same-way
+   here, but the weakening does not help: `listOccBadSpine_not_ownHeads` refutes the `OwnHeads`
+   version of `fields_noK` on the same witness. The heads-only test fails on a bare companion
+   constant for exactly the reason `NoConsts` does.
+
+## 58.5 What failed, and the step it failed at — four `decide` refutations of my own claims
+
+The brief's trap "`decide` is the arbiter; streams have asserted restoration behaviour and had
+`decide` refute them" caught me four times in one session. All four were the *same* wrong claim:
+that `field_typeR`'s conclusion (the restoration is the identity on the substituted field type) is
+**false** without `hS`, which would have upgraded §58.2's impossibility from "about the stated
+predicate" to "about the goal".
+
+| witness (spine, then field) | failed at | `decide` says |
+| --- | --- | --- |
+| `[_nested.List_1 α]`, `listCons.fields[0]` | `restore` does not move: `uniformOcc?` needs the parameter run, a bare `.const` has none | equation **holds** |
+| `[_nested.List_1 (bvar 0)]` (a firing occurrence), `listCons.fields[0]` | `field`'s recogniser fires, `typeR` canonicalises and restores back | equation **holds** |
+| `[NTree (_nested.List_1 (bvar 0))]`, `listCons.fields[0]` | same | equation **holds** |
+| `[_nested.List_1 (bvar 0)]`, a hand-made field `∀ (bvar 0), Sort 0` (the pi-domain shape of 57.6) | `VIndField.typeR` is `F.type` **verbatim** when `recArg = none` — the `none/none` branch never restores at all | equation **holds** |
+
+The fifth attempt (a redex field type, aiming at `field`'s middle branch) did not even reach the
+branch: both `recog S` and `recog (betaHead S)` were `none` (`#eval`, measured).
+
+**What the four failures taught, and it is the lead worth having:** `hS` can only bite in
+`field`'s `some` and middle branches, and those require `recog` to fire. `recog` recognises the
+**presented** form (`R.tyName j` applied to `R.tyLvls j`, `R.tyArgs j`), which never carries an
+auxiliary name, while `restore` moves only at an **aux-named** `uniformOcc?`. So "recog fires" and
+"restore moves" pull in opposite directions, and a witness for `hS`'s necessity in `field_typeR`
+needs both at once — which at `ntreeAux`/`ntreeRestore` means the companion has to be smuggled in
+through `R.tyArgs` at a companion index, where `OwnId` does not constrain it. That is a
+*hand-built restoration*, not one any construction produces, so the witness would be weak
+evidence. **I did not build it, and I do not recommend it.**
+
+Kept in the file as the record of the refutation: `listOccBadSpine_field_typeR_holds`.
+
+## 58.6 Measured versus read-off
+
+* **Measured**: all axiom prints (per namespace, at the foot of each new file); the four `decide`
+  refutations above; the `#eval` of both `recog` calls; `Occurs`' clause inventory (read all seven
+  clauses, `NestedBuild.lean`:646-670 — only `args_len` mentions `args`); the eight-mention count
+  in §58.4.3; job counts (64 for `NestedFresh`, 152 for `NestedFreshBridge`); the absence of
+  `Ordered env₁`/`ConstsClosed env₁` at the three concrete witness environments
+  (`grep -rn "\.Ordered" Theory/Inductive` — one hit, unrelated).
+* **Read off, not verified**: that `ElimNestedInductive.run` never puts an auxiliary name into a
+  *spine* — I read `replaceIfNested`/`run` (`Lean4Lean/Inductive/Add.lean`:821-900) and the
+  argument is that `args` always comes from a term that predates the replacement pass, so the
+  spine premise should be *true* of what the checker builds. **Not proved, not even stated in
+  Lean.** That is the obligation the producer creates on the checker side.
+* **Floors, with the tool named**: every enumeration here is `grep -rn --include=*.lean` over
+  `Lean4Lean/`. `lean_local_search` and `lean_hammer_premise` are still broken (`rg` absent) and
+  `lean_references` is known incomplete; I used neither. In particular the claim "no other lemma
+  derives `NoConsts` from `HasType`" is *now* false, so treat any similar absence claim in this
+  file the same way.
+
+## 58.7 Hole-free versus discharged
+
+* **Discharged** (proved outright, no new premise anywhere): `noConsts_iff_constsIn`,
+  `noConsts_instL`, `noConsts_mkPi_binders`, `ctorType_noConsts`, `occurs_args_congr`,
+  `not_contains_of_mem_blockNames`, `fresh_of_addIndTypes`, and all six witness facts.
+* **Hole-free but not discharged**: `fields_noK_of_occurs`, `builtFresh_of_occurs`,
+  `mkRestore_built_of_spine`, `mkRestore_AddNested_of_spine`. They are `sorry`-free theorems, but
+  they *have* premises, and one of those premises (the spine) is new. **The bill did not vanish;
+  it shrank and moved to data the checker produces.** §58.2's impossibility half is what says it
+  cannot shrink further.
+* **Not shrunk at all**: the four existing `fields_noK :=` production sites
+  (`NestedBuild.lean`:1078, 1566; `MemberRedex.lean`:1054; `RestoreBridge.lean`:972) still
+  discharge it by computation, and `mkRestore_built_of_spine` has **zero consumers**. I did not
+  re-point the witnesses at the producer: it needs `env.ConstsClosed` at each witness environment,
+  and those environments are existential (`h : VEnv.empty.addInduct' listDecl = some env₁`) with no
+  `Ordered`/`ConstsClosed` fact proven about them. That is a real, measured cost, not a nominal one.
+
+## 58.8 Pick up first
+
+1. **`ConstsClosed` for the witness environments.** `VEnv.ConstsClosed.addConst` already exists and
+   is built for staged blocks; what is missing is `env.ConstsClosed → env.addConstList cs = some
+   env' → (∀ ci ∈ cs, ci.type.ConstsIn env.contains) → env'.ConstsClosed`, and then
+   `addInduct'`-level versions. With that, the three concrete `BuiltFresh` witnesses can be
+   re-derived from the producer and the `decide`s deleted — which is the measurement that would
+   show the producer is not vacuous.
+2. **State the spine obligation on the checker side.** `∀ a ∈ as j, NoConsts K a`, from
+   `ElimNestedInductive.run`. The argument (§58.6) is that a spine always predates the replacement
+   pass; the Lean statement does not exist. This is now the *whole* of ruling 116d's residual, and
+   it is a statement about `Result`, so `NestedOccData.lean`'s `OccData` is the natural home.
+3. **Do not** chase a witness for `hS`'s necessity in `field_typeR` (§58.5's last paragraph). Four
+   refutations and a structural reason why the fifth would have to be a hand-built restoration.
+4. **Re-state ledger row 117c.** It is no longer "no producer but `decide`". The accurate statement
+   is: *`fields_noK` is equivalent, given facts every caller has, to companion-freeness of the
+   nested spine; and that residual is irreducible (`fields_noK_needs_spine`).* Ruling 116d's cost
+   is permanent, but it is one order of magnitude smaller than recorded — from a clause quantified
+   over a foreign block's constructors and fields to `D.np` decidable checks on `RestoreData`'s own
+   `as`.
