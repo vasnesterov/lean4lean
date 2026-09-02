@@ -49,6 +49,22 @@ stall came at the reading step, not the proving step, so the cost was the whole 
 Symptom to watch for: a brief where the "read this first" list is longer than the task
 description. Two of mine were, and one of those two stalled.
 
+**CORRECTION, same day: this diagnosis is not confirmed and is probably wrong.** The task was
+relaunched with a brief a fifth the size — one file, facts inlined — and **it stalled again**, this
+time at "I'll read the target file now". Then I measured the file: **1.9 s** to elaborate, *faster*
+than a 783-line file another stream read without trouble (4.1 s), and it contains no `decide` at
+all. So neither brief weight nor a pathological file explains it.
+
+What is actually established: **five infrastructure failures in one session** — three
+`API Error: context canceled` and two watchdog stalls — and the two stalls hit **the same task
+twice**, both at the reading step, under very different loads. I do not know the cause. Keep the
+"inline the facts, point at one file" advice, because it is cheap and good practice regardless, but
+**do not treat it as the fix for a stall.**
+
+The operational rule that follows: **after two failures on one task, change a variable other than
+the brief.** Reassign to the graded fallback, or to a different target in the same corner, rather
+than launching a third identical attempt. A third try tests nothing.
+
 ## Streams that write their artefact last lose everything when they crash
 
 Two streams died with `API Error: context canceled` on 2026-09-02, both long-running, and **both
