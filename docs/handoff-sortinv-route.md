@@ -1234,3 +1234,260 @@ tree's oldest open index-1 clause.  §15 item 3 (attack `∀ n, AppUniqLvl` at `
      must be **domain-tied**, which `trans` cannot supply;
    * a row for §9 of the new file — `SortRedArgSwap`, a second necessary half of the residual,
      non-trivial already at `f = f'`.
+
+# Round 5 (2026-09-02, later still): the `VEnv.WF` route is **behind the same empty-environment wall**, and `IsDeclRule.lhs_shape` provably supplies none of the content
+
+Appended, not editing §0–§21.  Conventions unchanged: **[machine]** = a `sorry`-free
+declaration on this commit plus `lake build` / `#print axioms` / a cone run; **[analysis]** =
+read off source.
+
+**One-line answer to §21 item 2 / row 144b: the target does not follow at `VEnv.WF`, and the
+reason is not that `lhs_shape` is hard to use — it is that `lhs_shape` cannot help.  `∅` is
+`VEnv.WF`, and the whole `app`-case family is *antitone in the environment*, so the `VEnv.WF`
+target IMPLIES `AppUniqLvl ∅ 0 1`.  Every side condition `VEnv.WF` implies — `Ordered`,
+`defeq_isDeclRule`, `lhs_shape`, `lhs_ne_forallE`, `ruleShape`, any future one — is true at
+`∅`, hence cannot lift the goal above that bound.  So §21 item 2's re-ranking is WRONG: this
+item sits behind an empty-environment index-1 clause exactly as item (c) does.**
+
+New file **`/home/vasilii/lean4lean/Lean4Lean/Theory/Typing/AppUniqWF.lean`**.  Namespace for
+everything below is `Lean4Lean.VEnv` (per the brief: namespaces, not filenames).  Nothing else
+in the tree was touched.
+
+## 22. First, `#print axioms` on everything the brief named — all as claimed [machine]
+
+Run before any proving, per the standing instruction.  Sixteen declarations, no `sorryAx`, no
+frozen axiom:
+
+`VDefEq.IsDeclRule.lhs_shape` `[propext, Quot.sound]`; `…lhs_ne_forallE`, `…lhs_ne_sort`,
+`VEnv.WF.defeq_isDeclRule`, `VEnv.WF'.defeq_isDeclRule`, `VEnv.WF.instL_lhs_ne_forallE`,
+`VEnv.WF.instL_lhs_ne_sort` all `[propext, Quot.sound]`;
+`VEnv.piLvlEnv_appUniqLvl_all_false` `[propext]`; `VEnv.piLvlEnv_not_wf`,
+`VEnv.piLvlEnv_ordered` `[propext, Quot.sound]`; `VEnv.piLvlEnv_propUniqZeroN_all_false`
+`[propext]`; `VEnv.imax_congr_agree_zero` `[propext, Classical.choice, Quot.sound]`;
+`VEnv.SortRed.beta_iff`, `VEnv.sortRedInv_of`, `VEnv.sortRedArgSwap_of_lamExpose`,
+`VEnv.Stratified.mono_env` all `[propext]`.
+
+**The brief was right on every checkable point**, including the one it flagged: `beta` *is*
+free (`SortRed.beta_iff`), `sortRedArgSwap_of_lamExpose` exists and is clean, and
+`Stratified.mono_env` is new-this-tree and is exactly the tool this round needed.  Nothing the
+brief asked for was already in HEAD this time — `grep` finds no `mono_env` for any member of
+the `app`-case family, and no statement anywhere relating the `WF`/`Ordered` targets to `∅`.
+
+## 23. What is proved [machine], and the correction it forces
+
+| statement | declaration (namespace `Lean4Lean.VEnv`) |
+| --- | --- |
+| `∅ ≤ env`, for every `env` | `emptyEnv_le` |
+| `∅` has no rules at all | `emptyEnv_no_defeqs` |
+| **`∅` is `VEnv.WF`** | `wf_emptyEnv` |
+| `AppData` is monotone in the environment | `AppData.mono_env` |
+| `AppUniqLvl` is **antitone** in the environment | `AppUniqLvl.mono_env` |
+| …so are `PropUniqN`, `PropUniqZeroN`, the **guarded** `PropUniqNOn`, and `PropUniqN.AppCase` | `PropUniqN.mono_env`, `PropUniqZeroN.mono_env`, `PropUniqNOn.mono_env`, `PropUniqN.AppCase.mono_env` |
+| …and antitone in the universe count | `AppUniqLvl.mono_univs` |
+| **the bound**: `AppUniqLvl env U n → AppUniqLvl ∅ U n` | `appUniqLvl_le`, `appUniqLvl_all_le` |
+| the same for the three variants | `propUniqN_le`, `propUniqZeroN_le`, `propUniqNOn_le` |
+| the `VEnv.WF`-quantified target implies the `∅` target | `appUniqLvl_wf_lower` |
+| the single-environment target does too | `appUniqLvl_target_lower` |
+| a refutation at `∅` refutes the target at **every** environment | `appUniqLvl_empty_false_imp`, `propUniqZeroN_empty_false_imp` |
+| **every hypothesis `VEnv.WF` implies holds at `∅`** | `wf_hypothesis_holds_at_empty` |
+| **the general obstruction**: no such hypothesis avoids the `∅` instance | `no_wf_hypothesis_avoids_empty` |
+| `lhs_shape` is one of those hypotheses, spelled out | `lhs_shape_at_wf` |
+| **so assuming `lhs_shape` everywhere still leaves `AppUniqLvl ∅ 0 1`** | `lhs_shape_not_enough`, `lhs_shape_not_enough_zero` |
+| …and so does *total rule-freeness*, which is strictly stronger | `rule_freeness_not_enough` |
+| **`IsDeclRule` does NOT discharge `ExtraSortRed`** — a `WF` environment may unfold a constant to a sort | `sortValuedDef`, `sortValuedDef_isDeclRule`, `isDeclRule_not_extraSortRed`, `not_extraSortRed_of_sortValued` |
+
+### 23.1 The correction, stated exactly
+
+Row 144b and §13.4 item 1 say the refutation "establishes something sharper than an
+obstruction — **any proof must consume `IsDeclRule.lhs_shape`**". That is true and it is
+*weaker than it sounds*, in a way that reverses the ranking:
+
+* `lhs_shape` is needed only to **exclude `piLvlEnv`**. It is a hypothesis about `env.defeqs`.
+* `∅` satisfies every such hypothesis in its **strongest** form (it has no rules), is `Ordered`,
+  and is `VEnv.WF` (`wf_emptyEnv`).
+* `AppUniqLvl` is antitone in the environment (`AppUniqLvl.mono_env`), so `∅`'s instance is the
+  **weakest** member of the chain and the target's instance at `preludeEnv` implies it.
+* Therefore any proof at `VEnv.WF` proves `AppUniqLvl ∅ 0 1` on the way
+  (`appUniqLvl_wf_lower`, `appUniqLvl_target_lower`), and no `WF`-implied side condition can
+  avoid that (`no_wf_hypothesis_avoids_empty`).
+
+**§21 item 2 says this item "does *not* sit behind the index-1 wall". It does.**  Both items on
+that list are bounded below by an empty-environment index-1 clause; they differ in *which*
+clause (`SortInvN ∅ 0 1` for item (c), `AppUniqLvl ∅ 0 1` here), and neither clause is settled
+anywhere in the tree — `grep` finds `PropUniqN.zero` / `PropUniqN.AppCase.zero` at index `0`
+only, and `AppCase.lean:419`'s `lhs_not_isPropN` still *carries* `(∅ : VEnv).PropUniqN 1 1` as a
+hypothesis, which is the tree's own record that it is open. [machine for the bounds; **analysis
+(grep)** for "not settled anywhere"]
+
+### 23.2 …and the direction the `Ordered` refutation runs, which is the part that was misread
+
+`piLvlEnv` is *above* `∅` (`empty_le_piLvlEnv`, already in HEAD), so
+`AppUniqLvl piLvlEnv 0 1` is the **stronger** statement.  Refuting the stronger statement leaves
+every weaker one open — which is exactly what §13.4 item 1 observed empirically ("not `VEnv.WF`")
+without noticing that the ordering makes it *systematic*: **no `Ordered` counterexample built by
+adding rules can ever refute the `WF` target**, because adding rules moves *up* the chain and the
+`WF` target lives at the bottom.  That retires the whole counterexample-by-rule-addition
+programme for this statement, and it is the mirror image of what §13.4 claimed to retire.
+
+## 24. What I tried that failed, and the step it failed at
+
+1. **Refuting `AppUniqLvl ∅ 0 1` outright** — which by §23 would refute the target at *every*
+   environment, `preludeEnv` included, and would close the route rather than relocate it.
+   **Failed, and one half of the failure is now a theorem.**  Over `∅` there are only two ways
+   to give one term two *different* Π-types:
+   * via `forallEDF` (so `A₀::Γ ⊢₁ B₀ ≡ B₁`), which pushes the whole question onto the
+     instantiated pair and lands on the `SubstC` failure — where the blocked side is **stuck**
+     and therefore not sort-convertible, so `AppUniqLvl`'s second premise is unmet.  That is
+     §13.6 item 2's wall, re-met, and I add nothing to it;
+   * via `appDF` through a β-redex (`.forallE A₀ B₀ ≡₁ .app (.lam A e) t ≡₁ .app (.lam A e') t'
+     ≡₁ .forallE A₁ B₁`), which is the route that *does* produce two syntactically different
+     Π-types without Π-injectivity.  **This one is now machine-checked closed**:  `appDF`'s two
+     functions are `⊢₀`-typed at **one** Π-type, so the two reducts inherit one `⊢₀` type, and
+     `SortRed.type0_pin` / `SortRed.type0_agree` then force the two sorts to agree.  `⊢₀` types
+     are syntactically unique (`HasTypeN.uniq_zero`) and weak-head β preserves them
+     (`HeadBeta.hasTypeN_zero`), which is the whole proof.
+   **Not claimed either way**: I have not shown these are the *only* two routes, so this is a
+   closed family, not an impossibility.
+2. **Turning that into a usable constraint** — "any refutation must break `SortRedInv ∅ 0 1` or
+   the side condition `AppCodType0`".  **The side condition is FALSE**
+   (`appCodType0_one_false`, and `appCodType0_false_everywhere` at every environment), so the
+   disjunction is settled by its right disjunct and constrains nothing.  I tested it *before*
+   claiming it, which is the only reason this is a result and not a sixth entry in the
+   "hole-free ≠ discharged" list.  The reason it fails is worth more than the statement:
+   `Stratified` has **no regularity** — nothing makes a context entry or a Π-codomain a type —
+   so a λ-term context entry gives a codomain instantiation that is `⊢₀`-typed at a **Π-type and
+   at no sort at all**.  Relaxing "one common sort type" to "`≈`-equal sort types"
+   (`SortRed.type0_agree'`, which is free because `.succ` is `≈`-injective) does not help: the
+   witness has no sort type at all.  **The repair is the `OnCtx` guard**, i.e. the route serves
+   the *guarded* target `PropUniqNOn`, not `AppUniqLvl` — `AppCodType0On` / `AppUniqLvlOn` /
+   `appUniqLvlOn_of_sortRedInv_codType0On` state that, and both hypotheses are open.
+3. **Getting `ExtraSortRed` for free at `VEnv.WF`** — the fourth residual of `sortRedInv_of`, the
+   only environment-dependent one, free at `∅` and at `piLvlEnv`.  **Refuted**
+   (`isDeclRule_not_extraSortRed`): a δ-rule may unfold a constant *to a sort*
+   (`def P : Type 0 := Prop`), `IsDeclRule.delta` needs **no** well-formedness side condition, and
+   `SortRed` has no δ step by design.  So `lhs_shape`'s parent cannot deliver it, and the
+   `SortRed` route of `SortClauses.lean` §4 **does not lift from `∅` to `VEnv.WF`** as it stands.
+   Whether `preludeEnv` actually contains such a rule I did **not** measure;
+   `not_extraSortRed_of_sortValued` is the conditional form to instantiate when someone does.
+4. **Looking for an existing `mono_env` for any of the `app`-case statements** to reuse.  None
+   exists — `Stratified.mono_env` (new last round) was the only piece in place, and the six
+   antitonicity lemmas here are new.  Search backed by **`grep`**; `lean_local_search` and
+   `lean_hammer_premise` remain dead (`rg` absent — confirmed again this round, the tool returns
+   an installation message); `lean_references` was not needed.
+
+## 25. Where the brief was wrong — one list
+
+1. **"`IsDeclRule.lhs_shape` at `VEnv.WF` … is the one that does not sit behind the index-1
+   wall"** (§21 item 2, repeated in the brief as the top-ranked item's justification).  **False.**
+   It sits behind `AppUniqLvl ∅ 0 1`, and `no_wf_hypothesis_avoids_empty` shows *no* `WF`-implied
+   hypothesis can move it off that. [machine]
+2. **"any proof must consume `IsDeclRule.lhs_shape`"** (row 144b, §13.4 item 1) — true, and it
+   reads as a localisation of the *content* when it is only an exclusion of the
+   *counterexample*.  `lhs_shape` constrains `env.defeqs`; `∅` satisfies every such constraint
+   maximally and is `WF`; so `lhs_shape` supplies **none** of the positive content
+   (`lhs_shape_not_enough`, and `rule_freeness_not_enough` for the strictly stronger hypothesis).
+   [machine]
+3. **"or the `u = .zero` instance route B applies"** — that instance does not escape either:
+   `PropUniqZeroN` is antitone too (`propUniqZeroN_le`), so it is bounded below by
+   `PropUniqZeroN ∅ 0 1`, and `propUniqZeroN_empty_false_imp` is the negative transfer.  Row
+   144's grading of that instance as a **non-weakening** is confirmed and now has a second
+   reason. [machine]
+4. **A systematic point the brief and §13.4 both missed**: because the family is antitone,
+   adding rules moves *up* the chain, so **no `Ordered` counterexample built by adding a rule can
+   ever refute the `WF` target** — the `WF` target lives at the bottom of the chain.  §13.4
+   observed this once, empirically, for `piLvlEnv`; it holds for every such construction.
+   [machine, `AppUniqLvl.mono_env` + `empty_le_piLvlEnv`]
+5. Correct in the brief, and confirmed [machine]: **`beta` is free** (`SortRed.beta_iff`),
+   correcting §13.6 item 3 exactly as the brief said; `sortRedArgSwap_of_lamExpose` exists and is
+   `[propext]`-clean; `SubstCRefute.substC_false` is clean, so "`SubstC` is false" is right;
+   the `rg`-backed tools are dead; and the `#print axioms`-first instruction paid again — it is
+   how I found `Stratified.mono_env`, which is what made this round possible at all.  **Nothing
+   the brief asked for was already in HEAD this time.**
+
+## 26. Verification, verbatim [machine]
+
+* `lake build Lean4Lean.Theory.Typing.AppUniqWF`: **`Build completed successfully (99 jobs).`**
+  No error in any file I own.  **Not run, per the brief**: full `lake build`, the three guards,
+  `scripts/sorry-census.lean`, `scripts/dup-names.lean`, `MemberRedexScan`.  The only `sorry`
+  warnings my module build surfaces are the pre-existing `Theory/Inductive/Decl.lean:405` and
+  `Theory/Typing/Injectivity.lean:261,1046` — none mine, none new.
+* `#print axioms`, **49 lines**, one per declaration, checked at build time (`section Audit`):
+  **5** *does not depend on any axioms* (`emptyEnv_le`, `emptyEnv_no_defeqs`, `sortValuedDef`,
+  `lamK`, `lamK_lift`), the rest `[propext]` or `[propext, Quot.sound]`, and one
+  `[propext, Classical.choice, Quot.sound]` (`appUniqLvl_witness_must_break`, which uses
+  `by_cases`).  **No `sorryAx`, no frozen axiom, no new `sorry`, none traded.**
+* Also `#print axioms` on the 16 declarations the brief named, before any proving (§22), and on
+  `SubstCRefute.substC_false`, `PropUniqN.zero`, `PropUniqN.AppCase.zero` — all clean.
+* **Cone measurement** — forward walk over **type and value**, `allowOpaque := true`, private
+  copy of `scripts/hole-cone.lean`'s algorithm; 49 seeds (mine) + 8 upstream ingredients +
+  4 controls.  **All 57 non-control seeds report `holes []`.**  Sizes: `emptyEnv_le` 66,
+  `emptyEnv_no_defeqs` 20, `wf_emptyEnv` 22, `emptyEnv_isDeclRule` 20, `AppData.mono_env` 652,
+  `AppUniqLvl.mono_env` 655, `PropUniqN.mono_env` 647, `PropUniqZeroN.mono_env` 647,
+  `PropUniqNOn.mono_env` 675, `PropUniqN.AppCase.mono_env` 648, `AppUniqLvl.mono_univs` 651,
+  `appUniqLvl_le` 668, `appUniqLvl_all_le` 669, `propUniqN_le` 660, `propUniqZeroN_le` 660,
+  `propUniqNOn_le` 688, `appUniqLvl_wf_lower` 612, `appUniqLvl_target_lower` 669,
+  `appUniqLvl_empty_false_imp` 669, `propUniqZeroN_empty_false_imp` 661,
+  `wf_hypothesis_holds_at_empty` 23, `no_wf_hypothesis_avoids_empty` 613, `lhs_shape_at_wf` 1878,
+  `lhs_shape_not_enough` 612, `rule_freeness_not_enough` 611, `lhs_shape_not_enough_zero` 595,
+  `sortValuedDef` 22, `sortValuedDef_isDeclRule` 65, `isDeclRule_not_extraSortRed` 643,
+  `not_extraSortRed_of_sortValued` 643, `SortRed.type0_pin` 1171, `SortRed.type0_agree` 1183,
+  `AppCodType0` 172, `appUniqLvl_of_sortRedInv_codType0` 1188,
+  `appUniqLvl_witness_must_break` 1215, `lamK` 13, `lamK_lift` 142, `lamK_type0` 174,
+  `lamK_not_sort_type0` 771, `lamK_appData` 178, `appCodType0_one_false` 786,
+  `appUniqLvl_witness_must_break_is_void` 789, `SortRed.type0_agree'` 1176,
+  `appCodType0_false_everywhere` 801, `AppCodType0On` 604, `AppUniqLvlOn` 604,
+  `appUniqLvlOn_of_sortRedInv_codType0On` 1181, `AppUniqLvlOn.mono_env` 683,
+  `appUniqLvlOn_le` 696.  Upstream ingredients also clean: `Stratified.mono_env` 644,
+  `Stratified.mono_univs` 641, `HasTypeN.uniq_zero` 762, `HeadBeta.hasTypeN_zero` 1161,
+  `VDefEq.IsDeclRule.lhs_shape` 1611, `WF.defeq_isDeclRule` 1056, `SortRed.beta_iff` 624,
+  `sortRedInv_of` 697.
+* **The instrument fires**, so `[]` means something: `piInv_axiom` 3539
+  `[forallE_inv_stratified, rigidShapeUniqNS]`; `WF.sortUniq'` 3404
+  `[forallE_inv_stratified]`; `IsDefEqU.sort_inv` 3409 `[forallE_inv_stratified]`;
+  `WF.rigidShapeUniqNS` 630 `[rigidShapeUniqNS]`.
+* **All four big holes verified `present = true` in the measuring environment** before the run —
+  `IsDefEqU.forallE_inv_stratified`, `WF.rigidShapeUniqNS`, `IsDefEqU.weakN_iff`,
+  `NormalEq.descend` (the last two needing `UniqueTyping` / `ChurchRosser` imported into the
+  measuring script, exactly as round 4 recorded; my module's own closure does not reach them).
+  So no `[]` above is a missing-name artefact.  **Every declaration's cone contains none of the
+  four, over type and value, `allowOpaque := true`.**
+* **Hole-freeness and dischargedness, reported separately.**  49/49 hole-free.  **Discharged:
+  nothing about `AppUniqLvl`, `PropUniqN`, `PropUniqZeroN` or `PropUniqNOn` at any environment.**
+  Two statements in the file carry hypotheses that are themselves bad and are labelled in place:
+  `appUniqLvl_of_sortRedInv_codType0` (hypothesis **false at every environment** — shape 2) and
+  `appUniqLvlOn_of_sortRedInv_codType0On` (two open hypotheses — shape 5).
+
+## 27. What to pick up first
+
+1. **`AppUniqLvl ∅ 0 1` is now the whole target** for this item, and a **refutation there closes
+   the route at every environment** (`appUniqLvl_empty_false_imp`) — which is strictly more than
+   §13's `Ordered` refutation achieved.  §24 item 1 closes the `appDF`-through-a-redex family
+   machine-checked; what is left is the `forallEDF`-plus-`SubstC`-failure family, where the
+   blocked side is stuck.  **The open question is sharp**: is there an `AppData` over `∅` at
+   index 1 whose two codomain instantiations are *both* sort-convertible?  §13.6 item 2 and I
+   both failed to build one; neither of us proved there is none.
+2. **`AppCodType0On`** (guarded), and the bridge `AppUniqLvlOn → PropUniqNOn`.  This is the one
+   route in the file with no known-false hypothesis, and it is aimed at the target route B
+   actually wants (§9.3's guarded form).  Its content is **regularity at `⊢₀`** — that a
+   Π-codomain instantiation is a type — which is a much more ordinary-looking obligation than
+   anything else in this corner.
+3. **Measure whether `preludeEnv` has a sort-valued δ-rule** and instantiate
+   `not_extraSortRed_of_sortValued`.  If it does, `ExtraSortRed preludeEnv` is **false** and the
+   whole `SortRed` route needs a δ step in `HeadBeta` before it can be stated at the real
+   environment.  That affects item (c) and `docs/handoff-sortred.md`, not just this item.
+4. **Re-rank §15/§21's list.**  Both items are behind empty-environment index-1 clauses; the
+   discriminator is no longer "which one avoids the wall" (neither does) but **which clause is
+   more likely refutable**.  `AppUniqLvl ∅ 0 1` is the better bet: it is a statement about *two
+   sorts*, where `SortDisjInvN ∅ 0 1` is a statement about *all* conversions.
+5. **Ledger rows to write** (I did not edit `docs/vacuity-ledger.md`):
+   * a row for §23 — the whole `app`-case family is **antitone in the environment** and `∅` is
+     `VEnv.WF`, so the `VEnv.WF` target implies the empty-environment clause, and **row 144b's
+     "any proof must consume `lhs_shape`" is an exclusion, not a localisation**; §21 item 2's
+     re-ranking is withdrawn;
+   * a row for §23.2 — no counterexample built by *adding a rule* can refute a target that is
+     antitone in the environment; check the direction before building the witness;
+   * a row for §24 item 2 — `AppCodType0` is **FALSE at every environment** for lack of
+     regularity in `Stratified`, and the `≈` relaxation does not save it; the near-miss
+     (`appUniqLvl_witness_must_break`, void) is kept in the file as the record;
+   * a row for §24 item 3 — **`IsDeclRule` does not imply `ExtraSortRed`**; a δ-rule may unfold a
+     constant to a sort, and `SortRed` has no δ step.
