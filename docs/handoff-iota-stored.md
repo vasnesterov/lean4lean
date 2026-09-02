@@ -2086,3 +2086,386 @@ than §E" as an ordering, not a number.
    constants.  Nothing in the tree needs the strict `const` clause.
 5. **Run the tree-wide suite** once `Theory/SetModel/*` settles — do not take §44.2 on trust.
 6. **`Built.fields_noK`** — still out of scope, seventh round untouched (row 117c).
+
+# Round 7 (2026-09-02, seventh stream): `hbridge` at `MP` PROVED, (B) discharged at a REDEX block — and the brief's β-lemma count was one short
+
+*Written incrementally, as briefed.*
+
+## 47. `#print axioms` FIRST — the brief's premise CHECKS OUT in every particular
+
+Baseline per-module build before touching anything: `lake build Lean4Lean.Theory.Inductive.ParamRedex
+Lean4Lean.Theory.Typing.ConstSubstNested Lean4Lean.Theory.Inductive.NestedTele` → **72 jobs,
+green** (HEAD `b5eee60`, working tree clean — the two files the last two rounds saw as
+mid-edit/untracked are both committed now, including `Theory/Inductive/NestedRules.lean`, so
+row 143e's residual worry is closed).
+
+Everything the brief named, by **namespace**.  All in `Lean4Lean.MRedex.MPWit` unless stated:
+
+| declaration | axioms | matches the brief? |
+|---|---|---|
+| `mpAuxB_recConstsR_wf_of_bridge` | `[propext, Classical.choice, Quot.sound]` | yes — (B) at `MP` with `hbridge` its only premise |
+| `mpAuxB_WF` | `[propext, Quot.sound]` | yes — hypothesis-free, environment-generic |
+| `mp_recConsts_wf` (`hsrc`) | `[propext, Classical.choice, Quot.sound]` | yes |
+| `mpAuxB_ctorConstsCR_wf` (obligation (A)) | `[propext, Classical.choice, Quot.sound]` | yes |
+| `mpF₂_ordered` (`he₂`) | `[propext, Classical.choice, Quot.sound]` | yes |
+| `mp_csubst_WFD₂` (`hσ`) | `[propext, Classical.choice, Quot.sound]` | yes |
+| `mp_recTele_len`, `mp_recTele_moved`, `mp_recBody_eq` | `[propext, Quot.sound]` | yes — 6/6 entries, `[F,F,T,T,T,F]` and `[F,F,T,T,T,T]`, both bodies identities |
+| `mp_csubst_rec_val` | `[propext, Quot.sound]` | yes — `_nested.MDep_1.rec ↦ MP.rec_1` really is a bare constant |
+| `mp_stage₂_exists`, `mp_csubst_WF₂_false` | `[propext, Quot.sound]` | yes |
+| `Lean4Lean.InductiveDeclExamples.ntreeAux_iotaRulesRS_wf_of_nine` | `[propext, Quot.sound]` | yes — the (C) template, and free of `Classical.choice` |
+| `Lean4Lean.InductiveDeclExamples.ntreeAux_obligationC_of_hdata` / `_obligationC` / `_addInductR_ordered` | `[propext, Classical.choice, Quot.sound]` | yes |
+| `Lean4Lean.VEnv.iotaRulesRS_wf_of_hargsD` | `[propext, Classical.choice, Quot.sound]` | yes |
+| `Lean4Lean.InductiveDeclExamples.rhbridge`, `rTeleDefEq` | `[propext, Quot.sound]` | yes — §E is the template it is said to be |
+
+No `sorryAx` and no frozen axiom on any of them.  **Nothing in §§41–46 was over-claimed and
+nothing was already-done-but-reported-open.**  Also checked structurally (`grep -rn` over
+`Lean4Lean/`, since `lean_local_search`/`lean_hammer_premise` are broken here as briefed): no
+`hbridge`-at-`MP` statement existed anywhere — the only `hbridge` occurrences outside
+`ConstSubstNested.lean`'s own general lemmas are `rhbridge` and `..._of_bridge`.
+
+## 48. `hbridge` at `MP` is PROVED, and obligation (B) is DISCHARGED at the parameterised REDEX block
+
+`Theory/Inductive/ParamRedex.lean` §16, namespace `Lean4Lean.MRedex.MPWit`, module green at
+**72 jobs** after every landing.  **56 new declarations** (32 theorems + 24 `def`s), `grep -c sorry`
+= 0, no new import.
+
+| name | statement | axioms |
+|---|---|---|
+| `mpNt`/`mpDt`/`mpNdt`, `mpVc`/`mpNc`/`mpFd` | the three constants and the three redex/contractum families | no axioms (defs) |
+| `mpA0`–`mpA5₁'`, `mpTele₀/R₀/₁/R₁`, `mpBody₀/₁` | the two substituted telescopes, written out | no axioms (defs) |
+| `mprecType_eq_0/_1`, `mprecTypeR_eq_0/_1` | the four `mkPi` decompositions `hbridge` asks for — all **`rfl`** | `[propext, Quot.sound]` |
+| `mpPC`, `mpObjC` | `MP` and `MP.obj` as self-defeqs at the types the environment holds | `[propext]` |
+| **`mpBetaV`** | β-step 1: `mpVal #k ⟶ MDep Prop (λ _, MP #(k+1))` | `[propext, Quot.sound]` |
+| **`mpBetaN`** | β-step 2: `mpValNode #k ⟶ …` (needs `hP`/`hNd` only — **not** `hD`) | `[propext, Quot.sound]` |
+| **`mpBetaF`** | β-step 3: the block's **stored** field redex — the one §15.1's count missed | `[propext]` |
+| `mpE2`, `mpE3`, `mpE4`, `mpE5₁` | the four moving telescope entries | `[propext, Quot.sound]` |
+| `mpTeleDefEq₀`, `mpTeleDefEq₁` | `F.TeleDefEq 1 [] mpTele mpTeleR` at both recursors | `[propext, Quot.sound]` |
+| `mpB₀`, `mpB₁` | the two bodies — identities, and needing **no** environment hypothesis | `[propext]` |
+| **`mphbridge`** | **`hbridge` at `MP`, both recursors** | `[propext, Quot.sound]` |
+| `mp_objType_eq` | `MP.obj`'s declared type written out (`rfl`) | `[propext, Quot.sound]` |
+| **`mpAuxB_recConstsR_wf`** | **obligation (B) at the parameterised REDEX block** | `[propext, Classical.choice, Quot.sound]` |
+| **`mpAuxB_obligationB`** | …**with nothing assumed** (staging from `mp_stage₂_exists`) | `[propext, Classical.choice, Quot.sound]` |
+| §16.4's ten certificates | anti-vacuity, all `decide`/`rfl` | `[propext, Quot.sound]` or none |
+
+The `Classical.choice` on the last two is inherited, and only there: it comes through
+`mpF₂_ordered`/`mp_recConsts_wf` from `mpEnv_ordered`, i.e. from
+`VInductDecl'.addInduct'_ordered_final`/`recType_isType`, exactly the provenance §42.4 measured.
+**Nothing else in §16 carries it** — the whole bridge is `[propext, Quot.sound]` or less, and three
+of its pieces (`mpB₀`, `mpB₁`, `mpBetaF`, `mpPC`, `mpObjC`) are `[propext]` alone.
+
+### 48.1 Where the brief is WRONG, machine-checked: **three** β-lemmas, not two
+
+§15.1 / row 150c / the brief all say *"two β-lemmas suffice (`mpVal k`, `mpValNode k`) against §E's
+three, because `_nested.MDep_1.rec ↦ MP.rec_1` is a bare constant"*.  The **reason** is right and
+the **count is one short.**
+
+Two β-lemmas suffice for the entries that *move*.  They do not suffice for the derivation, because
+entry 4 — the companion constructor's minor premise — contains the block's own **stored field
+redex** `(λ _ : Prop, MP #(m+1)) #k`.  It is *identical on both sides* of the bridge (it is indexed
+by member `0`, i.e. `MP` itself — row 143d), so it contributes nothing to `TeleDefEq`; but the
+induction hypothesis `#4 #0` of that minor premise cannot be **typed** without contracting it,
+because the motive for `MP` expects `MP α` and the field is declared at the redex.  So `mpBetaF`
+exists, is used twice inside `mpE4` (once for the binder's own self-defeq via `.trans … .symm`,
+once as the `defeqDF` on the IH's argument), and moves nothing.
+
+Machine-checked, not argued:
+
+* `mpA4_field_shared` (`rfl`) — the redex `mpFd 4 0` occurs, unchanged, in **both** `mpA4` and
+  `mpA4'`;
+* `mpFd_ne` (`decide`) — and it is a redex, not already its own contractum.
+
+**This is the first place in this corner where being a *redex block* costs the bridge anything**,
+and it is exactly the cost row 129b predicted in a different place: `ntreeAux` has no such entry
+because it is `Canonical`.  *Guard for the next brief:* a β-lemma count read off "which entries
+move" undercounts by the redexes the restoration **preserves** — moving and needing-a-conversion
+are different questions, and a redex block has entries in the second class that are not in the
+first.
+
+### 48.2 A second, smaller correction, in the optimistic direction
+
+§15.1 records "both bodies are identities" as a negative result.  Measured: they are *freer* than
+that — `mpB₀` and `mpB₁` need **no environment hypothesis at all** (Lean's unused-section-variable
+linter is the instrument: it rejected `include hP`).  Each is two `Lookup`s and one `appDF`.  So
+the two identity bodies cost nothing even in hypotheses, where `ntreeAux`'s `rB0`/`rB1` both need
+constant lookups (`rB0` needs `hN`, `rB1` needs `hL`/`hN`) because *their* bodies mention `NTree`
+and `List`.
+
+### 48.3 Anti-vacuity for `hbridge` at `MP`, to the standard the brief set
+
+**Genuine conversion content, established by `decide`:**
+
+* four of six telescope entries move at `MP.rec_1` and three of six at `MP.rec`: `mpA2_ne`,
+  `mpA3_ne`, `mpA4_ne`, `mpA5₁_ne`, and the whole lists differ (`mpTele₀_ne`, `mpTele₁_ne`) — so
+  `TeleDefEq.cons`, the disjunct that costs a real `IsDefEq`, is taken three and four times and
+  the free `TeleDefEq.rfl` three and two times;
+* the **equation** form of the bridge is false at *both* recursors — `mp_recTypeR_bridge_false`
+  (§6, `j = 0`, pre-existing) and **`mp_recTypeR_bridge_false_1`** (new, `j = 1`) — so `mphbridge`
+  cannot come from `VEnv.recConstsR_wf_of_substC_of_eq`, and (B) at `MP` is not an identity in
+  disguise;
+* and the whole route's `hσ` is *refuted* in strict form at this pair (`mp_csubst_WF₂_false`,
+  §15), so `mp_csubst_WFD₂`'s defeq disjunct is load-bearing.
+
+**Negative results, reported as such — three of them, and one is new:**
+
+1. `MP.rec`'s major-premise domain never moves (`mpA5₀_eq`) — row 143d's rule, **sixth**
+   confirmation, no counterexample yet.
+2. Both recursor bodies are identities (`mp_recBody_eq`, pre-existing; `mpBody_eq`), and §48.2
+   sharpens this to "identities that need no hypotheses".
+3. **New**: the stored field redex is preserved by the restoration (`mpA4_field_shared`) — so the
+   third β-lemma is pure typing, not conversion content.  That is a *fourth* identity-at-the-
+   block's-own-member instance in this file alone.
+
+**The `WFD` weakening count, unchanged by this round**: `WFD` is used in three proved instances
+tree-wide (`ntree_csubst_WFD₂`, `ntree_csubst_WFD₃`, `mp_csubst_WFD₂`) and the new freedom is
+taken at exactly **three** constants (`NTree.node`, `NTree.rec`, `MP.obj`).  §16 adds no `WFD`
+instance and no use of the slack, so the brief's "a weakening everything suddenly satisfies is
+suspect" check still passes with the same margin.
+
+## 49. …and then obligation (C) too, and `Ordered` AT A NON-CANONICAL BLOCK
+
+The brief named (C) as the follow-on and told me to establish what it needs from source first.  I
+did (§49.1), found the residual smaller than the `ntreeAux` analogue in three places, and closed it.
+
+`ParamRedex.lean` §§17–18.  **Both new obligations are theorems with nothing assumed, and all three
+of `VEnv.addInductR_ordered'`'s obligations now hold at a block that is provably not `Canonical`.**
+
+| name (namespace `Lean4Lean.MRedex.MPWit`) | statement | axioms |
+|---|---|---|
+| `mpTeleP`/`mpTelePR`, `mpTeleDefEq_ext` | the five-entry prefix every telescope and ι-context shares | `[propext, Quot.sound]` |
+| `mpIotaCtx_obj_eq`/`_R_obj_eq` | **the `MP.obj` ι-context IS `mpTele₁`/`mpTeleR₁`** (`decide`) | `[propext, Quot.sound]` |
+| `mpIotaCtx_node_eq`/`_R_node_eq` | the companion rule's = prefix ++ `[Prop, mpFd 5 0]` (`decide`) | `[propext, Quot.sound]` |
+| `mpAuxB_recArg_lt` | `hpos`, by `decide` over list membership | `[propext]` |
+| **`mpIotaTele_obj`, `mpIotaTele_node`** | **`htele` at both ι-rules** | `[propext, Quot.sound]` |
+| **`mpIotaHargs_obj`, `mpIotaHargs_node`** | the two residual `∃ A₀ v` triples | `[propext, Quot.sound]` |
+| `mp_recConsts_eq`, `mp_recConstsR_eq` | the two lists the recursor stage folds (`rfl`) | `[propext]` / `[propext, Quot.sound]` |
+| `mpIsTypeA0/A1`, `mpOnCtx₀`, `mpOnCtx₁` | the two recursor telescopes are contexts | `[propext]` / `[propext, Quot.sound]` |
+| `mpRecPi0`, `mpRecPi1` | the whole-pi conversions (`mkPi_congrU` over §16) | `[propext, Quot.sound]` |
+| `mpRecConstClause0/1`, `mpNestedRecVal` | …in `WFD.const`'s and `WFD.val`'s exact shapes | `[propext, Quot.sound]` |
+| `mp_fresh₃`, `mpAuxB_stagedE₃`, `mpAuxB_stagedF₃`, **`mp_stage₃_exists`** | the third staging pair exists | `[propext, Quot.sound]` |
+| `mpF₃_ordered`, `mpF₃_mdep/_mdepNode/_mp/_obj/_rec/_rec1` | the ι-stage environment | `[propext(,Classical.choice), Quot.sound]` |
+| **`mp_csubst_WFD₃`** | **`hσ` at the ι-rule staging pair** | `[propext, Classical.choice, Quot.sound]` |
+| `mpAuxB_hdata` | `hdata` at both rules | `[propext, Quot.sound]` |
+| **`mpAuxB_iotaRulesRS_wf`** | **OBLIGATION (C) at the parameterised REDEX block** | `[propext, Classical.choice, Quot.sound]` |
+| **`mpAuxB_obligationC`** | …with nothing assumed | `[propext, Classical.choice, Quot.sound]` |
+| `mpAuxB_admitted`, `mpAuxB_stages` | the step is admissible and its three stages exist | `[propext, Classical.choice, Quot.sound]` |
+| **`mpAuxB_addInductR_ordered`** | **the nested declaration step preserves `VEnv.Ordered` at a NON-CANONICAL block** | `[propext, Classical.choice, Quot.sound]` |
+| `mp_csubst_WF₃_false` | the strict `CSubst.WF` is false at the ι-rule pair too | `[propext, Quot.sound]` |
+
+### 49.1 What (C) at `MP` needed, established from source before starting (as briefed)
+
+`VEnv.iotaRulesRS_wf_of_hargsD`'s nine hypotheses, walked one by one — **all nine, because a
+per-hypothesis audit that skips one is not an audit**:
+
+| hypothesis | at `MP`, before this round |
+|---|---|
+| `hown` | `mpRestore_ownId` — **already in HEAD** (§3) |
+| `hat` | `mpRestore_domSep.substAt` — **already in HEAD** (§3), off `mpAuxB_allNames_nodup` + `mpRestore_domNodup`, both `decide` |
+| `hfr` | `mpRestore_substFree` — **already in HEAD** (§3) |
+| `hσc` | `mp_csubst_closed` — **already in HEAD** (§14) |
+| `hσ` | **MISSING**: `WFD` at the *third* staging pair.  Needs the §H analogue (`const` at `MP.rec`) + the §I analogue (`val` at `_nested.MDep_1.rec`, `exfalso` at stage 2) + `E₃`/`F₃` |
+| `hI` | `mpAuxB_WF.iotaCtx (mpEnv_ordered h) hE₁ hE₂ hE₃` — free once `hE₃` exists |
+| `henv` | **MISSING**: `mpF₃_ordered`, which needs obligation (B) — i.e. §16 had to land first |
+| `hpos` | **MISSING but trivial**: `decide` over list membership |
+| `hdata` | **MISSING**: `htele` + one `∃ A₀ v` triple per rule, **two** rules |
+
+So the honest count was **five** missing, of which two are one-liners.  Measured before proving
+(`#eval`), then landed as `decide` — and the residual came out *smaller* than the `ntreeAux`
+analogue in three separate places:
+
+1. **`MP` has two ι-rules to `NTree`'s three** (`iotaRules.length = 2`), and `mpAuxB_ctorsAll_eq`
+   makes the `∀ q j C` collapse to two named instances.
+2. **`htele` is free beyond §16.**  The `MP.obj` rule's substituted ι-context *is* `mpTele₁` on the
+   nose (`mpIotaCtx_obj_eq`, `decide`), and the companion rule's two extra entries — the block's own
+   `Prop` field and its **stored** field redex — **do not move**, so they are two `TeleDefEq.rfl`s.
+   At `ntreeAux` the node and cons rules each needed one extra `rbetaL`.
+3. **Both `hfunM`s are a single `Lookup`**, both `hconv`s are one `mpBetaV` (or its `symm`), and
+   `hmaj` is **free at `MP.obj`** — `mpMaj_obj_eq` (`decide`), the block's own constructor.  The two
+   residual triples came to **4 and 4 lines of proof term**, against `ntreeAux`'s 3, 5 and 5.
+
+And `mp_csubst_WFD₃` went in at **~45 lines on the first attempt**, for exactly the reason §35.1
+recorded: `CSubst.WFD.mono` carries the whole of `mp_csubst_WFD₂` from `F₂` to `F₃`, so only the two
+constants stage 3 *declares* are new.  That guard has now paid twice.
+
+### 49.2 Anti-vacuity for (C) at `MP`, to the standard the brief set
+
+* **The block really is a redex block and really is parameterised**: `mpAuxB_not_canonical` and
+  `mpAuxB_np_one`, both pre-existing, both `decide`/`rfl`.  This is the coordinate that separates
+  `mpAuxB_addInductR_ordered` from `ntreeAux_addInductR_ordered`; `nfnAux`'s is `np = 0`.
+* **Genuine conversion content, by `decide` not asserted**: the strict ι-rule bridge is refuted
+  (`mp_iotaRules_bridge_false`, §6, with `mp_iotaRules_length_eq` ruling out a length artefact);
+  both substituted ι-contexts move (`mpIotaCtx_obj_ne`, `mpIotaCtx_node_ne`); `hmaj` moves at the
+  companion constructor (`mpMaj_node_ne`); the `const` clause at `MP.rec` takes `WFD`'s **defeq**
+  disjunct with the strict alternative refuted (`mp_recTypeR_bridge_false`, §6, and
+  `mp_recTypeR_bridge_false_1`, new); and the whole strict `CSubst.WF` is **false** at the ι-rule
+  pair (`mp_csubst_WF₃_false`, new) as well as the constructor pair (`mp_csubst_WF₂_false`).
+* **Negative results, reported as such — and (C) at `MP` has MORE of them than (C) at `ntreeAux`.**
+  `ntreeAux`'s (C) had three identity pieces (`rMaj_node_eq`, `rA0`, `rA1`); `MP`'s has **six**:
+  the two non-moving prefix entries (`mpA0`, `mpA1`), `hmaj` at `MP.obj` (`mpMaj_obj_eq`), and the
+  companion rule's two extra ι-context entries — of which one is the stored field redex, i.e. row
+  143d yet again.  **This is a negative result about the block, and it is the honest half of
+  §49.1's "smaller than `ntreeAux`":** a redex block's *own* positions are cheap, and the whole
+  cost sits at the companion.
+* **The `WFD` weakening count, updated and still honest.**  `WFD` is now proved at **four** staging
+  pairs (`ntree_csubst_WFD₂/₃`, `mp_csubst_WFD₂/₃`), and the new freedom is taken at exactly
+  **four** constants: `NTree.node`, `NTree.rec`, `MP.obj`, `MP.rec`.  Every other constant in all
+  four instances takes the strict `.inl` disjunct — that is one use per instance, and the strict
+  `CSubst.WF` is now *refuted* at all four pairs.  So the brief's "a weakening everything suddenly
+  satisfies is suspect" check passes with the margin unchanged, and the case for asking the human
+  whether `CSubst.WF` should simply **be** `WFD` is now four-for-four.
+
+## 50. What I tried that failed, and the exact step it failed at
+
+1. **`⟨_, .beta … (by type_tac) (.bvar hk)⟩` with `simpa [mpVal, mpVc, VExpr.inst]`** — *"Type
+   mismatch: after simplification, term `h` has type … `(VExpr.bvar k).lift` … but is expected to
+   have type … `(VExpr.bvar (k+1))`"*, twice.  `VExpr.inst` alone does not discharge the `lift` that
+   `.beta` introduces when the substituted variable sits under a binder (`.bvar 1`, not `.bvar 0`).
+   Fixed by adding `VExpr.lift, VExpr.liftN` to the simp set — the same fix `rbetaCons` already
+   carries and `rbetaL` does not need.  *Guard:* a β-lemma whose redex body mentions the bound
+   variable **below** the top level needs the `lift` simp lemmas; one whose body mentions it at
+   depth 0 does not, which is why §E's three β-lemmas do not all look alike.
+2. **`.const hP nofun rfl` for the head of the field redex** — *"Unknown constant
+   `Lean4Lean.VEnv.IsDefEq.const`"*.  `HasType.const` exists (`HasType` is a `def` over `IsDefEq`),
+   `IsDefEq.const` does not; the constructor is `constDF`.  Fixed by a named helper `mpPC`
+   (`.constDF hP nofun nofun rfl .nil`), mirroring `rNC`.  *Guard:* dot-notation `.const` inside an
+   `IsDefEq` goal silently resolves to nothing; the constructor is always `constDF`.
+3. **`.defeqDF (.symm (mpBetaV …)))` with one paren too many** in `mpE4` — *"Application type
+   mismatch: the argument `VEnv.IsDefEq.defeqDF (…)` has type `… → …`"*, i.e. `defeqDF` was applied
+   to the `bvar` as its *only* argument.  Mechanical, but worth the line because the error names
+   `appDF` and not `defeqDF`, which sends you to the wrong term.
+4. **`hh.trans mp_obj_declared` in `mp_csubst_WF₃_false`** — application type mismatch.
+   `VEnv.subst_WF_false_of_const_ne`'s `hne` is `A ≠ ci.type.substC σ`, i.e. **F's type on the
+   left**, while `csubst_WF_staged_false` passes it as `fun hh => hne hh.symm`.  I copied the
+   `ntreeAux` call site (which has the `.symm` inside its own `hne`) and dropped the flip.  Fixed to
+   `hh.symm.trans mp_obj_declared`.  *Guard:* the two refutation lemmas take `hne` in **opposite**
+   orientations; check which one you are calling.
+5. **`#eval` with `fun p => (p.1, p.2.name)` over `ctorsAll`** — *"Invalid projection: type of `p`
+   is not known"*, exactly §38 item 5's trap in a new place.  Fixed by binding `let j : Nat := jC.1`
+   / `let C : VIndCtor := jC.2` with explicit ascriptions.  **Third round running that the
+   measurement instrument, not the mathematics, is what will not elaborate.**
+6. **`lean_run_code` against a just-edited module** — the snippet reported *"Imports are out of
+   date"* and then a cascade of *"Function expected at `mpVc`"* / *"unknown identifier `mpNt`"*
+   caused by `autoImplicit` turning the missing names into implicit variables.  The diagnostics were
+   entirely misleading (they blamed my `nofun`s and my `constDF`, which were fine).  Fixed by
+   working **in the file** and reading `lean_diagnostic_messages` instead.  *Guard:* after editing a
+   module, `lean_run_code` snippets that import it test the *stale* olean; a stale-import warning at
+   line 1 invalidates every error below it.
+7. **Not attempted, deliberately**: `Built.fields_noK` (out of scope, row 117c — **seventh** round
+   untouched); any frozen file; any implementation file; `Experimental/ConeJoin.lean`;
+   `Theory/SetModel/*`; `Theory/Typing/*` (I did **not** need to touch `ConstSubstNested.lean` at
+   all this round — everything went into my own `ParamRedex.lean`); `implGapWhitelist`; git, network,
+   `lake update`.
+
+## 51. The verification gap, stated as reasoning and not as measurement (row 135d / 150d's rule)
+
+* **Per-module builds only, as briefed.**  `lake build Lean4Lean.Theory.Inductive.ParamRedex
+  Lean4Lean.Theory.Typing.ConstSubstNested Lean4Lean.Theory.Inductive.NestedTele` → **72 jobs,
+  green**, at baseline and after every landing.  `ParamRedex.lean` emits **no warnings** (the only
+  warnings in the three modules are the pre-existing ones in `NestedRules.lean` and the
+  unused-section-variable at `ConstSubstNested.lean:1164`, neither touched).
+* **No tree-wide build, no guards, no `sorry-census`, no `dup-names`, no `MemberRedexScan`** — as
+  instructed.  `MemberRedexScan` imports `Experimental/ConeJoin.lean`, i.e. the whole tree.
+  **Labelled as reasoning, not as a run**: I expect its figures unmoved because I added **no
+  `inductive` declaration** and no new block (the Lean-level `inductive MP` was already there), and
+  `ParamRedex.lean` was already in the scan's population (row 133c).  All 102 additions are 76
+  theorems and 26 `def`s of type `VExpr`/`List VExpr`/`Prop`.
+* **No `sorry` added, none traded, no new frozen-axiom dependency.**  `grep -c sorry` in
+  `ParamRedex.lean` = **0**.  `#print axioms` was run on **all 102** new names (76 theorems +
+  26 `def`s), and the tally is exact: **28** depend on no axioms at all (all 26 `def`s plus
+  `mpBody_eq` and `mpA4_field_shared`), **10** on `[propext]`, **55** on `[propext, Quot.sound]`,
+  and **9** on `[propext, Classical.choice, Quot.sound]` — those nine being
+  `mpAuxB_recConstsR_wf`, `mpAuxB_obligationB`, `mpF₃_ordered`, `mp_csubst_WFD₃`,
+  `mpAuxB_iotaRulesRS_wf`, `mpAuxB_obligationC`, `mpAuxB_admitted`, `mpAuxB_stages`,
+  `mpAuxB_addInductR_ordered`, every one of which inherits `Classical.choice` from
+  `mpEnv_ordered` / `recType_isType` / `Exists.choose`, all measured as carrying it already in
+  §42.4 and §30.  **`grep -c sorryAx` over the 102 prints = 0; no frozen axiom on any of them.**
+* **No collisions**: all 102 new top-level names checked tree-wide with
+  `grep -rhoE "^(theorem|def) <name>( |$|\{|\()"` over `Lean4Lean/`; each occurs exactly once.  All
+  live in namespace `Lean4Lean.MRedex.MPWit`.
+* **Files touched**: `Lean4Lean/Theory/Inductive/ParamRedex.lean` (1582 → 2523 lines, +941) and this
+  document.  Nothing else — **not even `ConstSubstNested.lean`**, which I own but did not need.
+* **HEAD did not move under me** (`b5eee60` throughout), and the working tree was clean when I
+  started — so, unlike rounds 4 and 5, no other stream's files were in flight.
+* **Which tool backs which search claim.**  `lean_local_search` and `lean_hammer_premise` are broken
+  here as briefed; I did not use them.  Structural claims about what exists in the tree (no
+  `hbridge` at `MP`; no name collisions; which module defines `CSubst.WFD` and whether
+  `ParamRedex.lean` can see it through `NestedTele → NestedRules → RestoreBridge →
+  ConstSubstNested`) are `grep -rn --include=*.lean` over `Lean4Lean/`.  Everything else is
+  `lean_diagnostic_messages` on the open file, `lake build`, `lake env lean` for `#print axioms`,
+  `#eval` and `decide`.
+
+## 52. Ledger rows this round needs (I did **not** edit `docs/vacuity-ledger.md`)
+
+1. **ALL THREE of `addInductR_ordered'`'s obligations now hold at a NON-CANONICAL (REDEX) block**, so
+   `VEnv.Ordered` is preserved by the nested declaration step there: `mpAuxB_recConstsR_wf` (B),
+   `mpAuxB_iotaRulesRS_wf` (C), `mpAuxB_addInductR_ordered`, each also in a hypothesis-free form
+   (`mpAuxB_obligationB`, `mpAuxB_obligationC`).  Until now the blocks with all three were `nfnAux`
+   (`np = 0`) and `ntreeAux` (`np = 1`, **`Canonical`**); `mpAux mpAuxNodeB` is neither
+   (`mpAuxB_np_one`, `mpAuxB_not_canonical`).  Non-vacuity in §48.3/§49.2, all by `decide`.
+2. **The brief's β-lemma count was one short, and the reason generalises.**  Row 150c says *"two
+   β-lemmas suffice against §E's three"*.  Two suffice for the entries that **move**; a third
+   (`mpBetaF`) is needed for the block's own **stored** field redex, which the restoration
+   *preserves* (`mpA4_field_shared`, `rfl`) but which must still be contracted for the companion
+   minor premise's induction hypothesis to be typed (`mpFd_ne`, `decide`).  **Guard: a β-lemma count
+   read off "which entries move" undercounts by the redexes the restoration preserves.**  Moving and
+   needing-a-conversion are different questions, and only a *redex* block has entries in the second
+   class that are not in the first — which is why `ntreeAux` did not show it.  Pairs with row 143c:
+   there a bundled measurement was transferred to a decomposition; here a *movement* measurement was
+   transferred to a *derivation*.
+3. **A row correcting row 150c in the optimistic direction as well**: the two identity bodies are
+   *freer* than "identities" — `mpB₀`/`mpB₁` need **no environment hypothesis at all** (Lean's
+   unused-section-variable linter refused `include hP`), where `ntreeAux`'s `rB0`/`rB1` both need
+   constant lookups.  Two corrections to one row, in opposite directions, from the same measurement.
+4. **A row for (C) at `MP` being smaller than (C) at `ntreeAux`, with the reason.**  Two ι-rules to
+   three; the `MP.obj` ι-context **is** the `MP.rec_1` telescope on the nose (`mpIotaCtx_obj_eq`,
+   `decide`); the companion rule's two extra entries **do not move** (against one moving `rbetaL`
+   each at `ntreeAux`'s node and cons); `hmaj` free at `MP.obj`; residual triples of **4 and 4**
+   lines against **3, 5 and 5**.  *And the honest half:* that is because a redex block's own
+   positions are cheap — **six** identity pieces in (C) at `MP` against three at `ntreeAux`.
+5. **A row for `CSubst.WFD.mono` paying twice** (row 143c's third item): `mp_csubst_WFD₃` went in at
+   ~45 lines on the first attempt, because `.mono` carries `WFD₂` from `F₂` to `F₃` wholesale and
+   only the two constants stage 3 declares are new.  Second confirmation of *"before re-doing a
+   staged proof one layer up, ask whether the hypothesis is monotone in the layer."*
+6. **A row for the `WFD`-versus-`WF` question, now four-for-four.**  `CSubst.WF` is **refuted** at
+   all four staging pairs where `WFD` is proved (`ntree_csubst_WF₂_false`/`WF₃_false`,
+   `mp_csubst_WF₂_false`/**`WF₃_false`** new), and `WFD`'s new freedom is used at exactly **four**
+   constants across the four instances — one each.  Nothing in the tree needs the strict `const`
+   clause; `CSubst.WF.wfd` shows the `np = 0` witnesses survive.  The question for the human is
+   unchanged and now has four data points instead of two.
+7. **A seventh confirmation of row 143d, and it is starting to look like a theorem rather than a
+   pattern.**  `mpA5₀_eq` (the major premise at `MP.rec`), `mpMaj_obj_eq` (`hmaj` at `MP.obj`),
+   `mpA4_field_shared` (the stored field) and the companion ι-rule's two extra entries all restore
+   trivially, and every one of them is indexed by the block's own member.  Seven instances, no
+   counterexample.  **Someone should try to prove it** — `VIndRestore.OwnId` plus
+   `substC_tyApp_comp` look like the ingredients — because it is now doing real predictive work in
+   every costing in this corner.
+8. **A row for the two tool traps** (§50 items 5 and 6): `#eval`'s tuple projections still need
+   explicit ascriptions (third round), and **`lean_run_code` against a just-edited module tests the
+   stale olean** and then produces a cascade of `autoImplicit`-manufactured errors that blame the
+   wrong terms.  The instrument was misleading in a way that would have cost hours if I had believed
+   it; the fix was to work in the file and read diagnostics.
+9. **A row for the verification gap** (fifth round): per-module builds only, everything tree-wide
+   deferred, grounds in §51 labelled as reasoning.
+
+## 53. What I would pick up first
+
+1. **Try to prove the identity rule as a theorem** (§52 item 7).  It has seven machine-checked
+   instances, no counterexample, and it is what every costing in this corner now leans on.  Shape:
+   *at a position indexed by a member the block itself declares, `VIndRestore.OwnId` makes
+   `ctorAppR`/`tyApp'`/`fieldTypesR` equal to their unrestored forms.*  If it is true, the per-block
+   cost of (A)/(B)/(C) becomes "one β-lemma per companion constructor" and can be **predicted**
+   instead of measured each time.  If it is false, the counterexample is worth more.
+2. **A third parameterised block, to test §40 item 4's conjecture.**  Two are now done — `ntreeAux`
+   (canonical) and `mpAux mpAuxNodeB` (redex) — and the residual at both is "one β-lemma per
+   companion constructor, plus one per *stored* redex".  My honest read, **stated as a conjecture,
+   not a measurement**: the shape generalises, the count is `(number of companion constructors) +
+   (number of stored redexes)`, and the second summand is what round 6's brief missed.  A block with
+   **two** companion members or **two** parameters would test both halves.
+3. **Ask the human the `CSubst.WF` question** — §52 item 6.  Four-for-four now.  It is a
+   `Theory/Typing/ConstSubst.lean` edit, another stream's file, and it would delete four `.mono`/
+   `.wfd` transports and ~40 `WFD`-mentioning signatures.
+4. **Move `mrDepDecl_WF` beside `mrDepDecl`** in `Theory/Inductive/MemberRedex.lean` — unchanged from
+   §46 item 3, still not done, still one `git mv`-sized edit.  `MRWit.MJ`'s own development will want
+   it, and `MemberRedexScan`'s file is no longer being edited by anyone.
+5. **Run the tree-wide suite** — guards, `sorry-census`, `dup-names`, `MemberRedexScan`.  Do not take
+   §51 on trust.
+6. **`Built.fields_noK`** — still out of scope, **seventh** round untouched (row 117c).

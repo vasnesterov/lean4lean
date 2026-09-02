@@ -2471,7 +2471,8 @@ the `≠ 0` slice's five-layer `mkLam` value, two of whose layers are over `U κ
 |---|---|---|
 | `hasType_iffRecType`, the nine §3 typing lemmas, `iffRecSort_eval_eq_zero_iff` | none | `u.WF nv` only |
 | `isProp_iffRecType_iff`, `isProp_recBB_iff` | none | `iffEnv ≤ envF` (a theorem at `preludeEnv`), `OnCtx Γ`, and **a `PropSplit envF nv`** — inhabited at `preludeEnv` as data (`propSplitPreludeEnv`, route A with `forallE_inv_stratified`; or route B `sorryAx`-free) |
-| `pt_not_mem_interp_iffRecType_of_ne`, `level_branch_forced` | none | the same, and nothing else — in particular **no** motive-space inhabitant |
+| `pt_not_mem_interp_iffRecType_of_ne` | none | the same, and nothing else — in particular **no** motive-space inhabitant and **no** parameter-space inhabitant (this row is correct as written; see §16.3's three-point scale) |
+| ~~`level_branch_forced`~~ | none | **CORRECTED 2026-09-02 (§17.1, ledger row 149b/151b).** This row originally read "the same, and nothing else" and was **wrong**: `level_branch_forced` also carries `hv₀ : v ∈ ⟦(iffIndDecl.recType 0).instL [u₀]⟧`, a *member* hypothesis, which the row omitted. By `IffAudit.exists_mem_interp_iffRecType_zero_iff` (landed §17.1) `hv₀` is satisfiable **iff** `pt ∈ ⟦recType[u₀]⟧`, i.e. iff the `= 0` slice holds — and that slice is **OPEN** at `iffIndDecl` (row 146b), so the hypothesis is unmeasured, not discharged. Quote `IffAudit.no_level_uniform_value` (a negation, no member hypothesis) when an unconditional form is wanted. The "both slices non-empty" control cited in this section is about the two **level** slices and never bore on `hv₀`. |
 | `iffEnv_le_preludeEnv` | none | none |
 | `not_repricedInput_piLvlEnv`, `zero_replay_is_free`, `propTypeAgreeOnN_zero_free` | none | none |
 | `propTypeAgreeOnN_of_repricedInput` | none | the five-member bundle, **which is refuted at `piLvlEnv`** — this is the one place in this round where a hypothesis is not merely open |
@@ -2882,3 +2883,383 @@ still absent (row 131f, sixth confirmation); every search claim rests on `grep`/
 (refuted at `zeroChain`, 16.3), **`.appDF` with the reduced type stated directly at a block with
 open parameters** (16.6/16.7 item 1), and **`simpa` as the bridge for `VExpr.inst`**
 (16.7 item 2).
+
+---
+
+## 17. Session of 2026-09-02 (tenth): Task 2 landed in three lines; Task 1's costing is **tested**
+
+*Written incrementally, in the order the work happened. Sections appear as they are proved.*
+
+### 17.0 The `#print axioms`-first check, run before proving anything, as instructed
+
+Everything the brief names, resolved **by namespace** and measured with `Lean.collectAxioms`
+(`#check` first, to catch the naming trap). **Nothing in this brief was already in HEAD**, so this
+is *not* a fourth instance of row 144d/146e — but the *naming* trap fired again, exactly where the
+brief predicted.
+
+| brief's / handoff's spelling | real name | axioms |
+|---|---|---|
+| `eqRecSort_eval_eq_zero_iff` | `SetModel.EqAudit.eqRecSort_eval_eq_zero_iff` | `[propext]` |
+| `SetModel.eqFn_value` | `Lean4Lean.SetModel.eqFn_value` | `[propext, Classical.choice, Quot.sound]` |
+| `eqRefl_fields`, `iffIntro_fields_length` | `SetModel.EqAudit.…` | `[propext]` |
+| `hasType_app'` | `SetModel.EqAudit.hasType_app'` | `[propext]` |
+| `level_branch_forced` (iff) | `SetModel.IffAudit.level_branch_forced` | `[propext, Classical.choice, Quot.sound]` |
+| `exists_mem_interp_eqRecType_zero_iff` | `SetModel.EqAudit.…` | `[propext, Classical.choice, Quot.sound]` |
+| `no_level_uniform_value` | `SetModel.EqAudit.…` | `[propext, Classical.choice, Quot.sound]` |
+| `liftN_zero` | `Lean4Lean.VExpr.liftN_zero` | `[propext]` |
+| `hasType_EqReflType` / `reflSort_eval_eq_zero` | `SetModel.EqAudit.…` | `[propext, Quot.sound]` / `[propext]` |
+| `pt_not_mem_interp_eqRecType_of_ne`, `eq_pt_of_mem_interp_eqRecType_of_zero` | `SetModel.EqAudit.…` | `[propext, Classical.choice, Quot.sound]` |
+| `isProp_recBA_iff` | `SetModel.EqAudit.…` | `[propext, Quot.sound]` |
+| `pt_mem_interp_NE_recType` | `SetModel.NEAudit.pt_mem_interp_NE_recType` | `[propext, Classical.choice, Quot.sound]` |
+| `inductOracleOK_NE` | `SetModel.NEAudit.inductOracleOK_NE` | `[propext, Classical.choice, Quot.sound]` |
+| `PreludeSpec.iffFn_value` | — | **UNKNOWN CONSTANT** (real: `SetModel.iffFn_value`) |
+| `PreludeSpec.propext_of_mem_UProp` | — | **UNKNOWN CONSTANT** (real: `SetModel.propext_of_mem_UProp`) |
+| `SetModel.PreludeSpec.iffFn_value` (the fully-qualified guess) | — | **UNKNOWN CONSTANT** |
+
+`sorryAx` count over the whole list: **0**.
+
+**One thing the brief did not name and I found while measuring**, which the next stream must not
+mistake for mine: `NEAudit.nonempty_propSplit_preludeEnv` and `NEAudit.propSplitPreludeEnv` in
+`PreludeOracle.lean` print `[propext, sorryAx, Classical.choice, Quot.sound]` — **pre-existing**
+(route A through `forallE_inv_stratified`; §15.5 records the sorry-free route B alternative). It is
+in the import closure of everything below, so *nothing in this corner may be quoted as
+"sorry-free at `preludeEnv`" via that route.* My own additions do not touch it.
+
+### 17.1 Task 2: landed, and it is three lines as forecast
+
+`Lean4Lean/Theory/SetModel/IffOracle.lean`, new §6.6 (my only edit to that file):
+
+```lean
+theorem no_level_uniform_value (hu₀ : u₀.WF nv) (hu₁ : u₁.WF nv)
+    (h0 : u₀.eval M.ls = 0) (hn : u₁.eval M.ls ≠ 0) :
+    ¬ ∃ w : V, w ∈ ⟦(iffIndDecl.recType 0).instL [u₀]⟧ ∧ w ∈ ⟦(iffIndDecl.recType 0).instL [u₁]⟧
+theorem exists_mem_interp_iffRecType_zero_iff (hu₀ : u₀.WF nv) (h0 : u₀.eval M.ls = 0) :
+    (∃ w : V, w ∈ ⟦(iffIndDecl.recType 0).instL [u₀]⟧) ↔ (pt : V) ∈ ⟦…⟧
+```
+
+Both `[propext, Classical.choice, Quot.sound]`, no `sorryAx`. `lake build
+Lean4Lean.Theory.SetModel.IffOracle`: green, **1204 jobs** (unchanged — the module count does not
+move for an in-file addition). `grep -c sorry` on the file: **0**.
+
+**And it is strictly better than its `eqIndDecl` twin**, which is the one thing worth noting:
+`EqAudit.no_level_uniform_value` still carries `hx : x ∈ U M.κ (v.eval M.ls)` because
+`eqIndDecl`'s outermost binder is `α : Sort v`; `iffIndDecl`'s is a parameter over `Prop`, so the
+`Iff` version's *only* open hypotheses are `hle : iffEnv ≤ envF` (a theorem at `preludeEnv`) and
+the `PropSplit` parameter. So the accounting-gap fix at `iffIndDecl` produces an
+**unconditional-in-both-`w`-and-`κ`** statement, which the `eqIndDecl` one cannot be.
+
+**§15.5's table corrected** in place, with the old text struck through and the reason recorded, so
+a reader of §15 alone cannot carry away the wrong accounting.
+
+### 17.2 Task 1: the costing is **TESTED, and it holds for the conclusion** — `eqIndDecl`'s `= 0` slice is PROVED
+
+New file `Lean4Lean/Theory/SetModel/EqZeroSlice.lean` (783 lines, **78 declarations**, **0
+`sorry`**, namespace `Lean4Lean.SetModel.EqZeroAudit` — `grep` over `Lean4Lean/` and `docs/` before
+writing found **zero** prior occurrences), **imported by `Theory/Equiconsistency.lean` on the same
+edit that created it**, so it was never orphaned (rows 128b / 133c / 142e — sixth round running).
+
+```lean
+-- §5.  The headline.  `InductOracleOK`'s `consts` obligation at `Eq.rec`, `= 0` branch.
+theorem pt_mem_interp_eqRecType_of_zero (hu : u.WF nv) (hv : v.WF nv) (hle : eqEnv ≤ envF)
+    (h0 : u.eval M.ls = 0) (hspec : EqSpec M v) :
+    (pt : V) ∈ (interp M L [] ((eqIndDecl.recType 0).instL [u, v])).toFun ∅
+-- §5.1.  The SECOND `consts` cell, which §16.10 item 3 also asked for.
+theorem pt_mem_interp_EqReflType (hspec : EqSpec M v) :
+    (pt : V) ∈ ⟦Eq.refl's type at v⟧          -- no `h0`: `reflSort_eval_eq_zero` at EVERY `v`
+theorem not_pt_mem_interp_EqReflType_of_empty …  -- …and `EqSpec` is NECESSARY there
+-- §4.  The reusable parts.
+theorem interp_eqAp_bvars …            -- ⟦Eq α a b⟧ = M.cnst ``Eq [v] ‘ α ‘ a ‘ b, at any context
+theorem isProof_reflC1_ctxM …          -- `Eq.refl α` IS a proof: `imax v 0 = 0` at every `v`
+theorem value_mem_of_mem_mkForallType … -- a member of a `mkForallType` is a function on its domain
+theorem motive_value_mem_UProp …        -- at `u.eval = 0` the motive's values are truth values
+-- §6.  The transfer crux, measurable without the `iffIndDecl` telescope.
+theorem pt_mem_mkForallProp_self (hp : p ∈ UProp) : (pt : V) ∈ ⟦p → p⟧
+```
+
+**Both cells are discharged from `EqSpec M v` alone.**  `EqSpec` (`SetModel/PreludeSpec.lean`,
+note the namespace) pins the type former's oracle value to
+`M.cnst ``Eq [v] ‘ α ‘ a ‘ b = if a = b then {•} else ∅`, and it is **satisfied by this
+development's own witness**: `SetModel.preludeWitness_eq : ∀ κ ls u, EqSpec (preludeWitness κ ls) u`
+(`#check`ed, `[propext, Classical.choice, Quot.sound]`).  So the hypothesis is not new — it is the
+one `PreludeSpec.lean` was written to state and `preludeSpec_satisfiable` already meets.
+
+**The shape of the proof, for whoever does the next block.**  Six `mem_interp_forallE_prop_iff`
+peels (all six binders are impredicative at `u.eval M.ls = 0`, §3), then:
+
+1. `hw : w ∈ ⟦Eq α a b⟧` plus `EqSpec` forces `a = b` **and** `w = •`;
+2. the goal `• ∈ f ‘ b ‘ w` becomes `• ∈ f ‘ a ‘ •`, which is **literally the minor premise's own
+   type** (`interp_minTyE_val`), inhabited by `m`;
+3. and it is a subset of `{•}` because the motive's own type says its values are truth values at
+   `u.eval = 0` (`motive_value_mem_UProp`).
+
+Step 3 is the one a reader will underestimate: `m ∈ f ‘ a ‘ •` alone does **not** give
+`• ∈ f ‘ a ‘ •`.  `InterpSound.propSound_of_mem_sort` would, but its hypothesis is part 3 of
+interpretation soundness — i.e. the theorem this whole corner is building toward — so it is
+**circular here**, and the motive binder has to be unfolded instead (two `mkForallType`s, because
+the motive's type is *not* a proposition: its sort is `imax v (imax 0 (u+1)) ≥ 1`).
+
+### 17.3 …**but the costing's REASON is wrong, and that is the finding worth carrying**
+
+Row 149c / §16.5 price `eqIndDecl`'s slice below `iffIndDecl`'s on two grounds:
+
+> `eqRefl_fields = []` against `iffIntro_fields_length = 2` — so the `propext` half that makes
+> `iffIndDecl`'s slice hard is `Iff.intro`'s — and `SetModel.eqFn_value` is **already a
+> two-directional equation in the tree**.
+
+The first ground is right and §5 confirms what it predicts.  **The second does not distinguish the
+two blocks at all**, and I checked rather than assumed:
+
+| datum | `Eq` | `Iff` |
+|---|---|---|
+| the faithfulness equation in the tree | `eqFn_value : eqFn κ i ‘ α ‘ a ‘ b = if a = b then {•} else ∅` | `iffFn_value : iffFn ‘ p ‘ q = if p = q then {•} else ∅` — **same shape** |
+| the specification a slice would assume | `EqSpec M v` | `IffSpec M` (no level argument — `iffIndDecl.uvars = 0`) |
+| witnessed by | `preludeWitness_eq` | `preludeWitness_iff` — **the same `ModelData`** |
+
+All six cells `#check`ed this session.  So "the equation is already in the tree" is true on both
+sides, and it cannot be the reason `eqIndDecl` is cheaper.
+
+**What does differ at the recursor is the minor premise's binders, and it is a `rfl`-backed
+structural fact rather than a reading.**  `IffAudit.minTyI` is
+
+```lean
+.forallE (.forallE (.bvar 2) (.bvar 2))            -- x : a → b
+  (.forallE (.forallE (.bvar 2) (.bvar 4))         -- y : b → a
+    (.app (.bvar 2) (introAp (.bvar 4) (.bvar 3) (.bvar 1) (.bvar 0))))
+```
+
+— `Iff.rec`'s minor premise carries the **constructor's two field binders**, where
+`EqAudit.minTyE` (`.app (.app (.bvar 0) (.bvar 1)) (reflAp v (.bvar 2) (.bvar 1))`) carries none.
+That is the true cost difference: to reach `• ∈ f ‘ •` from a minor premise at `iffIndDecl` one
+must first traverse those two binders, which needs `⟦a → b⟧` and `⟦b → a⟧` **inhabited**.
+
+**And that does not need the model-side `propext` either.**  By the time the minor premise is
+consumed, the major premise plus `IffSpec` have *already* given `a = b`, so both binders are
+`⟦a → a⟧`, and `pt_mem_mkForallProp_self` (§6, six lines, proved) says a `∀` from a truth value to
+itself is inhabited: a proposition is a subset of `{•}`, so a member of the domain *is* `•`, and
+the codomain is the domain.
+
+**So row 146b / §15.3's "the `= 0` slice needs `iffFn`'s faithfulness in both directions, and the
+hard half is the model-side `propext`" appears misattributed at the recursor.**  The `propext`
+content is `Iff.intro`'s obligation — §16.5 got that right — and `Iff.rec`'s slice should go
+through from `IffSpec` exactly as `Eq.rec`'s does from `EqSpec`.  **Labelled a costing, not a
+theorem**: the `iffIndDecl` slice was *not* attempted, because it needs its own copies of §§1–4
+(the `snoc` ladder, the `OnCtx` chain, the `IsProp` chain, the ten `¬IsProof` decisions) — about
+forty lemmas, none of which transfer from `Eq`'s contexts.  The one crux that is measurable
+without them is `pt_mem_mkForallProp_self`, and it is proved.
+
+**Net verdict on row 149c.**  Conclusion right, reason wrong, margin much smaller than advertised:
+not "no `propext` versus `propext`" but "no field binders versus two, both traversable".  This is
+the seventh costing in this corner to come back qualified, and the first where the *conclusion*
+survived and only the *argument* failed — which is a different failure mode from rows 146b and
+149c's own and worth distinguishing: an argument that reaches the right answer by a route that
+does not exist will mis-price the *next* block.
+
+### 17.4 The `liftN_zero` / `hasType_app'` tax the brief predicted — measured, and one new detail
+
+§16.6 / row 149c: *"`eqIndDecl`'s parameters are open, so `appDF`'s `B.inst a` reduces through
+`liftN_zero`, a theorem rather than a reduction — `hasType_app'` exists for exactly this, and every
+non-prelude block will hit it."*  **Right, and I used `EqAudit.hasType_app'` six times.**  Two
+things to add:
+
+1. **The simp set is not the one §16.6 gives.**  §16.6 says each `hC` closes by
+   `simp [VExpr.inst, VExpr.instVar]` or `simp [VExpr.inst, VExpr.inst_lift]`.  For an argument
+   that is a `.bvar` at a *generic* index — which is what a reusable lemma needs — the goal is
+   `VExpr.liftN 1 (.bvar (i+1)) = .bvar (i+2)`, and that needs **`liftVar` in the simp set** (note:
+   `liftVar` is *not* in the `VExpr` namespace — `VExpr.liftVar` is an *unknown constant*, which
+   cost a round) and then an **`omega`**, because `simp` normalises the index to `1 + (i + 1)` and
+   stops.  The working incantation is
+   `by simp [VExpr.inst, VExpr.instVar, VExpr.liftN, liftVar]; omega`.
+2. **State the index as `i+1`, never `i`.**  `(.forallE (.bvar (i+1)) (.sort .zero)).inst (.bvar j)`
+   is `.forallE (.bvar i) (.sort .zero)` **only when `i ≥ 1`**; at `i = 0` the substitution fires
+   instead and the result is a lift of `.bvar j`.  A lemma stated at a generic `.bvar i` therefore
+   does not hold, and `simp` reports "made no progress" rather than anything informative.  All
+   three of this file's uses instantiate at `i ∈ {0, 1, 3}`, so writing the binder as `i+1`
+   throughout makes one lemma serve all three contexts.
+
+### 17.5 What I tried that failed, and the step it failed at
+
+1. **`InterpSound.propSound_of_mem_sort` for step 3 of §17.2.**  It is exactly the statement
+   needed ("a term of a `Prop`-level sort denotes a subset of `{•}`") and it is a theorem in HEAD —
+   but its hypothesis is `⟦e⟧ρ ∈ ⟦A⟧ρ`, i.e. **part 3 of interpretation soundness**, which is what
+   this whole corner is building toward.  **Circular here.**  Fix: unfold the motive binder
+   instead (`motive_value_mem_UProp`, two `mkForallType` peels).  Worth writing down because the
+   lemma's *name* makes it look like free infrastructure.
+2. **`value_eq_of_kpair_mem` without an `IsFunction` instance in scope.**  *failed to synthesize
+   instance of type class `IsFunction g`*.  Fix: `have hfun : IsFunction g := IsFunction.of_mem hfn`
+   — a plain `have` is enough (a local hypothesis of class type is a local instance);
+   `QuotInterp.quotLift_fCod` does the same three lines inline, and
+   `value_mem_of_mem_mkForallType` is now the reusable form.
+3. **`VExpr.liftVar` in a simp set** — *unknown constant*.  The declaration is `Lean4Lean.liftVar`,
+   outside the `VExpr` namespace, even though `VExpr.liftN` is inside it (`Theory/VExpr.lean:17`
+   versus `:38`).
+4. **A generic `Eq`-application lemma at `.bvar i`.**  `simp` reported *"made no progress"* on the
+   second application's substitution.  Diagnosis and fix: 17.4 item 2.
+5. **`include hv in` placed *after* a docstring.**  *unexpected token 'include'; expected 'lemma'*.
+   The repo's order is `omit … in`, then `include … in`, then the docstring, then the declaration;
+   `EqOracle.lean` follows it and I did not, twice.
+6. **Passing `Γ` positionally to my own context lemmas.**  `EqAudit` declares
+   `variable (Γ : List VExpr)` (explicit) and this file declares `{Γ : List VExpr}` (implicit), so
+   `onCtx_B hu hv trivial Γ` is a *function expected* error and the `trivial` for `OnCtx [] _`
+   cannot be elaborated until `Γ` is pinned.  Fix: `(Γ := [])` named argument at every call.  Five
+   occurrences.
+7. **`omega` for the `read_peel` chain without `(j := …)`.**  The index is determined by the
+   *third* argument and `omega` runs first, so it sees `j < n` with `j` a metavariable and reports
+   *"No usable constraints found"*.  Fix: name `j` explicitly.
+8. **`[V↓[ℒₛₑₜ] ⊧* 𝗔𝗖]` omitted from the `snoc`-reading section.**  `IsSeq`/`isSeq_empty` need it
+   (`PreludeSpec.lean` declares them under both instances), and the failure is a bare
+   *failed to synthesize instance*, four lines away from the cause.
+9. **Not attempted, deliberately, and each for a stated reason**:
+   * the `iffIndDecl` `= 0` slice (17.3 — needs its own §§1–4, ~40 lemmas);
+   * the **necessity of `EqSpec` at the recursor cell**.  The negative bound there needs the oracle
+     to be too *true* rather than too empty, hence a `ModelData` whose `Eq` is a constant-`{•}`
+     internal function **and** a motive separating two elements of `α` — two `mkLam` nests.  Note
+     that `PreludeOracle.lean:905` asserts the analogous control for `Nonempty` ("a constant-true
+     `Nonempty` satisfies the constructor and fails here") **in prose**; the only negative bound
+     that file actually *proves* is `not_mem_interp_zeroOracle_NE_type`, of the cheap
+     too-empty shape at the type former.  So the expensive control has no precedent in the tree
+     either, and 17.6 records the cheap one I did land.
+   * the `≠ 0` slice's six-layer `mkLam` value, the ι-rule, and `Eq`'s type-former value.
+
+### 17.6 Measured / read / not run
+
+**[measured]**
+* `lake build Lean4Lean.Theory.SetModel.IffOracle`: green, **1204 jobs** (unchanged).
+* `lake build Lean4Lean.Theory.SetModel.EqZeroSlice`: green, **1206 jobs**.
+* `lake build Lean4Lean.Theory.Equiconsistency` after wiring the import: green, **1242 jobs**
+  (1241 before).  Its one warning is `Equiconsistency.lean:53`, the **pre-existing** `sorry`
+  (`:52` in §16 — the line moved by one because my diff to that file is a single `import`).
+* `lake env lean` on `EqZeroSlice.lean` and on `IffOracle.lean`: **zero diagnostics** — no errors,
+  no warnings, no `sorry` warning, no linter warning.  `grep -c sorry` on `EqZeroSlice.lean`: **0**;
+  on `IffOracle.lean`: **0**.
+* **`#print axioms` (via `Lean.collectAxioms`) on all 78 declarations of
+  `Lean4Lean.SetModel.EqZeroAudit` plus the 2 new `IffAudit` ones — 80 seeds**: 1 `[propext]`,
+  41 `[propext, Quot.sound]`, 38 `[propext, Classical.choice, Quot.sound]`.  **`sorryAx` count: 0.
+  No frozen axiom.  No new `sorry`, none traded.**
+* **Hole cones**, forward over type **and** value with `allowOpaque := true`, the walker re-seeded
+  on **all 80**, in an environment importing `EqZeroSlice` *and* `Theory.Typing.ChurchRosser`.
+  **Presence verified in the measuring environment, not assumed** (row 149d's check, run first):
+
+  ```
+  Lean4Lean.VEnv.IsDefEqU.forallE_inv_stratified : present = true, sorryAx-tainted = true
+  Lean4Lean.VEnv.IsDefEqU.weakN_iff              : present = true, sorryAx-tainted = true
+  Lean4Lean.VEnv.WF.rigidShapeUniqNS             : present = true, sorryAx-tainted = true
+  Lean4Lean.VEnv.NormalEq.descend                : present = true, sorryAx-tainted = true
+  seeds walked: 80;  seeds with any sorryAx-carrying cone member: 0
+  ```
+* **Tainted controls fire, transitively:** `IsDefEqU.sort_inv` (cone 3409) reaches
+  `forallE_inv_stratified`; `NormalEq.descend` (cone 3837) reaches three of the four.  So the zero
+  over 80 seeds is a measurement, not a broken walker.
+* `#check` on `SetModel.eqFn_value`, `SetModel.iffFn_value`, `SetModel.EqSpec`, `SetModel.IffSpec`,
+  `SetModel.preludeWitness_eq`, `SetModel.preludeWitness_iff` — all six present, and the two
+  `if _ = _ then {•} else ∅` equations are of the **same shape** (17.3).
+* `IffAudit.minTyI`'s two field binders and `EqAudit.minTyE`'s absence of any: read off `abbrev`s
+  whose defining equation is `rfl` in the tree.
+* Namespace collision check: `grep -rn 'EqZeroAudit'` over `Lean4Lean/` and `docs/` **before**
+  writing — zero prior occurrences.
+
+**Hole-free is not discharged, reported separately as instructed:**
+
+| result | holes | open hypotheses |
+|---|---|---|
+| §1's 19 `snoc`-reading lemmas | none | none beyond the ambient `𝗭𝗙`/`𝗔𝗖` instances |
+| §2's seven `OnCtx` lemmas, §4's typing lemmas | none | `u.WF nv`, `v.WF nv`, `OnCtx Γ` |
+| §3's six `IsProp` lemmas, §4's ten `¬IsProof`/`IsProof` decisions | none | the same, **plus** `eqEnv ≤ envF` (a theorem at `preludeEnv`) and a **`PropSplit envF nv`** — inhabited at `preludeEnv` as data (`propSplitPreludeEnv`), but see the `sorryAx` note in 17.0 |
+| `interp_eqAp_bvars`, `interp_majTyE_val`, `interp_minTyE_val`, `interp_resE_val`, `interp_eqApX_val`, `interp_eqApP_val` | none | the same |
+| `value_mem_of_mem_mkForallType`, `pt_mem_mkForallProp_self` | none | **none** (pure set theory) |
+| `motive_value_mem_UProp` | none | the same as §3, plus `h0 : u.eval M.ls = 0` |
+| **`pt_mem_interp_eqRecType_of_zero`** | none | the same, plus **`EqSpec M v`** — satisfiable at `preludeWitness` (`preludeWitness_eq`), necessity **not proved at this cell** (17.5 item 9) |
+| **`pt_mem_interp_EqReflType`** | none | the same **minus `h0`**, plus `EqSpec M v` — and here `EqSpec` **is** shown necessary (`not_pt_mem_interp_EqReflType_of_empty`) |
+
+**Anti-vacuity, and this corner is the most exposed in the repo.**
+
+* **`Above` occurs in no statement in either file** (grep: zero occurrences in `EqZeroSlice.lean`,
+  zero in `IffOracle.lean`), so nothing here is free at a false `IsInaccessibleChain` antecedent.
+* **No `κ` is chosen anywhere in `EqZeroSlice.lean`.**  Every statement is at an arbitrary
+  `κ : ℕ → V` and an arbitrary `ModelData`, so no result rests on a good or a junk chain — unlike
+  `EqOracle.lean` §§6.4–6.5b, which choose two deliberately and say so.
+* **The `PropSplit` parameter and `hle`.**  `hle : eqEnv ≤ envF` is discharged at `preludeEnv` by
+  `EqAudit.eqEnv_le_preludeEnv`; `preludeEnv` is `VEnv.WF` (`preludeEnv_WF`) and its history has no
+  `VDecl.unsafeDef`.  `PropSplit preludeEnv nv` is inhabited (`propSplitPreludeEnv`) — **but by a
+  route that carries `sorryAx`** (17.0), so the honest statement is "inhabited as data, not
+  sorry-free by that route", and §15.5 records a sorry-free route B.
+* **The hypothesis is not empty**: `EqSpec M v` is *satisfied* at `preludeWitness` for every `κ`,
+  `ls` and `v` (`preludeWitness_eq`), and `PreludeSpec.eqFn_refl` / `eqFn_distinct` show both
+  branches of its `if` are exercised there, so it is not met by a degenerate `Eq`.
+* **The CONCLUSION is not free**, which is the check row 146c says every instrument sails past.
+  Two independent witnesses:
+  1. `EqAudit.pt_not_mem_interp_eqRecType_of_ne` **refutes the same membership** on the `u.eval ≠ 0`
+     branch (over a nonempty parameter space), and `EqAudit.exists_ne_zero_level` says that branch
+     is populated.  So `• ∈ ⟦Eq.rec's type⟧` is *false* at some reachable instantiation and `h0` is
+     load-bearing, not decoration.
+  2. At the constructor cell, `not_pt_mem_interp_EqReflType_of_empty` refutes the conclusion at any
+     oracle whose `Eq` value is empty at a reflexive instance the model reaches — so
+     `pt_mem_interp_EqReflType` is not a statement that holds at every `M`.
+* **`no_level_uniform_value` at `iffIndDecl` (17.1)** is a negation, so it cannot be satisfied by an
+  empty slice; its only open hypotheses are `hle` and the `PropSplit` parameter.
+* **A gap I am leaving open and naming**: the necessity of `EqSpec` at the **recursor** cell.  It is
+  the one place where this file's hypothesis is satisfiable-but-unmeasured, exactly the shape 17.1
+  fixed for `hv₀`, and 17.5 item 9 says what it would cost.
+
+**[read]** off source, not run: 17.3's conclusion that `Iff.rec`'s `= 0` slice needs no model-side
+`propext` — **reasoning from three measured facts** (`iffFn_value`'s shape, `minTyI`'s shape,
+`pt_mem_mkForallProp_self`), *not* a proof of that slice, and labelled a costing.  17.5 item 9's
+claim that `PreludeOracle.lean:905`'s constant-true control is prose rather than a theorem: read
+off that file, then confirmed by `grep` finding no `trueNE`-shaped declaration.
+
+**[not run]** as the brief directed: the full `lake build`, guards 1–3,
+`scripts/sorry-census.lean`, `scripts/dup-names.lean`, `MemberRedexScan`, the Kernel Arena (no
+implementation file touched).  `lean_local_search` / `lean_hammer_premise` **not used** — `rg` is
+still absent (row 131f, **seventh** confirmation); every search claim above rests on `grep`/`sed`
+over source, `#check`/`Lean.collectAxioms`, `lake env lean` diagnostics, or the re-seeded cone
+walker.  `lean_references` was not needed (no call-site counting this round).
+
+### 17.7 Where the brief was wrong, and where it was right
+
+| brief's assertion | verdict |
+|---|---|
+| "`eqIndDecl`'s `= 0` slice should be the cheapest remaining item here" | **right about the item** — proved this session, and the second `consts` cell (`Eq.refl ↦ •`) came with it |
+| "…because `eqRefl_fields = []` against `iffIntro_fields_length = 2`" | **right**, and it is the true cost difference (17.3) |
+| "…and because `SetModel.eqFn_value` is already a two-directional equation in the tree" | **WRONG as a distinguishing reason**: `iffFn_value` is the same equation, `IffSpec` the same hypothesis, `preludeWitness` the same witness (17.3) |
+| the `propext` half is `Iff.intro`'s | **right, and stronger than stated** — it appears to be *only* `Iff.intro`'s, so `Iff.rec`'s slice should not need it at all (17.3, a costing) |
+| expect `hasType_app'`/`liftN_zero`, and every non-prelude block will hit it | **right**, six uses — and the recipe in §16.6 is incomplete for a generic `.bvar` argument (17.4) |
+| Task 2 is three lines | **right**, and the `iffIndDecl` version is *better* than its `eqIndDecl` twin (17.1) |
+| §15.5's table under-reports `level_branch_forced`'s hypotheses | **right**, corrected in place (17.1) |
+| "three of my briefs have asked for work already in HEAD" — is this a fourth? | **no.** All sixteen names checked resolve and none of the two tasks was done (17.0) |
+| the naming trap is now in the handoffs | **right** — `PreludeSpec.iffFn_value`, `PreludeSpec.propext_of_mem_UProp` and `SetModel.PreludeSpec.iffFn_value` are all *unknown constant* (17.0) |
+| the `present = true` check matters | **right, and it was cheap**: all four read `present = true` here on the first run *because* I imported `ChurchRosser` as §16.8 instructed — the check cost nothing and would have caught it |
+
+### 17.7b Ledger rows, and a numbering collision
+
+Rows **151, 151b, 151c, 151d**.  Note for the orchestrator: I first wrote them as 150–150d and
+found **another stream had already taken 150–150d** in `docs/vacuity-ledger.md` in the same window
+(the `VInductDecl'.WF (mpAux mpAuxNodeB)` block).  Renumbered to 151.  Two concurrent streams both
+appending to the same table will silently produce duplicate row ids; whoever appends next should
+`grep -n "^| 15"` first rather than reading the tail of the file.
+
+### 17.8 What to pick up first
+
+1. **`iffIndDecl`'s `= 0` slice, and do NOT budget `propext` for it.**  17.3 is the argument, and
+   `pt_mem_mkForallProp_self` is the one piece already proved.  The cost is the §§1–4 telescope at
+   `Iff`'s contexts (~40 lemmas, none transferable), *not* the mathematics.  If 17.3 is wrong the
+   failure will be at the two field binders of `minTyI`, and that is worth knowing either way.
+2. **The necessity of `EqSpec` at the recursor cell** (17.5 item 9).  This is the only
+   satisfiable-but-unmeasured hypothesis this file introduces, it is the same shape as the `hv₀` gap
+   17.1 just closed, and the control has **no precedent in the tree** — `PreludeOracle.lean:905`
+   asserts the `Nonempty` analogue in prose only.  Two `mkLam` nests: a constant-`{•}` `Eq`
+   denotation, and a motive separating two elements of `α`.
+3. **`Eq`'s type former** — unchanged from §16.10 item 4.  `SetModel.eqFn` is the intended
+   denotation, `eqTyFormerSort_eval_zero` shows its sort is `1` not `0` so `•` is illegal, and
+   `UnitAudit.mkLam_mem_mkForallType_of_dom` is the entry.  With `Eq.rec` and `Eq.refl` now done
+   this is the **last** of the three `consts` cells at this block.
+4. **Then the ι-rule** (`eq_iotaRules_length = 1`) and the `≠ 0` slice's six-layer `mkLam`.
+5. **`RegConvE env U (k+1)` / `RegularAtSucc`** — unchanged from §15.6 item 4 and §16.10 item 5,
+   still inhabited by nothing, still not attacked.
+6. **Carry `value_mem_of_mem_mkForallType` and `pt_mem_mkForallProp_self` forward.**  The first is
+   needed at every block whose motive is not over a singleton; the second at every block whose
+   constructor has `Prop`-valued fields.
+
+**Do not** re-attack: everything §10.9, §11.7, §12.7, §13.7, §14.7, §15.6 and §16.10 name, plus —
+new — **`eqIndDecl`'s `= 0` slice** (proved, 17.2), **`Eq.refl ↦ •`'s membership** (proved, §5.1),
+**`InterpSound.propSound_of_mem_sort` as free infrastructure for a slice** (circular, 17.5 item 1),
+**a generic `Eq`-application lemma stated at `.bvar i` rather than `.bvar (i+1)`** (false at
+`i = 0`, 17.4 item 2), and **`VExpr.liftVar`** (unknown constant; it is `Lean4Lean.liftVar`).

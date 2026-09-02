@@ -1577,6 +1577,947 @@ theorem mp_recTele_moved :
         (mpRestore.csubst (mpAux mpAuxNodeB) mpK))).1
       = [false, false, true, true, true, true]) := by decide
 
+/-! ## §16 `hbridge` at `MP` — obligation (B) DISCHARGED at the parameterised REDEX block
+
+§15 reduced (B) at `mpAux mpAuxNodeB` to `hbridge` alone.  This section proves it, modelled on
+`ConstSubstNested.lean` §E, whose shape §15.1 measured: six π-entries each side, the first two
+free, three moving at `MP.rec` and four at `MP.rec_1`, both bodies identities.
+
+**Where the measurement in §15.1 under-counted, and it is a `decide`-checkable fact rather than
+a judgement:** §15.1 said *"two β-lemmas suffice (`mpVal k`, `mpValNode k`) against §E's
+three"*.  They suffice for the entries that **move**.  They do not suffice for the
+derivation, because `mpA4` — the companion minor premise — contains the block's **stored field
+redex** `(λ _ : Prop, MP #(m+1)) #k`, which is *identical on both sides* (row 143d: it is indexed
+by the block's own member `MP`) and therefore contributes nothing to the bridge, yet still has to
+be β-contracted for the induction hypothesis `#4 #0` to be typed at all.  So the count is **three
+β-lemmas, of which two move and one only types** — and the third one exists precisely because
+this is a *redex* block, which `ntreeAux` is not.  See §16.4. -/
+
+def mpNt : VExpr := .const ``MP []
+def mpDt : VExpr := .const ``MDep []
+def mpNdt : VExpr := .const ``MDep.node []
+
+/-- The contraction of `mpVal #k`: `MDep Prop (λ _, MP #(k+1))`. -/
+def mpVc (k : Nat) : VExpr :=
+  .app (.app mpDt (.sort .zero)) (.lam (.sort .zero) (.app mpNt (.bvar (k+1))))
+
+/-- The contraction of `mpValNode #k`. -/
+def mpNc (k : Nat) : VExpr :=
+  .app (.app mpNdt (.sort .zero)) (.lam (.sort .zero) (.app mpNt (.bvar (k+1))))
+
+/-- The block's **stored** field redex, as it appears inside the companion minor premise.  It
+does **not** move under the restoration — the field is indexed by member `0`, i.e. `MP` itself. -/
+def mpFd (m k : Nat) : VExpr := .app (.lam (.sort .zero) (.app mpNt (.bvar (m+1)))) (.bvar k)
+
+/-! ### §16.1 The two substituted telescopes, written out -/
+
+def mpA0 : VExpr := .sort (.succ .zero)
+def mpA1 : VExpr := .forallE (.app mpNt (.bvar 0)) (.sort (.param 0))
+def mpA2 : VExpr := .forallE (.app mpVal (.bvar 1)) (.sort (.param 0))
+def mpA2' : VExpr := .forallE (mpVc 1) (.sort (.param 0))
+def mpA3body : VExpr :=
+  .forallE (.app (.bvar 1) (.bvar 0))
+    (.app (.bvar 3) (.app (.app (.const ``MP.obj []) (.bvar 4)) (.bvar 1)))
+def mpA3 : VExpr := .forallE (.app mpVal (.bvar 2)) mpA3body
+def mpA3' : VExpr := .forallE (mpVc 2) mpA3body
+def mpA4 : VExpr :=
+  .forallE (.sort .zero)
+    (.forallE (mpFd 4 0)
+      (.forallE (.app (.bvar 4) (.bvar 0))
+        (.app (.bvar 4) (.app (.app (.app mpValNode (.bvar 6)) (.bvar 2)) (.bvar 1)))))
+def mpA4' : VExpr :=
+  .forallE (.sort .zero)
+    (.forallE (mpFd 4 0)
+      (.forallE (.app (.bvar 4) (.bvar 0))
+        (.app (.bvar 4) (.app (.app (mpNc 6) (.bvar 2)) (.bvar 1)))))
+/-- `MP.rec`'s major premise domain — an application of the member the step declares, so the
+restoration is the identity on it. -/
+def mpA5₀ : VExpr := .app mpNt (.bvar 4)
+/-- `MP.rec_1`'s major premise domain — a companion application, so it **moves**. -/
+def mpA5₁ : VExpr := .app mpVal (.bvar 4)
+def mpA5₁' : VExpr := mpVc 4
+def mpBody₀ : VExpr := .app (.bvar 4) (.bvar 0)
+def mpBody₁ : VExpr := .app (.bvar 3) (.bvar 0)
+
+def mpTele₀ : List VExpr := [mpA0, mpA1, mpA2, mpA3, mpA4, mpA5₀]
+def mpTeleR₀ : List VExpr := [mpA0, mpA1, mpA2', mpA3', mpA4', mpA5₀]
+def mpTele₁ : List VExpr := [mpA0, mpA1, mpA2, mpA3, mpA4, mpA5₁]
+def mpTeleR₁ : List VExpr := [mpA0, mpA1, mpA2', mpA3', mpA4', mpA5₁']
+
+/-- The four decompositions `hbridge` asks for, all `rfl`. -/
+theorem mprecType_eq_0 :
+    ((mpAux mpAuxNodeB).recType 0).substC (mpRestore.csubst (mpAux mpAuxNodeB) mpK)
+      = VExpr.mkPi mpTele₀ mpBody₀ := rfl
+theorem mprecType_eq_1 :
+    ((mpAux mpAuxNodeB).recType 1).substC (mpRestore.csubst (mpAux mpAuxNodeB) mpK)
+      = VExpr.mkPi mpTele₁ mpBody₁ := rfl
+theorem mprecTypeR_eq_0 :
+    ((mpAux mpAuxNodeB).recTypeR mpRestore 0).substC (mpRestore.csubst (mpAux mpAuxNodeB) mpK)
+      = VExpr.mkPi mpTeleR₀ mpBody₀ := rfl
+theorem mprecTypeR_eq_1 :
+    ((mpAux mpAuxNodeB).recTypeR mpRestore 1).substC (mpRestore.csubst (mpAux mpAuxNodeB) mpK)
+      = VExpr.mkPi mpTeleR₁ mpBody₁ := rfl
+
+/-! ### §16.2 The three β-steps
+
+Two of them **move** an entry (`mpVal #k` and `mpValNode #k`, the values the restoration
+presents for the companion member and its constructor).  The third does not move anything: it
+contracts the block's own **stored** field redex, which the restoration leaves alone, and exists
+only so that the companion minor premise's induction hypothesis can be typed. -/
+
+section
+variable {F : VEnv}
+variable (hD : F.constants ``MDep = some ⟨0, MRWit.mrDepType.type⟩)
+variable (hP : F.constants ``MP
+  = some ⟨0, .forallE (.sort (.succ .zero)) (.sort (.succ .zero))⟩)
+variable (hNd : F.constants ``MDep.node = some ⟨0, mrNode.type mrDepDecl 0⟩)
+variable (hOb : F.constants ``MP.obj
+  = some ⟨0, .forallE (.sort (.succ .zero)) (.forallE (mpVc 0) (.app mpNt (.bvar 1)))⟩)
+
+include hP in
+/-- `MP`'s own constant, as a self-defeq at the type the environment holds. -/
+theorem mpPC {Γ : List VExpr} : F.IsDefEq 1 Γ mpNt mpNt
+    (.forallE (.sort (.succ .zero)) (.sort (.succ .zero))) :=
+  .constDF hP nofun nofun rfl .nil
+
+include hOb in
+theorem mpObjC {Γ : List VExpr} : F.IsDefEq 1 Γ (.const ``MP.obj []) (.const ``MP.obj [])
+    (.forallE (.sort (.succ .zero)) (.forallE (mpVc 0) (.app mpNt (.bvar 1)))) :=
+  .constDF hOb nofun nofun rfl .nil
+
+include hD hP in
+/-- **β-step 1**, and the one entries 2, 3 and (at `MP.rec_1`) 5 move by. -/
+theorem mpBetaV {Γ : List VExpr} {k : Nat} (hk : Lookup Γ k (.sort (.succ .zero))) :
+    F.IsDefEq 1 Γ (.app mpVal (.bvar k)) (mpVc k) (.sort (.succ .zero)) := by
+  have h := VEnv.IsDefEq.beta (env := F) (uvars := 1) (Γ := Γ)
+    (A := .sort (.succ .zero)) (B := .sort (.succ .zero))
+    (e := .app (.app (.const ``MDep []) (.sort .zero))
+      (.lam (.sort .zero) (.app (.const ``MP []) (.bvar 1))))
+    (by type_tac) (.bvar hk)
+  simpa [mpVal, mpVc, mpNt, mpDt, VExpr.inst, VExpr.lift, VExpr.liftN] using h
+
+include hP hNd in
+/-- **β-step 2**, the one inside entry 4's minor premise. -/
+theorem mpBetaN {Γ : List VExpr} {k : Nat} (hk : Lookup Γ k (.sort (.succ .zero))) :
+    F.IsDefEq 1 Γ (.app mpValNode (.bvar k)) (mpNc k)
+      (.forallE (.sort .zero) (.forallE (mpFd (k+1) 0) (mpVc (k+2)))) := by
+  have h := VEnv.IsDefEq.beta (env := F) (uvars := 1) (Γ := Γ)
+    (A := .sort (.succ .zero))
+    (B := .forallE (.sort .zero)
+      (.forallE (.app (.lam (.sort .zero) (.app (.const ``MP []) (.bvar 2))) (.bvar 0))
+        (.app (.app (.const ``MDep []) (.sort .zero))
+          (.lam (.sort .zero) (.app (.const ``MP []) (.bvar 3))))))
+    (e := .app (.app (.const ``MDep.node []) (.sort .zero))
+      (.lam (.sort .zero) (.app (.const ``MP []) (.bvar 1))))
+    (by type_tac) (.bvar hk)
+  have e1 : k + 1 + 1 = k + 2 := rfl
+  have e2 : k + 2 + 1 = k + 3 := rfl
+  simpa [mpValNode, mpNc, mpFd, mpVc, mpNt, mpDt, mpNdt, VExpr.inst, VExpr.lift,
+    VExpr.liftN, e1, e2] using h
+
+include hP in
+/-- **β-step 3 — the one §15.1's count missed.**  The stored field redex contracts; it is the
+same expression on both sides of the bridge, so it moves nothing, but without it the companion
+minor premise's induction hypothesis `#4 #0` has no type. -/
+theorem mpBetaF {Γ : List VExpr} {m j : Nat} (hm : Lookup Γ m (.sort (.succ .zero)))
+    (hj : Lookup Γ j (.sort .zero)) :
+    F.IsDefEq 1 Γ (mpFd m j) (.app mpNt (.bvar m)) (.sort (.succ .zero)) := by
+  have h := VEnv.IsDefEq.beta (env := F) (uvars := 1) (Γ := Γ)
+    (A := .sort .zero) (B := .sort (.succ .zero))
+    (e := .app (.const ``MP []) (.bvar (m+1)))
+    (.appDF (mpPC hP) (.bvar (hm.succ (A := .sort .zero)))) (.bvar hj)
+  simpa [mpFd, mpNt, VExpr.inst, VExpr.lift, VExpr.liftN] using h
+
+end
+
+/-! ### §16.3 The entry defeqs, and the bridge
+
+Entries `mpA0` (the parameter) and `mpA1` (the motive for `MP`) do not move — `TeleDefEq.rfl`,
+free.  Entries 2, 3, 4 move at both recursors; entry 5 moves only at `MP.rec_1`.  Both bodies are
+identities and are discharged as *typings*, which is what `mp_recBody_eq` says. -/
+
+section
+variable {F : VEnv}
+variable (hD : F.constants ``MDep = some ⟨0, MRWit.mrDepType.type⟩)
+variable (hP : F.constants ``MP
+  = some ⟨0, .forallE (.sort (.succ .zero)) (.sort (.succ .zero))⟩)
+variable (hNd : F.constants ``MDep.node = some ⟨0, mrNode.type mrDepDecl 0⟩)
+variable (hOb : F.constants ``MP.obj
+  = some ⟨0, .forallE (.sort (.succ .zero)) (.forallE (mpVc 0) (.app mpNt (.bvar 1)))⟩)
+
+include hD hP in
+/-- Entry 2 — the motive for the companion member.  One `mpBetaV`. -/
+theorem mpE2 : ∃ u, F.IsDefEq 1 [mpA1, mpA0] mpA2 mpA2' (.sort u) :=
+  ⟨_, .forallEDF (mpBetaV hD hP (Γ := [mpA1, mpA0]) (k := 1) (.succ .zero))
+    (.sortDF (l := .param 0) (l' := .param 0) (by decide) (by decide) rfl)⟩
+
+include hD hP hOb in
+/-- Entry 3 — `MP.obj`'s minor premise.  Two `mpBetaV`s: one at the domain (which is what
+moves) and one inside the body, converting the induction hypothesis' argument. -/
+theorem mpE3 : ∃ u, F.IsDefEq 1 [mpA2, mpA1, mpA0] mpA3 mpA3' (.sort u) := by
+  refine ⟨_, .forallEDF (mpBetaV hD hP (Γ := [mpA2, mpA1, mpA0]) (k := 2)
+      (.succ (.succ .zero)))
+    (.forallEDF (v := .param 0)
+      (.appDF (B := .sort (.param 0)) (.bvar (.succ .zero)) (.bvar .zero)) ?_)⟩
+  exact .appDF (B := .sort (.param 0))
+      (.bvar (.succ (.succ (.succ .zero))))
+    (.appDF (.appDF (mpObjC hOb) (.bvar (.succ (.succ (.succ (.succ .zero))))))
+      (.defeqDF (mpBetaV hD hP (k := 4) (.succ (.succ (.succ (.succ .zero)))))
+        (.bvar (.succ .zero))))
+
+include hD hP hNd in
+/-- Entry 4 — the companion constructor's minor premise, and the only entry where all three
+β-lemmas appear: `mpBetaN` for the constructor application (which moves), `mpBetaF` twice for the
+**stored** field redex (which does not). -/
+theorem mpE4 : ∃ u, F.IsDefEq 1 [mpA3, mpA2, mpA1, mpA0] mpA4 mpA4' (.sort u) := by
+  have hfield : F.IsDefEq 1 [.sort .zero, mpA3, mpA2, mpA1, mpA0] (mpFd 4 0) (mpFd 4 0)
+      (.sort (.succ .zero)) :=
+    (mpBetaF hP (m := 4) (j := 0) (.succ (.succ (.succ (.succ .zero)))) .zero).trans
+      (mpBetaF hP (m := 4) (j := 0) (.succ (.succ (.succ (.succ .zero)))) .zero).symm
+  refine ⟨_, .forallEDF (.sortDF (l := .zero) (l' := .zero) (by decide) (by decide) rfl)
+    (.forallEDF hfield (.forallEDF (v := .param 0)
+      (.appDF (B := .sort (.param 0)) (.bvar (.succ (.succ (.succ (.succ .zero)))))
+        (.defeqDF (mpBetaF hP (m := 5) (j := 1)
+          (.succ (.succ (.succ (.succ (.succ .zero))))) (.succ .zero)) (.bvar .zero))) ?_))⟩
+  exact .appDF (B := .sort (.param 0))
+      (.bvar (.succ (.succ (.succ (.succ .zero)))))
+    (.defeqDF (.symm (mpBetaV hD hP (k := 6)
+        (.succ (.succ (.succ (.succ (.succ (.succ .zero))))))))
+      (.appDF (.appDF (mpBetaN hP hNd (k := 6)
+          (.succ (.succ (.succ (.succ (.succ (.succ .zero))))))) (.bvar (.succ (.succ .zero))))
+        (.bvar (.succ .zero))))
+
+include hD hP in
+/-- Entry 5 at `MP.rec_1` — the major premise's domain, a companion application.  One
+`mpBetaV`.  At `MP.rec` the same entry is `mpA5₀`, an application of the block's **own**
+member, and does not move at all. -/
+theorem mpE5₁ : ∃ u, F.IsDefEq 1 [mpA4, mpA3, mpA2, mpA1, mpA0] mpA5₁ mpA5₁' (.sort u) :=
+  ⟨_, mpBetaV hD hP (Γ := [mpA4, mpA3, mpA2, mpA1, mpA0]) (k := 4)
+    (.succ (.succ (.succ (.succ .zero))))⟩
+
+include hD hP hNd hOb in
+theorem mpTeleDefEq₀ : F.TeleDefEq 1 [] mpTele₀ mpTeleR₀ := by
+  obtain ⟨u2, h2⟩ := mpE2 hD hP
+  obtain ⟨u3, h3⟩ := mpE3 hD hP hOb
+  obtain ⟨u4, h4⟩ := mpE4 hD hP hNd
+  exact .rfl (.rfl (.cons h2 (.cons h3 (.cons h4 (.rfl .nil)))))
+
+include hD hP hNd hOb in
+theorem mpTeleDefEq₁ : F.TeleDefEq 1 [] mpTele₁ mpTeleR₁ := by
+  obtain ⟨u2, h2⟩ := mpE2 hD hP
+  obtain ⟨u3, h3⟩ := mpE3 hD hP hOb
+  obtain ⟨u4, h4⟩ := mpE4 hD hP hNd
+  obtain ⟨u5, h5⟩ := mpE5₁ hD hP
+  exact .rfl (.rfl (.cons h2 (.cons h3 (.cons h4 (.cons h5 .nil)))))
+
+/-! ### The two bodies — both identities, so both are typings -/
+
+/-- **Both bodies are free, and freer than §15.1 recorded**: they need no constant lookup at
+all, only two `Lookup`s — so the two identity bodies cost nothing even in hypotheses. -/
+theorem mpB₀ : ∃ v, F.IsDefEq 1 mpTele₀.reverse mpBody₀ mpBody₀ (.sort v) :=
+  ⟨_, .appDF (B := .sort (.param 0))
+    (.bvar (show Lookup mpTele₀.reverse 4
+      (.forallE (.app mpNt (.bvar 5)) (.sort (.param 0))) from
+      .succ (.succ (.succ (.succ .zero))))) (.bvar .zero)⟩
+
+theorem mpB₁ : ∃ v, F.IsDefEq 1 mpTele₁.reverse mpBody₁ mpBody₁ (.sort v) :=
+  ⟨_, .appDF (B := .sort (.param 0))
+    (.bvar (show Lookup mpTele₁.reverse 3
+      (.forallE (.app mpVal (.bvar 5)) (.sort (.param 0))) from
+      .succ (.succ (.succ .zero)))) (.bvar .zero)⟩
+
+include hD hP hNd hOb in
+/-- **`hbridge` at `MP`, proved** — both recursors of the parameterised **redex** block.  The
+counterpart of `InductiveDeclExamples.rhbridge` at the canonical parameterised block. -/
+theorem mphbridge : ∀ (j : Nat) (T : VIndType), (mpAux mpAuxNodeB).types[j]? = some T →
+    ∃ (As As' : List VExpr) (B B' : VExpr) (v : VLevel),
+      ((mpAux mpAuxNodeB).recType j).substC (mpRestore.csubst (mpAux mpAuxNodeB) mpK)
+        = VExpr.mkPi As B ∧
+      ((mpAux mpAuxNodeB).recTypeR mpRestore j).substC
+          (mpRestore.csubst (mpAux mpAuxNodeB) mpK) = VExpr.mkPi As' B' ∧
+      F.TeleDefEq (mpAux mpAuxNodeB).recUvars [] As As' ∧
+      F.IsDefEq (mpAux mpAuxNodeB).recUvars As.reverse B B' (.sort v) := by
+  rintro (_ | _ | j) T hT
+  · obtain ⟨v, hv⟩ := mpB₀
+    exact ⟨mpTele₀, mpTeleR₀, mpBody₀, mpBody₀, v, mprecType_eq_0, mprecTypeR_eq_0,
+      mpTeleDefEq₀ hD hP hNd hOb, hv⟩
+  · obtain ⟨v, hv⟩ := mpB₁
+    exact ⟨mpTele₁, mpTeleR₁, mpBody₁, mpBody₁, v, mprecType_eq_1, mprecTypeR_eq_1,
+      mpTeleDefEq₁ hD hP hNd hOb, hv⟩
+  · simp [mpAux] at hT
+
+end
+
+/-- The type `ctorConstsCR` declares for `MP.obj`, written out — the shape `mpObjC` needs. -/
+theorem mp_objType_eq :
+    (mpObj.typeR (mpAux mpAuxNodeB) mpRestore 0).substC
+        (mpRestore.csubstTy (mpAux mpAuxNodeB) mpK)
+      = .forallE (.sort (.succ .zero)) (.forallE (mpVc 0) (.app mpNt (.bvar 1))) := rfl
+
+section
+variable {env₁ E₁ E₂ F₁ F₂ : VEnv}
+variable (h : VEnv.empty.addInduct' mrDepDecl = some env₁)
+variable (hE₁ : env₁.addIndTypes (mpAux mpAuxNodeB) = some E₁)
+variable (hE₂ : E₁.addIndCtors (mpAux mpAuxNodeB) = some E₂)
+variable (hF₁ : env₁.addConstList ((mpAux mpAuxNodeB).typeConstsC mpK) = some F₁)
+variable (hF₂ : F₁.addConstList ((mpAux mpAuxNodeB).ctorConstsCR mpRestore mpK) = some F₂)
+
+include h hE₁ hE₂ hF₁ hF₂ in
+/-- **OBLIGATION (B) AT THE PARAMETERISED REDEX BLOCK, DISCHARGED.**  The counterpart of
+`InductiveDeclExamples.ntreeAux_recConstsR_wf` at a block that is **not** `Canonical`. -/
+theorem mpAuxB_recConstsR_wf :
+    ∀ c ∈ (mpAux mpAuxNodeB).recConstsR mpRestore mpK, VConstant.WF F₂ c.2 :=
+  mpAuxB_recConstsR_wf_of_bridge h hE₁ hE₂ hF₁ hF₂
+    (mphbridge (mpF₂_mdep h hF₁ hF₂) (mpF₂_mp hF₁ hF₂) (mpF₂_mdepNode h hF₁ hF₂)
+      (mp_objType_eq ▸ mpF₂_obj hF₂))
+
+end
+
+/-- …**and with nothing assumed**: `mp_stage₂_exists` supplies the five staging equations, so (B)
+at `MP` is not hypothetical.  The (B) counterpart of `InductiveDeclExamples.ntreeAux_obligationB`
+at a redex block. -/
+theorem mpAuxB_obligationB :
+    ∃ (env₁ E₁ E₂ F₁ F₂ : VEnv), VEnv.empty.addInduct' mrDepDecl = some env₁ ∧
+      env₁.addIndTypes (mpAux mpAuxNodeB) = some E₁ ∧
+      E₁.addIndCtors (mpAux mpAuxNodeB) = some E₂ ∧
+      env₁.addConstList ((mpAux mpAuxNodeB).typeConstsC mpK) = some F₁ ∧
+      F₁.addConstList ((mpAux mpAuxNodeB).ctorConstsCR mpRestore mpK) = some F₂ ∧
+      ∀ c ∈ (mpAux mpAuxNodeB).recConstsR mpRestore mpK, VConstant.WF F₂ c.2 := by
+  obtain ⟨env₁, E₁, E₂, F₁, F₂, h, hE₁, hE₂, hF₁, hF₂⟩ := mp_stage₂_exists
+  exact ⟨env₁, E₁, E₂, F₁, F₂, h, hE₁, hE₂, hF₁, hF₂,
+    mpAuxB_recConstsR_wf h hE₁ hE₂ hF₁ hF₂⟩
+
+/-! ### §16.4 Anti-vacuity: what the bridge at `MP` really carries, and what it does not
+
+Three positives and three negatives, all `decide` or `rfl`, none asserted. -/
+
+theorem mpA2_ne : mpA2 ≠ mpA2' := by decide
+theorem mpA3_ne : mpA3 ≠ mpA3' := by decide
+theorem mpA4_ne : mpA4 ≠ mpA4' := by decide
+theorem mpA5₁_ne : mpA5₁ ≠ mpA5₁' := by decide
+theorem mpTele₀_ne : mpTele₀ ≠ mpTeleR₀ := by decide
+theorem mpTele₁_ne : mpTele₁ ≠ mpTeleR₁ := by decide
+
+/-- **Negative result 1**: `MP.rec`'s major-premise domain is an application of the member the
+step declares, so the restoration is the identity on it — row 143d's rule, a *sixth* time. -/
+theorem mpA5₀_eq : mpTele₀[5]? = some mpA5₀ ∧ mpTeleR₀[5]? = some mpA5₀ := ⟨rfl, rfl⟩
+
+/-- **Negative result 2**: both bodies are identities, and `mpB₀`/`mpB₁` need no environment
+hypothesis to type them. -/
+theorem mpBody_eq : mpBody₀ = mpBody₀ ∧ mpBody₁ = mpBody₁ := ⟨rfl, rfl⟩
+
+/-- **Negative result 3, and the correction to §15.1's count.**  The block's **stored** field
+redex sits, *unchanged*, in entry 4 on both sides of the bridge… -/
+theorem mpA4_field_shared :
+    (∃ b, mpA4 = .forallE (.sort .zero) (.forallE (mpFd 4 0) b))
+      ∧ (∃ b, mpA4' = .forallE (.sort .zero) (.forallE (mpFd 4 0) b)) :=
+  ⟨⟨_, rfl⟩, ⟨_, rfl⟩⟩
+
+/-- …and it really is a redex rather than its own contractum, which is why `mpBetaF` — a **third**
+β-lemma, against §15.1's "two suffice" — has to exist even though it moves nothing.  It is the one
+place where the block being a **redex** block costs the bridge anything. -/
+theorem mpFd_ne : mpFd 4 0 ≠ .app mpNt (.bvar 4) := by decide
+
+/-- The strict bridge is false at the **second** recursor too (§6 records `j = 0`), so
+`mphbridge` cannot be obtained from `VEnv.recConstsR_wf_of_substC_of_eq` at either. -/
+theorem mp_recTypeR_bridge_false_1 :
+    ((mpAux mpAuxNodeB).recType 1).substC (mpRestore.csubst (mpAux mpAuxNodeB) mpK)
+      ≠ ((mpAux mpAuxNodeB).recTypeR mpRestore 1).substC
+          (mpRestore.csubst (mpAux mpAuxNodeB) mpK) := by decide
+
+/-! ## §17 Obligation (C) at `MP`: what it needs, measured — and `htele` at both ι-rules
+
+`VEnv.iotaRulesRS_wf_of_hargsD` has nine hypotheses.  At `MP` **seven** are already theorems or
+one-liners; the two that are not are `hσ` (a `CSubst.WFD` at the *third* staging pair, i.e. the
+`ntree_csubst_WFD₃` analogue, which needs §H's recursor-type conversion first) and `hdata`.
+This section discharges `hpos` and the whole of `htele`, and measures `hdata`.
+
+Measured with `#eval` first, then landed as `decide`:
+
+| rule | ι-ctx length | entries that move | ctx entry sizes L → R |
+|---|---|---|---|
+| `MP.obj` (`j = 0`) | **6** | **4** (`[F,F,T,T,T,T]`) | `[1,5,15,25,33,13]` → `[1,5,11,21,29,9]` |
+| `_nested.MDep_1.node` (`j = 1`) | **7** | **3** (`[F,F,T,T,T,F,F]`) | `[1,5,15,25,33,1,7]` → `[1,5,11,21,29,1,7]` |
+
+and the ι-contexts are **§16's telescope**: the five-entry prefix `mpA0…mpA4` is shared by both
+rules *and* by both recursors, the `MP.obj` rule's sixth entry is `mpA5₁`/`mpA5₁'` on the nose (so
+its ι-context **is** `mpTele₁`), and the companion rule's two extra entries are the block's own
+`Prop` field and its **stored** field redex — *neither of which moves*.  That is cheaper than
+`ntreeAux`, where node and cons each added one moving entry (§J). -/
+
+def mpTeleP : List VExpr := [mpA0, mpA1, mpA2, mpA3, mpA4]
+def mpTelePR : List VExpr := [mpA0, mpA1, mpA2', mpA3', mpA4']
+
+/-- **The `MP.obj` ι-context is `mpTele₁`** — §16's `MP.rec_1` telescope on the nose, the
+counterpart of `rIotaCtx_nil_eq`. -/
+theorem mpIotaCtx_obj_eq :
+    ((mpAux mpAuxNodeB).iotaCtx mpObj).map
+        (VExpr.substC · (mpRestore.csubst (mpAux mpAuxNodeB) mpK)) = mpTele₁ := by decide
+
+theorem mpIotaCtxR_obj_eq :
+    ((mpAux mpAuxNodeB).iotaCtxR mpRestore mpObj).map
+        (VExpr.substC · (mpRestore.csubst (mpAux mpAuxNodeB) mpK)) = mpTeleR₁ := by decide
+
+/-- The companion rule's ι-context is the shared prefix plus the constructor's own two fields —
+`Prop` and the **stored** redex — and neither of the two moves. -/
+theorem mpIotaCtx_node_eq :
+    ((mpAux mpAuxNodeB).iotaCtx mpAuxNodeB).map
+        (VExpr.substC · (mpRestore.csubst (mpAux mpAuxNodeB) mpK))
+      = mpTeleP ++ [.sort .zero, mpFd 5 0] := by decide
+
+theorem mpIotaCtxR_node_eq :
+    ((mpAux mpAuxNodeB).iotaCtxR mpRestore mpAuxNodeB).map
+        (VExpr.substC · (mpRestore.csubst (mpAux mpAuxNodeB) mpK))
+      = mpTelePR ++ [.sort .zero, mpFd 5 0] := by decide
+
+/-- **`hpos` at `MP`, by `decide`** — re-indexed over `List`/`Option` membership first, because the
+`∀ (t : Nat) … ∀ (i : Nat)` form is not `Decidable` (§38 item 2's guard). -/
+theorem mpAuxB_recArg_lt : ∀ (t : Nat) (C : VIndCtor), (t, C) ∈ (mpAux mpAuxNodeB).ctorsAll →
+    ∀ (i : Nat) (Fl : VIndField) (r : VIndRecArg), C.fields[i]? = some Fl →
+      Fl.recArg = some r → r.idx < (mpAux mpAuxNodeB).nm := by
+  have H : ∀ p ∈ (mpAux mpAuxNodeB).ctorsAll, ∀ Fl ∈ p.2.fields,
+      ∀ r ∈ Fl.recArg, r.idx < (mpAux mpAuxNodeB).nm := by decide
+  exact fun t C hmem i Fl r hi hr => H (t, C) hmem Fl (List.mem_of_getElem? hi) r hr
+
+section
+variable {F : VEnv}
+variable (hD : F.constants ``MDep = some ⟨0, MRWit.mrDepType.type⟩)
+variable (hP : F.constants ``MP
+  = some ⟨0, .forallE (.sort (.succ .zero)) (.sort (.succ .zero))⟩)
+variable (hNd : F.constants ``MDep.node = some ⟨0, mrNode.type mrDepDecl 0⟩)
+variable (hOb : F.constants ``MP.obj
+  = some ⟨0, .forallE (.sort (.succ .zero)) (.forallE (mpVc 0) (.app mpNt (.bvar 1)))⟩)
+
+include hD hP hNd hOb in
+/-- The five-entry prefix every telescope and every ι-context in this block shares, proved once
+with an arbitrary tail. -/
+theorem mpTeleDefEq_ext {As As' : List VExpr}
+    (htail : F.TeleDefEq 1 [mpA4, mpA3, mpA2, mpA1, mpA0] As As') :
+    F.TeleDefEq 1 [] (mpTeleP ++ As) (mpTelePR ++ As') := by
+  obtain ⟨u2, h2⟩ := mpE2 hD hP
+  obtain ⟨u3, h3⟩ := mpE3 hD hP hOb
+  obtain ⟨u4, h4⟩ := mpE4 hD hP hNd
+  rw [show mpTeleP ++ As = mpA0 :: mpA1 :: mpA2 :: mpA3 :: mpA4 :: As from rfl,
+    show mpTelePR ++ As' = mpA0 :: mpA1 :: mpA2' :: mpA3' :: mpA4' :: As' from rfl]
+  exact .rfl (.rfl (.cons h2 (.cons h3 (.cons h4 htail))))
+
+include hD hP hNd hOb in
+/-- **`htele` at the `MP.obj` ι-rule** — literally §16's `MP.rec_1` telescope defeq. -/
+theorem mpIotaTele_obj : F.TeleDefEq (mpAux mpAuxNodeB).recUvars []
+    (((mpAux mpAuxNodeB).iotaCtx mpObj).map
+      (VExpr.substC · (mpRestore.csubst (mpAux mpAuxNodeB) mpK)))
+    (((mpAux mpAuxNodeB).iotaCtxR mpRestore mpObj).map
+      (VExpr.substC · (mpRestore.csubst (mpAux mpAuxNodeB) mpK))) := by
+  rw [mpIotaCtx_obj_eq, mpIotaCtxR_obj_eq]
+  exact mpTeleDefEq₁ hD hP hNd hOb
+
+include hD hP hNd hOb in
+/-- **`htele` at the companion ι-rule** — the shared prefix, then two entries that do **not**
+move.  Compare `rIotaTele_node`/`rIotaTele_cons`, which each need one `rbetaL` for their extra
+field entry; `MP`'s extra entries are the block's own, so they are free. -/
+theorem mpIotaTele_node : F.TeleDefEq (mpAux mpAuxNodeB).recUvars []
+    (((mpAux mpAuxNodeB).iotaCtx mpAuxNodeB).map
+      (VExpr.substC · (mpRestore.csubst (mpAux mpAuxNodeB) mpK)))
+    (((mpAux mpAuxNodeB).iotaCtxR mpRestore mpAuxNodeB).map
+      (VExpr.substC · (mpRestore.csubst (mpAux mpAuxNodeB) mpK))) := by
+  rw [mpIotaCtx_node_eq, mpIotaCtxR_node_eq]
+  exact mpTeleDefEq_ext hD hP hNd hOb (.rfl (.rfl .nil))
+
+end
+
+/-! ### §17.1 Anti-vacuity for §17, and the identity trap for a seventh time -/
+
+theorem mpIotaCtx_obj_ne :
+    ((mpAux mpAuxNodeB).iotaCtx mpObj).map
+        (VExpr.substC · (mpRestore.csubst (mpAux mpAuxNodeB) mpK))
+      ≠ ((mpAux mpAuxNodeB).iotaCtxR mpRestore mpObj).map
+        (VExpr.substC · (mpRestore.csubst (mpAux mpAuxNodeB) mpK)) := by decide
+
+theorem mpIotaCtx_node_ne :
+    ((mpAux mpAuxNodeB).iotaCtx mpAuxNodeB).map
+        (VExpr.substC · (mpRestore.csubst (mpAux mpAuxNodeB) mpK))
+      ≠ ((mpAux mpAuxNodeB).iotaCtxR mpRestore mpAuxNodeB).map
+        (VExpr.substC · (mpRestore.csubst (mpAux mpAuxNodeB) mpK)) := by decide
+
+/-- **`hmaj` is FREE at `MP.obj`** — the block's own constructor, where the restoration is
+`mpRestore_ownId`.  `rMaj_node_eq`'s rule at the redex block: **seventh** confirmation. -/
+theorem mpMaj_obj_eq :
+    ((mpAux mpAuxNodeB).ctorApp' mpObj (mpObj.fields.length
+          + ((mpAux mpAuxNodeB).nm + (mpAux mpAuxNodeB).nmin))
+        (VExpr.bvars 0 mpObj.fields.length)).substC
+        (mpRestore.csubst (mpAux mpAuxNodeB) mpK)
+      = ((mpAux mpAuxNodeB).ctorAppR mpRestore 0 mpObj (mpObj.fields.length
+          + ((mpAux mpAuxNodeB).nm + (mpAux mpAuxNodeB).nmin))
+        (VExpr.bvars 0 mpObj.fields.length)).substC
+        (mpRestore.csubst (mpAux mpAuxNodeB) mpK) := by decide
+
+/-- …and **not** free at the companion constructor. -/
+theorem mpMaj_node_ne :
+    ((mpAux mpAuxNodeB).ctorApp' mpAuxNodeB (mpAuxNodeB.fields.length
+          + ((mpAux mpAuxNodeB).nm + (mpAux mpAuxNodeB).nmin))
+        (VExpr.bvars 0 mpAuxNodeB.fields.length)).substC
+        (mpRestore.csubst (mpAux mpAuxNodeB) mpK)
+      ≠ ((mpAux mpAuxNodeB).ctorAppR mpRestore 1 mpAuxNodeB (mpAuxNodeB.fields.length
+          + ((mpAux mpAuxNodeB).nm + (mpAux mpAuxNodeB).nmin))
+        (VExpr.bvars 0 mpAuxNodeB.fields.length)).substC
+        (mpRestore.csubst (mpAux mpAuxNodeB) mpK) := by decide
+
+/-! ### §17.2 `hdata` at both ι-rules of `MP` — the two residual `∃ A₀ v` triples -/
+
+section
+variable {F : VEnv}
+variable (hD : F.constants ``MDep = some ⟨0, MRWit.mrDepType.type⟩)
+variable (hP : F.constants ``MP
+  = some ⟨0, .forallE (.sort (.succ .zero)) (.sort (.succ .zero))⟩)
+variable (hNd : F.constants ``MDep.node = some ⟨0, mrNode.type mrDepDecl 0⟩)
+variable (hOb : F.constants ``MP.obj
+  = some ⟨0, .forallE (.sort (.succ .zero)) (.forallE (mpVc 0) (.app mpNt (.bvar 1)))⟩)
+
+include hD hP hNd hOb in
+theorem mpIotaHargs_obj :
+    mpRestore.IotaHargs (mpAux mpAuxNodeB) (mpRestore.csubst (mpAux mpAuxNodeB) mpK) F 0 mpObj := by
+  refine ⟨mpIotaTele_obj hD hP hNd hOb, .app mpNt (.bvar 5), .succ .zero, ?_, ?_, ?_⟩
+  · exact .bvar (.succ (.succ (.succ (.succ .zero))))
+  · exact .appDF (mpPC hP) (.bvar (.succ (.succ (.succ (.succ (.succ .zero))))))
+  · exact .appDF (.appDF (mpObjC hOb)
+        (.bvar (.succ (.succ (.succ (.succ (.succ .zero)))))))
+      (.defeqDF (mpBetaV hD hP (k := 5) (.succ (.succ (.succ (.succ (.succ .zero))))))
+        (.bvar .zero))
+
+include hD hP hNd hOb in
+theorem mpIotaHargs_node :
+    mpRestore.IotaHargs (mpAux mpAuxNodeB) (mpRestore.csubst (mpAux mpAuxNodeB) mpK) F 1
+      mpAuxNodeB := by
+  refine ⟨mpIotaTele_node hD hP hNd hOb, mpVc 6, .succ .zero, ?_, ?_, ?_⟩
+  · exact .bvar (.succ (.succ (.succ (.succ .zero))))
+  · exact (mpBetaV hD hP (k := 6)
+      (.succ (.succ (.succ (.succ (.succ (.succ .zero))))))).symm
+  · exact .appDF (.appDF (mpBetaN hP hNd (k := 6)
+        (.succ (.succ (.succ (.succ (.succ (.succ .zero))))))) (.bvar (.succ .zero)))
+      (.bvar .zero)
+
+end
+
+/-! ## §18 Obligation (C) at `MP`: the recursor-stage `WFD`, and (C) discharged
+
+§H/§I of `ConstSubstNested.lean` at `MP`.  The two lists the recursor stage folds, by `rfl`, which
+is what makes `MP.rec` need `const`'s **defeq** disjunct and `_nested.MDep_1.rec` need `val`: -/
+
+theorem mp_recConsts_eq : (mpAux mpAuxNodeB).recConsts
+    = [(``MP.rec, ⟨1, (mpAux mpAuxNodeB).recType 0⟩),
+       (`_nested.MDep_1.rec, ⟨1, (mpAux mpAuxNodeB).recType 1⟩)] := rfl
+
+theorem mp_recConstsR_eq : (mpAux mpAuxNodeB).recConstsR mpRestore mpK
+    = [(``MP.rec, ⟨1, ((mpAux mpAuxNodeB).recTypeR mpRestore 0).substC
+          (mpRestore.csubst (mpAux mpAuxNodeB) mpK)⟩),
+       (``MP.rec_1, ⟨1, ((mpAux mpAuxNodeB).recTypeR mpRestore 1).substC
+          (mpRestore.csubst (mpAux mpAuxNodeB) mpK)⟩)] := rfl
+
+section
+variable {F : VEnv}
+variable (hD : F.constants ``MDep = some ⟨0, MRWit.mrDepType.type⟩)
+variable (hP : F.constants ``MP
+  = some ⟨0, .forallE (.sort (.succ .zero)) (.sort (.succ .zero))⟩)
+variable (hNd : F.constants ``MDep.node = some ⟨0, mrNode.type mrDepDecl 0⟩)
+variable (hOb : F.constants ``MP.obj
+  = some ⟨0, .forallE (.sort (.succ .zero)) (.forallE (mpVc 0) (.app mpNt (.bvar 1)))⟩)
+
+/-! ### §18.1 The recursor telescopes are contexts -/
+
+theorem mpIsTypeA0 : F.IsType 1 [] mpA0 := ⟨_, .sortDF (by decide) (by decide) rfl⟩
+
+include hP in
+theorem mpIsTypeA1 : F.IsType 1 [mpA0] mpA1 :=
+  ⟨_, .forallEDF (.appDF (mpPC hP) (.bvar .zero))
+    (.sortDF (l := .param 0) (l' := .param 0) (by decide) (by decide) rfl)⟩
+
+include hD hP hNd hOb in
+theorem mpOnCtx₀ : OnCtx mpTele₀.reverse (F.IsType 1) := by
+  obtain ⟨u2, h2⟩ := mpE2 hD hP
+  obtain ⟨u3, h3⟩ := mpE3 hD hP hOb
+  obtain ⟨u4, h4⟩ := mpE4 hD hP hNd
+  exact ⟨⟨⟨⟨⟨⟨trivial, mpIsTypeA0⟩, mpIsTypeA1 hP⟩, ⟨_, h2.hasType.1⟩⟩, ⟨_, h3.hasType.1⟩⟩,
+    ⟨_, h4.hasType.1⟩⟩,
+    ⟨_, .appDF (mpPC hP) (.bvar (.succ (.succ (.succ (.succ .zero)))))⟩⟩
+
+include hD hP hNd hOb in
+theorem mpOnCtx₁ : OnCtx mpTele₁.reverse (F.IsType 1) := by
+  obtain ⟨u2, h2⟩ := mpE2 hD hP
+  obtain ⟨u3, h3⟩ := mpE3 hD hP hOb
+  obtain ⟨u4, h4⟩ := mpE4 hD hP hNd
+  obtain ⟨u5, h5⟩ := mpE5₁ hD hP
+  exact ⟨⟨⟨⟨⟨⟨trivial, mpIsTypeA0⟩, mpIsTypeA1 hP⟩, ⟨_, h2.hasType.1⟩⟩, ⟨_, h3.hasType.1⟩⟩,
+    ⟨_, h4.hasType.1⟩⟩, ⟨_, h5.hasType.1⟩⟩
+
+/-! ### §18.2 The two whole-pi conversions, and the shapes `WFD` asks for -/
+
+include hD hP hNd hOb in
+theorem mpRecPi0 : ∃ u, F.IsDefEq 1 []
+    (((mpAux mpAuxNodeB).recTypeR mpRestore 0).substC (mpRestore.csubst (mpAux mpAuxNodeB) mpK))
+    (((mpAux mpAuxNodeB).recType 0).substC (mpRestore.csubst (mpAux mpAuxNodeB) mpK))
+    (.sort u) := by
+  obtain ⟨u, h⟩ := VEnv.IsDefEq.mkPi_congrU (mpTeleDefEq₀ hD hP hNd hOb)
+    (by simpa using mpOnCtx₀ hD hP hNd hOb) mpB₀
+  exact ⟨u, mprecType_eq_0 ▸ mprecTypeR_eq_0 ▸ h.symm⟩
+
+include hD hP hNd hOb in
+theorem mpRecPi1 : ∃ u, F.IsDefEq 1 []
+    (((mpAux mpAuxNodeB).recTypeR mpRestore 1).substC (mpRestore.csubst (mpAux mpAuxNodeB) mpK))
+    (((mpAux mpAuxNodeB).recType 1).substC (mpRestore.csubst (mpAux mpAuxNodeB) mpK))
+    (.sort u) := by
+  obtain ⟨u, h⟩ := VEnv.IsDefEq.mkPi_congrU (mpTeleDefEq₁ hD hP hNd hOb)
+    (by simpa using mpOnCtx₁ hD hP hNd hOb) mpB₁
+  exact ⟨u, mprecType_eq_1 ▸ mprecTypeR_eq_1 ▸ h.symm⟩
+
+include hD hP hNd hOb in
+/-- **The `const` clause's defeq disjunct at `MP.rec`**, level- and context-generic — `instL` plus
+`weak0` over §18.2, exactly as `rRecConstClause0`. -/
+theorem mpRecConstClause0 (henv : F.Ordered) {U : Nat} :
+    ∀ {Γ : List VExpr} {ls : List VLevel}, (∀ l ∈ ls, l.WF U) → ls.length = 1 →
+      ∃ v, F.IsDefEq U Γ
+        ((((mpAux mpAuxNodeB).recTypeR mpRestore 0).substC
+          (mpRestore.csubst (mpAux mpAuxNodeB) mpK)).instL ls)
+        ((((mpAux mpAuxNodeB).recType 0).substC
+          (mpRestore.csubst (mpAux mpAuxNodeB) mpK)).instL ls) (.sort v) := by
+  intro Γ ls hls _
+  obtain ⟨u, h⟩ := mpRecPi0 hD hP hNd hOb
+  obtain ⟨v, h2⟩ : ∃ v, F.IsDefEq U []
+      ((((mpAux mpAuxNodeB).recTypeR mpRestore 0).substC
+        (mpRestore.csubst (mpAux mpAuxNodeB) mpK)).instL ls)
+      ((((mpAux mpAuxNodeB).recType 0).substC
+        (mpRestore.csubst (mpAux mpAuxNodeB) mpK)).instL ls) (.sort v) := ⟨_, h.instL hls⟩
+  exact ⟨v, h2.weak0 henv⟩
+
+include hD hP hNd hOb in
+theorem mpRecConstClause1 (henv : F.Ordered) {U : Nat} :
+    ∀ {Γ : List VExpr} {ls : List VLevel}, (∀ l ∈ ls, l.WF U) → ls.length = 1 →
+      ∃ v, F.IsDefEq U Γ
+        ((((mpAux mpAuxNodeB).recTypeR mpRestore 1).substC
+          (mpRestore.csubst (mpAux mpAuxNodeB) mpK)).instL ls)
+        ((((mpAux mpAuxNodeB).recType 1).substC
+          (mpRestore.csubst (mpAux mpAuxNodeB) mpK)).instL ls) (.sort v) := by
+  intro Γ ls hls _
+  obtain ⟨u, h⟩ := mpRecPi1 hD hP hNd hOb
+  obtain ⟨v, h2⟩ : ∃ v, F.IsDefEq U []
+      ((((mpAux mpAuxNodeB).recTypeR mpRestore 1).substC
+        (mpRestore.csubst (mpAux mpAuxNodeB) mpK)).instL ls)
+      ((((mpAux mpAuxNodeB).recType 1).substC
+        (mpRestore.csubst (mpAux mpAuxNodeB) mpK)).instL ls) (.sort v) := ⟨_, h.instL hls⟩
+  exact ⟨v, h2.weak0 henv⟩
+
+include hD hP hNd hOb in
+/-- **The `val` clause's datum at `_nested.MDep_1.rec ↦ MP.rec_1`** — one `constDF` at the renamed
+recursor plus one `defeqDF` along §18.2.  Note the difference from `rNestedRecVal`: at `MP` the
+substituted value is a **bare constant** (`mp_csubst_rec_val`), which is why §15.1 could say
+"two β-lemmas" for the *bridge*; it changes nothing here. -/
+theorem mpNestedRecVal (henv : F.Ordered)
+    (hrec1 : F.constants ``MP.rec_1 = some
+      ⟨1, ((mpAux mpAuxNodeB).recTypeR mpRestore 1).substC
+        (mpRestore.csubst (mpAux mpAuxNodeB) mpK)⟩)
+    {U : Nat} {Γ : List VExpr} {ls ls' : List VLevel}
+    (hls : ∀ l ∈ ls, l.WF U) (hls' : ∀ l ∈ ls', l.WF U)
+    (hll : List.Forall₂ (· ≈ ·) ls ls') (hlen : ls.length = 1) :
+    F.IsDefEq U Γ
+      ((VExpr.const ``MP.rec_1 [.param 0]).instL ls)
+      ((VExpr.const ``MP.rec_1 [.param 0]).instL ls')
+      ((((mpAux mpAuxNodeB).recType 1).substC
+        (mpRestore.csubst (mpAux mpAuxNodeB) mpK)).instL ls) := by
+  obtain ⟨v, hv⟩ := mpRecConstClause1 hD hP hNd hOb henv (U := U) (Γ := Γ) hls hlen
+  have hlen' : ls'.length = 1 := List.Forall₂.length_eq hll ▸ hlen
+  match ls, ls', hlen, hlen', hls, hls', hll, hv with
+  | [_], [_], _, _, hls, hls', hll, hv =>
+    exact hv.defeqDF (.constDF hrec1 hls hls' rfl hll)
+
+end
+
+/-! ### §18.3 The third staging pair, and `WFD` at it -/
+
+theorem mp_fresh₃ {env₁ : VEnv} (h : VEnv.empty.addInduct' mrDepDecl = some env₁)
+    (n : Name) (hn : n ∈ [``MP, mpNestedName, ``MP.obj, `_nested.MDep_1.node,
+      ``MP.rec, `_nested.MDep_1.rec, ``MP.rec_1]) :
+    env₁.constants n = none := by
+  rw [VEnv.addInduct'_constants_of_not_mem h (by revert hn; revert n; decide)]
+  rfl
+
+theorem mpAuxB_stagedE₃ {env₁ E₁ E₂ : VEnv}
+    (h : VEnv.empty.addInduct' mrDepDecl = some env₁)
+    (hE₁ : env₁.addIndTypes (mpAux mpAuxNodeB) = some E₁)
+    (hE₂ : E₁.addIndCtors (mpAux mpAuxNodeB) = some E₂) :
+    ∃ E₃, E₂.addIndRecs (mpAux mpAuxNodeB) = some E₃ := by
+  refine VEnv.addConstList_eq_some_iff.2 ⟨fun n hn => ?_, by decide⟩
+  have hn' : n ∈ [``MP.rec, `_nested.MDep_1.rec] := by revert hn; revert n; decide
+  rw [VEnv.addConstList_constants_of_not_mem hE₂
+      (by show n ∉ [``MP.obj, `_nested.MDep_1.node]; revert hn'; revert n; decide),
+    VEnv.addConstList_constants_of_not_mem hE₁
+      (by show n ∉ [``MP, mpNestedName]; revert hn'; revert n; decide)]
+  exact mp_fresh₃ h n (by revert hn'; revert n; decide)
+
+theorem mpAuxB_stagedF₃ {env₁ F₁ F₂ : VEnv}
+    (h : VEnv.empty.addInduct' mrDepDecl = some env₁)
+    (hF₁ : env₁.addConstList ((mpAux mpAuxNodeB).typeConstsC mpK) = some F₁)
+    (hF₂ : F₁.addConstList ((mpAux mpAuxNodeB).ctorConstsCR mpRestore mpK) = some F₂) :
+    ∃ F₃, F₂.addConstList ((mpAux mpAuxNodeB).recConstsR mpRestore mpK) = some F₃ := by
+  refine VEnv.addConstList_eq_some_iff.2 ⟨fun n hn => ?_, by decide⟩
+  have hn' : n ∈ [``MP.rec, ``MP.rec_1] := by revert hn; revert n; decide
+  rw [VEnv.addConstList_constants_of_not_mem hF₂
+      (by show n ∉ [``MP.obj]; revert hn'; revert n; decide),
+    VEnv.addConstList_constants_of_not_mem hF₁
+      (by show n ∉ [``MP]; revert hn'; revert n; decide)]
+  exact mp_fresh₃ h n (by revert hn'; revert n; decide)
+
+/-- **All seven staging environments exist together**, so nothing below is hypothetical. -/
+theorem mp_stage₃_exists :
+    ∃ (env₁ E₁ E₂ E₃ F₁ F₂ F₃ : VEnv), VEnv.empty.addInduct' mrDepDecl = some env₁ ∧
+      env₁.addIndTypes (mpAux mpAuxNodeB) = some E₁ ∧
+      E₁.addIndCtors (mpAux mpAuxNodeB) = some E₂ ∧
+      E₂.addIndRecs (mpAux mpAuxNodeB) = some E₃ ∧
+      env₁.addConstList ((mpAux mpAuxNodeB).typeConstsC mpK) = some F₁ ∧
+      F₁.addConstList ((mpAux mpAuxNodeB).ctorConstsCR mpRestore mpK) = some F₂ ∧
+      F₂.addConstList ((mpAux mpAuxNodeB).recConstsR mpRestore mpK) = some F₃ := by
+  obtain ⟨env₁, E₁, E₂, F₁, F₂, h, hE₁, hE₂, hF₁, hF₂⟩ := mp_stage₂_exists
+  obtain ⟨E₃, hE₃⟩ := mpAuxB_stagedE₃ h hE₁ hE₂
+  obtain ⟨F₃, hF₃⟩ := mpAuxB_stagedF₃ h hF₁ hF₂
+  exact ⟨env₁, E₁, E₂, E₃, F₁, F₂, F₃, h, hE₁, hE₂, hE₃, hF₁, hF₂, hF₃⟩
+
+section
+variable {env₁ E₁ E₂ E₃ F₁ F₂ F₃ : VEnv}
+variable (h : VEnv.empty.addInduct' mrDepDecl = some env₁)
+variable (hE₁ : env₁.addIndTypes (mpAux mpAuxNodeB) = some E₁)
+variable (hE₂ : E₁.addIndCtors (mpAux mpAuxNodeB) = some E₂)
+variable (hE₃ : E₂.addIndRecs (mpAux mpAuxNodeB) = some E₃)
+variable (hF₁ : env₁.addConstList ((mpAux mpAuxNodeB).typeConstsC mpK) = some F₁)
+variable (hF₂ : F₁.addConstList ((mpAux mpAuxNodeB).ctorConstsCR mpRestore mpK) = some F₂)
+variable (hF₃ : F₂.addConstList ((mpAux mpAuxNodeB).recConstsR mpRestore mpK) = some F₃)
+
+include h hE₁ hE₂ hF₁ hF₂ hF₃ in
+theorem mpF₃_ordered : F₃.Ordered :=
+  VEnv.addConstList_ordered (mpF₂_ordered h hE₁ hF₁ hF₂)
+    (fun c hc => mpAuxB_recConstsR_wf h hE₁ hE₂ hF₁ hF₂ c hc) hF₃
+
+include h hF₁ hF₂ hF₃ in
+theorem mpF₃_mdep : F₃.constants ``MDep = some ⟨0, MRWit.mrDepType.type⟩ :=
+  (VEnv.addConstList_le hF₃).constants (mpF₂_mdep h hF₁ hF₂)
+
+include h hF₁ hF₂ hF₃ in
+theorem mpF₃_mdepNode : F₃.constants ``MDep.node = some ⟨0, mrNode.type mrDepDecl 0⟩ :=
+  (VEnv.addConstList_le hF₃).constants (mpF₂_mdepNode h hF₁ hF₂)
+
+include hF₁ hF₂ hF₃ in
+theorem mpF₃_mp : F₃.constants ``MP
+    = some ⟨0, .forallE (.sort (.succ .zero)) (.sort (.succ .zero))⟩ :=
+  (VEnv.addConstList_le hF₃).constants (mpF₂_mp hF₁ hF₂)
+
+include hF₂ hF₃ in
+theorem mpF₃_obj : F₃.constants ``MP.obj
+    = some ⟨0, .forallE (.sort (.succ .zero)) (.forallE (mpVc 0) (.app mpNt (.bvar 1)))⟩ :=
+  (VEnv.addConstList_le hF₃).constants (mp_objType_eq ▸ mpF₂_obj hF₂)
+
+include hF₃ in
+theorem mpF₃_rec : F₃.constants ``MP.rec
+    = some ⟨1, ((mpAux mpAuxNodeB).recTypeR mpRestore 0).substC
+        (mpRestore.csubst (mpAux mpAuxNodeB) mpK)⟩ :=
+  VEnv.addConstList_constants hF₃
+    (``MP.rec, ⟨1, ((mpAux mpAuxNodeB).recTypeR mpRestore 0).substC
+      (mpRestore.csubst (mpAux mpAuxNodeB) mpK)⟩) (by exact List.Mem.head _)
+
+include hF₃ in
+theorem mpF₃_rec1 : F₃.constants ``MP.rec_1
+    = some ⟨1, ((mpAux mpAuxNodeB).recTypeR mpRestore 1).substC
+        (mpRestore.csubst (mpAux mpAuxNodeB) mpK)⟩ :=
+  VEnv.addConstList_constants hF₃
+    (``MP.rec_1, ⟨1, ((mpAux mpAuxNodeB).recTypeR mpRestore 1).substC
+      (mpRestore.csubst (mpAux mpAuxNodeB) mpK)⟩) (by exact List.Mem.tail _ (List.Mem.head _))
+
+include h hE₁ hE₂ hE₃ hF₁ hF₂ hF₃ in
+/-- **`hσ` at the ι-rule stage of the parameterised REDEX block** — obligation (C)'s environment
+hypothesis.  `CSubst.WFD.mono` carries the whole of `mp_csubst_WFD₂` from `F₂` to `F₃`, so the only
+new cases are the two constants stage 3 *declares*: `const` at `MP.rec` (§18.2's defeq disjunct)
+and `val` at `_nested.MDep_1.rec` (which was `exfalso` at stage 2). -/
+theorem mp_csubst_WFD₃ : (mpRestore.csubst (mpAux mpAuxNodeB) mpK).WFD E₃ F₃ 1 := by
+  have hFo := mpF₃_ordered h hE₁ hE₂ hF₁ hF₂ hF₃
+  have hσ₂ := (mp_csubst_WFD₂ h hE₁ hE₂ hF₁ hF₂).mono (VEnv.addConstList_le hF₃)
+  have hD := mpF₃_mdep h hF₁ hF₂ hF₃
+  have hP := mpF₃_mp hF₁ hF₂ hF₃
+  have hNd := mpF₃_mdepNode h hF₁ hF₂ hF₃
+  have hOb := mpF₃_obj hF₂ hF₃
+  refine ⟨mp_csubst_closed, ?_, ?_, ?_⟩
+  · intro c ci hn hc
+    by_cases hR : c = ``MP.rec
+    · subst hR
+      rw [VEnv.addConstList_constants hE₃ (``MP.rec, ⟨1, (mpAux mpAuxNodeB).recType 0⟩)
+        (by exact List.Mem.head _)] at hc
+      cases hc
+      exact ⟨_, mpF₃_rec hF₃, .inr fun hls hlen =>
+        mpRecConstClause0 hD hP hNd hOb hFo hls hlen⟩
+    · have hm : c ∉ ((mpAux mpAuxNodeB).recConsts.map (·.1)) := by
+        show c ∉ [``MP.rec, `_nested.MDep_1.rec]
+        simp [hR, (mp_csubst_ne hn).2.1]
+      rw [VEnv.addConstList_constants_of_not_mem hE₃ hm] at hc
+      exact hσ₂.const hn hc
+  · intro df hdf
+    rw [VEnv.addConstList_defeqs hE₃] at hdf
+    exact hσ₂.defeq hdf
+  · intro c t ci Γ ls ls' hσv hc
+    have hR : c ≠ ``MP.rec := by
+      rintro rfl
+      rw [show mpRestore.csubst (mpAux mpAuxNodeB) mpK ``MP.rec = none from rfl] at hσv
+      exact absurd hσv nofun
+    by_cases hr1 : c = `_nested.MDep_1.rec
+    · subst hr1
+      rw [mp_csubst_rec_val] at hσv
+      cases hσv
+      rw [VEnv.addConstList_constants hE₃
+        (`_nested.MDep_1.rec, ⟨1, (mpAux mpAuxNodeB).recType 1⟩)
+        (by exact List.Mem.tail _ (List.Mem.head _))] at hc
+      cases hc
+      intro hls hls' hll hlen
+      exact mpNestedRecVal hD hP hNd hOb hFo (mpF₃_rec1 hF₃) hls hls' hll hlen
+    · have hm : c ∉ ((mpAux mpAuxNodeB).recConsts.map (·.1)) := by
+        show c ∉ [``MP.rec, `_nested.MDep_1.rec]
+        simp [hR, hr1]
+      rw [VEnv.addConstList_constants_of_not_mem hE₃ hm] at hc
+      exact hσ₂.val hσv hc
+
+end
+
+/-! ### §18.4 `hdata`, and obligation (C) DISCHARGED at the parameterised REDEX block -/
+
+section
+variable {F : VEnv}
+variable (hD : F.constants ``MDep = some ⟨0, MRWit.mrDepType.type⟩)
+variable (hP : F.constants ``MP
+  = some ⟨0, .forallE (.sort (.succ .zero)) (.sort (.succ .zero))⟩)
+variable (hNd : F.constants ``MDep.node = some ⟨0, mrNode.type mrDepDecl 0⟩)
+variable (hOb : F.constants ``MP.obj
+  = some ⟨0, .forallE (.sort (.succ .zero)) (.forallE (mpVc 0) (.app mpNt (.bvar 1)))⟩)
+
+include hD hP hNd hOb in
+/-- **`hdata` at `MP`** — the block has **two** ι-rules to `NTree`'s three, and §17.2 supplies both
+triples. -/
+theorem mpAuxB_hdata :
+    ∀ (q j : Nat) (C : VIndCtor), (mpAux mpAuxNodeB).ctorsAll[q]? = some (j, C) →
+      mpRestore.IotaHargs (mpAux mpAuxNodeB) (mpRestore.csubst (mpAux mpAuxNodeB) mpK) F j C := by
+  intro q j C hq
+  rw [mpAuxB_ctorsAll_eq] at hq
+  match q with
+  | 0 =>
+    obtain ⟨rfl, rfl⟩ := Prod.mk.injEq .. ▸ Option.some.inj hq
+    exact mpIotaHargs_obj hD hP hNd hOb
+  | 1 =>
+    obtain ⟨rfl, rfl⟩ := Prod.mk.injEq .. ▸ Option.some.inj hq
+    exact mpIotaHargs_node hD hP hNd hOb
+  | (n+2) => simp at hq
+
+end
+
+section
+variable {env₁ E₁ E₂ E₃ F₁ F₂ F₃ : VEnv}
+variable (h : VEnv.empty.addInduct' mrDepDecl = some env₁)
+variable (hE₁ : env₁.addIndTypes (mpAux mpAuxNodeB) = some E₁)
+variable (hE₂ : E₁.addIndCtors (mpAux mpAuxNodeB) = some E₂)
+variable (hE₃ : E₂.addIndRecs (mpAux mpAuxNodeB) = some E₃)
+variable (hF₁ : env₁.addConstList ((mpAux mpAuxNodeB).typeConstsC mpK) = some F₁)
+variable (hF₂ : F₁.addConstList ((mpAux mpAuxNodeB).ctorConstsCR mpRestore mpK) = some F₂)
+variable (hF₃ : F₂.addConstList ((mpAux mpAuxNodeB).recConstsR mpRestore mpK) = some F₃)
+
+include h hE₁ hE₂ hE₃ hF₁ hF₂ hF₃ in
+/-- **OBLIGATION (C) AT THE PARAMETERISED REDEX BLOCK, DISCHARGED.**  The counterpart of
+`InductiveDeclExamples.ntreeAux_iotaRulesRS_wf` at a block that is **not** `Canonical`. -/
+theorem mpAuxB_iotaRulesRS_wf :
+    ∀ df ∈ (mpAux mpAuxNodeB).iotaRulesRS mpRestore mpK, VDefEq.WF F₃ df :=
+  VEnv.iotaRulesRS_wf_of_hargsD mpRestore_ownId mpRestore_domSep.substAt
+    mpRestore_substFree mp_csubst_closed
+    (mp_csubst_WFD₃ h hE₁ hE₂ hE₃ hF₁ hF₂ hF₃)
+    (mpAuxB_WF.iotaCtx (mpEnv_ordered h) hE₁ hE₂ hE₃)
+    (mpF₃_ordered h hE₁ hE₂ hF₁ hF₂ hF₃) mpAuxB_recArg_lt
+    (mpAuxB_hdata (mpF₃_mdep h hF₁ hF₂ hF₃) (mpF₃_mp hF₁ hF₂ hF₃)
+      (mpF₃_mdepNode h hF₁ hF₂ hF₃) (mpF₃_obj hF₂ hF₃))
+
+end
+
+/-- …**with nothing assumed** — the (C) counterpart of `mpAuxB_obligationB`. -/
+theorem mpAuxB_obligationC :
+    ∃ (env₁ E₁ E₂ E₃ F₁ F₂ F₃ : VEnv), VEnv.empty.addInduct' mrDepDecl = some env₁ ∧
+      env₁.addIndTypes (mpAux mpAuxNodeB) = some E₁ ∧
+      E₁.addIndCtors (mpAux mpAuxNodeB) = some E₂ ∧
+      E₂.addIndRecs (mpAux mpAuxNodeB) = some E₃ ∧
+      env₁.addConstList ((mpAux mpAuxNodeB).typeConstsC mpK) = some F₁ ∧
+      F₁.addConstList ((mpAux mpAuxNodeB).ctorConstsCR mpRestore mpK) = some F₂ ∧
+      F₂.addConstList ((mpAux mpAuxNodeB).recConstsR mpRestore mpK) = some F₃ ∧
+      (∀ df ∈ (mpAux mpAuxNodeB).iotaRulesRS mpRestore mpK, VDefEq.WF F₃ df) := by
+  obtain ⟨env₁, E₁, E₂, E₃, F₁, F₂, F₃, h, hE₁, hE₂, hE₃, hF₁, hF₂, hF₃⟩ := mp_stage₃_exists
+  exact ⟨env₁, E₁, E₂, E₃, F₁, F₂, F₃, h, hE₁, hE₂, hE₃, hF₁, hF₂, hF₃,
+    mpAuxB_iotaRulesRS_wf h hE₁ hE₂ hE₃ hF₁ hF₂ hF₃⟩
+
+/-! ### §18.5 …so the nested declaration step preserves `Ordered` at a NON-CANONICAL block
+
+`VEnv.addInductR_ordered'` has exactly three open obligations, and all three are now theorems at
+`mpAux mpAuxNodeB`:
+
+| obligation | at `MP` |
+|---|---|
+| `hctors` (A) | `mpAuxB_ctorConstsCR_wf` (§13) |
+| `hrecs` (B) | `mpAuxB_recConstsR_wf` (§16) |
+| `hrules` (C) | `mpAuxB_iotaRulesRS_wf` (§18.4) |
+
+Until now the only blocks with all three were `nfnAux` (`np = 0`) and `ntreeAux` (`np = 1`,
+**`Canonical`**).  `mpAux mpAuxNodeB` is neither: `mpAuxB_not_canonical`. -/
+
+theorem mpAuxB_admitted {env₁ : VEnv} (h : VEnv.empty.addInduct' mrDepDecl = some env₁) :
+    ∃ env₂, env₁.addInductR (mpAux mpAuxNodeB) mpK mpRestore = some env₂ := by
+  refine VEnv.addInductR_eq_some_iff.2 ⟨fun n hn => ?_, by decide⟩
+  refine mp_fresh₃ h n ?_
+  revert hn; revert n; decide
+
+theorem mpAuxB_stages {env₁ : VEnv} (h : VEnv.empty.addInduct' mrDepDecl = some env₁) :
+    ∃ E₁ E₂ E₃, env₁.addIndTypes (mpAux mpAuxNodeB) = some E₁ ∧
+      E₁.addIndCtors (mpAux mpAuxNodeB) = some E₂ ∧
+      E₂.addIndRecs (mpAux mpAuxNodeB) = some E₃ := by
+  have hx : ∃ env', env₁.addInduct' (mpAux mpAuxNodeB) = some env' := by
+    refine VEnv.addInduct'_eq_some_iff.2 ⟨fun n hn => ?_, by decide⟩
+    refine mp_fresh₃ h n ?_
+    revert hn; revert n; decide
+  obtain ⟨env', he⟩ := hx
+  obtain ⟨E₁, E₂, E₃, h1, h2, h3, -⟩ := VEnv.addInduct'_stages he
+  exact ⟨E₁, E₂, E₃, h1, h2, h3⟩
+
+/-- **THE NESTED DECLARATION STEP PRESERVES `VEnv.Ordered` AT A NON-CANONICAL (REDEX) BLOCK.**
+`ntreeAux_addInductR_ordered` at a block whose companion constructor stores a β-redex — the
+configuration `MRedex`/`StoredIota`/§§1–10 of this file were built to reach. -/
+theorem mpAuxB_addInductR_ordered :
+    ∃ env₁ env', VEnv.empty.addInduct' mrDepDecl = some env₁ ∧
+      env₁.addInductR (mpAux mpAuxNodeB) mpK mpRestore = some env' ∧ env'.Ordered := by
+  obtain ⟨env₁, h⟩ : ∃ e, VEnv.empty.addInduct' mrDepDecl = some e := ⟨_, rfl⟩
+  obtain ⟨env', he⟩ := mpAuxB_admitted h
+  obtain ⟨E₁, E₂, E₃, hE₁, hE₂, hE₃⟩ := mpAuxB_stages h
+  refine ⟨env₁, env', h, he, ?_⟩
+  refine VEnv.addInductR_ordered' (mpEnv_ordered h) mpAuxB_WF mpRestore_ownId
+    (fun {F₁} hF₁ => ?_) (fun {F₁ F₂} hF₁ hF₂ => ?_) (fun {F₁ F₂ F₃} hF₁ hF₂ hF₃ => ?_) he
+  · exact mpAuxB_ctorConstsCR_wf h hE₁ hF₁
+  · exact mpAuxB_recConstsR_wf h hE₁ hE₂ hF₁ hF₂
+  · exact mpAuxB_iotaRulesRS_wf h hE₁ hE₂ hE₃ hF₁ hF₂ hF₃
+
+/-! ### §18.6 Anti-vacuity for (C) at `MP`: the strict `CSubst.WF` is FALSE at the ι-rule pair too
+
+§15's `mp_csubst_WF₂_false` refutes it at the *constructor* pair; the same disagreement survives
+both `addConstList`s, so `mp_csubst_WFD₃` is not a convenience either. -/
+
+theorem mp_csubst_WF₃_false {E₁ E₂ E₃ F₁ F₂ F₃ : VEnv} {U : Nat}
+    (hE₂ : E₁.addIndCtors (mpAux mpAuxNodeB) = some E₂)
+    (hE₃ : E₂.addIndRecs (mpAux mpAuxNodeB) = some E₃)
+    (hF₂ : F₁.addConstList ((mpAux mpAuxNodeB).ctorConstsCR mpRestore mpK) = some F₂)
+    (hF₃ : F₂.addConstList ((mpAux mpAuxNodeB).recConstsR mpRestore mpK) = some F₃) :
+    ¬ (mpRestore.csubst (mpAux mpAuxNodeB) mpK).WF E₃ F₃ U :=
+  VEnv.subst_WF_false_of_const_ne
+    ((VEnv.addConstList_le hE₃).constants
+      (VEnv.addConstList_constants hE₂ (``MP.obj, ⟨0, mpObj.type (mpAux mpAuxNodeB) 0⟩)
+        (by exact List.Mem.head _)))
+    ((VEnv.addConstList_le hF₃).constants
+      (VEnv.addConstList_constants hF₂
+        (``MP.obj, ⟨0, (mpObj.typeR (mpAux mpAuxNodeB) mpRestore 0).substC
+          (mpRestore.csubstTy (mpAux mpAuxNodeB) mpK)⟩) (by exact List.Mem.head _)))
+    mp_csubst_obj_none (fun hh => mp_const_clause_ne (hh.symm.trans mp_obj_declared))
+
 end MPWit
 end MRedex
 end Lean4Lean

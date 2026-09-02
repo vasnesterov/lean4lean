@@ -481,6 +481,58 @@ theorem level_branch_forced (hu₀ : u₀.WF nv) (hu₁ : u₁.WF nv)
 
 end Model
 
+/-! ## 6.6 The branch, restated so **no hypothesis about a member is needed**
+
+*Added 2026-09-02 (tenth session), executing handoff §16.4 / ledger row 149b.*
+
+`level_branch_forced` (§6) is an implication whose antecedent `hv₀ : v ∈ ⟦Iff.rec's type at u₀⟧`
+is satisfiable **exactly when the `= 0` slice is true in the model** — the obligation §7 records
+as OPEN.  Handoff §15.5's anti-vacuity table listed that theorem's open hypotheses as "the same
+[as `isProp_iffRecType_iff`'s], and nothing else", which **omitted `hv₀`**; the "both slices
+non-empty" control quoted alongside (`exists_eq_zero_level` / `exists_ne_zero_level`) is about the
+two *level* slices, a different object.
+
+The content that survives without the member hypothesis is a **negation**, and a negation does not
+evaporate at an empty slice.  `no_level_uniform_value` is the form to quote; it is exactly what
+`InductOracleOK` at this block would have to violate, and it is unconditional in the candidate
+value.  This is `EqAudit.no_level_uniform_value`'s twin, with **no** parameter-space hypothesis
+(§6's exclusion is free here, see `pt_not_mem_interp_iffRecType_of_ne`). -/
+
+section Forced
+
+variable {V : Type*} [SetStructure V] [Nonempty V]
+variable [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖]
+variable {envF : VEnv} {nv : ℕ} (L : PropSplit envF nv) (M : ModelData V)
+variable (hle : iffEnv ≤ envF) {u₀ u₁ : VLevel}
+
+include hle in
+/-- **No value serves both slices at `iffIndDecl`.**  Unconditional in the candidate value, and —
+unlike `EqAudit.no_level_uniform_value` — with no parameter-space hypothesis either, so this
+statement's *only* open hypotheses are `hle` (a theorem at `preludeEnv`) and the `PropSplit`
+parameter. -/
+theorem no_level_uniform_value (hu₀ : u₀.WF nv) (hu₁ : u₁.WF nv)
+    (h0 : u₀.eval M.ls = 0) (hn : u₁.eval M.ls ≠ 0) :
+    ¬ ∃ w : V, w ∈ (interp M L [] ((iffIndDecl.recType 0).instL [u₀])).toFun ∅ ∧
+        w ∈ (interp M L [] ((iffIndDecl.recType 0).instL [u₁])).toFun ∅ := by
+  rintro ⟨w, hw₀, hw₁⟩
+  rw [eq_pt_of_mem_interp_iffRecType_of_zero L M hu₀ hle h0 hw₀] at hw₁
+  exact pt_not_mem_interp_iffRecType_of_ne L M hu₁ hle hn hw₁
+
+include hle in
+/-- **The exact statement of why `level_branch_forced`'s `hv₀` is unmeasured**, at `iffIndDecl`.
+`hv₀ : v ∈ ⟦Iff.rec's type at u₀⟧` is satisfiable **iff `•` is in that interpretation** — and
+"`•` is in that interpretation" is verbatim the `= 0` slice, which §7 records as OPEN.  So the
+implication form of `level_branch_forced` is conditional on an undischarged obligation, and the
+negation above is the form to quote.  `EqAudit.exists_mem_interp_eqRecType_zero_iff` is the same
+statement at `eqIndDecl`. -/
+theorem exists_mem_interp_iffRecType_zero_iff (hu₀ : u₀.WF nv) (h0 : u₀.eval M.ls = 0) :
+    (∃ w : V, w ∈ (interp M L [] ((iffIndDecl.recType 0).instL [u₀])).toFun ∅) ↔
+      (pt : V) ∈ (interp M L [] ((iffIndDecl.recType 0).instL [u₀])).toFun ∅ := by
+  refine ⟨fun ⟨w, hw⟩ ↦ ?_, fun h ↦ ⟨pt, h⟩⟩
+  rwa [eq_pt_of_mem_interp_iffRecType_of_zero L M hu₀ hle h0 hw] at hw
+
+end Forced
+
 /-! ## 7. What is left at this block, stated so it is not mistaken for done
 
 `InductOracleOK L κ ls o c iffIndDecl` has two fields over three constants (`Iff`, `Iff.intro`,
