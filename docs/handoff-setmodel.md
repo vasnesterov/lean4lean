@@ -905,3 +905,278 @@ non-recursive — is read off `Consistency.lean:96` and `:126`.
    and the census/dup-names scripts do not see it.  If you want `preludeEnv` available to
    `Equiconsistency.lean` or to the `Verify/` side, add the import there; there is no name
    collision (checked).
+
+## 10. Session of 2026-09-02 (third): `InductOracleOK` at a **prelude** block, and the parameter nobody has built
+
+Brief: *§9.7 items 2 and 3 — `InductOracleOK` at `eqIndDecl`/`iffIndDecl`/`nonemptyIndDecl`,
+then `PropTypeAgree 0` at `preludeEnv`; audit the briefing against the tree.*
+
+**One of the three `.induct` blocks is closed, at `preludeEnv`, in the shape `OracleFits`
+asks for.**  The other two are measured rather than costed.  And the session's sharpest
+result is negative and applies to the whole corner: items 2 and 3 of §9.7 are **one item**,
+because every `.induct` witness in this directory is quantified over a `PropSplit` that
+nothing in the tree constructs.
+
+New file: `Lean4Lean/Theory/SetModel/PreludeOracle.lean` (1521 lines, 171 declarations,
+**sorry-free**), imported by `Theory/Equiconsistency.lean` so it is connected, not merely
+proved (row 128b's lesson).  Everything below is **[measured]** unless marked `[read]`.
+
+### 10.1 What landed
+
+```lean
+theorem inductOracleOK_NE (L : PropSplit envF nv) (κ) (ls) (hle : nonemptyEnv ≤ envF) :
+    InductOracleOK L κ ls (neOracle κ ls) (neOracle κ ls) nonemptyIndDecl
+theorem nonemptyEnv_le_preludeEnv : nonemptyEnv ≤ preludeEnv
+theorem inductOracleOK_NE_at_preludeEnv (L : PropSplit preludeEnv nv) (κ) (ls) : …
+theorem cnstOf_preludeTail : cnstOf L κ ls (neOracle κ ls) preludeTail = neOracle κ ls
+theorem oracleStepOK_NE_at_preludeEnv (L : PropSplit preludeEnv nv) (κ) (ls) :
+    OracleStepOK L κ ls (neOracle κ ls) (.induct nonemptyIndDecl)
+      [.axiom propextConst, .induct iffIndDecl, .induct eqIndDecl]
+```
+
+`oracleStepOK_NE` is the point of `cnstOf_preludeTail`: `OracleFits` states each step's
+obligation at `cnstOf` applied to the *tail* of the list, so `InductOracleOK` at the oracle
+itself is not yet the step.  The two coincide here because the prelude's first four steps
+assign exactly the ten names `neOracle` is non-`∅` at, and `neOracle` is `∅` — which is
+`cnstOf … []` — everywhere else.  **So this is the obligation at the step's own position in
+`leanPrelude.reverse`, not a statement at a convenient assignment.**
+
+**The oracle is not new.**  `neOracle κ ls = (preludeWitness κ ls).cnst`, byte for byte the
+joint witness `PreludeSpec.preludeSpec_satisfiable` already exhibits for
+`EqSpec`/`IffSpec`/`NonemptySpec`.  Nothing was tuned: `Nonempty ↦ nonemptyFn κ n` is the
+intended squash and the other two names get `∅`, which **is** `•` (`pt_def`).  The same
+assignment that validates the three standard axioms' specifications discharges the `.induct`
+residual at the block `Classical.choice`'s type mentions.  *That file's existence is the
+single largest omission in the brief* — see §10.2.
+
+Why the block is not a re-run of the two easy ones, all machine-checked:
+
+* `boxDecl` met the residual because its parameter denoted `∅`.  Here the parameter denotes a
+  **universe** (`interp_param_ne_empty`), and `not_mem_interp_zeroOracle_NE_type` **refutes**
+  the `∅`-everywhere oracle at the type former: `∀ α : Prop, Prop` is a function space over
+  the nonempty `U₀`, and `∅ = •` is not a function on a nonempty domain.
+* `unitDecl` has no parameter and no constructor field.  This block has one of each
+  (`ne_params`, `neCtor_fields`), so the type former's value is a genuine internal function,
+  landed with `UnitOracleLarge.mkLam_mem_mkForallType_of_dom`.
+* The squash must be **faithful**, in both directions: the constructor's obligation forces
+  `α ≠ ∅ → ⟦Nonempty α⟧ = {•}` (`mem_interp_NE_intro`) and the recursor's forces the converse
+  (`pt_mem_interp_NE_recType` case-splits on `α = ∅` and uses
+  `ne_empty_iff_isNonempty` to produce the `val` the minor premise needs).  Both branches fire
+  at `U₀`: `nonemptyFn_zero_empty`, `nonemptyFn_zero_true`.
+
+Why the recursor is nevertheless cheap: `nonemptyIndDecl.isLE = false`, so `elimLvl = .zero`
+and the **whole** of `recType 0` is a proposition (`hasType_recB1`: sort
+`imax (imax 0 1) (imax (imax u 0) (imax 0 0))`, which evaluates to `0`).  `interp` takes
+`mkForallProp` at every binder and the oracle's value is `•`.  Same for the ι-rule: both sides
+are λ-nests whose body is a *proof*, so `interp_lam_proof` settles `• = •` with no
+β-computation — this is `UnitOracleWitness`' argument at a four-binder telescope.
+
+`Above`-free, both fields, arbitrary `κ`: `mem_interp_consts_NE`, `defEq_rules_NE`.  **No `κ`
+is chosen anywhere**; every proof goes through `Above.pure`.
+
+### 10.2 The headline negative: §9.7 items 2 and 3 are **one** item
+
+`InductOracleOK L κ ls o c D` is quantified over `L : PropSplit envF nv`, and **no declaration
+in this tree constructs a `PropSplit`, at any environment.**  The only three producers are
+`PropSplitAudit.propSplitOf` and `PropSplitUp.propSplitUp` (both taking `PropUniq` *and*
+`PropTypeAgree`) and `Interp.LevelAssign.toPropSplit` (taking a structure nothing builds —
+and whose unguarded ancestor was outright unsatisfiable, `LevelAssignUnsat.lean`).
+
+`PropSplit` is therefore exactly the shape `LevelAssignUnsat.lean`'s own opening paragraph
+names as the test that found two unsatisfiable structures: *a structure whose producers all
+consume the same structure has never had its fields tested.*  Nothing here says it is
+unsatisfiable — `nonempty_propSplit_iff_agree` says precisely what it costs — but the
+**vacuity** consequence is immediate and it is retroactive:
+
+> `inductOracleOK_zero` (row 11a/72), `inductOracleOK_unit`, `inductOracleOKL`,
+> `exists_oracleFits_unit`, `oracleFits_unit_at_consumer` and §10.1 above are **all** statements
+> about a parameter class not known to be non-empty.  This is `docs/vacuity-ledger.md` §0's
+> eighth blindness, at the one place in this corner where nobody had looked.
+
+Machine-checked at the named environment:
+
+```lean
+theorem nonempty_propSplit_preludeEnv_iff :
+    Nonempty (PropSplit preludeEnv 0) ↔ preludeEnv.PropUniq 0 ∧ preludeEnv.PropTypeAgree 0
+theorem nonempty_propSplit_preludeEnv_of_propTypeAgree
+    (hT : preludeEnv.PropTypeAgree 0) (hf : ∃ e, preludeEnv.HasType 0 [] e falseProp) :
+    Nonempty (PropSplit preludeEnv 0)
+```
+
+and `PropUniq` is free where the reduction is consumed (§7.6's last bullet: `env.Consistent` is
+a negation, so the goal's own inhabitant of `falseProp` feeds `PropUniq.of_propTypeAgree`).  So
+**the entire content of "the `.induct` oracle results are not vacuous" is
+`PropTypeAgree preludeEnv 0`** — `UpperBound.PropTypeAgreeInput`'s instance at the witness
+environment, and nothing else.  Item 2 does not stand without item 3.
+
+This is not a defect of §10.1: `coherentOn_cnstOf` quantifies over the same `L`, so the witness
+is stated at exactly the strength its consumer wants.  It is a fact about the layer.
+
+### 10.3 A correction to `NotProofNoModel.lean` §6: the level-layer gap **closes at `nv = 0`**
+
+§6 of that file records that the model's pointwise `PropTypeAgree` and the syntactic side's
+`IsPropN`-shaped statement *do not compose*: `propTypeAgree_equivZero` gives one direction and
+`propAgree_pointwise_not_from_equivZero` refutes the other.  **Its witness is `.param 0` /
+`.param 1` at `WF 2`, so it needs `nv ≥ 2` — and the only `nv` this corner uses is `0`.**
+
+```lean
+theorem eval_const_of_wf_zero : u.WF 0 → ∀ ls ls', u.eval ls = u.eval ls'
+theorem propTypeAgree_zero_iff_equivZero (env) :
+    env.PropTypeAgree 0 ↔ (… → (u ≈ .zero ↔ u' ≈ .zero))
+theorem propTypeAgree_preludeEnv_iff_equivZero : …
+```
+
+A `WF 0` level contains no `.param`, so its evaluation is constant in `ls` and the two shapes
+are **equivalent**.  `PropTypeAgreeInput` is `PropTypeAgree env 0`, and
+`PropReduce.PropTypeAgree.of_zero` lifts `0` to every `nv` with no hypothesis, so the instance
+the reduction consumes is exactly the one where the recorded non-composition does not bite.
+
+**What still separates the two streams is therefore the `HasTypeN U n` / `HasType 0` bridge and
+the fact that `PropTypeAgreeN` is itself open — not the level layer.**  `NotProofNoModel.lean`
+§6's "closing `PropTypeAgreeN` does not close `PropSplit`'s import" is true as stated (about
+`nv ≥ 2`) and misleading as read; the two repairs it proposes (pinning `PropSplit`'s valuation,
+a large mechanical edit) are **not needed for `nv = 0`**.  That is the cheapest thing found this
+session and it was found by reading the counterexample's `WF 2` rather than its conclusion.
+
+### 10.4 The other two prelude blocks: measured, not costed
+
+Every statement in §13 of the new file is `rfl`.
+
+| | `nonemptyIndDecl` | `iffIndDecl` | `eqIndDecl` |
+|---|---|---|---|
+| `isLE` | **false** | true | true |
+| `elimLvl` | `.zero` | `.param 0` | `.param 0` |
+| `recUvars` | 1 | 1 | 2 |
+| indices | `[]` | `[]` | `[.bvar 1]` |
+| binders before the result in `recType 0` | 4 | 5 | 6 |
+| `recType 0` is a proposition | **yes** | no | no |
+
+`iff_recType` and `eq_recType` write both types out in full, as `rfl`, so the next stream does
+not have to rediscover them.  The single structural difference is `isLE`: at `isLE := true` the
+recursor's result is `Sort (param 0)`-valued, so at an instantiation with `u.eval ls ≠ 0` the
+innermost binder is not propositional, `interp` takes `mkForallType`, and `•` is not a legal
+value — the situation `UnitOracleLarge.recFnL` handles with a **three**-layer `mkLam` for a block
+with no parameters and no fields.  `Iff` wants five layers and `Eq` six, and `Eq`'s motive is
+itself a two-binder pi because of the index.
+
+Also measured: `preludeWitness` assigns `∅` to **both** recursors
+(`preludeWitness_eqRec_empty`, `preludeWitness_iffRec_empty`), so `PreludeSpec.lean`'s witness is
+not a candidate oracle at either block.  **I did not prove that it fails there** — that would be
+`UnitOracleLarge.pt_not_mem_interpL_recType_of_ne` transported to a five- or six-binder
+telescope — and the file flags it as a fact about the assignment rather than a refutation, per
+`docs/vacuity-ledger.md` §0 kind 4.
+
+### 10.5 Audit of the briefing — four checks, and where it is wrong
+
+| claim as briefed | verdict |
+|---|---|
+| `InductOracleOK` at the three prelude blocks is row 83c's frontier and the part of `OracleInput` that §8.4 says is *not* covered by `oracleFits_unit_at_consumer` | **correct**, checked at source in `UpperBound.lean` §5 and `InductOracleAudit.lean` §5 |
+| `preludeEnv` is the environment to attack it at | **correct, and it works**: `nonemptyEnv ≤ preludeEnv` is three `VDecl.WF.le` steps from `PreludeWitness.lean`'s own theorems, and `oracleStepOK_NE_at_preludeEnv` is the result |
+| build on `inductOracleOK_zero`, `inductOracleOK_unit`, `inductOracleOKL`, `exists_oracleFits_unit` rather than redo them | **half wrong, in a way worth recording.**  `inductOracleOK_zero`'s oracle is *refuted* here (`not_mem_interp_zeroOracle_NE_type`) and `inductOracleOK_unit`'s mechanism (no parameter, no field) does not transfer at all.  What transferred was the **discipline** of `UnitOracleWitness.lean` §4 (`hle` + `isProp_iff`) and exactly two lemmas from `UnitOracleLarge.lean` (`mkLam_mem_mkForallType_of_dom`, `pt_not_mem_mkForallType_of_nonempty`).  And the brief omits the file that actually made the session cheap: **`SetModel/PreludeSpec.lean` already contains `nonemptyFn`, the intended denotation, with its definability and value lemmas, and `preludeWitness`, an assignment that is already the oracle.**  Had that been in the brief the session would have started an hour earlier |
+| row 83c's `rules`-negative cell is worded unachievably | **correct**; the source was already reworded 2026-09-01 |
+| §7.6's instruction not to re-attack the general `PropTypeAgree` stands; the instance at `preludeEnv` is a different object | **correct that it had not been looked at, misleading as a hint.**  The instance is not a different *statement* — it is the same statement restricted to one environment, and its typing content is not smaller.  What is genuinely new is §10.2's reduction and §10.3's level-layer correction, neither of which required attacking the typing content |
+| §9.7 item 4: "`PreludeWitness.lean` is built by the glob but **nothing imports it**" | **STALE — it is imported twice**, by `Theory/Equiconsistency.lean:4` and `Experimental/ConeJoin.lean:160`, wired by row 128b on the same day §9 was written.  The brief pointed me at §9.7, whose fourth item is wrong |
+
+### 10.6 Tried and failed, with the step it failed at
+
+1. **Writing the squash by hand.**  `{z ∈ ({pt} : V) ; ∃ x ∈ a, z = z}` — `definability` fails
+   at `ℒₛₑₜ-function₁ fun a => {z ∈ {pt} ; ∃ x, x ∈ v 40}` with *maximum rule application depth
+   (30) reached*, exactly the first failure mode `SetModel/Definability.lean`'s docstring
+   describes.  **Fix**: do not write it — `PreludeSpec.nonemptyFn` exists, with
+   `nonemptyFib_definable` done by the relation reformulation.
+2. **`InterpSound.mkLam_mem_mkForallType` for the type former.**  Failed at unification: it
+   needs the domain function *and its definability proof term* to be the same on both sides,
+   and here one comes from the oracle and one from `interp`.  This is the failure
+   `Cnst.lean:323` already documents; **fix**:
+   `UnitOracleLarge.mkLam_mem_mkForallType_of_dom`, which asks only that the domains *agree at
+   the valuation*.
+3. **Typing lemmas at fixed contexts.**  §5 was first written at `[.sort u]`, `[motTy u, .sort u]`
+   … with no tail.  Failed at `hasType_iotaLamE`: the ι-rule's η-expansion needs `iotaLamE`
+   typed *inside* `ctxF u`, so its own λ-bodies live in a longer context.  **Fix**: every
+   context abbrev takes a tail `Γ`; `Lookup` does not care, and the interpretation is then read
+   at `Γ = []`.  ~90 lines rewritten.
+4. **`rw [neOracle_NE]` after `interp_const`.**  `interp_const` produces `(neM κ ls).cnst n us`
+   and `rw` will not delta-reduce that to `neOracle κ ls n us`.  **Fix**: restate the three
+   values at `(neM κ ls).cnst` (`neM_cnst_NE`, `neM_cnst_intro`, `neM_cnst_rec`), each proved by
+   the corresponding `neOracle_*` up to defeq.
+5. **`show (if m = ``propext then _ else _)` for `cnstUpdate`.**  `cnstUpdate c n v` is
+   `fun m ↦ if m = n then v else c m`, so the `if` is at the **function** level and
+   `cnstUpdate c n v m us` is `(if … then v else c m) us`.  **Fix**: `cnstUpdate_apply`.
+6. **`.trans` on `VEnv.LE`** resolves to `Preorder.trans` and fails; write `VEnv.LE.trans`.
+7. **`match us, hlen with | [w], _ => …`** for `us.length = 1` inside a *tactic* block: branches
+   take tactics, and the exhaustiveness checker demands the impossible cases.  **Fix**: a
+   standalone term-mode `eq_singleton_of_length_one`.
+8. **Not attempted, deliberately**: `iffIndDecl` and `eqIndDecl` (§10.4 — five and six `mkLam`
+   layers, and the level branch will be forced there as it is for `unitDeclLE`), and the
+   const-true-squash refutation at `nonemptyIndDecl` (`Nonempty ↦ λ α. {•}` satisfies the
+   constructor and should fail at the recursor).  The second needs the whole §7 chain re-run at
+   a second oracle, ~200 lines; the negative that *did* land is the weaker
+   `not_mem_interp_zeroOracle_NE_type`.  Neither is claimed.
+9. **`InstDescendUp 0`'s `.bvar k` case** — untouched, as the brief allowed.
+
+### 10.7 Measured / read / not run
+
+**[measured]** `lake build`: **1503 jobs** (1502 before), "Build completed successfully",
+**0 errors in any file**.  Guards, verbatim:
+
+```
+guard 1: Axioms.lean declares exactly the 24 frozen axioms ✓
+guard 2: kernel_sound axioms within whitelist ✓ (proof INCOMPLETE: sorryAx present)
+guard 3: checker cone implementation gaps within frozen list (2/2 remaining) ✓
+```
+
+`lake build Lean4Lean.Experimental.ConeJoin Lean4Lean.Verify.Guard` green.
+`scripts/sorry-census.lean`: **TOTAL 13**, **no row changed**, none traded.
+`scripts/dup-names.lean`: "no duplicate Lean4Lean declarations across the joined cone".
+`#print axioms` on 34 named declarations of the new file: `[propext]`, `[propext, Quot.sound]`
+or `[propext, Classical.choice, Quot.sound]` — **no `sorryAx`, no frozen axiom, nothing new on
+the frozen cone**.  Every shape lemma in §1 and §13 is `rfl`, so those two sections are
+measurements of the blocks rather than transcriptions.
+
+**[read]** off source, not run: **"nothing in this tree constructs a `PropSplit`"** (§10.2) is a
+grep over `PropSplit` occurrences plus inspection of the three producers — a *floor* on the
+search, not a theorem, exactly the epistemic status of §8.6's `LeanWF` grep.  If someone finds
+one, §10.2 collapses and that is the best possible news.  Also read: that
+`UnitOracleLarge.recFnL` is three `mkLam` layers.
+
+**[not run]** the Kernel Arena (no implementation file changed); `scripts/hole-cone.lean`,
+`scripts/hole-rank.lean`.
+
+### 10.8 Ledger rows this session should produce
+
+Left to the orchestrator rather than written into `docs/vacuity-ledger.md`, since a second
+stream is live in the tree:
+
+* **`InductOracleOK` closed at a prelude block** — `inductOracleOK_NE`,
+  `oracleStepOK_NE_at_preludeEnv`, at the oracle `PreludeSpec.lean` already built; row 83c's
+  frontier narrows from "parameters/indices" to "**large elimination** with parameters", i.e.
+  `iffIndDecl` and `eqIndDecl` only.
+* **NEW blindness instance, and it is retroactive** — `PropSplit` is not known inhabited at any
+  environment, so rows 11a, 72 and 83c's positive cells, and §10.1, are all conditional on
+  `PropTypeAgree preludeEnv 0`.  Amend those rows rather than add one; the equivalence is
+  `nonempty_propSplit_preludeEnv_iff`.
+* **`NotProofNoModel.lean` §6's non-composition is about `nv ≥ 2`** —
+  `propTypeAgree_zero_iff_equivZero`.  The two repairs that file proposes are unnecessary at the
+  instance H2 consumes.
+* **`inductOracleOK_zero`'s oracle is refuted at a prelude block** —
+  `not_mem_interp_zeroOracle_NE_type`.  The empty-domain mechanism does not reach the prelude.
+
+### 10.9 What to pick up first
+
+1. **`PropTypeAgree preludeEnv 0`.**  It was item 3; it is now item 1, because §10.2 makes it
+   the vacuity guard for *everything* in this corner, and §10.3 removes the level-layer
+   obstruction at the only `nv` that matters.  The remaining bridge is `HasTypeN U n` ↔
+   `HasType 0`; that is a statement about the syntactic side's stratification, not about the
+   model, so **check whether `Theory/Typing` already has it before building anything**.
+2. **`iffIndDecl` before `eqIndDecl`** — five binders and no index against six with one, and
+   `UnitOracleLarge.recFnL` is the template.  Expect the oracle's value to branch on
+   `u.eval ls = 0` exactly as `unitOracleL`'s does; §7.4's "the level branch is FORCED" should
+   reappear, and the `= 0` slice should be free by §10.1's argument.
+3. **The const-true refutation at `nonemptyIndDecl`**, to close the `consts` cell's negative
+   direction *at a `WF` prelude block* rather than at a block of one's own choosing.
+4. **`InstDescendUp 0`'s `.bvar k` case** — unchanged from §7.9, §8.7 and §9.7, and still
+   untouched.
+
+**Do not** re-attack: `inductOracleOK_zero`'s oracle at any prelude block (refuted, §10.1),
+`InterpSound.mkLam_mem_mkForallType` against an oracle-supplied domain (§10.6 item 2), the
+`sort_inst` refutation (§7.1), or `Equiconsistency.lean`'s `↔` (§8.5 item 1).
