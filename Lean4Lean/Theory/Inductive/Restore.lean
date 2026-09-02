@@ -992,6 +992,113 @@ theorem restore_noK {R : VIndRestore} {D : VInductDecl'} {K : List Lean.Name}
   | k, .forallE A b, h => by
     rw [restore, restore_noK hown k A h.1, restore_noK hown (k+1) b h.2]
 
+/-! ### The empirical rule of the redex corner, as a theorem
+
+Seven machine-checked confirmations in `Theory/Inductive/MemberRedex.lean` and
+`Theory/Inductive/ParamRedex.lean` all say the same thing: *anything indexed by the block's own
+member restores trivially; the content lives at companion-pointing positions.*  The two lemmas
+above nearly say it and both fall short in the same way — they ask `VExpr.NoConsts K` of the
+**whole** subterm, i.e. they look at every constant in it.  The rule as used only ever looks at
+**heads**.
+
+`restore_ownOcc` is the exact statement: when the trigger fires at a member the step *declares*,
+the rewrite is the identity **whatever the residual arguments contain** — because `restore` does
+not descend into a replacement (`VIndRestore.restore`'s `some` branches hand the residual
+arguments to `tyAppR` unrestored), and `OwnId` makes that replacement the original occurrence.
+`VInductDecl'.OwnHeads` below closes it under the congruence cases, and `restore_noK` becomes a corollary
+(`ownHeads_of_noConsts`). -/
+
+/-- What the trigger's success says about the *head*: the member it reports is the one whose
+name heads `e`'s spine.  Extracted from `uniformOcc?_tyAppR_eq`'s proof, which needed it
+inline. -/
+theorem uniformOcc?_spec_head {D : VInductDecl'} {k : Nat} {e : VExpr} {j : Nat}
+    {rest : List VExpr} (hu : D.uniformOcc? k e = some (j, rest)) :
+    ∃ (T : VIndType) (ls : List VLevel), D.types[j]? = some T ∧ e.spineFn = .const T.name ls := by
+  rw [VInductDecl'.uniformOcc?] at hu
+  split at hu
+  · next n ls hsp =>
+    split at hu
+    · next hj =>
+      split at hu
+      · cases hu
+        obtain ⟨T, hT, rfl⟩ := VInductDecl'.memberIdx_spec' hj
+        exact ⟨T, ls, hT, hsp⟩
+      · exact absurd hu nofun
+    · exact absurd hu nofun
+  · exact absurd hu nofun
+
+/-- **The rule, at one occurrence.**  If the trigger fires at `e` and reports a member the step
+declares, the restoration is the identity on `e` — with **no** condition on `e`'s residual
+arguments, which may name companion constants freely.  Strictly stronger than `restore_noK`
+(see `MPWit.mp_ownHeads_not_noConsts` at a concrete block). -/
+theorem restore_ownOcc {R : VIndRestore} {D : VInductDecl'} {K : List Lean.Name}
+    (hown : R.OwnId D K) {k : Nat} {e : VExpr} {j : Nat} {rest : List VExpr}
+    (hu : D.uniformOcc? k e = some (j, rest)) {T : VIndType}
+    (hT : D.types[j]? = some T) (hK : T.name ∉ K) : R.restore D k e = e := by
+  have key : D.tyAppR R j k rest = e := by
+    rw [hown.tyAppR_eq hT hK]; exact VInductDecl'.uniformOcc?_sound hu
+  cases e with
+  | bvar i | sort u | lam A b | forallE A b => exact absurd hu nofun
+  | const n ls => rw [restore, hu]; exact key
+  | app f a => rw [restore, hu]; exact key
+
+end VIndRestore
+
+/-- **The rule, closed under the congruences: the positions at which the restoration is the
+identity.**  Read it as a head-by-head walk of `e`: at every position the trigger fires on, it
+must report a member the step *declares* (`own`) — and then the walk **stops**, so the residual
+arguments are unconstrained; at every other position only a bare companion constant is
+forbidden (`const`).
+
+This is the precise content of the seven confirmations, and it is what makes their cost
+predictable rather than measured: whether a position restores trivially is decided by the
+**head** of each occurrence, not by the constants inside it. -/
+inductive VInductDecl'.OwnHeads (D : VInductDecl') (K : List Lean.Name) : Nat → VExpr → Prop
+  | bvar (k i) : OwnHeads D K k (.bvar i)
+  | sort (k u) : OwnHeads D K k (.sort u)
+  /-- The trigger fires here, at a member the step declares: stop. -/
+  | own {k e j rest T} : D.uniformOcc? k e = some (j, rest) → D.types[j]? = some T →
+      T.name ∉ K → OwnHeads D K k e
+  | const {k n ls} : n ∉ K → OwnHeads D K k (.const n ls)
+  | app {k f a} : D.uniformOcc? k (.app f a) = none →
+      OwnHeads D K k f → OwnHeads D K k a → OwnHeads D K k (.app f a)
+  | lam {k A b} : OwnHeads D K k A → OwnHeads D K (k+1) b → OwnHeads D K k (.lam A b)
+  | forallE {k A b} : OwnHeads D K k A → OwnHeads D K (k+1) b → OwnHeads D K k (.forallE A b)
+
+namespace VIndRestore
+
+/-- **The theorem.**  `OwnHeads` is exactly a certificate that the restoration does nothing. -/
+theorem restore_ownHeads {R : VIndRestore} {D : VInductDecl'} {K : List Lean.Name}
+    (hown : R.OwnId D K) : ∀ {k : Nat} {e : VExpr}, D.OwnHeads K k e → R.restore D k e = e := by
+  intro k e h
+  induction h with
+  | bvar | sort => rfl
+  | own hu hT hK => exact restore_ownOcc hown hu hT hK
+  | const hn => exact restore_noK hown _ _ hn
+  | app hu _ _ ihf iha => rw [restore, hu, ihf, iha]
+  | lam _ _ ihA ihb => rw [restore, ihA, ihb]
+  | forallE _ _ ihA ihb => rw [restore, ihA, ihb]
+
+/-- `restore_noK` is the `OwnHeads` theorem's corollary: a companion-free expression is
+`OwnHeads` at every depth.  (Proved directly rather than by `restore_noK`, so that the
+implication between the two hypotheses is on record and not just the implication between
+their conclusions.) -/
+theorem ownHeads_of_noConsts {D : VInductDecl'} {K : List Lean.Name} :
+    ∀ (k : Nat) (e : VExpr), VExpr.NoConsts K e → D.OwnHeads K k e
+  | k, .bvar i, _ => .bvar k i
+  | k, .sort u, _ => .sort k u
+  | _, .const _ _, h => .const h
+  | k, .app f a, h => by
+    cases hu : D.uniformOcc? k (.app f a) with
+    | none => exact .app hu (ownHeads_of_noConsts k f h.1) (ownHeads_of_noConsts k a h.2)
+    | some p =>
+      obtain ⟨j, rest⟩ := p
+      obtain ⟨T, ls, hT, hsp⟩ := uniformOcc?_spec_head hu
+      exact .own hu hT (VInductDecl'.noConsts_spineFn h hsp)
+  | k, .lam A b, h => .lam (ownHeads_of_noConsts k A h.1) (ownHeads_of_noConsts (k+1) b h.2)
+  | k, .forallE A b, h =>
+    .forallE (ownHeads_of_noConsts k A h.1) (ownHeads_of_noConsts (k+1) b h.2)
+
 /-- `restore` passes through a companion-free binder telescope, tracking the depth. -/
 theorem restore_mkPi_noK {R : VIndRestore} {D : VInductDecl'} {K : List Lean.Name}
     (hown : R.OwnId D K) :

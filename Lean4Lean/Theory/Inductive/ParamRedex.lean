@@ -2518,6 +2518,207 @@ theorem mp_csubst_WF₃_false {E₁ E₂ E₃ F₁ F₂ F₃ : VEnv} {U : Nat}
           (mpRestore.csubstTy (mpAux mpAuxNodeB) mpK)⟩) (by exact List.Mem.head _)))
     mp_csubst_obj_none (fun hh => mp_const_clause_ne (hh.symm.trans mp_obj_declared))
 
+/-! ## §19 Row 143d's rule, as a THEOREM — and its two faces separated
+
+Row 143d's regularity ("anything indexed by the block's own member restores trivially; the
+content lives at companion-pointing positions") had seven machine-checked confirmations across
+`MemberRedex.lean`, `StoredIota.lean`, `ConstSubstNested.lean` and §§16–18 above, every one by
+`decide` or `rfl`.  It is now a theorem — **two** theorems, because the confirmations were not all
+instances of one statement:
+
+* **the restore face** — `VIndRestore.restore_ownHeads` with `VInductDecl'.OwnHeads`
+  (`Theory/Inductive/Restore.lean`, new): the whole-expression rewrite is the identity on an
+  expression all of whose *uniform occurrences* are at members the step declares.  The point is
+  that only **heads** are tested: `restore` does not descend into a replacement, so at an
+  own-member uniform occurrence the residual arguments may name companion constants freely.
+  `VExpr.NoConsts K` — what `restore_noK` asks — is strictly stronger (`mp_ownComp_not_noConsts`
+  below).
+* **the head face** — `VIndRestore.OwnId.tyAppR'_eq` / `.ctorAppR_eq`
+  (`Theory/Inductive/NestedRules.lean`): the *constructions* `tyAppR'` and `ctorAppR` collapse to
+  `tyApp'` and `ctorApp'` at such a member.  Those two already existed; this section only records
+  which confirmations they own, and that neither is about `restore` at all.
+
+**Side condition of the restore face, named:** the occurrence must be *uniform*, i.e.
+`D.uniformOcc?` must fire — head a block member at `D.ownLvls` whose first `D.np` arguments are
+exactly `bvars k D.np`.  With an own head but a non-uniform parameter run the trigger returns
+`none`, `restore` descends, and a companion constant inside **does** move.  Each `own` premise
+below is that side condition, discharged by `decide` at the position in question, at `D.np = 1`
+here and at `D.np = 0` at `MRWit.MJ`.
+
+**Which of the seven the restore face does *not* cover:** the three head-face ones
+(`rMaj_node_eq`, `mpA5₀_eq`, `mpMaj_obj_eq`) — and `MRWit.mr_obj_entry_substC_eq`, which is not an
+instance of row 143d at all: that is a **companion**-pointing position, where the restoration
+genuinely moves (`MRWit.mr_objFieldTypesR_ne_fields`), and what identifies the two sides there is
+`σ` at `D.np = 0` (§4's measurement), not the rule. -/
+
+/-- The block's own member, in the form `OwnHeads.own` asks for. -/
+theorem mp_types0 : (mpAux mpAuxNodeB).types[0]? = some
+    { name := ``MP, type := .forallE (.sort (.succ .zero)) (.sort (.succ .zero)),
+      indices := [], ctors := [mpObj] } := rfl
+
+theorem mp_own_notK : ``MP ∉ mpK := by decide
+
+/-! ### §19.1 The restore face at `MP`: the redex field and the companion field telescope -/
+
+/-- **The certificate for the stored redex.**  Two congruences and one `own`: the trigger fires on
+the redex's *body* `MP #2` at depth `2` — a uniform occurrence of the block's own member — and
+stops there; the top-level application is not a uniform occurrence at all (its spine head is a
+`lam`), so the walk descends. -/
+theorem mp_ownHeads_redex : (mpAux mpAuxNodeB).OwnHeads mpK 1 mpRedex :=
+  .app (by decide)
+    (.lam (.sort 1 .zero) (.own (rest := []) (by decide) mp_types0 mp_own_notK)) (.bvar 1 0)
+
+/-- **Row 127f from the theorem, not from `restore_noK`.**  Same statement as
+`mp_restore_redex_id`; the derivation now goes through the rule rather than through
+"companion-free everywhere", which is the hypothesis that happens to hold here and does not hold
+in general (§19.3). -/
+theorem mp_restore_redex_id' :
+    mpRestore.restore (mpAux mpAuxNodeB) 1 mpRedex = mpRedex :=
+  VIndRestore.restore_ownHeads mpRestore_ownId mp_ownHeads_redex
+
+theorem mp_auxFieldTypesR_split :
+    mpAuxNodeB.fieldTypesR (mpAux mpAuxNodeB) mpRestore
+      = [.sort .zero, mpRestore.restore (mpAux mpAuxNodeB) 1 mpRedex] := rfl
+
+/-- **The fourth confirmation, `decide`-free.**  Same statement as
+`mp_auxFieldTypesR_eq_fields`, derived. -/
+theorem mp_auxFieldTypesR_eq_fields' :
+    mpAuxNodeB.fieldTypesR (mpAux mpAuxNodeB) mpRestore = mpAuxNodeB.fields.map (·.type) := by
+  rw [mp_auxFieldTypesR_split, mp_restore_redex_id']; rfl
+
+/-! ### §19.2 …and at `MRWit.MJ`, where `D.np = 0`
+
+The side condition is discharged differently at `np = 0` — the trigger fires on the bare constant
+`MJ`, with an empty parameter run — so the two blocks together show the rule is not an artefact of
+either value of `np`. -/
+
+theorem mr_types0 : (MRWit.mrAux MRWit.mrAuxNodeB).types[0]? = some
+    { name := ``MRWit.MJ, type := .sort (.succ .zero), indices := [],
+      ctors := [MRWit.mrObj] } := rfl
+
+theorem mr_own_notK : ``MRWit.MJ ∉ MRWit.mrK := by decide
+
+theorem mr_ownHeads_redex : (MRWit.mrAux MRWit.mrAuxNodeB).OwnHeads MRWit.mrK 1 MRWit.mrRedex :=
+  .app (by decide)
+    (.lam (.sort 1 .zero) (.own (rest := []) (by decide) mr_types0 mr_own_notK)) (.bvar 1 0)
+
+theorem mr_restore_redex_id' :
+    MRWit.mrRestore.restore (MRWit.mrAux MRWit.mrAuxNodeB) 1 MRWit.mrRedex = MRWit.mrRedex :=
+  VIndRestore.restore_ownHeads MRWit.mrRestore_ownId mr_ownHeads_redex
+
+/-- **The first confirmation, `decide`-free** — `MRWit.mr_auxFieldTypesR_eq_fields`, derived. -/
+theorem mr_auxFieldTypesR_eq_fields' :
+    MRWit.mrAuxNodeB.fieldTypesR (MRWit.mrAux MRWit.mrAuxNodeB) MRWit.mrRestore
+      = MRWit.mrAuxNodeB.fields.map (·.type) := by
+  rw [show MRWit.mrAuxNodeB.fieldTypesR (MRWit.mrAux MRWit.mrAuxNodeB) MRWit.mrRestore
+        = [.sort .zero, MRWit.mrRestore.restore (MRWit.mrAux MRWit.mrAuxNodeB) 1 MRWit.mrRedex]
+      from rfl, mr_restore_redex_id']
+  rfl
+
+/-! ### §19.3 The theorem is strictly stronger than `restore_noK` — and where it is exercised
+
+`mpOwnComp` is `MP #0 _nested.MDep_1`: a uniform occurrence of the block's **own** member whose
+residual argument is the **companion** constant.  `OwnHeads` holds of it, `VExpr.NoConsts mpK`
+fails of it, and the restoration is the identity on it — because `restore` hands the residual
+arguments to `tyAppR` unrestored.
+
+**Honest limitation, and a correction to the brief's "cost is now predictable" claim.**  This
+witness is a well-formed `VExpr` that the trigger fires on, but it is **not** a term the `MP`
+block contains: `MP` takes nothing beyond its parameter, so its uniform occurrences have empty
+residual argument lists, and the same is true of `MJ`, `NTree` and every other member in the
+witness cone.  So at all seven confirmation sites `restore_noK` would have sufficed, and the extra
+generality is currently **unexercised**.  It becomes load-bearing exactly at an *indexed* nested
+block — a member whose index mentions the container it nests through — of which this repository
+has no witness.  Ledger row for that gap is in `docs/handoff-iota-stored.md` §54. -/
+def mpOwnComp : VExpr := (mpAux mpAuxNodeB).tyApp 0 0 [.const mpNestedName []]
+
+theorem mp_ownComp_ownHeads : (mpAux mpAuxNodeB).OwnHeads mpK 0 mpOwnComp :=
+  .own (VInductDecl'.uniformOcc?_tyApp mpAuxB_blockNames_nodup mp_types0 0 _) mp_types0
+    mp_own_notK
+
+/-- `restore_noK`'s hypothesis is **false** here, so `restore_noK` does not apply. -/
+theorem mp_ownComp_not_noConsts : ¬ VExpr.NoConsts mpK mpOwnComp :=
+  fun h => h.2 (by decide)
+
+theorem mp_ownComp_restore_id : mpRestore.restore (mpAux mpAuxNodeB) 0 mpOwnComp = mpOwnComp :=
+  VIndRestore.restore_ownHeads mpRestore_ownId mp_ownComp_ownHeads
+
+/-- **The side condition tested, not assumed.**  `mpOwnNonUnif` is `MP #5 (_nested.MDep_1 #0)`:
+the **same two constants** as `mpOwnComp`, the block's own member still at the head — but the
+parameter run is `#5` instead of `#0`, so the occurrence is not *uniform*, the trigger returns
+`none`, `restore` descends, and the companion occurrence inside **moves**.  So the uniformity
+condition is not decoration: drop it and the rule is false, at this very block. -/
+def mpOwnNonUnif : VExpr :=
+  .app (.app mpNt (.bvar 5)) (.app (.const mpNestedName []) (.bvar 0))
+
+theorem mp_ownNonUnif_not_uniform : (mpAux mpAuxNodeB).uniformOcc? 0 mpOwnNonUnif = none := by
+  decide
+
+/-- …and the restoration **moves** it, unlike `mpOwnComp` (`mp_ownComp_restore_id`). -/
+theorem mp_ownNonUnif_restore_ne :
+    mpRestore.restore (mpAux mpAuxNodeB) 0 mpOwnNonUnif ≠ mpOwnNonUnif := by decide
+
+theorem mp_not_ownHeads_ownNonUnif : ¬ (mpAux mpAuxNodeB).OwnHeads mpK 0 mpOwnNonUnif :=
+  fun h => mp_ownNonUnif_restore_ne (VIndRestore.restore_ownHeads mpRestore_ownId h)
+
+/-! ### §19.4 Anti-vacuity: `OwnHeads` FAILS at the companion-pointing positions
+
+The requirement a weakening has to meet.  At both blocks the user constructor's stored field is a
+companion occurrence, the restoration genuinely **moves** it, and therefore — by the theorem,
+contrapositively — `OwnHeads` does not hold of it.  So the predicate is not satisfied by
+everything, and the seven confirmations are not seven instances of a vacuity. -/
+
+theorem mp_objField_restore_ne :
+    mpRestore.restore (mpAux mpAuxNodeB) 0 (.app (.const mpNestedName []) (.bvar 0))
+      ≠ .app (.const mpNestedName []) (.bvar 0) := by decide
+
+/-- `MP.obj`'s stored field — the companion-pointing position §4 measured — is **not** `OwnHeads`.
+Its `uniformOcc?` fires at member `1`, whose name is in `mpK`. -/
+theorem mp_not_ownHeads_objField :
+    ¬ (mpAux mpAuxNodeB).OwnHeads mpK 0 (.app (.const mpNestedName []) (.bvar 0)) :=
+  fun h => mp_objField_restore_ne (VIndRestore.restore_ownHeads mpRestore_ownId h)
+
+/-- …and the same at `np = 0`, so the failure is not a parameter artefact either. -/
+theorem mr_not_ownHeads_objField :
+    ¬ (MRWit.mrAux MRWit.mrAuxNodeB).OwnHeads MRWit.mrK 0 (.const MRWit.mrNestedName []) :=
+  fun h => absurd (VIndRestore.restore_ownHeads MRWit.mrRestore_ownId h) (by decide)
+
+/-! ### §19.5 The head face: the three confirmations that are not about `restore`
+
+`mpA5₀_eq` and `mpMaj_obj_eq` are `rfl`/`decide` above; they are instances of
+`VIndRestore.OwnId.tyAppR'_eq` and `.ctorAppR_eq` (`Theory/Inductive/NestedRules.lean`), which
+this file cannot cite — `NestedRules.lean` imports `ConstSubstNested.lean`, which imports *this*
+file, so the citation has to go in the other direction.  What is recorded here is the two head
+equations themselves, at the block, as `rfl` rather than `decide`: the collapse is a
+*computation* on `mpRestore`, not a search. -/
+
+/-- `MP.rec`'s major-premise domain is `tyApp' 0 4 []`, and its restored form is the same
+expression — the head face at a type head (negative result 1 of §16.4, re-derived). -/
+theorem mp_maj0_head_eq :
+    (mpAux mpAuxNodeB).tyApp' 0 4 [] = mpA5₀
+      ∧ (mpAux mpAuxNodeB).tyAppR' mpRestore 0 4 [] = mpA5₀ := ⟨rfl, rfl⟩
+
+/-- The seventh confirmation, `decide`-free: the two major-premise *constructor* heads at `MP.obj`
+are the same expression **before** `σ`, so `mpMaj_obj_eq` is a `congrArg`. -/
+theorem mpMaj_obj_head_eq :
+    (mpAux mpAuxNodeB).ctorApp' mpObj (mpObj.fields.length
+        + ((mpAux mpAuxNodeB).nm + (mpAux mpAuxNodeB).nmin))
+      (VExpr.bvars 0 mpObj.fields.length)
+    = (mpAux mpAuxNodeB).ctorAppR mpRestore 0 mpObj (mpObj.fields.length
+        + ((mpAux mpAuxNodeB).nm + (mpAux mpAuxNodeB).nmin))
+      (VExpr.bvars 0 mpObj.fields.length) := rfl
+
+theorem mpMaj_obj_eq' :
+    ((mpAux mpAuxNodeB).ctorApp' mpObj (mpObj.fields.length
+          + ((mpAux mpAuxNodeB).nm + (mpAux mpAuxNodeB).nmin))
+        (VExpr.bvars 0 mpObj.fields.length)).substC
+        (mpRestore.csubst (mpAux mpAuxNodeB) mpK)
+      = ((mpAux mpAuxNodeB).ctorAppR mpRestore 0 mpObj (mpObj.fields.length
+          + ((mpAux mpAuxNodeB).nm + (mpAux mpAuxNodeB).nmin))
+        (VExpr.bvars 0 mpObj.fields.length)).substC
+        (mpRestore.csubst (mpAux mpAuxNodeB) mpK) :=
+  congrArg (VExpr.substC · (mpRestore.csubst (mpAux mpAuxNodeB) mpK)) mpMaj_obj_head_eq
+
 end MPWit
 end MRedex
 end Lean4Lean

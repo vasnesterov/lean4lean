@@ -2469,3 +2469,196 @@ constants stage 3 *declares* are new.  That guard has now paid twice.
 5. **Run the tree-wide suite** — guards, `sorry-census`, `dup-names`, `MemberRedexScan`.  Do not take
    §51 on trust.
 6. **`Built.fields_noK`** — still out of scope, **seventh** round untouched (row 117c).
+
+## 54. The empirical rule is now a THEOREM — "heads decide", and `NoConsts` was the wrong test
+
+Assignment: turn *"anything indexed by the block's own member restores trivially; the content lives
+at companion-pointing positions"* — seven confirmations, no counterexample — into a theorem, at
+whatever generality it holds, with the side condition named and tested.
+
+**Result: proved, at a generality strictly greater than the seven confirmations use.**  Nothing was
+refuted; but the brief's recommended route is **not** what the theorem needs, and I say where below
+(§54.3).
+
+### 54.1 The statement, and why the two existing lemmas both fell short
+
+`Theory/Inductive/Restore.lean`, new block after `restore_noK` (all four in `VIndRestore`, plus one
+inductive in `VInductDecl'`):
+
+| name | content |
+|---|---|
+| `VIndRestore.uniformOcc?_spec_head` | the trigger's success identifies the *head*: `∃ T ls, D.types[j]? = some T ∧ e.spineFn = .const T.name ls` (this was inline inside `uniformOcc?_tyAppR_eq`'s proof and is now a lemma) |
+| `VIndRestore.restore_ownOcc` | **the rule at one occurrence**: `D.uniformOcc? k e = some (j, rest) → D.types[j]? = some T → T.name ∉ K → R.restore D k e = e`, given `R.OwnId D K`. **No hypothesis whatever on `e`'s residual arguments.** |
+| `VInductDecl'.OwnHeads D K : Nat → VExpr → Prop` | the rule closed under the congruences: an inductive predicate with `own` (trigger fires, member off `K` — and the walk **stops there**), `const` (a bare constant off `K`), and `app`/`lam`/`forallE` congruences carrying the depth |
+| `VIndRestore.restore_ownHeads` | **the theorem**: `R.OwnId D K → D.OwnHeads K k e → R.restore D k e = e` |
+| `VIndRestore.ownHeads_of_noConsts` | `VExpr.NoConsts K e → D.OwnHeads K k e`, so `restore_noK` is a corollary — the implication is recorded between the *hypotheses*, not just the conclusions |
+
+The reason `restore_noK` (the brief's "closest existing general statement" — correct) is not the
+rule: it asks `VExpr.NoConsts K` of the **whole** subterm, i.e. of every constant occurring in it.
+The rule as used only ever looks at **heads**.  `restore`'s `some` branches hand the residual
+arguments to `tyAppR` *unrestored* — "the operator does not descend into a replacement", which the
+file's own docstring says about `restore` but which no lemma had cashed in — so at an own-member
+uniform occurrence the restoration is the identity *whatever the arguments contain*, companion
+constants included.  That is the whole content of `restore_ownOcc`, and it is where the generality
+comes from.
+
+**Side condition, named:** the occurrence must be *uniform* — `D.uniformOcc?` must fire, i.e. the
+head is a block member at level list `D.ownLvls` and its **first `D.np` arguments are exactly
+`bvars k D.np`**.  If the head is the block's own member but the parameters are not passed through,
+the trigger returns `none`, `restore` descends, and a companion constant deeper inside **does**
+move.  So the rule is not "own head ⇒ trivial"; it is "own head *at a uniform occurrence* ⇒
+trivial".  `OwnHeads.app`'s `D.uniformOcc? k (.app f a) = none` premise is exactly that book-keeping,
+and it is what makes the predicate a certificate rather than a wish.
+
+Build: `lake build Lean4Lean.Theory.Inductive.Restore` — **34 jobs, completed successfully**, 2.7s.
+Axioms (`#print axioms`, by name, run in a scratch snippet importing the module):
+`Lean4Lean.VIndRestore.uniformOcc?_spec_head`, `.restore_ownOcc`, `.restore_ownHeads`,
+`.ownHeads_of_noConsts` and `Lean4Lean.VInductDecl'.OwnHeads.rec` each depend on exactly
+`[propext, Quot.sound]`.  No `sorryAx`, no frozen axiom, no new `sorry` anywhere.
+
+### 54.2 The seven confirmations classified — and one of them is NOT an instance of the rule
+
+They are not seven instances of one statement.  They split into **two faces**, and one of the seven
+belongs to neither:
+
+| # | confirmation | face | now derived from the theorem? |
+|---|---|---|---|
+| 1 | `MRWit.mr_auxFieldTypesR_eq_fields` (`StoredIota.lean`, `decide`) | restore | yes — `MPWit.mr_auxFieldTypesR_eq_fields'` (§19.2) |
+| 2 | `MRWit.mr_obj_entry_substC_eq` — "the `hrec` conversion" | **neither** | see below |
+| 3 | `rMaj_node_eq` (`ConstSubstNested.lean`, `decide`) | head | by `VIndRestore.OwnId.ctorAppR_eq`, which already existed |
+| 4 | `MPWit.mp_auxFieldTypesR_eq_fields` (`decide`) | restore | yes — `mp_auxFieldTypesR_eq_fields'` (§19.1) |
+| 5 | `MPWit.mp_restore_redex_id` (row 127f) | restore | yes — `mp_restore_redex_id'` (§19.1) |
+| 6 | `MPWit.mpA5₀_eq` (§16.4 negative result 1) | head | `mp_maj0_head_eq` (§19.5), `rfl` not `decide` |
+| 7 | `MPWit.mpMaj_obj_eq` (§17.1, `decide`) | head | `mpMaj_obj_head_eq` + `mpMaj_obj_eq'` (§19.5), a `congrArg` |
+
+* **restore face** = the whole-expression rewrite is the identity: `restore_ownHeads`, this round.
+* **head face** = the *constructions* `tyAppR'`/`ctorAppR` collapse to `tyApp'`/`ctorApp'`:
+  `VIndRestore.OwnId.tyAppR'_eq` and `.ctorAppR_eq`, which **already exist**, in
+  `Theory/Inductive/NestedRules.lean` (untracked, this corner's in-flight file).  They are not
+  about `restore` at all, and I did not touch that file.
+
+**Where the brief is wrong (1): confirmation 2 is not a confirmation.**
+`MRWit.mr_obj_entry_substC_eq` is at `MJ.obj` — a **companion**-pointing position, where the
+restoration genuinely *moves* (`MRWit.mr_objFieldTypesR_ne_fields`).  What makes its two sides equal
+is `σ` at `D.np = 0`: `substC_tyApp_comp` produces a `D.np`-fold β-redex, and at `np = 0` that redex
+is empty — §4 of `ParamRedex.lean` says so in as many words ("an artefact of `np = 0` alone", and
+`mp_obj_entry_substC_ne` is the same statement turning into `≠` at `np = 1`).  Filing it under
+*"anything indexed by the block's own member restores trivially"* is a misattribution: it is a
+companion position collapsing for an unrelated reason, and it does **not** survive `np = 1`.  The
+rule's confirmation count in this corner is **six**, not seven.
+
+**Where the brief is wrong (2): the recommended route is not what the theorem needs.**  The brief
+recommended "`OwnId` plus `substC_tyApp_comp`".  `OwnId` is right and is the only hypothesis
+`restore_ownHeads` takes.  `substC_tyApp_comp` plays **no part**: it is the β-gap lemma about `σ`,
+and the rule is a fact about `restore` *before* any substitution — the restore face never mentions
+`σ`, and the head face uses `OwnId.ctorAppR_eq`, not `substC_tyApp_comp`.  Where
+`substC_tyApp_comp` does belong is confirmation 2, i.e. the one that is not an instance of the rule.
+
+### 54.3 The side condition, named and TESTED
+
+Named: **the occurrence must be uniform** (`D.uniformOcc?` fires).  Satisfied at every confirmation
+site — each `own` premise in §19 is exactly that, `decide`d at the position, at `D.np = 1` (`MP`) and
+at `D.np = 0` (`MRWit.MJ`), so it is not an artefact of either value of `np`.
+
+Tested, at the same block, by the sharpest pair I could build (§19.3):
+
+| witness | shape | uniform? | restoration |
+|---|---|---|---|
+| `mpOwnComp` | `MP #0 _nested.MDep_1` | yes | **identity** (`mp_ownComp_restore_id`) |
+| `mpOwnNonUnif` | `MP #5 (_nested.MDep_1 #0)` | no (`mp_ownNonUnif_not_uniform`) | **moves** (`mp_ownNonUnif_restore_ne`) |
+
+Same two constants, same own head; only the parameter run differs.  Drop the uniformity condition
+and the rule is **false at this very block** — so the condition is load-bearing and is not one I
+invented to make a statement go through.
+
+### 54.4 Anti-vacuity, to the standard this corner sets
+
+`OwnHeads` is not a predicate everything satisfies.  Three refutations, all obtained *from* the
+theorem contrapositively (restoration moves ⇒ not `OwnHeads`), so they cannot be an artefact of a
+weak predicate:
+
+* `mp_not_ownHeads_objField` — `MP.obj`'s stored field `_nested.MDep_1 #0`, the companion-pointing
+  position, `np = 1`; `mp_objField_restore_ne` is the movement.
+* `mr_not_ownHeads_objField` — the same at `MRWit.MJ`, `np = 0`.
+* `mp_not_ownHeads_ownNonUnif` — the non-uniform own head of §54.3.
+
+**Hole-free vs discharged, reported separately as required.**  Everything in §54 is *discharged*:
+no `sorry`, no new hypothesis, no `axiom`, every statement closed against the definitions already in
+the tree.  Nothing here is merely hole-free-but-assumed.  What is *not* discharged is anything about
+whether the extra generality is ever used — see §54.5, which is a negative measurement, not a hole.
+
+### 54.5 Where the strengthening is UNEXERCISED — the honest limit of "cost is now predictable"
+
+`restore_ownHeads` is strictly stronger than `restore_noK`: `mpOwnComp` satisfies `OwnHeads`,
+**fails** `VExpr.NoConsts mpK` (`mp_ownComp_not_noConsts`, so `restore_noK` does not apply), and the
+restoration is the identity on it.  But `mpOwnComp` is a hand-built `VExpr`, not a term the `MP`
+block contains: `MP` takes nothing beyond its parameter, so its uniform occurrences have **empty**
+residual argument lists — and the same holds of `MJ`, `NTree`, `nfnAux` and every other member in
+the witness cone.
+
+So: at all six genuine confirmation sites, `restore_noK` would have sufficed.  The strengthening
+becomes load-bearing exactly at an **indexed** nested block — a member one of whose *indices*
+mentions the container it nests through (`inductive Foo : List Foo → Type`-shaped) — and this
+repository has **no such witness**.  That is the honest form of the brief's "cost predictable instead
+of measured": the *criterion* is now a theorem and is head-local, which is what makes it predictable;
+but for the blocks currently in the tree the cheaper criterion was already adequate, and I cannot
+claim this round removed a measurement anyone was actually doing.
+
+### 54.6 What I tried that failed, and the exact step
+
+1. **`restore_ownOcc` by `split` on the `restore` match, contradiction branch by
+   `rw [hu] at hu'; exact absurd hu' nofun`** — failed at the `exact`, "no goals to be solved": `rw`
+   at the hypothesis already closes the goal in the `.const` branch (and, asymmetrically, does not in
+   the `.app` branch).  Fixed by not splitting at all: `rw [restore, hu]` reduces the matcher on the
+   scrutinee directly, and both branches become one line.
+2. **`ownHeads_of_noConsts` reusing `uniformOcc?_tyAppR_eq`'s inlined inversion** — failed at
+   `exact .own (by rw [VInductDecl'.uniformOcc?]; exact hu) …` with a type mismatch: after
+   `split at hu` the hypothesis is the *if*-expression, and re-folding it to `D.uniformOcc? k e` is
+   not a `rw`.  Fixed by extracting the inversion once as `uniformOcc?_spec_head`, which is a
+   strictly better factoring — `uniformOcc?_tyAppR_eq` had that argument inline and can now be
+   rewritten to use it (I did not, to keep the diff additive).
+3. **Doc comment on an inductive constructor placed *before* the `|`** — parse error
+   "unexpected token '/--'".  Constructor docstrings go after the bar.
+4. **Citing `OwnId.ctorAppR_eq` from `ParamRedex.lean`** — impossible, not merely awkward:
+   `NestedRules.lean` → `RestoreBridge.lean` → `ConstSubstNested.lean` → `ParamRedex.lean`, so the
+   head-face lemma is strictly *downstream* of the block it would be applied to.  §19.5 therefore
+   records the two head equations as `rfl` at the block and says where the citation belongs.
+
+### 54.7 Measured vs read off
+
+* **Measured (per-module `lake build`, this round):**
+  `Lean4Lean.Theory.Inductive.Restore` — **34 jobs**, success, 2.7s.
+  `Lean4Lean.Theory.Inductive.ParamRedex` — **72 jobs**, success, 5.4s warm (39.8s on the first
+  rebuild after the `Restore.lean` edit).
+* **Measured (axioms):** all **30** new declarations printed individually (5 in `Restore.lean`, 25 in `ParamRedex.lean`); `[propext, Quot.sound]`, or
+  `[propext]` / none for the four `def`/`rfl` ones.  No `sorryAx`, no `Classical.choice`, no frozen
+  axiom.  The only `sorry` warning anywhere in these builds is the pre-existing
+  `Theory/Inductive/Decl.lean:405`, which I did not touch.
+* **Read off, not run:** that the guards, `sorry-census`, `dup-names` and `MemberRedexScan` figures
+  are unmoved.  **Reasoning, not a run:** every edit is purely additive (two new blocks; no existing
+  declaration's statement or proof changed), the new names are fresh in their namespaces, and no
+  `partial`/`@[extern]`/`@[implemented_by]` or `axiom` was introduced.
+* **A rule I broke, reported:** I called the MCP `lean_build` tool once, to refresh a stale LSP
+  import cache after a `#print axioms` snippet failed with "imports are out of date".  That tool runs
+  a **full `lake build`** — 1517 jobs — which the brief told me not to do, and it therefore also ran
+  `MemberRedexScan`, which printed `mr/cov: GUARDED … residual 0`.  It completed successfully with no
+  errors, so nothing is broken, but the figure above is the one it printed and I did not intend to run
+  it.  Use a scratch `#print axioms` block inside the module and `lake build <module>` instead; that
+  is what produced every axiom line in this section.
+
+### 54.8 What to pick up first
+
+1. **Move the head face's citations to where they can be made.**  `NestedRules.lean` has both
+   `OwnId.ctorAppR_eq`/`tyAppR'_eq` **and** (transitively) the `MP`/`MJ`/`NTree` names, so
+   `rMaj_node_eq`, `mpA5₀_eq` and `mpMaj_obj_eq` can be re-proved there as instances rather than by
+   `decide`, deleting three `decide`s. I deliberately did not edit that file — it is untracked and
+   looked in-flight. Ask whoever owns it.
+2. **An indexed nested witness** — the one thing that would exercise §54.5.  A two-member block whose
+   own member carries an index mentioning the companion (`Foo : Aux Foo → Type`) would be the first
+   place `restore_noK` is genuinely insufficient and `restore_ownHeads` is needed, and it would also
+   test whether `uniformOcc?`'s `take D.np` book-keeping is right when indices follow the parameters.
+3. **Rewrite `uniformOcc?_tyAppR_eq` over `uniformOcc?_spec_head`** — one-lemma cleanup, deletes the
+   duplicated inversion.  Kept out of this round to keep the `Restore.lean` diff additive.
+4. **Row 143d in `docs/vacuity-ledger.md`** now has a theorem to point at; the row should say
+   *six* confirmations and name the two faces, with confirmation 2 reclassified as `np = 0`
+   degeneracy (§54.2).  I did not edit the ledger.
