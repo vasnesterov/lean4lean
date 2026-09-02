@@ -465,7 +465,7 @@ def AddInductiveRunRealisesClosed : Prop :=
           { env, allowPrimitive := ap, lparams := lp, safety := .safe, fuel }).WF fun env' =>
         ∃ ves' : VEnvs, ∀ safety, ∃ D : VInductDecl',
           TrIndDecl (ves.venv safety) lp np types false D ∧
-          D.WF (ves.venv safety) ∧ D.Canonical ∧
+          D.WF (ves.venv safety) ∧
           AddInductStages env.constants (ves.venv safety) D env'.constants (ves'.venv safety)
 
 /-- **The identity's payoff.**  `AddInductiveRunRealisesClosed` discharges the body of
@@ -484,7 +484,7 @@ theorem addInductiveRunRealises_of_closed (H : AddInductiveRunRealisesClosed)
         { env, allowPrimitive := ap, lparams := lp, safety := .safe, fuel }).WF fun env' =>
       ∃ ves' : VEnvs, ∀ safety, ∃ D : VInductDecl',
         TrIndDecl (ves.venv safety) lp np types false D ∧
-        D.WF (ves.venv safety) ∧ D.Canonical ∧
+        D.WF (ves.venv safety) ∧
         AddInductStages env.constants (ves.venv safety) D env'.constants (ves'.venv safety) := by
   rw [ElimNestedInductive.run_run'_types (fun _ _ => wf.find?_ne_inductInfo) hcl hfv
     _ _ _ (by simp) _ hres]
@@ -503,8 +503,8 @@ theorem not_trIndDecl_step_of_looseBVar {venv venv' : VEnv} {m m' : ConstMap}
     {q : Nat} {c : Constructor} (hcq : t.ctors[q]? = some c)
     (hc : c.type.looseBVarRange' ≠ 0) :
     ¬ ∃ D : VInductDecl', TrIndDecl venv lp np types false D ∧
-        D.WF venv ∧ D.Canonical ∧ AddInductStages m venv D m' venv' := by
-  rintro ⟨D, htr, -, -, hadd⟩
+        D.WF venv ∧ AddInductStages m venv D m' venv' := by
+  rintro ⟨D, htr, -, hadd⟩
   obtain ⟨et, het⟩ := hadd.addIndTypes
   have hj : j < D.types.length := by
     rw [← htr.length]; exact (List.getElem?_eq_some_iff.1 ht).1
@@ -1276,7 +1276,7 @@ theorem addInductiveStepWFClosed_of_run (H : AddInductiveRunRealisesClosed) :
     fun env' h' => ?_
   obtain ⟨ves', hves⟩ := h'
   refine ⟨ves', 0, fun safety => ?_⟩
-  obtain ⟨D, htr, hwf, hc, hadd⟩ := hves safety
+  obtain ⟨D, htr, hwf, hadd⟩ := hves safety
   exact ⟨D, [], D.idRestore, htr.toN hadd.addIndTypes, hadd.addIndTypes, hwf, hadd.toR⟩
 
 /-! ## 8. Instrument 7: every new statement at its degenerate instance

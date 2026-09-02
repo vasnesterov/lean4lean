@@ -372,9 +372,19 @@ theorem addInductive_WF_of_run {env : Environment} {lparams : List Name} {np : N
 /-! ## 6. The residue
 
 What is left is entirely about `AddInductive.run`: it must realise one abstract `AddInductStages`
-step, for a canonical `VInductDecl'` translating the block.  `D.Canonical` appears explicitly
-because the conservativity bridges `TrIndDecl.toN` and `AddInductStages.toR` both need it, and
-`InductStepNested` hides `D` under an existential, so it cannot be recovered afterwards.
+step for a `VInductDecl'` translating the block.
+
+**`D.Canonical` was a conjunct here and is gone (ledger ruling 122e), and the reason it was here
+was FALSE.**  This paragraph used to read: *"`D.Canonical` appears explicitly because the
+conservativity bridges `TrIndDecl.toN` and `AddInductStages.toR` both need it, and
+`InductStepNested` hides `D` under an existential, so it cannot be recovered afterwards."*
+Measured: neither bridge takes it — `TrIndDecl.toN` takes `h` and `hst`,
+`AddInductStages.toR` takes `H` alone (`Verify/Environment/InductR.lean:390`, `:198`) — and
+`addInductiveStepWF_of_run` below destructured the conjunct into `hc` and then **never used it**.
+So the conjunct was dead weight in a specification, and it was *unsatisfiable* dead weight:
+`MRedex.MRWit.mr_auxNodeB_block_not_canonical` refutes `D.Canonical` at the block level for
+`Lean.Json`, `Lean.PrefixTreeNode` and `MRedex.MRWit.MJ` — real nested inductives from Lean's own
+library — so any nested block reaching this spec could not have satisfied it.
 
 **The next lemma to prove, and the one thing §4 does not give.**  `AddInductive.run` is called
 on `res.types`, while `TrIndDecl` speaks of the *input* `types`.  With `replaceAllNested` the
@@ -403,7 +413,7 @@ def AddInductiveRunRealises : Prop :=
           { env, allowPrimitive := ap, lparams := lp, safety := .safe, fuel }).WF fun env' =>
         ∃ ves' : VEnvs, ∀ safety, ∃ D : VInductDecl',
           TrIndDecl (ves.venv safety) lp np types false D ∧
-          D.WF (ves.venv safety) ∧ D.Canonical ∧
+          D.WF (ves.venv safety) ∧
           AddInductStages env.constants (ves.venv safety) D env'.constants (ves'.venv safety)
 
 /-- **`AddInductiveStepWF` reduces to `AddInductive.run`.**  The statement of
@@ -415,7 +425,7 @@ theorem addInductiveStepWF_of_run (H : AddInductiveRunRealises) : AddInductiveSt
   refine (H wf lp np types ap fuel res hres hz).mono fun env' h' => ?_
   obtain ⟨ves', hves⟩ := h'
   refine ⟨ves', 0, fun safety => ?_⟩
-  obtain ⟨D, htr, hwf, hc, hadd⟩ := hves safety
+  obtain ⟨D, htr, hwf, hadd⟩ := hves safety
   exact ⟨D, [], D.idRestore, htr.toN hadd.addIndTypes, hadd.addIndTypes, hwf, hadd.toR⟩
 
 /-- **The chain, end to end.**  The residue implies `addDecl.WF_honest` — the honest

@@ -537,15 +537,13 @@ the `TeleDefEq` for free, so the general-`Γ` minor bridge below is a weakening 
 theorem teleDefEq_fld_of_np_zero (hp : D.params = []) (hnd : D.blockNames.Nodup)
     (hown : R.OwnId D K)
     (hat : R.SubstAt D K σ) (hcl0 : ∀ i, ∀ a ∈ R.tyArgs i, a.ClosedN 0)
-    (hfr : R.SubstFree D σ) (hcanon : C.Canonical D)
-    (hpos : ∀ (i : Nat) (F : VIndField) (r : VIndRecArg), C.fields[i]? = some F →
-      F.recArg = some r → r.idx < D.nm ∧ ∀ B ∈ r.binders, D.NoBlock B) {Γ : List VExpr} :
+    (hfr : R.SubstFree D σ) {Γ : List VExpr} :
     e.TeleDefEq U Γ
       (VExpr.liftTele (D.nm + q)
         ((D.atRecTele (C.fields.map (·.type))).map (VExpr.substC · σ)))
       (VExpr.liftTele (D.nm + q) ((D.atRecTele (C.fieldTypesR D R)).map (VExpr.substC · σ))) :=
   VEnv.TeleDefEq.of_eq (by
-    rw [VIndRestore.substC_atRec_fieldTypes hp hnd hown hat hcl0 hfr hcanon hpos])
+    rw [VIndRestore.substC_atRec_fieldTypes hp hnd hown hat hcl0 hfr])
 
 /-! ### §T6.3 The minor entry's conclusion: one `appDF`, not a spine congruence -/
 
@@ -1594,8 +1592,11 @@ shared; the other half needs each `a ∈ R.tyArgs r.idx` to satisfy
 the first place the typed route fails.
 
 `VIndCtor.fieldTypesR_closedTele` assembles it over the `zipIdx`, with the non-recursive entries
-free (`F.typeR = F.type`, so the source `ClosedTele` serves) and the recursive ones by the lemma
-above under `Canonical`.  The source closedness it consumes is already in the tree:
+free (`F.typeR = F.type`, so the source `ClosedTele` serves) and the recursive ones by
+`VIndRestore.restore_closedN` — **not** by the lemma above, and **not** under `Canonical`
+(ruling 122e).  `canonTypeR_closedN` is kept because the general spine step is the same, but the
+route through it needed `typeR_canonical` and hence `C.Canonical D`, which is false at the redex
+blocks.  The source closedness it consumes is already in the tree:
 `VIndCtor.WF.tele_closed` (`Theory/Inductive/Lemmas.lean:1724`) split by `closedTele_append`.
 
 ### 2. `substC`-invariance: my previous characterisation of this was **wrong**, and the repair is a
@@ -1703,62 +1704,88 @@ theorem canonTypeR_closedN (hcl : ∀ a ∈ R.tyArgs r.idx, a.ClosedN D.np)
 end
 end VIndRecArg
 
+namespace VIndRestore
+section
+variable {D : VInductDecl'} {R : VIndRestore}
+
+/-- **The restored head is closed wherever the block's head was** — the `tyAppR` twin of
+`VIndRecArg.canonTypeR_closedN`'s spine step, and the only place the presented spine's
+`ClosedN D.np` is consumed. -/
+theorem tyAppR_closedN {j k n : Nat} (hcl : ∀ a ∈ R.tyArgs j, a.ClosedN D.np)
+    (hkn : D.np + k ≤ n) {rest : List VExpr} (h : (D.tyApp j k rest).ClosedN n) :
+    (D.tyAppR R j k rest).ClosedN n := by
+  rw [VInductDecl'.tyApp, VExpr.closedN_mkApp] at h
+  rw [VInductDecl'.tyAppR, VInductDecl'.tyAppH, VExpr.closedN_mkApp]
+  refine ⟨trivial, fun x hx => ?_⟩
+  rcases List.mem_append.1 hx with hx | hx
+  · obtain ⟨a, ha, rfl⟩ := List.mem_map.1 hx
+    exact ((hcl a ha).liftN (n := k) (j := 0)).mono hkn
+  · exact h.2 x (List.mem_append_right _ hx)
+
+/-- **The restoration preserves closedness, at every subterm and with no canonicity side
+condition** (ledger ruling 122e).  `D.np + k ≤ n` is the only arithmetic: at depth `k` the
+presented spine has been weakened `k` times, so `ClosedN D.np` of the spine is exactly enough.
+
+This is what replaces `VIndRecArg.canonTypeR_closedN` in `VIndCtor.fieldTypesR_closedTele`: the
+old route went through `typeR_canonical` and so needed `C.Canonical D`, which is **false** at
+the three redex blocks in the running environment. -/
+theorem restore_closedN (hcl : ∀ j, ∀ a ∈ R.tyArgs j, a.ClosedN D.np) :
+    ∀ (k n : Nat), D.np + k ≤ n → ∀ (e : VExpr), e.ClosedN n → (R.restore D k e).ClosedN n
+  | _, _, _, .bvar _, h => h
+  | _, _, _, .sort _, _ => trivial
+  | k, n, hkn, .const c ls, h => by
+    rw [restore]
+    split
+    · next j rest hj =>
+      exact tyAppR_closedN (hcl j) hkn
+        (by rw [VInductDecl'.uniformOcc?_sound hj]; exact h)
+    · exact h
+  | k, n, hkn, .app f a, h => by
+    rw [restore]
+    split
+    · next j rest hj =>
+      exact tyAppR_closedN (hcl j) hkn
+        (by rw [VInductDecl'.uniformOcc?_sound hj]; exact h)
+    · exact ⟨restore_closedN hcl k n hkn f h.1, restore_closedN hcl k n hkn a h.2⟩
+  | k, n, hkn, .lam A b, h => by
+    rw [restore]
+    exact ⟨restore_closedN hcl k n hkn A h.1,
+      restore_closedN hcl (k+1) (n+1) (by omega) b h.2⟩
+  | k, n, hkn, .forallE A b, h => by
+    rw [restore]
+    exact ⟨restore_closedN hcl k n hkn A h.1,
+      restore_closedN hcl (k+1) (n+1) (by omega) b h.2⟩
+
+end
+end VIndRestore
+
 namespace VIndCtor
 section
 variable {D : VInductDecl'} {R : VIndRestore} {C : VIndCtor}
 
 /-- **§T12.1's side condition 1.** -/
-theorem fieldTypesR_closedTele (hnd : D.blockNames.Nodup)
-    (hcl : ∀ j, ∀ a ∈ R.tyArgs j, a.ClosedN D.np)
-    (hcanon : C.Canonical D)
-    (hpos : ∀ (i : Nat) (F : VIndField) (r : VIndRecArg), C.fields[i]? = some F →
-      F.recArg = some r → r.idx < D.nm ∧ ∀ B ∈ r.binders, D.NoBlock B)
+theorem fieldTypesR_closedTele (hcl : ∀ j, ∀ a ∈ R.tyArgs j, a.ClosedN D.np)
     (hsrc : VExpr.ClosedTele (C.fields.map (·.type)) D.np) :
     VExpr.ClosedTele (C.fieldTypesR D R) D.np := by
-  have key : ∀ (Fs : List VIndField) (o : Nat),
-      (∀ (k : Nat) (F : VIndField) (r : VIndRecArg), Fs[k]? = some F → F.recArg = some r →
-        F.type = r.canonType D (o + k) ∧ r.idx < D.nm ∧ ∀ B ∈ r.binders, D.NoBlock B) →
-      VExpr.ClosedTele (Fs.map (·.type)) (D.np + o) →
-      VExpr.ClosedTele ((Fs.zipIdx o).map fun p => p.1.typeR D R p.2) (D.np + o) := by
-    intro Fs
-    induction Fs with
-    | nil => intro _ _ _; simp
-    | cons F Fs ih =>
-      intro o hs hcl0
-      rw [List.zipIdx_cons, List.map_cons, VExpr.closedTele_cons]
-      rw [List.map_cons, VExpr.closedTele_cons] at hcl0
-      refine ⟨?_, ?_⟩
-      · cases hr : F.recArg with
-        | none => rw [show F.typeR D R o = F.type from by rw [VIndField.typeR, hr]]; exact hcl0.1
-        | some r =>
-          obtain ⟨hct, hlt, hb⟩ := hs 0 F r rfl hr
-          rw [show o + 0 = o from rfl] at hct
-          obtain ⟨T', hT'⟩ : ∃ T', D.types[r.idx]? = some T' :=
-            ⟨_, List.getElem?_eq_getElem hlt⟩
-          rw [R.typeR_canonical hnd hr hT' hb hct]
-          refine VIndRecArg.canonTypeR_closedN (hcl r.idx) ?_
-          rw [← hct]
-          exact hcl0.1
-      · have := ih (o+1) (fun k F' r hF' hr => by
-          rw [show o + 1 + k = o + (k+1) from by omega]
-          exact hs (k+1) F' r (by simpa using hF') hr)
-          (by rw [show D.np + (o+1) = D.np + o + 1 from by omega]; exact hcl0.2)
-        rwa [show D.np + (o+1) = D.np + o + 1 from by omega] at this
-  have h := key C.fields 0
-    (fun k F r hF hr => ⟨by simpa using hcanon k F r hF hr, hpos k F r hF hr⟩)
-    (by simpa using hsrc)
-  rw [VIndCtor.fieldTypesR]
-  simpa using h
+  rw [VExpr.closedTele_iff]
+  intro i A hA
+  simp only [VIndCtor.fieldTypesR, List.getElem?_map, List.getElem?_zipIdx,
+    Option.map_map] at hA
+  obtain ⟨F, hF, rfl⟩ := Option.map_eq_some_iff.1 hA
+  have hs : F.type.ClosedN (D.np + i) :=
+    VExpr.closedTele_iff.1 hsrc i F.type (by rw [List.getElem?_map, hF]; rfl)
+  simp only [Function.comp_def, Nat.zero_add]
+  cases hr : F.recArg with
+  | none => rw [VIndField.typeR, hr]; exact hs
+  | some r =>
+    rw [VIndField.typeR, hr]
+    exact VIndRestore.restore_closedN hcl i (D.np + i) (Nat.le_refl _) F.type hs
 
 /-- …at the recursor's level numbering, which is the form `instAllTele_bvars_lift` consumes. -/
-theorem atRecTele_fieldTypesR_closedTele (hnd : D.blockNames.Nodup)
-    (hcl : ∀ j, ∀ a ∈ R.tyArgs j, a.ClosedN D.np)
-    (hcanon : C.Canonical D)
-    (hpos : ∀ (i : Nat) (F : VIndField) (r : VIndRecArg), C.fields[i]? = some F →
-      F.recArg = some r → r.idx < D.nm ∧ ∀ B ∈ r.binders, D.NoBlock B)
+theorem atRecTele_fieldTypesR_closedTele (hcl : ∀ j, ∀ a ∈ R.tyArgs j, a.ClosedN D.np)
     (hsrc : VExpr.ClosedTele (C.fields.map (·.type)) D.np) :
     VExpr.ClosedTele (D.atRecTele (C.fieldTypesR D R)) D.np :=
-  VExpr.ClosedTele.map_instL (fieldTypesR_closedTele hnd hcl hcanon hpos hsrc)
+  VExpr.ClosedTele.map_instL (fieldTypesR_closedTele hcl hsrc)
 
 end
 end VIndCtor
@@ -2025,7 +2052,7 @@ end VIndRestore
 /-- **Obligation (B) of `VEnv.addInductR_ordered'`, at `D.np > 0`, from the entry defeqs.**
 
 This is the closure `recConstsR_wf_of_np_zero` is the `D.params = []` case of, with the three
-syntactic side conditions (`hp`, `hcl0`, `hfr`/`hcanon`/`hpos`) replaced by the two moving
+syntactic side conditions (`hp`, `hcl0`, `hfr`/`hpos`) replaced by the two moving
 blocks' entry defeqs and the body defeq.  **No bound on `D.np`.**  §T5's
 `substC_motiveType_defeq'` and §T6's `substC_minorType_defeq` are stated at exactly the ambient
 contexts `hmot`/`hmin` bind, and §T15.4 records what is left to feed them. -/
@@ -2316,17 +2343,14 @@ theorem VEnv.recConstsR_wf_of_np_zero_via_blocks {E₂ e₂ : VEnv} {D : VInduct
     (hp : D.params = []) (hnd : D.blockNames.Nodup) (hown : R.OwnId D K)
     (hsep : R.DomSep D K)
     (hcl0 : ∀ i, ∀ a ∈ R.tyArgs i, a.ClosedN 0)
-    (hfr : R.SubstFree D (R.csubst D K)) (hcanon : D.Canonical)
-    (hpos : ∀ (t : Nat) (C : VIndCtor), (t, C) ∈ D.ctorsAll →
-      ∀ (i : Nat) (F : VIndField) (r : VIndRecArg), C.fields[i]? = some F →
-        F.recArg = some r → r.idx < D.nm ∧ ∀ B ∈ r.binders, D.NoBlock B) :
+    (hfr : R.SubstFree D (R.csubst D K)) :
     ∀ c ∈ D.recConstsR R K, VConstant.WF e₂ c.2 := by
   have hat := hsep.substAt
   have hσc : (R.csubst D K).Closed := VIndRestore.csubst_closed' hp hcl0
   refine VEnv.recConstsR_wf_of_blocks hsrc hσ he₂
     (VEnv.TeleDefEq.of_eq (VIndRestore.substC_motives hp hnd hown hat hcl0 hfr))
     (VEnv.TeleDefEq.of_eq
-      (VIndRestore.substC_minors hp hnd hown hat hcl0 hfr hσc hcanon hpos))
+      (VIndRestore.substC_minors hp hnd hown hat hcl0 hfr hσc))
     fun j T hT => ?_
   have hmem : (Lean.mkRecName T.name, (⟨D.recUvars, D.recType j⟩ : VConstant)) ∈ D.recConsts := by
     simp only [VInductDecl'.recConsts, List.mem_map]
@@ -2360,7 +2384,7 @@ theorem VEnv.iotaRulesRS_wf_of_np_zero_via_components {E₃ e₃ : VEnv} {D : VI
     (hp : D.params = []) (hnd : D.blockNames.Nodup) (hown : R.OwnId D K)
     (hsep : R.DomSep D K)
     (hcl0 : ∀ i, ∀ a ∈ R.tyArgs i, a.ClosedN 0)
-    (hfr : R.SubstFree D (R.csubst D K)) (hcanon : D.Canonical)
+    (hfr : R.SubstFree D (R.csubst D K))
     (hpos : ∀ (t : Nat) (C : VIndCtor), (t, C) ∈ D.ctorsAll →
       ∀ (i : Nat) (F : VIndField) (r : VIndRecArg), C.fields[i]? = some F →
         F.recArg = some r → r.idx < D.nm ∧ ∀ B ∈ r.binders, D.NoBlock B) :
@@ -2372,7 +2396,7 @@ theorem VEnv.iotaRulesRS_wf_of_np_zero_via_components {E₃ e₃ : VEnv} {D : VI
     exact ⟨((j, C), q), List.mk_mem_zipIdx_iff_getElem?.2 hqC, rfl⟩
   have hσc : (R.csubst D K).Closed := VIndRestore.csubst_closed' hp hcl0
   have heq := VIndRestore.substC_iotaRule_eq hp hnd hown hsep.substAt hcl0 hfr
-    hσc hcanon hpos hT hC q
+    hσc hpos hT hC q
   have hty : ((D.iotaRule j q C).type).substC (R.csubst D K)
       = ((D.iotaRuleR R j q C).type).substC (R.csubst D K) := by
     have := congrArg VDefEq.type heq; simpa using this
@@ -2442,21 +2466,26 @@ namespace VIndRestore
 section
 variable {R : VIndRestore} {D : VInductDecl'} {σ : CSubst} {e : VEnv} {U : Nat} {C : VIndCtor}
 
-/-- **`hfld`, reduced to one defeq per *recursive* field.**  The non-recursive entries are
-`VIndField.typeR`'s `none` branch — literally `F.type` — so they are the same expression on both
-sides and cost nothing.  A recursive entry is `canonType` versus `canonTypeR`, which share the
-field's own binder telescope and differ only in the result head: `mkPi_congrU` over
-`TeleDefEq.refl` with `substC_tyApp'_defeq_tyAppR'_comp` at the body, i.e. `hargs` one binder
-layer deeper. -/
-theorem substC_atRec_fieldTypes_defeq {Γ : List VExpr} (hnd : D.blockNames.Nodup)
-    (hcanon : C.Canonical D)
-    (hpos : ∀ (i : Nat) (F : VIndField) (r : VIndRecArg), C.fields[i]? = some F →
-      F.recArg = some r → r.idx < D.nm ∧ ∀ B ∈ r.binders, D.NoBlock B)
+/-- **`hfld`, reduced to one defeq per *recursive* field — over the STORED telescope.**
+
+The non-recursive entries are `VIndField.typeR`'s `none` branch — literally `F.type` — so they
+are the same expression on both sides and cost nothing.  A recursive entry is now `F.type`
+versus `R.restore D i F.type`: the field's stored type against its own restoration.
+
+**Ruling 122e: `hnd`, `hcanon` and `hpos` are gone, and `hrec` moved with them.**  It used to
+be stated between `r.canonType D i` and `r.canonTypeR D R i` and the theorem bridged to the
+stored entry through `typeR_canonical` — i.e. through `C.Canonical D`, which is *false* at every
+real nested block in the running environment (`MRedex.MRWit.mr_auxNodeB_block_not_canonical`), so
+the whole statement was vacuous there.  Stated at the stored type it is not: `hrec` is then a
+defeq between the field as stored and the field as restored, which is what the checker actually
+has to justify, and at a canonical field
+`VIndRestore.substC_atRec_stored_defeq_of_canonical` recovers the old producer verbatim. -/
+theorem substC_atRec_fieldTypes_defeq {Γ : List VExpr}
     (hrec : ∀ (i : Nat) (F : VIndField) (r : VIndRecArg), C.fields[i]? = some F →
       F.recArg = some r → ∃ u, e.IsDefEq U
         ((((D.atRecTele (C.fields.map (·.type))).map (VExpr.substC · σ)).take i).reverse ++ Γ)
-        ((D.atRec (r.canonType D i)).substC σ)
-        ((D.atRec (r.canonTypeR D R i)).substC σ) (.sort u)) :
+        ((D.atRec F.type).substC σ)
+        ((D.atRec (R.restore D i F.type)).substC σ) (.sort u)) :
     e.TeleDefEq U Γ ((D.atRecTele (C.fields.map (·.type))).map (VExpr.substC · σ))
       ((D.atRecTele (C.fieldTypesR D R)).map (VExpr.substC · σ)) := by
   refine VEnv.TeleDefEq.of_entries' (by
@@ -2476,10 +2505,7 @@ theorem substC_atRec_fieldTypes_defeq {Γ : List VExpr} (hnd : D.blockNames.Nodu
     refine Or.inr ?_
     obtain ⟨u, hu⟩ := hrec i F r hF hr
     refine ⟨u, ?_⟩
-    obtain ⟨hlt, hb⟩ := hpos i F r hF hr
-    obtain ⟨T', hT'⟩ : ∃ T', D.types[r.idx]? = some T' := ⟨_, List.getElem?_eq_getElem hlt⟩
-    simp only [Function.comp_def, Nat.zero_add]
-    rw [R.typeR_canonical hnd hr hT' hb (hcanon i F r hF hr), hcanon i F r hF hr] at *
+    simp only [Function.comp_def, Nat.zero_add, VIndField.typeR, hr]
     exact hu
 
 end
@@ -2551,9 +2577,13 @@ for *satisfiability*, not truth.
   the three body judgements; `RecCtx` is satisfiable at every witness in
   `Theory/Inductive/DeclExamples.lean`, and §T15.6 inhabits the rest at `np = 0`.
 * `substC_atRec_fieldTypes_defeq`: at `C.fields = []` both telescopes are `[]` and `hrec` is
-  vacuous — degenerate but true.  At the real witness `hcanon` holds (`Canonical` is discharged for
-  every witness in the tree) and `hrec` quantifies only over *recursive* fields, of which the
-  nested witnesses have one. -/
+  vacuous — degenerate but true.  **Amended under ruling 122e:** `hcanon` and `hpos` are gone and
+  `hrec` is now stated over the *stored* type, so the honest reading is different — `hrec`
+  quantifies only over *recursive* fields (the nested witnesses have one), and at a canonical
+  field `substC_atRec_stored_defeq_of_canonical` recovers the old producer while at a redex field
+  the producer is a β step (`MRedex.MRWit.mr_pos_beta`).  What the old bullet claimed —
+  "`Canonical` is discharged for every witness in the tree" — was true of the *witnesses* and
+  false of the *blocks the statement is for*, which is why the hypothesis had to go. -/
 
 
 /-! ## §T16 The three residuals §T15 left, and what actually remains
@@ -2631,6 +2661,27 @@ theorem substC_atRec_canonType_defeq (hfr : R.SubstFree D σ) (hat : R.SubstAt D
       VInductDecl'.atRec_tyAppH D,
     VExpr.substC_mkPi, VExpr.substC_mkPi, substC_tyAppR' hfr]
   exact VEnv.IsDefEq.mkPi_congrU .refl hOn ⟨w, hhead⟩
+
+/-- **§T16.1's output, in §T15.7's new stored shape — at a field that *is* stored canonically.**
+
+This is where the canonicity side condition now lives, and the change of level is the point:
+it is **per field** (`hct : F.type = r.canonType D i`), not per block (`C.Canonical D`) and not
+per declaration (`D.Canonical`).  At the three redex blocks in the running environment
+(`Lean.Json`, `Lean.PrefixTreeNode`, `MRedex.MRWit.MJ`) the block-level form is false while the
+per-field form still holds at *every field but one*, so a hypothesis at this level is
+discharged where it is true instead of being vacuous everywhere.  The remaining field — the one
+whose stored type is the β-redex `ElimNestedInductive` manufactures — needs the β step, which is
+`MRedex.mr_pos_beta`'s business and not this file's. -/
+theorem substC_atRec_stored_defeq_of_canonical (hnd : D.blockNames.Nodup)
+    {F : VIndField} {Γ : List VExpr}
+    (hT : D.types[r.idx]? = some T) (hb : ∀ B ∈ r.binders, D.NoBlock B)
+    (hct : F.type = r.canonType D i)
+    (hcan : ∃ u, e.IsDefEq U Γ ((D.atRec (r.canonType D i)).substC σ)
+      ((D.atRec (r.canonTypeR D R i)).substC σ) (.sort u)) :
+    ∃ u, e.IsDefEq U Γ ((D.atRec F.type).substC σ)
+      ((D.atRec (R.restore D i F.type)).substC σ) (.sort u) := by
+  rw [hct, R.restore_canonType hnd hT hb]
+  exact hcan
 
 end
 end VIndRestore
@@ -3353,15 +3404,12 @@ binds it.  `TeleDefEq.of_eq` off §7.6's strict equation, so it carries no typin
 theorem iotaCtx_teleDefEq_of_np_zero (hp : D.params = []) (hnd : D.blockNames.Nodup)
     (hown : R.OwnId D K)
     (hat : R.SubstAt D K σ) (hcl0 : ∀ i, ∀ a ∈ R.tyArgs i, a.ClosedN 0)
-    (hfr : R.SubstFree D σ) (hσc : σ.Closed) (hcanon : D.Canonical)
-    (hpos : ∀ (t : Nat) (C : VIndCtor), (t, C) ∈ D.ctorsAll →
-      ∀ (i : Nat) (F : VIndField) (r : VIndRecArg), C.fields[i]? = some F →
-        F.recArg = some r → r.idx < D.nm ∧ ∀ B ∈ r.binders, D.NoBlock B)
+    (hfr : R.SubstFree D σ) (hσc : σ.Closed)
     {j : Nat} {T : VIndType} (hT : D.types[j]? = some T) (hC : C ∈ T.ctors) :
     e.TeleDefEq D.recUvars [] ((D.iotaCtx C).map (VExpr.substC · σ))
       ((D.iotaCtxR R C).map (VExpr.substC · σ)) :=
   VEnv.TeleDefEq.of_eq
-    (substC_iotaCtx hp hnd hown hat hcl0 hfr hσc hcanon hpos hT hC)
+    (substC_iotaCtx hp hnd hown hat hcl0 hfr hσc hT hC)
 
 end
 end VIndRestore

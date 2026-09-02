@@ -49,11 +49,19 @@ Everything here is at `D.params = []`, the same reach Part 4b has: above it the 
 differ by the β-gap of Part 3 (`substC_tyApp_comp` / `instAll_tyBody`), which is a *typed*
 residual and not a syntactic one.
 
-**What is still open.**  §7.5/§7.6 take `hcanon : D.Canonical` and the index bound `hpos` as
-hypotheses, exactly as Part 4b's (A) bridge does; both follow from `D.WF env`
-(`VIndField.WF.recArg_noBlock` for the second) but that derivation is the consumers' business,
-not the bridges'.  `DomNodup` is still a `decide`-able side condition (§7.2), and the β-gap
-above `D.params = []` is untouched.
+**Ruling 122e landed: §7.5/§7.6 no longer take `hcanon : D.Canonical`.**  They used to, exactly
+as Part 4b's (A) bridge did, and the hypothesis is machine-checked **false** at the block level
+for every real nested declaration in the running environment
+(`MRedex.MRWit.mr_auxNodeB_block_not_canonical`), so the whole layer was *vacuous* there.  The
+restatement is over the **stored** telescope — `VIndRestore.substC_atRec_restore`, which has no
+side condition at all — and the anti-vacuity certificate is
+`Theory/Inductive/StoredIota.lean`: every remaining hypothesis of §7.5/§7.6/§7.7 discharged at
+`mrAux mrAuxNodeB`, the block `Canonical` is false at.
+
+**What is still open.**  The index bound `hpos` remains (it *is* true at the redex block —
+`MRWit.mrAuxB_pos` — and follows from `D.WF env` by `VIndField.WF.recArg_noBlock`; that
+derivation is the consumers' business, not the bridges').  `DomNodup` is still a `decide`-able
+side condition (§7.2), and the β-gap above `D.params = []` is untouched.
 -/
 
 namespace Lean4Lean
@@ -534,6 +542,31 @@ theorem getElem?_types_getD {D : VInductDecl'} {t : Nat} (h : t < D.nm) :
     D.types[t]? = some (D.types.getD t default) := by
   rw [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem h]; rfl
 
+/-- **The trigger only reports members that exist.**  `uniformOcc?` reads its index off
+`memberIdx`, which is a lookup in `D.blockNames`, so `hT` — the hypothesis every §7.4 head
+equation wants — comes *free* with the trigger firing.  This is what lets §7.5's field
+telescope drop `hcanon` **and** `hpos`'s index bound (ledger ruling 122e). -/
+theorem uniformOcc?_types {D : VInductDecl'} {k : Nat} {e : VExpr} {j : Nat}
+    {rest : List VExpr} (h : D.uniformOcc? k e = some (j, rest)) :
+    ∃ T, D.types[j]? = some T := by
+  rw [VInductDecl'.uniformOcc?] at h
+  split at h
+  · split at h
+    · next j' hj =>
+      split at h
+      · obtain ⟨rfl, -⟩ := Prod.mk.injEq .. ▸ Option.some.inj h
+        obtain ⟨T, hT, -⟩ := VInductDecl'.memberIdx_spec' hj
+        exact ⟨T, hT⟩
+      · exact absurd h nofun
+    · exact absurd h nofun
+  · exact absurd h nofun
+
+/-- `atRec` carries the *restored* head `tyAppR` to `tyAppR'` — the `tyAppR` twin of
+`VInductDecl'.atRec_tyApp`, and an instance of `atRec_tyAppH`. -/
+theorem atRec_tyAppR (D : VInductDecl') (R : VIndRestore) (j k : Nat) (args : List VExpr) :
+    D.atRec (D.tyAppR R j k args) = D.tyAppR' R j k (D.atRecTele args) :=
+  VInductDecl'.atRec_tyAppH D
+
 end VInductDecl'
 
 namespace VIndRestore
@@ -556,10 +589,10 @@ ingredient with (C) is the field telescope, `substC_atRec_fieldTypes`.  Nothing 
 **primed** head equations of §7.4 are used, and those are stated at exactly the instantiation
 `tyAppR'` is defined at.
 
-`hcanon`/`hpos` are the two block-level side conditions (A) also carries, and both come from
-`D.WF env`: `hcanon` is `VInductDecl'.Canonical` (`Theory/Inductive/Restore.lean` explains why
-a *stored* recursive field is only definitionally canonical) and `hpos` is the index bound of
-`VIndField.WF.pos`, read off by `VIndField.WF.recArg_noBlock`. -/
+`hpos` is the index bound of `VIndField.WF.pos`, read off by `VIndField.WF.recArg_noBlock`.  It
+used to be accompanied by `hcanon : D.Canonical`; ruling 122e removed that, because the stored
+telescope needs no canonicity (`substC_atRec_restore`) and `Canonical` is false at the blocks
+this layer has to describe. -/
 
 section
 variable (hp : D.params = []) (hnd : D.blockNames.Nodup) (hown : R.OwnId D K)
@@ -567,51 +600,87 @@ variable (hp : D.params = []) (hnd : D.blockNames.Nodup) (hown : R.OwnId D K)
   (hcl0 : ∀ i, ∀ a ∈ R.tyArgs i, a.ClosedN 0) (hfr : R.SubstFree D σ)
 include hp hnd hown hat hcl0 hfr
 
+/-- **Wherever the trigger fires, the two heads meet under `σ`** — with *no* side condition.
+
+`uniformOcc?_sound` says the subterm the trigger fired on **was** `D.tyApp j k rest`, and
+`uniformOcc?_types` says member `j` exists, which is the only hypothesis §7.4's `tyApp'`
+head equation wanted.  So the restoration's head and the block's head are the same expression
+after `σ`, at every occurrence, canonical or not. -/
+theorem substC_atRec_uniformOcc {k : Nat} {e : VExpr} {j : Nat} {rest : List VExpr}
+    (h : D.uniformOcc? k e = some (j, rest)) :
+    (D.atRec (D.tyAppR R j k rest)).substC σ = (D.atRec e).substC σ := by
+  obtain ⟨T, hT⟩ := VInductDecl'.uniformOcc?_types h
+  rw [← VInductDecl'.uniformOcc?_sound h, VInductDecl'.atRec_tyAppR,
+    VInductDecl'.atRec_tyApp, substC_tyAppR' hfr,
+    substC_tyApp'_eq_tyAppR' hp hown hat hcl0 hT]
+  simp only [VInductDecl'.atRecTele]
+  rfl
+
+/-- **The restoration is invisible to the substitution — at every subterm, unconditionally.**
+
+This is ruling 122e's engine, and the one-layer-out analogue of `VIndRestore.restore_id`:
+where the trigger fires, `substC_atRec_uniformOcc`; where it does not, congruence.
+
+Compare what it replaces.  The old proof of `substC_atRec_fieldTypes` went through
+`VIndRestore.typeR_canonical`, which demands `F.type = r.canonType D i` **on the nose** —
+`VIndCtor.Canonical` — and that is machine-checked **false** at the block level for every
+real nested declaration in the running environment: `Lean.Json`, `Lean.PrefixTreeNode` and
+`MRedex.MRWit.MJ` (`MRedex.MRWit.mr_auxNodeB_block_not_canonical`,
+`Theory/Inductive/MemberRedex.lean`).  Restoring the **stored** type needs none of it, so
+`hcanon` disappears from §7.5/§7.6 rather than being weakened — exactly as it disappeared from
+`NestedHead.lean` Part 3 under ruling 116d. -/
+theorem substC_atRec_restore (k : Nat) (e : VExpr) :
+    (D.atRec (R.restore D k e)).substC σ = (D.atRec e).substC σ := by
+  induction e generalizing k with
+  | bvar => rfl
+  | sort => rfl
+  | const n ls =>
+    rw [restore]
+    split
+    · next j rest h => exact substC_atRec_uniformOcc hp hnd hown hat hcl0 hfr h
+    · rfl
+  | app f a ihf iha =>
+    rw [restore]
+    split
+    · next j rest h => exact substC_atRec_uniformOcc hp hnd hown hat hcl0 hfr h
+    · simp only [VInductDecl'.atRec_app, VExpr.substC_app, ihf, iha]
+  | lam A b ihA ihb =>
+    rw [restore]
+    simp only [VInductDecl'.atRec_lam, VExpr.substC_lam, ihA, ihb]
+  | forallE A b ihA ihb =>
+    rw [restore]
+    simp only [VInductDecl'.atRec_forallE, VExpr.substC_forallE, ihA, ihb]
+
 /-- **The field telescope, at the recursor's numbering.**  This is Part 4b's `hfl` at
 `R.csubst`, with `atRec` kept *inside* the substitution so that only the **primed** head
-equations of §7.4 are needed — no `LevelWF` hypothesis. -/
-theorem substC_atRec_fieldTypes {C : VIndCtor} (hcanon : C.Canonical D)
-    (hpos : ∀ (i : Nat) (F : VIndField) (r : VIndRecArg), C.fields[i]? = some F →
-      F.recArg = some r → r.idx < D.nm ∧ ∀ B ∈ r.binders, D.NoBlock B) :
+equations of §7.4 are needed — no `LevelWF` hypothesis.
+
+**Ruling 122e: `hcanon` and `hpos` are both gone**, and the statement is unchanged.  The old
+proof rewrote a recursive field's restored type to `r.canonTypeR` and then compared canonical
+head with canonical head; the new one never looks at `r` at all — `substC_atRec_restore`
+handles the stored type whatever shape it has, so neither `C.Canonical D` (false at the three
+redex blocks) nor the index bound is needed. -/
+theorem substC_atRec_fieldTypes {C : VIndCtor} :
     (D.atRecTele (C.fields.map (·.type))).map (VExpr.substC · σ)
       = (D.atRecTele (C.fieldTypesR D R)).map (VExpr.substC · σ) := by
   have key : ∀ (Fs : List VIndField) (i : Nat),
-      (∀ (k : Nat) (F : VIndField) (r : VIndRecArg), Fs[k]? = some F → F.recArg = some r →
-        F.type = r.canonType D (i + k) ∧ r.idx < D.nm ∧ ∀ B ∈ r.binders, D.NoBlock B) →
       Fs.map (fun F => (D.atRec F.type).substC σ)
         = (Fs.zipIdx i).map (fun p => (D.atRec (p.1.typeR D R p.2)).substC σ) := by
     intro Fs
     induction Fs with
-    | nil => intro _ _; rfl
+    | nil => intro _; rfl
     | cons F Fs ih =>
-      intro i hs
-      rw [List.zipIdx_cons, List.map_cons, List.map_cons,
-        ih (i+1) (fun k F' r hF' hr => by
-          rw [show i + 1 + k = i + (k+1) from by omega]
-          exact hs (k+1) F' r (by simpa using hF') hr)]
+      intro i
+      rw [List.zipIdx_cons, List.map_cons, List.map_cons, ih (i+1)]
       congr 1
       cases hr : F.recArg with
       | none => rw [show F.typeR D R i = F.type from by rw [VIndField.typeR, hr]]
       | some r =>
-        obtain ⟨hct, hlt, hb⟩ := hs 0 F r rfl hr
-        obtain ⟨T', hT'⟩ : ∃ T', D.types[r.idx]? = some T' := ⟨_, List.getElem?_eq_getElem hlt⟩
-        rw [show i + 0 = i from rfl] at *
-        rw [R.typeR_canonical hnd hr hT' hb hct]
-        rw [hct, VIndRecArg.canonType, VIndRecArg.canonTypeR]
-        simp only [VInductDecl'.atRec, VExpr.instL_mkPi]
-        rw [VExpr.substC_mkPi, VExpr.substC_mkPi,
-          VIndRecArg.canonResult, VIndRecArg.canonResultR,
-          show (D.tyApp r.idx (r.binders.length + i) r.args).instL D.selfLvls
-              = D.tyApp' r.idx (r.binders.length + i) (D.atRecTele r.args) from
-            VInductDecl'.atRec_tyApp D,
-          show (D.tyAppR R r.idx (r.binders.length + i) r.args).instL D.selfLvls
-              = D.tyAppR' R r.idx (r.binders.length + i) (D.atRecTele r.args) from
-            VInductDecl'.atRec_tyAppH D,
-          substC_tyApp'_eq_tyAppR' hp hown hat hcl0 hT',
-          substC_tyAppR' hfr]
+        rw [show F.typeR D R i = R.restore D i F.type from by rw [VIndField.typeR, hr]]
+        exact (substC_atRec_restore hp hnd hown hat hcl0 hfr i F.type).symm
   rw [VInductDecl'.atRecTele, VInductDecl'.atRecTele, VIndCtor.fieldTypesR,
     List.map_map, List.map_map, List.map_map, List.map_map]
-  exact key C.fields 0 (fun k F r hF hr => ⟨by simpa using hcanon k F r hF hr, hpos k F r hF hr⟩)
+  exact key C.fields 0
 
 /-- **The motive telescope.**  One `tyApp'` head per motive, and nothing else moves. -/
 theorem substC_motives :
@@ -625,10 +694,7 @@ theorem substC_motives :
 
 /-- **The minor-premise telescope.**  Two moving parts: the restored field telescope, and the
 `ctorApp'` head of the minor's conclusion. -/
-theorem substC_minors (hσ : σ.Closed) (hcanon : D.Canonical)
-    (hpos : ∀ (t : Nat) (C : VIndCtor), (t, C) ∈ D.ctorsAll →
-      ∀ (i : Nat) (F : VIndField) (r : VIndRecArg), C.fields[i]? = some F →
-        F.recArg = some r → r.idx < D.nm ∧ ∀ B ∈ r.binders, D.NoBlock B) :
+theorem substC_minors (hσ : σ.Closed) :
     D.minors.map (VExpr.substC · σ) = (D.minorsR R).map (VExpr.substC · σ) := by
   rw [VInductDecl'.minors, VInductDecl'.minorsR, List.map_map, List.map_map]
   refine List.map_congr_left fun p hp' => ?_
@@ -639,7 +705,7 @@ theorem substC_minors (hσ : σ.Closed) (hcanon : D.Canonical)
   simp only [Function.comp_def, VInductDecl'.minorType, VInductDecl'.minorTypeR,
     VExpr.substC_mkPi, VExpr.substC_mkApp, List.map_append, List.map_cons, List.map_nil]
   rw [VExpr.map_substC_liftTele (σ := σ) hσ, VExpr.map_substC_liftTele (σ := σ) hσ,
-    substC_atRec_fieldTypes hp hnd hown hat hcl0 hfr (hcanon t C hmem) (hpos t C hmem),
+    substC_atRec_fieldTypes hp hnd hown hat hcl0 hfr,
     substC_ctorApp'_eq_ctorAppR hp hown hat hcl0 hT hC, substC_ctorAppR hfr hT hC]
 
 /-! ### §7.5 Obligation (B) -/
@@ -651,44 +717,35 @@ theorem substC_minors (hσ : σ.Closed) (hcanon : D.Canonical)
 The three moving parts are the motives, the minors and the major premise's `tyApp'` head;
 the parameter telescope, the index telescope, the induction-hypothesis telescope and the
 conclusion are literally the same expression on both sides. -/
-theorem substC_recType_eq (hσ : σ.Closed) (hcanon : D.Canonical)
-    (hpos : ∀ (t : Nat) (C : VIndCtor), (t, C) ∈ D.ctorsAll →
-      ∀ (i : Nat) (F : VIndField) (r : VIndRecArg), C.fields[i]? = some F →
-        F.recArg = some r → r.idx < D.nm ∧ ∀ B ∈ r.binders, D.NoBlock B)
+theorem substC_recType_eq (hσ : σ.Closed)
     {j : Nat} {T : VIndType} (hT : D.types[j]? = some T) :
     (D.recType j).substC σ = (D.recTypeR R j).substC σ := by
   have hg : D.types.getD j default = T := by rw [List.getD_eq_getElem?_getD, hT]; rfl
   simp only [VInductDecl'.recType, VInductDecl'.recTypeR, VExpr.substC_mkPi,
     VExpr.substC_forallE, VExpr.substC_mkApp, List.map_append, hg]
   rw [substC_motives hp hnd hown hat hcl0 hfr,
-    substC_minors hp hnd hown hat hcl0 hfr hσ hcanon hpos,
+    substC_minors hp hnd hown hat hcl0 hfr hσ,
     substC_tyApp'_eq_tyAppR' hp hown hat hcl0 hT, substC_tyAppR' hfr]
 
 /-! ### §7.6 Obligation (C) -/
 
 /-- The ι-rule's binder context, both restorations agreeing under `σ`. -/
-theorem substC_iotaCtx (hσ : σ.Closed) (hcanon : D.Canonical)
-    (hpos : ∀ (t : Nat) (C : VIndCtor), (t, C) ∈ D.ctorsAll →
-      ∀ (i : Nat) (F : VIndField) (r : VIndRecArg), C.fields[i]? = some F →
-        F.recArg = some r → r.idx < D.nm ∧ ∀ B ∈ r.binders, D.NoBlock B)
+theorem substC_iotaCtx (hσ : σ.Closed)
     {j : Nat} {T : VIndType} (hT : D.types[j]? = some T) {C : VIndCtor} (hC : C ∈ T.ctors) :
     (D.iotaCtx C).map (VExpr.substC · σ) = (D.iotaCtxR R C).map (VExpr.substC · σ) := by
   have hmem : (j, C) ∈ D.ctorsAll := VInductDecl'.mem_ctorsAll_of hT hC
   simp only [VInductDecl'.iotaCtx, VInductDecl'.iotaCtxR, List.map_append]
   rw [substC_motives hp hnd hown hat hcl0 hfr,
-    substC_minors hp hnd hown hat hcl0 hfr hσ hcanon hpos,
+    substC_minors hp hnd hown hat hcl0 hfr hσ,
     VExpr.map_substC_liftTele (σ := σ) hσ, VExpr.map_substC_liftTele (σ := σ) hσ,
-    substC_atRec_fieldTypes hp hnd hown hat hcl0 hfr (hcanon j C hmem) (hpos j C hmem)]
+    substC_atRec_fieldTypes hp hnd hown hat hcl0 hfr]
 
 /-- …and therefore the two contexts have the same length, which is what the η-expanded
 right-hand side of the rule applies its `bvars` run to. -/
-theorem iotaCtx_length_eq (hσ : σ.Closed) (hcanon : D.Canonical)
-    (hpos : ∀ (t : Nat) (C : VIndCtor), (t, C) ∈ D.ctorsAll →
-      ∀ (i : Nat) (F : VIndField) (r : VIndRecArg), C.fields[i]? = some F →
-        F.recArg = some r → r.idx < D.nm ∧ ∀ B ∈ r.binders, D.NoBlock B)
+theorem iotaCtx_length_eq (hσ : σ.Closed)
     {j : Nat} {T : VIndType} (hT : D.types[j]? = some T) {C : VIndCtor} (hC : C ∈ T.ctors) :
     (D.iotaCtx C).length = (D.iotaCtxR R C).length := by
-  have := congrArg List.length (substC_iotaCtx hp hnd hown hat hcl0 hfr hσ hcanon hpos hT hC)
+  have := congrArg List.length (substC_iotaCtx hp hnd hown hat hcl0 hfr hσ hT hC)
   rwa [List.length_map, List.length_map] at this
 
 omit hp hnd hcl0 in
@@ -727,7 +784,7 @@ theorem substC_iotaType {j : Nat} {T : VIndType} (hT : D.types[j]? = some T)
   rw [substC_ctorApp'_eq_ctorAppR hp hown hat hcl0 hT hC, substC_ctorAppR hfr hT hC]
 
 /-- The ι-rule's right-hand side, before the η-expansion. -/
-theorem substC_iotaLam (hσ : σ.Closed) (hcanon : D.Canonical)
+theorem substC_iotaLam (hσ : σ.Closed)
     (hpos : ∀ (t : Nat) (C : VIndCtor), (t, C) ∈ D.ctorsAll →
       ∀ (i : Nat) (F : VIndField) (r : VIndRecArg), C.fields[i]? = some F →
         F.recArg = some r → r.idx < D.nm ∧ ∀ B ∈ r.binders, D.NoBlock B)
@@ -737,7 +794,7 @@ theorem substC_iotaLam (hσ : σ.Closed) (hcanon : D.Canonical)
   have hmem : (j, C) ∈ D.ctorsAll := VInductDecl'.mem_ctorsAll_of hT hC
   simp only [VInductDecl'.iotaLam, VInductDecl'.iotaLamR, VExpr.substC_mkLams,
     VExpr.substC_mkApp, List.map_append]
-  rw [substC_iotaCtx hp hnd hown hat hcl0 hfr hσ hcanon hpos hT hC,
+  rw [substC_iotaCtx hp hnd hown hat hcl0 hfr hσ hT hC,
     substC_ihValues hown hat hfr (fun i F r hF hr => (hpos j C hmem i F r hF hr).1)]
 
 /-- **Obligation (C) for a parameterless nested block.**
@@ -745,19 +802,19 @@ theorem substC_iotaLam (hσ : σ.Closed) (hcanon : D.Canonical)
     (D.iotaRule j q C).substC σ = (D.iotaRuleR R j q C).substC σ
 
 head by head over `iotaCtx`/`iotaLhs`/`iotaLam`/`ihValues`/`iotaType`. -/
-theorem substC_iotaRule_eq (hσ : σ.Closed) (hcanon : D.Canonical)
+theorem substC_iotaRule_eq (hσ : σ.Closed)
     (hpos : ∀ (t : Nat) (C : VIndCtor), (t, C) ∈ D.ctorsAll →
       ∀ (i : Nat) (F : VIndField) (r : VIndRecArg), C.fields[i]? = some F →
         F.recArg = some r → r.idx < D.nm ∧ ∀ B ∈ r.binders, D.NoBlock B)
     {j : Nat} {T : VIndType} (hT : D.types[j]? = some T) {C : VIndCtor} (hC : C ∈ T.ctors)
     (q : Nat) :
     (D.iotaRule j q C).substC σ = (D.iotaRuleR R j q C).substC σ := by
-  have hctx := substC_iotaCtx hp hnd hown hat hcl0 hfr hσ hcanon hpos hT hC
-  have hlen := iotaCtx_length_eq hp hnd hown hat hcl0 hfr hσ hcanon hpos hT hC
+  have hctx := substC_iotaCtx hp hnd hown hat hcl0 hfr hσ hT hC
+  have hlen := iotaCtx_length_eq hp hnd hown hat hcl0 hfr hσ hT hC
   simp only [VDefEq.substC, VInductDecl'.iotaRule, VInductDecl'.iotaRuleR,
     VExpr.substC_mkLams, VExpr.substC_mkPi, VExpr.substC_mkApp, VExpr.map_substC_bvars,
     hctx, hlen, substC_iotaLhs hp hnd hown hat hcl0 hfr hT hC,
-    substC_iotaLam hp hnd hown hat hcl0 hfr hσ hcanon hpos hT hC q,
+    substC_iotaLam hp hnd hown hat hcl0 hfr hσ hpos hT hC q,
     substC_iotaType hp hnd hown hat hcl0 hfr hT hC]
 
 
@@ -777,17 +834,22 @@ section
 variable (hp : D.params = []) (hnd : D.blockNames.Nodup) (hown : R.OwnId D K)
   (hsep : R.DomSep D K)
   (hcl0 : ∀ i, ∀ a ∈ R.tyArgs i, a.ClosedN 0) (hfr : R.SubstFree D (R.csubst D K))
-  (hcanon : D.Canonical)
   (hpos : ∀ (t : Nat) (C : VIndCtor), (t, C) ∈ D.ctorsAll →
     ∀ (i : Nat) (F : VIndField) (r : VIndRecArg), C.fields[i]? = some F →
       F.recArg = some r → r.idx < D.nm ∧ ∀ B ∈ r.binders, D.NoBlock B)
-include hp hnd hown hsep hcl0 hfr hcanon hpos
+include hp hnd hown hsep hcl0 hfr hpos
 
+omit hpos in
 /-- **(B) at the real substitution** — the exact `hbridge` `VEnv.recConstsR_wf_of_substC`
-takes. -/
+takes.
+
+**`hpos` is gone too** (ruling 122e): the field telescope no longer reads a recursive field's
+`recArg` at all, so obligation (B) for a parameterless nested block now carries **no per-field
+side condition whatever**.  (C) still needs it, through `substC_ihValues`, whose heads are the
+renamed recursors of the recursive fields' targets. -/
 theorem csubst_recType_eq (j : Nat) (T : VIndType) (hT : D.types[j]? = some T) :
     (D.recType j).substC (R.csubst D K) = (D.recTypeR R j).substC (R.csubst D K) :=
-  substC_recType_eq hp hnd hown hsep.substAt hcl0 hfr (csubst_closed' hp hcl0) hcanon hpos hT
+  substC_recType_eq hp hnd hown hsep.substAt hcl0 hfr (csubst_closed' hp hcl0) hT
 
 /-- **(C) at the real substitution, at the list level** — the exact `hbridge`
 `VEnv.iotaRulesRS_wf_of_substC` takes.  Note which way round it points: the *un*-restored
@@ -801,7 +863,7 @@ theorem csubst_iotaRules_eq :
   obtain ⟨T, hT, hC⟩ :=
     VInductDecl'.mem_ctorsAll (List.mem_of_getElem? (List.mk_mem_zipIdx_iff_getElem?.1 hp'))
   exact substC_iotaRule_eq hp hnd hown hsep.substAt hcl0 hfr (csubst_closed' hp hcl0)
-    hcanon hpos hT hC q
+    hpos hT hC q
 
 end
 
@@ -817,13 +879,10 @@ theorem VEnv.recConstsR_wf_of_np_zero {E₂ e₂ : VEnv} {D : VInductDecl'} {R :
     (hp : D.params = []) (hnd : D.blockNames.Nodup) (hown : R.OwnId D K)
     (hsep : R.DomSep D K)
     (hcl0 : ∀ i, ∀ a ∈ R.tyArgs i, a.ClosedN 0)
-    (hfr : R.SubstFree D (R.csubst D K)) (hcanon : D.Canonical)
-    (hpos : ∀ (t : Nat) (C : VIndCtor), (t, C) ∈ D.ctorsAll →
-      ∀ (i : Nat) (F : VIndField) (r : VIndRecArg), C.fields[i]? = some F →
-        F.recArg = some r → r.idx < D.nm ∧ ∀ B ∈ r.binders, D.NoBlock B) :
+    (hfr : R.SubstFree D (R.csubst D K)) :
     ∀ c ∈ D.recConstsR R K, VConstant.WF e₂ c.2 :=
   VEnv.recConstsR_wf_of_substC hsrc hσ
-    (VIndRestore.csubst_recType_eq hp hnd hown hsep hcl0 hfr hcanon hpos)
+    (VIndRestore.csubst_recType_eq hp hnd hown hsep hcl0 hfr)
 
 /-- **Obligation (C) of `VEnv.addInductR_ordered'`, closed for a parameterless nested
 block.** -/
@@ -834,13 +893,13 @@ theorem VEnv.iotaRulesRS_wf_of_np_zero {E₃ e₃ : VEnv} {D : VInductDecl'} {R 
     (hp : D.params = []) (hnd : D.blockNames.Nodup) (hown : R.OwnId D K)
     (hsep : R.DomSep D K)
     (hcl0 : ∀ i, ∀ a ∈ R.tyArgs i, a.ClosedN 0)
-    (hfr : R.SubstFree D (R.csubst D K)) (hcanon : D.Canonical)
+    (hfr : R.SubstFree D (R.csubst D K))
     (hpos : ∀ (t : Nat) (C : VIndCtor), (t, C) ∈ D.ctorsAll →
       ∀ (i : Nat) (F : VIndField) (r : VIndRecArg), C.fields[i]? = some F →
         F.recArg = some r → r.idx < D.nm ∧ ∀ B ∈ r.binders, D.NoBlock B) :
     ∀ df ∈ D.iotaRulesRS R K, VDefEq.WF e₃ df :=
   VEnv.iotaRulesRS_wf_of_substC hsrc hσ
-    (VIndRestore.csubst_iotaRules_eq hp hnd hown hsep hcl0 hfr hcanon hpos)
+    (VIndRestore.csubst_iotaRules_eq hp hnd hown hsep hcl0 hfr hpos)
 
 /-! ## §7.8 The two bridges are not vacuous
 
@@ -980,7 +1039,7 @@ theorem nfnAux_recTypeR_bridge (j : Nat) (T : VIndType) (hT : nfnAux.types[j]? =
     (nfnAux.recType j).substC (nfnRestore.csubst nfnAux nfnK)
       = (nfnAux.recTypeR nfnRestore j).substC (nfnRestore.csubst nfnAux nfnK) :=
   VIndRestore.csubst_recType_eq rfl nfnAux_blockNames_nodup' nfnRestore_ownId nfnRestore_domSep
-    nfnRestore_tyArgs_closed0 nfnRestore_substFree nfnAux_canonical nfnAux_pos j T hT
+    nfnRestore_tyArgs_closed0 nfnRestore_substFree j T hT
 
 /-- **(C) at the witness.** -/
 theorem nfnAux_iotaRules_substC_bridge :
@@ -988,7 +1047,7 @@ theorem nfnAux_iotaRules_substC_bridge :
       = nfnAux.iotaRulesRS nfnRestore nfnK :=
   VIndRestore.csubst_iotaRules_eq rfl nfnAux_blockNames_nodup' nfnRestore_ownId
     nfnRestore_domSep
-    nfnRestore_tyArgs_closed0 nfnRestore_substFree nfnAux_canonical nfnAux_pos
+    nfnRestore_tyArgs_closed0 nfnRestore_substFree nfnAux_pos
 
 /-- **…and it is not an identity.**  The auxiliary block's own ι-rule is keyed on
 `_nested.PFn_1.rec`/`_nested.PFn_1.mk`; the rule the step registers is keyed on
