@@ -2216,3 +2216,124 @@ occur elsewhere in the tree. The two in shared namespaces — `Ctx.Lift'.pushOut
 **Do not** re-attack: everything §10.9, §11.7, §12.7 and §13.7 name, plus — new — **guarding
 `Stable` in place** (refuted, 14.1), **the unguarded `PropUpOnLiftAscend`** (its natural discharge
 is vacuous, 14.4 item 4), and **`[.bvar 0, Prop]` as a junk context** (it is not one, 14.4).
+
+---
+
+## 15. Session of 2026-09-02 (eighth): Task 2 was **already in HEAD** — what was owed was the grading, and the grading is worse than the re-pricing looks
+
+*Written incrementally, in the order the work happened.*
+
+### 15.0 The `#print axioms`-first check, run before proving anything, as instructed
+
+Four things the brief asserts; all four **verified present and as described**, so this brief is
+not a third instance of row 144d.
+
+| asserted | verified |
+|---|---|
+| `inductOracleOK_NE` | `Lean4Lean.SetModel.NEAudit.inductOracleOK_NE`, `[propext, Classical.choice, Quot.sound]` |
+| `UnitOracleLarge.recFnL` | `Lean4Lean.SetModel.UnitAudit.recFnL` (`UnitOracleLarge.lean:434`), same axioms |
+| `propAgreeOn_of_stratifiedNOn` | `Theory/Typing/PropAgreeGuarded.lean:193`, present |
+| `regPi_false` | `Lean4Lean.VEnv.regPi_false : ¬ env.RegPi U n`, **every** `env`/`U`/`n`, `[propext]` |
+
+Note the namespaces: the brief's `UnitOracleLarge.recFnL` and `SetModel.inductOracleOK_NE`
+are **file** names, not Lean names — the declarations live in `SetModel.UnitAudit` and
+`SetModel.NEAudit`. `#print axioms` on the brief's spelling fails with
+*unknown constant*, which cost two minutes and is worth writing down.
+
+### 15.1 **Task 2's named target is already a theorem in HEAD.** Third occurrence of row 144d
+
+The brief says "`RegPiSat.lean` **reportedly** already holds the repair (`RegPiOn`/`Regular`),
+and the named re-pricing target is `propTypeAgree_appCase_on_of`". It does not merely hold the
+repair; **it holds the re-priced consumer, its induction, and the whole assembly**, all
+sorry-free, all in HEAD:
+
+```lean
+-- Theory/Typing/RegPiSat.lean §4, ALREADY THERE
+theorem propTypeAgree_appCase_on_of (dinv : env.SortInvN U (k+1)) (hreg : env.RegPiOn U (k+1))
+    (hinst : env.InstLvl U (k+1)) (huniq : env.PropUniqN U (k+1)) (pci : env.PropConvInv U (k+1)) :
+    PropTypeAgreeN.AppCaseOn env U (k+1)                     -- [propext, Classical.choice, Quot.sound]
+theorem propTypeAgree_on_of  … : env.PropTypeAgreeOnN U n
+theorem propTypeAgreeOn_of_residuals … : env.PropTypeAgreeOnN U (k+1)
+```
+
+So **nothing was owed on the re-pricing**. What was never done — and is the actual content of
+the brief's question ("what the guarded form actually buys, and whether the assembly becomes
+non-vacuous or merely differently conditional") — is the **grading**. That is §15.2.
+
+### 15.2 The grading: **merely differently conditional**, and the positive control is degenerate
+
+New file `Lean4Lean/Theory/SetModel/RegPiRepriced.lean` (14 declarations, **0 `sorry`**),
+**imported by `Theory/Equiconsistency.lean`** so it is connected on landing rather than
+orphaned (rows 128b / 133c / 142e — this is the fourth round in a row that lesson has come up,
+and the fix costs one line in a file this stream owns).
+
+```lean
+def RepricedInput (env) (U k) : Prop :=          -- the five hypotheses, bundled
+  env.SortInvN U (k+1) ∧ env.Regular U (k+1) ∧ env.InstLvl U (k+1) ∧
+    env.PropUniqN U (k+1) ∧ env.PropConvInv U (k+1)
+theorem propTypeAgreeOnN_of_repricedInput : RepricedInput env U k → env.PropTypeAgreeOnN U (k+1)
+
+theorem regPi_false_at_preludeEnv : ¬ preludeEnv.RegPi U n         -- what the repair removes
+theorem not_repricedInput_piLvlEnv : ¬ RepricedInput piLvlEnv 0 0  -- what it does NOT remove
+theorem ordered_not_enough_for_repricedInput :
+    ¬ ∀ env, Ordered env → ∀ k, RepricedInput env 0 k
+theorem propTypeAgreeOnN_zero_free (env) (U) : env.PropTypeAgreeOnN U 0   -- the finding
+theorem zero_replay_is_free :
+    (∀ U, propLoopEnv.PropTypeAgreeOnN U 0) ∧ (∀ env U, env.PropTypeAgreeOnN U 0)
+theorem regConvE_zero_is_syntactic : env.IsDefEqN U 0 Γ A A' ↔ A = A'
+def RegularAtSucc : Prop := ∃ env U k, env.Regular U (k+1)          -- nothing inhabits this
+```
+
+| | before the repair | after |
+|---|---|---|
+| a hypothesis false at **every** environment | `RegPi` (`regPi_false`) | **none** |
+| the bundle refuted at some `Ordered` env, at the least *stated* index | yes a fortiori | **yes**, `not_repricedInput_piLvlEnv` |
+| the bundle refuted at some `VEnv.WF` env | yes a fortiori | **not known** |
+| a **non-degenerate** positive instance | none | **none** |
+
+Three things this settles, each machine-checked and none of them read off a docstring:
+
+1. **What the repair buys is real but narrow.** `regPi_false` is at *every* environment, so it
+   was false at `preludeEnv` — the `VEnv.WF` environment `PreludeWitness.lean` actually builds,
+   no `VDecl.unsafeDef` anywhere. `regPi_false_at_preludeEnv` names it, because "false at every
+   environment" only bites once one of them is exhibited as reachable. After the repair, **no
+   hypothesis of `propTypeAgreeOn_of_residuals` is refuted at every environment.** That is the
+   whole of the gain and it is worth having.
+2. **The bundle is still refuted at `Ordered`, at the smallest index the consumer is stated at.**
+   The offending member is `PropUniqN`, by row 144's `piLvlEnv_propUniqN_false` at `n = 1`;
+   `propTypeAgreeOn_of_residuals` is stated only at `k+1`, so `k = 0` is the least instance and
+   it is empty. `piLvlEnv` is provably **not** `VEnv.WF` (`piLvlEnv_not_wf`), so this does not
+   touch the real target — the vacuity **changed shape** (from "internal to one hypothesis, at
+   every environment" to "at an exhibited non-`WF` environment") rather than disappearing.
+3. **The one positive control in the tree is degenerate, and this is the finding.**
+   `RegPiSat.lean` §4 offers `propTypeAgreeOn_zero_from_residuals : propLoopEnv.PropTypeAgreeOnN U 0`
+   as the replay showing the repaired chain fires. **Its conclusion is free**:
+   `PropTypeAgreeOnN.zero` proves it at *every* environment with no hypotheses (via
+   `HasTypeN.uniq_zero`), and the `RegConvE` input is free at index `0` only because
+   `IsDefEqN U 0` **is** syntactic equality (`regConvE_zero_is_syntactic`). So the replay
+   demonstrates satisfiability at the one index where the conclusion needs nothing, which is no
+   evidence at all about the indices where the theorem is stated. `zero_replay_is_free` puts
+   both halves in one statement so the collapse cannot be read past.
+
+   `RegPiSat.lean` is scrupulous about the *negative* side of this ("the three that cannot be
+   fired at index `0`", blocked at `SortInvN env U 1`). What it does not say is that the
+   positive control it does offer proves nothing — and that is the half a reader carries away
+   as reassurance. **This is ledger blindness 7 with the sign flipped**: not "green because the
+   hypotheses are unsatisfiable at the degenerate instance" but "green because the *conclusion*
+   is free at the degenerate instance".
+
+**And one residual the re-pricing newly created, which nobody has graded.** `Regular` rests on
+`RegConvE` (`regular_of`), and `RegConvE` has an instance at index `0` and **nowhere else** —
+`RegConvE.zero`'s entire proof is a rewrite along `IsDefEqN.zero_iff`. `EnvReg` is free at every
+index for a `ConstPropType` environment, and `InstLvl` at `k+1` is the tree's usual residual, so
+`RegConvE env U (k+1)` is the *new* member of the bundle and it is completely untested:
+`RegularAtSucc` (`∃ env U k, env.Regular U (k+1)`) is **inhabited by nothing in the tree**.
+`regularAtSucc_of` states what would suffice. Not attempted: proving `RegConvE propLoopEnv U (k+1)`
+directly is "conversion preserves being a type, at the index", i.e. the same induction
+`regular_of'` is, so it is circular as stated — recorded as reasoning, **not** as a refutation.
+
+**Measured**: `lake build Lean4Lean.Theory.SetModel.RegPiRepriced` green, **1232 jobs**,
+`lake env lean` on the file: **zero diagnostics**. `lake build Lean4Lean.Theory.Equiconsistency`
+green after wiring the import, **1239 jobs**. `#print axioms` on all 14 declarations:
+`[propext]`, `[propext, Quot.sound]` or `[propext, Classical.choice, Quot.sound]` — **no
+`sorryAx`, no frozen axiom, nothing new on the frozen cone**. `grep -c "sorry"` on the file: 0.

@@ -47,9 +47,16 @@ proofs, are recorded below: **part 2** and **context conversion**.
 **No injectivity fact beyond `IsDefEqU.sort_inv` appears in any case.**
 Confirmed by proof for `beta` and `eta`; analysis for the other eleven.
 
-`sort_inv` is already packaged as `LevelAssign` (`SetModel/Interp.lean`). The
+`sort_inv` is already packaged as `LevelAssign` (`SetModel/Interp.lean`). ~~The
 other two `sorry`s in `Theory/Typing/Injectivity.lean` —
-`IsDefEqU.forallE_inv` and `IsDefEqU.sort_forallE_inv` — do not appear.
+`IsDefEqU.forallE_inv` and `IsDefEqU.sort_forallE_inv` — do not appear.~~
+**Corrected 2026-09-02: neither of those two is a `sorry`.**  Both are proved theorems,
+`sorryAx`-tainted through `WF.rigidShapeUniqNS` / `forallE_inv_stratified`
+(`#print axioms` on each → `[propext, sorryAx, Classical.choice, Quot.sound]`).  The file's two
+actual holes are **`VEnv.WF.rigidShapeUniqNS`** (`Injectivity.lean:1046`) and
+**`VEnv.IsDefEqU.forallE_inv_stratified`** (`:261-268`).  The substance of this section — that
+no injectivity fact beyond `sort_inv` appears in any soundness case — is undisturbed; only the
+names of the file's holes were wrong.  See `docs/audit-doc-claims.md` L2.
 
 The reason is structural, not luck. Both are **inversion** principles: they
 recover the components of a `∀` from a definitional equality between two `∀`s.
@@ -225,7 +232,7 @@ impredicativity and it is what makes the bound tight rather than merely finite.
 | `piProp_mem_UProp` | part 1, `forallE` case | **proved** |
 | validity (`Γ ⊢ e : A → IsType Γ A`) | `appDF`, to level the `∀` | available, `Theory/Typing/` |
 | `function_eq_graph` (a function is its graph) | `eta` | **proved** |
-| `SetModel.CoherentOn` (there is no `ModelData.Coherent`) | `constDF`, `extra` | **CONSTRUCTED, in two places** — `CoherentWitness.coherentOn_witness` (closed witness, arbitrary `L`, all four fields non-vacuous) and `CnstRecursion.coherentOn_cnstOf` (the full `VEnv.WF'` recursion, six of seven `VDecl` forms discharged). This row said "construction open" for months and was **stale**. The open items are `InductOracleOK` alone — now a **two**-field structure, its deleted third field `staged` having been false at ordinary blocks (`not_stagedField_boxDecl`) and replaced by the theorem `stagedOcc_allConsts`; bounded field by field in `InductOracleAudit.lean` §5. `consts`'s positive bound at a `WF` block is closed twice: at `boxDecl` by emptiness (`inductOracleOK_zero`) and at `inductive Unit1 : Prop | mk` with **no** empty domain (`inductOracleOK_unit`, `SetModel/UnitOracleWitness.lean`); the `rules`-negative cell is bounded tighter but **not** closed (`not_defEqOK_falseType`). **The briefed wording — a refutation at an ι-rule of a `WF` block — is unachievable, and `InductOracleAudit.lean` §5 already says so (reworded 2026-09-01):** a `WF` block's ι-rules are well typed, so a correct model *must* satisfy `DefEqOK` at each of them and a refutation there would refute the model rather than the field. The achievable control, which is what the tree has, is refutability of the field's **body** at a `VDefEq` of our choosing. The **large** eliminator (`isLE := true`) is closed too (`inductOracleOKL`, `SetModel/UnitOracleLarge.lean`); what is open is a block with **recursive fields** (needing `IndInterp.lean`'s fixed point) or with parameters/indices. `AxiomsValidated` is no longer open: its only content was `hκ`, closed by `InaccChainOmega.exists_inaccessibleChain_omega`. Caveat worth knowing: `coherentOn_witness`'s environment is reachable only via `VDecl.unsafeDef`, which `VDecl.noUnsafe` forbids and `coherentOn_cnstOf` refuses, so it certifies coherence at an environment the soundness induction never visits; `axEnv_wf` (`SetModel/CoherentConstShape.lean`) supplies a `VEnv.WF`, `.axiom`-produced, rule-free one instead |
+| `SetModel.CoherentOn` (there is no `ModelData.Coherent`) | `constDF`, `extra` | **CONSTRUCTED, in two places** — `CoherentWitness.coherentOn_witness` (closed witness, arbitrary `L`, all four fields non-vacuous) and `CnstRecursion.coherentOn_cnstOf` (the full `VEnv.WF'` recursion, six of seven `VDecl` forms discharged). This row said "construction open" for months and was **stale**. The open items are `InductOracleOK` alone — now a **two**-field structure, its deleted third field `staged` having been false at ordinary blocks (`not_stagedField_boxDecl`) and replaced by the theorem `stagedOcc_allConsts`; bounded field by field in `InductOracleAudit.lean` §5. `consts`'s positive bound at a `WF` block is closed twice: at `boxDecl` by emptiness (`inductOracleOK_zero`) and at `inductive Unit1 : Prop | mk` with **no** empty domain (`inductOracleOK_unit`, `SetModel/UnitOracleWitness.lean`); the `rules`-negative cell is bounded tighter but **not** closed (`not_defEqOK_falseType`). **The briefed wording — a refutation at an ι-rule of a `WF` block — is unachievable, and `InductOracleAudit.lean` §5 already says so (reworded 2026-09-01):** a `WF` block's ι-rules are well typed, so a correct model *must* satisfy `DefEqOK` at each of them and a refutation there would refute the model rather than the field. The achievable control, which is what the tree has, is refutability of the field's **body** at a `VDefEq` of our choosing. The **large** eliminator (`isLE := true`) is closed too (`inductOracleOKL`, `SetModel/UnitOracleLarge.lean`); ~~what is open is a block with **recursive fields** (needing `IndInterp.lean`'s fixed point) or with parameters/indices.~~ **Corrected 2026-09-02 (documentation audit): the parameters half is CLOSED.** `InductOracleOK` is discharged hole-free at `nonemptyIndDecl`, a block with `np = 1` (`example : nonemptyIndDecl.np = 1 := by decide` elaborates), and at `preludeEnv`: `SetModel.NEAudit.inductOracleOK_NE` (cone 8304, holes `[]`), `inductOracleOK_NE_at_preludeEnv` (cone 8398, holes `[]`, no `hle` premise), `nonemptyEnv_le_preludeEnv` (cone 1121, holes `[]`) — landed `6bf3b5e` (09-02 09:54), after this file's last commit `38dfc6d` (08:19). Related: `SetModel.NEAudit.nonempty_propSplit_preludeEnv : Nonempty (PropSplit preludeEnv 0)` is a theorem whose hole cone is exactly `[IsDefEqU.forallE_inv_stratified]`, so the oracle layer's non-vacuity now rests on that one hole rather than on an unconstructed class. What remains open here is a block with **recursive fields** (needing `IndInterp.lean`'s fixed point). See `docs/audit-doc-claims.md` L4. `AxiomsValidated` is no longer open: its only content was `hκ`, closed by `InaccChainOmega.exists_inaccessibleChain_omega`. Caveat worth knowing: `coherentOn_witness`'s environment is reachable only via `VDecl.unsafeDef`, which `VDecl.noUnsafe` forbids and `coherentOn_cnstOf` refuses, so it certifies coherence at an environment the soundness induction never visits; `axEnv_wf` (`SetModel/CoherentConstShape.lean`) supplies a `VEnv.WF`, `.axiom`-produced, rule-free one instead |
 | `IsDefEqU.sort_inv` | ~~packaged as `LevelAssign`~~ — that packaging is refuted; see the correction below | **open, but it has no `sorry` of its own — CORRECTED 2026-09-02.** `Injectivity.lean:565` proves it in three lines from `WF.sortUniq'` via `sort_inv_of_sortUniq`; `#print axioms` gives `[propext, sorryAx, Classical.choice, Quot.sound]`, the taint coming entirely from `IsDefEqU.forallE_inv_stratified`, which *is* a census row. So the census's 13 was right and this row's "one `sorry`" was the vacuity ledger's blindness kind 3 (dropped qualifier) |
 | `IsDefEqU.forallE_inv` | — | **not needed** |
 | `IsDefEqU.sort_forallE_inv` | — | **not needed** |
@@ -2788,8 +2795,16 @@ at exactly that shape, built ahead of the port for this reason.
 
 
 
-1. **`IsDefEqU.sort_inv`** — gives `LevelAssign`, hence the interpretation.
-   Single `sorry`, highest value in the project.
+1. ~~**`IsDefEqU.sort_inv`** — gives `LevelAssign`, hence the interpretation.
+   Single `sorry`, highest value in the project.~~
+   **CORRECTED 2026-09-02 (documentation audit, `docs/audit-doc-claims.md` L1):
+   `IsDefEqU.sort_inv` is a PROVED THEOREM, not a `sorry`.**  `Theory/Typing/Injectivity.lean:565`
+   declares it; the file's own §`:168` is headed *"`IsDefEqU.sort_inv` is now proved"*, and `:280`
+   gives the route `forallE_inv_stratified ⟹ uniqAux ⟹ SortUniq ⟹ sort_inv`.
+   `#print axioms Lean4Lean.VEnv.IsDefEqU.sort_inv` → `[propext, sorryAx, Classical.choice,
+   Quot.sound]` — `sorryAx`-*tainted*, but it is not itself in the census.  **The item this
+   ranking should name is `IsDefEqU.forallE_inv_stratified`** (736 transitive users, the largest
+   hole in the tree), which is the same priority stated sharply rather than a weaker one.
 2. **Connecting the `.induct` case.** Reduced to **one** remaining piece. The
    model half is complete in its ported form (`SetModel/IndInterp.lean`):
    `IndSignature₃`, `Ind₃` with its constructors, recursor, ι-rule and stage
@@ -3404,3 +3419,13 @@ is still not machine-checked."  That is **superseded**: `docs/handoff-setmodel.m
 that the candidate refutation *was* checked and is **symmetric**
 (`InstDescendAudit.w_types_of_sortPiConv`), so no disposition of `sort_forallE_inv` can make it
 refute `sort_inst`.  `InstDescendUp` remains open; the recorded *reason* is gone.
+
+**Addendum, 2026-09-02 (documentation audit).**  The verdict "remains open" still holds — the
+`.forallE` / `.app` / `.lam` cases need inversion (`Theory/SetModel/InstDescendBvar.lean:52-55`,
+*"No refutation"*) — but the `.bvar k` case is **closed at every `k`**: `prop_inst_bvar` /
+`proof_inst_bvar` (`InstDescendBvar.lean`, landed `37b4958`, 09-02 13:46), with
+`proof_inst_bvar_of_stratifiedN` closing the `proof_inst` half `sorryAx`-**free** and the
+`_of_wf` chain carrying exactly `[forallE_inv_stratified]`.  Recorded here because the item had
+been named "the sharpest open mathematics on the model side" in six consecutive handoff sections
+before anyone unfolded it, and it turned out to be `SortRetypeOnCtx` — a one-line consequence of
+`env.WF`.

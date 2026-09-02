@@ -437,8 +437,8 @@ every mechanism that would produce it consumes a smaller instance of itself.
    `Verify/SafeFragment.lean` §2 has already done this analysis **for `Injectivity.lean`** —
    `VContext.EwfNoUnsafe` delivers `noUnsafe` at `c.safety = .safe`, with the proviso that
    the consumers must be reached only at `.safe`, which is a restructuring nobody has
-   attempted.  The same question for `weakN_iff`'s 111 transitive users has **not** been
-   asked.  **[read, on SafeFragment; not measured for `weakN_iff`]**
+   attempted.  The same question for `weakN_iff`'s ~~111~~ **312** (re-measured 2026-09-02)
+   transitive users has **not** been asked.  **[read, on SafeFragment; not measured for `weakN_iff`]**
 4. `PiDescend` is still the cheaper sub-target, and is now known to need *conversion*
    strengthening too, not just typing strengthening: its second conjunct asks for
    `Γ ⊢ a : A₀` with `A₀` **f's** domain, and reconciling `a`'s own downstairs type with
@@ -683,7 +683,7 @@ The three decisions that made it small, worth not re-deriving:
 | route 1: axiom conservativity, and its converse | **succeeds as an equivalence** (`ConstVar.lean`) — the residual *is* the hole. **[machine-checked]** |
 | substitution (inhabited entry) | **succeeds**, covers the target's general `n`. **[machine-checked]** |
 | induction on `HasTypeStrong` (reflexive instance) | **succeeds**; residual `PiDescend`. **[machine-checked]** |
-| **λ-form** — "`λ(_:A).e₁ ≡ λ(_:A).e₂` implies `e₁ ≡ e₂`" | reduces the hole to one conversion at `k = 0`, and **the reduction of general `k` to `k = 0` needs typed λ-inversion**, i.e. `forallE_inv` (a `sorry` with 105 users).  `HasType.lam_inv` (`Strong.lean:904`) gives only `∃ B`, and moving the *equation* from the IH's type to `∀A.B` needs `IsDefEq.uniq`, which is `sorryAx`-tainted **[measured]**.  **Abandoned as tainted, not as wrong.** **[analysis, new]** |
+| **λ-form** — "`λ(_:A).e₁ ≡ λ(_:A).e₂` implies `e₁ ≡ e₂`" | reduces the hole to one conversion at `k = 0`, and **the reduction of general `k` to `k = 0` needs typed λ-inversion**, i.e. `forallE_inv` (~~a `sorry` with 105 users~~ — **corrected 2026-09-02: `IsDefEqU.forallE_inv` is a proved theorem, `sorryAx`-tainted through `WF.rigidShapeUniqNS`, not itself a census hole; `docs/audit-doc-claims.md` L2**).  `HasType.lam_inv` (`Strong.lean:904`) gives only `∃ B`, and moving the *equation* from the IH's type to `∀A.B` needs `IsDefEq.uniq`, which is `sorryAx`-tainted **[measured]**.  **Abandoned as tainted, not as wrong.** **[analysis, new]** |
 | **`Stratified` (Carneiro's `⊢ₙ`)** | still has an explicit `trans` at `n+1` with an arbitrary middle term (`Stratified.lean:87`); the index drops only the *typing* premises.  No trans elimination is available there. **[read, new]** |
 | **junk-environment refutation** (`proofIrrel` at a variable `Prop`) | **collapses at its own witness** — §2. **[machine-checked, new]** |
 | **junk-*context* refutation** (`StrengtheningTarget` has no `OnCtx Γ`) | `Ctx.LiftN` + `OnCtx Γ'` forces `OnCtx Γ` at `k = 0`, and at general `k` recovering it is `SortDescend` — part of the hole.  No slack. **[analysis, new]** |

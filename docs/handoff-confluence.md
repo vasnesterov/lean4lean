@@ -155,7 +155,7 @@ row 32). It is tempting to conclude the statements are therefore safe to prove.
 > **"Not reachable today" is not "safe to prove."**
 
 There is no instance-uniform theorem behind either statement. Deleting `descend` and carrying its
-obligation as a hypothesis on `parRed`/`church_rosser` would push a hypothesis onto all 193 users
+obligation as a hypothesis on `parRed`/`church_rosser` would push a hypothesis onto all ~~193~~ **200** users (re-measured 2026-09-02)
 with nothing behind it — and, by §5, a hypothesis of exactly that shape is *false* at the one
 witness instance available, so its consequences would be vacuous. That is a vacuity transfer, not
 a repair. Do not do it, and do not weaken either statement to make wiring go through: both are
@@ -292,7 +292,7 @@ Prefer `grep -n "^theorem NormalEq.descend"` to any number in this table.
 instruction that the `ConeJoin` import *is* the duplicate-name check — a `dup-names` pass and a
 measurement run are **not** interchangeable in time. Mine passed twenty minutes before a
 concurrent stream briefly landed a duplicate `VEnv.SortNotProp` (`InjPiRogue` vs `PropConv`) that
-made `ConeJoin` un-importable and silently shrank my closure from 193/296 users to 19/68. That
+made `ConeJoin` un-importable and silently shrank my closure from 193/296 users to 19/68 (those two figures are now **200**/**312**, re-measured 2026-09-02). That
 stream renamed it to `SortNotPropStrong` and the figures below are post-fix.
 
 ### Cones
@@ -309,7 +309,7 @@ stream renamed it to `SortNotPropStrong` and the figures below are post-fix.
 ### The two-sided trade, and it is clean
 
 `descend` has exactly **one** direct user, `NormalEq.appDF_extra_of_descend`, feeding
-`NormalEq.parRed`. So all 193 users pass through one chokepoint and the restatement serves all
+`NormalEq.parRed`. So all ~~193~~ **200** users (re-measured 2026-09-02) pass through one chokepoint and the restatement serves all
 of them or none.
 
 | | |
@@ -328,7 +328,7 @@ two-sided trade in the ledger; state it two-sided, never netted.
 
 | where | was | is |
 |---|---|---|
-| `ChurchRosser.lean` | `descend` has "145" transitive users | **193** (census) / 206 users, 196 sole (`hole-rank`) |
+| `ChurchRosser.lean` | `descend` has "145" transitive users | ~~**193** (census)~~ **200** (census, re-measured 2026-09-02) / 206 users, 196 sole (`hole-rank`) |
 | `ChurchRosser.lean` | rewiring "is not a hole-count improvement" because it trades for a refuted hypothesis | that hypothesis was `hK`, now discharged unconditionally by `ParRedK.hK` |
 | `ChurchRosser.lean` | `forallE_inv_stratified` has "446" users | **650** |
 | `KDescend.lean` | **"`sorry`-free", three times**, of `NormalEq.descendV` | it carries `sorryAx`: **[measured]** `[propext, sorryAx, Classical.choice, Quot.sound]`, via `Params.sortUniq` / `IsDefEq.uniq`. The axiom list is now printed **inline** so the error cannot recur. |
@@ -387,7 +387,7 @@ theorems in `ParRedCycle.lean` §1–§4 are there to save that round.
 
 **[measured] at `1109bab`**: census `13`; guard 1 `exactly the 24 frozen axioms ✓`; guard 2
 `within whitelist ✓ (proof INCOMPLETE: sorryAx present)`; guard 3 `(2/2 remaining) ✓`;
-`ConeJoin`-importing file imports clean; `descend` still present with 193 users.
+`ConeJoin`-importing file imports clean; `descend` still present with ~~193~~ **200** users (re-measured 2026-09-02).
 
 **[not run]**: the Kernel Arena suite. Nothing in this session touched the checker, only
 `Theory/`, so no behavioural change is expected — but expected is not measured.

@@ -1597,14 +1597,23 @@ should not take the stronger claim as established.
   a sort) reduces to one*.
 * **`const_app_inv`'s invariant is `¬ IsProof`**, not `IsType`; `IsProof.forallE_fires`
   machine-witnesses that `IsType` genuinely cannot be carried (a proof can be a function).
-* **`NormalEq.descend` is machine-checked false**; do not route through `ChurchRosser.lean`.
+* ~~**`NormalEq.descend` is machine-checked false**~~ — **OVERSTATED, corrected 2026-09-02.** What
+  is machine-checked is that its *statement* is **refuted at three of its five open goals**, by
+  `not_descendStatement`, `not_descendStatement_etaFun` and `not_descendStatement_etaArg`
+  (`Theory/Typing/KDescend.lean`, `DescendRestate.lean`; the count is `Injectivity.lean:900`'s).
+  The remaining two goals are **not** refuted, so "false" is stronger than the evidence — and
+  `docs/critical-path.md`'s "conditionally refuted" is **weaker** than it. Neither wording matched;
+  use the goal count. Practical upshot is unchanged: **do not route through `ChurchRosser.lean`.**
 * **Non-vacuity of the `SortUniq` route**: `propLoop_sortUniq` fires at `CycleConv.propLoopEnv`,
   a proved-`VEnv.WF` environment whose head reduction provably has a two-cycle.
 * **`weakN_iff` ⟺ `PiDescend`**, `sorry`-free, in `Strengthen.lean`
   (`Strengthening.iff_typed`, `Strengthening.of_typing`, `TypingStrengthening.iff_piDescend`,
   `PiDescend.sortDescend`). `weakN_iff`'s cone is **empty** — it is an independent obligation,
   and unlike the injectivity family it has never been reduced to anything smaller than
-  `PiDescend`.
+  `PiDescend`.  **Checked 2026-09-02 and NOT refuted** — `checkStrengthening_iff_target`
+  (`Theory/Typing/ParRedKWeakN.lean`, `[propext, Quot.sound]`) is an *equivalence*, not a
+  reduction, and `StrengthenInhabGate.lean`'s gate covers only part of the user set.  Only the
+  user count is stale: **312**, not the figures elsewhere in this file.
 
 ### 6.1 `PiDescend`, priced this session **[analysis]**
 
@@ -1747,8 +1756,9 @@ kept below it as item 1a, because its head table is still the right map.)*
 2. **Do not re-attack the circle from inside `Injectivity.lean`** (unchanged, see below).
 3. **Do not restate the `hasType'` case without its conversion premise.**  That is what
    §4A.4's open question was, and it is what made the case look unattackable.
-4. **`weakN_iff` is still the better-value target in this stream's own files**, at 100 census
-   users with an empty cone — but read §6.1's collapse-test note before writing anything.
+4. **`weakN_iff` is still the better-value target in this stream's own files**, at ~~100~~ **312**
+   census users (re-measured 2026-09-02; `docs/audit-doc-claims.md` F1) with an empty cone — but
+   read §6.1's collapse-test note before writing anything.
 5. **Do not** re-attempt §4's four repairs, the lexicographic measure, the unique-typing
    shortcut for `const_app_inv`'s level half, or any route through `ChurchRosser`.
 

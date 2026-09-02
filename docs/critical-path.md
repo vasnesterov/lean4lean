@@ -51,7 +51,10 @@ ruling: the premise reaches `kernel_sound`'s **frozen** statement and would narr
 rows 108–109, 112).
 
 **Neither corner of the injectivity/confluence cluster localises.** In the injectivity corner,
-**seven** localisation attempts collapsed into their own targets, and one theorem explains why: no
+~~**seven**~~ **nine** (corrected 2026-09-02: collapse eight is `ce58e65`'s
+`sortLinkInvUC_iff_sortUniq` / `shapeLinkAgree_iff_shapeMidShapeless_of_propAgreeOn`, collapse
+nine is `8fa3e6d`'s `propUniqN_iff_appCase_all`) localisation attempts collapsed into their own
+targets, and one theorem explains why: no
 syntactic condition on a `trans` midpoint can localise it, because β manufactures a midpoint of any
 shape. In the confluence corner, the object the whole layer had been reduced to is **false**, and its
 repaired form — joinability rather than `NormalEq` on the nose — is provably **equivalent to
@@ -70,7 +73,16 @@ nested-elimination pass manufactures a non-canonical constructor field whenever 
 an inductive with a **dependent** parameter. A guard was priced and **refuted** by that same fact.
 **Ruling in force (row 116d): reparameterise the restoration to target the *stored* type and drop the
 canonicity predicate** — measured to make every collapse unconditional and the residue true using
-nothing but β. Execution in progress.
+nothing but β. ~~Execution in progress.~~ **LANDED, 2026-09-02** (`e2c56d2` 01:49, `823a026` 05:12,
+`b59f569` 08:28 — the last two *after* this file's own last commit at 05:11): `VEnv.AddNestedB`
+(`Theory/Inductive/NestedBuild.lean:806`) is now `D.WF env ∧ D.Built R K env occ ∧ addInductR … =
+some env'` with **no canonicity conjunct**, and `VInductDecl'.Built.canonical` is deleted.
+**Also corrected: "`Built` … false at `Lean.Json`" is refuted as stated** —
+`Theory/Inductive/MemberRedex.lean:12`, *"**`VInductDecl'.Built` alone is NOT false**, at
+`Lean.Json` or anywhere else"* (witness `mr_member_built`, `[propext, Quot.sound]`).  The failing
+object is `AddNestedB`'s first two conjuncts *jointly*, plus an unconditional second refutation
+about the companion recursor's minor-premise arity; at the repaired witness the `VIndField.WF.pos`
+residue is one `IsDefEq.beta` (`mr_pos_beta`, `[propext]`).
 
 **One known gap in the permissive direction, not yet closed:** C++ runs a syntactic uniform-occurrence
 pre-pass that lean4lean lacks, and upstream's own comment shows they added it *because* later phases
@@ -116,10 +128,26 @@ What actually blocks condition 2, in the shape it really has:
    * **(C)** in general — the head-by-head equation over
      `iotaCtx`/`iotaLhs`/`iotaLam`/`ihValues`/`iotaType`. Strictly harder than (A)'s: `csubst`'s
      domain holds the companion's *constructor* and *recursor* names, outside `D.blockNames`, so no
-     `NoBlock` clause of `VIndCtor.WF` covers them, and the `csubstList` lookup lemmas do not exist.
-   * **(B)** — a strict *sub-problem* of (C), since `iotaCtxR` splices `motivesR ++ minorsR`. The
+     `NoBlock` clause of `VIndCtor.WF` covers them, ~~and the `csubstList` lookup lemmas do not
+     exist~~.
+   * **(B)** — a strict *sub-problem* of (C), since `iotaCtxR` splices `motivesR ++ minorsR`. ~~The
      one ingredient both need is a `ctorApp' → ctorAppR` head equation mirroring
-     `substC_tyApp_eq_tyAppR_map`.
+     `substC_tyApp_eq_tyAppR_map`.~~
+
+   **CORRECTED 2026-09-02, and both "missing ingredient" claims were false by then.**
+   `Lean4Lean/Theory/Inductive/NestedRules.lean` §7.1 *is* the `csubstList` lookup toolkit
+   (`VIndRestore.csubstList_eq` `:131`, `mem_csubstList` `:137`, the three member-lookup lemmas
+   `:176`/`:183`/`:189`), and `:438-441` is the `ctorApp' → ctorAppR` head equation under exactly
+   that description — `VIndRestore.substC_ctorApp'_eq_ctorAppR`, docstring *"**The `ctorApp'` head
+   equation** — the ingredient (B) and (C) share."*  Both `[propext, Quot.sound]`, no `sorryAx`.
+   Further: **(B) and (C) are closed in general at `D.params = []`**
+   (`VEnv.recConstsR_wf_of_np_zero` `:869`, `VEnv.iotaRulesRS_wf_of_np_zero` `:887`), and **all
+   three obligations are hypothesis-free theorems at a *parameterised* nested block** —
+   `InductiveDeclExamples.ntreeAux_obligationB`, `ntreeAux_obligationC` and
+   `ntreeAux_addInductR_ordered`, all `[propext, Classical.choice, Quot.sound]`, at `ntreeAux` with
+   `np = 1` (`by decide`).  Landed `6a570b1` (09-02 14:10) and `f444bac` (09-02 14:59); this file
+   was last committed `55240ca` (09-02 05:11).  **What is open is the general parameterful case,
+   not the two ingredients.**
    * **`VIndRestore.KeysFree`** must stop being a hypothesis — either it joins `AddNestedStep`'s
      premises (cheap for the checker, since `mkAuxRecNameMap` renames out of the `_nested`
      namespace) or it becomes a `Faithful` clause. It is **not** derivable from
@@ -183,17 +211,24 @@ internal names while *building* the reverse-reachability graph, so a user reachi
 of its own equation lemmas was invisible (ledger §0). Current figures at the last quiescent run are
 in the right-hand column; `TrProj.uniq` has since closed.
 
-| Hole | Old (broken graph) | Current |
-|---|---|---|
-| `addDecl.WF` | 1 | **8** |
-| `TypeChecker.Inner.inferProj.WF` | 0 | **68** |
-| `TypeChecker.Inner.isDefEqUnitLike.WF` | 1 | **68** |
-| `TypeChecker.Inner.tryEtaStructCore.WF` | 2 | **69** |
-| `TrProj.weak'_inv` | 29 | **88** |
-| `TrProj.uniq` | 93 | *closed* |
-| `VEnv.IsDefEqU.weakN_iff` | 134 | **296** |
-| `VEnv.WF.rigidShapeUniqNS` | 224 |
-| `VEnv.IsDefEqU.forallE_inv_stratified` | 515 |
+| Hole | Old (broken graph) | ~~Current~~ (2026-09-01) | **Current, 2026-09-02** |
+|---|---|---|---|
+| `addDecl.WF` | 1 | ~~**8**~~ | **8** |
+| `TypeChecker.Inner.inferProj.WF` | 0 | ~~**68**~~ | **70** |
+| `TypeChecker.Inner.isDefEqUnitLike.WF` | 1 | ~~**68**~~ | **70** |
+| `TypeChecker.Inner.tryEtaStructCore.WF` | 2 | ~~**69**~~ | **71** |
+| `TrProj.weak'_inv` | 29 | ~~**88**~~ | **90** |
+| `TrProj.uniq` | 93 | *closed* | *closed* (absent from the census) |
+| `VEnv.IsDefEqU.weakN_iff` | 134 | ~~**296**~~ | **312** |
+| `VEnv.WF.rigidShapeUniqNS` | 224 | *(never filled)* | **460** |
+| `VEnv.IsDefEqU.forallE_inv_stratified` | 515 | *(never filled)* | **736** |
+| `VEnv.NormalEq.descend` | *(not tabulated)* | | **200** |
+
+**Re-measured 2026-09-02** (documentation audit; `docs/audit-doc-claims.md` F1). Instrument: the
+reverse-reachability algorithm of `scripts/sorry-census.lean` run over the built `.olean`s via
+`importModules`, so the guard's `run_cmd` is not re-executed. Every figure in the 2026-09-01
+column was an undercount, and `descend` had never been tabulated here at all — not even after the
+2026-09-01 correction below put it on the cone.
 
 `Bridge.hasType_falseProp` — the transport of the `False` witness from the kernel environment to
 the abstract one — has a cone of 7244 declarations and **zero** holes. The `False` side of the
@@ -202,8 +237,12 @@ hypotheses.
 
 ## What is *not* on the path
 
-Five of the 14 census holes are outside `kernel_sound_of`'s cone. Two of them for real reasons,
-three for reasons that must not be misread as slack:
+~~Five of the 14 census holes are outside `kernel_sound_of`'s cone.~~ **Corrected 2026-09-02:
+**four** of the **13** — census total 13, cone hole set 9, so the off-cone set is exactly
+`kernel_sound`, `kernel_complete`, `leanTT_equiconsistent_zfc_omega_inaccessibles` and
+`VIndRecArg.exists_indep`.  `NormalEq.descend` left this list on 2026-09-01 (struck entry below)
+and the count was never updated.**  Two of the four for real reasons, two for reasons that must
+not be misread as slack:
 
 - `kernel_complete` — genuinely not blocking; its own doc comment says "not part of the binding
   goal".
@@ -220,7 +259,11 @@ three for reasons that must not be misread as slack:
   CRDefEq.trans ← NormalEq.parRedS ← NormalEq.parRed ← appDF_extra_of_descend ← descend`. So it
   enters through **Church–Rosser / constant-application injectivity** — which this document's own
   Correction 2 already states — and the two passages contradicted each other. Grade it per ledger
-  row 32 *as corrected*: **conditionally** refuted, not unfillable. The old text is kept below for
+  row 32 *as corrected*: ~~**conditionally** refuted, not unfillable~~ — **sharpened 2026-09-02: its
+  statement is refuted at THREE OF ITS FIVE open goals**, by `not_descendStatement`,
+  `not_descendStatement_etaFun` and `not_descendStatement_etaArg`. "Conditionally refuted"
+  understated that; `handoff-injectivity.md`'s "machine-checked false" overstated it, the other two
+  goals being un-refuted. The two documents disagreed for a day and neither matched the evidence. The old text is kept below for
   the record because its *reasoning* about hole cones is sound and still worth knowing; only its
   verdict was false.
   *Was:* off-cone because the results it supplies (`ParRed.weakN_inv`, and confluence generally)
@@ -315,8 +358,8 @@ right one.**
 **any** predicate `P` with `∀ X, P (betaMid X)`, the `P`-restricted midpoint statement is
 equivalent to the unrestricted link statement. **No syntactic condition on a midpoint can ever
 localise a `trans` node.** That kills "not a sort", "not a Π", "neither", "is an application", "is
-a β-redex" and "no rigid head" in one theorem, and it is why localisation has now collapsed seven
-times here.
+a β-redex" and "no rigid head" in one theorem, and it is why localisation has now collapsed
+~~seven~~ **nine** (corrected 2026-09-02) times here.
 
 **The one fact, and it is now a theorem rather than a reading of the reference.**
 `InjOneFact.ShapeLinkAgree` states it once — one relation over `SPShape` (sort | pi) with
@@ -409,7 +452,8 @@ suggests. `KDescend.KDiamond`'s own docstring had warned that its content is "th
 it lands on it. **Ledger row 101a's "the repair is a restatement to joinability" is right about what
 to do and silent about what it costs.**
 
-Net for this section: the injectivity corner collapsed **seven** times (`midShapeless_vacuous`
+Net for this section: the injectivity corner collapsed ~~**seven**~~ **nine** (corrected
+2026-09-02: `ce58e65` collapse eight, `8fa3e6d` collapse nine) times (`midShapeless_vacuous`
 explains why in one theorem), and the confluence corner's repaired target is itself a CR statement.
 **Neither corner localises.** What survives is real but smaller than the section's title claimed:
 `kDiamondJ_of_patMajorCanonicalJ` clean, the η-layer's two repairs identified and independent
@@ -492,7 +536,8 @@ exists is a **bypass**: `NormalEq.weakN_inv_DFC'` proves the same thing from
 `weakN_inv_DFC` is still in the tree and still a live direct user of the hole, and its users
 still go through it. A bypass that nothing has been switched over to does not remove an edge.
 
-Measured: `IsDefEqU.weakN_iff` has **12** direct users — `ConditionallyWHNF.weakN_inv`,
+Measured: `IsDefEqU.weakN_iff` has ~~**12**~~ **13** direct users (corrected 2026-09-02; the
+addition is `VEnv.typingStrengthening_of_weakN_iff`) — `ConditionallyWHNF.weakN_inv`,
 `IsDefEq.skips`, `IsDefEq.weakN_iff'`, `IsDefEqU.weak'_iff`, `KTable.kstep_liftN_inv_stepP`,
 `NormalEq.weakN_inv_DFC`, `ParRed.weakN_inv`, `ParRedExt.parRed_beta`, `hasType_app_bvar0`,
 `parRedK_weakN_invP`, `parRedK_weakN_invPS`, `VExpr.WF.weakN_iff`. Switching the consumers of
@@ -538,7 +583,8 @@ with arms `AddInductStages.find?_shape`/`.defeqs`; `Aligned.addInduct` gets
 
 So the flip's actual cost **to the main theorem** is three declarations with no replacement in
 hand — `reduceProjCore_none`, `reduceProjCore.WF`, `inductiveReduceRec_eq_none` — i.e. census
-14 → 17, not the nine the handoff priced. Everything else is either off-path or already proved.
+~~14 → 17~~ **13 → 16** (base figure corrected 2026-09-02; the three declarations themselves were
+not re-audited), not the nine the handoff priced. Everything else is either off-path or already proved.
 
 Worth saying plainly about what is being "lost": these are theorems asserting the checker never
 handles inductives. They are sorry-free today *only because* `AddInduct` is empty. For a kernel
@@ -642,7 +688,8 @@ This is the concrete reason the flip is no longer a trade to be priced against t
 Every route from the checker to the abstract environment passes through `TrEnv .safe`, and while
 `AddInduct` is empty that relation cannot hold of any environment containing `Eq`. The flip is
 not a way to buy progress; it is the only thing that makes the route exist. The decision is
-still the human's, and the price recorded above (census 14 → 17) is still the price.
+still the human's, and the price recorded above (census ~~14 → 17~~ **13 → 16**, corrected
+2026-09-02) is still the price.
 
 ### Correction 5: the flip is two flips, and the one that matters is not a decision
 
@@ -664,8 +711,13 @@ There are **two** flips, and they are not the same change:
 * **The nested flip** — `AddInduct := ∃ K R, AddInductStagesR …`, which is what
   `AddInductFlip` is stated in terms of and the only version that covers full Lean type theory.
   This one is **not** a decision. It is blocked on four ordinary open obligations, listed in
-  `docs/vacuity-ledger.md` §6. **Three** of them are open theorems: the hypotheses
-  `hctors` / `hrecs` / `hrules` of `VEnv.addInductR_ordered'`. The fourth — the nested arm of
+  `docs/vacuity-ledger.md` §6. ~~**Three** of them are open theorems: the hypotheses
+  `hctors` / `hrecs` / `hrules` of `VEnv.addInductR_ordered'`.~~ **CORRECTED 2026-09-02: all three
+  are now theorems in general at `D.params = []`, and all three are hypothesis-free theorems at a
+  parameterised nested block (`ntreeAux`, `np = 1`) — `ntreeAux_obligationB` /
+  `ntreeAux_obligationC` / `ntreeAux_addInductR_ordered`, all
+  `[propext, Classical.choice, Quot.sound]`.  What is open is the general parameterful case.  See
+  the correction to item 2 above and `docs/audit-doc-claims.md` F3.** The fourth — the nested arm of
   `DeltaUnique`'s `keys_induct` — turned out to be **already done** in
   `Theory/Inductive/NestedKeys.lean`, and more sharply than expected: `KeyMajorUnique` is *false*
   after a nested step, the replacement `KeyUnique` is preserved, and the sole consumer is

@@ -335,8 +335,12 @@ statement is right, and it is not evidence it is wrong.*
 4. **Block B (the swap)** is unchanged and was not attempted; it needs `projCoreG_hasType`,
    which needs `hiota`, plus `hdecl` (correction 4).
 5. `TrProj.uniq` (83 users) and `TrProj.weak'_inv` (28) remain **structurally** blocked
-   (§0‴.6, §0⁗.6): `VEnv.PatWF`/`VEnv.WeakNorm` are open hypotheses, not census holes, plus
-   ledger G4, which has no statement in the tree.  Unchanged this round.
+   ~~(§0‴.6, §0⁗.6): `VEnv.PatWF`/`VEnv.WeakNorm` are open hypotheses, not census holes, plus
+   ledger G4, which has no statement in the tree.~~ **STALE, 2026-09-02: `PatWF` follows from
+   `VEnv.WF` modulo two existing census holes (`patWF_of_wf`), `WeakNorm` is REFUTED
+   (`not_forall_weakNorm_of_wf`, sorry-free), G4's residual is PROVED
+   (`recTypeResidual_of_wf`, sorry-free), and `TrProj.uniq` is CLOSED — see §0‴.6's correction
+   block.**  Unchanged this round.
 
 ### 0**.8 What I would pick up first
 
@@ -571,8 +575,12 @@ wrong, and it is not evidence it is right.*
 2. **Block B (the swap)** is unchanged and was not attempted; it needs `projCoreG_hasType`,
    which needs item 1.
 3. `TrProj.uniq` (83 users) and `TrProj.weak'_inv` (28) remain **structurally** blocked
-   (§0‴.6, §0⁗.6): `VEnv.PatWF`/`VEnv.WeakNorm` are open hypotheses, not census holes, plus
-   ledger G4, which has no statement in the tree.  Consuming them needs a new `sorry` or
+   ~~(§0‴.6, §0⁗.6): `VEnv.PatWF`/`VEnv.WeakNorm` are open hypotheses, not census holes, plus
+   ledger G4, which has no statement in the tree.~~ **STALE, 2026-09-02: `PatWF` follows from
+   `VEnv.WF` modulo two existing census holes (`patWF_of_wf`), `WeakNorm` is REFUTED
+   (`not_forall_weakNorm_of_wf`, sorry-free), G4's residual is PROVED
+   (`recTypeResidual_of_wf`, sorry-free), and `TrProj.uniq` is CLOSED — see §0‴.6's correction
+   block.**  Consuming them needs a new `sorry` or
    axiom.  Unchanged this round and not next round's business.
 
 ### 0*.8 What I would pick up first
@@ -806,8 +814,10 @@ What this does **not** settle: ingredient (c).  See §0.7.
 2. **Block B (the swap)** is unchanged and was not attempted; it needs `projCoreG_hasType`,
    which needs item 1.
 3. `TrProj.uniq` (83 users) and `TrProj.weak'_inv` (28) remain **structurally** blocked
-   (`§0‴.6`, `§0⁗.6`): they need `VEnv.PatWF`/`VEnv.WeakNorm`, which are open hypotheses, not
-   census holes, plus ledger G4, which has no statement in the tree.  Consuming them needs a
+   ~~(`§0‴.6`, `§0⁗.6`): they need `VEnv.PatWF`/`VEnv.WeakNorm`, which are open hypotheses, not
+   census holes, plus ledger G4, which has no statement in the tree.~~ **STALE, 2026-09-02: see
+   §0‴.6's correction block — `PatWF` follows from `VEnv.WF` modulo two existing census holes,
+   `WeakNorm` is REFUTED, G4's residual is PROVED, and `TrProj.uniq` is CLOSED.**  Consuming them needs a
    new `sorry` or axiom.  Not this round's business and not next round's.
 
 ### 0.8 What I would pick up first
@@ -1793,13 +1803,13 @@ This is a correction to the brief's sequencing, not a report of difficulty.  Bot
 facts that are **not census holes** and therefore cannot be consumed without adding a `sorry`
 (forbidden) or an axiom (forbidden):
 
-* `VEnv.PatWF` (`Theory/Typing/ParamsBuild.lean`) — a `def … : Prop`, **open**.  Proved only on
-  the δ fragment.  Needed for fact (B) (`const_app_inv_of_patWF`) and fact (D)
+* ~~`VEnv.PatWF` (`Theory/Typing/ParamsBuild.lean`) — a `def … : Prop`, **open**.  Proved only on
+  the δ fragment.~~  Needed for fact (B) (`const_app_inv_of_patWF`) and fact (D)
   (`constNoConf_of_patWF`), i.e. for two of `TrProj.uniq`'s four obligations and for
   `weak'_inv`'s level half.
-* `VEnv.WeakNorm` (`Verify/Typing/ConstSpine.lean`) — stated, **no route in the tree**.  Needed
+* ~~`VEnv.WeakNorm` (`Verify/Typing/ConstSpine.lean`) — stated, **no route in the tree**.~~  Needed
   for (C) rigidity, `weak'_inv`'s other half.
-* ledger **G4** / `RecTypeResidual` — has no statement in the tree; `TrProj.uniq`'s obligation (1).
+* ~~ledger **G4** / `RecTypeResidual` — has no statement in the tree~~; `TrProj.uniq`'s obligation (1).
 * a `projTerm` congruence — `TrProj.uniq`'s obligation (4); mechanical, still uncosted.
 
 Consuming an *existing* census hole (say `IsDefEqU.forallE_inv`) is permissible and would leave
@@ -1808,6 +1818,32 @@ not, because they are hypotheses rather than holes.  So neither lemma could clos
 regardless of effort, and the brief's "then close what it unblocks" does not follow — **the
 `projCore` generalisation unblocks neither**, and it was never claimed to (`handoff-eta.md` §3,
 "What it is not").
+
+**CORRECTED 2026-09-02 (documentation audit, `docs/audit-doc-claims.md` P1). All three
+"structural blocker" legs of this paragraph are stale, and two of them badly:**
+
+* **`VEnv.PatWF` is not a free-standing open hypothesis.**  `VEnv.patWF_of_wf` derives it from
+  `VEnv.WF`; measured cone 4025, hole cone
+  `[IsDefEqU.forallE_inv_stratified, WF.rigidShapeUniqNS]` — i.e. **two existing census holes**,
+  which this very paragraph says are permissible to consume ("Consuming an *existing* census hole
+  … is permissible").  `VEnv.patWF` itself is cone 3892, hole cone
+  `[IsDefEqU.forallE_inv_stratified]`.
+* **`VEnv.WeakNorm` is REFUTED, not routeless.**  `Verify/Typing/ConstSpine.lean:59`:
+  *"`VEnv.WeakNorm` below is **refuted**, not open."*  `Verify/Typing/WeakNormRefute.lean` proves
+  it at two independent `Params` instances (`not_weakNorm`, `not_weakNorm'`) and
+  `not_forall_weakNorm_of_wf` — *"No proof of `WeakNorm` from `VEnv.WF`"* — both
+  `[propext, Classical.choice, Quot.sound]`, **no `sorryAx`**.  So anything whose only route runs
+  through `WeakNorm` must be restated, not waited on.
+* **Ledger G4 / `RecTypeResidual` is not only stated, it is PROVED.**
+  `VEnv.RecTypeResidual` is defined at `Verify/Typing/StructureUniq.lean:586`,
+  `VEnv.structureUniq_of` reduces G4 to it at `:594`, and
+  `VEnv.recTypeResidual_of_wf` (`Verify/Typing/RecTypePeel.lean:189`) **proves the residual from
+  `VEnv.WF`, `[propext, Classical.choice, Quot.sound]`, sorry-free**; that file's header reads
+  *"`VEnv.RecTypeResidual`, proved: ledger G4 closes"*.
+
+Also stale in the same sentences: **`TrProj.uniq` is CLOSED** (absent from the 2026-09-02 census),
+and `TrProj.weak'_inv` has **90** transitive users, not 28.
+
 
 **`InferTypeS.weakU_inv`, assessed as instructed.**  `Theory/Typing/HeadReduction.lean:691`,
 `(W : Ctx.Lift' ρ Γ Δ) (H : Δ ⊢ e.lift' ρ ▷* A') : ∃ A, A' = A.lift' ρ ∧ Γ ⊢ e ▷* A`.  It does

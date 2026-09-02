@@ -20,7 +20,13 @@ Reading as of 2026-08-31 (census TOTAL 14):
   `hasType_falseProp` — the `False`-witness transport — has a cone of 7244 and **0** holes.
 * The 5 census holes it does *not* reach are `kernel_sound` and `kernel_complete` themselves,
   `leanTT_equiconsistent_zfc_omega_inaccessibles`, `VIndRecArg.exists_indep` (0 users), and
-  `NormalEq.descend` (47 users).
+  ~~`NormalEq.descend` (47 users).~~  **STALE, CORRECTED 2026-09-02 — and this docstring is the
+  one everyone reads while reproducing the cone, so the error propagated further than most.**
+  `NormalEq.descend` has **200** transitive users and is **ON** `Bridge.kernel_sound_of`'s cone,
+  entering through Church-Rosser / constant-application injectivity; the cone's hole set is
+  **nine** and contains it.  So the list below is **four** off-cone holes of **13**, not five of
+  14.  `docs/critical-path.md` corrected its copy of this line on 2026-09-01 and this twin was
+  missed for a day (`docs/audit-doc-claims.md`).
 
 Two of those five need care rather than celebration:
 

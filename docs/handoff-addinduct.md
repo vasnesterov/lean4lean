@@ -310,7 +310,15 @@ the `def` of §2 and `AddInduct.to_addInduct := AddInductStages.to_addInduct`.
 
 **(3) `Verify/Environment.lean` (owned).** `checkEqType.WF` → `checkEqType.WF_quotReady_closed`'s
 statement (proof: that theorem). Then `addQuot.WF`'s second branch must build `TrEnv'.quot`
-instead of `False.elim`. **This is the one repair that is not yet in hand** — see §7.
+instead of `False.elim`. ~~**This is the one repair that is not yet in hand** — see §7.~~
+**LANDED — corrected 2026-09-02 (documentation audit).** `Verify/Environment.lean:140-143` is now
+`theorem addQuot.WF … := addQuot.WF' wf`, and `addQuot.WF'` (`Verify/QuotConsts.lean:683`) builds
+`TrEnv'.quot` through `trEnv_addQuot`, taking its `QuotReady` premise from
+`checkEqType.WF_quotReady_closed` exactly as this item specifies.
+`#print axioms Lean4Lean.addQuot.WF` → `[propext, Classical.choice, Quot.sound]` plus seven
+whitelisted frozen `Lean.*` axioms; **no `sorryAx`**. §7.1 of this same file already says "DONE";
+this line contradicted it. (It remains *vacuous* pending the flip — a separate fact, stated at
+`Verify/QuotConsts.lean:718`.)
 
 **(4) `Verify/SafeFragment.lean` (NOT owned).** `AddInduct.le`'s `nomatch H` →
 `AddInductStages.le` (proved, `Basic.lean`). One line. `TrEnv'.quotReady_of_quotInit`'s induct
@@ -336,9 +344,18 @@ becomes false. Its only consumer is `checkEqType.WF`, handled by (3).
 `tryEtaStructCore_never_true` (IsDefEq). `isDefEqUnitLike_never_true` is already `sorry`-adjacent
 and dies with the same argument.
 
-**Net axiom-cone effect of the flip:** nine sorry-free declarations become `sorry`; nothing that
-is currently sorry-free *outside* that list is lost, because every other tier-1 arm is proved and
-the remaining 56 tier-2 users are already `sorryAx`-tainted.
+**Net axiom-cone effect of the flip:** ~~nine sorry-free declarations become `sorry`~~; nothing
+that is currently sorry-free *outside* that list is lost, because every other tier-1 arm is proved
+and the remaining 56 tier-2 users are already `sorryAx`-tainted.
+
+**RE-PRICED, and this price is the stale one streams keep quoting.** `docs/critical-path.md`
+§"Re-pricing the `AddInduct` flip" measured the flip's cost **to the main theorem** as **three**
+declarations with no replacement in hand — `reduceProjCore_none`, `reduceProjCore.WF`,
+`inductiveReduceRec_eq_none` — not nine: of the seventeen affected declarations only nine are on
+`Bridge.kernel_sound_of`'s cone, and six of those nine have proved replacement arms already in
+hand (§6 above). In census terms the price is **13 → 16** (base figure re-measured 2026-09-02;
+`docs/audit-doc-claims.md` F10), not 14 → 17 and not nine. Recorded here because §7.2's
+"whether to take nine `sorry`s" is the sentence the decision gets quoted from.
 
 ---
 
