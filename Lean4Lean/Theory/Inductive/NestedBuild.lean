@@ -235,6 +235,23 @@ theorem map_instAll_bvars_at : ∀ (as : List VExpr) (k : Nat),
       rw [hc, map_instAll_bvars_at as k]
     rw [List.length_cons, bvars_succ, List.map_cons, h1, h2, List.map_cons]
 
+/-! ### Head β-contraction
+
+`Lean.Expr.headBeta` at the `VExpr` level, written as a structural recursion on the spine so
+that it reduces by `rfl`/`decide` (a `termination_by` version does not, which is why this one
+recurses on the argument list).
+
+It is here — rather than downstream in `Theory/Inductive/MemberRedex.lean`, where it was first
+written — because `VNestedOcc.field` now calls it.  Ledger row 119b: the recogniser, not the
+stored type, is what gets β-reduced; nothing the construction *stores* moves. -/
+
+def betaSpine : List VExpr → VExpr → VExpr
+  | [], f => f
+  | a :: as, .lam _ b => betaSpine as (b.inst a)
+  | a :: as, f => f.mkApp (a :: as)
+
+def betaHead (e : VExpr) : VExpr := betaSpine e.spineArgs e.spineFn
+
 end VExpr
 
 /-! ## Part 4: the block header
@@ -304,15 +321,111 @@ re-abstracted over the new block's parameters. -/
 def instAt (H : VIndHeader) (e : VExpr) : VExpr :=
   mkPi H.params (VExpr.instAll (splitPis N.decl.np (e.instL N.lvls)).2 N.args)
 
-/-- One field of an auxiliary constructor.  The substituted type is `S`; the recogniser
-decides whether it is a recursive position of the *new* block, and if so the field is stored
-in its block-headed form — which is what the implementation's later `replaceAllNested` pass
-writes. -/
-def field (H : VIndHeader) (R : VIndRestore) (i : Nat) (F₀ : VIndField) : VIndField :=
+/-- **The pre-repair field function**, kept as a definition and not as history: it is the
+reference point that makes the repair's conservativity (`field_eq_fieldO_of_some`,
+`field_eq_fieldO_of_none`) a statement *with content* rather than a `rfl`.  Deleting it would
+turn both of those into tautologies, which is ledger blindness 7 in reverse.
+
+It recognises only at the **top** of the substituted type, so the redex-headed recursive field
+that `ElimNestedInductive.run` manufactures at a dependent nested parameter is recorded
+`recArg = none` (ledger rows 116/119). -/
+def fieldO (H : VIndHeader) (R : VIndRestore) (i : Nat) (F₀ : VIndField) : VIndField :=
   let S := VExpr.instAll (F₀.type.instL N.lvls) N.args i
   match R.recog H.nm i S with
   | some r => { type := r.canonTypeH H i, lvl := F₀.lvl.inst N.lvls, recArg := some r }
   | none => { type := S, lvl := F₀.lvl.inst N.lvls, recArg := none }
+
+/-- One field of an auxiliary constructor.  The substituted type is `S`; the recogniser
+decides whether it is a recursive position of the *new* block, and if so the field is stored
+in its block-headed form — which is what the implementation's later `replaceAllNested` pass
+writes.
+
+**This is `MRedex.fieldB` (ledger row 119c), landed as the definition.**  The middle branch is
+the repair: when the recogniser fails on `S` it is asked again on `S`'s **head-β contraction**,
+and if *that* fires the field is stored **verbatim** — `type := S`, the redex the implementation
+actually stores — with `recArg := some r`.
+
+Why the branch is needed, and why it stores `S` rather than the canonical form:
+`instantiateForallParams` is a plain `instantiateRevRange` with no β step, so a block nesting
+through an inductive with a *dependent* parameter `β : ι → Sort v` at the instance
+`β := fun _ => I` gets a field stored as `(fun _ => I) k` — an `.app`-headed **recursive** field
+of the auxiliary block.  `VIndRestore.recogAt` splits leading pis and tests the spine head for
+`.const`, and a redex's spine head is a `.lam`, so the old function reported `recArg = none`
+there (`MRedex.recog_none_of_lamHead`).  `Lean.Json` and `Lean.PrefixTreeNode` are both real
+instances.  Storing `S` verbatim keeps the specification's stored type equal to the
+implementation's, so **this is a specification-side change only and not a divergence**: nothing
+`ElimNestedInductive` writes moves, only what the *recogniser* reads.
+
+Only the head is contracted.  A redex under a binder (`∀ y, (fun x => I) y`) or one needing δ
+would need `AddInductive.isRecArg`'s full whnf-at-every-pi-step loop; **zero such fields exist
+in the running environment** (`Verify/Inductive/MemberRedexScan.lean`: 47 blocks, 790 auxiliary
+fields, 3 defects in 3 blocks, 3 of 3 covered by one head-β step, residual 0), and that residue
+is named rather than measured away. -/
+def field (H : VIndHeader) (R : VIndRestore) (i : Nat) (F₀ : VIndField) : VIndField :=
+  let S := VExpr.instAll (F₀.type.instL N.lvls) N.args i
+  match R.recog H.nm i S with
+  | some r => { type := r.canonTypeH H i, lvl := F₀.lvl.inst N.lvls, recArg := some r }
+  | none =>
+    match R.recog H.nm i (VExpr.betaHead S) with
+    | some r => { type := S, lvl := F₀.lvl.inst N.lvls, recArg := some r }
+    | none => { type := S, lvl := F₀.lvl.inst N.lvls, recArg := none }
+
+/-- **Conservative, half one**: where the recogniser already fired, nothing moves. -/
+theorem field_eq_fieldO_of_some {H : VIndHeader} {R : VIndRestore} {i : Nat}
+    {F₀ : VIndField} {r : VIndRecArg}
+    (h : R.recog H.nm i (VExpr.instAll (F₀.type.instL N.lvls) N.args i) = some r) :
+    N.field H R i F₀ = N.fieldO H R i F₀ := by
+  rw [field, fieldO]; simp only [h]
+
+/-- **Conservative, half two**: where the β-contraction is not recognised either, nothing
+moves.  So the two functions differ on **exactly** the fields the elimination manufactures. -/
+theorem field_eq_fieldO_of_none {H : VIndHeader} {R : VIndRestore} {i : Nat}
+    {F₀ : VIndField}
+    (h : R.recog H.nm i (VExpr.instAll (F₀.type.instL N.lvls) N.args i) = none)
+    (h2 : R.recog H.nm i (VExpr.betaHead (VExpr.instAll (F₀.type.instL N.lvls) N.args i))
+      = none) :
+    N.field H R i F₀ = N.fieldO H R i F₀ := by
+  rw [field, fieldO]; simp only [h, h2]
+
+/-- **The new branch stores the type verbatim.**  This is what keeps the construction faithful:
+the implementation's `instantiateForallParams` output *is* this term. -/
+theorem field_new_branch {H : VIndHeader} {R : VIndRestore} {i : Nat}
+    {F₀ : VIndField} {r : VIndRecArg}
+    (h : R.recog H.nm i (VExpr.instAll (F₀.type.instL N.lvls) N.args i) = none)
+    (h2 : R.recog H.nm i (VExpr.betaHead (VExpr.instAll (F₀.type.instL N.lvls) N.args i))
+      = some r) :
+    N.field H R i F₀ =
+      { type := VExpr.instAll (F₀.type.instL N.lvls) N.args i,
+        lvl := F₀.lvl.inst N.lvls, recArg := some r } := by
+  rw [field]; simp only [h, h2]
+
+/-- The `none`-`none` branch: both recognitions fail, the type is stored verbatim and
+`recArg` is `none`. -/
+theorem field_eq_none_branch {H : VIndHeader} {R : VIndRestore} {i : Nat} {F₀ : VIndField}
+    (h : R.recog H.nm i (VExpr.instAll (F₀.type.instL N.lvls) N.args i) = none)
+    (h2 : R.recog H.nm i (VExpr.betaHead (VExpr.instAll (F₀.type.instL N.lvls) N.args i))
+      = none) :
+    N.field H R i F₀ =
+      { type := VExpr.instAll (F₀.type.instL N.lvls) N.args i,
+        lvl := F₀.lvl.inst N.lvls, recArg := none } := by
+  rw [field]; simp only [h, h2]
+
+/-- **The recogniser's binder telescope, on either recursive branch.**  The left disjunct is
+the pre-repair reading; the right is the repair's, and it is the reason `bindersIndep` needs
+`VExpr.skips_betaHead`. -/
+theorem field_binders {H : VIndHeader} {R : VIndRestore} {i : Nat} {F₀ : VIndField}
+    {r : VIndRecArg} (hr : (N.field H R i F₀).recArg = some r) :
+    r.binders = (splitPis (VExpr.instAll (F₀.type.instL N.lvls) N.args i).piArity
+        (VExpr.instAll (F₀.type.instL N.lvls) N.args i)).1
+      ∨ r.binders = (splitPis (VExpr.betaHead
+          (VExpr.instAll (F₀.type.instL N.lvls) N.args i)).piArity
+        (VExpr.betaHead (VExpr.instAll (F₀.type.instL N.lvls) N.args i))).1 := by
+  rw [field] at hr
+  split at hr
+  · rename_i heq; cases hr; exact .inl (VIndRestore.recog_binders heq)
+  · split at hr
+    · rename_i heq; cases hr; exact .inr (VIndRestore.recog_binders heq)
+    · exact absurd hr nofun
 
 /-- The field telescope, in declaration order from index `i`. -/
 def fieldsFrom (N : VNestedOcc) (H : VIndHeader) (R : VIndRestore) :
@@ -371,12 +484,12 @@ equation now has content there, and paying for it takes four facts:
 
 Note it is *not* canonicity that came back: `hS` is a statement about `J`'s stored field type
 and the nested spine, not about the shape of the field. -/
-theorem field_typeR (H : VIndHeader) (R : VIndRestore) (D : VInductDecl') (K : List Lean.Name)
+theorem fieldO_typeR (H : VIndHeader) (R : VIndRestore) (D : VInductDecl') (K : List Lean.Name)
     (hH : H = D.header) (hown : R.OwnId D K) (hnd : D.blockNames.Nodup) (i : Nat)
     (F₀ : VIndField)
     (hS : VExpr.NoConsts K (VExpr.instAll (F₀.type.instL N.lvls) N.args i)) :
-    (N.field H R i F₀).typeR D R i = VExpr.instAll (F₀.type.instL N.lvls) N.args i := by
-  rw [field]
+    (N.fieldO H R i F₀).typeR D R i = VExpr.instAll (F₀.type.instL N.lvls) N.args i := by
+  rw [fieldO]
   split <;> rename_i heq
   · next r =>
     rw [VIndField.typeR]
@@ -389,6 +502,26 @@ theorem field_typeR (H : VIndHeader) (R : VIndRestore) (D : VInductDecl') (K : L
         (by rw [R.recog_binders heq]; exact VExpr.noConsts_splitPis _ hS)]
     exact R.recog_sound heq D
   · rw [VIndField.typeR]
+
+/-- **`fieldO_typeR` survives the repair, with the same four hypotheses** (ledger row 119c):
+the new branch is `VIndRestore.restore_noK` against `hS`, which the statement already had, so
+ruling 116d's bill (row 117a/117c) does not grow. -/
+theorem field_typeR (H : VIndHeader) (R : VIndRestore) (D : VInductDecl') (K : List Lean.Name)
+    (hH : H = D.header) (hown : R.OwnId D K) (hnd : D.blockNames.Nodup) (i : Nat)
+    (F₀ : VIndField)
+    (hS : VExpr.NoConsts K (VExpr.instAll (F₀.type.instL N.lvls) N.args i)) :
+    (N.field H R i F₀).typeR D R i = VExpr.instAll (F₀.type.instL N.lvls) N.args i := by
+  cases h : R.recog H.nm i (VExpr.instAll (F₀.type.instL N.lvls) N.args i) with
+  | some r =>
+    rw [N.field_eq_fieldO_of_some h]
+    exact N.fieldO_typeR H R D K hH hown hnd i F₀ hS
+  | none =>
+    cases h2 : R.recog H.nm i
+        (VExpr.betaHead (VExpr.instAll (F₀.type.instL N.lvls) N.args i)) with
+    | some r =>
+      rw [N.field_new_branch h h2, VIndField.typeR]
+      exact VIndRestore.restore_noK hown i _ hS
+    | none => rw [N.field_eq_none_branch h h2, VIndField.typeR]
 
 theorem fieldTypes_from (H : VIndHeader) (R : VIndRestore) (D : VInductDecl')
     (K : List Lean.Name) (hH : H = D.header) (hown : R.OwnId D K)
@@ -478,26 +611,30 @@ theorem member_ctors_complete (H : VIndHeader) (R : VIndRestore)
   rw [member, List.map_map]
   exact List.map_congr_left fun C hC => hcn C hC
 
-/-- **`VIndCtor.Canonical` holds by construction.**  A built field's stored type is the
-block-headed canonical form whenever it has a `recArg` at all, because that is the only branch
-the recogniser takes.  So `NestedHead.lean`'s conservativity side condition costs a built
-member nothing. -/
-theorem ctor_Canonical (R : VIndRestore) (D : VInductDecl') (C₀ : VIndCtor) :
-    (N.ctor D.header R C₀).Canonical D := by
-  intro i F r hF hr
-  rw [ctor, getElem?_fieldsFrom] at hF
-  obtain ⟨F₀, -, rfl⟩ := Option.map_eq_some_iff.1 hF
-  rw [field] at hr ⊢
-  split at hr <;> [skip; exact absurd hr nofun]
-  cases hr
-  show r.canonTypeH D.header (0 + i) = _
-  rw [Nat.zero_add, VIndRecArg.canonTypeH_header]
+/-! ### Canonicity is **not** free for a built constructor any more
 
-theorem member_Canonical (R : VIndRestore) (D : VInductDecl') (C : VIndCtor)
-    (hC : C ∈ (N.member D.header R).ctors) : C.Canonical D := by
-  rw [member, List.mem_map] at hC
-  obtain ⟨C₀, -, rfl⟩ := hC
-  exact N.ctor_Canonical R D C₀
+`ctor_Canonical` and `member_Canonical` used to sit here and proved
+`(N.ctor D.header R C₀).Canonical D` with **no hypotheses at all**.  Both are **deleted**, and
+the reason is ledger row 119c: they were hypothesis-free green *because* `fieldO`'s `none`
+branch reported `recArg = none` at the redex the elimination manufactures, so `Canonical` — whose
+quantifier ranges over fields *with* a `recArg` — had nothing to check exactly where the
+mis-modelling was.  `field`'s middle branch records that field as recursive with its stored type
+the verbatim redex, and `r.canonType D i` is never `.app`-headed
+(`MRedex.canonType_ne_of_lamHead`, `MRedex.mr_auxNodeB_not_canonical`), so the statement is now
+**false**.  This is the green-axiom trap (row 116g) in its cleanest form: the theorem was true
+because the definition mis-modelled the kernel.
+
+What replaced them, per consumer:
+
+* `VEnv.ctorConstsCR_wf_of_np_zero'` (`Theory/Inductive/RestoreBridge.lean`) never applied
+  `D.Canonical` at a companion member — its `hbridge` argument is quantified over
+  `T.name ∉ K` — so its hypothesis is now `D.CanonicalOwn K`, which is *weaker*, and every
+  consumer already had one.
+* `nfnAux_canonicalOwn` / `nfnAuxDirty_canonicalOwn` used `member_Canonical` at the companion
+  index; that index is in `K`, so the `∉ K` premise of `CanonicalOwn` refutes it outright.
+* `ElimNestedInductive.Result.RestoreData.mkRestore_canonical` and its `OccData` wrapper
+  concluded `D.Canonical` from `CanonicalOwn`; both had **zero consumers** and are deleted
+  rather than restated, since the conclusion is what became false. -/
 
 /-! ### What the occurrence owes the history
 
@@ -637,22 +774,23 @@ theorem VInductDecl'.Built.toFaithful {D : VInductDecl'} {R : VIndRestore}
     · rw [h.member j T hT hK]
       exact (occ j).member_ctors_complete D.header R (h.ctorName_inv j T hT hK)
 
-/-- The canonicity side condition, on the members the *user* wrote.  A built member gets it
-for free (`VNestedOcc.member_Canonical`). -/
+/-- The canonicity side condition, on the members the *user* wrote.
+
+**A built member no longer gets it for free** — `VNestedOcc.member_Canonical` is deleted, since
+`field`'s middle branch stores a redex at a *recursive* position and `r.canonType D i` is never
+`.app`-headed (ledger row 119c).  `VInductDecl'.Built.canonical`, which turned this predicate
+into the block-level `D.Canonical`, is deleted with it; what needed `D.Canonical` and could get
+away with less is `VEnv.ctorConstsCR_wf_of_np_zero'`, whose hypothesis is now exactly this
+predicate. -/
 def VInductDecl'.CanonicalOwn (D : VInductDecl') (K : List Lean.Name) : Prop :=
   ∀ j C, (j, C) ∈ D.ctorsAll → (D.types.getD j default).name ∉ K → C.Canonical D
 
-theorem VInductDecl'.Built.canonical {D : VInductDecl'} {R : VIndRestore}
-    {K : List Lean.Name} {env : VEnv} {occ : Nat → VNestedOcc}
-    (h : D.Built R K env occ) (hown : D.CanonicalOwn K) : D.Canonical := by
-  intro j C hjC
-  obtain ⟨T, hT, hC⟩ := D.mem_ctorsAll hjC
-  have hname : (D.types.getD j default).name = T.name := by
-    rw [List.getD_eq_getElem?_getD, hT]; rfl
-  by_cases hK : T.name ∈ K
-  · rw [h.member j T hT hK] at hC
-    exact (occ j).member_Canonical R D C hC
-  · exact hown j C hjC (by rw [hname]; exact hK)
+/-- `CanonicalOwn` at a member the user wrote, keyed by `D.types[j]?` rather than by `getD`. -/
+theorem VInductDecl'.CanonicalOwn.on {D : VInductDecl'} {K : List Lean.Name}
+    (hown : D.CanonicalOwn K) {j : Nat} {T : VIndType} (hT : D.types[j]? = some T)
+    (hK : T.name ∉ K) {C : VIndCtor} (hC : C ∈ T.ctors) : C.Canonical D :=
+  hown j C (VInductDecl'.mem_ctorsAll_of hT hC)
+    (by rw [List.getD_eq_getElem?_getD, hT]; exact hK)
 
 /-- **The nested declaration step, with the auxiliary members built rather than checked.**
 
@@ -727,6 +865,62 @@ theorem Skips.instAll : ∀ (as : List VExpr) {e : VExpr} {k j : Nat}, j < k →
     rw [instAll_cons]
     exact Skips.instAll as hj (he.instN (a := a) (by omega))
 
+/-- **Substitution at the bottom preserves independence**, which `Skips.instN` cannot say: it
+needs `j < m` and the β step below has `m = 0`.  The bookkeeping is that `b` lives one binder
+deeper than `a`, so `b` skips at `j+1` where `a` skips at `j`. -/
+theorem Skips.instN_zero {b a : VExpr} {j : Nat} (hb : b.Skips 1 (j+1)) (ha : a.Skips 1 j) :
+    (b.inst a).Skips 1 j := by
+  obtain ⟨b', rfl⟩ := skips_iff_exists.1 hb
+  obtain ⟨a', rfl⟩ := skips_iff_exists.1 ha
+  exact skips_iff_exists.2 ⟨b'.inst a', (liftN_inst_hi b' a' 1 j).symm⟩
+
+/-- An application spine skips iff its head and every argument do — the direction needed. -/
+theorem skips_mkApp : ∀ (as : List VExpr) {f : VExpr} {j : Nat},
+    f.Skips 1 j → (∀ a ∈ as, a.Skips 1 j) → (mkApp f as).Skips 1 j
+  | [], _, _, hf, _ => hf
+  | a :: as, f, j, hf, ha => by
+    show (mkApp (f.app a) as).Skips 1 j
+    refine skips_mkApp as ?_ fun x hx => ha x (List.mem_cons_of_mem _ hx)
+    rw [skips_iff] at hf ⊢
+    exact ⟨hf, skips_iff.1 (ha a (List.Mem.head _))⟩
+
+theorem skips_betaSpine : ∀ (as : List VExpr) {f : VExpr} {j : Nat},
+    f.Skips 1 j → (∀ a ∈ as, a.Skips 1 j) → (betaSpine as f).Skips 1 j
+  | [], _, _, hf, _ => hf
+  | a :: as, .lam A b, j, hf, ha => by
+    show (betaSpine as (b.inst a)).Skips 1 j
+    have hl := skips_iff.1 hf
+    simp only [Skips'] at hl
+    exact skips_betaSpine as
+      (Skips.instN_zero (skips_iff.2 hl.2) (ha a (List.Mem.head _)))
+      fun x hx => ha x (List.mem_cons_of_mem _ hx)
+  | a :: as, .bvar i, j, hf, ha => skips_mkApp (a :: as) hf ha
+  | a :: as, .sort u, j, hf, ha => skips_mkApp (a :: as) hf ha
+  | a :: as, .const c ls, j, hf, ha => skips_mkApp (a :: as) hf ha
+  | a :: as, .app f x, j, hf, ha => skips_mkApp (a :: as) hf ha
+  | a :: as, .forallE A b, j, hf, ha => skips_mkApp (a :: as) hf ha
+
+/-- **Independence survives head β-contraction.**  This is the one general fact ledger row 119c's
+repair costs, and it is a theorem rather than a hypothesis: without it
+`VNestedOcc.bindersIndep` would have to be restricted to the pre-repair branch. -/
+theorem skips_betaHead {e : VExpr} {j : Nat} (he : e.Skips 1 j) : (betaHead e).Skips 1 j := by
+  rw [betaHead]
+  have hs : ∀ (x : VExpr), x.Skips 1 j →
+      x.spineFn.Skips 1 j ∧ ∀ a ∈ x.spineArgs, a.Skips 1 j := by
+    intro x hx
+    induction x with
+    | bvar | sort | const => exact ⟨hx, by simp [spineArgs]⟩
+    | lam | forallE => exact ⟨hx, by simp [spineArgs]⟩
+    | app f a ihf _ =>
+      have h2 := skips_iff.1 hx
+      simp only [Skips'] at h2
+      obtain ⟨hf, hfa⟩ := ihf (skips_iff.2 h2.1)
+      refine ⟨hf, ?_⟩
+      intro y hy
+      rw [spineArgs, List.mem_append, List.mem_singleton] at hy
+      exact hy.elim (hfa y) fun h => h ▸ skips_iff.2 h2.2
+  exact skips_betaSpine _ (hs e he).1 (hs e he).2
+
 /-- **Independence descends into a pi telescope.**  The `k`-th binder of a telescope sits `k`
 binders deeper, so what the whole term skips at `t` the binder skips at `k + t`. -/
 theorem skips_splitPis : ∀ (n : Nat) (S : VExpr) (t k : Nat) (B : VExpr),
@@ -776,17 +970,15 @@ theorem bindersIndep (H : VIndHeader) (R : VIndRestore) (C₀ : VIndCtor)
   simp only [List.getElem?_take, if_pos hi'] at hF'
   rw [getElem?_fieldsFrom, Nat.zero_add] at hF'
   obtain ⟨F₀', hF₀', rfl⟩ := Option.map_eq_some_iff.1 hF'
-  have hrb : r.binders = (splitPis
-      (VExpr.instAll (F₀.type.instL N.lvls) N.args i).piArity
-      (VExpr.instAll (F₀.type.instL N.lvls) N.args i)).1 := by
-    rw [field] at hr
-    split at hr <;> [skip; exact absurd hr nofun]
-    rename_i heq
-    cases hr
-    exact VIndRestore.recog_binders heq
-  rw [hrb] at hB
-  exact VExpr.skips_splitPis _ _ t k B
-    (VExpr.Skips.instAll _ (by omega) (h i i' t F₀ F₀' hF₀ hF₀' hrec hti)) hB
+  have hsk : (VExpr.instAll (F₀.type.instL N.lvls) N.args i).Skips 1 t :=
+    VExpr.Skips.instAll _ (by omega) (h i i' t F₀ F₀' hF₀ hF₀' hrec hti)
+  -- **Both** recursive branches of `field`, not one: the repair's middle branch reads the
+  -- head-β contraction, and `VExpr.skips_betaHead` is what carries independence across it.
+  rcases N.field_binders (H := H) (R := R) (i := i) (F₀ := F₀) hr with hrb | hrb
+  · rw [hrb] at hB
+    exact VExpr.skips_splitPis _ _ t k B hsk hB
+  · rw [hrb] at hB
+    exact VExpr.skips_splitPis _ _ t k B (VExpr.skips_betaHead hsk) hB
 
 end VNestedOcc
 
@@ -1423,8 +1615,12 @@ theorem nfnAux_built :
   own := nfnRestore_ownId
 
 omit h in
+/-- **`CanonicalOwn` at `nfnAux`.**  Index 1 is the *companion* member `_nested.PFn_1`, whose
+name is in `nfnK`, so the `∉ K` premise refutes that branch outright.  This is where
+`VNestedOcc.member_Canonical` used to be applied, and it did not need to be: the predicate is
+about the members the user wrote, and index 1 is not one of them (ledger row 119c). -/
 theorem nfnAux_canonicalOwn : nfnAux.CanonicalOwn nfnK := by
-  intro j C hjC _
+  intro j C hjC hK
   rw [show nfnAux.ctorsAll = [((0 : Nat), nfnNode), (1, pfnAuxMk)] from rfl] at hjC
   simp only [List.mem_cons, List.not_mem_nil, or_false, Prod.mk.injEq] at hjC
   obtain ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ := hjC
@@ -1432,9 +1628,7 @@ theorem nfnAux_canonicalOwn : nfnAux.CanonicalOwn nfnK := by
     match i, hF with
     | 0, hF => simp only [nfnNode] at hF; cases hF; cases hr; rfl
     | (_ + 1), hF => simp [nfnNode] at hF
-  · exact (pfnOcc.member_Canonical nfnRestore nfnAux _
-      (by rw [show (pfnOcc.member nfnAux.header nfnRestore).ctors = [pfnAuxMk] from rfl]
-          exact List.Mem.head _))
+  · exact absurd (show (nfnAux.types.getD 1 default).name ∈ nfnK from by decide) hK
 
 omit h in
 theorem nfnAux_allNamesCR : nfnAux.allNamesCR nfnRestore nfnK =
@@ -1523,5 +1717,28 @@ example := @VEnv.AddNested_nil
 example := @VEnv.AddNested_keys_declared
 
 end InductiveDeclExamples
+
+/-! ## Axiom audit for ledger row 119c's landing
+
+The repair (`VNestedOcc.field`'s middle branch), the pre-repair reference point (`fieldO`), the
+conservativity and branch lemmas, the `Skips` chain that keeps `bindersIndep` unconditional, and
+the two `CanonicalOwn` witnesses that replaced `member_Canonical`. -/
+
+#print axioms Lean4Lean.VExpr.skips_mkApp
+#print axioms Lean4Lean.VExpr.skips_betaSpine
+#print axioms Lean4Lean.VExpr.skips_betaHead
+#print axioms Lean4Lean.VExpr.Skips.instN_zero
+#print axioms Lean4Lean.VNestedOcc.field_eq_fieldO_of_some
+#print axioms Lean4Lean.VNestedOcc.field_eq_fieldO_of_none
+#print axioms Lean4Lean.VNestedOcc.field_new_branch
+#print axioms Lean4Lean.VNestedOcc.field_eq_none_branch
+#print axioms Lean4Lean.VNestedOcc.field_binders
+#print axioms Lean4Lean.VNestedOcc.fieldO_typeR
+#print axioms Lean4Lean.VNestedOcc.field_typeR
+#print axioms Lean4Lean.VNestedOcc.fieldTypes_from
+#print axioms Lean4Lean.VNestedOcc.bindersIndep
+#print axioms Lean4Lean.VInductDecl'.CanonicalOwn.on
+#print axioms Lean4Lean.InductiveDeclExamples.nfnAux_canonicalOwn
+#print axioms Lean4Lean.InductiveDeclExamples.ntreeAux_canonicalOwn
 
 end Lean4Lean

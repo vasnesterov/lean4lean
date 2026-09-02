@@ -54,7 +54,7 @@ Two independent obstructions were measured here.
 
 ## 2. Obligation (A) is a theorem for `D.params = []`, with no side condition on the block
 
-`VEnv.ctorConstsCR_wf_of_np_zero'` (Part 4b) needs `Canonical`, `OwnId`, `Nodup`, and three
+`VEnv.ctorConstsCR_wf_of_np_zero'` (Part 4b) needs `CanonicalOwn`, `OwnId`, `Nodup`, and three
 `decide`-able side conditions on the restoration *data* — and **no cleanliness hypothesis**.
 `VIndCtor.RestoreClean` is no longer a hypothesis of anything; Part 4 keeps it, and
 `VIndRestore.ctorType_substC_eq_typeR`, as the statement of what the new `substC` does *not*
@@ -601,14 +601,14 @@ theorem VEnv.ctorConstsCR_wf_of_np_zero' {env env₃ e₁ : VEnv} {D : VInductDe
     (hcl : ∀ i, ∀ a ∈ R.tyArgs i, a.ClosedN D.np)
     (hnn : ∀ i, R.csubstTy D K (R.tyName i) = none)
     (hna : ∀ i, ∀ a ∈ R.tyArgs i, a.NoCSubst (R.csubstTy D K))
-    (hcanon : D.Canonical) :
+    (hcanon : D.CanonicalOwn K) :
     ∀ c ∈ D.ctorConstsCR R K, VConstant.WF e₁ c.2 := by
   refine VEnv.ctorConstsCR_wf_of_substC hD h₃ henv₃ hσ ?_
   intro j T C hT hK hC
   have hnp : D.np = 0 := by rw [show D.np = D.params.length from rfl, hp]; rfl
   have hct := hD.ctors env₃ h₃ j T hT C hC
   exact VIndRestore.ctorType_substC_eq_typeR_substC hp hnd hown hlw hcl hnn hna
-    (hcanon j C (VInductDecl'.mem_ctorsAll_of hT hC))
+    (hcanon.on hT hK hC)
     (fun i F r hF hr =>
       let hn := (hct.fields i F hF).recArg_noBlock hr; ⟨hn.1, hn.2.1⟩)
     (fun i => hnp ▸ hcl i) hT
@@ -689,7 +689,7 @@ theorem nfnAux_ctorConstsCR_wf_general :
       · simp only [List.mem_cons, List.not_mem_nil, or_false] at ha
         subst ha; exact nfnSubst_of_ne (by decide)
       · simp at ha)
-    ((nfnAux_built h).canonical nfnAux_canonicalOwn)
+    nfnAux_canonicalOwn
 
 end
 
@@ -893,8 +893,10 @@ theorem nfnAuxDirty_WF : nfnAuxDirty.WF env₂ where
 
 /-! ### …and the step goes through, `Built` and all -/
 
+/-- As `nfnAux_canonicalOwn`: index 1 is the companion member, whose name is in `nfnK`, so the
+`∉ K` premise refutes it.  `VNestedOcc.member_Canonical` was never needed here (ledger 119c). -/
 theorem nfnAuxDirty_canonicalOwn : nfnAuxDirty.CanonicalOwn nfnK := by
-  intro j C hjC _
+  intro j C hjC hK
   rw [show nfnAuxDirty.ctorsAll = [((0 : Nat), nfnNodeDirty), (1, pfnAuxMk)] from rfl] at hjC
   simp only [List.mem_cons, List.not_mem_nil, or_false, Prod.mk.injEq] at hjC
   obtain ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ := hjC
@@ -903,10 +905,7 @@ theorem nfnAuxDirty_canonicalOwn : nfnAuxDirty.CanonicalOwn nfnK := by
     | 0, hF => simp only [nfnNodeDirty] at hF; cases hF; cases hr; rfl
     | 1, hF => simp only [nfnNodeDirty] at hF; cases hF; exact absurd hr nofun
     | (_ + 2), hF => simp [nfnNodeDirty] at hF
-  · exact (pfnOcc.member_Canonical nfnRestore nfnAuxDirty _
-      (by rw [show (pfnOcc.member nfnAuxDirty.header nfnRestore).ctors = [pfnAuxMk] from by
-                rw [nfnAuxDirty_header]; rfl]
-          exact List.Mem.head _))
+  · exact absurd (show (nfnAuxDirty.types.getD 1 default).name ∈ nfnK from by decide) hK
 
 theorem nfnRestore_ownId_dirty : nfnRestore.OwnId nfnAuxDirty nfnK where
   tyName := by
@@ -1080,7 +1079,7 @@ theorem nfnAuxDirty_obligationA {env₃ env₄ : VEnv} (henv₂ : env₂.Ordered
       · simp only [List.mem_cons, List.not_mem_nil, or_false] at ha
         subst ha; exact nfnSubst_of_ne (by decide)
       · simp at ha)
-    ((nfnAuxDirty_built h).canonical nfnAuxDirty_canonicalOwn)
+    nfnAuxDirty_canonicalOwn
 
 end
 
@@ -1239,4 +1238,18 @@ theorem nfn_csubst_dom_escapes_blockNames :
   constructor <;> decide
 
 end InductiveDeclExamples
+
+/-! ## Axiom audit for ledger row 119c's re-plumbing
+
+`VEnv.ctorConstsCR_wf_of_np_zero'`'s canonicity hypothesis was **weakened** from `D.Canonical` to
+`D.CanonicalOwn K` when `VInductDecl'.Built.canonical` was deleted (the built companion member is
+no longer canonical — `MRedex.mr_auxNodeB_not_canonical`).  These are the declarations that moved,
+and its two full instantiations, which is what says the weakened hypothesis is satisfiable rather
+than merely weaker. -/
+
+#print axioms Lean4Lean.VEnv.ctorConstsCR_wf_of_np_zero'
+#print axioms Lean4Lean.InductiveDeclExamples.nfnAux_ctorConstsCR_wf_general
+#print axioms Lean4Lean.InductiveDeclExamples.nfnAuxDirty_obligationA
+#print axioms Lean4Lean.InductiveDeclExamples.nfnAuxDirty_canonicalOwn
+
 end Lean4Lean

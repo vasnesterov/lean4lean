@@ -39,7 +39,7 @@ and then follows the consequences all the way to `VEnv.AddNested`.
 * §6 the general bridge: `RestoreData` discharges four of `VInductDecl'.Built`'s **nine**
   clauses, four more are named `OccResidue`, the remaining two are ruling 116d's freshness pair
   `VInductDecl'.BuiltFresh` (`Theory/Inductive/NestedBuild.lean`) carried as a hypothesis, and
-  with them `Faithful`, `Canonical`, `AddNested` and `AddNestedStep` are **theorems** about a
+  with them `Faithful`, `AddNested` and `AddNestedStep` are **theorems** about a
   `mkRestore`-derived restoration.
 * §7 `OccResidue` satisfied, and hence `Built`, `Faithful`, `VEnv.AddNestedB`, `VEnv.AddNested`
   and `VEnv.AddNestedStep`, all at `mkRestore`, at the `NFn` block.
@@ -57,8 +57,12 @@ away:
 * `VInductDecl'.Built.toFaithful` (`Theory/Inductive/NestedBuild.lean:491`) proves all three
   `Faithful` clauses from `VInductDecl'.Built`, which replaces them by *one*: the companion
   member **is** the value the construction computes.  No `TrExprS` appears.
-* `VInductDecl'.Built.canonical` (`:528`) proves `D.Canonical` from `Built` plus
-  `CanonicalOwn` — canonicity on the members the *user* wrote.
+* ~~`VInductDecl'.Built.canonical` proves `D.Canonical` from `Built` plus `CanonicalOwn`~~ —
+  **DELETED, ledger row 119c.** A built companion member is *not* canonical: `VNestedOcc.field`
+  records the redex `ElimNestedInductive.run` manufactures at a dependent nested parameter as a
+  recursive field with the redex as its stored type, and `r.canonType D i` is never `.app`-headed.
+  Nothing replaces it: `VEnv.ctorConstsCR_wf_of_np_zero'` — the only consumer of `D.Canonical` on
+  this path — now takes `D.CanonicalOwn K` directly, which is *weaker*.
 * `VEnv.AddNestedB.toAddNested` (`:551`) assembles both, and `nfnAux_AddNested` (`:1329`)
   already witnessed the whole step at this very block, with the hand-written `nfnRestore`.
 
@@ -524,9 +528,10 @@ environment's own copy of the nested block, `ctorName_inv` is a `Name.replacePre
 whose *lookup* half needs the auxiliary constructor names to be distinct, and `head` says the
 head of the `Expr` `aux2nested` stores is the member the occurrence is at.
 
-With that residue, `VIndRestore.Faithful` and `VInductDecl'.Canonical` are **theorems** about a
-`mkRestore`-derived restoration, not hypotheses — via `Built.toFaithful` and `Built.canonical`
-(`Theory/Inductive/NestedBuild.lean`).  §7's `nfnResult_occResidue` is a model of `OccResidue`,
+With that residue, `VIndRestore.Faithful` is a **theorem** about a `mkRestore`-derived
+restoration, not a hypothesis — via `Built.toFaithful` (`Theory/Inductive/NestedBuild.lean`).
+`VInductDecl'.Canonical` **no longer is, and cannot be** (row 119c): what its consumer needs is
+`VInductDecl'.CanonicalOwn K`, and that stays a hypothesis.  §7's `nfnResult_occResidue` is a model of `OccResidue`,
 so none of this is vacuous. -/
 
 namespace ElimNestedInductive.Result
@@ -602,15 +607,19 @@ theorem mkRestore_faithful (hf : D.BuiltFresh K occ)
     (r.mkRestore types D.uvars D.np ls as).Faithful D env K (fun j => (occ j).decl.np) :=
   (h.mkRestore_built hf hl ha hres).toFaithful
 
-/-- **`VInductDecl'.Canonical` for the construction**, from canonicity on the members the *user*
-wrote: a built companion member is canonical by construction
-(`VNestedOcc.member_Canonical`). -/
-theorem mkRestore_canonical (hf : D.BuiltFresh K occ) (hown : D.CanonicalOwn K)
-    (hl : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → ls j = (occ j).lvls)
-    (ha : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → as j = (occ j).args)
-    (hres : r.OccResidue types D K env (r.mkRestore types D.uvars D.np ls as) occ) :
-    D.Canonical :=
-  (h.mkRestore_built hf hl ha hres).canonical hown
+/-! **`mkRestore_canonical` is deleted, and it had no consumers.**
+
+It concluded `D.Canonical` from `D.CanonicalOwn K` plus `Built`, via
+`VInductDecl'.Built.canonical`, whose proof went through `VNestedOcc.member_Canonical` — "a built
+companion member is canonical by construction".  That is **false** since ledger row 119c landed:
+`VNestedOcc.field` records the redex that `ElimNestedInductive.run` manufactures at a dependent
+nested parameter as a *recursive* field with its stored type the redex, and `r.canonType D i` is
+never `.app`-headed (`MRedex.mr_auxNodeB_not_canonical`, firing at a real Lean declaration).
+
+Nothing is owed in its place: the one statement that consumed `D.Canonical` on this path,
+`VEnv.ctorConstsCR_wf_of_np_zero'`, now asks for `D.CanonicalOwn K` — which is what this theorem
+took as a *hypothesis*.  So the burden did not move into a premise; the premise it needed is the
+premise the consumer now takes directly. -/
 
 /-- **The whole nested step, from the checker's data plus the residue.** -/
 theorem mkRestore_AddNested {env' : VEnv} (hwf : D.WF env) (hf : D.BuiltFresh K occ)
@@ -913,11 +922,14 @@ end
   `VEnv.AddNestedStep venv D K R venv'` — or just `R.OwnId D K` — would have a model rather than
   an unsatisfiable precondition.  Adding it changes a definition the `addDecl.WF` chain consumes,
   so it is reported, not done.
-* **`Canonical` was never the hard half.**  `Built.canonical` reduces it to
-  `VInductDecl'.CanonicalOwn K`, canonicity on the members the *user* wrote, because a built
-  companion member is canonical by construction (`VNestedOcc.member_Canonical`).  What is owed
-  for `CanonicalOwn` is that `AddInductive.run`'s recogniser stores a recursive field in its
-  canonical form — the same obligation `AddInductiveRunRealises`
+* ~~**`Canonical` was never the hard half.**  `Built.canonical` reduces it to
+  `VInductDecl'.CanonicalOwn K` … because a built companion member is canonical by
+  construction.~~  **The second half is false and the first is now vacuously true** (row 119c):
+  a built companion member is *not* canonical, `Built.canonical` and `member_Canonical` are
+  deleted, and `VEnv.ctorConstsCR_wf_of_np_zero'` asks for `CanonicalOwn K` in the first place.
+  So `D.Canonical` is not owed on the nested path at all.  What *is* owed for `CanonicalOwn` is
+  unchanged: that `AddInductive.run`'s recogniser stores a recursive field of a **user** member in
+  its canonical form — the same obligation `AddInductiveRunRealises`
   (`Verify/Inductive/AddInductiveStep.lean` §6) already carries as its `D.Canonical` conjunct,
   for the non-nested path.
 -/

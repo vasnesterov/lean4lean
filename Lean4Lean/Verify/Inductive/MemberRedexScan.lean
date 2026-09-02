@@ -20,7 +20,7 @@ reason `CanonGapMeasure.lean` does, the duplicate-name check — so it must NEVE
 * §2 — the coverage measurement.  For every safe block in the running environment that has a
   nested-shaped field, `ElimNestedInductive.run` is applied and every auxiliary constructor field
   is classified by three predicates: the **syntactic** one the recogniser uses today, the
-  **head-β** one `MRedex.fieldB` adds, and the **whnf** one the implementation itself uses
+  **head-β** one `VNestedOcc.field` adds, and the **whnf** one the implementation itself uses
   (`AddInductive.isRecArg`'s loop, transcribed).  What the repair must cover is
   `whnf ∧ ¬syntactic`; what it would still miss is `whnf ∧ ¬syntactic ∧ ¬headβ`.
 -/
@@ -101,7 +101,7 @@ def mrcSyn (names : List Name) (e : Expr) : Bool :=
   | .const c _ => names.contains c
   | _ => false
 
-/-- The same after one **head-β** contraction — what `MRedex.fieldB` adds. -/
+/-- The same after one **head-β** contraction — what `VNestedOcc.field` adds. -/
 def mrcBeta (names : List Name) (e : Expr) : Bool := mrcSyn names e.headBeta
 
 /-- `AddInductive.isRecArg`'s own loop (`Lean4Lean/Inductive/Add.lean`): `whnf` at every step. -/
@@ -176,7 +176,7 @@ partial def mrcWhnf (names : List Name) (t : Expr) : MetaM Bool := do
     constructor fields after ElimNestedInductive.run.\n\
     mr/cov:   DEFECT (impl says recursive, today's recogniser says no): {defect} field(s) in \
     {defectBlocks.eraseDups.length} block(s) {defectBlocks.eraseDups.take 20}\n\
-    mr/cov:   COVERED by one head-β step (MRedex.fieldB): {covered}\n\
+    mr/cov:   COVERED by one head-β step (VNestedOcc.field): {covered}\n\
     mr/cov:   RESIDUAL after the repair: {residual} in \
     {residualBlocks.eraseDups.length} block(s) {residualBlocks.eraseDups.take 20}"
   if residual = 0 then
@@ -188,7 +188,7 @@ partial def mrcWhnf (names : List Name) (t : Expr) : MetaM Bool := do
   else
     logInfo s!"mr/cov: {residual} field(s) would STILL be misclassified after the head-β \
       repair -- the repair must be strengthened to `isRecArg`'s full loop (whnf at every \
-      pi-stripping step), and MRedex.fieldB as written is not enough."
+      pi-stripping step), and VNestedOcc.field as written is not enough."
 
 end MRScanCov
 end Lean4Lean

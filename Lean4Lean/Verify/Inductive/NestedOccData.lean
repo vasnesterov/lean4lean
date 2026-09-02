@@ -482,13 +482,12 @@ theorem mkRestore_faithful (hd : r.OccData types occ) (h : r.RestoreData types D
     (r.mkRestore types D.uvars D.np ls as).Faithful D env K (fun j => (occ j).decl.np) :=
   (hd.mkRestore_built h hf hl ha hs).toFaithful
 
-theorem mkRestore_canonical (hd : r.OccData types occ) (h : r.RestoreData types D K as)
-    (hf : D.BuiltFresh K occ) (hown : D.CanonicalOwn K)
-    (hl : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → ls j = (occ j).lvls)
-    (ha : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → as j = (occ j).args)
-    (hs : SemResidue types D K env (r.mkRestore types D.uvars D.np ls as) occ) :
-    D.Canonical :=
-  (hd.mkRestore_built h hf hl ha hs).canonical hown
+/-! **`mkRestore_canonical` is deleted here too**, for the reason given at its
+`NestedRestoreWit.lean` twin: `VInductDecl'.Built.canonical` is gone because
+`VNestedOcc.member_Canonical` became false when ledger row 119c's repair landed in
+`VNestedOcc.field`.  It had no consumers, and the statement that needed `D.Canonical`
+(`VEnv.ctorConstsCR_wf_of_np_zero'`) now takes `D.CanonicalOwn K`, which was this theorem's own
+hypothesis. -/
 
 /-- **The whole nested step, from the checker's data plus `member` and `occurs`.** -/
 theorem mkRestore_AddNested {env' : VEnv} (hd : r.OccData types occ)

@@ -37,41 +37,51 @@ is still false at `Lean.Json`, and `member` (not canonicity) is the failing clau
    type is *declared*, and `AddInductStagesR`'s third stage carries a `TrConstant`, which goes
    through `TrExprS` and has no defeq slack.  This needs no escape at all.
 
-## The repair, and its price
+## The repair, and its price — **LANDED**
 
-`fieldB` is `VNestedOcc.field` with **one** change: when the recogniser fails on the substituted
-type it is asked again on the type's **head-β contraction**, and if *that* fires the field is
-stored **verbatim** (`type := S`, the redex) with `recArg := some r`.  Consequences, all proved
-below:
+The repair is now `VNestedOcc.field` itself (`Theory/Inductive/NestedBuild.lean`); this file
+retains the measurement, the witness and the refutations, and §3 carries the name map for anyone
+following a ledger citation to `MRedex.fieldB`.  `field` is `fieldO` — the pre-repair function,
+kept beside it so conservativity stays a statement with content — plus **one** change: when the
+recogniser fails on the substituted type it is asked again on the type's **head-β contraction**,
+and if *that* fires the field is stored **verbatim** (`type := S`, the redex) with
+`recArg := some r`.  Consequences, all proved:
 
-* it is **conservative**: `fieldB = field` wherever the first recognition succeeds
-  (`fieldB_eq_field_of_some`) or the second fails (`fieldB_eq_field_of_none`);
-* `VNestedOcc.field_typeR` survives **with the same four hypotheses** (`fieldB_typeR`) — the new
-  branch is `VIndRestore.restore_noK` against `Built.fields_noK`, so ruling 116d's cost does not
-  grow;
+* it is **conservative**: `field = fieldO` wherever the first recognition succeeds
+  (`VNestedOcc.field_eq_fieldO_of_some`) or the second fails (`field_eq_fieldO_of_none`);
+* `field_typeR` holds with the **same four hypotheses** as `fieldO_typeR` — the new branch is
+  `VIndRestore.restore_noK` against `Built.fields_noK`, so ruling 116d's cost does not grow;
+* `VNestedOcc.bindersIndep` stays **unconditional**: `field_binders` gives the two readings of
+  `r.binders` and `VExpr.skips_betaHead` carries independence across the contraction;
 * at the witness the residue of `VIndField.WF.pos` is **one `IsDefEq.beta`** (`mr_pos_beta`),
   which is what 116d promised and what the built member did not deliver;
-* the minor-premise arity now matches Lean's stored recursor (`mr_minor_arity_someB`).
+* the minor-premise arity now matches Lean's stored recursor (`mr_minor_arity_someB`), and the
+  built companion member moved from `mrAuxNode` to `mrAuxNodeB` (`mr_member_built`,
+  `mr_member_not_built_old`).
 
 **It is a specification-side change only** — the implementation is untouched and the stored field
 type is *more* faithful than before, not less — so **it is not a divergence and needs no
-`divergences.md` entry**.  What it costs is stated and machine-checked: `VIndCtor.Canonical`
-becomes **FALSE** at the repaired companion constructor (`mr_auxNodeB_not_canonical`), so
-`VNestedOcc.ctor_Canonical`, `VNestedOcc.member_Canonical` and `VInductDecl'.Built.canonical` must
-go.  Ruling 116d already said those "go away"; row 117d(iv) recorded that `Built.canonical` still
-has four consumers.  This file makes the deletion compulsory rather than optional, and that is the
-whole bill.
+`divergences.md` entry**.  What it cost is stated and machine-checked: `VIndCtor.Canonical`
+becomes **FALSE** at the repaired companion constructor (`mr_auxNodeB_not_canonical`, and
+`mr_ctor_built` shows that constructor is the one the construction produces), so
+`VNestedOcc.ctor_Canonical`, `VNestedOcc.member_Canonical` and `VInductDecl'.Built.canonical` are
+**deleted**.
 
-Precisely which sites: `VNestedOcc.ctor_Canonical` / `member_Canonical`
-(`Theory/Inductive/NestedBuild.lean`) and `VInductDecl'.Built.canonical`, whose consumers are
-`ElimNestedInductive.Result.RestoreData.mkRestore_canonical`
-(`Verify/Inductive/NestedRestoreWit.lean`), its `OccData` wrapper
-(`Verify/Inductive/NestedOccData.lean`), `nfnAux_canonicalOwn`
-(`Theory/Inductive/NestedBuild.lean`) and `nfnAuxDirty_canonicalOwn`
-(`Theory/Inductive/RestoreBridge.lean`).  Note the last two are **statements about
-redex-free blocks and stay true** — they merely lose their general proof and need a `decide`
-instead; what becomes false is the general lemma, and `ctor_Canonical`'s own proof says why
-("because that is the only branch the recogniser takes").
+Where their four consumers went, and this is the part worth checking rather than trusting:
+
+* `VEnv.ctorConstsCR_wf_of_np_zero'` (`Theory/Inductive/RestoreBridge.lean`) took
+  `hcanon : D.Canonical` and now takes `hcanon : D.CanonicalOwn K`.  This is a **weakening of a
+  hypothesis, not a burden moved into one**: the proof feeds `hcanon` to
+  `VEnv.ctorConstsCR_wf_of_substC`'s `hbridge`, which is quantified over `T.name ∉ K`, so the
+  companion members were never in its range.  `VInductDecl'.CanonicalOwn.on` is the one-line
+  re-keying from `getD` to `types[j]?`.
+* `nfnAux_canonicalOwn` (`NestedBuild.lean`) and `nfnAuxDirty_canonicalOwn`
+  (`RestoreBridge.lean`) applied `member_Canonical` at the companion index.  They did not need
+  to: that index's name is in `nfnK`, so `CanonicalOwn`'s `∉ K` premise refutes the branch.
+* `ElimNestedInductive.Result.RestoreData.mkRestore_canonical`
+  (`Verify/Inductive/NestedRestoreWit.lean`) and its `OccData` wrapper
+  (`Verify/Inductive/NestedOccData.lean`) concluded `D.Canonical` from `CanonicalOwn`.  Both had
+  **zero consumers** and are deleted rather than restated, the conclusion being what became false.
 
 ## Coverage, measured rather than assumed
 
@@ -109,20 +119,14 @@ environment, never on a `vconst` equation.
 namespace Lean4Lean
 namespace MRedex
 
-open VExpr (mkPi mkLams mkApp bvars instAll splitPis)
+open VExpr (mkPi mkLams mkApp bvars instAll splitPis betaSpine betaHead)
 
 /-! ## 0. Head β-contraction
 
-`Lean.Expr.headBeta` at the `VExpr` level, written as a structural recursion on the spine so
-that it reduces by `rfl`/`decide` (a `termination_by` version does not, which is why this one
-recurses on the argument list). -/
-
-def betaSpine : List VExpr → VExpr → VExpr
-  | [], f => f
-  | a :: as, .lam _ b => betaSpine as (b.inst a)
-  | a :: as, f => f.mkApp (a :: as)
-
-def betaHead (e : VExpr) : VExpr := betaSpine e.spineArgs e.spineFn
+`VExpr.betaSpine` / `VExpr.betaHead` **moved to `Theory/Inductive/NestedBuild.lean`** when the
+repair landed, because `VNestedOcc.field` now calls them; they are only `open`ed here.
+`VExpr.skips_betaHead` — independence survives head β — went with them, and it is what keeps
+`VNestedOcc.bindersIndep` unconditional (see §3). -/
 
 /-! ## 1. The recogniser is blind to a redex-headed field
 
@@ -144,16 +148,21 @@ theorem recog_none_of_lamHead {R : VIndRestore} {nm i : Nat} {S A b : VExpr}
   rw [VIndRestore.recog]
   exact List.findSome?_eq_none_iff.2 fun k _ => recogAt_none_of_lamHead h
 
-/-- …so the built field takes the `none` branch: **the stored type is the redex verbatim, and
-`recArg` is `none`**.  The first half is faithfulness (the implementation stores exactly this);
-the second half is the defect. -/
-theorem field_eq_none_branch {N : VNestedOcc} {H : VIndHeader} {R : VIndRestore} {i : Nat}
+/-- …so the **pre-repair** field function takes the `none` branch: the stored type is the redex
+verbatim, and `recArg` is `none`.  The first half is faithfulness (the implementation stores
+exactly this); the second half was the defect.
+
+Since the repair landed, `VNestedOcc.field` needs **both** recognitions to fail before it lands
+here (`VNestedOcc.field_eq_none_branch`), and that extra hypothesis is exactly the *residue* of
+the repair: a redex under a binder, or one needing δ.  Measured empty in the running environment
+(row 119c), and named rather than measured away. -/
+theorem fieldO_eq_none_branch {N : VNestedOcc} {H : VIndHeader} {R : VIndRestore} {i : Nat}
     {F₀ : VIndField}
     (h : R.recog H.nm i (VExpr.instAll (F₀.type.instL N.lvls) N.args i) = none) :
-    N.field H R i F₀ =
+    N.fieldO H R i F₀ =
       { type := VExpr.instAll (F₀.type.instL N.lvls) N.args i,
         lvl := F₀.lvl.inst N.lvls, recArg := none } := by
-  rw [VNestedOcc.field]; simp only [h]
+  rw [VNestedOcc.fieldO]; simp only [h]
 
 /-! ## 2. What that costs, as a theorem: the escape is back at the built member
 
@@ -172,7 +181,9 @@ theorem built_wf_forces_escape {env env₁ : VEnv} {D : VInductDecl'} {R : VIndR
     {C₀ : VIndCtor} (hC₀ : C₀ ∈ (occ j).src.ctors)
     {i : Nat} {F₀ : VIndField} (hF₀ : C₀.fields[i]? = some F₀)
     (hnone : R.recog D.header.nm i
-      (VExpr.instAll (F₀.type.instL (occ j).lvls) (occ j).args i) = none) :
+      (VExpr.instAll (F₀.type.instL (occ j).lvls) (occ j).args i) = none)
+    (hnone2 : R.recog D.header.nm i
+      (betaHead (VExpr.instAll (F₀.type.instL (occ j).lvls) (occ j).args i)) = none) :
     ∃ A, D.NoBlock A ∧ env₁.IsDefEqType D.uvars
       ((((((occ j).ctor D.header R C₀).fields.take i).map (·.type)).reverse) ++ D.params.reverse)
       (VExpr.instAll (F₀.type.instL (occ j).lvls) (occ j).args i) A := by
@@ -185,7 +196,8 @@ theorem built_wf_forces_escape {env env₁ : VEnv} {D : VInductDecl'} {R : VIndR
       Nat.zero_add]
     rfl
   have hfwf := hCwf.fields i _ hFi
-  have hf := field_eq_none_branch (N := occ j) (H := D.header) (R := R) (i := i) (F₀ := F₀) hnone
+  have hf := VNestedOcc.field_eq_none_branch (N := occ j) (H := D.header) (R := R) (i := i)
+    (F₀ := F₀) hnone hnone2
   have := hfwf.pos
   rw [show ((occ j).field D.header R i F₀).recArg = none from by rw [hf]] at this
   rw [show ((occ j).field D.header R i F₀).type
@@ -203,81 +215,44 @@ theorem built_wf_of_escape_false {env env₁ : VEnv} {D : VInductDecl'} {R : VIn
     {i : Nat} {F₀ : VIndField} (hF₀ : C₀.fields[i]? = some F₀)
     (hnone : R.recog D.header.nm i
       (VExpr.instAll (F₀.type.instL (occ j).lvls) (occ j).args i) = none)
+    (hnone2 : R.recog D.header.nm i
+      (betaHead (VExpr.instAll (F₀.type.instL (occ j).lvls) (occ j).args i)) = none)
     (hesc : ¬ ∃ A, D.NoBlock A ∧ env₁.IsDefEqType D.uvars
       ((((((occ j).ctor D.header R C₀).fields.take i).map (·.type)).reverse) ++ D.params.reverse)
       (VExpr.instAll (F₀.type.instL (occ j).lvls) (occ j).args i) A) :
     ¬ (D.WF env ∧ D.Built R K env occ) :=
-  fun ⟨hwf, hb⟩ => hesc (built_wf_forces_escape hb hwf hst hT hK hC₀ hF₀ hnone)
+  fun ⟨hwf, hb⟩ => hesc (built_wf_forces_escape hb hwf hst hT hK hC₀ hF₀ hnone hnone2)
 
-/-! ## 3. The repair
+/-! ## 3. The repair — **landed**, in `Theory/Inductive/NestedBuild.lean`
 
-One change: a **second chance** for the recogniser, on the head-β contraction, storing the
-*stored* type rather than the canonical one. -/
+`fieldB` and its four lemmas used to be defined here as a *proposal*.  They are gone: the body
+is now `VNestedOcc.field` itself, and the lemmas moved with it, so that nothing in the tree
+computes the pre-repair reading by accident.  The map, for anyone following a ledger citation:
 
-/-- `VNestedOcc.field` with the second chance.  **The reported implementation change is: replace
-`VNestedOcc.field`'s body by this one.** -/
-def fieldB (N : VNestedOcc) (H : VIndHeader) (R : VIndRestore) (i : Nat)
-    (F₀ : VIndField) : VIndField :=
-  let S := VExpr.instAll (F₀.type.instL N.lvls) N.args i
-  match R.recog H.nm i S with
-  | some r => { type := r.canonTypeH H i, lvl := F₀.lvl.inst N.lvls, recArg := some r }
-  | none =>
-    match R.recog H.nm i (betaHead S) with
-    | some r => { type := S, lvl := F₀.lvl.inst N.lvls, recArg := some r }
-    | none => { type := S, lvl := F₀.lvl.inst N.lvls, recArg := none }
+| was, here | is, in `NestedBuild.lean` |
+|---|---|
+| `MRedex.fieldB` | `VNestedOcc.field` (the definition) |
+| — | `VNestedOcc.fieldO` (the *pre-repair* function, kept so conservativity has content) |
+| `MRedex.fieldB_eq_field_of_some` | `VNestedOcc.field_eq_fieldO_of_some` |
+| `MRedex.fieldB_eq_field_of_none` | `VNestedOcc.field_eq_fieldO_of_none` |
+| `MRedex.fieldB_new_branch` | `VNestedOcc.field_new_branch` |
+| `MRedex.fieldB_typeR` | `VNestedOcc.field_typeR` (the old one is `fieldO_typeR`) |
+| `MRedex.field_eq_none_branch` | `VNestedOcc.field_eq_none_branch` (**two** hypotheses now) |
+| `MRedex.betaSpine` / `betaHead` | `VExpr.betaSpine` / `VExpr.betaHead` |
 
-/-- **Conservative, half one**: where the recogniser already fired, nothing moves. -/
-theorem fieldB_eq_field_of_some {N : VNestedOcc} {H : VIndHeader} {R : VIndRestore} {i : Nat}
-    {F₀ : VIndField} {r : VIndRecArg}
-    (h : R.recog H.nm i (VExpr.instAll (F₀.type.instL N.lvls) N.args i) = some r) :
-    fieldB N H R i F₀ = N.field H R i F₀ := by
-  rw [fieldB, VNestedOcc.field]; simp only [h]
+Two things the move cost, both discharged rather than deferred:
 
-/-- **Conservative, half two**: where the β-contraction is not recognised either, nothing
-moves.  So the two definitions differ on **exactly** the fields the elimination manufactures. -/
-theorem fieldB_eq_field_of_none {N : VNestedOcc} {H : VIndHeader} {R : VIndRestore} {i : Nat}
-    {F₀ : VIndField}
-    (h : R.recog H.nm i (VExpr.instAll (F₀.type.instL N.lvls) N.args i) = none)
-    (h2 : R.recog H.nm i (betaHead (VExpr.instAll (F₀.type.instL N.lvls) N.args i)) = none) :
-    fieldB N H R i F₀ = N.field H R i F₀ := by
-  rw [fieldB, VNestedOcc.field]; simp only [h, h2]
-
-/-- **The new branch stores the type verbatim.**  This is what keeps the construction faithful:
-the implementation's `instantiateForallParams` output *is* this term. -/
-theorem fieldB_new_branch {N : VNestedOcc} {H : VIndHeader} {R : VIndRestore} {i : Nat}
-    {F₀ : VIndField} {r : VIndRecArg}
-    (h : R.recog H.nm i (VExpr.instAll (F₀.type.instL N.lvls) N.args i) = none)
-    (h2 : R.recog H.nm i (betaHead (VExpr.instAll (F₀.type.instL N.lvls) N.args i)) = some r) :
-    fieldB N H R i F₀ =
-      { type := VExpr.instAll (F₀.type.instL N.lvls) N.args i,
-        lvl := F₀.lvl.inst N.lvls, recArg := some r } := by
-  rw [fieldB]; simp only [h, h2]
-
-/-- **`VNestedOcc.field_typeR` survives the repair, with the same four hypotheses.**
-
-This is the load-bearing lemma of ruling 116d's cost accounting (row 117a), and the repair does
-not add to it: the new branch is `VIndRestore.restore_noK` against `hS`, which is
-`VInductDecl'.Built.fields_noK` — a premise the statement already had. -/
-theorem fieldB_typeR (N : VNestedOcc) (H : VIndHeader) (R : VIndRestore) (D : VInductDecl')
-    (K : List Lean.Name) (hH : H = D.header) (hown : R.OwnId D K)
-    (hnd : D.blockNames.Nodup) (i : Nat) (F₀ : VIndField)
-    (hS : VExpr.NoConsts K (VExpr.instAll (F₀.type.instL N.lvls) N.args i)) :
-    (fieldB N H R i F₀).typeR D R i = VExpr.instAll (F₀.type.instL N.lvls) N.args i := by
-  cases h : R.recog H.nm i (VExpr.instAll (F₀.type.instL N.lvls) N.args i) with
-  | some r =>
-    rw [fieldB_eq_field_of_some h]
-    exact N.field_typeR H R D K hH hown hnd i F₀ hS
-  | none =>
-    cases h2 : R.recog H.nm i (betaHead (VExpr.instAll (F₀.type.instL N.lvls) N.args i)) with
-    | some r =>
-      rw [fieldB_new_branch h h2, VIndField.typeR]
-      exact VIndRestore.restore_noK hown i _ hS
-    | none => rw [fieldB_eq_field_of_none h h2, VIndField.typeR, field_eq_none_branch h]
+* `VNestedOcc.bindersIndep` read `r.binders` off `splitPis` of the *substituted* type, and the
+  new branch's `r` comes from the head-β contraction.  `VNestedOcc.field_binders` states the
+  disjunction and `VExpr.skips_betaHead` closes the new side, so the clause stays
+  **unconditional** — no hypothesis was added to it.
+* `VIndCtor.Canonical` is now false at the repaired constructor, so `VNestedOcc.ctor_Canonical`,
+  `VNestedOcc.member_Canonical` and `VInductDecl'.Built.canonical` are **deleted**.  See §4. -/
 
 /-! ## 4. The price, as a theorem: `VIndCtor.Canonical` becomes false
 
-`VNestedOcc.ctor_Canonical` is currently *true with no hypotheses* — and that is precisely
-because `field` reports `recArg = none` at the redex, so `Canonical` has nothing to check there.
+`VNestedOcc.ctor_Canonical` used to be *true with no hypotheses* — and that was precisely
+because `fieldO` reports `recArg = none` at the redex, so `Canonical` had nothing to check there.
 The repair records the field as recursive, and then the stored type is a β-redex while
 `r.canonType D i` never is.  This is ledger row 116g's trap in its cleanest form: the
 hypothesis-free green theorem was green because the definition mis-modelled the kernel. -/
@@ -434,16 +409,28 @@ theorem mr_subst_field1 :
 /-- The recogniser fails, at every member. -/
 theorem mr_recog_none : mrRestore.recog (mrAux mrAuxNode).header.nm 1 mrRedex = none := rfl
 
-/-- So the built field is the redex with `recArg = none`. -/
-theorem mr_field1 :
-    mrOcc.field (mrAux mrAuxNode).header mrRestore 1 (mrNode.fields.getD 1 default)
+/-- **The pre-repair reading**: the built field was the redex with `recArg = none`. -/
+theorem mr_fieldO1 :
+    mrOcc.fieldO (mrAux mrAuxNode).header mrRestore 1 (mrNode.fields.getD 1 default)
       = { type := mrRedex, lvl := .succ .zero, recArg := none } := rfl
 
-/-- **`Built.member` is SATISFIED here** — the companion member of `mrAux mrAuxNode` *is* the
-value the construction computes, by `rfl`.  This is the round's first correction to row 117e:
-`member` is not the false clause; it is satisfiable, and what it forces is `recArg = none`. -/
+/-- **`Built.member` is SATISFIED here** — the companion member of `mrAux mrAuxNodeB` *is* the
+value the construction computes, by `rfl`.  This was row 117e's first correction (`member` is not
+the false clause) and it survives the repair verbatim, at the *other* candidate constructor:
+before the repair `member` was satisfied at `mrAuxNode` and forced `recArg = none`; now it is
+satisfied at `mrAuxNodeB` and forces `recArg = some r`, which is what Lean stores. -/
 theorem mr_member_built :
-    (mrAux mrAuxNode).types[1]? = some (mrOcc.member (mrAux mrAuxNode).header mrRestore) := rfl
+    (mrAux mrAuxNodeB).types[1]? = some (mrOcc.member (mrAux mrAuxNodeB).header mrRestore) := rfl
+
+/-- …and **the repair moved it**: the pre-repair member is no longer what the construction
+computes.  So the change is a repair rather than a re-labelling — `mrAuxNode` was the reading
+`mr_minor_arity_none` shows the kernel does *not* store. -/
+theorem mr_member_not_built_old :
+    (mrAux mrAuxNode).types[1]? ≠ some (mrOcc.member (mrAux mrAuxNode).header mrRestore) := by
+  intro h
+  exact absurd (congrArg (fun o : Option VIndType =>
+      (((o.getD default).ctors.getD 0 default).fields.getD 1 default).recArg.isSome) h)
+    (by decide)
 
 /-! ### The second, unconditional route: the companion recursor's minor premise
 
@@ -490,11 +477,16 @@ theorem mr_recogB :
     mrRestore.recog (mrAux mrAuxNodeB).header.nm 1 (betaHead mrRedex)
       = some { binders := [], idx := 0, args := [] } := rfl
 
-/-- **`fieldB` stores the redex and records it as recursive** — which is what the kernel does. -/
-theorem mr_fieldB1 :
-    fieldB mrOcc (mrAux mrAuxNodeB).header mrRestore 1 (mrNode.fields.getD 1 default)
+/-- **`field` stores the redex and records it as recursive** — which is what the kernel does.
+(Was `mr_fieldB1`, before the repair became the definition.) -/
+theorem mr_field1 :
+    mrOcc.field (mrAux mrAuxNodeB).header mrRestore 1 (mrNode.fields.getD 1 default)
       = { type := mrRedex, lvl := .succ .zero,
           recArg := some { binders := [], idx := 0, args := [] } } := rfl
+
+/-- **The built constructor *is* `mrAuxNodeB`** — so `mr_auxNodeB_not_canonical` below is a
+statement about what the construction now produces, not about a hand-written rival. -/
+theorem mr_ctor_built : mrOcc.ctor (mrAux mrAuxNodeB).header mrRestore mrNode = mrAuxNodeB := rfl
 
 /-- The canonical type of the recognised `r` is the block constant. -/
 theorem mr_canonType :
@@ -520,10 +512,15 @@ theorem mr_const_hasType {env : VEnv} {Γ : List VExpr}
 
 /-! ### The price -/
 
-/-- **`VIndCtor.Canonical` is FALSE at the repaired companion constructor.**  It is `True` today
-only because `field` reports `recArg = none` there, i.e. because the built member mis-models the
+/-- **`VIndCtor.Canonical` is FALSE at the repaired companion constructor**, which by
+`mr_ctor_built` is the one the construction produces.  It used to be `True` only because the
+pre-repair `fieldO` reported `recArg = none` there, i.e. because the built member mis-modelled the
 kernel — so `VNestedOcc.ctor_Canonical`, `member_Canonical` and `VInductDecl'.Built.canonical`
-must go, and row 117d(iv)'s four remaining consumers of the last one must be re-plumbed.  That is
+are **deleted**, and row 117d(iv)'s four consumers of the last one are re-plumbed.  Where they
+went: `VEnv.ctorConstsCR_wf_of_np_zero'` now takes `D.CanonicalOwn K` (strictly weaker, and it
+never applied the hypothesis at a companion member — its `hbridge` is quantified over
+`T.name ∉ K`); `nfnAux_canonicalOwn` / `nfnAuxDirty_canonicalOwn` close the companion index from
+that same `∉ K` premise; and both `mkRestore_canonical`s had zero consumers and are gone.  That is
 the whole bill for the repair. -/
 theorem mr_auxNodeB_not_canonical : ¬ mrAuxNodeB.Canonical (mrAux mrAuxNodeB) := by
   intro h
@@ -540,8 +537,8 @@ end MRWit
 
 /-! ## 5a. The existing witnesses and the negative control survive the repair
 
-`fieldB` differs from `field` only where the recogniser fails *and* the head-β contraction is
-recognised, so every `rfl`/`decide` in the tree that computes `field` at a redex-free block is
+`field` differs from `fieldO` only where the recogniser fails *and* the head-β contraction is
+recognised, so every `rfl`/`decide` in the tree that computes a field of a redex-free block is
 untouched.  Checked here rather than asserted, at the two places that would notice:
 `_nested.List_1.cons`'s two fields, and `listOcc_recog_field1_fails` — the **negative control**
 that deletes the head generalisation and asserts the recogniser does *not* fire.  Its substituted
@@ -551,16 +548,16 @@ control still controls. -/
 section
 open InductiveDeclExamples
 
-theorem listOcc_fieldB_eq_0 :
-    fieldB listOcc ntreeAux.header ntreeRestore 0 (listCons.fields.getD 0 default)
-      = listOcc.field ntreeAux.header ntreeRestore 0 (listCons.fields.getD 0 default) := rfl
+theorem listOcc_field_eq_fieldO_0 :
+    listOcc.field ntreeAux.header ntreeRestore 0 (listCons.fields.getD 0 default)
+      = listOcc.fieldO ntreeAux.header ntreeRestore 0 (listCons.fields.getD 0 default) := rfl
 
-theorem listOcc_fieldB_eq_1 :
-    fieldB listOcc ntreeAux.header ntreeRestore 1 (listCons.fields.getD 1 default)
-      = listOcc.field ntreeAux.header ntreeRestore 1 (listCons.fields.getD 1 default) := rfl
+theorem listOcc_field_eq_fieldO_1 :
+    listOcc.field ntreeAux.header ntreeRestore 1 (listCons.fields.getD 1 default)
+      = listOcc.fieldO ntreeAux.header ntreeRestore 1 (listCons.fields.getD 1 default) := rfl
 
 /-- **The negative control still fails under the second chance.** -/
-theorem listOcc_fieldB_control :
+theorem listOcc_betaHead_control :
     { ntreeRestore with tyArgs := fun _ => VExpr.bvars 0 1 }.recog ntreeAux.header.nm 1
         (betaHead (VExpr.instAll ((listCons.fields.getD 1 default).type.instL listOcc.lvls)
           listOcc.args 1))
@@ -571,11 +568,13 @@ end
 /-! ## 6. Instrument 7 and its dual
 
 **Instrument 7** (green because the hypotheses are unsatisfiable): `recogAt_none_of_lamHead`,
-`recog_none_of_lamHead`, `field_eq_none_branch`, `fieldB_eq_field_of_some`,
-`fieldB_eq_field_of_none`, `fieldB_new_branch` all have hypotheses that are **discharged by
-`rfl` at the witness** (`mr_recog_none`, `mr_recogB`), so none is vacuous.  `spineFn_canonType`,
-`canonType_ne_of_lamHead` and every `mr_*` theorem outside `mr_pos_beta`/`mr_const_hasType` are
-hypothesis-free.  `mr_pos_beta`'s single hypothesis is inhabited by `mr_const_hasType`.
+`recog_none_of_lamHead`, `fieldO_eq_none_branch`, and `NestedBuild.lean`'s
+`VNestedOcc.field_eq_fieldO_of_some` / `field_eq_fieldO_of_none` / `field_new_branch` all have
+hypotheses that are **discharged by `rfl` at a witness in this file** (`mr_recog_none`,
+`mr_recogB`, and `listOcc_betaHead_control` for the `none`-`none` pair), so none is vacuous.
+`spineFn_canonType`, `canonType_ne_of_lamHead` and every `mr_*` theorem outside
+`mr_pos_beta`/`mr_const_hasType` are hypothesis-free.  `mr_pos_beta`'s single hypothesis is
+inhabited by `mr_const_hasType`.
 
 **Its dual** (green because the difficulty moved into an uninhabited hypothesis — ledger row
 116g, and `BuiltFresh` the most recent instance):
@@ -585,40 +584,208 @@ hypothesis-free.  `mr_pos_beta`'s single hypothesis is inhabited by `mr_const_ha
   visible on the page.  Neither is claimed to refute anything on its own: the escape is a
   `Prop` with **no known inhabitant and no known refutation**, and refuting it is
   Church–Rosser strength.  What is proved is that it is the *sole* residue of route A.
-* `fieldB_typeR` gains **no** hypothesis over `VNestedOcc.field_typeR`: same four, and the new
+* **Both escape theorems gained a hypothesis when the repair landed** — `hnone2`, that the
+  head-β contraction is *also* unrecognised.  That is not bookkeeping: it is the honest statement
+  of what the repair bought.  The escape is no longer forced at the fields the repair covers, and
+  it is still forced at the residue (a redex under a binder, or one needing δ), which is
+  **measured empty in the running environment** but is not a theorem.  Read the pair as: route A
+  is closed on the measured population and open in general.
+* `VNestedOcc.field_typeR` gains **no** hypothesis over `fieldO_typeR`: same four, and the new
   branch consumes `hS` (= `Built.fields_noK`, row 117c's clause with no general producer) exactly
   as the old `some` branch already did.  So the repair does **not** enlarge ruling 116d's
   uninhabited-premise bill — but it does not shrink it either, and `fields_noK` still has no
   producer except `decide` at a concrete block.
-* **`mr_auxNodeB_not_canonical` is the dual read in reverse**: `VNestedOcc.ctor_Canonical` is a
-  hypothesis-free green theorem today, and it is green *because* `field`'s `none` branch makes
+* **`mr_auxNodeB_not_canonical` is the dual read in reverse**: `VNestedOcc.ctor_Canonical` was a
+  hypothesis-free green theorem, and it was green *because* the pre-repair `none` branch made
   `Canonical` vacuous at the very field this file is about.  A green theorem can be worse than a
-  red one when the definition it quantifies over is the wrong one.
+  red one when the definition it quantifies over is the wrong one.  It is now deleted, and the
+  one thing that genuinely needed it — `ctorConstsCR_wf_of_np_zero'` — asks for `CanonicalOwn K`
+  instead, i.e. **no burden moved into a hypothesis: the hypothesis got weaker.**
+-/
+
+/-! ## 7. Non-vacuity of the repair's own statements, at the degenerate instance
+
+Ledger blindness 7: *a statement can be green because its hypotheses are unsatisfiable at the
+degenerate instance — nil telescope, zero grade, empty context — while being perfectly good at the
+general one.*  Every statement the repair added or changed is instantiated here, and the verdicts
+are **not uniform**, which is the point of doing it.
+
+`dgOcc` is the smallest occurrence that reaches `field` at all: zero universe parameters, **nil**
+parameter telescope, **nil** nested spine, one member, one constructor, one field.  A zero-field
+constructor would make `fieldsFrom` the empty list and every `field` statement vacuous by
+emptiness, which is why the field is there. -/
+
+namespace DgWit
+
+def dgMk : VIndCtor where
+  name := `DgJ.mk
+  params := []
+  fields := [{ type := .sort .zero, lvl := .succ .zero, recArg := none }]
+  args := []
+
+def dgType : VIndType where
+  name := `DgJ
+  type := .sort (.succ .zero)
+  indices := []
+  ctors := [dgMk]
+
+def dgDecl : VInductDecl' where
+  uvars := 0
+  params := []
+  lvl := .succ .zero
+  isLE := true
+  types := [dgType]
+
+def dgOcc : VNestedOcc where
+  decl := dgDecl
+  idx := 0
+  lvls := []
+  args := []
+  auxName := `_nested.DgJ_1
+  ctorName := id
+
+def dgH : VIndHeader where
+  uvars := 0
+  params := []
+  nm := 1
+  names _ := `DgI
+
+def dgR : VIndRestore where
+  tyName _ := `DgJ
+  tyLvls _ := []
+  tyArgs _ := []
+  ctorName := id
+  recName := id
+
+/-- The nil spine really is nil: `instAll e [] 0 = e`, so the degenerate instance is degenerate. -/
+theorem dg_subst :
+    VExpr.instAll ((dgMk.fields.getD 0 default).type.instL dgOcc.lvls) dgOcc.args 0
+      = .sort .zero := rfl
+
+/-- **`field_eq_fieldO_of_none` / `field_eq_none_branch`: hypotheses SATISFIABLE, and satisfied,
+at the degenerate instance.**  Both recognitions fail on a `.sort`, and `betaHead` is the identity
+on it. -/
+theorem dg_recog_none :
+    dgR.recog dgH.nm 0 (VExpr.instAll ((dgMk.fields.getD 0 default).type.instL dgOcc.lvls)
+      dgOcc.args 0) = none := rfl
+
+theorem dg_recog_betaHead_none :
+    dgR.recog dgH.nm 0 (betaHead (VExpr.instAll
+      ((dgMk.fields.getD 0 default).type.instL dgOcc.lvls) dgOcc.args 0)) = none := rfl
+
+/-- …so the two conclusions **fire** here rather than being asserted of an empty hypothesis set. -/
+theorem dg_field_eq_fieldO :
+    dgOcc.field dgH dgR 0 (dgMk.fields.getD 0 default)
+      = dgOcc.fieldO dgH dgR 0 (dgMk.fields.getD 0 default) :=
+  dgOcc.field_eq_fieldO_of_none dg_recog_none dg_recog_betaHead_none
+
+theorem dg_field_none_branch :
+    dgOcc.field dgH dgR 0 (dgMk.fields.getD 0 default)
+      = { type := .sort .zero, lvl := .succ .zero, recArg := none } :=
+  dgOcc.field_eq_none_branch dg_recog_none dg_recog_betaHead_none
+
+/-- …and the conclusion is **not** trivially true: it is an equation with a computed right-hand
+side, and the *other* branch's value differs. -/
+theorem dg_field_none_branch_nontrivial :
+    ({ type := .sort .zero, lvl := .succ .zero, recArg := none } : VIndField)
+      ≠ { type := .sort .zero, lvl := .succ .zero,
+          recArg := some { binders := [], idx := 0, args := [] } } := by
+  intro h
+  exact absurd (congrArg (fun F : VIndField => F.recArg.isSome) h) (by decide)
+
+/-- **`field_binders`: hypothesis NOT satisfiable at the degenerate instance**, and it cannot be —
+`recArg = some r` needs a *recognised* field, and recognition needs a real block name in the
+spine head, which a nil spine over a `.sort` cannot supply.  Recorded rather than hidden; the
+witnesses that do satisfy it are `mr_field1` (the new branch) and `listOcc` field `1` (the old
+one), both below/above. -/
+theorem dg_field_recArg_none : (dgOcc.field dgH dgR 0 (dgMk.fields.getD 0 default)).recArg = none :=
+  rfl
+
+/-- **`VExpr.skips_betaHead`: hypothesis satisfiable *with the contraction non-trivial*.**  A
+witness where `betaHead` is the identity would prove nothing, so the witness is the manufactured
+redex itself: it mentions de Bruijn index `0` and nothing at `1`, and its contraction is the bare
+block constant. -/
+theorem dg_skips_redex : (MRWit.mrRedex).Skips 1 1 := rfl
+
+theorem dg_skips_betaHead_fires : (betaHead MRWit.mrRedex).Skips 1 1 :=
+  VExpr.skips_betaHead dg_skips_redex
+
+theorem dg_betaHead_nontrivial : betaHead MRWit.mrRedex ≠ MRWit.mrRedex := by decide
+
+end DgWit
+
+/-! ### The verdicts, one line each
+
+| statement | hypotheses at the degenerate instance | witness |
+|---|---|---|
+| `VNestedOcc.field_eq_fieldO_of_none` | **satisfiable**, satisfied | `DgWit.dg_field_eq_fieldO` |
+| `VNestedOcc.field_eq_none_branch` | **satisfiable**, satisfied, conclusion non-trivial | `DgWit.dg_field_none_branch`, `dg_field_none_branch_nontrivial` |
+| `VNestedOcc.field_eq_fieldO_of_some` | **not** satisfiable there (needs recognition) | fires at `listOcc` field `1`: `listOcc_field_eq_fieldO_1` computes the same equation by `rfl` |
+| `VNestedOcc.field_new_branch` | **not** satisfiable there (needs a redex) | `MRWit.mr_recog_none` + `mr_recogB` ⟹ `mr_field1` |
+| `VNestedOcc.field_binders` | **not** satisfiable there (`recArg = none`, `dg_field_recArg_none`) | fires at `mr_field1` and at `listOcc` field `1` |
+| `VNestedOcc.field_typeR` | four hypotheses, all satisfied at `pfnOcc`/`nfnAux`/`nfnRestore`/`nfnK` — `hH` by `rfl`, `hown` by `nfnRestore_ownId`, `hnd` by `nfnAux_blockNames_nodup`, `hS` by `decide` | `NestedBuild.lean`'s `nfnAux_*` chain, which consumes it |
+| `VExpr.skips_betaHead` | **satisfiable with the contraction non-trivial** | `DgWit.dg_skips_betaHead_fires` + `dg_betaHead_nontrivial` |
+| `VInductDecl'.CanonicalOwn.on` | satisfied at `nfnAux` index `0` | `nfnAux_canonicalOwn` (its own proof) |
+| `VEnv.ctorConstsCR_wf_of_np_zero'` (hypothesis **weakened** to `CanonicalOwn K`) | fully instantiated at two blocks | `nfnAux_ctorConstsCR_wf_general`, `nfnAuxDirty_obligationA` |
+| `built_wf_forces_escape` / `built_wf_of_escape_false` (hypothesis **added**) | see below — **the one honest loss** | — |
+
+**The one honest loss, stated rather than buried.**  Both escape theorems gained `hnone2`.  At the
+`MRWit` block — the *only* witness in the tree where the escape was a live obligation — `hnone2`
+is **FALSE** (`mr_recogB` says the contraction *is* recognised).  So `built_wf_forces_escape` is
+now **vacuous at that witness**, which is exactly what the repair was for: the escape is no longer
+forced there.  Its hypotheses remain jointly satisfiable elsewhere (any non-recursive block-free
+field: both recognitions fail, `betaHead` is the identity), but at every such field the conclusion
+is *discharged* by `A := F.type` rather than being a hole.  The reading to carry forward:
+
+* the escape is forced only at a field whose type β-normalises to a block constant while **both**
+  recognitions fail — i.e. a redex **under a binder** or one needing **δ**;
+* that population is **measured empty** in the running environment
+  (`Verify/Inductive/MemberRedexScan.lean`: 3 of 3 defects covered, residual 0), and *measured
+  empty is not proved empty*;
+* so route A is **closed on the measured population and open in general**, and the theorem that
+  says so is now a conditional one.  This is the trade the repair makes, and it is a trade, not a
+  free win.
 -/
 
 #print axioms Lean4Lean.MRedex.recog_none_of_lamHead
-#print axioms Lean4Lean.MRedex.field_eq_none_branch
+#print axioms Lean4Lean.MRedex.fieldO_eq_none_branch
 #print axioms Lean4Lean.MRedex.built_wf_forces_escape
 #print axioms Lean4Lean.MRedex.built_wf_of_escape_false
-#print axioms Lean4Lean.MRedex.fieldB_eq_field_of_some
-#print axioms Lean4Lean.MRedex.fieldB_eq_field_of_none
-#print axioms Lean4Lean.MRedex.fieldB_new_branch
-#print axioms Lean4Lean.MRedex.fieldB_typeR
+#print axioms Lean4Lean.VNestedOcc.field_eq_fieldO_of_some
+#print axioms Lean4Lean.VNestedOcc.field_eq_fieldO_of_none
+#print axioms Lean4Lean.VNestedOcc.field_new_branch
+#print axioms Lean4Lean.VNestedOcc.field_eq_none_branch
+#print axioms Lean4Lean.VNestedOcc.field_binders
+#print axioms Lean4Lean.VNestedOcc.field_typeR
+#print axioms Lean4Lean.VNestedOcc.fieldO_typeR
+#print axioms Lean4Lean.VNestedOcc.bindersIndep
+#print axioms Lean4Lean.VExpr.skips_betaHead
+#print axioms Lean4Lean.VInductDecl'.CanonicalOwn.on
 #print axioms Lean4Lean.MRedex.spineFn_canonType
 #print axioms Lean4Lean.MRedex.canonType_ne_of_lamHead
 #print axioms Lean4Lean.MRedex.MRWit.mr_member_built
+#print axioms Lean4Lean.MRedex.MRWit.mr_member_not_built_old
 #print axioms Lean4Lean.MRedex.MRWit.mr_obj_declared
 #print axioms Lean4Lean.MRedex.MRWit.mr_minor_arity_ground
 #print axioms Lean4Lean.MRedex.MRWit.mr_minor_arity_none
 #print axioms Lean4Lean.MRedex.MRWit.mr_minor_arity_someB
 #print axioms Lean4Lean.MRedex.MRWit.mr_recTypeR_ne
 #print axioms Lean4Lean.MRedex.MRWit.mr_vconst_beta_reduces
-#print axioms Lean4Lean.MRedex.MRWit.mr_fieldB1
+#print axioms Lean4Lean.MRedex.MRWit.mr_fieldO1
+#print axioms Lean4Lean.MRedex.MRWit.mr_field1
+#print axioms Lean4Lean.MRedex.MRWit.mr_ctor_built
 #print axioms Lean4Lean.MRedex.MRWit.mr_pos_beta
 #print axioms Lean4Lean.MRedex.MRWit.mr_auxNodeB_not_canonical
 #print axioms Lean4Lean.MRedex.MRWit.mr_not_canonical_general
-#print axioms Lean4Lean.MRedex.listOcc_fieldB_eq_1
-#print axioms Lean4Lean.MRedex.listOcc_fieldB_control
+#print axioms Lean4Lean.MRedex.listOcc_field_eq_fieldO_0
+#print axioms Lean4Lean.MRedex.listOcc_field_eq_fieldO_1
+#print axioms Lean4Lean.MRedex.listOcc_betaHead_control
+#print axioms Lean4Lean.MRedex.DgWit.dg_field_eq_fieldO
+#print axioms Lean4Lean.MRedex.DgWit.dg_field_none_branch
+#print axioms Lean4Lean.MRedex.DgWit.dg_field_none_branch_nontrivial
+#print axioms Lean4Lean.MRedex.DgWit.dg_field_recArg_none
+#print axioms Lean4Lean.MRedex.DgWit.dg_skips_betaHead_fires
+#print axioms Lean4Lean.MRedex.DgWit.dg_betaHead_nontrivial
 
 end MRedex
 end Lean4Lean
