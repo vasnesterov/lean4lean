@@ -160,6 +160,8 @@ import Lean4Lean.Verify.TypeChecker.EtaResidual  -- 2026-09-02: both eta .WFs fr
 import Lean4Lean.Theory.SetModel.PreludeWitness  -- 2026-09-02: PreludeWF PROVED, so VEnv.LeanWF is inhabited and H2's corner is no longer about a possibly-empty class
 import Lean4Lean.Theory.Inductive.StoredIota  -- 2026-09-02: ruling 122e's witnesses -- (B), (C) and both TeleDefEq certificates instantiated at a redex block, where they were vacuous before
 import Lean4Lean.Theory.Inductive.ParamRedex  -- 2026-09-02: the parameterised redex block MP -- hrec as a GENUINE conversion (mp_obj_entry_substC_ne). Listed so the scan and census see it
+import Lean4Lean.Theory.SetModel.InstDescendBvar  -- 2026-09-02: InstDescendUp 0's .bvar k case CLOSED at every k. Was orphaned -- no file imported it, so no instrument saw it
+import Lean4Lean.Theory.SetModel.StableGuarded  -- 2026-09-02: PropSplit.StableOn, and not_interpLiftNObligation refuting the in-place flag day. Also orphaned until now
 
 /-!
 # Acceptance test: the `PatternRules` cone and the `Verify/` cone join

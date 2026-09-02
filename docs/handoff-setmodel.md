@@ -1882,3 +1882,337 @@ occur elsewhere in the tree.  The three that sit in shared namespaces — `Ctx.I
 **Do not** re-attack: everything §10.9, §11.7 and §12.7 name, plus — new — **`CtxReplace`**
 (retired), **`UnguardedStrengthen`** (item 4), and **`.bvar k` itself** (done; if you think it is
 still open, read `prop_inst_bvar`'s statement and note that only the *premise* moved).
+
+---
+
+## 14. Session of 2026-09-02 (seventh): ruling 140 executed — **the guarded lift fields are FREE, and the flag day is REFUTED at `interp_liftN`**
+
+One new file, `Theory/SetModel/StableGuarded.lean` (600 lines, 29 declarations, **no `sorry`**).
+**No existing file was edited**, so no other stream can be broken by this round.
+
+### 14.0 The result, plainly
+
+Ruling 140 said: guard `PropSplit.Stable`'s four fields with `OnCtx`; "a flag day with no new
+mathematics"; `isPropUpOn_liftN_up` already shows the `lift` field is free. **Both halves of that
+costing are wrong, in opposite directions**, and this round measured both.
+
+**Proved (all `sorryAx`-free, cones empty — §14.3):**
+
+```lean
+-- §1.  The pushout of two lifts carries the guard.  THIS IS NEW MATHEMATICS.
+theorem Ctx.Lift'.pushOut_onCtx (henv : env.Ordered) : ∀ (l₁ l₂ : Lift) {Γ Γ₁ Γ₂},
+    Ctx.Lift' l₁ Γ Γ₁ → Ctx.Lift' l₂ Γ Γ₂ → OnCtx Γ₁ (env.IsType nv) → OnCtx Γ₂ (env.IsType nv) →
+    ∃ Γ₃, Ctx.Lift' (Lift.pushOutL l₁ l₂) Γ₁ Γ₃ ∧ Ctx.Lift' (Lift.pushOutR l₁ l₂) Γ₂ Γ₃ ∧
+      OnCtx Γ₃ (env.IsType nv)
+
+-- §2.  The two `lift` fields for the GUARDED lift-closed predicate, both directions, no hole.
+theorem VEnv.isPropUpOn_lift'  (henv) (W : Ctx.Lift' ρ Γ Γ') (hΓ' : OnCtx Γ' (env.IsType nv)) :
+    env.IsPropUpOn nv ls Γ' (A.lift' ρ) ↔ env.IsPropUpOn nv ls Γ A
+theorem VEnv.isProofUpOn_lift' (…analogous)
+theorem VEnv.isPropUpOn_liftN / isProofUpOn_liftN   -- the `Ctx.LiftN` forms
+theorem VEnv.propUpOnLiftAscend_at                  -- the ascent, at a guarded target
+
+-- §3.  The guarded structure, and the payoff.
+structure PropSplit.StableOn (L : PropSplit env nv) : Prop      -- four fields, `OnCtx` on both ctxs
+theorem PropSplit.Stable.stableOn : L.Stable → L.StableOn       -- so `StableOn` is the WEAKER demand
+theorem propSplitUpOn_stableOn_prop_liftN  / _proof_liftN       -- discharged for `propSplitUpOn`
+theorem propSplitUpOn_stableOn (…) (hpi) (hei) : (propSplitUpOn …).StableOn  -- residual VISIBLE
+
+-- §4.  Where the guard cannot be paid — and this is a THEOREM, not a conjecture.
+def  InterpLiftNObligation (env) (nv) : Prop        -- what `interp_liftN`'s binder cases would owe
+theorem not_interpLiftNObligation : ¬ InterpLiftNObligation env 0
+theorem not_isType_sort_param (hΓ : OnCtx Γ fun _ A => A.LevelWF 0) :
+    ¬ env.IsType 0 Γ (.sort (.param 0))
+
+-- §6.  `InstDescendUp`'s `.bvar k` case with BOTH sides guarded -- what §13.5 item 4 wrote off.
+theorem VEnv.prop_inst_bvar_on (henv) (hR : env.SortRetypeOnCtx nv)
+    (W : Ctx.InstN Γ₀ e₀ A₀ k Γ₁ Γ) (hΓ₁ : OnCtx Γ₁ (env.IsType nv))
+    (h₀ : env.HasType nv Γ₀ e₀ A₀) (h : env.IsPropUpOn nv ls Γ ((VExpr.bvar k).inst e₀ k)) :
+    env.IsPropUpOn nv ls Γ₁ (.bvar k)
+theorem VEnv.proof_inst_bvar_on (…analogous, from `PropTypeAgreeOnCtx`)
+
+-- §7.  The ASCENT halves of both `inst` fields, for the guarded predicate -- free.
+theorem OnCtx.instN (henv : env.Ordered) : Ctx.InstN Γ₀ e₀ A₀ k Γ₁ Γ →
+    env.HasType nv Γ₀ e₀ A₀ → OnCtx Γ₁ (env.IsType nv) → OnCtx Γ (env.IsType nv)
+theorem VEnv.isPropUpOn_instN_up / isProofUpOn_instN_up
+-- …so all four `StableOn` fields are closed at `B = .bvar k` for `propSplitUpOn`:
+theorem VEnv.isPropUpOn_instN_bvar  (henv) (hR) (W) (hΓ₁) (h₀) :
+    env.IsPropUpOn nv ls Γ ((VExpr.bvar k).inst e₀ k) ↔ env.IsPropUpOn nv ls Γ₁ (.bvar k)
+theorem VEnv.isProofUpOn_instN_bvar (…analogous)
+```
+
+**§6 also refutes one of §13.5's own verdicts.**  §13.5 item 4 says guarding `InstDescendUp`'s
+conclusion as well as its premise "fails at the ascent `IsPropUpOn ls (A₀::Γ₀) → IsPropUpOn ls Γ₁`,
+which needs `OnCtx Γ₁`", and concludes "the mixed shape … is the strongest available".  It is not:
+`StableOn.prop_instN` **supplies** `OnCtx Γ₁`, and with §2's guarded `isPropUpOn_liftN` the fully
+guarded case is §4's proof with one lemma swapped — nine lines, empty hole cone.  "The strongest
+available" was a statement about the *lemmas then available*, written as one about the mathematics.
+
+**Where the ruling is wrong, measured:**
+
+| ruling 140 said | measured |
+|---|---|
+| "a flag day with **no new mathematics**" | **wrong.** The ascent for the *guarded* predicate needs `OnCtx` of the **pushout** of two lifts, which the tree did not have. `PropSplitUp` §1 had the syntactic pushout only. §1 is 47 lines, five cases, and the `.cons`/`.cons` case needs the pushout square to commute before the new entry can be weakened into place. §13.5 item 3 wrote this step off — correctly for *its* setting (there the ascent target `Γ₁` was unguarded), wrongly as a general verdict |
+| "`isPropUpOn_liftN_up` already shows the `lift` field is free once the target is guarded" | **half right, and the missing half is the whole difficulty.** `isPropUpOn_liftN_up` proves the ascent only when the *source witness is the canonical one* (`HasType Γ A (.sort u)` directly). `Stable.prop_liftN` quantifies over an arbitrary source, whose witness lives at some `Γ''` above `Γ`. Closing that gap **is** §1 |
+| "guard `Stable`'s four fields … a flag day" | **the flag day is impossible.** §4 proves the obligation `interp_liftN`/`interp_inst` would owe is **FALSE**, at every environment, at a non-degenerate lift and a guard-satisfying context. So `Stable` cannot acquire the guard while those two keep their present hypotheses |
+| "expect the same shape [as §12]: 161 applications, 47 spine lemmas" | **wrong by two orders of magnitude, and in the direction nobody predicted.** The four fields have **exactly 10 applications tree-wide** (§14.2), of which **6 are the ones that cannot pay** |
+
+### 14.1 The answer to the question that "makes this a ruling rather than a rename"
+
+> *say plainly whether anything that consumed the unguarded field now needs the guard discharged
+> somewhere it cannot be.*
+
+**Yes, and it is refuted rather than merely unproved.** `InterpSubst.interp_liftN` and
+`interp_inst` are recursions over **raw syntax**; the only hypothesis either has about the term is
+`ClosedN`. At `.lam A b` and `.forallE A B` they apply the field at
+`W' : Ctx.LiftN n (k+1) (A :: Γ) (A.liftN n k :: Γ')` (`InterpSubst.lean:239`, `:261`, `:419`,
+`:446`), so a guarded field demands
+`OnCtx (A.liftN n k :: Γ') = OnCtx Γ' ∧ env.IsType nv Γ' (A.liftN n k)`.
+
+`not_interpLiftNObligation` refutes the second conjunct with `A := .sort (.param 0)` — a **closed**
+term, so `ClosedN` cannot exclude it — at `Ctx.LiftN 1 0 [] [Prop]` with `OnCtx [Prop]` satisfied.
+The refutation is `IsDefEq.levelWF` and nothing else: no inversion, no hole, no `Ordered`, no
+environment hypothesis. Contrast §13.5 item 1, where the analogous negative had to be filed as a
+conjecture; this one is a theorem.
+
+`StableAudit.lean`'s note ("its consumers … recurse over raw syntax and assume only `ClosedN`")
+said this in prose and called threading the guard "the actionable next step for the model side".
+**That prose was right about the obstruction and wrong that it is actionable.** The two ways out,
+neither costed here:
+
+1. Give `interp_liftN`/`interp_inst` a hypothesis that **types every binder of the term** (an
+   inductive `TyBinders Γ e`, hereditary under going under a binder by construction, transported
+   along `liftN`/`instN` by `IsType.weakN`/`instN`), then discharge it at `InterpSound.lean`'s
+   **six** call sites (`:199`, `:240`, `:348`, `:364`, `:511`, `:682`). Deriving `TyBinders` from a
+   typing derivation is `HasType`-inversion at `.lam`, i.e. hole territory; deriving it *inside*
+   the `sound` induction (which has the sub-derivations) is the plausible route and was **not
+   attempted**.
+2. Leave `Stable` unguarded and use `StableOn` only where the interpretation is not involved. That
+   is what this file does, and it is why `StableOn` is a **new structure** rather than an edit to
+   `Stable`.
+
+### 14.2 The true call-site count — measured with `lean_references`, not grep
+
+`lean_local_search` and `lean_hammer_premise` are still unusable here (`which rg` → nothing; row
+131f, confirmed a fourth time). `lean_references` works, and was used for every count below.
+
+| symbol | total refs | breakdown |
+|---|---|---|
+| `PropSplit.Stable` (the type) | **32** | 1 declaration, 1 mine, **30 pre-existing** across 11 files: `StableAudit` 6, `CnstRecursion` 3, `InterpSound` 8, `PropSplitUp` 3, `AboveAudit` 2, `InterpSubst` 3, `InductOracleAudit` 1, `InductOracleWitness` 1, `SoundInduction` 1, `FalseProp` 1, `Cnst` 1 |
+| `Stable.prop_liftN` | 7 | 1 decl, 1 mine, 3 producer `where`-clauses, **2 applications** (`StableAudit:206`, `InterpSubst:261`) |
+| `Stable.proof_liftN` | 8 | 1 decl, 1 mine, 3 producers, **3 applications** (`StableAudit:207`, `InterpSubst:224`, `:239`) |
+| `Stable.prop_instN` | 7 | 1 decl, 1 mine, 3 producers, **2 applications** (`StableAudit:208`, `InterpSubst:446`) |
+| `Stable.proof_instN` | 8 | 1 decl, 1 mine, 3 producers, **3 applications** (`StableAudit:209`, `InterpSubst:399`, `:419`) |
+
+**So the four fields have 10 applications in the whole tree.** Six are inside
+`interp_liftN`/`interp_inst` and **provably cannot pay** (§14.1). The other four are
+`StableAudit.propDescend_of_stable`, which *can* pay trivially — its conclusion would simply become
+the **guarded** `PropDescend`, which is the shape `StableAudit.sort_lift_of_strengthening` and
+`proof_lift_of_strengthening` already have. The 30 `Stable`-as-hypothesis sites are untouched by a
+field-guard change; only applications matter.
+
+**Why §12's 161 does not transfer**, and this is the lesson: `PropSplit`'s two guarded fields are
+*soundness* fields, applied wherever a term's propositionhood is read off a typing — hundreds of
+places. `Stable`'s four are *stability* fields, applied only inside the two substitution lemmas
+that consume them. **Counting a previous flag day's applications is not a prediction of the next
+one's**; the fields' role, not the structure's popularity, sets the count.
+
+### 14.3 Axioms and cones — measured
+
+`lake build Lean4Lean.Theory.SetModel.StableGuarded`: green, **1211 jobs**, "Build completed
+successfully". `lean_diagnostic_messages` / `lake env lean` on the file: **zero items** — no errors,
+no warnings, no `sorry` warning. `grep -n sorry` on the file: **0 hits**.
+
+`#print axioms` on all 29 census entries: `[propext]`, `[propext, Quot.sound]`,
+`[propext, Classical.choice, Quot.sound]` — **except one**, `liftN_field_discriminates`, which is
+`[propext, sorryAx, Classical.choice, Quot.sound]`. **No frozen axiom anywhere. No new `sorry`,
+none traded.**
+
+Forward hole-cone over type **and** value with `allowOpaque := true`, seeded on all 26 theorem/def
+declarations (`/tmp/hc-stableguarded.lean`, the `scripts/hole-cone.lean` walker re-seeded), each
+cone's *complete* `sorryAx` membership reported:
+
+| seed | cone | holes |
+|---|---|---|
+| `pushOut_onCtx`, `isPropUpOn_lift'`, `isProofUpOn_lift'`, `isPropUpOn_liftN`, `isProofUpOn_liftN`, `propUpOnLiftAscend_at` | 2144–2151 | **none** |
+| `Stable.stableOn` | 195 | **none** |
+| `propSplitUpOn_stableOn_prop_liftN` / `_proof_liftN` / `propSplitUpOn_stableOn` | 2166–2176 | **none** |
+| `not_isType_sort_param`, `not_interpLiftNObligation`, `interpLiftNObligation_iff_binder_isType` | 165–920 | **none** |
+| `onCtx_bvar_prop`, `notOnCtx_lift_target`, `notOnCtx_inst_target` | 604–1224 | **none** |
+| `liftN_field_positive`, `preludeEnv_stableOn_liftN` | 3776–3778 | **none** |
+| `prop_inst_bvar_on`, `proof_inst_bvar_on` | 2171, 2480 | **none** |
+| `OnCtx.instN`, `isPropUpOn_instN_up`, `isProofUpOn_instN_up` | 1124–1902 | **none** |
+| `isPropUpOn_instN_bvar`, `isProofUpOn_instN_bvar` | 2252, 2527 | **none** |
+| **`liftN_field_discriminates`** | 4031 | **exactly `[forallE_inv_stratified]`** |
+
+The one hole enters through `InstDescendBvar.not_isPropUpOn_sort` → `preludeEnv_propUniqOnCtx` →
+`preludeEnv_WF`, i.e. route A, and it is in the *anti-vacuity discriminating check* only — no
+result depends on it. `IsDefEqU.weakN_iff` and `WF.rigidShapeUniqNS` are in the import closure
+(`env.find?`) and appear in **no** cone — available and unused. `NormalEq.descend` is **not** in the
+closure (`env.find?` returns `none`).
+
+**Hole-free is not discharged, reported separately as instructed:**
+
+| result | holes | open hypotheses |
+|---|---|---|
+| `pushOut_onCtx`, `isPropUpOn_lift'` + 3 siblings, `propUpOnLiftAscend_at` | none | none beyond `env.Ordered` and the field's own guard |
+| `propSplitUpOn_stableOn_prop_liftN` / `_proof_liftN` | none | `PropUniqOnCtx` + `PropTypeAgreeOnCtx` (theorems at `preludeEnv`, via route A with `forallE_inv_stratified`, or route B `sorryAx`-free from the `∀ n` statements) |
+| `propSplitUpOn_stableOn` | none | the above **plus the two `inst` fields** (`hpi`, `hei`) — i.e. `InstDescendUp` at the guarded predicate, of which only `.bvar k` is closed. **This is an open residual carried as a hypothesis, and it is labelled as one** |
+| `not_interpLiftNObligation`, `not_isType_sort_param` | none | none |
+
+### 14.4 Anti-vacuity — and a **correction to §13.4 item 4 / ledger rows 139d, 140d**
+
+**The correction first, because it retracts a check this corner reported as passed.** §13.4 item 4
+and rows 139d/140d claim `bvar_one_instance` runs "with `Γ₁ = [.bvar 0, Prop]`, a context that is
+**not** `OnCtx` (`PropAgreeWall.not_isType_bvar`)", and conclude from that witness that the guard
+sits on the premise only. **That context *is* `OnCtx`.** `StableGuarded.onCtx_bvar_prop` proves
+`OnCtx [(.bvar 0), Prop] (env.IsType 0)` at **every** environment with **no hypotheses**:
+
+```lean
+theorem onCtx_bvar_prop : OnCtx [(VExpr.bvar 0 : VExpr), (VExpr.sort .zero : VExpr)] (env.IsType 0)
+```
+
+`not_isType_bvar` is about `¬ env.IsType 0 [] (.bvar 0)` — the variable over the **empty** context.
+In `[.bvar 0, Prop]` the variable is looked up in `[Prop]` and its type is `Prop.lift = Prop`,
+which is a sort, so `IsType` holds. This is ledger blindness 2 in the shape it warns about: a
+citation that names a real theorem about a *different* configuration. **`bvar_one_instance` is
+still true and still worth having — it shows the theorem works at `k = 1` — but it does not
+establish that the guard sits on the premise only, and rows 139d/140d should be amended.**
+
+The four checks for *this* round, all machine-checked:
+
+1. **The narrowing is real, with witnesses the guard genuinely excludes.**
+   `notOnCtx_lift_target` : `Ctx.LiftN 1 0 [] [.sort (.param 0)] ∧ ¬ OnCtx [.sort (.param 0)]` —
+   so `Stable.prop_liftN` speaks at that lift and `StableOn.prop_liftN` says nothing.
+   `notOnCtx_inst_target` does the same for the two `inst` fields **with the field's typing premise
+   satisfied**: `Ctx.InstN [] (∀p:Prop,p) Prop 1 [.sort (.param 0), Prop] [.sort (.param 0)]`
+   together with `preludeEnv.HasType 0 [] (∀p:Prop,p) Prop` and
+   `¬ OnCtx [.sort (.param 0), Prop] (preludeEnv.IsType 0)`. Both use an out-of-range universe
+   *parameter*, not a variable — which is what makes them work where §13.4's witness did not.
+2. **The narrowed fields still have content, at `preludeEnv`.** `liftN_field_positive` exhibits the
+   guarded `prop_liftN` instance at `Ctx.LiftN 1 0 [] [Prop]` (guard satisfied, `onCtx_prop`)
+   relating two statements that are **both true** — `∀ p : Prop, p` is a proposition at `[]` and its
+   lift is one at `[Prop]`. `preludeEnv_stableOn_liftN` gives **both** guarded `lift` fields at
+   `preludeEnv` at every guarded lift, with no hypotheses.
+3. **The fields are not constant-true.** `liftN_field_discriminates`: at the same guarded lift with
+   `A := Prop`, both sides are **false**. (This is the one declaration carrying `sorryAx`, via
+   `not_isPropUpOn_sort`; the positive check in item 2 is `sorryAx`-free, so the non-degeneracy does
+   not rest on the hole.)
+4. **Nothing was smuggled in as a satisfiable-looking hypothesis.** The obvious way to "discharge"
+   `VEnv.PropUpOnLiftAscend` — which is stated *without* a guard — is to assume "every lift target
+   is `OnCtx`". I wrote that lemma, then **deleted it**: `notOnCtx_lift_target` refutes the
+   hypothesis, so the lemma would have been vacuous, and shipping it would have been ledger
+   blindness 4 in a new costume. **`PropUpOnLiftAscend` as `InstDescendBvar` §7 states it is NOT
+   discharged by this round**; what is discharged is `propUpOnLiftAscend_at`, its guarded form.
+
+**`Above`**: zero occurrences in the new file outside the §5 note that says so; no chosen `κ`, no
+`VDecl.unsafeDef` in any witness chain. So no result here is free at a false
+`IsInaccessibleChain` antecedent.
+
+### 14.5 What I tried that failed, and the step it failed at
+
+1. **`propUpOnLiftAscend_of_onCtx`**, discharging the *unguarded* `PropUpOnLiftAscend` from
+   `∀ {n k Γ Γ'}, Ctx.LiftN n k Γ Γ' → OnCtx Γ'`. **It compiled**, which is the danger: the
+   hypothesis is refuted by `notOnCtx_lift_target`, so the lemma is vacuous. Deleted before
+   landing, and recorded here because a green `#print axioms` would not have caught it.
+2. **A counterexample to the `interp_liftN` obligation using a variable.** Tried `Γ = [Prop]`,
+   `A = .bvar 0` (`ClosedN 1` ✓): failed because `IsType [Prop] (.bvar 0)` is **true** — the same
+   miscalculation §13.4 made. Tried `Γ = [∀p:Prop,p]`, `A = .bvar 0`: refuting `IsType` there needs
+   `Prop ≢ Π`, i.e. `sort_forallE_inv`, a hole. Recovered by moving from variables to **levels**:
+   `A = .sort (.param 0)` is closed, and `IsDefEq.levelWF` refutes its typing with no hole at all.
+   *That is why §4 is nine lines.*
+3. **Deriving `OnCtx Γ` from `IsPropUpOn nv ls Γ A`** (which would have made the guard free on the
+   premise side). Fails at `Ctx.Lift'.cons`: `OnCtx Γ'` gives `IsType Γ'' (X.lift' l)` and one needs
+   `IsType Γ_ X`, which is strengthening. Abandoned at that case, not attempted in Lean.
+4. **Guarding only the *inserted* entries of a lift** instead of the whole target, hoping for a
+   hereditary guard that `interp_liftN`'s recursion could maintain. Abandoned on paper: the
+   insertion set is hereditary under `.succ`, but `isPropUpOn_liftN`'s ascent needs `OnCtx` of the
+   **whole** target, and recovering that from `OnCtx Γ` + typed insertions needs `OnCtx Γ`, which
+   `interp_liftN` also lacks. So the hereditary reformulation moves the problem, it does not solve
+   it.
+6. **The ascent half of the `inst` fields, first attempt.** Wrote `prop_inst_bvar_on_rev` by hand
+   at `B = .bvar k`, trying to build it out of lift identities the way §6's descent is built.
+   **Failed and was withdrawn**: at `.bvar k` the ascent asks "the variable of type `A₀` is a
+   proposition at `Γ₁`, therefore `e₀` is one at `Γ`", and the lift-out-of-`Γ₀` route that makes
+   the *descent* free runs the wrong way. **The mistake was mine, not `PropSplitUp`'s**: §4 of that
+   file proves the ascent for *general* `B` (`isPropUp_instN_up`) through the syntactic square
+   `Ctx.InstN.pushLift'`, which I had not read before attempting the special case. §7 is that
+   proof ported to the guarded predicate, and the only new ingredient is `OnCtx.instN` — eight
+   lines, two cases, `IsType.instN` in the `.succ` one. **Lesson, and it is row 129c's again:
+   I doubted a claim in the source before checking whether the source had the lemma.**
+5. **The in-place flag day, as a measurement.** *Not run.* I had planned §12.4's sharpest
+   measurement — edit `Stable`, count errors per file, revert — and dropped it once §4 proved the
+   edit cannot be completed: the error count would have measured a repair that does not exist,
+   while leaving the tree red for two concurrent streams. `lean_references` gave the count instead
+   (§14.2), and it is exact rather than an upper bound.
+
+### 14.6 Measured / read / not run
+
+**[measured]** `lake build Lean4Lean.Theory.SetModel.StableGuarded`: **1211 jobs**, green, zero
+diagnostics. `#print axioms` on all 29 census entries (§14.3). Hole cones on all 26 theorem/def
+declarations plus import-closure presence of the four big holes (§14.3), by the re-seeded
+`hole-cone.lean` walker. All call-site counts by `lean_references` (§14.2). `onCtx_bvar_prop`, and
+therefore the §13.4 correction, is a **compiled Lean theorem**, not a reading.
+
+**[read]** off source, not run: that `InterpSound.lean`'s six `interp_liftN`/`interp_inst` call
+sites are at `:199`, `:240`, `:348`, `:364`, `:511`, `:682` (grep); that repair route 1 of §14.1
+would need `HasType` inversion at `.lam` — that is an argument about what a proof would need, and
+is a **costing, not a measurement**. The line numbers `InterpSubst.lean:224/239/261/399/419/446`
+for the six unpayable applications are from `lean_references`, hence measured.
+
+**[not run]** by the stream, as the brief directed: the full `lake build`, guards 1–3,
+`scripts/sorry-census.lean`, `scripts/dup-names.lean`, `MemberRedexScan`, the Kernel Arena (no
+implementation file touched). **Also not done, for want of budget**: the `PropAgreeWall.lean`
+route-B weakening to `PropTypeAgreeNOn`/`PropUniqNOn` via
+`Theory/Typing/PropAgreeGuarded.propAgreeOn_of_stratifiedNOn` (verified present:
+`PropAgreeGuarded.lean:193`), and `InductOracleOK` at `iffIndDecl` (verified present:
+`Theory/Consistency.lean:96`, five binders, no index; `UnitOracleLarge.recFnL` at `:434` is the
+template). Both are untouched and both remain cheap.
+
+**Collision check** (grep over declaration headers, labelled as such): the 23 new names do not
+occur elsewhere in the tree. The two in shared namespaces — `Ctx.Lift'.pushOut_onCtx` and
+`PropSplit.StableOn` / `PropSplit.Stable.stableOn` — were grepped individually and are new.
+
+### 14.7 What to pick up first
+
+1. **Do NOT re-attempt guarding `Stable` in place.** `not_interpLiftNObligation` is a theorem: the
+   obligation is false. Anyone who wants the guard on `Stable` must first give
+   `interp_liftN`/`interp_inst` a binder-typing hypothesis (§14.1 route 1) — a substantial,
+   independently statable piece of work whose hard step is getting `TyBinders` out of the `sound`
+   induction, **not** the threading.
+2. **`propSplitUpOn_stableOn`'s two remaining inputs are the `inst` fields' DESCENT halves at
+   general `B`, and nothing else.** State of those two fields for `propSplitUpOn` after this round:
+   **ascent halves — done at every `B`** (§7, `isPropUpOn_instN_up` / `isProofUpOn_instN_up`, empty
+   cones); **descent halves — done at `B = .bvar k`** (§6), and `InstDescendBvar` §9's free classes
+   (every closed `B`, hence `.sort`/`.const`; `.bvar (k+j+1)`) **should port by swapping
+   `isPropUp_liftN` for §2's `isPropUpOn_liftN`** — that swap is nine lines and **was not done this
+   round**. It is the cheapest unclaimed item in this corner. Then `.bvar i` with `i < k` (a smaller
+   instance of the same descent), then `.forallE`/`.app`/`.lam`, which are the only cases where
+   §7.3's "injectivity" verdict survives.
+3. **Amend ledger rows 139d and 140d** for §14.4's correction, and §13.4 item 4 with it. The claim
+   retracted is narrow (one witness does not show what it was said to show) but it is in the
+   ledger's own anti-vacuity column, which is the one place a wrong entry is most expensive.
+4. **`iffIndDecl` before `eqIndDecl`** — unchanged from §10.9/§11.7/§12.7/§13.7, untouched again;
+   this is now the **seventh** consecutive section to name it. Per row 140b's lesson, someone should
+   unfold it before copying the description forward an eighth time.
+5. **`PropAgreeWall.lean`'s route-B weakening** (§14.6): `propAgreeOn_of_stratifiedNOn` exists and
+   is a genuine weakening of what route B needs. Ten lines, no new mathematics — and this time that
+   phrase has been checked against the source rather than inherited.
+
+6. **One line for the orchestrator, because I may not write it.** Neither
+   `Theory/SetModel/InstDescendBvar.lean` (§13's file) nor `Theory/SetModel/StableGuarded.lean`
+   (this one) is imported by anything, so **the tree-wide build and `dup-names` do not see either**;
+   only a direct `lake build` of the module does. The exact edit, in
+   `Lean4Lean/Experimental/ConeJoin.lean` (a FROZEN-adjacent file I am forbidden to touch), is one
+   added line:
+
+   ```lean
+   import Lean4Lean.Theory.SetModel.StableGuarded  -- 2026-09-02: guarded lift fields free; the Stable flag day refuted
+   ```
+
+   which transitively pulls `InstDescendBvar` as well. Until then, "no `sorry`, no frozen axiom" for
+   these two files rests on the per-module builds and cones reported here, not on guard 1.
+
+**Do not** re-attack: everything §10.9, §11.7, §12.7 and §13.7 name, plus — new — **guarding
+`Stable` in place** (refuted, 14.1), **the unguarded `PropUpOnLiftAscend`** (its natural discharge
+is vacuous, 14.4 item 4), and **`[.bvar 0, Prop]` as a junk context** (it is not one, 14.4).
