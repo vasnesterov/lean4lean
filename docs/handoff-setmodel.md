@@ -1624,3 +1624,261 @@ no "exhaustive search" claim in this section that rests on anything stronger.
 **Do not** re-attack: everything §10.9 and §11.7 name, plus — new — **`CtxReplace`**
 (retired, 12.0), **`weakN_iff` as its route** (refuted, §11.2), and **guarding `PropSplit`**
 (done).
+
+---
+
+## 13. Session of 2026-09-02 (sixth): **`InstDescendUp 0`'s `.bvar k` case is CLOSED** — and it was never the sharpest mathematics, it was a missing guard
+
+### 13.0 The result, plainly
+
+`Theory/SetModel/InstDescendBvar.lean` (new, 616 lines, 46 declarations, **no `sorry`**) proves the
+`B = .bvar k` instance of **both** fields of `VEnv.InstDescendUp`, at **every** `k`, with exactly
+one change to the field's statement: the premise's *witness context* carries `OnCtx`.
+
+```lean
+-- §4, the headline.  Compare InstDescendUp.prop_inst with B := .bvar k.
+theorem VEnv.prop_inst_bvar (henv : env.Ordered) (hR : env.SortRetypeOnCtx nv)
+    (W : Ctx.InstN Γ₀ e₀ A₀ k Γ₁ Γ) (h₀ : env.HasType nv Γ₀ e₀ A₀)
+    (h : env.IsPropUpOn nv ls Γ ((VExpr.bvar k).inst e₀ k)) :
+    env.IsPropUp nv ls Γ₁ (.bvar k)
+theorem VEnv.proof_inst_bvar (henv : env.Ordered) (hT : env.PropTypeAgreeOnCtx nv) … (analogous)
+
+-- §6, from `env.WF` and nothing else:
+theorem VEnv.prop_inst_bvar_of_wf  (henv : env.WF) …
+theorem VEnv.proof_inst_bvar_of_wf (henv : env.WF) …
+
+-- §8b, and this one is `sorryAx`-FREE:
+theorem SetModel.InstDescendBvar.proof_inst_bvar_of_stratifiedN (henv : VEnv.Ordered env)
+    (pta : ∀ n, env.PropTypeAgreeN 0 n) (pun : ∀ n, env.PropUniqN 0 n) … 
+```
+
+`VEnv.IsPropUpOn` / `IsProofUpOn` are `IsPropUp` / `IsProofUp` with
+`OnCtx Γ' (env.IsType nv)` demanded of the context their existential produces — the same guard
+`PropSplit`'s two fields acquired in §12.  **The conclusion is the unguarded predicate**, i.e.
+literally what `InstDescendUp` asks for.
+
+Three things follow, and each is measured rather than argued:
+
+1. **§7.3 was right about *what* the case needs and wrong about *how hard* it is.**  The content is
+   `SortRetypeOnCtx` — "a term with a type *and* a sort has that type convertible to that sort" —
+   which is the `B = .sort u` instance of `IsDefEq.uniq`, a theorem the tree has had all along
+   (`sortRetypeOnCtx_of_wf`, one line).  For `proof_inst` the demand is weaker still: `A₀` need
+   only *have* a vanishing sort, which is `PropTypeAgreeOnCtx` + `IsDefEq.isType`
+   (`propTypeAgreeOnCtx_retype`, four lines, **`sorryAx`-free**).
+2. **No strengthening, anywhere.**  The conclusion's witness context is the premise's own witness
+   context with one binder added (`A₀.lift' l :: Γ'`), so the uniqueness comparison happens where
+   the premise supplied its typing and no defeq ever travels down a lift.  The general `k` reduces
+   to `k = 0` for free, because `(.bvar k).inst e₀ k` is `e₀` lifted out of `Γ₀`
+   (`VExpr.bvar_inst_self`) and `isPropUp_liftN` is free in **both** directions (§12/PropSplitUp §3).
+3. **What is left is not mathematics.**  §7 of the new file names the residual in both framings and
+   proves the reductions:
+   * keep the premise unguarded ⇒ you owe `PropUpNormalise` (normalise `IsPropUp`'s witness
+     context), which follows from `UnguardedStrengthen` = `IsDefEqU.weakN_iff` **with its
+     `OnCtx Γ'` hypothesis deleted**.  That is *strictly stronger* than the tree's hole and is
+     **not one of the four big holes**;
+   * guard the premise (what landed) ⇒ the cost moves to `PropSplit.Stable`'s four still-unguarded
+     fields.  `PropUpOnLiftAscend` is the single obligation that appears, and
+     `isPropUpOn_liftN_up` shows it is free the moment the target context is guarded.  A §12-style
+     flag day on `Stable`, with **no new mathematics**.
+
+A by-product worth more than it looks: **`IsPropUpOn` is a strictly better predicate than
+`IsPropUp`.**  `isPropUpOn_iff` / `isProofUpOn_iff` give `prop_sound` / `proof_sound` from the
+**guarded** imports `PropUniqOnCtx` / `PropTypeAgreeOnCtx` — the ones that *are* theorems at
+`preludeEnv` — whereas `isPropUp_iff` needs the unguarded `PropUniq` / `PropTypeAgree`, which are
+not.  So `SetModel.propSplitUpOn` is a `PropSplit` from the same inputs as
+`PropSplitAudit.propSplitOfOnCtx`, and `propSplitUpOnPreludeEnv` is one at `preludeEnv` **as data**.
+
+### 13.1 Audit of the briefing — five checks, and three places it is wrong
+
+| brief said | measured |
+|---|---|
+| the `.bvar k` case is named in §7.9, §8.7, §9.7, §10.9 — "four consecutive rounds" | **six**: §11.7 item 4 and §12.7 item 4 name it too.  Grep over `docs/handoff-setmodel.md` for `bvar k` |
+| "has never been touched" | **correct** for `InstDescendUp`.  `InstDescendAudit.sortInstDescend0_bvar_forces_sort` is the `.bvar 0` instance of `SortInstDescend0` — the *canonical*-predicate residual, a different statement — and it derives a *demand* rather than proving a case |
+| "the sharpest open mathematics on the model side" | **wrong, and it has been wrong for six rounds.**  The mathematics is one application of `IsDefEq.uniq`; what was open is the statement's shape.  This is the same mis-costing §12 found for `PropSplit`'s missing guard, one layer down |
+| "and it is now also the sharpest *non-vacuous* one" | half right.  `PropSplit preludeEnv 0` is inhabited, but that is not what makes *this* statement non-vacuous — `InstDescendUp` quantifies over junk contexts, and §8 of the new file exhibits premise-and-conclusion witnesses at `preludeEnv` directly (`bvar_zero_instance`, `bvar_one_instance`) rather than inheriting non-vacuity from the class |
+| "does it depend on any of the four big holes … it is the kind of question this corner has answered wrongly before" | **answered by measurement, §13.3: on exactly one, `forallE_inv_stratified`, and only for the `prop_inst` half; the `proof_inst` half depends on none.  Not `weakN_iff`, not `rigidShapeUniqNS`, not `descend`** |
+
+One further correction, to this file's own §7.3: **its case table does not transfer from
+`SortInstDescend0` to `InstDescendUp`.**  §7.3 lists `.bvar i (i ≠ k)` as free.  For
+`InstDescendUp`, whose predicate re-chooses a witness context, `i > k` is free
+(`prop_inst_bvar_high`) but **`i < k` is not** — there the variable points at an entry of `Γ₁`
+whose `Γ`-counterpart is its own instantiation, so the case is a *smaller instance of the same
+descent*, not a transport.  §9 of the new file records this and closes the classes that are
+genuinely free: every closed `B` (so `.sort`, `.const`) and `.bvar (k+j+1)`.
+
+### 13.2 What landed
+
+One new file, `Theory/SetModel/InstDescendBvar.lean`, imports `SetModel.PropAgreeWall` and
+`Theory.Typing.UniqueTyping`.  Nothing else in the tree changed — **no existing file was edited**,
+so no other stream can be broken by this round.
+
+| § | content |
+|---|---|
+| 1 | `Ctx.InstN.eq_append` / `.liftN_target` / `.liftN_source` — `Ctx.InstN` exposes `Ctx.LiftN k 0 Γ₀ Γ` and `Ctx.LiftN k 0 (A₀::Γ₀) Γ₁`; `VExpr.bvar_inst_self`, `bvar_zero_liftN` |
+| 2 | `SortRetypeOnCtx` + `sortRetypeOnCtx_of_wf`; `propTypeAgreeOnCtx_retype` |
+| 3 | `IsPropUpOn` / `IsProofUpOn`, `of_hasType`, `isPropUp`/`isProofUp` (forget the guard), `of_lift'` / `of_liftN` (guard-preserving descent) |
+| 4 | `isPropUpOn_bvar_zero`, `isProofUpOn_bvar_zero` (the `k = 0` core), `prop_inst_bvar`, `proof_inst_bvar` |
+| 5 | `isPropUpOn_iff`, `isProofUpOn_iff`, `SetModel.propSplitUpOn` |
+| 6 | `prop_inst_bvar_of_wf`, `proof_inst_bvar_of_wf`, `prop_inst_bvar_on_of_wf` |
+| 7 | `PropUpNormalise`, `UnguardedStrengthen`, `propUpNormalise_of_unguardedStrengthen`, `prop_inst_bvar_of_normalise`, `PropUpOnLiftAscend`, `isPropUpOn_liftN_up` |
+| 8 | anti-vacuity at `preludeEnv`; 8b route B |
+| 9 | the free part: `prop_inst_of_liftN`, `prop_inst_closed`, `prop_inst_bvar_high` (+ proof twins) |
+
+### 13.3 The dependence question, measured
+
+Forward hole-cone over type **and** value with `allowOpaque := true` (the `scripts/hole-cone.lean`
+walker, re-seeded on this file's declarations and run out of `/tmp`; every cone's *complete* list of
+`sorryAx`-carrying members is reported, not just the four named holes).
+
+| seed | four big holes in cone | all `sorryAx` members of cone |
+|---|---|---|
+| `Ctx.InstN.liftN_target` / `.liftN_source` | none | none |
+| `isPropUpOn_bvar_zero`, `isProofUpOn_bvar_zero` | none | none |
+| **`prop_inst_bvar`, `proof_inst_bvar`** | **none** | **none** |
+| `propTypeAgreeOnCtx_retype` | none | none |
+| `isPropUpOn_iff`, `isProofUpOn_iff`, `propSplitUpOn` | none | none |
+| `prop_inst_of_liftN`, `prop_inst_closed`, `prop_inst_bvar_high` | none | none |
+| `propUpNormalise_of_unguardedStrengthen`, `isPropUpOn_liftN_up` | none | none |
+| **`proof_inst_bvar_of_stratifiedN`** | **none** | **none** |
+| `sortRetypeOnCtx_of_wf` | `forallE_inv_stratified` | `forallE_inv_stratified` |
+| `prop_inst_bvar_of_wf`, `proof_inst_bvar_of_wf`, `prop_inst_bvar_of_normalise` | `forallE_inv_stratified` | `forallE_inv_stratified` |
+| `preludeEnv_sortRetypeOnCtx`, `propSplitUpOnPreludeEnv`, `bvar_zero_instance`, `bvar_one_instance`, `not_isPropUpOn_sort` | `forallE_inv_stratified` | `forallE_inv_stratified` |
+
+`IsDefEqU.weakN_iff` and `WF.rigidShapeUniqNS` **are** in the module's import closure (checked by
+`env.find?`) and appear in **no** cone — so this is "available and unused", not "unreachable".
+`NormalEq.descend` is not even in the import closure (`env.find?` returns `none`).
+
+`#print axioms` on all 40 declarations: `[propext]`, `[propext, Quot.sound]`,
+`[propext, Classical.choice, Quot.sound]`, or — for the eight that route through `IsDefEq.uniq` /
+`WF.propTypeAgreeOn` — `[propext, sorryAx, Classical.choice, Quot.sound]`.  **No frozen axiom
+anywhere.  No new `sorry`, none traded.**
+
+### 13.4 Anti-vacuity — run on the hypotheses *and* on both sides of the implication
+
+This corner is the ledger's most exposed, so all four checks were run, machine-checked, at
+`preludeEnv`:
+
+1. **The hypotheses hold at `preludeEnv`, with nothing assumed.**
+   `preludeEnv_sortRetypeOnCtx : preludeEnv.SortRetypeOnCtx 0` (from `preludeEnv_WF`), and
+   `PropAgreeWall.preludeEnv_propTypeAgreeOnCtx` supplies the `proof_inst` input.  `preludeEnv` is
+   the environment `PreludeWitness` builds from `leanPrelude.reverse` — not a chosen `κ`, no
+   `Above` wrapper anywhere in this file (grep: zero occurrences of `Above`), and reached without
+   any `VDecl.unsafeDef`.
+2. **The premise is inhabited *and* discriminating.**  `bvar_zero_instance` exhibits
+   `IsPropUpOn preludeEnv 0 ls [] ((.bvar 0).inst falseProp 0)` — the same configuration as
+   `InstDescendAudit.sortInstDescend0_nonvacuous`, so the substitution genuinely substitutes — and
+   `not_isPropUpOn_sort` proves `¬ IsPropUpOn preludeEnv 0 ls [] (.sort .zero)`, so the premise is
+   not the constant-true predicate.  (That negative uses the **guarded** `PropUniqOnCtx`, which is
+   a theorem at `preludeEnv`; `PropSplitUp.not_isPropUp_sort` needs the unguarded `PropUniq`,
+   which is not — another place where the guard buys something.)
+3. **The conclusion holds at those witnesses**, so the implication is not satisfied by a false
+   antecedent: both conjuncts of `bvar_zero_instance` and `bvar_one_instance` are proved.
+4. **The guard sits on the premise only, and that is checked rather than asserted.**
+   `bvar_one_instance` runs at `k = 1` with `Γ₁ = [.bvar 0, Prop]`, a context that is **not**
+   `OnCtx` (`PropAgreeWall.not_isType_bvar`), and the theorem still delivers.  So the conclusion
+   really is the unguarded predicate over unguarded contexts, and the result is not the guarded
+   statement in disguise.
+
+Ledger blindness 4 (*an obligation carried as a hypothesis counts as zero*) applies to
+`PropUpNormalise` / `UnguardedStrengthen` / `PropUpOnLiftAscend` and is **not** dodged: they are
+labelled residuals, not results, and §13.7 says which one to fund.
+
+### 13.5 What I tried that failed, and the step it failed at
+
+1. **Refuting `InstDescendUp`'s `.bvar k` case at a junk context.**  Three configurations, all
+   dead at the same step.  (a) `Γ₀ = [.bvar 0]`, `e₀ = .bvar 0`, `A₀ = .bvar 1`
+   (`PropAgreeWall.hasType_junk_lookup`): the *premise* fails, because `.bvar 0`'s only type there
+   is `.bvar 1` and converting it to a sort needs `HasType [.bvar 0] (.bvar 1) (.sort w)`, which
+   `Lookup` cannot give.  (b) a rogue `env.defeqs` whose `extra` rule types a **bvar** at
+   `.sort .zero` at every context: makes the premise true and *also* makes the conclusion true, at
+   the lift that maps the conclusion's variable onto the same index.  (c) the same with a **closed**
+   rogue left-hand side, which does separate premise from conclusion — but then the refutation needs
+   `¬ HasType Γ'' (.bvar j) (.sort v)` for every `Γ''` above `Γ₁`, and `IsDefEq.closedN'` cannot
+   supply it: its hypothesis is `CtxClosed Γ`, which a junk context fails by construction.
+   **So the falsity of the unguarded statement is itself gated on a non-derivability argument.**
+   Not attempted in Lean past reading `closedN'`'s binder; recorded as reasoning, per row 40's rule
+   that an unproved negative is a conjecture.
+2. **`HasType.weak'_iff` as the discharge of `PropUpNormalise`.**  Failed at its own binder:
+   `variable! (henv : VEnv.WF env) (hΓ' : OnCtx Γ' (env.IsType U)) in`
+   (`Theory/Typing/UniqueTyping.lean`) — the guard is on the **larger** context, which is exactly
+   `IsPropUp`'s possibly-junk witness context.  So `weakN_iff`, *as the tree states it*, does not
+   reach this residual; `UnguardedStrengthen` is the strictly stronger statement that would.
+   Read off source (grep + `lean_hover_info`), not run.
+3. **`Ctx.Lift'.pushOut` for the general `k`.**  My first plan was to build a context above both
+   `Γ₁` and the premise's witness context.  Abandoned before writing it: `OnCtx` of a pushout is
+   not derivable from `OnCtx` of the two legs (each leg's `.skip` entries are arbitrary), and — the
+   real killer — `Γ₁` is itself unguarded in `InstDescendUp`.  Replaced by "descend to `Γ₀`, then
+   ascend freely", which needs no pushout at all.  *That is why §4 is twelve lines.*
+4. **Guarding the conclusion too** (`IsPropUpOn` on both sides at general `k`).  Fails at the
+   ascent `IsPropUpOn ls (A₀::Γ₀) → IsPropUpOn ls Γ₁`, which needs `OnCtx Γ₁`;
+   `bvar_one_instance` is a real instance where `Γ₁` is junk.  So the mixed shape (guarded premise,
+   unguarded conclusion) is the strongest available, not a convenience.
+5. **`isPropUp_liftN` at the source for arbitrary `B`.**  Works only when `B.inst e₀ k` is a lift
+   out of `Γ₀`.  §9 is exactly that class; `.bvar i` with `i < k` is what it excludes, which is how
+   §13.1's correction to §7.3 was found.
+6. **Elaboration friction, twice.**  `IsPropUpOn.of_hasType` and `isPropUpOn_iff` both need
+   `(u := …)` / `(Γ := [])` given explicitly: the `u.WF nv` and `OnCtx Γ` arguments are checked
+   before the later arguments solve `u` and `Γ`, so `trivial` meets a metavariable.  Same class of
+   failure as §12.5 items 1–2.
+
+### 13.6 Measured / read / not run
+
+**[measured]** `lake build Lean4Lean.Theory.SetModel.InstDescendBvar`: green, **1210 jobs**
+("Build completed successfully"), `lean_diagnostic_messages` on the file: **zero items** — no
+errors, no warnings, no `sorry` warning.  `grep -c sorry` on the file: 3 hits, all the string
+`sorryAx` inside docstrings; **no `sorry` tactic**.  `#print axioms` on all 40 declarations (§13.3).
+Hole cones (§13.3) by the `hole-cone.lean` walker re-seeded on this file.  Import-closure presence
+of the four holes by `env.find?`.
+
+**[read]** off source, not run: that `IsDefEqU.weakN_iff` / `HasType.weak'_iff` carry `OnCtx Γ'`
+on the larger context (grep + the `variable!` line); that `PropSplit.Stable`'s four fields are
+unguarded (`Theory/SetModel/InterpSubst.lean`'s structure, read directly); that `Stable`'s
+consumers (`SoundInduction.soundAbove`, `Cnst`, `FalseProp`, `InterpSound`) would be able to supply
+`OnCtx` — that last one is **inferred** from §12.2's statement that `soundAbove` now carries
+`OnCtx Γ (env₀.IsType nv)`, and was **not** re-verified at each call site this round.  Treat the
+"flag day is cheap" costing in §13.0 item 3 as a costing, not a measurement.
+
+**[not run]** by the stream, as the brief directed: the full `lake build`, guards 1–3,
+`scripts/sorry-census.lean`, `scripts/dup-names.lean`, `MemberRedexScan`, the Kernel Arena (no
+implementation file touched).  `lean_local_search` and `lean_hammer_premise` were **unusable**
+(`which rg` → nothing; row 131f confirmed a third time), so every search claim in this section rests
+on `grep`/`sed` over source, `lean_diagnostic_messages`/`lean_goal`/`lean_hover_info`, or a Lean
+`run_cmd` over the environment — never on a substring count presented as a structural fact.
+
+**Collision check** (grep over declaration headers, labelled as such): the 46 new names do not
+occur elsewhere in the tree.  The three that sit in shared namespaces — `Ctx.InstN.eq_append`,
+`VExpr.bvar_inst_self`, `VExpr.bvar_zero_liftN` — were each grepped individually and are new.
+
+### 13.7 What to pick up first
+
+1. **Guard `PropSplit.Stable`'s four fields with `OnCtx`.**  This is now the highest-value item in
+   the corner and it is *bookkeeping*, not mathematics: it turns `prop_inst_bvar` /
+   `proof_inst_bvar` into the literal fields of a guarded `InstDescendUp`, and
+   `isPropUpOn_liftN_up` shows the `lift` fields survive the change.  It is the same edit §12 made
+   one layer up, and §12.4 measured that edit's true cost (161 argument insertions, 47 spine
+   lemmas, **no new mathematics**) — expect less here, because `Stable` has four fields and far
+   fewer consumers than `PropSplit` (`SoundInduction`, `Cnst`, `FalseProp`, `InterpSound`,
+   `AboveAudit`, `InductOracleWitness`, `InductOracleAudit`).  **Verify the consumer count before
+   starting; §13.6 flags it as read, not measured.**
+2. **The remaining cases of `InstDescendUp`, in this order**: `.bvar i` with `i < k` (a smaller
+   instance of the same descent — try induction on `Ctx.InstN` with the §4 core as the base case),
+   then `.forallE` / `.app` / `.lam`, which still need inversion at a sort and are the only cases
+   where §7.3's "injectivity" verdict survives.  `.sort`, `.const`, every closed `B`, and
+   `.bvar (k+j+1)` are **done** (§9).
+3. **Tell the `Theory/Typing` stream that route B now buys more than `PropSplit`.**
+   `∀ n, PropTypeAgreeN env 0 n` + `∀ n, PropUniqN env 0 n` gives, `sorryAx`-free, *both*
+   `Nonempty (PropSplit env 0)` (§12.7 item 1) **and** `InstDescendUp 0`'s `proof_inst` `.bvar k`
+   case (`proof_inst_bvar_of_stratifiedN`).
+4. **Do not fund `UnguardedStrengthen`.**  It is `weakN_iff` with its guard deleted, i.e. strictly
+   harder than a 312-user hole, and item 1 removes the need for it entirely.  Likewise do not spend
+   a round trying to refute `InstDescendUp` at a junk context: §13.5 item 1 shows the refutation is
+   itself gated on inversion.
+5. **Cheap and unclaimed**: `SetModel.propSplitUpOn` is a third `PropSplit` producer from the
+   guarded inputs, and `propSplitUpOnPreludeEnv` is one at `preludeEnv` as data.  Anything that
+   wanted a *lift-closed* `PropSplit` at `preludeEnv` — `PropUpFits.modelFits_of_propSplitUp_inputs`
+   is the obvious customer — can now take it off the shelf, and it needs `PropUniqOnCtx` rather
+   than `PropUniq`.
+
+**Do not** re-attack: everything §10.9, §11.7 and §12.7 name, plus — new — **`CtxReplace`**
+(retired), **`UnguardedStrengthen`** (item 4), and **`.bvar k` itself** (done; if you think it is
+still open, read `prop_inst_bvar`'s statement and note that only the *premise* moved).
