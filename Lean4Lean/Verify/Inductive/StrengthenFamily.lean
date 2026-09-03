@@ -1,4 +1,5 @@
 import Lean4Lean.Verify.Inductive.RestrictStep
+import Lean4Lean.Theory.Typing.WeakNForward
 
 /-!
 # The `ValStrengthen` instance family: strictly cheaper than the hole, and why
@@ -447,6 +448,20 @@ theorem VInductDecl'.resultSortInhab_of_lookup {env : VEnv} {D : VInductDecl'}
     (h : ∀ T ∈ D.types, Lookup (T.indices.reverse ++ D.params.reverse) (i T) (.sort D.lvl)) :
     D.ResultSortInhab env fun T => .bvar (i T) := fun T hT => .bvar (h T hT)
 
+/-- **A FOURTH CLAUSE, AND IT SUBSUMES THE OTHER THREE.**  One constant declared at `Sort u`
+inhabits `Sort D.lvl` for **every** well-formed `D.lvl` — successor, zero, `.param i`, `.imax` —
+in every context and with no hypothesis on the environment beyond the constant's presence.
+`PUnit.{u}` is such a constant.
+
+This is why §8's residue is empty, and it arrived by **refuting** §8's own reasoning rather than
+confirming it: see `VEnv.not_forall_sort_param_uninhabited`
+(`Theory/Typing/WeakNForward.lean`), which exhibits a closed inhabitant of `Sort (.param 0)` at a
+genuinely well-formed environment.  The omitted case was `.const`. -/
+theorem VInductDecl'.resultSortInhab_of_const {env : VEnv} {D : VInductDecl'} {c : Name}
+    (hc : env.constants c = some ⟨1, .sort (.param 0)⟩) (hlv : D.lvl.WF D.uvars) :
+    D.ResultSortInhab env fun _ => .const c [D.lvl] :=
+  fun _ _ => VEnv.hasType_const_sortParam hc hlv
+
 /-! ## §5 The headline: the restriction step closes, with no hole -/
 
 /-- **THE FAMILY, PROVED.**  At every configuration whose block's result sort is inhabited over
@@ -571,12 +586,22 @@ discharge it (`resultSortInhab_of_succ`, `_of_zero`, `_of_lookup`), covering eve
 `≈`-a-successor, `≈`-zero, or matched by a binder of the member's own telescope.  The residue is a
 block whose result level is, say, `.param i` **and** which has no binder at that level — e.g. a
 closed `inductive T : Sort u`.  For such a block the premise is not discharged by any of the three
-clauses.  **Informal, and deliberately not stated as a theorem**: a closed inhabitant of
-`Sort D.lvl` would have to be a `.sort` (forcing `D.lvl ≈ .succ _`) or a `.forallE` (forcing
-`D.lvl ≈ .imax _ _`), so one expects no closed inhabitant to exist — but that is an argument about
-normal forms which is *not* machine-checked here, and even if it were it would only show that
-**this route** fails on that residue, not that the family does.  A block in that residue needs a
-different argument, and none is offered.
+clauses.
+
+**CORRECTED 2026-09-03 — the paragraph that stood here was FALSE, and the residue is EMPTY.**  It
+argued informally that a closed inhabitant of `Sort D.lvl` would have to be a `.sort` (forcing
+`D.lvl ≈ .succ _`) or a `.forallE` (forcing `D.lvl ≈ .imax _ _`), so that none should exist.  That
+case analysis **omits `.const`**.  `IsDefEq.constDF` types `.const c ls` at `ci.type.instL ls`, so
+a single constant declared at `Sort u` inhabits **every** sort, in every context, with no
+environment hypothesis at all — and `PUnit.{u}` is one.  Machine-checked as
+`VEnv.not_forall_sort_param_uninhabited` (`Theory/Typing/WeakNForward.lean`), on an environment
+that is well-formed via a plain `VDecl.WF.axiom` rather than inconsistent by construction.
+
+So the residue closes, by the **opposite** fact from the one asserted here: not by proving
+emptiness, but because inhabitation is far easier than this paragraph supposed.  The fourth
+clause `resultSortInhab_of_const` (§4) subsumes all three of the others.  What remains is not a
+level condition but an environment one: that the environment at `RestrictStepCfg`'s `e₁`/`e₂`
+actually declares such a constant.
 
 **What is NOT claimed.**  (i) That the family is *equivalent* to `ResultSortInhab` — the premise is
 sufficient, and no reverse implication is proved (a block could satisfy the family for other
@@ -610,6 +635,7 @@ clauses are uniform in `T` anyway. -/
 #print axioms Lean4Lean.VInductDecl'.resultSortInhab_of_succ
 #print axioms Lean4Lean.VInductDecl'.resultSortInhab_of_zero
 #print axioms Lean4Lean.VInductDecl'.resultSortInhab_of_lookup
+#print axioms Lean4Lean.VInductDecl'.resultSortInhab_of_const
 #print axioms Lean4Lean.VIndRestore.argsTypedK_of_resultSortInhab
 #print axioms Lean4Lean.VIndRestore.argsTypedK_of_succLevel
 #print axioms Lean4Lean.InductiveDeclExamples.ntreeAux_resultSortInhab
