@@ -1060,6 +1060,34 @@ def checkNoNestedAux (n : Name) (e : Expr) : Except Exception Unit := do
       | _ => false) e then
     throw <| .other s!"invalid declaration '{n}', it uses the reserved prefix '_nested'"
 
+/--
+Reject a declaration whose **own name** carries the reserved `_nested` prefix.
+
+**This is a divergence from the C++ kernel, in the restrictive direction -- see
+`divergences.md`.** Neither kernel checks this today: `checkNoNestedAux` above, and C++'s
+`check_no_nested_aux` (`src/kernel/inductive.cpp`), scan a declaration's *type* for
+`_nested`-prefixed constants, and in both the name argument is used only in the error message.
+`Lean.isReservedName` does not catch it either -- it is a registry, and nothing in the Lean 4
+tree registers `_nested`. So `inductive _nested.Foo` is accepted by both kernels today.
+
+Why it matters. The nested-inductive pass rewrites a block, replacing each nested occurrence with
+an auxiliary member it *invents*, checks the rewritten block, then restores the original names.
+The `_nested` prefix is how the restoration tells invented names from declared ones. Because the
+prefix is not an invariant of the environment, it cannot be used as a name barrier, and the two
+restoration facts `RestoreData.ownName`/`ownCtor` (`Verify/Inductive/NestedRestore.lean`) stay
+*hypotheses* rather than theorems -- with three consumers waiting on them.
+
+No exploit is claimed, and two mitigations may close every path: `mkUniqueName` skips names the
+environment already holds, and the renamed recursors end in `rec_k`, never `rec`. There is a
+machine-checked case (`Verify/Inductive/NestedOccData.lean`) where a user name collides with an
+invented one and **both kernels reject it identically**, via the duplicate-constant check. What is
+certain is narrower: nothing in the implementation establishes what the proof needs.
+-/
+def checkNoNestedAuxName (n : Name) : Except Exception Unit := do
+  if (`_nested).isPrefixOf n then
+    throw <| .other
+      s!"invalid declaration '{n}', its name uses the reserved prefix '_nested'"
+
 def Environment.addInductive (env : Environment) (lparams : List Name) (nparams : Nat)
     (types : List InductiveType) (isUnsafe allowPrimitive : Bool) (fuel : FuelConfig := {}) :
     Except Exception Environment := do
@@ -1071,10 +1099,14 @@ def Environment.addInductive (env : Environment) (lparams : List Name) (nparams 
     -- member whose own type mentions a `_nested` constant, where C++ rejects it -- verified by
     -- a self-checking `#eval` in `Verify/Inductive/NestedOccData.lean`.
     checkNoNestedAux indType.name indType.type
+    -- The declaration's OWN name, which neither kernel checks.  A divergence in the
+    -- restrictive direction; see `checkNoNestedAuxName` and `divergences.md`.
+    checkNoNestedAuxName indType.name
     checkNoLooseBVars indType.name indType.type
     for ctor in indType.ctors do
       env.checkNoMVarNoFVar ctor.name ctor.type
       checkNoNestedAux ctor.name ctor.type
+      checkNoNestedAuxName ctor.name
       checkNoLooseBVars ctor.name ctor.type
       checkUniformIndOccs (types.map (·.name)) lparams nparams ctor.name ctor.type
   let res ← ElimNestedInductive.run fuel.inductiveFuel nparams types env

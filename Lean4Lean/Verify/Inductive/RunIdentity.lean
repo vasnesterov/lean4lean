@@ -975,6 +975,7 @@ theorem guardLoop_ctors (env : Environment) (names lps : List Name) (np : Nat) :
     (forIn cs PUnit.unit (fun ctor _ => do
         env.checkNoMVarNoFVar ctor.name ctor.type
         checkNoNestedAux ctor.name ctor.type
+        checkNoNestedAuxName ctor.name
         checkNoLooseBVars ctor.name ctor.type
         checkUniformIndOccs names lps np ctor.name ctor.type
         pure (ForInStep.yield PUnit.unit)) : Except Exception PUnit).WF
@@ -988,6 +989,7 @@ theorem guardLoop_ctors (env : Environment) (names lps : List Name) (np : Nat) :
         FVarsIn (fun _ => False) c.type ∧ c.type.looseBVarRange' = 0 ∧
         noNonUniformOcc names lps np 0 c.type = true) ?_ ?_
     · refine Except.WF.bind (checkNoMVarNoFVar.WF env c.name c.type) fun _ hfv => ?_
+      refine Except.WF.bind (Q := fun _ => True) (fun _ _ => trivial) fun _ _ => ?_
       refine Except.WF.bind (Q := fun _ => True) (fun _ _ => trivial) fun _ _ => ?_
       refine Except.WF.bind (checkNoLooseBVars.WF c.name c.type) fun _ hcl => ?_
       refine Except.WF.bind (checkUniformIndOccs.WF names lps np c.name c.type) fun _ hu => ?_
@@ -1013,10 +1015,12 @@ theorem guardLoop_blockNoFVar (env : Environment) (names lps : List Name) (np : 
     (forIn types PUnit.unit (fun indType _ => do
         env.checkNoMVarNoFVar indType.name indType.type
         checkNoNestedAux indType.name indType.type
+        checkNoNestedAuxName indType.name
         checkNoLooseBVars indType.name indType.type
         for ctor in indType.ctors do
           env.checkNoMVarNoFVar ctor.name ctor.type
           checkNoNestedAux ctor.name ctor.type
+          checkNoNestedAuxName ctor.name
           checkNoLooseBVars ctor.name ctor.type
           checkUniformIndOccs names lps np ctor.name ctor.type
         pure (ForInStep.yield PUnit.unit)) : Except Exception PUnit).WF
@@ -1031,6 +1035,7 @@ theorem guardLoop_blockNoFVar (env : Environment) (names lps : List Name) (np : 
         ∀ c ∈ t.ctors, FVarsIn (fun _ => False) c.type ∧ c.type.looseBVarRange' = 0 ∧
           noNonUniformOcc names lps np 0 c.type = true) ?_ ?_
     · refine Except.WF.bind (Q := fun _ => True) (fun _ _ => trivial) fun _ _ => ?_
+      refine Except.WF.bind (Q := fun _ => True) (fun _ _ => trivial) fun _ _ => ?_
       refine Except.WF.bind (Q := fun _ => True) (fun _ _ => trivial) fun _ _ => ?_
       refine Except.WF.bind (checkNoLooseBVars.WF t.name t.type) fun _ hm => ?_
       refine Except.WF.bind (guardLoop_ctors env names lps np t.ctors) fun _ hc => ?_
@@ -1089,6 +1094,7 @@ theorem guardLoop_ctors_closed (env : Environment) (names lps : List Name) (np :
     (forIn cs PUnit.unit (fun ctor _ => do
         env.checkNoMVarNoFVar ctor.name ctor.type
         checkNoNestedAux ctor.name ctor.type
+        checkNoNestedAuxName ctor.name
         checkNoLooseBVars ctor.name ctor.type
         checkUniformIndOccs names lps np ctor.name ctor.type
         pure (ForInStep.yield PUnit.unit)) : Except Exception PUnit).WF
@@ -1101,6 +1107,7 @@ theorem guardLoop_ctors_closed (env : Environment) (names lps : List Name) (np :
       r = ForInStep.yield PUnit.unit ∧ c.type.looseBVarRange' = 0 ∧
         noNonUniformOcc names lps np 0 c.type = true) ?_ ?_
     · refine Except.WF.bind (Q := fun _ => True) (fun _ _ => trivial) fun _ _ => ?_
+      refine Except.WF.bind (Q := fun _ => True) (fun _ _ => trivial) fun _ _ => ?_
       refine Except.WF.bind (Q := fun _ => True) (fun _ _ => trivial) fun _ _ => ?_
       refine Except.WF.bind (checkNoLooseBVars.WF c.name c.type) fun _ hcl => ?_
       refine Except.WF.bind (checkUniformIndOccs.WF names lps np c.name c.type) fun _ hu => ?_
@@ -1119,10 +1126,12 @@ theorem guardLoop_blockClosed (env : Environment) (names lps : List Name) (np : 
     (forIn types PUnit.unit (fun indType _ => do
         env.checkNoMVarNoFVar indType.name indType.type
         checkNoNestedAux indType.name indType.type
+        checkNoNestedAuxName indType.name
         checkNoLooseBVars indType.name indType.type
         for ctor in indType.ctors do
           env.checkNoMVarNoFVar ctor.name ctor.type
           checkNoNestedAux ctor.name ctor.type
+          checkNoNestedAuxName ctor.name
           checkNoLooseBVars ctor.name ctor.type
           checkUniformIndOccs names lps np ctor.name ctor.type
         pure (ForInStep.yield PUnit.unit)) : Except Exception PUnit).WF
@@ -1137,6 +1146,7 @@ theorem guardLoop_blockClosed (env : Environment) (names lps : List Name) (np : 
         ∀ c ∈ t.ctors, c.type.looseBVarRange' = 0 ∧
           noNonUniformOcc names lps np 0 c.type = true) ?_ ?_
     · refine Except.WF.bind (Q := fun _ => True) (fun _ _ => trivial) fun _ _ => ?_
+      refine Except.WF.bind (Q := fun _ => True) (fun _ _ => trivial) fun _ _ => ?_
       refine Except.WF.bind (Q := fun _ => True) (fun _ _ => trivial) fun _ _ => ?_
       refine Except.WF.bind (checkNoLooseBVars.WF t.name t.type) fun _ hm => ?_
       refine Except.WF.bind (guardLoop_ctors_closed env names lps np t.ctors) fun _ hc => ?_
