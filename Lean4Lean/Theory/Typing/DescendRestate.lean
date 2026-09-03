@@ -52,7 +52,7 @@ closed, not merely untried.
 | `descendV_dodges_witnessA` | 6574 | no | **none** |
 | `refParRedKn_G` | 6556 | no | **none** |
 
-**Consumer bound (b), the count.**  `descend` has **193** transitive users (`sorry-census`) /
+**Consumer bound (b), the count.**  `descend` has **224** transitive users in 41 modules (`scripts/users.lean`, 2026-09-03; the **193** here was measured at `f4b32ea` over a smaller closure and undercounts by 31) /
 **206 users, 196 sole** (`hole-rank`, Guard+ConeJoin closure), and exactly **one** direct
 user: `ChurchRosser.lean`'s `NormalEq.appDF_extra_of_descend` (`:2271`), which feeds
 `NormalEq.parRed` (`:2332`).  So all 193 pass through one chokepoint, and the restatement

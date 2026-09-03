@@ -1763,3 +1763,30 @@ counts did: it was true when written, the tree moved, and nothing in the sentenc
 brief, on the same footing as a name.** If I cannot cheaply test it, the brief says "reportedly
 untouched as of <handoff>, verify first" rather than asserting it — which is what the good
 streams have started doing on their own, and it belongs in the brief instead.
+
+## The census does not distinguish "open" from "known false" (2026-09-03)
+
+I briefed a counterexample hunt against `NormalEq.descend`. One was already in the tree —
+`descend_uniq_sortUniq_not_all`, arity 0, cone 6640, hole-free — and had been for a while.
+
+The cause is not carelessness about that file, it is a gap in how I read my own instrument. A
+`sorry` whose statement is **known false** sits in `sorry-census-all.lean`'s output looking
+exactly like a `sorry` nobody has attacked. Both are "13 holes". They are completely different
+work items: one needs a proof, the other needs the statement restated and its consumers
+re-based.
+
+Exactly one of the thirteen is currently in the second category. Until the census can say so,
+check for a refutation before briefing an attack — `HEADS="<the statement's head constants>"
+lake env lean --run scripts/shape.lean` finds one, since a refutation mentions the same heads.
+
+## Require reports to cite names as exists.lean prints them (2026-09-03)
+
+I made this rule for my own briefs after citing three names bare. It belongs on reports too: I
+spent four tool calls this round resolving `descend_uniq_sortUniq_not_all`,
+`descendBranchProofArg_iff_not_ih` and two others, because the report gave them unqualified and
+my guesses at the namespace were wrong. One of them was in no namespace at all, sitting after an
+`end VEnv` I had not noticed.
+
+Briefs now ask for it explicitly: **every declaration named in a report must be written as
+`scripts/exists.lean` prints it, fully qualified.** The stream has the tool open; I am
+reconstructing from memory afterwards.
