@@ -2,6 +2,89 @@
 
 *Measured 2026-08-31. Reproduce with `~/.elan/bin/lake env lean scripts/kernel-sound-path.lean`.*
 
+## Read this FIRST: state of play, 2026-09-03 (late)
+
+**Supersedes the section below it, which was written before the day's flip work.** Read this, then
+that one, then treat everything older as history.
+
+**Goal 1: 185 correct / 6 either / 0 incorrect, standing by non-interference.** No implementation
+file has changed on master since that measurement — verified by `git diff --name-only` over every
+commit since. Re-run `build-checker` *before* `run` the moment one does; the last time a goal-1
+figure was asserted without re-measuring, it was twelve days stale and wrong.
+
+**Goal 2: census 13, guards `24 / INCOMPLETE / 2-2`, full build 1575 jobs.** The census figure has
+not moved all day and that is the wrong thing to watch — see below.
+
+### The nested `AddInduct` flip went from four blockers to one shared datum plus one shared lemma, and both shared items are now discharged
+
+This is the flip that `CLAUDE.md` names as the primary target and the only one that unblocks
+`kernel_sound`. The sequence, all machine-checked and all graded by the streams that did it:
+
+1. **Re-priced from four blockers to three.** Vacuity-ledger §6 is marked superseded: it called
+   obligation (A) *false* (it is not — a block that used to refute it now proves it), did not know
+   the `np = 0` theorems, and printed a bridge that `decide` **refutes** at `np = 1`.
+   `NestedOrdered.lean`'s status entry pointed at that same dead bridge and is now marked.
+2. **All three reduced in general at `np > 0`, hole-free** — `CtorBeta.lean` (A), `RecTyped.lean`
+   (B), `IotaHargsGen.lean` (C). Every one is a **reduction, not a discharge**, and each names the
+   datum that remains.
+3. **The three are one obligation.** (A) bottoms out in the same datum as (B) and (C); two thirds of
+   (C)'s remaining piece was being written *inside* (B)'s file; and (B)'s obstruction is also what
+   turns (A)'s open hypothesis into a derivation.
+4. **Both shared items discharged.** `TeleCongr.lean` removes (A)'s `hbv` (five data become four,
+   nothing added) and (B)'s `hAs` (four components become two). The blocker was **neither lemma
+   anyone had named**: the two objects recurse from opposite ends, so the missing piece was a
+   conversion between them — `congr_tele` sat unused because it could not be *reached*.
+5. **The shared datum reaches all four sites** (`HargsShared.lean`), through two existing lemmas,
+   with `iff`-shaped lemmas making "how much is shared" checkable rather than asserted.
+
+**What remains, precisely.** (C) is not yet a producer for a whole *block*: its section inherits a
+membership hypothesis that is **false at the member the step itself declares**, so it covers 1 of one
+block's 2 ι-rules and 2 of another's 3. The shared datum's discharge site is `TrIndDeclN` /
+`RestoreData` on the **`Verify/`** side. Both are under active work.
+
+**Two constraints on anyone continuing this.** The datum must be supplied in `HasArgs` form: the
+applied form routes through a Π-inversion that would be the **first `PiInv` dependence in a corner
+deliberately engineered without one**. And the datum is **false at the pre-block environment** — it
+lives only post-step, which is where `Inductive/Add.lean:1121` checks the payloads.
+
+### PR #45 is on this path, which it was not when it was opened
+
+`docs/decision-nested-prefix.md` and PR #45 propose a two-line kernel check so that
+`RestoreData.ownName` / `ownCtor` can become theorems. **`mkRestore_nestedBarrier` takes
+`RestoreData` as a hypothesis**, and those two are fields of it — so the flip work above is
+*conditional on exactly what that PR would make provable*. It excludes no theory (the delta is names
+appearing in no constructor type, and renaming such a declaration changes no type at all), claims no
+exploit, and is a behavioural divergence from the C++ kernel. Open, and the user's call.
+
+### Two of the thirteen holes are vacuously closable today and must not be closed
+
+`tryEtaStructCore.WF` and `isDefEqUnitLike.WF` quantify over a context type that cannot hold a real
+environment while `AddInduct` is empty. Both are one-line closable **right now**; doing so would move
+the census 13 → 11 while proving nothing. Ledger row 197 exists to stop a future round reaching for
+them. The residual they both reduce to is separately **refuted** at an environment whose
+well-formedness is proved clean.
+
+### What the day actually taught, and it is not about proofs
+
+The dominant defect class was **false negatives about what the tree already contains**, every one
+costing rounds rather than producing a wrong result:
+
+* a docstring calling a case untestable while a hole-free witness had sat in the tree two days,
+  **under a docstring naming itself as that very thing**;
+* two lemmas set as a task that were **already proved, with bodies** — inside the brief that warned
+  about exactly this misfire;
+* an "uncomposed pair" that was **already composed** in a file nobody had read;
+* three separate "cannot be proved" claims that were true only of a *different* statement;
+* a lemma carrying five hypotheses its proof never used, where **the unused hypothesis was itself
+  why a route looked unavailable** — and Lean's own linter for this is **suppressed by an explicit
+  `include`**;
+* a structural environment query with an **incomplete import list**, whose output gave no sign of it.
+
+And the one method that repeatedly caught what no instrument could: **instantiate, don't admire.**
+Four times a statement compiled with a clean axiom line, measured an empty hole cone, and proved
+nothing — each caught only by instantiating at a real witness, twice by a stream refuting *its own*
+draft hypothesis. A clean `[propext]` says hole-free and nothing more.
+
 ## Read this FIRST: state of play, 2026-09-03
 
 **Read this section, then the 2026-09-02 one, then treat everything older as history.**
