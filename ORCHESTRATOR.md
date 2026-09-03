@@ -1826,3 +1826,25 @@ The eleventh crash is the only one where no handoff existed, and the only one wh
 round's own account of itself — 434 lines of green Lean survived, the report did not. Reconstructing
 it took four tool calls. **The handoff's first section must be written before any Lean**, not
 merely incrementally: a file that compiles is recoverable, an unwritten report is not.
+
+## A report's claims about other people's files are its weakest part (2026-09-03)
+
+Three times today a stream's own theorems verified perfectly while an *incidental* claim it made
+about a file it did not own was wrong:
+
+- a non-vacuity witness described as tainted, measured hole-free;
+- a replacement lemma described as hole-free, measured as reaching two holes;
+- a lemma reported as non-existent, which exists in a different module.
+
+The cause is structural, not carelessness: the round's verification effort goes to its own
+deliverables, and the cross-file remark is a by-product noticed in passing. It is also the part I
+am most likely to relay, because it reads like a finding.
+
+**Rule: verify every cross-file claim before recording it, at the same standard as a cone figure.**
+Two of the three above I caught; the ledger rows say which, and one of them corrected a row I had
+already written from an earlier report.
+
+Corollary about instrument output: I recorded "`shape.lean`: 0 hits, heads resolved" from a report
+as a *checked* absence. Re-running it gives 5. The absence conclusion happened to survive — all
+five carry the hypothesis, none concludes it — but my evidence for it was fabricated by
+transcription. Scan output ages and gets mistyped exactly like prose does.
