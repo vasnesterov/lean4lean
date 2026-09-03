@@ -2735,14 +2735,16 @@ the composition is no longer the missing link.
 **Not done:** the closures are stated over the **entry defeqs**, not over `hargs`.  Feeding them
 needs, per block:
 
-* the *motive* block — §T5's `substC_motiveType_defeq'`, whose `hOn`/`hOnp`/`hbv` are free
+* the *motive* block — §T5's `substC_motiveType_defeq'` (**companion entries only**: it carries
+  `hK : T.name ∈ K`; see the amendment below), whose `hOn`/`hOnp`/`hbv` are free
   (§T9/§T10) and whose `hbody`/`hpi`/`hAs`/`hsort` are `hargs` for the **type** head plus §8.7's
   `hsplit`, which row 74b shows is data for that head (F1) and a theorem for the constructor head
   (F2).  Its remaining plumbing is two σ-identities of the §T10 kind — on `D.atRecTele D.params`
   (available: `OnCtx.substC_eq`) and on `D.atRecTele T.indices` (**not** proved: the §T13
   `NoCSubst` route should give it, one telescope over) — plus
   `ClosedTele (D.atRecTele T.indices) D.np` and a `liftTele` composition;
-* the *minor* block — §T6's `substC_minorType_defeq`, whose `hfun` is free (§T8), `hpi` is free
+* the *minor* block — §T6's `substC_minorType_defeq` (**companion entries only**: it carries
+  `hK : T.name ∈ K`; see the amendment below), whose `hfun` is free (§T8), `hpi` is free
   (§T10), `hmatch` is free (§T9), and whose **`hfld` is the residual §T15.7 found**;
 * the recursor type's **body** — one `forallEDF`: the major premise's head defeq (`hargs` again,
   via `substC_recBody_defeq`) over a *reflexive* conclusion, which is §T8's motive application
@@ -2755,10 +2757,32 @@ needs, per block:
   values with **no `np` bound**, and only the major premise moves — one `appDF`, the §T6 shape.
   Not attempted here, and *not* to be routed through `HasType.mkLams_inv`, which takes `PiInv`.
 
+**AMENDED — the (B) half of the list above is NOT exhaustive, and read as written it misleads.**
+Both lemmas the two (B) bullets name are gated on `K`: `substC_motiveType_defeq'` (§T5) carries
+`hK : T.name ∈ K` and `substC_minorType_defeq` (§T6) carries `hK : T.name ∈ K`.  So each bullet
+prices the **companion** entries only, and says nothing whatever about the entry at the block's
+**own** head — which is not a corner case but a member **every** auxiliary block has, `K` listing
+the companions and the auxiliary block also containing the outer head it was carved from
+(`Lean4Lean.ntree_recTyped_hK_false`, `Theory/Inductive/RecTyped.lean`, refutes
+`∀ t T, D.types[t]? = some T → T.name ∈ K` at the canonical parameterised block).  Meanwhile
+(B)'s closures quantify over *every* member, so the own-head entries were an unpriced obligation
+that this list gave no sign of.
+
+That gap is now closed, and off `K` the entries are **free**: `Theory/Inductive/RecTyped.lean`
+proves the off-`K` branch of all three entry families from `OwnId` alone —
+`Lean4Lean.motiveEntry_defeq_off_K`, `Lean4Lean.VIndRestore.minorEntry_defeq_off_K`, and
+`Lean4Lean.recBody_defeq_off_K` (note that only the second is in the `VIndRestore` namespace) —
+because at a member the block declares under its own name the restoration is the identity, so the
+entry defeq is reflexive.  The correction to *this* section is therefore not that the residual
+grew, but that the list was **stated as complete while covering only half the members**; the
+missing half turned out to be free rather than costly, which is luck and not evidence that the
+list was right.
+
 So the honest residual for (B)/(C) at `np > 0` is **`hargs`, plus `hfld`, plus (C)'s two
-`mkLams`-body defeqs** — three items, not one.  `hargs` remains genuinely data
-(`instAt_indep_of_tyArgs`); `hfld` reduces to `hargs` at the recursive fields (§T15.7); (C)'s two
-look derivable.  Nothing in §T15 uses `HasArgs.of_mkApp'`, so the whole section stays
+`mkLams`-body defeqs** — three items, not one, **for the companion entries; plus, off `K`, the
+own-head entries of all three (B) families, discharged as above** — `hargs` remains genuinely
+data (`instAt_indep_of_tyArgs`); `hfld` reduces to `hargs` at the recursive fields (§T15.7); (C)'s
+two look derivable.  Nothing in §T15 uses `HasArgs.of_mkApp'`, so the whole section stays
 `PiInv`-free.
 
 ### Instrument 7 on every statement of §T15

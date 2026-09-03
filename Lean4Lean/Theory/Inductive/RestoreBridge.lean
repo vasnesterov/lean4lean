@@ -496,9 +496,13 @@ variable (hp : D.params = []) (hnd : D.blockNames.Nodup) (hown : R.OwnId D K)
 
 include hp hnd hown hlw hcl
 
+omit hcl in
 /-- **The head equation with the arguments substituted on both sides.**  Compare
 `substC_tyApp_eq_tyAppR`, which needs the arguments to be `σ`-invariant; here they are
-rewritten by `σ` in the conclusion, so nothing is assumed about them. -/
+rewritten by `σ` in the conclusion, so nothing is assumed about them.
+
+`hcl` is **omitted**: `hna'` already gives the arguments `ClosedN 0`, which is what the `liftN`
+identity needs, so the section's weaker `ClosedN D.np` is dead here. -/
 theorem substC_tyApp_eq_tyAppR_map {j : Nat} (hna' : ∀ a ∈ R.tyArgs j, a.ClosedN 0)
     {T : VIndType} (hT : D.types[j]? = some T) {k : Nat} {args : List VExpr} :
     (D.tyApp j k args).substC (R.csubstTy D K)
@@ -526,8 +530,15 @@ theorem substC_tyApp_eq_tyAppR_map {j : Nat} (hna' : ∀ a ∈ R.tyArgs j, a.Clo
 
 include hnn hna
 
+omit hp hnd hown hlw hcl in
 /-- **…and the restored head is `σ`-invariant**, which is what lets the right-hand side of the
-bridge carry a `substC σ` that does nothing to the head. -/
+bridge carry a `substC σ` that does nothing to the head.
+
+**`hp`/`hnd`/`hown`/`hlw`/`hcl` are omitted, and that is not cosmetic.**  The proof below uses
+only `hnn` and `hna`; the five came from the section's `include` group and were therefore
+invisible in the source, `hp : D.params = []` among them.  A statement that holds at *every*
+`D.np` was thereby gated behind `np = 0`, which is why the parameterful route could not reach
+it. -/
 theorem substC_tyAppR (j k : Nat) (args : List VExpr) :
     (D.tyAppR R j k args).substC (R.csubstTy D K)
       = D.tyAppR R j k (args.map (VExpr.substC · (R.csubstTy D K))) := by
@@ -537,7 +548,13 @@ theorem substC_tyAppR (j k : Nat) (args : List VExpr) :
   exact List.map_congr_left fun a ha =>
     ((hna j a ha).liftN (n := k) (k := 0)).substC_eq
 
-/-- **The (A) bridge, in general, for a parameterless block — no `RestoreClean`.** -/
+omit hcl in
+/-- **The (A) bridge, in general, for a parameterless block — no `RestoreClean`.**
+
+`hcl` is **omitted** too, and this one is a *cascade* of the two trims above rather than an
+independent observation: `hcl` reached this statement only through
+`substC_tyApp_eq_tyAppR_map` and `substC_tyAppR`.  It was redundant in any case — `hcl0`
+below gives `ClosedN 0`, which implies the `ClosedN D.np` that `hcl` asserted. -/
 theorem ctorType_substC_eq_typeR_substC {C : VIndCtor} {j : Nat}
     (hcanon : C.Canonical D)
     (hpos : ∀ (i : Nat) (F : VIndField) (r : VIndRecArg), C.fields[i]? = some F →
@@ -571,12 +588,12 @@ theorem ctorType_substC_eq_typeR_substC {C : VIndCtor} {j : Nat}
         rw [R.typeR_canonical hnd hr hT' hb hct]
         rw [hct, VIndRecArg.canonType, VIndRecArg.canonTypeR, VExpr.substC_mkPi,
           VExpr.substC_mkPi, VIndRecArg.canonResult, VIndRecArg.canonResultR,
-          substC_tyApp_eq_tyAppR_map hp hnd hown hlw hcl (hcl0 r.idx) hT',
-          substC_tyAppR hp hnd hown hlw hcl hnn hna]
+          substC_tyApp_eq_tyAppR_map hp hnd hown hlw (hcl0 r.idx) hT',
+          substC_tyAppR hnn hna]
   rw [VIndCtor.type, VIndCtor.typeR, VExpr.substC_mkPi, VExpr.substC_mkPi,
     List.map_append, List.map_append, VIndCtor.canonResult,
-    substC_tyApp_eq_tyAppR_map hp hnd hown hlw hcl (hcl0 j) hT,
-    substC_tyAppR hp hnd hown hlw hcl hnn hna, List.map_map,
+    substC_tyApp_eq_tyAppR_map hp hnd hown hlw (hcl0 j) hT,
+    substC_tyAppR hnn hna, List.map_map,
     show ((fun x : VExpr => x.substC (R.csubstTy D K)) ∘ fun F : VIndField => F.type)
         = (fun F : VIndField => F.type.substC (R.csubstTy D K)) from rfl,
     VIndCtor.fieldTypesR,
@@ -607,7 +624,7 @@ theorem VEnv.ctorConstsCR_wf_of_np_zero' {env env₃ e₁ : VEnv} {D : VInductDe
   intro j T C hT hK hC
   have hnp : D.np = 0 := by rw [show D.np = D.params.length from rfl, hp]; rfl
   have hct := hD.ctors env₃ h₃ j T hT C hC
-  exact VIndRestore.ctorType_substC_eq_typeR_substC hp hnd hown hlw hcl hnn hna
+  exact VIndRestore.ctorType_substC_eq_typeR_substC hp hnd hown hlw hnn hna
     (hcanon.on hT hK hC)
     (fun i F r hF hr =>
       let hn := (hct.fields i F hF).recArg_noBlock hr; ⟨hn.1, hn.2.1⟩)
