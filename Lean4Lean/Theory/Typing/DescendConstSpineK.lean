@@ -182,12 +182,34 @@ theorem propLoop_constApp_inv_needs_hyp :
   rw [VExpr.spineHead_mkApp] at h1
   simp [VExpr.spineHead] at h1
 
-/-- **The honest limit of this measurement.**  The `keta` case -- the one new obligation -- is
-**vacuous at every `Params` instance `Theory/` contains**, because `EtaK` fires only where an
-`.app` pattern is registered (`EtaK.matches_head`) and every Theory-side table is δ-only:
-`refNoPat`, `cycNoPat`, and here.  So `EtaK.constApp_free`'s proof is instance-independent but
-its *content* is untested; the first instance that would test it is
-`Verify/QuotAppParams.lean`'s `quotParams`, which `Theory/` may not import. -/
+/-- `EtaK` is uninhabited **at this instance**, whose table is δ-only.
+
+**CORRECTED 2026-09-03, and the original text was wrong in the direction that suppresses work.**
+It read: "the `keta` case is **vacuous at every `Params` instance `Theory/` contains**, because
+every Theory-side table is δ-only: `refNoPat`, `cycNoPat`, and here ... the first instance that
+would test it is `Verify/QuotAppParams.lean`'s `quotParams`, which `Theory/` may not import."
+
+Both halves are false.
+
+* There is a **fourth** `Theory/` instance: `Theory/Typing/PatAppParams.lean`'s `appParams`
+  registers **two `.app` patterns**.
+* `Theory/Typing/KEtaDiamond.lean:276` has carried a hole-free concrete `EtaK` inhabitant at it
+  since 2026-09-01 (`appParams_etaK_under`), **two days before this file was written**, and its
+  own docstring calls it "at the tree's only `.app` rule table". `KEta.lean:881` points at it by
+  name.
+
+So `EtaK.constApp_free`'s content was testable inside `Theory/` all along, and
+`Theory/Typing/QuotKAppEta.lean` now tests it in three lines using only
+`VExpr.constApp_ne_lam`, which is already in *this file's* import cone.
+
+**And the framing was wrong at the root, not merely stale.**
+`Verify/Typing/QuotKEta.lean`'s `keta_branch_unreachable` proves, hole-free and quantified over
+`Params`, that `PatFreeHead c ∧ EtaK Γ ((.const c ls).mkApp as) e'` is **contradictory at every
+instance**. So looking for an instance where the guarded `keta` branch yields a witness is looking
+for a contradiction: the branch is unreachable *by theorem*, and that is not an untested case.
+What is genuinely open is narrower and is recorded in `docs/handoff-quotk.md` §4 -- whether a
+**real** environment's rule table ever puts a `keta` step at a constant spine, which per
+`PatAppParams.lean`'s route argument closes exactly when `PiInv` does. -/
 theorem propLoop_no_etaK {Γ : List VExpr} {e e' : VExpr} : ¬ EtaK Γ e e' := by
   intro h
   obtain ⟨p₁, p₂, r, f, m1, m2, h1, -, -⟩ := h.matches_head
