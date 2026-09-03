@@ -1651,3 +1651,33 @@ nothing, and the claim looks verified.
 Search for the premise's **conclusion shape across all layers**, never the instantiated form
 and never one file. In this instance the shape was `OnCtx ntreeAux.params.reverse` — six hits
 across four files, one of which was a hole-free theorem with a real proof term.
+
+## Mandatory before writing "still open": shape.lean, not just exists.lean (2026-09-03)
+
+`exists.lean` answers "does this name exist". It cannot catch the tenth stale-absence,
+because the thing I called an open premise was **`VInductDecl'.WF.params` — a field of a
+structure already in scope at the claim site**. A structure field's statement is generated,
+so it appears nowhere in the source: grep cannot find it, and no one guesses the name.
+
+`scripts/shape.lean` searches the compiled environment for every constant whose *type*
+mentions all the given head constants, projections included, and reports **structure fields
+first** because a field is not a premise — it is free wherever you hold the structure, so it
+retires a hypothesis outright rather than discharging it. On the heads of the premise I got
+wrong (`OnCtx`, `VEnv.IsType`) it returns 1196 hits, 14 of them fields, with the one I missed
+as the very first line.
+
+    HEADS="OnCtx VEnv.IsType" lake env lean --run scripts/shape.lean
+
+Rules now attached to it:
+- Before any brief or ledger row says a premise is open, unproved, or must be carried, run
+  this on the premise's **conclusion head constants**. Not its rendered text, not an
+  instantiated form: `env₃` and `1` are not searchable, `OnCtx` and `VEnv.IsType` are.
+- An unresolvable head is a hard failure, not zero hits. "0 hits" from a typo'd head reads
+  exactly like evidence of absence, which is the error the script exists to prevent.
+- Its own first version had this bug in miniature: it flagged every theorem in the `VEnv`
+  *namespace* as a field of `VEnv`, via `isStructure env n.getPrefix`. An instrument built to
+  stop me inventing false statements was inventing them. Real projections come from
+  `getProjectionFnInfo?` / `getStructureFields`, and the fix is in the file's comments so the
+  next person does not reintroduce it.
+- A negative result is still not proof of absence: a premise stated through a *definition*
+  that unfolds to your shape mentions none of your heads. The script says so on empty output.
