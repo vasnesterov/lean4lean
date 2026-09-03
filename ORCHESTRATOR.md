@@ -1906,3 +1906,28 @@ costs the authoring, not the measuring.
 Second adaptation: **scope rounds smaller while the crash rate is this high.** A round that only
 classifies and reports survives a crash with most of its value; a round that classifies *and*
 assembles *and* witnesses loses everything if it dies at the assembly step. Split those.
+
+## My numbers are reliable; my attributions are not (2026-09-04)
+
+A round scored eight predictions a crashed predecessor had written before looking at the code. The
+two I most wanted scored both came back FALSE, in opposite directions:
+
+- "at least one figure in the brief is wrong" (70%) — **false**. All four figures I supplied were
+  exact.
+- "the brief's ownership attribution is correct" (60%) — **false**. Wrong in kind for all four
+  attributions, and wrong in fact for one.
+
+In the round's words: *this brief's numbers have been reliable; its attributions have not.* That
+separates two things I had been treating as one kind of claim, and it is a sharper self-assessment
+than I could have produced unaided.
+
+The worst case: I told two separate briefs that `Faithful` is `RestoreFaithful.lean`'s job. That
+file concludes it **zero** times — the general producer is `Built.toFaithful`. And none of the four
+obligations I attributed to particular files is even a *field* of the relation I said they belonged
+to. The round names the harm precisely: a round hunting them among that relation's fields would
+have found nothing and concluded the fields were missing — my brief could have manufactured a false
+absence, which is the very defect this project's ledger exists to track.
+
+**Rule: a measured figure may go in a brief with its provenance. Ownership, "whose job is this",
+and "where does this live" go in as *reportedly, verify first* — never as fact.** I have `shape.lean`
+and `users.lean` for exactly these questions and I have been answering them from memory.
