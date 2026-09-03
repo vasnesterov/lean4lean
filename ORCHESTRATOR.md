@@ -1431,3 +1431,35 @@ This is the inverse of the `.olean` hazard in ledger rows 189c/191c: there, a st
 build report success that was not true of the source; here, a live source swap made `git diff`
 report *no edit* when an edit existed. **Both are cases of a check reporting on a different state
 than the one I meant to ask about**, which is the single most repeated failure in this session.
+
+## I complained about noise a tool I own was built to prevent (2026-09-03, mine)
+
+I told the user twice that the PR-comment monitor "cannot tell my comments from yours, since I post
+with your token", offered them the choice of stopping or filtering it, and let it cost several turns
+echoing my own posts back as if they were theirs.
+
+`scripts/monitor-pr-comments.sh` **already solves this**, and says so in its own header:
+
+> The orchestrator posts under the SAME GitHub account as the human, so author filtering cannot
+> separate them. Instead the orchestrator appends the marker below to every comment it writes, and
+> this script drops those.
+
+The marker is `<!-- l4l-orchestrator -->`. I posted three comments on PR #45 without it. `SELFTEST=1`
+reported **4 unfiltered comments in the last 24h**; after marking my two, **2** — exactly the user's.
+
+**Rule: every PR or issue comment I post ends with `<!-- l4l-orchestrator -->`.** Nothing else is
+needed, and there was never a decision for the user to make.
+
+**Why this is the same failure I have been recording all day, not a separate one.** Today's most
+expensive defects were all *false negatives about what the tree already contains*: a docstring
+asserting a case untestable while a hole-free witness sat two days old under a docstring naming
+itself as such; two lemmas I set as a task that were already proved with bodies; an "uncomposed
+pair" already composed; three "cannot be proved" claims that were true only of a different
+statement. In every case the answer was in the repository and nobody opened it.
+
+This one is worse in one respect and better in another. Worse: the file I failed to read is one I
+wrote, and the header paragraph is addressed *to me*. Better: it cost turns rather than a wrong
+result. But the mechanism is identical, and the generalisation is the one worth keeping —
+**before reporting a limitation, read the thing that would have handled it.** Applied to briefs
+that means checking the tree before asserting absence; applied to my own tooling it means reading
+the header before describing the tool's behaviour to the user.
