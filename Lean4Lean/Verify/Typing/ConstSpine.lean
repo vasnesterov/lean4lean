@@ -1,6 +1,7 @@
 import Lean4Lean.Theory.Typing.HeadReduction
 import Lean4Lean.Theory.Typing.Injectivity
 import Lean4Lean.Theory.Typing.ParamsBuild
+import Lean4Lean.Theory.Typing.PatKHead
 
 /-!
 # Constant-headed spines under reduction — facts (A), (B), (C), (D)
@@ -94,20 +95,6 @@ namespace Lean4Lean
 
 open VExpr
 
-/-- The head constant of a *pattern* — its leftmost `const` leaf. -/
-def Pattern.headConst : Pattern → Lean.Name
-  | .const c => c
-  | .app f _ => f.headConst
-  | .var f => f.headConst
-
-/-- A matched term's head constant is the pattern's. -/
-theorem Pattern.Matches.headConst {p : Pattern} {e : VExpr} {m1 m2}
-    (H : p.Matches e m1 m2) : e.headConst? = some p.headConst := by
-  induction H with
-  | const => rfl
-  | var _ ih => exact ih
-  | app _ _ ih1 _ => exact ih1
-
 /-- A constant-headed spine determines its head, levels and arguments. -/
 theorem VExpr.constApp_inj {c c' : Lean.Name} {ls ls' : List VLevel} {as as' : List VExpr}
     (h : (VExpr.const c ls).mkApp as = (VExpr.const c' ls').mkApp as') :
@@ -119,65 +106,10 @@ theorem VExpr.constApp_inj {c c' : Lean.Name} {ls ls' : List VLevel} {as as' : L
   simp [VExpr.spineHead, VExpr.spineArgs] at h1 h2
   exact ⟨h1.1, h1.2, h2⟩
 
-theorem VExpr.constApp_ne_lam {c : Lean.Name} {ls : List VLevel} {as : List VExpr} {A b : VExpr} :
-    (VExpr.const c ls).mkApp as ≠ .lam A b := by
-  intro h
-  have := congrArg VExpr.spineHead h
-  rw [VExpr.spineHead_mkApp] at this
-  exact absurd this nofun
-
-theorem VExpr.constApp_ne_bvar {c : Lean.Name} {ls : List VLevel} {as : List VExpr} {i : Nat} :
-    (VExpr.const c ls).mkApp as ≠ .bvar i := by
-  intro h
-  have := congrArg VExpr.spineHead h
-  rw [VExpr.spineHead_mkApp] at this
-  exact absurd this nofun
-
-theorem VExpr.constApp_ne_sort {c : Lean.Name} {ls : List VLevel} {as : List VExpr} {u : VLevel} :
-    (VExpr.const c ls).mkApp as ≠ .sort u := by
-  intro h
-  have := congrArg VExpr.spineHead h
-  rw [VExpr.spineHead_mkApp] at this
-  exact absurd this nofun
-
-theorem VExpr.constApp_ne_forallE {c : Lean.Name} {ls : List VLevel} {as : List VExpr}
-    {A B : VExpr} : (VExpr.const c ls).mkApp as ≠ .forallE A B := by
-  intro h
-  have := congrArg VExpr.spineHead h
-  rw [VExpr.spineHead_mkApp] at this
-  exact absurd this nofun
-
-end Lean4Lean
-
-namespace Lean4Lean
-
-open VExpr
-
-/-- `List.Forall₂` at a reflexive relation. -/
-theorem _root_.List.forall₂_refl' {α} {R : α → α → Prop} (hR : ∀ a, R a a) :
-    ∀ l : List α, List.Forall₂ R l l
-  | [] => .nil
-  | _ :: l => .cons (hR _) (List.forall₂_refl' hR l)
-
-/-- Composing two `List.Forall₂`s. -/
-theorem _root_.List.Forall₂.trans' {α} {R S T : α → α → Prop}
-    (h : ∀ a b c, R a b → S b c → T a c) :
-    ∀ {l₁ l₂ l₃ : List α}, List.Forall₂ R l₁ l₂ → List.Forall₂ S l₂ l₃ → List.Forall₂ T l₁ l₃
-  | _, _, _, .nil, .nil => .nil
-  | _, _, _, .cons h1 t1, .cons h2 t2 => .cons (h _ _ _ h1 h2) (List.Forall₂.trans' h t1 t2)
-
 namespace VEnv
 
 variable [Params]
 open Params
-
-/-- **`c` heads no registered rewrite pattern.**
-
-This is the `Params`-level form of `RuleFreeHead`: `WHRed.extra` / `ParRed.extra` fire on a
-`Pat`-registered pattern, and what stops them from firing at a `c`-headed spine is that no
-registered pattern has `c` as its head constant.  `ruleFreeHead_patFree` below derives it
-from `VEnv.RuleFreeHead` for the canonical pattern table. -/
-def PatFreeHead (c : Lean.Name) : Prop := ∀ p r, Params.Pat p r → p.headConst ≠ c
 
 /-- **Parallel reduction preserves a rule-free constant head**, its levels, and its arity. -/
 theorem ParRed.constApp_inv {Γ : List VExpr} {c : Lean.Name} (hc : PatFreeHead c) :

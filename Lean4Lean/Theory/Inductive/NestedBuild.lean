@@ -730,6 +730,36 @@ end VNestedOcc
 its three clauses are equations a caller supplies.  `VInductDecl'.Built` replaces all three by
 one: **the companion member is the value the construction computes.** -/
 
+/-! ### `VEnv.ConstsClosedC` and `VInductDecl'.KFresh`, ahead of `Built`
+
+Both are here rather than in §F2.1/§F5 for one reason: `VInductDecl'.KFresh` is the replacement
+clause for `Built.fields_noK`, and a field of `Built` can only mention definitions that *precede*
+`Built`.  `ConstsClosedC` is a premise of `KFresh`, so it comes first.  `KFresh`'s three theorems
+stay in §F5, where `VNestedOcc.fields_noK_of_occurs` is in scope. -/
+
+namespace VEnv
+
+/-- The constants half of `VEnv.ConstsClosed`, named so it can be a hypothesis on its own.
+`fields_noK_of_occurs` uses only this. -/
+def ConstsClosedC (env : VEnv) : Prop :=
+  ∀ {n : Lean.Name} {ci : VConstant}, env.constants n = some ci → ci.type.ConstsIn env.contains
+
+end VEnv
+
+/-- **`VNestedOcc.fields_noK_of_occurs`'s premise list, bundled.**  The two environment facts plus
+the nested-spine residue — the weakest replacement for `VInductDecl'.Built.fields_noK` that all
+five `Built.mk` sites can supply.  Note the trade: `fields_noK` quantifies over *the foreign
+block's* constructors and fields; `argsNoK` quantifies over the companion member's own spine. -/
+structure VInductDecl'.KFresh (D : VInductDecl') (K : List Lean.Name) (env : VEnv)
+    (occ : Nat → VNestedOcc) : Prop where
+  /-- Declared constants have types mentioning only declared constants. -/
+  constsClosedC : env.ConstsClosedC
+  /-- No companion name is declared yet. -/
+  notContains : ∀ n ∈ K, ¬ env.contains n
+  /-- The nested spine at each companion member mentions no companion name. -/
+  argsNoK : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K →
+    ∀ a ∈ (occ j).args, VExpr.NoConsts K a
+
 /-- Every member of `D` named in `K` is the auxiliary member built from the occurrence
 `occ j`, and the restoration presents it as that occurrence. -/
 structure VInductDecl'.Built (D : VInductDecl') (R : VIndRestore) (K : List Lean.Name)
@@ -867,10 +897,10 @@ namespace VEnv
 
 /-! #### §F2.1 The half that is used -/
 
-/-- The constants half of `VEnv.ConstsClosed`, named so it can be a hypothesis on its own.
-`fields_noK_of_occurs` uses only this. -/
-def ConstsClosedC (env : VEnv) : Prop :=
-  ∀ {n : Lean.Name} {ci : VConstant}, env.constants n = some ci → ci.type.ConstsIn env.contains
+/-! `VEnv.ConstsClosedC` itself is now declared in Part 6, above `VInductDecl'.Built`: it is a
+premise of `VInductDecl'.KFresh`, and a *field* of `Built` can only mention what precedes `Built`.
+That is a prerequisite of removing `Built.fields_noK` which no earlier round named — see
+`Theory/Inductive/FieldsNoK.lean` §8.12. -/
 
 theorem ConstsClosed.toC {env : VEnv} (H : env.ConstsClosed) : env.ConstsClosedC := H.1
 
@@ -1040,6 +1070,69 @@ theorem VInductDecl'.builtFresh_of_occurs {D : VInductDecl'} {K : List Lean.Name
 #print axioms Lean4Lean.VNestedOcc.ctorType_noConsts
 #print axioms Lean4Lean.VNestedOcc.fields_noK_of_occurs
 #print axioms Lean4Lean.VInductDecl'.builtFresh_of_occurs
+
+/-! ### §F5 `KFresh`: `fields_noK_of_occurs`'s premise list, bundled
+
+`Built.fields_noK` is derivable, and this is where the type of its replacement has to live: a
+clause of `VInductDecl'.Built` can only mention definitions available **in this module**, so a
+bundle stated in a downstream file (`Theory/Inductive/FieldsNoK.lean`) cannot become a field.
+`KFresh` is that bundle.  **The structure itself is declared above `Built`** (Part 6), because a
+field of `Built` can only mention what precedes it; only its three theorems are here, where
+`VNestedOcc.fields_noK_of_occurs` is finally in scope.  That split is not incidental — it is why
+the removal also has to move or delete `Built.toFresh`, which sits between the two halves.
+
+What goes in it is measured, not chosen: every one of the four `Theory/`-side `fields_noK :=`
+bodies — `ntreeAux_built` and `nfnAux_builtFresh` below, `RestoreBridge.lean`'s
+`nfnAuxDirty_built`, `MemberRedex.lean`'s `qnAux_builtFresh` — is literally
+`VNestedOcc.fields_noK_of_occurs hcc occurs hK ⟨args_noK⟩ hC₀ hF₀`, and the general site
+(`Verify/Inductive/NestedRestoreWit.lean`'s `RestoreData.mkRestore_built`) takes the same list
+through `BuiltFresh`.  So `KFresh` is exactly what the sites have in hand, and no site pays a new
+fact for it.  See `Theory/Inductive/FieldsNoK.lean` §8 for the ordering against the stronger
+candidate `VEnv.KHyg`, the strictness of that ordering, and the whole edit modelled. -/
+
+namespace VInductDecl'
+variable {D : VInductDecl'} {K : List Lean.Name} {env : VEnv} {occ : Nat → VNestedOcc}
+
+/-- **`Built.fields_noK`'s whole body from `KFresh` plus `Occurs`.**  This is the projection the
+field would be replaced by, at the field's exact signature — so every consumer of the field keeps
+its proof term.  Note it needs only `Occurs`, not `OccursN`. -/
+theorem KFresh.fields_noK_of_occurs (hf : D.KFresh K env occ)
+    (hocc : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → (occ j).Occurs env) :
+    ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K →
+      ∀ C₀ ∈ (occ j).src.ctors, ∀ (k : Nat) (F₀ : VIndField), C₀.fields[k]? = some F₀ →
+        VExpr.NoConsts K (VExpr.instAll (F₀.type.instL (occ j).lvls) (occ j).args k) :=
+  fun j T hT hKT _C₀ hC₀ _k _F₀ hF₀ =>
+    VNestedOcc.fields_noK_of_occurs hf.constsClosedC (hocc j T hT hKT) hf.notContains
+      (hf.argsNoK j T hT hKT) hC₀ hF₀
+
+/-- **`BuiltFresh` from `KFresh`.**  `builtFresh_of_occurs` with its four loose premises bundled;
+same proof. -/
+theorem builtFresh_of_kfresh (hf : D.KFresh K env occ) (hnd : D.blockNames.Nodup)
+    (hocc : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → (occ j).Occurs env) :
+    D.BuiltFresh K occ where
+  nodup := hnd
+  fields_noK := hf.fields_noK_of_occurs hocc
+
+/-- **`KFresh` in the shape the general bridge's spine form has it.**  `hcc`, `hK`, `hspine` and
+`ha` — exactly `Verify/Inductive/NestedFreshBridge.lean`'s `mkRestore_built_of_spine`'s own
+hypotheses, so that after the removal that theorem's `BuiltFresh` argument becomes
+`KFresh.of_spine hcc hK hspine ha` and nothing else there moves.  It lives on this side of the
+layering because `Theory/` may not import `Verify/`. -/
+theorem KFresh.of_spine {as : Nat → List VExpr} (hcc : env.ConstsClosedC)
+    (hK : ∀ n ∈ K, ¬ env.contains n)
+    (hspine : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K →
+      ∀ a ∈ as j, VExpr.NoConsts K a)
+    (ha : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → as j = (occ j).args) :
+    D.KFresh K env occ where
+  constsClosedC := hcc
+  notContains := hK
+  argsNoK := fun j T hT hKT a hmem => hspine j T hT hKT a (by rw [ha j T hT hKT]; exact hmem)
+
+end VInductDecl'
+
+#print axioms Lean4Lean.VInductDecl'.KFresh.fields_noK_of_occurs
+#print axioms Lean4Lean.VInductDecl'.builtFresh_of_kfresh
+#print axioms Lean4Lean.VInductDecl'.KFresh.of_spine
 
 /-- **`Faithful` is a consequence of the construction.**  This is `docs/handoff-nested-restore.md`
 §7.1: `ctors_complete` and `ctor_agree` stop being hypotheses. -/

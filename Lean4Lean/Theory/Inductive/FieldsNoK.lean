@@ -585,4 +585,259 @@ Both must read `[propext, Quot.sound]`; if the model's differs, the edit is not 
 #print axioms Lean4Lean.InductiveDeclExamples.fields_noK_needs_spine
 #print axioms Lean4Lean.InductiveDeclExamples.fields_noK_needs_spine'
 
+/-! ## §8 `KHyg` is not the weakest replacement — and the weakest one covers the site `KHyg` misses
+
+Two corrections to §4 and §6 first, both **measured** against the compiled environment
+(constants whose value or type applies `VInductDecl'.Built.mk`, minus the three auto-generated
+recursors) rather than read off the source text.
+
+**§8.0.1 There are five `Built.mk` sites, not six.**  `Theory/Inductive/NestedBuild.lean`
+`ntreeAux_built` and `nfnAux_built`, `Theory/Inductive/RestoreBridge.lean` `nfnAuxDirty_built`,
+`Theory/Inductive/MemberRedex.lean` `MRedex.QNWit.qnAux_built`, and — the only general one —
+`Verify/Inductive/NestedRestoreWit.lean` `ElimNestedInductive.Result.RestoreData.mkRestore_built`.
+§6.1's producer table is right at five; **§4's prose "six" is wrong**:
+`Verify/Inductive/NestedOccData.lean`'s `OccData.mkRestore_built` does not apply `Built.mk`, it
+delegates to `RestoreData.mkRestore_built`, so it is a *caller* of the site, not a site.  (The
+same measurement confirms two of §6.1's claims: `Built.fields_noK` has exactly three users, all
+consumers, and `Built.toFresh` has **zero**.)
+
+**§8.0.2 `KHyg` narrows a proved bridge.**  Post-edit the general site takes `hyg` where it now
+takes `BuiltFresh`, and its three reduced forms must supply it.  One cannot:
+`Verify/Inductive/NestedFreshBridge.lean`'s `mkRestore_built_of_spine` carries
+`hcc : env.ConstsClosedC`, `hK : ∀ n ∈ K, ¬ env.contains n` and `hspine` — the spine premise
+*directly* — and has no route to `isNested`, because `RestoreData.isNestedName_of_mem`
+(`Verify/Inductive/SpineTransfer.lean`) needs `hKB : ∀ n ∈ K, n ∈ D.blockNames`, which is exactly
+the hypothesis `mkRestore_built_of_blockK` adds and `_of_spine` does without.  So §3's `KHyg`
+replacement would cost `mkRestore_built_of_spine` a new hypothesis.
+
+**§8.0.3 What all five sites actually supply is not `isNested`.**  Every one of the four
+`Theory/`-side `fields_noK :=` bodies is literally
+`VNestedOcc.fields_noK_of_occurs hcc occurs hK ⟨args_noK⟩ hC₀ hF₀` — `listOcc_args_noK`,
+`pfnOcc_args_noK` (twice), `qnOcc_args_noK` — and the general site takes the same list through
+`BuiltFresh`.  `VInductDecl'.KFresh` bundles exactly that premise list.
+
+**It is defined in `Theory/Inductive/NestedBuild.lean` §F5, not here**, and that relocation is the
+one part of this work that is not a model: a *field* of `Built` can only mention definitions
+available in `Built`'s own module, so a bundle stated in this file could never become the
+replacement clause.  `NestedBuild.lean` §F5 also carries `KFresh.fields_noK_of_occurs` (the
+replacement projection, at the field's exact signature), `builtFresh_of_kfresh`, and
+`KFresh.of_spine` — the last in the exact shape `mkRestore_built_of_spine`'s own hypotheses have,
+so that after the removal that theorem's `BuiltFresh` argument becomes `KFresh.of_spine hcc hK
+hspine ha` and nothing else there moves.
+
+What is left here is the *comparison*: `KHyg` implies `KFresh` (§8.2), it is **not** implied by it
+(§8.3), and the whole edit at `KFresh` is modelled (§8.4–§8.11).  Note also that
+`KFresh.fields_noK_of_occurs` needs only `Occurs`, not `OccursN` — so unlike §3's route the
+`KFresh` replacement does not depend on the `OccursN` retype at all.
+
+(Numbering: what would have been §8.1 — the replacement projection — and §8.9 — `of_spine` — are
+the two theorems that moved to `NestedBuild.lean` §F5, so those two labels are deliberately
+absent here.  §8.12 says why the move was forced.) -/
+
+namespace VInductDecl'
+variable {D : VInductDecl'} {R : VIndRestore} {K : List Name} {env : VEnv}
+  {occ : Nat → VNestedOcc}
+
+/-- **§8.2 `KHyg` implies `KFresh`**, at any `occ` whose members are `OccursN`.  So §3's
+replacement is a *strengthening* of §8's, not an alternative to it. -/
+theorem KFresh.of_khyg (hyg : env.KHyg K)
+    (hocc : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → (occ j).OccursN env) :
+    D.KFresh K env occ where
+  constsClosedC := hyg.constsClosedC
+  notContains := hyg.notContains
+  argsNoK := fun j T hT hK => (hocc j T hT hK).args_noConsts_of_hyg hyg.isNested
+
+end VInductDecl'
+
+#print axioms Lean4Lean.VInductDecl'.KFresh.of_khyg
+
+/-! ### §8.3 …and `KFresh` does **not** imply `KHyg`
+
+Widen `ntreeK` by one junk name.  `constsClosedC` is unchanged, `notContains` still holds (`Junk`
+is no `listDecl` name), and `argsNoK` still holds (`listOcc.args` is `[NTree α]`, which mentions
+neither companion name) — but `isNested` fails on `Junk`, by §5.2's `junkK_not_khyg`.  So the
+inclusion of §8.2 is strict, and a site with the spine premise but no name discipline satisfies
+`KFresh` and not `KHyg`.  That is `mkRestore_built_of_spine`'s exact position. -/
+
+namespace InductiveDeclExamples
+section
+variable {env₁ : VEnv} (h : VEnv.empty.addInduct' listDecl = some env₁)
+include h
+
+/-- `ntreeK ++ [`Junk]` is still undeclared at `env₁` — `ntreeK_not_contains`'s proof verbatim at
+the wider list. -/
+theorem junkK_not_contains :
+    ∀ n ∈ (`_nested.List_1 :: [`Junk] : List Name), ¬ env₁.contains n := by
+  intro n hn
+  have hnm : n ∉ listDecl.allNames := by revert hn; revert n; decide
+  rintro ⟨ci, hc⟩
+  rw [VEnv.addInduct'_constants_of_not_mem h hnm] at hc
+  exact absurd hc nofun
+
+/-- **The separation.**  `KFresh` holds at the widened `K`; `KHyg` does not. -/
+theorem kfresh_not_khyg :
+    ntreeAux.KFresh (`_nested.List_1 :: [`Junk]) env₁ (fun _ => listOcc) ∧
+    ¬ env₁.KHyg (`_nested.List_1 :: [`Junk]) :=
+  ⟨{ constsClosedC := listEnv_constsClosedC h
+     notContains := junkK_not_contains h
+     argsNoK := fun _ _ _ _ => by decide },
+   junkK_not_khyg⟩
+
+end
+end InductiveDeclExamples
+
+#print axioms Lean4Lean.InductiveDeclExamples.junkK_not_contains
+#print axioms Lean4Lean.InductiveDeclExamples.kfresh_not_khyg
+
+/-! ### §8.4 The edit at `KFresh`, modelled
+
+`Built''` is `Built` with `fields_noK` replaced by `kfresh`, exactly as §7's `Built'` replaced it
+by `hyg`.  Everything §7 proved for `Built'` is re-proved here for `Built''`, with the same
+proof terms — so the choice between the two replacement clauses costs the consumers nothing, and
+§8.0.2 is the only thing that separates them. -/
+
+structure VInductDecl'.Built'' (D : VInductDecl') (R : VIndRestore) (K : List Name)
+    (env : VEnv) (occ : Nat → VNestedOcc) : Prop where
+  member : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K →
+    T = (occ j).member D.header R
+  occurs : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → (occ j).OccursN env
+  tyName : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K →
+    R.tyName j = (occ j).tyName
+  tyLvls : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K →
+    R.tyLvls j = (occ j).lvls
+  tyArgs : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K →
+    R.tyArgs j = (occ j).args
+  ctorName_inv : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K →
+    ∀ C ∈ (occ j).src.ctors, R.ctorName ((occ j).ctorName C.name) = C.name
+  own : R.OwnId D K
+  nodup : D.blockNames.Nodup
+  /-- **The replacement clause**, at the premise list the sites already supply. -/
+  kfresh : D.KFresh K env occ
+
+section
+variable {D : VInductDecl'} {R : VIndRestore} {K : List Name} {env : VEnv}
+  {occ : Nat → VNestedOcc}
+
+/-- **§8.5 The replacement projection, at the old signature.** -/
+theorem VInductDecl'.Built''.fields_noK (h : D.Built'' R K env occ) :
+    ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K →
+      ∀ C₀ ∈ (occ j).src.ctors, ∀ (k : Nat) (F₀ : VIndField), C₀.fields[k]? = some F₀ →
+        VExpr.NoConsts K (VExpr.instAll (F₀.type.instL (occ j).lvls) (occ j).args k) :=
+  h.kfresh.fields_noK_of_occurs fun j T hT hK => (h.occurs j T hT hK).toOccurs
+
+/-- **§8.6 `Built'` gives `Built''`** — §8.2 lifted to the structures, so the two candidate edits
+are ordered and not merely different. -/
+theorem VInductDecl'.Built'.toBuilt'' (h : D.Built' R K env occ) : D.Built'' R K env occ :=
+  { h with kfresh := VInductDecl'.KFresh.of_khyg h.hyg h.occurs }
+
+/-- **§8.7 Consumer 1: `Built.toFresh`**, proof term unchanged. -/
+theorem VInductDecl'.Built''.toFresh (h : D.Built'' R K env occ) : D.BuiltFresh K occ :=
+  ⟨h.nodup, h.fields_noK⟩
+
+/-- **§8.8 Consumer 2: `Built.toFaithful`**, proof term unchanged from
+`Theory/Inductive/NestedBuild.lean`:1046 — `h.fields_noK` resolves to §8.5. -/
+theorem VInductDecl'.Built''.toFaithful (h : D.Built'' R K env occ) :
+    R.Faithful D env K (fun j => (occ j).decl.np) where
+  ty_agree := by
+    intro j T hT hK
+    have ho := (h.occurs j T hT hK).toOccurs
+    refine ⟨_, by rw [h.tyName j T hT hK]; exact ho.ty_const, ?_, ?_⟩
+    · rw [h.tyLvls j T hT hK, ho.lvls_len]
+    · rw [(occ j).instAt_eq D.header R D j _ _ rfl (h.tyLvls j T hT hK)
+        (h.tyArgs j T hT hK) rfl, h.member j T hT hK]
+      rfl
+  ctor_agree := by
+    intro j T hT hK C hC
+    have ho := (h.occurs j T hT hK).toOccurs
+    rw [h.member j T hT hK, VNestedOcc.member, List.mem_map] at hC
+    obtain ⟨C₀, hC₀, rfl⟩ := hC
+    refine ⟨⟨(occ j).decl.uvars, C₀.type (occ j).decl (occ j).idx⟩, ?_, ?_, ?_⟩
+    · rw [show ((occ j).ctor D.header R C₀).name = (occ j).ctorName C₀.name from rfl,
+        h.ctorName_inv j T hT hK C₀ hC₀]
+      exact ho.ctor_const C₀ hC₀
+    · rw [h.tyLvls j T hT hK, ho.lvls_len]
+    · rw [(occ j).instAt_eq D.header R D j _ _ rfl (h.tyLvls j T hT hK)
+        (h.tyArgs j T hT hK) rfl]
+      exact ((occ j).ctor_typeR D.header R D K rfl h.own h.nodup j C₀
+        (h.fields_noK j T hT hK C₀ hC₀) (h.tyName j T hT hK)
+        (h.tyLvls j T hT hK) (h.tyArgs j T hT hK) (ho.ctor_params C₀ hC₀) ho.args_len
+        ho.lvls_len).symm
+  ctors_complete := by
+    intro j T hT hK
+    have ho := (h.occurs j T hT hK).toOccurs
+    refine ⟨(occ j).decl, (occ j).idx, (occ j).src, ho.hist, ho.src_mem, ?_, rfl, ?_⟩
+    · rw [h.tyName j T hT hK]; rfl
+    · rw [h.member j T hT hK]
+      exact (occ j).member_ctors_complete D.header R (h.ctorName_inv j T hT hK)
+
+end
+
+namespace InductiveDeclExamples
+section
+variable {env₁ : VEnv} (h : VEnv.empty.addInduct' listDecl = some env₁)
+include h
+
+/-- **§8.10 A producer site, after the `KFresh` edit.**  The whole diff is
+`kfresh := ⟨listEnv_constsClosedC h, ntreeK_not_contains h, fun _ _ _ _ => listOcc_args_noK⟩`
+replacing `fields_noK := …` — and those are the *same three arguments* the old
+`fields_noK :=` body passed to `fields_noK_of_occurs`.  Nothing new is proved at the site. -/
+theorem ntreeAux_built'' : ntreeAux.Built'' ntreeRestore ntreeK env₁ (fun _ => listOcc) :=
+  { (ntreeAux_built h) with
+    kfresh := ⟨listEnv_constsClosedC h, ntreeK_not_contains h,
+      fun _ _ _ _ => listOcc_args_noK⟩ }
+
+/-- **§8.11 Consumer 3: the anti-vacuity control**, statement and proof term unchanged from
+`Theory/Inductive/NestedFresh.lean`:133–148; only `ntreeAux_built → ntreeAux_built''`. -/
+theorem fields_noK_needs_spine'' :
+    listOccBadSpine.decl = listOcc.decl ∧ listOccBadSpine.idx = listOcc.idx ∧
+    listOccBadSpine.lvls = listOcc.lvls ∧ listOccBadSpine.auxName = listOcc.auxName ∧
+    listOccBadSpine.args.length = listOcc.args.length ∧
+    listOcc.Occurs env₁ ∧ listOccBadSpine.Occurs env₁ ∧
+    (∀ C₀ ∈ listOcc.src.ctors, ∀ (k : Nat) (F₀ : VIndField), C₀.fields[k]? = some F₀ →
+      VExpr.NoConsts ntreeK (VExpr.instAll (F₀.type.instL listOcc.lvls) listOcc.args k)) ∧
+    ¬ (∀ C₀ ∈ listOccBadSpine.src.ctors, ∀ (k : Nat) (F₀ : VIndField), C₀.fields[k]? = some F₀ →
+      VExpr.NoConsts ntreeK
+        (VExpr.instAll (F₀.type.instL listOccBadSpine.lvls) listOccBadSpine.args k)) := by
+  refine ⟨rfl, rfl, rfl, rfl, rfl, (listOcc_occurs h).toOccurs, listOccBadSpine_occurs h, ?_, ?_⟩
+  · exact fun C₀ hC₀ k F₀ hF₀ =>
+      (ntreeAux_built'' h).fields_noK 1 _ rfl (by decide) C₀ hC₀ k F₀ hF₀
+  · intro hbad
+    exact listOccBadSpine_not_fields_noK
+      (hbad listCons (by rw [show listOccBadSpine.src.ctors = [listNil, listCons] from rfl]; simp)
+        0 _ rfl)
+
+end
+end InductiveDeclExamples
+
+#print axioms Lean4Lean.VInductDecl'.Built''.fields_noK
+#print axioms Lean4Lean.VInductDecl'.Built'.toBuilt''
+#print axioms Lean4Lean.VInductDecl'.Built''.toFresh
+#print axioms Lean4Lean.VInductDecl'.Built''.toFaithful
+#print axioms Lean4Lean.InductiveDeclExamples.ntreeAux_built''
+#print axioms Lean4Lean.InductiveDeclExamples.fields_noK_needs_spine''
+
+/-! ### §8.12 The prerequisite no round named, and why the model could not see it
+
+§7 modelled `Built'` and §8.4 modelled `Built''`, both in **this** file — and a model stated
+downstream of `NestedBuild.lean` has every definition in scope, so neither model can detect a
+module-order obstacle inside `NestedBuild.lean`.  There was one, and it applies to *both*
+candidate clauses:
+
+> `VEnv.KHyg` and `VInductDecl'.KFresh` each mention `VEnv.ConstsClosedC`, and
+> `NestedBuild.lean` defined `VEnv.ConstsClosedC` at §F2.1 — **after** `VInductDecl'.Built`.  A
+> field of `Built` can only mention what precedes `Built`, so until `ConstsClosedC` was lifted,
+> neither clause could be a field of `Built` at all.
+
+Measured, not reasoned: placing `KFresh` above `Built` with `ConstsClosedC` left at §F2.1 produced
+four `invalidField` errors and turned two theorems `sorryAx`-tainted.  `NestedBuild.lean` now
+declares `VEnv.ConstsClosedC` and `VInductDecl'.KFresh` in Part 6 immediately above `Built`, with
+`KFresh`'s three theorems left at §F5 where `VNestedOcc.fields_noK_of_occurs` is in scope.  That is
+a pure relocation: no statement changed, and the full build is green.
+
+One consequence of the split is worth stating because it is part of the removal's diff:
+`VInductDecl'.Built.toFresh` sits *between* `Built` and §F5, so it cannot read the replacement
+projection and the removal must move it below §F5 or delete it.  **Delete it**: measured against
+the compiled environment, `Built.toFresh` has zero users — its only occurrence is its own
+declaration.  §7.2 and §8.7 port it only to show the port is free. -/
+
 end Lean4Lean
