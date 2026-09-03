@@ -21,6 +21,22 @@ It imports `Experimental.ConeJoin`, which pulls both the Theory and Verify cones
 into one environment — so a collision between those two halves shows up as an
 import error here rather than as a silent wall. Names reported below are ones
 declared in more than one *source module* within that closure.
+
+**LIMITATION, and it has now cost a fourth occurrence (2026-09-03).** "That
+closure" is a FIXED import list, so this script is blind to every module outside
+it — which on 2026-09-03 was 21 orphan modules, i.e. modules built by the
+lakefile globs and imported by nothing. `VEnv.sortPiEnv` was declared twice,
+`Theory/Typing/SortClauses.lean:132` and `Theory/Typing/ForallInvPrice.lean:152`,
+with DIFFERENT definitions, and this script reported nothing because neither
+module is in its closure.
+
+What found it: `scripts/sorry-census-all.lean`, which takes its population from
+the filesystem and imports the whole default-target set at once. A duplicate name
+manifests there as exactly the `environment already contains` failure this script
+was written to provoke — so **that script is now the more complete detector of
+this class, and this one is the more informative report when the pair is inside
+its closure.** Run the census first. The fourth occurrence was fixed by renaming
+the newcomer to `rogueSortPiEnv`.
 -/
 import Lean4Lean.Verify.Guard
 import Lean4Lean.Experimental.ConeJoin

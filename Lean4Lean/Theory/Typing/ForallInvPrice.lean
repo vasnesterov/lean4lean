@@ -41,11 +41,11 @@ an open target (§7, `hyp_inhabited_iff`): the hypothesis of §1 is inhabited **
 well-formed environments.  An *absolute* witness is not offered and, by §3, cannot be offered
 without closing the corner — that is a theorem here, not an excuse.
 
-**§4–§5, the negative control.**  `sortPiEnv` — `InjPiRogue.rogueEnv1` with δ-rules
+**§4–§5, the negative control.**  `rogueSortPiEnv` — `InjPiRogue.rogueEnv1` with δ-rules
 `rogueC ≡ ∀ (_ : Prop), Prop` **and** `rogueC ≡ Prop` — is `Ordered` and refutes
 `ShapeLinkAgree` outright (`not_shapeLinkAgree_sortPiEnv`), through the sort/Π entry.  So §1 is
 not a tautology of the definitions and `VEnv.WF` is load-bearing in it.  §5 proves
-`¬ VEnv.WF sortPiEnv` (two δ-rules share an lhs, `DeltaUnique.WF.defEqHeadsUnique`), so the
+`¬ VEnv.WF rogueSortPiEnv` (two δ-rules share an lhs, `DeltaUnique.WF.defEqHeadsUnique`), so the
 control is a control and **not** a refutation of the corner — the same discipline
 `InjPiRogue.not_wf_roguePiEnv` observes for its own witness.
 
@@ -149,34 +149,43 @@ end Audit
 def rogueDfSort : VDefEq := ⟨0, .const rogueC [], .sort .zero, .sort (.succ .zero)⟩
 
 /-- `rogueC : Sort 1` with two δ-rules: `rogueC ≡ ∀ (_ : Prop), Prop` and `rogueC ≡ Prop`. -/
-def sortPiEnv : VEnv := (rogueEnv1.addDefEq rogueDf1).addDefEq rogueDfSort
+-- Renamed from `sortPiEnv` on 2026-09-03: that name is ALREADY TAKEN by a different
+-- environment at `Theory/Typing/SortClauses.lean:132` (`VEnv.empty.addDefEq sortPiRule`).
+-- Both live in namespace `Lean4Lean.VEnv`, so any module importing both fails with
+-- `environment already contains`.  `lake build` never caught it because no module imports
+-- both closures; `scripts/sorry-census-all.lean`, which imports the whole default-target
+-- population at once, did.  The derived theorem names (`not_wf_sortPiEnv`,
+-- `ordered_sortPiEnv`, ...) deliberately keep their old spelling: they do not collide
+-- (SortClauses uses `sortPiEnv_not_wf`/`sortPiEnv_ordered`), and they are cited by name in
+-- the vacuity ledger and in PR #44.
+def rogueSortPiEnv : VEnv := (rogueEnv1.addDefEq rogueDf1).addDefEq rogueDfSort
 
-theorem ordered_sortPiEnv : Ordered sortPiEnv :=
+theorem ordered_sortPiEnv : Ordered rogueSortPiEnv :=
   .defeq (.defeq ordered_rogueEnv1 ⟨rogueC_type rogueEnv1_constants, roguePi1_type⟩)
     ⟨rogueC_type rogueEnv1_constants, roguePropType⟩
 
-theorem sortPiEnv_defeqs1 : sortPiEnv.defeqs rogueDf1 := by
-  simp [sortPiEnv, VEnv.addDefEq, rogueEnv1]
+theorem sortPiEnv_defeqs1 : rogueSortPiEnv.defeqs rogueDf1 := by
+  simp [rogueSortPiEnv, VEnv.addDefEq, rogueEnv1]
 
-theorem sortPiEnv_defeqsS : sortPiEnv.defeqs rogueDfSort := by
-  simp [sortPiEnv, VEnv.addDefEq, rogueEnv1]
+theorem sortPiEnv_defeqsS : rogueSortPiEnv.defeqs rogueDfSort := by
+  simp [rogueSortPiEnv, VEnv.addDefEq, rogueEnv1]
 
 theorem sortPi_link :
-    sortPiEnv.IsDefEqStrong 0 [] (.sort .zero) roguePi1 (.sort (.succ .zero)) := by
-  have h1 := IsDefEq.extra (env := sortPiEnv) (uvars := 0) (Γ := ([] : List VExpr))
+    rogueSortPiEnv.IsDefEqStrong 0 [] (.sort .zero) roguePi1 (.sort (.succ .zero)) := by
+  have h1 := IsDefEq.extra (env := rogueSortPiEnv) (uvars := 0) (Γ := ([] : List VExpr))
     (ls := []) (df := rogueDfSort) sortPiEnv_defeqsS (by simp) rfl
-  have h2 := IsDefEq.extra (env := sortPiEnv) (uvars := 0) (Γ := ([] : List VExpr))
+  have h2 := IsDefEq.extra (env := rogueSortPiEnv) (uvars := 0) (Γ := ([] : List VExpr))
     (ls := []) (df := rogueDf1) sortPiEnv_defeqs1 (by simp) rfl
   simp [rogueDfSort, rogueDf1, roguePi1, VExpr.instL, VLevel.inst] at h1 h2
   exact (h1.symm.trans h2).strong ordered_sortPiEnv trivial
 
 /-- **The negative control.**  `ShapeLinkAgree` is *false* at an `Ordered` environment, so §1 is
 not a tautology of the definitions and `VEnv.WF` is load-bearing in it. -/
-theorem not_shapeLinkAgree_sortPiEnv : ¬ ShapeLinkAgree sortPiEnv 0 := fun H =>
+theorem not_shapeLinkAgree_sortPiEnv : ¬ ShapeLinkAgree rogueSortPiEnv 0 := fun H =>
   H (Γ := []) (s₁ := .sort .zero) (s₂ := .pi (.sort .zero) (.sort .zero)) trivial sortPi_link
 
 /-- The same for the sort/Π coordinate on its own. -/
-theorem not_sortPiDisjUC_sortPiEnv : ¬ SortPiDisjUC sortPiEnv 0 := fun H =>
+theorem not_sortPiDisjUC_sortPiEnv : ¬ SortPiDisjUC rogueSortPiEnv 0 := fun H =>
   H (Γ := []) trivial sortPi_link
 
 section Audit
@@ -186,19 +195,19 @@ section Audit
 #print axioms Lean4Lean.VEnv.not_sortPiDisjUC_sortPiEnv
 end Audit
 
-/-! ## §5 The control is a control, not a refutation: `sortPiEnv` is not `VEnv.WF` -/
+/-! ## §5 The control is a control, not a refutation: `rogueSortPiEnv` is not `VEnv.WF` -/
 
 theorem sortPi_rules_share_lhs : rogueDf1.lhs = rogueDfSort.lhs ∧ rogueDf1 ≠ rogueDfSort := by
   refine ⟨rfl, fun h => ?_⟩
   simp [rogueDf1, rogueDfSort, roguePi1] at h
 
-theorem not_defEqHeadsUnique_sortPiEnv : ¬ sortPiEnv.DefEqHeadsUnique := fun H =>
+theorem not_defEqHeadsUnique_sortPiEnv : ¬ rogueSortPiEnv.DefEqHeadsUnique := fun H =>
   sortPi_rules_share_lhs.2
     (H _ _ rogueC sortPiEnv_defeqs1 sortPiEnv_defeqsS ⟨[], rfl⟩ ⟨[], rfl⟩)
 
 /-- So §4 refutes the hypothesis only *off* `VEnv.WF`, exactly as `InjPiRogue.lean`'s
 `not_wf_roguePiEnv` does for its own witness.  Nothing here refutes the corner. -/
-theorem not_wf_sortPiEnv : ¬ VEnv.WF sortPiEnv :=
+theorem not_wf_sortPiEnv : ¬ VEnv.WF rogueSortPiEnv :=
   fun h => not_defEqHeadsUnique_sortPiEnv h.defEqHeadsUnique
 
 /-! ## §6 The substitution, in the sorry's own shape -/

@@ -80,7 +80,7 @@ A refutation needs a `VEnv.WF` environment.  Such environments **are** construct
 
 ## §5 Negative controls
 
-* `not_sortPiMid_sortPiEnv`: `SortPiMid` is **false** at `ForallInvPrice.sortPiEnv`, and the
+* `not_sortPiMid_sortPiEnv`: `SortPiMid` is **false** at `ForallInvPrice.rogueSortPiEnv`, and the
   refuting midpoint is a genuine shapeless one (`.const rogueC []`), so §2's hypothesis has content
   and is not an artefact of the midpoint condition.
 * `not_wf_sortPiEnv` (`ForallInvPrice` §5) proves that environment is not `VEnv.WF`, so the control
@@ -348,16 +348,16 @@ theorem wf_witness_exists : ∃ env : VEnv, VEnv.WF env := ⟨wfPiEnv, wf_wfPiEn
 
 /-! ## §5 Negative controls -/
 
-/-- The two δ-rule links of `ForallInvPrice.sortPiEnv`, separated: `Sort 0 ≡ rogueC` and
+/-- The two δ-rule links of `ForallInvPrice.rogueSortPiEnv`, separated: `Sort 0 ≡ rogueC` and
 `rogueC ≡ ∀ (_ : Prop), Prop`, both at the type `Sort 1`.  The midpoint `.const rogueC []` is
 **shapeless** — neither a sort nor a Π syntactically — which is what makes the next theorem a
 control on `SortPiMid` rather than on the target. -/
 theorem sortPi_links :
-    sortPiEnv.IsDefEqStrong 0 [] (.sort .zero) (.const rogueC []) (.sort (.succ .zero)) ∧
-    sortPiEnv.IsDefEqStrong 0 [] (.const rogueC []) roguePi1 (.sort (.succ .zero)) := by
-  have h1 := IsDefEq.extra (env := sortPiEnv) (uvars := 0) (Γ := ([] : List VExpr))
+    rogueSortPiEnv.IsDefEqStrong 0 [] (.sort .zero) (.const rogueC []) (.sort (.succ .zero)) ∧
+    rogueSortPiEnv.IsDefEqStrong 0 [] (.const rogueC []) roguePi1 (.sort (.succ .zero)) := by
+  have h1 := IsDefEq.extra (env := rogueSortPiEnv) (uvars := 0) (Γ := ([] : List VExpr))
     (ls := []) (df := rogueDfSort) sortPiEnv_defeqsS (by simp) rfl
-  have h2 := IsDefEq.extra (env := sortPiEnv) (uvars := 0) (Γ := ([] : List VExpr))
+  have h2 := IsDefEq.extra (env := rogueSortPiEnv) (uvars := 0) (Γ := ([] : List VExpr))
     (ls := []) (df := rogueDf1) sortPiEnv_defeqs1 (by simp) rfl
   simp [rogueDfSort, rogueDf1, roguePi1, VExpr.instL, VLevel.inst] at h1 h2
   exact ⟨(h1.symm.strong ordered_sortPiEnv trivial), (h2.strong ordered_sortPiEnv trivial)⟩
@@ -365,21 +365,21 @@ theorem sortPi_links :
 /-- **The control for §2.**  `SortPiMid` is false at an `Ordered` environment, at a genuinely
 shapeless midpoint — so the hypothesis of `sortPiDisjUC_of_sortPiMid` is not an artefact of its
 midpoint side conditions, and `VEnv.WF` is load-bearing there. -/
-theorem not_sortPiMid_sortPiEnv : ¬ SortPiMid sortPiEnv 0 := fun H =>
+theorem not_sortPiMid_sortPiEnv : ¬ SortPiMid rogueSortPiEnv 0 := fun H =>
   H (Γ := []) (M := .const rogueC []) trivial (by rintro c ⟨⟩) (by rintro D E ⟨⟩)
     sortPi_links.1 sortPi_links.2
 
 /-- **The control is a control.**  `ForallInvPrice.not_wf_sortPiEnv` — two δ-rules share an lhs —
 so §5 refutes the hypothesis only *off* `VEnv.WF` and nothing here refutes the coordinate. -/
-theorem control_is_control : ¬ VEnv.WF sortPiEnv := not_wf_sortPiEnv
+theorem control_is_control : ¬ VEnv.WF rogueSortPiEnv := not_wf_sortPiEnv
 
 /-- **The degenerate-instance check** (`docs/vacuity-ledger.md` §0, blindness seven): the premise
 class of `SortPiDisjUC` is non-empty at `Γ = []`, so the statement is not true-because-empty at the
 instance everything else in this corner is tested at.  At a `VEnv.WF` environment it had better be
-empty — that is what the coordinate says — which is why this control is run at `sortPiEnv`. -/
+empty — that is what the coordinate says — which is why this control is run at `rogueSortPiEnv`. -/
 theorem sortPi_premises_fire :
-    CtxStrong sortPiEnv 0 [] ∧
-    sortPiEnv.IsDefEqStrong 0 [] (.sort .zero) (.forallE (.sort .zero) (.sort .zero))
+    CtxStrong rogueSortPiEnv 0 [] ∧
+    rogueSortPiEnv.IsDefEqStrong 0 [] (.sort .zero) (.forallE (.sort .zero) (.sort .zero))
       (.sort (.succ .zero)) :=
   ⟨trivial, sortPi_link⟩
 
