@@ -1029,3 +1029,416 @@ must move into `ChurchRosser.lean` or into a file both import).
 * Do not instantiate `NormalEqComplete` from `IsDefEq.church_rosser` as it stands (§6.4).
 * Do not claim the hole closed from round 6: `PiDescend` is the remaining obligation, and
   `ParRed.weakN_inv` is the remaining cycle entry.
+
+---
+
+# Round 7 (2026-09-03) — the projection corner needs only the **typing** half, and the restructure is machine-checked
+
+New files, both owned by this stream:
+
+* `Lean4Lean/Theory/Typing/WeakNProjGate.lean` — 18 source declarations (26 constants with
+  equation-compiler auxiliaries), no `sorry`.
+* `Lean4Lean/Theory/Typing/WeakNProjSwap.lean` — 5 source declarations, no `sorry`.
+  **This one imports `Lean4Lean.Verify.Typing.ProjGenSwap` from a `Theory/` module, which is
+  backwards.**  It is a verification harness for §7.4's edit, deliberately separate so it can be
+  deleted at any time with no loss to `WeakNProjGate.lean`; delete it or move it into
+  `Verify/Typing/` when the edit lands.
+
+Marks as elsewhere in this document: **[measured]** = a run reproduced here, **[read]** = read off
+source, **[analysis]** = neither.
+
+## 7.0 Verdict
+
+**The hole is not closed and not refuted.**  Nothing here removes a `sorry`; the census is
+unchanged (see the caveat in §7.5 — the census script could not run this round, for a reason
+outside this stream).
+
+What is settled:
+
+1. **The whole projection corner — `TrProj.wf`, wall 2 (`VEnv.IsStructureG.projTermG_hasType`)
+   and its firing witness — reaches this hole only through the *typing* wrappers.**  Its entire
+   dependence is **four call sites, all in `Verify/Typing/ProjSkip.lean`** **[measured, §7.1]**.
+   So the corner is unblocked by `PiDescend` alone; the narrow `trans` residual is **not** on its
+   route.
+2. **One of those four call sites is spurious** — `OnCtx.of_appendTele` appeals to
+   `OnCtx.weakN_inv` at `k = 0`, where the "strengthening" is just dropping an appended block: a
+   two-line list induction with no `VEnv.WF`, no hypothesis and no hole
+   (`VEnv.onCtx_of_appendL`) **[machine-checked]**.
+3. **The restructure costs no new hole.**  The obvious substitution —
+   `StrengthenNarrow.lean` §5's `TypingStrengthening.{onCtx_inv, isType_inv, hasType_inv}` — would
+   trade the hole `weakN_iff` for the hole `WF.rigidShapeUniqNS`, because those go through
+   `TypingStrengthening.typed`, hence `IsDefEqU.forallE_inv` **[measured, §7.2]**.  §1–§3 of
+   `WeakNProjGate.lean` avoid that: `OnCtx`/`IsType` descent from the typing half is
+   **hole-free**, and the sort-typed `HasType` descent the corner actually uses costs only
+   `IsDefEqU.forallE_inv_stratified`, which the corner already carries.
+4. **Machine-checked end to end at the crux**: `ftype_hasType_swappedGT`
+   (`WeakNProjSwap.lean`) is `ftype_hasType_swappedG`'s statement verbatim plus
+   `(HT : TypingStrengthening env U)`, and `IsDefEqU.weakN_iff` is **absent from its cone**
+   (cone 3536 vs the original's 3535 — the same proof, not a detour) **[measured]**.
+5. **Globally the conversion half is still the bottleneck**, so this does not overturn §5.3:
+   319 transitive users, **260** still reach the hole with the ten typing gates cut **[measured]**.
+
+The one-line consequence for planning: **proving `PiDescend` does nothing for the projection
+corner until §7.4's edit is applied, and after it is applied `PiDescend` alone frees the whole
+corner.**  Those two halves have to be scheduled together.
+
+## 7.1 The measurements
+
+Instrument: `deps` = `getUsedConstantsAsSet` over type **and** value with
+`allowOpaque := true`, i.e. `scripts/hole-cone.lean`'s walker.  Two graph operations: reverse
+reachability with a *cut set* (a cut node is reached but does not propagate), and forward cones.
+`scripts/` is not this stream's to edit, so the scripts lived in `/tmp/weakn7/`; the reusable
+core is reproduced in §7.9.  **Import closure** (this matters — a module outside it counts as zero):
+`Verify.Guard`, `Experimental.ConeJoin`, `Theory.Typing.StrengthenNarrow`,
+`Verify.Typing.ProjGenTerm`, `Verify.TypeChecker.ProjGenTermWitness`,
+`Verify.Typing.ProjWeakInvSplit`.  Gate set = `scripts/weakn-gate-split.lean`'s ten
+`typingGates`.
+
+**(a) Global split, re-measured in that closure** — 24442 graph nodes, 20719 non-internal:
+
+```
+transitive users (all)                  : 319
+still reach it with typing gates cut    : 260
+freed by the typing half alone          :  59
+```
+
+Compare `scripts/weakn-gate-split.lean`'s **296 / 250 / 46** at `d67375b`: the difference is the
+closure (that script does not import the projection modules), not a change in the tree.  Both
+say the same thing — the typing half frees a minority.  Top modules among the 260 survivors:
+`Verify.Primitive` 29/29, `Verify.TypeChecker.IsDefEq` 21/22, `Verify.Typing.Lemmas` 20/30,
+`Theory.Typing.ChurchRosser` 13/13, `Verify.Typing.ConstSpine` 11/11, `Theory.Typing.KMeasure`
+11/11, `UniqueTyping` 11/14.  `Verify.Typing.ProjGenTerm` does **not** appear: 0 survivors.
+
+**(b) The projection corner.**  Seeds: every non-internal declaration of
+`Verify.Typing.{ProjGenTerm,ProjSkip,ProjGenSwap,ProjWeakInv,ProjWeakInvSplit}` and
+`Verify.TypeChecker.ProjGenTermWitness` (197 seeds), plus `TrProj.wf`, `TrProj.weak'_inv`,
+`VEnv.HasType.{swapCtx,swapTele}`, `OnCtx.swapCtx`, `VEnv.IsStructureG.projTermG_hasType`:
+
+```
+seeds reaching the hole                 : 32
+still reaching with typing gates cut    :  3
+freed by the typing half                : 29
+still reaching: TrProj.weak'_inv_of_constRigid,
+                constAppDefeqStrengthenInh_of_constRigid,
+                constAppDefeqStrengthenRF_of_constRigid
+```
+
+The three survivors are the `constRigid` line of `ProjWeakInv{,Split}.lean` — the
+`ConstAppDefeqStrengthen` residual, which `docs/handoff-trproj-weakinv.md` §3 already argues is
+**not in the strengthening family at all**.  `TrProj.weak'_inv` itself reaches the hole *not at
+all*: it is its own `sorry`.
+
+**(c) Routes.**  In the cone of each of `TrProj.wf` (5091), `projTermG_hasType` (5271),
+`projTerm_hasType` (5082) and `MutField.projTermG_hasType_at_mutual`, the **only** direct user of
+`IsDefEqU.weakN_iff` is `VEnv.IsDefEq.weakN_iff'` — and `weakN_iff'` is reached only through
+`HasType.weakN_iff` / `IsType.weakN_iff` / `OnCtx.weakN_inv`, which are its own wrappers
+(`UniqueTyping.lean:229-242`) **[measured + read]**.
+
+**(d) The four call sites.**  Declarations in the corner's modules whose direct dependencies
+contain a gate, **internal names included**:
+
+```
+ProjSkip :: OnCtx.of_appendTele            -> OnCtx.weakN_inv
+ProjSkip :: VEnv.HasType.swapSkipped       -> VEnv.HasType.weakN_iff
+ProjSkip :: OnCtx.swapCtx._f               -> OnCtx.weakN_inv
+ProjSkip :: VEnv.HasType.swapCtx._f        -> OnCtx.weakN_inv
+Verify.Typing.Lemmas :: VLocalDecl.weakN_iff, VLocalDecl.weak'_iff,
+                        HasType.skips, TrExprS.weakFV'_inv        (other routes)
+```
+
+and a per-seed check confirms the corner uses the first four and **none** of the four in
+`Verify/Typing/Lemmas.lean` **[measured]**.
+
+> **Trap, hit again, in a new script, on the same day it was documented.**  My first version of
+> (d) skipped internal names and reported **6** sites, missing `OnCtx.swapCtx._f` and
+> `VEnv.HasType.swapCtx._f` — the equation-compiler bodies of the two structurally recursive
+> `swapCtx`es, i.e. exactly the two sites that matter most.  This is §5.3's bug in a third
+> instrument.  **Any scan of "who calls what" in this tree must keep internal names as nodes.**
+
+**(e) Uses of the swap, by type.**  `VEnv.HasType.swapCtx` has exactly two non-witness callers,
+`ftype_hasType_swapped` (`ProjSkip.lean:615`, the call at `:629`) and
+`ftype_hasType_swappedG` (`ProjGenSwap.lean:52`, the call at `:64`), and **both use it at a sort type** — the conclusion is
+`… ⊢ (C.fields.getD i default).type.instL us : .sort ((C.fields.getD i default).lvl.inst us)`.
+The `bar*` witnesses (`ProjSkip.lean:288,431`) are sort-typed too **[read, all five sites]**.
+That is what makes §7.2's cheap route sufficient.
+
+## 7.2 Why the obvious substitution is a bad trade, and what the file does instead
+
+Hole cones **[measured]**:
+
+| declaration | holes in cone |
+|---|---|
+| `TypingStrengthening.of` | *none* |
+| `TypingStrengthening.sortDescend` | *none* |
+| `IsDefEq.uniq`, `.uniqU`, `IsDefEqU.sort_inv`, `IsDefEqU.defeqDF` | `forallE_inv_stratified` |
+| `TypingStrengthening.typed`, `.onCtx_inv`, `.isType_inv`, `.hasType_inv`, `.wf_inv` | `forallE_inv_stratified`, **`rigidShapeUniqNS`** |
+| `IsDefEqU.forallE_inv`, `SortConvStrengthening.of_typing`, `PiDescend.sortDescend` | `forallE_inv_stratified`, **`rigidShapeUniqNS`** |
+| `TrProj.wf`, `projTermG_hasType` (today) | `weakN_iff`, `forallE_inv_stratified` |
+
+So substituting `StrengthenNarrow.lean` §5's wrappers into the corner would give hole set
+`{forallE_inv_stratified, rigidShapeUniqNS}` — a hole for a hole, plus an open hypothesis.  Not
+progress.
+
+The fix is to route the descent through `SortDescend` rather than through `typed`:
+
+* `TypingStrengthening.typed` upgrades "some type downstairs" to "the given type downstairs" by
+  the ascription-redex trick of `Strengthen.lean` §3, and inverting that redex needs
+  `IsDefEqU.forallE_inv`.  **That is where `rigidShapeUniqNS` enters, and it enters nowhere
+  else on this route.** **[measured]**
+* For a judgement whose type is a **sort**, no upgrade is needed: `SortDescend` produces a sort
+  type downstairs directly, and `TypingStrengthening.sortDescend` supplies `SortDescend` from the
+  typing half **hole-free**.
+* `IsType` leaves the level existential, so `IsType`/`OnCtx` descent is *exactly* what
+  `SortDescend` returns — hole-free, both of them.
+* Only pinning the **level** (which the corner needs: the stored `lvl.inst us`) costs anything,
+  and it costs `IsDefEqU.sort_inv`, i.e. `forallE_inv_stratified` — **already** in the corner's
+  cone.
+
+`hasType_inv` at a general type still costs `rigidShapeUniqNS`
+(`TypingStrengthening.hasType_swapSkipped`, §4 of the file, kept for contrast); by §7.1(e) the
+corner never needs it.  **[analysis, on the "you cannot use a conversion without inverting the
+type former" argument; measured, on every cone quoted]**
+
+## 7.3 What is machine-checked
+
+`Lean4Lean/Theory/Typing/WeakNProjGate.lean` (namespace `Lean4Lean.VEnv`):
+
+| name | statement | axioms | holes |
+|---|---|---|---|
+| `onCtx_of_appendL` | `OnCtx (As ++ Γ) P → OnCtx Γ P` | none | none |
+| `onCtx_of_appendTele_free` | `ProjSkip.OnCtx.of_appendTele`'s statement, **without `VEnv.WF`** | none | none |
+| `TypingStrengthening.onCtx_isType_inv` | `OnCtx` descent **and** `IsType` descent, together (one induction) | `propext, Quot.sound, Classical.choice` | **none** |
+| `TypingStrengthening.onCtx_inv'` | `OnCtx.weakN_inv` from the typing half | same | **none** |
+| `TypingStrengthening.isType_inv'`, `.isType_weakN_iff'` | `IsType.weakN_iff`, forward and as an `iff` | same | **none** |
+| `TypingStrengthening.hasType_sort_inv` | `HasType.weakN_iff` forward **at a sort type, level preserved** | + `sorryAx` | `forallE_inv_stratified` |
+| `TypingStrengthening.hasType_sort_swapSkipped`, `_one` | `ProjSkip.VEnv.HasType.swapSkipped{,_one}` at a sort type | + `sorryAx` | `forallE_inv_stratified` |
+| `TypingStrengthening.hasType_sort_swapTele` | `ProjSkip.VEnv.HasType.swapTele` at a sort type | + `sorryAx` | `forallE_inv_stratified` |
+| `TypingStrengthening.hasType_swapSkipped` | the **general** swap, for contrast | + `sorryAx` | `forallE_inv_stratified`, `rigidShapeUniqNS` |
+| `exists_typingStrengthening_env` | **the hypothesis is inhabited** at a `VEnv.WF` env, every `U` | `propext, Quot.sound, Classical.choice` | **none** |
+| `exists_env_hasType_sort_swapSkipped_one` | …and the swap holds there unconditionally, ∀ `U Γ A A' b u` | + `sorryAx` | `forallE_inv_stratified` |
+| `bvar0_not_liftN_one`, `liftN_zero_ctx_eq`, `liftN_ctx_length`, `not_liftN_swap`, `hasType_sort_swapSkipped_zero` | the negative controls (§7.5) | ≤ `propext, Quot.sound, Classical.choice` | none |
+
+`Lean4Lean/Theory/Typing/WeakNProjSwap.lean` (namespace `Lean4Lean`) — the harness:
+
+| name | = | `weakN_iff` in cone | holes |
+|---|---|---|---|
+| `VEnv.HasType.swapTeleT` | `swapTele` + `HT`, sort-typed | **no** | `forallE_inv_stratified` |
+| `OnCtx.swapCtxT` | `OnCtx.swapCtx` + `HT`, verbatim | **no** | **none** |
+| `VEnv.HasType.swapCtxT` | `VEnv.HasType.swapCtx` + `HT`, sort-typed | **no** | `forallE_inv_stratified` |
+| `ftype_hasType_swappedGT` | **the corner's crux**, `ftype_hasType_swappedG` + `HT`, verbatim otherwise | **no** (cone 3536 vs 3535) | `forallE_inv_stratified` |
+| `onCtxFields_swappedGT` | the `OnCtx` companion `ProjGenSwap.lean:139` needs | **no** | **none** |
+
+`lake build` green on both modules; `scripts/dup-names.lean` with each of them added to the
+joined cone: **no duplicates** **[measured, twice]**.  Every row's axiom column was produced by
+`#print axioms` on the fully qualified name, read off the files' own `namespace` lines
+(`Lean4Lean` + `VEnv` for `WeakNProjGate`, `Lean4Lean` only for `WeakNProjSwap`) — all 19 names
+resolved, none reported `unknown constant` **[measured]**.
+
+**Honesty, in the terms this document uses.**  Nothing above is *discharged*: §1's results are
+conditional on an open hypothesis, and §2–§4's carry `sorryAx` through
+`IsDefEqU.forallE_inv_stratified` (a hole owned by another stream).  "`weakN_iff` absent from the
+cone" is not "hole-free".
+
+## 7.4 The edit, exactly — `Verify/Typing/ProjSkip.lean`, four sites
+
+Not this stream's file.  All four are in `ProjSkip.lean`; each is a body replacement plus, for
+three of them, one added hypothesis `(HT : VEnv.TypingStrengthening env U)` threaded to the
+callers (`ftype_hasType_swapped`, `ftype_hasType_swappedG`, `VIndCtor.swapDataG`, and onward to
+`projTermG_hasType` / `TrProj.wf`).
+
+1. **`OnCtx.of_appendTele` (`:327`)** — drop `henv`, body becomes the list induction:
+   `VEnv.onCtx_of_appendL`.  No hypothesis, no hole.  *This one is free and independent of
+   everything else.*
+2. **`VEnv.HasType.swapSkipped` (`:156`)** — add `HT`, restrict `B` to `.sort u`, body becomes
+   `VEnv.TypingStrengthening.hasType_sort_swapSkipped`.  (`swapSkipped_one` likewise.)
+3. **`OnCtx.swapCtx` (`:360`)** — add `HT`; replace its `OnCtx.weakN_inv` by `HT.onCtx_inv'` and
+   its `OnCtx.of_appendTele` by `VEnv.onCtx_of_appendL`.  Proved: `OnCtx.swapCtxT`, hole-free.
+4. **`VEnv.HasType.swapCtx` (`:332`) and `.swapTele` (`:245`)** — add `HT`, restrict `B` to
+   `.sort u`, same two replacements inside.  Proved: `VEnv.HasType.swapCtxT`, `.swapTeleT`.
+
+`WeakNProjSwap.lean` *is* those four, elaborated, plus the crux they feed
+(`ftype_hasType_swappedGT`).  The `B := .sort u` restriction is safe by §7.1(e): every existing
+caller is sort-typed.  If a future caller needs a general `B`, `hasType_swapSkipped` (§4 of
+`WeakNProjGate.lean`) covers it at the price of `rigidShapeUniqNS`.
+
+After the edit the corner's hole set is `{forallE_inv_stratified}` plus the hypothesis
+`TypingStrengthening` ⟺ `PiDescend` — whose discharge site is
+`Strengthen.lean`'s `TypingStrengthening.iff_piDescend` / `TypingStrengthening.of`, i.e. **shape
+descent, and nothing about `trans`.**
+
+## 7.5 Anti-vacuity
+
+* **The hypothesis is inhabited**: `exists_typingStrengthening_env` **[machine-checked,
+  hole-free]** — a `VEnv.WF` environment satisfying `TypingStrengthening` at every `U`, via
+  `StrengthenVerdict.lean`'s `exists_univInhabEnv` and `StrengtheningTarget → Strengthening →
+  TypingStrengthening`.  **Read §3's scope statement with it**: that environment declares
+  `univInhab : ∀ (α : Sort u), α`, so it is inconsistent and (by
+  `univInhab_no_uninhabited_entry`) has no uninhabited context entry, which is precisely the case
+  `Strengthen.lean` §1 already closes.  It is a *satisfiability* witness — the hypothesis is not
+  contradictory — and nothing more.  `exists_env_hasType_sort_swapSkipped_one` fires the swap
+  there with **every** hypothesis discharged and quantified over `U`, `Γ`, both binder types, the
+  subject and the level; the conclusion at that environment is also independently provable, so
+  that firing shows satisfiability, not content.
+* **Quantification.**  Everything in `WeakNProjGate.lean` is quantified over `env`, `U`, `n`,
+  `k`, both contexts, the terms and the levels; only the inhabitation results choose an
+  environment, and they must (the hypothesis is open in general).
+* **Negative controls** **[machine-checked]**:
+  (a) `bvar0_not_liftN_one` — `.bvar 0` is not in the image of `liftN 1 · 0`, so the swap's
+  "subject is a lift" hypothesis is a *proper* restriction: the lemma is not the (false) claim
+  that every judgement survives a binder change.
+  (b) `liftN_zero_ctx_eq` + `liftN_ctx_length` + `not_liftN_swap` — once the two binders differ,
+  the swap's source and target contexts are related by **no** `Ctx.LiftN` whatsoever, so the
+  transport is genuinely not weakening and no composition of weakenings replaces it.
+  (c) `hasType_sort_swapSkipped_zero` — at `n = 0` the conclusion *is* the hypothesis, so all
+  content lives at `n ≥ 1` (the `vacuous_at_zero` discipline of §5.1).
+* **What is missing, and it is missing for a reason already recorded.**  There is no `⊬` control
+  here — no witness at which the swap *fails* — because §A.2's census found the tree's 31
+  non-derivability instruments are all head-shape facts and all lift-stable, so none separates
+  two contexts.  I did not re-measure that census; I am relying on it **[read]**.
+* **Census.**  `scripts/sorry-census.lean` **could not run** this round: it fails with
+  `object file … Theory/SetModel/InductOracleWitness.olean … does not exist`, from another
+  stream's in-flight edit under `Theory/SetModel/`.  So "census unchanged" is *not* measured this
+  round.  What is measured: neither new file contains the token `sorry`, and every `sorryAx` in
+  their cones is reached through `IsDefEqU.forallE_inv_stratified` **[measured]**.
+
+## 7.6 Where the brief and earlier rounds are wrong
+
+1. **The brief calls this "the most load-bearing hole in the projection corner".**  Load-bearing
+   yes, but the corner's load is carried entirely by the **typing** half — and the round-5
+   prioritisation the brief inherits (§5.3: *"spend its budget on `TransStrengtheningNarrow`, not
+   on shape descent"*) is therefore **wrong for the projection corner**, while remaining right
+   globally (260 of 319).  Round 5's own §5.5 *"do not expect `PiDescend` to unblock the tree"*
+   should read: *`PiDescend` unblocks the projection corner and nothing else measured so far.*
+2. **"Reduce it, or price it honestly" assumed the price is paid at `weakN_iff`.**  For the
+   corner, one quarter of the price is paid at nothing at all: `OnCtx.of_appendTele` calls the
+   tainted gate where a two-line induction does the job (§7.0(2)).  A gate call is not evidence
+   that strengthening is needed.
+3. **`docs/handoff-trproj-weakinv.md` §0's "the route is closed"** is about
+   `ConstAppDefeqStrengthen`, the residual of `TrProj.weak'_inv` — a *different* statement from
+   `TrProj.wf`'s dependence, and the measurement confirms the separation: those three
+   declarations are exactly the 3 of 32 that the typing half does **not** free (§7.1(b)).  Do not
+   read that verdict as covering `TrProj.wf`.
+4. **`ProjSkip.lean`'s own docstring** (`:49-51`, `:610`) says the swap costs "exactly one
+   `VEnv.HasType.weakN_iff` per swapped binder … an existing hole owned by another stream".  True
+   but overpriced: what it needs is one **sort-typed** typing strengthening per swapped binder,
+   which is a strictly weaker statement, and its `OnCtx` half needs no strengthening beyond
+   `OnCtx` descent, which is hole-free from the typing half (§7.3).
+5. **§6.5's proposed `ChurchRosser.lean` edit** and this round's §7.4 are the same manoeuvre in
+   two places, and both are still unapplied.  Whoever applies one should apply the other.
+
+## 7.7 What was not achieved
+
+* `PiDescend` / `SortDescend` were **not** attacked; the hole's own status is unchanged.  I did
+  not attempt a proof or a refutation of either.
+* The 260 global survivors are untouched.  The conversion half is where they are, and this round
+  says nothing new about it.
+* **A cheaper target than `PiDescend` for the corner does not exist in the obvious place.**
+  `SortDescend` alone is *not* enough for the corner, and the reason is in the definitions:
+  `SortDescend` carries the premise `VExpr.WF env U Γ e` — it presupposes the term is typeable
+  downstairs — whereas `IsType.weakN_iff` must *produce* typeability from nothing.  The producing
+  step is `TypingStrengthening` itself, whose `app` case is the only one that needs `PiDescend`
+  (`Strengthen.lean:395-402`).  So the corner needs full `PiDescend` unless the terms it
+  strengthens are application-free, and field types are not.  **[read, on both definitions;
+  analysis, on the conclusion]**
+* An **inhabited-replacement shortcut does not exist either**, and it is worth recording because
+  it looks obvious: the swap replaces a field binder by the *inhabited* `VExpr.swapUnit`, and
+  `Strengthen.lean` §1's proved half strips *inhabited* entries — but the entry being **stripped**
+  is the field type (arbitrary, possibly uninhabited), and the inhabited term is the one being
+  **inserted**.  Weakening first and substituting afterwards does not help: substituting the
+  field entry needs an inhabitant of it in the smaller context, and substituting the inserted
+  `swapUnit` entry undoes the insertion.  **[analysis]**
+
+## 7.8 What to pick up first
+
+1. **Apply §7.4 site 1 unconditionally.**  `OnCtx.of_appendTele → VEnv.onCtx_of_appendL` needs no
+   hypothesis, removes a gate call, and cannot regress anything.
+2. **Decide whether to apply §7.4 sites 2–4.**  They put `TypingStrengthening` in the projection
+   corner's hypotheses in exchange for removing `weakN_iff` from its cone with no new hole.  This
+   is a scheduling decision, not a mathematical one: it is worth doing exactly if `PiDescend` is
+   going to be attacked.  `WeakNProjSwap.lean` is the proof that the edit elaborates.
+3. **Then attack `PiDescend`, knowing the corner is what it buys.**  Its `app` case is the whole
+   statement (`Strengthen.lean:395`), and §6.2's identity-function encoding is known not to
+   extend to term-level conversions (`sortConv_encoding_vacuous`).
+4. **Do not** re-run the "which users need which half" measurement without internal names in the
+   graph (§7.1's warning), and do not re-attempt anything in §6/§8's do-not lists.
+
+## 7.9 The instrument, reproduced (it is not in `scripts/` — that directory is not this stream's)
+
+Save as a file anywhere and run `lake env lean <file>`.  The `cut` parameter is the whole point:
+a cut node is *reached* but does not propagate, which is what turns "who reaches the hole" into
+"who reaches the hole *other than through the typing wrappers*".  **Keep internal names as graph
+nodes** (§7.1's warning).
+
+```lean
+import Lean4Lean.Verify.Guard
+import Lean4Lean.Experimental.ConeJoin
+import Lean4Lean.Theory.Typing.StrengthenNarrow
+import Lean4Lean.Verify.Typing.ProjGenTerm
+import Lean4Lean.Verify.TypeChecker.ProjGenTermWitness
+import Lean4Lean.Verify.Typing.ProjWeakInvSplit
+open Lean Elab Command
+
+private def depsOf (env : Environment) (n : Name) : NameSet :=
+  match env.find? n with
+  | none => {}
+  | some ci =>
+    let cs := ci.type.getUsedConstantsAsSet
+    match ci with
+    | .thmInfo v => cs.union v.value.getUsedConstantsAsSet
+    | _ => match ci.value? (allowOpaque := true) with
+           | some v => cs.union v.getUsedConstantsAsSet
+           | none => cs
+
+private def hole : Name := ``Lean4Lean.VEnv.IsDefEqU.weakN_iff
+
+private def typingGates : List Name :=          -- = scripts/weakn-gate-split.lean's ten
+  [``Lean4Lean.VEnv.hasType_app_bvar0, ``Lean4Lean.VEnv.HasType.weakN_iff,
+   ``Lean4Lean.VEnv.IsType.weakN_iff, ``Lean4Lean.VExpr.WF.weakN_iff,
+   ``Lean4Lean.OnCtx.weakN_inv, ``Lean4Lean.OnCtx.weak'_inv,
+   ``Lean4Lean.VEnv.HasType.weak'_iff, ``Lean4Lean.VEnv.IsType.weak'_iff,
+   ``Lean4Lean.VExpr.WF.weak'_iff, ``Lean4Lean.VEnv.HasType.skips]
+
+/-- forward cone of `seed`, not traversing *through* members of `cut`. -/
+partial def coneCut (env : Environment) (cut : NameSet) : List Name → NameSet → NameSet
+  | [], seen => seen
+  | n :: rest, seen =>
+    if seen.contains n then coneCut env cut rest seen else
+    let seen := seen.insert n
+    if cut.contains n then coneCut env cut rest seen else
+    coneCut env cut ((depsOf env n).toList ++ rest) seen
+
+run_cmd do
+  let env ← getEnv
+  let gates : NameSet := typingGates.foldl (·.insert ·) {}
+  for g in hole :: typingGates do
+    if (env.find? g).isNone then logError s!"UNRESOLVED {g}"   -- never trust a silent zero
+  for s in [``Lean4Lean.TrProj.wf, ``Lean4Lean.VEnv.IsStructureG.projTermG_hasType] do
+    let now := (coneCut env {} [s] {}).contains hole
+    let cut := (coneCut env gates [s] {}).contains hole
+    logInfo s!"{s}  reaches:{now}  reaches-with-typing-gates-cut:{cut}"
+  -- the four call sites: internal names INCLUDED
+  for (n, _) in env.constants.toList do
+    unless (`Lean4Lean).isPrefixOf n do continue
+    let used := typingGates.filter (depsOf env n).contains
+    unless used.isEmpty do
+      if (coneCut env {} [``Lean4Lean.TrProj.wf] {}).contains n then
+        logInfo s!"   site: {n} -> {used}"
+```
+
+Verbatim output at this round's tree **[measured — this block was extracted from this document
+and run]**:
+
+```
+Lean4Lean.TrProj.wf  reaches:true  reaches-with-typing-gates-cut:false
+Lean4Lean.VEnv.IsStructureG.projTermG_hasType  reaches:true  reaches-with-typing-gates-cut:false
+   site: Lean4Lean.OnCtx.swapCtx._f -> [Lean4Lean.OnCtx.weakN_inv]
+   site: Lean4Lean.VEnv.HasType.swapCtx._f -> [Lean4Lean.OnCtx.weakN_inv]
+   site: Lean4Lean.OnCtx.of_appendTele -> [Lean4Lean.OnCtx.weakN_inv]
+   site: Lean4Lean.VEnv.IsDefEq.weakN_iff -> [Lean4Lean.OnCtx.weakN_inv]
+   site: Lean4Lean.VEnv.HasType.swapSkipped -> [Lean4Lean.VEnv.HasType.weakN_iff]
+```
+
+Five rows, **four** of them the edit sites of §7.4 (all in `ProjSkip.lean`).  The fifth,
+`VEnv.IsDefEq.weakN_iff`, is `UniqueTyping.lean:229`'s own wrapper: it is in the *uncut* cone but
+is reached only *through* `HasType.weakN_iff`, so cutting the gates never visits it and it is not
+a site to edit.  If you want the site list alone, filter the last loop by module.
