@@ -106,7 +106,22 @@ def main (argv : List String) : IO Unit := do
         if (imps.getD m #[]).any (bad.contains ·) then bad := bad.insert m; grew := true
   let mods := built.filter (!bad.contains ·)
   let env ← importModules (mods.map fun m => {module := m}) {}
-  IO.println s!"population: {mods.size} built modules\n"
+  IO.println s!"population: {mods.size} built modules"
+  -- WATCHED DECLARATIONS.  `sorryAx` reachability is NOT enough to police a ban: several
+  -- statements this project forbids are themselves `sorryAx`-free, so a cone can route straight
+  -- through one and still report "hole-free".  `AxiomConservativityWF` is the case that exposed
+  -- it -- a `Prop` definition with a clean cone.  Every "hole-free, therefore clean" verdict I
+  -- issued before this was enforced by stream honesty rather than by measurement.
+  let watchStr := (← IO.getEnv "WATCH").getD (String.intercalate " " [
+    "Lean4Lean.VEnv.HasArgs.of_mkApp", "Lean4Lean.VEnv.IsDefEq.uniq",
+    "Lean4Lean.VEnv.IsDefEq.uniqU", "Lean4Lean.VEnv.AxiomConservativityWF",
+    "Lean4Lean.VEnv.StrengtheningTarget", "Lean4Lean.VEnv.SortWitness"])
+  let watch := (watchStr.splitOn " ").filter (· != "") |>.map fun w =>
+    w.splitOn "." |>.foldl (fun acc c => Name.mkStr acc c) Name.anonymous
+  let (watchOk, watchBad) := watch.partition env.contains
+  if !watchBad.isEmpty then
+    IO.println s!"WATCH NAMES THAT DO NOT RESOLVE (they can never be reported): {watchBad}"
+  IO.println s!"watching {watchOk.length} declarations for cone membership\n"
   for s in names do
     let n := s.splitOn "." |>.foldl (fun acc c => Name.mkStr acc c) Name.anonymous
     match env.find? n with
@@ -136,3 +151,10 @@ def main (argv : List String) : IO Unit := do
           h != ``sorryAx && (match env.find? h with
             | some hi => (deps hi).contains ``sorryAx | none => false)
         IO.println s!"            holes in cone: {holes}"
+      let hits := watchOk.filter c.contains
+      if hits.isEmpty then
+        IO.println s!"            watched declarations in cone: none of {watchOk.length}"
+      else
+        IO.println s!"            *** WATCHED IN CONE: {hits} ***"
+        IO.println s!"            (these are forbidden or load-bearing by policy, NOT holes --"
+        IO.println s!"             a clean sorryAx line does not clear them)"
