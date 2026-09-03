@@ -9,7 +9,9 @@ hypotheses, because `RecTyped.lean` — where their producers live — is a conc
 was mid-edit (`HTeleGen.lean` §5c).  This file is the last link: it imports that file and derives
 the two entry families from (B)'s four **data** families, so that (C) at a whole block stands on
 
-* `MotiveHargs`, `MinorCtorHargs`, `MinorFldDefEq` — obligation (B)'s own data, unchanged;
+* `MotiveHargs`, `MinorCtorHargs`, `MinorFldDefEq` — obligation (B)'s own data (`MinorCtorHargs`
+  is now three components, `docs/handoff-hasdrop.md`, and §1 pays for the dropped `hAs` with the
+  same two decidable side conditions `RecTyped.lean` §5 does);
 * `MinorFldDefEq` at `q = D.nmin` — the one extra instance of a family (B) already has
   (`HTeleGen.lean` §1/§3);
 * `IotaHeadHargs` at the **companion** rules (`HTeleNTree.lean` §2).
@@ -22,7 +24,8 @@ and on nothing else.  `RecBodyHargs`, (B)'s fourth family, is **not** needed: it
 
 **Fragile by construction**: this is the only file of mine that imports a file in flight.  If
 `RecTyped.lean` changes `MotiveHargs`/`MinorCtorHargs`, this file breaks and `HTeleGen.lean` does
-not.
+not — and that is exactly what happened when `MinorCtorHargs` lost `hAs`: this file was one of the
+four error sites and `HTeleGen.lean` was clean.
 -/
 
 namespace Lean4Lean
@@ -85,7 +88,14 @@ theorem iotaMin_of_recHargs
     (hfldD : ∀ (q t : Nat) (C' : VIndCtor), D.ctorsAll[q]? = some (t, C') →
       R.MinorFldDefEq D σ e₂ q C')
     (hminD : ∀ (q t : Nat) (C' : VIndCtor) (T : VIndType), D.ctorsAll[q]? = some (t, C') →
-      D.types[t]? = some T → T.name ∈ K → R.MinorCtorHargs D σ e₂ q t C') :
+      D.types[t]? = some T → T.name ∈ K → R.MinorCtorHargs D σ e₂ q t C')
+    (hσfD : ∀ (q t : Nat) (C' : VIndCtor) (T : VIndType), D.ctorsAll[q]? = some (t, C') →
+      D.types[t]? = some T → T.name ∈ K →
+      (D.atRecTele (C'.fieldTypesR D R)).map (VExpr.substC · σ)
+        = D.atRecTele (C'.fieldTypesR D R))
+    (hclFD : ∀ (q t : Nat) (C' : VIndCtor) (T : VIndType), D.ctorsAll[q]? = some (t, C') →
+      D.types[t]? = some T → T.name ∈ K →
+      VExpr.ClosedTele (D.atRecTele (C'.fieldTypesR D R)) D.np) :
     ∀ (q t : Nat) (C' : VIndCtor), D.ctorsAll[q]? = some (t, C') → ∃ u,
       e₂.IsDefEq D.recUvars
         (((D.minors.map (VExpr.substC · σ)).take q).reverse
@@ -103,10 +113,13 @@ theorem iotaMin_of_recHargs
   have hqlt : q < D.minors.length := by
     simpa using (List.getElem?_eq_some_iff.1 hq).1
   by_cases hKt : T.name ∈ K
-  · obtain ⟨As, B, B', hcbody, hpi, hAs, hfun⟩ := hminD q t C' T hq hT hKt
+  · obtain ⟨B, hcbody, hpi, hfun⟩ := hminD q t C' T hq hT hKt
     exact minorEntry_defeq_of_hargs henv hD hfresh he₂ hσ hσc hfr hat
       (VInductDecl'.getD_types hT) (hrec t T hT) hT hKt hC' hq hqlt (hcl t)
-      (hfldD q t C' hq) hcbody hpi hAs hfun
+      (hfldD q t C' hq) hcbody hpi
+      (minorCtor_hAs he₂ (hfldD q t C' hq)
+        (VInductDecl'.atRecTele_params_substC_eq henv hD hfresh)
+        (hσfD q t C' T hq hT hKt) (hclFD q t C' T hq hT hKt)) hfun
   · exact minorEntry_defeq_off_K he₂ hσ hσc hown
       (VInductDecl'.getD_types hT) (hrec t T hT) hT hKt hC' hq hqlt (hfldD q t C' hq)
 
@@ -138,6 +151,13 @@ theorem hdata_of_recHargs_and_heads
       R.MinorFldDefEq D σ e q C')
     (hminD : ∀ (q t : Nat) (C' : VIndCtor) (T : VIndType), D.ctorsAll[q]? = some (t, C') →
       D.types[t]? = some T → T.name ∈ K → R.MinorCtorHargs D σ e q t C')
+    (hσfD : ∀ (q t : Nat) (C' : VIndCtor) (T : VIndType), D.ctorsAll[q]? = some (t, C') →
+      D.types[t]? = some T → T.name ∈ K →
+      (D.atRecTele (C'.fieldTypesR D R)).map (VExpr.substC · σ)
+        = D.atRecTele (C'.fieldTypesR D R))
+    (hclFD : ∀ (q t : Nat) (C' : VIndCtor) (T : VIndType), D.ctorsAll[q]? = some (t, C') →
+      D.types[t]? = some T → T.name ∈ K →
+      VExpr.ClosedTele (D.atRecTele (C'.fieldTypesR D R)) D.np)
     (hfldI : ∀ (q t : Nat) (C' : VIndCtor), D.ctorsAll[q]? = some (t, C') →
       R.MinorFldDefEq D σ e D.nmin C')
     (hheadD : ∀ (q j : Nat) (C : VIndCtor) (T : VIndType), D.ctorsAll[q]? = some (j, C) →
@@ -145,7 +165,7 @@ theorem hdata_of_recHargs_and_heads
     ∀ (q j : Nat) (C : VIndCtor), D.ctorsAll[q]? = some (j, C) → R.IotaHargs D σ e j C :=
   hdata_of_entries_and_heads hown hat hfr hσc hσD hI he hcl
     (iotaMot_of_recHargs henv hD hfresh hsrc hσD hσc he hfr hat hown helim hcl hmotD)
-    (iotaMin_of_recHargs henv hD hfresh hsrc hσD hσc he hfr hat hown hcl hfldD hminD)
+    (iotaMin_of_recHargs henv hD hfresh hsrc hσD hσc he hfr hat hown hcl hfldD hminD hσfD hclFD)
     (fun q t C' hq => hfldI q t C' hq) hheadD
 
 end
@@ -195,6 +215,7 @@ theorem ntree_obligationC_of_recHargs
       (ntree_csubst_WFD₃ h hE₁ hE₂ hE₃ hF₁ hF₂ hF₃) ntree_csubst_closed
       (ntreeF₃_ordered h hE₁ hE₂ hF₁ hF₂ hF₃) ntreeRestore_substFree
       ntreeRestore_domSep.substAt ntreeRestore_ownId ntree_tyArgs_closedN_np hfldD hminD
+      ntree_minor_hσfD ntree_minor_hclFD
 
 end
 

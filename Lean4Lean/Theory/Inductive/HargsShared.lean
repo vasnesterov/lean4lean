@@ -209,19 +209,20 @@ def MotiveShape (t : Nat) (T : VIndType) (B : VExpr) : Prop :=
       As (bvars 0 T.indices.length) ∧
     VExpr.instAll B' (bvars 0 T.indices.length) = .sort w
 
-/-- `MinorCtorHargs`' residual at a fixed head type `B`: `hpi` + `hAs` + `hfun`. -/
+/-- `MinorCtorHargs`' residual at a fixed head type `B`: `hpi` + `hfun`.
+
+**Two conjuncts, no existentials**, since `RecTyped.lean` §4 pins `As` and `B'` in the bundle and
+`hAs` is a theorem there (`minorCtor_hAs`).  `R` is now an argument, because the pinned `As`/`B'`
+mention the restoration data. -/
 def MinorCtorShape (q t : Nat) (C : VIndCtor) (B : VExpr) : Prop :=
-  ∃ (As : List VExpr) (B' : VExpr),
     VExpr.instAll B
-      (bvars ((D.ihTypes q C).length + C.fields.length + (D.nm + q)) D.np) = mkPi As B' ∧
-    e.HasArgs D.recUvars
-      ((VExpr.liftTele (D.nm + q)
-          ((D.atRecTele (C.fields.map (·.type))).map (VExpr.substC · σ))
-          ++ (D.ihTypes q C).map (VExpr.substC · σ)).reverse
-        ++ (((D.minors.map (VExpr.substC · σ)).take q).reverse
-            ++ ((D.motives.map (VExpr.substC · σ)).reverse
-                ++ (D.atRecTele D.params).reverse)))
-      As (bvars (D.ihTypes q C).length C.fields.length) ∧
+      (bvars ((D.ihTypes q C).length + C.fields.length + (D.nm + q)) D.np)
+        = mkPi
+          (VExpr.instAllTele (D.atRecTele (C.fieldTypesR D R))
+            (bvars ((D.ihTypes q C).length + C.fields.length + (D.nm + q)) D.np) 0)
+          (instAll (D.tyAppR' R t C.fields.length (D.atRecTele C.args))
+            (bvars ((D.ihTypes q C).length + C.fields.length + (D.nm + q)) D.np)
+            (C.fieldTypesR D R).length) ∧
     e.HasType D.recUvars
       ((VExpr.liftTele (D.nm + q)
           ((D.atRecTele (C.fields.map (·.type))).map (VExpr.substC · σ))
@@ -232,7 +233,11 @@ def MinorCtorShape (q t : Nat) (C : VIndCtor) (B : VExpr) : Prop :=
       ((VExpr.bvar ((D.ihTypes q C).length + C.fields.length + q + (D.nm - 1 - t))).mkApp
         ((C.args.map fun a => VExpr.shift (D.nm + q) (D.ihTypes q C).length
             C.fields.length (D.atRec a)).map (VExpr.substC · σ)))
-      (.forallE (VExpr.instAll B' (bvars (D.ihTypes q C).length C.fields.length))
+      (.forallE (VExpr.instAll
+          (instAll (D.tyAppR' R t C.fields.length (D.atRecTele C.args))
+            (bvars ((D.ihTypes q C).length + C.fields.length + (D.nm + q)) D.np)
+            (C.fieldTypesR D R).length)
+          (bvars (D.ihTypes q C).length C.fields.length))
         (.sort D.elimLvl))
 
 end
@@ -254,12 +259,9 @@ theorem motiveHargs_iff {σ : CSubst} {t : Nat} {T : VIndType} :
 theorem minorCtorHargs_iff {σ : CSubst} {q t : Nat} {C : VIndCtor} :
     R.MinorCtorHargs D σ e q t C ↔
       ∃ B₀, e.HasType D.recUvars ((D.atRecTele D.params).reverse)
-        (D.atRec (R.ctorBody D t C)) B₀ ∧ MinorCtorShape D σ e q t C B₀ := by
-  constructor
-  · rintro ⟨As, B₀, B', hbody, hpi, hAs, hfun⟩
-    exact ⟨B₀, hbody, As, B', hpi, hAs, hfun⟩
-  · rintro ⟨B₀, hbody, As, B', hpi, hAs, hfun⟩
-    exact ⟨As, B₀, B', hbody, hpi, hAs, hfun⟩
+        (D.atRec (R.ctorBody D t C)) B₀ ∧ R.MinorCtorShape D σ e q t C B₀ :=
+  ⟨fun ⟨B₀, hbody, hpi, hfun⟩ => ⟨B₀, hbody, hpi, hfun⟩,
+   fun ⟨B₀, hbody, hpi, hfun⟩ => ⟨B₀, hbody, hpi, hfun⟩⟩
 
 /-- **OBLIGATION (B)'s MOTIVE BUNDLE FROM THE DATUM.**  `MotiveHargs` from `SpineTypedAt` at
 the **type** head plus the shape residual — the datum entering once, at `D.uvars` and at the
@@ -273,7 +275,7 @@ theorem motiveHargs_of_spineTypedAt {σ : CSubst} {t : Nat} {T : VIndType}
 datum at a different head constant, and the same transport. -/
 theorem minorCtorHargs_of_spineTypedAt {σ : CSubst} {q t : Nat} {C : VIndCtor}
     (h : R.SpineTypedAt D e (R.ctorName C.name) t B)
-    (hsh : MinorCtorShape D σ e q t C (D.atRec B)) : R.MinorCtorHargs D σ e q t C :=
+    (hsh : R.MinorCtorShape D σ e q t C (D.atRec B)) : R.MinorCtorHargs D σ e q t C :=
   minorCtorHargs_iff.2 ⟨_, spineTypedAt_atRec h, hsh⟩
 
 end VIndRestore

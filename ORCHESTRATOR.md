@@ -1567,3 +1567,27 @@ Two related corrections from the same round, both mine:
 And two mechanical traps worth keeping: the linter's own suggested clause contains **nested
 brackets**, so a `\[[^\]]*\]` scan silently reports a file clean; and `omit … in` must sit **above**
 a doc comment, since a doc comment must abut its declaration.
+
+## Seven crashes, all at the same point: write the handoff FIRST (2026-09-03)
+
+Seven streams have died to API errors this session. Every one crashed **while writing its handoff**,
+after its Lean work was complete — the last words are consistently "Now the handoff document", "Now
+§7, the anti-vacuity apparatus", "Now delete the originals … and add the import".
+
+That is not coincidence. The handoff is the single longest uninterrupted output a stream produces,
+so it is the largest target for a mid-generation failure. Seven for seven.
+
+The Lean work has survived every time, because "write incrementally" is in every brief — 588 lines
+here, 9.6 KB there, a complete measurement in another. **But the handoff is where the corrections
+live.** Six of my own errors this session were caught in a handoff, not in the Lean; losing one
+costs the round's most valuable output while leaving the least valuable part intact.
+
+**Rule for briefs, from now on:** write `docs/handoff-<topic>.md` **incrementally from the first
+finding onward, not at the end** — a stub with the target and the first measurement, appended to as
+you go. Treat it as the primary artefact and the Lean as its evidence, not the reverse. Where a
+finding contradicts me, write that sentence down *before* proving the next thing.
+
+When one does crash: the Lean is on disk and verifiable, so commit it with my own summary and say
+plainly that the handoff is missing. Do **not** reconstruct the stream's reasoning from its diff and
+present it as the stream's report — that would put my inferences in its voice, and this round's whole
+lesson is how often my inferences about this tree are wrong.

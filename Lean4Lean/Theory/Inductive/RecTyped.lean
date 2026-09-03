@@ -25,7 +25,8 @@ What is below is the missing composition, in three layers:
   the entry `OnCtx`s, `hOnp`, `hbv`, and the parameter-block σ-identity;
 * §3 the bundles `MotiveHargs` / `MinorHargs` / `RecBodyHargs` and the reduction
   `VEnv.recConstsR_wf_of_recHargsD`;
-* §4b/§4c `MinorCtorHargs`'s `hAs` conjunct **derived** (§T12.1's chain, composed) and therefore
+* §4b/§4c `MinorCtorHargs`'s `hAs` conjunct **derived** (§T12.1's chain, composed), **dropped from
+  the bundle** (three components; `docs/handoff-hasdrop.md`) and therefore
   the bundle suppliable from `hcbody`/`hfun` alone — moved here from
   `Theory/Inductive/TeleCongr.lean`, which imported this file and so could not be consumed by it
   (`docs/handoff-telemove2.md`).
@@ -704,22 +705,28 @@ def MinorFldDefEq (q : Nat) (C : VIndCtor) : Prop :=
       ((D.atRecTele (C.fields.map (·.type))).map (VExpr.substC · σ)))
     (VExpr.liftTele (D.nm + q) ((D.atRecTele (C.fieldTypesR D R)).map (VExpr.substC · σ)))
 
-/-- Minor entry `q`'s *constructor-head* residual: `hcbody`/`hpi`/`hAs`/`hfun`. -/
+/-- Minor entry `q`'s *constructor-head* residual: `hcbody`/`hpi`/`hfun`.
+
+**Three components, not four** (`docs/handoff-hasdrop.md`).  `hAs` — the typed `HasArgs` of the
+restored field telescope against the field spine — used to be a fourth conjunct with `As`
+existentially quantified.  `instAt_ctor_hpi` (§T10) shows the only `As` and `B'` that `hpi` can
+have are functions of `(D, R, t, C, q)` alone, so both are **pinned** here and §4b's
+`minorCtor_hAs` *proves* the former `hAs` conjunct outright from `MinorFldDefEq` plus two
+decidable side conditions on the restoration data.  `B` cannot be pinned: its value mentions a
+constructor constant `ci` that only an environment supplies, so `hpi` stays (`handoff-telemove2.md`
+§3). -/
 def MinorCtorHargs (q t : Nat) (C : VIndCtor) : Prop :=
-  ∃ (As : List VExpr) (B B' : VExpr),
+  ∃ B : VExpr,
     e.HasType D.recUvars ((D.atRecTele D.params).reverse)
       (D.atRec (R.ctorBody D t C)) B ∧
     VExpr.instAll B
       (VExpr.bvars ((D.ihTypes q C).length + C.fields.length + (D.nm + q)) D.np)
-        = VExpr.mkPi As B' ∧
-    e.HasArgs D.recUvars
-      ((VExpr.liftTele (D.nm + q)
-          ((D.atRecTele (C.fields.map (·.type))).map (VExpr.substC · σ))
-          ++ (D.ihTypes q C).map (VExpr.substC · σ)).reverse
-        ++ (((D.minors.map (VExpr.substC · σ)).take q).reverse
-            ++ ((D.motives.map (VExpr.substC · σ)).reverse
-                ++ (D.atRecTele D.params).reverse)))
-      As (VExpr.bvars (D.ihTypes q C).length C.fields.length) ∧
+        = VExpr.mkPi
+          (VExpr.instAllTele (D.atRecTele (C.fieldTypesR D R))
+            (VExpr.bvars ((D.ihTypes q C).length + C.fields.length + (D.nm + q)) D.np) 0)
+          (VExpr.instAll (D.tyAppR' R t C.fields.length (D.atRecTele C.args))
+            (VExpr.bvars ((D.ihTypes q C).length + C.fields.length + (D.nm + q)) D.np)
+            (C.fieldTypesR D R).length) ∧
     e.HasType D.recUvars
       ((VExpr.liftTele (D.nm + q)
           ((D.atRecTele (C.fields.map (·.type))).map (VExpr.substC · σ))
@@ -730,7 +737,11 @@ def MinorCtorHargs (q t : Nat) (C : VIndCtor) : Prop :=
       ((VExpr.bvar ((D.ihTypes q C).length + C.fields.length + q + (D.nm - 1 - t))).mkApp
         ((C.args.map fun a => VExpr.shift (D.nm + q) (D.ihTypes q C).length
             C.fields.length (D.atRec a)).map (VExpr.substC · σ)))
-      (.forallE (VExpr.instAll B' (VExpr.bvars (D.ihTypes q C).length C.fields.length))
+      (.forallE (VExpr.instAll
+          (VExpr.instAll (D.tyAppR' R t C.fields.length (D.atRecTele C.args))
+            (VExpr.bvars ((D.ihTypes q C).length + C.fields.length + (D.nm + q)) D.np)
+            (C.fieldTypesR D R).length)
+          (VExpr.bvars (D.ihTypes q C).length C.fields.length))
         (.sort D.elimLvl))
 
 /-- Recursor `j`'s body residual: the major premise's head defeq over §T8's reflexive
@@ -834,29 +845,31 @@ theorem minorCtor_hAs (he : e.Ordered) (hfld : R.MinorFldDefEq D σ e q C)
       = (D.ihTypes q C).length + C.fields.length + (D.nm + q) from by omega] at hcong
   simpa [List.reverse_append, List.append_assoc] using hcong
 
-/-! ### §4c …and `MinorCtorHargs` from **two** components, not four
+/-! ### §4c …and `MinorCtorHargs` from **two** components
 
-`instAt_ctor_hpi` (§T10) fixes `B`, `As` and `B'` outright, so `hpi` is not data; §4b then closes
-`hAs`.  What is left of `MinorCtorHargs` is `hcbody` and `hfun` — the two `hargs`-shaped data
-§5 below already names as the open obligation.
+`instAt_ctor_hpi` (§T10) fixes `As` and `B'` outright, so they are pinned in the definition and
+`hpi` is a statement about `B` alone; §4b then *proves* what used to be the `hAs` conjunct.  What is
+left of `MinorCtorHargs` is `hcbody` and `hfun` — the two `hargs`-shaped data §5 below already names
+as the open obligation — and the bundle is three components, which
+`docs/handoff-telemove2.md` §3 measured as its floor.
+
+`hAs` did not vanish: it moved to §5's proof, which pays for it with the two **decidable** side
+conditions `hσfD`/`hclFD` on the restoration data.  `minorCtor_sides_of_wf` below is their producer
+from `Faithful` + `VIndCtor.WF`, so nothing about the trade is asserted.
 
 The `Faithful` cost is real and is **available here**, unlike at (A): §5's `hminD` is demanded only at
 `T.name ∈ K`, which is exactly `Faithful.ctor_agree`'s guard. -/
 
-/-- **`MinorCtorHargs` with `hpi` and `hAs` both derived.**
+/-- **`MinorCtorHargs` from its two data components.**
 
-`hlen`/`hagree` are `Faithful.ctor_agree` read through `VIndCtor.WF.params_len`; `hfld` is the
-`MinorFldDefEq` obligation (B)'s closure already demands at every entry; `hσp`/`hσf`/`hclF` are
-§T16.2's parameter σ-identity and §T13's two side conditions.  `hcbody` and `hfun` are the only
-data left. -/
-theorem minorCtorHargs_of_hargs (he : e.Ordered) {t npJ : Nat} {ci : VConstant}
+`hlen`/`hagree` are `Faithful.ctor_agree` read through `VIndCtor.WF.params_len`; they supply `hpi`
+through `instAt_ctor_hpi`.  `hcbody` and `hfun` are the only data.  Note what is **no longer**
+asked for, compared with the four-component bundle: no `e.Ordered`, no `MinorFldDefEq`, and none of
+the three σ-identity/closedness side conditions — all of that was `hAs`'s price and `hAs` is not a
+component any more. -/
+theorem minorCtorHargs_of_hargs {t npJ : Nat} {ci : VConstant}
     (hlen : D.params.length = C.params.length)
     (hagree : R.instAt D npJ t ci.type = C.typeR D R t)
-    (hfld : R.MinorFldDefEq D σ e q C)
-    (hσp : (D.atRecTele D.params).map (VExpr.substC · σ) = D.atRecTele D.params)
-    (hσf : (D.atRecTele (C.fieldTypesR D R)).map (VExpr.substC · σ)
-      = D.atRecTele (C.fieldTypesR D R))
-    (hclF : VExpr.ClosedTele (D.atRecTele (C.fieldTypesR D R)) D.np)
     (hcbody : e.HasType D.recUvars ((D.atRecTele D.params).reverse)
       (D.atRec (R.ctorBody D t C))
       (D.atRec (VExpr.instAll (VExpr.splitPis npJ (ci.type.instL (R.tyLvls t))).2
@@ -878,54 +891,31 @@ theorem minorCtorHargs_of_hargs (he : e.Ordered) {t npJ : Nat} {ci : VConstant}
           (VExpr.bvars (D.ihTypes q C).length C.fields.length))
         (.sort D.elimLvl))) :
     R.MinorCtorHargs D σ e q t C :=
-  ⟨_, _, _, hcbody, VIndRestore.instAt_ctor_hpi hlen hagree,
-    minorCtor_hAs he hfld hσp hσf hclF, hfun⟩
+  ⟨_, hcbody, VIndRestore.instAt_ctor_hpi hlen hagree, hfun⟩
 
-/-- **…and with §T13's two side conditions CALLED rather than hypothesised.**
+/-- **§5's two new side conditions, CALLED rather than hypothesised.**
 
-`minorCtorHargs_of_hargs` takes `hσf` and `hclF` as facts; this takes their producers' inputs
-instead, so the chain `§T13 → §T12.1 → §4b → MinorCtorHargs` is composed end to end and nothing is
-asserted.  `atRecTele_fieldTypesR_closedTele` and `atRecTele_fieldTypesR_substC_eq` were the two
-declarations in the relayed zero-user list that stayed zero-user after §4c; they are consumed here.
+This is the body that `minorCtorHargs_of_hargs'` used to hide: `§T13`'s two side conditions from
+`Faithful` + `VIndCtor.WF` + the closedness of the presented spine.  It is what a caller of §5
+discharges `hσfD` and `hclFD` with when it has a `Faithful` witness, and it keeps
+`atRecTele_fieldTypesR_substC_eq` and `atRecTele_fieldTypesR_closedTele` consumed.
 
-Every hypothesis is either one §5's `recConstsR_wf_of_recHargsD` already carries (`henv`, `hD`, `hcl`),
-a `Faithful` clause (available at `T.name ∈ K`, which is where `hminD` is demanded), or a side
-condition on the restoration data that is `decide`-able at a witness (`hargsF`). -/
-theorem minorCtorHargs_of_hargs' {env : VEnv} {env₃ : VEnv} {t npJ : Nat} {T : VIndType}
-    {ci : VConstant} (he : e.Ordered) (henv : env.Ordered) (henv₃ : env₃.Ordered)
-    (hD : D.WF env) (hfresh : σ.FreshIn env)
+Every hypothesis is either one §5's `recConstsR_wf_of_recHargsD` already carries (`henv`, `hfresh`,
+`hcl`), a `Faithful` clause (available at `T.name ∈ K`, which is where `hminD` is demanded), or a
+side condition on the restoration data that is `decide`-able at a witness (`hargsF`). -/
+theorem minorCtor_sides_of_wf {env env₃ : VEnv} {t npJ : Nat} {T : VIndType}
+    {ci : VConstant} (henv : env.Ordered) (henv₃ : env₃.Ordered) (hfresh : σ.FreshIn env)
     (hCwf : VIndCtor.WF env₃ D t T C)
     (hci : env.constants (R.ctorName C.name) = some ci)
     (hagree : R.instAt D npJ t ci.type = C.typeR D R t)
     (hcl : ∀ j, ∀ a ∈ R.tyArgs j, a.ClosedN D.np)
-    (hargsF : ∀ a ∈ R.tyArgs t, a.NoCSubst σ)
-    (hfld : R.MinorFldDefEq D σ e q C)
-    (hcbody : e.HasType D.recUvars ((D.atRecTele D.params).reverse)
-      (D.atRec (R.ctorBody D t C))
-      (D.atRec (VExpr.instAll (VExpr.splitPis npJ (ci.type.instL (R.tyLvls t))).2
-        (R.tyArgs t))))
-    (hfun : e.HasType D.recUvars
-      ((VExpr.liftTele (D.nm + q)
-          ((D.atRecTele (C.fields.map (·.type))).map (VExpr.substC · σ))
-          ++ (D.ihTypes q C).map (VExpr.substC · σ)).reverse
-        ++ (((D.minors.map (VExpr.substC · σ)).take q).reverse
-            ++ ((D.motives.map (VExpr.substC · σ)).reverse
-                ++ (D.atRecTele D.params).reverse)))
-      ((VExpr.bvar ((D.ihTypes q C).length + C.fields.length + q + (D.nm - 1 - t))).mkApp
-        ((C.args.map fun a => VExpr.shift (D.nm + q) (D.ihTypes q C).length
-            C.fields.length (D.atRec a)).map (VExpr.substC · σ)))
-      (.forallE (VExpr.instAll
-          (VExpr.instAll (D.tyAppR' R t C.fields.length (D.atRecTele C.args))
-            (VExpr.bvars ((D.ihTypes q C).length + C.fields.length + (D.nm + q)) D.np)
-            (C.fieldTypesR D R).length)
-          (VExpr.bvars (D.ihTypes q C).length C.fields.length))
-        (.sort D.elimLvl))) :
-    R.MinorCtorHargs D σ e q t C := by
+    (hargsF : ∀ a ∈ R.tyArgs t, a.NoCSubst σ) :
+    ((D.atRecTele (C.fieldTypesR D R)).map (VExpr.substC · σ)
+        = D.atRecTele (C.fieldTypesR D R))
+      ∧ VExpr.ClosedTele (D.atRecTele (C.fieldTypesR D R)) D.np := by
   have hlen : D.params.length = C.params.length := by rw [hCwf.params_len]
-  refine minorCtorHargs_of_hargs he hlen hagree hfld
-    (VInductDecl'.atRecTele_params_substC_eq henv hD hfresh)
-    (VIndRestore.atRecTele_fieldTypesR_substC_eq henv hfresh hci hargsF hlen hagree)
-    (VIndCtor.atRecTele_fieldTypesR_closedTele hcl ?_) hcbody hfun
+  refine ⟨VIndRestore.atRecTele_fieldTypesR_substC_eq henv hfresh hci hargsF hlen hagree,
+    VIndCtor.atRecTele_fieldTypesR_closedTele hcl ?_⟩
   have hsrc := VExpr.closedTele_append.1 (hCwf.tele_closed henv₃)
   rw [Nat.zero_add, hCwf.params_len] at hsrc
   exact hsrc.2
@@ -965,6 +955,13 @@ theorem VEnv.recConstsR_wf_of_recHargsD {env E₂ e₂ : VEnv} {D : VInductDecl'
     (hminD : ∀ (q t : Nat) (C : VIndCtor) (T : VIndType), D.ctorsAll[q]? = some (t, C) →
       D.types[t]? = some T → T.name ∈ K →
       R.MinorCtorHargs D (R.csubst D K) e₂ q t C)
+    (hσfD : ∀ (q t : Nat) (C : VIndCtor) (T : VIndType), D.ctorsAll[q]? = some (t, C) →
+      D.types[t]? = some T → T.name ∈ K →
+      (D.atRecTele (C.fieldTypesR D R)).map (VExpr.substC · (R.csubst D K))
+        = D.atRecTele (C.fieldTypesR D R))
+    (hclFD : ∀ (q t : Nat) (C : VIndCtor) (T : VIndType), D.ctorsAll[q]? = some (t, C) →
+      D.types[t]? = some T → T.name ∈ K →
+      VExpr.ClosedTele (D.atRecTele (C.fieldTypesR D R)) D.np)
     (hbodyD : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K →
       R.RecBodyHargs D (R.csubst D K) e₂ j T) :
     ∀ c ∈ D.recConstsR R K, VConstant.WF e₂ c.2 := by
@@ -993,10 +990,13 @@ theorem VEnv.recConstsR_wf_of_recHargsD {env E₂ e₂ : VEnv} {D : VInductDecl'
     have hqlt : q < D.minors.length := by
       simpa using (List.getElem?_eq_some_iff.1 hq).1
     by_cases hKt : T.name ∈ K
-    · obtain ⟨As, B, B', hcbody, hpi, hAs, hfun⟩ := hminD q t C T hq hT hKt
+    · obtain ⟨B, hcbody, hpi, hfun⟩ := hminD q t C T hq hT hKt
       exact VIndRestore.minorEntry_defeq_of_hargs henv hD hfresh he₂ hσ hσc hfr hat
         (VInductDecl'.getD_types hT) (hrec t T hT) hT hKt hC hq hqlt (hcl t)
-        (hfldD q t C hq) hcbody hpi hAs hfun
+        (hfldD q t C hq) hcbody hpi
+        (VIndRestore.minorCtor_hAs he₂ (hfldD q t C hq)
+          (VInductDecl'.atRecTele_params_substC_eq henv hD hfresh)
+          (hσfD q t C T hq hT hKt) (hclFD q t C T hq hT hKt)) hfun
     · exact VIndRestore.minorEntry_defeq_off_K he₂ hσ hσc hown
         (VInductDecl'.getD_types hT) (hrec t T hT) hT hKt hC hq hqlt (hfldD q t C hq)
   · -- the recursor body
@@ -1045,6 +1045,53 @@ theorem ntree_recTyped_hK_false :
   have h0 : ntreeAux.types[0]? = some (ntreeAux.types.getD 0 default) := rfl
   exact absurd (h 0 _ h0) (by decide)
 
+/-- **The entries §5's two new side conditions are actually demanded at.**  `ntreeK` lists the
+companion `_nested.List_1`, whose index is `1`, so the guard `T.name ∈ ntreeK` cuts the block's
+three constructor entries down to the companion member's two — `NTree.node` at `q = 0` is
+excluded, which is why the discharge below never has to look at it. -/
+theorem ntree_ctorsAll_inK {q t : Nat} {C : VIndCtor} {T : VIndType}
+    (hq : ntreeAux.ctorsAll[q]? = some (t, C)) (hT : ntreeAux.types[t]? = some T)
+    (hK : T.name ∈ ntreeK) : C = nlistNil ∨ C = nlistCons := by
+  have hq' := hq
+  have hqlt : q < 3 := by
+    have hh := (List.getElem?_eq_some_iff.1 hq).1
+    have hl : ntreeAux.ctorsAll.length = 3 := rfl
+    omega
+  clear hq
+  rcases q with _ | _ | _ | q
+  · have ht : t = 0 := congrArg Prod.fst (Option.some.inj
+      (hq'.symm.trans (rfl : ntreeAux.ctorsAll[0]? = some (0, ntreeNode))))
+    subst ht
+    have hTe : T = ntreeAux.types.getD 0 default := Option.some.inj (hT.symm.trans rfl)
+    subst hTe
+    exact absurd hK (by decide)
+  · exact .inl (congrArg Prod.snd (Option.some.inj
+      (hq'.symm.trans (rfl : ntreeAux.ctorsAll[1]? = some (1, nlistNil)))))
+  · exact .inr (congrArg Prod.snd (Option.some.inj
+      (hq'.symm.trans (rfl : ntreeAux.ctorsAll[2]? = some (1, nlistCons)))))
+  · omega
+
+/-- **§5's `hσfD` at `ntreeAux`, DISCHARGED.**  One of the two decidable side conditions the
+three-component `MinorCtorHargs` costs, at the canonical parameterised nested block. -/
+theorem ntree_minor_hσfD :
+    ∀ (q t : Nat) (C : VIndCtor) (T : VIndType), ntreeAux.ctorsAll[q]? = some (t, C) →
+      ntreeAux.types[t]? = some T → T.name ∈ ntreeK →
+      (ntreeAux.atRecTele (C.fieldTypesR ntreeAux ntreeRestore)).map
+          (VExpr.substC · (ntreeRestore.csubst ntreeAux ntreeK))
+        = ntreeAux.atRecTele (C.fieldTypesR ntreeAux ntreeRestore) := by
+  intro q t C T hq hT hK
+  rcases ntree_ctorsAll_inK hq hT hK with rfl | rfl <;> rfl
+
+/-- **§5's `hclFD` at `ntreeAux`, DISCHARGED.**  The other one. -/
+theorem ntree_minor_hclFD :
+    ∀ (q t : Nat) (C : VIndCtor) (T : VIndType), ntreeAux.ctorsAll[q]? = some (t, C) →
+      ntreeAux.types[t]? = some T → T.name ∈ ntreeK →
+      VExpr.ClosedTele (ntreeAux.atRecTele (C.fieldTypesR ntreeAux ntreeRestore)) ntreeAux.np := by
+  intro q t C T hq hT hK
+  rcases ntree_ctorsAll_inK hq hT hK with rfl | rfl
+  · exact trivial
+  · exact ⟨⟨trivial, Nat.zero_lt_one⟩, ⟨trivial, trivial, Nat.one_lt_two⟩, trivial⟩
+
 section
 variable {env₁ E₁ E₂ E₃ F₁ F₂ : VEnv}
 variable (h : VEnv.empty.addInduct' listDecl = some env₁)
@@ -1070,7 +1117,8 @@ theorem ntreeAux_obligationB_of_bundles
   VEnv.recConstsR_wf_of_recHargsD (listEnv_ordered h) (ntreeAux_WF h) (ntree_csubst_fresh h)
     (ntree_recConsts_wf h hE₁ hE₂) (ntree_csubst_WFD₂ h hE₁ hE₂ hF₁ hF₂) ntree_csubst_closed
     (ntreeF₂_ordered h hE₁ hF₁ hF₂) ntreeRestore_substFree ntreeRestore_domSep.substAt
-    ntreeRestore_ownId (by decide) ntree_tyArgs_closedN_np hmotD hfldD hminD hbodyD
+    ntreeRestore_ownId (by decide) ntree_tyArgs_closedN_np hmotD hfldD hminD
+    ntree_minor_hσfD ntree_minor_hclFD hbodyD
 
 end
 
@@ -1138,9 +1186,12 @@ Hole-freeness only — `docs/handoff-rectyped.md` §0 states inhabitation separa
 #print axioms Lean4Lean.InductiveDeclExamples.ntreeAux_obligationB_of_bundles
 #print axioms Lean4Lean.InductiveDeclExamples.ntreeAux_recHargs_premises_inhabited
 #print axioms Lean4Lean.InductiveDeclExamples.ntree_minorFld_nil
+#print axioms Lean4Lean.InductiveDeclExamples.ntree_ctorsAll_inK
+#print axioms Lean4Lean.InductiveDeclExamples.ntree_minor_hσfD
+#print axioms Lean4Lean.InductiveDeclExamples.ntree_minor_hclFD
 #print axioms Lean4Lean.VIndRestore.minorCtor_hAs
 #print axioms Lean4Lean.VIndRestore.minorCtorHargs_of_hargs
-#print axioms Lean4Lean.VIndRestore.minorCtorHargs_of_hargs'
+#print axioms Lean4Lean.VIndRestore.minorCtor_sides_of_wf
 #print axioms Lean4Lean.InductiveDeclExamples.ntree_node_fieldTypesR_ne
 
 end Lean4Lean

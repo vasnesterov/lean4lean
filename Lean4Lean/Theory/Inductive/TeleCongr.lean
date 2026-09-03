@@ -14,15 +14,18 @@ the checks that the moved results are exercised at a witness rather than merely 
   field, not five, and its own witness `ntreeAux_ctorConstsCR_wf_of_betaD` supplies four.
 * §6/§6b of the old file (`VIndRestore.minorCtor_hAs`, `.minorCtorHargs_of_hargs`,
   `.minorCtorHargs_of_hargs'`) → `Theory/Inductive/RecTyped.lean` §4b/§4c, next to the
-  `MinorCtorHargs` definition they lighten.
+  `MinorCtorHargs` definition they lighten.  `minorCtorHargs_of_hargs'` has since been replaced by
+  `minorCtor_sides_of_wf`, which is its body aimed at §5's two new side conditions instead of at
+  the bundle.
 * §4/§5 of the old file (`ctorConstsCR_wf_of_betaD₄` and its `ntreeAux` instance) are **deleted**:
   they were the four-component statement proved *alongside* the five-component one, and the
   four-component statement is now the only one there is.
 
-`docs/handoff-telemove2.md` records the move, the axiom-identity measurements, and the one thing
-that could **not** be done: `MinorCtorHargs` still carries `hAs` as a conjunct, because deleting it
-from the *definition* ripples into `Theory/Inductive/HargsShared.lean` and
-`Theory/Inductive/HTeleGen.lean`, which destructure it.
+`docs/handoff-telemove2.md` records the move and the axiom-identity measurements, and reports as
+*not done* the one thing `docs/handoff-hasdrop.md` has since done: `MinorCtorHargs` no longer
+carries `hAs`.  Its ripple estimate named `HTeleGen.lean`; by the time the drop was made that file
+had stopped destructuring the bundle and `HTeleRecB.lean` had started, so the four error sites were
+`HargsShared.lean` (3) and `HTeleRecB.lean` (1) — all inside one ownership.
 -/
 import Lean4Lean.Theory.Inductive.CtorBeta
 import Lean4Lean.Theory.Inductive.RecTyped
@@ -33,9 +36,10 @@ namespace Lean4Lean
 
 `docs/vacuity-ledger.md` row 205's failure is the one to guard against here, and it is specific:
 the (B) stream's first closure took a hypothesis that was **jointly unsatisfiable at every real
-nested block**, and it compiled with a clean axiom line.  `RecTyped.lean` §4c's five non-data
-hypotheses are all *about* the entry `(q, t, C)`, so the question is whether they hold together at
-an entry that actually carries content — not at the degenerate one.
+nested block**, and it compiled with a clean axiom line.  `RecTyped.lean` §4b's side conditions —
+and, since the `hAs` drop, §5's `hσfD`/`hclFD` — are all *about* the entry `(q, t, C)`, so the
+question is whether they hold together at an entry that actually carries content, not at the
+degenerate one.
 
 `ntreeAux.ctorsAll = [(0, ntreeNode), (1, nlistNil), (1, nlistCons)]`.  The entry at `q = 1` is
 `nlistNil`, which has **no fields** — `RecTyped.lean`'s `ntree_minorFld_nil` supplies
@@ -44,12 +48,13 @@ and §4b says nothing.  So the check is run at **`q = 2`, `nlistCons`**, the com
 constructor with two recursive fields, where the restored telescope genuinely differs from the
 source one (`ntree_nlistCons_fieldTypesR_ne`).
 
-**What is established** (`ntree_minorCtorHargs_sides_at_cons`): all five non-data hypotheses of
-§4c hold *simultaneously* there, at `npJ = 1` from the block's own `Faithful` witness.
-**What is not**: `hfld`, `hcbody` and `hfun`.  `hfld` is `MinorFldDefEq`, a bundle member (B)'s
-closure demands and which is open at the moving entry; `hcbody`/`hfun` are `hargs`.  So §4c is a
-**reduction of `MinorCtorHargs` from four components to two**, not a discharge of (B) — graded the
-way `RecTyped.lean` §6c grades its own. -/
+**What is established** (`ntree_minorCtorHargs_sides_at_cons`): all of §4b's and §5's non-data
+side conditions hold *simultaneously* there, at `npJ = 1` from the block's own `Faithful` witness.
+Conjuncts six and seven are exactly §5's `hσfD` and `hclFD` at this entry.
+**What is not**: `hfld`, `hcbody` and `hfun`.  `hfld` is `MinorFldDefEq`, which §5 demands at every
+entry and which is open at the moving entry; `hcbody`/`hfun` are `hargs`.  So §4c is a **reduction
+of `MinorCtorHargs` to its two data components**, not a discharge of (B) — graded the way
+`RecTyped.lean` §6c grades its own. -/
 
 namespace InductiveDeclExamples
 
@@ -113,8 +118,8 @@ theorem ntree_tyArgs_one_noCSubst :
 closure demands at every entry anyway.
 
 This is the difference between a discharge that is *available* and one that is *exercised*: the
-`HasArgs` below is a component of `MinorCtorHargs` at a real nested block, and no caller has to
-supply it. -/
+`HasArgs` below **used to be** a component of `MinorCtorHargs`; since the drop it is what §5's own
+proof builds, and no caller supplies it at all. -/
 
 theorem ntree_minorCtor_hAs_at_cons {F : VEnv} {σ : CSubst} (hF : F.Ordered)
     (hσ : σ = ntreeRestore.csubst ntreeAux ntreeK)
@@ -136,23 +141,21 @@ theorem ntree_minorCtor_hAs_at_cons {F : VEnv} {σ : CSubst} (hF : F.Ordered)
 
 /-! ## §3 …and the whole bundle from **two** components at that entry
 
-§2 discharges one conjunct.  This applies `RecTyped.lean` §4c's `minorCtorHargs_of_hargs'` — the
-end-to-end form, with §T13's two side conditions *called* rather than hypothesised — at the same
-entry, leaving exactly `hcbody` and `hfun`.  Those two are `hargs`, and `hfld` is the bundle member
-(B)'s closure demands at every entry; nothing else is asked for.
+`MinorCtorHargs` is now three components with `As`/`B'` pinned (`RecTyped.lean` §4,
+`docs/handoff-hasdrop.md`), so §2's conjunct is no longer part of it and this section is
+correspondingly *shorter than it was*: `minorCtorHargs_of_hargs` needs only `hlen` + `hagree`
+(for `hpi`, through `instAt_ctor_hpi`) and the two data `hcbody`/`hfun`.  What has visibly gone
+from the hypothesis list, compared with the four-component bundle, is `hF : F.Ordered`,
+`hE₁o : E₁.Ordered` and `hfld : MinorFldDefEq` — `hAs`'s whole price.
 
 `ci`/`hci`/`hagree` are the `Faithful.ctor_agree` datum, hypothesised here rather than obtained
 inside because `hcbody`'s *statement* mentions `ci`.  §1 proves they are inhabited at this block, so
 this is not an assumption doing hidden work: `ntree_minorCtorHargs_sides_at_cons`'s fourth conjunct
 is exactly `∃ ci, hci ∧ hagree`, at `npJ = 1`. -/
 
-theorem ntree_minorCtorHargs_of_two_at_cons {env₁ E₁ F : VEnv} {σ : CSubst} {ci : VConstant}
-    (h : VEnv.empty.addInduct' listDecl = some env₁)
-    (hE₁ : env₁.addIndTypes ntreeAux = some E₁) (hE₁o : E₁.Ordered) (hF : F.Ordered)
+theorem ntree_minorCtorHargs_of_two_at_cons {F : VEnv} {σ : CSubst} {ci : VConstant}
     (hσ : σ = ntreeRestore.csubst ntreeAux ntreeK)
-    (hci : env₁.constants (ntreeRestore.ctorName nlistCons.name) = some ci)
     (hagree : ntreeRestore.instAt ntreeAux 1 1 ci.type = nlistCons.typeR ntreeAux ntreeRestore 1)
-    (hfld : ntreeRestore.MinorFldDefEq ntreeAux σ F 2 nlistCons)
     (hcbody : F.HasType ntreeAux.recUvars ((ntreeAux.atRecTele ntreeAux.params).reverse)
       (ntreeAux.atRec (ntreeRestore.ctorBody ntreeAux 1 nlistCons))
       (ntreeAux.atRec (VExpr.instAll (VExpr.splitPis 1
@@ -179,17 +182,40 @@ theorem ntree_minorCtorHargs_of_two_at_cons {env₁ E₁ F : VEnv} {σ : CSubst}
         (.sort ntreeAux.elimLvl))) :
     ntreeRestore.MinorCtorHargs ntreeAux σ F 2 1 nlistCons := by
   subst hσ
-  exact VIndRestore.minorCtorHargs_of_hargs' hF (listEnv_ordered h) hE₁o (ntreeAux_WF h)
-    (ntree_csubst_fresh h)
+  exact VIndRestore.minorCtorHargs_of_hargs rfl hagree hcbody hfun
+
+/-! ## §4 …and §5's two new side conditions at that entry, through their general producer
+
+Dropping `hAs` from the bundle moves it into `VEnv.recConstsR_wf_of_recHargsD`, which pays for it
+with two **decidable** side conditions on the restoration data (`hσfD`/`hclFD`).  `RecTyped.lean`
+§6 discharges them at `ntreeAux` for every entry by `rfl` and an explicit `ClosedTele` term; this
+runs the *general* producer `minorCtor_sides_of_wf` at the non-degenerate entry instead, so the
+`Faithful` → side-conditions chain is composed at a witness rather than merely available.
+
+`ci` is **not** a parameter here: `Faithful.ctor_agree` supplies it, so this is arity 3 in the
+staging equations and nothing else. -/
+
+theorem ntree_minor_sides_at_cons {env₁ E₁ : VEnv}
+    (h : VEnv.empty.addInduct' listDecl = some env₁)
+    (hE₁ : env₁.addIndTypes ntreeAux = some E₁) (hE₁o : E₁.Ordered) :
+    ((ntreeAux.atRecTele (nlistCons.fieldTypesR ntreeAux ntreeRestore)).map
+          (VExpr.substC · (ntreeRestore.csubst ntreeAux ntreeK))
+        = ntreeAux.atRecTele (nlistCons.fieldTypesR ntreeAux ntreeRestore))
+      ∧ VExpr.ClosedTele
+          (ntreeAux.atRecTele (nlistCons.fieldTypesR ntreeAux ntreeRestore)) ntreeAux.np := by
+  obtain ⟨ci, hci, -, hagree⟩ :=
+    (ntreeRestore_faithful h).ctor_agree 1 _ rfl (by decide) nlistCons
+      (List.mem_cons_of_mem _ List.mem_cons_self)
+  exact VIndRestore.minorCtor_sides_of_wf (listEnv_ordered h) hE₁o (ntree_csubst_fresh h)
     ((ntreeAux_WF h).ctors E₁ hE₁ 1 _ rfl nlistCons
       (List.mem_cons_of_mem _ List.mem_cons_self))
-    hci hagree ntree_tyArgs_closedN_np ntree_tyArgs_one_noCSubst hfld hcbody hfun
+    hci hagree ntree_tyArgs_closedN_np ntree_tyArgs_one_noCSubst
 
 end InductiveDeclExamples
 
 end Lean4Lean
 
-/-! ## §4 Axiom lines
+/-! ## §5 Axiom lines
 
 Read off the declarations' own namespaces, not composed from the path.  The moved declarations'
 axiom lines are printed by their new homes (`TeleMove2.lean` §4, `RecTyped.lean` §7). -/
@@ -198,3 +224,4 @@ axiom lines are printed by their new homes (`TeleMove2.lean` §4, `RecTyped.lean
 #print axioms Lean4Lean.InductiveDeclExamples.ntree_tyArgs_one_noCSubst
 #print axioms Lean4Lean.InductiveDeclExamples.ntree_minorCtor_hAs_at_cons
 #print axioms Lean4Lean.InductiveDeclExamples.ntree_minorCtorHargs_of_two_at_cons
+#print axioms Lean4Lean.InductiveDeclExamples.ntree_minor_sides_at_cons
