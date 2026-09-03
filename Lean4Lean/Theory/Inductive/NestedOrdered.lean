@@ -242,8 +242,28 @@ Two things had to happen for that.
 is right, and what is missing is (B)'s head-by-head equation for `recTypeR` — the same argument
 as (A)'s but over motives, minors, `ihTypes` and the major premise.
 
+**STATUS (2026-09-03, fourth entry): the bridge named in the third entry is REFUTED above
+`np = 0`, and this note previously pointed readers at it.**
+
+`InductiveDeclExamples.ntree_iotaRules_bridge_false` refutes, **by `decide`** at `ntreeAux` with
+`D.np = 1`, exactly the syntactic-list hypothesis of `VEnv.iotaRulesRS_wf_of_substC` that the
+third entry below calls "now the *same shape* as (A)'s and (B)'s". It is that shape, and the shape
+does not survive parameters: both sides substituted is a **list equality**, and at `np = 1` the
+two lists are not equal. So the third entry's route is sound at `np = 0` and a dead end above it.
+
+**The live route is componentwise defeq**, `VEnv.iotaRulesRS_wf_of_components`, and the
+parameterless case has its own theorem, `iotaRulesRS_wf_of_np_zero`. What remains open at
+`np > 0` is `IotaHargs` — see `docs/handoff-flipprice.md`, and
+`Verify/Inductive/FlipPriceCompose.lean` for the reduction with the name-discipline inputs already
+discharged via `VIndRestore.NameBarrier`.
+
+Also stale below: the csubst-domain escape is given as the reason (C) is harder than (A)/(B). That
+obstruction is **closed** — (B)/(C) were restated to take `SubstFree`, and `NameBarrier.substFree`
+supplies it with no environment and no `Faithful`.
+
 **STATUS (2026-08-31, third entry): `hrules` is no longer false, and `nfnAuxDirty` refutes
-nothing.**
+nothing.**  *(Superseded in part by the fourth entry above: `nfnAuxDirty` does refute (C) — it is
+`nfnAuxDirty_obligationA`, arity 9, that proves (A) there.)*
 
 `VEnv.addIndRulesR` now folds `VInductDecl'.iotaRulesRS D R K` — `D.iotaRulesR R` with
 `R.csubst D K` substituted through it — which is why it takes `K`.  The obligation above is
