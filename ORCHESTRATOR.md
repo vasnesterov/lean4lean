@@ -1307,3 +1307,47 @@ blindly. Verify the restore too — the saved hash must reappear.
 Cheaper alternative when it applies: if nothing I am committing is downstream of the held file, the
 closure builds already verify HEAD and no swap is needed. That is a real check, but it is the
 **descendant** direction, and it must be computed as such.
+
+## A probe reads `.olean`s, not the source in front of you (2026-09-03, mine)
+
+I answered a direct question from the user about whether a kernel change affects the theory or only
+naming, by probing `Environment.addInductive` at `master` — the pre-check tree. The probe printed:
+
+    nested, _nested: REJECTED -- "invalid declaration '_nested.P4.NB', its name uses the reserved prefix"
+
+That is **my own new check's error string**, and `master`'s source does not contain the check —
+`grep -c checkNoNestedAuxName` on the file was `0`, which I had verified in the same shell. The
+`.olean`s were left over from building the *branch*. `lake env lean` resolves imports from build
+artifacts, so a probe reports whatever was last compiled, not what the working tree says.
+
+**Why this one was dangerous rather than merely annoying.** I caught it only because the message
+wording was the new one. Had the two checks produced the same string — and there was no reason they
+shouldn't; I wrote both — I would have concluded that the pre-check kernel already rejects these
+declarations, i.e. that the change was a no-op, and told the user so. The wrong conclusion would
+have been *confidently stated to a direct question*, which is the worst place for it.
+
+Rules:
+
+1. **`lake build <module>` immediately before any `#eval` probe**, and again after any branch switch.
+   A branch switch changes the source and leaves the artifacts.
+2. **If a probe's output surprises you, suspect the artifacts before believing the result.** Both
+   times this has happened the surprise was the tell.
+3. When two versions of a check must be distinguished by a probe, **make their messages differ on
+   purpose**. Mine differed by accident and that accident is the only reason the error surfaced.
+
+This is the second stale-`.olean` incident in a day; the first cost a stream an intermediate
+measurement (vacuity-ledger row 186b) when HEAD moved under it as I committed other streams' work.
+Concurrent commits invalidate in-flight artifacts, so the rule applies to streams too.
+
+## The PR-comment monitor cannot tell my comments from the user's (2026-09-03)
+
+`monitor-pr-comments.sh` reports new comments on `vasnesterov/*` PRs. I post through the user's
+token, so **my own replies come back as `PR-COMMENT NN @vasnesterov: …`** — indistinguishable from
+the user's, and each echo costs a turn and looks like new input. It fired on my own answer within a
+minute of posting it.
+
+Not silently fixed, because the monitor's value is real: it is how the user's PR question reached me
+at all. Options are to stop it, to filter comments whose body matches my last post, or to leave it
+and treat an echo of my own text as noise. **Left running, flagged to the user, decision theirs.**
+Recorded here so the next session does not mistake an echo for a reply — the giveaway is that the
+body is the opening of something I just wrote.
