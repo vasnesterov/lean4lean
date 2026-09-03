@@ -1391,3 +1391,43 @@ work was in flight that was not. The fix is mechanical: **`ListAgents` before an
 what is running**, exactly as I read `#print axioms` off a file rather than composing the name. An
 intention and a state look identical in my own narration, which is precisely why the check has to be
 external.
+
+## My swap-and-restore procedure is invisible to the stream, and looks exactly like corruption (2026-09-03, mine)
+
+A stream reported this as an unexplained instrument anomaly:
+
+> At **08:20:19** both files I own were rewritten to their `HEAD` contents (md5 matched HEAD,
+> `git diff --quiet` clean, edits gone); at **08:25:04** both were rewritten *back* to my versions
+> byte-identically. No git state-changing command from me, empty stash, reflog shows only others'
+> commits. For five minutes "green build + clean `git diff`" was a **false report of no edit**.
+
+**That was me.** It is the swap-and-conditional-restore procedure from the section above, run twice
+in that window — once on `Decl.lean` + `RecArgIndep.lean` to verify a commit, once on `Decl.lean`
+alone. It worked exactly as designed and the stream's work came back byte-identically, which the
+stream itself confirmed.
+
+**But the hazard I did not consider is serious.** For five minutes that stream could see its own
+edits gone and `git diff` clean. Had it reacted, the plausible reactions are all bad: conclude the
+work was lost and redo it; conclude the tree was reset and re-apply edits *on top of* HEAD's
+version; or — worst — write a new edit into the HEAD-content file and have my restore overwrite it.
+My restore is guarded by a hash comparison against HEAD, so a stream write during the window is
+detected and its version kept; but a stream write that *lands* in the window and is then followed by
+its own further edits is a race I have not reasoned through.
+
+Rules:
+
+1. **Prefer waiting.** If the file is owned by a live stream and the commit can wait for that
+   stream's report, wait. I used the swap because I wanted to commit two finished landings promptly;
+   that was a convenience, not a necessity.
+2. **If swapping is necessary, tell the stream first** — `SendMessage` to a running agent is not a
+   resume (the no-resume rule is about agents that have already reported), and a one-line "I am
+   briefly checking out HEAD's copy of X to verify a commit; your edits will return" costs nothing
+   and removes the whole failure mode.
+3. **Say it in the brief**, for streams editing shared files: the orchestrator may briefly restore
+   HEAD's copy of a file you own in order to verify a commit, and your version will come back — if
+   you see your edits vanish with a clean `git diff`, wait rather than redo.
+
+This is the inverse of the `.olean` hazard in ledger rows 189c/191c: there, a stale artifact made a
+build report success that was not true of the source; here, a live source swap made `git diff`
+report *no edit* when an edit existed. **Both are cases of a check reporting on a different state
+than the one I meant to ask about**, which is the single most repeated failure in this session.

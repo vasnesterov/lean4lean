@@ -540,14 +540,78 @@ The clause is not something the kernel checks, so it must be *arranged* by whoev
 stored binder telescope (`pos`'s last conjunct is an `IsDefEqType`, not an equation), so a
 binder that mentions an earlier recursive field may be replaced by a defeq one that does not.
 
+**What the conclusion has to carry, and why the first version of it did not**
+(`docs/handoff-recargup.md`; `Theory/Inductive/RecArgIndep.lean` §6).  The obligation exists to
+license exactly one substitution: replace `r` by `r'` inside `pos`'s `some` branch.  Three of
+that branch's nine conjuncts — `OnCtx (ξ.reverse ++ Γ)`, the typing of `canonResult`, and the
+`HasArgs` derivation for the index arguments — are stated *in the binder telescope's own
+context*, so they have to be re-derived in the **new** telescope's context.  A bare
+`IsDefEqType Γ F.type (r'.canonType D i)` does not do that: extracting an entrywise relation
+between `ξ` and `ξ'` from a conversion between two `mkPi`s is `IsDefEqU.forallE_inv`, the very
+statement this hole is waiting on, so the weaker conclusion left its consumer where it started.
+The last two conjuncts are the repair, and they are what `RecArgIndep.posSome_transport`
+consumes:
+
+* `VEnv.IsDefEqCtx env D.uvars Γ (ξ.reverse ++ Γ) (ξ'.reverse ++ Γ)` moves all three
+  context-relative clauses (`IsDefEq.defeqDFC` and friends);
+* `IsDefEqType Γ (r.canonType D i) (r'.canonType D i)` is the telescope congruence, kept
+  *separately* from the `F.type` conversion because composing the two is sort uniqueness
+  (`VEnv.SortUniq`) — this hole's **second** price, which its first docstring did not name.
+  `Theory/Inductive/Lemmas.lean`'s `IsDefEqType` section has no `trans` for that reason;
+  `RecArgIndep.isDefEqType_trans_of_sortUniq` is the composition and where the charge is spent.
+  Keeping the two apart is what makes the *consumer* free of it:
+  `RecArgIndep.posSome_transport_of_indepGoal` takes no `SortUniq` hypothesis at all (the
+  unused-variable linter is the witness), so the whole sort-uniqueness charge sits on whoever
+  discharges this `sorry`, and none of it on whoever uses it.
+
+Everything above those two conjuncts is the original conclusion verbatim, so this statement is
+a **strict strengthening**: a consumer of the old one needs nothing new, and needs no
+`SortUniq` to recover it.
+
+**Why the hypotheses are what they are.**  `hstage` says `env` is the environment
+`addIndTypes` just produced — the environment `VIndCtor.WF`, hence this obligation, is checked
+in (`VInductDecl'.WF.ctors`) — and it is *load-bearing*, not decoration: without it the
+statement has a candidate counterexample at a hand-built `VEnv.WF` environment
+(`RecArgIndep.rai_hyps` with `RecArgIndep.not_bindersIndep_raiRec1`), and what makes that
+witness reachable is precisely a declared constant whose type mentions the block
+(`RecArgIndep.raiCiP_type_hasBlock`).  A staged environment cannot hold one, because the
+block's constants were added last.  `hpre` is the `VIndField.WF` of the *earlier* fields, which
+the argument below uses to rule out an earlier field of type `(∀ ξ₀, I p π₀) → Sort u`; it makes
+the obligation an **induction on the field index**, which is how `VIndCtor.WF.fields` has to be
+proved anyway (there `pre = C.fields.take i`, so `hpre` is the induction hypothesis).  `hOn` is
+`pos`'s own `OnCtx` conjunct, so a caller holds it before it calls; it is what lets the
+*degenerate* witness `r' = r` be produced at no cost — see
+`RecArgIndep.exists_indep_of_pre_norec` and its two siblings, which are this statement proved
+on the regime where `BindersIndep` already holds.
+
+`henv₀` is `hstage`'s other half, and it is what makes `hstage` bite: `addIndTypes` is pure
+data, so `hstage` *alone* is satisfied at §7.2's counterexample by a junk `env₀` that declares
+the offending constant while the constant it mentions is undeclared.  `VEnv.Ordered env₀` rules
+that out — `RecArgIndep.rai_not_staged` is the machine-checked form — and it is available
+wherever `VInductDecl'.WF.ctors` is being proved.  `henv` is **not** derivable from `henv₀` and
+`hstage`: that step needs `VIndType.WF` for the block, which is not a hypothesis here, so both
+are listed.
+
+`VEnv.WF env` is deliberately **not** a hypothesis, and not for want of it being the right one:
+`VEnv.WF` is defined in `Theory/Typing/Env.lean`, which transitively imports *this file*, so
+naming it here is an import cycle.  `VEnv.Ordered` (`Theory/Typing/Lemmas.lean`) is the
+strongest environment hypothesis available at this layer, and is what `henv` is.
+
 **Why it should be true.**  For a binder `B : Sort u` in `ξ` to depend on the *value* of an
 earlier recursive field `a : ∀ ξ₀, I p π₀`, something in scope must eliminate an `I`.  At the
 staged environment nothing can: `I`'s recursor does not exist yet, `I` has no ι-rules, the
 parameters were typed before `I` was declared, and an earlier field of type
 `(∀ ξ₀, I p π₀) → Sort u` is itself ill-formed — `pos`'s `none` branch needs it definitionally
-block-free and its `some` branch needs the shape `∀ ξ, I p π`, and it is neither.  So every
-occurrence of `a` in a well-formed `B` sits under a redex and disappears under `whnf`; the
-`(fun _ : T => Nat) r` example in `pos`'s `none`-branch comment is the shape.
+block-free and its `some` branch needs the shape `∀ ξ, I p π`, and it is neither.
+
+**Correction to the first version of this docstring** (`RecArgIndep.lean` §7.5).  It continued:
+"so every occurrence of `a` in a well-formed `B` sits under a redex and disappears under `whnf`;
+the `(fun _ : T => Nat) r` example in `pos`'s `none`-branch comment is the shape."  That shape
+is **not an admissible binder** — its domain `T` mentions a block constant, so the redex does
+too, and `hbind` demands binders be *syntactically* block-free
+(`RecArgIndep.raiRedex_not_noBlock`).  Nor is "sits under a redex" exhaustive: `P a` for a
+declared `P : (∀ ξ₀, I p π₀) → Sort 1` is block-free, well-typed and not a redex
+(`RecArgIndep.raiB_betaHead`) — which is exactly what `hstage` is there to exclude.
 
 **Why it is a `sorry` and not a proof.**  Turning "nothing eliminates `I`" into a defeq
 argument is the injectivity family — it needs `IsDefEqU.forallE_inv`
@@ -558,18 +622,26 @@ it.
 
 `r'` keeps `idx`, `args` and the binder *count*, so only the binder *types* move; every
 de Bruijn index in `args` and in the result therefore still points where it did. -/
-theorem VIndRecArg.exists_indep {env : VEnv} {D : VInductDecl'} {Γ : List VExpr}
+theorem VIndRecArg.exists_indep {env₀ env : VEnv} {D : VInductDecl'} {Γ : List VExpr}
     {pre : List VIndField} {i : Nat} {F : VIndField} {r : VIndRecArg}
+    (henv₀ : VEnv.Ordered env₀)
+    (henv : VEnv.Ordered env)
+    (hstage : env₀.addIndTypes D = some env)
     (hlen : pre.length = i)
     (hΓ : Γ = (pre.map (·.type)).reverse ++ D.params.reverse)
+    (hpre : ∀ (i' : Nat) (F' : VIndField), pre[i']? = some F' →
+      F'.WF env D (pre.take i') (((pre.take i').map (·.type)).reverse ++ D.params.reverse) i')
     (hty : env.HasType D.uvars Γ F.type (.sort F.lvl))
     (hbind : ∀ B ∈ r.binders, D.NoBlock B)
+    (hOn : OnCtx (r.binders.reverse ++ Γ) (env.IsType D.uvars))
     (hdefeq : env.IsDefEqType D.uvars Γ F.type (r.canonType D i)) :
     ∃ r' : VIndRecArg,
       r'.idx = r.idx ∧ r'.args = r.args ∧ r'.binders.length = r.binders.length ∧
       (∀ B ∈ r'.binders, D.NoBlock B) ∧
       env.IsDefEqType D.uvars Γ F.type (r'.canonType D i) ∧
-      r'.BindersIndep pre i := by
+      r'.BindersIndep pre i ∧
+      VEnv.IsDefEqCtx env D.uvars Γ (r.binders.reverse ++ Γ) (r'.binders.reverse ++ Γ) ∧
+      env.IsDefEqType D.uvars Γ (r.canonType D i) (r'.canonType D i) := by
   sorry
 
 /-- Well-formedness of one constructor, stated in the environment that already contains

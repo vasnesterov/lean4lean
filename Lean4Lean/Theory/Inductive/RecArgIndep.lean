@@ -2,6 +2,7 @@ import Lean4Lean.Theory.Inductive.Decl
 import Lean4Lean.Theory.Inductive.Lemmas
 import Lean4Lean.Theory.Typing.ConstSubstNested
 import Lean4Lean.Theory.Typing.SortUniq
+import Lean4Lean.Theory.SetModel.Consts
 
 /-!
 # `VIndRecArg.exists_indep`, priced
@@ -30,40 +31,82 @@ hypothesis it names.
   `toU`, `isType_l`, `isType_r`, `symm`, `instL`, `weak0`, `mono` and no `trans`), and
   §5 shows why: it *is* sort uniqueness.  `Decl.lean`'s own R3 note records the same
   obstruction for `VIndType.WF.canon` and does not connect it to this hole.
-* §6: the **corrected statement**.  `IndepUpgrade` is `exists_indep`'s conclusion plus the
-  entrywise `TeleDefEq`; it implies the current conclusion (§6.3) and, unlike it, licenses
-  the substitution the obligation exists for (§6.2).
-* §7: the witnesses and the controls.
+* §6: the **corrected statement**, which as of 2026-09-03 is *in* `Decl.lean`.  The hole's
+  conclusion now carries two further conjuncts — the `IsDefEqCtx` of the two binder contexts and
+  the telescope congruence — and §6.2b transports the whole `some` branch over exactly that
+  (`posSome_transport_of_indepGoal`).  `IndepUpgrade` (the `TeleDefEq` form) stays here because
+  `VEnv.TeleDefEq` lives in a module that imports `Decl.lean`; §6.3 is the bridge.
+* §7: the witnesses and the controls, including §7.3b — the repaired statement's new
+  hypotheses are inhabited (`rai_staged`) **and** exclude §7.2's candidate counterexample
+  (`rai_not_staged`), with `raiEnvP_add` showing which half of them does the excluding.
 -/
 
 namespace Lean4Lean
+
+/-! ## 0. Two free steps the repaired conclusion needs
+
+Both are what make the *degenerate* witness `r' = r` cost nothing under the strengthened
+conclusion (§3): the reflexive `IsDefEqCtx` comes from the hole's own `hOn`, and the reflexive
+`IsDefEqType` from its own `hdefeq`.  Neither needs `SortUniq` — the sort is the one `hdefeq`
+was already checked at. -/
+
+namespace RecArgIndep
+
+/-- `IsDefEqCtx` is reflexive over an arbitrary base, given `OnCtx` of the extension.
+`VEnv.IsDefEqCtx.refl` (`Theory/Typing/Lemmas.lean`) has base `[]` only. -/
+theorem isDefEqCtx_refl_suffix {env : VEnv} {U : Nat} {Γ₀ : List VExpr} :
+    ∀ {Δ : List VExpr}, OnCtx (Δ ++ Γ₀) (env.IsType U) →
+      VEnv.IsDefEqCtx env U Γ₀ (Δ ++ Γ₀) (Δ ++ Γ₀)
+  | [], _ => .zero
+  | _::_, ⟨h1, _, h2⟩ => .succ (isDefEqCtx_refl_suffix h1) h2
+
+/-- The right-hand side of an `IsDefEqType` is `IsDefEqType` to itself, **at the same sort** —
+so this is free, unlike `isDefEqType_trans_of_sortUniq` (§5). -/
+theorem isDefEqType_refl_r {env : VEnv} {U : Nat} {Γ : List VExpr} {A B : VExpr}
+    (h : env.IsDefEqType U Γ A B) : env.IsDefEqType U Γ B B :=
+  let ⟨_, h⟩ := h; ⟨_, h.symm.trans h⟩
+
+end RecArgIndep
 
 /-! ## 1. The obligation as a predicate -/
 
 namespace VIndRecArg
 
 /-- **`VIndRecArg.exists_indep`'s conclusion, verbatim.**  `indepGoal_of_exists_indep`
-below machine-checks that this is the hole's conclusion and not a paraphrase of it. -/
+below machine-checks that this is the hole's conclusion and not a paraphrase of it.
+
+**Updated to the repaired conclusion.**  The first six conjuncts are the original ones
+unchanged; the last two are §6's upgrade, now part of the hole's own statement
+(`Decl.lean`).  So this file's faithfulness check points at the *new* statement, and §3's
+halves below are re-proved against it. -/
 def IndepGoal (env : VEnv) (D : VInductDecl') (Γ : List VExpr) (pre : List VIndField)
     (i : Nat) (F : VIndField) (r : VIndRecArg) : Prop :=
   ∃ r' : VIndRecArg,
     r'.idx = r.idx ∧ r'.args = r.args ∧ r'.binders.length = r.binders.length ∧
     (∀ B ∈ r'.binders, D.NoBlock B) ∧
     env.IsDefEqType D.uvars Γ F.type (r'.canonType D i) ∧
-    r'.BindersIndep pre i
+    r'.BindersIndep pre i ∧
+    VEnv.IsDefEqCtx env D.uvars Γ (r.binders.reverse ++ Γ) (r'.binders.reverse ++ Γ) ∧
+    env.IsDefEqType D.uvars Γ (r.canonType D i) (r'.canonType D i)
 
 /-- **Faithfulness of §1.**  This is the *only* declaration in the file whose axiom set
 contains `sorryAx`, and it contains it because it applies the hole: it typechecks exactly
 when `IndepGoal` is the hole's conclusion. -/
-theorem indepGoal_of_exists_indep {env : VEnv} {D : VInductDecl'} {Γ : List VExpr}
+theorem indepGoal_of_exists_indep {env₀ env : VEnv} {D : VInductDecl'} {Γ : List VExpr}
     {pre : List VIndField} {i : Nat} {F : VIndField} {r : VIndRecArg}
+    (henv₀ : VEnv.Ordered env₀)
+    (henv : VEnv.Ordered env)
+    (hstage : env₀.addIndTypes D = some env)
     (hlen : pre.length = i)
     (hΓ : Γ = (pre.map (·.type)).reverse ++ D.params.reverse)
+    (hpre : ∀ (i' : Nat) (F' : VIndField), pre[i']? = some F' →
+      F'.WF env D (pre.take i') (((pre.take i').map (·.type)).reverse ++ D.params.reverse) i')
     (hty : env.HasType D.uvars Γ F.type (.sort F.lvl))
     (hbind : ∀ B ∈ r.binders, D.NoBlock B)
+    (hOn : OnCtx (r.binders.reverse ++ Γ) (env.IsType D.uvars))
     (hdefeq : env.IsDefEqType D.uvars Γ F.type (r.canonType D i)) :
     IndepGoal env D Γ pre i F r :=
-  VIndRecArg.exists_indep hlen hΓ hty hbind hdefeq
+  VIndRecArg.exists_indep henv₀ henv hstage hlen hΓ hpre hty hbind hOn hdefeq
 
 /-! ## 2. When `BindersIndep` already holds -/
 
@@ -93,63 +136,93 @@ theorem bindersIndep_of_pre_norec {r : VIndRecArg} {pre : List VIndField} {i : N
 The witness is `r` itself, so nothing moves: these are the halves where the obligation is
 *about nothing*, and §7.1 records that as degeneracy rather than as a win. -/
 
-/-- **`exists_indep` when the clause already holds.** -/
+/-- **`exists_indep` when the clause already holds** — now against the *repaired*
+conclusion.  The witness is still `r`, and the two new conjuncts are still free: the
+`IsDefEqCtx` is `hOn` (a hypothesis of the hole, and a conjunct of `pos`) and the
+`IsDefEqType` is `hdefeq`'s own right-hand reflexivity, at `hdefeq`'s own sort.  **No
+`SortUniq`.** -/
 theorem indepGoal_of_bindersIndep {env : VEnv} {D : VInductDecl'} {Γ : List VExpr}
     {pre : List VIndField} {i : Nat} {F : VIndField} {r : VIndRecArg}
     (hbind : ∀ B ∈ r.binders, D.NoBlock B)
+    (hOn : OnCtx (r.binders.reverse ++ Γ) (env.IsType D.uvars))
     (hdefeq : env.IsDefEqType D.uvars Γ F.type (r.canonType D i))
     (h : r.BindersIndep pre i) : IndepGoal env D Γ pre i F r :=
-  ⟨r, rfl, rfl, rfl, hbind, hdefeq, h⟩
+  ⟨r, rfl, rfl, rfl, hbind, hdefeq, h,
+    RecArgIndep.isDefEqCtx_refl_suffix hOn, RecArgIndep.isDefEqType_refl_r hdefeq⟩
 
 /-- **A drop-in for the hole**, with the hole's five hypotheses unchanged and one extra:
 no earlier field is recursive.  The extra hypothesis is decidable and is discharged at the
 construction site — `VIndCtor.WF.fields` instantiates `pre := C.fields.take i`, so a
 caller checks `recArg` on at most `i` fields. -/
-theorem exists_indep_of_pre_norec {env : VEnv} {D : VInductDecl'} {Γ : List VExpr}
+theorem exists_indep_of_pre_norec {env₀ env : VEnv} {D : VInductDecl'} {Γ : List VExpr}
     {pre : List VIndField} {i : Nat} {F : VIndField} {r : VIndRecArg}
+    (_henv₀ : VEnv.Ordered env₀)
+    (_henv : VEnv.Ordered env)
+    (_hstage : env₀.addIndTypes D = some env)
     (_hlen : pre.length = i)
     (_hΓ : Γ = (pre.map (·.type)).reverse ++ D.params.reverse)
+    (_hpre : ∀ (i' : Nat) (F' : VIndField), pre[i']? = some F' →
+      F'.WF env D (pre.take i') (((pre.take i').map (·.type)).reverse ++ D.params.reverse) i')
     (_hty : env.HasType D.uvars Γ F.type (.sort F.lvl))
     (hbind : ∀ B ∈ r.binders, D.NoBlock B)
+    (hOn : OnCtx (r.binders.reverse ++ Γ) (env.IsType D.uvars))
     (hdefeq : env.IsDefEqType D.uvars Γ F.type (r.canonType D i))
     (hfree : ∀ F' ∈ pre, F'.recArg = none) :
     ∃ r' : VIndRecArg,
       r'.idx = r.idx ∧ r'.args = r.args ∧ r'.binders.length = r.binders.length ∧
       (∀ B ∈ r'.binders, D.NoBlock B) ∧
       env.IsDefEqType D.uvars Γ F.type (r'.canonType D i) ∧
-      r'.BindersIndep pre i :=
-  indepGoal_of_bindersIndep hbind hdefeq (bindersIndep_of_pre_norec hfree)
+      r'.BindersIndep pre i ∧
+      VEnv.IsDefEqCtx env D.uvars Γ (r.binders.reverse ++ Γ) (r'.binders.reverse ++ Γ) ∧
+      env.IsDefEqType D.uvars Γ (r.canonType D i) (r'.canonType D i) :=
+  indepGoal_of_bindersIndep hbind hOn hdefeq (bindersIndep_of_pre_norec hfree)
 
 /-- The same for a nullary `ξ`. -/
-theorem exists_indep_of_binders_nil {env : VEnv} {D : VInductDecl'} {Γ : List VExpr}
+theorem exists_indep_of_binders_nil {env₀ env : VEnv} {D : VInductDecl'} {Γ : List VExpr}
     {pre : List VIndField} {i : Nat} {F : VIndField} {r : VIndRecArg}
+    (_henv₀ : VEnv.Ordered env₀)
+    (_henv : VEnv.Ordered env)
+    (_hstage : env₀.addIndTypes D = some env)
     (_hlen : pre.length = i)
     (_hΓ : Γ = (pre.map (·.type)).reverse ++ D.params.reverse)
+    (_hpre : ∀ (i' : Nat) (F' : VIndField), pre[i']? = some F' →
+      F'.WF env D (pre.take i') (((pre.take i').map (·.type)).reverse ++ D.params.reverse) i')
     (_hty : env.HasType D.uvars Γ F.type (.sort F.lvl))
     (hbind : ∀ B ∈ r.binders, D.NoBlock B)
+    (hOn : OnCtx (r.binders.reverse ++ Γ) (env.IsType D.uvars))
     (hdefeq : env.IsDefEqType D.uvars Γ F.type (r.canonType D i))
     (hnil : r.binders = []) :
     ∃ r' : VIndRecArg,
       r'.idx = r.idx ∧ r'.args = r.args ∧ r'.binders.length = r.binders.length ∧
       (∀ B ∈ r'.binders, D.NoBlock B) ∧
       env.IsDefEqType D.uvars Γ F.type (r'.canonType D i) ∧
-      r'.BindersIndep pre i :=
-  indepGoal_of_bindersIndep hbind hdefeq (bindersIndep_of_binders_nil hnil)
+      r'.BindersIndep pre i ∧
+      VEnv.IsDefEqCtx env D.uvars Γ (r.binders.reverse ++ Γ) (r'.binders.reverse ++ Γ) ∧
+      env.IsDefEqType D.uvars Γ (r.canonType D i) (r'.canonType D i) :=
+  indepGoal_of_bindersIndep hbind hOn hdefeq (bindersIndep_of_binders_nil hnil)
 
 /-- …and for `i = 0`, where the hole's own `hlen` forces `pre = []`. -/
-theorem exists_indep_of_i_zero {env : VEnv} {D : VInductDecl'} {Γ : List VExpr}
+theorem exists_indep_of_i_zero {env₀ env : VEnv} {D : VInductDecl'} {Γ : List VExpr}
     {pre : List VIndField} {F : VIndField} {r : VIndRecArg}
+    (_henv₀ : VEnv.Ordered env₀)
+    (_henv : VEnv.Ordered env)
+    (_hstage : env₀.addIndTypes D = some env)
     (hlen : pre.length = 0)
     (_hΓ : Γ = (pre.map (·.type)).reverse ++ D.params.reverse)
+    (_hpre : ∀ (i' : Nat) (F' : VIndField), pre[i']? = some F' →
+      F'.WF env D (pre.take i') (((pre.take i').map (·.type)).reverse ++ D.params.reverse) i')
     (_hty : env.HasType D.uvars Γ F.type (.sort F.lvl))
     (hbind : ∀ B ∈ r.binders, D.NoBlock B)
+    (hOn : OnCtx (r.binders.reverse ++ Γ) (env.IsType D.uvars))
     (hdefeq : env.IsDefEqType D.uvars Γ F.type (r.canonType D 0)) :
     ∃ r' : VIndRecArg,
       r'.idx = r.idx ∧ r'.args = r.args ∧ r'.binders.length = r.binders.length ∧
       (∀ B ∈ r'.binders, D.NoBlock B) ∧
       env.IsDefEqType D.uvars Γ F.type (r'.canonType D 0) ∧
-      r'.BindersIndep pre 0 :=
-  indepGoal_of_bindersIndep hbind hdefeq
+      r'.BindersIndep pre 0 ∧
+      VEnv.IsDefEqCtx env D.uvars Γ (r.binders.reverse ++ Γ) (r'.binders.reverse ++ Γ) ∧
+      env.IsDefEqType D.uvars Γ (r.canonType D 0) (r'.canonType D 0) :=
+  indepGoal_of_bindersIndep hbind hOn hdefeq
     (bindersIndep_of_pre_nil (List.eq_nil_of_length_eq_zero hlen))
 
 end VIndRecArg
@@ -241,9 +314,19 @@ So even a *proof* of `exists_indep` as stated would leave its consumer where it 
 *un*derivable from the conclusion; what is shown is that the natural derivation is
 pi-injectivity, and that carrying the `TeleDefEq` instead makes all four free.
 
-`IndepUpgrade` is the repair: the same existential, witnessed by an entrywise `TeleDefEq`.
-§6.2 transports the whole branch; §6.3 shows it implies the current conclusion, so it is a
-strengthening of `exists_indep` and not a different obligation. -/
+`IndepUpgrade` is the repair in its strongest form: the same existential, witnessed by an
+entrywise `TeleDefEq`.  §6.2 transports the whole branch; §6.3 shows it implies the hole's
+conclusion.
+
+**What actually landed in `Decl.lean`** (2026-09-03) is one notch weaker than `IndepUpgrade` and
+for a hard reason: `VEnv.TeleDefEq` is declared in `Theory/Typing/ConstSubstNested.lean`, which
+transitively imports `Decl.lean`, so *no* form of the repair naming `TeleDefEq` can be stated at
+the hole.  What the hole now carries is the two things `TeleDefEq` was only ever used to produce
+— `VEnv.IsDefEqCtx env D.uvars Γ (ξ.reverse ++ Γ) (ξ'.reverse ++ Γ)` (available at that layer:
+`Theory/Typing/Lemmas.lean`) and the telescope congruence `IsDefEqType Γ (r.canonType D i)
+(r'.canonType D i)` — on top of the original six conjuncts.  §6.2b is the transport over that
+conclusion, so nothing is lost: `IndepUpgrade → IndepGoal` (§6.3) and `IndepGoal → PosSome at r'`
+(§6.2b) are both theorems. -/
 
 open VExpr (mkPi liftTele)
 
@@ -313,6 +396,44 @@ theorem posSome_transport {env : VEnv} {D : VInductDecl'} {Γ : List VExpr}
     exact this
   · simpa [hlen] using hrc
 
+/-- **§6.2b — the transport, over the hole's *actual* conclusion.**  `posSome_transport` above
+consumes `IndepUpgrade`, whose `TeleDefEq` cannot appear in `Decl.lean` (that inductive lives in
+`Theory/Typing/ConstSubstNested.lean`, which transitively imports `Decl.lean`).  What the hole's
+repaired conclusion carries instead is the `IsDefEqCtx` that `TeleDefEq` was only ever used to
+produce, plus the telescope congruence as a separate conjunct — and **that is enough**: this is
+the same theorem with `IndepGoal` in place of `IndepUpgrade`, so the repaired statement's
+consumer is proved, not projected.
+
+**And it costs no `SortUniq`** — measured, not assumed: the hypothesis was there in the first
+draft and the unused-variable linter rejected it.  The reason is that the repaired conclusion
+keeps the *original* `IsDefEqType Γ F.type (r'.canonType D i)` conjunct alongside the new
+telescope congruence, so the consumer never has to compose two conversions; it is whoever
+*proves* the hole that must hand over both, and only there does composing them cost sort
+uniqueness (`isDefEqType_trans_of_sortUniq`, §5).  `posSome_transport` above still pays it,
+because `IndepUpgrade` carries only the telescope side. -/
+theorem posSome_transport_of_indepGoal {env : VEnv} {D : VInductDecl'} {Γ : List VExpr}
+    {pre : List VIndField} {i : Nat} {F : VIndField} {r : VIndRecArg}
+    (henv : VEnv.Ordered env)
+    (hΓ : OnCtx Γ (env.IsType D.uvars))
+    (h : VIndField.PosSome env D Γ i F r)
+    (hg : VIndRecArg.IndepGoal env D Γ pre i F r) :
+    ∃ r' : VIndRecArg, r'.idx = r.idx ∧ r'.args = r.args ∧
+      r'.binders.length = r.binders.length ∧
+      VIndField.PosSome env D Γ i F r' ∧ r'.BindersIndep pre i := by
+  obtain ⟨r', hidx', hargs', hlen', hnb, hdefeqF, hindep, hctx, -⟩ := hg
+  obtain ⟨hidx, hargslen, -, hargsnb, hOn, hres, hha, -, hrc⟩ := h
+  have hcr : r'.canonResult D i = r.canonResult D i := by
+    simp [VIndRecArg.canonResult, hidx', hargs', hlen']
+  refine ⟨r', hidx', hargs', hlen',
+    ⟨hidx' ▸ hidx, by rw [hargs', hidx']; exact hargslen, hnb, hargs' ▸ hargsnb,
+      (hctx.symm henv).isType' hΓ, hcr ▸ hres.defeqDFC henv hctx, ?_, hdefeqF, hlen' ▸ hrc⟩,
+    hindep⟩
+  intro T' hT'
+  rw [hidx'] at hT'
+  have := (hha T' hT').defeqDFC henv hctx
+  rw [hargs']
+  simpa [hlen'] using this
+
 /-- **§6.3 — the repair is a strengthening.**  `IndepUpgrade` implies `exists_indep`'s
 conclusion, so replacing the statement loses nothing that a consumer of the old one had. -/
 theorem indepGoal_of_indepUpgrade {env : VEnv} {D : VInductDecl'} {Γ : List VExpr}
@@ -328,12 +449,15 @@ theorem indepGoal_of_indepUpgrade {env : VEnv} {D : VInductDecl'} {Γ : List VEx
   have hlen : bs.length = r.binders.length := (teleDefEq_length_eq htele).symm
   have hcr : (VIndRecArg.mk bs r.idx r.args).canonResult D i = r.canonResult D i := by
     simp [VIndRecArg.canonResult, hlen]
-  refine ⟨⟨bs, r.idx, r.args⟩, rfl, rfl, hlen, hnb, ?_, hindep⟩
-  refine isDefEqType_trans_of_sortUniq henv hsu hΓ hdefeq ?_
-  have := VEnv.IsDefEq.mkPi_congrU htele hOn ⟨D.lvl, hres⟩
-  show env.IsDefEqType D.uvars Γ (r.canonType D i) _
-  rw [VIndRecArg.canonType, VIndRecArg.canonType, hcr]
-  exact this
+  have hcongr : env.IsDefEqType D.uvars Γ (r.canonType D i)
+      ((VIndRecArg.mk bs r.idx r.args).canonType D i) := by
+    have := VEnv.IsDefEq.mkPi_congrU htele hOn ⟨D.lvl, hres⟩
+    show env.IsDefEqType D.uvars Γ (r.canonType D i) _
+    rw [VIndRecArg.canonType, VIndRecArg.canonType, hcr]
+    exact this
+  exact ⟨⟨bs, r.idx, r.args⟩, rfl, rfl, hlen, hnb,
+    isDefEqType_trans_of_sortUniq henv hsu hΓ hdefeq hcongr, hindep,
+    teleDefEq_isDefEqCtx htele hOn, hcongr⟩
 
 end RecArgIndep
 
@@ -342,7 +466,12 @@ end RecArgIndep
 ### 7.1 The closed halves are degenerate, and this is the record of it
 
 §3's witness is `r` itself: `indepGoal_of_bindersIndep` returns `⟨r, rfl, rfl, rfl, …⟩`, so on
-that regime the existential is satisfied without moving anything.  `docs/vacuity-ledger.md`
+that regime the existential is satisfied without moving anything.  **The degeneracy survives the
+strengthening**, which was the thing to check when the hole's conclusion grew two conjuncts: the
+new `IsDefEqCtx` conjunct at `r' = r` is `isDefEqCtx_refl_suffix hOn` (§0) and the new
+`IsDefEqType` conjunct is `isDefEqType_refl_r hdefeq` (§0, at `hdefeq`'s own sort, so **no**
+`SortUniq`).  All three of §3's drop-ins are stated and proved against the *repaired* conclusion,
+and `hOn` — the one hypothesis they gained — is `pos`'s own `OnCtx` conjunct.  `docs/vacuity-ledger.md`
 rows 20–21 are the pattern to avoid — an obligation named after the hard case that, under its
 own premise, contains none of it — so the halves are labelled, not headlined.
 
@@ -359,7 +488,7 @@ binder to move.**
 ### 7.2 The residual case is reachable — at a `VEnv.WF` environment
 
 The one thing §2–§3 cannot settle is whether the residual case is empty.  It is not.  Below is
-a concrete instance of **all five of the hole's hypotheses** at a well-formed environment where
+a concrete instance of **all five hypotheses the hole's *first* statement had** at a well-formed environment where
 `r` is *not* a witness (`not_bindersIndep_raiRec1`), so any proof of `exists_indep` must
 genuinely produce a different telescope there.
 
@@ -486,7 +615,10 @@ theorem raiB_hasType : raiEnv.HasType 0 raiΓ raiB (.sort (.succ .zero)) := by
 theorem raiF1_hasType : raiEnv.HasType 0 raiΓ raiF1.type (.sort raiF1.lvl) :=
   VEnv.IsDefEq.forallEDF raiB_hasType (raiI_hasType raiEnv_I)
 
-/-- **All five hypotheses of `VIndRecArg.exists_indep`, at a `VEnv.WF` environment.** -/
+/-- **The five hypotheses `VIndRecArg.exists_indep` had before the 2026-09-03 repair, at a
+`VEnv.WF` environment.**  They still all hold; what no longer holds is the repaired statement's
+`henv₀`+`hstage` pair — see `rai_not_staged` below, which is why this instance is a *record of
+why the hypothesis was added* rather than a live candidate counterexample. -/
 theorem rai_hyps :
     VEnv.WF raiEnv ∧
     raiPre.length = 1 ∧
@@ -512,6 +644,92 @@ theorem raiCiP_type_hasBlock : VExpr.hasConstB raiD.blockNames raiCiP.type = tru
 /-- …and the control is a control: the binder itself is block-free, so `hbind` does not
 exclude it, and the failure is not a `NoBlock` failure in disguise. -/
 theorem raiB_hasNoBlock : VExpr.hasConstB raiD.blockNames raiB = false := by decide
+
+/-! ### 7.3b The repaired statement *excludes* this instance, and `henv₀` is the half that does it
+
+The repair added `hstage : env₀.addIndTypes D = some env` together with `henv₀ : env₀.Ordered`.
+Three facts, all machine-checked, say exactly what that buys:
+
+* `rai_staged` + `ordered_raiEnv0` + `ordered_raiEnv`: the pair is **satisfiable** — `raiEnv0`
+  really is a staged environment of `raiD`, over `Ordered`.  So the hypothesis is not vacuous
+  and does not empty the statement.
+* `raiEnvP_add`: `hstage` **alone** is satisfied at §7.2's `raiEnv`, by the junk environment
+  `raiEnvP` that declares `raiP` while `raiI` — the constant `raiP`'s type mentions — is
+  undeclared.  `addIndTypes` is pure data, so nothing in `hstage` by itself rules that out.
+  **This is why `henv₀` is in the statement**; without it the added hypothesis would be
+  decoration.
+* `rai_not_staged`: with `Ordered env₀`, `raiEnv` is **not** a staged environment of `raiD` at
+  all.  So §7.2's witness no longer satisfies the hole's hypotheses, and
+  `rai_junk_not_ordered` is the same fact read the other way.
+-/
+
+theorem raiD_typeConsts : raiD.typeConsts = [(raiI, raiCiI)] := rfl
+
+theorem ordered_raiEnv0 : VEnv.Ordered raiEnv0 := by
+  refine .const .empty ?_ raiEnv0_add
+  exact ⟨_, VEnv.HasType.sort trivial⟩
+
+theorem ordered_raiEnv : VEnv.Ordered raiEnv := by
+  refine .const ordered_raiEnv0 ?_ raiEnv_add
+  exact ⟨_, VEnv.IsDefEq.forallEDF (raiI_hasType (by simp [raiEnv0]))
+    (VEnv.HasType.sort trivial)⟩
+
+/-- **`hstage` is inhabited.**  `raiEnv0` is a staged environment of `raiD`, over `Ordered`. -/
+theorem rai_staged : VEnv.empty.addIndTypes raiD = some raiEnv0 := by
+  show List.foldlM (fun env (c : Lean.Name × VConstant) => env.addConst c.1 c.2)
+    VEnv.empty raiD.typeConsts = some raiEnv0
+  rw [raiD_typeConsts]
+  simpa using raiEnv0_add
+
+/-- **The repaired statement excludes §7.2's witness.**  No `Ordered` environment stages `raiD`
+into `raiEnv`: staging leaves `raiP` declared while `raiI` is not, and `Ordered.constsInC` says
+a declared type mentions only declared constants. -/
+theorem rai_not_staged :
+    ¬ ∃ env₀ : VEnv, VEnv.Ordered env₀ ∧ env₀.addIndTypes raiD = some raiEnv := by
+  rintro ⟨env₀, hord, h⟩
+  have h' : env₀.addConst raiI raiCiI = some raiEnv := by
+    simpa [VEnv.addIndTypes, VEnv.addConstList, raiD_typeConsts] using h
+  rcases hI : env₀.constants raiI with _ | ci
+  · rw [VEnv.addConst, hI] at h'
+    injection h' with h'
+    have hP : env₀.constants raiP = some raiCiP := by
+      have := congrArg (fun e => e.constants raiP) h'
+      simp only at this
+      rw [if_neg raiI_ne_raiP] at this
+      simpa [raiEnv] using this
+    have hc := hord.constsInC hP
+    have hIc : env₀.contains raiI := by
+      simpa [raiCiP, VExpr.ConstsIn] using hc
+    obtain ⟨ci, hci⟩ := hIc
+    rw [hI] at hci; exact absurd hci nofun
+  · rw [VEnv.addConst, hI] at h'; exact absurd h' nofun
+
+/-- **The control on the control**: `hstage` *without* `henv₀` does not exclude §7.2 — this junk
+environment stages `raiD` into `raiEnv`, and it declares `raiP : raiI → Sort 1` while `raiI` is
+undeclared. -/
+def raiEnvP : VEnv where
+  constants n := if raiP = n then some raiCiP else none
+  defeqs _ := False
+
+theorem raiEnvP_add : raiEnvP.addIndTypes raiD = some raiEnv := by
+  have : raiEnvP.addConst raiI raiCiI = some raiEnv := by
+    simp only [VEnv.addConst, raiEnvP, show (if raiP = raiI then some raiCiP else none) = none from
+      if_neg (Ne.symm raiI_ne_raiP)]
+    show _ = some raiEnv
+    unfold raiEnv
+    simp only [Option.some.injEq, VEnv.mk.injEq]
+    refine ⟨?_, trivial⟩
+    funext n
+    by_cases h : raiI = n
+    · subst h; simp [Ne.symm raiI_ne_raiP]
+    · by_cases h2 : raiP = n
+      · subst h2; simp [h]
+      · simp [h, h2]
+  simpa [VEnv.addIndTypes, VEnv.addConstList, raiD_typeConsts] using this
+
+/-- …and it is exactly `henv₀` that rejects it. -/
+theorem rai_junk_not_ordered : ¬ VEnv.Ordered raiEnvP :=
+  fun h => rai_not_staged ⟨raiEnvP, h, raiEnvP_add⟩
 
 /-! ### 7.4 The repaired obligation is inhabited
 
@@ -585,6 +803,7 @@ section Audit
 #print axioms Lean4Lean.RecArgIndep.isDefEqType_trans_of_sortUniq
 #print axioms Lean4Lean.VIndField.posSome_of_wf
 #print axioms Lean4Lean.RecArgIndep.posSome_transport
+#print axioms Lean4Lean.RecArgIndep.posSome_transport_of_indepGoal
 #print axioms Lean4Lean.RecArgIndep.indepGoal_of_indepUpgrade
 #print axioms Lean4Lean.RecArgIndep.indepUpgrade_of_bindersIndep
 #print axioms Lean4Lean.RecArgIndep.wf_raiEnv
@@ -592,6 +811,13 @@ section Audit
 #print axioms Lean4Lean.RecArgIndep.not_bindersIndep_raiRec1
 #print axioms Lean4Lean.RecArgIndep.raiCiP_type_hasBlock
 #print axioms Lean4Lean.RecArgIndep.raiB_hasNoBlock
+#print axioms Lean4Lean.RecArgIndep.ordered_raiEnv
+#print axioms Lean4Lean.RecArgIndep.rai_staged
+#print axioms Lean4Lean.RecArgIndep.rai_not_staged
+#print axioms Lean4Lean.RecArgIndep.raiEnvP_add
+#print axioms Lean4Lean.RecArgIndep.rai_junk_not_ordered
+#print axioms Lean4Lean.RecArgIndep.isDefEqCtx_refl_suffix
+#print axioms Lean4Lean.RecArgIndep.isDefEqType_refl_r
 #print axioms Lean4Lean.RecArgIndep.raiRedex_not_noBlock
 #print axioms Lean4Lean.RecArgIndep.raiRedex_betaHead
 #print axioms Lean4Lean.RecArgIndep.raiB_betaHead
