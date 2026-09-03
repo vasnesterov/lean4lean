@@ -1495,3 +1495,41 @@ negative about what the project already contains — a witness two days old, lem
 composition already made, three "cannot be proved" claims true of other statements. This one needed
 no searching at all: the answer was scrolling past in every build. **Before asserting that something
 is undetectable, read what the tools already print.**
+
+## Check names before writing briefs: `scripts/exists.lean` (2026-09-03, mine)
+
+My briefs are the project's bottleneck, and the failure is always the same shape. In two days I
+asserted six times that something was absent, unproved, or needed when it was already in the tree:
+
+* a `¬ IsProof` guard I said nothing had — present, **with a docstring explaining why the
+  alternative would not work**;
+* two lemmas I set as a *task to prove* — already proved, with bodies, inside the brief that warned
+  about exactly this misfire;
+* an "uncomposed pair" — already composed in a file nobody had read;
+* `htele` — already proved, and **a file I had committed hours earlier said so in prose**;
+* three "cannot be proved" claims — true only of a *different* statement;
+* a lemma name, `TeleDefEq.inst`, that **does not exist** and propagated through three agents
+  because each of us read it off prose rather than a declaration.
+
+Plus the purest case: **20 build warnings naming a defect class I told three streams was
+invisible**, scrolling past unread for a day.
+
+Every brief instructs streams to make absence claims against the compiled environment. I was not
+doing it myself. So:
+
+    lake env lean --run scripts/exists.lean Name.One Name.Two …
+
+reports, per name: found or `NOT FOUND`, module, arity, cone size, whether its own value is a hole,
+and which holes its cone reaches. Tested on the three cases above — it catches all of them in one
+command each.
+
+**The rule: every name a brief calls absent, unproved, or needed gets run through this first.** And
+`NOT FOUND` still does not license the word "absent" on its own — *a different name for the same
+content* is the failure that actually bit, five of the six times. Pair it with a conclusion-shape
+query over the environment (`Verify/Inductive/FlipPriceScan.lean` is the template) when the claim is
+"nothing proves X".
+
+Population caveat, itself learned twice: a structural query is only as complete as the modules
+imported into it, and **nothing in its output reveals a gap** — one scan reported five declarations
+where there were six. This script takes its population from the filesystem, like
+`scripts/sorry-census-all.lean`, and prints the module count so a shrunken population is visible.
