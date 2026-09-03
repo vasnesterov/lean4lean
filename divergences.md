@@ -326,3 +326,82 @@ This is a list of places where lean4lean deliberately has different behavior fro
 
   C++ additionally rejects a `nparams` that is not `is_small()`; lean4lean's `nparams : Nat` has no
   counterpart. Pre-existing and unrelated to this check.
+
+## `_nested` reserved prefix: a declaration's own name is rejected (restrictive)
+
+`Environment.addInductive` now rejects a declaration whose **own** type or constructor name carries
+the reserved `_nested` prefix (`checkNoNestedAuxName`, `Lean4Lean/Inductive/Add.lean`). **C++
+accepts such a declaration.** So does lean4lean before this change.
+
+**What neither kernel checks.** `checkNoNestedAux` and C++'s `check_no_nested_aux`
+(`src/kernel/inductive.cpp`) scan a declaration's *type* for `_nested`-prefixed constants, and in
+both the name argument is used **only in the error message** — there is no name-level test against
+`*g_nested` anywhere in `src/kernel`. `check_constant_val` (`src/kernel/environment.cpp`) tests only
+for re-declaration. Elaboration does not catch it either: `Lean.isReservedName`
+(`src/Lean/ResolveName.lean`) is a registry, and no registration in the Lean 4 tree installs
+`_nested`. So `inductive _nested.Foo` is accepted by both kernels without this check -- **but only
+when the prefixed name occurs in no constructor type of the block.**
+
+**Scope of the divergence, measured rather than argued** (2026-09-03, probing
+`Environment.addInductive` at the pre-check tree). The existing *type* scan already rejects the
+natural cases, because a constructor's type normally mentions the inductive itself:
+
+    nested block, member `_nested.NB`        -> ALREADY REJECTED by `checkNoNestedAux`
+    plain  block, member `_nested.PB`        -> ALREADY REJECTED, same reason
+    inductive _nested.Zzz : Type, no ctors   -> accepted today; THIS CHECK rejects it
+    inductive TB | _nested.TB.mk : TB        -> accepted today; THIS CHECK rejects it
+
+So the declarations this check newly refuses are exactly those whose `_nested`-prefixed name
+appears in **no constructor type**. An earlier wording here said `inductive _nested.Foo` is
+accepted, unqualified; that overstated the divergence and is corrected.
+
+**It changes naming only, not the theory.** The delta class is *defined* by the prefixed name not
+occurring in any type in the block, so renaming such a declaration changes no type at all and the
+stored environment differs in one label. Any development using the rejected name can be rewritten
+with an unprefixed one and is then accepted, giving an isomorphic environment; provable
+propositions, up to renaming of constants, are unchanged. This was verified rather than assumed,
+because **the kernel is not renaming-invariant in general**: `Environment.primitives`
+(`Environment/Basic.lean:34`) keys special reduction on names and `checkName` rejects any
+declaration reusing one, so there a name does change what is accepted. No `_nested`-prefixed name
+is in that list, every entry being a fixed literal; and `isNonRecStructure`, the other name-keyed
+path, dispatches on a declaration's shape rather than its name.
+
+**Why the check is here.** The nested-inductive pass rewrites a block, replacing each nested
+occurrence with an auxiliary member it *invents*, checks the rewritten block, then restores the
+original names. The `_nested` prefix is how the restoration distinguishes invented names from
+declared ones. Because the prefix is not an invariant of the environment, it cannot serve as a name
+barrier, and the two restoration facts `RestoreData.ownName` / `ownCtor`
+(`Verify/Inductive/NestedRestore.lean` §8.2) stay **hypotheses** rather than theorems, with three
+consumers waiting on them. This is the soundness argument declining to rest on an unstated property
+of user input.
+
+**No exploit is claimed, and this is not a C++ kernel bug report.** No witness was constructed, and
+two mitigations may close every path: `mkUniqueName` / `mk_unique_name` skip names the environment
+already holds, so a user-declared `_nested.X_1` cannot be silently reused as an auxiliary name; and
+the renamed recursors `mkAuxRecNameMap` produces end in `rec_k`, never `rec`, so they cannot collide
+with an auxiliary member's `mkRecName`. There is a machine-checked case
+(`Verify/Inductive/NestedOccData.lean`) where a constructor-less member carries exactly the name
+`mkUniqueName` would invent — its own name appears in no constructor *type*, so the type-scanning
+check never sees it — and there **both kernels reject identically**, via the duplicate-constant
+check (`constant has already been declared`). What is certain is narrower than an exploit: the
+prefix is not an environment invariant, so it cannot be used as a barrier without this check.
+
+**Alternative considered and rejected on measurement, not taste.** `docs/decision-nested-prefix.md`
+prices avoiding the barrier entirely. Four of the six use sites of `ownName`/`ownCtor` need only a
+*distinctness* fact, which `VInductDecl'.fresh_of_addIndTypes` supplies from the step's own success
+at no cost to any caller. The remaining two — `resTy` and `resRec`'s branch decision — need
+`¬ IsNestedName ‹declared name›` as the **conclusion**, and at exactly the input in question that
+conclusion is **false**. No derivation repairs a false statement. Only a redesign of `resTy`'s
+consumer could revive that route, and it is unpriced.
+
+**Cost.** One `Name.isPrefixOf` per declared type and constructor. No axiom: `checkNoNestedAuxName`
+is a pure function over `Name`. Guard 3's implementation-gap allowlist is unaffected (2/2).
+
+**Measured, not assumed.** Kernel Arena after the change: **185 correct / 6 either / 0 incorrect** —
+unchanged, so no test in the suite declares a `_nested`-prefixed name. Full `lake build` 1549 jobs,
+guards `24 frozen axioms ✓ / whitelist ✓ (INCOMPLETE) / 2-2 ✓`.
+
+**Proof-side ripple.** `Verify/Inductive/RunIdentity.lean`'s guard-loop lemmas mirror
+`addInductive`'s guard sequence verbatim, so each needed the new call in its statement plus one
+trivial `Except.WF.bind` step — six statement lines and four proof steps, no new hypothesis and no
+new hole.
