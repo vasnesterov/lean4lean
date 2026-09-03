@@ -4810,3 +4810,234 @@ half cost almost nothing once `iffRecFn` existed), and **leave `Nonempty.rec` al
 No new file, so no `Equiconsistency.lean` import line was needed. `Verify/Soundness.lean`,
 `Verify/Axioms.lean`, `Verify/Guard.lean`, `Experimental/ConeJoin.lean`, `Theory/Inductive/*` and
 `Theory/Typing/*` were not touched; `implGapWhitelist` was not touched; no git operation was run.
+
+## 23. `eqIndDecl`'s ι-rule, and `InductOracleOK` assembled at the `Eq` block (2026-09-03)
+
+### 23.1 Headline
+
+**`InductOracleOK` is now assembled at `eqIndDecl`.**
+`EqIotaAudit.inductOracleOK_Eq` (`Theory/SetModel/EqIotaRule.lean` §13), both fields, at the shared
+`SetModel.preludeWitness`, `sorry`-free, axioms `[propext, Classical.choice, Quot.sound]`.
+It is **not** assembled at `iffIndDecl`: `consts` is complete there as of this session
+(`IffConstsAudit.inductOracleOK_consts_Iff`), `rules` is not started.
+
+Two hypotheses remain on the `Eq` assembly: `hle : eqEnv ≤ envF` (discharged at `preludeEnv` by
+`EqAudit.eqEnv_le_preludeEnv`) and **`hS : L.Stable`**, which is *not* discharged anywhere in this
+tree — see 23.4. `PreludeOracle.inductOracleOK_NE` needs neither.
+
+### 23.2 Proved
+
+| statement | where | notes |
+|---|---|---|
+| `defEqOK_eqRule` — `DefEqOK` at `eqIndDecl.iotaRule 0 0 eqCtor`, **both level slices** | `EqIotaRule` §11 | needs `∀ w, EqSpec M w` and `∀ us, M.cnst ``Eq.rec us = eqRecVal M.κ M.ls us` — at *every* index, not at a chosen pair; `DefEqOK` quantifies over all `us` of length 2 |
+| `inductOracleOK_rules_Eq` / `…_preludeWitness` — **the `rules` field** | §11 | `eqIndDecl.iotaRules` is a singleton (`eq_iotaRules_eq`, `rfl`), so the field *is* that one `DefEqOK` |
+| `interp_sides_eq_of_ne` — `⟦lhs⟧∅ = ⟦rhs⟧∅` at `u.eval M.ls ≠ 0` | §9 | four uniform `Cnst.interp_lam_congr_of_type` peels, then the two body values |
+| `interp_iotaLhsBody_val` — `⟦Eq.rec α a f m a (Eq.refl α a)⟧ = m` | §9 | the ι-computation: `interp_iotaLhsBody_app` (§2) then `eqRecFn_app_refl` (§3) |
+| `eqRecFn_app_refl` — `eqRecFn ‘ α ‘ a ‘ f ‘ m ‘ a ‘ • = m` | §3 | six `mkLam_value` steps; **the whole set-theoretic content of the rule**. Compiled first try |
+| `interp_iotaRhsBody_val` — the η-expansion's four-fold β-redex, computed | §6 | uses `interp_closed_ctx`, hence `L.Stable` |
+| `interp_lhs_mem_ruleType_of_ne` / `…_of_zero` — the membership half, both slices | §§9, 10 | `_of_zero` is the *more* expensive of the two |
+| `interp_sides_eq_of_zero` — both sides are `•` at `u.eval = 0` | §10 | two `interp_lam_proof`s; one line each |
+| `eqRule_discriminates`, `interp_lhs_ne_pt_of_ne` — anti-vacuity | §11 | one `L`, one `M`, one level tuple, **one `interp`**: `⟦lhs⟧ ∈ ⟦type⟧` and `• ∉ ⟦type⟧`, so the membership half is not satisfied by every set and the `≠ 0` slice is not the `= 0` slice in disguise |
+| `oracleOK_EqRefl`, `inductOracleOK_consts_Eq` | §13 | see 23.3 item 2 |
+| `iffFn_mem_interp_IffType` — `Iff`'s type-former cell | `IffConsts.lean` §3 | two `mkLam` layers; `⟦Prop⟧ = U κ 0 = UProp` makes both domain matches free |
+| `pt_mem_interp_IffIntroType` — `Iff.intro`'s cell | `IffConsts` §3 | four `mkForallProp` steps |
+| `eq_of_mem_mpTy_mprTy` — **the step with content** in `Iff.intro`'s cell | `IffConsts` §3 | `⟦Iff a b⟧ = {•}` only when `a = b`, and `a = b` is *derivable from the two field binders' own inhabitation*: if `a ≠ b` then one of `⟦a → b⟧`, `⟦b → a⟧` is empty and the corresponding `∀` is vacuous. So this constructor cell is **not** derivable from its result type alone |
+| `inductOracleOK_consts_Iff` — `consts` complete at `iffIndDecl` | `IffConsts` §4 | `Iff` + `Iff.intro` (here) + `Iff.rec` (`IffRecLarge` §15) |
+
+Retired, task 3: `RecGap.preludeWitnessR` and 17 declarations stated at it (`PreludeRecGap` §§3–4,
+4.3, 4.4, 4.5, 5.1), and `IffLargeAudit.preludeWitnessRR` and 17 more (`IffRecLarge` §§14, 14.1),
+including both `_cnst_Eq_arm` lemmas. −497/+56 lines. Each retired name is listed in the two
+replacement notes against its installed successor, so the retirement is auditable rather than a
+silent deletion. `SetModel.preludeWitnessPt` is **kept** — the notes say why, in place.
+
+### 23.3 Where the brief is wrong
+
+Asked for plainly. Five things, two of them load-bearing.
+
+1. **"`iotaRules_WF` + `WF.iotaCtx` type both sides in twelve lines, hole-free — so do not assume
+   the `hasType_app'` ladder is needed."** The first clause is right and *stronger than stated*: it
+   is not a costing at all, it is **already installed** — `EqRecLarge` §10.1's `eqRule_WF`,
+   `eqRule_lhs_hasType`, `eqRule_rhs_hasType` are compiled theorems with axioms
+   `[propext, Classical.choice, Quot.sound]`. §22.14 item 1 and §21.9 item 3 both say this is
+   "still an argument from the shape of the lemma, not a measurement"; **that is false**, and two
+   handoffs have now repeated it.
+   The conclusion drawn from it is the load-bearing error. `iotaRules_WF` types the *whole λ-nest*.
+   `interp`'s `app` clause consults `L.IsProof` at **each prefix** of the recursor spine, and
+   `isProof_iff` needs, per prefix, a `HasType` *and its type's sort*. So the ladder is needed
+   after all — six `hasType_app'` steps for the left side plus **fifteen** `HasType.instN`
+   applications for their sorts, and four plus six more for the right side's β-redex.
+   The good news the brief could have given instead: at an ι-rule the arguments *are* the
+   telescope's own bound variables, so every `.inst` equation is a closed computation and every
+   `hC` is `rfl` — the `VExpr.liftN 0` trap `EqOracle.hasType_app'`'s docstring warns about does
+   not arise. The whole six-step spine typed on the first attempt, in 2.4 s.
+2. **"All the `consts` cells are now closed at both blocks … the `rules` fields are what stands
+   between that and `InductOracleOK` itself."** Not at `eqIndDecl`. The `Eq.refl` cell existed only
+   as a membership (`EqZeroAudit.pt_mem_interp_EqReflType`); there was no `OracleOK` at that name
+   and no `inductOracleOK_consts_Eq` anywhere in the tree (checked by `grep -rn` over the whole
+   repo for `oracleOK_EqRefl`, `inductOracleOK_consts_Eq`, `inductOracleOK_Eq`, `eq_allConsts`:
+   only `EqOracle.eq_allConsts`, which gives the *names* only). Both are in §13 now. The brief also
+   contradicts itself here — it says every `consts` cell is closed and then asks for two of them as
+   task 2; the task is right and the claim is wrong.
+3. **The unpriced hypothesis: `L.Stable`.** `iotaRule`'s `rhs` is deliberately the η-expansion
+   `λ Γ'. (iotaLam) Γ'`, so `⟦rhs⟧` requires computing a four-fold β-redex whose head is a
+   **closed** λ-nest sitting at the ι-context. Two routes: restate every `Γ = []` domain lemma
+   (`motSet_eq_interp_motTyE`, `interp_minTyE_val`, and the `r*` read ladder out to length 8) at the
+   longer context — ≈120 lines — or use `InterpSound.interp_closed_ctx`, which is 3 lines and costs
+   `L.Stable`. I took the second. `L.Stable` is **not** discharged in this tree
+   (`StableAudit.lean`: it reduces to `PropDescend`, which is strengthening-shaped and open); at the
+   real consumer it *is* available, as `PropSplitUp.propSplitUp_stable` from `UpperBound.
+   InstDescendInput`, i.e. Input 2 of the main theorem. So the `Eq` block's `rules` field is the
+   first prelude obligation to depend on Input 2, and `nonemptyIndDecl`'s does not — because both
+   sides of *that* ι-rule are `•` and no domain is ever computed. The brief's cost model had nothing
+   about this. If a later stream wants the dependency gone, the 120 lines are the price.
+4. **"The `Eq` ι-rule's shapes are all `rfl`" reads as if the rule is shape-checking.** The shapes
+   are indeed all `rfl` (§10's `eqRule_lhs_instL` etc., and my `lhsA_eq`/`rhsA_eq`/`ruleTyA_eq`),
+   and the third clause — **the substituted ι-context equals the recursor telescope on the nose**
+   (`eq_iotaCtx_reverse`, `rfl`) — is the single biggest saving in the file: the entire
+   `EqAudit`/`EqZeroAudit` ladder (`onCtx_*`, `r1_*`–`r6_*`, `interp_minTyE_val`,
+   `motSet_eq_interp_motTyE`, `interp_alTy_ctx*`) applies unchanged, which is why §§3 and 9 are
+   short. But the two `DefEqOK` conjuncts are 1030 lines of `interp` bookkeeping, not shape checks,
+   and the split is not where one would guess: at `u.eval = 0` the **equation** is two lines while
+   the **membership** needs four `mkForallProp` steps plus `motive_value_mem_UProp`.
+5. **The kernel-heartbeat instrument was not needed.** Nothing in either new file comes near the
+   default budget: `lake env lean` on `EqIotaRule.lean` (1084 lines, 98 declarations) is 3.4 s and
+   on `IffConsts.lean` (391 lines, 39 declarations) 2.7 s, deps cached. No `set_option
+   maxHeartbeats`, no `(kernel) deterministic timeout`, at any point. That is a *consequence* of
+   §22's η-contraction, not luck — every `preludeWitness_cnst_*` I rewrite with is `rfl` — and it is
+   the reason task 3's retirement is safe: §14.1's escape hatches document a trap that is gone.
+
+Two things the brief got right that mattered: **the ι-context identity** (item 4), and
+**"test a side condition at every index the consumer quantifies over"** — `DefEqOK` quantifies over
+every `us` with `us.length = 2`, so `defEqOK_eqRule` had to assume `EqSpec M w` at *every* `w` and
+the `Eq.rec` value at *every* `us`. A version stated at one `(u, v)` would have been a different
+theorem and would not have composed into `inductOracleOK_rules_Eq`.
+
+### 23.4 Hole-free versus discharged
+
+* **Hole-free**: everything in 23.2. No `sorry` in either new file (`grep -c sorry` = 0), none
+  traded, no new frozen-axiom dependency; every new declaration's `#print axioms` is
+  `[propext, Classical.choice, Quot.sound]`, except `EqIotaAudit.not_isProof_motA_ctxN`
+  (`[propext, Quot.sound]`).
+* **Discharged**: `hle : eqEnv ≤ envF` and `hle : iffEnv ≤ envF` are discharged at `preludeEnv`
+  (`EqAudit.eqEnv_le_preludeEnv`, `IffAudit.iffEnv_le_preludeEnv`).
+* **Not discharged**: `hS : L.Stable` (23.3 item 3). And, as before, nothing here is a claim
+  *at* `preludeEnv` rather than at an arbitrary `L : PropSplit envF nv`, because
+  `NEAudit.propSplitPreludeEnv` still prints `sorryAx` — no statement in this session is routed
+  through it, and none should be described as "sorry-free at `preludeEnv`".
+* **`Above` is not doing any work**: it occurs in no hypothesis of anything proved here. Both
+  `DefEqOK` conjuncts are produced by `Above.pure`, at an arbitrary `κ : ℕ → V`, with no
+  `IsInaccessibleChain` anywhere. The only `κ`-shaped hypothesis in the file is
+  `hx : x ∈ U M.κ (v.eval M.ls)` in the two *negative controls* (`pt_not_mem_ruleType_of_ne`,
+  `interp_lhs_ne_pt_of_ne`) — a hypothesis *about the given* `κ`, not a chosen one.
+
+### 23.5 What I tried that failed, and the step it failed at
+
+* **`.bvar 1`'s type at `ectxN` spelled with one lift.** `Lookup` carries the entry's type already
+  lifted *once per intervening binder*, so the motive at `ectxN` is `(motTyE u v).lift.lift`, not
+  `.lift`. Failed at `VEnv.HasType.bvar (Lookup.succ Lookup.zero)` with an application type
+  mismatch naming `(VExpr.lift ?m).lift`. Two minutes, but it is the kind of off-by-one that
+  silently propagates if the type is left as `_`.
+* **`M.cnst ``Eq.rec [u, v] ‘ α` unparenthesised.** `‘` needs explicit parentheses at every
+  application in this codebase; the parse error is `unexpected token ')'; expected '.', '|' or '’'`,
+  which points at the wrong place. Every existing use site parenthesises — copy them.
+* **`have hnp1 := fun hp ↦ … isProof_iff …` with no type annotation.** `isProof_iff`'s `L` and `M`
+  are implicit and are only determined by the expected type, so an unannotated `have` fails with
+  "don't know how to synthesize implicit argument". Fix: `isProof_iff (L := L) (M := M) …` — which
+  keeps the six prefix types out of the source entirely, since they are exactly the terms
+  `hasType_app'` computed.
+* **`(.imax .zero (.succ u)).WF nv` as `⟨trivial, trivial, hu⟩`.** It is `⟨trivial, hu⟩`;
+  `VLevel.WF` at `.succ` is the argument's own `WF`, not a pair. Failed at the anonymous
+  constructor with "expected type `VLevel.WF nv u` is not an inductive type".
+* **`Γ` left implicit in `onCtx_*` / `hasType_lam*E` at `Γ := []`.** `trivial` cannot determine it;
+  every call needs `(Γ := ([] : List VExpr))`. Failed at "application type mismatch: `trivial` has
+  type `True` but is expected to have type `OnCtx ?m …`".
+* **A doc-comment block opened with `/-!` and not closed.** Third time in three sessions per §22.10;
+  `unterminated comment` reported 150 lines later. When replacing a deleted section with a note,
+  close the note.
+* **Not attempted, and why:** the `Iff` ι-rule. Six binders (two of them constructor *fields*, which
+  `Eq` has none of) and `ihValues` empty but the minor premise applied to two arguments. Everything
+  in §§1–11 is the template, but the `Iff` analogues of `motSet_eq_interp_motTyE` and
+  `interp_minTyE_val` do not exist at the ι-context, and `IffRecLarge`'s `impSet01/impSet10` lemmas
+  are stated at the *recursor's* contexts (with the motive binder present), which the ι-context does
+  not have. Estimate, from the `Eq` measurement: ≈700 lines, of which ≈200 is the new domain ladder.
+
+### 23.6 Measured versus read off
+
+| claim | source | status |
+|---|---|---|
+| the ι-rule's typing is free from `iotaRules_WF` + `WF.iotaCtx` | brief; §21.9 item 3 called it unmeasured | **already measured and installed** (`EqRecLarge` §10.1) — the handoff was wrong, twice |
+| the `hasType_app'` ladder is not needed | brief | **refuted**: needed per *prefix*, for `interp`'s `IsProof` test, not for the rule's own typing |
+| the substituted ι-context = the recursor telescope on the nose | brief | **confirmed**, `rfl`, and it is what makes §§3/9 short |
+| the `Eq` ι-rule's shapes are all `rfl` | brief | **confirmed** (`lhsA_eq`, `rhsA_eq`, `ruleTyA_eq`, all `rfl`) |
+| the two ι-rules are free from `VInductDecl'.iotaRules_WF` | §21.9 item 3, §22.14 item 1 | **refuted**: typing is free, the two `DefEqOK` conjuncts are not |
+| `rules` needs no hypothesis beyond the recursor cell's | implicit in the brief | **measured wrong**: `L.Stable`, via the η-expanded `rhs` |
+| `Iff.intro`'s cell follows from its result type | not claimed, but the natural guess | **false**: it needs `a = b`, which comes from the *field binders'* inhabitation (`eq_of_mem_mpTy_mprTy`) |
+| the kernel trap is the binding cost | brief's first instrument | **not encountered**: 3.4 s / 2.7 s per module at the default budget |
+| retiring `preludeWitnessR`/`RR` is safe | brief task 3 | **measured**: −497 lines, and the 11-module reverse-import closure of the two edited files (including `Experimental.ConeJoin` and `Verify.SoundnessAssembly`) builds, 1449 jobs |
+
+Per-module job counts (`lake build <module>`): `…SetModel.EqIotaRule` **1212**,
+`Theory.Equiconsistency` after both new imports **1249**, the five reverse-dependents of the two
+edited files **1449**. `#print axioms` is by namespace in both new files
+(`Lean4Lean.SetModel.EqIotaAudit.*`, `Lean4Lean.SetModel.IffConstsAudit.*`), never by filename.
+
+### 23.7 Tooling, named
+
+* Enumerations here come from **`grep -rn` over the whole `Lean4Lean/` tree** (ripgrep 14.1.1 is
+  present as a shell function; `rg` also works, and the brief's claim that `subprocess`-based MCP
+  tools are therefore dead was not tested — I used neither `lean_local_search` nor
+  `lean_hammer_premise` nor `lean_references`). Treat every count as a **floor**: a string search
+  cannot see through an `export` alias (this corner has several) or a `simp` set.
+* **The one absence claim, with its predicate and its tree.** "Nothing outside the two edited files
+  refers to a retired name." The retired names are the *definitions* `RecGap.preludeWitnessR` and
+  `IffLargeAudit.preludeWitnessRR` plus the 34 theorems whose names contain the literal substrings
+  `preludeWitnessR`, `preludeWitnessRR`, `repair_discriminates`, `repair_changes_the_value`,
+  `preludeSpecR`, `_cnst_Eq_arm`, `oracleOK_Eq_preludeWitnessR`. I searched all seven substrings
+  over **the whole repository** (`grep -rn --include=*.lean .`, i.e. `Lean4Lean/`, `Main.lean`, the
+  test tree — not only `Theory/SetModel`). One hit outside, a prose comment in
+  `Theory/Equiconsistency.lean`, updated. The independent check is the build of the 11-module
+  reverse-import closure, computed by a **Python walk over `^import` lines** (exact for this repo's
+  import style) rather than by grep.
+* Ground truth throughout is the compiler: `lake env lean <file>` per edit, `lake build <module>`
+  for job counts and `#print axioms` output. I did not run the full `lake build`, the guards,
+  `sorry-census`, `dup-names`, or `MemberRedexScan`, and did not call the MCP `lean_build`.
+
+### 23.8 Files touched
+
+* **new** `Lean4Lean/Theory/SetModel/EqIotaRule.lean` — 1084 lines, 98 declarations: §§1–2 the
+  recursor spine and its six prefixes; §3 `eqRecFn_app_refl`; §§4–5 the rule's type and the closed
+  `iotaLam`; §6 the β-redex; §§7–8 the two nests and `⟦motive a (Eq.refl α a)⟧` at `ectxN`;
+  §9 the `≠ 0` slice; §10 the `= 0` slice; §11 `DefEqOK` + `rules` + two controls;
+  §13 **`InductOracleOK` at `eqIndDecl`**; §12 the axiom audit.
+* **new** `Lean4Lean/Theory/SetModel/IffConsts.lean` — 391 lines, 39 declarations: the `Iff`
+  type-former and `Iff.intro` cells, and `consts` complete at `iffIndDecl`.
+* `Lean4Lean/Theory/SetModel/PreludeRecGap.lean` — §§3–4 and 5.1 replaced by a retirement table;
+  `eqRec_arm_ne_empty` restated at `preludeWitness`; 17 `#print axioms` lines dropped.
+* `Lean4Lean/Theory/SetModel/IffRecLarge.lean` — §§14/14.1 replaced by a retirement table; 17
+  `#print axioms` lines dropped; one prose pointer re-aimed at §15.
+* `Lean4Lean/Theory/Equiconsistency.lean` — two new import lines with their load-bearing notes, and
+  the `PreludeRecGap` note re-aimed at `RecGap.eqRec_arm_ne_empty`.
+* `docs/handoff-setmodel.md` — this section.
+
+`Verify/Soundness.lean`, `Verify/Axioms.lean`, `Verify/Guard.lean`, `Experimental/ConeJoin.lean`,
+`Theory/Inductive/*`, `Verify/Inductive/*` and `Theory/Typing/*` were not touched;
+`implGapWhitelist` was not touched; no git operation, no network, no `lake update`.
+
+### 23.9 What to pick up first
+
+1. **`iffIndDecl`'s ι-rule** — the last field of `InductOracleOK` at the second prelude block, and
+   the only thing between `consts` (now complete) and the residual. `EqIotaRule.lean` is the
+   template section for section; the new work is the `Iff` analogues of
+   `motSet_eq_interp_motTyE`/`interp_minTyE_val` **at the ι-context** (`IffRecLarge`'s versions live
+   at the recursor's contexts, which have a motive binder the ι-context does not). ≈700 lines by the
+   `Eq` measurement; the two field binders are what `Eq` did not have.
+2. **Remove `L.Stable` from `defEqOK_eqRule`**, if it is worth ≈120 lines: restate the `Γ = []`
+   domain lemmas and the `r*` read ladder at length 5–8 and compute `⟦iotaLam⟧` at the ι-context
+   directly, instead of `interp_closed_ctx`. This is the only new *undischarged* hypothesis this
+   session adds, and it is the difference between `inductOracleOK_Eq` needing Input 2 of the main
+   theorem and needing nothing.
+3. **`NEAudit.propSplitPreludeEnv`'s `sorryAx`** — unchanged from §22.14 item 4, and still the one
+   thing between this corner and any claim *at* `preludeEnv`.
+4. Nothing else in this corner is now blocked on a *missing* statement at `eqIndDecl`: the block's
+   residual is discharged. The next `.induct` obligation after `iffIndDecl` is not a prelude block
+   at all — it is the general `.induct` case, which `docs/soundness-ledger.md` item 2 puts behind
+   the `VIndCtor → CtorData₃/Args` translation.

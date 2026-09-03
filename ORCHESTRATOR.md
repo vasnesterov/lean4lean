@@ -67,8 +67,18 @@ it** — `HEAD` failed with 4 errors while my working tree was green. So the rul
 
 The working tree was green through *both* failures, which is precisely why neither surfaced. The
 cheap version, for a commit you are unsure about:
-`git stash push -u && lake build; git stash pop` — that is how the second breakage was diagnosed,
-and it takes one command.
+`git stash push -u && lake build; git stash pop` — that is how the second and third breakages
+were diagnosed, and it takes one command.
+
+**But use the right form, and I got this wrong once.** `git stash push -u` stashes the **index as
+well**, so the build then tests bare `HEAD` — correct for *"did my last commit break `HEAD`?"* and
+**vacuous** for *"will what I am about to commit build?"*. For the second question:
+
+    git stash push -u --keep-index && lake build; git stash pop
+
+which leaves the staged set in the working tree and hides everything else. I ran the wrong one and
+got a green that meant nothing, because `HEAD` was already green. Note also that the `--keep-index`
+pop can leave files **modified but unstaged**, so re-check `git status` before committing.
 
 ## Briefs can get too heavy to start
 

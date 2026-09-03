@@ -311,6 +311,16 @@ field that is false, so record the two remaining fields separately.
 | `consts` | `not_inductOracleOK_falseProp` (`CnstRecursion.lean`) — a block declaring a constant of type `∀ p : Prop, p` | **`inductOracleOK_zero`** at `boxDecl` (`SetModel/InductOracleWitness.lean`), a `WF` block on a certified history; also free at any block with no type formers (`inductOracleOK_empty`, `empty_block_allConsts`) |
 | `rules` | open — the field's **body** is refutable (`not_defEqOK_falseType`, at a `VDefEq` of our choosing), but no ι-rule of a `WF` block is. **Reworded 2026-09-01: the previous wording asked for the wrong thing.** A `WF` block's ι-rules are well typed, so a correct model *must* satisfy `DefEqOK` at each of them — a refutation there would refute the model, not the field. The honest control is refutability of the body, which is what we have | **`inductOracleOK_zero`** at `boxDecl`'s one ι-rule; also free at any block whose types have no constructors (`iotaRules_eq_nil`) |
 
+**Update 2026-09-03: both fields are now inhabited at a *prelude* block, not only at `boxDecl`.**
+`EqIotaAudit.inductOracleOK_Eq` (`SetModel/EqIotaRule.lean` §13) is `InductOracleOK` at
+`eqIndDecl` — three `consts` cells and the one ι-rule — at the shared `SetModel.preludeWitness`,
+with `Above` discharged by `Above.pure` throughout.  So the `rules` column's "satisfiable" entry is
+no longer only `boxDecl`'s degenerate rule: `EqIotaAudit.eqRule_discriminates` shows the `≠ 0` slice
+of that rule's membership half is not satisfied by `•`.  The residual's remaining prelude gap is
+`iffIndDecl`'s `rules` field (`consts` there is complete, `IffConstsAudit.inductOracleOK_consts_Iff`).
+`inductOracleOK_Eq` carries one hypothesis this file's `boxDecl` witness does not: `L.Stable`
+(`docs/handoff-setmodel.md` §23.3 item 3).
+
 **Update 2026-09-01: the "at a `WF` block" gap in the right-hand column is closed.**  Both
 entries in the "not trivially true" column, and `inductOracleOK_empty`, are still at blocks
 that are **not `VInductDecl'.WF`**: `types_ne` forbids the type-former-free block, and no

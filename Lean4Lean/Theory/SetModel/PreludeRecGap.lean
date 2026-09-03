@@ -131,271 +131,28 @@ theorem preludeWitness_mem_interp_neRecType :
 
 end NEGap
 
-/-! ## 3. The repaired witness
+/-! ## 3--4. **RETIRED**: `preludeWitnessR` and everything stated at it
 
-What `preludeWitness` has to become for its `Eq.rec` entry to be `eqRecFn` on the `≠ 0` branch
-and `•` on the `= 0` branch is exactly this: one more `if` arm, holding
-`EqLargeAudit.eqRecVal κ ls`, which is itself
-`fun | [u, v] => if u.eval ls = 0 then • else eqRecFn κ (u.eval ls) (v.eval ls) | _ => ∅`.
-The brief guessed that shape and the guess is right.
+`preludeWitnessR` was a *measuring instrument*: a copy of `SetModel.preludeWitness` with the
+`Eq.rec` arm repaired, living downstream so that `PreludeSpec.lean` could stay untouched while the
+repair was priced.  The relocation it priced has been performed --
+`SetModel.preludeWitness` now carries both recursor arms, in the η-contracted shape
+(`docs/handoff-setmodel.md` §22.4) -- so every statement this section used to make is now available
+at the assignment `PreludeOracle.lean` actually uses:
 
-`Iff.rec` is **not** repaired here, and this is the second half of the answer to "how much does
-the fix cost": there is no `iffRecFn` anywhere in the tree (checked by `grep` over
-`Lean4Lean/**.lean`; `lean_local_search` is broken in this environment).  §1 refutes the
-`Iff.rec` cell but nothing yet *satisfies* it, so its arm cannot be written.  See §6 for what
-building `iffRecFn` costs.
+| retired | superseded by |
+|---|---|
+| `preludeWitnessR`, `preludeWitnessR_eq/_iff/_nonempty`, `preludeSpecR_satisfiable` | `SetModel.preludeWitness`, `preludeWitness_eq/_iff/_nonempty`, `preludeSpec_satisfiable` |
+| `preludeWitnessR_cnst_eq/_eqRec/_iffRec/_neRec` (`simp`) | `preludeWitness_cnst_Eq/_cnst_eqRec/_cnst_iffRec/_cnst_neRec` (all `rfl`) |
+| `preludeWitnessR_cnst_Eq_arm` + `preludeWitnessR_congr_Eq`'s `rw` detour | `preludeWitness_congr_Eq`, whose degenerate branch is `rfl` again -- the kernel trap §4.5 worked around **no longer exists** in the η-contracted shape |
+| `mem_interp_EqType_preludeWitnessR`, `oracleOK_Eq_preludeWitnessR` | `EqTFAudit.mem_interp_EqType_preludeWitness`, `EqTFAudit.oracleOK_Eq` |
+| `oracleOK_EqRec_preludeWitnessR` | `IffLargeAudit.oracleOK_EqRec_preludeWitness` |
+| `repair_discriminates`, `repair_changes_the_value` | `IffLargeAudit.installed_repair_discriminates`, `installed_repair_changes_the_iffRec_value` -- which discriminate at **both** recursor cells, at one `L`, one `κ`, one `ls`, one level tuple and one `interp` |
 
-`preludeWitnessR` is a **measuring instrument**, not a replacement: it lives downstream so that
-the census in §4 can be run.  The real edit is the relocation described in the file header. -/
-
-section Repaired
-
-variable {V : Type*} [SetStructure V] [Nonempty V]
-variable [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖]
-
-/-- **`preludeWitness` with a level-branching `Eq.rec` entry.**  Identical to `preludeWitness` in
-its first three arms and in its fallback. -/
-noncomputable def preludeWitnessR (κ : ℕ → V) (ls : List ℕ) : ModelData V where
-  κ := κ
-  ls := ls
-  cnst := fun n us ↦
-    if n = ``Eq then (match us with | [w] => eqFn κ (w.eval ls) | _ => ∅)
-    else if n = ``Iff then (match us with | [] => (iffFn : V) | _ => ∅)
-    else if n = ``Nonempty then (match us with | [w] => nonemptyFn κ (w.eval ls) | _ => ∅)
-    else if n = ``Eq.rec then EqLargeAudit.eqRecVal κ ls us
-    else ∅
-
-end Repaired
-
-/-! ## 4. The census, **measured**: what the repair costs
-
-Every statement below is an existing result about `preludeWitness`, restated at
-`preludeWitnessR` with the **same proof term**, so the entries marked *verbatim* are measured
-transfers rather than estimates.  The count:
-
-| existing result | file | verdict |
-|---|---|---|
-| `SetModel.preludeWitness_eq` | `PreludeSpec` | verbatim |
-| `SetModel.preludeWitness_iff` | `PreludeSpec` | verbatim |
-| `SetModel.preludeWitness_nonempty` | `PreludeSpec` | verbatim |
-| `SetModel.preludeSpec_satisfiable` | `PreludeSpec` | verbatim |
-| `EqTFAudit.preludeWitness_cnst_eq` | `EqTypeFormer` | verbatim, still `rfl` |
-| `EqTFAudit.preludeWitness_congr_Eq` | `EqTypeFormer` | verbatim |
-| `EqTFAudit.mem_interp_EqType_preludeWitness` | `EqTypeFormer` | verbatim |
-| `EqTFAudit.oracleOK_Eq` | `EqTypeFormer` | verbatim |
-| `NEAudit.neOracle_NE` / `_intro` / `_rec` | `PreludeOracle` | proof needs no change (`simp`) |
-| `NEAudit.neM_eq` | `PreludeOracle` | **definitional; `neOracle` becomes the repaired one** |
-| `EqLargeAudit.preludeWitness_mem_interp_eqRecType_of_zero` | `EqRecLarge` | statement survives, **one extra rewrite** |
-| `NEAudit.preludeWitness_eqRec_empty` | `PreludeOracle` | **REFUTED** — replaced by §4.2 |
-| `NEAudit.neOracle_eq_empty_of_not_mem` | `PreludeOracle` | **REFUTED** — needs one more hypothesis (§5) |
-| `EqLargeAudit.preludeWitness_cnst_eqRec` | `EqRecLarge` | **REFUTED** — replaced by §4.2 |
-| `EqLargeAudit.preludeWitness_not_mem_interp_eqRecType` | `EqRecLarge` | **REMOVED, not repaired** (§4.4) |
-
-So: **four statements refuted or removed, one proof needing an extra step, everything else
-verbatim.**  `NEAudit.preludeWitness_iffRec_empty` and §1's theorems are *unaffected* by this
-repair, because it does not touch the `Iff.rec` arm.
-
-### 4.1 The three specifications transfer verbatim
-
-This is the answer to "which become easier": none of the three gets easier, but none gets harder
-either, and that is the point — `EqSpec`/`IffSpec`/`NonemptySpec` read `M.cnst` only at `Eq`,
-`Iff` and `Nonempty`, so an arm added *after* those three is invisible to them.  Each proof below
-is byte-for-byte `PreludeSpec.lean`'s. -/
-
-section Census
-
-variable {V : Type*} [SetStructure V] [Nonempty V]
-variable [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖]
-
-theorem preludeWitnessR_eq (κ : ℕ → V) (ls : List ℕ) (u : VLevel) :
-    EqSpec (preludeWitnessR κ ls) u := fun _ hα _ ha _ hb ↦ eqFn_value hα ha hb
-
-theorem preludeWitnessR_iff (κ : ℕ → V) (ls : List ℕ) :
-    IffSpec (preludeWitnessR κ ls) := fun _ hp _ hq ↦ iffFn_value hp hq
-
-theorem preludeWitnessR_nonempty (κ : ℕ → V) (ls : List ℕ) (u : VLevel) :
-    NonemptySpec (preludeWitnessR κ ls) u := fun _ hα ↦ nonemptyFn_value hα
-
-/-- `preludeSpec_satisfiable`, verbatim, at the repaired witness. -/
-theorem preludeSpecR_satisfiable (κ : ℕ → V) (ls : List ℕ) :
-    ∃ M : ModelData V, M.κ = κ ∧ M.ls = ls ∧
-      (∀ u, EqSpec M u) ∧ IffSpec M ∧ (∀ u, NonemptySpec M u) :=
-  ⟨preludeWitnessR κ ls, rfl, rfl, preludeWitnessR_eq κ ls,
-    preludeWitnessR_iff κ ls, preludeWitnessR_nonempty κ ls⟩
-
-/-- `EqTFAudit.preludeWitness_cnst_eq` is `rfl` at `preludeWitness`; **it is still `rfl` here.**
-That is the one thing the added arm could plausibly have broken (the type-former cell needs the
-value's *identity*, not just its applied values — `EqTFAudit.eqSpec_not_sufficient`), and it does
-not: the `Eq` test is the first arm, so the new one never enters the reduction. -/
-theorem preludeWitnessR_cnst_eq (κ : ℕ → V) (ls : List ℕ) (w : VLevel) :
-    (preludeWitnessR (V := V) κ ls).cnst ``Eq [w] = eqFn κ (w.eval ls) := rfl
-
-/-! ### 4.2 The two refuted `∅`-statements, in their repaired shape -/
-
-/-- The replacement for `NEAudit.preludeWitness_eqRec_empty` and
-`EqLargeAudit.preludeWitness_cnst_eqRec`, both of which are `∀ us, … = ∅ / = •` and are refuted
-by the repair. -/
-theorem preludeWitnessR_cnst_eqRec (κ : ℕ → V) (ls : List ℕ) (us : List VLevel) :
-    (preludeWitnessR (V := V) κ ls).cnst ``Eq.rec us = EqLargeAudit.eqRecVal κ ls us := by
-  simp [preludeWitnessR]
-
-/-- On the `Prop` slice the repaired entry is still `•`, which is why
-`EqLargeAudit.preludeWitness_mem_interp_eqRecType_of_zero`'s *statement* survives the repair. -/
-theorem preludeWitnessR_cnst_eqRec_zero (κ : ℕ → V) (ls : List ℕ) {u v : VLevel}
-    (h0 : u.eval ls = 0) :
-    (preludeWitnessR (V := V) κ ls).cnst ``Eq.rec [u, v] = (pt : V) := by
-  rw [preludeWitnessR_cnst_eqRec, EqLargeAudit.eqRecVal_pair, if_pos h0]
-
-/-- The `Iff.rec` and `Nonempty.rec` arms are untouched: the repair is *not* a repair of §1. -/
-theorem preludeWitnessR_cnst_iffRec (κ : ℕ → V) (ls : List ℕ) (us : List VLevel) :
-    (preludeWitnessR (V := V) κ ls).cnst ``Iff.rec us = (pt : V) := by
-  simp [preludeWitnessR, pt]
-
-theorem preludeWitnessR_cnst_neRec (κ : ℕ → V) (ls : List ℕ) (us : List VLevel) :
-    (preludeWitnessR (V := V) κ ls).cnst ``Nonempty.rec us = (pt : V) := by
-  simp [preludeWitnessR, pt]
-
-end Census
-
-/-! ### 4.5 The three `EqTypeFormer` consequences, transferred — **run, not reasoned**
-
-`preludeWitnessR_cnst_eq` being `rfl` (§4.1) is what these three rest on, but "rests on" is an
-argument; below they are compiled.  `EqTFAudit.mem_interp_EqType_preludeWitness` is the one that
-could not have been taken on trust: its statement mentions `interp (preludeWitness κ ls)`, so it is
-a statement about the *whole* assignment and not only about the `Eq` arm. -/
-
-section TypeFormerTransfer
-
-variable {V : Type*} [SetStructure V] [Nonempty V]
-variable [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖]
-variable {envF : VEnv} {nv : ℕ} (L : PropSplit envF nv) (κ : ℕ → V) (ls : List ℕ)
-
-/-- **The one row of the census that does NOT transfer verbatim**, and the only one found by
-running rather than by reading.  `EqTFAudit.preludeWitness_congr_Eq`'s proof is
-
-```lean
-  rcases hd with _ | ⟨h, ht⟩
-  · rfl
-  rcases ht with _ | ⟨h2, ht2⟩
-  · rw [preludeWitness_cnst_eq, preludeWitness_cnst_eq, VLevel.equiv_def.mp h ls]
-  · rfl
-```
-
-and at `preludeWitnessR` the **last `rfl` hits a `(kernel) deterministic timeout`** — not an
-elaboration timeout: the declaration elaborates and `#print axioms` reports it clean, and then the
-kernel rejects it.  The degenerate branch (`us` of length ≥ 2, both sides `∅`) is the one that
-blows up, because closing it by `rfl` asks the kernel to whnf the whole `if`-cascade including the
-new arm's body.  The fix is to name the `Eq` arm once, by `simp`, and never let `rfl` see the
-cascade — after which the branch closes by `rw`'s own `rfl`. -/
-theorem preludeWitnessR_cnst_Eq_arm (us : List VLevel) :
-    (preludeWitnessR (V := V) κ ls).cnst ``Eq us
-      = (match us with | [w] => eqFn κ (w.eval ls) | _ => (∅ : V)) := by
-  simp [preludeWitnessR]
-
-theorem preludeWitnessR_congr_Eq {us us' : List VLevel}
-    (hd : List.Forall₂ (· ≈ ·) us us') :
-    (preludeWitnessR (V := V) κ ls).cnst ``Eq us
-      = (preludeWitnessR (V := V) κ ls).cnst ``Eq us' := by
-  rcases hd with _ | ⟨h, ht⟩
-  · rfl
-  rcases ht with _ | ⟨h2, ht2⟩
-  · rw [preludeWitnessR_cnst_eq, preludeWitnessR_cnst_eq, VLevel.equiv_def.mp h ls]
-  · rw [preludeWitnessR_cnst_Eq_arm, preludeWitnessR_cnst_Eq_arm]
-
-theorem mem_interp_EqType_preludeWitnessR {v : VLevel} (hv : v.WF nv) (hle : eqEnv ≤ envF) :
-    (preludeWitnessR (V := V) κ ls).cnst ``Eq [v] ∈
-      (interp (preludeWitnessR κ ls) L [] (EqTFAudit.eqTypeFormerType v)).toFun ∅ := by
-  rw [preludeWitnessR_cnst_eq]
-  exact EqTFAudit.eqFn_mem_interp_EqType hv hle
-
-theorem oracleOK_Eq_preludeWitnessR (hle : eqEnv ≤ envF) :
-    OracleOK L κ ls (preludeWitnessR κ ls).cnst (preludeWitnessR κ ls).cnst ``Eq
-      ⟨1, .forallE (.sort (.param 0))
-        (.forallE (.bvar 0) (.forallE (.bvar 1) (.sort .zero)))⟩ :=
-  oracleOK_of (L := L)
-    (fun _ _ hd ↦ preludeWitnessR_congr_Eq κ ls hd)
-    (fun {us} hw hlen ↦ by
-      obtain ⟨w, rfl⟩ := NEAudit.eq_singleton_of_length_one hlen
-      exact mem_interp_EqType_preludeWitnessR L κ ls (hw w (List.mem_singleton.2 rfl)) hle)
-
-end TypeFormerTransfer
-
-/-! ### 4.3 The payoff: the `Eq.rec` cell at a **single** witness
-
-`EqLargeAudit.oracleOK_EqRec` carries two assignments — an ambient `c` (pinned by `EqSpec`) and a
-separate oracle `o` (pinned by `ho : ∀ us, o ``Eq.rec us = eqRecVal κ ls us`) — precisely because
-`preludeWitness` could not supply the second.  At `preludeWitnessR` the two collapse: `ho` is
-§4.2 and `EqSpec` is §4.1, so the cell is an `OracleOK` at one assignment, in the same shape as
-`EqTFAudit.oracleOK_Eq`.  **This is the whole content of the repair**, and it is the deliverable
-the corner's assembly needs. -/
-
-section Payoff
-
-variable {V : Type*} [SetStructure V] [Nonempty V]
-variable [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖]
-variable {envF : VEnv} {nv : ℕ} (L : PropSplit envF nv) (κ : ℕ → V) (ls : List ℕ)
-
-/-- **`OracleOK` at `Eq.rec`, both level slices, at the repaired shared witness** — no side
-oracle parameter, no chain hypothesis, no chosen `κ` (`Above` is discharged by `Above.pure`
-inside `oracleOK_of`, so the statement is at an arbitrary `κ : ℕ → V`). -/
-theorem oracleOK_EqRec_preludeWitnessR (hle : eqEnv ≤ envF) :
-    OracleOK L κ ls (preludeWitnessR κ ls).cnst (preludeWitnessR κ ls).cnst ``Eq.rec
-      ⟨eqIndDecl.recUvars, eqIndDecl.recType 0⟩ :=
-  EqLargeAudit.oracleOK_EqRec L κ ls hle
-    (fun w ↦ preludeWitnessR_eq κ ls w) (preludeWitnessR_cnst_eqRec κ ls)
-
-end Payoff
-
-/-! ### 4.4 `preludeWitness_not_mem_interp_eqRecType` is REMOVED, not repaired
-
-Worth saying plainly, because a costing that lists it as "needs re-proof" is wrong in kind:
-`EqLargeAudit.preludeWitness_not_mem_interp_eqRecType` says the shared witness *fails* the cell.
-After the repair that statement is **false**, and there is nothing to re-prove — what survives is
-`EqAudit.pt_not_mem_interp_eqRecType_of_ne`, a statement about the *value* `•`, which is already
-in the tree and is what the refutation was really about.
-
-The discriminating control the trap list demands is then available in the
-`EqRecNec.recCell_discriminates` form and at the **actual shared witness** rather than an abstract
-value: one `L`, one `M = preludeWitnessR κ ls`, one `(u, v)`, one interpretation — the repaired
-entry is in it and `•` (what `preludeWitness` supplies at the same tuple) is not.
-
-Note where each hypothesis goes.  The *positive* half needs no parameter-space inhabitant; the
-*exclusion* does (`hx`), and that asymmetry is `EqRecLarge` §7's, unchanged.  So `hx` here is
-load-bearing for the negative half only, and no `κ` is chosen: `hx` is a hypothesis about the
-given `κ`, not a construction of one. -/
-
-section Discriminate
-
-variable {V : Type*} [SetStructure V] [Nonempty V]
-variable [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖]
-variable {envF : VEnv} {nv : ℕ} (L : PropSplit envF nv) (κ : ℕ → V) (ls : List ℕ)
-variable {u v : VLevel} (hu : u.WF nv) (hv : v.WF nv) (hle : eqEnv ≤ envF)
-
-include hu hv hle in
-/-- **The repair discriminates.**  At one parameter tuple: the repaired witness' `Eq.rec` entry is
-in the interpretation, and `preludeWitness`' entry (`•`) is not. -/
-theorem repair_discriminates (hn : u.eval ls ≠ 0) {x : V} (hx : x ∈ U κ (v.eval ls)) :
-    (preludeWitnessR (V := V) κ ls).cnst ``Eq.rec [u, v] ∈
-        (interp (preludeWitnessR κ ls) L [] ((eqIndDecl.recType 0).instL [u, v])).toFun ∅ ∧
-      (preludeWitnessPt (V := V) κ ls).cnst ``Eq.rec [u, v] ∉
-        (interp (preludeWitnessR κ ls) L [] ((eqIndDecl.recType 0).instL [u, v])).toFun ∅ := by
-  refine ⟨?_, ?_⟩
-  · rw [preludeWitnessR_cnst_eqRec, EqLargeAudit.eqRecVal_pair, if_neg hn]
-    exact EqLargeAudit.eqRecFn_mem_interp_eqRecType hu hv hle (preludeWitnessR_eq κ ls v) hn
-  · rw [preludeWitnessPt_cnst_eqRec]
-    exact EqAudit.pt_not_mem_interp_eqRecType_of_ne L (preludeWitnessR κ ls) hu hv hle hn hx
-
-include L hu hv hle in
-/-- …and the two entries really are different sets, so the conjunction above is not a statement
-about one set under two names. -/
-theorem repair_changes_the_value (hn : u.eval ls ≠ 0) {x : V} (hx : x ∈ U κ (v.eval ls)) :
-    (preludeWitnessR (V := V) κ ls).cnst ``Eq.rec [u, v]
-      ≠ (preludeWitnessPt (V := V) κ ls).cnst ``Eq.rec [u, v] := by
-  intro h
-  exact (repair_discriminates L κ ls hu hv hle hn hx).2
-    (h ▸ (repair_discriminates L κ ls hu hv hle hn hx).1)
-
-end Discriminate
+**§1's `preludeWitnessPt_not_mem_interp_iffRecType` is NOT retired**, and neither is
+`SetModel.preludeWitnessPt`: repairing `preludeWitness` in place destroys the `∉` half of every
+discriminating lemma unless the pre-repair assignment is kept as a named negative control.  That is
+the trap §22.13 records; do not "simplify" it away. -/
 
 /-! ## 5. The one thing that *depends* on the entries being `∅`
 
@@ -427,13 +184,12 @@ section Fallback
 variable {V : Type*} [SetStructure V] [Nonempty V]
 variable [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖]
 
-/-! ### 5.1 The repaired fallback statement -/
+/-! ### 5.1 The repaired fallback statement — **installed**, so retired here
 
-/-- `NEAudit.neOracle_eq_empty_of_not_mem` with the one extra hypothesis the repair forces. -/
-theorem preludeWitnessR_cnst_empty_of_not_mem (κ : ℕ → V) (ls : List ℕ) {m : Name}
-    (h1 : m ≠ ``Eq) (h2 : m ≠ ``Iff) (h3 : m ≠ ``Nonempty) (h4 : m ≠ ``Eq.rec)
-    (us : List VLevel) : (preludeWitnessR (V := V) κ ls).cnst m us = (∅ : V) := by
-  simp [preludeWitnessR, h1, h2, h3, h4]
+`preludeWitnessR_cnst_empty_of_not_mem` is superseded by `SetModel.preludeWitness_cnst_empty`,
+which carries **two** extra hypotheses (`m ≠ ``Eq.rec` and `m ≠ ``Iff.rec`) because the installed
+repair touches both recursor cells, not one.  `NEAudit.neOracle_eq_empty_of_not_mem` already has
+them, and `NEAudit.cnstOf_preludeTail` already supplies them. -/
 
 /-! ### 5.2 …and `h4` is **necessary**, not defensive
 
@@ -446,15 +202,15 @@ variable {envF : VEnv} {nv : ℕ} (L : PropSplit envF nv) (κ : ℕ → V) (ls :
 variable {u v : VLevel} (hu : u.WF nv) (hv : v.WF nv) (hle : eqEnv ≤ envF)
 
 include L hu hv hle in
-/-- **The repaired witness' `Eq.rec` entry is not `∅` on the `≠ 0` slice**, so `h4` above cannot
-be dropped.  `hx` is a hypothesis *about the given* `κ` — no `κ` is chosen here, and this is a
+/-- **The shared witness' `Eq.rec` entry is not `∅` on the `≠ 0` slice**, so `h4` in
+`SetModel.preludeWitness_cnst_empty` cannot be dropped.  `hx` is a hypothesis *about the given* `κ` — no `κ` is chosen here, and this is a
 negative control, so the three-point scale of `docs/vacuity-ledger.md` applies to it and not to
 §4.3's obligation. -/
 theorem eqRec_arm_ne_empty (hn : u.eval ls ≠ 0) {x : V} (hx : x ∈ U κ (v.eval ls)) :
-    (preludeWitnessR (V := V) κ ls).cnst ``Eq.rec [u, v] ≠ (pt : V) := by
-  rw [preludeWitnessR_cnst_eqRec, EqLargeAudit.eqRecVal_pair, if_neg hn]
-  exact EqLargeAudit.eqRecFn_ne_pt L (preludeWitnessR κ ls) hu hv hle
-    (preludeWitnessR_eq κ ls v) hn hx
+    (preludeWitness (V := V) κ ls).cnst ``Eq.rec [u, v] ≠ (pt : V) := by
+  rw [preludeWitness_cnst_eqRec, EqLargeAudit.eqRecVal_pair, if_neg hn]
+  exact EqLargeAudit.eqRecFn_ne_pt L (preludeWitness κ ls) hu hv hle
+    (preludeWitness_eq κ ls v) hn hx
 
 end Necessary
 
@@ -526,23 +282,6 @@ exactly that reason.  Every name below is `Lean4Lean.SetModel.RecGap.*`. -/
 #print axioms Lean4Lean.SetModel.RecGap.preludeWitnessPt_not_mem_interp_iffRecType
 #print axioms Lean4Lean.SetModel.RecGap.preludeWitness_cnst_neRec
 #print axioms Lean4Lean.SetModel.RecGap.preludeWitness_mem_interp_neRecType
-#print axioms Lean4Lean.SetModel.RecGap.preludeWitnessR_eq
-#print axioms Lean4Lean.SetModel.RecGap.preludeWitnessR_iff
-#print axioms Lean4Lean.SetModel.RecGap.preludeWitnessR_nonempty
-#print axioms Lean4Lean.SetModel.RecGap.preludeSpecR_satisfiable
-#print axioms Lean4Lean.SetModel.RecGap.preludeWitnessR_cnst_eq
-#print axioms Lean4Lean.SetModel.RecGap.preludeWitnessR_cnst_eqRec
-#print axioms Lean4Lean.SetModel.RecGap.preludeWitnessR_cnst_eqRec_zero
-#print axioms Lean4Lean.SetModel.RecGap.preludeWitnessR_cnst_iffRec
-#print axioms Lean4Lean.SetModel.RecGap.preludeWitnessR_cnst_neRec
-#print axioms Lean4Lean.SetModel.RecGap.oracleOK_EqRec_preludeWitnessR
-#print axioms Lean4Lean.SetModel.RecGap.repair_discriminates
-#print axioms Lean4Lean.SetModel.RecGap.repair_changes_the_value
-#print axioms Lean4Lean.SetModel.RecGap.preludeWitnessR_cnst_empty_of_not_mem
 #print axioms Lean4Lean.SetModel.RecGap.eqRec_arm_ne_empty
 #print axioms Lean4Lean.SetModel.RecGap.eqRec_mem_eqIndDecl_allNames
 #print axioms Lean4Lean.SetModel.RecGap.iffRec_mem_iffIndDecl_allNames
-#print axioms Lean4Lean.SetModel.RecGap.preludeWitnessR_congr_Eq
-#print axioms Lean4Lean.SetModel.RecGap.mem_interp_EqType_preludeWitnessR
-#print axioms Lean4Lean.SetModel.RecGap.oracleOK_Eq_preludeWitnessR
-#print axioms Lean4Lean.SetModel.RecGap.preludeWitnessR_cnst_Eq_arm
