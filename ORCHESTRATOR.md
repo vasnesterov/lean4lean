@@ -1870,3 +1870,20 @@ the fully-qualified name immediately before the figure — `` `Lean4Lean.Foo.bar
 That costs nothing to write and makes every future figure machine-checkable. The script's first
 version also over-reported 59 mismatches before I fixed its pairing; an instrument that cries wolf
 is the failure I built the arena check to avoid, and I nearly shipped it here.
+
+## Ask for priors in §1 of a pricing brief (2026-09-04)
+
+The round that refuted my confluence-rebuild hypothesis wrote, unprompted, a §1 section headed
+"My priors before measuring (record them so bias is visible)" — and then measured the opposite of
+what I had suggested.
+
+That is worth requiring. When a brief states a hypothesis of mine, the stream is under pressure to
+confirm it, and I cannot tell afterwards whether a confirming answer was measured or inferred from
+the brief's framing. A recorded prior makes the difference legible: a round that predicted "one job"
+and concluded "two jobs, and here are both directions proved" is credible in a way that a bare
+conclusion is not.
+
+**Standing instruction for pricing and hypothesis-testing briefs: ask for the stream's priors in
+§1, written before any measurement.** Pair it with the existing rule that §1 is written before any
+Lean, and with an explicit statement that a well-argued refutation of my hypothesis is a
+first-class outcome I will act on — which in this case it was.
