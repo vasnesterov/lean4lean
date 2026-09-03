@@ -117,7 +117,13 @@ def main (argv : List String) : IO Unit := do
     let direct := (rev.getD target #[]).filter (fun n => !n.isInternal)
     -- BFS over reverse edges
     let mut seen : NameSet := ∅
-    let mut frontier := direct
+    -- SEED UNFILTERED. Fixing the graph (above) but seeding from the *filtered* direct set is the
+    -- same bug one line later: if a hole's only direct user is internal — `inferProj.WF`'s is
+    -- `inferType'.WF._unary` — the frontier starts empty and the transitive count reads 0 when the
+    -- truth is 70. It also silently under-counts any hole that has *some* internal direct user, by
+    -- losing everything reachable only through it. Found by a stream, not by me, after I had already
+    -- fixed the graph-building half and reported numbers from the broken seed.
+    let mut frontier := rev.getD target #[]
     while !frontier.isEmpty do
       let mut next := #[]
       for n in frontier do

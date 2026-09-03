@@ -413,3 +413,17 @@ guards `24 frozen axioms ✓ / whitelist ✓ (INCOMPLETE) / 2-2 ✓`.
 `addInductive`'s guard sequence verbatim, so each needed the new call in its statement plus one
 trivial `Except.WF.bind` step — six statement lines and four proof steps, no new hypothesis and no
 new hole.
+
+
+## Note added 2026-09-03: on entry 14, the *spec* sides with lean4lean, not with C++
+
+While comparing `infer_proj` / `reduce_proj` / `reduce_proj_core` / `is_prop` and both
+`is_def_eq` call sites against our `inferProj` / `reduceProjCore` / `lazyDeltaProjReduction`, a
+round found the two expected differences and no new ones — entries 14 and 15 both still hold as
+written.
+
+Worth recording, because it changes what "fixing" entry 14 would mean: **the abstract spec agrees
+with lean4lean's stricter choice rather than with the C++.** `TrProj.mk`'s field F17 forces the
+field-is-a-proof condition at exactly the point `maybePropType` does. So moving lean4lean toward
+the C++ behaviour on entry 14 would require *widening F17* — a spec change, not an
+implementation tweak. Anyone tempted to close that divergence should price the spec side first.
