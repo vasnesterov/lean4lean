@@ -316,10 +316,26 @@ field that is false, so record the two remaining fields separately.
 `eqIndDecl` — three `consts` cells and the one ι-rule — at the shared `SetModel.preludeWitness`,
 with `Above` discharged by `Above.pure` throughout.  So the `rules` column's "satisfiable" entry is
 no longer only `boxDecl`'s degenerate rule: `EqIotaAudit.eqRule_discriminates` shows the `≠ 0` slice
-of that rule's membership half is not satisfied by `•`.  The residual's remaining prelude gap is
-`iffIndDecl`'s `rules` field (`consts` there is complete, `IffConstsAudit.inductOracleOK_consts_Iff`).
-`inductOracleOK_Eq` carries one hypothesis this file's `boxDecl` witness does not: `L.Stable`
-(`docs/handoff-setmodel.md` §23.3 item 3).
+of that rule's membership half is not satisfied by `•`.  **Both remaining prelude gaps are now
+closed** (2026-09-03): `iffIndDecl`'s `rules` field landed in `SetModel/IffIotaRule.lean`, so
+`InductOracleOK` is assembled at all three `.induct` steps of `leanPrelude`.
+
+**And the hypothesis this paragraph used to record is gone.**  It read: "`inductOracleOK_Eq`
+carries one hypothesis this file's `boxDecl` witness does not: `L.Stable`."  That is no longer
+true, and the reason is worth keeping rather than deleting.  `PropSplit.Stable` splits into a
+*lift* half and an *inst* half that no consumer mixes
+(`StablePrelude.stable_iff_lift_and_inst`), and `interp_closed_ctx` -- the only substantive use of
+the hypothesis in either ι-rule file -- needs the lift half alone.  The lift half is **free** at
+the split `UpperBound.OracleInput` fixes (`propSplitUp_stableLift`, from `env.Ordered` plus two
+data arguments `OracleInput` already supplies).  So `inductOracleOK_{Eq,Iff}_at_propSplitUp` are
+`hle`-only and `sorryAx`-free.
+
+Full `Stable` was never going to be free: `propSplitUp_stable_iff` proves it is **equivalent** to
+`env.InstDescendUp nv`, whose only producers are `PropDescend` (which has no producer anywhere in
+the tree) and `UpperBound.InstDescendInput`.  So the fix was to weaken the hypothesis, not to
+discharge it -- and `InstDescendUp` does **not** thereby leave the main theorem, since
+`interp_inst` still needs the inst half and `ModelFits` still needs `interp_inst`.  What left is
+that input's appearance in the prelude's three `.induct` steps, and no more.
 
 **Update 2026-09-01: the "at a `WF` block" gap in the right-hand column is closed.**  Both
 entries in the "not trivially true" column, and `inductOracleOK_empty`, are still at blocks

@@ -1,4 +1,5 @@
 import Lean4Lean.Theory.SetModel.IffRecLarge
+import Lean4Lean.Theory.SetModel.StablePrelude  -- 2026-09-03: `L.Stable` is weakened to `L.StableLift` throughout this file.  The two are NOT interchangeable in general -- `PropSplit.stable_iff_lift_and_inst` splits `Stable` into a lift half and an inst half -- but no consumer mixes them, and `interp_closed_ctx`, the ONLY substantive use of `hS` here, is a corollary of the lift half alone (`interp_closed_ctx_lift`).  The point is that the lift half is FREE at the split `UpperBound.OracleInput` fixes: `propSplitUp_stableLift` needs only `env.Ordered`, `PropUniq`, `PropTypeAgree` -- the inputs `propSplitUp` already takes.  Full `Stable` is not free and never will be: `propSplitUp_stable_iff` proves it is EQUIVALENT to `env.InstDescendUp nv`, an open assumption whose only producers are `PropDescend` (no producer anywhere) and `UpperBound.InstDescendInput`.  So this weakening is what makes `inductOracleOK_*` `hle`-only.
 
 /-!
 # `eqIndDecl`'s ι-rule: `InductOracleOK`'s `rules` field at the `Eq` block
@@ -451,7 +452,7 @@ variable {u v : VLevel} (hu : u.WF nv) (hv : v.WF nv) (hle : eqEnv ≤ envF)
 
 include hu hv hle in
 /-- **`⟦(iotaLam) α a motive m⟧ = m`.**  The β-redex, computed. -/
-theorem interp_iotaRhsBody_val (hS : L.Stable) (hn : u.eval M.ls ≠ 0) {α a f m : V}
+theorem interp_iotaRhsBody_val (hS : L.StableLift) (hn : u.eval M.ls ≠ 0) {α a f m : V}
     (hα : α ∈ U M.κ (v.eval M.ls))
     (ha : a ∈ (interp M L (ectxA ([] : List VExpr) v) (.bvar 0)).toFun (snoc (∅ : V) α))
     (hf : f ∈ (interp M L (ectxP ([] : List VExpr) v) (motTyE u v)).toFun
@@ -502,7 +503,7 @@ theorem interp_iotaRhsBody_val (hS : L.Stable) (hn : u.eval M.ls ≠ 0) {α a f 
   rw [show (4 - 1 - 3 : ℕ) = 0 from rfl, show (4 - 1 - 2 : ℕ) = 1 from rfl,
     show (4 - 1 - 1 : ℕ) = 2 from rfl, show (4 - 1 - 0 : ℕ) = 3 from rfl,
     r4_0, r4_1, r4_2, r4_3,
-    interp_closed_ctx M L hS (iotaLamE_closed hu hv) hc4]
+    interp_closed_ctx_lift M L hS (iotaLamE_closed hu hv) hc4]
   exact interp_iotaLamE_app hu hv hle hn hα ha hf hm
 
 end Bodies
@@ -732,7 +733,7 @@ theorem interp_iotaLhsBody_val (hn : u.eval M.ls ≠ 0) (hspec : EqSpec M v)
 
 include hu hv hle in
 /-- **`⟦lhs⟧ = ⟦rhs⟧` at every non-`Prop` instantiation of the elimination universe.** -/
-theorem interp_sides_eq_of_ne (hS : L.Stable) (hn : u.eval M.ls ≠ 0) (hspec : EqSpec M v)
+theorem interp_sides_eq_of_ne (hS : L.StableLift) (hn : u.eval M.ls ≠ 0) (hspec : EqSpec M v)
     (hcnst : M.cnst ``Eq.rec [u, v] = eqRecFn M.κ (u.eval M.ls) (v.eval M.ls)) :
     (interp M L ([] : List VExpr) (lhsA u v)).toFun ∅
       = (interp M L ([] : List VExpr) (rhsA u v)).toFun ∅ := by
@@ -879,7 +880,7 @@ variable {envF : VEnv} {nv : ℕ} {L : PropSplit envF nv} {M : ModelData V}
 
 /-- **`DefEqOK` at `eqIndDecl`'s ι-rule**, both level slices, at any model meeting `EqSpec` and
 assigning `Eq.rec` the value `eqRecVal`. -/
-theorem defEqOK_eqRule (hS : L.Stable) (hle : eqEnv ≤ envF)
+theorem defEqOK_eqRule (hS : L.StableLift) (hle : eqEnv ≤ envF)
     (hspec : ∀ w : VLevel, EqSpec M w)
     (hcnst : ∀ us : List VLevel, M.cnst ``Eq.rec us = eqRecVal M.κ M.ls us) :
     DefEqOK L M (eqIndDecl.iotaRule 0 0 eqCtor) := by
@@ -898,7 +899,7 @@ theorem defEqOK_eqRule (hS : L.Stable) (hle : eqEnv ≤ envF)
       Above.pure (interp_lhs_mem_ruleType_of_ne hu hv hle h0 (hspec v) hc)⟩
 
 /-- **The `rules` field of `InductOracleOK` at `eqIndDecl`.** -/
-theorem inductOracleOK_rules_Eq (hS : L.Stable) (hle : eqEnv ≤ envF)
+theorem inductOracleOK_rules_Eq (hS : L.StableLift) (hle : eqEnv ≤ envF)
     (hspec : ∀ w : VLevel, EqSpec M w)
     (hcnst : ∀ us : List VLevel, M.cnst ``Eq.rec us = eqRecVal M.κ M.ls us) :
     ∀ df ∈ eqIndDecl.iotaRules, DefEqOK L M df := by
@@ -910,7 +911,7 @@ theorem inductOracleOK_rules_Eq (hS : L.Stable) (hle : eqEnv ≤ envF)
 
 /-- **…at the shared witness `SetModel.preludeWitness`** -- the assignment `PreludeOracle.lean`
 actually uses (`NEAudit.neM_eq`).  No side oracle parameter, no chosen `κ`, no chain hypothesis. -/
-theorem inductOracleOK_rules_Eq_preludeWitness (hS : L.Stable) (hle : eqEnv ≤ envF)
+theorem inductOracleOK_rules_Eq_preludeWitness (hS : L.StableLift) (hle : eqEnv ≤ envF)
     (κ : ℕ → V) (ls : List ℕ) :
     ∀ df ∈ eqIndDecl.iotaRules, DefEqOK L (preludeWitness κ ls) df :=
   inductOracleOK_rules_Eq hS hle (preludeWitness_eq κ ls) (preludeWitness_cnst_eqRec κ ls)
@@ -1014,10 +1015,30 @@ theorem inductOracleOK_consts_Eq (hle : eqEnv ≤ envF) :
 /-- **`InductOracleOK` at `eqIndDecl`.**  Both fields, at `SetModel.preludeWitness` --
 the assignment `PreludeOracle.lean` uses (`NEAudit.neM_eq`).  No side oracle parameter, no chosen
 `κ`, no chain hypothesis; `Above` is discharged by `Above.pure` throughout. -/
-theorem inductOracleOK_Eq (hS : L.Stable) (hle : eqEnv ≤ envF) :
+theorem inductOracleOK_Eq (hS : L.StableLift) (hle : eqEnv ≤ envF) :
     InductOracleOK L κ ls (preludeWitness κ ls).cnst (preludeWitness κ ls).cnst eqIndDecl :=
   ⟨inductOracleOK_consts_Eq L κ ls hle,
     inductOracleOK_rules_Eq_preludeWitness hS hle κ ls⟩
+
+/-! ## The payoff of the `StableLift` weakening
+
+`inductOracleOK_Eq` above is stated at an arbitrary `L` and therefore still carries a hypothesis.
+Instantiating it at the split `UpperBound.OracleInput` actually fixes discharges that hypothesis
+outright, because `StableLift` is *free* there (`propSplitUp_stableLift` needs only `Ordered`,
+`PropUniq`, `PropTypeAgree` -- and `hU`/`hT` are already **data** arguments of `propSplitUp`, which
+`OracleInput` takes, so this adds no obligation at the consumer).
+
+What this does **not** buy: `InstDescendUp` does not leave the main theorem.  `interp_inst` still
+needs the two `inst` fields, so `ModelFits` and `UpperBound.consistent_of_inputs` still do.  What
+leaves is that input's appearance in the prelude's `.induct` steps, and no more. -/
+theorem inductOracleOK_Eq_at_propSplitUp {envF : VEnv} {nv : ℕ} (henv : envF.Ordered)
+    (hU : envF.PropUniq nv) (hT : envF.PropTypeAgree nv) (κ : ℕ → V) (ls : List ℕ)
+    (hle : eqEnv ≤ envF) :
+    InductOracleOK (propSplitUp envF nv henv hU hT) κ ls
+      (preludeWitness κ ls).cnst (preludeWitness κ ls).cnst eqIndDecl :=
+  inductOracleOK_Eq _ κ ls (propSplitUp_stableLift henv hU hT) hle
+
+#print axioms Lean4Lean.SetModel.EqIotaAudit.inductOracleOK_Eq_at_propSplitUp
 
 end Assemble
 
@@ -1080,5 +1101,6 @@ This file declares into `Lean4Lean.SetModel.EqIotaAudit`; the names it reuses li
 #print axioms Lean4Lean.SetModel.EqIotaAudit.oracleOK_EqRefl
 #print axioms Lean4Lean.SetModel.EqIotaAudit.inductOracleOK_consts_Eq
 #print axioms Lean4Lean.SetModel.EqIotaAudit.inductOracleOK_Eq
+
 
 end Lean4Lean.SetModel.EqIotaAudit
