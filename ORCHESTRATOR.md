@@ -1175,3 +1175,21 @@ table. And never wait on "no lake running" — an LSP session makes that permane
 **`tail -N` buffers, so a background task's output file stays empty until the command exits.** I read
 an empty file as "still building" several times. Use a line-buffered filter (`grep --line-buffered`)
 if you want progress, or just wait for the notification.
+
+## Verification rule: never compose a qualified name — read it off the file (2026-09-03, mine)
+
+Three times this session an axiom check of mine came back `Unknown constant` because I built the
+fully qualified name from the **file path** (`Verify/Inductive/ProjNoNested.lean` →
+`Lean4Lean.ProjNoNested.…`, `Theory/SetModel/IffIotaRule.lean` → `Lean4Lean.IffIotaRule.…`) when
+the file's own `namespace` line said `Lean4Lean.NestedWit` and `Lean4Lean.SetModel.IffIotaAudit`.
+Directory ≠ namespace in this repo, and the audit namespaces deliberately do not match filenames.
+
+Why it needs a rule rather than care: **`Unknown constant` fails in the safe-looking direction.**
+It reads as "the stream's claim does not check out" while it actually means "you asked about
+nothing" — an axiom check that errors is indistinguishable, in a scrollback, from one never run.
+Both times I nearly recorded a stream's verified result as unverified.
+
+The mechanical form, which costs nothing: every landed file ends with its own `#print axioms`
+lines. `grep -n '#print axioms' <file>` and **paste those names**. If a file has none, take the
+names from `grep -n '^namespace' <file>` plus the theorem's own line — never from the path.
+
