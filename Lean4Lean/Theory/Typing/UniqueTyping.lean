@@ -1,5 +1,6 @@
 import Lean4Lean.Theory.Typing.Injectivity
 import Lean4Lean.Theory.Typing.Pattern
+import Lean4Lean.Theory.Typing.GateBodyDescend
 
 /-! # Unique typing and its consequences. -/
 
@@ -295,3 +296,78 @@ theorem _root_.Lean4Lean.OnCtx.weak'_inv
     obtain ⟨l, k, rfl, rfl⟩ := Lift.depth_succ e
     have ⟨Γ₁, W1, W2⟩ := W.of_cons_skip
     exact ih W1 (.weakN_inv henv W2 H) (by simp)
+
+/-! ## The gate bodies, and what it would take to replace them
+
+`docs/handoff-pidescend.md` §3.3 proposes replacing the bodies of the fourteen declarations
+above -- everything from `:196` on -- so that they route through `VEnv.TypingStrengthening`
+(`Theory/Typing/GateBodyDescend.lean`) instead of through the hole at `:191`.  That would change
+**no statement and no call site**, and it would take 55 of the hole's 319 transitive users off
+it, 28 of them in the projection corner (measured; `docs/handoff-gatebody.md` §1).
+
+**It cannot be done yet, and the reason is not import order.**  `TypingStrengthening` has no
+unconditional inhabitant: it is exactly `PiDescend` (`Strengthen.lean` §9), and every producer
+of it in the built environment takes either an open statement or this very hole as a hypothesis
+(measured, `docs/handoff-gatebody.md` §2).  Routing the gates through a fresh `sorry` for
+`TypingStrengthening` would move the hole, not remove it, and would leave the same 319
+declarations tainted.
+
+What *is* settled, so that the edit is mechanical the day `PiDescend` lands:
+
+* the import order (this file now imports `GateBodyDescend.lean`, whose 38-module closure is a
+  subset of this file's 43);
+* **six** of the fourteen bodies, machine-checked below as `example`s whose statements are
+  verbatim the gate's plus `HT` and whose proofs are the proposed replacements.  Those six are
+  hole-free (`#print axioms`: `[propext, Classical.choice, Quot.sound]`).
+
+The other eight are **not** free even after `PiDescend`:
+
+* `HasType.weakN_iff` (`:235`), `HasType.weak'_iff` (`:276`) and `HasType.skips` (`:245`) need
+  the *given* type downstairs, which costs `TypingStrengthening.typed`'s ascription redex and so
+  `IsDefEqU.forallE_inv`; the only proofs of them from `TypingStrengthening` in the tree
+  (`StrengthenNarrow.lean` §5) carry `WF.rigidShapeUniqNS` **and**
+  `IsDefEqU.forallE_inv_stratified`.  For 26 of the projection corner's 31 seeds that would be a
+  *new* hole, not a removed one.
+* `IsDefEq.weakN_iff` (`:230`), `IsDefEq.weakN_iff'` (`:209`), `IsDefEqU.weak'_iff` (`:250`),
+  `IsDefEq.weak'_iff` (`:263`) and `IsDefEq.skips` (`:199`) have two distinct endpoints, so they
+  are not instances of `TypingStrengthening` at all; they need the `trans` residual
+  (`TransStrengtheningNarrow`), which is the other half of this hole. -/
+
+section GateBodyCheck
+variable {n k : Nat} {Γ Γ' : List VExpr} {e A : VExpr} {l ρ : Lift}
+
+/-- Drop-in body for `Lean4Lean.VExpr.WF.weakN_iff` (`:196`). -/
+example (henv : VEnv.WF env) (HT : TypingStrengthening env U)
+    (hΓ : OnCtx Γ' (env.IsType U)) (W : Ctx.LiftN n k Γ Γ') :
+    VExpr.WF env U Γ' (e.liftN n k) ↔ VExpr.WF env U Γ e :=
+  GateBody.wf_weakN_iff henv hΓ HT W
+
+/-- Drop-in body for `Lean4Lean.OnCtx.weakN_inv` (`:217`). -/
+example (henv : VEnv.WF env) (HT : TypingStrengthening env U)
+    (W : Ctx.LiftN n k Γ Γ') (H : OnCtx Γ' (env.IsType U)) : OnCtx Γ (env.IsType U) :=
+  GateBody.onCtx_weakN_inv henv HT W H
+
+/-- Drop-in body for `VEnv.IsType.weakN_iff` (`:240`). -/
+example (henv : VEnv.WF env) (HT : TypingStrengthening env U)
+    (hΓ' : OnCtx Γ' (env.IsType U)) (W : Ctx.LiftN n k Γ Γ') :
+    env.IsType U Γ' (A.liftN n k) ↔ env.IsType U Γ A :=
+  GateBody.isType_weakN_iff henv hΓ' HT W
+
+/-- Drop-in body for `VEnv.IsType.weak'_iff` (`:281`). -/
+example (henv : VEnv.WF env) (HT : TypingStrengthening env U)
+    (hΓ' : OnCtx Γ' (env.IsType U)) (W : Ctx.Lift' l Γ Γ') :
+    env.IsType U Γ' (e.lift' l) ↔ env.IsType U Γ e :=
+  GateBody.isType_weak'_iff henv hΓ' HT W
+
+/-- Drop-in body for `Lean4Lean.VExpr.WF.weak'_iff` (`:286`). -/
+example (henv : VEnv.WF env) (HT : TypingStrengthening env U)
+    (hΓ : OnCtx Γ' (env.IsType U)) (W : Ctx.Lift' l Γ Γ') :
+    VExpr.WF env U Γ' (e.lift' l) ↔ VExpr.WF env U Γ e :=
+  GateBody.wf_weak'_iff henv hΓ HT W
+
+/-- Drop-in body for `Lean4Lean.OnCtx.weak'_inv` (`:290`). -/
+example (henv : VEnv.WF env) (HT : TypingStrengthening env U)
+    (W : Ctx.Lift' ρ Γ Γ') (H : OnCtx Γ' (env.IsType U)) : OnCtx Γ (env.IsType U) :=
+  GateBody.onCtx_weak'_inv henv HT W H
+
+end GateBodyCheck

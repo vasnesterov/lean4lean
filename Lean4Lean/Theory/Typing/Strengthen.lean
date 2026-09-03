@@ -1,3 +1,4 @@
+import Lean4Lean.Theory.Typing.GateBodyDescend
 import Lean4Lean.Theory.Typing.UniqueTyping
 
 /-!
@@ -109,13 +110,9 @@ def Strengthening (env : VEnv) (U : Nat) : Prop :=
     OnCtx Γ (env.IsType U) → OnCtx Γ' (env.IsType U) →
     env.IsDefEqU U Γ' (e1.liftN n k) (e2.liftN n k) → env.IsDefEqU U Γ e1 e2
 
-/-- **Typing strengthening**: the reflexive instance of `Strengthening`, with the type left
-existential.  This is `VExpr.WF.weakN_iff`'s forward direction, weakened so that the type is
-not required to be lifted. -/
-def TypingStrengthening (env : VEnv) (U : Nat) : Prop :=
-  ∀ {n k : Nat} {Γ Γ' : List VExpr} {e A : VExpr}, Ctx.LiftN n k Γ Γ' →
-    OnCtx Γ (env.IsType U) → OnCtx Γ' (env.IsType U) →
-    env.HasType U Γ' (e.liftN n k) A → VExpr.WF env U Γ e
+/-! `TypingStrengthening` -- the reflexive instance of `Strengthening` -- is now *defined* in
+`Theory/Typing/GateBodyDescend.lean`, above `UniqueTyping.lean`.  Unchanged and in scope here
+through the import; this comment marks where it used to be stated. -/
 
 /-- **The `trans` residual.**  The one case of `Strengthening`'s induction whose induction
 hypotheses are vacuous: the middle term `b` of a `trans` node is arbitrary, and in particular
@@ -158,37 +155,11 @@ theorem TypingStrengthening.typed (HT : TypingStrengthening env U)
   have := (hf'.uniqU henv hΓ hf).forallE_inv henv hΓ
   exact ha.defeqU_r henv hΓ (let ⟨_, h⟩ := this.1; ⟨_, h.symm⟩)
 
-/-! ## 4. Inversion of `liftN` against a head constructor -/
+/-! ### Moved to `Theory/Typing/GateBodyDescend.lean` (was §4)
 
-section
-variable {n k : Nat}
-
-theorem _root_.Lean4Lean.VExpr.liftVar_eq_zero {j : Nat} (h : liftVar n j k = 0) : j = 0 := by
-  unfold liftVar at h; split at h <;> omega
-
-theorem _root_.Lean4Lean.VExpr.liftN_eq_bvar {e : VExpr} (h : e.liftN n k = .bvar i) :
-    ∃ j, e = .bvar j ∧ i = liftVar n j k := by
-  cases e <;> simp [VExpr.liftN] at h; exact ⟨_, rfl, h.symm⟩
-
-theorem _root_.Lean4Lean.VExpr.liftN_eq_sort {e : VExpr} (h : e.liftN n k = .sort l) :
-    e = .sort l := by cases e <;> simp [VExpr.liftN] at h; exact h ▸ rfl
-
-theorem _root_.Lean4Lean.VExpr.liftN_eq_const {e : VExpr} (h : e.liftN n k = .const c ls) :
-    e = .const c ls := by cases e <;> simp [VExpr.liftN] at h; exact h.1 ▸ h.2 ▸ rfl
-
-theorem _root_.Lean4Lean.VExpr.liftN_eq_app {e : VExpr} (h : e.liftN n k = .app f a) :
-    ∃ f' a', e = .app f' a' ∧ f = f'.liftN n k ∧ a = a'.liftN n k := by
-  cases e <;> simp [VExpr.liftN] at h; exact ⟨_, _, rfl, h.1.symm, h.2.symm⟩
-
-theorem _root_.Lean4Lean.VExpr.liftN_eq_lam {e : VExpr} (h : e.liftN n k = .lam A b) :
-    ∃ A' b', e = .lam A' b' ∧ A = A'.liftN n k ∧ b = b'.liftN n (k+1) := by
-  cases e <;> simp [VExpr.liftN] at h; exact ⟨_, _, rfl, h.1.symm, h.2.symm⟩
-
-theorem _root_.Lean4Lean.VExpr.liftN_eq_forallE {e : VExpr} (h : e.liftN n k = .forallE A b) :
-    ∃ A' b', e = .forallE A' b' ∧ A = A'.liftN n k ∧ b = b'.liftN n (k+1) := by
-  cases e <;> simp [VExpr.liftN] at h; exact ⟨_, _, rfl, h.1.symm, h.2.symm⟩
-
-end
+`VExpr.liftVar_eq_zero` and `VExpr.liftN_eq_{bvar,sort,const,app,lam,forallE}` -- the `liftN`
+head-constructor inversions -- moved there with `TypingStrengthening.of`, which is their only
+consumer in this file's cone.  Unchanged, and still in scope through the import. -/
 
 /-! ## 5. Row zero: eleven of twelve conversion rules close from `TypingStrengthening`
 
@@ -358,90 +329,12 @@ What it costs instead is two **shape-descent** statements: a lifted term whose t
 is a sort (resp. a Π) has a sort (resp. Π) type downstairs.  Those are the only residuals, and
 they are together *equivalent* to `TypingStrengthening`. -/
 
-/-- A lifted term typed at a sort upstairs is typed at a sort downstairs. -/
-def SortDescend (env : VEnv) (U : Nat) : Prop :=
-  ∀ {n k : Nat} {Γ Γ' : List VExpr} {e : VExpr} {u : VLevel}, Ctx.LiftN n k Γ Γ' →
-    OnCtx Γ (env.IsType U) → OnCtx Γ' (env.IsType U) →
-    env.HasType U Γ' (e.liftN n k) (.sort u) → VExpr.WF env U Γ e →
-    ∃ u₀, env.HasType U Γ e (.sort u₀)
+/-! ### Moved to `Theory/Typing/GateBodyDescend.lean`
 
-/-- A lifted function applied to a lifted argument upstairs is a function applied to an
-argument of its domain downstairs. -/
-def PiDescend (env : VEnv) (U : Nat) : Prop :=
-  ∀ {n k : Nat} {Γ Γ' : List VExpr} {f a A B : VExpr}, Ctx.LiftN n k Γ Γ' →
-    OnCtx Γ (env.IsType U) → OnCtx Γ' (env.IsType U) →
-    env.HasType U Γ' (f.liftN n k) (.forallE A B) → env.HasType U Γ' (a.liftN n k) A →
-    VExpr.WF env U Γ f → VExpr.WF env U Γ a →
-    ∃ A₀ B₀, env.HasType U Γ f (.forallE A₀ B₀) ∧ env.HasType U Γ a A₀
-
-theorem _root_.Lean4Lean.Lookup.weakN_inv (W : Ctx.LiftN n k Γ Γ')
-    (H : Lookup Γ' (liftVar n i k) A') : ∃ A, A' = A.liftN n k ∧ Lookup Γ i A := by
-  rw [← Lift.liftVar_consN_skipN] at H
-  obtain ⟨A, rfl, h⟩ := H.weakU_inv (Ctx.liftN_iff_lift'.1 W)
-  exact ⟨A, by rw [VExpr.lift'_consN_skipN], h⟩
-
-variable! (henv : VEnv.WF env) in
-theorem TypingStrengthening.of (HS : SortDescend env U) (HP : PiDescend env U) :
-    TypingStrengthening env U := by
-  suffices H : ∀ {Γ' e' A b}, env.HasTypeStrong U Γ' e' A b → ∀ {n k Γ e}, Ctx.LiftN n k Γ Γ' →
-      OnCtx Γ (env.IsType U) → OnCtx Γ' (env.IsType U) → e.liftN n k = e' →
-      VExpr.WF env U Γ e by
-    intro n k Γ Γ' e A W hΓ hΓ' h
-    exact H (h.strong henv hΓ').hasType'.1 W hΓ hΓ' rfl
-  intro Γ' e' A b H
-  induction H with
-  | bvar h _ _ _ =>
-    intro n k Γ e W hΓ hΓ' eq
-    obtain ⟨j, rfl, rfl⟩ := VExpr.liftN_eq_bvar eq
-    obtain ⟨A₀, rfl, h'⟩ := Lookup.weakN_inv W h
-    exact ⟨_, .bvar h'⟩
-  | sort' h1 _ _ =>
-    intro n k Γ e W hΓ hΓ' eq
-    cases VExpr.liftN_eq_sort eq
-    exact ⟨_, .sortDF h1 h1 rfl⟩
-  | const h1 h2 h3 _ _ _ _ _ =>
-    intro n k Γ e W hΓ hΓ' eq
-    cases VExpr.liftN_eq_const eq
-    exact ⟨_, .constDF h1 h2 h2 h3 (List.Forall₂.rfl fun _ _ => rfl)⟩
-  | app _ _ _ _ _ hf ha _ _ _ _ ihf iha _ =>
-    intro n k Γ e W hΓ hΓ' eq
-    obtain ⟨f₀, a₀, rfl, rfl, rfl⟩ := VExpr.liftN_eq_app eq
-    have ⟨A₀, B₀, hf', ha'⟩ := HP W hΓ hΓ' hf.hasType ha.hasType
-      (ihf W hΓ hΓ' rfl) (iha W hΓ hΓ' rfl)
-    exact ⟨_, .appDF hf' ha'⟩
-  | lam _ _ hA _ hbody _ ihA _ ihbody _ =>
-    intro n k Γ e W hΓ hΓ' eq
-    obtain ⟨A₀, b₀, rfl, rfl, rfl⟩ := VExpr.liftN_eq_lam eq
-    have ⟨u₀, hA₀⟩ := HS W hΓ hΓ' hA.hasType (ihA W hΓ hΓ' rfl)
-    have hΓ₁ : OnCtx (A₀::Γ) (env.IsType U) := ⟨hΓ, _, hA₀⟩
-    have ⟨B₀, hb₀⟩ := ihbody W.succ hΓ₁ ⟨hΓ', _, hA.hasType⟩ rfl
-    exact ⟨_, .lamDF hA₀ hb₀⟩
-  | forallE _ _ hA hbody ihA ihbody =>
-    intro n k Γ e W hΓ hΓ' eq
-    obtain ⟨A₀, b₀, rfl, rfl, rfl⟩ := VExpr.liftN_eq_forallE eq
-    have ⟨u₀, hA₀⟩ := HS W hΓ hΓ' hA.hasType (ihA W hΓ hΓ' rfl)
-    have hΓ₁ : OnCtx (A₀::Γ) (env.IsType U) := ⟨hΓ, _, hA₀⟩
-    have ⟨v₀, hb₀⟩ := HS W.succ hΓ₁ ⟨hΓ', _, hA.hasType⟩ hbody.hasType
-      (ihbody W.succ hΓ₁ ⟨hΓ', _, hA.hasType⟩ rfl)
-    exact ⟨_, .forallEDF hA₀ hb₀⟩
-  | base _ ih => exact ih
-  | defeq _ _ _ _ _ _ _ ih => exact ih
-
-variable! (henv : VEnv.WF env) in
-theorem TypingStrengthening.sortDescend (HT : TypingStrengthening env U) : SortDescend env U := by
-  intro n k Γ Γ' e u W hΓ hΓ' h _
-  have wf : VExpr.WF env U Γ (.forallE e (.sort .zero)) := HT W hΓ hΓ'
-    (show env.HasType U _ ((VExpr.forallE e (.sort .zero)).liftN n k) _ from
-      .forallEDF h (.sortDF trivial trivial rfl))
-  have ⟨_, wf⟩ := wf
-  exact (HasType.forallE_inv henv wf).1
-
-variable! (henv : VEnv.WF env) in
-theorem TypingStrengthening.piDescend (HT : TypingStrengthening env U) : PiDescend env U := by
-  intro n k Γ Γ' f a A B W hΓ hΓ' hf ha _ _
-  have wf : VExpr.WF env U Γ (.app f a) :=
-    HT W hΓ hΓ' (show env.HasType U _ ((VExpr.app f a).liftN n k) _ from .appDF hf ha)
-  exact wf.app_inv henv hΓ
+`SortDescend`, `PiDescend`, `Lookup.weakN_inv` and `TypingStrengthening.of` / `.sortDescend` /
+`.piDescend` now live in `Theory/Typing/GateBodyDescend.lean`, which is imported *above*
+`UniqueTyping.lean`, so that the gate bodies there can route through them.  Names and
+statements are unchanged; they are still in scope here through the import. -/
 
 variable! (henv : VEnv.WF env) in
 /-- **`TypingStrengthening` is exactly the two shape-descent statements.** -/
