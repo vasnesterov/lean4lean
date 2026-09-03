@@ -1719,3 +1719,15 @@ be careful. Where a number will drive planning, have it computed twice by differ
 After the fix, module counts agreed *exactly* on all four seeds (75, 108, 61, 40) — that
 agreement is what let me attribute the residual 2–4% to a counting convention and a
 population that moved between runs, rather than to a second bug.
+
+## Cite names in briefs exactly as exists.lean prints them (2026-09-03)
+
+Three times in one day I cited a declaration bare when it lives in a namespace —
+`valAt_of_spineHargsC_of_wf` and `spineHargsC_iff_valStrengthen` (both `VIndRestore`), five
+`InjCorner` names (`VEnv`), several `RestoreFaithful` names (`InductiveDeclExamples`,
+`NestedWit`). Every time, the stream or I got `NOT FOUND` and had to re-resolve.
+
+That output is exactly what I have told every stream licenses the word "absent". So citing
+from memory manufactures the error class the instrument exists to prevent, in the one
+document whose job is to prevent it. I have `exists.lean` open while writing the brief.
+Fully qualified, copied from its output, every time.
