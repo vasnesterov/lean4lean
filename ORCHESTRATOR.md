@@ -1681,3 +1681,41 @@ Rules now attached to it:
   next person does not reintroduce it.
 - A negative result is still not proof of absence: a premise stated through a *definition*
   that unfolds to your shape mentions none of your heads. The script says so on empty output.
+
+
+## Every transitive user-count I ever wrote down was wrong (2026-09-03)
+
+Ten figures in this repo describe how many declarations stand on a given hole. Measured
+twice independently — a stream in `/tmp`, and me in `scripts/users.lean`, neither knowing
+the other was doing it — **not one of the ten is correct**:
+
+| hole | measured | prose claimed |
+|---|---|---|
+| `forallE_inv_stratified` | ~861–888 (108 modules) | 534, 736, 714, 449, 515, 468 |
+| `WF.rigidShapeUniqNS` | ~524–540 (75 modules) | 176, 460 |
+| `IsDefEqU.weakN_iff` | ~351–369 (61 modules) | 296, 312 |
+
+Wrong in both directions, and the planning cost was real: the prose made the two injectivity
+holes look interchangeable (449 vs 460), when one carries **1.6×** the other's user set and
+is not a superset. Anything in this file quoting a user count without a date and a command
+should be treated as unverified — including at lines 572 and 822, which are mine.
+
+Use `NAMES="…" lake env lean --run scripts/users.lean`. It reports **direct** (what breaks if
+the statement changes) separately from **transitive** (what stands on it). Conflating those
+two is how six figures for one hole happened.
+
+### And my first implementation of it was wrong
+
+I got 435/761 where the stream got 540/888. I did not average and did not assume the stream
+was wrong: I read my own code and found it. I skipped `isInternal` declarations when
+**building** the reverse graph, which severs any chain through a `match_1` or `_proof_` node —
+if a theorem reaches the hole only that way, deleting the node deletes the theorem from the
+count. ~20% under-count. Traverse internals; filter only when counting.
+
+**The lesson is about method, not about the bug.** Two independent implementations of one
+measurement caught what no amount of care on a single implementation would have: my wrong
+numbers were self-consistent, plausible, and produced by an instrument I had just written to
+be careful. Where a number will drive planning, have it computed twice by different code.
+After the fix, module counts agreed *exactly* on all four seeds (75, 108, 61, 40) — that
+agreement is what let me attribute the residual 2–4% to a counting convention and a
+population that moved between runs, rather than to a second bug.

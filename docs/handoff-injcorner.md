@@ -1,9 +1,11 @@
 # handoff-injcorner — the two Injectivity.lean holes, re-measured and one of them narrowed
 
 Owner file: `Lean4Lean/Theory/Typing/InjCorner.lean` (new this round).
-All measurements below were taken on **2026-09-03, 16:00–16:20 UTC**, on the working tree at
-`1191a23` + the four uncommitted files listed in `git status` at session start.  **Re-measure
-before quoting.**  Counts in this tree decay; three prose counts I checked had decayed (§1.3).
+All measurements below were taken on **2026-09-03, 16:00–16:46 UTC**, on the working tree at
+`1191a23` plus uncommitted files.  **Re-measure before quoting.**  Counts in this tree decay
+badly: of the ten prose figures I checked, **ten were wrong** (§1.4).  The tree was also being
+built by another stream during this session, so any population figure here is a snapshot of a
+moving tree (418 modules at the last measurement, 413 at the first).
 
 ## §0 What this round did and did not do
 
@@ -15,11 +17,15 @@ before quoting.**  Counts in this tree decay; three prose counts I checked had d
   `VEnv.WF` environments and cannot be re-attacked as an open direction (§2).
 * **Did** locate exactly what blocks the same move for hole B's two *positive* conjuncts: it is
   axiom conservativity + strengthening, i.e. `IsDefEqU.weakN_iff` (another of the 13 holes) and
-  `ConstVar.AxiomConservativity` — so the asymmetry is a named node, not a gap in effort (§3).
-* **Did not** find a counterexample to either hole; §4 records the two refutation attempts that
+  `VEnv.AxiomConservativityWF` — so the asymmetry is a named node, not a gap in effort (§3).
+* **Did not** find a counterexample to either hole; §5 records the two refutation attempts that
   failed and why, so they are not retried.
+* **Did** re-measure the transitive user counts of both holes and of two others, and found that
+  **all eight figures quoted in the tree's prose are wrong** — hole A is 888 users (quoted
+  449–736), hole B is 540 (quoted 176 and 460), `weakN_iff` is 369 (quoted 296 and 312).  §1.4,
+  with the instrument to land in `scripts/`.
 
-(sections filled in as the round progressed; see below)
+
 
 ## §1 What each hole states, and who actually depends on it
 
@@ -78,14 +84,39 @@ index for both stratified premises and **discards the first conjunct**, so the o
 consumer needs is `PiInvStratApp` (`Injectivity.lean:...`), which `Injectivity.lean` already
 records and which `piInvStratApp_iff_convStep2_sortInv` (`InjChainStep.lean:227`) prices.
 
-**Decayed prose counts found (report, do not trust):**  the tree's prose gives hole A as a
-"534-user hole" (`docs/handoff-injectivity.md:1238`), "736-user" (`docs/audit-doc-claims.md:376`),
-"714-user" (`docs/handoff-sortinv-route.md:13,56,160`), "449-user"
-(`Theory/Typing/RigidNodeCircle.lean:44`, `ORCHESTRATOR.md:572`), "515-user"
-(`Theory/SemanticRouteClosed.lean:129`) and "468-user" (`ORCHESTRATOR.md:822`); hole B as
-"176-user" (`RigidNodeCircle.lean`) and "460-user" (`docs/vacuity-ledger.md` row 183).  These are
-*forward-cone* (transitive) counts, not reference counts, and they disagree with each other by a
-factor of 1.6.  A fresh transitive measurement is in §5.
+### §1.4 Transitive user counts — **every prose figure in the tree is wrong**
+
+Measured 2026-09-03 **16:32–16:45 UTC** by a single-pass reverse-dependency BFS over the whole
+built population (418 modules, 336 026 declarations in the environment; reverse edge map built
+once from `type ∪ value` constants with `allowOpaque := true`, then one BFS per hole).  A
+declaration counts as a user if the hole is anywhere in its transitive cone.  Every user of every
+one of these holes is in the `Lean4Lean` namespace (`all` = `Lean4Lean` in all four rows).
+
+| hole | transitive users | modules | figures the tree's prose gives |
+|---|---|---|---|
+| `VEnv.IsDefEqU.forallE_inv_stratified` (**hole A**) | **888** | **108** | 534, 736, 714, 449, 515, 468 |
+| `VEnv.WF.rigidShapeUniqNS` (**hole B**) | **540** | **75** | 176, 460 |
+| `VEnv.IsDefEqU.weakN_iff` | **369** | **61** | 296, 312 |
+| `VEnv.NormalEq.descend` | **233** | **40** | — |
+
+**Not one of the eight prose figures is correct**, and they are not merely stale in one
+direction: hole A is quoted as low as 449 and as high as 736 against an actual **888**, hole B as
+low as 176 against an actual **540**.  The stale sites are
+`docs/handoff-injectivity.md:1238` (534), `docs/audit-doc-claims.md:376` (736),
+`docs/handoff-sortinv-route.md:13,56,160` (714), `Theory/Typing/RigidNodeCircle.lean:44` and
+`ORCHESTRATOR.md:572` (449), `Theory/SemanticRouteClosed.lean:129` (515),
+`ORCHESTRATOR.md:822` (468), `docs/vacuity-ledger.md` row 183 (460),
+`UniqueTyping.lean:182` (296) and `docs/handoff-confluence.md:295` (312).  **None of those files
+is mine; I am reporting the discrepancy, not fixing it.**
+
+**Ordering consequence that matters for planning.**  Hole A has ~1.6× hole B's user set, and
+hole B is *not* a subset of it — the two ratios in the prose ("449 vs 460", i.e. roughly equal)
+made them look interchangeable in priority.  They are not: hole A is the larger node, and
+`ConvStep2` sits under both (§7).
+
+**Decayed prose counts, summary:** the eight figures above are *forward-cone* counts, not
+reference counts; the reference counts in §1.3 are a different (much smaller) quantity and are
+exact.
 
 ## §2 The result: hole B's three **negative** conjuncts are context-free
 
@@ -325,13 +356,15 @@ must stay.  One optional, purely documentary edit:
   live instance is already priced to `ConvStep2 ∧ SortInv`.
 * **Did not build the semantic composition of §4.**  It would import `PropSplit`/`ModelData` into
   `Theory/Typing`; both halves are hole-free in their own files.
-* **Did not measure forward (transitive) user counts to replace the decayed prose figures.**  Two
-  attempts: a per-declaration cone scan over the whole built population (O(n·|cone|), killed after
-  ~25 min) and a single-pass reverse-dependency BFS (`/tmp/rev2.lean`, adapted from
-  `scripts/exists.lean`'s population walker — worth re-creating, it is the right shape), which did
-  not get past `importModules` within the budget while another stream was building the tree.  The
-  **reference** counts in §1.3 are exact and are the ones to use; the prose figures listed there
-  should be treated as unverified until someone lands a reverse-BFS instrument in `scripts/`.  Note also
+* **Transitive user counts: DONE after all** — see §1.4.  The first attempt (a per-declaration
+  cone scan, O(n·|cone|)) was killed after ~25 min; the second, a single-pass reverse-dependency
+  BFS, finished in ~13 min and is the right shape.  It ran from `/tmp/rev2.lean`, i.e. **outside
+  the repo**, because this round owned only two files.  *Recommendation for whoever owns
+  `scripts/`:* land it as `scripts/hole-users.lean`.  It is `scripts/exists.lean` with `main`
+  replaced by: build one reverse edge map from every declaration's `type ∪ value` constants, then
+  reverse-BFS from each seed.  This is the instrument the tree has been missing — eight prose
+  figures across seven files are wrong because everyone has been quoting a number nobody could
+  cheaply recompute.  Note also
   that the tree was being **built concurrently by another stream** during this session
   (`Verify/Inductive/FlipConstruct.olean` appeared mid-run at 18:12 local), so any population
   count taken here is a snapshot of a moving tree.
