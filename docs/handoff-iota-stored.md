@@ -4146,3 +4146,240 @@ frozen-axiom dependency.
    hit of the obvious one.  And a *reasoned* claim about the environment (§60.5) was refuted by a
    30-line `#eval`.  The cheap defence in both cases is the same: before writing "X does not
    exist" or "X cannot be", spend one command.
+
+# §61 `hproj` split, and the split collapses: **both** halves rest on one missing check, and `htr` is false where §60 put it (round 12)
+
+Assignment: (1) `hproj`'s **stored half** — `NoConstIn` for `projTerm` minus `ps`/`ιs` — plus
+`VEnv.NoNestedC`'s preservation, "or say why it resists"; (2) `htr`, the agreement clause.
+
+Both are done, and both came out different from the brief. The stored half is built and its
+residual is machine-checked to be **exactly** `ps`, `ιs` and the subject. But the *split* the
+brief asked me to make is not the real seam: the `ps`/`ιs` half needs **no** canonical-spine
+strengthening of `TrProj` — it needs the same environment invariant the stored half needs, and
+`TrProj.wf` (already in the tree) does the rest. And `htr` is **false** at the environment
+§60.10 item 3 implicitly states it at; it can only live in the *post*-step environment, which is
+exactly where `Lean4Lean/Inductive/Add.lean`:1121 checks it.
+
+All new material is one new file, `Lean4Lean/Verify/Inductive/ProjNoNested.lean` (706 lines, six
+sections, 41 declarations). No existing file edited.
+
+## 61.1 Where the brief is wrong — four places, plainly
+
+1. **"`NoNestedC` … named, not yet proved preserved. Proving preservation is what makes the split
+   real."**  Two things wrong. (a) `NoNestedC` is the **derived** half: the primitive invariant is
+   about *names*, and `VEnv.ConstsClosedC` — already a hypothesis of `mkRestore_built_of_blockK` —
+   turns it into `NoNestedC`.  `VEnv.noNestedC_of_noNestedN` is three lines and **depends on no
+   axioms**.  So the thing to name and assume is `VEnv.NoNestedN`, not `NoNestedC`.  (b) There is
+   no preservation theorem to prove, in either spelling: `NestedWit.noNestedN_not_preserved`
+   exhibits one `addConst` at `` `_nested.Foo `` that refutes it, machine-checked.  §60.5 already
+   said the check is missing in both kernels; the consequence is that the honest statement is
+   "**assumption**, discharged by §8.2's missing check", and "prove it preserved" is not a task
+   that can succeed.
+
+2. **"the `ps`/`ιs` half … needs a canonical-spine strengthening of `TrProj`; that is a `Theory/`
+   change and a different stream's.  Do **not** attack it as one obligation."**  It does not, and
+   it is one obligation.  §4: `TrProj.wf` (`Verify/Typing/Lemmas.lean`:1583) says a `TrProj`'s
+   *output* is well typed; `VEnv.IsDefEq.constsIn` (`Theory/SetModel/Consts.lean`) says a
+   well-typed term mentions only **declared** constants; `NoNestedN` says no declared name carries
+   the prefix.  Compose and the whole of `hproj` falls out — `ps`, `ιs`, subject, stored data, all
+   of it — with no induction on the term, no gate and no `TrProj` strengthening.  **Both halves of
+   `hproj` rest on the same missing check.**  That is the round's main finding and it dissolves the
+   split rather than completing it.
+
+3. **"`htr` … now *the only thing* between `args_of_source` and a checker-computed
+   `RestoreData.args`."**  Three corrections. (a) Not the only thing: `args_of_source` still
+   carries `hproj` and `hΔ` too.  (b) There is a **third** producer that needs neither `htr` nor
+   the gate — `args_of_wf`: a well-typed spine is prefix-free.  (c) Most importantly, `htr` as
+   §60.10 frames it is **false**: `NestedWit.nfn_htr_false_pre` shows that at the step's own
+   environment (`∅ + pfnDecl`) no `Forall₂ (TrExprS …)` for `nfnResult`'s stored spine exists,
+   because the payload `PFn NFn` mentions the block **being declared**.  `htr` is a statement
+   about the *post*-step environment — which is precisely why the implementation checks the
+   `aux2nested` payloads at Add.lean:1121 "against the final environment, so no auxiliary
+   declaration is in scope".  There is no circularity, because `RestoreData.args` mentions no
+   environment.
+
+4. **"mechanical but not small"** — accurate, and the only part of the brief I would keep verbatim.
+   §1–§2 are ~200 lines of telescope algebra, and the reason they are needed at all is that the
+   existing closure library (`noConsts_instAll`, `noConsts_mkPi_binders`,
+   `noConsts_mkApp`, `noConsts_bvars`) is stated at `VExpr.NoConsts` over a `List Name` and
+   **does not transfer**: `IsNestedName` is not `(· ∉ S)` for any finite `S`.  `VExpr.ConstsIn` at
+   a predicate is the right home and had `mono`/`instL`/`liftN`/`inst` but none of the telescope
+   operations.
+
+The brief's traps were accurate and I hit none of them: no `field_typeR`, no `SpineNoAux`
+reuse (`§4.2`'s reason stands — I need the prefix form), no `#guard_msgs` over a rejected
+`inductive`, no heartbeat anywhere near a limit (largest elaboration 1.6 s for the whole module),
+and `decide`/`rfl` arbitrated every claim about the witness.
+
+## 61.2 Proved
+
+`Lean4Lean/Verify/Inductive/ProjNoNested.lean`.
+
+* **§1 `ConstsIn` at a predicate** — `noConstIn_iff_constsIn` (the `NoConstIn`/`ConstsIn` bridge,
+  companion to `noConsts_iff_constsIn`), `constsIn_mkApp`, `constsIn_mkLams`, `constsIn_mkPi`,
+  `constsIn_bvars`, `constsIn_instAll`, `constsIn_instAllTele`, `constsIn_liftTele`,
+  `constsIn_default`; and §1.1 the three **inverses** §3 needs — `constsIn_mkPi_binders`,
+  `constsIn_of_liftTele`, `constsIn_of_map_instL`, `constsIn_mkApp_inv`.
+* **§2 the stored half** — `VIndType.projMotive_constsIn`, `VIndCtor.projMinor_constsIn`,
+  `VInductDecl'.projCore_constsIn`, `projArgs_constsIn`, `projTerm_constsIn`,
+  `projTerm_noConstIn`.  No environment, no `WF`, no typing.  `VIndCtor.constsIn_getD_type`
+  removes the index side condition (`default`'s type is constant-free), so `projCore`'s
+  `C.fields.getD i default` costs nothing.
+* **§2's sharpness** — `projTerm_constsIn_inv`: `(projTerm …).ConstsIn P` **implies** all four
+  caller hypotheses (`P (mkRecName T.name)`, `ps`, `ιs`, subject).  So "the residual is exactly
+  `ps`/`ιs`/subject" is measured, not argued, and §2 is a split and not a weakening.
+* **§3 the invariant** — `VEnv.NoNestedN`, `NoNestedN.mono` (antitone),
+  `noNestedC_of_noNestedN` (**no axioms**), `isNestedName_mkRecName` (the prefix is stable under
+  `mkRecName` in both directions).
+* **§3.1 the stored data, from the environment** — `VEnv.IsStructure.declared`,
+  `.constants_name`, `.constants_ctor`, `.constants_rec`, `.fields_constsIn`,
+  `.indices_constsIn`.  The field types come off the **constructor's** stored type (`VIndCtor.type`
+  is a `mkPi` on the nose, F2); the indices come off the **recursor's** type (`recType`'s binder
+  block), because `T.type` is only *definitionally* the canonical telescope (F1) — the same wall
+  `VEnv.IsStructure.projClosed` hits, taking the other door.
+* **§3.2 assembled** — `VEnv.IsStructure.projTerm_noConstIn` and `TrProj.noConstIn_of_spine`:
+  `hproj` with the `ps`/`ιs` clause as its single hypothesis.
+* **§4 the whole of `hproj`** — `VExpr.WF.noConstIn`, `TrProj.noConstIn_of_wf`,
+  `hproj_of_noNestedN`, `ElimNestedInductive.Result.args_of_wf`.
+* **§4.1 non-vacuity** — `empty_noNestedN`, `noNestedN_not_preserved`.
+* **§5 `htr`** — `nfn_htr` (discharged at the witness from **one** environment fact: `env`
+  declares `NFn` at zero universe parameters) and `nfn_htr_false_pre` (**refuted** at the
+  pre-step environment).  Plus §5.1's four `rfl`/`decide` checks that `storedArgs` reads what it
+  should: `nfnResult.storedArgs 1 = [NFn]`, `0` and `2` empty, and the lengths agree with `nfnAs`
+  at every index (an off-by-one against `getAppFn`, or a `getAppArgs` reversal, fails there).
+
+## 61.3 The two routes to `hproj`, and what each costs
+
+| route | hypotheses | who checks them | sorry-free |
+| --- | --- | --- | --- |
+| §3.2, stored half only | `ConstsClosedC`, `NoNestedN`, **`ps`/`ιs` clean** | nothing checks `NoNestedN` | yes |
+| §4, all of it | `VEnv.WF`, `OnCtx Γ`, subject well typed, `NoNestedN` | nothing checks `NoNestedN` | yes *here* — but the well-typedness step is `TrProj.wf`, which carries `sorryAx` |
+| gate (§60.3 `args_of_gate`) | `checkNoNestedAux` on the payload, `htr`, `hproj` | the **implementation** runs the gate | yes |
+
+Read together: the gate route is the only one whose hypotheses the checker establishes, and it
+is the one that still needs `hproj`. §4 discharges `hproj` but at the price of an environment
+assumption nothing checks. So the *closing* move is the missing check, and it now has **three**
+consumers, not two: `RestoreData.ownName`/`ownCtor` (§8.2), the stored half of `TrProj` (§60.5),
+and — new — the whole of `hproj`.
+
+## 61.4 What I tried that failed, and the step it failed at
+
+| attempt | failed at | fix |
+| --- | --- | --- |
+| §4 written against `TrProj.wf` **directly** (it elaborated, green, 168 jobs) | the **axiom check**, not the build: `#print axioms` showed `sorryAx` on `TrProj.noConstIn_of_wf` and `hproj_of_noNestedN`.  `TrProj.wf` is `[propext, sorryAx, Classical.choice, Quot.sound]` — the hole is `IsDefEqU.weakN_iff` / the injectivity family (`Theory/Typing/UniqueTyping.lean`:172), recorded at `Verify/Typing/Lemmas.lean`:1120 | take `TrProj.wf`'s **statement** as a hypothesis (the parameterisation `Verify/Typing/ProjSpineInv.lean`:214 uses for the same reason).  Every declaration in the file is now sorry-free |
+| my own absence claim for `htr`, written into the file as "hits only in `Verify/TypeChecker/*` and `SpineTransfer.lean`" | running the grep I had just asserted: `Forall₂` is in **20+ files**, and narrowing to lines with `TrExprS` found a genuine analogue I had missed — `Verify/Environment.lean`:204, a `Forall₂ (TrExprS …)` over a mutual **definition** block's values | corrected in place, and the hit is now recorded as the *model to copy* for `htr` |
+| `constants_name`/`_ctor`/`_rec` derived by hand from `addInduct'_constants` + `simp` | nothing — they compiled.  The failure was **rework**: `VInductDecl'.Declared.constants_type`/`.constants_ctor` and `VEnv.addInduct'_recs` already exist (`Theory/Inductive/Lemmas.lean`:566-590), and `IsStructure.decl` *is* `Declared` plus a `WF`.  Found by the dup-name grep, not by reading | rewritten to reuse them; `IsStructure.declared` is the two-line bridge |
+| `constsIn_instAll` as an equation-compiler term | elaboration of the **recursive call**: the recursive `e` unified with the outer `e`, so `(ha _).inst h : (e.inst a ?k).ConstsIn P` was rejected against `e.ConstsIn P` | `by rw [instAll]; exact constsIn_instAll (as := as) …` — unfold the goal *before* the recursive call is elaborated |
+| `obtain ⟨A, hA, rfl⟩ := List.mem_map.1 hA`, reusing the incoming binder name | `hidx A hA`: after `rfl`'s substitution the shadowed `hA` resolved to the **mapped** membership, `instL us A ∈ map …` | distinct names (`A₀`, `hA₀`) |
+| `rw [List.getD_eq_getElem?_getD]; cases h : C.fields[i]?; rw [h]` | the inner `rw [h]` — "did not find an occurrence": `cases h :` had already substituted | drop the `rw` |
+| `List.mem_append.1` nesting for `ps ++ [mot, minor] ++ is ++ [e]` | `List.mem_cons.1 h` with `h : a ∈ is` — `++` is left-associative, so the outermost split is `(… ++ is) ++ [e]`, not `… ++ (is ++ [e])` | three-deep left nesting |
+| `refine ⟨_, rfl, …⟩` for `VEnv.empty.addConst `_nested.Foo …` | the `rfl`: `addConst` matches on `env.constants name`, which does not reduce against a metavariable target | `intro`, `rw [VEnv.addConst]`, `simp only [VEnv.empty]`, `cases he`; and the constant had to be written out (`⟨⟨0, .sort .zero⟩, by simp⟩`) rather than left as `⟨_, by simp⟩` |
+| `rw [show D.types.getD 0 default = T …] at hB` inside `indices_constsIn` | the rewrite: `hB` was already stated at `T.indices` (the `refine` unified it there), so the mismatch was in `hcl` | rewrite `hcl` **before** `constsIn_mkPi_binders`, not the membership hypothesis after |
+
+## 61.5 Measured versus read off
+
+**Measured.** The 170-job build and every `#print axioms` below; that `TrProj.wf` carries
+`sorryAx` and `ctxConstsIn_of_onCtx` / `IsDefEq.constsIn` / `WF.ordered` do not; that
+`Theory/Typing/StrengthenAxiom.lean` is importable alongside `Verify/Inductive/Add.lean`'s cone
+(1.8 s, no collision) — the failure mode `Decl.lean`:860 warns about; `nfnResult.storedArgs` at
+three indices and the length agreement at every index (`rfl`); `htr` at the witness and its
+**falsity** at the pre-step environment (`decide` for `` `NFn ∉ pfnDecl.allNames ``);
+`noNestedN_not_preserved`; that `Lean4Lean/Inductive/Add.lean`:1121 type-checks every
+`aux2nested` payload against the final environment (read at the source, with its comment);
+`projTerm_constsIn_inv`, i.e. that none of §2's four caller hypotheses is slack; the `Forall₂`
+grep counts in 61.4.
+
+**Read off, not verified.** §60.5's environment scan (228114 constants / 0 / 0) — I did **not**
+re-run it; it is a 41 s `#eval` outside the build and I took it from the record.  That
+`VNestedOcc.Occurs` has no typing clause for `args` — read from the structure (all nine fields),
+not proved minimal.  That the `projCoreG` swap would need §2 restated at `projCoreG`: read from
+`Verify/Typing/ProjGenTerm.lean`'s existence (another stream, in flight this round), not checked.
+
+## 61.6 Files, jobs, axioms
+
+One new file; `git status --short` shows only it as mine (the other three entries are other
+streams').  Picked up by the default target through `[[lean_lib]] Lean4Lean.Verify` /
+`globs = ["Lean4Lean.Verify.*"]`, same as `SpineTransfer`.
+
+| module | jobs |
+| --- | --- |
+| `Lean4Lean.Verify.Inductive.ProjNoNested` (new) | **170**, green, no warnings from the file |
+
+(170 rather than `SpineTransfer`'s 167 + 1: the extra two are
+`Theory/Typing/Strengthen{,Axiom}`, imported for `VEnv.ctxConstsIn_of_onCtx`.  I did not
+re-declare it — that is the collision class `scripts/dup-names.lean` exists to catch, and
+`StrengthenAxiom.lean`'s own header records having been bitten by it.)
+
+`#print axioms`, by namespace.  Guard's whitelist is `[propext, Classical.choice, Quot.sound] ++
+frozenAxioms`; **everything is in the first three**, no `sorryAx` anywhere (measured: `grep -c
+sorryAx` over the build's info output = 0), no `frozenAxioms` entry.
+
+| namespace | result |
+| --- | --- |
+| `VExpr.noConstIn_iff_constsIn`, `VExpr.constsIn_mkApp` | **no axioms** |
+| `VExpr.constsIn_instAllTele`, `constsIn_mkPi_binders`, `constsIn_of_liftTele` | `[propext]` |
+| `VInductDecl'.projTerm_constsIn_inv` | `[propext]` |
+| `VEnv.noNestedC_of_noNestedN`, `VEnv.NoNestedN.mono` | **no axioms** |
+| `VIndType.*`, `VIndCtor.*`, `VInductDecl'.proj*_constsIn`, `projTerm_noConstIn` (6) | `[propext, Quot.sound]` |
+| `VEnv.IsStructure.*` (6) | `[propext, Quot.sound]` |
+| `TrProj.noConstIn_of_spine` | `[propext, Quot.sound]` |
+| `isNestedName_mkRecName`, `VExpr.WF.noConstIn`, `TrProj.noConstIn_of_wf`, `hproj_of_noNestedN`, `Result.args_of_wf` | `[propext, Classical.choice, Quot.sound]` |
+| `NestedWit.noNestedN_not_preserved` | `[propext, Quot.sound]` |
+| `NestedWit.nfn_htr`, `nfn_htr_false_pre` | `[propext, Classical.choice, Quot.sound]` |
+
+`grep -n sorry` over the new file: six hits, **all in prose** (the `TrProj.wf` note).  No `sorry`
+introduced, none traded, no new frozen-axiom dependency, and — the one that mattered — no new
+`sorryAx` **cone** either, which the first version of §4 did have.
+
+## 61.7 Hole-free versus discharged
+
+* **Discharged** (no premise a caller does not already have): all of §1 and §1.1; §2's five
+  `constsIn` lemmas *given the stored-data facts*; `projTerm_constsIn_inv`;
+  `noNestedC_of_noNestedN`; `NoNestedN.mono`; `isNestedName_mkRecName`; §3.1's six;
+  `noNestedN_not_preserved`; `nfn_htr_false_pre`; §5.1's four evaluation checks.
+* **Hole-free but not discharged**: `VEnv.IsStructure.projTerm_noConstIn` and
+  `TrProj.noConstIn_of_spine` carry `NoNestedN` **and** the `ps`/`ιs` clause; `VExpr.WF.noConstIn`,
+  `TrProj.noConstIn_of_wf`, `hproj_of_noNestedN`, `args_of_wf` carry `NoNestedN` plus
+  well-typedness — and their well-typedness supplier, `TrProj.wf`, is itself sorry-backed;
+  `nfn_htr` carries an environment fact.
+* **Not shrunk**: the missing check itself (a divergence from the C++ kernel, and not this
+  stream's file); `htr` in general; `SpineNoAux` for `addInductive` (untouched, and §60.10 item 4's
+  demotion stands).
+* **The `decide`s**: unchanged in number.  Nothing here removes `RestoreData.args`'s `decide` at a
+  concrete block; §4 and §5 offer two *routes* that would, and both need a hypothesis nobody has
+  yet.
+
+## 61.8 Pick up first
+
+1. **A typing clause on `VNestedOcc.Occurs` for `args`.**  This is the highest-value next move and
+   it is in a file this stream owns (`Theory/Inductive/NestedBuild.lean`).  `Occurs` has nine
+   clauses and **none** of them types `N.args`; add one and `args_of_wf` closes
+   `RestoreData.args` with no `Expr`-side reasoning at all.  Priced honestly: it is a new field on
+   a structure with many construction sites (`NestedBuild.lean`'s own witnesses,
+   `NestedRestoreWit.lean`, `IndexedNested.lean`), every one of which then owes a typing proof.
+   The discharge site on the implementation side already exists and is measured —
+   `Lean4Lean/Inductive/Add.lean`:1121.
+2. **`htr` at the post-step environment**, with `Verify/Environment.lean`:204 as the shape model
+   (a `Forall₂ (TrExprS …)` over a mutual block's stored values against the environment's
+   `VConstant`s — same shape, already proved, for definitions).  Do **not** state it at the step's
+   environment: `nfn_htr_false_pre` refutes that.
+3. **The missing check** (`checkNoNestedAuxName` on the declaration's own names) now has three
+   consumers, and one of them — the whole of `hproj` — is on `kernel_sound`'s path.  It is a
+   behavioural divergence from the C++ kernel and an edit to a file this stream does not own:
+   the orchestrator's/human's decision, as §8.2 says.  Nothing else in this corner is blocked on
+   anything a stream can do unilaterally.
+4. **§2 at `projCoreG`.**  Another stream is landing `projTermG_hasType`
+   (`Verify/Typing/ProjGenTerm.lean`, in flight this round).  If the `projCore` → `projCoreG` swap
+   lands, §2 needs restating at the padded construction; the proof transfers (the padding adds
+   motives and minors, both built from the same stored data §3.1 bounds).
+5. **Ledger row 117c, fourth statement.**  Not "no producer", not "producer with no consumers",
+   not "producer plus an irreducible spine `decide`", and no longer "what is open is `hproj`":
+   *`hproj` has two routes, both proved; both need `VEnv.NoNestedN`, which no kernel checks and
+   which one `addConst` refutes; and `htr` — the alternative — is false at the environment the
+   previous round stated it at.  The corner is now blocked on a single check, not on a proof.*
+6. **Ledger note on the method, fourth round running.**  §58.1 was a grep scoped by predicate
+   name, §59.1.2 by directory, §60's was not grepping at all.  This round's was **grepping and
+   then not reading the result**: I wrote an absence claim about `Forall₂` into the file, ran the
+   command I had cited, and it refuted my own sentence — 20+ files, one of them a genuine
+   analogue I had missed.  The cheap defence is one step further than §60.10's: run the command,
+   *then* write the sentence, and quote the narrowing that makes it true.
