@@ -1790,3 +1790,39 @@ my guesses at the namespace were wrong. One of them was in no namespace at all, 
 Briefs now ask for it explicitly: **every declaration named in a report must be written as
 `scripts/exists.lean` prints it, fully qualified.** The stream has the tool open; I am
 reconstructing from memory afterwards.
+
+## The 13 have one dominant root cause (2026-09-03)
+
+`addDecl.WF` is **false today**, refuted hole-free at `stdPrelude`'s first declaration — which is
+`Verify/Soundness.lean`'s own literal for `Eq`, so the falsity is on the goal theorem's path. The
+mechanism is `VEnvs.WF.no_inductInfo`: no environment holding an `.inductInfo` has a model, so the
+moment the checker declares any inductive, the premise is unsatisfiable.
+
+And the flip destroys that refutation: under `AddInduct` acquiring its constructor, `TrEnv'`
+admits a map holding an `.inductInfo`, and `TrEnv'.no_inductInfo` — the sole content of the
+culprit — becomes false. So `addDecl.WF` must **not** be weakened; it is false only relative to a
+placeholder.
+
+Read with the other two findings of the day, the census resolves:
+
+- `AddInduct`'s emptiness is the root cause of `addDecl.WF`'s falsity **and** of the two vacuous
+  checker obligations for eta and unit-like defeq.
+- One hole is separately **known false** (`NormalEq.descend`).
+- One is **inert** — nothing in the tree stands on it (`VIndRecArg.exists_indep`).
+
+I have been quoting "13 holes" as a progress measure all session. It conceals a single dominant
+cause, two holes that are not work items of the same kind, and four different remedies.
+
+### New pre-flight question for `Verify/` briefs
+
+Does the route consume `VEnvs.WF.no_inductInfo` or `VEnvs.WF.find?_ne_inductInfo`? If so it is
+**temporary** — the flip deletes it. One existing reduction (`addInductiveStepWF_of_run`) is
+already in that category, and I have been briefing rounds in that neighbourhood without knowing
+to ask.
+
+### Strengthen the handoff rule
+
+The eleventh crash is the only one where no handoff existed, and the only one where I lost the
+round's own account of itself — 434 lines of green Lean survived, the report did not. Reconstructing
+it took four tool calls. **The handoff's first section must be written before any Lean**, not
+merely incrementally: a file that compiles is recoverable, an unwritten report is not.
