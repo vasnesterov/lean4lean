@@ -972,7 +972,7 @@ theorem nfnAuxDirty_built :
   -- **From the producer** (`NestedBuild.lean` §F3): the environment facts are `pfnEnv_constsClosedC`
   -- and `nfnK_not_contains`, both proved at this very `env₂`, and the residual is the spine.
   fields_noK := fun _ _ _ _ _ hC₀ _ _ hF₀ =>
-    VNestedOcc.fields_noK_of_occurs (pfnEnv_constsClosedC h) (pfnOcc_occurs h)
+    VNestedOcc.fields_noK_of_occurs (pfnEnv_constsClosedC h) (pfnOcc_occurs h).toOccurs
       (nfnK_not_contains h) pfnOcc_args_noK hC₀ hF₀
 
 include h in

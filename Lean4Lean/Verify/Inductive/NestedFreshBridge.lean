@@ -50,7 +50,7 @@ theorem mkRestore_built_of_spine (hcc : env.ConstsClosedC) (hnd : D.blockNames.N
     (hres : r.OccResidue types D K env (r.mkRestore types D.uvars D.np ls as) occ) :
     D.Built (r.mkRestore types D.uvars D.np ls as) K env occ :=
   h.mkRestore_built
-    (VInductDecl'.builtFresh_of_occurs hcc hnd hres.occurs hK
+    (VInductDecl'.builtFresh_of_occurs hcc hnd (fun j T hT hK => (hres.occurs j T hT hK).toOccurs) hK
       fun j T hT hKT a hmem =>
         hspine j T hT hKT a (by rw [ha j T hT hKT]; exact hmem))
     hl ha hres

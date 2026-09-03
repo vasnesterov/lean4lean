@@ -1,5 +1,7 @@
 import Lean4Lean.Theory.Inductive.NestedHead
 import Lean4Lean.Theory.SetModel.Consts
+-- 2026-09-03: `VExpr.NoConstIn` and `IsNestedName`, the vocabulary of `OccursN`'s spine clause.
+import Lean4Lean.Theory.Inductive.NestedNames
 
 /-!
 # The abstract `replaceIfNested`: the auxiliary member as a *function* of `J`
@@ -673,6 +675,53 @@ theorem Occurs.src_mem {N : VNestedOcc} {env : VEnv} (h : N.Occurs env) :
     N.decl.types[N.idx]? = some N.src := by
   rw [src, List.getD_eq_getElem?_getD, List.getElem?_eq_getElem h.idx_lt]; rfl
 
+/-! ### The spine clause, and why it is an *extension* rather than a field of `Occurs`
+
+`Occurs` says nothing about `N.args` beyond its length — `VNestedOcc.occurs_args_congr`
+(`Theory/Inductive/NestedFresh.lean`) is that observation as a theorem, and
+`listOccBadSpine_occurs` / `fields_noK_needs_spine` are the anti-vacuity controls built on it.
+Those controls are *proved*, and putting the clause below into `Occurs` itself would make
+`occurs_args_congr` **false**: `listOccBadSpine`'s spine is `[_nested.List_1 α]`, which the
+clause rejects (`Verify/Inductive/OccArgsTyping.lean`'s `occursN_args_congr_false` refutes the
+strengthened congruence unconditionally).
+
+So the clause goes on an extension.  `Occurs` is left exactly as it was, the controls survive,
+and `VInductDecl'.Built.occurs` is stated at `OccursN`. -/
+
+/-- **The strengthened occurrence record.**  `Occurs` verbatim, plus: the nested spine mentions
+no reserved name.
+
+`IsNestedName` (`Theory/Inductive/NestedNames.lean`) is `(`_nested).isPrefixOf n = true` — a
+predicate on `Name` alone, with no environment in it.  That is the point:
+`Verify/Inductive/OccArgsTyping.lean` §4 shows every *environment-indexed* spelling of this
+clause is false at one end of the nested step or the other (at the pre-step environment the
+spine names the block being declared; at the post-step one `VEnv.NoNestedN` fails, because the
+companions are exactly the reserved names).  An environment-free clause is the only shape that
+is satisfiable across the step.
+
+Its payoff is two obligations at once: `ElimNestedInductive.Result.RestoreData.args`
+(`Verify/Inductive/NestedRestore.lean`) with no `Expr`-side reasoning, and
+`fields_noK_of_occurs`'s `hargs` premise (§F3 below), which `fields_noK_needs_spine` proves is
+not a consequence of `Occurs`. -/
+structure OccursN (N : VNestedOcc) (env : VEnv) : Prop extends N.Occurs env where
+  /-- **The new clause.**  `N.args` mentions no `_nested`-prefixed constant. -/
+  args_noNested : ∀ a ∈ N.args, a.NoConstIn IsNestedName
+
+/-- Forgetting the clause gives back the existing predicate, unchanged. -/
+theorem OccursN.collapse {N : VNestedOcc} {env : VEnv} (h : N.OccursN env) : N.Occurs env :=
+  h.toOccurs
+
+/-- …and the converse: nothing else was strengthened. -/
+theorem occursN_of_occurs {N : VNestedOcc} {env : VEnv} (ho : N.Occurs env)
+    (ha : ∀ a ∈ N.args, a.NoConstIn IsNestedName) : N.OccursN env :=
+  { ho with args_noNested := ha }
+
+/-- **The collapse test, as an `Iff`.**  If this were not an `Iff` the extension would be
+smuggling extra content past the reader. -/
+theorem occursN_iff {N : VNestedOcc} {env : VEnv} :
+    N.OccursN env ↔ N.Occurs env ∧ ∀ a ∈ N.args, a.NoConstIn IsNestedName :=
+  ⟨fun h => ⟨h.toOccurs, h.args_noNested⟩, fun ⟨h1, h2⟩ => occursN_of_occurs h1 h2⟩
+
 end VNestedOcc
 
 /-! ## Part 6: the step, with nowhere left to lie
@@ -687,7 +736,7 @@ structure VInductDecl'.Built (D : VInductDecl') (R : VIndRestore) (K : List Lean
     (env : VEnv) (occ : Nat → VNestedOcc) : Prop where
   /-- **The one clause that replaces `ty_agree`, `ctor_agree` and `ctors_complete`.** -/
   member : ∀ j T, D.types[j]? = some T → T.name ∈ K → T = (occ j).member D.header R
-  occurs : ∀ j T, D.types[j]? = some T → T.name ∈ K → (occ j).Occurs env
+  occurs : ∀ j T, D.types[j]? = some T → T.name ∈ K → (occ j).OccursN env
   tyName : ∀ j T, D.types[j]? = some T → T.name ∈ K → R.tyName j = (occ j).tyName
   tyLvls : ∀ j T, D.types[j]? = some T → T.name ∈ K → R.tyLvls j = (occ j).lvls
   tyArgs : ∀ j T, D.types[j]? = some T → T.name ∈ K → R.tyArgs j = (occ j).args
@@ -1000,7 +1049,7 @@ theorem VInductDecl'.Built.toFaithful {D : VInductDecl'} {R : VIndRestore}
     R.Faithful D env K (fun j => (occ j).decl.np) where
   ty_agree := by
     intro j T hT hK
-    have ho := h.occurs j T hT hK
+    have ho := (h.occurs j T hT hK).toOccurs
     refine ⟨_, by rw [h.tyName j T hT hK]; exact ho.ty_const, ?_, ?_⟩
     · rw [h.tyLvls j T hT hK, ho.lvls_len]
     · rw [(occ j).instAt_eq D.header R D j _ _ rfl (h.tyLvls j T hT hK)
@@ -1008,7 +1057,7 @@ theorem VInductDecl'.Built.toFaithful {D : VInductDecl'} {R : VIndRestore}
       rfl
   ctor_agree := by
     intro j T hT hK C hC
-    have ho := h.occurs j T hT hK
+    have ho := (h.occurs j T hT hK).toOccurs
     rw [h.member j T hT hK, VNestedOcc.member, List.mem_map] at hC
     obtain ⟨C₀, hC₀, rfl⟩ := hC
     refine ⟨⟨(occ j).decl.uvars, C₀.type (occ j).decl (occ j).idx⟩, ?_, ?_, ?_⟩
@@ -1024,7 +1073,7 @@ theorem VInductDecl'.Built.toFaithful {D : VInductDecl'} {R : VIndRestore}
         ho.lvls_len).symm
   ctors_complete := by
     intro j T hT hK
-    have ho := h.occurs j T hT hK
+    have ho := (h.occurs j T hT hK).toOccurs
     refine ⟨(occ j).decl, (occ j).idx, (occ j).src, ho.hist, ho.src_mem, ?_, rfl, ?_⟩
     · rw [h.tyName j T hT hK]; rfl
     · rw [h.member j T hT hK]
@@ -1301,11 +1350,12 @@ section
 variable {env₁ : VEnv} (h : VEnv.empty.addInduct' listDecl = some env₁)
 include h
 
-theorem listOcc_occurs : listOcc.Occurs env₁ where
+theorem listOcc_occurs : listOcc.OccursN env₁ where
   hist := ⟨_, _, h, .rfl⟩
   idx_lt := by decide
   lvls_len := rfl
   args_len := rfl
+  args_noNested := by decide
   ty_const := list_const h
   ctor_params := by
     intro C hC
@@ -1360,7 +1410,7 @@ theorem ntreeAux_built :
   nodup := by decide
   -- **From the producer** (§F3), not by computation over `List`'s fields.
   fields_noK := fun _ _ _ _ _ hC₀ _ _ hF₀ =>
-    VNestedOcc.fields_noK_of_occurs (listEnv_constsClosedC h) (listOcc_occurs h)
+    VNestedOcc.fields_noK_of_occurs (listEnv_constsClosedC h) (listOcc_occurs h).toOccurs
       (ntreeK_not_contains h) listOcc_args_noK hC₀ hF₀
   tyName := by
     rintro (_ | _ | j) T hT hK
@@ -1810,11 +1860,12 @@ theorem nfnAux_WF : nfnAux.WF env₂ where
 
 /-! ### …and the step goes through -/
 
-theorem pfnOcc_occurs : pfnOcc.Occurs env₂ where
+theorem pfnOcc_occurs : pfnOcc.OccursN env₂ where
   hist := ⟨_, _, h, .rfl⟩
   idx_lt := by decide
   lvls_len := rfl
   args_len := rfl
+  args_noNested := by decide
   ty_const := pfn_const h
   ctor_params := by
     intro C hC
@@ -1854,7 +1905,7 @@ producer at a concrete block. -/
 theorem nfnAux_builtFresh : nfnAux.BuiltFresh nfnK (fun _ => pfnOcc) where
   nodup := by decide
   fields_noK := fun _ _ _ _ _ hC₀ _ _ hF₀ =>
-    VNestedOcc.fields_noK_of_occurs (pfnEnv_constsClosedC h) (pfnOcc_occurs h)
+    VNestedOcc.fields_noK_of_occurs (pfnEnv_constsClosedC h) (pfnOcc_occurs h).toOccurs
       (nfnK_not_contains h) pfnOcc_args_noK hC₀ hF₀
 
 theorem nfnAux_built :

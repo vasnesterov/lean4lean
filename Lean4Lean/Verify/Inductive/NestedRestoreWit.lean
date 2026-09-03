@@ -544,7 +544,7 @@ structure OccResidue (r : Result) (types : List Lean.InductiveType) (D : VInduct
   member : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K →
     T = (occ j).member D.header R
   /-- The environment holds the nested block the occurrence is at. -/
-  occurs : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → (occ j).Occurs env
+  occurs : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → (occ j).OccursN env
   /-- `restoreCtorName` inverts the auxiliary constructor naming. -/
   ctorName_inv : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K →
     ∀ C ∈ (occ j).src.ctors, R.ctorName ((occ j).ctorName C.name) = C.name

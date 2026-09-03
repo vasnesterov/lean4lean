@@ -437,7 +437,7 @@ structure SemResidue (types : List Lean.InductiveType) (D : VInductDecl') (K : L
   member : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K →
     T = (occ j).member D.header R
   /-- The environment holds the nested block the occurrence is at. -/
-  occurs : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → (occ j).Occurs env
+  occurs : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → (occ j).OccursN env
 
 namespace OccData
 variable {r : Result} {types : List Lean.InductiveType} {D : VInductDecl'} {K : List Name}
@@ -799,7 +799,7 @@ theorem nfnResult_restoreData_badD :
 guard, and `occ` is unchanged. -/
 theorem occurs_badD {env₂ : VEnv} (h : VEnv.empty.addInduct' pfnDecl = some env₂) :
     ∀ (j : Nat) (T : VIndType), nfnAuxBadTy.types[j]? = some T → T.name ∈ nfnK →
-      pfnOcc.Occurs env₂ := fun _ _ _ _ => pfnOcc_occurs h
+      pfnOcc.OccursN env₂ := fun _ _ _ _ => pfnOcc_occurs h
 
 /-- The construction's companion member, at the perturbed header.  Its `type` does not depend on
 `H.names`, so the perturbation cannot reach it. -/

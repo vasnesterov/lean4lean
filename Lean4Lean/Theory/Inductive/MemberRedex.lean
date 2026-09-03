@@ -1031,11 +1031,12 @@ theorem qnRestore_ownId : qnRestore.OwnId qnAux qnK where
     · cases hT; exact absurd (by decide) hK
     · simp [qnAux] at hT
 
-theorem qnOcc_occurs : qnOcc.Occurs env₂ where
+theorem qnOcc_occurs : qnOcc.OccursN env₂ where
   hist := ⟨_, _, h, .rfl⟩
   idx_lt := by decide
   lvls_len := rfl
   args_len := rfl
+  args_noNested := by decide
   ty_const := qj_const h
   ctor_params := by
     intro C hC
@@ -1076,7 +1077,7 @@ price of connecting the producer is the environment hypothesis `h`: the old proo
 theorem qnAux_builtFresh : qnAux.BuiltFresh qnK (fun _ => qnOcc) where
   nodup := by decide
   fields_noK := fun _ _ _ _ _ hC₀ _ _ hF₀ =>
-    VNestedOcc.fields_noK_of_occurs (qjEnv_constsClosedC h) (qnOcc_occurs h)
+    VNestedOcc.fields_noK_of_occurs (qjEnv_constsClosedC h) (qnOcc_occurs h).toOccurs
       (qnK_not_contains h) qnOcc_args_noK hC₀ hF₀
 
 theorem qnAux_built : qnAux.Built qnRestore qnK env₂ (fun _ => qnOcc) where

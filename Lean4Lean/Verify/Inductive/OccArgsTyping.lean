@@ -56,34 +56,15 @@ predicate, not a re-proof of it. -/
 
 namespace VNestedOcc
 
-/-- **The strengthened occurrence record.**  `Occurs` verbatim, plus: the nested spine mentions
-no reserved name.
-
-`IsNestedName` (`Verify/Inductive/NestedRestore.lean`:211) is
-`(`_nested).isPrefixOf n = true` — a predicate on `Name` alone, no environment, no `VEnv`.  That
-is the whole point: §4 shows every environment-indexed spelling of this clause is false at one
-end of the step or the other. -/
-structure OccursN (N : VNestedOcc) (env : VEnv) : Prop extends N.Occurs env where
-  /-- **The new clause.**  `Ds` mentions no `_nested`-prefixed constant. -/
-  args_noNested : ∀ a ∈ N.args, a.NoConstIn IsNestedName
+/-! **Landed 2026-09-03.**  `OccursN`, `OccursN.collapse`, `occursN_of_occurs` and
+`occursN_iff` — prototyped in this file — now live in `Theory/Inductive/NestedBuild.lean`, right
+after `Occurs`, and `VInductDecl'.Built.occurs` is stated at `OccursN`.  The vocabulary the
+clause needs (`VExpr.NoConstIn`, `IsNestedName`) moved from `Verify/Inductive/NestedRestore.lean`
+down to `Theory/Inductive/NestedNames.lean` in the same round, which is what made the statement
+expressible under `Theory/` at all.  The `#print axioms` lines below still check those four
+declarations, at their new home. -/
 
 variable {N : VNestedOcc} {env : VEnv}
-
-/-! ### §1.1 Collapse: `OccursN` is exactly `Occurs` plus the clause -/
-
-/-- Forgetting the clause gives back the existing predicate, unchanged. -/
-theorem OccursN.collapse (h : N.OccursN env) : N.Occurs env := h.toOccurs
-
-/-- …and the converse: nothing else was strengthened. -/
-theorem occursN_of_occurs (ho : N.Occurs env)
-    (ha : ∀ a ∈ N.args, a.NoConstIn IsNestedName) : N.OccursN env :=
-  { ho with args_noNested := ha }
-
-/-- **The collapse test, as an `Iff`.**  If this were not an `Iff` the clause would be smuggling
-extra content past the reader. -/
-theorem occursN_iff :
-    N.OccursN env ↔ N.Occurs env ∧ ∀ a ∈ N.args, a.NoConstIn IsNestedName :=
-  ⟨fun h => ⟨h.toOccurs, h.args_noNested⟩, fun ⟨h1, h2⟩ => occursN_of_occurs h1 h2⟩
 
 end VNestedOcc
 
@@ -184,8 +165,7 @@ include h
 
 /-- **`OccursN` at the `NTree`/`List` witness.**  The new clause is one `decide`: the spine is
 `[NTree α]`, and `NTree` is not reserved. -/
-theorem listOcc_occursN : listOcc.OccursN env₁ :=
-  occursN_of_occurs (listOcc_occurs h) (by decide)
+theorem listOcc_occursN : listOcc.OccursN env₁ := listOcc_occurs h
 
 end
 
@@ -194,8 +174,7 @@ variable {env₂ : VEnv} (h : VEnv.empty.addInduct' pfnDecl = some env₂)
 include h
 
 /-- **`OccursN` at the `NFn`/`PFn` witness**, the one the `Verify`-side bundles use. -/
-theorem pfnOcc_occursN : pfnOcc.OccursN env₂ :=
-  occursN_of_occurs (pfnOcc_occurs h) (by decide)
+theorem pfnOcc_occursN : pfnOcc.OccursN env₂ := pfnOcc_occurs h
 
 /-- …and the inhabitation as an existential, so nothing reads as a statement about one fixed
 occurrence. -/
@@ -259,7 +238,7 @@ include h
 /-- The same control at the `PFn` witness. -/
 theorem pfnOccBadSpine_not_occursN :
     pfnOccBadSpine.Occurs env₂ ∧ ¬ pfnOccBadSpine.OccursN env₂ :=
-  ⟨occurs_args_congr (pfnOcc_occurs h) rfl, fun hN => by
+  ⟨occurs_args_congr (pfnOcc_occurs h).toOccurs rfl, fun hN => by
     have := hN.args_noNested (.const `_nested.PFn_1 []) (by decide)
     revert this; decide⟩
 

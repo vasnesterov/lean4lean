@@ -115,7 +115,7 @@ include h
 
 /-- The bad-spine occurrence is a genuine occurrence: same `Occurs env₁`. -/
 theorem listOccBadSpine_occurs : listOccBadSpine.Occurs env₁ :=
-  VNestedOcc.occurs_args_congr (listOcc_occurs h) rfl
+  VNestedOcc.occurs_args_congr (listOcc_occurs h).toOccurs rfl
 
 end
 
@@ -141,7 +141,7 @@ theorem fields_noK_needs_spine {env₁ : VEnv}
     ¬ (∀ C₀ ∈ listOccBadSpine.src.ctors, ∀ (k : Nat) (F₀ : VIndField), C₀.fields[k]? = some F₀ →
       VExpr.NoConsts ntreeK
         (VExpr.instAll (F₀.type.instL listOccBadSpine.lvls) listOccBadSpine.args k)) := by
-  refine ⟨rfl, rfl, rfl, rfl, rfl, listOcc_occurs h, listOccBadSpine_occurs h, ?_, ?_⟩
+  refine ⟨rfl, rfl, rfl, rfl, rfl, (listOcc_occurs h).toOccurs, listOccBadSpine_occurs h, ?_, ?_⟩
   · exact fun C₀ hC₀ k F₀ hF₀ =>
       (ntreeAux_built h).fields_noK 1 _ rfl (by decide) C₀ hC₀ k F₀ hF₀
   · intro hbad
