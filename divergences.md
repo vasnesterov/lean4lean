@@ -339,7 +339,32 @@ both the name argument is used **only in the error message** — there is no nam
 `*g_nested` anywhere in `src/kernel`. `check_constant_val` (`src/kernel/environment.cpp`) tests only
 for re-declaration. Elaboration does not catch it either: `Lean.isReservedName`
 (`src/Lean/ResolveName.lean`) is a registry, and no registration in the Lean 4 tree installs
-`_nested`. So `inductive _nested.Foo` is accepted by both kernels without this check.
+`_nested`. So `inductive _nested.Foo` is accepted by both kernels without this check -- **but only
+when the prefixed name occurs in no constructor type of the block.**
+
+**Scope of the divergence, measured rather than argued** (2026-09-03, probing
+`Environment.addInductive` at the pre-check tree). The existing *type* scan already rejects the
+natural cases, because a constructor's type normally mentions the inductive itself:
+
+    nested block, member `_nested.NB`        -> ALREADY REJECTED by `checkNoNestedAux`
+    plain  block, member `_nested.PB`        -> ALREADY REJECTED, same reason
+    inductive _nested.Zzz : Type, no ctors   -> accepted today; THIS CHECK rejects it
+    inductive TB | _nested.TB.mk : TB        -> accepted today; THIS CHECK rejects it
+
+So the declarations this check newly refuses are exactly those whose `_nested`-prefixed name
+appears in **no constructor type**. An earlier wording here said `inductive _nested.Foo` is
+accepted, unqualified; that overstated the divergence and is corrected.
+
+**It changes naming only, not the theory.** The delta class is *defined* by the prefixed name not
+occurring in any type in the block, so renaming such a declaration changes no type at all and the
+stored environment differs in one label. Any development using the rejected name can be rewritten
+with an unprefixed one and is then accepted, giving an isomorphic environment; provable
+propositions, up to renaming of constants, are unchanged. This was verified rather than assumed,
+because **the kernel is not renaming-invariant in general**: `Environment.primitives`
+(`Environment/Basic.lean:34`) keys special reduction on names and `checkName` rejects any
+declaration reusing one, so there a name does change what is accepted. No `_nested`-prefixed name
+is in that list, every entry being a fixed literal; and `isNonRecStructure`, the other name-keyed
+path, dispatches on a declaration's shape rather than its name.
 
 **Why the check is here.** The nested-inductive pass rewrites a block, replacing each nested
 occurrence with an auxiliary member it *invents*, checks the rewritten block, then restores the
