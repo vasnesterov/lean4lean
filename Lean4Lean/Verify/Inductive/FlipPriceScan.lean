@@ -9,6 +9,19 @@ general, without the three obligations?" is asked here of the *environment*: eve
 whose TYPE mentions both `VEnv.addInductR` and `VEnv.Ordered` is enumerated with its arity, so
 a general result cannot hide behind a name.
 -/
+-- 2026-09-03: `ParamRedex` added after blocker (B)'s stream found this scan's population
+-- INCOMPLETE.  Without it the scan reported "exactly five declarations mention both
+-- `VEnv.addInductR` and `VEnv.Ordered`, and the only arity-0 ones are the two witnesses"; with it
+-- the counts are SIX and THREE.  The third is `MRedex.MPWit.mpAuxB_addInductR_ordered`, arity 0,
+-- at a **non-canonical parameterised** block -- so there are two independent end-to-end
+-- parameterised confirmations, not one, and `mpAuxB_hdata` (arity 9) is an `IotaHargs` at a
+-- parameterised block, which `docs/handoff-flipprice.md` §5b records as having no witness.
+--
+-- This is the fixed-import-list failure of `scripts/sorry-census.lean` (ledger rows 175, 187)
+-- recurring one level down, in the very instrument the briefs point streams at for ABSENCE
+-- claims.  A structural query over the compiled environment is only as complete as the modules
+-- imported into it, and nothing in the query itself reveals the gap.
+import Lean4Lean.Theory.Inductive.ParamRedex
 import Lean4Lean.Theory.Inductive.RestoreBridge
 import Lean4Lean.Theory.Inductive.NestedTele
 import Lean4Lean.Theory.Inductive.NestedOrdered
