@@ -185,7 +185,7 @@ theorem constAppDefeqStrengthen_of_allTypesInhabited_aux {env : VEnv} {U : Nat}
     obtain ⟨l, k, hdl, rfl⟩ := Lift.depth_succ hd
     obtain ⟨Γ₂, W1, W2⟩ := W.of_cons_skip
     rw [Lift.consN_skip_eq, VExpr.lift'_comp, ← Lift.skipN_one, VExpr.lift'_consN_skipN] at H
-    obtain ⟨Γ₀, A₀, hI, hΓ₀, hA₀⟩ := W2.exists_instN_typed henv hΓ'
+    obtain ⟨Γ₀, A₀, hI, hΓ₀, hA₀⟩ := W2.exists_instN_typed hΓ'
     obtain ⟨e₀, h₀⟩ := hinh hΓ₀ hA₀
     have H2 := H.instN henv (hI e₀) h₀
     rw [VExpr.inst_liftN, VExpr.inst_mkApp,

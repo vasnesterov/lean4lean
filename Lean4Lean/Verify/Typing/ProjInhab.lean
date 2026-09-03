@@ -139,7 +139,7 @@ theorem constAppTypeStrengthen_of_allTypesInhabited_aux {env : VEnv} {U : Nat}
     obtain ⟨l, k, hdl, rfl⟩ := Lift.depth_succ hd
     obtain ⟨Γ₂, W1, W2⟩ := W.of_cons_skip
     rw [Lift.consN_skip_eq, VExpr.lift'_comp, ← Lift.skipN_one, VExpr.lift'_consN_skipN] at hty
-    obtain ⟨Γ₀, A₀, hI, hΓ₀, hA₀⟩ := W2.exists_instN_typed henv hΓ'
+    obtain ⟨Γ₀, A₀, hI, hΓ₀, hA₀⟩ := W2.exists_instN_typed hΓ'
     obtain ⟨e₀, h₀⟩ := hinh hΓ₀ hA₀
     have h2 := hty.instN henv (hI e₀) h₀
     rw [VExpr.inst_liftN, VExpr.inst_mkApp,
@@ -159,19 +159,23 @@ does pay for both residuals. -/
 theorem VEnv.AllTypesInhabited.strengtheningTarget {env : VEnv} {U : Nat} (henv : VEnv.WF env)
     (hinh : env.AllTypesInhabited U) : VEnv.StrengtheningTarget env U := by
   refine strengtheningTarget_of_allInhabited henv fun {k Γ Γ'} W hΓ' => ?_
-  obtain ⟨Γ₀, A₀, hI, hΓ₀, hA₀⟩ := W.exists_instN_typed henv.ordered hΓ'
+  obtain ⟨Γ₀, A₀, hI, hΓ₀, hA₀⟩ := W.exists_instN_typed hΓ'
   obtain ⟨e₀, h₀⟩ := hinh hΓ₀ hA₀
   exact ⟨Γ₀, A₀, e₀, hI _, h₀⟩
 
 /-- The scope of any such argument, stated exactly: where `AllTypesInhabited` holds, the
 uninhabitedness premise of `VEnv.ConstAppSkipUninhab` is satisfiable at **no** well-formed
-context.  (`StrengthenVerdict.univInhab_no_uninhabited_entry`, for the projection residual.) -/
+context.  (`StrengthenVerdict.univInhab_no_uninhabited_entry`, for the projection residual.)
+
+`Ordered env` used to be a hypothesis here.  It was only ever feeding
+`Ctx.LiftN.exists_instN_typed`, and that lemma no longer asks for it (2026-09-03, see
+`Theory/Typing/LiftTrimWitness.lean`), so this holds at unordered environments too. -/
 theorem VEnv.AllTypesInhabited.no_uninhabited_binder {env : VEnv} {U k : Nat}
-    {Γ Γ' : List VExpr} (henv : env.Ordered) (hinh : env.AllTypesInhabited U)
+    {Γ Γ' : List VExpr} (hinh : env.AllTypesInhabited U)
     (W : Ctx.LiftN 1 k Γ Γ') (hΓ' : OnCtx Γ' (env.IsType U)) :
     ¬ (∀ Γ₀ A₀ e₀, Ctx.InstN Γ₀ e₀ A₀ k Γ' Γ → ¬ env.HasType U Γ₀ e₀ A₀) := by
   intro hemp
-  obtain ⟨Γ₀, A₀, hI, hΓ₀, hA₀⟩ := W.exists_instN_typed henv hΓ'
+  obtain ⟨Γ₀, A₀, hI, hΓ₀, hA₀⟩ := W.exists_instN_typed hΓ'
   obtain ⟨e₀, h₀⟩ := hinh hΓ₀ hA₀
   exact hemp Γ₀ A₀ e₀ (hI _) h₀
 

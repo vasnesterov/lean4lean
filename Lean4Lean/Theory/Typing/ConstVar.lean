@@ -508,7 +508,7 @@ sharpened residual asks for is exactly the one `Strengthening1Uninhab` already c
 theorem AxiomConservativityUninhabWF.strengthening1Uninhab
     (H : AxiomConservativityUninhabWF env U) : Strengthening1Uninhab env U := by
   intro k Γ Γ' e1 e2 W hΓ hΓ' hemp h
-  obtain ⟨Γ₀, A₀, hI, hΓ₀, hA₀⟩ := W.exists_instN_typed henv hΓ'
+  obtain ⟨Γ₀, A₀, hI, hΓ₀, hA₀⟩ := W.exists_instN_typed hΓ'
   have hC : env.IsType U [] (mkForallCtx Γ₀ A₀) := isType_mkForallCtx hΓ₀ hA₀
   have hCemp : ∀ t, ¬ env.HasType U [] t (mkForallCtx Γ₀ A₀) :=
     fun t ht => hemp Γ₀ A₀ _ (hI _) (hasType_appCtx henv ht)

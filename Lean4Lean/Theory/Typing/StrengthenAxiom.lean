@@ -154,11 +154,18 @@ theorem Ordered.exists_addConst (H : Ordered env) (ci : VConstant) :
 
 /-! ## 5. The residual, and the reduction -/
 
-variable! (henv : Ordered env) in
 /-- `Ctx.LiftN.exists_instN`, carrying the well-formedness of the stripped entry and of the
 context below it.  The substituted term is quantified *inside*, because the smaller context
 is `Γ` on the nose (the entries above the strip are lifts, and `inst_liftN` undoes them), so
-`Γ₀` and `A₀` do not depend on it — which is what lets the inhabitant be built *from* `Γ₀`. -/
+`Γ₀` and `A₀` do not depend on it — which is what lets the inhabitant be built *from* `Γ₀`.
+
+**No `Ordered env`.**  Until 2026-09-03 this carried `henv : Ordered env` under a
+`variable! … in`, and `lake build` had been reporting it unused ("automatically included
+section variable(s) unused in theorem") in every build.  The content is purely structural:
+`Ctx.LiftN`/`Ctx.InstN` are relations on lists of `VExpr`, the induction only re-associates
+the `OnCtx` conjuncts, and `VExpr.inst_liftN` is an identity of substitution.  Nothing
+consults `env`'s constants, so the lemma holds at environments where `Ordered env` is
+outright **false** — `Theory/Typing/LiftTrimWitness.lean` §1 instantiates it at one. -/
 theorem _root_.Lean4Lean.Ctx.LiftN.exists_instN_typed : ∀ {k : Nat} {Γ Γ' : List VExpr},
     Ctx.LiftN 1 k Γ Γ' → OnCtx Γ' (env.IsType U) →
     ∃ Γ₀ A₀, (∀ e₀, Ctx.InstN Γ₀ e₀ A₀ k Γ' Γ) ∧
@@ -215,7 +222,7 @@ strengthening outright.  What is left is exactly `AxiomConservativityUninhab`. -
 theorem AxiomConservativityUninhab.strengthening1Uninhab
     (H : AxiomConservativityUninhab env U) : Strengthening1Uninhab env U := by
   intro k Γ Γ' e1 e2 W hΓ hΓ' hemp h
-  obtain ⟨Γ₀, A₀, hI, hΓ₀, hA₀⟩ := W.exists_instN_typed henv hΓ'
+  obtain ⟨Γ₀, A₀, hI, hΓ₀, hA₀⟩ := W.exists_instN_typed hΓ'
   have hC : env.IsType U [] (mkForallCtx Γ₀ A₀) := isType_mkForallCtx hΓ₀ hA₀
   have hCemp : ∀ t, ¬ env.HasType U [] t (mkForallCtx Γ₀ A₀) :=
     fun t ht => hemp Γ₀ A₀ _ (hI _) (hasType_appCtx henv ht)
@@ -319,7 +326,7 @@ where route 1 puts the difficulty. -/
 theorem strengtheningTarget_of_allClosedInhabited
     (hinh : ∀ C, env.IsType U [] C → ∃ t, env.HasType U [] t C) : StrengtheningTarget env U := by
   refine strengtheningTarget_of_allInhabited henv fun {k Γ Γ'} W hΓ' => ?_
-  obtain ⟨Γ₀, A₀, hI, hΓ₀, hA₀⟩ := W.exists_instN_typed henv.ordered hΓ'
+  obtain ⟨Γ₀, A₀, hI, hΓ₀, hA₀⟩ := W.exists_instN_typed hΓ'
   obtain ⟨t, ht⟩ := hinh _ (isType_mkForallCtx hΓ₀ hA₀)
   exact ⟨Γ₀, A₀, _, hI _, hasType_appCtx henv.ordered ht⟩
 

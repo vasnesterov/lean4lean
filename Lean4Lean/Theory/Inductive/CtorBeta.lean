@@ -36,7 +36,7 @@ file.
 `docs/handoff-ctorbeta.md` records what is measured and what is read off, and states
 hole-freeness and non-vacuity separately.
 -/
-import Lean4Lean.Theory.Inductive.NestedTele
+import Lean4Lean.Theory.Inductive.TeleMove2
 
 namespace Lean4Lean
 
@@ -500,11 +500,15 @@ says there are exactly `D.np` of them.
 
 The inequality below is precisely "the top index of `VExpr.bvars (bs.length + i) D.np` is less than
 the context's length": `bs.length + i + D.np ≤ length`.  So §6b/§8.8 at a *field* of a constructor
-is not the motive case; nothing about it is empty above `D.np = 0`.  (This is a scope check, not a
-proof of `hbv`: supplying `hbv` still needs the conversion between the substituted `C.params` that
-sits in the context and the `D.params` §8.8 asks for — F3's `VIndCtor.WF.params_eq` — which is the
-`VEnv.HasArgs.congr_tele` / `VEnv.TeleDefEq.inst` pair `NestedTele.lean` §T15 names as the
-outstanding obstruction to obligation (B)'s assembly.  Same lemma, both obligations.) -/
+is not the motive case; nothing about it is empty above `D.np = 0`.
+
+(This is a scope check, not a proof of `hbv`.  `hbv` itself is now a **theorem** and no longer a
+datum: the conversion between the substituted `C.params` that sits in the context and the
+`D.params` §8.8 asks for is `VIndCtor.WF.hasArgs_params_bvars_of_wf`
+(`Theory/Inductive/TeleMove2.lean` §3), which routes F3's `VIndCtor.WF.params_eq` through
+`VEnv.TeleDefEq.of_isDefEqCtx` into `VEnv.HasArgs.congr_tele`.  §7's `hbeta` therefore asks for
+**four** components, not five; this scope check is what tells you the spine it produces is typable
+at all.) -/
 
 theorem ctorFieldCtx_bvars_in_scope {C : VIndCtor} {σ : CSubst} {i : Nat}
     (hi : i ≤ C.fields.length) (hlen : C.params.length = D.np) (bs : List VExpr) :
@@ -530,8 +534,11 @@ end VIndRestore
   minus `hcanon`;
 * `hcan` — syntactic: at a recursive field naming a companion, the stored type is canonical, its
   binders name no companion, and its index arguments are `σ`-invariant;
-* `hbeta` — **the only typed datum**: §8.8's five inputs, and only at fields whose `recArg` points
-  at a **companion** member.  At a field pointing at the block's own member the head does not move
+* `hbeta` — **the only typed datum**: §8.8's inputs *minus* `hbv`, i.e. **four** of the five, and
+  only at fields whose `recArg` points at a **companion** member.  `hbv` is discharged inside the
+  proof from `VIndCtor.WF.hasArgs_params_bvars_of_wf` (`TeleMove2.lean` §3); the only hypothesis
+  that discharge adds is `henv : env.Ordered`, which every caller already has (it is what `henv₃`
+  is derived from — see §7b).  At a field pointing at the block's own member the head does not move
   at all (`§6b`'s `head_defeq_of_own`), and the typing that closes it comes out of §6c for free.
 
 `hbeta` *is* `hargs` — §8.7's residual, the `val` clause of `(R.csubst D K).WF`, which
@@ -541,7 +548,8 @@ and (C) do.**  It is a reduction, not a discharge. -/
 
 theorem VEnv.ctorConstsCR_wf_of_betaD {env env₃ e₁ : VEnv} {D : VInductDecl'}
     {K : List Name} {R : VIndRestore}
-    (hD : D.WF env) (h₃ : env.addIndTypes D = some env₃) (henv₃ : env₃.Ordered)
+    (henv : env.Ordered) (hD : D.WF env) (h₃ : env.addIndTypes D = some env₃)
+    (henv₃ : env₃.Ordered)
     (he₁ : e₁.Ordered) (hσ : (R.csubstTy D K).WF env₃ e₁ D.uvars) (hown : R.OwnId D K)
     (hnd : D.blockNames.Nodup) (hlw : ∀ i, (R.tyVal D i).LevelWF D.uvars)
     (hcl : ∀ i, ∀ a ∈ R.tyArgs i, a.ClosedN D.np)
@@ -563,11 +571,6 @@ theorem VEnv.ctorConstsCR_wf_of_betaD {env env₃ e₁ : VEnv} {D : VInductDecl'
                 ((((C.fields.map (·.type)).map (VExpr.substC · (R.csubstTy D K))).take i).reverse
                   ++ (C.params.map (VExpr.substC · (R.csubstTy D K))).reverse)))
             (e₁.IsType D.uvars) ∧
-          e₁.HasArgs D.uvars
-              ((r.binders.map (VExpr.substC · (R.csubstTy D K))).reverse ++
-                ((((C.fields.map (·.type)).map (VExpr.substC · (R.csubstTy D K))).take i).reverse
-                  ++ (C.params.map (VExpr.substC · (R.csubstTy D K))).reverse))
-              D.params (VExpr.bvars (r.binders.length + i) D.np) ∧
           e₁.HasType D.uvars
               (D.params.reverse ++
                 ((r.binders.map (VExpr.substC · (R.csubstTy D K))).reverse ++
@@ -585,8 +588,8 @@ theorem VEnv.ctorConstsCR_wf_of_betaD {env env₃ e₁ : VEnv} {D : VInductDecl'
   refine VEnv.ctorConstsCR_wf_of_fieldsD hD h₃ henv₃ he₁ hσ hown ?_
   intro j T C hT hK hCT i F r hF hr hnc
   obtain ⟨hcanF, hb, hargs, T', hT'⟩ := hcan j T C hT hK hCT i F r hF hr hnc
-  have hs : VConstant.WF env₃ ⟨D.uvars, C.type D j⟩ :=
-    (hD.ctors env₃ h₃ j T hT C hCT).constant_wf henv₃
+  have hCwf : VIndCtor.WF env₃ D j T C := hD.ctors env₃ h₃ j T hT C hCT
+  have hs : VConstant.WF env₃ ⟨D.uvars, C.type D j⟩ := hCwf.constant_wf henv₃
   have hfpi : F.type.substC (R.csubstTy D K)
       = VExpr.mkPi (r.binders.map (VExpr.substC · (R.csubstTy D K)))
           ((D.tyApp r.idx (r.binders.length + i) r.args).substC (R.csubstTy D K)) := by
@@ -594,8 +597,20 @@ theorem VEnv.ctorConstsCR_wf_of_betaD {env env₃ e₁ : VEnv} {D : VInductDecl'
   obtain ⟨hOnΔ, hCd⟩ := VIndRestore.ctorFieldEntry_onCtx he₁ hσ hs hF hfpi
   refine VIndRestore.field_defeq_of_canonical hown hnd hr hcanF hT' hb hOnΔ ?_
   by_cases hK' : T'.name ∈ K
-  · obtain ⟨As, B, B', v, hOn, hbv, hbody, hpi, hAs, hsort⟩ :=
+  · obtain ⟨As, B, B', v, hOn, hbody, hpi, hAs, hsort⟩ :=
       hbeta j T C hT hK hCT i F r hF hr hnc T' hT' hK'
+    have hbv : e₁.HasArgs D.uvars
+        ((r.binders.map (VExpr.substC · (R.csubstTy D K))).reverse ++
+          ((((C.fields.map (·.type)).map (VExpr.substC · (R.csubstTy D K))).take i).reverse
+            ++ (C.params.map (VExpr.substC · (R.csubstTy D K))).reverse))
+        D.params (VExpr.bvars (r.binders.length + i) D.np) := by
+      have hi : i ≤ C.fields.length := Nat.le_of_lt (by
+        simpa using (List.getElem?_eq_some_iff.1 hF).1)
+      have hb := hCwf.hasArgs_params_bvars_of_wf henv he₁ hD h₃ hσ
+        ((r.binders.map (VExpr.substC · (R.csubstTy D K))).reverse ++
+          (((C.fields.map (·.type)).map (VExpr.substC · (R.csubstTy D K))).take i).reverse)
+      rw [List.append_assoc] at hb
+      simpa [Nat.min_eq_left hi] using hb
     exact VIndRestore.head_defeq_of_beta hnd hlw hcl he₁ hnn hna hT' hK' hargs hOn hbv hbody
       hpi hAs hsort
   · exact VIndRestore.head_defeq_of_own hown hT' hK' hCd
@@ -609,8 +624,11 @@ silently emptied a premise.  `NestedTele.lean` §T4 is the precedent that matter
 
 So §7 is instantiated at `ntreeAux` — `NTree`/`List`, `D.np = 1`, a real nested block — with every
 one of its hypotheses discharged, `hbeta` included.  The `hbeta` witness is `As := []`,
-`B = B' := Sort (u+1)`, and its five components are `type_tac`; that is the whole β-step at this
-block, and it goes through §8.8 rather than by hand. -/
+`B = B' := Sort (u+1)`, and its **four** components are `type_tac`; that is the whole β-step at this
+block, and it goes through §8.8 rather than by hand.
+
+This is also where the `hbv` discharge is *exercised* rather than merely available: the `HasArgs`
+component this witness used to build by hand is gone from it, and nothing replaced it. -/
 
 namespace InductiveDeclExamples
 
@@ -630,7 +648,7 @@ theorem ntreeAux_ctorConstsCR_wf_of_betaD :
     VEnv.addConstList_ordered henv₁ (VEnv.addInductR_typeConstsC_wf (ntreeAux_WF h)) h₃
   have hL := list_const₃ h h₃
   have hN := ntree_const₃ h₃
-  refine VEnv.ctorConstsCR_wf_of_betaD (ntreeAux_WF h) h₂ henv₂ henv₃
+  refine VEnv.ctorConstsCR_wf_of_betaD henv₁ (ntreeAux_WF h) h₂ henv₂ henv₃
     (ntree_csubstTy ▸ ntreeSubst_WF h henv₁ h₂ h₃) ntreeRestore_ownId (by decide)
     ntreeRestore_tyVal_levelWF ntreeRestore_tyArgs_closed
     ntreeRestore_csubstTy_tyName ntreeRestore_tyArgs_noCSubst ?_ ?_
@@ -657,13 +675,10 @@ theorem ntreeAux_ctorConstsCR_wf_of_betaD :
       | 1, hF =>
         cases hF; cases hr; cases hT'
         refine ⟨[], .sort (.succ (.param 0)), .sort (.succ (.param 0)), .succ (.param 0),
-          ?_, ?_, ?_, rfl, .nil, rfl⟩
+          ?_, ?_, rfl, .nil, rfl⟩
         · show OnCtx [VExpr.sort (.succ (.param 0)), VExpr.bvar 0,
               VExpr.sort (.succ (.param 0))] (env₃.IsType 1)
           exact ⟨⟨⟨trivial, ⟨_, by type_tac⟩⟩, ⟨_, by type_tac⟩⟩, ⟨_, by type_tac⟩⟩
-        · show env₃.HasArgs 1 [VExpr.bvar 0, VExpr.sort (.succ (.param 0))]
-              [VExpr.sort (.succ (.param 0))] [VExpr.bvar 1]
-          exact .cons (by type_tac) .nil
         · show env₃.HasType 1 [VExpr.sort (.succ (.param 0)), VExpr.bvar 0,
               VExpr.sort (.succ (.param 0))]
               (.app (.const ``List [.param 0]) (.app (.const ``NTree [.param 0]) (.bvar 0)))

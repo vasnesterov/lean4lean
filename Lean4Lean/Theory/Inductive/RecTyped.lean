@@ -24,7 +24,11 @@ What is below is the missing composition, in three layers:
 * §2 the free items, at the ambient contexts `recConstsR_wf_of_entriesD` actually binds:
   the entry `OnCtx`s, `hOnp`, `hbv`, and the parameter-block σ-identity;
 * §3 the bundles `MotiveHargs` / `MinorHargs` / `RecBodyHargs` and the reduction
-  `VEnv.recConstsR_wf_of_recHargsD`.
+  `VEnv.recConstsR_wf_of_recHargsD`;
+* §4b/§4c `MinorCtorHargs`'s `hAs` conjunct **derived** (§T12.1's chain, composed) and therefore
+  the bundle suppliable from `hcbody`/`hfun` alone — moved here from
+  `Theory/Inductive/TeleCongr.lean`, which imported this file and so could not be consumed by it
+  (`docs/handoff-telemove2.md`).
 
 **This is a reduction, not a discharge.**  Its `hargs`-shaped hypotheses *are* the open
 obligation; `VIndRestore.instAt_indep_of_tyArgs` (`NestedRules.lean:1509`) says no
@@ -753,6 +757,181 @@ def RecBodyHargs (j : Nat) (T : VIndType) : Prop :=
 end
 end VIndRestore
 
+/-! ## §4b `MinorCtorHargs`'s `hAs` is a THEOREM — §T12.1's chain, composed
+
+`NestedTele.lean` §T12.1 sets out the de Bruijn arithmetic and §T13 closes its two side
+conditions, and both sections say in as many words that the composition is not performed there.
+This is it.  It was proved in `Theory/Inductive/TeleCongr.lean`, **downstream** of this file, which
+is why nothing here could consume it; the move is `docs/handoff-telemove2.md` §2.
+
+Reading the chain off §T12.1, with `nf := C.fields.length`, `nr := (D.ihTypes q C).length`,
+`off := D.nm + q` and `k := nr + nf + off`:
+
+1. `instAt_ctor_hpi` (§T10) fixes `As = instAllTele (D.atRecTele (C.fieldTypesR D R)) (bvars k D.np) 0`;
+2. `instAllTele_bvars_lift` + `atRecTele_fieldTypesR_closedTele` turn that into `liftTele k … 0`;
+3. `HasArgs.bvars` types the spine against `liftTele (nr+nf) (liftTele off srcF 0) 0`, which
+   `liftTele_collapse₂` collapses to `liftTele (off+(nr+nf)) srcF 0` — **the same offset**, as
+   §T12.1 predicted;
+4. `TeleDefEq.weakN` lifts `MinorFldDefEq` over the field/ih block and
+   `atRecTele_fieldTypesR_substC_eq` identifies its right endpoint with the *unsubstituted*
+   restored telescope;
+5. `congr_tele` closes it.
+
+The σ-identity on `D.atRecTele D.params` is needed because `MinorFldDefEq` states its context
+with the parameter block **substituted** and `MinorCtorHargs` states it **raw**. -/
+
+namespace VIndRestore
+variable {e : VEnv} {R : VIndRestore} {D : VInductDecl'} {C : VIndCtor} {σ : CSubst} {q : Nat}
+
+/-- **`MinorCtorHargs`'s `hAs` conjunct, at the `As` `instAt_ctor_hpi` delivers.**
+
+`hfld` is `MinorFldDefEq`, which obligation (B)'s closure already demands at *every* entry — so
+this consumes nothing new from the caller.  The other three inputs are §T13's two side conditions
+plus the parameter-block σ-identity. -/
+theorem minorCtor_hAs (he : e.Ordered) (hfld : R.MinorFldDefEq D σ e q C)
+    (hσp : (D.atRecTele D.params).map (VExpr.substC · σ) = D.atRecTele D.params)
+    (hσf : (D.atRecTele (C.fieldTypesR D R)).map (VExpr.substC · σ)
+      = D.atRecTele (C.fieldTypesR D R))
+    (hclF : VExpr.ClosedTele (D.atRecTele (C.fieldTypesR D R)) D.np) :
+    e.HasArgs D.recUvars
+      ((VExpr.liftTele (D.nm + q)
+          ((D.atRecTele (C.fields.map (·.type))).map (VExpr.substC · σ))
+          ++ (D.ihTypes q C).map (VExpr.substC · σ)).reverse
+        ++ (((D.minors.map (VExpr.substC · σ)).take q).reverse
+            ++ ((D.motives.map (VExpr.substC · σ)).reverse
+                ++ (D.atRecTele D.params).reverse)))
+      (VExpr.instAllTele (D.atRecTele (C.fieldTypesR D R))
+        (VExpr.bvars ((D.ihTypes q C).length + C.fields.length + (D.nm + q)) D.np) 0)
+      (VExpr.bvars (D.ihTypes q C).length C.fields.length) := by
+  -- lengths: the substituted source field telescope has `C.fields.length` entries
+  have hlensrc : ((D.atRecTele (C.fields.map (·.type))).map (VExpr.substC · σ)).length
+      = C.fields.length := by
+    simp [VInductDecl'.length_atRecTele]
+  -- step 2: the existential `As` is a `liftTele`
+  rw [VExpr.instAllTele_bvars_lift
+    (n := D.np) (j := (D.ihTypes q C).length + C.fields.length + (D.nm + q)) (m := 0)
+    (by simpa using hclF)]
+  -- step 3: the spine, typed against the source field telescope
+  have hbv := VEnv.HasArgs.bvars (env := e) (U := D.recUvars)
+    (Δ := ((D.ihTypes q C).map (VExpr.substC · σ)).reverse)
+    (As := VExpr.liftTele (D.nm + q)
+      ((D.atRecTele (C.fields.map (·.type))).map (VExpr.substC · σ)) 0)
+    (Γ₀ := ((D.minors.map (VExpr.substC · σ)).take q).reverse
+      ++ ((D.motives.map (VExpr.substC · σ)).reverse ++ (D.atRecTele D.params).reverse))
+  rw [List.length_reverse, List.length_map, VExpr.length_liftTele, hlensrc,
+    VExpr.liftTele_collapse₂] at hbv
+  -- step 4: `MinorFldDefEq`, lifted over the field/ih block, right endpoint desubstituted
+  rw [VIndRestore.MinorFldDefEq, hσp, hσf] at hfld
+  have hw := VEnv.TeleDefEq.weakN (n := (D.ihTypes q C).length + C.fields.length) (k := 0) he
+    (Ctx.LiftN.zero (((D.ihTypes q C).map (VExpr.substC · σ)).reverse
+      ++ (VExpr.liftTele (D.nm + q)
+          ((D.atRecTele (C.fields.map (·.type))).map (VExpr.substC · σ)) 0).reverse) (by
+        simp [VExpr.length_liftTele, hlensrc])) hfld
+  rw [VExpr.liftTele_collapse₂, VExpr.liftTele_collapse₂] at hw
+  -- step 5
+  have hcong := hbv.congr_tele he hw
+  rw [show D.nm + q + ((D.ihTypes q C).length + C.fields.length)
+      = (D.ihTypes q C).length + C.fields.length + (D.nm + q) from by omega] at hcong
+  simpa [List.reverse_append, List.append_assoc] using hcong
+
+/-! ### §4c …and `MinorCtorHargs` from **two** components, not four
+
+`instAt_ctor_hpi` (§T10) fixes `B`, `As` and `B'` outright, so `hpi` is not data; §4b then closes
+`hAs`.  What is left of `MinorCtorHargs` is `hcbody` and `hfun` — the two `hargs`-shaped data
+§5 below already names as the open obligation.
+
+The `Faithful` cost is real and is **available here**, unlike at (A): §5's `hminD` is demanded only at
+`T.name ∈ K`, which is exactly `Faithful.ctor_agree`'s guard. -/
+
+/-- **`MinorCtorHargs` with `hpi` and `hAs` both derived.**
+
+`hlen`/`hagree` are `Faithful.ctor_agree` read through `VIndCtor.WF.params_len`; `hfld` is the
+`MinorFldDefEq` obligation (B)'s closure already demands at every entry; `hσp`/`hσf`/`hclF` are
+§T16.2's parameter σ-identity and §T13's two side conditions.  `hcbody` and `hfun` are the only
+data left. -/
+theorem minorCtorHargs_of_hargs (he : e.Ordered) {t npJ : Nat} {ci : VConstant}
+    (hlen : D.params.length = C.params.length)
+    (hagree : R.instAt D npJ t ci.type = C.typeR D R t)
+    (hfld : R.MinorFldDefEq D σ e q C)
+    (hσp : (D.atRecTele D.params).map (VExpr.substC · σ) = D.atRecTele D.params)
+    (hσf : (D.atRecTele (C.fieldTypesR D R)).map (VExpr.substC · σ)
+      = D.atRecTele (C.fieldTypesR D R))
+    (hclF : VExpr.ClosedTele (D.atRecTele (C.fieldTypesR D R)) D.np)
+    (hcbody : e.HasType D.recUvars ((D.atRecTele D.params).reverse)
+      (D.atRec (R.ctorBody D t C))
+      (D.atRec (VExpr.instAll (VExpr.splitPis npJ (ci.type.instL (R.tyLvls t))).2
+        (R.tyArgs t))))
+    (hfun : e.HasType D.recUvars
+      ((VExpr.liftTele (D.nm + q)
+          ((D.atRecTele (C.fields.map (·.type))).map (VExpr.substC · σ))
+          ++ (D.ihTypes q C).map (VExpr.substC · σ)).reverse
+        ++ (((D.minors.map (VExpr.substC · σ)).take q).reverse
+            ++ ((D.motives.map (VExpr.substC · σ)).reverse
+                ++ (D.atRecTele D.params).reverse)))
+      ((VExpr.bvar ((D.ihTypes q C).length + C.fields.length + q + (D.nm - 1 - t))).mkApp
+        ((C.args.map fun a => VExpr.shift (D.nm + q) (D.ihTypes q C).length
+            C.fields.length (D.atRec a)).map (VExpr.substC · σ)))
+      (.forallE (VExpr.instAll
+          (VExpr.instAll (D.tyAppR' R t C.fields.length (D.atRecTele C.args))
+            (VExpr.bvars ((D.ihTypes q C).length + C.fields.length + (D.nm + q)) D.np)
+            (C.fieldTypesR D R).length)
+          (VExpr.bvars (D.ihTypes q C).length C.fields.length))
+        (.sort D.elimLvl))) :
+    R.MinorCtorHargs D σ e q t C :=
+  ⟨_, _, _, hcbody, VIndRestore.instAt_ctor_hpi hlen hagree,
+    minorCtor_hAs he hfld hσp hσf hclF, hfun⟩
+
+/-- **…and with §T13's two side conditions CALLED rather than hypothesised.**
+
+`minorCtorHargs_of_hargs` takes `hσf` and `hclF` as facts; this takes their producers' inputs
+instead, so the chain `§T13 → §T12.1 → §4b → MinorCtorHargs` is composed end to end and nothing is
+asserted.  `atRecTele_fieldTypesR_closedTele` and `atRecTele_fieldTypesR_substC_eq` were the two
+declarations in the relayed zero-user list that stayed zero-user after §4c; they are consumed here.
+
+Every hypothesis is either one §5's `recConstsR_wf_of_recHargsD` already carries (`henv`, `hD`, `hcl`),
+a `Faithful` clause (available at `T.name ∈ K`, which is where `hminD` is demanded), or a side
+condition on the restoration data that is `decide`-able at a witness (`hargsF`). -/
+theorem minorCtorHargs_of_hargs' {env : VEnv} {env₃ : VEnv} {t npJ : Nat} {T : VIndType}
+    {ci : VConstant} (he : e.Ordered) (henv : env.Ordered) (henv₃ : env₃.Ordered)
+    (hD : D.WF env) (hfresh : σ.FreshIn env)
+    (hCwf : VIndCtor.WF env₃ D t T C)
+    (hci : env.constants (R.ctorName C.name) = some ci)
+    (hagree : R.instAt D npJ t ci.type = C.typeR D R t)
+    (hcl : ∀ j, ∀ a ∈ R.tyArgs j, a.ClosedN D.np)
+    (hargsF : ∀ a ∈ R.tyArgs t, a.NoCSubst σ)
+    (hfld : R.MinorFldDefEq D σ e q C)
+    (hcbody : e.HasType D.recUvars ((D.atRecTele D.params).reverse)
+      (D.atRec (R.ctorBody D t C))
+      (D.atRec (VExpr.instAll (VExpr.splitPis npJ (ci.type.instL (R.tyLvls t))).2
+        (R.tyArgs t))))
+    (hfun : e.HasType D.recUvars
+      ((VExpr.liftTele (D.nm + q)
+          ((D.atRecTele (C.fields.map (·.type))).map (VExpr.substC · σ))
+          ++ (D.ihTypes q C).map (VExpr.substC · σ)).reverse
+        ++ (((D.minors.map (VExpr.substC · σ)).take q).reverse
+            ++ ((D.motives.map (VExpr.substC · σ)).reverse
+                ++ (D.atRecTele D.params).reverse)))
+      ((VExpr.bvar ((D.ihTypes q C).length + C.fields.length + q + (D.nm - 1 - t))).mkApp
+        ((C.args.map fun a => VExpr.shift (D.nm + q) (D.ihTypes q C).length
+            C.fields.length (D.atRec a)).map (VExpr.substC · σ)))
+      (.forallE (VExpr.instAll
+          (VExpr.instAll (D.tyAppR' R t C.fields.length (D.atRecTele C.args))
+            (VExpr.bvars ((D.ihTypes q C).length + C.fields.length + (D.nm + q)) D.np)
+            (C.fieldTypesR D R).length)
+          (VExpr.bvars (D.ihTypes q C).length C.fields.length))
+        (.sort D.elimLvl))) :
+    R.MinorCtorHargs D σ e q t C := by
+  have hlen : D.params.length = C.params.length := by rw [hCwf.params_len]
+  refine minorCtorHargs_of_hargs he hlen hagree hfld
+    (VInductDecl'.atRecTele_params_substC_eq henv hD hfresh)
+    (VIndRestore.atRecTele_fieldTypesR_substC_eq henv hfresh hci hargsF hlen hagree)
+    (VIndCtor.atRecTele_fieldTypesR_closedTele hcl ?_) hcbody hfun
+  have hsrc := VExpr.closedTele_append.1 (hCwf.tele_closed henv₃)
+  rw [Nat.zero_add, hCwf.params_len] at hsrc
+  exact hsrc.2
+
+end VIndRestore
+
 /-! ## §5 Obligation (B) at `D.np > 0` from the bundles, with the off-`K` entries free -/
 
 /-- **OBLIGATION (B) OF `VEnv.addInductR_ordered'` AT `D.np > 0`, FROM THE BUNDLED TYPED DATA.**
@@ -959,6 +1138,9 @@ Hole-freeness only — `docs/handoff-rectyped.md` §0 states inhabitation separa
 #print axioms Lean4Lean.InductiveDeclExamples.ntreeAux_obligationB_of_bundles
 #print axioms Lean4Lean.InductiveDeclExamples.ntreeAux_recHargs_premises_inhabited
 #print axioms Lean4Lean.InductiveDeclExamples.ntree_minorFld_nil
+#print axioms Lean4Lean.VIndRestore.minorCtor_hAs
+#print axioms Lean4Lean.VIndRestore.minorCtorHargs_of_hargs
+#print axioms Lean4Lean.VIndRestore.minorCtorHargs_of_hargs'
 #print axioms Lean4Lean.InductiveDeclExamples.ntree_node_fieldTypesR_ne
 
 end Lean4Lean

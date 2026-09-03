@@ -120,14 +120,20 @@ def main : IO Unit := do
     if !(← path.pathExists) then return #[]
     let txt ← IO.FS.readFile path
     let mut out := #[]
+    -- Scan the WHOLE file for `import` lines.  The previous version stopped at the first
+    -- line beginning `/-`, `namespace` or `open`, which is WRONG in this repo: several modules
+    -- carry a `/-! … -/` block *between* import lines, so every import after it was silently
+    -- dropped and the resulting graph was a subgraph.  A concurrent stream found this while
+    -- working around a crash of this script (2026-09-03).  Over-collecting is impossible in
+    -- practice: `import` cannot begin a line except as a command.
     for line in txt.splitOn "\n" do
       let line := line.trim
       if line.startsWith "import " then
-        let nm := (line.drop 7).trim.toString
+        -- keep only the module name; a trailing `-- …` note is common here
+        let rest := (line.drop 7).trim.toString
+        let nm := (rest.splitOn " ").headD rest
         if nm.startsWith "Lean4Lean" then
           out := out.push (nm.splitOn "." |>.foldl (fun acc c => Name.mkStr acc c) Name.anonymous)
-      else if line.startsWith "/-" || line.startsWith "namespace" || line.startsWith "open" then
-        break
     return out
   let mut imps : Std.HashMap Name (Array Name) := {}
   for m in mods do imps := imps.insert m (← importsOfFile m)
@@ -142,6 +148,24 @@ def main : IO Unit := do
           groupB := groupB.insert m; changed := true
   let gB := mods.filter (groupB.contains ·)
   let gA := mods.filter (!groupB.contains ·)
+  -- Exclude the REVERSE closure of anything unbuilt.  Importing a module whose own import is
+  -- missing throws, so a single broken module used to abort the whole census -- which is exactly
+  -- when it is most wanted.  Reported by a stream on 2026-09-03 after `RecTyped.lean` broke.
+  let unbuiltSet := unbuilt.foldl (fun (s : NameSet) m => s.insert m) {}
+  let mut poisoned : NameSet := unbuiltSet
+  let mut changed2 := true
+  while changed2 do
+    changed2 := false
+    for m in mods do
+      unless poisoned.contains m do
+        if (imps.getD m #[]).any (poisoned.contains ·) then
+          poisoned := poisoned.insert m; changed2 := true
+  let gA := gA.filter (!poisoned.contains ·)
+  let gB := gB.filter (!poisoned.contains ·)
+  let skipped := poisoned.toList.length - unbuilt.size
+  if skipped > 0 then
+    IO.println s!"SKIPPED {skipped} module(s) importing something unbuilt -- census is over the \
+      remainder, not the whole population.  Fix the unbuilt module and re-run."
   IO.println s!"pass A: {gA.size} modules; pass B (the `Replay` reverse closure): {gB.size}"
 
   -- The hole scan, run once per group.  `holesIn` returns the declarations whose own

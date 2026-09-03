@@ -118,7 +118,7 @@ theorem onCtx_levelWF {env : VEnv} {U : Nat} :
 theorem strengtheningTarget_of_univInhab {env : VEnv} {U : Nat} (henv : VEnv.WF env)
     (hc : env.constants `univInhab = some ⟨1, univType⟩) : VEnv.StrengtheningTarget env U := by
   refine VEnv.Strengthening1.target henv fun {k Γ Γ' e1 e2} W _ hΓ' h => ?_
-  obtain ⟨Γ₀, A₀, hI, hΓ₀, u, hA₀⟩ := W.exists_instN_typed henv.ordered hΓ'
+  obtain ⟨Γ₀, A₀, hI, hΓ₀, u, hA₀⟩ := W.exists_instN_typed hΓ'
   have hu : u.WF U := (VEnv.IsDefEq.levelWF hA₀ (onCtx_levelWF hΓ₀)).2.2
   exact VEnv.IsDefEqU.strengthen_of_instN henv.ordered (hI _) (hasType_univInhab_app hc hu hA₀) h
 
@@ -162,11 +162,11 @@ case `Strengthen.lean` §1 already closes, and it tests **nothing** about the ha
 is a satisfiability witness for the target, not evidence about the obstruction.  (Working
 rule 5's collapse test, applied to this file's own witness.) -/
 theorem univInhab_no_uninhabited_entry {env : VEnv} {U k : Nat} {Γ Γ' : List VExpr}
-    (henv : VEnv.WF env) (hc : env.constants `univInhab = some ⟨1, univType⟩)
+    (hc : env.constants `univInhab = some ⟨1, univType⟩)
     (W : Ctx.LiftN 1 k Γ Γ') (hΓ' : OnCtx Γ' (env.IsType U)) :
     ¬ (∀ Γ₀ A₀ e₀, Ctx.InstN Γ₀ e₀ A₀ k Γ' Γ → ¬ env.HasType U Γ₀ e₀ A₀) := by
   intro hemp
-  obtain ⟨Γ₀, A₀, hI, hΓ₀, u, hA₀⟩ := W.exists_instN_typed henv.ordered hΓ'
+  obtain ⟨Γ₀, A₀, hI, hΓ₀, u, hA₀⟩ := W.exists_instN_typed hΓ'
   have hu : u.WF U := (VEnv.IsDefEq.levelWF hA₀ (onCtx_levelWF hΓ₀)).2.2
   exact hemp Γ₀ A₀ _ (hI _) (hasType_univInhab_app hc hu hA₀)
 

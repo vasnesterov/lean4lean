@@ -921,8 +921,22 @@ theorem ntreeAux_binders_indep {pre : List VIndField} {i : Nat}
   rw [hr] at hB
   simp at hB
 
-/-- **`VInductDecl'.WF` for the auxiliary block.** -/
-theorem ntreeAux_WF : ntreeAux.WF env₁ where
+omit h in
+/-- **`VInductDecl'.WF` for the auxiliary block, at an arbitrary environment.**
+
+The `h : VEnv.empty.addInduct' listDecl = some env₁` that used to gate this was reported
+unused by `lake build` ("automatically included section variable(s) unused in theorem") and
+is genuinely unused: every component below is either a closed computation on `ntreeAux`
+(`types_ne`, `isLE`, the `type_tac` obligations) or goes through `ntreeAux_params_WF` /
+`ntree_const_staged` / `nlist_const_staged`, all three of which are already `omit h`.  The
+`ctors` field takes its own staging hypothesis `hs : env₁.addIndTypes ntreeAux = some env₂`,
+so what the constants of `env₁` are is never consulted.
+
+So `ntreeAux` is well-formed as a block **at every** `VEnv`, not only at the one that has
+`listDecl` in it — `Theory/Typing/LiftTrimWitness.lean` §2 instantiates this at an `env₁`
+where `h` is refuted.  `ntreeAux_WF` below is the `h`-taking form, kept so that the 27
+existing call sites (11 of them in three files owned by other streams) go on working. -/
+theorem ntreeAux_WF' : ntreeAux.WF env₁ where
   types_ne := by simp [ntreeAux]
   params := ntreeAux_params_WF
   types := by
@@ -997,6 +1011,14 @@ theorem ntreeAux_WF : ntreeAux.WF env₁ where
                           by type_tac, fun T' hT' => by cases hT'; exact .nil, ⟨_, by type_tac⟩, by decide⟩ }
         | (_ + 2), hF => simp [nlistCons] at hF
   isLE := fun _ => .inl (by simp [VLevel.IsNeverZero, VLevel.eval, ntreeAux])
+
+omit h in
+/-- **`VInductDecl'.WF` for the auxiliary block.**  The `h`-taking form of `ntreeAux_WF'`,
+kept for the existing call sites; `_h` is not used and the binder is explicit precisely so
+that the section-variable linter has nothing to report.  New uses should cite
+`ntreeAux_WF'`. -/
+theorem ntreeAux_WF (_h : VEnv.empty.addInduct' listDecl = some env₁) :
+    ntreeAux.WF env₁ := ntreeAux_WF'
 
 /-- **The nested block is admitted, end to end.**  The environment holding `List` is extended
 by the auxiliary block presented through `restoreNested`, declaring exactly `NTree`,
