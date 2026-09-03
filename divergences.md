@@ -214,6 +214,14 @@ This is a list of places where lean4lean deliberately has different behavior fro
   `false`. Reachable only if a `.ctorInfo`'s `induct` field names a constant absent from the
   environment.
 
+  **Sharpened 2026-09-03 after a line-by-line re-read of current master.** lean4lean is not the
+  odd one out here: Lean core's *own* Lean-side `isNonRecStructure` has the same `find?`-vs-`get`
+  difference from the C++, and `Kernel.Environment.isNonRecStructure`
+  (`Lean4Lean/Environment/Basic.lean:49`) is character-for-character core's. So the divergence
+  being recorded is really between **upstream's own C++ and Lean implementations**, and lean4lean
+  matches the Lean one. Worth keeping in this file — it is still a behavioural difference from the
+  C++ kernel this checker mirrors — but the framing "lean4lean diverges" overstates it.
+
   Both are in the same class as the `unreachable!` entry above: lean4lean rejects-or-declines
   where C++ throws, on inputs neither kernel can be handed. Recorded because the gate sequences
   were re-read against C++ line by line, and this is what that reading found. The reading also
