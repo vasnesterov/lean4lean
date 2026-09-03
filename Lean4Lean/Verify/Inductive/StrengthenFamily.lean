@@ -597,11 +597,24 @@ environment hypothesis at all — and `PUnit.{u}` is one.  Machine-checked as
 `VEnv.not_forall_sort_param_uninhabited` (`Theory/Typing/WeakNForward.lean`), on an environment
 that is well-formed via a plain `VDecl.WF.axiom` rather than inconsistent by construction.
 
-So the residue closes, by the **opposite** fact from the one asserted here: not by proving
-emptiness, but because inhabitation is far easier than this paragraph supposed.  The fourth
-clause `resultSortInhab_of_const` (§4) subsumes all three of the others.  What remains is not a
-level condition but an environment one: that the environment at `RestrictStepCfg`'s `e₁`/`e₂`
-actually declares such a constant.
+The fourth clause `resultSortInhab_of_const` (§4) therefore covers **every** well-formed `D.lvl`,
+subsuming all three of the others — *given* such a constant in the environment.  What the false
+paragraph got wrong is the level reasoning; what replaces it is not a level condition but an
+**environment** one.
+
+**AND THAT ENVIRONMENT CONDITION IS FALSE HERE — so the residue is NOT empty.**  Measured the same
+day in `Verify/Inductive/SortWitEnv.lean`: the environment this corner is actually instantiated at,
+`VEnv.empty.addInduct' listDecl`, declares **no constant whose type is a sort at all**
+(`InductiveDeclExamples.listEnv_no_sort_const`, cone 1070), and the condition is refuted at all
+three of `env`, `e₂` and `e₁` (`not_sortWitness_of_restrictStepCfg₃`, arity 0, cone 3521), so no
+reading of "at `e₁`/`e₂`" rescues it.  A prelude environment does satisfy it — `PUnit.{u}` — but the
+spec quantifies over environments, and this one arises from a legitimate `addDecl` history.
+
+So the honest position, and it is weaker than the first correction of this paragraph claimed: the
+residue is a block with `D.lvl = .param i`, **no** telescope binder at that level, in an
+environment with **no** `Sort u`-valued constant.  None of the four clauses discharges that.  What
+is *not* affected: the bypass still holds at `ntreeAux` itself, through the **successor** clause —
+only this fourth clause's premise fails there.
 
 **What is NOT claimed.**  (i) That the family is *equivalent* to `ResultSortInhab` — the premise is
 sufficient, and no reverse implication is proved (a block could satisfy the family for other

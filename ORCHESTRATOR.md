@@ -1731,3 +1731,19 @@ That output is exactly what I have told every stream licenses the word "absent".
 from memory manufactures the error class the instrument exists to prevent, in the one
 document whose job is to prevent it. I have `exists.lean` open while writing the brief.
 Fully qualified, copied from its output, every time.
+
+## Relax the git rule: forbid state changes, allow read-only status (2026-09-03)
+
+Two streams today ran a single read-only `git status` and then disclosed it unprompted, having
+tripped over "no git commands at all". Both were otherwise scrupulous, neither changed any
+state, and both told me in their first sentence.
+
+The rule is mis-drawn. The risk I care about is a stream staging, committing, pushing, stashing,
+or checking out — anything that mutates the repo or the index, because I own git and concurrent
+writers corrupt each other's work. A stream reading `git status` or `git log` is doing what I
+would want it to do: orienting before it writes.
+
+New wording for briefs: **no state-changing git — no add, commit, push, stash, checkout, reset,
+or branch. Read-only `git status`, `git log`, `git diff` and `git blame` are fine.** A rule that
+well-behaved agents break for harmless reasons trains them to weigh which rules are real, which
+is the last thing I want when the frozen-file rule is in the same list.
