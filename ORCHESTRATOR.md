@@ -1226,3 +1226,34 @@ The stream's own proposal — relocate the vocabulary down into `Theory/` — is
 answer but is **not** free as it claimed, because the file also uses `args_of_wf` from
 `ProjNoNested.lean`; that relocation is now a task of its own.
 
+
+## A concurrent measurement has a timestamp; a standing fact does not (2026-09-03, mine)
+
+In a five-stream round I relayed one stream's measurement into two other streams' briefs as though
+it were a property of the repository:
+
+> "`VEnv.WF` occurs only in binder position anywhere in `Lean4Lean/`, never as a conclusion."
+
+It was true of the tree that stream could see. By the time the two briefs were written, a third
+stream — running concurrently — had produced `WeakNProjGate.exists_typingStrengthening_env :
+∃ env, env.WF ∧ ∀ U, env.TypingStrengthening U`, hole-free. The claim was false when I sent it.
+
+The measuring stream did nothing wrong. **The error is structural to how I run rounds**: with five
+streams writing at once, the tree at report time is not the tree at brief time, and a measurement
+crosses that boundary silently because it arrives phrased as a fact about the repo.
+
+Why it mattered rather than being a nitpick: I used the claim to warn both streams that a witness
+was probably unreachable — i.e. to *discourage a refutation outcome*. A false discouragement is
+worse than a false encouragement, because the stream that abandons a reachable refutation reports
+"unsettled" and nobody learns it was wrong.
+
+Rules now in force:
+
+1. **Relay a cross-stream measurement with its timestamp and its source**, not as a fact: "as of
+   this round's start, stream X measured …; verify before relying on it." I already tell streams to
+   flag their own guesses; the same discipline applies to what I hand them.
+2. **Never use a concurrent measurement to argue an outcome is unreachable.** Effort bounds are the
+   most damaging thing to get wrong, because they change what a stream *stops* doing.
+3. **When a round invalidates something already in a live brief, correct it mid-flight.** Sending a
+   running stream a factual correction is not resuming it — the no-resume rule is about telling an
+   agent that has already reported to do more work. Two corrections went out this round.
