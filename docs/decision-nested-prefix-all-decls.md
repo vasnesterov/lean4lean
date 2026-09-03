@@ -40,6 +40,21 @@ name hypothesis.
   are already discharged from the inductive gate alone; the fourth (`RestoreData.head`,
   `NestedRestore.lean:304`) is currently reduced to a residual about `aux2nested`'s values, and
   a global invariant is the route that retires it.
+
+  **CORRECTED 2026-09-04.** That sentence is right for one premise and overstates the other.
+  `ElimNestedInductive.Result.presentedHead_clean_of_declared` (`Verify/Inductive/RestoreFaithful.lean`,
+  arity 9, cone 671, hole-free) has **two** premises:
+  - `hnn : venv.NoNestedN` — this one **does** want the wider check. `VEnv.NoNestedN.addInductR_of_tr`
+    covers only the inductive step, and the `#eval` table in the same file confirms
+    `axiom _nested.zzz` is still accepted.
+  - `hdecl` — "the presented head **is** declared" — is **independent of both** the current check and
+    the wider one. `shape.lean` on `VEnv.contains` + `Result.presentedHead` returns **exactly one**
+    constant across 439 modules, the consumer itself; and on principle **no prefix-rejection check
+    can prove that a name is declared** — rejecting names establishes an absence, never a presence.
+
+  So extending the check would retire `hnn` and leave `hdecl` exactly where it is. That does not
+  change the recommendation below, but it does shrink the payoff: option (b) still costs one arena
+  run, and the proof-side benefit is now known to be half of what this section claimed.
 - It removes a real asymmetry: we reject a *nested-inductive* aux name but accept the identical
   name as an axiom, which is the weaker half of a check that exists to protect a namespace.
 
