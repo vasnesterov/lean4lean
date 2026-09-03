@@ -1193,3 +1193,36 @@ The mechanical form, which costs nothing: every landed file ends with its own `#
 lines. `grep -n '#print axioms' <file>` and **paste those names**. If a file has none, take the
 names from `grep -n '^namespace' <file>` plus the theorem's own line — never from the path.
 
+
+## File ownership is not layer ownership (2026-09-03, mine)
+
+I give each stream exclusive ownership of files under one tree, to stop concurrent streams
+corrupting each other. It works for that. It also produced a structural regression I nearly
+committed.
+
+A stream owning `Theory/Inductive/OccArgs*` wrote its file there — correctly, by its brief — and
+that file imports `Verify/Inductive/ProjNoNested`, because that is where the vocabulary it needed
+happened to live. The result was **the only file in 353 with a `Theory/` → `Verify/` import**.
+That inverts the layering the whole soundness argument rests on: `Theory/` is the abstract
+specification, `Verify/` refines the implementation onto it, and the model chain lives in
+`Theory/`. A spec that imports the checker is not a spec of the checker.
+
+The stream did not do anything wrong. It could not see the invariant — nothing states it, no guard
+checks it, and its brief told it exactly which directory to write in. **Only the orchestrator sees
+both the file assignment and the layer graph**, so only the orchestrator can catch this.
+
+Two things follow:
+
+1. **A brief that assigns a directory is making a layering claim**, whether or not I noticed.
+   Before writing "you own files under `X/` beginning with `Y`", check that the content can
+   actually live in `X/` — i.e. that its dependencies are at or below that layer. When they are
+   not, either assign the other tree or make the relocation the task.
+2. **Check the invariant after every round**, because it is one command:
+   `grep -rln "^import Lean4Lean.Verify" Lean4Lean/Theory/` must be empty. It is now in the
+   round-close checks alongside the post-commit build.
+
+The fix here was to move the file to `Verify/Inductive/`, zero content change, rebuilt at 171 jobs.
+The stream's own proposal — relocate the vocabulary down into `Theory/` — is the better long-run
+answer but is **not** free as it claimed, because the file also uses `args_of_wf` from
+`ProjNoNested.lean`; that relocation is now a task of its own.
+
