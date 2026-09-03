@@ -1,3 +1,12 @@
+> **CORRECTION 2026-09-03 (vacuity-ledger row 211): §1's central mechanism claim is FALSE.**
+> `linter.unusedSectionVars` is **not** suppressed by an explicit `include` — it fires under
+> bare `include` and `include … in` alike, and `lake build` was printing 20 such warnings,
+> naming theorem and variables, including on the very declaration §1 calls invisible. The
+> class was never invisible; the warning stream was unread. Do not rebuild the textual
+> scanner described below (precision 7/12 in Theory, 2/5 in Verify, and it misses 18 of 24
+> real warnings). Read `lake build`'s output instead.
+> <!-- l4l-corrected-211 -->
+
 # Handoff: the `include`-group over-supply defect, and two documents that read as complete
 
 2026-09-03. Files this round owns: `Theory/Inductive/RestoreBridge.lean`,

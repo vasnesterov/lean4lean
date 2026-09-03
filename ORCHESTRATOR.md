@@ -1463,3 +1463,35 @@ result. But the mechanism is identical, and the generalisation is the one worth 
 **before reporting a limitation, read the thing that would have handled it.** Applied to briefs
 that means checking the tree before asserting absence; applied to my own tooling it means reading
 the header before describing the tool's behaviour to the user.
+
+## Read the build's warnings (2026-09-03, mine)
+
+Round-close check, now mandatory:
+
+    lake build 2>&1 | grep -c "automatically included section variable"
+
+must be **0**, or every remaining warning named in the round's handoff with its ripple measured.
+**Do not substitute a textual scan** — one had precision 7/12 in `Theory/`, 2/5 in `Verify/`, and
+missed 18 of 24 real warnings because it only looked inside `include` scopes. After fixing one,
+rebuild and read again: cascades are the norm, observed twice. Current baseline: **20**.
+
+No `set_option linter.unusedSectionVars false` exists anywhere in the repo and `lakefile.toml` has
+no `leanOptions`, so nothing is masked and the check is sound as written.
+
+**Why this needed a rule.** I told three streams that Lean's linter for unused hypotheses is
+suppressed by an explicit `include`, so the defect class is invisible in source. **That is false.**
+The linter fires under both `include` forms; `lake build` was emitting 20 such warnings, naming the
+theorem and the variables, **including on the exact declaration the earlier round called invisible**.
+The class was never invisible — the warning stream was unread, by me, for a whole day.
+
+The refutation is worth keeping because it is internally conclusive rather than empirical: without an
+`include`, a `Prop` section variable does not compile at all, since Lean 4 never auto-includes one.
+So a linter that fired *only* for auto-inclusion could never fire on a hypothesis — which makes the
+original story ("the linter itself reported the third instance") impossible on its own terms. Lean's
+wording is the trap: it says "automatically included section variable(s)" whatever the route.
+
+**This is the day's dominant failure in its purest form.** Every expensive defect today was a false
+negative about what the project already contains — a witness two days old, lemmas already proved, a
+composition already made, three "cannot be proved" claims true of other statements. This one needed
+no searching at all: the answer was scrolling past in every build. **Before asserting that something
+is undetectable, read what the tools already print.**

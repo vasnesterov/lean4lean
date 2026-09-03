@@ -153,7 +153,7 @@ theorem nfnAux_addIndTypesC (hfresh : ∀ n ∈ [``NFn, ``NFn.node, ``NFn.rec, `
     subst hn; exact hfresh _ (by simp)
   · decide
 
-include hPFn hPFnMk hfresh in
+include hPFn hfresh in
 /-- **C1's hypothesis set is jointly satisfiable**: the translation, the staging premise, and a
 name actually in `allNamesCR`.  So `mem_indDeclNamesN` still has content at the nested block. -/
 theorem memIndDeclNamesN_sat : ∃ env₁,
@@ -162,10 +162,10 @@ theorem memIndDeclNamesN_sat : ∃ env₁,
     (``NFn : Name) ∈ nfnAux.allNamesCR nfnRestore nfnK ∧
     (``NFn : Name) ∈ indDeclNamesN [nfnIndType] 1 := by
   obtain ⟨e₁, he₁⟩ := nfnAux_addIndTypesC hfresh
-  exact ⟨e₁, trIndDeclN_wit hPFn hPFnMk, he₁, by decide,
-    trIndDeclN_wit (env := env) hPFn hPFnMk |>.mem_indDeclNamesN he₁ (by decide)⟩
+  exact ⟨e₁, trIndDeclN_wit hPFn, he₁, by decide,
+    trIndDeclN_wit (env := env) hPFn |>.mem_indDeclNamesN he₁ (by decide)⟩
 
-include hPFn hPFnMk in
+include hPFn in
 /-- **C2's hypothesis set is jointly satisfiable**, so `not_addInductStagesR` still refutes
 something: a name outside `indDeclNamesN [nfnIndType] 1` that the output map holds and the input
 map does not. -/
@@ -178,9 +178,9 @@ theorem notAddInductStagesR_sat {m : ConstMap} (hwf : m.WF) (hfr : ∀ n, m.find
   have ci : ConstantInfo :=
     .axiomInfo { toConstantVal := { name := `Foo, levelParams := [], type := .sort .zero },
                  isUnsafe := false }
-  refine ⟨m.insert `Foo ci, env, trIndDeclN_wit hPFn hPFnMk, hwf, hfr _, ?_, by decide, ?_⟩
+  refine ⟨m.insert `Foo ci, env, trIndDeclN_wit hPFn, hwf, hfr _, ?_, by decide, ?_⟩
   · rw [hwf.find?_insert]; simp
-  · refine (trIndDeclN_wit hPFn hPFnMk).not_addInductStagesR hwf (n := `Foo) (hfr _) ?_
+  · refine (trIndDeclN_wit hPFn).not_addInductStagesR hwf (n := `Foo) (hfr _) ?_
       (by decide)
     rw [hwf.find?_insert]; simp
 
@@ -290,5 +290,62 @@ theorem name_and_ctor_prefix_of_run {venv : VEnv} {Us : List Lean.Name} {npar nn
   ⟨name_prefix_of_run htr hs h, ctor_prefix_of_run htr hs h⟩
 
 end ElimNestedInductive.Result
+
+/-! ## 5. The `hPFnMk` trim, instantiated in an environment that lacks `PFn.mk`
+
+`NestedWit.trIndDeclN_wit` (`Verify/Environment/InductR.lean`) and the two joint-satisfiability
+lemmas above sat under `include hPFn hPFnMk …` and used `hPFnMk` in none of the three — Lean's
+`linter.unusedSectionVars` reported it in the ordinary build output.  See
+`docs/handoff-hyptrim2.md`.
+
+This is the strong anti-vacuity form: the instantiation is at an environment where the **removed**
+hypothesis is refuted, so the untrimmed statements had no instance there at all.
+-/
+
+namespace HypTrim2
+open InductiveDeclExamples NestedWit
+open Lean (Name ConstantInfo)
+
+/-- An environment holding `PFn` and nothing else — in particular **not** `PFn.mk`.  Built with
+`VEnv.addConst`, so the `constants` map is computed rather than assumed. -/
+theorem exists_pfnOnly : ∃ env : VEnv,
+    env.constants ``PFn = some ⟨0, pfnType.type⟩ ∧ env.constants ``PFn.mk = none := by
+  obtain ⟨e, he⟩ := VEnv.addConst_eq_none (env := VEnv.empty) (name := ``PFn)
+    (ci := ⟨0, pfnType.type⟩) rfl
+  have hc := VEnv.addConst_constants_eq he
+  refine ⟨e, ?_, ?_⟩ <;> rw [hc]
+  · simp
+  · simp [show (``PFn : Name) ≠ ``PFn.mk from by decide]; rfl
+
+/-- **`TrIndDeclN` at the nested witness holds in an environment with no `PFn.mk`.**  So `hPFnMk`
+was not merely unused: the untrimmed `trIndDeclN_wit` could not be stated here. -/
+theorem trIndDeclN_wit_without_pfnMk : ∃ env : VEnv,
+    env.constants ``PFn.mk = none ∧
+    TrIndDeclN env [] 0 [nfnIndType] false 1 nfnAux nfnK nfnRestore := by
+  obtain ⟨env, hPFn, hMk⟩ := exists_pfnOnly
+  exact ⟨env, hMk, trIndDeclN_wit hPFn⟩
+
+/-- …and the two cascaded joint-satisfiability lemmas likewise.  `hfresh` is discharged from the
+computed `constants` map: `VEnv.empty.addConst ``PFn` holds none of the four `NFn` names. -/
+theorem memIndDeclNamesN_sat_without_pfnMk : ∃ env : VEnv,
+    env.constants ``PFn.mk = none ∧
+    ∃ env₁, TrIndDeclN env [] 0 [nfnIndType] false 1 nfnAux nfnK nfnRestore ∧
+      env.addIndTypesC nfnAux nfnK = some env₁ ∧
+      (``NFn : Name) ∈ nfnAux.allNamesCR nfnRestore nfnK ∧
+      (``NFn : Name) ∈ indDeclNamesN [nfnIndType] 1 := by
+  obtain ⟨e, he⟩ := VEnv.addConst_eq_none (env := VEnv.empty) (name := ``PFn)
+    (ci := ⟨0, pfnType.type⟩) rfl
+  have hc := VEnv.addConst_constants_eq he
+  have hPFn : e.constants ``PFn = some ⟨0, pfnType.type⟩ := by rw [hc]; simp
+  have hMk : e.constants ``PFn.mk = none := by
+    rw [hc]; simp [show (``PFn : Name) ≠ ``PFn.mk from by decide]; rfl
+  have hfresh : ∀ n ∈ [``NFn, ``NFn.node, ``NFn.rec, ``NFn.rec_1], e.constants n = none := by
+    intro n hn
+    rw [hc]
+    have : (``PFn : Name) ≠ n := by revert hn; revert n; decide
+    simp [this]; rfl
+  exact ⟨e, hMk, memIndDeclNamesN_sat hPFn hfresh⟩
+
+end HypTrim2
 
 end Lean4Lean

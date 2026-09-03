@@ -452,6 +452,7 @@ theorem mkRestore_recName_own' {j : Nat} {T : VIndType} {t : Lean.InductiveType}
       = Lean.mkRecName t.name := by
   rw [hn]; exact h.mkRestore_recName_own hT hK
 
+omit h in
 /-- The domain keys of the recursor renaming, as a list — the form the `Nodup` transfer needs. -/
 theorem recRenames_keys :
     (r.recRenames types).map (·.1)
@@ -464,7 +465,7 @@ theorem recRenames_keys :
     ← List.map_map, List.zipIdx_map_fst]
 
 theorem recRenames_nodup : ((r.recRenames types).map (·.1)).Nodup := by
-  rw [h.recRenames_keys,
+  rw [recRenames_keys,
     show (fun T : Lean.InductiveType => Lean.mkRecName T.name)
       = (fun n : Lean.Name => Lean.mkRecName n) ∘ (fun T : Lean.InductiveType => T.name) from rfl,
     ← List.map_map]
@@ -849,3 +850,59 @@ needs the orchestrator's decision, not this file's.
   machinery is the right vehicle — it already proves `res.aux2nested = []` for the non-nested
   path (`:293`, `:315`) — and the nested analogue is the next step.
 -/
+
+/-! ## 9. `recRenames_keys`'s hypothesis trim, instantiated where `RestoreData` is refuted
+
+`recRenames_keys` (§ above) sat under `include h` with `h : r.RestoreData types D K as` and used
+none of it — its proof is a `rw` chain over `Result.recRenames`.  Lean's
+`linter.unusedSectionVars` said so in the ordinary build output; see `docs/handoff-hyptrim2.md`.
+
+Removing a `Prop` hypothesis cannot turn a true statement false, so the risk is that what remains
+is vacuous.  The check below is the strong form: it instantiates the trimmed lemma at a `types`
+where the removed hypothesis is **refuted for every** `r`, `D`, `K` and `tyArgs`, so the
+untrimmed lemma had no instance there at all.
+-/
+
+namespace HypTrim2
+open ElimNestedInductive ElimNestedInductive.Result
+
+/-- A one-member presented list whose own member carries the `_nested` prefix.  Nothing about it
+is degenerate as a `List Lean.InductiveType`; it is only *illegal* as a user block, which is
+exactly the point. -/
+def badTypes : List Lean.InductiveType :=
+  [{ name := `_nested.Foo, type := .sort .zero, ctors := [] }]
+
+/-- `auxRecName badTypes k` is `_nested`-prefixed, because `auxRecName` builds it from
+`types.headD default |>.name`. -/
+theorem auxRecName_badTypes_isNested : IsNestedName (auxRecName badTypes 0) := by
+  decide
+
+/-- **The removed hypothesis is refuted at `badTypes`** — and refuted *uniformly*, for every
+`r`, `D`, `K` and `tyArgs`, since `RestoreData.auxRec` mentions none of them.  So the untrimmed
+`recRenames_keys` had no instance at `types = badTypes` whatsoever. -/
+theorem restoreData_refuted_at_badTypes {r : Result} {D : VInductDecl'} {K : List Name}
+    {as : Nat → List VExpr} : ¬ r.RestoreData badTypes D K as :=
+  fun h => h.auxRec 0 auxRecName_badTypes_isNested
+
+/-- A concrete `Result` with a genuine auxiliary tail past `badTypes.length = 1`. -/
+def rWit : Result where
+  ngen := default
+  nparams := 0
+  lctx := default
+  params := #[]
+  aux2nested := [(`_nested.Bar, .const `Bar [])]
+  types := badTypes ++ [{ name := `_nested.Bar, type := .sort .zero, ctors := [] }]
+
+/-- **The trimmed lemma, applied at that block.**  Arity 0: no hypothesis is supplied, because
+after the trim there is none to supply. -/
+theorem recRenames_keys_at_badTypes :
+    (rWit.recRenames badTypes).map (·.1)
+      = (rWit.types.drop badTypes.length).map (fun T => Lean.mkRecName T.name) :=
+  RestoreData.recRenames_keys
+
+/-- …and the instance is **not** the empty-list one: the tail is one member long and its
+recursor name really appears. -/
+theorem recRenames_keys_at_badTypes_nonempty :
+    (rWit.recRenames badTypes).map (·.1) = [`_nested.Bar.rec] := rfl
+
+end HypTrim2

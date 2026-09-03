@@ -852,7 +852,7 @@ variable {env : VEnv}
   (hPFn : env.constants ``PFn = some ⟨0, pfnType.type⟩)
   (hPFnMk : env.constants ``PFn.mk = some ⟨0, pfnMk.type pfnDecl 0⟩)
 
-include hPFn hPFnMk in
+include hPFn in
 /-- **The syntactic half at the nested witness.**  Note `recName_aux`: the auxiliary member's
 recursor is named `auxRecName [nfnIndType] 0`, i.e. `mkAuxRecNameMap`'s `NFn.rec_1`, which is
 exactly what `nfnRestore.recName` produces. -/
@@ -1002,7 +1002,7 @@ theorem inductStepNested_wit {m : ConstMap} (hwf : m.WF) (hfr : ∀ n, m.find? n
     ∃ m' env', InductStepNested m m' env env' [] 0 [nfnIndType] 1 ∧
       m'.find? ``NFn.rec_1 = some (.recInfo nfnRec1CI) := by
   obtain ⟨m', env', H, hrec1, -, -, -⟩ := addInductStagesR_wit hPFn hPFnMk hfresh hwf hfr
-  refine ⟨m', env', ⟨nfnAux, nfnK, nfnRestore, trIndDeclN_wit hPFn hPFnMk, ?_, nfnAux_WF, H⟩,
+  refine ⟨m', env', ⟨nfnAux, nfnK, nfnRestore, trIndDeclN_wit hPFn, ?_, nfnAux_WF, H⟩,
     hrec1⟩
   refine VEnv.addConstList_eq_some_iff.2 ⟨?_, ?_⟩
   · rintro n hn

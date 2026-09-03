@@ -914,11 +914,11 @@ theorem ntreeSubst_WF : ntreeSubst.WF env₂ env₃ 1 := by
   have hN := ntree_const₃ h₃
   refine CSubst.one_WF_of_hasType (U := 1) (ci := ⟨1, _⟩) henv₃
     ⟨trivial, trivial, trivial, Nat.zero_lt_one⟩
-    (nlist_const_staged h h₂) ⟨trivial, trivial⟩ (by type_tac) ?_ ?_
+    (nlist_const_staged h₂) ⟨trivial, trivial⟩ (by type_tac) ?_ ?_
   · intro c' ci' hne hc'
     by_cases hN : c' = ``NTree
     · subst hN
-      rw [ntree_const_staged h h₂] at hc'; cases hc'
+      rw [ntree_const_staged h₂] at hc'; cases hc'
       exact ⟨ntree_const₃ h₃, trivial, trivial⟩
     · have hmem : c' ∉ (ntreeAux.typeConsts.map (·.1)) := by
         show c' ∉ [``NTree, `_nested.List_1]
@@ -1151,7 +1151,7 @@ theorem nfn_recConsts_wf : ∀ c ∈ nfnAux.recConsts, VConstant.WF E₂ c.2 := 
     · rw [List.getElem?_eq_none hle] at hT; exact absurd hT (by simp)
   exact VInductDecl'.recType_isType hR hT hj (VInductDecl'.onCtxMinors hR)
 
-include h hE₁ hE₂ hF₁ hF₂ in
+include h hE₁ hF₁ hF₂ in
 theorem nfnF₂_ordered : F₂.Ordered := by
   have henv₂ := pfnEnv_ordered h
   have o1 := VEnv.addConstList_ordered henv₂
@@ -1178,7 +1178,7 @@ include h hE₁ hE₂ hF₁ hF₂ in
 theorem nfnSubstAll_WF₂ : nfnSubstAll.WF E₂ F₂ 1 := by
   have henv₂ := pfnEnv_ordered h
   have hfresh := nfnSubstAll_fresh h
-  have hFo := nfnF₂_ordered h hE₁ hE₂ hF₁ hF₂
+  have hFo := nfnF₂_ordered h hE₁ hF₁ hF₂
   have hPFn := nfnF₂_pfn h hF₁ hF₂
   have hPFnMk := nfnF₂_pfnMk h hF₁ hF₂
   have hNFn := nfnF₂_nfn hF₁ hF₂
@@ -1287,7 +1287,7 @@ variable (hF₃ : F₂.addConstList (nfnAux.recConstsR nfnRestore nfnK) = some F
 
 include h hE₁ hE₂ hF₁ hF₂ hF₃ in
 theorem nfnF₃_ordered : F₃.Ordered :=
-  VEnv.addConstList_ordered (nfnF₂_ordered h hE₁ hE₂ hF₁ hF₂)
+  VEnv.addConstList_ordered (nfnF₂_ordered h hE₁ hF₁ hF₂)
     (fun c hc => nfnAux_recConstsR_wf h hE₁ hE₂ hF₁ hF₂ c hc) hF₃
 
 include h hE₁ hE₂ hE₃ hF₁ hF₂ hF₃ in
@@ -2174,7 +2174,7 @@ theorem ntree_csubst_WFD₂ : (ntreeRestore.csubst ntreeAux ntreeK).WFD E₂ F�
     · subst hNT
       rw [VEnv.addConstList_constants_of_not_mem hE₂
           (by show ``NTree ∉ [``NTree.node, `_nested.List_1.nil, `_nested.List_1.cons]; simp),
-        ntree_const_staged h hE₁] at hc
+        ntree_const_staged hE₁] at hc
       cases hc
       exact ⟨_, hN, .inl rfl⟩
     by_cases hND : c = ``NTree.node
@@ -2219,7 +2219,7 @@ theorem ntree_csubst_WFD₂ : (ntreeRestore.csubst ntreeAux ntreeK).WFD E₂ F�
       rw [VEnv.addConstList_constants_of_not_mem hE₂
           (by show `_nested.List_1 ∉ [``NTree.node, `_nested.List_1.nil, `_nested.List_1.cons];
               simp),
-        nlist_const_staged h hE₁] at hc
+        nlist_const_staged hE₁] at hc
       cases hc
       exact CSubst.val_of_hasType hFo (ntreeVal_hasType hL hN)
     by_cases hd3 : c = `_nested.List_1.nil

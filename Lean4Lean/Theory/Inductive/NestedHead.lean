@@ -898,6 +898,7 @@ theorem ntreeAux_params_WF {env : VEnv} :
     OnCtx ntreeAux.params.reverse (env.IsType ntreeAux.uvars) :=
   ⟨trivial, _, .sort (by decide)⟩
 
+omit h in
 theorem ntree_const_staged {env₂ : VEnv} (hs : env₁.addIndTypes ntreeAux = some env₂) :
     env₂.constants ``NTree
       = some ⟨1, .forallE (.sort (.succ (.param 0))) (.sort (.succ (.param 0)))⟩ :=
@@ -905,6 +906,7 @@ theorem ntree_const_staged {env₂ : VEnv} (hs : env₁.addIndTypes ntreeAux = s
     (``NTree, ⟨1, .forallE (.sort (.succ (.param 0))) (.sort (.succ (.param 0)))⟩)
     (by exact List.Mem.head _)
 
+omit h in
 theorem nlist_const_staged {env₂ : VEnv} (hs : env₁.addIndTypes ntreeAux = some env₂) :
     env₂.constants `_nested.List_1
       = some ⟨1, .forallE (.sort (.succ (.param 0))) (.sort (.succ (.param 0)))⟩ :=
@@ -931,8 +933,8 @@ theorem ntreeAux_WF : ntreeAux.WF env₁ where
               canon := ⟨_, by type_tac⟩ }
   ctors := by
     intro env₂ hs j T hT C hC
-    have ht := ntree_const_staged h hs
-    have hf := nlist_const_staged h hs
+    have ht := ntree_const_staged hs
+    have hf := nlist_const_staged hs
     match j, hT with
     | 0, hT =>
       simp only [ntreeAux] at hT
