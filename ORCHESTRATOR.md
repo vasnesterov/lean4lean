@@ -1591,3 +1591,31 @@ When one does crash: the Lean is on disk and verifiable, so commit it with my ow
 plainly that the handoff is missing. Do **not** reconstruct the stream's reasoning from its diff and
 present it as the stream's report — that would put my inferences in its voice, and this round's whole
 lesson is how often my inferences about this tree are wrong.
+
+### The incremental-handoff rule worked on its first outing (2026-09-03, later)
+
+Eighth crash, and the first where the stream's *reasoning* survived. It had written
+`docs/handoff-restrictstep.md` as an **append-only status log** — "entry 1 … entry 2 …", each
+recorded before the next piece of work — so when the API failed at the transition into authoring,
+2.7 KB of conclusions were on disk alongside 8.7 KB of Lean.
+
+What survived was the round's actual finding, and it **corrects a claim the previous round made and
+I relayed**: the three nodes form a **closed cycle, not a sandwich**, because the converse direction
+is obtained by going *forwards through the restriction* and therefore **without** the lemma this
+corner forbids. Under the old habit — handoff written last — that correction would have been lost and
+the next round would have inherited my wrong framing.
+
+Two refinements to the rule, from watching it work:
+
+1. **Append-only status log, not a polished document.** "Entry 1: provisional answer before any Lean
+   …" is exactly right: it captures the *reasoning* at the moment it is cheapest to record and most
+   likely to contradict me. Ask for that shape explicitly.
+2. **The pattern was never "crashes at handoff-writing"** — it is *crashes during the longest
+   uninterrupted generation*. This one died at the transition into authoring, before writing. So the
+   mitigation is not "write the handoff earlier" but **"never let any single generation be the only
+   place a finding exists."**
+
+Also recorded from the same file, a diagnostic worth keeping: a spurious `…._f` entry on a
+`#print axioms` line signals a **kernel projection failure** — an `Exists`-valued structure field
+projected with `.2.2` elaborates but does not kernel-check inside an equation-compiler definition.
+The axiom print is what exposed it; the build was green.
