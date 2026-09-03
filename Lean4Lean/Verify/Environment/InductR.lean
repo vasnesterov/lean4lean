@@ -294,6 +294,32 @@ structure TrIndDeclN (env : VEnv) (Us : List Name) (nparams : Nat)
   trCtors : ∀ env₁, env.addIndTypesC D K = some env₁ →
     ∀ (j : Nat) t T, types[j]? = some t → D.types[j]? = some T →
     ∀ (q : Nat) c C, t.ctors[q]? = some c → T.ctors[q]? = some C → TrIndCtorR env₁ Us D R j c C
+  /-- **THE SPINE DATUM — `hargs`, as a clause.**  For each *companion* member `j`, the presented
+  spine `R.tyArgs j` is a well-typed instantiation of the presented head's declared parameter
+  telescope, at the environment `AddInductStagesR`'s first stage produces.
+
+  This is `VIndRestore.SpineHargsN` (`Verify/Inductive/SpineClause.lean` §5) transcribed:
+  `declTele` is a `Theory/Inductive/HargsShared.lean` abbreviation this file does not import, so
+  the split is spelled out.  Because `declTele` is an `abbrev`, the two are the same term and
+  `VIndRestore.spineHargsC_of_spineHargsN` applies to this field with no bridge lemma.
+
+  **Guard style.**  `types.length ≤ j`, matching `recName_aux`, not `T.name ∈ K`; `companions`
+  interchanges the two.  **Staging.**  Over the `addIndTypesC` premise exactly as `trCtors` is,
+  because a `HasArgs` needs the block's own type constants declared — the presented spine at a
+  nested block mentions the *new* block's members (`[NFn]` at the `NFn`/`PFn` witness,
+  `[NTree.{u} #0]` at `ntreeAux`).
+
+  **Why the datum and not the weaker scope clause.**  `VIndRestore.SpineClosedC`
+  (`Verify/Inductive/HargsAttack.lean` §4) is *necessary* for this field and *free from* it, and
+  an earlier proposal was to carry the scope clause instead.  It cannot serve: closedness is not
+  typing, and `Verify/Inductive/SpineClosedLand.lean` §1 exhibits data satisfying `SpineClosedC`
+  at which the datum is **false**, so the scope clause discharges no `hargs` obligation. The scope
+  clause is available from this field as `TrIndDeclN.spineClosedC` and is *not* a second field. -/
+  trSpine : ∀ env₁, env.addIndTypesC D K = some env₁ →
+    ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → types.length ≤ j →
+      ∀ ci : VConstant, env.constants (R.tyName j) = some ci →
+        env₁.HasArgs D.uvars D.params.reverse
+          (VExpr.splitPis (R.tyArgs j).length (ci.type.instL (R.tyLvls j))).1 (R.tyArgs j)
   /-- **The two sides' constructor names agree pointwise on the user's members.**
 
   Not derivable from `trCtors`, which compares against `R.ctorName C.name` — the *restored*
@@ -407,6 +433,11 @@ theorem TrIndDecl.toN {env : VEnv} {Us : List Name} {np : Nat} {types : List Ind
     obtain ⟨hname, htr⟩ := h.trCtors env₁ hst j t T ht hT q c C hc' hC
     refine ⟨hname, ?_⟩
     rwa [VIndCtor.typeR_id]
+  trSpine := by
+    intro _ _ j T hT hle
+    have := List.getElem?_eq_some_iff.1 hT |>.1
+    rw [← h.length] at this
+    exact absurd this (Nat.not_lt.2 hle)
   ctorName_own := by
     intro j t T ht hT q c C hc' hC
     obtain ⟨et, het⟩ := hst
@@ -894,6 +925,16 @@ theorem trIndDeclN_wit : TrIndDeclN env [] 0 [nfnIndType] false 1 nfnAux nfnK nf
     · cases ht; cases hT; simp [nfnIndType] at hc
     · simp at ht
     · simp at ht
+  trSpine := by
+    rintro env₁ hst (_ | _ | j) T hT hle ci hci
+    · simp at hle
+    · cases hT
+      cases Option.some.inj (hci.symm.trans hPFn)
+      show env₁.HasArgs 0 [] [VExpr.sort (.succ .zero)] [VExpr.const ``NFn []]
+      refine .cons (.const (ci := ⟨0, .sort (.succ .zero)⟩) ?_ nofun rfl) .nil
+      exact VEnv.addConstList_constants hst (``NFn, ⟨0, .sort (.succ .zero)⟩)
+        (by exact List.Mem.head _)
+    · simp [nfnAux] at hT
   ctorName_own := by
     rintro (_ | j) t T ht hT (_ | q) c C hc hC
     · cases ht; cases hT; cases hc; cases hC; rfl

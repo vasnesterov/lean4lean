@@ -482,6 +482,16 @@ theorem trIndDeclN_wit' :
     · cases ht; cases hT; simp [nfnIndType] at hc
     · simp at ht
     · simp at ht
+  trSpine := by
+    rintro env₁ hst (_ | _ | j) T hT hle ci hci
+    · simp at hle
+    · cases hT
+      cases Option.some.inj (hci.symm.trans hPFn)
+      show env₁.HasArgs 0 [] [VExpr.sort (.succ .zero)] [VExpr.const ``NFn []]
+      refine .cons (.const (ci := ⟨0, .sort (.succ .zero)⟩) ?_ nofun rfl) .nil
+      exact VEnv.addConstList_constants hst (``NFn, ⟨0, .sort (.succ .zero)⟩)
+        (by exact List.Mem.head _)
+    · simp [nfnAux] at hT
   ctorName_own := by
     rintro (_ | j) t T ht hT (_ | q) c C hc hC
     · cases ht; cases hT; cases hc; cases hC; rfl
