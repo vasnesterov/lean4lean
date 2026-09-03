@@ -1351,3 +1351,43 @@ at all. Options are to stop it, to filter comments whose body matches my last po
 and treat an echo of my own text as noise. **Left running, flagged to the user, decision theirs.**
 Recorded here so the next session does not mistake an echo for a reply — the giveaway is that the
 body is the opening of something I just wrote.
+
+## The most productive move in this project, five rounds running (2026-09-03)
+
+In five consecutive rounds the thing that actually moved a corner was **composing two things
+already in the tree that nobody had composed**. Not new machinery — a connection:
+
+- hole A's pricing: `Injectivity.piInvStrat_of` × two `PiInvResidual` theorems from the day before.
+  `PiInvResidual.lean` never mentions `PiInvStrat`.
+- the const family ⟺ hole B: a `ProofTransport` supply **sitting one file from the file that needed
+  it**, composed with an existing conversion-inverse.
+- `ParRedK.constApp_inv`: `EtaK.matches_head`, written *for* that use and with **zero users**, ×
+  the `ParRed.constApp_inv` proof.
+- `IndepUpgrade`: `TeleDefEq → IsDefEqCtx` × `mkPi_congrU` with the caller's conversion.
+- `PiCodLift` §7: `IsDefEqU.const_forallE_inv`, **sitting unused in `Injectivity.lean`**.
+
+Three of the five ingredients had **zero users** before being used. That is the signature to look
+for: a lemma written for a purpose, landed, and never wired up — usually because the round that
+wrote it ran out of time, and the round that needed it did not know it existed.
+
+**Now a standing brief element**, not something to rediscover: *before building machinery, search
+for an existing supply, and search the compiled environment with a structural query over conclusion
+heads rather than grepping source text.* The grep-versus-environment point is not pedantry — one
+round found a needed lemma **only** by the structural query, after two greps had missed it, and a
+whole eight-round record once rested on a grep for the wrong predicate name.
+
+Corollary for how I file things: a lemma with zero users is not dead weight, it is **unexploited
+inventory**. `scripts/sorry-census-all.lean`'s orphan-module list is the module-level version of the
+same signal; there is no declaration-level version, and there should be.
+
+## I misreported my own stream state (2026-09-03, mine)
+
+I told the user "one stream still running (`fields_noK`'s successor)" when **I had never launched
+it**. Two streams had crashed that round; I relaunched one, said I would relaunch the other, and
+then reported the intention as the state. `ListAgents` showed zero in-process agents.
+
+Nothing was lost — the crashed stream's work had already been committed — but the user was told
+work was in flight that was not. The fix is mechanical: **`ListAgents` before any statement about
+what is running**, exactly as I read `#print axioms` off a file rather than composing the name. An
+intention and a state look identical in my own narration, which is precisely why the check has to be
+external.
