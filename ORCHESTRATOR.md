@@ -1277,3 +1277,33 @@ So the rule is not only "timestamp cross-stream measurements" (which still stand
 **before relaying any absence claim, make it name its definition site and its tree, or re-run it
 myself.** One `grep` would have caught this — the stream that received it found the counterexample
 in its first pass and reported that my discouragement pointed at the wrong obstruction entirely.
+
+## Verifying HEAD while a stream holds a file, and the one-directional check that nearly fooled me (2026-09-03)
+
+A stream owned `Verify/Typing/ProjSkip.lean` and had it modified in the working tree. Seven files
+I was committing sat downstream of it, so **every closure build I ran used the stream's version,
+not HEAD's** — HEAD was unverified, which is exactly how I have broken it three times.
+
+**The near-miss worth recording.** I first computed *ProjSkip's own import closure*, found none of
+my changed files in it, and had a script print "import-disjoint in both directions, so the closure
+builds verify HEAD." That conclusion was false and I nearly acted on it. Ancestor-of and
+descendant-of are different questions; checking one direction and asserting both is the same class
+of error as a grep for the wrong name. The reverse check found **seven** of my files importing
+ProjSkip.
+
+**The procedure that works, without disturbing the stream.** Total window a few minutes:
+
+    cp <file> /tmp/saved.lean ; git hash-object <file> > /tmp/saved.hash
+    git checkout HEAD -- <file>
+    lake build <the modules downstream of it that I am committing> Lean4Lean.Verify.Guard
+    # then, and only if the file is still HEAD's:
+    NOW=$(git hash-object <file>) ; HEADH=$(git rev-parse HEAD:<file>)
+    [ "$NOW" = "$HEADH" ] && cp /tmp/saved.lean <file> || echo "stream wrote; keep ITS version"
+
+The conditional restore is the point: if the stream wrote during the window, its newer version is
+in place and copying the saved one back would **destroy its work**. Compare hashes, never restore
+blindly. Verify the restore too — the saved hash must reappear.
+
+Cheaper alternative when it applies: if nothing I am committing is downstream of the held file, the
+closure builds already verify HEAD and no swap is needed. That is a real check, but it is the
+**descendant** direction, and it must be computed as such.
