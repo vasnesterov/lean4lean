@@ -1073,15 +1073,25 @@ tree registers `_nested`. So `inductive _nested.Foo` is accepted by both kernels
 Why it matters. The nested-inductive pass rewrites a block, replacing each nested occurrence with
 an auxiliary member it *invents*, checks the rewritten block, then restores the original names.
 The `_nested` prefix is how the restoration tells invented names from declared ones. Because the
-prefix is not an invariant of the environment, it cannot be used as a name barrier, and the two
-restoration facts `RestoreData.ownName`/`ownCtor` (`Verify/Inductive/NestedRestore.lean`) stay
-*hypotheses* rather than theorems -- with three consumers waiting on them.
+prefix is not an invariant of the environment, it cannot be used as a name barrier.
+
+**Updated 2026-09-03, and the second half of this paragraph is now false.**  The two restoration
+facts `RestoreData.ownName`/`ownCtor` (`Verify/Inductive/NestedRestore.lean`) are **no longer
+hypotheses**: acceptance by `Environment.addInductive` implies the gate condition
+(`addInductive_WF_noNestedDeclNames`, `Verify/Inductive/RestoreFaithful.lean`), which discharges
+both, and `RestoreData.auxRec` follows from the gate alone.  The first half stands: the prefix is
+still not an environment-wide invariant, because this check guards only the inductive branch --
+`axiom _nested.zzz` and `def _nested.ddd` are still accepted, machine-checked by a `#eval` in
+`RestoreFaithful.lean` that fails the build if that changes.  Extending it to every declaration is
+one line and a wider divergence from C++; it is costed in
+`docs/decision-nested-prefix-all-decls.md` and awaiting a human decision.
 
 No exploit is claimed, and two mitigations may close every path: `mkUniqueName` skips names the
 environment already holds, and the renamed recursors end in `rec_k`, never `rec`. There is a
 machine-checked case (`Verify/Inductive/NestedOccData.lean`) where a user name collides with an
 invented one and **both kernels reject it identically**, via the duplicate-constant check. What is
 certain is narrower: nothing in the implementation establishes what the proof needs.
+**Superseded**: as of PR #45 it does, for the inductive branch -- see the update above.
 -/
 def checkNoNestedAuxName (n : Name) : Except Exception Unit := do
   if (`_nested).isPrefixOf n then

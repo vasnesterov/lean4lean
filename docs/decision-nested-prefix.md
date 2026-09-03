@@ -1,3 +1,10 @@
+> **RESOLVED 2026-09-01 — option (a) landed as PR #45, approved by the repository owner.**
+> This file is kept for the costing of the rejected options, which is still the record of *why*
+> option (c) does not close. The open question that remains is a **different, wider** one:
+> whether to extend the check from inductives to every declaration. That is costed separately in
+> [`decision-nested-prefix-all-decls.md`](decision-nested-prefix-all-decls.md) and is the one
+> still awaiting a decision.
+
 # Decision: the `_nested` prefix is not an environment invariant
 
 **Status: open, needs a human call.** Nothing has been changed. This file exists so the decision

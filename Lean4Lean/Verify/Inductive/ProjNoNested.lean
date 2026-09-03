@@ -362,8 +362,20 @@ namespace VEnv
 variable {env env' : VEnv}
 
 /-- **No declared name carries the reserved prefix.**  Measured of the repository's own
-environment: 228114 constants, 0 prefixed (§60.5, `SpineTransfer.lean` §6).  Not provable
-without `NestedRestore.lean` §8.2's missing check. -/
+environment: 228114 constants, 0 prefixed (§60.5, `SpineTransfer.lean` §6).
+
+~~Not provable without `NestedRestore.lean` §8.2's missing check.~~  **That check landed in PR
+#45**, so this is now provable *for the inductive branch*: acceptance by
+`Environment.addInductive` implies the gate condition
+(`addInductive_WF_noNestedDeclNames`, `Verify/Inductive/RestoreFaithful.lean`), and the invariant
+is preserved along the pipeline by `NoNestedN.addInductR` / `.addConstList` / `.addConst`.
+
+It is **still not provable globally**, and that is machine-checked rather than assumed: a `#eval`
+in `RestoreFaithful.lean` fails the build if the answer changes, and today `inductive _nested.Zzz`
+is REJECTED while `axiom _nested.zzz` and `def _nested.ddd` are **ACCEPTED** -- `checkName`
+(`Environment/Basic.lean:54`) tests only already-declared and `primitives`.  So an induction on
+`TrEnv'` still has nothing to supply `NoNestedN.addConst`'s name hypothesis in the `axiom`/`defn`/
+`opaque`/`quot` cases.  See `docs/decision-nested-prefix-all-decls.md`. -/
 def NoNestedN (env : VEnv) : Prop := ∀ {n : Name}, env.contains n → ¬ IsNestedName n
 
 /-- The invariant is **antitone**, so it restricts to every earlier environment. -/

@@ -296,15 +296,23 @@ structure RestoreData (r : Result) (types : List Lean.InductiveType) (D : VInduc
     ∀ c ∈ t.ctors, t.name.isPrefixOf c.name = true
   /-- `mkUniqueName`'s output is pairwise distinct. -/
   auxNodup : ((r.types.drop types.length).map (·.name)).Nodup
-  /-- **Not checked by the implementation.**  §7. -/
+  /-- ~~Not checked by the implementation.~~  **Checked as of PR #45**: acceptance by
+  `Environment.addInductive` implies it, via `addInductive_WF_noNestedDeclNames`
+  (`Verify/Inductive/RestoreFaithful.lean`), and this field is then discharged by
+  `ElimNestedInductive.Result.ownName_of_gate` there.  §7. -/
   ownName : ∀ (j : Nat) t, r.types[j]? = some t → j < types.length → ¬ IsNestedName t.name
-  /-- **Not checked by the implementation.**  §7. -/
+  /-- ~~Not checked by the implementation.~~  **Checked as of PR #45**; discharged by
+  `ElimNestedInductive.Result.ownCtor_of_gate` (`Verify/Inductive/RestoreFaithful.lean`).  §7. -/
   ownCtor : ∀ (j : Nat) t, r.types[j]? = some t → j < types.length →
     ∀ c ∈ t.ctors, ¬ IsNestedName c.name
   head : ∀ (j : Nat) t, r.types[j]? = some t → types.length ≤ j →
     ¬ IsNestedName (r.presentedHead t.name)
   headNe : ∀ (j : Nat) t, r.types[j]? = some t → types.length ≤ j →
     r.presentedHead t.name ≠ .anonymous
+  /-- **REMOVABLE**: derivable from the gate condition alone, with no hypothesis on `r` --
+  `NoNestedDeclNames.auxRecName` (`Verify/Inductive/RestoreFaithful.lean`, cone 3588), on the
+  general lemma `not_isNestedName_appendIndexAfter'_mkRecName`.  Left in place only because
+  removing a field touches every construction site; nothing needs it as an assumption. -/
   auxRec : ∀ k, ¬ IsNestedName (auxRecName types k)
   args : ∀ j, ∀ a ∈ tyArgs j, a.NoConstIn IsNestedName
 
