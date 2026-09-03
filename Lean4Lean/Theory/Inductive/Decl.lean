@@ -630,12 +630,27 @@ too, and `hbind` demands binders be *syntactically* block-free
 declared `P : (∀ ξ₀, I p π₀) → Sort 1` is block-free, well-typed and not a redex
 (`RecArgIndep.raiB_betaHead`) — which is exactly what `hstage` is there to exclude.
 
-**Why it is a `sorry` and not a proof.**  Turning "nothing eliminates `I`" into a defeq
-argument is the injectivity family — it needs `IsDefEqU.forallE_inv`
-(`Typing/Injectivity.lean`, open) to rule out the ill-formed field above, and that is
-downstream of `VEnv.WF` hence of `addInduct_WF`.  A missing statement is worse than an open
-one: an open one shows up in a `sorry` count, a missing one is invisible until someone needs
-it.
+**Why it is a `sorry` and not a proof.**  ~~It needs `IsDefEqU.forallE_inv`.~~  **CORRECTED
+2026-09-03: `forallE_inv` is not on the path.**  `Theory/Inductive/RecArgIndepClose.lean`
+enumerates where the earlier recursive field can sit inside a syntactically block-free `B`: the
+`const` route is closed by staging (proved there), the *parameter* route is closed for free
+because `tyApp` applies **all** parameters to `I_j`, so such a parameter would have to mention
+itself — and everything remaining reduces to `VEnv.RigidConstPiDisj` and
+`VEnv.RigidConstSortDisj`, both already-named predicates.
+
+Two things that makes clearer.  Both of those are **false at `Ordered` environments**
+(`VEnv.not_rigidConstPiDisj_rcPiEnv`), and this theorem deliberately assumes `Ordered` rather
+than `VEnv.WF` — but those refutations work by aiming a two-δ-rule *hub* at a rule-free head, and
+`RecArgIndepClose.defeq_noBlock_of_staged` shows no rule of a staged environment mentions the
+block anywhere, by freshness alone.  So the residual is **pure confluence**, and plausibly does
+not need `VEnv.WF` at all.
+
+Do **not** discharge it via `RigidShapeUniqNS.constPiDisj`: measured, that would import a
+529-transitive-user hole into this file's cone — currently 851 constants whose only hole is
+`exists_indep` itself — and create an import cycle.  Rigidity should stay a hypothesis.
+
+A missing statement is worse than an open one: an open one shows up in a `sorry` count, a
+missing one is invisible until someone needs it.
 
 `r'` keeps `idx`, `args` and the binder *count*, so only the binder *types* move; every
 de Bruijn index in `args` and in the result therefore still points where it did. -/
