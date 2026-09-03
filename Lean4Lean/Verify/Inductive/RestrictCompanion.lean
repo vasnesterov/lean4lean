@@ -503,7 +503,7 @@ theorem ntreeAux_argsTypedK_restrict {env₁ env₂ env₃ : VEnv}
   have henv₁ := listEnv_ordered h
   have hσ := ntreeSubst_WF h henv₁ h₂ h₃
   intro j T hT hK
-  exact ((ntreeAux_argsTypedK_of_wf h h₂) j T hT hK).restrictC' hσ henv₁
+  exact ((ntreeAux_argsTypedK_of_wf h₂) j T hT hK).restrictC' hσ henv₁
     (ntreeSubst_fresh h) (listOcc_occurs h).toOccurs ntreeAux_params_constsIn
     listOcc_args_noCSubst
 
