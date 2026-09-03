@@ -115,12 +115,21 @@ def main (argv : List String) : IO Unit := do
       let m := match env.getModuleIdxFor? n with
         | some i => toString env.header.moduleNames[i.toNat]!
         | none => "?"
+      let hasBody := (ci.value? (allowOpaque := true)).isSome
       let isHole := match ci.value? (allowOpaque := true) with
         | some v => v.hasSorry | none => false
+      -- A declaration with no proof term (structure, inductive, axiom, opaque) has a cone
+      -- consisting of its TYPE's constants only.  That number says nothing about how hard the
+      -- statement is to satisfy, and I once read `cone 5` on a `structure` as evidence a route
+      -- was short -- the predicate turned out to be FALSE at every witness on that path.  The
+      -- price of such a thing lives in its witnesses, never in its definition.
+      let kindNote :=
+        if hasBody then "" else
+          "  [NO PROOF TERM: cone is type-constants only; it says NOTHING about satisfiability -- price the witnesses]"
       let c := cone env [n] {}
       let tainted := c.contains ``sorryAx
       IO.println s!"FOUND       {s}"
-      IO.println s!"            module {m}, arity {arity ci.type}, cone {c.size}"
+      IO.println s!"            module {m}, arity {arity ci.type}, cone {c.size}{kindNote}"
       IO.println s!"            own value is a hole: {isHole}; cone reaches sorryAx: {tainted}"
       if tainted then
         let holes := c.toList.filter fun h =>

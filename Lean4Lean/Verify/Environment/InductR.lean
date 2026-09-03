@@ -463,8 +463,20 @@ followed by `numNested` companion members with fresh `_nested.*` names — and
 `AddInductive.run` checks it in a scratch environment in which **all** of its type constants,
 auxiliary ones included, are declared.  That is `VInductDecl'.WF`, whose `ctors` clause is
 staged over `env.addIndTypes D`, **not** `VInductDecl'.WFC … K`, whose clause is staged over
-`addIndTypesC D K` — an environment in which a companion member's own constructor type is not
-even well-formed.  (`WFC` exists for the *other* companion shape, a block re-declaring a type
+`addIndTypesC D K` — an environment in which **any** constructor type mentioning a dropped
+constant is not even well-formed, and **on the nested path that includes the USER's
+constructors**, not only a companion member's own.
+
+**Corrected 2026-09-03.** This sentence used to say the obstruction is "a companion member's own
+constructor type". That is *one* reason and it invites the natural repair — restrict the `ctors`
+clause to `T.name ∉ K` — which **also fails**: `WFCRoute.ntreeAux_not_WFCOwnCtors` refutes it,
+because on a nested block the user's own constructor mentions the auxiliary constant.
+`WFC` is not merely unavailable here but **false**: `not_WFC_of_undeclared` /
+`_of_fresh_companion` / `_of_field` refute it in general, and `ntreeAux_not_WFC'` refutes it at
+the real witness with no hypotheses, so `ntree_WFC_vacuates` gives `∀ P, WFC → P`. All hole-free,
+and reached without any application inversion. **The trap worth remembering**: `addIndTypesC`
+supplies this clause's staging premise *for free*, where `WF.ctors`'s premise must be a separate
+conjunct — the premise is free precisely *because* the predicate is false there.  (`WFC` exists for the *other* companion shape, a block re-declaring a type
 that is already in the environment; `Theory/Inductive/Companion.lean`'s `fooCompDecl`.  The
 nested path never does that: `mkUniqueName` gives the auxiliary members fresh names.)
 
