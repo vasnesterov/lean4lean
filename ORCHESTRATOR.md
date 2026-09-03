@@ -1257,3 +1257,23 @@ Rules now in force:
 3. **When a round invalidates something already in a live brief, correct it mid-flight.** Sending a
    running stream a factual correction is not resuming it — the no-resume rule is about telling an
    agent that has already reported to do more work. Two corrections went out this round.
+
+### Correction, same day: the claim was already false, and the real failure was mine differently
+
+The section above blames concurrency. That diagnosis is wrong, and the true one is worse for me.
+
+`InjPiRogue.wf_wfPiEnv : VEnv.WF wfPiEnv` landed in `1109bab`, which **predates** the round
+entirely; `VContext.Ewf` predates it too. So the tree held `VEnv.WF` conclusions *before* the
+measurement was taken. The claim was not stale — **it was wrong when it was made**, and my
+"true of the tree it could see" exculpated a measurement that deserved none.
+
+The real failure: **I relayed an absence claim without applying my own rule to it.** Every brief I
+write says an absence claim must name (a) the predicate's definition site and (b) the tree covered,
+because absence claims here have been wrong three times from a wrong name or a wrong tree. I
+demanded that of five streams in one round and applied it to nothing I passed *to* them. A stream's
+absence claim arriving in a report is exactly as unverified as one arriving in a brief.
+
+So the rule is not only "timestamp cross-stream measurements" (which still stands). It is:
+**before relaying any absence claim, make it name its definition site and its tree, or re-run it
+myself.** One `grep` would have caught this — the stream that received it found the counterexample
+in its first pass and reported that my discouragement pointed at the wrong obstruction entirely.
