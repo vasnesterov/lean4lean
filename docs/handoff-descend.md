@@ -1,3 +1,241 @@
+# Handoff: `NormalEq.descend` — round of 2026-09-03
+
+> **Read this section first; everything below it is the 2026-08-31 round and is still
+> accurate on its own subject.**  This round did **not** attempt to prove `descend`, because
+> `descend` is already machine-checked **false** and had been for two rounds.  What it did was
+> take the one link on `descend`'s critical-path chain that the K-repair had left **[analysis]**
+> and machine-check it.  New file: `Lean4Lean/Theory/Typing/DescendConstSpineK.lean`
+> (263 lines, no `sorry`, 80 jobs, `lake build` green).
+
+Marks as in the old round: **[machine-checked]** = a named `sorry`-free Lean declaration;
+**[measured]** = a run whose output is reproduced; **[read]** = read off source; **[analysis]**
+= neither.
+
+## 1. Verdict on the target: outcome 1 is not available, and outcome 4 was already taken
+
+`Lean4Lean.VEnv.NormalEq.descend` (`Theory/Typing/ChurchRosser.lean:2011`, three `sorry`s at
+`:2085/:2090/:2105`, all in the `.app`-node case) cannot be proved.  All three goals are
+**false**, machine-checked in `Theory/Typing/DescendRefute.lean`
+(`not_descendStatement`, `not_descendStatement_etaArg`, `not_descendStatement_etaFun`, and the
+unconditional corollary `not_descendStatement_of_wf`).  The restatement exists
+(`KDescend.lean`'s `descendV`), it is bounded both ways (`DescendRestate.lean`), the grading
+route is closed (`DescendRestate.lean` §3), and the reduction-side repair is priced and
+**cyclic** (`ParRedMissing.lean` §3).  Nothing in this corner is waiting for someone to try
+harder.
+
+So this round went after outcome 5.  **Its one new theorem is a necessary link on the only
+live repair route, and it was the last of that route's three consumer ports still unproved.**
+
+### What the brief relayed to me, corrected
+
+| relayed | correction |
+| --- | --- |
+| "a `sorry` in `ChurchRosser.lean`" | **three**, all in the `.app`-node case, all with refuted goals **[read + machine-checked]** |
+| "~200 reverse-dependents" | three figures live in the tree and I re-measured none: **193** (`sorry-census` at `f4b32ea`, quoted in `ChurchRosser.lean:1815`), **206 users / 196 sole** (`hole-rank`), **200** (`docs/critical-path.md`'s 2026-09-02 column).  Treat all three as inherited |
+| "prove it, or refute it as stated" | refutation was landed on 2026-08-31; outcome 4 was not available |
+| the midpoint warning (ledger rows 94/94a, 100–103) | **correctly relayed and it does not bind here.**  My route constrains no midpoint: `NormalEq` has no `trans` constructor (that is `handoff-descend.md` §1's own observation from the earlier round), and `ParRedK.constApp_inv` is an induction over a reduction relation, not a localisation of a conversion node.  I am not the next collapse, and I am saying why rather than only that |
+| "compose two things already in the tree that nobody had composed" | **this was the productive move again.**  §2 |
+
+## 2. What was proved: the third `ConstSpine` port
+
+### 2.1 Why this link and not another
+
+`docs/critical-path.md` records that `descend` is on `Bridge.kernel_sound_of`'s cone and enters
+through **exactly one** chain **[read, that document's 2026-09-01 correction]**:
+
+    addAxiom.WF ← … ← constApp_inv_of_patWF ← IsDefEq.constApp_inv ← IsDefEq.church_rosser
+                ← CRDefEq.trans ← NormalEq.parRedS ← NormalEq.parRed
+                ← appDF_extra_of_descend ← descend
+
+The reduction lemma that chain rests on is `Verify/Typing/ConstSpine.lean`'s
+`ParRedS.constApp_inv`: *a rule-free constant spine parallel-reduces only to constant spines
+with the same head, levels and arity.*  It is an induction over `ParRed`'s **eight**
+constructors.
+
+The only live repair of the layer above it moves everything to **`ParRedK`** = `ParRed` + the
+η-guarded K step `keta` (`KEta.lean`), because `ParRedPropRefute.lean`'s
+`not_parRedStatement_of_propMajor` refutes `NormalEq.parRed`'s statement over plain `ParRed`.
+`ParRedK` has a **ninth** constructor, and `ConstSpine.lean`'s induction acquires a ninth case.
+
+`KEta.lean:441-447` states the situation exactly: `ConstSpine.lean` holds the only three
+declarations outside the K stream that case on `ParRed`; **two** were ported there
+(`ParRedK.forallE_inv`, `ParRedK.sort_inv`), and the third — `ParRed.constApp_inv`, *the one on
+the critical-path chain* — was left, because `PatFreeHead` and `Pattern.headConst` are defined
+in `Verify/`, which `Theory/` may not import.  `docs/handoff-krule.md` §T5 marks that edit
+**[analysis]** and says so in its own evidence column.
+
+### 2.2 The composition
+
+Both halves were already in the tree and had never been put together:
+
+* `KEta.lean`'s `EtaK.matches_head`, whose docstring says it is "the fact
+  `Verify/Typing/ConstSpine.lean`'s `ParRed.constApp_inv` needs" — written **for** this use;
+* `ConstSpine.lean`'s `ParRed.constApp_inv` proof.
+
+**ABSENCE claim, made against the compiled environment, not the source text:** before this
+round `EtaK.matches_head` had **zero** users.  Instrument: LSP `references` at its definition
+site `Theory/Typing/KEta.lean:172`, over the whole indexed project — 3 hits, being the
+declaration itself and this round's two uses. **[measured]**
+
+### 2.3 The results
+
+`Lean4Lean/Theory/Typing/DescendConstSpineK.lean`, all `sorry`-free, axioms `[propext,
+Quot.sound]` **[measured, `#print axioms`, names read off the file's own `namespace` lines]**:
+
+| name | content |
+| --- | --- |
+| `Lean4Lean.VEnv.EtaK.constApp_free` | **the ninth case.**  An `EtaK` step cannot fire at a rule-free constant spine |
+| `Lean4Lean.VEnv.ParRedK.constApp_inv` | `ConstSpine.lean`'s `ParRed.constApp_inv`, ported constructor-for-constructor with the `keta` case added |
+| `Lean4Lean.VEnv.ParRedKS.constApp_inv` | the reflexive-transitive form — the statement a `constApp_inv` over the K-route consumes, since `CRDefEq`'s K analogue concludes in `ParRedKS` (`KMeasure.lean:358`) |
+
+The ninth case is discharged by the *same* hypothesis as the `extra` case, because
+`patHeadConst (p₁.app p₂) = patHeadConst p₁` and `EtaK.matches_head` hands back a registered
+`.app`-pattern whose function side matches at the same head constant.  Three lines, exactly as
+§T5 predicted — the value is not the difficulty, it is that the prediction is now checked and
+the layering excuse is gone.
+
+### 2.4 Two claims this upgrades from [analysis] to [machine-checked]
+
+1. `docs/handoff-krule.md` §T5's row for `ParRed.constApp_inv` — "the same three lines as the
+   existing `extra` case", marked **[analysis]**.  It is right.
+2. `docs/handoff-krule.md` §T1's design argument that `EtaK` **must** be guarded, because plain
+   η-expansion "makes `ParRed.constApp_inv` false".  That was **[analysis]**; my proof consumes
+   the guard (`EtaK.matches_head` exists only because `here` bottoms out in a `KStep`), so the
+   guard is now known to be *sufficient* for this lemma, not merely believed necessary.
+
+### 2.5 The layering blocker was a four-line `def`
+
+`Pattern.headConst`, `Pattern.Matches.headConst`, `PatFreeHead`, `List.Forall₂.trans'`,
+`List.forall₂_refl'` and the four `VExpr.constApp_ne_*` lemmas are all statements about
+`Pattern` and `VExpr` alone — **no `Verify` dependency of any kind** **[read, definition sites
+`Verify/Typing/ConstSpine.lean:98,104,156,166,180` and `:110-148`]**.  The right repair is to
+move them into `Theory/`.  Until someone does, my file carries copies under distinct names
+(`patHeadConst`, `matches_patHeadConst`, `PatFreeHeadK`, `constAppK_ne_*`,
+`List.Forall₂.transK`, `List.forall₂_reflK`) so nothing clashes if a module later imports both.
+`scripts/dup-names.lean`: **no duplicate `Lean4Lean` declarations across the joined cone**
+**[measured]**.
+
+## 3. Anti-vacuity
+
+`PatFreeHeadK c` quantifies over the registered pattern table, so the degenerate way to satisfy
+it is an **empty** table — which is what `refParams` (`refNoPat`) and `cycParams` (`cycNoPat`)
+have.  A check only there would be a check about a relation that never moves.
+
+The non-degenerate instance is `ParamsWitness.lean`'s `propLoopParams`: `VEnv.WF`, two
+registered δ-patterns, and a `ParRed.extra` step that really fires.  All four results are at
+that instance, all `sorry`-free (`[propext, Classical.choice, Quot.sound]`):
+
+| name | role |
+| --- | --- |
+| `propLoop_patFreeHeadK` | `PatFreeHeadK c` holds for every `c ∉ {A, B}` — **inhabitation** |
+| `propLoop_pat_nonempty` | the table it is satisfied against is **not empty** (`A` is a registered head) — so the inhabitation is not the degenerate one |
+| `propLoop_not_patFreeHeadK` + `propLoop_constApp_inv_needs_hyp` | **negative control**: at the same instance the head that *does* front a rule has `ParRedK [] (.const A []) (.const B [])` while `B` is no `A`-headed spine, so dropping the hypothesis makes the conclusion false |
+| `propLoop_no_etaK` | **the honest limit** — see below |
+
+**The control is a control, per `ForallInvPrice`'s discipline.**  `ForallInvPrice`'s
+`rogueSortPiEnv` needs `not_wf_sortPiEnv` beside it so the control is not mistaken for a
+refutation of the target.  Here the analogous second half is the opposite fact and it is
+already proved elsewhere: `propLoopEnv_wf : propLoopEnv.WF` **[machine-checked,
+`ParamsWitness.lean`]**.  The control environment is *legitimate*; what fails there is
+`PatFreeHeadK A`, not the theorem.  So the control bounds the hypothesis and refutes nothing.
+
+### 3.1 The honest limit, stated as a theorem rather than a caveat
+
+`propLoop_no_etaK : ¬ EtaK Γ e e'` at `propLoopParams`.  `EtaK` fires only where an `.app`
+pattern is registered (`EtaK.matches_head`), and **every `Params` instance in `Theory/` has a
+δ-only table** — `refNoPat`, `cycNoPat`, and `propLoopParams`' explicit table, whose `.app` and
+`.var` rows are literally `False`.  So:
+
+* `ParRedK.constApp_inv`'s **proof** is instance-independent and complete;
+* its `keta` case's **content** is untested, because no Theory-side instance can reach it;
+* the first instance that would test it is `Verify/QuotAppParams.lean`'s `quotParams` (ledger
+  row 101), which `Theory/` may not import **[read]**.
+
+That is a bounded gap and I am not dressing it up: what is machine-checked is that the head
+condition *discharges* the ninth case, not that the ninth case ever arises at an instance this
+layer can name.  Anyone who moves `PatFreeHead` down into `Theory/` gets the `quotParams`
+check for free and should take it.
+
+## 4. What this does and does not buy
+
+**Does.**  The K-route is now known to be **compatible** with the consumer that puts `descend`
+on the soundness cone.  Had the ninth case failed, the whole `KDescend`/`KSite7`/`KEta`/
+`ParRedKGraded` programme would have been unable to reach `IsDefEq.constApp_inv` — i.e. unable
+to serve the one chain that makes `descend` matter — and that would have been discovered only
+after `church_rosser`-over-`ParRedK` was attempted.  The risk is retired, not assumed away.
+
+**Does not.**  It delivers no confluence.  Still owed, unchanged by this round:
+
+1. `ParRed.triangle`'s analogue over `ParRedK` (`ParRedCycle.lean`, `ParRedMissing.lean` §3);
+2. `parRedKStatement_of_rows`, which costs `IsDefEqU.weakN_iff` (`DescendRestate.lean`'s cone
+   table);
+3. the two ambient injectivity holes, which every route here pays.
+
+Hole count is **unchanged at 13** **[measured, `scripts/sorry-census-all.lean`: 391 files on
+disk, 367 in the default-target population, 367 built, 0 unbuilt, 13 holes, pass A 13 / pass B
+0]**.  My module is an **orphan** (nothing imports it), which that script reports by name — a
+deliberate consequence of the ownership rule for this round, not an oversight.
+
+## 5. Where the tree is wrong
+
+1. **`docs/handoff-krule.md` §T1's `EtaK` code block is stale.**  It shows
+   `here {Γ e t t'} : KStep Γ e t → ParRed Γ t t' → EtaK Γ e t'`.  The landed inductive
+   (`KEta.lean:137-142`) has `here : KStep Γ e t → EtaK Γ e t`, one premise — the `ParRed`
+   premise moved into `ParRed`'s `keta` constructor, which that file's own docstring calls
+   "Shape C" and explains.  §T1's *argument* is unaffected; only its transcription is wrong.
+   **[read, both sites]**
+2. **`ChurchRosser.lean:1815`'s "one direct user" is right, but "the restatement serves all of
+   them" reads as if the chokepoint substitution were a drop-in.  It is not.**
+   `appDF_extra_of_descend` concludes in `ParRedS`; `appDF_extra_of_descendVK` concludes in
+   `ParRedKS` **[read, both signatures]**.  So there is no one-line edit at the chokepoint:
+   `parRed`, `parRedS`, `CRDefEq` and `church_rosser` all move to `ParRedK` together, and every
+   consumer that cases on `ParRed` moves with them.  `DescendRestate.lean`'s "serves all of
+   them" and `ParRedMissing.lean`'s "not reachable today" are consistent once that is said out
+   loud; read alone, the first is easy to over-read.  **My §2 is one of the consumer ports that
+   move.**
+3. **`docs/critical-path.md`'s three different user counts for `descend`** (193 / 206 / 200) are
+   all live in the tree with no note saying they are the same quantity under three instruments.
+   I did not re-measure and I am not claiming which is right.
+
+## 6. Sequencing: what to pick up first
+
+1. **Move `Pattern.headConst`, `Pattern.Matches.headConst`, `PatFreeHead`, `List.Forall₂.trans'`,
+   `List.forall₂_refl'` and the four `VExpr.constApp_ne_*` lemmas from
+   `Verify/Typing/ConstSpine.lean` into `Theory/`** (they belong beside
+   `Theory/Typing/Injectivity.lean`'s `VExpr.headConst?`).  Then delete my copies, restate my
+   three theorems against the moved definitions, and run the `quotParams` check §3.1 cannot
+   reach.  That is the cheapest thing on this list and it unblocks the only untested case.
+2. **Do not attempt `descend` again, and do not attempt a syntactic weakening of it.**  Its
+   three goals are false, the restatement exists, and the grading route is closed.
+3. The next real obstruction on this route is item 1 of §4 — the triangle over `ParRedK` — and
+   `ParRedMissing.lean` §3 has already priced why it is hard.  Nothing I did makes it easier.
+4. **Not touched, and not to be inferred from anything above:** `ChurchRosser.lean` is
+   unchanged; no frozen file was read for edit, opened for edit, or touched.
+
+## 7. Build state at hand-off, including one thing that is not mine
+
+* `lake build Lean4Lean.Theory.Typing.DescendConstSpineK` — **green, 81 jobs** **[measured]**.
+* A **full** `lake build` was green (`EXIT=0`) at the *start* of this round and is **red at the
+  end**, at `Lean4Lean/Theory/Inductive/FieldsNoK.lean:199/220/234/264/276-281/345` — an
+  untracked file belonging to the concurrent `FieldsNoK*` stream, with in-flight edits.  My
+  module does not import it and is unaffected **[measured]**.  Recorded because "the tree is
+  red" will otherwise be attributed to this round.
+* `scripts/sorry-census-all.lean` was run **before** that breakage arrived: 367 in population,
+  367 built, 0 unbuilt, 13 holes.  A re-run now would report unbuilt modules, so the figure
+  above is the valid one and its timestamp matters.
+* `grep -rln "^import Lean4Lean.Verify" Lean4Lean/Theory/` — **empty** **[measured]**.
+
+## 8. Files
+
+* `Lean4Lean/Theory/Typing/DescendConstSpineK.lean` — **new**, 263 lines, no `sorry`, 81 jobs.
+  Nine declarations named above plus six marked copies.
+* `docs/handoff-descend.md` — this section prepended; the 2026-08-31 round preserved verbatim
+  below.
+* Nothing else changed.
+
+---
+---
+
 > **CORRECTION (later round, machine-checked elsewhere).** §4's conclusion *"there is no right
 > guard"* is **wrong**, and the error matters: it reads as *"`church_rosser` is false for real
 > environments"* when the true statement is *"this repo's `Theory/` is missing a rule."*
