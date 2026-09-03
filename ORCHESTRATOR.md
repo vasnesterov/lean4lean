@@ -1619,3 +1619,35 @@ Also recorded from the same file, a diagnostic worth keeping: a spurious `…._f
 `#print axioms` line signals a **kernel projection failure** — an `Exists`-valued structure field
 projected with `.2.2` elaborates but does not kernel-check inside an equation-compiler definition.
 The axiom print is what exposed it; the build was green.
+
+## The swap rule applies to any dirty file, not just stream-held ones (2026-09-03)
+
+I wrote swap-and-conditional-restore for the case where a live stream holds a file and I
+want to verify HEAD. The case it missed: a file dirty with **no stream running**. That is
+how master came to be broken at `RestrictCompanion.lean:506` while every full build I ran
+reported green — the repair was sitting uncommitted in my own tree, so I was measuring
+HEAD-plus-fix and calling it HEAD.
+
+Widened rule: **a clean `git status` is part of the claim "HEAD builds."** If the tree is
+dirty, either commit first or swap the dirty files out and build, and say which of the two
+you did. "The build was green" is not evidence about HEAD when the tree is not clean.
+
+Corollary for hypothesis trims. Trimming a hypothesis that proves unnecessary is real
+progress and happens often here. The risk moment is not the trim — it is **the commit that
+re-points the call sites**. `1beec64` re-pointed 35 sites; 34 were right. A stale call site
+is only visible when its module is rebuilt from a clean tree, so after any commit whose
+message counts re-pointed sites, build the reverse-dependency closure of the trimmed
+declaration from HEAD alone.
+
+## Searching for a premise: shape across layers, not text in a file (2026-09-03)
+
+The ninth stale-absence differed from the previous eight in a way worth keeping. Those had
+the false "not supplied" claim and the existing theorem in the same layer, usually the same
+file, so grepping the file would have caught them. This one had the prose in `Verify/` and
+the theorem in `Theory/` — and the theorem was universally quantified over `env` while the
+prose named a specific `env₃`. So a grep for the premise **as rendered in the prose** finds
+nothing, and the claim looks verified.
+
+Search for the premise's **conclusion shape across all layers**, never the instantiated form
+and never one file. In this instance the shape was `OnCtx ntreeAux.params.reverse` — six hits
+across four files, one of which was a hole-free theorem with a real proof term.
