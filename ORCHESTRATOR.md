@@ -1848,3 +1848,25 @@ Corollary about instrument output: I recorded "`shape.lean`: 0 hits, heads resol
 as a *checked* absence. Re-running it gives 5. The absence conclusion happened to survive — all
 five carry the hypothesis, none concludes it — but my evidence for it was fabricated by
 transcription. Scan output ages and gets mistyped exactly like prose does.
+
+## Record figures next to their names, so they can be audited (2026-09-03)
+
+Three times today I recorded a cone or arity that was wrong, every time by copying it from an
+earlier note of mine rather than re-reading `exists.lean`. My own records had become a source I
+trusted above the tool that produced them, and ledger rows get quoted in briefs for weeks.
+
+`scripts/audit-ledger.sh` re-checks every `cone N` / `arity N` in the ledger against the compiled
+environment. First run: **77 figures agree, 10 flagged, and all ten flags are pairing artefacts** —
+the name nearest the figure belonged to a different declaration. So it found no confirmed recording
+error, which is a real if modest result: the figures it *could* pair are sound.
+
+Its honest limit is coverage, not accuracy: it paired 87 of roughly 285 figures. 165 have no
+backticked name close enough to attach to, because rows are written as prose with the name several
+clauses earlier.
+
+**So the durable fix is a format convention, not the script**: when recording a measurement, put
+the fully-qualified name immediately before the figure — `` `Lean4Lean.Foo.bar` (arity 3, cone
+1234) `` — rather than naming the declaration at the start of a sentence and the number at the end.
+That costs nothing to write and makes every future figure machine-checkable. The script's first
+version also over-reported 59 mismatches before I fixed its pairing; an instrument that cries wolf
+is the failure I built the arena check to avoid, and I nearly shipped it here.
