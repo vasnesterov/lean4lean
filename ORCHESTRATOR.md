@@ -1747,3 +1747,19 @@ New wording for briefs: **no state-changing git — no add, commit, push, stash,
 or branch. Read-only `git status`, `git log`, `git diff` and `git blame` are fine.** A rule that
 well-behaved agents break for harmless reasons trains them to weigh which rules are real, which
 is the last thing I want when the frozen-file rule is in the same list.
+
+## A status claim from a handoff is not evidence either (2026-09-03)
+
+Eleven stale-absences were names or structure fields I failed to search for, and I built
+`exists.lean` and `shape.lean` for those. The twelfth had a different cause, and so did the
+eleventh: I lifted a **status claim** out of a handoff — "untouched", "deferred by three
+rounds", "nobody has done X" — and put it in a brief verbatim.
+
+Both times the claim was false, and both times the stream caught it in its pre-flight by
+running `shape.lean` before writing. Handoff prose ages exactly as badly as the transitive user
+counts did: it was true when written, the tree moved, and nothing in the sentence records when.
+
+**Rule: a status claim taken from a handoff gets `shape.lean` run against it before it enters a
+brief, on the same footing as a name.** If I cannot cheaply test it, the brief says "reportedly
+untouched as of <handoff>, verify first" rather than asserting it — which is what the good
+streams have started doing on their own, and it belongs in the brief instead.
