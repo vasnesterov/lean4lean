@@ -2768,21 +2768,47 @@ the companions and the auxiliary block also containing the outer head it was car
 (B)'s closures quantify over *every* member, so the own-head entries were an unpriced obligation
 that this list gave no sign of.
 
-That gap is now closed, and off `K` the entries are **free**: `Theory/Inductive/RecTyped.lean`
-proves the off-`K` branch of all three entry families from `OwnId` alone —
-`Lean4Lean.motiveEntry_defeq_off_K`, `Lean4Lean.VIndRestore.minorEntry_defeq_off_K`, and
-`Lean4Lean.recBody_defeq_off_K` (note that only the second is in the `VIndRestore` namespace) —
-because at a member the block declares under its own name the restoration is the identity, so the
-entry defeq is reflexive.  The correction to *this* section is therefore not that the residual
-grew, but that the list was **stated as complete while covering only half the members**; the
-missing half turned out to be free rather than costly, which is luck and not evidence that the
-list was right.
+That gap is now closed, and `Theory/Inductive/RecTyped.lean` prices the off-`K` branch of all
+three entry families: `Lean4Lean.motiveEntry_defeq_off_K`,
+`Lean4Lean.VIndRestore.minorEntry_defeq_off_K`, and `Lean4Lean.recBody_defeq_off_K` (note that
+only the second is in the `VIndRestore` namespace).  At a member the block declares under its own
+name the restoration is the identity on the *head*, so the head defeq is reflexive.  The
+correction to *this* section is therefore not that the residual grew, but that the list was
+**stated as complete while covering only half the members**.
+
+**AMENDED AGAIN — "the entries are free off `K`, from `OwnId` alone" was TRUE OF TWO OF THE
+THREE, and this paragraph said it of all three.**  `Theory/Inductive/ConsumeTeleOffK.lean` §2
+refutes the third.  `motiveEntry_defeq_off_K` and `recBody_defeq_off_K` take **no datum** and are
+free.  `VIndRestore.minorEntry_defeq_off_K` takes a **`TeleDefEq` hypothesis** — `MinorFldDefEq`,
+one of the four open data families of `RecTyped.lean` §5, which that closure demands at **every**
+`q`, off `K` included — so the minor entry off `K` is a *reduction*, not a discharge.  It is also
+not an idle hypothesis: at `ntreeAux`'s off-`K` entry (`q = 0`, the own head's constructor
+`NTree.node`) the two telescopes **differ after `substC σ` and under `liftTele`**
+(`ntree_offK_minorFld_telescopes_ne`), so nothing reflexive closes it there.  The restoration is
+the identity on the own head's *application*, but **not** on the field telescope of that head's
+constructors, which is exactly where a nested occurrence sits.  `minorEntry_defeq_off_K`'s own
+docstring says so; this paragraph's summary of it did not.  So "the missing half turned out to be
+free rather than costly" is **two thirds right**, and the luck was smaller than claimed.
+
+**And the composition itself is VERIFIED, contrary to a later marking.**
+`docs/handoff-hyptrim.md` §5 item 5 flagged "that (B)'s closures consume them in the shape they
+are stated in" as unchecked and "the next thing someone will assume".  It was already checked when
+that was written: `VEnv.recConstsR_wf_of_recHargsD` (`RecTyped.lean:773`) refines
+`recConstsR_wf_of_entriesD` (§T15.3a) and closes all three off-`K` branches with a **bare
+`exact`** — no reshaping — and `ntreeAux_obligationB_of_bundles` instantiates that closure at a
+block with one member on each side of `K`, so both branches are live.
+`Theory/Inductive/ConsumeTeleOffK.lean` §1 restates the three fits as named theorems.
 
 So the honest residual for (B)/(C) at `np > 0` is **`hargs`, plus `hfld`, plus (C)'s two
 `mkLams`-body defeqs** — three items, not one, **for the companion entries; plus, off `K`, the
-own-head entries of all three (B) families, discharged as above** — `hargs` remains genuinely
-data (`instAt_indep_of_tyArgs`); `hfld` reduces to `hargs` at the recursive fields (§T15.7); (C)'s
-two look derivable.  Nothing in §T15 uses `HasArgs.of_mkApp'`, so the whole section stays
+own-head *motive* and *recursor-body* entries, which are discharged as above, and the own-head
+*minor* entries, which are NOT — those reduce to `hfld`, i.e. to the item already second in this
+list** — `hargs` remains genuinely data (`instAt_indep_of_tyArgs`); `hfld` reduces to `hargs` at
+the recursive fields (§T15.7); (C)'s two look derivable.  Note that the residual's *arithmetic* is
+unchanged by the amendment above — `hfld` was already listed — but its *scope* is: `hfld` is now
+known to be demanded off `K` as well as on it, so it is not a companion-only charge.
+
+Nothing in §T15 uses `HasArgs.of_mkApp'`, so the whole section stays
 `PiInv`-free.
 
 ### Instrument 7 on every statement of §T15
