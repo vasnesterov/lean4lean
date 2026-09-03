@@ -194,16 +194,24 @@ theorem valAt_of_spineHargsC (hB : D.Built R K env occ) (hS : R.SpineHargsC D K 
 
 /-- **THE SUBSTITUTION'S WELL-FORMEDNESS FROM THE CHECKER-SIDE CLAUSE.**  `ValAt` was the fourth
 and only remaining field of `(R.csubstTy D K).WF`; `csubstTy_WF_of_val` supplies the other three.
-So this is the whole nested transport's hypothesis, restated over data the checker has. -/
+So this is the whole nested transport's hypothesis, restated over data the checker has.
+
+**No `hparams`.**  The first version of this theorem took `valAt_of_spineHargsC`'s
+`OnCtx D.params.reverse (e.IsType D.uvars)` as a hypothesis of its own.  It never had to:
+`D.WF env`'s `params` field *is* that `OnCtx` at the pre-block environment, and `OnCtx.mono`
+carries it along `hle` — both of which this theorem already takes.  (`RestrictStep.lean` §0's
+`RestrictStepCfg.params₁` is the same argument at the bundled configuration, and
+`Verify/Inductive/ValAtParam.lean` §1 states it as `VInductDecl'.WF.params_le`.) -/
 theorem csubstTy_WF_of_spineHargsC (hB : D.Built R K env occ) (hS : R.SpineHargsC D K env e)
-    (hle : env ≤ e) (hparams : OnCtx D.params.reverse (e.IsType D.uvars))
+    (hle : env ≤ e)
     (henv : env.Ordered) (he : e.Ordered) (hD : D.WF env)
     (hf : (R.csubstTy D K).FreshIn env) (hcl : (R.csubstTy D K).Closed)
     (h₂ : env.addIndTypes D = some e₂) (h₁ : env.addIndTypesC D K = some e)
     (hlvl : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K →
       ∀ l ∈ R.tyLvls j, l.WF D.uvars) :
     (R.csubstTy D K).WF e₂ e D.uvars :=
-  csubstTy_WF_of_val henv he hD hf hcl h₂ h₁ (valAt_of_spineHargsC hB hS hle hparams h₂ hlvl)
+  csubstTy_WF_of_val henv he hD hf hcl h₂ h₁ (valAt_of_spineHargsC hB hS hle
+    (OnCtx.mono (fun h => h.mono hle) hD.params) h₂ hlvl)
 
 end VIndRestore
 
@@ -338,9 +346,22 @@ kernel runs the nested elimination on).  This closes that gap for the clause its
 `[NTree.{u} #0]`, a *parameter-dependent* one, and the parameter telescope is non-empty.
 
 The clause is produced from `RestrictCompanion.lean` §8's `ntreeAux_datum_at_stage₁`, which is the
-datum at exactly `addIndTypesC`-env; `ValAt` from it additionally needs
+datum at exactly `addIndTypesC`-env.
+
+**Correction (2026-09-03).**  This paragraph used to end: *"`ValAt` from it additionally needs
 `OnCtx ntreeAux.params.reverse (env₃.IsType 1)`, which is not `trivial` at this block and is **not
-supplied here** — that is the one hypothesis of §4 still open at the parameterised witness. -/
+supplied here** — that is the one hypothesis of §4 still open at the parameterised witness."*  That
+was **wrong on both counts**, and `Verify/Inductive/ValAtParam.lean` is the correction:
+
+* the premise was already proved, hole-free, at exactly this block —
+  `InductiveDeclExamples.ntreeAux_params_WF` (`Theory/Inductive/NestedHead.lean`), which is that
+  `OnCtx` verbatim at `env := env₃` since `ntreeAux.uvars = 1` literally;
+* and it was never a hypothesis of §4 at all: `VInductDecl'.WF.params` **is** that `OnCtx` at the
+  pre-block environment, so `OnCtx.mono` along `env ≤ e` derives it for **any** block from data
+  `csubstTy_WF_of_spineHargsC` already takes.  §4's statement is weakened accordingly above —
+  `hparams` is gone from it — and `ValAtParam.lean` §1 states the general lemma
+  (`VInductDecl'.WF.params_le`) and §2 delivers `ValAt` at this block unconditionally
+  (`ntreeAux_valAt`), with §3 running the whole transport there from the clause. -/
 
 namespace InductiveDeclExamples
 
