@@ -1887,3 +1887,22 @@ conclusion is not.
 §1, written before any measurement.** Pair it with the existing rule that §1 is written before any
 Lean, and with an explicit statement that a well-argued refutation of my hypothesis is a
 first-class outcome I will act on — which in this case it was.
+
+## Write each measurement down as it is made, not at the end of pre-flight (2026-09-04)
+
+Fourteen API crashes this session, and **four of the last five struck at the same moment**: the
+transition from measuring to authoring Lean. The last two left nothing but §1 priors — no Lean, and
+crucially **no measurements**, because §2 was still empty. The stream had done the pre-flight work
+and was holding it in context.
+
+The existing rule ("write §1 before any Lean, then keep the handoff incremental") is not enough,
+because streams read it as *§1 first, then measure, then write §2*. The measurements are the
+expensive part — dozens of tool calls — and they are exactly what evaporates.
+
+**Sharpened rule for briefs: append each pre-flight measurement to the handoff as you make it.**
+One line per `exists.lean` / `shape.lean` / `users.lean` result, before the next call. A crash then
+costs the authoring, not the measuring.
+
+Second adaptation: **scope rounds smaller while the crash rate is this high.** A round that only
+classifies and reports survives a crash with most of its value; a round that classifies *and*
+assembles *and* witnesses loses everything if it dies at the assembly step. Split those.
