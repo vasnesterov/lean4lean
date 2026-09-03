@@ -1082,7 +1082,7 @@ theorem qnAux_builtFresh : qnAux.BuiltFresh qnK (fun _ => qnOcc) where
 
 theorem qnAux_built : qnAux.Built qnRestore qnK env₂ (fun _ => qnOcc) where
   nodup := (qnAux_builtFresh h).nodup
-  fields_noK := (qnAux_builtFresh h).fields_noK
+  kfresh := ⟨qjEnv_constsClosedC h, qnK_not_contains h, fun _ _ _ _ => qnOcc_args_noK⟩
   member := by
     rintro (_ | _ | j) T hT hK
     · cases hT; exact absurd hK (by decide)

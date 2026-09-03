@@ -549,24 +549,39 @@ context*, so they have to be re-derived in the **new** telescope's context.  A b
 `IsDefEqType Γ F.type (r'.canonType D i)` does not do that: extracting an entrywise relation
 between `ξ` and `ξ'` from a conversion between two `mkPi`s is `IsDefEqU.forallE_inv`, the very
 statement this hole is waiting on, so the weaker conclusion left its consumer where it started.
-The last two conjuncts are the repair, and they are what `RecArgIndep.posSome_transport`
-consumes:
+The **last conjunct is the repair**: `env.TeleDefEq D.uvars Γ r.binders r'.binders`, the two
+binder telescopes related *entrywise, each entry in the context it lives in*
+(`VEnv.TeleDefEq`, `Theory/Typing/Lemmas.lean`).  That is what a proof which actually moves a
+binder builds anyway, and it is what the three context-relative clauses can be transported
+along without any pi-injectivity:
 
-* `VEnv.IsDefEqCtx env D.uvars Γ (ξ.reverse ++ Γ) (ξ'.reverse ++ Γ)` moves all three
-  context-relative clauses (`IsDefEq.defeqDFC` and friends);
-* `IsDefEqType Γ (r.canonType D i) (r'.canonType D i)` is the telescope congruence, kept
-  *separately* from the `F.type` conversion because composing the two is sort uniqueness
-  (`VEnv.SortUniq`) — this hole's **second** price, which its first docstring did not name.
-  `Theory/Inductive/Lemmas.lean`'s `IsDefEqType` section has no `trans` for that reason;
-  `RecArgIndep.isDefEqType_trans_of_sortUniq` is the composition and where the charge is spent.
-  Keeping the two apart is what makes the *consumer* free of it:
-  `RecArgIndep.posSome_transport_of_indepGoal` takes no `SortUniq` hypothesis at all (the
-  unused-variable linter is the witness), so the whole sort-uniqueness charge sits on whoever
-  discharges this `sorry`, and none of it on whoever uses it.
+* `VEnv.IsDefEqCtx env D.uvars Γ (ξ.reverse ++ Γ) (ξ'.reverse ++ Γ)`, which moves all three
+  of them (`IsDefEq.defeqDFC` and friends), is `RecArgIndep.teleDefEq_isDefEqCtx` applied to
+  this conjunct and `hOn`;
+* `IsDefEqType Γ (r.canonType D i) (r'.canonType D i)`, the telescope congruence, is
+  `VEnv.IsDefEq.mkPi_congrU` applied to it, `hOn`, and `pos`'s own `canonResult` typing.
 
-Everything above those two conjuncts is the original conclusion verbatim, so this statement is
-a **strict strengthening**: a consumer of the old one needs nothing new, and needs no
-`SortUniq` to recover it.
+Both of those were *separate conjuncts* of this statement between 2026-09-03 morning and this
+edit, for a layering reason that no longer holds: `VEnv.TeleDefEq` used to live in
+`Theory/Typing/ConstSubstNested.lean`, which transitively imports this file, so it could not be
+named here.  It now lives in `Theory/Typing/Lemmas.lean`, which this file imports
+(`docs/handoff-telemove.md`), and `RecArgIndep.indepGoalPair_of_indepGoal` machine-checks that
+the pair is recovered — so replacing them by the `TeleDefEq` loses nothing and is strictly
+stronger.
+
+The `F.type` conversion `IsDefEqType Γ F.type (r'.canonType D i)` is kept as its own conjunct
+rather than left to be composed out of `hdefeq` and the telescope congruence, because composing
+two `IsDefEqType`s is sort uniqueness (`VEnv.SortUniq`) — this hole's **second** price, which
+its first docstring did not name.  `Theory/Inductive/Lemmas.lean`'s `IsDefEqType` section has no
+`trans` for that reason; `RecArgIndep.isDefEqType_trans_of_sortUniq` is the composition and
+where the charge is spent.  Keeping it separate is what makes the *consumer* free of it:
+`RecArgIndep.posSome_transport_of_indepGoal` takes no `SortUniq` hypothesis at all (the
+unused-variable linter is the witness), so the whole sort-uniqueness charge sits on whoever
+discharges this `sorry`, and none of it on whoever uses it.
+
+The first six conjuncts are the original conclusion verbatim, so this statement is a **strict
+strengthening**: a consumer of the old one needs nothing new, and needs no `SortUniq` to
+recover it.
 
 **Why the hypotheses are what they are.**  `hstage` says `env` is the environment
 `addIndTypes` just produced — the environment `VIndCtor.WF`, hence this obligation, is checked
@@ -579,8 +594,10 @@ block's constants were added last.  `hpre` is the `VIndField.WF` of the *earlier
 the argument below uses to rule out an earlier field of type `(∀ ξ₀, I p π₀) → Sort u`; it makes
 the obligation an **induction on the field index**, which is how `VIndCtor.WF.fields` has to be
 proved anyway (there `pre = C.fields.take i`, so `hpre` is the induction hypothesis).  `hOn` is
-`pos`'s own `OnCtx` conjunct, so a caller holds it before it calls; it is what lets the
-*degenerate* witness `r' = r` be produced at no cost — see
+`pos`'s own `OnCtx` conjunct, so a caller holds it before it calls, and it is what turns the
+last conjunct into the two context-relative facts above.  The *degenerate* witness `r' = r`
+costs nothing under this conclusion and does not even need `hOn`: the last conjunct is then
+`VEnv.TeleDefEq.refl`, which carries no typing at all.  See
 `RecArgIndep.exists_indep_of_pre_norec` and its two siblings, which are this statement proved
 on the regime where `BindersIndep` already holds.
 
@@ -640,8 +657,7 @@ theorem VIndRecArg.exists_indep {env₀ env : VEnv} {D : VInductDecl'} {Γ : Lis
       (∀ B ∈ r'.binders, D.NoBlock B) ∧
       env.IsDefEqType D.uvars Γ F.type (r'.canonType D i) ∧
       r'.BindersIndep pre i ∧
-      VEnv.IsDefEqCtx env D.uvars Γ (r.binders.reverse ++ Γ) (r'.binders.reverse ++ Γ) ∧
-      env.IsDefEqType D.uvars Γ (r.canonType D i) (r'.canonType D i) := by
+      env.TeleDefEq D.uvars Γ r.binders r'.binders := by
   sorry
 
 /-- Well-formedness of one constructor, stated in the environment that already contains

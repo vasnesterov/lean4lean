@@ -24,9 +24,16 @@ Half of that is now out of date.  `Theory/Inductive/NestedBuild.lean` §F3 deriv
 
 So the residual hypothesis is a statement about `as j`, a list of `D.np` expressions the checker
 produces, decidable by `VExpr.decidableNoConsts` — not about a foreign block's constructors and
-fields.  `nodup` is unchanged and is still the other half of `BuiltFresh`.
+fields.  `nodup` is unchanged and is still the other half.
 
-These are **additive**: the originals are untouched, so nothing downstream moves.
+**Updated 2026-09-03.**  These were additive when written.  They no longer are, in one respect:
+`mkRestore_built` itself now takes `D.blockNames.Nodup` plus `VInductDecl'.KFresh` rather than
+`BuiltFresh`, because `VInductDecl'.Built.fields_noK` stopped being a field.  The *statements*
+here are unchanged, and `mkRestore_built_of_spine`'s proof got **shorter**: the `hspine`/`ha`
+shuffle it wrote inline is exactly `VInductDecl'.KFresh.of_spine`'s body, so the whole `BuiltFresh`
+construction collapses to `hnd (VInductDecl'.KFresh.of_spine hcc hK hspine ha)`.  Its axiom set is
+unchanged (`[propext, Quot.sound]`), as is `mkRestore_AddNested_of_spine`'s, and
+`SpineTransfer.lean`'s two `_of_blockK` forms needed **zero** edits.
 -/
 
 namespace Lean4Lean
@@ -38,9 +45,10 @@ variable {r : Result} {types : List Lean.InductiveType} {D : VInductDecl'} {K : 
 
 include h
 
-/-- **`Built` with `fields_noK` discharged, leaving the spine.**  Compare `mkRestore_built`: the
-`BuiltFresh` argument is replaced by `nodup` plus three facts a caller already has and one about
-`as`. -/
+/-- **`Built` with `fields_noK` discharged, leaving the spine.**  Compare `mkRestore_built`: its
+`hkf : D.KFresh K env occ` is replaced here by three facts a caller already has (`hcc`, `hK`) plus
+one about `as` (`hspine`) — which is `KFresh.of_spine`'s premise list, and that is now literally
+how this proof discharges it. -/
 theorem mkRestore_built_of_spine (hcc : env.ConstsClosedC) (hnd : D.blockNames.Nodup)
     (hK : ∀ n ∈ K, ¬ env.contains n)
     (hspine : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K →
@@ -49,11 +57,7 @@ theorem mkRestore_built_of_spine (hcc : env.ConstsClosedC) (hnd : D.blockNames.N
     (ha : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → as j = (occ j).args)
     (hres : r.OccResidue types D K env (r.mkRestore types D.uvars D.np ls as) occ) :
     D.Built (r.mkRestore types D.uvars D.np ls as) K env occ :=
-  h.mkRestore_built
-    (VInductDecl'.builtFresh_of_occurs hcc hnd (fun j T hT hK => (hres.occurs j T hT hK).toOccurs) hK
-      fun j T hT hKT a hmem =>
-        hspine j T hT hKT a (by rw [ha j T hT hKT]; exact hmem))
-    hl ha hres
+  h.mkRestore_built hnd (VInductDecl'.KFresh.of_spine hcc hK hspine ha) hl ha hres
 
 /-- …and the whole step.  `hadd`'s own `addIndTypes` success is what would discharge `hK`
 (`VInductDecl'.fresh_of_addIndTypes`), given `K ⊆ D.blockNames`. -/

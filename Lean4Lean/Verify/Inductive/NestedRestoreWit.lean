@@ -509,14 +509,25 @@ end NestedWit
 visible: of `VInductDecl'.Built`'s nine clauses, **four are discharged by `RestoreData`** — the
 three presentation clauses (given the occurrence's own levels and spine as `mkRestore`'s two
 semantic parameters, which is a *choice*, not a hypothesis) and `own` — four more are
-collected as `OccResidue`, and the last two are `VInductDecl'.BuiltFresh`.
+collected as `OccResidue`, and the last two are `D.blockNames.Nodup` and `VInductDecl'.KFresh`.
 
-**`BuiltFresh` is where ruling 116d's cost sits, and it is a hypothesis, not a theorem.**  Its
-two clauses — `D.blockNames.Nodup` and the source block's substituted field types being free of
-companion constants — are statements about `D`, `K` and `occ`; **nothing in `RestoreData`, and
-nothing in `NestedOccData.lean`'s `OccData`, mentions them**, since both bundles are about the
-checker's `Lean.Name`s.  So the bridge takes them as a separate argument rather than pretending
-to derive them: a bundled hypothesis whose cost is visible is the honest form.  `nodup` is what
+**Updated 2026-09-03.**  Until then the last two were bundled as `VInductDecl'.BuiltFresh`, whose
+`fields_noK` clause quantified over *the foreign block `J`*'s constructors and fields.  That
+clause is gone from `VInductDecl'.Built` — it is now the theorem
+`VInductDecl'.Built.fields_noK` (`Theory/Inductive/NestedBuild.lean` §F5), derived from
+`Built.kfresh` and `Built.occurs` — so this bridge takes `hnd : D.blockNames.Nodup` and
+`hkf : D.KFresh K env occ` instead.  `KFresh` is strictly weaker where it matters: see
+`Theory/Inductive/FieldsNoK.lean` §8.3 for the separation from the stronger candidate `VEnv.KHyg`,
+which would have cost `NestedFreshBridge.lean`'s `mkRestore_built_of_spine` a hypothesis it
+deliberately does without.
+
+**Ruling 116d's cost is still a hypothesis, not a theorem**, and it is still visible: `KFresh`'s
+three clauses — `env.ConstsClosedC`, `∀ n ∈ K, ¬ env.contains n`, and cleanliness of the
+companion member's own nested spine — are statements about `D`, `K`, `env` and `occ`; **nothing in
+`RestoreData`, and nothing in `NestedOccData.lean`'s `OccData`, mentions them**, since both
+bundles are about the checker's `Lean.Name`s.  The difference the swap makes is that the residue
+is now about `(occ j).args`, a list of `D.np` expressions, rather than about every field of every
+constructor of `J`.  `nodup` is what
 `VEnv.addConstList`'s success forces of the *declared* members, but `addInductR` does **not**
 declare the companion members (`VInductDecl'.typeConstsC` filters them out), so `hadd` alone
 does not reach it; the companion half would come from `RestoreData.auxNodup` and the
@@ -563,7 +574,7 @@ include h
 /-- **`VInductDecl'.Built` for the construction.**  The two semantic parameters of `mkRestore`
 are taken at the occurrence's own values — which is a choice available to any caller, since they
 are parameters — and the rest of the presentation is computed. -/
-theorem mkRestore_built (hf : D.BuiltFresh K occ)
+theorem mkRestore_built (hnd : D.blockNames.Nodup) (hkf : D.KFresh K env occ)
     (hl : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → ls j = (occ j).lvls)
     (ha : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → as j = (occ j).args)
     (hres : r.OccResidue types D K env (r.mkRestore types D.uvars D.np ls as) occ) :
@@ -572,8 +583,8 @@ theorem mkRestore_built (hf : D.BuiltFresh K occ)
   occurs := hres.occurs
   ctorName_inv := hres.ctorName_inv
   own := h.mkRestore_ownId
-  nodup := hf.nodup
-  fields_noK := hf.fields_noK
+  nodup := hnd
+  kfresh := hkf
   tyName := by
     intro j T hT hK
     obtain ⟨t, ht, -, hle⟩ := h.on hT hK
@@ -600,12 +611,12 @@ theorem mkRestore_built (hf : D.BuiltFresh K occ)
 /-- **`VIndRestore.Faithful` for the construction** — a theorem, not a hypothesis.  Its `npJ` is
 the parameter count of the block the *environment* holds, which is what
 `Faithful.ctors_complete` pins. -/
-theorem mkRestore_faithful (hf : D.BuiltFresh K occ)
+theorem mkRestore_faithful (hnd : D.blockNames.Nodup) (hkf : D.KFresh K env occ)
     (hl : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → ls j = (occ j).lvls)
     (ha : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → as j = (occ j).args)
     (hres : r.OccResidue types D K env (r.mkRestore types D.uvars D.np ls as) occ) :
     (r.mkRestore types D.uvars D.np ls as).Faithful D env K (fun j => (occ j).decl.np) :=
-  (h.mkRestore_built hf hl ha hres).toFaithful
+  (h.mkRestore_built hnd hkf hl ha hres).toFaithful
 
 /-! **`mkRestore_canonical` is deleted, and it had no consumers.**
 
@@ -622,23 +633,25 @@ took as a *hypothesis*.  So the burden did not move into a premise; the premise 
 premise the consumer now takes directly. -/
 
 /-- **The whole nested step, from the checker's data plus the residue.** -/
-theorem mkRestore_AddNested {env' : VEnv} (hwf : D.WF env) (hf : D.BuiltFresh K occ)
+theorem mkRestore_AddNested {env' : VEnv} (hwf : D.WF env) (hnd : D.blockNames.Nodup)
+    (hkf : D.KFresh K env occ)
     (hl : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → ls j = (occ j).lvls)
     (ha : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → as j = (occ j).args)
     (hres : r.OccResidue types D K env (r.mkRestore types D.uvars D.np ls as) occ)
     (hadd : env.addInductR D K (r.mkRestore types D.uvars D.np ls as) = some env') :
     VEnv.AddNested env D K (r.mkRestore types D.uvars D.np ls as)
       (fun j => (occ j).decl.np) env' :=
-  VEnv.AddNestedB.toAddNested ⟨hwf, h.mkRestore_built hf hl ha hres, hadd⟩
+  VEnv.AddNestedB.toAddNested ⟨hwf, h.mkRestore_built hnd hkf hl ha hres, hadd⟩
 
 /-- …and the packaged premise of `VDecl.WF.inductNested`. -/
-theorem mkRestore_AddNestedStep {env' : VEnv} (hwf : D.WF env) (hf : D.BuiltFresh K occ)
+theorem mkRestore_AddNestedStep {env' : VEnv} (hwf : D.WF env) (hnd : D.blockNames.Nodup)
+    (hkf : D.KFresh K env occ)
     (hl : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → ls j = (occ j).lvls)
     (ha : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → as j = (occ j).args)
     (hres : r.OccResidue types D K env (r.mkRestore types D.uvars D.np ls as) occ)
     (hadd : env.addInductR D K (r.mkRestore types D.uvars D.np ls as) = some env') :
     VEnv.AddNestedStep env D K (r.mkRestore types D.uvars D.np ls as) env' :=
-  ⟨_, h.mkRestore_AddNested hwf hf hl ha hres hadd⟩
+  ⟨_, h.mkRestore_AddNested hwf hnd hkf hl ha hres hadd⟩
 
 end RestoreData
 end ElimNestedInductive.Result
@@ -701,7 +714,8 @@ include h in
 presentation clauses and `own` come from `RestoreData`, the other four from `OccResidue`. -/
 theorem nfnAux_built' : nfnAux.Built nfnRestore' nfnK env₂ (fun _ => pfnOcc) :=
   nfnResult_restoreData.mkRestore_built (ls := nfnLs) (occ := fun _ => pfnOcc)
-    (nfnAux_builtFresh h)
+    (nfnAux_builtFresh h).nodup
+    ⟨pfnEnv_constsClosedC h, nfnK_not_contains h, fun _ _ _ _ => pfnOcc_args_noK⟩
     (fun _ _ _ _ => rfl)
     (by rintro (_ | _ | j) T hT hK
         · cases hT; exact absurd hK (by decide)
@@ -935,4 +949,18 @@ end
 -/
 
 end NestedWit
+
+/-! ## Axiom audit
+
+Added 2026-09-03, with the `Built.fields_noK` removal: these five are the declarations this file
+retyped when `BuiltFresh` stopped being enough to build a `Built` (the clause is now
+`VInductDecl'.KFresh`), and none of them had a `#print axioms` line before — so a retype here was
+invisible to every instrument in the repo. -/
+
+#print axioms Lean4Lean.ElimNestedInductive.Result.RestoreData.mkRestore_built
+#print axioms Lean4Lean.ElimNestedInductive.Result.RestoreData.mkRestore_faithful
+#print axioms Lean4Lean.ElimNestedInductive.Result.RestoreData.mkRestore_AddNested
+#print axioms Lean4Lean.ElimNestedInductive.Result.RestoreData.mkRestore_AddNestedStep
+#print axioms Lean4Lean.NestedWit.nfnAux_built'
+
 end Lean4Lean

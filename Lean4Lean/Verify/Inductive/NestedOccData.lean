@@ -466,21 +466,21 @@ variable {r : Result} {types : List Lean.InductiveType} {D : VInductDecl'} {K : 
 
 /-- **`VInductDecl'.Built` from the two-clause residue.** -/
 theorem mkRestore_built (hd : r.OccData types occ) (h : r.RestoreData types D K as)
-    (hf : D.BuiltFresh K occ)
+    (hnd : D.blockNames.Nodup) (hkf : D.KFresh K env occ)
     (hl : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → ls j = (occ j).lvls)
     (ha : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → as j = (occ j).args)
     (hs : SemResidue types D K env (r.mkRestore types D.uvars D.np ls as) occ) :
     D.Built (r.mkRestore types D.uvars D.np ls as) K env occ :=
-  h.mkRestore_built hf hl ha (hd.occResidue h hs)
+  h.mkRestore_built hnd hkf hl ha (hd.occResidue h hs)
 
 /-- **`VIndRestore.Faithful`** — still a theorem, now from two clauses instead of four. -/
 theorem mkRestore_faithful (hd : r.OccData types occ) (h : r.RestoreData types D K as)
-    (hf : D.BuiltFresh K occ)
+    (hnd : D.blockNames.Nodup) (hkf : D.KFresh K env occ)
     (hl : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → ls j = (occ j).lvls)
     (ha : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → as j = (occ j).args)
     (hs : SemResidue types D K env (r.mkRestore types D.uvars D.np ls as) occ) :
     (r.mkRestore types D.uvars D.np ls as).Faithful D env K (fun j => (occ j).decl.np) :=
-  (hd.mkRestore_built h hf hl ha hs).toFaithful
+  (hd.mkRestore_built h hnd hkf hl ha hs).toFaithful
 
 /-! **`mkRestore_canonical` is deleted here too**, for the reason given at its
 `NestedRestoreWit.lean` twin: `VInductDecl'.Built.canonical` is gone because
@@ -491,24 +491,26 @@ hypothesis. -/
 
 /-- **The whole nested step, from the checker's data plus `member` and `occurs`.** -/
 theorem mkRestore_AddNested {env' : VEnv} (hd : r.OccData types occ)
-    (h : r.RestoreData types D K as) (hwf : D.WF env) (hf : D.BuiltFresh K occ)
+    (h : r.RestoreData types D K as) (hwf : D.WF env) (hnd : D.blockNames.Nodup)
+    (hkf : D.KFresh K env occ)
     (hl : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → ls j = (occ j).lvls)
     (ha : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → as j = (occ j).args)
     (hs : SemResidue types D K env (r.mkRestore types D.uvars D.np ls as) occ)
     (hadd : env.addInductR D K (r.mkRestore types D.uvars D.np ls as) = some env') :
     VEnv.AddNested env D K (r.mkRestore types D.uvars D.np ls as)
       (fun j => (occ j).decl.np) env' :=
-  h.mkRestore_AddNested hwf hf hl ha (hd.occResidue h hs) hadd
+  h.mkRestore_AddNested hwf hnd hkf hl ha (hd.occResidue h hs) hadd
 
 /-- …and the packaged premise of `VDecl.WF.inductNested`. -/
 theorem mkRestore_AddNestedStep {env' : VEnv} (hd : r.OccData types occ)
-    (h : r.RestoreData types D K as) (hwf : D.WF env) (hf : D.BuiltFresh K occ)
+    (h : r.RestoreData types D K as) (hwf : D.WF env) (hnd : D.blockNames.Nodup)
+    (hkf : D.KFresh K env occ)
     (hl : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → ls j = (occ j).lvls)
     (ha : ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K → as j = (occ j).args)
     (hs : SemResidue types D K env (r.mkRestore types D.uvars D.np ls as) occ)
     (hadd : env.addInductR D K (r.mkRestore types D.uvars D.np ls as) = some env') :
     VEnv.AddNestedStep env D K (r.mkRestore types D.uvars D.np ls as) env' :=
-  ⟨_, hd.mkRestore_AddNested h hwf hf hl ha hs hadd⟩
+  ⟨_, hd.mkRestore_AddNested h hwf hnd hkf hl ha hs hadd⟩
 
 end OccData
 end ElimNestedInductive.Result
@@ -1134,5 +1136,16 @@ only call site); and adding a conjunct to a *hypothesis* relation needs a per-co
 satisfiability audit, since no instrument here would notice a consumer going vacuous — §2 of that
 file is the audit, and one consumer (`NestedWit.tBlock_not_refuted_at_trec1`) turns out to have had
 no witness for its `TrIndDeclN` hypothesis before the change either. -/
+
+/-! ## Axiom audit
+
+Added 2026-09-03, with the `Built.fields_noK` removal: the four theorems below are the ones this
+file retyped when `VInductDecl'.Built`'s last clause became `KFresh`, and none had a
+`#print axioms` line before. -/
+
+#print axioms Lean4Lean.ElimNestedInductive.Result.OccData.mkRestore_built
+#print axioms Lean4Lean.ElimNestedInductive.Result.OccData.mkRestore_faithful
+#print axioms Lean4Lean.ElimNestedInductive.Result.OccData.mkRestore_AddNested
+#print axioms Lean4Lean.ElimNestedInductive.Result.OccData.mkRestore_AddNestedStep
 
 end Lean4Lean

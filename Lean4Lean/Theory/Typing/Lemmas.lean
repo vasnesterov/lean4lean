@@ -317,6 +317,36 @@ theorem IsDefEqCtx.refl : ∀ {Γ}, OnCtx Γ (env.IsType U) → IsDefEqCtx env U
   | [], _ => .zero
   | _::_, ⟨h1, _, h2⟩ => .succ (.refl h1) h2
 
+/-! ### `TeleDefEq`: two telescopes related entrywise
+
+`IsDefEqCtx` above relates two *contexts* over a common base; this relates two *telescopes* in
+declaration order, which is the form a pi-telescope congruence consumes.  The two are bridged by
+`RecArgIndep.teleDefEq_isDefEqCtx` (`Theory/Inductive/RecArgIndep.lean` §4).
+
+Moved here from `Theory/Typing/ConstSubstNested.lean` on 2026-09-03 (`docs/handoff-telemove.md`):
+it is stated purely in `VEnv.IsDefEq`/`VExpr`/`VLevel` vocabulary, so it belongs at this layer,
+and `Theory/Inductive/Decl.lean` — which imports this file and is imported *by*
+`ConstSubstNested.lean` — needs it to state `VIndRecArg.exists_indep`'s conclusion.  The
+`mkPi`/`mkLams` congruences that consume it stay in `ConstSubstNested.lean`, since those need
+`VEnv.Ordered` and the `mkPi` API. -/
+
+/-- Two telescopes, related entrywise in the context each entry lives in.  `rfl` skips an
+entry that does not move. -/
+inductive TeleDefEq (env : VEnv) (U : Nat) : List VExpr → List VExpr → List VExpr → Prop
+  | nil : env.TeleDefEq U Γ [] []
+  | rfl : env.TeleDefEq U (A::Γ) As As' → env.TeleDefEq U Γ (A::As) (A::As')
+  | cons {u : VLevel} : env.IsDefEq U Γ A A' (.sort u) →
+      env.TeleDefEq U (A::Γ) As As' → env.TeleDefEq U Γ (A::As) (A'::As')
+
+/-- An unchanged telescope, as a `TeleDefEq`.  Free: `TeleDefEq.rfl` carries no typing.
+Moved here with the inductive on 2026-09-03; it is what makes the *degenerate* witness of
+`VIndRecArg.exists_indep` (`Theory/Inductive/Decl.lean`) cost nothing, so it has to be available
+at that layer too. -/
+theorem TeleDefEq.refl {env : VEnv} {U : Nat} :
+    ∀ {As Γ : List VExpr}, env.TeleDefEq U Γ As As
+  | [], _ => .nil
+  | _ :: _, _ => .rfl refl
+
 variable! (henv : OnTypes env fun _ e A => e.ClosedN ∧ A.ClosedN) in
 theorem IsDefEq.closedN' (H : env.IsDefEq U Γ e1 e2 A) (hΓ : CtxClosed Γ) :
     e1.ClosedN Γ.length ∧ e2.ClosedN Γ.length ∧ A.ClosedN Γ.length := by

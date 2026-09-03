@@ -141,15 +141,12 @@ definitionally equal ones — each in the context it lives in — keeps the tele
 `VEnv.IsType.forallE_congr` is the single-binder case; `VEnv.TeleDefEq` iterates it.
 
 `TeleDefEq.rfl` is there so an *unchanged* entry costs nothing: without it the caller would
-have to supply a reflexivity derivation, i.e. re-type every entry it is not touching. -/
+have to supply a reflexivity derivation, i.e. re-type every entry it is not touching.
 
-/-- Two telescopes, related entrywise in the context each entry lives in.  `rfl` skips an
-entry that does not move. -/
-inductive VEnv.TeleDefEq (env : VEnv) (U : Nat) : List VExpr → List VExpr → List VExpr → Prop
-  | nil : env.TeleDefEq U Γ [] []
-  | rfl : env.TeleDefEq U (A::Γ) As As' → env.TeleDefEq U Γ (A::As) (A::As')
-  | cons {u : VLevel} : env.IsDefEq U Γ A A' (.sort u) →
-      env.TeleDefEq U (A::Γ) As As' → env.TeleDefEq U Γ (A::As) (A'::As')
+**The inductive itself moved to `Theory/Typing/Lemmas.lean` on 2026-09-03** (next to
+`VEnv.IsDefEqCtx`; `docs/handoff-telemove.md`), because `Theory/Inductive/Decl.lean` — which this
+file transitively imports — needs it to state `VIndRecArg.exists_indep`'s conclusion.  Only the
+congruences below stay here: they need `VEnv.Ordered` and the `mkPi`/`mkLams` API. -/
 
 /-- **The telescope congruence, body fixed.** -/
 theorem VEnv.IsType.mkPi_congr {env : VEnv} {U : Nat} (henv : env.Ordered) :
@@ -274,12 +271,6 @@ counterpart's `hsrc`/`hσ`: the source's `IsType` pays for every telescope entry
 `lhs`/`rhs` components of (C)'s bridge have to be *typed* defeqs, and a typed defeq already
 carries both sides' typing; `hsrc`/`hσ` are then redundant and are **not** hypotheses of
 `iotaRulesRS_wf_of_substC'`.  That asymmetry is a fact about `VDefEq.WF`, not an oversight. -/
-
-/-- An unchanged telescope, as a `TeleDefEq`.  Free: `TeleDefEq.rfl` carries no typing. -/
-theorem VEnv.TeleDefEq.refl {env : VEnv} {U : Nat} :
-    ∀ {As Γ : List VExpr}, env.TeleDefEq U Γ As As
-  | [], _ => .nil
-  | _ :: _, _ => .rfl refl
 
 /-- **The λ-telescope congruence.**  `IsDefEq.lamDF` iterated; the type is the *left*
 telescope's `mkPi`, exactly as `lamDF` gives the left domain.  `OnCtx` is what pays for the

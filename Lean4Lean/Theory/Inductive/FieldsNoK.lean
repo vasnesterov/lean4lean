@@ -840,4 +840,99 @@ projection and the removal must move it below §F5 or delete it.  **Delete it**:
 the compiled environment, `Built.toFresh` has zero users — its only occurrence is its own
 declaration.  §7.2 and §8.7 port it only to show the port is free. -/
 
+/-! ## §9 The removal landed (2026-09-03), and the model is provably the landed structure
+
+§5–§8 assessed the removal; it is now **applied**.  `VInductDecl'.Built`'s last clause is
+`kfresh : D.KFresh K env occ`, `Built.fields_noK` is the §F5 theorem in `NestedBuild.lean`,
+`Built.toFresh` is deleted, and the five `Built.mk` sites and the two general-bridge families
+carry the substitution.  Full `lake build` green, guards `24 / whitelist ✓ INCOMPLETE / 2-2`,
+census 13 holes, and **no printed declaration in the repo changed or lost an axiom** (measured:
+0 removed, 0 changed over 1496 → 1526 `#print axioms` lines).
+
+### §9.1 `Built''` **is** `Built` — the model was faithful, not merely analogous
+
+§8.4–§8.11 checked each consumer against `Built''` before the field moved.  Now that the field has
+moved, the two structures can be compared directly, and the comparison is an *equivalence* rather
+than a claim about proof terms: field-for-field, `{ h with }` in both directions.  This is the
+strongest form the "the model matched the edit" claim can take, and it is only statable after the
+edit lands — which is why it was not in §8. -/
+
+section
+variable {D : VInductDecl'} {R : VIndRestore} {K : List Name} {env : VEnv}
+  {occ : Nat → VNestedOcc}
+
+/-- **The landed `Built` gives the model.** -/
+theorem VInductDecl'.Built.toBuilt'' (h : D.Built R K env occ) : D.Built'' R K env occ :=
+  { h with }
+
+/-- **…and the model gives the landed `Built`.**  Together with `Built.toBuilt''` this says
+`Built''` and `Built` have the same inhabitants, so every §8 consumer result transfers verbatim. -/
+theorem VInductDecl'.Built''.toBuilt (h : D.Built'' R K env occ) : D.Built R K env occ :=
+  { h with }
+
+/-- **`Built'` (the rejected `KHyg` variant) still gives the landed `Built`** — via §8.6.  This is
+the ordering §8.2/§8.3 established, now at the real structure: anything a site could prove with
+`KHyg` in the field it can prove with `KFresh` there, and `kfresh_not_khyg` says the converse
+fails. -/
+theorem VInductDecl'.Built'.toBuilt (h : D.Built' R K env occ) : D.Built R K env occ :=
+  h.toBuilt''.toBuilt
+
+end
+
+/-! ### §9.2 Anti-vacuity of the landed clause, stated in three separate parts
+
+Per `docs/vacuity-ledger.md` §0 and row 193b these are three different claims and are stated
+separately.  **(a) inhabitation**, **(b) hole-freeness**, **(c) consistency of the witness
+environment**.
+
+(a) is below and is unconditional — the `addInduct'` hypothesis every §4/§8 witness carries is
+discharged by `listDecl_env_exists'`, so these are `∃`-statements with no hypotheses left.
+
+(b) is separate and is read off `#print axioms`: every declaration in this file and in
+`NestedBuild.lean` reports `[propext, Quot.sound]` or weaker, **no `sorryAx`**, so no witness
+routes through a hole.  Hole-freeness is *not* implied by (a) and (a) is not implied by (b).
+
+(c) is separate again: the witness environment is `VEnv.empty.addInduct' listDecl`, and
+`listEnv_constsClosedC` / `listEnv_ordered` are proved of it, so it is not the degenerate
+"declare everything" environment.  It declares no `univInhab`-style inhabitation axiom.  (A
+neighbouring corner's witness environment *is* inconsistent; this one is not.) -/
+
+namespace InductiveDeclExamples
+
+/-- **(a) `VInductDecl'.KFresh` is inhabited at a non-empty `K`, unconditionally.** -/
+theorem kfresh_inhabited :
+    ∃ (D : VInductDecl') (K : List Name) (env : VEnv) (occ : Nat → VNestedOcc),
+      D.KFresh K env occ ∧ K ≠ [] :=
+  let ⟨_, he⟩ := listDecl_env_exists'
+  ⟨ntreeAux, ntreeK, _, fun _ => listOcc,
+    ⟨listEnv_constsClosedC he, ntreeK_not_contains he, fun _ _ _ _ => listOcc_args_noK⟩,
+    by decide⟩
+
+/-- **(a′) …and so is the post-removal `VInductDecl'.Built` itself**, at the same non-empty `K`.
+This is the clause that matters: a field removal that left `Built` uninhabited would make every
+consumer vacuously true, and `#print axioms` would not notice. -/
+theorem built_inhabited :
+    ∃ (D : VInductDecl') (R : VIndRestore) (K : List Name) (env : VEnv) (occ : Nat → VNestedOcc),
+      D.Built R K env occ ∧ K ≠ [] :=
+  let ⟨_, he⟩ := listDecl_env_exists'
+  ⟨ntreeAux, ntreeRestore, ntreeK, _, fun _ => listOcc, ntreeAux_built he, by decide⟩
+
+/-- **(a″) `Built.fields_noK` still *fires*** — the theorem that replaced the field is not merely
+well-typed, it produces the clause at the witness, at the same instantiation
+`fields_noK_needs_spine` uses.  Without this, §9.1's equivalence would be compatible with a
+`Built` whose `fields_noK` projection is unusable. -/
+theorem built_fields_noK_fires {env₁ : VEnv} (h : VEnv.empty.addInduct' listDecl = some env₁) :
+    ∀ C₀ ∈ listOcc.src.ctors, ∀ (k : Nat) (F₀ : VIndField), C₀.fields[k]? = some F₀ →
+      VExpr.NoConsts ntreeK (VExpr.instAll (F₀.type.instL listOcc.lvls) listOcc.args k) :=
+  fun C₀ hC₀ k F₀ hF₀ => (ntreeAux_built h).fields_noK 1 _ rfl (by decide) C₀ hC₀ k F₀ hF₀
+
+end InductiveDeclExamples
+
+#print axioms Lean4Lean.VInductDecl'.Built.toBuilt''
+#print axioms Lean4Lean.VInductDecl'.Built''.toBuilt
+#print axioms Lean4Lean.VInductDecl'.Built'.toBuilt
+#print axioms Lean4Lean.InductiveDeclExamples.kfresh_inhabited
+#print axioms Lean4Lean.InductiveDeclExamples.built_inhabited
+#print axioms Lean4Lean.InductiveDeclExamples.built_fields_noK_fires
+
 end Lean4Lean

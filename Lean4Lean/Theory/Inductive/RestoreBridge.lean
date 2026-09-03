@@ -969,11 +969,10 @@ theorem nfnAuxDirty_built :
     · simp [nfnAuxDirty] at hT
   own := nfnRestore_ownId_dirty
   nodup := by decide
-  -- **From the producer** (`NestedBuild.lean` §F3): the environment facts are `pfnEnv_constsClosedC`
-  -- and `nfnK_not_contains`, both proved at this very `env₂`, and the residual is the spine.
-  fields_noK := fun _ _ _ _ _ hC₀ _ _ hF₀ =>
-    VNestedOcc.fields_noK_of_occurs (pfnEnv_constsClosedC h) (pfnOcc_occurs h).toOccurs
-      (nfnK_not_contains h) pfnOcc_args_noK hC₀ hF₀
+  -- **The producer's premise list** (`NestedBuild.lean` §F3/§F5): the environment facts are
+  -- `pfnEnv_constsClosedC` and `nfnK_not_contains`, both proved at this very `env₂`, and the
+  -- residual is the spine.  `fields_noK` itself is now the theorem `Built.fields_noK`.
+  kfresh := ⟨pfnEnv_constsClosedC h, nfnK_not_contains h, fun _ _ _ _ => pfnOcc_args_noK⟩
 
 include h in
 theorem nfnAuxDirty_admitted :

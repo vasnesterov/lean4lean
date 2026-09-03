@@ -784,27 +784,34 @@ structure VInductDecl'.Built (D : VInductDecl') (R : VIndRestore) (K : List Lean
   caller nothing it does not already have — and it is what makes `VIndRestore.restore` fire at
   the *right* member (`VInductDecl'.memberIdx` reads the first member of a given name). -/
   nodup : D.blockNames.Nodup
-  /-- **New under ruling 116d.**  A companion member's substituted field types mention no
-  companion name.  True of everything `ElimNestedInductive.replaceIfNested` builds — the
-  auxiliary names come from `mkUniqueName`, and `checkNoNestedAux` rejects any input constructor
-  type that mentions a `_nested` constant — and `decide`-able at a concrete block.
-
-  It is what `VNestedOcc.field_typeR` needs now that `VIndField.typeR` *reads* the stored type
-  instead of discarding it: `VIndRestore.restore_noK` makes the restoration the identity on the
-  recognised binder telescope.  **It is not canonicity**: it says nothing about the *shape* of a
-  field, only that `J`'s stored types and the nested spine do not mention the fresh names. -/
-  fields_noK : ∀ j T, D.types[j]? = some T → T.name ∈ K →
-    ∀ C₀ ∈ (occ j).src.ctors, ∀ (k : Nat) (F₀ : VIndField), C₀.fields[k]? = some F₀ →
-      VExpr.NoConsts K (VExpr.instAll (F₀.type.instL (occ j).lvls) (occ j).args k)
+  /-- **New under ruling 116d, and since 2026-09-03 the *premise list* rather than the
+  conclusion.**  What used to sit here was `fields_noK`: a companion member's substituted field
+  types mention no companion name, quantified over *the foreign block `J`*'s constructors and
+  fields.  That is now a theorem, `VInductDecl'.Built.fields_noK` (§F5 below), derived from this
+  clause plus `occurs`; every consumer keeps its proof term.  What the five `Built.mk` sites
+  actually had in hand was `VNestedOcc.fields_noK_of_occurs`'s premise list, and `KFresh` is that
+  list bundled: two environment facts plus cleanliness of the companion member's *own* nested
+  spine.  See `Theory/Inductive/FieldsNoK.lean` §8 for the ordering against the stronger
+  candidate `VEnv.KHyg`, and why `KHyg` would have narrowed
+  `RestoreData.mkRestore_built_of_spine`. -/
+  kfresh : D.KFresh K env occ
 
 /-- **The two clauses ruling 116d added to `VInductDecl'.Built`, bundled.**  Both are
 *freshness* facts about the auxiliary names — `nodup` says the block's member names are
 distinct, `fields_noK` says the source block's substituted field types do not mention them —
 and **neither is a statement about the checker's `Result`**: `ElimNestedInductive.Result`'s
 `RestoreData` and `OccData` bundles see only `Lean.Name`s and one `Expr.getAppFn`, and this
-bundle is about `D`, `K` and `occ`.  So the general bridge
-(`ElimNestedInductive.Result.RestoreData.mkRestore_built`) carries it as a separate hypothesis,
-where its cost is visible; see `Verify/Inductive/NestedRestoreWit.lean` §6. -/
+bundle is about `D`, `K` and `occ`.
+
+**Since 2026-09-03 this structure is nearly dead**, and the removal of `Built.fields_noK` is what
+killed it: `BuiltFresh.fields_noK` now has **zero users** (measured over the compiled
+environment), because the general bridge
+(`ElimNestedInductive.Result.RestoreData.mkRestore_built`) takes `D.blockNames.Nodup` plus
+`VInductDecl'.KFresh` instead, and the three concrete sites that used to read `.fields_noK` off a
+`BuiltFresh` now build `kfresh` directly.  What survives is `BuiltFresh.nodup`, read by
+`nfnAux_built`, `qnAux_built` and `NestedWit.nfnAux_built'`; `builtFresh_of_occurs` and
+`builtFresh_of_kfresh` have zero users too.  Deleting the structure is a separate, purely
+subtractive round; see `docs/handoff-fieldsnok.md` §10. -/
 structure VInductDecl'.BuiltFresh (D : VInductDecl') (K : List Lean.Name)
     (occ : Nat → VNestedOcc) : Prop where
   nodup : D.blockNames.Nodup
@@ -812,9 +819,11 @@ structure VInductDecl'.BuiltFresh (D : VInductDecl') (K : List Lean.Name)
     ∀ C₀ ∈ (occ j).src.ctors, ∀ (k : Nat) (F₀ : VIndField), C₀.fields[k]? = some F₀ →
       VExpr.NoConsts K (VExpr.instAll (F₀.type.instL (occ j).lvls) (occ j).args k)
 
-theorem VInductDecl'.Built.toFresh {D : VInductDecl'} {R : VIndRestore} {K : List Lean.Name}
-    {env : VEnv} {occ : Nat → VNestedOcc} (h : D.Built R K env occ) : D.BuiltFresh K occ :=
-  ⟨h.nodup, h.fields_noK⟩
+/-! **`VInductDecl'.Built.toFresh` is deleted.**  It read `⟨h.nodup, h.fields_noK⟩`, and it sat
+*between* `Built` and §F5 — so after `fields_noK` became a §F5 theorem it could no longer be
+stated here at all.  Measured in the compiled environment before deletion: **zero users**, its
+only occurrence its own declaration.  `VInductDecl'.builtFresh_of_kfresh` (§F5) is the live route
+from a `Built`-shaped bundle to `BuiltFresh`. -/
 
 /-! ## Ruling 116d's residual: a producer for `Built.fields_noK`
 
@@ -1079,11 +1088,15 @@ bundle stated in a downstream file (`Theory/Inductive/FieldsNoK.lean`) cannot be
 `KFresh` is that bundle.  **The structure itself is declared above `Built`** (Part 6), because a
 field of `Built` can only mention what precedes it; only its three theorems are here, where
 `VNestedOcc.fields_noK_of_occurs` is finally in scope.  That split is not incidental — it is why
-the removal also has to move or delete `Built.toFresh`, which sits between the two halves.
+the removal had to delete `Built.toFresh`, which sat between the two halves and so could not read
+the replacement projection.  It had zero users; §F5 ends with the replacement theorem
+`VInductDecl'.Built.fields_noK`.
 
-What goes in it is measured, not chosen: every one of the four `Theory/`-side `fields_noK :=`
-bodies — `ntreeAux_built` and `nfnAux_builtFresh` below, `RestoreBridge.lean`'s
-`nfnAuxDirty_built`, `MemberRedex.lean`'s `qnAux_builtFresh` — is literally
+What goes in it is measured, not chosen: every one of the four `Theory/`-side
+`fields_noK :=` bodies that existed before the removal — `ntreeAux_built` and
+`nfnAux_builtFresh` below, `RestoreBridge.lean`'s `nfnAuxDirty_built`, `MemberRedex.lean`'s
+`qnAux_builtFresh` (note two of those four sat in a `BuiltFresh` producer, not in a `Built` site;
+`nfnAux_built` and `qnAux_built` delegated to their sibling) — was literally
 `VNestedOcc.fields_noK_of_occurs hcc occurs hK ⟨args_noK⟩ hC₀ hF₀`, and the general site
 (`Verify/Inductive/NestedRestoreWit.lean`'s `RestoreData.mkRestore_built`) takes the same list
 through `BuiltFresh`.  So `KFresh` is exactly what the sites have in hand, and no site pays a new
@@ -1133,6 +1146,20 @@ end VInductDecl'
 #print axioms Lean4Lean.VInductDecl'.KFresh.fields_noK_of_occurs
 #print axioms Lean4Lean.VInductDecl'.builtFresh_of_kfresh
 #print axioms Lean4Lean.VInductDecl'.KFresh.of_spine
+
+/-- **`Built.fields_noK`, now a theorem.**  Until 2026-09-03 this was a *field* of
+`VInductDecl'.Built`; it is derivable from `kfresh` plus `occurs`, at the field's exact former
+signature, so every consumer (`Built.toFaithful` below, `InductiveDeclExamples`'
+`fields_noK_needs_spine`) keeps the proof term it had.  `Theory/Inductive/FieldsNoK.lean` §8.5 is
+this proof term, checked against `Built''` before the field was removed. -/
+theorem VInductDecl'.Built.fields_noK {D : VInductDecl'} {R : VIndRestore} {K : List Lean.Name}
+    {env : VEnv} {occ : Nat → VNestedOcc} (h : D.Built R K env occ) :
+    ∀ (j : Nat) (T : VIndType), D.types[j]? = some T → T.name ∈ K →
+      ∀ C₀ ∈ (occ j).src.ctors, ∀ (k : Nat) (F₀ : VIndField), C₀.fields[k]? = some F₀ →
+        VExpr.NoConsts K (VExpr.instAll (F₀.type.instL (occ j).lvls) (occ j).args k) :=
+  h.kfresh.fields_noK_of_occurs fun j T hT hK => (h.occurs j T hT hK).toOccurs
+
+#print axioms Lean4Lean.VInductDecl'.Built.fields_noK
 
 /-- **`Faithful` is a consequence of the construction.**  This is `docs/handoff-nested-restore.md`
 §7.1: `ctors_complete` and `ctor_agree` stop being hypotheses. -/
@@ -1501,10 +1528,10 @@ theorem ntreeAux_built :
     · simp [ntreeAux] at hT
   occurs := fun _ _ _ _ => listOcc_occurs h
   nodup := by decide
-  -- **From the producer** (§F3), not by computation over `List`'s fields.
-  fields_noK := fun _ _ _ _ _ hC₀ _ _ hF₀ =>
-    VNestedOcc.fields_noK_of_occurs (listEnv_constsClosedC h) (listOcc_occurs h).toOccurs
-      (ntreeK_not_contains h) listOcc_args_noK hC₀ hF₀
+  -- **The premise list of the producer** (§F3), not `fields_noK` itself and not a computation
+  -- over `List`'s fields: these are the same three arguments the old `fields_noK :=` body passed
+  -- to `VNestedOcc.fields_noK_of_occurs`.
+  kfresh := ⟨listEnv_constsClosedC h, ntreeK_not_contains h, fun _ _ _ _ => listOcc_args_noK⟩
   tyName := by
     rintro (_ | _ | j) T hT hK
     · cases hT; exact absurd hK (by decide)
@@ -1989,7 +2016,10 @@ theorem nfnK_not_contains : ∀ n ∈ nfnK, ¬ env₂.contains n := by
   rw [VEnv.addInduct'_constants_of_not_mem h hnm] at hc
   exact absurd hc nofun
 
-/-- **The freshness half of `Built`.**  `fields_noK` now comes **from the producer** (§F3), which
+/-- **The freshness half of `Built`** — as it stood before 2026-09-03.  Since the
+`Built.fields_noK` removal, **only its `nodup` is read**: `nfnAux_built` below and
+`NestedWit.nfnAux_built'` take `.nodup` and build `kfresh` from the same three arguments this
+theorem's `fields_noK` passes to the producer.  `fields_noK` now comes **from the producer** (§F3), which
 costs it the environment hypothesis `h` — the previous proof computed over `PFn`'s fields and
 mentioned no environment.  Both of its consumers (`nfnAux_built` below and `nfnAux_built'`,
 `Verify/Inductive/NestedRestoreWit.lean`) already carry `h`, measured, so nothing downstream loses
@@ -2004,7 +2034,7 @@ theorem nfnAux_builtFresh : nfnAux.BuiltFresh nfnK (fun _ => pfnOcc) where
 theorem nfnAux_built :
     nfnAux.Built nfnRestore nfnK env₂ (fun _ => pfnOcc) where
   nodup := (nfnAux_builtFresh h).nodup
-  fields_noK := (nfnAux_builtFresh h).fields_noK
+  kfresh := ⟨pfnEnv_constsClosedC h, nfnK_not_contains h, fun _ _ _ _ => pfnOcc_args_noK⟩
   member := by
     rintro (_ | _ | j) T hT hK
     · cases hT; exact absurd hK (by decide)
@@ -2171,5 +2201,6 @@ the two `CanonicalOwn` witnesses that replaced `member_Canonical`. -/
 #print axioms Lean4Lean.InductiveDeclExamples.pfnOcc_args_noK
 #print axioms Lean4Lean.InductiveDeclExamples.nfnK_not_contains
 #print axioms Lean4Lean.InductiveDeclExamples.nfnAux_builtFresh
+#print axioms Lean4Lean.InductiveDeclExamples.nfnAux_built
 
 end Lean4Lean

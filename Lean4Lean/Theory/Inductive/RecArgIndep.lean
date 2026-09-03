@@ -32,23 +32,35 @@ hypothesis it names.
   §5 shows why: it *is* sort uniqueness.  `Decl.lean`'s own R3 note records the same
   obstruction for `VIndType.WF.canon` and does not connect it to this hole.
 * §6: the **corrected statement**, which as of 2026-09-03 is *in* `Decl.lean`.  The hole's
-  conclusion now carries two further conjuncts — the `IsDefEqCtx` of the two binder contexts and
-  the telescope congruence — and §6.2b transports the whole `some` branch over exactly that
-  (`posSome_transport_of_indepGoal`).  `IndepUpgrade` (the `TeleDefEq` form) stays here because
-  `VEnv.TeleDefEq` lives in a module that imports `Decl.lean`; §6.3 is the bridge.
+  conclusion now carries one further conjunct, `env.TeleDefEq D.uvars Γ r.binders r'.binders`,
+  and §6.2b transports the whole `some` branch over it (`posSome_transport_of_indepGoal`).  The
+  morning's version of the same repair carried instead the two facts the `TeleDefEq` was only
+  ever used to produce, because `VEnv.TeleDefEq` then lived in a module that imports
+  `Decl.lean`; **it was moved to `Theory/Typing/Lemmas.lean` the same day**
+  (`docs/handoff-telemove.md`), which is what allows the natural form.  `IndepGoalPair` (§1) is
+  the morning's form, kept, and §4b recovers it — so the change loses nothing.
 * §7: the witnesses and the controls, including §7.3b — the repaired statement's new
   hypotheses are inhabited (`rai_staged`) **and** exclude §7.2's candidate counterexample
-  (`rai_not_staged`), with `raiEnvP_add` showing which half of them does the excluding.
+  (`rai_not_staged`), with `raiEnvP_add` showing which half of them does the excluding — and
+  §7.3c, `rai_hyps_all`: **all ten** hypotheses at one instance, which is what makes the
+  statement non-vacuous and which no earlier round had (`rai_hyps` covers only the five
+  pre-repair ones, at an environment the repair excludes).
 -/
 
 namespace Lean4Lean
 
-/-! ## 0. Two free steps the repaired conclusion needs
+/-! ## 0. Two free steps the two-conjunct conclusion needed
 
-Both are what make the *degenerate* witness `r' = r` cost nothing under the strengthened
-conclusion (§3): the reflexive `IsDefEqCtx` comes from the hole's own `hOn`, and the reflexive
-`IsDefEqType` from its own `hdefeq`.  Neither needs `SortUniq` — the sort is the one `hdefeq`
-was already checked at. -/
+These are what made the *degenerate* witness `r' = r` cost nothing under the morning's
+`IsDefEqCtx`-plus-congruence conclusion, which is `IndepGoalPair` (§1) and is still proved
+degenerately by `indepGoalPair_of_bindersIndep` (§3): the reflexive `IsDefEqCtx` comes from the
+hole's own `hOn`, and the reflexive `IsDefEqType` from its own `hdefeq`.  Neither needs
+`SortUniq` — the sort is the one `hdefeq` was already checked at.
+
+**The hole's current `TeleDefEq` conclusion needs neither of them**: `VEnv.TeleDefEq.refl`
+(`Theory/Typing/Lemmas.lean`) carries no typing, so the degenerate witness is free with *no*
+input.  That is the cleanest evidence that the relocation was worth doing, and it is why these
+two lemmas are now about `IndepGoalPair` rather than about the hole. -/
 
 namespace RecArgIndep
 
@@ -75,11 +87,27 @@ namespace VIndRecArg
 /-- **`VIndRecArg.exists_indep`'s conclusion, verbatim.**  `indepGoal_of_exists_indep`
 below machine-checks that this is the hole's conclusion and not a paraphrase of it.
 
-**Updated to the repaired conclusion.**  The first six conjuncts are the original ones
-unchanged; the last two are §6's upgrade, now part of the hole's own statement
-(`Decl.lean`).  So this file's faithfulness check points at the *new* statement, and §3's
-halves below are re-proved against it. -/
+**Updated twice on 2026-09-03.**  The first six conjuncts are the original ones unchanged.  The
+seventh is the repair: the morning's version carried the `IsDefEqCtx` and the telescope
+congruence as two separate conjuncts, because `VEnv.TeleDefEq` then lived in a module that
+imports `Decl.lean`; it now lives in `Theory/Typing/Lemmas.lean` (`docs/handoff-telemove.md`), so
+the hole states the `TeleDefEq` itself and `indepGoalPair_of_indepGoal` recovers the pair.  This
+file's faithfulness check points at the *new* statement, and §3's halves are re-proved against
+it. -/
 def IndepGoal (env : VEnv) (D : VInductDecl') (Γ : List VExpr) (pre : List VIndField)
+    (i : Nat) (F : VIndField) (r : VIndRecArg) : Prop :=
+  ∃ r' : VIndRecArg,
+    r'.idx = r.idx ∧ r'.args = r.args ∧ r'.binders.length = r.binders.length ∧
+    (∀ B ∈ r'.binders, D.NoBlock B) ∧
+    env.IsDefEqType D.uvars Γ F.type (r'.canonType D i) ∧
+    r'.BindersIndep pre i ∧
+    env.TeleDefEq D.uvars Γ r.binders r'.binders
+
+/-- **The conclusion this hole carried between the two 2026-09-03 edits**, kept so that "the
+`TeleDefEq` form loses nothing" is a theorem (`indepGoalPair_of_indepGoal`, §4) and not a claim.
+It is `IndepGoal` with the seventh conjunct replaced by the two facts the `TeleDefEq` was only
+ever used to produce. -/
+def IndepGoalPair (env : VEnv) (D : VInductDecl') (Γ : List VExpr) (pre : List VIndField)
     (i : Nat) (F : VIndField) (r : VIndRecArg) : Prop :=
   ∃ r' : VIndRecArg,
     r'.idx = r.idx ∧ r'.args = r.args ∧ r'.binders.length = r.binders.length ∧
@@ -136,17 +164,29 @@ theorem bindersIndep_of_pre_norec {r : VIndRecArg} {pre : List VIndField} {i : N
 The witness is `r` itself, so nothing moves: these are the halves where the obligation is
 *about nothing*, and §7.1 records that as degeneracy rather than as a win. -/
 
-/-- **`exists_indep` when the clause already holds** — now against the *repaired*
-conclusion.  The witness is still `r`, and the two new conjuncts are still free: the
-`IsDefEqCtx` is `hOn` (a hypothesis of the hole, and a conjunct of `pos`) and the
-`IsDefEqType` is `hdefeq`'s own right-hand reflexivity, at `hdefeq`'s own sort.  **No
-`SortUniq`.** -/
+/-- **`exists_indep` when the clause already holds** — against the `TeleDefEq` conclusion.
+The witness is still `r`, and the new conjunct is *free and needs no input at all*:
+`VEnv.TeleDefEq.refl` (`Theory/Typing/Lemmas.lean`) carries no typing, so unlike the morning's
+two-conjunct form this does not even consume the hole's `hOn`.  **No `SortUniq`.** -/
 theorem indepGoal_of_bindersIndep {env : VEnv} {D : VInductDecl'} {Γ : List VExpr}
+    {pre : List VIndField} {i : Nat} {F : VIndField} {r : VIndRecArg}
+    (hbind : ∀ B ∈ r.binders, D.NoBlock B)
+    (hdefeq : env.IsDefEqType D.uvars Γ F.type (r.canonType D i))
+    (h : r.BindersIndep pre i) : IndepGoal env D Γ pre i F r :=
+  ⟨r, rfl, rfl, rfl, hbind, hdefeq, h, VEnv.TeleDefEq.refl⟩
+
+/-- The same for the morning's two-conjunct form, so that the degeneracy record of §7.1 covers
+both statements.  Here `hOn` *is* consumed — `IsDefEqCtx` is not free at a non-empty base
+(`isDefEqCtx_refl_suffix`, §0) — and the second conjunct is `hdefeq`'s own right-hand
+reflexivity at `hdefeq`'s own sort (`isDefEqType_refl_r`, §0), which is what keeps `SortUniq`
+out.  That asymmetry is the concrete sense in which the `TeleDefEq` form is the cheaper one to
+satisfy degenerately. -/
+theorem indepGoalPair_of_bindersIndep {env : VEnv} {D : VInductDecl'} {Γ : List VExpr}
     {pre : List VIndField} {i : Nat} {F : VIndField} {r : VIndRecArg}
     (hbind : ∀ B ∈ r.binders, D.NoBlock B)
     (hOn : OnCtx (r.binders.reverse ++ Γ) (env.IsType D.uvars))
     (hdefeq : env.IsDefEqType D.uvars Γ F.type (r.canonType D i))
-    (h : r.BindersIndep pre i) : IndepGoal env D Γ pre i F r :=
+    (h : r.BindersIndep pre i) : IndepGoalPair env D Γ pre i F r :=
   ⟨r, rfl, rfl, rfl, hbind, hdefeq, h,
     RecArgIndep.isDefEqCtx_refl_suffix hOn, RecArgIndep.isDefEqType_refl_r hdefeq⟩
 
@@ -165,7 +205,7 @@ theorem exists_indep_of_pre_norec {env₀ env : VEnv} {D : VInductDecl'} {Γ : L
       F'.WF env D (pre.take i') (((pre.take i').map (·.type)).reverse ++ D.params.reverse) i')
     (_hty : env.HasType D.uvars Γ F.type (.sort F.lvl))
     (hbind : ∀ B ∈ r.binders, D.NoBlock B)
-    (hOn : OnCtx (r.binders.reverse ++ Γ) (env.IsType D.uvars))
+    (_hOn : OnCtx (r.binders.reverse ++ Γ) (env.IsType D.uvars))
     (hdefeq : env.IsDefEqType D.uvars Γ F.type (r.canonType D i))
     (hfree : ∀ F' ∈ pre, F'.recArg = none) :
     ∃ r' : VIndRecArg,
@@ -173,9 +213,8 @@ theorem exists_indep_of_pre_norec {env₀ env : VEnv} {D : VInductDecl'} {Γ : L
       (∀ B ∈ r'.binders, D.NoBlock B) ∧
       env.IsDefEqType D.uvars Γ F.type (r'.canonType D i) ∧
       r'.BindersIndep pre i ∧
-      VEnv.IsDefEqCtx env D.uvars Γ (r.binders.reverse ++ Γ) (r'.binders.reverse ++ Γ) ∧
-      env.IsDefEqType D.uvars Γ (r.canonType D i) (r'.canonType D i) :=
-  indepGoal_of_bindersIndep hbind hOn hdefeq (bindersIndep_of_pre_norec hfree)
+      env.TeleDefEq D.uvars Γ r.binders r'.binders :=
+  indepGoal_of_bindersIndep hbind hdefeq (bindersIndep_of_pre_norec hfree)
 
 /-- The same for a nullary `ξ`. -/
 theorem exists_indep_of_binders_nil {env₀ env : VEnv} {D : VInductDecl'} {Γ : List VExpr}
@@ -189,7 +228,7 @@ theorem exists_indep_of_binders_nil {env₀ env : VEnv} {D : VInductDecl'} {Γ :
       F'.WF env D (pre.take i') (((pre.take i').map (·.type)).reverse ++ D.params.reverse) i')
     (_hty : env.HasType D.uvars Γ F.type (.sort F.lvl))
     (hbind : ∀ B ∈ r.binders, D.NoBlock B)
-    (hOn : OnCtx (r.binders.reverse ++ Γ) (env.IsType D.uvars))
+    (_hOn : OnCtx (r.binders.reverse ++ Γ) (env.IsType D.uvars))
     (hdefeq : env.IsDefEqType D.uvars Γ F.type (r.canonType D i))
     (hnil : r.binders = []) :
     ∃ r' : VIndRecArg,
@@ -197,9 +236,8 @@ theorem exists_indep_of_binders_nil {env₀ env : VEnv} {D : VInductDecl'} {Γ :
       (∀ B ∈ r'.binders, D.NoBlock B) ∧
       env.IsDefEqType D.uvars Γ F.type (r'.canonType D i) ∧
       r'.BindersIndep pre i ∧
-      VEnv.IsDefEqCtx env D.uvars Γ (r.binders.reverse ++ Γ) (r'.binders.reverse ++ Γ) ∧
-      env.IsDefEqType D.uvars Γ (r.canonType D i) (r'.canonType D i) :=
-  indepGoal_of_bindersIndep hbind hOn hdefeq (bindersIndep_of_binders_nil hnil)
+      env.TeleDefEq D.uvars Γ r.binders r'.binders :=
+  indepGoal_of_bindersIndep hbind hdefeq (bindersIndep_of_binders_nil hnil)
 
 /-- …and for `i = 0`, where the hole's own `hlen` forces `pre = []`. -/
 theorem exists_indep_of_i_zero {env₀ env : VEnv} {D : VInductDecl'} {Γ : List VExpr}
@@ -213,27 +251,27 @@ theorem exists_indep_of_i_zero {env₀ env : VEnv} {D : VInductDecl'} {Γ : List
       F'.WF env D (pre.take i') (((pre.take i').map (·.type)).reverse ++ D.params.reverse) i')
     (_hty : env.HasType D.uvars Γ F.type (.sort F.lvl))
     (hbind : ∀ B ∈ r.binders, D.NoBlock B)
-    (hOn : OnCtx (r.binders.reverse ++ Γ) (env.IsType D.uvars))
+    (_hOn : OnCtx (r.binders.reverse ++ Γ) (env.IsType D.uvars))
     (hdefeq : env.IsDefEqType D.uvars Γ F.type (r.canonType D 0)) :
     ∃ r' : VIndRecArg,
       r'.idx = r.idx ∧ r'.args = r.args ∧ r'.binders.length = r.binders.length ∧
       (∀ B ∈ r'.binders, D.NoBlock B) ∧
       env.IsDefEqType D.uvars Γ F.type (r'.canonType D 0) ∧
       r'.BindersIndep pre 0 ∧
-      VEnv.IsDefEqCtx env D.uvars Γ (r.binders.reverse ++ Γ) (r'.binders.reverse ++ Γ) ∧
-      env.IsDefEqType D.uvars Γ (r.canonType D 0) (r'.canonType D 0) :=
-  indepGoal_of_bindersIndep hbind hOn hdefeq
+      env.TeleDefEq D.uvars Γ r.binders r'.binders :=
+  indepGoal_of_bindersIndep hbind hdefeq
     (bindersIndep_of_pre_nil (List.eq_nil_of_length_eq_zero hlen))
 
 end VIndRecArg
 
 /-! ## 4. `TeleDefEq → IsDefEqCtx`: the composition that was missing
 
-`VEnv.TeleDefEq` (`Theory/Typing/ConstSubstNested.lean`) relates two telescopes entrywise in
-declaration order, and `VEnv.IsDefEqCtx` (`Theory/Typing/Lemmas.lean`) relates two *contexts*.
-Everything that has to move when a binder telescope is replaced — `OnCtx`, the typing of
-`canonResult`, the `HasArgs` derivation for the index arguments — moves along the second, and
-nothing in the tree turned the first into it.  `TeleDefEq.rfl` carries no typing, which is why
+`VEnv.TeleDefEq` and `VEnv.IsDefEqCtx` now sit next to each other in `Theory/Typing/Lemmas.lean`
+(the first was moved there on 2026-09-03, `docs/handoff-telemove.md`).  The first relates two
+telescopes entrywise in declaration order, the second relates two *contexts*.  Everything that
+has to move when a binder telescope is replaced — `OnCtx`, the typing of `canonResult`, the
+`HasArgs` derivation for the index arguments — moves along the second, and nothing in the tree
+turned the first into it.  `TeleDefEq.rfl` carries no typing, which is why
 `OnCtx` of the source telescope's context is the extra input. -/
 
 namespace RecArgIndep
@@ -269,6 +307,34 @@ theorem teleDefEq_isDefEqCtx {env : VEnv} {U : Nat} {Γ As As' : List VExpr}
     (h : env.TeleDefEq U Γ As As') (hOn : OnCtx (As.reverse ++ Γ) (env.IsType U)) :
     VEnv.IsDefEqCtx env U Γ (As.reverse ++ Γ) (As'.reverse ++ Γ) :=
   teleDefEq_isDefEqCtx' h hOn .zero
+
+/-! ### 4b. …and therefore the `TeleDefEq` conclusion implies the two-conjunct one
+
+This is the machine-checked form of "restating the hole with `VEnv.TeleDefEq` loses nothing".
+Its two extra inputs are **not** new obligations: `hOn` is a hypothesis of the hole *and* a
+conjunct of `pos`, and `hres` is a conjunct of `pos` (`VIndField.PosSome`, §6).  So every
+consumer that could use the morning's form can use this one, and the converse fails — a bare
+`IsDefEqCtx` plus a `mkPi` congruence does not give back an entrywise relation without
+pi-injectivity, which is the whole point. -/
+
+/-- **`IndepGoal → IndepGoalPair`.**  The `IsDefEqCtx` is `teleDefEq_isDefEqCtx`; the telescope
+congruence is `VEnv.IsDefEq.mkPi_congrU`.  Neither costs `SortUniq`: the `F.type` conversion
+is carried separately by both statements, so nothing is ever composed here. -/
+theorem indepGoalPair_of_indepGoal {env : VEnv} {D : VInductDecl'} {Γ : List VExpr}
+    {pre : List VIndField} {i : Nat} {F : VIndField} {r : VIndRecArg}
+    (hOn : OnCtx (r.binders.reverse ++ Γ) (env.IsType D.uvars))
+    (hres : env.HasType D.uvars (r.binders.reverse ++ Γ) (r.canonResult D i) (.sort D.lvl))
+    (hg : VIndRecArg.IndepGoal env D Γ pre i F r) :
+    VIndRecArg.IndepGoalPair env D Γ pre i F r := by
+  obtain ⟨r', hidx', hargs', hlen', hnb, hdefeqF, hindep, htele⟩ := hg
+  have hcr : r'.canonResult D i = r.canonResult D i := by
+    simp [VIndRecArg.canonResult, hidx', hargs', hlen']
+  have hcongr : env.IsDefEqType D.uvars Γ (r.canonType D i) (r'.canonType D i) := by
+    have h := VEnv.IsDefEq.mkPi_congrU htele hOn ⟨D.lvl, hres⟩
+    rw [VIndRecArg.canonType, VIndRecArg.canonType, hcr]
+    exact h
+  exact ⟨r', hidx', hargs', hlen', hnb, hdefeqF, hindep,
+    teleDefEq_isDefEqCtx htele hOn, hcongr⟩
 
 /-! ## 5. The second price: composing the two defeqs is sort uniqueness
 
@@ -318,15 +384,20 @@ pi-injectivity, and that carrying the `TeleDefEq` instead makes all four free.
 entrywise `TeleDefEq`.  §6.2 transports the whole branch; §6.3 shows it implies the hole's
 conclusion.
 
-**What actually landed in `Decl.lean`** (2026-09-03) is one notch weaker than `IndepUpgrade` and
-for a hard reason: `VEnv.TeleDefEq` is declared in `Theory/Typing/ConstSubstNested.lean`, which
-transitively imports `Decl.lean`, so *no* form of the repair naming `TeleDefEq` can be stated at
-the hole.  What the hole now carries is the two things `TeleDefEq` was only ever used to produce
-— `VEnv.IsDefEqCtx env D.uvars Γ (ξ.reverse ++ Γ) (ξ'.reverse ++ Γ)` (available at that layer:
-`Theory/Typing/Lemmas.lean`) and the telescope congruence `IsDefEqType Γ (r.canonType D i)
-(r'.canonType D i)` — on top of the original six conjuncts.  §6.2b is the transport over that
-conclusion, so nothing is lost: `IndepUpgrade → IndepGoal` (§6.3) and `IndepGoal → PosSome at r'`
-(§6.2b) are both theorems. -/
+**What is in `Decl.lean` as of 2026-09-03 evening** is the original six conjuncts plus
+`env.TeleDefEq D.uvars Γ r.binders r'.binders`.  Between morning and evening it was instead the
+six plus the *two things* `TeleDefEq` was only ever used to produce — the `IsDefEqCtx` and the
+telescope congruence — because `VEnv.TeleDefEq` was declared in
+`Theory/Typing/ConstSubstNested.lean`, which transitively imports `Decl.lean`, so no form of the
+repair naming it could be stated at the hole.  Moving the inductive to
+`Theory/Typing/Lemmas.lean` (`docs/handoff-telemove.md`) removed that obstruction; the morning's
+form is kept here as `IndepGoalPair` and §4b proves `IndepGoal → IndepGoalPair` from `hOn` and
+`pos`'s own `canonResult` typing, so the change is a strengthening and not a trade.  §6.2b is
+the transport, and it now goes through §4b.  So all of `IndepUpgrade → IndepGoal` (§6.3),
+`IndepGoal → IndepGoalPair` (§4b) and `IndepGoal → PosSome at r'` (§6.2b) are theorems.
+
+The one conjunct `IndepGoal` keeps that `IndepUpgrade` does not is the `F.type` conversion, and
+§6.3 is where you can read off why: recovering it costs `SortUniq`. -/
 
 open VExpr (mkPi liftTele)
 
@@ -397,12 +468,10 @@ theorem posSome_transport {env : VEnv} {D : VInductDecl'} {Γ : List VExpr}
   · simpa [hlen] using hrc
 
 /-- **§6.2b — the transport, over the hole's *actual* conclusion.**  `posSome_transport` above
-consumes `IndepUpgrade`, whose `TeleDefEq` cannot appear in `Decl.lean` (that inductive lives in
-`Theory/Typing/ConstSubstNested.lean`, which transitively imports `Decl.lean`).  What the hole's
-repaired conclusion carries instead is the `IsDefEqCtx` that `TeleDefEq` was only ever used to
-produce, plus the telescope congruence as a separate conjunct — and **that is enough**: this is
-the same theorem with `IndepGoal` in place of `IndepUpgrade`, so the repaired statement's
-consumer is proved, not projected.
+consumes `IndepUpgrade`; this is the same theorem with `IndepGoal` — the statement that is
+literally in `Decl.lean` — in its place, so the repaired statement's consumer is proved, not
+projected.  It goes through §4b: `pos`'s own `OnCtx` and `canonResult` typing turn the hole's
+`TeleDefEq` into the `IsDefEqCtx` this proof moves the three context-relative clauses along.
 
 **And it costs no `SortUniq`** — measured, not assumed: the hypothesis was there in the first
 draft and the unused-variable linter rejected it.  The reason is that the repaired conclusion
@@ -420,8 +489,9 @@ theorem posSome_transport_of_indepGoal {env : VEnv} {D : VInductDecl'} {Γ : Lis
     ∃ r' : VIndRecArg, r'.idx = r.idx ∧ r'.args = r.args ∧
       r'.binders.length = r.binders.length ∧
       VIndField.PosSome env D Γ i F r' ∧ r'.BindersIndep pre i := by
-  obtain ⟨r', hidx', hargs', hlen', hnb, hdefeqF, hindep, hctx, -⟩ := hg
   obtain ⟨hidx, hargslen, -, hargsnb, hOn, hres, hha, -, hrc⟩ := h
+  obtain ⟨r', hidx', hargs', hlen', hnb, hdefeqF, hindep, hctx, -⟩ :=
+    indepGoalPair_of_indepGoal hOn hres hg
   have hcr : r'.canonResult D i = r.canonResult D i := by
     simp [VIndRecArg.canonResult, hidx', hargs', hlen']
   refine ⟨r', hidx', hargs', hlen',
@@ -434,8 +504,12 @@ theorem posSome_transport_of_indepGoal {env : VEnv} {D : VInductDecl'} {Γ : Lis
   rw [hargs']
   simpa [hlen'] using this
 
-/-- **§6.3 — the repair is a strengthening.**  `IndepUpgrade` implies `exists_indep`'s
-conclusion, so replacing the statement loses nothing that a consumer of the old one had. -/
+/-- **§6.3 — `IndepUpgrade` implies the hole's conclusion.**  Since 2026-09-03 the hole *states*
+the `TeleDefEq`, so the two differ by exactly one conjunct: the `F.type` conversion
+`IsDefEqType Γ F.type (r'.canonType D i)`, which `IndepUpgrade` does not carry and which has to
+be composed out of `hdefeq` and the telescope congruence — and **that** composition is where
+`SortUniq` is spent (§5).  So this theorem is now precisely the price of *dropping* the `F.type`
+conjunct from the hole, and the reason it is still there. -/
 theorem indepGoal_of_indepUpgrade {env : VEnv} {D : VInductDecl'} {Γ : List VExpr}
     {pre : List VIndField} {i : Nat} {F : VIndField} {r : VIndRecArg}
     (henv : VEnv.Ordered env) (hsu : env.SortUniq D.uvars)
@@ -456,8 +530,7 @@ theorem indepGoal_of_indepUpgrade {env : VEnv} {D : VInductDecl'} {Γ : List VEx
     rw [VIndRecArg.canonType, VIndRecArg.canonType, hcr]
     exact this
   exact ⟨⟨bs, r.idx, r.args⟩, rfl, rfl, hlen, hnb,
-    isDefEqType_trans_of_sortUniq henv hsu hΓ hdefeq hcongr, hindep,
-    teleDefEq_isDefEqCtx htele hOn, hcongr⟩
+    isDefEqType_trans_of_sortUniq henv hsu hΓ hdefeq hcongr, hindep, htele⟩
 
 end RecArgIndep
 
@@ -466,12 +539,17 @@ end RecArgIndep
 ### 7.1 The closed halves are degenerate, and this is the record of it
 
 §3's witness is `r` itself: `indepGoal_of_bindersIndep` returns `⟨r, rfl, rfl, rfl, …⟩`, so on
-that regime the existential is satisfied without moving anything.  **The degeneracy survives the
-strengthening**, which was the thing to check when the hole's conclusion grew two conjuncts: the
-new `IsDefEqCtx` conjunct at `r' = r` is `isDefEqCtx_refl_suffix hOn` (§0) and the new
-`IsDefEqType` conjunct is `isDefEqType_refl_r hdefeq` (§0, at `hdefeq`'s own sort, so **no**
-`SortUniq`).  All three of §3's drop-ins are stated and proved against the *repaired* conclusion,
-and `hOn` — the one hypothesis they gained — is `pos`'s own `OnCtx` conjunct.  `docs/vacuity-ledger.md`
+that regime the existential is satisfied without moving anything.  **The degeneracy survives both
+strengthenings**, which was the thing to check each time the hole's conclusion grew:
+
+* under the evening's `TeleDefEq` conclusion the new conjunct at `r' = r` is
+  `VEnv.TeleDefEq.refl`, which carries **no typing and consumes no hypothesis at all** — so the
+  three drop-ins in §3 no longer even use `hOn` (it is `_hOn` there);
+* under the morning's two-conjunct form — kept as `IndepGoalPair`, closed degenerately by
+  `indepGoalPair_of_bindersIndep` — the `IsDefEqCtx` is `isDefEqCtx_refl_suffix hOn` (§0) and the
+  `IsDefEqType` is `isDefEqType_refl_r hdefeq` (§0, at `hdefeq`'s own sort, so **no** `SortUniq`).
+
+`docs/vacuity-ledger.md`
 rows 20–21 are the pattern to avoid — an obligation named after the hard case that, under its
 own premise, contains none of it — so the halves are labelled, not headlined.
 
@@ -731,11 +809,50 @@ theorem raiEnvP_add : raiEnvP.addIndTypes raiD = some raiEnv := by
 theorem rai_junk_not_ordered : ¬ VEnv.Ordered raiEnvP :=
   fun h => rai_not_staged ⟨raiEnvP, h, raiEnvP_add⟩
 
+/-! ### 7.3c …and the hole's *whole* hypothesis list is jointly satisfiable
+
+This is the complement `rai_hyps` above is not.  `rai_hyps` exhibits the five hypotheses the
+statement had *before* 2026-09-03, at `raiEnv` — an environment which `rai_not_staged` then shows
+the current `henv₀`+`hstage` pair **excludes**.  So after that repair the tree contained no single
+instance at which the whole hypothesis list holds, and a statement whose premises are jointly
+unsatisfiable is vacuous no matter how strong its conclusion looks (`docs/vacuity-ledger.md` §0).
+The theorem below closes that gap.
+
+**Stated separately, as the ledger asks.**  *Satisfiability of the premise*: proved below.
+*Degeneracy of the conclusion at that instance*: the instance has `pre = []`, so `BindersIndep`
+is vacuous and `r' = r` is a witness — this says **nothing** about the hard case.  §7.2 is the
+record of the hard case and it is a different instance.  *Hole-freeness*: separate again, and it
+is §8's business. -/
+
+/-- **All ten hypotheses of `VIndRecArg.exists_indep`, at one instance.**  The block is §7.2's
+`raiD`, but taken at its *first* field — `pre = []`, `i = 0`, `Γ = []`, `F = raiF0`,
+`r = raiRec0 = ⟨[], 0, []⟩`, `env₀ = VEnv.empty`, `env = raiEnv0` — which is exactly the
+environment `rai_staged` produces, so `henv₀` and `hstage` are satisfied rather than dodged. -/
+theorem rai_hyps_all :
+    VEnv.Ordered VEnv.empty ∧
+    VEnv.Ordered raiEnv0 ∧
+    VEnv.empty.addIndTypes raiD = some raiEnv0 ∧
+    ([] : List VIndField).length = 0 ∧
+    ([] : List VExpr) = ((([] : List VIndField)).map (·.type)).reverse ++ raiD.params.reverse ∧
+    (∀ (i' : Nat) (F' : VIndField), ([] : List VIndField)[i']? = some F' →
+      F'.WF raiEnv0 raiD (([] : List VIndField).take i')
+        (((([] : List VIndField).take i').map (·.type)).reverse ++ raiD.params.reverse) i') ∧
+    raiEnv0.HasType raiD.uvars [] raiF0.type (.sort raiF0.lvl) ∧
+    (∀ B ∈ raiRec0.binders, raiD.NoBlock B) ∧
+    OnCtx (raiRec0.binders.reverse ++ ([] : List VExpr)) (raiEnv0.IsType raiD.uvars) ∧
+    raiEnv0.IsDefEqType raiD.uvars [] raiF0.type (raiRec0.canonType raiD 0) := by
+  have hty : raiEnv0.HasType raiD.uvars [] raiF0.type (.sort raiF0.lvl) :=
+    raiI_hasType (by simp [raiEnv0])
+  exact ⟨.empty, ordered_raiEnv0, rai_staged, rfl, rfl, nofun, hty,
+    by simp [raiRec0], trivial, ⟨_, raiF0_canon ▸ hty⟩⟩
+
 /-! ### 7.4 The repaired obligation is inhabited
 
 Per `docs/vacuity-ledger.md` §0: a carried hypothesis must be discharged or shown inhabited.
 `IndepUpgrade` is inhabited on §2's regime, with `TeleDefEq.refl` — which costs nothing —
-so §6 is not conditional on something unattainable. -/
+so §6 is not conditional on something unattainable.  Since 2026-09-03 the hole's own conclusion
+carries the same `TeleDefEq`, so the same remark applies to it verbatim
+(`indepGoal_of_bindersIndep`), and §7.3c is the *premise* side of the same question. -/
 
 
 /-! ### 7.5 The shape the docstring says needs repairing cannot occur in `r.binders`
@@ -795,6 +912,8 @@ section Audit
 #print axioms Lean4Lean.VIndRecArg.bindersIndep_of_pre_nil
 #print axioms Lean4Lean.VIndRecArg.bindersIndep_of_pre_norec
 #print axioms Lean4Lean.VIndRecArg.indepGoal_of_bindersIndep
+#print axioms Lean4Lean.VIndRecArg.indepGoalPair_of_bindersIndep
+#print axioms Lean4Lean.RecArgIndep.indepGoalPair_of_indepGoal
 #print axioms Lean4Lean.VIndRecArg.exists_indep_of_pre_norec
 #print axioms Lean4Lean.VIndRecArg.exists_indep_of_binders_nil
 #print axioms Lean4Lean.VIndRecArg.exists_indep_of_i_zero
@@ -816,6 +935,7 @@ section Audit
 #print axioms Lean4Lean.RecArgIndep.rai_not_staged
 #print axioms Lean4Lean.RecArgIndep.raiEnvP_add
 #print axioms Lean4Lean.RecArgIndep.rai_junk_not_ordered
+#print axioms Lean4Lean.RecArgIndep.rai_hyps_all
 #print axioms Lean4Lean.RecArgIndep.isDefEqCtx_refl_suffix
 #print axioms Lean4Lean.RecArgIndep.isDefEqType_refl_r
 #print axioms Lean4Lean.RecArgIndep.raiRedex_not_noBlock
