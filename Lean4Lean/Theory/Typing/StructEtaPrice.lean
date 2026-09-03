@@ -629,11 +629,28 @@ end Lean4Lean
 
 /-! ## 9. Axiom bar
 
-Nothing here introduces an axiom.  `structEtaSE_foo` and `eta_and_constNoConf_incompatible`
-inherit `sorryAx` from `MutField.unitEnv_not_isProof_foo`, exactly as
-`MutField.unitEnv_not_unitEta` (`EtaUnitRefute.lean`) already does — through the same four census
-holes (`weakN_iff`, `forallE_inv_stratified`, `rigidShapeUniqNS`, `NormalEq.descend`) and no
-others.  The **model** section, the **alternative** section, the embedding and both firings are
+Nothing here introduces an axiom.
+
+**CORRECTED 2026-09-03 — this paragraph was wrong on both counts, and both were measured.**  It
+claimed `structEtaSE_foo` and `eta_and_constNoConf_incompatible` both inherit `sorryAx` through
+the same four census holes.  In fact:
+
+* `MutField.structEtaSE_foo` (cone 4217) is **hole-free** — its cone does not reach `sorryAx` at
+  all, so the eta instance this file's argument rests on costs nothing;
+* `eta_and_constNoConf_incompatible` (cone 5237) reaches **exactly one** hole,
+  `VEnv.IsDefEqU.forallE_inv_stratified` — **not four**.
+
+That matters for how the headline may be stated: the incompatibility is conditional on **one**
+open statement, not on a four-hole cluster.  It also means "route-independent" (true of its
+quantification over `R`) must not be read as "independent of the thirteen"; it is not.
+
+**Also corrected**: §6's remark that the surviving side condition does not exist in the tree.  It
+does — it is `VEnv.ConstNoConf`'s existing `IsType` guard, and `Theory/Typing/NoConfRepair.lean`
+shows that guard survives eta while `¬ IsProof` does not.  The two conditions §6 offers instead
+(exempt structure-constructor heads; restrict to zero-field or subsingleton structures) are both
+**refuted** there, hole-free: `guard_rejects_an_axiom` (cone 382) shows *any* guard on head names
+must reject an axiom inhabitant, because transitivity produces a violating pair from which the
+constructor is absent.  The **model** section, the **alternative** section, the embedding and both firings are
 hole-free: `after ⊆ before` on every line. -/
 
 #print axioms Lean4Lean.VEnv.IsDefEq.toSE
