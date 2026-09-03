@@ -19,15 +19,25 @@ unpushed=$(git log --oneline origin/master..master 2>/dev/null | wc -l | tr -d '
 dirty=$(git status --short 2>/dev/null | wc -l | tr -d ' ')
 commits_24h=$(git log --oneline --since='24 hours ago' 2>/dev/null | wc -l | tr -d ' ')
 
-# --- sorry counts (cheap; excludes sorryAx mentions and prose) ---
-count_sorries() {
-  grep -rn "sorry" --include=*.lean "Lean4Lean/$1" 2>/dev/null \
-    | grep -vc "sorryAx\|sorry count\|no sorry\|-- .*sorry" || echo 0
-}
-s_typing=$(count_sorries Theory/Typing)
-s_model=$(count_sorries Theory/SetModel)
-s_induct=$(count_sorries Theory/Inductive)
-s_verify=$(count_sorries Verify)
+# --- the REAL hole census, over the whole built population ---
+# Not a grep.  On 2026-08-29 a grep over these same trees reported 89 holes when
+# the true number was 21: it counted docstrings, prose discussing holes, and the
+# word inside identifiers.  `scripts/sorry-census-all.lean` takes its population
+# from the filesystem (mirroring the lakefile globs) rather than from a fixed
+# import list, so it also sees ORPHAN modules -- built by the glob, imported by
+# nothing -- which every other instrument in this repo is blind to.
+# Time-boxed like the guards: a stream may hold the lake lock.
+census=$(timeout 600 "$LAKE" env lean --run scripts/sorry-census-all.lean 2>/dev/null)
+holes=$(printf '%s\n' "$census" | grep -oE "unioned across both passes: [0-9]+" | grep -oE "[0-9]+")
+[ -z "$holes" ] && holes="not sampled"
+orphans=$(printf '%s\n' "$census" | grep -oE "^ORPHAN modules \(([0-9]+)\)" | grep -oE "[0-9]+")
+[ -z "$orphans" ] && orphans="?"
+# In a default target, on disk, no .olean.  Usually a stream's in-flight file;
+# if it persists with no stream running, something in the tree does not build.
+unbuilt=$(printf '%s\n' "$census" | grep -oE "in population but NOT BUILT: [0-9]+" | grep -oE "[0-9]+")
+[ -z "$unbuilt" ] && unbuilt="?"
+hole_list=$(printf '%s\n' "$census" | grep -E "^  Lean4Lean\..*\[Lean4Lean\." | sed 's/^/  /')
+[ -z "$hole_list" ] && hole_list="  (not sampled -- build busy; run scripts/sorry-census-all.lean directly)"
 
 # --- guards (optional, time-boxed; another stream may hold the lake lock) ---
 guards=$(timeout 600 "$LAKE" build Lean4Lean.Verify.Guard 2>&1 \
@@ -58,7 +68,10 @@ $guards
 axioms: $axioms
 empty inductives (vacuity sources -- docs/vacuity-ledger.md):
 $empties
-sorries — typing $s_typing | model $s_model | inductive $s_induct | verify $s_verify
+holes (real census, whole built population): $holes
+$hole_list
+orphan modules (built, imported by nothing): $orphans
+in a default target but NOT BUILT: $unbuilt  <- in-flight stream files, or something broken
 
 goal 1 (arena): run 'uv run lka.py run --checker lean4lean-local' in ~/lean-kernel-arena
 goal 2: complete when guard 2 prints "proof COMPLETE"
