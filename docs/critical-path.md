@@ -2,6 +2,66 @@
 
 *Measured 2026-08-31. Reproduce with `~/.elan/bin/lake env lean scripts/kernel-sound-path.lean`.*
 
+## Read this FIRST: state of play, 2026-09-03
+
+**Read this section, then the 2026-09-02 one, then treat everything older as history.**
+
+**Goal 1 unchanged and not re-run, for a stated reason.** Every Lean change since the last
+verified arena run (185 correct / 6 either / 0 incorrect) is an *additive proof module* under
+`Theory/` or `Verify/` — `git diff --name-only` over the four commits shows nothing in the
+checker's executable path, and guard 3 still reads 2/2. So the arena figure stands by
+non-interference, not by re-measurement, and that distinction is the point: the last time this
+document asserted a goal-1 figure without re-measuring, the figure was twelve days stale and
+wrong. Re-run `build-checker` before `run` the moment any implementation file moves.
+
+**Goal 2: census still 13, and that number is again the wrong thing to watch.** Guards
+`1 ✓ (24 axioms) / 2 ✓ (INCOMPLETE) / 3 ✓ (2/2)`; full build 1536 jobs. Two substantial results
+landed underneath a flat census.
+
+**WALL 2 IS PROVED.** `VEnv.IsStructureG.projTermG_hasType` (`Verify/Typing/ProjGenTerm.lean`)
+drops the single-type restriction `D.types = [T]` in favour of a block index `j`, with `projTermG`
+for `projTerm`. Measured independently: **cone 5271, hole set exactly
+`{VEnv.IsDefEqU.weakN_iff, VEnv.IsDefEqU.forallE_inv_stratified}`** — identical to its narrow
+predecessor `projTerm_hasType` (`Verify/Typing/Lemmas.lean:1474`, cone 5082). It has a collapse
+test *and* a firing test at a two-type mutual block where `IsStructure` is outright false. **No
+hole closed**: a statement that did not exist now does, at its predecessor's cone. The mechanism
+was recorded nowhere — `hiota` does not mention the minor slot `q`, so the induction on `q` that
+builds the block spine discharges its own projected entry (`padMinors_hasArgs_take_of_hiota`,
+cone 4018, **holes empty**), and the uniqueness-of-slot lemma an earlier plan required is
+unnecessary.
+
+**And wall 2 is two walls, which corrects my own sequencing claim.** The `noRec`-*carrying* form
+just proved serves corners 1 and 3. `inferProj.WF` needs the `noRec`-*free* form, which requires
+**typing `D.ihValues`** — recursor applications under each recursive field's ξ-telescope at the
+padded block — and *nothing in the tree types `ihValues`* (`ihTypes` is likewise only ever
+manipulated syntactically). So `bugs-found.md` item 10's **other** exit is now the cheaper one,
+reversing the standing assumption; and vacuity-ledger row 107d ruling (iii) **bundles corners 1
+and 2 and should be split** — widen `TrProj` via option (d) *keeping* `noRec` and the eleventh
+field is discharged today.
+
+**`InductOracleOK` is now assembled at ALL THREE `.induct` steps of `leanPrelude`** —
+`EqIotaAudit.inductOracleOK_Eq`, `IffIotaAudit.inductOracleOK_Iff`, and the `Nonempty` block in
+`PreludeOracle.lean`, all at the shared `SetModel.preludeWitness`, all sorry-free, all quantified
+over **every** `κ` and `ls` (so no chain is chosen and `Above` appears in no hypothesis). Each of
+the first two carries exactly two hypotheses: `hle` (discharged at `preludeEnv`) and
+**`hS : L.Stable`, which is not discharged in this tree.** `L.Stable` is therefore now the single
+undischarged hypothesis on this corner, and it is under active work.
+
+**A correction that moves the eta corner without cheapening it:** that corner needs
+`HasTypeStrong`, not `HasType`, and `docs/audit-isdefeq-constructor.md` item 10 does not
+distinguish them. `HasTypeStrong.hasType` exists; **the converse exists nowhere.** So item 10's
+*soundness* objection is answered — the rule does not assert a defeq with an ill-typed side — but
+its *cost* objection has moved rather than vanished. Do not read this as "the constructor is
+cheap"; row 170's recommended order stands.
+
+**One live instrument blindness, flagged and deliberately not fixed.** `ProjGenTerm.lean` builds
+through the `Lean4Lean.Verify.*` glob but **nothing imports it** except its own witness, which
+nothing imports either — so every *fixed-import-list* census (`scripts/cone-measure.lean`,
+`Experimental/ConeJoin.lean`) is blind to both leaves. Wiring an import in would move other cones,
+and `ConeJoin.lean` is off limits. Nothing is at risk today because neither module holds a
+`sorry`; the general shape is the gap. **`lake build` green is not the population the censuses
+measure**, and a future leaf carrying a hole would be invisible to both.
+
 ## Read this FIRST: state of play, 2026-09-02
 
 **Everything dated 2026-08-31 or 2026-09-01 below has been amended, in some cases twice. Read this
