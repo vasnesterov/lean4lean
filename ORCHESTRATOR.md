@@ -1533,3 +1533,37 @@ Population caveat, itself learned twice: a structural query is only as complete 
 imported into it, and **nothing in its output reveals a gap** — one scan reported five declarations
 where there were six. This script takes its population from the filesystem, like
 `scripts/sorry-census-all.lean`, and prints the module count so a shrunken population is visible.
+
+## "Axioms identical before and after" is the wrong bar — it rejects improvements (2026-09-03, mine)
+
+I have put this in every brief involving a move, trim, or restatement:
+
+> The bar that makes a change mechanical: **the existing proof term is accepted unchanged, and
+> `#print axioms` is identical before and after.**
+
+The first half is right. **The second is wrong, and would have rejected a real improvement.**
+Trimming 17 unused instance binders changed axiom sets in **6 of 7 measured declarations — all
+downward**. `VEnv.refQ_not_noApp` went to **no axioms at all**; `oracleExtend_append` lost
+`Classical.choice`, which it had been carrying *only* through unused binders. The root cause is
+structural and I verified it: `VEnv.Params` itself is `[propext, Quot.sound]`, so **no `[Params]`
+binder can ever be axiom-free, however proof-irrelevant it looks.** An unused hypothesis can import
+an axiom.
+
+**Correct bar: `after ⊆ before`.** Identical is the expected case for a pure relocation; a *subset*
+is a win and must not be reported as a failed check; a *superset* is the only thing that disqualifies
+the change. Briefs now say that.
+
+Two related corrections from the same round, both mine:
+
+* **"17 one-line edits, no consumer edits"** — the consumer half was right, the count was not: **35
+  lines across 8 files**, of which 18 were cascade, and **two of the files carried none of the
+  original 17**. Applying a lemma elaborates the ambient section variable into the call, which is
+  what made the binder look used at the caller; trimming the callee propagates *up* the call graph
+  across module boundaries to a fixed point. One file went 1 → 9 over two rounds.
+* A trim is **not** a repair when the binder was inhabited. `[Params]` has instances, so those 17
+  declarations were never vacuous — the trim is a *strengthening*. Saying "fixed" would have implied
+  they had been broken.
+
+And two mechanical traps worth keeping: the linter's own suggested clause contains **nested
+brackets**, so a `\[[^\]]*\]` scan silently reports a file clean; and `omit … in` must sit **above**
+a doc comment, since a doc comment must abut its declaration.

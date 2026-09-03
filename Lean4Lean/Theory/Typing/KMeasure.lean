@@ -326,6 +326,7 @@ corrected in `KCanonical.lean` and this copy was missed).  The measure now *is* 
 what `fuel_eq` predicts from `.const C []`'s `appDepth 0` against a function-side pattern depth
 of `0`. -/
 
+omit [Params] in
 /-- The measure at a concrete, non-degenerate ι-shaped pattern: `rec a b (ctor c)`. -/
 theorem measure_witness (rec ctor : Lean.Name) (ls ls' : List VLevel) (a b c : VExpr) :
     let p := (SimplePattern.iota rec 2 ctor 1).toPattern
@@ -706,6 +707,7 @@ theorem weakNInvTailS_of_no_etaK (hno : ∀ {Δ a b}, ¬ EtaK Δ a b) : WeakNInv
   obtain ⟨v', hv', rfl⟩ := ParRedS.weakN_inv hΓ' W hd.hasType.2 hx
   exact ⟨v', hv'.toK, hxu.symm hΓ'⟩
 
+omit [Params] in
 theorem refParams_weakNInvTailS : @WeakNInvTailS refParams :=
   @weakNInvTailS_of_no_etaK refParams (fun h => refParams_no_etaK h)
 
@@ -922,6 +924,7 @@ theorem KStepTail.toS (H : KStepTail) : KStepTailS :=
 theorem kStepTailS_of_no_kstep (hno : ∀ {Δ a b}, ¬ KStep Δ a b) : KStepTailS :=
   fun _ _ _ h => absurd h hno
 
+omit [Params] in
 theorem refParams_kStepTailS : @KStepTailS refParams :=
   @kStepTailS_of_no_kstep refParams (fun h => refParams_no_kstep h)
 
@@ -1118,6 +1121,7 @@ theorem weakNInvStatementP_of_no_etaK (hno : ∀ {Δ a b}, ¬ EtaK Δ a b) : Wea
   obtain ⟨e2, h1, rfl⟩ := weakNInvStatement_of_no_etaK hno hΓ' W hty H
   exact ⟨e2, h1, .refl (H.hasType hΓ' hty)⟩
 
+omit [Params] in
 theorem refParams_weakNInvStatementP : @WeakNInvStatementP refParams :=
   @weakNInvStatementP_of_no_etaK refParams (fun h => refParams_no_etaK h)
 

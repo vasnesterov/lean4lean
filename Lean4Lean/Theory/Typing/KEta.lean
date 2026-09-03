@@ -298,6 +298,7 @@ theorem EtaK.eta_stuck_fires {Γ : List VExpr} {f A₀ B₀ t : VExpr}
     WHNF (A₀::Γ) (.app f.lift (.bvar 0)) ∧ EtaK Γ f (.lam A₀ t) :=
   ⟨whnf_app_bvar hw hlam, .under hty (.here hstep)⟩
 
+omit [Params] in
 /-- `EtaK` is empty at the witness instance, because `KStep` is (`refParams_no_kstep`) and
 every `EtaK` derivation bottoms out in a `KStep`.  Hence `HasEtaK` is a **consistent**
 hypothesis, and -- the point that matters for §S1 -- `ParRed` at `refParams` is unchanged, so
@@ -311,6 +312,7 @@ theorem refParams_no_etaK {Γ e e'} : ¬ @EtaK refParams Γ e e' := by
   | here hst => exact refParams_no_kstep hst
   | under _ _ ih => exact ih
 
+omit [Params] in
 theorem refParams_hasEtaK : @HasEtaK refParams := fun h => absurd h refParams_no_etaK
 
 /-! ## The model: the closure is satisfiable, and not only vacuously
@@ -433,6 +435,7 @@ theorem ParRedK.toParRed (hno : ∀ {Δ a b}, ¬ EtaK Δ a b) {Γ : List VExpr} 
   | extra h1 h2 h3 _ ih => exact .extra h1 h2 h3 ih
   | keta h _ _ => exact absurd h hno
 
+omit [Params] in
 theorem refParams_parRedK_eq {Γ e e'} : @ParRedK refParams Γ e e' ↔ @ParRed refParams Γ e e' :=
   ⟨@ParRedK.toParRed refParams (fun h => refParams_no_etaK h) _ _ _,
    @ParRed.toK refParams _ _ _⟩
@@ -508,6 +511,7 @@ def EtaKDiamond : Prop :=
   ∀ {Γ : List VExpr} {e e₁ e₂ : VExpr}, OnCtx Γ (IsType env univs) →
     EtaK Γ e e₁ → EtaK Γ e e₂ → ∃ e₃ e₄, ParRedKS Γ e₁ e₃ ∧ ParRedKS Γ e₂ e₄ ∧ NormalEq Γ e₃ e₄
 
+omit [Params] in
 /-- Vacuously satisfied at the witness instance, for the same reason everything else in this
 corner is: `KStep` is empty there.  Recorded as a consistency check, and **not** as
 evidence -- see `KCanonical.lean`'s "why there is no refutation" note. -/
@@ -772,6 +776,7 @@ theorem kdom_defeq {Γ : List VExpr} {C A₀ : VExpr} {uC u : VLevel}
   by simpa [kdom, VExpr.inst_lift, VExpr.liftN, VExpr.inst] using
     IsDefEq.beta (A := C.lift) ((hA₀.weak henv).weak henv) (.bvar .zero)
 
+omit [Params] in
 theorem kdom_ne_liftN {C A₀ X : VExpr} : kdom C A₀ ≠ X.liftN 1 0 := by
   intro h
   cases X <;> simp [kdom, VExpr.liftN] at h
@@ -884,6 +889,7 @@ theorem weakNInvStatement_of_no_etaK (hno : ∀ {Δ a b}, ¬ EtaK Δ a b) : Weak
   obtain ⟨e2, h1, h2⟩ := ParRed.weakN_inv hΓ' W hty (ParRedK.toParRed hno H)
   exact ⟨e2, h1.toK, h2⟩
 
+omit [Params] in
 theorem refParams_weakNInvStatement : @WeakNInvStatement refParams :=
   @weakNInvStatement_of_no_etaK refParams (fun h => refParams_no_etaK h)
 
@@ -892,6 +898,7 @@ theorem kStepLiftInv_of_no_kstep (hno : ∀ {Δ a b}, ¬ KStep Δ a b) : KStepLi
   intro n k Γ Γ' e1 w A hΓ' W hty H
   exact (hno H).elim
 
+omit [Params] in
 theorem refParams_kStepLiftInv : @KStepLiftInv refParams :=
   @kStepLiftInv_of_no_kstep refParams (fun h => refParams_no_kstep h)
 
@@ -1006,6 +1013,7 @@ def KStepTail : Prop :=
 theorem kStepTail_of_no_kstep (hno : ∀ {Δ a b}, ¬ KStep Δ a b) : KStepTail :=
   fun _ _ _ h => absurd h hno
 
+omit [Params] in
 theorem refParams_kStepTail : @KStepTail refParams :=
   @kStepTail_of_no_kstep refParams (fun h => refParams_no_kstep h)
 
@@ -1013,6 +1021,7 @@ theorem kStepLiftInvP_of_no_kstep (hno : ∀ {Δ a b}, ¬ KStep Δ a b) : KStepL
   intro n k Γ Γ' e1 w A _ _ _ _ H
   exact (hno H).elim
 
+omit [Params] in
 theorem refParams_kStepLiftInvP : @KStepLiftInvP refParams :=
   @kStepLiftInvP_of_no_kstep refParams (fun h => refParams_no_kstep h)
 

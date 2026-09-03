@@ -36,6 +36,7 @@ theorem parRedKStatement_of_no_etaK (hno : ∀ {Δ a b}, ¬ EtaK Δ a b) : ParRe
   obtain ⟨e₁', h1, h2⟩ := H1.parRed hΓ (ParRedK.toParRed hno H2)
   exact ⟨e₁', h1.toK, h2⟩
 
+omit [Params] in
 theorem refParams_parRedKStatement : @ParRedKStatement refParams :=
   @parRedKStatement_of_no_etaK refParams (fun h => refParams_no_etaK h)
 
@@ -124,6 +125,7 @@ theorem etaRLiftInv_of_no_etaK (hno : ∀ {Δ a b}, ¬ EtaK Δ a b) : EtaRLiftIn
     .one (hty.weak henv) (ParRedK.toParRed hno H)
   exact ⟨g, hg.toK, rfl⟩
 
+omit [Params] in
 theorem refParams_etaRLiftInv : @EtaRLiftInv refParams :=
   @etaRLiftInv_of_no_etaK refParams (fun h => refParams_no_etaK h)
 
@@ -700,10 +702,12 @@ theorem DomEq.rhs_develop {Γ : List VExpr} (hΓ : OnCtx Γ (IsType env univs)) 
 theorem DomEq.wf_l {Γ : List VExpr} {e₁ e₂ : VExpr} (hΓ : OnCtx Γ (IsType env univs))
     (H : DomEq Γ e₁ e₂) : ∃ A, Γ ⊢ e₁ : A := (H.symm hΓ).wf_r hΓ
 
+omit [Params] in
 theorem _root_.Lean4Lean.Pattern.Matches.const_shape {c : Lean.Name} {e m1 m2}
     (H : (Pattern.const c).Matches e m1 m2) : ∃ ls, e = .const c ls ∧ m1 = fun _ => ls := by
   cases H; exact ⟨_, rfl, rfl⟩
 
+omit [Params] in
 /-- A `.const` pattern has no holes, so the argument map is irrelevant: any one will do. -/
 theorem _root_.Lean4Lean.Pattern.Matches.const' {c : Lean.Name} {ls} (m2 : (Pattern.const c).Path → VExpr) :
     (Pattern.const c).Matches (.const c ls) (fun _ => ls) m2 := by
@@ -1221,6 +1225,7 @@ theorem weakNInvDS_of_no_etaK (hno : ∀ {Δ a b}, ¬ EtaK Δ a b) : WeakNInvDS 
   obtain ⟨e2, h1, rfl⟩ := ParRedS.weakN_inv hΓ' W hty (hz.toParRedS hno)
   exact ⟨e2, h1.toK, dz.symm hΓ'⟩
 
+omit [Params] in
 theorem refParams_weakNInvDS : @WeakNInvDS refParams :=
   @weakNInvDS_of_no_etaK refParams (fun h => refParams_no_etaK h)
 

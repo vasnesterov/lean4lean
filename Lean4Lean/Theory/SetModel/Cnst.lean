@@ -252,6 +252,7 @@ theorem addConstList_append : ∀ (l₁ l₂ : List (Name × VConstant)) {env en
     · rintro ⟨e₂, ⟨e₁, h1, h3⟩, h4⟩
       exact ⟨e₁, h1, (addConstList_append l₁ l₂).2 ⟨e₂, h3, h4⟩⟩
 
+omit [SetStructure V] [Nonempty V] [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖] in
 theorem oracleExtend_append (o : Name → List VLevel → V) :
     ∀ (l₁ l₂ : List Name) (c : Name → List VLevel → V),
       oracleExtend o (l₁ ++ l₂) c = oracleExtend o l₂ (oracleExtend o l₁ c)

@@ -3429,3 +3429,97 @@ refute `sort_inst`.  `InstDescendUp` remains open; the recorded *reason* is gone
 been named "the sharpest open mathematics on the model side" in six consecutive handoff sections
 before anyone unfolded it, and it turned out to be `SortRetypeOnCtx` — a one-line consequence of
 `env.WF`.
+
+## What the definability apparatus actually assumes — measured, 2026-09-03
+
+This is not lint.  Lean's `unusedSectionVars` linter had been reporting, in every build,
+that a family of `SetModel` lemmas is stated under **instance binders their proofs never
+touch**.  Read the other way round, each such report is a statement about what the
+soundness argument assumes, and the answer is narrower than the file's `variable` block
+claims.  `Theory/SetModel/IndInterp.lean` and `Theory/SetModel/Cnst.lean` open with
+
+```
+variable {V : Type*} [SetStructure V] [Nonempty V]
+variable [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖]
+```
+
+so every theorem in them looks like a fact about a model of ZFC.  For ten of them it is not.
+
+### The measurement
+
+For each lemma the linter's own `omit … in` line was inserted verbatim above the
+declaration and the file re-elaborated with the proof text **unchanged**.  All ten were
+accepted, so the trimmed statements are the ones the existing proofs actually prove.
+
+| Lemma (`Lean4Lean.SetModel.`) | needs `SetStructure V` | needs `Nonempty V` | needs `⊧* 𝗭𝗙` | needs `⊧* 𝗔𝗖` |
+|---|---|---|---|---|
+| `ite_eq_definable₁` | yes | no | no | no |
+| `ite_eq_definable₂` | yes | no | no | no |
+| `ite_eq_definable₃` | yes | no | no | no |
+| `ite_rel_definable₂` | yes | no | no | no |
+| `ite_eq_snd_definable₂` | yes | no | no | no |
+| `IndSignature.at_toTwo` | yes | no | no | no |
+| `IndSignature₂.WF.at` | yes | no | no | no |
+| `indStep₂_eq` | yes | yes | yes | **no** |
+| `indStep_at_mono` | yes | yes | yes | **no** |
+| `oracleExtend_append` (`Cnst.lean`) | **no** | no | no | no |
+
+So: **all nine `IndInterp` lemmas need no AC**, and **seven of the nine need no ZF and no
+`Nonempty V`** — they are consequences of the definability apparatus, which is first-order
+syntax and does not care what the ambient set structure satisfies.  The two exceptions
+(`indStep₂_eq`, `indStep_at_mono`) use ZF and `Nonempty V` but still not AC.
+`Cnst.lean`'s `oracleExtend_append` needs **none of the four, not even `SetStructure V`**:
+it is a fold identity on `Name → List VLevel → V` and `V` is an arbitrary type.
+
+### Instantiated, not admired
+
+Dropping a hypothesis can turn a true statement into a vacuous one, so each trim was
+checked at a witness where the *removed* hypothesis has **no instance at all** — the
+strong form, meaning the untrimmed statement had no instance there and the trimmed one
+does.  Re-runnable as `lake env lean` on:
+
+```lean
+import Lean4Lean.Theory.SetModel.Cnst
+import Lean4Lean.Theory.SetModel.IndInterp
+open LO LO.FirstOrder LO.FirstOrder.SetTheory Lean4Lean Lean4Lean.SetModel
+#synth Membership ℕ ℕ                              -- FAILS: ℕ has no SetStructure
+#check fun (o c : Lean.Name → List VLevel → ℕ) (l₁ l₂ : List Lean.Name) =>
+  (oracleExtend_append (V := ℕ) o l₁ l₂ c :
+    oracleExtend o (l₁ ++ l₂) c = oracleExtend o l₂ (oracleExtend o l₁ c))   -- succeeds
+instance boolMem : Membership Bool Bool := ⟨fun _ _ => True⟩
+#synth Bool↓[ℒₛₑₜ] ⊧* 𝗭𝗙                          -- FAILS
+#synth Bool↓[ℒₛₑₜ] ⊧* 𝗔𝗖                          -- FAILS
+#check @ite_eq_definable₁ Bool boolMem             -- succeeds
+#check @ite_eq_definable₂ Bool boolMem
+#check @ite_eq_definable₃ Bool boolMem
+#check @ite_rel_definable₂ Bool boolMem
+#check @ite_eq_snd_definable₂ Bool boolMem
+```
+
+Exactly three failures, the three `#synth` lines.  `ℕ` carries no `Membership ℕ ℕ`, so the
+untrimmed `oracleExtend_append` could not be stated at `V := ℕ`; `Bool` with an ad-hoc
+membership carries no ZF and no AC instance, so the untrimmed definability lemmas could not
+be stated there.  The trimmed forms are stated and used at both.
+
+### The axiom consequence
+
+The untrimmed forms were not merely wider — they **imported axioms through the unused
+binders**.  Measured by reconstructing each untrimmed declaration verbatim (same proof
+text, `[…]` auto-included) in a scratch module and comparing `#print axioms`:
+
+| declaration | before | after |
+|---|---|---|
+| `SetModel.oracleExtend_append` | `propext, Classical.choice, Quot.sound` | `propext, Quot.sound` |
+| `VEnv.refQ_not_noApp` | `propext, Quot.sound` | *none* |
+| `VEnv.refQ2_not_noApp` | `propext, Quot.sound` | *none* |
+| `Pattern.Matches.const_shape` | `propext, Quot.sound` | *none* |
+| `Pattern.Matches.const'` | `propext, Quot.sound` | `Quot.sound` |
+| `VEnv.measure_witness` | `propext, Quot.sound` | `propext` |
+| `VEnv.refParams_no_kstep` | `propext, Classical.choice, Quot.sound` | unchanged |
+
+`oracleExtend_append` was depending on `Classical.choice` **only** through the four
+instance binders its proof never used.  The `VEnv` rows are the same phenomenon at the
+class `Lean4Lean.VEnv.Params`, which itself carries `[propext, Quot.sound]`: any theorem
+that merely *mentions* `Params` in its type inherits those, so a `[Params]` binder is never
+axiom-free even when it is proof-irrelevant.  This is worth stating in the ledger because
+it means an unused instance binder is not cosmetic: it is a live edge in the axiom graph.

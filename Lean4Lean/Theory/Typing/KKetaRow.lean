@@ -141,6 +141,7 @@ every other `Params` instance in this tree, none of which registers an `.app` pa
 theorem etaKNormalEqInv_of_no_etaK (hno : ∀ {Δ a b}, ¬ EtaK Δ a b) : EtaKNormalEqInv :=
   fun _ _ hek => absurd hek hno
 
+omit [Params] in
 theorem refParams_etaKNormalEqInv : @EtaKNormalEqInv refParams :=
   @etaKNormalEqInv_of_no_etaK refParams (fun h => refParams_no_etaK h)
 

@@ -129,6 +129,7 @@ theorem teleFun_read : ∀ (Gs : List (DefFun V)) {ρ σ : V} {n j : ℕ},
 a tag.  The split has to be *definable*, which rules out `List.get?` and forces
 a chain of definable equality tests. -/
 
+omit [Nonempty V] [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖] in
 /-- A definable two-way split on an equality with a fixed set. -/
 theorem ite_eq_definable₁ {c : V} {f g : V → V}
     (hf : ℒₛₑₜ-function₁[V] f) (hg : ℒₛₑₜ-function₁[V] g) :
@@ -140,6 +141,7 @@ theorem ite_eq_definable₁ {c : V} {f g : V → V}
   simp only [e]
   definability
 
+omit [Nonempty V] [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖] in
 theorem ite_eq_definable₂ {c : V} {f g : V → V → V}
     (hf : ℒₛₑₜ-function₂[V] f) (hg : ℒₛₑₜ-function₂[V] g) :
     ℒₛₑₜ-function₂[V] (fun q a ↦ if q = c then f q a else g q a) := by
@@ -150,6 +152,7 @@ theorem ite_eq_definable₂ {c : V} {f g : V → V → V}
   simp only [e]
   definability
 
+omit [Nonempty V] [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖] in
 theorem ite_eq_definable₃ {c : V} {f g : V → V → V → V}
     (hf : ℒₛₑₜ-function₃[V] f) (hg : ℒₛₑₜ-function₃[V] g) :
     ℒₛₑₜ-function₃[V] (fun q a b ↦ if q = c then f q a b else g q a b) := by
@@ -295,6 +298,7 @@ noncomputable def tagPayload (i : ℕ) (b : V) : V := ({b} : V) ‘ ((i : ℕ) :
 theorem tagPayload_definable (i : ℕ) : ℒₛₑₜ-function₁[V] (tagPayload (V := V) i) := by
   unfold tagPayload; definability
 
+omit [Nonempty V] [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖] in
 /-- A definable split on a definable *relation*, not just on equality with a
 constant — which is what decoding a tag needs. -/
 theorem ite_rel_definable₂ {P : V → V → Prop} (hP : ℒₛₑₜ-relation[V] P)
@@ -832,6 +836,7 @@ noncomputable def IndSignature.toTwo (S : IndSignature V) : IndSignature₂ V wh
   resIdx_definable := S.resIdx_definable
   Fld_mono := fun _ _ _ hz ↦ hz
 
+omit [Nonempty V] [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖] in
 /-- The round trip is the identity, on the nose. -/
 theorem IndSignature.at_toTwo (S : IndSignature V) (W : V) : S.toTwo.at W = S := rfl
 
@@ -843,6 +848,7 @@ variable {S : IndSignature₂ V} {D : V}
 ordinary operator at the signature specialised to the current approximation. -/
 noncomputable def indStep₂ (S : IndSignature₂ V) (D W : V) : V := indStep (S.at W) D W
 
+omit [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖] in
 theorem indStep₂_eq (S : IndSignature₂ V) (D W : V) :
     indStep₂ S D W = indStep (S.at W) D W := rfl
 
@@ -895,6 +901,7 @@ signature that ignores the approximation, the generalised family is the old
 one — so nothing built on `Ind` is invalidated. -/
 theorem Ind₂_toTwo (S : IndSignature V) (D : V) : Ind₂ S.toTwo D = Ind S D := rfl
 
+omit [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖] in
 /-- Enlarging the approximation only enlarges the step — the signature enters
 `indStep` in exactly one place. -/
 theorem indStep_at_mono (S : IndSignature₂ V) (D : V) {W₁ W₂ : V} (h : W₁ ⊆ W₂) (X : V) :
@@ -987,6 +994,7 @@ theorem IsStageSignature₂.at {k : V} {S : IndSignature₂ V} (h : IsStageSigna
   fld_mem := h.fld_mem W hW
   pos_mem := h.pos_mem W hW
 
+omit [Nonempty V] [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖] in
 theorem IndSignature₂.WF.at {S : IndSignature₂ V} (h : S.WF) (W : V) :
     (S.at W).WF where
   resIdx_mem := h.resIdx_mem W
@@ -1549,6 +1557,7 @@ The port changed `Fld` from `V → V` to `V → V → V`, taking the approximati
 *first* and the tag *second*.  So the tag dispatch now has to be definable in
 the **second** argument, which `tagCase₁` cannot do: hence `tagCaseSnd`. -/
 
+omit [Nonempty V] [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] [V↓[ℒₛₑₜ] ⊧* 𝗔𝗖] in
 /-- A definable split on an equality with the **second** argument. -/
 theorem ite_eq_snd_definable₂ {c : V} {f g : V → V → V}
     (hf : ℒₛₑₜ-function₂[V] f) (hg : ℒₛₑₜ-function₂[V] g) :

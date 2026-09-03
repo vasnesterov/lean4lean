@@ -183,6 +183,7 @@ evidence of truth. -/
 theorem appKetaRow_of_no_etaK (hno : ∀ {Δ a b}, ¬ EtaK Δ a b) : AppKetaRow :=
   fun _ _ _ _ _ _ _ hek _ => absurd hek hno
 
+omit [Params] in
 theorem refParams_appKetaRow : @AppKetaRow refParams :=
   @appKetaRow_of_no_etaK refParams (fun h => refParams_no_etaK h)
 
@@ -317,6 +318,7 @@ into site 7, through exactly two rows, and `NormalEq.trans`'s own residual is it
 binders).  Discharging `WeakNInvDS` would bring `ParRed.weakN_inv`'s `extra` case back as a
 third entry, as `KSite7App.lean` says. -/
 
+omit [Params] in
 /-- The `refParams` consistency check for the assembled statement: both hypotheses hold there
 (vacuously), and the conclusion agrees with `KSite7.refParams_parRedKStatement`, which reaches
 it by the independent route `ParRedK.toParRed` + `ChurchRosser.NormalEq.parRed`. -/

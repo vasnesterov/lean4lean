@@ -386,19 +386,23 @@ theorem KStep.uniq_defeq {Γ : List VExpr} {e e₁ e₂ : VExpr}
 They are not repaired, and they are not contradicted -- they are *excluded*, twice over, and
 both exclusions are checkable in one line each. -/
 
+omit [Params] in
 /-- The pattern of witnesses A and C (`not_descendStatement`, `not_descendStatement_etaFun`)
 has an `.app` node, so `NormalEq.descendV` never sees it. -/
 theorem refQ_not_noApp : ¬ refQ.NoApp := id
 
+omit [Params] in
 /-- The pattern of witness B (`not_descendStatement_etaArg`), likewise. -/
 theorem refQ2_not_noApp : ¬ refQ2.NoApp := id
 
+omit [Params] in
 /-- And the top-node lemma is out of their reach for the *other* reason the refutations
 exploit: it carries `Pat p r`, and `refParams` registers nothing.  So neither of the two new
 statements is refutable by the three witnesses, and neither weakens what they refute. -/
 theorem refParams_no_kstep {Γ e e'} : ¬ @KStep refParams Γ e e' := by
   rintro ⟨hpat, _, _, _, _⟩; exact refNoPat hpat
 
+omit [Params] in
 /-- `hK` is a *consistent* hypothesis, which a vacuously-false one would not be: at the
 witness instance it holds, because `KStep` there is empty.  This is not evidence that it is
 *useful* at that instance -- `KRule.lean`'s `KStep.stuck_fires` is what shows the rule fires
