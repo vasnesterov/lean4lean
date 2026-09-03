@@ -21,7 +21,21 @@ reserved `_nested` prefix. **Nothing checks this, in either kernel.**
 - Elaboration does not catch it: `Lean.isReservedName` is a registry, and nothing in the Lean 4
   tree registers `_nested`.
 
-So `inductive _nested.Foo` is accepted by both kernels.
+So `inductive _nested.Foo` is accepted by both kernels **when the prefixed name occurs in no
+constructor type of the block**.
+
+**That qualifier was missing from the first three versions of this file, and it matters.** Measured
+on 2026-09-03 by probing `Environment.addInductive` directly at the pre-check tree: the existing
+*type* scan already rejects the natural cases, because a constructor's type normally mentions the
+inductive itself.
+
+    nested block, member `_nested.NB`          -> ALREADY REJECTED ("...'_nested.NB.mk', it uses the reserved prefix")
+    plain  block, member `_nested.PB`          -> ALREADY REJECTED, same reason
+    inductive _nested.Zzz : Type, no ctors     -> ACCEPTED, stored
+    inductive TB | _nested.TB.mk : TB          -> ACCEPTED, both stored
+
+So the class a name check newly rejects is exactly the last two shapes: **a `_nested`-prefixed name
+that appears in no constructor type.** Everything else is already caught.
 
 **This is not claimed to be an exploit.** No witness was constructed, and two mitigations may close
 every path: `mkUniqueName`/`mk_unique_name` skip names the environment already holds, and the
@@ -62,6 +76,30 @@ The outcome is a **rejection**: `constant has already been declared`, and **the 
 it the same way for the same reason.** So the duplicate-constant check catches that particular
 collision. What the witness settles is the proof-side question — `RestoreData.ownName` is what
 excludes the state, and nothing in the implementation does.
+
+## Does this affect the theory, or only naming? (measured 2026-09-03)
+
+**Only naming.** The delta class above is *defined* by the prefixed name not occurring in any type
+in the block -- which is precisely the condition under which the existing type scan stays silent.
+So renaming such a declaration changes **no type**: in the constructor-less case there are no
+constructor types, and in the `_nested.TB.mk` case the constructor's type is `TB`, untouched by
+renaming the constructor. The stored environment differs in one label and nothing else, so any
+development using `_nested.Zzz` can be rewritten with `Zzz` and is then accepted, giving an
+isomorphic environment. Provable propositions, up to renaming of constants, are unchanged.
+
+**This was worth checking rather than assuming, because the kernel is NOT renaming-invariant in
+general.** `Environment.primitives` (`Environment/Basic.lean:34`) keys special reduction on names,
+and `checkName` throws `unexpected use of primitive name` for any name in it -- so a declaration
+named `Nat.gcd` genuinely must satisfy the recognizer, and there the name *does* change what is
+accepted. That list is `Bool`/`Nat`/`String.ofList`/`Char.ofNat` plus the `Nat` arithmetic
+operations, every entry a fixed literal, and **no `_nested`-prefixed name is in it or could be.**
+The other name-keyed path, `isNonRecStructure` (which gates the eta rule), dispatches on a
+declaration's *shape*, not its name.
+
+**Consequence for the decision.** This weakens the case for the check as a *safety* argument and
+leaves it intact as a *proof* argument. No theory is excluded, so nothing of value is lost -- but by
+the same token nothing unsound is being blocked. The reason to take it is unchanged and is the one
+in the next section: the prefix cannot serve as a barrier without it.
 
 ## The options, as they now stand
 
