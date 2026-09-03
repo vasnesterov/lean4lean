@@ -2,6 +2,9 @@ import Lean4Lean.Verify.Typing.ProjLevelWitness
 import Lean4Lean.Theory.Inductive.Lemmas
 import Lean4Lean.Theory.Typing.UniqueTyping
 import Lean4Lean.Theory.Inductive.StructureClosed
+-- 2026-09-03: `VEnv.onCtx_of_appendTele_free`, the axiom-free replacement for the
+-- `OnCtx.weakN_inv` appeal in `OnCtx.of_appendTele` below (handoff-weakn §7.4 site 1).
+import Lean4Lean.Theory.Typing.WeakNProjGate
 
 /-!
 # The syntactic core of `TrProj.wf`'s live route
@@ -323,10 +326,17 @@ inductive VExpr.SwapCtx (b B : VExpr) : List VExpr → List VExpr → Prop
       b = b₀.liftN 1 Fs₀.length → B = B₀.liftN 1 Fs₀.length →
       VExpr.SwapCtx b B Fs Fs' → VExpr.SwapCtx b B (F :: Fs) (VExpr.swapUnit :: Fs')
 
-/-- A context of the form `As.reverse ++ Γ` has `Γ` well-formed. -/
-theorem OnCtx.of_appendTele {env : VEnv} {U : Nat} (henv : VEnv.WF env) :
+/-- A context of the form `As.reverse ++ Γ` has `Γ` well-formed.
+
+**No strengthening here.**  This used to be `OnCtx.weakN_inv henv (Ctx.LiftN.zero …)`, i.e. a
+call to `VEnv.IsDefEqU.weakN_iff`'s typing wrapper -- but a `Ctx.LiftN n 0` only *appends* a
+block, and dropping an appended block from an `OnCtx` is a two-line list induction with no
+`VEnv.WF`, no hypothesis and no hole: `VEnv.onCtx_of_appendTele_free`
+(`Theory/Typing/WeakNProjGate.lean`, `#print axioms`: depends on no axioms).  See
+`docs/handoff-weakn.md` §7.4 site 1 and `docs/handoff-pidescend.md` §1. -/
+theorem OnCtx.of_appendTele {env : VEnv} {U : Nat} :
     ∀ {As Γ : List VExpr}, OnCtx (As.reverse ++ Γ) (env.IsType U) → OnCtx Γ (env.IsType U) :=
-  fun {As Γ} h => OnCtx.weakN_inv henv (Ctx.LiftN.zero (Γ := Γ) As.reverse rfl) h
+  fun {_ _} h => VEnv.onCtx_of_appendTele_free h
 
 /-- **Every unused binder of a telescope can be swapped at once.** -/
 theorem VEnv.HasType.swapCtx {env : VEnv} {U : Nat} (henv : VEnv.WF env) {b B : VExpr} :
@@ -342,7 +352,7 @@ theorem VEnv.HasType.swapCtx {env : VEnv} {U : Nat} (henv : VEnv.WF env) {b B : 
     subst hFs hb hB
     rw [VExpr.tele_ctx_cons] at hΓ H
     have hΓ0 : OnCtx Γ (env.IsType U) := by
-      have := OnCtx.of_appendTele henv (As := liftTele 1 Fs₀ 0) (Γ := F :: Γ) hΓ
+      have := OnCtx.of_appendTele (As := liftTele 1 Fs₀ 0) (Γ := F :: Γ) hΓ
       exact this.1
     have hΓ' : OnCtx ((liftTele 1 Fs₀ 0).reverse ++ VExpr.swapUnit :: Γ) (env.IsType U) := by
       refine OnCtx.weakTele henv.ordered Ctx.LiftN.one ⟨hΓ0, VExpr.swapUnit_isType⟩ ?_
@@ -368,7 +378,7 @@ theorem OnCtx.swapCtx {env : VEnv} {U : Nat} {b B : VExpr} (henv : VEnv.WF env) 
     subst hFs
     rw [VExpr.tele_ctx_cons] at hΓ
     have hΓ0 : OnCtx Γ (env.IsType U) := by
-      have := OnCtx.of_appendTele henv (As := liftTele 1 Fs₀ 0) (Γ := F :: Γ) hΓ
+      have := OnCtx.of_appendTele (As := liftTele 1 Fs₀ 0) (Γ := F :: Γ) hΓ
       exact this.1
     have hΓ' : OnCtx ((liftTele 1 Fs₀ 0).reverse ++ VExpr.swapUnit :: Γ) (env.IsType U) := by
       refine VEnv.OnCtx.weakTele henv.ordered Ctx.LiftN.one ⟨hΓ0, VExpr.swapUnit_isType⟩ ?_
