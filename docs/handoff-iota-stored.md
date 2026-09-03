@@ -3875,3 +3875,274 @@ No `sorryAx`, no frozen-axiom dependency, no new entry anywhere near `implGapWhi
    Both times the fact was one file away in `Theory/Typing/` or `Theory/SetModel/`. The cheap
    defence is to grep for the *statement shape* (`grep -rn "Ordered\b"` over all of `Lean4Lean/`,
    then filter) rather than for a name in a directory.
+
+# §60 The `Expr` → `VExpr` spine transfer: half of it already existed, the other half was **not needed** — `hspine` is now a theorem (round 11)
+
+Assignment: build the two halves of the spine transfer — (1) `TrExprS` preserves constants, (2)
+`RestoreData` agreement between `aux2nested`'s stored args and `as j` — or establish which resists
+and whether the route is expensive or closed.
+
+**Neither half was as briefed.** (1) exists in the repository and has since round 4 or so. (2) is
+not on the path to `hspine` at all, because `RestoreData` already carries a *stronger* spine clause.
+The consequence is better than the brief hoped for: `mkRestore_built_of_spine`'s `hspine` is now a
+**theorem**, its one new hypothesis is one every caller already needs, and ruling 116d's *general*
+residual is closed. What remains is one level down and is `hproj`, an obligation that predates this
+round and belongs to `TrProj`, not to the spine.
+
+All new material is in one new file, `Lean4Lean/Verify/Inductive/SpineTransfer.lean` (639 lines,
+six sections). No existing file was edited.
+
+## 60.1 Where the brief is wrong — five places
+
+1. **"Two halves that do not exist."**  Half 1 exists: **`TrExprS.noConsts`**,
+   `Lean4Lean/Verify/Inductive/Add.lean`, in a section headed *"From the syntactic check to
+   `VExpr.NoConsts`"*, with a 60-line design note.  It is the `Expr` → `VExpr` transfer by
+   induction on `TrExprS`, with three named side conditions — `hctx` (discharged there,
+   `VLCtx.noConsts_of_allVLam`), `hlit` (discharged there for numerals via `HasPrimitives`) and
+   `hproj` (open there, with the reason recorded and probed against both kernels).  §59.10 guessed
+   it might be "in `Verify/Typing/`" and did not look; it is in the same directory as the
+   consumer, two files away.  My own floor: `grep -rn "NoConsts" --include=*.lean Lean4Lean/Verify/`
+   — it is the fourth hit.
+
+2. **"`RestoreData` agreement … does not exist" / is needed for `hspine`.**  `RestoreData`'s
+   **fourteenth field** is `args : ∀ j, ∀ a ∈ tyArgs j, a.NoConstIn IsNestedName`
+   (`Verify/Inductive/NestedRestore.lean`:490), and its own §8.1 table already describes that field
+   as *"a property of the supplied `tyArgs`, i.e. of the translation of `aux2nested`'s stored
+   spine"*.  So the bundle that has to supply the spine premise has carried a spine clause all
+   along — and a stronger one, because a *name predicate* barrier subsumes the `K`-list one.  The
+   agreement clause is needed to *prove* `args` from the source, not to get `hspine` from it.
+
+3. **"the whole of ruling 116d's general residual".**  The general residual is
+   `hspine`, and it is discharged (§60.2).  What is left is not ruling 116d's: it is `hproj`, which
+   `Verify/Inductive/Add.lean` already owns and already documents, and it is about `TrProj`'s
+   spliced parameter/index spine, not about `aux2nested`.
+
+4. **The two predicates were never connected, and that is what hid this.**
+   `VExpr.NoConsts : List Name → VExpr → Prop` (`Theory/Inductive/Decl.lean`:44) and
+   `VExpr.NoConstIn : (Name → Prop) → VExpr → Prop` (`Verify/Inductive/NestedRestore.lean`:65) are
+   the same recursion.  Absence claim, with the definitions named and the tree stated:
+   `grep -rn` over all of `Lean4Lean/` for `noConstIn` outside its defining file — **empty**; for
+   the two identifiers on one line — **empty**.  A floor (a lemma stated with both spelled through
+   an abbreviation would evade it).  §1 of the new file is the three-line bridge.
+
+5. **The `run`-level premise, re-checked as instructed.**  I did **not** reuse it.  `SpineNoAux` /
+   `spineNoAuxB` play no part in the chain below, and §4.2 records why they are the wrong shape:
+   their predicate tests `K.contains c`, the gate's tests the `_nested` prefix, and the prefix form
+   is the *stronger* one (given §2's `isNestedName_of_mem`).  `RestoreData.args` wants the prefix
+   form, so the gate delivers more than `SpineNoAux` asks and the `K`-indexed statement is a detour.
+   The gate premise from §59.5 is used, but as `checkNoNestedAux_eq` (§4.2) — the gate's `Except`
+   value converted to `anySub isNestedNode e = false` — and only in §4.5's producer, never at
+   `run`.
+
+The brief's six traps were accurate and I hit none: `decide` arbitrated every restoration claim
+below (and refuted one of my own, §60.6); I did not touch `field_typeR`, did not route through F7's
+`ResidualClean`, ran every `#eval` probe in `/tmp` with `lake env lean` first, and did not exceed a
+heartbeat anywhere (largest single elaboration 1.2 s).
+
+## 60.2 Proved: `hspine` is a theorem
+
+`Lean4Lean/Verify/Inductive/SpineTransfer.lean` §§1–2.
+
+* `VExpr.noConsts_of_noConstIn` / `noConstIn_of_noConsts` / `noConstIn_mem_iff` — the bridge.
+  **No axioms at all** (the first two).
+* `RestoreData.isNestedName_of_mem (hKB : ∀ n ∈ K, n ∈ D.blockNames) : ∀ n ∈ K, IsNestedName n` —
+  `mkRestore_nestedBarrier.auxTy` re-aimed from "a `D`-member on `K`" to "all of `K`".
+* `RestoreData.spine_noConsts` — **`mkRestore_built_of_spine`'s `hspine`, derived**, from
+  `RestoreData.args` through the bridge.  No environment, no `WF`, no `TrExprS`.
+* `RestoreData.mkRestore_built_of_blockK` — `mkRestore_built_of_spine` with `hspine` replaced by
+  `hKB`.
+* `RestoreData.mkRestore_AddNested_of_blockK` — the whole nested step with **both** `hspine` and
+  `hK` gone: `hKB` plus the step's own `addIndTypes` success give both
+  (`VInductDecl'.fresh_of_addIndTypes` is the second).
+
+**Why `hKB` is not a new cost.**  `∀ n ∈ K, n ∈ D.blockNames` is an established hypothesis of this
+tree, not something invented here: `VInductDecl'.fresh_of_addIndTypes`
+(`Theory/Inductive/NestedFresh.lean`:61) takes it to produce `hK`, and
+`Theory/Inductive/IndexedNested.lean`:480,492 take it too.  Tool: `grep -rn "∀ n ∈ K"
+--include=*.lean Lean4Lean/`.  So a caller of the reduced bridge pays `hKB` once and gets `hK` and
+`hspine` both.
+
+At the concrete witness (§3): `nfnK_sub_blockNames` by `decide`, `nfnAs_noK'` = last round's
+`nfnAs_noK` re-derived, and `nfnAux_built'_of_blockK` — the same conclusion as `nfnAux_built'` and
+`nfnAux_built'_of_spine`, with no spine hypothesis at all.
+
+## 60.3 Proved: the `Expr` side, and what it needs
+
+`SpineTransfer.lean` §4.
+
+* `TrExprS.noConstIn` (§4.1) — `TrExprS.noConsts` restated at a `Name → Prop`, same three side
+  conditions, same proof.  Deliberate duplication, ~40 lines: generalising `Add.lean` in place would
+  rebuild a 116 KB module and its two dependents for no proof content.  `VExpr.NoConstIn.liftN`,
+  `VLCtx.noConstIn_cons`, `VLCtx.noConstIn_of_allVLam`, `noConstIn_const` come with it.
+* `isNestedNode` + `checkNoNestedAux_eq` (§4.2) — the gate's scan **is** `anySub isNestedNode`, via
+  `anySubterm_eq`.  `hpS` is `isNestedNode_hpS`, and it is *definitional*: `IsNestedName c` and
+  `isNestedNode (.const c us) = true` are the same proposition.  At `D.blockNames` this step needed
+  `hasIndOcc_hpS`, an `Array Expr`-to-`List Name` connector.
+* `anySub_isNestedNode_lit` (§4.3) — **`hlit`, discharged outright, for both literal kinds, with no
+  environment hypothesis.**  At `D.blockNames` `hlit` needed `VEnv.HasPrimitives` and closed only
+  for numerals (`Add.lean`'s own note: string literals "close except in an environment where a
+  primitive's type is definitionally a sort").  At `IsNestedName` the seven names a literal expands
+  to are fixed, so it is `decide` plus one `List Char` induction.
+* `anySub_getAppArgs` (§4.4) — a gated application's arguments are gated, through
+  `Verify/Expr.lean`'s `getAppArgs_toList` / `getAppArgsRevList`.
+* `Result.storedArgs`, `storedArgs_clean`, `noConstIn_of_forall₂`, **`args_of_source`**,
+  **`args_of_gate`** (§4.5) — a producer for `RestoreData.args` from three hypotheses: the
+  agreement clause `htr : ∀ j, List.Forall₂ (TrExprS env Us Δ) (r.storedArgs j) (as j)`, the gate
+  on the stored application, and `hproj`.
+
+So the general chain is: gate ⟹ (§4.4) spine args prefix-free ⟹ (§4.1) `as j` is
+`NoConstIn IsNestedName` ⟹ `RestoreData.args` ⟹ (§2) `hspine` ⟹ `Built`.  Every arrow is a
+theorem; the only hypothesis in it that nobody has is `hproj`.
+
+## 60.4 Proved: `hKB` is sharp (§5)
+
+`RestoreData` alone does **not** give the spine premise.  Perturbation: `nfnKJunk = [_nested.PFn_1,
+Junk]` and `nfnAsJunk` presenting the companion's spine as `[Junk]`.
+
+* `nfnResult_restoreData_junk` — **all fourteen `RestoreData` fields still hold** (`companions`
+  survives because `Junk` names no member; `args` survives because `Junk` is not prefixed);
+* `nfnKJunk_not_sub` — `hKB` fails there, by `decide`;
+* `spine_needs_blockK` — the spine premise is **false** there.
+
+Same shape of lower bound as `NestedRestoreWit.lean` §2.1.  So §2 is not smuggling the residual
+into a vacuous hypothesis.
+
+## 60.5 Refuted, by my own probe: the prefix **is** an environment invariant (§6)
+
+I wrote into §4's header that `hproj` "cannot be closed by an environment invariant", reasoning
+that nested elimination declares the `_nested.*` auxiliary members permanently, so declared types
+would mention prefixed names.  Then I measured it.
+
+* The repository's own environment: **228114 constants, 0 `_nested`-named, 0 whose type mentions a
+  `_nested`-prefixed constant.**  That environment imports Lean core, `batteries`, `Foundation` and
+  all of `Lean4Lean` — many nested inductives.  (`lake env lean` over a `#eval` scanning
+  `env.constants.toList`; 41 s, so it is **not** in the build.)
+* `Lean4Lean.Environment.addInductive` on `inductive TT | mk : List TT → TT` adds exactly `TT`,
+  `TT.mk`, `TT.rec`, `TT.rec_1`.  `_nested.List_1` and its constructors are **gone** — `restoreNested`
+  renames them away; `TT.rec_1` (`auxRecName`) is the only trace.  Both counts stay 0.
+
+Landed as a cheap self-checking `#eval` in §6 (four assertions, including that `TT.rec_1` exists so
+the probe cannot silently test a non-nested block).  `VEnv.NoNestedC` is the invariant, named for
+the next round and **not proved preserved** — and it cannot be, without the check
+`Verify/Inductive/NestedRestore.lean` §8.2 measures to be missing in *both* kernels, since
+`inductive _nested.Foo` is accepted and breaks it in one step.  **That is new information about
+that gap**: `ownName`/`ownCtor` are not the only consumer of the missing check; it is also what
+would make the prefix barrier usable inside `TrProj`.
+
+Consequence for `hproj`: it splits.  The spliced *stored* data (recursor name, stored field types)
+is bounded by `NoNestedC`; the spliced `ps`/`ιs` are pinned only up to conversion, which is exactly
+the residual `Add.lean` records.  Only the second half is hard, and nothing about `IsNestedName`
+shortens it.
+
+## 60.6 What I tried that failed, and the step it failed at
+
+| attempt | failed at | fix |
+| --- | --- | --- |
+| `rw [show (fun e => match e with …) = isNestedNode from rfl]` to align the gate's anonymous matcher with the named `Bool` | `rw` reported "did not find an occurrence" against a target displaying an alpha-equivalent term | `show (if anySubterm isNestedNode e = true then _ else _) = _ ↔ _` — `show` accepts it by defeq where `rw` will not match it |
+| `anySub_natLit` (in `Add.lean`) for the gate's predicate | its `hp : ∀ e, p e = true → ∃ c us, e = .const c us` is **false** for the gate: `p` fires on `.proj` too | proved `hlit` directly from three `@[local simp]` reduction lemmas for `anySub isNestedNode` at `.const` / `.lit` / `.app` |
+| `rw [anySub_eq]; rfl` for those three reduction lemmas | `rfl` would not reduce the matcher under a variable `c`/`us` at reducible transparency | `rw [anySub_eq]; simp [isNestedNode]` |
+| `by decide` for `anySub isNestedNode (.app (.const ``Char.ofNat []) (.lit (.natVal c.toNat)))` inside the string induction | *"Expected type must not contain free variables"* — `c : Char` is free (the same failure mode as §59.8's fourth row, at a different lemma) | pull the seven fixed names out as one closed `decide` (`litNames_not_nested`) and let `simp` use it |
+| `rw [Lean.Expr.getAppArgsRevList] at hb` in the non-`app` cases | the equation lemma for a catch-all arm leaves the side goal `∀ f a, Expr.bvar _ = f.app a → False`, once per constructor — 11 unsolved goals | `simp [Lean.Expr.getAppArgsRevList] at hb` |
+| the claim that nested elimination leaves `_nested.*` constants in the environment, written as fact into a docstring | refuted by `#eval`: `addInductive` adds 4 constants, none prefixed, and the 228k-constant environment has none either | docstring corrected in place; §6 records the measurement and the favourable consequence |
+
+## 60.7 Measured versus read-off
+
+**Measured.** The 167-job build; every `#print axioms` below; the 228114/0/0 environment scan; the
+four-constant `addInductive` result; `hKB`'s sharpness (`decide` at three lemmas); `nfnK`'s names;
+that `TrExprS.noConsts` exists and with which hypotheses (read, then *used* — `TrExprS.noConstIn`
+is its proof re-run, so any mis-reading would have failed to elaborate).
+
+**Read off, not verified.** That `hproj`'s hard half is only the `ps`/`ιs` conversion slack — I did
+not build a `NoConstIn` fact about `projTerm`, and `projTerm` is `projCore ∘ projArgs` over motives,
+stored field types and two spines, so this is a real piece of work, not an inspection.  That
+`args_of_source`'s `htr` is "the same shape of obligation as `TrIndDeclN.trType`/`trCtors`" — read
+from those declarations, not proved equivalent.  That `Δ.AllVLam` holds at the point the spine is
+translated: `Add.lean`'s note establishes it for the *positivity* scope, and I reused the reasoning
+without re-checking it at `replaceIfNested`'s call site.
+
+## 60.8 Files, jobs, axioms
+
+One new file; nothing else touched (`git status --short`: only the new file, plus another stream's
+`docs/audit-isdefeq-constructor.md`).
+
+| module | jobs |
+| --- | --- |
+| `Lean4Lean.Verify.Inductive.SpineTransfer` (new) | **167**, green, no warnings from the file |
+
+It is picked up by the default target through `[[lean_lib]] Lean4Lean.Verify` / `globs =
+["Lean4Lean.Verify.*"]` — no aggregator import needed, same as `NestedFreshBridge`.
+
+`#print axioms`, by namespace.  Guard.lean's whitelist is `[propext, Classical.choice, Quot.sound]
+++ frozenAxioms` (`Verify/Guard.lean`:144); **everything below is in the first three**, no
+`sorryAx`, no `frozenAxioms` entry, nothing near `implGapWhitelist`.
+
+| namespace | result |
+| --- | --- |
+| `Lean4Lean.VExpr.*` (2 printed) | `noConsts_of_noConstIn`, `noConstIn_of_noConsts` — **no axioms** |
+| `Lean4Lean.VLCtx.*` (1) | `noConstIn_of_allVLam` — **no axioms** |
+| `Lean4Lean.TrExprS.noConstIn` | `[propext, Classical.choice, Quot.sound]` |
+| `Lean4Lean.*` top level (3) | `checkNoNestedAux_eq`, `anySub_isNestedNode_lit` `[propext, Classical.choice, Quot.sound]`; `anySub_getAppArgs` `[propext, Quot.sound]` |
+| `…Result.RestoreData.*` (4) | all `[propext, Quot.sound]` |
+| `…Result.*` (4) | `storedArgs_clean`, `noConstIn_of_forall₂`, `args_of_source`, `args_of_gate` — the last three also `Classical.choice` |
+| `Lean4Lean.NestedWit.*` (5) | `spine_needs_blockK` `[propext, Quot.sound]`; the other four also `Classical.choice` |
+
+One honest note on that table: `nfnAs_noK'` carries `Classical.choice` where round 10's
+`nfnAs_noK` (a bare `decide`) did not, because it now routes through `nfnResult_restoreData`.
+Both are whitelisted, so no gap opens; but "re-derived" is not "cheaper in axioms".
+
+`grep -n sorry` over the new file: **empty**.  No `sorry` introduced, none traded, no new
+frozen-axiom dependency.
+
+## 60.9 Hole-free versus discharged
+
+* **Discharged** (no premise a caller does not already have): §1's bridge; `spine_noConsts`;
+  `mkRestore_built_of_blockK`; `mkRestore_AddNested_of_blockK`; `nfnAs_noK'`;
+  `nfnAux_built'_of_blockK`; `checkNoNestedAux_eq`; `anySub_isNestedNode_lit`
+  (`hlit` — *fully* discharged, both literal kinds); `anySub_getAppArgs`; `storedArgs_clean`; §5's
+  three sharpness results; §6's measurement.
+* **Hole-free but not discharged**: `TrExprS.noConstIn`, `args_of_source`, `args_of_gate` — all
+  three carry `hproj`, and `args_of_source` additionally carries `htr` (the agreement clause) and
+  `hΔ`.  `hproj` is the only one nobody has *any* route to; `htr` is an obligation of the same kind
+  as `TrIndDeclN.trType`, i.e. it is how `as` gets supplied at all.
+* **The spine `decide`s: still there, and where.**  Answering the brief's requirement directly —
+  **yes, spine `decide`s remain**, but not as a *general* residual.  At any block with an
+  `ElimNestedInductive.Result` the spine `decide` *is* `RestoreData.args`, which was already there;
+  round 10's separate `nfnAs_noK` decide is now redundant, so two independent `decide`s became one.
+  The four `fields_noK :=` sites in `Theory/` keep theirs and **structurally must**: they are
+  hand-built `VInductDecl'`s with no `Result`, and `Theory/` cannot import `Verify/`.  §59.4's
+  per-block accounting therefore over-counts by one at the `nfn*` line and is right at the other
+  three.
+* **Not shrunk**: `hproj`, and `SpineNoAux` for `Environment.addInductive` (§59.10 item 2, which I
+  did not touch — and see below for why it is now lower value).
+
+## 60.10 Pick up first
+
+1. **`hproj`, split as §6 splits it.**  The stored half: prove
+   `VEnv.NoNestedC env → TrProj env U Γ s i x y → x.NoConstIn IsNestedName → …` for everything in
+   `projTerm` *except* `ps`/`ιs` — i.e. a `NoConstIn` lemma for `projCore`/`projArgs`/the motives,
+   which is mechanical but not small.  The `ps`/`ιs` half is `Add.lean`'s recorded residual and
+   needs a canonical-spine strengthening of `TrProj`; that is a `Theory/` change and a different
+   stream's.  Do **not** attack it as one obligation.
+2. **`VEnv.NoNestedC`'s preservation, and the missing check it shares with `ownName`/`ownCtor`.**
+   §6 makes the case for that check stronger than §8.2 did: it is now load-bearing for `TrProj`,
+   not only for name discipline.  Adding it is a behavioural divergence from the C++ kernel and an
+   edit to a file this stream does not own — the orchestrator's decision, per §8.2.
+3. **`htr`, the agreement clause, is the next *constructive* piece** — and it is now the only thing
+   between `args_of_source` and a checker-computed `RestoreData.args`.  It wants `replaceIfNested`'s
+   stored `Expr` and the `as` a `TrIndDeclN` supplies to be `Forall₂`-related; `AddInductiveStep`'s
+   `EWF` machinery is the vehicle, as `NestedRestore.lean` §8.3 already says of `tyLvls`/`tyArgs`.
+4. **`SpineNoAux` for `addInductive` (§59.10 item 2) is now lower priority, not higher.**  It was
+   framed as "the round's largest unbuilt piece"; but `RestoreData.args` does not want the `K`-form,
+   it wants the prefix form, and §4.2 says why the prefix form is stronger.  Build the prefix-form
+   invariant if you build either.
+5. **Ledger row 117c, re-stated a third time.**  Not "no producer" (§58), not "producer with no
+   consumers" (§59), and no longer "producer plus an irreducible spine `decide`": *the spine
+   premise is a theorem from `RestoreData`'s own `args` field given `K ⊆ D.blockNames`, that
+   hypothesis is sharp (§5), and ruling 116d's general residual is closed.  What is open is
+   `hproj`, which belongs to `TrProj` and predates the ruling.*
+6. **Ledger note on the method, third round running.**  §58.1 was a grep scoped by predicate name,
+   §59.1.2 by directory.  This round's was neither: it was **not grepping at all** — the brief and
+   two prior rounds asserted a lemma's non-existence without a search, and the lemma was the fourth
+   hit of the obvious one.  And a *reasoned* claim about the environment (§60.5) was refuted by a
+   30-line `#eval`.  The cheap defence in both cases is the same: before writing "X does not
+   exist" or "X cannot be", spend one command.
