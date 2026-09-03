@@ -31,6 +31,17 @@
 * **Two hypotheses of the narrow `iota_law` are dead**, found by the collapse test:
   `h7 : ∀ l ∈ us, l.WF U` is unused, and `hTd` follows from `H.types`. Kept as `_h7`/`_hTd` so the
   collapse stays hypothesis-for-hypothesis.
+* **WALL 2 IS PROVED, 2026-09-03 — `docs/handoff-wall2.md`.**  `VEnv.IsStructureG.projTermG_hasType`
+  (`Verify/Typing/ProjGenTerm.lean`) is the block-index generalisation of `projTerm_hasType`,
+  with `C.recFields = []` carried as an explicit premise (`IsStructureG` dropped it;
+  `EtaStructSpineG` already re-adds it).  Cone 5271, holes exactly
+  `{weakN_iff, forallE_inv_stratified}` — *the narrow lemma's own two*.  Collapse test
+  `projTerm_hasType_of_G`, firing test `MutField.projTermG_hasType_at_mutual` at the two-type
+  block.  **Two corrections to the plan below:** ledger row 114c's second conjunct must be the
+  real minor's typing *quantified over the context*, not "the minor-block spine"; and
+  `realMinor_app` was **not** a prerequisite — `projMinor_app` suffices once `noRec` is carried.
+  The `noRec`-**free** form (the one `inferProj.WF` needs) is a *different* wall and is still
+  open: it requires typing `D.ihValues`, which nothing in the tree does.
 * **`TrProj.weak'_inv` has its own handoff now: `docs/handoff-trproj-weakinv.md` (2026-09-02).**
   Every "28 transitive users" figure below is a pre-instrument-fix floor; the measured count is
   **90**.  §0**.7 item 5's "structurally blocked" verdict still stands, but its *reason* has moved:
