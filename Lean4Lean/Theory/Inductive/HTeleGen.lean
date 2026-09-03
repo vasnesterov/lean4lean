@@ -296,7 +296,7 @@ theorem ntree_obligationC_of_entries
   refine VIndRestore.hdata_of_entries_and_heads ntreeRestore_ownId
     ntreeRestore_domSep.substAt ntreeRestore_substFree ntree_csubst_closed
     (ntree_csubst_WFD₃ h hE₁ hE₂ hE₃ hF₁ hF₂ hF₃)
-    ((ntreeAux_WF h).iotaCtx (listEnv_ordered h) hE₁ hE₂ hE₃) hFo
+    (ntreeAux_WF'.iotaCtx (listEnv_ordered h) hE₁ hE₂ hE₃) hFo
     ntree_tyArgs_closedN_np hmot hmin
     (n_minorFldI_all (ntreeF₃_list h hF₁ hF₂ hF₃) (ntreeF₃_ntree hF₁ hF₂ hF₃)) ?_
   intro q j C T hq hT hK

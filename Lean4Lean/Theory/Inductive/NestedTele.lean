@@ -4074,7 +4074,7 @@ theorem ntreeAux_obligationC_of_hdata
   VEnv.iotaRulesRS_wf_of_hargsD ntreeRestore_ownId ntreeRestore_domSep.substAt
     ntreeRestore_substFree ntree_csubst_closed
     (ntree_csubst_WFD₃ h hE₁ hE₂ hE₃ hF₁ hF₂ hF₃)
-    ((ntreeAux_WF h).iotaCtx (listEnv_ordered h) hE₁ hE₂ hE₃)
+    (ntreeAux_WF'.iotaCtx (listEnv_ordered h) hE₁ hE₂ hE₃)
     (ntreeF₃_ordered h hE₁ hE₂ hF₁ hF₂ hF₃) ntreeAux_recArg_lt hdata
 
 end
@@ -4283,7 +4283,7 @@ theorem ntreeAux_addInductR_ordered :
   obtain ⟨env', he⟩ := ntreeAux_admitted h
   obtain ⟨E₁, E₂, E₃, hE₁, hE₂, hE₃⟩ := ntreeAux_stages h
   refine ⟨env₁, env', h, he, ?_⟩
-  refine VEnv.addInductR_ordered' (listEnv_ordered h) (ntreeAux_WF h) ntreeRestore_ownId
+  refine VEnv.addInductR_ordered' (listEnv_ordered h) ntreeAux_WF' ntreeRestore_ownId
     (fun {F₁} hF₁ => ?_) (fun {F₁ F₂} hF₁ hF₂ => ?_) (fun {F₁ F₂ F₃} hF₁ hF₂ hF₃ => ?_) he
   · exact ntreeAux_ctorConstsCR_wf h (listEnv_ordered h) hE₁ hF₁
   · exact ntreeAux_recConstsR_wf h hE₁ hE₂ hF₁ hF₂

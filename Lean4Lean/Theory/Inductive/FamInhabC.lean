@@ -133,11 +133,11 @@ jointly satisfiable at `D.np = 1`. -/
 theorem fi_hdata_general_instantiated :
     ∀ (q j : Nat) (C : VIndCtor), ntreeAux.ctorsAll[q]? = some (j, C) →
       ntreeRestore.IotaHargs ntreeAux gS F₃ j C :=
-  VIndRestore.hdata_of_recHargs_and_heads (listEnv_ordered h) (ntreeAux_WF h)
+  VIndRestore.hdata_of_recHargs_and_heads (listEnv_ordered h) ntreeAux_WF'
     (ntree_csubst_fresh h) (ntree_recConsts_wf₃ h hE₁ hE₂ hE₃)
     (ntree_csubst_WFD₃ h hE₁ hE₂ hE₃ hF₁ hF₂ hF₃) ntree_csubst_closed
     (ntreeF₃_ordered h hE₁ hE₂ hF₁ hF₂ hF₃)
-    ((ntreeAux_WF h).iotaCtx (listEnv_ordered h) hE₁ hE₂ hE₃)
+    (ntreeAux_WF'.iotaCtx (listEnv_ordered h) hE₁ hE₂ hE₃)
     ntreeRestore_substFree ntreeRestore_domSep.substAt ntreeRestore_ownId (by decide)
     ntree_tyArgs_closedN_np
     (fi_hmotD (ntreeF₃_list h hF₁ hF₂ hF₃) (ntreeF₃_ntree hF₁ hF₂ hF₃))

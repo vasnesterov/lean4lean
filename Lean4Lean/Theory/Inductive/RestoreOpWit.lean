@@ -25,7 +25,7 @@ Every name here is prefixed `ro`/`RO`: ledger row 113f records that inside this 
 name silently resolves elsewhere, and that the failure mode is a confident wrong measurement.
 
 **What is not claimed.**  This file does not build a `VIndField.WF` at the block — that needs the
-block declared in a `VEnv` and is `ntreeAux_WF`-scale.  What it proves is the two things the
+block declared in a `VEnv` and is `ntreeAux_WF'`-scale.  What it proves is the two things the
 ruling turns on: the collapse equation now holds *at a non-canonical block* (`ro_typeR_id`), where
 under the old definition it was **false** (`ro_old_typeR_ne`); and the conjunct row 113 showed
 `Canonical` was blocking is discharged by a **single β step** (`ro_pos_beta`), with no

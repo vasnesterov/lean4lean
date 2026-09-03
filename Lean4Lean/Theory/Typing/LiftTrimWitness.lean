@@ -93,7 +93,7 @@ theorem exists_instN_typed_hyp_refuted : ¬ badEnv.Ordered := not_ordered_badEnv
 
 /-! ## 3. `ntreeAux_WF'` where the staging hypothesis is refuted
 
-`InductiveDeclExamples.ntreeAux_WF` carried
+`InductiveDeclExamples.ntreeAux_WF` (retired 2026-09-03, see `docs/handoff-wfripple.md`) carried
 `h : VEnv.empty.addInduct' listDecl = some env₁`.  At `env₁ := badEnv` that equation is
 false, because `listEnv_ordered` turns it into `badEnv.Ordered`.  The trimmed
 `ntreeAux_WF'` nevertheless gives the block's well-formedness there. -/
@@ -129,7 +129,6 @@ Every result above, and the two trimmed lemmas themselves.  `sorryAx` must not a
 
 #print axioms Lean4Lean.Ctx.LiftN.exists_instN_typed
 #print axioms Lean4Lean.InductiveDeclExamples.ntreeAux_WF'
-#print axioms Lean4Lean.InductiveDeclExamples.ntreeAux_WF
 #print axioms Lean4Lean.not_ordered_badEnv
 #print axioms Lean4Lean.exists_instN_typed_badEnv
 #print axioms Lean4Lean.exists_instN_typed_badEnv_sharp

@@ -70,7 +70,7 @@ Three claims relayed from earlier streams are wrong, and Part 7 refutes each at 
    auxiliary type constant that `NTree.node`'s own stored field type mentions
    (`ntreeAux_staging`) — at that staging the clause is unsatisfiable, not merely weak.
    `VInductDecl'.WF` as it stands is the right predicate for the auxiliary block, and
-   `ntreeAux_WF` is the witness.
+   `ntreeAux_WF'` is the witness.
 
 None of this touches `fooComp_inconsistent`: a companion recursor with too few minor premises
 is still unsound.  What moves is *which* statement rules it out —
@@ -934,8 +934,12 @@ so what the constants of `env₁` are is never consulted.
 
 So `ntreeAux` is well-formed as a block **at every** `VEnv`, not only at the one that has
 `listDecl` in it — `Theory/Typing/LiftTrimWitness.lean` §2 instantiates this at an `env₁`
-where `h` is refuted.  `ntreeAux_WF` below is the `h`-taking form, kept so that the 27
-existing call sites (11 of them in three files owned by other streams) go on working. -/
+where `h` is refuted, and `Theory/Inductive/WFRippleWitness.lean` instantiates it at real
+staged environments of the `ntree` block itself.
+
+There is no `h`-taking form any more: the `ntreeAux_WF h` wrapper that used to sit below was
+retired once all 32 of its application sites (in 14 files) were re-pointed here.  See
+`docs/handoff-wfripple.md`. -/
 theorem ntreeAux_WF' : ntreeAux.WF env₁ where
   types_ne := by simp [ntreeAux]
   params := ntreeAux_params_WF
@@ -1012,14 +1016,6 @@ theorem ntreeAux_WF' : ntreeAux.WF env₁ where
         | (_ + 2), hF => simp [nlistCons] at hF
   isLE := fun _ => .inl (by simp [VLevel.IsNeverZero, VLevel.eval, ntreeAux])
 
-omit h in
-/-- **`VInductDecl'.WF` for the auxiliary block.**  The `h`-taking form of `ntreeAux_WF'`,
-kept for the existing call sites; `_h` is not used and the binder is explicit precisely so
-that the section-variable linter has nothing to report.  New uses should cite
-`ntreeAux_WF'`. -/
-theorem ntreeAux_WF (_h : VEnv.empty.addInduct' listDecl = some env₁) :
-    ntreeAux.WF env₁ := ntreeAux_WF'
-
 /-- **The nested block is admitted, end to end.**  The environment holding `List` is extended
 by the auxiliary block presented through `restoreNested`, declaring exactly `NTree`,
 `NTree.node`, `NTree.rec` and `NTree.rec_1`. -/
@@ -1039,7 +1035,7 @@ claim is consistency of the result; that is `leanTTConsistent`, open. -/
 theorem ntreeAux_AddNested :
     ∃ env₂, VEnv.AddNested env₁ ntreeAux ntreeK ntreeRestore
       (fun _ => 1) env₂ :=
-  ⟨(ntreeAux_admitted h).choose, ntreeAux_WF h, ntreeRestore_ownId,
+  ⟨(ntreeAux_admitted h).choose, ntreeAux_WF', ntreeRestore_ownId,
     ntreeRestore_faithful h, (ntreeAux_admitted h).choose_spec⟩
 
 omit h in

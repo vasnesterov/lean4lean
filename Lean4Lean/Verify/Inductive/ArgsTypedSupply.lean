@@ -745,12 +745,15 @@ theorem listOcc_argsTypedH_of_wf {env₁ et : VEnv} (hwf : ntreeAux.WF env₁)
             some ⟨[], 0, []⟩⟩ : VIndField) from rfl)
       rfl
 
-/-- …hence the family at the parameterised witness. -/
+/-- …hence the family at the parameterised witness.
+
+The `h : VEnv.empty.addInduct' listDecl = some env₁` this used to take became unused when
+`ntreeAux_WF h` was re-pointed to the hypothesis-free `ntreeAux_WF'`, so it is gone: the family
+holds at **every** `env₁` that stages `ntreeAux`, not only the one holding `listDecl`. -/
 theorem ntreeAux_argsTypedK_of_wf {env₁ et : VEnv}
-    (h : VEnv.empty.addInduct' listDecl = some env₁)
     (het : env₁.addIndTypes ntreeAux = some et) :
     ntreeAux.ArgsTypedK ntreeK et (fun _ => listOcc) :=
-  fun _ _ _ _ => listOcc_argsTypedH_of_wf (ntreeAux_WF h) het
+  fun _ _ _ _ => listOcc_argsTypedH_of_wf ntreeAux_WF' het
 
 /-- **END TO END AT THE PARAMETERISED WITNESS**: the shared datum at the presented type head
 `List.{u} (NTree.{u} #0)`, with `D.WF` the only source of the spine typing. -/
@@ -758,7 +761,7 @@ theorem ntreeAux_datum_ty_of_wf {env₁ et : VEnv}
     (h : VEnv.empty.addInduct' listDecl = some env₁)
     (het : env₁.addIndTypes ntreeAux = some et) :
     ntreeRestore.SpineTyped ntreeAux et (ntreeRestore.tyName 1) 1 :=
-  (ntreeAux_built h).spineTyped_ty_of_argsTypedK (ntreeAux_argsTypedK_of_wf h het)
+  (ntreeAux_built h).spineTyped_ty_of_argsTypedK (ntreeAux_argsTypedK_of_wf het)
     (VEnv.addConstList_le het)
     (show ntreeAux.types[1]? = some (listOcc.member ntreeAux.header ntreeRestore) from rfl)
     (by decide)
@@ -906,9 +909,28 @@ theorem ntreeAux_datum_of_wf_inhabited :
       ntreeAux.ArgsTypedK ntreeK et (fun _ => listOcc) ∧
       ntreeRestore.SpineTyped ntreeAux et (ntreeRestore.tyName 1) 1 := by
   obtain ⟨env₁, E₁, -, -, -, h, hE₁, -⟩ := ntree_stage₂_exists
-  exact ⟨env₁, E₁, h, hE₁, ntreeAux_argsTypedK_of_wf h hE₁, ntreeAux_datum_ty_of_wf h hE₁⟩
+  exact ⟨env₁, E₁, h, hE₁, ntreeAux_argsTypedK_of_wf hE₁, ntreeAux_datum_ty_of_wf h hE₁⟩
+
+/-- **THE TRIM ABOVE, INSTANTIATED WHERE THE REMOVED HYPOTHESIS IS FALSE.**
+
+`ntreeAux_argsTypedK_of_wf` used to take `h : VEnv.empty.addInduct' listDecl = some env₁`.  It
+became unused when `ntreeAux_WF h` was re-pointed to the hypothesis-free `ntreeAux_WF'`, and was
+deleted (`docs/handoff-wfripple.md` §3.1).  Dropping a hypothesis changes what a statement says,
+so here is the difference: at `env₁ := VEnv.empty` the removed equation is **refuted** —
+`addInduct'` declares `List`, and `VEnv.empty` holds nothing — while the surviving staging
+hypothesis is inhabited.  So the untrimmed statement had no instance at all at this `env₁`, and
+the trimmed one delivers the argument family. -/
+theorem ntreeAux_argsTypedK_over_empty :
+    ¬ (VEnv.empty.addInduct' listDecl = some VEnv.empty) ∧
+      ∃ et : VEnv, VEnv.empty.addIndTypes ntreeAux = some et ∧
+        ntreeAux.ArgsTypedK ntreeK et (fun _ => listOcc) := by
+  refine ⟨fun h => absurd (list_const h) nofun, ?_⟩
+  obtain ⟨et, het⟩ : ∃ e : VEnv, VEnv.empty.addIndTypes ntreeAux = some e :=
+    VEnv.addConstList_eq_some_iff.2 ⟨fun _ _ => rfl, by decide⟩
+  exact ⟨et, het, ntreeAux_argsTypedK_of_wf het⟩
 
 end InductiveDeclExamples
 
 #print axioms Lean4Lean.NestedWit.nfnAux_datum_of_wf_inhabited
 #print axioms Lean4Lean.InductiveDeclExamples.ntreeAux_datum_of_wf_inhabited
+#print axioms Lean4Lean.InductiveDeclExamples.ntreeAux_argsTypedK_over_empty

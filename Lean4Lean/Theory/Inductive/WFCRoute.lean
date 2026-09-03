@@ -199,7 +199,7 @@ variable (h₃ : env₁.addConstList (ntreeAux.typeConstsC ntreeK) = some env₃
 include h h₃ in
 theorem ntree_env₃_ordered : env₃.Ordered :=
   VEnv.addConstList_ordered (listEnv_ordered h)
-    (VEnv.addInductR_typeConstsC_wf (ntreeAux_WF h)) h₃
+    (VEnv.addInductR_typeConstsC_wf ntreeAux_WF') h₃
 
 include h h₃ in
 /-- The auxiliary constant is absent from the environment `WFC.ctors` is staged over. -/

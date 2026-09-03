@@ -316,12 +316,12 @@ Compare `InductiveDeclExamples.ntreeAux_ctorConstsCR_wf`
 theorem ntreeAux_ctorConstsCR_wf_of_fieldsD :
     ∀ c ∈ ntreeAux.ctorConstsCR ntreeRestore ntreeK, VConstant.WF env₃ c.2 := by
   have henv₂ : env₂.Ordered :=
-    VInductDecl'.addIndTypes_ordered henv₁ (ntreeAux_WF h) h₂
+    VInductDecl'.addIndTypes_ordered henv₁ ntreeAux_WF' h₂
   have henv₃ : env₃.Ordered :=
-    VEnv.addConstList_ordered henv₁ (VEnv.addInductR_typeConstsC_wf (ntreeAux_WF h)) h₃
+    VEnv.addConstList_ordered henv₁ (VEnv.addInductR_typeConstsC_wf ntreeAux_WF') h₃
   have hL := list_const₃ h h₃
   have hN := ntree_const₃ h₃
-  refine VEnv.ctorConstsCR_wf_of_fieldsD (ntreeAux_WF h) h₂ henv₂ henv₃
+  refine VEnv.ctorConstsCR_wf_of_fieldsD ntreeAux_WF' h₂ henv₂ henv₃
     (ntree_csubstTy ▸ ntreeSubst_WF h henv₁ h₂ h₃) ntreeRestore_ownId ?_
   rintro j T C hT hK hC i F r hF hr hnc
   match j, hT with
@@ -643,12 +643,12 @@ include h henv₁ h₂ h₃ in
 theorem ntreeAux_ctorConstsCR_wf_of_betaD :
     ∀ c ∈ ntreeAux.ctorConstsCR ntreeRestore ntreeK, VConstant.WF env₃ c.2 := by
   have henv₂ : env₂.Ordered :=
-    VInductDecl'.addIndTypes_ordered henv₁ (ntreeAux_WF h) h₂
+    VInductDecl'.addIndTypes_ordered henv₁ ntreeAux_WF' h₂
   have henv₃ : env₃.Ordered :=
-    VEnv.addConstList_ordered henv₁ (VEnv.addInductR_typeConstsC_wf (ntreeAux_WF h)) h₃
+    VEnv.addConstList_ordered henv₁ (VEnv.addInductR_typeConstsC_wf ntreeAux_WF') h₃
   have hL := list_const₃ h h₃
   have hN := ntree_const₃ h₃
-  refine VEnv.ctorConstsCR_wf_of_betaD henv₁ (ntreeAux_WF h) h₂ henv₂ henv₃
+  refine VEnv.ctorConstsCR_wf_of_betaD henv₁ ntreeAux_WF' h₂ henv₂ henv₃
     (ntree_csubstTy ▸ ntreeSubst_WF h henv₁ h₂ h₃) ntreeRestore_ownId (by decide)
     ntreeRestore_tyVal_levelWF ntreeRestore_tyArgs_closed
     ntreeRestore_csubstTy_tyName ntreeRestore_tyArgs_noCSubst ?_ ?_

@@ -1606,7 +1606,7 @@ theorem ntreeAux_canonicalOwn : ntreeAux.CanonicalOwn ntreeK :=
 theorem ntreeAux_AddNestedB :
     ∃ env₂, VEnv.AddNestedB env₁ ntreeAux ntreeK ntreeRestore
       (fun _ => listOcc) env₂ :=
-  ⟨(ntreeAux_admitted h).choose, ntreeAux_WF h, ntreeAux_built h,
+  ⟨(ntreeAux_admitted h).choose, ntreeAux_WF', ntreeAux_built h,
     (ntreeAux_admitted h).choose_spec⟩
 
 /-- **The rule's premise is inhabited at a real nested block.**  `VEnv.AddNestedStep`
@@ -1882,7 +1882,7 @@ theorem pfnAuxMk_binders_not_nil :
 
 /-! ### The auxiliary block is well-formed, with `binders_indep` doing work
 
-This is `ntreeAux_WF`'s counterpart at the harder configuration.  Field 1 of
+This is `ntreeAux_WF'`'s counterpart at the harder configuration.  Field 1 of
 `_nested.PFn_1.mk` is recursive with `ξ = [Prop]` **and** follows a recursive field, so
 `VIndField.WF.binders_indep` is discharged by `pfnAuxMk_bindersIndep` — i.e. by the
 substitution theorem — rather than by emptiness. -/
@@ -2141,7 +2141,7 @@ Everything `docs/handoff-nested-restore.md` §4 lists, re-elaborated here, so th
 breaking any of it breaks this file too.  Nothing in `NestedHead.lean` or
 `CompanionResolve.lean` was edited to make this file go through. -/
 
-example := @ntreeAux_WF
+example := @ntreeAux_WF'
 example := @ntreeAux_Canonical
 example := @ntreeRestore_faithful
 example := @ntreeAux_admitted

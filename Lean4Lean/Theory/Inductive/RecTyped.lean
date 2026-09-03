@@ -1114,7 +1114,7 @@ theorem ntreeAux_obligationB_of_bundles
     (hbodyD : ∀ (j : Nat) (T : VIndType), ntreeAux.types[j]? = some T → T.name ∈ ntreeK →
       ntreeRestore.RecBodyHargs ntreeAux (ntreeRestore.csubst ntreeAux ntreeK) F₂ j T) :
     ∀ c ∈ ntreeAux.recConstsR ntreeRestore ntreeK, VConstant.WF F₂ c.2 :=
-  VEnv.recConstsR_wf_of_recHargsD (listEnv_ordered h) (ntreeAux_WF h) (ntree_csubst_fresh h)
+  VEnv.recConstsR_wf_of_recHargsD (listEnv_ordered h) ntreeAux_WF' (ntree_csubst_fresh h)
     (ntree_recConsts_wf h hE₁ hE₂) (ntree_csubst_WFD₂ h hE₁ hE₂ hF₁ hF₂) ntree_csubst_closed
     (ntreeF₂_ordered h hE₁ hF₁ hF₂) ntreeRestore_substFree ntreeRestore_domSep.substAt
     ntreeRestore_ownId (by decide) ntree_tyArgs_closedN_np hmotD hfldD hminD
@@ -1141,7 +1141,7 @@ theorem ntreeAux_recHargs_premises_inhabited :
       ntreeRestore.OwnId ntreeAux ntreeK ∧ ntreeAux.elimLvl.WF ntreeAux.recUvars ∧
       (∀ t : Nat, ∀ a ∈ ntreeRestore.tyArgs t, a.ClosedN ntreeAux.np) := by
   obtain ⟨env₁, E₁, E₂, F₁, F₂, h, hE₁, hE₂, hF₁, hF₂⟩ := ntree_stage₂_exists
-  exact ⟨env₁, E₁, E₂, F₁, F₂, h, hE₁, hE₂, hF₁, hF₂, listEnv_ordered h, ntreeAux_WF h,
+  exact ⟨env₁, E₁, E₂, F₁, F₂, h, hE₁, hE₂, hF₁, hF₂, listEnv_ordered h, ntreeAux_WF',
     ntree_csubst_fresh h, ntree_recConsts_wf h hE₁ hE₂, ntree_csubst_WFD₂ h hE₁ hE₂ hF₁ hF₂,
     ntree_csubst_closed, ntreeF₂_ordered h hE₁ hF₁ hF₂, ntreeRestore_substFree,
     ntreeRestore_domSep.substAt, ntreeRestore_ownId, by decide, ntree_tyArgs_closedN_np⟩

@@ -207,7 +207,7 @@ theorem ntree_minor_sides_at_cons {env₁ E₁ : VEnv}
     (ntreeRestore_faithful h).ctor_agree 1 _ rfl (by decide) nlistCons
       (List.mem_cons_of_mem _ List.mem_cons_self)
   exact VIndRestore.minorCtor_sides_of_wf (listEnv_ordered h) hE₁o (ntree_csubst_fresh h)
-    ((ntreeAux_WF h).ctors E₁ hE₁ 1 _ rfl nlistCons
+    (ntreeAux_WF'.ctors E₁ hE₁ 1 _ rfl nlistCons
       (List.mem_cons_of_mem _ List.mem_cons_self))
     hci hagree ntree_tyArgs_closedN_np ntree_tyArgs_one_noCSubst
 

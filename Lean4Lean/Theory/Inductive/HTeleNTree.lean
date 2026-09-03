@@ -301,7 +301,7 @@ theorem n_hdata_all_gen :
       ntreeRestore.IotaHargs ntreeAux nS F₃ j C := by
   refine VIndRestore.hdata_of_companions ntreeRestore_ownId ntreeRestore_domSep.substAt
     ntreeRestore_substFree ntree_csubst_closed (ntree_csubst_WFD₃ h hE₁ hE₂ hE₃ hF₁ hF₂ hF₃)
-    ((ntreeAux_WF h).iotaCtx (listEnv_ordered h) hE₁ hE₂ hE₃) ?_ ?_
+    (ntreeAux_WF'.iotaCtx (listEnv_ordered h) hE₁ hE₂ hE₃) ?_ ?_
   · intro q j C hq
     rw [ntreeAux_ctorsAll_eq] at hq
     match q with

@@ -205,12 +205,12 @@ theorem ntree_obligationC_of_recHargs
       ntreeRestore.MinorCtorHargs ntreeAux gS F₃ q t C) :
     ∀ df ∈ ntreeAux.iotaRulesRS ntreeRestore ntreeK, VDefEq.WF F₃ df := by
   refine ntree_obligationC_of_entries h hE₁ hE₂ hE₃ hF₁ hF₂ hF₃ ?_ ?_
-  · exact VIndRestore.iotaMot_of_recHargs (listEnv_ordered h) (ntreeAux_WF h)
+  · exact VIndRestore.iotaMot_of_recHargs (listEnv_ordered h) ntreeAux_WF'
       (ntree_csubst_fresh h) (ntree_recConsts_wf₃ h hE₁ hE₂ hE₃)
       (ntree_csubst_WFD₃ h hE₁ hE₂ hE₃ hF₁ hF₂ hF₃) ntree_csubst_closed
       (ntreeF₃_ordered h hE₁ hE₂ hF₁ hF₂ hF₃) ntreeRestore_substFree
       ntreeRestore_domSep.substAt ntreeRestore_ownId (by decide) ntree_tyArgs_closedN_np hmotD
-  · exact VIndRestore.iotaMin_of_recHargs (listEnv_ordered h) (ntreeAux_WF h)
+  · exact VIndRestore.iotaMin_of_recHargs (listEnv_ordered h) ntreeAux_WF'
       (ntree_csubst_fresh h) (ntree_recConsts_wf₃ h hE₁ hE₂ hE₃)
       (ntree_csubst_WFD₃ h hE₁ hE₂ hE₃ hF₁ hF₂ hF₃) ntree_csubst_closed
       (ntreeF₃_ordered h hE₁ hE₂ hF₁ hF₂ hF₃) ntreeRestore_substFree

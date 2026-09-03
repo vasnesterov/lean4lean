@@ -269,7 +269,7 @@ theorem ntree_iotaHargs_node_own :
   VIndRestore.iotaHargs_of_own (K := ntreeK) (T := ntreeAux.types.getD 0 default)
     ntreeRestore_ownId ntreeRestore_domSep.substAt ntreeRestore_substFree ntree_csubst_closed
     (ntree_csubst_WFD₃ h hE₁ hE₂ hE₃ hF₁ hF₂ hF₃)
-    ((ntreeAux_WF h).iotaCtx (listEnv_ordered h) hE₁ hE₂ hE₃)
+    (ntreeAux_WF'.iotaCtx (listEnv_ordered h) hE₁ hE₂ hE₃)
     rfl ntree_own_not_mem_K (List.Mem.head _) (by rw [ntreeAux_ctorsAll_eq]; simp) (by decide)
     (rIotaTele_node (ntreeF₃_list h hF₁ hF₂ hF₃) (ntreeF₃_ntree hF₁ hF₂ hF₃)
       (ntreeF₃_nil h hF₁ hF₂ hF₃) (ntreeF₃_cons h hF₁ hF₂ hF₃) (ntreeF₃_node hF₂ hF₃))
@@ -478,7 +478,7 @@ theorem ntree_hdata_own_gen (h1 : rIotaRest F₃ 1 nlistNil) (h2 : rIotaRest F�
       ntreeRestore.IotaHargs ntreeAux (ntreeRestore.csubst ntreeAux ntreeK) F₃ j C := by
   refine VIndRestore.hdata_of_companions ntreeRestore_ownId ntreeRestore_domSep.substAt
     ntreeRestore_substFree ntree_csubst_closed (ntree_csubst_WFD₃ h hE₁ hE₂ hE₃ hF₁ hF₂ hF₃)
-    ((ntreeAux_WF h).iotaCtx (listEnv_ordered h) hE₁ hE₂ hE₃) ?_ ?_
+    (ntreeAux_WF'.iotaCtx (listEnv_ordered h) hE₁ hE₂ hE₃) ?_ ?_
   · intro q j C hq
     rw [ntreeAux_ctorsAll_eq] at hq
     match q with

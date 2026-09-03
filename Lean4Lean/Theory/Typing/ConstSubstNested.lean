@@ -909,7 +909,7 @@ supersedes. -/
 theorem ntreeSubst_WF : ntreeSubst.WF env₂ env₃ 1 := by
   have hfresh := ntreeSubst_fresh h
   have henv₃ : env₃.Ordered :=
-    VEnv.addConstList_ordered henv₁ (VEnv.addInductR_typeConstsC_wf (ntreeAux_WF h)) h₃
+    VEnv.addConstList_ordered henv₁ (VEnv.addInductR_typeConstsC_wf ntreeAux_WF') h₃
   have hL := list_const₃ h h₃
   have hN := ntree_const₃ h₃
   refine CSubst.one_WF_of_hasType (U := 1) (ci := ⟨1, _⟩) henv₃
@@ -940,7 +940,7 @@ theorem ntreeNode_beta_bridge
     (H : env₃.IsType 1 [] ((ntreeNode.type ntreeAux 0).substC ntreeSubst)) :
     env₃.IsType 1 [] (ntreeNode.typeR ntreeAux ntreeRestore 0) := by
   have henv₃ : env₃.Ordered :=
-    VEnv.addConstList_ordered henv₁ (VEnv.addInductR_typeConstsC_wf (ntreeAux_WF h)) h₃
+    VEnv.addConstList_ordered henv₁ (VEnv.addInductR_typeConstsC_wf ntreeAux_WF') h₃
   have hL := list_const₃ h h₃
   have hN := ntree_const₃ h₃
   rw [ntreeNode_substC_redex] at H
@@ -963,12 +963,12 @@ as the measurement it was. -/
 theorem ntreeAux_ctorConstsCR_wf :
     ∀ c ∈ ntreeAux.ctorConstsCR ntreeRestore ntreeK, VConstant.WF env₃ c.2 := by
   have henv₂ : env₂.Ordered :=
-    VInductDecl'.addIndTypes_ordered henv₁ (ntreeAux_WF h) h₂
+    VInductDecl'.addIndTypes_ordered henv₁ ntreeAux_WF' h₂
   have henv₃ : env₃.Ordered :=
-    VEnv.addConstList_ordered henv₁ (VEnv.addInductR_typeConstsC_wf (ntreeAux_WF h)) h₃
+    VEnv.addConstList_ordered henv₁ (VEnv.addInductR_typeConstsC_wf ntreeAux_WF') h₃
   have hL := list_const₃ h h₃
   have hN := ntree_const₃ h₃
-  refine VEnv.ctorConstsCR_wf_of_substC' (ntreeAux_WF h) h₂ henv₂ henv₃
+  refine VEnv.ctorConstsCR_wf_of_substC' ntreeAux_WF' h₂ henv₂ henv₃
     (ntreeSubst_WF h henv₁ h₂ h₃) ?_
   rintro j T C hT hK hC
   match j, hT with
@@ -2106,7 +2106,7 @@ variable (hF₂ : F₁.addConstList (ntreeAux.ctorConstsCR ntreeRestore ntreeK) 
 
 include h hF₁ in
 theorem ntreeF₁_ordered : F₁.Ordered :=
-  VEnv.addConstList_ordered (listEnv_ordered h) (VEnv.addInductR_typeConstsC_wf (ntreeAux_WF h)) hF₁
+  VEnv.addConstList_ordered (listEnv_ordered h) (VEnv.addInductR_typeConstsC_wf ntreeAux_WF') hF₁
 
 include h hE₁ hF₁ hF₂ in
 theorem ntreeF₂_ordered : F₂.Ordered :=
@@ -2291,14 +2291,14 @@ variable (hF₂ : F₁.addConstList (ntreeAux.ctorConstsCR ntreeRestore ntreeK) 
 
 include h hE₁ hE₂ in
 /-- **§D.6 `hsrc` at `np = 1`.**  `nfn_recConsts_wf`'s proof verbatim at the parameterised block:
-the *unrestored* recursor constants are types in `E₂`, from `ntreeAux_WF` and the two staging
+the *unrestored* recursor constants are types in `E₂`, from `ntreeAux_WF'` and the two staging
 `Ordered`s.  Nothing about `np` enters. -/
 theorem ntree_recConsts_wf : ∀ c ∈ ntreeAux.recConsts, VConstant.WF E₂ c.2 := by
   intro c hc
   have henv₁ := listEnv_ordered h
-  have o1 := VInductDecl'.addIndTypes_ordered henv₁ (ntreeAux_WF h) hE₁
-  have o2 := VInductDecl'.addIndCtors_ordered o1 (ntreeAux_WF h) hE₁ hE₂
-  have hR : ntreeAux.RecCtx E₂ := (ntreeAux_WF h).recCtx hE₁ hE₂ VEnv.LE.rfl o2
+  have o1 := VInductDecl'.addIndTypes_ordered henv₁ ntreeAux_WF' hE₁
+  have o2 := VInductDecl'.addIndCtors_ordered o1 ntreeAux_WF' hE₁ hE₂
+  have hR : ntreeAux.RecCtx E₂ := ntreeAux_WF'.recCtx hE₁ hE₂ VEnv.LE.rfl o2
   simp only [VInductDecl'.recConsts, List.mem_map] at hc
   obtain ⟨⟨T, j⟩, hTj, rfl⟩ := hc
   have hT : ntreeAux.types[j]? = some T := List.mk_mem_zipIdx_iff_getElem?.1 hTj
