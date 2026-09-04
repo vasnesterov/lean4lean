@@ -2988,3 +2988,61 @@ relayed as a quotation, not a paraphrase.** Quotations are checkable by the next
 its own file had retracted.
 
 Cheap test I will apply from now on: if a brief sentence would need a `grep` to defend, `grep` it first.
+
+## Expensive is not a reason to defer (2026-09-04, user instruction)
+
+Verbatim: **"If something is expensive it doesn't mean we should not work on it. We need to pay all expensive
+steps to reach the goal."**
+
+This corrects how I have been prioritising all session. I ranked candidate rounds by cost and repeatedly put
+the expensive ones in a "genuinely unblocked, deliberately unassigned" bucket -- the general binder-scan
+theorem ("expensive and out of scope" in two separate handoffs), the injectivity corner, hole #1's residual,
+hole #9's indexed case. Meanwhile I spawned the cheap ones. That is how a project sits at 13 holes forever:
+every remaining hole is expensive **by construction**, because the cheap ones are already closed.
+
+**The rule now: cost is a scheduling input, never a filter.** An expensive item may be sequenced, split, or
+given a round that is told to expect partial progress -- but "expensive" alone never moves it out of the
+assignment set. The honest report on an expensive round is "here is the third of it that is proved and here is
+what resists", not "not attempted, too costly".
+
+Concretely, when briefing an expensive round: say in the brief that it is expensive and expected to be,
+forbid narrowing the target to make it cheap, and ask for a partial result reported honestly. All three
+expensive rounds I opened after this instruction carry that paragraph.
+
+### And a mislabel it exposed one layer down
+
+I had recorded `InductiveMapGate` as "blocked on the nested flip". It is not: reading it, it is a statement
+about which names `Environment.addInductive` inserts into the **kernel constant map** plus preservation of
+that map's well-formedness, and it mentions `AddInduct` nowhere. It is **big, not blocked** -- the same
+category error as calling an expensive thing an impossible one. Closing it makes `NoNestedN` unconditional on
+every branch. Now assigned.
+
+## Re-reading CLAUDE.md: "unprovable by design" is not a verdict, it is a cost (2026-09-04)
+
+Asked to re-read `CLAUDE.md`, I found a rule I have been quietly violating in spirit all day:
+
+> **Replacing an upstream `opaque`/`partial`/`@[extern]` function with a pure Lean one is encouraged**: it
+> shrinks the trusted base, which is progress.
+
+Today I recorded upstream opacity as an immovable wall **three times**, and even added a shape prior about it:
+
+1. `PersistentHashMap.containsAux`/`findAux` are `partial def`, which made a gate **independent** rather than
+   merely unproved (row 328).
+2. `BEq Expr` is `Lean.Expr.eqv`, `@[extern] opaque` and only alpha-equivalence, so a check is **"not
+   `decide`-able at any closed input"** (row 331b).
+3. The `isValidIndApp? = none` rejection path is **"unprovable by design"** because of that same `eqv`
+   (row 337d).
+
+All three are true *given the current trusted base* -- and CLAUDE.md says the trusted base is **ours to
+shrink**, that doing so is **progress**, and that guard 3's allowlist shrinking counts. So none of those three
+is a terminal verdict; each is an **expensive step**, which the instruction above says we pay.
+
+**Rule: when a round reports "unprovable by design" or "opaque upstream", the correct next question is
+whether that function can be replaced with a pure Lean definition -- not whether the obligation can be
+restated around it.** Restating around an opaque leaves the trusted base the same size; replacing it makes
+the base smaller, which is the project's actual direction of travel. `Lean.Expr.eqv_eq` is on
+`Guard.lean`'s frozen whitelist, so replacing `eqv` would retire a frozen axiom as well as unblock the
+rejection path.
+
+The two instructions compose: the user's says pay expensive steps, and CLAUDE.md's says one specific class of
+expensive step is *encouraged* and counts as progress. I had been treating that class as a wall.
