@@ -126,10 +126,31 @@ def main (argv : List String) : IO Unit := do
     | some v => if v.trim.isEmpty then none else some v.trim
     | none => none
   for s in names do
-    let n := s.splitOn "." |>.foldl (fun acc c => Name.mkStr acc c) Name.anonymous
-    match env.find? n with
-    | none => IO.println s!"NOT FOUND   {s}\n            (before writing \"absent\", also query by conclusion shape — a different name for the same content is the failure mode that bites)"
-    | some ci =>
+    -- SOUNDNESS FIX 2026-09-04.  This used to take the query name *literally* and report NOT FOUND if
+    -- it did not resolve.  Since almost everything here lives under `Lean4Lean`, a query written
+    -- `VEnv.ParRedK.rfl` -- the form that appears in every docstring and every report in this repo --
+    -- returned a false NOT FOUND while `Lean4Lean.VEnv.ParRedK.rfl` returned FOUND.  Reproduced by me
+    -- before fixing.  `shape.lean` never had this bug because it matches on head constants it read out
+    -- of the environment rather than on user-supplied strings.
+    --
+    -- Why this matters more than a usability wrinkle: this script is the instrument the whole project
+    -- uses to justify the words "does not exist", and 17 stale-absence claims are on record here. Any
+    -- one of them made through an unqualified query was unsound. Found by the `CParRedK` round, which
+    -- noticed only because Lean said "already declared" for a constant this script had called absent.
+    let lit := s.splitOn "." |>.foldl (fun acc c => Name.mkStr acc c) Name.anonymous
+    let qual := s.splitOn "." |>.foldl (fun acc c => Name.mkStr acc c) (Name.mkStr Name.anonymous "Lean4Lean")
+    let resolved : Option (Name × Bool) :=
+      if (env.find? lit).isSome then some (lit, false)
+      else if (env.find? qual).isSome then some (qual, true) else none
+    match resolved with
+    | none =>
+      IO.println s!"NOT FOUND   {s}"
+      IO.println s!"            (tried both `{lit}` and `{qual}`)"
+      IO.println s!"            (before writing \"absent\", also query by conclusion shape — a different name for the same content is the failure mode that bites; and note that a residual whose type is literally `Prop` is INVISIBLE to shape search, so for a gate, diff its hypotheses against its neighbours' instead)"
+    | some (n, wasBare) =>
+      if wasBare then
+        IO.println s!"NOTE        query `{s}` was unqualified; resolved as `{n}`"
+      let ci := (env.find? n).get!
       let m := match env.getModuleIdxFor? n with
         | some i => toString env.header.moduleNames[i.toNat]!
         | none => "?"
