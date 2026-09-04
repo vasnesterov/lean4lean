@@ -455,8 +455,10 @@ Five checks, in the order `docs/vacuity-ledger.md` §0 asks for them. -/
 /-- **Degenerate instance (ledger blindness 7, in its dual form).**  `VarPiDisj` is a
 *negation*, so the risk at the degenerate instance is not emptiness but triviality — and at
 `Γ = []` it is indeed a **theorem**, at every `Ordered` environment and every `U`, by the scope
-invariant `IsDefEq.closedN` — so this control is itself hole-free, unlike the route through
-`HasType.bvar_inv`, which goes via `.strong` and carries `sorryAx`.  So all of `VarPiDisj`'s
+invariant `IsDefEq.closedN` — so this control is itself hole-free. ~~unlike the route through
+`HasType.bvar_inv`, which goes via `.strong` and carries `sorryAx`.~~ **CORRECTED 2026-09-04:
+`VEnv.HasType.bvar_inv` (`Theory/Typing/Strong.lean`, cone 2333) is `sorryAx`-FREE, measured. The
+inversion steps are available hole-free, which matters for anyone enumerating them.**  So all of `VarPiDisj`'s
 content lives at a non-empty context, and the reachability check below is at a context of length
 two, deliberately. -/
 theorem varPiDisj_nil (henv : Ordered env) {i : Nat} {A B : VExpr} :

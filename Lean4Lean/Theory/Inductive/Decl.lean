@@ -645,6 +645,27 @@ than `VEnv.WF` — but those refutations work by aiming a two-δ-rule *hub* at a
 block anywhere, by freshness alone.  So the residual is **pure confluence**, and plausibly does
 not need `VEnv.WF` at all.
 
+**Sharpened 2026-09-04 (`Theory/Inductive/IndepResidual.lean`), and the status changed.**  The two
+predicates **collapse to one**: `blockSpine_not_defeq_forallE_of_sortVal_ctx` and
+`…sort_of_piVal_ctx` reduce `RigidConstPiDisj` and `RigidConstSortDisj` to a single
+`VEnv.RigidSortPiDisj` over an arbitrary context, and fired at `RecArgIndep.raiEnv0` both halves
+become `RigidSortPiDisj ∅` -- **no constants, no δ-rules**.
+
+That is a status change rather than a smaller count.  `InjSortPiModel` grades the two original
+predicates **dead** at the model layer, while `RigidSortPiDisj`'s semantic residual is a **theorem**
+(`InjSortPi.interp_sort_ne_interp_forallE`, cone 6519, hole-free), and
+`InjCorner.rigidSortPiDisj_iff_nil` with `nil_endpoints_typeable` locate its one open instance at
+`Prop ≢ (Prop → Prop)` -- **the same two terms `IndepResidual` §3 picks, reached independently.**
+
+Two further facts.  `IndepResidual.blockSubst_WF` (cone 2480) shows the block is **deletable by a
+constant substitution** at a staged environment, so `defeq_noBlock_of_staged` is half a licence to
+erase the block from any judgement.  And the escape is **narrow**:
+`not_rigidSortPiDisj_rogueSortPiEnv` proves the collapsed target is *also* false at `Ordered`, so the
+only reason §3 works is that its target is `∅`.
+
+Still open, and smaller than confluence: the two-substitution lemma needs a **block-free context**,
+which a field context is not -- a recursive earlier field's stored type *is* a block spine.
+
 Do **not** discharge it via `RigidShapeUniqNS.constPiDisj`: measured, that would import a
 529-transitive-user hole into this file's cone — currently 851 constants whose only hole is
 `exists_indep` itself — and create an import cycle.  Rigidity should stay a hypothesis.
