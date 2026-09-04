@@ -596,6 +596,23 @@ whnf-faithful reading is `posBinderDoms (b.instantiate1 v)`, which is not struct
 would need a substitution lemma this file does not have.  Nothing here suggests it is false; it is
 unproved and priced.
 
+**Answered 2026-09-04** (`Verify/Inductive/BinderScan.lean`, `docs/handoff-binderscan.md`).  Three of
+the four clauses above cost nothing.  The substitution lemma this file "does not have" **already
+existed** — `TrExprS.inst_let` (`Verify/Typing/Lemmas.lean`:2280), whose `VExpr` side is *unchanged*,
+so the `.letE` clause of the correspondence is one line and needs no `vlet`↔`ldecl` dictionary; the
+`.bvar`/`.fvar`-through-a-`vlet` clause is free, because `hctx` already covers it; and `whnf`'s δ (and
+β, ι, `Nat`, native) owe nothing at all, because part (B)'s conclusion is **vacuous** at every head
+where `whnf` would perform one.  `BinderScan` §3 proves the unconditional statement,
+`BinderScan.recArgOf_binders_noBlock_noLen` composes it, and §4.2's `hlen` survives there only as
+`S.piArity = 0 → r.binders = []` — the head-β-redex branch, which `hlen` had been silently doing the
+work of.  What is genuinely left is **one de Bruijn σ-composition at non-adjacent indices**
+(`BinderScan` §9(d)), not a collector.
+
+And §3.2's hypothesis was never *derivable*: `BinderScan.hlen_not_derivable` exhibits a let-bound
+`.bvar` at which `checkPositivity` succeeds as a real monadic value while
+`r.binders.length ≤ t.consumeMData.piArity` is false — so the plan "discharge `hlen` from `hchk`" was
+impossible, and only changing what the `Expr` side certifies could work.
+
 **(e) The args half is `likewise` only up to an asymmetry, which is §5's first paragraph.**  Binder
 telescopes align from the left, application spines from the right.  §5's bridge is therefore stated
 over `Expr.getAppArgsRevList` and `VExpr.spineArgs.reverse`, and `Verify/Inductive/Add.lean`'s
