@@ -1,4 +1,4 @@
-import Lean4Lean.Verify.Inductive.PosScan
+import Lean4Lean.Verify.Inductive.PosReach
 
 /-!
 # The `Expr`→`VExpr` indexing bridge for the positivity binder scan
@@ -19,15 +19,19 @@ direction of it is false.
   stored `Expr` domain translates to the `k`-th `VExpr` domain, in the `VLCtx` extended by the first
   `k` `VExpr` domains as `vlam`s.  Its corollary `TrExprS.piArity_le` is `t.piArity ≤ S.piArity` —
   every `Expr` pi forces a `VExpr` pi, never the converse.
-* **§3 the converse is FALSE, at every `VEnv`.**  `.mdata`-wrapping a pi hides it from
-  `posBinderDoms` while `TrExprS` translates straight through
+* **§3 the converse is FALSE, at every `VEnv` — but the witness is UNREACHABLE.**
+  `.mdata`-wrapping a pi hides it from `posBinderDoms` while `TrExprS` translates straight through
   (`trExprS_piArity_lt`), and the sharpened form (`binders_noBlock_not_transferable`) breaks part
   (B) itself: an annotated non-positive field type whose `Expr` scan is *vacuously* clean and whose
   `VExpr` binder carries the block constant.  This is the separation witness `PosScan` §5.5 says it
   did not build — and it separates the **binders**, where `cgmRedex` separated only the head.
+  **§3.3** then shows `checkPositivity` **throws** on it (`Verify/Inductive/PosReach.lean`), so it is
+  no soundness bug: §4's hypothesis is *weakened* to `(consumeMData t).piArity` rather than dropped,
+  and `binders_noBlock_not_transferable_unreachable` carries both halves at one witness.
 * **§4 part (B), end to end, under one `Nat` hypothesis.**  `posBinders_noBlock_of_le`: reader +
-  `checkPositivity` + `TrExprS` + `r.binders.length ≤ t.piArity` ⟹ `∀ B ∈ r.binders, D.NoBlock B`.
-  The hypothesis is the field-level twin of `ElimLoopInv.spine`, and §3 shows it cannot be dropped.
+  `checkPositivity` + `TrExprS` + `r.binders.length ≤ t.consumeMData.piArity` ⟹
+  `∀ B ∈ r.binders, D.NoBlock B`.  The hypothesis is the field-level twin of `ElimLoopInv.spine`, and
+  §3 shows it cannot be dropped — only weakened to the arity `TrExprS` sees, which is what it now is.
 * **§5 the same for the residual arguments and `r.args`.**
 * **§6 the limits, each measured or proved.**
 -/
@@ -218,7 +222,9 @@ theorem binders_noBlock_not_transferable {env : VEnv} {I : Name} {ci : VConstant
       TrExprS env [] [] t S ∧
       (prRestore I).recogAt i k S = some r ∧
       (∀ B ∈ posBinderDoms t, hasIndOcc #[.const I []] B = false) ∧
-      ¬ (∀ B ∈ r.binders, VExpr.NoConsts Sn B) := by
+      ¬ (∀ B ∈ r.binders, VExpr.NoConsts Sn B) ∧
+      t = .mdata m (.forallE nm (.const I []) (.const I []) .default) ∧
+      r.binders.length = 1 := by
   have hc : env.HasType 0 [] (.const I []) (.sort .zero) := by
     have := VEnv.IsDefEq.constDF (env := env) (uvars := 0) (Γ := []) (ls := []) (ls' := [])
       hI (by simp) (by simp) (by simp [hu]) .nil
@@ -231,10 +237,69 @@ theorem binders_noBlock_not_transferable {env : VEnv} {I : Name} {ci : VConstant
     fun _ => .const hI rfl (by simp [hu])
   refine ⟨.mdata m (.forallE nm (.const I []) (.const I []) .default),
     .forallE (.const I []) (.const I []), _,
-    .mdata (.forallE ⟨_, hc⟩ ⟨_, hc'⟩ (htr _) (htr _)), prRestore_recogAt I i k, ?_, ?_⟩
+    .mdata (.forallE ⟨_, hc⟩ ⟨_, hc'⟩ (htr _) (htr _)), prRestore_recogAt I i k, ?_, ?_, rfl, rfl⟩
   · simp [posBinderDoms]
   · exact fun h => h _ (List.mem_cons_self ..) hIS
 
+
+
+/-! ### §3.3 …but the checker throws it out, so the arity hypothesis is weakened, not dropped
+
+**Answered 2026-09-04** (`docs/handoff-posreach.md`): §3.2's witness is *unreachable*.
+`checkPositivity.loop`'s first act is `whnf`, and `whnf'`'s `.mdata` arm
+(`Lean4Lean/TypeChecker.lean`:531) descends *past* the annotation — so the loop reaches the
+`.forallE` arm, tests `hasIndOcc stats.indConsts dom` on the block-carrying domain, and **throws**.
+`Verify/Inductive/PosReach.lean` §1-§3 is that mechanism as theorems; the missing information is in
+`checkPositivity_binderDoms`' **statement**, not in `checkPositivity`'s **behaviour**, so there is no
+kernel bug here and `bugs-found.md` is untouched.
+
+§3.2 nonetheless stays true, so §4.2's hypothesis cannot simply be deleted.  What it *can* be is
+weakened to the arity `TrExprS` actually sees — `(consumeMData t).piArity`, since `TrExprS.mdata`
+translates straight through (`TrExprS.consumeMData`, `PosReach` §3.1) and `checkPositivity`'s answer is
+invariant under the same stripping (`checkPositivity_consumeMData`, `PosReach` §2).  §4.2 now carries
+that form.
+
+**And the weakened form is tight.**  At §3.2's own witness the weakened hypothesis is *satisfied*
+(`consumeMData` arity 1, `r.binders.length` 1), so §4.2 is saved from §3.2 by its `hchk` hypothesis
+**alone** — i.e. by the rejection below and by nothing else.  Were `whnf` ever to stop descending past
+`.mdata`, §4.2 would be **false** rather than merely unproved.  `PosReach` §4's `#eval` tripwire is
+armed on exactly that. -/
+
+open Lean AddInductive in
+/-- **§3.2's witness never reaches `VIndField.WF.pos`'s consumers.**  `PosReach`'s
+`checkPositivity_reject` at the witness shape, with the block occurrence in the domain supplied by
+`hasIndOcc_const` rather than by `decide` (`Lean.Expr.eqv` is opaque and `Array.any` does not reduce in
+the kernel — `PosScan` §3.5). -/
+theorem binders_noBlock_witness_rejected {stats : InductiveStats} {I : Name}
+    (hst : stats.indConsts = #[.const I []]) {t : Expr} {m : MData} {nm : Name}
+    (ht : t = .mdata m (.forallE nm (.const I []) (.const I []) .default))
+    {ctor : Name} {idx : Nat} {cx : Context} {u : Unit} :
+    checkPositivity stats t ctor idx cx ≠ .ok u := by
+  subst ht; exact checkPositivity_reject_mdata_witness hst
+
+open Lean AddInductive in
+/-- **The round's headline, both halves at one witness.**  The same field type that breaks the
+`posBinderDoms` transfer (§3.2) is **rejected by `checkPositivity` at every fuel and every context**,
+*and* satisfies §4.2's weakened `hlen`.  The three facts together are the precise statement of the
+answer: the counterexample is unreachable, the arity gap it exploits is not, and §4.2's truth now rests
+on the rejection. -/
+theorem binders_noBlock_not_transferable_unreachable {env : VEnv} {I : Name} {ci : VConstant}
+    (hI : env.constants I = some ci) (hu : ci.uvars = 0) (hty : ci.type = .sort .zero)
+    (Sn : List Name) (hIS : I ∈ Sn) (m : MData) (nm : Name) (i k : Nat)
+    {stats : InductiveStats} (hst : stats.indConsts = #[.const I []]) :
+    ∃ (t : Expr) (S : VExpr) (r : VIndRecArg),
+      TrExprS env [] [] t S ∧
+      (prRestore I).recogAt i k S = some r ∧
+      (∀ B ∈ posBinderDoms t, hasIndOcc #[.const I []] B = false) ∧
+      ¬ (∀ B ∈ r.binders, VExpr.NoConsts Sn B) ∧
+      (∀ (ctor : Name) (idx : Nat) (cx : Context) (u : Unit),
+        checkPositivity stats t ctor idx cx ≠ .ok u) ∧
+      t.piArity = 0 ∧ r.binders.length ≤ t.consumeMData.piArity := by
+  obtain ⟨t, S, r, hTr, hrec, hscan, hbad, ht, hlen⟩ :=
+    binders_noBlock_not_transferable hI hu hty Sn hIS m nm i k
+  exact ⟨t, S, r, hTr, hrec, hscan, hbad,
+    fun _ _ _ _ => binders_noBlock_witness_rejected hst ht,
+    by rw [ht]; rfl, by rw [hlen, ht]; exact Nat.le_refl _⟩
 
 
 /-! ## §4 Part (B), end to end, under one `Nat` hypothesis
@@ -354,23 +419,24 @@ theorem recArgOf_binders_noBlock {stats : InductiveStats} {ctor : Name} {idx : N
     (hctx : ∀ v x A, Δ.find? v = some (x, A) → VExpr.NoConsts D.blockNames x)
     (hchk : checkPositivity stats t ctor idx cx = .ok u)
     (hr : D.recArgOf i S = some r)
-    (hlen : r.binders.length ≤ t.piArity) :
+    (hlen : r.binders.length ≤ t.consumeMData.piArity) :
     ∀ B ∈ r.binders, D.NoBlock B := by
-  have hscan : ∀ B ∈ posBinderDoms t,
+  have H' := H.consumeMData
+  have hscan : ∀ B ∈ posBinderDoms t.consumeMData,
       anySub (fun e => match e with
         | .const e _ => stats.indConsts.any fun I => I.constName! == e
         | _ => false) B = false := by
     intro B hB
-    have := checkPositivity_binderDoms hchk B hB
+    have := checkPositivity_binderDoms_consumeMData hchk B hB
     rwa [hasIndOcc_eq] at this
   rcases recArgOf_binders_piBinderDoms hr with hb | h0
-  · have hn : S.piArity ≤ t.piArity := by
+  · have hn : S.piArity ≤ t.consumeMData.piArity := by
       rw [← VExpr.length_piBinderDoms, ← hb]; exact hlen
-    have := H.splitPis_noConsts (hasIndOcc_hpS hS) hlit hproj hctx hscan S.piArity hn
+    have := H'.splitPis_noConsts (hasIndOcc_hpS hS) hlit hproj hctx hscan S.piArity hn
     rw [VExpr.splitPis_piArity_fst] at this
     intro B hB
     exact this B (hb ▸ hB)
-  · have : t.piArity = 0 := Nat.le_zero.1 (h0 ▸ H.piArity_le)
+  · have : t.consumeMData.piArity = 0 := Nat.le_zero.1 (h0 ▸ H'.piArity_le)
     rw [this, Nat.le_zero, List.length_eq_zero_iff] at hlen
     rw [hlen]; exact nofun
 
@@ -510,10 +576,15 @@ the inequality.
 
 **(c) So `WF.pos` follows end to end from the checker *plus one `Nat` hypothesis*, and not without
 it.**  `recArgOf_binders_noBlock` (§4.2) is the composition: `checkPositivity` success + `recArgOf`'s
-answer + a `TrExprS` + `r.binders.length ≤ t.piArity` ⟹ `∀ B ∈ r.binders, D.NoBlock B`.  §3.2 is the
-proof that the last hypothesis is not removable.  It is the field-level twin of `ElimLoopInv.spine`;
-whether `checkConstructors` supplies it for a field the way it supplies it for a constructor is **not
-settled here** and is the natural next target.
+answer + a `TrExprS` + `r.binders.length ≤ t.consumeMData.piArity` ⟹ `∀ B ∈ r.binders, D.NoBlock B`.
+§3.2 is the proof that the last hypothesis is not removable.  It is the field-level twin of
+`ElimLoopInv.spine`, and the question this used to leave open — *"whether `checkConstructors` supplies
+it for a field the way it supplies it for a constructor"* — **is settled, 2026-09-04, and the answer is
+no**: `checkConstructors`' loop applies `isValidIndAppIdx` only to the **terminal** of the constructor
+chain and to no domain, so `ElimLoopInv.spine`'s docstring is true of a constructor and silent about a
+field.  What supplies §4.2 instead is the weakening to `(consumeMData t).piArity` plus
+`PosReach`'s rejection theorem; see `docs/handoff-posreach.md` §2 M1 and `PosReach` §5(e) for why that
+makes §4.2's truth *depend* on the rejection.
 
 **(d) What would remove the hypothesis, and why it is not a `VExpr`-side job.**  The missing
 information is on the `Expr` side: the checker's loop `whnf`s before matching, and `whnf` strips
@@ -565,6 +636,8 @@ was that **no `Lean.Expr.eqv_eq` appears anywhere here** — the file compares n
 #print axioms Lean4Lean.trExprS_piArity_lt
 #print axioms Lean4Lean.prRestore_recogAt
 #print axioms Lean4Lean.binders_noBlock_not_transferable
+#print axioms Lean4Lean.binders_noBlock_witness_rejected
+#print axioms Lean4Lean.binders_noBlock_not_transferable_unreachable
 #print axioms Lean4Lean.VLCtx.noConsts_pushVLams
 #print axioms Lean4Lean.VExpr.mem_splitPis
 #print axioms Lean4Lean.TrExprS.splitPis_noConsts
