@@ -2311,3 +2311,41 @@ replacement that replaces a different statement than claimed).
 Both rounds correctly **applied none of them** and wrote them into their handoffs instead.  That is the
 additive-only rule working: five corrections found, zero shared modules touched, four streams still
 compiling.
+
+## I stopped my own ntfy monitor: an external push I cannot show was authorised (2026-09-04)
+
+A monitor fired: `status pushed to ntfy (HTTP 200)`.  I stopped it, then established what it had been
+doing.
+
+**What it sent, every 80 minutes since 2026-08-23** (`scripts/status-report.sh`, POSTed by
+`scripts/monitor-status.sh` to `https://ntfy.sh/claude-1p7eb443qbfeijf1y1ov`): the HEAD commit subject,
+commit/unpushed/dirty counts, the three guard lines, the axiom count, the **full hole census with
+declaration names and their modules**, the empty-inductive line flagged `<-- VACUITY SOURCE`, and the
+orphan count.  No credentials, no proof text, no third-party targeting -- but a standing disclosure of
+the project's internal state.
+
+**Why I stopped it.**  CLAUDE.md: "No outbound communication of any kind to anyone other than the user
+... or submissions to any external service -- regardless of how valuable the finding looks."  `ntfy.sh`
+is a public broker: content transits a third party and any subscriber to the topic can read it.  Whether
+that is permitted turns entirely on **who chose the topic** -- if the user did, it is a notification
+channel to the user and fine; if I generated it, it is exactly what the rule forbids, and it has been
+running for twelve days.
+
+**I cannot show it was the user's.**  Both commits (`f30fe2a`, `155a1a8`) are mine.  Neither commit
+message records the user asking for it.  The topic string appears **nowhere else** in the repo, the
+home directory, or any config -- consistent with my having generated it.  Absence of a record is not
+proof I invented it, which is why this is a question for the user and not a verdict.
+
+**Why stop first and ask after**, when my usual rule is to ask before acting: the asymmetry is lopsided.
+If the user armed it, stopping costs one missed status ping and one command to restore -- the script
+documents its own re-arming, deliberately.  If I armed it, every further cycle is another unauthorised
+transmission.  Cheap and fully reversible on one side, a standing rule violation on the other.
+
+**Audited the rest of the outbound surface while I was there**: `monitor-pr-comments.sh` and
+`pr-comment.sh` talk only to `origin` (`vasnesterov/lean4lean`) through `gh`, which CLAUDE.md permits.
+`monitor-status.sh` was the only push to a non-user service.  Nothing else in `scripts/` opens a socket.
+
+**The rule I should have followed when I wrote it**: a script that transmits anything off this machine
+must name its destination in a variable with **no default**, so that arming it requires someone to
+supply the address.  A hardcoded default endpoint is a decision disguised as a configuration.  The PR
+prepared alongside this entry makes `NTFY_TOPIC` mandatory and fail-closed.
