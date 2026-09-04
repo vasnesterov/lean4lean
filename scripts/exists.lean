@@ -122,6 +122,9 @@ def main (argv : List String) : IO Unit := do
   if !watchBad.isEmpty then
     IO.println s!"WATCH NAMES THAT DO NOT RESOLVE (they can never be reported): {watchBad}"
   IO.println s!"watching {watchOk.length} declarations for cone membership\n"
+  let coneIn : Option String := match (← IO.getEnv "CONE_IN") with
+    | some v => if v.trim.isEmpty then none else some v.trim
+    | none => none
   for s in names do
     let n := s.splitOn "." |>.foldl (fun acc c => Name.mkStr acc c) Name.anonymous
     match env.find? n with
@@ -158,3 +161,35 @@ def main (argv : List String) : IO Unit := do
         IO.println s!"            *** WATCHED IN CONE: {hits} ***"
         IO.println s!"            (these are forbidden or load-bearing by policy, NOT holes --"
         IO.println s!"             a clean sorryAx line does not clear them)"
+      -- CONE MEMBERS, restricted to one module.  Added 2026-09-04 because the absence of this
+      -- hid `Lean4Lean.TrProj.instN` from FOUR successive rounds attacking census hole #1.  That
+      -- lemma substitutes a whole `TrProj` derivation and lives in the hole's OWN module; the
+      -- rounds instead ran the move on the major premise's type only, which forced them to discard
+      -- two `HasArgs` fields and rebuild them via `VEnv.HasArgs.of_mkApp` -- and THAT is where
+      -- three census holes and three watched names entered.  Routing through `instN` discards
+      -- nothing and the route is hole-free (3412/0/0 against 3698/3/3).
+      --
+      -- The question none of my instruments could answer was "which of my dependencies are already
+      -- declared next door?"  Cone SIZE cannot answer it and neither can a name search, because you
+      -- have to know the name to search for it.  `CONE_IN=<module>` answers it directly: it lists
+      -- the cone members declared in that module, which is the set of tools a proof in that file
+      -- may reach for without adding an import.
+      --
+      --   CONE_IN="Lean4Lean.Verify.Typing.Lemmas" NAMES="…" lake env lean --run scripts/exists.lean
+      --
+      -- Pass CONE_IN=SELF for the target's own module, which is the common case: "what is already
+      -- in the file holding the hole I am attacking?"
+      match coneIn with
+      | none => pure ()
+      | some want =>
+        let target := if want == "SELF" then m else want
+        let modOf := fun (d : Name) => match env.getModuleIdxFor? d with
+          | some i => toString env.header.moduleNames[i.toNat]!
+          | none => "?"
+        let local' := c.toList.filter fun d => modOf d == target && d != n
+        if local'.isEmpty then
+          IO.println s!"            cone ∩ {target}: none"
+        else
+          IO.println s!"            cone ∩ {target} ({local'.length}) -- reachable with no new import:"
+          for d in local'.toArray.qsort (·.toString < ·.toString) do
+            IO.println s!"              {d}"
