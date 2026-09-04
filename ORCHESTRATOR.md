@@ -2221,6 +2221,10 @@ applied between rounds, newest last:
    in my hands -- and I am taking it, because the benefit is that `parRedSES_rigid`'s hypothesis goes
    from false to unconditionally true, while the cost lands on `NormalEq.descend`, which is already
    refuted in both orientations.  Whoever applies it restates `CRSEScope` §2/§4 in the same round.
+4. `Verify/Inductive/TrIndDeclNProducer.lean`: add the single import
+   `import Lean4Lean.Verify.Inductive.B6` and consume B6's part-3 lemma there.  Measured by the B6
+   round as cycle-free, +6 modules to that file's closure.  This is what takes `B6.lean` off the
+   orphan list.
 
 ### Correction, same turn: 4 is the direct-edge count, not the inversion count (2026-09-04, mine)
 
