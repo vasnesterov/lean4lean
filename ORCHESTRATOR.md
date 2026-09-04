@@ -2049,3 +2049,19 @@ What that means concretely:
 The corollary for prose: a `docs/decision-*.md` file is working material for *me* — the costing, the
 rejected options, the measurements. It is not how the question gets asked. Ask it in a PR, and let the
 document be what the PR links to.
+
+## Never post a PR comment by hand (2026-09-04)
+
+`scripts/monitor-pr-comments.sh` suppresses comments containing `<!-- l4l-orchestrator -->` so my
+own posts do not wake me as though they were the user's. I have now forgotten that marker **twice** —
+three comments early on, fixed retroactively, and again on PR #46, which echoed straight back through
+the monitor within minutes.
+
+Twice is not a lapse, it is a missing tool. **Use `scripts/pr-comment.sh <pr> <<'BODY' … BODY`.** It
+reads the body from stdin, appends the marker if absent, posts to `vasnesterov/lean4lean` only, and
+then selftests by asking the monitor's own filter how many unmarked comments remain.
+
+The general shape, and it is the session's most repeated lesson: when I catch myself relying on
+remembering something, the fix is a script, not resolve. That is how `exists.lean`, `shape.lean`,
+`users.lean`, `arena-needed.sh`, `layer-check.py`, the ledger audit, and the `WATCH` list all came to
+exist — each after an error that discipline alone had failed to prevent.
