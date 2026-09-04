@@ -1979,3 +1979,26 @@ plausible, self-consistent, wrong answer that nothing in the output flagged.
 
 When a round reports a closure or census figure, ask what it seeded from. Types, values, and
 constructors give three different answers, and only one of them is the one wanted.
+
+## I put four files in the wrong layer (2026-09-04)
+
+Exactly four files under `Lean4Lean/Theory/` import `Lean4Lean.Verify.*`, inverting the refinement
+chain (`Verify/` → `Theory/` → `Theory/SetModel/` → Foundation). All four were created **this
+session, by rounds I commissioned**: `EtaGuardLand.lean`, `StructEtaPrice.lean`,
+`CommutationLemmas.lean`, `NoConfRepair.lean`.
+
+No cycle exists today and the tree is green, so this is fragility rather than breakage — but a future
+`Verify/` file importing any of the four would cycle, and one of them is imported by
+`Theory/SetModel/RecTypePeel.lean`, the deepest layer.
+
+**The cheapest correct fix is not to move the four files**, which would push the inversion down into
+`SetModel/`. It is to move the one declaration `SetModel/` actually needs
+(`SetModel.eq_singleton_of_recProp`) down out of `StructEtaPrice.lean`, cutting the single edge that
+reaches the deepest layer. Blast radius: `StructEtaPrice` has 4 importers, `EtaGuardLand` 2,
+`NoConfRepair` 1, `CommutationLemmas` 0.
+
+**The briefing lesson**: I choose the file path in every brief, and I chose `Theory/Typing/...` for
+work whose dependencies were in `Verify/` — four times, without once asking what the file would need
+to import. A brief that names a path should name it *after* checking which layer the content belongs
+to. The stream that flagged this did the right thing: it noted the pre-existing edge, added no new
+direction, and asked for a human glance rather than importing through silently.
