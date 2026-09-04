@@ -277,7 +277,10 @@ theorem VNestedOcc.bindersIndep (h : N.SrcIndep H R C₀) (i F r)
 is the one `VIndRecArg.exists_indep` records — an earlier field becomes recursive exactly when
 its `J`-type is a *parameter* position, and nothing in `J`'s own declaration can eliminate an
 abstract parameter, so a later field's type cannot depend on its value.  Turning that into a
-proof needs `IsDefEqU.forallE_inv` (`Typing/Injectivity.lean`, open).  `SrcIndep` is the
+proof needs `IsDefEqU.forallE_inv` (`Typing/Injectivity.lean` -- **NOT open; corrected 2026-09-04**:
+measured arity 10, cone 3574, `own value is a hole: false`.  It is a *theorem* standing on
+`IsDefEqU.forallE_inv_stratified` and `VEnv.WF.rigidShapeUniqNS`, which are the two real census
+entries.  So this step is **priced at those two holes, not blocked**).  `SrcIndep` is the
 checkable statement that argument would discharge; the reduction *to* it is now a theorem.
 
 ## 7. Nested positivity (`NestedPositivity.lean`)

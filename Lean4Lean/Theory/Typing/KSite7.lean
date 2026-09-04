@@ -115,8 +115,20 @@ theorem not_etaRLiftInv_of_etaK
 
 /-- Non-vacuity, split honestly: where `EtaK` is empty the specialised statement *holds* -- it
 is `ChurchRosser.lean`'s own `ParRed.weakN_inv` -- so it is not refutable outright and `hin`
-is load-bearing.  As always: no `Params` instance in this tree registers an `.app` pattern, so
-`hin` has no witness here, and that is **not** evidence of truth. -/
+is load-bearing.
+
+**CORRECTED 2026-09-04.**  This used to end "As always: no `Params` instance in this tree registers
+an `.app` pattern, so `hin` has no witness here".  **Two do.**  `scripts/shape.lean` on
+`HEADS="Lean4Lean.VEnv.Params"` finds **eight** instances, of which `VEnv.quotParams`
+(`Verify/QuotAppParams.lean`) and `VEnv.appParams` register `.app` patterns -- and the two are
+instructive precisely because they differ: at `quotParams` the rule **computes** and `CRStatement` is
+refuted there (modulo the injectivity corner -- `quotParams_not_crStatement` carries `sorryAx`, and
+commit `a561fa9` says in capitals that it must not be quoted as unconditional), while at `appParams`
+the rule is **degenerate**, redex and contractum differing only in a proof argument, so the
+refutation's `hne` is false there.  See `Theory/Typing/CRShape.lean` §2 for the eight-instance table.
+
+So `hin` may well have a witness; what remains true is the conclusion this sentence was drawing --
+**that `hin` having no witness *here* is not evidence of truth**.  That part stands. -/
 theorem etaRLiftInv_of_no_etaK (hno : ∀ {Δ a b}, ¬ EtaK Δ a b) : EtaRLiftInv := by
   intro Γ A B e f₀ hΓ hty H
   have ⟨⟨u, hA⟩, v, hB⟩ := (have ⟨_, h⟩ := hty.isType henv hΓ; h.forallE_inv henv)
