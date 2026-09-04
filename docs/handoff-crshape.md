@@ -567,3 +567,498 @@ brief's own standing complaint about stale-absence claims, and it is worth me no
 * Two measurements I would have made with more time: whether `KStepNormalEq` holds at `appParams`
   for *every* K-step rather than only proof-typed major premises (I proved only the latter, which
   is `appParams_normalEq_of_kstep` restated), and the `unitParams` row.
+
+---
+
+# ROUND 2 — 2026-09-04 (second round of the day). Can `CRStatementK` be PROVED?
+
+> Numbering note: the brief said "add §3 onward", but §3 already exists and is the previous
+> round's verdicts. I do not touch §1–§3. My work is **§4 (priors), §5 (measurements),
+> §6 (verdicts)**.
+
+## §4 PRIORS — written before any Lean tool ran this round. **Never edited.** Corrections go to §5.
+
+### §4.0 What I read before writing this section (source text only, `cat`/`grep`, no Lean tooling)
+
+`CLAUDE.md`; all of `docs/handoff-crshape.md` §1–§3; all 382 lines of
+`Theory/Typing/CRShape.lean`; `Theory/Typing/KEta.lean` (outline + `:469–525`, `:733–1031`);
+`Theory/Typing/KCanonical.lean` `:490–640`; `Theory/Typing/ChurchRosser.lean` `:2400–2500`
+(`NormalEq.parRedS`, `CRDefEq`, `ParRedS.church_rosser`, `CRDefEq.trans`,
+`IsDefEq.church_rosser`) and grep for `church_rosser|triangle|CParRed|ParRedS`;
+`Theory/Typing/DescendSurplus.lean` §1–§4; grep for `ParRedK` (32 files) and for
+`def/theorem *Statement` in the nine K-side modules.
+
+**What that reading already changes about the brief's framing** (recorded here as prior
+knowledge, not as a measurement): the brief says the crux is the diamond. Source reading says
+the K-side commutation lemma — the K-analogue of `NormalEq.parRed`, named
+`KSite7.ParRedKStatement` — is *already* derived from **one** hypothesis,
+`ParRedKGraded.parRedKStatement_of_weakNInvDS (HD : WeakNInvDS) : ParRedKStatement`, and that
+`DescendSurplus.appDFExtraKStatement_holds` proves the K-frontier **with no hypothesis at all**
+and with `NormalEq.descend` *not* in its cone. So the `descend` half of the lever has an
+in-tree mechanism, and the diamond is not the only crux.
+
+### §4.1 Numbered predictions, with probabilities
+
+| # | prediction | P |
+|---|---|---|
+| Q1 | Bare `lake build` is **not** green when I start — §2.7's `Checker.lean:86` break is still at HEAD (`ca04f43` is docs-only) | 0.65 |
+| Q2 | §2.10's lever re-measures as stated: `constApp_forallE_false_ofK` cone has holes `{forallE_inv_stratified, rigidShapeUniqNS}` and **not** `weakN_iff`/`NormalEq.descend`; the tree versions have all four | 0.90 |
+| Q3 | `CRStatementK` is **not** proved unconditionally this round; what I deliver is `CRStatementK` from named hypotheses | 0.85 |
+| Q4 | The assembled hypothesis list has **≥ 3** named residuals | 0.75 |
+| Q5 | Neither `weakN_iff` nor `NormalEq.descend` appears in the cone of the assembled `CRStatementK`-from-hypotheses theorem | 0.70 |
+| Q6 | **The lever is partly illusory**: at least one of the residual hypotheses is itself priced at `IsDefEqU.weakN_iff` in the tree (KEta.lean's own docstrings say `KStepLiftInv`'s residual and `PiTypeDescend` "both follow from `IsDefEqU.weakN_iff`, which is `UniqueTyping.lean:172`'s existing hole"), so `weakN_iff` is **relocated into an unproved hypothesis**, not retired | 0.65 |
+| Q7 | The diamond case that resists is a `keta` × top-level-rule critical pair (`keta`×`extra` or `keta`×`beta`), not a congruence case | 0.60 |
+| Q8 | `EtaKDiamond` is **unproved, not false** — no refutation of it exists or is findable this round | 0.75 |
+| Q9 | No complete-development relation over `ParRedK` (`CParRedK`, with a `CParRedK.exists`) exists in the tree | 0.85 |
+| Q10 | Every hypothesis I need already exists in the tree as a named `Prop` — I invent no new obligation | 0.55 |
+| Q11 | `scripts/exists.lean` works on the first try (depends on olean completeness, which Q1 threatens) | 0.40 |
+| Q12 | The `ConstSpine`-route cones re-measure **exactly** as §2.9/§2.10: 3810/2 and 3629/1 vs 4431/4 and 4429/4 | 0.60 |
+| Q13 | `ParRedK.triangle` / a K-diamond at the `ParRedK` level does **not** exist in the tree under any name | 0.70 |
+
+### §4.2 My own reading, stated up front so it can be scored
+
+The brief's "two of the thirteen holes stop mattering" is a claim about **routing**, and routing
+claims are only as good as the terminal nodes. Taking confluence as a hypothesis trivially
+removes the holes in its proof; the question is whether the hypothesis is dischargeable more
+cheaply. My prior (Q6) is that it is **not**, for `weakN_iff` specifically: the K-development's
+weakening-inversion residual (`KEta.WeakNInvStatement` is *refuted*, `KMeasure.WeakNInvDS` is its
+successor) is the same lemma the `ParRed` development needed, and `KEta.lean`'s own docstrings
+price its discharge at `weakN_iff`. If that is right, the honest statement of the round's result
+is "`weakN_iff` moves from the *proof of confluence* to an *explicit hypothesis of confluence*",
+which is real bookkeeping progress (it becomes visible and localised) but is **not** a retirement.
+`NormalEq.descend` I expect to be genuinely retired, because `DescendSurplus.lean` already proves
+the K-frontier unconditionally.
+
+## §5 MEASUREMENTS
+
+All measurements **2026-09-04**, commit `ca04f43` (`git log -1 --format=%h`), working tree clean
+at start.
+
+### §5.1 Q1 SCORED — **WRONG.** The tree builds.
+
+`lake build` (bare, no target): **`Build completed successfully (1656 jobs)`**, working tree
+clean. So §2.7's `Checker.lean:86` break has been fixed since `e4e01c6` — the previous round's
+"HEAD does not build" is **no longer true at `ca04f43`**, and `Verify/QuotAppParams.lean` is
+reachable again. That reopens the previous round's §2.2, whose four `quotParams` instantiations
+were recorded verbatim rather than compiled *because* of that break.
+
+### §5.2 Q2, Q11, Q12 SCORED — all three **RIGHT**, the lever replicates exactly
+
+`scripts/exists.lean` ran first try (**Q11 RIGHT**, at 0.40 — it was Q1 that made me doubt it),
+population **470 built modules** (one more than the previous round's 469).
+
+| name | module | arity | cone | holes in cone |
+|---|---|---|---|---|
+| `IsDefEqU.constApp_forallE_false` | `Verify/Typing/ConstSpine` | 9 | **4431** | `weakN_iff`, `forallE_inv_stratified`, `rigidShapeUniqNS`, `NormalEq.descend` — **4** |
+| `IsDefEqU.constApp_forallE_false_ofK` | `Theory/Typing/CRShape` | 10 | **3810** | `forallE_inv_stratified`, `rigidShapeUniqNS` — **2** |
+| `IsDefEqU.constApp_sort_false` | `Verify/Typing/ConstSpine` | 8 | **4429** | the same **4** |
+| `IsDefEqU.constApp_sort_false_ofK` | `Theory/Typing/CRShape` | 9 | **3629** | `forallE_inv_stratified` — **1** |
+| `IsDefEq.constApp_inv` | `Verify/Typing/ConstSpine` | 14 | **4446** | the same **4** |
+| `ParRedKS.constApp_inv` | `Theory/Typing/DescendConstSpineK` | 8 | **803** | **none, `sorryAx`-free** |
+| `CRStatementK` | `Theory/Typing/CRShape` | 1 | 37 | none |
+| `CRStatement` | `Theory/Typing/KCanonical` | 1 | 37 | none |
+| `crStatement_holds` | `Theory/Typing/KCanonical` | 1 | **4385** | the same **4** |
+
+**Q2 RIGHT** and **Q12 RIGHT** — every number matches §2.9/§2.10 to the digit. So the lever's
+*measurement* is sound and reproducible on a green tree: `weakN_iff` and `NormalEq.descend` reach
+`ConstSpine.lean`'s three consumers **only** through the proof of confluence.
+
+New datum the previous round did not print: `constApp_forallE_false` and `constApp_sort_false`
+also carry `IsDefEq.uniq`/`uniqU` in cone (`exists.lean`'s watch list), and
+`constApp_sort_false_ofK` carries **neither**. So the K route drops two watched declarations as
+well as three holes, which strengthens §2.10 rather than changing it.
+
+### §5.3 THE DECISIVE MEASUREMENT — the lever is **half** illusory, and I can say which half
+
+Measured 2026-09-04, commit `ca04f43`, population 470.
+
+| name | module | arity | cone | holes in cone |
+|---|---|---|---|---|
+| `NormalEq.parRed` (site 7 over `ParRed`) | `ChurchRosser` | 8 | 4135 | `weakN_iff`, `forallE_inv_stratified`, `rigidShapeUniqNS`, **`NormalEq.descend`** |
+| `NormalEq.parRedS` | `ChurchRosser` | 8 | 4138 | the same **4** |
+| **`NormalEq.trans`** | `ChurchRosser` | 8 | **3696** | `weakN_iff`, `forallE_inv_stratified`, `rigidShapeUniqNS` — **`descend` ABSENT** |
+| `NormalEq.symm` | `ChurchRosser` | 6 | 3506 | `forallE_inv_stratified` only |
+| `CRDefEq.trans` | `ChurchRosser` | 8 | 4373 | the same **4** |
+| `ParRedS.church_rosser` | `ChurchRosser` | 10 | 4366 | the same **4** |
+| `ParRed.church_rosser` | `ChurchRosser` | 10 | 4102 | 3 (`descend` absent) |
+| `ParRed.triangle` | `ChurchRosser` | 10 | 4084 | 3 (`descend` absent) |
+| `CParRed.exists` | `ChurchRosser` | 6 | 3461 | **none, `sorryAx`-free** |
+| `ParRedKStatement` (site 7 over `ParRedK`) | `KSite7` | 1 | 36 | none (a `Prop`) |
+| **`parRedKStatement_of_weakNInvDS`** | `ParRedKGraded` | 2 | **4353** | `weakN_iff`, `forallE_inv_stratified`, `rigidShapeUniqNS` — **`descend` ABSENT** |
+| `WeakNInvDS` | `KSite7` | 1 | 162 | none (a `Prop`) |
+| `Joins` | `KDiamondJoin` | 4 | 10 | none |
+| `KDiamondJ` | `KDiamondJoin` | 1 | 38 | none |
+| `kDiamondJ_of_crK` | `KDiamondJoin` | 2 | 3539 | `forallE_inv_stratified` |
+| `appParams_kDiamondJ` | `KDiamondJoin` | **0** | 5248 | **none, `sorryAx`-free** |
+| `EtaKDiamond` | `KEta` | 1 | 37 | none |
+| `ParRedKS.{app,lam,forallE}` | `KMeasure` | 8 | 39 | none each |
+| `ParRedKS.hasType` | `KMeasure` | 8 | 3712 | `forallE_inv_stratified`, `rigidShapeUniqNS` |
+| `ParRedKS.defeq` | `KMeasure` | 8 | 3713 | the same two |
+| `ParRedKS.defeqDFC` | `KSite7` | 11 | 3741 | the same two |
+| `ParRed.lams` | `ChurchRosser` | 6 | 81 | none |
+
+**Q6 is looking RIGHT and the brief's two-hole claim is looking half wrong.** Two independent
+readings of the same table, both about `IsDefEqU.weakN_iff`:
+
+1. **`NormalEq.trans` already carries `weakN_iff`** (cone 3696) and does **not** carry
+   `NormalEq.descend`. `NormalEq.trans` is not a reduction lemma and no change of reduction
+   relation touches it — and it is **unavoidable** in `CRDefEq.trans`/`CRDefEqK.trans`, which is
+   unavoidable in the `IsDefEq.trans` case of *any* confluence statement over *any* relation.
+   So `weakN_iff` is in the cone of every proof of `CRStatementK` that closes the `trans` case
+   the way the tree does.
+2. **The tree's own K-side site-7 derivation already pays it**:
+   `parRedKStatement_of_weakNInvDS` (cone 4353) carries `weakN_iff` too.
+
+Meanwhile `NormalEq.descend` is absent from `NormalEq.trans`, `NormalEq.symm`,
+`ParRed.church_rosser`, `ParRed.triangle`, `CParRed.exists` **and** from
+`parRedKStatement_of_weakNInvDS`. It enters *only* through `NormalEq.parRed`, which the K route
+replaces. So:
+
+> **Prediction, recorded before I build anything** (this is a new prior, Q14, P = 0.85): a proof
+> of `CRStatementK` assembled from the in-tree K machinery will have hole cone
+> `{weakN_iff, forallE_inv_stratified, rigidShapeUniqNS}` — **three**, not two — and the census
+> hole it retires from the `ConstSpine` route is **`NormalEq.descend` alone**.
+
+Also scored here: **Q13 RIGHT** — no one-step diamond for `ParRedK` exists under any name
+(`grep` for `Diamond|triangle` over `Theory/Typing/*.lean` returns `KDiamond`, `KDiamondJ`,
+`EtaKDiamond`, `EtaKDiamondAt`, `ParRed.triangle` and nothing at the `ParRedK` level), and
+**Q9 RIGHT** — there is no `CParRedK`. `CParRed.exists` (cone 3461) is `sorryAx`-free, so the
+completeness half of the development is *free*; what is missing is the triangle over `ParRedK`.
+
+One genuinely new find, and it inverts the brief's dependency order: **`kDiamondJ_of_crK`**
+(`KDiamondJoin.lean:450`, arity 2, cone 3539) derives `KDiamondJ` **from** a `Joins`-valued
+confluence statement. So `KDiamondJ` is *downstream* of `CRStatementK`, not upstream — and
+`appParams_kDiamondJ` is a **closed, `sorryAx`-free** instance of it. `Joins Γ e₁ e₂` is
+literally `CRDefEqK`'s third conjunct (`∃ e₃ e₄, ParRedKS Γ e₁ e₃ ∧ ParRedKS Γ e₂ e₄ ∧ NormalEq Γ e₃ e₄`).
+
+### §5.4 **`CRStatementK` IS PROVED** — from two hypotheses, and Q14 lands exactly
+
+`Lean4Lean/Theory/Typing/CRKProve.lean` (new, mine), `lake build Lean4Lean.Theory.Typing.CRKProve`
+→ **`Build completed successfully (97 jobs)`**, file contains **no `sorry`** (`grep` returns
+nothing). Population 471.
+
+```
+theorem crStatementK_of (HS : ParRedKStatement) (HD : ParRedKDiamond) : CRStatementK
+```
+
+| declaration | arity | cone | holes in cone |
+|---|---|---|---|
+| `ParRedKDiamond` (new `Prop`) | 1 | 34 | none |
+| `NormalEq.parRedKS` | 9 | **49** | **none, `sorryAx`-free** |
+| `ParRedKS.church_rosser` | 12 | 3794 | `weakN_iff`, `forallE_inv_stratified`, `rigidShapeUniqNS` |
+| `CRDefEqK.trans` | 10 | 3799 | the same three |
+| **`crStatementK_of`** | **3** | **3859** | **`weakN_iff`, `forallE_inv_stratified`, `rigidShapeUniqNS` — three; `NormalEq.descend` ABSENT** |
+| `parRedKDiamond_of_no_etaK` | 2 | 4118 | the same three (it cites `ParRed.church_rosser`) |
+| `refParams_parRedKDiamond` | **0** | 7053 | the same three |
+
+**Q14 (0.85, written in §5.3 before the file existed) — RIGHT, to the letter.** The cone is
+`{weakN_iff, forallE_inv_stratified, rigidShapeUniqNS}`: **three**, not the brief's two.
+**Q3 (0.85) — RIGHT**: proved from named hypotheses, not unconditionally.
+**Q4 (0.75) — WRONG**: **two** residuals, not ≥ 3, and both already existed in the tree
+(`ParRedKStatement`, `KSite7.lean:29`) or are the exact `ParRed.church_rosser` conclusion with
+`ParRedK` substituted (`ParRedKDiamond`). **Q10 (0.55) — HALF**: `ParRedKStatement` was in the
+tree; `ParRedKDiamond` I had to state, but it is not a new *obligation*, only the K-substitution
+of a theorem the tree proves for `ParRed`.
+**Q5 (0.70) — WRONG for `weakN_iff`, RIGHT for `NormalEq.descend`.**
+
+**Where `weakN_iff` enters, exactly.** `NormalEq.parRedKS` — the K-analogue of the lemma that
+carried `descend` — is cone **49** and `sorryAx`-free. Everything else in `ParRedKS.church_rosser`
+that could carry a hole is `ParRedKS.hasType` (3712, no `weakN_iff`) and `NormalEq.symm` (3506, no
+`weakN_iff`). The one dependency that carries it is **`NormalEq.trans` (cone 3696)**, which
+`CRDefEqK.trans` needs to compose the two `NormalEq`s at the tip. `NormalEq.trans` is not a
+reduction lemma; changing `ParRed` to `ParRedK` cannot touch it.
+
+> **So the correct statement of the lever is: proving `CRStatementK` retires `NormalEq.descend`
+> from the `ConstSpine` route and does NOT retire `IsDefEqU.weakN_iff`.** One of the thirteen
+> census holes, not two. `weakN_iff` survives because `IsDefEq.trans`'s case needs `NormalEq`
+> to be transitive, and `NormalEq.trans`'s proof needs `NormalEq`-strengthening, which is where
+> `weakN_iff` lives (`NormalEqStrengthen.lean` §2–§3 is the in-tree analysis: it can be exchanged
+> for `TypingStrengthening`, which "has no unconditional inhabitant in this tree", but not removed).
+
+### §5.5 The firing, and the `ConstSpine` route's new cone
+
+`Lean4Lean/Theory/Typing/CRKProve.lean`, all compiled, no `sorry`, 1290-job target green.
+
+| declaration | arity | cone | holes in cone | `#print axioms` |
+|---|---|---|---|---|
+| `IsDefEqU.constApp_forallE_false_ofHyps` | 11 | **3931** | `weakN_iff`, `forallE_inv_stratified`, `rigidShapeUniqNS` — **3** | `[propext, sorryAx, Classical.choice, Quot.sound]` |
+| `IsDefEqU.constApp_sort_false_ofHyps` | 10 | **3929** | the same **3** | same |
+| `refParams_crStatementK` | **0** | 7348 | **4, `descend` back** — see §6.4 limit 3 | same |
+| `quotParams_not_kStepNormalEq` | **0** | 9327 | `forallE_inv_stratified`, `rigidShapeUniqNS` | same |
+| `quotParams_not_crUpToProof` | **0** | 9385 | the same two (**CONDITIONAL** — a561fa9) | same |
+| `quotParams_parRedK_qLiftT` | **0** | 9322 | the same two | same |
+| **`quotParams_crDefEqK`** | **0** | **9338** | the same two | same |
+| **`quotParams_parRedKDiamond_at_kDiamond_witness`** | **0** | 9287 | the same two | same |
+| `kDiamondJ_of_crStatementK` | 2 | 3542 | `forallE_inv_stratified` | same |
+| `etaKDiamond_of_crStatementK` | 2 | — | `forallE_inv_stratified`, `rigidShapeUniqNS` | same |
+| `joins_of_parRedKDiamond_etaK` | 11 | **72** | **none** | `[propext, Quot.sound]` |
+| `NormalEq.parRedKS` | 9 | **49** | **none** | `[propext, Quot.sound]` |
+
+**The number the brief asked for.** `ConstSpine`'s two `false` consumers, with confluence
+*discharged* rather than assumed:
+
+| | tree, via `IsDefEq.church_rosser` | mine, via `crStatementK_of` |
+|---|---|---|
+| `constApp_forallE_false` | 4431 / **4** holes | 3931 / **3** holes |
+| `constApp_sort_false` | 4429 / **4** holes | 3929 / **3** holes |
+
+**One hole drops out of the `ConstSpine` route: `NormalEq.descend`.** Not two.
+
+`scripts/layer-check.py` exit 0, HARD RULE intact. `CRShape.lean` keeps its 1-`Verify`-module
+footprint (I put the `quotParams` work in my own file); `CRKProve` reports 45 Verify modules,
+inside the band of the thirteen (`ParamsCR` 51, `EtaGuardLand` 46). `scripts/can-cite.py` ran
+(this round it works, unlike the previous round's) and returns **YES** for all six citations I
+rely on, including `PatMajorCanonicalJ` and `kDiamondJ_of_patMajorCanonicalJ`.
+
+### §5.6 A file I do not own went red — reported per the brief, and re-polled
+
+`lake build` (bare) was green at round start (§5.1) and at round end fails at
+**`Lean4Lean/Verify/Inductive/NoNestedAll.lean:198` and `:211`** ("Application type mismatch").
+That file is **untracked** (`git status`: `?? Lean4Lean/Verify/Inductive/NoNestedAll.lean`,
+`?? Lean4Lean/Verify/Inductive/WFPos.lean`, plus two new handoffs) — it is the `Verify/Inductive/`
+stream's work in progress and did not exist when I started. Nothing imports my file, so it
+cannot be mine. My own targets are green: `lake build Lean4Lean.Theory.Typing.CRKProve` →
+1290 jobs, success.
+
+---
+
+## §6 VERDICTS
+
+### §6.1 The one-sentence answer
+
+**`CRStatementK` is proved — from exactly two hypotheses, `ParRedKStatement` and
+`ParRedKDiamond` — and it retires exactly ONE of the thirteen census holes from the
+`Verify/Typing/ConstSpine.lean` route, `NormalEq.descend`, not the two the brief expected:
+`IsDefEqU.weakN_iff` survives, because `NormalEq.trans` needs it and no change of reduction
+relation can touch `NormalEq.trans`.**
+
+### §6.2 What is proved, and its price
+
+```
+theorem crStatementK_of (HS : ParRedKStatement) (HD : ParRedKDiamond) : CRStatementK
+  -- arity 3, cone 3859, holes {weakN_iff, forallE_inv_stratified, rigidShapeUniqNS}
+  -- [propext, sorryAx, Classical.choice, Quot.sound]
+```
+
+The proof is `ChurchRosser.lean`'s `IsDefEq.church_rosser` (`:2485`) and
+`ParRedS.church_rosser` (`:2440`) line for line, with `ParRed`/`ParRedS` → `ParRedK`/`ParRedKS`.
+The two hypotheses are:
+
+* **`ParRedKStatement`** (`KSite7.lean:29`, cone 36) — site 7 for `ParRedK`, the K-analogue of
+  `NormalEq.parRed`. Already in the tree, and already derived there from one further hypothesis:
+  `parRedKStatement_of_weakNInvDS (HD : WeakNInvDS)`, cone 4353, holes
+  `{weakN_iff, forallE_inv_stratified, rigidShapeUniqNS}`.
+* **`ParRedKDiamond`** (new, `CRKProve.lean`, cone 34) — `ParRed.church_rosser`'s *conclusion*
+  with `ParRedK` substituted: single parallel step on each leg, `NormalEq` at the tip. Not in the
+  tree under any name (Q13). Discharged at `refParams` only.
+
+`NormalEq.parRedKS` — the lemma that replaces `NormalEq.parRedS`, whose cone carries `descend` —
+is **cone 49, `sorryAx`-free, `[propext, Quot.sound]`**. That is the whole mechanism of the one
+hole that does drop: the K route's site-7 lemma is a pure consequence of `ParRedKStatement`, and
+`descend` never enters.
+
+### §6.3 Why `weakN_iff` does **not** drop, and where exactly it enters
+
+`CRDefEqK.trans` — forced by `IsDefEq`'s `trans` rule, present in every confluence statement over
+every relation — joins the two tips with `NormalEq.trans`. Measured today:
+
+* `NormalEq.trans`, arity 8, cone **3696**, holes `{weakN_iff, forallE_inv_stratified, rigidShapeUniqNS}`.
+* `NormalEq.symm`, cone 3506, holes `{forallE_inv_stratified}` — clean of `weakN_iff`.
+* `NormalEq.parRedKS` (mine), cone 49, **hole-free**.
+* `ParRedKS.hasType`, cone 3712, holes `{forallE_inv_stratified, rigidShapeUniqNS}` — clean of `weakN_iff`.
+
+So `weakN_iff`'s single entry into `crStatementK_of` is `NormalEq.trans`, a lemma about the
+*conversion* relation with no reduction relation in its statement. **The brief's routing claim was
+right about the measurement and wrong about the inference**: §2.10 measured that `weakN_iff` is
+absent from `constApp_forallE_false_ofK`'s cone, which is true — but only because confluence was a
+*hypothesis* there. Discharge the hypothesis and `weakN_iff` comes back, through a lemma the K
+repair cannot reach. **Q6 (0.65) is RIGHT**, though by a different mechanism than I predicted: I
+guessed `WeakNInvDS`/`PiTypeDescend` would be the carrier; it is `NormalEq.trans`, and
+`parRedKStatement_of_weakNInvDS` carries it too, so both routes pay.
+
+`NormalEqStrengthen.lean` §1b–§3 is the in-tree analysis of that entry and it is worth quoting
+rather than paraphrasing: `NormalEq`-strengthening "follows from the typing half", i.e.
+`weakN_iff` can be **exchanged** for `TypingStrengthening` there — but that file's own closing
+note says `TypingStrengthening` "has no unconditional inhabitant in this tree". So the honest
+verdict is *exchange, not removal*.
+
+### §6.4 What blocks `ParRedKDiamond` — **unproved, not false**, with evidence both ways
+
+**Not false, and this is compiled.** The one witness in the tree that kills a K-layer diamond is
+`quotParams_not_kDiamond` (`KDiamond`, nose-`NormalEq`, refuted at the reducts `g x` and
+`g ((fun y => y) x)`). Its own file already showed those two are *joinable*
+(`quotParams_kDiamond_joinable`). What I add is that they are joinable **with single-step legs**,
+which is the shape `ParRedKDiamond` demands:
+
+```
+theorem quotParams_parRedKDiamond_at_kDiamond_witness :
+    ∃ e₁' e₂', ParRedK qc1 (.app (.bvar 3) (.bvar 1)) e₁' ∧
+      ParRedK qc1 (.app (.bvar 3) qXbeta) e₂' ∧ NormalEq qc1 e₁' e₂'
+  := ⟨_, _, .rfl, .app .bvar (.beta .bvar .bvar), .refl (qT_gx qT_x)⟩
+```
+because `ParRedK` is a *parallel* reduction and `(fun y => y) x ≫ᴷ x` in one step. So the
+standing refutation does not transfer, and no refutation of `KDiamondJ` or `PatMajorCanonicalJ`
+exists anywhere in the tree (`grep` for `not_kDiamondJ|¬ KDiamondJ|not_patMajorCanonicalJ|¬ PatMajorCanonicalJ`
+over `Lean4Lean/**/*.lean`: **zero hits**). **Q8 (0.75) RIGHT.**
+
+**Unproved, and here is the shape of the obstruction — plus a circularity I did not expect.**
+`ParRed.church_rosser` goes through `ParRed.triangle` against the complete development `CParRed`
+(`CParRed.exists`, cone 3461, **`sorryAx`-free** — the completeness half is free today).
+`ParRedK` has no `CParRedK`, and `KEta.lean`'s own two notes say what a `CParRedK` would owe:
+`NonNeutralK` (`:476`) gains a third disjunct `∃ e', EtaK Γ e e'` that "`CParRed.exists` must
+decide … classically", and `EtaKDiamond` (`:510`) is `ParRed.triangle`'s new residual. **I did not
+run that induction, so I cannot name the resisting case from my own work** — Q7 is
+**UNTESTED**, and the previous round's §3.6 limit 1 stands as the citation.
+
+What I *can* compile is that the residual is circular:
+
+```
+theorem kDiamondJ_of_crStatementK  (H : CRStatementK) : KDiamondJ        -- cone 3542, 1 hole
+theorem etaKDiamond_of_crStatementK (H : CRStatementK) : EtaKDiamond     -- 2 holes
+```
+
+`EtaKDiamond` — the residual `ParRedKDiamond` needs — **is implied by the very statement
+`ParRedKDiamond` is wanted for.** The break in the circle is
+`KDiamondJoin.kDiamondJ_of_patMajorCanonicalJ` (`[propext, Quot.sound]`): `PatMajorCanonicalJ`,
+lemma M3 restated as joinability, is a property of the **rule table**, provable with no confluence
+at all, and it is the only place the chain touches ground. It is closed at both existing
+`.app`-pattern-bearing instances that have one (`appParams_patMajorCanonicalJ`,
+`refParams_patMajorCanonicalJ`) and open in general — `docs/handoff-params.md` §1.1's ι and
+quotient cases of `PatWF`.
+
+So the residual obligation for `CRStatementK`, factored:
+
+| # | obligation | standing |
+|---|---|---|
+| 1 | `WeakNInvDS` (`KSite7.lean:970`) | open; gives `ParRedKStatement` (cone 4353, 3 holes) |
+| 2 | a complete development `CParRedK` + `ParRed.triangle` over `ParRedK` | **does not exist**; `CParRed.exists` for `ParRed` is hole-free, so this is the genuinely new work |
+| 3 | `EtaKDiamond` = triangle's `keta` residual | **circular** with the target (compiled above); externally ← `PatMajorCanonicalJ` + `PiDomAgreeK` (tree discharge costs the two injectivity holes) |
+| 4 | `NormalEq.trans` | already proved, and it is where `weakN_iff` enters and stays |
+
+### §6.5 The firing — non-degenerate, and the previous round's debt paid
+
+The previous round could not compile its four `quotParams` instantiations (`CRShape.lean` §2.2)
+because HEAD did not build. **All four now compile**, in `CRKProve.lean` §4.3, arity 0 each:
+`quotParams_not_kStepNormalEq` (9327), `quotParams_not_crUpToProof` (9385),
+`quotParams_parRedK_qLiftT` (9322), `quotParams_crDefEqK` (9338). So
+
+> at `quotParams` — the **one** instance of the eight where `CRStatement` is refutable and the
+> rule is contractive (§3.1) — `CRDefEqK` **holds**, machine-checked, at exactly the configuration
+> that refutes `CRStatement`.
+
+That is the non-degenerate firing. `refParams_crStatementK` is the *degenerate* one and is
+labelled as such in the file.
+
+### §6.6 Limits of this round's result, stated and proved where possible
+
+1. **`CRStatementK` is not proved unconditionally.** Two hypotheses, §6.4 item 2 is the one with
+   no in-tree progress at all.
+2. **`refParams_crStatementK` has FOUR holes including `NormalEq.descend`** (cone 7348), because
+   `refParams_parRedKStatement` goes through `parRedKStatement_of_no_etaK` → `NormalEq.parRed`.
+   So the witness instance is **not** evidence of the descend-retirement; the retirement is a
+   property of `crStatementK_of` itself (cone 3859, `descend` absent) and of the two
+   `_ofHyps` consumers (3931/3929). I say this because it is exactly the kind of number that gets
+   quoted the wrong way round.
+3. **The `quotParams` results are CONDITIONAL** on `forallE_inv_stratified` and
+   `rigidShapeUniqNS`, per commit `a561fa9`, which says so in capitals. `quotParams_crDefEqK`'s
+   two holes are ambient (they come with mentioning the instance at all,
+   `quotParams = paramsOfPiInv … (piInv_axiom …)`), not with my argument — but the *pair*
+   "`CRStatement` false, `CRDefEqK` true, at one configuration" inherits the condition from its
+   negative half and must not be quoted as unconditional.
+4. **`ParRedKDiamond` is my own statement.** That it is `ParRed.church_rosser`'s conclusion with
+   `ParRedK` substituted I checked by reading `ChurchRosser.lean:1223–1229`; it cannot be checked
+   by `rfl`, the relations differing. `parRedKDiamond_of_no_etaK` is the mechanical check that it
+   *is* that statement at the degenerate instance.
+5. **`joins_of_parRedKDiamond_etaK` is the TYPED fragment of `EtaKDiamond`, not `EtaKDiamond`.**
+   `EtaKDiamond` carries no typing premise and `EtaK.here` supplies none, so
+   `ParRedKDiamond → EtaKDiamond` is **not** proved and I do not claim it.
+6. **I did not attempt `ParRedKDiamond` itself.** Q7 is untested; §6.4's "which case resists" is
+   assembled from `KEta.lean`'s own docstrings plus the compiled circularity, not from running
+   the induction. A round that runs `ParRed.triangle` over `ParRedK` would settle it.
+7. **`ParRedKDiamondJ` (multi-step legs) is NOT a drop-in**, and this is measured rather than
+   argued: my first draft used it and Lean rejected the diamond call with
+   `a1 has type ParRedKS Γ b w but is expected to have type ParRedK Γ b ?m` — the nested induction's
+   invariant needs a single-step first leg, and repairing it needs a *strip* lemma whose own
+   induction is not structurally smaller. Recorded in `ParRedKS.church_rosser`'s docstring.
+8. **`weakN_iff`'s exchange for `TypingStrengthening` is cited, not run.** §6.3 quotes
+   `NormalEqStrengthen.lean`; I did not re-derive `NormalEq.trans` from the typing half.
+
+### §6.7 Prediction scorecard (§4.1 and §5.3's Q14, never edited)
+
+| # | P | verdict |
+|---|---|---|
+| Q1 | 0.65 | **WRONG** — the tree builds (1656 jobs), §2.7's break is fixed |
+| Q2 | 0.90 | **RIGHT** — every §2.10 number replicates to the digit |
+| Q3 | 0.85 | **RIGHT** — proved from named hypotheses |
+| Q4 | 0.75 | **WRONG** — **two** residuals, not ≥ 3 |
+| Q5 | 0.70 | **HALF** — `descend` absent (right), `weakN_iff` present (wrong) |
+| Q6 | 0.65 | **RIGHT in verdict, wrong in mechanism** — the carrier is `NormalEq.trans`, not `PiTypeDescend` |
+| Q7 | 0.60 | **UNTESTED** — I did not run the triangle |
+| Q8 | 0.75 | **RIGHT** — unproved, not false; zero refutations of the J forms, and the `KDiamond` witness does not transfer (compiled) |
+| Q9 | 0.85 | **RIGHT** — no `CParRedK` |
+| Q10 | 0.55 | **HALF** — `ParRedKStatement` existed, `ParRedKDiamond` I stated |
+| Q11 | 0.40 | **RIGHT** — `exists.lean` and `can-cite.py` both worked first try |
+| Q12 | 0.60 | **RIGHT** — exact replication |
+| Q13 | 0.70 | **RIGHT** — no `ParRedK`-level diamond under any name |
+| Q14 | 0.85 | **RIGHT** — cone `{weakN_iff, forallE_inv_stratified, rigidShapeUniqNS}`, three not two |
+
+Calibration: 9 right, 2 wrong, 2 half, 1 untested. Both outright misses were again in the
+direction of *underestimating the tree* (Q1: it builds; Q4: the machinery is further along than I
+thought) — the same bias the previous round flagged in its own §3.5, now twice in two rounds by
+two different streams. Worth treating as a standing correction to apply *before* predicting, not
+after.
+
+### §6.8 Method gaps
+
+* I ran `scripts/exists.lean` before every claim of presence or absence, and `scripts/shape.lean`
+  **not at all** — for the two absence claims that matter (`CParRedK`, a `ParRedK`-level diamond)
+  I used `grep` over `Theory/Typing/*.lean` plus `exists.lean` on the guessed names. That is the
+  exact gap `shape.lean`'s header warns about (a different name for the same content), so treat
+  Q9/Q13 as *grep-and-name* negatives, one instrument short of the sanctioned pair.
+  `can-cite.py` I did run, and it worked (six YES).
+* I did not measure whether `WeakNInvDS` is refutable. If it is, obligation 1 of §6.4 changes
+  character and `ParRedKStatement` needs a different derivation.
+* `#print axioms` is recorded for eleven declarations; cones for all of them; **every number in
+  §5 and §6 is dated 2026-09-04 at commit `ca04f43`**, population 470–471 modules.
+* The two `_ofHyps` consumers discharge confluence but still *take* `ParRedKStatement` and
+  `ParRedKDiamond` as arguments. So 3931/3 is the cone of "the `ConstSpine` route if confluence is
+  rebuilt over `ParRedK`", **conditional on those two being dischargeable at all**. It is not a
+  cone anybody can bank until §6.4 item 2 is done.
+
+### §6.9 Two corrections to my own §5.6 and §6.8, found by re-polling (not by reading)
+
+1. **§5.6's red file is green again.** Re-polled after writing §6: bare `lake build` →
+   **`Build completed successfully (1659 jobs)`**. The `Verify/Inductive/NoNestedAll.lean:198/:211`
+   failure was the other stream's in-progress edit and it fixed itself within the round, exactly as
+   the brief said to expect. **The tree is green at the end of this round, on the same state that
+   carries `CRKProve.lean`** — so method rule 5's "only a bare `lake build` licenses green" is
+   satisfied, twice (1656 jobs at start, 1659 at end).
+2. **§6.8's first method gap is now closed, and the negatives survive it.** I ran
+   `scripts/shape.lean` with `HEADS="VEnv.ParRedK VEnv.NormalEq"` (population 472): **26**
+   constants conclude something mentioning both, **0** of them a structure field, and none is a
+   `ParRedK`-level diamond — the cheapest non-mine entries are `joins_normal_iff`,
+   `not_joins_of_normal` (both `KDiamondJoin`, the instrument-7 boundary lemmas) and
+   `parRedKStatement_of_domEq`. And `exists.lean` on the four guessed names returns
+   **NOT FOUND** for all four: `CParRedK`, `CParRedK.exists`, `ParRedK.triangle`,
+   `ParRedK.church_rosser`. `grep -rn "inductive CParRed"` finds exactly two complete-development
+   relations in the repo, both for `ParRed` (`ChurchRosser.lean:787`,
+   `Experimental/ParallelReduction.lean:33`).
+
+   So **Q9 and Q13 are shape-negatives as well as name-negatives**, and §6.4 item 2 stands as
+   measured: the complete development over `ParRedK` is the genuinely missing object.
+
+### §6.10 Final build state, polled three times (method rule 5, honestly)
+
+| poll | bare `lake build` | my target |
+|---|---|---|
+| round start | **green, 1656 jobs** | — |
+| after §6 written | red at `Verify/Inductive/NoNestedAll.lean:198/:211` | green, 1290 jobs |
+| after §6.9 | **green, 1659 jobs** | green |
+| final (after the header edit) | red at `Verify/Inductive/NoNestedAll.lean:**298**` | **green, 1290 jobs** |
+
+The failing line moved between polls (198/211 → clean → 298) on an **untracked** file
+(`?? Lean4Lean/Verify/Inductive/NoNestedAll.lean`) that did not exist when I started, in the
+directory the brief names as another stream's. Nothing in the tree imports `CRKProve.lean`, so it
+cannot be downstream of my work. **The state I claim green is: `lake build` green at 1659 jobs
+with `CRKProve.lean` present (poll 3), and `lake build Lean4Lean.Theory.Typing.CRKProve` green at
+1290 jobs at every poll.** The header edit between polls 3 and 4 is docstring-only.
