@@ -2135,3 +2135,60 @@ reported their own orphanhood to me before I thought to check.
 
 The pattern this fits, and it has held all session: **the thing worth measuring is usually the thing I
 have been asserting in prose.**
+
+## While streams are live, new rounds are additive-only (2026-09-04, mine)
+
+I had a good, cheap, measurable task ready: kill the `Theory/ → Verify/` layer inversion in
+`Theory/Typing/CommutationLemmas.lean` by moving `VInductDecl'.projAllG`, `.etaExpansionG` and
+`VEnv.StructEtaG` -- all three pure `VExpr`/`VInductDecl'`/`IsDefEq` content -- out of
+`Verify/TypeChecker/EtaStructG.lean` and down into `Theory/Inductive/`.  Measured: there are
+**exactly 4** such inversions in `Theory/` (`CommutationLemmas` -> `EtaStructG`, `EtaGuardLand` ->
+`NoConfGuard`, `NoConfRepair` -> `ProjSpineInv`, `StructEtaPrice` -> `EtaUnitRefute`), and this move
+takes it to 3.
+
+I did not spawn it, and the reason generalises.  `EtaStructG.lean` is inside the live eta stream's
+compile cone.  The move changes no name and no statement, so the tree is green *before* and *after*
+-- but **during** the round the shared module is transiently broken, and a live stream then sees
+errors in files it does not own.  That is not a merge conflict, which git would show me; it is a
+stream misdiagnosing someone else's breakage as its own and spending a round on it.  I have already
+paid for this once with the swap-and-restore procedure (see the 2026-09-03 entry: my file swaps were
+invisible to the stream and looked exactly like corruption).
+
+So the rule, while any stream is live:
+
+- A new round may **create** files freely.
+- A new round may **edit** only files no live stream compiles -- which in practice means only its own
+  new files, because the shared `Theory/` and `Verify/` spines are in everybody's cone.
+- Work that requires editing a shared module is **queued for me**, to apply between rounds, and the
+  queue entry names the files and the exact edit.
+
+This is not a reason to defer the *content*.  The additive version of a shared-file task is usually
+real work, not a plan: instead of deleting the old declaration, **prove the replacement dominates it
+in your own file**.  Then the deletion is a text edit I do later, and the round's deliverable is a
+theorem rather than a recommendation.  Both rounds I opened this turn are shaped that way, and it is
+how the `NormalEq.descend` round is scoped: not "restate it" (already done in `KDescend.lean`) but
+"prove the restatement suffices at every real consumer, with `descend` measured absent from the cone".
+
+**Queued for me, in order:** (1) move `projAllG`/`etaExpansionG`/`StructEtaG` down, re-point
+`CommutationLemmas`, inversions 4 -> 3; (2) delete `NormalEq.descend`'s three refuted branches from
+`ChurchRosser.lean` if the `DescendSurplus` round shows they are surplus.
+
+## A grep for a module name is not a grep for an import (2026-09-04, mine)
+
+`grep -rln "Verify.TypeChecker.EtaStructG"` returned **12** files and I was one keystroke from
+briefing "four `Theory/` files import it".  `grep -rn "^import Lean4Lean.Verify.TypeChecker.EtaStructG"`
+returns **5**, of which exactly **one** is under `Theory/`.  The other seven mentions are docstrings
+and one commented-out import inside `Experimental/ConeJoin.lean`.
+
+This repo's files carry long prose docstrings that name other modules constantly -- that is a feature,
+it is where the measurements live -- and it makes bare `grep` for a module or declaration name a
+*mention* count, never a *use* count.  The tell was arithmetic: the list contained
+`Theory/Inductive/StructureEta.lean`, which **defines** `projAll`/`etaExpansion` that `EtaStructG`
+consumes, so an import in that direction would be a cycle.  An impossible edge in the answer means
+the question was wrong.
+
+Anchor the pattern to what you actually mean: `^import ` for imports, and `lean_references` at the
+declaration site (not `grep`) for call sites.  I put the same warning in the `DescendSurplus` brief,
+because `NormalEq.descend` is mentioned in a dozen docstrings and called in very few places.
+
+Eleventh entry in my attribution-error column; the cone-figure column is still clean.
