@@ -11,6 +11,11 @@ open private Lean.Kernel.Environment.add from Lean.Environment
 
 def checkConstantVal (env : Environment) (v : ConstantVal) (allowPrimitive := false) : M Unit := do
   checkName env v.name allowPrimitive
+  -- Extend PR #45's reserved-prefix rejection from the inductive branch to every declaration.
+  -- Without this, `axiom _nested.zzz` and `def _nested.ddd` are accepted while
+  -- `inductive _nested.Zzz` is rejected -- machine-checked by the `#eval` in
+  -- `Verify/Inductive/RestoreFaithful.lean`. See `docs/decision-nested-prefix-all-decls.md`.
+  checkNoNestedAuxName v.name
   checkDuplicatedUnivParams v.levelParams
   checkNoMVarNoFVar env v.name v.type
   let sort ← checkType v.type

@@ -427,3 +427,23 @@ with lean4lean's stricter choice rather than with the C++.** `TrProj.mk`'s field
 field-is-a-proof condition at exactly the point `maybePropType` does. So moving lean4lean toward
 the C++ behaviour on entry 14 would require *widening F17* — a spec change, not an
 implementation tweak. Anyone tempted to close that divergence should price the spec side first.
+
+
+## Reserved `_nested` prefix rejected for **every** declaration, not only inductives
+
+`Lean4Lean.checkConstantVal` (`Lean4Lean/Environment.lean`) calls `checkNoNestedAuxName v.name`
+beside `checkName`, so a declaration of **any** kind whose own name carries the reserved `_nested`
+prefix is rejected.
+
+The C++ kernel does not do this. `check_name` (`~/lean4/src/kernel/environment.cpp:102`, called from
+`check_constant_val` at `:128`) tests only "already declared" and `primitives` -- verified in the
+source. So C++ accepts `axiom _nested.zzz`; with this change lean4lean does not.
+
+This widens the divergence recorded for PR #45, which applied the same test to the inductive branch
+only. What it buys on the proof side: `VEnv.NoNestedN` becomes establishable across the whole of
+`addDecl`, which retires the `hnn` premise of
+`ElimNestedInductive.Result.presentedHead_clean_of_declared`.
+
+**It does not retire that lemma's other premise.** `hdecl` -- "the presented head *is* declared" --
+is independent of any prefix check, on principle: rejecting names establishes an absence, never a
+presence. So the proof-side payoff is one premise of two.
