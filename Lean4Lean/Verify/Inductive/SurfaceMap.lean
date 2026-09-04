@@ -53,6 +53,14 @@ moves the `ctorTr?` instantiation to a consumer, where it is one rewrite.
   `trIndCtorR_iff_of_ctorTr` asks for.
 * §5 the three fields the construction owed — `trCtorsLen` (through `trCtorsLen_of_skelPrefix`,
   not re-proved), `trType`, `trCtors` — plus `ctorName_own` and `trType`'s name half, free.
+* §5.6 **the `trCtors` arm in supplier-neutral form**: `CtorStoresTr`, an *existential over the
+  translation* ("`D` stores *the* translation"), in the style of
+  `TrTypeProducer.lean` §4's `trType_iff_exists_trans`.  It is an `↔` with the field's text
+  (`ctorStoresTr_iff`), it is **rigid** — `TrExprS.unique` pins the witness on a `.proj`-free
+  surface type (`ctorStoresTr_rigid`) — and it names no inferencer, so `ctorTr?`, a widened
+  fragment, and the checker's own inference run (`TypeChecker.checkType.WF`) all satisfy it.
+  §5's oracle route is derived *through* it (`ctorStoresTr_surfInductDecl?`), so nothing here is
+  tied to one supplier.
 * §6 the arity-0 witness at `InductiveDeclExamples.ntreeAux`, with two negative controls.
 
 ## The restoration is the identity here, and that is a boundary, not an oversight
@@ -375,6 +383,90 @@ theorem trType_surfInductDecl? {env : VEnv} {Us : List Name} {tr : Expr → Opti
   have hj := mapM_getElem? (surfInductDecl?_types h) j t T ht hT
   exact ⟨(surfIndType?_name hj).symm, hO _ _ (surfIndType?_type hj)⟩
 
+/-! ### §5.6 The supplier-neutral shape: "`D` stores *the* translation"
+
+**Why this section exists, and it is a course correction taken mid-round.**  The premise the
+`trCtors` arm really needs is not any particular inferencer's success.  It is an **existential
+over the translation**, in the style of `Verify/Inductive/TrTypeProducer.lean` §4's
+`trType_iff_exists_trans`: the surface constructor type *has* a translation, and the block stores
+it.  Stated that way the arm is satisfied by **every** supplier — `ctorTr?`, a widened fragment,
+or the checker's own inference run (`TypeChecker.checkType.WF`, which is already contained in the
+cones of `addDecl.WF` and `Bridge.kernel_sound_of`, so it is on the critical path regardless of
+inductives).  Targeting one inferencer would make this arm dead weight the moment a different
+supplier wins.
+
+`§5`'s `OracleSound` route is *an instance* of this shape and not a rival to it: §5.6.4 derives
+the neutral premise from any sound oracle, so nothing above is retargeted or lost.
+
+And the existential is not loose.  `Lean4Lean.TrExprS.unique` — citable here, checked with
+`scripts/can-cite.py` — makes it **rigid**: on a `.proj`-free surface type the translation is
+unique, so the existential pins one witness (§5.6.3). -/
+
+/-- **The supplier-neutral premise.**  No inferencer is named; `R` is arbitrary, so this is
+stated at the real restoration as well as at `D.idRestore`. -/
+def CtorStoresTr (env : VEnv) (Us : List Name) (rtypes : List InductiveType) (D : VInductDecl')
+    (R : VIndRestore) : Prop :=
+  ∀ (j : Nat) t T, rtypes[j]? = some t → D.types[j]? = some T →
+    ∀ (q : Nat) c C, t.ctors[q]? = some c → T.ctors[q]? = some C →
+      c.name = R.ctorName C.name ∧ ∃ ct, TrExprS env Us [] c.type ct ∧ C.typeR D R j = ct
+
+/-- **§5.6.1 The neutral premise IS `trCtors`' text, unstaged** — an `↔`, so asking for the
+existential instead of for the field costs nothing in either direction. -/
+theorem ctorStoresTr_iff {env : VEnv} {Us : List Name} {rtypes : List InductiveType}
+    {D : VInductDecl'} {R : VIndRestore} :
+    CtorStoresTr env Us rtypes D R ↔
+      ∀ (j : Nat) t T, rtypes[j]? = some t → D.types[j]? = some T →
+      ∀ (q : Nat) c C, t.ctors[q]? = some c → T.ctors[q]? = some C →
+        TrIndCtorR env Us D R j c C := by
+  refine ⟨fun h j t T ht hT q c C hc hC => ?_, fun h j t T ht hT q c C hc hC => ?_⟩
+  · obtain ⟨hn, ct, htr, heq⟩ := h j t T ht hT q c C hc hC
+    exact ⟨hn, heq ▸ htr⟩
+  · obtain ⟨hn, htr⟩ := h j t T ht hT q c C hc hC
+    exact ⟨hn, _, htr, rfl⟩
+
+/-- **§5.6.2 `TrIndDeclN.trCtors`, from the neutral premise**, with the field's own staging.  This
+is the composition point: any supplier that meets `CtorStoresTr` at each staged environment
+discharges the field, and none of them appears in the statement. -/
+theorem trCtors_of_ctorStoresTr {env : VEnv} {Us K : List Name} {rtypes : List InductiveType}
+    {D : VInductDecl'} {R : VIndRestore}
+    (h : ∀ env₁, env.addIndTypesC D K = some env₁ → CtorStoresTr env₁ Us rtypes D R) :
+    ∀ env₁, env.addIndTypesC D K = some env₁ →
+    ∀ (j : Nat) t T, rtypes[j]? = some t → D.types[j]? = some T →
+    ∀ (q : Nat) c C, t.ctors[q]? = some c → T.ctors[q]? = some C →
+      TrIndCtorR env₁ Us D R j c C :=
+  fun env₁ hst => ctorStoresTr_iff.1 (h env₁ hst)
+
+/-- **§5.6.3 The existential is rigid.**  On a `.proj`-free surface constructor type — which is
+every type in `ctorTr?`'s fragment, and every type any widening of it accepts, since `TrExprS`'s
+`.proj` case is the only one that is not injective on translations — the stored type *is* the
+translation: any other translation of the same surface type equals it.  So `CtorStoresTr` does not
+merely assert that some witness exists, it pins the witness. -/
+theorem ctorStoresTr_rigid {env : VEnv} {Us : List Name} {rtypes : List InductiveType}
+    {D : VInductDecl'} {R : VIndRestore} (h : CtorStoresTr env Us rtypes D R)
+    {j : Nat} {t : InductiveType} {T : VIndType} (ht : rtypes[j]? = some t)
+    (hT : D.types[j]? = some T) {q : Nat} {c : Constructor} {C : VIndCtor}
+    (hc : t.ctors[q]? = some c) (hC : T.ctors[q]? = some C)
+    (hIU : TrExprS.IsUnique c.type) {ct : VExpr} (h2 : TrExprS env Us [] c.type ct) :
+    C.typeR D R j = ct := by
+  obtain ⟨_, ct', htr', heq⟩ := h j t T ht hT q c C hc hC
+  exact heq.trans (TrExprS.unique hIU htr' h2)
+
+/-- **§5.6.4 The map meets the neutral premise**, from any sound oracle — so §5's route is an
+instance of §5.6 and the two compose rather than compete. -/
+theorem ctorStoresTr_surfInductDecl? {env : VEnv} {Us : List Name} {tr : Expr → Option VExpr}
+    {uvars : Nat} {ps : List VExpr} {lvl : VLevel} {isLE : Bool}
+    {rtypes : List InductiveType} {D : VInductDecl'}
+    (h : surfInductDecl? tr uvars ps lvl isLE rtypes = some D) (hO : OracleSound tr env Us) :
+    CtorStoresTr env Us rtypes D D.idRestore := by
+  intro j t T ht hT q c C hc hC
+  have hj := mapM_getElem? (surfInductDecl?_types h) j t T ht hT
+  have hq := mapM_getElem? (surfIndType?_ctors hj) q c C hc hC
+  obtain ⟨ct, hct, _, _, _, _⟩ := surfIndCtor?_eq_some hq
+  obtain ⟨hu, hps, _, _⟩ := surfInductDecl?_data h
+  refine ⟨(surfIndCtor?_name hq).symm, ct, hO _ _ hct, ?_⟩
+  exact typeR_surfIndCtor? hu (by rw [VInductDecl'.np, hps])
+    ((congrArg VIndType.name (VInductDecl'.getD_types hT)).trans (surfIndType?_name hj)) hct hq
+
 /-- **`TrIndDeclN.trCtors`, at the identity restoration.**  The staging is the field's own:
 quantified over `env.addIndTypesC D K = some env₁`, with the oracle sound at the *staged*
 environment — which is exactly the shape `Lean4Lean.constLookup_staged_of_split` produces. -/
@@ -386,17 +478,8 @@ theorem trCtors_surfInductDecl? {env : VEnv} {Us : List Name} {K : List Name}
     ∀ env₁, env.addIndTypesC D K = some env₁ →
     ∀ (j : Nat) t T, rtypes[j]? = some t → D.types[j]? = some T →
     ∀ (q : Nat) c C, t.ctors[q]? = some c → T.ctors[q]? = some C →
-      TrIndCtorR env₁ Us D D.idRestore j c C := by
-  intro env₁ hst j t T ht hT q c C hc hC
-  have hj := mapM_getElem? (surfInductDecl?_types h) j t T ht hT
-  have hq := mapM_getElem? (surfIndType?_ctors hj) q c C hc hC
-  obtain ⟨ct, hct, _, _, _, _⟩ := surfIndCtor?_eq_some hq
-  obtain ⟨hu, hps, _, _⟩ := surfInductDecl?_data h
-  refine ⟨(surfIndCtor?_name hq).symm, ?_⟩
-  rw [typeR_surfIndCtor? hu (by rw [VInductDecl'.np, hps])
-    ((congrArg VIndType.name (VInductDecl'.getD_types hT)).trans (surfIndType?_name hj))
-    hct hq]
-  exact hO env₁ hst _ _ hct
+      TrIndCtorR env₁ Us D D.idRestore j c C :=
+  trCtors_of_ctorStoresTr fun env₁ hst => ctorStoresTr_surfInductDecl? h (hO env₁ hst)
 
 /-! ### §5.5 Chaining to the user's block
 
@@ -535,6 +618,44 @@ theorem ntreeRTypesRenamed_fails :
     surfInductDecl? (vtr? [`u]) 1 [.sort (.succ (.param 0))] (.succ (.param 0)) true
       ntreeRTypesRenamed = none := rfl
 
+/-- **The supplier-neutral premise `CtorStoresTr`, at `ntreeAux` itself.**  Transported from the
+map's output by §5.6.4: `VIndCtor.typeR` at `D.idRestore` cannot see `recArg` (`VIndField.typeR`
+is `F.type` on both branches), so at this closed block the erasure's stored constructor types
+*are* `ntreeAux`'s and the two propositions are the same one.
+
+This is the shape a *different* supplier — a widened fragment, or the checker's own inference run
+— would also produce, so §6's `trCtors` arm is not tied to one inferencer. -/
+theorem ntreeAux_ctorStoresTr {env : VEnv} {Us : List Name}
+    (hO : OracleSound (vtr? [`u]) env Us) :
+    CtorStoresTr env Us ntreeRTypes ntreeAux ntreeAux.idRestore := by
+  have gen := ctorStoresTr_surfInductDecl? ntreeRTypes_maps hO
+  intro j t T ht hT q c C hc hC
+  match j, hT with
+  | 0, hT =>
+    cases hT
+    match q, hC with
+    | 0, hC =>
+      cases hC
+      have H := gen 0 t ((eraseRecArgs ntreeAux).types.getD 0 default) ht rfl 0 c
+        (((eraseRecArgs ntreeAux).types.getD 0 default).ctors.getD 0 default) hc rfl
+      exact ⟨H.1, H.2⟩
+    | q+1, hC => exact absurd hC nofun
+  | 1, hT =>
+    cases hT
+    match q, hC with
+    | 0, hC =>
+      cases hC
+      have H := gen 1 t ((eraseRecArgs ntreeAux).types.getD 1 default) ht rfl 0 c
+        (((eraseRecArgs ntreeAux).types.getD 1 default).ctors.getD 0 default) hc rfl
+      exact ⟨H.1, H.2⟩
+    | 1, hC =>
+      cases hC
+      have H := gen 1 t ((eraseRecArgs ntreeAux).types.getD 1 default) ht rfl 1 c
+        (((eraseRecArgs ntreeAux).types.getD 1 default).ctors.getD 1 default) hc rfl
+      exact ⟨H.1, H.2⟩
+    | q+2, hC => exact absurd hC nofun
+  | j+2, hT => exact absurd hT nofun
+
 /-- **THE WITNESS — arity 0.**  The three fields the surface→abstract construction owed, at the
 parameterised nested block, reached through the map.
 
@@ -585,6 +706,10 @@ theorem ntreeAux_surfaceMap_witness :
       ∀ (j : Nat) t T, ntreeRTypes[j]? = some t → ntreeAux.types[j]? = some T →
       ∀ (q : Nat) c C, t.ctors[q]? = some c → T.ctors[q]? = some C →
         TrIndCtorR env₁ Us ntreeAux ntreeAux.idRestore j c C) ∧
+    -- …and the SUPPLIER-NEUTRAL shape at `ntreeAux`: "`ntreeAux` stores *the* translation".
+    -- Unstaged, no inferencer named, and rigid by `TrExprS.unique` on a `.proj`-free type.
+    (∀ (env : VEnv) (Us : List Name), OracleSound (vtr? [`u]) env Us →
+      CtorStoresTr env Us ntreeRTypes ntreeAux ntreeAux.idRestore) ∧
     -- anti-vacuity: `j = 0` is a matching pair with a nonzero count on both sides, and the
     -- constructor whose name is compared is Lean's own `NTree.node`
     (∃ t T, ntreeRTypes[0]? = some t ∧ ntreeAux.types[0]? = some T ∧
@@ -628,33 +753,8 @@ theorem ntreeAux_surfaceMap_witness :
         exact ⟨H.1, H.2⟩
       | j+2, hT => exact absurd hT nofun,
     fun _ _ _ hO => trCtors_surfInductDecl? hmap hO,
-    fun env K Us hO env₁ hst j t T ht hT q c C hc hC => by
-      have gen := trCtors_surfInductDecl? hmap hO env₁ hst
-      match j, hT with
-      | 0, hT =>
-        cases hT
-        match q, hC with
-        | 0, hC =>
-          cases hC
-          have H := gen 0 t ((eraseRecArgs ntreeAux).types.getD 0 default) ht rfl 0 c
-            (((eraseRecArgs ntreeAux).types.getD 0 default).ctors.getD 0 default) hc rfl
-          exact ⟨H.1, H.2⟩
-        | q+1, hC => exact absurd hC nofun
-      | 1, hT =>
-        cases hT
-        match q, hC with
-        | 0, hC =>
-          cases hC
-          have H := gen 1 t ((eraseRecArgs ntreeAux).types.getD 1 default) ht rfl 0 c
-            (((eraseRecArgs ntreeAux).types.getD 1 default).ctors.getD 0 default) hc rfl
-          exact ⟨H.1, H.2⟩
-        | 1, hC =>
-          cases hC
-          have H := gen 1 t ((eraseRecArgs ntreeAux).types.getD 1 default) ht rfl 1 c
-            (((eraseRecArgs ntreeAux).types.getD 1 default).ctors.getD 1 default) hc rfl
-          exact ⟨H.1, H.2⟩
-        | q+2, hC => exact absurd hC nofun
-      | j+2, hT => exact absurd hT nofun,
+    fun _ _ _ hO env₁ hst => ctorStoresTr_iff.1 (ntreeAux_ctorStoresTr (hO env₁ hst)),
+    fun _ _ hO => ntreeAux_ctorStoresTr hO,
     ⟨_, _, rfl, rfl, rfl, rfl, rfl, rfl⟩, ⟨rfl, rfl⟩, rfl, rfl,
     ntreeAux_not_nameSkelV_dbl, ntreeRTypesRenamed_fails⟩
 
@@ -684,6 +784,11 @@ only by its own `#print axioms` line. -/
 #print axioms Lean4Lean.trCtorsLen_surfInductDecl?
 #print axioms Lean4Lean.ctorNameOwn_surfInductDecl?
 #print axioms Lean4Lean.trType_surfInductDecl?
+#print axioms Lean4Lean.CtorStoresTr
+#print axioms Lean4Lean.ctorStoresTr_iff
+#print axioms Lean4Lean.trCtors_of_ctorStoresTr
+#print axioms Lean4Lean.ctorStoresTr_rigid
+#print axioms Lean4Lean.ctorStoresTr_surfInductDecl?
 #print axioms Lean4Lean.trCtors_surfInductDecl?
 #print axioms Lean4Lean.skelPrefix_of_surfInductDecl?_run
 #print axioms Lean4Lean.trCtorsLen_of_surfInductDecl?_run
@@ -699,6 +804,7 @@ only by its own `#print axioms` line. -/
 #print axioms Lean4Lean.InductiveDeclExamples.ntreeAux_not_nameSkelV_dbl
 #print axioms Lean4Lean.InductiveDeclExamples.ntreeRTypesRenamed
 #print axioms Lean4Lean.InductiveDeclExamples.ntreeRTypesRenamed_fails
+#print axioms Lean4Lean.InductiveDeclExamples.ntreeAux_ctorStoresTr
 #print axioms Lean4Lean.InductiveDeclExamples.ntreeAux_surfaceMap_witness
 
 end Lean4Lean

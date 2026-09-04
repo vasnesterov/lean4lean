@@ -193,7 +193,7 @@ name, stored type and `indices`, and every constructor's `name`, `params`, `fiel
 (types AND universes) and `args` agree with `NestedHead.lean`'s hand-written block.
 The witness then carries, at `ntreeAux` ITSELF (not at the erasure):
 `nameSkelV = surfNameSkel ntreeRTypes`, `SkelPrefix`, `TrCtorsLen`, `CtorNameOwn`,
-the name half, `trType` and `trCtors` -- the last two quantified over an arbitrary
+the name half, `trType`, `trCtors` and `CtorStoresTr` (M14) -- the last two quantified over an arbitrary
 `env`/`Us`/`K` and an arbitrary sound oracle, so no typing is assumed at a fixed
 environment. Plus the four anti-`nfnAux` non-degeneracy facts and anti-vacuity at
 `j = 0` and `j = 1`.
@@ -209,16 +209,16 @@ while the map's constructor has `0`. `recArg` is the one datum the map does not
 recover, and no field of `TrIndDeclN` can see it.
 
 ### M13. Round-close numbers.
-- whole-tree `lake build`: **Build completed successfully (1643 jobs)**.
-- `scripts/sorry-census-all.lean --run`: on disk 484, population 460,
-  **BUILT 460; NOT BUILT 0**; **HOLES 13** (pass A 13, pass B 0). Unchanged by this round.
+- whole-tree `lake build`: **Build completed successfully (1644 jobs)** (re-run after §5.6).
+- `scripts/sorry-census-all.lean --run`: **BUILT 461; NOT BUILT 0**; **HOLES 13**
+  (pass A 13, pass B 0). Unchanged by this round. (461 not 460: my new module.)
 - guard 1: 24 frozen axioms OK. guard 2: within whitelist OK (proof INCOMPLETE,
   sorryAx present -- unchanged). guard 3: 2/2 implementation gaps OK.
 - in-repo `automatically included section variable` warnings: **0**
   (the one in the build log is `Foundation/FirstOrder/SetTheory/Z.lean`, external).
 - `python3 scripts/layer-check.py`: **exit 0**, hard rule ok (66 modules), soft
   report unchanged (4 Theory files with direct Verify imports, none mine).
-- `SurfaceMap.lean`: 0 sorries, 0 warnings, 36 `#print axioms` lines, every one
+- `SurfaceMap.lean`: 0 sorries, 0 warnings, 42 `#print axioms` lines, every one
   `[propext, (Classical.choice,) Quot.sound]` or none -- **no `sorryAx` anywhere**.
 
 ## Claim A / Claim B
@@ -255,3 +255,65 @@ Still open, and none of it is Claim A:
   does not pin them; `VInductDecl'.WF` does. Not a gap in the relation, a gap in WF.
 - B9 the other seven fields (`safe`, `uvars`, `np`, `companions`, `trSpine`,
   `recName_own`, `recName_aux`) are Claim A's and were not re-examined here.
+
+---
+
+## M14. COORDINATOR ASK, taken mid-round: the shape I targeted
+
+**Which shape I targeted: BOTH, with the supplier-neutral one as the primitive.**
+The ask was to target "`D` stores *the* translation" -- an existential over the
+translation in the style of `Lean4Lean.trType_iff_exists_trans` -- rather than a
+specific inferencer's success. Retargeting cost ~40 lines because I had already
+avoided naming an inferencer: §5 was parameterised by an *oracle*
+`tr : Expr -> Option VExpr` plus `OracleSound`, never by `ctorTr?`. So the arm was
+already supplier-agnostic; it just was not *stated* in the requested shape. It is now.
+
+New §5.6, all green, no holes, `watched declarations in cone: none of 6` on every one:
+- `Lean4Lean.CtorStoresTr` (arity 5, cone 853) -- the neutral premise, `R` arbitrary:
+  `... -> c.name = R.ctorName C.name /\ exists ct, TrExprS env Us [] c.type ct /\ C.typeR D R j = ct`
+  No inferencer appears. Satisfied by `ctorTr?`, by a widened fragment, or by the
+  checker's own inference run.
+- `Lean4Lean.ctorStoresTr_iff` (arity 5, cone 855) -- it **IS** `trCtors`' text, an `<->`,
+  so asking for the existential instead of the field costs nothing either way.
+- `Lean4Lean.trCtors_of_ctorStoresTr` (arity 19, cone 930) -- the field, with its own
+  staging, from the neutral premise. **This is the composition point.**
+- `Lean4Lean.ctorStoresTr_rigid` (arity 19, cone 3783) -- the existential is RIGID:
+  via `Lean4Lean.TrExprS.unique` (can-cite: YES at my position), on a `.proj`-free
+  surface type the stored type equals *any* translation of it. So the existential pins
+  one witness, it does not merely assert one exists.
+- `Lean4Lean.ctorStoresTr_surfInductDecl?` (arity 11, cone 1883) -- the map meets the
+  neutral premise from any sound oracle. `Lean4Lean.trCtors_surfInductDecl?` is now
+  *derived* from this via `trCtors_of_ctorStoresTr`, so §5's oracle route is an
+  INSTANCE of §5.6 rather than a rival to it. No duplicated proof.
+- `Lean4Lean.InductiveDeclExamples.ntreeAux_ctorStoresTr` (arity 3, cone 1960) -- the
+  neutral premise at `ntreeAux` itself, and it is now the single source for both the
+  staged and unstaged `trCtors` conjuncts of the witness.
+The witness `ntreeAux_surfaceMap_witness` is arity 0, cone **2070**, hole false,
+sorryAx false, watched none of 6, and now carries the `CtorStoresTr` conjunct too.
+
+**Nothing on the `trType` / `trCtorsLen` arms moved.** `trCtorsLen` is still
+`trCtorsLen_of_skelPrefix` on the skeleton equation; `trType` still
+`TrIndType`'s two components.
+
+**The coordinator's correction, checked per file with `can-cite.py` rather than
+inferred from the layer.** Consumer `Lean4Lean.Verify.Inductive.SurfaceMap`
+(closure 148):
+- `Lean4Lean.TypeChecker.checkType.WF` -- **NO** (would have to gain
+  `Lean4Lean.Verify.TypeChecker`). So for *this* file the checker-cleanliness IS
+  structural, not a choice. I state it that way and nowhere claim it for any other file.
+- `Lean4Lean.TrExprS.unique` -- **YES** (`Lean4Lean.Verify.Typing.Lemmas`), which is
+  what makes §5.6.3 possible.
+- `Lean4Lean.trType_iff_exists_trans` -- **NO** (`TrTypeProducer` not in closure), so
+  §5.6 is written in that lemma's *style* and cannot cite it. Disclosed.
+I did not verify the coordinator's `TrExprSGeneral`-can-cite-`checkType.WF` claim
+myself; it is theirs, and it does not bear on my file.
+
+**Claim B ledger update.** B4 is now stated supplier-neutrally, so B5 (the
+composition) has two independent ways to close and neither is blocked by the other:
+- B5a via `ctorTr?`: one lemma
+  `ConstLookup Gc env -> OracleSound (fun e => (ctorTr? Gc Us e []).map (.1)) env Us`,
+  then `ctorStoresTr_surfInductDecl?`.
+- B5b via any other supplier (widened fragment, or `TypeChecker.checkType.WF`):
+  discharge `CtorStoresTr` directly and apply `trCtors_of_ctorStoresTr`. **This route
+  does not touch `OracleSound`, `vtr?`, or `ctorTr?` at all.**
+Both need a NEW module (measured cycle-free, M10). I own no such module.
