@@ -3149,3 +3149,27 @@ right beyond crash-survival:
 one round. Where a target needs that much context, either the context belongs in the brief as quoted facts
 (which I can do, and which is now the rule for anything I would otherwise relay as a characterisation), or the
 round should be split.
+
+
+## Queue, refreshed (2026-09-04, late)
+
+Applied when no stream holds the tree:
+
+1. **Four docstrings say `InductiveMapGate` is the seven-file nested flip. It is not** -- `AddInductive.WF_run`
+   mentions no abstract relation at all. Sites: `NoNestedAll.lean`:535 and :608, `Inductive/Add.lean`:1096,
+   `RestoreFaithful.lean`:418. Exact repairs in `docs/handoff-inductmap.md` §3.3. **Fifth instance today of a
+   claim about another file surviving in prose because nobody re-read the file** -- and I made two of the five.
+2. **`InjPiRogue.lean`'s clause is one clause too weak** -- its rogue idiom needs two δ-rules on one constant;
+   `InjMethod.lean`'s needs one non-`const`-headed rule and pins `VEnv.RuleShape.delta`, which is logically
+   prior. Correction stated in `docs/handoff-injmethod.md`, not edited.
+3. **Restate the confluence-ban instruction.** I have been telling rounds "these holes are upstream of
+   confluence, the dependency is circular". The conclusion holds; the reasoning is wrong -- `unique.tex` §1
+   *builds* that circularity and breaks it with an alternation index. The correct form, from the round that
+   found it: **"`SubstC` is false at n=1"**, plus the index landing at `2n` not `n`, `SubstT` false, and
+   `∀ n, DefInv n` false over `∅`. Until this is restated, every brief I write on that front misleads.
+4. **`ShapeVar.lean:372`** -- a flagged cross-reference defect I could not reproduce. Still unreproduced;
+   entry records that rather than inviting a speculative edit.
+
+**Not queued, deliberately:** the `VIndCtor.skeleton_type` inlining (a declined scope creep, correctly), and
+`WFPos` §6's axiom checks covering declarations that file no longer introduces (kept for coverage, documented
+in place).
