@@ -2192,3 +2192,23 @@ declaration site (not `grep`) for call sites.  I put the same warning in the `De
 because `NormalEq.descend` is mentioned in a dozen docstrings and called in very few places.
 
 Eleventh entry in my attribution-error column; the cone-figure column is still clean.
+
+## Queued shared-module edits (2026-09-04, mine)
+
+Under the additive-only rule above, rounds hand me edits instead of applying them.  The queue, to be
+applied between rounds, newest last:
+
+1. Move `VInductDecl'.projAllG`, `.etaExpansionG` and `VEnv.StructEtaG` out of
+   `Verify/TypeChecker/EtaStructG.lean` into `Theory/Inductive/`, re-point
+   `Theory/Typing/CommutationLemmas.lean`; layer inversions **4 -> 3**.
+2. Delete `NormalEq.descend`'s three refuted branches from `ChurchRosser.lean` -- **only if** the
+   `DescendSurplus` round shows `descendV` dominates at every real consumer with `descend` measured
+   absent from the cone.
+3. `ConfluenceRebuildPrice.lean:433-435`: flip `ParRedSE.structEta`'s two arguments so the rule
+   contracts.  `EtaOrient.lean` §3/§7 are that file's eight downstream proofs already ported with
+   **unchanged proof text**, so the flip is verified before it is made.  Consequence, which is the
+   real cost: `CRSEScope.lean` §2 and §4 are statements about the expansion and need restating (§1
+   and §3 survive).  **This is my call, not the user's** -- CLAUDE.md puts `Theory/` proof machinery
+   in my hands -- and I am taking it, because the benefit is that `parRedSES_rigid`'s hypothesis goes
+   from false to unconditionally true, while the cost lands on `NormalEq.descend`, which is already
+   refuted in both orientations.  Whoever applies it restates `CRSEScope` §2/§4 in the same round.
