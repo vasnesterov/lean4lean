@@ -2491,3 +2491,39 @@ round needed (`VExpr` in, `Expr` out) and does **the opposite job** -- it is the
 `VExpr` to the syntax tree of that value, not to the expression it denotes.  Same types, inverse purpose.
 My "search by conclusion shape" rule finds it and would have recommended it; shape search needs a
 semantic check on the hit, not just a type check.
+
+## The queue is now the bottleneck, not the streams (2026-09-04)
+
+Nine rounds have reported today and every one of them, correctly, handed me a shared-module edit instead of
+applying it. The additive-only rule is doing exactly what it was written to do — nine rounds, zero
+collisions, four streams compiling throughout — and the cost has landed where I said it would: **the drain
+list is now longer than the work in flight.**
+
+Current drain list, in dependency order, to be applied when no stream holds the tree:
+
+1. **Layer migration.** Move `VInductDecl'.projAllG`, `.etaExpansionG`, `VEnv.StructEtaG` out of
+   `Verify/TypeChecker/EtaStructG.lean` into `Theory/Inductive/`; re-point `Theory/Typing/CommutationLemmas.lean`.
+   Cuts one of the four direct edges that gate the whole 12-module `Theory/Typing` cluster.
+2. ~~Delete `NormalEq.descend`'s refuted branches.~~ **CANCELLED, measured impossible** (row 310).
+3. **`ConfluenceRebuildPrice.lean:433-435`** — flip `ParRedSE.structEta` to contract. `EtaOrient.lean` §3/§7
+   are that file's eight downstream proofs already ported with unchanged text, so the flip is verified
+   before it is made. Cost: `CRSEScope.lean` §2/§4 need restating, in the same round.
+4. **Close holes #3 and #4** in `Verify/TypeChecker/IsDefEq.lean` (census 13 -> 11), with the
+   vacuity-based comment at each site. Do **not** close #2.
+5. **`TrIndDeclNProducer.lean`** — one import, `Lean4Lean.Verify.Inductive.B6`; takes B6 off the orphan list.
+6. **`Verify/Typing/Lemmas.lean`** — move `TrProj.instN` above line 902 so the hole can cite it. Measured
+   legal: `instN`'s cone contains exactly two constants declared in that module (itself and its `match_1_1`),
+   so there is no reordering hazard.
+7. **Five stale docstrings**: `ParamsBuild.lean` (the "(open)" root cause), `EtaOrient.lean` (two false
+   sentences), `ConstSpineWF.lean` (stale cone table), `ChurchRosser.lean:1815` (user split 224/41, measured
+   255/46), `DescendRestate.lean` (a replacement that replaces a different statement than claimed).
+8. **Two doc defects in `ProjExistClose.lean`'s header**: "3661, three holes" where today measures 3698, and
+   a cross-reference to a "§1.4" that does not exist.
+9. ~~Corrections to `docs/audit-hole-producers.md`.~~ **DONE** — §6, C1-C4. Markdown compiles nothing, so
+   this one needed no quiet window, which is the distinction worth drawing: **doc-only edits under `docs/`
+   are always drainable; docstring edits inside `.lean` files are not, because they invalidate oleans.**
+
+**Decision: stop spawning until this drains.** I have three free slots and I am deliberately not using them.
+Every new stream extends the busy window, and the queue's value decays — item 7 in particular is five false
+claims that the *next* round will read and believe, which is how the `forallE_inv` "(open)" error cost three
+rounds this week. Draining beats starting.

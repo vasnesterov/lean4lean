@@ -533,3 +533,46 @@ in their cone, which `exists.lean`'s WATCH list flags precisely because it is th
   `TrEnv.not_inductInfo`, not from `TrProj` being empty — but the reason given is wrong, and the
   same parenthesis is repeated across the projection docs. §1.3's edit is unaffected; §1.4's
   recommendation is unaffected.
+
+---
+
+## §6 CORRECTIONS, added by the orchestrator 2026-09-04 after two rounds acted on this report
+
+This audit was useful and two of its findings held up under independent measurement (the three
+same-module producers; `kernel_sound`'s cone containing exactly one hole, itself). Three things in it are
+wrong or misleading, all found by the rounds it commissioned. They are recorded here so the next reader
+does not inherit them.
+
+**C1 — §1's ranked recommendation for hole #1 is circular.** The `ProjDataAttack` round measured the
+chain: hole ⟺ `∀ env, WF env → ∀ U, env.ProjStrengthen U` ⟺ `… ProjDataStrengthen U`, both directions
+**pointwise and without `WF`**. So `VEnv.ProjDataStrengthen` is **not** a weakened residual — it is hole #1
+restated at the field level, and "attack the residual" and "attack the hole" are the same instruction.
+This report's own verdict on `TrProj.weak'_inv_of_projStrengthen` — *"a repackaging, not a producer — a
+textbook admire-don't-instantiate hit"* — applies verbatim to the route §1 then recommended.
+
+**C2 — the "717 hole-free vs 3698 three-holes" comparison is not like-for-like, and one figure is
+misattributed.** `Lean4Lean.VEnv.ConstAppTypeStrengthen` is arity 2, cone **619**, and **hole-free**;
+3698-with-three-holes is `Lean4Lean.TrProj.weak'_inv_of_strengthen`, a *consumer* of that predicate. More
+importantly the two sides are doing different work: 3698 discharges the hole from a **strictly stronger**
+hypothesis, 696/717 from an **equivalent** one — where hole-freeness costs nothing because no mathematics
+crosses. §M3's table had this right; the prose in §1 did not. (The real price drop, found afterwards, is
+3412 constants with **zero** holes and **zero** watched names, by routing through `Lean4Lean.TrProj.instN`
+rather than rebuilding discarded fields.)
+
+**C3 — §3's "under-explored" migration had already been performed, in a stronger form.**
+`Lean4Lean.VEnv.propAgreeOn_of_stratifiedNOn` (`Theory/Typing/PropAgreeGuarded.lean`, arity 4, cone 2410,
+`sorryAx`-free) is `propTypeAgreeOnCtx_of_stratifiedN` lifted to `Theory/Typing` **with the `OnCtx` guard
+pushed onto its hypotheses**, complete with local copies of the one `SetModel` name. This report missed it.
+The `PropAgreeLift` round then measured that the lift buys nothing anyway — asking the tactic to derive
+hole #8 from the lifted hypothesis returns **hole #8 itself**, with the hypothesis unused — so the layer
+rule was a real import-order fact and an irrelevant one.
+
+**C4 — a moving number needs a date.** §4's "the `Theory`-downstream-of-`Verify` cluster is 11 modules" was
+true when measured; it is **12** as of the `PropAgreeLift` commit and was **10** earlier the same day. The
+count moves as streams add files. `python3 scripts/layer-check.py` prints it; quote it with a timestamp or
+not at all.
+
+**What this audit got right, and why it was still worth commissioning.** Its three same-module producers
+are real and hole-free, and its own §5 self-audit — flagging a conclusion-shape query it had not run — is
+what surfaced hole #1's residual in the first place. A report whose self-audit section changes its own
+headline is the instrument working as intended, and C1–C4 do not change that.
