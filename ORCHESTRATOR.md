@@ -2938,3 +2938,25 @@ refactor I asked for bare-build jobs, three guards, census, and warnings-from-ow
 The round returned all four **identical** plus `git diff --numstat` showing the file holding a census hole was
 strictly add-only with zero diff lines mentioning that hole. That is a stronger safety argument than any
 prose assurance, and it is cheap to demand.
+
+## `grep -c` as the last stage of a verification command inverts its verdict (2026-09-04, mine)
+
+I ran `lake build … ; echo …; lake build … | grep -cE "^error|error:"` to settle a green claim. The build
+printed **"Build completed successfully (1662 jobs)"** and the grep printed **0** -- and the task was
+reported as **FAILED, exit code 1**, because **`grep` exits 1 when it matches nothing.** I then told the user
+the bare build had failed. It had not.
+
+Third shell-idiom slip of the day in my own verification commands, after `tail -N` truncating a census
+summary and invoking `lake build` twice in one line. This one is the worst of the three, because it does not
+merely waste a run: **it inverts the verdict.** A clean result was reported as a failure, and the same idiom
+in the opposite arrangement would report a dirty result as clean.
+
+Rules for my own verification commands, since these are the commands whose output I quote to the user:
+
+- **Never end a verification pipeline with a predicate command** (`grep -c`, `grep -q`, `test`). Their exit
+  status answers "did you match", not "is the tree healthy", and the harness reports exit status.
+- Append `|| true` when a count is the intended output, or capture to a file and read it.
+- **Redirect to a file and grep the file** for anything whose output shape I do not already know -- already a
+  rule after the `tail` incident; it would have prevented this one too.
+- When a build's own success line and my summary disagree, **the build's line wins**. It says "Build
+  completed successfully"; my pipeline's exit code is a statement about `grep`.
