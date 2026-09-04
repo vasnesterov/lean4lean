@@ -3,9 +3,10 @@ import Lean4Lean.Theory.Typing.EtaOrient
 /-!
 # A `VEnv.Params` instance at a structure environment, and the SE rules with the pin off
 
-Round of 2026-09-04, `docs/handoff-paramsstruct.md`.
+Round of 2026-09-04, `docs/handoff-paramsstruct.md`; **restated 2026-09-04** for the flip of
+`VEnv.ParRedSE.structEta` to a contraction, `docs/handoff-flipland.md`.
 
-`Theory/Typing/EtaOrient.lean` fired the three new structure-eta rules eight times, each
+`Theory/Typing/EtaOrient.lean` fired the three new structure-eta rules six times, each
 pinned to a concrete environment by a hypothesis `(he : env = MutField.unitEnv)` /
 `(he : env = MutField.declEnv)`, and concluded that **no `Params` instance satisfying those
 hypotheses exists**, on the grounds that a structure site forces ι-rules into `env.defeqs`,
@@ -30,9 +31,24 @@ closure:
   nine fields.
 
 So the instance is a composition, and this file is mostly bookkeeping around it.  What is new
-is §1: the eight firings do not need the concrete environment *at all*.  A `StructEtaSite` at
+is §1: the firings do not need the concrete environment *at all*.  A `StructEtaSite` at
 **any** well-formed environment fires all three rules at `paramsOfPiInv`, so `MutField` is
 demoted from "the only place the rule can be stated" to "one instantiation".
+
+## The flip, and what it deleted from this file
+
+`ParRedSE.structEta` was flipped from `ParRedSE Γ e (η e)` to `ParRedSE Γ (η e) e`
+(`ConfluenceRebuildPrice.lean`, 2026-09-04), which made `EtaOrient.lean`'s parallel relation
+`VEnv.ParRedSEC` **provably** the same relation as `ParRedSE` — though not definitionally so, see
+that file — and it was deleted.  Every `…SEC…` name this file used therefore went with it, and in
+each case the surviving statement is the one it duplicated:
+`parRedSEC_structEtaC_of_wf` → `parRedSE_structEta_of_wf` (below, conclusion now the
+contraction), `unitEnv_parRedSEC_structEtaC'`/`declEnv_parRedSEC_structEtaC'` →
+`unitEnv_parRedSE_structEta'`/`declEnv_parRedSE_structEta'`, `structEtaStepC_of_wf` →
+`structEtaStep_of_wf`, `declEnv_parRedSEC_from_general` → `declEnv_parRedSE_from_general`,
+`declEnv_structEtaStepC_from_general` → `declEnv_structEtaStep_from_general`.  Eight firings
+became six.  `declEnv_rigidity_flips'` is restated: post-flip the site's **subject** is rigid
+unconditionally and it is the **expansion** that is not, so both conjuncts changed side.
 
 ## Price
 
@@ -78,18 +94,13 @@ variable {env : VEnv} {U : Nat} {Γ : List VExpr} {S : Lean.Name} {D : VInductDe
 theorem paramsOfWFAx_env (henv : env.WF) (U : Nat) : (paramsOfWFAx henv U).env = env := rfl
 theorem paramsOfWFAx_univs (henv : env.WF) (U : Nat) : (paramsOfWFAx henv U).univs = U := rfl
 
-/-- **`ParRedSE.structEta` — expansion orientation — at an arbitrary well-formed environment.** -/
+/-- **`ParRedSE.structEta` — the contraction — at an arbitrary well-formed environment.**  Before
+the flip this file carried two of these, one per orientation; they are now the same statement and
+this is it. -/
 theorem parRedSE_structEta_of_wf (henv : env.WF)
     (h : StructEtaSite env U Γ S D j T C us ps e) :
-    @ParRedSE (paramsOfWFAx henv U) Γ e (D.etaExpansionG T C us ps j e) := by
+    @ParRedSE (paramsOfWFAx henv U) Γ (D.etaExpansionG T C us ps j e) e := by
   exact @ParRedSE.structEta (paramsOfWFAx henv U) _ _ _ _ _ _ _ _ _ h
-
-/-- **`ParRedSEC.structEtaC` — contraction orientation — at an arbitrary well-formed
-environment.**  This is the rule `EtaOrient.lean` argues for, now with no pin. -/
-theorem parRedSEC_structEtaC_of_wf (henv : env.WF)
-    (h : StructEtaSite env U Γ S D j T C us ps e) :
-    @ParRedSEC (paramsOfWFAx henv U) Γ (D.etaExpansionG T C us ps j e) e := by
-  exact @ParRedSEC.structEtaC (paramsOfWFAx henv U) _ _ _ _ _ _ _ _ _ h
 
 /-- **`NormalEqSE.structEtaL` at an arbitrary well-formed environment.** -/
 theorem normalEqSE_structEtaL_of_wf (henv : env.WF)
@@ -106,11 +117,11 @@ theorem normalEqSE_structEtaR_of_wf (henv : env.WF)
   exact @NormalEqSE.structEtaR (paramsOfWFAx henv U) _ _ _ _ _ _ _ _ _ _ h h2
 
 /-- **The contraction step, and the `sizeOf` decrease with it, at an arbitrary well-formed
-environment with a positive-field site.**  `EtaOrient.lean` §5 proves the decrease at every
+environment with a positive-field site.**  `CRSEScope.lean` §4 proves the decrease at every
 `Params` instance already; what is new is that the *site* no longer has to be `MutField`'s. -/
-theorem structEtaStepC_of_wf (henv : env.WF) (hf : 0 < C.fields.length)
+theorem structEtaStep_of_wf (henv : env.WF) (hf : 0 < C.fields.length)
     (h : StructEtaSite env U Γ S D j T C us ps e) :
-    @StructEtaStepC (paramsOfWFAx henv U) Γ (D.etaExpansionG T C us ps j e) e :=
+    @StructEtaStep (paramsOfWFAx henv U) Γ (D.etaExpansionG T C us ps j e) e :=
   ⟨S, D, j, T, C, us, ps, h, hf, rfl⟩
 
 end
@@ -136,8 +147,8 @@ theorem declParams_univs : declParams.univs = 0 := rfl
 theorem unitParams_env : unitParams.env = unitEnv := rfl
 theorem unitParams_univs : unitParams.univs = 0 := rfl
 
-/-- **The eight pinned firings' hypotheses are satisfiable** — "instantiate, don't admire".
-Each of `EtaOrient.lean`'s §6 theorems takes `(he : env = declEnv) (hu : univs = 0)`; this is
+/-- **The pinned firings' hypotheses are satisfiable** — "instantiate, don't admire".
+Each of `EtaOrient.lean`'s firings takes `(he : env = declEnv) (hu : univs = 0)`; this is
 the witness that the pair is not vacuous. -/
 theorem declParams_pin_satisfiable : ∃ I : VEnv.Params, I.env = declEnv ∧ I.univs = 0 :=
   ⟨declParams, rfl, rfl⟩
@@ -145,29 +156,21 @@ theorem declParams_pin_satisfiable : ∃ I : VEnv.Params, I.env = declEnv ∧ I.
 theorem unitParams_pin_satisfiable : ∃ I : VEnv.Params, I.env = unitEnv ∧ I.univs = 0 :=
   ⟨unitParams, rfl, rfl⟩
 
-/-! ## §3 The eight firings, unpinned
+/-! ## §3 The six firings, unpinned
 
 Each is `EtaOrient.lean`'s statement with `(he) (hu)` discharged by `rfl` at the instance of
-§2, so what was a conditional becomes a theorem. -/
+§2, so what was a conditional becomes a theorem.  Six, not eight: the two `ParRedSEC` firings
+were the same statements as the two `ParRedSE` ones once the rule was flipped. -/
 
 theorem unitEnv_parRedSE_structEta' :
-    @VEnv.ParRedSE unitParams [] ((VExpr.const `MutField.foo []).mkApp [])
-      (decl.etaExpansionG aTy aCtor [] [] 0 ((VExpr.const `MutField.foo []).mkApp [])) :=
+    @VEnv.ParRedSE unitParams []
+      (decl.etaExpansionG aTy aCtor [] [] 0 ((VExpr.const `MutField.foo []).mkApp []))
+      ((VExpr.const `MutField.foo []).mkApp []) :=
   @unitEnv_parRedSE_structEta unitParams rfl rfl
 
 theorem declEnv_parRedSE_structEta' :
-    @VEnv.ParRedSE declParams bCtx (.bvar 0) (decl.etaExpansionG bTy bCtor [] [] 1 (.bvar 0)) :=
+    @VEnv.ParRedSE declParams bCtx (decl.etaExpansionG bTy bCtor [] [] 1 (.bvar 0)) (.bvar 0) :=
   @declEnv_parRedSE_structEta declParams rfl rfl
-
-theorem unitEnv_parRedSEC_structEtaC' :
-    @VEnv.ParRedSEC unitParams []
-      (decl.etaExpansionG aTy aCtor [] [] 0 ((VExpr.const `MutField.foo []).mkApp []))
-      ((VExpr.const `MutField.foo []).mkApp []) :=
-  @unitEnv_parRedSEC_structEtaC unitParams rfl rfl
-
-theorem declEnv_parRedSEC_structEtaC' :
-    @VEnv.ParRedSEC declParams bCtx (decl.etaExpansionG bTy bCtor [] [] 1 (.bvar 0)) (.bvar 0) :=
-  @declEnv_parRedSEC_structEtaC declParams rfl rfl
 
 theorem unitEnv_normalEqSE_structEtaL' :
     @VEnv.NormalEqSE unitParams [] ((VExpr.const `MutField.foo []).mkApp [])
@@ -190,11 +193,15 @@ theorem declEnv_normalEqSE_structEtaR' :
       (.bvar 0) :=
   @declEnv_normalEqSE_structEtaR declParams rfl rfl
 
-/-- **`EtaOrient.lean`'s before/after, unpinned.**  Left: the expansion orientation makes
-`parRedSES_rigid`'s hypothesis false at this site.  Right: the contraction makes it true. -/
+/-- **`EtaOrient.lean`'s before/after, unpinned.**  Post-flip: the site's **subject** is rigid
+with no side condition, and it is the **expansion** — now the redex — that is not.  Pre-flip this
+statement was the mirror image of itself, `¬ (rigid at the subject) ∧ (rigid under the other
+relation)`; the first conjunct is now *false*, so this is a restatement rather than a re-proof. -/
 theorem declEnv_rigidity_flips' :
-    (¬ ∀ o, @VEnv.ParRedSE declParams bCtx (.bvar 0) o → o = .bvar 0) ∧
-    (∀ o, @VEnv.ParRedSEC declParams bCtx (.bvar 0) o → o = .bvar 0) :=
+    (∀ o, @VEnv.ParRedSE declParams bCtx (.bvar 0) o → o = .bvar 0) ∧
+    ¬ (∀ o, @VEnv.ParRedSE declParams bCtx
+        (decl.etaExpansionG bTy bCtor [] [] 1 (.bvar 0)) o
+        → o = decl.etaExpansionG bTy bCtor [] [] 1 (.bvar 0)) :=
   @declEnv_rigidity_flips declParams rfl rfl
 
 end MutField
@@ -206,13 +213,14 @@ A round-trip check that §1 really is a generalisation of §3 rather than a para
 
 namespace MutField
 
-theorem declEnv_parRedSEC_from_general :
-    @VEnv.ParRedSEC declParams bCtx (decl.etaExpansionG bTy bCtor [] [] 1 (.bvar 0)) (.bvar 0) :=
-  VEnv.parRedSEC_structEtaC_of_wf declEnv_wf declEnv_structEtaSite
+theorem declEnv_parRedSE_from_general :
+    @VEnv.ParRedSE declParams bCtx (decl.etaExpansionG bTy bCtor [] [] 1 (.bvar 0)) (.bvar 0) :=
+  VEnv.parRedSE_structEta_of_wf declEnv_wf declEnv_structEtaSite
 
 theorem unitEnv_parRedSE_from_general :
-    @VEnv.ParRedSE unitParams [] ((VExpr.const `MutField.foo []).mkApp [])
-      (decl.etaExpansionG aTy aCtor [] [] 0 ((VExpr.const `MutField.foo []).mkApp [])) :=
+    @VEnv.ParRedSE unitParams []
+      (decl.etaExpansionG aTy aCtor [] [] 0 ((VExpr.const `MutField.foo []).mkApp []))
+      ((VExpr.const `MutField.foo []).mkApp []) :=
   VEnv.parRedSE_structEta_of_wf unitEnv_wf unitEnv_structEtaSite
 
 /-! ## §5 The limits, and they are the interesting part
@@ -241,17 +249,17 @@ theorem unitEnv_not_iotaFree : ¬ unitEnv.IotaFree :=
 /-! ### 5.2 The instance fires the rule at an environment where the rule is false
 
 `unitEnv_not_structEtaG` refutes `unitEnv.StructEtaG`, i.e. structure eta is **not** derivable
-from `VEnv.IsDefEq` there.  Yet §3 fires `ParRedSE`/`ParRedSEC`/`NormalEqSE`'s eta
+from `VEnv.IsDefEq` there.  Yet §3 fires `ParRedSE`/`NormalEqSE`'s eta
 constructors at `unitParams`, whose environment is exactly `unitEnv`.  Both at once: the SE
 relations are inhabited at a `Params` instance whose environment refutes the rule they encode.
 That is the honest reading of this round — the instance removes the *pin*, not the *gap*. -/
 
 theorem unitParams_fires_but_rule_false :
-    (@VEnv.ParRedSEC unitParams []
+    (@VEnv.ParRedSE unitParams []
         (decl.etaExpansionG aTy aCtor [] [] 0 ((VExpr.const `MutField.foo []).mkApp []))
         ((VExpr.const `MutField.foo []).mkApp [])) ∧
     ¬ unitParams.env.StructEtaG :=
-  ⟨unitEnv_parRedSEC_structEtaC', unitEnv_not_structEtaG⟩
+  ⟨unitEnv_parRedSE_structEta', unitEnv_not_structEtaG⟩
 
 /-- The same at the positive-field member, where `declEnv ≤ unitEnv` carries the refutation
 back: `StructEtaG` is a statement about an environment, and `declEnv`'s failure is not implied
@@ -273,10 +281,10 @@ theorem exists_wf_structEtaSite_pos :
 
 /-- …and the general contraction step therefore fires, with the `sizeOf` decrease, at a site
 that is not named `MutField` in its statement. -/
-theorem declEnv_structEtaStepC_from_general :
-    @VEnv.StructEtaStepC declParams bCtx (decl.etaExpansionG bTy bCtor [] [] 1 (.bvar 0))
+theorem declEnv_structEtaStep_from_general :
+    @VEnv.StructEtaStep declParams bCtx (decl.etaExpansionG bTy bCtor [] [] 1 (.bvar 0))
       (.bvar 0) :=
-  VEnv.structEtaStepC_of_wf declEnv_wf bCtor_fields_pos declEnv_structEtaSite
+  VEnv.structEtaStep_of_wf declEnv_wf bCtor_fields_pos declEnv_structEtaSite
 
 end MutField
 
@@ -286,18 +294,17 @@ end Lean4Lean
 
 #print axioms Lean4Lean.VEnv.paramsOfWFAx
 #print axioms Lean4Lean.VEnv.parRedSE_structEta_of_wf
-#print axioms Lean4Lean.VEnv.parRedSEC_structEtaC_of_wf
 #print axioms Lean4Lean.VEnv.normalEqSE_structEtaL_of_wf
 #print axioms Lean4Lean.VEnv.normalEqSE_structEtaR_of_wf
-#print axioms Lean4Lean.VEnv.structEtaStepC_of_wf
+#print axioms Lean4Lean.VEnv.structEtaStep_of_wf
 #print axioms Lean4Lean.MutField.declParams
 #print axioms Lean4Lean.MutField.unitParams
 #print axioms Lean4Lean.MutField.declParams_pin_satisfiable
-#print axioms Lean4Lean.MutField.declEnv_parRedSEC_structEtaC'
+#print axioms Lean4Lean.MutField.declEnv_parRedSE_structEta'
 #print axioms Lean4Lean.MutField.declEnv_normalEqSE_structEtaL'
 #print axioms Lean4Lean.MutField.declEnv_rigidity_flips'
 #print axioms Lean4Lean.MutField.declEnv_not_iotaFree
 #print axioms Lean4Lean.MutField.unitEnv_not_iotaFree
 #print axioms Lean4Lean.MutField.unitParams_fires_but_rule_false
 #print axioms Lean4Lean.MutField.exists_wf_structEtaSite_pos
-#print axioms Lean4Lean.MutField.declEnv_structEtaStepC_from_general
+#print axioms Lean4Lean.MutField.declEnv_structEtaStep_from_general

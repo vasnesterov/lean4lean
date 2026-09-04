@@ -429,10 +429,13 @@ inductive ParRedSE : List VExpr → VExpr → VExpr → Prop where
       {m1 : p.LPath → List VLevel} {m2 m2' : p.Path → VExpr} :
     Params.Pat p r → p.Matches e m1 m2 → r.2.OK (IsDefEqSEU env univs Γ) m1 m2 →
     (∀ a, ParRedSE Γ (m2 a) (m2' a)) → ParRedSE Γ e (r.1.apply m1 m2')
-  /-- **New.** -/
+  /-- **New.**  Oriented as a **contraction**, `η e ⟶ e`; see `Theory/Typing/EtaOrient.lean`
+  for why (rigidity at the atoms becomes unconditional, and the `sizeOf` measure kills the
+  regress) and `Theory/Typing/CRSEScope.lean` §2/§4 for the two statements that pay for it.
+  Flipped 2026-09-04; before that it read `ParRedSE Γ e (D.etaExpansionG T C us ps j e)`. -/
   | structEta :
     StructEtaSite env univs Γ S D j T C us ps e →
-    ParRedSE Γ e (D.etaExpansionG T C us ps j e)
+    ParRedSE Γ (D.etaExpansionG T C us ps j e) e
 
 /-- The reflexive-transitive closure, as `VEnv.ParRedS` is. -/
 def ParRedSES (Γ : List VExpr) : VExpr → VExpr → Prop := ReflTransGen (ParRedSE Γ)
