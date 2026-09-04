@@ -2099,3 +2099,21 @@ re-poll and say so. That instruction has now worked three times, including on a 
 the round that observed it.
 
 Ownership grants stay exact and exclusive; only the courtesy list of neighbours becomes advisory.
+
+## Two brief defects of mine, both found by rounds (2026-09-04)
+
+**1. The round-close clause is mis-scoped.** Every brief ends "zero in-repo section-variable warnings".
+A round owning one new file cannot deliver that: there are 66 such warnings across 24 files it does not
+own. It reported the failure rather than claiming success, which is right, but the clause should never
+have asked. **Fix: "zero warnings from the files you own", with the global count reported separately as
+drift.** Note also that I have been conflating two warning classes under one name — `linter.unusedSectionVars`
+genuinely is at 0 in-repo; the 66 are the "variable is not explicitly referenced" class.
+
+**2. I am not tracking orphans.** Three consecutive model-side rounds built modules that nothing imports:
+`InterpMkPi.lean` and `TeleWFBridge.lean` had **no consumer at all** until the third round imported them,
+and that round is itself one of **52 orphans**. Not wasted work — a general witness will sit downstream of
+exactly those — but I commissioned three rounds without once asking what would consume them.
+
+**Add to the brief template: state up front which existing module will consume this, and if none will yet,
+say so.** `scripts/can-cite.py` answers it in one call, and the round that volunteered this did exactly
+that before starting rather than after.
