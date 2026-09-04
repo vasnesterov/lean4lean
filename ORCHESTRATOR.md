@@ -2726,3 +2726,39 @@ way. **And I kept the distinction that section could easily have lost: what is u
 the *induction* is still unrun.** So every dependent discharge stays conditional **in fact** while ceasing
 to be conditional **in principle**. Writing that section as though the gap had closed would have been the
 easy error, and the ledger has a row-320-shaped hole waiting for anyone who makes it.
+
+## Ownership expansion under a flip, and where I drew the scope line (2026-09-04)
+
+The flip stream came back twice asking for more files. I granted both, because the requests were **forced
+by the change I authorised**, not scope creep: first `EtaOrient.lean` (three broken sites, one of them
+depending on its own `CRSEScope` §2 restatement), then `ParamsStruct.lean` (five declarations stating the
+expansion orientation, which the flip breaks regardless of anything else).
+
+**I verified before granting, and the verification is the point.** Widening a stream's ownership widens its
+blast radius, so the measurement should be mine: the five declarations are real and do state the expansion;
+and the SEC family lives in exactly **two** files tree-wide -- `EtaOrient` (74 matching lines) and
+`ParamsStruct` (20), with `CRSEScope` and `ParamsCR` at zero. So the blast radius is closed, and "nothing
+else in the tree touches this" is now a measured fact rather than a relayed one.
+
+**What I approved.** Deleting `ParRedSEC`, on the strength of a distinction the stream drew and I would not
+have thought to ask for: it is *provably* equivalent to the post-flip `ParRedSE`, ten cases each way -- but
+**not definitionally**, since `@ParRedSEC' = @ParRedSE` fails by `rfl` and so does `Iff.rfl`. Two distinct
+inductives with pointwise-identical constructor lists. That is exactly the kind of answer that makes a
+deletion safe to authorise.
+
+Also approved its retirement of §6's expansion firing, which is the model for how to retire a cited result:
+the old negative statement is now **false** at the very sites §6 exhibits -- not merely unproved -- and the
+fact that survives is named one term along the step (rigidity failing at the expansion, which post-flip is
+the redex). Eight firings become six, stated in the docstring at the site rather than the site quietly
+vanishing.
+
+**What I deferred, and why the reason matters more than the item.** It also wanted to move `EtaOrient`
+§1--§2 up into `CRSEScope` and delete that file's private duplicates. Right call, wrong moment: not needed
+for green, and the round was already flip + `CRSEScope` §2/§4 + three `EtaOrient` sites + §6 retirement +
+five `ParamsStruct` declarations + the SEC deletion. **A dedup keeps its value if done later; a half-finished
+flip does not.** Another round crashed three times this week and lost work each time, so "is this round
+finishable" is now a live constraint I weigh explicitly, not a vibe.
+
+Standing lesson: when a stream asks for more files mid-round, the questions are (1) is the request forced by
+a decision I took, (2) can I measure the blast radius myself, (3) does granting it keep the round
+finishable. Two yesses and a no means grant the file and defer the extra.
