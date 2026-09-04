@@ -3206,3 +3206,35 @@ files. A neighbouring, different obligation.
 Both sites now carry their own provenance -- what they used to say, when it changed, and that I wrote the bad
 version -- so the next reader sees where the phrase came from rather than only that it moved. Build green at
 1668, unchanged.
+
+
+## Queue drained -- and the confluence-ban restatement, which was mine alone (2026-09-05)
+
+**Item 3 needed no `.lean` edit.** I had queued "restate the confluence-ban instruction" expecting to find the
+claim in docstrings. Grepping first (per the new quote-before-queueing rule): the tree's `circular` hits are all
+*other* circularities -- B6's two-pass reader, `Primitive`'s record, `ProjNoNested`'s args, `ConstSpineWF`'s
+refutation. **The "upstream of confluence, therefore circular, therefore banned" framing exists only in my own
+briefs and in ledger row 321b.** So the corrupted instruction was never in the tree; it was in me.
+
+**The corrected form, for every future brief on the injectivity corner:**
+
+> These two holes are upstream of confluence, and `~/lean-type-theory/unique.tex` §1 **builds that
+> circularity deliberately and breaks it with an alternation index** -- a K⁺ step consuming Π-inversion one
+> index *down* is the design, not a vicious circle. **Do not go looking for a cleverer circle-break; the
+> reference already has one.** The route dies for a different and sharper reason, machine-checked in
+> `UniqueTypingN.lean`: **`SubstC` -- the step `thm:utype` takes without justification -- is false at n=1**
+> (`SubstCRefute`), the index lands at **`2n`, not `n`**, `SubstT` is false too, and `∀ n, DefInv n` is false
+> over `∅` (`DefInvRefute.defInv_all_false`).
+
+The old form cost a round half its budget hunting for a circle-break that the reference already contains. The
+new form points at the actual false step. **Difference in kind: "the dependency is circular" describes a shape
+and invites cleverness; "`SubstC` is false at n=1" names a proposition and a refutation.** Prefer the second
+shape of instruction wherever I can produce it.
+
+**Item 2 done**: `InjPiRogue.lean` §7 said "that single missing clause". It is at least two clauses -- that
+file's rogue needs two δ-rules on one constant and pins `DefEqHeadsUnique`, while `InjMethod.injEnv` needs one
+**non-`const`-headed** rule and zero constants, pinning `VEnv.RuleShape.delta`, which is logically prior:
+uniqueness of heads presupposes a head. Corrected in place with the provenance.
+
+**Item 4 stays open and unreproduced** (`ShapeVar.lean:372`), which is the honest state rather than a
+speculative edit.

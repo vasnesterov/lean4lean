@@ -528,8 +528,21 @@ theorem not_convPiInvCodInhab_of_convSortPiDisj (h : ConvSortPiDisj roguePiEnv 0
 (`PatternRules.lean`) pins a δ-rule's lhs to `.const ci.name _`, and `VEnv.addConst` refuses a
 name it already holds, so a `VEnv.WF` environment cannot carry two δ-rules for one constant.
 `Ordered` has no such clause — `Ordered.defeq` asks only `df.WF env`, which both rules satisfy
-(`ordered_roguePiEnv`).  That single missing clause is what makes `roguePiEnv` possible, and it
-is therefore the hypothesis a confluence development aimed at `ConvPiFromEntry` has to consume.
+(`ordered_roguePiEnv`).  That missing clause is what makes `roguePiEnv` possible, and it
+is therefore a hypothesis a confluence development aimed at `ConvPiFromEntry` has to consume.
+
+**But it is one clause too weak, and "that single missing clause" overstates it (noted 2026-09-05
+from `Theory/Typing/InjMethod.lean`).**  This file's rogue needs **two** δ-rules on **one constant**,
+so it pins `DefEqHeadsUnique`.  `InjMethod.injEnv` needs **one** rule that is **not `const`-headed at
+all** -- `⟨0, .sort .zero, .forallE (.sort .zero) (.sort .zero), .sort (.succ .zero)⟩`, one rule and
+**zero constants** -- and it is `Ordered` (`ordered_injEnv`) and refutes clause (3) of
+`rigidShapeUniqNS` at every `n ≥ 1` (`not_sortForallEDisjN_of_ordered`, hole-free).  What that pins is
+`VEnv.RuleShape.delta` itself, which is **logically prior** to `DefEqHeadsUnique`: uniqueness of heads
+presupposes there is a head to be unique.  So the separation between `Ordered` and `VEnv.WF` here is
+**at least two** clauses deep, and a development consuming only `DefEqHeadsUnique` does not reach
+`InjMethod`'s witness.  That file also proves its own limit (`not_wf_injEnv`), and records that the
+same idiom **cannot** be pushed to the sort-side clause, because no legal `VDefEq` relates two sorts
+at distinct levels -- `.sort u : .sort (.succ u)` forces the declared types apart.
 ("At most one δ-rule per constant" is **not** `[analysis]` any more: it is
 `DeltaUnique.WF.defEqHeadsUnique`, and §8 cashes it in as `not_wf_roguePiEnv`.) -/
 theorem rogue_rules_share_lhs : rogueDf1.lhs = rogueDf2.lhs ∧ rogueDf1 ≠ rogueDf2 := by
