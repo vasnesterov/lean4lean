@@ -2117,3 +2117,21 @@ exactly those — but I commissioned three rounds without once asking what would
 **Add to the brief template: state up front which existing module will consume this, and if none will yet,
 say so.** `scripts/can-cite.py` answers it in one call, and the round that volunteered this did exactly
 that before starting rather than after.
+
+## 42 of 53 orphan modules are mine, from this session (2026-09-04)
+
+Measured: 484 modules, 53 that nothing imports, **42 created this session** by rounds I commissioned.
+
+The split matters. Refutations, pricings and scopings are *records* — they exist to be read, and
+orphanhood is correct for them. But general producers and lemmas built to be used are a different case:
+`TrTypeProducer`, `SurfaceMap`, `CtorPointwise`, `CtorsLenGeneral`, `TrExprSGeneral`, `SEReduce`,
+`CommutationLemmas`, `OracleObligations` are all deliverables with no consumer. That *is* the remaining
+wiring work, so the story is coherent — but I ran twenty-odd rounds without measuring it once.
+
+**Make it a standing metric, not a note.** A producer round whose output nothing can consume is either
+premature or mis-placed, and both are detectable before commissioning: `can-cite.py` answers "who could
+consume this" in one call, and the orphan set is a five-line walk of the import graph. Two rounds
+reported their own orphanhood to me before I thought to check.
+
+The pattern this fits, and it has held all session: **the thing worth measuring is usually the thing I
+have been asserting in prose.**
