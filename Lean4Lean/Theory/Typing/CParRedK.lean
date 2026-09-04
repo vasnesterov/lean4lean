@@ -227,6 +227,35 @@ def ParRedKnTriangle : Prop :=
     OnCtx Γ (IsType env univs) → Γ ⊢ e : A →
     ParRedKn n Γ e e' → CParRedKn m Γ e o → ∃ o', ParRedK Γ e' o' ∧ Γ ⊢ o' ≡ₚ o
 
+/-! ### §4.1 The triangle at one grade and at one subject
+
+Moved **down** into this file by Round 3, from `TrianglePort.lean` where Round 2 defined them.
+The move is the enabling edit `docs/handoff-cparredk.md` §11.3 states verbatim: the two open rows
+of §5.2 live *here*, and they cannot carry the induction hypotheses their closing neighbour
+`keta_keta_row` carries unless the vocabulary for those hypotheses is available *here* too.
+Nothing about the definitions changed; only the module. -/
+
+/-- `ParRedKnTriangle` at a single grade.  Splitting the grade out is not cosmetic: the outer
+induction of the port is a *strong* induction on it, because `keta` on either side drops the
+grade by one while every other constructor keeps it. -/
+def TriangleAt (m : Nat) : Prop :=
+  ∀ {n : Nat} {Γ : List VExpr} {e e' o A : VExpr}, n ≤ m →
+    OnCtx Γ (IsType env univs) → Γ ⊢ e : A →
+    ParRedKn n Γ e e' → CParRedKn m Γ e o → ∃ o', ParRedK Γ e' o' ∧ Γ ⊢ o' ≡ₚ o
+
+/-- The same at one fixed subject.  This is exactly what `VExpr.brecOn`'s below-structure
+supplies for a proper subterm, written as a `Prop` so that a residual can *carry* it instead of
+silently omitting it. -/
+def TriangleAtOn (m : Nat) (Γ : List VExpr) (e : VExpr) : Prop :=
+  ∀ {n : Nat} {e' o A : VExpr}, n ≤ m → OnCtx Γ (IsType env univs) → Γ ⊢ e : A →
+    ParRedKn n Γ e e' → CParRedKn m Γ e o → ∃ o', ParRedK Γ e' o' ∧ Γ ⊢ o' ≡ₚ o
+
+theorem parRedKnTriangle_of_at (H : ∀ m, TriangleAt m) : ParRedKnTriangle :=
+  fun hnm hΓ he h1 h2 => H _ hnm hΓ he h1 h2
+
+theorem TriangleAt.on {m : Nat} (H : TriangleAt m) {Γ : List VExpr} {e : VExpr} :
+    TriangleAtOn m Γ e := fun hnm hΓ he h1 h2 => H hnm hΓ he h1 h2
+
 /-- **The diamond, from the triangle.**  This is the input `CRKProve.crStatementK_of` is missing,
 and the assembly is `ChurchRosser.ParRed.church_rosser`'s three lines plus one:
 grade both steps with `ParRedK.toN`, develop at their maximum, and run the triangle twice.
@@ -345,18 +374,39 @@ contractum to compare, and the subject's reduct `e'` need not be a K-redex at al
 `ParRedK`-triangle twins of the site-7 rows `KSite7App.lean`'s ledger leaves open
 (`appDF x keta .under`), and they are stated rather than assumed away. -/
 
-/-- The step congruences at an application while the development fires `keta`. -/
+/-- The step congruences at an application while the development fires `keta`.
+
+**Restated by Round 3 (weakened).**  Round 2's M9.3 measured that this row and `KetaExtraRow`
+carried **no induction hypothesis at all**, while their closing neighbour `keta_keta_row` carries
+one -- the same defect that made a gate unprovable-as-stated elsewhere in the tree.  The three
+hypotheses added here are exactly what is in scope at the row's only call site inside
+`TrianglePort.triangleAt_of`: the strong grade induction hypothesis below the subject's grade
+`m+1`, and the triangle at grade `m+1` on each of the two children, which the `VExpr.brecOn`
+below-structure supplies.  Adding them makes the `Prop` strictly **weaker**, so a proof of the old
+form is a proof of this one and nothing is lost; what is gained is that the residual no longer
+overstates the obligation. -/
 def KetaAppRow : Prop :=
-  ∀ {m n : Nat} {Γ : List VExpr} {f a f' a' w o A : VExpr}, n ≤ m + 1 →
+  ∀ {m n : Nat} {Γ : List VExpr} {f a f' a' w o A : VExpr},
+    (∀ k, k < m + 1 → TriangleAt k) →
+    TriangleAtOn (m+1) Γ f → TriangleAtOn (m+1) Γ a →
+    n ≤ m + 1 →
     OnCtx Γ (IsType env univs) → Γ ⊢ .app f a : A →
     EtaK Γ (.app f a) w → CParRedKn m Γ w o →
     ParRedKn n Γ f f' → ParRedKn n Γ a a' →
     ∃ o', ParRedK Γ (.app f' a') o' ∧ Γ ⊢ o' ≡ₚ o
 
-/-- The step fires a *pattern* rule while the development fires `keta`. -/
+/-- The step fires a *pattern* rule while the development fires `keta`.
+
+**Restated by Round 3 (weakened)**, on the same measurement as `KetaAppRow`.  The second added
+hypothesis is the triangle at grade `m+1` on every **matched argument** of the step's pattern;
+`TrianglePort.triangleAt_of` builds it from the below-structure by an induction over the pattern,
+the same induction that already feeds `ExtraDevRow`.  So the row is handed a genuine hypothesis
+and not an axiom. -/
 def KetaExtraRow : Prop :=
   ∀ {m n : Nat} {Γ : List VExpr} {p : Pattern}
-    {r : p.RHS × p.Check} {e w o A : VExpr} {m1 m2 m2'}, n ≤ m →
+    {r : p.RHS × p.Check} {e w o A : VExpr} {m1 m2 m2'},
+    (∀ k, k < m + 1 → TriangleAt k) → (∀ x, TriangleAtOn (m+1) Γ (m2 x)) →
+    n ≤ m →
     OnCtx Γ (IsType env univs) → Γ ⊢ e : A →
     EtaK Γ e w → CParRedKn m Γ w o →
     Params.Pat p r → Pattern.Matches p e m1 m2 →
@@ -368,10 +418,13 @@ def KetaExtraRow : Prop :=
 Eight subcases; five are vacuous by the shape lemmas above, one closes outright, and the two open
 ones are the hypotheses.  This is the compiled ledger, not a table in prose. -/
 theorem keta_root_row (HA : KetaDevAgree) (HApp : KetaAppRow) (HExtra : KetaExtraRow) {m' : Nat}
-    (IH : ∀ {n : Nat} {Γ : List VExpr} {e e' o A : VExpr}, n ≤ m' →
-      OnCtx Γ (IsType env univs) → Γ ⊢ e : A → ParRedKn n Γ e e' → CParRedKn m' Γ e o →
-      ∃ o', ParRedK Γ e' o' ∧ Γ ⊢ o' ≡ₚ o)
-    {n : Nat} {Γ : List VExpr} {e e' w o A : VExpr} (hnm : n ≤ m'+1)
+    {n : Nat} {Γ : List VExpr} {e e' w o A : VExpr}
+    (IHlt : ∀ k, k < m' + 1 → TriangleAt k)
+    (IHapp : ∀ {f a : VExpr}, e = .app f a →
+      TriangleAtOn (m'+1) Γ f ∧ TriangleAtOn (m'+1) Γ a)
+    (IHpat : ∀ {p : Pattern} {m1 : p.LPath → List VLevel} {m2 : p.Path → VExpr},
+      Pattern.Matches p e m1 m2 → ∀ x, TriangleAtOn (m'+1) Γ (m2 x))
+    (hnm : n ≤ m'+1)
     (hΓ : OnCtx Γ (IsType env univs)) (he : Γ ⊢ e : A)
     (hek : EtaK Γ e w) (h2 : CParRedKn m' Γ w o) (h1 : ParRedKn n Γ e e') :
     ∃ o', ParRedK Γ e' o' ∧ Γ ⊢ o' ≡ₚ o := by
@@ -383,10 +436,12 @@ theorem keta_root_row (HA : KetaDevAgree) (HApp : KetaAppRow) (HExtra : KetaExtr
   | forallE => exact absurd hek EtaK.not_forallE
   | beta => exact absurd hek EtaK.not_beta
   | const => exact ⟨o, hdev, .refl (hdev.hasType hΓ he)⟩
-  | app a1 a2 => exact HApp hnm hΓ he hek h2 a1 a2
-  | extra b1 b2 b3 b4 => exact HExtra (Nat.le_of_succ_le_succ hnm) hΓ he hek h2 b1 b2 b3 b4
+  | app a1 a2 => exact HApp IHlt (IHapp rfl).1 (IHapp rfl).2 hnm hΓ he hek h2 a1 a2
+  | extra b1 b2 b3 b4 =>
+    exact HExtra IHlt (IHpat b2) (Nat.le_of_succ_le_succ hnm) hΓ he hek h2 b1 b2 b3 b4
   | keta hek₁ hk =>
-    exact keta_keta_row HA IH (Nat.le_of_succ_le_succ hnm) hΓ he hek₁ hek hk h2
+    exact keta_keta_row HA (IHlt m' (Nat.lt_succ_self _))
+      (Nat.le_of_succ_le_succ hnm) hΓ he hek₁ hek hk h2
 
 /-! ## §6 Fired, not admired
 
@@ -405,6 +460,67 @@ theorem not_nonNeutralK_app_bvar {Γ : List VExpr} {i : Nat} {x : VExpr} :
     exact absurd hc (by simp [VExpr.spineHead])
   · obtain ⟨c, ls, hc⟩ := hek.spineHead_const
     exact absurd hc (by simp [VExpr.spineHead])
+
+/-! ### §5.2a Round 1's `KetaExtraRow`, kept verbatim so that it can be refuted
+
+Round 3 weakened `KetaExtraRow` above by adding two induction hypotheses (§16.1 of the handoff).
+This is the **pre-weakening** statement, character for character, retained for one purpose: §7.1a
+refutes it, and the contrast is the round's second finding.  The weakening is therefore not
+cosmetic -- it is the difference between a row this witness kills and a row it does not reach,
+because the refutation would have to supply `∀ x, TriangleAtOn (m+1) Γ (m2 x)` and that is not
+free at the witness. -/
+def KetaExtraRow0 : Prop :=
+  ∀ {m n : Nat} {Γ : List VExpr} {p : Pattern}
+    {r : p.RHS × p.Check} {e w o A : VExpr} {m1 m2 m2'}, n ≤ m →
+    OnCtx Γ (IsType env univs) → Γ ⊢ e : A →
+    EtaK Γ e w → CParRedKn m Γ w o →
+    Params.Pat p r → Pattern.Matches p e m1 m2 →
+    Pattern.Check.OK (IsDefEqU env univs Γ) m1 m2 r.2 →
+    (∀ x, ParRedKn n Γ (m2 x) (m2' x)) →
+    ∃ o', ParRedK Γ (Pattern.RHS.apply m1 m2' r.1) o' ∧ Γ ⊢ o' ≡ₚ o
+
+/-- The weakening is a genuine weakening: Round 3's `KetaExtraRow` follows from Round 1's. -/
+theorem KetaExtraRow0.toWeak (H : KetaExtraRow0) : KetaExtraRow :=
+  fun _ _ hnm hΓ he hek hd h1 h2 h3 h4 => H hnm hΓ he hek hd h1 h2 h3 h4
+
+/-! ### §5.3 Round 3: two rigidity lemmas and the corrected residual, stated generically
+
+These are used by §7's refutation, and they are stated here rather than there because §7 lives
+inside `attribute [local instance] quotParams`, where the `[Params]` variable is gone. -/
+
+/-- A `bvar` is `ParRedK`-rigid. -/
+theorem parRedK_bvar_eq {Γ : List VExpr} {i : Nat} {e' : VExpr}
+    (H : ParRedK Γ (.bvar i) e') : e' = .bvar i := by
+  cases H with
+  | bvar => rfl
+  | extra _ hm _ _ =>
+    obtain ⟨c, ls, hc⟩ := hm.spineHead_const
+    exact absurd hc (by simp [VExpr.spineHead])
+  | keta hek _ => exact absurd hek EtaK.not_bvar
+
+/-- **`g x` is `ParRedK`-rigid.**  This is what collapses the triangle's existential to a single
+candidate at the witness. -/
+theorem parRedK_app_bvar_bvar_eq {Γ : List VExpr} {i j : Nat} {e' : VExpr}
+    (H : ParRedK Γ (.app (.bvar i) (.bvar j)) e') : e' = .app (.bvar i) (.bvar j) := by
+  cases H with
+  | app h1 h2 => rw [parRedK_bvar_eq h1, parRedK_bvar_eq h2]
+  | extra h1 h2 h3 _ =>
+    exact absurd (.inr (.inl ⟨_, _, _, _, h1, h2, h3⟩)) not_nonNeutralK_app_bvar
+  | keta hek _ => exact absurd (NonNeutralK.of_etaK hek) not_nonNeutralK_app_bvar
+
+/-- The positive-grade restriction of `KetaDevAgree`: the residual Round 1's §6 firing actually
+supports.  Stated so that the next round has the corrected object rather than the refuted one;
+**not** proved here, and note that it does *not* suffice for the triangle (§7.2). -/
+def KetaDevAgreePos : Prop :=
+  ∀ {m : Nat} {Γ : List VExpr} {e w₁ w₂ o₁ o₂ A : VExpr}, OnCtx Γ (IsType env univs) →
+    Γ ⊢ e : A → EtaK Γ e w₁ → EtaK Γ e w₂ →
+    CParRedKn (m+1) Γ w₁ o₁ → CParRedKn (m+1) Γ w₂ o₂ → Γ ⊢ o₁ ≡ₚ o₂
+
+/-- `KetaDevAgree` is strictly stronger than its positive-grade restriction, and the difference is
+where the refutation lives. -/
+theorem KetaDevAgree.toPos (H : KetaDevAgree) : KetaDevAgreePos :=
+  fun hΓ he h1 h2 d1 d2 => H hΓ he h1 h2 d1 d2
+
 
 end VEnv
 
@@ -467,10 +583,190 @@ the only degenerate instance**, and there is none anywhere in the tree (`shape.l
 `{ParRedK, NormalEq}` returns 26 constants, none a negation of a triangle row).  This is a
 consistency check and a *lower bound on their consistency*, not evidence that they hold. -/
 theorem refParams_ketaAppRow : @KetaAppRow refParams :=
-  fun _ _ _ h => absurd h refParams_no_etaK
+  fun _ _ _ _ _ _ h => absurd h refParams_no_etaK
 
 theorem refParams_ketaExtraRow : @KetaExtraRow refParams :=
-  fun _ _ _ h => absurd h refParams_no_etaK
+  fun _ _ _ _ _ h => absurd h refParams_no_etaK
+
+
+/-! ## §7 Round 3: the residual list is not merely unproved -- **`KetaDevAgree` is REFUTED**
+
+Everything above §7 is Rounds 1 and 2 (plus Round 3's §4.1 move and §5.2 weakening).  This
+section is Round 3's, and it reverses the stream's verdict.
+
+`KetaDevAgree` is quantified over **every** grade `m`, and its docstring's whole argument for why
+it is weaker than `KDescend.KDiamond` is that "a *development* of the second contracts that
+β-redex, so it lands on `g x` and the two agree".  That argument is sound **at positive grade
+only**.  At `m = 0` the development is `CParRedKn.zero`, i.e. the identity
+(`CParRedKn.zero_eq`), so the `m = 0` instance of `KetaDevAgree` says: *two `EtaK` contracta of
+one subject are `NormalEq` on the nose.*  That is `KDiamond` with `EtaK.here` for `KStep` -- and
+`Verify/QuotAppParams.quotParams_not_kDiamond` already refutes it, by the very pair Round 1's §6
+quotes.
+
+So the gap between `KDiamond` and `KetaDevAgree` that Round 1 measured as "one β-step in a matched
+argument, and the development closes it" is closed by the development **only when the development
+is allowed to move**, and grade `0` forbids it.  Round 1's §6 firing
+(`quotParams_devAgree_normalEq`) is stated at `m+1` and is therefore *not* a firing of the
+residual it is presented as supporting: it exhibits the positive-grade instances holding while the
+grade-`0` instance is false.
+
+The refutation is **conditional**, on exactly the corner `not_normalEq_gx` rests on (`PiInv` and
+`WF.propTypeAgreeOn`, both `sorryAx`, both pre-existing).  `#print axioms` is in
+`docs/handoff-cparredk.md` §16.4, and it must not be quoted as unconditional. -/
+
+section
+attribute [local instance] quotParams
+
+/-- The subject of the two competing `K⁺` steps, typed -- the one premise of `KetaDevAgree` and of
+the triangle that `quotParams_not_kDiamond` does not already carry.  The type is whatever
+`HasType.app` computes; nothing below depends on its shape. -/
+theorem qRedex_hasType :
+    ∃ A, qEnv.HasType 0 qc1
+      (.app (qLift (.succ .zero) (.succ .zero)) (qMk (.succ .zero) (.bvar 1))) A :=
+  ⟨_, .app qLift1_hasType (qMk1_hasType qT_x)⟩
+
+/-- **`KetaDevAgree` is FALSE at `quotParams`.**  Instantiate at grade `0`, where both
+developments are the identity, and the conclusion is exactly `not_normalEq_gx`'s target.
+
+Conditional on the injectivity corner -- see the section header. -/
+theorem quotParams_not_ketaDevAgree : ¬ KetaDevAgree := fun H =>
+  have ⟨_, hty⟩ := qRedex_hasType
+  not_normalEq_gx <| H (m := 0) qc1_wf hty
+    (.here quotParams_kstep_x) (.here quotParams_kstep_xbeta) .zero .zero
+
+/-! ### §7.1 …and the triangle itself, not only the residual
+
+The refutation does not stop at `KetaDevAgree`: it reaches `ParRedKnTriangle`, because the
+configuration is a legal instance of the triangle's **own** grade side condition `n ≤ m` at
+`n = m = 1`.  The development `keta _ .zero` is a `CParRedKn 1`; the step
+`keta _ ParRedKn.rfl` is a `ParRedKn 1`; and the step's reduct `g x` is `ParRedK`-**rigid**, so
+the triangle's existential has only one candidate and it is refuted.
+
+Rigidity is the part that has to be proved, and it is three lines: a `bvar`-headed application is
+neutral in the enlarged sense (`not_nonNeutralK_app_bvar`, Round 1), so neither `extra` nor `keta`
+can fire on `g x`, and the congruence leaves it alone. -/
+
+/-- **`ParRedKnTriangle` is FALSE at `quotParams`** -- so the hypothesis Round 1 reduced
+`CRStatementK` to, and Round 2 reduced to a four-row list, is not merely unproved.
+
+The instance is `n = m = 1`, which satisfies the triangle's own side condition `n ≤ m`; and
+`n = m = 1` is not a corner, it is the **principal** case of the assembly, since
+`parRedKDiamond_of_triangle` develops at exactly `max n₁ n₂`.
+
+Conditional on the injectivity corner -- see the section header. -/
+theorem quotParams_not_parRedKnTriangle : ¬ ParRedKnTriangle := by
+  intro H
+  obtain ⟨_, hty⟩ := qRedex_hasType
+  obtain ⟨o', hred, hne⟩ := H (m := 1) (n := 1) (Nat.le_refl 1) qc1_wf hty
+    (.keta (.here quotParams_kstep_x) ParRedKn.rfl)
+    (.keta (.here quotParams_kstep_xbeta) .zero)
+  rw [parRedK_app_bvar_bvar_eq hred] at hne
+  exact not_normalEq_gx hne
+
+/-- **The four-row list is jointly false at the live instance.**  `TrianglePort`'s
+`parRedKnTriangle_of` derives the triangle from `KetaDevAgree`, `KetaAppRow`, `KetaExtraRow` and
+`ExtraDevRow`; so the list cannot be discharged, and Round 2's joint-satisfiability check
+(`refParams_parRedKnTriangle`, unconditional) established satisfiability **only at the degenerate
+instance where every row is vacuous**.
+
+Stated here in the negative-conjunction form, because that is the form that is honest: it does not
+say which rows are false, only that they cannot all hold.  `quotParams_not_ketaDevAgree` names one
+that is.  Conditional on the injectivity corner. -/
+theorem quotParams_not_rows_jointly
+    (HT : KetaDevAgree → KetaAppRow → KetaExtraRow → ExtraDevRow → ParRedKnTriangle) :
+    ¬ (KetaDevAgree ∧ KetaAppRow ∧ KetaExtraRow ∧ ExtraDevRow) :=
+  fun ⟨h1, h2, h3, h4⟩ => quotParams_not_parRedKnTriangle (HT h1 h2 h3 h4)
+
+/-- **The refutation is tight in the grade, and this is what says so.**  The same witness at
+`n = 1, m = 2` **satisfies** the triangle: the development of `E` at grade `2` is
+`keta (.here quotParams_kstep_xbeta)` over the grade-`1` development of `g ((fun y => y) x)`,
+which contracts the β-redex (`quotParams_dev_beta`) and lands on `g x`; the step's reduct is
+`g x` too, so `NormalEq` is `refl`.
+
+So what §7.1 refutes is not "the triangle at this witness" but "the triangle when the development
+has **no grade to spare**" -- and that is exactly the configuration
+`parRedKDiamond_of_triangle` manufactures, since it develops at `max n₁ n₂` and runs the triangle
+at `n = m`.  One unit of slack rescues *this* row; §7.2 says why no fixed amount of slack rescues
+the table. -/
+theorem quotParams_triangle_holds_with_slack :
+    CParRedKn 2 qc1 (.app (qLift (.succ .zero) (.succ .zero)) (qMk (.succ .zero) (.bvar 1)))
+        (.app (.bvar 3) (.bvar 1)) ∧
+      ParRedKn 1 qc1 (.app (qLift (.succ .zero) (.succ .zero)) (qMk (.succ .zero) (.bvar 1)))
+        (.app (.bvar 3) (.bvar 1)) ∧
+      ParRedK qc1 (.app (.bvar 3) (.bvar 1)) (.app (.bvar 3) (.bvar 1)) ∧
+      NormalEq qc1 (.app (.bvar 3) (.bvar 1)) (.app (.bvar 3) (.bvar 1)) :=
+  ⟨.keta (.here quotParams_kstep_xbeta) quotParams_dev_beta,
+    .keta (.here quotParams_kstep_x) ParRedKn.rfl,
+    ParRedK.rfl, .refl (qT_gx qT_x)⟩
+
+/-! ### §7.1a A **second** residual falls, in the form Round 1 stated it
+
+`KetaExtraRow0` (§5.2a) is Round 1's `KetaExtraRow` before Round 3 weakened it.  At `m = n = 0`
+the development of the `EtaK` contractum is the identity and the step's matched arguments do not
+move, so the row says: *the pattern rule's contractum and the `EtaK` contractum of one subject are
+joined by a one-sided `ParRedK` leg meeting a nose `NormalEq`.*  At the witness the pattern
+contractum is `g x`, which is rigid, and the `EtaK` contractum is `g ((fun y => y) x)` -- so the
+leg cannot move and `not_normalEq_gx` applies.  The direction matters: had the two been the other
+way round the β-redex would have been on the leg's side and the row would have held, which is
+exactly what happens to `ExtraKetaRow` and why that row is **not** refuted here. -/
+
+/-- **Round 1's `KetaExtraRow` is FALSE at `quotParams`.**  Conditional on the injectivity corner.
+
+Round 3's weakened `KetaExtraRow` is *not* refuted by this proof: it would additionally require
+`∀ x, TriangleAtOn 1 qc1 (m2 x)` at the witness, which is not free.  So the weakening the brief
+asked for is load-bearing rather than cosmetic. -/
+theorem quotParams_not_ketaExtraRow0 : ¬ KetaExtraRow0 := by
+  intro H
+  obtain ⟨m1, m2, hm, hrhs, hck⟩ := quot_matches (.succ .zero) (.succ .zero) (.bvar 1)
+  obtain ⟨_, hty⟩ := qRedex_hasType
+  obtain ⟨o', hred, hne⟩ := H (m := 0) (n := 0) (r := (quotRHS, quotCheck)) (m2' := m2)
+    (Nat.le_refl 0) qc1_wf hty (.here quotParams_kstep_xbeta) .zero
+    quotParams_pat_app hm hck (fun _ => ParRedKn.rfl)
+  rw [hrhs] at hred
+  rw [parRedK_app_bvar_bvar_eq hred] at hne
+  exact not_normalEq_gx hne
+
+/-! ### §7.2 The repair, and the exact reason a smaller one does not exist
+
+The obvious repair is to restrict `KetaDevAgree` to positive grade.  It is not enough, and the
+reason is worth stating precisely, because it is a fact about the **grading**, not about the
+quotient rule.
+
+`CParRedKn`'s grade is consumed by `keta` and by nothing else: `beta`, `extra` and every
+congruence keep it.  So a `CParRedKn m` development is a *complete* development **except** that
+K-chains are truncated at depth `m`, and a `keta` at the root spends one unit of the budget that
+the term below then does not have.  A `ParRedKn n` step, by contrast, spends grade on `beta` and
+`extra` too, and its congruences spend nothing.  Consequently, in the triangle's induction:
+
+* `keta` on **both** sides is in lockstep -- each drops one -- which is why `keta_keta_row` closes;
+* `keta` on the development's side against a **congruence** step drops the development's budget
+  while the step keeps its own, so the sub-triangle at the contractum needs `n ≤ m` and is handed
+  `n ≤ m+1`.  That is `KetaAppRow`, and it is the **only** row with this defect: `KetaExtraRow`
+  and `ExtraKetaRow` both face a step whose own constructor also drops the grade.
+
+No fixed amount of slack in the side condition repairs this, since a K-chain of length `k`
+consumes `k` units of the development's budget and none of the step's, and `k` is bounded only by
+the development's own grade.  The side condition must be `n ≤ m` at the base (grade `0`
+development is the identity, and `zero_dev_row` needs `n = 0`) and `n ≤ m - k` at depth `k`;
+those are incompatible.
+
+So the repair is not in the residual list at all: **the apex of the triangle has to be a complete
+development, and `CParRedKn m` is not one.**  An ungraded `CParRedK` needs the K-chain to
+terminate, which nothing in `Params` supplies -- exactly the observation Round 1's own shape prior
+S2 made about `CParRedKn.exists` ("nothing in `Params` says the rule table terminates") and then
+worked around with the grade.  The grade makes existence provable and the triangle false. -/
+
+/-- **The positive-grade residual is *not* refuted by this witness.**  At grade `m+1` the
+development of `g ((fun y => y) x)` contracts the β-redex and lands on `g x`
+(`quotParams_dev_beta`), so the two developments are literally equal and `NormalEq` is `refl`.
+This is Round 1's §6 firing, restated as what it actually establishes: the grade-`0` instance is
+false and the positive-grade instances at this witness are true. -/
+theorem quotParams_ketaDevAgreePos_at_witness {m : Nat} :
+    ∃ o₁ o₂, CParRedKn (m+1) qc1 (.app (.bvar 3) (.bvar 1)) o₁ ∧
+      CParRedKn (m+1) qc1 (.app (.bvar 3) qXbeta) o₂ ∧ o₁ = o₂ :=
+  ⟨_, _, quotParams_dev_gx, quotParams_dev_beta, rfl⟩
+
+end
 
 end VEnv
 

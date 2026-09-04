@@ -29,28 +29,13 @@ local notation:65 Γ " ⊢ " e " : " A:36 => HasType env univs Γ e A
 local notation:65 Γ " ⊢ " e1 " ≡ " e2:36 " : " A:36 => IsDefEq env univs Γ e1 e2 A
 local notation:65 Γ " ⊢ " e1 " ≡ₚ " e2:30 => NormalEq Γ e1 e2
 
-/-! ## §1 The triangle at one grade, and at one subject -/
+/-! ## §1 The triangle at one grade, and at one subject
 
-/-- `ParRedKnTriangle` at a single grade.  Splitting the grade out is not cosmetic: the outer
-induction of the port is a *strong* induction on it, because `keta` on either side drops the
-grade by one while every other constructor keeps it. -/
-def TriangleAt (m : Nat) : Prop :=
-  ∀ {n : Nat} {Γ : List VExpr} {e e' o A : VExpr}, n ≤ m →
-    OnCtx Γ (IsType env univs) → Γ ⊢ e : A →
-    ParRedKn n Γ e e' → CParRedKn m Γ e o → ∃ o', ParRedK Γ e' o' ∧ Γ ⊢ o' ≡ₚ o
-
-/-- The same at one fixed subject.  This is exactly what `VExpr.brecOn`'s below-structure
-supplies for a proper subterm, written as a `Prop` so that a residual can *carry* it instead of
-silently omitting it (method rule 3). -/
-def TriangleAtOn (m : Nat) (Γ : List VExpr) (e : VExpr) : Prop :=
-  ∀ {n : Nat} {e' o A : VExpr}, n ≤ m → OnCtx Γ (IsType env univs) → Γ ⊢ e : A →
-    ParRedKn n Γ e e' → CParRedKn m Γ e o → ∃ o', ParRedK Γ e' o' ∧ Γ ⊢ o' ≡ₚ o
-
-theorem parRedKnTriangle_of_at (H : ∀ m, TriangleAt m) : ParRedKnTriangle :=
-  fun hnm hΓ he h1 h2 => H _ hnm hΓ he h1 h2
-
-theorem TriangleAt.on {m : Nat} (H : TriangleAt m) {Γ : List VExpr} {e : VExpr} :
-    TriangleAtOn m Γ e := fun hnm hΓ he h1 h2 => H hnm hΓ he h1 h2
+**Round 3 moved `TriangleAt`, `TriangleAtOn`, `parRedKnTriangle_of_at` and `TriangleAt.on` down
+into `CParRedK.lean` §4.1**, unchanged, so that §5.2's two open rows can carry the induction
+hypotheses their closing neighbour carries (`docs/handoff-cparredk.md` §11.3, §16.1).  Nothing was
+restated; only the module changed, and cone figures that reach them are therefore not comparable
+with Round 2's table. -/
 
 /-! ## §2 The row count, and the axis Round 1 missed
 
@@ -198,6 +183,29 @@ theorem triangleAt_of (HA : KetaDevAgree) (HApp : KetaAppRow) (HExtra : KetaExtr
   | succ m => ?_
   induction e using VExpr.brecOn generalizing Γ A e' o n with | _ e e_ih => ?_
   revert e_ih; change let motive := ?_; ∀ _: e.below (motive := motive), _; intro motive e_ih
+  -- The two below-structure hypotheses that Round 3's restated rows carry, extracted **once**
+  -- before the development is cased.  `IHpat` is the pattern induction Round 2 ran inline in the
+  -- `extra` case; hoisting it is what lets the `keta` case have it too.
+  have IHapp : ∀ {f a : VExpr}, e = .app f a →
+      TriangleAtOn (m+1) Γ f ∧ TriangleAtOn (m+1) Γ a := by
+    intro f a hfa; subst hfa
+    exact ⟨fun hnm' hΓ' hty h1' h2' => e_ih.1.1 hΓ' hty h1' hnm' h2',
+      fun hnm' hΓ' hty h1' h2' => e_ih.2.1 hΓ' hty h1' hnm' h2'⟩
+  have IHpat : ∀ {p : Pattern} {m1 : p.LPath → List VLevel} {m2 : p.Path → VExpr},
+      Pattern.Matches p e m1 m2 → ∀ x, TriangleAtOn (m+1) Γ (m2 x) := by
+    clear H1 H2 hnm IHapp
+    intro p m1 m2 hm
+    induction p generalizing e A with
+    | const => exact nofun
+    | app f a ih1 ih2 =>
+      let .app hm1 hm2 := hm
+      have ⟨_, _, Hf, Ha⟩ := he.app_inv henv hΓ
+      exact Sum.rec (ih1 _ Hf e_ih.1.2 hm1) (ih2 _ Ha e_ih.2.2 hm2)
+    | var _ ih =>
+      let .var hm1 := hm
+      have ⟨_, _, Hf, _⟩ := he.app_inv henv hΓ
+      exact Option.rec (fun hnm' hΓ' hty h1' h2' => e_ih.2.1 hΓ' hty h1' hnm' h2')
+        (ih _ Hf e_ih.1.2 hm1)
   cases H2 with
   | bvar =>
     cases H1 with
@@ -286,21 +294,9 @@ theorem triangleAt_of (HA : KetaDevAgree) (HApp : KetaAppRow) (HExtra : KetaExtr
     | extra _ h2 => cases h2 with | app h | var h => cases h
     | keta hek _ => exact absurd hek EtaK.not_beta
   | keta hek hd =>
-    exact keta_root_row HA HApp HExtra (IHlt m (by omega)) hnm hΓ he hek hd H1
+    exact keta_root_row HA HApp HExtra IHlt IHapp IHpat hnm hΓ he hek hd H1
   | @extra _ _ p r _ m1 m2 m2' l1 l2 l3 l4 =>
-    refine HED (fun k hk => IHlt k (by omega)) ?_ hnm hΓ he l1 l2 l3 l4 H1
-    clear l1 l3 l4 H1 r m2'
-    induction p generalizing e A with
-    | const => exact nofun
-    | app f a ih1 ih2 =>
-      let .app hm1 hm2 := l2
-      have ⟨_, _, H1, H2⟩ := he.app_inv henv hΓ
-      exact Sum.rec (ih1 _ H1 e_ih.1.2 hm1) (ih2 _ H2 e_ih.2.2 hm2)
-    | var _ ih =>
-      let .var hm1 := l2
-      have ⟨_, _, H1, _⟩ := he.app_inv henv hΓ
-      exact Option.rec (fun hnm' hΓ' hty h1 h2 => e_ih.2.1 hΓ' hty h1 hnm' h2)
-        (ih _ H1 e_ih.1.2 hm1)
+    exact HED (fun k hk => IHlt k (by omega)) (IHpat l2) hnm hΓ he l1 l2 l3 l4 H1
 
 /-! ## §4 The assembly, and what the residual list is
 
@@ -489,6 +485,48 @@ theorem quotParams_triangle_at_keta (HA : KetaDevAgree) (HApp : KetaAppRow)
   ⟨n, _, o, o', quotParams_parRedK_qLiftT, ho, p, q⟩
 
 end
+
+
+/-! ## §6 Round 3: what §1-§5 above still mean, now that the hypothesis list is refuted
+
+Nothing above this line is edited (only §1's moved definitions and the two restated rows'
+hypotheses, both recorded in `docs/handoff-cparredk.md` §16.1).  What changes is the reading.
+
+`CParRedK.lean` §7 proves, **conditionally on the injectivity corner** (`PiInv`,
+`WF.propTypeAgreeOn`; the same two `sorryAx` holes `Verify/QuotAppParams.not_normalEq_gx` already
+rests on, and no others):
+
+* `quotParams_not_ketaDevAgree : ¬ KetaDevAgree` -- the grade-`0` instance of `KetaDevAgree` *is*
+  `KDescend.KDiamond`, which the tree refutes;
+* `quotParams_not_parRedKnTriangle : ¬ ParRedKnTriangle` -- at `n = m = 1`, which satisfies the
+  triangle's own side condition, and which is the configuration
+  `parRedKDiamond_of_triangle` manufactures.
+
+Consequences for this file, stated exactly:
+
+1. **`parRedKnTriangle_of`, `parRedKDiamond_of_rows` and `crStatementK_of_rows` are still
+   theorems** -- implications with a (conditionally) unsatisfiable premise.  They are not wrong;
+   they are *empty*.  Anyone quoting `crStatementK_of_rows` as "`CRStatementK` modulo four rows"
+   should now quote it as "`CRStatementK` modulo four rows, one of which is false".
+2. **`quotParams_triangle_fires` and `quotParams_triangle_at_keta` are vacuous** at `quotParams`,
+   which is the very instance they were fired at.  Round 2's §5 called the second "THE FIRING";
+   it is a firing of a conditional whose antecedent that instance refutes.  The *unconditional*
+   content Round 2 claimed for it survives untouched -- the instance is non-degenerate,
+   `quotParams_kstep_eta` inhabits `KStep`, the subject is `EtaK`-reducible with an η-tower of
+   height one -- because none of that mentions the residuals.
+3. **`refParams_parRedKnTriangle` is unaffected and remains unconditional.**  At `refParams` both
+   `KStep` and `Pat` are empty, so the refutation cannot be transported there; that is the precise
+   sense in which Round 2's joint-satisfiability check was a check at the *degenerate* instance
+   only, and could not have detected this.
+4. **`zero_dev_row`, `keta_step_row`, the port itself and §4a's five measure lemmas are
+   unaffected**: they are rows and shape facts, not the residual list.  72 of the 90 rows are
+   still compiled, and `parRedK_app_bvar_bvar_eq` (`CParRedK.lean` §5.3, hole-free) is a new
+   rigidity fact of the same kind.
+5. **`ParRedKDiamond` and `CRStatementK` are *not* refuted by any of this.**  A false antecedent
+   says nothing about a consequent, and the diamond's legs are two-sided `ParRedK` steps, so the
+   refuting pair `g x` / `g ((fun y => y) x)` **joins** there
+   (`Verify/QuotAppParams.quotParams_kDiamond_joinable`).  What is refuted is the *triangle*: a
+   one-sided leg meeting a nose `NormalEq` against a grade-truncated apex. -/
 
 end VEnv
 

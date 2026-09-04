@@ -3080,3 +3080,44 @@ rejection path.
 
 The two instructions compose: the user's says pay expensive steps, and CLAUDE.md's says one specific class of
 expensive step is *encouraged* and counts as progress. I had been treating that class as a wall.
+
+## Instantiate every quantified numeral at its extremes -- cheaper than the hypothesis-diff (2026-09-04)
+
+The triangle round killed a four-residual list, and three prior rounds' worth of work built on it, with one
+move: **`KetaDevAgree` quantifies over every grade `m`, and at `m = 0` the graded development is the
+identity, so its `m = 0` instance IS a statement the tree had already refuted.** Three lines.
+
+Its own words on why nobody found it sooner:
+
+> The rule that found this isn't the brief's hypothesis-diff -- it's *instantiate every universally quantified
+> numeral at its extreme value*. Cheaper (no neighbour needed), and three rounds ran the diff and none ran
+> this.
+
+**Adopted, and it goes above the hypothesis-diff in briefs: for any residual quantified over a `Nat`,
+instantiate at 0 and at the boundary before attempting it.** The hypothesis-diff needs a neighbour to compare
+against; this needs nothing but the statement. Both belong in the checklist, cheapest first.
+
+The hypothesis-diff was not wasted here -- the restatement it motivated **was** right, and the weakening is
+precisely what stops the same witness refuting a second row. But it is the more expensive instrument and it
+ran three times without finding what one numeral substitution found.
+
+**And a failure mode new to this ledger: a prior that names the fatal trade and is then worked around.**
+Round 1's own S2 observed that grading the development makes existence provable -- and it grades by `keta`
+alone while the step relation grades by three constructors, which is exactly why the triangle is off by one
+and false. It recorded the observation and routed around it. **When a prior identifies a structural trade,
+that is a stop-and-reconsider signal, not a note to file.**
+
+## My brief's concurrency claim went stale by my own hand, within minutes (2026-09-04, mine)
+
+I wrote, in the triangle brief: *"No other stream is running, so a bare `lake build` is a clean signal -- use
+it."* True when written. Then **I spawned three more rounds**, HEAD moved `0cfbdc8` -> `11efd98` under the
+round, and another stream's untracked file turned the bare build red mid-round. The round diagnosed it
+correctly and re-polled, and told me my premise had been false.
+
+I already had a rule that my "concurrent streams" **lists** are stale before they are read. I then made a
+**stronger** claim than a list -- an exclusive one, that nothing else was running -- and it was falsified by my
+own next action.
+
+**Rule: never tell a round that it is alone.** Tell it instead: *other streams may start at any time; a red
+file you do not own is not yours; re-poll before reporting it.* That sentence is true whenever I write it,
+which is the whole point.

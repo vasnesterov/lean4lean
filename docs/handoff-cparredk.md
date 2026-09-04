@@ -1072,3 +1072,464 @@ chain touches the injectivity corner. That matters for the next round's route: t
 usable to narrow the remaining rows without importing any of `{weakN_iff,
 forallE_inv_stratified, WF.rigidShapeUniqNS}`, which is more than can be said for anything that
 goes through `NormalEq.trans` or `ParRedK.hasType`.
+
+---
+
+# Round 3 (2026-09-04, later still) — the restatement, and where the four residuals actually meet
+
+*Numbering note, second occurrence.* My brief says "§1–§12 are two previous rounds'. Do not edit
+them. Add §13 onward." Round 2 had already used **§13** (build record) and **§14** (a late
+measurement), exactly as Round 1 had overrun the numbering its own brief predicted. I have edited
+**nothing** above this line. The brief's "§13" is therefore this round's **§15 (priors)**, and the
+rest follows: §16 measurements, §17 verdicts, §18 limits, §19 method gaps, §20 build record. A
+reader looking for "Round 3's §13 scorecard" wants §15 and §16.
+
+## §15 Priors, written before any Lean and never edited
+
+Written after reading, in this order: `CLAUDE.md`; `docs/handoff-cparredk.md` §8–§14 in full (and
+the headers of §1–§7); `Lean4Lean/Theory/Typing/TrianglePort.lean` in full (all 495 lines);
+`CParRedK.lean`:250–420 (`EtaK.not_beta`, `ParRedKn.zero_eq`, `CParRedKn.zero_eq`,
+`NonNeutralK.of_etaK`, `KetaDevAgree`, `keta_keta_row`, **`KetaAppRow`, `KetaExtraRow`,
+`keta_root_row`**, `not_nonNeutralK_app_bvar`); `ChurchRosser.lean`:1040–1240 —
+**`ParRed.triangle` in full, including the `extra` case's inner induction, which is the part
+Round 2 did not transcribe**; `KRule.lean`:1–190 (`KStep`, `KStep.defeq`, `Params.no_kpattern`).
+No Lean written, no cone measured, no build run yet.
+
+### Shape priors (three of them, before any cost prior)
+
+**S15.1 — Where do the four residuals *meet*?  I predict they meet at one object, and that object
+is not named anywhere in the tree (0.85).**
+Reading `ParRed.triangle`'s `extra` case shows its whole difficulty is a single anonymous
+`have : (∃ m3 m3', p.Matches e' m1 m3 ∧ …) ∨ (∃ p₁ …, Subpattern p₁ p ∧ … Pat p' r ∧ …)` — a
+**two-way survival disjunction**, proved by an inner induction over the *step*, and then consumed
+twice. It is inline inside the theorem: not a `def`, not a `theorem`, not reusable. My prediction
+is that this same disjunction (with `ParRedKn` for `ParRed`, plus a **third** disjunct for a
+`keta` step) is what `KetaAppRow`, `KetaExtraRow` **and** `ExtraDevRow` all need, because in each
+of those three rows a rule has fired at the root on one side while the other side has reduced
+inside the skeleton. If that is right, the honest description of the round's target is not "four
+residuals" but "**one engine and three consumers**", and the deliverable is the engine.
+
+**S15.2 — Adding the induction hypotheses makes the two rows *weaker*, but I predict it does NOT
+make them provable (0.8).**
+Round 2's M9.3 measured `KetaAppRow`/`KetaExtraRow` as carrying no induction hypothesis at all,
+and the brief instructs me to weaken them per §11.3 and then attempt them, on the analogy of a
+gate that was unprovable purely for a missing hypothesis. I expect the analogy to hold **half
+way**: the missing IHs are genuinely necessary (nothing else supplies the triangle at the matched
+arguments or at the contractum, and the contractum is not a subterm so `brecOn` cannot), but they
+are **not sufficient**, because no induction hypothesis of any shape tells you that
+`EtaK Γ (.app f a) w` still has a counterpart at `.app f' a'`. That is survival, i.e. S15.1's
+engine, and it is a fact about the rule table, not about the induction. **Concretely I predict:
+after the restatement both rows reduce to the engine, and neither closes without it.** If instead
+one of them closes outright from the IHs alone, S15.2 is wrong and I will say so in the same words.
+
+**S15.3 — The `keta` case of the engine needs a third disjunct at the root and *no* disjunct at
+strict skeleton nodes (0.75).**
+Round 2's M9.9 proved both halves of the `keta` branch satisfiable and concluded no exclusion
+lemma disposes of the row. I predict a sharper split than "both satisfiable, so both cost":
+`etaK_leaves_skeleton` says a `keta` step at a strict skeleton node produces a `.lam`, which
+matches no pattern — so the *first* disjunct ("the pattern survives") is provably unavailable
+there, but the **second** disjunct is the one that applies, since the reduct having left the
+skeleton is exactly "something fired below". So strict skeleton nodes cost a *routing* argument,
+not a new disjunct; only the root, where the fuel is 0 and the step is a bare `KStep`, needs a
+third disjunct, and that third disjunct is `ExtraKetaRow`/`KetaAppRow`-shaped. Net prediction:
+the engine has **three** disjuncts, the third is inhabited only at the root, and the whole
+`keta`-in-skeleton analysis of M9.9 is consumed by *routing to disjunct two*.
+
+**S15.4 — `KStep` survival is not derivable from `KStep.defeq` (0.9).**
+The tempting cheap route for `KetaAppRow` is: `EtaK` steps are `IsDefEqU` (`EtaK.defeqU`), the
+step's congruence is an `IsDefEqU`, so `.app f' a'` and `o` are definitionally equal, done. That
+is exactly the move `NormalEq` forbids — `NormalEq` is not implied by `IsDefEq`; deriving it from
+`IsDefEq` *is* Church–Rosser, which is what the triangle is being proved to get. I write this
+down before touching Lean because it is the shape of error that would let me "close" a row with a
+proof that silently assumes the conclusion, and the brief's trap list does not contain it.
+
+### Cost priors (deliberately after the shape priors)
+
+**C15.1 — The §11.3 restatement compiles this round: 0.85.** Moving `TriangleAt`/`TriangleAtOn`
+down into `CParRedK.lean` and adding two hypotheses to two `def`s is mechanical; the only risk is
+`keta_root_row`'s two call sites and `TrianglePort.lean`'s `keta_root_row` invocation needing
+arguments that are not in scope at the port's `keta` case. I believe they are: `IHlt` is in scope,
+and the `brecOn` below-structure at `.app f a` gives the two `TriangleAtOn`s. **This is the one
+thing in my brief I am confident of, so I will do it first and measure it, not last.**
+
+**C15.2 — I close 0 of the four residuals outright: 0.6; I close 1: 0.25; 2 or more: 0.15.**
+And per Round 2's §12.3 — *"I predicted I would close neither and then spent no budget on them —
+self-fulfilling"* — **this prior is explicitly not a budget decision.** The budget goes to the
+engine regardless of the prior, because S15.1 says the engine is what all three consumers need and
+an engine that compiles converts four opaque residuals into one named one plus routing.
+
+**C15.3 — The 3931/3 figure cannot be banked this round: 0.8.** It needs all four residuals
+discharged. Even on my optimistic branch (engine compiles, three rows reduce to it) the engine
+itself is then the residual and `KetaDevAgree` is untouched. I will say so plainly rather than
+report a consolidation as a banking.
+
+**C15.4 — Census stays 13 and the build stays green: 0.95.** I add no `sorry`; residuals are
+`def … : Prop` hypotheses, which is the pattern both previous rounds used and which costs no
+census.
+
+**C15.5 — Cone noise from the move: ±3 on anything whose cone contains `TriangleAt` (0.9).** My
+brief warns cone numbers are not invariant under moving a declaration between modules. Since
+`TriangleAt`/`TriangleAtOn` (cone 41 each) move from `TrianglePort` to `CParRedK`, every figure
+that reaches them may shift by a small amount and **that shift is not signal**. I will re-measure
+rather than reuse Round 2's table, and mark the comparison.
+
+## §16 Measurements, appended as they land (never rewritten)
+
+### M16.0 — baseline
+
+Bare `lake build` at HEAD `0cfbdc8` with Round 1's and Round 2's files in the tree: green,
+**1665 jobs**, exit 0. Matches the brief exactly.
+
+### M16.1 (answers C15.1, and it scores RIGHT) — the §11.3 restatement is **made**, not stated
+
+`lake build Lean4Lean.Theory.Typing.TrianglePort` green (1292 jobs, the module's own closure). Four
+edits, all inside my two files:
+
+1. `TriangleAt`, `TriangleAtOn`, `parRedKnTriangle_of_at`, `TriangleAt.on` **moved down** from
+   `TrianglePort.lean` into `CParRedK.lean` §4.1, character-for-character unchanged.
+2. `KetaAppRow` now carries `(∀ k, k < m+1 → TriangleAt k)`, `TriangleAtOn (m+1) Γ f` and
+   `TriangleAtOn (m+1) Γ a`; `KetaExtraRow` carries `(∀ k, k < m+1 → TriangleAt k)` and
+   `(∀ x, TriangleAtOn (m+1) Γ (m2 x))`. Both are therefore **strictly weaker `Prop`s** than
+   Round 1's: any proof of the old form is a proof of the new one.
+3. `keta_root_row` takes the three in the only shape available before the *step* is cased:
+   `IHlt`, plus `IHapp : ∀ {f a}, e = .app f a → TriangleAtOn (m'+1) Γ f ∧ TriangleAtOn (m'+1) Γ a`
+   and `IHpat : ∀ {p m1 m2}, Pattern.Matches p e m1 m2 → ∀ x, TriangleAtOn (m'+1) Γ (m2 x)`.
+   The guarded shape is forced: at `keta_root_row`'s entry `e` is an arbitrary term (the
+   development's `keta` constructor constrains nothing), so "the triangle at the two children" is
+   not yet a well-formed statement — it becomes one only after `cases h1` refines `e`.
+4. **`IHpat` is Round 2's inline pattern induction, hoisted.** Round 2 ran it inside
+   `triangleAt_of`'s `extra` development case; it is now a single `have` before `cases H2`, so the
+   `keta` case gets it too, and the `extra` case shrank from ten lines to one
+   (`exact HED (fun k hk => IHlt k (by omega)) (IHpat l2) hnm hΓ he l1 l2 l3 l4 H1`).
+   **Round 2's §11.3 said the move "would rewrite" `keta_root_row`; it does, and the rewrite is
+   four tokens plus a hoist.** Cost: two builds, one of which failed for a mechanical reason worth
+   recording — the hoisted `have IHapp` depends on `e`, so `induction p generalizing e A` inside
+   `IHpat` silently reverted it and every pattern IH acquired an extra argument. `clear IHapp`
+   fixes it. That is the same class of error as reading a lemma's name for its content: I did not
+   predict that hoisting one `have` would perturb the *arity* of an unrelated induction's IHs.
+
+`refParams_ketaAppRow` / `refParams_ketaExtraRow` needed only extra `_` binders (the added
+hypotheses sit before the `EtaK` that `refParams_no_etaK` refutes), so **the joint-satisfiability
+witness survives the restatement** — which matters, because a restatement that broke it would have
+been a restatement into something possibly inconsistent.
+
+### M16.2 — **`KetaDevAgree` is REFUTED at `quotParams`**, and so is `ParRedKnTriangle`
+
+`CParRedK.lean` §7, compiled, no `sorry` written. This is the round's result and it reverses the
+stream's verdict, so here is the whole argument in five lines:
+
+1. `KetaDevAgree` is quantified over **every** grade `m`, grade `0` included.
+2. `CParRedKn 0` is the identity (`CParRedKn.zero_eq`, Round 1's own lemma).
+3. So the `m = 0` instance says: *two `EtaK` contracta of one subject are `NormalEq` on the nose*.
+4. That is `KDescend.KDiamond` with `EtaK.here` for `KStep` — and
+   `Verify/QuotAppParams.quotParams_not_kDiamond` **already refutes it**, by the very pair Round 1
+   §5.1 quotes in `KetaDevAgree`'s own docstring (`g x` versus `g ((fun y => y) x)`).
+5. `quotParams_not_ketaDevAgree : ¬ KetaDevAgree` — three lines, and the only thing it needed that
+   `quotParams_not_kDiamond` did not already have is a typing for the subject
+   (`qRedex_hasType = .app qLift1_hasType (qMk1_hasType qT_x)`).
+
+**Round 1's docstring contains the refutation's own premise.** It argues `KetaDevAgree` is weaker
+than `KDiamond` because "a *development* of the second contracts that β-redex, so it lands on
+`g x` and the two agree", and its §6 firing `quotParams_devAgree_normalEq` is stated at grade
+`m+1`. That argument is **sound at positive grade and vacuous at grade 0**, where the development
+is forbidden to move. The firing was therefore never a firing of the residual as stated: it
+exhibits the positive-grade instances holding *while the grade-0 instance is false*.
+
+And the refutation does not stop at the residual. `quotParams_not_parRedKnTriangle :
+¬ ParRedKnTriangle`, at `n = m = 1`, which satisfies the triangle's own side condition `n ≤ m`:
+
+* development `keta (.here quotParams_kstep_xbeta) .zero : CParRedKn 1 qc1 E (g ((fun y => y) x))`;
+* step `keta (.here quotParams_kstep_x) ParRedKn.rfl : ParRedKn 1 qc1 E (g x)`;
+* the step's reduct `g x = .app (.bvar 3) (.bvar 1)` is **`ParRedK`-rigid**
+  (`parRedK_app_bvar_bvar_eq`, three lines from Round 1's `not_nonNeutralK_app_bvar`), so the
+  triangle's existential has exactly one candidate, and `not_normalEq_gx` kills it.
+
+`n = m = 1` is **not a corner case**: `parRedKDiamond_of_triangle` develops at exactly
+`max n₁ n₂`, so `n = m` is the *principal* configuration of the assembly.
+
+`quotParams_not_rows_jointly` then states the consequence in the only honest form — the four rows
+cannot all hold — taking `parRedKnTriangle_of` as a hypothesis so that the statement lives in
+`CParRedK.lean` and does not need `TrianglePort.lean`'s import direction reversed.
+
+**The refutation is CONDITIONAL**, on exactly the corner `not_normalEq_gx` rests on: `PiInv` (the
+instance) and `WF.propTypeAgreeOn` (the two `proofIrrel` blocks), both `sorryAx`, both
+pre-existing, neither new. `#print axioms` is M16.4. It must not be quoted as unconditional.
+
+### M16.3 — a **second** residual falls, and the contrast says the weakening is load-bearing
+
+`KetaExtraRow0` (`CParRedK.lean` §5.2a) is Round 1's `KetaExtraRow` character for character,
+retained only so that `quotParams_not_ketaExtraRow0` can refute it. At `m = n = 0` the row says:
+*the pattern rule's contractum and the `EtaK` contractum of one subject are joined by a one-sided
+`ParRedK` leg meeting a nose `NormalEq`*. At the witness the pattern contractum is `g x` — which
+`parRedK_app_bvar_bvar_eq` shows is rigid — and the `EtaK` contractum is `g ((fun y => y) x)`, so
+the leg cannot move and `not_normalEq_gx` applies. `KetaExtraRow0.toWeak` is compiled, so the
+weakening is confirmed to be a weakening.
+
+**The direction is the whole content, and it cuts both ways.** Had the β-redex been on the leg's
+side the row would have *held*. That is exactly what happens to `ExtraKetaRow` and `ExtraDevRow`,
+which I checked by hand at `m = 0` and `m = 1` and which this witness does **not** reach: their
+step is `keta` and their development is `extra`, so the leg starts at `g ((fun y => y) x)` and can
+β-contract onto `g x`. `KetaAppRow` is likewise not reached — at `m = 0` the trivial step satisfies
+it, and `qLift`'s spine at the witness is rigid, so there is no non-trivial congruence step to run.
+
+**Round 3's weakened `KetaExtraRow` is NOT refuted here**, and I say why rather than leaving it
+ambiguous: the same proof would additionally have to supply `∀ x, TriangleAtOn 1 qc1 (m2 x)` at the
+witness. That is provable (the matched arguments are `bvar`s in `qc1`, and `TriangleAtOn 0` is
+`zero_dev_row` outright) but it needs a typing per matched index, and I did not spend the budget.
+**So the restatement the brief asked for is load-bearing, not cosmetic** — it is the difference
+between a row this witness kills and a row it does not reach. That is the opposite of the brief's
+expectation, which was that the weakening would make the rows *provable*; it makes them *harder to
+refute*, which is the same fact seen from the other side.
+
+### M16.4 — the accounting, dated: **2026-09-04**, population **479** built modules
+
+`scripts/exists.lean`, run at HEAD `0cfbdc8` + my two modified files (HEAD then moved — see §20).
+Population 479 against Round 2's 478; the +1 is another stream's module, not mine (I added no
+module). Cone figures marked ↓1 moved because `TriangleAt`/`TriangleAtOn` changed module, which is
+the noise C15.5 predicted and **must not be read as signal**.
+
+| declaration | module | arity | cone | holes |
+|---|---|---|---|---|
+| **`quotParams_not_ketaDevAgree`** | `CParRedK` | 0 | **9334** | **2** `{forallE_inv_stratified, WF.rigidShapeUniqNS}` |
+| **`quotParams_not_parRedKnTriangle`** | `CParRedK` | 0 | **9377** | **2** (same) |
+| **`quotParams_not_ketaExtraRow0`** | `CParRedK` | 0 | **9374** | **2** (same) |
+| `quotParams_not_rows_jointly` | `CParRedK` | 2 | 9384 | 2 (same) |
+| `quotParams_triangle_holds_with_slack` | `CParRedK` | 0 | 9354 | 2 (same) |
+| `parRedK_app_bvar_bvar_eq` | `CParRedK` | 6 | 754 | **0** |
+| `parRedK_bvar_eq` | `CParRedK` | 5 | 748 | **0** |
+| `KetaDevAgreePos` (the def) | `CParRedK` | 1 | 58 | **0** |
+| `KetaExtraRow0` (the def) | `CParRedK` | 1 | 656 | **0** |
+| `TriangleAt` (the def, moved) | `CParRedK` | 2 | 41 | **0** |
+| `not_normalEq_gx` (the tool) | `QuotAppParams` | 0 | 9295 | 2 (same) |
+| `quotParams_not_kDiamond` | `QuotAppParams` | 0 | 9328 | 2 (same) |
+| `IsDefEqU.constApp_forallE_false_ofHyps` | `CRKProve` | 11 | **3931** | **3** |
+| `crStatementK_of_rows` | `TrianglePort` | 6 | 4027 ↓1 | 3 |
+| `parRedKnTriangle_of` | `TrianglePort` | 5 | 3962 ↓1 | 3 |
+| `refParams_parRedKnTriangle` | `TrianglePort` | 0 | 7035 ↓1 | 3 |
+
+**3931/3 reproduces byte-identically at a FOURTH commit** (`ca04f43` → `e0aee76` → `3aca413` →
+`0cfbdc8`), and the population has now moved four times (471 → 477 → 478 → 479). The figure is
+stable; the population is the number a reader would quote wrongly, for the fourth round running.
+
+`#print axioms` (`lean_verify`, method rule 4 — this is the check that licenses the word "refuted"):
+
+| declaration | axioms | verdict |
+|---|---|---|
+| `quotParams_not_ketaDevAgree` | `[propext, sorryAx, Classical.choice, Quot.sound]` | **CONDITIONAL** |
+| `quotParams_not_parRedKnTriangle` | `[propext, sorryAx, Classical.choice, Quot.sound]` | **CONDITIONAL** |
+| `not_normalEq_gx` (the tool it rests on) | `[propext, sorryAx, Classical.choice, Quot.sound]` | identical set |
+| `parRedK_app_bvar_bvar_eq` | `[propext, Quot.sound]` | **hole-free** |
+
+Two things this pins down. First, the refutation's hole set is **exactly** `not_normalEq_gx`'s —
+`{IsDefEqU.forallE_inv_stratified, WF.rigidShapeUniqNS}`, **two** holes — so it inherits the
+injectivity corner and adds nothing. Second, and worth its own line: the thing being refuted has
+**three** holes (`IsDefEqU.weakN_iff` as well), so **the refutation is cheaper in taint than the
+route it closes.** It also does not enter `NormalEq.descend`, which is absent from every row here
+as it has been in all three previous rounds.
+
+**The refutation must not be quoted as unconditional.** It is: *conditional on `PiInv` and
+`WF.propTypeAgreeOn`* — the same corner, pre-existing, both `sorryAx`.
+
+## §17 Verdicts (Round 3)
+
+**W1 — How many of the four residuals are closed?  ZERO.  How many are REFUTED?  One outright,
+and a second in the form Round 1 stated it.**
+`quotParams_not_ketaDevAgree : ¬ KetaDevAgree` (cone 9334, 2 holes, conditional on the injectivity
+corner) and `quotParams_not_ketaExtraRow0 : ¬ KetaExtraRow0` (9374, same 2 holes). And the
+reduction target itself: `quotParams_not_parRedKnTriangle : ¬ ParRedKnTriangle` (9377). So the
+three previous rounds' shared framing — "unproved, not false; both hold vacuously at `refParams`
+and no refutation exists anywhere in the tree" — is **wrong**, and the refutation was reachable in
+three lines from lemmas that had been sitting in `Verify/QuotAppParams.lean` the whole time.
+
+**W2 — Can the 3931/3 figure be banked?  NO, and now for the strongest available reason.**
+`IsDefEqU.constApp_forallE_false_ofHyps` is cone **3931**, holes **3**, at a fourth distinct
+commit. Rounds 1 and 2 answered "no, because the hypotheses are unproved". The answer is now:
+**no, because the hypothesis is (conditionally) false.** `crStatementK_of_rows` (4027, 3 holes)
+remains a theorem — an implication with an unsatisfiable premise. Anyone quoting it as
+"`CRStatementK` modulo four rows" must now quote it as "modulo four rows, one of which is false".
+
+**W3 — Did the hypothesis-diff find the two rows understated, as the brief predicted?  YES, and
+it was the wrong diff.**
+Round 2's M9.3 had already measured `KetaAppRow`/`KetaExtraRow` as carrying no induction hypothesis
+while `keta_keta_row` carries one; I made the §11.3 restatement (M16.1) and it compiles. But the
+diff that produced the round's result was against a different neighbour and on a different axis:
+`KetaDevAgree`'s **grade quantifier** against `CParRedKn.zero_eq`, Round 1's own lemma one screen
+above it. `KetaDevAgree` is `∀ {m}`, `CParRedKn 0` is the identity, and the `m = 0` instance is
+therefore `KDiamond` — refuted in the tree since before this stream started. **The brief's method
+rule 3 said to diff hypotheses; the rule that would have found this says: instantiate every
+universally quantified numeral at its extreme value before believing a residual.** See §19.1.
+
+**W4 — What the restatement turned out to be for.**  Not to make the rows provable (S15.2 called
+that, 0.8) but to make one of them **harder to refute**: `KetaExtraRow0` falls and Round 3's
+weakened `KetaExtraRow` does not, because the refutation would have to supply
+`∀ x, TriangleAtOn 1 qc1 (m2 x)` (M16.3). That is the same fact as "the row was overstated", seen
+from the other side, and it is a use for a weakening that no round predicted.
+
+**W5 — The diagnosis, and it is not about the quotient rule.**
+`CParRedK.lean` §7.2 states it and §7's `quotParams_triangle_holds_with_slack` measures it: the
+same witness at `n = 1, m = 2` **satisfies** the triangle. So what is false is not "the triangle at
+this witness" but "the triangle when the development has no grade to spare" — and
+`parRedKDiamond_of_triangle` manufactures exactly that, since it develops at `max n₁ n₂` and runs
+the triangle at `n = m`. The mechanism:
+
+* `CParRedKn`'s grade is consumed by `keta` and by nothing else (`beta`, `extra`, every congruence
+  keep it), so a `CParRedKn m` development is complete **except** that K-chains are truncated at
+  depth `m`, and a `keta` at the root spends a unit the term below then lacks;
+* `ParRedKn`'s grade is spent by `beta` and `extra` too, and its congruences spend nothing;
+* so `keta` against `keta` is in lockstep (which is why `keta_keta_row` closes), and `keta` against
+  a **congruence** is not (which is why `KetaAppRow` is the one row with a grade off-by-one);
+* no fixed slack repairs it: a K-chain of length `k` costs the development `k` units and the step
+  none, and `k` is bounded only by the development's own grade.
+
+**So the apex of the triangle has to be a complete development, and `CParRedKn m` is not one.** An
+ungraded `CParRedK` needs the K-chain to terminate, which nothing in `Params` supplies — which is
+precisely what Round 1's own shape prior S2 observed about `CParRedKn.exists` before working around
+it with the grade. **The grade is what makes existence provable and the triangle false.** That is
+the sentence this stream has been three rounds away from.
+
+### §17.1 Scorecard for §15's priors
+
+| prior | claim | conf. | outcome |
+|---|---|---|---|
+| S15.1 | the four residuals meet at one unnamed survival engine, and the deliverable is the engine | 0.85 | **HALF RIGHT, and the half that was right cost the round nothing.** The engine analysis is correct for `KetaAppRow` and for `ExtraDevRow`'s eight old rows. It is **wrong** that all three consumers need it: `KetaExtraRow`/`ExtraKetaRow` are same-node rows needing rule-table facts. And I never built the engine — the result came from elsewhere. |
+| S15.2 | adding the IHs makes the rows weaker but not provable | 0.8 | **RIGHT, and understated.** Not merely unprovable: one is false, and the list is jointly false. |
+| S15.3 | the engine's `keta` case needs a third disjunct at the root only | 0.75 | **UNTESTED.** I did not build the engine. Recorded unscored rather than claimed. |
+| S15.4 | `KStep` survival is not derivable from `KStep.defeq`; the `IsDefEq`-to-`NormalEq` move is the trap | 0.9 | **RIGHT, and load-bearing in a place I did not foresee.** The trap I wrote down in order to avoid it is the *mechanism* of the refutation: `NormalEq` has no β step, so it cannot absorb the one β-step separating the two contracta. The prior written to prevent an error became the proof. |
+| C15.1 | the §11.3 restatement compiles this round | 0.85 | **RIGHT** (M16.1), two builds, one mechanical failure recorded. |
+| C15.2 | I close 0 of the four | 0.6 | **RIGHT, and the wrong axis.** I closed 0 and refuted 1 (+1 in its original form). "Closed" was the wrong question to have a prior about. |
+| C15.3 | 3931/3 cannot be banked | 0.8 | **RIGHT**, for a far stronger reason than predicted. |
+| C15.4 | census stays 13, build green, no `sorry` written | 0.95 | Census **13** ✓, no `sorry` in either of my files ✓, my two modules green ✓; the *bare* build is red for another stream's reason (§20). |
+| C15.5 | ±3 cone noise from moving `TriangleAt` | 0.9 | **RIGHT and exact**: −1 on each of the three `TrianglePort` figures, 0 elsewhere. |
+
+## §18 Limits of this result, and where I proved them
+
+1. **The refutation is CONDITIONAL and I will not write it any other way.**  It rests on
+   `not_normalEq_gx`, whose cone reaches `IsDefEqU.forallE_inv_stratified` and
+   `WF.rigidShapeUniqNS` (`PiInv` and `WF.propTypeAgreeOn` in `QuotAppParams`' own words). Both are
+   pre-existing `sorryAx` holes and neither is new — `#print axioms` in M16.4 — but "`KetaDevAgree`
+   is false" is not an unconditional statement, and the rigidity half
+   (`parRedK_app_bvar_bvar_eq`, `[propext, Quot.sound]`) is the only hole-free part.
+2. **`ParRedKDiamond` and `CRStatementK` are NOT refuted, and nothing here says they are.**
+   A false antecedent says nothing about a consequent. Moreover the diamond's legs are two-sided
+   `ParRedK` steps, so the refuting pair *joins* there
+   (`Verify/QuotAppParams.quotParams_kDiamond_joinable`, already in the tree). What is refuted is
+   the **triangle**: a one-sided leg meeting a nose `NormalEq` against a grade-truncated apex.
+   `TrianglePort.lean` §6 item 5 states this in the file itself so it cannot be misread from the
+   Lean alone.
+3. **I refuted `KetaDevAgree` and `KetaExtraRow0`; I did NOT refute `KetaAppRow`,
+   `KetaExtraRow` (weakened), `ExtraDevRow` or `ExtraKetaRow`, and I checked each rather than
+   assuming.**  `KetaAppRow` at `m = 0` is satisfied by the trivial step and the witness's `qLift`
+   spine is rigid, so there is no non-trivial congruence to run; `ExtraKetaRow`/`ExtraDevRow` have
+   the β-redex on the *leg's* side and so hold at the witness; the weakened `KetaExtraRow` needs
+   `∀ x, TriangleAtOn 1 qc1 (m2 x)`, which is provable but which I did not spend the budget on.
+   **That last one is the obvious next step and I am naming it as unfinished, not as impossible.**
+4. **The grade diagnosis (§17 W5, `CParRedK.lean` §7.2) is analysis, not a theorem.**
+   `quotParams_triangle_holds_with_slack` proves the *tightness* of the refutation — one unit of
+   slack rescues this row — and that is real Lean. The claim that **no** fixed slack rescues the
+   table is an argument about the two grade disciplines, written out in §7.2 and not machine
+   checked. In particular I did not construct a witness with a K-chain of length two.
+5. **`KetaDevAgreePos` is stated and not proved, and it does not suffice.**  It is the corrected
+   residual (`KetaDevAgree.toPos` compiled, so it is genuinely weaker), and
+   `quotParams_ketaDevAgreePos_at_witness` shows this witness satisfies it *by equality*, not
+   merely up to `NormalEq`. But §7.2's argument says the positive-grade restriction still leaves
+   `KetaAppRow`'s off-by-one, so **restricting the grade is not the repair.** Anybody who reads
+   §7.1 and then just changes `m` to `m+1` will have moved the problem, not fixed it.
+6. **I did not build S15.1's survival engine**, so `ExtraDevRow`'s eight rows of known-provable
+   transcription debt are exactly where Round 2 left them, and §4a's five measure lemmas are still
+   unused by any proof. If the graded route is abandoned the engine is still needed by whatever
+   replaces it, because it is a fact about patterns under parallel reduction and not about grades.
+7. **`refParams` could not have detected any of this and I can say why.**  At `refParams` both
+   `KStep` and `Pat` are empty, so `refParams_parRedKnTriangle` is unconditionally true *and* the
+   refutation cannot be transported there. Round 2's joint-satisfiability check was therefore
+   sound and worthless in the same breath: it established that the rows are consistent **at the one
+   instance where every one of them is vacuous**. A satisfiability check at a degenerate instance
+   is not evidence, and this round is what that costs.
+8. **One thing I did not check at all**: whether the same grade-`0` instantiation refutes residuals
+   in *other* files of this stream's neighbourhood (`KSite7App.lean`'s open rows, `KDiamondJoin`'s
+   `KDiamondJ`, `KEtaDiamond`'s `EtaKD`). Every `∀ {m : Nat}` over `CParRedKn`/`ParRedKn` in the
+   tree is now a candidate and I looked at none of them.
+
+## §19 Method gaps, mine
+
+1. **The rule that found this is not the rule I was given, and it is cheaper.**  My brief's method
+   rule 3 is "before attempting a named residual, diff its hypotheses against its neighbours'". I
+   did that (M16.1) and it produced a correct, compiled, and *incidental* restatement. What
+   produced the result is: **instantiate every universally quantified numeral in a residual at its
+   extreme value, and read what the residual then says.** `KetaDevAgree` at `m = 0`, one
+   substitution, and the answer is a `Prop` the tree already refutes. I only did it because I was
+   doing grade arithmetic for a different purpose (checking whether `KetaAppRow` reduces to
+   survival) and the `m = 0` boundary fell out. **Three rounds ran method rule 3 and none ran
+   this.** It belongs in the next brief above the hypothesis-diff, because it is strictly cheaper:
+   no neighbour needs to be found.
+2. **I spent the first two thirds of the round on an engine I never built, on the strength of a
+   0.85 prior.**  S15.1 predicted the four residuals meet at one survival lemma and that the
+   deliverable was that lemma. The prior was half wrong and, worse, it was *aimed*: I read
+   `ParRed.triangle`'s `extra` case in full and reasoned about `Pattern.Matches` survival for a
+   long time before doing any arithmetic on the grade. The generalizable error: I treated the
+   brief's framing ("two of them are not hard", "eight rows of known-provable transcription debt")
+   as a description of *where the work is* rather than as a hypothesis to test first. Round 2's
+   §12.3 named the inverse failure (a pessimistic prior becoming a budget decision); mine is an
+   **optimistic** prior becoming one.
+3. **I asserted a grade off-by-one in `KetaAppRow` in my own reasoning several times before
+   checking whether the same reasoning applied to the residual one row over.**  It did, and worse:
+   the same arithmetic that shows `KetaAppRow` needs `n ≤ m` shows `KetaDevAgree`'s `m = 0`
+   instance is `KDiamond`. I had the fact and did not turn it round for a while.
+4. **A mechanical error worth its own line, because it will recur.**  Hoisting `have IHapp` above
+   `cases H2` in `TrianglePort.triangleAt_of` silently changed the **arity** of an unrelated
+   induction's hypotheses: `IHapp` mentions `e`, so `induction p generalizing e A` reverted it and
+   every pattern IH acquired an extra argument. `clear IHapp` fixes it. The lesson is not about
+   `clear`: it is that in this file the below-structure `e_ih` and everything that mentions the
+   subject are entangled with any later `generalizing e`, so a `have` hoisted for reuse is not a
+   free refactor.
+5. **My brief's premise "no other stream is running, so a bare `lake build` is a clean signal" was
+   false, and I only noticed at the end.**  `Lean4Lean/Verify/Inductive/InductMap.lean` and two
+   handoff docs appeared untracked during the round, HEAD moved from `0cfbdc8` to `11efd98` under
+   me, and the bare build is now **red** with three errors all inside that untracked file. I
+   verified my own two modules independently (green, 1292 jobs) but I should have taken a
+   `git status` + HEAD snapshot at the start *and* re-checked before quoting a bare-build number,
+   rather than trusting a brief's claim about the environment. §20 records both measurements with
+   times.
+
+## §20 Build record, dated — and the environment moved under me twice
+
+| when | HEAD | command | result |
+|---|---|---|---|
+| round start, 2026-09-04 ~22:0x | `0cfbdc8` | bare `lake build` | green, **1665 jobs**, exit 0 (matches the brief) |
+| mid-round | `0cfbdc8` | `lake build …CParRedK` / `…TrianglePort` | green, 1291 / 1292 jobs |
+| ~23:0x | `0cfbdc8` | bare `lake build` | green, **1666 jobs** — the +1 is another stream's new module, not mine |
+| ~23:08 | `11efd98` | bare `lake build` | **RED**, 3 errors, all in `Lean4Lean/Verify/Inductive/InductMap.lean` (untracked, another stream, mid-edit) |
+| round end | `11efd98` | bare `lake build` | green, **1667 jobs**, exit 0 |
+| round end | `11efd98` | `lake build Lean4Lean.Verify.Guard` | guards 1/2/3 all ✓ |
+
+**HEAD moved twice under me** (`0cfbdc8` → `11efd98`, the latter a `CLAUDE.md` correction), and
+**another stream is live** in this tree despite my brief's "No other stream is running, so a bare
+`lake build` is a clean signal". `InductMap.lean` and two handoff docs appeared untracked during
+the round. Job counts therefore attribute as: my two modules add **0** modules and **0** jobs; the
+1665 → 1667 drift is entirely another stream's. Every cone figure in M16.4 was measured at
+population **479**, which already includes their module.
+
+Guards at round end: **guard 1 ✓** (24 frozen axioms), **guard 2 ✓** (within whitelist; proof
+INCOMPLETE, `sorryAx` present — unchanged), **guard 3 ✓** (2/2 implementation gaps — unchanged).
+**Census 13, unchanged** (`grep -c "declaration uses \`sorry\`"` on the bare build log = 13), and
+none of the thirteen is in a file I own. `grep -n sorry` on both my files returns **only prose
+mentions of `sorryAx`** — no `sorry` tactic in either.
+
+Files touched this round, and nothing else:
+`Lean4Lean/Theory/Typing/CParRedK.lean` (§4.1 the moved definitions; §5.2 the two weakened rows and
+`keta_root_row`'s three new hypotheses; §5.2a `KetaExtraRow0`; §5.3 the rigidity lemmas and
+`KetaDevAgreePos`; **§7 the refutation**), `Lean4Lean/Theory/Typing/TrianglePort.lean` (§1 note,
+`IHapp`/`IHpat` hoisted, the `extra` case shortened to one line, **§6 what the refutation does to
+this file's own claims**), `docs/handoff-cparredk.md` (§15–§20 appended; **§1–§14 untouched**).
+
+No state-changing git command was run. No frozen file (`Verify/Soundness.lean`,
+`Verify/Axioms.lean`, `Verify/Guard.lean`) was read for editing or edited. No file outside my two
+was modified — and this round did **not** need one, which is itself worth recording, because the
+refutation's two tools (`not_normalEq_gx`, `quotParams_kstep_x/xbeta`) were already exported from
+`Verify/QuotAppParams.lean` and already imported through `CRKProve.lean`.
+
+### §20.1 The one-line handover
+
+**`ParRedKnTriangle` is false (conditionally), `KetaDevAgree` is the false residual, the grade is
+why, and the repair is not a smaller grade — it is a complete development, which needs the K-chain
+to terminate.** Start the next round by instantiating `∀ {m : Nat}` at `0` in every residual in
+this neighbourhood, before reading anything else.
