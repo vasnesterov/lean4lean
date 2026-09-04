@@ -3017,7 +3017,41 @@ that map's well-formedness, and it mentions `AddInduct` nowhere. It is **big, no
 category error as calling an expensive thing an impossible one. Closing it makes `NoNestedN` unconditional on
 every branch. Now assigned.
 
-## Re-reading CLAUDE.md: "unprovable by design" is not a verdict, it is a cost (2026-09-04)
+## RETRACTED, same day, by the user: the CLAUDE.md line this section rested on was false (2026-09-04)
+
+**The section below is wrong and is kept only so the correction has something to point at.** I based it on a
+`CLAUDE.md` bullet saying that replacing an upstream `opaque`/`partial`/`@[extern]` with a pure Lean function
+is "encouraged" and "shrinks the trusted base, which is progress". The user's verdict on that line, verbatim:
+
+> **"No, this is actually false. We want to keep the kernel close to the standard one. Sometimes changes are
+> unavoidable though."**
+
+`CLAUDE.md` is updated accordingly: closeness to the official C++ kernel **outranks** shrinking the trusted
+base, such a replacement is **not** progress on its own, and when it is genuinely unavoidable it stays as small
+as possible and goes in `divergences.md`.
+
+**So the operative rule inverts.** When a proof stalls on an upstream opaque, **restating the obligation
+around it is the preferred route** and replacing the function is the fallback. My three "walls" from today --
+the `partial` hash map making a gate independent, `Lean.Expr.eqv` making a check undecidable at closed inputs,
+the `isValidIndApp? = none` path being unprovable by design -- are **real constraints on the proofs**, and the
+rounds that restated around them did the right thing. I had just finished telling myself they had taken the
+timid option.
+
+**What this cost: nothing, narrowly.** I had named an `Expr.eqv` replacement round as an obvious next use of a
+free slot and had **not** spawned it when the correction arrived. Had I spawned it an hour earlier it would
+have spent a full round rewriting part of the kernel in the wrong direction.
+
+**What survives from the entry below:** only the user's *other* instruction, that expensive steps get paid
+rather than deferred. That one stands on its own and is recorded in its own section above. The two do not
+compose the way I said they did -- there is no "encouraged class of expensive step" here.
+
+**And a note on how I got it wrong**: `CLAUDE.md` already carried, in its soft guideline, *"keep the
+implementation close to the official C++ kernel"*. The bullet I quoted contradicted it. I read the bullet,
+did not notice it fought the guideline four lines below, and built a rule on the half I happened to read
+first. **When two lines of an instruction file disagree, that is a question for the user, not a choice for
+me.**
+
+## (RETRACTED -- see above) Re-reading CLAUDE.md: "unprovable by design" is not a verdict, it is a cost (2026-09-04)
 
 Asked to re-read `CLAUDE.md`, I found a rule I have been quietly violating in spirit all day:
 
