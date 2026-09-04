@@ -2027,3 +2027,25 @@ Two practical consequences:
   and this session has already had one crashed round's partial file break three concurrent builds,
   and two rounds absorb a red tree caused by a third. Grant paths so that follow-ups do not collide,
   and tell each stream that a red build in a file it does not own is someone else's work in flight.
+
+## A decision request must be a small self-contained PR (2026-09-04, user instruction)
+
+**Standing rule, from the user.** When I need a decision, the vehicle is a **small, self-contained
+pull request** against `origin` (`vasnesterov/lean4lean`) — not a prose document, not a paragraph in
+a status report, and never a large diff.
+
+What that means concretely:
+
+- **Small.** The diff is the change being decided and nothing else. The first PR I opened this
+  session was ~55k lines and the user rejected it outright, asking for "only your suggestion that
+  needs my decision". That is the standard.
+- **Self-contained.** Everything needed to decide is in the PR: the change, what it buys, what it
+  costs, the options, my recommendation, and any measurement that bears on it. The reviewer should
+  not have to go find a doc.
+- **Honest about what is unmeasured.** If a number that matters is not yet in hand, the PR says so
+  and says why, rather than implying the decision is fully informed.
+- **Never against upstream.** `origin` only. `digama0/lean4lean` is fetch-only, per CLAUDE.md.
+
+The corollary for prose: a `docs/decision-*.md` file is working material for *me* — the costing, the
+rejected options, the measurements. It is not how the question gets asked. Ask it in a PR, and let the
+document be what the PR links to.
