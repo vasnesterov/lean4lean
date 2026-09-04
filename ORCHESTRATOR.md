@@ -2960,3 +2960,31 @@ Rules for my own verification commands, since these are the commands whose outpu
   rule after the `tail` incident; it would have prevented this one too.
 - When a build's own success line and my summary disagree, **the build's line wins**. It says "Build
   completed successfully"; my pipeline's exit code is a statement about `grep`.
+
+## When a report characterises another file, quote the file (2026-09-04, mine)
+
+My brief for the triangle round said `kDiamondJ_of_patMajorCanonicalJ` is *"the break in the circularity"* --
+and, two paragraphs later, told the round to read `KDiamondJoin.lean` before writing anything.
+
+`KDiamondJoin.lean` §3 says the opposite, in plain text, and I verified it in situ:
+
+> **But it is not a localisation, and the bound is two-sided.** … the localisation
+> `PatMajorCanonical → KDiamond` was supposed to deliver is *gone* -- `KDiamondJ` is sandwiched between two
+> Church--Rosser statements.
+
+I took "the break" from `CRKProve`'s **report**, not from the file, and then cited the file in the same brief.
+The round's prior S8.3 gave 0.8 that my characterisation was wrong, was right, and aimed no residual at it --
+so the bad relay cost nothing **because the round checked me**.
+
+This is the same failure I have now made enough times to name exactly. It is not "my attributions are
+unreliable" in general -- my *measurements* have held all week. It is specifically: **when a stream's report
+characterises the content of a file the stream did not own, I relay the characterisation as fact.** The
+report is a secondary source about a primary source I have direct access to.
+
+**Rule: a brief may relay a stream's own measurements freely (they are its primary output), but any claim a
+stream makes about a file it does not own must be re-read in that file before it enters a brief -- and
+relayed as a quotation, not a paraphrase.** Quotations are checkable by the next round; paraphrases are how
+"unproved, not false" survived on a gate that was mis-stated, and how "the break" survived on a localisation
+its own file had retracted.
+
+Cheap test I will apply from now on: if a brief sentence would need a `grep` to defend, `grep` it first.
