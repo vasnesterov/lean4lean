@@ -2422,3 +2422,38 @@ What changes, and what does not:
   question was only ever whether the user wanted the notifications.  That is a one-line question, and it
   is the question I failed to ask twelve days ago -- which is the same conclusion as the entry above,
   reached for a better reason.
+
+## The crash that proved both handoff rules at once (2026-09-04)
+
+`UserBlockR` died to an API error with the message *"Hypothesis confirmed, and the general lemma proved
+first try. Now let me build the file."*
+
+What survived: `docs/handoff-userblockr.md`, **134 lines, §1 PRIORS only** -- eleven numbered predictions
+with probabilities, a trust table for every claim my brief handed it, and a named failure mode. Written
+before any Lean, exactly as the rule requires. That reasoning is fully reusable and the restart round
+inherits it.
+
+What did **not** survive: the results. There is no §2. The round confirmed a hypothesis and proved a
+general lemma, and **wrote neither down**, so I have its claim and no evidence for it. It also wrote no
+`.lean` file -- which is the one good part of the timing, since a half-written file inside a build glob is
+the failure I check for first after every crash (checked: absent).
+
+So the two rules scored opposite ways in one event, which is as clean a demonstration as I am going to
+get:
+
+- **"Write §1 before any Lean"** -- worked. Eight crashes now, eight times the priors survived.
+- **"Append each measurement as you make it"** -- was skipped, and cost exactly the work it exists to
+  protect. The round did its measuring through MCP scratch calls and planned to write up afterwards, which
+  is the natural order and the wrong one.
+
+**Strengthening, in briefs from now on:** the append rule needs a trigger, not an adjective. Not "append as
+you go" but: **the moment a measurement answers one of your own §1 predictions, append the row before you
+run another tool.** A prediction with a verdict is the smallest unit worth protecting, and it is the unit
+this round lost twelve of.
+
+Also worth recording, because it is a *good* prior worth reusing: P3 disagreed with my brief's stated
+mechanism. My brief said `ctorTr?`'s output being `.lam`-free is what identifies the contracted form; P3
+answered that exclusion is not identification, and that what identifies it is a fact about the **input** --
+Lean's stored `Expr` already *is* contracted, and `ctorTr?` is structural, never contracting. It predicted
+0.7 that `noLam` is not needed in the proof at all. That is a sharper reading of my own hypothesis than I
+had, and the restart round should test it rather than my version.
