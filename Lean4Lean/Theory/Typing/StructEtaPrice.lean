@@ -49,10 +49,28 @@ normally let an inversion lemma drop a case does not exist here.  Concretely:
 * **~40 congruence/stability sites** (`weakN`, `instN`, `instL`, `mono`, `mono_uvars`,
   `closedN'`, `levelWF`, `isType'`, and their `Strong`/`E`/`Raw` counterparts) need the
   η-expansion to commute with the operation.  `VInductDecl'.etaExpansion_instL` and
-  `projAll_instL` exist; `projTerm_instN` exists; **`projTerm_weakN`, `projTermG_weakN`,
-  `etaExpansion_weakN`, `etaExpansionG_weakN` and `etaExpansionG_instL` do not**
-  (`scripts/exists.lean`, this round).  Five missing commutation lemmas over a recursor spine
-  is the floor.
+  `projAll_instL` exist; `projTerm_instN` exists; ~~`projTerm_weakN`, `projTermG_weakN`,
+  `etaExpansion_weakN`, `etaExpansionG_weakN` and `etaExpansionG_instL` do not~~.
+
+  **CORRECTED 2026-09-04, and the method is the lesson.**  That list came from a *name* search for
+  the suffix `_weakN` — and **this tree does not spell syntactic weakening that way**.  `weakN` here
+  is a *judgement*-level suffix (`VEnv.HasType.weakN`); syntactic weakening of a `VExpr` is
+  `VExpr.liftN`, generalised by `VExpr.lift'`.  Searched by *shape* instead
+  (`scripts/shape.lean`, population 444, heads resolved), **two of the five already existed**:
+  `VInductDecl'.projTerm_lift'` (`Theory/Inductive/Structure.lean`) and
+  `VInductDecl'.projTermG_lift'` (`Verify/Typing/ProjGenLift.lean`, already fired).  The other
+  three were genuinely absent and are now proved in `Theory/Typing/CommutationLemmas.lean`, under
+  both the tree's `_lift'`/`_liftN` names and `_weakN` aliases so that a future name search
+  resolves.
+
+  **And the site arithmetic above does not follow.**  The ~40 congruence sites span **eight** lemma
+  families; these five serve **two** of them, which is **8 sites** (5 `weakN` + 3 `instL`,
+  measured — `ParRed.instL`, `ParRedK.instL` and the `E`/`Raw` counterparts do not exist).  The
+  remaining ~30 need commutation lemmas that are *not* among the five.  "Five missing lemmas is the
+  floor" stands; "the ~40 sites need these five" does not.  Note also that
+  `VInductDecl'.etaExpansion_instL`, cited here as existing, has **0 direct and 0 transitive
+  users** — so this paragraph forecasts demand for a constructor that does not exist yet rather
+  than counting live demand.
 * **~20 inversion sites** (`forallE_inv'`, `sort_inv'`, `Injectivity`'s five,
   `Shape`/`Spine`/`Sort*`'s twelve) currently dismiss `extra` and friends by head shape.  The
   new case arrives with an arbitrary `e` on the left and a `const`-headed spine on the right, so
