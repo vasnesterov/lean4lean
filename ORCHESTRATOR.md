@@ -2908,3 +2908,33 @@ This is the same shape as the `MutualNamesGate` finding one round earlier -- the
 **Two rounds in a row where the decisive fact was the opacity of something upstream.** That is not a
 coincidence about those two obligations; it is what verifying a kernel against an opaque runtime looks like,
 and it deserves a prior rather than being rediscovered each time.
+
+
+## Two instrument caveats found by a refactor (2026-09-04)
+
+**1. `scripts/exists.lean`'s cone number is not invariant under a module move.** After migrating three
+declarations from one module to another, three cones moved by 1 and an **untouched consumer's** cone moved
+by **+2**, with the source byte-identical apart from four docstring lines. Cause: elaboration auxiliaries
+(`…match_1_5`, `…splitter`, `…eq_2`) are shared **per module**, so relocating a declaration relocates them
+and every cone routed through them shifts.
+
+This retroactively qualifies every before/after cone comparison made across a module move -- including some
+of mine today. **Rule: a cone delta of ±3 across a module move is noise; only compare cones within a fixed
+module layout.** Cone comparisons inside one layout remain exact, which is most of what the ledger records.
+
+**2. A migration spec naming an insertion point is a claim about DECLARATION ORDER, and a scratch-snippet
+elaboration cannot validate it.** `handoff-wfpos.md` M14 named an insertion point "just before
+`end VInductDecl'` at line 320" -- but two of the three moved *statements* mention identifiers declared at
+:334 and :338, **after** that `end`. Nothing elaborates there. M14 had "verified" its content with
+`lean_run_code`, which is blind to this by construction: a scratch snippet has no module ordering.
+
+**Rule: check the destination's declaration order for every identifier appearing in the moved *statements*,
+not just the tactics in the moved proofs.** And when I write a brief that relays an insertion point from a
+handoff, relay it as a *claim to be checked*, not as a fact -- this one was wrong and the round caught it
+because I had told it placement was its job.
+
+Worth recording what "the deliverable is the numbers" looked like in practice, because it worked: for this
+refactor I asked for bare-build jobs, three guards, census, and warnings-from-owned-files, before and after.
+The round returned all four **identical** plus `git diff --numstat` showing the file holding a census hole was
+strictly add-only with zero diff lines mentioning that hole. That is a stronger safety argument than any
+prose assurance, and it is cheap to demand.

@@ -1,187 +1,65 @@
 import Lean4Lean.Verify.Inductive.NoNestedAll
 
 /-!
-# `addMutual`'s header loop, extracted — and what `MutualNamesGate` is actually missing
+# What `MutualNamesGate` was missing — the residue, located, after the gate was removed
 
-`Verify/Inductive/NoNestedAll.lean`:353 leaves the `mutualDefnDecl` branch of
-`addDecl_noNestedEnv` resting on one residual `Prop`, `MutualNamesGate`, whose docstring says it is
+`Verify/Inductive/NoNestedAll.lean` used to leave the `mutualDefnDecl` branch of
+`addDecl_noNestedEnv` resting on a residual `Prop`, `MutualNamesGate`, whose docstring said it was
 *"**unproved, not false**: every conjunct is a postcondition of a check the loop actually performs
 (`Lean4Lean/Environment.lean`:86-104)"*, and whose author recorded in
 `docs/handoff-nonestedall.md` §4 that it was *"the one place I chose a gate over a proof for reasons
 of time rather than of difficulty"*.
 
-Both halves of that are right about `addMutual` and wrong about the gate.  The loop's postcondition
-is proved here, unconditionally (§1-§2), and the branch it gates now stands with no gate at all
-(§3).  But `MutualNamesGate` **verbatim** cannot be proved, for a reason that has nothing to do with
-the loop: it asserts `env.find? v.name = none` while carrying no hypothesis on `env.constants`, and
-the only check that can supply it — `checkName` — gives `env.contains v.name = false`.  Bridging
-`contains` to `find?` needs `env.constants.WF`, because at `SMap` stage 2 the two go through
-`PersistentHashMap.containsAux` and `findAux`, both `partial def` upstream and hence body-less
-opaques.  §4 exhibits that residue as a hypothesis (`mutualNamesGate_of_contains`) and discharges it
-from `WF` (`find?_none_of_contains_false`), so the gap is *located*, not asserted.  §6 lists every
-limit; §5 fires the whole thing at a real two-member block and checks that each rejection the
-postcondition rests on actually happens.
+Both halves of that were right about `addMutual` and wrong about the gate.  The loop's postcondition
+is a theorem, and the branch it gated now stands with no gate at all — both in
+`NoNestedAll.lean` §3.1, where this file's §1-§3 were transplanted on 2026-09-04
+(`docs/handoff-migrate2.md`), because this file *imports* that one and so could not be cited from
+the branch.  What could not be proved was `MutualNamesGate` **verbatim**, for a reason that has
+nothing to do with the loop: it asserted `env.find? v.name = none` while carrying no hypothesis on
+`env.constants`, and the only check that can supply it — `checkName` — gives
+`env.contains v.name = false`.  Bridging `contains` to `find?` needs `env.constants.WF`, because at
+`SMap` stage 2 the two go through `PersistentHashMap.containsAux` and `findAux`, both `partial def`
+upstream and hence body-less opaques.
 
-The exact `NoNestedAll.lean` edit this implies is written out in `docs/handoff-mutualnames.md` §3.
-It is **not made here**: that file is not this stream's to edit.
+So the gate was not open, it was **defective as stated**, and it is gone.  What this file keeps is
+the part that is about the *residue* rather than about the branch: §4 exhibits it as a hypothesis
+(`mutualNamesGate_of_contains`) and discharges it from `WF` (`find?_none_of_contains_false`), so the
+gap is *located*, not asserted.  §6 lists every limit; §5 fires the whole thing at a real two-member
+block and checks that each rejection the postcondition rests on actually happens.
 -/
 
 namespace Lean4Lean
 open Lean hiding Environment Exception
 open Kernel
 
-/-! ## §1 The header loop, at the raw monadic value -/
+/-! ## §1-§3 Migrated to `Verify/Inductive/NoNestedAll.lean` §3.1 (2026-09-04)
 
-theorem forIn_ok_fresh {P : DefinitionVal → Prop}
-    {f : DefinitionVal → List Name → TypeChecker.M (ForInStep (List Name))}
-    (H : ∀ v found ctx s r s', f v found ctx s = .ok (r, s') →
-      found.contains v.name = false ∧ P v ∧ r = .yield (v.name :: found)) :
-    ∀ {vs : List DefinitionVal} {found : List Name} {ctx : TypeChecker.Context}
-      {s : TypeChecker.State} {r : List Name × TypeChecker.State},
-      (ForIn.forIn vs found f) ctx s = .ok r →
-        (∀ v ∈ vs, P v) ∧ (vs.map (·.name)).Nodup ∧ ∀ v ∈ vs, found.contains v.name = false
-  | [], _, _, _, _, _ => ⟨nofun, by simp, nofun⟩
-  | v :: vs, found, ctx, s, r, h => by
-    rw [List.forIn_cons] at h
-    obtain ⟨r₁, s₁, hb, h⟩ := M_bind_ok h
-    obtain ⟨hfr, hP, rfl⟩ := H v found ctx s _ _ hb
-    dsimp only at h
-    obtain ⟨hPs, hnd, hmem⟩ := forIn_ok_fresh H h
-    refine ⟨?_, ?_, ?_⟩
-    · intro w hw
-      rcases List.mem_cons.1 hw with rfl | hw
-      · exact hP
-      · exact hPs w hw
-    · rw [List.map_cons, List.nodup_cons]
-      refine ⟨fun hm => ?_, hnd⟩
-      obtain ⟨w, hw, hwn⟩ := List.mem_map.1 hm
-      have := hmem w hw
-      rw [← hwn] at this
-      simp at this
-    · intro w hw
-      rcases List.mem_cons.1 hw with rfl | hw
-      · exact hfr
-      · have := hmem w hw
-        simp at this
-        exact by simpa using this.2
+The header loop (`forIn_ok_fresh`), its postcondition (`addMutual_header_post_gen`,
+`addMutual_header_post`, `addMutual_header_post_contains`), the two `contains`/`find?` bridges
+(`checkName_ok_contains`, `checkConstantVal_contains_false`, `contains_false_of_wf`,
+`find?_none_of_contains_false`) and the gate-free branch itself all live in
+`Verify/Inductive/NoNestedAll.lean` now — see `docs/handoff-migrate2.md`.  They had to move rather
+than be cited, because **this file imports `NoNestedAll.lean`**, so the branch's own definition site
+could not reach them; there is no import-direction fix.
 
-/-! ## §2 The header loop's postcondition -/
+`MutualNamesGate` is **gone**, and with it `MutualNamesGateWF`/`mutualNamesGateWF`, whose only
+purpose was to be the shape the gate should have had.  `addMutual_noNestedEnv` in `NoNestedAll.lean`
+is now unconditional and is exactly what `addMutual_noNestedEnv'` used to say here, so the primed
+copy is gone too.
 
-theorem addMutual_header_post_gen {P : DefinitionVal → Prop} {env env' : Environment}
-    {vs : List DefinitionVal} {fuel : FuelConfig}
-    (hP : ∀ (v : DefinitionVal) (ctx : TypeChecker.Context) (s : TypeChecker.State)
-      (r : Unit × TypeChecker.State),
-      checkConstantVal env v.toConstantVal false ctx s = .ok r → P v)
-    (h : addMutual env vs true fuel = .ok env') :
-    (∀ v ∈ vs, P v) ∧ (vs.map (·.name)).Nodup := by
-  obtain _ | ⟨v₀, rest⟩ := vs
-  · unfold addMutual at h; exact absurd h nofun
-  unfold addMutual at h
-  simp only [if_true, bind, Except.bind, pure, Except.pure] at h
-  split at h
-  · exact absurd h nofun
-  · split at h
-    · exact absurd h nofun
-    · rename_i hrun
-      obtain ⟨s₀, hrun⟩ := M_run_ok hrun
-      obtain ⟨_, s₁, hloop, _⟩ := M_bind_ok' hrun
-      refine (fun key => ⟨key.1, key.2.1⟩)
-        (forIn_ok_fresh (P := P) ?_ hloop)
-      intro v found ctx s r s' hb
-      split at hb
-      · obtain ⟨_, _, ht, _⟩ := M_bind_ok' hb; exact absurd ht nofun
-      · split at hb
-        · obtain ⟨_, _, ht, _⟩ := M_bind_ok' hb; exact absurd ht nofun
-        · split at hb
-          · obtain ⟨_, _, ht, _⟩ := M_bind_ok' hb; exact absurd ht nofun
-          · rename_i hfound
-            obtain ⟨_, s₂, hcv, hp⟩ := M_bind_ok' hb
-            refine ⟨by simpa using hfound, hP v ctx s _ hcv, ?_⟩
-            cases hp; rfl
-
-/-- The postcondition with `find? = none`, which needs `env.constants.WF`: see §4. -/
-theorem addMutual_header_post {env env' : Environment} {vs : List DefinitionVal}
-    {fuel : FuelConfig} (mapWF : env.constants.WF)
-    (h : addMutual env vs true fuel = .ok env') :
-    (∀ v ∈ vs, ¬ IsNestedName v.name ∧ env.find? v.name = none) ∧ (vs.map (·.name)).Nodup :=
-  addMutual_header_post_gen
-    (fun _ _ _ _ hcv => ⟨checkConstantVal_noNestedName hcv,
-      checkConstantVal_find?_none mapWF hcv⟩) h
-
-/-! ## §3 The `mutualDefnDecl` branch, with no gate -/
-
-theorem addMutual_noNestedEnv' {env env' : Environment} {vs : List DefinitionVal}
-    {fuel : FuelConfig} (hC : NoNestedEnv env)
-    (h : addMutual env vs true fuel = .ok env') : NoNestedEnv env' := by
-  obtain ⟨hv, hnd⟩ := addMutual_header_post hC.wf h
-  unfold addMutual at h
-  simp only [if_true, bind, Except.bind, pure, Except.pure] at h
-  split at h
-  · split at h
-    · exact absurd h nofun
-    · split at h
-      · exact absurd h nofun
-      · split at h
-        · exact absurd h nofun
-        · cases h
-          exact NoNestedEnv.foldl_add hC (fun v hm => (hv v hm).1) (fun v hm => (hv v hm).2) hnd
-  · exact absurd h nofun
+What remains here is what does **not** belong at the branch: §4, the located residue (kept because it
+records *where* the old gate was wrong, not merely that it was); §5, the firing that makes every
+implication above non-vacuous and checks that each rejection the postcondition rests on actually
+happens; and §6, the limits. -/
 
 /-! ## §4 What the gate as stated is missing, and where exactly -/
 
-/-- **`MutualNamesGate` with the hypothesis its statement is missing.**  Everything else about it
-is unchanged; this is the form that is a theorem, and the form the gate should have had.  See §6.1
-for why the hypothesis cannot be dropped, and `docs/handoff-mutualnames.md` §3.2 for the two-line
-`NoNestedAll.lean` edit that would make the existing gate suppliable. -/
-def MutualNamesGateWF : Prop :=
-  ∀ {env env' : Environment} {vs : List DefinitionVal} {fuel : FuelConfig},
-    env.constants.WF → addMutual env vs true fuel = .ok env' →
-      (∀ v ∈ vs, ¬ IsNestedName v.name ∧ env.find? v.name = none) ∧ (vs.map (·.name)).Nodup
+/-- **`MutualNamesGate` verbatim was exactly one `SMap`-level fact away**, and that fact is not
+about `addMutual` at all.
 
-/-- **The gate, discharged in the form that admits a proof.** -/
-theorem mutualNamesGateWF : MutualNamesGateWF := fun mapWF h => addMutual_header_post mapWF h
-
-/-- `checkName`'s success, with **no** hypothesis on the constant map: this is everything the check
-itself buys, and it is `contains`, not `find?`. -/
-theorem checkName_ok_contains {env : Environment} {n : Name} {ap : Bool} {u : Unit}
-    (h : Environment.checkName env n ap = .ok u) : env.contains n = false := by
-  cases hc : env.contains n
-  · rfl
-  · simp [Environment.checkName, hc, (· >>= ·), Except.bind] at h
-
-theorem checkConstantVal_contains_false {env : Environment} {v : ConstantVal} {ap : Bool}
-    {ctx : TypeChecker.Context} {s : TypeChecker.State} {r : Unit × TypeChecker.State}
-    (h : checkConstantVal env v ap ctx s = .ok r) : env.contains v.name = false := by
-  unfold checkConstantVal at h
-  obtain ⟨u, hk, -⟩ := liftExcept_bind_ok h
-  exact checkName_ok_contains hk
-
-theorem contains_false_of_wf {env : Environment} (mapWF : env.constants.WF) (n : Name)
-    (h : env.find? n = none) : env.contains n = false := by
-  change env.constants.contains n = false
-  rw [mapWF.find?_isSome, ← mapWF.find?'_eq_find?]
-  rw [show env.constants.find?' n = env.find? n from rfl, h]
-  rfl
-
-theorem find?_none_of_contains_false {env : Environment} (mapWF : env.constants.WF) (n : Name)
-    (h : env.contains n = false) : env.find? n = none := by
-  change env.constants.contains n = false at h
-  rw [mapWF.find?_isSome] at h
-  rw [show env.find? n = env.constants.find?' n from rfl, mapWF.find?'_eq_find?]
-  cases hf : env.constants.find? n <;> simp_all
-
-/-- **The strongest `WF`-free postcondition.**  Both name facts, and `Nodup`, with no
-hypothesis on the constant map at all — `contains` in place of `find?`. -/
-theorem addMutual_header_post_contains {env env' : Environment} {vs : List DefinitionVal}
-    {fuel : FuelConfig} (h : addMutual env vs true fuel = .ok env') :
-    (∀ v ∈ vs, ¬ IsNestedName v.name ∧ env.contains v.name = false) ∧
-      (vs.map (·.name)).Nodup :=
-  addMutual_header_post_gen
-    (fun _ _ _ _ hcv => ⟨checkConstantVal_noNestedName hcv,
-      checkConstantVal_contains_false hcv⟩) h
-
-/-- **`MutualNamesGate` verbatim is exactly one `SMap`-level fact away**, and that fact is not
-about `addMutual` at all.  Everything the header loop can be asked for is in
+The conclusion below is `MutualNamesGate` **delta-expanded**: the abbreviation is gone from
+`NoNestedAll.lean`, so the same proposition is written out.  Nothing about the statement or the proof
+term changed — only the name it used to hide behind.  Everything the header loop can be asked for is in
 `addMutual_header_post_contains`; the residue is `contains n = false → find? n = none` at an
 arbitrary `Environment`, which at `SMap` stage 2 is a statement about `PersistentHashMap.containsAux`
 and `findAux` — two `partial def`s upstream, hence body-less opaques.  With
@@ -189,7 +67,10 @@ and `findAux` — two `partial def`s upstream, hence body-less opaques.  With
 nor refutable. -/
 theorem mutualNamesGate_of_contains
     (H : ∀ (e : Environment) (n : Name), e.contains n = false → e.find? n = none) :
-    MutualNamesGate := fun h =>
+    ∀ {env env' : Environment} {vs : List DefinitionVal} {fuel : FuelConfig},
+      addMutual env vs true fuel = .ok env' →
+        (∀ v ∈ vs, ¬ IsNestedName v.name ∧ env.find? v.name = none) ∧
+          (vs.map (·.name)).Nodup := fun h =>
   ⟨fun v hm => ⟨((addMutual_header_post_contains h).1 v hm).1,
       H _ _ ((addMutual_header_post_contains h).1 v hm).2⟩,
     (addMutual_header_post_contains h).2⟩
@@ -206,8 +87,9 @@ theorem mutualNamesGate_at_wf {env env' : Environment} {vs : List DefinitionVal}
 
 /-! ## §5 The firings — the branch's hypotheses are satisfiable, and each check is load-bearing
 
-"Instantiate, don't admire."  `addMutual_noNestedEnv'` and `addMutual_header_post` are
-implications; if `addMutual` rejected every block, all of §2-§4 would be about nothing.  The gate
+"Instantiate, don't admire."  `addMutual_noNestedEnv` and `addMutual_header_post` (both in
+`NoNestedAll.lean` §3.1) are implications; if `addMutual` rejected every block, they and §4 would be
+about nothing.  The gate
 below fails the build if that is ever true, and it also checks that each of the two rejections the
 postcondition rests on really fires: the duplicate-name check (the `Nodup` conjunct) and
 `checkNoNestedAuxName` (the `¬ IsNestedName` conjunct). -/
@@ -230,7 +112,7 @@ def mutWit (n : Name) : DefinitionVal :=
   | .error _ =>
     throwError "MutualNames §5: Lean4Lean.addDecl REJECTS the two-member partial block \
       [f : Type := Prop, g : Type := Prop] from the empty environment -- \
-      addMutual_noNestedEnv''s hypothesis is unsatisfiable and §2-§4 are void"
+      addMutual_noNestedEnv's hypothesis is unsatisfiable and §4 is void"
   | .ok env' =>
     let names := env'.constants.toList.map (·.1)
     unless names.contains `f && names.contains `g do
@@ -258,7 +140,8 @@ def mutWit (n : Name) : DefinitionVal :=
 
 /-! ## §6 The limits of this result, each one measured
 
-1. **`MutualNamesGate` verbatim is *not* proved here, and cannot be.**  Its middle conjunct is
+1. **`MutualNamesGate` verbatim was never proved, and cannot be — which is why it is gone rather
+   than discharged.**  Its middle conjunct is
    `env.find? v.name = none` at an environment carrying no hypothesis.  The only check that can
    supply it is `checkName`, whose success gives `env.contains v.name = false`
    (`checkName_ok_contains`, which needs nothing).  Bridging the two is
@@ -278,10 +161,11 @@ def mutWit (n : Name) : DefinitionVal :=
    and its truth value is a question about two upstream `partial def`s rather than about the kernel.
    This paragraph is an argument from opacity, not a Lean theorem — Lean cannot state it — and it is
    flagged as such in `docs/handoff-mutualnames.md` §4.
-2. **What replaces it is strictly stronger for the consumer**: `addMutual_noNestedEnv'`, which
-   takes the same `NoNestedEnv env` that `addMutual_noNestedEnv` already takes and needs no gate
-   at all.  It cannot be obtained by *supplying* `addMutual_noNestedEnv`'s `G`, because
-   `MutualNamesGate` quantifies over `env` universally while the proof needs `hC.wf`.
+2. **What replaced it is strictly stronger for the consumer**: `addMutual_noNestedEnv`
+   (`NoNestedAll.lean` §3.1) takes the same `NoNestedEnv env` it always took and needs no gate at
+   all.  It could *not* have been obtained by supplying the old gate as an argument, because
+   `MutualNamesGate` quantified over `env` universally while the proof needs `hC.wf` — which is the
+   precise sense in which the gate was the wrong statement rather than an unproved one.
 3. **`forIn_ok_fresh` assumes the loop body always `yield`s.**  A `break` or `return` inside
    `addMutual`'s header loop would make the hypothesis `r = .yield (v.name :: found)` unprovable and
    the lemma inapplicable — it would not become *false*, it would stop matching.  `addMutual` has
@@ -292,7 +176,7 @@ def mutWit (n : Name) : DefinitionVal :=
    stated at a `VContext`, reachable only via `M.WF.run wf` with `wf : ves.WF env` — and
    `VEnvs.WF` is refuted by a single `.inductInfo` (`venvsWF_refuted_at_inductInfo`,
    `NoNestedAll.lean` §4).  So it would have been vacuous at every environment with an inductive
-   in it.  §1 is that lemma redone at the raw monadic value.
+   in it.  `forIn_ok_fresh` is that lemma redone at the raw monadic value.
 5. **The `check := false` path is not covered and must not be**: §5's gate checks that with
    `check := false` the `_nested.g` block is *accepted*, so the postcondition is a property of the
    checked path only.
@@ -301,8 +185,7 @@ def mutWit (n : Name) : DefinitionVal :=
 #print axioms Lean4Lean.forIn_ok_fresh
 #print axioms Lean4Lean.addMutual_header_post_gen
 #print axioms Lean4Lean.addMutual_header_post
-#print axioms Lean4Lean.addMutual_noNestedEnv'
-#print axioms Lean4Lean.mutualNamesGateWF
+#print axioms Lean4Lean.addMutual_noNestedEnv
 #print axioms Lean4Lean.checkName_ok_contains
 #print axioms Lean4Lean.checkConstantVal_contains_false
 #print axioms Lean4Lean.contains_false_of_wf

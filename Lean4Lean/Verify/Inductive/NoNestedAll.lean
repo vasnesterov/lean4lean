@@ -341,26 +341,148 @@ theorem NoNestedEnv.foldl_add : ∀ {vs : List DefinitionVal} {env : Environment
       (hfresh w (List.mem_cons_of_mem _ hw))
     exact fun he => hnd.1 (List.mem_map.2 ⟨w, hw, he.symm⟩)
 
-/-- **The one residual on the `mutualDefnDecl` branch.**  `addMutual`'s header loop runs
-`checkConstantVal env v.toConstantVal` on every member and rejects a repeated name, so it
-establishes exactly this; what is missing is the *extraction*, an `M`-monad `forIn` induction with
-the `found` accumulator threaded through three `if`s — the `Except`-level pattern of
-`guardLoop_noNested` (`Verify/Inductive/RestoreFaithful.lean` §1.1) lifted to
-`ReaderT Context (StateT State (Except Exception))`.
+/-! ### §3.1 `addMutual`'s header loop, extracted
 
-This is **unproved, not false**: every conjunct is a postcondition of a check the loop actually
-performs (`Lean4Lean/Environment.lean`:86-104). -/
-def MutualNamesGate : Prop :=
-  ∀ {env env' : Environment} {vs : List DefinitionVal} {fuel : FuelConfig},
-    addMutual env vs true fuel = .ok env' →
-      (∀ v ∈ vs, ¬ IsNestedName v.name ∧ env.find? v.name = none) ∧ (vs.map (·.name)).Nodup
+The `mutualDefnDecl` branch used to rest on a residual `Prop` named `MutualNamesGate`, whose
+docstring called it *"unproved, not false"*.  It was neither: **as stated it omitted
+`env.constants.WF`**, without which `env.find? v.name = none` is unreachable — the only check that
+can supply it is `checkName`, and `checkName`'s success gives `env.contains v.name = false`
+(`checkName_ok_contains`, below, which needs nothing).  Bridging `contains` to `find?` needs
+`env.constants.WF`, because at `SMap` stage 2 the two run through `PersistentHashMap.containsAux`
+and `findAux`, both `partial def` upstream and hence body-less opaques; so the gate as written was
+*independent*, not open, and it read to every future reader as a residual when it was not.  Every
+neighbour in this file carries `env.constants.WF` (`checkConstantVal_find?_none`, `NoNestedMap.add`)
+and the gate's only consumer had it (`NoNestedEnv.wf`) — that asymmetry was the defect.
 
-/-- **The `mutualDefnDecl` branch**, reduced to `MutualNamesGate` and nothing else: the map side
-is `NoNestedEnv.foldl_add`, proved above. -/
-theorem addMutual_noNestedEnv (G : MutualNamesGate) {env env' : Environment}
+What follows is the loop's postcondition, proved.  It was developed in
+`Verify/Inductive/MutualNames.lean` and transplanted here verbatim on 2026-09-04
+(`docs/handoff-migrate2.md`) because that file *imports* this one, so the gate's own definition
+site could not cite it; there is no import-direction fix.  `MutualNames.lean` keeps the firing
+(`#eval`), the limits, and the axiom checks, and now cites these.
+
+`forIn_ok_fresh` assumes the loop body always `yield`s — a `break` would make the hypothesis
+`r = .yield (v.name :: found)` unprovable and the lemma inapplicable rather than false.  `addMutual`
+has no `break`; the same restriction is stated for `M.WF.forIn` (`Verify/TypeChecker.lean`:112). -/
+
+theorem forIn_ok_fresh {P : DefinitionVal → Prop}
+    {f : DefinitionVal → List Name → TypeChecker.M (ForInStep (List Name))}
+    (H : ∀ v found ctx s r s', f v found ctx s = .ok (r, s') →
+      found.contains v.name = false ∧ P v ∧ r = .yield (v.name :: found)) :
+    ∀ {vs : List DefinitionVal} {found : List Name} {ctx : TypeChecker.Context}
+      {s : TypeChecker.State} {r : List Name × TypeChecker.State},
+      (ForIn.forIn vs found f) ctx s = .ok r →
+        (∀ v ∈ vs, P v) ∧ (vs.map (·.name)).Nodup ∧ ∀ v ∈ vs, found.contains v.name = false
+  | [], _, _, _, _, _ => ⟨nofun, by simp, nofun⟩
+  | v :: vs, found, ctx, s, r, h => by
+    rw [List.forIn_cons] at h
+    obtain ⟨r₁, s₁, hb, h⟩ := M_bind_ok h
+    obtain ⟨hfr, hP, rfl⟩ := H v found ctx s _ _ hb
+    dsimp only at h
+    obtain ⟨hPs, hnd, hmem⟩ := forIn_ok_fresh H h
+    refine ⟨?_, ?_, ?_⟩
+    · intro w hw
+      rcases List.mem_cons.1 hw with rfl | hw
+      · exact hP
+      · exact hPs w hw
+    · rw [List.map_cons, List.nodup_cons]
+      refine ⟨fun hm => ?_, hnd⟩
+      obtain ⟨w, hw, hwn⟩ := List.mem_map.1 hm
+      have := hmem w hw
+      rw [← hwn] at this
+      simp at this
+    · intro w hw
+      rcases List.mem_cons.1 hw with rfl | hw
+      · exact hfr
+      · have := hmem w hw
+        simp at this
+        exact by simpa using this.2
+
+theorem addMutual_header_post_gen {P : DefinitionVal → Prop} {env env' : Environment}
+    {vs : List DefinitionVal} {fuel : FuelConfig}
+    (hP : ∀ (v : DefinitionVal) (ctx : TypeChecker.Context) (s : TypeChecker.State)
+      (r : Unit × TypeChecker.State),
+      checkConstantVal env v.toConstantVal false ctx s = .ok r → P v)
+    (h : addMutual env vs true fuel = .ok env') :
+    (∀ v ∈ vs, P v) ∧ (vs.map (·.name)).Nodup := by
+  obtain _ | ⟨v₀, rest⟩ := vs
+  · unfold addMutual at h; exact absurd h nofun
+  unfold addMutual at h
+  simp only [if_true, bind, Except.bind, pure, Except.pure] at h
+  split at h
+  · exact absurd h nofun
+  · split at h
+    · exact absurd h nofun
+    · rename_i hrun
+      obtain ⟨s₀, hrun⟩ := M_run_ok hrun
+      obtain ⟨_, s₁, hloop, _⟩ := M_bind_ok' hrun
+      refine (fun key => ⟨key.1, key.2.1⟩)
+        (forIn_ok_fresh (P := P) ?_ hloop)
+      intro v found ctx s r s' hb
+      split at hb
+      · obtain ⟨_, _, ht, _⟩ := M_bind_ok' hb; exact absurd ht nofun
+      · split at hb
+        · obtain ⟨_, _, ht, _⟩ := M_bind_ok' hb; exact absurd ht nofun
+        · split at hb
+          · obtain ⟨_, _, ht, _⟩ := M_bind_ok' hb; exact absurd ht nofun
+          · rename_i hfound
+            obtain ⟨_, s₂, hcv, hp⟩ := M_bind_ok' hb
+            refine ⟨by simpa using hfound, hP v ctx s _ hcv, ?_⟩
+            cases hp; rfl
+
+/-- The postcondition with `find? = none`, which needs `env.constants.WF`: see §4. -/
+theorem addMutual_header_post {env env' : Environment} {vs : List DefinitionVal}
+    {fuel : FuelConfig} (mapWF : env.constants.WF)
+    (h : addMutual env vs true fuel = .ok env') :
+    (∀ v ∈ vs, ¬ IsNestedName v.name ∧ env.find? v.name = none) ∧ (vs.map (·.name)).Nodup :=
+  addMutual_header_post_gen
+    (fun _ _ _ _ hcv => ⟨checkConstantVal_noNestedName hcv,
+      checkConstantVal_find?_none mapWF hcv⟩) h
+
+/-- `checkName`'s success, with **no** hypothesis on the constant map: this is everything the check
+itself buys, and it is `contains`, not `find?`. -/
+theorem checkName_ok_contains {env : Environment} {n : Name} {ap : Bool} {u : Unit}
+    (h : Environment.checkName env n ap = .ok u) : env.contains n = false := by
+  cases hc : env.contains n
+  · rfl
+  · simp [Environment.checkName, hc, (· >>= ·), Except.bind] at h
+
+theorem checkConstantVal_contains_false {env : Environment} {v : ConstantVal} {ap : Bool}
+    {ctx : TypeChecker.Context} {s : TypeChecker.State} {r : Unit × TypeChecker.State}
+    (h : checkConstantVal env v ap ctx s = .ok r) : env.contains v.name = false := by
+  unfold checkConstantVal at h
+  obtain ⟨u, hk, -⟩ := liftExcept_bind_ok h
+  exact checkName_ok_contains hk
+
+theorem contains_false_of_wf {env : Environment} (mapWF : env.constants.WF) (n : Name)
+    (h : env.find? n = none) : env.contains n = false := by
+  change env.constants.contains n = false
+  rw [mapWF.find?_isSome, ← mapWF.find?'_eq_find?]
+  rw [show env.constants.find?' n = env.find? n from rfl, h]
+  rfl
+
+theorem find?_none_of_contains_false {env : Environment} (mapWF : env.constants.WF) (n : Name)
+    (h : env.contains n = false) : env.find? n = none := by
+  change env.constants.contains n = false at h
+  rw [mapWF.find?_isSome] at h
+  rw [show env.find? n = env.constants.find?' n from rfl, mapWF.find?'_eq_find?]
+  cases hf : env.constants.find? n <;> simp_all
+
+/-- **The strongest `WF`-free postcondition.**  Both name facts, and `Nodup`, with no
+hypothesis on the constant map at all — `contains` in place of `find?`. -/
+theorem addMutual_header_post_contains {env env' : Environment} {vs : List DefinitionVal}
+    {fuel : FuelConfig} (h : addMutual env vs true fuel = .ok env') :
+    (∀ v ∈ vs, ¬ IsNestedName v.name ∧ env.contains v.name = false) ∧
+      (vs.map (·.name)).Nodup :=
+  addMutual_header_post_gen
+    (fun _ _ _ _ hcv => ⟨checkConstantVal_noNestedName hcv,
+      checkConstantVal_contains_false hcv⟩) h
+
+/-- **The `mutualDefnDecl` branch**, unconditional: the header loop's postcondition is
+`addMutual_header_post` (§3.1, above) and the map side is `NoNestedEnv.foldl_add`. -/
+theorem addMutual_noNestedEnv {env env' : Environment}
     {vs : List DefinitionVal} {fuel : FuelConfig}
     (hC : NoNestedEnv env) (h : addMutual env vs true fuel = .ok env') : NoNestedEnv env' := by
-  obtain ⟨hv, hnd⟩ := G h
+  obtain ⟨hv, hnd⟩ := addMutual_header_post hC.wf h
   unfold addMutual at h
   simp only [if_true, bind, Except.bind, pure, Except.pure] at h
   split at h
@@ -409,11 +531,11 @@ theorem addInductive_noNestedEnv (G : InductiveMapGate) {env env' : Environment}
   · exact hC.clean n ci h1
   · exact hgate.indDeclNamesN n hk
 
-/-- **`NoNestedMap` is established on every `addDecl` branch.**  Five branches unconditionally;
-`mutualDefnDecl` on `MutualNamesGate` (the header loop's postcondition, unproved) and `inductDecl`
-on `InductiveMapGate` (the map side of the inductive step, unproved).  Neither gate is a name
-condition: both name conditions are theorems, and PR #46 is why. -/
-theorem addDecl_noNestedEnv (Gm : MutualNamesGate) (Gi : InductiveMapGate)
+/-- **`NoNestedMap` is established on every `addDecl` branch.**  **Six** branches
+unconditionally; only `inductDecl` rests on a gate — `InductiveMapGate`, the map side of the
+inductive step, unproved.  That gate is not a name condition: the name conditions are all theorems,
+and PR #46 is why. -/
+theorem addDecl_noNestedEnv (Gi : InductiveMapGate)
     {env env' : Environment} {d : Declaration} {fuel : FuelConfig}
     (hC : NoNestedEnv env) (h : Lean4Lean.addDecl env d true fuel = .ok env') :
     NoNestedEnv env' := by
@@ -423,7 +545,7 @@ theorem addDecl_noNestedEnv (Gm : MutualNamesGate) (Gi : InductiveMapGate)
   · exact addDefinition_noNestedEnv hC h
   · exact addTheorem_noNestedEnv hC h
   · exact addOpaque_noNestedEnv hC h
-  · exact addMutual_noNestedEnv Gm hC h
+  · exact addMutual_noNestedEnv hC h
   · exact addQuot_noNestedEnv hC h
   · obtain ⟨_, _, h⟩ := Except.bind_ok_inv h
     exact addInductive_noNestedEnv Gi hC h
@@ -431,22 +553,22 @@ theorem addDecl_noNestedEnv (Gm : MutualNamesGate) (Gi : InductiveMapGate)
 /-- **The headline.**  From a clean kernel environment, one accepted `addDecl`, and the refinement
 relation at the result: the abstract environment satisfies `VEnv.NoNestedN`.  This is what §2 of
 `RestoreFaithful.lean` needed and what nothing supplied before PR #46. -/
-theorem VEnv.NoNestedN.of_addDecl (Gm : MutualNamesGate) (Gi : InductiveMapGate)
+theorem VEnv.NoNestedN.of_addDecl (Gi : InductiveMapGate)
     {env env' : Environment} {d : Declaration} {fuel : FuelConfig} {safety : DefinitionSafety}
     {venv : VEnv} (hC : NoNestedEnv env)
     (h : Lean4Lean.addDecl env d true fuel = .ok env') (H : TrEnv safety env' venv) :
     venv.NoNestedN :=
-  VEnv.NoNestedN.of_trEnv H (addDecl_noNestedEnv Gm Gi hC h).clean
+  VEnv.NoNestedN.of_trEnv H (addDecl_noNestedEnv Gi hC h).clean
 
 /-- …and it survives an arbitrary *sequence* of declarations, which is the shape the kernel is
 actually driven in. -/
-theorem addDecls_noNestedEnv (Gm : MutualNamesGate) (Gi : InductiveMapGate) {fuel : FuelConfig} :
+theorem addDecls_noNestedEnv (Gi : InductiveMapGate) {fuel : FuelConfig} :
     ∀ {ds : List Declaration} {env env' : Environment}, NoNestedEnv env →
       ds.foldlM (fun e d => Lean4Lean.addDecl e d true fuel) env = .ok env' → NoNestedEnv env'
   | [], _, _, hC, h => by cases h; exact hC
   | d :: ds, env, _, hC, h => by
     obtain ⟨e₁, h1, h2⟩ := Except.bind_ok_inv h
-    exact addDecls_noNestedEnv Gm Gi (addDecl_noNestedEnv Gm Gi hC h1) h2
+    exact addDecls_noNestedEnv Gi (addDecl_noNestedEnv Gi hC h1) h2
 
 /-! ## §4 The limits of the result, proved where they can be
 
@@ -481,13 +603,18 @@ theorem venvsWF_refuted_at_inductInfo {ves : VEnvs} {env : Environment} {n : Nam
     {v : Lean.InductiveVal} (hf : env.constants.find? n = some (.inductInfo v)) : ¬ ves.WF env :=
   fun wf => wf.no_inductInfo hf
 
-/-! ### §4.2 The two gates, and that they are not name conditions
+/-! ### §4.2 The one gate, and that it is not a name condition
 
-`MutualNamesGate` and `InductiveMapGate` are what remains of §3.  Both are about *which names a
-branch adds*, not about whether a name is clean: the clean-name facts are theorems
-(`checkConstantVal_noNestedName` here, `addInductive_WF_noNestedDeclNames` in `RestoreFaithful`).
-So PR #46 really did remove the obstruction §5 named; what is left is bookkeeping about the
-constant map, and for `inductDecl` that bookkeeping is the seven-file flip.
+`InductiveMapGate` is what remains of §3.  It is about *which names a branch adds*, not about
+whether a name is clean: the clean-name facts are theorems (`checkConstantVal_noNestedName` here,
+`addInductive_WF_noNestedDeclNames` in `RestoreFaithful`).  So PR #46 really did remove the
+obstruction §5 named; what is left is bookkeeping about the constant map, and for `inductDecl` that
+bookkeeping is the seven-file flip.
+
+The `mutualDefnDecl` gate that used to stand here was not merely unproved: as stated it omitted
+`env.constants.WF`, without which `env.find? v.name = none` is unreachable from `checkName`'s
+`contains = false` — see §3.1 and `Verify/Inductive/MutualNames.lean` §4/§6.1.  It is gone, and the
+branch stands on `addMutual_header_post`.
 
 ### §4.3 The invariant is bought by the check, and lost without it
 

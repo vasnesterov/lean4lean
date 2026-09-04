@@ -353,6 +353,78 @@ declaration order. -/
 def VIndCtor.recFields (C : VIndCtor) : List (Nat × VIndRecArg) :=
   C.fields.zipIdx.filterMap fun (F, i) => F.recArg.map fun r => (i, r)
 
+/-! ### Canonical residuals: `ResidualClean` at a canonical recursive field
+
+Migrated here from `Verify/Inductive/WFPos.lean` §1 on 2026-09-04 (`docs/handoff-migrate2.md`),
+verbatim and with no proof change.  It lived in `Verify/` only by accident of where it was written:
+its statements mention nothing outside this file, while `Theory/Inductive/NestedHead.lean` and
+`Theory/Inductive/DeclExamples.lean` -- which hold the `WF` witnesses that discharge conjunct 9 of
+`VIndField.WF.pos` by `by decide` -- sit upstream of `Verify/` and so could not cite it.
+
+The point of the group is that at a canonical recursive field **conjunct 9 of `VIndField.WF.pos`
+follows from its conjunct 4**, so it is not independent information there.  It *is* independent in
+general: `MRedex.TQWit.tq_hostile_not_residualClean` (`Theory/Inductive/IndexedNested.lean` §8) is a
+stored field type satisfying conjuncts 1-8 at which conjunct 9 is false, so the clause is not
+deletable from `VIndField.WF`. -/
+
+namespace VInductDecl'
+
+/-- **The residual arguments of a canonical application are its non-parameter arguments.**  Pure
+telescope arithmetic, and the only place `D.np` enters. -/
+theorem spineArgs_drop_tyApp (D : VInductDecl') (j k : Nat) (args : List VExpr) :
+    (D.tyApp j k args).spineArgs.drop D.np = args := by
+  rw [VInductDecl'.tyApp, VExpr.spineArgs_mkApp, VExpr.spineArgs_const, List.nil_append,
+    List.drop_left' (by simp)]
+
+/-- **The residual the trigger reports at a canonical recursive field is exactly `r.args`.**
+
+Stated separately from the theorem below because it is the whole computation, and because it says
+something the theorem hides: the reported *member index* `j` is irrelevant.  `uniformOcc?` returns
+`e.spineArgs.drop D.np`, which is a function of `e` alone, so nothing here needs
+`D.memberIdx (D.types.getD r.idx default).name = some r.idx` — the theorem therefore holds at a
+block with duplicate member names, where that equation is false. -/
+theorem uniformOcc?_canonResult_snd {D : VInductDecl'} {i : Nat} {r : VIndRecArg}
+    {j : Nat} {rest : List VExpr} (hb : r.binders = [])
+    (h : D.uniformOcc? i (r.canonResult D i) = some (j, rest)) :
+    rest = r.args := by
+  rw [VIndRecArg.canonResult, hb, List.length_nil, Nat.zero_add] at h
+  rw [uniformOcc?] at h
+  split at h
+  · split at h
+    · split at h
+      · refine (congrArg Prod.snd (Option.some.inj h)).symm.trans ?_
+        exact spineArgs_drop_tyApp D r.idx i r.args
+      · exact absurd h nofun
+    · exact absurd h nofun
+  · exact absurd h nofun
+
+/-- **Conjunct 9 is not independent information at the canonical form, and this is
+unconditional.**
+
+At the canonical form of a recursive field, F7's residual clause (`pos`'s conjunct 9) follows from
+`pos`'s conjunct 4.  No environment, no typing judgement, no `Ordered`, no `VEnv.WF`, no hypothesis
+about the block at all: the two cases are that the trigger reports `r.args` (empty `ξ`) or cannot
+fire (non-empty `ξ`, so the canonical form is `.forallE`-headed and `spineFn` is not a `.const`).
+
+This is what the `ResidualClean` docstring above states in prose.  Before this, every firing of
+the `some` branch in the tree — `accDecl_WF`, `mutDecl_WF`, `wDecl_WF`, `ntreeAux_WF'`,
+`tqAuxB_WF` — discharged conjunct 9 by `by decide` at a closed block, so the clause looked like
+independent information and was priced as such.  It is not, on the canonical range. -/
+theorem residualClean_canonType {D : VInductDecl'} {i : Nat} {r : VIndRecArg}
+    (hargs : ∀ a ∈ r.args, D.NoBlock a) :
+    D.ResidualClean (r.binders.length + i) (r.canonType D i) := by
+  rcases hb : r.binders with _ | ⟨B, Bs⟩
+  · intro j rest h
+    rw [VIndRecArg.canonType, hb] at h
+    simp only [List.length_nil, Nat.zero_add, VExpr.mkPi] at h
+    rw [uniformOcc?_canonResult_snd hb h]
+    exact hargs
+  · refine residualClean_of_uniformOcc_none ?_
+    rw [VIndRecArg.canonType, hb, VExpr.mkPi_cons, uniformOcc?]
+    rfl
+
+end VInductDecl'
+
 /-! ## Staged environments (design §4)
 
 The kernel checks constructors in an environment that already contains the block's type

@@ -27,7 +27,9 @@ that prose into two theorems and reports their exact limit.
 
 ## What is here
 
-* **§1 the core, and it is unconditional.**  `VInductDecl'.residualClean_canonType`: at the
+* **§1 the core, and it is unconditional** (migrated 2026-09-04 to `Theory/Inductive/Decl.lean`
+  so that `Theory/`-side witnesses can cite it; §1 below records the move).
+  `VInductDecl'.residualClean_canonType`: at the
   *canonical* form `r.canonType D i`, F7's residual clause follows from `pos`'s own conjunct 4
   (`∀ a ∈ r.args, D.NoBlock a`) — **no environment, no typing, no `Ordered`, no block hypothesis at
   all.**  Two cases and they are the whole content of the clause: with `r.binders = []` the trigger
@@ -109,64 +111,15 @@ open VExpr (mkPi mkLams mkApp bvars liftTele shift)
 
 1-4 and 9 are pure syntax; 5-8 are typing in the staged environment.  This section is about 9, and
 its content is that **9 is not independent information once the stored type is the canonical one**.
--/
 
-namespace VInductDecl'
-
-/-- **The residual arguments of a canonical application are its non-parameter arguments.**  Pure
-telescope arithmetic, and the only place `D.np` enters. -/
-theorem spineArgs_drop_tyApp (D : VInductDecl') (j k : Nat) (args : List VExpr) :
-    (D.tyApp j k args).spineArgs.drop D.np = args := by
-  rw [VInductDecl'.tyApp, VExpr.spineArgs_mkApp, VExpr.spineArgs_const, List.nil_append,
-    List.drop_left' (by simp)]
-
-/-- **The residual the trigger reports at a canonical recursive field is exactly `r.args`.**
-
-Stated separately from the theorem below because it is the whole computation, and because it says
-something the theorem hides: the reported *member index* `j` is irrelevant.  `uniformOcc?` returns
-`e.spineArgs.drop D.np`, which is a function of `e` alone, so nothing here needs
-`D.memberIdx (D.types.getD r.idx default).name = some r.idx` — the theorem therefore holds at a
-block with duplicate member names, where that equation is false. -/
-theorem uniformOcc?_canonResult_snd {D : VInductDecl'} {i : Nat} {r : VIndRecArg}
-    {j : Nat} {rest : List VExpr} (hb : r.binders = [])
-    (h : D.uniformOcc? i (r.canonResult D i) = some (j, rest)) :
-    rest = r.args := by
-  rw [VIndRecArg.canonResult, hb, List.length_nil, Nat.zero_add] at h
-  rw [uniformOcc?] at h
-  split at h
-  · split at h
-    · split at h
-      · refine (congrArg Prod.snd (Option.some.inj h)).symm.trans ?_
-        exact spineArgs_drop_tyApp D r.idx i r.args
-      · exact absurd h nofun
-    · exact absurd h nofun
-  · exact absurd h nofun
-
-/-- **§1's headline, and it is unconditional.**
-
-At the canonical form of a recursive field, F7's residual clause (`pos`'s conjunct 9) follows from
-`pos`'s conjunct 4.  No environment, no typing judgement, no `Ordered`, no `VEnv.WF`, no hypothesis
-about the block at all: the two cases are that the trigger reports `r.args` (empty `ξ`) or cannot
-fire (non-empty `ξ`, so the canonical form is `.forallE`-headed and `spineFn` is not a `.const`).
-
-This is what `Decl.lean`:241 states in prose.  Before this, every firing of the `some` branch in the
-tree — `accDecl_WF`, `mutDecl_WF`, `wDecl_WF`, `ntreeAux_WF'`, `tqAuxB_WF` — discharged conjunct 9
-by `by decide` at a closed block, so the clause looked like independent information and was priced
-as such.  It is not, on the canonical range. -/
-theorem residualClean_canonType {D : VInductDecl'} {i : Nat} {r : VIndRecArg}
-    (hargs : ∀ a ∈ r.args, D.NoBlock a) :
-    D.ResidualClean (r.binders.length + i) (r.canonType D i) := by
-  rcases hb : r.binders with _ | ⟨B, Bs⟩
-  · intro j rest h
-    rw [VIndRecArg.canonType, hb] at h
-    simp only [List.length_nil, Nat.zero_add, VExpr.mkPi] at h
-    rw [uniformOcc?_canonResult_snd hb h]
-    exact hargs
-  · refine residualClean_of_uniformOcc_none ?_
-    rw [VIndRecArg.canonType, hb, VExpr.mkPi_cons, uniformOcc?]
-    rfl
-
-end VInductDecl'
+**These three declarations no longer live here.**  `VInductDecl'.spineArgs_drop_tyApp`,
+`VInductDecl'.uniformOcc?_canonResult_snd` and `VInductDecl'.residualClean_canonType` were migrated
+to `Theory/Inductive/Decl.lean` (§ "Canonical residuals", after `VIndCtor.recFields`) on 2026-09-04,
+verbatim and with no proof change -- see `docs/handoff-migrate2.md`.  They mention nothing outside
+`Decl.lean`, and `scripts/can-cite.py` showed that `Theory.Inductive.NestedHead` (closure 50) and
+`Theory.Inductive.DeclExamples` (closure 30) -- which hold the `WF` witnesses that discharge conjunct
+9 by `by decide` -- could not cite them while they sat in `Verify/`.  Everything below cites them from
+their new home; nothing here changed but the address. -/
 
 /-! ### §1.1 Lifted to a field, a constructor and a block
 
@@ -538,7 +491,9 @@ general.
 
 ## §6 Axiom checks
 
-Every declaration this file introduces, in order.
+Every declaration this file introduces, in order, followed by the three that §1 migrated to
+`Theory/Inductive/Decl.lean` -- those are *not* introduced here any more, and the checks are kept
+because dropping them would silently drop the only axiom coverage this stream had on them.
 -/
 
 #print axioms Lean4Lean.VInductDecl'.spineArgs_drop_tyApp
