@@ -2762,3 +2762,43 @@ finishable" is now a live constraint I weigh explicitly, not a vibe.
 Standing lesson: when a stream asks for more files mid-round, the questions are (1) is the request forced by
 a decision I took, (2) can I measure the blast radius myself, (3) does granting it keep the round
 finishable. Two yesses and a no means grant the file and defer the extra.
+
+## My own absence rule applies to my briefs (2026-09-04, mine)
+
+I briefed a round to discharge `VIndField.WF.pos`'s `some` branch, wrote that it was "the last consumer of
+the populated `recArg` that nobody has discharged", and told the user it was the critical path.
+
+`InductiveDeclExamples.ntreeAux_WF'` (`Theory/Inductive/NestedHead.lean`:943) already proved
+`VInductDecl'.WF` at the real nested block, at an **arbitrary environment**, `sorryAx`-free, cited in
+**16 files** -- and **line 73 of that same file says "`ntreeAux_WF'` is the witness."**
+
+The round's diagnosis is the part that stings, because it is my own rule quoted back at me:
+
+> M4 was found on my third tool call only because `shape.lean` was in the rules -- querying by the
+> *obligation's* name (`WF.pos`, `ResidualClean`) misses `ntreeAux_WF'` entirely; querying by the
+> conclusion head finds it instantly.
+
+I put "search by conclusion shape, not by name, structure fields first" in every brief I write, after
+thirteen stale-absence claims. I then wrote "nobody has discharged X" in a brief **without running it**.
+Seventeenth in that family, and the first where I sent a round to redo finished work.
+
+**Standing rule, on me:** before a brief asserts an obligation is open, run `scripts/shape.lean` on the
+obligation's **conclusion head** -- not its name, not the name of the field, not the name of the predicate.
+And note the specific trap: an obligation named `X.WF.pos` is discharged by a theorem whose *name* need not
+contain `WF`, `pos`, or the predicate at all. Name search cannot find it by construction.
+
+**How the round salvaged it, which is the standard I want.** Instead of reporting "already done" and
+stopping, it went one level down and found the place where the producer genuinely was missing -- conjunct 9,
+F7's residual clause -- and proved it is not independent information, on two different ranges,
+unconditionally. It also named the residue as **one decidable check** (`recogAt` performs no `NoBlock`
+scan), proved the clause is **not deletable** from the spec by exhibiting a witness satisfying conjuncts
+1--8 and failing 9, and confirmed the known dead end (`exists_indep`) is off its path rather than assuming
+so.
+
+**A second instance of the calibration bias, now three rounds running.** The round volunteered: *"eleven of
+my twelve priors were about my own proof rather than about whether the target existed, and the one that
+wasn't decided the round."* Two other rounds today reported that both their prediction misses
+**underestimated the tree**. Three rounds, same direction. These rounds -- and I -- systematically assume
+less exists than does, which is the sixteen stale-absence claims seen from the inside. Worth putting in
+briefs as a stated bias, not just a rule: *your priors about your own proof are cheap; the prior that
+decides the round is whether the target already exists.*
