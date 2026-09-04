@@ -2210,9 +2210,13 @@ applied between rounds, newest last:
 1. Move `VInductDecl'.projAllG`, `.etaExpansionG` and `VEnv.StructEtaG` out of
    `Verify/TypeChecker/EtaStructG.lean` into `Theory/Inductive/`, re-point
    `Theory/Typing/CommutationLemmas.lean`; layer inversions **4 -> 3**.
-2. Delete `NormalEq.descend`'s three refuted branches from `ChurchRosser.lean` -- **only if** the
-   `DescendSurplus` round shows `descendV` dominates at every real consumer with `descend` measured
-   absent from the cone.
+2. ~~Delete `NormalEq.descend`'s three refuted branches from `ChurchRosser.lean`.~~ **CANCELLED
+   2026-09-04, measured impossible.**  The `DescendSurplus` round found that `descendV` dominates only
+   up to `hK : KStep ⊆ ParRed`, which is **false**, and then refuted the frontier statement itself
+   (`VEnv.not_appDFExtraStatement_of_propMajor'`, cone 688, `sorryAx`-free).  So there is no
+   `descend`-free derivation of the chokepoint from anything while the reduction relation stays
+   `ParRed`, and deletion is not a text edit -- it is the **`ParRedK` migration**, which is a project,
+   not a queue entry.  Replaced by: nothing, until someone scopes that migration.
 3. `ConfluenceRebuildPrice.lean:433-435`: flip `ParRedSE.structEta`'s two arguments so the rule
    contracts.  `EtaOrient.lean` §3/§7 are that file's eight downstream proofs already ported with
    **unchanged proof text**, so the flip is verified before it is made.  Consequence, which is the
@@ -2270,3 +2274,40 @@ next, and it is a better target than the one the round proposed.
 Standing addition to the "still open" checklist: before writing "no instance/witness exists", run
 `exists.lean`, `shape.lean`, **and** `can-cite.py`.  The third is new to this list because this is the
 second time in two days that a thing existed, was citable, and was reported absent.
+
+
+## Five stale in-tree claims, and the one that caused the others (2026-09-04)
+
+Two rounds reported in the same turn, and between them found five false statements in files nobody had
+reason to doubt.  One of them is the root cause of a chain of wasted reasoning, mine included:
+
+`Theory/Typing/ParamsBuild.lean`'s header says the ι and quotient cases "need `IsDefEqU.forallE_inv`
+(**open**)".  Measured: `Lean4Lean.VEnv.IsDefEqU.forallE_inv` is arity 10, cone 3574, and **its own
+value is not a hole** -- it is a *theorem*, proved from `forallE_inv_stratified` and
+`WF.rigidShapeUniqNS`.  Those two are the real holes; `forallE_inv` is downstream of them.
+
+The chain: `ParamsBuild` says "open" -> the eta round reads it and concludes **no `Params` instance
+over a structure environment exists** -> I correct that round, and get it half wrong myself, saying the
+remaining obligation is `VEnv.WF` of the environment -> the next round measures that `MutField.declEnv_wf`
+and `unitEnv_wf` are `sorryAx`-**free theorems** that were **inside the eta round's own 232-module
+closure the whole time**, and builds the instance with **no hypotheses at all**.
+
+Two lessons, and the second is the one I keep paying for:
+
+1. **"Tainted by a known hole" and "open" are different verdicts, and the difference is one
+   `exists.lean` run.**  `own value is a hole: false` plus a non-empty `holes in cone` is the signature
+   of a theorem standing on holes -- usable, priced, not blocked.  A docstring that writes "(open)"
+   next to such a name is not shorthand, it is wrong, and it propagates.
+2. **Name the hole you mean.**  `forallE_inv` and `forallE_inv_stratified` differ by one word and by
+   whether they are holes at all.  Three separate documents said the first when the census says the
+   second.  My rule "cite names exactly as `exists.lean` prints them" existed for *citing* -- it now
+   applies to *blaming* too.
+
+Queued docstring repairs, all verbatim replacements already written by the rounds that found them:
+`ParamsBuild.lean` (the root cause), `EtaOrient.lean` (two false sentences), `ConstSpineWF.lean` (stale
+cone table), `ChurchRosser.lean:1815` (user split 224/41, measured 255/46), `DescendRestate.lean` (a
+replacement that replaces a different statement than claimed).
+
+Both rounds correctly **applied none of them** and wrote them into their handoffs instead.  That is the
+additive-only rule working: five corrections found, zero shared modules touched, four streams still
+compiling.
