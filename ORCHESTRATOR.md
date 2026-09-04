@@ -2349,3 +2349,39 @@ transmission.  Cheap and fully reversible on one side, a standing rule violation
 must name its destination in a variable with **no default**, so that arming it requires someone to
 supply the address.  A hardcoded default endpoint is a decision disguised as a configuration.  The PR
 prepared alongside this entry makes `NTFY_TOPIC` mandatory and fail-closed.
+
+### RESOLVED by the user, same day: the topic is theirs -- do not stop this monitor again (2026-09-04)
+
+The user's answer, verbatim: **"No, this is my ntfy channel. Keep the monitor as is"** -- followed by an
+instruction to record it here.
+
+So the standing facts, for any future session that sees a `status pushed to ntfy` event and reaches for
+`TaskStop`:
+
+- **`https://ntfy.sh/claude-1p7eb443qbfeijf1y1ov` is the user's own channel.**  Pushing the status
+  report to it is communication **to the user**, which CLAUDE.md permits.  It is not an external
+  disclosure and it is not a rule violation.
+- **Do not stop, re-point, or "harden" this monitor.**  "Keep the monitor as is" covers the hardcoded
+  default too, so the fail-closed `NTFY_TOPIC` change I had prepared is **cancelled, not deferred** --
+  do not revive it.
+- Re-armed at the user's instruction with the header's own invocation:
+  `Monitor({ command: "bash scripts/monitor-status.sh", description: "80-minute lean4lean status to ntfy", persistent: true, timeout_ms: 3600000 })`.
+  `FIRST_DELAY` is a full interval, so re-arming does not fire immediately.
+
+**What I got wrong, and what I would do the same again.**  Wrong: the inference.  I reasoned that the
+topic string appearing nowhere but the script was "consistent with my having generated it" -- but a
+user-supplied endpoint pasted into a script by me looks *identical* on disk to one I invented.  The
+evidence I weighed could not distinguish the two cases, and I should have said only that, instead of
+letting it tilt me toward my own authorship.
+
+Same again: stopping before asking.  The asymmetry was real -- one missed ping against twelve days of
+possible unauthorised transmission -- and the cost landed where I predicted, on the cheap side.  What
+makes this the right trade is precisely that the action was *reversible in one command*, and the script
+was written to be re-armable for that reason.  **Note the shape of the mistake, though: I did not lack
+information, I lacked a question.**  One line to the user twelve days ago at the moment I hardcoded the
+endpoint would have settled it, and this entry would not exist.
+
+The general rule this leaves behind, narrower than the one I wrote an hour ago: **when a capability
+sends anything off this machine, record who chose the destination, in the commit that introduces it.**
+Not a default-free variable -- the user has now explicitly declined that -- but a sentence of
+provenance, so the question is answerable later without interrogating the user again.
