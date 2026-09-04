@@ -2212,3 +2212,48 @@ applied between rounds, newest last:
    in my hands -- and I am taking it, because the benefit is that `parRedSES_rigid`'s hypothesis goes
    from false to unconditionally true, while the cost lands on `NormalEq.descend`, which is already
    refuted in both orientations.  Whoever applies it restates `CRSEScope` §2/§4 in the same round.
+
+### Correction, same turn: 4 is the direct-edge count, not the inversion count (2026-09-04, mine)
+
+I wrote "there are **exactly 4** such inversions in `Theory/`" above.  That is the count of Theory
+modules with a *direct* `import Lean4Lean.Verify.*` line.  The number that decides anything is the
+**transitive** one, and it is **10** (of 279; 269 are clean).  I found this the way I should have
+looked in the first place: `scripts/can-cite.py` answered **YES** for `Lean4Lean.VEnv.patWF_of_wf`
+(defined in `Verify/Typing/ConstSpineWF.lean`) from `Theory/Typing/EtaOrient.lean`, which has no
+direct `Verify` import at all.  Citability follows the closure, not the edge.
+
+`scripts/layer-check.py` now reports both.  The 10 are one connected cluster, all in `Theory/Typing/`,
+and every one of them enters `Verify/` through the same four direct edges:
+
+    CommutationLemmas -> EtaStructG        (30 Verify modules)
+    EtaGuardLand      -> NoConfGuard       (46)
+    NoConfRepair      -> ProjSpineInv      (45)
+    StructEtaPrice    -> EtaUnitRefute     (45)
+    then CRSEScope, ConfluenceRebuildPrice, ConstAppInvSIProof, EtaOrient, SEReduce,
+    SEReerectionScope inherit it
+
+So the queued migration is worth more than "4 -> 3": cutting the four direct edges cleans **ten**
+modules -- the entire eta/confluence cluster -- and that cluster is exactly where the eta front works.
+Note also that `Verify/Axioms.lean`, a **frozen** file, sits in those closures.  Read-only, so no rule
+is broken, but a `Theory/` module transitively depending on the frozen axiom list is worth knowing.
+
+## "No instance exists" needs the citability check too (2026-09-04)
+
+The eta round reported: "no `Params` instance over an environment with a structure exists", because
+`Params.extra_pat` forces `Pat`-registration, that is `PatWF`'s ι case, and that needs the
+`IsDefEqU.forallE_inv` hole.  The mechanism is right and the conclusion is **too strong**.
+`Lean4Lean.VEnv.patWF_of_wf` (`Verify/Typing/ConstSpineWF.lean:57`) proves `env.PatWF U` from
+`env.WF` alone at an **arbitrary** environment -- and `can-cite.py` says the eta round's own file
+could have cited it.
+
+What it does is take Π-injectivity from the census hole rather than carry it (`piInv_axiom henv`),
+which is presumably what the round was reacting to.  But "tainted by an existing hole" and "does not
+exist" are different verdicts, and only the first is true.  Corrected picture: a `Params` instance at
+a structure environment needs (a) `VEnv.WF` of that environment and (b) acceptance of the `piInv`
+census hole -- and **(a) is the interesting half**, because for a concrete two-type block it may be
+provable outright, or it may be the `AddInduct` flip that the B6 stream is on.  That is what I spawned
+next, and it is a better target than the one the round proposed.
+
+Standing addition to the "still open" checklist: before writing "no instance/witness exists", run
+`exists.lean`, `shape.lean`, **and** `can-cite.py`.  The third is new to this list because this is the
+second time in two days that a thing existed, was citable, and was reported absent.

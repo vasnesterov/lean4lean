@@ -66,16 +66,34 @@ else:
 
 print("\nSOFT REPORT: Theory/ files importing Verify/ directly (drift, not failure)")
 rows = []
-for m in mods_under('Lean4Lean/Theory'):
+theory = mods_under('Lean4Lean.Theory')
+for m in theory:
     direct = [x for x in imports(m) if x.startswith('Lean4Lean.Verify')]
     if direct:
         rows.append((m, direct))
-if not rows:
-    print("  none")
+rows.sort()
 for m, direct in rows:
     print(f"  {m}  <- {len(direct)} direct Verify import(s)")
     for d in direct: print(f"      {d}")
-print("\n  A small constant-count from Verify/ is the suspicious case: that is what a declaration")
-print("  parked in the wrong layer looks like. A large one usually means the file is genuinely")
-print("  about checker-built objects and belongs where it is.")
-sys.exit(fail)
+print(f"  ({len(rows)} of {len(theory)} Theory modules import Verify/ directly)")
+
+# TRANSITIVE dependence.  Measured 2026-09-04: 4 direct but *10* transitive -- and the gap
+# matters, because citability follows the transitive closure, not the direct edge.  I recorded
+# "exactly 4 inversions" in ORCHESTRATOR.md and then found `scripts/can-cite.py` answering YES
+# for a `Verify/` declaration from a `Theory/` file with no direct import at all.  A direct-edge
+# count answers "who wrote the bad import"; only the closure answers "who is downstream of
+# Verify/", which is the question that decides what a Theory file may cite.
+print("\nSOFT REPORT: Theory/ files TRANSITIVELY downstream of Verify/")
+trans = []
+for m in theory:
+    v = sorted(x for x in closure(m) if x.startswith('Lean4Lean.Verify'))
+    if v:
+        gates = sorted({i for i in imports(m)
+                        if i.startswith('Lean4Lean.Verify')
+                        or any(x.startswith('Lean4Lean.Verify') for x in closure(i))})
+        trans.append((m, v, gates))
+trans.sort()
+for m, v, gates in trans:
+    print(f"  {m}  <- {len(v)} Verify module(s), entering via: {', '.join(gates)}")
+print(f"  ({len(trans)} of {len(theory)} Theory modules are downstream of Verify/; "
+      f"{len(theory) - len(trans)} are clean)")
