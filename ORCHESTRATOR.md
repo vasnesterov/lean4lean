@@ -2521,6 +2521,10 @@ Current drain list, in dependency order, to be applied when no stream holds the 
    (its "no instance registers an `.app` pattern" claim is now refuted -- two do), `KCanonical.lean`'s
    `refParams_kSmall` (asserts an absence in its first sentence, corrects it two sentences later -- delete
    the first), and a cross-reference near `ShapeVar.lean:372`.
+7c. **`B6.lean` docstring note**: `InductiveDeclExamples.constLookup_staged_ntree` is **vacuous** at
+   `ntreeEnv` -- `ntreeEnv.addIndTypesC ntreeAux ntreeK = none` by `rfl`, confirmed independently by me,
+   because `addConst` fails on a name already present. Point readers at
+   `UserBlockR.constLookupU0_staged_witness`, which exhibits its antecedent at the pre-block table.
 8. **Two doc defects in `ProjExistClose.lean`'s header**: "3661, three holes" where today measures 3698, and
    a cross-reference to a "§1.4" that does not exist.
 9. ~~Corrections to `docs/audit-hole-producers.md`.~~ **DONE** — §6, C1-C4. Markdown compiles nothing, so

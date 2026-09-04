@@ -337,3 +337,199 @@ Sole planned import `Lean4Lean.Verify.Inductive.B6`, so my closure **is** B6's: 
   P10 read that as holding for B6; it does not. Recorded as a miss rather than smoothed over.
   Nothing in either module is a `TrExprS`/`ctorTr?` fact about the user's node type at
   `ntreeRestore`, so the borrowability worry does not transfer — but the prediction was wrong.
+
+### T2 — increment 1 landed: module docstring + §1.1 levels
+
+`Lean4Lean/Verify/Inductive/UserBlockR.lean` created, sole import `Lean4Lean.Verify.Inductive.B6`,
+**builds clean**. Contains the module docstring (carrying M7's correction: `noLam_of_ctorTr` is
+cited nowhere and cannot be, because it constrains the *output* while the `.lam` case must refute
+the *input*), `VLevel.toLevel`, `VLevel.ofLevel_toLevel` and `VLevel.mapM_ofLevel_toLevel`.
+
+One deviation from §2's recorded text, and it is cosmetic, not mathematical: §2/M6 states
+`ofLevel_toLevel` exactly as reproduced. The `.param` case needed `List.getElem_eq_getD`
+(reversed) rather than `List.getD_eq_getElem` — the latter **does not exist** under that name in
+this toolchain (v4.33.0-rc2). Statement unchanged; `hUs.idxOf_getElem` is
+`List.Nodup.idxOf_getElem` as §2 records.
+
+### T3 — increment 2 landed: §1.2, M6 in full
+
+`VExpr.toExpr`, `VExpr.lvlWF`, `VExpr.ctorTr?_toExpr` — **exactly as §2/M6 records them**, builds
+clean first try. Levels unrestricted (`zero`/`max`/`imax` all in), no typing side condition in the
+conclusion, `hUs : Us.Nodup` and `v.lvlWF Us.length` the only hypotheses. `bvarCtx_find?` closes
+`.bvar`; `VLevel.mapM_ofLevel_toLevel` (built in T2 off `List.Nodup.idxOf_getElem`) closes `.const`.
+
+M7 confirmed *in the writing*: the `.lam` case is `rw [toExpr] at h; simp [ctorTr?] at h` — the
+input is refuted because `ctorTr?` has no `.lam` clause. `noLam_of_ctorTr` is not cited and there is
+no place for it to go.
+
+### T4 — increment 3 landed: §2, M8's bridge
+
+`stripBinderData` and `ctorTr?_stripBinderData` as §2/M8 records them, clean first try. The lemma is
+an unconditional equation in `Γc`, `Us`, `Γ`; the `.forallE` case needs a two-level case split on
+`ctorTr?` of the domain and on `sortOf?` of its type (the recursive call on the body sits under both
+binds), which is bookkeeping, not content.
+
+### T5 — increment 4 landed: §3, M2 and M8's `user_is_reification`
+
+`ntreeΓcU` = {`NTree`, `List`, `_nested.List_1`} ↦ `⟨1, ∀ (α : Type u), Type u⟩`, `ntreeEnvU`,
+`constLookupU` (**`fun _ _ h => h`, P7 again**), `constLookupU_staged`, the two M2 equations
+(`ntreeNode_ctorTr?_typeR`, `ntreeNode_ctorTr?_declared`, both `⟨_, rfl⟩`) and
+`user_is_reification` (**by `rfl`**) — all **exactly as §2 records**.
+
+Two additions §2 did not name, both to make the concrete case an *instance* of M6 rather than a
+parallel `rfl`:
+* `VExpr.decidable_lvlWF` — a `Decidable` instance for `lvlWF`, so the side condition of
+  `ctorTr?_toExpr` is `by decide` at a concrete block instead of a hand conjunction.
+* `ntreeNode_ctorTr?_typeR_of_general` — the same statement as the M2 equation, but *derived* from
+  `VExpr.ctorTr?_toExpr` + `user_is_reification` + `ctorTr?_stripBinderData`, with no `rfl` on
+  `ctorTr?` at all. That is the honest form: the `rfl` version is a check, this one is the theorem.
+
+One elaboration snag, fixed not restated: `VExpr.ctorTr?_toExpr` applied with all-implicit `Us`/`v`
+gives "Expected type must not contain metavariables" at the two `by decide`s, since the implicits are
+only fixed by the later argument. Supplying `(Γc := …) (Us := [`u]) (v := …) (Γ := []) (p := p)`
+explicitly fixes it. Statement unchanged.
+
+### T6 — increment 5 landed: §3.4, M3 in full
+
+`ntreeAux_setRecArgsD` (**by `rfl`** — P4's `rfl` half reproduces) and
+`chain : CtorStoresTr ntreeEnvU [`u] [ntreeSurf] ntreeAux ntreeRestore` via
+`ctorStoresTr_of_ctorTr_setRecArgs constLookupU`, clean first try, exactly as §2/M3 records. The
+per-constructor input is `⟨rfl, _, rfl⟩` at `j = 0, q = 0`; `j ≥ 1` and `q ≥ 1` are discharged from
+`ntreeSurf`'s one-member/one-constructor shape, so the `j = 1` slot of the two-member abstract block
+carries no obligation, as §2 explains.
+
+### T7 — increment 6 landed: §4, the β-redex control
+
+`ntreeNodeRedexE` (the user's constructor type with the recursive field's domain written as
+`(fun β => List (NTree β)) α`) and `ntreeNodeRedex_ctorTr?_none : ctorTr? Γc Us ntreeNodeRedexE Γ =
+none` — **for every `Γc`, every `Us`, every `Γ`**, by `simp [ntreeNodeRedexE, ntreeNodeRedexDom,
+ctorTr?]`, because the `.app` clause's first bind hits a `.lam` and there is no `.lam` clause.
+Paired with `ntreeNodeContr_ctorTr?_some`: the contracted form succeeds at `ntreeΓcU`, at the same
+restored abstract type. Same type, one β-step apart, opposite answers. `noLam_of_ctorTr` still not
+cited — this too is a fact about the input.
+
+**One recorded intention that had to be restated, and it is worth naming.** I first wrote the β-step
+as `ntreeNodeRedexDom.headBeta = ntreeNodeContrDom := rfl`. It **fails**: `Lean.Expr.headBeta` bottoms
+out in `@[extern]`/`opaque` instantiation, so it does not reduce in the kernel, and `Expr` has no
+`DecidableEq` either, so `decide` is unavailable too. Not a §2 result — §2 records no `headBeta`
+claim — so nothing recorded failed to reproduce here; but the fix is on the record: the β-step is
+stated at the `VExpr` level, where `VExpr.betaHead` (B6 §1) is pure Lean
+(`vRedexDom_betaHead : vRedexDom.betaHead = vContrDom`, by `rfl`), and §1/§2 supply the bridge
+(`ntreeNodeRedexDom_reify`, `ntreeNodeContrDom_reify`: each `Expr` domain is `stripBinderData`-equal
+to the `toExpr` reification of the corresponding `VExpr`). That is a *stronger* statement than the
+`Expr`-level one, not a weaker one, since it also exhibits the two as reifications.
+
+### T8 — increment 7 landed: §5 anti-vacuity, §6 the arity-0 witness, §7 the axiom audit
+
+File complete: 614 lines, **zero errors and zero warnings** (`lean_diagnostic_messages` at severity
+`warning` returns an empty list; `lake build` replays clean).
+
+**A finding, not in §2, and it is P7/M13's trap sprung.** `constLookupU_staged` — the staged
+`ConstLookup`, written to mirror B6's `constLookup_staged_ntree` — has an antecedent that is
+**unsatisfiable at `ntreeEnvU`**:
+
+```lean
+theorem ntreeEnvU_addIndTypesC_none : ntreeEnvU.addIndTypesC ntreeAux ntreeK = none := rfl
+```
+
+`VEnv.addConst` returns `none` on a name already present (`Theory/VEnv.lean:27`), `addIndTypesC` is
+`addConstList (D.typeConstsC K)`, and `ntreeAux.typeConstsC ntreeK` is exactly
+`[(NTree, ⟨1, ∀ (α : Type u), Type u⟩)]` (proved by `rfl`) — whose name `ntreeEnvU` already carries,
+because the table has to carry it for the *unstaged* lookup. So `constLookupU_staged` is **vacuously
+true as stated**, and **B6's `constLookup_staged_ntree` is vacuous at `ntreeEnv` for exactly the same
+reason** (its table also carries `NTree`). That is a fact about B6, in B6's file, not mine — recorded
+here, not acted on.
+
+Nothing in this file depends on it: `ctorStoresTr_of_ctorTr_setRecArgs` asks only for
+`ConstLookup Γc env`, which is `constLookupU = fun _ _ h => h`. And the non-vacuous version is
+supplied at the *pre-block* table `ntreeΓcU0` (= `ntreeΓcU` minus `NTree`):
+
+```lean
+theorem constLookupU0_staged_witness :
+    ∃ env₁, ntreeEnvU0.addIndTypesC ntreeAux ntreeK = some env₁ ∧ ConstLookup ntreeΓcU env₁
+```
+
+— antecedent exhibited, `NTree` arriving from the block and `List`/`_nested.List_1` from the pre-block
+environment, which is `constLookup_staged_of_split`'s disjunction discharged leaf by leaf.
+
+`ntreeSurf_userBlockR_witness` is arity 0 and **every conjunct is an equation or an existential**;
+the four universally quantified conjuncts (the general left-inverse, the bridge, the redex control)
+are the general theorems, whose hypotheses are `Us.Nodup`/`lvlWF` and nothing else.
+
+### T9 — measurements (`scripts/exists.lean`, population 469 built modules)
+
+Every name below: `own value is a hole: false`, `cone reaches sorryAx: false`, `watched declarations
+in cone: none of 6`. Names as the script prints them (`ntreeΓcU` carries a Greek Γ).
+
+| name | arity | cone | `#print axioms` |
+|---|---|---|---|
+| `Lean4Lean.VLevel.toLevel` | 2 | — | `propext` |
+| `Lean4Lean.VLevel.ofLevel_toLevel` | 4 | 908 | `propext, Quot.sound` |
+| `Lean4Lean.VLevel.mapM_ofLevel_toLevel` | — | — | `propext, Quot.sound` |
+| `Lean4Lean.VExpr.toExpr` | 2 | 592 | `propext` |
+| `Lean4Lean.VExpr.lvlWF` | 2 | 53 | none |
+| `Lean4Lean.VExpr.ctorTr?_toExpr` | 8 | 1163 | `propext, Quot.sound` |
+| `Lean4Lean.stripBinderData` | 1 | 396 | `propext` |
+| `Lean4Lean.ctorTr?_stripBinderData` | 4 | 925 | `propext, Quot.sound` |
+| `Lean4Lean.InductiveDeclExamples.ntreeΓcU` | 1 | 342 | `propext, Quot.sound` |
+| `Lean4Lean.InductiveDeclExamples.constLookupU` | 0 | — | `propext, Quot.sound` |
+| `Lean4Lean.InductiveDeclExamples.ntreeNode_ctorTr?_typeR` | 0 | 1007 | `propext, Quot.sound` |
+| `Lean4Lean.InductiveDeclExamples.ntreeNode_ctorTr?_typeR_of_general` | 2 | 1279 | `propext, Quot.sound` |
+| `Lean4Lean.InductiveDeclExamples.user_is_reification` | 0 | 900 | `propext, Quot.sound` |
+| `Lean4Lean.InductiveDeclExamples.ntreeAux_setRecArgsD` | 0 | 898 | `propext, Quot.sound` |
+| `Lean4Lean.InductiveDeclExamples.chain` | 0 | 1362 | `propext, Classical.choice, Quot.sound` |
+| `Lean4Lean.InductiveDeclExamples.ntreeNodeRedex_ctorTr?_none` | 3 | 982 | `propext, Quot.sound` |
+| `Lean4Lean.InductiveDeclExamples.vRedexDom_betaHead` | 0 | — | `propext` |
+| `Lean4Lean.InductiveDeclExamples.ntreeEnvU_addIndTypesC_none` | 0 | — | `propext, Quot.sound` |
+| `Lean4Lean.InductiveDeclExamples.constLookupU0_staged_witness` | 0 | 515 | `propext, Quot.sound` |
+| `Lean4Lean.InductiveDeclExamples.ntreeSurf_userBlockR_witness` | 0 | **1561** | `propext, Classical.choice, Quot.sound` |
+
+`ntreeΓcU`'s cone 342 against B6's `ntreeΓc` 341 is the one extra `` ``List `` literal — the whole
+cost of widening the table. **P8 (0.9) — HIT**: nothing beyond
+`propext`/`Quot.sound`/`Classical.choice` anywhere, no `sorryAx`, zero warnings.
+
+`lean_verify` on the witness (not `#print axioms`, which line-wrapped in the build log) confirms
+`["propext","Classical.choice","Quot.sound"]`.
+
+### T10 — the consumer question (P9), and the closure re-measured
+
+Closure with `UserBlockR` itself included: **205 modules, 171 `Lean4Lean.*`** — T1's B6 figure
+(204/170) plus this file, consistent.
+
+* `Lean4Lean.Verify.Inductive.TrIndDeclNProducer` — **the feasible named consumer.** It is OUT of
+  this file's closure and this file is OUT of its 207-module closure, so `import
+  Lean4Lean.Verify.Inductive.UserBlockR` there is **acyclic**: one import, no proof move, no
+  migration. (It does not even import B6 today, so it would gain both.) `can-cite.py` reports `NO …
+  would have to gain Lean4Lean.Verify.Inductive.UserBlockR`, which is the import-order fact, not a
+  missing proof. I have not made that edit — `TrIndDeclNProducer` is not one of my two files.
+* `Lean4Lean.Verify.Environment.InductR` — **impossible, and it is a cycle.** `exprOf%` is *defined*
+  in `InductR` (line 771) and this file uses it, so `InductR` is IN this closure. It can never cite
+  the headline.
+* `Lean4Lean.Verify.Inductive.NestedRestoreWit` — **impossible, same reason**: IN this closure (via
+  the `B6 → … → NestedOccData → NestedRestoreWit` chain T1 measured). So of P9's three candidates
+  exactly one is viable, and it is B6's own named consumer.
+* `Lean4Lean.Verify.Inductive.FlipConstruct` — **OUT**, re-confirmed. `tr_ntreeNodeType`, the
+  hand-built `TrExprS` of exactly the user's node type, is `NO` for this file too (`can-cite.py`:
+  "would have to gain `Lean4Lean.Verify.Inductive.FlipConstruct`"). So the headline is **proved, not
+  borrowed** — P10's dangerous exclusion holds for `UserBlockR` as it did for B6.
+
+### T11 — reproduction verdict on §2
+
+**Everything in §2 reproduced.** M1's three facts are the premise of the file rather than restated in
+it; M2, M3, M6 and M8 all elaborate exactly as recorded, and M7's negative measurement holds in the
+writing (`noLam_of_ctorTr` is cited nowhere and there is no place in `ctorTr?_toExpr`'s `.lam` case
+for it to go). Three deviations, all in the *proofs* and none in a statement, all logged above at the
+increment that hit them:
+
+1. T2 — `List.getD_eq_getElem` does not exist under that name on v4.33.0-rc2; `List.getElem_eq_getD`
+   reversed does the same job.
+2. T5 — `VExpr.ctorTr?_toExpr` needs its implicits supplied explicitly when the side conditions are
+   discharged by `decide`, and `lvlWF` needed a `Decidable` instance (`VExpr.decidable_lvlWF`) for
+   `decide` to be available at all.
+3. T7 — the β-step of the control cannot be stated as `Expr.headBeta … = … := rfl` (`headBeta` is
+   `@[extern]`/`opaque` and `Expr` has no `DecidableEq`); it is stated at the `VExpr` level with
+   `VExpr.betaHead`, plus the `toExpr`/`stripBinderData` bridge to the `Expr` level, which is
+   strictly more than the `Expr`-level claim would have been.
+
+Plus one finding §2 did not have: **T8's vacuity of the staged `ConstLookup`** at any table that
+carries the block's own member name — which applies verbatim to B6's `constLookup_staged_ntree`.
