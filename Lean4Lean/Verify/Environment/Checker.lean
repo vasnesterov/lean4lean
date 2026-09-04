@@ -81,6 +81,11 @@ theorem checkConstantValCore.WF {env : Environment} {ves : VEnvs} (wf : ves.WF e
   refine (TypeChecker.M.WF.liftExcept
     (checkName.WF (wf.tr (safety := safety)).map_wf ci.name allowPrimitive)).bind
     fun _ _ _ hname => ?_
+  -- The reserved `_nested` prefix is rejected operationally; no later proof needs that fact.
+  -- Added 2026-09-04 alongside PR #46, which inserted `checkNoNestedAuxName` into
+  -- `checkConstantVal`.  `checkNoNestedAuxName : Name → Except Exception Unit` either throws or
+  -- returns `()`, exactly like `checkDuplicatedUnivParams` below, so the step is `Except`-trivial.
+  refine (TypeChecker.M.WF.liftExcept (Except.WF.trivial _)).bind fun _ _ _ _ => ?_
   -- Duplicate level parameters are rejected operationally; no later proof needs that fact.
   refine (TypeChecker.M.WF.liftExcept (Except.WF.trivial _)).bind fun _ _ _ _ => ?_
   refine (TypeChecker.M.WF.liftExcept
