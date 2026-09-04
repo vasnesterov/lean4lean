@@ -1080,11 +1080,22 @@ facts `RestoreData.ownName`/`ownCtor` (`Verify/Inductive/NestedRestore.lean`) ar
 hypotheses**: acceptance by `Environment.addInductive` implies the gate condition
 (`addInductive_WF_noNestedDeclNames`, `Verify/Inductive/RestoreFaithful.lean`), which discharges
 both, and `RestoreData.auxRec` follows from the gate alone.  The first half stands: the prefix is
-still not an environment-wide invariant, because this check guards only the inductive branch --
-`axiom _nested.zzz` and `def _nested.ddd` are still accepted, machine-checked by a `#eval` in
-`RestoreFaithful.lean` that fails the build if that changes.  Extending it to every declaration is
-one line and a wider divergence from C++; it is costed in
-`docs/decision-nested-prefix-all-decls.md` and awaiting a human decision.
+**STALE, corrected 2026-09-04 -- PR #46 (`7e39484`) falsified every sentence of what this paragraph
+used to say.**  It read: *"the prefix is still not an environment-wide invariant, because this check
+guards only the inductive branch -- `axiom _nested.zzz` and `def _nested.ddd` are still accepted,
+machine-checked by a `#eval` in `RestoreFaithful.lean` that fails the build if that changes.  Extending
+it to every declaration is one line and a wider divergence from C++; it is costed in
+`docs/decision-nested-prefix-all-decls.md` and awaiting a human decision."*
+
+All of it is now false.  The human decision was taken (approved on PR #46), the one line is in
+`checkConstantVal` (`Lean4Lean/Environment.lean`), so **prefixed axioms and definitions are REJECTED**
+-- and the `#eval` this paragraph cites **fired on the merge and now asserts the opposite**, having been
+written as a tripwire for exactly this change.  The prefix **is** an environment-wide invariant:
+`Verify/Inductive/NoNestedAll.lean` establishes `VEnv.NoNestedN` across every `addDecl` branch
+(`VEnv.NoNestedN.of_addDecl`), and `noNestedEnv_not_preserved_unchecked` shows it fails with
+`check := false`, so the check is load-bearing.  Two residuals remain, both named there:
+`MutualNamesGate` (the header loop, unproved not false) and `InductiveMapGate` (the map side of the
+inductive step).  The divergence itself is recorded in `divergences.md`.
 
 No exploit is claimed, and two mitigations may close every path: `mkUniqueName` skips names the
 environment already holds, and the renamed recursors end in `rec_k`, never `rec`. There is a
