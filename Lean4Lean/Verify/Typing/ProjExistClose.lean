@@ -16,9 +16,14 @@ Two things here are new relative to `ProjWeakInv.lean` / `ProjWeakInvSplit.lean`
    hole actually has: `VEnv.ProjDataStrengthen` is **equivalent** to the `sorry`'s statement,
    `iff`, and the reduction is *hole-free* — it never calls `VEnv.HasArgs.of_mkApp`, so
    `rigidShapeUniqNS` and `forallE_inv_stratified` both leave the cone that
-   `TrProj.weak'_inv_of_strengthen` (3661, three holes) carries.  The price of the equivalence is
-   that the residual keeps the two `HasArgs` fields, which the `ConstAppTypeStrengthen` form
-   discards and then re-derives; §1.4 states that trade precisely.
+   `TrProj.weak'_inv_of_strengthen` (**3698** as of 2026-09-04, three holes -- this said 3661, taken
+   at an earlier population) carries.  The price of the equivalence is that the residual keeps the two
+   `HasArgs` fields, which the `ConstAppTypeStrengthen` form discards and then re-derives.  (This
+   sentence used to end "§1.4 states that trade precisely"; **there is no §1.4 in this file** -- the
+   reference was dangling.  The trade is stated precisely, with both cones measured, in
+   `Verify/Typing/ProjDataAttack.lean`, which shows the rebuild *is* where the three holes enter and
+   that routing through `TrProj.instN` instead costs 3412 constants with **zero** holes and zero
+   watched names.)
 
 2. **§2: `TrProj` is inhabited.**  `inferProj.WF`'s docstring says the statement is "vacuously
    true today (`TrProj` has no inhabitants until the keystone lands)", and the same parenthesis

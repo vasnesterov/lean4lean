@@ -2539,8 +2539,33 @@ Current drain list, in dependency order, to be applied when no stream holds the 
    `ntreeEnv` -- `ntreeEnv.addIndTypesC ntreeAux ntreeK = none` by `rfl`, confirmed independently by me,
    because `addConst` fails on a name already present. Point readers at
    `UserBlockR.constLookupU0_staged_witness`, which exhibits its antecedent at the pre-block table.
-8. **Two doc defects in `ProjExistClose.lean`'s header**: "3661, three holes" where today measures 3698, and
-   a cross-reference to a "§1.4" that does not exist.
+8. ~~**Two doc defects in `ProjExistClose.lean`'s header**.~~ **DONE 2026-09-04.**
+
+**DRAIN COMPLETE except two entries**, and the exceptions are deliberate:
+
+- **The `ParRedSE` flip (item 3) is not a drain step.** It needs `CRSEScope.lean` §2/§4 restated in the
+  same change, which is proof work. It wants a round.
+- **`ShapeVar.lean:372` is NOT being fixed, on purpose.** The report said only "a cross-reference near
+  `ShapeVar.lean:372`". Reading the site, I cannot tell what it thought was wrong. Guessing at a
+  correction to a docstring I have not diagnosed is how bad docstrings get written in the first place, so
+  it stays queued with this note. **When a report hands me a defect I cannot reproduce, the entry records
+  that I could not reproduce it -- it does not get a speculative edit.**
+
+### What the drain actually cost, and the one number that kept moving
+
+Nine docstring corrections, one declaration moved, two entries cancelled as wrong or obsolete, zero
+statements changed, build green at 1655 jobs throughout.
+
+The recurring defect was not staleness but **undated numbers**. Three separate counts moved under me
+during a single session: the `Theory`-downstream-of-`Verify` cluster (10 -> 11 -> 12 as streams added
+files), `TrProj.weak'_inv_of_strengthen`'s cone (3661 -> 3698), and `descend`'s transitive users, where a
+round reported 255/46 and I measured **264/49** an hour later because the population had grown 464 -> 469.
+**None of those figures was wrong when taken.** `scripts/users.lean`'s own header opens by noting that this
+repo describes one hole as a 534-, 736-, 714-, 449-, 515- and 468-user hole in six different places -- the
+fix for that is not a better number, it is a **dated** one, and I have now written the date and population
+beside every count I touched.
+
+Corollary rule: **a count in a docstring without a date is a defect even if it is currently right.**
 9. ~~Corrections to `docs/audit-hole-producers.md`.~~ **DONE** — §6, C1-C4. Markdown compiles nothing, so
    this one needed no quiet window, which is the distinction worth drawing: **doc-only edits under `docs/`
    are always drainable; docstring edits inside `.lean` files are not, because they invalidate oleans.**

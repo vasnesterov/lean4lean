@@ -19,7 +19,14 @@ under `Verify/`, and a `Theory/` file may not import it.
 
 ## What the measurement says, and what it does **not**
 
-**[measured]** — forward hole cone, transitive over type *and* value, `allowOpaque := true`:
+**[measured]** — forward hole cone, transitive over type *and* value, `allowOpaque := true`.
+**STALE, corrected 2026-09-04**: the table below lists `forallE_inv` as though it were a hole. It is
+**not** -- `Lean4Lean.VEnv.IsDefEqU.forallE_inv` is a *theorem* (arity 10, cone 3574, `own value is a
+hole: false`) standing on `forallE_inv_stratified` and `WF.rigidShapeUniqNS`. Today's measurement of
+`patWF_of_wf` is cone 4062 with exactly two holes, `forallE_inv_stratified` and `WF.rigidShapeUniqNS`,
+plus `IsDefEq.uniq`/`uniqU` watched-by-policy -- which nothing here mentioned. The four-name reading
+below is what `Theory/Typing/ParamsBuild.lean`'s "(open)" annotation propagated into; both are
+corrected. The table is kept as written, so the correction has something to point at:
 
     VEnv.const_app_inv_of_patWF   weakN_iff, forallE_inv_stratified, NormalEq.descend, forallE_inv
     VEnv.const_app_inv_of_wf      (the same four; `patWF` contributes only

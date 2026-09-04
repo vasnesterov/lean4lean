@@ -1812,7 +1812,12 @@ eta-expanded function argument).
    statement verbatim); note that route (1) already absorbs the proof-replacement half, since a
    K-step fires whichever proof sits in the major-premise slot.
 
-**Consequence for this file's own results.**  `descend` has **224** transitive users in 41 modules (`scripts/users.lean`, 2026-09-03; the **193** previously recorded here was taken over a smaller closure)
+**Consequence for this file's own results.**  `descend` has **264** transitive users in **49** modules
+and **2** direct ones, in `ChurchRosser` and `DescendRefute` (`scripts/users.lean`, 2026-09-04, at a
+population of 469 built modules).  **This figure moves and must be quoted with its date**: the same
+instrument gave 224/41 on 2026-09-03 at 464 modules and 193 before that over a smaller closure, and
+none of those was wrong when taken.  The **2 direct** users are the number that matters for changing
+the statement; the transitive one is what "an N-user hole" means
 (`scripts/sorry-census.lean` at `f4b32ea`; 206 users / 196 sole per `hole-rank.lean`.  The
 "145" this paragraph quoted until 2026-09-01 was measured with a reverse-reachability graph
 that skipped internal names while *building* it, so it was an undercount -- see
