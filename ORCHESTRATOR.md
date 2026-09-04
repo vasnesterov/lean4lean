@@ -2225,7 +2225,10 @@ applied between rounds, newest last:
    in my hands -- and I am taking it, because the benefit is that `parRedSES_rigid`'s hypothesis goes
    from false to unconditionally true, while the cost lands on `NormalEq.descend`, which is already
    refuted in both orientations.  Whoever applies it restates `CRSEScope` §2/§4 in the same round.
-4b. **Close holes #3 and #4** (census 13 -> 11), from `docs/audit-hole-producers.md` §1, both in
+4b. ~~**Close holes #3 and #4** (census 13 -> 11)~~ **CANCELLED 2026-09-04 -- see the entry below. The
+   tree already considered this exact edit and rejected it, in writing, at both sorry sites.** Original
+   entry kept for the record:
+   ~~from `docs/audit-hole-producers.md` §1, both in
    `Verify/TypeChecker/IsDefEq.lean`, each replacing `:= sorry`:
      #4 `tryEtaStructCore.WF` := `(tryEtaStructCore_never_true he₂).mono fun _ _ _ h hb => absurd (h ▸ hb) nofun`
      #3 `isDefEqUnitLike.WF`  := `(isDefEqUnitLike_never_true he₁).mono fun _ _ _ h hb => absurd (h ▸ hb) nofun`
@@ -2535,3 +2538,49 @@ Current drain list, in dependency order, to be applied when no stream holds the 
 Every new stream extends the busy window, and the queue's value decays — item 7 in particular is five false
 claims that the *next* round will read and believe, which is how the `forallE_inv` "(open)" error cost three
 rounds this week. Draining beats starting.
+
+
+## I nearly overwrote a deliberate design decision, on my own audit's advice (2026-09-04)
+
+I had queued "close census holes #3 and #4, census 13 -> 11" and written, in this file, *"My call, and I am
+taking it: a hole that can be honestly closed should be, or the census overstates the remaining work and
+stops distinguishing real holes from paperwork."*
+
+Then I opened `Verify/TypeChecker/IsDefEq.lean` to make the edit. Both sorry sites begin:
+
+> **Still `sorry`, deliberately.** `(tryEtaStructCore_never_true he₂).mono fun _ _ _ h hb => absurd (h ▸ hb) nofun`
+> discharges it in one line -- but that close is vacuous, is discarded the moment `AddInduct` gains
+> constructors, and would make the refinement layer read as complete on structure-eta when it has no content
+> on it at all.
+
+The file names **the exact proof term my audit proposed**, and rejects it. Its argument is better than mine
+on every point:
+
+- **The close is not honest.** `tryEtaStructCore_never_true` does not mention `e₁` **at all**. So the
+  conclusion `c.IsDefEqU e₁' e₂'` would be derived for a *completely arbitrary* `e₁'`, with no hypothesis
+  relating it to `e₁`. It proves that the branch is dead, not that the checker is sound on it. My whole
+  justification was the word "honestly", and it does not apply.
+- **`never_true` is a tripwire, kept live on purpose.** When `AddInduct` gains constructors,
+  `TrEnv'.find?_shape` gains three shapes, the three `not_*Info` lemmas become **false**, and that theorem
+  **goes red**. The docstring says so explicitly: *"which is exactly why it is kept live: it is the marker
+  that `tryEtaStructCore.WF` has no content yet, and it fails loudly rather than silently."* Closing the
+  hole would trade a loud failure for a silent one at precisely the moment the obligation becomes real.
+- **The real statement is already there.** `WF_of_structEta` is the non-vacuous version, and the hole "is
+  exactly that one with its two hypotheses removed" -- neither provable in this tree today.
+
+So: cancelled. Not deferred, cancelled, and the queue entry is struck through rather than deleted so the
+reversal stays visible.
+
+**Three things I take from this.**
+
+1. **My audit read the producers and not the holes.** It measured `tryEtaStructCore_never_true`, verified the
+   one-line close elaborates, and ranked it #1 -- without reading the docstring *attached to the sorry it
+   proposed to fill*, which is where the objection lives. Its advice to leave hole #2 alone was right for a
+   reason that generalises to #3 and #4, and it did not notice. **New brief line for any hole-closing round:
+   read the hole's own docstring before proposing a proof, and quote it.**
+2. **"Look at the target before overwriting" earned its keep.** This is the rule I hold about deleting and
+   overwriting, and it is the only reason this did not land. A census number would have improved and the
+   project would have been worse.
+3. **A census that counts vacuous closes is worse than one that overstates.** I had the trade backwards. The
+   13 is not paperwork -- two of those entries are load-bearing tripwires, and the file says so. Row 312's
+   framing ("3 closable") should be read as "3 have a producer", which is not the same claim.
