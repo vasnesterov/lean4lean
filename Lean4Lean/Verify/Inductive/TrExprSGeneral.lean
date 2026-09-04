@@ -46,14 +46,39 @@ cases plus the pass-through.  §6 records the boundary and says, per omitted con
 admitting it would cost.  The short version:
 
 * `.lam` needs the body's inferred type to be *abstracted* back into a `.forallE`, which is
-  fine; the reason it is omitted is that a constructor type never has one, and adding it would
-  need no new idea.
+  fine; adding it needs no new idea. ~~The reason it is omitted is that a constructor type never
+  has one.~~ **FALSE, refuted 2026-09-04** -- see the correction below.
 * `.letE` translates to the *substituted* body, so the inferencer would have to instantiate, and
   `TrExprS.letE`'s premise is a `HasType` of the value at the declared type -- again available,
   but the `VLCtx` stops being an all-`vlam` one, so §1's free lookups are lost.
 * `.proj` needs `TrProj`, which reads the inductive block's stored data; `.lit` needs
   `VEnv.ContainsLits`; `.fvar` needs a non-`vlam` context entry.  These three are genuine
-  additions, not bookkeeping, and none of them occurs in a constructor type.
+  additions, not bookkeeping.
+
+**CORRECTION 2026-09-04 -- "none of them occurs in a constructor type" is FALSE, and so is the
+`.lam` claim above.**  `Verify/Inductive/FragmentWiden.lean` exhibits three ordinary `inductive`
+blocks, accepted by Lean's own kernel, whose **stored** constructor types (spliced by `exprOf%`,
+never transcribed) carry excluded heads: `Fin 3 → _` carries `.lit (.natVal 3)`;
+`{ n // n = n } → _` carries `.lam`; `(let n := 3; Fin n) → _` carries an un-zeta-reduced
+`.letE`.  Each is proved outside the fragment for **every** `Γc` and `Us`
+(`FragEx.withLit_not_ctorsInFragment` and siblings, cones 955-957, hole-free).
+
+**No theorem in this file is wrong** -- every one is conditional on `hfrag`.  What was wrong is the
+belief that `hfrag` is *free*.  It is a real side condition on the block.
+
+**And the head list was never the boundary.**  `FragEx.WithConv` uses only `.app`, `.forallE` and
+`.const` -- `inFragment` returns `true` -- and the inferencer still returns `none`, because the
+applied function's stored type is a `.const` that must delta-unfold before `piOf?` sees a `Π`
+(`FragEx.withConv_ctorTr?_none`, cone 918).  So membership is **necessary, not sufficient**, and
+closing that gap needs `HasType.defeq` at a delta step -- a **conversion check**, which is exactly
+what this fragment design exists to avoid.
+
+`.fvar`/`.mvar` are, however, **provably vacuous** here: under the `FVarsIn (fun _ => False)`
+invariant that `addInductive`'s guard loop actually supplies, adding them widens the fragment on no
+constructor type the checker is ever asked to accept (`inFragmentFM_eq_inFragmentW`, cone 431).
+And `.proj` is **structurally** blocked, not merely costly: `not_isUnique_proj` (cone 42) gives
+`TrExprS.IsUnique (.proj ..) = False`, so admitting it would degrade §4's `↔` to a one-directional
+producer.
 
 §3 is the member-level statement, §4 the `TrIndDeclN.trCtors` field producer plus an `↔` on the
 fragment, §5 the **arity-0** witness at the parameterised nested block `ntreeAux`, reached
