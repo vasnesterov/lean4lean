@@ -2517,6 +2517,10 @@ Current drain list, in dependency order, to be applied when no stream holds the 
 7. **Five stale docstrings**: `ParamsBuild.lean` (the "(open)" root cause), `EtaOrient.lean` (two false
    sentences), `ConstSpineWF.lean` (stale cone table), `ChurchRosser.lean:1815` (user split 224/41, measured
    255/46), `DescendRestate.lean` (a replacement that replaces a different statement than claimed).
+7b. **Three more stale docstrings** (`ParamsCR` round, handoff §5, verbatim): `DescendSurplus.lean:103-107`
+   (its "no instance registers an `.app` pattern" claim is now refuted -- two do), `KCanonical.lean`'s
+   `refParams_kSmall` (asserts an absence in its first sentence, corrects it two sentences later -- delete
+   the first), and a cross-reference near `ShapeVar.lean:372`.
 8. **Two doc defects in `ProjExistClose.lean`'s header**: "3661, three holes" where today measures 3698, and
    a cross-reference to a "§1.4" that does not exist.
 9. ~~Corrections to `docs/audit-hole-producers.md`.~~ **DONE** — §6, C1-C4. Markdown compiles nothing, so
