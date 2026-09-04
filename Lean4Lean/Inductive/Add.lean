@@ -1095,8 +1095,8 @@ written as a tripwire for exactly this change.  The prefix **is** an environment
 (`VEnv.NoNestedN.of_addDecl`), and `noNestedEnv_not_preserved_unchecked` shows it fails with
 `check := false`, so the check is load-bearing.  **One** residual remains, `InductiveMapGate` (the map
 side of the inductive step -- the seven-file flip).  The header loop's postcondition is now a
-**theorem** (`addMutual_header_post`, `Verify/Inductive/MutualNames.lean`) and the `mutualDefnDecl`
-branch stands **unconditionally** (`addMutual_noNestedEnv'`).  Corrected 2026-09-04; the previous text
+**theorem** (`addMutual_header_post`) and the `mutualDefnDecl` branch stands **unconditionally**
+(`addMutual_noNestedEnv`), both in `Verify/Inductive/NoNestedAll.lean` §3.1.  Corrected 2026-09-04; the previous text
 said two residuals remained and graded the header loop "unproved, not false", which was wrong twice
 over -- `MutualNamesGate` as originally stated is not provable at all, because it **omits**
 `env.constants.WF`, a hypothesis every neighbouring theorem carries and its only consumer supplies.

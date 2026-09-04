@@ -421,8 +421,8 @@ section was written to make visible — is now suppliable in all four non-induct
   **as stated it was not provable**, because it omitted `env.constants.WF` — a hypothesis
   `NoNestedMap.add`, `checkConstantVal_find?_none` and `NoNestedEnv` itself all carry, and which its
   only consumer supplies.  The header loop was never the problem; the statement was.
-  `Verify/Inductive/MutualNames.lean` proves the postcondition (`addMutual_header_post`) and
-  discharges the branch outright (`addMutual_noNestedEnv'`).
+  `Verify/Inductive/NoNestedAll.lean` §3.1 proves the postcondition (`addMutual_header_post`) and
+  discharges the branch outright (`addMutual_noNestedEnv`, no gate argument).
 * One inherited vacuity: `TrEnv'.aligned`'s `induct` arm is `Aligned.addInduct`, i.e. `nomatch`
   (`addInduct_isEmpty` there proves the emptiness).  So the `induct` case of §2 is discharged
   vacuously today.  This is `AddInduct`'s emptiness and nothing new; when the flip lands,
