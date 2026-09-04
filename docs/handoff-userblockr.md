@@ -302,3 +302,38 @@ reification of the abstract constructor type at the real restoration, up to bind
 The remaining content of the per-constructor equation is then general (M6), and `mdata` is handled
 by the same lemma rather than by luck — which retires the `mdata` half of P11 structurally instead
 of by inspection.
+
+---
+
+## §3 TRANSCRIPTION
+
+Round 3. Rounds 1 and 2 crashed to API errors; round 2 finished the mathematics and recorded
+it in §2 but lost the `.lean` file. This section is the log of writing that file back, appended
+one verdict at a time before the next tool call, per the method rule that saved round 2's work.
+
+T0 — starting. Plan: read the definitions §2 names (`ctorTr?`, `CtorStoresTr`,
+`ctorStoresTr_of_ctorTr_setRecArgs`, `ntreeSurf`, `ntreeΓc`, `surfHeader`, `eraseRecArgs`,
+`VLevel.ofLevel`) out of the tree, then write `Lean4Lean/Verify/Inductive/UserBlockR.lean` in
+M1→M2→M3→M6→M8 order with the module docstring carrying M7's correction (P3 against the
+brief's reading). No Lean call made yet.
+
+### T1 — closure measured first (P10), before any Lean was elaborated
+
+Sole planned import `Lean4Lean.Verify.Inductive.B6`, so my closure **is** B6's: **204 modules,
+170 of them `Lean4Lean.*`** (`can-cite.py` header line; P10's guessed "171" was the
+`Lean4Lean.*` count and is one off — cosmetic).
+
+* `Lean4Lean.Verify.Inductive.FlipConstruct` — **OUT**, confirmed twice: absent from the
+  transitive-import set, and `can-cite.py` says `Lean4Lean.InductiveDeclExamples.tr_ntreeNodeType`
+  is **NO** for B6 ("would have to gain `Lean4Lean.Verify.Inductive.FlipConstruct`"). So the
+  hand-built `TrExprS` of exactly the user's node type is **not borrowable here**. This is the
+  exclusion P10 called the dangerous one, and it holds.
+* `Lean4Lean.Verify.Inductive.TrIndDeclNProducer` — **OUT**.
+* But **P10 is a MISS on two of the three it named**: `Lean4Lean.Verify.Inductive.ValAtParam`
+  and `Lean4Lean.Verify.Inductive.NestedRestoreWit` are **IN**, via
+  `B6 → ClaimB → FlipWiring → TrExprSGeneral → ExprConstructionScope → ValAtParam →
+  SpineClause → ValAtPrice → RestrictCompanion → ArgsTypedSupply → NestedOccData →
+  NestedRestoreWit`. `CtorsLenGeneral`'s docstring excludes `ValAtParam` from *its* closure, and
+  P10 read that as holding for B6; it does not. Recorded as a miss rather than smoothed over.
+  Nothing in either module is a `TrExprS`/`ctorTr?` fact about the user's node type at
+  `ntreeRestore`, so the borrowability worry does not transfer — but the prediction was wrong.
