@@ -3121,3 +3121,31 @@ own next action.
 **Rule: never tell a round that it is alone.** Tell it instead: *other streams may start at any time; a red
 file you do not own is not yours; re-poll before reporting it.* That sentence is true whenever I write it,
 which is the whole point.
+
+## A stall during orientation reading -- the one window §1 does not cover (2026-09-04)
+
+Eleventh loss this week and the **first stall** rather than an API crash: watchdog, no progress for 600 s. Its
+last words were *"Now let me finish orientation reading before writing §1."* It left **nothing** -- no `.lean`,
+no handoff. Build stayed green; no damage, just a wasted round.
+
+Every previous loss was survivable because §1 existed. This one died in the window **before** §1, which my
+priors-first rule does not protect. And the window was long **because my brief made it long**: I required
+reading `PosScan.lean`, `PosReach.lean`, `PosIndex.lean` and `Verify/Inductive/Add.lean`'s R1/R2, plus
+preserving a stated safety property, before it could form priors at all.
+
+**Fix, and it costs nothing: split §1 into questions then answers.** The brief now asks for §1's *questions*
+to be written **as the very first action, before any reading** -- the four shape questions instantiated to this
+target, plus the numbered predictions left blank -- and then filled in after orientation. Two reasons this is
+right beyond crash-survival:
+
+1. **The questions are the reusable artefact.** The `PosReach` crash proved it: its §1 questions and
+   predictions *were* the entire deliverable, and a later round executed straight off them.
+2. **Writing the questions before reading is better epistemics anyway.** A prediction formed after four files
+   of orientation is contaminated by them; one formed before is a real prior. Several rounds this week noted
+   their priors were about their own proof rather than about the problem -- writing the questions cold makes
+   that harder to do.
+
+**And a brief-design note:** four required-reading files plus a safety invariant is a lot of front-loading for
+one round. Where a target needs that much context, either the context belongs in the brief as quoted facts
+(which I can do, and which is now the rule for anything I would otherwise relay as a characterisation), or the
+round should be split.
