@@ -2084,3 +2084,18 @@ data, because then it is a proof move or a migration, which is far cheaper than 
 
 **Run it before pricing any "the content already exists" claim**, mine included. That claim has now
 been wrong in this specific way at least four times.
+
+## Under async, my "concurrent streams" lists are stale before they are read (2026-09-04)
+
+A round reported that more streams were live than its brief named, and that `git log` advanced three
+commits while it worked. That is not an error in the round — it is a direct consequence of the async
+rule: I spawn a follow-up the moment a round is verified, so any enumeration of concurrent work I write
+into a brief is stale within minutes.
+
+**Fix: briefs state what the stream OWNS, and tell it to discover the rest itself** with read-only
+`git status` / `git log` — permitted since the git rule was narrowed to state-changing commands. Keep
+the standing instruction that a red build in a file it does not own is someone else's work in flight:
+re-poll and say so. That instruction has now worked three times, including on a file created *during*
+the round that observed it.
+
+Ownership grants stay exact and exclusive; only the courtesy list of neighbours becomes advisory.
