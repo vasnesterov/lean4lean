@@ -1931,3 +1931,24 @@ absence, which is the very defect this project's ledger exists to track.
 **Rule: a measured figure may go in a brief with its provenance. Ownership, "whose job is this",
 and "where does this live" go in as *reportedly, verify first* — never as fact.** I have `shape.lean`
 and `users.lean` for exactly these questions and I have been answering them from memory.
+
+## None of my instruments answers "which direction is this pair already connected?" (2026-09-04)
+
+A round scored its own seven priors and then named the thing none of them had asked:
+
+> all seven priors asked *whether the lemma is true*. Not one asked **which way the tree already
+> runs the implication** — and that was the only thing that mattered.
+
+I had briefed a field as "waiting on one strengthening of X". The tree already proves X **from**
+that field, by name. The field is upstream, and the round produced a machine-checked refutation of
+my characterisation — not merely a report that it was hard.
+
+This is a gap in my toolkit, not just an error. `exists.lean` answers *does it exist*, `shape.lean`
+answers *what concludes this shape*, `users.lean` answers *what depends on it*. **None answers *in
+which direction is this pair already connected*.** Two of my brief errors this session are direction
+errors — this one, and pricing the wrong clause because I inverted a report's conclusion — and no
+instrument I have would have caught either.
+
+Cheap partial check until something better exists: for a claimed dependency A-needs-B, run
+`users.lean` on **both** and see which appears in the other's cone. If B's cone contains A, the
+brief has it backwards.
