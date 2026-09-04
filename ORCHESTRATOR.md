@@ -2385,3 +2385,28 @@ The general rule this leaves behind, narrower than the one I wrote an hour ago: 
 sends anything off this machine, record who chose the destination, in the commit that introduces it.**
 Not a default-free variable -- the user has now explicitly declined that -- but a sentence of
 provenance, so the question is answerable later without interrogating the user again.
+
+### And the rule's actual purpose, from the user (2026-09-04)
+
+Verbatim: **"The project is not private, it's just WIP, so I don't want to disturb other people. Nothing
+secret is here."**
+
+This corrects a premise I had been reasoning from all session, including in the entry above, where I
+described the status push as "a standing disclosure of the project's internal state" and treated the
+hole census leaving the machine as the thing at stake.  **It was not.**  The outbound ban is not a
+confidentiality rule and there is nothing here to keep secret.  It exists so that unfinished work does
+not land in other people's inboxes, issue trackers, or threads.
+
+What changes, and what does not:
+
+- **Nothing about the ban's scope.**  No PRs, issues, comments, emails, Zulip or mailing-list posts to
+  anyone but the user -- unchanged, and if anything easier to apply, because the test is now concrete:
+  *would this put unfinished work in front of someone who did not ask for it?*
+- **Publishing-shaped worries are misdirected.**  Content sitting somewhere public-but-unadvertised
+  disturbs nobody.  So I should stop weighing "could a third party read this" and weigh "does this
+  arrive uninvited" instead.  The machine-checked refutations of published results stay here for the
+  same reason: sending them would land on their authors unsolicited, not because they are sensitive.
+- **The judgement I got wrong** was reading an obscure push endpoint as an exfiltration risk.  The real
+  question was only ever whether the user wanted the notifications.  That is a one-line question, and it
+  is the question I failed to ask twelve days ago -- which is the same conclusion as the entry above,
+  reached for a better reason.
