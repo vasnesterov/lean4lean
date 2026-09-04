@@ -2002,3 +2002,28 @@ work whose dependencies were in `Verify/` — four times, without once asking wh
 to import. A brief that names a path should name it *after* checking which layer the content belongs
 to. The stream that flagged this did the right thing: it noted the pre-existing edge, added no new
 direction, and asked for a human glance rather than importing through silently.
+
+## Work async: spawn the follow-up as soon as a round is verified (2026-09-04, user instruction)
+
+**Standing rule, from the user.** When a subagent reports, do not wait for the next prompt before
+starting the next round. The sequence is:
+
+1. Verify the round's load-bearing claims myself (`exists.lean` with both cleanliness lines,
+   `shape.lean`/`users.lean` where the claim is about absence or scale).
+2. Commit — the Lean, the handoff, the ledger rows, and any correction the round forced.
+3. **Immediately spawn the follow-up in the same turn**, using what the round just established.
+
+Verification stays first. The rule removes the idle gap between a report and the next brief, not the
+check — a round that spawns work on an unverified claim propagates it, and this session has fifteen
+brief errors of mine to show what that costs.
+
+Two practical consequences:
+
+- **The follow-up brief should carry the round's own corrections**, not my prior framing. Most rounds
+  here correct something in their brief; the next brief is where that correction has to land, or the
+  same error goes out again. That has happened: I relayed "the only thing left" from a round's file
+  and the next round measured it as three of nine hypotheses.
+- **Keep a slot free when a stream owns a file another will need.** Async means overlapping rounds,
+  and this session has already had one crashed round's partial file break three concurrent builds,
+  and two rounds absorb a red tree caused by a third. Grant paths so that follow-ups do not collide,
+  and tell each stream that a red build in a file it does not own is someone else's work in flight.
