@@ -2845,3 +2845,39 @@ That is the right resolution and it is now a stated rule: **the ownership line w
 list, and the conflict gets reported.** The alternative -- a round quietly widening its own scope because a
 deliverable seemed to authorise it -- is exactly how the frozen-file rule would get eroded, one reasonable
 inference at a time.
+
+## Before attempting a residual, diff its hypotheses against its neighbours' (2026-09-04)
+
+I briefed `MutualNamesGate` as a cheap close, on its own docstring's word that it was *"unproved, not false:
+every conjunct is a postcondition of a check the loop actually performs."*
+
+**As written it cannot be proved.** Its middle conjunct is `env.find? v.name = none`; `checkName`'s success
+gives `env.contains v.name = false`; bridging the two needs two `SMap.WF` lemmas, **both requiring
+`env.constants.WF`, which the gate's statement omits** -- and at `SMap` stage 2 both sides run through
+`partial def` opaques. So the verdict is a **third** one that neither the docstring nor my brief offered:
+not true, not false, **independent** -- undecidable from the definitions, with the residue's *location*
+formal even though its independence is not statable in Lean.
+
+**The check that would have caught it needed no tool.** Measured by me: `NoNestedMap.add`:156,
+`checkConstantVal_find?_none`:197, and the `NoNestedEnv` structure's own field at :170 **all** carry
+`env.constants.WF`. `MutualNamesGate`:353 carries **zero** `WF` occurrences. Its only consumer has one.
+One file, visible by eye, before any elaboration.
+
+**Standing rule:** *before attempting a named residual, diff its hypothesis list against those of the
+theorems immediately around it. A hypothesis that every neighbour carries and the residual omits is a
+mis-statement, not a challenge.*
+
+Two refinements to rules I already had:
+
+- **Rule 3 ("read the docstring before contradicting it") was followed and was insufficient.** The round
+  read and quoted the docstring; every clause of it is defensible and the whole is misdirecting.
+  *"Postcondition of a check" does not mean "derivable from the check."* Reading a docstring is not the same
+  as auditing whether the statement it describes is well-posed.
+- **`scripts/shape.lean` is blind to a residual whose type is literally `Prop`** -- which is the shape of
+  every gate in this tree. So the shape-prior rule needs this caveat: for a gate, shape search cannot
+  answer "does this already exist", and the hypothesis-diff above is the substitute.
+
+Worth noting what the shape priors *did* buy, because the rule is still earning its place: prior S2 found
+`TypeChecker.M.WF.forInFresh` -- **the loop rule I had briefed the round to write, already in the tree,
+docstring and all** -- before the work rather than after. Fourth "already exists" this week, and the first
+caught in advance.
