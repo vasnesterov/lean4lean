@@ -415,9 +415,14 @@ section was written to make visible — is now suppliable in all four non-induct
   `checkConstantVal`'s success rather than about its operational behaviour.  It carries no
   `VEnvs.WF`, deliberately: `checkConstantVal.WF`'s does, and `VEnvs.WF` is unsatisfiable for a map
   holding an `.inductInfo`.
-* Two residuals remain, both named and both about *which names a branch adds*, neither a name
-  condition: `MutualNamesGate` (`addMutual`'s header loop's postcondition) and `InductiveMapGate`
-  (the map side of the inductive step — the seven-file flip).  Both **unproved, not false**.
+* **One** residual remains: `InductiveMapGate` (the map side of the inductive step — the seven-file
+  flip), **unproved, not false**.  *Corrected 2026-09-04.*  This used to name two and grade both
+  "unproved, not false".  `MutualNamesGate` is gone, and its grade was wrong in a way worth keeping:
+  **as stated it was not provable**, because it omitted `env.constants.WF` — a hypothesis
+  `NoNestedMap.add`, `checkConstantVal_find?_none` and `NoNestedEnv` itself all carry, and which its
+  only consumer supplies.  The header loop was never the problem; the statement was.
+  `Verify/Inductive/MutualNames.lean` proves the postcondition (`addMutual_header_post`) and
+  discharges the branch outright (`addMutual_noNestedEnv'`).
 * One inherited vacuity: `TrEnv'.aligned`'s `induct` arm is `Aligned.addInduct`, i.e. `nomatch`
   (`addInduct_isEmpty` there proves the emptiness).  So the `induct` case of §2 is discharged
   vacuously today.  This is `AddInduct`'s emptiness and nothing new; when the flip lands,
