@@ -399,11 +399,32 @@ PR #46 (`7e39484`) added exactly that line.  So fact 3 below is **no longer true
 §5.1 fired on the merge to say so, and `VEnv.NoNestedN.addConst`'s `hn` hypothesis — the one this
 section was written to make visible — is now suppliable in all four non-inductive cases.
 
-**What is unlocked, and what is still open.**  Unlocked: the *hypothesis*.  Still open: the
-*induction*.  Nobody has yet run the `TrEnv'` induction described at the end of this section, so every
-§3 discharge that needs §2 remains conditional **in fact**, while no longer being conditional **in
-principle**.  That is a real distinction and this section should not be read as closing the gap; it
-records that the implementation-side obstruction is gone and the proof-side work is now ordinary.
+**The induction has now been run — 2026-09-04.**  The paragraph that stood here said "Unlocked: the
+*hypothesis*.  Still open: the *induction*", and that is no longer the status.
+`Verify/Inductive/NoNestedAll.lean` runs it:
+
+* §2 there — `VEnv.NoNestedN.of_trEnv' : TrEnv' safety C Q venv → NoNestedMap C → venv.NoNestedN` —
+  is the induction, and it needed **no new case analysis at all**: `TrEnv'.aligned` had already run
+  the nine-case induction and `Aligned.find?_iff` (`Verify/Environment/Lemmas.lean`:43) had already
+  done the `SMap`-insert work, so the whole abstract side is four lines.  **No `TrEnv'` case
+  resists.**
+* §3 there *establishes* the hypothesis rather than assuming it: `NoNestedMap` holds of the empty
+  kernel environment and is preserved by `addDecl` on the `axiomDecl`, `defnDecl` (both safety
+  arms), `thmDecl`, `opaqueDecl` and `quotDecl` branches, **unconditionally**.  The load-bearing
+  new lemma is `checkConstantVal_noNestedName` — the line PR #46 added, as a theorem about
+  `checkConstantVal`'s success rather than about its operational behaviour.  It carries no
+  `VEnvs.WF`, deliberately: `checkConstantVal.WF`'s does, and `VEnvs.WF` is unsatisfiable for a map
+  holding an `.inductInfo`.
+* Two residuals remain, both named and both about *which names a branch adds*, neither a name
+  condition: `MutualNamesGate` (`addMutual`'s header loop's postcondition) and `InductiveMapGate`
+  (the map side of the inductive step — the seven-file flip).  Both **unproved, not false**.
+* One inherited vacuity: `TrEnv'.aligned`'s `induct` arm is `Aligned.addInduct`, i.e. `nomatch`
+  (`addInduct_isEmpty` there proves the emptiness).  So the `induct` case of §2 is discharged
+  vacuously today.  This is `AddInduct`'s emptiness and nothing new; when the flip lands,
+  `NoNestedAll.lean` does not change.
+
+So the honest verdict is now: **proved, modulo `AddInduct`'s emptiness and two map-side gates** —
+not "unlocked in principle".
 
 The original verdict follows, kept verbatim because the reasoning is still the map of what has to be
 proved — read fact 3 as history, not as current behaviour.
@@ -431,17 +452,27 @@ Three facts settle it.
    `axiom _nested.zzz : Prop` and `def _nested.ddd := Prop` are **accepted**, and the invariant
    fails one step later.  `nested_name_gate_measurement` below is that measurement, self-checking.
 
-So the honest status of every §3 discharge that needs §2 (`RestoreData.head`, and
+~~So the honest status of every §3 discharge that needs §2 (`RestoreData.head`, and
 `ProjNoNested.lean`'s `hnn` consumers) is: **conditional on an invariant the implementation
-establishes for inductives only.**  The discharges that need only §1 (`auxRec`, `ownName`,
-`ownCtor`) are unconditional for any block the gate accepted, because the gate is where the check
-lives.
+establishes for inductives only.**~~  **Superseded 2026-09-04.**  Those discharges are now
+conditional on `VEnv.NoNestedN` of an environment the *kernel built*, and that is a theorem:
+`VEnv.NoNestedN.of_addDecl` (`Verify/Inductive/NoNestedAll.lean`).  The remaining conditions are
+`NoNestedMap` of the starting map — which the empty environment satisfies and `addDecl` preserves —
+plus the two gates named above.  So §3's `RestoreData.head` row and `ProjNoNested.lean`'s `hnn`
+consumers are **unconditional on the four `checkConstantVal` branches and on `quotDecl`**, and
+conditional only on a named map-side residual for `mutualDefnDecl` and `inductDecl`.  The
+discharges that need only §1 (`auxRec`, `ownName`, `ownCtor`) were, and remain, unconditional for
+any block the gate accepted, because the gate is where the check lives.
 
 Where it would have to be established, exactly: by induction on `TrEnv'`
 (`Verify/Environment/Basic.lean`:634 and its constructors), whose `axiom`/`defn`/`opaque`/`quot`
-cases would each need "the added name is not prefixed".  The single-constant step is
-`VEnv.NoNestedN.addConst` below; its `hn` hypothesis is precisely what no implementation check
-supplies.  One line beside `checkName` in `checkConstantVal` would supply it for all four —
+cases would each need "the added name is not prefixed".  **This is where it was established, and
+the prediction about the *route* was wrong**: the induction did not have to be written case by
+case, because `TrEnv'.aligned` + `Aligned.find?_iff` already carry it, and the condition that
+actually has to be threaded is the *kernel-level* `NoNestedMap`, not the abstract one.  The
+single-constant step is `VEnv.NoNestedN.addConst` below; its `hn` hypothesis is precisely what no
+implementation check supplied until PR #46, and `checkConstantVal_noNestedName`
+(`Verify/Inductive/NoNestedAll.lean`) is now the proof that it does.  One line beside `checkName` in `checkConstantVal` would supply it for all four —
 another restrictive-direction divergence, of the same kind and cost as
 `checkNoNestedAuxName`'s. -/
 
@@ -481,8 +512,8 @@ accepted.  Nothing is pretty-printed: `ppExpr` needs environment extensions that
   -- It asserted that `axiom`/`def` at a prefixed name were still ACCEPTED, and said that if they
   -- ever were not, §5's verdict had gone stale in the good direction.  They now are not.
   unless ax.toOption.isNone && df.toOption.isNone do
-    throwError "RestoreFaithful/gate: `axiom _nested.zzz` or `def _nested.ddd` is ACCEPTED again --       checkNoNestedAuxName has been dropped from checkConstantVal, so §5's all-branches verdict       and every discharge resting on it are void; restore the check or revert §5"
-  Lean.logInfo "RestoreFaithful/gate: all three of `inductive _nested.Zzz`, `axiom _nested.zzz`     and `def _nested.ddd` are REJECTED -- checkNoNestedAuxName fires in the inductive branch AND in     checkConstantVal, so NoNestedN's missing hypothesis is now suppliable on every addDecl branch ✓"
+    throwError "RestoreFaithful/gate: `axiom _nested.zzz` or `def _nested.ddd` is ACCEPTED again --       checkNoNestedAuxName has been dropped from checkConstantVal, so §5's all-branches verdict       and every discharge resting on it are void; restore the check or revert §5.       This now also falsifies `checkConstantVal_noNestedName` and all of       `Verify/Inductive/NoNestedAll.lean` §3, which is where the induction was run"
+  Lean.logInfo "RestoreFaithful/gate: all three of `inductive _nested.Zzz`, `axiom _nested.zzz`     and `def _nested.ddd` are REJECTED -- checkNoNestedAuxName fires in the inductive branch AND in     checkConstantVal, so NoNestedN's missing hypothesis is supplied on every addDecl branch, and     the induction that consumes it is RUN (`Verify/Inductive/NoNestedAll.lean`) ✓"
 
 #print axioms Lean4Lean.checkNoNestedAuxName_ok_iff
 #print axioms Lean4Lean.addInductive_WF_noNestedDeclNames

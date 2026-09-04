@@ -2802,3 +2802,46 @@ wasn't decided the round."* Two other rounds today reported that both their pred
 less exists than does, which is the sixteen stale-absence claims seen from the inside. Worth putting in
 briefs as a stated bias, not just a rule: *your priors about your own proof are cheap; the prior that
 decides the round is whether the target already exists.*
+
+
+## Priors about shape, not cost -- the bias, now four rounds running (2026-09-04)
+
+Four rounds today independently reported the same calibration miss, in escalating clarity:
+
+1. two rounds: *"both my wrong predictions underestimated the tree"*;
+2. the `WF.pos` round: *"eleven of my twelve priors were about my own proof rather than about whether the
+   target existed, and the one that wasn't decided the round"*;
+3. the `NoNestedN` round, sharpest: *"all eighteen priors were about cost or outcome and **none about
+   shape**, and shape was the whole result."*
+
+And it was right: I briefed a case-by-case `TrEnv'` induction; the abstract side turned out to be **four
+lines** because `TrEnv'.aligned` had already run the nine-case induction, and the real work was in the
+opposite direction entirely -- a kernel-level condition, not the abstract one.
+
+So the §1 template changes. Priors of the form *"this will take N hours"*, *"the `.lam` case will be hard"*,
+*"I expect `simp` to close it"* are nearly worthless -- they are about the writer, not the problem. The
+priors that decide rounds are:
+
+- **Does the target already exist?** (and the corollary: **search by the CONCLUSION HEAD, not the
+  obligation's name** -- an obligation called `X.WF.pos` is discharged by a theorem whose name need not
+  contain `WF`, `pos`, or the predicate. Name search cannot find it by construction.)
+- **Is the work in the direction I think?** The `NoNestedN` round's whole result was that the hard side was
+  the other one.
+- **Is the thing I am about to trust a measurement or a docstring?** That round refused a vacuity docstring
+  and instantiated it (`venvsWF_refuted_at_inductInfo`) -- which is why it chose the right route rather than
+  discovering later that the documented one was closed.
+
+**Required in every §1 from now on: at least three shape priors before any cost prior.** I will put it in
+briefs, and it applies to me: my last two briefs each asserted an obligation was open, and the tree already
+had it once and had the induction once.
+
+## When my brief contradicts itself, obey the ownership line (2026-09-04)
+
+I granted a round "`RestoreFaithful.lean` §5 and its `#eval` gate only" and then listed a deliverable that
+required editing §3's table. It **did not** edit §3, named the conflict, and wrote the two exact cell edits
+into its handoff for whoever owns §3.
+
+That is the right resolution and it is now a stated rule: **the ownership line wins over the deliverable
+list, and the conflict gets reported.** The alternative -- a round quietly widening its own scope because a
+deliverable seemed to authorise it -- is exactly how the frozen-file rule would get eroded, one reasonable
+inference at a time.
