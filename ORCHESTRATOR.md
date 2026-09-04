@@ -2651,3 +2651,40 @@ reasoning survives for its own reason -- the harness reads `dir: ../../lean4lean
 a run while the tree sat on an old branch would have measured old content.  Applying the five lines on top
 of current master as a marked, reverted probe was the correct experiment, and it is what produced the
 number the user approved on: **185 / 6 / 0, identical to the same-session baseline.**
+
+## A targeted build is not the claim "HEAD builds" (2026-09-04, mine)
+
+I merged PR #46, validated it, said so, and **HEAD did not build**.
+
+What I ran after the merge: `lake build lean4lean` (95 jobs, the executable) and
+`lake build lean4lean Lean4Lean.Verify.Guard` (1197 jobs, guards all green).  What I did **not** run:
+`lake build` (1655 jobs).  `Verify/Environment/Checker.lean` is in neither of the first two cones, and that
+is the module that broke: PR #46 added a fourth operational step to `checkConstantVal`, and
+`checkConstantValCore.WF` still stepped past three binds.  `Checker.lean:86:2: Type mismatch`.  Every module
+in the `Theory/Typing` cluster imports through it, so **both running streams were blocked** by my merge.
+
+I already had the neighbouring rule -- *"a clean `git status` is part of the claim 'HEAD builds'"*, written
+after the `ntreeAux_argsTypedK_of_wf` episode.  This is the same lesson one step over and I did not
+generalise it:
+
+> **After any merge, rebase, or checkout, the only build that licenses the words "HEAD builds" is a bare
+> `lake build`.** Targeted builds answer "does this target build", which is a different question, and the
+> gap between them is exactly where a signature change in one layer lands on a proof in another.
+
+**The second, worse instance of the same gap.**  My *measurement* of PR #46 had it too.  The probe applied
+the five lines and built the **executable alone** -- so it could never have caught this.  The arena number
+(185/6/0) is real and the verdict stands, but the sentence I wrapped around it, *"the change costs
+nothing"*, was under-verified.  It costs a proof-side update in the refinement layer.  Neither the PR nor my
+measurement surfaced that, because **both looked only at the binary**, and the whole point of this project
+is the layer the binary does not exercise.
+
+**Generalisation worth keeping:** for a change to `Lean4Lean/` proper, the arena tests the *implementation*
+and says nothing about whether the *refinement proofs* still hold.  Those are different cones and a change
+to an operational function moves both.  A PR touching the checker needs **both** numbers before "costs
+nothing" is sayable: arena verdicts *and* a full build.
+
+**Credit where it is due.**  The flip stream found it, diagnosed it exactly, verified the one-line fix by
+elaboration, **correctly did not apply it** to a file it does not own, and kept working behind a private
+`LEAN_PATH` overlay without writing into `.lake` or touching a tracked file outside its ownership.  It then
+reported the blockage to me as the owner.  That is the additive-only rule and the frozen/ownership
+discipline working exactly as designed, under real pressure, when the blocking bug was **mine**.
