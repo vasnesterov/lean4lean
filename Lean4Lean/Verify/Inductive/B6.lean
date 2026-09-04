@@ -852,7 +852,16 @@ def ntreeEnv : VEnv where
 theorem constLookup_ntreeEnv : ConstLookup ntreeΓc ntreeEnv := fun _ _ h => h
 
 /-- …at every *staged* environment too, through `FlipWiring.lean`'s named lemma: every table entry
-is already in the pre-block environment, so the block half of the split is never needed. -/
+is already in the pre-block environment, so the block half of the split is never needed.
+
+**VACUOUS at `ntreeEnv`, found 2026-09-04 by `Verify/Inductive/UserBlockR.lean` and confirmed
+independently: `example : ntreeEnv.addIndTypesC ntreeAux ntreeK = none := by rfl` elaborates.**  The
+antecedent is unsatisfiable because `addConst` fails on a name already present, and
+`ntreeAux.typeConstsC ntreeK` re-declares `NTree`, which `ntreeΓc` already holds.  So this statement
+is true but says nothing about staging, and it must not be cited as evidence that the staged case is
+handled.  The non-vacuous version is `UserBlockR.constLookupU0_staged_witness` (arity 0, cone 515),
+stated at the **pre-block** table `ntreeΓcU0` with its antecedent exhibited.  Nothing in `B6` depends
+on this lemma; it is kept, marked, as the record of a witness that was not tight. -/
 theorem constLookup_staged_ntree {K : List Name} :
     ∀ env₁, ntreeEnv.addIndTypesC ntreeAux K = some env₁ → ConstLookup ntreeΓc env₁ :=
   constLookup_staged_of_split fun _ _ hc => .inr hc

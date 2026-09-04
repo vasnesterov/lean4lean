@@ -44,8 +44,14 @@ This file does that and prices it.
   `MutField.declEnv_structEtaSite` are the first `VEnv.StructEtaSite` witnesses anywhere in the
   tree — at the zero-field member `A` of `MutField.decl` (subject: the axiom `MutField.foo`) and at
   its **positive-field** member `B` (`bCtor.fields.length = 1`, subject `.bvar 0`).  Neither needs a
-  `Params` instance and neither needs `VEnv.WF`; `VEnv.WF declEnv` is open for everybody and is
-  *not* used.  On top of them: `ParRedSE.structEta`, `ParRedSEC.structEtaC`,
+  `Params` instance and neither needs `VEnv.WF`.
+  **CORRECTED 2026-09-04**: this used to add "`VEnv.WF declEnv` is open for everybody and is
+  *not* used", which is **false**.  `MutField.declEnv_wf` and `unitEnv_wf`
+  (`Verify/TypeChecker/EtaUnitRefute.lean`) are `sorryAx`-free theorems, and `can-cite.py` says
+  they sat inside *this file's own* 232-module closure while that sentence was being written.
+  The witnesses genuinely do not use them -- which is a **stronger** result than the sentence
+  claimed -- but not for the stated reason.
+  On top of them: `ParRedSE.structEta`, `ParRedSEC.structEtaC`,
   `NormalEqSE.structEtaL` and `NormalEqSE.structEtaR` all fired at both shapes.
 * §7 **neither refuted statement moves.**  `descendSEC_uniq_sortUniq_not_all` and
   `not_parRedStatementSEC_of_propMajor` are the two refutations ported to the contracted relation;
@@ -63,9 +69,23 @@ This file does that and prices it.
 `IsStructureG.not_of_no_defeqs` holds precisely because `IsStructureG.decl` puts the block's
 **ι-rules** into `env.defeqs`.  Registering an ι-rule is `PatWF`'s ι case, which
 `Theory/Typing/ParamsBuild.lean` says needs `IsDefEqU.forallE_inv` — one of the tree's four holes.
-So the §6 firings carry `env = unitEnv` / `env = declEnv` hypotheses, and **no `Params` instance
-satisfying them exists today**.  That is an obstruction on `Params`, not on the eta rule, and it
-is the same in either orientation.
+So the §6 firings carry `env = unitEnv` / `env = declEnv` hypotheses.
+
+**CORRECTED 2026-09-04, twice over.**  This paragraph used to end "and **no `Params` instance
+satisfying them exists today**".  Both halves of its reasoning were wrong.  First,
+`IsDefEqU.forallE_inv` is **not a hole** -- measured arity 10, cone 3574, `own value is a hole:
+false` -- it is a theorem standing on `forallE_inv_stratified` and `WF.rigidShapeUniqNS`, which are
+the real census entries; `ParamsBuild.lean`'s "(open)" was the source and is corrected there.
+Second, and consequently, the instance **does** exist: `Theory/Typing/ParamsStruct.lean` builds
+`MutField.declParams` at the positive-field structure environment with **no hypotheses at all**,
+priced at those two holes, and restates all eight of §6's firings without the environment pin.  Its
+§1 lifts the *site* pin too, stating the rules at an arbitrary `env.WF` with an arbitrary
+`StructEtaSite`, so `MutField` drops from "the only statable place" to one instantiation.
+
+What survives is the part worth keeping, and it was right: the obstruction is on `Params`, **not** on
+the eta rule, and it is the same in either orientation.  Only its strength was wrong.
+`Theory/Typing/ParamsCR.lean` later showed the instance is **not** a counterexample generator --
+Church--Rosser is not false there, and the one hypothesis that fails is **false**, not unproved.
 
 **What the expansion form gave that the contraction does not.**  `ParRedSE.structEta` composed
 with `NormalEqSE.structEtaL`/`structEtaR` in the obvious way: the conversion rule peels

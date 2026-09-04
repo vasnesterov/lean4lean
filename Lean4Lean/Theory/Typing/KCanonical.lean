@@ -65,10 +65,20 @@ function side whose contracta are not `NormalEq`.  Both contracta are definition
 (`KStep.uniq_defeq`) and both are `ParRed`-normal, so such an instance is a counterexample to
 `IsDefEq.church_rosser` itself, not merely to `KDiamond`.  Building one needs an environment
 with an `.app`-headed defeq rule, and `VEnv.WF` admits those only through `VDecl.induct` and
-`VDecl.quot`; the two instances this tree has (`refParams`, `PropLoopParams`) register
+`VDecl.quot`; the two instances this docstring named (`refParams`, `PropLoopParams`) register
 `.const` patterns only, at which `KStep` is empty and every statement in this file holds
 vacuously (`refParams_kSmall`, `refParams_kTable` below).  **That is a fact about the tree's
 witnesses, not evidence that `KDiamond` holds.**
+
+**CORRECTED 2026-09-04: "the two instances this tree has" was already wrong when written, and
+is now badly wrong.**  `scripts/shape.lean` on `HEADS="Lean4Lean.VEnv.Params"` finds **eight**
+instances.  At least two register `.app` patterns -- `VEnv.quotParams` (`Verify/QuotAppParams.lean`)
+and `VEnv.appParams` -- so `KStep` is **not** empty at every instance, and the vacuity noted above
+is a fact about `refParams` alone.  Concretely: `quotParams_not_crStatement` refutes `CRStatement`
+at `quotParams`, and `Theory/Typing/ParamsCR.lean` refutes the confluence frontier there too.  The
+sentence this paragraph opens with is the defect pattern worth naming: **an absence claim asserted
+in one sentence and hedged two sentences later still reads as the absence claim.**  If the hedge is
+the truth, lead with it.
 -/
 
 namespace Lean4Lean

@@ -100,8 +100,14 @@ Nothing here is hole-free, and the claim is not that it is.  Measured with `scri
 ## Satisfiability of the refutation's hypotheses
 
 Inherited verbatim from `ParRedPropRefute.lean`, and it is the one caveat that matters: every
-hypothesis is a property of the *witness*, but no `Params` instance in this tree registers an
-`.app` pattern (`PatWFIota.lean` is where that would come from).  So this refutation, like
+hypothesis is a property of the *witness*.  (**CORRECTED 2026-09-04**: this said "no `Params`
+instance in this tree registers an `.app` pattern".  **Two do.**  `scripts/shape.lean` on
+`HEADS="Lean4Lean.VEnv.Params"` finds **eight** instances, and `Theory/Typing/ParamsCR.lean`'s
+`VEnv.quotParams_not_appDFExtraStatement` (arity 0, cone 9368) fires the refutation below at
+`VEnv.quotParams`, where the major premise is a proof of the `Prop` `Quot.{0} α r` -- so the
+frontier statement is **false at a real instance** and this refutation is **not** vacuous.  The
+converse also holds: `VEnv.appParams_no_appDFExtra_refutation` shows the hypothesis list is
+*contradictory* at `appParams`, where `hne` is the false member.)  So this refutation, like
 `not_parRedStatement_of_propMajor` and `not_hK_of_propMajor`, is conditional on an instance of a
 shape that does not exist yet -- whereas `descend`'s own refutation is at `refParams`, an
 instance that *does*.  The asymmetry is the whole practical content:

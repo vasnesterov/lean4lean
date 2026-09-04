@@ -27,8 +27,23 @@ here.
 
 `PatWF` is then proved outright on the **δ fragment** (`patWF_of_deltaFragment`), where it
 needs nothing but `IsDefEq.extra` and `HasType.const_inv`; the ι and quotient cases are what
-need `IsDefEqU.forallE_inv` (`Theory/Typing/Injectivity.lean`, open).  `Theory/Typing/
+need `IsDefEqU.forallE_inv` (`Theory/Typing/Injectivity.lean`).  `Theory/Typing/
 ParamsWitness.lean` carries an independent hand-built instance over `CycleConv.propLoopEnv`.
+
+**CORRECTED 2026-09-04.  `IsDefEqU.forallE_inv` is NOT open, and this file saying so cost three
+rounds.**  Measured: arity 10, cone 3574, **`own value is a hole: false`** -- it is a *theorem*,
+proved from `IsDefEqU.forallE_inv_stratified` and `WF.rigidShapeUniqNS`, which are the two actual
+census holes.  So the ι and quotient cases are **priced, not blocked**, and
+`Verify/Typing/ConstSpineWF.lean:57`'s `patWF_of_wf` discharges `PatWF` at an **arbitrary**
+well-formed environment on exactly that footing.
+
+What went wrong downstream: a round read "(open)" here and concluded that **no `Params` instance
+over an environment containing a structure exists**; the correction of that round then guessed the
+remaining obligation was `VEnv.WF` of the environment, which was **also** already proved
+(`MutField.declEnv_wf`, `unitEnv_wf`, both `sorryAx`-free); and a third round finally built
+`MutField.declParams` with **no hypotheses at all**.  "Tainted by a known hole" and "open" are
+different verdicts, and the difference is one `scripts/exists.lean` run -- `own value is a hole:
+false` together with a non-empty `holes in cone` is the signature of a theorem standing on holes.
 -/
 
 namespace Lean4Lean
@@ -65,8 +80,10 @@ alone. -/
 
 `PatWF`'s δ case needs nothing that is not already proved: `HasType.const_inv` pins the
 matched level list to the rule's `uvars`, and `IsDefEq.extra` is the rule.  It is the ι and
-quotient cases that need `IsDefEqU.forallE_inv` (open, `Theory/Typing/Injectivity.lean`), so
-an environment that registers only δ-rules gets a `Params` instance outright. -/
+quotient cases that need `IsDefEqU.forallE_inv` (`Theory/Typing/Injectivity.lean` -- a
+**theorem**, not a hole; see the module docstring's 2026-09-04 correction), so an environment that
+registers only δ-rules gets a `Params` instance **hole-free**, while one with ι-rules gets one
+**priced at two census holes** rather than not at all. -/
 
 /-- Every pattern the environment registers is a δ-rule's: a bare `.const`. -/
 def DeltaFragment (env : VEnv) : Prop :=
