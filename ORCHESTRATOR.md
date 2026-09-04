@@ -2881,3 +2881,30 @@ Worth noting what the shape priors *did* buy, because the rule is still earning 
 `TypeChecker.M.WF.forInFresh` -- **the loop rule I had briefed the round to write, already in the tree,
 docstring and all** -- before the work rather than after. Fourth "already exists" this week, and the first
 caught in advance.
+
+
+## A fourth shape question: what does the implementation compare things WITH? (2026-09-04)
+
+The `PosScan` round's surprise was not where any of its priors looked, and its own diagnosis names the gap
+exactly: *"I had no shape prior about **what the implementation compares things with**, which is where the
+round's surprise lived."*
+
+What it found: `BEq Expr` is `Lean.Expr.eqv`, an **`@[extern] opaque`**. So the checker's head and parameter
+tests are readable only through the frozen whitelisted `Lean.Expr.eqv_eq`; because `eqv` is
+**alpha-equivalence**, the corresponding lemma **cannot conclude `Eq`**; and the check is therefore **not
+`decide`-able at any closed input**. Three consequences, none anticipated, all of them about the *trusted
+base* rather than about the proof.
+
+So the §1 template gets a fourth shape question, after does-it-exist / which-direction /
+measurement-or-docstring:
+
+> **What does the implementation compare with, and is that comparison opaque?** In this repo the answer is
+> often an `@[extern]`/`partial` upstream definition, which means (a) the fact is reachable only through a
+> whitelisted frozen axiom, (b) it may be weaker than propositional equality, and (c) `decide` will not
+> close it however concrete the input looks.
+
+This is the same shape as the `MutualNamesGate` finding one round earlier -- there, `PersistentHashMap`'s
+`containsAux`/`findAux` being `partial def` was what made a gate independent rather than merely unproved.
+**Two rounds in a row where the decisive fact was the opacity of something upstream.** That is not a
+coincidence about those two obligations; it is what verifying a kernel against an opaque runtime looks like,
+and it deserves a prior rather than being rediscovered each time.
