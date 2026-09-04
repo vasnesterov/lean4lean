@@ -1176,6 +1176,15 @@ table. And never wait on "no lake running" — an LSP session makes that permane
 an empty file as "still building" several times. Use a line-buffered filter (`grep --line-buffered`)
 if you want progress, or just wait for the notification.
 
+**Second `tail` failure, different mechanism (2026-09-04): it TRUNCATES.** I ran the hole census as
+`... --run scripts/sorry-census-all.lean 2>&1 | tail -20` and got twenty lines of a module list, with
+the `HOLES` summary -- the whole point of the run -- cut off, because the census prints its summary
+*first* and then a long orphan listing. I had to pay for a second full-population scan. The rule for
+any instrument whose output I do not already know the shape of: **redirect to a file, then grep the
+file.** `tail` is for logs whose interesting part is at the end; a census's interesting part is at the
+top. (Verified after re-running: `HOLES 13`, `NOT BUILT 0`, population 465, on disk 489 -- exactly
+what the eta round reported, so the number is now mine as well as theirs.)
+
 ## Verification rule: never compose a qualified name — read it off the file (2026-09-03, mine)
 
 Three times this session an axiom check of mine came back `Unknown constant` because I built the
