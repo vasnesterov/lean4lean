@@ -2457,3 +2457,37 @@ answered that exclusion is not identification, and that what identifies it is a 
 Lean's stored `Expr` already *is* contracted, and `ctorTr?` is structural, never contracting. It predicted
 0.7 that `noLam` is not needed in the proof at all. That is a sharper reading of my own hypothesis than I
 had, and the restart round should test it rather than my version.
+
+### The trigger rule, scored one round later (2026-09-04)
+
+Same round, second API crash, and the difference is stark enough to be worth the numbers:
+
+| | crash 1 | crash 2 |
+|---|---|---|
+| `.lean` file left behind | none | none |
+| handoff | 134 lines, §1 only | **304 lines, §1 + eight measurements** |
+| prediction-verdicts preserved | **0** | **11 of 11 attempted** |
+| headline theorems recorded | 0 | **2, with their Lean statements** |
+
+Crash 1's last words were "*Now let me build the file*"; crash 2's were "*Measurement obtained --
+appending to §2 before anything else*".  The second round was **executing the rule at the moment it
+died**, which is exactly the behaviour the trigger was written to produce: append on the verdict, before
+the next tool call, not at a natural pause.
+
+What that bought, concretely: the equation closes by `rfl` at a widened constant table; the chaining with
+B6 part 3 works first try at the **real** restoration; `ctorTr?` **left-inverts reification** in its full
+form; and Lean's own stored type for the user's constructor **is** the reification of the abstract
+constructor type, up to binder annotations.  All four are written down with their statements.  The round
+lost the transcription, not the mathematics -- so the third attempt is a *transcription* task, which is
+smaller and much less crash-exposed than what it replaces.
+
+**Generalisation for briefs: when a round dies with its results recorded, the successor's job is to
+write the file, not to redo the work.**  I nearly briefed a fresh attack; §2 makes that waste.  Read the
+dead round's measurements before writing the next brief -- that is what they are for.
+
+And one measurement from it worth keeping at orchestrator level, because it is a trap I would have
+walked into: `Lean4Lean.Meta.instToExprVExpr.toExpr` has exactly the shape of the reification map the
+round needed (`VExpr` in, `Expr` out) and does **the opposite job** -- it is the *quoting* map, sending a
+`VExpr` to the syntax tree of that value, not to the expression it denotes.  Same types, inverse purpose.
+My "search by conclusion shape" rule finds it and would have recommended it; shape search needs a
+semantic check on the hit, not just a type check.
