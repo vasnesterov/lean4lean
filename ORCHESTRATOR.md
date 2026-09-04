@@ -2225,7 +2225,19 @@ applied between rounds, newest last:
    in my hands -- and I am taking it, because the benefit is that `parRedSES_rigid`'s hypothesis goes
    from false to unconditionally true, while the cost lands on `NormalEq.descend`, which is already
    refuted in both orientations.  Whoever applies it restates `CRSEScope` §2/§4 in the same round.
-4. `Verify/Inductive/TrIndDeclNProducer.lean`: add the single import
+4b. **Close holes #3 and #4** (census 13 -> 11), from `docs/audit-hole-producers.md` §1, both in
+   `Verify/TypeChecker/IsDefEq.lean`, each replacing `:= sorry`:
+     #4 `tryEtaStructCore.WF` := `(tryEtaStructCore_never_true he₂).mono fun _ _ _ h hb => absurd (h ▸ hb) nofun`
+     #3 `isDefEqUnitLike.WF`  := `(isDefEqUnitLike_never_true he₁).mono fun _ _ _ h hb => absurd (h ▸ hb) nofun`
+   Both producers are hole-free and in the same module; the audit verified both closes elaborate.
+   **Take the audit's advice and do NOT close #2** (`inferProj.WF`): its statement is asserted false once
+   the branch is live (bugs-found item 10), so that `sorry` carries information these two do not.
+   **Attach a comment at each site recording that the proof is VACUITY-BASED** -- the branch never
+   returns true today, and the flip will make it live, at which point these proofs break and the holes
+   return. Closing them is honest bookkeeping, not progress on the obligation, and the census must not be
+   read as if it were. My call, and I am taking it: a hole that can be honestly closed should be, or the
+   census overstates the remaining work and stops distinguishing real holes from paperwork.
+5. `Verify/Inductive/TrIndDeclNProducer.lean`: add the single import
    `import Lean4Lean.Verify.Inductive.B6` and consume B6's part-3 lemma there.  Measured by the B6
    round as cycle-free, +6 modules to that file's closure.  This is what takes `B6.lean` off the
    orphan list.
