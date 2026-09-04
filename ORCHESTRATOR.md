@@ -2620,3 +2620,34 @@ reversal stays visible.
 3. **A census that counts vacuous closes is worse than one that overstates.** I had the trade backwards. The
    13 is not paperwork -- two of those entries are load-bearing tripwires, and the file says so. Row 312's
    framing ("3 closable") should be read as "3 have a producer", which is not the same claim.
+
+## PR #46 merged -- and I over-warned about the branch (2026-09-04)
+
+User's verdict, on the PR: **"Approve, can merge"**.  Squash-merged as `7e39484` (matching the `(#NN)`
+style in this repo's history), fast-forwarded into the main tree, guards 1/2/3 all passing, exe rebuilt.
+The reserved-`_nested`-prefix rejection now applies to **every** declaration, not only inductives, and
+`divergences.md` carries the entry.
+
+**The correction I owe.**  I told the user the branch was "19,814 lines behind `master`" and "needs a
+rebase onto current master before it is mergeable, whichever way you decide".  The number is real but the
+**conclusion was wrong**, and I should have checked before saying it:
+
+- `git diff master..nested-prefix-all-decls` shows **master's newer content as absent from the branch**.
+  That is not what a merge applies.  A three-way merge uses the **merge base**, so master's newer files
+  are kept and the branch contributes only what it actually added.
+- Measured after the user's approval, which is when I finally ran the right command:
+  `git diff $(git merge-base master nested-prefix-all-decls)..nested-prefix-all-decls --stat` is
+  **2 files, 25 insertions** -- the five-line `Environment.lean` check and a twenty-line `divergences.md`
+  entry.  GitHub agreed all along: `mergeable: MERGEABLE`, `mergeStateStatus: CLEAN`.  **No rebase was
+  ever needed.**
+
+So the operational rule: **`git diff A..B` is not a preview of merging B into A.**  To see what a branch
+contributes, diff from the merge base; to see whether it will merge, ask (`gh pr view --json mergeable,
+mergeStateStatus`).  I did neither before warning the user off, and the warning could have cost a
+pointless history rewrite on a PR under review.
+
+What I got right and would repeat: **not** measuring the arena on the stale branch.  That part of the
+reasoning survives for its own reason -- the harness reads `dir: ../../lean4lean`, the *working tree*, so
+a run while the tree sat on an old branch would have measured old content.  Applying the five lines on top
+of current master as a marked, reverted probe was the correct experiment, and it is what produced the
+number the user approved on: **185 / 6 / 0, identical to the same-session baseline.**
