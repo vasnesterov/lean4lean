@@ -2065,3 +2065,22 @@ The general shape, and it is the session's most repeated lesson: when I catch my
 remembering something, the fix is a script, not resolve. That is how `exists.lean`, `shape.lean`,
 `users.lean`, `arena-needed.sh`, `layer-check.py`, the ledger audit, and the `WATCH` list all came to
 exist — each after an error that discipline alone had failed to prevent.
+
+## "It exists" is not "I can cite it" (2026-09-04)
+
+Every instrument I built imports the whole default-target population into one environment. So they all
+answer *does this exist* — and none answered *is it available where I need it*.
+
+Three case arms of the nested flip need content that exists, is proved, is hole-free and clean on every
+watched statement, and **cannot be cited at the site that needs it**: `Theory/Typing/EnvLemmas.lean`
+cannot see `Theory/Inductive/NestedOrdered.lean`, and two siblings likewise. I verified all three.
+**Four consecutive documents in this repo listed those as available**, because every tool said they
+existed and existence was the wrong question.
+
+`scripts/can-cite.py <consumer-module> <decl>...` closes it: defining module, whether the consumer's
+closure contains it, and the module the consumer would have to gain. A NO is an import-order fact, not
+a missing proof — ask whether the statement elaborates at the consumer's position with only upstream
+data, because then it is a proof move or a migration, which is far cheaper than it looks.
+
+**Run it before pricing any "the content already exists" claim**, mine included. That claim has now
+been wrong in this specific way at least four times.
