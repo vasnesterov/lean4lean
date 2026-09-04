@@ -2513,10 +2513,21 @@ Current drain list, in dependency order, to be applied when no stream holds the 
    before it is made. Cost: `CRSEScope.lean` §2/§4 need restating, in the same round.
 4. **Close holes #3 and #4** in `Verify/TypeChecker/IsDefEq.lean` (census 13 -> 11), with the
    vacuity-based comment at each site. Do **not** close #2.
-5. **`TrIndDeclNProducer.lean`** — one import, `Lean4Lean.Verify.Inductive.B6`; takes B6 off the orphan list.
-6. **`Verify/Typing/Lemmas.lean`** — move `TrProj.instN` above line 902 so the hole can cite it. Measured
-   legal: `instN`'s cone contains exactly two constants declared in that module (itself and its `match_1_1`),
-   so there is no reordering hazard.
+5. ~~**`TrIndDeclNProducer.lean`** -- one import, `Lean4Lean.Verify.Inductive.B6`.~~ **OBSOLETE
+   2026-09-04, not applied.** Its whole purpose was to take `B6` off the orphan list, and
+   `Verify/Inductive/UserBlockR.lean` already imports B6, so that is done. Adding the import now would be
+   an **unused** import -- exactly what the `PropAgreeLift` round talked me out of in its own case, and for
+   the same reason. Orphan-ness moved to `UserBlockR`, which is the honest state: new work, no consumer
+   yet. Its one viable consumer is measured (`TrIndDeclNProducer`, acyclic) and belongs to whoever next
+   needs the result, not to a queue entry.
+6. ~~**`Verify/Typing/Lemmas.lean`** -- move `TrProj.instN` above the hole.~~ **DONE 2026-09-04.**
+   Verified two ways before touching the file, because the round's single measurement covered only one of
+   the two hazards: `CONE_IN=SELF` (the mode I added to `scripts/exists.lean` the same day) confirms its cone
+   holds exactly **one** constant from its own module, its own `match_1_1`, so it cites nothing local --
+   *that* is the reordering question; and `#check @Lean4Lean.TrProj.instN` shows twelve implicit binders all
+   named in the statement, so nothing is auto-bound from the surrounding `variable!` blocks and no call site
+   changes -- *that* is the signature question, which cone membership cannot answer. The proof visibly calls
+   `.instN` and `.projClosed`, which look local and are not.
 7. **Five stale docstrings**: `ParamsBuild.lean` (the "(open)" root cause), `EtaOrient.lean` (two false
    sentences), `ConstSpineWF.lean` (stale cone table), `ChurchRosser.lean:1815` (user split 224/41, measured
    255/46), `DescendRestate.lean` (a replacement that replaces a different statement than claimed).

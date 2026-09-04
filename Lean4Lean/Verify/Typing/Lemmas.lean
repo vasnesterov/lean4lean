@@ -680,6 +680,30 @@ theorem HasType.skips (W : Ctx.LiftN n k Γ Γ')
     (h1 : env.HasType U Γ' e A) (h2 : e.Skips n k) : ∃ B, env.HasType U Γ' e B ∧ B.Skips n k :=
   IsDefEq.skips henv hΓ' W h1 h2 h2
 
+/-- **Moved here 2026-09-04** from further down this file so that `TrProj.weak'_inv` below can
+cite it.  Verified before moving, two ways: `#check @Lean4Lean.TrProj.instN` shows twelve implicit
+binders all named in the statement, so the signature picks up nothing from a `variable!` block and
+no call site changes; and `CONE_IN=SELF` on `scripts/exists.lean` reports that its cone contains
+exactly **one** constant declared in this module -- its own `match_1_1` -- so it cites nothing here
+and can sit anywhere in the file.  Why it matters: `Verify/Typing/ProjDataAttack.lean` measured that
+routing the strengthening argument through this lemma, which substitutes a **whole** `TrProj`
+derivation, avoids discarding `TrProj.mk`'s two `HasArgs` fields and rebuilding them via
+`VEnv.HasArgs.of_mkApp` -- and that rebuild is where three census holes and three watched-by-policy
+names entered the old route (3698 constants / 3 holes / 3 watched, against 3412 / 0 / 0). -/
+theorem TrProj.instN (henv : Ordered env) (W : Ctx.InstN Γ₀ e₀ A₀ k Γ₁ Γ)
+    (t₀ : env.HasType U Γ₀ e₀ A₀) (H : TrProj env U Γ₁ s i e e') :
+    TrProj env U Γ s i (e.inst e₀ k) (e'.inst e₀ k) := by
+  let .mk h1 h2 h3 h4 h5 h6 h7 h8 h9 h10 := H
+  have hcl := h1.projClosed henv
+  rw [VInductDecl'.projTerm_instN _ _ _ _ hcl h4 h5 h6]
+  refine .mk h1 ?_ h3 (by simp [h4]) (by simp [h5]) h6 h7 ?_ ?_ h10
+  · simpa [VExpr.inst_mkApp, List.map_append, VExpr.inst] using h2.instN henv W t₀
+  · have := h8.instN henv W t₀
+    rwa [VExpr.instTele_eq_self (VExpr.ClosedTele.map_instL hcl.params) (Nat.zero_le _)] at this
+  · have := h9.instN henv W t₀
+    rwa [VExpr.inst_instAllTele₀
+      (by simpa [h4] using VExpr.ClosedTele.map_instL hcl.indices)] at this
+
 /-- **Blocked**, but not on the fact this docstring used to name.  It said "the same gate as
 `TrProj.uniq` and `TrProj.defeqDFC` … I13 `IsDefEqU.const_forallE_inv`".  Two corrections:
 `TrProj.defeqDFC` is **no longer blocked at all** (it is proved below — its conclusion is an
@@ -2138,19 +2162,6 @@ theorem TrExprS.instN_var (W : VLCtx.InstN Δ₀ e₀' A₀ dk k Δ₁ Δ) (H : 
         refine ⟨_, _, h, ?_, rfl⟩
         cases d <;> simp [VLocalDecl.depth, VLocalDecl.inst, VExpr.lift_instN_lo]
 
-theorem TrProj.instN (henv : Ordered env) (W : Ctx.InstN Γ₀ e₀ A₀ k Γ₁ Γ)
-    (t₀ : env.HasType U Γ₀ e₀ A₀) (H : TrProj env U Γ₁ s i e e') :
-    TrProj env U Γ s i (e.inst e₀ k) (e'.inst e₀ k) := by
-  let .mk h1 h2 h3 h4 h5 h6 h7 h8 h9 h10 := H
-  have hcl := h1.projClosed henv
-  rw [VInductDecl'.projTerm_instN _ _ _ _ hcl h4 h5 h6]
-  refine .mk h1 ?_ h3 (by simp [h4]) (by simp [h5]) h6 h7 ?_ ?_ h10
-  · simpa [VExpr.inst_mkApp, List.map_append, VExpr.inst] using h2.instN henv W t₀
-  · have := h8.instN henv W t₀
-    rwa [VExpr.instTele_eq_self (VExpr.ClosedTele.map_instL hcl.params) (Nat.zero_le _)] at this
-  · have := h9.instN henv W t₀
-    rwa [VExpr.inst_instAllTele₀
-      (by simpa [h4] using VExpr.ClosedTele.map_instL hcl.indices)] at this
 
 variable! (henv : Ordered env) (h₀ : TrExprS env Us Δ₀ e₀ e₀')
   (t₀ : env.HasType Us.length Δ₀.toCtx e₀' A₀) in
