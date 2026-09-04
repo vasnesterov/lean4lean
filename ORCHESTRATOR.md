@@ -2688,3 +2688,41 @@ elaboration, **correctly did not apply it** to a file it does not own, and kept 
 `LEAN_PATH` overlay without writing into `.lake` or touching a tracked file outside its ownership.  It then
 reported the blockage to me as the owner.  That is the additive-only rule and the frozen/ownership
 discipline working exactly as designed, under real pressure, when the blocking bug was **mine**.
+
+### The same partial-build error, twice in an hour, by two different agents (2026-09-04)
+
+Within one hour: **I** merged PR #46, validated with `lake build lean4lean` (95) and
+`... Lean4Lean.Verify.Guard` (1197), declared it clean, and broke `Verify/Environment/Checker.lean`.  Then
+**the flip stream** changed a constructor in `ConfluenceRebuildPrice.lean`, reported *"the flip itself is in
+and green: `ConfluenceRebuildPrice.lean` elaborates with zero errors/warnings"*, and broke
+`Theory/Typing/EtaOrient.lean` in three places.
+
+Same error, and the second one is the more instructive: **the flip's entire purpose is to change a
+constructor that other modules use, so a single-module build is precisely the build that cannot see its
+cost.** Elaborating the file you edited tells you your edit is syntactically fine. It tells you nothing
+about the thing you set out to change.
+
+The rule, now in briefs: **after changing a shared declaration -- a constructor, a signature, an
+operational step -- only a bare `lake build` licenses the word "green."** Targeted builds answer "does this
+target build". That is a different question, and the gap between the two questions is exactly where a change
+in one layer lands on a proof in another.
+
+Worth noting how the two failures differed in character, because it changes what to do about them:
+
+- Mine was a **defect**: a proof stepping past three binds when the function had four. Nothing was gained.
+- The flip's is a **cost**, and an anticipated one: `EtaOrient.lean` §6 deliberately fires the *expansion*
+  rule, and the flip makes those firings ill-typed. That is the price I priced and accepted when I took the
+  decision. The right response is not to undo it but to decide, in the open, what happens to a result that
+  was cited as the first-ever instantiation of a refutation.
+
+**Third consequence of the same merge, and the good one.** `Verify/Inductive/RestoreFaithful.lean`'s §5.1
+`#eval` gate fired -- by design. §5 had closed with *"One line beside `checkName` in `checkConstantVal` would
+supply it for all four"*, and PR #46 added exactly that line. So the merge did not merely cost two repairs;
+it **unlocked** the invariant `VEnv.NoNestedN` across every `addDecl` branch, in a section that had already
+named the missing lemma (`VEnv.NoNestedN.addConst`) and the required induction (`TrEnv'`).
+
+I flipped that verdict and updated the gate to assert the new reality with a tripwire pointing the other
+way. **And I kept the distinction that section could easily have lost: what is unlocked is the *hypothesis*;
+the *induction* is still unrun.** So every dependent discharge stays conditional **in fact** while ceasing
+to be conditional **in principle**. Writing that section as though the gap had closed would have been the
+easy error, and the ledger has a row-320-shaped hole waiting for anyone who makes it.

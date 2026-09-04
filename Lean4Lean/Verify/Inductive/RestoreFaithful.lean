@@ -390,7 +390,25 @@ end InductiveDeclExamples
 
 /-! ## §5 Is the condition assumable, or must it be established?
 
-**It must be established, and today it cannot be — outside the inductive branch.**
+**It must be established.  As of 2026-09-04 it CAN be, on every branch — this section's verdict has
+flipped, and the paragraph that predicted the flip is its own last one.**
+
+§5 closed by saying: *"One line beside `checkName` in `checkConstantVal` would supply it for all four
+— another restrictive-direction divergence, of the same kind and cost as `checkNoNestedAuxName`'s."*
+PR #46 (`7e39484`) added exactly that line.  So fact 3 below is **no longer true**, the `#eval` gate in
+§5.1 fired on the merge to say so, and `VEnv.NoNestedN.addConst`'s `hn` hypothesis — the one this
+section was written to make visible — is now suppliable in all four non-inductive cases.
+
+**What is unlocked, and what is still open.**  Unlocked: the *hypothesis*.  Still open: the
+*induction*.  Nobody has yet run the `TrEnv'` induction described at the end of this section, so every
+§3 discharge that needs §2 remains conditional **in fact**, while no longer being conditional **in
+principle**.  That is a real distinction and this section should not be read as closing the gap; it
+records that the implementation-side obstruction is gone and the proof-side work is now ordinary.
+
+The original verdict follows, kept verbatim because the reasoning is still the map of what has to be
+proved — read fact 3 as history, not as current behaviour.
+
+**~~It must be established, and today it cannot be — outside the inductive branch.~~**
 
 Three facts settle it.
 
@@ -403,7 +421,10 @@ Three facts settle it.
    `checkNoNestedAuxName`.  `ntree_restoration_keeps_the_environment_clean` is the step firing at
    the real nested block: restored, the invariant survives; unrestored, it does not.
 
-3. **The other branches break it.**  `checkConstantVal` (`Lean4Lean/Environment.lean`:12) —
+3. **The other branches break it.**  ***STALE since 2026-09-04 — this is the fact PR #46 changed.
+   `checkConstantVal` now calls `checkNoNestedAuxName` too, so the two acceptances described below are
+   now rejections.  Kept as the statement of what used to block the invariant.***
+   `checkConstantVal` (`Lean4Lean/Environment.lean`:12) —
    the common gate of `addAxiom`, `addDefinition`, `addTheorem` and `addOpaque` — calls
    `checkName`, and `checkName` (`Lean4Lean/Environment/Basic.lean`:54) tests only "already
    declared" and `Environment.primitives`.  There is no prefix test, so
@@ -456,9 +477,12 @@ accepted.  Nothing is pretty-printed: `ppExpr` needs environment extensions that
       value := .sort .zero, hints := .abbrev, safety := .safe })
   unless ind.toOption.isNone do
     throwError "RestoreFaithful/gate: Lean4Lean.addDecl ACCEPTS `inductive _nested.Zzz` --       checkNoNestedAuxName is not firing, and every discharge in §3 that reads the gate is void"
-  unless ax.toOption.isSome && df.toOption.isSome do
-    throwError "RestoreFaithful/gate: an axiom or definition named `_nested.…` is now REJECTED --       §5's verdict is stale in the good direction; re-read it, the invariant may now be       establishable for the whole of addDecl"
-  Lean.logInfo "RestoreFaithful/gate: `inductive _nested.Zzz` is REJECTED (checkNoNestedAuxName     fires), while `axiom _nested.zzz` and `def _nested.ddd` are ACCEPTED -- so NoNestedN is     established for the inductive branch only ✓"
+  -- Updated 2026-09-04, when PR #46 (`7e39484`) fired the tripwire this `unless` used to be.
+  -- It asserted that `axiom`/`def` at a prefixed name were still ACCEPTED, and said that if they
+  -- ever were not, §5's verdict had gone stale in the good direction.  They now are not.
+  unless ax.toOption.isNone && df.toOption.isNone do
+    throwError "RestoreFaithful/gate: `axiom _nested.zzz` or `def _nested.ddd` is ACCEPTED again --       checkNoNestedAuxName has been dropped from checkConstantVal, so §5's all-branches verdict       and every discharge resting on it are void; restore the check or revert §5"
+  Lean.logInfo "RestoreFaithful/gate: all three of `inductive _nested.Zzz`, `axiom _nested.zzz`     and `def _nested.ddd` are REJECTED -- checkNoNestedAuxName fires in the inductive branch AND in     checkConstantVal, so NoNestedN's missing hypothesis is now suppliable on every addDecl branch ✓"
 
 #print axioms Lean4Lean.checkNoNestedAuxName_ok_iff
 #print axioms Lean4Lean.addInductive_WF_noNestedDeclNames
