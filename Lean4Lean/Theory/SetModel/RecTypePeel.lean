@@ -1,10 +1,23 @@
 import Lean4Lean.Theory.SetModel.SoundInduction
 import Lean4Lean.Theory.Inductive.Decl
-import Lean4Lean.Theory.Typing.StructEtaPrice
+import Lean4Lean.Theory.SetModel.RecPropSingleton
+import Lean4Lean.Theory.SetModel.UnitOracleLarge
 import Lean4Lean.Theory.Inductive.NestedHead
 
 /-!
 # The general `interp (D.recType j)` peel, and the model's `sort_not_proof`
+
+**Layering note, 2026-09-04.**  This file used to `import Lean4Lean.Theory.Typing.StructEtaPrice`
+for one theorem, `SetModel.eq_singleton_of_recProp`.  That file imports
+`Lean4Lean.Verify.TypeChecker.EtaUnitRefute`, so the import inverted the refinement chain
+(`Verify/` → `Theory/` → `Theory/SetModel/` → Foundation) at its deepest layer: it put **46**
+`Verify.*` modules into this file's import closure (154 `Lean4Lean` modules in total), and a
+measured constant walk over all 91 declarations here found that **not one** of them uses a single
+`Verify.*` constant.  The theorem and its six helpers were moved verbatim to
+`Theory/SetModel/RecPropSingleton.lean` (see `docs/handoff-layering.md`); `UnitOracleLarge`, the
+other thing `StructEtaPrice.lean` was transitively supplying here (`UnitAudit.*`), is now imported
+directly.  The closure is **59** `Lean4Lean` modules with **zero** `Verify.*` entries.  Nothing in
+this file's mathematics changed.
 
 `Theory/Typing/StructEtaPrice.lean` §8 records the set model's verdict on structure eta —
 it validates it, and *forcedly* — and then names, precisely, the two steps still owed:

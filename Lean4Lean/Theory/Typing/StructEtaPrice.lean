@@ -100,7 +100,9 @@ normally let an inversion lemma drop a case does not exist here.  Concretely:
   this design: `structure A where` / `axiom foo : A` / `example : foo = A.mk := rfl` typechecks
   in Lean 4, so const-head no-confusion is false in the real kernel and the existing
   `constApp_inv` is a lemma about a relation strictly weaker than real definitional equality.
-* `eq_singleton_of_recProp` (§8) — the set-model verdict, machine-checked: the model **does**
+* `eq_singleton_of_recProp` (§8, and since 2026-09-04 living in
+  `Theory/SetModel/RecPropSingleton.lean` — see the note at the end of §8) — the set-model
+  verdict, machine-checked: the model **does**
   validate zero-field surjective pairing, and it is *forced* rather than chosen, by the
   membership obligation `InductOracleOK` already puts on the **recursor**.  This contradicts
   `SetModel/UnitEtaPairing.lean`'s claim that "a model satisfying `InductOracleOK` may interpret
@@ -575,71 +577,23 @@ theorem mkForallType_const_eq_pow {G : V → V} {hG : ℒₛₑₜ-function₁[V
   rw [hF0 v hv]
   exact (mem_of_mem_functions h hy).2
 
-/-- The body of the characteristic family: `{•}` at `mkv`, `∅` elsewhere.  Written with `sep`
-rather than an `if` because `definability` does not see through `ite`. -/
-noncomputable def charBody (mkv : V) : V → V → V := fun _ v ↦ {_z ∈ ({pt} : V) ; v = mkv}
+/-! **§8's model-side lemmas moved out on 2026-09-04 — layering fix, not a proof change.**
 
-theorem charBody_definable (mkv : V) : ℒₛₑₜ-function₂[V] (charBody mkv) := by
-  suffices ℒₛₑₜ-relation₃[V] (fun T _ v ↦ T = charBody mkv ∅ v) by exact this
-  have e : ∀ T ρ v : V, T = charBody mkv ρ v ↔ ∀ z, z ∈ T ↔ (z ∈ ({pt} : V) ∧ v = mkv) := by
-    intro T ρ v; rw [mem_ext_iff]; simp [charBody, mem_sep_iff]
-  simp only [e]; definability
+`SetModel.charBody`, `SetModel.charBody_definable`, `SetModel.constDom_definable`,
+`SetModel.charFam`, `SetModel.charFam_value`, `SetModel.charFam_mem_pow`,
+`SetModel.eq_singleton_of_recProp` and `SetModel.recProp_at_singleton` now live in
+`Theory/SetModel/RecPropSingleton.lean`, verbatim.
 
-omit [Nonempty V] [V↓[ℒₛₑₜ] ⊧* 𝗭𝗙] in
-theorem constDom_definable (Sv : V) : ℒₛₑₜ-function₁[V] (fun _ : V ↦ Sv) := by definability
+Why: `Theory/SetModel/RecTypePeel.lean` — the deepest layer of the refinement chain — was
+importing *this* file for `eq_singleton_of_recProp` alone, and this file imports
+`Verify.TypeChecker.EtaUnitRefute` (it must: §5's refutation is the price being measured).  That
+single edge put 46 `Verify.*` modules into `RecTypePeel.lean`'s import closure, none of whose
+constants any declaration in that file uses.  The moved theorem's cone was measured first
+(`docs/handoff-layering.md` §M2): 5826 constants, **zero** from `Verify.*`, so the block never
+needed to be up here.  `mkForallType_const_eq_pow` above stays — it is not in that cone.
 
-/-- **The characteristic family of `{mkv}` over `Sv`, as an element of `UProp ^ Sv`.**  This is
-the motive the recursor's type obligation cannot survive unless `Sv = {mkv}`.  It is a legal
-motive because `interp`'s `forallE` clause is the *full* function space. -/
-noncomputable def charFam (Sv mkv : V) : V :=
-  mkLam (fun _ ↦ Sv) (constDom_definable Sv) (charBody mkv) (charBody_definable mkv) ∅
-
-theorem charFam_value {Sv mkv v : V} (hv : v ∈ Sv) :
-    (charFam Sv mkv) ‘ v = {_z ∈ ({pt} : V) ; v = mkv} :=
-  mkLam_value (G := fun _ ↦ Sv) hv
-
-theorem charFam_mem_pow {Sv mkv : V} : charFam Sv mkv ∈ ((UProp : V) ^ Sv : V) := by
-  refine mem_function.intro (fun p hp ↦ ?_) (fun v hv ↦ ?_)
-  · obtain ⟨v, hv, rfl⟩ := mem_mkLam_iff.mp hp
-    exact kpair_mem_iff.mpr ⟨hv, mem_UProp_iff.mpr sep_subset⟩
-  · exact ⟨charBody mkv ∅ v, mem_mkLam_iff.mpr ⟨v, hv, rfl⟩, fun y hy ↦ by
-      obtain ⟨v', hv', he⟩ := mem_mkLam_iff.mp hy
-      obtain ⟨rfl, rfl⟩ := kpair_inj he; rfl⟩
-
-/-- **Zero-field surjective pairing is *forced* in the set model.**
-
-`H` is what `OracleOK.type` says at the recursor of a zero-field, index-free, one-constructor
-block, with `interp`'s binders peeled: for every motive `m` in the motive space, every inhabitant
-of `m mk`, and every `x` in the type former's denotation, the recursor's value lands in `m x`.
-(At `elimLvl = .zero` the whole `recType` is propositional and the value is `•` itself, which is
-the shape written here; at a large eliminator the value is a function and `pt` is replaced by
-"some element of", with the same proof.)
-
-The conclusion is that the denotation is the *singleton* `{mk}` — so any two inhabitants are
-equal in the model, which is exactly what `isDefEqUnitLike` reports and what
-`VEnv.UnitEta.unitLike` states in the spec.
-
-**No `Above`, no `κ`, no chain of inaccessibles**: the argument is finite and uses only
-Replacement and Power. -/
-theorem eq_singleton_of_recProp {Sv mkv : V} (hmk : mkv ∈ Sv)
-    (H : ∀ m ∈ ((UProp : V) ^ Sv : V), pt ∈ m ‘ mkv → ∀ x ∈ Sv, pt ∈ m ‘ x) :
-    Sv = ({mkv} : V) := by
-  rw [mem_ext_iff]
-  intro x
-  refine ⟨fun hx ↦ ?_, fun hx ↦ (mem_singleton_iff.mp hx) ▸ hmk⟩
-  have h1 : pt ∈ (charFam Sv mkv) ‘ mkv := by
-    rw [charFam_value hmk]; exact mem_sep_iff.mpr ⟨by simp, rfl⟩
-  have h2 := H _ charFam_mem_pow h1 x hx
-  rw [charFam_value hx] at h2
-  exact mem_singleton_iff.mpr (mem_sep_iff.mp h2).2
-
-/-- **The bound the other way: the hypothesis is not vacuous and not trivially true.**  Drop the
-`pt ∈ m ‘ mkv` premise and `H` becomes false at every `Sv` with an element (take `m` to be the
-characteristic family of a *different* point); keep it and `H` is satisfied at `Sv = {mkv}`
-itself.  So `eq_singleton_of_recProp` is a real implication at a satisfiable hypothesis. -/
-theorem recProp_at_singleton {mkv : V} :
-    ∀ m ∈ ((UProp : V) ^ ({mkv} : V) : V), pt ∈ m ‘ mkv → ∀ x ∈ ({mkv} : V), pt ∈ m ‘ x :=
-  fun _ _ h _x hx => (mem_singleton_iff.mp hx) ▸ h
+Nothing in §8's argument changes; the statements are byte-identical and the axiom set
+(`propext`, `Classical.choice`, `Quot.sound`) and cone size are unchanged. -/
 
 end SetModel
 
@@ -681,6 +635,6 @@ hole-free: `after ⊆ before` on every line. -/
 #print axioms Lean4Lean.structEta_of_extra
 #print axioms Lean4Lean.MutField.structEta_of_extra_fires
 #print axioms Lean4Lean.SetModel.mkForallType_const_eq_pow
-#print axioms Lean4Lean.SetModel.charFam_mem_pow
-#print axioms Lean4Lean.SetModel.eq_singleton_of_recProp
-#print axioms Lean4Lean.SetModel.recProp_at_singleton
+-- `charFam_mem_pow`, `eq_singleton_of_recProp` and `recProp_at_singleton` moved to
+-- `Theory/SetModel/RecPropSingleton.lean` (layering fix, 2026-09-04); their `#print axioms`
+-- lines moved with them.
