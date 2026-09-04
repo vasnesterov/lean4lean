@@ -1,0 +1,296 @@
+import Lean4Lean.Theory.Typing.KMeasure
+
+/-!
+# `PatSig`: the judgment-free part of `VEnv.Params`, as a separate signature
+
+**This file is a feasibility build, not the rewrite.**  Nothing existing is edited; everything
+here is a fresh declaration, so `ChurchRosser.lean`, `PatternRules.lean` and `ParamsBuild.lean`
+are byte-identical to before.  Its job is to answer one question with proofs rather than
+prose: *can `VEnv.Params` be split into a judgment-free signature plus the two fields that
+mention the judgment, and does `Theory/Typing/PatternRules.lean` already discharge the
+judgment-free half?*
+
+## The count, measured
+
+`VEnv.Params` (`Theory/Typing/ChurchRosser.lean:12`) has **exactly 10 fields**:
+`env`, `henv`, `univs`, `Pat`, `pat_simple`, `pat_uniq`, `pat_wf`, `pat_app_l_uniq`,
+`pat_app_uniq`, `extra_pat`.  **Two mention the judgment in their own statement** --
+`pat_wf` (`IsType`/`HasType`/`IsDefEqU`) and `extra_pat` (`IsType`/`env.defeqs`/`IsDefEqU`).
+The remaining eight are reproduced below verbatim.
+
+One honest caveat the arithmetic hides: `henv : env.WF` mentions the judgment
+*transitively* -- `VEnv.WF env = ∃ ds, VEnv.WF' ds env` (`Theory/Typing/Env.lean:132,136`) and
+`VEnv.WF'` bottoms out in `VDefVal.WF = HasType`, `VConstant.WF = IsType`,
+`VDefEq.WF = HasType ∧ HasType`.  So "judgment-free" here means *does not mention the
+confluence layer's judgment vocabulary in its own statement*, not *independent of typing*.
+That is the property the split actually needs: `Env.lean` sits below `ChurchRosser`, so a
+`PatSig` carrying `henv` is still statable below it, and `henv`'s only role in the eight
+fields is as the hypothesis of `Pat.uniq`.
+
+## What this file establishes
+
+* `VEnv.PatSig` -- the eight fields, transcribed unchanged.
+* `VEnv.patSigOfWF` -- **zero new proofs.**  `PatternRules` supplies all four proof fields
+  (`Pat.simple`, `Pat.uniq`, `Pat.app_l_uniq`, `Pat.app_uniq`) and `Lean4Lean.Pat` supplies
+  the `Pat` field; `env`/`henv`/`univs` are the caller's data, exactly as in
+  `VEnv.paramsOfWF`.  The plan's load-bearing claim holds.
+* `VEnv.Params.toPatSig` -- every `Params` is a `PatSig`, so the split loses nothing
+  downstream and `ChurchRosser` could take `[PatSig]` where it does not need the judgment.
+* Restatements over `[PatSig]` of the judgment-free content that actually consumes a field:
+  `PatSig.pat_not_var`, `PatSig.simple_app`, `PatSig.pat_app_arity_uniq`,
+  `PatSig.pat_app_depth_uniq`.  These are the *hardest* judgment-free consumers in the whole
+  `[Params]` layer, not the easiest -- see `docs/handoff-patsig.md` for the census that
+  identifies them.
+* `VEnv.ParRedR` -- and this is the part that decides whether the split is worth anything.
+  `ChurchRosser`'s three core inductives (`ParRed`, `CParRed`, `NonNeutral`) each mention the
+  judgment *in their own constructors*, so almost nothing in that file is judgment-free as
+  written and a `PatSig`-only restatement of it would be nearly empty.  `ParRedR` abstracts
+  the judgment out of `ParRed` into a relation parameter over `[PatSig]` alone;
+  `ParRed.iff_parRedR` shows it is the same relation at a `Params`, and `ParRedR.mono` shows
+  the whole inductive transports along an *enlargement* of the judgment -- which is what
+  adding structure eta to `IsDefEq` is.  That, not the field arithmetic, is where a real
+  payoff would come from.
+-/
+
+namespace Lean4Lean
+namespace VEnv
+
+open VExpr
+
+/-- **The eight fields of `VEnv.Params` that do not mention the judgment.**
+
+Transcribed from `Theory/Typing/ChurchRosser.lean:12`, unchanged, minus `pat_wf` and
+`extra_pat`.  `Theory/Typing/Pattern.lean` states `Pattern.Check.OK` over an abstract
+`defeq : VExpr → VExpr → Prop`, which is why the `Pat` field itself is judgment-free even
+though every consumer instantiates it at `IsDefEqU`. -/
+class PatSig where
+  env : VEnv
+  henv : env.WF
+  univs : Nat
+  Pat : (p : Pattern) → p.RHS × p.Check → Prop
+  pat_simple : Pat p r → ∃ sp : SimplePattern, p = sp.toPattern
+  pat_uniq : Pat p₁ r → Pat p₂ r' → Subpattern p₃ p₁ → p₂.inter p₃ = some p₄ →
+    p₁ = p₂ ∧ p₂ = p₃ ∧ r ≍ r'
+  pat_app_l_uniq : Pat p r → Pat p' r' → Subpattern (.app p₁ p₂) p →
+    Subpattern (.app p₁' p₂') p' → Subpattern (.var p₃) p₁ → p₁'.inter p₃ = none
+  pat_app_uniq : Pat p r → Pat p' r' → Subpattern (.app p₁ p₂) p →
+    Subpattern (.app p₁' p₂') p' → Subpattern p₃ p₁ → Subpattern p₃' p₂' → p₃.inter p₃' = none
+
+/-! ## (b) `PatternRules` supplies all eight, with no new proof
+
+Compare `VEnv.paramsOfWF` (`Theory/Typing/ParamsBuild.lean:49`): it discharges nine of
+`Params`' ten fields and leaves `pat_wf` as the single named residual.  The four proof fields
+of `PatSig` are exactly four of those nine, so the same four lemmas close them.  Nothing is
+adapted: no argument reordering, no implicit-binder glue, no restatement. -/
+
+/-- **`PatSig` from `env.WF` alone -- zero new proofs.**
+
+Unlike `paramsOfWF`, this needs no residual hypothesis at all: `PatWF` was the only open
+field of `Params`, and it is not one of `PatSig`'s. -/
+@[instance_reducible] def patSigOfWF {env : VEnv} (henv : env.WF) (U : Nat) : PatSig where
+  env := env
+  henv := henv
+  univs := U
+  Pat := _root_.Lean4Lean.Pat env
+  pat_simple := _root_.Lean4Lean.Pat.simple
+  pat_uniq := _root_.Lean4Lean.Pat.uniq henv
+  pat_app_l_uniq := _root_.Lean4Lean.Pat.app_l_uniq
+  pat_app_uniq := _root_.Lean4Lean.Pat.app_uniq
+
+/-- **Every `Params` is a `PatSig`.**  This is the direction the in-place rewrite needs: a
+`ChurchRosser` restated over `[PatSig]` where it can be is still usable from every existing
+`[Params]` call site, so nothing downstream is deleted or re-proved. -/
+@[instance_reducible] def Params.toPatSig [Params] : PatSig where
+  env := Params.env
+  henv := Params.henv
+  univs := Params.univs
+  Pat := Params.Pat
+  pat_simple := Params.pat_simple
+  pat_uniq := Params.pat_uniq
+  pat_app_l_uniq := Params.pat_app_l_uniq
+  pat_app_uniq := Params.pat_app_uniq
+
+/-! ## (c) The judgment-free content, restated over `PatSig` alone
+
+Why these four.  A census over the compiled environment (`docs/handoff-patsig.md` M8/M9) says
+that of `ChurchRosser`'s 430 environment entries, 82 have judgment-free statements, of which
+seven are hand-written, and **exactly one of those seven consumes a `Params` field at all**:
+`Params.pat_not_var`.  The other six (`Pattern.RHS.apply_lift'`, `Pattern.RHS.apply_liftN`,
+`VEnv.IsApp`, `VEnv.ParRedExt` with `.apply`/`.depth`/`.meas`/`.isApp`,
+`VLevel.forall₂_equiv_refl`, `VLevel.forall₂_inst_congr`) do not mention `Params` either, so
+restating them would prove nothing about the split.
+
+So restating only what is inside `ChurchRosser` would be a *trivially easy* sample of one.
+The three hardest judgment-free consumers in the `[Params]` layer live in the two modules
+`ChurchRosser` is the base of, and they are the ones taken here:
+
+* `Params.simple_app` (`HeadReduction.lean:36`) -- the only consumer of `pat_simple` with
+  real content, and the lemma `WHNF.subpattern` and `WHRed.determ` are built on.
+* `Params.pat_app_arity_uniq` (`KMeasure.lean:150`, cone 656) -- **the only consumer of
+  `pat_app_l_uniq` anywhere in the tree**, and the hardest of the four: a trichotomy on the
+  two arities with a `Subpattern.varN_le` witness on each side.
+* `Params.pat_app_depth_uniq` (`KMeasure.lean:175`, cone 1559) -- the largest judgment-free
+  cone in the layer, and it composes `pat_simple` with `pat_app_arity_uniq`.
+
+`pat_app_uniq` is deliberately *not* represented: its only consumer tree-wide
+(`HeadReduction.lean:160`, inside `WHNF.subpattern`) has a judgment-dependent statement,
+because `WHNF` unfolds to `¬WHRed`, whose `extra` constructor mentions `IsDefEqU`.  That is a
+finding, not an omission -- see `ParRedR` below for the shape that would fix it. -/
+
+section
+variable [PatSig]
+open PatSig
+
+/-- `Params.pat_not_var` (`ChurchRosser.lean:94`) over `PatSig`. The one judgment-free
+field consumer inside `ChurchRosser` itself. -/
+theorem PatSig.pat_not_var : ¬Pat (.var p) r := (nomatch pat_simple ·)
+
+/-- `Params.simple_app` (`HeadReduction.lean:36`) over `PatSig`.  `Subpattern.varN_const` is
+already `omit [Params]` in `HeadReduction`, so it is reused unchanged. -/
+theorem PatSig.simple_app (H : Pat p r) (h : Subpattern (.app p₁ p₂) p) : .app p₁ p₂ = p := by
+  obtain ⟨_|_, rfl⟩ := pat_simple H <;> cases h
+  · rfl
+  · obtain ⟨_|_, ⟨⟩⟩ := Subpattern.varN_const ‹_›
+  · obtain ⟨_|_, ⟨⟩⟩ := Subpattern.varN_const ‹_›
+
+/-- `Params.pat_app_arity_uniq` (`KMeasure.lean:150`) over `PatSig`.  The only consumer of
+`pat_app_l_uniq` in the tree. -/
+theorem PatSig.pat_app_arity_uniq {rec ctor ctor' : Lean.Name} {m n m' n' : Nat}
+    {r : (SimplePattern.iota rec m ctor n).toPattern.RHS ×
+         (SimplePattern.iota rec m ctor n).toPattern.Check}
+    {r' : (SimplePattern.iota rec m' ctor' n').toPattern.RHS ×
+          (SimplePattern.iota rec m' ctor' n').toPattern.Check}
+    (h : Pat (SimplePattern.iota rec m ctor n).toPattern r)
+    (h' : Pat (SimplePattern.iota rec m' ctor' n').toPattern r') : m = m' := by
+  have key : ∀ {c₁ c₂ : Lean.Name} {a b x y : Nat}
+      {ra : (SimplePattern.iota rec a c₁ x).toPattern.RHS ×
+            (SimplePattern.iota rec a c₁ x).toPattern.Check}
+      {rb : (SimplePattern.iota rec b c₂ y).toPattern.RHS ×
+            (SimplePattern.iota rec b c₂ y).toPattern.Check},
+      Pat (SimplePattern.iota rec a c₁ x).toPattern ra →
+      Pat (SimplePattern.iota rec b c₂ y).toPattern rb → b < a → False := by
+    intro c₁ c₂ a b x y ra rb ha hb hlt
+    have hsub : Subpattern (.var ((Pattern.const rec).varN b)) ((Pattern.const rec).varN a) := by
+      have : (Pattern.const rec).varN (b+1) = .var ((Pattern.const rec).varN b) := rfl
+      exact this ▸ Subpattern.varN_le hlt
+    have := PatSig.pat_app_l_uniq ha hb (p₁ := (Pattern.const rec).varN a)
+      (p₂ := (Pattern.const c₁).varN x) (p₁' := (Pattern.const rec).varN b)
+      (p₂' := (Pattern.const c₂).varN y) Subpattern.refl Subpattern.refl hsub
+    rw [Pattern.inter_self] at this; exact nomatch this
+  rcases Nat.lt_trichotomy m m' with hlt | heq | hgt
+  · exact absurd (key h' h hlt) (fun x => x)
+  · exact heq
+  · exact absurd (key h h' hgt) (fun x => x)
+
+/-- `Params.pat_app_depth_uniq` (`KMeasure.lean:175`) over `PatSig`.  The largest
+judgment-free cone in the `[Params]` layer. -/
+theorem PatSig.pat_app_depth_uniq {p₁ p₂ p₁' p₂' : Pattern}
+    {r : (Pattern.app p₁ p₂).RHS × (Pattern.app p₁ p₂).Check}
+    {r' : (Pattern.app p₁' p₂').RHS × (Pattern.app p₁' p₂').Check}
+    (h : Pat (.app p₁ p₂) r) (h' : Pat (.app p₁' p₂') r')
+    (hhd : p₁.headName = p₁'.headName) : p₁.depth = p₁'.depth := by
+  obtain ⟨sp, hsp⟩ := PatSig.pat_simple h
+  obtain ⟨sp', hsp'⟩ := PatSig.pat_simple h'
+  cases sp with
+  | defn => exact nomatch hsp
+  | iota rec m ctor n =>
+  cases sp' with
+  | defn => exact nomatch hsp'
+  | iota rec' m' ctor' n' =>
+  simp [SimplePattern.toPattern] at hsp hsp'
+  obtain ⟨rfl, rfl⟩ := hsp
+  obtain ⟨rfl, rfl⟩ := hsp'
+  simp [Pattern.headName_varN, Pattern.headName] at hhd
+  subst hhd
+  simp only [Pattern.depth_varN, Pattern.depth]
+  exact congrArg _ (PatSig.pat_app_arity_uniq h h')
+
+end
+
+/-! ## (c), the part that decides whether the split pays
+
+`ChurchRosser`'s `ParRed`, `CParRed` and `NonNeutral` each mention `IsDefEqU` in their own
+definition, so 348 of the module's 430 entries have judgment-dependent statements and a
+`PatSig`-only restatement of the file would be the seven declarations above.  The split as
+stated is *sound* but almost empty.
+
+What makes it non-empty is that the judgment enters those inductives in exactly one shape --
+`r.2.OK (IsDefEqU env univs Γ) m1 m2` -- and `Pattern.Check.OK` is already parametric in that
+relation.  So the judgment can be abstracted into an index. -/
+
+/-- **`ParRed` with the judgment abstracted into a parameter**, over `[PatSig]` alone.
+
+Constructor for constructor identical to `VEnv.ParRed` (`ChurchRosser.lean:752`), except that
+`extra`'s check obligation is discharged against `R Γ` rather than `IsDefEqU env univs Γ`. -/
+inductive ParRedR [PatSig] (R : List VExpr → VExpr → VExpr → Prop) :
+    List VExpr → VExpr → VExpr → Prop where
+  | bvar : ParRedR R Γ (.bvar i) (.bvar i)
+  | sort : ParRedR R Γ (.sort u) (.sort u)
+  | const : ParRedR R Γ (.const c ls) (.const c ls)
+  | app : ParRedR R Γ f f' → ParRedR R Γ a a' → ParRedR R Γ (.app f a) (.app f' a')
+  | lam : ParRedR R Γ A A' → ParRedR R (A::Γ) body body' →
+    ParRedR R Γ (.lam A body) (.lam A' body')
+  | forallE : ParRedR R Γ A A' → ParRedR R (A::Γ) B B' →
+    ParRedR R Γ (.forallE A B) (.forallE A' B')
+  | beta : ParRedR R (A::Γ) e₁ e₁' → ParRedR R Γ e₂ e₂' →
+    ParRedR R Γ (.app (.lam A e₁) e₂) (e₁'.inst e₂')
+  | extra : PatSig.Pat p r → p.Matches e m1 m2 → r.2.OK (R Γ) m1 m2 →
+    (∀ a, ParRedR R Γ (m2 a) (m2' a)) → ParRedR R Γ e (r.1.apply m1 m2')
+
+/-- `ParRed.rfl` (`ChurchRosser.lean:798`) over `PatSig`, at any `R`. -/
+protected theorem ParRedR.rfl [PatSig] {R} {Γ} : ∀ {e}, ParRedR R Γ e e
+  | .bvar .. => .bvar
+  | .sort .. => .sort
+  | .const .. => .const
+  | .app .. => .app ParRedR.rfl ParRedR.rfl
+  | .lam .. => .lam ParRedR.rfl ParRedR.rfl
+  | .forallE .. => .forallE ParRedR.rfl ParRedR.rfl
+
+/-- **The payoff statement.**  Enlarging the judgment transports the whole reduction relation
+with one induction and no case-by-case work.  Adding structure eta to `IsDefEq` enlarges
+`IsDefEqU`, so every `ParRed` derivation over the old judgment is a `ParRed` derivation over
+the new one for free -- the 88 hand-written induction sites of the confluence layer do not
+have to be re-erected *for this reason*.  (They may still have to be re-erected for others:
+`pat_wf` and `extra_pat` change content, and the `NormalEq` side has its own obligations.) -/
+theorem ParRedR.mono [PatSig] {R R' : List VExpr → VExpr → VExpr → Prop}
+    (hR : ∀ Γ a b, R Γ a b → R' Γ a b) {Γ e e'} (H : ParRedR R Γ e e') : ParRedR R' Γ e e' := by
+  induction H with
+  | bvar => exact .bvar
+  | sort => exact .sort
+  | const => exact .const
+  | app _ _ ih1 ih2 => exact .app ih1 ih2
+  | lam _ _ ih1 ih2 => exact .lam ih1 ih2
+  | forallE _ _ ih1 ih2 => exact .forallE ih1 ih2
+  | beta _ _ ih1 ih2 => exact .beta ih1 ih2
+  | extra h1 h2 h3 _ ih => exact .extra h1 h2 (h3.map fun _ _ h => hR _ _ _ h) ih
+
+/-- **`ParRedR` at the judgment is `ParRed`.**  Both directions, constructor by constructor:
+the abstraction is exact, not an approximation, so a rewritten `ChurchRosser` that defines
+`ParRed` as `ParRedR (IsDefEqU env univs)` proves the same theorems. -/
+theorem ParRed.iff_parRedR [Params] {Γ e e'} :
+    ParRed Γ e e' ↔
+      @ParRedR Params.toPatSig (IsDefEqU Params.env Params.univs) Γ e e' := by
+  constructor
+  · intro H
+    induction H with
+    | bvar => exact ParRed.bvar
+    | sort => exact ParRed.sort
+    | const => exact ParRed.const
+    | app _ _ ih1 ih2 => exact ParRed.app ih1 ih2
+    | lam _ _ ih1 ih2 => exact ParRed.lam ih1 ih2
+    | forallE _ _ ih1 ih2 => exact ParRed.forallE ih1 ih2
+    | beta _ _ ih1 ih2 => exact ParRed.beta ih1 ih2
+    | extra h1 h2 h3 _ ih => exact ParRed.extra h1 h2 h3 ih
+  · intro H
+    induction H with
+    | bvar => exact ParRed.bvar
+    | sort => exact ParRed.sort
+    | const => exact ParRed.const
+    | app _ _ ih1 ih2 => exact ParRed.app ih1 ih2
+    | lam _ _ ih1 ih2 => exact ParRed.lam ih1 ih2
+    | forallE _ _ ih1 ih2 => exact ParRed.forallE ih1 ih2
+    | beta _ _ ih1 ih2 => exact ParRed.beta ih1 ih2
+    | extra h1 h2 h3 _ ih => exact ParRed.extra h1 h2 h3 ih
+
+end VEnv
+end Lean4Lean

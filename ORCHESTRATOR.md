@@ -1952,3 +1952,30 @@ instrument I have would have caught either.
 Cheap partial check until something better exists: for a claimed dependency A-needs-B, run
 `users.lean` on **both** and see which appears in the other's cone. If B's cone contains A, the
 brief has it backwards.
+
+## After a crash, check for a broken file inside a build glob — first (2026-09-04)
+
+The sixteenth crash left a 296-line file with 8 errors at `Lean4Lean/Theory/Typing/PatSig.lean`.
+`lakefile.toml` globs `Lean4Lean.Theory.*` and `Lean4Lean.Verify.*`, so that file was breaking the
+build for **three concurrently running streams** until I moved it to `docs/`.
+
+A crashed round's partial Lean is not inert. It is a build break for everyone else, and the streams
+that hit it would have reported a red tree and possibly gone looking for the cause in their own work.
+
+**Standing check: the first thing to do after a crash notification is look for a partial file inside
+a glob, and move it out of the source tree before reading anything else.** Preserve it — the work is
+usually worth keeping — but put it somewhere that is not compiled.
+
+## Closure computed from the wrong seed: twice now (2026-09-04)
+
+The `PatSig` round caught its own classifier bug before recording a number: seeding a statement
+closure from a declaration's *type* leaves a `def`'s **body** unexpanded, so six core relations were
+mis-reported as judgment-free, because their types are only `List VExpr → VExpr → VExpr → Prop`. It
+re-seeded and discarded the first-run figures.
+
+That is the same mistake as my own `users.lean` bug — a reverse-dependency graph built without
+internal declarations, undercounting by ~20%. Both times: a closure seeded wrongly, producing a
+plausible, self-consistent, wrong answer that nothing in the output flagged.
+
+When a round reports a closure or census figure, ask what it seeded from. Types, values, and
+constructors give three different answers, and only one of them is the one wanted.
