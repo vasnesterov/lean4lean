@@ -415,8 +415,12 @@ section was written to make visible — is now suppliable in all four non-induct
   `checkConstantVal`'s success rather than about its operational behaviour.  It carries no
   `VEnvs.WF`, deliberately: `checkConstantVal.WF`'s does, and `VEnvs.WF` is unsatisfiable for a map
   holding an `.inductInfo`.
-* **One** residual remains: `InductiveMapGate` (the map side of the inductive step — the seven-file
-  flip), **unproved, not false**.  *Corrected 2026-09-04.*  This used to name two and grade both
+* **One** residual remains: `InductiveMapGate` — the map side of the inductive step, i.e. bookkeeping
+  about the **kernel constant map** — **unproved, not false**.  It is **not** the seven-file nested
+  flip; `AddInductive.WF_run` (`Verify/Inductive/InductMap.lean`) mentions no abstract relation, and
+  that file cuts the gate down to one residual with the non-nested branch closed.  *I wrote "the
+  seven-file flip" here on 2026-09-04 while correcting a different error in this bullet, borrowing the
+  phrase from a neighbouring sentence that prices the flip — a different obligation.*  *Corrected 2026-09-04.*  This used to name two and grade both
   "unproved, not false".  `MutualNamesGate` is gone, and its grade was wrong in a way worth keeping:
   **as stated it was not provable**, because it omitted `env.constants.WF` — a hypothesis
   `NoNestedMap.add`, `checkConstantVal_find?_none` and `NoNestedEnv` itself all carry, and which its

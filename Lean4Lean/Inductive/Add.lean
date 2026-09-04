@@ -1093,8 +1093,14 @@ All of it is now false.  The human decision was taken (approved on PR #46), the 
 written as a tripwire for exactly this change.  The prefix **is** an environment-wide invariant:
 `Verify/Inductive/NoNestedAll.lean` establishes `VEnv.NoNestedN` across every `addDecl` branch
 (`VEnv.NoNestedN.of_addDecl`), and `noNestedEnv_not_preserved_unchecked` shows it fails with
-`check := false`, so the check is load-bearing.  **One** residual remains, `InductiveMapGate` (the map
-side of the inductive step -- the seven-file flip).  The header loop's postcondition is now a
+`check := false`, so the check is load-bearing.  **One** residual remains, `InductiveMapGate` -- the map
+side of the inductive step, i.e. bookkeeping about the **kernel constant map**.  It is **not** the
+seven-file nested flip: `AddInductive.WF_run` (`Verify/Inductive/InductMap.lean`) mentions no abstract
+relation at all, and that file reduces the gate to a single residual (the nested rebuild,
+`numNested ≠ 0`), with the whole non-nested branch proved outright.  *This sentence said "the
+seven-file flip" until 2026-09-05; I introduced that phrase on 2026-09-04 while correcting a different
+error in this paragraph, by borrowing it from `NoNestedAll.lean`:503, which prices the **flip** at
+seven files -- a neighbouring and different obligation.*  The header loop's postcondition is now a
 **theorem** (`addMutual_header_post`) and the `mutualDefnDecl` branch stands **unconditionally**
 (`addMutual_noNestedEnv`), both in `Verify/Inductive/NoNestedAll.lean` §3.1.  Corrected 2026-09-04; the previous text
 said two residuals remained and graded the header loop "unproved, not false", which was wrong twice

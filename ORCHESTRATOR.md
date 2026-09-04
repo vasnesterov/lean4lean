@@ -3173,3 +3173,36 @@ Applied when no stream holds the tree:
 **Not queued, deliberately:** the `VIndCtor.skeleton_type` inlining (a declined scope creep, correctly), and
 `WFPos` §6's axiom checks covering declarations that file no longer introduces (kept for coverage, documented
 in place).
+
+
+## My corrections are a vector for fresh errors (2026-09-05, mine)
+
+A round told me **four** docstrings falsely call `InductiveMapGate` the seven-file nested flip. I queued that
+and wrote it into the ledger. Then I read the four:
+
+- **Two** make the claim: `Inductive/Add.lean`:1096 and `RestoreFaithful.lean`:418.
+- **Two are correct as written** -- `NoNestedAll.lean`:535 and :608 say "not a name condition" and "bookkeeping
+  about the constant map", which is exactly right.
+
+And `git log -S "the seven-file flip"` says the rest: **I introduced the phrase into both wrong sites myself,
+on 2026-09-04, in commits `fca5b82` and `dd99729` -- while correcting *different* errors in those same
+paragraphs.** I borrowed it from `NoNestedAll.lean`:503, three lines above, which prices the **flip** at seven
+files. A neighbouring, different obligation.
+
+**Two distinct failures, and only one of them is the one I have a rule for.**
+
+1. **The relay** (four for two) is the failure I wrote a rule about two hours earlier -- *quote the file, do not
+   relay a report's characterisation of it* -- and I broke it **inside the ledger entry recording that rule's
+   fifth instance**. Seventh instance today. The rule is right; my compliance is the problem, so the rule needs
+   a mechanical trigger, not more emphasis: **a queue entry that names file:line does not get committed until I
+   have pasted the line into the entry.** A queue item without a quotation is not ready.
+2. **The introduction is new and worse: a correction is a high-risk edit, not a safe one.** Both bad sentences
+   were written while I was fixing something else in the same paragraph, by grabbing a phrase from adjacent
+   context. That is exactly when it feels safest: I am already reading the paragraph, I have just decided some
+   of it is unreliable, and I am moving fast. **Rule: when correcting a docstring, every *other* claim I add to
+   that paragraph is a new claim and needs its own check.** Fixing one sentence does not license the
+   neighbouring one.
+
+Both sites now carry their own provenance -- what they used to say, when it changed, and that I wrote the bad
+version -- so the next reader sees where the phrase came from rather than only that it moved. Build green at
+1668, unchanged.
