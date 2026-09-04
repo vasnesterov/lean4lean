@@ -253,7 +253,7 @@ theorem minorTele_norec (D : VInductDecl') {lvls us : List VLevel} {q : Nat} {C 
 
 /-- The padding motive for a block member other than the projected type: `fun ι x => X → X`,
 where `X` is the projected field's type (see the module docstring). -/
-def padMotive (D : VInductDecl') (T' : VIndType) (us : List VLevel) (ps : List VExpr) (X : VExpr) : VExpr :=
+def padMotive (_D : VInductDecl') (T' : VIndType) (us : List VLevel) (ps : List VExpr) (X : VExpr) : VExpr :=
   let ni := T'.indices.length
   mkLams (VExpr.instAllTele (T'.indices.map (VExpr.instL us)) ps) <|
     .lam ((VExpr.const T'.name us).mkApp (ps.map (·.liftN ni) ++ bvars 0 ni)) <|
@@ -275,7 +275,7 @@ theorem padMotives_getElem_eq (D : VInductDecl') (T C us ps is i j earlier e)
     (hj : j < D.nm) :
     (D.padMotives T C us ps is i j earlier e)[j]? = some (T.projMotive C us ps is i earlier) := by
   rw [padMotives]
-  simp [List.getElem?_map, List.getElem?_range, hj]
+  simp [hj]
 
 /-- …and at every other index it is a *padding* motive.  This is what makes `padMinor_beta`'s
 `hget` premise satisfiable, i.e. what stops that lemma from being vacuous. -/
@@ -285,7 +285,7 @@ theorem padMotives_getElem_ne (D : VInductDecl') (T C us ps is i j earlier e)
       = some (D.padMotive (D.types.getD k default) us ps
           ((T.projMotive C us ps is i earlier).mkApp (is ++ [e]))) := by
   rw [padMotives]
-  simp [List.getElem?_map, List.getElem?_range, hk, hne]
+  simp [hk, hne]
 
 /-- **The padding motive commutes with a weakening of its data.**  `padMotive`'s only free
 variables come from `ps` and `X`; the `ClosedTele` premise is what stops an index entry from
@@ -423,7 +423,7 @@ theorem padMinors_narrow (D : VInductDecl') (T : VIndType) (C : VIndCtor)
   have hall : D.ctorsAll = [(0, C)] := by
     simp [VInductDecl'.ctorsAll, htypes, hctors]
   rw [VInductDecl'.padMinors, hall]
-  simp only [VInductDecl'.padMinorsAux, if_pos rfl, VInductDecl'.realMinor,
+  simp only [VInductDecl'.padMinorsAux, VInductDecl'.realMinor,
     List.nil_append, List.append_nil, VIndCtor.projMinor]
   rw [minorTele_narrow D C hnm hrec hself]
   simp
@@ -532,7 +532,7 @@ theorem motiveType_instL_instAll_gen (D : VInductDecl') (T' : VIndType) (C : VIn
     VExpr.map_instL_bvars, List.map_append, VExpr.instAll_mkPi, VExpr.instAll_forallE,
     VExpr.instAll_sort, VExpr.instAll_mkApp, VExpr.instAll_const,
     List.map_map, Function.comp_def, VExpr.instL_instL, hself,
-    VExpr.length_liftTele, List.length_map, Nat.zero_add, Nat.add_zero]
+    VExpr.length_liftTele, List.length_map, Nat.zero_add]
   rw [VExpr.instAllTele_liftTele_append (n := t) hms]
   rw [VExpr.map_instAll_bvars_top (by omega) (by simp [hps, hms]; omega),
     VExpr.map_instAll_bvars_lt (Nat.le_of_eq (Nat.zero_add _)),
@@ -1081,7 +1081,7 @@ theorem padMinor_hbs_norec (henv : env.Ordered) (hI : D.IotaCtx env)
     {t q : Nat} {T' : VIndType} {C' : VIndCtor} {lvls : List VLevel}
     (hT : D.types[t]? = some T') (hC : C' ∈ T'.ctors) (hCall : (t, C') ∈ D.ctorsAll)
     {Γ ps mots acc : List VExpr}
-    (hrec : C'.recFields = []) (hps : ps.length = D.np)
+    (_hrec : C'.recFields = []) (hps : ps.length = D.np)
     (hmots : mots.length = D.nm) (hacc : acc.length = q)
     (hself : D.selfLvls.map (VLevel.inst lvls) = us)
     (hcl : VExpr.ClosedTele (T'.indices.map (VExpr.instL us)) ps.length)
@@ -1153,7 +1153,7 @@ theorem padMinor_hasType_norec (henv : env.Ordered) (hI : D.IotaCtx env)
     (h7 : ∀ l ∈ us, l.WF U) (hus : us.length = D.uvars) {t : Nat} (ht : t ≤ D.nm)
     (hT : D.types[t]? = some T') (htlt : t < D.nm)
     {i q : Nat} {C' : VIndCtor} {lvls : List VLevel}
-    (hC : C' ∈ T'.ctors) (hCall : (t, C') ∈ D.ctorsAll) (hrec : C'.recFields = [])
+    (hC : C' ∈ T'.ctors) (hCall : (t, C') ∈ D.ctorsAll) (_hrec : C'.recFields = [])
     {Γ ps mots acc ms : List VExpr} {X : VExpr}
     (hself : D.selfLvls.map (VLevel.inst lvls) = us)
     (hcl : VExpr.ClosedTele (T'.indices.map (VExpr.instL us)) ps.length)

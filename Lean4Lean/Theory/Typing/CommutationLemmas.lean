@@ -1,7 +1,7 @@
 import Lean4Lean.Verify.TypeChecker.EtaStructG
-import Lean4Lean.Verify.Typing.ProjGenLift
-import Lean4Lean.Verify.Typing.ProjGenInst
-import Lean4Lean.Verify.Typing.ProjClosedG
+import Lean4Lean.Theory.Inductive.ProjGenLift
+import Lean4Lean.Theory.Inductive.ProjGenInst
+import Lean4Lean.Theory.Inductive.ProjClosedG
 
 /-!
 # η-expansion commutes with weakening and with level instantiation
@@ -19,7 +19,7 @@ import Lean4Lean.Verify.Typing.ProjClosedG
 `projTermG` analogue) reports:
 
 * `projTerm_weakN`  = `VInductDecl'.projTerm_lift'`  (`Theory/Inductive/Structure.lean:357`) — **present**
-* `projTermG_weakN` = `VInductDecl'.projTermG_lift'` (`Verify/Typing/ProjGenLift.lean:289`) — **present**
+* `projTermG_weakN` = `VInductDecl'.projTermG_lift'` (`Theory/Inductive/ProjGenLift.lean:289`) — **present**
 
 The other three are genuinely absent (0 hits for `etaExpansion`/`etaExpansionG` against both
 `VExpr.lift'` and `VExpr.liftN`, and the 13 hits for `etaExpansionG`+`VExpr.instL` are all
@@ -144,7 +144,7 @@ theorem etaExpansionG_weakN (H : D.ProjClosedG) {ps : List VExpr} {e : VExpr} {j
 /-! ## §3 The generalised η-expansion commutes with level instantiation
 
 Unconditionally, exactly as `etaExpansion_instL` does in the narrow case: `projTermG_instL`
-(`Verify/Typing/ProjGenInst.lean:414`) carries no side conditions, so neither do these. -/
+(`Theory/Inductive/ProjGenInst.lean:414`) carries no side conditions, so neither do these. -/
 
 /-- `projAllG` commutes with `instL`.  Companion to `projAll_instL`. -/
 theorem projAllG_instL {ps : List VExpr} {j : Nat} {e : VExpr} {ls : List VLevel} :

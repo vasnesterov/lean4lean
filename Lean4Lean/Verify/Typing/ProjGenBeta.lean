@@ -1,4 +1,4 @@
-import Lean4Lean.Verify.Typing.ProjGenInst
+import Lean4Lean.Theory.Inductive.ProjGenInst
 
 /-!
 # Ingredient (b) of `realMinor_hasType_gen`: the motive's body, saturated

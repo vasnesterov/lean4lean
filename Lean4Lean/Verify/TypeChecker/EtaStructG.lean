@@ -1,4 +1,4 @@
-import Lean4Lean.Verify.Typing.ProjGen
+import Lean4Lean.Theory.Inductive.ProjGen
 import Lean4Lean.Verify.TypeChecker.IsDefEq
 
 /-!

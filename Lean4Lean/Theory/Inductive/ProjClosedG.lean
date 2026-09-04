@@ -1,4 +1,4 @@
-import Lean4Lean.Verify.Typing.ProjGen
+import Lean4Lean.Theory.Inductive.ProjGen
 
 /-!
 # `ProjClosedG`: the closedness hypothesis the *generalised* projection term needs
@@ -139,7 +139,7 @@ theorem VInductDecl'.projClosedG_of_wf {env env₀ env' : VEnv} {D : VInductDecl
     obtain ⟨-, -, -, -, honctx, hres, -, -⟩ := hpos
     have hlenΓ : (((C'.fields.take i).map (·.type)).reverse ++ D.params.reverse).length
         = i + D.np := by
-      simp [List.length_take, Nat.min_eq_left (Nat.le_of_lt hilt), VInductDecl'.np, Nat.add_comm]
+      simp [List.length_take, Nat.min_eq_left (Nat.le_of_lt hilt), VInductDecl'.np]
     refine ⟨?_, ?_⟩
     · have := VExpr.ClosedTele.of_onCtx₀ hc₁ honctx
       rw [hlenΓ] at this

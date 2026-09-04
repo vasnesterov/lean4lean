@@ -1,4 +1,4 @@
-import Lean4Lean.Verify.Typing.ProjGenLift
+import Lean4Lean.Theory.Inductive.ProjGenLift
 import Lean4Lean.Verify.Typing.ProjClosedGWitness
 
 /-!

@@ -1,4 +1,4 @@
-import Lean4Lean.Verify.Typing.ProjGen
+import Lean4Lean.Theory.Inductive.ProjGen
 import Lean4Lean.Verify.Typing.ProjGenWitness
 import Lean4Lean.Verify.Typing.ProjGenLiftWitness
 import Lean4Lean.Verify.Typing.ProjGenInstWitness
@@ -215,7 +215,7 @@ def seeds : List Name :=
 
 def main : IO Unit := do
   initSearchPath (← findSysroot)
-  let env ← importModules #[{module := `Lean4Lean.Verify.Typing.ProjGen},
+  let env ← importModules #[{module := `Lean4Lean.Theory.Inductive.ProjGen},
                             {module := `Lean4Lean.Verify.Typing.ProjGenWitness},
                             {module := `Lean4Lean.Verify.Typing.ProjGenLiftWitness},
                             {module := `Lean4Lean.Verify.Typing.ProjGenInstWitness},

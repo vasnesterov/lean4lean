@@ -1,5 +1,5 @@
 import Lean4Lean.Verify.StructureBridge
-import Lean4Lean.Verify.Typing.ProjGen
+import Lean4Lean.Theory.Inductive.ProjGen
 
 /-!
 # The refutation, re-run against the generalisation

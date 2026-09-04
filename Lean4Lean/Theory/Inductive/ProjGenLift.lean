@@ -1,4 +1,4 @@
-import Lean4Lean.Verify.Typing.ProjClosedG
+import Lean4Lean.Theory.Inductive.ProjClosedG
 
 /-!
 # Block A for `projCoreG`: commutation with `lift'`

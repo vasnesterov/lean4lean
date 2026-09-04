@@ -10,10 +10,20 @@ throughout, because a green build only proves the absence of a *cycle*, not of a
 HARD RULE (exit 1): no module under Lean4Lean/Theory/SetModel/ may reach Lean4Lean.Verify.* .
    That layer is the model, below the abstract spec; it can have no legitimate need of the checker.
 
-SOFT REPORT (exit 0): `Theory/` files that import `Verify/` directly, with counts.  Three such
-   files are legitimate -- they are *about* checker-built environments and use 96-111 constants
-   from `Verify/` each -- so this is drift to watch, not an error to fail on.  A file appearing
-   here with a *small* count is the suspicious case: that is what a parked declaration looks like.
+SOFT REPORT (exit 0): `Theory/` files that import `Verify/` directly, with counts.  This is drift
+   to watch, not an error to fail on.  **A file appearing here with a *small* constant count is the
+   suspicious case: that is what a parked declaration looks like.**
+
+   Measured 2026-09-04, after the `ProjGen` cluster migration -- four files, one direct import each:
+     EtaGuardLand      111 constants (54 from `Verify.Typing.ConstSpine`)  legitimate
+     NoConfRepair       95 constants (39 from ConstSpine)                  legitimate
+     StructEtaPrice     52 constants (45 from refutation witnesses)        legitimate, weaker
+     CommutationLemmas   8 constants                                       NOT legitimate
+   The last one is the heuristic working: before the migration it cited **96**, the exact bottom of
+   the band this docstring used to cite as evidence of legitimacy.  The migration therefore turned a
+   large justified inversion into a small suspicious one -- progress, because the finish is now
+   cheap, but not the same as done.  Its 7 residual declarations have a combined cone of 703 of
+   which exactly 7 are under `Verify/` (themselves), so extracting them takes it to 0.
 
 Run: python3 scripts/layer-check.py
 """
