@@ -3615,3 +3615,44 @@ possible -- so the next reader does not see four gate binders and infer unfinish
    session. Its *inferences about files it does not own* -- exactly what this estimate was -- are where the
    errors cluster, and that is also where my own relay errors cluster. **The unit of trust is the individual
    claim, not the report.**
+
+## A long-lived corner accumulates competing "sharpest statement" claims (2026-09-05)
+
+Third distinct staleness hazard, after definitional aliases and stale counts, and the sharpest-edged of the
+three. From the round that hit it:
+
+> in a ten-round corner the hazard is not aliasing but **nine statements each claiming to be "the sharpest"
+> with only the oldest cited where readers look** -- `git log -1 --date=short` per family file cost one call and
+> reordered the round.
+
+`UniqueTyping.lean`'s comment above the hole says *"the current sharpest statement of what is left is
+`iff_piDescend_narrow`"*. That is round 5. Rounds 7, 8 and 9b each produced a sharper one. The pointer in the
+load-bearing comment is the **oldest** of the family, because it was written when it was true and nobody
+rewrote it.
+
+**Rule: in a corner with a history, date the family before trusting its signpost — one `git log -1 --date=short`
+per file. The comment a reader lands on is the likeliest to be stale, precisely because it is the one that gets
+cited rather than edited.**
+
+The three hazards now, all cheap to check and all having cost me something this session:
+
+| hazard | signature | check |
+|---|---|---|
+| definitional aliases | same arity + same cone, different modules | query every alias |
+| stale counts | any number in prose | re-run the command; write it beside the number |
+| competing "sharpest" claims | a corner with N rounds of history | `git log -1` per family file |
+
+## Sixth refinement: a true fact about a neighbour can veto the probe that works (2026-09-05)
+
+The round predicted its cheapest extreme was **circular**, citing a **real, measured** fact about a neighbouring
+operation (`SwapCtx`) — and nearly skipped the extreme that turned out to work, because **λ-abstraction is not
+exchange**. The veto was sound about exchange and irrelevant to the actual move.
+
+**Adopted: when an extreme is predicted circular, name the specific move the circularity attaches to, then check
+the extreme actually uses that move.** A correct fact about the wrong operation is the most persuasive kind of
+wrong reason to skip a cheap probe.
+
+Rule history, six refinements, every one from a round that ran it as written and had it miss: numerals at
+extremes → arguments at extremes, with a side condition's *permitted* states counting → CPS continuation
+arguments → check monotonicity before calling a witness cheap → check whether a cheap extreme is a normal form →
+**and check that a predicted circularity actually attaches to this extreme.**
