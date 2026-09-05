@@ -1,4 +1,4 @@
-import Lean4Lean.Verify.Inductive.InductMap
+import Lean4Lean.Verify.Inductive.NIndices
 
 /-!
 # Residual B: the nested rebuild branch of `Environment.addInductive`
@@ -495,6 +495,20 @@ theorem rebuild_recWrite_budget_aux {types : List InductiveType} {env'' : Enviro
       (((mkAuxRecNameMap env'' (mainType :: tail)).2.lookup recName).getD recName) :=
   indBudget_processRec hty (.inl ((mkAuxRecNameMap_spec hmain hlen).2 recName hrn))
 
+/-! ### §5.1a **The gate is discharged.**
+
+`Verify/Inductive/NIndices.lean` proves all three fields, so `RunFreshGate` is no longer a barrier and
+every `G`-parametrised result above is unconditional.  The field that needed
+`stats.nindices.size = indTypes.size` is `member` — the one §1.1 measured as the only thing between
+residual B and outright falsity; `NIndices.lean` §1 supplies it, at the cost of also discharging the
+other three `assert!`s of `checkInductiveTypes` (see that file's §1 header for why all four are
+forced). -/
+
+theorem runFreshGate : RunFreshGate where
+  member mapWF hrun := AddInductive.WF_run_member mapWF _ _ _ _ hrun
+  ctor mapWF hrun := AddInductive.WF_run_ctor mapWF _ _ _ _ hrun
+  ctors mapWF hrun := AddInductive.WF_run_ctors mapWF _ _ _ _ hrun
+
 /-! ### §5.2 `RunFreshGate` is not asking for something false
 
 `scripts/exists.lean` reports a bare `Prop` with no proof term as *unpriced*: its cone says nothing
@@ -502,8 +516,9 @@ about satisfiability.  This `#eval` prices it, at the same nested block as §1: 
 `AddInductive.run` on the block `ElimNestedInductive.run` produced and **throws** unless all three
 fields' instances hold there — member names fresh in the input environment, constructor names fresh,
 and the stored `InductiveVal.ctors` equal to the member's own constructor names.  That is not a proof
-of the gate (the gate is universally quantified); it is the check that rules out asking for a
-falsehood, which is what §1.1 shows the gate is protecting against. -/
+of the gate (§5.1a is); since §5.1a's proof is `M.WF`-shaped — vacuous if `run` never accepted — this
+`#eval` is now the check that the **accepting** case exists at a *name-fresh* block, which is what
+keeps `runFreshGate` from being vacuously true. -/
 #eval show Lean.CoreM Unit from do
   let kenv := (← getEnv).toKernelEnv
   let st : ElimNestedInductive.State := { lvls := [], newTypes := #[ntreeIndType] }
@@ -546,6 +561,11 @@ falsehood, which is what §1.1 shows the gate is protecting against. -/
 #print axioms Lean4Lean.auxRecFold_inv
 #print axioms Lean4Lean.mkAuxRecNameMap_spec
 #print axioms Lean4Lean.indBudget_processRec
+#print axioms Lean4Lean.AddInductive.WF_checkInductiveTypes_ni
+#print axioms Lean4Lean.AddInductive.WF_run_member
+#print axioms Lean4Lean.AddInductive.WF_run_ctor
+#print axioms Lean4Lean.AddInductive.WF_run_ctors
+#print axioms Lean4Lean.runFreshGate
 #print axioms Lean4Lean.inductInfo_name_eq
 #print axioms Lean4Lean.ctorInfo_name_eq
 #print axioms Lean4Lean.rebuild_indWrite_budget

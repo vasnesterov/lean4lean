@@ -3330,3 +3330,41 @@ attack `PiInv` alone, which is what the next round on this front should do.
 The round's own limit is sharper than its headline and I am keeping it: **"the axes disagree and neither
 supersedes the other"** -- two problems on the environment axis, one on the `VEnv.WF`-base axis, because over
 that base the existing prices already make every subfamily equivalent to the whole.
+
+## The cheapest-instrument rule, refined three times by the rounds it failed (2026-09-05)
+
+Each refinement came from a round that ran the rule **exactly as written** and had it miss:
+
+1. **v1 -- numerals at extremes.** Earned its place by refuting a four-residual list in three lines, after three
+   rounds of hypothesis-diffing had missed it.
+2. **v2 -- arguments at extremes, and `WF` is not a shield.** For a structure carrying a `WF` side condition the
+   extremes are the states `WF` **fails to forbid**. From the round that found a mis-keyed map entry was the only
+   barrier between a residual and falsity; v1 missed it because the dangerous value was not a numeral.
+3. **v3 -- CPS continuations.** For a CPS function, instantiate the **continuation's argument** too, since the
+   delivered value need not be the threaded one. From the round that found `checkInductiveTypes` hands its
+   continuation a four-fold `assert!` chain rather than the threaded state, so in a failing branch nothing about
+   the delivered value is derivable -- `panic` bottoming out in body-less `opaque panicCore`. v2 missed it; it
+   surfaced in an `omega` counterexample.
+
+**Current form for briefs:** instantiate every universally quantified argument at its extremes; for a structure
+with a side condition, the extremes are what the condition permits and you assumed it forbade; for CPS code, the
+continuation's argument as well as the threaded state.
+
+## The count-the-uses rule certified a true promise (2026-09-05)
+
+First positive result for that rule. After three false "with X, Y disappears" promises this week, the `nindices`
+round ran the count and reported **exactly one consumer use, so the previous round's promise survives**. A rule
+that only ever fires negatively is a suspicion; one that also certifies is a measurement. It stays.
+
+## Six shell slips today, all in the scaffolding and none in the work (2026-09-05, mine)
+
+Today's: `tail -N` truncating a census summary; `lake build` invoked twice in one line; `grep -c` as a pipeline's
+last stage **inverting a verdict**; inner double quotes breaking a `git commit -m`; a heredoc closed with the
+wrong delimiter; and a Python heredoc where I never closed the triple-quoted string, so the append silently did
+nothing while the `git add` beside it reported success.
+
+**All six were in the shell around the work; none was in the Lean, the measurements, or the reasoning.** The
+distribution is the lesson: single-purpose commands have been reliable all session, and *composite* ones -- two
+heredocs plus a build plus a commit in one invocation -- are where every one of these happened. **Split them.**
+The batching saves seconds; one lost commit or one inverted verdict costs far more, and the inverted verdict
+already made me report a green build as failed.
