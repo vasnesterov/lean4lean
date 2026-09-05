@@ -792,7 +792,15 @@ theorem runBudget_of_noAux (G : ElimNoAuxGate) {env : Environment} {fuel np : Na
 statement about the `StateT.run (s := env)` block, because that block is a term with no name: it
 mentions `res`, `recNameMap'` and `allIndNames`, all local.  The guard
 `∀ res, … → res.aux2nested ≠ []` is exactly the negation of the case §4 closes, so the two
-hypotheses partition the input space with no overlap and no gap. -/
+hypotheses partition the input space with no overlap and no gap.
+
+**`GB` is discharged** (2026-09-05), by `Lean4Lean.addInductive_delta_nested` in
+`Verify/Inductive/RebuildFinish.lean`, and `Lean4Lean.inductiveMapGate` there is a closed term of
+`NoNestedAll.lean`'s `InductiveMapGate` (arity 0, cone 9444, hole-free, standard axioms only).  The
+`GB` binders below **cannot** be deleted, and that is a fact about the import graph rather than a
+choice: `RebuildFinish.lean` imports this file (through `NIndices.lean` → `NestedRebuild.lean`), so
+the proof of `GB` lives strictly above its statement.  Deleting the binders would mean moving §4
+above that file; there is no proof content in the move. -/
 
 set_option maxHeartbeats 1000000 in
 /-- **The gate, on the branch `AddInductive.run` alone decides.**  `WF_run` is the content; the two

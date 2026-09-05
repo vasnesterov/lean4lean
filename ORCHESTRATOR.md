@@ -3530,3 +3530,53 @@ Accumulated this week, and now explicit:
 3. **The hole audit** (`exists.lean`) — because a producer can exist and be **useless**: two producers of this
    round's target are unconditional *in form*, and what disqualifies them is that their cones reach the very hole
    under study. *"A conclusion-shape search is not an absence instrument alone."*
+
+## I told two rounds that panics are unanalysable. They are not. (2026-09-05, mine)
+
+I relayed *"`panic` bottoms out in the body-less `opaque panicCore`"* into ledger row 347b and into two briefs,
+and drew the conclusion that **in a failing branch nothing at all is derivable about the delivered value.**
+
+Checked directly, because the round that discharged the gate contradicted it:
+
+    #print panicCore
+    def panicCore.{u} : {α : Sort u} → [Inhabited α] → String → α := fun {α} [Inhabited α] msg => default
+
+    example : (panicCore (α := Nat) "x") = default := rfl   -- elaborates
+
+**A `def` with a body, reducing by `rfl`.** So the six `unreachable!`s in the rebuild block are *free*: the
+monadic `Inhabited` is `pure default`, so a panic is **state-preserving by construction of the instance**. That
+killed the round's largest cost item -- which would otherwise have needed a **fourth** gate field, positive
+existence of two `ConstantInfo` shapes that nothing in the tree proves -- **for about thirteen lines.**
+
+**Eleventh relay error, and the most expensive of them: it inflated the price of an entire front.** The others
+cost a round a wrong prediction or half a budget; this one told two rounds that a whole class of branch was
+unanalysable, and one of them built a five-field loop invariant partly to avoid it.
+
+Two aggravating details worth keeping:
+
+- **The correction was already in the tree, one file away** (`NestedRunInvariant.lean`:303 had measured the
+  truth), and `NIndices.lean`:61 states the false version in prose. So this is *also* an instance of "the answer
+  exists and nobody looked" -- the eleventh this session.
+- **It was in the class of claim I had already made a rule about.** "Body-less opaque" is a claim about a
+  *definition's form*, checkable by one `#print`. My rules cover counts and comparatives; **form claims belong in
+  the same family** -- anything of the shape *"X is an opaque / a `partial` / an `@[extern]` / has no body"* is
+  one command away and must not be relayed.
+
+**Rule: before relaying any claim about a definition's form, run `#print` on it.** And when a round tells me a
+construct is unanalysable, that is exactly the claim to check myself, because it is the kind that silently
+multiplies cost estimates.
+
+## Fire a cheap falsifier before pricing the prediction it would kill (2026-09-05)
+
+From the same round: *"my §1 wrote P1's falsifier cold, it was the truth, and I still recorded P1 at
+medium-high confidence -- a falsifier testable by one `rfl` should be fired before the prediction is priced."*
+
+Adopted. The point is not that the prediction was wrong; it is that **the confidence is what gets budgeted**, so
+a falsifier that costs one `rfl` should be run *before* the number that will be used to schedule work.
+
+## `scripts/exists.lean` reads the olean, not the source (2026-09-05)
+
+*"Run after `lake build`, never after `lake env lean`, or it reports your own file's previous state -- it told me
+my finished theorem was a hole."* I use this instrument constantly and had never written that down. It also
+explains a confusing episode of mine earlier today, when the MCP evaluator called three existing constants
+unknown while `exists.lean` resolved them: both read compiled state, and compiled state can lag the file.

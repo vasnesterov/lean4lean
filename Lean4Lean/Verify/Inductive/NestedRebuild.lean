@@ -359,7 +359,15 @@ theorem mkAuxRecNameMap_spec {env' : Environment} {mainType : InductiveType}
   exact ⟨fun p hp => (hr p hp).imp fun _ h => h, fun n hn => hd n (by simpa using hn)⟩
 
 /-- Both conclusions of `mkAuxRecNameMap_spec` at `default`, which is what the two panic branches
-return — so the spec needs no side condition at the call site. -/
+return — so the spec needs no side condition at the call site.
+
+*Correction, 2026-09-05.*  "Which is what the two panic branches return" was an assertion relating two
+**different terms**: a panic branch returns `panicCore …`, and no lemma here connected that to
+`default`.  It is now a theorem — `Lean4Lean.panic_eq_default` in `Verify/Inductive/RebuildFinish.lean`,
+by `rfl`, because `panicCore` is an `@[extern] def` with body `default` rather than a body-less
+`opaque`.  With it, `mkAuxRecNameMap_spec`'s two hypotheses are not merely dischargeable at the call
+site but **unnecessary**: `Lean4Lean.mkAuxRecNameMap_spec'` (arity 2) is the unconditional form, and it
+is what the block assembly uses. -/
 theorem mkAuxRecNameMap_panic {types : List InductiveType} :
     (∀ p ∈ (default : List Name × List (Name × Name)).2, ∃ j, p.2 = auxRecName types j) ∧
       (∀ n ∈ (default : List Name × List (Name × Name)).1,
@@ -404,7 +412,13 @@ are graded, and they are *not* equally hard:
 
 What is proved below is the **reduction**: given the gate, every name the nested rebuild's four `add`
 sites write is in `indBudget types`.  That is residual B minus the monadic plumbing (§3's calculus
-applied to the actual `do`-block, plus `run_prefix` to move from `res.types` to `types`). -/
+applied to the actual `do`-block, plus `run_prefix` to move from `res.types` to `types`).
+
+*Update, 2026-09-05.*  That plumbing is done, in `Verify/Inductive/RebuildFinish.lean`: `run_prefix`
+becomes `ElimNestedInductive.run_mem`, §3's calculus gains seven rules it lacked (a `forIn` rule, a
+`mapM` rule, a `panic` rule, and — the one that mattered — `SWF.checkName_bind`, because `checkName'`
+is stated at an association the `do`-elaborator does not produce and `Except`'s bind is not
+associative definitionally), and residual B lands as `addInductive_delta_nested`. -/
 
 /-- **The barrier.**  Everything residual B needs from `AddInductive.run` beyond `WF_run`. -/
 structure RunFreshGate : Prop where
