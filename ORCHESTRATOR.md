@@ -3368,3 +3368,39 @@ distribution is the lesson: single-purpose commands have been reliable all sessi
 heredocs plus a build plus a commit in one invocation -- are where every one of these happened. **Split them.**
 The batching saves seconds; one lost commit or one inverted verdict costs far more, and the inverted verdict
 already made me report a green build as failed.
+
+## Comparative claims in docstrings need their arities checked (2026-09-05)
+
+My rule was **prose that counts is prose that rots** -- cross-check any count in a docstring against the
+declaration it describes. The `PiInv` round shows the rule is too narrow. `Injectivity.lean`:1014 says
+`RigidPiUniq` **is** `PiInv`, *"neither weaker nor stronger"*, and I quoted that flat into a brief. Measured:
+
+- `VEnv.PiInv.rigidPiUniq` -- **arity 4**, needs only `VEnv.WF`
+- `VEnv.piInv_of_rigidPiUniq` -- **arity 5**, carries `hsu : env.SortUniq U`
+- `VEnv.rigidPiUniq_iff_piInv` -- arity 4, same extra hypothesis
+
+So it is an equivalence **under `SortUniq`**, and `PiInv` is the **strong** end. Ninth relay error of mine.
+
+**Widened rule: any COMPARATIVE claim in a docstring -- weaker, stronger, equivalent, "on the nose", "neither
+weaker nor stronger" -- needs the arities of both directions checked before it enters a brief.** An equivalence
+under a hypothesis reads *identically* to an unconditional one in prose, and the only visible difference is an
+arity. This is cheap: two `exists.lean` queries.
+
+The family of errors is now: counts (five instances), and comparatives (one). Both are claims that **stop being
+true silently** as the declarations they describe acquire hypotheses -- unlike a name or a statement, which
+breaks the build when it goes wrong.
+
+## The cheapest unexplored witness, skipped for unmeasured reasons (2026-09-05)
+
+The `PiInv` round's own last gap: **"I did not attempt `PiInv ∅ U`. `∅` *is* `VEnv.WF`, so a refutation there
+would settle the question outright -- that is the cheapest unexplored witness left on this row, and my reason
+for skipping it is unmeasured."**
+
+That is exactly the right thing to write down, and it is the next round's first action. Note the asymmetry
+which makes it worth doing even though a refutation is unlikely: at `∅` there are no rules, so a refutation
+would collapse the whole corner, while a *proof* at `∅` settles nothing general. **A one-sided-but-cheap probe
+is worth running precisely when the cheap side is the catastrophic one.**
+
+More generally: when a round reports having skipped something for reasons it cannot state, that item goes to the
+top of the next brief. Three rounds this week named such an item, and two of the three turned out to reorder the
+work (residual B's satisfiability, and the `nindices` invariant being a falsity barrier rather than machinery).
