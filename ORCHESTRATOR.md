@@ -3404,3 +3404,47 @@ is worth running precisely when the cheap side is the catastrophic one.**
 More generally: when a round reports having skipped something for reasons it cannot state, that item goes to the
 top of the next brief. Three rounds this week named such an item, and two of the three turned out to reorder the
 work (residual B's satisfiability, and the `nindices` invariant being a falsity barrier rather than machinery).
+
+## Handing over my own reasoning as a lead worked -- and both halves of the verdict were useful (2026-09-05)
+
+I gave a round my own argument for why the last refutation route might be vacuous, and I marked the hole in it:
+concluding *"the common type is a sort"* might need the machinery under investigation, i.e. be circular. Verdict:
+**not circular, and not needed.** `VEnv.HasType.forallE_inv` recovers the typings from the Π's own typing at
+`Ordered` strength, so the sort-hood step is never required -- only the Π's *second* typing, whose real cost is a
+**level comparison**, and whose weakest node is `PropAgreeOn`, not `SortUniq`.
+
+**Both halves earned their place.** Marking the hole is why the round checked circularity first instead of
+inheriting my confidence; and the argument being *unnecessary* rather than *wrong* is only visible because it was
+stated precisely enough to be bypassed. **Rule: hand over my own reasoning as a lead with its weakest step named,
+never as a fact.** Nine times this week I relayed someone else's characterisation as fact; doing it with my own
+would be the same error on a shorter chain and harder to catch.
+
+## Fourth refinement: "cheapest witness" needs a monotonicity check first (2026-09-05)
+
+I argued a refutation at `∅` would collapse the corner while a proof there generalises nothing, and briefed on
+that asymmetry. Both halves are now machine-checked. **What I missed is `∅ ≤ env`:** monotonicity makes an
+`∅`-witness a witness *everywhere*, so the very strength that makes refutation decisive is exactly why it is
+unlikely to exist. The probe was still worth running; my reason for running it was half wrong.
+
+So the rule's history is now four refinements, every one from a round that ran it as written and had it miss:
+numerals at extremes → arguments at extremes, with a side condition's *permitted* states counting → CPS
+continuations → **and check monotonicity before calling a witness cheap.**
+
+## An instrument blind spot I own: strengthening by weakening a hypothesis (2026-09-05)
+
+The round's words: *"a hypothesis-relative negative can be strengthened by **weakening its hypothesis**, and no
+instrument in the tree sees it -- census, cone walker and guard 3 are all blind."*
+
+That is exactly what it did: the previous round killed a route under `SortUniq`; this one killed the same route
+under `PropAgreeOn`, which is weaker. **Real progress, invisible to every measurement I have.** The hole census
+counts holes, the cone walker counts constants, guard 3 counts implementation gaps -- none of them can see that a
+negative result now holds under a cheaper assumption.
+
+I am not going to script this; the two attempts to script "what does this lemma buy" ended in the same place.
+**The tractable version is a discipline: when a round kills a route, its report must name the hypothesis the kill
+needs, so the next round can try to weaken it.** That belongs in the report-back template, and it is what turned
+this round from a repeat into an advance.
+
+Also adopted: **frame a probe by conclusion shape, not by name.** Both probes here were named after predicates,
+and the theorem that settled them is named after neither -- its conclusion is `False` and its content is "a Π is
+not a proof". My search rule already says conclusion-head-not-name; the *brief-writing* rule did not.
