@@ -3656,3 +3656,40 @@ Rule history, six refinements, every one from a round that ran it as written and
 extremes → arguments at extremes, with a side condition's *permitted* states counting → CPS continuation
 arguments → check monotonicity before calling a witness cheap → check whether a cheap extreme is a normal form →
 **and check that a predicted circularity actually attaches to this extreme.**
+
+## In a corner with siblings, build the family table FIRST (2026-09-05)
+
+The round's own gap note, and it is an ordering correction to my checklist:
+
+> **Rule 2 and rule 3 competed for the first slot and rule 3 should have won.** I spent the first third of the
+> round on quantifier extremes hunting a counterexample; all three results came from one grep — the
+> hypothesis-shape *family table* of who carries `OnCtx`. In a corner with six sibling statements, the family
+> table prices every route before you pick one.
+
+It found **six** statements in one family, and that **the four `Theory/`-side ones keep both context guards and
+are `iff` with their targets while only the two `Verify/`-side ones gave a guard away** — so the statement my
+brief handed it as "the reduced target" was the *lossiest* member of its own family.
+
+**So the checklist order is now: (1) family table by hypothesis shape, (2) extremes, (3) hypothesis-diff.**
+Extremes are for a single statement; a family table is for a corner, and this repo's open holes are all corners.
+It also explains two earlier rounds retroactively: the ones that "gave `OnCtx` away" did so because nobody had
+tabulated who carries what.
+
+## Two instrument claims adjudicated, one refuted (2026-09-05)
+
+A round reported three instrument problems. I checked two:
+
+- **"`lake build` does not re-run the guards" — refuted.** A bare `lake build` emitted **all three** guard lines.
+  The sharper true statement, which is worth keeping: guard 2 audits `kernel_sound`'s **cone**, so a hole in a
+  **leaf** module is invisible to it **by design**. That is not staleness, it is scope — and it is exactly why the
+  census exists alongside the guards. My habit of running `lake env lean Lean4Lean/Verify/Guard.lean` explicitly
+  stays, because it is unambiguous, not because the build is untrustworthy.
+- **"`sorry-census.lean` cannot see an orphan module" — confirmed.** It carries **two fixed-root imports and no
+  ORPHAN section**; `sorry-census-all.lean` has one import and reaches the orphans. **I have used the `-all`
+  variant throughout, so every census figure I have reported stands** — but the trap is real for anyone reaching
+  for the shorter name, and "census unchanged" from the fixed-import script after adding a leaf measures nothing.
+
+Worth noting the shape: a round handed me three claims about my own tooling, and the right response was to test
+them rather than adopt or dismiss the set. One was wrong, one was right and already handled, one is unchecked and
+labelled so. **Adjudicating individually is the same lesson as "the unit of trust is the claim, not the report"**
+— which I recorded yesterday about a round that was right in one paragraph and wrong in the next.
