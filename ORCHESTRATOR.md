@@ -3448,3 +3448,41 @@ this round from a repeat into an advance.
 Also adopted: **frame a probe by conclusion shape, not by name.** Both probes here were named after predicates,
 and the theorem that settled them is named after neither -- its conclusion is `False` and its content is "a Π is
 not a proof". My search rule already says conclusion-head-not-name; the *brief-writing* rule did not.
+
+## Definitional aliases defeat conclusion-head search (2026-09-05)
+
+This is a hole in the instrument I lean on hardest, so it goes near the top of my own checklist.
+
+`scripts/shape.lean` matches **head constants**. The `PropAtWF` round found **three names for one statement** --
+`VEnv.PropAgreeOn` (`SortInvIndep`), `VEnv.PropAgreeUp` (`PropAgreeLift`), `VEnv.PropTypeAgreeOnCtx`
+(`SetModel/PropSplitAudit`) -- *literally equal by `rfl`*, not merely `Iff.rfl`. **I verified the signature: all
+three arity 2, cone 578, three different modules.** Only a query on the third finds the `VEnv.WF`-only derivation
+that exists.
+
+So a shape search on any one alias **silently misses** everything stated with the other two, and the round's own
+prediction that nothing concluded the target from `VEnv.WF` was wrong for exactly that reason. This plausibly
+explains several of the ten already-exists findings this session -- including one where a lemma was called "the
+gap I could not close" while a hole-free closer sat one import away.
+
+**Rule: before any absence claim, check for aliases. The signature is identical arity plus identical cone in
+different modules. Re-run the shape query on each alias found.** Cheap: one `exists.lean` call per candidate
+name, and the cones make the match obvious.
+
+Note what this does *not* mean: the instrument is not unsound, as it was when unqualified names returned false
+NOT FOUNDs (fixed earlier today). It answers exactly what it is asked; the problem is that one mathematical
+statement can be three questions.
+
+## Transporting an existing argument beats a fresh attempt -- twice this week (2026-09-05)
+
+`no_wf_hypothesis_avoids_empty_propAgreeOn` is `AppUniqWF.no_wf_hypothesis_avoids_empty` **applied where nobody
+had run it**, and it settles the round's central question in one move: `∅` satisfies `VEnv.WF`, `PropAgreeOn` is
+**antitone** in the environment, therefore every `WF`-consequence holds at `∅` and **no `WF`-implied hypothesis
+can lift the goal above the empty-environment clause.**
+
+The other instance: a round earlier this week found both "missing" dictionaries for its target already existed,
+and its hard clause was one line.
+
+**So a shape prior worth adding to briefs: is there an argument elsewhere in the tree of the same form as the
+one I am about to construct?** Not "does my target exist" -- that is already question one -- but "does my
+*method* exist, aimed at something else". Antitonicity-plus-a-bottom-element is a pattern, not a fact, and
+patterns transport.
