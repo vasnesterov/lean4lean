@@ -169,21 +169,40 @@ theorem IsDefEqU.trans (henv : VEnv.WF env) (hΓ : OnCtx Γ (env.IsType U))
     (h1 : env.IsDefEqU U Γ e₁ e₂) (h2 : env.IsDefEqU U Γ e₂ e₃) :
     env.IsDefEqU U Γ e₁ e₃ := h1.imp fun _ h1 => let ⟨_, h2⟩ := h2; h1.trans_l henv hΓ h2
 
--- OPEN.  Five files attack this: `Theory/Typing/Strengthen.lean` (the statement, its
--- equivalents, and the case analysis of the induction), `StrengthenCanon.lean`,
--- `StrengthenVerdict.lean`, `StrengthenWitness.lean`, `StrengthenAxiom.lean` (equivalences to
--- one-entry, canonical-entry and axiom-conservativity forms), and `StrengthenNarrow.lean`.
--- The current sharpest statement of what is left is
--- `VEnv.StrengtheningTarget.iff_piDescend_narrow`: this hole is **exactly**
--- `VEnv.PiDescend` (shape descent, sorry-free reduction) together with
--- `VEnv.TransStrengtheningNarrow` — the `trans` case restricted to a middle term that
--- genuinely mentions one of the stripped variables (`¬ b.Skips n k`).  That restriction is
--- what makes the reduction non-trivial: without it the residual re-instantiates at the whole
--- statement.  `scripts/weakn-gate-split.lean` measures the split of this hole's 296 users
--- (at `d67375b`): 43 need only the typing half, 253 need the narrow residual; with
--- `hasType_app_bvar0` also treated as a typing gate, 46 / 250.  The `18 of 131` this comment
--- used to carry was measured on a graph that dropped internal names while building it — see
--- `docs/handoff-weakn.md` §5.3.  Not circular with
+-- OPEN.  **Sixteen** files attack this
+-- (`grep -rl "StrengtheningTarget\|Strengthening1" Lean4Lean/Theory/Typing/*.lean | wc -l`, 16 at
+-- `7d8af91`); `Theory/Typing/Strengthen.lean` has the statement, its equivalents and the case
+-- analysis, with `StrengthenCanon`/`Verdict`/`Witness`/`Axiom`/`Narrow` the one-entry,
+-- canonical-entry and axiom-conservativity forms.  *This comment said "Five files" and then
+-- listed six; corrected 2026-09-05.*
+--
+-- The sharpest statements are, narrowest first — **this list was three generations stale until
+-- 2026-09-05, naming only the third entry**:
+--   `VEnv.StrengtheningCanonUninhabInner.iff_target` (`WeakNAttack.lean` §5): adding
+--     `∀ (α : Sort u), α` as the **innermost** hypothesis of a well-formed context, at a level
+--     where it has no inhabitant, is conservative for conversion.  **No position, entry or
+--     prefix-insertion data is quantified** — the `k` that the rest of this family carries is
+--     provably redundant.
+--   `VEnv.StrengtheningTarget.iff_inner` (same file): the same, split into the typing half
+--     (`TypingStrengthening1Inner`, which is **`sorryAx`-free**, cone 3363) and the `trans`
+--     residual (`TransStrengtheningNarrowInner`), both at the innermost position.
+--   `strengtheningTarget_iff_piDescend_spine` (`StrengthenAudit.lean` §2) and
+--     `PiDescend ↔ PiCodLiftNeutral ∧ SortConvStrengthening` (`PiDescendFstCod.lean` §6): the
+--     same two conjuncts narrowed by the shape of the endpoints' type.
+--   `VEnv.StrengtheningTarget.iff_piDescend_narrow` (`StrengthenNarrow.lean`:305): the `trans`
+--     case restricted to a middle term genuinely mentioning a stripped variable
+--     (`¬ b.Skips n k`) — without that restriction the residual re-instantiates at the whole
+--     statement.  **Its "exactly" is exact only modulo two holes**: measured cone 3662, carrying
+--     `forallE_inv_stratified` and `WF.rigidShapeUniqNS`.
+--
+-- `scripts/weakn-gate-split.lean` at `7d8af91`: **311** transitive users over
+-- `Experimental.ConeJoin`'s closure, **51** needing only the typing half, 260 the narrow
+-- residual.  `scripts/users.lean` over the whole build reports **13 direct / 417 transitive
+-- across 73 modules**; the two differ because the populations do, which is how this hole
+-- accumulated six different user counts.  *The 296/43/253 here (at `d67375b`), and the
+-- variant 46/250 with `hasType_app_bvar0` treated as a typing gate, are superseded; the
+-- `18 of 131` before that was measured on a graph that dropped internal names while building
+-- it — see `docs/handoff-weakn.md` §5.3.*  Not circular with
 -- `WF.rigidShapeUniqNS` / `IsDefEqU.forallE_inv_stratified` — see `StrengthenNarrow.lean`'s
 -- module docstring for the measured cone table, and `docs/handoff-weakn.md` for the routes
 -- already ruled out (do not reattempt them).
