@@ -3486,3 +3486,47 @@ and its hard clause was one line.
 one I am about to construct?** Not "does my target exist" -- that is already question one -- but "does my
 *method* exist, aimed at something else". Antitonicity-plus-a-bottom-element is a pattern, not a fact, and
 patterns transport.
+
+## A live stream's in-flight file raises the census -- tell rounds that (2026-09-05)
+
+The census read **14**, not 13. I verified it: the extra hole is `Lean4Lean.addInductive_delta_nested` in
+`Verify/Inductive/RebuildFinish.lean`, which is the **untracked, still-running** residual-B round's own file. A
+work-in-progress `sorry`, not a regression.
+
+The `PropEmpty` round handled it exactly right -- it reported 14, attributed the hole to a file it did not own,
+and noted its own module appears in no census row. But my round-close template asks rounds to confirm
+"census **13**", which invites a round to either misreport or raise a false alarm about work it cannot see.
+
+**Fix in the template: "census should read 13; if it reads higher, identify which module holds the extra hole
+and whether it is yours. Another stream's in-flight `sorry` is expected and is not a regression."** That is
+true whenever I write it, unlike a fixed number.
+
+Related, and the same class as *never tell a round it is alone*: **every absolute figure I hand a round has a
+half-life.** Job counts, census, orphan counts, populations — all move under concurrency. State them as "should
+read X; attribute any difference" rather than as facts.
+
+## Fifth refinement: a cheap extreme may be a normal form, not a probe (2026-09-05)
+
+From the round that had it point the wrong way: *"I wrote `Γ = []` down as an extreme to probe; **it is a normal
+form**. That miss is the round's result."* It proved `PropAgreeOn env U ↔ PropAgreeNil env U` over any `Ordered
+env` — the context quantifier and the `OnCtx` guard are **eliminable**, because the conclusion is invariant
+under Π-abstraction, and `SortUniq` provably does **not** admit the same reduction.
+
+**Adopted: when an extreme is cheap, ask whether it is also general — what is the conclusion invariant under? A
+`∀ x` whose cheapest instance implies the rest is a REDUCTION, not a probe.**
+
+The rule's five refinements, each from a round that ran it as written and had it miss: numerals at extremes →
+arguments at extremes, with a side condition's *permitted* states counting → CPS continuation arguments → check
+monotonicity before calling a witness cheap → **check whether the cheap instance is a normal form**.
+
+## Absence needs three searches, not one (2026-09-05)
+
+Accumulated this week, and now explicit:
+
+1. **Conclusion-head search** (`shape.lean`) — but it is defeated by **definitional aliases**: three names for one
+   statement, and the head I picked **missed all 25 hits** on the other two.
+2. **Hypothesis-shape search** — new. `ls`-irrelevance at `U = 0` existed **three times**, and grepping the
+   *hypothesis* shape (`WF 0`) found them where a name search would not.
+3. **The hole audit** (`exists.lean`) — because a producer can exist and be **useless**: two producers of this
+   round's target are unconditional *in form*, and what disqualifies them is that their cones reach the very hole
+   under study. *"A conclusion-shape search is not an absence instrument alone."*
