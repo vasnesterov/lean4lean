@@ -3294,3 +3294,39 @@ of them.
 **So the brief rule is: when a handoff says "with X, Y disappears", the brief must say "a handoff claims X
 removes Y -- verify by counting Y's uses in the consumer before building X."** Never relay the promise flat.
 That sentence would have saved a third of three rounds this week.
+
+
+## Quoting protects me from mischaracterising a file, not from the file being wrong (2026-09-05)
+
+My rule after eight relayed-prose errors was: **quote the file, do not relay a report's characterisation of
+it.** I followed it in the injectivity-census brief -- quoted `Injectivity.lean`:208 verbatim, *"`PiInv`
+together with three constant-spine facts"* -- and the round's first prediction was wrong **because that line is
+wrong**. The family has **five** members; :208 **silently drops `RigidSortPiDisj`**. `RigidNodeCircle.lean`:12
+and the theorem say five, and `InjSpineTransport.lean`:16 refers to *nine* branches of the assembling theorem.
+
+So the rule needs a second half. Quotation defends against *my* paraphrase, not against the source. **When a
+docstring states a count -- how many members, branches, holes, users, conjuncts -- cross-check the count
+against the declaration it describes before putting it in a brief.** A count is the cheapest kind of claim to
+verify and the easiest to inherit wrong, and this repo has now produced: a family of five described as three, a
+census of 141 orphans that measured 55, a "four docstrings" that was two, a nine-hole set attributed to the
+wrong theorem, and a promise of three deletions that delivered one.
+
+**The pattern across all five: prose that counts is prose that rots.** Names and statements survive edits;
+counts silently stop matching what they describe. Worth a standing habit -- when I write a count into a
+docstring or brief, write the command that produced it next to it.
+
+## What the census bought, and why "two" is the useful answer
+
+Four rounds attacked `rigidShapeUniqNS` as one thing and bounced. The census answers a question none of them
+posed: **four of five members fall to a single `Ordered` counterexample; `PiInv` is alone, and structurally so.**
+Refuting a positive member needs a ¬conversion fact, and rules relate closed terms so the obvious route is
+vacuous. Rows 1 and the rest are **not co-witnessable** -- refuting row 1 needs member 2 to *hold*, and the
+census witness refutes member 2.
+
+**And the assembly is not the problem**: the needed direction takes `Ordered` + `ProofTransport` + the five
+members, with no `VEnv.WF` and no simultaneous induction, so **per-row answers compose**. That is the licence to
+attack `PiInv` alone, which is what the next round on this front should do.
+
+The round's own limit is sharper than its headline and I am keeping it: **"the axes disagree and neither
+supersedes the other"** -- two problems on the environment axis, one on the `VEnv.WF`-base axis, because over
+that base the existing prices already make every subfamily equivalent to the whole.
