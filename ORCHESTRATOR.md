@@ -3266,3 +3266,31 @@ Two smaller rules from the same round, both cheap and both mine to apply:
 - **Never write an arity from reading a statement.** Four of five it wrote that way were wrong, because
   *section `variable`/`include` binders are invisible at the declaration*. `exists.lean` prints the real arity;
   reading the source does not. I have made this error myself with namespaces; it is the same class.
+
+
+## The instrument gap that has cost the most this week (2026-09-05)
+
+From the scan-residual round, and it is exactly right:
+
+> No script catches a false **docstring claim about what a lemma will buy** -- only re-reading the consumer and
+> counting hypothesis uses did.
+
+My instruments cover: existence, arity, cone, hole set (`exists.lean`); conclusion shape (`shape.lean`);
+citability (`can-cite.py`); layering (`layer-check.py`). **None of them answers "does this lemma actually
+discharge what its docstring promises."** And that is the claim that has cost the most this week:
+
+- Two rounds declined a target on a sentence pricing its hard clause as expensive. The clause was **one line**
+  and both "missing" dictionaries **already existed**.
+- A handoff promised item 1 would remove a side condition from **three** sections. It removes it from **one**.
+  I relayed that promise as fact -- my eighth relayed-prose error of the day.
+- An itemisation graded its load-bearing item as machinery and wrote "nothing in it looks false". It was the
+  only barrier between a residual and outright falsity.
+
+**There is no script for this, and I should stop looking for one.** The method is manual and cheap: **open the
+consumer, count the uses of the hypothesis, and check each one is covered by the proposed lemma.** Three
+different rounds found three different false promises that way, and no measurement I own would have caught any
+of them.
+
+**So the brief rule is: when a handoff says "with X, Y disappears", the brief must say "a handoff claims X
+removes Y -- verify by counting Y's uses in the consumer before building X."** Never relay the promise flat.
+That sentence would have saved a third of three rounds this week.

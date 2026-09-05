@@ -439,6 +439,12 @@ in the tree, and its arms are still the live check that `addDecl` routes through
 that the checker rejects an annotated non-positive field.
 
 What §6 changes is *which* facts are load-bearing, so this section arms a tripwire on the new one.
+
+**Still armed, checked 2026-09-05.**  `Verify/Inductive/ScanResidual.lean` proves §9(d)'s
+σ-composition and removes §4's side condition, and asked whether that made this tripwire vacuous.
+It does **not**: `scanShapeNoLet` survives in §5 and §6 (see the correction in §9(d)), so both arms
+below still guard a live debt.  `ScanResidual` §6 arms a *second*, independent tripwire on the β
+residual rather than replacing this one.
 `recArgOf_binders_noBlock_noLen` no longer rests on an unproved behavioural claim in the `.mdata`
 direction — `whnf_mdata` and `whnf_forallE` are theorems read off `whnf'`'s source, so a change there
 breaks the **build**, not the statement.  Its one remaining behavioural debt is `scanShapeNoLet`: the
@@ -528,14 +534,47 @@ direction they did not consider.
 **(d) What is left, stated exactly.**  One de Bruijn σ-composition at **non-adjacent** indices,
 `(b[fvar v]_{d+1})[v'[fvar v]_d]_0 = (b[v']_0)[fvar v]_d`.  The tree has only the adjacent form
 (`instantiate1'_instantiate1'`, `Verify/Expr.lean`:1116).  With it, `ScanCert.unsubst_fvar` (§4) loses
-its side condition, `scanShapeNoLet` disappears from §5 and §6, and `hlen`'s only survivor is `hβ`.
-Nothing about `whnf`'s ζ step as an `M`-value is needed — the certificate absorbs it.
+its side condition.
+
+**CORRECTED 2026-09-05** (`Verify/Inductive/ScanResidual.lean`, `docs/handoff-scanresidual.md`).  The
+σ-composition is now **proved** (`Lean.Expr.instantiate1'_instantiate1'_closed`, arity 8, cone 1628,
+hole-free) and §4 is superseded by the side-condition-free `ScanCert.unsubst_fvar_all` (arity 8,
+cone 1688).  But the two further claims in the paragraph above were **wrong**:
+
+* `scanShapeNoLet` does **not** disappear from §5 or §6.  §5 spends `hs` twice — as §4's side
+  condition, and to kill its own `.letE` **head** case.  Only the first use is removed.
+* "Nothing about `whnf`'s ζ step as an `M`-value is needed" is false: §5's `.letE` head case is
+  exactly that step, and it is *not* an `M Expr` equality the way `whnf_mdata` is.  `whnf'`'s
+  `.mdata` arm returns before the cache; `.letE` falls through to `whnfCore'`, whose `.letE` arm is
+  `save <|← whnfCore (body.instantiate1 val)` (`TypeChecker.lean`:416-417) and writes the cache under
+  the **pre-ζ** key.  And even granting the equality, §5's induction would have **no measure** — the
+  equality is at the same `inductiveFuel`, and `body.instantiate1' val` is not a structural subterm
+  of `.letE _ _ val body _` (nor smaller: `let x := big; x x` ζ-reduces to `big big`).  The `.mdata`
+  case escapes only because `e` *is* a subterm of `.mdata m e`.
+
+So §8's tripwire stays armed (see §8) and the `.letE` residual is now: a termination argument for the
+head-ζ chain, or the `whnf'.WF` bridge.
 
 **(e) `hβ` is a second, independent residual**, and its shape is β not ζ: `VExpr.betaHead` can expose
 binders that `S` itself does not have (`recArgOf`'s stage 2), and the dictionary for it —
 `TrExprS.inst`, whose `VExpr` side *is* `e'.inst e₀'` — exists.  What is missing is the same kind of
 `Expr`-side step, at `.app (.lam ..) a`.  `PosIndex` §4.1's docstring says this branch "collapses"
 under `hlen`; §6 makes visible that `hlen` was doing that work, which is why deleting it leaves `hβ`.
+
+**MEASURED 2026-09-05** (`Verify/Inductive/ScanResidual.lean` §4-§6).  Three things this paragraph
+left open are now settled.  (i) `hβ` is **not derivable** — `hβ_not_derivable` (arity 16, cone 7508)
+exhibits a configuration satisfying every other hypothesis of §6 at which `hβ`'s conclusion is false
+and §6's conclusion is true, so it must be *proved*, not discharged.  (ii) The `Expr` shape it
+excludes **is reachable**: `Lean4Lean.addDecl` accepts a field type that is a head β-redex
+contracting to a positive pi, and rejects its non-positive twin (executable tripwire, `ScanResidual`
+§6).  `scanShapeNoLet` is `true` on both, so the two residuals really are independent.  (iii) The
+price is not the β step but `TrExprS.inst`'s hypothesis
+`t₀ : env.HasType Us.length Δ.toCtx e₀' A₀`, which the ζ twin `TrExprS.inst_let` does not have — a β
+clause imports **typing** into §3, which is currently typing-free.  The `VExpr` half is done
+(`VExpr.noConsts_betaHead`, arity 3, cone 488), and it weakens `hβ` to
+`S.piArity = 0 → (r.binders = [] ∨ hasIndOcc stats.indConsts t = false)`
+(`recArgOf_binders_noBlock_noLen_beta`, arity 25, cone 9010) — strictly weaker, but not weak enough to
+cover the reachable witness, where `hasIndOcc` is `true`.
 
 **(f) No `decide` regression.**  `Lean.Expr.eqv` never appears: §7's `hasIndOcc_bvar` goes through
 `hasIndOcc_eq` + `anySub_eq` + `rfl` at a `.bvar` (where the predicate's `_ => false` arm fires without
