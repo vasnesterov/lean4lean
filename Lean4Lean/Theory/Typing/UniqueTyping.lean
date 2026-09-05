@@ -178,6 +178,16 @@ theorem IsDefEqU.trans (henv : VEnv.WF env) (hΓ : OnCtx Γ (env.IsType U))
 --
 -- The sharpest statements are, narrowest first — **this list was three generations stale until
 -- 2026-09-05, naming only the third entry**:
+--   `VEnv.StrengtheningCanon0.iff_target` (`TransNarrow.lean` §4): adding `∀ (α : Sort u), α` to
+--     the **EMPTY** context is conservative for conversion of **closed** terms.  No position, no
+--     prefix, and no block size quantified.  The prefix below the entry is free because
+--     `VEnv.IsDefEqU.exchangeClosed` (same file, **`sorryAx`-FREE**, cone 3232) is twelve lines of
+--     `weakN` plus one `instN`; and the `∀ n` is surplus because
+--     `Strengthening.of_typing_narrow`'s induction is on the *derivation* and no case touches `n`.
+--     *Added 2026-09-05, within an hour of the rewrite above — which is this comment's own
+--     staleness hazard demonstrated on the comment documenting it.*  Caveat: this entry and the
+--     next are equivalent `Iff`s that do **not** compose, because `of_typing_narrowBlock`'s
+--     induction enlarges the context at `lamDF`.
 --   `VEnv.StrengtheningCanonUninhabInner.iff_target` (`WeakNAttack.lean` §5): adding
 --     `∀ (α : Sort u), α` as the **innermost** hypothesis of a well-formed context, at a level
 --     where it has no inhabitant, is conservative for conversion.  **No position, entry or
@@ -185,7 +195,11 @@ theorem IsDefEqU.trans (henv : VEnv.WF env) (hΓ : OnCtx Γ (env.IsType U))
 --     provably redundant.
 --   `VEnv.StrengtheningTarget.iff_inner` (same file): the same, split into the typing half
 --     (`TypingStrengthening1Inner`, which is **`sorryAx`-free**, cone 3363) and the `trans`
---     residual (`TransStrengtheningNarrowInner`), both at the innermost position.
+--     residual (`TransStrengtheningNarrowInner`, arity 4, cone 3496 — *not* the arity 9 / cone 3486
+--     of `IsDefEqU.lamDF_inv`, a row I misquoted from that file's table on 2026-09-05), both at the
+--     innermost position; the residual's own `∀ n` is surplus (`TransStrengtheningNarrowInner1`).
+--     **Do not route through `IsDefEq.skips` two declarations below**: its statement is exactly the
+--     block-size case, and its proof calls this very hole.
 --   `strengtheningTarget_iff_piDescend_spine` (`StrengthenAudit.lean` §2) and
 --     `PiDescend ↔ PiCodLiftNeutral ∧ SortConvStrengthening` (`PiDescendFstCod.lean` §6): the
 --     same two conjuncts narrowed by the shape of the endpoints' type.
