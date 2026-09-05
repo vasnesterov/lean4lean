@@ -507,7 +507,20 @@ declares, auxiliary recursors `I.rec_k` included (`TrIndDeclN.mem_indDeclNamesN`
 
 Note what is *not* in this gate: the *name* condition on the block.  That is already a theorem
 (`addInductive_WF_noNestedDeclNames`, §1 of `RestoreFaithful.lean`), and the proof below is where
-the two meet. -/
+the two meet.
+
+**PROVED, 2026-09-05 -- and it cannot be discharged here.**  `Lean4Lean.inductiveMapGate`
+(`Verify/Inductive/RebuildFinish.lean`:344) is a **closed term of arity 0**, hole-free, so this
+`Prop` is a theorem and `VEnv.NoNestedN` holds on **all seven** `addDecl` branches:
+`VEnv.NoNestedN.of_addDecl'` (same file, arity 9) is the unconditional statement, and **that is the
+one to cite** -- the gate-parametrised names below are not waiting on anything.
+
+Why the `Gi` binders stay: the proof chain runs *this file* -> `DeclareStages`/`NestedRunInvariant`
+-> `InductMap` -> `NIndices` -> `NestedRebuild` -> `RebuildFinish`, so the proof lives **strictly
+above** this definition and importing it here would be a cycle.  A handoff estimated the removal at
+"delete four binders, add one import"; that is **not possible**, and the same handoff had already
+given the reason one paragraph earlier for the analogous binder in `InductMap.lean`.  Statement low,
+proof high, consumers cite the primed name -- this is the intended shape, not debt. -/
 def InductiveMapGate : Prop :=
   ∀ {env env' : Environment} {lparams : List Name} {np : Nat} {types : List InductiveType}
     {iu ap : Bool} {fuel : FuelConfig},

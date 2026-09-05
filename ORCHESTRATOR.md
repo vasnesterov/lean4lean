@@ -3580,3 +3580,38 @@ a falsifier that costs one `rfl` should be run *before* the number that will be 
 my finished theorem was a hole."* I use this instrument constantly and had never written that down. It also
 explains a confusing episode of mine earlier today, when the MCP evaluator called three existing constants
 unknown while `exists.lean` resolved them: both read compiled state, and compiled state can lag the file.
+
+## A round's own reasoning refuted its own estimate, one paragraph apart (2026-09-05)
+
+The round that discharged the gate left me what looked like queue work: *"the unprimed names in
+`NoNestedAll.lean` still carry their `Gi` binder … removing them is a ≤15-line mechanical edit: delete four
+binders, add one import."*
+
+I checked the import graph before queueing it. Measured:
+
+    NoNestedAll  -> RestoreFaithful                       (defines InductiveMapGate, :511)
+    InductMap    -> DeclareStages, NestedRunInvariant
+    NIndices     -> InductMap
+    NestedRebuild-> NIndices
+    RebuildFinish-> NestedRebuild, NoNestedAll            (proves inductiveMapGate, :344)
+
+The proof sits **strictly above** the definition, so `NoNestedAll` importing it is a **cycle**. The edit is
+impossible -- and **the same round had already stated exactly this reason, one paragraph earlier, about the
+analogous binder in `InductMap.lean`**: *"`GB`'s proof lives strictly above its statement; deleting the binders
+would mean relocating §4, which is layout with no proof content."* It applied that reasoning to one file and not
+to the other.
+
+**So there is nothing to fix.** Statement low, proof high, consumers cite the unconditional primed name: that is
+the intended shape. I recorded it at the definition site -- including that the "≤15 lines" estimate is not
+possible -- so the next reader does not see four gate binders and infer unfinished work.
+
+**Two lessons, and the second is the one I keep paying for.**
+
+1. **A cost estimate about file structure is a claim about the import graph, and the import graph is one command
+   away.** This joins counts, comparatives, and definition-form claims in the family of things that must be
+   checked rather than relayed. All four are cheap; all four have cost me something this session.
+2. **A round can be right in one paragraph and wrong in the next about the same fact.** I have been treating a
+   round's report as uniformly reliable or not; it is neither. Its *measurements* have been near-perfect all
+   session. Its *inferences about files it does not own* -- exactly what this estimate was -- are where the
+   errors cluster, and that is also where my own relay errors cluster. **The unit of trust is the individual
+   claim, not the report.**
