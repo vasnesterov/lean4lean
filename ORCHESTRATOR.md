@@ -3238,3 +3238,31 @@ uniqueness of heads presupposes a head. Corrected in place with the provenance.
 
 **Item 4 stays open and unreproduced** (`ShapeVar.lean:372`), which is the honest state rather than a
 speculative edit.
+
+
+## Rule 2, generalised by the round that it failed (2026-09-05)
+
+My cheapest-instrument rule said: **instantiate every universally quantified numeral at its extremes.** It
+earned that place by refuting a four-residual list in three lines. The nested-rebuild round reports it was
+**insufficient**, and supplies the generalisation:
+
+> Rule 2 did not find the falsity risk. The dangerous instantiation was not a numeral but `env` at a mis-keyed
+> value. Rule 2 should read: instantiate every universally quantified argument at its extremes, and **for a
+> structure with a `WF` side condition the extremes are the states `WF` fails to forbid**.
+
+**Adopted verbatim.** The numeral version is a special case: the extreme of a `Nat` is 0; the extreme of a
+*structure carrying a side condition* is whatever that condition **permits and you assumed it forbade**. Here
+`SMap.WF` does not forbid a **mis-keyed** entry, and that single permitted state is the only thing standing
+between a residual and outright falsity -- while the source itemisation had graded it as machinery and written
+"nothing in it looks false".
+
+Two smaller rules from the same round, both cheap and both mine to apply:
+
+- **A name-checking obligation needs a name-fresh witness.** Its first satisfiability attempt reused an existing
+  witness whose block name was already declared, so the firing would have been rejected *for an irrelevant
+  reason* -- and, in its words, **"that rejection reads exactly like vacuity"**. A satisfiability check that
+  fails for a reason unrelated to the obligation is worse than no check, because it produces a false negative
+  that looks like a finding.
+- **Never write an arity from reading a statement.** Four of five it wrote that way were wrong, because
+  *section `variable`/`include` binders are invisible at the declaration*. `exists.lean` prints the real arity;
+  reading the source does not. I have made this error myself with namespaces; it is the same class.
